@@ -25,7 +25,7 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Set
 
 from homeassistant.core import HomeAssistant, callback
@@ -1471,6 +1471,60 @@ class StateInferenceEngine:
 
 
 # ============================================================================
+# GUEST-MODE-SPLIT-VISITORS-1 D2: night windows (pure helpers)
+# ============================================================================
+
+
+def guest_night_window(
+    night: date, start_hour: int, end_hour: int, tz: Any,
+) -> tuple[datetime, datetime]:
+    """House sleep window of the night that starts on local date ``night``.
+
+    Wrapping (start > end, e.g. 22 -> 6): [night at start, night+1 at end).
+    Non-wrapping (start <= end, e.g. 1 -> 6): [night+1 at start, night+1 at
+    end). Built from local wall-clock in ``tz``, so the elapsed length is
+    real (DST nights are 7 h or 9 h). start == end gives an empty window.
+    """
+    nxt = night + timedelta(days=1)
+    start_day = night if start_hour > end_hour else nxt
+    start = datetime(start_day.year, start_day.month, start_day.day,
+                     int(start_hour), tzinfo=tz)
+    end = datetime(nxt.year, nxt.month, nxt.day, int(end_hour), tzinfo=tz)
+    return start, end
+
+
+def guest_day_window(
+    night: date, start_hour: int, end_hour: int, day_start_hour: int, tz: Any,
+) -> tuple[datetime, datetime]:
+    """Rev 5 day window Dy(N) of night N (plan §2.1).
+
+    Ends at the start of the night window W(N); starts at local date N at
+    ``day_start_hour`` (clamped 0..23). If that leaves less than 1 h before
+    W(N), the window is the 1 h before W(N). Live 22 -> 6, H 10: N 10:00 ->
+    N 22:00. Non-wrapping 1 -> 6, H 10: N 10:00 -> N+1 01:00. Local wall
+    clock, so DST days have their real elapsed length.
+    """
+    w_start = guest_night_window(night, start_hour, end_hour, tz)[0]
+    h = min(23, max(0, int(day_start_hour)))
+    start = datetime(night.year, night.month, night.day, h, tzinfo=tz)
+    latest = w_start - timedelta(hours=1)
+    if start > latest:
+        start = latest
+    return start, w_start
+
+
+def guest_last_completed_night(
+    now_local: datetime, start_hour: int, end_hour: int,
+) -> date:
+    """Latest night N whose window end is <= ``now_local``."""
+    tz = now_local.tzinfo
+    night = now_local.date() - timedelta(days=1)
+    if guest_night_window(night, start_hour, end_hour, tz)[1] > now_local:
+        night -= timedelta(days=1)
+    return night
+
+
+# ============================================================================
 # Presence Coordinator
 # ============================================================================
 
@@ -1841,6 +1895,43 @@ class PresenceCoordinator(BaseCoordinator):
         # transient BLE flaps that would otherwise un-exclude a known
         # resident at the exact instant `_guest_room_gate_armed` runs.
         self._guest_room_known_last_true: Dict[str, datetime] = {}
+
+        # GUEST-MODE-SPLIT-VISITORS-1 (plan rev 4). D2: room_name -> room
+        # entry_id (occupancy_events.room_id), filled by _discover_guest_rooms.
+        self._guest_room_entry_ids: Dict[str, str] = {}
+        # D2 stay latch: ONE writer, `_refresh_guest_stay` (deterministic DB
+        # walk; never incremented, so a restart reproduces it).
+        self._guest_stay_active: bool = False
+        self._guest_stay_since: Optional[datetime] = None  # UTC
+        self._guest_stay_basis: Any = []
+        # Local date of the window END of the last night the walk used.
+        self._guest_stay_evaluated_for: Optional[date] = None
+        self._guest_stay_task: Optional[asyncio.Task] = None
+        self._guest_stay_error_logged_on: Optional[date] = None
+        # Review A-M1 / B-M2: after a failed walk, no retry before this UTC
+        # time (GUEST_STAY_ERROR_RETRY_S); None = no backoff pending.
+        self._guest_stay_retry_at: Optional[datetime] = None
+        # Review B-L1: set at teardown; no walk is scheduled after it.
+        self._guest_stay_torn_down: bool = False
+        # True once a walk succeeded since boot: a later DB error then keeps
+        # the previous latch instead of failing off (RAM; a restart resets it).
+        self._guest_stay_walked_ok: bool = False
+        # "Guest left" button (operator 2026-11-09): UTC time of the last
+        # press. The walk ignores every night that STARTED before it (no
+        # re-latch from the old nights, no re-entry grace). Persisted in an
+        # HA Store so a restart replay does not re-latch.
+        self._guest_left_at: Optional[datetime] = None
+        self._guest_left_loaded: bool = False
+        self._guest_left_store_obj: Any = None
+        # One-shot: the press's own inference tick skips the S9 GUEST-exit
+        # persistence so the house leaves GUEST now.
+        self._guest_left_exit_now: bool = False
+        # D4 trip-wire episode latch (RAM; `since` comes from the DB walk).
+        self._guest_stay_long_nm_fired: bool = False
+        # D1 visitors_present (display only; never read by infer()).
+        self._visitors_present: bool = False
+        self._visitors_legs: Dict[str, bool] = {}
+        self._visitors_since: Optional[str] = None
 
         # Fan-noise Mode-2 mitigation: room-tier fan-recheck manager. Built
         # lazily in async_setup so we don't import the module at __init__ time
@@ -3039,6 +3130,13 @@ class PresenceCoordinator(BaseCoordinator):
 
                 # v4.7.2 D5: Discover and subscribe to guest rooms (Feature B)
                 self._discover_guest_rooms()
+
+                # GUEST-MODE-SPLIT D2: kick the first stay walk (scheduled,
+                # not awaited). No DB yet -> the per-tick check retries.
+                try:
+                    self._maybe_schedule_guest_stay_refresh()
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug("guest stay setup kick failed", exc_info=True)
 
                 # Subscribe to geofence (person entity state changes)
                 self._subscribe_geofence()
@@ -5645,6 +5743,11 @@ class PresenceCoordinator(BaseCoordinator):
         self._guest_room_state.clear()
         self._guest_room_entity_to_name.clear()
         self._guest_room_known_last_true.clear()
+        self._guest_room_entry_ids.clear()
+        # Review B-L2 / A-L4: the guest-room set may have changed (flagged or
+        # un-flagged), so the next tick re-walks instead of waiting a night.
+        self._guest_stay_evaluated_for = None
+        self._guest_stay_retry_at = None
 
         # GUEST-CENSUS D3 (2026-08-16): resolve the room's occupied
         # binary_sensor via the entity registry using the well-known
@@ -5664,6 +5767,9 @@ class PresenceCoordinator(BaseCoordinator):
             room_name = merged.get(CONF_ROOM_NAME, "")
             if not room_name:
                 continue
+            # GUEST-MODE-SPLIT D2 (S12): the night-stay walk reads
+            # occupancy_events by entry_id, independent of the live entity.
+            self._guest_room_entry_ids[room_name] = entry.entry_id
 
             threshold_min = int(merged.get(CONF_ROOM_GUEST_OCCUPANCY_THRESHOLD_MIN, 30))
             unique_id = f"{entry.entry_id}_occupied"
@@ -5937,6 +6043,459 @@ class PresenceCoordinator(BaseCoordinator):
             )
             return True
         return False
+
+    # ------------------------------------------------------------------
+    # GUEST-MODE-SPLIT-VISITORS-1 (plan rev 4): stay latch + composition
+    # ------------------------------------------------------------------
+
+    def _compose_guest_gate(
+        self, state: HouseState, *, room: bool, stay: bool, sleep_hour: bool,
+    ) -> bool:
+        """D3: the one place ``guest_armed`` is composed (sites S1, S2).
+
+        Rule OFF (``const.GUEST_NIGHT_STAY_RULE_ENABLED`` False): the 30-min
+        guest-room gate, exactly as before (INV-STAY-3). Rule ON: HOME_* ->
+        the stay latch; GUEST -> the stay latch except at a sleep hour (the
+        night yield: GUEST exits to HOME_NIGHT, then SLEEP; there is no
+        GUEST -> SLEEP edge). ``stay`` is passed in already masked by the
+        guest-detection switch.
+        """
+        if not _ura_const.GUEST_NIGHT_STAY_RULE_ENABLED:
+            return room
+        if state == HouseState.GUEST:
+            return bool(stay and not sleep_hour)
+        if state in (
+            HouseState.HOME_DAY, HouseState.HOME_EVENING, HouseState.HOME_NIGHT,
+        ):
+            return bool(stay)
+        return False
+
+    def _guest_stay_params(self) -> tuple[int, int, float, int, int]:
+        """(K entry nights, L lookback, F fraction, R replay nights, D4 days),
+        clamped at read (plan §7)."""
+        lookback = max(1, int(_ura_const.GUEST_STAY_LOOKBACK_NIGHTS))
+        entry = min(max(1, int(_ura_const.GUEST_STAY_ENTRY_NIGHTS)), lookback)
+        frac = float(_ura_const.GUEST_NIGHT_MIN_FRACTION)
+        long_days = max(0, int(_ura_const.GUEST_STAY_LONG_NM_DAYS))
+        replay = max(
+            int(_ura_const.GUEST_STAY_REPLAY_NIGHTS), lookback,
+            long_days + lookback,
+        )
+        return entry, lookback, frac, replay, long_days
+
+    def _guest_stay_day_params(self) -> tuple[float, int, bool]:
+        """Rev 5 day test: (min day fraction, day start hour clamped 0..23,
+        day before night). Read at call time (plan §7)."""
+        return (
+            float(_ura_const.GUEST_STAY_DAY_MIN_FRACTION),
+            min(23, max(0, int(_ura_const.GUEST_STAY_DAY_START_HOUR))),
+            bool(_ura_const.GUEST_STAY_DAY_BEFORE_NIGHT),
+        )
+
+    def _guest_stay_target(self, now_local: datetime) -> date:
+        """Local date of the window end of the last completed night."""
+        engine = self._inference_engine
+        start_h = int(engine.sleep_start_hour)
+        end_h = int(engine.sleep_end_hour)
+        night = guest_last_completed_night(now_local, start_h, end_h)
+        return guest_night_window(night, start_h, end_h, now_local.tzinfo)[1].date()
+
+    def _maybe_schedule_guest_stay_refresh(
+        self, now_local: Optional[datetime] = None,
+    ) -> bool:
+        """S11: sync per-tick check; schedules the async walk, never awaits.
+
+        Schedules when the rule is on, the DB is reachable, no walk is in
+        flight, and the last completed night is not the one already
+        evaluated. Returns True iff a walk was scheduled.
+        """
+        if not _ura_const.GUEST_NIGHT_STAY_RULE_ENABLED:
+            return False
+        if getattr(self, "_guest_stay_torn_down", False):
+            return False  # B-L1: no walk on a torn-down coordinator
+        task = self._guest_stay_task
+        if task is not None and not task.done():
+            return False
+        if self.hass.data.get(DOMAIN, {}).get("database") is None:
+            return False
+        if now_local is None:
+            now_local = dt_util.now()
+        if self._guest_stay_evaluated_for == self._guest_stay_target(now_local):
+            return False
+        retry_at = getattr(self, "_guest_stay_retry_at", None)
+        if retry_at is not None and now_local < retry_at:
+            return False  # A-M1 / B-M2: bounded backoff after a failed walk
+        self._guest_stay_task = self.hass.async_create_task(
+            self._refresh_guest_stay(now_local)
+        )
+        return True
+
+    async def _refresh_guest_stay(
+        self, now_local: Optional[datetime] = None, *, run_inference: bool = True,
+    ) -> None:
+        """D2: recompute the stay latch from the URA DB (plan §2.1, §2.3).
+
+        Walks GUEST_STAY_REPLAY_NIGHTS completed nights starting with the
+        latch False; a night qualifies iff some guest room's non-resident
+        occupied fraction of the house sleep window is >=
+        GUEST_NIGHT_MIN_FRACTION. Rev 5: the latch turns on at an
+        ENTRY-QUALIFIED night (the same room also >= GUEST_STAY_DAY_MIN_FRACTION
+        of its day window) with >= ENTRY qualifying nights among the last
+        LOOKBACK. Rev 6: off after min(GUEST_STAY_EXIT_MAX_NIGHTS (2), n)
+        straight non-qualifying
+        nights, n = qualifying nights in the stay so far (starting from the
+        entry night's count); LOOKBACK when GUEST_STAY_EXIT_SCALES_WITH_STAY
+        is False (rev 5). Deterministic in the DB contents
+        (restart reproduces it). Writes the latch, ``since`` (window end of
+        the night that turned it on), the basis (last LOOKBACK nights) and the
+        evaluated date, then runs one inference. Any DB error: WARNING once per
+        local day, night NOT stamped evaluated, retried after
+        GUEST_STAY_ERROR_RETRY_S; the previous latch is KEPT if a walk has
+        succeeded since boot, else latch False with basis {"error": ...}.
+        """
+        db = self.hass.data.get(DOMAIN, {}).get("database")
+        if db is None:
+            return
+        if now_local is None:
+            now_local = dt_util.now()
+        engine = self._inference_engine
+        start_h = int(engine.sleep_start_hour)
+        end_h = int(engine.sleep_end_hour)
+        tz = now_local.tzinfo
+        entry_k, lookback, frac_min, replay, _long = self._guest_stay_params()
+        day_min, day_h, day_before = self._guest_stay_day_params()
+        last = guest_last_completed_night(now_local, start_h, end_h)
+        # Nights from the walk start minus (lookback - 1) for the first Q.
+        span = replay + lookback - 1
+        nights = [last - timedelta(days=i) for i in range(span - 1, -1, -1)]
+        windows = [guest_night_window(n, start_h, end_h, tz) for n in nights]
+        # Rev 5: one day window per night (the day before it, ending at the
+        # night start). Read in the SAME span call as the nights (one call per
+        # room). With day-before False, night N-1 may pair with day N, which
+        # is already in this list (day N ends before night N starts <= now).
+        days = [guest_day_window(n, start_h, end_h, day_h, tz) for n in nights]
+        n_nights = len(nights)
+        target = windows[-1][1].date()
+        try:
+            await self._guest_left_load()
+            per_room: Dict[str, list] = {}
+            for room_name, entry_id in list(self._guest_room_entry_ids.items()):
+                rows = await db.get_guest_room_night_fractions(
+                    entry_id, room_name, windows + days,
+                    _ura_const.GUEST_KNOWN_STICKY_S,
+                )
+                per_room[room_name] = (rows[:n_nights], rows[n_nights:])
+        except Exception as err:  # noqa: BLE001 — fails toward no GUEST
+            today = now_local.date()
+            if self._guest_stay_error_logged_on != today:
+                self._guest_stay_error_logged_on = today
+                _LOGGER.warning(
+                    "Guest stay walk failed (stay treated as off; retry in "
+                    "%ss): %s", _ura_const.GUEST_STAY_ERROR_RETRY_S, err,
+                )
+            # Coordinator decision 2026-11-09: a transient DB error must not
+            # flip the house out of GUEST. After a successful walk since boot
+            # the previous latch, since and basis are KEPT until the retry;
+            # with no prior evaluation since boot it fails off.
+            if not getattr(self, "_guest_stay_walked_ok", False):
+                self._guest_stay_active = False
+                self._guest_stay_since = None
+                self._guest_stay_basis = {"error": str(err)}
+            # A-M1 / B-M2: do NOT stamp the night evaluated; retry after a
+            # bounded backoff so one transient error does not cost the day.
+            self._guest_stay_retry_at = now_local + timedelta(
+                seconds=max(0, int(_ura_const.GUEST_STAY_ERROR_RETRY_S))
+            )
+        else:
+
+            def _night_ok(room_name: str, idx: int) -> bool:
+                f, had = per_room[room_name][0][idx]
+                return bool(had and f >= frac_min)
+
+            def _day_ok(room_name: str, idx: int) -> bool:
+                return per_room[room_name][1][idx][0] >= day_min
+
+            best: list[tuple[Optional[str], float, bool, float, bool]] = []
+            for idx in range(n_nights):
+                room, value, qual, entry_q = None, 0.0, False, False
+                for room_name, (nrows, _drows) in per_room.items():
+                    f = float(nrows[idx][0])
+                    if room is None or f > value:
+                        room, value = room_name, f
+                    if _night_ok(room_name, idx):
+                        qual = True
+                        # Same room: night N with day N (the day before).
+                        if _day_ok(room_name, idx):
+                            entry_q = True
+                    # Day-after variant: night N-1 with day N (same room).
+                    if (not day_before and idx >= 1
+                            and _night_ok(room_name, idx - 1)
+                            and _day_ok(room_name, idx)):
+                        entry_q = True
+                day_f = (
+                    float(per_room[room][1][idx][0]) if room is not None else 0.0
+                )
+                best.append((room, value, qual, day_f, entry_q))
+            scaled = bool(_ura_const.GUEST_STAY_EXIT_SCALES_WITH_STAY)
+            exit_max = max(1, int(_ura_const.GUEST_STAY_EXIT_MAX_NIGHTS))
+            active = False
+            since: Optional[datetime] = None
+            n = 0   # rev 6: qualifying nights in the current stay
+            # Re-entry grace (operator 2026-11-09): for GUEST_STAY_REENTRY_
+            # GRACE_DAYS after a stay ENDED BY EMPTY NIGHTS, one qualifying
+            # night alone (any guest room, no day test) re-enters. A guest who
+            # was away overnight and sleeps in the room again is still the
+            # same stay. 0 = off. Part of the scaled-exit policy: with
+            # GUEST_STAY_EXIT_SCALES_WITH_STAY False the walk is rev 5 exactly.
+            grace_days = (
+                max(0, int(_ura_const.GUEST_STAY_REENTRY_GRACE_DAYS))
+                if scaled else 0
+            )
+            ended_on: Optional[date] = None   # night that ended the last stay
+            # Guest-left button: read AFTER the DB awaits so a press during
+            # an in-flight walk is honoured. Only a night that STARTS after
+            # the press can enter, so no stay from the old nights exists in
+            # the walk at all: nothing to hold, and no ended stay to open a
+            # re-entry grace (a button exit gets no grace).
+            left_at = self._guest_left_at
+
+            def _after_press(j: int) -> bool:
+                return left_at is None or windows[j][0] >= left_at
+
+            grace_stay = False   # the active stay was entered by grace
+            for idx in range(lookback - 1, n_nights):
+                post_press = _after_press(idx)
+                # Review D LOW: nights that started before the press count
+                # toward neither entry (q) nor the exit length (n = q).
+                q = sum(
+                    1 for j in range(idx - lookback + 1, idx + 1)
+                    if best[j][2] and _after_press(j)
+                )
+                # grace 0 is off: a re-entry night is always >= 1 day after
+                # the ending night.
+                in_grace = (
+                    ended_on is not None
+                    and (nights[idx] - ended_on).days <= grace_days
+                )
+                if not active and post_press and (
+                    (best[idx][4] and q >= entry_k)
+                    or (in_grace and best[idx][2])
+                ):
+                    active = True
+                    since = windows[idx][1].astimezone(timezone.utc)
+                    n = q
+                    grace_stay = not (best[idx][4] and q >= entry_k)
+                    if not grace_stay:
+                        ended_on = None
+                    # Review D MEDIUM: a grace re-entry keeps the ORIGINAL
+                    # stay's end as the anchor, so the grace never extends
+                    # past GUEST_STAY_REENTRY_GRACE_DAYS from the last stay
+                    # entered by the normal rule (no phantom chain).
+                elif active:
+                    if best[idx][2]:
+                        n += 1
+                    # Operator cap: at most GUEST_STAY_EXIT_MAX_NIGHTS empty
+                    # nights. n <= idx + 1 (q <= lookback at entry, +1 per
+                    # night), so the slice never goes negative even when the
+                    # cap exceeds lookback. scaled False: x == lookback,
+                    # exactly rev 5's q == 0.
+                    x = min(exit_max, n) if scaled else lookback
+                    if not any(b[2] for b in best[idx - x + 1: idx + 1]):
+                        active = False
+                        since = None
+                        n = 0
+                        if not grace_stay:
+                            ended_on = nights[idx]
+                        grace_stay = False
+            self._guest_stay_active = active
+            self._guest_stay_since = since
+            self._guest_stay_basis = [
+                {
+                    "night": nights[i].isoformat(),
+                    "room": best[i][0],
+                    "fraction": round(best[i][1], 3),
+                    "day_fraction": round(best[i][3], 3),
+                    "qualifies": best[i][2],
+                    "entry_qualified": best[i][4],
+                }
+                for i in range(n_nights - lookback, n_nights)
+            ]
+            self._guest_stay_evaluated_for = target
+            self._guest_stay_retry_at = None
+            self._guest_stay_walked_ok = True
+        if run_inference:
+            try:
+                await self._run_inference("guest_stay_refresh")
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("guest_stay_refresh inference failed", exc_info=True)
+
+    def _guest_left_store(self) -> Any:
+        """HA Store holding the last "Guest left" press (created lazily)."""
+        if self._guest_left_store_obj is None:
+            from homeassistant.helpers.storage import Store  # noqa: PLC0415
+
+            self._guest_left_store_obj = Store(
+                self.hass, 1, f"{DOMAIN}.guest_left",
+            )
+        return self._guest_left_store_obj
+
+    async def _guest_left_load(self) -> None:
+        """Load the persisted press once per boot (a newer RAM press wins)."""
+        if self._guest_left_loaded:
+            return
+        try:
+            data = await self._guest_left_store().async_load()
+        except Exception:  # noqa: BLE001 - retried on the next walk
+            _LOGGER.warning("Guest left: could not read the stored press "
+                            "(retried on the next walk)", exc_info=True)
+            return
+        # Review D LOW: only a successful read (empty included) ends the
+        # retries; a corrupt value is read once and ignored.
+        self._guest_left_loaded = True
+        raw = (data or {}).get("pressed_at") if isinstance(data, dict) else None
+        if not raw:
+            return
+        try:
+            stored = datetime.fromisoformat(str(raw))
+        except ValueError:
+            return
+        if stored.tzinfo is None:
+            stored = stored.replace(tzinfo=timezone.utc)
+        if self._guest_left_at is None or stored > self._guest_left_at:
+            self._guest_left_at = stored
+
+    async def async_guest_left(self, now_utc: Optional[datetime] = None) -> None:
+        """"Guest left" button (operator 2026-11-09).
+
+        Clears the stay latch, records the press (RAM + HA Store, so a
+        restart replay cannot re-latch the old nights), and runs one
+        inference with trigger ``guest_left_button``: the normal transition
+        path takes GUEST -> HOME_* on that tick (S9 exit hold skipped once).
+        Re-entry needs a qualifying night that STARTS after the press; there
+        is no re-entry grace from a button exit.
+        """
+        if now_utc is None:
+            now_utc = dt_util.utcnow()
+        await self._guest_left_load()
+        self._guest_left_at = now_utc
+        self._guest_stay_active = False
+        self._guest_stay_since = None
+        _LOGGER.info(
+            "Guest left button pressed at %s: stay latch cleared "
+            "(reason guest_left_button)", now_utc.isoformat(),
+        )
+        # Review D LOW: one retry on a failed save; if both fail the press
+        # still holds until a restart (WARNING says so).
+        for attempt in (1, 2):
+            try:
+                await self._guest_left_store().async_save(
+                    {"pressed_at": now_utc.isoformat()}
+                )
+                break
+            except Exception:  # noqa: BLE001
+                _LOGGER.warning(
+                    "Guest left: could not persist the press (attempt %d of "
+                    "2; a restart before the next press may re-latch the "
+                    "stay)", attempt, exc_info=True,
+                )
+        self._guest_left_exit_now = True
+        try:
+            await self._run_inference("guest_left_button")
+        finally:
+            self._guest_left_exit_now = False
+
+    def _update_visitors_present(
+        self, state: HouseState, *, room: bool, cam: bool, stay: bool,
+    ) -> None:
+        """D1: visitors_present = GUEST (tick-start state) OR any leg. Legs:
+        the 30-min room gate, Path A (when VISITORS_CAM_LEG_ENABLED), the
+        stay latch (masked by the switch and the rule). ``since`` = UTC time
+        of the last off -> on edge. Display only."""
+        legs = {
+            "room": bool(room),
+            "cam": bool(cam and _ura_const.VISITORS_CAM_LEG_ENABLED),
+            "stay": bool(stay),
+        }
+        now_on = bool(state == HouseState.GUEST or any(legs.values()))
+        if now_on and not self._visitors_present:
+            self._visitors_since = dt_util.utcnow().isoformat()
+        elif not now_on:
+            self._visitors_since = None
+        self._visitors_present = now_on
+        self._visitors_legs = legs
+
+    def _guest_stay_tick(self, now_local: datetime) -> None:
+        """Per-tick: S11 schedule the daily stay walk (never awaited) + the
+        D4 trip-wire. Neither may break inference."""
+        try:
+            self._maybe_schedule_guest_stay_refresh(now_local)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("guest stay refresh scheduling failed", exc_info=True)
+        try:
+            self._check_guest_stay_long()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("guest stay trip-wire failed", exc_info=True)
+
+    def _log_guest_stay_entry(self) -> None:
+        _LOGGER.info(
+            "guest stay entry rooms=%s basis=%s",
+            self._guest_stay_rooms(), self._guest_stay_basis,
+        )
+
+    def _guest_stay_rooms(self) -> str:
+        rooms = sorted({
+            str(b.get("room")) for b in (self._guest_stay_basis or [])
+            if isinstance(b, dict) and b.get("qualifies") and b.get("room")
+        })
+        return ",".join(rooms) or "unknown"
+
+    def _check_guest_stay_long(self, now_utc: Optional[datetime] = None) -> None:
+        """D4: one HIGH stuck-signal NM when the stay latch has been on for
+        more than GUEST_STAY_LONG_NM_DAYS days (from the DB-walk ``since``).
+        Re-armed when the latch drops. 0 = off.
+
+        Review A-L3: honours the Guest Detection switch (switch OFF = the
+        stay is not acting, so no page and the episode re-arms), matching its
+        remedy text. The episode latch is RAM: a restart during a stay longer
+        than the bound pages again, at most once per restart-day because
+        ``fire_stuck_signal`` dedups per (kind, key) per day. Accepted."""
+        since = self._guest_stay_since
+        if (not self._guest_stay_active or since is None
+                or not self._guest_detection_enabled):
+            self._guest_stay_long_nm_fired = False
+            return
+        bound_days = int(_ura_const.GUEST_STAY_LONG_NM_DAYS)
+        if bound_days <= 0 or self._guest_stay_long_nm_fired:
+            return
+        if now_utc is None:
+            now_utc = dt_util.utcnow()
+        held_s = (now_utc - since).total_seconds()
+        if held_s <= bound_days * 86400:
+            return
+        self._guest_stay_long_nm_fired = True
+        last = [
+            f"{b.get('night')} {b.get('room')} {b.get('fraction')}"
+            for b in (self._guest_stay_basis or []) if isinstance(b, dict)
+        ]
+        from ._stuck_signal_nm import fire_stuck_signal  # noqa: PLC0415
+        self.hass.async_create_task(
+            fire_stuck_signal(
+                self.hass,
+                kind="guest_stay_long",
+                key=("house",),
+                diagnosis=(
+                    f"Guest stay latch on for {held_s / 86400:.0f} days "
+                    f"(rooms: {self._guest_stay_rooms()}; last nights: "
+                    f"{'; '.join(last) or 'none'})"
+                ),
+                remedy=(
+                    "If no guest is staying, check that room's occupancy "
+                    "sensor (a fan or a stuck radar can hold it) or turn off "
+                    "Guest Detection."
+                ),
+                severity="HIGH",
+            )
+        )
 
     def _guest_room_gate_armed(self, now: datetime) -> bool:
         """Evaluate whether any designated guest room triggers the sustained-occupancy gate.
@@ -6583,6 +7142,11 @@ class PresenceCoordinator(BaseCoordinator):
         # value.  Without this, the exit condition reduces to unidentified_count==0
         # which causes immediate GUEST→HOME oscillation on every inference cycle.
         # B1 fix (v4.7.2 reviewer fix-up) — Bug Class #46: Exit-Path Gate Skip.
+        # GUEST-MODE-SPLIT D3: the stay latch (read, never fetched) composes
+        # guest_armed via _compose_guest_gate; both gates still evaluated.
+        _stay_rule_on = bool(_ura_const.GUEST_NIGHT_STAY_RULE_ENABLED)
+        _stay = bool(self._guest_stay_active and self._guest_detection_enabled)
+        _sleep_hour = bool(self._inference_engine._is_sleep_hour(now.hour))
         if current_state in _home_like_states:
             unid_gate_armed = self._guest_gate_armed(
                 unidentified_count=self._unidentified_count,
@@ -6598,7 +7162,9 @@ class PresenceCoordinator(BaseCoordinator):
             # that guests in non-flagged rooms or present <30 min will NOT
             # arm GUEST. Manual override (HouseStateMachine.set_override)
             # remains an intentional bypass and is not affected.
-            guest_armed = guest_room_gate_armed
+            guest_armed = self._compose_guest_gate(  # GUEST-MODE-SPLIT S1
+                current_state, room=guest_room_gate_armed, stay=_stay,
+                sleep_hour=_sleep_hour)
         elif current_state == HouseState.GUEST:
             # Already in GUEST state — skip unid gate (side-effect-bearing) but
             # evaluate guest_room gate (pure predicate) so the hold/exit decision
@@ -6606,7 +7172,9 @@ class PresenceCoordinator(BaseCoordinator):
             unid_gate_armed = False
             # Bug Class #11: D5 timestamps are UTC-aware (dt_util.utcnow()).
             guest_room_gate_armed = self._guest_room_gate_armed(now=dt_util.utcnow())
-            guest_armed = guest_room_gate_armed
+            guest_armed = self._compose_guest_gate(  # GUEST-MODE-SPLIT S2
+                current_state, room=guest_room_gate_armed, stay=_stay,
+                sleep_hour=_sleep_hour)
         else:
             unid_gate_armed = False
             guest_room_gate_armed = False
@@ -6625,7 +7193,11 @@ class PresenceCoordinator(BaseCoordinator):
             )
         except Exception:  # noqa: BLE001 — display-only
             _guest_override = False
-        if guest_room_gate_armed:
+        # GUEST-MODE-SPLIT S4: an active stay leads (rule on).
+        if _stay_rule_on and _stay and (
+                current_state in _home_like_states or current_state == HouseState.GUEST):
+            self._guest_reason = f"night_stay:{self._guest_stay_rooms()}"
+        elif guest_room_gate_armed:
             self._guest_reason = (
                 f"guest_room:{self._guest_room_gate_fired_room or 'unknown'}"
             )
@@ -6660,13 +7232,19 @@ class PresenceCoordinator(BaseCoordinator):
             # re-composed to include something other than the room gate).
             # Demoted to debug — inert canaries do not deserve WARNING.
             _d5_guest_confidence = 0.8
-            if guest_armed and not guest_room_gate_armed:
+            # GUEST-MODE-SPLIT S5: with the stay rule on this is normal.
+            if guest_armed and not guest_room_gate_armed and not _stay_rule_on:
                 _LOGGER.debug(
                     "D2 canary: _d5_guest_confidence census-only branch "
                     "reached with guest_armed=True but "
                     "guest_room_gate_armed=False — arming predicate may "
                     "have been re-composed to include non-room signals."
                 )
+
+        # GUEST-MODE-SPLIT-VISITORS-1 D1 (display only; never read by infer()).
+        self._update_visitors_present(
+            current_state, room=guest_room_gate_armed, cam=unid_gate_armed,
+            stay=bool(_stay_rule_on and _stay))
 
         # v4.7.16 D3: Per-room BLE-tier weighted veto (zone-iterates-rooms).
         # For each zone, build a weight map keyed by room_name using the
@@ -7089,6 +7667,7 @@ class PresenceCoordinator(BaseCoordinator):
             )
         except Exception:  # noqa: BLE001 — observability must never break inference
             _LOGGER.debug("sleep raw-hold trip-wire failed", exc_info=True)
+        self._guest_stay_tick(now)  # GUEST-MODE-SPLIT S11 walk + D4 trip-wire
         # Sleep-mask Rev 3 D4d (+ R3.1.7): house held out of AWAY by Tier-1
         # room sensors alone while every trusted tracker is away.
         try:
@@ -7347,6 +7926,10 @@ class PresenceCoordinator(BaseCoordinator):
             quiet_seconds = int(
                 (_now_utc - self._guest_exit_quiet_since).total_seconds()
             )
+            if getattr(self, "_guest_left_exit_now", False):
+                # "Guest left" button: the operator says the guest has gone,
+                # so the press's own tick leaves GUEST without the S9 hold.
+                quiet_seconds = 10 ** 9
             exit_decision = self.should_veto_due_to_reliable_signals(
                 reliable_signals=[],
                 transient_signals=[],
@@ -7597,6 +8180,8 @@ class PresenceCoordinator(BaseCoordinator):
                 # arm state (gate fired successfully — no need to keep the timer).
                 if new_state == HouseState.GUEST:
                     self._disarm_guest_gate()
+                    if _stay_rule_on and _stay:
+                        self._log_guest_stay_entry()
                 # If we just transitioned OUT of guest mode (exit path),
                 # also clear any residual arm state.
                 elif current_state == HouseState.GUEST:
@@ -8235,6 +8820,18 @@ class PresenceCoordinator(BaseCoordinator):
         self._guest_room_unsubs.clear()
         self._guest_room_state.clear()
         self._guest_room_known_last_true.clear()
+
+        # GUEST-MODE-SPLIT D2 (S16): cancel an in-flight stay walk. B-L1:
+        # flag first, so a tick during the later teardown awaits cannot
+        # schedule a fresh walk on the torn-down coordinator.
+        self._guest_stay_torn_down = True
+        stay_task = self._guest_stay_task
+        if stay_task is not None and not stay_task.done():
+            try:
+                stay_task.cancel()
+            except Exception:  # noqa: BLE001
+                pass
+        self._guest_stay_task = None
 
         # Fan-noise Mode-2: cancel per-room async_call_later timers in the
         # FanRecheckManager and persist final state. Leaked timers across

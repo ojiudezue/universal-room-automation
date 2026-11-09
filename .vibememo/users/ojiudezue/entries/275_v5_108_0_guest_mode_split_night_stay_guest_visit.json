@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "275",
+  "author": "ojiudezue",
+  "session_id": "claude_20261109_194327_ship_v5_108_0",
+  "timestamp": "2026-11-09T19:43:27Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.108.0 shipped: Guest mode split: night-stay GUEST, visitors_present, Guest left button",
+  "summary": "Guest mode split: night-stay GUEST, visitors_present, Guest left button",
+  "why": "GUEST used to switch on from a 30-minute guest-room gate (plus WiFi), so the house spent hours in GUEST with no guest. The operator set a high bar: a guest is someone who sleeps in a guest room. GUEST now needs one qualifying night plus same-room daytime, yields to normal sleep at night, ends after at most 2 empty nights, re-enters within 7 days on one night, and has a Guest left button. visitors_present is display-only. Exterior circling and no-resident door alerts stay HIGH while in GUEST.",
+  "implications": "Shipped GUEST-MODE-SPLIT-VISITORS-1 at v5.108.0; card(s) sit shipped_organic pending validation. Acceptance in README_v5.108.0.md (Live criteria).",
+  "revisit_trigger": "Retune thresholds after the next 2-3 real stays (they were fitted on one October stay); HVAC-GUEST-EVIDENCE-RULE-1 next; revisit if a resident nap in a guest room enters GUEST",
+  "refs": {
+    "cards": [
+      "GUEST-MODE-SPLIT-VISITORS-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.108.0.md"
+    ],
+    "release_notes": "See docs/readmes/README_v5.108.0.md"
+  }
+}

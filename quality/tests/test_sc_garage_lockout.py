@@ -365,8 +365,111 @@ async def test_guest_clock_does_nothing_if_house_not_guest():
 
 @pytest.mark.asyncio
 async def test_guest_exit_to_home_releases_guest_night():
+    """A GUEST -> HOME_DAY / HOME_EVENING exit releases as before. (GUEST ->
+    HOME_NIGHT inside the window is now HELD: INV-LOCK-1 tests below.)"""
+    for home in ("home_day", "home_evening"):
+        rig = await make_rig()
+        await rig.edge("guest")
+        await rig.edge(home)
+        assert rig.unlocks() == [LOCK_A, LOCK_B], home
+        assert rig.regime.reason == "none"
+
+
+# ---- INV-LOCK-1 (GUEST-MODE-SPLIT rev 5, build review B-M1) ---------------
+# Plan PLANNING_guest_mode_split_2026_11.md §2.5 / §3.3 / D3. The presence
+# night yield takes GUEST -> HOME_NIGHT ~5 min after the 22:00 guest-night
+# clock locked; the lock must be written ONCE at the clock and not unlocked
+# by the yield. Times are hand-written wall clock (window 22 -> 06).
+
+GUEST_EVE = datetime(2026, 11, 7, 21, 40, 0, tzinfo=TZ)   # +601 s boot = 21:50:01
+
+
+async def _to(rig, hh, mm, day=7):
+    target = datetime(2026, 11, day, hh, mm, 0, tzinfo=TZ)
+    await rig.w.advance((target - rig.w.now).total_seconds())
+
+
+@pytest.mark.asyncio
+async def test_lock_once_at_guest_clock_no_unlock_on_yield():
+    rig = await make_rig(start=GUEST_EVE, house="guest")
+    await _to(rig, 21, 59)
+    assert rig.locks() == []
+    await _to(rig, 22, 0)                         # guest-night clock
+    assert rig.locks() == [LOCK_A, LOCK_B]
+    assert rig.regime.reason == "guest_night"
+    await _to(rig, 22, 5)
+    await rig.edge("home_night")                  # the night yield
+    assert rig.unlocks() == []
+    assert rig.regime.reason == "guest_night"
+    assert rig.regime.last_action["action"] == "guest_yield_hold"
+    assert rig.regime.last_action["trigger"] == "house_state:home_night"
+    await _to(rig, 22, 7)
+    await rig.edge("sleep")
+    assert rig.regime.reason == "sleep"
+    assert rig.locks() == [LOCK_A, LOCK_B]        # no second lock write
+    await _to(rig, 6, 0, day=8)
+    await rig.edge("waking")
+    assert rig.locks() == [LOCK_A, LOCK_B]
+    assert rig.unlocks() == [LOCK_A, LOCK_B]      # one unlock, in the morning
+    assert rig.regime.reason == "none"
+
+
+@pytest.mark.asyncio
+async def test_lock_held_if_home_night_until_morning():
+    """GUEST -> HOME_NIGHT at 22:05 and the house never reaches SLEEP: still
+    held overnight, released at HOME_DAY (06:00, before the 07:00 backstop)."""
+    rig = await make_rig(start=GUEST_EVE, house="guest")
+    await _to(rig, 22, 0)
+    await _to(rig, 22, 5)
+    await rig.edge("home_night")
+    await _to(rig, 5, 59, day=8)
+    assert rig.unlocks() == []
+    assert rig.regime.reason == "guest_night"
+    await _to(rig, 6, 0, day=8)
+    await rig.edge("home_day")
+    assert rig.locks() == [LOCK_A, LOCK_B]
+    assert rig.unlocks() == [LOCK_A, LOCK_B]
+
+
+@pytest.mark.asyncio
+async def test_lock_toggle_off_unchanged():
+    """Toggle off: no 22:00 engage, the yield edge is inert, SLEEP engages
+    once (pre-change behaviour)."""
+    rig = await make_rig(start=GUEST_EVE, house="guest",
+                         opts=options(security_lockout_engage_on_guest_sleep=False))
+    await _to(rig, 22, 0)
+    assert rig.locks() == []
+    await _to(rig, 22, 5)
+    await rig.edge("home_night")
+    assert rig.w.calls == []
+    assert rig.regime.last_action is None or \
+        rig.regime.last_action.get("action") != "guest_yield_hold"
+    await _to(rig, 22, 7)
+    await rig.edge("sleep")
+    assert rig.locks() == [LOCK_A, LOCK_B]
+
+
+@pytest.mark.asyncio
+async def test_manual_sleep_to_home_night_in_window_releases():
+    """Review C M3: reason SLEEP (not guest_night) + an override to
+    HOME_NIGHT inside the sleep window releases as before; the yield hold
+    is for guest_night only."""
+    rig = await make_rig()                        # 23:10, in window
+    await rig.edge("sleep")
+    assert rig.regime.reason == "sleep"
+    await rig.edge("home_night")
+    assert rig.unlocks() == [LOCK_A, LOCK_B]
+    assert rig.regime.reason == "none"
+
+
+@pytest.mark.asyncio
+async def test_guest_night_home_night_outside_window_releases():
+    """HOME_NIGHT with reason guest_night OUTSIDE the sleep window (cannot
+    come from inference; forced) releases as before."""
     rig = await make_rig()
-    await rig.edge("guest")
+    await rig.edge("guest")                       # 23:10, engages guest_night
+    await _to(rig, 6, 30, day=8)                  # past 06:00, before backstop
+    assert rig.regime.reason == "guest_night"
     await rig.edge("home_night")
     assert rig.unlocks() == [LOCK_A, LOCK_B]
 

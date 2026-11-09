@@ -334,21 +334,32 @@ def _method_body(src: str, needle: str, span: int = 6000) -> str:
     return src[idx: idx + span]
 
 
-def test_home_like_guest_armed_is_room_only(presence_src: str) -> None:
-    """D2: the home-like branch must set ``guest_armed = guest_room_gate_armed``
-    (Path B leads). The ``or`` composition must be gone from the branch.
+def test_home_like_guest_armed_is_room_only() -> None:
+    """D2: in HOME_* the 30-min room gate (Path B) leads; Path A (camera
+    unidentified) alone never arms GUEST.
 
-    Mutation D2-M1 (revert to OR) will fail this — the exact discriminator.
+    GUEST-MODE-SPLIT-VISITORS-1 (2026-11-09): converted from a source grep
+    to a behavioural drive of the REAL _run_inference (guest_split_harness).
+    With const.GUEST_NIGHT_STAY_RULE_ENABLED False (kill switch) the room gate
+    still enters GUEST exactly as before; with the rule ON (default) the stay
+    latch replaces it, and Path A alone still never enters.
+
+    Mutation D2-M1 (revert to ``unid_gate_armed or ...``) makes the Path-A-
+    alone tick enter GUEST -> this test fails.
     """
-    body = _method_body(presence_src, "if current_state in _home_like_states:", span=1500)
-    assert "guest_armed = guest_room_gate_armed" in body, (
-        "D2 requires guest_armed = guest_room_gate_armed in the home-like branch"
-    )
-    # The OR composition must not survive in the SAME branch.
-    assert "unid_gate_armed or guest_room_gate_armed" not in body, (
-        "D2 requires removal of ``unid_gate_armed or guest_room_gate_armed`` "
-        "from the home-like branch (Path A is a corroborator only)"
-    )
+    import guest_split_harness as H
+
+    path_a = (2, "high", 400)  # 2 unidentified, high conf, 400 s >= 300 s
+    # Rule OFF: room alone -> GUEST; Path A alone -> no GUEST.
+    final, armed = H.drive_once(state=H.HS.HOME_DAY, rule_on=False, room_min=45)
+    assert final == H.HS.GUEST and armed == [True]
+    final, armed = H.drive_once(state=H.HS.HOME_DAY, rule_on=False, unid=path_a)
+    assert final == H.HS.HOME_DAY and armed == [False]
+    # Rule ON: Path A alone and the room gate alone never enter.
+    final, armed = H.drive_once(state=H.HS.HOME_DAY, rule_on=True, unid=path_a)
+    assert final == H.HS.HOME_DAY and armed == [False]
+    final, armed = H.drive_once(state=H.HS.HOME_DAY, rule_on=True, room_min=45)
+    assert final == H.HS.HOME_DAY and armed == [False]
 
 
 def test_confidence_bump_when_both_gates_fire(presence_src: str) -> None:
@@ -372,13 +383,27 @@ def test_confidence_bump_when_both_gates_fire(presence_src: str) -> None:
     )
 
 
-def test_inside_guest_branch_unchanged(presence_src: str) -> None:
-    """D2: the ``elif current_state == HouseState.GUEST`` branch must still
-    set ``guest_armed = guest_room_gate_armed`` (unchanged from pre-cycle)."""
-    idx = presence_src.find("elif current_state == HouseState.GUEST:")
-    assert idx >= 0
-    block = presence_src[idx: idx + 600]
-    assert "guest_armed = guest_room_gate_armed" in block
+def test_inside_guest_branch_unchanged() -> None:
+    """D2: in GUEST the hold follows the room gate (rule OFF, unchanged from
+    pre-cycle) / the stay latch (rule ON). Behavioural since
+    GUEST-MODE-SPLIT-VISITORS-1 (was a source grep): a GUEST house holds
+    while the hold input is armed and exits to HOME_DAY after the 300 s
+    guest-exit persistence once it clears."""
+    import guest_split_harness as H
+
+    # Rule OFF: room armed -> hold; room clear -> exit after 300 s.
+    final, armed = H.drive_once(state=H.HS.GUEST, rule_on=False, room_min=45,
+                                advance_s=300)
+    assert final == H.HS.GUEST and armed == [True, True]
+    final, armed = H.drive_once(state=H.HS.GUEST, rule_on=False, advance_s=300)
+    assert final == H.HS.HOME_DAY and armed == [False, False]
+    # Rule ON: the stay latch holds by day; the room gate alone does not.
+    final, armed = H.drive_once(state=H.HS.GUEST, rule_on=True, stay=True,
+                                advance_s=300)
+    assert final == H.HS.GUEST and armed == [True, True]
+    final, armed = H.drive_once(state=H.HS.GUEST, rule_on=True, room_min=45,
+                                advance_s=300)
+    assert final == H.HS.HOME_DAY and armed == [False, False]
 
 
 # ===========================================================================
@@ -451,6 +476,7 @@ def test_unresolvable_room_warns(caplog: pytest.LogCaptureFixture) -> None:
     pc._guest_room_unsubs = {}
     pc._guest_room_entity_to_name = {}
     pc._guest_room_known_last_true = {}
+    pc._guest_room_entry_ids = {}  # GUEST-MODE-SPLIT D2 (S12)
 
     # Config entry: guest room flagged, no matching entity in the registry.
     entry = MagicMock()
@@ -527,6 +553,7 @@ def test_discover_boot_seeds_first_seen_when_occupancy_on() -> None:
     pc._guest_room_unsubs = {}
     pc._guest_room_entity_to_name = {}
     pc._guest_room_known_last_true = {}
+    pc._guest_room_entry_ids = {}  # GUEST-MODE-SPLIT D2 (S12)
 
     entry = MagicMock()
     entry.entry_id = "01KTESTBOOTSEED0000000000"
@@ -593,6 +620,7 @@ def test_discover_boot_no_seed_when_occupancy_off() -> None:
     pc._guest_room_unsubs = {}
     pc._guest_room_entity_to_name = {}
     pc._guest_room_known_last_true = {}
+    pc._guest_room_entry_ids = {}  # GUEST-MODE-SPLIT D2 (S12)
 
     entry = MagicMock()
     entry.entry_id = "01KTESTBOOTSEEDOFF00000000"
@@ -653,6 +681,7 @@ def test_discover_boot_no_seed_when_known_person_present() -> None:
     pc._guest_room_unsubs = {}
     pc._guest_room_entity_to_name = {}
     pc._guest_room_known_last_true = {}
+    pc._guest_room_entry_ids = {}  # GUEST-MODE-SPLIT D2 (S12)
     # Force _is_known_person_in_room to return True for this test only.
     pc._is_known_person_in_room = lambda room_name: True  # type: ignore[assignment]
 
@@ -885,6 +914,7 @@ def _seed_bare_pc_with_guest_room(
     pc._guest_room_unsubs = {}
     pc._guest_room_entity_to_name = {}
     pc._guest_room_known_last_true = {}
+    pc._guest_room_entry_ids = {}  # GUEST-MODE-SPLIT D2 (S12)
     pc._guest_detection_enabled = True
 
     # Mutable identity oracle — tests can flip after boot.
@@ -1110,6 +1140,7 @@ def _pc_with_real_person_coord(person_data: dict):
     pc = PresenceCoordinator.__new__(PresenceCoordinator)
     pc.hass = make_hass()
     pc._guest_room_known_last_true = {}
+    pc._guest_room_entry_ids = {}  # GUEST-MODE-SPLIT D2 (S12)
 
     person_coord = MagicMock()
     person_coord.data = person_data
@@ -1181,6 +1212,7 @@ def test_is_known_person_returns_false_when_person_coordinator_absent():
     pc = PresenceCoordinator.__new__(PresenceCoordinator)
     pc.hass = make_hass()
     pc._guest_room_known_last_true = {}
+    pc._guest_room_entry_ids = {}  # GUEST-MODE-SPLIT D2 (S12)
     # hass.data is {} → get(DOMAIN, {}).get("person_coordinator") is None.
     assert pc._is_known_person_in_room("Guest Bedroom 1") is False
 

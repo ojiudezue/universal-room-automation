@@ -1,6 +1,6 @@
 """Binary sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.107.6
+# Universal Room Automation vv5.108.0
 # Build: 2026-01-02
 # File: binary_sensor.py
 # v3.2.6: Renamed "Presence" to "Sensor Presence" for clarity
@@ -139,6 +139,8 @@ async def async_setup_entry(
             HouseOccupiedBinarySensor(hass, entry),
             HouseSleepingBinarySensor(hass, entry),
             GuestModeBinarySensor(hass, entry),
+            # GUEST-MODE-SPLIT-VISITORS-1 D1 (display only).
+            VisitorsPresentBinarySensor(hass, entry),
             # build/pc-observability: cooldown-active promotion (additive).
             PresenceArrivingRearmActiveBinarySensor(hass, entry),
             # v5.94.0 (device/entity de-frag D1b): SafetyAlertBinarySensor +
@@ -2448,6 +2450,67 @@ class GuestModeBinarySensor(BinarySensorEntity):
             return False
         from .domain_coordinators.house_state import HouseState
         return manager.house_state == HouseState.GUEST
+
+
+class VisitorsPresentBinarySensor(BinarySensorEntity):
+    """GUEST-MODE-SPLIT-VISITORS-1 D1: visitors present (display only).
+
+    On when the house is GUEST, or a guest stay is active, or the 30-min
+    guest-room gate is armed, or Path A (unidentified on camera >= the
+    persistence window) is armed. Never read by house-state inference.
+    Polled; reads ``PresenceCoordinator._visitors_*`` (missing -> off).
+
+    Entity: binary_sensor.ura_presence_coordinator_visitors_present
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:account-multiple-plus"
+    _unrecorded_attributes = frozenset({"legs"})
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        self.hass = hass
+        self.entry = entry
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import DOMAIN, VERSION
+        self._attr_unique_id = f"{DOMAIN}_visitors_present"
+        self._attr_name = "Visitors Present"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "presence_coordinator")},
+            name="URA: Presence Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Presence Coordinator",
+            sw_version=VERSION,
+        )
+
+    def _presence(self):
+        from .const import DOMAIN
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        try:
+            return manager.coordinators.get("presence")
+        except Exception:  # noqa: BLE001
+            return None
+
+    @property
+    def is_on(self) -> bool:
+        """Return True when visitors are present."""
+        presence = self._presence()
+        if presence is None:
+            return False
+        return bool(getattr(presence, "_visitors_present", False))
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Legs (unrecorded) and since."""
+        presence = self._presence()
+        if presence is None:
+            return {"legs": {}, "since": None}
+        return {
+            "legs": dict(getattr(presence, "_visitors_legs", {}) or {}),
+            "since": getattr(presence, "_visitors_since", None),
+        }
 
 
 # ============================================================================

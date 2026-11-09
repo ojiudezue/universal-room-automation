@@ -200,13 +200,57 @@ from custom_components.universal_room_automation.domain_coordinators.presence im
 # Source-grep window helpers (mirrors v4.7.15 D3 pattern)
 # ---------------------------------------------------------------------------
 
-_RUN_INFERENCE_WINDOW = 60000
-
-
 def _run_inference_body() -> str:
-    idx = PRESENCE_SRC.find("async def _run_inference")
-    assert idx >= 0, "expected _run_inference in presence.py"
-    return PRESENCE_SRC[idx: idx + _RUN_INFERENCE_WINDOW]
+    """The WHOLE `_run_inference` method: from its `async def` line to the
+    next def at the same (method) indent. Bounded by structure, not by a
+    fixed char count (a fixed 60000-char slice silently lost the backstop
+    once GUEST-MODE-SPLIT grew the method past it)."""
+    lines = PRESENCE_SRC.splitlines(keepends=True)
+    start = next(
+        (i for i, ln in enumerate(lines)
+         if ln.lstrip().startswith("async def _run_inference(")),
+        None,
+    )
+    assert start is not None, "expected _run_inference in presence.py"
+    indent = len(lines[start]) - len(lines[start].lstrip())
+    end = len(lines)
+    for j in range(start + 1, len(lines)):
+        ln = lines[j]
+        stripped = ln.lstrip()
+        if not stripped.strip():
+            continue
+        ind = len(ln) - len(stripped)
+        if ind <= indent and (stripped.startswith(("def ", "async def ", "@",
+                                                    "class "))):
+            end = j
+            break
+    return "".join(lines[start:end])
+
+
+def _wake_fired_block() -> str:
+    """The `if wake_decision.fired:` block of `_run_inference`, bounded by
+    indentation: every line after the `if` that is blank or indented deeper
+    than it, plus its own `else:` / `elif` arm (the whole if-statement)."""
+    lines = _run_inference_body().splitlines(keepends=True)
+    start = next(
+        (i for i, ln in enumerate(lines)
+         if ln.strip() == "if wake_decision.fired:"),
+        None,
+    )
+    assert start is not None, "v4.7.15 D3: WAKING-gate fired branch missing"
+    indent = len(lines[start]) - len(lines[start].lstrip())
+    end = len(lines)
+    for j in range(start + 1, len(lines)):
+        ln = lines[j]
+        stripped = ln.lstrip()
+        if not stripped.strip():
+            continue
+        ind = len(ln) - len(stripped)
+        if ind < indent or (ind == indent
+                            and not stripped.startswith(("else:", "elif "))):
+            end = j
+            break
+    return "".join(lines[start:end])
 
 
 # ===========================================================================
@@ -399,13 +443,9 @@ class TestD2BackstopBranchWiring:
     """
 
     def test_backstop_branch_lives_under_wake_decision_fired(self):
-        body = _run_inference_body()
-        # The WAKING gate sets last_veto_decision before checking .fired.
-        fired_idx = body.find("if wake_decision.fired:")
-        assert fired_idx >= 0, "v4.7.15 D3: WAKING-gate fired branch missing"
-        # The backstop logic must sit inside that branch — look in a window
-        # large enough to contain the if + else fallthrough.
-        gate_block = body[fired_idx: fired_idx + 4000]
+        # Re-anchored 2026-11-09: the whole `if wake_decision.fired:`
+        # statement, bounded by indentation inside the bounded method.
+        gate_block = _wake_fired_block()
         assert "_wake_backstop_fires" in gate_block, (
             "v4.7.18.1 D2: backstop counter must increment inside wake-gate branch"
         )
@@ -415,17 +455,17 @@ class TestD2BackstopBranchWiring:
 
     def test_backstop_requires_census_gt_zero(self):
         """Backstop must not fire when nobody is home (census==0 owns AWAY)."""
-        body = _run_inference_body()
-        fired_idx = body.find("if wake_decision.fired:")
-        gate_block = body[fired_idx: fired_idx + 4000]
+        # Re-anchored 2026-11-09: the whole `if wake_decision.fired:`
+        # statement, bounded by indentation inside the bounded method.
+        gate_block = _wake_fired_block()
         assert "self._census_count > 0" in gate_block, (
             "v4.7.18.1 D2: backstop must require census_count > 0"
         )
 
     def test_backstop_window_uses_sleep_hours(self):
-        body = _run_inference_body()
-        fired_idx = body.find("if wake_decision.fired:")
-        gate_block = body[fired_idx: fired_idx + 4000]
+        # Re-anchored 2026-11-09: the whole `if wake_decision.fired:`
+        # statement, bounded by indentation inside the bounded method.
+        gate_block = _wake_fired_block()
         # Both bounds of the daytime window must be wired up.
         assert "sleep_end_hour" in gate_block
         assert "sleep_start_hour" in gate_block
@@ -478,9 +518,9 @@ class TestD2BackstopBranchWiring:
 
     def test_backstop_uses_local_hour_not_utc(self):
         """dt_util.now() (local) — sleep_start/end_hour are local hours."""
-        body = _run_inference_body()
-        fired_idx = body.find("if wake_decision.fired:")
-        gate_block = body[fired_idx: fired_idx + 4000]
+        # Re-anchored 2026-11-09: the whole `if wake_decision.fired:`
+        # statement, bounded by indentation inside the bounded method.
+        gate_block = _wake_fired_block()
         assert "dt_util.now()" in gate_block, (
             "v4.7.18.1 D2: backstop must compare against LOCAL hour"
         )

@@ -211,22 +211,30 @@ def test_d2_canary_debug_on_true_invariant_violation(caplog):
     assert len(hits) == 1
 
 
-def test_d2_canary_production_source_shape():
-    """Wire-in anchor: presence.py's else branch must guard the log with
-    ``if guest_armed and not guest_room_gate_armed`` AND emit at debug
-    level (not warning). Mutation of production drops one of these."""
-    p = os.path.join(
-        _CC, "universal_room_automation", "domain_coordinators", "presence.py",
-    )
-    with open(p) as fh:
-        src = fh.read()
-    # Both invariants required.
-    assert "if guest_armed and not guest_room_gate_armed:" in src
-    # The old warning form must be gone (grep for the exact phrase from
-    # the pre-cycle emitter).
-    assert "should be unreachable — guest_armed depends on room only" not in src, (
-        "old always-fire WARNING still present in presence.py"
-    )
+def test_d2_canary_production_source_shape(caplog):
+    """Wire-in anchor, behavioural since GUEST-MODE-SPLIT-VISITORS-1 (was a
+    source grep): drive the REAL presence _run_inference.
+
+    * Night-stay rule ON (default): a stay arming GUEST without the room gate
+      is the NORMAL case -> the canary must stay silent (it is gated to the
+      rule-OFF condition). Reverting the guard to
+      ``if guest_armed and not guest_room_gate_armed:`` logs it here -> RED.
+    * Rule OFF: guest_armed == room gate, so the canary can never fire, and
+      a plain no-guest tick emits no WARNING (the 2525-hits-per-5h flood).
+    """
+    import guest_split_harness as H
+
+    logger_name = H.PR._LOGGER.name
+    with caplog.at_level(logging.DEBUG, logger=logger_name):
+        final, armed = H.drive_once(state=H.HS.HOME_DAY, rule_on=True,
+                                    stay=True)
+        assert final == H.HS.GUEST and armed == [True]
+        for rule_on in (True, False):
+            H.drive_once(state=H.HS.HOME_DAY, rule_on=rule_on)
+    canary = [r for r in caplog.records if "census-only branch" in r.getMessage()]
+    assert canary == []
+    assert [r for r in caplog.records
+            if r.name == logger_name and r.levelno >= logging.WARNING] == []
 
 
 # ---------------------------------------------------------------------------
