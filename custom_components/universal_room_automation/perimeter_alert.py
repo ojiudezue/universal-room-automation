@@ -139,10 +139,40 @@ from .const import (
     EXTERIOR_VEHICLE_SENSOR_SUFFIXES,
     EXTERIOR_ANIMAL_SENSOR_SUFFIXES,
     FACE_NAME_LATCH_TTL_S,
+    CONF_PERIMETER_ZONE_SENSORS,
+    PERIMETER_FRIGATE_BUS_SILENT_MIN_EDGES,
+    PERIMETER_FRIGATE_BUS_WINDOW_S,
+    CONF_PERIMETER_ZONE_AGREEMENT_DEMOTE,
+    DEFAULT_PERIMETER_ZONE_AGREEMENT_DEMOTE,
+    PERIMETER_ZONE_AGREEMENT_MAX_AGE_S,
+    CONF_PERIMETER_SINGLE_SOURCE_DEMOTE,
+    DEFAULT_PERIMETER_SINGLE_SOURCE_DEMOTE,
+    PERIMETER_AGREEMENT_SAVE_DELAY_S,
+    PERIMETER_SS_SETTLE_S,
+    PERIMETER_SS_MIN_AGREEMENT,
+    PERIMETER_SS_MIN_SAMPLES,
+    PERIMETER_SS_WINDOW_N,
+    CONF_PERIMETER_VLM_GATE,
+    DEFAULT_PERIMETER_VLM_GATE,
+    PERIMETER_VLM_GATE_SHADOW,
+    PERIMETER_VLM_GATE_ENFORCE,
+    PERIMETER_VLM_TRUSTED_TIERS,
+    CONF_PERIMETER_EGRESS_KNOWN_XCORR_GATE,
+    DEFAULT_PERIMETER_EGRESS_KNOWN_XCORR_GATE,
+    PERIMETER_EGRESS_IDENTITY_WAIT_S,
+    PERIMETER_EGRESS_IDENTITY_MATCH_S,
+    PERIMETER_EGRESS_KNOWN_MIN_CONF,
+    PERIMETER_EGRESS_FACE_NONFACE_WINDOW_S,
 )
 from .domain_coordinators.base import Severity
 from .domain_coordinators._nm_cycle_a import is_life_safety_hazard  # CIRCLING-LABEL-1: I3 gate uses this
-from .perimeter_enrichment import enrich_dispatched_alert
+from .perimeter_enrichment import enrich_dispatched_alert, enrich_with_verdict
+from .perimeter_fp_gates import (
+    AgreementTracker,
+    VERDICT_NO,
+    nvr_family,
+    zone_slug,
+)
 
 
 # CIRCLING-LABEL-1: strict escalation ordering for the
@@ -383,6 +413,43 @@ class PerimeterAlertManager:
         # SNAP-1 fix-up (F9b): last on-write prune wall-time to debounce
         # the O(N) sweep. Periodic 6h sweep is the age backstop.
         self._last_prune_ts: float = 0.0
+        # ---- PERIMETER-FP-STREET-NOISE-1 (v5.107.0) ----------------------
+        # D1: zone sensor -> {"camera", "camera_key", "frigate_name",
+        # "zone_slug"}; camera entity -> its mapped zone sensors; runtime
+        # camera-key overlay (zone stem -> camera key) consulted by
+        # _camera_key_for_sensor BEFORE the static alias table. All three
+        # are filled before the first _wire_camera call (plan M1).
+        self._zone_map: dict[str, dict[str, str]] = {}
+        self._zoned_cameras: dict[str, list[str]] = {}
+        self._zone_key_overrides: dict[str, str] = {}
+        # D5/D10.5: subscribed PERIMETER person legs per collapsed camera key
+        # (liveness test reads their states).
+        self._person_legs_by_key: dict[str, set[str]] = {}
+        # D2: latest Frigate person event per lowercase Frigate camera name
+        # + rolling bus / Frigate-edge timestamps per camera.
+        self._frigate_event_cache: dict[str, dict[str, Any]] = {}
+        self._frigate_bus_times: dict[str, list[float]] = {}
+        self._frigate_edge_times: dict[str, list[float]] = {}
+        self._frigate_bus_silent_warned: bool = False
+        # Gate decisions, one dict per camera key: {gate: decision}.
+        self._last_gate_decisions: dict[str, dict[str, Any]] = {}
+        # D5: agreement tracker + persistence + timers.
+        self._agreement = AgreementTracker(
+            PERIMETER_SS_WINDOW_N, self._SOLE_FIRE_WINDOW_S,
+        )
+        self._agreement_store: Any = None
+        self._agreement_load_ok: bool = False
+        self._unsub_agreement_timer: Any = None
+        # D5 / D10.5 hold timers: cooldown_key -> (unsub, future).
+        self._pending_holds: dict[str, tuple[Any, Any]] = {}
+        # D10: dual-role (perimeter AND egress) camera entities, and the
+        # last egress stamp per egress CAMERA entity.
+        self._dual_role_cameras: set[str] = set()
+        self._last_egress_time_by_camera: dict[str, datetime] = {}
+        # D10.5: recent `ura_person_egress_event` identities per camera key:
+        # list of (detection_ts, person_id, identity_confidence).
+        self._recent_egress_identity: dict[str, list[tuple[datetime, str, float]]] = {}
+        self._unsub_egress_identity: Any = None
 
     async def async_setup(self) -> None:
         """Set up perimeter camera listeners.
@@ -418,6 +485,13 @@ class PerimeterAlertManager:
 
         perimeter_infos = self._resolve_camera_infos(CONF_PERIMETER_CAMERAS)
         egress_infos = self._resolve_camera_infos(CONF_EGRESS_CAMERAS)
+        # PERIMETER-FP D10: role is derived from both lists (no new knob).
+        self._dual_role_cameras = (
+            {c for c, _i in perimeter_infos} & {c for c, _i in egress_infos}
+        )
+        # PERIMETER-FP D1: zone map + key overlay BEFORE any _wire_camera
+        # (the F7 tripwire and the linker allowlist derive keys during wiring).
+        self._build_zone_map(perimeter_infos)
 
         # Flatten to sensor lists + cache platforms / camera-entity mapping.
         # Cycle 2 fused-sourcing (F1-retirement insurance): also accept the
@@ -474,6 +548,22 @@ class PerimeterAlertManager:
                 return
             legs_found: list[str] = []
             engine_by_leg: dict[str, str] = {}
+            # PERIMETER-FP D1: one exclusion predicate at EVERY wiring site
+            # (base union, resolver legs, `_2` safety net, legacy fallback;
+            # _rescan_siblings applies the same predicate post-HA_STARTED).
+            _zoned = role == "perimeter" and bool(
+                self._zoned_cameras.get(cam_entity_id)
+            )
+
+            _dropped_engines: list[str] = []
+
+            def _excluded(eid: str, engine: str) -> bool:
+                hit = role == "perimeter" and self._is_excluded_zone_camera_leg(
+                    cam_entity_id, eid, engine,
+                )
+                if hit:
+                    _dropped_engines.append(engine)
+                return hit
             # Cycle-3 resolver-legs (2026-08-07): multi-integration leg
             # discovery via CameraResolver. Falls back to legacy base+`_2`
             # only when the kill switch is OFF or the resolver is
@@ -485,14 +575,27 @@ class PerimeterAlertManager:
                 # subscribed (defensive dedup — cooldown/in-flight collapse
                 # yields ONE alert regardless).
                 base_engine = "frigate" if base_bs.endswith("_person_occupancy") else (
-                    "protect" if base_bs.endswith("_person_detected") else "legacy"
+                    "protect" if base_bs.endswith("_person_detected") else (
+                        # PERIMETER-FP (v5.107.0): a `_2` configured base was
+                        # tagged "legacy", hiding its NVR family from the
+                        # D5/D10.5 liveness + corroboration checks. Same
+                        # `_2` rule as camera_resolver._engine_tag.
+                        "frigate2" if base_bs.endswith("_person_occupancy_2") else (
+                            "protect2" if base_bs.endswith("_person_detected_2")
+                            else "legacy"
+                        )
+                    )
                 )
-                if _append_sensor(target, seen, base_bs, info.platform or "", cam_entity_id):
+                if not _excluded(base_bs, base_engine) and _append_sensor(
+                    target, seen, base_bs, info.platform or "", cam_entity_id,
+                ):
                     legs_found.append(base_engine)
                     engine_by_leg[base_bs] = base_engine
                 for leg in resolver_legs:
                     plat = leg.integration or ""
-                    if _append_sensor(target, seen, leg.entity_id, plat, cam_entity_id):
+                    if not _excluded(leg.entity_id, leg.engine) and _append_sensor(
+                        target, seen, leg.entity_id, plat, cam_entity_id,
+                    ):
                         legs_found.append(leg.engine)
                         engine_by_leg[leg.entity_id] = leg.engine
                 # Safety net for entities that exist in hass.states but not
@@ -507,12 +610,15 @@ class PerimeterAlertManager:
                         _e2 = "frigate2" if base_bs.endswith("_person_occupancy") else (
                             "protect2" if base_bs.endswith("_person_detected") else "legacy2"
                         )
-                        if _append_sensor(target, seen, sibling, info.platform or "", cam_entity_id):
+                        if not _excluded(sibling, _e2) and _append_sensor(
+                            target, seen, sibling, info.platform or "", cam_entity_id,
+                        ):
                             legs_found.append(_e2)
                             engine_by_leg[sibling] = _e2
                     elif (
                         not self._entity_exists(sibling)
                         and role == "perimeter"
+                        and not _zoned  # D1 item 7: zone leg IS the Frigate leg
                         # F8 (cycle-3 fix-up 2026-08-07): only Frigate has
                         # `_N` sibling semantics; native-AI bases have none,
                         # so WARN-ing on them was a boot-storm.
@@ -541,11 +647,14 @@ class PerimeterAlertManager:
             else:
                 # Legacy fallback path (kill switch OFF / no manager).
                 for eid, engine in self._legacy_leg_fallback(base_bs, cam_entity_id, "person"):
-                    if _append_sensor(target, seen, eid, info.platform or "", cam_entity_id):
+                    if not _excluded(eid, engine) and _append_sensor(
+                        target, seen, eid, info.platform or "", cam_entity_id,
+                    ):
                         legs_found.append(engine)
                         engine_by_leg[eid] = engine
                 if (
                     role == "perimeter"
+                    and not _zoned
                     and len(legs_found) < 2
                     # F8 (cycle-3 fix-up 2026-08-07): only warn when the
                     # configured base is a Frigate `_person_occupancy`
@@ -556,8 +665,33 @@ class PerimeterAlertManager:
                         "PerimeterAlertManager: no `_2` sibling found for "
                         "%s — F2 host detections will not alert.", base_bs,
                     )
+            # PERIMETER-FP D1 item 3: the mapped zone sensors replace the
+            # camera's Frigate person legs. Engine tag: a zone lives on the
+            # SAME Frigate host as the camera leg it replaces, so it inherits
+            # that leg's tag (live zones are bare-named but Frigate-2 sourced:
+            # tagging them by the `_2` suffix alone would mislabel them
+            # "frigate"); with nothing dropped, fall back to the `_2` rule.
+            if _zoned:
+                _host2 = "frigate2" in _dropped_engines
+                for _zs in self._zoned_cameras.get(cam_entity_id, []):
+                    _zeng = "frigate2" if (_host2 or _zs.endswith("_2")) else "frigate"
+                    if _append_sensor(
+                        target, seen, _zs, CAMERA_PLATFORM_FRIGATE, cam_entity_id,
+                    ):
+                        legs_found.append(_zeng)
+                        engine_by_leg[_zs] = _zeng
+                _LOGGER.info(
+                    "PerimeterAlertManager: perimeter camera %s Frigate leg "
+                    "is zone sensor(s) %s (camera-level Frigate legs dropped)",
+                    cam_entity_id, self._zoned_cameras.get(cam_entity_id),
+                )
             # Record engine tags for the disagreement telemetry.
             self._sensor_engine.update(engine_by_leg)
+            # PERIMETER-FP D5/D10.5: person legs per camera key (liveness).
+            if role == "perimeter":
+                for _eid in engine_by_leg:
+                    _ck = self._camera_key_for_sensor(_eid) or _eid
+                    self._person_legs_by_key.setdefault(_ck, set()).add(_eid)
             # A-L4 / B-LOW-B4: coverage inventory — grouped BY ENGINE per
             # the cycle-3 headline scope.
             if PERIMETER_MULTI_ENGINE_LEGS_ENABLED:
@@ -760,6 +894,11 @@ class PerimeterAlertManager:
                 new_state = event.data.get("new_state")
                 if new_state and new_state.state == "on":
                     self._last_egress_time = dt_util.now()
+                    # PERIMETER-FP D10.1: per-camera stamp for the role-aware
+                    # gate (the global stamp above is unchanged).
+                    self._note_egress_stamp(
+                        event.data.get("entity_id", ""), self._last_egress_time,
+                    )
                     _LOGGER.debug(
                         "PerimeterAlertManager: egress activity recorded at %s",
                         self._last_egress_time.isoformat(),
@@ -800,6 +939,10 @@ class PerimeterAlertManager:
                 #     erased the id exactly when it was needed. The id
                 #     now persists with FRIGATE_SNAPSHOT_ID_TTL_S.
                 cam_key = str(camera).strip().lower()
+                # PERIMETER-FP D2: richer per-camera record + bus counter.
+                # Observability + D3 input only; the id cache below is
+                # unchanged (snapshot readers depend on it).
+                self._note_frigate_event(cam_key, msg_type, after)
                 if msg_type == "end":
                     return
                 if event_id:
@@ -812,6 +955,21 @@ class PerimeterAlertManager:
         self._unsub_frigate_events = self.hass.bus.async_listen(
             FRIGATE_EVENTS_BUS_EVENT, _on_frigate_event
         )
+
+        # PERIMETER-FP D10.5: cache egress identities (only consumed for
+        # dual-role cameras' own alerts). Listener exists only when such a
+        # camera is configured, so today's install registers nothing.
+        if self._dual_role_cameras:
+            @callback
+            def _on_egress_identity(event: Event) -> None:
+                self._note_egress_identity(event.data or {})
+
+            self._unsub_egress_identity = self.hass.bus.async_listen(
+                "ura_person_egress_event", _on_egress_identity,
+            )
+
+        # PERIMETER-FP D5: load the persisted agreement tracker.
+        await self._async_load_agreement()
 
         # Cycle 2: vehicle + animal ingress paths. Vehicle rising edges may
         # dispatch a deep-night alert (_async_handle_vehicle_trigger); animal
@@ -826,9 +984,13 @@ class PerimeterAlertManager:
         _a_seen: set[str] = set()
         for cam_entity_id, info in perimeter_infos:
             base_bs = info.person_binary_sensor or ""
-            v_legs = self._resolve_legs(cam_entity_id, "vehicle")
+            # PERIMETER-FP D10.3 (rev 2, M7): dual-role cameras get NO
+            # vehicle legs until PERIMETER-EGRESS-VEHICLE-ANIMAL-1 decides.
+            # Animal legs stay (they only feed the linker).
+            _dual = cam_entity_id in self._dual_role_cameras
+            v_legs = [] if _dual else self._resolve_legs(cam_entity_id, "vehicle")
             a_legs = self._resolve_legs(cam_entity_id, "animal")
-            if not v_legs and base_bs:
+            if not v_legs and base_bs and not _dual:
                 v_legs = [type("L", (), {"entity_id": eid, "engine": eng,
                                           "integration": "", "device_id": ""})()
                           for (eid, eng) in self._legacy_leg_fallback(
@@ -1048,6 +1210,34 @@ class PerimeterAlertManager:
         self._pending_dispatches.clear()
         self._dispatch_in_flight.clear()
 
+        # PERIMETER-FP D5/D10.5: discharge every pending hold (the waiting
+        # handler wakes, sees `_active` False and drops its dispatch), the
+        # agreement timer and the egress identity listener.
+        self._active = False
+        for _k, (_unsub, _fut) in list(self._pending_holds.items()):
+            try:
+                _unsub()
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                if _fut is not None and not _fut.done():
+                    _fut.set_result(None)
+            except Exception:  # noqa: BLE001
+                pass
+        self._pending_holds.clear()
+        if self._unsub_agreement_timer is not None:
+            try:
+                self._unsub_agreement_timer()
+            except Exception:  # noqa: BLE001
+                pass
+            self._unsub_agreement_timer = None
+        if self._unsub_egress_identity is not None:
+            try:
+                self._unsub_egress_identity()
+            except Exception:  # noqa: BLE001
+                pass
+            self._unsub_egress_identity = None
+
         # SNAP-1 fix-up (F1): cancel any in-flight edge-capture tasks.
         for _key, _entry in list(self._edge_captures.items()):
             try:
@@ -1071,8 +1261,11 @@ class PerimeterAlertManager:
         # _is_in_vehicle_alert_hours at :2041 (§D6, renamed keys).
 
         # --- 2. Check egress suppression window ---
-        if self._last_egress_time is not None:
-            seconds_since_egress = (now - self._last_egress_time).total_seconds()
+        # PERIMETER-FP D10.1 (INV-EGRESS-SELF): a dual-role camera ignores
+        # stamps from every dual-role camera; others see the global stamp.
+        _egress_ts = self._egress_stamp_for(entity_id)
+        if _egress_ts is not None:
+            seconds_since_egress = (now - _egress_ts).total_seconds()
             if seconds_since_egress <= EGRESS_SUPPRESSION_WINDOW_SECONDS:
                 _LOGGER.debug(
                     "PerimeterAlertManager: alert suppressed — egress crossing "
@@ -1321,6 +1514,52 @@ class PerimeterAlertManager:
                 exc_info=True,
             )
 
+        # --- 4d. PERIMETER-FP gates (demote-only, floor LOW, never silence).
+        # D3 zone agreement, then D5 single-source OR (dual-role camera)
+        # D10.5 known/xcorr. D5/D10.5 may HOLD the in-flight key across a
+        # bounded settle; `_held` tracks that so every exit releases it.
+        severity = self._apply_zone_agreement_gate(
+            cooldown_key, entity_id, now, severity, exemption_active,
+        )
+        _held = False
+        if self._is_dual_role_sensor(entity_id):
+            severity, _held, _proceed = await self._apply_egress_identity_gate(
+                cooldown_key, entity_id, now, severity, exemption_active,
+            )
+        else:
+            severity, _held, _proceed = await self._apply_single_source_gate(
+                cooldown_key, entity_id, now, severity, exemption_active,
+            )
+        if not _proceed:
+            # Teardown / HA stopping during a hold: drop, as at :_do_dispatch.
+            if _held:
+                self._dispatch_in_flight.discard(cooldown_key)
+            self._rollback_transition_exemption(
+                cooldown_key=cooldown_key, cls=exempted_class, now=now,
+            )
+            return
+        try:
+            await self._async_finish_perimeter_dispatch(
+                entity_id=entity_id, now=now, severity=severity,
+                cooldown_key=cooldown_key, exempted_class=exempted_class,
+                exemption_active=exemption_active, held=_held,
+            )
+        except BaseException:
+            if _held:
+                self._dispatch_in_flight.discard(cooldown_key)
+            raise
+
+    async def _async_finish_perimeter_dispatch(
+        self, *, entity_id: str, now: datetime, severity: Severity,
+        cooldown_key: str, exempted_class: str | None,
+        exemption_active: bool, held: bool,
+    ) -> None:
+        """Snapshot -> message -> enrichment (+D6) -> dispatch.
+
+        Body moved verbatim from `_async_handle_perimeter_trigger` (v5.107.0)
+        so a D5/D10.5 hold can be released on any exception path.
+        """
+
         # --- 5. Resolve snapshot URL (D4) ---
         snapshot_url, delay_s = self._resolve_snapshot_url_and_delay(entity_id)
         # SNAP-1: capture an at-detection snapshot to a LOCAL FILE (best
@@ -1459,6 +1698,8 @@ class PerimeterAlertManager:
             self._rollback_transition_exemption(
                 cooldown_key=cooldown_key, cls=exempted_class, now=now,
             )
+            if held:  # PERIMETER-FP: release a D5/D10.5 hold
+                self._dispatch_in_flight.discard(cooldown_key)
             return
 
         # --- 6b. CONSOL-1 §D3: universal llmvision enrichment.
@@ -1467,9 +1708,21 @@ class PerimeterAlertManager:
         # success / fall-through / pre-cycle path on the ledger side.
         enriched: str | None = None
         try:
-            enriched = await enrich_dispatched_alert(
-                self.hass, snapshot_path, entity_id,
-            )
+            # PERIMETER-FP D6: shadow/enforce use the verdict prompt (one
+            # call). Off = the exact pre-cycle call (byte-identical).
+            _vlm_mode = self._vlm_gate_mode()
+            if _vlm_mode in (PERIMETER_VLM_GATE_SHADOW, PERIMETER_VLM_GATE_ENFORCE):
+                enriched, _verdict = await enrich_with_verdict(
+                    self.hass, snapshot_path, entity_id,
+                )
+                severity = self._apply_vlm_gate(
+                    cooldown_key, entity_id, severity, _verdict,
+                    snapshot_path, exemption_active, _vlm_mode,
+                )
+            else:
+                enriched = await enrich_dispatched_alert(
+                    self.hass, snapshot_path, entity_id,
+                )
         except Exception:  # noqa: BLE001 — INV-ENRICH-NEVER-SILENCES
             _LOGGER.debug(
                 "PerimeterAlertManager: enrichment adapter escaped an "
@@ -1760,7 +2013,12 @@ class PerimeterAlertManager:
             # Derive frigate camera name from the person binary_sensor id:
             #   binary_sensor.<camera_name>_person_occupancy
             cam_name = None
-            if sensor_entity_id.startswith("binary_sensor."):
+            # PERIMETER-FP D1 item 5: a zone sensor's Frigate camera name
+            # comes from the zone map (its own stem is the ZONE name).
+            _zinfo = getattr(self, "_zone_map", {}).get(sensor_entity_id)
+            if _zinfo:
+                cam_name = _zinfo.get("frigate_name")
+            elif sensor_entity_id.startswith("binary_sensor."):
                 base = sensor_entity_id[len("binary_sensor."):]
                 # Fix-up (2026-08-06, B-LOW-B3): route through the shared
                 # `_strip_person_family_suffixes` helper so this Frigate
@@ -1869,6 +2127,11 @@ class PerimeterAlertManager:
             # the adjacency-graph key (e.g. armcrestpooloverhead → armcrest).
             # F15 (cycle-3 fix-up 2026-08-07): case-insensitive both sides.
             slug_lc = slug.lower() if isinstance(slug, str) else slug
+            # PERIMETER-FP D1 item 4: runtime zone overlay BEFORE the static
+            # alias table (never mutates the const). Empty when no zones.
+            _zone_key = getattr(self, "_zone_key_overrides", {}).get(slug_lc)
+            if _zone_key:
+                return _zone_key
             return _EXTERIOR_CAMERA_KEY_ALIASES_LC.get(slug_lc, slug)
         except Exception:  # noqa: BLE001
             return None
@@ -1939,7 +2202,11 @@ class PerimeterAlertManager:
                     base_bs, camera_entity_id, family,
                 )
             }
-            missing = legacy_would - subscribed
+            missing = {
+                m for m in (legacy_would - subscribed)
+                # PERIMETER-FP D1 item 6: deliberately excluded legs.
+                if not self._is_excluded_zone_camera_leg(camera_entity_id, m, "")
+            }
             if missing:
                 _LOGGER.warning(
                     "PerimeterAlertManager: resolver leg set for %s is NOT a "
@@ -2314,7 +2581,10 @@ class PerimeterAlertManager:
             for (eng, ts) in recent:
                 if ts.timestamp() < fires_cutoff:
                     continue
-                if eng and eng != current_engine:
+                # PERIMETER-FP D1 item 8 (§0.6.4): compare NVR FAMILIES, not
+                # engine strings, so a zone leg (frigate) and a leftover
+                # camera leg (frigate2) never "corroborate" each other.
+                if eng and nvr_family(eng) != nvr_family(current_engine):
                     sibling = True
                     break
         except Exception:  # noqa: BLE001
@@ -2504,6 +2774,9 @@ class PerimeterAlertManager:
             same_engine_recent = any(e == engine for (e, _t) in recent)
             recent.append((engine, now))
             self._recent_fires[cam_key] = recent
+            # PERIMETER-FP D5: forward-scan hook for open agreement samples.
+            if hasattr(self, "_agreement"):
+                self._agreement_note_fire(cam_key, engine, now)
             if not other_engines and not same_engine_recent:
                 self._leg_sole_fire_counts[(cam_key, engine)] = (
                     self._leg_sole_fire_counts.get((cam_key, engine), 0) + 1
@@ -2531,6 +2804,12 @@ class PerimeterAlertManager:
                 # base/`_2`, native AI) picked up via resolver.
                 for leg in self._resolve_legs(cam_entity_id, "person"):
                     if leg.entity_id in existing:
+                        continue
+                    # PERIMETER-FP D1 (rev 2, H3): the zone exclusion also
+                    # holds post-HA_STARTED, or the dropped leg returns.
+                    if self._is_excluded_zone_camera_leg(
+                        cam_entity_id, leg.entity_id, leg.engine,
+                    ):
                         continue
                     self._sensor_to_camera[leg.entity_id] = cam_entity_id
                     self._sensor_platforms[leg.entity_id] = leg.integration or ""
@@ -3879,6 +4158,8 @@ class PerimeterAlertManager:
         # rising edge that survived the boot-settle gate. Observability
         # only; never gates dispatch.
         self._record_leg_fire(entity_id)
+        # PERIMETER-FP D2: Frigate-leg edge counter (bus-silent trip-wire).
+        self._note_frigate_leg_edge(entity_id)
         # SNAP-1 fix-up (F1): kick off at-detection capture NOW, at the
         # sensor rising edge — before alert-hours / egress / cooldown /
         # in-flight / severity / linker checks. The handler consumes
@@ -3914,6 +4195,798 @@ class PerimeterAlertManager:
         self.hass.async_create_task(
             self._async_handle_perimeter_trigger(entity_id)
         )
+
+    # ------------------------------------------------------------------
+    # PERIMETER-FP-STREET-NOISE-1 (v5.107.0) — gates D1-D6, D10
+    # PLANNING_perimeter_fp_build_2026_11.md. Every gate DEMOTES ONLY
+    # (floor LOW) and fails open on missing / stale / malformed input.
+    # ------------------------------------------------------------------
+
+    _FRIGATE_EVENT_FIELDS: tuple[str, ...] = (
+        "id", "score", "top_score", "box", "current_zones",
+        "entered_zones", "stationary",
+    )
+
+    @staticmethod
+    def _camera_slug_stem(camera_entity_id: str) -> str:
+        """camera.<slug>[channel suffix] -> lowercase slug stem."""
+        if not camera_entity_id or not camera_entity_id.startswith("camera."):
+            return ""
+        slug = camera_entity_id[len("camera."):]
+        for suf in CAMERA_RESOLUTION_CHANNEL_SUFFIXES:
+            if slug.endswith(suf):
+                slug = slug[: -len(suf)]
+                break
+        return slug.lower()
+
+    def _build_zone_map(self, perimeter_infos: list) -> None:
+        """D1 item 2: map each configured zone sensor to ONE perimeter camera.
+
+        Rungs: (a) the zone stem starts with `<camera stem>_` for exactly one
+        camera (longest stem wins; a tie between cameras = no match);
+        (b) EXTERIOR_CAMERA_KEY_ALIASES entry for the zone stem naming a
+        configured camera's key. No match: WARN, the sensor is not
+        subscribed and the camera keeps today's legs. The Frigate private
+        config read (rev-1 rung) is PARKED (load-order nondeterminism).
+        """
+        self._zone_map = {}
+        self._zoned_cameras = {}
+        self._zone_key_overrides = {}
+        try:
+            zones = list(
+                self._get_integration_config().get(CONF_PERIMETER_ZONE_SENSORS) or []
+            )
+        except Exception:  # noqa: BLE001
+            zones = []
+        if not zones:
+            return
+        # camera entity -> candidate (unaliased, lowercase) stems.
+        cand: dict[str, set[str]] = {}
+        for cam_entity_id, info in perimeter_infos:
+            stems = cand.setdefault(cam_entity_id, set())
+            base_bs = getattr(info, "person_binary_sensor", "") or ""
+            if base_bs.startswith("binary_sensor."):
+                st, _m = self._strip_person_family_suffixes(
+                    base_bs[len("binary_sensor."):]
+                )
+                if st:
+                    stems.add(st.lower())
+            cs = self._camera_slug_stem(cam_entity_id)
+            if cs:
+                stems.add(cs)
+        for zone in zones:
+            if not isinstance(zone, str) or not zone.startswith("binary_sensor."):
+                continue
+            zstem, _m = self._strip_person_family_suffixes(
+                zone[len("binary_sensor."):]
+            )
+            if not zstem:
+                _LOGGER.warning(
+                    "PerimeterAlertManager: zone sensor %s is not a person "
+                    "sensor — ignored", zone,
+                )
+                continue
+            zstem = zstem.lower()
+            best_len = -1
+            best: list[tuple[str, str]] = []  # (camera, stem)
+            for cam_entity_id, stems in cand.items():
+                for st in stems:
+                    if zstem.startswith(f"{st}_"):
+                        if len(st) > best_len:
+                            best_len, best = len(st), [(cam_entity_id, st)]
+                        elif len(st) == best_len:
+                            best.append((cam_entity_id, st))
+            match: tuple[str, str] | None = None
+            if best and len({c for c, _s in best}) == 1:
+                match = best[0]
+            if match is None:
+                alias = _EXTERIOR_CAMERA_KEY_ALIASES_LC.get(zstem)
+                if alias:
+                    hits = [
+                        (c, st) for c, stems in cand.items() for st in stems
+                        if _EXTERIOR_CAMERA_KEY_ALIASES_LC.get(st, st) == alias
+                    ]
+                    if hits and len({c for c, _s in hits}) == 1:
+                        match = hits[0]
+            if match is None:
+                _LOGGER.warning(
+                    "PerimeterAlertManager: zone sensor %s maps to no unique "
+                    "perimeter camera — not subscribed; camera legs unchanged",
+                    zone,
+                )
+                continue
+            cam_entity_id, stem = match
+            cam_key = _EXTERIOR_CAMERA_KEY_ALIASES_LC.get(stem, stem)
+            self._zone_map[zone] = {
+                "camera": cam_entity_id,
+                "camera_key": cam_key,
+                "frigate_name": stem,
+                "zone_slug": zone_slug(zstem),
+            }
+            self._zoned_cameras.setdefault(cam_entity_id, []).append(zone)
+            self._zone_key_overrides[zstem] = cam_key
+
+    @staticmethod
+    def _is_frigate_person_entity(entity_id: str) -> bool:
+        return entity_id.endswith("_person_occupancy") or entity_id.endswith(
+            "_person_occupancy_2"
+        )
+
+    def _is_excluded_zone_camera_leg(
+        self, cam_entity_id: str, entity_id: str, engine: str,
+    ) -> bool:
+        """D1: True for a camera-level Frigate person leg of a zoned camera."""
+        zones = getattr(self, "_zoned_cameras", {}).get(cam_entity_id)
+        if not zones or entity_id in zones:
+            return False
+        return nvr_family(engine) == "frigate" or self._is_frigate_person_entity(
+            entity_id
+        )
+
+    # ---- D2 -----------------------------------------------------------
+    def _note_frigate_event(
+        self, cam_name: str, msg_type: str, after: dict,
+    ) -> None:
+        try:
+            now = dt_util.now()
+            rec = {k: after.get(k) for k in self._FRIGATE_EVENT_FIELDS}
+            rec["type"] = msg_type or None
+            rec["received_at"] = now
+            self._frigate_event_cache[cam_name] = rec
+            self._append_window(self._frigate_bus_times, cam_name, now.timestamp())
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("PerimeterAlertManager: D2 cache failed", exc_info=True)
+
+    @staticmethod
+    def _append_window(store: dict[str, list[float]], key: str, ts: float) -> None:
+        cutoff = ts - float(PERIMETER_FRIGATE_BUS_WINDOW_S)
+        lst = [t for t in store.get(key, []) if t >= cutoff]
+        lst.append(ts)
+        store[key] = lst[-5000:]
+
+    def _frigate_name_for_sensor(self, entity_id: str) -> str:
+        z = self._zone_map.get(entity_id)
+        if z:
+            return z.get("frigate_name") or ""
+        if not entity_id.startswith("binary_sensor."):
+            return ""
+        st, _m = self._strip_person_family_suffixes(entity_id[len("binary_sensor."):])
+        return (st or "").lower()
+
+    def _note_frigate_leg_edge(self, entity_id: str) -> None:
+        """D2: count Frigate-family person-leg rising edges; bus-silent WARN."""
+        try:
+            if nvr_family(self._sensor_engine.get(entity_id)) != "frigate":
+                return
+            name = self._frigate_name_for_sensor(entity_id)
+            if not name:
+                return
+            now_ts = dt_util.now().timestamp()
+            self._append_window(self._frigate_edge_times, name, now_ts)
+            if (
+                PERIMETER_FRIGATE_BUS_SILENT_MIN_EDGES > 0
+                and not self._frigate_bus_silent_warned
+            ):
+                cutoff = now_ts - float(PERIMETER_FRIGATE_BUS_WINDOW_S)
+                edges = sum(
+                    1 for v in self._frigate_edge_times.values() for t in v if t >= cutoff
+                )
+                bus = sum(
+                    1 for v in self._frigate_bus_times.values() for t in v if t >= cutoff
+                )
+                if edges >= PERIMETER_FRIGATE_BUS_SILENT_MIN_EDGES and bus == 0:
+                    self._frigate_bus_silent_warned = True
+                    _LOGGER.warning(
+                        "PerimeterAlertManager: Frigate person legs rose %d "
+                        "times in %ds with ZERO frigate_events bus messages — "
+                        "the MQTT-to-frigate_events bridge automation looks "
+                        "broken (D9 revival trigger).",
+                        edges, int(PERIMETER_FRIGATE_BUS_WINDOW_S),
+                    )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("PerimeterAlertManager: D2 edge count failed", exc_info=True)
+
+    def frigate_bus_stats(self) -> dict[str, dict[str, Any]]:
+        """D2 diagnostic (display only)."""
+        cutoff = dt_util.now().timestamp() - float(PERIMETER_FRIGATE_BUS_WINDOW_S)
+        out: dict[str, dict[str, Any]] = {}
+        for name in set(self._frigate_bus_times) | set(self._frigate_edge_times) | set(
+            self._frigate_event_cache
+        ):
+            rec = dict(self._frigate_event_cache.get(name) or {})
+            if isinstance(rec.get("received_at"), datetime):
+                rec["received_at"] = rec["received_at"].isoformat()
+            out[name] = {
+                "frigate_events_24h": sum(
+                    1 for t in self._frigate_bus_times.get(name, []) if t >= cutoff
+                ),
+                "frigate_leg_edges_24h": sum(
+                    1 for t in self._frigate_edge_times.get(name, []) if t >= cutoff
+                ),
+                "last_event": rec or None,
+            }
+        return out
+
+    # ---- shared -------------------------------------------------------
+    def _options_flag(self, key: str, default: Any) -> Any:
+        """Fresh-read an integration option (switch / select backed)."""
+        try:
+            return self._get_integration_config().get(key, default)
+        except Exception:  # noqa: BLE001
+            return default
+
+    def _record_gate(self, cam_key: str, decision: dict[str, Any]) -> None:
+        try:
+            self._last_gate_decisions.setdefault(cam_key, {})[
+                decision.get("gate", "?")
+            ] = decision
+        except Exception:  # noqa: BLE001
+            pass
+
+    def gate_decision_stats(self) -> dict[str, Any]:
+        """Diagnostic sensor surface: last decision per gate per camera,
+        D5 agreement table, D2 bus counters. Display only."""
+        return {
+            "gate_decisions_by_camera": dict(self._last_gate_decisions),
+            "agreement_by_camera": self._agreement.stats(),
+            "agreement_store_loaded": self._agreement_load_ok,
+            "frigate_bus_by_camera": self.frigate_bus_stats(),
+            "zone_map": {k: dict(v) for k, v in self._zone_map.items()},
+            "dual_role_cameras": sorted(self._dual_role_cameras),
+        }
+
+    def _exemption_shields(
+        self, cam_key: str, now: datetime, exemption_active: bool,
+    ) -> bool:
+        """INV-FP-EXEMPTION: same predicate as the burst gate."""
+        if not exemption_active:
+            return False
+        try:
+            lk = self.hass.data.get(DOMAIN, {}).get("exterior_track_linker")
+            t = lk.find_owning_track(cam_key, "person", now) if lk is not None else None
+            cls = lk.classify(t) if t is not None else None
+        except Exception:  # noqa: BLE001
+            cls = None
+        return cls in ("approach", "circling")
+
+    @staticmethod
+    def _demote(severity: Severity) -> Severity:
+        return max(Severity.LOW, min(severity, Severity.LOW))
+
+    def _families_live(self, cam_key: str) -> set[str]:
+        """NVR families with >=1 subscribed person leg whose state is live."""
+        out: set[str] = set()
+        for eid in self._person_legs_by_key.get(cam_key, set()):
+            try:
+                st = self.hass.states.get(eid)
+                val = getattr(st, "state", None) if st is not None else None
+            except Exception:  # noqa: BLE001
+                val = None
+            if not isinstance(val, str) or val in ("unavailable", "unknown", ""):
+                continue
+            out.add(nvr_family(self._sensor_engine.get(eid)))
+        return out
+
+    def _other_family_fire_since(
+        self, cam_key: str, family: str, since_ts: float,
+    ) -> bool:
+        try:
+            for eng, ts in self._recent_fires.get(cam_key, []):
+                if ts.timestamp() < since_ts:
+                    continue
+                f = nvr_family(eng)
+                if f in ("frigate", "protect") and f != family:
+                    return True
+        except Exception:  # noqa: BLE001
+            return False
+        return False
+
+    def _adjacent_activity(self, cam_key: str, now: datetime) -> bool:
+        try:
+            lk = self.hass.data.get(DOMAIN, {}).get("exterior_track_linker")
+            if lk is not None and hasattr(lk, "has_recent_adjacent_activity"):
+                return bool(lk.has_recent_adjacent_activity(
+                    cam_key, float(self._SOLE_FIRE_WINDOW_S), now,
+                ))
+        except Exception:  # noqa: BLE001
+            return False
+        return False
+
+    def _prior_alerts_in_window(self, cam_key: str, now: datetime) -> int:
+        """D5 (rev 2, H2): counted here, NOT read off the burst decision."""
+        cutoff = now.timestamp() - float(PERIMETER_BURST_WINDOW_S)
+        try:
+            return sum(
+                1 for ts in self._recent_alerts_by_camera.get(cam_key, [])
+                if ts.timestamp() >= cutoff
+            )
+        except Exception:  # noqa: BLE001
+            return 0
+
+    async def _async_hold(self, cooldown_key: str, seconds: float) -> bool:
+        """Hold the dispatch for `seconds` with the in-flight key ALREADY
+        added by the caller (rev 2, H1). Discharges: the tracked timer,
+        teardown (resolves the future), HA stopping. Returns True when the
+        caller may proceed; on False / exception the key is released."""
+        try:
+            if seconds > 0:
+                loop = asyncio.get_running_loop()
+                fut = loop.create_future()
+
+                @callback
+                def _release(_now: Any = None) -> None:
+                    if not fut.done():
+                        fut.set_result(None)
+
+                unsub = async_call_later(self.hass, seconds, _release)
+                self._pending_holds[cooldown_key] = (unsub, fut)
+                try:
+                    await fut
+                finally:
+                    self._pending_holds.pop(cooldown_key, None)
+        except BaseException:
+            self._dispatch_in_flight.discard(cooldown_key)
+            raise
+        ok = self._active and not getattr(self.hass, "is_stopping", False)
+        if not ok:
+            self._dispatch_in_flight.discard(cooldown_key)
+        return ok
+
+    # ---- D3 -----------------------------------------------------------
+    def _apply_zone_agreement_gate(
+        self, cam_key: str, entity_id: str, now: datetime,
+        severity: Severity, exemption_active: bool,
+    ) -> Severity:
+        try:
+            cam = self._sensor_to_camera.get(entity_id, "")
+            zones = self._zoned_cameras.get(cam)
+            if not zones:
+                return severity  # unzoned camera: never qualifies, no record
+            infos = [self._zone_map[z] for z in zones if z in self._zone_map]
+            frigate_name = infos[0]["frigate_name"] if infos else ""
+            wanted = {i["zone_slug"] for i in infos}
+            enforce = bool(self._options_flag(
+                CONF_PERIMETER_ZONE_AGREEMENT_DEMOTE,
+                DEFAULT_PERIMETER_ZONE_AGREEMENT_DEMOTE,
+            ))
+            d: dict[str, Any] = {
+                "gate": "zone_agreement", "at": now.isoformat(),
+                "entity_id": entity_id, "enforce": enforce,
+                "would_demote": False, "demoted": False, "reason": "",
+                "severity_before": severity.name,
+            }
+            rec = self._frigate_event_cache.get(frigate_name)
+            entered = rec.get("entered_zones") if rec else None
+            age = None
+            if rec and isinstance(rec.get("received_at"), datetime):
+                age = abs((now - rec["received_at"]).total_seconds())
+            d["inputs"] = {"frigate_name": frigate_name, "zones": sorted(wanted),
+                           "entered_zones": entered, "event_age_s": age}
+            if PERIMETER_ZONE_AGREEMENT_MAX_AGE_S <= 0:
+                d["reason"] = "disabled"
+            elif self._exemption_shields(cam_key, now, exemption_active):
+                d["reason"] = "classification_transition_exemption"
+            elif rec is None or age is None:
+                d["reason"] = "no_frigate_event"
+            elif age > PERIMETER_ZONE_AGREEMENT_MAX_AGE_S:
+                d["reason"] = "stale_event"
+            elif not isinstance(entered, list):
+                d["reason"] = "entered_zones_missing"
+            elif any(zone_slug(z) in wanted for z in entered):
+                d["reason"] = "in_zone"
+            else:
+                d["would_demote"] = True
+                d["reason"] = "outside_property_zone"
+                if enforce:
+                    new = self._demote(severity)
+                    d["demoted"] = new != severity
+                    severity = new
+            d["severity_after"] = severity.name
+            self._record_gate(cam_key, d)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("PerimeterAlertManager: D3 raised (fail-open)", exc_info=True)
+        return severity
+
+    # ---- D5 -----------------------------------------------------------
+    async def _apply_single_source_gate(
+        self, cam_key: str, entity_id: str, now: datetime,
+        severity: Severity, exemption_active: bool,
+    ) -> tuple[Severity, bool, bool]:
+        """Return (severity, held, proceed)."""
+        held = False
+        d: dict[str, Any] = {
+            "gate": "single_source", "at": now.isoformat(),
+            "entity_id": entity_id, "would_demote": False, "demoted": False,
+            "reason": "", "severity_before": severity.name,
+        }
+        try:
+            enforce = bool(self._options_flag(
+                CONF_PERIMETER_SINGLE_SOURCE_DEMOTE,
+                DEFAULT_PERIMETER_SINGLE_SOURCE_DEMOTE,
+            ))
+            d["enforce"] = enforce
+            family = nvr_family(self._sensor_engine.get(entity_id))
+            live = self._families_live(cam_key)
+            both = {"frigate", "protect"} <= live
+            lookback_from = now.timestamp() - float(self._SOLE_FIRE_WINDOW_S)
+            seen_back = self._other_family_fire_since(cam_key, family, lookback_from)
+            if both and family in ("frigate", "protect"):
+                self._agreement_open(cam_key, family, now, seen_back)
+            samples = self._agreement.samples(cam_key)
+            rate = self._agreement.rate(cam_key)
+            prior = self._prior_alerts_in_window(cam_key, now)
+            min_samples = max(1, int(PERIMETER_SS_MIN_SAMPLES))
+            d["inputs"] = {"families_live": sorted(live), "samples": samples,
+                           "agreement_rate": rate, "prior_alerts": prior,
+                           "other_family_lookback": seen_back}
+            if self._exemption_shields(cam_key, now, exemption_active):
+                d["reason"] = "classification_transition_exemption"
+            elif not both:
+                d["reason"] = "single_nvr"
+            elif samples < min_samples or rate is None or rate < PERIMETER_SS_MIN_AGREEMENT:
+                d["reason"] = "not_eligible"
+            elif prior > 0:
+                d["reason"] = "not_first_alert"
+            elif seen_back:
+                d["reason"] = "corroborated_lookback"
+            else:
+                d["would_demote"] = True
+                if not enforce:
+                    d["reason"] = "shadow"
+                else:
+                    # H1: in-flight BEFORE the await so the sibling engine's
+                    # edge cannot start a parallel dispatch.
+                    self._dispatch_in_flight.add(cam_key)
+                    held = True
+                    if not await self._async_hold(cam_key, float(PERIMETER_SS_SETTLE_S)):
+                        d["reason"] = "dropped_teardown"
+                        self._record_gate(cam_key, d)
+                        return severity, True, False
+                    if self._other_family_fire_since(cam_key, family, lookback_from):
+                        d["would_demote"] = False
+                        d["reason"] = "corroborated_settle"
+                    elif self._adjacent_activity(cam_key, dt_util.now()):
+                        d["would_demote"] = False
+                        d["reason"] = "adjacent_activity"
+                    else:
+                        new = self._demote(severity)
+                        d["demoted"] = new != severity
+                        d["reason"] = "single_source"
+                        severity = new
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("PerimeterAlertManager: D5 raised (fail-open)", exc_info=True)
+        d["severity_after"] = severity.name
+        self._record_gate(cam_key, d)
+        return severity, held, True
+
+    # D5 tracker plumbing ------------------------------------------------
+    def _agreement_open(
+        self, cam_key: str, family: str, now: datetime, seen_back: bool,
+    ) -> None:
+        self._agreement.open_sample(cam_key, now, family, seen_back)
+        self._agreement_schedule()
+
+    def _agreement_note_fire(self, cam_key: str, engine: str, ts: datetime) -> None:
+        try:
+            self._agreement.note_fire(cam_key, nvr_family(engine), ts)
+            if self._agreement.finalize_due(ts):
+                self._agreement_save()
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _agreement_schedule(self) -> None:
+        if self._unsub_agreement_timer is not None or not self._agreement.has_pending:
+            return
+        try:
+            self._unsub_agreement_timer = async_call_later(
+                self.hass, float(self._SOLE_FIRE_WINDOW_S) + 1.0,
+                self._on_agreement_timer,
+            )
+        except Exception:  # noqa: BLE001
+            self._unsub_agreement_timer = None
+
+    @callback
+    def _on_agreement_timer(self, _now: Any = None) -> None:
+        self._unsub_agreement_timer = None
+        try:
+            if self._agreement.finalize_due(dt_util.now()):
+                self._agreement_save()
+        except Exception:  # noqa: BLE001
+            pass
+        if self._active:
+            self._agreement_schedule()
+
+    async def _async_load_agreement(self) -> None:
+        """Load failure / corrupt store -> empty tracker (not eligible)."""
+        try:
+            from homeassistant.helpers.storage import Store  # noqa: PLC0415
+            self._agreement_store = Store(
+                self.hass, 1, f"{DOMAIN}.perimeter_agreement",
+            )
+            data = await self._agreement_store.async_load()
+            self._agreement_load_ok = (
+                self._agreement.load_dict(data) if data is not None else True
+            )
+        except Exception:  # noqa: BLE001
+            self._agreement_load_ok = False
+            _LOGGER.debug("PerimeterAlertManager: agreement store load failed",
+                          exc_info=True)
+
+    def _agreement_save(self) -> None:
+        if self._agreement_store is None:
+            return
+        try:
+            self._agreement_store.async_delay_save(
+                self._agreement.to_dict, PERIMETER_AGREEMENT_SAVE_DELAY_S,
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
+    # ---- D6 -----------------------------------------------------------
+    def _vlm_gate_mode(self) -> str:
+        return str(self._options_flag(CONF_PERIMETER_VLM_GATE, DEFAULT_PERIMETER_VLM_GATE))
+
+    def _apply_vlm_gate(
+        self, cam_key: str, entity_id: str, severity: Severity, verdict: str,
+        snapshot_path: str | None, exemption_active: bool, mode: str,
+    ) -> Severity:
+        try:
+            now = dt_util.now()
+            ledger = self._last_snapshot_capture.get(
+                _sanitize_snapshot_token(cam_key) or "camera"
+            ) or {}
+            tier = ledger.get("engine") if (
+                snapshot_path and ledger.get("path") == snapshot_path
+            ) else None
+            d: dict[str, Any] = {
+                "gate": "vlm", "at": now.isoformat(), "entity_id": entity_id,
+                "mode": mode, "verdict": verdict, "tier": tier,
+                "would_demote": False, "demoted": False, "reason": "",
+                "severity_before": severity.name,
+            }
+            if verdict != VERDICT_NO:
+                d["reason"] = "verdict_not_no"
+            elif tier not in PERIMETER_VLM_TRUSTED_TIERS:
+                d["reason"] = "untrusted_tier"
+            elif self._exemption_shields(cam_key, now, exemption_active):
+                d["reason"] = "classification_transition_exemption"
+            else:
+                d["would_demote"] = True
+                d["reason"] = "vlm_no_person"
+                if mode == PERIMETER_VLM_GATE_ENFORCE:
+                    new = self._demote(severity)
+                    d["demoted"] = new != severity
+                    severity = new
+            d["severity_after"] = severity.name
+            self._record_gate(cam_key, d)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("PerimeterAlertManager: D6 raised (fail-open)", exc_info=True)
+        return severity
+
+    # ---- D10 ----------------------------------------------------------
+    def _note_egress_stamp(self, entity_id: str, ts: datetime) -> None:
+        cam = self._sensor_to_camera.get(entity_id, entity_id)
+        self._last_egress_time_by_camera[cam] = ts
+
+    def _is_dual_role_sensor(self, entity_id: str) -> bool:
+        return self._sensor_to_camera.get(entity_id, "") in self._dual_role_cameras
+
+    def _egress_stamp_for(self, entity_id: str) -> datetime | None:
+        """INV-EGRESS-SELF: perimeter-only alert -> the global stamp (today);
+        dual-role alert -> newest stamp from a NON-dual-role egress camera."""
+        if not self._is_dual_role_sensor(entity_id):
+            return self._last_egress_time
+        stamps = [
+            ts for cam, ts in self._last_egress_time_by_camera.items()
+            if cam not in self._dual_role_cameras
+        ]
+        return max(stamps) if stamps else None
+
+    def _egress_key(self, egress_camera: str) -> str:
+        if not egress_camera:
+            return ""
+        if egress_camera.startswith("binary_sensor."):
+            return self._camera_key_for_sensor(egress_camera) or ""
+        if egress_camera.startswith("camera."):
+            st = self._camera_slug_stem(egress_camera)
+            return _EXTERIOR_CAMERA_KEY_ALIASES_LC.get(st, st)
+        st = egress_camera.lower()
+        return _EXTERIOR_CAMERA_KEY_ALIASES_LC.get(st, st)
+
+    def _note_egress_identity(self, data: dict) -> None:
+        try:
+            pid = data.get("person_id")
+            conf = data.get("identity_confidence")
+            if not pid or conf is None:
+                return
+            key = self._egress_key(str(data.get("egress_camera") or ""))
+            ts = dt_util.parse_datetime(str(data.get("timestamp"))) if hasattr(
+                dt_util, "parse_datetime") else None
+            if not key or ts is None:
+                return
+            lst = [e for e in self._recent_egress_identity.get(key, [])
+                   if abs((ts - e[0]).total_seconds()) <= 600]
+            lst.append((ts, str(pid), float(conf)))
+            self._recent_egress_identity[key] = lst[-16:]
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("PerimeterAlertManager: egress identity cache failed",
+                          exc_info=True)
+
+    def _known_identity_for(
+        self, cam_key: str, edge: datetime,
+    ) -> tuple[str, float, str] | None:
+        """D10.5: a KNOWN identity freshness-matched to this edge, at >= the
+        doctrine floor (manual §5.5(a): >= 0.9). Sources: the egress bus
+        event (detection timestamp within ±MATCH_S) and face legs whose
+        last_changed is at/after edge-MATCH_S. A leg with no timestamp is
+        NOT fresh here (H4). Frigate legs carry no score -> 0.60 -> unknown."""
+        floor = max(0.9, float(PERIMETER_EGRESS_KNOWN_MIN_CONF))
+        match_s = float(PERIMETER_EGRESS_IDENTITY_MATCH_S)
+        census = self.hass.data.get(DOMAIN, {}).get("census")
+        known: set[str] = set()
+        try:
+            if census is not None:
+                known |= {s.lower() for s in census._get_tracked_person_slugs()}
+                for g in census._get_known_face_guests():
+                    try:
+                        known.add(census._canonical_person_slug(g) or str(g).lower())
+                    except Exception:  # noqa: BLE001
+                        known.add(str(g).lower())
+        except Exception:  # noqa: BLE001
+            pass
+        if not known:
+            return None
+        best: tuple[str, float, str] | None = None
+        for ts, pid, conf in self._recent_egress_identity.get(cam_key, []):
+            try:
+                if abs((edge - ts).total_seconds()) > match_s:
+                    continue
+            except Exception:  # noqa: BLE001
+                continue
+            if pid.lower() in known and conf >= floor and (best is None or conf > best[1]):
+                best = (pid.lower(), conf, "egress_event")
+        try:
+            legs = census._resolve_face_legs(cam_key) if census is not None else []
+        except Exception:  # noqa: BLE001
+            legs = []
+        for leg in legs or []:
+            slug = (getattr(leg, "canonical_slug", None) or "").lower()
+            lc = getattr(leg, "last_changed", None)
+            c = getattr(leg, "confidence", None)
+            if not slug or slug not in known or lc is None:
+                continue
+            try:
+                if (lc - edge).total_seconds() < -match_s:
+                    continue
+            except Exception:  # noqa: BLE001
+                continue
+            if c is not None and c >= floor:
+                if best is None or c > best[1]:
+                    best = (slug, float(c), "face_leg")
+                continue
+            # Operator 2026-11-08: a below-floor face (Frigate, unscored =
+            # 0.60) clears the §5.5(a) bar ONLY with an independent non-face
+            # signal for the SAME person in the window.
+            src = self._nonface_agrees(slug, edge)
+            if src and best is None:
+                best = (slug, floor, f"face+{src}")
+        return best
+
+    def _nonface_agrees(self, slug: str, edge: datetime) -> str | None:
+        """Existing non-face signals for `slug` near `edge` (REUSED, no new
+        producer): the PersonCoordinator Bermuda/BLE room transition, or the
+        HA person tracker going home. Returns the source name or None."""
+        win = float(PERIMETER_EGRESS_FACE_NONFACE_WINDOW_S)
+
+        def _near(ts: Any) -> bool:
+            try:
+                return abs((edge - ts).total_seconds()) <= win
+            except Exception:  # noqa: BLE001
+                return False
+
+        try:
+            pc = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+            data = getattr(pc, "data", None) or {}
+            for name, rec in data.items():
+                if str(name).lower().replace(" ", "_") != slug:
+                    continue
+                if (
+                    isinstance(rec, dict)
+                    and rec.get("method") == "bermuda"
+                    and rec.get("location") not in (None, "", "away", "unknown")
+                    and _near(rec.get("last_changed"))
+                ):
+                    return "ble"
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            st = self.hass.states.get(f"person.{slug}")
+            if st is not None and st.state == "home" and _near(
+                getattr(st, "last_changed", None)
+            ):
+                return "person_tracker"
+        except Exception:  # noqa: BLE001
+            pass
+        return None
+
+    async def _apply_egress_identity_gate(
+        self, cam_key: str, entity_id: str, now: datetime,
+        severity: Severity, exemption_active: bool,
+    ) -> tuple[Severity, bool, bool]:
+        """D10.5 table (demote-only). Return (severity, held, proceed)."""
+        held = False
+        d: dict[str, Any] = {
+            "gate": "egress_identity", "at": now.isoformat(),
+            "entity_id": entity_id, "demoted": False, "reason": "",
+            "severity_before": severity.name,
+        }
+        try:
+            if not bool(self._options_flag(
+                CONF_PERIMETER_EGRESS_KNOWN_XCORR_GATE,
+                DEFAULT_PERIMETER_EGRESS_KNOWN_XCORR_GATE,
+            )):
+                d["reason"] = "gate_off"
+                self._record_gate(cam_key, d)
+                return severity, False, True
+            if self._exemption_shields(cam_key, now, exemption_active):
+                d["reason"] = "classification_transition_exemption"
+                self._record_gate(cam_key, d)
+                return severity, False, True
+            family = nvr_family(self._sensor_engine.get(entity_id))
+            since = now.timestamp() - float(self._SOLE_FIRE_WINDOW_S)
+            known = self._known_identity_for(cam_key, now)
+            if known is None and PERIMETER_EGRESS_IDENTITY_WAIT_S > 0:
+                self._dispatch_in_flight.add(cam_key)
+                held = True
+                if not await self._async_hold(cam_key, float(PERIMETER_EGRESS_IDENTITY_WAIT_S)):
+                    d["reason"] = "dropped_teardown"
+                    self._record_gate(cam_key, d)
+                    return severity, True, False
+                known = self._known_identity_for(cam_key, now)
+            second_live = {"frigate", "protect"} <= self._families_live(cam_key)
+            corroborated = self._other_family_fire_since(cam_key, family, since) or (
+                self._adjacent_activity(cam_key, dt_util.now())
+            )
+            # Unknown + uncorroborated + second NVR live: a short bounded
+            # corroboration settle (the D5 settle knob) before demoting, so
+            # the other engine's edge a few seconds later still counts.
+            if known is None and second_live and not corroborated and PERIMETER_SS_SETTLE_S > 0:
+                if not held:
+                    self._dispatch_in_flight.add(cam_key)
+                    held = True
+                if not await self._async_hold(cam_key, float(PERIMETER_SS_SETTLE_S)):
+                    d["reason"] = "dropped_teardown"
+                    self._record_gate(cam_key, d)
+                    return severity, True, False
+                corroborated = self._other_family_fire_since(cam_key, family, since) or (
+                    self._adjacent_activity(cam_key, dt_util.now())
+                )
+                known = known or self._known_identity_for(cam_key, now)
+            d["inputs"] = {"known": known, "second_leg_live": second_live,
+                           "corroborated": corroborated}
+            if known is not None:
+                d["reason"] = "egress_known_person"
+                new = self._demote(severity)
+            elif not second_live:
+                d["reason"] = "xcorr_waived_single_nvr"
+                new = severity
+            elif corroborated:
+                d["reason"] = "egress_unknown_corroborated"
+                new = severity
+            else:
+                d["reason"] = "egress_uncorroborated"
+                new = self._demote(severity)
+            d["demoted"] = new != severity
+            severity = new
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("PerimeterAlertManager: D10.5 raised (fail-open)", exc_info=True)
+        d["severity_after"] = severity.name
+        self._record_gate(cam_key, d)
+        return severity, held, True
 
     # ------------------------------------------------------------------
     # Properties & helpers

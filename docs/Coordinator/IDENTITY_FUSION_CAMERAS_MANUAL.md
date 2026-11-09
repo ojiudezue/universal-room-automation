@@ -345,6 +345,33 @@ Cycle-3 resolver-legs work, 2026-08-07). Alerts today say "person
 detected" — the identity-consuming version is the card
 `PERIMETER-ALERT-NAME-PERSON-1` (see §6).
 
+**v5.107.0 (PERIMETER-FP-STREET-NOISE-1) additions** — all demote-only (floor
+LOW, never silence), decisions on the exterior open-tracks diagnostic sensor
+under `gate_decisions_by_camera`:
+- **Zone legs (D1).** `perimeter_zone_sensors` (camera-census step, Advanced)
+  maps Frigate zone person sensors (`<frigate_camera>_property`) onto a
+  perimeter camera; that camera's camera-level Frigate person legs are then
+  not subscribed (setup AND `_rescan_siblings`). Zone sensors collapse to the
+  camera key via a runtime overlay in `_camera_key_for_sensor`.
+- **NVR family, not engine string.** `perimeter_fp_gates.nvr_family`
+  (frigate*/protect*) is what the burst sibling check compares; two Frigate
+  legs never corroborate each other.
+- **Demote reasons:** D3 `outside_property_zone` (Frigate `entered_zones`
+  missed the property zone), D5 `single_source` (only one NVR family on a
+  camera where both usually agree), D6 `vlm_no_person` (VLM `PERSON: NO` on a
+  `frigate_event`-tier frame). D3/D5/D6 ship off/shadow.
+- **Egress cameras raise perimeter alerts (D10)** when they are in BOTH camera
+  lists ("dual-role"). A dual-role camera ignores egress stamps from every
+  dual-role camera (INV-EGRESS-SELF); it gets no vehicle legs. Its own alerts
+  pass the D10.5 gate (`switch.ura_perimeter_egress_known_xcorr_gate`, ON):
+  LOW for a KNOWN person (§5.5(a): ≥ 0.9 — egress event or scored face leg
+  freshness-matched to the edge; OR, operator 2026-11-08, a below-floor
+  Frigate face match corroborated by an existing non-face signal for the SAME
+  person — Bermuda/BLE room transition or `person.<slug>` → home within
+  `PERIMETER_EGRESS_FACE_NONFACE_WINDOW_S`); LOW when unknown and not
+  corroborated by the other NVR family while it is live; contextual severity
+  otherwise. A face alone, or a latched name, never demotes.
+
 ### 4.6 DB tables (from `database.py`)
 
 `person_entry_exit_events` (`database.py:793-808`) — the egress

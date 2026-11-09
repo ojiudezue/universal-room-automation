@@ -4525,6 +4525,10 @@ class ExteriorOpenTracksDiagnosticSensor(AggregationEntity, SensorEntity):
                 # suppressed circling track left no evidence of its cause.
                 if mgr is not None and hasattr(mgr, "suppression_stats"):
                     attrs["suppressions_by_camera"] = mgr.suppression_stats()
+                # PERIMETER-FP (v5.107.0): per-gate decisions (shadow +
+                # enforce), D5 agreement table, D2 frigate_events counters.
+                if mgr is not None and hasattr(mgr, "gate_decision_stats"):
+                    attrs.update(mgr.gate_decision_stats())
             except Exception:  # noqa: BLE001
                 pass
             return attrs

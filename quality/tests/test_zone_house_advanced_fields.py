@@ -424,7 +424,8 @@ def test_camera_census_simple_has_at_most_seven_fields():
     # 15 pre-cycle + 3 new Advanced door fields (D1 census_inputs_first):
     # door_groups, door_interior_neighbours, main_entry_door — all
     # Advanced-only, appended after the existing order.
-    assert len(schema_keys(render(flow, "camera_census"))) == 18
+    # +1 v5.107.0 PERIMETER-FP D1: perimeter_zone_sensors (Advanced, last).
+    assert len(schema_keys(render(flow, "camera_census"))) == 19
 
 
 def test_camera_census_field_order():
@@ -588,3 +589,27 @@ def test_schema_walkers_treat_vol_all_as_leaf():
 ])
 def test_value_is_non_default_empty_string(value, default, expected):
     assert cf._value_is_non_default(value, default) is expected
+
+
+# --- PERIMETER-FP D1 (v5.107.0): zone-sensor field save semantics --------
+
+_ZS = "perimeter_zone_sensors"
+
+
+def test_zone_sensors_untouched_empty_not_added():
+    """An untouched empty list must not appear as a NEW options key (it would
+    turn an otherwise reload-suppressed census save into a reload)."""
+    flow, _ = _house_flow({}, adv=True)
+    res = _submit(flow, "camera_census", {_ZS: []})
+    assert _ZS not in res["data"]
+
+
+def test_zone_sensors_set_and_cleared_round_trip():
+    z = ["binary_sensor.utilities_ptz_property_person_occupancy"]
+    flow, _ = _house_flow({}, adv=True)
+    res = _submit(flow, "camera_census", {_ZS: z})
+    assert res["data"][_ZS] == z
+    flow2, _ = _house_flow({_ZS: z}, adv=False)
+    assert _ZS in schema_keys(render(flow2, "camera_census"))  # non-default shows in Simple
+    res2 = _submit(flow2, "camera_census", {_ZS: []})
+    assert res2["data"][_ZS] == []  # clearing an existing list is kept

@@ -177,6 +177,8 @@ def test_xcorr1_second_alert_not_demoted_when_adjacent_camera_active():
 def test_xcorr1_night_only_gate_blocks_demotion_outside_hours(monkeypatch):
     # Alert-hours window START=0, END=0 = full day in _is_in_alert_hours,
     # so we must override to a narrow window AND pin the clock outside it.
+    # v5.107.0 D4 ships NIGHT_ONLY=False; the knob's True semantics stay pinned.
+    monkeypatch.setattr(_perimeter, "PERIMETER_BURST_NIGHT_ONLY", True)
     mgr, nm = _fresh_mgr()
     # Narrow the alert window to a 1-hour slot; then pin clock outside.
     for entry in mgr.hass.config_entries.async_entries():
