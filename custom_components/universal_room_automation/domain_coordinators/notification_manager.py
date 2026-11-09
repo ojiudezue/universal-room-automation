@@ -350,6 +350,11 @@ NM_WHATSAPP_DEDUP_TTL_S: int = 600
 # (`wa_bridge`), then the 2.x domain. The last entry is used when neither
 # service is registered, so the failure logs and marks channel health.
 NM_WHATSAPP_SERVICE_DOMAINS: tuple[str, ...] = ("wa_bridge", "whatsapp")
+# PERIMETER-IDENTITY-FOLLOWUP-1 (v5.107.5, rung 1): Pushover priority for a
+# quiet follow-up (`async_notify(quiet=True)`). Pushover priorities: -2 no
+# alert, -1 quiet, 0 normal, 1 high (bypasses the user's quiet hours). 0 is
+# a normal notification with the device's default sound, never the siren.
+NM_QUIET_PUSHOVER_PRIORITY: int = 0
 # PERIMETER-FP D7 fix-up (review A-M1 / B-MED-1): `notification_log.delivered`
 # value for an immediate send that FAILED. 0 is the digest-queue marker
 # (`get_pending_digest` reads `delivered = 0`) and 1/2 mean delivered
@@ -1507,8 +1512,18 @@ class NotificationManager:
         snapshot_url: str | None = None,
         snapshot_path: str | None = None,
         route_reason: str | None = None,
+        *,
+        quiet: bool = False,
     ) -> None:
         """Main notification entry point — called by coordinators.
+
+        ``quiet`` (PERIMETER-IDENTITY-FOLLOWUP-1, v5.107.5): a non-interrupting
+        follow-up. Same severity (so it clears the same per-channel severity
+        floors and reaches the same recipients/channels), but each channel's
+        quiet form: Pushover ``priority`` NM_QUIET_PUSHOVER_PRIORITY (no siren),
+        Companion without the critical sound, text channels without the
+        response menu. The house-wide side effects (wall panel, TTS, alert
+        lights, CRITICAL ack/re-page engine) are skipped. False = byte-identical.
 
         Routes to appropriate channels based on severity and config.
 
@@ -1542,10 +1557,11 @@ class NotificationManager:
         # their own night gate) and before every other channel; gating is
         # synchronous, the halo.* call runs as a tracked background task so a
         # slow Halo never delays TTS/push. Off switch = no-op.
-        self._schedule_panel_delivery(
-            coordinator_id, severity, title, message, hazard_type, location,
-            log_row=True,
-        )
+        if not quiet:
+            self._schedule_panel_delivery(
+                coordinator_id, severity, title, message, hazard_type, location,
+                log_row=True,
+            )
 
         # NM-IMAGE-1 (rev-2): pre-computed force-immediate predicate for the
         # security-image class. Consumed at BOTH suppression sites below —
@@ -1828,7 +1844,9 @@ class NotificationManager:
         )
 
         # C4b: Append response dict to message for text channels
-        if severity == Severity.CRITICAL:
+        if quiet:
+            message_with_dict = message
+        elif severity == Severity.CRITICAL:
             message_with_dict = f"{message}\n\n{CRITICAL_RESPONSE_TEXT}"
         else:
             message_with_dict = f"{message}\n\n{RESPONSE_DICT_TEXT}"
@@ -1859,7 +1877,7 @@ class NotificationManager:
             self._channel_qualifies("tts", severity) if self._dry_run_active
             else self._channel_ready("tts", severity, hazard_type)
         )
-        if _global_dnd_ok and _tts_gate:
+        if _global_dnd_ok and _tts_gate and not quiet:
             await self._send_tts(title, message)
             channels_fired.append("tts")
             if database and not self._dry_run_active:
@@ -1872,7 +1890,7 @@ class NotificationManager:
             self._channel_qualifies("lights", severity) if self._dry_run_active
             else self._channel_ready("lights", severity, hazard_type)
         )
-        if _global_dnd_ok and _lights_gate:
+        if _global_dnd_ok and _lights_gate and not quiet:
             await self._trigger_alert_lights(hazard_type or "warning", severity)
             channels_fired.append("lights")
             if database and not self._dry_run_active:
@@ -2001,7 +2019,7 @@ class NotificationManager:
             _pushover_device = person_cfg.get(CONF_NM_PERSON_PUSHOVER_DEVICE, "")
             if _channel_gate.get("pushover", False) and "pushover" in _router_allowed:
                 if _pushover_key and effective_pref == NM_DELIVERY_IMMEDIATE:
-                    await self._send_pushover(title, message_with_dict, severity, _pushover_key, _pushover_device, snapshot_url=snapshot_url, snapshot_path=snapshot_path)
+                    await self._send_pushover(title, message_with_dict, severity, _pushover_key, _pushover_device, snapshot_url=snapshot_url, snapshot_path=snapshot_path, quiet=quiet)
                     channels_fired.append("pushover")
                     fired_for_person.append("pushover")
                     if database:
@@ -2026,7 +2044,7 @@ class NotificationManager:
                 if _companion_svc and effective_pref == NM_DELIVERY_IMMEDIATE:
                     await self._send_companion(
                         title, message, severity, _companion_svc,
-                        is_critical=(severity == Severity.CRITICAL),
+                        is_critical=(severity == Severity.CRITICAL and not quiet),
                         snapshot_url=snapshot_url,
                         snapshot_path=snapshot_path,
                     )
@@ -2196,8 +2214,8 @@ class NotificationManager:
         # Fire entity updates
         async_dispatcher_send(self.hass, SIGNAL_NM_ENTITIES_UPDATE)
 
-        # CRITICAL: start ack/repeat engine
-        if severity == Severity.CRITICAL:
+        # CRITICAL: start ack/repeat engine (never for a quiet follow-up)
+        if severity == Severity.CRITICAL and not quiet:
             await self._enter_alerting(
                 coordinator_id, severity_str, title, message,
                 hazard_type, location,
@@ -2318,8 +2336,12 @@ class NotificationManager:
         snapshot_path: str | None = None,
         *,
         menu_safe: bool = False,
+        quiet: bool = False,
     ) -> None:
         """Send notification via Pushover.
+
+        ``quiet``: send at NM_QUIET_PUSHOVER_PRIORITY with no sound override
+        regardless of severity (non-siren follow-up).
 
         SNAP-1: URL form retained (Pushover ``attachment_url`` — the
         integration's URL fetch path). Local-file delivery
@@ -2345,7 +2367,9 @@ class NotificationManager:
                 data["target"] = device
             # Set priority based on severity
             extra: dict[str, Any] = {}
-            if severity == Severity.CRITICAL:
+            if quiet:
+                extra = {"priority": NM_QUIET_PUSHOVER_PRIORITY}
+            elif severity == Severity.CRITICAL:
                 extra = {"priority": 1, "sound": "siren"}
             elif severity == Severity.HIGH:
                 extra = {"priority": 1}

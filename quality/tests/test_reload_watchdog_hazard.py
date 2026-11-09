@@ -193,6 +193,7 @@ def _load_ns(*, kill_switch: bool = True,
         "CONF_PERIMETER_SINGLE_SOURCE_DEMOTE": "perimeter_single_source_demote",
         "CONF_PERIMETER_VLM_GATE": "perimeter_vlm_gate",
         "CONF_PERIMETER_EGRESS_KNOWN_XCORR_GATE": "perimeter_egress_known_xcorr_gate",
+        "CONF_PERIMETER_IDENTITY_FOLLOWUP": "perimeter_identity_followup",
         "CONF_EXTERIOR_SNAPSHOT_OFFSET_S": "exterior_snapshot_offset_s",
         # APPLIANCE-MGMT-REFINE-1 (v5.103.0): the appliance records key joined
         # the fresh-read allowlist (__init__.py:6120/6637), so the sliced code
@@ -594,6 +595,7 @@ def test_egress_perimeter_keys_not_in_allowlist_v1():
         "perimeter_single_source_demote",
         "perimeter_vlm_gate",
         "perimeter_egress_known_xcorr_gate",
+        "perimeter_identity_followup",
     }
     # D1 zone sensors change subscriptions: structural, stays on reload.
     assert "perimeter_zone_sensors" not in allow

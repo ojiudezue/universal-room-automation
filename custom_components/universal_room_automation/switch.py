@@ -53,6 +53,8 @@ from .const import (
     DEFAULT_PERIMETER_SINGLE_SOURCE_DEMOTE,
     CONF_PERIMETER_EGRESS_KNOWN_XCORR_GATE,
     DEFAULT_PERIMETER_EGRESS_KNOWN_XCORR_GATE,
+    CONF_PERIMETER_IDENTITY_FOLLOWUP,
+    DEFAULT_PERIMETER_IDENTITY_FOLLOWUP,
     SIGNAL_URA_FACE_RECOGNITION_CHANGED,
     # Room lighting Slice C (v5.103.28) — D3 Room lights switch.
     CONF_LIGHTS,
@@ -264,6 +266,17 @@ async def async_setup_entry(
                 object_id="ura_perimeter_egress_known_xcorr_gate",
                 unique_suffix="perimeter_egress_known_xcorr_gate",
                 icon="mdi:door-closed-lock",
+                fire_signal=None,
+            ),
+            _IntegrationOptionsSwitch(
+                hass, entry,
+                conf_key=CONF_PERIMETER_IDENTITY_FOLLOWUP,
+                default=DEFAULT_PERIMETER_IDENTITY_FOLLOWUP,
+                translation_key="perimeter_identity_followup",
+                fallback_name="Door Alert Name Follow-Up",
+                object_id="ura_perimeter_identity_followup",
+                unique_suffix="perimeter_identity_followup",
+                icon="mdi:account-check",
                 fire_signal=None,
             ),
         ])
