@@ -637,7 +637,7 @@ lives on cards:
 | **`EGRESS-IDENTITY-JOIN-GAP-1`** | Face recognition works but egress crossings carry no identity — `person_entry_exit_events.person_id` is 0 of ~7,010 rows all-time. Root cause: same-stem 60s face-join never matches (door cams rarely recognize). Fix = interior-fusion + asymmetric signed-lag window (~63% ceiling, measured). Blocks all identity consumers. |
 | **`EGRESS-IDENTITY-PRODUCER-EMITS-NOTHING-1`** | Blocking parent for the eight identity-consumer cards below — the producer emits nothing to consume today. |
 | **`PERIMETER-ALERT-NAME-PERSON-1`** | Perimeter alerts still say "person detected" when identity is known. |
-| **`GUEST-GATE-DOOR-IDENTITY-1`** | Guest gate ignores door-identity. |
+| **`GUEST-GATE-DOOR-IDENTITY-1`** | Guest gate ignores door-identity. Stays parked. Since GUEST-MODE-SPLIT-VISITORS-1 (v5.108.0, branch `feature/guest-mode-split`, NOT deployed) GUEST no longer reads instantaneous evidence at all: it follows a night-stay latch over the URA DB (guest-room night occupancy minus BLE-located residents, 2 of the last 3 nights). Faces, Path A and WiFi never enter GUEST; Path A feeds only `visitors_present` (display). Door identity could later shorten the arrival-day gap (same revival trigger as plan §2.4). |
 | **`ARRIVAL-DEPARTURE-NOTIFY-1`** | No arrival/departure notification consumes `person_id`. |
 | **`EXTERIOR-GUEST-FACE-FASTFOLLOW-1` D2** | Protect Alarm Manager webhook `ura_kp_face_probe` receiving side verified; Protect-side rule delivering empty payloads. |
 | **`EXTERIOR-GUEST-EGRESS-1`** | Face-independent approach-track FALLBACK — DEFERRED, gated on the identity path proving insufficient. Do NOT re-recommend this off the sparse-face number. |

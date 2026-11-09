@@ -5836,6 +5836,21 @@ class PresenceHouseStateSensor(AggregationEntity, SensorEntity):
             attrs["guest_reason"] = str(
                 getattr(presence, "_guest_reason", "none") or "none"
             )
+            # GUEST-MODE-SPLIT-VISITORS-1 D2 (S13, display): the night-stay
+            # latch, the UTC time it turned on, and the last LOOKBACK nights
+            # it was decided on (changes once a day; recorded).
+            attrs["guest_stay_active"] = bool(
+                getattr(presence, "_guest_stay_active", False)
+            )
+            _stay_since = getattr(presence, "_guest_stay_since", None)
+            attrs["guest_stay_since"] = (
+                _stay_since.isoformat() if _stay_since is not None else None
+            )
+            _stay_basis = getattr(presence, "_guest_stay_basis", [])
+            attrs["guest_stay_basis"] = (
+                dict(_stay_basis) if isinstance(_stay_basis, dict)
+                else [dict(b) for b in (_stay_basis or [])]
+            )
             # Unrecorded (per-tick churn): D2 STALE persons counted home;
             # D1 nobody-home zone input (None = kill switch off).
             attrs["stale_counted_home"] = list(

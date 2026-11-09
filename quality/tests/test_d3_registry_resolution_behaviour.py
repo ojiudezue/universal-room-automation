@@ -108,6 +108,7 @@ def _bare_pc():
     pc._guest_room_unsubs = {}
     pc._guest_room_entity_to_name = {}
     pc._guest_room_known_last_true = {}
+    pc._guest_room_entry_ids = {}  # GUEST-MODE-SPLIT D2 (S12)
     # Neutralise the identity check so it can never accidentally block
     # Transition 1 in the handler tests.
     pc._is_known_person_in_room = lambda room_name: False  # type: ignore[assignment]

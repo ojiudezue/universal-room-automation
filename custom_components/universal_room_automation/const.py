@@ -494,6 +494,35 @@ GUEST_BOOT_SEED_MIN_RESIDUAL_S: Final = 300
 # Kill-switch: 0 disables the latch (returns to raw live read).
 GUEST_KNOWN_STICKY_S: Final = 120
 
+# GUEST-MODE-SPLIT-VISITORS-1 (plan PLANNING_guest_mode_split_2026_11.md
+# rev 4 §7). All rung 1 (reviewed code change): they decide house-state
+# entry. Read as `const.X` at call time, never imported by name.
+#
+# Kill switch: False = today's 30-min guest-room gate enters GUEST
+# (byte-identical: guest_armed, guest_reason, confidence, infer result);
+# no DB walk is scheduled.
+GUEST_NIGHT_STAY_RULE_ENABLED: Final = True
+# Night qualifies iff a guest room was occupied by non-resident time for at
+# least this share of the house sleep window. Fitted to the replay plateau
+# 0.20-0.30 (plan §5.3). 0 = any occupied time qualifies; > 1 = never.
+GUEST_NIGHT_MIN_FRACTION: Final = 0.25
+# Stay latch turns on when at least ENTRY of the last LOOKBACK completed
+# nights qualify, and off after LOOKBACK straight non-qualifying nights.
+# ENTRY is clamped to 1..LOOKBACK, LOOKBACK to >= 1, at read.
+GUEST_STAY_ENTRY_NIGHTS: Final = 2
+GUEST_STAY_LOOKBACK_NIGHTS: Final = 3
+# How many nights back the deterministic DB walk starts. Clamped at read to
+# >= GUEST_STAY_LONG_NM_DAYS + GUEST_STAY_LOOKBACK_NIGHTS (else the stay's
+# `since` is re-dated inside the walk every morning and the D4 trip-wire can
+# never fire; plan review R16), and >= LOOKBACK.
+GUEST_STAY_REPLAY_NIGHTS: Final = 35
+# D4 trip-wire: one HIGH stuck-signal NM when the stay latch has been on for
+# more than this many days (the one real stay was 21). 0 = off.
+GUEST_STAY_LONG_NM_DAYS: Final = 28
+# visitors_present camera leg (Path A). D0 measured it noisy (plan §3.1).
+# False = legs.cam always False.
+VISITORS_CAM_LEG_ENABLED: Final = True
+
 # Room types
 ROOM_TYPE_BEDROOM: Final = "bedroom"
 ROOM_TYPE_CLOSET: Final = "closet"
