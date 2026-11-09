@@ -618,3 +618,51 @@ def test_perimeter_setup_installs_allowlist_anchor():
     assert "set_allowed_cameras" in blk[:3000], (
         "perimeter setup must install the linker camera allowlist"
     )
+
+
+# ---------------------------------------------------------------------------
+# PERIMETER-FRIGATE-MQTT-DIRECT-1 D3: the linker consumes FrigateEventIngress.
+# ---------------------------------------------------------------------------
+def test_linker_registers_on_frigate_ingress_and_mqtt_feeds_observe():
+    """Wire-in anchor for `register_frigate_consumer(self.hass, "linker", ...)`
+    in ExteriorTrackLinker.async_setup: with an ingress present the linker
+    adds no bus listener, and a direct-MQTT Frigate event reaches observe()."""
+    from types import SimpleNamespace as _NS
+    import json as _json
+
+    # Bind to the namespace the linker's register_frigate_consumer closes
+    # over (not sys.modules, which an evicting sibling file can replace).
+    fi_mod = types.SimpleNamespace(**etl.register_frigate_consumer.__globals__)
+    hass = _FakeHass()
+    hass.data = {_const.DOMAIN: {}}
+    ing = fi_mod.FrigateEventIngress(hass)
+    hass.data[_const.DOMAIN][fi_mod.FRIGATE_INGRESS_HASS_KEY] = ing
+    lk = ExteriorTrackLinker(hass)
+    lk.set_allowed_cameras({"utilities"})
+    asyncio.run(lk.async_setup())
+    try:
+        assert not any(
+            c.args and c.args[0] == etl.FRIGATE_EVENTS_BUS_EVENT
+            for c in hass.bus.async_listen.call_args_list
+        )
+        # C-8: registered under its own name.
+        assert set(ing._consumers) == {"linker"}
+        # C-9: an `end` message never opens a track.
+        end = _json.dumps({
+            "type": "end", "before": {},
+            "after": {"id": "e0", "camera": "utilities", "label": "person",
+                      "score": 0.9, "sub_label": None},
+        })
+        ing._on_mqtt_events(_NS(payload=end, retain=False), "mqtt:frigate2")
+        assert lk.census_counts()["exterior_person_tracks_active"] == 0
+        payload = _json.dumps({
+            "type": "new", "before": {},
+            "after": {"id": "e1", "camera": "utilities", "label": "person",
+                      "score": 0.9, "sub_label": ["Jaya", 0.99]},
+        })
+        ing._on_mqtt_events(_NS(payload=payload, retain=False), "mqtt:frigate2")
+        assert lk.census_counts()["exterior_person_tracks_active"] == 1
+    finally:
+        asyncio.run(lk.async_teardown())
+    # Teardown unregisters the consumer (unchanged teardown site).
+    assert ing._consumers == {}

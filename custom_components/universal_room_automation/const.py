@@ -2588,6 +2588,30 @@ CONF_PERIMETER_ZONE_SENSORS: Final = "perimeter_zone_sensors"
 # with zero `frigate_events` person messages. 0 disables the WARN.
 PERIMETER_FRIGATE_BUS_SILENT_MIN_EDGES: Final = 20
 PERIMETER_FRIGATE_BUS_WINDOW_S: Final = 86400
+
+# ----------------------------------------------------------------------------
+# PERIMETER-FRIGATE-MQTT-DIRECT-1 (PLANNING_frigate_mqtt_direct_2026_11.md
+# rev 2 §6). All rung 1: protocol / plumbing numbers, not operator policy.
+# ----------------------------------------------------------------------------
+# Kill switch. False = no `<prefix>/events` MQTT subscription; the
+# `frigate_events` bus alone feeds perimeter + linker (pre-cycle behaviour).
+# Does NOT stop the census face-bridge topic (`<prefix>/tracked_object_update`),
+# which the ingress also owns (FRIGATE-FACE-BRIDGE-DEAD-PREFIX-1).
+FRIGATE_INGRESS_MQTT_ENABLED: Final = True
+# Per-event-id source latch: silence window before the other source family
+# may take over an event id (also the failover dead time). D0 (2026-11-09
+# AUDIT_frigate_mqtt_d0_day): max bus lag behind MQTT 44.3 ms, so the gate
+# max(10, 3 x lag) = 10. 30 keeps headroom for the unmeasured burst case
+# (automation queue `max: 25` never stressed in D0). No disable value.
+FRIGATE_INGRESS_SOURCE_LATCH_TTL_S: Final = 30
+# Clamp floor for the TTL above (plan rev 2 M3): a smaller TTL could let a
+# lagging bus twin through after its latch expired (INV-1).
+FRIGATE_INGRESS_SOURCE_LATCH_TTL_FLOOR_S: Final = 10
+# Memory bound on the latch (oldest evicted).
+FRIGATE_INGRESS_LATCH_MAX: Final = 2000
+# Periodic add-only prefix re-discovery. 0 disables the timer (setup,
+# async_when_setup and HA-started reconciles only).
+FRIGATE_INGRESS_RECONCILE_S: Final = 300
 # D3 (rung 3 switch, options-backed): zone-agreement demote. Off = shadow.
 CONF_PERIMETER_ZONE_AGREEMENT_DEMOTE: Final = "perimeter_zone_agreement_demote"
 DEFAULT_PERIMETER_ZONE_AGREEMENT_DEMOTE: Final = False
