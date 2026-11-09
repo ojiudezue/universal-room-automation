@@ -2,12 +2,12 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-09T00:12:57-06:00_ - _Data commit: `ac0f21198eac`_ - _last_reconciled: 2026-11-08_
+_Generated: 2026-11-09T00:21:40-06:00_ - _Data commit: `33e7d3110582`_ - _last_reconciled: 2026-11-08_
 
 
 > ## ⚠️ STALE - board has not been reconciled against newer work
 >
-> - newest README README_v5.107.5.md (2026-11-09) is newer than last_reconciled (2026-11-08)
+> - newest README README_v5.107.6.md (2026-11-09) is newer than last_reconciled (2026-11-08)
 >
 > Reconcile the board (update `meta.last_reconciled` + move shipped cards) before using it to pick next work.
 
@@ -395,11 +395,12 @@ thread: **presence** - status: **planned**
 _created 2026-11-09 01:00_
 - **Why:** Guest mode changes HVAC, lighting and security; a single face (Frigate mislabels residents, presence doc #28) or a transient body must not flip it. A visitor-present signal is still useful at a low bar (notifications, census display, per...
 - **Next:** Pre-plan with the prior-art scan FIRST (Tier 2+ rule) — much exists: guest-room sustained-occupancy gate (CONF_ROOM_IS_GUEST_ROOM / CONF_ROOM_GUEST_OCCUPANCY_THRESHOLD_MIN const.py:454-455, _guest_room_gate_armed, boot-seed floor); WiFi ...
-- **Forensic keys (5):**
+- **Forensic keys (6):**
   - `tier`: 2-DB
   - `f5_measured_2026_11_09`: F-5 probe (AUDIT_face_source_registry_discovery_2026_11.md §9): 87 Ojini labels 11-02..11-08; operator confirmed Ojini was NOT present -> all mislabels (likely Oji). Known-guest faces are therefore unreliable as positive guest evidence: ...
   - `approved_2026_11_09`: Operator: 'Agreed' to building the visitors-present / GUEST-mode split (GUEST needs guest-room occupancy or guest-WiFi corroboration; a guest face alone never even counts as a visitor without a second signal). Next: ura-planner plan (Tie...
   - `tier_2026_11_09`: Operator: 'Tier 2db minimum for house state change' -> Tier 2-DB minimum (three framing-disjoint reviews + live validation); escalate to Tier 3 if the plan threads a gate through the presence state machine.
+  - `operator_answers_2026_11_09`: (1) Camera + guest WiFi WITHOUT a guest-room leg may NOT enter GUEST: the room leg is mandatory (keeps the Aug rule); entry = room + one other leg. (2) Real guest stayed 3-4 weeks in October (dates to be located by D0; 10-17 likely withi...
   - `adjacency_2026_11_09`: ADJACENT (same decision surface): CENSUS-GUEST-FLOOR-1 (pre_planning, WiFi guest floor) and GUEST-GATE-DOOR-IDENTITY-1 (parked, door identity into the gate) become inputs; F-5 residual on FACE-SOURCE-REGISTRY-DISCOVERY-1 folds into this ...
 
 ### `CAMERA-LIST-LIVE-REWIRE-1` - Saving perimeter/egress camera lists forces a full URA parent reload (watchdog hazard); rewire live instead (v5.107.0 plan D11) — _#13 · WSJF 2.2 · v5 tc2 u2 /e4_
