@@ -39,6 +39,15 @@ VERSION: Final = "v5.107.0"
 # in the executor) and a pending restart is informational, not urgent.
 VERSION_CHECK_INTERVAL_S: Final = 3600
 
+# v5.107.3 external-URL self-check (external_url_check.py). Rung 1 (module
+# constants): protocol values, not operator policy.
+# Interval: the URL changes rarely (DNS/proxy/cert edits); daily catches a
+# break within a day at one tiny GET per day.
+EXTERNAL_URL_CHECK_INTERVAL_S: Final = 86400
+# Timeout: a healthy proxy answers manifest.json in well under a second; 10 s
+# tolerates a slow WAN hop while never holding a socket for aiohttp's 300 s.
+EXTERNAL_URL_CHECK_TIMEOUT_S: Final = 10
+
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
 
