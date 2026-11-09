@@ -1158,10 +1158,18 @@ def test_egress_gate_near_area_includes_configured_neighbours(monkeypatch):
     monkeypatch.setattr(PerimeterAlertManager, "_area_of_entity",
                         lambda self, e: {DB_CAM: "front_porch",
                                          "camera.foyer": "foyer"}.get(e, ""))
-    hass.data[_const.DOMAIN]["transit_validator"] = SimpleNamespace(
-        _door_group_for_stem=lambda stem: "front" if stem == DB_KEY else None,
-        _interior_neighbours_by_group={"front": ["camera.foyer"]},
+    # LOCK-ENTRY-AREAS-WRONG-OBJECT-1: a REAL EgressDirectionTracker at its
+    # real key, and a REAL TransitValidator at its own key (which has no
+    # door-group surface) -- a consumer reading the wrong key goes RED.
+    from custom_components.universal_room_automation import (  # noqa: PLC0415
+        transit_validator as _tv_mod,
     )
+    tracker = _tv_mod.EgressDirectionTracker(None)
+    tracker._door_group_by_stem = {DB_KEY: "front"}
+    tracker._interior_neighbours_by_group = {"front": ["camera.foyer"]}
+    hass.data[_const.DOMAIN]["egress_tracker"] = tracker
+    hass.data[_const.DOMAIN]["transit_validator"] = _tv_mod.TransitValidator(None)
+    assert mgr._near_areas(DB_KEY) == {"front_porch", "foyer"}
     _with_ble(hass, "Oji Udezue", location="Foyer", prev="away")
     _run(mgr._async_handle_perimeter_trigger(DB_PR))
     assert _sev(nm) == Severity.LOW

@@ -991,11 +991,13 @@ class LockRegimeController:
 
     def _entry_areas(self) -> set[str]:
         """Areas a person arrives through: egress camera areas + configured
-        door-interior neighbours (read live from the transit validator)."""
+        door-interior neighbours (read live from the EgressDirectionTracker,
+        which owns ``_egress_entities`` / ``_interior_neighbours_by_group``;
+        the TransitValidator has neither -- LOCK-ENTRY-AREAS-WRONG-OBJECT-1)."""
         from ..const import DOMAIN  # noqa: PLC0415
 
-        tv = self._hass.data.get(DOMAIN, {}).get("transit_validator")
-        return door_entry_areas(tv, self._area_of_entity)
+        tracker = self._hass.data.get(DOMAIN, {}).get("egress_tracker")
+        return door_entry_areas(tracker, self._area_of_entity)
 
     def _face_arrival_corroborated(self, person: str, at_ts: float | None = None) -> bool:
         """LOCK-REGIME-FACE-ARRIVAL-CORROBORATION-1: an independent arrival

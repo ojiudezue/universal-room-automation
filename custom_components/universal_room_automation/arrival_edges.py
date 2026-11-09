@@ -180,16 +180,18 @@ def area_slug_of_entity(hass: Any, entity_id: str) -> str:
         return ""
 
 
-def door_entry_areas(transit_validator: Any, area_of: Callable[[str], str]) -> set[str]:
+def door_entry_areas(egress_tracker: Any, area_of: Callable[[str], str]) -> set[str]:
     """Areas where a person ARRIVES at the house: every egress camera's own
     area plus the areas of the explicitly configured door-interior
-    neighbours (CONF_DOOR_INTERIOR_NEIGHBOURS). No transit validator or no
+    neighbours (CONF_DOOR_INTERIOR_NEIGHBOURS). ``egress_tracker`` is the
+    EgressDirectionTracker (hass.data[DOMAIN]["egress_tracker"]), NOT the
+    TransitValidator (LOCK-ENTRY-AREAS-WRONG-OBJECT-1). No tracker or no
     egress config -> empty set (the Bermuda leg then never corroborates)."""
     out: set[str] = set()
-    if transit_validator is None:
+    if egress_tracker is None:
         return out
-    ents = list(getattr(transit_validator, "_egress_entities", None) or [])
-    nb = getattr(transit_validator, "_interior_neighbours_by_group", None) or {}
+    ents = list(getattr(egress_tracker, "_egress_entities", None) or [])
+    nb = getattr(egress_tracker, "_interior_neighbours_by_group", None) or {}
     for cams in nb.values():
         ents.extend(cams or [])
     for e in ents:
