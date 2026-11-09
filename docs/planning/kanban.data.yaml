@@ -362,6 +362,19 @@ cards:
   next: "Measure: why tier 1 fails (event_id not captured from frigate_events at edge time? proxy URL/instance id? auth?). Read SNAP-1 code + a live frigate_events payload; then fix and re-check a sample of empty-frame alerts against Frigate's own event snapshots."
   links: {related: [PERIMETER-FP-STREET-NOISE-1]}
   adjacency_2026_11_08: "Swept: PLANNING_snap1_at_detection_snapshots.md (SNAP-1 design), PERIMETER-FP-STREET-NOISE-1 (parent arc). NEW: the capture failure itself is not carded."
+- id: LOCK-REGIME-FACE-ARRIVAL-CORROBORATION-1
+  title: "SC lock regime unlocks (garage lockout release + master_bedroom_lock) on a camera_face arrival signal alone; a Frigate face misrecognition at a door camera can unlock"
+  thread: security
+  status: planned
+  tier: 2
+  created: "2026-11-08 23:45"
+  updated: "2026-11-08 23:45"
+  rank: {value: 6, time_criticality: 3, effort: 2}
+  origin: "v5.107.1 face-source build (2026-11-08): builder found presence face pre-arrival (S8) feeds security_lock_regime.on_person_arriving; held S8 behind FACE_SOURCE_PRESENCE_ARRIVAL_DISAMBIGUATED=False. Plan review 1 had missed this consumer."
+  why: "Frigate face labels are known to name the wrong resident (presence doc corrections #28: Jaya labelled Oji on 10-24). The 17 cameras the skip fix adds include doorbell/garage/entry. An unlock is the highest-cost wrong action."
+  next: "Apply the operator's 2026-11-08 identity rule (face counts only with an independent same-person BLE/tracker ARRIVAL edge, as in v5.107.0 D10.5) to lock-regime arrivals from camera_face; reuse the D10.5 arrival-edge helper. Then flip FACE_SOURCE_PRESENCE_ARRIVAL_DISAMBIGUATED and set the Oji=oji_udezue alias."
+  links: {related: [FACE-SOURCE-REGISTRY-DISCOVERY-1, PERIMETER-FP-STREET-NOISE-1]}
+  adjacency_2026_11_08: "Swept board for lock regime / face arrival: none. ADJACENT to FACE-SOURCE-REGISTRY-DISCOVERY-1 (same signal) and PERIMETER-FP D10.5 (same corroboration rule). NEW problem statement (unlock safety)."
 - id: PERSON-PROFILE-PREFERENCES-1
   title: "Per-person profile for identified household members: their bedroom(s)/bathroom, room ownership (incl. shared owners e.g. master), playlist, opt-in/out of automated arrival actions, welcome scene"
   thread: identity
