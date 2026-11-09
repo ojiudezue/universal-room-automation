@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-09T02:03:46-06:00_ - _Data commit: `b1d0a3d53f81`_ - _last_reconciled: 2026-11-09_
+_Generated: 2026-11-09T02:08:21-06:00_ - _Data commit: `4475a9820196`_ - _last_reconciled: 2026-11-09_
 
 
 ## Columns
@@ -178,17 +178,18 @@ _created 2026-11-08 20:30_
 
 ### `OC-SHADOW-SAMPLES-EMPTY-1` - Optimization Coordinator shadow track record never accumulates: optimizer_shadow_samples has 0 rows while OC logged 6,822 findings in 14 days (~90% tier-1 noise), so the v2 promotion gate can never be met — _#11 · WSJF 1.4 · v6 tc3 u2 /e8_
 thread: **optimization** - status: **pre_planning**
-_created 2026-10-16 · updated 2026-10-21 22:05 · refined_
+_created 2026-10-16 · updated 2026-11-09 02:09 · refined_
 - **Problem / Solution:**
   - Problem: the Optimization Coordinator is supposed to build a track record of whether its suggestions would have been right before it is allowed to act on its own, but that record is empty: the checker only looks at suggestions made in th...
-- **Next:** PICK: (A) fold the validator fix + finding dedup into the FIRST SLICE of the OC redesign (OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1), because what gets scored (each re-emitted finding vs each deduped problem) is a redesign decision (my recomme...
+- **Next:** No separate action: folded into the first slice of OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1 (default A, taken 10-17, confirmed by your 10-17 board instruction 'inside the redesign'). Moves with that card.
 - **Parsimony:** [BUILD, but where is a PICK: standalone Tier 2-DB now vs first slice of the OC redesign] The OC shadow validator never scores a finding because it only looks at the current 5-minute cycle's findings and requires them to be 15 minutes old, so 0 samples exist and OC can never qualify to leave shadow.
-- **Forensic keys (5):**
+- **Forensic keys (6):**
   - `links_added_2026_10_21`: related+OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1: Default A taken 10-17: the validator fix is folded into the redesign first slice.
   - `operator_instruction_2026_10_17`: inside the redesign (board, 2026-10-18T03:51:55.526Z)
   - `triage_2026_10_17`: Default A taken: fold the shadow-validator fix into the first slice of OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1.
   - `paged_2026_10_16_overnight`: Paged 2026-10-16 02:21 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody).
   - `measured_2026_10_16_overnight`: CONFIRMED, with mechanism (read-only, live URA DB ~02:10 CDT + code trace; orchestrator re-read the key lines). optimizer_shadow_samples: 0 rows ever. optimization_findings: 6,886 rows 09-18..10-16, ~550-576 house + 160-500 room per day;...
+  - `verify_2026_11_09_overnight`: STILL-REAL: optimizer_shadow_samples = 0 rows (URA DB, 02:09 CST). CARD-WAS-WRONG on next: it still showed the A/B PICK that was settled 10-17; corrected.
 
 ### `APPLIANCE-COST-DEFERRAL-1` - Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip — _#12 · WSJF 1.0 · v4 tc2 u2 /e8_
 thread: **energy** - status: **pre_planning**

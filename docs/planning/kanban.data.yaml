@@ -9,6 +9,7 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {"fid": "OC-SHADOW-SAMPLES-EMPTY-1@2026-11-09T02:09:00", "card_id": "OC-SHADOW-SAMPLES-EMPTY-1", "at": "2026-11-09T02:09:00", "outcome": "measured", "headline": "Optimizer track record is still empty (0 scored samples). The fix already belongs to the first slice of the optimizer redesign (your 10-17 call); corrected the card, which still asked you to pick. The overnight pass stops here: no investigations left, and new builds wait until the 8 cards in Review ship.", "acknowledged": false}
   - {"fid": "EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1@2026-11-09T02:07:00", "card_id": "EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1", "at": "2026-11-09T02:07:00", "outcome": "escalated", "headline": "The EV pause flip-flop came back in daytime: 11-08 14:03-14:33 the garage A charger (10-11 kW) was switched 7 times as the battery strategy alternated between 'pause EVs for solar' and 'wait' every 5 min, until grid charging took over at 14:33. That fires this card's revival trigger. It's Tier 3, so moved to your queue: APPROVE a plan + 2 plan reviews. Paged (quiet).", "acknowledged": false}
   - {"fid": "EC-CFG-SELFHEAL-FALSE-CRITICAL-1@2026-11-09T02:07:00", "card_id": "EC-CFG-SELFHEAL-FALSE-CRITICAL-1", "at": "2026-11-09T02:07:00", "outcome": "measured", "headline": "The CRITICAL 'Envoy write self-heal loop: charge_from_grid' pages on 11-07 and 11-08 were false: the cloud switch already showed the right value 0.2-0.3 s before each page, and on 11-08 the battery had been charging for 15 min. The October fix covered the reserve only. New card with a small fix (re-check before paging); waits for an attended build because 8 cards are in Review.", "acknowledged": false}
   - {"fid": "EC-STORM-FULLHOLD-DEGRADED-ENVOY-AVAILABLE-1@2026-11-09T02:08:00", "card_id": "EC-STORM-FULLHOLD-DEGRADED-ENVOY-AVAILABLE-1", "at": "2026-11-09T02:08:00", "outcome": "parked", "headline": "Shipped-card cleanup: two energy fixes from v5.106.2 (storm-hold outage counter; Envoy-blind de-escalation at the top rate) only fire in rare conditions, so they can't be proven by waiting. Both are tested and showed no live regression; parked with triggers naming the first real event to check. Lock and WhatsApp cards had stale 'after restart' asks; corrected to the setup steps only you can do.", "acknowledged": false}
@@ -1337,7 +1338,7 @@ cards:
   adjacency_2026_10_21: 'Swept board (OC-*, HVAC funnel cards), PLANNING_/AUDIT_ request-API audit: ADJACENT to HVAC-OPTIMIZER-CLIMATE-FUNNEL-ROUTING-1 (P3 path) and OC-SHADOW-SAMPLES-EMPTY-1 (action log). NEW as a mechanism.'
   next: 'Seed at docs/planning/PLANNING_oc_request_fix_dispatcher_SEED.md -> full plan (prior-art scan + one plan review) when slice 2 starts.'
 - id: OC-SHADOW-SAMPLES-EMPTY-1
-  updated: "2026-10-21 22:05"
+  updated: "2026-11-09 02:09"
   links_added_2026_10_21: "related+OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1: Default A taken 10-17: the validator fix is folded into the redesign first slice."
   links: {"related": ["OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1"], "context": "Default A taken 10-17: the validator fix is folded into the redesign first slice."}
   operator_instruction_2026_10_17: "inside the redesign (board, 2026-10-18T03:51:55.526Z)"
@@ -1352,8 +1353,9 @@ cards:
   thread: optimization
   status: pre_planning
   origin: 'Found 2026-10-16 by v6 milestone scan (AUDIT_v6_milestone_candidates.md); operator floated "making OC actually work better" as a milestone.'
-  next: "PICK: (A) fold the validator fix + finding dedup into the FIRST SLICE of the OC redesign (OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1), because what gets scored (each re-emitted finding vs each deduped problem) is a redesign decision (my recommendation); or (B) build the validator fix alone now as a Tier 2-DB cycle so samples start accruing (7-day span needed before any promotion). -> On A I write it into the redesign doc's first slice; on B I plan it (one plan review) and build to review."
+  next: "No separate action: folded into the first slice of OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1 (default A, taken 10-17, confirmed by your 10-17 board instruction 'inside the redesign'). Moves with that card."
   rank: {value: 6, time_criticality: 3, effort: 8}
+  verify_2026_11_09_overnight: "STILL-REAL: optimizer_shadow_samples = 0 rows (URA DB, 02:09 CST). CARD-WAS-WRONG on next: it still showed the A/B PICK that was settled 10-17; corrected."
 - id: EC-OBS-DP-EVSE-1
   arc_cut_v5_103_69: "different invariant (EV-charger switch/amp writes, not reserve/CFG/storage-mode)"
   INSTANCE_2026_10_17_solar_follow_restore: "From the reserve-gate build's D3 writer audit (docs/planning/AUDIT_ec_observation_mode_writer_coverage.md on fix/ec-obs-mode-reserve-gate): solar-follow _restore_pass (energy_pool.py:5257, :5270, :5492) restores saved EVSE amps when the feature is disabled, and observation mode counts as disabled (:5247), so it writes EVSE amps while observation mode is on. Arguably correct (it undoes URA's own throttle) - decide gate-vs-exempt per site in this card's plan."
