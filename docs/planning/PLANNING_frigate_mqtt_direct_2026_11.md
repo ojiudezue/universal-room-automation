@@ -102,7 +102,7 @@ Owned at `hass.data[DOMAIN]["frigate_ingress"]`, created in the parent entry **b
 
 ### 3.3 Dedup and precedence: per-event-id source latch, first source wins
 `_latch: dict[event_id, (source_family, last_seen_monotonic)]`, `source_family ∈ {"bus","mqtt"}`.
-- Message with no `after.id` → dispatched from **one family only**: MQTT when at least one MQTT subscription is live, otherwise bus; the other family's id-less copies are dropped. Counted (`idless`). (Rev 2, H1: consumers do NOT ignore id-less messages. Perimeter calls `_note_frigate_event` before checking the id, at `perimeter_alert.py:950`, and the linker calls `observe(event_id=None)`. Dispatching from both sources would double-feed.)
+- Message with no `after.id` → dispatched from **one family only**: MQTT when at least one MQTT subscription is live, otherwise bus; the other family's id-less copies are dropped. Counted (`idless`). (Rev 2, H1: consumers do NOT ignore id-less messages. Perimeter calls `_note_frigate_event` before checking the id, at `perimeter_alert.py:967` (develop c84fb384), and the linker calls `observe(event_id=None)`. Dispatching from both sources would double-feed.)
 - id not latched, or latch expired → latch to this family, dispatch.
 - id latched to **this** family → refresh timestamp (sliding), dispatch.
 - id latched to the **other** family → drop, increment `dedup_dropped[family]`.

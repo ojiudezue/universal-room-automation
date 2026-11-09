@@ -21,7 +21,7 @@ HVAC/presence state-of-play docs: not applicable (no HVAC or presence-sensor sur
 ## Findings
 
 ### H1 (HIGH): "id-less messages are harmless, consumers ignore them" is false
-Perimeter `_on_frigate_event` (`perimeter_alert.py:928-967`) calls `self._note_frigate_event(cam_key, msg_type, after)` **before** it looks at `event_id`, so an id-less person message on a known camera updates the D2 cache and appends to `_frigate_bus_times`. The linker `_on_frigate` (`exterior_track_linker.py:245-266`) calls `observe(..., event_id=None, ...)`. Under rev 1 §3.3, an id-less message is dispatched from **both** sources, so each consumer sees it twice. That breaks INV-1 directly, inflates the D2 window count, and opens a second linker observation.
+Perimeter `_on_frigate_event` (`perimeter_alert.py:967` on develop c84fb384) calls `self._note_frigate_event(cam_key, msg_type, after)` **before** it looks at `event_id`, so an id-less person message on a known camera updates the D2 cache and appends to `_frigate_bus_times`. The linker `_on_frigate` (`exterior_track_linker.py:245-266`) calls `observe(..., event_id=None, ...)`. Under rev 1 §3.3, an id-less message is dispatched from **both** sources, so each consumer sees it twice. That breaks INV-1 directly, inflates the D2 window count, and opens a second linker observation.
 Frigate does not normally emit id-less events, so this is a latent path, but INV-1 says "any reachable path" and the plan asserts something untrue about the consumers.
 **Fix (rev 2):** id-less messages are dispatched from one family only: MQTT when at least one MQTT subscription is live, otherwise bus. Counted as `idless`. Test added.
 
