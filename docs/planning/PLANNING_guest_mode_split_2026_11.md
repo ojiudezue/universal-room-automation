@@ -2,7 +2,11 @@
 
 **Card:** `GUEST-MODE-SPLIT-VISITORS-1` (`docs/planning/kanban.data.yaml:438`).
 **Base:** `develop` @ `4b52c262` (v5.107.6); every `file:line` below re-read on that commit, 2026-11-09.
-**Status:** rev 5 (2026-11-09). Entry rule changed to "sustained daytime occupancy + one qualifying night" on the
+**Status:** rev 6 (2026-11-09). Exit rule: the number of empty nights that ends a stay now grows with the stay
+(`min(GUEST_STAY_LOOKBACK_NIGHTS, qualifying nights so far)`), so a one-night visit ends after one empty night and a
+long stay still needs three (§0.2, §5.5). The three faster exits the operator proposed all break the October stay
+(§5.5). Builder delta against the rev 5 build `a05c628e`: §14.
+Rev 5 (2026-11-09): entry rule changed to "sustained daytime occupancy + one qualifying night" on the
 operator's 2026-11-09 follow-up (§0.1); replay re-run (§5.4); garage-lockout churn (build review B-M1) specified as
 INV-LOCK-1 + D3 acceptance criteria (§3.3). Builder delta against the rev 4 build `3a37f0c2`: §13.
 Rev 4 (2026-11-09) was rewritten on the operator's answers to the D0 §8 questions (below). Rev 4 plan review
@@ -39,6 +43,26 @@ to authenticate. Which is not a bad idea. But not now."*
 6. **Identity is sensor-only.** Guests have no IRK, so nothing identifies a guest. BLE only SUBTRACTS residents
    (`person_visits`). Guest self-authentication is parked as `GUEST-SELF-AUTHENTICATION-1` (revival: operator asks).
 
+### 0.2 Operator follow-up 2026-11-09 (rev 6)
+
+Relayed by the orchestrator: the rev 5 exit ("3 failing nights in a row", `GUEST_STAY_LOOKBACK_NIGHTS` 3) is too
+slow. Candidates offered: (a) exit after 1 night below a lower "empty" threshold (hysteresis, e.g. < 0.05);
+(b) (a) plus the following day also empty, so the exit lands mid-day; (c) exit after a full day and night with zero
+guest-room occupancy. Brief: pick the fastest exit that never drops mid-stay.
+
+7. **Premise correction (data wins).** The brief says the stay's nights ranged 0.14-0.82. They did not: four stay
+   nights read **0** in both guest rooms (10-13, 10-14, 10-16, 10-17; §5.2), and all of day 10-14 read 0.00 in both
+   rooms. Any exit that fires on one or two empty nights, or on one empty day + night, ends the October stay on 10-14
+   or 10-15. None of (a), (b), (c) holds the stay (§5.5).
+8. **The October tail is already one day.** Under rev 5 the stay ends on the morning of 10-19; the only active day
+   after the stay is 10-18. Nights 10-16 and 10-17 were already empty while the guest was still in the house (GB2
+   day 0.46 and 0.22), so the guest-room signal cannot see the departure any earlier.
+9. **What rev 6 changes.** The slow exits are the SHORT visits: each one-night entry held 3 days (09-10..12,
+   09-16..18). Rev 6 scales the exit length with the stay: min(`GUEST_STAY_LOOKBACK_NIGHTS`, n) empty nights, where
+   n = qualifying nights in the stay so far. A one-night visit ends after one empty night (1 day active), a two-night
+   visit after two, a stay of three or more nights after three (unchanged). The October stay is identical to rev 5;
+   10-19..11-08 stays at 0.
+
 ## Deliverables and verdicts
 
 | # | Deliverable | Verdict | Gate |
@@ -71,8 +95,8 @@ After this plan:
 - **GUEST** (high bar) = a guest STAY (rev 5): on some night N a designated guest room R was occupied by someone
   other than a BLE-located resident for at least `GUEST_NIGHT_MIN_FRACTION` of the night window, AND the same room
   was so occupied for at least `GUEST_STAY_DAY_MIN_FRACTION` of the day window before that night
-  (`GUEST_STAY_DAY_START_HOUR` → `sleep_start_hour`). Once on, the stay holds until `GUEST_STAY_LOOKBACK_NIGHTS`
-  nights in a row fail the night test. The house shows GUEST by day and evening during a stay and goes to SLEEP at
+  (`GUEST_STAY_DAY_START_HOUR` → `sleep_start_hour`). Once on, the stay holds until min(`GUEST_STAY_LOOKBACK_NIGHTS`,
+  n) nights in a row fail the night test, n = qualifying nights in the stay so far (rev 6, §2.3). The house shows GUEST by day and evening during a stay and goes to SLEEP at
   night as usual.
 - **`visitors_present`** (low bar) = GUEST, OR the stay is active, OR the 30-min guest-room gate, OR Path A
   (unidentified bodies on camera ≥ 300 s).
@@ -107,6 +131,7 @@ Ledger items that bind this plan:
 | Night window | **REUSE** | House sleep window on the inference engine: `self._inference_engine.sleep_start_hour` / `.sleep_end_hour` (`presence.py:1506-1508`, engine `:1055-1061`), fed from CM options `CONF_SLEEP_START_HOUR` / `CONF_SLEEP_END_HOUR` (`__init__.py:3748-3757`, `const.py:3519-3523`, defaults 23/6; **live 22 / 6**, CM entry 2026-11-09). Not the per-room sleep-protection hours (`const.py:1560-1561`, GB1 21-7, GB2 22-7): those drive room lighting, and the stay is a house concept |
 | Day window + day fraction (rev 5) | **REUSE reader, NEW knobs** | Same `get_guest_room_night_fractions` span API (rev 4 build `3a37f0c2`, `database.py:3697`), which already takes an arbitrary `windows` list: day windows are just more windows. Knobs `GUEST_STAY_DAY_MIN_FRACTION` / `_DAY_START_HOUR` / `_DAY_BEFORE_NIGHT` are NEW: `grep -rn -e GUEST_STAY_DAY -e DAY_START_HOUR -e DAY_MIN_FRACTION -e day_start_hour` over the package (develop and `3a37f0c2`) returns nothing. The engine has `evening_start_hour` / `night_start_hour` (`presence.py:1019-1020`) but no day-start hour; `sleep_end_hour` (6) as the start gives the same replay list (§5.4), but the operator asked for a separate window knob |
 | Sleep-hour test for the night yield | **REUSE** | `StateInferenceEngine._is_sleep_hour` `presence.py:1465-1470` |
+| Stay-scaled exit length (rev 6) | **EXTEND walk, NEW knob** | The exit already lives in the walk loop (`presence.py:6226-6233` on `a05c628e`, `elif active and q == 0` at `:6231`). Rev 6 adds a loop-local count and one `min()`; no new state. Knob `GUEST_STAY_EXIT_SCALES_WITH_STAY` is NEW: `git grep -n -i -e EXIT_SCALE -e GUEST_STAY_EXIT -e exit_nights -e SCALES_WITH a05c628e -- custom_components docs/planning` and the same on `develop` return nothing; memory bodies `project_presence_guest_latch_and_veto_gap`, `feedback_tier2db_minimum_arc` mention the guest exit only as the GUEST→HOME_NIGHT edge |
 | GUEST composition | **EXTEND** | `presence.py:6586-6613`; `infer()` exit `:1399`, entry `:1425-1432` |
 | Path A (cam visitors leg) | **REUSE unchanged** | `_guest_gate_armed` `presence.py:5998-6076` (HOME_* only; `CONF_GUEST_MODE_PERSISTENCE_SECONDS` / `_REQUIRE_CONFIDENCE` `const.py:4245`/`:4248`, live 300 s / medium) |
 | `guest_reason` | **EXTEND** | `presence.py:6615-6637`, published `sensor.py:5836` |
@@ -200,7 +225,14 @@ For each designated guest room R and each night N (the night that starts on loca
   - latch False and N is entry-qualified (§2.1, night + day, same room) and Q ≥ `GUEST_STAY_ENTRY_NIGHTS` → True
     (default `GUEST_STAY_ENTRY_NIGHTS` = 1, so the entry-qualified night alone suffices; 2 restores a rev-4-style
     second-night guard, §5.4);
-  - latch True and Q == 0 → False (exit unchanged from rev 4: 3 straight misses);
+  - latch True and the last X nights ending at N are all non-qualifying → False, where (rev 6)
+    X = min(`GUEST_STAY_LOOKBACK_NIGHTS`, n) when `GUEST_STAY_EXIT_SCALES_WITH_STAY` is True, else
+    X = `GUEST_STAY_LOOKBACK_NIGHTS` (rev 5: 3 straight misses);
+  - n = the stay's qualifying-night count, a local of the walk: set to Q at the night the latch turns on (so it
+    counts the entry night and any qualifying nights already in the lookback; Q ≤ L), plus 1 for each later night
+    that qualifies (night test only). It is reset when the latch turns off and never decremented. X ≥ 1 always
+    (n ≥ 1 at entry, L ≥ 1);
+  - the exit is tested on nights AFTER the entry night only (the entry night itself qualifies, so it cannot exit);
   - otherwise unchanged.
   - With `GUEST_STAY_DAY_BEFORE_NIGHT` False, "N is entry-qualified" also accepts (night N−1, day N), so the walk
     reads one extra day window.
@@ -237,8 +269,9 @@ Without the yield, an active stay would hold GUEST every night for weeks and eve
 night trust, NM CRITICAL exterior severity, lock regime unless its GUEST toggle is on) would be off for the whole
 stay. D0 §3 measured that today GUEST covers 2 of 21 stay nights; the yield keeps nights as they are now.
 
-**Entry/exit discharges** (suppression-needs-discharge): the latch ends after `GUEST_STAY_LOOKBACK_NIGHTS` straight
-non-qualifying nights (3 nights → off on the morning after the third). Also: guest-detection switch OFF, manual
+**Entry/exit discharges** (suppression-needs-discharge): the latch ends after X straight non-qualifying nights
+(rev 6: X = min(3, n); a one-night visit is off on the morning after the first empty night, a stay of 3+ qualifying
+nights on the morning after the third). Also: guest-detection switch OFF, manual
 override, and GUEST → AWAY (valid edge; the latch stays on, so the house re-enters GUEST after ARRIVING → HOME_*).
 Phantom room occupancy has no automatic discharge, so D4 pages instead.
 
@@ -283,7 +316,7 @@ of why the second-night guard exists; it survives as the knob `GUEST_STAY_ENTRY_
   had ONE guest room R with non-resident occupied time ≥ `GUEST_NIGHT_MIN_FRACTION` of W(N) AND ≥
   `GUEST_STAY_DAY_MIN_FRACTION` of Dy(N) (or of Dy(N+1) when `GUEST_STAY_DAY_BEFORE_NIGHT` is False), with ≥
   `GUEST_STAY_ENTRY_NIGHTS` night-qualifying nights among the `GUEST_STAY_LOOKBACK_NIGHTS` ending at N, per the DB,
-  and no run of `GUEST_STAY_LOOKBACK_NIGHTS` non-qualifying nights since. The only other writers of GUEST
+  and no run of X non-qualifying nights since (X per §2.3, rev 6). The only other writers of GUEST
   from HOME_* are the manual override (`select.py:280`, `__init__.py:6200`, `presence.set_house_state_override`
   `presence.py:8663`) and restart restore (`manager.py:688-719`).
   *Corollaries:* a daytime visit of any length with no night in the room never enters GUEST (naps, office use); a
@@ -315,6 +348,18 @@ of why the second-night guard exists; it survives as the knob `GUEST_STAY_ENTRY_
   with reason `guest_night`: held too, by design, since the regime cannot tell the two apart; WAKING / HOME_DAY /
   resident arrival still release); GUEST → HOME_EVENING inside the window (not possible from infer(); override only:
   releases as today).
+- **INV-STAY-4 (rev 6, exit length).** With the rule on and `GUEST_STAY_EXIT_SCALES_WITH_STAY` True, the walk turns
+  the latch off at night N iff the latch was on before N and the last min(`GUEST_STAY_LOOKBACK_NIGHTS`, n) nights
+  ending at N are all non-qualifying, n per §2.3. Consequences that must hold: (i) a stay with ≥ L qualifying nights
+  never ends on fewer than L straight empty nights (the October stay keeps rev 5's day list exactly: 09-28..10-18);
+  (ii) a stay with n < L qualifying nights ends on the morning after its n-th straight empty night; (iii) the latch
+  never turns off on the entry night; (iv) with the knob False the walk is byte-identical to `a05c628e`.
+  *Falsifiers to try:* one entry-qualified night then empty (must be off after 1 empty night); entry at
+  `GUEST_STAY_ENTRY_NIGHTS` 2 (n starts at 2, so 2 empty nights); a qualifying night inside the lookback before the
+  entry night (09-04/09-05 shape: n = 2 at entry); a long stay with two isolated empty nights (10-13/10-14 shape: must
+  hold); L = 1 (X = 1 always); L = 7 with n = 2 (X = 2); a restart between the first and second empty night (the walk
+  recomputes n from the DB, so the result is the same); a stay that exits and re-enters inside the replay window (n
+  restarts at the re-entry Q, not the old count).
 - **INV-VIS-1 (D1 is display).** D1 adds no call to `_guest_room_gate_armed`, `_guest_gate_armed`, `transition`, or any
   `_guest_*` state writer; `guest_armed`, `guest_reason`, confidence and the `infer()` result are byte-identical to
   base with D1 applied alone.
@@ -514,6 +559,60 @@ operator, not treated as errors: if they were visitors, rev 5 is right on them.
 **D0 GATE (rev 5): GO.** The stay is caught from day 2, both no-guest windows stay at 0. The pre-stay stretches are an
 operator labelling question, not a gate.
 
+### 5.5 Rev 6 replay: faster exits (2026-11-09, read-only)
+
+**Method.** Same data as §5.4 (`r5_data.json`, no new DB read), entry fixed at the rev 5 defaults (night 0.25, day
+0.10 from 10:00, same room, day before, `GUEST_STAY_ENTRY_NIGHTS` 1). Script
+`/private/tmp/claude-501/-Users-okosisi-Code-universal-room-automation/75cc297f-1426-4620-b7aa-da058bc0fab0/scratchpad/r6_exit.py`
+(imports the `r5_rule.py` entry predicate; run `python3 r6_exit.py r5_data.json`). It reproduces the rev 5 list that
+`test_replay_fixture_day_list` pins at `a05c628e`, so the harness matches the build. "Night" = max over GB1/GB2 of the
+night fraction; "day" = max over both rooms of the 10:00-22:00 fraction (and 06:00-22:00 for (c)).
+
+**The data the stay actually has** (night = 22:00 that date → 06:00; day = 10:00-22:00 that date; max of both rooms):
+
+| Date | 10-12 | 10-13 | 10-14 | 10-15 | 10-16 | 10-17 | 10-18 |
+|---|---|---|---|---|---|---|---|
+| Night | 0.37 | **0** | **0** | 0.57 (GB2) | **0** | **0** | 0 |
+| Day | 0.04 | 0.03 | **0.00** | 0.00 | 0.46 (GB2) | 0.22 (GB2) | 0.02 |
+
+Day 10-15 before the GB2 night 0.57 read 0.00, so once the latch drops at 10-13/10-14 the day test blocks re-entry for
+the rest of the stay.
+
+| Exit rule | October stay 09-27..10-17 | Mid-stay drop? | Tail after 10-17 | 10-19..11-08 |
+|---|---|---|---|---|
+| rev 5: 3 straight nights < 0.25 | 20/21 (from 09-28) | no | 10-18 (1 day) | 0/21 |
+| (a) 1 night < 0.05 (also < 0.02, < 0.10: same) | 16/21 | **yes**: off from 10-14, never re-enters (lost 10-14..10-17) | none | 0/21 |
+| (b) night < 0.05 + next day < 0.05 (also 0.02, 0.10: same) | 17/21 | **yes**: off at 22:00 on 10-14 (lost 10-15..10-17) | none | 0/21 |
+| (c) day + night exactly 0 (also < 0.02) | 17/21 | **yes**: day 10-14 + night 10-14 all zero (lost 10-15..10-17) | none | 0/21 |
+| (a2) 2 nights < 0.05 | 17/21 | **yes** (10-13 + 10-14) | none | 0/21 |
+| (a3) 3 nights < 0.05 (hysteresis only) | 20/21 | no | 10-18 | 0/21; pre-stay holds get LONGER (08-25..09-12 as one run) |
+| **rev 6: min(3, n) nights < 0.25** | **20/21 (from 09-28), identical to rev 5** | **no** | **10-18 (1 day)** | **0/21** |
+
+Rev 6 full day list at the defaults: active 08-25..09-02, **09-06..09-07**, **09-10**, **09-16**, 09-28..10-18; off
+10-19..11-08. Against rev 5 that removes 09-08, 09-11, 09-12, 09-17, 09-18 (5 days, all short unlabelled visits). At
+`GUEST_STAY_ENTRY_NIGHTS` 2: active 08-26..09-02, 09-06..09-07, 09-30..10-18.
+
+**Variant rejected: n starting at 1 instead of Q.** At `GUEST_STAY_ENTRY_NIGHTS` 2 it splits the August run
+(08-26, then 08-28..09-02), because the second qualifying night that let the latch on is not counted. n = Q at entry
+does not split anything.
+
+**Why no faster exit exists on this signal.** The stay contains a 2-night, 1-day blackout (night 10-13, day 10-14, night
+10-14 all ~0) followed by a real night (10-15, GB2 0.57). Any rule that ends a long stay in under 3 empty nights, or on
+one empty day + night, ends it there. The departure-side tail is already 1 day because the stay's last two nights
+were empty too. A faster departure would need a different signal (a door crossing, the guest's car, an operator
+"guest left" action), not a different threshold on guest-room occupancy.
+
+**Marginal-benefit check (rev 6).** Simplest version: rev 5 unchanged (0 risk, short visits hold 3 days). Rev 6 adds
+one walk-local integer and one `min()`: no new state, no new writer, no new read, no Store, deterministic on restart.
+Benefit: 5 fewer GUEST days in the 76-night replay, all on short visits, and a one-night visitor no longer leaves the
+house in GUEST for two more days (GUEST masks nothing at night because of the yield, but it changes the daytime state
+every consumer sees). Cost, named: a visit whose second night reads empty (dropout, guest slept elsewhere) ends after
+one day and re-enters only on a later night with a qualifying day before it. In the October stay the first empty night
+came after 7 qualifying nights, so this did not bite. Margin pays. The hysteresis threshold (a3) is rejected: it does
+not hold the stay any better and makes short holds longer.
+
+**D0 GATE (rev 6): GO.** Stay unchanged, no-guest windows at 0, short visits shorter.
+
 ---
 
 ## 6. Deliverables
@@ -580,9 +679,16 @@ operator labelling question, not a gate.
 
 **Acceptance criteria**
 - **Verify (fixture = the replay):** a fixture DB built from the 76-night replay rows (or a seeded synthetic copy with
-  the same per-night AND per-day fractions) reproduces the §5.4 day list exactly at the rev 5 defaults: active
-  08-25..09-02, 09-06..09-08, 09-10..09-12, 09-16..09-18, 09-28..10-18; off 10-19..11-08. At
-  `GUEST_STAY_ENTRY_NIGHTS` 2: active 08-26..09-02, 09-06..09-08, 09-30..10-18 (rev 5 replay, `r5_pick.py`).
+  the same per-night AND per-day fractions) reproduces the §5.5 day list exactly at the rev 6 defaults: active
+  08-25..09-02, 09-06..09-07, 09-10, 09-16, 09-28..10-18; off 10-19..11-08. At `GUEST_STAY_ENTRY_NIGHTS` 2: active
+  08-26..09-02, 09-06..09-07, 09-30..10-18. With `GUEST_STAY_EXIT_SCALES_WITH_STAY` False: the rev 5 lists (active
+  08-25..09-02, 09-06..09-08, 09-10..09-12, 09-16..09-18, 09-28..10-18; at K 2: 08-26..09-02, 09-06..09-08,
+  09-30..10-18) (`r6_exit.py`).
+- **Discriminates (rev 6 exit):** one entry-qualified night then empty nights → active exactly 1 day (a build that
+  kept the fixed 3-night exit gives 3; a build that exits on the entry night gives 0). The October fixture keeps
+  09-28..10-18 (a build that applied the short exit to every stay, e.g. n not incremented, drops at 10-14). A
+  09-04/09-05-shaped pair (qualifying night with no day, then entry-qualified night) → 2 active days (a build that
+  started n at 1 gives 1).
 - **Verify:** `_occupied_seconds_between` unchanged on its callers' fixtures (golden on the two existing callers).
 - **Verify (clock):** a `person_visits` fixture written in process-local time subtracts correctly under `TZ=UTC` and
   `TZ=America/Chicago` (test sets `time.tzset`); a tz-aware bound passed to the occupancy reader is rejected or
@@ -607,7 +713,11 @@ operator labelling question, not a gate.
   `::test_one_night_with_day_enters`, `::test_one_night_without_day_never_enters`, `::test_day_and_night_same_room`,
   `::test_entry_nights_2_blocks_single_night`, `::test_day_after_night_knob`, `::test_day_window_bounds`,
   `::test_day_resident_subtraction`, `::test_daytime_never_counts`, `::test_db_error_fails_off`,
-  `::test_non_wrapping_window`, `::test_task_cancelled_on_teardown`.
+  `::test_non_wrapping_window`, `::test_task_cancelled_on_teardown`; rev 6:
+  `::test_replay_fixture_day_list_fixed_exit`, `::test_one_night_visit_exits_after_one_empty_night`,
+  `::test_two_night_visit_exits_after_two`, `::test_long_stay_holds_two_empty_nights`,
+  `::test_exit_count_starts_at_entry_q`, `::test_exit_never_on_entry_night`, `::test_exit_count_resets_on_reentry`,
+  `::test_exit_scaled_restart_between_empty_nights`, `::test_config_extremes_exit`.
 - **Live:** after restart, `guest_stay_basis` on the house-state sensor lists the last 3 nights, each with `fraction`
   (night) and `day_fraction` (the day before, same room) ≤ 0.08, `qualifies` false and `entry_qualified` false;
   `guest_stay_active` false.
@@ -716,7 +826,8 @@ DB walk, so a restart does not restart the span.
 | `GUEST_STAY_DAY_MIN_FRACTION` | 1 (NEW) | 0.10 | Fitted: replay plateau 0.03-0.20 at H 10 (§5.4); above 0.21 the October stay is never entered (recall cliff), below 0.03 a night-only sleeper (09-04) enters. Fitted number → reviewed change | 0 = day test off (any night with day evidence ≥ 0 qualifies; not rev 4: no second-night guard unless `GUEST_STAY_ENTRY_NIGHTS` 2); > 1 = never enters (rule effectively off for entry; exit unaffected) |
 | `GUEST_STAY_DAY_START_HOUR` | 1 (NEW) | 10 | Day window start, local hour; window ends at the CM `sleep_start_hour`. Replay identical for 6-12; 14 halves recall at 0.20 (§5.4). Starts after typical resident wake/office-morning noise in a guest room | clamped 0..23; if it leaves < 1 h before the night window, the window is the 1 h before it (no empty window, no division by zero) |
 | `GUEST_STAY_DAY_BEFORE_NIGHT` | 1 (NEW) | True | Operator asked for the choice. True = the day must precede the night (decided on the morning after night 1). False = the day after also counts: replay 19/21 and adds the morning after departure (10-19); decided a day later | False widens entry; never affects exit |
-| `GUEST_STAY_LOOKBACK_NIGHTS` | 1 | 3 | The exit length (3 straight non-qualifying nights; replay: 2 ends holds a day early, 4 adds a day) and the window for the `GUEST_STAY_ENTRY_NIGHTS` count | clamped ≥ 1 |
+| `GUEST_STAY_LOOKBACK_NIGHTS` | 1 | 3 | The MAXIMUM exit length (rev 6: a stay with ≥ 3 qualifying nights ends on 3 straight non-qualifying nights; replay: 2 drops the October stay at 10-13/10-14, §5.5) and the window for the `GUEST_STAY_ENTRY_NIGHTS` count | clamped ≥ 1 |
+| `GUEST_STAY_EXIT_SCALES_WITH_STAY` | 1 (NEW, rev 6) | True | Exit length = min(`GUEST_STAY_LOOKBACK_NIGHTS`, n), n = qualifying nights in the stay so far (§2.3). Replay: October stay identical, one-night visits 3 days → 1 (§5.5). A house-state policy fitted on one stay: changing it should be reviewed, and nobody should tune it by observation | False = rev 5 fixed exit (`GUEST_STAY_LOOKBACK_NIGHTS` straight misses), byte-identical to `a05c628e` |
 | `GUEST_STAY_REPLAY_NIGHTS` | 1 | 35 | How far back the deterministic walk starts. It must exceed `GUEST_STAY_LONG_NM_DAYS` + lookback, or `_guest_stay_since` is re-dated inside the walk every morning and D4 can never fire (review R16) | clamped ≥ `GUEST_STAY_LONG_NM_DAYS` + `GUEST_STAY_LOOKBACK_NIGHTS` (and ≥ lookback when D4 is 0) |
 | `GUEST_STAY_LONG_NM_DAYS` | 1 | 28 | Trip-wire bound; the one real stay was 21 days | 0 = off |
 | `VISITORS_CAM_LEG_ENABLED` | 1 | True | D0 measured the cam leg noisy (§3.1); removable by a reviewed one-line change | False = `legs.cam` always False |
@@ -741,6 +852,11 @@ module attribute must reach the code). No new Number, options-flow field or Stor
   operator asks for a "visitors arrived" notification after two weeks with the entity).
 - No DB schema change, no new table, no new writer (reads only).
 - No GB2 scanner work (operator-owned; the rule does not depend on it).
+- Rev 6: no hysteresis "empty" threshold, no empty-day exit, no mid-day exit, no second daily walk (§5.5 rejects all
+  of them on the replay). No change to the basis shape or any sensor attribute for the exit count. Parked:
+  `GUEST-DEPARTURE-SIGNAL-1` idea (a departure signal such as a door crossing with luggage, the guest's car leaving, or
+  an operator "guest left" action) is the only route to a faster long-stay exit; revival trigger: the operator says
+  the one-day tail after a real stay under rev 6 mattered.
 
 | Card / parked item | Disposition |
 |---|---|
@@ -826,6 +942,17 @@ operator checkpoint (Tier 2-DB, house state).
 | R26 | The builder's lock fix also swallows a real HOME_NIGHT edge after an operator override out of GUEST | LOW | Accepted by name (INV-LOCK-1 falsifier list): with reason `guest_night` the regime cannot tell them apart; WAKING / HOME_DAY / resident arrival still release, and the backstop is unchanged |
 | R27 | `GUEST_STAY_DAY_BEFORE_NIGHT` False is built as a second evening walk | LOW | §2.1: judged at the walk after night N+1 (no new scheduling) |
 
+## 11b. Rev 6 plan review (adversarial build-prediction; run by the planner, 2026-11-09)
+
+| # | Finding | Severity | Fix in this plan |
+|---|---|---|---|
+| R28 | The builder counts n from the lookback window at every night (n = Q(N)) instead of accumulating it across the stay; then a long stay's n falls to 0-1 after two empty nights and the third night's X shrinks, dropping the October stay at 10-14 | HIGH | §2.3: n is a walk-local accumulator set at entry, +1 per later qualifying night, never decremented; `test_long_stay_holds_two_empty_nights` + the replay fixture |
+| R29 | The builder starts n at 1 (the entry night) instead of Q | MED | §2.3 + §5.5 variant note; `test_exit_count_starts_at_entry_q` (09-04/09-05 shape: 2 days, not 1) |
+| R30 | The builder tests the exit on the entry night (the `elif` order is lost in a refactor) | MED | INV-STAY-4 (iii); `test_exit_never_on_entry_night` |
+| R31 | The builder keeps n across an exit and re-entry inside the replay window | LOW | §2.3 "reset when the latch turns off"; `test_exit_count_resets_on_reentry` |
+| R32 | The builder implements (a)/(b)/(c) or a hysteresis threshold "as well", because the brief listed them | MED | §5.5: all rejected on replay; §8 non-goal |
+| R33 | The builder adds n to the basis or a new attribute and changes the recorded sensor shape | LOW | §8 non-goal; basis unchanged |
+
 ## 12. Live validation (post-restart, feeds the READMEs)
 
 | # | Check | Source | Ships with |
@@ -834,7 +961,8 @@ operator checkpoint (Tier 2-DB, house state).
 | L2 | over 24 h, `visitors_present` on only in short episodes, each with a true leg at the time | recorder | D1 |
 | L3 | house-state sensor `guest_stay_basis` lists 3 nights, fractions ≤ 0.02, `guest_stay_active` false | live attribute | D2/D3 |
 | L4 | no `guest` row in `house_state_log` from deploy until a real stay | URA DB | D2/D3 |
-| L5 | first real stay: daily HOME_* → `guest` after waking (from day 2), `guest` → `home_night` at ~22:05, basis shows an `entry_qualified` night (night ≥ 0.25 AND day ≥ 0.10, same room); exit on the morning after the third empty night. Lock regime: per stay night one `lock` at 22:00, no `unlock` until WAKING (`security_lock_regime` records: `guest_yield_hold` at ~22:05). Organic; disposed by this binary discriminator per the soak-exit rule | URA DB + recorder | D2/D3 |
+| L5 | first real stay: daily HOME_* → `guest` after waking (from day 2), `guest` → `home_night` at ~22:05, basis shows an `entry_qualified` night (night ≥ 0.25 AND day ≥ 0.10, same room); exit on the morning after the min(3, n)-th straight empty night (a
+one-night visitor: the first empty night; a stay of 3+ nights: the third). Lock regime: per stay night one `lock` at 22:00, no `unlock` until WAKING (`security_lock_regime` records: `guest_yield_hold` at ~22:05). Organic; disposed by this binary discriminator per the soak-exit rule | URA DB + recorder | D2/D3 |
 
 ---
 
@@ -865,3 +993,78 @@ branch, and the tests that pin them. Nothing else in D1, D3 composition, D4 or t
    lockout sentence gains the yield hold.
 8. **Still open from the build reviews, not changed by rev 5:** B-M2 (DB error stamps the night evaluated → retry with
    backoff), B-L1 (teardown re-schedule), B-L2 (re-walk on guest-room re-discovery). They stay on the fix-up list.
+
+---
+
+## 14. Builder delta against the rev 5 build (`a05c628e`, `feature/guest-mode-split`)
+
+Rev 6 changes the exit in the walk, one constant, the tests that pin the day list, and the docs. Nothing else in D1,
+D3 composition, INV-LOCK-1, D4, the DB reader or the day test changes. Tier stays 2-DB (house state); this delta is
+small enough for one fix-up round, but reviews A/B/C re-run on the final branch as already planned (§9).
+
+1. **`const.py`** (next to `GUEST_STAY_LOOKBACK_NIGHTS`, `:519` on `a05c628e`): add
+   `GUEST_STAY_EXIT_SCALES_WITH_STAY: Final = True` with the §7 comment (why + "False = rev 5 fixed exit"). Edit the
+   rev 5 comment at `:510-517`: "off after LOOKBACK straight non-qualifying nights" →
+   "off after min(LOOKBACK, n) straight non-qualifying nights, n = qualifying nights in the stay so far (rev 6;
+   LOOKBACK when GUEST_STAY_EXIT_SCALES_WITH_STAY is False)".
+2. **`presence.py` `_refresh_guest_stay`, the latch loop (`:6224-6236`):** read
+   `scaled = bool(_ura_const.GUEST_STAY_EXIT_SCALES_WITH_STAY)` at call time (with the other params; a fourth value
+   from `_guest_stay_day_params` or a local read, builder's choice, but read as `_ura_const.X`). Replace the loop
+   body with:
+   - keep `q` = qualifying nights among the last `lookback` ending at idx (unchanged; it still gates entry);
+   - add a loop-local `n = 0`;
+   - entry branch (unchanged condition): on turning True, set `n = q`;
+   - else, if active: if `best[idx][2]` (night qualifies) then `n += 1`; set `x = min(lookback, n) if scaled else
+     lookback`; turn off iff the last `x` nights ending at idx are all non-qualifying
+     (`not any(b[2] for b in best[idx - x + 1: idx + 1])`); on turning off set `since = None` and `n = 0`.
+   - With `scaled` False, `x == lookback` and "last x all non-qualifying" is exactly `q == 0`: byte-identical
+     (INV-STAY-4 (iv)). Index safety: `x ≤ lookback` and `idx ≥ lookback - 1`, so the slice never goes negative.
+   - Update the method docstring ("and off at 0 of them" → the rev 6 rule).
+3. **No other code.** Basis entries, `since`, D4, the S9 veto, the composition and the lock regime are unchanged. Do
+   not add n to the basis or a sensor attribute (§8, R33).
+4. **Tests (`quality/tests/test_guest_stay_producer.py`):**
+   - `test_replay_fixture_day_list` → expected = 08-25..09-02, 09-06..09-07, 09-10, 09-16, 09-28..10-18 (docstring:
+     rev 6, §5.5).
+   - `test_replay_fixture_day_list_entry_nights_2` → 08-26..09-02, 09-06..09-07, 09-30..10-18.
+   - NEW `test_replay_fixture_day_list_fixed_exit`: knob False → the two rev 5 lists now in those tests (K 1 and K 2,
+     parametrised). Pins INV-STAY-4 (iv) on the real fixture.
+   - NEW `test_one_night_visit_exits_after_one_empty_night`: one entry-qualified night (night 0.9, day 0.38), then
+     empty → True on the morning after, False the morning after the first empty night (rev 5 gives True until the
+     third).
+   - NEW `test_two_night_visit_exits_after_two`: the entry-qualified night plus one more qualifying night (n = 2), then empty → True
+     after 1 empty night, False after 2.
+   - NEW `test_long_stay_holds_two_empty_nights`: 5 qualifying nights, 2 empty, 1 qualifying, then empty → True
+     through the 2-night gap; False only after 3 straight empty nights (the 10-13/10-14 shape; kills the R28 build).
+   - NEW `test_exit_count_starts_at_entry_q`: night 1 qualifies with day 0.02 (not entry-qualified), night 2
+     entry-qualified, then empty → off after 2 empty nights, not 1 (09-04/09-05 shape; kills R29).
+   - NEW `test_exit_never_on_entry_night`: lookback 1, scaled, a single entry-qualified night → True on its morning.
+   - NEW `test_exit_count_resets_on_reentry`: a 4-night stay, 3 empty (off), then a one-night entry, then empty → off
+     after 1 empty night (kills R31).
+   - NEW `test_exit_scaled_restart_between_empty_nights`: fresh coordinator walks at 07:00 on the day after the first
+     and after the second empty night of a 2-night visit give the same latch as a continuous run (restart
+     determinism for n).
+   - NEW `test_config_extremes_exit` (parametrised, `GUEST_STAY_DAY_MIN_FRACTION` 0 like `test_config_extremes_walk`):
+     (L 1, scaled) one qualifying night then 1 empty → False; (L 7, n 2) → off after 2 empty, not 7; (L 3, knob
+     False, n 1) → still True after 2 empty (rev 5).
+   - `test_config_extremes_walk` and `test_replay_clamp`: unchanged; re-run (the clamp test counts windows only).
+   - `quality/tests/test_guest_stay_tripwire.py`: no change expected (its stays are long, n ≥ 3); re-run
+     `::test_fires_on_stay_longer_than_bound` and `::test_since_survives_restart`, and if a fixture there ends a short
+     stay, update its expected day, not the code.
+   - Mutation anchors for review C: (i) replace `min(lookback, n)` with `lookback` → the one-night and replay tests go
+     RED; (ii) drop `n += 1` → `test_long_stay_holds_two_empty_nights` and the replay go RED; (iii) `n = 1` at entry →
+     `test_exit_count_starts_at_entry_q` RED; (iv) drop the reset → `test_exit_count_resets_on_reentry` RED.
+   - Re-run the kill-switch golden (`test_kill_switch_byte_identical`, rule OFF) and `quality/tests/test_sc_garage_lockout.py`:
+     must not change.
+5. **`quality/tests/fixtures/guest_stay_r5_replay.json`:** unchanged (same nights; only expectations move).
+6. **Docs (D5, same commit as the code):**
+   - `docs/Coordinator/PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md` (`:157` on `a05c628e`): "Off after 3 straight
+     non-qualifying nights." → the rev 6 rule with the knob, and record in its corrections ledger nothing (no claim
+     was wrong; the rule changed).
+   - `docs/readmes/README_v5.108.0.md` (or the README of the version this ships as): `:59` row for
+     `GUEST_STAY_LOOKBACK_NIGHTS` → "nights looked at; also the most empty nights that end a stay"; add a
+     `GUEST_STAY_EXIT_SCALES_WITH_STAY` row; L5 (`:104`) exit wording per §12 L5; the §5.5 replay result (stay
+     20/21 unchanged, one-night visits 1 day).
+   - `.claude/agents` / memory: none.
+7. **Not changed by rev 6, still open from earlier reviews:** whatever of B-M2 / B-L1 / B-L2 is not already closed on
+   `a05c628e` (B-M2's retry landed in `d0bc41f0`/`0046d48b`; the builder confirms the other two against the branch
+   and lists them in the plan-completion note).
