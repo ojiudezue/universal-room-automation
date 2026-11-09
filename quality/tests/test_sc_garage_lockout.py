@@ -735,14 +735,18 @@ async def test_interior_camera_face_for_resident_home_does_not_release():
 
 
 @pytest.mark.asyncio
-async def test_camera_face_after_real_absence_releases():
+async def test_camera_face_after_real_absence_without_arrival_edge_does_not_release():
+    """LOCK-REGIME-FACE-ARRIVAL-CORROBORATION-1 (was ..._releases before
+    2026-11-08): really away, but a face with no independent arrival edge
+    (the 10-24 Jaya-labelled-as-Oji shape) no longer unlocks. The
+    corroborated variants live in test_lock_face_arrival_corroboration.py."""
     rig = await make_rig(lockouts="locked")
     await rig.person(EZ, "Work")
     await rig.person(EZ, "not_home")
     await rig.w.advance(16 * 60)
     rig.sc._handle_person_arriving_signal({"person_entity": EZ, "source": "camera_face"})
     await settle()
-    assert rig.unlocks() == [LOCK_A, LOCK_B]
+    assert rig.unlocks() == []
 
 
 @pytest.mark.asyncio

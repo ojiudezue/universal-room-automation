@@ -51,6 +51,13 @@ from homeassistant.core import callback as _ha_callback  # noqa: E402
 from homeassistant.exceptions import HomeAssistantError  # noqa: E402
 from homeassistant.util.unit_conversion import DistanceConverter  # noqa: E402
 
+from ..arrival_edges import (  # noqa: E402
+    area_slug_of_entity,
+    door_entry_areas,
+    live_arrival_slug,
+    nonface_arrival_source,
+)
+
 
 def callback(func):  # noqa: D401 — review B-C1
     """HA ``@callback``: run on the event loop, never in the executor.
@@ -204,6 +211,9 @@ class LockRegimeController:
         # person -> (state, since_ts, restored)
         self._last_real: dict[str, tuple[str, float, bool]] = {}
         self._last_distance_m: dict[str, float | None] = {}
+        # person slug -> ts of the last LIVE not_home -> home edge (face
+        # corroboration; not persisted: a restart is inside the exclusion).
+        self._arrival_edges: dict[str, float] = {}
         self._residents: set[str] = set()
         self._unavailable_warned: set[str] = set()
 
@@ -800,6 +810,22 @@ class LockRegimeController:
             person = str(getattr(payload, "person_entity", "") or "")
         if not person:
             return
+        if isinstance(payload, dict):
+            source = payload.get("source")
+        else:
+            source = getattr(payload, "source", None)
+        # LOCK-REGIME-FACE-ARRIVAL-CORROBORATION-1 (operator 2026-11-08): a
+        # camera_face arrival can name a resident who IS away (10-24: Frigate
+        # labelled Jaya as Oji while Oji was abroad), which passes the
+        # really-away gate below. A face counts only with an independent
+        # arrival edge for the SAME person (v5.107.0 D10.5 rule, shared
+        # arrival_edges helper). Non-face sources are unchanged.
+        if source == "camera_face" and not self._face_arrival_corroborated(person):
+            _LOGGER.info(
+                "Lock regime: camera_face arrival for %s ignored "
+                "(no independent arrival edge)", person,
+            )
+            return
         cfg = self._cfg()
         # Away lock P2 (D3c): a listed person, same really-away gate.
         away_p2 = person in self.away_lock_persons(cfg)
@@ -901,6 +927,11 @@ class LockRegimeController:
             self._away_on_person(pid, None, new_val, now_ts, cfg)
             return
         old_val = _state_value(old)
+        # Face-arrival corroboration: record LIVE not_home -> home edges
+        # (shared arrival_edges rule; old None returned above).
+        slug = live_arrival_slug(event.data)
+        if slug:
+            self._arrival_edges[slug] = now_ts
         if resident:
             if new_val == "home" and old_val != "home":
                 if self._arrival_counts(pid, old_val, now_ts):
@@ -933,6 +964,45 @@ class LockRegimeController:
         if state == "home":
             return False  # H3a: blip while home
         return (now_ts - since) >= GARAGE_LOCKOUT_BLIP_MIN_AWAY_MIN * 60
+
+    def _area_of_entity(self, entity_id: str) -> str:
+        return area_slug_of_entity(self._hass, entity_id)
+
+    def _entry_areas(self) -> set[str]:
+        """Areas a person arrives through: egress camera areas + configured
+        door-interior neighbours (read live from the transit validator)."""
+        from ..const import DOMAIN  # noqa: PLC0415
+
+        tv = self._hass.data.get(DOMAIN, {}).get("transit_validator")
+        return door_entry_areas(tv, self._area_of_entity)
+
+    def _face_arrival_corroborated(self, person: str) -> bool:
+        """LOCK-REGIME-FACE-ARRIVAL-CORROBORATION-1: an independent arrival
+        edge for ``person`` within the D10.5 window, outside the post-boot
+        exclusion (both REUSED rung-1 constants, const.py
+        PERIMETER_EGRESS_FACE_NONFACE_WINDOW_S / _ARRIVAL_BOOT_EXCLUDE_S).
+        Window 0 = a face never releases (fail-safe: no unlock)."""
+        from ..const import (  # noqa: PLC0415
+            DOMAIN,
+            PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S,
+            PERIMETER_EGRESS_FACE_NONFACE_WINDOW_S,
+        )
+
+        slug = person.split(".", 1)[-1].lower()
+        if self._setup_ts is None:
+            return False  # not set up: everything is inside the boot exclusion
+        boot_end = self._setup_ts + float(PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S)
+        src = nonface_arrival_source(
+            slug=slug,
+            at_ts=self._ts(),
+            window_s=float(PERIMETER_EGRESS_FACE_NONFACE_WINDOW_S),
+            boot_end=boot_end,
+            tracker_arrivals=self._arrival_edges,
+            pc_data_fn=lambda: getattr(
+                self._hass.data.get(DOMAIN, {}).get("person_coordinator"), "data", None),
+            areas_fn=self._entry_areas,
+        )
+        return src is not None
 
     def _is_approach_zone(self, person_state: str, cfg: dict[str, Any]) -> bool:
         from ..const import CONF_SECURITY_LOCKOUT_APPROACH_ZONE  # noqa: PLC0415

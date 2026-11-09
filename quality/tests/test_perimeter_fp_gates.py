@@ -1102,6 +1102,24 @@ def test_egress_gate_tracker_home_without_arrival_edge_pages(monkeypatch):
     assert _sev(nm) == Severity.CRITICAL
 
 
+def test_egress_gate_tracker_not_home_to_zone_pages(monkeypatch):
+    """not_home -> named zone is not an arrival edge (shared arrival_edges
+    rule, LOCK-REGIME-FACE-ARRIVAL-CORROBORATION-1 drill H3)."""
+    hass, nm, mgr = _d105(monkeypatch, legs=[_leg("oji_udezue", None)])
+    _person_cb(mgr)(_person_edge("oji_udezue", "not_home", "Work"))
+    _run(mgr._async_handle_perimeter_trigger(DB_PR))
+    assert _sev(nm) == Severity.CRITICAL
+
+
+def test_egress_gate_non_bermuda_record_pages(monkeypatch):
+    """Only a Bermuda-method record is a BLE arrival (drill H9)."""
+    hass, nm, mgr = _d105(monkeypatch, legs=[_leg("oji_udezue", None)])
+    _with_ble(hass, "Oji Udezue")
+    hass.data[_const.DOMAIN]["person_coordinator"].data["Oji Udezue"]["method"] = "gps"
+    _run(mgr._async_handle_perimeter_trigger(DB_PR))
+    assert _sev(nm) == Severity.CRITICAL
+
+
 def test_egress_gate_restart_within_window_pages(monkeypatch):
     """HA restarted 60 s ago: both a tracker edge and a Bermuda move inside
     the post-boot exclusion are ignored -> page."""
