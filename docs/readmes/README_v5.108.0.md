@@ -35,7 +35,9 @@ Now there are two signals.
 - **Guest left** button (`button.ura_presence_coordinator_guest_left`, on the Presence Coordinator device):
   ends the stay now. The house leaves GUEST on the press (no 5-minute exit hold), the press time is kept
   across restarts, and GUEST comes back only after a new qualifying night that starts after the press (with
-  its day). A button exit gets no re-entry grace.
+  its day). A button exit gets no re-entry grace, and nights before the press count toward neither entry
+  nor the exit length. A failed read of the stored press is retried on the next walk; a failed save is
+  retried once.
 - A trip-wire pages once (HIGH) if a stay lasts more than 28 days, in case a guest-room sensor is stuck on
   (not while Guest Detection is off; a restart during such a stay can page again, at most once a day).
 - Garage remote lockouts lock ONCE at 22:00 on a stay night and stay locked through GUEST → HOME_NIGHT → SLEEP
@@ -97,8 +99,9 @@ no GUEST entry, the stay treated as off, `visitors_present` follows GUEST only.
 The replay fixture (`fixtures/guest_stay_r5_replay.json`, D0 per-night and per-day fractions) reproduces the
 day list of rev 6 with the 2-night exit cap and the 7-day re-entry grace: active 08-25..09-01, 09-05..09-07,
 09-10, 09-16, 09-28..10-14, 10-16; 0 days in 10-19..11-08; at `GUEST_STAY_ENTRY_NIGHTS` 2: 08-26..09-01,
-09-05..09-07, 09-10, 09-16, 09-30..10-14, 10-16 (grace re-entries need one night, so they bypass the
-second-night guard). With
+09-05..09-07, 09-30..10-14, 10-16 (grace re-entries need one night, so they bypass the second-night guard;
+a stay entered by grace opens no new grace, so the window is always 7 days from the last normally-entered
+stay's end). With
 `GUEST_STAY_EXIT_SCALES_WITH_STAY` False it reproduces the rev 5 lists (§5.4) exactly
 (`test_replay_fixture_day_list_fixed_exit`). INV-LOCK-1:
 `test_sc_garage_lockout.py::test_lock_once_at_guest_clock_no_unlock_on_yield`,

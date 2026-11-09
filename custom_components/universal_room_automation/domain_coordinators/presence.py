@@ -6258,9 +6258,19 @@ class PresenceCoordinator(BaseCoordinator):
             # the walk at all: nothing to hold, and no ended stay to open a
             # re-entry grace (a button exit gets no grace).
             left_at = self._guest_left_at
+
+            def _after_press(j: int) -> bool:
+                return left_at is None or windows[j][0] >= left_at
+
+            grace_stay = False   # the active stay was entered by grace
             for idx in range(lookback - 1, n_nights):
-                post_press = left_at is None or windows[idx][0] >= left_at
-                q = sum(1 for b in best[idx - lookback + 1: idx + 1] if b[2])
+                post_press = _after_press(idx)
+                # Review D LOW: nights that started before the press count
+                # toward neither entry (q) nor the exit length (n = q).
+                q = sum(
+                    1 for j in range(idx - lookback + 1, idx + 1)
+                    if best[j][2] and _after_press(j)
+                )
                 # grace 0 is off: a re-entry night is always >= 1 day after
                 # the ending night.
                 in_grace = (
@@ -6274,7 +6284,13 @@ class PresenceCoordinator(BaseCoordinator):
                     active = True
                     since = windows[idx][1].astimezone(timezone.utc)
                     n = q
-                    ended_on = None
+                    grace_stay = not (best[idx][4] and q >= entry_k)
+                    if not grace_stay:
+                        ended_on = None
+                    # Review D MEDIUM: a grace re-entry keeps the ORIGINAL
+                    # stay's end as the anchor, so the grace never extends
+                    # past GUEST_STAY_REENTRY_GRACE_DAYS from the last stay
+                    # entered by the normal rule (no phantom chain).
                 elif active:
                     if best[idx][2]:
                         n += 1
@@ -6288,7 +6304,9 @@ class PresenceCoordinator(BaseCoordinator):
                         active = False
                         since = None
                         n = 0
-                        ended_on = nights[idx]
+                        if not grace_stay:
+                            ended_on = nights[idx]
+                        grace_stay = False
             self._guest_stay_active = active
             self._guest_stay_since = since
             self._guest_stay_basis = [
@@ -6325,13 +6343,15 @@ class PresenceCoordinator(BaseCoordinator):
         """Load the persisted press once per boot (a newer RAM press wins)."""
         if self._guest_left_loaded:
             return
-        self._guest_left_loaded = True
         try:
             data = await self._guest_left_store().async_load()
-        except Exception:  # noqa: BLE001 - no press known; walk as usual
-            _LOGGER.warning("Guest left: could not read the stored press",
-                            exc_info=True)
+        except Exception:  # noqa: BLE001 - retried on the next walk
+            _LOGGER.warning("Guest left: could not read the stored press "
+                            "(retried on the next walk)", exc_info=True)
             return
+        # Review D LOW: only a successful read (empty included) ends the
+        # retries; a corrupt value is read once and ignored.
+        self._guest_left_loaded = True
         raw = (data or {}).get("pressed_at") if isinstance(data, dict) else None
         if not raw:
             return
@@ -6364,13 +6384,20 @@ class PresenceCoordinator(BaseCoordinator):
             "Guest left button pressed at %s: stay latch cleared "
             "(reason guest_left_button)", now_utc.isoformat(),
         )
-        try:
-            await self._guest_left_store().async_save(
-                {"pressed_at": now_utc.isoformat()}
-            )
-        except Exception:  # noqa: BLE001
-            _LOGGER.warning("Guest left: could not persist the press",
-                            exc_info=True)
+        # Review D LOW: one retry on a failed save; if both fail the press
+        # still holds until a restart (WARNING says so).
+        for attempt in (1, 2):
+            try:
+                await self._guest_left_store().async_save(
+                    {"pressed_at": now_utc.isoformat()}
+                )
+                break
+            except Exception:  # noqa: BLE001
+                _LOGGER.warning(
+                    "Guest left: could not persist the press (attempt %d of "
+                    "2; a restart before the next press may re-latch the "
+                    "stay)", attempt, exc_info=True,
+                )
         self._guest_left_exit_now = True
         try:
             await self._run_inference("guest_left_button")

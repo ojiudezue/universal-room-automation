@@ -232,10 +232,11 @@ def test_replay_fixture_day_list_entry_nights_2(monkeypatch, tmp_path, proc_tz):
     proc_tz("UTC")
     monkeypatch.setattr(H.CONST, "GUEST_STAY_ENTRY_NIGHTS", 2)
     # Grace re-entries need ONE qualifying night, so they bypass K = 2:
-    # 09-05, 09-10, 09-16 and 10-16 come back.
+    # 09-05 and 10-16 come back. 09-10 / 09-16 do not: a stay entered by
+    # grace (09-05) opens no new grace (review D), and both are > 7 d from
+    # the 08-26 stay's end.
     expected = (_span(date(2026, 8, 26), date(2026, 9, 1))
                 + _span(date(2026, 9, 5), date(2026, 9, 7))
-                + [date(2026, 9, 10), date(2026, 9, 16)]
                 + _span(date(2026, 9, 30), date(2026, 10, 14))
                 + [date(2026, 10, 16)])
     assert _replay_active_days(monkeypatch, tmp_path) == expected
@@ -1243,3 +1244,35 @@ def test_no_grace_before_any_stay(monkeypatch, tmp_path, proc_tz):
     db = _make_db(tmp_path)
     occupy_fraction(db, E2, date(2026, 10, 6), 0.5)
     assert walk(coord_with(monkeypatch, db), at(2026, 10, 7)) is False
+
+
+
+# --- Review D (exit cap / grace / button) --------------------------------------
+
+def test_grace_does_not_chain(monkeypatch, tmp_path, proc_tz):
+    """Phantom chain: real stay ends on night 10-05; a lone night on 10-10
+    (5 d) re-enters by grace and ends after 10-11 empty; a lone night on
+    10-17 (12 d from the REAL end) must not re-enter, although it is only
+    6 d from the grace stay's end."""
+    proc_tz("UTC")
+    db = _make_db(tmp_path)
+    _ended_stay(db)
+    occupy_fraction(db, E2, date(2026, 10, 10), 0.5)
+    occupy_fraction(db, E2, date(2026, 10, 17), 0.5)
+    c = coord_with(monkeypatch, db)
+    assert _days(c, [date(2026, 10, 11), date(2026, 10, 12)]) == [True, False]
+    assert walk(c, at(2026, 10, 18)) is False
+
+
+def test_grace_anchor_kept_inside_window(monkeypatch, tmp_path, proc_tz):
+    """The anchor stays the real stay's end (10-05): a second lone night
+    still inside those 7 days (10-10) re-enters after a first grace stay
+    (10-07) ended."""
+    proc_tz("UTC")
+    db = _make_db(tmp_path)
+    _ended_stay(db)
+    occupy_fraction(db, E2, date(2026, 10, 7), 0.5)
+    occupy_fraction(db, E2, date(2026, 10, 10), 0.5)
+    c = coord_with(monkeypatch, db)
+    assert _days(c, [date(2026, 10, d) for d in (8, 9, 11)]) == \
+        [True, False, True]

@@ -149,6 +149,76 @@ def test_press_during_a_night_does_not_count_that_night(monkeypatch, tmp_path,
     assert P.walk(c, P.at(2026, 11, 5)) is False
 
 
+def test_store_load_failure_retried(monkeypatch, tmp_path, proc_tz):
+    """A failed Store read is retried on the next walk: the first walk after
+    a restart cannot see the press, the next one does and drops the latch."""
+    proc_tz("UTC")
+    shared = {"data": {"pressed_at": "2026-11-04T15:00:00+00:00"}}
+    fails = {"n": 1}
+
+    class _Flaky(_FakeStore):
+        async def async_load(self):
+            if fails["n"]:
+                fails["n"] -= 1
+                raise OSError("store busy")
+            return await super().async_load()
+
+    monkeypatch.setattr(H.PR.PresenceCoordinator, "_guest_left_store",
+                        lambda self: _Flaky(shared))
+    db = _stay_db(tmp_path)
+    c = P.coord_with(monkeypatch, db)
+    assert P.walk(c, P.at(2026, 11, 4, 10)) is True     # read failed
+    assert P.walk(c, P.at(2026, 11, 4, 11)) is False    # retried
+    assert c._guest_left_at == datetime(2026, 11, 4, 15, tzinfo=UTC)
+
+
+def test_save_failure_retried_once(monkeypatch, store):
+    """A failed save is retried once and the press is persisted."""
+    fails = {"n": 1}
+
+    class _Flaky(_FakeStore):
+        async def async_save(self, data):
+            if fails["n"]:
+                fails["n"] -= 1
+                raise OSError("disk busy")
+            await super().async_save(data)
+
+    monkeypatch.setattr(H.PR.PresenceCoordinator, "_guest_left_store",
+                        lambda self: _Flaky(store))
+    w, _clock = _world(monkeypatch, state=H.HS.HOME_DAY, at=DAY)
+    press(w.coord, DAY)
+    assert store["data"] == {"pressed_at": "2026-11-10T14:00:00+00:00"}
+
+
+def test_pre_press_nights_do_not_count_for_entry(monkeypatch, tmp_path,
+                                                 proc_tz, store):
+    """ENTRY_NIGHTS 2: qualifying nights 11-01 / 11-02 before the press
+    (11-03 09:00) cannot supply the second night for the entry-qualified
+    night 11-03; only a second post-press night can."""
+    proc_tz("UTC")
+    monkeypatch.setattr(H.CONST, "GUEST_STAY_ENTRY_NIGHTS", 2)
+    db = _stay_db(tmp_path, nights=2)                   # 11-01, 11-02
+    P._entry_night(db, date(2026, 11, 3))
+    c = P.coord_with(monkeypatch, db)
+    press(c, P.at(2026, 11, 3, 9).astimezone(UTC))
+    assert P.walk(c, P.at(2026, 11, 4)) is False
+    P._entry_night(db, date(2026, 11, 4))
+    assert P.walk(c, P.at(2026, 11, 5)) is True
+
+
+def test_pre_press_nights_do_not_lengthen_exit(monkeypatch, tmp_path,
+                                               proc_tz, store):
+    """K 1: the first post-press stay (night 11-03) has n = 1, so ONE empty
+    night (11-04) ends it; pre-press nights would make n = 3 (cap 2)."""
+    proc_tz("UTC")
+    db = _stay_db(tmp_path, nights=2)
+    P._entry_night(db, date(2026, 11, 3))
+    c = P.coord_with(monkeypatch, db)
+    press(c, P.at(2026, 11, 3, 9).astimezone(UTC))
+    assert P.walk(c, P.at(2026, 11, 4)) is True
+    assert P.walk(c, P.at(2026, 11, 5)) is False
+
+
 # --- the entity ------------------------------------------------------------------
 
 def test_button_entity_wires_to_presence(monkeypatch):
