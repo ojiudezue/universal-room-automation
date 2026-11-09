@@ -683,6 +683,12 @@ def test_face_bridge_fallback_subscribes_each_runtime_prefix(fake_mqtt):
             "frigate_a/tracked_object_update": 1,
             "frigate2/tracked_object_update": 1,
         }
+        # C-12: re-registering drops the prior subscriptions first.
+        asyncio.run(census.async_register_frigate_face_listener())
+        assert fake_mqtt.active() == {
+            "frigate_a/tracked_object_update": 1,
+            "frigate2/tracked_object_update": 1,
+        }
         census.async_teardown_frigate_face_listener()
         assert fake_mqtt.active() == {}
     finally:
@@ -708,6 +714,25 @@ def test_face_bridge_no_literal_frigate_fallback(fake_mqtt):
         asyncio.run(census.async_register_frigate_face_listener())
         assert fake_mqtt.calls == []
         assert census._frigate_face_unsub is None
+    finally:
+        _teardown(census)
+
+
+def test_c13_retained_count_surfaces_on_persons_in_house_sensor():
+    """Review C-13: the display attribute reads the census counter."""
+    from custom_components.universal_room_automation import sensor as _sensor_mod
+
+    resolver, entities = _face_resolver_entities()
+    census = _make_census(resolver=resolver, entities=entities)
+    try:
+        payload = json.dumps({"type": "face", "camera": "front_door", "name": "Oji"})
+        for _ in range(3):
+            census._on_frigate_face_msg(_types.SimpleNamespace(payload=payload, retain=True))
+        ent = object.__new__(_sensor_mod.URAPersonsInHouseSensor)
+        ent.hass = _types.SimpleNamespace(data={ura_const.DOMAIN: {"census": census}})
+        ent._get_census = lambda: MagicMock()
+        attrs = ent.extra_state_attributes
+        assert attrs["frigate_face_msg_retained_count"] == 3
     finally:
         _teardown(census)
 

@@ -517,6 +517,8 @@ def test_perimeter_registers_on_ingress_mqtt_feeds_caches(monkeypatch):
         c.args and c.args[0] == _perimeter.FRIGATE_EVENTS_BUS_EVENT
         for c in hass.bus.async_listen.call_args_list
     )
+    # C-8: registered under its own name (a collision would drop a consumer).
+    assert set(ing._consumers) == {"perimeter"}
     _mqtt(ing, _FRIGATE_PAYLOAD)
     assert mgr._frigate_last_event_id[UT_KEY][0] == "1731070000.123456-ab12cd"
     assert mgr._frigate_event_cache[UT_KEY]["entered_zones"] == ["utilities_ptz_property"]
@@ -1178,14 +1180,28 @@ def test_egress_gate_known_egress_event_demotes(monkeypatch):
     assert _sev(nm) == Severity.LOW and _reason(mgr) == "egress_known_person"
 
 
-def _fire_egress_09(hass, monkeypatch, synthetic):
+def _fire_egress_09(hass, monkeypatch, synthetic, pid="oji_udezue"):
     cb = [c.args[1] for c in hass.bus.async_listen.call_args_list
           if c.args[0] == "ura_person_egress_event"][0]
     monkeypatch.setattr(_perimeter.dt_util, "parse_datetime",
                         lambda s: _now() - timedelta(seconds=3), raising=False)
     cb(SimpleNamespace(data={"egress_camera": DB_PR, "timestamp": "x",
-                             "person_id": "oji_udezue", "identity_confidence": 0.9,
+                             "person_id": pid, "identity_confidence": 0.9,
                              "identity_synthetic_corroborated": synthetic}))
+
+
+def test_c4_live_egress_match_wins_over_synthetic(monkeypatch):
+    """Review C-4: a live 0.9 for one resident and a synthetic 0.9 (with a
+    real arrival edge) for another in the same window -> the live match is
+    the known identity."""
+    hass, nm, mgr = _d105(monkeypatch)
+    _person_cb(mgr)(_person_edge("jaya_udezue", "not_home", "home"))
+    _fire_egress_09(hass, monkeypatch, True, pid="jaya_udezue")
+    _fire_egress_09(hass, monkeypatch, False, pid="oji_udezue")
+    _run(mgr._async_handle_perimeter_trigger(DB_PR))
+    assert _sev(nm) == Severity.LOW
+    assert tuple(mgr._last_gate_decisions[DB_KEY]["egress_identity"]["inputs"]["known"]) == (
+        "oji_udezue", 0.9, "egress_event")
 
 
 def test_egress_gate_synthetic_09_without_arrival_pages(monkeypatch):
@@ -1205,8 +1221,9 @@ def test_egress_gate_synthetic_09_with_arrival_demotes(monkeypatch):
     _fire_egress_09(hass, monkeypatch, True)
     _run(mgr._async_handle_perimeter_trigger(DB_PR))
     assert _sev(nm) == Severity.LOW and _reason(mgr) == "egress_known_person"
-    assert mgr._last_gate_decisions[DB_KEY]["egress_identity"]["inputs"]["known"][2] == (
-        "egress_synthetic+person_tracker")
+    known = mgr._last_gate_decisions[DB_KEY]["egress_identity"]["inputs"]["known"]
+    # C-10: the fallback match carries the doctrine floor (0.9), no more.
+    assert tuple(known) == ("oji_udezue", 0.9, "egress_synthetic+person_tracker")
 
 
 def test_egress_gate_live_09_flag_false_still_demotes(monkeypatch):

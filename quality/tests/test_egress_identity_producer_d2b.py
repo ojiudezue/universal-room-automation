@@ -774,6 +774,47 @@ def _two_camera_tracker(now, *, foyer_synthetic, front_synthetic=False):
     return tracker
 
 
+@pytest.mark.asyncio
+async def test_c2_fired_payload_carries_synthetic_flag_true():
+    """Review C-2: drives _resolve_direction end to end. A two-camera 0.9
+    whose second camera is a synthetic latch leg fires the bus event with
+    identity_synthetic_corroborated True (value still 0.9)."""
+    now = datetime(2026, 8, 28, 12, 0, 0, tzinfo=UTC)
+    census, hass, _ = _make_census({})
+    hass.data = {ura_const.DOMAIN: {"census": census}}
+    tracker = EgressDirectionTracker(hass)
+    tracker._get_interior_cameras_near = (
+        lambda cam: ["binary_sensor.foyer_person_occupancy"]
+    )
+    crossing = now
+    tracker._recent_interior_events[
+        "binary_sensor.foyer_person_occupancy"
+    ] = [crossing + timedelta(seconds=2)]
+    _install_legs(census, {
+        "front_door": [
+            _leg("sensor.front_door_last_recognized_face", "frigate",
+                 "dev_A", "oji_udezue", crossing + timedelta(seconds=1),
+                 base_stem="front_door"),
+        ],
+        "foyer": [_synthetic(
+            _leg("sensor.foyer_last_recognized_face", "frigate",
+                 "dev_B", "oji_udezue", crossing + timedelta(seconds=2),
+                 base_stem="foyer"),
+        )],
+    })
+    fired: list[tuple[str, dict]] = []
+    hass.bus = MagicMock()
+    hass.bus.async_fire = lambda topic, payload: fired.append((topic, payload))
+    await tracker._resolve_direction(
+        "binary_sensor.front_door_person_occupancy", crossing,
+    )
+    topic, payload = fired[-1]
+    assert topic == "ura_person_egress_event"
+    assert payload["person_id"] == "oji_udezue"
+    assert payload["identity_confidence"] == 0.9
+    assert payload["identity_synthetic_corroborated"] is True
+
+
 def test_b_m1_high_needing_synthetic_leg_is_flagged():
     now = datetime(2026, 8, 28, 12, 0, 0, tzinfo=UTC)
     tracker = _two_camera_tracker(now, foyer_synthetic=True)

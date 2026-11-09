@@ -645,6 +645,16 @@ def test_linker_registers_on_frigate_ingress_and_mqtt_feeds_observe():
             c.args and c.args[0] == etl.FRIGATE_EVENTS_BUS_EVENT
             for c in hass.bus.async_listen.call_args_list
         )
+        # C-8: registered under its own name.
+        assert set(ing._consumers) == {"linker"}
+        # C-9: an `end` message never opens a track.
+        end = _json.dumps({
+            "type": "end", "before": {},
+            "after": {"id": "e0", "camera": "utilities", "label": "person",
+                      "score": 0.9, "sub_label": None},
+        })
+        ing._on_mqtt_events(_NS(payload=end, retain=False), "mqtt:frigate2")
+        assert lk.census_counts()["exterior_person_tracks_active"] == 0
         payload = _json.dumps({
             "type": "new", "before": {},
             "after": {"id": "e1", "camera": "utilities", "label": "person",

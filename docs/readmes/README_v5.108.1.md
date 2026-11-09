@@ -17,6 +17,8 @@ Consumer bodies are unchanged apart from reading `data` instead of `event.data`.
 
 **Face bridge fixed.** The census face-name MQTT bridge read a topic prefix from the Frigate config entry. No such key exists, so it fell back to the literal `frigate`, which is retired Frigate-1 and carries only stale retained messages. The fast face latch has therefore heard nothing since August. It now registers `<prefix>/tracked_object_update` on the same ingress, so it uses the same runtime prefix (`frigate2` here) for every Frigate entry, and it skips retained messages. If the ingress is absent, it subscribes directly to each discovered prefix. There is no literal fallback in either path.
 
+**Synthetic face legs need a non-face arrival to demote (review B-M1).** The face latch leg is now marked synthetic. When the egress producer's two-camera 0.9 holds only with a synthetic leg, the bus event still carries 0.9 and adds `identity_synthetic_corroborated: true`. Perimeter D10.5 then demotes a dual-role door alert only with a same-person non-face arrival edge within 120 s (reason `egress_synthetic+<source>`). A live two-camera 0.9 demotes as before.
+
 **D2 warning.** "Frigate legs rose N times with ZERO frigate_events messages" now fires only when MQTT and the bus are both silent, and it names the MQTT topics.
 
 ## Knobs (all rung 1, `const.py`, read at call time)

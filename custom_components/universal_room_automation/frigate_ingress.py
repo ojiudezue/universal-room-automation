@@ -175,7 +175,18 @@ class FrigateEventIngress:
     def register_consumer(
         self, name: str, fn: Callable[[Mapping[str, Any], str], None],
     ) -> Callable[[], None]:
-        """Register an events consumer ``fn(data, source)``; returns unregister."""
+        """Register an events consumer ``fn(data, source)``; returns unregister.
+
+        Names are unique per consumer. Re-registering a name replaces the
+        prior fn (a consumer re-setup); a DIFFERENT fn under a taken name is
+        logged at WARNING because the earlier consumer stops receiving
+        events (review C-8)."""
+        prior = self._consumers.get(name)
+        if prior is not None and prior is not fn:
+            _LOGGER.warning(
+                "FrigateEventIngress: consumer name %r re-registered; the "
+                "previous consumer no longer receives Frigate events", name,
+            )
         self._consumers[name] = fn
 
         def _unregister() -> None:

@@ -846,3 +846,169 @@ def test_topic_handler_subscribes_each_prefix_even_with_kill_switch(mqtt, hooks,
     }
     # Raw message handed through, retain flag intact (handler's policy).
     assert len(got) == 1 and got[0].retain is True
+
+
+# ===========================================================================
+# Review C fix-ups (v5.108.1_frigate_mqtt_C.md)
+# ===========================================================================
+_IDLESS = {"type": "update", "before": {}, "after": {"camera": "g5_bullet", "label": "person"}}
+
+
+def test_c3_idless_bus_delivered_with_kill_switch_and_face_handler(mqtt, hooks, monkeypatch):
+    """C-3: kill switch off + face topic subscribed -> only the EVENTS
+    subscription makes MQTT own id-less messages, so the bus copy is
+    delivered."""
+    monkeypatch.setattr(fi._c, "FRIGATE_INGRESS_MQTT_ENABLED", False)
+
+    async def _t():
+        hass = _dual_hass()
+        ing = await _up(hass)
+        ing.register_topic_handler("tracked_object_update", "census_face", lambda m: None)
+        await _drain()
+        seen = _rec(ing)
+        hass.bus.fire(EV, _IDLESS)
+        return ing, seen
+
+    ing, seen = asyncio.run(_t())
+    assert mqtt.active() == {"frigate2/tracked_object_update": 1}
+    assert seen == [("bus", _IDLESS)]
+    assert ing.dedup_dropped == {"bus": 0, "mqtt": 0}
+
+
+def test_c5_concurrent_reconcile_single_subscribe(mqtt, hooks):
+    async def _t():
+        mqtt.gate = asyncio.Event()
+        hass = _dual_hass()
+        ing = fi.FrigateEventIngress(hass)
+        hass.data[C.DOMAIN][fi.FRIGATE_INGRESS_HASS_KEY] = ing
+        loop = asyncio.get_running_loop()
+        t1 = loop.create_task(ing.async_reconcile())
+        t2 = loop.create_task(ing.async_reconcile())
+        await _drain()
+        mqtt.gate.set()
+        await asyncio.gather(t1, t2)
+
+    asyncio.run(_t())
+    assert mqtt.calls == ["frigate2/events"]
+    assert mqtt.active() == {"frigate2/events": 1}
+
+
+def test_c6_teardown_cancels_tracked_pending_reconcile(mqtt, hooks):
+    async def _t():
+        mqtt.gate = asyncio.Event()
+        hass = _dual_hass()
+        ing = fi.FrigateEventIngress(hass)
+        hass.data[C.DOMAIN][fi.FRIGATE_INGRESS_HASS_KEY] = ing
+        ing.register_topic_handler("tracked_object_update", "f", lambda m: None)
+        await _drain()  # the scheduled reconcile is now blocked in subscribe
+        tasks = list(ing._tasks)
+        assert len(tasks) == 1 and not tasks[0].done()
+        ing.async_teardown()
+        await _drain()
+        # Checked inside the loop: asyncio.run cancels leftovers at exit.
+        cancelled_in_loop = tasks[0].done() and tasks[0].cancelled()
+        mqtt.gate.set()
+        await _drain()
+        return ing, cancelled_in_loop
+
+    ing, cancelled_in_loop = asyncio.run(_t())
+    assert cancelled_in_loop is True
+    assert ing._tasks == set() and mqtt.active() == {}
+
+
+def test_c7_refreshed_key_moves_back_so_expired_are_pruned(mqtt, hooks, monkeypatch):
+    monkeypatch.setattr(fi._c, "FRIGATE_INGRESS_SOURCE_LATCH_TTL_S", 30)
+
+    def _new(i):
+        return json.dumps({"type": "update", "after": {"id": f"id{i}"}})
+
+    async def _t():
+        hass = _dual_hass()
+        ing = await _up(hass)
+        t = [0.0]
+        ing._clock = lambda: t[0]
+        mqtt.publish("frigate2/events", _new(0))   # t=0
+        t[0] = 1.0
+        mqtt.publish("frigate2/events", _new(1))   # t=1
+        t[0] = 20.0
+        mqtt.publish("frigate2/events", _new(0))   # refresh id0 at t=20
+        t[0] = 40.0
+        mqtt.publish("frigate2/events", _new(2))   # id1 is 39 s old -> expired
+        return ing
+
+    assert list(asyncio.run(_t())._latch) == ["id0", "id2"]
+
+
+def test_c8_consumer_name_collision_warns(mqtt, hooks, caplog):
+    import logging
+
+    async def _t():
+        hass = _dual_hass()
+        ing = await _up(hass)
+        fn = lambda d, s: None  # noqa: E731
+        with caplog.at_level(logging.WARNING):
+            ing.register_consumer("perimeter", fn)
+            ing.register_consumer("perimeter", fn)  # same fn: re-setup, quiet
+            assert "re-registered" not in caplog.text
+            ing.register_consumer("perimeter", lambda d, s: None)
+        return ing
+
+    asyncio.run(_t())
+    assert caplog.text.count("consumer name 'perimeter' re-registered") == 1
+
+
+def test_c14_topic_handlers_isolated_and_all_called(mqtt, hooks):
+    async def _t():
+        hass = _dual_hass()
+        ing = await _up(hass)
+        got: list = []
+
+        def _boom(m):
+            raise RuntimeError("handler bug")
+
+        ing.register_topic_handler("tracked_object_update", "a", _boom)
+        ing.register_topic_handler("tracked_object_update", "b", got.append)
+        ing.register_topic_handler("tracked_object_update", "c", got.append)
+        await _drain()
+        mqtt.publish("frigate2/tracked_object_update", "{}")
+        return got
+
+    assert len(asyncio.run(_t())) == 2
+
+
+def test_c14_topic_unregister_only_own_fn_and_no_handler_no_subscribe(mqtt, hooks):
+    async def _t():
+        hass = _dual_hass()
+        ing = await _up(hass)
+        old = ing.register_topic_handler("tracked_object_update", "f", lambda m: None)
+        got: list = []
+        ing.register_topic_handler("tracked_object_update", "f", got.append)
+        old()  # stale unregister must not remove the replacement
+        await _drain()
+        mqtt.publish("frigate2/tracked_object_update", "{}")
+        # A suffix whose handlers were all removed is not subscribed on a
+        # later prefix.
+        gone = ing.register_topic_handler("reviews", "r", lambda m: None)
+        gone()
+        hass.data["frigate"]["E3"] = {"config": {"mqtt": {"topic_prefix": "frigate3"}}}
+        hass.config_entries.entries.append(FakeEntry("E3"))
+        await ing.async_reconcile()
+        return got
+
+    got = asyncio.run(_t())
+    assert len(got) == 1
+    assert "frigate3/reviews" not in mqtt.calls
+    assert "frigate3/events" in mqtt.calls
+
+
+def test_c14_non_mapping_bus_data_ignored(mqtt, hooks):
+    async def _t():
+        hass = _dual_hass()
+        ing = await _up(hass)
+        seen = _rec(ing)
+        hass.bus.fire(EV, ["not", "a", "mapping"])
+        hass.bus.fire(EV, None)
+        return ing, seen
+
+    ing, seen = asyncio.run(_t())
+    assert seen == [] and ing.idless == 0
