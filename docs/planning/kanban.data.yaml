@@ -337,7 +337,8 @@ cards:
 - id: PERIMETER-FP-STREET-NOISE-1
   title: "Perimeter alerts still include false positives and street noise: reduce FPs end-to-end (Frigate masks/zones/filters, URA pre-alert gates) + check snapshot storage/archival"
   thread: security
-  status: investigating
+  status: shipped_organic
+  shipped_version: v5.107.0
   tier: 2
   created: "2026-11-08 14:00"
   updated: "2026-11-08 14:00"

@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "273",
+  "author": "ojiudezue",
+  "session_id": "claude_20261109_044850_ship_v5_107_0",
+  "timestamp": "2026-11-09T04:48:50Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.107.0 shipped: Perimeter false-positive gates: per-camera Frigate zone sensors, door-camera unknown+corroborated alerts, WhatsApp delivery truth",
+  "summary": "Perimeter false-positive gates: per-camera Frigate zone sensors, door-camera unknown+corroborated alerts, WhatsApp delivery truth",
+  "why": "Perimeter alerts averaged about 56 a day, much of it street walkers and empty frames. Frigate zones alone could not help because URA triggered on camera-level occupancy sensors that zones do not gate. This release consumes per-camera property-zone sensors, adds demote-only gates (zone agreement, single-source, VLM) that ship off, adds door-camera alerts that page only for unknown and corroborated people, and makes failed WhatsApp sends visible so the digest falls back to iMessage.",
+  "implications": "Shipped PERIMETER-FP-STREET-NOISE-1 at v5.107.0; card(s) sit shipped_organic pending validation. Acceptance in README_v5.107.0.md (Live criteria).",
+  "revisit_trigger": "Done when, 7 days after the zone-sensor config is applied, URA perimeter pushes per camera on utilities_ptz, g5_bullet and rear_ptz drop against the 30-day audit baseline with a 10-snapshot spot check showing real visitors still alert; reopen if a real visitor is missed or pushes do not drop.",
+  "refs": {
+    "cards": [
+      "PERIMETER-FP-STREET-NOISE-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.107.0.md"
+    ],
+    "release_notes": "See docs/readmes/README_v5.107.0.md. New gates ship off except zone-sensor consumption (config) and door-camera policy; all-day burst demote stays night-only pending a daytime re-sample."
+  }
+}
