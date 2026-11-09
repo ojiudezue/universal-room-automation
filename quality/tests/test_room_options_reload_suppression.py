@@ -260,6 +260,7 @@ def _load_ns() -> dict:
         "CONF_PERIMETER_SINGLE_SOURCE_DEMOTE": "perimeter_single_source_demote",
         "CONF_PERIMETER_VLM_GATE": "perimeter_vlm_gate",
         "CONF_PERIMETER_EGRESS_KNOWN_XCORR_GATE": "perimeter_egress_known_xcorr_gate",
+        "CONF_PERIMETER_IDENTITY_FOLLOWUP": "perimeter_identity_followup",
         "CONF_EXTERIOR_SNAPSHOT_OFFSET_S": "exterior_snapshot_offset_s",
         "CONF_APPLIANCE_RECORDS": "appliance_records",
         "CONF_ENHANCED_CENSUS": "enhanced_census",

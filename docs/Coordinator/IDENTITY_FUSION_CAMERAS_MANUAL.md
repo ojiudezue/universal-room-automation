@@ -424,6 +424,17 @@ under `gate_decisions_by_camera`:
   — review B-MED-2); LOW when unknown and not
   corroborated by the other NVR family while it is live; contextual severity
   otherwise. A face alone, or a latched name, never demotes.
+- **"That was <name>" follow-up (v5.107.5,
+  `switch.ura_perimeter_identity_followup`, ON).** When a dual-role alert was
+  dispatched above LOW with D10.5 reason `egress_unknown_corroborated` or
+  `xcorr_waived_single_nvr` (not demoted, no `Identified:` annotation), the
+  manager re-checks `_known_identity_for` (the SAME ≥ 0.9 / face+arrival rule)
+  every `PERIMETER_IDENTITY_FOLLOWUP_POLL_S` (5 s) for
+  `PERIMETER_IDENTITY_FOLLOWUP_WINDOW_S` (90 s) and sends at most one
+  `async_notify(..., quiet=True)` at the original severity. Annotate-only per
+  §5.5(a): it never changes the original alert's severity. Discharged on
+  window expiry, teardown, and any later dispatched alert on the same camera
+  key (`perimeter_alert.py` `_arm_identity_followup` / `_followup_check`).
 
 **SC lock regime face arrivals (v5.107.4, LOCK-REGIME-FACE-ARRIVAL-CORROBORATION-1,
 branch `feature/lock-face-arrival`, NOT deployed).** A `SIGNAL_PERSON_ARRIVING` with

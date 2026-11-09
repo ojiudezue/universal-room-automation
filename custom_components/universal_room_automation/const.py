@@ -2574,6 +2574,18 @@ PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S: Final = 600
 # covers two of the three p90s and caps the delay on a time-sensitive page.
 # 0 = no settle (lookback only).
 PERIMETER_EGRESS_XCORR_SETTLE_S: Final = 20
+# PERIMETER-IDENTITY-FOLLOWUP-1 (v5.107.5, operator 2026-11-08). After a
+# door/egress-camera alert went out as an UNKNOWN person at > LOW, one quiet
+# "that was <name>" follow-up is sent if a known identity (D10.5 rule) for
+# that crossing lands within the window. Switch (rung 3, options-backed,
+# default ON) is the kill switch.
+CONF_PERIMETER_IDENTITY_FOLLOWUP: Final = "perimeter_identity_followup"
+DEFAULT_PERIMETER_IDENTITY_FOLLOWUP: Final = True
+# Rung 1: window after the alert's edge. 90 s covers Protect's async face
+# name back-fill (40-80 s observed). 0 disables (no listener armed).
+PERIMETER_IDENTITY_FOLLOWUP_WINDOW_S: Final = 90
+# Rung 1: identity re-check cadence inside the window.
+PERIMETER_IDENTITY_FOLLOWUP_POLL_S: Final = 5
 
 # ----------------------------------------------------------------------------
 # Exterior-person NM escalation (D1/D2/D4 — PLANNING_exterior_person_escalation)

@@ -2449,6 +2449,10 @@
         "name": "Door Alerts Only for Strangers",
         "description": "Door cameras that also alert as outdoor cameras send a full alert only for an unknown person that both camera systems saw. Known people and single-system sightings are lowered to low."
       },
+      "perimeter_identity_followup": {
+        "name": "Door Alert Name Follow-Up",
+        "description": "After a door camera alert for an unknown person, send one quiet follow-up such as 'Front door: that was Jaya' if face recognition names the person within 90 seconds."
+      },
       "name_people_at_doors": {
         "name": "Name People at Doors",
         "description": "When someone enters or leaves through a door camera, label them with their name from face recognition instead of 'unidentified' and use that identity in the house count. Requires Presence Face Matching to be working. When OFF, entries and exits are still counted, just not named."

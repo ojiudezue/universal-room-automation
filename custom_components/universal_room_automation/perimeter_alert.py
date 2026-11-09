@@ -165,6 +165,10 @@ from .const import (
     PERIMETER_EGRESS_FACE_NONFACE_WINDOW_S,
     PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S,
     PERIMETER_EGRESS_XCORR_SETTLE_S,
+    CONF_PERIMETER_IDENTITY_FOLLOWUP,
+    DEFAULT_PERIMETER_IDENTITY_FOLLOWUP,
+    PERIMETER_IDENTITY_FOLLOWUP_WINDOW_S,
+    PERIMETER_IDENTITY_FOLLOWUP_POLL_S,
 )
 from .domain_coordinators.base import Severity
 from .domain_coordinators._nm_cycle_a import is_life_safety_hazard  # CIRCLING-LABEL-1: I3 gate uses this
@@ -465,6 +469,9 @@ class PerimeterAlertManager:
         self._person_arrivals: dict[str, float] = {}
         self._unsub_person_arrivals: Any = None
         self._fp_setup_ts: float | None = None
+        # PERIMETER-IDENTITY-FOLLOWUP-1: at most one pending "that was <name>"
+        # follow-up per camera key: {edge, entity_id, severity, elapsed, unsub}.
+        self._pending_followups: dict[str, dict[str, Any]] = {}
 
     async def async_setup(self) -> None:
         """Set up perimeter camera listeners.
@@ -1274,6 +1281,9 @@ class PerimeterAlertManager:
             except Exception:  # noqa: BLE001
                 pass
             self._unsub_person_arrivals = None
+        # PERIMETER-IDENTITY-FOLLOWUP-1: discharge every pending follow-up.
+        for _fk in list(self._pending_followups):
+            self._cancel_identity_followup(_fk, "teardown")
         # D5 (review B-LOW-3): flush finalised agreement outcomes now so a
         # reload's new manager does not load a store 30 s stale.
         if self._agreement_store is not None:
@@ -1678,6 +1688,7 @@ class PerimeterAlertManager:
         # escalation are untouched. Best-effort: any failure leaves the
         # original `message` intact. Consumer of census face resolver;
         # camera_census is READ-ONLY here.
+        _annotated_identity: str | None = None
         try:
             census = self.hass.data.get(DOMAIN, {}).get("census")
             _name_stem = _linker_camera or self._camera_key_for_sensor(entity_id)
@@ -1717,6 +1728,7 @@ class PerimeterAlertManager:
                 if best_name:
                     _pretty = best_name.replace("_", " ").title()
                     message = f"{message} Identified: {_pretty}."
+                    _annotated_identity = best_name
                     _LOGGER.info(
                         "PerimeterAlertManager: annotated %s alert with "
                         "identity=%s (conf=%s)",
@@ -1857,6 +1869,13 @@ class PerimeterAlertManager:
                     # burst-count denominator. Failed dispatches never
                     # count (they don't reach this branch).
                     self._record_burst_alert(cooldown_key, now)
+                    # PERIMETER-IDENTITY-FOLLOWUP-1: supersede any pending
+                    # follow-up on this key; arm one if this alert went
+                    # out as an unknown person at > LOW.
+                    self._arm_identity_followup(
+                        cooldown_key, entity_id, now, severity,
+                        _annotated_identity,
+                    )
                     # build/exterior-track: attribute the alert to the
                     # owning open track so future events on the same track
                     # can refine cadence (approach/circling still alert;
@@ -5130,6 +5149,160 @@ class PerimeterAlertManager:
         d["severity_after"] = severity.name
         self._record_gate(cam_key, d)
         return severity, held, True
+
+    # ------------------------------------------------------------------
+    # PERIMETER-IDENTITY-FOLLOWUP-1 (v5.107.5): "that was <name>"
+    # ------------------------------------------------------------------
+    _FOLLOWUP_UNKNOWN_REASONS = frozenset(
+        {"egress_unknown_corroborated", "xcorr_waived_single_nvr"}
+    )
+    FOLLOWUP_TITLE = "Perimeter Alert — Identified"
+
+    def _cancel_identity_followup(self, cam_key: str, reason: str) -> None:
+        st = self._pending_followups.pop(cam_key, None)
+        if st is None:
+            return
+        unsub = st.get("unsub")
+        st["unsub"] = None
+        if unsub is not None:
+            try:
+                unsub()
+            except Exception:  # noqa: BLE001
+                pass
+        _LOGGER.debug("PerimeterAlertManager: identity follow-up for %s "
+                      "discharged (%s)", cam_key, reason)
+
+    def _arm_identity_followup(
+        self, cam_key: str, entity_id: str, edge: datetime,
+        severity: Severity, annotated: str | None,
+    ) -> bool:
+        """Arm a bounded follow-up after a dispatched alert. Only when the
+        D10.5 decision for THIS alert (same edge) said unknown and did not
+        demote, the dispatched severity is above LOW and still equals the
+        D10.5 output (a later VLM demote counts as demoted), and the message
+        carried no identity annotation. Any previous follow-up on the key is
+        superseded first. Returns True when armed."""
+        self._cancel_identity_followup(cam_key, "superseded")
+        try:
+            if not self._active:
+                return False
+            if not bool(self._options_flag(
+                CONF_PERIMETER_IDENTITY_FOLLOWUP,
+                DEFAULT_PERIMETER_IDENTITY_FOLLOWUP,
+            )):
+                return False
+            if float(PERIMETER_IDENTITY_FOLLOWUP_WINDOW_S) <= 0:
+                return False
+            if severity <= Severity.LOW or annotated:
+                return False
+            d = (self._last_gate_decisions.get(cam_key) or {}).get(
+                "egress_identity") or {}
+            if (
+                d.get("at") != edge.isoformat()
+                or d.get("demoted")
+                or d.get("reason") not in self._FOLLOWUP_UNKNOWN_REASONS
+                or d.get("severity_after") != severity.name
+            ):
+                return False
+            state: dict[str, Any] = {
+                "edge": edge, "entity_id": entity_id, "severity": severity,
+                "elapsed": 0.0, "unsub": None,
+            }
+            self._pending_followups[cam_key] = state
+            self._schedule_followup_tick(cam_key, state)
+            return True
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("PerimeterAlertManager: follow-up arm failed",
+                          exc_info=True)
+            self._pending_followups.pop(cam_key, None)
+            return False
+
+    def _schedule_followup_tick(self, cam_key: str, state: dict[str, Any]) -> None:
+        window = float(PERIMETER_IDENTITY_FOLLOWUP_WINDOW_S)
+        delay = max(0.0, min(float(PERIMETER_IDENTITY_FOLLOWUP_POLL_S),
+                             window - state["elapsed"]))
+
+        @callback
+        def _tick(_now: Any) -> None:
+            if self._pending_followups.get(cam_key) is not state:
+                return  # discharged / superseded
+            state["unsub"] = None
+            state["elapsed"] += delay
+            self._followup_check(cam_key, state)
+
+        state["unsub"] = async_call_later(self.hass, delay, _tick)
+
+    def _followup_check(self, cam_key: str, state: dict[str, Any]) -> None:
+        if not self._active:
+            self._cancel_identity_followup(cam_key, "inactive")
+            return
+        try:
+            known = self._known_identity_for(cam_key, state["edge"])
+        except Exception:  # noqa: BLE001
+            known = None
+        if known is not None:
+            # Pop BEFORE sending: at most one follow-up per alert.
+            self._pending_followups.pop(cam_key, None)
+            self._record_gate(cam_key, {
+                "gate": "identity_followup", "at": state["edge"].isoformat(),
+                "sent_after_s": state["elapsed"], "identity": known[0],
+                "source": known[2],
+            })
+            self.hass.async_create_task(
+                self._async_send_identity_followup(state, known[0])
+            )
+            return
+        if state["elapsed"] >= float(PERIMETER_IDENTITY_FOLLOWUP_WINDOW_S):
+            self._cancel_identity_followup(cam_key, "window_expired")
+            return
+        self._schedule_followup_tick(cam_key, state)
+
+    def _followup_camera_name(self, entity_id: str, cam_key: str) -> str:
+        cam = self._sensor_to_camera.get(entity_id, "")
+        try:
+            st = self.hass.states.get(cam) if cam else None
+            fn = st.attributes.get("friendly_name") if st is not None else None
+            if isinstance(fn, str) and fn.strip():
+                return fn.strip()
+        except Exception:  # noqa: BLE001
+            pass
+        return cam_key.replace("_", " ").title()
+
+    def _followup_person_name(self, slug: str) -> str:
+        try:
+            st = self.hass.states.get(f"person.{slug}")
+            fn = st.attributes.get("friendly_name") if st is not None else None
+            if isinstance(fn, str) and fn.strip():
+                return fn.strip()
+        except Exception:  # noqa: BLE001
+            pass
+        return slug.replace("_", " ").title()
+
+    async def _async_send_identity_followup(
+        self, state: dict[str, Any], slug: str,
+    ) -> None:
+        nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+        if not self._active or nm is None or not getattr(nm, "enabled", False):
+            return
+        entity_id = state["entity_id"]
+        cam_key = self._camera_key_for_sensor(entity_id) or entity_id
+        message = (f"{self._followup_camera_name(entity_id, cam_key)}: "
+                   f"that was {self._followup_person_name(slug)}")
+        try:
+            await nm.async_notify(
+                coordinator_id="perimeter_alert",
+                severity=state["severity"],
+                title=self.FOLLOWUP_TITLE,
+                message=message,
+                hazard_type=NM_HAZARD_EXTERIOR_PERSON,
+                location=entity_id,
+                quiet=True,
+            )
+            _LOGGER.info("PerimeterAlertManager: identity follow-up sent "
+                         "for %s: %s", entity_id, message)
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.error("PerimeterAlertManager: identity follow-up failed "
+                          "for %s: %s", entity_id, exc)
 
     # ------------------------------------------------------------------
     # Properties & helpers
