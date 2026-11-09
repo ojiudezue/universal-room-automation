@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.106.2
+# Universal Room Automation vv5.107.0
 # Build: 2026-01-02
 # File: switch.py
 #
