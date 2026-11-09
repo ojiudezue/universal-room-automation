@@ -3716,13 +3716,15 @@ class PersonCensus:
         # entity/device-registry update), so a runtime rename of a
         # last_camera sensor is picked up without a restart. Same keying as
         # the latch-stem cache (id(resolver)).
-        _rid = id(self._face_source_resolver())
-        if cached and getattr(self, "_frigate_person_last_camera_map_rid", None) != _rid:
+        _res = self._face_source_resolver()
+        _rid = id(_res) if _res is not None else None
+        _prev_rid = getattr(self, "_frigate_person_last_camera_map_rid", None)
+        if cached and _rid is not None and _prev_rid is not None and _prev_rid != _rid:
             cached = None
-        self._frigate_person_last_camera_map_rid = _rid
         if not cached:
             cached = self._build_frigate_person_last_camera_map()
             self._frigate_person_last_camera_map = cached
+            self._frigate_person_last_camera_map_rid = _rid
         # `person_slug` here is the URA slug (e.g. `oji_udezue`); the
         # frigate axis is first-name lowercase (e.g. `oji`). Use the leading
         # underscore-separated token as the match key.
