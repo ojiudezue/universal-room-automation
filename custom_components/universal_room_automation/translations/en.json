@@ -2354,6 +2354,10 @@
     }
   },
   "issues": {
+    "external_url_unreachable": {
+      "title": "External URL not reachable",
+      "description": "Home Assistant's External URL ({url}) is not reachable ({reason}); notification image links (Pushover, companion app) will be broken. Fix it in Settings → System → Network. This issue clears itself once the URL answers again (checked daily and at startup)."
+    },
     "restart_pending_version_mismatch": {
       "title": "Restart pending to load URA {installed}",
       "description": "Universal Room Automation {installed} is installed on disk, but the running code is still {loaded}. Restart Home Assistant to load the installed version. This is normal right after a deploy (restarts are deferred, e.g. while the house sleeps); this issue clears itself after the restart."

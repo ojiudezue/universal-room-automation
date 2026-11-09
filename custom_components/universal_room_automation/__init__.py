@@ -2384,6 +2384,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         except Exception:  # noqa: BLE001
             _LOGGER.debug("version check start failed (non-fatal)", exc_info=True)
 
+        # v5.107.3: external_url reachability self-check -> repair issue
+        # when notification image links (Pushover/companion) would break.
+        # Deferred to HA-started, then daily; unsubs on this entry's unload.
+        try:
+            from .external_url_check import async_start_external_url_check
+            async_start_external_url_check(hass, entry)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("external URL check start failed (non-fatal)", exc_info=True)
+
         # D3 (URA-INTEGRATION-ARRANGEMENT-1, 2026-09-08): register the
         # Rooms grouping device under the INTEGRATION entry so the ~40
         # room devices can nest House -> Rooms -> Room instead of hanging
