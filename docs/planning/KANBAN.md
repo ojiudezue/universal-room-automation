@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-08T23:52:58-06:00_ - _Data commit: `80a7f54759e5`_ - _last_reconciled: 2026-11-08_
+_Generated: 2026-11-08T23:59:51-06:00_ - _Data commit: `0c53f10bef82`_ - _last_reconciled: 2026-11-08_
 
 
 ## Columns
@@ -81,8 +81,9 @@ thread: **presence** - status: **pre_planning**
 _created 2026-11-09 01:00_
 - **Why:** Guest mode changes HVAC, lighting and security; a single face (Frigate mislabels residents, presence doc #28) or a transient body must not flip it. A visitor-present signal is still useful at a low bar (notifications, census display, per...
 - **Next:** Pre-plan with the prior-art scan FIRST (Tier 2+ rule) — much exists: guest-room sustained-occupancy gate (CONF_ROOM_IS_GUEST_ROOM / CONF_ROOM_GUEST_OCCUPANCY_THRESHOLD_MIN const.py:454-455, _guest_room_gate_armed, boot-seed floor); WiFi ...
-- **Forensic keys (2):**
+- **Forensic keys (3):**
   - `tier`: 2
+  - `f5_measured_2026_11_09`: F-5 probe (AUDIT_face_source_registry_discovery_2026_11.md §9): 87 Ojini labels 11-02..11-08; operator confirmed Ojini was NOT present -> all mislabels (likely Oji). Known-guest faces are therefore unreliable as positive guest evidence: ...
   - `adjacency_2026_11_09`: ADJACENT (same decision surface): CENSUS-GUEST-FLOOR-1 (pre_planning, WiFi guest floor) and GUEST-GATE-DOOR-IDENTITY-1 (parked, door identity into the gate) become inputs; F-5 residual on FACE-SOURCE-REGISTRY-DISCOVERY-1 folds into this ...
 
 ### `CENSUS-ACCURACY-1` - Interior census accuracy: separate census decay from guest hysteresis + fix the _2-suffix fresh-face resolution (exterior dashboard wiring is a minor bonus) — _#5 · WSJF 2.2 · v6 tc3 u2 /e5_
