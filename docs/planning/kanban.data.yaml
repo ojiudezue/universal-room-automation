@@ -354,7 +354,8 @@ cards:
   tier: 2
   created: "2026-11-08 19:30"
   updated: "2026-11-08 19:30"
-  rank: {value: 3, time_criticality: 1, effort: 3}
+  rank: {value: 5, time_criticality: 4, effort: 3}
+  sequence_2026_11_08: "Operator: pick up RIGHT AFTER the perimeter FP build (PERIMETER-FP-STREET-NOISE-1 / v5.107.0) ships."
   origin: "Operator 2026-11-08: 'Is the frigate name bridge still to be built? ... How do we make it home agnostic?' then 'Yes card it'."
   why: "The bridge works (FRIGATE-SUBLABEL-FACE-BRIDGE-1 done; egress person_id attach 90/203 = 44% over the 14 days to 11-08) but camera_census.py:3135-3210 / :5024-5068 and camera_resolver.py:251 find face sensors by string pattern including this house's _2 suffix. Renamed cameras or non-matching entity ids in another home -> zero face sources, silently."
   next: "Investigate first (UNVERIFIED): which registry fields the Frigate and UniFi Protect integrations set on the face sensors (platform, unique_id shape, translation_key, device link). Then plan: resolve face sensors per camera via the registry with the name pattern as fallback; a diagnostics flag for 'face-capable camera, no face source matched'; face-name to person mapping stays an explicit config field. Needed before a second install; not needed for this house."
