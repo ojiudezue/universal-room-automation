@@ -529,8 +529,10 @@ DRILLS = [
      "                pass\n",
      "test_away_count_excludes_away_to_away_rows"),
     ("d3_guest_precedence_swapped", PRES,
-     "        if guest_room_gate_armed:\n            self._guest_reason = (",
-     "        if guest_room_gate_armed and not unid_gate_armed:\n            self._guest_reason = (",
+     # GUEST-MODE-SPLIT-VISITORS-1: the room branch is now an ``elif`` (the
+     # night-stay reason leads it); same swap, new anchor text.
+     "        elif guest_room_gate_armed:\n            self._guest_reason = (",
+     "        elif guest_room_gate_armed and not unid_gate_armed:\n            self._guest_reason = (",
      "test_guest_reason_room_precedes_unidentified"),
     ("d3_guest_room_not_recorded", PRES,
      "                self._guest_room_gate_fired_room = room_name\n", "",

@@ -84,6 +84,8 @@ cited to a verified `file:line` on `develop`, or marked **UNVERIFIED**.
 - **Perimeter D10.5** does not use the stamps. It still reads live data only, so its behaviour is unchanged. No setup-time "resident reads home" release: HA's restore stamps `last_changed` = boot time (review A H1). Proximity: crossing from > R to ≤ R metres (unit via `DistanceConverter`). Trust: release (fail-safe direction). **SC away lock** (SC-LOCK-REGIME-DOOR-LOCKS-1, branch `feature/sc-lock-exclude-away-lock`, NOT deployed): also raw `person.state`, for the persons in `security_away_lock_persons` only. ENGAGE (lock actuation) needs every listed person to read exactly `not_home` (a named zone is not away) for ≥ 300 s, timed from a persisted per-person `not_home` stamp (HA's restore rewrites `last_changed`, so it is never read); boot replays never arm, the 120 s boot recheck arms the remainder. RELEASE whenever a listed person reads `home` (any reading, restored state and short blips included, no blip gate; also checked at the boot recheck) or on `SIGNAL_PERSON_ARRIVING` (same really-away gate as the garage). The regime now keeps `_last_real` for every `person.*`, not only residents; the garage effects stay resident-gated. |
 | `person.*` state edges + `PersonCoordinator.data[<name>]` (`method`, `location`, `bermuda_area`, `previous_location`, `last_changed`) | HA `person` / `person_coordinator.py:1080-1090` | **Perimeter D10.5 known-person gate** (PERIMETER-FP-STREET-NOISE-1, v5.107.0, branch `feature/perimeter-fp-build`, NOT deployed; `perimeter_alert._nonface_agrees`). Trust: DE-ESCALATE only (a dual-role door camera's alert → LOW), and only as corroboration of a below-0.9 face match naming the SAME person. Counts a real ARRIVAL only: a live `not_home → home` edge recorded by its own `person.*` listener (restore edges with `old_state=None`, `unavailable → home` flaps ignored), or a Bermuda move (`previous_location ≠ location`) INTO the egress camera's own HA area or its explicitly configured door-interior neighbours' areas. Both ignore transitions within `PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S` (600 s) of perimeter setup (HA restore stamps `last_changed` at boot, §8), within `PERIMETER_EGRESS_FACE_NONFACE_WINDOW_S` (120 s) of the edge. Interior room hops never count. Same arrival-edge shape as the SC lock regime above, but boot-biased the other way (boot = NOT an arrival). Since v5.107.4 (branch `feature/lock-face-arrival`, NOT deployed) the edge rule lives in the shared `arrival_edges.py` (`live_arrival_slug`, `nonface_arrival_source`, `bermuda_arrival_into`, `area_slug_of_entity`). The perimeter keeps its own constants, listener, `_person_arrivals` and camera-specific `_near_areas`, and its behaviour is unchanged (same 153 tests pass on base and branch). The SC lock regime's camera_face gate uses the same helper. |
 | `SIGNAL_CENSUS_UPDATED` | `camera_census.py` | PresenceCoordinator (`_handle_census_update`), inference denominator |
+| `binary_sensor.ura_presence_coordinator_visitors_present` (unique id `universal_room_automation_visitors_present`; GUEST-MODE-SPLIT-VISITORS-1 D1, branch `feature/guest-mode-split`, NOT deployed) | `PresenceCoordinator._update_visitors_present` per tick; entity `binary_sensor.VisitorsPresentBinarySensor` (polled, Presence Coordinator device) | **Display only**; no reader in URA (not `infer()`, no NM). On = house GUEST OR `legs.room` (30-min guest-room gate) OR `legs.cam` (Path A, kill `VISITORS_CAM_LEG_ENABLED`) OR `legs.stay` (stay latch). Legs are evaluated only in HOME_* / GUEST (stay in any state). Guest Detection OFF → follows GUEST only. `legs` unrecorded; `since` = last off→on edge. D0 expects short `cam` flashes ~0.4-2.4/day with no visitors |
+| `PresenceCoordinator._guest_stay_active` / `_guest_stay_since` / `_guest_stay_basis` (same branch) | `_refresh_guest_stay` (DB walk, §2 step 3) | **Trust:** `_compose_guest_gate` (GUEST entry/hold). Display: house-state sensor attributes, `visitors_present` `legs.stay`. D4 trip-wire `_check_guest_stay_long`: one HIGH stuck-signal NM `kind=guest_stay_long` when the latch has been on > `GUEST_STAY_LONG_NM_DAYS` (28; 0 = off) from `since` and Guest Detection is on (RAM latch, re-armed when the latch drops or the switch is off; a restart during a > 28-day stay re-pages at most once per day via the `fire_stuck_signal` per-day dedup, accepted) |
 | `person.*` entities + `sensor.<person>_room` | `person_coordinator.py` | guest gate, census identity fusion, egress, perimeter enrichment |
 | `person_state_for_trust(hass, person_entity_id)` → `PersonTrackingCoordinator.effective_person_state` (GPS-assistive cycle, live since v5.103.90) | `person_coordinator.py` (module wrapper + method) | raw `person.state` TRUST readers: `aggregation.py` `_sleep_person_fallback_occupied` / `_nonsleep_person_fallback_occupied` (zone_persons_home veto), `hvac_zones.ZoneManager.zone_has_home_person` (no production caller: no-op today), `hvac.py` night-trust preset hold + `main_row_home_persons` (display, activity log), `hvac_fans.py` night vacancy hold, and (CENSUS-BLE-OVER-FACE-1, branch `fix/census-ble-over-face`, NOT deployed; plan `docs/planning/PLANNING_census_ble_over_face.md` rev 4) the `camera_census._get_face_recognized_person_names` stale-face latch guard. That guard reads raw state once; raw `not_home` drops as before, otherwise (rung-1 `CENSUS_FACE_LATCH_FOLLOWS_BLE_LEADS`, default True) it asks this helper and drops an overruled adult's face, counted per tick in `face_dropped_ble_overrule_count` on `sensor.universal_room_automation_persons_in_house` (unrecorded). The dropped body stays in the camera total, so it can raise `unidentified_count` (measured cost accepted by the operator, plan §4.3). `_get_face_recognized_persons_fresh` (confidence corroboration) stays raw: body evidence, not identity. The earlier "left RAW on purpose" choice is superseded (§10 #28). Returns the raw HA state except `not_home` for a person overruled on the last tick (and URA location `away`, switch on). No person coordinator / any error → raw. Identity vetoes (`camera_census` `is_face_leg_person_vetoed`, `transit_validator` egress veto) and edge-triggered readers stay raw by design. |
 | `environmental_data.occupied` (5-min sample of room `STATE_OCCUPIED`, keyed by entry_id) | `coordinator.py` data-logging block | **room dwell model** (`room_dwell_model.py`, branch `feat/occupancy-dwell-anomaly`, NOT deployed): share of time occupied by local hour x weekday/weekend, nightly rebuild, read-only → `binary_sensor.<room>_occupancy_anomaly` (display only; no notification). Also `get_uncomfortable_minutes_today`. **PREDICT-MODEL-DWELL-MIGRATION-1 (branch `feature/predict-dwell-migration`, NOT deployed):** the same model now also feeds (a) the room `Bayesian Occupancy Forecast` / `Bayesian Occupancy Pattern` sensors (display; kill switch `FORECAST_DWELL_SOURCE_ENABLED`), and (b) one WRITE: the hourly `dwell_share` producer on `RoomDwellModelRunner` (`room_dwell_model.py` `_dwell_tick`) writes one `prediction_results` row per room per UTC hour, `room_id = entry_id`, predicted = the share frozen at minute `DWELL_SHARE_TICK_MINUTE` of the hour from a model with `trained_until_utc <= start(H)`, actual = the hour's occupied fraction from this same signal; **`confidence` holds the cell's sample count, not a probability**; `error_value` signed (expected − actual). Kill switch `DWELL_SHARE_PRODUCER_ENABLED`. These predictions describe the room-occupancy SIGNAL, so phantom holds count as "usual" and "accurate" (accepted). |
@@ -125,8 +127,68 @@ cited to a verified `file:line` on `develop`, or marked **UNVERIFIED**.
    exemption + the FIX-2b indoor-clear tick debounce (`presence.py:1053-1072`,
    `CONF_LOST_AWAY_GRACE_MIN`, `CONF_LOST_AWAY_INDOOR_CLEAR_TICKS`,
    `CONF_LOST_AWAY_SLEEP_EXEMPT`).
-3. **GUEST** — `guest_gate_armed = True` while home. `_guest_gate_armed()` pre-evaluates
-   threshold / confidence / persistence (v4.6.2.2, `presence.py:1091-1094`).
+3. **GUEST** — `guest_gate_armed = True` while home. (The old wording here, "`_guest_gate_armed()`
+   pre-evaluates threshold / confidence / persistence", is stale since GUEST-CENSUS D2, 2026-08-16:
+   Path A arms nothing, see §10 #30.) **GUEST-MODE-SPLIT-VISITORS-1 (v5.108.0, branch
+   `feature/guest-mode-split`, NOT deployed; plan `docs/planning/PLANNING_guest_mode_split_2026_11.md`
+   rev 5):** `guest_armed` is composed in ONE helper, `PresenceCoordinator._compose_guest_gate`
+   (called at the HOME_* and GUEST branches of `_run_inference`):
+   - rule OFF (`const.GUEST_NIGHT_STAY_RULE_ENABLED` False, rung 1): the 30-min guest-room gate
+     (`_guest_room_gate_armed`), byte-identical to before (golden
+     `quality/tests/fixtures/guest_split_golden_base.json`);
+   - rule ON (default): HOME_* → the **stay latch** `_guest_stay_active` (masked by the Guest
+     Detection switch); GUEST → the latch except at a house sleep hour (**night yield**, §7).
+     The 30-min room gate and Path A are still evaluated but only feed `visitors_present` and
+     `guest_reason`. A 30-min (or 5-hour) daytime visit no longer enters GUEST.
+   - **Stay latch producer** `_refresh_guest_stay` (one writer; deterministic walk over the URA
+     DB, so a restart reproduces it): for each of the last `GUEST_STAY_REPLAY_NIGHTS` (35) completed
+     nights, the house sleep window from the engine (`sleep_start_hour` / `sleep_end_hour`, CM
+     options, live 22 → 6; NOT the per-room sleep-protection hours) and per designated guest room
+     the share of that window occupied (`occupancy_events` by room entry_id, via
+     `Database._occupied_episodes_between`) minus resident time (`person_visits` by room name,
+     ± `GUEST_KNOWN_STICKY_S`; an open visit, `exit_time` NULL, runs to the latest window end), in
+     `Database.get_guest_room_night_fractions`. `had_evidence` is computed AFTER the resident cut. A
+     night qualifies at ≥ `GUEST_NIGHT_MIN_FRACTION` (0.25).
+     **Rev 5 entry (operator 2026-11-09: "sustained occupancy during the day and an overnight should
+     suffice"):** the latch turns on at an ENTRY-QUALIFIED night: the same guest room also had
+     ≥ `GUEST_STAY_DAY_MIN_FRACTION` (0.10) non-resident occupancy of its day window
+     (`guest_day_window`: local N `GUEST_STAY_DAY_START_HOUR` (10):00 → the night start, ≥ 1 h), with
+     ≥ `GUEST_STAY_ENTRY_NIGHTS` (1; 2 = second-night guard) qualifying nights among the last
+     `GUEST_STAY_LOOKBACK_NIGHTS` (3). **Rev 6 exit:** off after min(`GUEST_STAY_EXIT_MAX_NIGHTS` (2, operator
+     ruling 2026-11-09), n) straight non-qualifying nights, n = qualifying nights in the stay so far
+     (starting from the entry night's lookback count), so a one-night visit ends after one empty night
+     and any longer stay after two (`GUEST_STAY_EXIT_SCALES_WITH_STAY`, rung 1, True; False = the fixed
+     3-night exit of rev 5). **Re-entry grace** (`GUEST_STAY_REENTRY_GRACE_DAYS`, 7, 0 = off; only with
+     the scaled exit): for 7 days after a stay ends by empty nights, ONE qualifying night in any guest
+     room re-enters, no day test (a guest away overnight who sleeps in the room again). October replay:
+     GUEST 09-28..10-14 and 10-16 (the nights away 10-13/10-14 end it; the night back 10-15 re-enters);
+     0 days in 10-19..11-08. Grace re-entries bypass `GUEST_STAY_ENTRY_NIGHTS`. A stay entered by
+     grace keeps the original stay's end as the anchor and opens no new grace (review D: no phantom
+     chain), so the window never extends past 7 days from the last normally-entered stay's end.
+     **"Guest left" button** (`button.ura_presence_coordinator_guest_left`, unique id
+     `universal_room_automation_guest_left`, Presence Coordinator device, CM entry):
+     `PresenceCoordinator.async_guest_left` clears the latch, records the press time (RAM + HA Store
+     `universal_room_automation.guest_left`, loaded by the walk), and runs one inference with trigger
+     `guest_left_button`; that tick skips the S9 exit hold once, so GUEST → HOME_* happens now (unless the
+     300 s GUEST minimum dwell rejects it; the latch is off, so the next ticks exit). The walk only lets a
+     night that STARTS after the last press enter, so the old nights cannot re-latch (also after a
+     restart) and a button exit opens no re-entry grace; pre-press nights count toward neither entry
+     (q) nor the exit length (n). A failed Store read is retried on the next walk; a failed save is
+     retried once. Prior art: no guest-clear action existed;
+     the house-state override select (`select.py:225-331`) pins a state and is not reused.
+     n is a walk-loop local, so a restart reproduces it.
+     `GUEST_STAY_DAY_BEFORE_NIGHT` (True) False also accepts night N−1 with day N. Night and day
+     windows go through ONE span read per room. Scheduled (never awaited) by
+     `_maybe_schedule_guest_stay_refresh` from each tick once the last completed night changes, and
+     once at setup; cancelled at teardown, and no walk is scheduled after teardown starts
+     (`_guest_stay_torn_down`). `_discover_guest_rooms` clears the evaluated night, so a flagged or
+     un-flagged guest room is walked on the next tick. DB error → the night is NOT stamped evaluated,
+     retry after `GUEST_STAY_ERROR_RETRY_S` (900 s); the previous latch / since / basis are KEPT if a
+     walk succeeded since boot (`_guest_stay_walked_ok`), else latch off with basis `{"error"}`.
+     Clocks: occupancy rows are naive UTC; `person_visits` rows are naive PROCESS-local (§10 #32).
+   - GUEST from HOME_* is now reached only by the latch, the manual override, or restart restore.
+     The arrival day never shows GUEST (no night yet; parked; `visitors_present` covers it); GUEST
+     starts the morning after the first night (replay: stay day 2).
 4. **SLEEP** — census people present AND sleep hours (default 23 → 06, overridable in ctor
    `presence.py:1017-1025`).
 5. **HOME_DAY / HOME_EVENING / HOME_NIGHT** — census people + time-of-day variants
@@ -143,6 +205,12 @@ control falls through to path β / GUEST / SLEEP.
 - `last_away_at`.
 - `away_entries_today`: counted in `_dispatch_house_state_change` after the boot-settle and observation gates, next to the `house_state_log` write. The getter reads 0 on a new local day. At setup it is hydrated with a naive-UTC `start_of_local_day` bound, via `count_house_state_changes_since(..., state="away", exclude_same_previous=True)`.
 - `guest_reason`: `guest_room:<room>` > `unidentified_persistent` > `override` > `none`.
+  Since GUEST-MODE-SPLIT-VISITORS-1 (branch, NOT deployed), with the stay rule on,
+  `night_stay:<rooms>` leads when the stay latch is on in HOME_* / GUEST, and `guest_room:<room>`
+  means "a visitor in a guest room", not GUEST (§10 #31). The same sensor publishes
+  `guest_stay_active`, `guest_stay_since` (UTC, window end of the night that turned the latch on)
+  and `guest_stay_basis` (last 3 nights: `night`, `room`, `fraction`, `day_fraction`, `qualifies`,
+  `entry_qualified`; or `{"error"}`).
 
 `stale_counted_home` and `nobody_home_zone_input` are in `_unrecorded_attributes`. Since
 HOUSE-STATE-SENSOR-ATTR-CHURN-1 (branch `fix/house-state-attr-unrecorded`, NOT deployed) so are
@@ -550,6 +618,23 @@ entity-name regex).
   `feature/sc-garage-lockout-phase1`, NOT deployed): it engages on GUEST inside the CM sleep
   window behind its own toggle, so it does NOT depend on a GUEST → SLEEP edge. See memory
   `project_presence_guest_latch_and_veto_gap`.
+  **Night yield (GUEST-MODE-SPLIT-VISITORS-1, branch `feature/guest-mode-split`, NOT deployed):**
+  with the stay rule on, the GUEST hold is the stay latch AND NOT a house sleep hour
+  (`_compose_guest_gate`, `sleep_hour` = `StateInferenceEngine._is_sleep_hour(local hour)`). At
+  `sleep_start_hour` `infer()` proposes GUEST → HOME_NIGHT; the S9 guest-exit persistence holds it
+  `_guest_persistence_seconds` (300 s), so the exit lands on the first tick ≥ sleep_start + 300 s,
+  then SLEEP after the HOME_NIGHT dwell (120 s). Morning: SLEEP → WAKING → HOME_DAY, then the HOME_*
+  entry branch returns GUEST while the latch is on (pinned in
+  `test_guest_split_gate.py::test_night_yield_exits_to_home_night` / `::test_morning_reentry`). No
+  state-machine edge was added; #29 stays true. The 30-min gate no longer holds GUEST overnight.
+  **Garage lockout across the yield (INV-LOCK-1, rev 5, build review B-M1):** the guest-night clock
+  locks at `sleep_start_hour` (house still GUEST for the S9 300 s). The yield's GUEST → HOME_NIGHT
+  edge inside the sleep window while `reason == guest_night` no longer releases:
+  `security_lock_regime.on_house_state_changed` records `guest_yield_hold` and keeps the reason; the
+  later SLEEP edge is a no-op write on locked entities. WAKING / HOME_DAY / HOME_EVENING / ARRIVING /
+  resident arrival / the backstop release as before. A manual override GUEST → HOME_NIGHT in the
+  window is held too (accepted, plan R26). Pinned by `test_sc_garage_lockout.py`
+  `::test_lock_once_at_guest_clock_no_unlock_on_yield` / `::test_lock_held_if_home_night_until_morning`.
 - **Guest-mode false-positive gap** (open): LOST-but-away excluded from the trusted
   denominator → phantom unidentified → spurious GUEST
   (`project_guest_mode_false_positive_backlog`).
@@ -587,6 +672,7 @@ each; verify current status in the board):
 - **PREDICT-MODEL-DWELL-MIGRATION-1 + PREDICT-SCORER-BASELINE-SKILL-1** (built 2026-10-21, branch `feature/predict-dwell-migration`, NOT deployed; plan `docs/planning/PLANNING_predict_dwell_migration.md`). Room forecast / pattern sensors read the dwell model (state = usual share for this hour; `+1h` / `+4h` blend the last scored hour's occupied fraction at weights `FORECAST_PERSISTENCE_WEIGHT_1H` 0.5 / `_4H` 0.25; `last_hour_fraction` is null after a restart until the producer has scored an hour). Hourly `dwell_share` rows (§1 table). `sensor.<person>_likely_next_room` predicts from the person's current room (`person_coordinator` `location`) via `PatternLearner.predict_next_room` first (`NEXT_ROOM_CURRENT_ROOM_PRIMARY`); the next-room scorer (`transitions._score_prediction`) writes a row only when the cached prediction's `current_room` equals the transition's `from_room` (both are person_coordinator's resolved room string, so the compare is exact), and counts skips per person (`scored_since_start`, `skipped_room_mismatch_since_start`, `skip_ratio`, `skip_ratio_ok` on `*_next_room_accuracy`; evidence bound `NEXT_ROOM_MAX_SKIP_RATIO` 0.30). The accuracy sensors and the Optimization next-room finding now report skill over always guessing each person's usual room on the same rows (`prediction_skill.py`); the Optimization clause fires on skill ≤ `OPTIMIZER_PREDICTION_ACCURACY_MIN_SKILL_PCT` (0) instead of the old absolute 35% floor. `prediction_results` prune covers all types at `PREDICTION_RESULTS_RETENTION_DAYS` (45). `energy_forecast` still reads the Bayesian occupancy model (operator Q1; switch off).
 
 - **BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1** (built 2026-10-21, branch `feat/occupancy-dwell-anomaly`, NOT deployed, README_v5.103.83). `binary_sensor.<room>_occupancy_anomaly` never evaluated (logic in `async_update`, never called on a coordinator entity) and its Bayesian arrival model scored long-dwell rooms as rare (Study A 0.004). Now it evaluates in `_handle_coordinator_update` against the room dwell model (§1 table). On only when: occupied; cell share < `OCC_ANOMALY_SHARE_THRESHOLD` (0.02); cell samples span ≥ `OCC_ANOMALY_MIN_CELL_DAYS` (4) distinct days with ≥ `OCC_ANOMALY_MIN_CELL_SAMPLES` (24) samples; occupied ≥ `OCC_ANOMALY_DEBOUNCE_S` (1800 s; 900 failed the G1 replay); house not GUEST; model refreshed. Rising edge: `SIGNAL_OCCUPANCY_ANOMALY` + one `anomaly_log` row `occupancy.dwell_anomaly`, gated by startup grace, per-room cooldown and **presence** observation mode (the room coordinator has no `_observation_mode`; the old check was always False). No NM on any path. It learns phantom holds as "usual" (Study A ZK hold, Jaya LD2410 fan loop) and shows a phantom at a new hour as an anomaly: accepted, display only. The day-based gate replaced a 200-sample gate that weekend cells (≤ 192 samples in 56 days) could never pass. Knobs are tuned from the post-deploy D0 replay (`scripts/probes/occupancy_dwell_backtest.py`); HA's recorder keeps only 7 days, so the replay covers 7 days while training uses `environmental_data` (back to 2025-11-19). Side fixes in the same branch: `get_occupancy_time_today` / `get_occupancy_percentage` / `get_uncomfortable_minutes_today` (entry_id key, local-day window, entry/exit pairing), and the four room "today" sensors now refresh (throttled, quantized) instead of never. `bayesian_predictor.get_anomaly_score` has no production reader now (DELETE candidate after live validation).
+- **GUEST-MODE-SPLIT-VISITORS-1** (built 2026-11-09, branch `feature/guest-mode-split`, v5.108.0, NOT deployed; plan `docs/planning/PLANNING_guest_mode_split_2026_11.md` rev 5 (one night + a same-room day; INV-LOCK-1); README `docs/readmes/README_v5.108.0.md`). D1 `visitors_present` (§1 table); D2 night-stay producer + D3 composition (§2 step 3, §7 night yield); D4 `guest_stay_long` trip-wire. WiFi is read nowhere (operator decision). Residuals: no GUEST on arrival day (parked); a resident who spends the day and one night in GB2 enters GUEST (GB2 has no scanner, so BLE cannot subtract them; knob `GUEST_STAY_ENTRY_NIGHTS` 2); a guest room un-flagged mid-stay drops out of the next walk (re-walked at once); a never-closed `person_visits` row subtracts to the span end; a phantom guest-room hold (fan, stuck radar; GB1/GB2 have no fan-immune witness, §6 item 3) counts as a guest night and is paged by D4 only after 28 days. Operator checkpoint before deploy (house state).
 - **HOUSE-STATE-SENSOR-BOOT-AWAY-DISPLAY-1** (2026-10-11) — boot-time house-state sensor
   reads AWAY while inference still settling.
 - **CENSUS-NAME-SPACE-DEDUP-1** (2026-10-11) — census name-space dedup gap.
@@ -796,6 +882,26 @@ fan-susceptibility measurement running 2026-10-11 (verdict to be recorded in
    no GUEST → SLEEP edge (`house_state.py:116-121`; enforced at `:219-221`). v5.16.0 moved the
    GUEST exit above the sleep branch (`presence.py:1399-1401`), so a CLEARED guest reaches SLEEP via
    HOME_NIGHT; an ARMED guest gate holds GUEST overnight. §7 corrected.
+
+30. **"`_guest_gate_armed()` pre-evaluates GUEST (threshold / confidence / persistence)"** (§2 step 3,
+   from v4.6.2.2). STALE since GUEST-CENSUS D2 (2026-08-16): Path A (`_guest_gate_armed`) arms
+   nothing; `guest_armed` was the 30-min room gate, and with GUEST-MODE-SPLIT-VISITORS-1 the stay
+   latch (`_compose_guest_gate`). Path A now feeds only `guest_reason`, confidence 0.95 and
+   `visitors_present` `legs.cam`.
+
+31. **"`guest_reason` `guest_room:<room>` is a GUEST reason."** WRONG once the night-stay rule is on
+   (GUEST-MODE-SPLIT-VISITORS-1): it means a visitor has been in a guest room ≥ 30 min. The GUEST
+   reason during a stay is `night_stay:<rooms>`. With the rule off (kill switch) the old meaning
+   holds.
+
+32. **"`person_visits` times are naive LOCAL"** (docstring of `Database.get_closed_person_visits`).
+   INCOMPLETE (2026-11-09, plan §10 item 1): the writer uses `datetime.now()`
+   (`Database.log_person_entry`), i.e. naive PROCESS-local time: UTC on this HAOS host (live rows read
+   07:16 while local was 02:38 CST), local only where the process TZ is local. The night-stay
+   producer converts with `datetime.fromtimestamp(x.timestamp())` / `naive.timestamp()` (exact on any
+   host; pinned by `test_guest_stay_producer.py::test_person_visits_clock_utc_host` /
+   `::test_person_visits_clock_local_host`). The dwell model's `usual_people` (display) still trusts
+   the docstring; card `PERSON-VISITS-CLOCK-PROCESS-LOCAL-1`.
 
 ## 11. Read before you touch — agent checklist
 

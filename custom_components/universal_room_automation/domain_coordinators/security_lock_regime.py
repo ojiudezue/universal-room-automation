@@ -761,6 +761,20 @@ class LockRegimeController:
             if self.reason in SLEEP_LIKE_REASONS:
                 self._release("house_state:waking")
             return
+        if (
+            new == "home_night"
+            and self.reason == REASON_GUEST_NIGHT
+            and self._in_sleep_window(cfg)
+        ):
+            # INV-LOCK-1 (GUEST-MODE-SPLIT rev 5, build review B-M1): the
+            # presence night yield takes GUEST -> HOME_NIGHT ~5 min after the
+            # guest-night clock locked. Hold the lock (lock once, at the
+            # guest-night clock); WAKING / HOME_DAY / HOME_EVENING / ARRIVING
+            # / resident arrival / the backstop still release. A manual
+            # override GUEST -> HOME_NIGHT in the window is held too (the
+            # regime cannot tell the two apart; accepted, plan R26).
+            self._record("guest_yield_hold", trigger="house_state:home_night", written=[])
+            return
         if new in _HOME_STATES:
             if self.reason != REASON_NONE:
                 self._release(f"house_state:{new}")

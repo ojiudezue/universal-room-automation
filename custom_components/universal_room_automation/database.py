@@ -3613,6 +3613,23 @@ class UniversalRoomDatabase:
     ) -> tuple[float, bool]:
         """Occupied seconds for ``room_id`` in [start_utc, end_utc).
 
+        Sum over :meth:`_occupied_episodes_between` (same order, so the float
+        sum is byte-identical to the pre-extraction loop). See there for the
+        pairing rules. Returns ``(seconds, had_evidence)``.
+        """
+        episodes, had_evidence = await self._occupied_episodes_between(
+            db, room_id, start_utc, end_utc,
+        )
+        total = 0.0
+        for lo, hi in episodes:
+            total += (hi - lo).total_seconds()
+        return total, had_evidence
+
+    async def _occupied_episodes_between(
+        self, db, room_id: str, start_utc: datetime, end_utc: datetime,
+    ) -> tuple[list[tuple[datetime, datetime]], bool]:
+        """Occupied episodes for ``room_id`` clipped to [start_utc, end_utc).
+
         Pairs ``occupancy_events`` entry/exit rows (the only event types the
         writer emits, ``coordinator.py`` data-logging block). Bounds are naive
         UTC, the stored clock (``datetime.utcnow()``). The exit row's
@@ -3626,8 +3643,10 @@ class UniversalRoomDatabase:
             the cap, whichever is sooner) and opens a new one.
         Each episode is clipped to the window.
 
-        Returns ``(seconds, had_evidence)``; ``had_evidence`` is False when
-        no event is in the window and no capped episode overlaps it.
+        Returns ``(episodes, had_evidence)``: ``episodes`` is the list of
+        ``(start, stop)`` naive-UTC spans with positive length, in order;
+        ``had_evidence`` is False when no event is in the window and no
+        capped episode overlaps it.
         """
         from .const import OCC_EPISODE_MAX_S
 
@@ -3644,15 +3663,16 @@ class UniversalRoomDatabase:
             datetime.fromisoformat(str(prev[0]))
             if prev is not None and prev[1] == "entry" else None
         )
-        total = 0.0
+        episodes: list[tuple[datetime, datetime]] = []
         had_evidence = False
 
         def _close(at: datetime) -> None:
-            nonlocal total, had_evidence
+            nonlocal had_evidence
             stop = min(at, open_at + cap, end_utc)
-            span = (stop - max(open_at, start_utc)).total_seconds()
+            lo = max(open_at, start_utc)
+            span = (stop - lo).total_seconds()
             if span > 0:
-                total += span
+                episodes.append((lo, stop))
                 had_evidence = True
 
         cursor = await db.execute(
@@ -3672,7 +3692,122 @@ class UniversalRoomDatabase:
                 open_at = ts
         if open_at is not None:
             _close(end_utc)
-        return total, had_evidence
+        return episodes, had_evidence
+
+    async def get_guest_room_night_fractions(
+        self,
+        room_entry_id: str,
+        room_name: str,
+        windows: list[tuple[datetime, datetime]],
+        resident_pad_s: float,
+    ) -> list[tuple[float, bool]]:
+        """Per-window non-resident occupied fraction of one guest room.
+
+        GUEST-MODE-SPLIT-VISITORS-1 D2 (plan rev 4 §2.1-§2.2). Read-only.
+        ONE ``occupancy_events`` read (``room_id = room_entry_id``) and ONE
+        ``person_visits`` read (``room_id = room_name``) over the whole span;
+        windows are bucketed in Python.
+
+        ``windows``: tz-AWARE ``(start, end)`` pairs (a naive bound is taken
+        as UTC). Two clocks, both traps (plan §2.2):
+          * ``occupancy_events.timestamp`` is naive UTC (``utcnow()``): the
+            bounds passed to :meth:`_occupied_episodes_between` are naive UTC
+            (a tz-aware bound would serialise with ``+00:00`` and the string
+            compare against stored rows would go wrong);
+          * ``person_visits`` times are naive PROCESS-LOCAL (writer
+            ``datetime.now()``, :meth:`log_person_entry`): UTC on HAOS, local
+            elsewhere. Bounds are converted with
+            ``datetime.fromtimestamp(x.timestamp())`` and rows back with
+            ``naive.timestamp()``, the exact inverses on any host.
+        Resident intervals are widened by ``resident_pad_s`` on both sides; a
+        NULL ``exit_time`` (open visit) runs to the latest window end.
+
+        Returns one ``(fraction, had_evidence)`` per window, in order;
+        ``had_evidence`` = some NON-RESIDENT occupied time remains in the
+        window after the resident cut. Raises
+        on DB error (the caller fails the night toward no GUEST).
+        """
+        if not windows:
+            return []
+
+        def _naive_utc(x: datetime) -> datetime:
+            if x.tzinfo is None:
+                return x
+            return x.astimezone(timezone.utc).replace(tzinfo=None)
+
+        def _proc_local(x: datetime) -> datetime:
+            if x.tzinfo is None:
+                x = x.replace(tzinfo=timezone.utc)
+            return datetime.fromtimestamp(x.timestamp())
+
+        def _row_to_utc(raw) -> datetime:
+            parsed = datetime.fromisoformat(str(raw))
+            if parsed.tzinfo is not None:
+                return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+            return datetime.fromtimestamp(
+                parsed.timestamp(), tz=timezone.utc,
+            ).replace(tzinfo=None)
+
+        span_lo = min(w[0] for w in windows)
+        span_hi = max(w[1] for w in windows)
+        # Stored person_visits strings use the sqlite3 default adapter
+        # ("YYYY-MM-DD HH:MM:SS[.ffffff]"); a one-day margin on the string
+        # bounds makes the compare separator-proof, exact clipping is below.
+        visits_lo = (_proc_local(span_lo) - timedelta(days=1)).isoformat(sep=" ")
+        visits_hi = (_proc_local(span_hi) + timedelta(days=1)).isoformat(sep=" ")
+        async with self._db_read() as db:
+            episodes, _ = await self._occupied_episodes_between(
+                db, room_entry_id, _naive_utc(span_lo), _naive_utc(span_hi),
+            )
+            cursor = await db.execute(
+                """SELECT entry_time, exit_time FROM person_visits
+                   WHERE room_id = ? AND entry_time >= ? AND entry_time < ?""",
+                (room_name, visits_lo, visits_hi),
+            )
+            visit_rows = await cursor.fetchall()
+
+        pad = timedelta(seconds=max(0.0, float(resident_pad_s)))
+        # Review A-L1: an OPEN visit (exit_time NULL: the resident is still
+        # in the room) runs to the end of the span (the latest window end),
+        # so a resident still asleep when the morning walk runs is subtracted.
+        open_end = _naive_utc(span_hi)
+        resident: list[tuple[datetime, datetime]] = []
+        for entry_raw, exit_raw in visit_rows:
+            try:
+                a = _row_to_utc(entry_raw)
+                b = _row_to_utc(exit_raw) if exit_raw else open_end
+            except (TypeError, ValueError):
+                continue
+            if b < a:
+                b = a
+            resident.append((a - pad, b + pad))
+
+        out: list[tuple[float, bool]] = []
+        for w_start, w_end in windows:
+            lo_w, hi_w = _naive_utc(w_start), _naive_utc(w_end)
+            length = (hi_w - lo_w).total_seconds()
+            segs = [
+                (max(s, lo_w), min(e, hi_w)) for s, e in episodes
+                if min(e, hi_w) > max(s, lo_w)
+            ]
+            for cut_lo, cut_hi in resident:
+                kept: list[tuple[datetime, datetime]] = []
+                for s, e in segs:
+                    if cut_hi <= s or cut_lo >= e:
+                        kept.append((s, e))
+                        continue
+                    if cut_lo > s:
+                        kept.append((s, cut_lo))
+                    if cut_hi < e:
+                        kept.append((cut_hi, e))
+                segs = kept
+            # Review A-L2: evidence is NON-RESIDENT occupied time (after the
+            # cut), so at GUEST_NIGHT_MIN_FRACTION 0 a resident-only night
+            # does not qualify.
+            had = bool(segs)
+            occupied = sum((e - s).total_seconds() for s, e in segs)
+            out.append((occupied / length if length > 0 else 0.0, had))
+        return out
 
     async def get_occupancy_percentage(self, room_id: str, days: int = 7) -> float | None:
         """

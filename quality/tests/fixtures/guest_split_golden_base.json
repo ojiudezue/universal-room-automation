@@ -1,0 +1,4205 @@
+{
+"base": "develop@f8cbcba4 (code == 4b52c262)",
+"rows": [
+{
+"tuple": [
+"home_evening",
+null,
+2,
+"high",
+400,
+false,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "home_evening",
+"guest_reason": "unidentified_corroborator_only",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"home_day",
+10,
+0,
+"low",
+null,
+false,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "sleep",
+"final": "home_day",
+"guest_reason": "none",
+"confidence": 0.7,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"guest",
+10,
+0,
+"high",
+400,
+false,
+false,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "none",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_night",
+null,
+0,
+"low",
+400,
+false,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "home_night",
+"guest_reason": "none",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"sleep",
+10,
+0,
+"low",
+400,
+false,
+false,
+23
+],
+"guest_armed": false,
+"proposal": null,
+"final": "sleep",
+"guest_reason": "none",
+"confidence": 0.0,
+"gate_calls": {
+"room": 0,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_day",
+45,
+2,
+"high",
+400,
+false,
+false,
+14
+],
+"guest_armed": false,
+"proposal": null,
+"final": "home_day",
+"guest_reason": "none",
+"confidence": 0.0,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"guest",
+null,
+0,
+"low",
+null,
+true,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_night",
+10,
+2,
+"high",
+400,
+false,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "home_night",
+"guest_reason": "unidentified_corroborator_only",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"home_evening",
+null,
+2,
+"high",
+100,
+true,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_day",
+null,
+0,
+"low",
+400,
+false,
+true,
+14
+],
+"guest_armed": false,
+"proposal": null,
+"final": "home_day",
+"guest_reason": "none",
+"confidence": 0.0,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"guest",
+null,
+2,
+"high",
+400,
+false,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "none",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_day",
+45,
+0,
+"low",
+null,
+false,
+false,
+23
+],
+"guest_armed": false,
+"proposal": "sleep",
+"final": "home_day",
+"guest_reason": "none",
+"confidence": 0.7,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"home_evening",
+10,
+0,
+"high",
+100,
+true,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"guest",
+10,
+2,
+"low",
+null,
+false,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "none",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_evening",
+10,
+2,
+"low",
+null,
+true,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_night",
+10,
+2,
+"high",
+400,
+false,
+false,
+23
+],
+"guest_armed": false,
+"proposal": "sleep",
+"final": "sleep",
+"guest_reason": "none",
+"confidence": 0.7,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"away",
+45,
+2,
+"high",
+100,
+true,
+true,
+14
+],
+"guest_armed": true,
+"proposal": null,
+"final": "guest",
+"guest_reason": "guest_room:Guest Bedroom 1",
+"confidence": 0.0,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_evening",
+null,
+0,
+"high",
+400,
+false,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "home_evening",
+"guest_reason": "none",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"home_night",
+null,
+2,
+"high",
+null,
+true,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"sleep",
+10,
+2,
+"high",
+100,
+true,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"away",
+45,
+2,
+"high",
+400,
+true,
+true,
+14
+],
+"guest_armed": true,
+"proposal": null,
+"final": "guest",
+"guest_reason": "guest_room:Guest Bedroom 1",
+"confidence": 0.0,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_night",
+null,
+0,
+"high",
+400,
+false,
+false,
+23
+],
+"guest_armed": false,
+"proposal": "sleep",
+"final": "sleep",
+"guest_reason": "none",
+"confidence": 0.7,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"away",
+45,
+0,
+"low",
+100,
+true,
+true,
+14
+],
+"guest_armed": true,
+"proposal": null,
+"final": "guest",
+"guest_reason": "guest_room:Guest Bedroom 1",
+"confidence": 0.0,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_night",
+10,
+2,
+"high",
+100,
+true,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"guest",
+null,
+0,
+"low",
+null,
+false,
+false,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "none",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_night",
+45,
+2,
+"low",
+null,
+false,
+false,
+23
+],
+"guest_armed": false,
+"proposal": "sleep",
+"final": "sleep",
+"guest_reason": "none",
+"confidence": 0.7,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"home_evening",
+10,
+2,
+"low",
+100,
+true,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"sleep",
+null,
+0,
+"high",
+100,
+false,
+true,
+23
+],
+"guest_armed": false,
+"proposal": null,
+"final": "sleep",
+"guest_reason": "none",
+"confidence": 0.0,
+"gate_calls": {
+"room": 0,
+"unid": 0
+}
+},
+{
+"tuple": [
+"sleep",
+10,
+0,
+"low",
+400,
+false,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "waking",
+"final": "waking",
+"guest_reason": "none",
+"confidence": 0.8,
+"gate_calls": {
+"room": 0,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_night",
+45,
+2,
+"high",
+400,
+false,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "home_night",
+"guest_reason": "none",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"sleep",
+45,
+2,
+"high",
+400,
+false,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "waking",
+"final": "waking",
+"guest_reason": "none",
+"confidence": 0.8,
+"gate_calls": {
+"room": 0,
+"unid": 0
+}
+},
+{
+"tuple": [
+"away",
+10,
+2,
+"low",
+null,
+false,
+false,
+23
+],
+"guest_armed": false,
+"proposal": "arriving",
+"final": "arriving",
+"guest_reason": "none",
+"confidence": 0.85,
+"gate_calls": {
+"room": 0,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_day",
+10,
+2,
+"high",
+100,
+false,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "sleep",
+"final": "home_day",
+"guest_reason": "none",
+"confidence": 0.7,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"home_evening",
+10,
+0,
+"low",
+null,
+false,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "home_evening",
+"guest_reason": "none",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"home_evening",
+null,
+2,
+"high",
+400,
+false,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "home_evening",
+"guest_reason": "none",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"sleep",
+45,
+2,
+"high",
+100,
+false,
+false,
+23
+],
+"guest_armed": false,
+"proposal": null,
+"final": "sleep",
+"guest_reason": "none",
+"confidence": 0.0,
+"gate_calls": {
+"room": 0,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_evening",
+45,
+0,
+"high",
+100,
+true,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_evening",
+null,
+0,
+"high",
+100,
+true,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"sleep",
+null,
+0,
+"low",
+100,
+false,
+false,
+23
+],
+"guest_armed": false,
+"proposal": null,
+"final": "sleep",
+"guest_reason": "none",
+"confidence": 0.0,
+"gate_calls": {
+"room": 0,
+"unid": 0
+}
+},
+{
+"tuple": [
+"guest",
+null,
+2,
+"low",
+400,
+false,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "none",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_day",
+45,
+2,
+"high",
+100,
+false,
+true,
+14
+],
+"guest_armed": true,
+"proposal": "guest",
+"final": "guest",
+"guest_reason": "guest_room:Guest Bedroom 1",
+"confidence": 0.9,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"home_night",
+null,
+0,
+"high",
+100,
+false,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "home_night",
+"guest_reason": "none",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"home_night",
+null,
+2,
+"high",
+null,
+false,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "home_night",
+"guest_reason": "none",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"home_night",
+10,
+2,
+"low",
+100,
+false,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "home_night",
+"guest_reason": "none",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"sleep",
+10,
+2,
+"low",
+null,
+false,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "waking",
+"final": "waking",
+"guest_reason": "none",
+"confidence": 0.8,
+"gate_calls": {
+"room": 0,
+"unid": 0
+}
+},
+{
+"tuple": [
+"guest",
+10,
+0,
+"low",
+400,
+false,
+false,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "none",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"away",
+10,
+0,
+"high",
+100,
+false,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "arriving",
+"final": "arriving",
+"guest_reason": "none",
+"confidence": 0.85,
+"gate_calls": {
+"room": 0,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_evening",
+null,
+2,
+"high",
+null,
+true,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"guest",
+null,
+2,
+"high",
+100,
+false,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "none",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_day",
+45,
+2,
+"high",
+400,
+true,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"guest",
+45,
+2,
+"high",
+null,
+false,
+false,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "none",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_evening",
+10,
+0,
+"low",
+null,
+false,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "sleep",
+"final": "home_evening",
+"guest_reason": "none",
+"confidence": 0.7,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"home_night",
+10,
+0,
+"low",
+100,
+false,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "home_night",
+"guest_reason": "none",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"sleep",
+45,
+2,
+"high",
+100,
+false,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "waking",
+"final": "waking",
+"guest_reason": "none",
+"confidence": 0.8,
+"gate_calls": {
+"room": 0,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_day",
+10,
+2,
+"low",
+400,
+false,
+false,
+23
+],
+"guest_armed": false,
+"proposal": "sleep",
+"final": "home_day",
+"guest_reason": "none",
+"confidence": 0.7,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"home_day",
+10,
+0,
+"low",
+400,
+true,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_evening",
+null,
+0,
+"low",
+100,
+false,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "home_evening",
+"guest_reason": "none",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"sleep",
+10,
+0,
+"low",
+null,
+true,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"sleep",
+45,
+2,
+"low",
+100,
+true,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_evening",
+45,
+0,
+"low",
+null,
+true,
+false,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_day",
+10,
+0,
+"high",
+null,
+false,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "sleep",
+"final": "home_day",
+"guest_reason": "none",
+"confidence": 0.7,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"home_night",
+45,
+0,
+"high",
+null,
+true,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_evening",
+45,
+0,
+"high",
+400,
+true,
+false,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_evening",
+45,
+0,
+"low",
+400,
+true,
+true,
+23
+],
+"guest_armed": true,
+"proposal": "sleep",
+"final": "guest",
+"guest_reason": "guest_room:Guest Bedroom 1",
+"confidence": 0.7,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"away",
+45,
+2,
+"low",
+null,
+false,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "arriving",
+"final": "arriving",
+"guest_reason": "none",
+"confidence": 0.85,
+"gate_calls": {
+"room": 0,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_night",
+null,
+0,
+"high",
+400,
+true,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"guest",
+45,
+2,
+"low",
+400,
+false,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "none",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"sleep",
+10,
+0,
+"low",
+100,
+true,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_evening",
+null,
+0,
+"low",
+400,
+true,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"sleep",
+10,
+2,
+"high",
+400,
+true,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"guest",
+10,
+2,
+"high",
+400,
+false,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "none",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"sleep",
+45,
+2,
+"low",
+100,
+false,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "waking",
+"final": "waking",
+"guest_reason": "none",
+"confidence": 0.8,
+"gate_calls": {
+"room": 0,
+"unid": 0
+}
+},
+{
+"tuple": [
+"sleep",
+10,
+0,
+"high",
+null,
+true,
+false,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"sleep",
+45,
+2,
+"high",
+null,
+false,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "waking",
+"final": "waking",
+"guest_reason": "none",
+"confidence": 0.8,
+"gate_calls": {
+"room": 0,
+"unid": 0
+}
+},
+{
+"tuple": [
+"guest",
+null,
+2,
+"low",
+100,
+false,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "none",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"away",
+null,
+2,
+"low",
+100,
+true,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_night",
+45,
+0,
+"high",
+100,
+true,
+true,
+14
+],
+"guest_armed": true,
+"proposal": null,
+"final": "guest",
+"guest_reason": "guest_room:Guest Bedroom 1",
+"confidence": 0.0,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"away",
+10,
+0,
+"low",
+400,
+false,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "arriving",
+"final": "arriving",
+"guest_reason": "none",
+"confidence": 0.85,
+"gate_calls": {
+"room": 0,
+"unid": 0
+}
+},
+{
+"tuple": [
+"sleep",
+45,
+0,
+"high",
+400,
+false,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "waking",
+"final": "waking",
+"guest_reason": "none",
+"confidence": 0.8,
+"gate_calls": {
+"room": 0,
+"unid": 0
+}
+},
+{
+"tuple": [
+"guest",
+10,
+0,
+"high",
+400,
+true,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"away",
+10,
+2,
+"high",
+100,
+true,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_day",
+null,
+2,
+"low",
+null,
+true,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"guest",
+10,
+2,
+"low",
+400,
+true,
+false,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_evening",
+null,
+2,
+"high",
+400,
+false,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "sleep",
+"final": "home_evening",
+"guest_reason": "unidentified_corroborator_only",
+"confidence": 0.7,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"home_day",
+45,
+0,
+"low",
+400,
+true,
+true,
+14
+],
+"guest_armed": true,
+"proposal": null,
+"final": "guest",
+"guest_reason": "guest_room:Guest Bedroom 1",
+"confidence": 0.0,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_evening",
+45,
+0,
+"high",
+null,
+true,
+true,
+14
+],
+"guest_armed": true,
+"proposal": null,
+"final": "guest",
+"guest_reason": "guest_room:Guest Bedroom 1",
+"confidence": 0.0,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_day",
+null,
+0,
+"low",
+null,
+false,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "sleep",
+"final": "home_day",
+"guest_reason": "none",
+"confidence": 0.7,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"away",
+45,
+2,
+"high",
+100,
+true,
+true,
+23
+],
+"guest_armed": true,
+"proposal": "sleep",
+"final": "guest",
+"guest_reason": "guest_room:Guest Bedroom 1",
+"confidence": 0.7,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_day",
+null,
+2,
+"high",
+400,
+true,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_evening",
+10,
+0,
+"low",
+400,
+true,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_day",
+10,
+2,
+"low",
+null,
+false,
+true,
+14
+],
+"guest_armed": false,
+"proposal": null,
+"final": "home_day",
+"guest_reason": "none",
+"confidence": 0.0,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"home_day",
+45,
+0,
+"high",
+400,
+true,
+false,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_day",
+10,
+0,
+"low",
+null,
+true,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_night",
+45,
+2,
+"low",
+100,
+false,
+true,
+23
+],
+"guest_armed": true,
+"proposal": "sleep",
+"final": "sleep",
+"guest_reason": "guest_room:Guest Bedroom 1",
+"confidence": 0.7,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"home_day",
+45,
+2,
+"high",
+null,
+false,
+true,
+23
+],
+"guest_armed": true,
+"proposal": "sleep",
+"final": "home_day",
+"guest_reason": "guest_room:Guest Bedroom 1",
+"confidence": 0.7,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"home_day",
+10,
+0,
+"high",
+400,
+false,
+false,
+23
+],
+"guest_armed": false,
+"proposal": "sleep",
+"final": "home_day",
+"guest_reason": "none",
+"confidence": 0.7,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"guest",
+null,
+0,
+"low",
+400,
+true,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_day",
+45,
+0,
+"high",
+100,
+false,
+true,
+23
+],
+"guest_armed": true,
+"proposal": "sleep",
+"final": "home_day",
+"guest_reason": "guest_room:Guest Bedroom 1",
+"confidence": 0.7,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"sleep",
+45,
+2,
+"high",
+400,
+true,
+true,
+14
+],
+"guest_armed": true,
+"proposal": null,
+"final": "guest",
+"guest_reason": "guest_room:Guest Bedroom 1",
+"confidence": 0.0,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_evening",
+10,
+0,
+"low",
+100,
+true,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_day",
+null,
+0,
+"low",
+100,
+true,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_night",
+null,
+0,
+"high",
+100,
+false,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "sleep",
+"final": "sleep",
+"guest_reason": "none",
+"confidence": 0.7,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"away",
+45,
+0,
+"low",
+null,
+true,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"away",
+10,
+2,
+"high",
+null,
+false,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "arriving",
+"final": "arriving",
+"guest_reason": "none",
+"confidence": 0.85,
+"gate_calls": {
+"room": 0,
+"unid": 0
+}
+},
+{
+"tuple": [
+"sleep",
+45,
+0,
+"high",
+400,
+true,
+false,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"guest",
+10,
+0,
+"high",
+null,
+false,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "none",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_night",
+45,
+2,
+"high",
+100,
+false,
+true,
+23
+],
+"guest_armed": true,
+"proposal": "sleep",
+"final": "sleep",
+"guest_reason": "guest_room:Guest Bedroom 1",
+"confidence": 0.7,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"home_night",
+10,
+2,
+"low",
+400,
+false,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "home_night",
+"guest_reason": "none",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"sleep",
+45,
+0,
+"high",
+null,
+true,
+true,
+14
+],
+"guest_armed": true,
+"proposal": null,
+"final": "guest",
+"guest_reason": "guest_room:Guest Bedroom 1",
+"confidence": 0.0,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"sleep",
+null,
+2,
+"high",
+100,
+false,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "waking",
+"final": "waking",
+"guest_reason": "none",
+"confidence": 0.8,
+"gate_calls": {
+"room": 0,
+"unid": 0
+}
+},
+{
+"tuple": [
+"guest",
+null,
+0,
+"low",
+100,
+false,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "none",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"sleep",
+10,
+2,
+"high",
+400,
+true,
+false,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_evening",
+10,
+2,
+"low",
+null,
+true,
+false,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"away",
+10,
+0,
+"high",
+null,
+false,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "arriving",
+"final": "arriving",
+"guest_reason": "none",
+"confidence": 0.85,
+"gate_calls": {
+"room": 0,
+"unid": 0
+}
+},
+{
+"tuple": [
+"sleep",
+10,
+0,
+"low",
+100,
+true,
+false,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_evening",
+45,
+0,
+"high",
+100,
+false,
+false,
+23
+],
+"guest_armed": false,
+"proposal": "sleep",
+"final": "home_evening",
+"guest_reason": "none",
+"confidence": 0.7,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"home_evening",
+45,
+2,
+"low",
+400,
+false,
+false,
+23
+],
+"guest_armed": false,
+"proposal": "sleep",
+"final": "home_evening",
+"guest_reason": "none",
+"confidence": 0.7,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"guest",
+10,
+2,
+"low",
+400,
+false,
+false,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "none",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_evening",
+10,
+0,
+"high",
+100,
+true,
+false,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"sleep",
+null,
+2,
+"high",
+400,
+false,
+true,
+23
+],
+"guest_armed": false,
+"proposal": null,
+"final": "sleep",
+"guest_reason": "none",
+"confidence": 0.0,
+"gate_calls": {
+"room": 0,
+"unid": 0
+}
+},
+{
+"tuple": [
+"guest",
+null,
+0,
+"high",
+100,
+false,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "none",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_evening",
+null,
+0,
+"high",
+400,
+true,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"away",
+10,
+2,
+"high",
+null,
+true,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_night",
+10,
+0,
+"low",
+100,
+false,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "home_night",
+"guest_reason": "none",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"home_day",
+null,
+2,
+"high",
+null,
+true,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_day",
+null,
+2,
+"low",
+400,
+true,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"guest",
+45,
+0,
+"high",
+400,
+false,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "none",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"sleep",
+45,
+2,
+"low",
+100,
+false,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "waking",
+"final": "waking",
+"guest_reason": "none",
+"confidence": 0.8,
+"gate_calls": {
+"room": 0,
+"unid": 0
+}
+},
+{
+"tuple": [
+"sleep",
+45,
+0,
+"low",
+400,
+true,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"away",
+null,
+2,
+"high",
+100,
+true,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"away",
+null,
+2,
+"low",
+null,
+true,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"away",
+45,
+0,
+"low",
+400,
+false,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "arriving",
+"final": "arriving",
+"guest_reason": "none",
+"confidence": 0.85,
+"gate_calls": {
+"room": 0,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_night",
+10,
+2,
+"high",
+null,
+true,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_night",
+null,
+0,
+"low",
+100,
+true,
+false,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_night",
+null,
+0,
+"low",
+null,
+true,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_night",
+10,
+2,
+"high",
+100,
+true,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_evening",
+10,
+0,
+"high",
+100,
+false,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "sleep",
+"final": "home_evening",
+"guest_reason": "none",
+"confidence": 0.7,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"sleep",
+10,
+2,
+"high",
+null,
+true,
+false,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"away",
+45,
+2,
+"high",
+400,
+false,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "arriving",
+"final": "arriving",
+"guest_reason": "none",
+"confidence": 0.85,
+"gate_calls": {
+"room": 0,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_night",
+10,
+2,
+"high",
+400,
+true,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"guest",
+null,
+2,
+"high",
+null,
+false,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "none",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"away",
+null,
+2,
+"low",
+null,
+false,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "arriving",
+"final": "arriving",
+"guest_reason": "none",
+"confidence": 0.85,
+"gate_calls": {
+"room": 0,
+"unid": 0
+}
+},
+{
+"tuple": [
+"away",
+null,
+2,
+"high",
+null,
+true,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_night",
+45,
+2,
+"high",
+null,
+false,
+false,
+23
+],
+"guest_armed": false,
+"proposal": "sleep",
+"final": "sleep",
+"guest_reason": "none",
+"confidence": 0.7,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"home_day",
+10,
+2,
+"high",
+null,
+false,
+false,
+14
+],
+"guest_armed": false,
+"proposal": null,
+"final": "home_day",
+"guest_reason": "none",
+"confidence": 0.0,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"home_evening",
+45,
+0,
+"low",
+100,
+false,
+true,
+14
+],
+"guest_armed": true,
+"proposal": "guest",
+"final": "guest",
+"guest_reason": "guest_room:Guest Bedroom 1",
+"confidence": 0.9,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"home_night",
+10,
+2,
+"low",
+100,
+false,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "home_night",
+"guest_reason": "none",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"guest",
+null,
+0,
+"low",
+null,
+true,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_night",
+45,
+2,
+"high",
+400,
+true,
+true,
+14
+],
+"guest_armed": true,
+"proposal": null,
+"final": "guest",
+"guest_reason": "guest_room:Guest Bedroom 1",
+"confidence": 0.0,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"guest",
+10,
+2,
+"low",
+100,
+false,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "none",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_day",
+10,
+0,
+"low",
+100,
+true,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_night",
+45,
+2,
+"low",
+100,
+true,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"guest",
+10,
+0,
+"low",
+100,
+false,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "none",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_night",
+null,
+0,
+"high",
+null,
+true,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_evening",
+10,
+2,
+"high",
+null,
+false,
+false,
+23
+],
+"guest_armed": false,
+"proposal": "sleep",
+"final": "home_evening",
+"guest_reason": "none",
+"confidence": 0.7,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"home_day",
+null,
+0,
+"high",
+100,
+true,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"guest",
+null,
+0,
+"low",
+null,
+true,
+false,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_day",
+10,
+0,
+"high",
+400,
+true,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"guest",
+45,
+2,
+"high",
+null,
+true,
+true,
+23
+],
+"guest_armed": true,
+"proposal": "sleep",
+"final": "guest",
+"guest_reason": "guest_room:Guest Bedroom 1",
+"confidence": 0.7,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_night",
+10,
+0,
+"high",
+100,
+true,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_night",
+45,
+0,
+"high",
+null,
+true,
+false,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"away",
+10,
+2,
+"high",
+null,
+true,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"guest",
+45,
+0,
+"high",
+null,
+false,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "none",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"away",
+45,
+0,
+"low",
+400,
+false,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "arriving",
+"final": "arriving",
+"guest_reason": "none",
+"confidence": 0.85,
+"gate_calls": {
+"room": 0,
+"unid": 0
+}
+},
+{
+"tuple": [
+"sleep",
+null,
+0,
+"low",
+400,
+false,
+false,
+23
+],
+"guest_armed": false,
+"proposal": null,
+"final": "sleep",
+"guest_reason": "none",
+"confidence": 0.0,
+"gate_calls": {
+"room": 0,
+"unid": 0
+}
+},
+{
+"tuple": [
+"away",
+10,
+2,
+"high",
+400,
+false,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "arriving",
+"final": "arriving",
+"guest_reason": "none",
+"confidence": 0.85,
+"gate_calls": {
+"room": 0,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_evening",
+null,
+2,
+"low",
+null,
+false,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "home_evening",
+"guest_reason": "none",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"home_night",
+45,
+0,
+"high",
+null,
+false,
+true,
+14
+],
+"guest_armed": true,
+"proposal": "guest",
+"final": "guest",
+"guest_reason": "guest_room:Guest Bedroom 1",
+"confidence": 0.9,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"guest",
+null,
+0,
+"low",
+400,
+true,
+false,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"guest",
+45,
+2,
+"high",
+100,
+false,
+false,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "none",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_night",
+10,
+0,
+"high",
+400,
+true,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_night",
+null,
+2,
+"high",
+null,
+false,
+false,
+23
+],
+"guest_armed": false,
+"proposal": "sleep",
+"final": "sleep",
+"guest_reason": "none",
+"confidence": 0.7,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"home_night",
+10,
+2,
+"high",
+100,
+true,
+false,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"away",
+10,
+2,
+"low",
+null,
+false,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "arriving",
+"final": "arriving",
+"guest_reason": "none",
+"confidence": 0.85,
+"gate_calls": {
+"room": 0,
+"unid": 0
+}
+},
+{
+"tuple": [
+"sleep",
+45,
+2,
+"low",
+null,
+true,
+false,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"guest",
+10,
+2,
+"low",
+100,
+true,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_evening",
+45,
+0,
+"low",
+null,
+true,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"sleep",
+null,
+0,
+"high",
+100,
+true,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_evening",
+10,
+2,
+"high",
+null,
+false,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "home_evening",
+"guest_reason": "none",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"guest",
+10,
+2,
+"high",
+100,
+true,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"guest",
+45,
+2,
+"low",
+400,
+true,
+false,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"away",
+45,
+0,
+"low",
+100,
+false,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "arriving",
+"final": "arriving",
+"guest_reason": "none",
+"confidence": 0.85,
+"gate_calls": {
+"room": 0,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_evening",
+45,
+0,
+"low",
+400,
+false,
+true,
+14
+],
+"guest_armed": true,
+"proposal": "guest",
+"final": "guest",
+"guest_reason": "guest_room:Guest Bedroom 1",
+"confidence": 0.9,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"sleep",
+10,
+0,
+"high",
+400,
+false,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "waking",
+"final": "waking",
+"guest_reason": "none",
+"confidence": 0.8,
+"gate_calls": {
+"room": 0,
+"unid": 0
+}
+},
+{
+"tuple": [
+"away",
+null,
+2,
+"high",
+400,
+true,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_evening",
+45,
+0,
+"high",
+null,
+true,
+false,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_evening",
+10,
+2,
+"high",
+null,
+true,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"sleep",
+null,
+0,
+"high",
+400,
+true,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"away",
+10,
+0,
+"low",
+null,
+true,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"guest",
+10,
+2,
+"high",
+100,
+false,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "none",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_night",
+45,
+0,
+"high",
+null,
+true,
+true,
+14
+],
+"guest_armed": true,
+"proposal": null,
+"final": "guest",
+"guest_reason": "guest_room:Guest Bedroom 1",
+"confidence": 0.0,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"guest",
+45,
+2,
+"high",
+null,
+false,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "none",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"guest",
+null,
+2,
+"low",
+null,
+false,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "none",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_day",
+null,
+2,
+"low",
+null,
+false,
+false,
+23
+],
+"guest_armed": false,
+"proposal": "sleep",
+"final": "home_day",
+"guest_reason": "none",
+"confidence": 0.7,
+"gate_calls": {
+"room": 1,
+"unid": 1
+}
+},
+{
+"tuple": [
+"away",
+10,
+2,
+"high",
+400,
+false,
+true,
+14
+],
+"guest_armed": false,
+"proposal": "arriving",
+"final": "arriving",
+"guest_reason": "none",
+"confidence": 0.85,
+"gate_calls": {
+"room": 0,
+"unid": 0
+}
+},
+{
+"tuple": [
+"home_night",
+null,
+2,
+"high",
+null,
+true,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "home_day",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"sleep",
+45,
+2,
+"high",
+100,
+false,
+false,
+14
+],
+"guest_armed": false,
+"proposal": "waking",
+"final": "waking",
+"guest_reason": "none",
+"confidence": 0.8,
+"gate_calls": {
+"room": 0,
+"unid": 0
+}
+},
+{
+"tuple": [
+"away",
+10,
+2,
+"low",
+100,
+true,
+true,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"guest",
+10,
+2,
+"low",
+null,
+true,
+false,
+23
+],
+"guest_armed": false,
+"proposal": "home_night",
+"final": "guest",
+"guest_reason": "override",
+"confidence": 0.75,
+"gate_calls": {
+"room": 1,
+"unid": 0
+}
+},
+{
+"tuple": [
+"sleep",
+10,
+0,
+"high",
+400,
+false,
+false,
+23
+],
+"guest_armed": false,
+"proposal": null,
+"final": "sleep",
+"guest_reason": "none",
+"confidence": 0.0,
+"gate_calls": {
+"room": 0,
+"unid": 0
+}
+}
+]
+}

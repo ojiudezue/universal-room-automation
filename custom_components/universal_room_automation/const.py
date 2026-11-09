@@ -494,6 +494,80 @@ GUEST_BOOT_SEED_MIN_RESIDUAL_S: Final = 300
 # Kill-switch: 0 disables the latch (returns to raw live read).
 GUEST_KNOWN_STICKY_S: Final = 120
 
+# GUEST-MODE-SPLIT-VISITORS-1 (plan PLANNING_guest_mode_split_2026_11.md
+# rev 4 §7). All rung 1 (reviewed code change): they decide house-state
+# entry. Read as `const.X` at call time, never imported by name.
+#
+# Kill switch: False = today's 30-min guest-room gate enters GUEST
+# (byte-identical: guest_armed, guest_reason, confidence, infer result);
+# no DB walk is scheduled.
+GUEST_NIGHT_STAY_RULE_ENABLED: Final = True
+# Night qualifies iff a guest room was occupied by non-resident time for at
+# least this share of the house sleep window. Fitted to the replay plateau
+# 0.20-0.30 (plan §5.3). 0 = any non-resident occupied time qualifies
+# (resident time is subtracted first, review A-L2); > 1 = never.
+GUEST_NIGHT_MIN_FRACTION: Final = 0.25
+# Rev 5 (operator 2026-11-09, "sustained occupancy during the day and an
+# overnight should suffice"): the latch turns on at an ENTRY-QUALIFIED night
+# (night >= GUEST_NIGHT_MIN_FRACTION AND the same room's day window >=
+# GUEST_STAY_DAY_MIN_FRACTION) with at least ENTRY night-qualifying nights
+# among the last LOOKBACK; off after min(GUEST_STAY_EXIT_MAX_NIGHTS, n)
+# straight non-qualifying nights, n = qualifying nights in the stay so far
+# (rev 6 + operator cap; LOOKBACK when GUEST_STAY_EXIT_SCALES_WITH_STAY is
+# False).
+# ENTRY is the second-night GUARD: 1 = the entry-qualified night alone
+# suffices; 2 removes every single-night entry in the replay at a cost of two
+# stay days (plan §5.4, §7). ENTRY is clamped to 1..LOOKBACK, LOOKBACK >= 1.
+GUEST_STAY_ENTRY_NIGHTS: Final = 1
+GUEST_STAY_LOOKBACK_NIGHTS: Final = 3
+# Rev 6: the exit length scales with the stay: min(GUEST_STAY_EXIT_MAX_NIGHTS,
+# n) straight empty nights end it, n = qualifying nights since the stay
+# started (counted from the entry night's lookback count). One-night visits
+# are held 1 day instead of 3. A house-state policy fitted on
+# one stay, so a reviewed change. False = rev 5 fixed exit (LOOKBACK straight
+# misses), byte-identical.
+GUEST_STAY_EXIT_SCALES_WITH_STAY: Final = True
+# Operator ruling 2026-11-09: a stay ends after at most this many straight
+# empty nights (the scaled exit is min(this, n)). Replay at 2: the October
+# stay ends after the empty nights 10-13/10-14 (active 09-28..10-14, 17 of 21
+# days; was 20 at 3). Separate from LOOKBACK,
+# which still sets the entry count window. Clamped >= 1. Only used when
+# GUEST_STAY_EXIT_SCALES_WITH_STAY is True (False = rev 5, LOOKBACK misses).
+GUEST_STAY_EXIT_MAX_NIGHTS: Final = 2
+# Re-entry grace (operator 2026-11-09): for this many days after a stay ENDS
+# BY EMPTY NIGHTS (not by the Guest Left button), ONE qualifying night alone,
+# in any guest room, re-enters GUEST (no day test): a guest away overnight who
+# sleeps in the room again is the same stay. Counted from the night that
+# ended the stay. 0 = off. Ignored when GUEST_STAY_EXIT_SCALES_WITH_STAY is
+# False (that path stays rev 5 exactly).
+GUEST_STAY_REENTRY_GRACE_DAYS: Final = 7
+# Day test (rev 5). Fitted: replay plateau 0.03-0.20 at day start 10; above
+# 0.21 the October stay is never entered (recall cliff). 0 = day test off;
+# > 1 = never enters (exit unaffected).
+GUEST_STAY_DAY_MIN_FRACTION: Final = 0.10
+# Day window start, local hour (clamped 0..23); the window ends at the house
+# sleep_start_hour. If it leaves < 1 h before the night window, the day
+# window is the 1 h before the night (no empty window).
+GUEST_STAY_DAY_START_HOUR: Final = 10
+# True = the day must precede the night. False = the day after the night also
+# counts (judged at the walk after the next night; widens entry, never exit).
+GUEST_STAY_DAY_BEFORE_NIGHT: Final = True
+# A failed stay walk (DB error) is retried after this many seconds instead of
+# waiting for the next morning (build reviews A-M1 / B-M2). Fixed backoff;
+# the WARNING is still logged once per local day.
+GUEST_STAY_ERROR_RETRY_S: Final = 900
+# How many nights back the deterministic DB walk starts. Clamped at read to
+# >= GUEST_STAY_LONG_NM_DAYS + GUEST_STAY_LOOKBACK_NIGHTS (else the stay's
+# `since` is re-dated inside the walk every morning and the D4 trip-wire can
+# never fire; plan review R16), and >= LOOKBACK.
+GUEST_STAY_REPLAY_NIGHTS: Final = 35
+# D4 trip-wire: one HIGH stuck-signal NM when the stay latch has been on for
+# more than this many days (the one real stay was 21). 0 = off.
+GUEST_STAY_LONG_NM_DAYS: Final = 28
+# visitors_present camera leg (Path A). D0 measured it noisy (plan §3.1).
+# False = legs.cam always False.
+VISITORS_CAM_LEG_ENABLED: Final = True
+
 # Room types
 ROOM_TYPE_BEDROOM: Final = "bedroom"
 ROOM_TYPE_CLOSET: Final = "closet"
@@ -2665,6 +2739,13 @@ NM_ROUTE_REASON_ENRICHMENT_FAILED_FALL_THROUGH: Final[str] = (
 # GUEST default extracted so a follow-up cycle can flip it without churning
 # the full mapping table (plan D2).
 NM_HAZARD_EXTERIOR_PERSON_GUEST_SEVERITY: Final = "MEDIUM"
+# GUEST-MODE-SPLIT review E-M2 (operator approved 2026-11-09): GUEST now lasts
+# the whole daytime of a multi-week stay, so two GUEST cases keep the HIGH
+# they get in HOME_DAY instead of the GUEST MEDIUM (which the live NM routing
+# delivers nowhere): a perimeter "circling" track, and a person at an egress
+# (door) camera when no resident is home. Rung 1 (alert policy; reviewed
+# change). False = every GUEST case MEDIUM (pre-change).
+NM_HAZARD_EXTERIOR_PERSON_GUEST_KEEP_HIGH: Final = True
 
 # House-state (HouseState StrEnum values are lowercase, e.g. "away") →
 # Severity name. Fallback (unknown / missing / None) is CRITICAL (fail-safe
@@ -2759,6 +2840,11 @@ def NM_HAZARD_EXTERIOR_PERSON_CONTEXTUAL_SEVERITY(  # noqa: N802 (const-like)
         return "MEDIUM"
 
     if hs == "guest":
+        if NM_HAZARD_EXTERIOR_PERSON_GUEST_KEEP_HIGH:
+            if cc == "perimeter" and tc == "circling":
+                return "HIGH"
+            if cc == "egress" and ph == 0:
+                return "HIGH"
         return NM_HAZARD_EXTERIOR_PERSON_GUEST_SEVERITY
 
     # case _:  — fail-safe (unknown / missing / None / future value)

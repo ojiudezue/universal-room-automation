@@ -314,6 +314,22 @@ def test_severity_maps_by_house_state(house_state, expected):
     assert kwargs["coordinator_id"] == "perimeter_alert"
 
 
+@pytest.mark.parametrize("cc,tc,ph,expected", [
+    ("perimeter", "circling", 1, Severity.HIGH),
+    ("egress", "first_sighting", 0, Severity.HIGH),
+    ("egress", "first_sighting", 1, Severity.MEDIUM),
+    ("perimeter", "approach", 0, Severity.MEDIUM),
+])
+def test_guest_keep_high_through_consumer(cc, tc, ph, expected):
+    """GUEST-MODE-SPLIT review E-M2: the perimeter manager's severity path
+    (persons_home read from the presence coordinator) gives HIGH in GUEST for
+    circling and for a door person with no resident home."""
+    hass, _nm = _make_hass(house_state="guest", persons_home=ph)
+    mgr = _run(_setup_mgr(hass))
+    assert mgr._severity_for_current_house_state(
+        camera_class=cc, track_class=tc) == expected
+
+
 def test_perimeter_cooldown_bounds_phone_rate():
     hass, nm = _make_hass(house_state="away")
     mgr = _run(_setup_mgr(hass))

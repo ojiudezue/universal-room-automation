@@ -303,6 +303,7 @@ class TestD5DiscoverGuestRooms:
         pc._guest_room_unsubs = {}
         pc._guest_room_entity_to_name = {}
         pc._guest_room_known_last_true = {}
+        pc._guest_room_entry_ids = {}  # GUEST-MODE-SPLIT D2 (S12)
         pc._guest_detection_enabled = True
         pc._is_known_person_in_room = lambda rn: False  # type: ignore[assignment]
 
@@ -477,30 +478,28 @@ class TestD5RunInferenceOr:
             "_run_inference must call _guest_room_gate_armed for the D5 path"
         )
 
-    def test_additive_or_present(self, presence_src):
-        idx = presence_src.find("async def _run_inference(")
-        # Window widened from 5000 → 7000 in v4.7.14 (away-veto block added
-        # ~700 chars at the top of _run_inference, pushing the D5 confidence
-        # block past the original 5000-char horizon).
-        body = _method_body(presence_src, idx)
-        # GUEST-CENSUS D2 (2026-08-16): the additive OR was inverted —
-        # guest rooms LEAD (Path B), census (Path A) is a corroborator
-        # only (raises confidence 0.9 → 0.95). The composition line is now
-        # ``guest_armed = guest_room_gate_armed``. The intent this test
-        # historically asserted (guest_room_gate_armed is factored into
-        # ``guest_armed``) is preserved by that line. See
-        # docs/planning/PLANNING_guest_census_correctness.md §D2.
-        assert "guest_armed = guest_room_gate_armed" in body, (
-            "D2: guest_armed must be set from guest_room_gate_armed "
-            "(Path B leads, Path A corroborates)"
-        )
-        # Review C-LOW-1 (2026-08-16): explicit negative for symmetry with
-        # the sibling TestD5ExitConditionGuard rewrite. The pre-D2 OR
-        # composition (``unid_gate_armed or ...``) MUST NOT resurface.
-        assert "unid_gate_armed or" not in body, (
-            "D2: the pre-cycle ``unid_gate_armed or guest_room_gate_armed`` "
-            "composition must not be reintroduced (Path A is corroborator only)"
-        )
+    def test_additive_or_present(self):
+        """GUEST-CENSUS D2 (2026-08-16) inverted the additive OR: guest rooms
+        LEAD (Path B), census (Path A) corroborates only. Behavioural since
+        GUEST-MODE-SPLIT-VISITORS-1 (was a source grep), driving the REAL
+        _run_inference: with the night-stay rule OFF the room gate arms
+        GUEST, room + Path A arms it at confidence 0.95, Path A alone never
+        does; with the rule ON neither gate arms it (the stay latch does)."""
+        import guest_split_harness as H
+
+        path_a = (2, "high", 400)
+        final, armed = H.drive_once(state=H.HS.HOME_DAY, rule_on=False,
+                                    room_min=45, unid=path_a)
+        assert final == H.HS.GUEST and armed == [True]
+        final, armed = H.drive_once(state=H.HS.HOME_DAY, rule_on=False,
+                                    unid=path_a)
+        assert final == H.HS.HOME_DAY and armed == [False]
+        final, armed = H.drive_once(state=H.HS.HOME_DAY, rule_on=True,
+                                    room_min=45, unid=path_a)
+        assert final == H.HS.HOME_DAY and armed == [False]
+        final, armed = H.drive_once(state=H.HS.HOME_DAY, rule_on=True,
+                                    stay=True)
+        assert final == H.HS.GUEST and armed == [True]
 
     def test_confidence_09_for_guest_room_path(self, presence_src):
         idx = presence_src.find("async def _run_inference(")
@@ -675,19 +674,26 @@ class TestB1GuestRoomGateInGuestState:
             "— the unid gate is side-effect-bearing and must not run in GUEST state"
         )
 
-    def test_guest_armed_is_guest_room_gate_in_guest_branch(self, presence_src):
-        """B1 fix: guest_armed must derive from guest_room_gate_armed in GUEST branch."""
-        idx = presence_src.find("async def _run_inference(")
-        body = _method_body(presence_src, idx)
-        guest_idx = body.find("elif current_state == HouseState.GUEST")
-        assert guest_idx > 0
-        else_idx = body.find("else:", guest_idx)
-        guest_branch = body[guest_idx:else_idx] if else_idx > 0 else body[guest_idx:guest_idx + 800]
-        # guest_armed must be set from guest_room_gate_armed in this branch
-        assert "guest_armed = guest_room_gate_armed" in guest_branch, (
-            "B1 fix: in the GUEST state branch, guest_armed must equal "
-            "guest_room_gate_armed so the exit condition at infer() is truthful"
-        )
+    def test_guest_armed_is_guest_room_gate_in_guest_branch(self):
+        """B1 fix: in the GUEST branch the hold input is evaluated every tick
+        so the infer() exit is truthful (no GUEST->HOME oscillation while
+        armed). Behavioural since GUEST-MODE-SPLIT-VISITORS-1 (was a source
+        grep): rule OFF -> the room gate holds GUEST and its absence exits;
+        rule ON -> the stay latch holds by day and yields at a sleep hour."""
+        import guest_split_harness as H
+
+        final, armed = H.drive_once(state=H.HS.GUEST, rule_on=False,
+                                    room_min=45, advance_s=600)
+        assert final == H.HS.GUEST and armed == [True, True]
+        final, armed = H.drive_once(state=H.HS.GUEST, rule_on=False,
+                                    advance_s=300)
+        assert final == H.HS.HOME_DAY
+        final, armed = H.drive_once(state=H.HS.GUEST, rule_on=True, stay=True,
+                                    advance_s=600)
+        assert final == H.HS.GUEST and armed == [True, True]
+        final, armed = H.drive_once(state=H.HS.GUEST, rule_on=True, stay=True,
+                                    hour=23, advance_s=300)
+        assert final == H.HS.HOME_NIGHT and armed == [False, False]
 
     def test_b1_comment_references_bug_class_46(self, presence_src):
         """B1 fix: the code comment must reference Bug Class #46."""

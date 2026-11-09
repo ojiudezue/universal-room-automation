@@ -3897,12 +3897,15 @@ class _PresenceKillSwitchBase(SwitchEntity, RestoreEntity):
 
 
 class PresenceGuestDetectionEnabledSwitch(_PresenceKillSwitchBase):
-    """Kill switch for guest detection (Paths A + B). Default ON.
+    """Kill switch for guest detection. Default ON.
 
-    Load-bearing: gates ``_guest_gate_armed`` (Path A, presence.py) AND
-    ``_guest_room_gate_armed`` (Path B, presence.py). When OFF, both
-    return False early and no HouseState.GUEST transition can fire from
-    presence-driven paths.
+    Load-bearing: gates ``_guest_gate_armed`` (Path A) and
+    ``_guest_room_gate_armed`` (Path B), which now feed only
+    ``visitors_present`` / ``guest_reason``, AND masks the night-stay latch
+    (``_stay = latch and _guest_detection_enabled``) that drives GUEST
+    (GUEST-MODE-SPLIT). When OFF, no GUEST transition can fire from
+    presence-driven paths, the D4 trip-wire is silent, and the stay walk
+    still runs (display), so turning it back on restores a current stay.
     """
 
     _unique_slug = "presence_guest_detection_enabled"

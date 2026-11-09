@@ -271,7 +271,7 @@ function ControlsBar({
             {guestModeOn ? "active" : "off"}
           </span>
         </div>
-        <div className="card-sub">Unknown faces → guest count</div>
+        <div className="card-sub">Guest staying (night + day in a guest room)</div>
       </div>
     </div>
   );
