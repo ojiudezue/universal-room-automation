@@ -161,3 +161,107 @@ Method: for each named state, did a person-count>0 interval (`sensor.<cam>_perso
 **Overall: PASS, so `FACE_SOURCE_INCLUDE_DISAMBIGUATED_PERSON_SENSORS` can default to True** under the plan's own gate text. Judgment call for the operator/planner: the plan's gate says "a passthrough or guest name at a material rate" fails it. I read "guest" as an unknown/unmapped guest because Ojini is a configured known guest and the same S7 subtraction already applies on the 12 bare cameras (review 1 F-5). If a literal reading is wanted, 7.8% on playroom is the number to judge. The sample is 7.6 days.
 
 Limits: 7.6 days of history (not longer); the per-tick S7 flip rate was not computed; membership of upstairs_hall in S7 is inferred from a correlational metric. No state was changed and no file other than this section was edited; not committed.
+
+## 9. F-5 measurement: known-guest face ("Ojini") vs the S7 guest-count subtraction (run 2026-11-08 23:5x CST, read-only)
+
+Probes (run as `ssh ha "python3 -" < script`, SQLite `mode=ro` on `/config/home-assistant_v2.db`), all in `/private/tmp/claude-501/-Users-okosisi-Code-universal-room-automation/75cc297f-1426-4620-b7aa-da058bc0fab0/scratchpad/`: `m3.py` (face hold durations), `m6.py` (episodes), `m9.py` (counterfactual, mislabel, Ojini timeline), `m11.py` (affected ticks), `m10.py` (switch state, 11-03 run). Window: recorder holds 2026-11-01 04:12 CDT to 2026-11-08 23:56 CDT (34,386 `sensor.universal_room_automation_persons_in_house` rows, median gap 22 s, max 130 s). All times America/Chicago (CST/CDT per zoneinfo; the DST change on 11-01 02:00 precedes the window).
+I did not read the HVAC/presence STATE_OF_PLAY docs in full (this is an identity-domain measurement; I read `presence.py:5972-6058` for the guest gate and `camera_census.py:5473-5640, 5960-6100` for the census).
+
+### 9.1 Answer first
+1. **The defect is real in code but the live exposure is small and almost entirely absorbed by existing clamps.** 52 episodes (interior cameras, Ojini face held while person_count > 0) in 7.6 days; only 34 are on cameras where S7 subtracts at all today; modelled effect of the proposed design: the house `unidentified_count` rises on 9 of 70 affected 30 s ticks (4 of 34 episodes), no tick sequence long enough for the 300 s persistence guard, and the house was never in GUEST in the whole window.
+2. **The key timing fact that changes the framing:** Frigate resets the face sensor to `None` 60 s after a recognition (`/config/custom_components/frigate/sensor.py:1099-1112`, per section 3). Measured: Ojini state rows are held 60.0 s in most cases (see `m3.py` output: e.g. master_hallway 11-03 10:35:07 held 60.0). S7 requires `face_state` not in {None,...} (`camera_census.py:5540-5547`) so the "fresh within 1800 s" window (`const.py:4165`, used at `camera_census.py:5563`) is in practice **at most 60 s per recognition**. After the label reverts, S7 already counts every body as unrecognized (`:5573`). The bug therefore only costs the guest up to 60 s at a time, not 30 min.
+3. **Exposure is cut further by which cameras S7 reaches** (see 9.2).
+4. **Mislabel evidence is real but not conclusive** (9.5): 6 of 66 moments match the likely-mislabel pattern, 35 of 52 episodes have no resident phone in that room, and the label appears on all 7 days and all hours 03:00-23:00 including when the household was home. The operator must say whether Ojini visited.
+5. **Recommendation (9.7): implement the resident-only subtraction (it fails in the safe direction), but do NOT promote a known-guest face to a positive "guest present" trust signal on its own; a second signal is needed for that.**
+
+### 9.2 Which interior cameras S7 actually subtracts on (producer check)
+Configured `camera_person_entities` (core.config_entries, URA integration entry): `camera.playroom_high_resolution_channel`, `camera.master_hallway`, `camera.staircase_high_resolution_channel`, `camera.playroom`, `camera.foyer_fisheye`, `camera.family_room`, `camera.family_room_high_resolution_channel`, `camera.foyer_fisheye_high_resolution_channel`, `camera.master_hallway_high_resolution_channel`, `camera.upstairs_hall_high_resolution_channel`, `camera.stairs_top_high_resolution_channel`, `camera.stairs_top_2`. `tracked_persons` = ezinne, oji_udezue, jaya, ziri; `known_face_guests` = `['Ojini']`.
+S7 (`camera_census.py:5473-5640`) skips non-Frigate cameras (`:5517`) and fails closed (counts all bodies, no `-1`) when the person sensor does not end `_person_occupancy` (`:5533`). Registry (`core.entity_registry`, unique_id `occupancy_sensor:<cam>_person`):
+
+| Camera | Frigate person-occupancy entity | Configured Frigate camera | S7 subtracts today |
+|---|---|---|---|
+| family_room | `binary_sensor.family_room_person_occupancy` | `camera.family_room` | YES |
+| master_hallway | `binary_sensor.master_hallway_person_occupancy` | `camera.master_hallway` | YES |
+| foyer_fisheye | `binary_sensor.foyer_fisheye_person_occupancy` | `camera.foyer_fisheye` | YES |
+| stairs_top | `binary_sensor.stairs_top_person_occupancy` | `camera.stairs_top_2` | YES (0 Ojini rows) |
+| playroom | `binary_sensor.playroom_person_occupancy_2` | `camera.playroom` | NO (fails closed, `_2`) |
+| upstairs_hall | `..._person_occupancy_2` | not configured (only the Protect `_high_resolution_channel`) | NO |
+| staircase | `binary_sensor.staircase_person_occupancy` | not configured (only Protect) | NO |
+
+So the F-5 defect is live only on family_room, master_hallway, foyer_fisheye, stairs_top. Playroom becomes affected only if the planned `_2` inclusion flag is switched on (section 8.5). The face sensors for all seven are the `_2` ones: `sensor.<cam>_last_recognized_face_2` (registry join, `m3.py`).
+
+### 9.3 Task 1: episodes per camera and per hour
+Definition (matches S7's actual test, not the loose 1800 s one): a recorded `Ojini` state on `sensor.<cam>_last_recognized_face_2`, from its row until the next row (cap 1800 s), intersected with `sensor.<cam>_person_count` > 0. Loose variant (1800 s from the state row, as in section 8.3) also given.
+
+| Camera | Ojini face rows | Episodes (count>0 during hold) | Loose 1800 s coincidence | S7 subtracts today |
+|---|---|---|---|---|
+| family_room | 31 | 25 | 28 | yes |
+| master_hallway | 13 | 8 | 12 | yes |
+| staircase | 10 | 9 | 10 | no |
+| playroom | 9 | 7 | 9 | no (`_2`) |
+| upstairs_hall | 2 | 2 | 2 | no |
+| foyer_fisheye | 1 | 1 | 1 | yes |
+| stairs_top | 0 | 0 | 0 | yes |
+| **Total** | **66** | **52** (34 on S7-subtracting cameras) | 62 | |
+
+Overlap of count>0 with the hold: 1,881 s in total, median 29 s, max 163 s. Max person_count in the episode: 1 in 33, 2 in 14, 3 in 5.
+Episodes per local start hour (all 7 cameras): 06h 5, 07h 7, 08h 3, 09h 6, 10h 4, 11h 2, 12h 1, 13h 4, 14h 5, 15h 4, 16h 2, 17h 5, 18h 1, 20h 1, 22h 1, 23h 1 (none 00-05 h, 19h, 21h). By camera and hour: family_room 07h 3, 08h 1, 09h 1, 11h 2, 12h 1, 13h 2, 14h 3, 15h 4, 16h 1, 17h 4, 18h 1, 20h 1, 23h 1; master_hallway 07h 1, 08h 1, 09h 1, 10h 3, 17h 1, 22h 1; playroom 06h 1, 07h 1, 09h 1, 13h 1, 14h 2, 16h 1; staircase 06h 3, 07h 2, 08h 1, 09h 2, 10h 1; upstairs_hall 06h 1, 09h 1; foyer_fisheye 13h 1.
+Per day: 11-02 16, 11-03 13, 11-04 4, 11-05 6, 11-06 5, 11-07 6, 11-08 2 (11-01: none).
+
+### 9.4 Task 2: unidentified count now vs under the proposed design
+Producer arithmetic (`camera_census.py`): per-camera raw = `count-1` if a fresh face else `count` (`:5570`); per-area max, minus `min(area_raw_max, ble_here)`, summed (`:5602-5640`); house `unidentified = min(held_unidentified, max(0, camera_total_pre_cancel - identified_count))` (`:6027, :6062-6064`, the INV-CENSUS-ATTRIBUTION clamp). The guest gate then needs `unidentified > 0`, confidence >= `medium` (code default `DEFAULT_GUEST_REQUIRE_CONFIDENCE`, `const.py:4186`), and 300 s of continuous qualifying ticks (`presence.py:5972-6058`; `DEFAULT_GUEST_PERSISTENCE_SECONDS=300`, `const.py:4183`). I read the defaults; I did not read the live knob values for confidence/persistence (not found in the config entry; unknown). `switch.ura_presence_coordinator_guest_detection` = on (core.restore_state).
+
+Counterfactual model (APPROXIMATION, state it): for every `persons_in_house` tick where an S7-subtracting camera has an Ojini face held and count>0, add +1 to `camera_total_pre_cancel` and +1 to `camera_unrecognized` when `count > ble_by_area[<camera area>]`, then `unidentified_new = max(old, min(cu_new, pre_new - identified_count))`. Ignored: hold/decay (can only raise the new value), other cameras in the same area, and the recorded `area_raw_max_pre_cancel` (the attribute is empty in all 34,386 rows, so per-area detail is unobservable). Camera areas from the device registry: family_room=living_room, master_hallway=master_hallway, foyer_fisheye=entry_way, stairs_top=stairs.
+
+Results (S7-subtracting cameras only):
+
+| Measure | Value |
+|---|---|
+| Ticks with Ojini fresh and count>0 | 70 (conf: medium 42, high 28) |
+| Old `unidentified_count` > 0 on those ticks | 1 |
+| New (modelled) `unidentified_count` > 0 | 9 (8 of them old==0), at 11-02 10:22:30/10:22:32 (master_hallway), 11-02 14:32:07/14:32:37, 11-03 15:46:46/15:47:07/15:47:16, 11-03 17:38:18 x2 (family_room) |
+| Episodes whose house count would change | 4 of 34 |
+| Why most are unchanged | on 61 of 70 ticks `camera_total_pre_cancel < identified_count`, so the clamp (`:6062-6064`) gives 0 whatever the guest subtraction does (BLE identifies 2-3 residents; cameras see fewer) |
+| Gate qualifying runs at 300 s persistence, whole window | old 1, new 1 (same run, 11-03 12:51-12:58, unrelated to Ojini). At 120 s: 10 vs 10. At 0 s: 210 vs 211. |
+| Would GUEST have been entered | No: new runs never exceed the old maximum (390 s, same run). |
+
+Actual history: `sensor.universal_room_automation_house_state` values over the window: home_day 9,824, sleep 7,062, home_evening 2,568, away 2,170, home_night 813, arriving 22, waking 16, unavailable 4. **Zero `guest` ticks.** So nothing was missed in these 7.6 days. Caveat on the model: the one old qualifying run (11-03 12:51-12:58; unid 1-3 at confidence medium/high) also did not produce GUEST (house state stayed `home_day`, `m10.py`), so "gate qualifies" is necessary, not sufficient, in the live chain; I did not trace why (not investigated).
+Because the Ojini hold is 60 s and the gate needs 300 s continuous, a single recognition cannot arm the gate; only repeated recognitions with the person_count staying >0 can, and in those cases the later bodies already count in full once the label lapses.
+
+### 9.5 Task 3: mislabel evidence
+Method: at each of the 66 interior Ojini moments, for each of the four residents: `person.*` home? and `sensor.{iphone_oji,ezinne_iphone,iphone_jaya,iphone_ziri}_area` (Bermuda) at t and at t±60/120 s, matched to the camera's Bermuda area name (Game Room, Master Hallway, Living Room, Foyer/Entry Way, Stairs, Garage Hallway, Upstairs Hallway; mapping from the camera device areas). "Extra body" = person_count > number of home residents in that room. "Unknown device" signal: `wifi_guest_floor` is non-zero on most ticks all week (daily median 1-4, `m9.py`), so it does not discriminate; I did not find a better unknown-device feed.
+
+| Finding | Count (of 66 moments) |
+|---|---|
+| count>0 during hold | 52 |
+| a home resident's phone in that room (+-120 s) | 22 |
+| count>0, **no** resident phone in that room | 35 |
+| count>0, resident in room, extra body | 11 |
+| **count>0, resident in room, no extra body ("likely mislabel")** | **6** |
+| of those 6, Oji's phone in room or an `Oji` face on the same camera within +-180 s | 6 |
+| `Oji` face on same camera within +-180 s (any moment) | 19 |
+
+The 6 flagged: family_room 11-02 11:44:57 (Oji+Ezinne in Living Room, `Oji` face 33 s earlier), 11-02 11:47:16, 11-02 17:04:10, 11-03 18:36:29, 11-04 16:03:32 (Oji alone home, Oji in Living Room, `Oji` face 77 s later), foyer_fisheye 11-06 13:27:35 (Oji alone home, Oji in Foyer, no other face). The other 35 count>0 episodes with no resident phone in the room are neither a mislabel proof nor a guest proof (a guest, or a phone-less/BLE-stale resident, e.g. children without phones or a BLE area mismatch such as playroom vs Game Room; I did not verify BLE freshness at those moments). Name pair "Oji" / "Ojini" is a near-identical label pair in one face library, which is a plausible confusion source; I have no embedding-level evidence, so that is an inference.
+Falsifier: if the operator confirms Ojini was a real visitor on the days below, the unaccompanied 35 episodes are plausibly real and only the 6 are suspect.
+
+### 9.6 Task 4: when "Ojini" appeared anywhere (all 29 face sensors)
+87 Ojini state rows in total (interior 66, exterior 21: doorbell_lite 5, garage_a 5, hot_tub 3, front_door_aerial 2, pool_equipment, utilities_ptz, study_a_panel, madrone_g6_entry, g5_bullet, front_side_ptz 1 each). Grouped into clusters (gap > 30 min) = 51 clusters (per-day cluster counts in the table):
+
+| Day (CDT) | Rows | Clusters | First | Last | Residents home at first row |
+|---|---|---|---|---|---|
+| Mon 11-02 | 20 | 11 | 06:22 | 17:41 | oji, ezinne (jaya early) |
+| Tue 11-03 | 25 | 13 | 03:23 (hot_tub, study_a_panel, house in `sleep`) | 23:02 | oji, ezinne (ezinne only at 10:35 and 21:14) |
+| Wed 11-04 | 8 | 7 | 07:30 | 17:20 | oji (+ezinne, jaya early) |
+| Thu 11-05 | 10 | 5 | 06:27 | 17:18 | oji (+jaya early) |
+| Fri 11-06 | 10 | 7 | 07:15 | 23:28 | oji, ezinne, jaya, ziri by night |
+| Sat 11-07 | 9 | 5 | 08:06 | 22:41 | ezinne, jaya, ziri at 08:40 (oji not home then); oji+ezinne at 12:16 |
+| Sun 11-08 | 5 | 3 | 09:20 | 20:12 | jaya, ziri; ezinne 17:35; ezinne+jaya 20:12 |
+
+Notable: 11-04 10:40 doorbell_lite while house state was `away` (oji, ezinne `home` in person.*, see `m9.py`); 11-08 09:20 upstairs_hall with only jaya and ziri home. Nothing on 11-01. The label spans all seven days and mornings through late evening, which is a pattern a daily-resident mislabel fits better than a single visit; only the operator can say. Full cluster list in `m9.out` in the scratchpad.
+
+### 9.7 Recommendation: does the design need a second signal for guests?
+1. **Subtract-only-for-residents is safe to build.** It can only increase `unidentified`; the increase passes through the unchanged BLE cancel, the INV-CENSUS-ATTRIBUTION clamp, the confidence guard and the 300 s persistence guard. Measured downside: the 6 likely-mislabel episodes would add at most a transient +1 for <=60 s; the clamp absorbs it on 61 of 70 ticks, and no 300 s run results.
+2. **Measured upside is also small:** modelled house-count change on 4 of 34 episodes, no GUEST miss in 7.6 days, because the face label lapses after 60 s and the clamp requires cameras to see more bodies than BLE-identified residents. This is a marginal-benefit result: do not promote it above the other face-registry work.
+3. **Second signal: yes, if the known-guest face is ever used as POSITIVE evidence** (to arm the gate faster, to count `identified_guests_count` as a trust input, to relax the persistence/confidence guards). Reasons from the data: (a) the guest label is single-source (one Frigate face library, `Ojini` vs `Oji` near-collision) and 6 of 52 episodes fit a resident mislabel; (b) 35 of 52 episodes have no resident phone in the room, so the face is the only evidence that someone is there, and the only independent signals available are weak (`wifi_guest_floor` is non-zero nearly always, excluded from the formula by design at `camera_census.py:6027`); (c) as with door identity, one modality cannot both identify and corroborate. Cheapest corroborators that already exist: a second recognition of the same label within the hold window on a second camera, an unknown BLE/IRK device in the same Bermuda area, or `person_count` > resident phones in the room. None is implemented for the interior path. The door-identity second signal (section 8/manual) is the pattern to follow.
+4. **Do first:** operator confirms whether Ojini visited on the 11-02 to 11-08 days. If no visit, the label is a face-library problem (re-enroll or remove `Ojini` from the library) rather than a census problem, and the F-5 change has nothing to protect in this house.
+5. **Not measured:** per-tick hold/decay behaviour (the model ignores it), the live guest-confidence/persistence knob values, why the 11-03 12:51 run did not enter GUEST, other cameras in the same area, and any time before 2026-11-01 (recorder retention). No HA state was changed; no repo file other than this section was edited; not committed.
