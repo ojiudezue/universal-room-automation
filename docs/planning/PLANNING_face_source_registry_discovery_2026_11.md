@@ -3,6 +3,11 @@
 Card: `FACE-SOURCE-REGISTRY-DISCOVERY-1` (`docs/planning/kanban.data.yaml:350`). Input audit:
 `docs/planning/AUDIT_face_source_registry_discovery_2026_11.md`. Plan date 2026-11-08. Plan only; nothing built.
 
+**Rev 2 (2026-11-08, plan review 1, `docs/reviews/code-review/face_source_registry_plan_review_1.md`).** D3 now
+ships the skip fix LIVE (default True) behind a pre-build one-shot recorder probe (new D0) instead of shadow plus a
+14-day measurement card; INV-4 (S7 direction) added; D4 engine fallback pinned; D2 counter semantics pinned;
+non-goals list completed (`camera_census.py:626`, `:1134`); FACE-SOURCE-SKIP-FIX-FLIP-1 folded into this cycle.
+
 **Sequencing (hard constraint):** branch `feature/face-source-registry` off `develop` only AFTER
 `feature/perimeter-fp-build` (PERIMETER-FP-STREET-NOISE-1, v5.107.0) has merged to develop. See §9.
 
@@ -86,16 +91,18 @@ Probe: `.../scratchpad/falsify_face_registry.py` over the live `core.entity_regi
 
 **Consequence for the invariant the operator asked for.** "This house resolves byte-identical face sources before
 and after" holds for discovery. It does **not** hold for "fix the silent skip": that fix by construction adds 17
-cameras' face sensors to four consumers (§2.1). The two scope items conflict. The plan resolves it by shipping the
-skip fix in **shadow** (counted, not consumed) behind a module constant, so the default build is byte-identical and
-the behavior change is a separate, measured flip (D3, §7).
+cameras' face sensors to four consumers (§2.1). The two scope items conflict. ~~Rev 1 resolved it by shipping the
+skip fix in shadow with a 14-day measurement card.~~ **Rev 2:** INV-1 is stated for discovery only (S1, S2, S9, S10,
+D4, and S5-S8 on the 12 cameras the legacy path already reads). The skip fix goes live this cycle (D3), gated by a
+one-shot recorder probe run before build (D0), with its own invariant INV-4. Rationale: plan review 1 §3.
 
 ---
 
 ## 2. Falsifiable invariants
 
-**INV-1 (discovery equivalence, default config).** With `FACE_SOURCE_REGISTRY_DISCOVERY_ENABLED = True` and
-`FACE_SOURCE_INCLUDE_DISAMBIGUATED_PERSON_SENSORS = False`, for every call in any reachable path into
+**INV-1 (discovery equivalence).** With `FACE_SOURCE_REGISTRY_DISCOVERY_ENABLED = True` and
+`FACE_SOURCE_INCLUDE_DISAMBIGUATED_PERSON_SENSORS = False` (the test configuration; the shipped default of the second
+constant is True, see INV-4), for every call in any reachable path into
 `_resolve_face_entity_id(stem)`, `_resolve_face_legs(stem)`, `_compute_face_latch_stems(resolver, camname)`,
 `_get_face_recognized_persons()`, `_get_face_recognized_persons_fresh(now)`, `_get_unrecognized_camera_count()` and
 `presence._get_face_for_camera(camera_entity)`, given the same registry and the same states, the post-build code
@@ -113,6 +120,16 @@ did before. Therefore the leg count `n` and `identity_confidence` in
 *Break it by:* any path where the entity leg and the synthetic leg get engines from different derivations (e.g.
 entity leg from the device, synthetic from the `_2` state probe at `:3339-3345`), which makes `n = 2` and
 spuriously yields `FACE_MATCH_CORRELATED_BOOST` (0.75).
+
+**INV-4 (skip fix only removes, never adds, unrecognized persons; rev 2).** With
+`FACE_SOURCE_INCLUDE_DISAMBIGUATED_PERSON_SENSORS = True`, for every interior Frigate camera on every tick,
+the raw contribution computed in `_get_unrecognized_camera_count` (`camera_census.py:5531-5574`) is less than or
+equal to the contribution the legacy path computes for the same camera and states, and is exactly equal for every
+camera whose person sensor ends in `_person_occupancy`. For those 12-style cameras, S5, S6 and S8 return exactly the
+legacy value.
+*Break it by:* any camera whose contribution rises (e.g. the device join returns a different camera's face sensor,
+or an exception in the new branch falls through to a path that double-appends), or any bare-suffix camera whose
+value changes.
 
 **INV-3 (no look-alike admission).** No entity whose `unique_id` segment 1 is not exactly `sensor_recognized_face`
 is ever returned as a face-name source by the registry path, on any platform.
@@ -193,6 +210,23 @@ line numbers, and moved the person-leg suffix sites to Non-goals.
 
 ## 5. Deliverables
 
+### D0 (rev 2). One-shot recorder probe: what the 17 skipped face sensors would have fed (go/no-go for D3 live)
+Read-only, run before build dispatch (`ssh ha "python3 -" < script.py` over the recorder DB; the face sensors are
+not recorder-excluded, `docs/planning/RUNBOOK_recorder_excludes.md`). Over all retained history for the 17
+`sensor.*_last_recognized_face_2` ids listed in review 1 §2.2:
+1. Named-state count per sensor; each distinct name classified through the same rules as `_canonical_person_slug`
+   (tracked resident / `guest:<head>` / passthrough).
+2. For `playroom` and `upstairs_hall` only: each named state that coincided (within
+   `CENSUS_FACE_RECOGNITION_WINDOW_SECONDS`) with its person count > 0, i.e. the ticks where S7 would have
+   subtracted 1. Count by class.
+3. Confirm at runtime which Frigate person sensors the configured interior list resolves to
+   (`camera_person_entities` holds `camera.upstairs_hall_high_resolution_channel`, not `camera.upstairs_hall_2`;
+   whether S7 ever sees the upstairs_hall Frigate sensor is unverified).
+**Gate:** live default True if no passthrough name appears on an interior camera and resident names dominate. If a
+passthrough or guest name lands on playroom/upstairs_hall at a material rate, ship with the constant False and say
+why in the README (no forward soak either way). Report goes into this plan as §1.1.
+- **Live:** n/a (pre-build).
+
 ### D1. Committed probe + hand-built fixture (measure first, already run)
 Commit the falsifier as `scripts/probe_face_source_registry.py` (read-only; reads the registry JSON path given as
 an argument) and a minimised fixture `quality/tests/fixtures/face_source_registry_2026_11.json` hand-extracted
@@ -218,7 +252,9 @@ Rewire S1, S2 (Frigate candidates), S9 and S10:
 - S10: a `sensor` entity whose unique_id token is `sensor_recognized_face` sets `face_cap` regardless of name;
   the suffix test stays as an OR.
 - Count `face_source_registry_hits`, `face_source_pattern_fallbacks` per tick (reset beside
-  `_face_lookup_missing_count`, `camera_census.py:1717`).
+  `_face_lookup_missing_count`, `camera_census.py:1715`). **Rev 2 semantics:** both count candidate-list
+  *lookups* (registry list non-empty vs empty), not live states. They say nothing about whether Frigate is
+  producing; `face_lookup_missing_count` stays the producer-side signal.
 - Kill switch `FACE_SOURCE_REGISTRY_DISCOVERY_ENABLED` (§7). False = pre-build code path, byte-identical.
 
 **Acceptance**
@@ -238,41 +274,67 @@ Rewire S1, S2 (Frigate candidates), S9 and S10:
   `::test_face_cap_by_token_for_renamed_sensor`.
 - **Live:** `sensor.universal_room_automation_persons_in_house` attributes `face_source_registry_hits > 0` and
   `face_source_pattern_fallbacks == 0` within one census tick of a face-reading tick. A broken index shows the
-  reverse (hits 0, fallbacks > 0); a dead face subsystem shows both 0 with `face_lookup_missing_count` rising.
+  reverse (hits 0, fallbacks > 0). (Rev 2: a dead Frigate producer does NOT zero the hits, because hits count
+  lookups; it shows as `face_lookup_missing_count` rising with hits unchanged.)
 
-### D3. Silent skip for renamed / `_N` person sensors: fixed in shadow
+### D3. Silent skip for renamed / `_N` person sensors: fixed LIVE (rev 2)
 S5-S8 derive the face source from the person sensor's **device** (`face_name_entities_for_device`) instead of
-stripping `_person_occupancy` from the entity_id. Gated by `FACE_SOURCE_INCLUDE_DISAMBIGUATED_PERSON_SENSORS`
-(default **False**):
-- False: a camera the legacy suffix test would skip is still skipped (INV-1), and is counted in
-  `face_source_skipped_person_sensors` (int) plus listed in `face_source_skipped_cameras` (sorted entity_ids).
-- True: the device-derived face source is used for those cameras.
+stripping `_person_occupancy` from the entity_id. Ordering per site: legacy suffix test first (unchanged path for
+the 12 bare cameras); only when it fails, the device join. Gated by
+`FACE_SOURCE_INCLUDE_DISAMBIGUATED_PERSON_SENSORS` (default **True**, subject to the D0 gate):
+- True: the device-derived face source is used for cameras the legacy test skips. Each such read is counted in
+  `face_source_device_derived_reads` (int, per tick) and the cameras listed in `face_source_device_derived_cameras`
+  (sorted entity_ids).
+- False (kill switch): legacy skip, counted in `face_source_skipped_person_sensors` and listed in
+  `face_source_skipped_cameras`.
+- S7 keeps today's fail-CLOSED rule: if the device join yields no face sensor, the camera's whole count stays
+  unrecognized (`camera_census.py:5534-5536`). No new branch may append twice for one camera.
+- No consumer semantics change: S7 still subtracts 1 for any fresh named face (resident or `guest:*`), exactly as
+  it does for the 12 cameras today. The `guest:*`-subtracts question is a pre-existing behavior, carded separately
+  (review 1 F-5), not forked here.
 For S8 the legacy fallback `f"sensor.{base_name}_last_recognized_face"` (`presence.py:5394-5395`) stays only on the
 fallback branch.
 
-Flipping to True changes the census face union, the corroboration bundle, the guest count (`playroom`,
-`upstairs_hall` are interior `_2` cameras that today count every person as unrecognized) and presence pre-arrival.
-That is a census behavior change and gets its own measure gate: card **FACE-SOURCE-SKIP-FIX-FLIP-1** (minted with
-this plan, §10) with a 14-day named-face count on the 17 cameras and the set of slugs it would add that BLE does not
-already hold.
+What changes live on this house (review 1 §3): S7 for `playroom` (configured interior; `upstairs_hall` per D0.3)
+drops from "every person unrecognized" to `count - 1` when a fresh face is present; S5 changes the raw union only,
+which `_apply_enhanced_house_census` overwrites when enhanced census is on (live: on); S6 gains exterior faces as
+corroboration; S8 gains face pre-arrival on the 17 cameras that sit in a zone tracker.
 
 **Acceptance**
-- **Verify:** fixture with `binary_sensor.playroom_person_occupancy_2`: switch False → no face read for playroom,
-  skipped count 1; switch True → playroom's face sensor read.
+- **Verify (INV-4):** fixture with `binary_sensor.playroom_person_occupancy_2`, count 2, fresh face "Jaya":
+  switch False → contribution 2; switch True → contribution 1. Same fixture with the face stale or absent →
+  contribution 2 under both. Same fixture with a bare `_person_occupancy` camera → identical under both.
 - **Verify:** a person sensor renamed to `binary_sensor.kids_room_motion_person` on a Frigate device resolves when
   True and is counted as skipped when False.
-- **Test:** `test_face_source_registry.py::test_skip_fix_shadow_counts_only`,
-  `::test_skip_fix_on_reads_device_face`, `::test_unrecognized_count_unchanged_in_shadow`,
-  `::test_presence_face_for_camera_unchanged_in_shadow`.
-- **Live:** `face_source_skipped_person_sensors == 17` and `face_source_skipped_cameras` lists the 17 ids from §1.
-  A value of 0 means the shadow branch is not wired (or the flag leaked to True); a value of 29 means the device
-  join broke for the bare cameras too.
+- **Verify:** with enhanced census on, flipping the switch leaves `house.identified_count` and
+  `identified_persons` unchanged for a tick where an exterior `_2` camera shows a resident face and BLE holds that
+  resident (the overwrite at `_apply_enhanced_house_census`).
+- **Test:** `test_face_source_registry.py::test_skip_fix_on_reads_device_face`,
+  `::test_skip_fix_off_counts_skipped`, `::test_unrecognized_contribution_never_rises` (parametrised over
+  fresh/stale/absent/exception in device join), `::test_bare_cameras_identical_under_flip`,
+  `::test_enhanced_overwrites_raw_face_union`, `::test_presence_face_for_camera_reads_device_face`.
+  Mutation: make the device-join branch return the legacy `None` → `test_skip_fix_on_reads_device_face` red; make
+  it append the count before the face check → `test_unrecognized_contribution_never_rises` red.
+- **Live:** `face_source_device_derived_cameras` on `sensor.universal_room_automation_persons_in_house` lists the
+  17 ids from §1 (or the subset seen this tick) and `face_source_skipped_person_sensors == 0`. Discrimination:
+  flag not wired = derived list empty and skipped 17; device join broken for all cameras = derived list contains
+  bare-suffix ids too (it must never, since the legacy path wins for them). Plus one interior observation: when
+  playroom shows a person and its face sensor is fresh, `_last_area_raw_max_pre_cancel` for playroom's area is
+  `count - 1`, not `count`.
+- **Trip-wire:** the kill switch plus the counters; no new NM anomaly. Justification (review 1 §3.4): the only
+  direction S7 can move is down, so the failure mode is a missed guest, not a false GUEST flip.
 
 ### D4. Engine tag from the device
 One helper, `CameraResolver.face_engine_tag(device_id) -> str`: the family from `_infer_integration(device)`
 (`frigate`, `unifiprotect` → `protect`, ...), no suffix parsing. S3 and S4 both call it; the suffix fallback at
 `camera_census.py:3273-3281` and the `_has_f2` state probe at `:3339-3345` are removed. The synthetic leg's
 `entity_sentinel` comes from the registry list for the stem (first entry), falling back to the legacy id.
+**Rev 2 pin:** the helper returns the candidate's `integration_hint` (`"frigate"` / `"protect"`) whenever the
+device is missing, `_infer_integration` returns empty/unknown, or the resolver is `None`. It never returns
+`"unknown"` or `""` for a Frigate candidate. Reason: the synthetic leg copies an entity leg's engine only if it is in
+`("frigate", "frigate2")` (`camera_census.py:3332`); an entity leg tagged `"unknown"` would make the synthetic leg
+fall to its own branch, tag `"frigate"`, miss the dedup at `:3385`, give `n = 2`, and yield the spurious 0.75 boost.
+Update the `:3332` membership test to the helper's output set in the same edit.
 `_engine_tag` for `DetectionLeg` (`camera_resolver.py:1038`) is not touched.
 
 Marginal-benefit note: a device-derived tag cannot say "frigate2" for a one-instance house; adding an instance
@@ -287,7 +349,10 @@ captures the purpose (no `_2` dependence). Live labels change from `frigate2` to
   probe → the test sees two legs and fails.
 - **Verify:** egress replay of a single-camera named crossing yields `identity_confidence == 0.6` before and after;
   a two-camera crossing yields `0.9` before and after.
+- **Verify (rev 2):** with the face entity's device absent from the device registry (resolver returns no device),
+  entity leg + fresh latch on the same stem still give one leg.
 - **Test:** `test_face_source_registry.py::test_entity_and_latch_legs_dedup_same_engine`,
+  `::test_engine_fallback_is_hint_not_unknown`,
   `::test_engine_tag_from_device_not_suffix`, `::test_egress_confidence_unchanged_single_and_pair`;
   update any existing test asserting `engine == "frigate2"` on a FaceLeg (expected in
   `test_egress_identity_producer_d2b.py` and the sub-label bridge tests; builder lists every edit).
@@ -349,7 +414,7 @@ row for `*_face_recognized[_2]`). This card does not discover Protect face sourc
 | Knob | Rung | Default | Why this rung | Kill-switch semantics |
 |---|---|---|---|---|
 | `FACE_SOURCE_REGISTRY_DISCOVERY_ENABLED` | 1, module const (`const.py`) | `True` | Changing face-source discovery should need review; no operator reason to turn it live. | `False` = pre-build pattern path everywhere (S1, S2, S9, S10, D4 helper falls back to `_engine_tag`). |
-| `FACE_SOURCE_INCLUDE_DISAMBIGUATED_PERSON_SENSORS` | 1, module const | `False` | Flipping changes census trust inputs; must go through the FLIP card's measure gate and review. | `False` = shadow (count + list only). `True` = act. |
+| `FACE_SOURCE_INCLUDE_DISAMBIGUATED_PERSON_SENSORS` | 1, module const | `True` (rev 2; `False` if the D0 gate fails) | Changes census trust inputs; turning it should need review, not a dashboard tap. | `False` = legacy skip, counted + listed. `True` = act, counted + listed. |
 | `CONF_FACE_NAME_ALIASES` | 2, options flow | `[]` | Per-install structure, set rarely, like `known_face_guests`. | Empty = no aliasing. |
 
 No other behavioral numbers are introduced. The diagnostic list is bounded by the camera count; no cap.
@@ -358,7 +423,10 @@ No other behavioral numbers are introduced. The diagnostic list is bounded by th
 
 ## 8. Non-goals
 - Protect face-name discovery or a Protect producer (`D1-PROTECT-FACE-BRIDGE-ADDON-1` stays parked).
-- Flipping `FACE_SOURCE_INCLUDE_DISAMBIGUATED_PERSON_SENSORS` to True (card FACE-SOURCE-SKIP-FIX-FLIP-1).
+- Changing what a fresh face means to S7 (`guest:*` faces subtract like residents today; review 1 F-5 card).
+- Separating `guest:*` from the resident set on the RAW fuse site (`_cross_correlate_persons`, `:2496-2505`); the
+  enhanced recompute already does it (review 1 F-6, pre-existing, non-enhanced installs only).
+- Scoping S6 corroboration to interior cameras (exterior faces already corroborate via the 12 bare cameras).
 - `DetectionLeg` engine tags (`camera_resolver.py:1038`) and perimeter engine strings.
 - `_resolve_face_producer_health_entity` hard-coded `sensor.frigate_status[_2]` (`camera_census.py:4092-4130`); same
   bug class, separate card if wanted.
@@ -367,7 +435,8 @@ No other behavioral numbers are introduced. The diagnostic list is bounded by th
 - Any new entity. Diagnostics go on the existing census sensor's attributes.
 - Raw `_person_occupancy` suffix tests that derive person-detection legs or engines, not face sources:
   `perimeter_alert.py:487`, `:507`, `:519`, `:553`, `:2032`; `transit_validator.py:2226`;
-  `optimization.py:2654`, `:3304` (already `_2`-tolerant); `camera_census.py:945`, `:976`. Same smell, different
+  `optimization.py:2654`, `:3304` (already `_2`-tolerant); `camera_census.py:626`, `:945`, `:976`, `:1134`
+  (626 and 1134 already strip `_N`). Same smell, different
   value; card separately if a portability sweep of person legs is wanted.
 
 ---
@@ -400,16 +469,19 @@ merged tree, and add any new `_resolve_face_legs` / `_resolve_face_entity_id` ca
 **Tier 2-DB (three framing-disjoint code reviews + live validation), one adversarial plan review before build.**
 Trigger: change to a shared primitive (the face resolver) read by 8 consumers including census guest inference and,
 after the perimeter merge, a security de-escalation. Standing policy elevates regression-prone shared-primitive work.
-Not Tier 3: the default build is a no-op on this house (INV-1), the behavior change ships in shadow, and nothing on
-the cost or HVAC/battery path is touched. If the plan review finds a reachable INV-1 break that the shadow flag
+Not Tier 3: discovery is a no-op on this house (INV-1); the one behavior change (D3) can only lower the interior
+unrecognized count (INV-4), is behind a review-gated constant, and nothing on the cost or HVAC/battery path is
+touched. If the plan review finds a reachable INV-1 break that the shadow flag
 does not contain, re-tier to 3.
 Review framings: A = local correctness of the index, ordering and fallback; B = cross-consumer equivalence
 (census, egress, perimeter D10.5, presence) + resolver rebuild/registry-event lifecycle; C = per-site mutation
 (S1, S2, S4, S5-S8, S9, and the D4 dedup), each site's bypass must turn a named test red.
 
-Cards: this plan moves `FACE-SOURCE-REGISTRY-DISCOVERY-1` to `planned`. New card **FACE-SOURCE-SKIP-FIX-FLIP-1**
-(Tier 2, blocked on this ship): measure 14 days of named faces on the 17 skipped cameras and the slugs they would add
-to the census union, then decide the flip.
+Cards: this plan moves `FACE-SOURCE-REGISTRY-DISCOVERY-1` to `planned`. ~~FACE-SOURCE-SKIP-FIX-FLIP-1 (14-day
+measurement)~~ rev 2: folded into D0 + D3 of this cycle and marked `declined` on the board (a forward 14-day count
+is a soak; the same question is answered from recorder history in D0). Review C adds the D3 sites (S5-S8 device-join
+branch) and the D4 fallback to its mutation list. Follow-up cards from review 1: F-5 (`guest:*` faces subtract in
+S7), F-6 (raw fuse site counts `guest:*` as resident on non-enhanced installs).
 
 ## 11. Plan-completion accounting (filled after build)
 To be completed by the builder: each deliverable done / deferred with reason.

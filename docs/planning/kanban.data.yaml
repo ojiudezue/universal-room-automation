@@ -381,10 +381,12 @@ cards:
 - id: FACE-SOURCE-SKIP-FIX-FLIP-1
   title: "17 of 29 Frigate cameras (person sensor *_person_occupancy_2) never feed the census face union, corroboration, guest count or presence pre-arrival; decide whether to flip FACE_SOURCE_INCLUDE_DISAMBIGUATED_PERSON_SENSORS"
   thread: identity
-  status: parked
+  status: done
+  disposition:
+  - "Folded into FACE-SOURCE-REGISTRY-DISCOVERY-1 rev 2 (D0 recorder probe + D3 live, default True). A forward 14-day count is a soak; plan review 1 (docs/reviews/code-review/face_source_registry_plan_review_1.md)."
   tier: 2
   created: "2026-11-08 21:30"
-  updated: "2026-11-08 21:30"
+  updated: "2026-11-08 23:00"
   rank: {value: 3, time_criticality: 2, effort: 2}
   origin: "Planner finding 2026-11-08 while planning FACE-SOURCE-REGISTRY-DISCOVERY-1 (falsifier a)."
   why: "camera_census.py:3578/:3612/:5533 and presence.py:5367 test the raw entity_id for _person_occupancy while CameraInfo keeps the real _2 id, so playroom, upstairs_hall and 15 perimeter cameras are skipped. Flipping changes census trust inputs (exterior faces into face_ids; interior playroom/upstairs_hall faces cancel unrecognized count)."
