@@ -376,6 +376,20 @@ cards:
   existing_guard_2026_11_08: "Operator asked if this was already built. Partly: security_lock_regime.on_person_arriving (:793-813) already counts a camera_face arrival only if _really_away(person) (Review A M2, away-lock cycle). That blocks faces of people already home, but NOT a misrecognition naming a resident who IS away (the 10-24 Jaya-as-Oji case while Oji was abroad). The gap: require an independent same-person arrival edge (tracker not_home->home or entry-area BLE) within a short window, reusing the v5.107.0 D10.5 helper; keep _really_away as well. v5.107.0 D10.5 covers perimeter ALERTS only, not locks."
   links: {related: [FACE-SOURCE-REGISTRY-DISCOVERY-1, PERIMETER-FP-STREET-NOISE-1]}
   adjacency_2026_11_08: "Swept board for lock regime / face arrival: none. ADJACENT to FACE-SOURCE-REGISTRY-DISCOVERY-1 (same signal) and PERIMETER-FP D10.5 (same corroboration rule). NEW problem statement (unlock safety)."
+- id: PERIMETER-FRIGATE-MQTT-DIRECT-1
+  title: "URA subscribes to Frigate MQTT events directly (no dependency on the house's 'Frigate MQTT to frigate_events bridge' automation) — required for portability"
+  thread: security
+  status: planned
+  tier: 2
+  created: "2026-11-09 00:20"
+  updated: "2026-11-09 00:20"
+  rank: {value: 7, time_criticality: 3, effort: 3}
+  origin: "Operator 2026-11-08: 'Ura listening to frigate Mqtt is essential for portability which is imperative.' Uncorks v5.107.0 D9 (PLANNING_perimeter_fp_build_2026_11.md:532-542), parked there with a second-install trigger."
+  why: "Every Frigate payload URA uses (event id for snapshots, score/box/zones for D2-D6, the track linker) arrives via an HA automation that a new home will not have. Without it the gates silently get nothing."
+  next: "Plan (Tier 2-DB, one plan review): discover topic prefixes from the Frigate config entries (frigate/frigate2 here), subscribe <prefix>/events via HA mqtt when the mqtt integration is loaded (optional dependency, never a hard manifest dependency: 2026-06-12 after_dependencies stranding), feed the same handler with a source tag, dedupe by event id against the bus path (both can run on this house), keep the bus listener as fallback. Then build."
+  constraints: "No hard mqtt dependency; no double feed into snapshot cache / linker; byte-identical alerts on this house where the bridge also runs."
+  links: {related: [PERIMETER-FP-STREET-NOISE-1, FACE-SOURCE-REGISTRY-DISCOVERY-1]}
+  adjacency_2026_11_09: "Swept: perimeter plan D9 (the parked design, absorbed here), D2 bus-silent warning (stays as fallback trip-wire), memory project_frigate_mqtt_topic_collision (shared topic_prefix hazard, fixed homelab-side). NEW card; supersedes the D9 park."
 - id: PERSON-PROFILE-PREFERENCES-1
   title: "Per-person profile for identified household members: their bedroom(s)/bathroom, room ownership (incl. shared owners e.g. master), playlist, opt-in/out of automated arrival actions, welcome scene"
   thread: identity
