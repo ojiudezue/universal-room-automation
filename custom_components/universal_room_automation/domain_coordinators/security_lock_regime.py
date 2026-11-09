@@ -1077,12 +1077,19 @@ class LockRegimeController:
             if person.split(".", 1)[-1].lower() not in fresh:
                 continue
             self._pending_faces.pop(person, None)
-            if self._face_arrival_corroborated(person, at_ts=face_ts):
-                _LOGGER.info(
-                    "Lock regime: held camera_face arrival for %s corroborated "
-                    "by a later Bermuda entry move", person,
+            # Review B LOW-B1: runs inside the person coordinator's listener
+            # loop, which does not isolate listener exceptions.
+            try:
+                if self._face_arrival_corroborated(person, at_ts=face_ts):
+                    _LOGGER.info(
+                        "Lock regime: held camera_face arrival for %s "
+                        "corroborated by a later Bermuda entry move", person,
+                    )
+                    self._apply_arrival(person)
+            except Exception:  # noqa: BLE001
+                _LOGGER.exception(
+                    "Lock regime: held face re-check failed for %s", person,
                 )
-                self._apply_arrival(person)
 
     def _is_approach_zone(self, person_state: str, cfg: dict[str, Any]) -> bool:
         from ..const import CONF_SECURITY_LOCKOUT_APPROACH_ZONE  # noqa: PLC0415
