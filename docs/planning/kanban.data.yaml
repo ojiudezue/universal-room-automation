@@ -385,6 +385,7 @@ cards:
   adjacency_2026_11_08: "Swept board for lock regime / face arrival: none. ADJACENT to FACE-SOURCE-REGISTRY-DISCOVERY-1 (same signal) and PERIMETER-FP D10.5 (same corroboration rule). NEW problem statement (unlock safety)."
   reconcile_2026_11_09: "Overnight reconcile: board still showed this as planned/investigating/in_progress but v5.107.4 was merged to develop at 97319f20 by the 11-08/09 attended session (not yet deployed; develop was 87 commits ahead of origin). Moved to review."
 - id: PERIMETER-FRIGATE-MQTT-DIRECT-1
+  arc_cut_v5_108_0: "next arc release, awaiting the D0 daytime capture analysis"
   arc_cut_v5_107_6: "in flight, ships at arc end"
   title: "URA subscribes to Frigate MQTT events directly (no dependency on the house's 'Frigate MQTT to frigate_events bridge' automation) — required for portability"
   thread: security
@@ -401,6 +402,7 @@ cards:
   links: {related: [PERIMETER-FP-STREET-NOISE-1, FACE-SOURCE-REGISTRY-DISCOVERY-1], blocks: [FRIGATE-FACE-BRIDGE-DEAD-PREFIX-1], context: "Its runtime prefix discovery is the fix the dead-prefix face bridge (FRIGATE-FACE-BRIDGE-DEAD-PREFIX-1) should reuse."}
   adjacency_2026_11_09: "Swept: perimeter plan D9 (the parked design, absorbed here), D2 bus-silent warning (stays as fallback trip-wire), memory project_frigate_mqtt_topic_collision (shared topic_prefix hazard, fixed homelab-side). NEW card; supersedes the D9 park."
 - id: CAMERA-LIST-LIVE-REWIRE-1
+  arc_cut_v5_108_0: "Tier 3, built after MQTT"
   arc_cut_v5_107_6: "in flight Tier 3, ships at arc end"
   title: "Saving perimeter/egress camera lists forces a full URA parent reload (watchdog hazard); rewire live instead (v5.107.0 plan D11)"
   thread: security
@@ -453,7 +455,8 @@ cards:
 - id: GUEST-MODE-SPLIT-VISITORS-1
   title: "Split 'visitors present' (low bar: any non-resident seen, incl. a known-guest face) from GUEST mode (high bar: corroborated by sustained guest-room occupancy and/or sustained new guest-WiFi presence)"
   thread: presence
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.108.0
   tier: 2-DB
   created: "2026-11-09 01:00"
   updated: "2026-11-09 12:00"
@@ -495,6 +498,7 @@ cards:
   links: {related: [GUEST-MODE-SPLIT-VISITORS-1, GUEST-GATE-DOOR-IDENTITY-1]}
   parked_2026_11_09_revival_trigger: "Operator asks."
 - id: FRIGATE-FACE-BRIDGE-DEAD-PREFIX-1
+  arc_cut_v5_108_0: "follows MQTT"
   arc_cut_v5_107_6: "waits for MQTT D0 daytime capture"
   title: "Census face bridge reads the Frigate MQTT topic_prefix from the config entry (where it never exists) and falls back to 'frigate' = retired Frigate-1, so it likely listens on a dead topic"
   thread: identity
