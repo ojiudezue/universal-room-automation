@@ -504,13 +504,34 @@ GUEST_KNOWN_STICKY_S: Final = 120
 GUEST_NIGHT_STAY_RULE_ENABLED: Final = True
 # Night qualifies iff a guest room was occupied by non-resident time for at
 # least this share of the house sleep window. Fitted to the replay plateau
-# 0.20-0.30 (plan §5.3). 0 = any occupied time qualifies; > 1 = never.
+# 0.20-0.30 (plan §5.3). 0 = any non-resident occupied time qualifies
+# (resident time is subtracted first, review A-L2); > 1 = never.
 GUEST_NIGHT_MIN_FRACTION: Final = 0.25
-# Stay latch turns on when at least ENTRY of the last LOOKBACK completed
-# nights qualify, and off after LOOKBACK straight non-qualifying nights.
-# ENTRY is clamped to 1..LOOKBACK, LOOKBACK to >= 1, at read.
-GUEST_STAY_ENTRY_NIGHTS: Final = 2
+# Rev 5 (operator 2026-11-09, "sustained occupancy during the day and an
+# overnight should suffice"): the latch turns on at an ENTRY-QUALIFIED night
+# (night >= GUEST_NIGHT_MIN_FRACTION AND the same room's day window >=
+# GUEST_STAY_DAY_MIN_FRACTION) with at least ENTRY night-qualifying nights
+# among the last LOOKBACK; off after LOOKBACK straight non-qualifying nights.
+# ENTRY is the second-night GUARD: 1 = the entry-qualified night alone
+# suffices; 2 removes every single-night entry in the replay at a cost of two
+# stay days (plan §5.4, §7). ENTRY is clamped to 1..LOOKBACK, LOOKBACK >= 1.
+GUEST_STAY_ENTRY_NIGHTS: Final = 1
 GUEST_STAY_LOOKBACK_NIGHTS: Final = 3
+# Day test (rev 5). Fitted: replay plateau 0.03-0.20 at day start 10; above
+# 0.21 the October stay is never entered (recall cliff). 0 = day test off;
+# > 1 = never enters (exit unaffected).
+GUEST_STAY_DAY_MIN_FRACTION: Final = 0.10
+# Day window start, local hour (clamped 0..23); the window ends at the house
+# sleep_start_hour. If it leaves < 1 h before the night window, the day
+# window is the 1 h before the night (no empty window).
+GUEST_STAY_DAY_START_HOUR: Final = 10
+# True = the day must precede the night. False = the day after the night also
+# counts (judged at the walk after the next night; widens entry, never exit).
+GUEST_STAY_DAY_BEFORE_NIGHT: Final = True
+# A failed stay walk (DB error) is retried after this many seconds instead of
+# waiting for the next morning (build reviews A-M1 / B-M2). Fixed backoff;
+# the WARNING is still logged once per local day.
+GUEST_STAY_ERROR_RETRY_S: Final = 900
 # How many nights back the deterministic DB walk starts. Clamped at read to
 # >= GUEST_STAY_LONG_NM_DAYS + GUEST_STAY_LOOKBACK_NIGHTS (else the stay's
 # `since` is re-dated inside the walk every morning and the D4 trip-wire can

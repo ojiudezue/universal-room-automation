@@ -1493,6 +1493,26 @@ def guest_night_window(
     return start, end
 
 
+def guest_day_window(
+    night: date, start_hour: int, end_hour: int, day_start_hour: int, tz: Any,
+) -> tuple[datetime, datetime]:
+    """Rev 5 day window Dy(N) of night N (plan §2.1).
+
+    Ends at the start of the night window W(N); starts at local date N at
+    ``day_start_hour`` (clamped 0..23). If that leaves less than 1 h before
+    W(N), the window is the 1 h before W(N). Live 22 -> 6, H 10: N 10:00 ->
+    N 22:00. Non-wrapping 1 -> 6, H 10: N 10:00 -> N+1 01:00. Local wall
+    clock, so DST days have their real elapsed length.
+    """
+    w_start = guest_night_window(night, start_hour, end_hour, tz)[0]
+    h = min(23, max(0, int(day_start_hour)))
+    start = datetime(night.year, night.month, night.day, h, tzinfo=tz)
+    latest = w_start - timedelta(hours=1)
+    if start > latest:
+        start = latest
+    return start, w_start
+
+
 def guest_last_completed_night(
     now_local: datetime, start_hour: int, end_hour: int,
 ) -> date:
@@ -1888,6 +1908,11 @@ class PresenceCoordinator(BaseCoordinator):
         self._guest_stay_evaluated_for: Optional[date] = None
         self._guest_stay_task: Optional[asyncio.Task] = None
         self._guest_stay_error_logged_on: Optional[date] = None
+        # Review A-M1 / B-M2: after a failed walk, no retry before this UTC
+        # time (GUEST_STAY_ERROR_RETRY_S); None = no backoff pending.
+        self._guest_stay_retry_at: Optional[datetime] = None
+        # Review B-L1: set at teardown; no walk is scheduled after it.
+        self._guest_stay_torn_down: bool = False
         # D4 trip-wire episode latch (RAM; `since` comes from the DB walk).
         self._guest_stay_long_nm_fired: bool = False
         # D1 visitors_present (display only; never read by infer()).
@@ -5706,6 +5731,10 @@ class PresenceCoordinator(BaseCoordinator):
         self._guest_room_entity_to_name.clear()
         self._guest_room_known_last_true.clear()
         self._guest_room_entry_ids.clear()
+        # Review B-L2 / A-L4: the guest-room set may have changed (flagged or
+        # un-flagged), so the next tick re-walks instead of waiting a night.
+        self._guest_stay_evaluated_for = None
+        self._guest_stay_retry_at = None
 
         # GUEST-CENSUS D3 (2026-08-16): resolve the room's occupied
         # binary_sensor via the entity registry using the well-known
@@ -6041,6 +6070,15 @@ class PresenceCoordinator(BaseCoordinator):
         )
         return entry, lookback, frac, replay, long_days
 
+    def _guest_stay_day_params(self) -> tuple[float, int, bool]:
+        """Rev 5 day test: (min day fraction, day start hour clamped 0..23,
+        day before night). Read at call time (plan §7)."""
+        return (
+            float(_ura_const.GUEST_STAY_DAY_MIN_FRACTION),
+            min(23, max(0, int(_ura_const.GUEST_STAY_DAY_START_HOUR))),
+            bool(_ura_const.GUEST_STAY_DAY_BEFORE_NIGHT),
+        )
+
     def _guest_stay_target(self, now_local: datetime) -> date:
         """Local date of the window end of the last completed night."""
         engine = self._inference_engine
@@ -6060,6 +6098,8 @@ class PresenceCoordinator(BaseCoordinator):
         """
         if not _ura_const.GUEST_NIGHT_STAY_RULE_ENABLED:
             return False
+        if getattr(self, "_guest_stay_torn_down", False):
+            return False  # B-L1: no walk on a torn-down coordinator
         task = self._guest_stay_task
         if task is not None and not task.done():
             return False
@@ -6069,6 +6109,9 @@ class PresenceCoordinator(BaseCoordinator):
             now_local = dt_util.now()
         if self._guest_stay_evaluated_for == self._guest_stay_target(now_local):
             return False
+        retry_at = getattr(self, "_guest_stay_retry_at", None)
+        if retry_at is not None and now_local < retry_at:
+            return False  # A-M1 / B-M2: bounded backoff after a failed walk
         self._guest_stay_task = self.hass.async_create_task(
             self._refresh_guest_stay(now_local)
         )
@@ -6080,15 +6123,17 @@ class PresenceCoordinator(BaseCoordinator):
         """D2: recompute the stay latch from the URA DB (plan §2.1, §2.3).
 
         Walks GUEST_STAY_REPLAY_NIGHTS completed nights starting with the
-        latch False; a night qualifies iff max over guest rooms of the
-        non-resident occupied fraction of the house sleep window is >=
-        GUEST_NIGHT_MIN_FRACTION (with some occupied time). The latch turns
-        on at >= ENTRY of the last LOOKBACK nights and off at 0 of them.
-        Deterministic in the DB contents (restart reproduces it). Writes the
-        latch, ``since`` (window end of the night that turned it on), the
-        basis (last LOOKBACK nights) and the evaluated date, then runs one
-        inference. Any DB error: latch False, basis {"error": ...}, WARNING
-        once per local day.
+        latch False; a night qualifies iff some guest room's non-resident
+        occupied fraction of the house sleep window is >=
+        GUEST_NIGHT_MIN_FRACTION. Rev 5: the latch turns on at an
+        ENTRY-QUALIFIED night (the same room also >= GUEST_STAY_DAY_MIN_FRACTION
+        of its day window) with >= ENTRY qualifying nights among the last
+        LOOKBACK, and off at 0 of them. Deterministic in the DB contents
+        (restart reproduces it). Writes the latch, ``since`` (window end of
+        the night that turned it on), the basis (last LOOKBACK nights) and the
+        evaluated date, then runs one inference. Any DB error: latch False,
+        basis {"error": ...}, WARNING once per local day, night NOT stamped
+        evaluated; retried after GUEST_STAY_ERROR_RETRY_S.
         """
         db = self.hass.data.get(DOMAIN, {}).get("database")
         if db is None:
@@ -6100,46 +6145,78 @@ class PresenceCoordinator(BaseCoordinator):
         end_h = int(engine.sleep_end_hour)
         tz = now_local.tzinfo
         entry_k, lookback, frac_min, replay, _long = self._guest_stay_params()
+        day_min, day_h, day_before = self._guest_stay_day_params()
         last = guest_last_completed_night(now_local, start_h, end_h)
         # Nights from the walk start minus (lookback - 1) for the first Q.
         span = replay + lookback - 1
         nights = [last - timedelta(days=i) for i in range(span - 1, -1, -1)]
         windows = [guest_night_window(n, start_h, end_h, tz) for n in nights]
+        # Rev 5: one day window per night (the day before it, ending at the
+        # night start). Read in the SAME span call as the nights (one call per
+        # room). With day-before False, night N-1 may pair with day N, which
+        # is already in this list (day N ends before night N starts <= now).
+        days = [guest_day_window(n, start_h, end_h, day_h, tz) for n in nights]
+        n_nights = len(nights)
         target = windows[-1][1].date()
         try:
             per_room: Dict[str, list] = {}
             for room_name, entry_id in list(self._guest_room_entry_ids.items()):
-                per_room[room_name] = await db.get_guest_room_night_fractions(
-                    entry_id, room_name, windows,
+                rows = await db.get_guest_room_night_fractions(
+                    entry_id, room_name, windows + days,
                     _ura_const.GUEST_KNOWN_STICKY_S,
                 )
+                per_room[room_name] = (rows[:n_nights], rows[n_nights:])
         except Exception as err:  # noqa: BLE001 — fails toward no GUEST
             today = now_local.date()
             if self._guest_stay_error_logged_on != today:
                 self._guest_stay_error_logged_on = today
                 _LOGGER.warning(
-                    "Guest stay walk failed (stay treated as off): %s", err,
+                    "Guest stay walk failed (stay treated as off; retry in "
+                    "%ss): %s", _ura_const.GUEST_STAY_ERROR_RETRY_S, err,
                 )
             self._guest_stay_active = False
             self._guest_stay_since = None
             self._guest_stay_basis = {"error": str(err)}
-            self._guest_stay_evaluated_for = target
+            # A-M1 / B-M2: do NOT stamp the night evaluated; retry after a
+            # bounded backoff so one transient error does not cost the day.
+            self._guest_stay_retry_at = now_local + timedelta(
+                seconds=max(0, int(_ura_const.GUEST_STAY_ERROR_RETRY_S))
+            )
         else:
-            best: list[tuple[Optional[str], float, bool]] = []
-            for idx in range(len(nights)):
-                room, value, qual = None, 0.0, False
-                for room_name, rows in per_room.items():
-                    f, had = rows[idx]
+
+            def _night_ok(room_name: str, idx: int) -> bool:
+                f, had = per_room[room_name][0][idx]
+                return bool(had and f >= frac_min)
+
+            def _day_ok(room_name: str, idx: int) -> bool:
+                return per_room[room_name][1][idx][0] >= day_min
+
+            best: list[tuple[Optional[str], float, bool, float, bool]] = []
+            for idx in range(n_nights):
+                room, value, qual, entry_q = None, 0.0, False, False
+                for room_name, (nrows, _drows) in per_room.items():
+                    f = float(nrows[idx][0])
                     if room is None or f > value:
-                        room, value = room_name, float(f)
-                    if had and f >= frac_min:
+                        room, value = room_name, f
+                    if _night_ok(room_name, idx):
                         qual = True
-                best.append((room, value, qual))
+                        # Same room: night N with day N (the day before).
+                        if _day_ok(room_name, idx):
+                            entry_q = True
+                    # Day-after variant: night N-1 with day N (same room).
+                    if (not day_before and idx >= 1
+                            and _night_ok(room_name, idx - 1)
+                            and _day_ok(room_name, idx)):
+                        entry_q = True
+                day_f = (
+                    float(per_room[room][1][idx][0]) if room is not None else 0.0
+                )
+                best.append((room, value, qual, day_f, entry_q))
             active = False
             since: Optional[datetime] = None
-            for idx in range(lookback - 1, len(nights)):
-                q = sum(1 for _r, _v, ok in best[idx - lookback + 1: idx + 1] if ok)
-                if not active and q >= entry_k:
+            for idx in range(lookback - 1, n_nights):
+                q = sum(1 for b in best[idx - lookback + 1: idx + 1] if b[2])
+                if not active and best[idx][4] and q >= entry_k:
                     active = True
                     since = windows[idx][1].astimezone(timezone.utc)
                 elif active and q == 0:
@@ -6152,11 +6229,14 @@ class PresenceCoordinator(BaseCoordinator):
                     "night": nights[i].isoformat(),
                     "room": best[i][0],
                     "fraction": round(best[i][1], 3),
+                    "day_fraction": round(best[i][3], 3),
                     "qualifies": best[i][2],
+                    "entry_qualified": best[i][4],
                 }
-                for i in range(len(nights) - lookback, len(nights))
+                for i in range(n_nights - lookback, n_nights)
             ]
             self._guest_stay_evaluated_for = target
+            self._guest_stay_retry_at = None
         if run_inference:
             try:
                 await self._run_inference("guest_stay_refresh")
@@ -6211,9 +6291,16 @@ class PresenceCoordinator(BaseCoordinator):
     def _check_guest_stay_long(self, now_utc: Optional[datetime] = None) -> None:
         """D4: one HIGH stuck-signal NM when the stay latch has been on for
         more than GUEST_STAY_LONG_NM_DAYS days (from the DB-walk ``since``).
-        Re-armed when the latch drops. 0 = off."""
+        Re-armed when the latch drops. 0 = off.
+
+        Review A-L3: honours the Guest Detection switch (switch OFF = the
+        stay is not acting, so no page and the episode re-arms), matching its
+        remedy text. The episode latch is RAM: a restart during a stay longer
+        than the bound pages again, at most once per restart-day because
+        ``fire_stuck_signal`` dedups per (kind, key) per day. Accepted."""
         since = self._guest_stay_since
-        if not self._guest_stay_active or since is None:
+        if (not self._guest_stay_active or since is None
+                or not self._guest_detection_enabled):
             self._guest_stay_long_nm_fired = False
             return
         bound_days = int(_ura_const.GUEST_STAY_LONG_NM_DAYS)
@@ -8569,7 +8656,10 @@ class PresenceCoordinator(BaseCoordinator):
         self._guest_room_state.clear()
         self._guest_room_known_last_true.clear()
 
-        # GUEST-MODE-SPLIT D2 (S16): cancel an in-flight stay walk.
+        # GUEST-MODE-SPLIT D2 (S16): cancel an in-flight stay walk. B-L1:
+        # flag first, so a tick during the later teardown awaits cannot
+        # schedule a fresh walk on the torn-down coordinator.
+        self._guest_stay_torn_down = True
         stay_task = self._guest_stay_task
         if stay_task is not None and not stay_task.done():
             try:

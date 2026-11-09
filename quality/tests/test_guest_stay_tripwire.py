@@ -108,6 +108,20 @@ def test_rearms_after_stay(monkeypatch, fired):
     assert len(fired) == 2
 
 
+def test_switch_off_no_page_and_rearms(monkeypatch, fired):
+    """Review A-L3: Guest Detection OFF -> the stay is not acting, so no page
+    (the remedy says to turn it off); the episode re-arms, and switching it
+    back on pages once."""
+    w = _coord(monkeypatch)
+    w.coord._guest_detection_enabled = False
+    chk(w, SINCE + timedelta(days=29))
+    assert fired == []
+    assert w.coord._guest_stay_long_nm_fired is False
+    w.coord._guest_detection_enabled = True
+    chk(w, SINCE + timedelta(days=29))
+    assert len(fired) == 1
+
+
 def test_tick_calls_tripwire(monkeypatch, fired):
     """Wire-in: _run_inference calls the trip-wire (clock 2026-11-03 14:00Z
     is 33 days after SINCE)."""
@@ -122,14 +136,15 @@ def _stay_db(tmp_path, nights):
     d = date(2026, 9, 1)
     for _ in range(nights):
         P.occupy_fraction(db, P.E1, d, 0.5)
+        P.occupy_day(db, P.E1, d, 0.5)
         d += timedelta(days=1)
     return db
 
 
 def test_since_survives_restart(monkeypatch, tmp_path, proc_tz):
     """`since` comes from the DB walk: a fresh coordinator walking the same
-    DB 10 days later reports the same since (the window end of night 09-02,
-    06:00 CDT = 11:00Z on 09-03)."""
+    DB 10 days later reports the same since (rev 5: the window end of night
+    09-01, the first night with its day, 06:00 CDT = 11:00Z on 09-02)."""
     proc_tz("UTC")
     db = _stay_db(tmp_path, 30)
     c1 = P.coord_with(monkeypatch, db)
@@ -137,13 +152,14 @@ def test_since_survives_restart(monkeypatch, tmp_path, proc_tz):
     c2 = P.coord_with(monkeypatch, db)
     P.walk(c2, P.at(2026, 9, 20))
     assert c1._guest_stay_since == c2._guest_stay_since \
-        == datetime(2026, 9, 3, 11, 0, tzinfo=UTC)
+        == datetime(2026, 9, 2, 11, 0, tzinfo=UTC)
 
 
 def test_fires_on_stay_longer_than_bound(monkeypatch, tmp_path, proc_tz, fired):
     """A 30-night stay (nights 09-01..09-30) through the REAL walk each
-    morning at 07:00 CDT, bound 28: since = 09-03 11:00Z; 28 d later =
-    10-01 11:00Z = 06:00 CDT, so the 10-01 07:00 check fires, 09-30 does not.
+    morning at 07:00 CDT, bound 28: since = 09-02 11:00Z (rev 5 entry after
+    night 09-01); 28 d later = 09-30 11:00Z = 06:00 CDT, so the 09-30 07:00
+    check fires, 09-29 does not.
     With a walk shorter than the bound, since is re-dated and it never fires."""
     proc_tz("UTC")
     db = _stay_db(tmp_path, 30)
@@ -171,4 +187,4 @@ def test_fires_on_stay_longer_than_bound(monkeypatch, tmp_path, proc_tz, fired):
         if len(fired) > before:
             fired_on.append(day)
         day += timedelta(days=1)
-    assert fired_on == [date(2026, 10, 1)]
+    assert fired_on == [date(2026, 9, 30)]

@@ -3720,11 +3720,11 @@ class UniversalRoomDatabase:
             ``datetime.fromtimestamp(x.timestamp())`` and rows back with
             ``naive.timestamp()``, the exact inverses on any host.
         Resident intervals are widened by ``resident_pad_s`` on both sides; a
-        NULL ``exit_time`` counts as a zero-length visit (pad only), as the
-        D0 replay did.
+        NULL ``exit_time`` (open visit) runs to the latest window end.
 
         Returns one ``(fraction, had_evidence)`` per window, in order;
-        ``had_evidence`` = some occupied episode overlaps the window. Raises
+        ``had_evidence`` = some NON-RESIDENT occupied time remains in the
+        window after the resident cut. Raises
         on DB error (the caller fails the night toward no GUEST).
         """
         if not windows:
@@ -3767,11 +3767,15 @@ class UniversalRoomDatabase:
             visit_rows = await cursor.fetchall()
 
         pad = timedelta(seconds=max(0.0, float(resident_pad_s)))
+        # Review A-L1: an OPEN visit (exit_time NULL: the resident is still
+        # in the room) runs to the end of the span (the latest window end),
+        # so a resident still asleep when the morning walk runs is subtracted.
+        open_end = _naive_utc(span_hi)
         resident: list[tuple[datetime, datetime]] = []
         for entry_raw, exit_raw in visit_rows:
             try:
                 a = _row_to_utc(entry_raw)
-                b = _row_to_utc(exit_raw) if exit_raw else a
+                b = _row_to_utc(exit_raw) if exit_raw else open_end
             except (TypeError, ValueError):
                 continue
             if b < a:
@@ -3786,7 +3790,6 @@ class UniversalRoomDatabase:
                 (max(s, lo_w), min(e, hi_w)) for s, e in episodes
                 if min(e, hi_w) > max(s, lo_w)
             ]
-            had = bool(segs)
             for cut_lo, cut_hi in resident:
                 kept: list[tuple[datetime, datetime]] = []
                 for s, e in segs:
@@ -3798,6 +3801,10 @@ class UniversalRoomDatabase:
                     if cut_hi < e:
                         kept.append((cut_hi, e))
                 segs = kept
+            # Review A-L2: evidence is NON-RESIDENT occupied time (after the
+            # cut), so at GUEST_NIGHT_MIN_FRACTION 0 a resident-only night
+            # does not qualify.
+            had = bool(segs)
             occupied = sum((e - s).total_seconds() for s, e in segs)
             out.append((occupied / length if length > 0 else 0.0, had))
         return out

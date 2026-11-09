@@ -1,6 +1,6 @@
 # v5.108.0 — Visitors present, and GUEST means a guest is staying
 
-Card: GUEST-MODE-SPLIT-VISITORS-1. Plan: `docs/planning/PLANNING_guest_mode_split_2026_11.md` rev 4 (`f8cbcba4`).
+Card: GUEST-MODE-SPLIT-VISITORS-1. Plan: `docs/planning/PLANNING_guest_mode_split_2026_11.md` rev 5 (`250730f6`).
 Tier: D1 Tier 2; D2 + D3 + D4 Tier 2-DB (changes house state). **Operator checkpoint before deploy.**
 
 **Status: DRAFT, built on `feature/guest-mode-split`, not reviewed, not deployed.**
@@ -17,25 +17,32 @@ Now there are two signals.
   is GUEST, or a guest stay is active, or someone unknown has been in a guest room for 30 minutes, or unidentified
   people have been on camera for 5 minutes. The `legs` attribute says which (`room`, `cam`, `stay`); `since` gives
   when it turned on. Nothing reads it to make decisions.
-- **GUEST** (high bar): a guest is staying. A guest room was occupied, by someone who is not a resident located
-  there by Bluetooth, for at least a quarter of the house sleep window (22:00 to 06:00 here) on at least 2 of the
-  last 3 nights. The check runs once each morning over the URA database, so a restart gives the same answer.
-  Three empty nights in a row end the stay.
+- **GUEST** (high bar): a guest is staying. One guest room was occupied, by someone who is not a resident located
+  there by Bluetooth, for at least a quarter of the house sleep window (22:00 to 06:00 here) AND for at least a
+  tenth of the day before (10:00 to 22:00) in the SAME room. One such night is enough (operator 2026-11-09:
+  "sustained occupancy during the day and an overnight should suffice"). The check runs once each morning over
+  the URA database, so a restart gives the same answer; a database error is retried after 15 minutes. Three
+  empty nights in a row end the stay.
 - During a stay the house is GUEST by day and evening and goes to SLEEP at night as usual: GUEST hands over to
   HOME_NIGHT at the start of the sleep window (after the usual 5-minute exit hold), then SLEEP; after waking it
   returns to GUEST.
 - WiFi is not used anywhere (operator decision).
-- A trip-wire pages once (HIGH) if a stay lasts more than 28 days, in case a guest-room sensor is stuck on.
+- A trip-wire pages once (HIGH) if a stay lasts more than 28 days, in case a guest-room sensor is stuck on
+  (not while Guest Detection is off; a restart during such a stay can page again, at most once a day).
+- Garage remote lockouts lock ONCE at 22:00 on a stay night and stay locked through GUEST → HOME_NIGHT → SLEEP
+  until waking (INV-LOCK-1; before this fix the night yield unlocked them for about 2 minutes at ~22:05).
 
 What the operator will notice:
 
-- No GUEST on a guest's arrival day or after their first night. `visitors_present` shows them; GUEST starts
-  the morning after their second night.
+- No GUEST on a guest's arrival day (no night yet). `visitors_present` shows them; GUEST starts the morning
+  after their first night (October replay: stay day 2, 20 of 21 days).
+- A resident who spends a day and a night in Guest Bedroom 2 also enters GUEST (no GB2 scanner, so Bluetooth
+  cannot subtract them). Set `GUEST_STAY_ENTRY_NIGHTS` to 2 to require a second night.
 - A daytime visitor in a guest room no longer switches the house to GUEST.
 - During a stay, HVAC zones use the slower GUEST tail by day (more comfort, a little more energy), NM exterior-person
   alerts use the GUEST daytime severity, and Bayesian learning pauses by day. Nights are unchanged.
 - The house-state sensor gains `guest_stay_active`, `guest_stay_since` and `guest_stay_basis` (the last 3 nights,
-  with the room and fraction for each). `guest_reason` reads `night_stay:<rooms>` during a stay; `guest_room:<room>`
+  with the room, night `fraction`, `day_fraction`, `qualifies` and `entry_qualified` for each). `guest_reason` reads `night_stay:<rooms>` during a stay; `guest_room:<room>`
   now means a visitor in a guest room, not GUEST.
 
 ## Knobs (all rung 1, `const.py`, read at call time)
@@ -44,7 +51,11 @@ What the operator will notice:
 |---|---|---|
 | `GUEST_NIGHT_STAY_RULE_ENABLED` | True | False = the old 30-min gate enters GUEST again (identical behaviour); no database walk |
 | `GUEST_NIGHT_MIN_FRACTION` | 0.25 | share of the sleep window a guest room must be occupied |
-| `GUEST_STAY_ENTRY_NIGHTS` | 2 | qualifying nights needed (clamped to 1..lookback) |
+| `GUEST_STAY_ENTRY_NIGHTS` | 1 | second-night guard: qualifying nights needed among the lookback, on top of the day test (clamped to 1..lookback); 2 removes single-night entries |
+| `GUEST_STAY_DAY_MIN_FRACTION` | 0.10 | share of the day window the same guest room must be occupied; 0 = day test off |
+| `GUEST_STAY_DAY_START_HOUR` | 10 | day window start (local); ends at the sleep start; at least 1 h |
+| `GUEST_STAY_DAY_BEFORE_NIGHT` | True | False = the day after the night also counts (decided a day later) |
+| `GUEST_STAY_ERROR_RETRY_S` | 900 | retry delay after a failed walk |
 | `GUEST_STAY_LOOKBACK_NIGHTS` | 3 | nights looked at; also the number of empty nights that end a stay |
 | `GUEST_STAY_REPLAY_NIGHTS` | 35 | nights walked each morning (clamped to at least trip-wire days + lookback) |
 | `GUEST_STAY_LONG_NM_DAYS` | 28 | trip-wire bound; 0 = off |
@@ -55,10 +66,12 @@ no GUEST entry, the stay treated as off, `visitors_present` follows GUEST only.
 
 ## Files
 
-- `domain_coordinators/presence.py`: `guest_night_window`, `guest_last_completed_night`, `_compose_guest_gate`,
+- `domain_coordinators/presence.py`: `guest_night_window`, `guest_day_window`, `guest_last_completed_night`, `_compose_guest_gate`,
   `_refresh_guest_stay` (the walk), `_maybe_schedule_guest_stay_refresh`, `_guest_stay_tick`,
   `_check_guest_stay_long`, `_update_visitors_present`; `_discover_guest_rooms` records each guest room's entry id;
-  teardown cancels the walk.
+  teardown cancels the walk and blocks re-scheduling; re-discovery re-walks.
+- `domain_coordinators/security_lock_regime.py`: `on_house_state_changed` holds a guest-night lock across the
+  GUEST → HOME_NIGHT night yield (`guest_yield_hold`).
 - `database.py`: `_occupied_episodes_between` extracted from `_occupied_seconds_between` (same sum);
   new read-only `get_guest_room_night_fractions`.
 - `binary_sensor.py`: `VisitorsPresentBinarySensor`. `sensor.py`: three house-state attributes. `const.py`: knobs.
@@ -69,7 +82,11 @@ no GUEST entry, the stay treated as off, `visitors_present` follows GUEST only.
 `test_guest_split_gate.py`, `test_guest_split_visitors.py`, `test_guest_stay_producer.py`,
 `test_guest_stay_tripwire.py` (shared harness `guest_split_harness.py`; base golden
 `fixtures/guest_split_golden_base.json`, 200 seeded tuples generated on the base tree before the change).
-The replay fixture reproduces the plan §5.3 day list exactly (active 09-29 .. 10-18, off 10-19 .. 11-08).
+The rev 5 replay fixture (`fixtures/guest_stay_r5_replay.json`, D0 per-night and per-day fractions) reproduces the
+plan §5.4 day list exactly: active 08-25..09-02, 09-06..09-08, 09-10..09-12, 09-16..09-18, 09-28..10-18, off
+10-19..11-08; at `GUEST_STAY_ENTRY_NIGHTS` 2: 08-26..09-02, 09-06..09-08, 09-30..10-18. INV-LOCK-1:
+`test_sc_garage_lockout.py::test_lock_once_at_guest_clock_no_unlock_on_yield`,
+`::test_lock_held_if_home_night_until_morning`, `::test_lock_toggle_off_unchanged`.
 Four source-grep anchors were converted to behavioural tests (`test_guest_census_correctness.py`
 `::test_home_like_guest_armed_is_room_only`, `::test_inside_guest_branch_unchanged`;
 `test_v472_feature_b_guest_signal.py` `::test_additive_or_present`,
@@ -82,9 +99,9 @@ Four source-grep anchors were converted to behavioural tests (`test_guest_census
 |---|---|---|---|
 | L1 | `visitors_present` exists | registry + entity | unique id `universal_room_automation_visitors_present` resolves; `legs` has `room`, `cam`, `stay` |
 | L2 | `visitors_present` is quiet with no visitors | recorder, first 24 h | on only in short episodes (expect 0-3, minutes long), each with a true leg at the time |
-| L3 | the stay walk ran | house-state sensor attributes | `guest_stay_basis` lists 3 nights, fractions ≤ 0.02, `qualifies` false; `guest_stay_active` false |
+| L3 | the stay walk ran | house-state sensor attributes | `guest_stay_basis` lists 3 nights, `fraction` and `day_fraction` ≤ 0.08, `qualifies` and `entry_qualified` false; `guest_stay_active` false |
 | L4 | no GUEST without a stay | URA DB `house_state_log` | no `guest` row from deploy until a real stay |
-| L5 | first real stay | URA DB + recorder | daily HOME_* → `guest` after waking, `guest` → `home_night` just after 22:00, basis shows ≥ 2 of 3 nights qualifying; ends the morning after the third empty night. Organic: dispose by this discriminator per the soak-exit rule |
+| L5 | first real stay | URA DB + recorder | daily HOME_* → `guest` after waking, `guest` → `home_night` just after 22:00, basis shows an `entry_qualified` night (night ≥ 0.25 AND day ≥ 0.10, same room); lock regime one `lock` at 22:00, a `guest_yield_hold` at ~22:05, no `unlock` before WAKING; ends the morning after the third empty night. Organic: dispose by this discriminator per the soak-exit rule |
 | L6 | no trip-wire noise | URA DB `notification_log` | no `guest_stay_long` row while no guest is staying |
 | L7 | logs | HA log | no `Guest stay walk failed` WARNING |
 
