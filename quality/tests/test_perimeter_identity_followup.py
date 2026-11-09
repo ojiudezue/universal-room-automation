@@ -384,3 +384,86 @@ def test_async_notify_not_quiet_critical_unchanged():
     nm._send_tts.assert_awaited_once()
     nm._enter_alerting.assert_awaited_once()
     nm._schedule_panel_delivery.assert_called_once()
+
+
+# --------------------------------------------------------------------------
+# Review fix-up (v5.107.5): restart recovery, companion actions, TTS slots
+# --------------------------------------------------------------------------
+
+def test_quiet_followup_does_not_consume_tts_or_light_slots():
+    hass, nm = _quiet_nm()
+    asked: list = []
+    real = nm._channel_ready
+    nm._channel_ready = lambda ch, *a, **k: asked.append(ch) or real(ch, *a, **k)
+    asyncio.run(nm.async_notify(
+        "perimeter_alert", Severity.CRITICAL, "Perimeter Alert — Identified",
+        "Front door: that was Jaya",
+        hazard_type=_const.NM_HAZARD_EXTERIOR_PERSON, location=DB_PR, quiet=True,
+    ))
+    assert "tts" not in asked and "lights" not in asked
+
+
+def test_companion_quiet_has_no_actions():
+    hass = _nm_hass()
+    nm = NotificationManager(hass, _cfg_all_channels())
+    asyncio.run(nm._send_companion("T", "m", Severity.CRITICAL, "notify.mobile_app_x",
+                                   is_critical=False, quiet=True))
+    data = hass.services.async_call.await_args.args[2]
+    assert "data" not in data            # no actions, no critical sound
+    hass2 = _nm_hass()
+    nm2 = NotificationManager(hass2, _cfg_all_channels())
+    asyncio.run(nm2._send_companion("T", "m", Severity.HIGH, "notify.mobile_app_x"))
+    actions = hass2.services.async_call.await_args.args[2]["data"]["actions"]
+    assert actions[0]["action"] == "ACKNOWLEDGE_URA"   # non-quiet unchanged
+
+
+def test_async_notify_quiet_threads_quiet_to_companion():
+    _hass, nm = _quiet_nm()
+    asyncio.run(nm.async_notify(
+        "perimeter_alert", Severity.HIGH, "Perimeter Alert — Identified", "x",
+        hazard_type=_const.NM_HAZARD_EXTERIOR_PERSON, location=DB_PR, quiet=True,
+    ))
+    assert nm._send_companion.await_args.kwargs["quiet"] is True
+
+
+def _real_db(tmp_path):
+    from test_imsg_audit_fix_1 import _make_db
+    return _make_db(str(tmp_path))
+
+
+@pytest.mark.parametrize("quiet,expect_repeating", [(True, False), (False, True)])
+def test_restart_recovery_never_resumes_paging_for_quiet_followup(tmp_path, quiet, expect_repeating):
+    """A quiet CRITICAL follow-up row exists, NM restarts: NO resumed paging.
+    Control (quiet=False): the same CRITICAL DOES resume (recovery live)."""
+    from test_imsg_audit_fix_1 import _drain
+    from custom_components.universal_room_automation.domain_coordinators.notification_manager import AlertState
+
+    db = _real_db(tmp_path)
+
+    async def _do():
+        await db.initialize()
+        await db.start_write_worker()
+        hass = _nm_hass()
+        _put_house_awake(hass)
+        hass.data[_const.DOMAIN]["database"] = db
+        cfg = _cfg_all_channels(persons=[_immediate_person()])
+        nm = NotificationManager(hass, cfg)
+        for name in ("_send_pushover", "_send_companion", "_send_imessage", "_send_tts"):
+            setattr(nm, name, AsyncMock())
+        nm._send_whatsapp = AsyncMock(return_value=True)
+        nm._enter_alerting = AsyncMock()
+        nm._schedule_panel_delivery = MagicMock()
+        await nm.async_notify(
+            "perimeter_alert", Severity.CRITICAL, "Perimeter Alert — Identified",
+            "Front door: that was Jaya",
+            hazard_type=_const.NM_HAZARD_EXTERIOR_PERSON, location=DB_PR, quiet=quiet,
+        )
+        await _drain(db)
+        # "Restart": a fresh NM recovers from the same DB.
+        hass2 = _nm_hass()
+        hass2.data[_const.DOMAIN]["database"] = db
+        nm2 = NotificationManager(hass2, cfg)
+        await nm2._recover_state_from_db()
+        return nm2.alert_state == AlertState.REPEATING
+
+    assert asyncio.run(_do()) is expect_repeating

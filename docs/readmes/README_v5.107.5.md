@@ -5,8 +5,8 @@ notification, and the operator ruled that a separate follow-up message is fine.
 
 ## What it does
 
-A door camera that is also a perimeter camera ("dual-role") may page for an unknown person. Protect
-back-fills the face name 40-80 s later. When that happens, the house now sends one short follow-up:
+A door camera that is also a perimeter camera ("dual-role") may page for an unknown person. If the house
+identifies that person within 90 s, it now sends one short follow-up:
 
 > **Perimeter Alert — Identified**: Front door: that was Jaya
 
@@ -29,6 +29,25 @@ The same `_known_identity_for` rule D10.5 uses: an egress-bus identity or a scor
 unscored Frigate face plus a real arrival of the same person (person tracker or Bermuda). This complies with
 manual §5.5(a), since the follow-up only annotates. It never changes the original alert's severity.
 
+**Which sources can actually fire it (review fix, item 7).** The original plan assumed Protect back-fills face
+names onto the door cameras in 40-80 s. On develop (v5.107.1, `camera_census.py:3343`) the Protect face entity
+legs are a parked bridge with no live source. So today only two sources can fire the follow-up:
+- the egress identity bus event (`ura_person_egress_event` with `identity_confidence` ≥ 0.9). Its detection
+  timestamp must be within ±15 s of the edge (`PERIMETER_EGRESS_IDENTITY_MATCH_S`), so it usually lands
+  near the alert rather than late;
+- a Frigate face match on the door camera plus a real arrival of the same person: a live `person.*`
+  not_home → home edge, or a Bermuda move into the door's area, within 120 s.
+
+If a scored Protect face leg goes live again, it qualifies automatically at ≥ 0.9.
+
+**Different-person limitation (review item 5).** During the window, any known identity that lands on the same
+camera key is attributed to this alert. That includes a second known person who crosses at, say, t+80 s. A
+name latched more than 15 s before the edge is rejected, and one within ±15 s would already have demoted the
+alert at D10.5, so this only affects a genuinely new identity during the window. The follow-up text says
+"that was <name>". In this case it is wrong about who the unknown person was, but still correct that a
+known person is at the door. This is accepted for an annotation-only message. Correlating each identity to
+its crossing would need person-in-frame data that URA does not have.
+
 ### Bounded listener and discharge
 - A chained `async_call_later` re-checks identity every `PERIMETER_IDENTITY_FOLLOWUP_POLL_S` (5 s) up to
   `PERIMETER_IDENTITY_FOLLOWUP_WINDOW_S` (90 s). Elapsed time is the sum of the scheduled delays.
@@ -38,6 +57,12 @@ manual §5.5(a), since the follow-up only annotates. It never changes the origin
   same camera key, whether or not that alert arms its own follow-up.
 - Restart: pending follow-ups are in-memory only and lost on restart. A restart within 90 s of a page drops the
   follow-up, which is acceptable for an annotation.
+- Restart recovery (review HIGH fix): a quiet follow-up's `notification_log` rows keep their TRUE severity
+  (e.g. CRITICAL), which keeps the audit trail honest, but they are written already acknowledged
+  (`acknowledged=1`). This is the same idiom as the `[ACK]` audit row. As a result, `get_active_critical` /
+  `get_active_criticals` never return one, and NM restart recovery can't resume siren paging for "that was
+  Jaya". I chose this over logging below CRITICAL because a lower-severity row would misstate what the
+  operator received.
 
 ### Delivery — `async_notify(..., quiet=True)` (new keyword, default False = byte-identical)
 The follow-up goes at the original severity, so it clears the same per-channel severity floors and reaches the
@@ -46,9 +71,9 @@ same recipients and channels. Each channel uses its quiet form:
 | Channel | Original (CRITICAL / HIGH) | Follow-up (`quiet=True`) |
 |---|---|---|
 | Pushover | `priority 1` + `sound: siren` / `priority 1` | `priority` = `NM_QUIET_PUSHOVER_PRIORITY` (0, normal, no siren) |
-| Companion | critical sound + safe-word actions (CRITICAL) | standard push, no critical sound |
+| Companion | critical sound + safe-word actions (CRITICAL) | standard push, no critical sound, **no action buttons** (the one-tap "Acknowledge" would bulk-ack every open CRITICAL without the safe word) |
 | WhatsApp / iMessage | message + response menu | plain message, no response menu |
-| Wall panel, TTS, alert lights | fire per gates | skipped |
+| Wall panel, TTS, alert lights | fire per gates | skipped (`not quiet` is checked before the TTS/lights rate-limit checks, so no slot is consumed) |
 | CRITICAL ack/re-page engine | started | not started |
 
 Thread or tag: NM has no thread, tag or reply primitive on any channel (no `tag` in `_send_companion`, no
@@ -63,7 +88,7 @@ because the title differs.
 | Knob | Rung | Default | Why |
 |---|---|---|---|
 | `switch.ura_perimeter_identity_followup` (`CONF_PERIMETER_IDENTITY_FOLLOWUP`) | 3 (options-backed switch, reload-suppressed, fresh-read per alert) | ON | operator kill switch |
-| `PERIMETER_IDENTITY_FOLLOWUP_WINDOW_S` | 1 | 90 | covers the Protect 40-80 s name back-fill; 0 disables |
+| `PERIMETER_IDENTITY_FOLLOWUP_WINDOW_S` | 1 | 90 | operator-chosen bound; covers the 120 s face+arrival rule's typical lag, and a revived Protect back-fill (40-80 s); 0 disables |
 | `PERIMETER_IDENTITY_FOLLOWUP_POLL_S` | 1 | 5 | re-check cadence |
 | `NM_QUIET_PUSHOVER_PRIORITY` (notification_manager.py) | 1 | 0 | Pushover normal priority; -1 would be fully quiet |
 
@@ -87,18 +112,30 @@ cancel; the stale-tick guard; pop-before-send; window expiry; the teardown disch
 NM's Pushover quiet branch and its threading; companion non-critical; and the TTS, panel, re-page and
 response-menu skips.
 
+Review fix-up: 5 more tests (31 total). They cover a real-DB restart-recovery test with a quiet=False
+control, the Companion no-actions check, `quiet` threaded through to Companion, and TTS/lights slots not
+consumed. 9 more drills, all RED: `_row_ack`, each of the four per-channel `acknowledged=_row_ack` rows, the
+Companion quiet branch, `quiet` threading to Companion, and the TTS and lights short-circuits. The audit-row
+`acknowledged=_row_ack` is a belt with no drill of its own: `[audit]` rows are already excluded by
+`get_active_critical`.
+
 ## Acceptance (live)
-- **Live:** after an unknown-person page from a dual-role door camera, when Protect names a resident within 90 s,
-  one `Perimeter Alert — Identified` message arrives on the same channels, and Pushover shows no siren.
+- **Live:** after an unknown-person page from a dual-role door camera, when a resident is identified within 90 s
+  by the egress identity event (≥ 0.9) or by a Frigate face plus a real arrival, one `Perimeter Alert —
+  Identified` message arrives on the same channels, and Pushover shows no siren. Because both sources are
+  sparse (manual §5.5(c)), this may not occur in a short live window. If it doesn't, the one-shot disposition
+  query is the count of `notification_log` rows titled `Perimeter Alert — Identified`, together with the
+  `identity_followup` gate entries, over the first week. Zero there is a coverage finding, not a pass.
   Evidence: `notification_log` rows with title `Perimeter Alert — Identified`, and the `identity_followup`
   entry in `sensor` gate-decision diagnostics (`gate_decisions_by_camera.<key>.identity_followup`).
 - **Live:** no follow-up row ever follows a LOW/demoted perimeter alert. Check by joining `notification_log` on
   title and location.
+- **Live:** every `Perimeter Alert — Identified` row has `acknowledged = 1`.
 
 ## Not done
 - No per-channel thread or edit: NM has no such primitive. Revival trigger: NM gains a companion `tag` or a
   Pushover receipt-replace path.
 - No event-driven re-check on the egress bus. A 5 s poll is enough for a 90 s window, and adding a second call
   site isn't worth it.
-- Measure-before-build (manual §5.5(c)): the value depends on Protect naming people at the door cameras, which
-  is sparse. The operator approved it as low-cost. The live rate shows up in `notification_log`.
+- Measure-before-build (manual §5.5(c)): the value depends on the egress identity event or a Frigate face plus
+  an arrival at the door cameras, both sparse. Protect face legs are parked on develop. The operator approved it as low-cost. The live rate shows up in `notification_log`.

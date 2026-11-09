@@ -1853,6 +1853,12 @@ class NotificationManager:
 
         # Determine which channels qualify by severity threshold
         channels_fired: list[str] = []
+        # PERIMETER-IDENTITY-FOLLOWUP-1 review HIGH: a quiet follow-up is
+        # informational. Its rows keep their TRUE severity but are written
+        # pre-acknowledged (same idiom as the [ACK] audit row) so
+        # get_active_critical / get_active_criticals never resurrect one as
+        # a live CRITICAL (restart recovery would resume siren paging).
+        _row_ack = 1 if quiet else 0
 
         # --- Global channels (TTS, Alert Lights) — always immediate ---
         # NM Cycle C fix-up (2026-07-20, D-R1 HIGH / C-INV-3 over-delivery):
@@ -1873,11 +1879,12 @@ class NotificationManager:
             not self._is_quiet_hours()
             or self._recipient_bypasses_dnd(None, hazard_type, severity)
         )
-        _tts_gate = (
+        # Quiet follow-up: `not quiet` first so it never consumes a slot.
+        _tts_gate = not quiet and (
             self._channel_qualifies("tts", severity) if self._dry_run_active
             else self._channel_ready("tts", severity, hazard_type)
         )
-        if _global_dnd_ok and _tts_gate and not quiet:
+        if _global_dnd_ok and _tts_gate:
             await self._send_tts(title, message)
             channels_fired.append("tts")
             if database and not self._dry_run_active:
@@ -1886,11 +1893,11 @@ class NotificationManager:
                     hazard_type, location, None, "tts", 1,
                 )
 
-        _lights_gate = (
+        _lights_gate = not quiet and (
             self._channel_qualifies("lights", severity) if self._dry_run_active
             else self._channel_ready("lights", severity, hazard_type)
         )
-        if _global_dnd_ok and _lights_gate and not quiet:
+        if _global_dnd_ok and _lights_gate:
             await self._trigger_alert_lights(hazard_type or "warning", severity)
             channels_fired.append("lights")
             if database and not self._dry_run_active:
@@ -2026,6 +2033,7 @@ class NotificationManager:
                         await database.log_notification(
                             coordinator_id, severity_str, title, message,
                             hazard_type, location, person_id, "pushover", 1,
+                            acknowledged=_row_ack,
                         )
             if (
                 effective_pref == NM_DELIVERY_DIGEST
@@ -2047,6 +2055,7 @@ class NotificationManager:
                         is_critical=(severity == Severity.CRITICAL and not quiet),
                         snapshot_url=snapshot_url,
                         snapshot_path=snapshot_path,
+                        quiet=quiet,
                     )
                     channels_fired.append("companion")
                     fired_for_person.append("companion")
@@ -2054,6 +2063,7 @@ class NotificationManager:
                         await database.log_notification(
                             coordinator_id, severity_str, title, message,
                             hazard_type, location, person_id, "companion", 1,
+                            acknowledged=_row_ack,
                         )
             if (
                 effective_pref == NM_DELIVERY_DIGEST
@@ -2080,6 +2090,7 @@ class NotificationManager:
                             coordinator_id, severity_str, title, message,
                             hazard_type, location, person_id, "whatsapp",
                             1 if _wa_ok else NM_DELIVERED_FAILED,
+                            acknowledged=_row_ack,
                         )
             if (
                 effective_pref == NM_DELIVERY_DIGEST
@@ -2103,6 +2114,7 @@ class NotificationManager:
                         await database.log_notification(
                             coordinator_id, severity_str, title, message,
                             hazard_type, location, person_id, "imessage", 1,
+                            acknowledged=_row_ack,
                         )
             if (
                 effective_pref == NM_DELIVERY_DIGEST
@@ -2157,6 +2169,7 @@ class NotificationManager:
                     matrix_branch=_matrix_branch,
                     delivered=1 if per_person_fired else 0,
                     dry_run=1 if self._dry_run_active else 0,
+                    acknowledged=_row_ack,
                 )
 
         # Activity log: notification sent
@@ -2400,6 +2413,7 @@ class NotificationManager:
         *,
         menu_safe: bool = False,
         reply: bool = False,
+        quiet: bool = False,
     ) -> None:
         """Send notification via HA Companion App.
 
@@ -2421,8 +2435,11 @@ class NotificationManager:
                 "title": title,
                 "message": message,
             }
-            if reply:
-                pass  # no actions on a reply
+            if reply or quiet:
+                # No actions on a reply or a quiet follow-up: the plain
+                # Acknowledge button bulk-acks every open CRITICAL without
+                # the safe word (review MEDIUM, v5.107.5).
+                pass
             elif is_critical:
                 data["data"] = {
                     "actions": [
