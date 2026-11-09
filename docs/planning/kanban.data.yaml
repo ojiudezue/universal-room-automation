@@ -347,6 +347,20 @@ cards:
   next: "Investigation: URA prober (alert history + snapshot review + storage) and HomeLab (Frigate 2 config inventory + storage), read-only; then a lever table for operator OK."
   links: {related: [PERIMETER-PHANTOM-XCORR-1]}
   adjacency_2026_11_08: "Prior art: PERIMETER-PHANTOM-XCORR-1 (done, phantom person + double send + cross-NVR check), docs/planning/AUDIT_perimeter_fp_correlation.md, PLANNING_perimeter_consolidation.md, PLANNING_snap1_at_detection_snapshots.md. ADJACENT not duplicate: new FP classes (street noise) and storage/archival."
+- id: PERSON-PROFILE-PREFERENCES-1
+  title: "Per-person profile for identified household members: their bedroom(s)/bathroom, room ownership (incl. shared owners e.g. master), playlist, opt-in/out of automated arrival actions, welcome scene"
+  thread: identity
+  status: pre_planning
+  tier: 2
+  created: "2026-11-08 20:30"
+  updated: "2026-11-08 20:30"
+  rank: {value: 4, time_criticality: 2, effort: 4}
+  origin: "Operator 2026-11-08: 'I supposed we need a place to record personal preferences for identified home people ie bedroom, bathroom, playlist, automate my entries vs not, etc. bedrooms may have a designated owner or owners (master) so there can be a welcome scene, etc.'"
+  why: "6.0.0 consumers (arrival/departure keyed to person_id, guest gate) need to know what a known person's arrival should DO. Today nothing records which rooms belong to whom or a person's preferences, so person-keyed actions have no target."
+  next: "Pre-plan (prior-art scan FIRST, per the Tier 2+ rule): where it lives (room-entry 'owners' field vs a per-person profile vs both), which consumers read it (arrival actions, Music Following playlist, welcome scene, notifications), per-person automation opt-out semantics, and guests. Pairs with the arrival/departure-by-person work."
+  constraints: "ROADMAP_v11.md:39/266 PERMANENTLY CUT per-person temperature preferences ('HVAC zone model makes this impractical'). Do not re-propose per-person setpoints; a room owner may still drive the room's own actions. Don't duplicate existing per-person data: CONF_TRACKED_PERSONS (const.py:173), NM per-person channel/handle config, BLE scanner_areas, PLANNING_hvac_guest_as_zone_person.md, PLANNING_known_person_annotation.md."
+  links: {related: [FACE-SOURCE-REGISTRY-DISCOVERY-1]}
+  adjacency_2026_11_08: "Grepped const.py for owner/pref/bedroom CONF keys (none) and the board for person preference/room owner (none; 'owner' hits are entity/cover ownership, a different concept). Planning docs to read in the pre-plan: known_person_annotation, hvac_guest_as_zone_person, owner_set_registry_refactor (entity owners, not people). NEW."
 - id: FACE-SOURCE-REGISTRY-DISCOVERY-1
   title: "Face-name sources are found by entity-name pattern (<camera>_last_recognized_face[_2]); make discovery home-agnostic via the device/entity registry for Frigate and Protect"
   thread: identity
