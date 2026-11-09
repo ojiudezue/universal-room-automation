@@ -2739,6 +2739,13 @@ NM_ROUTE_REASON_ENRICHMENT_FAILED_FALL_THROUGH: Final[str] = (
 # GUEST default extracted so a follow-up cycle can flip it without churning
 # the full mapping table (plan D2).
 NM_HAZARD_EXTERIOR_PERSON_GUEST_SEVERITY: Final = "MEDIUM"
+# GUEST-MODE-SPLIT review E-M2 (operator approved 2026-11-09): GUEST now lasts
+# the whole daytime of a multi-week stay, so two GUEST cases keep the HIGH
+# they get in HOME_DAY instead of the GUEST MEDIUM (which the live NM routing
+# delivers nowhere): a perimeter "circling" track, and a person at an egress
+# (door) camera when no resident is home. Rung 1 (alert policy; reviewed
+# change). False = every GUEST case MEDIUM (pre-change).
+NM_HAZARD_EXTERIOR_PERSON_GUEST_KEEP_HIGH: Final = True
 
 # House-state (HouseState StrEnum values are lowercase, e.g. "away") →
 # Severity name. Fallback (unknown / missing / None) is CRITICAL (fail-safe
@@ -2833,6 +2840,11 @@ def NM_HAZARD_EXTERIOR_PERSON_CONTEXTUAL_SEVERITY(  # noqa: N802 (const-like)
         return "MEDIUM"
 
     if hs == "guest":
+        if NM_HAZARD_EXTERIOR_PERSON_GUEST_KEEP_HIGH:
+            if cc == "perimeter" and tc == "circling":
+                return "HIGH"
+            if cc == "egress" and ph == 0:
+                return "HIGH"
         return NM_HAZARD_EXTERIOR_PERSON_GUEST_SEVERITY
 
     # case _:  — fail-safe (unknown / missing / None / future value)

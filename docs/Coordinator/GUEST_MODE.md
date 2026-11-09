@@ -137,7 +137,7 @@ night.
 | 5 | Dynamic preset per-zone offset reset under GUEST | `dynamic_preset.py:860-863` | trust | rare | zones with `zone_dynamic_preset_reset_offset_guest` lose their offset by day for the whole stay (live: Back Hallway offset 1.0 → 0; Upstairs offset 0, no effect) |
 | 6 | Security auto-follow guest → ARMED_HOME | `security.py:183`, `:1251` | trust (arming) | — | inert live (`security_auto_follow` False). If enabled: a HIGH "armed_home" NM every stay morning after WAKING disarms |
 | 7 | SC lock regime (GUEST in sleep window) | `security_lock_regime.py:764-791`, `:803-823`, `:1424` | trust (lock) | overnight GUEST locked via guest clock | lock once at 22:00, held across the yield (§6) |
-| 8 | NM exterior-person contextual severity: GUEST → MEDIUM | `const.py:2751`, `:2835` | trust (severity) | MEDIUM during short spells and overnight GUEST (night de-escalated from CRITICAL) | daytime of a stay: MEDIUM for everything, including perimeter circling (HIGH in HOME_DAY) and "no resident home" (HIGH in HOME_DAY). MEDIUM reaches no channel under the live NM config (companion is HIGH+), so those daytime HIGH alerts are not delivered during a stay. Nights now CRITICAL (improvement). Review E M2 |
+| 8 | NM exterior-person contextual severity in GUEST | `const.py` `NM_HAZARD_EXTERIOR_PERSON_CONTEXTUAL_SEVERITY` guest branch; consumer `perimeter_alert.py` `_severity_for_current_house_state` | trust (severity) | MEDIUM during short spells and overnight GUEST (night de-escalated from CRITICAL) | daytime of a stay: MEDIUM, EXCEPT two cases kept at HIGH (review E-M2, operator approved 2026-11-09): a perimeter "circling" track, and a person at an egress (door) camera with no resident home. Knob `NM_HAZARD_EXTERIOR_PERSON_GUEST_KEEP_HIGH` (rung 1, True; False = all MEDIUM). Everything else stays MEDIUM, which reaches no channel under the live NM config (companion is HIGH+). Nights now CRITICAL (improvement) |
 | 9 | NM quiet hours (`sleep`/`home_night`) | `notification_manager.py:4643` | trust (delivery) | overnight GUEST = no quiet hours | stay nights are quiet (improvement) |
 | 10 | Bayesian learning suppressed in GUEST | `__init__.py:3274-3279`, `bayesian_predictor.py:547` | trust (learning) | paused during short spells | paused by day for the stay; resumes each night (guest nights are learned) |
 | 11 | Optimizer prediction-accuracy finding skipped while learning is suppressed | `optimization.py:4142-4150` | display (advisory) | rare | no accuracy finding by day during a stay |
@@ -213,3 +213,9 @@ running. All are acceptable; the alert change is in the stricter direction.
   night. The 28-day trip-wire is the backstop (max night fraction 0.02 over 10-18..11-08, so not occurring now).
 - **During a stay** the house-wide HVAC legacy path (§7 row 2) and the daytime alert de-escalation (§7 row 8) apply to
   the whole house, not only the guest's zone.
+
+## 10. Open items
+
+| Item | Status |
+|---|---|
+| **GUEST uses the pre-v5.103.20 occupancy path** (review E-M1; §7 row 2). In GUEST every HVAC zone runs without the evidence clock, release back-fill, fast-exit timer or D5 away-edge transit filter (`hvac_const.py:1097` `HVAC_EVIDENCE_RULE_STATES` lists only `home_day` / `home_evening`). Comfort-safe (holds, not drops); energy cost only. | OPEN, not changed in v5.108.0 (operator: do not change HVAC in this cycle). Candidate fix: add `guest` to `HVAC_EVIDENCE_RULE_STATES` under an HVAC Tier 2 review. |

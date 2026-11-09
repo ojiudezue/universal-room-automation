@@ -354,11 +354,33 @@ def test_A1_arriving_perimeter_circling_stays_medium():
     assert fn("arriving", camera_class="perimeter", track_class="circling", persons_home=1) == "MEDIUM"
 
 
-def test_A1_guest_perimeter_circling_stays_guest_severity():
-    """Row 9 (guest) must keep GUEST severity even under circling."""
-    assert fn("guest", camera_class="perimeter", track_class="circling", persons_home=1) == (
-        _const.NM_HAZARD_EXTERIOR_PERSON_GUEST_SEVERITY
-    )
+def test_A1_guest_perimeter_circling_is_high():
+    """GUEST-MODE-SPLIT review E-M2 (operator 2026-11-09): GUEST perimeter
+    circling keeps HIGH (was the GUEST MEDIUM). Literal oracle."""
+    assert fn("guest", camera_class="perimeter", track_class="circling", persons_home=1) == "HIGH"
+    assert fn("guest", camera_class="perimeter", track_class="circling", persons_home=0) == "HIGH"
+
+
+@pytest.mark.parametrize("cc,tc,ph,expect", [
+    ("egress", "first_sighting", 0, "HIGH"),     # door, no resident home
+    ("egress", "approach", 0, "HIGH"),
+    ("egress", "first_sighting", 1, "MEDIUM"),   # resident home: GUEST MEDIUM
+    ("perimeter", "approach", 0, "MEDIUM"),      # not circling, not a door
+    ("perimeter", "first_sighting", 0, "MEDIUM"),
+    ("perimeter", "linger", 1, "MEDIUM"),
+    (None, None, 0, "MEDIUM"),
+])
+def test_guest_keep_high_rows(cc, tc, ph, expect):
+    """E-M2: only circling and door-with-no-resident are HIGH in GUEST."""
+    assert fn("guest", camera_class=cc, track_class=tc, persons_home=ph) == expect
+
+
+def test_guest_keep_high_knob_off(monkeypatch):
+    """NM_HAZARD_EXTERIOR_PERSON_GUEST_KEEP_HIGH False -> every GUEST case is
+    the GUEST MEDIUM (pre-change)."""
+    monkeypatch.setattr(_const, "NM_HAZARD_EXTERIOR_PERSON_GUEST_KEEP_HIGH", False)
+    assert fn("guest", camera_class="perimeter", track_class="circling", persons_home=1) == "MEDIUM"
+    assert fn("guest", camera_class="egress", track_class="first_sighting", persons_home=0) == "MEDIUM"
 
 
 def test_A1_waking_perimeter_circling_still_critical():

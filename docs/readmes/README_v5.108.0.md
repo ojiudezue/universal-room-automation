@@ -50,8 +50,11 @@ What the operator will notice:
 - A resident who spends a day and a night in Guest Bedroom 2 also enters GUEST (no GB2 scanner, so Bluetooth
   cannot subtract them). Set `GUEST_STAY_ENTRY_NIGHTS` to 2 to require a second night.
 - A daytime visitor in a guest room no longer switches the house to GUEST.
-- During a stay, HVAC zones use the slower GUEST tail by day (more comfort, a little more energy), NM exterior-person
-  alerts use the GUEST daytime severity, and Bayesian learning pauses by day. Nights are unchanged.
+- During a stay, HVAC zones use the pre-v5.103.20 occupancy path by day (no evidence clock or fast exit: more comfort,
+  a little more energy; open item, `docs/Coordinator/GUEST_MODE.md` §10), NM exterior-person alerts use the GUEST
+  daytime severity (MEDIUM) except a perimeter "circling" person and a person at a door with no resident home, which
+  stay HIGH (`NM_HAZARD_EXTERIOR_PERSON_GUEST_KEEP_HIGH`, rung 1, True), and Bayesian learning pauses by day. Nights
+  are unchanged.
 - The house-state sensor gains `guest_stay_active`, `guest_stay_since` and `guest_stay_basis` (the last 3 nights,
   with the room, night `fraction`, `day_fraction`, `qualifies` and `entry_qualified` for each). `guest_reason` reads `night_stay:<rooms>` during a stay; `guest_room:<room>`
   now means a visitor in a guest room, not GUEST.

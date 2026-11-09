@@ -1494,12 +1494,27 @@ class TestPerZoneButtons:
         # Window widened 3000->3600 as the CM entity list grows with new
         # diagnostic/maintenance buttons (e.g. VacuumDatabaseButton) that sit
         # between the marker and the per-zone _make_ac_ramp_button calls.
-        idx = button_src.find("ENTRY_TYPE_COORDINATOR_MANAGER")
-        # Widen window as CM entity list grows (NM Cycle C added a per-
-        # person primary-channel mute button block above the per-zone
-        # loop). 3600 -> 4400. Magic retained: setup-function local, no
-        # structural next-boundary.
-        body = button_src[idx:idx + 5200]
+        # BOUNDED BY STRUCTURE (GUEST-MODE-SPLIT, 2026-11-09; was a fixed
+        # 5200-char window that the Guest-left button pushed clear_lockout
+        # out of): the per-zone `for ... in enumerate(_discover_ac_zones(`
+        # loop inside the CM-entry `if` block, bounded by indentation.
+        lines = button_src.splitlines()
+        cm = next(i for i, ln in enumerate(lines)
+                  if "== ENTRY_TYPE_COORDINATOR_MANAGER:" in ln)
+        cm_ind = len(lines[cm]) - len(lines[cm].lstrip())
+
+        def _block_end(start, indent):
+            for j in range(start + 1, len(lines)):
+                ln = lines[j]
+                if ln.strip() and len(ln) - len(ln.lstrip()) <= indent:
+                    return j
+            return len(lines)
+
+        cm_end = _block_end(cm, cm_ind)
+        loop = next(i for i in range(cm, cm_end)
+                    if "in enumerate(_discover_ac_zones(" in lines[i])
+        loop_ind = len(lines[loop]) - len(lines[loop].lstrip())
+        body = "\n".join(lines[loop:_block_end(loop, loop_ind)])
         for action in ("force_nudge", "cancel_nudge", "clear_lockout"):
             assert f'"{action}"' in body
 
