@@ -2,6 +2,23 @@
 
 Tier 1 hotfix. Card: LOCK-ENTRY-AREAS-WRONG-OBJECT-1.
 
+## Release contents (combined release)
+
+v5.107.1 to v5.107.5 were built and reviewed as separate cycles but never released on their own. They ship in this
+release, with one HA restart at the end of the perimeter-identity arc. Each has its own README:
+
+| Version | Card | README |
+|---|---|---|
+| v5.107.1 | FACE-SOURCE-REGISTRY-DISCOVERY-1: face sensors found via the HA registry; 17 skipped `_2` cameras fixed | README_v5.107.1.md |
+| v5.107.2 | PERIMETER-FRIGATE-SNAPSHOT-CAPTURE-NEVER-1: Frigate event snapshot fetched over the internal URL | README_v5.107.2.md |
+| v5.107.3 | (no card, operator) daily HA external-URL self-check with a Repairs issue | README_v5.107.3.md |
+| v5.107.4 | LOCK-REGIME-FACE-ARRIVAL-CORROBORATION-1: face-based lock releases need a same-person arrival edge | README_v5.107.4.md |
+| v5.107.5 | PERIMETER-IDENTITY-FOLLOWUP-1: one quiet "that was &lt;name&gt;" follow-up on door alerts | README_v5.107.5.md |
+| v5.107.6 | LOCK-ENTRY-AREAS-WRONG-OBJECT-1: this README | — |
+
+Pre-deploy gate (2026-11-09): full-suite name-diff of develop `d0a2d87a` against v5.107.0 `b9c1b3d0` showed 0 NEW and
+0 GONE failures. The isolated gate over 346 files also showed 0 NEW. The D7 anchors all passed.
+
 ## The bug
 
 Two consumers added in the v5.107.x arc looked up `hass.data[DOMAIN]["transit_validator"]` to get door
