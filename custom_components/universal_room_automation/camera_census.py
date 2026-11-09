@@ -3711,6 +3711,15 @@ class PersonCensus:
         # (still ~5 registry entries) and self-heals as soon as Frigate
         # entries appear.
         cached = getattr(self, "_frigate_person_last_camera_map", None)
+        # FACE-SOURCE-REGISTRY-DISCOVERY-1 review B-3: also rebuild when the
+        # CameraResolver instance changed (it is rebuilt after every
+        # entity/device-registry update), so a runtime rename of a
+        # last_camera sensor is picked up without a restart. Same keying as
+        # the latch-stem cache (id(resolver)).
+        _rid = id(self._face_source_resolver())
+        if cached and getattr(self, "_frigate_person_last_camera_map_rid", None) != _rid:
+            cached = None
+        self._frigate_person_last_camera_map_rid = _rid
         if not cached:
             cached = self._build_frigate_person_last_camera_map()
             self._frigate_person_last_camera_map = cached
@@ -3795,15 +3804,26 @@ class PersonCensus:
         silently altering that surface without its own review.
         """
         fresh: set[str] = set()
+        try:
+            _interior_ids = set(self._get_interior_camera_entities() or [])
+        except Exception:  # noqa: BLE001 — fail-closed: no `_N` device join
+            _interior_ids = set()
         for camera_info in self._camera_manager.get_all_frigate_cameras():
             bs_id = camera_info.entity_id
             if bs_id.endswith("_person_occupancy"):
                 base_name = bs_id[len("binary_sensor."):-len("_person_occupancy")]
                 # CENSUS-ACCURACY-1 D2: `_2`-suffix-tolerant resolver.
                 face_sensor_id = self._resolve_face_entity_id(base_name)
-            else:
-                # FACE-SOURCE-REGISTRY-DISCOVERY-1 D3 (S6): device join.
+            elif bs_id in _interior_ids:
+                # FACE-SOURCE-REGISTRY-DISCOVERY-1 D3 (S6): device join, INTERIOR
+                # cameras only (review B-1). A fresh face here marks the whole
+                # house corroborated and disarms the uncorroborated-divergence
+                # downgrade (_cross_validate_platforms); an exterior / egress /
+                # perimeter `_N` face must not do that (garage face + playroom
+                # phantom repro). Exterior `_N` cameras keep the legacy skip.
                 face_sensor_id = self._device_derived_face_entity_id(bs_id)
+            else:
+                continue
             if face_sensor_id is None:
                 continue
             try:

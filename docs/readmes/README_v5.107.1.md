@@ -16,7 +16,7 @@ entities would lose face sources the same way.
 | Item | What | Default |
 |---|---|---|
 | D2 | Frigate face-name sensors are found by their unique_id type token (`sensor_recognized_face`) and device, in the same registry pass `CameraResolver` already makes. Built names are the fallback when the registry has nothing for a camera. A stem never resolves to a face sensor the old path would not name; a renamed face sensor now resolves. | on (`FACE_SOURCE_REGISTRY_DISCOVERY_ENABLED`) |
-| D3 | Census face reads (face union, corroboration, guest count) read the face sensor of a `_2` / renamed person sensor through its device. The guest count can only go down: a fresh named face makes it `count - 1`; no face sensor keeps the whole count unrecognized. On this house that changes playroom only (upstairs_hall's Frigate sensor is not in the interior list). | on (`FACE_SOURCE_INCLUDE_DISAMBIGUATED_PERSON_SENSORS`) |
+| D3 | Census face reads of a `_2` / renamed Frigate person sensor go through its device. Scope per reader: **S7 guest count** (interior cameras only, as before) can only go down: a fresh named face makes it `count - 1`; no face sensor keeps the whole count unrecognized. On this house that is playroom only (upstairs_hall's Frigate sensor is not in the interior list). **S6 corroboration** (the freshness-gated face set that can block the uncorroborated-divergence downgrade) takes the device join for INTERIOR cameras only (review B-1): an exterior / egress / perimeter `_2` face (garage_a, doorbell_lite, ...) still does not corroborate, so it cannot keep a playroom phantom count alive. Interior `_2` faces (playroom) can now corroborate, which can keep a divergent count instead of downgrading it (the upward direction, interior evidence only). **S5 raw face union** reads every `_2` Frigate camera; it is overwritten by the enhanced census (on here) and only feeds identity on non-enhanced installs. | on (`FACE_SOURCE_INCLUDE_DISAMBIGUATED_PERSON_SENSORS`) |
 | D3 / S8 | Presence face pre-arrival on those 17 cameras is held OFF (see Operator decision). | off (`FACE_SOURCE_PRESENCE_ARRIVAL_DISAMBIGUATED`) |
 | D4 | `FaceLeg.engine` comes from the device family: `frigate` for every Frigate face, never `frigate2`. Entity and latch legs use the same helper, so they still merge into one leg. | with D2 |
 | D5 | Camera Census → Advanced → **Face name aliases**: `FaceName=person` entries. Saving it does not reload the integration. | empty |
@@ -31,9 +31,15 @@ a card.
 
 ## Operator decision needed
 1. **S8 face pre-arrival on the 17 cameras.** Presence face pre-arrival sends `SIGNAL_PERSON_ARRIVING
-   (source=camera_face)`. The SC lock regime treats it as an arrival: for a resident who was away 15 min or more it
-   releases the garage lockouts (`lock.ratgdov25i_dbfe2a_lock_remotes`, `lock.konnected_f0f5bd523b00_lock`) and, for
-   the away-lock persons (Ezinne, Oji), unlocks `lock.master_bedroom_lock`. The 17 cameras include doorbell_lite,
+   (source=camera_face)`. Every consumer of that signal:
+   - **SC lock regime** (`security_lock_regime.on_person_arriving`): for a resident who was away 15 min or more it
+     releases the garage lockouts (`lock.ratgdov25i_dbfe2a_lock_remotes`, `lock.konnected_f0f5bd523b00_lock`) and,
+     for the away-lock persons (Ezinne, Oji), unlocks `lock.master_bedroom_lock`.
+     LOCK-REGIME-FACE-ARRIVAL-CORROBORATION-1 (v5.107.4, in build) gates this consumer.
+   - **Security expected arrival** (`security.py:2282`): adds the person to the expected-arrival list (5-min
+     sanction window), when `security_on_arrival_add_expected` is on.
+   - **HVAC pre-arrival** (`hvac.py:881`): starts pre-arrival conditioning for the person's zone.
+   - **Music following** (`music_following.py:281`). The 17 cameras include doorbell_lite,
    garage_a, madrone_g6_entry and front_door_aerial. A Frigate misrecognition there would unlock. The plan review
    treated S8 as a pre-arrival accelerator and did not see this consumer. The same path already runs on the 12 bare
    cameras (including exterior madroneptultra and reolinkpatio). To turn S8 on: set
@@ -41,8 +47,9 @@ a card.
    make the lock regime ignore `camera_face` arrivals.
 2. **Alias for Oji.** The option value is `Oji=oji_udezue` (Camera Census → Advanced → Face name aliases). It does
    not change census identity (the canonicalizer already maps "Oji" to `oji_udezue`). Its only effect is that
-   presence face pre-arrival maps "Oji" to `person.oji_udezue`, which feeds the same lock-regime release and
-   away-lock unlock as above, on every camera that already does face pre-arrival. Oji is an away-lock person.
+   presence face pre-arrival maps "Oji" to `person.oji_udezue`, which feeds every consumer listed above (lock-regime
+   release and away-lock unlock, security expected arrival, HVAC pre-arrival, music following) on every camera that
+   already does face pre-arrival (the 12 bare cameras today). Oji is an away-lock person.
    Frigate labelled Jaya as "Oji" on 2026-10-24 while Oji was abroad (presence state-of-play §10 #28). Setting it is
    your call; I did not set it.
 
@@ -51,6 +58,7 @@ a card.
 |---|---|---|
 | L1 | Registry discovery is in use | `sensor.universal_room_automation_persons_in_house` attribute `face_source_registry_hits > 0` on a census tick. Broken index: hits 0 and `face_source_pattern_fallback_stems` lists Frigate face stems (e.g. `family_room`). Fallback stems that are Protect-only or non-Frigate are expected. |
 | L2 | Skip fix is live | `face_source_device_derived_cameras` lists only `*_person_occupancy_2` ids (up to the 17 from the plan §1), `face_source_skipped_person_sensors == 0`. Not wired: derived empty and skipped > 0. Join broken for all: a bare `_person_occupancy` id appears in the derived list. |
+| L3a | S6 scope | With `binary_sensor.*_person_occupancy_2` exterior cameras (garage_a, doorbell_lite) showing a fresh face and BLE all away, a lone playroom Frigate count with Protect 0 still reads `source_agreement: disagree` on the house census (downgrade fired). |
 | L3 | Guest count lowers only with a fresh face | When playroom shows a person and `sensor.playroom_last_recognized_face_2` is fresh, `area_raw_max_pre_cancel` for playroom's area is `count - 1`, not `count`. |
 | L4 | Engine label | After a named crossing, `contributor_engines` on the egress last-attach contains `frigate`, not `frigate2`. `person_entry_exit_events.confidence` for new rows only takes values seen before (0.6 / 0.72 / 0.75 / 0.9); a 0.75 on a single-camera crossing with no Protect leg is the INV-2 break. |
 | L5 | last_camera map | INFO log `D2 frigate last_camera map built: 6 entries` at the first build after restart. |

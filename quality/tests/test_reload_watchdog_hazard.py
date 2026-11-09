@@ -525,8 +525,20 @@ def test_kill_switch_disables_suppress_and_skips_dispatch(monkeypatch):
     )
 
 
+def test_face_name_aliases_in_allowlist_fresh_read():
+    """FACE-SOURCE-REGISTRY-DISCOVERY-1 D5: `face_name_aliases` is path-(a)
+    fresh-read (camera_census._get_face_name_aliases merges data+options per
+    lookup), so saving it must not reload the parent entry."""
+    ns = _load_ns()
+    allow = set(ns["INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS"])
+    assert "face_name_aliases" in allow
+
+
 def test_egress_perimeter_keys_not_in_allowlist_v1():
-    """Allowlist membership pin.
+    """Allowlist EXACT-SET pin for the whole integration allowlist (name kept
+    for baseline name-diff continuity; it covers every admitted key, not
+    only egress/perimeter — see test_face_name_aliases_in_allowlist_fresh_read
+    for the alias key's own pin).
 
     INTEGRATION-RELOAD-COMPREHENSIVE-1 Tier-2 (2026-09-07 rev-2 post Tier-3
     review): 9 fresh-read perimeter-step keys admitted; camera-list keys

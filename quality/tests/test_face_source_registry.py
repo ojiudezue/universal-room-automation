@@ -201,7 +201,7 @@ def _state(value, last_changed=None, attributes=None):
 def _census(states: dict, *, er_=None, dr_=None, cameras=None, aliases=None,
             known_guests=("Ojini",), tracked=("person.oji_udezue", "person.jaya",
                                               "person.ziri", "person.ezinne"),
-            monkeypatch=None, resolver: Any = "build"):
+            monkeypatch=None, resolver: Any = "build", interior=None):
     hass = make_hass()
     hass.states.get = lambda eid: states.get(eid)
     entry = MagicMock()
@@ -211,7 +211,8 @@ def _census(states: dict, *, er_=None, dr_=None, cameras=None, aliases=None,
         ura_const.CONF_KNOWN_FACE_GUESTS: list(known_guests),
         ura_const.CONF_ENHANCED_CENSUS: True,
         ura_const.CONF_EGRESS_IDENTITY_FAILSAFE_STRICT: False,
-        ura_const.CONF_CAMERA_PERSON_ENTITIES: list((cameras or {}).keys()),
+        ura_const.CONF_CAMERA_PERSON_ENTITIES: (
+            list(interior) if interior is not None else list((cameras or {}).keys())),
     }
     if aliases is not None:
         entry.options[ura_const.CONF_FACE_NAME_ALIASES] = list(aliases)
@@ -978,3 +979,140 @@ def test_persons_in_house_sensor_publishes_face_source_attrs():
         "binary_sensor.a_person_occupancy_2", "binary_sensor.b_person_occupancy_2"]
     assert attrs["face_source_skipped_person_sensors"] == 0
     assert attrs["face_source_skipped_cameras"] == []
+
+
+# ---------------------------------------------------------------------------
+# v5.107.1 review fix-up (B-1, B-3, C F-1, F-2, F-3)
+# ---------------------------------------------------------------------------
+
+
+def _b1_world(monkeypatch):
+    """Review B-1 repro: every resident's BLE away; Frigate garage_a (an
+    EXTERIOR `_2` camera, not in the interior list) recognised Oji 10 min
+    ago; playroom Frigate=1 / Protect=0; no zone occupied."""
+    fx = _load_fixture()
+    play, pc_p, face_p = _frigate_cam(fx, "playroom", area="area_play")
+    garage, pc_g, face_g = _frigate_cam(fx, "garage_a", area="area_garage")
+    prot = CameraInfo(entity_id="binary_sensor.playroom_person_detected",
+                      platform=ura_const.CAMERA_PLATFORM_UNIFI, area_id="area_play",
+                      person_binary_sensor="binary_sensor.playroom_person_detected")
+    now = datetime.now(UTC)
+    states = {
+        pc_p: _state("1"),
+        "binary_sensor.playroom_person_detected": _state("off"),
+        pc_g: _state("0"),
+        face_g: _state("Oji", now - timedelta(seconds=600)),
+    }
+    cams = {play.entity_id: play, prot.entity_id: prot, garage.entity_id: garage}
+    census, _, _ = _census(states, cameras=cams, monkeypatch=monkeypatch,
+                           interior=[play.entity_id, prot.entity_id])
+    census._any_zone_occupied_snapshot = lambda: False
+    return census, states, face_p, now
+
+
+def test_b1_exterior_n_face_does_not_corroborate_playroom_phantom(monkeypatch):
+    """The garage face must not reach the corroboration bundle (S6), so the
+    uncorroborated divergence (Frigate 1 vs Protect 0) still downgrades the
+    house camera count to 0 (`_cross_validate_platforms`)."""
+    import asyncio
+    census, _, _, now = _b1_world(monkeypatch)
+    assert census._get_face_recognized_persons_fresh(now) == set()
+    seen: list = []
+    orig = census._cross_validate_platforms
+
+    def _spy(f, b, *, corroborated=True):
+        out = orig(f, b, corroborated=corroborated)
+        seen.append((f, b, corroborated, out))
+        return out
+
+    census._cross_validate_platforms = _spy
+    result = asyncio.run(census._calculate_house_census([], now))
+    # Downgrade fired: camera count 0, tagged DISAGREE (corroborated -> CLOSE, 1).
+    assert seen == [(1, 0, False, (0, ura_const.CENSUS_AGREEMENT_DISAGREE))]
+    assert result.source_agreement == ura_const.CENSUS_AGREEMENT_DISAGREE
+
+
+def test_b1_interior_n_face_still_corroborates(monkeypatch):
+    """Scope check: the `_N` device join stays live for an INTERIOR camera
+    (playroom's own fresh face)."""
+    census, states, face_p, now = _b1_world(monkeypatch)
+    states[face_p] = _state("Jaya", now)
+    assert census._get_face_recognized_persons_fresh(now) == {"Jaya"}
+
+
+def test_b3_last_camera_map_rebuilds_on_new_resolver(monkeypatch):
+    """A runtime rename of a last_camera sensor is picked up once the
+    resolver is rebuilt (registry update), not only after a restart."""
+    fx = _load_fixture()
+    er_, dr_ = _registries(fx)
+    census, _, _ = _census({}, er_=er_, dr_=dr_, monkeypatch=monkeypatch)
+    old = census._resolve_last_camera_entity_id("jaya")
+    assert old and old != "sensor.where_is_jaya"
+    ent = er_.entities.pop(old)
+    ent.entity_id = "sensor.where_is_jaya"
+    er_.entities[ent.entity_id] = ent
+    census._camera_manager._resolver = CameraResolver(er_, dr_)  # rebuilt on registry event
+    assert census._resolve_last_camera_entity_id("jaya") == "sensor.where_is_jaya"
+
+
+def test_f1_engine_from_device_beats_wrong_hint(monkeypatch):
+    """C F-1: the device family wins over the integration hint. A Frigate
+    face sensor whose device is (artificially) a Reolink device is tagged
+    `reolink`; a Protect device with a "frigate" hint is tagged `protect`."""
+    fx = copy.deepcopy(_load_fixture())
+    face = "sensor.garage_a_last_recognized_face_2"
+    dev = next(e["device_id"] for e in fx["entities"] if e["entity_id"] == face)
+    for d in fx["devices"]:
+        if d["id"] == dev:
+            d["identifiers"] = [["reolink", "garage_a_cam"]]
+    er_, dr_ = _registries(fx)
+    now = datetime.now(UTC)
+    census, _, resolver = _census({face: _state("Oji", now)}, er_=er_, dr_=dr_,
+                                  monkeypatch=monkeypatch)
+    assert [l.engine for l in census._resolve_face_legs("garage_a")] == ["reolink"]
+    prot_dev = next(e["device_id"] for e in fx["entities"]
+                    if e["platform"] == "unifiprotect" and e["device_id"])
+    assert resolver.face_engine_tag(prot_dev, "frigate") == "protect"
+
+
+def test_f2_null_area_n_camera_no_face_appends_once(monkeypatch):
+    """C F-2: a null-area `_N` camera with no face sensor on its device
+    contributes its count exactly once (unassigned path sums, so a double
+    append would double-count)."""
+    fx = _load_fixture()
+    play, pc, face = _frigate_cam(fx, "playroom", area=None)
+    census, _, resolver = _census({pc: _state("2")}, cameras={play.entity_id: play},
+                                  monkeypatch=monkeypatch)
+    dev = resolver._er.async_get(play.entity_id).device_id
+    resolver._frigate_face_entities_by_device.pop(dev)
+    census._get_unrecognized_camera_count()
+    assert census._last_camera_total_pre_cancel == 2
+
+
+def test_f3a_device_join_picks_first_usable_candidate(monkeypatch):
+    """C F-3a: bare candidate unavailable, `_2` live -> the `_2` one."""
+    fx = copy.deepcopy(_load_fixture())
+    src = next(e for e in fx["entities"]
+               if e["entity_id"] == "sensor.playroom_last_recognized_face_2")
+    fx["entities"].append(dict(src, entity_id="sensor.playroom_last_recognized_face",
+                               unique_id=src["unique_id"] + "_dup"))
+    er_, dr_ = _registries(fx)
+    now = datetime.now(UTC)
+    states = {"sensor.playroom_last_recognized_face": _state("unavailable", now),
+              "sensor.playroom_last_recognized_face_2": _state("Jaya", now)}
+    census, _, _ = _census(states, er_=er_, dr_=dr_, monkeypatch=monkeypatch)
+    assert census._device_derived_face_entity_id(
+        "binary_sensor.playroom_person_occupancy_2") == "sensor.playroom_last_recognized_face_2"
+
+
+def test_f3b_device_join_no_face_sensor_counts_nothing(monkeypatch):
+    """C F-3b: no face sensor on the device -> None, no derived read, no
+    miss counted."""
+    census, _, resolver = _census({}, monkeypatch=monkeypatch)
+    bs = "binary_sensor.playroom_person_occupancy_2"
+    resolver._frigate_face_entities_by_device.pop(resolver._er.async_get(bs).device_id)
+    before = census._face_lookup_missing_count
+    assert census._device_derived_face_entity_id(bs) is None
+    assert census._face_source_device_derived_reads == 0
+    assert census._face_source_device_derived_cameras == set()
+    assert census._face_lookup_missing_count == before
