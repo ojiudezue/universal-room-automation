@@ -308,8 +308,17 @@ from test_nm_image_delivery import (  # noqa: E402,F401
 )
 from test_notification_manager import _make_hass as _nm_hass  # noqa: E402
 from custom_components.universal_room_automation.domain_coordinators.notification_manager import (  # noqa: E402
+    AlertState,
     NotificationManager,
 )
+# Bound at COLLECTION time, never imported lazily inside a test: earlier
+# suite files (e.g. test_oc_pillar_a_handshake's autouse `_evict_ura_stubs`)
+# delete every `custom_components.universal_room_automation.*` module and do
+# not restore them, while sibling HA stubs (a `homeassistant.helpers.event`
+# without `async_track_time_change`) may be in sys.modules. A lazy import in
+# the test body then re-imports notification_manager against the stub and
+# raises ImportError (full-suite-only failure, 2026-11-09).
+from test_imsg_audit_fix_1 import _drain, _make_db  # noqa: E402
 
 
 def _pushover_data(hass):
@@ -427,7 +436,6 @@ def test_async_notify_quiet_threads_quiet_to_companion():
 
 
 def _real_db(tmp_path):
-    from test_imsg_audit_fix_1 import _make_db
     return _make_db(str(tmp_path))
 
 
@@ -435,9 +443,6 @@ def _real_db(tmp_path):
 def test_restart_recovery_never_resumes_paging_for_quiet_followup(tmp_path, quiet, expect_repeating):
     """A quiet CRITICAL follow-up row exists, NM restarts: NO resumed paging.
     Control (quiet=False): the same CRITICAL DOES resume (recovery live)."""
-    from test_imsg_audit_fix_1 import _drain
-    from custom_components.universal_room_automation.domain_coordinators.notification_manager import AlertState
-
     db = _real_db(tmp_path)
 
     async def _do():
