@@ -1,0 +1,27 @@
+{
+  "format_version": "2.1",
+  "entry_id": "274",
+  "author": "ojiudezue",
+  "session_id": "claude_20261109_084513_ship_v5_107_6",
+  "timestamp": "2026-11-09T08:45:13Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.107.6 shipped: Arc release: face-source registry, Frigate snapshot internal URL, external-URL self-check, lock-regime face-arrival corroboration, door identity follow-up, entry-area lookup fix",
+  "summary": "Arc release: face-source registry, Frigate snapshot internal URL, external-URL self-check, lock-regime face-arrival corroboration, door identity follow-up, entry-area lookup fix",
+  "why": "Perimeter-identity arc, part 2. Face sensors are found via the HA registry (portable, and 17 skipped cameras fixed). Perimeter snapshots finally use Frigate's best frame through the internal URL. A daily self-check catches a stale HA external URL. Face-based lock releases now need an independent same-person arrival edge. Door alerts get one quiet 'that was <name>' follow-up. The door entry-area lookup now reads the correct object.",
+  "implications": "Shipped FACE-SOURCE-REGISTRY-DISCOVERY-1, PERIMETER-FRIGATE-SNAPSHOT-CAPTURE-NEVER-1, LOCK-REGIME-FACE-ARRIVAL-CORROBORATION-1, PERIMETER-IDENTITY-FOLLOWUP-1, LOCK-ENTRY-AREAS-WRONG-OBJECT-1 at v5.107.6; card(s) sit shipped_organic pending validation. Acceptance in README_v5.107.6.md (Live criteria).",
+  "revisit_trigger": "Done when, after the arc-end restart, new files under /media/ura/snapshots carry the Frigate event-id name shape, the face-source counters show registry hits on the 29 Frigate cameras, no external_url_unreachable repair is raised, and no lock release follows a camera_face arrival without a same-person Bermuda or tracker edge within 120 s. Reopen on any violation.",
+  "refs": {
+    "cards": [
+      "FACE-SOURCE-REGISTRY-DISCOVERY-1",
+      "PERIMETER-FRIGATE-SNAPSHOT-CAPTURE-NEVER-1",
+      "LOCK-REGIME-FACE-ARRIVAL-CORROBORATION-1",
+      "PERIMETER-IDENTITY-FOLLOWUP-1",
+      "LOCK-ENTRY-AREAS-WRONG-OBJECT-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.107.6.md"
+    ],
+    "release_notes": "Combined release of v5.107.1-v5.107.6; see docs/readmes/README_v5.107.6.md for the per-version table."
+  }
+}

@@ -333,6 +333,7 @@ cards:
   soak_exit_2026_11_09_overnight: "SOAK EXIT -> PARKED with a revival trigger (CLAUDE.md soak rule 3: discriminator cannot be evaluated in its window). Shipped v5.106.2; README_v5.106.2 Validated 11-08: no-regression PASS live, Envoy-blind degraded case proven in-suite only (cannot be triggered on demand). The 11-08 23:05-23:43 Envoy dropout happened with no inclement hold active, so it does not exercise this path. CARD-WAS-WRONG on next (it still said verify energy_battery.py; the fix shipped)."
   revival_trigger: "Revival: the next Envoy-blind or degraded tick DURING an inclement full hold (storm) - then read sensor.ura_energy_coordinator_battery_strategy envoy_available + envoy_status envoy_degraded for that tick (PASS = envoy_available false and the outage counter rises)."
 - id: PERIMETER-FP-STREET-NOISE-1
+  arc_cut_v5_107_6: "parent, already shipped v5.107.0"
   title: "Perimeter alerts still include false positives and street noise: reduce FPs end-to-end (Frigate masks/zones/filters, URA pre-alert gates) + check snapshot storage/archival"
   thread: security
   status: shipped_organic
@@ -352,7 +353,8 @@ cards:
 - id: PERIMETER-FRIGATE-SNAPSHOT-CAPTURE-NEVER-1
   title: "Perimeter alert images never come from Frigate's stored event snapshot (0 of 272 in 7 days; 244 live grabs, 28 no file), so 'empty frame' alerts may be capture timing, not false detections"
   thread: security
-  status: review
+  status: shipped_organic
+  shipped_version: v5.107.6
   batch: perimeter-identity-arc-2026-11
   tier: 2
   created: "2026-11-08 22:00"
@@ -367,7 +369,8 @@ cards:
 - id: LOCK-REGIME-FACE-ARRIVAL-CORROBORATION-1
   title: "SC lock regime unlocks (garage lockout release + master_bedroom_lock) on a camera_face arrival signal alone; a Frigate face misrecognition at a door camera can unlock"
   thread: security
-  status: review
+  status: shipped_organic
+  shipped_version: v5.107.6
   batch: perimeter-identity-arc-2026-11
   tier: 2
   created: "2026-11-08 23:45"
@@ -382,6 +385,7 @@ cards:
   adjacency_2026_11_08: "Swept board for lock regime / face arrival: none. ADJACENT to FACE-SOURCE-REGISTRY-DISCOVERY-1 (same signal) and PERIMETER-FP D10.5 (same corroboration rule). NEW problem statement (unlock safety)."
   reconcile_2026_11_09: "Overnight reconcile: board still showed this as planned/investigating/in_progress but v5.107.4 was merged to develop at 97319f20 by the 11-08/09 attended session (not yet deployed; develop was 87 commits ahead of origin). Moved to review."
 - id: PERIMETER-FRIGATE-MQTT-DIRECT-1
+  arc_cut_v5_107_6: "in flight, ships at arc end"
   title: "URA subscribes to Frigate MQTT events directly (no dependency on the house's 'Frigate MQTT to frigate_events bridge' automation) — required for portability"
   thread: security
   status: planned
@@ -397,6 +401,7 @@ cards:
   links: {related: [PERIMETER-FP-STREET-NOISE-1, FACE-SOURCE-REGISTRY-DISCOVERY-1], blocks: [FRIGATE-FACE-BRIDGE-DEAD-PREFIX-1], context: "Its runtime prefix discovery is the fix the dead-prefix face bridge (FRIGATE-FACE-BRIDGE-DEAD-PREFIX-1) should reuse."}
   adjacency_2026_11_09: "Swept: perimeter plan D9 (the parked design, absorbed here), D2 bus-silent warning (stays as fallback trip-wire), memory project_frigate_mqtt_topic_collision (shared topic_prefix hazard, fixed homelab-side). NEW card; supersedes the D9 park."
 - id: CAMERA-LIST-LIVE-REWIRE-1
+  arc_cut_v5_107_6: "in flight Tier 3, ships at arc end"
   title: "Saving perimeter/egress camera lists forces a full URA parent reload (watchdog hazard); rewire live instead (v5.107.0 plan D11)"
   thread: security
   status: planned
@@ -413,7 +418,8 @@ cards:
 - id: PERIMETER-IDENTITY-FOLLOWUP-1
   title: "Door alert sent as unknown, identity resolves within ~90 s -> one quiet follow-up ('Front door: that was Jaya')"
   thread: security
-  status: review
+  status: shipped_organic
+  shipped_version: v5.107.6
   tier: 1
   batch: perimeter-identity-arc-2026-11
   created: "2026-11-09 00:30"
@@ -427,7 +433,8 @@ cards:
 - id: LOCK-ENTRY-AREAS-WRONG-OBJECT-1
   title: "Lock regime and perimeter alerts looked up door groups on the wrong object, so a Bluetooth move never confirmed a face arrival -> read them from the egress tracker"
   thread: security
-  status: review
+  status: shipped_organic
+  shipped_version: v5.107.6
   tier: 1
   batch: perimeter-identity-arc-2026-11
   created: "2026-11-09 02:01"
@@ -461,6 +468,7 @@ cards:
   links: {related: [FACE-SOURCE-REGISTRY-DISCOVERY-1, CENSUS-GUEST-FLOOR-1, GUEST-GATE-DOOR-IDENTITY-1, GUEST-FP-RESIDUALS-1]}
   adjacency_2026_11_09: "ADJACENT (same decision surface): CENSUS-GUEST-FLOOR-1 (pre_planning, WiFi guest floor) and GUEST-GATE-DOOR-IDENTITY-1 (parked, door identity into the gate) become inputs; F-5 residual on FACE-SOURCE-REGISTRY-DISCOVERY-1 folds into this card. NEW card for the two-tier split itself."
 - id: FRIGATE-FACE-BRIDGE-DEAD-PREFIX-1
+  arc_cut_v5_107_6: "waits for MQTT D0 daytime capture"
   title: "Census face bridge reads the Frigate MQTT topic_prefix from the config entry (where it never exists) and falls back to 'frigate' = retired Frigate-1, so it likely listens on a dead topic"
   thread: identity
   status: planned
@@ -506,7 +514,8 @@ cards:
 - id: FACE-SOURCE-REGISTRY-DISCOVERY-1
   title: "Face-name sources are found by entity-name pattern (<camera>_last_recognized_face[_2]); make discovery home-agnostic via the device/entity registry for Frigate and Protect"
   thread: identity
-  status: review
+  status: shipped_organic
+  shipped_version: v5.107.6
   batch: perimeter-identity-arc-2026-11
   tier: 2
   created: "2026-11-08 19:30"

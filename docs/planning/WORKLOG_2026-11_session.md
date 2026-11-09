@@ -56,3 +56,4 @@
 - 2026-11-08 09:14 **v5.106.1** — v5.106.1 — WhatsApp sends via ha-wa-bridge 3.x (`wa_bridge`) (cards: WA-BRIDGE-DOMAIN-1)
 - 2026-11-08 13:03 **v5.106.2** — v5.106.2 — Inclement leftovers: TOU rate ranking, Envoy-blind outage counter, retired threat-list removal (cards: EC-STORM-FULLHOLD-DEGRADED-ENVOY-AVAILABLE-1,EC-BLIND-DEESCALATE-TOP-RATE-1)
 - 2026-11-08 22:48 **v5.107.0** — v5.107.0 — Perimeter false-positive gates, egress cameras as perimeter alerts, truthful WhatsApp delivery (cards: PERIMETER-FP-STREET-NOISE-1)
+- 2026-11-09 02:45 **v5.107.6** — v5.107.6 — Entry areas read from the egress tracker (cards: FACE-SOURCE-REGISTRY-DISCOVERY-1,PERIMETER-FRIGATE-SNAPSHOT-CAPTURE-NEVER-1,LOCK-REGIME-FACE-ARRIVAL-CORROBORATION-1,PERIMETER-IDENTITY-FOLLOWUP-1,LOCK-ENTRY-AREAS-WRONG-OBJECT-1)
