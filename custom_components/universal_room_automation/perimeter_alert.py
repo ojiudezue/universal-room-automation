@@ -165,10 +165,19 @@ from .const import (
     PERIMETER_EGRESS_FACE_NONFACE_WINDOW_S,
     PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S,
     PERIMETER_EGRESS_XCORR_SETTLE_S,
+    CONF_PERIMETER_IDENTITY_FOLLOWUP,
+    DEFAULT_PERIMETER_IDENTITY_FOLLOWUP,
+    PERIMETER_IDENTITY_FOLLOWUP_WINDOW_S,
+    PERIMETER_IDENTITY_FOLLOWUP_POLL_S,
 )
 from .domain_coordinators.base import Severity
 from .domain_coordinators._nm_cycle_a import is_life_safety_hazard  # CIRCLING-LABEL-1: I3 gate uses this
 from .perimeter_enrichment import enrich_dispatched_alert, enrich_with_verdict
+from .arrival_edges import (
+    area_slug_of_entity,
+    live_arrival_slug,
+    nonface_arrival_source,
+)
 from .perimeter_fp_gates import (
     AgreementTracker,
     VERDICT_NO,
@@ -320,6 +329,8 @@ class PerimeterAlertManager:
         # (event_id, cached_at) per canonical camera key; TTL-gated at
         # read (hotfix 2026-08-07 — see _on_frigate_event).
         self._frigate_last_event_id: dict[str, tuple[str, datetime]] = {}
+        # v5.107.2 Fix C: last ENDED Frigate event id per camera key.
+        self._frigate_ended_event_id: dict[str, str] = {}
         # One-shot log gates
         self._legacy_deprecation_warned = False
         self._legacy_fallback_logged = False
@@ -458,6 +469,9 @@ class PerimeterAlertManager:
         self._person_arrivals: dict[str, float] = {}
         self._unsub_person_arrivals: Any = None
         self._fp_setup_ts: float | None = None
+        # PERIMETER-IDENTITY-FOLLOWUP-1: at most one pending "that was <name>"
+        # follow-up per camera key: {edge, entity_id, severity, elapsed, unsub}.
+        self._pending_followups: dict[str, dict[str, Any]] = {}
 
     async def async_setup(self) -> None:
         """Set up perimeter camera listeners.
@@ -952,6 +966,12 @@ class PerimeterAlertManager:
                 # unchanged (snapshot readers depend on it).
                 self._note_frigate_event(cam_key, msg_type, after)
                 if msg_type == "end":
+                    # v5.107.2 Fix C: remember the ended id (do NOT erase
+                    # the cache — the NM URL path still wants it). SNAP-1
+                    # edge capture refuses an ended id: at a new rising
+                    # edge an already-ended event is the PREVIOUS track.
+                    if event_id:
+                        self._frigate_ended_event_id[cam_key] = str(event_id)
                     return
                 if event_id:
                     self._frigate_last_event_id[cam_key] = (
@@ -975,11 +995,10 @@ class PerimeterAlertManager:
             self._unsub_egress_identity = self.hass.bus.async_listen(
                 "ura_person_egress_event", _on_egress_identity,
             )
-            # Arrival edges for the face+non-face rule (same edge shape as
-            # the SC lock regime's `_on_person_event` / `_arrival_counts`,
-            # security_lock_regime.py:881-935, mirrored here because that
-            # method is private, instance-bound, and biased the OTHER way at
-            # boot — it treats boot as "counts as arrival", we must not).
+            # Arrival edges for the face+non-face rule. The edge rule is the
+            # shared arrival_edges module (also used by the SC lock regime's
+            # camera_face gate); this listener + `_person_arrivals` stay
+            # here so boot exclusion is timed from perimeter setup.
             self._fp_setup_ts = dt_util.now().timestamp()
             _persons = [f"person.{s}" for s in self._tracked_person_slugs()]
             if _persons:
@@ -1262,6 +1281,9 @@ class PerimeterAlertManager:
             except Exception:  # noqa: BLE001
                 pass
             self._unsub_person_arrivals = None
+        # PERIMETER-IDENTITY-FOLLOWUP-1: discharge every pending follow-up.
+        for _fk in list(self._pending_followups):
+            self._cancel_identity_followup(_fk, "teardown")
         # D5 (review B-LOW-3): flush finalised agreement outcomes now so a
         # reload's new manager does not load a store 30 s stale.
         if self._agreement_store is not None:
@@ -1666,6 +1688,7 @@ class PerimeterAlertManager:
         # escalation are untouched. Best-effort: any failure leaves the
         # original `message` intact. Consumer of census face resolver;
         # camera_census is READ-ONLY here.
+        _annotated_identity: str | None = None
         try:
             census = self.hass.data.get(DOMAIN, {}).get("census")
             _name_stem = _linker_camera or self._camera_key_for_sensor(entity_id)
@@ -1705,6 +1728,7 @@ class PerimeterAlertManager:
                 if best_name:
                     _pretty = best_name.replace("_", " ").title()
                     message = f"{message} Identified: {_pretty}."
+                    _annotated_identity = best_name
                     _LOGGER.info(
                         "PerimeterAlertManager: annotated %s alert with "
                         "identity=%s (conf=%s)",
@@ -1845,6 +1869,13 @@ class PerimeterAlertManager:
                     # burst-count denominator. Failed dispatches never
                     # count (they don't reach this branch).
                     self._record_burst_alert(cooldown_key, now)
+                    # PERIMETER-IDENTITY-FOLLOWUP-1: supersede any pending
+                    # follow-up on this key; arm one if this alert went
+                    # out as an unknown person at > LOW.
+                    self._arm_identity_followup(
+                        cooldown_key, entity_id, now, severity,
+                        _annotated_identity,
+                    )
                     # build/exterior-track: attribute the alert to the
                     # owning open track so future events on the same track
                     # can refine cadence (approach/circling still alert;
@@ -3774,6 +3805,13 @@ class PerimeterAlertManager:
             return None
         if not (0 <= age < FRIGATE_SNAPSHOT_ID_TTL_S):
             return None
+        # v5.107.2 Fix C: an id whose event already ENDED belongs to a
+        # previous track — never fetch its frame for this edge (second
+        # walk-past would show the first person). Fall to live_grab.
+        if getattr(self, "_frigate_ended_event_id", {}).get(
+            (cam_key or "").strip().lower()
+        ) == eid:
+            return None
         # SNAP-1 fix-up (F2): sanitize the event id before it is ever
         # interpolated into a filesystem path OR a URL. os.path.join
         # does NOT neutralize '..'; a malicious `frigate_events`
@@ -3900,11 +3938,49 @@ class PerimeterAlertManager:
         except OSError:
             return 0
 
-    async def _http_get_bytes(self, url_path: str) -> bytes | None:
-        """HTTP GET a relative HA URL, return bytes or None on failure."""
-        abs_url = self._absolutize(url_path)
-        if not abs_url:
+    def _internal_base_url(self) -> str | None:
+        """Internal-only base URL for SERVER-SIDE fetches (v5.107.2).
+
+        PERIMETER-FRIGATE-SNAPSHOT-CAPTURE-NEVER-1: `_absolutize` prefers
+        `external_url`, which (Cloudflare-fronted) times out from the HA
+        host, so the 2 s SNAP-1 tier-1 fetch never succeeded. A fetch
+        made BY this process must use an internal base. Uses HA's
+        `network.get_url` with external + cloud disallowed (it falls back
+        through internal_url to the local api ip:port). Never returns an
+        external URL; None when no internal URL is available.
+        `_absolutize` stays the builder for OUTBOUND links (Pushover /
+        WhatsApp `snapshot_url`), which need the public host.
+        """
+        try:
+            from homeassistant.helpers.network import get_url  # noqa: PLC0415
+            base = get_url(
+                self.hass,
+                allow_external=False,
+                allow_cloud=False,
+                prefer_external=False,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("SNAP-1: no internal URL available", exc_info=True)
             return None
+        if not isinstance(base, str) or "://" not in base:
+            return None
+        return base.rstrip("/")
+
+    async def _http_get_bytes(self, url_path: str) -> bytes | None:
+        """HTTP GET a relative HA URL, return bytes or None on failure.
+
+        Server-side fetch: resolves against the INTERNAL base, never the
+        external one (see `_internal_base_url`).
+        """
+        if not url_path:
+            return None
+        if "://" in url_path:
+            # Relative paths only: an absolute URL could send the fetch outward.
+            return None
+        base = self._internal_base_url()
+        if not base:
+            return None
+        abs_url = base + url_path
         try:
             from homeassistant.helpers.aiohttp_client import (
                 async_get_clientsession,
@@ -4933,31 +5009,18 @@ class PerimeterAlertManager:
         if win <= 0:
             return None
         boot_end = (self._fp_setup_ts or 0.0) + float(PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S)
-        edge_ts = edge.timestamp()
-
-        def _ok(ts: float | None) -> bool:
-            return ts is not None and ts >= boot_end and abs(edge_ts - ts) <= win
-
-        if _ok(self._person_arrivals.get(slug)):
-            return "person_tracker"
-        try:
-            near = self._near_areas(cam_key)
-            pc = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
-            data = getattr(pc, "data", None) or {}
-            for name, rec in data.items():
-                if str(name).lower().replace(" ", "_") != slug or not isinstance(rec, dict):
-                    continue
-                if rec.get("method") != "bermuda" or not near:
-                    continue
-                here = {zone_slug(rec.get("location")), zone_slug(rec.get("bermuda_area"))}
-                moved = zone_slug(rec.get("previous_location")) != zone_slug(rec.get("location"))
-                lc = rec.get("last_changed")
-                lc_ts = lc.timestamp() if isinstance(lc, datetime) else None
-                if moved and (here & near) and _ok(lc_ts):
-                    return "ble"
-        except Exception:  # noqa: BLE001
-            pass
-        return None
+        # LOCK-REGIME-FACE-ARRIVAL-CORROBORATION-1: the rule lives in the
+        # shared arrival_edges module (also used by the SC lock regime).
+        return nonface_arrival_source(
+            slug=slug,
+            at_ts=edge.timestamp(),
+            window_s=win,
+            boot_end=boot_end,
+            tracker_arrivals=self._person_arrivals,
+            pc_data_fn=lambda: getattr(
+                self.hass.data.get(DOMAIN, {}).get("person_coordinator"), "data", None),
+            areas_fn=lambda: self._near_areas(cam_key),
+        )
 
     def _tracked_person_slugs(self) -> list[str]:
         try:
@@ -4971,13 +5034,7 @@ class PerimeterAlertManager:
         """Record a live not_home -> home edge (old_state None = restore,
         not an arrival). Boot exclusion is applied at read time."""
         try:
-            new = event.data.get("new_state")
-            old = event.data.get("old_state")
-            if new is None or old is None:
-                return
-            if getattr(new, "state", None) != "home" or getattr(old, "state", None) != "not_home":
-                return
-            slug = str(event.data.get("entity_id", "")).replace("person.", "").lower()
+            slug = live_arrival_slug(event.data)
             if slug:
                 self._person_arrivals[slug] = dt_util.now().timestamp()
         except Exception:  # noqa: BLE001
@@ -4985,27 +5042,16 @@ class PerimeterAlertManager:
 
     def _area_of_entity(self, entity_id: str) -> str:
         """HA area name (slugged) of an entity via entity/device registry."""
-        try:
-            from homeassistant.helpers import (  # noqa: PLC0415
-                area_registry as ar, device_registry as dr, entity_registry as er,
-            )
-            ent = er.async_get(self.hass).async_get(entity_id)
-            area_id = getattr(ent, "area_id", None)
-            if not area_id and getattr(ent, "device_id", None):
-                dev = dr.async_get(self.hass).async_get(ent.device_id)
-                area_id = getattr(dev, "area_id", None)
-            if not area_id:
-                return ""
-            area = ar.async_get(self.hass).async_get_area(area_id)
-            return zone_slug(getattr(area, "name", None) or area_id)
-        except Exception:  # noqa: BLE001
-            return ""
+        return area_slug_of_entity(self.hass, entity_id)
 
     def _near_areas(self, cam_key: str) -> set[str]:
         """Areas at/near a dual-role egress camera: the camera's own area,
         plus the areas of its EXPLICITLY configured door-interior neighbours
-        (transit_validator door groups; the unset fallback of 'every
-        interior camera' is NOT used here — too wide for an arrival)."""
+        (EgressDirectionTracker door groups -- it owns
+        ``_door_group_for_stem`` / ``_interior_neighbours_by_group``, the
+        TransitValidator does not: LOCK-ENTRY-AREAS-WRONG-OBJECT-1; the
+        unset fallback of 'every interior camera' is NOT used here — too
+        wide for an arrival)."""
         out: set[str] = set()
         cams = [c for c in self._dual_role_cameras
                 if self._camera_key_for_sensor(
@@ -5016,10 +5062,10 @@ class PerimeterAlertManager:
             if a:
                 out.add(a)
         try:
-            tv = self.hass.data.get(DOMAIN, {}).get("transit_validator")
-            if tv is not None:
-                group = tv._door_group_for_stem(cam_key)
-                nb = getattr(tv, "_interior_neighbours_by_group", {}) or {}
+            tracker = self.hass.data.get(DOMAIN, {}).get("egress_tracker")
+            if tracker is not None:
+                group = tracker._door_group_for_stem(cam_key)
+                nb = getattr(tracker, "_interior_neighbours_by_group", {}) or {}
                 if group is not None and group in nb:
                     for n in nb[group]:
                         a = self._area_of_entity(n)
@@ -5106,6 +5152,160 @@ class PerimeterAlertManager:
         d["severity_after"] = severity.name
         self._record_gate(cam_key, d)
         return severity, held, True
+
+    # ------------------------------------------------------------------
+    # PERIMETER-IDENTITY-FOLLOWUP-1 (v5.107.5): "that was <name>"
+    # ------------------------------------------------------------------
+    _FOLLOWUP_UNKNOWN_REASONS = frozenset(
+        {"egress_unknown_corroborated", "xcorr_waived_single_nvr"}
+    )
+    FOLLOWUP_TITLE = "Perimeter Alert — Identified"
+
+    def _cancel_identity_followup(self, cam_key: str, reason: str) -> None:
+        st = self._pending_followups.pop(cam_key, None)
+        if st is None:
+            return
+        unsub = st.get("unsub")
+        st["unsub"] = None
+        if unsub is not None:
+            try:
+                unsub()
+            except Exception:  # noqa: BLE001
+                pass
+        _LOGGER.debug("PerimeterAlertManager: identity follow-up for %s "
+                      "discharged (%s)", cam_key, reason)
+
+    def _arm_identity_followup(
+        self, cam_key: str, entity_id: str, edge: datetime,
+        severity: Severity, annotated: str | None,
+    ) -> bool:
+        """Arm a bounded follow-up after a dispatched alert. Only when the
+        D10.5 decision for THIS alert (same edge) said unknown and did not
+        demote, the dispatched severity is above LOW and still equals the
+        D10.5 output (a later VLM demote counts as demoted), and the message
+        carried no identity annotation. Any previous follow-up on the key is
+        superseded first. Returns True when armed."""
+        self._cancel_identity_followup(cam_key, "superseded")
+        try:
+            if not self._active:
+                return False
+            if not bool(self._options_flag(
+                CONF_PERIMETER_IDENTITY_FOLLOWUP,
+                DEFAULT_PERIMETER_IDENTITY_FOLLOWUP,
+            )):
+                return False
+            if float(PERIMETER_IDENTITY_FOLLOWUP_WINDOW_S) <= 0:
+                return False
+            if severity <= Severity.LOW or annotated:
+                return False
+            d = (self._last_gate_decisions.get(cam_key) or {}).get(
+                "egress_identity") or {}
+            if (
+                d.get("at") != edge.isoformat()
+                or d.get("demoted")
+                or d.get("reason") not in self._FOLLOWUP_UNKNOWN_REASONS
+                or d.get("severity_after") != severity.name
+            ):
+                return False
+            state: dict[str, Any] = {
+                "edge": edge, "entity_id": entity_id, "severity": severity,
+                "elapsed": 0.0, "unsub": None,
+            }
+            self._pending_followups[cam_key] = state
+            self._schedule_followup_tick(cam_key, state)
+            return True
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("PerimeterAlertManager: follow-up arm failed",
+                          exc_info=True)
+            self._pending_followups.pop(cam_key, None)
+            return False
+
+    def _schedule_followup_tick(self, cam_key: str, state: dict[str, Any]) -> None:
+        window = float(PERIMETER_IDENTITY_FOLLOWUP_WINDOW_S)
+        delay = max(0.0, min(float(PERIMETER_IDENTITY_FOLLOWUP_POLL_S),
+                             window - state["elapsed"]))
+
+        @callback
+        def _tick(_now: Any) -> None:
+            if self._pending_followups.get(cam_key) is not state:
+                return  # discharged / superseded
+            state["unsub"] = None
+            state["elapsed"] += delay
+            self._followup_check(cam_key, state)
+
+        state["unsub"] = async_call_later(self.hass, delay, _tick)
+
+    def _followup_check(self, cam_key: str, state: dict[str, Any]) -> None:
+        if not self._active:
+            self._cancel_identity_followup(cam_key, "inactive")
+            return
+        try:
+            known = self._known_identity_for(cam_key, state["edge"])
+        except Exception:  # noqa: BLE001
+            known = None
+        if known is not None:
+            # Pop BEFORE sending: at most one follow-up per alert.
+            self._pending_followups.pop(cam_key, None)
+            self._record_gate(cam_key, {
+                "gate": "identity_followup", "at": state["edge"].isoformat(),
+                "sent_after_s": state["elapsed"], "identity": known[0],
+                "source": known[2],
+            })
+            self.hass.async_create_task(
+                self._async_send_identity_followup(state, known[0])
+            )
+            return
+        if state["elapsed"] >= float(PERIMETER_IDENTITY_FOLLOWUP_WINDOW_S):
+            self._cancel_identity_followup(cam_key, "window_expired")
+            return
+        self._schedule_followup_tick(cam_key, state)
+
+    def _followup_camera_name(self, entity_id: str, cam_key: str) -> str:
+        cam = self._sensor_to_camera.get(entity_id, "")
+        try:
+            st = self.hass.states.get(cam) if cam else None
+            fn = st.attributes.get("friendly_name") if st is not None else None
+            if isinstance(fn, str) and fn.strip():
+                return fn.strip()
+        except Exception:  # noqa: BLE001
+            pass
+        return cam_key.replace("_", " ").title()
+
+    def _followup_person_name(self, slug: str) -> str:
+        try:
+            st = self.hass.states.get(f"person.{slug}")
+            fn = st.attributes.get("friendly_name") if st is not None else None
+            if isinstance(fn, str) and fn.strip():
+                return fn.strip()
+        except Exception:  # noqa: BLE001
+            pass
+        return slug.replace("_", " ").title()
+
+    async def _async_send_identity_followup(
+        self, state: dict[str, Any], slug: str,
+    ) -> None:
+        nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+        if not self._active or nm is None or not getattr(nm, "enabled", False):
+            return
+        entity_id = state["entity_id"]
+        cam_key = self._camera_key_for_sensor(entity_id) or entity_id
+        message = (f"{self._followup_camera_name(entity_id, cam_key)}: "
+                   f"that was {self._followup_person_name(slug)}")
+        try:
+            await nm.async_notify(
+                coordinator_id="perimeter_alert",
+                severity=state["severity"],
+                title=self.FOLLOWUP_TITLE,
+                message=message,
+                hazard_type=NM_HAZARD_EXTERIOR_PERSON,
+                location=entity_id,
+                quiet=True,
+            )
+            _LOGGER.info("PerimeterAlertManager: identity follow-up sent "
+                         "for %s: %s", entity_id, message)
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.error("PerimeterAlertManager: identity follow-up failed "
+                          "for %s: %s", entity_id, exc)
 
     # ------------------------------------------------------------------
     # Properties & helpers

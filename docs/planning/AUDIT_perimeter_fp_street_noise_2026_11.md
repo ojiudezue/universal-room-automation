@@ -163,3 +163,63 @@ Verdict: URA snapshot storage is healthy and bounded (about 250 MB steady state,
 - Per-camera rates carry n=3-9 uncertainty. The recorder duration and alert counts are exact.
 
 Falsification I checked: the claim "back_yard/hot_tub FPs are Frigate-2-only" would be disproved by high Protect agreement. Measured: back_yard F2 114 ONs, Protect agrees on 6; hot_tub F2 65, Protect agrees on 6. The claim "street persons come through Protect": rear_ptz 6 of 8, g5 2 of 2 sampled had no F2 leg within 60 s; but overall rear_ptz Protect/F2 agreement is 33 of 44 (F2 ONs corroborated), so the Protect-only rule will not be clean, it needs the labelled replay in U3.
+
+## 9. D4 flip gate: corrected daytime replay (probe run 2026-11-08 22:59-23:10 CST)
+
+Question: is it safe to flip `PERIMETER_BURST_NIGHT_ONLY` (const.py:2491) to False? Read-only. Supersedes the weak evidence in review A-M3 (docs/reviews/code-review/v5.107.0_perimeter_fp_review_A.md:17).
+
+### 9.1 Corrections to the builder probe (scripts/probe_perimeter_burst_replay.py)
+| Defect (A-M3) | Corrected here |
+|---|---|
+| Adjacency window ±1800 s, both directions | Runtime `has_recent_adjacent_activity` (exterior_track_linker.py:925-958) needs an OPEN track whose last hop is on a neighbour with 0 <= now - t_last <= window_s. Tracks are closed after TRACK_CLOSE_IDLE_S=300 s idle (const.py:2748, `_sweep_closed` linker:605-616). Replay uses PRIOR-ONLY (0 <= dt) and 300 s as the effective window. The call passes window_s=1800 (perimeter_alert.py:2640ish) but the 300 s idle close is the binding limit. Sensitivity: 180 s and 1800 s also run. |
+| Graph read one direction | Graph symmetrised (linker `adjacent_cameras`, :912, uses the symmetrised table). Camera aliases applied (`armcrestpooloverhead`->`armcrest`, `ptzcamreolinktmixpstudybporch`->`reolinkstudybporchptz`, const.py:3054; linker `normalize_camera` :351). |
+| Hops = audit rows only | Neighbour hops = audit rows PLUS every person-sensor `on` in the recorder (closer to linker hops, which include non-dispatched events). |
+| Host-clock hour | Hour computed in America/Chicago (zoneinfo). |
+| No hour filter | Daytime = local hour 05-22 (outside PERIMETER_BURST_NIGHT_WINDOW 23-05, const.py:2494). Only these are newly affected by the flip. |
+Other rules mirrored from `_evaluate_burst_demotion` (perimeter_alert.py:2508-2630): prior dispatched alert on same camera inside PERIMETER_BURST_WINDOW_S=1800 (const.py:2472), MIN_ALERTS=2, sibling-family corroboration within 60 s (`_SOLE_FIRE_WINDOW_S`, :2187). Not modelled: the circling/approach exemption (:2556) and restart-lost in-memory history. Both only REDUCE real demotes, so the counts are upper bounds.
+
+### 9.2 Would-demote population, last 30 d (1707 audit rows, 2026-10-09 to 2026-11-08)
+| Window | Total would-demote | Daytime (newly affected) | Night (already live) |
+|---|---|---|---|
+| adjacency 300 s (primary) | 907 | **878** | 29 |
+| adjacency 180 s | ~915 | 886 | 29 |
+| adjacency 1800 s | ~892 | 863 | 29 |
+The flip is about 97% new exposure: 878 daytime demotes in 30 d (about 29/day) against 29 night ones. Adjacency barely matters (+-1.7%) because most would-demotes sit on single-NVR back-yard cameras with no neighbour hop.
+
+Daytime would-demote per camera (300 s): back_yard 311, hot_tub 198, utilities_ptz 61, rear_ptz 60, g5_bullet 58, ptzcamreolinktmixpstudybporch 48 (+ reolinkstudybporchptz 70, the same physical camera under two keys = 118), front_side_ptz 39, pool_equipment 16, armcrestpooloverhead 10 (+ armcrest 7 = 17), total 878. Night: hot_tub 10, g5_bullet 12, rear_ptz 5, back_yard 1, front_side_ptz 1.
+
+### 9.3 Snapshot sample (n=40 of 41 matched; all that exist)
+Snapshots are retained 168 h (const.py:2991), so only the last 7 d have images. The 7-day daytime would-demote set matched 41 files in /media/ura/snapshots (file epoch within 120 s of the audit row; 1 duplicate dropped, n=40). This is a census of the retained window, not a sample, so it is not further stratifiable; back_yard is over-represented (22/40 = 55% vs 35% of the 30-d population). Each image was viewed and classified. Image caveat: the file is the edge-capture frame, not necessarily the exact detection frame (section 8 caveat on small distant people applies).
+
+| Camera | n | real person | empty | street / pedestrian / vehicle | animal |
+|---|---|---|---|---|---|
+| back_yard | 22 | 0 | 22 | 0 | 0 |
+| hot_tub | 4 | 0 | 4 | 0 | 0 |
+| rear_ptz | 5 | 0 | 2 | 3 (dog-walker 11-04 08:14, pedestrian 11-06 08:18, truck+distant person 11-06 15:05) | 0 |
+| utilities_ptz | 3 | 0 | 2 | 1 (distant pedestrian 11-06 07:07) | 0 |
+| front_side_ptz | 4 | 0 | 3 | 1 (vehicle on street 11-04 15:28) | 0 |
+| g5_bullet | 1 | 0 | 0 | 1 (truck on street, 11-06 15:13) | 0 |
+| pool_equipment | 1 | 0 | 1 | 0 | 0 |
+| armcrest | 1 | **1** (person with pool pole at the pool, 11-04 13:46 local) | 0 | 0 | 0 |
+| **Total** | **40** | **1** | **33** | **6** | **0** |
+
+The one real person is a pool-service worker: genuine and unidentified, but it is a visitor class the operator may want demoted to LOW (it is the second alert inside 30 min and a household-expected service). I count it as HARMFUL (conservative).
+
+### 9.4 Harmful rate
+- Overall: 1/40 = 2.5%; one-sided 90% upper bound (exact Clopper-Pearson) = **9.4%**. If the pool worker is judged benign: 0/40, upper bound 5.6% (rule of 2.3/n).
+- back_yard + hot_tub (509 of 878 = 58% of the daytime population): 0/26, upper bound 8.5%.
+- Other cameras combined: 1/14, upper bound 25%. Per camera, rear/utilities/front/g5/pool/armcrest have n of 1-5, so no per-camera bound below 37% is available for them.
+
+Producer/consumer: the demote is applied in `_evaluate_burst_demotion` (perimeter_alert.py:2508) and the caller applies severity = max(LOW, ...), so a demote is LOW, never silence (docstring :2528). The consumer-visible harm is a real second-in-30-min visitor on a single-NVR camera arriving as LOW (digest) rather than a page.
+
+### 9.5 Verdict
+- **back_yard, hot_tub: GO.** 26/26 empty, 509 of the 878 daytime demotes (58%). Per the 7-day frames these are lawn/patio shadow FPs (back_yard F2-only per section 6). Residual risk: a real second visitor inside the 30-min window on a camera with no second NVR to corroborate. Bound 8.5%.
+- **rear_ptz, utilities_ptz, front_side_ptz, g5_bullet (street-facing): GO with lower confidence.** 0/13 real; 6 of 13 are street pedestrian/vehicle (the very noise class this cycle targets), 7 empty. n is too small for a per-camera bound; these are demote-to-LOW, not silence.
+- **armcrest, armcrestpooloverhead, pool_equipment: NO-GO (hold at night-only).** The only real person in the sample came from armcrest; the three cameras are 33 of 878 demotes (4%), so excluding them forfeits almost nothing. n=1-2 means no usable bound.
+- Overall if the flip is global (it is a single module constant, const.py:2491): **conditional GO**, accepting an upper-bound harm rate of about 9% on 90% confidence and the pool/armcrest residual, or **hold** until a per-camera exclusion exists. The constant has no per-camera dimension, so excluding armcrest/pool needs a code change (not a knob). Recommendation: operator accepts the global flip, given LOW is not silence and armcrest/pool_equipment are 4% of volume; if not, hold.
+
+### 9.6 Limits
+- n=40 is the whole 7-day retained set, not a random sample of the 30-d 878.
+- The adjacency proxy (recorder rises) may still over-count would-demotes versus runtime (linker hop set also includes events Frigate emits without a sensor rise). Direction of error = conservative for the harm bound.
+- The probe was a modified copy run ad hoc via `ssh ha python3 -` (script lives only in the agent scratchpad, /private/tmp/claude-501/-Users-okosisi-Code-universal-room-automation/75cc297f-1426-4620-b7aa-da058bc0fab0/scratchpad/probe2.py); the committed scripts/probe_perimeter_burst_replay.py is unchanged.
+- Falsifier I would accept: any back_yard/hot_tub frame in the retained window showing a real person that the replay marks would-demote; none found in 26.

@@ -806,6 +806,7 @@
           "census_ble_cancel_enabled": "Phones excuse unknown people",
           "egress_identity_enabled": "Name people at doors",
           "known_face_guests": "Known guests",
+          "face_name_aliases": "Face name aliases",
           "egress_identity_failsafe_strict": "Only trust live faces",
           "auto_enable_person_detection": "Turn on person detection",
           "door_groups": "Group door cameras",
@@ -827,6 +828,7 @@
           "census_ble_cancel_enabled": "When someone's phone places them in the same area as a camera that sees an unrecognized person, don't count that person toward guest detection. Turn off if guest detection seems to miss real guests.",
           "egress_identity_enabled": "Name people who walk through door cameras, using face recognition, so the house count knows who is home. You can also turn this off from its switch on the House device.",
           "known_face_guests": "Names from your face library that belong to regular guests, not residents. Leave empty if none.",
+          "face_name_aliases": "Map a face-library name to a person, one per line as Name=person (for example Oji=oji_udezue). Use it when a name does not match the person's entity. Leave empty if names already match.",
           "egress_identity_failsafe_strict": "Only name people at doors when face recognition is working right now. Leave on.",
           "auto_enable_person_detection": "Turn on person detection on room cameras that have it off. For now URA only lists them in the log.",
           "door_groups": "Map each door camera's name to a group (e.g. two cameras on one front door → both to 'front'). Leave blank if each camera is its own door.",
@@ -2354,6 +2356,10 @@
     }
   },
   "issues": {
+    "external_url_unreachable": {
+      "title": "External URL not reachable",
+      "description": "Home Assistant's External URL ({url}) is not reachable ({reason}); notification image links (Pushover, companion app) will be broken. Fix it in Settings → System → Network. This issue clears itself once the URL answers again (checked daily and at startup)."
+    },
     "restart_pending_version_mismatch": {
       "title": "Restart pending to load URA {installed}",
       "description": "Universal Room Automation {installed} is installed on disk, but the running code is still {loaded}. Restart Home Assistant to load the installed version. This is normal right after a deploy (restarts are deferred, e.g. while the house sleeps); this issue clears itself after the restart."
@@ -2442,6 +2448,10 @@
       "perimeter_egress_known_xcorr_gate": {
         "name": "Door Alerts Only for Strangers",
         "description": "Door cameras that also alert as outdoor cameras send a full alert only for an unknown person that both camera systems saw. Known people and single-system sightings are lowered to low."
+      },
+      "perimeter_identity_followup": {
+        "name": "Door Alert Name Follow-Up",
+        "description": "After a door camera alert for an unknown person, send one quiet follow-up such as 'Front door: that was Jaya' if face recognition names the person within 90 seconds."
       },
       "name_people_at_doors": {
         "name": "Name People at Doors",

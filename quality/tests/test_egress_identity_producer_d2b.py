@@ -151,13 +151,24 @@ def test_face_legs_multi_engine_enumeration():
     assert all(l.canonical_slug == "oji_udezue" for l in legs)
 
 
-def test_face_legs_2_engine_tagging():
-    """_2-suffixed entity gets the disambiguated engine tag (frigate2)."""
+def test_face_legs_2_engine_tagging(monkeypatch):
+    """FACE-SOURCE-REGISTRY-DISCOVERY-1 D4: the engine is the device family
+    ("frigate"), never suffix-derived; with discovery OFF the legacy
+    suffix tag (frigate2) is byte-identical."""
     now = datetime(2026, 8, 28, 12, 0, 0, tzinfo=UTC)
     states = {
         "sensor.front_door_last_recognized_face_2": _make_state("Oji", now),
     }
     census, _, _ = _make_census(states)
+    legs = census._resolve_face_legs("front_door")
+    assert len(legs) == 1
+    assert legs[0].engine == "frigate"
+    # Patch the const object the method under test actually reads (sibling
+    # files re-import modules, so the module-level import can be stale).
+    monkeypatch.setattr(
+        type(census)._resolve_face_legs.__globals__["_ura_const"],
+        "FACE_SOURCE_REGISTRY_DISCOVERY_ENABLED", False,
+    )
     legs = census._resolve_face_legs("front_door")
     assert len(legs) == 1
     assert legs[0].engine == "frigate2"

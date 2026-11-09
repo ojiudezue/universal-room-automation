@@ -705,6 +705,8 @@ from .const import (
     CONF_EGRESS_IDENTITY_ENABLED,
     CONF_KNOWN_FACE_GUESTS,
     DEFAULT_KNOWN_FACE_GUESTS,
+    CONF_FACE_NAME_ALIASES,
+    DEFAULT_FACE_NAME_ALIASES,
     CONF_EGRESS_IDENTITY_FAILSAFE_STRICT,
     DEFAULT_EGRESS_IDENTITY_FAILSAFE_STRICT,
     DEFAULT_EGRESS_IDENTITY_ENABLED,
@@ -5036,6 +5038,13 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 and CONF_PERIMETER_ZONE_SENSORS not in self._config_entry.options
             ):
                 cleaned.pop(CONF_PERIMETER_ZONE_SENSORS, None)
+            # FACE-SOURCE-REGISTRY-DISCOVERY-1 D5: same rule for an untouched
+            # empty alias list.
+            if (
+                cleaned.get(CONF_FACE_NAME_ALIASES) in ([], None)
+                and CONF_FACE_NAME_ALIASES not in self._config_entry.options
+            ):
+                cleaned.pop(CONF_FACE_NAME_ALIASES, None)
             # Review MED: validate neighbours shape before persisting.
             if CONF_DOOR_INTERIOR_NEIGHBOURS in cleaned:
                 validated, err = self._validate_door_interior_neighbours(
@@ -5296,6 +5305,27 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 selector.EntitySelectorConfig(
                     domain="binary_sensor",
                     multiple=True,
+                )
+            ),
+            # FACE-SOURCE-REGISTRY-DISCOVERY-1 D5 (Advanced; shown in Simple
+            # mode once set): optional face-name aliases, "FaceName=target"
+            # (target = tracked person slug, with or without "person.", or a
+            # known guest name). Fresh-read, so saving it does not reload.
+            vol.Optional(
+                CONF_FACE_NAME_ALIASES,
+                default=self._get_current(
+                    CONF_FACE_NAME_ALIASES,
+                    DEFAULT_FACE_NAME_ALIASES,
+                ),
+                description=_adv(
+                    CONF_FACE_NAME_ALIASES, _merged, DEFAULT_FACE_NAME_ALIASES,
+                ),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[],
+                    multiple=True,
+                    custom_value=True,
+                    mode=selector.SelectSelectorMode.LIST,
                 )
             ),
         })

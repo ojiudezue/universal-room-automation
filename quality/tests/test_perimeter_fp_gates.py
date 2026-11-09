@@ -1102,6 +1102,24 @@ def test_egress_gate_tracker_home_without_arrival_edge_pages(monkeypatch):
     assert _sev(nm) == Severity.CRITICAL
 
 
+def test_egress_gate_tracker_not_home_to_zone_pages(monkeypatch):
+    """not_home -> named zone is not an arrival edge (shared arrival_edges
+    rule, LOCK-REGIME-FACE-ARRIVAL-CORROBORATION-1 drill H3)."""
+    hass, nm, mgr = _d105(monkeypatch, legs=[_leg("oji_udezue", None)])
+    _person_cb(mgr)(_person_edge("oji_udezue", "not_home", "Work"))
+    _run(mgr._async_handle_perimeter_trigger(DB_PR))
+    assert _sev(nm) == Severity.CRITICAL
+
+
+def test_egress_gate_non_bermuda_record_pages(monkeypatch):
+    """Only a Bermuda-method record is a BLE arrival (drill H9)."""
+    hass, nm, mgr = _d105(monkeypatch, legs=[_leg("oji_udezue", None)])
+    _with_ble(hass, "Oji Udezue")
+    hass.data[_const.DOMAIN]["person_coordinator"].data["Oji Udezue"]["method"] = "gps"
+    _run(mgr._async_handle_perimeter_trigger(DB_PR))
+    assert _sev(nm) == Severity.CRITICAL
+
+
 def test_egress_gate_restart_within_window_pages(monkeypatch):
     """HA restarted 60 s ago: both a tracker edge and a Bermuda move inside
     the post-boot exclusion are ignored -> page."""
@@ -1140,10 +1158,18 @@ def test_egress_gate_near_area_includes_configured_neighbours(monkeypatch):
     monkeypatch.setattr(PerimeterAlertManager, "_area_of_entity",
                         lambda self, e: {DB_CAM: "front_porch",
                                          "camera.foyer": "foyer"}.get(e, ""))
-    hass.data[_const.DOMAIN]["transit_validator"] = SimpleNamespace(
-        _door_group_for_stem=lambda stem: "front" if stem == DB_KEY else None,
-        _interior_neighbours_by_group={"front": ["camera.foyer"]},
+    # LOCK-ENTRY-AREAS-WRONG-OBJECT-1: a REAL EgressDirectionTracker at its
+    # real key, and a REAL TransitValidator at its own key (which has no
+    # door-group surface) -- a consumer reading the wrong key goes RED.
+    from custom_components.universal_room_automation import (  # noqa: PLC0415
+        transit_validator as _tv_mod,
     )
+    tracker = _tv_mod.EgressDirectionTracker(None)
+    tracker._door_group_by_stem = {DB_KEY: "front"}
+    tracker._interior_neighbours_by_group = {"front": ["camera.foyer"]}
+    hass.data[_const.DOMAIN]["egress_tracker"] = tracker
+    hass.data[_const.DOMAIN]["transit_validator"] = _tv_mod.TransitValidator(None)
+    assert mgr._near_areas(DB_KEY) == {"front_porch", "foyer"}
     _with_ble(hass, "Oji Udezue", location="Foyer", prev="away")
     _run(mgr._async_handle_perimeter_trigger(DB_PR))
     assert _sev(nm) == Severity.LOW

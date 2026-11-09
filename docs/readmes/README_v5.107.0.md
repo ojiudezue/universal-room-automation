@@ -93,7 +93,8 @@ Both are now pinned, along with every HIGH and MEDIUM gap (K3/K4/K5/K7, W5-W12, 
 - D10.5 operator ask (2): a "that was <name>" follow-up when Protect back-fills the name within 90 s. **Parked**: NM has no
   "update the same notification" path; a second `async_notify` at the same severity pages again and at LOW reaches no
   channel (all floors ≥ HIGH). Revival trigger: NM gains an edit/thread-reply primitive per channel (Pushover receipt
-  replace, companion `tag`), or the operator accepts a second page.
+  replace, companion `tag`), or the operator accepts a second page. **Revived and built in v5.107.5** (operator
+  2026-11-08 accepted a separate quiet follow-up message): see `README_v5.107.5.md`.
 - D10.5 operator ask (1): no fast non-face identity signal names the person *in frame* at dispatch. The reused signals
   (Bermuda room transition, person tracker → home) are used only as corroboration of a face match, per the
   2026-11-08 ruling.

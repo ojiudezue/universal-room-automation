@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.107.0
+# Universal Room Automation vv5.107.6
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -80,12 +80,14 @@ from .const import (
     CONF_PERIMETER_SINGLE_SOURCE_DEMOTE,
     CONF_PERIMETER_VLM_GATE,
     CONF_PERIMETER_EGRESS_KNOWN_XCORR_GATE,
+    CONF_PERIMETER_IDENTITY_FOLLOWUP,
     SIGNAL_URA_FACE_RECOGNITION_CHANGED,
     # INTEGRATION-RELOAD-COMPREHENSIVE Tier-1 (2026-09-06): fresh-read
     # census toggles promoted to the reload-suppress allowlist.
     CONF_CENSUS_CROSS_VALIDATION,
     CONF_CENSUS_BLE_CANCEL_ENABLED,
     CONF_KNOWN_FACE_GUESTS,
+    CONF_FACE_NAME_ALIASES,
     CONF_EGRESS_IDENTITY_FAILSAFE_STRICT,
     # INTEGRATION-RELOAD-COMPREHENSIVE-1 Tier-2 (2026-09-07, plan D2.1
     # rev-2 rework post Tier-3 review). The 9 perimeter-step keys below
@@ -2383,6 +2385,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await async_start_version_check(hass, entry)
         except Exception:  # noqa: BLE001
             _LOGGER.debug("version check start failed (non-fatal)", exc_info=True)
+
+        # v5.107.3: external_url reachability self-check -> repair issue
+        # when notification image links (Pushover/companion) would break.
+        # Deferred to HA-started, then daily; unsubs on this entry's unload.
+        try:
+            from .external_url_check import async_start_external_url_check
+            async_start_external_url_check(hass, entry)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("external URL check start failed (non-fatal)", exc_info=True)
 
         # D3 (URA-INTEGRATION-ARRANGEMENT-1, 2026-09-08): register the
         # Rooms grouping device under the INTEGRATION entry so the ~40
@@ -7731,6 +7742,11 @@ INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     CONF_CENSUS_CROSS_VALIDATION,
     CONF_CENSUS_BLE_CANCEL_ENABLED,
     CONF_KNOWN_FACE_GUESTS,
+    # FACE-SOURCE-REGISTRY-DISCOVERY-1 D5: CONF_FACE_NAME_ALIASES — path-(a)
+    # fresh-read: camera_census._get_face_name_aliases merges data+options on
+    # every canonicalizer / presence alias lookup; no setup-time cache, no
+    # discharge signal. Same consumer shape as CONF_KNOWN_FACE_GUESTS.
+    CONF_FACE_NAME_ALIASES,
     # CONF_EGRESS_IDENTITY_FAILSAFE_STRICT — path-(a) fresh-read via
     # camera_census._is_egress_identity_failsafe_strict (all decision-path
     # callers route through it: camera_census.py:3694/3713/3895,
@@ -7776,6 +7792,7 @@ INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     CONF_PERIMETER_SINGLE_SOURCE_DEMOTE,
     CONF_PERIMETER_VLM_GATE,
     CONF_PERIMETER_EGRESS_KNOWN_XCORR_GATE,
+    CONF_PERIMETER_IDENTITY_FOLLOWUP,
 })
 
 # EXCLUDED - UNSAFE-STRUCTURAL (Tier-3 review A3 / D-HIGH-1, 2026-09-07):
