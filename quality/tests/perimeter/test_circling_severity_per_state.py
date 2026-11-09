@@ -1,9 +1,9 @@
 """CIRCLING-SEVERITY-1 D2 — per-house-state severity pin tests.
 
 Pins the contextual severity table's `circling` rows across the 9
-HouseState values. Reads NM_HAZARD_EXTERIOR_PERSON_GUEST_SEVERITY at
-test time so a future re-tune of GUEST severity does NOT block this
-test (build-pred #3).
+HouseState values. GUEST circling is HIGH under
+NM_HAZARD_EXTERIOR_PERSON_GUEST_KEEP_HIGH (GUEST-MODE-SPLIT review E-M2)
+and the GUEST MEDIUM with the knob off.
 
 See docs/planning/PLANNING_circling_severity.md §D2.
 """
@@ -113,12 +113,20 @@ def test_circling_severity_waking_perimeter(persons_home):
 
 @pytest.mark.parametrize("persons_home", [0, 1, 2])
 def test_circling_severity_guest(persons_home):
-    """guest row → NM_HAZARD_EXTERIOR_PERSON_GUEST_SEVERITY (read at test time).
-
-    Build-pred #3: no hardcoded severity string here — a future
-    GUEST-severity re-tune tracks through automatically.
+    """guest + perimeter circling → HIGH (GUEST-MODE-SPLIT review E-M2,
+    operator 2026-11-09: GUEST is now a multi-week daytime state, so a
+    circling track keeps the HOME_DAY HIGH). Knob
+    NM_HAZARD_EXTERIOR_PERSON_GUEST_KEEP_HIGH True (default). Literal oracle.
     """
-    expected = _const.NM_HAZARD_EXTERIOR_PERSON_GUEST_SEVERITY
     assert _const.NM_HAZARD_EXTERIOR_PERSON_CONTEXTUAL_SEVERITY(
         "guest", persons_home=persons_home, **_CIRCLING,
-    ) == expected
+    ) == "HIGH"
+
+
+@pytest.mark.parametrize("persons_home", [0, 1, 2])
+def test_circling_severity_guest_knob_off(monkeypatch, persons_home):
+    """Knob False → the GUEST row's MEDIUM again (pre-E-M2 behaviour)."""
+    monkeypatch.setattr(_const, "NM_HAZARD_EXTERIOR_PERSON_GUEST_KEEP_HIGH", False)
+    assert _const.NM_HAZARD_EXTERIOR_PERSON_CONTEXTUAL_SEVERITY(
+        "guest", persons_home=persons_home, **_CIRCLING,
+    ) == "MEDIUM"
