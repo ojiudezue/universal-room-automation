@@ -4,8 +4,17 @@
 `f5_measured_2026_11_09`, `approved_2026_11_09`, `tier_2026_11_09`, `operator_answers_2026_11_09`, `links`,
 `adjacency_2026_11_09`.
 **Base:** `develop` @ `6b97e434` (v5.107.6); gate lines re-verified on `b1d0a3d5`. **Date:** 2026-11-09.
-**Status:** rev 2 (plan review 1 of 2, completeness, applied: `docs/reviews/code-review/guest_split_plan_review_1.md`).
-Not built. Plan review 2 (adversarial build-prediction) pending.
+**Status:** rev 3. Plan review 1 (completeness) applied in rev 2: `docs/reviews/code-review/guest_split_plan_review_1.md`.
+Plan review 2 (adversarial build-prediction) applied in rev 3: `docs/reviews/code-review/guest_split_plan_review_2.md`.
+Not built. Build waits on the §5.0 D0 gate.
+
+**Rev 3 changes (plan review 2, build-prediction):** live oracle moved to the real entity and to a latched, recorded
+`guest_entry_legs` attribute (the house-state sensor polls every 30 s, so the recorded `guest_reason` at a transition is
+not the entry tick's value); `guest_reason` defined per state; WiFi leg transport fixed to the census signal payload;
+"seen away" means exactly `not_home` (unavailable / unknown never make an arrival); `GUEST_WIFI_LEG_ENABLED` False means
+False everywhere; rung-1 constants read as `const.X` at call time; superseded source-grep tests listed; kill-switch
+golden made reproducible; `visitors_present` polled, not pushed; `visitor_names` PARKED; entity ids corrected; INV-SPLIT-1/2
+restated against the accepted transition, min dwell and tick cadence.
 **Tier:** **3** (escalated from the card's Tier 2-DB minimum; trigger in §9).
 
 | Deliverable | What | Gate |
@@ -80,10 +89,12 @@ manual §5.5(a): identity may only de-escalate or annotate, never actuate.
 | "New + sustained" WiFi device | **BUILD** (small) | No equivalent. `wifi_guest_floor` uses `last_changed` recency, which a restart resets (see D1). Edge shape copied from `arrival_edges.py` (live `not_home → home`, boot exclusion), not imported (different entity class) |
 | GUEST composition | **EXTEND** | `guest_armed` composition `presence.py:6586-6612`; `infer()` entry `:1425`, exit `:1399` |
 | GUEST exit persistence | **REUSE** | `guest_exit` veto `presence.py:7328-7382` (`_guest_exit_quiet_since`, `_guest_persistence_seconds`); GUEST min dwell 300 s `house_state.py:137` |
-| Kill switch for all guest detection | **REUSE** | `switch.ura_presence_guest_detection_enabled` (`PresenceGuestDetectionEnabledSwitch` `switch.py:3899`, field `_guest_detection_enabled`; the switch only sets the field, `switch.py:3785-3805`, no hook) |
-| `visitors_present` entity | **BUILD** | grep `visitor` over the package: only a comment at `config_flow.py:5141`. `URAUnexpectedPersonSensor` (`binary_sensor.py:1889`) is instantaneous and keeps distinct semantics (KEEP). Device/unique-id shape copied from `binary_sensor.py:2420-2440` (`{DOMAIN}_guest_mode`, `identifiers={(DOMAIN, "presence_coordinator")}`) |
-| `guest_reason` attribute | **EXTEND** | `presence.py:6615-6637`, published `sensor.py:5836`; RECORDED (not in `_unrecorded_attributes`, `sensor.py:5714-5724`), so it is the live oracle |
-| Known-guest face / `identified_guests` | **REUSE as annotation only** | `CONF_KNOWN_FACE_GUESTS` `const.py:3355`; `_get_egress_guest_ids_fresh` → `_last_identified_guests_count` `camera_census.py:6355-6363`; published `sensor.py:3765-3772` |
+| Kill switch for all guest detection | **REUSE** | `switch.ura_presence_coordinator_guest_detection` (unique id `universal_room_automation_presence_guest_detection_enabled`, live registry 2026-11-09; `PresenceGuestDetectionEnabledSwitch` `switch.py:3899`, field `_guest_detection_enabled`; the switch only sets the field, `switch.py:3785-3805`, no hook) |
+| `visitors_present` entity | **BUILD** | grep `visitor` over the package: only a comment at `config_flow.py:5141`. `URAUnexpectedPersonSensor` (`binary_sensor.py:1889`) is instantaneous and keeps distinct semantics (KEEP). Class shape copied from `GuestModeBinarySensor` `binary_sensor.py:2415-2450` (unique id `{DOMAIN}_guest_mode` → live `binary_sensor.ura_presence_coordinator_guest_mode`; `identifiers={(DOMAIN, "presence_coordinator")}`; POLLED, no dispatcher) |
+| `guest_reason` attribute | **EXTEND** | `presence.py:6615-6637`, published `sensor.py:5836` on `PresenceHouseStateSensor` (`sensor.py:5695`, unique id `{DOMAIN}_presence_house_state` → live `sensor.ura_presence_coordinator_presence_house_state`). NOT `HouseStateSensor` (`sensor.py:5595`, `sensor.ura_coordinator_manager_house_state`), which has no `guest_reason`. RECORDED, but the sensor POLLS every 30 s (`sensor.py:5711` comment), so it is display, not the transition oracle |
+| `guest_entry_legs` attribute (transition oracle) | **BUILD** | No equivalent: `house_state_log` has no reason column (`database.py:1494`), `guest_reason` is per-tick. A sticky, recorded attribute on the same sensor, stamped in the accepted-transition branch (`presence.py:7596-7603`) |
+| WiFi leg transport | **EXTEND** | `SIGNAL_CENSUS_UPDATED` payload (`camera_census.py:1848-1870`; precedent keys `face_recognized_count`, `camera_input_dark`) read in `_handle_census_update` (`presence.py:5158`), default 0 for legacy payloads (I3). The census object is `hass.data[DOMAIN]["census"]` (`__init__.py:2938`), never `"camera_census"`; census ticks every 30 s (`SCAN_INTERVAL_CENSUS` `const.py:2344`) |
+| Known-guest face / `identified_guests` | **PARKED this cycle (rev 3)** | `CONF_KNOWN_FACE_GUESTS` `const.py:3355`; `_get_egress_guest_ids_fresh` → `_last_identified_guests_count` `camera_census.py:6355-6363`; published `sensor.py:3765-3772`. No `visitor_names` attribute this cycle (§2.3) |
 | Trip-wire NM | **REUSE pattern** | stuck-signal NM shape of `sleep_raw_hold` / `zone_hold_all_away` (presence state of play §2, §9) |
 | Confidence | **REUSE** unchanged | `_d5_guest_confidence` `presence.py:6645-6650` (room + unid 0.95, room 0.9) and override `:7236` guarded on `guest_room_gate_armed`. With the room leg mandatory these are already right for every allowed pair (rev 1's two new confidence constants are dropped) |
 
@@ -132,12 +143,16 @@ Three evidence legs, each a boolean per inference tick:
 | Leg | True when | Producer | Evaluated in |
 |---|---|---|---|
 | `room` | `_guest_room_gate_armed()` (unknown occupant ≥ room threshold in a flagged guest room) | presence, unchanged | HOME_* and GUEST only (today). NOT evaluated in other states: the method is not pure (it entry-resets `_guest_room_gate_fired_room`, clears `first_seen` on a known person, INFO-logs every armed tick, `presence.py:5953-5996`) |
-| `cam` | `_guest_gate_armed()` returned True within the last `GUEST_CAM_LEG_LATCH_S` | presence: stamp `_guest_cam_leg_last_true` on each True return | stamped only where Path A runs today (HOME_*); read everywhere (pure read of the stamp) |
-| `wifi` | ≥ 1 guest-SSID device with a live arrival edge seen by URA and continuously `home` for ≥ `GUEST_WIFI_SUSTAIN_S` (D1) | census, read by presence (pure read) | every tick; forced False when `GUEST_WIFI_LEG_ENABLED` is False |
+| `cam` | `_guest_gate_armed()` returned True within the last `GUEST_CAM_LEG_LATCH_S` | presence: stamp `_guest_cam_leg_last_true = dt_util.utcnow()` (UTC-aware) on each True return | stamped only where Path A runs today (HOME_*); read everywhere (pure read of the stamp). Path A is NOT evaluated in GUEST (`presence.py:6602-6606`), so the latch never re-forms inside a GUEST episode |
+| `wifi` | `self._wifi_guest_sustained_count > 0`, the value of payload key `wifi_guest_devices_sustained` from the last `SIGNAL_CENSUS_UPDATED` (D1) | census computes, presence stores it in `_handle_census_update` (default 0) | every tick; `legs["wifi"]` is False EVERYWHERE (entry, hold, `visitors_present`, D4) when `const.GUEST_WIFI_LEG_ENABLED` is False. The count is still published on the census sensor (shadow) |
 
-**Known-guest faces are not a leg.** A `guest:*` name (`known_face_guests`, egress `identified_guests`) never sets a
-leg. It is published as `visitor_names` on the `visitors_present` entity only while `visitors_present` is already on
-from a leg (display; identity manual §5.5(a)).
+**Known-guest faces are not a leg, and are not displayed this cycle.** A `guest:*` name never sets a leg. Rev 2's
+`visitor_names` attribute is PARKED (§2.3): its producer is empty after HomeLab removed the Ojini library on 11-09, and
+reading it means reaching into census private state for a display string.
+
+**Constant reads.** Every new rung-1 constant is read as a module attribute at call time (`from .. import const` then
+`const.GUEST_TWO_LEG_GATE_ENABLED`), never `from ..const import GUEST_TWO_LEG_GATE_ENABLED`. A name imported at module
+load is frozen, so a test that patches `const` would not reach the code under test.
 
 ### 2.2 Rules
 
@@ -152,9 +167,23 @@ from a leg (display; identity manual §5.5(a)).
 - **Kill switch:** `GUEST_TWO_LEG_GATE_ENABLED` (rung 1, True). False = today's composition, byte-identical
   (`guest_armed = guest_room_gate_armed` in both branches; no leg read affects `guest_armed`, `guest_reason`, confidence
   or `infer()`).
-- **Guest-detection switch OFF:** on the first tick that reads `_guest_detection_enabled` False, the compose step forces
-  every leg False and clears `_guest_cam_leg_last_true` (level-triggered, same shape as the room gate's own clear at
-  `presence.py:5957-5959`; the switch has no hook).
+- **Guest-detection switch OFF:** on every tick that reads `_guest_detection_enabled` False, the guest block forces
+  every leg False and clears `_guest_cam_leg_last_true`. The check sits BEFORE the HOME / GUEST / else branch split, so
+  it also covers S3 (level-triggered, same shape as the room gate's own clear at `presence.py:5957-5959`; the switch has
+  no hook).
+- **`guest_reason` (gate switch on), by state:**
+  - HOME_*: `two_leg:<sorted true legs>` when the entry rule holds; else `guest_room:<room>` when only `room` is true
+    (a visitor, not a guest); else `unidentified_corroborator_only` when only `cam` fired this tick; else `none`.
+  - GUEST, not overridden: `guest_hold:<sorted true legs among room, wifi>`, or `guest_hold:none` while the exit
+    persistence runs.
+  - GUEST, overridden: `override`. Any other state: `none`.
+  - With `GUEST_TWO_LEG_GATE_ENABLED` False the string is computed exactly as today (INV-SPLIT-3).
+- **`guest_entry_legs` (transition oracle):** in the accepted-transition branch (`presence.py:7596-7603`), when
+  `new_state == GUEST` and the house was not overridden, set `_guest_entry_legs = "<sorted true legs>"` from this
+  tick's legs; when `current_state == GUEST` and the transition is accepted, clear it to `None`. Both writes happen before
+  the first `await` in that branch (`await self._count_transition()`, `:7605`). Published on
+  `sensor.ura_presence_coordinator_presence_house_state` as `guest_entry_legs` (recorded, low churn). RAM only: after a
+  restart it is `None`, including under a restored GUEST.
 
 What changes for the house, versus today:
 
@@ -166,7 +195,8 @@ What changes for the house, versus today:
 | Gathering in living room: cameras see unknown bodies ≥ 300 s, guest phones on Revel | no GUEST | no GUEST; `visitors_present` on (operator answer 1) |
 | Frigate names a resident "Ojini" | no GUEST | no GUEST; not even `visitors_present` |
 | Guest leaves the guest room for the kitchen | exits after 300 s quiet | same, unless their phone holds `wifi` |
-| Restart mid-visit (restored GUEST) | room gate re-seeds; holds | holds only on `room` until the cam latch or a WiFi edge re-forms; see §7 residual |
+| Restart mid-visit (restored GUEST) | room gate re-seeds; holds | holds only on `room` (the cam latch cannot hold, and cannot re-form inside GUEST; a phone that stayed connected never makes a new WiFi edge); see §7 residual |
+| Guest asleep in GB1, house in SLEEP (room-only entry was refused) | n/a (would be GUEST) | `visitors_present` OFF overnight: `room` is not evaluated outside HOME_* / GUEST. Expected, not a defect |
 
 ### 2.3 Marginal-benefit pushback (done before the spec, per the rule)
 
@@ -178,6 +208,8 @@ What changes for the house, versus today:
   known visits AND a material recall loss on the stay, the planner recommends shipping D2 (`visitors_present`) only and
   parking D3 with a revival trigger ("a room-alone GUEST entry on a day the operator confirms no guest"), and pages the
   operator before any build. The operator's ruling stands unless they change it on that evidence.
+- **`visitor_names` on `visitors_present`: PARK (rev 3).** Display only, empty producer today, and the only way to fill
+  it is a read of census private state (wrong-object bait). Same revival trigger as the next bullet.
 - **Known-guest face as positive evidence: PARK.** F-5 measured 87/87 Ojini labels as mislabels; HomeLab removed the
   Ojini library and raised the face thresholds on 11-09. **Revival trigger:** `known_face_guests` non-empty AND ≥ 10
   guest-label face rows in 14 days that the operator confirms as real visits.
@@ -188,10 +220,15 @@ What changes for the house, versus today:
 
 ### 2.4 Falsifiable invariants
 
-- **INV-SPLIT-1 (room mandatory, never alone).** For every reachable tick with `GUEST_TWO_LEG_GATE_ENABLED` True on which
-  `infer()` proposes GUEST from a HOME_* state, `room` was true on that tick AND at least one of `cam`, `wifi` was true.
-  Exempt by design: manual override (select / service) and restart restore (a restored GUEST is discharged by the hold
-  rule within `_guest_persistence_seconds` + one tick of `room` and `wifi` both being false).
+- **INV-SPLIT-1 (room mandatory, never alone).** With `const.GUEST_TWO_LEG_GATE_ENABLED` True: every call of
+  `house_state_machine.transition(GUEST)` that is ACCEPTED while the machine is in HOME_DAY / HOME_EVENING / HOME_NIGHT
+  happens on a `_run_inference` tick whose locally computed legs satisfy `room AND (cam OR wifi)`, where `room` is the
+  return of `_guest_room_gate_armed` on that same tick, `cam` is `now - _guest_cam_leg_last_true <= GUEST_CAM_LEG_LATCH_S`
+  with the stamp set only by a True return of `_guest_gate_armed`, and `wifi` is `GUEST_WIFI_LEG_ENABLED and
+  _wifi_guest_sustained_count > 0`. There is no other writer of GUEST from HOME_* except the two exempt paths: manual
+  override (select `select.py:280`, service `__init__.py:6200` / `set_house_state_override` `presence.py:8663`) and
+  restart restore (`manager.py:688-719`). Observable: in tests, the legs passed to `_compose_guest_gate` on the
+  accepting tick; live, `guest_entry_legs` on the first recorded `guest` state after each `house_state_log` guest row.
   Corollaries: a Frigate face label (resident or `guest:*`), alone or repeated, never enters GUEST and never sets
   `visitors_present`; `cam+wifi` never enters; `room` alone never enters.
   *Falsifiers to try:* a mislabelled face on two cameras for 30 min with a clean BLE census (face is not a leg; the body
@@ -199,9 +236,11 @@ What changes for the house, versus today:
   only); a party in the living room with phones on Revel (`cam+wifi`, no `room`); an IoT device reconnecting every
   20 min while someone sits in GB1 (`wifi` needs a continuous sustain); a restart with a guest-SSID device already `home`
   (no live edge → no `wifi`); a cam run older than the latch followed by 30 min in GB1.
-- **INV-SPLIT-2 (discharge).** GUEST is never held by `cam` alone, and every inferred GUEST episode ends within
-  `_guest_persistence_seconds` + one inference tick of the last instant at which `room` OR `wifi` was true, unless an
-  override or AWAY intervenes first.
+- **INV-SPLIT-2 (discharge).** GUEST is never held by `cam` alone. Every non-overridden GUEST episode (inferred or
+  restored) leaves GUEST no later than max(`_guest_persistence_seconds` after the last tick on which `room` OR `wifi` was
+  true, the GUEST minimum dwell of 300 s from `house_state.py:137` measured from `_state_since`) plus one inference
+  interval, unless AWAY intervenes first. "One inference interval" is the longest gap between `_run_inference` calls
+  while in GUEST (the 30 s census signal drives it; the reviewer measures it, it is not assumed).
 - **INV-SPLIT-3 (kill switch).** With `GUEST_TWO_LEG_GATE_ENABLED` False, `guest_armed`, `guest_reason`,
   `_d5_guest_confidence` and the `infer()` result are byte-identical to `develop` @ `6b97e434` for every input.
 - Carried unchanged: **INV-GUEST-LEAD**, **INV-GUEST-NO-RESIDENT** (the room leg never fires on known residents) and the
@@ -244,8 +283,8 @@ the legs directly.
 | Occupancy-anomaly suppressed in GUEST | `binary_sensor.py:3570` | display | more anomaly evaluation in lost-GUEST periods |
 | Routine forecaster passthrough | `routine_forecaster.py:101-105` | display | none |
 | Memory facade guest → home | `memory_facade.py:279` | display | none |
-| `binary_sensor.ura_guest_mode` | `binary_sensor.py:2450` | display | none |
-| House-state sensor `guest_reason` | `sensor.py:5836` (recorded) | display + live oracle | gains `two_leg:<legs>` values (D3) |
+| `binary_sensor.ura_presence_coordinator_guest_mode` | `binary_sensor.py:2450` | display | none |
+| `sensor.ura_presence_coordinator_presence_house_state` `guest_reason` | `sensor.py:5836` (recorded, polled 30 s) | display | gains `two_leg:` / `guest_hold:` values (§2.2) |
 | Census sensor `identified_guests_count`, `wifi_guest_floor` | `sensor.py:3765-3772`, `:3792` | display | unchanged; D1 adds `wifi_guest_devices_sustained` |
 | Wall-panel brightness automation (HA YAML, not URA) | `automations.yaml:8270` per 10-17 audit | cosmetic | fewer episodes |
 | Lighting in URA | grep found no URA lighting reader of GUEST | — | — |
@@ -274,18 +313,25 @@ on develop (re-run independently in plan review 1; identical). The builder re-ru
 | S1 | `presence.py:6586-6601` HOME_* branch: `unid_gate_armed`, `guest_room_gate_armed`, `guest_armed = guest_room_gate_armed` | stamp cam latch on `unid_gate_armed` True; read wifi leg; `guest_armed = _compose_guest_gate(legs, HOME)` = room AND (cam OR wifi) |
 | S2 | `presence.py:6602-6609` GUEST branch: `guest_armed = guest_room_gate_armed` | `guest_armed = _compose_guest_gate(legs, GUEST)` = room OR wifi |
 | S3 | `presence.py:6610-6613` else branch (all False) | legs for `visitors_present` only: `room` False (NOT evaluated), `cam` latch read, `wifi` read. The locals `unid_gate_armed`, `guest_room_gate_armed`, `guest_armed` stay False |
-| S4 | `presence.py:6615-6637` `guest_reason` | precedence when the gate switch is on: `two_leg:<sorted legs>` (entry or hold with `guest_armed` True) > `guest_room:<room>` (room alone, now "visitor, not guest") > `unidentified_corroborator_only` > `override` > `none`. Switch off: unchanged |
+| S4 | `presence.py:6615-6637` `guest_reason` | per-state table in §2.2 when the gate switch is on. Switch off: unchanged |
 | S5 | `presence.py:6645-6670` `_d5_guest_confidence` + debug canary | values unchanged (room+cam 0.95, room 0.9); canary condition narrowed to HOME_* ticks (a WiFi-only hold in GUEST is legal and must not log the canary) |
 | S6 | `presence.py:7046` `infer(guest_gate_armed=guest_armed)` | unchanged literal (anchor) |
 | S7 | `infer()` exit `:1399` and entry `:1425` | unchanged; they consume `guest_gate_armed` |
 | S8 | `presence.py:7236` confidence override guarded on `guest_room_gate_armed` | unchanged (room is mandatory for entry, so the guard is already right) |
 | S9 | `presence.py:7328-7382` `guest_exit` veto | unchanged (hold semantics come from S2) |
-| S10 | `presence.py:7596-7603` `_disarm_guest_gate()` on GUEST edges; non-home disarm `:6568-6575`; teardown `:8227` | unchanged; must NOT clear `_guest_cam_leg_last_true` (separate state) |
+| S10 | `presence.py:7596-7603` `_disarm_guest_gate()` on GUEST edges; non-home disarm `:6568-6575`; teardown `:8227` | `_disarm_guest_gate` unchanged and must NOT clear `_guest_cam_leg_last_true` (separate state). The same branch gains the `guest_entry_legs` stamp / clear and the D3 INFO line, both before `await self._count_transition()` (`:7605`) |
 | S11 | `_schedule_guest_persistence_recheck` `presence.py:6070` | unchanged (its recheck tick is where a late cam stamp lands) |
 | S12 | `switch.py:3899` guest-detection kill switch (field only) | the compose step reads `_guest_detection_enabled` False → all legs False, latch cleared, entity off |
 | S13 | `sensor.py:5836` `guest_reason` publish | unchanged code; new values |
 | S14 | Override writers `select.py:280`, `__init__.py:6200`, `presence.set_house_state_override` `:8663-8683` | not gated (by design) |
 | S15 | Restore `manager.py:688-719` (`apply_restored`) | not gated; discharged by S2's hold rule |
+| S16 | `camera_census.py:1848-1870` `SIGNAL_CENSUS_UPDATED` payload | add key `wifi_guest_devices_sustained` (int) |
+| S17 | `presence.py:5158` `_handle_census_update` | store `_wifi_guest_sustained_count` (default 0, malformed → 0). Do NOT add it to the change-detection trigger set (a 30 s lag is fine; a new inference trigger is scope) |
+| S18 | `sensor.py:5836` area | publish `guest_entry_legs` (recorded) |
+
+**Hidden awaits (verified on develop):** no `await` between the guest block (`:6563`), `infer()` (`:7046`) and
+`transition()` (`:7543`). The first await after the decision is `:7605`. All new state writes in this cycle are
+synchronous and must stay ahead of `:7605`.
 
 ---
 
@@ -325,6 +371,11 @@ Questions:
    entries kept, entries removed, each labelled real / FP / unknown with the operator. Also count stay NIGHTS on which
    GUEST would be lost (each = SLEEP instead of GUEST; NM exterior-person severity CRITICAL instead of MEDIUM).
 4. **Cam leg alone:** Path A qualifying runs per day (stay vs no-stay), to size the latch's exposure.
+5. **(rev 3) Router tracker semantics (recorder, last ~7 days).** For guest-SSID router trackers: does `essid` (and
+   `host_name`) persist while the state is `not_home`? Which states do they pass through at an HA restart and at a
+   UniFi integration reload (`unavailable` / `unknown` → `home`, or `not_home` → `home`), and how long after
+   `homeassistant_start` does the first real `home` arrive? This sets `GUEST_WIFI_BOOT_EXCLUDE_S` and confirms D1's
+   "seen away = exactly `not_home`" rule.
 
 **Go/no-go (written as the verdict line):**
 - `GUEST_CAM_LEG_LATCH_S` = the smallest L in Q3 that keeps ≥ 80 % of the stay's GUEST entry-days (an entry-day is kept
@@ -349,15 +400,24 @@ Questions:
 In `camera_census.py`:
 - Refactor `_get_wifi_guest_count` into `_get_wifi_guest_devices(now) -> list[str]` (entity ids passing the SAME
   filters, including the 4 h recency) and `_get_wifi_guest_count = len(...)`. `wifi_guest_floor` byte-identical.
-- New per-census-tick edge tracker over router trackers on the guest SSID that pass filters 1-4c (recency NOT applied
-  here): keep `_wifi_guest_seen_away: set[str]` (seen not `home` on a prior tick this process) and
-  `_wifi_guest_home_since: dict[str, datetime]` (set when a device seen away is now `home`; cleared when it reads
-  anything but `home`). A device already `home` at the first tick after setup has NO entry, so a restart never
-  manufactures arrivals (HA's restore stamps `last_changed` at boot, presence doc §8). Edges inside
-  `GUEST_WIFI_BOOT_EXCLUDE_S` of census setup are ignored.
+- New per-census-tick edge tracker over every `device_tracker` with `source_type == "router"`, keyed by entity id:
+  - `_wifi_guest_seen_away: set[str]`: add the entity when its state is EXACTLY `not_home` on a census tick at or after
+    census setup + `GUEST_WIFI_BOOT_EXCLUDE_S`. `unavailable`, `unknown` and a missing state never count as away (an
+    integration load or reload passes through those, and would otherwise manufacture an arrival for every device).
+    No SSID or hostname filter here: those attributes may not survive `not_home` (D0 Q5).
+  - `_wifi_guest_home_since: dict[str, datetime]`: set to this tick's `utcnow` when an entity in `seen_away` reads
+    `home` AND passes the SSID check and filters 1-4b of `_get_wifi_guest_count` on this read (recency NOT applied);
+    the entity is then removed from `seen_away`.
+  - Any read that is not `home` (including `unavailable` / `unknown`), or a `home` read that fails a filter, deletes
+    the `home_since` entry.
+  - A device already `home` at setup, or that only ever goes `unavailable → home`, has no entry, so a restart or an
+    integration reload never manufactures arrivals (HA's restore stamps `last_changed` at boot, presence doc §8).
+  - `last_changed` is never read by this tracker.
 - `wifi_guest_devices_sustained(now)` = devices whose `home_since` ≤ now − `GUEST_WIFI_SUSTAIN_S` (clamped ≥ 60 s at
-  read). Published on the census sensor as `wifi_guest_devices_sustained` (count, recorded; changes rarely) and in
-  `_unrecorded_attributes` as the entity-id list.
+  read). Published on `sensor.universal_room_automation_persons_in_house` (unique id
+  `{DOMAIN}_census_persons_in_house`) as `wifi_guest_devices_sustained` (count, recorded; changes rarely) and in
+  `_unrecorded_attributes` as the entity-id list `wifi_guest_devices_sustained_ids`. The count also goes into the
+  `SIGNAL_CENSUS_UPDATED` payload (S16); presence never calls into the census object for it.
 - Discharge: an entry is removed on the first non-`home` read, on an entity that disappears, and on teardown.
   RAM only, not persisted (fail toward fewer legs).
 
@@ -367,9 +427,12 @@ In `camera_census.py`:
   elapses; a disconnect resets it.
 - **Discriminates:** under the fix, a restart with 3 IoT devices on Revel gives `wifi_guest_devices_sustained` 0 for the
   whole sustain window and after; under the plausible wrong build (reusing `last_changed`), it gives 3 after the sustain.
+- **Discriminates (rev 3):** a UniFi reload replay (every device `home → unavailable → home` inside 2 min, 1 h after
+  setup) gives 0 under the fix; a build that treats `unavailable` as away gives every device after the sustain.
 - **Test:** `test_guest_split_wifi_leg.py::test_floor_count_unchanged`, `::test_boot_home_device_never_counts`,
   `::test_live_edge_then_sustain_counts`, `::test_disconnect_resets`, `::test_boot_exclusion_window`,
-  `::test_filters_still_apply`, `::test_sustain_clamped_to_60`.
+  `::test_filters_still_apply`, `::test_sustain_clamped_to_60`, `::test_unavailable_is_not_away`,
+  `::test_payload_carries_sustained_count`, `::test_presence_reads_payload_default_zero`.
 - **Live:** after restart, `wifi_guest_devices_sustained` reads 0 on `sensor.universal_room_automation_persons_in_house`
   for at least the sustain window even though `wifi_guest_floor` may be > 0.
 
@@ -378,20 +441,24 @@ In `camera_census.py`:
 - `PresenceCoordinator` computes the three legs once per inference tick (S1-S3) into `_guest_legs: dict[str, bool]`,
   entry-reset at the top of the guest block, and `_visitors_present = house is GUEST or any(legs)`.
 - New `binary_sensor.ura_presence_coordinator_visitors_present` (Presence Coordinator device, `has_entity_name`, unique
-  id `{DOMAIN}_visitors_present`, device info as `binary_sensor.py:2430-2440`), push-updated with the house-state
-  sensor. Attributes: `legs` (the three booleans), `since` (rising edge), `visitor_names` (sorted `guest:*` names from
-  `identified_guests` + known-guest face names, only while on). `legs` and `visitor_names` in `_unrecorded_attributes`.
+  id `{DOMAIN}_visitors_present`, device info as `binary_sensor.py:2430-2440`). POLLED like `GuestModeBinarySensor`
+  (no dispatcher, no new signal). It reads the presence coordinator through
+  `hass.data[DOMAIN]["coordinator_manager"].coordinators.get("presence")` (as `sensor.py:5760`); no coordinator → off.
+  Attributes: `legs` (the three booleans, in `_unrecorded_attributes`), `since` (rising edge, RAM). No `visitor_names`
+  (PARKED, §2.3).
+- `_guest_legs` keeps the last computed tick's values. While inference is not running (boot settle, `_enabled` False)
+  the entity reads whatever the last tick set, False after boot.
 - Guest-detection switch OFF → all legs False, entity off.
 
 **Acceptance criteria**
-- **Verify:** a known-guest face with no leg leaves the entity off and `visitor_names` empty.
+- **Verify:** a known-guest face with no leg leaves the entity off.
 - **Verify:** `room` alone turns it on and does not enter GUEST; `cam+wifi` turns it on and does not enter GUEST.
 - **Verify:** in SLEEP / AWAY, `room` is not evaluated (no `_guest_room_gate_armed` call; no INFO line).
 - **Discriminates:** under the fix, a resident mislabelled as `guest:ojini` on two cameras for 30 min with BLE in the
   room gives entity off; under a build that let the face set a leg, it gives on.
 - **Test:** `test_guest_split_visitors.py::test_face_alone_never_visitor`, `::test_room_alone_is_visitor_not_guest`,
-  `::test_cam_wifi_is_visitor_not_guest`, `::test_room_not_evaluated_outside_home_guest`, `::test_names_only_when_on`,
-  `::test_kill_switch_forces_off`.
+  `::test_cam_wifi_is_visitor_not_guest`, `::test_room_not_evaluated_outside_home_guest`,
+  `::test_kill_switch_forces_off`, `::test_wifi_leg_disabled_is_false_everywhere`, `::test_unique_id_and_device`.
 - **Live:** the entity exists, reads `off` with house state not GUEST and `legs` all False; its unique id resolves in the
   registry.
 
@@ -410,8 +477,20 @@ URA INFO is not retained, so it is not an oracle).
   GUEST proposed only for `room+cam`, `room+wifi`, `room+cam+wifi`. `cam+wifi` and every single leg: never.
 - **Verify (INV-SPLIT-2):** in GUEST, `cam` true alone → exit after the persistence window; `wifi` true alone → hold;
   `room` true alone → hold.
-- **Verify (INV-SPLIT-3):** switch False, replay a fixture of 200 recorded ticks: identical `guest_armed`,
-  `guest_reason`, confidence and `infer()` output vs the pre-change function (golden captured on `6b97e434`).
+- **Verify (INV-SPLIT-3), two parts.** (a) Every existing behavioural guest test module
+  (`test_guest_census_correctness.py`, `test_v472_feature_b_guest_signal.py`, `test_presence_guest_latch_and_veto_gap.py`,
+  `test_v4622_guest_mode_hardening.py`, `test_pc_observability_kill_switches.py`) runs UNMODIFIED and green under a
+  fixture that sets `const.GUEST_TWO_LEG_GATE_ENABLED = False`. (b) A seeded golden: a script generates 200 synthetic
+  input tuples (state, room, unidentified, confidence, persistence elapsed, override, detection switch), runs them
+  through `_run_inference` on base `6b97e434` via the presence test harness, and commits the outputs (`guest_armed`,
+  `guest_reason`, confidence, `infer()` result) as JSON with the generator. The branch must match with the switch False.
+  No recorded live ticks exist; do not invent them.
+- **Superseded source-grep tests (rev 3, name them in the build commit).** `test_guest_census_correctness.py::
+  test_home_like_guest_armed_is_room_only` (`:337`) and `::test_inside_guest_branch_unchanged` (`:375`) assert the literal
+  `guest_armed = guest_room_gate_armed` in the HOME / GUEST branches. They go red by design. Replace each with a
+  behavioural test (room-only entry under switch False; room-only hold under switch False). Do NOT keep the literal in a
+  kill-switch branch to satisfy the grep: that is a hollow anchor. `test_recorder_bloat_logflood.py:172` drives the D2
+  canary shape; update it to the narrowed HOME_*-only condition and keep it red-on-revert.
 - **Verify:** sleep-hour ordering unchanged (exit before the sleep branch, I-D1).
 - **Verify (restore, F6):** a restored non-override GUEST with `room` false and no `wifi` exits after the persistence
   window; with `room` re-seeded by the boot seed it holds.
@@ -423,17 +502,25 @@ URA INFO is not retained, so it is not an oracle).
   `two_leg:room+wifi`. With the WiFi leg OFF and no cam run in the latch: no GUEST, `visitors_present` on, reason
   `guest_room:<room>` (a RECALL loss on a real guest, which D0 must have priced). Under a build that kept
   `guest_armed = room`: GUEST at 21:06Z with reason `guest_room:<room>` in both configurations. Under a build that
-  admitted `cam+wifi`: the living-room party fixture enters GUEST. The reason string and the party fixture separate all
+  admitted `cam+wifi`: the living-room party fixture enters GUEST. `guest_entry_legs` (and `guest_reason` on the HOME_* tick) and the party fixture separate all
   three.
 - **Test:** `test_guest_split_gate.py::test_pair_matrix`, `::test_cam_wifi_never_enters`, `::test_hold_room_or_wifi_only`,
   `::test_cam_alone_never_holds`, `::test_kill_switch_byte_identical`, `::test_exit_before_sleep_branch`,
   `::test_cam_latch_survives_disarm`, `::test_detection_switch_off_clears_latch`, `::test_restored_guest_held_by_room_only`,
   `::test_config_extremes`, `::test_1017_replay`, `::test_party_fixture_no_guest`. Each of S1, S2, S3, S4, S10, S12 gets
   a named test that fails when that one site is neutered (framing C drill list).
-- **Live:** `sensor.universal_room_automation_house_state` attribute `guest_reason` reads `none` or `guest_room:<room>`
-  (not `two_leg:`) with no visitors. On the next real guest: for each `house_state_log` row with `state='guest'`, the
-  RECORDED `guest_reason` attribute at that timestamp (recorder, house-state sensor) reads `two_leg:*` and contains
-  `room`. A `guest_room:` or a `two_leg:` without `room` at a GUEST transition = FAIL.
+- **Verify (rev 3):** on the accepting tick `_guest_entry_legs` equals the legs passed to `_compose_guest_gate`; it is
+  cleared on the accepted GUEST exit; an override into GUEST leaves it `None`; both writes happen before the first await
+  (`test_entry_legs_stamped_before_await` drives a transition whose `_count_transition` raises and asserts the stamp).
+- **Test (rev 3 additions):** `::test_entry_legs_latched_and_cleared`, `::test_entry_legs_stamped_before_await`,
+  `::test_guest_reason_per_state`, `::test_const_read_at_call_time` (patch `const.GUEST_TWO_LEG_GATE_ENABLED` after
+  import; behaviour must follow).
+- **Live:** on `sensor.ura_presence_coordinator_presence_house_state` (resolve by unique id
+  `universal_room_automation_presence_house_state`, never by a guessed entity id), `guest_reason` is never `two_leg:*`
+  with no visitors. On the next real guest: for each `house_state_log` row with `state='guest'` whose previous state is
+  HOME_*, the first recorded state of that sensor at or after the row's timestamp whose value is `guest` carries
+  `guest_entry_legs` containing `room` and at least one of `cam`, `wifi`. `None` there = an override or a restore
+  (check the override select's history before calling it a FAIL); `room` alone or no `room` = FAIL.
 
 ### D4 — Trip-wire: GUEST held without the room leg
 
@@ -442,6 +529,13 @@ than `GUEST_WIFI_ONLY_HOLD_NM_S` with `room` false for that whole span (WiFi is 
 cannot hold). Once per GUEST episode; re-armed on GUEST exit. 0 = off. Rationale: the WiFi hold has no time bound of its
 own; a device that slips the filters and stays connected would hold GUEST indefinitely (suppression-needs-discharge
 rule). The NM is the discharge to a human, not an automatic exit. Inert when the WiFi leg ships OFF.
+
+Shape (rev 3): copy `_check_sleep_raw_hold` (`presence.py:4173-4255`): a per-tick method called next to it, override read
+as `getattr(machine, "is_overridden", False)`, latch `_guest_wifi_only_hold_nm_fired`, fire through
+`_stuck_signal_nm.fire_stuck_signal(kind="guest_wifi_only_hold", key=("house",), severity="HIGH")` in
+`hass.async_create_task`. Span anchor `_guest_room_false_since` (UTC): set on the first GUEST tick with `room` False,
+cleared on any tick with `room` True, on leaving GUEST, and at teardown. RAM only: a restart restarts the span (fails
+toward a later page, accepted). Latch reset when the house leaves GUEST.
 
 **Acceptance criteria**
 - **Verify:** fires once after the bound with only `wifi`; does not fire if `room` was true at any point in the span;
@@ -469,16 +563,16 @@ rule). The NM is the discharge to a human, not an automatic exit. Inert when the
 | Knob | Rung | Default | Why this rung | Kill-switch semantics |
 |---|---|---|---|---|
 | `GUEST_TWO_LEG_GATE_ENABLED` | 1 (const.py) | True | Changes house-state entry; reverting should be a reviewed change | False = today's room-only gate, byte-identical |
-| `GUEST_WIFI_LEG_ENABLED` | 1 | from D0 (True only if clean; expected False) | A new producer feeding house state; turning it on must be reviewed against D0-style data | False = leg computed for display, never counted for entry or hold |
+| `GUEST_WIFI_LEG_ENABLED` | 1 | from D0 (True only if clean; expected False) | A new producer feeding house state; turning it on must be reviewed against D0-style data | False = `legs["wifi"]` False everywhere (entry, hold, `visitors_present`, D4); the census count stays published on the census sensor as a shadow |
 | `GUEST_WIFI_SUSTAIN_S` | 1 | from D0 (placeholder 1800) | Filters IoT reconnects; a fitted threshold | clamped to ≥ 60 at read |
-| `GUEST_WIFI_BOOT_EXCLUDE_S` | 1 | 600 | Restart-transient guard. Own constant on purpose: equal today to `PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S` but a different concept (coincidental-equality rule) | 0 = no exclusion (edges still need a seen-away state) |
+| `GUEST_WIFI_BOOT_EXCLUDE_S` | 1 | 600, confirmed or raised by D0 Q5 | Restart-transient guard (no `not_home` read before setup + this counts as "seen away"). Own constant on purpose: equal today to `PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S` but a different concept (coincidental-equality rule) | 0 = no exclusion (edges still need a seen-away state) |
 | `GUEST_CAM_LEG_LATCH_S` | 1 | from D0 Q3 (placeholder 7200) | How long a camera sighting stays evidence for the room path | 0 = cam leg only on the tick Path A is True |
 | `GUEST_WIFI_ONLY_HOLD_NM_S` | 1 | 43200 (12 h) | Trip-wire bound | 0 = off |
 | Room threshold `CONF_ROOM_GUEST_OCCUPANCY_THRESHOLD_MIN` | 2 (room options), REUSED | 30 | unchanged | — |
 | Path A persistence / confidence `CONF_GUEST_MODE_PERSISTENCE_SECONDS` / `_REQUIRE_CONFIDENCE` | 2 (CM options), REUSED | 300 / medium | unchanged; also the exit persistence | — |
 | `WIFI_GUEST_RECENCY_HOURS` | 1, REUSED | 4 | unchanged (diagnostic floor only) | — |
 | Confidence 0.95 / 0.9 | existing literals, REUSED | unchanged | no new number this cycle (rev 1's `GUEST_TWO_LEG_CONFIDENCE` / `GUEST_CAM_WIFI_CONFIDENCE` dropped) | n/a |
-| Operator toggle | 3, REUSED | `switch.ura_presence_guest_detection_enabled` | live kill for all guest detection | OFF = no GUEST entry, legs False, latch cleared, entity off |
+| Operator toggle | 3, REUSED | `switch.ura_presence_coordinator_guest_detection` | live kill for all guest detection | OFF = no GUEST entry, legs False, latch cleared, entity off |
 
 No new Number or options-flow field. Parsimonious-config rule: these are review-gated constants.
 
@@ -510,7 +604,7 @@ No new Number or options-flow field. Parsimonious-config rule: these are review-
 | `GUEST-FP-RESIDUALS-1` | Stays parked. Note: the 09-17..10-17 entries are plausibly the real October stay (operator answer 2), not a resumed FP population |
 | `GUEST-IDENTITY-PHONE-LEFT-BEHIND-1` | Stays parked. D3 + the GB2 scanner reduce its class; link; re-measure after both land |
 | `PLANNING_house_away_flap_untracked_occupant.md` Rev 4 (A) camera guard + (B) guest-room AWAY veto | **Trigger FIRED** ("guest accuracy becomes a priority (a long stay or a party)"). Not folded: AWAY-side, different invariant. Card a re-evaluation for the operator; D0 Q0/Q2 (stay dates, guest-room runs) are its inputs |
-| `EGRESS-EXIT-JOINT-DEPART-ONE-ROW-1` | Not fired: `visitor_names` reads entry-registered guest ids for display; no consumer ACTS on exit `person_id` |
+| `EGRESS-EXIT-JOINT-DEPART-ONE-ROW-1` | Not fired: nothing in this cycle reads egress guest ids (`visitor_names` parked, rev 3) |
 | `GUEST-ROOM-FAN-HOLD-1` | Not fired; no fan change. Note: lost GUEST nights put guest-room fans under `FAN_TRUST_STATES` rules |
 | `FACE-SOURCE-REGISTRY-DISCOVERY-1` | Its F-5 residual folds here as PARKED (§2.3), with the revival trigger |
 
@@ -524,7 +618,7 @@ actuation (lock regime), security arming, HVAC presets and hold tables, fan nigh
 composition site is a silent behaviour change.
 
 Required: TWO framing-disjoint plan reviews before build (review 1 completeness: done, rev 2; review 2 adversarial
-build-prediction: pending), the §5.0 D0 gate, then four code reviews A/B/C/D (D states INV-SPLIT-1 and tries to break it,
+build-prediction: done, rev 3), the §5.0 D0 gate, then four code reviews A/B/C/D (D states INV-SPLIT-1 and tries to break it,
 including pre-existing paths such as the manual override, restore and the boot seed), config-extreme tests (§D3),
 orchestrator re-grep + one real source mutation on S1/S2 before ship, and an operator checkpoint before deploy.
 Builder: `ura-super-builder`.
@@ -533,8 +627,8 @@ Builder: `ura-super-builder`.
 
 | # | Check | Source |
 |---|---|---|
-| L1 | `binary_sensor.ura_presence_coordinator_visitors_present` exists, `legs` attribute has three keys | live entity |
-| L2 | `wifi_guest_devices_sustained` = 0 for the first sustain window after restart | census sensor attribute |
-| L3 | With no guest present, `guest_reason` is never `two_leg:*` over the first day, and the house never enters GUEST | recorder, house-state sensor + `house_state_log` |
-| L4 | For every `house_state_log` row with `state='guest'` after deploy, the recorded `guest_reason` at that timestamp is `two_leg:*` and contains `room` | URA DB + recorder |
+| L1 | unique id `universal_room_automation_visitors_present` resolves (expected `binary_sensor.ura_presence_coordinator_visitors_present`), `legs` attribute has three keys | entity registry + live entity |
+| L2 | `wifi_guest_devices_sustained` = 0 on `sensor.universal_room_automation_persons_in_house` for the first sustain window after restart | census sensor attribute |
+| L3 | With no guest present, `guest_reason` on `sensor.ura_presence_coordinator_presence_house_state` is never `two_leg:*` over the first day, and the house never enters GUEST | recorder + `house_state_log` |
+| L4 | For every `house_state_log` row with `state='guest'` and a HOME_* previous state after deploy, `guest_entry_legs` on the first recorded `guest` state of that sensor at or after the row contains `room` plus `cam` or `wifi` (rule in D3 Live) | URA DB + recorder |
 | L5 | First real guest: GUEST entry as L4; exit within persistence of the last room/wifi leg | recorder + `house_state_log`; organic, disposed by its binary discriminator per the soak-exit rule |
