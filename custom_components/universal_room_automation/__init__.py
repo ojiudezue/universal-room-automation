@@ -86,6 +86,7 @@ from .const import (
     CONF_CENSUS_CROSS_VALIDATION,
     CONF_CENSUS_BLE_CANCEL_ENABLED,
     CONF_KNOWN_FACE_GUESTS,
+    CONF_FACE_NAME_ALIASES,
     CONF_EGRESS_IDENTITY_FAILSAFE_STRICT,
     # INTEGRATION-RELOAD-COMPREHENSIVE-1 Tier-2 (2026-09-07, plan D2.1
     # rev-2 rework post Tier-3 review). The 9 perimeter-step keys below
@@ -7731,6 +7732,11 @@ INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     CONF_CENSUS_CROSS_VALIDATION,
     CONF_CENSUS_BLE_CANCEL_ENABLED,
     CONF_KNOWN_FACE_GUESTS,
+    # FACE-SOURCE-REGISTRY-DISCOVERY-1 D5: CONF_FACE_NAME_ALIASES — path-(a)
+    # fresh-read: camera_census._get_face_name_aliases merges data+options on
+    # every canonicalizer / presence alias lookup; no setup-time cache, no
+    # discharge signal. Same consumer shape as CONF_KNOWN_FACE_GUESTS.
+    CONF_FACE_NAME_ALIASES,
     # CONF_EGRESS_IDENTITY_FAILSAFE_STRICT — path-(a) fresh-read via
     # camera_census._is_egress_identity_failsafe_strict (all decision-path
     # callers route through it: camera_census.py:3694/3713/3895,

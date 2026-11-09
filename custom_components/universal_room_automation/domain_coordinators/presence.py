@@ -5369,8 +5369,19 @@ class PresenceCoordinator(BaseCoordinator):
                     base_name = bs_id[len("binary_sensor."):-len(suffix)]
                     break
 
+            census = self.hass.data.get(DOMAIN, {}).get("census")
+            face_sensor_id: Optional[str] = None
             if not base_name:
-                return None  # Not a recognized camera pattern
+                # FACE-SOURCE-REGISTRY-DISCOVERY-1 D3 (S8): a `_N` / renamed
+                # person sensor (e.g. `..._person_occupancy_2`) used to stop
+                # here. Join the face sensor through the person sensor's
+                # device (gated by FACE_SOURCE_INCLUDE_DISAMBIGUATED_PERSON_
+                # SENSORS inside the census helper). No census -> None.
+                if census is None or not hasattr(census, "_device_derived_face_entity_id"):
+                    return None  # Not a recognized camera pattern
+                face_sensor_id = census._device_derived_face_entity_id(bs_id)
+                if not isinstance(face_sensor_id, str) or not face_sensor_id:
+                    return None
 
             # Route through the census resolver — it tolerates the `_2`
             # disambiguation suffix (see camera_census._resolve_face_entity_id).
@@ -5381,9 +5392,7 @@ class PresenceCoordinator(BaseCoordinator):
             # `_face_lookup_missing_count` (surfaced at camera_census.py:1288)
             # on every miss, so presence-driven lookups now contribute to
             # that counter too — a rate shift, not a correctness bug.
-            census = self.hass.data.get(DOMAIN, {}).get("census")
-            face_sensor_id: Optional[str] = None
-            if census is not None:
+            if face_sensor_id is None and census is not None:
                 # Narrow except (L1): AttributeError (resolver renamed /
                 # removed) must PROPAGATE so the rename surfaces loudly
                 # instead of silently falling back to the bare-string path.
@@ -5491,6 +5500,18 @@ class PresenceCoordinator(BaseCoordinator):
             candidate2 = f"person.{face_name}"
             if self.hass.states.get(candidate2):
                 return candidate2
+            # FACE-SOURCE-REGISTRY-DISCOVERY-1 D5: an explicit operator
+            # alias (`face_name_aliases`, e.g. "Oji=oji_udezue") maps a
+            # face-library name to a tracked person whose entity id is not
+            # `person.<face name>`. Empty alias list -> no change.
+            census = self.hass.data.get(DOMAIN, {}).get("census")
+            alias_fn = getattr(census, "face_alias_person_slug", None) if census is not None else None
+            if callable(alias_fn):
+                slug = alias_fn(face_name)
+                if isinstance(slug, str) and slug:
+                    candidate3 = f"person.{slug}"
+                    if self.hass.states.get(candidate3):
+                        return candidate3
             return None
         except Exception:  # noqa: BLE001
             return None  # Face rec is an accelerator — never fail

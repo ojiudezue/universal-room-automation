@@ -1350,6 +1350,19 @@ class PersonCensus:
         # Published on SIGNAL_CENSUS_UPDATED + attrs so operators can tell
         # whether a tick's face-dedup path was healthy.
         self._face_lookup_missing_count: int = 0
+        # FACE-SOURCE-REGISTRY-DISCOVERY-1 D2/D3: PER-TICK face-source
+        # discovery counters, reset beside _face_lookup_missing_count.
+        # hits / fallbacks count candidate-list LOOKUPS (registry list
+        # non-empty vs empty), not live states; producer death shows in
+        # face_lookup_missing_count instead.
+        self._face_source_registry_hits: int = 0
+        self._face_source_pattern_fallbacks: int = 0
+        self._face_source_pattern_fallback_stems: set[str] = set()
+        self._face_source_device_derived_reads: int = 0
+        self._face_source_device_derived_cameras: set[str] = set()
+        self._face_source_skipped_person_sensors: int = 0
+        self._face_source_skipped_cameras: set[str] = set()
+        self._face_alias_bad_warned: set[str] = set()
         # CENSUS-BLE-OVER-FACE-1: PER-TICK count of face names dropped only
         # because the BLE-leads overrule (raw person.state was not not_home)
         # says not_home. Reset beside _face_lookup_missing_count. Display.
@@ -1715,6 +1728,8 @@ class PersonCensus:
         # CENSUS-ACCURACY-1 D2: per-tick reset of face-lookup miss counter.
         # LIFETIME peak_refresh_suppressed_count is NOT reset here.
         self._face_lookup_missing_count = 0
+        # FACE-SOURCE-REGISTRY-DISCOVERY-1: per-tick reset (see __init__).
+        self._reset_face_source_counters()
         # CENSUS-BLE-OVER-FACE-1: per-tick reset (see __init__).
         self._face_dropped_ble_overrule_count = 0
 
@@ -3155,7 +3170,19 @@ class PersonCensus:
         # a separate, kill-switch-gated cycle.
         canonical = f"sensor.{base_name}_last_recognized_face"
         suffixed = f"sensor.{base_name}_last_recognized_face_2"
-        for candidate in (canonical, suffixed):
+        # FACE-SOURCE-REGISTRY-DISCOVERY-1 D2 (S1): registry candidates
+        # first; the built ids only when the registry yields nothing for
+        # this stem (or the kill switch is off).
+        registry_ids = self._registry_face_candidates_for_stem(base_name)
+        return self._first_usable_face_entity(
+            tuple(registry_ids) if registry_ids else (canonical, suffixed)
+        )
+
+    def _first_usable_face_entity(self, candidates) -> str | None:
+        """First candidate whose live state is usable; on a full miss
+        increment `_face_lookup_missing_count` and return None (fail-CLOSED,
+        the caller grants no `-1` credit)."""
+        for candidate in candidates:
             try:
                 state = self.hass.states.get(candidate)
             except Exception:  # noqa: BLE001 — defensive
@@ -3173,6 +3200,105 @@ class PersonCensus:
         # gets None -> no `-1` credit. Measure it so operators can tell.
         self._face_lookup_missing_count += 1
         return None
+
+    # ------------------------------------------------------------------
+    # FACE-SOURCE-REGISTRY-DISCOVERY-1 helpers (D2 / D3).
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _face_leg_engine(resolver: Any, device_id: str | None, integration_hint: str) -> str:
+        """D4: one engine-tag derivation for the entity leg (S3) and the
+        synthetic latch leg (S4) — `CameraResolver.face_engine_tag`, or the
+        integration hint on any miss (resolver None / stub / non-string)."""
+        fn = getattr(resolver, "face_engine_tag", None) if resolver is not None else None
+        if not callable(fn):
+            return integration_hint
+        try:
+            tag = fn(device_id, integration_hint)
+        except Exception:  # noqa: BLE001
+            return integration_hint
+        return tag if isinstance(tag, str) and tag else integration_hint
+
+    def _reset_face_source_counters(self) -> None:
+        self._face_source_registry_hits = 0
+        self._face_source_pattern_fallbacks = 0
+        self._face_source_pattern_fallback_stems = set()
+        self._face_source_device_derived_reads = 0
+        self._face_source_device_derived_cameras = set()
+        self._face_source_skipped_person_sensors = 0
+        self._face_source_skipped_cameras = set()
+
+    def _face_source_resolver(self) -> Any:
+        try:
+            mgr = getattr(self, "_camera_manager", None)
+            if mgr is not None and hasattr(mgr, "_get_resolver"):
+                return mgr._get_resolver()
+        except Exception:  # noqa: BLE001 — resolver optional
+            return None
+        return None
+
+    def _registry_face_candidates_for_stem(self, base_name: str) -> list[str]:
+        """D2: registry face-NAME sensors for a camera stem. Returns [] when
+        the kill switch is off (no counting: pre-cycle path), and counts one
+        registry hit or one pattern fallback per lookup otherwise."""
+        if not _ura_const.FACE_SOURCE_REGISTRY_DISCOVERY_ENABLED:
+            return []
+        reg: list[str] = []
+        resolver = self._face_source_resolver()
+        fn = getattr(resolver, "face_name_entities_for_stem", None) if resolver is not None else None
+        if callable(fn):
+            try:
+                reg = [e for e in (fn(base_name) or []) if isinstance(e, str)]
+            except Exception:  # noqa: BLE001
+                reg = []
+        if reg:
+            self._face_source_registry_hits = getattr(self, "_face_source_registry_hits", 0) + 1
+        else:
+            self._face_source_pattern_fallbacks = getattr(self, "_face_source_pattern_fallbacks", 0) + 1
+            stems = getattr(self, "_face_source_pattern_fallback_stems", None)
+            if stems is None:
+                stems = set()
+                self._face_source_pattern_fallback_stems = stems
+            stems.add(str(base_name))
+        return reg
+
+    def _device_derived_face_entity_id(self, person_entity_id: str) -> str | None:
+        """D3 (S5-S8): face-NAME sensor for a Frigate person sensor whose
+        entity_id does not end in `_person_occupancy` (e.g. `_2`, renamed),
+        joined through the person sensor's DEVICE. Called only after the
+        legacy suffix test failed. Returns the first usable face entity, or
+        None (no face sensor on the device / no usable state / kill switch
+        off / any error). Never raises."""
+        if not _ura_const.FACE_SOURCE_INCLUDE_DISAMBIGUATED_PERSON_SENSORS:
+            self._face_source_skipped_person_sensors = (
+                getattr(self, "_face_source_skipped_person_sensors", 0) + 1
+            )
+            cams = getattr(self, "_face_source_skipped_cameras", None)
+            if cams is None:
+                cams = set()
+                self._face_source_skipped_cameras = cams
+            cams.add(str(person_entity_id))
+            return None
+        try:
+            resolver = self._face_source_resolver()
+            fn = getattr(resolver, "face_name_entities_for_entity", None) if resolver is not None else None
+            cands = [e for e in (fn(person_entity_id) or []) if isinstance(e, str)] if callable(fn) else []
+        except Exception:  # noqa: BLE001 — fail-CLOSED
+            return None
+        if not cands:
+            return None
+        self._face_source_device_derived_reads = (
+            getattr(self, "_face_source_device_derived_reads", 0) + 1
+        )
+        cams = getattr(self, "_face_source_device_derived_cameras", None)
+        if cams is None:
+            cams = set()
+            self._face_source_device_derived_cameras = cams
+        cams.add(str(person_entity_id))
+        try:
+            return self._first_usable_face_entity(cands)
+        except Exception:  # noqa: BLE001
+            return None
 
     def _resolve_face_legs(self, base_name: str) -> list["FaceLeg"]:
         """EGRESS-IDENTITY-JOIN-GAP-1 (2026-08-28): additive sibling of
@@ -3203,9 +3329,20 @@ class PersonCensus:
         results: list[FaceLeg] = []
         try:
             # Build the (entity_id, engine_integration_hint) enumeration.
-            candidates: list[tuple[str, str]] = [
-                (f"sensor.{base_name}_last_recognized_face", "frigate"),
-                (f"sensor.{base_name}_last_recognized_face_2", "frigate"),
+            # FACE-SOURCE-REGISTRY-DISCOVERY-1 D2 (S2): Frigate candidates
+            # from the registry first, built ids only on an empty registry.
+            _discovery = bool(_ura_const.FACE_SOURCE_REGISTRY_DISCOVERY_ENABLED)
+            _reg_ids = self._registry_face_candidates_for_stem(base_name)
+            if _reg_ids:
+                candidates: list[tuple[str, str]] = [(e, "frigate") for e in _reg_ids]
+            else:
+                candidates = [
+                    (f"sensor.{base_name}_last_recognized_face", "frigate"),
+                    (f"sensor.{base_name}_last_recognized_face_2", "frigate"),
+                ]
+            # KEEP + DOCUMENT (§6): Protect (parked bridge, no live source) —
+            # dead until D1-PROTECT-FACE-BRIDGE-ADDON-1 revives.
+            candidates += [
                 (f"sensor.{base_name}_face_recognized", "protect"),
                 (f"sensor.{base_name}_face_recognized_2", "protect"),
             ]
@@ -3249,7 +3386,17 @@ class PersonCensus:
                 # Resolve device_id + engine tag via the shared resolver.
                 device_id: str | None = None
                 engine: str = integration_hint
-                if resolver is not None:
+                if _discovery:
+                    # D4 (S3): engine from the face entity's device family,
+                    # no suffix parsing; hint on any miss (never "unknown").
+                    engine = integration_hint
+                    if resolver is not None:
+                        try:
+                            device_id = resolver.resolve_entity_to_device_id(entity_id)
+                        except Exception:  # noqa: BLE001
+                            device_id = None
+                        engine = self._face_leg_engine(resolver, device_id, integration_hint)
+                elif resolver is not None:
                     try:
                         device_id = resolver.resolve_entity_to_device_id(entity_id)
                     except Exception:  # noqa: BLE001
@@ -3328,11 +3475,42 @@ class PersonCensus:
                             # (would spuriously boost corroboration in
                             # transit_validator._resolve_egress_face_identity).
                             engine_tag: str | None = None
+                            _copied_leg: FaceLeg | None = None
+                            # Membership covers both derivations: the legacy
+                            # suffix tag ("frigate"/"frigate2") and the D4
+                            # device tag (always "frigate" for a Frigate
+                            # candidate, never "unknown" — review 1 F-2).
                             for _r in results:
                                 if _r.engine in ("frigate", "frigate2"):
                                     engine_tag = _r.engine
+                                    _copied_leg = _r
                                     break
-                            if engine_tag is None:
+                            if _discovery:
+                                # D4 (S4): same helper as the entity leg; the
+                                # `_has_f2` state probe no longer picks the
+                                # engine. Sentinel = the copied entity leg's
+                                # id, else the registry's first face sensor
+                                # for the stem, else the legacy id.
+                                if _copied_leg is not None:
+                                    entity_sentinel = _copied_leg.entity_id
+                                else:
+                                    _fr = [e for e, h in candidates if h == "frigate"]
+                                    if _reg_ids:
+                                        entity_sentinel = _reg_ids[0]
+                                    else:
+                                        try:
+                                            _has_f2 = self.hass.states.get(_fr[1]) is not None
+                                        except Exception:  # noqa: BLE001
+                                            _has_f2 = True
+                                        entity_sentinel = _fr[1] if _has_f2 else _fr[0]
+                                    _sdev: str | None = None
+                                    if resolver is not None:
+                                        try:
+                                            _sdev = resolver.resolve_entity_to_device_id(entity_sentinel)
+                                        except Exception:  # noqa: BLE001
+                                            _sdev = None
+                                    engine_tag = self._face_leg_engine(resolver, _sdev, "frigate")
+                            elif engine_tag is None:
                                 # F1 retired (memory: frigate1 retired /
                                 # `_2` permanent) — default to the `_2`
                                 # engine tag matching the live F2 entity.
@@ -3470,15 +3648,22 @@ class PersonCensus:
             if getattr(entry, "platform", None) != "frigate":
                 continue
             eid = getattr(entry, "entity_id", "") or ""
-            if not eid.startswith("sensor.frigate_"):
-                continue
-            # Match both `sensor.frigate_<name>_last_camera` and its `_2`
-            # variant. The disambiguated variant is what the live system
-            # actually exposes today (per plan review §3 registry probe).
-            if not (
-                eid.endswith("_last_camera")
-                or eid.endswith("_last_camera_2")
-            ):
+            # FACE-SOURCE-REGISTRY-DISCOVERY-1 D6: with discovery on, the
+            # unique_id token below is the ONLY filter, so a renamed
+            # per-person last_camera sensor stays in the map. Kill switch
+            # off = the pre-cycle entity_id prefix/suffix filters.
+            if not _ura_const.FACE_SOURCE_REGISTRY_DISCOVERY_ENABLED:
+                if not eid.startswith("sensor.frigate_"):
+                    continue
+                # Match both `sensor.frigate_<name>_last_camera` and its `_2`
+                # variant. The disambiguated variant is what the live system
+                # actually exposes today (per plan review §3 registry probe).
+                if not (
+                    eid.endswith("_last_camera")
+                    or eid.endswith("_last_camera_2")
+                ):
+                    continue
+            elif not eid.startswith("sensor."):
                 continue
             uid = getattr(entry, "unique_id", "") or ""
             # Format: <ULID>:sensor_global_face:<PersonName>
@@ -3579,8 +3764,11 @@ class PersonCensus:
                 base_name = bs_id[len("binary_sensor."):-len("_person_occupancy")]
                 # CENSUS-ACCURACY-1 D2: `_2`-suffix-tolerant resolver.
                 face_sensor_id = self._resolve_face_entity_id(base_name)
-                if face_sensor_id is None:
-                    continue
+            else:
+                # FACE-SOURCE-REGISTRY-DISCOVERY-1 D3 (S5): device join for
+                # a `_N` / renamed person sensor (was a silent skip).
+                face_sensor_id = self._device_derived_face_entity_id(bs_id)
+            if face_sensor_id is not None:
                 state = self.hass.states.get(face_sensor_id)
                 if state and state.state.strip().lower() not in (
                     "unavailable", "unknown", "", "none", "no_match",
@@ -3609,11 +3797,13 @@ class PersonCensus:
         fresh: set[str] = set()
         for camera_info in self._camera_manager.get_all_frigate_cameras():
             bs_id = camera_info.entity_id
-            if not bs_id.endswith("_person_occupancy"):
-                continue
-            base_name = bs_id[len("binary_sensor."):-len("_person_occupancy")]
-            # CENSUS-ACCURACY-1 D2: `_2`-suffix-tolerant resolver.
-            face_sensor_id = self._resolve_face_entity_id(base_name)
+            if bs_id.endswith("_person_occupancy"):
+                base_name = bs_id[len("binary_sensor."):-len("_person_occupancy")]
+                # CENSUS-ACCURACY-1 D2: `_2`-suffix-tolerant resolver.
+                face_sensor_id = self._resolve_face_entity_id(base_name)
+            else:
+                # FACE-SOURCE-REGISTRY-DISCOVERY-1 D3 (S6): device join.
+                face_sensor_id = self._device_derived_face_entity_id(bs_id)
             if face_sensor_id is None:
                 continue
             try:
@@ -3735,6 +3925,12 @@ class PersonCensus:
         # Direct-match (already URA-canonical, incl. any casing).
         if s in tracked:
             return s
+        # FACE-SOURCE-REGISTRY-DISCOVERY-1 D5: explicit operator alias,
+        # after the direct match and before first-token inference (so an
+        # alias beats a fail-closed ambiguous head). Empty list = no-op.
+        aliased = self._face_alias_target(s, tracked)
+        if aliased:
+            return aliased
         # First-token match.
         head = s.split("_", 1)[0]
         matches = [slug for slug in tracked if slug.split("_", 1)[0] == head]
@@ -3789,6 +3985,88 @@ class PersonCensus:
                         out.append(s)
                 return out
         return list(DEFAULT_KNOWN_FACE_GUESTS)
+
+    @staticmethod
+    def _norm_face_name(value: Any) -> str:
+        """Same normalisation `_canonical_person_slug` applies to `s`."""
+        s = str(value or "").strip().lower()
+        return "_".join(s.replace("-", " ").split())
+
+    def _get_face_name_aliases(self) -> list[str]:
+        """D5: raw `face_name_aliases` entries from the INTEGRATION entry
+        (data+options merged), read fresh per lookup."""
+        try:
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
+                    merged = {**entry.data, **entry.options}
+                    raw = merged.get(
+                        _ura_const.CONF_FACE_NAME_ALIASES,
+                        _ura_const.DEFAULT_FACE_NAME_ALIASES,
+                    ) or []
+                    if isinstance(raw, str):
+                        raw = [raw]
+                    return [str(x) for x in raw if x]
+        except Exception:  # noqa: BLE001 — options read is best-effort
+            return []
+        return []
+
+    def _face_alias_target(self, s_norm: str, tracked: list[str]) -> str:
+        """D5: `FaceName=target` lookup for an already-normalised name.
+        target = tracked slug (with or without `person.`) -> that slug;
+        target = a known_face_guests name -> `guest:<head>`; anything else
+        is ignored with one WARNING per entry. Returns "" when no alias
+        applies."""
+        if not s_norm:
+            return ""
+        entries = self._get_face_name_aliases()
+        if not entries:
+            return ""
+        for raw in entries:
+            if "=" not in raw:
+                self._warn_bad_face_alias(raw, "missing '='")
+                continue
+            key, target = raw.split("=", 1)
+            if self._norm_face_name(key) != s_norm:
+                continue
+            t = self._norm_face_name(target)
+            if t.startswith("person."):
+                t = t[len("person."):]
+            if t and t in tracked:
+                return t
+            try:
+                guests = self._get_known_face_guests()
+            except Exception:  # noqa: BLE001
+                guests = []
+            for g in guests:
+                g_norm = self._norm_face_name(g)
+                if g_norm and t and g_norm == t:
+                    return f"guest:{g_norm.split('_', 1)[0]}"
+            self._warn_bad_face_alias(raw, "target is not a tracked person or known guest")
+        return ""
+
+    def _warn_bad_face_alias(self, raw: str, why: str) -> None:
+        warned = getattr(self, "_face_alias_bad_warned", None)
+        if warned is None:
+            warned = set()
+            self._face_alias_bad_warned = warned
+        if raw in warned:
+            return
+        warned.add(raw)
+        _LOGGER.warning("face_name_aliases: ignoring entry %r (%s)", raw, why)
+
+    def face_alias_person_slug(self, face_name: Any) -> str | None:
+        """D5 for presence face pre-arrival: the TRACKED person slug an
+        explicit alias maps ``face_name`` to, else None (guest targets and
+        unaliased names return None). Empty alias list = always None."""
+        try:
+            t = self._face_alias_target(
+                self._norm_face_name(face_name), self._get_tracked_person_slugs(),
+            )
+        except Exception:  # noqa: BLE001
+            return None
+        if t and not t.startswith("guest:"):
+            return t
+        return None
 
     # Back-compat alias — external callers historically used the old name.
     def _normalize_person_name(self, name: Any) -> str:
@@ -5045,6 +5323,44 @@ class PersonCensus:
                 return []
         except Exception:  # noqa: BLE001
             return []
+        # FACE-SOURCE-REGISTRY-DISCOVERY-1 D2 (S9): pick the device's face
+        # sensors by the unique_id token (resolver index), not by name
+        # suffix. Key = the face entity's base (identical to the legacy key
+        # by construction); a renamed face sensor falls back to the device's
+        # `camera.*` entity name with `_N` stripped. Same single-stem rule.
+        # Registry empty for these devices -> the legacy suffix scan below.
+        if _ura_const.FACE_SOURCE_REGISTRY_DISCOVERY_ENABLED and callable(
+            getattr(resolver, "face_name_entities_for_device", None)
+        ):
+            r_f2: list[str] = []
+            r_f1: list[str] = []
+            r_other: list[str] = []
+            try:
+                for did in device_ids:
+                    for eid in resolver.face_name_entities_for_device(did) or []:
+                        name = eid.split(".", 1)[1] if "." in eid else eid
+                        if name.endswith("_last_recognized_face_2"):
+                            r_f2.append(name[: -len("_last_recognized_face_2")])
+                        elif name.endswith("_last_recognized_face"):
+                            r_f1.append(name[: -len("_last_recognized_face")])
+                        else:
+                            cam = None
+                            cam_fn = getattr(resolver, "camera_entity_for_device", None)
+                            if callable(cam_fn):
+                                cam = cam_fn(did)
+                            if isinstance(cam, str) and "." in cam:
+                                r_other.append(
+                                    _strip_disambiguation_suffix(cam.split(".", 1)[1])
+                                )
+            except Exception:  # noqa: BLE001
+                r_f2, r_f1, r_other = [], [], []
+            for tier in (r_f2, r_f1, r_other):
+                picked: list[str] = []
+                for base in tier:
+                    if base and base not in picked:
+                        picked.append(base)
+                if picked:
+                    return picked
         try:
             registry = er.async_get(self.hass)
         except Exception:  # noqa: BLE001
@@ -5531,17 +5847,22 @@ class PersonCensus:
             # Check face recognition for this camera
             bs_id = camera_info.entity_id
             if not bs_id.endswith("_person_occupancy"):
-                # Can't derive face sensor — count as unrecognized
-                raw_contributions.append((area_id, count))
-                continue
-
-            base_name = bs_id[len("binary_sensor."):-len("_person_occupancy")]
-            # CENSUS-ACCURACY-1 D2: `_2`-suffix-tolerant resolver. Fail-CLOSED
-            # on a miss: with no resolvable face sensor we treat the entire
-            # camera count as unrecognized (raw_contribution = count) via the
-            # `face_is_fresh = False` branch below. This is the SAFE
-            # direction — a missing sensor must NEVER grant a free `-1`.
-            face_sensor_id = self._resolve_face_entity_id(base_name)
+                # FACE-SOURCE-REGISTRY-DISCOVERY-1 D3 (S7, INV-4): join the
+                # face sensor through the person sensor's device. No face
+                # sensor / kill switch off / error -> today's fail-CLOSED
+                # rule: the whole count stays unrecognized (one append).
+                face_sensor_id = self._device_derived_face_entity_id(bs_id)
+                if face_sensor_id is None:
+                    raw_contributions.append((area_id, count))
+                    continue
+            else:
+                base_name = bs_id[len("binary_sensor."):-len("_person_occupancy")]
+                # CENSUS-ACCURACY-1 D2: `_2`-suffix-tolerant resolver. Fail-CLOSED
+                # on a miss: with no resolvable face sensor we treat the entire
+                # camera count as unrecognized (raw_contribution = count) via the
+                # `face_is_fresh = False` branch below. This is the SAFE
+                # direction — a missing sensor must NEVER grant a free `-1`.
+                face_sensor_id = self._resolve_face_entity_id(base_name)
             face_state = (
                 self.hass.states.get(face_sensor_id) if face_sensor_id else None
             )

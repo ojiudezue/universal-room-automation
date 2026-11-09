@@ -441,8 +441,11 @@ def test_counter_kept_out_of_recorder():
     """The per-tick counter rides the every-tick persons_in_house sensor;
     it must be excluded from the recorder (plan D1)."""
     sensor = importlib.import_module(f"{PKG}.sensor")
-    assert sensor.URAPersonsInHouseSensor._unrecorded_attributes == frozenset(
-        {"face_dropped_ble_overrule_count"}
+    # Exact membership of this cycle's counter; FACE-SOURCE-REGISTRY-
+    # DISCOVERY-1 added its own per-tick diagnostics to the same set
+    # (pinned in test_face_source_registry.py).
+    assert "face_dropped_ble_overrule_count" in (
+        sensor.URAPersonsInHouseSensor._unrecorded_attributes
     )
 
 

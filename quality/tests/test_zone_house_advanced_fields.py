@@ -46,6 +46,7 @@ from custom_components.universal_room_automation.const import (
     CONF_GUEST_VLAN_SSID,
     CONF_HOUSE_DEVICE_POWER_SENSORS,
     CONF_KNOWN_FACE_GUESTS,
+    CONF_FACE_NAME_ALIASES,
     CONF_MAIN_ENTRY_DOOR,
     CONF_OUTDOOR_DARK_LUX,
     CONF_PERIMETER_ALERT_HOURS_END,
@@ -425,7 +426,9 @@ def test_camera_census_simple_has_at_most_seven_fields():
     # door_groups, door_interior_neighbours, main_entry_door — all
     # Advanced-only, appended after the existing order.
     # +1 v5.107.0 PERIMETER-FP D1: perimeter_zone_sensors (Advanced, last).
-    assert len(schema_keys(render(flow, "camera_census"))) == 19
+    # +1 v5.107.1 FACE-SOURCE-REGISTRY-DISCOVERY-1 D5: face_name_aliases
+    # (Advanced, last).
+    assert len(schema_keys(render(flow, "camera_census"))) == 20
 
 
 def test_camera_census_field_order():
@@ -520,6 +523,7 @@ def _listener_reloads(pre: dict, post: dict) -> bool:
 
 @pytest.mark.parametrize("step,key,val", [
     ("camera_census", CONF_KNOWN_FACE_GUESTS, ["Ojini"]),
+    ("camera_census", CONF_FACE_NAME_ALIASES, ["Oji=oji_udezue"]),
     ("perimeter_alerting", CONF_PERIMETER_ENRICHMENT_ENABLED, True),
 ])
 def test_house_simple_save_one_allowlisted_key_does_not_reload(step, key, val):

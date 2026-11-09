@@ -3722,7 +3722,17 @@ class URAPersonsInHouseSensor(_CensusBaseSensor):
     _attr_icon = "mdi:home-account"
     # CENSUS-BLE-OVER-FACE-1: per-tick display counter, kept out of the
     # recorder (this sensor records every tick).
-    _unrecorded_attributes = frozenset({"face_dropped_ble_overrule_count"})
+    _unrecorded_attributes = frozenset({
+        "face_dropped_ble_overrule_count",
+        # FACE-SOURCE-REGISTRY-DISCOVERY-1 per-tick diagnostics.
+        "face_source_registry_hits",
+        "face_source_pattern_fallbacks",
+        "face_source_pattern_fallback_stems",
+        "face_source_device_derived_reads",
+        "face_source_device_derived_cameras",
+        "face_source_skipped_person_sensors",
+        "face_source_skipped_cameras",
+    })
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize."""
@@ -3876,6 +3886,23 @@ class URAPersonsInHouseSensor(_CensusBaseSensor):
                 attrs["face_dropped_ble_overrule_count"] = int(
                     getattr(census, "_face_dropped_ble_overrule_count", 0) or 0
                 )
+                # FACE-SOURCE-REGISTRY-DISCOVERY-1 D2/D3: per-tick face-source
+                # discovery diagnostics (lookup counts, not producer health).
+                for _fs_key in (
+                    "face_source_registry_hits",
+                    "face_source_pattern_fallbacks",
+                    "face_source_device_derived_reads",
+                    "face_source_skipped_person_sensors",
+                ):
+                    attrs[_fs_key] = int(getattr(census, "_" + _fs_key, 0) or 0)
+                for _fs_key in (
+                    "face_source_pattern_fallback_stems",
+                    "face_source_device_derived_cameras",
+                    "face_source_skipped_cameras",
+                ):
+                    attrs[_fs_key] = sorted(
+                        str(x) for x in (getattr(census, "_" + _fs_key, None) or ())
+                    )
                 # B-MEDIUM-2: real second-precision peak age computed at
                 # dispatch time (previously int(minutes) * 60 — 60× coarser
                 # than the name implied).

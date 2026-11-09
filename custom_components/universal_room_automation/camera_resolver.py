@@ -244,12 +244,74 @@ _FAMILY_SUFFIXES: dict[str, tuple[str, ...]] = {
 }
 
 _FACE_SUFFIXES = (
+    # KEEP + DOCUMENT (FACE-SOURCE-REGISTRY-DISCOVERY-1 §6): dead until the
+    # parked D1-PROTECT-FACE-BRIDGE-ADDON-1 revives (a URA-owned bridge picks
+    # its own entity name, so a name lookup is right for it).
     "_face_recognized",
+    # KEEP + DOCUMENT: no live match on the reference install (2026-11);
+    # generic face-capability names for other integrations/installs.
     "_face_detected",
     "_smart_detect_face",
     "_ai_face",
+    # Frigate; the registry token test (_is_frigate_face_name_entry) is
+    # OR'd with this so a renamed Frigate face sensor still sets face_cap.
     "_last_recognized_face",
 )
+
+# FACE-SOURCE-REGISTRY-DISCOVERY-1 INV-3: the integration-defined unique_id
+# type token Frigate stamps on its per-camera face-NAME sensor
+# (`get_frigate_entity_unique_id(entry_id, "sensor_recognized_face", cam)`,
+# frigate/sensor.py). `sensor_global_face` (per-person last_camera, on the
+# server device) must never match.
+FRIGATE_FACE_NAME_UID_TOKEN = "sensor_recognized_face"
+
+# D4: device integration -> FaceLeg engine family.
+_FACE_ENGINE_FAMILY: dict[str, str] = {
+    "frigate": "frigate",
+    "unifiprotect": "protect",
+    "reolink": "reolink",
+    "amcrest": "amcrest",
+    "dahua": "dahua",
+}
+
+
+def _is_frigate_face_name_entry(ent: Any, domain: str | None = None) -> bool:
+    """INV-3 predicate: platform frigate, domain sensor, unique_id segment 1
+    exactly the face-name token. Reads (never constructs) the unique_id."""
+    try:
+        if getattr(ent, "platform", None) != "frigate":
+            return False
+        eid = getattr(ent, "entity_id", "") or ""
+        dom = domain or getattr(ent, "domain", None) or (eid.split(".", 1)[0] if "." in eid else "")
+        if dom != "sensor":
+            return False
+        uid = getattr(ent, "unique_id", None)
+        if not isinstance(uid, str):
+            return False
+        parts = uid.split(":")
+        return len(parts) >= 2 and parts[1] == FRIGATE_FACE_NAME_UID_TOKEN
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _face_name_base(entity_id: str) -> str | None:
+    """`sensor.<base>_last_recognized_face[_N]` -> `<base>`; None when the
+    entity does not follow Frigate's default face-sensor name (renamed)."""
+    name = _entity_name(entity_id)
+    stripped = _strip_disambiguation_suffix(name)
+    if stripped.endswith("_last_recognized_face"):
+        return stripped[: -len("_last_recognized_face")]
+    return None
+
+
+def _registry_discovery_enabled() -> bool:
+    """Read the rung-1 kill switch at call time (const is optional here:
+    the resolver also runs in HA-free tests)."""
+    try:
+        from . import const as _c  # noqa: PLC0415
+        return bool(getattr(_c, "FACE_SOURCE_REGISTRY_DISCOVERY_ENABLED", True))
+    except Exception:  # noqa: BLE001
+        return True
 
 _PERSON_SWITCH_SUFFIXES = (
     "_detections_person",       # UniFi Protect
@@ -487,6 +549,14 @@ class CameraResolver:
         # (1.2 s boot stall at the old rung-3 loop, HM 2026-10-14).
         self._ident_to_device_ids: dict[tuple[str, str], set[str]] = {}
         self._device_order: dict[str, int] = {}
+        # FACE-SOURCE-REGISTRY-DISCOVERY-1 D2: device_id -> Frigate face-NAME
+        # entity_ids, chosen by the integration-defined unique_id type token
+        # (`<entry_id>:sensor_recognized_face:<cam>`), never by entity name.
+        # Built in the same entity-registry pass as the stem indices.
+        self._frigate_face_entities_by_device: dict[str, list[str]] = {}
+        # device_id -> first `camera.*` entity_id on that device (latch key
+        # fallback for a renamed face sensor).
+        self._camera_entity_by_device: dict[str, str] = {}
         self._build_indices()
 
     # ---- Index construction ------------------------------------------------
@@ -555,6 +625,12 @@ class CameraResolver:
             eid = getattr(ent, "entity_id", "") or ""
             domain = getattr(ent, "domain", None) or (eid.split(".", 1)[0] if "." in eid else "")
             name = _entity_name(eid)
+            # D2 face index (INV-3 predicate; disabled entities already
+            # skipped above).
+            if _is_frigate_face_name_entry(ent, domain):
+                self._frigate_face_entities_by_device.setdefault(did, []).append(eid)
+            if domain == "camera" and did not in self._camera_entity_by_device:
+                self._camera_entity_by_device[did] = eid
             stem: str | None = None
             if domain == "camera":
                 stem = _strip_camera_resolution_suffix(name)
@@ -594,6 +670,82 @@ class CameraResolver:
                     self._device_platform_hint[did] = plat
                 elif cur is None:
                     self._device_platform_hint[did] = plat
+        # D2 order: bare-named before `_N`, then lexical — reproduces the
+        # legacy bare-then-`_2` candidate order.
+        for _did, _lst in self._frigate_face_entities_by_device.items():
+            _lst.sort(key=lambda e: (_strip_disambiguation_suffix(_entity_name(e)) != _entity_name(e), e))
+
+    # ---- Face-name source discovery (FACE-SOURCE-REGISTRY-DISCOVERY-1) -----
+
+    def face_name_entities_for_device(self, device_id: str | None) -> list[str]:
+        """Frigate face-NAME sensors on ``device_id`` (registry token match).
+        Empty list when the device has none or is unknown."""
+        if not device_id:
+            return []
+        return list(self._frigate_face_entities_by_device.get(device_id, ()))
+
+    def face_name_entities_for_entity(self, entity_id: str) -> list[str]:
+        """Face-NAME sensors on the device that owns ``entity_id`` (e.g. a
+        Frigate person binary_sensor). Quiet on a registry miss (no WARN,
+        unlike ``resolve_entity_to_device_id``): called per tick."""
+        try:
+            entry = self._er.async_get(entity_id)
+        except Exception:  # noqa: BLE001
+            return []
+        did = getattr(entry, "device_id", None) if entry is not None else None
+        return self.face_name_entities_for_device(did)
+
+    def face_name_entities_for_stem(self, stem: str) -> list[str]:
+        """Face-NAME sensors for a camera stem.
+
+        stem -> devices via the RAW stem in the Frigate-identifier and
+        camera/person stem indices (no stripped or dstem fallback), filtered
+        to devices in the face index. Then, per face entity:
+          - a name ending `_last_recognized_face[_N]` is returned only when
+            its base equals ``stem`` — exactly the entity the legacy
+            built-id path (`sensor.<stem>_last_recognized_face[_2]`) would
+            name, so discovery cannot widen what a caller reads (INV-1;
+            measured: raw-stem keys like `garage_a_2` / `foyer` reach a
+            device whose face base differs);
+          - a RENAMED face entity (no such suffix) is returned through the
+            device join — the case the registry exists to fix.
+        """
+        if not stem:
+            return []
+        devices: list[str] = []
+        for did in self._frigate_stem_to_device_ids.get(stem, ()):
+            if did not in devices:
+                devices.append(did)
+        for did in sorted(self._stem_to_device_ids.get(stem, ())):
+            if did not in devices:
+                devices.append(did)
+        result: list[str] = []
+        for did in devices:
+            for eid in self._frigate_face_entities_by_device.get(did, ()):
+                base = _face_name_base(eid)
+                if base is not None and base != stem:
+                    continue
+                if eid not in result:
+                    result.append(eid)
+        return result
+
+    def camera_entity_for_device(self, device_id: str | None) -> str | None:
+        if not device_id:
+            return None
+        return self._camera_entity_by_device.get(device_id)
+
+    def face_engine_tag(self, device_id: str | None, integration_hint: str) -> str:
+        """D4: FaceLeg engine label from the face entity's DEVICE family,
+        no `_N` suffix parsing. Returns ``integration_hint`` on any miss
+        (no device, empty/unknown integration) so a Frigate candidate is
+        never tagged "unknown"/"" (plan rev 2 pin; review 1 F-2)."""
+        try:
+            dev = self._device(device_id) if device_id else None
+            integ = self._infer_integration(dev) or ""
+        except Exception:  # noqa: BLE001
+            integ = ""
+        family = _FACE_ENGINE_FAMILY.get(integ)
+        return family or integration_hint
 
     # ---- Public API --------------------------------------------------------
 
@@ -1423,7 +1575,12 @@ class CameraResolver:
                     count_s = _prefer_canonical(
                         count_s, eid, slot="person_count_sensor", device_id=device_id
                     )
-                elif _has_any_suffix(eid, _FACE_SUFFIXES):
+                elif _has_any_suffix(eid, _FACE_SUFFIXES) or (
+                    # D2 / S10: a renamed Frigate face-name sensor still
+                    # counts (unique_id token), OR'd with the suffix test.
+                    _registry_discovery_enabled()
+                    and _is_frigate_face_name_entry(ent, domain)
+                ):
                     # sensor.<stem>_last_recognized_face — presence indicates face capability.
                     # A-M4: sticky USABLE.
                     if disabled_by is None:

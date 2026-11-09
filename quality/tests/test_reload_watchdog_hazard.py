@@ -174,6 +174,7 @@ def _load_ns(*, kill_switch: bool = True,
         "CONF_CENSUS_CROSS_VALIDATION": "census_cross_validation",
         "CONF_CENSUS_BLE_CANCEL_ENABLED": "census_ble_cancel_enabled",
         "CONF_KNOWN_FACE_GUESTS": "known_face_guests",
+        "CONF_FACE_NAME_ALIASES": "face_name_aliases",
         "CONF_EGRESS_IDENTITY_FAILSAFE_STRICT": "egress_identity_failsafe_strict",
         # INTEGRATION-RELOAD-COMPREHENSIVE-1 Tier-2 (2026-09-07 rev-2 post
         # Tier-3 review). Nine perimeter-step keys are ALL fresh-read
@@ -577,6 +578,8 @@ def test_egress_perimeter_keys_not_in_allowlist_v1():
         "census_cross_validation",
         "census_ble_cancel_enabled",
         "known_face_guests",
+        # FACE-SOURCE-REGISTRY-DISCOVERY-1 D5: fresh-read alias list.
+        "face_name_aliases",
         "egress_identity_failsafe_strict",
         # Tier-2 D2.1 rev-2 (2026-09-07 post Tier-3 review):
         # 9 perimeter-step keys, ALL path-(a) fresh-read.
