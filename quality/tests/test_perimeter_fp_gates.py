@@ -1664,7 +1664,7 @@ def test_gate_switches_registered_with_keys(eid, key, default):
 def test_vlm_select_registered_with_key_and_options():
     ents = _platform_entities("select")
     sel = ents["select.ura_perimeter_vlm_gate"]
-    assert sel.options == ["off", "shadow", "enforce"]
+    assert sel._attr_options == ["off", "shadow", "enforce"]
     assert sel.current_option == "off"
     sel._entry.options = {"perimeter_vlm_gate": "shadow"}
     assert sel.current_option == "shadow"
