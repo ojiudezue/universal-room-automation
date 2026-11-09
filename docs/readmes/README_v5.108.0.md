@@ -130,3 +130,22 @@ Four source-grep anchors were converted to behavioural tests (`test_guest_census
 
 Discriminator for L3/L4 against a plausible different failure: if the walk never ran (scheduling broken),
 `guest_stay_basis` stays `[]` rather than listing 3 nights.
+
+## Validated 2026-11-09
+
+HA restarted ~13:45 CST (entity `last_changed` 2026-11-09T19:45:26Z); checked ~13:50 CST via REST (`/api/states`), websocket `system_log/list`, `ssh ha` against the live URA DB and recorder. Host manifest `version` = `v5.108.0` (`/config/custom_components/universal_room_automation/manifest.json`).
+
+| # | Check | Result | Evidence |
+|---|---|---|---|
+| L1 | `visitors_present` exists | PASS | `binary_sensor.ura_presence_coordinator_visitors_present` = off; `legs` = {room:false, cam:false, stay:false}, `since` null; registry has unique id `universal_room_automation_visitors_present` |
+| L2 | quiet with no visitors (first 24 h) | PENDING | only ~5 min of data; off since boot, no edges yet |
+| L3 | stay walk ran | PASS | `sensor.ura_presence_coordinator_presence_house_state` attrs: `guest_stay_active` false, `guest_stay_since` null, `guest_stay_basis` lists 3 nights (11-06, 11-07, 11-08; Guest Bedroom 2), fraction 0.0 each, day_fraction 0.013 / 0 / 0 (all <= 0.08), `qualifies` and `entry_qualified` false on all three. Basis is non-empty, so the walk ran at boot |
+| L4 | no GUEST without a stay | PASS so far (continuing) | house state `home_day`, `guest_reason` "none", `binary_sensor.ura_presence_coordinator_guest_mode` off; `house_state_log` guest rows since restart = 0 (last guest row 2026-10-17T21:06). Only ~5 min elapsed, so the full-window check stays organic |
+| L5 | first real stay | PENDING | needs a real guest night |
+| L6 | no `guest_stay_long` noise | PASS so far | `notification_log` has no guest_stay row (only unrelated water-leak alerts); stay inactive |
+| L7 | no `Guest stay walk failed` | PASS, bounded | `system_log/list` (newest 50 deduped) holds no ERROR from `custom_components.universal_room_automation` and no stay-walk WARNING; URA WARNINGs present are boot-typical (aggregation PersonLocationSensor/coverage re-anchor, energy DB restore retry, coordinator sensors-unavailable holds). Window is small, not a full-log proof; `ha core logs` / docker are not readable from `ssh ha` (log-read gap) |
+| L8 | Guest left button exists | PASS (not pressed) | `button.ura_presence_coordinator_guest_left` state `unknown`; unique id `universal_room_automation_guest_left` in `core.entity_registry`. Press behavior PENDING a real stay |
+| - | Lock switches unchanged | PASS | `switch.ura_security_coordinator_garage_lockout` (master) off, `..._garage_lockout_guest_nights` on; recorder shows the same off/on at every prior restart (11-08 11:02, 13:52; 11-09 10:33) |
+| - | HIGH-in-GUEST knob | N/A | `NM_HAZARD_EXTERIOR_PERSON_GUEST_KEEP_HIGH` is a rung-1 module constant (README line 56); no entity exposed |
+
+Boot walk DB error: none seen (no DB-error log entry in the readable window, walk output populated). Not provable beyond that window.
