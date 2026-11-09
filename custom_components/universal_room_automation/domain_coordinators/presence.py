@@ -1913,6 +1913,9 @@ class PresenceCoordinator(BaseCoordinator):
         self._guest_stay_retry_at: Optional[datetime] = None
         # Review B-L1: set at teardown; no walk is scheduled after it.
         self._guest_stay_torn_down: bool = False
+        # True once a walk succeeded since boot: a later DB error then keeps
+        # the previous latch instead of failing off (RAM; a restart resets it).
+        self._guest_stay_walked_ok: bool = False
         # D4 trip-wire episode latch (RAM; `since` comes from the DB walk).
         self._guest_stay_long_nm_fired: bool = False
         # D1 visitors_present (display only; never read by infer()).
@@ -6131,9 +6134,10 @@ class PresenceCoordinator(BaseCoordinator):
         LOOKBACK, and off at 0 of them. Deterministic in the DB contents
         (restart reproduces it). Writes the latch, ``since`` (window end of
         the night that turned it on), the basis (last LOOKBACK nights) and the
-        evaluated date, then runs one inference. Any DB error: latch False,
-        basis {"error": ...}, WARNING once per local day, night NOT stamped
-        evaluated; retried after GUEST_STAY_ERROR_RETRY_S.
+        evaluated date, then runs one inference. Any DB error: WARNING once per
+        local day, night NOT stamped evaluated, retried after
+        GUEST_STAY_ERROR_RETRY_S; the previous latch is KEPT if a walk has
+        succeeded since boot, else latch False with basis {"error": ...}.
         """
         db = self.hass.data.get(DOMAIN, {}).get("database")
         if db is None:
@@ -6174,9 +6178,14 @@ class PresenceCoordinator(BaseCoordinator):
                     "Guest stay walk failed (stay treated as off; retry in "
                     "%ss): %s", _ura_const.GUEST_STAY_ERROR_RETRY_S, err,
                 )
-            self._guest_stay_active = False
-            self._guest_stay_since = None
-            self._guest_stay_basis = {"error": str(err)}
+            # Coordinator decision 2026-11-09: a transient DB error must not
+            # flip the house out of GUEST. After a successful walk since boot
+            # the previous latch, since and basis are KEPT until the retry;
+            # with no prior evaluation since boot it fails off.
+            if not getattr(self, "_guest_stay_walked_ok", False):
+                self._guest_stay_active = False
+                self._guest_stay_since = None
+                self._guest_stay_basis = {"error": str(err)}
             # A-M1 / B-M2: do NOT stamp the night evaluated; retry after a
             # bounded backoff so one transient error does not cost the day.
             self._guest_stay_retry_at = now_local + timedelta(
@@ -6237,6 +6246,7 @@ class PresenceCoordinator(BaseCoordinator):
             ]
             self._guest_stay_evaluated_for = target
             self._guest_stay_retry_at = None
+            self._guest_stay_walked_ok = True
         if run_inference:
             try:
                 await self._run_inference("guest_stay_refresh")

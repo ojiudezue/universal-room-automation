@@ -21,7 +21,7 @@ Now there are two signals.
   there by Bluetooth, for at least a quarter of the house sleep window (22:00 to 06:00 here) AND for at least a
   tenth of the day before (10:00 to 22:00) in the SAME room. One such night is enough (operator 2026-11-09:
   "sustained occupancy during the day and an overnight should suffice"). The check runs once each morning over
-  the URA database, so a restart gives the same answer; a database error is retried after 15 minutes. Three
+  the URA database, so a restart gives the same answer; a database error is retried after 15 minutes and keeps the previous answer meanwhile (off if there is none since boot). Three
   empty nights in a row end the stay.
 - During a stay the house is GUEST by day and evening and goes to SLEEP at night as usual: GUEST hands over to
   HOME_NIGHT at the start of the sleep window (after the usual 5-minute exit hold), then SLEEP; after waking it

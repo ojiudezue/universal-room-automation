@@ -160,8 +160,9 @@ cited to a verified `file:line` on `develop`, or marked **UNVERIFIED**.
      `_maybe_schedule_guest_stay_refresh` from each tick once the last completed night changes, and
      once at setup; cancelled at teardown, and no walk is scheduled after teardown starts
      (`_guest_stay_torn_down`). `_discover_guest_rooms` clears the evaluated night, so a flagged or
-     un-flagged guest room is walked on the next tick. DB error → latch off, basis `{"error"}`, the
-     night is NOT stamped evaluated, retry after `GUEST_STAY_ERROR_RETRY_S` (900 s).
+     un-flagged guest room is walked on the next tick. DB error → the night is NOT stamped evaluated,
+     retry after `GUEST_STAY_ERROR_RETRY_S` (900 s); the previous latch / since / basis are KEPT if a
+     walk succeeded since boot (`_guest_stay_walked_ok`), else latch off with basis `{"error"}`.
      Clocks: occupancy rows are naive UTC; `person_visits` rows are naive PROCESS-local (§10 #32).
    - GUEST from HOME_* is now reached only by the latch, the manual override, or restart restore.
      The arrival day never shows GUEST (no night yet; parked; `visitors_present` covers it); GUEST

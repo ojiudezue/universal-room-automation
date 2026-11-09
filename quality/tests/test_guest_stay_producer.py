@@ -555,8 +555,9 @@ def test_daytime_never_counts(monkeypatch, tmp_path, proc_tz):
 
 
 def test_db_error_fails_off(monkeypatch, tmp_path):
-    """DB error: latch off, basis {"error"}, and the night is NOT stamped
-    evaluated (review A-M1 / B-M2); a retry is due 900 s later."""
+    """Fresh boot (no successful walk yet) + DB error: latch off even if it
+    read on, basis {"error"}, and the night is NOT stamped evaluated (review
+    A-M1 / B-M2); a retry is due 900 s later."""
     class _Boom:
         async def get_guest_room_night_fractions(self, *a, **k):
             raise RuntimeError("db locked")
@@ -568,6 +569,27 @@ def test_db_error_fails_off(monkeypatch, tmp_path):
     assert c._guest_stay_since is None
     assert c._guest_stay_evaluated_for is None
     assert c._guest_stay_retry_at == at(2026, 11, 3, 7, 15)
+
+
+def test_db_error_keeps_prior_latch(monkeypatch, tmp_path, proc_tz):
+    """Coordinator decision 2026-11-09: after a successful walk, a DB error
+    KEEPS the latch (and since / basis) until the retry; not stamped."""
+    proc_tz("UTC")
+    real = _one_night(monkeypatch, tmp_path, E1, 0.5, E1, 0.5,
+                      night=date(2026, 11, 2))
+    c = coord_with(monkeypatch, real, rooms=((GB1, E1),))
+    assert walk(c, at(2026, 11, 3)) is True
+    snap = (c._guest_stay_since, c._guest_stay_basis)
+
+    class _Boom:
+        async def get_guest_room_night_fractions(self, *a, **k):
+            raise RuntimeError("db locked")
+
+    c.hass.data[H.DOMAIN]["database"] = _Boom()
+    assert walk(c, at(2026, 11, 4)) is True
+    assert (c._guest_stay_since, c._guest_stay_basis) == snap
+    assert c._guest_stay_evaluated_for == date(2026, 11, 3)
+    assert c._guest_stay_retry_at == at(2026, 11, 4, 7, 15)
 
 
 def test_db_error_then_success_same_day(monkeypatch, tmp_path, proc_tz):
