@@ -56,6 +56,7 @@ from ..arrival_edges import (  # noqa: E402
     door_entry_areas,
     live_arrival_slug,
     nonface_arrival_source,
+    record_bermuda_moves,
 )
 
 
@@ -214,6 +215,12 @@ class LockRegimeController:
         # person slug -> ts of the last LIVE not_home -> home edge (face
         # corroboration; not persisted: a restart is inside the exclusion).
         self._arrival_edges: dict[str, float] = {}
+        # Review A MED-1: Bermuda move stamps (fed by a PersonCoordinator
+        # listener) and faces held for one re-check. Not persisted.
+        self._bermuda_moves: dict[str, list[tuple[frozenset[str], float]]] = {}
+        self._pending_faces: dict[str, float] = {}
+        self._pc_listener_unsub: Callable[[], None] | None = None
+        self._pc_listened: Any = None
         self._residents: set[str] = set()
         self._unavailable_warned: set[str] = set()
 
@@ -556,6 +563,7 @@ class LockRegimeController:
                 self._hass, sensors, self._on_distance_event
             )
 
+        self._ensure_pc_listener()
         self._boot_rebuild(cfg)
         self._boot_recheck_unsub = self._call_later(
             self._hass, self._boot_recheck_delay(), self._on_boot_recheck
@@ -604,6 +612,7 @@ class LockRegimeController:
         self._boot_recheck_unsub = None
         if self._torn_down:
             return
+        self._ensure_pc_listener()
         if self.reason == REASON_BOOT_UNKNOWN:
             house = self._house_state()
             if house == "sleep":
@@ -640,10 +649,13 @@ class LockRegimeController:
             "_guest_clock_unsub",
             "_reengage_unsub",
             "_away_dwell_unsub",
+            "_pc_listener_unsub",
         ):
             _safe_unsub(getattr(self, attr))
             setattr(self, attr, None)
         self._away_pending_at = None
+        self._pc_listened = None
+        self._pending_faces.clear()
         for unsub in self._readback_unsubs.values():
             _safe_unsub(unsub)
         self._readback_unsubs.clear()
@@ -820,12 +832,20 @@ class LockRegimeController:
         # really-away gate below. A face counts only with an independent
         # arrival edge for the SAME person (v5.107.0 D10.5 rule, shared
         # arrival_edges helper). Non-face sources are unchanged.
+        self._ensure_pc_listener()
         if source == "camera_face" and not self._face_arrival_corroborated(person):
+            # Review A MED-1: a Bermuda entry move that lands AFTER the face
+            # (inside the window) re-checks this face once (_on_pc_update).
+            self._pending_faces[person] = self._ts()
             _LOGGER.info(
-                "Lock regime: camera_face arrival for %s ignored "
-                "(no independent arrival edge)", person,
+                "Lock regime: camera_face arrival for %s held "
+                "(no independent arrival edge yet)", person,
             )
             return
+        self._apply_arrival(person)
+
+    def _apply_arrival(self, person: str) -> None:
+        """P2 effects once an arrival counts (unchanged pre-v5.107.4 body)."""
         cfg = self._cfg()
         # Away lock P2 (D3c): a listed person, same really-away gate.
         away_p2 = person in self.away_lock_persons(cfg)
@@ -932,6 +952,7 @@ class LockRegimeController:
         slug = live_arrival_slug(event.data)
         if slug:
             self._arrival_edges[slug] = now_ts
+        self._ensure_pc_listener()
         if resident:
             if new_val == "home" and old_val != "home":
                 if self._arrival_counts(pid, old_val, now_ts):
@@ -976,14 +997,18 @@ class LockRegimeController:
         tv = self._hass.data.get(DOMAIN, {}).get("transit_validator")
         return door_entry_areas(tv, self._area_of_entity)
 
-    def _face_arrival_corroborated(self, person: str) -> bool:
+    def _face_arrival_corroborated(self, person: str, at_ts: float | None = None) -> bool:
         """LOCK-REGIME-FACE-ARRIVAL-CORROBORATION-1: an independent arrival
-        edge for ``person`` within the D10.5 window, outside the post-boot
-        exclusion (both REUSED rung-1 constants, const.py
-        PERIMETER_EGRESS_FACE_NONFACE_WINDOW_S / _ARRIVAL_BOOT_EXCLUDE_S).
-        Window 0 = a face never releases (fail-safe: no unlock)."""
+        edge for ``person`` within the D10.5 window (either side of the face
+        at ``at_ts``, default now), outside the post-boot exclusion. REUSED
+        rung-1 constants PERIMETER_EGRESS_FACE_NONFACE_WINDOW_S /
+        _ARRIVAL_BOOT_EXCLUDE_S; review A MED-2: the lock floors the boot
+        exclusion at GARAGE_LOCKOUT_BOOT_ARRIVAL_WINDOW_S, so a perimeter
+        retune can never shrink an unlock's boot guard. Window 0 = a face
+        never releases (fail-safe: no unlock)."""
         from ..const import (  # noqa: PLC0415
             DOMAIN,
+            GARAGE_LOCKOUT_BOOT_ARRIVAL_WINDOW_S,
             PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S,
             PERIMETER_EGRESS_FACE_NONFACE_WINDOW_S,
         )
@@ -991,18 +1016,73 @@ class LockRegimeController:
         slug = person.split(".", 1)[-1].lower()
         if self._setup_ts is None:
             return False  # not set up: everything is inside the boot exclusion
-        boot_end = self._setup_ts + float(PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S)
+        boot_end = self._setup_ts + max(
+            float(PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S),
+            float(GARAGE_LOCKOUT_BOOT_ARRIVAL_WINDOW_S),
+        )
         src = nonface_arrival_source(
             slug=slug,
-            at_ts=self._ts(),
+            at_ts=self._ts() if at_ts is None else at_ts,
             window_s=float(PERIMETER_EGRESS_FACE_NONFACE_WINDOW_S),
             boot_end=boot_end,
             tracker_arrivals=self._arrival_edges,
             pc_data_fn=lambda: getattr(
                 self._hass.data.get(DOMAIN, {}).get("person_coordinator"), "data", None),
             areas_fn=self._entry_areas,
+            bermuda_moves=self._bermuda_moves,
         )
         return src is not None
+
+    def _ensure_pc_listener(self) -> None:
+        """Subscribe to the CURRENT PersonCoordinator (it is created after
+        the lock regime and replaced on reload). Idempotent; cheap."""
+        from ..const import DOMAIN  # noqa: PLC0415
+
+        if self._torn_down:
+            return
+        pc = self._hass.data.get(DOMAIN, {}).get("person_coordinator")
+        if pc is self._pc_listened:
+            return
+        _safe_unsub(self._pc_listener_unsub)
+        self._pc_listener_unsub = None
+        self._pc_listened = None
+        add = getattr(pc, "async_add_listener", None)
+        if pc is None or add is None:
+            return
+        try:
+            self._pc_listener_unsub = add(self._on_pc_update)
+            self._pc_listened = pc
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Lock regime: person coordinator listener failed", exc_info=True)
+
+    @callback
+    def _on_pc_update(self) -> None:
+        """Stamp Bermuda moves (review A MED-1) and re-check, ONCE, any face
+        held within the window whose person just got a new stamp."""
+        from ..const import DOMAIN, PERIMETER_EGRESS_FACE_NONFACE_WINDOW_S  # noqa: PLC0415
+
+        if self._torn_down:
+            return
+        try:
+            pc = self._hass.data.get(DOMAIN, {}).get("person_coordinator")
+            fresh = record_bermuda_moves(getattr(pc, "data", None) or {}, self._bermuda_moves)
+        except Exception:  # noqa: BLE001
+            return
+        now = self._ts()
+        win = float(PERIMETER_EGRESS_FACE_NONFACE_WINDOW_S)
+        for person, face_ts in list(self._pending_faces.items()):
+            if now - face_ts > win:
+                self._pending_faces.pop(person, None)
+                continue
+            if person.split(".", 1)[-1].lower() not in fresh:
+                continue
+            self._pending_faces.pop(person, None)
+            if self._face_arrival_corroborated(person, at_ts=face_ts):
+                _LOGGER.info(
+                    "Lock regime: held camera_face arrival for %s corroborated "
+                    "by a later Bermuda entry move", person,
+                )
+                self._apply_arrival(person)
 
     def _is_approach_zone(self, person_state: str, cfg: dict[str, Any]) -> bool:
         from ..const import CONF_SECURITY_LOCKOUT_APPROACH_ZONE  # noqa: PLC0415

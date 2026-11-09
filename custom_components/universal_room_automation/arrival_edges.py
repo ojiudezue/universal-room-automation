@@ -70,6 +70,61 @@ def bermuda_arrival_into(
     return False
 
 
+# Review A MED-1 (v5.107.4): PersonCoordinator overwrites previous_location on
+# every tick, so a Bermuda move is visible in its data for ONE update (~30 s).
+# A stamp ring, fed from a PersonCoordinator listener, keeps each move for the
+# whole window on either side of a face. Bounded per person (rung 1).
+BERMUDA_MOVE_STAMPS_PER_PERSON = 8
+
+
+def record_bermuda_moves(
+    pc_data: Mapping[str, Any],
+    stamps: dict[str, list[tuple[frozenset[str], float]]],
+) -> set[str]:
+    """Stamp every Bermuda room MOVE visible in ``pc_data`` as
+    (areas it moved into, last_changed ts). Same move test as
+    ``bermuda_arrival_into``. A move already stamped (same ts) is not
+    re-added. Returns the slugs that got a NEW stamp."""
+    fresh: set[str] = set()
+    for name, rec in pc_data.items():
+        if not isinstance(rec, dict) or rec.get("method") != "bermuda":
+            continue
+        if zone_slug(rec.get("previous_location")) == zone_slug(rec.get("location")):
+            continue
+        lc = rec.get("last_changed")
+        if not isinstance(lc, datetime):
+            continue
+        ts = lc.timestamp()
+        slug = str(name).lower().replace(" ", "_")
+        ring = stamps.setdefault(slug, [])
+        if any(t == ts for _a, t in ring):
+            continue
+        here = frozenset(
+            {zone_slug(rec.get("location")), zone_slug(rec.get("bermuda_area"))} - {""})
+        ring.append((here, ts))
+        del ring[:-BERMUDA_MOVE_STAMPS_PER_PERSON]
+        fresh.add(slug)
+    return fresh
+
+
+def stamped_bermuda_arrival(
+    stamps: Mapping[str, list[tuple[frozenset[str], float]]],
+    slug: str,
+    areas: set[str],
+    at_ts: float,
+    window_s: float,
+    boot_end: float,
+) -> bool:
+    """A stamped move of ``slug`` INTO ``areas`` within the window (either
+    side of ``at_ts``) and after the boot exclusion."""
+    if not areas:
+        return False
+    return any(
+        (here & areas) and edge_in_window(ts, at_ts, window_s, boot_end)
+        for here, ts in stamps.get(slug, ())
+    )
+
+
 def nonface_arrival_source(
     *,
     slug: str,
@@ -79,12 +134,15 @@ def nonface_arrival_source(
     tracker_arrivals: Mapping[str, float],
     pc_data_fn: Callable[[], Mapping[str, Any] | None],
     areas_fn: Callable[[], set[str]],
+    bermuda_moves: Mapping[str, list[tuple[frozenset[str], float]]] | None = None,
 ) -> str | None:
     """Source name of an independent arrival edge for ``slug``, or None.
 
     ``window_s <= 0`` disables (None). The tracker leg is checked first;
     the Bermuda leg's inputs are resolved lazily and any error there means
-    "no Bermuda arrival" (fail-closed: no corroboration).
+    "no Bermuda arrival" (fail-closed: no corroboration). ``bermuda_moves``
+    (stamp ring, optional): also accept a stamped move; None = the live
+    PersonCoordinator data only (perimeter D10.5, unchanged).
     """
     if window_s <= 0:
         return None
@@ -92,6 +150,9 @@ def nonface_arrival_source(
         return SOURCE_PERSON_TRACKER
     try:
         areas = areas_fn()
+        if bermuda_moves is not None and stamped_bermuda_arrival(
+                bermuda_moves, slug, areas, at_ts, window_s, boot_end):
+            return SOURCE_BLE
         data = pc_data_fn() or {}
         if bermuda_arrival_into(data, slug, areas, at_ts, window_s, boot_end):
             return SOURCE_BLE

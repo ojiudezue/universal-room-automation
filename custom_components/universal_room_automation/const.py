@@ -2552,6 +2552,12 @@ PERIMETER_EGRESS_FACE_NONFACE_WINDOW_S: Final = 120
 # seconds after perimeter setup are ignored — HA restore stamps
 # `last_changed` at boot, so a boot-time "home" is not an arrival.
 # Same 600 s as GARAGE_LOCKOUT_BOOT_ARRIVAL_WINDOW_S (lock regime).
+# COUPLING (v5.107.4 review A MED-2): the SC lock regime's camera_face unlock
+# gate (security_lock_regime._face_arrival_corroborated) also reads this and
+# PERIMETER_EGRESS_FACE_NONFACE_WINDOW_S. Perimeter uses them to DE-ESCALATE;
+# the lock uses them to UNLOCK. The lock floors the boot exclusion at
+# GARAGE_LOCKOUT_BOOT_ARRIVAL_WINDOW_S (max of the two), so lowering this value
+# never shrinks the unlock guard; raising the window widens BOTH consumers.
 PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S: Final = 600
 # D10.5 (rung 1, review A-M4): own corroboration settle, decoupled from the
 # D5 settle. D5a probe (30 d): second-engine lag p90 doorbell_lite 20.2 s,
@@ -3574,6 +3580,8 @@ GARAGE_LOCKOUT_REENGAGE_MAX_WAIT_S: Final = 3600
 # Restart safety: a resident who reached `home` within this window before
 # setup releases at boot; and any -> home edge inside this window after
 # setup counts unconditionally (M-2).
+# Also the FLOOR of the camera_face unlock gate's boot exclusion (v5.107.4,
+# max with PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S; review A MED-2).
 GARAGE_LOCKOUT_BOOT_ARRIVAL_WINDOW_S: Final = 600
 # Edges before setup + this only rebuild `reason`, never engage (M1);
 # the house state is re-read once at this delay (H1).

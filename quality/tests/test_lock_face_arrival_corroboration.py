@@ -72,15 +72,24 @@ class Rig:
     def unlocks(self):
         return self.w.locks_called("unlock")
 
-    def ble(self, name, *, location, prev="away", age_s=10):
+    def ble(self, name, *, location, prev="away", age_s=10, tick=False):
         """PersonCoordinator record: Bermuda moved ``name`` prev -> location."""
-        pc = self.w.hass.data[const.DOMAIN].setdefault(
-            "person_coordinator", SimpleNamespace(data={}))
+        pc = self.w.hass.data[const.DOMAIN].setdefault("person_coordinator", FakePC())
         pc.data[name] = {
             "method": "bermuda", "location": location, "bermuda_area": location,
             "previous_location": prev,
             "last_changed": self.w.now - timedelta(seconds=age_s),
         }
+        if tick:
+            pc.tick()
+
+    def settle_tick(self, name):
+        """Next PersonCoordinator tick: previous_location := location (the
+        move is no longer visible in the live data, person_coordinator:1083)."""
+        pc = self.w.hass.data[const.DOMAIN]["person_coordinator"]
+        rec = pc.data[name]
+        rec["previous_location"] = rec["location"]
+        pc.tick()
 
     async def face(self, pid, via_sc=True):
         payload = {"person_entity": pid, "source": "camera_face"}
@@ -91,6 +100,25 @@ class Rig:
         await settle()
 
 
+class FakePC:
+    """PersonCoordinator double: `.data` + DataUpdateCoordinator listeners."""
+
+    def __init__(self):
+        self.data = {}
+        self.listeners = []
+
+    adds = 0
+
+    def async_add_listener(self, cb, context=None):
+        self.adds += 1
+        self.listeners.append(cb)
+        return lambda: self.listeners.remove(cb) if cb in self.listeners else None
+
+    def tick(self):
+        for cb in list(self.listeners):
+            cb()
+
+
 @pytest.fixture
 def areas(monkeypatch):
     monkeypatch.setattr(R.LockRegimeController, "_area_of_entity",
@@ -98,10 +126,12 @@ def areas(monkeypatch):
 
 
 async def make_rig(*, opts=None, persons=None, lockouts="locked", bed="unlocked",
-                   past_boot=True, with_tv=True):
+                   past_boot=True, with_tv=True, pc=None):
     w = World(NIGHT, opts if opts is not None else options(),
               entry_type=const.ENTRY_TYPE_COORDINATOR_MANAGER)
     w.hass.data[const.DOMAIN] = {"coordinator_manager": SimpleNamespace(house_state="home_night")}
+    if pc is not None:
+        w.hass.data[const.DOMAIN]["person_coordinator"] = pc
     if with_tv:
         w.hass.data[const.DOMAIN]["transit_validator"] = SimpleNamespace(
             _egress_entities=[GARAGE_CAM],
@@ -342,10 +372,10 @@ async def test_boot_exclusion_boundary(areas, edge_at, expected):
 # ============================================================================
 
 
-async def _away_engaged():
+async def _away_engaged(pc=None):
     rig = await make_rig(opts=options(security_garage_lockout_enabled=False,
                                       security_away_lock_enabled=True),
-                         lockouts="unlocked", bed="unlocked")
+                         lockouts="unlocked", bed="unlocked", pc=pc)
     await rig.person(OJI, "not_home")
     await rig.person(EZ, "not_home")
     await rig.w.advance(301)
@@ -441,6 +471,171 @@ async def test_not_set_up_never_corroborates(areas):
         track_removed_domain=w.track_removed,
     )
     assert regime._face_arrival_corroborated(EZ) is False
+
+
+# ============================================================================
+# Review A MED-1: Bermuda move stamps (move before face) + face-first re-check
+# ============================================================================
+
+
+@pytest.mark.parametrize("before,expected", [(119, True), (120, True), (121, False)])
+@pytest.mark.asyncio
+async def test_move_before_face_survives_next_tick(areas, before, expected):
+    """The move is only in the live data for one tick; the stamp keeps it
+    for the window."""
+    rig = await make_rig(pc=FakePC())
+    await ez_really_away(rig)
+    rig.ble("Ezinne", location="Garage", age_s=0, tick=True)  # move at T0
+    rig.settle_tick("Ezinne")  # next tick: move gone from live data
+    await rig.w.advance(before)
+    await rig.face(EZ)
+    assert rig.unlocks() == ([LOCK_A, LOCK_B] if expected else [])
+
+
+@pytest.mark.parametrize("after,expected", [(60, True), (120, True), (121, False)])
+@pytest.mark.asyncio
+async def test_face_first_then_entry_move_rechecks(areas, after, expected):
+    rig = await make_rig(pc=FakePC())
+    await ez_really_away(rig)
+    await rig.face(EZ)  # held: no edge yet
+    assert rig.unlocks() == []
+    await rig.w.advance(after)
+    rig.ble("Ezinne", location="Garage", age_s=0, tick=True)
+    await settle()
+    assert rig.unlocks() == ([LOCK_A, LOCK_B] if expected else [])
+
+
+@pytest.mark.asyncio
+async def test_face_first_recheck_happens_once(areas):
+    rig = await make_rig(pc=FakePC())
+    await ez_really_away(rig)
+    await rig.face(EZ)
+    await rig.w.advance(20)
+    rig.ble("Ezinne", location="Kitchen", age_s=0, tick=True)  # not an entry area
+    await rig.w.advance(20)
+    rig.ble("Ezinne", location="Garage", prev="Kitchen", age_s=0, tick=True)
+    await settle()
+    assert rig.unlocks() == []
+    assert EZ not in rig.regime._pending_faces
+
+
+@pytest.mark.asyncio
+async def test_face_first_other_person_move_no_recheck(areas):
+    rig = await make_rig(pc=FakePC())
+    await ez_really_away(rig)
+    await rig.face(EZ)
+    await rig.w.advance(30)
+    rig.ble("Oji Udezue", location="Garage", age_s=0, tick=True)
+    await settle()
+    assert rig.unlocks() == []
+    assert EZ in rig.regime._pending_faces
+
+
+@pytest.mark.asyncio
+async def test_face_first_recheck_through_away_lock(areas):
+    rig = await _away_engaged(pc=FakePC())
+    await rig.face(EZ)
+    await rig.w.advance(40)
+    rig.ble("Ezinne", location="Garage", age_s=0, tick=True)
+    await settle()
+    assert rig.unlocks() == [BED]
+
+
+@pytest.mark.asyncio
+async def test_pc_listener_follows_replacement_and_teardown(areas):
+    old = FakePC()
+    rig = await make_rig(pc=old)
+    assert len(old.listeners) == 1
+    new = FakePC()
+    rig.w.hass.data[const.DOMAIN]["person_coordinator"] = new
+    await rig.person(EZ, "not_home")  # any person event re-resolves the PC
+    assert old.listeners == [] and len(new.listeners) == 1
+    await rig.regime.async_teardown()
+    assert new.listeners == []
+
+
+@pytest.mark.asyncio
+async def test_pc_listener_registered_at_setup_once(areas):
+    pc = FakePC()
+    rig = await make_rig(pc=pc, past_boot=False)
+    assert pc.adds == 1 and len(pc.listeners) == 1  # at setup, before any event
+    await rig.person(EZ, "not_home")
+    await rig.person(EZ, "Work")
+    await rig.face(EZ)
+    assert pc.adds == 1  # same PC: no re-subscribe churn
+
+
+@pytest.mark.asyncio
+async def test_held_face_expires_after_window(areas):
+    rig = await make_rig(pc=FakePC())
+    await ez_really_away(rig)
+    await rig.face(EZ)
+    await rig.w.advance(121)
+    rig.ble("Oji Udezue", location="Garage", age_s=0, tick=True)  # any PC tick
+    assert EZ not in rig.regime._pending_faces
+
+
+@pytest.mark.asyncio
+async def test_recheck_judged_at_face_time_for_late_tick(areas):
+    """A move 100 s BEFORE the face that the PersonCoordinator only reports
+    119 s after it: inside the window of the face, so it releases."""
+    rig = await make_rig(pc=FakePC())
+    await ez_really_away(rig)
+    await rig.face(EZ)
+    await rig.w.advance(119)
+    rig.ble("Ezinne", location="Garage", age_s=219, tick=True)
+    await settle()
+    assert rig.unlocks() == [LOCK_A, LOCK_B]
+
+
+def test_record_bermuda_moves_dedupes_and_caps():
+    stamps = {}
+    rec = {"method": "bermuda", "location": "Garage", "bermuda_area": "Garage",
+           "previous_location": "away", "last_changed": NIGHT}
+    assert AE.record_bermuda_moves({"Ezinne": dict(rec)}, stamps) == {"ezinne"}
+    assert AE.record_bermuda_moves({"Ezinne": dict(rec)}, stamps) == set()
+    for i in range(1, 12):
+        AE.record_bermuda_moves(
+            {"Ezinne": dict(rec, last_changed=NIGHT + timedelta(seconds=i))}, stamps)
+    assert len(stamps["ezinne"]) == 8
+    assert AE.record_bermuda_moves(
+        {"Ezinne": dict(rec, previous_location="Garage")}, {}) == set()
+    assert AE.record_bermuda_moves({"Ezinne": dict(rec, method="gps")}, {}) == set()
+
+
+# ============================================================================
+# Review A MED-2: lock-side boot-exclusion floor
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_boot_floor_holds_when_perimeter_exclusion_is_zero(areas, monkeypatch):
+    """Review repro: perimeter exclusion retuned to 0; HA restart; Bermuda
+    restores the person into an entry area (boot-stamped move); a face of
+    that person 60 s after setup -> still NO unlock."""
+    monkeypatch.setattr(const, "PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S", 0)
+    rig = await make_rig(past_boot=False, pc=FakePC(),
+                         persons={EZ: "not_home", OJI: "home", KIOSK: "unknown"})
+    await rig.w.advance(30)
+    rig.ble("Ezinne", location="Garage", prev="unknown", age_s=0, tick=True)
+    await rig.w.advance(30)
+    rig.w.calls.clear()
+    await rig.face(EZ)
+    assert rig.unlocks() == []
+
+
+@pytest.mark.parametrize("edge_at,expected", [(599, False), (601, True)])
+@pytest.mark.asyncio
+async def test_boot_floor_boundary_with_zero_perimeter_exclusion(areas, monkeypatch,
+                                                                edge_at, expected):
+    monkeypatch.setattr(const, "PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S", 0)
+    rig = await make_rig(past_boot=False, persons={EZ: "not_home", OJI: "home",
+                                                    KIOSK: "unknown"})
+    await rig.w.advance(602)
+    rig.w.calls.clear()
+    rig.ble("Ezinne", location="Garage", age_s=602 - edge_at)
+    await rig.face(EZ)
+    assert rig.unlocks() == ([LOCK_A, LOCK_B] if expected else [])
 
 
 # ============================================================================
