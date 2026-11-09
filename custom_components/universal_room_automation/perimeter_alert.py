@@ -169,6 +169,11 @@ from .const import (
 from .domain_coordinators.base import Severity
 from .domain_coordinators._nm_cycle_a import is_life_safety_hazard  # CIRCLING-LABEL-1: I3 gate uses this
 from .perimeter_enrichment import enrich_dispatched_alert, enrich_with_verdict
+from .arrival_edges import (
+    area_slug_of_entity,
+    live_arrival_slug,
+    nonface_arrival_source,
+)
 from .perimeter_fp_gates import (
     AgreementTracker,
     VERDICT_NO,
@@ -983,11 +988,10 @@ class PerimeterAlertManager:
             self._unsub_egress_identity = self.hass.bus.async_listen(
                 "ura_person_egress_event", _on_egress_identity,
             )
-            # Arrival edges for the face+non-face rule (same edge shape as
-            # the SC lock regime's `_on_person_event` / `_arrival_counts`,
-            # security_lock_regime.py:881-935, mirrored here because that
-            # method is private, instance-bound, and biased the OTHER way at
-            # boot — it treats boot as "counts as arrival", we must not).
+            # Arrival edges for the face+non-face rule. The edge rule is the
+            # shared arrival_edges module (also used by the SC lock regime's
+            # camera_face gate); this listener + `_person_arrivals` stay
+            # here so boot exclusion is timed from perimeter setup.
             self._fp_setup_ts = dt_util.now().timestamp()
             _persons = [f"person.{s}" for s in self._tracked_person_slugs()]
             if _persons:
@@ -4986,31 +4990,18 @@ class PerimeterAlertManager:
         if win <= 0:
             return None
         boot_end = (self._fp_setup_ts or 0.0) + float(PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S)
-        edge_ts = edge.timestamp()
-
-        def _ok(ts: float | None) -> bool:
-            return ts is not None and ts >= boot_end and abs(edge_ts - ts) <= win
-
-        if _ok(self._person_arrivals.get(slug)):
-            return "person_tracker"
-        try:
-            near = self._near_areas(cam_key)
-            pc = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
-            data = getattr(pc, "data", None) or {}
-            for name, rec in data.items():
-                if str(name).lower().replace(" ", "_") != slug or not isinstance(rec, dict):
-                    continue
-                if rec.get("method") != "bermuda" or not near:
-                    continue
-                here = {zone_slug(rec.get("location")), zone_slug(rec.get("bermuda_area"))}
-                moved = zone_slug(rec.get("previous_location")) != zone_slug(rec.get("location"))
-                lc = rec.get("last_changed")
-                lc_ts = lc.timestamp() if isinstance(lc, datetime) else None
-                if moved and (here & near) and _ok(lc_ts):
-                    return "ble"
-        except Exception:  # noqa: BLE001
-            pass
-        return None
+        # LOCK-REGIME-FACE-ARRIVAL-CORROBORATION-1: the rule lives in the
+        # shared arrival_edges module (also used by the SC lock regime).
+        return nonface_arrival_source(
+            slug=slug,
+            at_ts=edge.timestamp(),
+            window_s=win,
+            boot_end=boot_end,
+            tracker_arrivals=self._person_arrivals,
+            pc_data_fn=lambda: getattr(
+                self.hass.data.get(DOMAIN, {}).get("person_coordinator"), "data", None),
+            areas_fn=lambda: self._near_areas(cam_key),
+        )
 
     def _tracked_person_slugs(self) -> list[str]:
         try:
@@ -5024,13 +5015,7 @@ class PerimeterAlertManager:
         """Record a live not_home -> home edge (old_state None = restore,
         not an arrival). Boot exclusion is applied at read time."""
         try:
-            new = event.data.get("new_state")
-            old = event.data.get("old_state")
-            if new is None or old is None:
-                return
-            if getattr(new, "state", None) != "home" or getattr(old, "state", None) != "not_home":
-                return
-            slug = str(event.data.get("entity_id", "")).replace("person.", "").lower()
+            slug = live_arrival_slug(event.data)
             if slug:
                 self._person_arrivals[slug] = dt_util.now().timestamp()
         except Exception:  # noqa: BLE001
@@ -5038,21 +5023,7 @@ class PerimeterAlertManager:
 
     def _area_of_entity(self, entity_id: str) -> str:
         """HA area name (slugged) of an entity via entity/device registry."""
-        try:
-            from homeassistant.helpers import (  # noqa: PLC0415
-                area_registry as ar, device_registry as dr, entity_registry as er,
-            )
-            ent = er.async_get(self.hass).async_get(entity_id)
-            area_id = getattr(ent, "area_id", None)
-            if not area_id and getattr(ent, "device_id", None):
-                dev = dr.async_get(self.hass).async_get(ent.device_id)
-                area_id = getattr(dev, "area_id", None)
-            if not area_id:
-                return ""
-            area = ar.async_get(self.hass).async_get_area(area_id)
-            return zone_slug(getattr(area, "name", None) or area_id)
-        except Exception:  # noqa: BLE001
-            return ""
+        return area_slug_of_entity(self.hass, entity_id)
 
     def _near_areas(self, cam_key: str) -> set[str]:
         """Areas at/near a dual-role egress camera: the camera's own area,

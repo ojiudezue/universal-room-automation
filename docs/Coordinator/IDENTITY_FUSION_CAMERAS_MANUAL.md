@@ -425,6 +425,16 @@ under `gate_decisions_by_camera`:
   corroborated by the other NVR family while it is live; contextual severity
   otherwise. A face alone, or a latched name, never demotes.
 
+**SC lock regime face arrivals (v5.107.4, LOCK-REGIME-FACE-ARRIVAL-CORROBORATION-1,
+branch `feature/lock-face-arrival`, NOT deployed).** A `SIGNAL_PERSON_ARRIVING` with
+`source: camera_face` (presence `_handle_face_arrival`, any zone camera) used to
+release the garage lockouts and the away lock whenever the person was really away.
+It now also needs the same independent same-person arrival edge as D10.5: a live
+tracker `not_home → home`, or a Bermuda move into an entry area (egress camera areas
+plus configured door-interior neighbours). The edge must be within 120 s and outside
+the 600 s post-setup exclusion. The rule is shared code (`arrival_edges.py`). This
+is the §5.5(a) doctrine applied to actuation: a face name alone never unlocks.
+
 ### 4.6 DB tables (from `database.py`)
 
 `person_entry_exit_events` (`database.py:793-808`) — the egress
