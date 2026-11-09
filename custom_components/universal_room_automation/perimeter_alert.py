@@ -3952,12 +3952,12 @@ class PerimeterAlertManager:
         if not url_path:
             return None
         if "://" in url_path:
-            abs_url = url_path
-        else:
-            base = self._internal_base_url()
-            if not base:
-                return None
-            abs_url = base + url_path
+            # Relative paths only: an absolute URL could send the fetch outward.
+            return None
+        base = self._internal_base_url()
+        if not base:
+            return None
+        abs_url = base + url_path
         try:
             from homeassistant.helpers.aiohttp_client import (
                 async_get_clientsession,
