@@ -1,0 +1,983 @@
+{
+ "_meta": {
+  "captured": "2026-11-09 00:15-00:40 CDT",
+  "topic": "frigate2/events",
+  "note": "5 msgs, 1 event id (car, g5_bullet, zone g5_bullet_property). No person sample captured (overnight). No plate/sub_label data present."
+ },
+ "pairs": [
+  {
+   "mqtt_payload": "{\"before\": {\"id\": \"1794204949.279588-l5p447\", \"camera\": \"g5_bullet\", \"frame_time\": 1794204949.279588, \"snapshot\": null, \"snapshot_clean\": true, \"label\": \"car\", \"sub_label\": null, \"top_score\": 0.0, \"false_positive\": true, \"start_time\": 1794204949.279588, \"end_time\": null, \"score\": 0.546875, \"computed_score\": 0.0, \"box\": [491, 20, 793, 146], \"area\": 38052, \"ratio\": 2.3968253968253967, \"region\": [461, 0, 805, 344], \"active\": true, \"stationary\": false, \"motionless_count\": 0, \"position_changes\": 0, \"current_zones\": [], \"entered_zones\": [], \"has_clip\": false, \"has_snapshot\": false, \"attributes\": {}, \"current_attributes\": [], \"pending_loitering\": false, \"max_severity\": \"detection\", \"current_estimated_speed\": 0, \"average_estimated_speed\": 0, \"velocity_angle\": 0, \"path_data\": [], \"recognized_license_plate\": null}, \"after\": {\"id\": \"1794204949.279588-l5p447\", \"camera\": \"g5_bullet\", \"frame_time\": 1794204984.137244, \"snapshot\": {\"frame_time\": 1794204984.137244, \"box\": [480, 35, 633, 134], \"area\": 15147, \"region\": [379, 0, 787, 408], \"score\": 0.7265625, \"attributes\": [], \"current_estimated_speed\": 0, \"velocity_angle\": 0, \"path_data\": [], \"recognized_license_plate\": null, \"recognized_license_plate_score\": null}, \"snapshot_clean\": true, \"label\": \"car\", \"sub_label\": null, \"top_score\": 0.7265625, \"false_positive\": false, \"start_time\": 1794204949.279588, \"end_time\": null, \"score\": 0.7265625, \"computed_score\": 0.7265625, \"box\": [480, 35, 633, 134], \"area\": 15147, \"ratio\": 1.5454545454545454, \"region\": [379, 0, 787, 408], \"active\": false, \"stationary\": true, \"motionless_count\": 123, \"position_changes\": 1, \"current_zones\": [\"g5_bullet_property\"], \"entered_zones\": [\"g5_bullet_property\"], \"has_clip\": true, \"has_snapshot\": true, \"attributes\": {}, \"current_attributes\": [], \"pending_loitering\": false, \"max_severity\": \"alert\", \"current_estimated_speed\": 0, \"average_estimated_speed\": 0, \"velocity_angle\": 0, \"path_data\": [[[0.4344, 0.1861], 1794204984.137244]], \"recognized_license_plate\": null, \"score_history\": [0.609375, 0.53515625, 0.57421875, 0.546875]}, \"type\": \"new\"}",
+   "bus_data": {
+    "before": {
+     "id": "1794204949.279588-l5p447",
+     "camera": "g5_bullet",
+     "frame_time": 1794204949.279588,
+     "snapshot": null,
+     "snapshot_clean": true,
+     "label": "car",
+     "sub_label": null,
+     "top_score": 0.0,
+     "false_positive": true,
+     "start_time": 1794204949.279588,
+     "end_time": null,
+     "score": 0.546875,
+     "computed_score": 0.0,
+     "box": [
+      491,
+      20,
+      793,
+      146
+     ],
+     "area": 38052,
+     "ratio": 2.3968253968253967,
+     "region": [
+      461,
+      0,
+      805,
+      344
+     ],
+     "active": true,
+     "stationary": false,
+     "motionless_count": 0,
+     "position_changes": 0,
+     "current_zones": [],
+     "entered_zones": [],
+     "has_clip": false,
+     "has_snapshot": false,
+     "attributes": {},
+     "current_attributes": [],
+     "pending_loitering": false,
+     "max_severity": "detection",
+     "current_estimated_speed": 0,
+     "average_estimated_speed": 0,
+     "velocity_angle": 0,
+     "path_data": [],
+     "recognized_license_plate": null
+    },
+    "after": {
+     "id": "1794204949.279588-l5p447",
+     "camera": "g5_bullet",
+     "frame_time": 1794204984.137244,
+     "snapshot": {
+      "frame_time": 1794204984.137244,
+      "box": [
+       480,
+       35,
+       633,
+       134
+      ],
+      "area": 15147,
+      "region": [
+       379,
+       0,
+       787,
+       408
+      ],
+      "score": 0.7265625,
+      "attributes": [],
+      "current_estimated_speed": 0,
+      "velocity_angle": 0,
+      "path_data": [],
+      "recognized_license_plate": null,
+      "recognized_license_plate_score": null
+     },
+     "snapshot_clean": true,
+     "label": "car",
+     "sub_label": null,
+     "top_score": 0.7265625,
+     "false_positive": false,
+     "start_time": 1794204949.279588,
+     "end_time": null,
+     "score": 0.7265625,
+     "computed_score": 0.7265625,
+     "box": [
+      480,
+      35,
+      633,
+      134
+     ],
+     "area": 15147,
+     "ratio": 1.5454545454545454,
+     "region": [
+      379,
+      0,
+      787,
+      408
+     ],
+     "active": false,
+     "stationary": true,
+     "motionless_count": 123,
+     "position_changes": 1,
+     "current_zones": [
+      "g5_bullet_property"
+     ],
+     "entered_zones": [
+      "g5_bullet_property"
+     ],
+     "has_clip": true,
+     "has_snapshot": true,
+     "attributes": {},
+     "current_attributes": [],
+     "pending_loitering": false,
+     "max_severity": "alert",
+     "current_estimated_speed": 0,
+     "average_estimated_speed": 0,
+     "velocity_angle": 0,
+     "path_data": [
+      [
+       [
+        0.4344,
+        0.1861
+       ],
+       1794204984.137244
+      ]
+     ],
+     "recognized_license_plate": null,
+     "score_history": [
+      0.609375,
+      0.53515625,
+      0.57421875,
+      0.546875
+     ]
+    },
+    "type": "new"
+   }
+  },
+  {
+   "mqtt_payload": "{\"before\": {\"id\": \"1794204949.279588-l5p447\", \"camera\": \"g5_bullet\", \"frame_time\": 1794204984.137244, \"snapshot\": {\"frame_time\": 1794204984.137244, \"box\": [480, 35, 633, 134], \"area\": 15147, \"region\": [379, 0, 787, 408], \"score\": 0.7265625, \"attributes\": [], \"current_estimated_speed\": 0, \"velocity_angle\": 0, \"path_data\": [], \"recognized_license_plate\": null, \"recognized_license_plate_score\": null}, \"snapshot_clean\": true, \"label\": \"car\", \"sub_label\": null, \"top_score\": 0.7265625, \"false_positive\": false, \"start_time\": 1794204949.279588, \"end_time\": null, \"score\": 0.7265625, \"computed_score\": 0.7265625, \"box\": [480, 35, 633, 134], \"area\": 15147, \"ratio\": 1.5454545454545454, \"region\": [379, 0, 787, 408], \"active\": false, \"stationary\": true, \"motionless_count\": 123, \"position_changes\": 1, \"current_zones\": [\"g5_bullet_property\"], \"entered_zones\": [\"g5_bullet_property\"], \"has_clip\": true, \"has_snapshot\": true, \"attributes\": {}, \"current_attributes\": [], \"pending_loitering\": false, \"max_severity\": \"alert\", \"current_estimated_speed\": 0, \"average_estimated_speed\": 0, \"velocity_angle\": 0, \"path_data\": [[[0.4344, 0.1861], 1794204984.137244]], \"recognized_license_plate\": null, \"score_history\": [0.609375, 0.53515625, 0.57421875, 0.546875]}, \"after\": {\"id\": \"1794204949.279588-l5p447\", \"camera\": \"g5_bullet\", \"frame_time\": 1794204984.15593, \"snapshot\": {\"frame_time\": 1794204984.137244, \"box\": [480, 35, 633, 134], \"area\": 15147, \"region\": [379, 0, 787, 408], \"score\": 0.7265625, \"attributes\": [], \"current_estimated_speed\": 0, \"velocity_angle\": 0, \"path_data\": [], \"recognized_license_plate\": null, \"recognized_license_plate_score\": null}, \"snapshot_clean\": true, \"label\": \"car\", \"sub_label\": null, \"top_score\": 0.7265625, \"false_positive\": false, \"start_time\": 1794204949.279588, \"end_time\": null, \"score\": 0.7265625, \"computed_score\": 0.7265625, \"box\": [480, 35, 633, 134], \"area\": 15147, \"ratio\": 1.5454545454545454, \"region\": [379, 0, 787, 408], \"active\": false, \"stationary\": true, \"motionless_count\": 124, \"position_changes\": 1, \"current_zones\": [\"g5_bullet_property\"], \"entered_zones\": [\"g5_bullet_property\"], \"has_clip\": true, \"has_snapshot\": true, \"attributes\": {}, \"current_attributes\": [], \"pending_loitering\": false, \"max_severity\": \"alert\", \"current_estimated_speed\": 0, \"average_estimated_speed\": 0, \"velocity_angle\": 0, \"path_data\": [[[0.4344, 0.1861], 1794204984.137244], [[0.4344, 0.1861], 1794204984.15593]], \"recognized_license_plate\": null, \"score_history\": [0.609375, 0.53515625, 0.57421875, 0.546875]}, \"type\": \"update\"}",
+   "bus_data": {
+    "before": {
+     "id": "1794204949.279588-l5p447",
+     "camera": "g5_bullet",
+     "frame_time": 1794204984.137244,
+     "snapshot": {
+      "frame_time": 1794204984.137244,
+      "box": [
+       480,
+       35,
+       633,
+       134
+      ],
+      "area": 15147,
+      "region": [
+       379,
+       0,
+       787,
+       408
+      ],
+      "score": 0.7265625,
+      "attributes": [],
+      "current_estimated_speed": 0,
+      "velocity_angle": 0,
+      "path_data": [],
+      "recognized_license_plate": null,
+      "recognized_license_plate_score": null
+     },
+     "snapshot_clean": true,
+     "label": "car",
+     "sub_label": null,
+     "top_score": 0.7265625,
+     "false_positive": false,
+     "start_time": 1794204949.279588,
+     "end_time": null,
+     "score": 0.7265625,
+     "computed_score": 0.7265625,
+     "box": [
+      480,
+      35,
+      633,
+      134
+     ],
+     "area": 15147,
+     "ratio": 1.5454545454545454,
+     "region": [
+      379,
+      0,
+      787,
+      408
+     ],
+     "active": false,
+     "stationary": true,
+     "motionless_count": 123,
+     "position_changes": 1,
+     "current_zones": [
+      "g5_bullet_property"
+     ],
+     "entered_zones": [
+      "g5_bullet_property"
+     ],
+     "has_clip": true,
+     "has_snapshot": true,
+     "attributes": {},
+     "current_attributes": [],
+     "pending_loitering": false,
+     "max_severity": "alert",
+     "current_estimated_speed": 0,
+     "average_estimated_speed": 0,
+     "velocity_angle": 0,
+     "path_data": [
+      [
+       [
+        0.4344,
+        0.1861
+       ],
+       1794204984.137244
+      ]
+     ],
+     "recognized_license_plate": null,
+     "score_history": [
+      0.609375,
+      0.53515625,
+      0.57421875,
+      0.546875
+     ]
+    },
+    "after": {
+     "id": "1794204949.279588-l5p447",
+     "camera": "g5_bullet",
+     "frame_time": 1794204984.15593,
+     "snapshot": {
+      "frame_time": 1794204984.137244,
+      "box": [
+       480,
+       35,
+       633,
+       134
+      ],
+      "area": 15147,
+      "region": [
+       379,
+       0,
+       787,
+       408
+      ],
+      "score": 0.7265625,
+      "attributes": [],
+      "current_estimated_speed": 0,
+      "velocity_angle": 0,
+      "path_data": [],
+      "recognized_license_plate": null,
+      "recognized_license_plate_score": null
+     },
+     "snapshot_clean": true,
+     "label": "car",
+     "sub_label": null,
+     "top_score": 0.7265625,
+     "false_positive": false,
+     "start_time": 1794204949.279588,
+     "end_time": null,
+     "score": 0.7265625,
+     "computed_score": 0.7265625,
+     "box": [
+      480,
+      35,
+      633,
+      134
+     ],
+     "area": 15147,
+     "ratio": 1.5454545454545454,
+     "region": [
+      379,
+      0,
+      787,
+      408
+     ],
+     "active": false,
+     "stationary": true,
+     "motionless_count": 124,
+     "position_changes": 1,
+     "current_zones": [
+      "g5_bullet_property"
+     ],
+     "entered_zones": [
+      "g5_bullet_property"
+     ],
+     "has_clip": true,
+     "has_snapshot": true,
+     "attributes": {},
+     "current_attributes": [],
+     "pending_loitering": false,
+     "max_severity": "alert",
+     "current_estimated_speed": 0,
+     "average_estimated_speed": 0,
+     "velocity_angle": 0,
+     "path_data": [
+      [
+       [
+        0.4344,
+        0.1861
+       ],
+       1794204984.137244
+      ],
+      [
+       [
+        0.4344,
+        0.1861
+       ],
+       1794204984.15593
+      ]
+     ],
+     "recognized_license_plate": null,
+     "score_history": [
+      0.609375,
+      0.53515625,
+      0.57421875,
+      0.546875
+     ]
+    },
+    "type": "update"
+   }
+  },
+  {
+   "mqtt_payload": "{\"before\": {\"id\": \"1794204949.279588-l5p447\", \"camera\": \"g5_bullet\", \"frame_time\": 1794204984.15593, \"snapshot\": {\"frame_time\": 1794204984.137244, \"box\": [480, 35, 633, 134], \"area\": 15147, \"region\": [379, 0, 787, 408], \"score\": 0.7265625, \"attributes\": [], \"current_estimated_speed\": 0, \"velocity_angle\": 0, \"path_data\": [], \"recognized_license_plate\": null, \"recognized_license_plate_score\": null}, \"snapshot_clean\": true, \"label\": \"car\", \"sub_label\": null, \"top_score\": 0.7265625, \"false_positive\": false, \"start_time\": 1794204949.279588, \"end_time\": null, \"score\": 0.7265625, \"computed_score\": 0.7265625, \"box\": [480, 35, 633, 134], \"area\": 15147, \"ratio\": 1.5454545454545454, \"region\": [379, 0, 787, 408], \"active\": false, \"stationary\": true, \"motionless_count\": 124, \"position_changes\": 1, \"current_zones\": [\"g5_bullet_property\"], \"entered_zones\": [\"g5_bullet_property\"], \"has_clip\": true, \"has_snapshot\": true, \"attributes\": {}, \"current_attributes\": [], \"pending_loitering\": false, \"max_severity\": \"alert\", \"current_estimated_speed\": 0, \"average_estimated_speed\": 0, \"velocity_angle\": 0, \"path_data\": [[[0.4344, 0.1861], 1794204984.137244], [[0.4344, 0.1861], 1794204984.15593]], \"recognized_license_plate\": null, \"score_history\": [0.609375, 0.53515625, 0.57421875, 0.546875]}, \"after\": {\"id\": \"1794204949.279588-l5p447\", \"camera\": \"g5_bullet\", \"frame_time\": 1794204985.100083, \"snapshot\": {\"frame_time\": 1794204984.748063, \"box\": [493, 19, 711, 141], \"area\": 26596, \"region\": [396, 0, 716, 320], \"score\": 0.5859375, \"attributes\": [], \"current_estimated_speed\": 0, \"velocity_angle\": 0, \"path_data\": [[[0.4344, 0.1861], 1794204984.137244], [[0.4344, 0.1861], 1794204984.15593]], \"recognized_license_plate\": null, \"recognized_license_plate_score\": null}, \"snapshot_clean\": true, \"label\": \"car\", \"sub_label\": null, \"top_score\": 0.7265625, \"false_positive\": false, \"start_time\": 1794204949.279588, \"end_time\": null, \"score\": 0.53515625, \"computed_score\": 0.7265625, \"box\": [444, 0, 761, 139], \"area\": 44063, \"ratio\": 2.2805755395683454, \"region\": [442, 0, 762, 320], \"active\": false, \"stationary\": true, \"motionless_count\": 128, \"position_changes\": 1, \"current_zones\": [\"g5_bullet_property\"], \"entered_zones\": [\"g5_bullet_property\"], \"has_clip\": true, \"has_snapshot\": true, \"attributes\": {}, \"current_attributes\": [], \"pending_loitering\": false, \"max_severity\": \"alert\", \"current_estimated_speed\": 0, \"average_estimated_speed\": 0, \"velocity_angle\": 0, \"path_data\": [[[0.4344, 0.1861], 1794204984.137244], [[0.4344, 0.1861], 1794204984.15593]], \"recognized_license_plate\": null, \"score_history\": [0.609375, 0.53515625, 0.57421875, 0.546875]}, \"type\": \"update\"}",
+   "bus_data": {
+    "before": {
+     "id": "1794204949.279588-l5p447",
+     "camera": "g5_bullet",
+     "frame_time": 1794204984.15593,
+     "snapshot": {
+      "frame_time": 1794204984.137244,
+      "box": [
+       480,
+       35,
+       633,
+       134
+      ],
+      "area": 15147,
+      "region": [
+       379,
+       0,
+       787,
+       408
+      ],
+      "score": 0.7265625,
+      "attributes": [],
+      "current_estimated_speed": 0,
+      "velocity_angle": 0,
+      "path_data": [],
+      "recognized_license_plate": null,
+      "recognized_license_plate_score": null
+     },
+     "snapshot_clean": true,
+     "label": "car",
+     "sub_label": null,
+     "top_score": 0.7265625,
+     "false_positive": false,
+     "start_time": 1794204949.279588,
+     "end_time": null,
+     "score": 0.7265625,
+     "computed_score": 0.7265625,
+     "box": [
+      480,
+      35,
+      633,
+      134
+     ],
+     "area": 15147,
+     "ratio": 1.5454545454545454,
+     "region": [
+      379,
+      0,
+      787,
+      408
+     ],
+     "active": false,
+     "stationary": true,
+     "motionless_count": 124,
+     "position_changes": 1,
+     "current_zones": [
+      "g5_bullet_property"
+     ],
+     "entered_zones": [
+      "g5_bullet_property"
+     ],
+     "has_clip": true,
+     "has_snapshot": true,
+     "attributes": {},
+     "current_attributes": [],
+     "pending_loitering": false,
+     "max_severity": "alert",
+     "current_estimated_speed": 0,
+     "average_estimated_speed": 0,
+     "velocity_angle": 0,
+     "path_data": [
+      [
+       [
+        0.4344,
+        0.1861
+       ],
+       1794204984.137244
+      ],
+      [
+       [
+        0.4344,
+        0.1861
+       ],
+       1794204984.15593
+      ]
+     ],
+     "recognized_license_plate": null,
+     "score_history": [
+      0.609375,
+      0.53515625,
+      0.57421875,
+      0.546875
+     ]
+    },
+    "after": {
+     "id": "1794204949.279588-l5p447",
+     "camera": "g5_bullet",
+     "frame_time": 1794204985.100083,
+     "snapshot": {
+      "frame_time": 1794204984.748063,
+      "box": [
+       493,
+       19,
+       711,
+       141
+      ],
+      "area": 26596,
+      "region": [
+       396,
+       0,
+       716,
+       320
+      ],
+      "score": 0.5859375,
+      "attributes": [],
+      "current_estimated_speed": 0,
+      "velocity_angle": 0,
+      "path_data": [
+       [
+        [
+         0.4344,
+         0.1861
+        ],
+        1794204984.137244
+       ],
+       [
+        [
+         0.4344,
+         0.1861
+        ],
+        1794204984.15593
+       ]
+      ],
+      "recognized_license_plate": null,
+      "recognized_license_plate_score": null
+     },
+     "snapshot_clean": true,
+     "label": "car",
+     "sub_label": null,
+     "top_score": 0.7265625,
+     "false_positive": false,
+     "start_time": 1794204949.279588,
+     "end_time": null,
+     "score": 0.53515625,
+     "computed_score": 0.7265625,
+     "box": [
+      444,
+      0,
+      761,
+      139
+     ],
+     "area": 44063,
+     "ratio": 2.2805755395683454,
+     "region": [
+      442,
+      0,
+      762,
+      320
+     ],
+     "active": false,
+     "stationary": true,
+     "motionless_count": 128,
+     "position_changes": 1,
+     "current_zones": [
+      "g5_bullet_property"
+     ],
+     "entered_zones": [
+      "g5_bullet_property"
+     ],
+     "has_clip": true,
+     "has_snapshot": true,
+     "attributes": {},
+     "current_attributes": [],
+     "pending_loitering": false,
+     "max_severity": "alert",
+     "current_estimated_speed": 0,
+     "average_estimated_speed": 0,
+     "velocity_angle": 0,
+     "path_data": [
+      [
+       [
+        0.4344,
+        0.1861
+       ],
+       1794204984.137244
+      ],
+      [
+       [
+        0.4344,
+        0.1861
+       ],
+       1794204984.15593
+      ]
+     ],
+     "recognized_license_plate": null,
+     "score_history": [
+      0.609375,
+      0.53515625,
+      0.57421875,
+      0.546875
+     ]
+    },
+    "type": "update"
+   }
+  },
+  {
+   "mqtt_payload": "{\"before\": {\"id\": \"1794204949.279588-l5p447\", \"camera\": \"g5_bullet\", \"frame_time\": 1794204985.100083, \"snapshot\": {\"frame_time\": 1794204984.748063, \"box\": [493, 19, 711, 141], \"area\": 26596, \"region\": [396, 0, 716, 320], \"score\": 0.5859375, \"attributes\": [], \"current_estimated_speed\": 0, \"velocity_angle\": 0, \"path_data\": [[[0.4344, 0.1861], 1794204984.137244], [[0.4344, 0.1861], 1794204984.15593]], \"recognized_license_plate\": null, \"recognized_license_plate_score\": null}, \"snapshot_clean\": true, \"label\": \"car\", \"sub_label\": null, \"top_score\": 0.7265625, \"false_positive\": false, \"start_time\": 1794204949.279588, \"end_time\": null, \"score\": 0.53515625, \"computed_score\": 0.7265625, \"box\": [444, 0, 761, 139], \"area\": 44063, \"ratio\": 2.2805755395683454, \"region\": [442, 0, 762, 320], \"active\": false, \"stationary\": true, \"motionless_count\": 128, \"position_changes\": 1, \"current_zones\": [\"g5_bullet_property\"], \"entered_zones\": [\"g5_bullet_property\"], \"has_clip\": true, \"has_snapshot\": true, \"attributes\": {}, \"current_attributes\": [], \"pending_loitering\": false, \"max_severity\": \"alert\", \"current_estimated_speed\": 0, \"average_estimated_speed\": 0, \"velocity_angle\": 0, \"path_data\": [[[0.4344, 0.1861], 1794204984.137244], [[0.4344, 0.1861], 1794204984.15593]], \"recognized_license_plate\": null, \"score_history\": [0.609375, 0.53515625, 0.57421875, 0.546875]}, \"after\": {\"id\": \"1794204949.279588-l5p447\", \"camera\": \"g5_bullet\", \"frame_time\": 1794204989.356589, \"snapshot\": {\"frame_time\": 1794204989.356589, \"box\": [403, 5, 809, 156], \"area\": 61306, \"region\": [390, 0, 814, 424], \"score\": 0.5, \"attributes\": [], \"current_estimated_speed\": 0, \"velocity_angle\": 0, \"path_data\": [[[0.4344, 0.1861], 1794204984.137244], [[0.4344, 0.1861], 1794204984.15593]], \"recognized_license_plate\": null, \"recognized_license_plate_score\": null}, \"snapshot_clean\": true, \"label\": \"car\", \"sub_label\": null, \"top_score\": 0.7265625, \"false_positive\": false, \"start_time\": 1794204949.279588, \"end_time\": null, \"score\": 0.5, \"computed_score\": 0.0, \"box\": [403, 5, 809, 156], \"area\": 61306, \"ratio\": 2.6887417218543046, \"region\": [390, 0, 814, 424], \"active\": false, \"stationary\": true, \"motionless_count\": 129, \"position_changes\": 1, \"current_zones\": [\"g5_bullet_property\"], \"entered_zones\": [\"g5_bullet_property\"], \"has_clip\": true, \"has_snapshot\": true, \"attributes\": {}, \"current_attributes\": [], \"pending_loitering\": false, \"max_severity\": \"alert\", \"current_estimated_speed\": 0, \"average_estimated_speed\": 0, \"velocity_angle\": 0, \"path_data\": [[[0.4344, 0.1861], 1794204984.137244], [[0.4344, 0.1861], 1794204984.15593]], \"recognized_license_plate\": null, \"score_history\": [0.609375, 0.53515625, 0.57421875, 0.546875]}, \"type\": \"update\"}",
+   "bus_data": {
+    "before": {
+     "id": "1794204949.279588-l5p447",
+     "camera": "g5_bullet",
+     "frame_time": 1794204985.100083,
+     "snapshot": {
+      "frame_time": 1794204984.748063,
+      "box": [
+       493,
+       19,
+       711,
+       141
+      ],
+      "area": 26596,
+      "region": [
+       396,
+       0,
+       716,
+       320
+      ],
+      "score": 0.5859375,
+      "attributes": [],
+      "current_estimated_speed": 0,
+      "velocity_angle": 0,
+      "path_data": [
+       [
+        [
+         0.4344,
+         0.1861
+        ],
+        1794204984.137244
+       ],
+       [
+        [
+         0.4344,
+         0.1861
+        ],
+        1794204984.15593
+       ]
+      ],
+      "recognized_license_plate": null,
+      "recognized_license_plate_score": null
+     },
+     "snapshot_clean": true,
+     "label": "car",
+     "sub_label": null,
+     "top_score": 0.7265625,
+     "false_positive": false,
+     "start_time": 1794204949.279588,
+     "end_time": null,
+     "score": 0.53515625,
+     "computed_score": 0.7265625,
+     "box": [
+      444,
+      0,
+      761,
+      139
+     ],
+     "area": 44063,
+     "ratio": 2.2805755395683454,
+     "region": [
+      442,
+      0,
+      762,
+      320
+     ],
+     "active": false,
+     "stationary": true,
+     "motionless_count": 128,
+     "position_changes": 1,
+     "current_zones": [
+      "g5_bullet_property"
+     ],
+     "entered_zones": [
+      "g5_bullet_property"
+     ],
+     "has_clip": true,
+     "has_snapshot": true,
+     "attributes": {},
+     "current_attributes": [],
+     "pending_loitering": false,
+     "max_severity": "alert",
+     "current_estimated_speed": 0,
+     "average_estimated_speed": 0,
+     "velocity_angle": 0,
+     "path_data": [
+      [
+       [
+        0.4344,
+        0.1861
+       ],
+       1794204984.137244
+      ],
+      [
+       [
+        0.4344,
+        0.1861
+       ],
+       1794204984.15593
+      ]
+     ],
+     "recognized_license_plate": null,
+     "score_history": [
+      0.609375,
+      0.53515625,
+      0.57421875,
+      0.546875
+     ]
+    },
+    "after": {
+     "id": "1794204949.279588-l5p447",
+     "camera": "g5_bullet",
+     "frame_time": 1794204989.356589,
+     "snapshot": {
+      "frame_time": 1794204989.356589,
+      "box": [
+       403,
+       5,
+       809,
+       156
+      ],
+      "area": 61306,
+      "region": [
+       390,
+       0,
+       814,
+       424
+      ],
+      "score": 0.5,
+      "attributes": [],
+      "current_estimated_speed": 0,
+      "velocity_angle": 0,
+      "path_data": [
+       [
+        [
+         0.4344,
+         0.1861
+        ],
+        1794204984.137244
+       ],
+       [
+        [
+         0.4344,
+         0.1861
+        ],
+        1794204984.15593
+       ]
+      ],
+      "recognized_license_plate": null,
+      "recognized_license_plate_score": null
+     },
+     "snapshot_clean": true,
+     "label": "car",
+     "sub_label": null,
+     "top_score": 0.7265625,
+     "false_positive": false,
+     "start_time": 1794204949.279588,
+     "end_time": null,
+     "score": 0.5,
+     "computed_score": 0.0,
+     "box": [
+      403,
+      5,
+      809,
+      156
+     ],
+     "area": 61306,
+     "ratio": 2.6887417218543046,
+     "region": [
+      390,
+      0,
+      814,
+      424
+     ],
+     "active": false,
+     "stationary": true,
+     "motionless_count": 129,
+     "position_changes": 1,
+     "current_zones": [
+      "g5_bullet_property"
+     ],
+     "entered_zones": [
+      "g5_bullet_property"
+     ],
+     "has_clip": true,
+     "has_snapshot": true,
+     "attributes": {},
+     "current_attributes": [],
+     "pending_loitering": false,
+     "max_severity": "alert",
+     "current_estimated_speed": 0,
+     "average_estimated_speed": 0,
+     "velocity_angle": 0,
+     "path_data": [
+      [
+       [
+        0.4344,
+        0.1861
+       ],
+       1794204984.137244
+      ],
+      [
+       [
+        0.4344,
+        0.1861
+       ],
+       1794204984.15593
+      ]
+     ],
+     "recognized_license_plate": null,
+     "score_history": [
+      0.609375,
+      0.53515625,
+      0.57421875,
+      0.546875
+     ]
+    },
+    "type": "update"
+   }
+  },
+  {
+   "mqtt_payload": "{\"before\": {\"id\": \"1794204949.279588-l5p447\", \"camera\": \"g5_bullet\", \"frame_time\": 1794204989.356589, \"snapshot\": {\"frame_time\": 1794204989.356589, \"box\": [403, 5, 809, 156], \"area\": 61306, \"region\": [390, 0, 814, 424], \"score\": 0.5, \"attributes\": [], \"current_estimated_speed\": 0, \"velocity_angle\": 0, \"path_data\": [[[0.4344, 0.1861], 1794204984.137244], [[0.4344, 0.1861], 1794204984.15593]], \"recognized_license_plate\": null, \"recognized_license_plate_score\": null}, \"snapshot_clean\": true, \"label\": \"car\", \"sub_label\": null, \"top_score\": 0.7265625, \"false_positive\": false, \"start_time\": 1794204949.279588, \"end_time\": null, \"score\": 0.5, \"computed_score\": 0.0, \"box\": [403, 5, 809, 156], \"area\": 61306, \"ratio\": 2.6887417218543046, \"region\": [390, 0, 814, 424], \"active\": false, \"stationary\": true, \"motionless_count\": 129, \"position_changes\": 1, \"current_zones\": [\"g5_bullet_property\"], \"entered_zones\": [\"g5_bullet_property\"], \"has_clip\": true, \"has_snapshot\": true, \"attributes\": {}, \"current_attributes\": [], \"pending_loitering\": false, \"max_severity\": \"alert\", \"current_estimated_speed\": 0, \"average_estimated_speed\": 0, \"velocity_angle\": 0, \"path_data\": [[[0.4344, 0.1861], 1794204984.137244], [[0.4344, 0.1861], 1794204984.15593]], \"recognized_license_plate\": null, \"score_history\": [0.609375, 0.53515625, 0.57421875, 0.546875]}, \"after\": {\"id\": \"1794204949.279588-l5p447\", \"camera\": \"g5_bullet\", \"frame_time\": 1794204995.952534, \"snapshot\": {\"frame_time\": 1794204989.356589, \"box\": [403, 5, 809, 156], \"area\": 61306, \"region\": [390, 0, 814, 424], \"score\": 0.5, \"attributes\": [], \"current_estimated_speed\": 0, \"velocity_angle\": 0, \"path_data\": [[[0.4344, 0.1861], 1794204984.137244], [[0.4344, 0.1861], 1794204984.15593]], \"recognized_license_plate\": null, \"recognized_license_plate_score\": null}, \"snapshot_clean\": true, \"label\": \"car\", \"sub_label\": null, \"top_score\": 0.7265625, \"false_positive\": false, \"start_time\": 1794204949.279588, \"end_time\": 1794205001.167378, \"score\": 0.5234375, \"computed_score\": 0.0, \"box\": [446, 11, 778, 150], \"area\": 46148, \"ratio\": 2.3884892086330933, \"region\": [425, 0, 793, 368], \"active\": false, \"stationary\": true, \"motionless_count\": 162, \"position_changes\": 1, \"current_zones\": [\"g5_bullet_property\"], \"entered_zones\": [\"g5_bullet_property\"], \"has_clip\": true, \"has_snapshot\": true, \"attributes\": {}, \"current_attributes\": [], \"pending_loitering\": false, \"max_severity\": \"alert\", \"current_estimated_speed\": 0, \"average_estimated_speed\": 0, \"velocity_angle\": 0, \"path_data\": [[[0.4344, 0.1861], 1794204984.137244], [[0.4344, 0.1861], 1794204984.15593]], \"recognized_license_plate\": null, \"score_history\": [0.609375, 0.53515625, 0.57421875, 0.546875]}, \"type\": \"end\"}",
+   "bus_data": {
+    "before": {
+     "id": "1794204949.279588-l5p447",
+     "camera": "g5_bullet",
+     "frame_time": 1794204989.356589,
+     "snapshot": {
+      "frame_time": 1794204989.356589,
+      "box": [
+       403,
+       5,
+       809,
+       156
+      ],
+      "area": 61306,
+      "region": [
+       390,
+       0,
+       814,
+       424
+      ],
+      "score": 0.5,
+      "attributes": [],
+      "current_estimated_speed": 0,
+      "velocity_angle": 0,
+      "path_data": [
+       [
+        [
+         0.4344,
+         0.1861
+        ],
+        1794204984.137244
+       ],
+       [
+        [
+         0.4344,
+         0.1861
+        ],
+        1794204984.15593
+       ]
+      ],
+      "recognized_license_plate": null,
+      "recognized_license_plate_score": null
+     },
+     "snapshot_clean": true,
+     "label": "car",
+     "sub_label": null,
+     "top_score": 0.7265625,
+     "false_positive": false,
+     "start_time": 1794204949.279588,
+     "end_time": null,
+     "score": 0.5,
+     "computed_score": 0.0,
+     "box": [
+      403,
+      5,
+      809,
+      156
+     ],
+     "area": 61306,
+     "ratio": 2.6887417218543046,
+     "region": [
+      390,
+      0,
+      814,
+      424
+     ],
+     "active": false,
+     "stationary": true,
+     "motionless_count": 129,
+     "position_changes": 1,
+     "current_zones": [
+      "g5_bullet_property"
+     ],
+     "entered_zones": [
+      "g5_bullet_property"
+     ],
+     "has_clip": true,
+     "has_snapshot": true,
+     "attributes": {},
+     "current_attributes": [],
+     "pending_loitering": false,
+     "max_severity": "alert",
+     "current_estimated_speed": 0,
+     "average_estimated_speed": 0,
+     "velocity_angle": 0,
+     "path_data": [
+      [
+       [
+        0.4344,
+        0.1861
+       ],
+       1794204984.137244
+      ],
+      [
+       [
+        0.4344,
+        0.1861
+       ],
+       1794204984.15593
+      ]
+     ],
+     "recognized_license_plate": null,
+     "score_history": [
+      0.609375,
+      0.53515625,
+      0.57421875,
+      0.546875
+     ]
+    },
+    "after": {
+     "id": "1794204949.279588-l5p447",
+     "camera": "g5_bullet",
+     "frame_time": 1794204995.952534,
+     "snapshot": {
+      "frame_time": 1794204989.356589,
+      "box": [
+       403,
+       5,
+       809,
+       156
+      ],
+      "area": 61306,
+      "region": [
+       390,
+       0,
+       814,
+       424
+      ],
+      "score": 0.5,
+      "attributes": [],
+      "current_estimated_speed": 0,
+      "velocity_angle": 0,
+      "path_data": [
+       [
+        [
+         0.4344,
+         0.1861
+        ],
+        1794204984.137244
+       ],
+       [
+        [
+         0.4344,
+         0.1861
+        ],
+        1794204984.15593
+       ]
+      ],
+      "recognized_license_plate": null,
+      "recognized_license_plate_score": null
+     },
+     "snapshot_clean": true,
+     "label": "car",
+     "sub_label": null,
+     "top_score": 0.7265625,
+     "false_positive": false,
+     "start_time": 1794204949.279588,
+     "end_time": 1794205001.167378,
+     "score": 0.5234375,
+     "computed_score": 0.0,
+     "box": [
+      446,
+      11,
+      778,
+      150
+     ],
+     "area": 46148,
+     "ratio": 2.3884892086330933,
+     "region": [
+      425,
+      0,
+      793,
+      368
+     ],
+     "active": false,
+     "stationary": true,
+     "motionless_count": 162,
+     "position_changes": 1,
+     "current_zones": [
+      "g5_bullet_property"
+     ],
+     "entered_zones": [
+      "g5_bullet_property"
+     ],
+     "has_clip": true,
+     "has_snapshot": true,
+     "attributes": {},
+     "current_attributes": [],
+     "pending_loitering": false,
+     "max_severity": "alert",
+     "current_estimated_speed": 0,
+     "average_estimated_speed": 0,
+     "velocity_angle": 0,
+     "path_data": [
+      [
+       [
+        0.4344,
+        0.1861
+       ],
+       1794204984.137244
+      ],
+      [
+       [
+        0.4344,
+        0.1861
+       ],
+       1794204984.15593
+      ]
+     ],
+     "recognized_license_plate": null,
+     "score_history": [
+      0.609375,
+      0.53515625,
+      0.57421875,
+      0.546875
+     ]
+    },
+    "type": "end"
+   }
+  }
+ ]
+}
