@@ -9,6 +9,10 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {"fid": "PERIMETER-IDENTITY-FOLLOWUP-1@2026-11-09T02:01:00", "card_id": "PERIMETER-IDENTITY-FOLLOWUP-1", "at": "2026-11-09T02:01:00", "outcome": "measured", "headline": "Board caught up with last night's arc: v5.107.1, .2, .4, .5 and .6 are built, reviewed and merged to develop but not deployed, so their cards moved to Review for the one arc-end restart. The v5.107.6 fix had no card; added one. develop was 87 commits ahead of GitHub; pushed.", "acknowledged": false}
+  - {"fid": "FRIGATE-FACE-BRIDGE-DEAD-PREFIX-1@2026-11-09T02:02:00", "card_id": "FRIGATE-FACE-BRIDGE-DEAD-PREFIX-1", "at": "2026-11-09T02:02:00", "outcome": "measured", "headline": "Confirmed: the census listens for Frigate face names on the retired Frigate-1 channel. The only Frigate entry stores no channel name, so the code falls back to 'frigate/'; Frigate 2 publishes on 'frigate2/'. Faces still arrive the slower way. Planned to fix inside the Frigate MQTT card. The boot log line could not be read (outside the log window), so this rests on config + code, not logs.", "acknowledged": false}
+  - {"fid": "LOCK-ENTRY-AREAS-WRONG-OBJECT-1@2026-11-09T02:03:00", "card_id": "LOCK-ENTRY-AREAS-WRONG-OBJECT-1", "at": "2026-11-09T02:03:00", "outcome": "built-to-review", "headline": "Reviewed the v5.107.6 fix (lock + perimeter read door/room lists from the right object): SHIP. Tests 205 pass; breaking either fix turns tests red. One small older issue noted for live check. Waits for the arc-end deploy.", "acknowledged": false}
+  - {"fid": "SAFETY-SENSOR-FLEET-HEALTH-1@2026-11-09T02:03:00", "card_id": "SAFETY-SENSOR-FLEET-HEALTH-1", "at": "2026-11-09T02:03:00", "outcome": "measured", "headline": "Re-checked cards waiting on you: kitchen smoke detector still offline, BP1_B Bluetooth proxy still off, panel alert switch still off, no WhatsApp 'diag' reply yet. Frigate 2 healthy (3 blips, 93 s total, no outage). All asks stand.", "acknowledged": false}
   - {"fid": "SC-GEOFENCE-PERSON-SNAPSHOT-1@2026-11-08T02:23:00", "card_id": "SC-GEOFENCE-PERSON-SNAPSHOT-1", "at": "2026-11-08T02:23:00", "outcome": "measured", "headline": "Checked the 2 inbox cards: both still real (Security's arrival listener misses people added after startup; a test file pollutes later tests). Both are small and planned, and I'll build them once the review lane drains.", "acknowledged": false}
   - {"fid": "SECURITY-LOCK-SWEEP-RETRY-CAP-1@2026-11-08T02:23:00", "card_id": "SECURITY-LOCK-SWEEP-RETRY-CAP-1", "at": "2026-11-08T02:23:00", "outcome": "built-to-review", "headline": "The lock-retry fix stopped merging after last night's v5.106.0 (same function). I re-merged it on top: locks on the never-auto-lock list now skip the retry cap too. A review said SHIP, and 2 small fixes are in. With the other two review fixes it is one branch, integ/overnight-2026-11-08, full suite clean (0 new failures). Ready for your daytime deploy; that restart also turns on v5.106.0.", "acknowledged": false}
   - {"fid": "NM-INBOUND-HOUSE-QUERIES-1@2026-11-08T02:05:00", "card_id": "NM-INBOUND-HOUSE-QUERIES-1", "at": "2026-11-08T02:05:00", "outcome": "done", "headline": "Closed 'ask the house by text': the diag menu answered 5 different questions over iMessage tonight. WhatsApp and HA-app replies have never been seen, so I opened a small card asking you to send 'diag' once on each.", "acknowledged": false}
@@ -52,7 +56,7 @@ cards:
   status: waiting_operator
   tier: 1
   created: 2026-11-08 02:05
-  updated: 2026-11-08 02:05
+  updated: "2026-11-09 02:03"
   refinement_status: initial
   rank:
     value: 3
@@ -74,8 +78,9 @@ cards:
     context: NM-INBOUND-HOUSE-QUERIES-1 shipped the diag menu (v5.104.0) and carries the Review B MEDIUM-1 fromMe question; NM-BB-CHATGUID-SELFSEND-1 is the same inbound path.
   adjacency: 'Swept NM-* cards: the parent carries the question as live_check_whatsapp_fromme; no other card owns it. NEW residual card.'
   next: 'DO: text ''diag'' in your WhatsApp self-chat, and reply ''diag'' to any URA notification in the HA app -> I read notification_inbound; a channel=whatsapp row and a companion row with a reply close this; no WhatsApp row means the bridge drops fromMe and I card that fix.'
+  recheck_2026_11_09_overnight: "02:03 CST URA DB: notification_inbound since 11-07 has only channel=imessage (37 rows, last 11-08 18:24Z); no whatsapp or companion row yet, so the diag test has not been run. Ask stands."
 - id: OPTIMIZER-META-NEVER-PAGES-1
-  mergeprep_2026_11_07_overnight: "02:04 CST: no code or test commits on develop since the 11-06 merge-prep (git log --since 11-06 02:00 -- custom_components quality is empty); git merge-tree vs develop e8348bf8 still clean. The prior validation still describes current develop - ready for the next attended deploy."
+  mergeprep_2026_11_07_overnight: "02:03 CST: no code or test commits on develop since the 11-06 merge-prep (git log --since 11-06 02:00 -- custom_components quality is empty); git merge-tree vs develop e8348bf8 still clean. The prior validation still describes current develop - ready for the next attended deploy."
   mergeprep_2026_11_06_overnight: "02:02-02:03 CST. integ/overnight-2026-11-04 is 29 behind and 8 ahead of develop; git merge-tree = clean. develop changed const.py since (the only file overlap). Merged into a temp worktree: the branch's three test files pass (33 passed) and test_zone_orphan_device_guard passes on its own (9 passed). Running them together, test_optimizer_meta_never_pages makes test_zone_orphan_device_guard fail 9/9 (AttributeError: no _remove_orphan_zone_devices). Not caused by this branch: the same failure happens on plain develop when test_notification_manager.py or test_nm_notify_signature_sites.py run first, because those stub the URA package at import. Logged as an instance on TEST-STRATEGY-REARCH-1. Branch still ready for the attended deploy. Temp worktree removed."
   validated_2026_11_05_overnight: "Full-suite name-diff 02:04-02:17 CST 11-05 (serial, one run each, __pycache__ cleared): base = develop d2d07201 worktree base-overnight-2026-11-04 -> 12 failed / 19043 passed; candidate = integ/overnight-2026-11-04 af8fe026 (both branches merged onto d2d07201) -> 12 failed / 19061 passed. Failing-name lists IDENTICAL (0 new, 0 fixed); +18 passing = the two branches' new tests. The 12 pre-existing failures are order-dependent (test_radar_tuning_phase_a x6, test_energy_today_midnight_freeze x3, test_zone_safety_alert x2, test_shared_power_read_staleness x1; all pass when their files run alone, except the last, which passes when run singly). Develop has moved 2 docs-only commits since d2d07201 (no custom_components/quality change). Live check before build value: no new 'URA Optimizer — meta' page since 11-04 03:07Z (notification_log), so nothing new to count."
   build_2026_11_04: "Built on fix/optimizer-meta-never-pages (03d34c87, fix-up 37df2956, README draft e1dc68f0). Tier-1 review SHIP (docs/reviews/code-review/optimizer_meta_never_pages_review.md on the branch): 0 CRIT/HIGH/MED, 2 LOW both fixed (allowlist knob comment; HIGH test made discriminating). Orchestrator re-drill: guard -> 'if False and ...' gives 4 RED, restored clean. Targeted tests 21 passed. The source-grep test test_optimizer_consumer_wired_to_should_defer_helper was replaced by a behavioural, mutation-anchored test."
@@ -343,7 +348,7 @@ cards:
   batch: perimeter-identity-arc-2026-11
   tier: 2
   created: "2026-11-08 22:00"
-  updated: "2026-11-09 02:10"
+  updated: "2026-11-09 02:01"
   rank: {value: 5, time_criticality: 3, effort: 2}
   origin: "v5.107.0 build D8 probe (2026-11-08); operator earlier: 'Maybe these are legit detections but we're capturing the frames used for evidence too late or too early?'"
   why: "SNAP-1 tier 1 (frigate_event, perimeter_alert.py ~3346) should fetch the best-scoring frame of the event. It never succeeds live, so every image is a live camera grab at the edge, which can miss a person who already moved. That reopens the snapshot-timing question for the empty-frame audit, and D6 enforce (trusts only Frigate-event frames) can never fire."
@@ -358,7 +363,7 @@ cards:
   batch: perimeter-identity-arc-2026-11
   tier: 2
   created: "2026-11-08 23:45"
-  updated: "2026-11-09 02:10"
+  updated: "2026-11-09 02:01"
   rank: {value: 6, time_criticality: 3, effort: 2}
   origin: "v5.107.1 face-source build (2026-11-08): builder found presence face pre-arrival (S8) feeds security_lock_regime.on_person_arriving; held S8 behind FACE_SOURCE_PRESENCE_ARRIVAL_DISAMBIGUATED=False. Plan review 1 had missed this consumer."
   why: "Frigate face labels are known to name the wrong resident (presence doc corrections #28: Jaya labelled Oji on 10-24). The 17 cameras the skip fix adds include doorbell/garage/entry. An unlock is the highest-cost wrong action."
@@ -381,7 +386,7 @@ cards:
   why: "Every Frigate payload URA uses (event id for snapshots, score/box/zones for D2-D6, the track linker) arrives via an HA automation that a new home will not have. Without it the gates silently get nothing."
   next: "Plan (Tier 2-DB, one plan review): discover topic prefixes from the Frigate config entries (frigate/frigate2 here), subscribe <prefix>/events via HA mqtt when the mqtt integration is loaded (optional dependency, never a hard manifest dependency: 2026-06-12 after_dependencies stranding), feed the same handler with a source tag, dedupe by event id against the bus path (both can run on this house), keep the bus listener as fallback. Then build."
   constraints: "No hard mqtt dependency; no double feed into snapshot cache / linker; byte-identical alerts on this house where the bridge also runs."
-  links: {related: [PERIMETER-FP-STREET-NOISE-1, FACE-SOURCE-REGISTRY-DISCOVERY-1]}
+  links: {related: [PERIMETER-FP-STREET-NOISE-1, FACE-SOURCE-REGISTRY-DISCOVERY-1], blocks: [FRIGATE-FACE-BRIDGE-DEAD-PREFIX-1], context: "Its runtime prefix discovery is the fix the dead-prefix face bridge (FRIGATE-FACE-BRIDGE-DEAD-PREFIX-1) should reuse."}
   adjacency_2026_11_09: "Swept: perimeter plan D9 (the parked design, absorbed here), D2 bus-silent warning (stays as fallback trip-wire), memory project_frigate_mqtt_topic_collision (shared topic_prefix hazard, fixed homelab-side). NEW card; supersedes the D9 park."
 - id: CAMERA-LIST-LIVE-REWIRE-1
   title: "Saving perimeter/egress camera lists forces a full URA parent reload (watchdog hazard); rewire live instead (v5.107.0 plan D11)"
@@ -404,7 +409,7 @@ cards:
   tier: 1
   batch: perimeter-identity-arc-2026-11
   created: "2026-11-09 00:30"
-  updated: "2026-11-09 02:10"
+  updated: "2026-11-09 02:01"
   rank: {value: 4, time_criticality: 2, effort: 2}
   origin: "Operator 2026-11-08: 'What was Jaya doesn't need to be an edit. It can be a follow up.' Uncorks the v5.107.0 D10.5(2) park."
   why: "Time-sensitive alerts go out immediately (feedback_alert_latency_over_precision); Protect names back-fill 40-80 s later, so identity arrives after the page."
@@ -417,8 +422,8 @@ cards:
   status: review
   tier: 1
   batch: perimeter-identity-arc-2026-11
-  created: "2026-11-09 02:10"
-  updated: "2026-11-09 02:10"
+  created: "2026-11-09 02:01"
+  updated: "2026-11-09 02:03"
   refinement_status: initial
   rank: {value: 6, time_criticality: 3, effort: 2}
   problem_solution:
@@ -426,9 +431,10 @@ cards:
   approval: implied
   origin: {date: "2026-11-09", gist: "Found by the attended session while building v5.107.4/5; fixed and merged as v5.107.6 (b70e3a2f, merge 6b97e434) but never carded. Carded by the overnight reconcile (capture miss)."}
   why: "Without it the v5.107.4 face+BLE unlock rule can only release via the person.* not_home->home edge."
-  next: "APPROVE at the arc-end attended deploy: v5.107.6 merged to develop (6b97e434). Tier-1 review record was missing at reconcile time; the overnight pass runs one Tier-1 review (see review_2026_11_09). After restart, run README_v5.107.6 live validation."
+  next: "APPROVE at the arc-end attended deploy: v5.107.6 merged to develop (6b97e434), Tier-1 review SHIP (review_2026_11_09). After restart, run README_v5.107.6 live validation, including the A1 stem check."
   refs: [docs/readmes/README_v5.107.6.md]
   links: {related: [LOCK-REGIME-FACE-ARRIVAL-CORROBORATION-1, PERIMETER-FP-STREET-NOISE-1], context: "Fixes the BLE-corroboration lookup that v5.107.4 (LOCK-REGIME-FACE-ARRIVAL-CORROBORATION-1) and v5.107.0 D10.5 (PERIMETER-FP-STREET-NOISE-1) depend on."}
+  review_2026_11_09: "Overnight Tier-1 review (ura-reviewer, framing A) = SHIP; record docs/reviews/code-review/v5.107.6_entry_areas_egress_tracker.md. 205 passed on both touched test files; mutation: key reverted in security_lock_regime.py:999 -> 15 RED, in perimeter_alert.py:5065 -> 1 RED, restored clean. Orchestrator spot-check: __init__.py:3461 stores EgressDirectionTracker under egress_tracker; both consumers read it. Residual LOW A1 (pre-existing, fails safe): perimeter_alert.py:5067 cam_key strips the _2 suffix while door-group keys are operator-typed stems; on mismatch _near_areas narrows to the camera area. Check against live config during the post-deploy validation."
 - id: GUEST-MODE-SPLIT-VISITORS-1
   title: "Split 'visitors present' (low bar: any non-resident seen, incl. a known-guest face) from GUEST mode (high bar: corroborated by sustained guest-room occupancy and/or sustained new guest-WiFi presence)"
   thread: presence
@@ -449,16 +455,20 @@ cards:
 - id: FRIGATE-FACE-BRIDGE-DEAD-PREFIX-1
   title: "Census face bridge reads the Frigate MQTT topic_prefix from the config entry (where it never exists) and falls back to 'frigate' = retired Frigate-1, so it likely listens on a dead topic"
   thread: identity
-  status: investigating
+  status: planned
   tier: 2
   batch: perimeter-identity-arc-2026-11
   created: "2026-11-09 02:00"
-  updated: "2026-11-09 02:00"
+  updated: "2026-11-09 02:02"
   rank: {value: 5, time_criticality: 2, effort: 2}
   origin: "PLANNING_frigate_mqtt_direct_2026_11.md (b3c83b3e) prior-art scan: prefixes live at runtime in hass.data['frigate'][entry_id]['config']['mqtt']['topic_prefix'], not in the entry."
   why: "If confirmed, census face-name consumption via MQTT never sees Frigate2 names; fixing it changes census behaviour."
-  next: "Confirm with the MQTT plan's D0 live capture (which topic carries Frigate2 events), then fix the lookup by reusing the new frigate_ingress prefix discovery."
-  links: {related: [PERIMETER-FRIGATE-MQTT-DIRECT-1, FACE-SOURCE-REGISTRY-DISCOVERY-1]}
+  next: "Fix inside PERIMETER-FRIGATE-MQTT-DIRECT-1 (or right after it): replace _resolve_frigate_topic_prefix (camera_census.py:5280-5298) with that plan's runtime prefix discovery (hass.data['frigate'][entry_id]['config']['mqtt']['topic_prefix']), subscribing per Frigate instance. Not started overnight: the review lane holds 8 built cards (WIP rule: drain, do not build)."
+  links: {related: [FACE-SOURCE-REGISTRY-DISCOVERY-1], blocked_by: [PERIMETER-FRIGATE-MQTT-DIRECT-1], context: "MQTT-DIRECT-1 builds the runtime prefix discovery this fix should reuse instead of inventing a second lookup; FACE-SOURCE-REGISTRY-DISCOVERY-1 is the point-read face path that still works while this MQTT path is dead."}
+  refinement_status: refined
+  problem_solution:
+  - "Problem: the census listens for Frigate face names on an MQTT channel named after the old Frigate server, which was retired in August, so it never hears a face name from the current Frigate server. Faces still arrive by the slower sensor-reading path, so nothing is broken outright, but the quick path is dead. Solution: look up the real channel name from the running Frigate integration (the MQTT plan already builds this) and listen there."
+  measured_2026_11_09: "CONFIRMED (mechanism, read-only). (1) .storage/core.config_entries: the ONLY frigate entry is 'Frigate 2' (01KM239Z8ZQWQTN1D9CV5JRA7V); data keys = password/url/username/validate_ssl, options = enable_webrtc/media_browser_enable/notification_proxy_*/rtsp_url_template. None of topic_prefix/mqtt_topic_prefix/mqtt_topic exists, so _resolve_frigate_topic_prefix returns None and camera_census.py:5258 subscribes to frigate/tracked_object_update. (2) AUDIT_frigate_mqtt_d0_2026_11.md: frigate/* silent in the capture; Frigate2 publishes on frigate2/events + frigate2/tracked_object_update. LOG GAP: the boot INFO line 'frigate-face bridge: subscribed to ...' could NOT be read: ha_get_logs error_log search returned 0 records within its 2000-line window (boot is older than the window, and URA INFO may not be logged). This is NOT a log-based all-clear; the conclusion rests on config + code. Residual unknown: whether Frigate2 emits type=face tracked_object_update at all (D0 window saw only lpr) - verify in the MQTT-DIRECT-1 daytime D0 re-run."
 - id: TEST-OC-PILLAR-EVICT-STUBS-LEAK-1
   title: "test_oc_pillar_a_handshake.py autouse _evict_ura_stubs deletes every URA module from sys.modules and never restores them, so later tests that import URA modules in-body re-import against stubbed HA helpers (order-dependent failures)"
   thread: quality
@@ -492,7 +502,7 @@ cards:
   batch: perimeter-identity-arc-2026-11
   tier: 2
   created: "2026-11-08 19:30"
-  updated: "2026-11-09 02:10"
+  updated: "2026-11-09 02:01"
   rank: {value: 5, time_criticality: 4, effort: 3}
   sequence_2026_11_08: "Operator: pick up RIGHT AFTER the perimeter FP build (PERIMETER-FP-STREET-NOISE-1 / v5.107.0) ships."
   plan: docs/planning/PLANNING_face_source_registry_discovery_2026_11.md
@@ -747,7 +757,7 @@ cards:
   recheck_2026_11_07_overnight: "Re-check 02:03 CST: switch.ura_nm_panel_channel still off. Ask stands."
   verify_2026_10_28: "Overnight re-check 02:02 CDT: switch.ura_nm_panel_channel still off (since the 10-26 10:06 restart), so the test-leak DO is still open."
   residual_2026_10_21_wake_adjacency: 'Operator 2026-10-21: "are the tablets able to wake from adjacent room occupancy? Just like the notifications are sent to tablets when it concerns adjacent rooms". VERIFIED NO: wake is HomeLab automation wallpanel_fleet_wake (automations.yaml:6596) with a hand-written map, each panel wakes on its own room only, plus two hand-coded extras (Kitchen panel <- breakfast_nook_occupied; Entry panel <- entry Hobeian + foyer_fisheye camera). URA CONF_ADJACENT_ROOMS (const.py:720) is not read. Fold into the "move wallpanel_fleet_* into Halo" follow-up: Halo derives each panel''s wake set from its room + that room''s adjacent_rooms (no hand map), likely dimmer for adjacent. Sleep-after-grace must use the same set.'
-  updated: "2026-11-07 02:03"
+  updated: "2026-11-09 02:03"
   reverified_2026_10_29_overnight: "Unchanged 02:01 CDT: switch.ura_nm_panel_channel = off (since 10-26 10:06). The test-leak DO is still yours."
   links_added_2026_10_21: "related+DASH-V8-ROOM-STATUS-CHIPS-1,TABLET-FLEET-1: Halo panels and the v8 room chips both surface per-room status; TABLET-FLEET-1 is the older wall-tablet idea Halo largely supersedes."
   links: {"related": ["WALLPANEL-TOUCH-WITNESS-1", "DASH-V8-ROOM-STATUS-CHIPS-1", "TABLET-FLEET-1"], "context": "Halo panels and the v8 room chips both surface per-room status; TABLET-FLEET-1 is the older wall-tablet idea Halo largely supersedes."}
@@ -772,6 +782,7 @@ cards:
 
   resolved_2026_10_21_bridge_colour: "Follow-up (d) DONE: HomeLab bridge 1.7.0 on all 7 panels publishes color_mode/color/effect after each command and on reconnect (root cause: state omitted color_mode so HA dropped the colour; effect never published; repeated commands dropped). Verified via Halo: Kitchen and 5-panel fleet blink read rgb [0,0,255] effect blink, release -> off."
   soak_check_2026_10_25_overnight: "Halo S1b (v5.103.89) live checks: switch.ura_nm_panel_channel = off and number.ura_nm_panel_lease_ttl_min = 30.0 (both PASS, defaults restored). The remaining criterion is operator-run (switch on + test leak), so it cannot be disposed by a query; moved to waiting_operator with a DO. No panels errors seen in system_log for universal_room_automation tonight (WARNING list read via ha_get_logs source=system)."
+  recheck_2026_11_09_overnight: "02:03 CST: switch.ura_nm_panel_channel still off (since the 11-08 13:52 boot), so the panel test has not run. Ask stands."
 - id: WALLPANEL-TOUCH-WITNESS-1
   measured_2026_10_23_overnight: "Measurement run (ura-prober, recorder read-only; panel entities only exist from ~10-19/20, so 3-4 days). TOUCH: about 2 real touches a day per panel (max 4/day; media_room 0), after excluding 50-106 reconnect republishes per panel (rows within 2 min of an app_uptime change). Too sparse to matter as a presence witness: PARK this leg. NOISE: 6-53 samples/h, not 1/min. Only kitchen and entry_way track activity (day median 20-40 dB above night); the other five sit near the -96 dBFS floor: PARK. BLE: all 7 panels (master, study_a, study_b, media_room, up_hallway, kitchen, entry_way=foyer) are Bluetooth-proxy devices with the right area_id in the device registry. Bermuda's stored scanners list shows only the host adapter, and the recorder has NO 'distance_to' sensor for any panel (orchestrator query on states_meta). So the panels are probably NOT used as Bermuda room scanners yet. Not proven: runtime use was not checked. That BLE leg is the only one with value, and it is a config question, not code."
   refinement: ["measure-first (10-23) -> touch and noise are too sparse to be presence inputs; the value is the panels as room BLE scanners, which is Bermuda configuration, not URA code"]
@@ -1063,7 +1074,7 @@ cards:
   verified_2026_10_27: "Still needed. 02:05 CDT: binary_sensor.smoke_sensor_s1_smoke unavailable since 10-26 10:06 (kitchen Heiman re-pair outstanding); kitchen gas sensor reporting (off)."
   verify_2026_10_23: "Overnight re-check 02:01 (HA MCP): binary_sensor.smoke_sensor_s1_smoke still unavailable since the 10-21 18:25 restart. Re-pair still needed. No change."
   verify_2026_10_22: "Overnight re-check 02:0x: still blocked. binary_sensor.smoke_sensor_s1_smoke = unavailable (since the 10-21 18:25 restart), so the house's only smoke detector is still invisible to HA. binary_sensor.gas_zigbee_kitchen_gas = off (reporting). Re-pair is still needed."
-  updated: "2026-11-08 02:05"
+  updated: "2026-11-09 02:03"
   reverified_2026_10_29_overnight: "STILL-REAL 02:01 CDT: binary_sensor.smoke_sensor_s1_smoke (kitchen Heiman) unavailable since 10-26 10:06. Re-pair DO stands."
   recheck_2026_10_26: "Overnight ~02:03 CDT live read: binary_sensor.smoke_sensor_s1_smoke unavailable, lock.doorlock_kwikset_zwave_frontentry unavailable (sensor.node_3_node_status dead), BP1_B distance sensor unavailable; kitchen gas off (ok); Frigate2 running, 47 detection fps, camera_input_dark off. Still waiting on your hands; no change since 10-25."
   links_added_2026_10_21: "related+ELK-M1-HA-USABILITY-1: ELK fire/heat zones are the wired fire-detection path; usable ELK zones partly cover the smoke-detector gap."
@@ -1091,6 +1102,7 @@ cards:
   reverified_2026_10_24_overnight: 'STILL WAITING (2026-10-24 02:08, ha-mcp): the kitchen Heiman (binary_sensor.smoke_sensor_s1_smoke and its battery/fault/test siblings) all read unavailable. Re-pair still needed.'
   recheck_2026_10_25_overnight: "STILL-REAL: binary_sensor.smoke_sensor_s1_smoke unavailable (re-stamped 10-24 21:20 at the restart, unavailable since 10-15). Your DO stands. The 10-24 16:42 CDT kitchen smoke CRITICAL was the TEST safety alert (notification_log rows 23810-23815, title TEST), not a real event."
   recheck_2026_11_08_overnight: "~02:05 CST, live read: binary_sensor.smoke_sensor_s1_smoke still unavailable (since the 11-07 18:22 restart), sensor.node_3_node_status alive, gas_zigbee_kitchen_gas off. Unchanged; your DO stands. Also unchanged: BP1_B (BLE-PROXY-PLACEMENT-1) still unavailable."
+  recheck_2026_11_09_overnight: "02:03 CST live read (HA MCP): binary_sensor.smoke_sensor_s1_smoke still unavailable (since the 11-08 13:52 restart); gas_zigbee_kitchen_gas off (reporting). Unchanged; your DO stands."
 - id: HVAC-S10-NOTIFY-UNDELIVERED-1
   revisit_trigger: "The first Custom Preset Ranges give-up (thermostat unreachable / range not taking / original not restored). Check notification_log shows it at HIGH with delivered=1 on the companion/lights channels; close done, or reopen with the row."
   disposed_2026_10_22_overnight: "SOAK EXIT: cannot be evaluated in its window, so it is PARKED with a revival trigger. It shipped in v5.103.69; README validation 10-17 listed 'S10 HIGH delivery' as event-gated, proven in-suite only. URA notification_log since the 10-17 13:23 restart has zero hvac-coordinator notifications, so no Custom Preset Ranges give-up event has happened. The card's old 'next' (approve the merge) is obsolete: it shipped."
@@ -29537,11 +29549,12 @@ cards:
 
   measured_2026_10_02_overnight: "FOURTH OUTAGE - DETECTOR HUNG AGAIN (overnight 10-02, read-only: HA recorder via ssh sqlite3 -readonly + HA REST states). RECOVERY CONFIRMED FIRST: sensor.frigate_status_2 last changed 10-01 16:26Z (Frigate restarted ~11:26 CDT), and person/motion detections resumed 10-01 11:28 CDT (10-01: hot_tub 52, back_yard 40, playroom 5, front_side_ptz 4, madrone_g6_entry 3, front_door_aerial 3, garage_a 2 person ONs). 09-30 had ZERO person ONs on any camera (the 09-29 hang). THEN IT HUNG AGAIN, SAME SIGNATURE AS 09-29: sensor.frigate_detection_fps_2 updated ~177x/hour until 10-01 16:22 CDT and has been frozen at 126 since (no rows after); sensor.frigate_coral_inference_speed_2 unavailable since 10-01 14:37Z; Frigate itself is up (uptime_2 / camera_fps_2 ~120 / skipped_fps_2 ~1-3 all still updating). Detection ONs across *_person_occupancy_2 + *_motion_3: 492 across 24 sensors in the 5 h BEFORE 16:25 CDT vs 19 on ONE sensor in the ~10 h after. So exterior person detection has been dark ~10 h as of 02:05 CDT and nothing in URA noticed (again). Last person ON fleet-wide: 10-01 16:16:51 CDT. NOT remediated: homelab-side restart in an occupied sleeping house = operator action. Paged via HA persistent_notification (no phone push at night, per the 09-26 precedent). New fact for the cause: the hang recurred ~5 h after a restart, so a restart is a stopgap, not a fix."
   status: "waiting_operator"
-  updated: "2026-11-08 02:05"
+  updated: "2026-11-09 02:03"
   reverified_2026_10_29_overnight: "Healthy 02:04 CDT: sensor.frigate_status_2 running, sensor.frigate_detection_fps_2 = 54 (fresh 02:04), camera_input_dark off. Only event since last pass: a 35 s Frigate blip 10-28 02:54:48-02:55:23 (dark trip-wire on 02:55:09, off 02:55:39, self-cleared). No sixth hang. PICK unchanged, low urgency."
   reverified_2026_10_24_overnight: 'Healthy, no new hang (2026-10-24 02:08, ha-mcp): sensor.frigate_status_2 running since 10-23 18:44 CDT, sensor.frigate_detection_fps_2 = 69 (fresh 02:08), binary_sensor.ura_coordinator_manager_camera_input_dark off since 10-23 18:44. The four *_inference_speed sensors are still unavailable while detection runs (recorder: last row 10-23 04:42), confirming again they are not a health signal. PICK unchanged, low urgency.'
   recheck_2026_10_25_overnight: "Healthy: sensor.frigate_status_2 running, sensor.frigate_detection_fps_2 = 38 and changing (last change 02:08:59), camera_input_dark off. Corrected the stale clause in next (the tripwire redesign was default-taken 10-17 and is now built)."
   INSTANCE_2026_11_08_seventh_outage: "SEVENTH OUTAGE, and the first one that was NOTICED. Recorder (read-only): sensor.frigate_status_2 went unavailable 11-07 13:14 CST and came back 20:32 (7.3 h), then had 4 short drops (22:00, 22:56, 23:01, 23:03, under 1 min each). URA's camera-input-dark check paged you (optimization, HIGH, companion) at 13:23, 14:13 and 18:33 CST ('18/18 Frigate person_count sensors unavailable ... Reload the Frigate integration'). Uptime Kuma also texted Frigate2 ECONNREFUSED at 18:56 and 20:20. Now: running, uptime 3.0 h, 24 detections/s, camera_input_dark off. Your PICK (Coral faulty vs scheduled restart) is unchanged."
+  recheck_2026_11_09_overnight: "02:03 CST: sensor.frigate_status_2 running, detection_fps_2 = 77, camera_input_dark off. Last 14 h: 3 unavailable blips totalling 93 s (latest ended 00:25), no outage. Ask stands."
 - id: CAMERA-SILENT-PRODUCER-TRIPWIRE-1
   organic_evidence_2026_11_04: "Live 02:05 11-04: binary_sensor.ura_coordinator_manager_camera_input_dark detector_frozen_s=0, detector_hung_fired=false, detector_hung_deferred_quiet=false, sensor.frigate_detection_fps_2=30 (moving). system_log since the 18:01 restart: no 'camera_detector_hung' and no 'Optimizer evaluator ... raised' warning. Detector-check-resolved and healthy rows PASS. CARD-WAS-WRONG on next: it shipped in v5.103.101 (no APPROVE needed)."
   mergeprep_2026_11_02_overnight: "Merge-prep re-check 02:05-02:22 CST 11-02. Develop gained code since the last check (v5.103.97 zone power, v5.103.98 EC savings, both touching sensor.py). feat/camera-detector-hung-tripwire-v2 merges clean on its own (git merge-tree). integ/overnight-2026-10-27 (99 behind, 13 ahead) merged into a temp worktree off develop: py_compile OK. Full suite merged = 30 failed / 18872 passed. Plain develop = 30 failed / 18804 passed. The failing-name lists are IDENTICAL, so the branch adds 68 passing tests and no new failure. The 30 are pre-existing on develop: 21 calendar-coupled (TEST-DPM-WINTER-MONTH-COUPLED-1) + 9 order-dependent. Temp worktrees removed. Still ready for the attended deploy."
@@ -32574,11 +32587,12 @@ cards:
   why: 'Operator is building BLE proxies. 7-day Bermuda analysis (~45 scanners in 34 areas): ranked spots 1) Foyer/front porch (no scanner; porch reads as Receiving Room/Breakfast; ~3-4 unattributable front-door crossings/day) 2) Garage A + Garage Hallway (only the GDO blaQ; BLE departure lags garage_a exit 4-8 min) 3) Master Hallway between bed/bath (largest bed<->bath ping-pong; Master Bathroom scanner_areas empty) 4) Jaya bedroom/bathroom wall (reads bathroom more than bedroom; area hops) 5) Study/AV-closet cluster (phones pulled to closet relays). Feeds census inputs-first (egress attribution) and Zone 1 night presence.'
   next: "DO: place the proxies in order (Foyer first) and power BP1_B back up. It is now assigned to Study A but is offline (unavailable). -> I then check that each new scanner reports with the right area and that BP1_B distance sensors come back."
   sweep_2026_10_05: 'ADJACENT to census inputs-first plan (PLANNING_census_inputs_first.md probe results) and project_jaya_bedroom_occupancy_resolved memory; NEW as a placement card. Caveat: HAOS host BLE socket budget (memory feedback_ble_device_budget) -> proxies are the right path.'
-  updated: "2026-11-07 02:03"
+  updated: "2026-11-09 02:03"
   reverified_2026_10_29_overnight: "STILL-REAL 02:01 CDT: button.screek_bp1_b_factory_reset unavailable (since 10-26 10:06 restart). BP1_B still offline."
   reverified_2026_10_18_overnight: "STILL-REAL: BP1_B still offline (sensor.*_distance_to_screek_bp1_b = unavailable for both tracked iPhones; bp1_a reads unknown). Your DO stands."
   reverified_2026_10_21_overnight: "Still waiting on you (live 02:0x CDT): BP1_B still offline (sensor.jaya_bedroom_iphone_jaya_distance_to_screek_bp1_b unavailable)."
   reverified_2026_10_24_overnight: 'STILL WAITING (2026-10-24 02:08, ha-mcp): every screek_bp1_b entity (buttons + per-phone distance sensors) reads unavailable, so BP1_B is still powered off/offline. Your DO stands.'
+  recheck_2026_11_09_overnight: "02:03 CST: sensor.jaya_bedroom_iphone_jaya_distance_to_screek_bp1_b still unavailable (since the 11-08 13:54 boot). BP1_B still off; ask stands."
 - id: EV-TRIPWIRE-TESTS-ORDER-DEPENDENT-1
   disposition_2026_10_15_overnight: "DONE. The 'APPROVE merge' next was stale: a8cd6f9f0 + 01f257f1a are ancestors of develop (git merge-base --is-ancestor), merged as 9e99bfdb7 in the v5.103.57 batch whose full-suite name-diff showed no tripwire failures (README_v5.103.57). Test-only, nothing to validate live."
   review_2026_10_14: "Framing-C review SHIP (record: docs/reviews/code-review/ev_tripwire_order_dependence_review.md on review/ev-tripwire-order). 118-file prefix: develop 29 failed incl. test_d + test_d2; fixed 27 failed, none tripwire (the other 27 are pre-existing, unrelated). test_g did NOT reproduce on develop in that order (it passed by accident via the blanket except at energy_write_verify.py:1376); the fix removes that dependence. Reviewer per-site drills: :1340 UTC date -> test_d2 RED; :1324 kill switch -> test_g RED; :1340 constant date -> test_d+d2 RED. Orchestrator drill 10-14: :1324 `if max_n <= 0` -> `if False` -> test_g_kill_switch_disables RED (1 failed/10 passed), restored, porcelain clean, 11 passed. LOW: test_a/test_c/test_wire_in do not pin dt_util (pass in real order; fragile under a harsher stub)."
@@ -33743,7 +33757,7 @@ cards:
   links: {related: [HVAC-ANOMALY-BLIND-1, RESTART-SAFETY-DOCTRINE-1, ANOMALY-METRIC-DISPOSITION-1]}
   rank: {value: 4, time_criticality: 2, effort: 3}
 - id: ANOMALY-METRIC-DISPOSITION-1
-  mergeprep_2026_11_07_overnight: "02:04 CST: no code or test commits on develop since the 11-06 merge-prep (git log --since 11-06 02:00 -- custom_components quality is empty); git merge-tree vs develop e8348bf8 still clean. The prior validation still describes current develop - ready for the next attended deploy."
+  mergeprep_2026_11_07_overnight: "02:03 CST: no code or test commits on develop since the 11-06 merge-prep (git log --since 11-06 02:00 -- custom_components quality is empty); git merge-tree vs develop e8348bf8 still clean. The prior validation still describes current develop - ready for the next attended deploy."
   build_2026_11_06_overnight: "Slice (a)+(b) built on fix/anomaly-undeclare-dead-metrics (pushed): 26b79e7c undeclares egress_pause_frequency (hvac_const.py HVAC_METRICS/SUPPRESSED/UNWIRED) and entry_anomaly_score (security.py SECURITY_METRICS; SUPPRESSED and UNWIRED kept defined but empty); new quality/tests/test_anomaly_undeclare_dead_metrics.py drives the real AnomalyDetector.load_baselines orphan prune (coordinator_diagnostics.py:1660-1749) over a real DB. 0379ec76 = Tier-1 review A record (docs/reviews/code-review/anomaly_undeclare_dead_metrics_review.md): SHIP, 0 CRIT/HIGH/MED; one pre-existing LOW = residual (c). 015d4e45 = test-only fix: _hermetic_db_modules (test_unload_symmetry_shutdown_db_hygiene.py:77) now also restores the parent-package attributes on teardown; without it the new file made test_house_energy_correctness::test_similar_days_excludes_today_partial fail (the same leak already existed on develop, hidden by file order). Full suite: develop 7629fc8f = 14 failed / 19076 passed; branch 015d4e45 = 14 failed / 19080 passed, failing names IDENTICAL (0 new). Orchestrator mutation 02:37: re-adding entry_anomaly_score to SECURITY_METRICS turned 3 named tests RED; restored 6/6. Live DB (read-only 02:1x): metric_baselines has security|entry_anomaly_score|house (0 samples) and hvac|egress_pause_frequency|house (0 samples); both get pruned at the next setup; anomaly_log has no rows for either. README draft docs/readmes/README_DRAFT_anomaly_undeclare_dead_metrics.md on the branch."
   approval: "implied"
   tier: 1

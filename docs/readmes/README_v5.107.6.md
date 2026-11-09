@@ -42,3 +42,10 @@ Mutation drill (key reverted to `"transit_validator"`): lock regime → 15 RED; 
 - With `CONF_DOOR_INTERIOR_NEIGHBOURS` configured, a garage face arrival plus a Bermuda move into the
   garage or a neighbour area releases the lockouts and logs no fail-safe hold.
 - A doorbell D10.5 decision with a BLE move into a configured neighbour area records `demoted = True`.
+
+## Behaviour change to expect
+
+This fix makes the face + Bluetooth entry check work for the first time. After deploy, a garage or door face
+arrival plus a Bermuda move into the door's area (or a configured neighbour area) can release the lockout /
+away-lock. Before, only the `person.*` not_home→home edge could. Tier-1 review: SHIP
+(`docs/reviews/code-review/v5.107.6_entry_areas_egress_tracker.md`).
