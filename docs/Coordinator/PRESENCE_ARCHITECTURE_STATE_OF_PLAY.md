@@ -158,8 +158,11 @@ cited to a verified `file:line` on `develop`, or marked **UNVERIFIED**.
      ruling 2026-11-09), n) straight non-qualifying nights, n = qualifying nights in the stay so far
      (starting from the entry night's lookback count), so a one-night visit ends after one empty night
      and any longer stay after two (`GUEST_STAY_EXIT_SCALES_WITH_STAY`, rung 1, True; False = the fixed
-     3-night exit of rev 5). October replay: GUEST 09-28..10-14; the stay's empty nights 10-13/10-14
-     end it early (17 of 21 stay days).
+     3-night exit of rev 5). **Re-entry grace** (`GUEST_STAY_REENTRY_GRACE_DAYS`, 7, 0 = off; only with
+     the scaled exit): for 7 days after a stay ends by empty nights, ONE qualifying night in any guest
+     room re-enters, no day test (a guest away overnight who sleeps in the room again). October replay:
+     GUEST 09-28..10-14 and 10-16 (the nights away 10-13/10-14 end it; the night back 10-15 re-enters);
+     0 days in 10-19..11-08. Grace re-entries bypass `GUEST_STAY_ENTRY_NIGHTS`.
      n is a walk-loop local, so a restart reproduces it.
      `GUEST_STAY_DAY_BEFORE_NIGHT` (True) False also accepts night N−1 with day N. Night and day
      windows go through ONE span read per room. Scheduled (never awaited) by

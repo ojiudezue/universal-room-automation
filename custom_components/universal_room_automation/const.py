@@ -534,6 +534,13 @@ GUEST_STAY_EXIT_SCALES_WITH_STAY: Final = True
 # which still sets the entry count window. Clamped >= 1. Only used when
 # GUEST_STAY_EXIT_SCALES_WITH_STAY is True (False = rev 5, LOOKBACK misses).
 GUEST_STAY_EXIT_MAX_NIGHTS: Final = 2
+# Re-entry grace (operator 2026-11-09): for this many days after a stay ENDS
+# BY EMPTY NIGHTS (not by the Guest Left button), ONE qualifying night alone,
+# in any guest room, re-enters GUEST (no day test): a guest away overnight who
+# sleeps in the room again is the same stay. Counted from the night that
+# ended the stay. 0 = off. Ignored when GUEST_STAY_EXIT_SCALES_WITH_STAY is
+# False (that path stays rev 5 exactly).
+GUEST_STAY_REENTRY_GRACE_DAYS: Final = 7
 # Day test (rev 5). Fitted: replay plateau 0.03-0.20 at day start 10; above
 # 0.21 the October stay is never entered (recall cliff). 0 = day test off;
 # > 1 = never enters (exit unaffected).

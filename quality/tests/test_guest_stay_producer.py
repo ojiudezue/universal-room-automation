@@ -215,10 +215,14 @@ def test_replay_fixture_day_list(monkeypatch, tmp_path, proc_tz):
     21 stay days); one-night visits (09-10, 09-16) held 1 day; off
     10-19..11-08."""
     proc_tz("UTC")
+    # Re-entry grace 7 d: night 09-04 re-enters after the 09-01 end (09-05);
+    # night 10-15 (GB2 0.57, no day) re-enters after the 10-13/10-14 end and
+    # holds 10-16 only (n = 1, night 10-16 empty).
     expected = (_span(date(2026, 8, 25), date(2026, 9, 1))
-                + _span(date(2026, 9, 6), date(2026, 9, 7))
+                + _span(date(2026, 9, 5), date(2026, 9, 7))
                 + [date(2026, 9, 10), date(2026, 9, 16)]
-                + _span(date(2026, 9, 28), date(2026, 10, 14)))
+                + _span(date(2026, 9, 28), date(2026, 10, 14))
+                + [date(2026, 10, 16)])
     assert _replay_active_days(monkeypatch, tmp_path) == expected
 
 
@@ -227,9 +231,13 @@ def test_replay_fixture_day_list_entry_nights_2(monkeypatch, tmp_path, proc_tz):
     vanish, the stay runs 09-30..10-14, 08-25 becomes 08-26."""
     proc_tz("UTC")
     monkeypatch.setattr(H.CONST, "GUEST_STAY_ENTRY_NIGHTS", 2)
+    # Grace re-entries need ONE qualifying night, so they bypass K = 2:
+    # 09-05, 09-10, 09-16 and 10-16 come back.
     expected = (_span(date(2026, 8, 26), date(2026, 9, 1))
-                + _span(date(2026, 9, 6), date(2026, 9, 7))
-                + _span(date(2026, 9, 30), date(2026, 10, 14)))
+                + _span(date(2026, 9, 5), date(2026, 9, 7))
+                + [date(2026, 9, 10), date(2026, 9, 16)]
+                + _span(date(2026, 9, 30), date(2026, 10, 14))
+                + [date(2026, 10, 16)])
     assert _replay_active_days(monkeypatch, tmp_path) == expected
 
 
@@ -1073,9 +1081,9 @@ def test_long_stay_ends_after_two_empty_nights(monkeypatch, tmp_path, proc_tz):
         occupy_fraction(db, E1, date(2026, 10, d), 0.5)
     c = coord_with(monkeypatch, db)
     got = _days(c, [date(2026, 10, d) for d in range(2, 10)])
-    #      10-02..10-06 on (1 empty at 10-07 morning), 10-08 off, 10-09 off
-    #      (night 10-08 qualifies but has no day: no re-entry)
-    assert got == [True] * 6 + [False, False]
+    #      10-02..10-06 on (1 empty at 10-07 morning), 10-08 off; night
+    #      10-08 qualifies (no day) inside the re-entry grace -> 10-09 on
+    assert got == [True] * 6 + [False, True]
 
 
 @pytest.mark.parametrize("cap,expect", [(2, False), (3, True), (1, False)])
@@ -1181,3 +1189,57 @@ def test_config_extremes_exit(monkeypatch, tmp_path, proc_tz, lookback,
         occupy_fraction(db, E1, date(2026, 11, d), 0.5)
     c = coord_with(monkeypatch, db)
     assert walk(c, at(2026, 11, check_day)) is expect
+
+
+# --- Re-entry grace (operator 2026-11-09) ---------------------------------------
+
+def _ended_stay(db):
+    """3-night stay 10-01..10-03, empty 10-04 / 10-05 -> off on the 10-06
+    morning, ended by empty nights (ended_on = night 10-05)."""
+    _entry_night(db, date(2026, 10, 1))
+    for d in (2, 3):
+        occupy_fraction(db, E1, date(2026, 10, d), 0.5)
+
+
+def test_grace_reentry_one_night_no_day(monkeypatch, tmp_path, proc_tz):
+    """Night 10-06 in GB2 (0.5, NO day) re-enters inside the grace."""
+    proc_tz("UTC")
+    db = _make_db(tmp_path)
+    _ended_stay(db)
+    occupy_fraction(db, E2, date(2026, 10, 6), 0.5)
+    c = coord_with(monkeypatch, db)
+    assert _days(c, [date(2026, 10, 6), date(2026, 10, 7)]) == [False, True]
+    assert c._guest_stay_basis[-1]["entry_qualified"] is False
+
+
+@pytest.mark.parametrize("night_day,expect", [(12, True), (13, False)])
+def test_grace_expiry(monkeypatch, tmp_path, proc_tz, night_day, expect):
+    """Grace 7 d from the ending night 10-05: a lone night on 10-12 (7 d)
+    re-enters, on 10-13 (8 d) it does not."""
+    proc_tz("UTC")
+    db = _make_db(tmp_path)
+    _ended_stay(db)
+    occupy_fraction(db, E1, date(2026, 10, night_day), 0.5)
+    c = coord_with(monkeypatch, db)
+    assert walk(c, at(2026, 10, night_day + 1)) is expect
+
+
+def test_grace_zero_is_off(monkeypatch, tmp_path, proc_tz):
+    """GUEST_STAY_REENTRY_GRACE_DAYS 0: no re-entry without the day test
+    (the cap-commit behaviour)."""
+    proc_tz("UTC")
+    monkeypatch.setattr(H.CONST, "GUEST_STAY_REENTRY_GRACE_DAYS", 0)
+    db = _make_db(tmp_path)
+    _ended_stay(db)
+    occupy_fraction(db, E2, date(2026, 10, 6), 0.5)
+    c = coord_with(monkeypatch, db)
+    assert walk(c, at(2026, 10, 7)) is False
+
+
+def test_no_grace_before_any_stay(monkeypatch, tmp_path, proc_tz):
+    """A lone night with no prior stay never enters (grace needs an ended
+    stay)."""
+    proc_tz("UTC")
+    db = _make_db(tmp_path)
+    occupy_fraction(db, E2, date(2026, 10, 6), 0.5)
+    assert walk(coord_with(monkeypatch, db), at(2026, 10, 7)) is False

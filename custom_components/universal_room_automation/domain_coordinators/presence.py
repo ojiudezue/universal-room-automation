@@ -6230,12 +6230,33 @@ class PresenceCoordinator(BaseCoordinator):
             active = False
             since: Optional[datetime] = None
             n = 0   # rev 6: qualifying nights in the current stay
+            # Re-entry grace (operator 2026-11-09): for GUEST_STAY_REENTRY_
+            # GRACE_DAYS after a stay ENDED BY EMPTY NIGHTS, one qualifying
+            # night alone (any guest room, no day test) re-enters. A guest who
+            # was away overnight and sleeps in the room again is still the
+            # same stay. 0 = off. Part of the scaled-exit policy: with
+            # GUEST_STAY_EXIT_SCALES_WITH_STAY False the walk is rev 5 exactly.
+            grace_days = (
+                max(0, int(_ura_const.GUEST_STAY_REENTRY_GRACE_DAYS))
+                if scaled else 0
+            )
+            ended_on: Optional[date] = None   # night that ended the last stay
             for idx in range(lookback - 1, n_nights):
                 q = sum(1 for b in best[idx - lookback + 1: idx + 1] if b[2])
-                if not active and best[idx][4] and q >= entry_k:
+                # grace 0 is off: a re-entry night is always >= 1 day after
+                # the ending night.
+                in_grace = (
+                    ended_on is not None
+                    and (nights[idx] - ended_on).days <= grace_days
+                )
+                if not active and (
+                    (best[idx][4] and q >= entry_k)
+                    or (in_grace and best[idx][2])
+                ):
                     active = True
                     since = windows[idx][1].astimezone(timezone.utc)
                     n = q
+                    ended_on = None
                 elif active:
                     if best[idx][2]:
                         n += 1
@@ -6249,6 +6270,7 @@ class PresenceCoordinator(BaseCoordinator):
                         active = False
                         since = None
                         n = 0
+                        ended_on = nights[idx]
             self._guest_stay_active = active
             self._guest_stay_since = since
             self._guest_stay_basis = [
