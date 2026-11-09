@@ -100,3 +100,64 @@ Face-name to person mapping: keep explicit config (current first-token inference
 - Did not verify the Protect "D1 bridge" history (which cycle meant to create `sensor.<stem>_face_recognized`); only that nothing exists live now.
 - Did not enumerate Frigate zone devices; the registry shows only 30 `frigate` devices with a single identifier each (29 cameras + server), consistent with no separate zone devices for this install, but I did not list them by name.
 - No HA state was changed; no repo files edited except this report; not committed.
+
+## 8. D0 result: recorder probe of the 17 skipped face sensors (run 2026-11-08 19:4x CST, read-only)
+
+Probe: `/private/tmp/claude-501/-Users-okosisi-Code-universal-room-automation/75cc297f-1426-4620-b7aa-da058bc0fab0/scratchpad/d0_probe.py` (plus `d03.py`, `d03b.py`, `d03c.py`, `d03d.py` in the same directory), run as `ssh ha "python3 -" < script`, SQLite opened `mode=ro` on `/config/home-assistant_v2.db`. Plan: `PLANNING_face_source_registry_discovery_2026_11.md` D0 (rev 2). Gate text: plan D0 and review 1 §3.
+Times in the DB are UTC; the sensor rows end 2026-11-09 01:39 UTC (= 2026-11-08 19:39 CST).
+
+**Caveat on "all retained history":** the recorder holds only 2026-11-01 10:12 UTC to now, about 7.6 days (`select min/max(last_updated_ts) from states`). Every count below is a 7.6-day sample, not a long history. Counts are state rows (each new named recognition is one row), not distinct people-visits.
+
+### 8.1 The 17 (derived, not typed)
+Registry join: 29 `sensor_recognized_face` rows, each joined by `device_id` to its `occupancy_sensor:*_person` row; 17 whose person sensor does not end `_person_occupancy` (all end `_person_occupancy_2`). The list matches review 1 §2.2. Interior: `playroom`, `upstairs_hall`. The other 15 are exterior.
+
+### 8.2 Names (D0.1)
+Resident rules replicated from `_canonical_person_slug` (`camera_census.py:3681-3779`): direct slug match, then unique first-token match, then `known_face_guests` (`['Ojini']`), else passthrough. Live `tracked_persons` = `ezinne`, `oji_udezue`, `jaya`, `ziri`.
+
+| Name | Named states (all 17) | Class | Maps to `person.*`? |
+|---|---|---|---|
+| Jaya | 159 | resident `jaya` | yes, `person.jaya` |
+| Oji | 116 | resident `oji_udezue` | head-token match to a tracked slug; there is NO `person.oji` entity, so S8's exact `person.<name>` match (`presence.py:5480-5496`) does not map it |
+| Ojini | 31 | `guest:ojini` (known_face_guests) | no |
+| Ziri | 13 | resident `ziri` | yes |
+| Ezinne | 8 | resident `ezinne` | yes |
+| **Passthrough / ambiguous** | **0** | none | n/a |
+
+327 named states: 296 resident (90.5%), 31 guest (9.5%), 0 passthrough. Non-name states (Unknown, None, unavailable) excluded.
+
+Per sensor (named states): playroom 116 (Jaya 66, Oji 33, Ojini 9, Ezinne 4, Ziri 4); doorbell_lite 40; garage_a 35; g5_bullet 26; hot_tub 17; upstairs_hall 39 (Jaya 20, Oji 9, Ziri 7, Ojini 2, Ezinne 1); madrone_g6_entry 17; front_door_aerial 11; rear_ptz 11; front_side_ptz 7; pool_equipment 6; reolinkstudybporchptz 1 (Jaya); utilities_ptz 1 (Ojini). Zero names in 7.6 days: `armcrest`, `armcrestash41b`, `back_yard`, `madrone_g6_entry_package`. The face producers are live on these sensors (they carry named rows, and `face_producer_health` = "live" on the last `persons_in_house` row).
+
+### 8.3 Interior coincidence (D0.2)
+Method: for each named state, did a person-count>0 interval (`sensor.<cam>_person_count` step function) overlap the 1800 s freshness window (`CENSUS_FACE_RECOGNITION_WINDOW_SECONDS`, `const.py:3964`) starting at that state?
+- `playroom`: 116 of 116 named states coincide (Jaya 66, Oji 33, Ojini 9, Ezinne 4, Ziri 4). 9 of 116 (7.8%) are the known guest Ojini; 0 passthrough.
+- `upstairs_hall`: 38 of 39 coincide (Jaya 19, Oji 9, Ziri 7, Ojini 2, Ezinne 1); 0 passthrough.
+- Weakness of this measure: 100% coincidence says a face is almost always near a person-count>0 window, which is expected for a face reading. It does not measure how many S7 ticks would flip from `count` to `count-1`; that needs the per-tick sequence and I did not build it.
+
+### 8.4 What `upstairs_hall` resolves to (D0.3)
+- Config (`core.config_entries`, URA integration entry): `camera_person_entities` contains `camera.upstairs_hall_high_resolution_channel` (a **unifiprotect** camera, device `b063bbf5...`, MAC `28:70:4e:18:f6:61`, person entity `binary_sensor.upstairs_hall_person_detected`) and NOT `camera.upstairs_hall_2` (Frigate, device `b75c48d2...`). `playroom` is different: both `camera.playroom_high_resolution_channel` and `camera.playroom` (Frigate) are configured.
+- Static read: the resolver's name-stem rung (`camera_resolver.py:~745-765`) could pull the Frigate sibling in by the shared `upstairs_hall` stem. Not confirmed by static reading alone.
+- Runtime discriminator (recorder, 33,600 `persons_in_house` rows): ticks where exactly one interior Frigate camera had person_count>0, and the fraction with `camera_total_pre_cancel`>0.
+
+| Only-this-camera ticks | Ticks | `camera_total_pre_cancel`>0 |
+|---|---|---|
+| playroom | 132 | 132 |
+| family_room | 4948 | 4386 |
+| master_hallway | 487 | 379 |
+| stairs_top | 156 | 136 |
+| foyer_fisheye | 26 | 23 |
+| staircase | 145 | 2 (anomalous, not investigated) |
+| **upstairs_hall** | **71** | **0** |
+
+**Finding:** S7 has never counted the `upstairs_hall` Frigate sensor in the sample (0 of 71, against 85-100% for most other cameras). The most likely reading is that the Frigate `upstairs_hall` sensor is not in S7's interior list, so the plan's claim "upstairs_hall is affected" is false for S7 on this install. I did not read the resolver's live in-memory state, so the mechanism is inferred, not observed. `staircase` also scored 2 of 145, which is unexplained and shows the metric is not a perfect membership test. Falsifier: `area_contributions` / a `_camera_by_entity` dump would show membership directly. Both attribute dicts are absent from the recorded rows. Plan D3 text "(`upstairs_hall` per D0.3)" resolves to: playroom only for S7. upstairs_hall may still matter for S5, S6 and S8 (exterior/zone-tracker consumers), which this probe did not measure.
+
+### 8.5 Gate verdict
+
+| Gate clause (plan D0) | Observation | Result |
+|---|---|---|
+| No passthrough name on an interior camera | 0 passthrough names on any of the 17; 0 on playroom and upstairs_hall | PASS |
+| Resident names dominate | 296 of 327 (90.5%) overall; playroom 107 of 116 (92.2%); upstairs_hall 37 of 39 (94.9%) | PASS |
+| Guest name at a material rate on playroom/upstairs_hall | Ojini = 9 of 116 playroom (7.8%), 2 of 39 upstairs_hall. It is a configured known guest, not an unknown name | PASS with a note |
+
+**Overall: PASS, so `FACE_SOURCE_INCLUDE_DISAMBIGUATED_PERSON_SENSORS` can default to True** under the plan's own gate text. Judgment call for the operator/planner: the plan's gate says "a passthrough or guest name at a material rate" fails it. I read "guest" as an unknown/unmapped guest because Ojini is a configured known guest and the same S7 subtraction already applies on the 12 bare cameras (review 1 F-5). If a literal reading is wanted, 7.8% on playroom is the number to judge. The sample is 7.6 days.
+
+Limits: 7.6 days of history (not longer); the per-tick S7 flip rate was not computed; membership of upstairs_hall in S7 is inferred from a correlational metric. No state was changed and no file other than this section was edited; not committed.
