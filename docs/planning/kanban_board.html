@@ -212,14 +212,14 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <header class="top">
 <h1>URA://KANBAN<span class="gen">GENERATED - do not hand-edit; source is kanban.data.yaml</span></h1>
 <div class="statusline">
-<span>generated <b>2026-11-08T19:37:42-06:00</b></span>
-<span>data <b>f137951ed270</b></span>
+<span>generated <b>2026-11-08T19:38:14-06:00</b></span>
+<span>data <b>49561e1b51f2</b></span>
 <span>reconciled <b>2026-11-08</b></span>
 </div></header>
 <section class="autonomy">
 <div class="hd">
 <span class="lbl">Board progress · last 24h</span>
-<span class="metric">6<span class="den"> / 187</span></span>
+<span class="metric">6<span class="den"> / 188</span></span>
 <span class="sub">cards concluded autonomously in the last 24h · denominator = open cards (all minus done), shrinks as work completes</span>
 </div>
 <details open><summary>recent autonomous work — 46 unacknowledged (acknowledge to retire; auto-archived after 7 days)</summary>
@@ -550,7 +550,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 </section>
 <div class="summary">
 <span>Inbox <b>0</b></span>
-<span>Investigating <b>1</b></span>
+<span>Investigating <b>2</b></span>
 <span>Pre-planning <b>13</b></span>
 <span>Planned <b>14</b></span>
 <span>In progress <b>1</b></span>
@@ -567,9 +567,10 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <div class="none">(none)</div>
 </section>
 <section class="lane" data-col="investigating">
-<h2>Investigating <span class="count">1</span><span class="hint">measuring; truth not yet known</span></h2>
+<h2>Investigating <span class="count">2</span><span class="hint">measuring; truth not yet known</span></h2>
 <div class="cards">
-<details class="card" data-id="PERIMETER-FP-STREET-NOISE-1" draggable="true"><summary><span class="id">PERIMETER-FP-STREET-NOISE-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">#1 · WSJF 2.7 · v4 tc2 u2 /e3</span><span class="title">Perimeter alerts still include false positives and street noise: reduce FPs end-to-end (Frigate masks/zones/filters, URA pre-alert gates) + check snapshot storage/archival</span><div class="tagline">security</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-11-08 14:00</div><dt>Why</dt><dd>Measure first: classify recent perimeter alerts from archived snapshots per camera (true person / street traffic / vehicle / shadow-light / animal / empty), then map each FP class to the cheapest lever: Frigate-side (homelab) motion mask...</dd><dt>Next</dt><dd>Investigation: URA prober (alert history + snapshot review + storage) and HomeLab (Frigate 2 config inventory + storage), read-only; then a lever table for operator OK.</dd><dt>Forensic (2)</dt><dd><ul class="forensic"><li><code>tier</code>: 2</li><li><code>adjacency_2026_11_08</code>: Prior art: PERIMETER-PHANTOM-XCORR-1 (done, phantom person + double send + cross-NVR check), docs/planning/AUDIT_perimeter_fp_correlation.md, PLANNING_perimeter_consolidation.md, PLANNING_snap1_at_detection_snapshots.md. ADJACENT not dup...</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button><button type="button" data-action="approve">▶ approve</button><button type="button" data-action="investigate">🔍 investigate</button></div><div class="instruct"><input type="text" placeholder="comment / instruction for the agent…" aria-label="operator instruction"><button type="button" data-action="instruct">send</button></div></div></details>
+<details class="card" data-id="PERIMETER-FRIGATE-SNAPSHOT-CAPTURE-NEVER-1" draggable="true"><summary><span class="id">PERIMETER-FRIGATE-SNAPSHOT-CAPTURE-NEVER-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">#1 · WSJF 5.0 · v5 tc3 u2 /e2</span><span class="title">Perimeter alert images never come from Frigate&#x27;s stored event snapshot (0 of 272 in 7 days; 244 live grabs, 28 no file), so &#x27;empty frame&#x27; alerts may be capture timing, not false detections</span><div class="tagline">security</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-11-08 22:00</div><dt>Why</dt><dd>SNAP-1 tier 1 (frigate_event, perimeter_alert.py ~3346) should fetch the best-scoring frame of the event. It never succeeds live, so every image is a live camera grab at the edge, which can miss a person who already moved. That reopens t...</dd><dt>Next</dt><dd>Measure: why tier 1 fails (event_id not captured from frigate_events at edge time? proxy URL/instance id? auth?). Read SNAP-1 code + a live frigate_events payload; then fix and re-check a sample of empty-frame alerts against Frigate&#x27;s ow...</dd><dt>Forensic (2)</dt><dd><ul class="forensic"><li><code>tier</code>: 2</li><li><code>adjacency_2026_11_08</code>: Swept: PLANNING_snap1_at_detection_snapshots.md (SNAP-1 design), PERIMETER-FP-STREET-NOISE-1 (parent arc). NEW: the capture failure itself is not carded.</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button><button type="button" data-action="approve">▶ approve</button><button type="button" data-action="investigate">🔍 investigate</button></div><div class="instruct"><input type="text" placeholder="comment / instruction for the agent…" aria-label="operator instruction"><button type="button" data-action="instruct">send</button></div></div></details>
+<details class="card" data-id="PERIMETER-FP-STREET-NOISE-1" draggable="true"><summary><span class="id">PERIMETER-FP-STREET-NOISE-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">#2 · WSJF 2.7 · v4 tc2 u2 /e3</span><span class="title">Perimeter alerts still include false positives and street noise: reduce FPs end-to-end (Frigate masks/zones/filters, URA pre-alert gates) + check snapshot storage/archival</span><div class="tagline">security</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-11-08 14:00</div><dt>Why</dt><dd>Measure first: classify recent perimeter alerts from archived snapshots per camera (true person / street traffic / vehicle / shadow-light / animal / empty), then map each FP class to the cheapest lever: Frigate-side (homelab) motion mask...</dd><dt>Next</dt><dd>Investigation: URA prober (alert history + snapshot review + storage) and HomeLab (Frigate 2 config inventory + storage), read-only; then a lever table for operator OK.</dd><dt>Forensic (2)</dt><dd><ul class="forensic"><li><code>tier</code>: 2</li><li><code>adjacency_2026_11_08</code>: Prior art: PERIMETER-PHANTOM-XCORR-1 (done, phantom person + double send + cross-NVR check), docs/planning/AUDIT_perimeter_fp_correlation.md, PLANNING_perimeter_consolidation.md, PLANNING_snap1_at_detection_snapshots.md. ADJACENT not dup...</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button><button type="button" data-action="approve">▶ approve</button><button type="button" data-action="investigate">🔍 investigate</button></div><div class="instruct"><input type="text" placeholder="comment / instruction for the agent…" aria-label="operator instruction"><button type="button" data-action="instruct">send</button></div></div></details>
 </div>
 </section>
 <section class="lane" data-col="pre_planning">
@@ -1236,7 +1237,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <li>Memory week-one gate + first coordinator-consumer proposal</li>
 </ul>
 </section>
-<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>f137951ed270</code>. Regenerate on every commit that touches the data.</footer>
+<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>49561e1b51f2</code>. Regenerate on every commit that touches the data.</footer>
 <div id="toast"></div>
 <script>
 (function () {

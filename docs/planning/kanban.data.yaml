@@ -347,6 +347,19 @@ cards:
   next: "Investigation: URA prober (alert history + snapshot review + storage) and HomeLab (Frigate 2 config inventory + storage), read-only; then a lever table for operator OK."
   links: {related: [PERIMETER-PHANTOM-XCORR-1]}
   adjacency_2026_11_08: "Prior art: PERIMETER-PHANTOM-XCORR-1 (done, phantom person + double send + cross-NVR check), docs/planning/AUDIT_perimeter_fp_correlation.md, PLANNING_perimeter_consolidation.md, PLANNING_snap1_at_detection_snapshots.md. ADJACENT not duplicate: new FP classes (street noise) and storage/archival."
+- id: PERIMETER-FRIGATE-SNAPSHOT-CAPTURE-NEVER-1
+  title: "Perimeter alert images never come from Frigate's stored event snapshot (0 of 272 in 7 days; 244 live grabs, 28 no file), so 'empty frame' alerts may be capture timing, not false detections"
+  thread: security
+  status: investigating
+  tier: 2
+  created: "2026-11-08 22:00"
+  updated: "2026-11-08 22:00"
+  rank: {value: 5, time_criticality: 3, effort: 2}
+  origin: "v5.107.0 build D8 probe (2026-11-08); operator earlier: 'Maybe these are legit detections but we're capturing the frames used for evidence too late or too early?'"
+  why: "SNAP-1 tier 1 (frigate_event, perimeter_alert.py ~3346) should fetch the best-scoring frame of the event. It never succeeds live, so every image is a live camera grab at the edge, which can miss a person who already moved. That reopens the snapshot-timing question for the empty-frame audit, and D6 enforce (trusts only Frigate-event frames) can never fire."
+  next: "Measure: why tier 1 fails (event_id not captured from frigate_events at edge time? proxy URL/instance id? auth?). Read SNAP-1 code + a live frigate_events payload; then fix and re-check a sample of empty-frame alerts against Frigate's own event snapshots."
+  links: {related: [PERIMETER-FP-STREET-NOISE-1]}
+  adjacency_2026_11_08: "Swept: PLANNING_snap1_at_detection_snapshots.md (SNAP-1 design), PERIMETER-FP-STREET-NOISE-1 (parent arc). NEW: the capture failure itself is not carded."
 - id: PERSON-PROFILE-PREFERENCES-1
   title: "Per-person profile for identified household members: their bedroom(s)/bathroom, room ownership (incl. shared owners e.g. master), playlist, opt-in/out of automated arrival actions, welcome scene"
   thread: identity

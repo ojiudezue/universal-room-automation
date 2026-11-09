@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-08T19:37:42-06:00_ - _Data commit: `f137951ed270`_ - _last_reconciled: 2026-11-08_
+_Generated: 2026-11-08T19:38:14-06:00_ - _Data commit: `49561e1b51f2`_ - _last_reconciled: 2026-11-08_
 
 
 ## Columns
@@ -10,7 +10,7 @@ _Generated: 2026-11-08T19:37:42-06:00_ - _Data commit: `f137951ed270`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 0 |
-| 🔬 Investigating | 1 |
+| 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 14 |
 | 🔨 In progress | 1 |
@@ -26,10 +26,19 @@ _raw capture_
 
 _(none)_
 
-## 🔬 Investigating (1)
+## 🔬 Investigating (2)
 _measuring; truth not yet known_
 
-### `PERIMETER-FP-STREET-NOISE-1` - Perimeter alerts still include false positives and street noise: reduce FPs end-to-end (Frigate masks/zones/filters, URA pre-alert gates) + check snapshot storage/archival — _#1 · WSJF 2.7 · v4 tc2 u2 /e3_
+### `PERIMETER-FRIGATE-SNAPSHOT-CAPTURE-NEVER-1` - Perimeter alert images never come from Frigate's stored event snapshot (0 of 272 in 7 days; 244 live grabs, 28 no file), so 'empty frame' alerts may be capture timing, not false detections — _#1 · WSJF 5.0 · v5 tc3 u2 /e2_
+thread: **security** - status: **investigating**
+_created 2026-11-08 22:00_
+- **Why:** SNAP-1 tier 1 (frigate_event, perimeter_alert.py ~3346) should fetch the best-scoring frame of the event. It never succeeds live, so every image is a live camera grab at the edge, which can miss a person who already moved. That reopens t...
+- **Next:** Measure: why tier 1 fails (event_id not captured from frigate_events at edge time? proxy URL/instance id? auth?). Read SNAP-1 code + a live frigate_events payload; then fix and re-check a sample of empty-frame alerts against Frigate's ow...
+- **Forensic keys (2):**
+  - `tier`: 2
+  - `adjacency_2026_11_08`: Swept: PLANNING_snap1_at_detection_snapshots.md (SNAP-1 design), PERIMETER-FP-STREET-NOISE-1 (parent arc). NEW: the capture failure itself is not carded.
+
+### `PERIMETER-FP-STREET-NOISE-1` - Perimeter alerts still include false positives and street noise: reduce FPs end-to-end (Frigate masks/zones/filters, URA pre-alert gates) + check snapshot storage/archival — _#2 · WSJF 2.7 · v4 tc2 u2 /e3_
 thread: **security** - status: **investigating**
 _created 2026-11-08 14:00_
 - **Why:** Measure first: classify recent perimeter alerts from archived snapshots per camera (true person / street traffic / vehicle / shadow-light / animal / empty), then map each FP class to the cheapest lever: Frigate-side (homelab) motion mask...
