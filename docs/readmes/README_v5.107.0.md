@@ -81,6 +81,13 @@ Gates D3/D5/D6 stay off; turning them on is a later knob turn read off the shado
 | B-LOW-6 | presence state-of-play consumer table updated |
 | Not changed | A-L3 (superseded by B-MED-2), A-L4 (display drift, accepted), B-LOW-2 / B-LOW-4 (bounded, harmless; noted) |
 
+## Review C (mutation) fix-up
+Review C: 216 mutants, 66 GREEN, verdict FIX-REQUIRED. The two "code" items were test gaps; the code was already correct:
+- **D1d:** the legacy fallback already applies `_excluded(eid, engine)`; the predicate also matches by `_person_occupancy[_2]` suffix, which catches `legacy`-tagged legs.
+- **D5p:** `except BaseException: if _held: discard; raise` already releases the key. A plain `finally` would release it too early on the delayed-dispatch path, reopening the H1 parallel-dispatch race.
+
+Both are now pinned, along with every HIGH and MEDIUM gap (K3/K4/K5/K7, W5-W12, W15-W17, D1c/q/r/v, D6f/g/h, D5af/E9, E6/E14/D5i, N17). Handler-driving tests are bounded (`asyncio.wait_for`), so a stuck hold FAILS instead of hanging. Re-drill with the reviewer's own `muts.py`: all 35 previously-GREEN or hanging mutants touched are now RED, with no hangs. The LOWs were not addressed in this pass.
+
 ## Not done / deferred
 - D9 direct MQTT: parked (plan). D10.2 resident demote: parked; replaced by D10.5.
 - D10.5 operator ask (2): a "that was <name>" follow-up when Protect back-fills the name within 90 s. **Parked**: NM has no

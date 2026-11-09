@@ -861,3 +861,5 @@ camera's area / configured door neighbours), with a 600 s post-setup exclusion
 (D5a door-camera lag p90 18.0 / 20.2 / 22.4 s, capped at 20). Failed WhatsApp rows `delivered=-1`. D3 skips
 zone-leg edges. Late rescan legs feed liveness; KNOWN_MIN_CONF > 1 and window 0 disable; agreement store
 flushed on teardown and merged on load; diag gate attributes unrecorded.
+
+**Review C fix-up:** tests only. D1d and D5p were verified to be test gaps; the code was already correct. All HIGH and MEDIUM GREEN mutants now go RED; the hold-driving tests are bounded.
