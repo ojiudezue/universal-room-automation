@@ -450,6 +450,19 @@ async def test_lock_toggle_off_unchanged():
 
 
 @pytest.mark.asyncio
+async def test_manual_sleep_to_home_night_in_window_releases():
+    """Review C M3: reason SLEEP (not guest_night) + an override to
+    HOME_NIGHT inside the sleep window releases as before; the yield hold
+    is for guest_night only."""
+    rig = await make_rig()                        # 23:10, in window
+    await rig.edge("sleep")
+    assert rig.regime.reason == "sleep"
+    await rig.edge("home_night")
+    assert rig.unlocks() == [LOCK_A, LOCK_B]
+    assert rig.regime.reason == "none"
+
+
+@pytest.mark.asyncio
 async def test_guest_night_home_night_outside_window_releases():
     """HOME_NIGHT with reason guest_night OUTSIDE the sleep window (cannot
     come from inference; forced) releases as before."""

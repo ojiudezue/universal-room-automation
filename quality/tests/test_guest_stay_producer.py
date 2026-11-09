@@ -386,6 +386,7 @@ def test_one_night_with_day_enters(monkeypatch, tmp_path, proc_tz):
     assert last["qualifies"] is True and last["entry_qualified"] is True
     # held 3 days by the 3-miss exit, off on the 4th morning
     assert [walk(c, at(2026, 9, d)) for d in (17, 18, 19)] == [True, True, False]
+    assert c._guest_stay_since is None          # review C L4: cleared on exit
 
 
 def test_entry_nights_2_blocks_single_night(monkeypatch, tmp_path, proc_tz):
@@ -490,16 +491,20 @@ def test_day_resident_subtraction(monkeypatch, tmp_path, proc_tz):
 def test_day_windows_one_read_per_room(monkeypatch, tmp_path):
     """Nights + days go through ONE span call per room (2 x span windows):
     nights first, then the matching day windows."""
-    calls = []
+    calls, pads = [], []
 
     class _Spy:
         async def get_guest_room_night_fractions(self, eid, room, windows, pad):
             calls.append((eid, list(windows)))
+            pads.append(pad)
             return [(0.0, False)] * len(windows)
 
     c = coord_with(monkeypatch, _Spy())
     walk(c, at(2026, 11, 4))
     assert [eid for eid, _ in calls] == [E1, E2]
+    # Review C M6: the producer wires the resident pad (GUEST_KNOWN_STICKY_S
+    # = 120 s) into the read; literal oracle.
+    assert pads == [120, 120]
     wins = calls[0][1]
     assert len(wins) == 2 * 37
     assert wins[36] == (datetime(2026, 11, 3, 22, tzinfo=CHI),
@@ -847,6 +852,10 @@ def test_discover_records_entry_id(monkeypatch):
     assert w.coord._guest_room_entry_ids == {GB1: "E_GB1", GB2: "E_GB2"}
     assert w.coord._guest_stay_evaluated_for is None
     assert w.coord._guest_stay_retry_at is None
+    # Review C M5: GB2 un-flagged mid-stay drops out of the walk's room map.
+    entries[1].options = {H.CONST.CONF_ROOM_IS_GUEST_ROOM: False}
+    w.coord._discover_guest_rooms()
+    assert w.coord._guest_room_entry_ids == {GB1: "E_GB1"}
 
 
 def test_house_state_sensor_publishes_stay(monkeypatch):
@@ -873,3 +882,123 @@ def test_house_state_sensor_publishes_stay(monkeypatch):
     attrs = s.extra_state_attributes
     assert attrs["guest_stay_basis"] == {"error": "db locked"}
     assert attrs["guest_stay_since"] is None
+
+
+# --- Review C (test authority) -------------------------------------------------
+
+BND = date(2026, 11, 3)   # CST: night 8 h = 28800 s, day 10:00-22:00 = 43200 s
+
+
+@pytest.mark.parametrize("night_s,expect", [
+    (7200, True),     # exactly 0.25 enters (>=)
+    (7171, False),    # 0.249 does not
+])
+def test_night_threshold_boundary(monkeypatch, tmp_path, proc_tz,
+                                  night_s, expect):
+    """M1: GUEST_NIGHT_MIN_FRACTION 0.25 pinned at the edge (literals)."""
+    proc_tz("UTC")
+    db = _make_db(tmp_path)
+    occupy(db, E1, night_start(BND), night_s)
+    occupy_day(db, E1, BND, 0.5)
+    c = coord_with(monkeypatch, db)
+    assert walk(c, at(2026, 11, 4)) is expect
+
+
+def test_night_threshold_above_edge(monkeypatch, tmp_path, proc_tz):
+    """M1: 0.26 enters (pins the constant from above: 0.30 would refuse)."""
+    proc_tz("UTC")
+    db = _make_db(tmp_path)
+    occupy(db, E1, night_start(BND), 7488)    # 0.26
+    occupy_day(db, E1, BND, 0.5)
+    assert walk(coord_with(monkeypatch, db), at(2026, 11, 4)) is True
+
+
+@pytest.mark.parametrize("day_s,expect", [
+    (4320, True),     # exactly 0.10 enters (>=)
+    (4277, False),    # 0.099 does not
+    (4752, True),     # 0.11 enters (0.15 would refuse)
+])
+def test_day_threshold_boundary(monkeypatch, tmp_path, proc_tz, day_s, expect):
+    """M1: GUEST_STAY_DAY_MIN_FRACTION 0.10 pinned on both sides."""
+    proc_tz("UTC")
+    db = _make_db(tmp_path)
+    occupy_fraction(db, E1, BND, 0.5)
+    occupy(db, E1, day_start(BND), day_s)
+    assert walk(coord_with(monkeypatch, db), at(2026, 11, 4)) is expect
+
+
+def test_day_after_variant_same_room(monkeypatch, tmp_path, proc_tz):
+    """M2: with GUEST_STAY_DAY_BEFORE_NIGHT False, night 11-01 in GB1 + day
+    11-02 in GB2 -> off; the same day in GB1 -> on."""
+    proc_tz("UTC")
+    monkeypatch.setattr(H.CONST, "GUEST_STAY_DAY_BEFORE_NIGHT", False)
+    db = _make_db(tmp_path)
+    occupy_fraction(db, E1, date(2026, 11, 1), 0.5)
+    occupy_day(db, E2, date(2026, 11, 2), 0.5)
+    assert walk(coord_with(monkeypatch, db), at(2026, 11, 3)) is False
+    occupy_day(db, E1, date(2026, 11, 2), 0.5)
+    assert walk(coord_with(monkeypatch, db), at(2026, 11, 3)) is True
+
+
+def test_two_db_errors_keep_latch(monkeypatch, tmp_path, proc_tz):
+    """M4: success, error, error -> the latch is still on (a DB outage spans
+    several 15-min retries)."""
+    proc_tz("UTC")
+    real = _one_night(monkeypatch, tmp_path, E1, 0.5, E1, 0.5,
+                      night=date(2026, 11, 2))
+    c = coord_with(monkeypatch, real, rooms=((GB1, E1),))
+    assert walk(c, at(2026, 11, 3)) is True
+
+    class _Boom:
+        async def get_guest_room_night_fractions(self, *a, **k):
+            raise RuntimeError("db locked")
+
+    c.hass.data[H.DOMAIN]["database"] = _Boom()
+    assert walk(c, at(2026, 11, 4, 7, 0)) is True
+    assert walk(c, at(2026, 11, 4, 7, 15)) is True
+    assert c._guest_stay_retry_at == at(2026, 11, 4, 7, 30)
+
+
+def test_zero_length_window(monkeypatch, tmp_path):
+    """L1: a zero-length window (sleep start == end) reads (0.0, False), no
+    ZeroDivisionError."""
+    db = _make_db(tmp_path)
+    occupy(db, E1, night_start(BND), 3600)
+    w = (night_start(BND), night_start(BND))
+    assert H.run(db.get_guest_room_night_fractions(E1, GB1, [w], 120)) \
+        == [(0.0, False)]
+
+
+def test_malformed_person_visits_rows(monkeypatch, tmp_path, proc_tz):
+    """L2: an unparseable row is skipped (not raised); a row with exit before
+    entry is a point visit (pad only): 8 h night, point at 23:00 padded
+    120 s each side -> (28800 - 240) / 28800."""
+    proc_tz("UTC")
+    db = _make_db(tmp_path)
+    occupy(db, E1, night_start(NIGHT), 8 * 3600)
+
+    def _p(x):
+        return datetime.fromtimestamp(x.timestamp()).isoformat(sep=" ")
+    _seed(db, VIS, [
+        ("oji", GB1, "2026-11-04 01:00:00garbage", None, 0.9, "bermuda"),
+        ("oji", GB1, _p(datetime(2026, 11, 3, 23, tzinfo=CHI)),
+         _p(datetime(2026, 11, 3, 22, 30, tzinfo=CHI)), 0.9, "bermuda"),
+    ])
+    windows = [(night_start(NIGHT), datetime(2026, 11, 4, 6, tzinfo=CHI))]
+    [(frac, had)] = H.run(db.get_guest_room_night_fractions(
+        E1, GB1, windows, 120))
+    assert frac == pytest.approx((28800 - 240) / 28800)
+    assert had is True
+
+
+def test_stay_rooms_lists_qualifying_only(monkeypatch):
+    """L6: night_stay:<rooms> / the D4 diagnosis list only qualifying rooms."""
+    H.install_clock(monkeypatch, datetime(2026, 11, 3, 14, tzinfo=UTC), tz=CHI)
+    w = H.World(monkeypatch, state=HS.HOME_DAY)
+    w.coord._guest_stay_basis = [
+        {"night": "2026-11-01", "room": GB2, "fraction": 0.02,
+         "qualifies": False},
+        {"night": "2026-11-02", "room": GB1, "fraction": 0.5,
+         "qualifies": True},
+    ]
+    assert w.coord._guest_stay_rooms() == GB1
