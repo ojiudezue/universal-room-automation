@@ -643,6 +643,7 @@ from .const import (
     CONF_CAMERA_PERSON_ENTITIES,
     CONF_EGRESS_CAMERAS,
     CONF_PERIMETER_CAMERAS,
+    CONF_PERIMETER_ZONE_SENSORS,
     # PLANNING_census_inputs_first D1 (2026-10-05): door-event quality
     CONF_DOOR_GROUPS,
     CONF_DOOR_INTERIOR_NEIGHBOURS,
@@ -5027,6 +5028,14 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     cleaned.pop(_k, None)
             if cleaned.get(CONF_MAIN_ENTRY_DOOR) in ("", None):
                 cleaned.pop(CONF_MAIN_ENTRY_DOOR, None)
+            # PERIMETER-FP D1: an untouched empty zone list must not add a
+            # new key (it would turn a suppressed save into a reload). An
+            # EXISTING list cleared to [] is kept so it can be removed.
+            if (
+                cleaned.get(CONF_PERIMETER_ZONE_SENSORS) in ([], None)
+                and CONF_PERIMETER_ZONE_SENSORS not in self._config_entry.options
+            ):
+                cleaned.pop(CONF_PERIMETER_ZONE_SENSORS, None)
             # Review MED: validate neighbours shape before persisting.
             if CONF_DOOR_INTERIOR_NEIGHBOURS in cleaned:
                 validated, err = self._validate_door_interior_neighbours(
@@ -5275,6 +5284,20 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 default=self._get_current(CONF_MAIN_ENTRY_DOOR, ""),
                 description=_adv(CONF_MAIN_ENTRY_DOOR, _merged, ""),
             ): selector.TextSelector(),
+            # PERIMETER-FP D1 (v5.107.0): Frigate zone person sensors that
+            # replace a camera's whole-frame Frigate leg (Advanced; shown in
+            # Simple mode once set). Structural: saving it reloads, like the
+            # camera lists.
+            vol.Optional(
+                CONF_PERIMETER_ZONE_SENSORS,
+                default=self._get_current(CONF_PERIMETER_ZONE_SENSORS, []),
+                description=_adv(CONF_PERIMETER_ZONE_SENSORS, _merged, []),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain="binary_sensor",
+                    multiple=True,
+                )
+            ),
         })
 
         return self.async_show_form(

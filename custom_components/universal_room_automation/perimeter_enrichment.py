@@ -257,3 +257,36 @@ async def enrich_dispatched_alert(
         )
         return None
     return text
+
+
+# PERIMETER-FP D6 (v5.107.0): verdict-prompt variant. Used ONLY by the
+# person path when the VLM gate select is shadow/enforce. The default
+# prompt above and the vehicle path stay byte-identical.
+_VERDICT_PROMPT = (
+    "First line: exactly 'PERSON: YES', 'PERSON: NO' or 'PERSON: UNSURE' "
+    "- is a real person visible in this image? Then describe what you see "
+    "in one or two short sentences."
+)
+
+
+async def enrich_with_verdict(
+    hass: Any,
+    snapshot_path: str | None,
+    camera_entity_id: str,
+) -> tuple[str | None, str]:
+    """Return (description_without_verdict_line, verdict).
+
+    verdict is "YES" / "NO" / "UNSURE". Every failure class of
+    `enrich_dispatched_alert` (gated off, timeout, exception, empty) gives
+    (None, "UNSURE"), so the gate can never demote without a verdict.
+    Never raises.
+    """
+    from .perimeter_fp_gates import VERDICT_UNSURE, parse_vlm_verdict  # noqa: PLC0415
+
+    try:
+        raw = await enrich_dispatched_alert(
+            hass, snapshot_path, camera_entity_id, prompt=_VERDICT_PROMPT,
+        )
+    except Exception:  # noqa: BLE001
+        return None, VERDICT_UNSURE
+    return parse_vlm_verdict(raw)

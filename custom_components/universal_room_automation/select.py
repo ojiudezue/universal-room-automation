@@ -58,6 +58,8 @@ async def async_setup_entry(
             # census switches (integration device is the house-wide
             # control home).
             ChatterModeSelect(hass, entry),
+            # PERIMETER-FP D6 (v5.107.0): VLM gate off/shadow/enforce.
+            PerimeterVlmGateSelect(hass, entry),
         ]
         async_add_entities(entities)
         return
@@ -1171,3 +1173,31 @@ class HVACGate4PredicateModeSelect(SelectEntity):
         )
         self.async_write_ha_state()
         _LOGGER.info("HVACGate4PredicateModeSelect -> %s", option)
+
+
+class PerimeterVlmGateSelect(ChatterModeSelect):
+    """PERIMETER-FP D6 (v5.107.0): `select.ura_perimeter_vlm_gate`.
+
+    Same integration-options-backed shape as ChatterModeSelect (REUSED).
+    off = today's enrichment prompt and severity (byte-identical);
+    shadow = verdict prompt, decision recorded, severity unchanged;
+    enforce = a strict `PERSON: NO` on a trusted-tier frame demotes to LOW.
+    The key is in INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS (read fresh per
+    alert), so a change does not reload the parent entry.
+    """
+
+    _attr_icon = "mdi:eye-check"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        from .const import (  # noqa: PLC0415
+            CONF_PERIMETER_VLM_GATE,
+            DEFAULT_PERIMETER_VLM_GATE,
+            PERIMETER_VLM_GATE_OPTIONS,
+        )
+        self._conf_key = CONF_PERIMETER_VLM_GATE
+        self._default = DEFAULT_PERIMETER_VLM_GATE
+        self._attr_options = list(PERIMETER_VLM_GATE_OPTIONS)
+        self._attr_unique_id = f"{DOMAIN}_perimeter_vlm_gate"
+        self._attr_name = "Perimeter AI Person Check"
+        self.entity_id = "select.ura_perimeter_vlm_gate"

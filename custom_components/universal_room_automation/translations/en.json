@@ -797,6 +797,7 @@
           "camera_person_entities": "Indoor Cameras",
           "egress_cameras": "Door Cameras",
           "perimeter_cameras": "Outdoor Cameras",
+          "perimeter_zone_sensors": "Property zone sensors",
           "face_recognition_enabled": "Face recognition",
           "enhanced_census": "Smarter counting",
           "guest_vlan_ssid": "Guest Wi-Fi name",
@@ -817,6 +818,7 @@
           "camera_person_entities": "Select cameras inside your home. Each camera is automatically mapped to a room using its area assignment in Home Assistant. Works with UniFi Protect, Frigate, Reolink, and Dahua.",
           "egress_cameras": "Cameras at your exterior doors (front door, back door, garage). Used to track who enters and leaves — not used for room occupancy. Deliveries and visitors at the door won't trigger room automation.",
           "perimeter_cameras": "Cameras covering your yard, driveway, or fence line. Used to count people on your property who are outside the house.",
+          "perimeter_zone_sensors": "Frigate zone person sensors to use instead of the whole-camera sensor, so a person on the street does not alert.",
           "face_recognition_enabled": "Use face matches from your cameras to confirm who someone is. Needs a camera system with face recognition. You can also turn this off from its switch on the House device.",
           "enhanced_census": "Hold counts for a while, spot guest phones on guest Wi-Fi, and tell people seen apart from people recognized.",
           "guest_vlan_ssid": "SSID of your guest WiFi network (e.g., 'Revel'). Phones connected to this SSID are counted as guests. Leave blank to disable WiFi guest detection.",
@@ -2428,6 +2430,18 @@
       "presence_face_matching": {
         "name": "Presence Face Matching",
         "description": "Use face-recognition results to identify the person during transit/path validation and presence trust. When ON, camera face events are considered by the transit validator and the presence coordinator; when OFF, the same events are still processed but not attributed to a specific person. Toggling this switch takes effect within seconds — no integration reload."
+      },
+      "perimeter_zone_agreement_demote": {
+        "name": "Quiet Off-Property Alerts",
+        "description": "Lower a perimeter alert to low when Frigate saw the person but never inside the property zone. Off: the decision is only recorded."
+      },
+      "perimeter_single_source_demote": {
+        "name": "Quiet Single-Camera-System Alerts",
+        "description": "Lower a camera's first alert to low when only one camera system saw the person, on cameras where both systems usually agree. Off: the decision is only recorded."
+      },
+      "perimeter_egress_known_xcorr_gate": {
+        "name": "Door Alerts Only for Strangers",
+        "description": "Door cameras that also alert as outdoor cameras send a full alert only for an unknown person that both camera systems saw. Known people and single-system sightings are lowered to low."
       },
       "name_people_at_doors": {
         "name": "Name People at Doors",

@@ -188,6 +188,11 @@ def _load_ns(*, kill_switch: bool = True,
         "CONF_PERIMETER_ENRICHMENT_MODEL": "perimeter_enrichment_model",
         "CONF_PERIMETER_ENRICHMENT_MAX_TOKENS": "perimeter_enrichment_max_tokens",
         "CONF_PERIMETER_ENRICHMENT_PROVIDER_ID": "perimeter_enrichment_provider_id",
+        # PERIMETER-FP (v5.107.0) gate keys.
+        "CONF_PERIMETER_ZONE_AGREEMENT_DEMOTE": "perimeter_zone_agreement_demote",
+        "CONF_PERIMETER_SINGLE_SOURCE_DEMOTE": "perimeter_single_source_demote",
+        "CONF_PERIMETER_VLM_GATE": "perimeter_vlm_gate",
+        "CONF_PERIMETER_EGRESS_KNOWN_XCORR_GATE": "perimeter_egress_known_xcorr_gate",
         "CONF_EXTERIOR_SNAPSHOT_OFFSET_S": "exterior_snapshot_offset_s",
         # APPLIANCE-MGMT-REFINE-1 (v5.103.0): the appliance records key joined
         # the fresh-read allowlist (__init__.py:6120/6637), so the sliced code
@@ -584,7 +589,14 @@ def test_egress_perimeter_keys_not_in_allowlist_v1():
         "perimeter_enrichment_max_tokens",
         "perimeter_enrichment_provider_id",
         "exterior_snapshot_offset_s",
+        # PERIMETER-FP (v5.107.0): gate switches/select, fresh-read per alert.
+        "perimeter_zone_agreement_demote",
+        "perimeter_single_source_demote",
+        "perimeter_vlm_gate",
+        "perimeter_egress_known_xcorr_gate",
     }
+    # D1 zone sensors change subscriptions: structural, stays on reload.
+    assert "perimeter_zone_sensors" not in allow
 
 
 def test_camera_person_entities_change_dispatches_transit_signal_once(monkeypatch):

@@ -2474,10 +2474,12 @@ PERIMETER_BURST_WINDOW_S: Final = 1800
 # before demotion applies. Value 2 = demote from the SECOND alert onwards
 # (first-alert-is-sacred invariant).
 PERIMETER_BURST_MIN_ALERTS: Final = 2
-# When True, demotion only applies inside the perimeter alert-hours window
-# (deep-night, default 23-05). Redundant today because dispatch is already
-# gated by _is_in_alert_hours, but preserved as an explicit kill for future
-# 24h alert coverage.
+# When True, demotion only applies inside PERIMETER_BURST_NIGHT_WINDOW.
+# Person alerts dispatch all day since CONSOL-1 (no alert-hours gate), so
+# this is NOT redundant. PERIMETER-FP D4 (v5.107.0): the all-day code path
+# ships but the flag stays True (option C, review A-M3): flip to False only
+# after a DAYTIME-only re-sample of >= 30 would-demotes
+# (scripts/probe_perimeter_burst_replay.py).
 PERIMETER_BURST_NIGHT_ONLY: Final = True
 # CONSOL-1 fix-up A4: XCORR-1 night_only gate previously delegated through
 # `_is_in_alert_hours` → the person-path 23-05 window. CONSOL-1 §D2 removed
@@ -2489,6 +2491,74 @@ PERIMETER_BURST_NIGHT_ONLY: Final = True
 # start == end disables the gate (matches _is_in_alert_hours semantics —
 # but a full-day window makes PERIMETER_BURST_NIGHT_ONLY vacuous).
 PERIMETER_BURST_NIGHT_WINDOW: Final = (23, 5)  # (start_hour, end_hour) inclusive/exclusive wrapping
+
+# ----------------------------------------------------------------------------
+# PERIMETER-FP-STREET-NOISE-1 (v5.107.0, PLANNING_perimeter_fp_build_2026_11.md)
+# Every gate below ships OFF / shadow (INV-FP-DEMOTE-ONLY): it can only lower
+# an alert's severity to LOW, never stop the dispatch.
+# ----------------------------------------------------------------------------
+# D1 (rung 2, config flow): Frigate ZONE person sensors used instead of the
+# camera-level Frigate person leg. Empty list = today's leg set.
+CONF_PERIMETER_ZONE_SENSORS: Final = "perimeter_zone_sensors"
+# D2 (rung 1, observability only): bus-silent trip-wire. WARN once when the
+# Frigate person legs rose at least this many times in the rolling window
+# with zero `frigate_events` person messages. 0 disables the WARN.
+PERIMETER_FRIGATE_BUS_SILENT_MIN_EDGES: Final = 20
+PERIMETER_FRIGATE_BUS_WINDOW_S: Final = 86400
+# D3 (rung 3 switch, options-backed): zone-agreement demote. Off = shadow.
+CONF_PERIMETER_ZONE_AGREEMENT_DEMOTE: Final = "perimeter_zone_agreement_demote"
+DEFAULT_PERIMETER_ZONE_AGREEMENT_DEMOTE: Final = False
+# D3 (rung 1): max |edge - cached Frigate event| age. 0 disables the gate.
+PERIMETER_ZONE_AGREEMENT_MAX_AGE_S: Final = 20
+# D5 (rung 3 switch, options-backed): single-source first-alert demote.
+CONF_PERIMETER_SINGLE_SOURCE_DEMOTE: Final = "perimeter_single_source_demote"
+DEFAULT_PERIMETER_SINGLE_SOURCE_DEMOTE: Final = False
+# D5 (rung 1; D5a probe sets the measured values).
+PERIMETER_AGREEMENT_SAVE_DELAY_S: Final = 30
+PERIMETER_SS_SETTLE_S: Final = 8          # 0 = lookback only, no wait
+PERIMETER_SS_MIN_AGREEMENT: Final = 0.6   # 1.01 = never eligible
+PERIMETER_SS_MIN_SAMPLES: Final = 20      # clamped to >= 1
+PERIMETER_SS_WINDOW_N: Final = 100
+# D6 (rung 3 select, options-backed): VLM gate off | shadow | enforce.
+CONF_PERIMETER_VLM_GATE: Final = "perimeter_vlm_gate"
+PERIMETER_VLM_GATE_OFF: Final = "off"
+PERIMETER_VLM_GATE_SHADOW: Final = "shadow"
+PERIMETER_VLM_GATE_ENFORCE: Final = "enforce"
+PERIMETER_VLM_GATE_OPTIONS: Final = (
+    PERIMETER_VLM_GATE_OFF, PERIMETER_VLM_GATE_SHADOW, PERIMETER_VLM_GATE_ENFORCE,
+)
+DEFAULT_PERIMETER_VLM_GATE: Final = PERIMETER_VLM_GATE_OFF
+# D6 (rung 1): snapshot tiers whose frames a `PERSON: NO` verdict may demote.
+# `()` disables enforcement entirely.
+PERIMETER_VLM_TRUSTED_TIERS: Final = ("frigate_event",)
+# D10.5 (rung 3 switch, options-backed): dual-role (perimeter AND egress)
+# camera alerts page only for an unknown, corroborated person. Default ON:
+# these cameras raise no perimeter alert before v5.107.0.
+CONF_PERIMETER_EGRESS_KNOWN_XCORR_GATE: Final = "perimeter_egress_known_xcorr_gate"
+DEFAULT_PERIMETER_EGRESS_KNOWN_XCORR_GATE: Final = True
+# D10.5 (rung 1). Operator 2026-11-08 "perimeter alerts are time sensitive":
+# wait ships 0 = only identity available at dispatch counts.
+PERIMETER_EGRESS_IDENTITY_WAIT_S: Final = 0
+PERIMETER_EGRESS_IDENTITY_MATCH_S: Final = 15
+# Manual §5.5(a) doctrine floor: identity may de-escalate only at >= 0.9.
+# Values below 0.9 are clamped up; 1.01 disables the known-person demote.
+PERIMETER_EGRESS_KNOWN_MIN_CONF: Final = 0.9
+# D10.5 (rung 1, operator 2026-11-08): a below-floor face match (Frigate,
+# unscored) counts as KNOWN only when an existing non-face signal for the
+# SAME person (Bermuda/BLE room transition, or person tracker -> home)
+# lands within this many seconds of the edge. 0 disables the combination.
+PERIMETER_EGRESS_FACE_NONFACE_WINDOW_S: Final = 120
+# D10.5 (rung 1, review B-MED-2): non-face transitions inside this many
+# seconds after perimeter setup are ignored — HA restore stamps
+# `last_changed` at boot, so a boot-time "home" is not an arrival.
+# Same 600 s as GARAGE_LOCKOUT_BOOT_ARRIVAL_WINDOW_S (lock regime).
+PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S: Final = 600
+# D10.5 (rung 1, review A-M4): own corroboration settle, decoupled from the
+# D5 settle. D5a probe (30 d): second-engine lag p90 doorbell_lite 20.2 s,
+# front_door_aerial 18.0 s, madrone_g6_entry 22.4 s (p50 1.3-2.2 s). 20 s
+# covers two of the three p90s and caps the delay on a time-sensitive page.
+# 0 = no settle (lookback only).
+PERIMETER_EGRESS_XCORR_SETTLE_S: Final = 20
 
 # ----------------------------------------------------------------------------
 # Exterior-person NM escalation (D1/D2/D4 — PLANNING_exterior_person_escalation)

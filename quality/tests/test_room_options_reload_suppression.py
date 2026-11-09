@@ -254,6 +254,11 @@ def _load_ns() -> dict:
         "CONF_PERIMETER_ENRICHMENT_MODEL": "perimeter_enrichment_model",
         "CONF_PERIMETER_ENRICHMENT_MAX_TOKENS": "perimeter_enrichment_max_tokens",
         "CONF_PERIMETER_ENRICHMENT_PROVIDER_ID": "perimeter_enrichment_provider_id",
+        # PERIMETER-FP (v5.107.0) gate keys.
+        "CONF_PERIMETER_ZONE_AGREEMENT_DEMOTE": "perimeter_zone_agreement_demote",
+        "CONF_PERIMETER_SINGLE_SOURCE_DEMOTE": "perimeter_single_source_demote",
+        "CONF_PERIMETER_VLM_GATE": "perimeter_vlm_gate",
+        "CONF_PERIMETER_EGRESS_KNOWN_XCORR_GATE": "perimeter_egress_known_xcorr_gate",
         "CONF_EXTERIOR_SNAPSHOT_OFFSET_S": "exterior_snapshot_offset_s",
         "CONF_APPLIANCE_RECORDS": "appliance_records",
         "CONF_ENHANCED_CENSUS": "enhanced_census",
