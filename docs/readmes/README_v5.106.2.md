@@ -62,3 +62,14 @@ unchanged (rung 1).
 - The CM options still carry the two old keys, untouched.
 - Plug and EVSE pause, load shedding and the energy situation behave exactly as before. This is a
   no-regression check only: on PEC the migration is identical by design, and the proof is in the suite.
+
+## Validated 2026-11-08 (post-restart ~13:50 CST, house `away`)
+| Criterion | Result | Evidence |
+|---|---|---|
+| v5.106.2 running | PASS | `update.universal_room_automation_update` installed_version v5.106.2 |
+| Battery strategy unchanged vs pre-deploy snapshot (same TOU period: off-peak before the 17:00 mid_peak) | PASS | `sensor.ura_energy_coordinator_battery_strategy` = self_consumption. mode, reason ("Arbitrage WAIT — holding drain floor 30%"), envoy_available, tou_top_rate, inclement_tier/source/hold_depth/reason/reserve_floor/selection, arbitrage_phase and next_high_rate_transition_period are all identical. Only `next_decision_boundary.in_minutes` moved (300 to 240, elapsed time) |
+| Envoy availability with a healthy Envoy | PASS | `envoy_available` true. `sensor.ura_energy_coordinator_envoy_status` = online, offline_count_today 0, envoy_degraded false. The degraded Envoy-blind case is proven in-suite only, because it can't be triggered on demand |
+| No new repairs issue | PASS | `repairs/list_issues`: no universal_room_automation issues; `inclement_legacy_threat_list_retired` absent |
+| No inclement / energy_tou WARNING or ERROR, no rate-order warning | PASS | system_log, current boot: 0 entries matching `inclement`. `energy` matches are pre-existing room energy-sensor warnings plus an enphase_realtime statistics notice |
+| CM options still carry the two old keys | PASS (by construction) | No code path writes options; INV-L1 test proves decisions are identical with or without the keys |
+| Pause / shed / situation unchanged (no-regression only) | AS EXPECTED | Proof is the 8,760-hour helper sweep in-suite; live only shows no change in behaviour |

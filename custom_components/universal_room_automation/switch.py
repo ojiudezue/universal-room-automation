@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.106.2
+# Universal Room Automation vv5.107.0
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -47,6 +47,12 @@ from .const import (
     CONF_EGRESS_IDENTITY_ENABLED,
     DEFAULT_FACE_RECOGNITION_ENABLED,
     DEFAULT_EGRESS_IDENTITY_ENABLED,
+    CONF_PERIMETER_ZONE_AGREEMENT_DEMOTE,
+    DEFAULT_PERIMETER_ZONE_AGREEMENT_DEMOTE,
+    CONF_PERIMETER_SINGLE_SOURCE_DEMOTE,
+    DEFAULT_PERIMETER_SINGLE_SOURCE_DEMOTE,
+    CONF_PERIMETER_EGRESS_KNOWN_XCORR_GATE,
+    DEFAULT_PERIMETER_EGRESS_KNOWN_XCORR_GATE,
     SIGNAL_URA_FACE_RECOGNITION_CHANGED,
     # Room lighting Slice C (v5.103.28) — D3 Room lights switch.
     CONF_LIGHTS,
@@ -223,6 +229,41 @@ async def async_setup_entry(
                 object_id="ura_name_people_at_doors",
                 unique_suffix="name_people_at_doors",
                 icon="mdi:badge-account-horizontal",
+                fire_signal=None,
+            ),
+            # PERIMETER-FP (v5.107.0): demote-only perimeter gates. All
+            # fresh-read per alert; keys in the reload-suppress set.
+            _IntegrationOptionsSwitch(
+                hass, entry,
+                conf_key=CONF_PERIMETER_ZONE_AGREEMENT_DEMOTE,
+                default=DEFAULT_PERIMETER_ZONE_AGREEMENT_DEMOTE,
+                translation_key="perimeter_zone_agreement_demote",
+                fallback_name="Quiet Off-Property Alerts",
+                object_id="ura_perimeter_zone_agreement_demote",
+                unique_suffix="perimeter_zone_agreement_demote",
+                icon="mdi:map-marker-off",
+                fire_signal=None,
+            ),
+            _IntegrationOptionsSwitch(
+                hass, entry,
+                conf_key=CONF_PERIMETER_SINGLE_SOURCE_DEMOTE,
+                default=DEFAULT_PERIMETER_SINGLE_SOURCE_DEMOTE,
+                translation_key="perimeter_single_source_demote",
+                fallback_name="Quiet Single-Camera-System Alerts",
+                object_id="ura_perimeter_single_source_demote",
+                unique_suffix="perimeter_single_source_demote",
+                icon="mdi:cctv-off",
+                fire_signal=None,
+            ),
+            _IntegrationOptionsSwitch(
+                hass, entry,
+                conf_key=CONF_PERIMETER_EGRESS_KNOWN_XCORR_GATE,
+                default=DEFAULT_PERIMETER_EGRESS_KNOWN_XCORR_GATE,
+                translation_key="perimeter_egress_known_xcorr_gate",
+                fallback_name="Door Alerts Only for Strangers",
+                object_id="ura_perimeter_egress_known_xcorr_gate",
+                unique_suffix="perimeter_egress_known_xcorr_gate",
+                icon="mdi:door-closed-lock",
                 fire_signal=None,
             ),
         ])

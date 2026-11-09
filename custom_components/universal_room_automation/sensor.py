@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.106.2
+# Universal Room Automation vv5.107.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -4409,6 +4409,13 @@ class ExteriorOpenTracksDiagnosticSensor(AggregationEntity, SensorEntity):
     per-track path strings + classifications for dashboard consumption.
     """
 
+    # PERIMETER-FP (v5.107.0, review B-LOW-5): the gate / Frigate-bus blobs
+    # change on every event; keep them out of the recorder.
+    _unrecorded_attributes = frozenset({
+        "gate_decisions_by_camera", "agreement_by_camera",
+        "agreement_store_loaded", "frigate_bus_by_camera", "zone_map",
+        "dual_role_cameras",
+    })
     _attr_has_entity_name = True
     _attr_icon = "mdi:map-marker-path"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
@@ -4525,6 +4532,10 @@ class ExteriorOpenTracksDiagnosticSensor(AggregationEntity, SensorEntity):
                 # suppressed circling track left no evidence of its cause.
                 if mgr is not None and hasattr(mgr, "suppression_stats"):
                     attrs["suppressions_by_camera"] = mgr.suppression_stats()
+                # PERIMETER-FP (v5.107.0): per-gate decisions (shadow +
+                # enforce), D5 agreement table, D2 frigate_events counters.
+                if mgr is not None and hasattr(mgr, "gate_decision_stats"):
+                    attrs.update(mgr.gate_decision_stats())
             except Exception:  # noqa: BLE001
                 pass
             return attrs

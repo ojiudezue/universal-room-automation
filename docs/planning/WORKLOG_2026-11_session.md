@@ -55,3 +55,4 @@
 - 2026-11-08 01:05 **v5.106.0** — v5.106.0 — SC "Never auto-lock" list + Away Lock (cards: SC-LOCK-SWEEP-EXCLUDE-1,SC-LOCK-REGIME-DOOR-LOCKS-1)
 - 2026-11-08 09:14 **v5.106.1** — v5.106.1 — WhatsApp sends via ha-wa-bridge 3.x (`wa_bridge`) (cards: WA-BRIDGE-DOMAIN-1)
 - 2026-11-08 13:03 **v5.106.2** — v5.106.2 — Inclement leftovers: TOU rate ranking, Envoy-blind outage counter, retired threat-list removal (cards: EC-STORM-FULLHOLD-DEGRADED-ENVOY-AVAILABLE-1,EC-BLIND-DEESCALATE-TOP-RATE-1)
+- 2026-11-08 22:48 **v5.107.0** — v5.107.0 — Perimeter false-positive gates, egress cameras as perimeter alerts, truthful WhatsApp delivery (cards: PERIMETER-FP-STREET-NOISE-1)
