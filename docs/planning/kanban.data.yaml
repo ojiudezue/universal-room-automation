@@ -453,6 +453,17 @@ cards:
   why: "If confirmed, census face-name consumption via MQTT never sees Frigate2 names; fixing it changes census behaviour."
   next: "Confirm with the MQTT plan's D0 live capture (which topic carries Frigate2 events), then fix the lookup by reusing the new frigate_ingress prefix discovery."
   links: {related: [PERIMETER-FRIGATE-MQTT-DIRECT-1, FACE-SOURCE-REGISTRY-DISCOVERY-1]}
+- id: TEST-OC-PILLAR-EVICT-STUBS-LEAK-1
+  title: "test_oc_pillar_a_handshake.py autouse _evict_ura_stubs deletes every URA module from sys.modules and never restores them, so later tests that import URA modules in-body re-import against stubbed HA helpers (order-dependent failures)"
+  thread: quality
+  status: planned
+  tier: 2
+  created: "2026-11-09 08:00"
+  updated: "2026-11-09 08:00"
+  rank: {value: 3, time_criticality: 1, effort: 2}
+  origin: "v5.107.5 recovery-test order flake root cause (commit 98f959ee): ImportError async_track_time_change from stubbed homeassistant.helpers.event."
+  why: "Breaks builder rule 8 (no permanent sys.modules surgery); any in-body import after it can flake in the full suite, producing false NEW names in name-diffs."
+  next: "Make the fixture restore what it evicted (snapshot+restore sys.modules entries), then a full name-diff to confirm the failure set only shrinks."
 - id: PERSON-PROFILE-PREFERENCES-1
   title: "Per-person profile for identified household members: their bedroom(s)/bathroom, room ownership (incl. shared owners e.g. master), playlist, opt-in/out of automated arrival actions, welcome scene"
   thread: identity
