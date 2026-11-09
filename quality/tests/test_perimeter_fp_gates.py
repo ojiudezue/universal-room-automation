@@ -483,6 +483,129 @@ def test_frigate_bus_not_silent_when_bus_alive(monkeypatch, caplog):
 
 
 # =========================================================================
+# PERIMETER-FRIGATE-MQTT-DIRECT-1: perimeter consumes FrigateEventIngress
+# =========================================================================
+def _fi_mod():
+    import sys as _sys
+    return _sys.modules[_perimeter.get_frigate_ingress.__module__]
+
+
+def _with_ingress(hass):
+    fi = _fi_mod()
+    ing = fi.FrigateEventIngress(hass)
+    hass.data[_const.DOMAIN][fi.FRIGATE_INGRESS_HASS_KEY] = ing
+    return ing
+
+
+def _mqtt(ing, payload: dict):
+    import json as _json
+    ing._on_mqtt_events(
+        SimpleNamespace(payload=_json.dumps(payload), retain=False), "mqtt:frigate2",
+    )
+
+
+def test_perimeter_registers_on_ingress_mqtt_feeds_caches(monkeypatch):
+    """Wire-in anchor for `register_frigate_consumer(self.hass, "perimeter",
+    ...)` in PerimeterAlertManager.async_setup."""
+    hass, _nm = _build(perimeter=(UT_CAM,))
+    ing = _with_ingress(hass)
+    mgr, _subs = _setup(hass, monkeypatch)
+    assert not any(
+        c.args and c.args[0] == _perimeter.FRIGATE_EVENTS_BUS_EVENT
+        for c in hass.bus.async_listen.call_args_list
+    )
+    _mqtt(ing, _FRIGATE_PAYLOAD)
+    assert mgr._frigate_last_event_id[UT_KEY][0] == "1731070000.123456-ab12cd"
+    assert mgr._frigate_event_cache[UT_KEY]["entered_zones"] == ["utilities_ptz_property"]
+    assert mgr.frigate_bus_stats()[UT_KEY]["frigate_events_24h"] == 1
+    _mqtt(ing, {**_FRIGATE_PAYLOAD, "type": "end"})
+    assert mgr._frigate_ended_event_id[UT_KEY] == "1731070000.123456-ab12cd"
+    _run(mgr.async_teardown())
+    assert ing._consumers == {}
+
+
+def test_silent_warn_needs_both_sources_silent(monkeypatch, caplog):
+    """D4 discriminator: bridge automation gone (bus silent), MQTT live ->
+    no WARN. Under the pre-cycle bus-only listener this case WARNs."""
+    monkeypatch.setattr(_perimeter, "PERIMETER_FRIGATE_BUS_SILENT_MIN_EDGES", 1)
+    hass, _nm = _build(perimeter=(RP_CAM,))
+    ing = _with_ingress(hass)
+    mgr, _subs = _setup(hass, monkeypatch)
+    _mqtt(ing, {"type": "new", "after": {"id": "x", "camera": "rear_ptz", "label": "person"}})
+    with caplog.at_level(logging.WARNING):
+        mgr._on_perimeter_event(_edge(RP_F2))
+    assert "ZERO frigate_events" not in caplog.text
+    assert ing.diag_stats()["frigate_ingress_bus_24h"] == 0
+    assert ing.diag_stats()["frigate_ingress_mqtt_24h"] == 1
+
+
+def test_silent_warn_both_silent_names_prefixes(monkeypatch, caplog):
+    monkeypatch.setattr(_perimeter, "PERIMETER_FRIGATE_BUS_SILENT_MIN_EDGES", 1)
+    hass, _nm = _build(perimeter=(RP_CAM,))
+    ing = _with_ingress(hass)
+    ing._mqtt_subs[("frigate2", "events")] = lambda: None
+    mgr, _subs = _setup(hass, monkeypatch)
+    with caplog.at_level(logging.WARNING):
+        mgr._on_perimeter_event(_edge(RP_F2))
+    assert caplog.text.count("ZERO frigate_events messages from any source") == 1
+    assert "MQTT frigate2/events" in caplog.text
+
+
+def test_gate_decision_stats_carries_ingress_attrs(monkeypatch):
+    hass, _nm = _build(perimeter=(UT_CAM,))
+    ing = _with_ingress(hass)
+    mgr, _subs = _setup(hass, monkeypatch)
+    _mqtt(ing, _FRIGATE_PAYLOAD)
+    ing._on_mqtt_events(SimpleNamespace(payload="bad", retain=False), "mqtt:frigate2")
+    stats = mgr.gate_decision_stats()
+    assert stats["frigate_ingress_mqtt_24h"] == 2
+    assert stats["frigate_ingress_bus_24h"] == 0
+    assert stats["frigate_ingress_mqtt_bad_payload"] == 1
+    assert stats["frigate_ingress_dedup_dropped"] == 0
+
+
+def test_perimeter_replay_byte_identical_dual_source(monkeypatch):
+    """D3 INV-3 on the real consumer: bus-only (legacy listener) vs ingress
+    with both sources fed the D0 live fixture -> identical perimeter state,
+    arrival-time stamps excluded (plan rev 2 M1)."""
+    import json as _json
+    from pathlib import Path as _P
+
+    pairs = _json.loads(
+        (_P(__file__).parent / "fixtures" / "frigate_events_mqtt_live.json").read_text()
+    )["pairs"]
+
+    def _snap(mgr):
+        return (
+            {k: v[0] for k, v in mgr._frigate_last_event_id.items()},
+            dict(mgr._frigate_ended_event_id),
+            {k: {f: x for f, x in r.items() if f != "received_at"}
+             for k, r in mgr._frigate_event_cache.items()},
+            {k: len(v) for k, v in mgr._frigate_bus_times.items()},
+        )
+
+    hass_a, _ = _build(perimeter=(UT_CAM,))
+    mgr_a, _ = _setup(hass_a, monkeypatch)
+    for p in pairs:
+        _frigate_cb(hass_a)(SimpleNamespace(data=p["bus_data"]))
+
+    hass_b, _ = _build(perimeter=(UT_CAM,))
+    ing = _with_ingress(hass_b)
+    mgr_b, _ = _setup(hass_b, monkeypatch)
+    for p in pairs:
+        ing._on_mqtt_events(
+            SimpleNamespace(payload=p["mqtt_payload"], retain=False), "mqtt:frigate2",
+        )
+        ing._on_bus(SimpleNamespace(data=p["bus_data"]))
+
+    snap_a = _snap(mgr_a)
+    assert snap_a[0] == {"g5_bullet": "1794235499.715034-xn7uuc",
+                         "kitchen_panel": "1794236552.741517-acdwi1"}
+    assert _snap(mgr_b) == snap_a
+    assert ing.dedup_dropped["bus"] == 16
+
+
+# =========================================================================
 # D3 zone agreement
 # =========================================================================
 

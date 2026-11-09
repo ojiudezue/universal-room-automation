@@ -618,3 +618,39 @@ def test_perimeter_setup_installs_allowlist_anchor():
     assert "set_allowed_cameras" in blk[:3000], (
         "perimeter setup must install the linker camera allowlist"
     )
+
+
+# ---------------------------------------------------------------------------
+# PERIMETER-FRIGATE-MQTT-DIRECT-1 D3: the linker consumes FrigateEventIngress.
+# ---------------------------------------------------------------------------
+def test_linker_registers_on_frigate_ingress_and_mqtt_feeds_observe():
+    """Wire-in anchor for `register_frigate_consumer(self.hass, "linker", ...)`
+    in ExteriorTrackLinker.async_setup: with an ingress present the linker
+    adds no bus listener, and a direct-MQTT Frigate event reaches observe()."""
+    from types import SimpleNamespace as _NS
+    import json as _json
+
+    fi_mod = sys.modules[etl.register_frigate_consumer.__module__]
+    hass = _FakeHass()
+    hass.data = {_const.DOMAIN: {}}
+    ing = fi_mod.FrigateEventIngress(hass)
+    hass.data[_const.DOMAIN][fi_mod.FRIGATE_INGRESS_HASS_KEY] = ing
+    lk = ExteriorTrackLinker(hass)
+    lk.set_allowed_cameras({"utilities"})
+    asyncio.run(lk.async_setup())
+    try:
+        assert not any(
+            c.args and c.args[0] == etl.FRIGATE_EVENTS_BUS_EVENT
+            for c in hass.bus.async_listen.call_args_list
+        )
+        payload = _json.dumps({
+            "type": "new", "before": {},
+            "after": {"id": "e1", "camera": "utilities", "label": "person",
+                      "score": 0.9, "sub_label": ["Jaya", 0.99]},
+        })
+        ing._on_mqtt_events(_NS(payload=payload, retain=False), "mqtt:frigate2")
+        assert lk.census_counts()["exterior_person_tracks_active"] == 1
+    finally:
+        asyncio.run(lk.async_teardown())
+    # Teardown unregisters the consumer (unchanged teardown site).
+    assert ing._consumers == {}

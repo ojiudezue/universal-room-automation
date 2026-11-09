@@ -49,8 +49,13 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-# Frigate HA-bus event name (same as perimeter_alert.py — subscribe defensively).
-FRIGATE_EVENTS_BUS_EVENT = "frigate_events"
+# Frigate HA-bus event name (same as perimeter_alert.py). Since
+# PERIMETER-FRIGATE-MQTT-DIRECT-1 the listener is FrigateEventIngress (bus +
+# direct MQTT, deduped); the name is re-exported for callers/tests.
+from .frigate_ingress import (  # noqa: E402
+    FRIGATE_EVENTS_BUS_EVENT,
+    register_frigate_consumer,
+)
 
 # Bucketing for Frigate labels into track families. Extended per review
 # A-MED-4 (dog, cat, bird, squirrel, rabbit, fox, coyote, deer, raccoon,
@@ -241,10 +246,12 @@ class ExteriorTrackLinker:
         if self._active:
             return
 
+        # MQTT-DIRECT-1 D3: fed by FrigateEventIngress; `data` is the
+        # `frigate_events` payload shape, `_source` unused.
         @callback
-        def _on_frigate(event: Event) -> None:
+        def _on_frigate(data: Any, _source: str = "bus") -> None:
             try:
-                after = event.data.get("after") or {}
+                after = data.get("after") or {}
                 raw_label = str(after.get("label") or "")
                 label = _bucket_label(raw_label)
                 if label is None:
@@ -255,7 +262,7 @@ class ExteriorTrackLinker:
                 event_id = after.get("id")
                 score = float(after.get("score") or 0.0)
                 sub_label = after.get("sub_label") or None
-                msg_type = str(event.data.get("type") or "").lower()
+                msg_type = str(data.get("type") or "").lower()
                 if msg_type == "end":
                     return
                 self.observe(
@@ -269,8 +276,8 @@ class ExteriorTrackLinker:
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("ExteriorTrackLinker: frigate parse failed", exc_info=True)
 
-        self._unsub_frigate = self.hass.bus.async_listen(
-            FRIGATE_EVENTS_BUS_EVENT, _on_frigate
+        self._unsub_frigate = register_frigate_consumer(
+            self.hass, "linker", _on_frigate,
         )
         # B-H1: periodic idle sweep so tracks close even in the absence of
         # further events (frigate quiet after a walker leaves). Cadence =

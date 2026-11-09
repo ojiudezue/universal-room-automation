@@ -1534,6 +1534,9 @@ class PersonCensus:
         # an honest face-yield signal independent of person/etc chatter.
         self._frigate_face_msg_face_count: int = 0
         self._frigate_face_msg_dropped_count: int = 0
+        # FRIGATE-FACE-BRIDGE-DEAD-PREFIX-1: retained (stale) messages
+        # replayed by the broker on subscribe; skipped, not latched.
+        self._frigate_face_msg_retained_count: int = 0
         # B-MED: memoize camname -> latch base_stems (derived from the
         # entity registry face-sensor scan on the resolved device_ids).
         # Invalidated by rebinding when the underlying CameraResolver
@@ -5247,6 +5250,32 @@ class PersonCensus:
         None) and the point-read path is unaffected."""
         # Idempotent: drop any prior sub before re-registering.
         self.async_teardown_frigate_face_listener()
+        # FRIGATE-FACE-BRIDGE-DEAD-PREFIX-1: the old resolver read
+        # `topic_prefix` from the Frigate config ENTRY (never there) and fell
+        # back to the literal `frigate` (retired Frigate-1, retained messages
+        # only). Prefixes now come from the RUNNING Frigate integration, one
+        # subscription per Frigate entry, via the shared
+        # `frigate_ingress.discover_frigate_topic_prefixes`. Preferred path:
+        # register on the FrigateEventIngress, which owns discovery,
+        # late-load reconciles and teardown for every Frigate MQTT topic.
+        from .frigate_ingress import (
+            FACE_TOPIC_SUFFIX,
+            discover_frigate_topic_prefixes,
+            get_frigate_ingress,
+        )
+
+        ingress = get_frigate_ingress(self.hass)
+        if ingress is not None:
+            self._frigate_face_unsub = ingress.register_topic_handler(
+                FACE_TOPIC_SUFFIX, "census_face", self._on_frigate_face_msg,
+            )
+            _LOGGER.info(
+                "frigate-face bridge: registered on FrigateEventIngress "
+                "(<prefix>/%s for every running Frigate entry; TTL=%ds)",
+                FACE_TOPIC_SUFFIX, FACE_NAME_LATCH_TTL_S,
+            )
+            return
+        # Fallback (ingress absent): subscribe directly, still no literal.
         try:
             from homeassistant.components import mqtt as _mqtt
         except Exception:  # noqa: BLE001
@@ -5255,48 +5284,43 @@ class PersonCensus:
                 exc_info=True,
             )
             return
-        topic_prefix = self._resolve_frigate_topic_prefix() or "frigate"
-        topic = f"{topic_prefix}/tracked_object_update"
-        try:
-            unsub = await _mqtt.async_subscribe(
-                self.hass,
-                topic,
-                self._on_frigate_face_msg,
-            )
-        except Exception:  # noqa: BLE001
+        prefixes = sorted(discover_frigate_topic_prefixes(self.hass))
+        if not prefixes:
             _LOGGER.debug(
-                "frigate-face bridge: mqtt.async_subscribe failed — "
+                "frigate-face bridge: no running Frigate topic prefix — "
                 "bridge inert (point-read path unaffected)",
-                exc_info=True,
             )
             return
-        self._frigate_face_unsub = unsub
+        unsubs: list[Any] = []
+        topics: list[str] = []
+        for prefix in prefixes:
+            topic = f"{prefix}/{FACE_TOPIC_SUFFIX}"
+            try:
+                unsubs.append(await _mqtt.async_subscribe(
+                    self.hass, topic, self._on_frigate_face_msg,
+                ))
+                topics.append(topic)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "frigate-face bridge: mqtt.async_subscribe %s failed — "
+                    "inert for that prefix", topic, exc_info=True,
+                )
+        if not unsubs:
+            return
+
+        def _unsub_all() -> None:
+            for u in unsubs:
+                try:
+                    u()
+                except Exception:  # noqa: BLE001
+                    pass
+
+        self._frigate_face_unsub = _unsub_all
         _LOGGER.info(
             "frigate-face bridge: subscribed to %s (TTL=%ds, "
             "known-camname collision guard remains authoritative)",
-            topic, FACE_NAME_LATCH_TTL_S,
+            ", ".join(topics), FACE_NAME_LATCH_TTL_S,
         )
-
-    def _resolve_frigate_topic_prefix(self) -> str | None:
-        """D-MED-3: best-effort probe for the configured Frigate MQTT
-        `topic_prefix`. Falls back to None (caller uses literal
-        `"frigate"`); either way the known-camname collision guard in
-        `_on_frigate_face_msg` prevents cross-host bleed (memory:
-        frigate_mqtt_topic_collision)."""
-        try:
-            entries = self.hass.config_entries.async_entries("frigate")
-        except Exception:  # noqa: BLE001
-            return None
-        for entry in entries or []:
-            for src in (
-                getattr(entry, "options", None) or {},
-                getattr(entry, "data", None) or {},
-            ):
-                for key in ("topic_prefix", "mqtt_topic_prefix", "mqtt_topic"):
-                    val = src.get(key) if isinstance(src, dict) else None
-                    if isinstance(val, str) and val.strip():
-                        return val.strip().rstrip("/")
-        return None
 
     def async_teardown_frigate_face_listener(self) -> None:
         """Drain the Frigate face MQTT subscription. Safe to call
@@ -5432,6 +5456,12 @@ class PersonCensus:
         `_2` disambiguation is permanent), and latches (name, ts).
         Malformed / non-face / unknown-camera messages are counted
         under `_frigate_face_msg_dropped_count`."""
+        # FRIGATE-FACE-BRIDGE-DEAD-PREFIX-1: a subscribe replays the broker's
+        # retained message; a retained face would latch a stale name stamped
+        # `now`. Skip it (not counted as seen).
+        if getattr(msg, "retain", False) is True:
+            self._frigate_face_msg_retained_count += 1
+            return
         self._frigate_face_msg_seen_count += 1
         try:
             payload_raw = getattr(msg, "payload", None)
