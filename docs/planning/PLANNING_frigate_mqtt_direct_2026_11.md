@@ -3,7 +3,7 @@
 Card: `PERIMETER-FRIGATE-MQTT-DIRECT-1` (kanban.data.yaml:383). Arc: perimeter-identity-arc-2026-11.
 Supersedes the parked D9 in `PLANNING_perimeter_fp_build_2026_11.md:532-542`.
 Operator 2026-11-08: "URA listening to Frigate MQTT is essential for portability, which is imperative."
-Status: plan, not built. Tier 2-DB (see §8). One adversarial plan review before build.
+Status: plan rev 2, not built. Tier 2-DB (see §8). Rev 2 applies plan review 1 (`docs/reviews/code-review/frigate_mqtt_direct_plan_review_1.md`: H1-H3, M1-M4, L1-L2).
 
 ---
 
@@ -18,10 +18,11 @@ Status: plan, not built. Tier 2-DB (see §8). One adversarial plan review before
 | Unload teardown of an MQTT unsub | **REUSE pattern** | `__init__.py:5826-5836` + `camera_census.py:5301-5315`. |
 | Topic-prefix discovery | **NEW helper; existing one is broken** | `camera_census.py:5280-5299` `_resolve_frigate_topic_prefix` reads `topic_prefix` from the Frigate **config entry data/options**. Those keys do not exist: the live Frigate entry (`01KM239Z8ZQWQTN1D9CV5JRA7V`, "Frigate 2") holds only `url/username/validate_ssl` + UI options (read from `.storage/core.config_entries`). The Frigate integration fetches the prefix from the server at setup and stores it in `hass.data["frigate"][entry_id]["config"]["mqtt"]["topic_prefix"]` (`/config/custom_components/frigate/__init__.py:372,378-381`, v5.15.6). The new helper reads that. See finding F1. |
 | `frigate_events` bus listener, perimeter | **REUSE as fallback source** | develop `perimeter_alert.py:928-973` (`_on_frigate_event`, `self.hass.bus.async_listen(FRIGATE_EVENTS_BUS_EVENT, ...)`), teardown :1210-1215. |
-| `frigate_events` bus listener, linker | **REUSE as fallback source** | `exterior_track_linker.py:238-271` (`_on_frigate`), constant :53. |
+| `frigate_events` bus listener, linker | **REUSE as fallback source** | `exterior_track_linker.py:238-275` (`_on_frigate`, listen :272), constant :53. |
 | D2 cache + bus-silent WARN | **REUSE, extend counters** | develop `perimeter_alert.py:4416-4470` (`_note_frigate_event`, `_append_window`, `_note_frigate_leg_edge`); knobs `PERIMETER_FRIGATE_BUS_SILENT_MIN_EDGES`, `PERIMETER_FRIGATE_BUS_WINDOW_S` (const.py ~2514). |
 | A single Frigate ingress object | **NEW** | `grep -rn "INGRESS\|frigate_ingress\|FRIGATE_MQTT" custom_components/universal_room_automation/*.py` → no hits. |
 | Event dedup across sources | **NEW** | No existing Frigate event dedup; linker has per-track merge only. |
+| Frigate's own `WSEventProxy` | **Checked, not a collision** | frigate `ws_proxy.py:107` subscribes `<prefix>/events` for its websocket API and fires no bus event. Not a `frigate_events` consumer. |
 
 Greps run (develop HEAD c320c8f3, includes v5.107.1/2/3):
 ```
@@ -56,7 +57,7 @@ No setting makes URA independent of the house automation: the bus listener is th
 
 - **INV-1 (exactly-once).** For every Frigate `events` message M, each registered consumer (perimeter `_on_frigate_event`, linker `_on_frigate`) is invoked **at most once** for M, whatever combination of sources delivers it (bus only, MQTT only, both, both with either arriving first). Broken by: any reachable path in which one consumer sees the same `(id, type, after)` twice from different sources.
 - **INV-2 (no loss when one source lives).** If at least one source delivers M, each consumer is invoked for M, except when the other source has fed the same event id within `FRIGATE_INGRESS_SOURCE_LATCH_TTL_S` (the accepted cost of the latch, §3.3).
-- **INV-3 (byte-identical here).** On this house (bridge + MQTT both live), the sequence of `{type, before, after}` mappings each consumer receives equals the sequence the bus alone delivered before this change, so alert text, snapshot id, D2 record and linker tracks are unchanged. The only allowed difference is earlier arrival (MQTT does not go through the automation queue).
+- **INV-3 (sequence-identical here; rev 2).** On this house (bridge + MQTT both live), the sequence of `{type, before, after}` mappings each consumer receives equals the sequence the bus alone delivered before this change, plus any messages the bridge queue dropped (`max: 25`). Arrival-time stamps are excluded from the comparison. **Accepted change, not a violation:** messages arrive earlier, so their interleaving with other inputs shifts. In particular SNAP-1 edge capture may see an event id cached earlier and pick a different (fresher) snapshot id, and linker `observe` timestamps shift. Alert text and snapshot ids are therefore NOT claimed unchanged.
 - **INV-4 (no hard dependency).** With mqtt not installed, not loaded, or loading after URA, URA setup completes with no exception and no wait, and the bus path behaves exactly as today.
 
 Reviewer D: falsify these, INV-1 especially, across setup/reload/late-mqtt/late-frigate orderings.
@@ -91,7 +92,7 @@ Reviewer D: falsify these, INV-1 especially, across setup/reload/late-mqtt/late-
 ## 3. Design
 
 ### 3.1 One ingress: `frigate_ingress.py` → `FrigateEventIngress`
-Owned at `hass.data[DOMAIN]["frigate_ingress"]`, created in the parent entry **before** `PerimeterAlertManager` (`__init__.py:3490`) and the linker (`:3567`). API:
+Owned at `hass.data[DOMAIN]["frigate_ingress"]`, created in the parent entry **before** `PerimeterAlertManager` (`__init__.py:3490`) and the linker (`:3550`). API:
 - `register_consumer(name, fn)` → unregister callable. `fn(data: Mapping, source: str)` is sync, `@callback`-safe.
 - `_dispatch(data, source)`: dedupe (§3.3), then call each consumer in its own `try/except` so one consumer's exception cannot starve the other.
 - Sources: `"bus"` (one `hass.bus.async_listen("frigate_events", ...)`) and `"mqtt:<prefix>"` (one subscription per discovered prefix).
@@ -101,18 +102,21 @@ Owned at `hass.data[DOMAIN]["frigate_ingress"]`, created in the parent entry **b
 
 ### 3.3 Dedup and precedence: per-event-id source latch, first source wins
 `_latch: dict[event_id, (source_family, last_seen_monotonic)]`, `source_family ∈ {"bus","mqtt"}`.
-- Message with no `after.id` → dispatch (cannot dedupe; today's handlers ignore id-less messages for caching anyway). Counted.
+- Message with no `after.id` → dispatched from **one family only**: MQTT when at least one MQTT subscription is live, otherwise bus; the other family's id-less copies are dropped. Counted (`idless`). (Rev 2, H1: consumers do NOT ignore id-less messages. Perimeter calls `_note_frigate_event` before checking the id, at `perimeter_alert.py:950`, and the linker calls `observe(event_id=None)`. Dispatching from both sources would double-feed.)
 - id not latched, or latch expired → latch to this family, dispatch.
 - id latched to **this** family → refresh timestamp (sliding), dispatch.
 - id latched to the **other** family → drop, increment `dedup_dropped[family]`.
 
-Why this, not a content hash or `(id, type)`: same-source messages are never deduped, so the update stream stays intact (F2). Within one family the stream is ordered (MQTT per topic, the automation queue FIFO), so feeding one family per event id gives the same sequence the bus gave alone. A content hash would depend on template round-trip fidelity across every field. **Precedence:** whichever arrives first. Here that is MQTT (no automation hop), so MQTT effectively wins and the bus is the fallback, without a mode switch. If the MQTT subscription drops mid-event, the bus takes over for that id once the winning family has been silent for `FRIGATE_INGRESS_SOURCE_LATCH_TTL_S`.
+Why this, not a content hash or `(id, type)`: same-source messages are never deduped, so the update stream stays intact (F2). Within one family the stream is ordered (MQTT per topic, the automation queue FIFO), so feeding one family per event id gives the same sequence the bus gave alone. A content hash would depend on template round-trip fidelity across every field. **Precedence:** whichever arrives first. Here that is MQTT (no automation hop), so MQTT effectively wins and the bus is the fallback, without a mode switch. If the MQTT subscription drops mid-event, the bus takes over for that id once the winning family has been silent for `FRIGATE_INGRESS_SOURCE_LATCH_TTL_S`; bus copies inside that window, `end` included, are lost (INV-2 cost).
+**TTL sizing (rev 2, H2).** Long gaps within one family are harmless: the latch expires and the first-arriving family relatches. INV-1 breaks only if a bus twin arrives **after** its latch expired. So the TTL must exceed the maximum bus lag behind MQTT (D0 item 2) with margin, and otherwise be as small as possible, because it is also the failover dead time. Gate: `TTL >= max(10, 3 × D0 max lag)`.
+**Shared client caveat (rev 2, H3).** Here both sources ride the same HA MQTT client (the bridge is an `mqtt` trigger), so broker loss silences both together. The only realistic one-sided MQTT stop is URA unsubscribing itself, which §3.4 now forbids at runtime.
 Bound: prune expired entries on each insert; hard cap `FRIGATE_INGRESS_LATCH_MAX` (oldest evicted).
 
 ### 3.4 No hard mqtt dependency; load-order handling
 - manifest.json unchanged; no `after_dependencies`.
-- `async_reconcile()`: compute prefixes; if non-empty, lazily import `homeassistant.components.mqtt` (inside try); diff against current subs; unsubscribe removed and subscribe added (`await mqtt.async_subscribe(hass, f"{p}/events", cb)`); every failure leaves that prefix inert and logs DEBUG. Idempotent.
-- Triggered: (a) at ingress setup; (b) `async_when_setup(hass, "mqtt", ...)`; (c) `async_when_setup(hass, "frigate", ...)`, because the prefix exists only after Frigate's setup has fetched its server config; (d) a periodic reconcile every `FRIGATE_INGRESS_RECONCILE_S` to catch a Frigate entry added or reloaded later (`async_when_setup` fires once).
+- `async_reconcile()`: compute prefixes; if non-empty, lazily import `homeassistant.components.mqtt` (inside try); subscribe any prefix not yet subscribed. **Add-only (rev 2, H3):** a prefix that disappears from discovery stays subscribed. Frigate's unload pops `hass.data["frigate"][entry_id]` (frigate `__init__.py:618`), and a `ConfigEntryNotReady` retry leaves it absent; unsubscribing in that gap would strand in-flight MQTT-latched ids. A dead-topic subscription is free. Unsubscribe only at ingress teardown. (`await mqtt.async_subscribe(hass, f"{p}/events", cb)`); every failure leaves that prefix inert and logs DEBUG. Idempotent.
+- Triggered: (a) at ingress setup; (b) `async_when_setup(hass, "mqtt", ...)`; (c) `async_when_setup(hass, "frigate", ...)`, because the prefix exists only after Frigate's setup has fetched its server config; (d) a periodic reconcile every `FRIGATE_INGRESS_RECONCILE_S` to catch a Frigate entry added or reloaded later (`async_when_setup` fires once). Late Frigate after `ConfigEntryNotReady` is caught only by (d), up to `FRIGATE_INGRESS_RECONCILE_S`, and the bus covers that gap (L1).
+- **Open, verify in build (M4):** whether an `mqtt.async_subscribe` subscription survives a reload of the MQTT config entry. The builder reads the installed HA core `homeassistant/components/mqtt` source and cites file:line before writing this section. If it does not survive, reconcile (d) also re-subscribes when the MQTT family has been silent for more than `FRIGATE_INGRESS_RECONCILE_S` while the bus family is active. The census face bridge shares this exposure; note the outcome on `FRIGATE-FACE-BRIDGE-DEAD-PREFIX-1`.
 - Every hook callback starts with the liveness guard `hass.data[DOMAIN].get("frigate_ingress") is self` (copy of D2-MED-1 at `__init__.py:2974-2978`).
 - The MQTT callback is `@callback`, sync, and must not block: parse, normalise, `_dispatch`.
 
@@ -135,12 +139,13 @@ Build gate: after the build, `grep -rn 'async_listen(.*FRIGATE_EVENTS_BUS_EVENT'
 ### D0. Probe + fixture (measure before build; go/no-go)
 Read-only and one-shot. For 30-60 min of real traffic, capture side by side: (a) raw `frigate2/events` MQTT payloads (the HA `mqtt.dump` service on `frigate2/events`, or `mosquitto_sub` in the broker add-on); (b) `frigate_events` bus events (websocket `subscribe_events`). Report:
 1. Pairing rate by `(id, type, after.frame_time)`, and **dict equality** of each MQTT-normalised message against its bus twin (expect 100%).
-2. MQTT→bus latency distribution (p50/p95).
+2. MQTT→bus latency distribution (p50/p95/**max**). Max sizes the TTL (§3.3).
 3. Messages present on MQTT but missing from the bus (automation queue overflow, `max: 25`).
-4. Max gap between consecutive messages of one event id (sizes `FRIGATE_INGRESS_SOURCE_LATCH_TTL_S`).
+4. Max gap between consecutive messages of one event id (information only; it does not size the TTL, per rev 2 H2).
+6. Count of id-less messages (expect 0).
 5. F1: the face-bridge subscribe topic from the INFO log.
 Commit a 10-20-message slice (new/update/end, at least one person on a zoned camera) as `quality/tests/fixtures/frigate_events_mqtt_live.json` with its bus twins.
-**Gate:** equality < 100% → the normaliser must account for every difference before build; otherwise INV-3 is unprovable. Gap p99 > 600 s → raise the TTL default.
+**Gate (rev 2, L2):** D0 does not decide whether the cycle happens (portability is an operator mandate). It blocks the build until (a) normalised equality is 100%, or the normaliser accounts for every difference, and (b) the TTL default satisfies `TTL >= max(10, 3 × max lag)`.
 - **Verify:** report appended to this doc (§10).
 - **Live:** n/a (offline).
 
@@ -155,21 +160,23 @@ Commit a 10-20-message slice (new/update/end, at least one person on a zoned cam
 §3.3.
 - **Verify (discriminating):** fixture stream N messages for one id, delivered via both sources interleaved (MQTT first, bus copies 50 ms later) → each consumer called exactly N times, in MQTT order. Under the rejected `(id, type)` key the same test yields 2 calls (new + one update), so it discriminates against F2.
 - **Verify:** MQTT delivers new + update, then goes silent; bus continues. Before TTL: bus copies dropped. After TTL: bus copies dispatched.
-- **Verify:** id-less messages are dispatched from both sources (documented, harmless: consumers ignore them).
+- **Verify:** an id-less message delivered by both sources reaches each consumer exactly once (MQTT copy when MQTT is subscribed; bus copy when it is not).
 - **Verify:** latch never exceeds `FRIGATE_INGRESS_LATCH_MAX`.
-- **Test:** `test_dual_source_exactly_once_preserves_updates`, `test_latch_failover_after_ttl`, `test_bus_first_then_mqtt_drops_mqtt`, `test_latch_bounded`.
+- **Verify:** a bus twin delayed by less than the TTL is dropped even after a long same-family gap, and the TTL clamps to at least 10.
+- **Test:** `test_dual_source_exactly_once_preserves_updates`, `test_latch_failover_after_ttl`, `test_bus_first_then_mqtt_drops_mqtt`, `test_latch_bounded`, `test_idless_single_family`, `test_ttl_floor_clamp`.
 
 ### D3. Migrate both consumers; lifecycle wiring
 Bodies of `_on_frigate_event` and linker `_on_frigate` unchanged except they read `data` instead of `event.data`, and gain an unused `source` argument. Wire per §3.4-3.5 in `__init__.py`.
-- **Verify (byte-identical):** replay the D0 bus fixture through (a) the old code path and (b) the ingress with both sources fed. Snapshot of `_frigate_last_event_id`, `_frigate_ended_event_id`, `_frigate_event_cache` (minus `received_at`), linker tracks, and the dispatched alert payload are equal.
+- **Verify (byte-identical):** replay the D0 bus fixture through (a) the old code path and (b) the ingress with both sources fed. Snapshot of `_frigate_last_event_id`, `_frigate_ended_event_id`, `_frigate_event_cache` (minus `received_at`), linker tracks, and the dispatched alert payload are equal, after excluding arrival-time stamps: the `utcnow()` in the `_frigate_last_event_id` tuple, `received_at`, `_frigate_bus_times` values and linker `now` (rev 2, M1).
 - **Verify:** load orders mqtt-before-URA, mqtt-after-URA, frigate-after-URA, and mqtt-never all end with the correct subscription set (0 or 1 per prefix, never 2).
 - **Verify:** unload → zero MQTT subs, zero bus listeners, reconcile timer cancelled. A late `async_when_setup` callback after unload does nothing (liveness guard).
 - **Verify:** reload twice → exactly one subscription per prefix.
+- **Verify:** the Frigate entry unloaded (hass.data popped) while reconcile runs → the `frigate2/events` subscription is kept (add-only).
 - **Verify:** ingress construction failure → consumers use the legacy bus listener.
-- **Test:** `test_replay_byte_identical_dual_source`, `test_load_order_matrix`, `test_unload_drains_all_subs`, `test_late_when_setup_after_unload_noop`, `test_reload_no_orphan_subscription`, `test_ingress_failure_legacy_fallback`, `test_single_frigate_events_listener_site`.
+- **Test:** `test_replay_byte_identical_dual_source`, `test_load_order_matrix`, `test_unload_drains_all_subs`, `test_late_when_setup_after_unload_noop`, `test_reload_no_orphan_subscription`, `test_frigate_unload_gap_keeps_subscription`, `test_ingress_failure_legacy_fallback`, `test_single_frigate_events_listener_site`.
 
 ### D4. D2 trip-wire and diagnostics follow the ingress
-`_frigate_bus_times` counts ingress-dispatched messages (either source), so the silent WARN fires only when **both** sources are silent. Reword: "...with ZERO Frigate event messages (MQTT `<prefixes>` and frigate_events bus)". On the diagnostic sensor add (display only): `frigate_ingress_prefixes`, `frigate_ingress_mqtt_24h`, `frigate_ingress_bus_24h`, `frigate_ingress_dedup_dropped`, `frigate_ingress_mqtt_bad_payload`. The existing `frigate_events_24h` keeps its meaning (messages delivered to consumers).
+`_frigate_bus_times` counts ingress-dispatched messages (either source), so the silent WARN fires only when **both** sources are silent. Reword: "...with ZERO Frigate event messages (MQTT `<prefixes>` and frigate_events bus)". On the diagnostic sensor add (display only): `frigate_ingress_prefixes`, `frigate_ingress_mqtt_24h`, `frigate_ingress_bus_24h`, `frigate_ingress_dedup_dropped`, `frigate_ingress_mqtt_bad_payload`, `frigate_ingress_idless`. `bus_24h` and `mqtt_24h` count messages **received** per source, before dedup. The existing `frigate_events_24h` keeps its meaning (messages delivered to consumers).
 - **Verify (discriminating):** bridge removed, MQTT live → no WARN, `mqtt_24h > 0`, `bus_24h == 0`. Both silent with edges ≥ threshold → WARN. Under the old bus-only counter the first case would WARN, which is what discriminates.
 - **Test:** `test_silent_warn_needs_both_sources_silent`, `test_ingress_diag_attrs`.
 
@@ -179,7 +186,7 @@ Bodies of `_on_frigate_event` and linker `_on_frigate` unchanged except they rea
 ### Live criteria (post-restart)
 - **Live L1:** INFO log `FrigateEventIngress: subscribed frigate2/events` once per boot; no `frigate/events` subscription.
 - **Live L2:** within an hour, the diagnostic sensor shows `frigate_ingress_mqtt_24h > 0` **and** `frigate_ingress_dedup_dropped > 0`, with `dedup_dropped ≈ bus_24h`. This proves both sources ran and the bus copies were deduped. `dedup_dropped == 0` while `bus_24h > 0` means double-feed (INV-1 broken).
-- **Live L3:** `frigate_events_24h` for back_yard is within ±10% of the pre-deploy rate (snapshot it before deploy). About 2× means double-feed.
+- **Live L3 (rev 2, M2):** `frigate_events_24h` for back_yard divided by the pre-deploy snapshot is below 1.5 and consistent with 1 + the D0 item 3 overflow fraction. MQTT recovers messages the bridge queue dropped, so a modest rise is expected; about 2× means double-feed.
 - **Live L4 (portability drill, reversible):** disable the bridge automation for 15 min. Perimeter alerts still carry Frigate snapshots, D2 records keep updating, `bus_24h` stops rising, no WARN. Re-enable the automation afterwards.
 - **Live L5:** grep the log for 1 h → zero `FrigateEventIngress` exceptions; 40/40 entries loaded.
 
@@ -187,9 +194,9 @@ Bodies of `_on_frigate_event` and linker `_on_frigate` unchanged except they rea
 | Knob | Default | Why / kill switch |
 |---|---|---|
 | `FRIGATE_INGRESS_MQTT_ENABLED` | `True` | Kill switch: `False` = no MQTT subscription, bus-only, today's behaviour. |
-| `FRIGATE_INGRESS_SOURCE_LATCH_TTL_S` | `600` (resized by D0 item 4) | Sliding silence window before the other source may take over an event id. `0` disables dedup; never ship 0 while the bridge runs. |
+| `FRIGATE_INGRESS_SOURCE_LATCH_TTL_S` | `30` provisional; final = `max(10, 3 × D0 max lag)` | Sliding silence window before the other source may take over an event id; also the failover dead time. No disable value: values below 10 clamp to 10 (rev 2, M3). The kill switch is `FRIGATE_INGRESS_MQTT_ENABLED` alone. |
 | `FRIGATE_INGRESS_LATCH_MAX` | `2000` | Memory bound on the latch. |
-| `FRIGATE_INGRESS_RECONCILE_S` | `300` | Periodic prefix re-discovery. `0` disables (setup + when_setup only). |
+| `FRIGATE_INGRESS_RECONCILE_S` | `300` | Periodic prefix re-discovery (add-only). `0` disables (setup + when_setup only). |
 Reused unchanged: `PERIMETER_FRIGATE_BUS_SILENT_MIN_EDGES`, `PERIMETER_FRIGATE_BUS_WINDOW_S`.
 No options-flow field (parsimonious config): discovery has no knob to turn.
 
