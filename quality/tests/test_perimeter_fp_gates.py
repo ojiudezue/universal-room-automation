@@ -30,6 +30,10 @@ from test_perimeter_alert_nm_routing import (  # noqa: E402
 )
 from custom_components.universal_room_automation import perimeter_fp_gates as _gates  # noqa: E402
 
+
+def _run(coro, timeout=5):  # noqa: F811 — review C: a stuck hold FAILS, never hangs
+    return asyncio.run(asyncio.wait_for(coro, timeout))
+
 UT_CAM = "camera.utilities_ptz_high_resolution_channel"
 UT_F2 = "binary_sensor.utilities_ptz_person_occupancy_2"
 UT_PR = "binary_sensor.utilities_ptz_person_detected"
@@ -681,7 +685,7 @@ def test_single_source_teardown_during_settle(monkeypatch):
         assert RP_KEY in mgr._dispatch_in_flight  # H1: held before the await
         await mgr.async_teardown()
         await asyncio.wait_for(t, 2)
-    _run(_go())
+    asyncio.run(asyncio.wait_for(_go(), 5))
     assert nm.async_notify.await_count == 0
     assert RP_KEY not in mgr._dispatch_in_flight
     assert mgr._pending_holds == {}
@@ -1359,3 +1363,324 @@ def test_diag_gate_attributes_unrecorded():
     for k in ("gate_decisions_by_camera", "agreement_by_camera",
               "frigate_bus_by_camera", "zone_map"):
         assert k in un
+
+
+
+# =========================================================================
+# Review C fix-up: per-site test authority
+# =========================================================================
+
+# ---- D10.5 egress-event identity (K3/K4/K5) and face-leg membership (K7)
+
+def _egress_cb_for(hass):
+    return [c.args[1] for c in hass.bus.async_listen.call_args_list
+            if c.args[0] == "ura_person_egress_event"][0]
+
+
+@pytest.mark.parametrize("pid,conf,lag_s,camera,expected", [
+    ("oji_udezue", 0.9, 3, DB_PR, Severity.LOW),              # control: known, fresh
+    ("oji_udezue", 0.9, 16, DB_PR, Severity.CRITICAL),        # K3: outside +-15 s
+    ("oji_udezue", 0.9, -16, DB_PR, Severity.CRITICAL),       # K3: future side
+    ("delivery_guy", 0.95, 3, DB_PR, Severity.CRITICAL),      # K4: not a resident
+    ("oji_udezue", 0.89, 3, DB_PR, Severity.CRITICAL),        # K5: below 0.9 floor
+    ("oji_udezue", 0.9, 3, DB_CAM, Severity.LOW),             # N17: camera.* key
+])
+def test_egress_event_identity_matrix(monkeypatch, pid, conf, lag_s, camera, expected):
+    hass, nm, mgr = _d105(monkeypatch)
+    monkeypatch.setattr(_perimeter.dt_util, "parse_datetime",
+                        lambda s_: _now() - timedelta(seconds=lag_s), raising=False)
+    _egress_cb_for(hass)(SimpleNamespace(data={
+        "egress_camera": camera, "timestamp": "x",
+        "person_id": pid, "identity_confidence": conf}))
+    _run(mgr._async_handle_perimeter_trigger(DB_PR))
+    assert _sev(nm) == expected
+
+
+def test_face_leg_unknown_slug_pages(monkeypatch):
+    """K7: a scored 0.95 face leg naming someone NOT tracked / not a known
+    guest is not 'known'."""
+    _h, nm, mgr = _d105(monkeypatch, legs=[_leg("stranger_x", 0.95)])
+    _run(mgr._async_handle_perimeter_trigger(DB_PR))
+    assert _sev(nm) == Severity.CRITICAL
+
+
+# ---- W15/W16/W17/W18: shipped defaults through an un-patched manager
+
+def test_shipped_defaults_pinned():
+    assert _const.DEFAULT_PERIMETER_ZONE_AGREEMENT_DEMOTE is False
+    assert _const.DEFAULT_PERIMETER_SINGLE_SOURCE_DEMOTE is False
+    assert _const.DEFAULT_PERIMETER_VLM_GATE == "off"
+    assert _const.DEFAULT_PERIMETER_EGRESS_KNOWN_XCORR_GATE is True
+
+
+def test_default_d3_off_through_manager(monkeypatch):
+    hass, nm = _build(perimeter=(UT_CAM,), zones=[UT_ZONE])  # no switch key
+    mgr, _subs = _setup(hass, monkeypatch)
+    _frigate_cb(hass)(SimpleNamespace(data={"type": "update", "after": {
+        "id": "e", "camera": "utilities_ptz", "label": "person", "entered_zones": []}}))
+    _run(mgr._async_handle_perimeter_trigger(UT_PR))
+    assert _sev(nm) == Severity.CRITICAL
+    d = mgr._last_gate_decisions[UT_KEY]["zone_agreement"]
+    assert d["would_demote"] is True and d["enforce"] is False
+
+
+def test_default_d5_off_through_manager(monkeypatch):
+    hass, nm = _build(perimeter=(RP_CAM,))  # no switch key
+    mgr, _subs = _setup(hass, monkeypatch)
+    mgr._agreement.load_dict({"outcomes": {RP_KEY: [True] * 20}})
+    _scheduled.clear()
+    _run(mgr._async_handle_perimeter_trigger(RP_PR))
+    assert _sev(nm) == Severity.CRITICAL
+    assert mgr._last_gate_decisions[RP_KEY]["single_source"]["reason"] == "shadow"
+
+
+def test_default_d6_off_through_manager(monkeypatch):
+    import custom_components.universal_room_automation.perimeter_enrichment as pe
+    hass, nm = _build(perimeter=(RP_CAM,), extra_opts={
+        _const.CONF_PERIMETER_ENRICHMENT_ENABLED: True,
+        _const.CONF_PERIMETER_ENRICHMENT_PERSON_SENSORS: [RP_PR]})
+    mgr, _s = _setup(hass, monkeypatch)
+    prompts = []
+
+    async def _svc(domain, service, data, **kw):
+        prompts.append(data["message"])
+        return {"response_text": "PERSON: NO\nEmpty."}
+    hass.services.async_call = _svc
+
+    async def _cap(_eid):
+        mgr._last_snapshot_capture[RP_KEY] = {"path": "/x.jpg", "engine": "frigate_event"}
+        return "/x.jpg"
+    mgr._await_edge_capture = _cap
+    monkeypatch.setattr(pe.os.path, "exists", lambda p_: True)
+    _run(mgr._async_handle_perimeter_trigger(RP_PR))
+    assert prompts == [pe._DEFAULT_PROMPT]
+    assert _sev(nm) == Severity.CRITICAL
+
+
+# ---- D1c / D1d: `_2` safety net and legacy fallback keep the exclusion
+
+SW_CAM = "camera.sonoffwindow"
+SW_BARE = "binary_sensor.sonoffwindow_person_occupancy"
+SW_2 = "binary_sensor.sonoffwindow_person_occupancy_2"
+SW_PR = "binary_sensor.sonoffwindow_person_detected"
+SW_ZONE = "binary_sensor.sonoffwindow_property_person_occupancy"
+
+
+def test_zone_excludes_2_safety_net_leg(monkeypatch):
+    """D1c: base bare, its `_2` sibling exists only in hass.states."""
+    hass, _nm = _build(perimeter=(SW_CAM,), zones=[SW_ZONE],
+                       legs={SW_CAM: [(SW_BARE, "frigate"), (SW_PR, "protect")]})
+    hass._states[SW_2] = _St("off")
+    mgr, subs = _setup(hass, monkeypatch)
+    assert _subscribed(subs) == {SW_ZONE, SW_PR}
+
+
+def test_zone_excludes_legacy_fallback_leg(monkeypatch):
+    """D1d: resolver unavailable (early boot / kill switch) -> legacy
+    fallback (base + `_2` + Protect probe) must still drop the Frigate legs."""
+    hass, _nm = _build(perimeter=(SW_CAM,), zones=[SW_ZONE],
+                       legs={SW_CAM: [(SW_BARE, "frigate")]})
+    hass._states[SW_2] = _St("off")
+    hass._states[SW_PR] = _St("off")
+    hass.data[_const.DOMAIN]["camera_manager"]._get_resolver = lambda: None
+    mgr, subs = _setup(hass, monkeypatch)
+    assert _subscribed(subs) == {SW_ZONE, SW_PR}
+
+
+def test_zone_excludes_legacy_fallback_kill_switch(monkeypatch):
+    monkeypatch.setattr(_perimeter, "PERIMETER_MULTI_ENGINE_LEGS_ENABLED", False)
+    hass, _nm = _build(perimeter=(SW_CAM,), zones=[SW_ZONE],
+                       legs={SW_CAM: [(SW_BARE, "frigate")]})
+    hass._states[SW_2] = _St("off")
+    mgr, subs = _setup(hass, monkeypatch)
+    assert SW_BARE not in _subscribed(subs) and SW_2 not in _subscribed(subs)
+    assert SW_ZONE in _subscribed(subs)
+
+
+# ---- D1q / D1r: equal-length stem tie between two cameras -> no match
+
+def test_zone_map_tie_between_cameras_no_match(monkeypatch):
+    a, b = "camera.front_high_resolution_channel", "camera.front"
+    a_leg = "binary_sensor.front_person_occupancy_2"
+    b_leg = "binary_sensor.front_person_detected"
+    zone = "binary_sensor.front_property_person_occupancy"
+    hass, _nm = _build(perimeter=(a, b), zones=[zone],
+                       legs={a: [(a_leg, "frigate2")], b: [(b_leg, "protect")]})
+    mgr, subs = _setup(hass, monkeypatch)
+    assert zone not in _subscribed(subs)
+    assert a_leg in _subscribed(subs)
+    assert mgr._zone_map == {}
+
+
+# ---- D1v: family vs engine string (frigate vs frigate2)
+
+def test_nvr_family_frigate_vs_frigate2_not_corroboration(monkeypatch):
+    fixed = _now().replace(hour=2)
+    monkeypatch.setattr(_perimeter.dt_util, "now", lambda: fixed)
+    hass, nm = _build(perimeter=(SW_CAM,), zones=[SW_ZONE],
+                      legs={SW_CAM: [(SW_BARE, "frigate"), (SW_PR, "protect")]})
+    mgr, _subs = _setup(hass, monkeypatch)
+    assert mgr._sensor_engine[SW_ZONE] == "frigate"
+    mgr._recent_alerts_by_camera["sonoffwindow"] = [fixed - timedelta(minutes=5)]
+    mgr._recent_fires["sonoffwindow"] = [("frigate2", fixed)]
+    _run(mgr._async_handle_perimeter_trigger(SW_ZONE))
+    assert mgr._last_burst_decision["sonoffwindow"]["sibling_corroborated"] is False
+    assert _sev(nm) == Severity.LOW
+
+
+# ---- D6g / D6h: verdict prompt wiring + exception fail-open
+
+def test_vlm_shadow_sends_verdict_prompt(monkeypatch):
+    import custom_components.universal_room_automation.perimeter_enrichment as pe
+    _mgr, _nm, prompts = _d6(monkeypatch, "shadow", "PERSON: NO\nEmpty.")
+    assert prompts == [pe._VERDICT_PROMPT]
+
+
+def test_enrich_with_verdict_exception_is_unsure(monkeypatch):
+    import custom_components.universal_room_automation.perimeter_enrichment as pe
+
+    async def _boom(*a, **k):
+        raise RuntimeError("x")
+    monkeypatch.setattr(pe, "enrich_dispatched_alert", _boom)
+    assert asyncio.run(pe.enrich_with_verdict(None, "/x", "e")) == (None, "UNSURE")
+
+
+# ---- INV-FP-EXEMPTION: D5 (D5af), D6 (D6f), D10.5 (E9)
+
+def _shield(monkeypatch):
+    monkeypatch.setattr(PerimeterAlertManager, "_exemption_shields", lambda self, *a: True)
+
+
+def test_exemption_shields_single_source(monkeypatch):
+    _shield(monkeypatch)
+    _hass, nm, mgr = _d5(monkeypatch)
+    _run(_drive(mgr, RP_PR))
+    assert _sev(nm) == Severity.CRITICAL
+    assert mgr._last_gate_decisions[RP_KEY]["single_source"]["reason"] == "classification_transition_exemption"
+
+
+def test_exemption_shields_vlm(monkeypatch):
+    _shield(monkeypatch)
+    mgr, nm, _p = _d6(monkeypatch, "enforce", "PERSON: NO\nEmpty.")
+    assert _sev(nm) == Severity.CRITICAL
+    assert mgr._last_gate_decisions[RP_KEY]["vlm"]["reason"] == "classification_transition_exemption"
+
+
+def test_exemption_shields_egress_identity(monkeypatch):
+    _shield(monkeypatch)
+    _h, nm, mgr = _d105(monkeypatch, legs=[_leg("oji_udezue", 0.95)])
+    _run(mgr._async_handle_perimeter_trigger(DB_PR))
+    assert _sev(nm) == Severity.CRITICAL
+    assert _reason(mgr) == "classification_transition_exemption"
+
+
+# ---- E6 / E14 / D5i
+
+def test_egress_known_rechecked_after_settle(monkeypatch):
+    census = _Census([])
+    hass, nm, mgr = _d105(monkeypatch, corroborate=False)
+    hass.data[_const.DOMAIN]["census"] = census
+
+    def _named():
+        census.legs = [_leg("oji_udezue", 0.92)]
+    _run(_drive(mgr, DB_PR, during=_named, fire_delays=(20,)))
+    assert _sev(nm) == Severity.LOW and _reason(mgr) == "egress_known_person"
+
+
+def _adjacent_linker(hass, active=True):
+    lk = MagicMock()
+    lk.find_owning_track = MagicMock(return_value=None)
+    lk.has_recent_adjacent_activity = MagicMock(return_value=active)
+    lk.smart_alerts_enabled = True
+    hass.data[_const.DOMAIN]["exterior_track_linker"] = lk
+    return lk
+
+
+def test_egress_adjacency_corroborates(monkeypatch):
+    hass, nm, mgr = _d105(monkeypatch, corroborate=False)
+    _adjacent_linker(hass)
+    _run(_drive(mgr, DB_PR, fire_delays=(20,)))
+    assert _sev(nm) == Severity.CRITICAL and _reason(mgr) == "egress_unknown_corroborated"
+
+
+def test_single_source_settle_adjacency_recheck(monkeypatch):
+    hass, nm, mgr = _d5(monkeypatch)
+    _adjacent_linker(hass)
+    _run(_drive(mgr, RP_PR))
+    assert _sev(nm) == Severity.CRITICAL
+    assert mgr._last_gate_decisions[RP_KEY]["single_source"]["reason"] == "adjacent_activity"
+
+
+# ---- D5p: exception after the held key is taken releases it
+
+def test_held_key_released_when_finish_raises(monkeypatch):
+    _hass, nm, mgr = _d5(monkeypatch)
+
+    def _boom(_eid):
+        raise RuntimeError("snapshot resolver blew up")
+    mgr._resolve_snapshot_url_and_delay = _boom
+    with pytest.raises(RuntimeError):
+        _run(_drive(mgr, RP_PR))
+    assert RP_KEY not in mgr._dispatch_in_flight
+    # camera NOT silenced: the next edge dispatches
+    mgr._resolve_snapshot_url_and_delay = lambda _eid: (None, 0)
+    _run(_drive(mgr, RP_PR))
+    assert nm.async_notify.await_count == 1
+
+
+# ---- W5-W12: real entity wiring
+
+def _integration_entry(opts=None):
+    e = MagicMock()
+    e.data = {_const.CONF_ENTRY_TYPE: _const.ENTRY_TYPE_INTEGRATION}
+    e.options = dict(opts or {})
+    e.entry_id = "int1"
+    return e
+
+
+def _platform_entities(module_name, opts=None):
+    import importlib
+    mod = importlib.import_module(f"custom_components.universal_room_automation.{module_name}")
+    added: list = []
+    hass = MagicMock()
+    hass.data = {_const.DOMAIN: {}}
+    asyncio.run(mod.async_setup_entry(hass, _integration_entry(opts), lambda ents, *a, **k: added.extend(ents)))
+    return {getattr(e, "entity_id", ""): e for e in added}
+
+
+@pytest.mark.parametrize("eid,key,default", [
+    ("switch.ura_perimeter_zone_agreement_demote", "perimeter_zone_agreement_demote", False),
+    ("switch.ura_perimeter_single_source_demote", "perimeter_single_source_demote", False),
+    ("switch.ura_perimeter_egress_known_xcorr_gate", "perimeter_egress_known_xcorr_gate", True),
+])
+def test_gate_switches_registered_with_keys(eid, key, default):
+    ents = _platform_entities("switch")
+    sw = ents[eid]
+    assert sw.is_on is default                      # default with empty options
+    sw._entry.options = {key: not default}
+    assert sw.is_on is (not default)                # reads exactly this key
+
+
+def test_vlm_select_registered_with_key_and_options():
+    ents = _platform_entities("select")
+    sel = ents["select.ura_perimeter_vlm_gate"]
+    assert sel.options == ["off", "shadow", "enforce"]
+    assert sel.current_option == "off"
+    sel._entry.options = {"perimeter_vlm_gate": "shadow"}
+    assert sel.current_option == "shadow"
+
+
+def test_diag_sensor_merges_gate_stats(monkeypatch):
+    import importlib
+    sensor_mod = importlib.import_module("custom_components.universal_room_automation.sensor")
+    s_ = sensor_mod.ExteriorOpenTracksDiagnosticSensor.__new__(
+        sensor_mod.ExteriorOpenTracksDiagnosticSensor)
+    lk = MagicMock()
+    lk.open_tracks_snapshot.return_value = {}
+    lk.census_counts.return_value = {}
+    mgr = SimpleNamespace(gate_decision_stats=lambda: {
+        "gate_decisions_by_camera": {"cam": {"vlm": {"reason": "x"}}}})
+    s_.hass = SimpleNamespace(data={_const.DOMAIN: {
+        "exterior_track_linker": lk, "perimeter_alert_manager": mgr}})
+    attrs = s_.extra_state_attributes
+    assert attrs["gate_decisions_by_camera"] == {"cam": {"vlm": {"reason": "x"}}}
