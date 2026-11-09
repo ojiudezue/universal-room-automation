@@ -467,6 +467,20 @@ cards:
   operator_answers_2026_11_09: "(1) Camera + guest WiFi WITHOUT a guest-room leg may NOT enter GUEST: the room leg is mandatory (keeps the Aug rule); entry = room + one other leg. (2) Real guest stayed 3-4 weeks in October (dates to be located by D0; 10-17 likely within it). (3) Yes: add a BLE scanner to Guest Bedroom 2 (operator-owned physical action)."
   links: {related: [FACE-SOURCE-REGISTRY-DISCOVERY-1, CENSUS-GUEST-FLOOR-1, GUEST-GATE-DOOR-IDENTITY-1, GUEST-FP-RESIDUALS-1]}
   adjacency_2026_11_09: "ADJACENT (same decision surface): CENSUS-GUEST-FLOOR-1 (pre_planning, WiFi guest floor) and GUEST-GATE-DOOR-IDENTITY-1 (parked, door identity into the gate) become inputs; F-5 residual on FACE-SOURCE-REGISTRY-DISCOVERY-1 folds into this card. NEW card for the two-tier split itself."
+- id: GUEST-SELF-AUTHENTICATION-1
+  title: "Guests opt in to identify themselves (e.g. a guest phone app / IRK enrolment or a check-in), so GUEST has an identity input, not only guest-room occupancy"
+  thread: presence
+  status: parked
+  tier: 2-DB
+  created: "2026-11-09 12:00"
+  updated: "2026-11-09 12:00"
+  rank: {value: 4, time_criticality: 1, effort: 4}
+  origin: "Operator 2026-11-09 on the guest split rev 5: 'We don't know guests irk. So it will have to be sensor occupancy. Unless we ask guests to authenticate. Which is not a bad idea. But not now.'"
+  why: "GUEST-MODE-SPLIT-VISITORS-1 rev 5 detects a stay from sensor occupancy only; BLE can only subtract residents. A guest who opts in would give identity (and could cover the arrival day, which no night rule can see)."
+  next: "PARKED. Revival trigger: the operator asks. On revival: prior-art scan (person_coordinator IRK / private_ble_device enrolment, GUEST-GATE-DOOR-IDENTITY-1, camera_census identified_guests) before any design."
+  refs: [docs/planning/PLANNING_guest_mode_split_2026_11.md]
+  links: {related: [GUEST-MODE-SPLIT-VISITORS-1, GUEST-GATE-DOOR-IDENTITY-1]}
+  parked_2026_11_09_revival_trigger: "Operator asks."
 - id: FRIGATE-FACE-BRIDGE-DEAD-PREFIX-1
   arc_cut_v5_107_6: "waits for MQTT D0 daytime capture"
   title: "Census face bridge reads the Frigate MQTT topic_prefix from the config entry (where it never exists) and falls back to 'frigate' = retired Frigate-1, so it likely listens on a dead topic"
