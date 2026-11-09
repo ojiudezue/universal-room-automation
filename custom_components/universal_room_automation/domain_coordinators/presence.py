@@ -6131,7 +6131,8 @@ class PresenceCoordinator(BaseCoordinator):
         GUEST_NIGHT_MIN_FRACTION. Rev 5: the latch turns on at an
         ENTRY-QUALIFIED night (the same room also >= GUEST_STAY_DAY_MIN_FRACTION
         of its day window) with >= ENTRY qualifying nights among the last
-        LOOKBACK. Rev 6: off after min(LOOKBACK, n) straight non-qualifying
+        LOOKBACK. Rev 6: off after min(GUEST_STAY_EXIT_MAX_NIGHTS (2), n)
+        straight non-qualifying
         nights, n = qualifying nights in the stay so far (starting from the
         entry night's count); LOOKBACK when GUEST_STAY_EXIT_SCALES_WITH_STAY
         is False (rev 5). Deterministic in the DB contents
@@ -6225,6 +6226,7 @@ class PresenceCoordinator(BaseCoordinator):
                 )
                 best.append((room, value, qual, day_f, entry_q))
             scaled = bool(_ura_const.GUEST_STAY_EXIT_SCALES_WITH_STAY)
+            exit_max = max(1, int(_ura_const.GUEST_STAY_EXIT_MAX_NIGHTS))
             active = False
             since: Optional[datetime] = None
             n = 0   # rev 6: qualifying nights in the current stay
@@ -6237,9 +6239,12 @@ class PresenceCoordinator(BaseCoordinator):
                 elif active:
                     if best[idx][2]:
                         n += 1
-                    # x <= lookback and idx >= lookback - 1: slice never < 0.
-                    # scaled False: x == lookback, i.e. exactly rev 5's q == 0.
-                    x = min(lookback, n) if scaled else lookback
+                    # Operator cap: at most GUEST_STAY_EXIT_MAX_NIGHTS empty
+                    # nights. n <= idx + 1 (q <= lookback at entry, +1 per
+                    # night), so the slice never goes negative even when the
+                    # cap exceeds lookback. scaled False: x == lookback,
+                    # exactly rev 5's q == 0.
+                    x = min(exit_max, n) if scaled else lookback
                     if not any(b[2] for b in best[idx - x + 1: idx + 1]):
                         active = False
                         since = None

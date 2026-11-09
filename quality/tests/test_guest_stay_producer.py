@@ -209,26 +209,27 @@ def _rev5_list(k):
 
 
 def test_replay_fixture_day_list(monkeypatch, tmp_path, proc_tz):
-    """Rev 6 defaults (K=1, day 0.10 from 10:00, day before night, exit
-    scaled to the stay): plan §5.5 day list. Stay caught from 09-28 (day 2)
-    to 10-18 unchanged; one-night visits (09-10, 09-16) held 1 day; off
+    """Rev 6 defaults + operator exit cap 2 (K=1, day 0.10 from 10:00, day
+    before night, exit min(2, n) empty nights). Stay caught 09-28 (day 2);
+    the empty nights 10-13 / 10-14 end it, so the last day is 10-14 (17 of
+    21 stay days); one-night visits (09-10, 09-16) held 1 day; off
     10-19..11-08."""
     proc_tz("UTC")
-    expected = (_span(date(2026, 8, 25), date(2026, 9, 2))
+    expected = (_span(date(2026, 8, 25), date(2026, 9, 1))
                 + _span(date(2026, 9, 6), date(2026, 9, 7))
                 + [date(2026, 9, 10), date(2026, 9, 16)]
-                + _span(date(2026, 9, 28), date(2026, 10, 18)))
+                + _span(date(2026, 9, 28), date(2026, 10, 14)))
     assert _replay_active_days(monkeypatch, tmp_path) == expected
 
 
 def test_replay_fixture_day_list_entry_nights_2(monkeypatch, tmp_path, proc_tz):
-    """GUEST_STAY_ENTRY_NIGHTS 2 (rev 6 exit): single-night entries vanish,
-    the stay starts 09-30, 08-25 becomes 08-26 (plan §5.5)."""
+    """GUEST_STAY_ENTRY_NIGHTS 2 (rev 6 exit, cap 2): single-night entries
+    vanish, the stay runs 09-30..10-14, 08-25 becomes 08-26."""
     proc_tz("UTC")
     monkeypatch.setattr(H.CONST, "GUEST_STAY_ENTRY_NIGHTS", 2)
-    expected = (_span(date(2026, 8, 26), date(2026, 9, 2))
+    expected = (_span(date(2026, 8, 26), date(2026, 9, 1))
                 + _span(date(2026, 9, 6), date(2026, 9, 7))
-                + _span(date(2026, 9, 30), date(2026, 10, 18)))
+                + _span(date(2026, 9, 30), date(2026, 10, 14)))
     assert _replay_active_days(monkeypatch, tmp_path) == expected
 
 
@@ -1061,18 +1062,50 @@ def test_two_night_visit_exits_after_two(monkeypatch, tmp_path, proc_tz):
     assert _days(c, [date(2026, 11, d) for d in (3, 4, 5)]) == [True, True, False]
 
 
-def test_long_stay_holds_two_empty_nights(monkeypatch, tmp_path, proc_tz):
-    """5 qualifying nights, 2 empty, 1 qualifying, then empty: held through the
-    2-night gap (10-13/10-14 shape); off only after 3 straight empty nights."""
+def test_long_stay_ends_after_two_empty_nights(monkeypatch, tmp_path, proc_tz):
+    """Operator cap (2026-11-09): 5 qualifying nights then 2 empty -> off the
+    morning after the second empty night (10-13/10-14 shape). One empty
+    night is held."""
     proc_tz("UTC")
     db = _make_db(tmp_path)
     _entry_night(db, date(2026, 10, 1))
     for d in (2, 3, 4, 5, 8):
         occupy_fraction(db, E1, date(2026, 10, d), 0.5)
     c = coord_with(monkeypatch, db)
-    got = _days(c, [date(2026, 10, d) for d in range(2, 13)])
-    #           10-02 .. 10-08 held,  gap held, 10-09..10-11 held, 10-12 off
-    assert got == [True] * 10 + [False]
+    got = _days(c, [date(2026, 10, d) for d in range(2, 10)])
+    #      10-02..10-06 on (1 empty at 10-07 morning), 10-08 off, 10-09 off
+    #      (night 10-08 qualifies but has no day: no re-entry)
+    assert got == [True] * 6 + [False, False]
+
+
+@pytest.mark.parametrize("cap,expect", [(2, False), (3, True), (1, False)])
+def test_exit_cap_knob(monkeypatch, tmp_path, proc_tz, cap, expect):
+    """GUEST_STAY_EXIT_MAX_NIGHTS: a 5-night stay after 2 empty nights is off
+    at cap 2 (default), still on at cap 3; cap 1 -> off after 1."""
+    proc_tz("UTC")
+    if cap != 2:
+        monkeypatch.setattr(H.CONST, "GUEST_STAY_EXIT_MAX_NIGHTS", cap)
+    db = _make_db(tmp_path)
+    _entry_night(db, date(2026, 10, 1))
+    for d in (2, 3, 4, 5):
+        occupy_fraction(db, E1, date(2026, 10, d), 0.5)
+    c = coord_with(monkeypatch, db)
+    assert walk(c, at(2026, 10, 8)) is expect      # nights 10-06, 10-07 empty
+    if cap == 1:
+        assert walk(c, at(2026, 10, 7)) is False   # one empty night
+
+
+def test_exit_cap_above_lookback_safe(monkeypatch, tmp_path, proc_tz):
+    """Cap 5 > lookback 3: no slice underflow; a 5-night stay holds 4 empty
+    nights and ends after the 5th."""
+    proc_tz("UTC")
+    monkeypatch.setattr(H.CONST, "GUEST_STAY_EXIT_MAX_NIGHTS", 5)
+    db = _make_db(tmp_path)
+    _entry_night(db, date(2026, 10, 1))
+    for d in (2, 3, 4, 5):
+        occupy_fraction(db, E1, date(2026, 10, d), 0.5)
+    c = coord_with(monkeypatch, db)
+    assert _days(c, [date(2026, 10, d) for d in (10, 11)]) == [True, False]
 
 
 def test_exit_count_starts_at_entry_q(monkeypatch, tmp_path, proc_tz):
@@ -1100,8 +1133,9 @@ def test_exit_never_on_entry_night(monkeypatch, tmp_path, proc_tz):
 
 
 def test_exit_count_resets_on_reentry(monkeypatch, tmp_path, proc_tz):
-    """A 4-night stay, 3 empty (off), then a one-night entry, then empty ->
-    off after ONE empty night (the old stay's count is not carried over)."""
+    """A 4-night stay, 2 empty (off at the cap), then a one-night entry, then
+    empty -> off after ONE empty night (the old stay's count is not carried
+    over; a carried n would hold to the cap, 2)."""
     proc_tz("UTC")
     db = _make_db(tmp_path)
     _entry_night(db, date(2026, 10, 1))
@@ -1110,8 +1144,9 @@ def test_exit_count_resets_on_reentry(monkeypatch, tmp_path, proc_tz):
     _entry_night(db, date(2026, 10, 8))
     c = coord_with(monkeypatch, db)
     got = _days(c, [date(2026, 10, d) for d in range(5, 11)])
-    #      10-05 T, 10-06 T, 10-07 T, 10-08 off, 10-09 re-entry, 10-10 off
-    assert got == [True, True, True, False, True, False]
+    #      10-05 T, 10-06 T, 10-07 off (cap 2), 10-08 off, 10-09 re-entry,
+    #      10-10 off
+    assert got == [True, True, False, False, True, False]
 
 
 def test_exit_scaled_restart_between_empty_nights(monkeypatch, tmp_path,

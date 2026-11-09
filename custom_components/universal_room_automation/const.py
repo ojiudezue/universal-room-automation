@@ -511,21 +511,29 @@ GUEST_NIGHT_MIN_FRACTION: Final = 0.25
 # overnight should suffice"): the latch turns on at an ENTRY-QUALIFIED night
 # (night >= GUEST_NIGHT_MIN_FRACTION AND the same room's day window >=
 # GUEST_STAY_DAY_MIN_FRACTION) with at least ENTRY night-qualifying nights
-# among the last LOOKBACK; off after min(LOOKBACK, n) straight non-qualifying
-# nights, n = qualifying nights in the stay so far (rev 6; LOOKBACK when
-# GUEST_STAY_EXIT_SCALES_WITH_STAY is False).
+# among the last LOOKBACK; off after min(GUEST_STAY_EXIT_MAX_NIGHTS, n)
+# straight non-qualifying nights, n = qualifying nights in the stay so far
+# (rev 6 + operator cap; LOOKBACK when GUEST_STAY_EXIT_SCALES_WITH_STAY is
+# False).
 # ENTRY is the second-night GUARD: 1 = the entry-qualified night alone
 # suffices; 2 removes every single-night entry in the replay at a cost of two
 # stay days (plan §5.4, §7). ENTRY is clamped to 1..LOOKBACK, LOOKBACK >= 1.
 GUEST_STAY_ENTRY_NIGHTS: Final = 1
 GUEST_STAY_LOOKBACK_NIGHTS: Final = 3
-# Rev 6: the exit length scales with the stay: min(LOOKBACK, n) straight empty
-# nights end it, n = qualifying nights since the stay started (counted from
-# the entry night's lookback count). Replay: October stay identical, one-night
-# visits held 1 day instead of 3 (plan §5.5). A house-state policy fitted on
+# Rev 6: the exit length scales with the stay: min(GUEST_STAY_EXIT_MAX_NIGHTS,
+# n) straight empty nights end it, n = qualifying nights since the stay
+# started (counted from the entry night's lookback count). One-night visits
+# are held 1 day instead of 3. A house-state policy fitted on
 # one stay, so a reviewed change. False = rev 5 fixed exit (LOOKBACK straight
 # misses), byte-identical.
 GUEST_STAY_EXIT_SCALES_WITH_STAY: Final = True
+# Operator ruling 2026-11-09: a stay ends after at most this many straight
+# empty nights (the scaled exit is min(this, n)). Replay at 2: the October
+# stay ends after the empty nights 10-13/10-14 (active 09-28..10-14, 17 of 21
+# days; was 20 at 3). Separate from LOOKBACK,
+# which still sets the entry count window. Clamped >= 1. Only used when
+# GUEST_STAY_EXIT_SCALES_WITH_STAY is True (False = rev 5, LOOKBACK misses).
+GUEST_STAY_EXIT_MAX_NIGHTS: Final = 2
 # Day test (rev 5). Fitted: replay plateau 0.03-0.20 at day start 10; above
 # 0.21 the October stay is never entered (recall cliff). 0 = day test off;
 # > 1 = never enters (exit unaffected).
