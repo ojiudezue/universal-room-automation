@@ -1068,3 +1068,195 @@ def test_snap1_prune_debounced_on_write():
         # force=True bypasses debounce (periodic sweep).
         _run(mgr._async_prune_snapshot_dir(force=True))
         assert calls["n"] == 2
+
+
+# --- v5.107.2 PERIMETER-FRIGATE-SNAPSHOT-CAPTURE-NEVER-1 -------------------
+# Fix A: server-side fetch uses the INTERNAL base; outbound links keep the
+# external one. Fix C: an ENDED Frigate event id is never fetched at a new
+# edge. Oracles are hand-written literal URLs.
+
+_EXT = "https://ext.example.com:8123"
+_INT = "http://192.168.50.5:8123"
+
+
+class _FakeResp:
+    status = 200
+
+    async def read(self):
+        return b"JPEGDATA"
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+
+class _FakeSession:
+    def __init__(self):
+        self.urls: list[str] = []
+
+    def get(self, url, **kw):
+        self.urls.append(url)
+        return _FakeResp()
+
+
+def _install_net_fakes(monkeypatch, *, raise_get_url=False):
+    """Scoped (monkeypatch-restored) fakes for network.get_url + session."""
+    calls: list[dict] = []
+
+    def _get_url(hass, **kw):
+        calls.append(kw)
+        if raise_get_url:
+            raise RuntimeError("NoURLAvailableError")
+        # Mirrors HA: external is eligible unless explicitly disallowed.
+        if kw.get("allow_external", True) is not False:
+            return _EXT
+        return _INT + "/"
+
+    session = _FakeSession()
+    monkeypatch.setitem(
+        sys.modules, "homeassistant.helpers.network",
+        _mock_module("homeassistant.helpers.network", get_url=_get_url),
+    )
+    monkeypatch.setitem(
+        sys.modules, "homeassistant.helpers.aiohttp_client",
+        _mock_module(
+            "homeassistant.helpers.aiohttp_client",
+            async_get_clientsession=lambda hass: session,
+        ),
+    )
+    return session, calls
+
+
+def test_v5_107_2_http_fetch_uses_internal_base_not_external(monkeypatch):
+    hass, _ = _make_hass(external_url=_EXT)
+    mgr = PerimeterAlertManager(hass)
+    session, calls = _install_net_fakes(monkeypatch)
+    data = _run(mgr._http_get_bytes(
+        "/api/frigate/frigate-f2/notifications/abc/snapshot.jpg"
+    ))
+    assert data == b"JPEGDATA"
+    assert session.urls == [
+        "http://192.168.50.5:8123/api/frigate/frigate-f2/notifications/"
+        "abc/snapshot.jpg"
+    ]
+    assert calls and calls[0].get("allow_external") is False
+
+
+def test_v5_107_2_http_fetch_no_internal_url_never_falls_to_external(
+    monkeypatch,
+):
+    hass, _ = _make_hass(external_url=_EXT)
+    mgr = PerimeterAlertManager(hass)
+    session, _calls = _install_net_fakes(monkeypatch, raise_get_url=True)
+    data = _run(mgr._http_get_bytes(
+        "/api/frigate/notifications/abc/snapshot.jpg"
+    ))
+    assert data is None
+    assert session.urls == []
+
+
+def test_v5_107_2_outbound_snapshot_url_keeps_external(monkeypatch):
+    hass, _ = _make_hass(external_url=_EXT)
+    mgr = PerimeterAlertManager(hass)
+    _install_net_fakes(monkeypatch)
+    sid = "binary_sensor.front_yard_person_occupancy"
+    mgr._sensor_platforms[sid] = _const.CAMERA_PLATFORM_FRIGATE
+    mgr._sensor_to_camera[sid] = "camera.front_yard"
+    mgr._frigate_last_event_id["front_yard"] = (
+        "abc", datetime.now(timezone.utc),
+    )
+    url, delay = mgr._resolve_snapshot_url_and_delay(sid)
+    assert url == (
+        "https://ext.example.com:8123/api/frigate/notifications/abc/"
+        "snapshot.jpg"
+    )
+    assert delay == 0
+    # Fallback entity_picture link is outbound too.
+    mgr._frigate_last_event_id.clear()
+    url2, _ = mgr._resolve_snapshot_url_and_delay(sid)
+    assert url2 == (
+        "https://ext.example.com:8123/api/camera_proxy/camera.front_yard"
+    )
+
+
+def _frigate_bus_cb(hass):
+    for c in hass.bus.async_listen.call_args_list:
+        if c.args and c.args[0] == _perimeter.FRIGATE_EVENTS_BUS_EVENT:
+            return c.args[1]
+    raise AssertionError("frigate_events listener not registered")
+
+
+def _fev(msg_type, eid, camera="front_yard"):
+    ev = MagicMock()
+    ev.data = {
+        "type": msg_type,
+        "after": {"id": eid, "label": "person", "camera": camera},
+    }
+    return ev
+
+
+def _seen_capture(mgr):
+    seen: list[str] = []
+
+    async def _fake_http(url_path):
+        seen.append(url_path)
+        return None
+    mgr._http_get_bytes = _fake_http  # type: ignore[assignment]
+    mgr._frigate_instance_ids = []
+    _run(mgr._try_capture_frigate_event(
+        "front_yard", "camera.front_yard", "frigate", int(time.time()),
+    ))
+    return seen
+
+
+def test_v5_107_2_ended_event_id_not_fetched_at_new_edge():
+    with tempfile.TemporaryDirectory() as tmp:
+        hass, _ = _make_hass()
+        mgr = _mgr_with_dir(hass, tmp)
+        cb = _frigate_bus_cb(hass)
+        cb(_fev("new", "ev1"))
+        cb(_fev("end", "ev1"))
+        assert _seen_capture(mgr) == []
+
+
+def test_v5_107_2_live_event_id_is_fetched_control():
+    with tempfile.TemporaryDirectory() as tmp:
+        hass, _ = _make_hass()
+        mgr = _mgr_with_dir(hass, tmp)
+        cb = _frigate_bus_cb(hass)
+        cb(_fev("new", "ev1"))
+        assert _seen_capture(mgr) == [
+            "/api/frigate/notifications/ev1/snapshot.jpg"
+        ]
+
+
+def test_v5_107_2_second_walk_past_fetches_new_id_not_previous():
+    with tempfile.TemporaryDirectory() as tmp:
+        hass, _ = _make_hass()
+        mgr = _mgr_with_dir(hass, tmp)
+        cb = _frigate_bus_cb(hass)
+        cb(_fev("new", "ev1"))
+        cb(_fev("end", "ev1"))
+        cb(_fev("new", "ev2"))
+        assert _seen_capture(mgr) == [
+            "/api/frigate/notifications/ev2/snapshot.jpg"
+        ]
+
+
+def test_v5_107_2_end_keeps_id_for_nm_url_path():
+    """2026-08-07 hotfix preserved: NM link still uses the id after end."""
+    with tempfile.TemporaryDirectory() as tmp:
+        hass, _ = _make_hass(external_url=_EXT)
+        mgr = _mgr_with_dir(hass, tmp)
+        sid = "binary_sensor.front_yard_person_occupancy"
+        mgr._sensor_platforms[sid] = _const.CAMERA_PLATFORM_FRIGATE
+        cb = _frigate_bus_cb(hass)
+        cb(_fev("new", "ev1"))
+        cb(_fev("end", "ev1"))
+        url, _ = mgr._resolve_snapshot_url_and_delay(sid)
+        assert url == (
+            "https://ext.example.com:8123/api/frigate/notifications/ev1/"
+            "snapshot.jpg"
+        )

@@ -320,6 +320,8 @@ class PerimeterAlertManager:
         # (event_id, cached_at) per canonical camera key; TTL-gated at
         # read (hotfix 2026-08-07 — see _on_frigate_event).
         self._frigate_last_event_id: dict[str, tuple[str, datetime]] = {}
+        # v5.107.2 Fix C: last ENDED Frigate event id per camera key.
+        self._frigate_ended_event_id: dict[str, str] = {}
         # One-shot log gates
         self._legacy_deprecation_warned = False
         self._legacy_fallback_logged = False
@@ -952,6 +954,12 @@ class PerimeterAlertManager:
                 # unchanged (snapshot readers depend on it).
                 self._note_frigate_event(cam_key, msg_type, after)
                 if msg_type == "end":
+                    # v5.107.2 Fix C: remember the ended id (do NOT erase
+                    # the cache — the NM URL path still wants it). SNAP-1
+                    # edge capture refuses an ended id: at a new rising
+                    # edge an already-ended event is the PREVIOUS track.
+                    if event_id:
+                        self._frigate_ended_event_id[cam_key] = str(event_id)
                     return
                 if event_id:
                     self._frigate_last_event_id[cam_key] = (
@@ -3774,6 +3782,13 @@ class PerimeterAlertManager:
             return None
         if not (0 <= age < FRIGATE_SNAPSHOT_ID_TTL_S):
             return None
+        # v5.107.2 Fix C: an id whose event already ENDED belongs to a
+        # previous track — never fetch its frame for this edge (second
+        # walk-past would show the first person). Fall to live_grab.
+        if getattr(self, "_frigate_ended_event_id", {}).get(
+            (cam_key or "").strip().lower()
+        ) == eid:
+            return None
         # SNAP-1 fix-up (F2): sanitize the event id before it is ever
         # interpolated into a filesystem path OR a URL. os.path.join
         # does NOT neutralize '..'; a malicious `frigate_events`
@@ -3900,11 +3915,49 @@ class PerimeterAlertManager:
         except OSError:
             return 0
 
-    async def _http_get_bytes(self, url_path: str) -> bytes | None:
-        """HTTP GET a relative HA URL, return bytes or None on failure."""
-        abs_url = self._absolutize(url_path)
-        if not abs_url:
+    def _internal_base_url(self) -> str | None:
+        """Internal-only base URL for SERVER-SIDE fetches (v5.107.2).
+
+        PERIMETER-FRIGATE-SNAPSHOT-CAPTURE-NEVER-1: `_absolutize` prefers
+        `external_url`, which (Cloudflare-fronted) times out from the HA
+        host, so the 2 s SNAP-1 tier-1 fetch never succeeded. A fetch
+        made BY this process must use an internal base. Uses HA's
+        `network.get_url` with external + cloud disallowed (it falls back
+        through internal_url to the local api ip:port). Never returns an
+        external URL; None when no internal URL is available.
+        `_absolutize` stays the builder for OUTBOUND links (Pushover /
+        WhatsApp `snapshot_url`), which need the public host.
+        """
+        try:
+            from homeassistant.helpers.network import get_url  # noqa: PLC0415
+            base = get_url(
+                self.hass,
+                allow_external=False,
+                allow_cloud=False,
+                prefer_external=False,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("SNAP-1: no internal URL available", exc_info=True)
             return None
+        if not isinstance(base, str) or "://" not in base:
+            return None
+        return base.rstrip("/")
+
+    async def _http_get_bytes(self, url_path: str) -> bytes | None:
+        """HTTP GET a relative HA URL, return bytes or None on failure.
+
+        Server-side fetch: resolves against the INTERNAL base, never the
+        external one (see `_internal_base_url`).
+        """
+        if not url_path:
+            return None
+        if "://" in url_path:
+            # Relative paths only: an absolute URL could send the fetch outward.
+            return None
+        base = self._internal_base_url()
+        if not base:
+            return None
+        abs_url = base + url_path
         try:
             from homeassistant.helpers.aiohttp_client import (
                 async_get_clientsession,
