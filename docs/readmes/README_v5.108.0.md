@@ -21,8 +21,10 @@ Now there are two signals.
   there by Bluetooth, for at least a quarter of the house sleep window (22:00 to 06:00 here) AND for at least a
   tenth of the day before (10:00 to 22:00) in the SAME room. One such night is enough (operator 2026-11-09:
   "sustained occupancy during the day and an overnight should suffice"). The check runs once each morning over
-  the URA database, so a restart gives the same answer; a database error is retried after 15 minutes and keeps the previous answer meanwhile (off if there is none since boot). Three
-  empty nights in a row end the stay.
+  the URA database, so a restart gives the same answer; a database error is retried after 15 minutes and keeps the previous answer meanwhile (off if there is none since boot). A stay ends
+  after as many empty nights in a row as it had qualifying nights, up to 3: a one-night visit ends after one
+  empty night, a stay of three or more nights after three (rev 6; October replay: stay still 20 of 21 days,
+  one-night visits held 1 day instead of 3).
 - During a stay the house is GUEST by day and evening and goes to SLEEP at night as usual: GUEST hands over to
   HOME_NIGHT at the start of the sleep window (after the usual 5-minute exit hold), then SLEEP; after waking it
   returns to GUEST.
@@ -56,7 +58,8 @@ What the operator will notice:
 | `GUEST_STAY_DAY_START_HOUR` | 10 | day window start (local); ends at the sleep start; at least 1 h |
 | `GUEST_STAY_DAY_BEFORE_NIGHT` | True | False = the day after the night also counts (decided a day later) |
 | `GUEST_STAY_ERROR_RETRY_S` | 900 | retry delay after a failed walk |
-| `GUEST_STAY_LOOKBACK_NIGHTS` | 3 | nights looked at; also the number of empty nights that end a stay |
+| `GUEST_STAY_LOOKBACK_NIGHTS` | 3 | nights looked at; also the most empty nights that end a stay |
+| `GUEST_STAY_EXIT_SCALES_WITH_STAY` | True | exit after min(lookback, n) empty nights, n = qualifying nights in the stay; False = the fixed lookback exit (rev 5) |
 | `GUEST_STAY_REPLAY_NIGHTS` | 35 | nights walked each morning (clamped to at least trip-wire days + lookback) |
 | `GUEST_STAY_LONG_NM_DAYS` | 28 | trip-wire bound; 0 = off |
 | `VISITORS_CAM_LEG_ENABLED` | True | False = the camera leg never turns `visitors_present` on |
@@ -82,9 +85,11 @@ no GUEST entry, the stay treated as off, `visitors_present` follows GUEST only.
 `test_guest_split_gate.py`, `test_guest_split_visitors.py`, `test_guest_stay_producer.py`,
 `test_guest_stay_tripwire.py` (shared harness `guest_split_harness.py`; base golden
 `fixtures/guest_split_golden_base.json`, 200 seeded tuples generated on the base tree before the change).
-The rev 5 replay fixture (`fixtures/guest_stay_r5_replay.json`, D0 per-night and per-day fractions) reproduces the
-plan §5.4 day list exactly: active 08-25..09-02, 09-06..09-08, 09-10..09-12, 09-16..09-18, 09-28..10-18, off
-10-19..11-08; at `GUEST_STAY_ENTRY_NIGHTS` 2: 08-26..09-02, 09-06..09-08, 09-30..10-18. INV-LOCK-1:
+The replay fixture (`fixtures/guest_stay_r5_replay.json`, D0 per-night and per-day fractions) reproduces the
+plan §5.5 day list exactly (rev 6 scaled exit): active 08-25..09-02, 09-06..09-07, 09-10, 09-16, 09-28..10-18, off
+10-19..11-08; at `GUEST_STAY_ENTRY_NIGHTS` 2: 08-26..09-02, 09-06..09-07, 09-30..10-18. With
+`GUEST_STAY_EXIT_SCALES_WITH_STAY` False it reproduces the rev 5 lists (§5.4) exactly
+(`test_replay_fixture_day_list_fixed_exit`). INV-LOCK-1:
 `test_sc_garage_lockout.py::test_lock_once_at_guest_clock_no_unlock_on_yield`,
 `::test_lock_held_if_home_night_until_morning`, `::test_lock_toggle_off_unchanged`.
 Four source-grep anchors were converted to behavioural tests (`test_guest_census_correctness.py`
@@ -101,7 +106,7 @@ Four source-grep anchors were converted to behavioural tests (`test_guest_census
 | L2 | `visitors_present` is quiet with no visitors | recorder, first 24 h | on only in short episodes (expect 0-3, minutes long), each with a true leg at the time |
 | L3 | the stay walk ran | house-state sensor attributes | `guest_stay_basis` lists 3 nights, `fraction` and `day_fraction` ≤ 0.08, `qualifies` and `entry_qualified` false; `guest_stay_active` false |
 | L4 | no GUEST without a stay | URA DB `house_state_log` | no `guest` row from deploy until a real stay |
-| L5 | first real stay | URA DB + recorder | daily HOME_* → `guest` after waking, `guest` → `home_night` just after 22:00, basis shows an `entry_qualified` night (night ≥ 0.25 AND day ≥ 0.10, same room); lock regime one `lock` at 22:00, a `guest_yield_hold` at ~22:05, no `unlock` before WAKING; ends the morning after the third empty night. Organic: dispose by this discriminator per the soak-exit rule |
+| L5 | first real stay | URA DB + recorder | daily HOME_* → `guest` after waking, `guest` → `home_night` just after 22:00, basis shows an `entry_qualified` night (night ≥ 0.25 AND day ≥ 0.10, same room); lock regime one `lock` at 22:00, a `guest_yield_hold` at ~22:05, no `unlock` before WAKING; ends the morning after the min(3, n)-th straight empty night (n = qualifying nights in the stay). Organic: dispose by this discriminator per the soak-exit rule |
 | L6 | no trip-wire noise | URA DB `notification_log` | no `guest_stay_long` row while no guest is staying |
 | L7 | logs | HA log | no `Guest stay walk failed` WARNING |
 

@@ -6131,7 +6131,10 @@ class PresenceCoordinator(BaseCoordinator):
         GUEST_NIGHT_MIN_FRACTION. Rev 5: the latch turns on at an
         ENTRY-QUALIFIED night (the same room also >= GUEST_STAY_DAY_MIN_FRACTION
         of its day window) with >= ENTRY qualifying nights among the last
-        LOOKBACK, and off at 0 of them. Deterministic in the DB contents
+        LOOKBACK. Rev 6: off after min(LOOKBACK, n) straight non-qualifying
+        nights, n = qualifying nights in the stay so far (starting from the
+        entry night's count); LOOKBACK when GUEST_STAY_EXIT_SCALES_WITH_STAY
+        is False (rev 5). Deterministic in the DB contents
         (restart reproduces it). Writes the latch, ``since`` (window end of
         the night that turned it on), the basis (last LOOKBACK nights) and the
         evaluated date, then runs one inference. Any DB error: WARNING once per
@@ -6221,16 +6224,26 @@ class PresenceCoordinator(BaseCoordinator):
                     float(per_room[room][1][idx][0]) if room is not None else 0.0
                 )
                 best.append((room, value, qual, day_f, entry_q))
+            scaled = bool(_ura_const.GUEST_STAY_EXIT_SCALES_WITH_STAY)
             active = False
             since: Optional[datetime] = None
+            n = 0   # rev 6: qualifying nights in the current stay
             for idx in range(lookback - 1, n_nights):
                 q = sum(1 for b in best[idx - lookback + 1: idx + 1] if b[2])
                 if not active and best[idx][4] and q >= entry_k:
                     active = True
                     since = windows[idx][1].astimezone(timezone.utc)
-                elif active and q == 0:
-                    active = False
-                    since = None
+                    n = q
+                elif active:
+                    if best[idx][2]:
+                        n += 1
+                    # x <= lookback and idx >= lookback - 1: slice never < 0.
+                    # scaled False: x == lookback, i.e. exactly rev 5's q == 0.
+                    x = min(lookback, n) if scaled else lookback
+                    if not any(b[2] for b in best[idx - x + 1: idx + 1]):
+                        active = False
+                        since = None
+                        n = 0
             self._guest_stay_active = active
             self._guest_stay_since = since
             self._guest_stay_basis = [

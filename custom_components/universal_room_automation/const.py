@@ -511,12 +511,21 @@ GUEST_NIGHT_MIN_FRACTION: Final = 0.25
 # overnight should suffice"): the latch turns on at an ENTRY-QUALIFIED night
 # (night >= GUEST_NIGHT_MIN_FRACTION AND the same room's day window >=
 # GUEST_STAY_DAY_MIN_FRACTION) with at least ENTRY night-qualifying nights
-# among the last LOOKBACK; off after LOOKBACK straight non-qualifying nights.
+# among the last LOOKBACK; off after min(LOOKBACK, n) straight non-qualifying
+# nights, n = qualifying nights in the stay so far (rev 6; LOOKBACK when
+# GUEST_STAY_EXIT_SCALES_WITH_STAY is False).
 # ENTRY is the second-night GUARD: 1 = the entry-qualified night alone
 # suffices; 2 removes every single-night entry in the replay at a cost of two
 # stay days (plan §5.4, §7). ENTRY is clamped to 1..LOOKBACK, LOOKBACK >= 1.
 GUEST_STAY_ENTRY_NIGHTS: Final = 1
 GUEST_STAY_LOOKBACK_NIGHTS: Final = 3
+# Rev 6: the exit length scales with the stay: min(LOOKBACK, n) straight empty
+# nights end it, n = qualifying nights since the stay started (counted from
+# the entry night's lookback count). Replay: October stay identical, one-night
+# visits held 1 day instead of 3 (plan §5.5). A house-state policy fitted on
+# one stay, so a reviewed change. False = rev 5 fixed exit (LOOKBACK straight
+# misses), byte-identical.
+GUEST_STAY_EXIT_SCALES_WITH_STAY: Final = True
 # Day test (rev 5). Fitted: replay plateau 0.03-0.20 at day start 10; above
 # 0.21 the October stay is never entered (recall cliff). 0 = day test off;
 # > 1 = never enters (exit unaffected).
