@@ -349,6 +349,24 @@ def test_global_face_never_indexed():
     assert len(indexed) == 29
 
 
+@pytest.mark.parametrize("platform,entity_id", [
+    ("unifiprotect", "sensor.intruder_face_name"),      # wrong platform
+    ("frigate", "binary_sensor.intruder_face_name"),    # wrong domain
+])
+def test_index_predicate_requires_frigate_sensor(platform, entity_id):
+    """INV-3 conjuncts, each on its own: the token alone is not enough."""
+    fx = copy.deepcopy(_load_fixture())
+    dev = _face_entities(fx)[0]["device_id"]
+    fx["entities"].append({
+        "entity_id": entity_id, "platform": platform,
+        "unique_id": "X:sensor_recognized_face:intruder",
+        "device_id": dev, "disabled_by": None,
+    })
+    r = CameraResolver(*_registries(fx))
+    indexed = {e for lst in r._frigate_face_entities_by_device.values() for e in lst}
+    assert entity_id not in indexed and len(indexed) == 29
+
+
 def test_index_order_bare_before_disambiguated(monkeypatch):
     """D2 order = legacy bare-then-`_2`: a device carrying both names lists
     the bare one first, so S1 picks it when both have usable states."""
@@ -614,9 +632,25 @@ def test_presence_face_for_camera_reads_device_face(monkeypatch):
     states = {face: _state("Jaya", now - timedelta(seconds=5))}
     census, _, _ = _census(states, monkeypatch=monkeypatch)
     pres = _presence_with_census(census, states)
+    _set_flag(monkeypatch, "FACE_SOURCE_PRESENCE_ARRIVAL_DISAMBIGUATED", True)
     assert pres._get_face_for_camera(info.entity_id) == "Jaya"
     _set_flag(monkeypatch, "FACE_SOURCE_INCLUDE_DISAMBIGUATED_PERSON_SENSORS", False)
     assert pres._get_face_for_camera(info.entity_id) is None
+
+
+def test_presence_arrival_flag_default_off_keeps_legacy_skip(monkeypatch):
+    """Shipped default: S8 does NOT widen camera_face arrivals onto `_N`
+    person sensors (the door/garage cameras), because SIGNAL_PERSON_ARRIVING
+    feeds the SC lock regime release / away-lock unlock. Census S5-S7 still
+    read the same face (skip fix live there)."""
+    fx = _load_fixture()
+    info, pc, face = _frigate_cam(fx, "doorbell_lite")
+    now = datetime.now(UTC)
+    states = {face: _state("Jaya", now - timedelta(seconds=5)), pc: _state("1")}
+    census, _, _ = _census(states, cameras={info.entity_id: info}, monkeypatch=monkeypatch)
+    pres = _presence_with_census(census, states)
+    assert pres._get_face_for_camera(info.entity_id) is None
+    assert census._get_face_recognized_persons() == {"Jaya"}
 
 
 def test_presence_bare_camera_unchanged(monkeypatch):
@@ -844,6 +878,7 @@ def test_persons_in_house_unrecorded_attributes_exact():
 def test_shipped_defaults():
     assert ura_const.FACE_SOURCE_REGISTRY_DISCOVERY_ENABLED is True
     assert ura_const.FACE_SOURCE_INCLUDE_DISAMBIGUATED_PERSON_SENSORS is True
+    assert ura_const.FACE_SOURCE_PRESENCE_ARRIVAL_DISAMBIGUATED is False
     assert ura_const.DEFAULT_FACE_NAME_ALIASES == []
 
 

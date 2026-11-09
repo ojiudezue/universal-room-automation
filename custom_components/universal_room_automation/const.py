@@ -3351,6 +3351,16 @@ FACE_SOURCE_REGISTRY_DISCOVERY_ENABLED: Final = True
 # face_source_skipped_person_sensors. D0 recorder probe gate PASSED
 # 2026-11-08 (AUDIT_face_source_registry_discovery_2026_11.md §8).
 FACE_SOURCE_INCLUDE_DISAMBIGUATED_PERSON_SENSORS: Final = True
+# FACE-SOURCE-REGISTRY-DISCOVERY-1 D3/S8 split (builder, rung 1, default
+# OFF pending operator call). Presence face pre-arrival
+# (`PresenceCoordinator._get_face_for_camera`) dispatches
+# SIGNAL_PERSON_ARRIVING(source=camera_face), which the SC lock regime
+# consumes: `_release` (garage lockouts) and `_away_release` (UNLOCKS the
+# away-lock door locks) for a resident who was really away. The 17 cameras
+# the skip fix adds include the doorbell / garage / entry cameras, so this
+# flag ALSO gates the S8 device join; S5-S7 (census) follow the flag above.
+# False = S8 legacy skip for `_N` person sensors (pre-cycle behaviour).
+FACE_SOURCE_PRESENCE_ARRIVAL_DISAMBIGUATED: Final = False
 # D4: kill-switch that ENABLES the provenance filter + producer-health
 # guard (see plan §6 knob table). ON by default; opposite concept
 # from the on-demand drill switch (`switch.egress_identity_face_failsafe_drill`).

@@ -5379,6 +5379,11 @@ class PresenceCoordinator(BaseCoordinator):
                 # SENSORS inside the census helper). No census -> None.
                 if census is None or not hasattr(census, "_device_derived_face_entity_id"):
                     return None  # Not a recognized camera pattern
+                # Separate rung-1 gate: this path feeds SIGNAL_PERSON_ARRIVING
+                # -> SC lock regime release / away-lock unlock (const comment).
+                from .. import const as _c  # noqa: PLC0415
+                if not getattr(_c, "FACE_SOURCE_PRESENCE_ARRIVAL_DISAMBIGUATED", False):
+                    return None
                 face_sensor_id = census._device_derived_face_entity_id(bs_id)
                 if not isinstance(face_sensor_id, str) or not face_sensor_id:
                     return None
