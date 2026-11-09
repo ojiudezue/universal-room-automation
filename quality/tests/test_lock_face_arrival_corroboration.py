@@ -25,6 +25,7 @@ const = load("const")
 R = load("domain_coordinators.security_lock_regime")
 sec = load("domain_coordinators.security")
 AE = load("arrival_edges")
+TV = load("transit_validator")
 
 LOCK_A = "lock.konnected_f0f5bd523b00_lock"
 LOCK_B = "lock.ratgdov25i_dbfe2a_lock_remotes"
@@ -59,6 +60,24 @@ def options(**over):
     }
     opts.update(over)
     return opts
+
+
+def real_tracker(egress=(GARAGE_CAM,), neighbours=None):
+    """A REAL EgressDirectionTracker (the object stored at
+    hass.data[DOMAIN]["egress_tracker"], __init__.py:3461) with its own
+    attribute layout -- not a stand-in (LOCK-ENTRY-AREAS-WRONG-OBJECT-1)."""
+    t = TV.EgressDirectionTracker(None)
+    t._egress_entities = list(egress)
+    t._interior_neighbours_by_group = (
+        {"garage": [HALL_CAM]} if neighbours is None else neighbours)
+    return t
+
+
+def install_trackers(data, tracker):
+    """Store the tracker under its real key and a REAL TransitValidator under
+    its own key, so a consumer reading the wrong key sees the wrong object."""
+    data["egress_tracker"] = tracker
+    data["transit_validator"] = TV.TransitValidator(None)
 
 
 class Rig:
@@ -133,10 +152,7 @@ async def make_rig(*, opts=None, persons=None, lockouts="locked", bed="unlocked"
     if pc is not None:
         w.hass.data[const.DOMAIN]["person_coordinator"] = pc
     if with_tv:
-        w.hass.data[const.DOMAIN]["transit_validator"] = SimpleNamespace(
-            _egress_entities=[GARAGE_CAM],
-            _interior_neighbours_by_group={"garage": [HALL_CAM]},
-        )
+        install_trackers(w.hass.data[const.DOMAIN], real_tracker())
     for ent in (LOCK_A, LOCK_B):
         w.seed(ent, lockouts)
     w.seed(DOOR_LOCK, "locked")
@@ -463,8 +479,8 @@ async def test_not_set_up_never_corroborates(areas):
     w.hass.data[const.DOMAIN] = {"person_coordinator": SimpleNamespace(data={"Ezinne": {
         "method": "bermuda", "location": "Garage", "bermuda_area": "Garage",
         "previous_location": "away", "last_changed": NIGHT}}),
-        "transit_validator": SimpleNamespace(_egress_entities=[GARAGE_CAM],
-                                             _interior_neighbours_by_group={})}
+        "egress_tracker": real_tracker(neighbours={}),
+        "transit_validator": TV.TransitValidator(None)}
     regime = R.LockRegimeController(
         w.hass, SimpleNamespace(), now=w.clock, call_later=w.call_later,
         track_state=w.track_state, track_added_domain=w.track_added,
@@ -652,3 +668,29 @@ def test_door_entry_areas_egress_and_neighbours():
 
 def test_door_entry_areas_none_validator_empty():
     assert AE.door_entry_areas(None, lambda e: "x") == set()
+
+
+# ============================================================================
+# LOCK-ENTRY-AREAS-WRONG-OBJECT-1: entry areas come from the EgressDirectionTracker
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_entry_areas_read_from_egress_tracker(areas):
+    """Enclosing-method anchor: with the real tracker at "egress_tracker" and
+    a real TransitValidator at "transit_validator", the entry areas are the
+    egress camera's area plus the configured neighbour's area."""
+    rig = await make_rig()
+    assert rig.regime._entry_areas() == {"garage", "garage_hallway"}
+
+
+@pytest.mark.asyncio
+async def test_neighbour_area_bermuda_move_releases_via_tracker(areas):
+    """End-to-end: a Bermuda move into the neighbour-only area (hallway)
+    corroborates the face -- only possible if the neighbour map is read
+    from the tracker."""
+    rig = await make_rig()
+    await ez_really_away(rig)
+    rig.ble("Ezinne", location="Garage Hallway", age_s=0)
+    await rig.face(EZ)
+    assert rig.unlocks() == [LOCK_A, LOCK_B]

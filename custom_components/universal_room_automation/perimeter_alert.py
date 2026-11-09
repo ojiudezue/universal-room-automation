@@ -5047,8 +5047,11 @@ class PerimeterAlertManager:
     def _near_areas(self, cam_key: str) -> set[str]:
         """Areas at/near a dual-role egress camera: the camera's own area,
         plus the areas of its EXPLICITLY configured door-interior neighbours
-        (transit_validator door groups; the unset fallback of 'every
-        interior camera' is NOT used here — too wide for an arrival)."""
+        (EgressDirectionTracker door groups -- it owns
+        ``_door_group_for_stem`` / ``_interior_neighbours_by_group``, the
+        TransitValidator does not: LOCK-ENTRY-AREAS-WRONG-OBJECT-1; the
+        unset fallback of 'every interior camera' is NOT used here — too
+        wide for an arrival)."""
         out: set[str] = set()
         cams = [c for c in self._dual_role_cameras
                 if self._camera_key_for_sensor(
@@ -5059,10 +5062,10 @@ class PerimeterAlertManager:
             if a:
                 out.add(a)
         try:
-            tv = self.hass.data.get(DOMAIN, {}).get("transit_validator")
-            if tv is not None:
-                group = tv._door_group_for_stem(cam_key)
-                nb = getattr(tv, "_interior_neighbours_by_group", {}) or {}
+            tracker = self.hass.data.get(DOMAIN, {}).get("egress_tracker")
+            if tracker is not None:
+                group = tracker._door_group_for_stem(cam_key)
+                nb = getattr(tracker, "_interior_neighbours_by_group", {}) or {}
                 if group is not None and group in nb:
                     for n in nb[group]:
                         a = self._area_of_entity(n)
