@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.108.0
+# Universal Room Automation vv5.108.1
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -4054,6 +4054,10 @@ class URAPersonsInHouseSensor(_CensusBaseSensor):
                     )
                     attrs["frigate_face_msg_dropped_count"] = int(
                         getattr(census, "_frigate_face_msg_dropped_count", 0) or 0
+                    )
+                    # FRIGATE-FACE-BRIDGE-DEAD-PREFIX-1: retained replays skipped.
+                    attrs["frigate_face_msg_retained_count"] = int(
+                        getattr(census, "_frigate_face_msg_retained_count", 0) or 0
                     )
                     _last = getattr(census, "_frigate_face_last_latched", None)
                     if _last is not None:

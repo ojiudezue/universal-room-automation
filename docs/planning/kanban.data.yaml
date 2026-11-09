@@ -389,7 +389,8 @@ cards:
   arc_cut_v5_107_6: "in flight, ships at arc end"
   title: "URA subscribes to Frigate MQTT events directly (no dependency on the house's 'Frigate MQTT to frigate_events bridge' automation) — required for portability"
   thread: security
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.108.1
   batch: perimeter-identity-arc-2026-11
   tier: 2
   created: "2026-11-09 00:20"
@@ -402,6 +403,7 @@ cards:
   links: {related: [PERIMETER-FP-STREET-NOISE-1, FACE-SOURCE-REGISTRY-DISCOVERY-1], blocks: [FRIGATE-FACE-BRIDGE-DEAD-PREFIX-1], context: "Its runtime prefix discovery is the fix the dead-prefix face bridge (FRIGATE-FACE-BRIDGE-DEAD-PREFIX-1) should reuse."}
   adjacency_2026_11_09: "Swept: perimeter plan D9 (the parked design, absorbed here), D2 bus-silent warning (stays as fallback trip-wire), memory project_frigate_mqtt_topic_collision (shared topic_prefix hazard, fixed homelab-side). NEW card; supersedes the D9 park."
 - id: CAMERA-LIST-LIVE-REWIRE-1
+  arc_cut_v5_108_1: "Tier 3, next in arc, needs operator checkpoint"
   arc_cut_v5_108_0: "Tier 3, built after MQTT"
   arc_cut_v5_107_6: "in flight Tier 3, ships at arc end"
   title: "Saving perimeter/egress camera lists forces a full URA parent reload (watchdog hazard); rewire live instead (v5.107.0 plan D11)"
@@ -502,7 +504,8 @@ cards:
   arc_cut_v5_107_6: "waits for MQTT D0 daytime capture"
   title: "Census face bridge reads the Frigate MQTT topic_prefix from the config entry (where it never exists) and falls back to 'frigate' = retired Frigate-1, so it likely listens on a dead topic"
   thread: identity
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.108.1
   tier: 2
   batch: perimeter-identity-arc-2026-11
   created: "2026-11-09 02:00"

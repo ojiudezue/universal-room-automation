@@ -7,6 +7,8 @@ egress/perimeter pipeline.
 platform roles, identity sources and their real coverage, the
 cross-modal fusion doctrine, the census + resolver architecture, the
 egress-identity JOIN and the 6.0.0 gate that depends on it.
+**Frigate MQTT (v5.108.1, branch, NOT deployed):** URA reads Frigate events and
+face names straight from MQTT on the runtime topic prefix (§1.3, §4.5).
 **Current through:** URA v5.91.3 (`camera_census.py:3`); the egress-identity
 PRODUCER is **built on `feature/egress-identity-producer`, shipped pending
 deploy as v5.91.4** (orchestrator confirms the final version at deploy).
@@ -144,6 +146,23 @@ Operator ruling: **FP mitigation preference is cross-corroboration
 hypothesis ruled out live (Frigate-1 `topic_prefix: frigate`,
 Frigate-2 `topic_prefix: frigate2`, client ids `frigate-f1` /
 `frigate-f2`).
+
+**Where URA gets the MQTT prefix (v5.108.1, branch
+`feature/frigate-mqtt-direct`, NOT deployed).** Never from a literal and never
+from the Frigate config ENTRY. The entry holds no prefix key: the live
+"Frigate 2" entry has only url, username, password and validate_ssl. The
+prefix comes from the running integration,
+`hass.data["frigate"][entry_id]["config"]["mqtt"]["topic_prefix"]`, read for
+every Frigate entry. Frigate stores it at setup (frigate `__init__.py:378-381`,
+v5.15.6). One helper reads it, `frigate_ingress.discover_frigate_topic_prefixes`,
+and both the events ingress and the census face bridge use it. Live today:
+`{frigate2}`. `frigate/` (retired Frigate-1) carries only stale retained
+`state` / `snapshot` / `available` messages (D0, 2026-11-09).
+**Corrected:** before this build the census face bridge subscribed to
+`frigate/tracked_object_update`. Its resolver read keys that do not exist and
+fell back to the literal `frigate`, so the fast face path had heard nothing
+since Frigate-1 retired. The point-read path (§1.1) kept faces working
+(FRIGATE-FACE-BRIDGE-DEAD-PREFIX-1).
 
 ---
 
@@ -436,6 +455,47 @@ under `gate_decisions_by_camera`:
   window expiry, teardown, and any later dispatched alert on the same camera
   key (`perimeter_alert.py` `_arm_identity_followup` / `_followup_check`).
 
+**Frigate event ingress (v5.108.1, PERIMETER-FRIGATE-MQTT-DIRECT-1, branch
+`feature/frigate-mqtt-direct`, NOT deployed; plan
+`PLANNING_frigate_mqtt_direct_2026_11.md` rev 2).** Before this build, perimeter
+alerts (snapshot event ids, the D2 event cache, D3 zone gating) and the exterior
+track linker heard Frigate events only through the `frigate_events` bus event.
+A house automation fires that event from `frigate2/events`, so an install
+without that automation got nothing. Both now register on one
+`FrigateEventIngress` (`frigate_ingress.py`, at `hass.data[DOMAIN]["frigate_ingress"]`):
+- **Sources.** The `frigate_events` bus, plus a direct subscription to
+  `<prefix>/events` for each discovered prefix (§1.3). mqtt stays a soft
+  dependency: no manifest change, the subscription is set up again when mqtt
+  loads, when Frigate loads, when HA has started, and every 300 s (add-only).
+- **Exactly once.** A latch per event id: the first source family to deliver
+  an id owns it, the other family's copies are dropped while the owner was
+  heard within 30 s (`FRIGATE_INGRESS_SOURCE_LATCH_TTL_S`, floor 10). Updates
+  from the owning family are never deduped. MQTT normally wins (D0: the bus
+  lags by ≤ 44 ms) and the bus is the fallback. A message with no id goes
+  through MQTT only while an events subscription is live.
+- **Same payload.** MQTT payloads are normalised to the bus shape
+  (`before`, `after`, `type`); D0 found 1881/1881 equal. `sub_label` arrives
+  as null or `[name, score]` on both paths, unchanged.
+- **Retained messages are skipped** (stale on subscribe).
+- **Census face bridge.** It registers a `tracked_object_update` handler on
+  the same ingress, so it uses the runtime prefix (§1.3) and the same
+  late-load handling.
+- **Synthetic face legs do not count toward D10.5's 0.9 (review B-M1).** The
+  latch leg is marked `FaceLeg.synthetic`. When the egress producer's 0.9
+  (two cameras) holds only with a synthetic leg in the pair, it still reports
+  0.9, so display and DB rows are unchanged, but it adds
+  `identity_synthetic_corroborated: true` to `ura_person_egress_event`.
+  Perimeter D10.5 then treats that identity like a below-floor face: it
+  demotes only with the same-person non-face arrival edge within 120 s
+  (reason `egress_synthetic+<source>`).
+- **Kill switch.** `FRIGATE_INGRESS_MQTT_ENABLED` (rung 1, True). False means
+  bus-only events; the face topic stays subscribed.
+- **Diagnostics** (display only, on the exterior open-tracks sensor next to
+  `frigate_bus_by_camera`): `frigate_ingress_prefixes`, `_mqtt_24h`,
+  `_bus_24h` (received per source, before dedup), `_dedup_dropped`,
+  `_mqtt_bad_payload`, `_mqtt_retained_skipped`, `_idless`. The D2 "bus
+  silent" WARN now fires only when BOTH sources are silent.
+
 **SC lock regime face arrivals (v5.107.4, LOCK-REGIME-FACE-ARRIVAL-CORROBORATION-1,
 branch `feature/lock-face-arrival`, NOT deployed).** A `SIGNAL_PERSON_ARRIVING` with
 `source: camera_face` (presence `_handle_face_arrival`, any zone camera) used to
@@ -642,6 +702,7 @@ lives on cards:
 | **`EXTERIOR-GUEST-FACE-FASTFOLLOW-1` D2** | Protect Alarm Manager webhook `ura_kp_face_probe` receiving side verified; Protect-side rule delivering empty payloads. |
 | **`EXTERIOR-GUEST-EGRESS-1`** | Face-independent approach-track FALLBACK — DEFERRED, gated on the identity path proving insufficient. Do NOT re-recommend this off the sparse-face number. |
 | **`PERIMETER-PHANTOM-XCORR-1`**, **`FRIGATE-LEG-NAMING-1`** | Dead-leg / cross-corroboration hygiene. |
+| **`PERIMETER-FRIGATE-MQTT-DIRECT-1`** + **`FRIGATE-FACE-BRIDGE-DEAD-PREFIX-1`** | Built v5.108.1 (branch, NOT deployed): Frigate events and the face bridge read MQTT directly on the runtime prefix (§1.3, §4.5). Live check: L1-L5 in `README_v5.108.1.md`. |
 
 Audit / research trail:
 `docs/planning/AUDIT_census_identity_supersession_and_consumers.md`,

@@ -186,6 +186,8 @@ def test_face_msg_known_camera_latches_and_emits_synthetic_leg():
         assert leg.engine in ("frigate", "frigate2")
         assert leg.confidence is None
         assert leg.base_stem == "front_door"
+        # v5.108.1 B-M1: the latch leg is marked so D10.5 can exclude it.
+        assert leg.synthetic is True
     finally:
         _teardown(census)
 
@@ -563,5 +565,188 @@ def test_mqtt_unloaded_register_is_inert():
                 _sys.modules["homeassistant.components.mqtt"] = saved
         assert census._frigate_face_unsub is None
         assert census._resolve_face_legs("front_door") == []
+    finally:
+        _teardown(census)
+
+
+# ---------------------------------------------------------------------------
+# FRIGATE-FACE-BRIDGE-DEAD-PREFIX-1: prefix from the RUNNING Frigate
+# integration (hass.data["frigate"][entry_id]["config"]["mqtt"]
+# ["topic_prefix"]), one subscription per Frigate entry, no literal fallback.
+# ---------------------------------------------------------------------------
+class _FakeMqtt:
+    def __init__(self):
+        self.subs: dict = {}
+        self.calls: list = []
+
+    async def async_subscribe(self, hass, topic, cb, *a, **k):
+        self.calls.append(topic)
+        self.subs.setdefault(topic, []).append(cb)
+
+        def _u():
+            if cb in self.subs.get(topic, []):
+                self.subs[topic].remove(cb)
+
+        return _u
+
+    def active(self):
+        return {t: len(v) for t, v in self.subs.items() if v}
+
+
+@pytest.fixture
+def fake_mqtt(monkeypatch):
+    import importlib as _il
+    fake = _FakeMqtt()
+    mod = _il.import_module("homeassistant.components.mqtt")
+    monkeypatch.setattr(mod, "async_subscribe", fake.async_subscribe)
+    pkg = _il.import_module("homeassistant.components")
+    if getattr(pkg, "mqtt", None) is not None and pkg.mqtt is not mod:
+        monkeypatch.setattr(pkg.mqtt, "async_subscribe", fake.async_subscribe)
+    return fake
+
+
+def _frigate_runtime(census, runtime, entry_data=None):
+    """Frigate entries (decoy prefix keys in entry data) + runtime config."""
+    hass = census.hass
+    ura_entries = hass.config_entries.async_entries.return_value
+    frig = []
+    for eid in runtime:
+        e = MagicMock()
+        e.entry_id = eid
+        e.data = dict(entry_data or {})
+        e.options = dict(entry_data or {})
+        frig.append(e)
+    hass.config_entries.async_entries.side_effect = (
+        lambda d=None: frig if d == "frigate" else ura_entries
+    )
+    hass.data["frigate"] = {
+        eid: {"config": {"mqtt": {"topic_prefix": p}}} for eid, p in runtime.items()
+    }
+
+
+def _face_resolver_entities():
+    resolver = _StubResolver(frig_index={"front_door": ["dev_fd"]})
+    entities = [
+        _StubEntity("camera.front_door", "dev_fd"),
+        _StubEntity("sensor.front_door_last_recognized_face_2", "dev_fd"),
+    ]
+    return resolver, entities
+
+
+def test_face_bridge_registers_on_ingress_runtime_prefix(fake_mqtt):
+    """Wire-in anchor for `ingress.register_topic_handler(...)` in
+    async_register_frigate_face_listener: subscribes frigate2 (runtime), never
+    the retired literal `frigate`, and a face message on it latches."""
+    from custom_components.universal_room_automation import frigate_ingress as fi
+
+    resolver, entities = _face_resolver_entities()
+    census = _make_census(resolver=resolver, entities=entities)
+    try:
+        _frigate_runtime(census, {"E2": "frigate2"}, entry_data={"topic_prefix": "frigate"})
+
+        async def _t():
+            hass = census.hass
+            hass.async_create_task = (
+                lambda coro, *a, **k: asyncio.get_running_loop().create_task(coro)
+            )
+            hass.data[ura_const.DOMAIN] = {}
+            ing = fi.FrigateEventIngress(hass)
+            hass.data[ura_const.DOMAIN][fi.FRIGATE_INGRESS_HASS_KEY] = ing
+            await census.async_register_frigate_face_listener()
+            for _ in range(8):
+                await asyncio.sleep(0)
+            return ing
+
+        ing = asyncio.run(_t())
+        assert fake_mqtt.active() == {
+            "frigate2/events": 1, "frigate2/tracked_object_update": 1,
+        }
+        assert "frigate/tracked_object_update" not in fake_mqtt.calls
+        cb = fake_mqtt.subs["frigate2/tracked_object_update"][0]
+        cb(_types.SimpleNamespace(
+            payload=json.dumps({"type": "face", "camera": "front_door", "name": "Jaya"}),
+            retain=False,
+        ))
+        assert census._frigate_face_latch["front_door"][0] == "Jaya"
+        census.async_teardown_frigate_face_listener()
+        assert ing._topic_handlers["tracked_object_update"] == {}
+    finally:
+        _teardown(census)
+
+
+def test_face_bridge_fallback_subscribes_each_runtime_prefix(fake_mqtt):
+    census = _make_census()
+    try:
+        _frigate_runtime(census, {"E1": "frigate_a/", "E2": "frigate2"})
+        asyncio.run(census.async_register_frigate_face_listener())
+        assert fake_mqtt.active() == {
+            "frigate_a/tracked_object_update": 1,
+            "frigate2/tracked_object_update": 1,
+        }
+        # C-12: re-registering drops the prior subscriptions first.
+        asyncio.run(census.async_register_frigate_face_listener())
+        assert fake_mqtt.active() == {
+            "frigate_a/tracked_object_update": 1,
+            "frigate2/tracked_object_update": 1,
+        }
+        census.async_teardown_frigate_face_listener()
+        assert fake_mqtt.active() == {}
+    finally:
+        _teardown(census)
+
+
+def test_face_bridge_no_literal_frigate_fallback(fake_mqtt):
+    """F1 discriminator: the entry carries a `topic_prefix` key and no
+    runtime config exists. The old resolver subscribed
+    `frigate/tracked_object_update`; now nothing is subscribed."""
+    census = _make_census()
+    try:
+        _frigate_runtime(census, {}, entry_data={"topic_prefix": "frigate"})
+        hass = census.hass
+        e = MagicMock()
+        e.entry_id = "E2"
+        e.data = {"topic_prefix": "frigate"}
+        e.options = {"mqtt_topic_prefix": "frigate"}
+        ura_entries = hass.config_entries.async_entries.return_value
+        hass.config_entries.async_entries.side_effect = (
+            lambda d=None: [e] if d == "frigate" else ura_entries
+        )
+        asyncio.run(census.async_register_frigate_face_listener())
+        assert fake_mqtt.calls == []
+        assert census._frigate_face_unsub is None
+    finally:
+        _teardown(census)
+
+
+def test_c13_retained_count_surfaces_on_persons_in_house_sensor():
+    """Review C-13: the display attribute reads the census counter."""
+    from custom_components.universal_room_automation import sensor as _sensor_mod
+
+    resolver, entities = _face_resolver_entities()
+    census = _make_census(resolver=resolver, entities=entities)
+    try:
+        payload = json.dumps({"type": "face", "camera": "front_door", "name": "Oji"})
+        for _ in range(3):
+            census._on_frigate_face_msg(_types.SimpleNamespace(payload=payload, retain=True))
+        ent = object.__new__(_sensor_mod.URAPersonsInHouseSensor)
+        ent.hass = _types.SimpleNamespace(data={ura_const.DOMAIN: {"census": census}})
+        ent._get_census = lambda: MagicMock()
+        attrs = ent.extra_state_attributes
+        assert attrs["frigate_face_msg_retained_count"] == 3
+    finally:
+        _teardown(census)
+
+
+def test_face_retained_message_skipped():
+    resolver, entities = _face_resolver_entities()
+    census = _make_census(resolver=resolver, entities=entities)
+    try:
+        payload = json.dumps({"type": "face", "camera": "front_door", "name": "Oji"})
+        census._on_frigate_face_msg(_types.SimpleNamespace(payload=payload, retain=True))
+        assert census._frigate_face_latch == {}
+        assert census._frigate_face_msg_retained_count == 1
+        assert census._frigate_face_msg_seen_count == 0
+        census._on_frigate_face_msg(_types.SimpleNamespace(payload=payload, retain=False))
+        assert census._frigate_face_latch["front_door"][0] == "Oji"
     finally:
         _teardown(census)

@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.108.0
+# Universal Room Automation vv5.108.1
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -2917,6 +2917,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # v3.2.0: Initialize person tracking coordinator if persons are configured
         # FIX v3.2.3.1: Read from options first (where UI saves), then fall back to data
         merged_config = {**entry.data, **entry.options}
+
+        # PERIMETER-FRIGATE-MQTT-DIRECT-1 D3: one Frigate event ingress (the
+        # `frigate_events` bus + direct `<prefix>/events` MQTT, deduped per
+        # event id) owned here, BEFORE the census (face-bridge topic handler),
+        # the perimeter manager and the linker (events consumers) register
+        # on it. Soft mqtt dependency (no manifest change). Construction
+        # failure leaves the key absent: consumers fall back to their own
+        # bus listener (register_frigate_consumer) and the census face bridge
+        # to a direct subscribe.
+        from .frigate_ingress import async_setup_frigate_ingress
+
+        await async_setup_frigate_ingress(hass)
 
         # v3.5.0: Initialize camera integration manager and person census
         # NOTE: Must init BEFORE transit validator (inside tracked_persons block)
@@ -5876,6 +5888,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if exterior_track_linker:
             await exterior_track_linker.async_teardown()
             hass.data[DOMAIN].pop("exterior_track_linker", None)
+
+        # PERIMETER-FRIGATE-MQTT-DIRECT-1: tear down the Frigate ingress
+        # AFTER its consumers (census face bridge, perimeter, linker): bus
+        # listener, every MQTT subscription, reconcile timer, pending tasks.
+        from .frigate_ingress import async_teardown_frigate_ingress
+
+        async_teardown_frigate_ingress(hass)
 
         # CONSOL-1 §D8 fix-up B1: tear down zone_monitoring tripwire so
         # a reload does not double-subscribe (leaked listener would fire

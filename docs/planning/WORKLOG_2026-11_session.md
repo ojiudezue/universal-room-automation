@@ -58,3 +58,4 @@
 - 2026-11-08 22:48 **v5.107.0** — v5.107.0 — Perimeter false-positive gates, egress cameras as perimeter alerts, truthful WhatsApp delivery (cards: PERIMETER-FP-STREET-NOISE-1)
 - 2026-11-09 02:45 **v5.107.6** — v5.107.6 — Entry areas read from the egress tracker (cards: FACE-SOURCE-REGISTRY-DISCOVERY-1,PERIMETER-FRIGATE-SNAPSHOT-CAPTURE-NEVER-1,LOCK-REGIME-FACE-ARRIVAL-CORROBORATION-1,PERIMETER-IDENTITY-FOLLOWUP-1,LOCK-ENTRY-AREAS-WRONG-OBJECT-1)
 - 2026-11-09 13:43 **v5.108.0** — v5.108.0 — Visitors present, and GUEST means a guest is staying (cards: GUEST-MODE-SPLIT-VISITORS-1)
+- 2026-11-09 16:39 **v5.108.1** — v5.108.1: Frigate events straight from MQTT, and the face bridge on the live prefix (cards: PERIMETER-FRIGATE-MQTT-DIRECT-1,FRIGATE-FACE-BRIDGE-DEAD-PREFIX-1)

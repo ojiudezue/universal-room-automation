@@ -290,7 +290,14 @@ EGRESS_SUPPRESSION_WINDOW_SECONDS = 120  # 2 minutes
 # Frigate HA-bus event name — community convention (published by an operator
 # MQTT-to-event automation OR the mqtt-fires-event bridge). Not fired by the
 # frigate custom component itself; degrades gracefully when absent.
-FRIGATE_EVENTS_BUS_EVENT = "frigate_events"
+# PERIMETER-FRIGATE-MQTT-DIRECT-1: the listener now lives in
+# `frigate_ingress.FrigateEventIngress` (bus + direct MQTT, deduped); the name
+# is re-exported here for callers/tests.
+from .frigate_ingress import (  # noqa: E402
+    FRIGATE_EVENTS_BUS_EVENT,
+    get_frigate_ingress,
+    register_frigate_consumer,
+)
 
 # F15 (cycle-3 fix-up 2026-08-07): pre-lowered alias table so lookups are
 # case-insensitive on both sides at O(1) build cost.
@@ -936,18 +943,21 @@ class PerimeterAlertManager:
 
         # Subscribe to Frigate events bus — best-effort snapshot event_id capture.
         # If nothing ever publishes `frigate_events`, this listener is harmless.
+        # PERIMETER-FRIGATE-MQTT-DIRECT-1 D3: fed by FrigateEventIngress
+        # (bus or direct MQTT, deduped per event id); `data` is the
+        # `frigate_events` payload shape. `_source` is unused here.
         @callback
-        def _on_frigate_event(event: Event) -> None:
+        def _on_frigate_event(data: Any, _source: str = "bus") -> None:
             # A-M2: only cache event_id for label in FRIGATE_SNAPSHOT_LABELS
             # (currently {"person"}). Clear the cache on the event's `end`
             # message so a stale car/animal id never bleeds into a later
             # person alert.
             try:
-                after = event.data.get("after") or {}
+                after = data.get("after") or {}
                 label = str(after.get("label") or "").lower()
                 camera = after.get("camera")
                 event_id = after.get("id")
-                msg_type = str(event.data.get("type") or "").lower()
+                msg_type = str(data.get("type") or "").lower()
                 if not camera or label not in FRIGATE_SNAPSHOT_LABELS:
                     return
                 # Hotfix 2026-08-07 (operator: alerts with no picture):
@@ -980,8 +990,8 @@ class PerimeterAlertManager:
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("Frigate event parse failed", exc_info=True)
 
-        self._unsub_frigate_events = self.hass.bus.async_listen(
-            FRIGATE_EVENTS_BUS_EVENT, _on_frigate_event
+        self._unsub_frigate_events = register_frigate_consumer(
+            self.hass, "perimeter", _on_frigate_event,
         )
 
         # PERIMETER-FP D10.5: cache egress identities (only consumed for
@@ -4487,13 +4497,19 @@ class PerimeterAlertManager:
                     1 for v in self._frigate_bus_times.values() for t in v if t >= cutoff
                 )
                 if edges >= PERIMETER_FRIGATE_BUS_SILENT_MIN_EDGES and bus == 0:
+                    # MQTT-DIRECT-1 D4: `_frigate_bus_times` counts messages
+                    # the ingress delivered from EITHER source, so this
+                    # fires only when MQTT and the bus are both silent.
                     self._frigate_bus_silent_warned = True
+                    _ing = get_frigate_ingress(self.hass)
+                    _prefixes = _ing.subscribed_prefixes() if _ing else []
                     _LOGGER.warning(
                         "PerimeterAlertManager: Frigate person legs rose %d "
-                        "times in %ds with ZERO frigate_events bus messages — "
-                        "the MQTT-to-frigate_events bridge automation looks "
-                        "broken (D9 revival trigger).",
+                        "times in %ds with ZERO frigate_events messages from "
+                        "any source (MQTT %s; frigate_events bus) — Frigate "
+                        "event ingress looks broken.",
                         edges, int(PERIMETER_FRIGATE_BUS_WINDOW_S),
+                        ",".join(f"{p}/events" for p in _prefixes) or "not subscribed",
                     )
         except Exception:  # noqa: BLE001
             _LOGGER.debug("PerimeterAlertManager: D2 edge count failed", exc_info=True)
@@ -4537,8 +4553,9 @@ class PerimeterAlertManager:
 
     def gate_decision_stats(self) -> dict[str, Any]:
         """Diagnostic sensor surface: last decision per gate per camera,
-        D5 agreement table, D2 bus counters. Display only."""
-        return {
+        D5 agreement table, D2 bus counters, MQTT-DIRECT-1 D4 ingress
+        counters. Display only."""
+        out = {
             "gate_decisions_by_camera": dict(self._last_gate_decisions),
             "agreement_by_camera": self._agreement.stats(),
             "agreement_store_loaded": self._agreement_load_ok,
@@ -4546,6 +4563,13 @@ class PerimeterAlertManager:
             "zone_map": {k: dict(v) for k, v in self._zone_map.items()},
             "dual_role_cameras": sorted(self._dual_role_cameras),
         }
+        ing = get_frigate_ingress(self.hass)
+        if ing is not None:
+            try:
+                out.update(ing.diag_stats())
+            except Exception:  # noqa: BLE001
+                pass
+        return out
 
     def _exemption_shields(
         self, cam_key: str, now: datetime, exemption_active: bool,
@@ -4925,7 +4949,10 @@ class PerimeterAlertManager:
                 return
             lst = [e for e in self._recent_egress_identity.get(key, [])
                    if abs((ts - e[0]).total_seconds()) <= 600]
-            lst.append((ts, str(pid), float(conf)))
+            # v5.108.1 B-M1: 4th element = the 0.9 leaned on a synthetic
+            # MQTT latch leg (absent key on older producers = False).
+            lst.append((ts, str(pid), float(conf),
+                        data.get("identity_synthetic_corroborated") is True))
             self._recent_egress_identity[key] = lst[-16:]
         except Exception:  # noqa: BLE001
             _LOGGER.debug("PerimeterAlertManager: egress identity cache failed",
@@ -4958,14 +4985,31 @@ class PerimeterAlertManager:
         if not known:
             return None
         best: tuple[str, float, str] | None = None
-        for ts, pid, conf in self._recent_egress_identity.get(cam_key, []):
+        synthetic_hits: list[str] = []
+        for entry in self._recent_egress_identity.get(cam_key, []):
+            ts, pid, conf = entry[0], entry[1], entry[2]
+            synthetic = len(entry) > 3 and entry[3] is True
             try:
                 if abs((edge - ts).total_seconds()) > match_s:
                     continue
             except Exception:  # noqa: BLE001
                 continue
-            if pid.lower() in known and conf >= floor and (best is None or conf > best[1]):
+            if pid.lower() not in known or conf < floor:
+                continue
+            if synthetic:
+                # B-M1: a 0.9 that needed a synthetic latch leg is not
+                # two-camera face corroboration; treat it like a below-floor
+                # face (non-face arrival edge required, below).
+                synthetic_hits.append(pid.lower())
+                continue
+            if best is None or conf > best[1]:
                 best = (pid.lower(), conf, "egress_event")
+        if best is None:
+            for slug in synthetic_hits:
+                src = self._nonface_agrees(slug, edge, cam_key)
+                if src:
+                    best = (slug, floor, f"egress_synthetic+{src}")
+                    break
         try:
             legs = census._resolve_face_legs(cam_key) if census is not None else []
         except Exception:  # noqa: BLE001

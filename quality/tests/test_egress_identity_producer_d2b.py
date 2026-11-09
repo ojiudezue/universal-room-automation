@@ -748,3 +748,108 @@ async def test_wire_in_bus_payload_carries_identity_fields_and_attach_rate_moves
     assert attach_rate > 0.0, (
         "attach_rate_24h must move above zero after a successful attach"
     )
+    # v5.108.1 B-M1: a live (non-synthetic) single leg -> flag False.
+    assert payload["identity_synthetic_corroborated"] is False
+
+
+# ---------------------------------------------------------------------------
+# v5.108.1 review B-M1: a 0.9 that needs a synthetic MQTT latch leg is flagged.
+# ---------------------------------------------------------------------------
+def _synthetic(leg):
+    from dataclasses import replace
+    return replace(leg, synthetic=True)
+
+
+def _two_camera_tracker(now, *, foyer_synthetic, front_synthetic=False):
+    census, hass, _ = _make_census({})
+    tracker = _make_tracker(census, hass, interior_stems=["foyer"])
+    front = _leg("sensor.front_door_last_recognized_face", "frigate",
+                 "dev_front", "oji_udezue", now + timedelta(seconds=-100))
+    foyer = _leg("sensor.foyer_last_recognized_face", "frigate",
+                 "dev_foyer", "oji_udezue", now + timedelta(seconds=-15))
+    _install_legs(census, {
+        "front_door": [_synthetic(front) if front_synthetic else front],
+        "foyer": [_synthetic(foyer) if foyer_synthetic else foyer],
+    })
+    return tracker
+
+
+@pytest.mark.asyncio
+async def test_c2_fired_payload_carries_synthetic_flag_true():
+    """Review C-2: drives _resolve_direction end to end. A two-camera 0.9
+    whose second camera is a synthetic latch leg fires the bus event with
+    identity_synthetic_corroborated True (value still 0.9)."""
+    now = datetime(2026, 8, 28, 12, 0, 0, tzinfo=UTC)
+    census, hass, _ = _make_census({})
+    hass.data = {ura_const.DOMAIN: {"census": census}}
+    tracker = EgressDirectionTracker(hass)
+    tracker._get_interior_cameras_near = (
+        lambda cam: ["binary_sensor.foyer_person_occupancy"]
+    )
+    crossing = now
+    tracker._recent_interior_events[
+        "binary_sensor.foyer_person_occupancy"
+    ] = [crossing + timedelta(seconds=2)]
+    _install_legs(census, {
+        "front_door": [
+            _leg("sensor.front_door_last_recognized_face", "frigate",
+                 "dev_A", "oji_udezue", crossing + timedelta(seconds=1),
+                 base_stem="front_door"),
+        ],
+        "foyer": [_synthetic(
+            _leg("sensor.foyer_last_recognized_face", "frigate",
+                 "dev_B", "oji_udezue", crossing + timedelta(seconds=2),
+                 base_stem="foyer"),
+        )],
+    })
+    fired: list[tuple[str, dict]] = []
+    hass.bus = MagicMock()
+    hass.bus.async_fire = lambda topic, payload: fired.append((topic, payload))
+    await tracker._resolve_direction(
+        "binary_sensor.front_door_person_occupancy", crossing,
+    )
+    topic, payload = fired[-1]
+    assert topic == "ura_person_egress_event"
+    assert payload["person_id"] == "oji_udezue"
+    assert payload["identity_confidence"] == 0.9
+    assert payload["identity_synthetic_corroborated"] is True
+
+
+def test_b_m1_high_needing_synthetic_leg_is_flagged():
+    now = datetime(2026, 8, 28, 12, 0, 0, tzinfo=UTC)
+    tracker = _two_camera_tracker(now, foyer_synthetic=True)
+    slug, idc, _ = tracker._resolve_egress_face_identity(
+        "binary_sensor.front_door_person_occupancy", now, "exit",
+    )
+    # Producer value unchanged (display / DB); only the flag is new.
+    assert slug == "oji_udezue" and idc == 0.9
+    assert tracker._last_identity_synthetic_corroborated is True
+
+
+def test_b_m1_live_pair_not_flagged_and_entry_reset():
+    now = datetime(2026, 8, 28, 12, 0, 0, tzinfo=UTC)
+    tracker = _two_camera_tracker(now, foyer_synthetic=True)
+    tracker._resolve_egress_face_identity(
+        "binary_sensor.front_door_person_occupancy", now, "exit",
+    )
+    assert tracker._last_identity_synthetic_corroborated is True
+    # Next call on the SAME tracker never reaches the HIGH branch (one live
+    # leg -> 0.6): the per-call entry reset must clear the stale True.
+    census = tracker.hass.data[ura_const.DOMAIN]["census"]
+    front = _leg("sensor.front_door_last_recognized_face", "frigate",
+                 "dev_front", "oji_udezue", now + timedelta(seconds=-100))
+    _install_legs(census, {"front_door": [front], "foyer": []})
+    _slug, idc, _ = tracker._resolve_egress_face_identity(
+        "binary_sensor.front_door_person_occupancy", now, "exit",
+    )
+    assert idc == ura_const.CONFIDENCE_MEDIUM
+    assert tracker._last_identity_synthetic_corroborated is False
+    # And a live two-camera pair is HIGH and unflagged.
+    foyer = _leg("sensor.foyer_last_recognized_face", "frigate",
+                 "dev_foyer", "oji_udezue", now + timedelta(seconds=-15))
+    _install_legs(census, {"front_door": [front], "foyer": [foyer]})
+    _slug, idc, _ = tracker._resolve_egress_face_identity(
+        "binary_sensor.front_door_person_occupancy", now, "exit",
+    )
+    assert idc == 0.9
+    assert tracker._last_identity_synthetic_corroborated is False

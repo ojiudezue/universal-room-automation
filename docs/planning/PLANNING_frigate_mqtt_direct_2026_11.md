@@ -120,6 +120,14 @@ Bound: prune expired entries on each insert; hard cap `FRIGATE_INGRESS_LATCH_MAX
 - Every hook callback starts with the liveness guard `hass.data[DOMAIN].get("frigate_ingress") is self` (copy of D2-MED-1 at `__init__.py:2974-2978`).
 - The MQTT callback is `@callback`, sync, and must not block: parse, normalise, `_dispatch`.
 
+**Build resolutions (2026-11-09, verified in source):**
+- **M4 answered: subscriptions survive an MQTT entry reload.** HA core 2026.2.3 `mqtt/__init__.py:643-646` saves the client's remaining subscriptions at unload, and `:433-438` restores them on the new client (`client.py:809-815`). No silence-triggered re-subscribe is needed. Side effect: an unsub callable taken before the reload may not reach the restored subscription, so an orphan can outlive URA's teardown. The events callback checks `_torn_down` and does nothing; topic handlers are cleared at teardown. The census face bridge rides the ingress and gets the same protection.
+- **Retained messages are ignored.** A subscribe replays the broker's retained message for the topic (D0: `frigate/` delivered only retained `state`/`snapshot`/`available` messages). A retained `<prefix>/events` message is a stale event, so the ingress skips it and counts `frigate_ingress_mqtt_retained_skipped`. A retained face message would latch an old name stamped `now`, so the census face bridge skips it too (`frigate_face_msg_retained_count`). Both read `ReceiveMessage.retain` (`mqtt/models.py:84-92`).
+- **`async_when_setup("frigate")` can fire too early.** HA adds the component to `hass.config.components` (`setup.py:465`) before its entries are set up (`:467-482`), and `async_when_setup` fires at once when the component is listed (`:627-631`). So the hook can run before Frigate stored its config. The ingress therefore also reconciles once on `EVENT_HOMEASSISTANT_STARTED` (boot), and the periodic reconcile (d) covers a later Frigate (re)load.
+- **Discovery does not gate on entry state.** It reads runtime data per Frigate entry id. The data exists from Frigate setup (frigate `__init__.py:378`) until unload pops it (`:618`), and `LOADED` is set later than the data, which is the race above.
+- **The face bridge rides the ingress.** Operator 2026-11-09 folded FRIGATE-FACE-BRIDGE-DEAD-PREFIX-1 into this cycle (§7 non-goal superseded). `register_topic_handler("tracked_object_update", ...)` subscribes `<prefix>/tracked_object_update` for every discovered prefix through the same reconcile, late-load and teardown machinery. If the ingress is absent, the bridge subscribes directly to each discovered prefix. There is no literal fallback in either path. The kill switch `FRIGATE_INGRESS_MQTT_ENABLED` covers `<prefix>/events` only; the face topic stays subscribed.
+- **The §4 build gate is a behavioural test, not a grep** (Bug Class #62): with the ingress present, registering both consumers leaves exactly one `frigate_events` bus listener (`test_single_frigate_events_listener_site`).
+
 ### 3.5 Lifecycle
 - Setup: B-M1-style double-setup guard (`__init__.py:3536-3545` pattern): pop and tear down any prior ingress before creating a new one.
 - Consumers register in their own `async_setup` and unregister in `async_teardown`. Perimeter's `_unsub_frigate_events` and linker's `_unsub_frigate` now hold the **unregister** callables, so their existing teardown sites (perimeter :1210-1215, linker teardown) stay unchanged in shape.
@@ -215,4 +223,9 @@ No options-flow field (parsimonious config): discovery has no knob to turn.
 Simplest version considered: MQTT-only, drop the bus listener. It is rejected because an install with no MQTT (or an addon that fires `frigate_events`) would lose everything. Keeping the bus costs one latch. The latch is the minimum machinery that keeps both sources without double-feeding.
 
 ## 10. D0 probe report
-_(pending)_
+**GO** (2026-11-09 08:00-10:00 CST capture; full report `AUDIT_frigate_mqtt_d0_day_2026_11_09.md`, supersedes the overnight NO-GO).
+- Gate (a): normalised equality 1881/1881 = 100%, 0 unpaired either side.
+- Gate (b): max bus lag behind MQTT 44.3 ms, so `max(10, 3 × 0.044) = 10`. The 30 s default is kept for the unmeasured burst case: the automation queue (`max: 25`) was not stressed (peak 8 msg/s).
+- Payload shapes the consumers already handle: `sub_label` is null or a `[name, score]` list, `end_time` is set only on `end`, 0 id-less messages.
+- F1 confirmed by topic and config (the log line itself was not readable): `frigate/` carries retained messages only, and face traffic is on `frigate2/tracked_object_update`.
+- Fixture: `quality/tests/fixtures/frigate_events_mqtt_live.json` (16 MQTT/bus pairs, 3 complete events; develop cd533bb6).

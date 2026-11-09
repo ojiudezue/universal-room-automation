@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "276",
+  "author": "ojiudezue",
+  "session_id": "claude_20261109_223931_ship_v5_108_1",
+  "timestamp": "2026-11-09T22:39:31Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.108.1 shipped: Frigate MQTT direct ingress + face bridge on the runtime prefix",
+  "summary": "Frigate MQTT direct ingress + face bridge on the runtime prefix",
+  "why": "URA depended on a house-specific HA automation to bridge Frigate MQTT events onto the HA bus, which will not exist on another install. Portability is imperative. The face bridge listened on the retired 'frigate/' prefix (retained messages only), so Frigate 2 face names never reached URA. URA now subscribes to each Frigate entry's runtime topic prefix directly, with first-source dedup against the bus, and a latch-derived face leg can no longer demote a door alert without a non-face arrival.",
+  "implications": "Shipped PERIMETER-FRIGATE-MQTT-DIRECT-1, FRIGATE-FACE-BRIDGE-DEAD-PREFIX-1 at v5.108.1; card(s) sit shipped_organic pending validation. Acceptance in README_v5.108.1.md (Live criteria).",
+  "revisit_trigger": "Live: confirm the subscribe log line, ingress counters and face messages on frigate2; if a misrecognised face name shows up in alert text, revisit carrying Frigate's score on the synthetic leg",
+  "refs": {
+    "cards": [
+      "PERIMETER-FRIGATE-MQTT-DIRECT-1",
+      "FRIGATE-FACE-BRIDGE-DEAD-PREFIX-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.108.1.md"
+    ],
+    "release_notes": "See docs/readmes/README_v5.108.1.md"
+  }
+}
