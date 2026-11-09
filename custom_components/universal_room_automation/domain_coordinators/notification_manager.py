@@ -350,6 +350,12 @@ NM_WHATSAPP_DEDUP_TTL_S: int = 600
 # (`wa_bridge`), then the 2.x domain. The last entry is used when neither
 # service is registered, so the failure logs and marks channel health.
 NM_WHATSAPP_SERVICE_DOMAINS: tuple[str, ...] = ("wa_bridge", "whatsapp")
+# PERIMETER-FP D7 fix-up (review A-M1 / B-MED-1): `notification_log.delivered`
+# value for an immediate send that FAILED. 0 is the digest-queue marker
+# (`get_pending_digest` reads `delivered = 0`) and 1/2 mean delivered
+# (`delivered > 0` readers); -1 is read by neither, so a failed send is
+# recorded without being re-queued into the next digest.
+NM_DELIVERED_FAILED: int = -1
 # How long after "diag" a bare digit maps to a menu item. 0 -> names only
 # (digits never map; the menu lists words).
 NM_DIAG_MENU_WINDOW_S: int = 120
@@ -2055,7 +2061,7 @@ class NotificationManager:
                         await database.log_notification(
                             coordinator_id, severity_str, title, message,
                             hazard_type, location, person_id, "whatsapp",
-                            1 if _wa_ok else 0,
+                            1 if _wa_ok else NM_DELIVERED_FAILED,
                         )
             if (
                 effective_pref == NM_DELIVERY_DIGEST

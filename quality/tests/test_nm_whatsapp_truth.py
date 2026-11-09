@@ -150,7 +150,8 @@ def test_wa_immediate_alert_uses_result():
     nm._emit_audit_row = AsyncMock()
     _notify(nm)
     wa_rows = [c.args for c in db.log_notification.await_args_list if c.args[7] == "whatsapp"]
-    assert wa_rows and all(r[8] == 0 for r in wa_rows)
+    # -1 = failed (NOT 0, which is the digest-queue marker)
+    assert wa_rows and all(r[8] == -1 for r in wa_rows)
     audit = nm._emit_audit_row.await_args.kwargs
     assert "whatsapp" not in (audit["channel"] or "")
     assert audit["channel"] == "companion,imessage,pushover"
@@ -164,6 +165,43 @@ def test_wa_immediate_alert_uses_result():
     wa2 = [c.args for c in db2.log_notification.await_args_list if c.args[7] == "whatsapp"]
     assert wa2 and wa2[0][8] == 1
     assert "whatsapp" in nm2._emit_audit_row.await_args.kwargs["channel"]
+
+
+def test_failed_immediate_send_not_in_pending_digest(tmp_path):
+    """A-M1 / B-MED-1: drive the REAL notify into the REAL production DB
+    (production DDL via initialize()), then read the REAL get_pending_digest.
+    A failed MEDIUM WhatsApp send must not be queued into the next digest;
+    a genuine digest-pref row still is (the 0 marker keeps its meaning)."""
+    from test_db_retention_room_history import _make_db, _run as _db_run
+    from custom_components.universal_room_automation.const import (
+        CONF_NM_PERSON_DELIVERY_PREF, NM_DELIVERY_DIGEST,
+    )
+
+    async def _go():
+        hass = _make_hass()
+        _put_house_awake(hass)
+        db = _make_db(str(tmp_path))
+
+        async def _body():
+            hass.data["universal_room_automation"]["database"] = db
+            imm = _immediate_person("person.a")
+            dig = _immediate_person("person.b")
+            dig[CONF_NM_PERSON_DELIVERY_PREF] = NM_DELIVERY_DIGEST
+            dig[CONF_NM_PERSON_WHATSAPP_PHONE] = "+2"
+            nm = _nm(hass, _cfg_all_channels(persons=[imm, dig]), status="auth_failed")
+            nm._emit_audit_row = AsyncMock()
+            await nm.async_notify(
+                "x", Severity.MEDIUM, "Humidity", "high", hazard_type="humidity",
+                location="bath",
+            )
+            await db._write_queue.join()
+            return (await db.get_pending_digest("person.a"),
+                    await db.get_pending_digest("person.b"))
+        return await _db_run(db, _body)
+
+    pend_a, pend_b = asyncio.run(_go())
+    assert [r["channel"] for r in pend_a] == []          # failed send not queued
+    assert "whatsapp" in [r["channel"] for r in pend_b]  # real digest row is
 
 
 def test_audit_row_per_recipient_fired():
