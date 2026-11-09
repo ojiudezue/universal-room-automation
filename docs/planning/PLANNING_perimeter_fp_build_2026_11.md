@@ -820,3 +820,34 @@ Number entity only if the operator tunes them by observation after the probes.
    LOW (H6). The operator's "logged, not pushed" needs a matrix setting.
 6. (rev 2) The §5.5(a) doctrine means Frigate-only face matches (0.60) cannot silence an egress page. Keep it, or relax it
    for this one consumer? Operator decision; the plan keeps it.
+
+---
+
+## Appendix A. Build record (v5.107.0, 2026-11-08)
+
+**Probes (read-only, 19:12 CST):** D4a GO (30-day replay 1,707 alerts / 584 would-demote; 30-snapshot sample:
+21 empty, 7 street, 2 unclear, 0 on property; only 32 of 584 still had a file). D5a agreement: doorbell_lite 0.86,
+front_door_aerial 0.87, g5_bullet 0.82, garage_a 0.87, rear_ptz 0.63, utilities_ptz 0.61, back_yard 0.08, hot_tub
+0.17, pool_equipment 0.12; second-engine lag p90 4-46 s. D8: 272 alerts, 244 live_grab, 28 no file, 0
+frigate_event, so D6's trusted-tier filter currently admits nothing (card owed on the Frigate capture tier).
+H6 LOW check: one NM person, all channel floors HIGH/CRITICAL; LOW `exterior_person` is pushed nowhere.
+
+**Operator changes during build:** D10.5 identity wait ships 0 s; a Frigate (unscored) face match counts as known
+only with the same person's Bermuda room transition or `person.<slug>` → home within
+`PERIMETER_EGRESS_FACE_NONFACE_WINDOW_S = 120` (rung 1); the "that was <name>" follow-up is parked (no NM
+same-notification update path). Live zone ids are bare-named on Frigate-2; zone legs inherit the dropped camera
+leg's `frigate2` tag.
+
+**Deviations from the plan text (code wins):**
+1. D1 item 5: `_resolve_snapshot_url_and_delay` uses the zone map's Frigate camera name for zone sensors only; it
+   does NOT route every sensor through `_camera_key_for_sensor`, which would apply the alias table to the Frigate
+   cache key and change today's aliased-camera URLs.
+2. D1 engine tag: inherited from the dropped camera leg (else the `_2` rule), not the registry `config_entry_id`.
+3. Latent fix: a configured base `_person_occupancy_2` / `_person_detected_2` was tagged `legacy`; now
+   `frigate2` / `protect2` (same rule as `camera_resolver._engine_tag`). Without it D5/D10.5 could never see the
+   Frigate family on live cameras.
+4. D6 select: prior art exists (`ChatterModeSelect`, an integration-options select); `PerimeterVlmGateSelect`
+   subclasses it. §0.2 "no `_IntegrationOptions` select exists" was wrong.
+5. D10.5: an unknown, uncorroborated alert with both NVRs live waits the D5 settle (`PERIMETER_SS_SETTLE_S`, 8 s,
+   in-flight held) before demoting, so the other engine's edge a few seconds later still counts.
+6. D1 config field is Advanced and placed last in the Camera Census step (Simple mode is capped at 7 fields).
