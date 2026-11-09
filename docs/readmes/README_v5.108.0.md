@@ -32,6 +32,10 @@ Now there are two signals.
   HOME_NIGHT at the start of the sleep window (after the usual 5-minute exit hold), then SLEEP; after waking it
   returns to GUEST.
 - WiFi is not used anywhere (operator decision).
+- **Guest left** button (`button.ura_presence_coordinator_guest_left`, on the Presence Coordinator device):
+  ends the stay now. The house leaves GUEST on the press (no 5-minute exit hold), the press time is kept
+  across restarts, and GUEST comes back only after a new qualifying night that starts after the press (with
+  its day). A button exit gets no re-entry grace.
 - A trip-wire pages once (HIGH) if a stay lasts more than 28 days, in case a guest-room sensor is stuck on
   (not while Guest Detection is off; a restart during such a stay can page again, at most once a day).
 - Garage remote lockouts lock ONCE at 22:00 on a stay night and stay locked through GUEST → HOME_NIGHT → SLEEP
@@ -82,7 +86,7 @@ no GUEST entry, the stay treated as off, `visitors_present` follows GUEST only.
   GUEST → HOME_NIGHT night yield (`guest_yield_hold`).
 - `database.py`: `_occupied_episodes_between` extracted from `_occupied_seconds_between` (same sum);
   new read-only `get_guest_room_night_fractions`.
-- `binary_sensor.py`: `VisitorsPresentBinarySensor`. `sensor.py`: three house-state attributes. `const.py`: knobs.
+- `button.py`: `GuestLeftButton` (CM entry, Presence Coordinator device). `binary_sensor.py`: `VisitorsPresentBinarySensor`. `sensor.py`: three house-state attributes. `const.py`: knobs.
 - Docs: presence state of play (§1, §2, §7, §9, §10 #30-#32), identity manual §6, card.
 
 ## Tests
@@ -116,6 +120,7 @@ Four source-grep anchors were converted to behavioural tests (`test_guest_census
 | L5 | first real stay | URA DB + recorder | daily HOME_* → `guest` after waking, `guest` → `home_night` just after 22:00, basis shows an `entry_qualified` night (night ≥ 0.25 AND day ≥ 0.10, same room); lock regime one `lock` at 22:00, a `guest_yield_hold` at ~22:05, no `unlock` before WAKING; ends the morning after the min(2, n)-th straight empty night (n = qualifying nights in the stay). Organic: dispose by this discriminator per the soak-exit rule |
 | L6 | no trip-wire noise | URA DB `notification_log` | no `guest_stay_long` row while no guest is staying |
 | L7 | logs | HA log | no `Guest stay walk failed` WARNING |
+| L8 | Guest left button | registry + entity | unique id `universal_room_automation_guest_left` resolves on the Presence Coordinator device; pressing it during a real stay writes a `house_state_log` row with trigger `guest_left_button` |
 
 Discriminator for L3/L4 against a plausible different failure: if the walk never ran (scheduling broken),
 `guest_stay_basis` stays `[]` rather than listing 3 nights.

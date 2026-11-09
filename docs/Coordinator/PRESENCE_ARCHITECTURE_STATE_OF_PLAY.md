@@ -163,6 +163,15 @@ cited to a verified `file:line` on `develop`, or marked **UNVERIFIED**.
      room re-enters, no day test (a guest away overnight who sleeps in the room again). October replay:
      GUEST 09-28..10-14 and 10-16 (the nights away 10-13/10-14 end it; the night back 10-15 re-enters);
      0 days in 10-19..11-08. Grace re-entries bypass `GUEST_STAY_ENTRY_NIGHTS`.
+     **"Guest left" button** (`button.ura_presence_coordinator_guest_left`, unique id
+     `universal_room_automation_guest_left`, Presence Coordinator device, CM entry):
+     `PresenceCoordinator.async_guest_left` clears the latch, records the press time (RAM + HA Store
+     `universal_room_automation.guest_left`, loaded by the walk), and runs one inference with trigger
+     `guest_left_button`; that tick skips the S9 exit hold once, so GUEST → HOME_* happens now (unless the
+     300 s GUEST minimum dwell rejects it; the latch is off, so the next ticks exit). The walk only lets a
+     night that STARTS after the last press enter, so the old nights cannot re-latch (also after a
+     restart) and a button exit opens no re-entry grace. Prior art: no guest-clear action existed;
+     the house-state override select (`select.py:225-331`) pins a state and is not reused.
      n is a walk-loop local, so a restart reproduces it.
      `GUEST_STAY_DAY_BEFORE_NIGHT` (True) False also accepts night N−1 with day N. Night and day
      windows go through ONE span read per room. Scheduled (never awaited) by

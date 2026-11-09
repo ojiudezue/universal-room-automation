@@ -74,6 +74,8 @@ async def async_setup_entry(
             OptimizerCancelEscalationButton(hass, entry),
             OptimizerResetSettingsButton(hass, entry),
             OptimizerRunCycleNowButton(hass, entry),
+            # GUEST-MODE-SPLIT: "Guest left" (Presence Coordinator device).
+            GuestLeftButton(hass, entry),
         ]
         # NM Cycle C C4: one primary-channel mute button per configured
         # person. Priority order: pushover > imessage > whatsapp >
@@ -1620,6 +1622,55 @@ class VacuumDatabaseButton(ButtonEntity):
 
 
 # ============================================================================
+# GUEST-MODE-SPLIT-VISITORS-1: "Guest left" button (operator 2026-11-09)
+class GuestLeftButton(ButtonEntity):
+    """Ends the current guest stay now.
+
+    Entity: button.ura_presence_coordinator_guest_left
+    Device: URA: Presence Coordinator
+
+    Press -> ``PresenceCoordinator.async_guest_left``: clears the stay
+    latch, leaves GUEST through the normal transition path (trigger
+    ``guest_left_button``), and blocks re-entry until a qualifying night
+    that starts after the press. No re-entry grace follows a button exit.
+    The press time survives a restart.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:account-arrow-right"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_guest_left"
+        self._attr_name = "Guest left"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "presence_coordinator")},
+            name="URA: Presence Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Presence Coordinator",
+            sw_version=VERSION,
+        )
+
+    def _presence(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        return manager.coordinators.get("presence") if manager else None
+
+    @property
+    def available(self) -> bool:
+        return self._presence() is not None
+
+    async def async_press(self) -> None:
+        presence = self._presence()
+        if presence is None:
+            _LOGGER.warning("Guest left: Presence Coordinator not running")
+            return
+        await presence.async_guest_left()
+
+
 # MEMORY-COMPACTOR-1 D4: manual compactor override button
 # ============================================================================
 

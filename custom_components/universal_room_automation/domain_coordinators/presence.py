@@ -1916,6 +1916,16 @@ class PresenceCoordinator(BaseCoordinator):
         # True once a walk succeeded since boot: a later DB error then keeps
         # the previous latch instead of failing off (RAM; a restart resets it).
         self._guest_stay_walked_ok: bool = False
+        # "Guest left" button (operator 2026-11-09): UTC time of the last
+        # press. The walk ignores every night that STARTED before it (no
+        # re-latch from the old nights, no re-entry grace). Persisted in an
+        # HA Store so a restart replay does not re-latch.
+        self._guest_left_at: Optional[datetime] = None
+        self._guest_left_loaded: bool = False
+        self._guest_left_store_obj: Any = None
+        # One-shot: the press's own inference tick skips the S9 GUEST-exit
+        # persistence so the house leaves GUEST now.
+        self._guest_left_exit_now: bool = False
         # D4 trip-wire episode latch (RAM; `since` comes from the DB walk).
         self._guest_stay_long_nm_fired: bool = False
         # D1 visitors_present (display only; never read by infer()).
@@ -6167,6 +6177,7 @@ class PresenceCoordinator(BaseCoordinator):
         n_nights = len(nights)
         target = windows[-1][1].date()
         try:
+            await self._guest_left_load()
             per_room: Dict[str, list] = {}
             for room_name, entry_id in list(self._guest_room_entry_ids.items()):
                 rows = await db.get_guest_room_night_fractions(
@@ -6241,7 +6252,14 @@ class PresenceCoordinator(BaseCoordinator):
                 if scaled else 0
             )
             ended_on: Optional[date] = None   # night that ended the last stay
+            # Guest-left button: read AFTER the DB awaits so a press during
+            # an in-flight walk is honoured. Only a night that STARTS after
+            # the press can enter, so no stay from the old nights exists in
+            # the walk at all: nothing to hold, and no ended stay to open a
+            # re-entry grace (a button exit gets no grace).
+            left_at = self._guest_left_at
             for idx in range(lookback - 1, n_nights):
+                post_press = left_at is None or windows[idx][0] >= left_at
                 q = sum(1 for b in best[idx - lookback + 1: idx + 1] if b[2])
                 # grace 0 is off: a re-entry night is always >= 1 day after
                 # the ending night.
@@ -6249,7 +6267,7 @@ class PresenceCoordinator(BaseCoordinator):
                     ended_on is not None
                     and (nights[idx] - ended_on).days <= grace_days
                 )
-                if not active and (
+                if not active and post_press and (
                     (best[idx][4] and q >= entry_k)
                     or (in_grace and best[idx][2])
                 ):
@@ -6292,6 +6310,72 @@ class PresenceCoordinator(BaseCoordinator):
                 await self._run_inference("guest_stay_refresh")
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("guest_stay_refresh inference failed", exc_info=True)
+
+    def _guest_left_store(self) -> Any:
+        """HA Store holding the last "Guest left" press (created lazily)."""
+        if self._guest_left_store_obj is None:
+            from homeassistant.helpers.storage import Store  # noqa: PLC0415
+
+            self._guest_left_store_obj = Store(
+                self.hass, 1, f"{DOMAIN}.guest_left",
+            )
+        return self._guest_left_store_obj
+
+    async def _guest_left_load(self) -> None:
+        """Load the persisted press once per boot (a newer RAM press wins)."""
+        if self._guest_left_loaded:
+            return
+        self._guest_left_loaded = True
+        try:
+            data = await self._guest_left_store().async_load()
+        except Exception:  # noqa: BLE001 - no press known; walk as usual
+            _LOGGER.warning("Guest left: could not read the stored press",
+                            exc_info=True)
+            return
+        raw = (data or {}).get("pressed_at") if isinstance(data, dict) else None
+        if not raw:
+            return
+        try:
+            stored = datetime.fromisoformat(str(raw))
+        except ValueError:
+            return
+        if stored.tzinfo is None:
+            stored = stored.replace(tzinfo=timezone.utc)
+        if self._guest_left_at is None or stored > self._guest_left_at:
+            self._guest_left_at = stored
+
+    async def async_guest_left(self, now_utc: Optional[datetime] = None) -> None:
+        """"Guest left" button (operator 2026-11-09).
+
+        Clears the stay latch, records the press (RAM + HA Store, so a
+        restart replay cannot re-latch the old nights), and runs one
+        inference with trigger ``guest_left_button``: the normal transition
+        path takes GUEST -> HOME_* on that tick (S9 exit hold skipped once).
+        Re-entry needs a qualifying night that STARTS after the press; there
+        is no re-entry grace from a button exit.
+        """
+        if now_utc is None:
+            now_utc = dt_util.utcnow()
+        await self._guest_left_load()
+        self._guest_left_at = now_utc
+        self._guest_stay_active = False
+        self._guest_stay_since = None
+        _LOGGER.info(
+            "Guest left button pressed at %s: stay latch cleared "
+            "(reason guest_left_button)", now_utc.isoformat(),
+        )
+        try:
+            await self._guest_left_store().async_save(
+                {"pressed_at": now_utc.isoformat()}
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning("Guest left: could not persist the press",
+                            exc_info=True)
+        self._guest_left_exit_now = True
+        try:
+            await self._run_inference("guest_left_button")
+        finally:
+            self._guest_left_exit_now = False
 
     def _update_visitors_present(
         self, state: HouseState, *, room: bool, cam: bool, stay: bool,
@@ -7815,6 +7899,10 @@ class PresenceCoordinator(BaseCoordinator):
             quiet_seconds = int(
                 (_now_utc - self._guest_exit_quiet_since).total_seconds()
             )
+            if getattr(self, "_guest_left_exit_now", False):
+                # "Guest left" button: the operator says the guest has gone,
+                # so the press's own tick leaves GUEST without the S9 hold.
+                quiet_seconds = 10 ** 9
             exit_decision = self.should_veto_due_to_reliable_signals(
                 reliable_signals=[],
                 transient_signals=[],

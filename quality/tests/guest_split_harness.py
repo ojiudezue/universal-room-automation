@@ -71,6 +71,7 @@ def _import_names():
         "aggregation",
         "binary_sensor",
         "sensor",
+        "button",   # Guest left button (imported in the clean window)
     ):
         importlib.import_module(f"{_PKG}.{lazy}")
     names = (
