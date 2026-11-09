@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-08T23:35:46-06:00_ - _Data commit: `c3c1a3dc714b`_ - _last_reconciled: 2026-11-08_
+_Generated: 2026-11-08T23:50:43-06:00_ - _Data commit: `45fad0a45cce`_ - _last_reconciled: 2026-11-08_
 
 
 ## Columns
@@ -12,8 +12,8 @@ _Generated: 2026-11-08T23:35:46-06:00_ - _Data commit: `c3c1a3dc714b`_ - _last_r
 | 📥 Inbox | 0 |
 | 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 13 |
-| 📝 Planned | 16 |
-| 🔨 In progress | 1 |
+| 📝 Planned | 17 |
+| 🔨 In progress | 2 |
 | 🔍 Review | 3 |
 | ⏸️ Waiting on operator | 32 |
 | ⏳ Waiting on me (Claude) | 1 |
@@ -223,7 +223,7 @@ _updated 2026-10-21 22:05_
   - `verified_capabilities`: Per-room MQTT identity already fleet-safe: clientId wall-tablet-<room>, topics home/wallpanel/<room>/{led,sensors,status}; LWT availability; self-registers via MQTT Discovery (no YAML).
   - `orchestrator_assessment`: HIGHEST VALUE IS THE SENSORS, NOT THE CONTROL SURFACE. Per-room lux is a first-class input URA's lighting logic already consumes; a tablet in every room is a lux+temp+humidity fleet arriving for free. That likely beats the quick-action U...
 
-## 📝 Planned (16)
+## 📝 Planned (17)
 _has plan / acceptance_
 
 ### `SC-GEOFENCE-PERSON-SNAPSHOT-1` - SC geofence person listener snapshots person.* once at setup; misses persons added later or loaded after SC — _#1 · WSJF 7.0 · v3 tc2 u2 /e1_
@@ -375,7 +375,16 @@ _created 2026-10-24 08:00_
 - **Forensic keys (1):**
   - `swept_2026_10_24`: NEW. Swept board (HVAC-ANOMALY-BLIND-1 done, HVAC-BASELINE-MAXSAMPLES-1 parked, RESTART-SAFETY-DOCTRINE-1 planned = adjacent), BACKLOG, PLANNING_anomaly_detector_blind_metrics/hvac_short_cycle_producer. No existing card.
 
-### `URAV8-ZONE-ENERGY-DISPLAY-1` - ura-v8: show energy on the zone chips under Rooms, and a house zone-energy breakdown card (pie/bar) on the Energy tab — _#12 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `CAMERA-LIST-LIVE-REWIRE-1` - Saving perimeter/egress camera lists forces a full URA parent reload (watchdog hazard); rewire live instead (v5.107.0 plan D11) — _#12 · WSJF 2.2 · v5 tc2 u2 /e4_
+thread: **security** - status: **planned**
+_created 2026-11-09 00:30_
+- **Why:** perimeter_alert caches CONF_PERIMETER_CAMERAS / CONF_EGRESS_CAMERAS at setup with no refresh, and CameraIntegrationManager.async_discover clears maps before awaiting (camera_census.py:1057-1069), so a camera-list save must take the paren...
+- **Next:** Tier 3: plan D11 is the spec (reuse SIGNAL_URA_TRANSIT_CONFIG_CHANGED; atomic rebuild-then-swap; fixed-order coroutine; fall back to reload on any error); then add both keys to INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS. Two plan reviews, ...
+- **Forensic keys (2):**
+  - `tier`: 3
+  - `adjacency_2026_11_09`: Swept: RELOAD-WATCHDOG-HAZARD (done, fixed camera_person_entities only), EGRESS-CAMERA-LIST-STALE-5-NOT-3-1 (different: stale count), the reload-classification audit (parked #1). NEW card for the parked item.
+
+### `URAV8-ZONE-ENERGY-DISPLAY-1` - ura-v8: show energy on the zone chips under Rooms, and a house zone-energy breakdown card (pie/bar) on the Energy tab — _#13 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **dashboard** - status: **planned**
 _created 2026-11-01 · updated 2026-11-03 02:02_
 - **Why:** Zone energy/power sensors exist (sensor.zone_<name>_energy_today / _total_power) and gain zone-level loads with ZONE-LIVE-POWER-ROLLUP-1. Caution: the Rooms view also renders on wall panels (URA-V8-PANEL-RENDER-SPIN-1, CPU spin) - chips ...
@@ -383,7 +392,7 @@ _created 2026-11-01 · updated 2026-11-03 02:02_
 - **Forensic keys (1):**
   - `tier`: 1
 
-### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#13 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#14 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
 _updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -400,7 +409,7 @@ _updated 2026-09-29 01:05_
   - `d0_impact_2026_08_17`: D0 probe impact: the gate ("D1 identity accurate") CANNOT be met via faces — face coverage at egress is ~7% even post-suffix-fix. So the identity-based interior-count reinforcement is not viable on current sensing. IF cycle 3 rescopes to...
   - `coverage_ceiling_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
-### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#14 · WSJF 1.6 · v7 tc4 u2 /e8_
+### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#15 · WSJF 1.6 · v7 tc4 u2 /e8_
 thread: **platform** - status: **planned** - approval: **needs_operator**
 _updated 2026-10-15 02:14_
 - **Origin:** 2026-08-21 - Operator, on the governed-excursion primitive: "Especially the restartability. I almost want to generalize that. Ura is not universally restart safe." Correct, and this session produced four independent instances without loo...
@@ -420,7 +429,7 @@ _updated 2026-10-15 02:14_
   - `SCOPE_DECISION_NO_CARD_SPRAY_2026_08_21`: The audit recommends CHECKLIST + one narrow primitive, and I agree with that shape — the existing persistence mechanisms are diverse because each is fitted to its data shape, and a shared library would flatten correct choices. The real g...
   - `INSTANCE_2026_09_16_TEARDOWN_ONLY_BASELINES`: MEASURED INSTANCE of this card's general rule, found while confirming residual B on HVAC-ANOMALY-BLIND-1 (see its MEASURED_2026_09_16 for the evidence and the method, including the immutable=1 freshness validation). Filed here as an inst...
 
-### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#15 · WSJF 1.5 · v9 tc8 u2 /e13_
+### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#16 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **planned** - approval: **explicit**
 _created 2026-08-19 07:45 · updated 2026-11-06 02:37 · refined_
 - **Next:** Epic, open: the next slice (what poisons test_v47x_weather_manager.py in suite order) is the same production-stub shadowing class carried by TEST-SUITE-ORDER-INDEP-PRODSTUBS-1; drive it there. Keep this card as the parent of the test-ord...
@@ -459,7 +468,7 @@ _created 2026-08-19 07:45 · updated 2026-11-06 02:37 · refined_
   - `INSTANCE_2026_10_18_unload_hygiene_order`: Overnight build observation: test_unload_symmetry_task_hygiene.py::test_room_name_desync_retry_registers_on_unload_when_loaded and ::test_room_name_desync_retry_cancels_inline_when_not_loaded fail with AttributeError when run together wi...
   - `INSTANCE_2026_11_03_optimization_isolation`: Found during overnight merge-prep. quality/tests/test_optimization_coordinator.py run ALONE on develop @30e4c61a gives 10 failed (registration, arrester_via_coordinator_manager, handshake_suppresses_hvac, handshake_veto, kill_switch_abor...
 
-### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#16 · WSJF 1.0 · v4 tc2 u2 /e8_
+### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#17 · WSJF 1.0 · v4 tc2 u2 /e8_
 thread: **presence** - status: **planned** - approval: **unreviewed**
 _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -474,10 +483,18 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (1)
+## 🔨 In progress (2)
 _being built_
 
-### `OC-CONTEXT-PACK-1` - OC agent context should feel like the orchestrator's: HA + URA ground-truth docs, live config snapshot, doctrine, goals - iterate it against live cases — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `PERIMETER-IDENTITY-FOLLOWUP-1` - Door alert sent as unknown, identity resolves within ~90 s -> one quiet follow-up ('Front door: that was Jaya') — _#1 · WSJF 4.0 · v4 tc2 u2 /e2_
+thread: **security** - status: **in_progress**
+_created 2026-11-09 00:30_
+- **Why:** Time-sensitive alerts go out immediately (feedback_alert_latency_over_precision); Protect names back-fill 40-80 s later, so identity arrives after the page.
+- **Next:** Building as v5.107.5 (feature/perimeter-identity-followup): one follow-up per alert, quiet channel options, never for demoted alerts, kill switch default ON.
+- **Forensic keys (1):**
+  - `tier`: 1
+
+### `OC-CONTEXT-PACK-1` - OC agent context should feel like the orchestrator's: HA + URA ground-truth docs, live config snapshot, doctrine, goals - iterate it against live cases — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **optimization** - status: **in_progress**
 _created 2026-11-01 · updated 2026-11-05 02:40_
 - **Why:** Already decided in VISION_optimization_coordinator_self_fixing_house.md:157 ('Knowledge, loaded fresh every run': HA concepts; URA_ARCHITECTURE_MAP, HVAC + presence state-of-play, SENSOR_FLEET_CLASSES, DEVICE_TREE; live config snapshot; ...
@@ -1264,9 +1281,10 @@ thread: **security** - status: **shipped_organic**
 _created 2026-11-08 14:00_
 - **Why:** Measure first: classify recent perimeter alerts from archived snapshots per camera (true person / street traffic / vehicle / shadow-light / animal / empty), then map each FP class to the cheapest lever: Frigate-side (homelab) motion mask...
 - **Next:** Investigation: URA prober (alert history + snapshot review + storage) and HomeLab (Frigate 2 config inventory + storage), read-only; then a lever table for operator OK.
-- **Forensic keys (3):**
+- **Forensic keys (4):**
   - `tier`: 2
   - `decision_2026_11_08_repeat_demote`: Operator chose option B: no per-camera lists ('per cam settings bug me'). Daytime repeat demotion will key off the D6 vision verdict (no person in Frigate best frame -> demote; unsure/timeout -> page) instead of a camera list or a global...
+  - `arc_2026_11_09`: ARC perimeter-identity-arc-2026-11 (operator: 'Link the arc so we don't lose the thread and we can hit them all after any required measurements'). Releases: v5.107.0 perimeter gates (installed); v5.107.1 face-source registry (FACE-SOURCE...
   - `adjacency_2026_11_08`: Prior art: PERIMETER-PHANTOM-XCORR-1 (done, phantom person + double send + cross-NVR check), docs/planning/AUDIT_perimeter_fp_correlation.md, PLANNING_perimeter_consolidation.md, PLANNING_snap1_at_detection_snapshots.md. ADJACENT not dup...
 
 ## 🅿️ Parked (113)

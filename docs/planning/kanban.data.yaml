@@ -338,6 +338,7 @@ cards:
   title: "Perimeter alerts still include false positives and street noise: reduce FPs end-to-end (Frigate masks/zones/filters, URA pre-alert gates) + check snapshot storage/archival"
   thread: security
   status: shipped_organic
+  batch: perimeter-identity-arc-2026-11
   shipped_version: v5.107.0
   tier: 2
   created: "2026-11-08 14:00"
@@ -347,12 +348,14 @@ cards:
   why: "Measure first: classify recent perimeter alerts from archived snapshots per camera (true person / street traffic / vehicle / shadow-light / animal / empty), then map each FP class to the cheapest lever: Frigate-side (homelab) motion masks, required zones, object filters (min_area/min_score/threshold), stationary handling; URA-side pre-alert gates (zone dwell, cross-NVR corroboration, approach direction, Protect smart-detect agreement)."
   next: "Investigation: URA prober (alert history + snapshot review + storage) and HomeLab (Frigate 2 config inventory + storage), read-only; then a lever table for operator OK."
   decision_2026_11_08_repeat_demote: "Operator chose option B: no per-camera lists ('per cam settings bug me'). Daytime repeat demotion will key off the D6 vision verdict (no person in Frigate best frame -> demote; unsure/timeout -> page) instead of a camera list or a global flip. PERIMETER_BURST_NIGHT_ONLY stays True. Sequence: v5.107.2 live (real Frigate frames) -> D6 select to shadow -> compare verdicts vs images over a few days -> enforce for repeats."
+  arc_2026_11_09: "ARC perimeter-identity-arc-2026-11 (operator: 'Link the arc so we don't lose the thread and we can hit them all after any required measurements'). Releases: v5.107.0 perimeter gates (installed); v5.107.1 face-source registry (FACE-SOURCE-REGISTRY-DISCOVERY-1); v5.107.2 Frigate snapshot internal URL (PERIMETER-FRIGATE-SNAPSHOT-CAPTURE-NEVER-1); v5.107.3 external-URL self-check (operator: no card; tracked here); v5.107.4 lock-regime face arrival (LOCK-REGIME-FACE-ARRIVAL-CORROBORATION-1); v5.107.5 identity follow-up (PERIMETER-IDENTITY-FOLLOWUP-1); PERIMETER-FRIGATE-MQTT-DIRECT-1 (planned); CAMERA-LIST-LIVE-REWIRE-1 (Tier 3, planned). ONE restart at arc end (operator). POST-RESTART MEASUREMENTS, then act: (1) set zone-sensor field + 3 door cameras + their enrichment; (2) D6 vision -> shadow, compare verdicts vs Frigate frames a few days, then enforce for repeat alerts (decision B, replaces PERIMETER_BURST_NIGHT_ONLY flip); (3) D5 single-source: retune settle from shadow lag data, then decide enable; (4) snapshot tier-1 hit rate after v5.107.2 -> decide Fix B (edge-first wait); (5) 7-day per-camera push count vs 30-day baseline (revisit discriminator); (6) after v5.107.4: flip FACE_SOURCE_PRESENCE_ARRIVAL_DISAMBIGUATED + set Oji=oji_udezue alias; (7) F-5 guest-count residual: measure before change. Operator-owned: Protect exclusion zones on rear_ptz, g5_bullet."
   links: {related: [PERIMETER-PHANTOM-XCORR-1]}
   adjacency_2026_11_08: "Prior art: PERIMETER-PHANTOM-XCORR-1 (done, phantom person + double send + cross-NVR check), docs/planning/AUDIT_perimeter_fp_correlation.md, PLANNING_perimeter_consolidation.md, PLANNING_snap1_at_detection_snapshots.md. ADJACENT not duplicate: new FP classes (street noise) and storage/archival."
 - id: PERIMETER-FRIGATE-SNAPSHOT-CAPTURE-NEVER-1
   title: "Perimeter alert images never come from Frigate's stored event snapshot (0 of 272 in 7 days; 244 live grabs, 28 no file), so 'empty frame' alerts may be capture timing, not false detections"
   thread: security
   status: investigating
+  batch: perimeter-identity-arc-2026-11
   tier: 2
   created: "2026-11-08 22:00"
   updated: "2026-11-08 22:00"
@@ -366,6 +369,7 @@ cards:
   title: "SC lock regime unlocks (garage lockout release + master_bedroom_lock) on a camera_face arrival signal alone; a Frigate face misrecognition at a door camera can unlock"
   thread: security
   status: planned
+  batch: perimeter-identity-arc-2026-11
   tier: 2
   created: "2026-11-08 23:45"
   updated: "2026-11-08 23:45"
@@ -380,6 +384,7 @@ cards:
   title: "URA subscribes to Frigate MQTT events directly (no dependency on the house's 'Frigate MQTT to frigate_events bridge' automation) — required for portability"
   thread: security
   status: planned
+  batch: perimeter-identity-arc-2026-11
   tier: 2
   created: "2026-11-09 00:20"
   updated: "2026-11-09 00:20"
@@ -390,6 +395,33 @@ cards:
   constraints: "No hard mqtt dependency; no double feed into snapshot cache / linker; byte-identical alerts on this house where the bridge also runs."
   links: {related: [PERIMETER-FP-STREET-NOISE-1, FACE-SOURCE-REGISTRY-DISCOVERY-1]}
   adjacency_2026_11_09: "Swept: perimeter plan D9 (the parked design, absorbed here), D2 bus-silent warning (stays as fallback trip-wire), memory project_frigate_mqtt_topic_collision (shared topic_prefix hazard, fixed homelab-side). NEW card; supersedes the D9 park."
+- id: CAMERA-LIST-LIVE-REWIRE-1
+  title: "Saving perimeter/egress camera lists forces a full URA parent reload (watchdog hazard); rewire live instead (v5.107.0 plan D11)"
+  thread: security
+  status: planned
+  tier: 3
+  batch: perimeter-identity-arc-2026-11
+  created: "2026-11-09 00:30"
+  updated: "2026-11-09 00:30"
+  rank: {value: 5, time_criticality: 2, effort: 4}
+  origin: "Operator 2026-11-08: 'Can we fix this? I know it's a diff problem. Check if carded.' then 'Uncork d11'. Was parked follow-up #1 in AUDIT_integration_options_reload_classification.md:78-79,125; designed as D11 in PLANNING_perimeter_fp_build_2026_11.md:707+."
+  why: "perimeter_alert caches CONF_PERIMETER_CAMERAS / CONF_EGRESS_CAMERAS at setup with no refresh, and CameraIntegrationManager.async_discover clears maps before awaiting (camera_census.py:1057-1069), so a camera-list save must take the parent reload path (RELOAD-WATCHDOG-HAZARD class)."
+  next: "Tier 3: plan D11 is the spec (reuse SIGNAL_URA_TRANSIT_CONFIG_CHANGED; atomic rebuild-then-swap; fixed-order coroutine; fall back to reload on any error); then add both keys to INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS. Two plan reviews, four framing-disjoint code reviews, orchestrator mutation verify, OPERATOR CHECKPOINT before deploy."
+  links: {related: [PERIMETER-FP-STREET-NOISE-1, RELOAD-WATCHDOG-HAZARD]}
+  adjacency_2026_11_09: "Swept: RELOAD-WATCHDOG-HAZARD (done, fixed camera_person_entities only), EGRESS-CAMERA-LIST-STALE-5-NOT-3-1 (different: stale count), the reload-classification audit (parked #1). NEW card for the parked item."
+- id: PERIMETER-IDENTITY-FOLLOWUP-1
+  title: "Door alert sent as unknown, identity resolves within ~90 s -> one quiet follow-up ('Front door: that was Jaya')"
+  thread: security
+  status: in_progress
+  tier: 1
+  batch: perimeter-identity-arc-2026-11
+  created: "2026-11-09 00:30"
+  updated: "2026-11-09 00:30"
+  rank: {value: 4, time_criticality: 2, effort: 2}
+  origin: "Operator 2026-11-08: 'What was Jaya doesn't need to be an edit. It can be a follow up.' Uncorks the v5.107.0 D10.5(2) park."
+  why: "Time-sensitive alerts go out immediately (feedback_alert_latency_over_precision); Protect names back-fill 40-80 s later, so identity arrives after the page."
+  next: "Building as v5.107.5 (feature/perimeter-identity-followup): one follow-up per alert, quiet channel options, never for demoted alerts, kill switch default ON."
+  links: {related: [PERIMETER-FP-STREET-NOISE-1]}
 - id: PERSON-PROFILE-PREFERENCES-1
   title: "Per-person profile for identified household members: their bedroom(s)/bathroom, room ownership (incl. shared owners e.g. master), playlist, opt-in/out of automated arrival actions, welcome scene"
   thread: identity
@@ -409,6 +441,7 @@ cards:
   title: "Face-name sources are found by entity-name pattern (<camera>_last_recognized_face[_2]); make discovery home-agnostic via the device/entity registry for Frigate and Protect"
   thread: identity
   status: planned
+  batch: perimeter-identity-arc-2026-11
   tier: 2
   created: "2026-11-08 19:30"
   updated: "2026-11-08 21:30"
