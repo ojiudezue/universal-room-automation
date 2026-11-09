@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-09T00:05:10-06:00_ - _Data commit: `2c59a940b49e`_ - _last_reconciled: 2026-11-08_
+_Generated: 2026-11-09T00:08:00-06:00_ - _Data commit: `b79d34991e6f`_ - _last_reconciled: 2026-11-08_
 
 
 ## Columns
@@ -10,7 +10,7 @@ _Generated: 2026-11-09T00:05:10-06:00_ - _Data commit: `2c59a940b49e`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 0 |
-| 🔬 Investigating | 1 |
+| 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 18 |
 | 🔨 In progress | 2 |
@@ -26,7 +26,7 @@ _raw capture_
 
 _(none)_
 
-## 🔬 Investigating (1)
+## 🔬 Investigating (2)
 _measuring; truth not yet known_
 
 ### `PERIMETER-FRIGATE-SNAPSHOT-CAPTURE-NEVER-1` - Perimeter alert images never come from Frigate's stored event snapshot (0 of 272 in 7 days; 244 live grabs, 28 no file), so 'empty frame' alerts may be capture timing, not false detections — _#1 · WSJF 5.0 · v5 tc3 u2 /e2_
@@ -37,6 +37,14 @@ _created 2026-11-08 22:00_
 - **Forensic keys (2):**
   - `tier`: 2
   - `adjacency_2026_11_08`: Swept: PLANNING_snap1_at_detection_snapshots.md (SNAP-1 design), PERIMETER-FP-STREET-NOISE-1 (parent arc). NEW: the capture failure itself is not carded.
+
+### `FRIGATE-FACE-BRIDGE-DEAD-PREFIX-1` - Census face bridge reads the Frigate MQTT topic_prefix from the config entry (where it never exists) and falls back to 'frigate' = retired Frigate-1, so it likely listens on a dead topic — _#2 · WSJF 4.5 · v5 tc2 u2 /e2_
+thread: **identity** - status: **investigating**
+_created 2026-11-09 02:00_
+- **Why:** If confirmed, census face-name consumption via MQTT never sees Frigate2 names; fixing it changes census behaviour.
+- **Next:** Confirm with the MQTT plan's D0 live capture (which topic carries Frigate2 events), then fix the lookup by reusing the new frigate_ingress prefix discovery.
+- **Forensic keys (1):**
+  - `tier`: 2
 
 ## 🧭 Pre-planning (13)
 _idea being decomposed_
