@@ -334,6 +334,32 @@ cards:
   why: "Pre-existing, left unchanged in the storm cycle: the full-hold degraded clear/restore path has the same shape as pre-onset and reports envoy_available=True on a degraded tick, which resets the Envoy outage counter for that tick. Effect: the blind/outage escalation can under-count during a storm hold."
   next: "Verify against current energy_battery.py (the plan's line refs are from v5.103.6x): find the full-hold degraded branch, confirm the envoy_available value on a degraded tick, and decide fix vs document. Sibling: EC-INCLEMENT-HARDENING-1."
   links: {sibling_of: EC-INCLEMENT-HARDENING-1}
+- id: PERIMETER-FP-STREET-NOISE-1
+  title: "Perimeter alerts still include false positives and street noise: reduce FPs end-to-end (Frigate masks/zones/filters, URA pre-alert gates) + check snapshot storage/archival"
+  thread: security
+  status: investigating
+  tier: 2
+  created: "2026-11-08 14:00"
+  updated: "2026-11-08 14:00"
+  rank: {value: 4, time_criticality: 2, effort: 3}
+  origin: "Operator 2026-11-08: 'Some of these perimeter alerts are false positives or capture street noise. Between you and homelab can you figure out how to reduce the false positives? You can review archives snapshots. Consider all your tools available across the 2 agents including masks, tuning and others. Even interim steps before issuing an alert. Also check that storage is not a concern on snapshots and consider archival strategies if we don't have.'"
+  why: "Measure first: classify recent perimeter alerts from archived snapshots per camera (true person / street traffic / vehicle / shadow-light / animal / empty), then map each FP class to the cheapest lever: Frigate-side (homelab) motion masks, required zones, object filters (min_area/min_score/threshold), stationary handling; URA-side pre-alert gates (zone dwell, cross-NVR corroboration, approach direction, Protect smart-detect agreement)."
+  next: "Investigation: URA prober (alert history + snapshot review + storage) and HomeLab (Frigate 2 config inventory + storage), read-only; then a lever table for operator OK."
+  links: {related: [PERIMETER-PHANTOM-XCORR-1]}
+  adjacency_2026_11_08: "Prior art: PERIMETER-PHANTOM-XCORR-1 (done, phantom person + double send + cross-NVR check), docs/planning/AUDIT_perimeter_fp_correlation.md, PLANNING_perimeter_consolidation.md, PLANNING_snap1_at_detection_snapshots.md. ADJACENT not duplicate: new FP classes (street noise) and storage/archival."
+- id: FACE-SOURCE-REGISTRY-DISCOVERY-1
+  title: "Face-name sources are found by entity-name pattern (<camera>_last_recognized_face[_2]); make discovery home-agnostic via the device/entity registry for Frigate and Protect"
+  thread: identity
+  status: pre_planning
+  tier: 2
+  created: "2026-11-08 19:30"
+  updated: "2026-11-08 19:30"
+  rank: {value: 3, time_criticality: 1, effort: 3}
+  origin: "Operator 2026-11-08: 'Is the frigate name bridge still to be built? ... How do we make it home agnostic?' then 'Yes card it'."
+  why: "The bridge works (FRIGATE-SUBLABEL-FACE-BRIDGE-1 done; egress person_id attach 90/203 = 44% over the 14 days to 11-08) but camera_census.py:3135-3210 / :5024-5068 and camera_resolver.py:251 find face sensors by string pattern including this house's _2 suffix. Renamed cameras or non-matching entity ids in another home -> zero face sources, silently."
+  next: "Investigate first (UNVERIFIED): which registry fields the Frigate and UniFi Protect integrations set on the face sensors (platform, unique_id shape, translation_key, device link). Then plan: resolve face sensors per camera via the registry with the name pattern as fallback; a diagnostics flag for 'face-capable camera, no face source matched'; face-name to person mapping stays an explicit config field. Needed before a second install; not needed for this house."
+  links: {related: [FRIGATE-SUBLABEL-FACE-BRIDGE-1, PERIMETER-FP-STREET-NOISE-1]}
+  adjacency_2026_11_08: "Swept the board for sub_label/face/registry/portability. FRIGATE-SUBLABEL-FACE-BRIDGE-1 is done (consumption, not discovery); camera_census _resolve_face_producer_health_entity (~line 7100 card) uses the registry for health only. NEW: discovery portability is a distinct problem."
 - id: WA-BRIDGE-DOMAIN-1
   title: "URA WhatsApp sends fail after ha-wa-bridge 3.x (domain renamed whatsapp -> wa_bridge; 2.x gets 401 once the add-on requires a token)"
   thread: notifications
