@@ -2,7 +2,10 @@
 
 **Card:** `GUEST-MODE-SPLIT-VISITORS-1` (`docs/planning/kanban.data.yaml:438`).
 **Base:** `develop` @ `4b52c262` (v5.107.6); every `file:line` below re-read on that commit, 2026-11-09.
-**Status:** rev 4 (2026-11-09). Rewritten on the operator's answers to the D0 §8 questions (below). Rev 4 plan review
+**Status:** rev 5 (2026-11-09). Entry rule changed to "sustained daytime occupancy + one qualifying night" on the
+operator's 2026-11-09 follow-up (§0.1); replay re-run (§5.4); garage-lockout churn (build review B-M1) specified as
+INV-LOCK-1 + D3 acceptance criteria (§3.3). Builder delta against the rev 4 build `3a37f0c2`: §13.
+Rev 4 (2026-11-09) was rewritten on the operator's answers to the D0 §8 questions (below). Rev 4 plan review
 (adversarial build-prediction, run by the planner) applied: §11. Earlier reviews: plan review 1 (completeness) →
 rev 2, `docs/reviews/code-review/guest_split_plan_review_1.md`; plan review 2 (build-prediction) → rev 3,
 `docs/reviews/code-review/guest_split_plan_review_2.md`. D0: `docs/planning/AUDIT_guest_split_d0_2026_11.md`.
@@ -23,6 +26,18 @@ Decisions taken from it:
    30-minute gate. The 30-minute room gate stays, demoted to a `visitors_present` leg.
 4. Rev 3's two-leg design (room AND cam/WiFi) is WITHDRAWN. D0 measured its recall on the October stay at 1 of 16
    entry-days.
+
+### 0.1 Operator follow-up 2026-11-09 (binding, rev 5)
+
+Verbatim: *"It can be one night. That's legit. basically sustained occupancy during the day and an overnight should
+suffice."* And on scanners: *"We don't know guests irk. So it will have to be sensor occupancy. Unless we ask guests
+to authenticate. Which is not a bad idea. But not now."*
+
+5. **Entry = sustained daytime occupancy of a guest room + ONE qualifying night in the same room** (§2.3). The rev 4
+   "2 of the last 3 nights" entry rule is dropped. The exit rule (3 straight non-qualifying nights) is kept; the
+   replay does not argue against it (§5.4).
+6. **Identity is sensor-only.** Guests have no IRK, so nothing identifies a guest. BLE only SUBTRACTS residents
+   (`person_visits`). Guest self-authentication is parked as `GUEST-SELF-AUTHENTICATION-1` (revival: operator asks).
 
 ## Deliverables and verdicts
 
@@ -53,10 +68,12 @@ D0 measured this rule against the real October stay (09-27 to 10-17): 35 entries
 staying with us." Since 10-18: zero entries in 22 days.
 
 After this plan:
-- **GUEST** (high bar) = a guest STAY: a designated guest room was occupied by someone other than a BLE-located
-  resident for at least `GUEST_NIGHT_MIN_FRACTION` of the night window on at least `GUEST_STAY_ENTRY_NIGHTS` of the
-  last `GUEST_STAY_LOOKBACK_NIGHTS` nights. Once on, the stay holds until `GUEST_STAY_LOOKBACK_NIGHTS` nights in a
-  row fail. The house shows GUEST by day and evening during a stay and goes to SLEEP at night as usual.
+- **GUEST** (high bar) = a guest STAY (rev 5): on some night N a designated guest room R was occupied by someone
+  other than a BLE-located resident for at least `GUEST_NIGHT_MIN_FRACTION` of the night window, AND the same room
+  was so occupied for at least `GUEST_STAY_DAY_MIN_FRACTION` of the day window before that night
+  (`GUEST_STAY_DAY_START_HOUR` → `sleep_start_hour`). Once on, the stay holds until `GUEST_STAY_LOOKBACK_NIGHTS`
+  nights in a row fail the night test. The house shows GUEST by day and evening during a stay and goes to SLEEP at
+  night as usual.
 - **`visitors_present`** (low bar) = GUEST, OR the stay is active, OR the 30-min guest-room gate, OR Path A
   (unidentified bodies on camera ≥ 300 s).
 
@@ -88,6 +105,7 @@ Ledger items that bind this plan:
 | Room occupied seconds in a window from the DB | **REUSE + small refactor** | `Database._occupied_seconds_between(db, room_id, start_utc, end_utc)` `database.py:3611` (entry/exit pairing, episode cap `OCC_EPISODE_MAX_S` 43200 `const.py:2240`, look-back, naive-UTC stored clock). Callers `:3692`, `:8478`. D2 extracts its episode list (`_occupied_episodes_between`) so the sum stays byte-identical and the resident subtraction can work on intervals |
 | DB read context | **REUSE** | `Database._db_read` `database.py:761`; presence gets the DB at `hass.data[DOMAIN]["database"]` (`presence.py:2727`) |
 | Night window | **REUSE** | House sleep window on the inference engine: `self._inference_engine.sleep_start_hour` / `.sleep_end_hour` (`presence.py:1506-1508`, engine `:1055-1061`), fed from CM options `CONF_SLEEP_START_HOUR` / `CONF_SLEEP_END_HOUR` (`__init__.py:3748-3757`, `const.py:3519-3523`, defaults 23/6; **live 22 / 6**, CM entry 2026-11-09). Not the per-room sleep-protection hours (`const.py:1560-1561`, GB1 21-7, GB2 22-7): those drive room lighting, and the stay is a house concept |
+| Day window + day fraction (rev 5) | **REUSE reader, NEW knobs** | Same `get_guest_room_night_fractions` span API (rev 4 build `3a37f0c2`, `database.py:3697`), which already takes an arbitrary `windows` list: day windows are just more windows. Knobs `GUEST_STAY_DAY_MIN_FRACTION` / `_DAY_START_HOUR` / `_DAY_BEFORE_NIGHT` are NEW: `grep -rn -e GUEST_STAY_DAY -e DAY_START_HOUR -e DAY_MIN_FRACTION -e day_start_hour` over the package (develop and `3a37f0c2`) returns nothing. The engine has `evening_start_hour` / `night_start_hour` (`presence.py:1019-1020`) but no day-start hour; `sleep_end_hour` (6) as the start gives the same replay list (§5.4), but the operator asked for a separate window knob |
 | Sleep-hour test for the night yield | **REUSE** | `StateInferenceEngine._is_sleep_hour` `presence.py:1465-1470` |
 | GUEST composition | **EXTEND** | `presence.py:6586-6613`; `infer()` exit `:1399`, entry `:1425-1432` |
 | Path A (cam visitors leg) | **REUSE unchanged** | `_guest_gate_armed` `presence.py:5998-6076` (HOME_* only; `CONF_GUEST_MODE_PERSISTENCE_SECONDS` / `_REQUIRE_CONFIDENCE` `const.py:4245`/`:4248`, live 300 s / medium) |
@@ -148,6 +166,18 @@ For each designated guest room R and each night N (the night that starts on loca
 - Night N **qualifies** iff max over guest rooms of `frac(R, N)` ≥ `GUEST_NIGHT_MIN_FRACTION`.
 - A night with no DB evidence for any guest room (no rows, DB error) does not qualify (fails toward no GUEST).
 
+**Day fraction (rev 5).** Same reader, same resident subtraction, same pad, different window:
+- Day window Dy(N) = [the latest local time at hour `GUEST_STAY_DAY_START_HOUR` that is at least 1 h before the
+  start of W(N), start of W(N)). Live (22 → 6, H = 10): local N 10:00 → local N 22:00, 12 h. For a non-wrapping sleep
+  window (start 1): local N 10:00 → local N+1 01:00. Length is real elapsed time.
+- `dfrac(R, N)` = seconds of (occupied episodes minus padded resident intervals) inside Dy(N), divided by |Dy(N)|.
+- Night N is **entry-qualified** iff for one room R both `frac(R, N)` ≥ `GUEST_NIGHT_MIN_FRACTION` AND
+  `dfrac(R, N)` ≥ `GUEST_STAY_DAY_MIN_FRACTION` (same room; the replay gave the same day list for "any room", §5.4).
+  With `GUEST_STAY_DAY_BEFORE_NIGHT` False, the day after the night also counts: N is also entry-qualified when
+  `frac(R, N)` and `dfrac(R, N+1)` pass, judged at the walk after night N+1 (one day later; no new scheduling).
+- Identity is sensor-only (operator 2026-11-09): guests carry no IRK. BLE never adds guest time; it only removes
+  resident time.
+
 ### 2.2 Clocks (portability; both are traps)
 
 - `occupancy_events.timestamp` is naive UTC (`datetime.utcnow()`, docstring `database.py:3617-3619`; D0 verified
@@ -165,11 +195,15 @@ For each designated guest room R and each night N (the night that starts on loca
 
 **Latch.** `PresenceCoordinator._guest_stay_active: bool`, recomputed (never incremented) from the DB:
 - Walk nights from N0 = (last completed night) − `GUEST_STAY_REPLAY_NIGHTS` + 1 to the last completed night, starting
-  with the latch False. For each night, with Q = the number of qualifying nights among the last
-  `GUEST_STAY_LOOKBACK_NIGHTS` nights ending at it:
-  - latch False and Q ≥ `GUEST_STAY_ENTRY_NIGHTS` → True;
-  - latch True and Q == 0 → False;
+  with the latch False. For each night N, with Q = the number of qualifying nights (night test only) among the last
+  `GUEST_STAY_LOOKBACK_NIGHTS` nights ending at N:
+  - latch False and N is entry-qualified (§2.1, night + day, same room) and Q ≥ `GUEST_STAY_ENTRY_NIGHTS` → True
+    (default `GUEST_STAY_ENTRY_NIGHTS` = 1, so the entry-qualified night alone suffices; 2 restores a rev-4-style
+    second-night guard, §5.4);
+  - latch True and Q == 0 → False (exit unchanged from rev 4: 3 straight misses);
   - otherwise unchanged.
+  - With `GUEST_STAY_DAY_BEFORE_NIGHT` False, "N is entry-qualified" also accepts (night N−1, day N), so the walk
+    reads one extra day window.
 - "Last completed night" = the latest night N whose window end is ≤ now.
 - The walk is deterministic in the DB contents, so a restart reproduces the same latch (no Store, no RAM history).
 - **When it runs:** (a) once after setup, once the DB is available (setup must not await it); (b) on the first inference
@@ -210,6 +244,19 @@ Phantom room occupancy has no automatic discharge, so D4 pages instead.
 
 ### 2.4 Marginal-benefit check (before the spec)
 
+**Rev 5 (supersedes the "2 of 3" choice below).** The operator ruled one night legitimate. The day test is the
+simplest addition that fits his words ("sustained occupancy during the day and an overnight"): one more window
+through the same reader, no new writer, no new state. What the replay says it buys (§5.4): stay day 2 (09-28) is
+caught (rev 4 lost days 1 and 2); 10-19..11-08 stays at 0. What it costs: four more pre-stay day-ranges become active
+(08-25..08-27, 09-10..09-12, 09-16..09-18, and 08-25..09-02 now starts earlier), all single-night or
+earlier-visit shapes the operator has not labelled. The day test does NOT filter those: the October guest was out of
+the room by day (stay day fractions 0.00-0.21), so any day threshold low enough to admit the stay (≤ 0.21) also admits
+every one-night case (day fractions 0.24-0.38). The day test's real job is to reject a night-only sleeper with no
+daytime presence (09-04: night 0.51, day 0.02) and phantom night holds. The rev 4 analysis below is kept as the record
+of why the second-night guard exists; it survives as the knob `GUEST_STAY_ENTRY_NIGHTS` (default 1, set 2 to restore it).
+
+**Rev 4 analysis (kept for the record):**
+
 - **Simplest version that fits the operator's words:** "a guest room was mostly occupied last night" (K=1 of L=1).
   Replay at F=0.25: 15 of 21 stay days, and 9 days outside the stay, including the single 15-hour 09-15 night. Requiring
   2 of the last 3 nights adds one constant and removes the one-night cases (a resident who fell asleep in GB2 once,
@@ -223,25 +270,32 @@ Phantom room occupancy has no automatic discharge, so D4 pages instead.
   way, and the gate's 35 stay entries were short morning episodes (D0 §7).
 - **Rejected: a GUEST → SLEEP edge** instead of the night yield. It changes the house-state machine (`VALID_TRANSITIONS`)
   for every caller; the yield uses existing edges only.
-- **Parked: arrival-day GUEST.** The rule cannot see a guest until their second night (09-27 and 09-28 lost in the
-  replay). `visitors_present` covers those days. Revival trigger: the operator says the first two days matter after
-  one real stay under the new rule.
+- **Parked: arrival-day GUEST.** Rev 5 sees a guest from the morning after their first night (day 2, 09-28 in the
+  replay). The arrival day itself (09-27) cannot be caught by any night rule: the night has not happened yet.
+  `visitors_present` covers it. Revival trigger: the operator says the arrival day matters after one real stay under
+  the new rule (`GUEST-GATE-DOOR-IDENTITY-1` / `GUEST-SELF-AUTHENTICATION-1` are the candidate inputs).
 
 ### 2.5 Falsifiable invariants
 
 - **INV-STAY-1 (entry).** With `const.GUEST_NIGHT_STAY_RULE_ENABLED` True: every ACCEPTED `transition(GUEST)` from
   HOME_DAY / HOME_EVENING / HOME_NIGHT happens on a `_run_inference` tick where `_guest_stay_active` is True and
-  `_guest_detection_enabled` is True. `_guest_stay_active` is True only if, among the `GUEST_STAY_LOOKBACK_NIGHTS`
-  completed nights ending at some night in the replay window, at least `GUEST_STAY_ENTRY_NIGHTS` had a guest room
-  occupied by non-resident time for ≥ `GUEST_NIGHT_MIN_FRACTION` of W(N) per the DB. The only other writers of GUEST
+  `_guest_detection_enabled` is True. `_guest_stay_active` is True only if some completed night N in the replay window
+  had ONE guest room R with non-resident occupied time ≥ `GUEST_NIGHT_MIN_FRACTION` of W(N) AND ≥
+  `GUEST_STAY_DAY_MIN_FRACTION` of Dy(N) (or of Dy(N+1) when `GUEST_STAY_DAY_BEFORE_NIGHT` is False), with ≥
+  `GUEST_STAY_ENTRY_NIGHTS` night-qualifying nights among the `GUEST_STAY_LOOKBACK_NIGHTS` ending at N, per the DB,
+  and no run of `GUEST_STAY_LOOKBACK_NIGHTS` non-qualifying nights since. The only other writers of GUEST
   from HOME_* are the manual override (`select.py:280`, `__init__.py:6200`, `presence.set_house_state_override`
   `presence.py:8663`) and restart restore (`manager.py:688-719`).
-  *Corollaries:* a 30-minute (or 5-hour) daytime visit never enters GUEST; one occupied night never enters GUEST;
-  Path A and face labels never enter GUEST; WiFi is read nowhere.
-  *Falsifiers to try:* a 6 h afternoon nap in GB1 two days running (no night time); one 15 h night (09-15 shape); a
-  resident with a BLE fix sleeping two nights in GB1 (resident time subtracted); a restart at 05:59 and at 06:01 on a
-  qualifying morning; DST nights; a DB read that raises; the switch toggled off and on mid-stay; a non-wrapping sleep
-  window (start 1, end 6); a guest room un-flagged mid-stay.
+  *Corollaries:* a daytime visit of any length with no night in the room never enters GUEST (naps, office use); a
+  night in a guest room with less than `GUEST_STAY_DAY_MIN_FRACTION` of the day before in THAT room never enters
+  GUEST (09-04 shape); day in GB1 + night in GB2 never enters; Path A and face labels never enter GUEST; WiFi is read
+  nowhere. One night WITH a sustained day DOES enter (operator ruling 2026-11-09).
+  *Falsifiers to try:* a 6 h afternoon nap in GB1 two days running (no night time); a 15 h night with day 0.02
+  (09-04 shape, must not enter) and with day 0.38 (09-15 shape, must enter at defaults, must not at
+  `GUEST_STAY_ENTRY_NIGHTS` 2); day in GB1 + night in GB2; a resident with a BLE fix in GB1 all day and night
+  (resident time subtracted from BOTH windows); a restart at 05:59 and at 06:01 on a qualifying morning; DST
+  nights and DST days; a DB read that raises; the switch toggled off and on mid-stay; a non-wrapping sleep window
+  (start 1, end 6) and `GUEST_STAY_DAY_START_HOUR` ≥ the sleep start hour; a guest room un-flagged mid-stay.
 - **INV-STAY-2 (no all-night GUEST).** With the rule on, a non-overridden GUEST never holds past the first inference
   tick at or after max(`sleep_start_hour` + `_guest_persistence_seconds` (the S9 exit veto, live 300 s), GUEST entry +
   300 s minimum dwell `house_state.py:137`). The 30 s census tick drives inference; the reviewer measures the real
@@ -249,6 +303,18 @@ Phantom room occupancy has no automatic discharge, so D4 pages instead.
 - **INV-STAY-3 (kill switch).** With `GUEST_NIGHT_STAY_RULE_ENABLED` False, `guest_armed`, `guest_reason`,
   `_d5_guest_confidence` and the `infer()` result are byte-identical to `develop` @ `4b52c262` for every input, and no
   DB walk is scheduled.
+- **INV-LOCK-1 (rev 5, build review B-M1).** With the guest-night toggle on (`DEFAULT_SECURITY_LOCKOUT_ENGAGE_ON_GUEST_SLEEP`
+  True, `const.py:3625`) and the house in GUEST when the sleep window opens, the garage lockouts are LOCKED once, at
+  the guest-night clock (`security_lock_regime._on_guest_clock`, `security_lock_regime.py:796-811`), and are NOT
+  unlocked by the night yield: no `_release` and no `lock.unlock` write from the GUEST → HOME_NIGHT edge or the
+  HOME_NIGHT → SLEEP edge inside the sleep window. Over the whole night from the clock to the first WAKING / HOME_DAY /
+  ARRIVING / resident arrival, each lockout entity sees exactly one `lock.lock` write and zero `lock.unlock` writes.
+  *Falsifiers:* GUEST at 21:59 with S9 persistence holding GUEST to 22:05, HOME_NIGHT dwell 120 s, then SLEEP; the
+  same with the toggle off (no GUEST-night engage; SLEEP engages once as today); GUEST → HOME_NIGHT at 22:05 then the
+  house stays HOME_NIGHT (no SLEEP) until 06:00; a manual override GUEST → HOME_NIGHT at 23:00 (a real home edge
+  with reason `guest_night`: held too, by design, since the regime cannot tell the two apart; WAKING / HOME_DAY /
+  resident arrival still release); GUEST → HOME_EVENING inside the window (not possible from infer(); override only:
+  releases as today).
 - **INV-VIS-1 (D1 is display).** D1 adds no call to `_guest_room_gate_armed`, `_guest_gate_armed`, `transition`, or any
   `_guest_*` state writer; `guest_armed`, `guest_reason`, confidence and the `infer()` result are byte-identical to
   base with D1 applied alone.
@@ -272,7 +338,7 @@ Phantom room occupancy has no automatic discharge, so D4 pages instead.
 
 None this cycle besides the entity (display). Not read by `infer()`. No NM (parked, §8).
 
-### 3.3 GUEST consumers (re-verified on `4b52c262`; none changes code)
+### 3.3 GUEST consumers (re-verified on `4b52c262`; rev 5: one changes code, the SC lock regime row)
 
 Direction of change: GUEST becomes a daytime state for the length of a stay (weeks), absent at night, instead of short
 daytime episodes. Fewer GUEST episodes outside stays (the 30-min gate no longer enters).
@@ -285,7 +351,7 @@ daytime episodes. Fewer GUEST episodes outside stays (the 30-min gate no longer 
 | Arrester hold-preserving states | `hvac_const.py:229` | trust | `guest` preserves holds: across the two daily GUEST edges an immune hold survives |
 | HVAC Custom Preset Ranges `house_state == "guest"` | `preset_overrides.py:115-148` | trust | only fires in GUEST; now fires through stay days |
 | Security armed-state map guest → ARMED_HOME | `security.py:183` | trust | state-driven arming not live (10-17 audit) |
-| SC lock regime GUEST-in-sleep-window engage | `security_lock_regime.py:776`, `:808`, `:1410` | trust (lock) | GUEST is no longer present in the sleep window; SLEEP engages the same lockouts |
+| SC lock regime GUEST-in-sleep-window engage | `security_lock_regime.py:764-766` (`_HOME_STATES` release), `:776-779` (guest engage), `:796-811` (`_on_guest_clock`), `:1409-1412` (`guest_night_ended` predicate) | trust (lock) | **Rev 5 correction (build review B-M1).** Rev 4 said "GUEST is no longer present in the sleep window". False for the first ~5 min: the night yield proposes HOME_NIGHT at `sleep_start_hour`, but the S9 exit persistence holds GUEST `_guest_persistence_seconds` (300 s). So at 22:00:00 `_on_guest_clock` sees GUEST and LOCKS (`REASON_GUEST_NIGHT`); at ~22:05 GUEST → HOME_NIGHT hits the `_HOME_STATES` branch and UNLOCKS; after the 120 s HOME_NIGHT dwell, SLEEP LOCKS again. Three actuations and a ≥ 2-min unlocked gap every stay night. **Fix (D3, lock regime, option (b) of the review):** in `on_house_state_changed`, `new == "home_night"` while `self.reason == REASON_GUEST_NIGHT` and `_in_sleep_window(cfg)` does not release; it keeps the reason and records `guest_yield_hold`. The later SLEEP edge sets reason `sleep` and its engage is a no-op on already-locked entities (`engage_predicate` returns `lockout_locked`, `:1417-1419`). WAKING / HOME_DAY / HOME_EVENING / ARRIVING / resident arrival release as today. INV-LOCK-1. Option (a) (yield `_guest_persistence_seconds` early so GUEST is gone by the clock) was rejected: the operator's rule is "lock once, at the guest-night clock", and (a) moves the lock to the SLEEP edge (22:02+) and couples presence timing to a lock consumer |
 | NM exterior-person severity | `const.py:2677`, `:2761` | trust (severity) | daytime of a stay: MEDIUM instead of the home_day level; nights unchanged |
 | Bayesian learning suppressed in GUEST | `__init__.py:3278` | trust (learning) | suppressed by day for the whole stay (the guest's pattern is not learned as the house's) |
 | Occupancy-anomaly suppressed in GUEST | `binary_sensor.py:3570` | display | suppressed by day during a stay |
@@ -352,7 +418,7 @@ The resident subtraction changed no night by more than 0.01 (residents were BLE-
 rarely, and never in GB2). 10-13/10-14 read 0 although a guest was home from 10-14 (memory); where she slept is
 unknown (D0 §1). The 2-of-3 lookback carries the stay across those nights.
 
-### 5.3 Rule replay and the gate
+### 5.3 Rule replay and the gate (rev 4; the entry rule is superseded by §5.4)
 
 Sweep over F ∈ {0.2, 0.25, 0.3, 0.4, 0.5} and (K of L) ∈ {1/1, 1/2, 2/2, 2/3, 2/4, 3/4}. Plateau: F 0.20-0.30 with
 2 of 3 gives the same stay result. F = 0.25 sits in the middle of the plateau (nights at exactly 0.25 do not change
@@ -377,6 +443,76 @@ whole daytime of 19 days under the new rule.
 recommendation superseded by a new rule) and 5 (WiFi devices moot: WiFi dropped). Items 2 (per-entry labels) and 3
 (where the guest slept 10-14/15) are not needed for this rule; the late-August / early-September active days are listed
 for the operator to label after the build, not as a gate).
+
+### 5.4 Rev 5 replay: day + one night (2026-11-09, read-only)
+
+**Method.** Same DB, rooms, night window and resident subtraction as §5.1, plus the `OCC_EPISODE_MAX_S` 12 h episode
+cap that production applies (rev 4's script lacked it; the 09-15 night reads 0.95 instead of 1.00, nothing else
+moves). Day windows H → 22:00 local for H ∈ {6, 8, 10, 12, 14}. Scripts in the scratchpad directory
+`/private/tmp/claude-501/-Users-okosisi-Code-universal-room-automation/75cc297f-1426-4620-b7aa-da058bc0fab0/scratchpad/`:
+`r5_replay.py` (runs on HA via `ssh ha "python3 -"`, prints per-night and per-day fractions per room as JSON;
+output saved as `r5_data.json`), `r5_rule.py` (rule + sweep), `r5_pick.py` (fine sweep, `GUEST_STAY_ENTRY_NIGHTS`
+2 variant, entry/exit log). "Active day" = the latch is on that local day.
+
+**Day fractions on the stay are LOW.** The October guest slept in GB2 then GB1 but was rarely in the room by day:
+`dfrac` (10 → 22) on stay nights was 0.00-0.21 (09-27 GB2 0.21 is the arrival day; 09-29 0.21; most days ≤ 0.10).
+The pre-stay one-night cases had MORE daytime: 09-05 GB2 0.24, 09-09 GB2 0.33, 09-15 GB2 0.38.
+
+**Chosen point: F_night 0.25, `GUEST_STAY_DAY_MIN_FRACTION` 0.10, `GUEST_STAY_DAY_START_HOUR` 10, day before the night,
+same room, `GUEST_STAY_ENTRY_NIGHTS` 1, exit after 3 straight non-qualifying nights.**
+
+| Window | Required | Rev 5 result | Rev 4 (2 of 3) |
+|---|---|---|---|
+| **Stay 09-27 .. 10-17** | GUEST | **20 of 21 days**, from **09-28 (day 2)**. Lost: 09-27 (arrival; no night yet). Tail: 10-18. Entry on the morning after night 09-27 (GB2 night 0.72, day 0.21); exit on the morning after night 10-18 | 19 of 21, from 09-29 |
+| **10-19 .. 11-08** (no guest) | no GUEST | **0 of 21** (max night 0.02, max day 0.08) | 0 of 21 |
+| **11-02 .. 11-08** (no guest) | no GUEST | **0 of 7** | 0 of 7 |
+| 08-24 .. 09-02 (GB1 heavy day + night) | operator to label | active **08-25 → 09-02** (entry after night 08-24: GB1 night 0.65, day 0.60; GB1 day 0.6-1.0 every day to 08-30). Data starts 08-24, so 08-25 is the first day the replay can show | 08-28 → 09-02 |
+| 09-04 .. 09-08 (GB2 nights 0.51, 0.51) | operator to label | active **09-06 → 09-08** (entry after night 09-05: night 0.51, day 0.24). Night 09-04 alone did NOT enter (day 0.02) | 09-06 → 09-08 (same) |
+| 09-09 (GB2 night 0.38, day 0.33) | operator to label | active **09-10 → 09-12** (one night; NEW in rev 5) | not active |
+| 09-15 (GB2 night 0.95, day 0.38) | operator to label | active **09-16 → 09-18** (one night; NEW in rev 5) | not active |
+
+Each one-night entry holds 3 days because the exit needs 3 straight misses. Unlabelled stretches are listed for the
+operator, not treated as errors: if they were visitors, rev 5 is right on them.
+
+**Sweep (stay days / 10-19..11-08 / 11-02..11-08; same room, day before night):**
+
+| `GUEST_STAY_DAY_MIN_FRACTION` | H = 6 | H = 8 | H = 10 | H = 12 | H = 14 |
+|---|---|---|---|---|---|
+| 0.0 | 20 / 0 / 0 (+09-05 entry) | 20 / 0 / 0 | 20 / 0 / 0 | 20 / 0 / 0 | 20 / 0 / 0 |
+| 0.10 | 20 / 0 / 0 | 20 / 0 / 0 | **20 / 0 / 0** | 20 / 0 / 0 | 20 / 0 / 0 |
+| 0.20 | 18 / 0 / 0 | 18 / 0 / 0 | 20 / 0 / 0 | 20 / 0 / 0 | 9 / 0 / 0 |
+| 0.21 | — | — | 18 / 0 / 0 (first active 09-30) | — | — |
+| 0.30 | 8 / 0 / 0 | 0 | 0 | 0 | 0 |
+| ≥ 0.40 | 0 | 0 | 0 | 0 | 0 |
+
+- **Plateau:** at H = 10, day fraction 0.03-0.20 gives (fine sweep 0.0, 0.03, 0.05, 0.10, 0.15, 0.20, 0.21, 0.22,
+  0.25); H 6-12 at 0.10 give the identical day list. 0.10 sits mid-plateau; the arrival-day
+  margin is 0.21 − 0.10. At ≥ 0.22 (H = 10) the October stay is NEVER entered, because the only day before a
+  qualifying night with that much in-room time is the arrival day. A higher day bar is a recall cliff, not a dial.
+- **Variants at H = 10, day 0.20:** any room (day in one guest room, night in either) = identical list. Day AFTER the
+  night allowed (`GUEST_STAY_DAY_BEFORE_NIGHT` False) = 19 of 21 (from 09-29) and adds 10-19 (the morning after
+  departure). Raw occupancy (no resident subtraction) = identical list. Night fraction 0.20-0.50 does not change the
+  stay result at day 0.10. Exit after 2 misses ends some pre-stay holds a day earlier; after 4 adds a day; 3 kept.
+- **`GUEST_STAY_ENTRY_NIGHTS` 2 (second-night guard) on top of the day test:** stay 18 of 21 from 09-30 at day 0.10
+  (19 from 09-29 at day 0.0),
+  0 / 0 post-stay, and the one-night entries 09-10..12 and 09-16..18 disappear (and 08-25 becomes 08-26).
+
+**Does one night let a resident through (nap, office use)?**
+- A daytime nap or office use with NO night in the room: never (the night test is mandatory). Same as rev 4.
+- A resident who spends the day AND sleeps one night in a guest room: YES, at every day threshold that keeps the
+  October stay. The day test cannot separate them in this house: the stay's arrival day read 0.21 and the one-night
+  cases read 0.24-0.38, so the order is inverted. The only resident filter is the BLE subtraction, and it is blind in
+  GB2 until the operator's GB2 scanner lands (no `person_visits` rows for GB2 on any night; §1.3). In GB1 the
+  subtraction works (a resident with a phone in GB1 is removed from both windows).
+- **Knob that prevents it:** `GUEST_STAY_ENTRY_NIGHTS = 2` (rung 1). It removes every single-night entry in the
+  replay and costs two stay days at day 0.10 (18 vs 20; enters 09-30). No day-fraction setting does it. The GB2 scanner, when it
+  lands, removes resident time in GB2 for a resident carrying a phone, which is the right fix for this shape at
+  `GUEST_STAY_ENTRY_NIGHTS = 1`.
+- Default stays at 1 (operator ruling: one night is legit). If the operator labels 09-09 or 09-15 as a resident,
+  turn it to 2 (reviewed one-line change) or wait for the GB2 scanner.
+
+**D0 GATE (rev 5): GO.** The stay is caught from day 2, both no-guest windows stay at 0. The pre-stay stretches are an
+operator labelling question, not a gate.
 
 ---
 
@@ -431,7 +567,9 @@ for the operator to label after the build, not as a gate).
   `get_guest_room_night_fractions(room_entry_id, room_name, windows: list[(start_aware, end_aware)], resident_pad_s)
   -> list[(fraction, had_evidence)]`, replacing the single-window signature above. It writes `_guest_stay_active`, `_guest_stay_since`
   (UTC time the latch last turned True in the walk's own timeline = window end of the night that turned it on),
-  `_guest_stay_basis` (list of the last `GUEST_STAY_LOOKBACK_NIGHTS` nights: `{night, room, fraction, qualifies}`),
+  `_guest_stay_basis` (list of the last `GUEST_STAY_LOOKBACK_NIGHTS` nights: `{night, room, fraction, day_fraction,
+  qualifies, entry_qualified}`; rev 5 adds `day_fraction` = `dfrac` of the same room's day before, and
+  `entry_qualified`),
   `_guest_stay_evaluated_for` (local date). Any exception → log WARNING once per day, latch False, basis
   `{"error": ...}`.
 - Scheduling (S11): sync check on each tick; schedule via `self.hass.async_create_task` into
@@ -442,8 +580,9 @@ for the operator to label after the build, not as a gate).
 
 **Acceptance criteria**
 - **Verify (fixture = the replay):** a fixture DB built from the 76-night replay rows (or a seeded synthetic copy with
-  the same per-night fractions) reproduces the §5.3 day list exactly at F=0.25 / 2 of 3: active 09-29..10-18, off
-  10-19..11-08.
+  the same per-night AND per-day fractions) reproduces the §5.4 day list exactly at the rev 5 defaults: active
+  08-25..09-02, 09-06..09-08, 09-10..09-12, 09-16..09-18, 09-28..10-18; off 10-19..11-08. At
+  `GUEST_STAY_ENTRY_NIGHTS` 2: active 08-26..09-02, 09-06..09-08, 09-30..10-18 (rev 5 replay, `r5_pick.py`).
 - **Verify:** `_occupied_seconds_between` unchanged on its callers' fixtures (golden on the two existing callers).
 - **Verify (clock):** a `person_visits` fixture written in process-local time subtracts correctly under `TZ=UTC` and
   `TZ=America/Chicago` (test sets `time.tzset`); a tz-aware bound passed to the occupancy reader is rejected or
@@ -451,15 +590,27 @@ for the operator to label after the build, not as a gate).
 - **Verify:** restart determinism: two walks over the same DB at 06:01 and 14:00 the same day give the same latch and
   basis; a walk at 05:59 uses the previous night set.
 - **Verify:** DST: the 11-01 night (9 h) and a spring-forward night (7 h) use their real length.
-- **Discriminates:** a one-night 15 h GB2 occupancy (09-15 shape) → latch False; two qualifying nights → True. A
-  daytime 6 h occupancy on two days → False (a build that used the 30-min gate or whole-day occupancy gives True).
+- **Discriminates (rev 5):** one GB2 night 0.95 with day 0.38 (09-15 shape) → latch True at defaults, False at
+  `GUEST_STAY_ENTRY_NIGHTS` 2; one GB2 night 0.51 with day 0.02 (09-04 shape) → False (a build that skipped the day
+  test gives True); day 0.60 in GB1 + night 0.72 in GB2 → False (a build that took the day from any room gives True;
+  replay-identical, so this is a fixture-only discriminator); a daytime 6 h occupancy on two days with no night →
+  False (a build that used the 30-min gate or whole-day occupancy gives True). Resident BLE time in GB1 covering the
+  whole day → day test fails (a build that subtracted residents from the night only gives True).
+- **Verify (day window):** live 22/6, H 10 → Dy(N) = local N 10:00 → 22:00 (12 h); DST-change days use real
+  length; non-wrapping sleep window (1 → 6) with H 10 → local N 10:00 → N+1 01:00; H ≥ sleep start is clamped so
+  the day window is at least 1 h (assert the window, not just the result).
+- **Verify (one read per room):** the day windows go through the same span-shaped `get_guest_room_night_fractions`
+  call as the nights (one call per room with nights + days concatenated, or two calls; never one per window).
 - **Test:** `test_guest_stay_producer.py::test_replay_fixture_day_list`, `::test_occupied_seconds_unchanged`,
   `::test_resident_subtraction`, `::test_person_visits_clock_utc_host`, `::test_person_visits_clock_local_host`,
   `::test_naive_utc_bounds`, `::test_restart_determinism`, `::test_window_end_boundary`, `::test_dst_nights`,
-  `::test_one_night_never_enters`, `::test_daytime_never_counts`, `::test_db_error_fails_off`,
+  `::test_one_night_with_day_enters`, `::test_one_night_without_day_never_enters`, `::test_day_and_night_same_room`,
+  `::test_entry_nights_2_blocks_single_night`, `::test_day_after_night_knob`, `::test_day_window_bounds`,
+  `::test_day_resident_subtraction`, `::test_daytime_never_counts`, `::test_db_error_fails_off`,
   `::test_non_wrapping_window`, `::test_task_cancelled_on_teardown`.
-- **Live:** after restart, `guest_stay_basis` on the house-state sensor lists the last 3 nights with fractions 0.00 or
-  ≤ 0.02 and `qualifies` false; `guest_stay_active` false.
+- **Live:** after restart, `guest_stay_basis` on the house-state sensor lists the last 3 nights, each with `fraction`
+  (night) and `day_fraction` (the day before, same room) ≤ 0.08, `qualifies` false and `entry_qualified` false;
+  `guest_stay_active` false.
 
 ### D3 — GUEST from the stay latch (BUILD, with D2; Tier 2-DB; the house-state site)
 
@@ -472,10 +623,27 @@ for the operator to label after the build, not as a gate).
   `guest_room:<room>` now means "a visitor in a guest room", not GUEST.
 - Canary (S5): `guest_armed and not guest_room_gate_armed` debug only when the rule is OFF.
 - On each accepted transition INTO GUEST, one INFO line `guest stay entry rooms=<...> basis=<...>` (convenience only).
+- **Rev 5, lock regime (INV-LOCK-1):** `security_lock_regime.on_house_state_changed` holds a GUEST-night lock across
+  the night yield's GUEST → HOME_NIGHT edge (§3.3 lock row; §13 item 5).
 
 **Acceptance criteria**
 - **Verify (INV-STAY-1):** table test over {HOME_DAY, HOME_EVENING, HOME_NIGHT} × room ∈ {T,F} × stay ∈ {T,F} ×
   switch ∈ {T,F}: GUEST proposed only when stay ∧ switch. `room` alone never.
+- **Verify (INV-LOCK-1, rev 5, build review B-M1):** lock-regime test driving the real `on_house_state_changed` and
+  `_on_guest_clock` with toggle on and live window 22 → 6: house GUEST at 21:59; 22:00 `_on_guest_clock` → one
+  `lock.lock` per lockout entity, reason `guest_night`; 22:05 GUEST → HOME_NIGHT → no `lock.unlock`, no `_release`,
+  reason still `guest_night`, a `guest_yield_hold` record; 22:07 HOME_NIGHT → SLEEP → reason `sleep`, zero new writes
+  (`lockout_locked`); 06:00 WAKING → one `lock.unlock`. Totals over the night per entity: lock 1, unlock 1 (the
+  morning). Same sequence with the house staying HOME_NIGHT until 06:00 → still held, released at HOME_DAY. Toggle
+  off → no 22:00 engage; SLEEP engages once (today's behaviour, byte-identical). HOME_NIGHT outside the sleep window
+  with reason `guest_night` (cannot occur from inference; forced in the test) → releases as today.
+- **Discriminates (INV-LOCK-1):** under the fix, the service-call log for the night reads `lock` at 22:00 and
+  `unlock` at WAKING only. Under the rev 4 build it reads `lock` 22:00, `unlock` ~22:05, `lock` ~22:07. Under the
+  rejected option (a) it reads `lock` at ~22:02 (SLEEP) and nothing at 22:00, which also fails "at the guest-night
+  clock".
+- **Test (INV-LOCK-1):** `test_guest_split_gate.py::test_lock_once_at_guest_clock_no_unlock_on_yield`,
+  `::test_lock_held_if_home_night_until_morning`, `::test_lock_toggle_off_unchanged`; framing-C mutation: delete the
+  new `guest_yield_hold` branch → the first test fails.
 - **Verify (INV-STAY-2):** in GUEST with stay True, the first tick at `sleep_start_hour` exits to HOME_NIGHT and the next
   tick enters SLEEP; at `sleep_end_hour` the house runs SLEEP → WAKING → HOME_DAY → GUEST. Measure the bound with the
   S9 veto in place and assert it.
@@ -487,7 +655,9 @@ for the operator to label after the build, not as a gate).
   literal in a kill-switch branch):** `test_guest_census_correctness.py:337-345`, `:375-381`;
   `test_v472_feature_b_guest_signal.py:489-493`, `:687`. `test_recorder_bloat_logflood.py:172` drives the canary shape;
   update it to the rule-OFF condition and keep it red-on-revert.
-- **Config boundary:** F ∈ {0, 0.25, 1.0}; K = 1, K = L; L = 1, L = 7; replay nights = L (minimum) and 30; sleep window
+- **Config boundary:** F ∈ {0, 0.25, 1.0}; day fraction ∈ {0, 0.10, 1.0}; day start ∈ {0, 10, 21, 22, 23}
+  against sleep start 22 (the 1 h clamp) and against a non-wrapping window (start 1); day-before ∈ {True, False};
+  K = 1, K = L; L = 1, L = 7; replay nights = L (minimum) and 30; sleep window
   wrapping (22→6) and non-wrapping (1→6); threshold min 1 and 600 (visitors leg only).
 - **Discriminates:** the 10-17 shape (30 min unknown in GB2 at 16:06 local, house HOME_DAY) under the fix with the
   stay latch already on from the prior nights → house is GUEST already (entered after waking), `guest_reason`
@@ -501,8 +671,9 @@ for the operator to label after the build, not as a gate).
   `::test_config_extremes`. Each of S1, S2, S4, S11 gets a named test that fails when that one site is neutered
   (framing-C drill list).
 - **Live:** on the next real stay: `house_state_log` shows HOME_* → `guest` once per day after waking and `guest` →
-  `home_night` at 22:00, and the house-state sensor's `guest_stay_basis` at the first `guest` state shows ≥ 2 of the
-  last 3 nights qualifying. With no guest: no `guest` rows at all (the 30-min gate no longer enters), while
+  `home_night` at ~22:05 (S9 persistence), the house-state sensor's `guest_stay_basis` at the first `guest` state
+  shows an `entry_qualified` night, and the lock regime shows one `lock` at 22:00 and no `unlock` before WAKING
+  (INV-LOCK-1). With no guest: no `guest` rows at all (the 30-min gate no longer enters), while
   `visitors_present` still turns on for a guest-room visit.
 
 ### D4 — Trip-wire: stay latch held too long (BUILD, with D2/D3)
@@ -541,8 +712,11 @@ DB walk, so a restart does not restart the span.
 |---|---|---|---|---|
 | `GUEST_NIGHT_STAY_RULE_ENABLED` | 1 (`const.py`) | True | Changes house-state entry; reverting should be reviewed | False = today's 30-min gate entry, byte-identical; no DB walk |
 | `GUEST_NIGHT_MIN_FRACTION` | 1 | 0.25 | Fitted to the replay plateau 0.20-0.30 (§5.3); a fitted number, not an operator taste | 0 = any DB evidence qualifies (do not use); > 1 = never qualifies (rule effectively off) |
-| `GUEST_STAY_ENTRY_NIGHTS` | 1 | 2 | Replay: 1 admits single-night cases (09-15) | must be 1..`GUEST_STAY_LOOKBACK_NIGHTS`; clamped at read |
-| `GUEST_STAY_LOOKBACK_NIGHTS` | 1 | 3 | Replay: bridges the stay's empty nights; also the exit length | clamped ≥ 1 |
+| `GUEST_STAY_ENTRY_NIGHTS` | 1 | **1** (rev 5; was 2) | Operator 2026-11-09: one night is legit. It is now the second-night GUARD on top of the day test: 2 removes every single-night entry in the replay (09-10..12, 09-16..18) at a cost of 2 stay days (§5.4). The knob that stops a resident's day + one night in GB2 until the GB2 scanner lands | must be 1..`GUEST_STAY_LOOKBACK_NIGHTS`; clamped at read. 1 = entry-qualified night alone suffices |
+| `GUEST_STAY_DAY_MIN_FRACTION` | 1 (NEW) | 0.10 | Fitted: replay plateau 0.03-0.20 at H 10 (§5.4); above 0.21 the October stay is never entered (recall cliff), below 0.03 a night-only sleeper (09-04) enters. Fitted number → reviewed change | 0 = day test off (any night with day evidence ≥ 0 qualifies; not rev 4: no second-night guard unless `GUEST_STAY_ENTRY_NIGHTS` 2); > 1 = never enters (rule effectively off for entry; exit unaffected) |
+| `GUEST_STAY_DAY_START_HOUR` | 1 (NEW) | 10 | Day window start, local hour; window ends at the CM `sleep_start_hour`. Replay identical for 6-12; 14 halves recall at 0.20 (§5.4). Starts after typical resident wake/office-morning noise in a guest room | clamped 0..23; if it leaves < 1 h before the night window, the window is the 1 h before it (no empty window, no division by zero) |
+| `GUEST_STAY_DAY_BEFORE_NIGHT` | 1 (NEW) | True | Operator asked for the choice. True = the day must precede the night (decided on the morning after night 1). False = the day after also counts: replay 19/21 and adds the morning after departure (10-19); decided a day later | False widens entry; never affects exit |
+| `GUEST_STAY_LOOKBACK_NIGHTS` | 1 | 3 | The exit length (3 straight non-qualifying nights; replay: 2 ends holds a day early, 4 adds a day) and the window for the `GUEST_STAY_ENTRY_NIGHTS` count | clamped ≥ 1 |
 | `GUEST_STAY_REPLAY_NIGHTS` | 1 | 35 | How far back the deterministic walk starts. It must exceed `GUEST_STAY_LONG_NM_DAYS` + lookback, or `_guest_stay_since` is re-dated inside the walk every morning and D4 can never fire (review R16) | clamped ≥ `GUEST_STAY_LONG_NM_DAYS` + `GUEST_STAY_LOOKBACK_NIGHTS` (and ≥ lookback when D4 is 0) |
 | `GUEST_STAY_LONG_NM_DAYS` | 1 | 28 | Trip-wire bound; the one real stay was 21 days | 0 = off |
 | `VISITORS_CAM_LEG_ENABLED` | 1 | True | D0 measured the cam leg noisy (§3.1); removable by a reviewed one-line change | False = `legs.cam` always False |
@@ -563,7 +737,7 @@ module attribute must reach the code). No new Number, options-flow field or Stor
 - No GUEST → SLEEP edge; no change to `VALID_TRANSITIONS`.
 - No arrival-day GUEST (parked, §2.4).
 - No change to the 30-min gate, Path A, the census, faces, or the F-5 subtraction.
-- No consumer code changes (HVAC, fans, security, lock regime, NM). No NM on `visitors_present` (revival trigger: the
+- No consumer code changes (HVAC, fans, security, NM) except the one lock-regime branch for INV-LOCK-1 (§3.3). No NM on `visitors_present` (revival trigger: the
   operator asks for a "visitors arrived" notification after two weeks with the entity).
 - No DB schema change, no new table, no new writer (reads only).
 - No GB2 scanner work (operator-owned; the rule does not depend on it).
@@ -576,6 +750,7 @@ module attribute must reach the code). No new Number, options-flow field or Stor
 | `GUEST-IDENTITY-PHONE-LEFT-BEHIND-1` | Unchanged |
 | `PLANNING_house_away_flap_untracked_occupant.md` Rev 4 (B) guest-room AWAY veto | Trigger fired. The stay latch is its natural input (veto AWAY while a stay is active and a guest room is occupied). Card a re-evaluation; not folded (AWAY side, different invariant) |
 | `GUEST-ROOM-FAN-HOLD-1` | Linked: a fan-held guest room is the phantom that D4 pages on |
+| `GUEST-SELF-AUTHENTICATION-1` (NEW, parked) | Guests opt in to identify themselves (would give identity where sensors give only occupancy, and could cover the arrival day). Revival trigger: the operator asks. Operator 2026-11-09: "not a bad idea. But not now" |
 
 ---
 
@@ -587,7 +762,8 @@ module attribute must reach the code). No new Number, options-flow field or Stor
   composition is ONE boolean read at two sites (S1, S2) from a latch with one writer, so the Tier-3 trigger "a value
   threaded through many emission sites" does not fire; rev 3's Tier 3 was for the three-leg recomposition, now
   withdrawn. Three framing-disjoint reviews: A = correctness + DB clocks + replay fidelity; B = state machine (night
-  yield, restore, AWAY round-trip, S9 veto interaction, no all-night GUEST) + async task lifecycle; C = test authority
+  yield, restore, AWAY round-trip, S9 veto interaction, no all-night GUEST, rev 5: INV-LOCK-1 lock actuation count
+  across the yield) + async task lifecycle; C = test authority
   by per-site mutation on S1, S2, S4, S11 and the clock conversion. Builder `ura-builder`. Operator checkpoint before
   deploy (house state changes). Live validation + README write-back.
 
@@ -636,6 +812,20 @@ operator checkpoint (Tier 2-DB, house state).
 
 ---
 
+## 11a. Rev 5 plan review (adversarial build-prediction; run by the planner, 2026-11-09)
+
+| # | Finding | Severity | Fix in this plan |
+|---|---|---|---|
+| R19 | The builder takes the day fraction from ANY guest room (simpler loop over the existing per-night `best` list) | MED | §2.1 same-room rule; D2 `test_day_and_night_same_room` (fixture-only discriminator: the replay cannot tell them apart) |
+| R20 | The builder subtracts residents from the night windows only (the rev 4 code path) and reads the day raw | MED | §2.1 "same reader, same resident subtraction"; `test_day_resident_subtraction` |
+| R21 | The builder issues a second span read per room for days, or one read per day window | LOW | D2 "one read per room" criterion; nights + days go through the windows list |
+| R22 | The builder computes the day window in UTC or as a fixed 12 h before the night start, breaking DST days and non-wrapping windows | MED | §2.1 local-wall-clock construction; `test_day_window_bounds` incl. DST + start-1 window + clamp |
+| R23 | The builder keeps `GUEST_STAY_ENTRY_NIGHTS` = 2 from the rev 4 build ("defaults unchanged") | HIGH | §7: default 1 (operator ruling); `test_one_night_with_day_enters` fails at 2 |
+| R24 | The builder drops `GUEST_STAY_ENTRY_NIGHTS` as obsolete | MED | §7 keeps it as the resident guard; `test_entry_nights_2_blocks_single_night` |
+| R25 | The builder fixes B-M1 by moving the presence yield earlier (option (a)) because it is "in this cycle's files" | HIGH | §3.3 / INV-LOCK-1 name option (b) and why (a) fails the operator rule; discriminating service-call log |
+| R26 | The builder's lock fix also swallows a real HOME_NIGHT edge after an operator override out of GUEST | LOW | Accepted by name (INV-LOCK-1 falsifier list): with reason `guest_night` the regime cannot tell them apart; WAKING / HOME_DAY / resident arrival still release, and the backstop is unchanged |
+| R27 | `GUEST_STAY_DAY_BEFORE_NIGHT` False is built as a second evening walk | LOW | §2.1: judged at the walk after night N+1 (no new scheduling) |
+
 ## 12. Live validation (post-restart, feeds the READMEs)
 
 | # | Check | Source | Ships with |
@@ -644,4 +834,34 @@ operator checkpoint (Tier 2-DB, house state).
 | L2 | over 24 h, `visitors_present` on only in short episodes, each with a true leg at the time | recorder | D1 |
 | L3 | house-state sensor `guest_stay_basis` lists 3 nights, fractions ≤ 0.02, `guest_stay_active` false | live attribute | D2/D3 |
 | L4 | no `guest` row in `house_state_log` from deploy until a real stay | URA DB | D2/D3 |
-| L5 | first real stay: daily HOME_* → `guest` after waking, `guest` → `home_night` at 22:00, basis shows ≥ 2 of 3 nights; exit on the morning after the third empty night. Organic; disposed by this binary discriminator per the soak-exit rule | URA DB + recorder | D2/D3 |
+| L5 | first real stay: daily HOME_* → `guest` after waking (from day 2), `guest` → `home_night` at ~22:05, basis shows an `entry_qualified` night (night ≥ 0.25 AND day ≥ 0.10, same room); exit on the morning after the third empty night. Lock regime: per stay night one `lock` at 22:00, no `unlock` until WAKING (`security_lock_regime` records: `guest_yield_hold` at ~22:05). Organic; disposed by this binary discriminator per the soak-exit rule | URA DB + recorder | D2/D3 |
+
+---
+
+## 13. Builder delta against the rev 4 build (`3a37f0c2`)
+
+The rev 4 build is a valid base; rev 5 changes the entry predicate, two defaults, the basis shape, one lock-regime
+branch, and the tests that pin them. Nothing else in D1, D3 composition, D4 or the DB reader changes.
+
+1. **`const.py`:** `GUEST_STAY_ENTRY_NIGHTS` 2 → **1** (comment: second-night guard, §7). Add
+   `GUEST_STAY_DAY_MIN_FRACTION = 0.10`, `GUEST_STAY_DAY_START_HOUR = 10`, `GUEST_STAY_DAY_BEFORE_NIGHT = True`, each
+   with its why + kill semantics from §7. Read as `_ura_const.X` at call time.
+2. **`presence.py` `_guest_stay_params`:** return the three new values (clamp day start 0..23, fraction as float).
+3. **`presence.py` `_refresh_guest_stay`:** build one day window Dy(N) per night (plus one more when
+   `GUEST_STAY_DAY_BEFORE_NIGHT` is False), pass nights + days in ONE `get_guest_room_night_fractions` call per room
+   (the API already takes a windows list). Per night keep per-room night and day fractions; `entry_qualified(N)` =
+   some room with night ≥ F_night AND day ≥ F_day (same room). Latch: off → on iff `entry_qualified(N)` and the
+   night-qualifying count over the lookback ≥ `GUEST_STAY_ENTRY_NIGHTS`; on → off iff the count is 0 (unchanged).
+   `since` = window end of the entry night (unchanged). Basis entries gain `day_fraction` and `entry_qualified`.
+4. **Day-window helper** next to `guest_night_window`: `guest_day_window(night, start_h, day_start_h, tz)` per §2.1
+   (local wall clock, ≥ 1 h clamp). Pure; unit-tested.
+5. **`security_lock_regime.py` `on_house_state_changed`:** before the `_HOME_STATES` release, if `new == "home_night"`
+   and `self.reason == REASON_GUEST_NIGHT` and `self._in_sleep_window(cfg)`: `self._record("guest_yield_hold",
+   trigger="house_state:home_night", written=[])` and return (INV-LOCK-1). No other lock-regime change.
+6. **Tests:** update `test_guest_stay_producer.py` replay fixture to the §5.4 day list (both `GUEST_STAY_ENTRY_NIGHTS`
+   settings); replace `test_one_night_never_enters` with the rev 5 tests named in D2; add the three INV-LOCK-1 tests
+   in D3. The kill-switch golden (`test_kill_switch_byte_identical`, rule OFF) must not change.
+7. **Docs (D5):** presence state of play §2 step 3 / §7 and the README describe the rev 5 entry rule; §7's garage
+   lockout sentence gains the yield hold.
+8. **Still open from the build reviews, not changed by rev 5:** B-M2 (DB error stamps the night evaluated → retry with
+   backoff), B-L1 (teardown re-schedule), B-L2 (re-walk on guest-room re-discovery). They stay on the fix-up list.
