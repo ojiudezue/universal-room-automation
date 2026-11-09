@@ -467,6 +467,19 @@ cards:
   operator_answers_2026_11_09: "(1) Camera + guest WiFi WITHOUT a guest-room leg may NOT enter GUEST: the room leg is mandatory (keeps the Aug rule); entry = room + one other leg. (2) Real guest stayed 3-4 weeks in October (dates to be located by D0; 10-17 likely within it). (3) Yes: add a BLE scanner to Guest Bedroom 2 (operator-owned physical action)."
   links: {related: [FACE-SOURCE-REGISTRY-DISCOVERY-1, CENSUS-GUEST-FLOOR-1, GUEST-GATE-DOOR-IDENTITY-1, GUEST-FP-RESIDUALS-1]}
   adjacency_2026_11_09: "ADJACENT (same decision surface): CENSUS-GUEST-FLOOR-1 (pre_planning, WiFi guest floor) and GUEST-GATE-DOOR-IDENTITY-1 (parked, door identity into the gate) become inputs; F-5 residual on FACE-SOURCE-REGISTRY-DISCOVERY-1 folds into this card. NEW card for the two-tier split itself."
+- id: HVAC-GUEST-EVIDENCE-RULE-1
+  title: "Daytime GUEST should condition like HOME_DAY: add guest to HVAC_EVIDENCE_RULE_STATES"
+  thread: hvac
+  status: planned
+  tier: 2-DB
+  created: "2026-11-09 14:30"
+  updated: "2026-11-09 14:30"
+  rank: {value: 6, time_criticality: 3, effort: 2}
+  origin: "Review E (v5.108.0 guest split) E-M1. Operator 2026-11-09: 'conditioning shouldn't change yes? I didn't realize we kept older code around for HVAC?' OK'd doing this as its own card right after v5.108.0."
+  why: "hvac_const.py:1097 HVAC_EVIDENCE_RULE_STATES = (home_day, home_evening). guest/arriving/away were left on the pre-v5.103.20 shadow tail pending measurement. v5.108.0 makes GUEST a multi-day DAYTIME state, so a stay day now runs the house on the legacy occupancy path. Consumers: hvac.py:5871, :6108; hvac_zones.py:932, :1483."
+  next: "Read HVAC_ARCHITECTURE_STATE_OF_PLAY.md completely. The const comment requires a probe for adding a state: measure or argue daytime GUEST is equivalent to HOME_DAY. Then make a one-line change plus tests. Three reviews (it changes what HVAC does in a house state)."
+  refs: [docs/reviews/code-review/v5.108.0_guest_split_E_consumers.md, docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md]
+  links: {related: [GUEST-MODE-SPLIT-VISITORS-1]}
 - id: GUEST-SELF-AUTHENTICATION-1
   title: "Guests opt in to identify themselves (e.g. a guest phone app / IRK enrolment or a check-in), so GUEST has an identity input, not only guest-room occupancy"
   thread: presence
