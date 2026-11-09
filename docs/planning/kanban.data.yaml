@@ -359,6 +359,7 @@ cards:
   why: "6.0.0 consumers (arrival/departure keyed to person_id, guest gate) need to know what a known person's arrival should DO. Today nothing records which rooms belong to whom or a person's preferences, so person-keyed actions have no target."
   next: "Pre-plan (prior-art scan FIRST, per the Tier 2+ rule): where it lives (room-entry 'owners' field vs a per-person profile vs both), which consumers read it (arrival actions, Music Following playlist, welcome scene, notifications), per-person automation opt-out semantics, and guests. Pairs with the arrival/departure-by-person work."
   constraints: "ROADMAP_v11.md:39/266 PERMANENTLY CUT per-person temperature preferences ('HVAC zone model makes this impractical'). Do not re-propose per-person setpoints; a room owner may still drive the room's own actions. Don't duplicate existing per-person data: CONF_TRACKED_PERSONS (const.py:173), NM per-person channel/handle config, BLE scanner_areas, PLANNING_hvac_guest_as_zone_person.md, PLANNING_known_person_annotation.md."
+  predictions_2026_11_08: "Operator: 'We could also use predictions to personalize?' Yes, as SUGGESTIONS: learned patterns (Bayesian predictive layer, v4.0.0 prior art; per-person room dwell / BLE history; music history) propose profile values (likely bedroom, usual arrival routine, typical playlist). The explicit profile stays the ground truth and the operator confirms. Prediction never silently actuates on its own. Pre-plan must scan the existing prediction code before proposing anything new."
   links: {related: [FACE-SOURCE-REGISTRY-DISCOVERY-1]}
   adjacency_2026_11_08: "Grepped const.py for owner/pref/bedroom CONF keys (none) and the board for person preference/room owner (none; 'owner' hits are entity/cover ownership, a different concept). Planning docs to read in the pre-plan: known_person_annotation, hvac_guest_as_zone_person, owner_set_registry_refactor (entity owners, not people). NEW."
 - id: FACE-SOURCE-REGISTRY-DISCOVERY-1
@@ -380,7 +381,7 @@ cards:
 - id: FACE-SOURCE-SKIP-FIX-FLIP-1
   title: "17 of 29 Frigate cameras (person sensor *_person_occupancy_2) never feed the census face union, corroboration, guest count or presence pre-arrival; decide whether to flip FACE_SOURCE_INCLUDE_DISAMBIGUATED_PERSON_SENSORS"
   thread: identity
-  status: blocked
+  status: parked
   tier: 2
   created: "2026-11-08 21:30"
   updated: "2026-11-08 21:30"
