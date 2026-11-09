@@ -486,8 +486,11 @@ def test_frigate_bus_not_silent_when_bus_alive(monkeypatch, caplog):
 # PERIMETER-FRIGATE-MQTT-DIRECT-1: perimeter consumes FrigateEventIngress
 # =========================================================================
 def _fi_mod():
-    import sys as _sys
-    return _sys.modules[_perimeter.get_frigate_ingress.__module__]
+    # Order-independence: bind to the frigate_ingress namespace that THIS
+    # perimeter_alert's get_frigate_ingress actually closes over. A sibling
+    # file can leave a different `...frigate_ingress` object in sys.modules,
+    # whose FrigateEventIngress fails perimeter's isinstance check.
+    return SimpleNamespace(**_perimeter.get_frigate_ingress.__globals__)
 
 
 def _with_ingress(hass):
@@ -1171,6 +1174,44 @@ def test_egress_gate_known_egress_event_demotes(monkeypatch):
                         lambda s: _now() - timedelta(seconds=3), raising=False)
     cb(SimpleNamespace(data={"egress_camera": DB_PR, "timestamp": "x",
                              "person_id": "oji_udezue", "identity_confidence": 0.9}))
+    _run(mgr._async_handle_perimeter_trigger(DB_PR))
+    assert _sev(nm) == Severity.LOW and _reason(mgr) == "egress_known_person"
+
+
+def _fire_egress_09(hass, monkeypatch, synthetic):
+    cb = [c.args[1] for c in hass.bus.async_listen.call_args_list
+          if c.args[0] == "ura_person_egress_event"][0]
+    monkeypatch.setattr(_perimeter.dt_util, "parse_datetime",
+                        lambda s: _now() - timedelta(seconds=3), raising=False)
+    cb(SimpleNamespace(data={"egress_camera": DB_PR, "timestamp": "x",
+                             "person_id": "oji_udezue", "identity_confidence": 0.9,
+                             "identity_synthetic_corroborated": synthetic}))
+
+
+def test_egress_gate_synthetic_09_without_arrival_pages(monkeypatch):
+    """v5.108.1 review B-M1: a 0.9 egress identity that needed a synthetic
+    MQTT latch leg is not two-camera face corroboration -> no demote."""
+    hass, nm, mgr = _d105(monkeypatch)
+    _fire_egress_09(hass, monkeypatch, True)
+    _run(mgr._async_handle_perimeter_trigger(DB_PR))
+    assert _sev(nm) == Severity.CRITICAL
+    assert _reason(mgr) == "egress_unknown_corroborated"
+
+
+def test_egress_gate_synthetic_09_with_arrival_demotes(monkeypatch):
+    """...but it still demotes with the 120 s non-face arrival edge."""
+    hass, nm, mgr = _d105(monkeypatch)
+    _person_cb(mgr)(_person_edge("oji_udezue", "not_home", "home"))
+    _fire_egress_09(hass, monkeypatch, True)
+    _run(mgr._async_handle_perimeter_trigger(DB_PR))
+    assert _sev(nm) == Severity.LOW and _reason(mgr) == "egress_known_person"
+    assert mgr._last_gate_decisions[DB_KEY]["egress_identity"]["inputs"]["known"][2] == (
+        "egress_synthetic+person_tracker")
+
+
+def test_egress_gate_live_09_flag_false_still_demotes(monkeypatch):
+    hass, nm, mgr = _d105(monkeypatch)
+    _fire_egress_09(hass, monkeypatch, False)
     _run(mgr._async_handle_perimeter_trigger(DB_PR))
     assert _sev(nm) == Severity.LOW and _reason(mgr) == "egress_known_person"
 

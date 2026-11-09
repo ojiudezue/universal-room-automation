@@ -4949,7 +4949,10 @@ class PerimeterAlertManager:
                 return
             lst = [e for e in self._recent_egress_identity.get(key, [])
                    if abs((ts - e[0]).total_seconds()) <= 600]
-            lst.append((ts, str(pid), float(conf)))
+            # v5.108.1 B-M1: 4th element = the 0.9 leaned on a synthetic
+            # MQTT latch leg (absent key on older producers = False).
+            lst.append((ts, str(pid), float(conf),
+                        data.get("identity_synthetic_corroborated") is True))
             self._recent_egress_identity[key] = lst[-16:]
         except Exception:  # noqa: BLE001
             _LOGGER.debug("PerimeterAlertManager: egress identity cache failed",
@@ -4982,14 +4985,31 @@ class PerimeterAlertManager:
         if not known:
             return None
         best: tuple[str, float, str] | None = None
-        for ts, pid, conf in self._recent_egress_identity.get(cam_key, []):
+        synthetic_hits: list[str] = []
+        for entry in self._recent_egress_identity.get(cam_key, []):
+            ts, pid, conf = entry[0], entry[1], entry[2]
+            synthetic = len(entry) > 3 and entry[3] is True
             try:
                 if abs((edge - ts).total_seconds()) > match_s:
                     continue
             except Exception:  # noqa: BLE001
                 continue
-            if pid.lower() in known and conf >= floor and (best is None or conf > best[1]):
+            if pid.lower() not in known or conf < floor:
+                continue
+            if synthetic:
+                # B-M1: a 0.9 that needed a synthetic latch leg is not
+                # two-camera face corroboration; treat it like a below-floor
+                # face (non-face arrival edge required, below).
+                synthetic_hits.append(pid.lower())
+                continue
+            if best is None or conf > best[1]:
                 best = (pid.lower(), conf, "egress_event")
+        if best is None:
+            for slug in synthetic_hits:
+                src = self._nonface_agrees(slug, edge, cam_key)
+                if src:
+                    best = (slug, floor, f"egress_synthetic+{src}")
+                    break
         try:
             legs = census._resolve_face_legs(cam_key) if census is not None else []
         except Exception:  # noqa: BLE001

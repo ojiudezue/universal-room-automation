@@ -630,7 +630,9 @@ def test_linker_registers_on_frigate_ingress_and_mqtt_feeds_observe():
     from types import SimpleNamespace as _NS
     import json as _json
 
-    fi_mod = sys.modules[etl.register_frigate_consumer.__module__]
+    # Bind to the namespace the linker's register_frigate_consumer closes
+    # over (not sys.modules, which an evicting sibling file can replace).
+    fi_mod = types.SimpleNamespace(**etl.register_frigate_consumer.__globals__)
     hass = _FakeHass()
     hass.data = {_const.DOMAIN: {}}
     ing = fi_mod.FrigateEventIngress(hass)

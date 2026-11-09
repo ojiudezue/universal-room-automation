@@ -1387,6 +1387,11 @@ class EgressDirectionTracker:
                                         ``person.<slug>=not_home`` veto.
           - ``"attached"``            — successful attach.
         """
+        # v5.108.1 review B-M1: entry-reset per call. Set True only when the
+        # CONFIDENCE_HIGH result has no independent pair of LIVE (non-
+        # synthetic) legs; the egress fire site reads it synchronously (no
+        # await in between) into `identity_synthetic_corroborated`.
+        self._last_identity_synthetic_corroborated = False
         census = self.hass.data.get(DOMAIN, {}).get("census")
 
         # Kill-switch — before any leg read.
@@ -1870,6 +1875,12 @@ class EgressDirectionTracker:
         if has_independent_pair:
             identity_confidence: float = float(CONFIDENCE_HIGH)
             agreement_class = CENSUS_AGREEMENT_BOTH
+            # B-M1: does the 0.9 survive without the synthetic latch legs?
+            live = [h for h in legs_only if not getattr(h, "synthetic", False)]
+            self._last_identity_synthetic_corroborated = not any(
+                _independent(live[i], live[j])
+                for i in range(len(live)) for j in range(i + 1, len(live))
+            )
         elif n >= 2:
             identity_confidence = float(FACE_MATCH_CORRELATED_BOOST)
             agreement_class = CENSUS_AGREEMENT_BOTH
@@ -2012,6 +2023,11 @@ class EgressDirectionTracker:
             # that never referenced these keys are unaffected.
             "identity_confidence": identity_confidence,
             "agreement_class": agreement_class,
+            # v5.108.1 B-M1 (additive): the 0.9 needed a synthetic MQTT
+            # latch leg. Perimeter D10.5 then needs a non-face arrival edge.
+            "identity_synthetic_corroborated": bool(
+                getattr(self, "_last_identity_synthetic_corroborated", False)
+            ),
         })
 
         _LOGGER.debug(

@@ -363,6 +363,12 @@ class FaceLeg:
     canonical_slug: str | None
     last_changed: datetime | None
     confidence: float | None
+    # v5.108.1 review B-M1: True for the synthetic leg built from the MQTT
+    # face latch (`_resolve_face_legs`). Its entity_id copies a real face
+    # sensor and its confidence is None like a live Frigate leg, so this is
+    # the only marker. Perimeter D10.5 must not count it toward the 0.9
+    # two-camera demotion.
+    synthetic: bool = False
 
 
 @dataclass(frozen=True)
@@ -3552,6 +3558,7 @@ class PersonCensus:
                                 canonical_slug=canonical_slug,
                                 last_changed=lts,  # REQUIRED — classifier keys on it
                                 confidence=None,   # passes FACE_MATCH_MIN_CONFIDENCE floor
+                                synthetic=True,
                             )
                             # Dedup rule: if results already carries a leg
                             # with the same (canonical_slug, engine,

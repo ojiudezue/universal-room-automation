@@ -480,6 +480,14 @@ without that automation got nothing. Both now register on one
 - **Census face bridge.** It registers a `tracked_object_update` handler on
   the same ingress, so it uses the runtime prefix (§1.3) and the same
   late-load handling.
+- **Synthetic face legs do not count toward D10.5's 0.9 (review B-M1).** The
+  latch leg is marked `FaceLeg.synthetic`. When the egress producer's 0.9
+  (two cameras) holds only with a synthetic leg in the pair, it still reports
+  0.9, so display and DB rows are unchanged, but it adds
+  `identity_synthetic_corroborated: true` to `ura_person_egress_event`.
+  Perimeter D10.5 then treats that identity like a below-floor face: it
+  demotes only with the same-person non-face arrival edge within 120 s
+  (reason `egress_synthetic+<source>`).
 - **Kill switch.** `FRIGATE_INGRESS_MQTT_ENABLED` (rung 1, True). False means
   bus-only events; the face topic stays subscribed.
 - **Diagnostics** (display only, on the exterior open-tracks sensor next to

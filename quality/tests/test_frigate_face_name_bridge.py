@@ -186,6 +186,8 @@ def test_face_msg_known_camera_latches_and_emits_synthetic_leg():
         assert leg.engine in ("frigate", "frigate2")
         assert leg.confidence is None
         assert leg.base_stem == "front_door"
+        # v5.108.1 B-M1: the latch leg is marked so D10.5 can exclude it.
+        assert leg.synthetic is True
     finally:
         _teardown(census)
 
