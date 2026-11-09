@@ -245,6 +245,7 @@ def _load_ns() -> dict:
         "CONF_CENSUS_CROSS_VALIDATION": "census_cross_validation",
         "CONF_CENSUS_BLE_CANCEL_ENABLED": "census_ble_cancel_enabled",
         "CONF_KNOWN_FACE_GUESTS": "known_face_guests",
+        "CONF_FACE_NAME_ALIASES": "face_name_aliases",
         "CONF_EGRESS_IDENTITY_FAILSAFE_STRICT": "egress_identity_failsafe_strict",
         "CONF_PERIMETER_VEHICLE_HOURS_START": "perimeter_vehicle_hours_start",
         "CONF_PERIMETER_VEHICLE_HOURS_END": "perimeter_vehicle_hours_end",

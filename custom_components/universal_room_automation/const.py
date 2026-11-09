@@ -39,6 +39,15 @@ VERSION: Final = "v5.107.0"
 # in the executor) and a pending restart is informational, not urgent.
 VERSION_CHECK_INTERVAL_S: Final = 3600
 
+# v5.107.3 external-URL self-check (external_url_check.py). Rung 1 (module
+# constants): protocol values, not operator policy.
+# Interval: the URL changes rarely (DNS/proxy/cert edits); daily catches a
+# break within a day at one tiny GET per day.
+EXTERNAL_URL_CHECK_INTERVAL_S: Final = 86400
+# Timeout: a healthy proxy answers manifest.json in well under a second; 10 s
+# tolerates a slow WAN hop while never holding a socket for aiohttp's 300 s.
+EXTERNAL_URL_CHECK_TIMEOUT_S: Final = 10
+
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
 
@@ -2552,6 +2561,12 @@ PERIMETER_EGRESS_FACE_NONFACE_WINDOW_S: Final = 120
 # seconds after perimeter setup are ignored — HA restore stamps
 # `last_changed` at boot, so a boot-time "home" is not an arrival.
 # Same 600 s as GARAGE_LOCKOUT_BOOT_ARRIVAL_WINDOW_S (lock regime).
+# COUPLING (v5.107.4 review A MED-2): the SC lock regime's camera_face unlock
+# gate (security_lock_regime._face_arrival_corroborated) also reads this and
+# PERIMETER_EGRESS_FACE_NONFACE_WINDOW_S. Perimeter uses them to DE-ESCALATE;
+# the lock uses them to UNLOCK. The lock floors the boot exclusion at
+# GARAGE_LOCKOUT_BOOT_ARRIVAL_WINDOW_S (max of the two), so lowering this value
+# never shrinks the unlock guard; raising the window widens BOTH consumers.
 PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S: Final = 600
 # D10.5 (rung 1, review A-M4): own corroboration settle, decoupled from the
 # D5 settle. D5a probe (30 d): second-engine lag p90 doorbell_lite 20.2 s,
@@ -3339,6 +3354,40 @@ FACE_PRODUCER_STALE_TTL_S: Final = 120
 # in the `guest:<first_token>` namespace. Options-flow rung.
 CONF_KNOWN_FACE_GUESTS: Final = "known_face_guests"
 DEFAULT_KNOWN_FACE_GUESTS: Final = []
+# FACE-SOURCE-REGISTRY-DISCOVERY-1 D5 (options-flow rung, per-install
+# structure like known_face_guests): explicit face-library-name aliases,
+# entries "FaceName=target" where target is a tracked person slug (with or
+# without "person.") or a known_face_guests name. Read fresh per lookup by
+# camera_census._canonical_person_slug and presence face pre-arrival.
+# Empty = no aliasing (the canonicalizer is unchanged).
+CONF_FACE_NAME_ALIASES: Final = "face_name_aliases"
+DEFAULT_FACE_NAME_ALIASES: Final = []
+# FACE-SOURCE-REGISTRY-DISCOVERY-1 D2 (rung 1, module constant — changing
+# face-source discovery needs review). True = Frigate face-name sensors are
+# found in the entity registry by (platform frigate, unique_id type token
+# "sensor_recognized_face") and joined by device_id; the old name-built ids
+# are the fallback only when the registry yields nothing for a camera.
+# False = the pre-cycle name-pattern path everywhere (byte-identical),
+# including the suffix-derived FaceLeg engine tag.
+FACE_SOURCE_REGISTRY_DISCOVERY_ENABLED: Final = True
+# FACE-SOURCE-REGISTRY-DISCOVERY-1 D3 (rung 1 — changes census trust inputs).
+# True = a Frigate camera whose person sensor does not end in
+# "_person_occupancy" (17 of 29 here end "_person_occupancy_2") reads its
+# face sensor through the person sensor's device instead of being skipped.
+# The legacy suffix path still runs first. False = legacy skip, counted in
+# face_source_skipped_person_sensors. D0 recorder probe gate PASSED
+# 2026-11-08 (AUDIT_face_source_registry_discovery_2026_11.md §8).
+FACE_SOURCE_INCLUDE_DISAMBIGUATED_PERSON_SENSORS: Final = True
+# FACE-SOURCE-REGISTRY-DISCOVERY-1 D3/S8 split (builder, rung 1, default
+# OFF pending operator call). Presence face pre-arrival
+# (`PresenceCoordinator._get_face_for_camera`) dispatches
+# SIGNAL_PERSON_ARRIVING(source=camera_face), which the SC lock regime
+# consumes: `_release` (garage lockouts) and `_away_release` (UNLOCKS the
+# away-lock door locks) for a resident who was really away. The 17 cameras
+# the skip fix adds include the doorbell / garage / entry cameras, so this
+# flag ALSO gates the S8 device join; S5-S7 (census) follow the flag above.
+# False = S8 legacy skip for `_N` person sensors (pre-cycle behaviour).
+FACE_SOURCE_PRESENCE_ARRIVAL_DISAMBIGUATED: Final = False
 # D4: kill-switch that ENABLES the provenance filter + producer-health
 # guard (see plan §6 knob table). ON by default; opposite concept
 # from the on-demand drill switch (`switch.egress_identity_face_failsafe_drill`).
@@ -3586,6 +3635,8 @@ GARAGE_LOCKOUT_REENGAGE_MAX_WAIT_S: Final = 3600
 # Restart safety: a resident who reached `home` within this window before
 # setup releases at boot; and any -> home edge inside this window after
 # setup counts unconditionally (M-2).
+# Also the FLOOR of the camera_face unlock gate's boot exclusion (v5.107.4,
+# max with PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S; review A MED-2).
 GARAGE_LOCKOUT_BOOT_ARRIVAL_WINDOW_S: Final = 600
 # Edges before setup + this only rebuild `reason`, never engage (M1);
 # the house state is re-read once at this delay (H1).

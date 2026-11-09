@@ -483,5 +483,22 @@ is a soak; the same question is answered from recorder history in D0). Review C 
 branch) and the D4 fallback to its mutation list. Follow-up cards from review 1: F-5 (`guest:*` faces subtract in
 S7), F-6 (raw fuse site counts `guest:*` as resident on non-enhanced installs).
 
-## 11. Plan-completion accounting (filled after build)
-To be completed by the builder: each deliverable done / deferred with reason.
+## 11. Plan-completion accounting (filled after build, branch `feature/face-source-registry`)
+
+Pre-build re-check on the merged tree (develop `b9c1b3d0`, v5.107.0 in): the §4 grep found two stem callers
+in `perimeter_alert.py` (`:1673` alert naming, `:4894` D10.5 `_known_identity_for`); neither reads
+`FaceLeg.engine`. The falsifier re-ran on the 2026-11-08 22:58 registry: `agree=12`, 17 SKIP, (c) True. D0 result:
+AUDIT §8 (gate PASS, default True).
+
+| Item | Status | Notes |
+|---|---|---|
+| D0 | done (pre-build) | AUDIT §8. upstairs_hall's Frigate sensor is not in the interior list, so S7 changes for playroom only. |
+| D1 | done | `scripts/probe_face_source_registry.py` (+ `--emit-fixture`), fixture `quality/tests/fixtures/face_source_registry_2026_11.json` (188 entities, 64 devices; registry fields only, no MACs; includes the Protect camera / person entities so the stem tests see real cross-integration stems). |
+| D2 | done, one deviation | **Deviation:** `face_name_entities_for_stem` uses the RAW stem only and returns a suffixed face sensor only when its base equals the stem. The plan's raw-then-stripped chain broke INV-1 on the live fixture (10 stems, e.g. `garage_a_2`, `foyer`, reached a face sensor the pattern path never names). Renamed sensors still resolve through the device. S9 key: the face entity's own base (legacy-identical by construction), falling back to the camera.* stem for a renamed sensor (plan said camera-derived; same 29/29). |
+| D3 | done, one split | S5-S7 live (default True). **S8 split out** behind `FACE_SOURCE_PRESENCE_ARRIVAL_DISAMBIGUATED` = False: S8 dispatches `SIGNAL_PERSON_ARRIVING(camera_face)`, which `security_lock_regime.on_person_arriving` turns into `_release` (garage lockouts) and `_away_release` (unlocks `lock.master_bedroom_lock` for away-lock persons Ezinne / Oji, live config). Review 1 §3.4 missed this consumer. Operator decides. |
+| D4 | done | Engine = device family, hint on any miss; S3 + S4 share `_face_leg_engine`. `test_egress_identity_producer_d2b.py::test_face_legs_2_engine_tagging` updated (now asserts `frigate`, and `frigate2` with the kill switch off). |
+| D5 | done | Field is Advanced-only (the Simple camera-census step is pinned at 7 fields), fresh-read, added to `INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS` (no parent reload on save). Presence `_find_person_entity_from_face` also consults it (the Oji -> `person.oji_udezue` case). Shipped empty. |
+| D6 | done | Token-only filter when discovery is on. |
+| D7 | done | Manual §1.1 / §4.1 / §4.2 / §5.4, presence state-of-play status line, README_v5.107.1. |
+| F-5 (optional fold) | not folded | Not small in risk terms: subtracting only for resident slugs would RAISE S7 (new direction, opposite of INV-4) and needs its own measurement of known-guest-only interior ticks. Stays a card. |
+| F-6 | not in scope | Card. |
