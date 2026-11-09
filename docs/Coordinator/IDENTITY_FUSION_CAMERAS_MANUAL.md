@@ -67,11 +67,53 @@ every camera.
 entity id from a slug (`f"sensor.{base}_last_recognized_face"`) fails
 silently against the wrong group. Every read MUST resolve via the
 entity registry OR try both variants and gate on state
-(`camera_census._resolve_face_entity_id`, `camera_census.py:2615-2648`
-— returns `None` if neither variant has a usable state, increments
-`_face_lookup_missing_count` for observability). The resolver's
+(`camera_census._resolve_face_entity_id`, `camera_census.py:3149`; the
+state gate + `_face_lookup_missing_count` increment live in
+`_first_usable_face_entity`, `:3181-3202`). The resolver's
 suffix-tolerant match helper is
 `camera_resolver._has_any_suffix_stripped` (`:317-327`).
+
+**Face-NAME sources are registry-first (v5.107.1, FACE-SOURCE-REGISTRY-DISCOVERY-1).**
+- Frigate face-name sensors are found by the integration-defined unique_id type token
+  `<entry_id>:sensor_recognized_face:<cam>` on platform `frigate`, domain `sensor`
+  (`camera_resolver._is_frigate_face_name_entry`, `:278`), indexed per device in the
+  CameraResolver registry pass (`_frigate_face_entities_by_device`). `sensor_global_face`
+  (per-person last_camera, server device) never matches. Order per device: bare before `_N`.
+- Stem callers (`_resolve_face_entity_id`, `_resolve_face_legs`, egress, perimeter naming,
+  perimeter D10.5) get `face_name_entities_for_stem` (`:698`): raw stem only, and a suffixed
+  face sensor is returned only when its base equals the stem (so discovery never widens a
+  stem; measured 2026-11-08: raw keys such as `garage_a_2` / `foyer` reach a device whose
+  face base differs). A RENAMED face sensor (no `_last_recognized_face` suffix) is returned
+  through the device. The built ids are the fallback only when the registry yields nothing.
+- Person-sensor callers (census S5 `_get_face_recognized_persons`, S6
+  `_get_face_recognized_persons_fresh`, S7 `_get_unrecognized_camera_count`) used to skip any
+  Frigate camera whose person sensor did not end in `_person_occupancy`: **17 of 29 cameras**
+  on the reference install (every `*_person_occupancy_2`; interior: playroom, upstairs_hall).
+  They now join the face sensor through the person sensor's device
+  (`_device_derived_face_entity_id`, `camera_census.py:3265`) after the legacy suffix test
+  fails. S7 stays fail-closed (no face sensor -> whole count unrecognized) and can only go
+  down (INV-4). Kill switch `FACE_SOURCE_INCLUDE_DISAMBIGUATED_PERSON_SENSORS` (rung 1, True).
+- **Presence face pre-arrival (S8, `presence._get_face_for_camera`) is held OFF for those
+  cameras** by its own rung-1 `FACE_SOURCE_PRESENCE_ARRIVAL_DISAMBIGUATED` (False): it
+  dispatches `SIGNAL_PERSON_ARRIVING(source=camera_face)`, which the SC lock regime turns into
+  a garage-lockout release and an away-lock UNLOCK for a resident who was away
+  (`security_lock_regime.on_person_arriving`). The 17 include the doorbell / garage / entry
+  cameras. Operator decision pending (README_v5.107.1).
+- `FaceLeg.engine` is the device family (`CameraResolver.face_engine_tag`, `:737`):
+  `frigate` / `protect` / ..., the hint on any miss, never `frigate2` / `unknown`. The entity
+  leg and the synthetic latch leg use the same helper, so they still dedup (INV-2). Live
+  `contributor_engines` read `frigate`, not `frigate2` (display only).
+- Kill switch for all discovery: `FACE_SOURCE_REGISTRY_DISCOVERY_ENABLED` (rung 1, True).
+  False = the pre-cycle name-pattern path, byte-identical, incl. the suffix engine tag.
+- Diagnostics on `sensor.universal_room_automation_persons_in_house` (unrecorded, per tick):
+  `face_source_registry_hits` / `face_source_pattern_fallbacks` (+ `_stems`) count LOOKUPS,
+  not producer health (a dead Frigate shows in `face_lookup_missing_count`);
+  `face_source_device_derived_reads` / `_cameras`; `face_source_skipped_person_sensors` /
+  `_cameras` (only when the skip-fix switch is off).
+- Protect: the HA integration exposes no face-NAME entity. `sensor.<stem>_face_recognized[_2]`
+  and the `_face_recognized` / `_face_detected` / `_smart_detect_face` / `_ai_face` suffixes
+  are KEEP + DOCUMENT (dead until the parked `D1-PROTECT-FACE-BRIDGE-ADDON-1`; generic names
+  for other installs).
 
 ### 1.2 One physical camera can be seen by many integrations
 
@@ -255,7 +297,9 @@ ladder (rungs, `camera_resolver.py:11-36`):
 Key APIs: `resolve_operator_declaration`, `resolve_capabilities`,
 `resolve_detection_legs` (returns `DetectionLeg` with engine tag —
 `frigate`/`frigate2`/`protect`/`protect2`/`reolink`/`amcrest`/`dahua`,
-`camera_resolver.py:1201-1224`), `enumerate_platform_cameras`.
+`camera_resolver._engine_tag`), `enumerate_platform_cameras`. `FaceLeg.engine` no longer
+uses `_engine_tag` (v5.107.1: device family via `face_engine_tag`, §1.1); `DetectionLeg`
+still does.
 
 ### 4.2 `CameraIntegrationManager` + `PersonCensus` (`camera_census.py`)
 
@@ -263,9 +307,15 @@ The census authority. Dual-zone (interior + property), publishes
 identified / unidentified / on-property counts, holds+decays after
 peaks, cross-validates across BLE + face + camera-person, downgrades
 on divergence. Face-name reader is
-`_resolve_face_entity_id` (`camera_census.py:2615-2648`),
+`_resolve_face_entity_id` (`camera_census.py:3149`, registry-first since v5.107.1, §1.1),
 canonical-slug helper `_canonical_person_slug` (URA-slug namespace so
-face / ble / DB / `person.<slug>` all agree).
+face / ble / DB / `person.<slug>` all agree). **Face-name aliases (v5.107.1):** the optional
+`face_name_aliases` option (Camera Census, Advanced; entries `FaceName=target`, target = a
+tracked slug with or without `person.`, or a `known_face_guests` name) is consulted after the
+direct slug match and before first-token inference (`_face_alias_target`, `:4013`). Empty by
+default (no change). An alias also lets presence map a face to `person.<slug>`
+(`face_alias_person_slug`, used by `_find_person_entity_from_face`), and widens the perimeter
+D10.5 `known` set. Fresh-read; saving it does not reload the integration.
 
 Cutover flag `CENSUS_USE_NEW_RESOLVER = True`
 (`camera_resolver.py:102`) — the census's
@@ -500,7 +550,7 @@ identity was corroborated:
 - **Reuse the existing `confidence REAL` column** on
   `person_entry_exit_events` as the advisory score — no migration.
 - **Face lookup miss counter:** `_face_lookup_missing_count`
-  (`camera_census.py:2647`) increments on every fail-CLOSED lookup so
+  (`camera_census.py:3201`) increments on every fail-CLOSED lookup so
   operators can distinguish "no face" from "face resolver broken".
 - **`person.<slug>` = `not_home` veto** (see §4.3) — mirrored in
   `camera_census._get_face_recognized_person_names` (~`camera_census.py:5893-5940`).
