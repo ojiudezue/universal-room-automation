@@ -89,20 +89,23 @@ Mutation drills: 28 sites in the build (13 lock regime, 12 shared helper, 3 peri
 fix-up (stamps, listener lifecycle, held-face re-check, boot floor), each RED on neuter. The fix-up added 17 tests (50
 in the file).
 
-## Live acceptance criteria
-- **Live:** after restart, `grep "Lock regime: camera_face arrival for"` in the HA log shows INFO `held` lines only for
-  faces with no arrival edge yet. A later `held camera_face arrival ... corroborated by a later Bermuda entry move`
-  line must have a same-person Bermuda move into an entry area within 120 s of the held face. There is no unlock in the `lock.konnected_f0f5bd523b00_lock` /
-  `lock.ratgdov25i_dbfe2a_lock_remotes` / `lock.master_bedroom_lock` history at those timestamps.
-- **Live:** the next resident arrival by car (GPS `not_home → home`) still unlocks the garage lockouts. The lock
-  regime's `last_action` reads `release`, trigger `person:person.<x>` or `arriving_signal`.
-- **Live (discriminator):** an `arriving_signal` release that follows a `camera_face` dispatch must have a
-  same-person Bermuda move into Garage / an egress or door-neighbour area, or a `person.*` `not_home → home`, within
-  120 s before it (recorder). Before this fix, a face-only release had neither.
-- **Live:** perimeter D10.5 decisions on `gate_decisions_by_camera` still report `face+ble` / `face+person_tracker` as
-  before.
-- **In-suite only:** the 10-24 mislabel shape (face names an away resident, no edge) cannot be produced on demand
-  live; `test_face_only_person_really_away_no_release` pins it.
+## Live validation
+
+### Validated 2026-11-10
+
+Read 2026-11-10 ~02:10-02:20 CST, HA running v5.108.1 (manifest), restart 01:04 CST. Read-only. This release (v5.107.1 through v5.107.6) first ran at that restart. Logging caveat: the integration logger is `log_level: WARNING`, so every INFO marker in these criteria is never written to the HA log, and `ha_get_logs` cannot show it. Log absence is therefore NOT evidence for or against these criteria.
+
+Deployed code check: `domain_coordinators/security_lock_regime.py` is present on the HA host, with the face gate at `:850` and the held re-check at `:1099`. Both INFO lines are at `:853` and `:1100`. The lock timelines below come from `ha_get_history` and `ha_get_logs` logbook.
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| 1 | `held` INFO lines only for faces with no edge; no unlock at those times | NOT-YET-OBSERVABLE | No held or corroborated line can be read (INFO). No face arrival since restart. Lock timeline 18:00 Nov 9 to 02:15 Nov 10: `lock.konnected_f0f5bd523b00_lock` and `lock.ratgdov25i_dbfe2a_lock_remotes` go `unlocked` → `unavailable` (01:02:53) → `unlocked` (01:02:57), a reconnect flap at restart; `lock.master_bedroom_lock` shows `unlocked` at both window ends with no change between. The logbook carries no URA context, so these are not attributed to the regime. |
+| 2 | Resident car arrival still unlocks the garage lockouts | NOT-YET-OBSERVABLE | No `not_home → home` arrival since restart. The regime's `last_action` entity was not located by search. |
+| 3 | `arriving_signal` release after `camera_face` dispatch has a corroborating edge | NOT-YET-OBSERVABLE | No `arriving_signal` release since restart. |
+| 4 | Perimeter D10.5 `face+ble` / `face+person_tracker` still reported | NOT-YET-OBSERVABLE | No perimeter alert since restart. |
+| 5 | In-suite only: 10-24 mislabel shape | IN-SUITE ONLY | `test_face_only_person_really_away_no_release`. Cannot be produced live. |
+
+**Verdict 2026-11-10:** 0 PASS, 0 FAIL, 4 NYO, 1 in-suite. **Doc contradiction for the operator:** `PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md` §1 calls the SC lock regime "NOT deployed", but the deployed tree has `domain_coordinators/security_lock_regime.py`. Whether the lockouts should be engaged overnight was not determined here. The garage remotes show no transition from 18:00 to 02:15 apart from that restart flap (state `unlocked`). The 02:15 to 06:00 part of the window is not read yet.
 
 ## Not done (tracked)
 - Flipping `FACE_SOURCE_PRESENCE_ARRIVAL_DISAMBIGUATED` and setting the `Oji=oji_udezue` face alias, the card's
