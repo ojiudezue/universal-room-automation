@@ -37,6 +37,7 @@ from custom_components.universal_room_automation.const import (  # noqa: E402
     CONF_ROOM_TYPE,
     DOMAIN,
     ENTRY_TYPE_ROOM,
+    ROOM_TYPE_HVAC_HOLD,
 )
 from custom_components.universal_room_automation.domain_coordinators import (  # noqa: E402
     hvac_zones as _hvac_zones,
@@ -219,7 +220,26 @@ class Replay:
         for seg_i, (hs, count) in enumerate(SEGMENTS):
             for j in range(count):
                 n += 1
+                prev = now
                 now = now + timedelta(seconds=rng.choice((20, 45, 60, 90, 150, 300, 300, 420)))
+                if n % 3 == 0:
+                    # Boundary pass: land EXACTLY on an idle room's evidence
+                    # release (ev + hold) or the refresh-fail bound (ev +
+                    # 600), so a `<` -> `<=` edit on a live line changes the
+                    # snapshot.
+                    cands = []
+                    for r, e in sorted(self.entries.items()):
+                        c = self.coords[r]
+                        if self.phys[r] or c.ev is None:
+                            continue
+                        ov = (e.options or {}).get("hvac_vacancy_hold")
+                        hold = ov if ov is not None else ROOM_TYPE_HVAC_HOLD.get(
+                            e.data[CONF_ROOM_TYPE], 60)
+                        cands.append(c.ev + timedelta(seconds=hold))
+                        cands.append(c.ev + timedelta(seconds=600))
+                    cands = sorted(t for t in cands if t > prev)
+                    if cands:
+                        now = cands[0]
                 self._step_rooms(rng, now)
                 # --- scripted events -------------------------------------
                 absent: set[str] = set()
