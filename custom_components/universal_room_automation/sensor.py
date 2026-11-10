@@ -7652,6 +7652,9 @@ class SecurityLastLockSweepSensor(AggregationEntity, SensorEntity):
             "unavailable": sweep.get("unavailable", []),
             # SC-LOCK-SWEEP-EXCLUDE-1: registered locks the sweep skipped.
             "excluded": sweep.get("excluded", []),
+            # SECURITY-LOCK-SWEEP-RETRY-CAP-1: devices the sweep stopped
+            # commanding after the retry cap (until they change state).
+            "retry_capped": sweep.get("retry_capped", []),
             "checks_today": sweep.get("checks_today", 0),
         }
 
