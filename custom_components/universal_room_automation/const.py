@@ -3772,6 +3772,18 @@ GARAGE_LOCKOUT_RELEASE_MAX_S: Final = 5
 GARAGE_LOCKOUT_BLIP_MIN_AWAY_MIN: Final = 15
 # Bound on the awaited unlock inside SC teardown on the disable path (C1).
 GARAGE_LOCKOUT_TEARDOWN_RELEASE_TIMEOUT_S: Final = 5
+# SECURITY-LOCK-SWEEP-RETRY-CAP-1: the periodic lock check re-sends
+# lock.lock / cover.close_cover every interval while a device stays
+# unlocked/open. After this many FAILED attempts in one episode (device still
+# unlocked/open at the next check) the sweep stops commanding that device and
+# sends ONE notification. The episode re-arms when the device changes state.
+# Kill switch: 0 disables the cap (unlimited retries, the pre-cap behaviour).
+# Numbers-Get-Knobs rung 1 (module constant): security-adjacent, review-gated.
+SECURITY_LOCK_RETRY_CAP: Final = 3
+# Seconds after a device hits the retry cap before a fresh episode starts
+# (fresh N tries + one fresh notice) while it is still unlocked/open.
+# 0 = never re-arm (stay capped until the device is seen locked/closed).
+SECURITY_LOCK_RETRY_REARM_S: Final = 86400
 
 # Zone presence mode values
 ZONE_MODE_AWAY: Final = "away"
@@ -4758,6 +4770,9 @@ OPTIMIZER_DIMENSION_PREDICTION_ACCURACY: Final = "prediction_accuracy"
 # NM Cycle A-2 — single tuple of dimension value strings, used by the
 # options-flow allowlist SelectSelector without pulling in the heavy
 # optimization coordinator module (which drags HA imports).
+# Note (OPTIMIZER-META-NEVER-PAGES-1): ticking "meta" in the HIGH allowlist
+# has no effect — META findings never page (optimization.py
+# _notify_if_severe guard); they are persisted + digested only.
 OPTIMIZER_DIMENSIONS_ALL: Final = (
     OPTIMIZER_DIMENSION_SENSOR_HEALTH,
     OPTIMIZER_DIMENSION_COMFORT,

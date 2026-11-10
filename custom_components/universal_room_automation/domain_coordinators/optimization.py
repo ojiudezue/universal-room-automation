@@ -5956,6 +5956,20 @@ class OptimizationCoordinator(BaseCoordinator):
     async def _notify_if_severe(self, finding: OptimizationFinding) -> None:
         if finding.severity not in ("critical", "high"):
             return
+        # OPTIMIZER-META-NEVER-PAGES-1 (2026-11-04): META findings are about
+        # the optimizer itself (the only deterministic META producer is the
+        # low-severity cycle_ok sentinel, so any critical/high META comes
+        # from the LLM tier) — never a house hazard. Measured: 9/9 CRITICAL
+        # "URA Optimizer — meta" pages in 30d were the LLM complaining about
+        # corpus truncation, some at 01:00-02:30. Persisted + digested as
+        # usual; only the NM page is suppressed. Normalise Enum/str/case.
+        _dim = getattr(finding.dimension, "value", finding.dimension)
+        if str(_dim).lower() == OPTIMIZER_DIMENSION_META:
+            _LOGGER.debug(
+                "Optimizer META finding not paged (severity=%s): %s",
+                finding.severity, finding.description,
+            )
+            return
         # NM Cycle A (2026-07-20) A2: HIGH findings route to the daily
         # digest by default; only allowlisted dimensions still page NM.
         # CRITICAL always pages. Digest wiring already lives in NM via
