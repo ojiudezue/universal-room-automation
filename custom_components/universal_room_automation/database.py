@@ -7754,6 +7754,10 @@ class UniversalRoomDatabase:
                 )
                 await db.commit()
                 return len(params)
+        except DBShuttingDown:
+            # A drain racing HA stop: expected, not a failure (review A-L1).
+            _LOGGER.debug("log_hvac_evidence_shadow: DB shutting down, %d row(s) dropped", len(params))
+            return 0
         except Exception as e:  # noqa: BLE001
             _LOGGER.warning("log_hvac_evidence_shadow: insert failed: %s", e)
             return 0

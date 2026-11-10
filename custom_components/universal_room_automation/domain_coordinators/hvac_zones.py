@@ -2891,6 +2891,14 @@ class ZoneManager:
         in_boot = now < boot_end
 
         rec = self._ev_shadow_ep.get(zid)
+        # B-L1: a zone rediscovered under the same id with a different room
+        # set closes its episode `interrupted` and starts a fresh record.
+        rooms_sig = tuple(sorted(getattr(zone, "rooms", []) or []))
+        if rec is not None and rec.get("rooms", rooms_sig) != rooms_sig:
+            old = rec.get("open")
+            if old is not None:
+                self._ev_shadow_finish(zid, old, "interrupted", now, now)
+            rec = None
         # Exposure (F1): the interval since this zone's previous pass is
         # charged to that pass's L and house state, capped at 2 ticks
         # (HA-down time is not exposure, F13); boot window excluded (F9):
@@ -2905,6 +2913,11 @@ class ZoneManager:
             if secs > 0:
                 key = (zid, rec["state"])
                 self._ev_shadow_expo[key] = self._ev_shadow_expo.get(key, 0.0) + secs
+                # A-M1: incremental write once the bucket is large enough.
+                flush_s = float(_hc.HVAC_EVIDENCE_SHADOW_EXPOSURE_FLUSH_S)
+                if flush_s > 0 and self._ev_shadow_expo[key] >= flush_s:
+                    self._ev_shadow_queue_exposure(now, zid, rec["state"], self._ev_shadow_expo[key])
+                    self._ev_shadow_expo[key] = 0.0
 
         ep = rec.get("open") if rec is not None else None
         if ep is not None:
@@ -2940,7 +2953,15 @@ class ZoneManager:
             # legacy states) is still seen as a release (F2).
             for r in ep["legacy_rooms"]:
                 ep["tails"][r] = self._hvac_tail_until.get(r)
-        self._ev_shadow_ep[zid] = {"t": now, "L": L, "state": state, "open": ep}
+            # B-H1: the rooms holding the legacy side on THIS pass; the
+            # next pass's verdict needs every one of them released.
+            ep["prev_on"] = set(legacy_on)
+            # A room seen holding again has no release that counts any more.
+            for r in legacy_on:
+                ep["releases"].pop(r, None)
+        self._ev_shadow_ep[zid] = {
+            "t": now, "L": L, "state": state, "open": ep, "rooms": rooms_sig,
+        }
 
     def _ev_shadow_note_releases(self, ep: dict[str, Any], now: datetime) -> None:
         """Record, per legacy room of the episode, the earliest legacy
@@ -2967,19 +2988,24 @@ class ZoneManager:
         (None, None). Plan §3.2 close rules 1-4."""
         if state != ep["state"]:
             return "interrupted", now
-        releases = list(ep["releases"].values())
+        rel: dict[str, datetime] = ep["releases"]
+        # The zone's legacy side releases when the LAST room holding it
+        # releases (review B-H1 / B-M1): the holders are the rooms legacy-on
+        # at the previous pass.
+        holders = ep.get("prev_on") or set(ep["legacy_rooms"])
         if ep["kind"] == "less":            # opened as L and not E
             if L and not E:
                 return None, None
             if not L and E:
                 return "flipped", now
             if not L:                        # legacy released
-                return "released", (min(releases) if releases else now)
-            # E returned while L still True: released only if a legacy room
-            # actually released before this pass (F2).
-            earlier = [t for t in releases if t < now]
-            if earlier:
-                return "released", min(earlier)
+                times = [rel[r] for r in holders if r in rel]
+                return "released", (max(times) if times else now)
+            # E returned while L still True: `released` only if EVERY holder
+            # released before this pass (a release + re-entry no pass saw,
+            # F2); one room releasing while another holds is `resumed`.
+            if holders and all(r in rel and rel[r] < now for r in holders):
+                return "released", max(rel[r] for r in holders)
             return "resumed", now
         # kind == "more"                     # opened as E and not L
         if E and not L:
@@ -3081,11 +3107,14 @@ class ZoneManager:
         for (zid, state), secs in sorted(self._ev_shadow_expo.items()):
             if secs <= 0:
                 continue
-            self._ev_shadow_pending_rows.append(self._ev_shadow_row(
-                now, "exposure", zid, state,
-                rule=self._hvac_rule_for_state(None if state == "none" else state),
-                duration_s=float(secs),
-            ))
+            self._ev_shadow_queue_exposure(now, zid, state, secs)
+
+    def _ev_shadow_queue_exposure(self, now: datetime, zid: str, state: str, secs: float) -> None:
+        self._ev_shadow_pending_rows.append(self._ev_shadow_row(
+            now, "exposure", zid, state,
+            rule=self._hvac_rule_for_state(None if state == "none" else state),
+            duration_s=float(secs),
+        ))
 
     def drain_shadow_rows(self) -> list[dict[str, Any]]:
         """Return + clear the queued shadow rows (E6). Consumed by

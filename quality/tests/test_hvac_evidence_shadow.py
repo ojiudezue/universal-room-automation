@@ -420,23 +420,44 @@ def test_exposure_seconds_and_gap_cap(no_boot):
     w = _World({"z1": [("b", "bedroom")]})
     w.entries["b"].options = {"hvac_vacancy_hold": 0}
     w.set("b", occupied=True, ev=T0, active=True)
+
+    def _total():
+        return w.zm._ev_shadow_expo.get(("z1", "guest"), 0.0) + sum(
+            r["duration_s"] for r in w.rows("exposure"))
     for k in range(0, 25):
         w.tick(T0 + S(seconds=300 * k), "guest")
     w.set("b", occupied=False, active=False)
     w.tick(T0 + S(seconds=7500), "guest")
-    assert w.zm._ev_shadow_expo[("z1", "guest")] == 7500.0
+    assert _total() == 7500.0
     w.tick(T0 + S(seconds=7800), "guest")                # L False: nothing charged
-    assert w.zm._ev_shadow_expo[("z1", "guest")] == 7500.0
+    assert _total() == 7500.0
     w.set("b", occupied=True, active=True, ev=T0 + S(seconds=8100))
     w.tick(T0 + S(seconds=8100), "guest")
     w.tick(T0 + S(seconds=9000), "guest")                # 900 s gap -> +600
-    assert w.zm._ev_shadow_expo[("z1", "guest")] == 8100.0
+    assert _total() == 8100.0
     w.zm.reset_daily_counters()
     ex = w.rows("exposure")
-    assert [(r["zone_id"], r["house_state"], r["duration_s"], r["rule"]) for r in ex] == [
-        ("z1", "guest", 8100.0, "legacy"),
-    ]
+    # A-M1: written incrementally at every 1800 s, the rest at midnight.
+    assert [r["duration_s"] for r in ex] == [1800.0, 1800.0, 1800.0, 1800.0, 900.0]
+    assert {(r["zone_id"], r["house_state"], r["rule"]) for r in ex} == {("z1", "guest", "legacy")}
     assert w.zm._ev_shadow_expo == {} and w.zm._ev_shadow_rows_today == {}
+
+
+def test_exposure_written_incrementally_before_midnight(no_boot):
+    """A-M1: exposure reaches the queue without a daily reset, so a restart
+    loses < 1800 s per (zone, state). 1799 s -> no row; 1800 s -> one row
+    of 1800 and the bucket is zeroed."""
+    assert HC.HVAC_EVIDENCE_SHADOW_EXPOSURE_FLUSH_S == 1800
+    w = _World({"z1": [("b", "bedroom")]})
+    w.set("b", occupied=True, ev=T0, active=True)
+    w.tick(T0, "home_day")
+    w.tick(T0 + S(seconds=299), "home_day")
+    for k in range(1, 6):
+        w.tick(T0 + S(seconds=299 + 300 * k), "home_day")   # 1799 s
+    assert w.rows("exposure") == []
+    w.tick(T0 + S(seconds=1800), "home_day")
+    assert [(r["house_state"], r["duration_s"]) for r in w.rows("exposure")] == [("home_day", 1800.0)]
+    assert w.zm._ev_shadow_expo[("z1", "home_day")] == 0.0
 
 
 def test_exposure_charged_to_previous_state(no_boot):
@@ -526,12 +547,12 @@ def test_row_cap_per_zone_day(monkeypatch, no_boot):
     t = T0
     for _ in range(4):
         t = _one_episode(t)
-    kinds = [r["row_type"] for r in w.zm._ev_shadow_pending_rows]
+    kinds = [r["row_type"] for r in w.zm._ev_shadow_pending_rows if r["row_type"] != "exposure"]
     assert kinds == ["episode", "episode", "capped"]
     w.zm.reset_daily_counters()
     w.zm.drain_shadow_rows()
     _one_episode(t)
-    assert [r["row_type"] for r in w.zm._ev_shadow_pending_rows] == ["episode"]
+    assert [r["row_type"] for r in w.zm._ev_shadow_pending_rows if r["row_type"] != "exposure"] == ["episode"]
 
 
 def test_zone_removed_closes_interrupted(no_boot):
@@ -772,7 +793,7 @@ _ALLOWED = {
     "__init__", "update_room_conditions", "reset_daily_counters",
     "_ev_shadow_note_room", "_ev_shadow_run_tracker", "_ev_shadow_track",
     "_ev_shadow_finish", "_ev_shadow_zone_removed", "_ev_shadow_flush_exposure",
-    "drain_shadow_rows",
+    "_ev_shadow_queue_exposure", "drain_shadow_rows",
 }
 
 
@@ -928,3 +949,299 @@ async def test_verdict_thin_reference(tmp_path):
     rows = [_ex("home_day", 20), _ex("guest", 40)]
     v = await _verdicts(tmp_path, rows)
     assert v["guest"]["verdict"] == "INSUFFICIENT (reference)"
+
+
+# ==========================================================================
+# Fix-up 1 (reviews A / B / C)
+# ==========================================================================
+
+def test_two_room_one_release_is_resumed_not_released(no_boot):
+    """B-H1 repro. guest, z1 = b (bedroom) + k (common_area). t0+250: b's
+    evidence is 250 s old (> 240) but its lighting still holds; k is off,
+    legacy tail to t0+310. L True (b, k), E False -> `less` opens. t0+400:
+    b's evidence returns; k released at t0+310 but b held L the whole time
+    -> `resumed` (premature), 150 s. The old any-room rule said `released`."""
+    w = _World({"z1": [("b", "bedroom"), ("k", "common_area")]})
+    for r in ("b", "k"):
+        w.set(r, occupied=True, ev=T0, active=True)
+    w.tick(T0, "guest")
+    w.set("b", active=False)
+    w.set("k", occupied=False, active=False)
+    w.tick(T0 + S(seconds=250), "guest")
+    assert w.zm._hvac_tail_until["k"] == T0 + S(seconds=310)
+    w.set("b", active=True, ev=T0 + S(seconds=400))
+    w.tick(T0 + S(seconds=400), "guest")
+    r = w.rows()[0]
+    assert (r["outcome"], r["duration_s"], r["ended_at"]) == (
+        "resumed", 150.0, _iso(T0 + S(seconds=400)))
+
+
+def test_zone_release_is_latest_room_release(no_boot):
+    """B-M1. b off at t0+250 (tail t0+310), k off at t0+280 (tail t0+340);
+    both released by t0+500 -> `released`, ended_at = t0+340 (the zone's
+    legacy side released with its LAST room), 90 s."""
+    w = _World({"z1": [("b", "bedroom"), ("k", "common_area")]})
+    for r in ("b", "k"):
+        w.set(r, occupied=True, ev=T0, active=True)
+    w.tick(T0, "guest")
+    w.set("b", occupied=False, active=False)
+    w.set("k", active=False)
+    w.tick(T0 + S(seconds=250), "guest")
+    w.set("k", occupied=False)
+    w.tick(T0 + S(seconds=280), "guest")
+    w.tick(T0 + S(seconds=500), "guest")
+    r = w.rows()[0]
+    assert (r["outcome"], r["ended_at"], r["duration_s"]) == (
+        "released", _iso(T0 + S(seconds=340)), 90.0)
+
+
+def test_two_room_unobserved_release_of_both_is_released(no_boot):
+    """B-H1 keeps F2: both holders released between passes (b at t0+310,
+    k at t0+340), then a re-entry -> `released` at the LATER release
+    (B-M1)."""
+    w = _World({"z1": [("b", "bedroom"), ("k", "common_area")]})
+    for r in ("b", "k"):
+        w.set(r, occupied=True, ev=T0, active=True)
+    w.tick(T0, "guest")
+    w.set("b", occupied=False, active=False)
+    w.set("k", active=False)
+    w.tick(T0 + S(seconds=250), "guest")            # opens; b tail t0+310
+    w.set("k", occupied=False)
+    w.tick(T0 + S(seconds=280), "guest")            # k tail t0+340
+    w.set("b", occupied=True, active=True, ev=T0 + S(seconds=400))
+    w.tick(T0 + S(seconds=400), "guest", zone_ids={"z1"})
+    r = w.rows()[0]
+    assert (r["outcome"], r["ended_at"]) == ("released", _iso(T0 + S(seconds=340)))
+
+
+def test_superseded_release_does_not_count(no_boot):
+    """A release followed by an OBSERVED re-arm no longer counts. b and k
+    each release and come back (lighting, no evidence) while the episode
+    stays open; evidence then returns with both holding -> `resumed`."""
+    w = _World({"z1": [("b", "bedroom"), ("k", "common_area")]})
+    for r in ("b", "k"):
+        w.set(r, occupied=True, ev=T0, active=True)
+    w.tick(T0, "guest")
+    w.set("b", active=False)
+    w.set("k", active=False)
+    w.tick(T0 + S(seconds=250), "guest")            # opens (both lighting on)
+    w.set("b", occupied=False)
+    w.tick(T0 + S(seconds=260), "guest")            # b tail t0+320
+    w.tick(T0 + S(seconds=330), "guest")            # b release observed
+    w.set("b", occupied=True)
+    w.tick(T0 + S(seconds=340), "guest")            # b back (no evidence)
+    w.set("k", occupied=False)
+    w.tick(T0 + S(seconds=350), "guest")            # k tail t0+410
+    w.tick(T0 + S(seconds=420), "guest")            # k release observed
+    w.set("k", occupied=True)
+    w.tick(T0 + S(seconds=430), "guest")            # k back
+    assert w.rows() == []
+    w.set("b", active=True, ev=T0 + S(seconds=500))
+    w.tick(T0 + S(seconds=500), "guest")
+    r = w.rows()[0]
+    assert (r["outcome"], r["duration_s"]) == ("resumed", 250.0)
+
+
+def test_zone_rediscovered_with_new_rooms_closes_interrupted(no_boot):
+    """B-L1. Same zone id, different room set -> the open episode closes
+    `interrupted` and the record restarts on the new rooms."""
+    w = _World({"z1": [("b", "bedroom"), ("k", "common_area")]})
+    w.zm._zones["z1"].rooms = ["b"]
+    _guest_less_open(w)
+    w.zm._zones["z1"].rooms = ["b", "k"]
+    w.tick(T0 + S(seconds=400), "guest")
+    r = w.rows()[0]
+    assert (r["outcome"], r["duration_s"]) == ("interrupted", 160.0)
+    assert w.zm._ev_shadow_ep["z1"]["rooms"] == ("b", "k")
+
+
+def test_more_episode_resumed_and_flipped(no_boot):
+    """C MEDIUM-3. `more` (legacy released, fresh evidence holds E) ->
+    legacy re-arms with evidence: `resumed`; legacy re-arms without
+    evidence: `flipped`."""
+    def _more_open():
+        w = _World({"z1": [("b", "bedroom")]})
+        w.set("b", occupied=True, ev=T0, active=True)
+        w.tick(T0, "guest")
+        w.set("b", occupied=False, active=False, ev=T0 + S(seconds=100))
+        w.tick(T0 + S(seconds=100), "guest")
+        w.tick(T0 + S(seconds=200), "guest")
+        assert w.zm._ev_shadow_ep["z1"]["open"]["kind"] == "more"
+        return w
+    w = _more_open()
+    w.set("b", occupied=True, active=True, ev=T0 + S(seconds=290))
+    w.tick(T0 + S(seconds=290), "guest")
+    r = w.rows()[0]
+    assert (r["kind"], r["outcome"], r["duration_s"]) == ("more", "resumed", 90.0)
+    w = _more_open()
+    w.set("b", occupied=True)
+    w.tick(T0 + S(seconds=400), "guest")             # ev 300 s old -> E False
+    r = w.rows()[0]
+    assert (r["kind"], r["outcome"], r["duration_s"]) == ("more", "flipped", 200.0)
+
+
+def test_none_house_state_rows(no_boot):
+    """C MEDIUM-2. House state None is recorded as "none" on episode and
+    exposure rows, with rule `legacy`."""
+    w = _World({"z1": [("b", "bedroom")]})
+    w.set("b", occupied=True, ev=T0, active=True)
+    w.tick(T0, None)
+    w.set("b", active=False)
+    w.tick(T0 + S(seconds=240), None)
+    w.set("b", active=True, ev=T0 + S(seconds=420))
+    w.tick(T0 + S(seconds=420), None)
+    w.zm.reset_daily_counters()
+    ep = w.rows()[0]
+    ex = w.rows("exposure")[0]
+    assert (ep["house_state"], ep["rule"]) == ("none", "legacy")
+    assert (ex["house_state"], ex["rule"], ex["duration_s"]) == ("none", "legacy", 420.0)
+
+
+def test_room_lists_capped_at_20():
+    """C MEDIUM-1. 25 rooms in every list -> each written list is the
+    sorted first 20."""
+    zm = _hz.ZoneManager(MagicMock())
+    names = [f"r{i:02d}" for i in range(25)]
+    ep = {"kind": "less", "state": "guest", "rule": "legacy", "started_at": T0,
+          "opened_s_after_boot": 900.0, "legacy_rooms": set(names),
+          "refresh_failed_rooms": set(names), "pending_rooms": set(names),
+          "tails": {}, "releases": {}}
+    zm._ev_shadow_finish("z1", ep, "resumed", T0 + S(seconds=300),
+                         T0 + S(seconds=300), resumed_rooms=list(reversed(names)))
+    d = zm._ev_shadow_pending_rows[0]["details"]
+    for key in ("legacy_rooms", "resumed_rooms", "refresh_failed_rooms", "pending_rooms"):
+        assert d[key] == names[:20], key
+
+
+def test_default_constants():
+    """C LOW-4: rung-1 defaults pinned as literals."""
+    assert HC.HVAC_EVIDENCE_SHADOW_ENABLED is True
+    assert HC.HVAC_EVIDENCE_SHADOW_MIN_EPISODE_S == 60
+    assert HC.HVAC_EVIDENCE_SHADOW_MAX_ROWS_PER_ZONE_DAY == 96
+    assert HC.HVAC_EVIDENCE_SHADOW_RETENTION_DAYS == 180
+    assert HC.HVAC_EVIDENCE_SHADOW_BOOT_EXCLUDE_S == 600
+    assert HC.HVAC_EVIDENCE_SHADOW_MAX_ROOMS_PER_LIST == 20
+    assert HC.HVAC_EVIDENCE_SHADOW_EXPOSURE_FLUSH_S == 1800
+
+
+@pytest.mark.asyncio
+async def test_db_shutting_down_is_quiet(tmp_path, caplog):
+    """A-L1 / C HIGH-1. DBShuttingDown -> 0, DEBUG only; any other failure
+    -> 0 with one WARNING."""
+    import logging
+    from contextlib import asynccontextmanager
+    db = _make_db(tmp_path)
+
+    def _raising(exc):
+        @asynccontextmanager
+        async def _db():
+            raise exc
+            yield  # pragma: no cover
+        return _db
+    caplog.set_level(logging.DEBUG, logger=db_mod.__name__)
+    db._db = _raising(db_mod.DBShuttingDown("stopping"))
+    assert await db.log_hvac_evidence_shadow(_sample_rows(2)) == 0
+    warns = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert warns == []
+    assert any("shutting down" in r.getMessage() for r in caplog.records)
+    caplog.clear()
+    db._db = _raising(RuntimeError("disk"))
+    assert await db.log_hvac_evidence_shadow(_sample_rows(2)) == 0
+    warns = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert len(warns) == 1 and "insert failed" in warns[0].getMessage()
+
+
+@pytest.mark.asyncio
+async def test_malformed_rows_skipped(tmp_path):
+    """C LOW-2. A row missing a NOT NULL field is skipped and not counted."""
+    db = _make_db(tmp_path)
+    rows = _sample_rows(3)
+    rows[1]["zone_id"] = ""
+    rows.append("not a dict")
+
+    async def body():
+        return await db.log_hvac_evidence_shadow(rows)
+    assert await _with_db(db, body) == 2
+    con = sqlite3.connect(db.db_file)
+    n = con.execute("SELECT COUNT(*) FROM hvac_evidence_shadow").fetchone()[0]
+    con.close()
+    assert n == 2
+
+
+@pytest.mark.asyncio
+async def test_prune_multi_batch(tmp_path, monkeypatch):
+    """C LOW-1. batch_size 2, 5 old rows + 1 new -> 5 deleted over 3
+    batches, the new one kept."""
+    from types import SimpleNamespace
+    now = datetime(2026, 11, 10, 12, 0, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(db_mod, "dt_util", SimpleNamespace(utcnow=lambda: now, now=lambda: now))
+    db = _make_db(tmp_path)
+
+    async def body():
+        rows = _sample_rows(6)
+        for i, r in enumerate(rows[:5]):
+            r["timestamp"] = (now - S(days=200, seconds=i)).isoformat()
+        rows[5]["timestamp"] = (now - S(days=1)).isoformat()
+        await db.log_hvac_evidence_shadow(rows)
+        return await db.prune_hvac_evidence_shadow(batch_size=2)
+    assert await _with_db(db, body) == 5
+    con = sqlite3.connect(db.db_file)
+    n = con.execute("SELECT COUNT(*) FROM hvac_evidence_shadow").fetchone()[0]
+    con.close()
+    assert n == 1
+
+
+@pytest.mark.asyncio
+async def test_verdict_boundaries_and_outcome_sets(tmp_path):
+    """C MEDIUM-4 + A-L2 (grace 300, floor 30 h, abs floor 0.02).
+    - home_day exactly 30.0 h, no episodes: reference holds (floor is <).
+    - guest 50 h: resumed dur=300 (grace is >=), released 300, flipped
+      400, interrupted 400 -> eligible 4, premature 1, saved 1; rate 0.02
+      == bar -> SAFE (SAFE is <=).
+    - sleep exactly 30.0 h, no episodes -> SAFE (state floor is <).
+    - waking 40 h after :since + 1000 h BEFORE it, 3 premature -> 0.075
+      -> NOT SAFE (old exposure excluded).
+    - away: one `more` episode, no exposure -> listed, NO EXPOSURE."""
+    old = "2026-11-01T00:00:00+00:00"
+    rows = [
+        _ex("home_day", 30.0),
+        _ex("guest", 50),
+        _ep("guest", dur=300.0), _ep("guest", outcome="released", dur=300.0),
+        _ep("guest", outcome="flipped", dur=400.0),
+        _ep("guest", outcome="interrupted", dur=400.0),
+        _ex("sleep", 30.0),
+        _ex("waking", 40), _ex("waking", 1000, ts=old),
+        *[_ep("waking") for _ in range(3)],
+        _ep("away", kind="more", outcome="released"),
+        # home_evening: episodes but no exposure -> must not feed ref_rate.
+        _ep("home_evening"), _ep("home_evening"),
+    ]
+    v = await _verdicts(tmp_path, rows)
+    assert v["home_day"]["verdict"] == "REFERENCE" and v["home_day"]["bar"] == 0.02
+    g = v["guest"]
+    assert (g["eligible"], g["premature"], g["saved"], g["rate"], g["verdict"]) == (4, 1, 1, 0.02, "SAFE")
+    assert v["sleep"]["verdict"] == "SAFE"
+    assert (v["waking"]["occ_zone_h"], v["waking"]["verdict"]) == (40.0, "NOT SAFE")
+    a = v["away"]
+    assert (a["occ_zone_h"], a["more_eps"], a["verdict"]) == (None, 1, "NO EXPOSURE")
+
+
+def test_room_that_left_the_pass_is_not_a_holder(no_boot):
+    """B-H1 holders = rooms legacy-on at the PREVIOUS pass. k leaves the
+    pass (re-typed to hallway) without a release; b releases unobserved and
+    re-enters -> `released` at b's release. Counting every episode room
+    would wait on k forever and book `resumed`."""
+    w = _World({"z1": [("b", "bedroom"), ("k", "common_area")]})
+    for r in ("b", "k"):
+        w.set(r, occupied=True, ev=T0, active=True)
+    w.tick(T0, "guest")
+    w.set("b", occupied=False, active=False)
+    w.set("k", active=False)
+    w.tick(T0 + S(seconds=250), "guest")              # opens; b tail t0+310
+    w.entries["k"].data[CONF_ROOM_TYPE] = "hallway"
+    w.tick(T0 + S(seconds=260), "guest")
+    w.set("b", occupied=True, active=True, ev=T0 + S(seconds=400))
+    w.tick(T0 + S(seconds=400), "guest", zone_ids={"z1"})
+    r = w.rows()[0]
+    assert (r["outcome"], r["ended_at"]) == ("released", _iso(T0 + S(seconds=310)))
+

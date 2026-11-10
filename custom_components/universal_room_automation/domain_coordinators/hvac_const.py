@@ -1130,6 +1130,13 @@ HVAC_EVIDENCE_SHADOW_RETENTION_DAYS: Final = 180
 # accrues for this long (evidence stamps are None until first evidence after
 # a restart; the shadow re-arms). 2 ticks. 0 = no exclusion.
 HVAC_EVIDENCE_SHADOW_BOOT_EXCLUDE_S: Final = 600
+# Exposure is written INCREMENTALLY (review A-M1): once a (zone, state)
+# bucket holds this many unwritten legacy-occupied seconds it is queued as
+# an `exposure` row and zeroed; the local-midnight reset writes the rest.
+# Bounds the exposure a restart / crash can lose to < this per bucket
+# (closed episode rows are already persisted, so an unbounded loss would
+# shrink the denominator only). <= 0 = midnight-only (pre-fix-up).
+HVAC_EVIDENCE_SHADOW_EXPOSURE_FLUSH_S: Final = 1800
 # Room lists in a row's details_json are capped at this many names.
 HVAC_EVIDENCE_SHADOW_MAX_ROOMS_PER_LIST: Final = 20
 # Per-zone floor between fast ENTRY runs (Carrier cloud call-rate protection).

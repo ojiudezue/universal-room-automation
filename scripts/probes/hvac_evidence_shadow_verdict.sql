@@ -37,11 +37,16 @@ j AS (
          COALESCE(a.saved,0) AS saved, COALESCE(a.less_h,0) AS less_h,
          COALESCE(a.more_eps,0) AS more_eps
   FROM expo e LEFT JOIN agg a USING (st)
+  UNION ALL
+  -- States with episodes but no exposure (e.g. only `more` episodes):
+  -- listed with NULL hours so their counts are visible (review A-L2).
+  SELECT a.st, NULL, a.eligible, a.premature, a.saved, a.less_h, a.more_eps
+  FROM agg a WHERE a.st NOT IN (SELECT st FROM expo)
 ),
 ref AS (
   SELECT SUM(premature) * 1.0 / NULLIF(SUM(occ_zone_h),0) AS ref_rate,
          SUM(occ_zone_h) AS ref_h
-  FROM j WHERE st IN ('home_day','home_evening')
+  FROM j WHERE st IN ('home_day','home_evening') AND occ_zone_h IS NOT NULL
 )
 SELECT j.st, ROUND(j.occ_zone_h,1) AS occ_zone_h, j.eligible, j.premature, j.saved,
        ROUND(j.less_h,2) AS less_h, j.more_eps,
@@ -49,6 +54,7 @@ SELECT j.st, ROUND(j.occ_zone_h,1) AS occ_zone_h, j.eligible, j.premature, j.sav
        ROUND(r.ref_rate, 4) AS ref_rate,
        ROUND(MAX(:ratio * COALESCE(r.ref_rate,0), :abs_floor), 4) AS bar,
        CASE
+         WHEN j.occ_zone_h IS NULL THEN 'NO EXPOSURE'
          WHEN j.st IN ('home_day','home_evening') THEN 'REFERENCE'
          WHEN COALESCE(r.ref_h,0) < :floor_h THEN 'INSUFFICIENT (reference)'
          WHEN j.occ_zone_h < :floor_h THEN 'INSUFFICIENT'
