@@ -12169,7 +12169,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
 
         # Real DB row counts (fix-up R6 / A-HIGH-2 / C-LOW-2).
         n_db_rows = 0
-        n_tables = 3 + (3 if zone_id else 0)  # 3 name-keyed + optional 3 id-keyed
+        # 3 name-keyed + 6 id-keyed (ac_reset_state, egress_state, ac_ramp_events,
+        # hvac_excursion_state, hvac_excursion_events, hvac_evidence_shadow) —
+        # mirrors database.async_delete_zone_data (was a stale '3').
+        n_tables = 3 + (6 if zone_id else 0)
         try:
             db = self.hass.data.get(DOMAIN, {}).get("database")
             if db is not None:

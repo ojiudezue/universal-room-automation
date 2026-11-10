@@ -10045,8 +10045,9 @@ class UniversalRoomDatabase:
             Purged only when ``zone_id`` is not None (husk zones with no
             thermostat have no zone_id and never wrote id-keyed rows).
 
-        Eight tables total (fix-up R5 = 6 + HVAC-GOVERNED-EXCURSION-1
-        fix-up r3 = +2 for hvac_excursion_state + hvac_excursion_events).
+        Nine tables total (fix-up R5 = 6 + HVAC-GOVERNED-EXCURSION-1
+        fix-up r3 = +2 for hvac_excursion_state + hvac_excursion_events
+        + v5.108.x = +1 for hvac_evidence_shadow, id-keyed).
         Verified via re-grep of every ``zone TEXT`` and ``zone_id TEXT``
         column in the ``CREATE TABLE`` DDL surface (fix-up R5, review
         A-CRIT-1). ``room_state.last_lux_zone`` is a
@@ -10099,6 +10100,9 @@ class UniversalRoomDatabase:
             "ac_ramp_events": 0,
             "hvac_excursion_state": 0,
             "hvac_excursion_events": 0,
+            # v5.108.x: HVAC-GUEST-EVIDENCE-RULE-1 shadow rows (zone_id
+            # NOT NULL, HVAC zone id) — orphaned on zone delete otherwise.
+            "hvac_evidence_shadow": 0,
         }
         try:
             async with self._db() as db:
@@ -10150,6 +10154,11 @@ class UniversalRoomDatabase:
                             (zone_id,),
                         )
                         result["hvac_excursion_events"] = cur.rowcount or 0
+                        cur = await db.execute(
+                            "DELETE FROM hvac_evidence_shadow WHERE zone_id = ?",
+                            (zone_id,),
+                        )
+                        result["hvac_evidence_shadow"] = cur.rowcount or 0
                     await db.commit()
                 except Exception:
                     try:
@@ -10200,6 +10209,7 @@ class UniversalRoomDatabase:
             # tables added to async_delete_zone_data.
             "hvac_excursion_state": 0,
             "hvac_excursion_events": 0,
+            "hvac_evidence_shadow": 0,
         }
         try:
             async with self._db_read() as db:
@@ -10219,6 +10229,7 @@ class UniversalRoomDatabase:
                     for tbl in (
                         "ac_reset_state", "egress_state", "ac_ramp_events",
                         "hvac_excursion_state", "hvac_excursion_events",
+                        "hvac_evidence_shadow",
                     ):
                         try:
                             cur = await db.execute(
