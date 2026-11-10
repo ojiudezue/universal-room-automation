@@ -97,7 +97,8 @@ cards:
   build_2026_11_04: "Built on fix/optimizer-meta-never-pages (03d34c87, fix-up 37df2956, README draft e1dc68f0). Tier-1 review SHIP (docs/reviews/code-review/optimizer_meta_never_pages_review.md on the branch): 0 CRIT/HIGH/MED, 2 LOW both fixed (allowlist knob comment; HIGH test made discriminating). Orchestrator re-drill: guard -> 'if False and ...' gives 4 RED, restored clean. Targeted tests 21 passed. The source-grep test test_optimizer_consumer_wired_to_should_defer_helper was replaced by a behavioural, mutation-anchored test."
   title: "The optimizer's AI layer pages CRITICAL on all 4 channels (often at night) to complain that its own input was truncated: never page on a 'meta' finding"
   thread: optimizer
-  status: "review"
+  status: shipped_organic
+  shipped_version: v5.108.6
   tier: 1
   created: "2026-11-04 02:11"
   updated: "2026-11-10 02:12"
@@ -33862,7 +33863,8 @@ cards:
   refinement_status: "refined"
   title: 'Dispose of anomaly metrics that cannot work as built: undeclare hvac.egress_pause_frequency + security.entry_anomaly_score; reshape security.alert_trigger_frequency; fix or retire safety.active_hazard_count'
   thread: diagnostics
-  status: "review"
+  status: shipped_organic
+  shipped_version: v5.108.6
   created: '2026-10-24 08:00'
   updated: "2026-11-10 02:12"
   tags: [anomaly, security, safety, hvac]
@@ -34056,7 +34058,8 @@ cards:
   updated: "2026-11-10 02:12"
   title: "Security lock sweep re-sends lock/close every interval forever when the command doesn't take (46 lock commands on 2026-03-11): add a retry cap + one notification"
   thread: security
-  status: "review"
+  status: shipped_organic
+  shipped_version: v5.108.6
   tier: 1
   created: "2026-11-01"
   origin: "Operator 2026-11-01: does the security sweep close doors, does it check the lock is closed before acting; suspicion it tired batteries."
