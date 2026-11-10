@@ -49,9 +49,19 @@ Mutation drills: each of the following turned a specific named test red, and the
 - neuter the ended check
 - neuter the ended producer
 
-## Live
+## Live validation
 
-- **Live:** after a Frigate-leg person alert, a new file appears in `/media/ura/snapshots` with the Frigate-event name shape `<cam>_<epoch>.<frac>-<suffix>.jpg` (for example `pool_equipment_1794184013.180881-ladhjn.jpg`). The live-grab shape `<cam>_<epoch10>_<hex6>.jpg` does not match it. Check with `ssh ha ls -t /media/ura/snapshots | head`.
-- **Live:** the INFO ledger line `PerimeterSnapshot: wrote=... engine=frigate_event` appears for Frigate-leg alerts.
-- **Live:** Pushover/WhatsApp attachments still carry `https://haos.phalanxmadrone.com:8123/...` links.
-- Non-Frigate legs (`rear_ptz` `_person_detected`, Reolink, Amcrest smart-motion) stay live-grab by design.
+### Validated 2026-11-10
+
+Read 2026-11-10 ~02:10-02:20 CST, HA running v5.108.1 (manifest), restart 01:04 CST. Read-only. This release (v5.107.1 through v5.107.6) first ran at that restart. Logging caveat: the integration logger is `log_level: WARNING`, so every INFO marker in these criteria is never written to the HA log, and `ha_get_logs` cannot show it. Log absence is therefore NOT evidence for or against these criteria.
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| New Frigate-event-shape file after a Frigate-leg person alert | NOT-YET-OBSERVABLE | No Frigate-leg person alert since restart. `notification_log` rows after 07:04 UTC are `[audit]` only (newest id 26384, 07:05 UTC). The last perimeter alert is 00:37 UTC, before the restart. `/media/ura/snapshots` (1771 files) has newest mtime Nov 9 20:35, so no file since restart. |
+| Shape discriminator (`<cam>_<epoch>.<frac>-<suffix>.jpg`) | NOT-YET-OBSERVABLE | Frigate-shaped files already exist from before the restart (e.g. `g5_bullet_1794271039.302052-hm87fc.jpg`, Nov 9 18:37). The shape alone cannot prove this fix. A post-restart file is required. |
+| INFO ledger `PerimeterSnapshot: wrote=... engine=frigate_event` | NOT-YET-OBSERVABLE (log-invisible) | `_LOGGER.info` (`perimeter_alert.py:4075`) under a WARNING logger. |
+| Pushover/WhatsApp links still external | NOT-YET-OBSERVABLE | No alert since restart. |
+| Non-Frigate legs stay live-grab | NOT-YET-OBSERVABLE | No alert since restart. |
+
+**Verdict 2026-11-10:** 0 PASS, 0 FAIL, 5 NYO. Needs one Frigate-leg person alert after restart, then one ssh `ls -t` of the snapshot directory.
+
