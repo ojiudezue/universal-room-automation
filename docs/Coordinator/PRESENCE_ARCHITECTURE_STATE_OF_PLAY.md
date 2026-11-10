@@ -88,7 +88,7 @@ cited to a verified `file:line` on `develop`, or marked **UNVERIFIED**.
 | `person.*` state edges + `PersonCoordinator.data[<name>]` (`method`, `location`, `bermuda_area`, `previous_location`, `last_changed`) | HA `person` / `person_coordinator.py:1080-1090` | **Perimeter D10.5 known-person gate** (PERIMETER-FP-STREET-NOISE-1, v5.107.0, branch `feature/perimeter-fp-build`, deployed (in v5.108.1, live 2026-11-10); `perimeter_alert._nonface_agrees`). Trust: DE-ESCALATE only (a dual-role door camera's alert → LOW), and only as corroboration of a below-0.9 face match naming the SAME person. Counts a real ARRIVAL only: a live `not_home → home` edge recorded by its own `person.*` listener (restore edges with `old_state=None`, `unavailable → home` flaps ignored), or a Bermuda move (`previous_location ≠ location`) INTO the egress camera's own HA area or its explicitly configured door-interior neighbours' areas. Both ignore transitions within `PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S` (600 s) of perimeter setup (HA restore stamps `last_changed` at boot, §8), within `PERIMETER_EGRESS_FACE_NONFACE_WINDOW_S` (120 s) of the edge. Interior room hops never count. Same arrival-edge shape as the SC lock regime above, but boot-biased the other way (boot = NOT an arrival). Since v5.107.4 (branch `feature/lock-face-arrival`, deployed (in v5.108.1, live 2026-11-10)) the edge rule lives in the shared `arrival_edges.py` (`live_arrival_slug`, `nonface_arrival_source`, `bermuda_arrival_into`, `area_slug_of_entity`). The perimeter keeps its own constants, listener, `_person_arrivals` and camera-specific `_near_areas`, and its behaviour is unchanged (same 153 tests pass on base and branch). The SC lock regime's camera_face gate uses the same helper. |
 | `SIGNAL_CENSUS_UPDATED` | `camera_census.py` | PresenceCoordinator (`_handle_census_update`), inference denominator |
 | `binary_sensor.ura_presence_coordinator_visitors_present` (unique id `universal_room_automation_visitors_present`; GUEST-MODE-SPLIT-VISITORS-1 D1, branch `feature/guest-mode-split`, deployed (in v5.108.1, live 2026-11-10)) | `PresenceCoordinator._update_visitors_present` per tick; entity `binary_sensor.VisitorsPresentBinarySensor` (polled, Presence Coordinator device) | **Display only**; no reader in URA (not `infer()`, no NM). On = house GUEST OR `legs.room` (30-min guest-room gate) OR `legs.cam` (Path A, kill `VISITORS_CAM_LEG_ENABLED`) OR `legs.stay` (stay latch). Legs are evaluated only in HOME_* / GUEST (stay in any state). Guest Detection OFF → follows GUEST only. `legs` unrecorded; `since` = last off→on edge. D0 expects short `cam` flashes ~0.4-2.4/day with no visitors |
-| `PresenceCoordinator._guest_stay_active` / `_guest_stay_since` / `_guest_stay_basis` (same branch) | `_refresh_guest_stay` (DB walk, §2 step 3) | **Trust:** `_compose_guest_gate` (GUEST entry/hold). Display: house-state sensor attributes, `visitors_present` `legs.stay`. D4 trip-wire `_check_guest_stay_long`: one HIGH stuck-signal NM `kind=guest_stay_long` when the latch has been on > `GUEST_STAY_LONG_NM_DAYS` (28; 0 = off) from `since` and Guest Detection is on (RAM latch, re-armed when the latch drops or the switch is off; a restart during a > 28-day stay re-pages at most once per day via the `fire_stuck_signal` per-day dedup, accepted) |
+| `PresenceCoordinator._guest_stay_active` / `_guest_stay_since` / `_guest_stay_basis` / `_guest_stay_day_veto` (same branch; the last is v5.108.5, display only) | `_refresh_guest_stay` (DB walk, §2 step 3) | **Trust:** `_compose_guest_gate` (GUEST entry/hold). Display: house-state sensor attributes, `visitors_present` `legs.stay`. D4 trip-wire `_check_guest_stay_long`: one HIGH stuck-signal NM `kind=guest_stay_long` when the latch has been on > `GUEST_STAY_LONG_NM_DAYS` (28; 0 = off) from `since` and Guest Detection is on (RAM latch, re-armed when the latch drops or the switch is off; a restart during a > 28-day stay re-pages at most once per day via the `fire_stuck_signal` per-day dedup, accepted) |
 | `person.*` entities + `sensor.<person>_room` | `person_coordinator.py` | guest gate, census identity fusion, egress, perimeter enrichment |
 | `person_state_for_trust(hass, person_entity_id)` → `PersonTrackingCoordinator.effective_person_state` (GPS-assistive cycle, live since v5.103.90) | `person_coordinator.py` (module wrapper + method) | raw `person.state` TRUST readers: `aggregation.py` `_sleep_person_fallback_occupied` / `_nonsleep_person_fallback_occupied` (zone_persons_home veto), `hvac_zones.ZoneManager.zone_has_home_person` (no production caller: no-op today), `hvac.py` night-trust preset hold + `main_row_home_persons` (display, activity log), `hvac_fans.py` night vacancy hold, and (CENSUS-BLE-OVER-FACE-1, branch `fix/census-ble-over-face`, deployed (in v5.108.1, live 2026-11-10); plan `docs/planning/PLANNING_census_ble_over_face.md` rev 4) the `camera_census._get_face_recognized_person_names` stale-face latch guard. That guard reads raw state once; raw `not_home` drops as before, otherwise (rung-1 `CENSUS_FACE_LATCH_FOLLOWS_BLE_LEADS`, default True) it asks this helper and drops an overruled adult's face, counted per tick in `face_dropped_ble_overrule_count` on `sensor.universal_room_automation_persons_in_house` (unrecorded). The dropped body stays in the camera total, so it can raise `unidentified_count` (measured cost accepted by the operator, plan §4.3). `_get_face_recognized_persons_fresh` (confidence corroboration) stays raw: body evidence, not identity. The earlier "left RAW on purpose" choice is superseded (§10 #28). Returns the raw HA state except `not_home` for a person overruled on the last tick (and URA location `away`, switch on). No person coordinator / any error → raw. Identity vetoes (`camera_census` `is_face_leg_person_vetoed`, `transit_validator` egress veto) and edge-triggered readers stay raw by design. |
 | `environmental_data.occupied` (5-min sample of room `STATE_OCCUPIED`, keyed by entry_id) | `coordinator.py` data-logging block | **room dwell model** (`room_dwell_model.py`, branch `feat/occupancy-dwell-anomaly`, deployed (in v5.108.1, live 2026-11-10)): share of time occupied by local hour x weekday/weekend, nightly rebuild, read-only → `binary_sensor.<room>_occupancy_anomaly` (display only; no notification). Also `get_uncomfortable_minutes_today`. **PREDICT-MODEL-DWELL-MIGRATION-1 (branch `feature/predict-dwell-migration`, deployed (in v5.108.1, live 2026-11-10)):** the same model now also feeds (a) the room `Bayesian Occupancy Forecast` / `Bayesian Occupancy Pattern` sensors (display; kill switch `FORECAST_DWELL_SOURCE_ENABLED`), and (b) one WRITE: the hourly `dwell_share` producer on `RoomDwellModelRunner` (`room_dwell_model.py` `_dwell_tick`) writes one `prediction_results` row per room per UTC hour, `room_id = entry_id`, predicted = the share frozen at minute `DWELL_SHARE_TICK_MINUTE` of the hour from a model with `trained_until_utc <= start(H)`, actual = the hour's occupied fraction from this same signal; **`confidence` holds the cell's sample count, not a probability**; `error_value` signed (expected − actual). Kill switch `DWELL_SHARE_PRODUCER_ENABLED`. These predictions describe the room-occupancy SIGNAL, so phantom holds count as "usual" and "accurate" (accepted). |
@@ -163,9 +163,43 @@ cited to a verified `file:line` on `develop`, or marked **UNVERIFIED**.
      and any longer stay after two (`GUEST_STAY_EXIT_SCALES_WITH_STAY`, rung 1, True; False = the fixed
      3-night exit of rev 5). **Re-entry grace** (`GUEST_STAY_REENTRY_GRACE_DAYS`, 7, 0 = off; only with
      the scaled exit): for 7 days after a stay ends by empty nights, ONE qualifying night in any guest
-     room re-enters, no day test (a guest away overnight who sleeps in the room again). October replay:
-     GUEST 09-28..10-14 and 10-16 (the nights away 10-13/10-14 end it; the night back 10-15 re-enters);
-     0 days in 10-19..11-08. Grace re-entries bypass `GUEST_STAY_ENTRY_NIGHTS`. A stay entered by
+     room re-enters, no day test (a guest away overnight who sleeps in the room again).
+     **Exit day veto (operator 2026-11-10, v5.108.5, `AUDIT_guest_onset_thresholds_and_hvac_evidence_states_2026_11_10.md`
+     §1.3-§1.5):** the empty-night exit does NOT fire while any guest room's non-resident day fraction is
+     ≥ `GUEST_STAY_EXIT_DAY_VETO_FRACTION` (0.10, `const.py:554`, rung 1; > 1 = veto off) on a day
+     window paired with a night inside the exit window (`_veto_room`, `presence.py:6279`, exit test at
+     `:6334-6350`). It reuses the day fractions of the same span read (no new DB read, no new state),
+     applies only with the scaled exit (False = rev 5 exactly), and a "Guest left" press still beats it
+     (a stay only starts on a post-press night and n counts only post-press nights, so an exit window
+     never reaches a pre-press day). October replay with the veto: GUEST 09-28..10-14 and 10-16..10-18
+     (the nights away 10-13/10-14 end it; the night back 10-15 re-enters; days 10-16 (0.46) and 10-17
+     (0.22) hold it, so 10-17 is no longer dropped; 19 of 21 stay days); 0 days in 10-19..11-08. Cost on
+     the unlabelled pre-stay period: the 08-25 stay is held through daytime-occupied empty nights into
+     09-12 (pinned in `test_guest_stay_producer.py::test_replay_fixture_day_list_day_veto`). Residual: a
+     phantom DAYTIME guest-room hold (fan + MS600 radar, no fan-immune witness in GB1/GB2, §6 item 3)
+     now also holds a stay. Bounds (v5.108.5 review A LOW-1 / B LOW-1): the D4 28-day page only PAGES, it
+     releases nothing; what ends a veto-only hold (no qualifying night) is the replay window, since the walk
+     starts False `GUEST_STAY_REPLAY_NIGHTS` (35) nights back, so the stay drops once its entry night leaves
+     the span, about 33 nights after entry. A phantom needs only 0.10 x 12 h = 72 min of a guest-room day
+     (GB1/GB2: MS600 radar-derived motion only, no fan-immune witness; GB2 has no BLE scanner, so a
+     resident's daytime use there is not subtracted either). The same roll-off also drops the `ended_on`
+     anchor, so a grace re-entered stay that follows a long veto-held stay can lose its grace (and the
+     latch) about 6 nights later with no new evidence (fails toward no GUEST; deterministic on restart).
+     The veto reads ANY guest room, while entry pairs night and day in the SAME room (deliberate, review
+     A LOW-2). **Grace reach (review A MEDIUM-1):** a vetoed exit fires later, so `ended_on` (the night that
+     ended the stay) moves later and the 7-day re-entry grace reaches later nights; effective reach = the
+     daytime hold length + 7 days. Replay: with `GUEST_STAY_ENTRY_NIGHTS` 2 the 08-26 stay is held to
+     09-12 and night 09-16 re-enters by grace (`test_replay_fixture_day_list_entry_nights_2`; chain pinned
+     by `test_day_veto_hold_then_exit_then_grace_reentry`). **GUEST exposure (review B LOW-3):** every extra
+     GUEST day also keeps exterior-person NM severity at the GUEST row (MEDIUM, delivered nowhere) where
+     HOME_DAY with no resident home is HIGH (perimeter approach / first_sighting), re-arms security
+     ARMED_HOME each morning when auto-follow is on (default off), and pauses Bayesian learning and the
+     dwell-anomaly evaluation; all pre-existing GUEST semantics. **Observability (review B LOW-2):** the
+     walk publishes the veto holding the latch on the last walked night as `_guest_stay_day_veto`
+     (`{room, night, day_fraction}`, highest day fraction wins; None otherwise; cleared by the press and
+     by a failed first walk), on the house-state sensor as `guest_stay_day_veto_active` /
+     `_room` / `_night` / `_fraction`, plus one INFO `Guest stay exit held by the day veto` per new hold.
+     Without the veto the list was 09-28..10-14 and 10-16. Grace re-entries bypass `GUEST_STAY_ENTRY_NIGHTS`. A stay entered by
      grace keeps the original stay's end as the anchor and opens no new grace (review D: no phantom
      chain), so the window never extends past 7 days from the last normally-entered stay's end.
      **"Guest left" button** (`button.ura_presence_coordinator_guest_left`, unique id
@@ -213,7 +247,9 @@ control falls through to path β / GUEST / SLEEP.
   means "a visitor in a guest room", not GUEST (§10 #31). The same sensor publishes
   `guest_stay_active`, `guest_stay_since` (UTC, window end of the night that turned the latch on)
   and `guest_stay_basis` (last 3 nights: `night`, `room`, `fraction`, `day_fraction`, `qualifies`,
-  `entry_qualified`; or `{"error"}`).
+  `entry_qualified`; or `{"error"}`). Note `day_fraction` there is the day of the room with the highest
+  NIGHT fraction; the exit day veto reads any guest room, so read `guest_stay_day_veto_*` (v5.108.5)
+  to see whether the veto holds the latch.
 
 `stale_counted_home` and `nobody_home_zone_input` are in `_unrecorded_attributes`. Since
 HOUSE-STATE-SENSOR-ATTR-CHURN-1 (branch `fix/house-state-attr-unrecorded`, deployed (in v5.108.1, live 2026-11-10)) so are
