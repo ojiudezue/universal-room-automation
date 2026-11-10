@@ -1101,6 +1101,37 @@ HVAC_EVIDENCE_RULE_STATES: Final = ("home_day", "home_evening")
 # 600 = longest evidence hold (240) + ~10 polls, so a dead room coordinator
 # can never hold a zone indefinitely. 0 disables the hold (stale data decides).
 HVAC_EVIDENCE_REFRESH_FAIL_HOLD_S: Final = 600
+
+# ============================================================================
+# HVAC-GUEST-EVIDENCE-RULE-1 phase 1 — evidence-rule SHADOW RECORDING
+# (docs/planning/PLANNING_hvac_evidence_shadow_recording_2026_11.md rev 2).
+# Display/diagnostic only: in every house state the producer also computes
+# what the evidence rule (or, in evidence states, the legacy shadow) WOULD
+# decide, and records zone-level divergences + legacy-occupied exposure in
+# the `hvac_evidence_shadow` table. No actuation reads any of it.
+# All rung 1: a diagnostic recorder turned at most once; a live switch would
+# add entity / restore / READY surface for nothing (plan §6).
+# ============================================================================
+# Kill switch. False = no shadow helper call, no shadow dict writes, no rows
+# (the producer is then byte-identical to the pre-build golden).
+HVAC_EVIDENCE_SHADOW_ENABLED: Final = True
+# Episodes shorter than this write no row (pass jitter). Below the 300 s
+# vacancy grace, so every decision-relevant episode is kept. 0 = record all.
+HVAC_EVIDENCE_SHADOW_MIN_EPISODE_S: Final = 60
+# Write-flood guard (2026-06-09 incident): after this many episode rows for a
+# zone in one local day, one `capped` row is written and that zone's episode
+# rows stop until the daily reset. ~10x the expected rate. Exposure rows are
+# not capped.
+HVAC_EVIDENCE_SHADOW_MAX_ROWS_PER_ZONE_DAY: Final = 96
+# Nightly prune window. Must outlast the wait for the next guest stay; it is
+# also the purge for rows of a removed thermostat. Values < 1 are clamped to 1.
+HVAC_EVIDENCE_SHADOW_RETENTION_DAYS: Final = 180
+# After the ZoneManager's first pass, no episode opens and no exposure
+# accrues for this long (evidence stamps are None until first evidence after
+# a restart; the shadow re-arms). 2 ticks. 0 = no exclusion.
+HVAC_EVIDENCE_SHADOW_BOOT_EXCLUDE_S: Final = 600
+# Room lists in a row's details_json are capped at this many names.
+HVAC_EVIDENCE_SHADOW_MAX_ROOMS_PER_LIST: Final = 20
 # Per-zone floor between fast ENTRY runs (Carrier cloud call-rate protection).
 # D0 (AUDIT_hvac_fast_path_rate_2026_09_26): 0/114 zone-cold edges denied at
 # L=60. Exempt when the zone's last S1 write was `away` (a re-arm is due —

@@ -416,6 +416,32 @@ class ZoneManager:
         # entries but hallway-only / unzoned rooms must not alert.
         self._rooms_in_any_zone: set[str] = set()
 
+        # HVAC-GUEST-EVIDENCE-RULE-1 phase 1 (evidence SHADOW RECORDING,
+        # display only). NO live decision reads any of these; they are read
+        # only by `_ev_shadow_note_room` (E1), `_ev_shadow_track` (the zone
+        # tracker), `drain_shadow_rows` and `reset_daily_counters`
+        # (lint: test_shadow_dicts_have_one_reader).
+        #   _hvac_ev_shadow_out[room]     -> the evidence rule's answer (no
+        #                                    D5, no refresh-fail hold)
+        #   _hvac_legacy_shadow_out[room] -> the legacy shadow's answer
+        #   _ev_shadow_pass_rooms[room]   -> refresh_ok; rooms that reached
+        #                                    the evidence rule THIS pass
+        #   _ev_shadow_ep[zone]           -> per-zone tracker record (last
+        #                                    pass time / L / state + open
+        #                                    episode)
+        #   _ev_shadow_expo[(zone,state)] -> legacy-occupied seconds today
+        #   _ev_shadow_rows_today[zone]   -> episode rows written today
+        #   _ev_shadow_pending_rows       -> rows queued for the drain
+        # `_ev_shadow_first_pass_at` anchors the boot exclusion window.
+        self._hvac_ev_shadow_out: dict[str, bool] = {}
+        self._hvac_legacy_shadow_out: dict[str, bool] = {}
+        self._ev_shadow_pass_rooms: dict[str, bool] = {}
+        self._ev_shadow_ep: dict[str, dict[str, Any]] = {}
+        self._ev_shadow_expo: dict[tuple[str, str], float] = {}
+        self._ev_shadow_rows_today: dict[str, int] = {}
+        self._ev_shadow_pending_rows: list[dict[str, Any]] = []
+        self._ev_shadow_first_pass_at: datetime | None = None
+
     @property
     def zones(self) -> dict[str, ZoneState]:
         """Return all discovered zones."""
@@ -928,6 +954,12 @@ class ZoneManager:
             _RW = float(_DRW) * 60.0
         self._last_return_window_s = _RW
         self._rooms_processed_this_pass = set()
+        from . import hvac_const as _hc  # noqa: PLC0415
+        _shadow_on = bool(_hc.HVAC_EVIDENCE_SHADOW_ENABLED)
+        if _shadow_on:
+            # E2: per-pass membership — the tracker reads only rooms that
+            # reached the evidence rule on THIS pass (plan §3.1, F6).
+            self._ev_shadow_pass_rooms = {}
         from .hvac_const import (  # noqa: PLC0415
             HVAC_EVIDENCE_RULE_STATES as _EV_STATES,
             HVAC_NIGHT_HOLD_STATES as _NIGHT_STATES,
@@ -1147,6 +1179,11 @@ class ZoneManager:
                     zone.current_session_start = now  # Row 2d
             else:
                 zone.current_session_start = None  # Row 2d reset
+
+        # E3: evidence shadow tracker, AFTER every processed zone's rollup.
+        # Diagnostic only; sync; never raises out of the producer.
+        if _shadow_on:
+            self._ev_shadow_run_tracker(now, house_state, zone_ids)
 
     def get_zone_status_attrs(
         self,
@@ -1631,6 +1668,17 @@ class ZoneManager:
         rule = self._hvac_rule_for_state(house_state)
         self._hvac_last_ev[room_name] = last_evidence
         self._hvac_last_active[room_name] = bool(evidence_active)
+        # E1 (evidence SHADOW RECORDING, display only): computed BEFORE the
+        # legacy early return so it runs in every house state. Writes only
+        # the shadow-recording dicts; the live lines below are untouched.
+        from . import hvac_const as _hc  # noqa: PLC0415
+        if _hc.HVAC_EVIDENCE_SHADOW_ENABLED:
+            self._ev_shadow_note_room(
+                room_name=room_name, room_type=room_type, now=now,
+                override_day=override_day, last_evidence=last_evidence,
+                evidence_active=evidence_active, refresh_ok=refresh_ok,
+                shadow_out=shadow_out,
+            )
         if rule == "legacy":
             self._hvac_rule[room_name] = rule
             self._hvac_day_release_at.pop(room_name, None)
@@ -2731,6 +2779,320 @@ class ZoneManager:
             # D5 (v5.103.20) exposure metrics.
             zone.pending_hold_s_today = 0.0
         self.transit_filtered_today = {}
+        # E4 (evidence shadow recording): one `exposure` row per (zone,
+        # state) with non-zero legacy-occupied seconds, then a new day.
+        from . import hvac_const as _hc  # noqa: PLC0415
+        if _hc.HVAC_EVIDENCE_SHADOW_ENABLED:
+            try:
+                self._ev_shadow_flush_exposure(dt_util.utcnow())
+            except Exception:  # noqa: BLE001 — diagnostic only
+                _LOGGER.debug("HVAC evidence shadow: exposure flush failed", exc_info=True)
+            self._ev_shadow_expo = {}
+            self._ev_shadow_rows_today = {}
+
+    # ------------------------------------------------------------------
+    # HVAC-GUEST-EVIDENCE-RULE-1 phase 1 — evidence SHADOW RECORDING.
+    # Display/diagnostic only (plan rev 2 §3-§5). Sync, no I/O, never raises
+    # out of the producer. Rows are queued and drained by HVACCoordinator.
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _ev_shadow_term(
+        *,
+        now: datetime,
+        last_evidence: datetime | None,
+        evidence_active: bool,
+        refresh_ok: bool,
+        hold_ev: float,
+    ) -> bool:
+        """The evidence rule WITHOUT D5 and WITHOUT the refresh-fail hold:
+        `active' OR now < last_evidence + hold_ev`, where active' is False
+        while the room's refresh is failing (plan §3.1)."""
+        from datetime import timedelta as _td
+        active = bool(evidence_active) if refresh_ok is not False else False
+        if active:
+            return True
+        return last_evidence is not None and now < last_evidence + _td(seconds=hold_ev)
+
+    def _ev_shadow_note_room(
+        self,
+        *,
+        room_name: str,
+        room_type: str,
+        now: datetime,
+        override_day: int | None,
+        last_evidence: datetime | None,
+        evidence_active: bool,
+        refresh_ok: bool,
+        shadow_out: bool,
+    ) -> None:
+        """E1: record both sides for one room on this pass."""
+        try:
+            hold_ev = self._evidence_hold_seconds(room_type, override_day)
+            self._hvac_ev_shadow_out[room_name] = self._ev_shadow_term(
+                now=now, last_evidence=last_evidence,
+                evidence_active=evidence_active, refresh_ok=refresh_ok,
+                hold_ev=hold_ev,
+            )
+            self._hvac_legacy_shadow_out[room_name] = bool(shadow_out)
+            self._ev_shadow_pass_rooms[room_name] = refresh_ok is not False
+        except Exception:  # noqa: BLE001 — diagnostic only
+            _LOGGER.debug("HVAC evidence shadow: room note failed (%s)", room_name, exc_info=True)
+
+    @staticmethod
+    def _ev_shadow_state_key(house_state: str | None) -> str:
+        return str(house_state) if house_state is not None else "none"
+
+    def _ev_shadow_run_tracker(
+        self, now: datetime, house_state: str | None, zone_ids: set[str] | None,
+    ) -> None:
+        """E3 + E5: run the zone tracker for every zone processed this pass;
+        on a full pass also close the records of zones that no longer
+        exist. Never raises."""
+        try:
+            if self._ev_shadow_first_pass_at is None:
+                self._ev_shadow_first_pass_at = now
+            if zone_ids is None:
+                for zid in [z for z in self._ev_shadow_ep if z not in self._zones]:
+                    self._ev_shadow_zone_removed(zid, now)
+        except Exception:  # noqa: BLE001 — diagnostic only
+            _LOGGER.debug("HVAC evidence shadow: tracker setup failed", exc_info=True)
+        for zone in list(self._zones.values()):
+            if zone_ids is not None and zone.zone_id not in zone_ids:
+                continue
+            try:
+                self._ev_shadow_track(zone, now, house_state)
+            except Exception:  # noqa: BLE001 — diagnostic only
+                _LOGGER.debug(
+                    "HVAC evidence shadow: tracker failed for %s", zone.zone_id,
+                    exc_info=True,
+                )
+
+    def _ev_shadow_track(self, zone: ZoneState, now: datetime, house_state: str | None) -> None:
+        """One zone, one pass (plan §3.2). L = legacy side, E = evidence
+        side, each an OR over the zone's rooms that reached the evidence
+        rule THIS pass."""
+        from datetime import timedelta as _td
+        from . import hvac_const as _hc  # noqa: PLC0415
+
+        zid = zone.zone_id
+        state = self._ev_shadow_state_key(house_state)
+        rule = self._hvac_rule_for_state(house_state)
+        rooms = [r for r in (getattr(zone, "rooms", []) or []) if r in self._ev_shadow_pass_rooms]
+        legacy_on = [r for r in rooms if self._hvac_legacy_shadow_out.get(r, False)]
+        if rule == "evidence":
+            # The evidence rule is live: its decided output is the E side.
+            ev_on = [r for r in rooms if self._hvac_output.get(r, False)]
+        else:
+            ev_on = [r for r in rooms if self._hvac_ev_shadow_out.get(r, False)]
+        L = bool(legacy_on)
+        E = bool(ev_on)
+        first = self._ev_shadow_first_pass_at or now
+        boot_end = first + _td(seconds=max(0.0, float(_hc.HVAC_EVIDENCE_SHADOW_BOOT_EXCLUDE_S)))
+        in_boot = now < boot_end
+
+        rec = self._ev_shadow_ep.get(zid)
+        # Exposure (F1): the interval since this zone's previous pass is
+        # charged to that pass's L and house state, capped at 2 ticks
+        # (HA-down time is not exposure, F13); boot window excluded (F9):
+        # the interval starts no earlier than the boot window's end, so a
+        # pass inside the window charges nothing.
+        if rec is not None and rec.get("L"):
+            start = max(rec["t"], boot_end)
+            secs = min(
+                (now - start).total_seconds(),
+                2.0 * _hc.HVAC_DECISION_TICK.total_seconds(),
+            )
+            if secs > 0:
+                key = (zid, rec["state"])
+                self._ev_shadow_expo[key] = self._ev_shadow_expo.get(key, 0.0) + secs
+
+        ep = rec.get("open") if rec is not None else None
+        if ep is not None:
+            self._ev_shadow_note_releases(ep, now)
+            outcome, ended = self._ev_shadow_verdict(ep, L, E, state, now)
+            if outcome is not None:
+                self._ev_shadow_finish(
+                    zid, ep, outcome, ended, now,
+                    resumed_rooms=ev_on if outcome == "resumed" else [],
+                )
+                ep = None
+        if ep is None and L != E and not in_boot:
+            ep = {
+                "kind": "less" if L else "more",
+                "state": state,
+                "rule": rule,
+                "started_at": now,
+                "opened_s_after_boot": (now - first).total_seconds(),
+                "legacy_rooms": set(),
+                "refresh_failed_rooms": set(),
+                "pending_rooms": set(),
+                "tails": {},
+                "releases": {},
+            }
+        if ep is not None:
+            ep["legacy_rooms"].update(legacy_on)
+            ep["refresh_failed_rooms"].update(
+                r for r in rooms if self._ev_shadow_pass_rooms.get(r) is False
+            )
+            ep["pending_rooms"].update(r for r in rooms if self._hvac_pending.get(r, False))
+            # Snapshot each legacy room's tail AS OF THIS PASS, so a tail
+            # that expires and re-arms between two passes (no exit timer in
+            # legacy states) is still seen as a release (F2).
+            for r in ep["legacy_rooms"]:
+                ep["tails"][r] = self._hvac_tail_until.get(r)
+        self._ev_shadow_ep[zid] = {"t": now, "L": L, "state": state, "open": ep}
+
+    def _ev_shadow_note_releases(self, ep: dict[str, Any], now: datetime) -> None:
+        """Record, per legacy room of the episode, the earliest legacy
+        release seen so far: an observed release (`_hvac_shadow_release_at`)
+        or a tail snapshotted on an earlier pass that has expired by now."""
+        rel_map: dict[str, datetime] = ep["releases"]
+        for r in ep["legacy_rooms"]:
+            cands = []
+            obs = self._hvac_shadow_release_at.get(r)
+            if obs is not None:
+                cands.append(obs)
+            tail = ep["tails"].get(r)
+            if tail is not None and tail <= now:
+                cands.append(tail)
+            for c in cands:
+                if r not in rel_map or c < rel_map[r]:
+                    rel_map[r] = c
+
+    @staticmethod
+    def _ev_shadow_verdict(
+        ep: dict[str, Any], L: bool, E: bool, state: str, now: datetime,
+    ) -> tuple[str | None, datetime | None]:
+        """(outcome, ended_at) if the episode closes on this pass, else
+        (None, None). Plan §3.2 close rules 1-4."""
+        if state != ep["state"]:
+            return "interrupted", now
+        releases = list(ep["releases"].values())
+        if ep["kind"] == "less":            # opened as L and not E
+            if L and not E:
+                return None, None
+            if not L and E:
+                return "flipped", now
+            if not L:                        # legacy released
+                return "released", (min(releases) if releases else now)
+            # E returned while L still True: released only if a legacy room
+            # actually released before this pass (F2).
+            earlier = [t for t in releases if t < now]
+            if earlier:
+                return "released", min(earlier)
+            return "resumed", now
+        # kind == "more"                     # opened as E and not L
+        if E and not L:
+            return None, None
+        if L and not E:
+            return "flipped", now
+        if L:
+            return "resumed", now            # legacy caught up
+        return "released", now               # evidence side released
+
+    def _ev_shadow_finish(
+        self,
+        zid: str,
+        ep: dict[str, Any],
+        outcome: str,
+        ended: datetime | None,
+        now: datetime,
+        resumed_rooms: list[str] | None = None,
+    ) -> None:
+        """Queue the episode row (min length + per-zone daily cap)."""
+        from . import hvac_const as _hc  # noqa: PLC0415
+
+        started: datetime = ep["started_at"]
+        ended = ended or now
+        if ended < started:
+            ended = started
+        dur = (ended - started).total_seconds()
+        if dur < float(_hc.HVAC_EVIDENCE_SHADOW_MIN_EPISODE_S):
+            return
+        cap = int(_hc.HVAC_EVIDENCE_SHADOW_MAX_ROWS_PER_ZONE_DAY)
+        n = self._ev_shadow_rows_today.get(zid, 0)
+        if n >= cap:
+            if n == cap:
+                self._ev_shadow_rows_today[zid] = cap + 1
+                self._ev_shadow_pending_rows.append(self._ev_shadow_row(
+                    now, "capped", zid, ep["state"], rule=ep["rule"],
+                ))
+            return
+        self._ev_shadow_rows_today[zid] = n + 1
+        lim = int(_hc.HVAC_EVIDENCE_SHADOW_MAX_ROOMS_PER_LIST)
+        self._ev_shadow_pending_rows.append(self._ev_shadow_row(
+            now, "episode", zid, ep["state"],
+            rule=ep["rule"], kind=ep["kind"], outcome=outcome,
+            started_at=started, ended_at=ended, duration_s=dur,
+            opened_s_after_boot=ep["opened_s_after_boot"],
+            details={
+                "legacy_rooms": sorted(ep["legacy_rooms"])[:lim],
+                "resumed_rooms": sorted(resumed_rooms or [])[:lim],
+                "refresh_failed_rooms": sorted(ep["refresh_failed_rooms"])[:lim],
+                "pending_rooms": sorted(ep["pending_rooms"])[:lim],
+            },
+        ))
+
+    @staticmethod
+    def _ev_shadow_row(
+        now: datetime,
+        row_type: str,
+        zid: str,
+        state: str,
+        *,
+        rule: str | None = None,
+        kind: str | None = None,
+        outcome: str | None = None,
+        started_at: datetime | None = None,
+        ended_at: datetime | None = None,
+        duration_s: float | None = None,
+        opened_s_after_boot: float | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        def _u(v: datetime | None) -> str | None:
+            return dt_util.as_utc(v).isoformat() if isinstance(v, datetime) else None
+        return {
+            "timestamp": _u(now),
+            "row_type": row_type,
+            "zone_id": zid,
+            "house_state": state,
+            "rule": rule,
+            "kind": kind,
+            "outcome": outcome,
+            "started_at": _u(started_at),
+            "ended_at": _u(ended_at),
+            "duration_s": duration_s,
+            "opened_s_after_boot": opened_s_after_boot,
+            "details": dict(details or {}),
+        }
+
+    def _ev_shadow_zone_removed(self, zid: str, now: datetime) -> None:
+        """E5: a zone that no longer exists closes its episode
+        `interrupted` (row queued) and drops its exposure without a row."""
+        rec = self._ev_shadow_ep.pop(zid, None)
+        ep = rec.get("open") if rec else None
+        if ep is not None:
+            self._ev_shadow_finish(zid, ep, "interrupted", now, now)
+        for key in [k for k in self._ev_shadow_expo if k[0] == zid]:
+            self._ev_shadow_expo.pop(key, None)
+
+    def _ev_shadow_flush_exposure(self, now: datetime) -> None:
+        """E4 body: queue one `exposure` row per (zone, state) > 0 s."""
+        for (zid, state), secs in sorted(self._ev_shadow_expo.items()):
+            if secs <= 0:
+                continue
+            self._ev_shadow_pending_rows.append(self._ev_shadow_row(
+                now, "exposure", zid, state,
+                rule=self._hvac_rule_for_state(None if state == "none" else state),
+                duration_s=float(secs),
+            ))
+
+    def drain_shadow_rows(self) -> list[dict[str, Any]]:
+        """Return + clear the queued shadow rows (E6). Consumed by
+        HVACCoordinator after each `update_room_conditions` caller."""
+        rows = list(self._ev_shadow_pending_rows)
+        self._ev_shadow_pending_rows.clear()
+        return rows
 
 
 # ============================================================================
