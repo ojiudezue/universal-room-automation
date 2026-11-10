@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-09T16:39:31-06:00_ - _Data commit: `71c0fbb6c8ec`_ - _last_reconciled: 2026-11-10_
+_Generated: 2026-11-10T02:12:43-06:00_ - _Data commit: `6671a46940b0`_ - _last_reconciled: 2026-11-10_
 
 
 ## Columns
@@ -1194,32 +1194,7 @@ _created 2026-11-08 09:10 · updated 2026-11-09 02:08_
   - `tier`: 1
   - `soak_check_2026_11_09_overnight`: CARD-WAS-WRONG on next (it still said Ship v5.106.1): shipped and validated 11-08 (README_v5.106.1 Validated, post-restart 11:00 CST: send arrives PASS, no send errors PASS, bridge accepts 3.x PASS). Open: sends after 2.x removal (PENDIN...
 
-### `LOCK-REGIME-FACE-ARRIVAL-CORROBORATION-1` - SC lock regime unlocks (garage lockout release + master_bedroom_lock) on a camera_face arrival signal alone; a Frigate face misrecognition at a door camera can unlock — _#4 · WSJF 5.5 · v6 tc3 u2 /e2_
-thread: **security** - status: **shipped_organic**
-_created 2026-11-08 23:45 · updated 2026-11-09 02:01_
-- **Why:** Frigate face labels are known to name the wrong resident (presence doc corrections #28: Jaya labelled Oji on 10-24). The 17 cameras the skip fix adds include doorbell/garage/entry. An unlock is the highest-cost wrong action.
-- **Next:** APPROVE at the arc-end attended deploy (operator: ONE restart at arc end): v5.107.4 is built, reviewed and merged to develop (97319f20); reviews A/B (v5.107.4_lock_face_arrival_review_*.md). After the restart, run the README_v5.107.4 liv...
-- **Forensic keys (5):**
-  - `tier`: 2
-  - `existing_guard_2026_11_08`: Operator asked if this was already built. Partly: security_lock_regime.on_person_arriving (:793-813) already counts a camera_face arrival only if _really_away(person) (Review A M2, away-lock cycle). That blocks faces of people already ho...
-  - `residual_2026_11_09`: Review B INFO-B4 (pre-existing, narrowed not opened by v5.107.4): after a restart _really_away returns True (security_lock_regime.py:982) for a resident restored as home until their first real state change; past the 600 s floor, that res...
-  - `adjacency_2026_11_08`: Swept board for lock regime / face arrival: none. ADJACENT to FACE-SOURCE-REGISTRY-DISCOVERY-1 (same signal) and PERIMETER-FP D10.5 (same corroboration rule). NEW problem statement (unlock safety).
-  - `reconcile_2026_11_09`: Overnight reconcile: board still showed this as planned/investigating/in_progress but v5.107.4 was merged to develop at 97319f20 by the 11-08/09 attended session (not yet deployed; develop was 87 commits ahead of origin). Moved to review.
-
-### `LOCK-ENTRY-AREAS-WRONG-OBJECT-1` - Lock regime and perimeter alerts looked up door groups on the wrong object, so a Bluetooth move never confirmed a face arrival -> read them from the egress tracker — _#5 · WSJF 5.5 · v6 tc3 u2 /e2_
-thread: **security** - status: **shipped_organic** - approval: **implied**
-_created 2026-11-09 02:01 · updated 2026-11-09 02:03 · initial_
-- **Problem / Solution:**
-  - Problem: two features added this week (the face-plus-Bluetooth unlock rule and the perimeter alert's 'someone inside near this door' check) asked the wrong internal object for the list of rooms next to each door. It always came back empt...
-- **Origin:** 2026-11-09 - Found by the attended session while building v5.107.4/5; fixed and merged as v5.107.6 (b70e3a2f, merge 6b97e434) but never carded. Carded by the overnight reconcile (capture miss).
-- **Why:** Without it the v5.107.4 face+BLE unlock rule can only release via the person.* not_home->home edge.
-- **Next:** APPROVE at the arc-end attended deploy: v5.107.6 merged to develop (6b97e434), Tier-1 review SHIP (review_2026_11_09). After restart, run README_v5.107.6 live validation, including the A1 stem check.
-- **Refs:** docs/readmes/README_v5.107.6.md
-- **Forensic keys (2):**
-  - `tier`: 1
-  - `review_2026_11_09`: Overnight Tier-1 review (ura-reviewer, framing A) = SHIP; record docs/reviews/code-review/v5.107.6_entry_areas_egress_tracker.md. 205 passed on both touched test files; mutation: key reverted in security_lock_regime.py:999 -> 15 RED, in ...
-
-### `SC-LOCK-REGIME-DOOR-LOCKS-1` - Move door-lock policy into the new SC lock regime (arming = alarm only) — _#6 · WSJF 5.5 · v5 tc4 u2 /e2_
+### `SC-LOCK-REGIME-DOOR-LOCKS-1` - Move door-lock policy into the new SC lock regime (arming = alarm only) — _#4 · WSJF 5.5 · v5 tc4 u2 /e2_
 thread: **security** - status: **shipped_organic**
 _created 2026-11-07 14:30 · updated 2026-11-09 02:08_
 - **Why:** Operator 2026-11-07: separate arming (alarm) from locks (locking regime). Lockout cycle builds the regime for garage lockouts only; door-lock policy migration deferred.
@@ -1232,12 +1207,40 @@ _created 2026-11-07 14:30 · updated 2026-11-09 02:08_
   - `restart_pending_2026_11_08`: v5.106.0 is INSTALLED but not running: update.universal_room_automation_update reads installed v5.106.0 with 'Restart of Home Assistant required' (installed 11-08 01:05 CST; restart held while the house sleeps). switch.ura_security_coord...
   - `soak_check_2026_11_09_overnight`: CARD-WAS-WRONG on next: it still said to run the README v5.106.0 checks after the next restart; they ran 11-08 (README_v5.106.0 Validated table, post-restart 08:24 CST: 5 PASS, Away Lock engage/release PENDING on operator setup). config_...
 
+### `LOCK-REGIME-FACE-ARRIVAL-CORROBORATION-1` - SC lock regime unlocks (garage lockout release + master_bedroom_lock) on a camera_face arrival signal alone; a Frigate face misrecognition at a door camera can unlock — _#5 · WSJF 5.5 · v6 tc3 u2 /e2_
+thread: **security** - status: **shipped_organic**
+_created 2026-11-08 23:45 · updated 2026-11-10 02:16_
+- **Why:** Frigate face labels are known to name the wrong resident (presence doc corrections #28: Jaya labelled Oji on 10-24). The 17 cameras the skip fix adds include doorbell/garage/entry. An unlock is the highest-cost wrong action.
+- **Next:** Organic proof needs the garage lockout ON (same DO as GARAGE-REMOTE-LOCKOUT-SCHEDULE-1): once on, the first camera_face arrival shows held-or-corroborated; I check then. Nothing to do while it is off.
+- **Forensic keys (6):**
+  - `live_validation_2026_11_10`: Validated 2026-11-10 ~02:15 CST (README_v5.107.4): 0 PASS, 0 FAIL, 4 not-yet-observable, 1 in-suite only. Gate deployed. Lock history shows only the restart reconnect flap (01:02:53-57), no URA-attributed transition. Garage remotes staye...
+  - `tier`: 2
+  - `existing_guard_2026_11_08`: Operator asked if this was already built. Partly: security_lock_regime.on_person_arriving (:793-813) already counts a camera_face arrival only if _really_away(person) (Review A M2, away-lock cycle). That blocks faces of people already ho...
+  - `residual_2026_11_09`: Review B INFO-B4 (pre-existing, narrowed not opened by v5.107.4): after a restart _really_away returns True (security_lock_regime.py:982) for a resident restored as home until their first real state change; past the 600 s floor, that res...
+  - `adjacency_2026_11_08`: Swept board for lock regime / face arrival: none. ADJACENT to FACE-SOURCE-REGISTRY-DISCOVERY-1 (same signal) and PERIMETER-FP D10.5 (same corroboration rule). NEW problem statement (unlock safety).
+  - `reconcile_2026_11_09`: Overnight reconcile: board still showed this as planned/investigating/in_progress but v5.107.4 was merged to develop at 97319f20 by the 11-08/09 attended session (not yet deployed; develop was 87 commits ahead of origin). Moved to review.
+
+### `LOCK-ENTRY-AREAS-WRONG-OBJECT-1` - Lock regime and perimeter alerts looked up door groups on the wrong object, so a Bluetooth move never confirmed a face arrival -> read them from the egress tracker — _#6 · WSJF 5.5 · v6 tc3 u2 /e2_
+thread: **security** - status: **shipped_organic** - approval: **implied**
+_created 2026-11-09 02:01 · updated 2026-11-10 02:16 · initial_
+- **Problem / Solution:**
+  - Problem: two features added this week (the face-plus-Bluetooth unlock rule and the perimeter alert's 'someone inside near this door' check) asked the wrong internal object for the list of rooms next to each door. It always came back empt...
+- **Origin:** 2026-11-09 - Found by the attended session while building v5.107.4/5; fixed and merged as v5.107.6 (b70e3a2f, merge 6b97e434) but never carded. Carded by the overnight reconcile (capture miss).
+- **Why:** Without it the v5.107.4 face+BLE unlock rule can only release via the person.* not_home->home edge.
+- **Next:** Wait for organic proof (no action from you): the next garage/doorbell arrival with a Bermuda edge; I check entry areas are non-empty in the decision and close.
+- **Refs:** docs/readmes/README_v5.107.6.md
+- **Forensic keys (3):**
+  - `live_validation_2026_11_10`: Validated 2026-11-10 ~02:15 CST (README_v5.107.6): 0 PASS, 0 FAIL, 2 not-yet-observable. Code fix confirmed deployed: security_lock_regime.py:1013 and perimeter_alert.py:5109 read egress_tracker. Behavioural checks need a garage or doorb...
+  - `tier`: 1
+  - `review_2026_11_09`: Overnight Tier-1 review (ura-reviewer, framing A) = SHIP; record docs/reviews/code-review/v5.107.6_entry_areas_egress_tracker.md. 205 passed on both touched test files; mutation: key reverted in security_lock_regime.py:999 -> 15 RED, in ...
+
 ### `PERIMETER-FRIGATE-SNAPSHOT-CAPTURE-NEVER-1` - Perimeter alert images never come from Frigate's stored event snapshot (0 of 272 in 7 days; 244 live grabs, 28 no file), so 'empty frame' alerts may be capture timing, not false detections — _#7 · WSJF 5.0 · v5 tc3 u2 /e2_
 thread: **security** - status: **shipped_organic**
-_created 2026-11-08 22:00 · updated 2026-11-09 02:01_
+_created 2026-11-08 22:00 · updated 2026-11-10 02:16_
 - **Why:** SNAP-1 tier 1 (frigate_event, perimeter_alert.py ~3346) should fetch the best-scoring frame of the event. It never succeeds live, so every image is a live camera grab at the edge, which can miss a person who already moved. That reopens t...
-- **Next:** APPROVE at the arc-end attended deploy (operator: ONE restart at arc end): v5.107.2 is built, reviewed and merged to develop (c677315c); Tier-1 review (v5.107.2_snapshot_internal_url.md); root cause in AUDIT_perimeter_snapshot_capture_20...
-- **Forensic keys (3):**
+- **Next:** Wait for organic proof (no action from you): the next Frigate-leg person alert; I read its snapshot path + mtime and close or reopen.
+- **Forensic keys (4):**
+  - `live_validation_2026_11_10`: Validated 2026-11-10 ~02:15 CST (README_v5.107.2): 0 PASS, 0 FAIL, 5 not-yet-observable. No Frigate-leg person alert since the 01:04 restart and no snapshot newer than 11-09 20:35. Frigate-shaped files existed before, so file shape alone...
   - `tier`: 2
   - `adjacency_2026_11_08`: Swept: PLANNING_snap1_at_detection_snapshots.md (SNAP-1 design), PERIMETER-FP-STREET-NOISE-1 (parent arc). NEW: the capture failure itself is not carded.
   - `reconcile_2026_11_09`: Overnight reconcile: board still showed this as planned/investigating/in_progress but v5.107.2 was merged to develop at c677315c by the 11-08/09 attended session (not yet deployed; develop was 87 commits ahead of origin). Moved to review.
@@ -1300,10 +1303,11 @@ _created 2026-11-09 02:00 · updated 2026-11-09 02:02 · refined_
 
 ### `FACE-SOURCE-REGISTRY-DISCOVERY-1` - Face-name sources are found by entity-name pattern (<camera>_last_recognized_face[_2]); make discovery home-agnostic via the device/entity registry for Frigate and Protect — _#11 · WSJF 4.3 · v5 tc4 u4 /e3_
 thread: **identity** - status: **shipped_organic**
-_created 2026-11-08 19:30 · updated 2026-11-09 02:01_
+_created 2026-11-08 19:30 · updated 2026-11-10 02:16_
 - **Why:** The bridge works (FRIGATE-SUBLABEL-FACE-BRIDGE-1 done; egress person_id attach 90/203 = 44% over the 14 days to 11-08) but camera_census.py:3135-3210 / :5024-5068 and camera_resolver.py:251 find face sensors by string pattern including t...
-- **Next:** APPROVE at the arc-end attended deploy (operator: ONE restart at arc end): v5.107.1 is built, reviewed and merged to develop (c320c8f3); 3 reviews A/B/C (docs/reviews/code-review/v5.107.1_face_source_review_*.md). After the restart, run ...
-- **Forensic keys (7):**
+- **Next:** Wait for organic proof (no action from you): the next named face on an interior _2 camera should show in the census face reads; I check the README's NYO rows at the next disposal sweep and close or reopen.
+- **Forensic keys (8):**
+  - `live_validation_2026_11_10`: Validated 2026-11-10 ~02:15 CST (README_v5.107.1, commit 32b60846): 2 PASS, 1 PARTIAL, 5 not-yet-observable, 0 FAIL. Registry live: 14 registry hits, 0 fallbacks, 12 _person_occupancy_2 cameras now read, 0 skipped. README's L4 confidence...
   - `tier`: 2
   - `sequence_2026_11_08`: Operator: pick up RIGHT AFTER the perimeter FP build (PERIMETER-FP-STREET-NOISE-1 / v5.107.0) ships.
   - `plan`: docs/planning/PLANNING_face_source_registry_discovery_2026_11.md
@@ -1360,10 +1364,11 @@ _created 2026-09-17 02:20 · updated 2026-11-08 02:05 · refined_
 
 ### `PERIMETER-IDENTITY-FOLLOWUP-1` - Door alert sent as unknown, identity resolves within ~90 s -> one quiet follow-up ('Front door: that was Jaya') — _#14 · WSJF 4.0 · v4 tc2 u2 /e2_
 thread: **security** - status: **shipped_organic**
-_created 2026-11-09 00:30 · updated 2026-11-09 02:01_
+_created 2026-11-09 00:30 · updated 2026-11-10 02:16_
 - **Why:** Time-sensitive alerts go out immediately (feedback_alert_latency_over_precision); Protect names back-fill 40-80 s later, so identity arrives after the page.
-- **Next:** APPROVE at the arc-end attended deploy (operator: ONE restart at arc end): v5.107.5 is built, reviewed and merged to develop (e7ead0e4); Tier-1 review (v5.107.5_identity_followup_review.md). After the restart, run the README_v5.107.5 liv...
-- **Forensic keys (2):**
+- **Next:** Wait for organic proof (no action from you): the first identified perimeter alert (notification_log 'Perimeter Alert - Identified'); I read it and close or reopen.
+- **Forensic keys (3):**
+  - `live_validation_2026_11_10`: Validated 2026-11-10 ~02:15 CST (README_v5.107.5): 0 PASS, 0 FAIL, 3 not-yet-observable. Zero 'Perimeter Alert - Identified' rows, all time, so the two negative checks are vacuous and were NOT marked PASS. Log gap: URA's logger runs at W...
   - `tier`: 1
   - `reconcile_2026_11_09`: Overnight reconcile: board still showed this as planned/investigating/in_progress but v5.107.5 was merged to develop at e7ead0e4 by the 11-08/09 attended session (not yet deployed; develop was 87 commits ahead of origin). Moved to review.
 
