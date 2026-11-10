@@ -58,6 +58,8 @@ from ..const import (
     CONF_SECURITY_LOCK_ENTITIES,
     DOMAIN,
     SECURITY_AUTO_FOLLOW_ARM_DELAY_S,
+    SECURITY_LOCK_RETRY_CAP,
+    SECURITY_LOCK_RETRY_REARM_S,
 )
 from .base import (
     BaseCoordinator,
@@ -82,7 +84,13 @@ from .signals import (
 _LOGGER = logging.getLogger(__name__)
 
 # Metrics tracked by anomaly detection
-SECURITY_METRICS = ["alert_trigger_frequency", "entry_anomaly_score"]
+# ANOMALY-METRIC-DISPOSITION-1 (2026-11-06): entry_anomaly_score was
+# UNDECLARED. Declared since v3.6.0 with no producer; the entry verdicts it
+# would have scored already feed alert_trigger_frequency. A declared-but-unfed
+# metric kept the Security anomaly sensor at `partial` for good.
+# AnomalyDetector.load_baselines drops its persisted metric_baselines row as
+# an orphan on the next load.
+SECURITY_METRICS = ["alert_trigger_frequency"]
 
 # Hazard types the NM post-cooldown re-fire path (_re_evaluate_hazard) may
 # re-evaluate against ``_active_alert``. "intruder" is what Security actually
@@ -99,11 +107,10 @@ SECURITY_REFIRE_HAZARD_TYPES: frozenset[str] = frozenset(
 # in security.py) OR listed here. Introspected by the parametric meta-test
 # in test_v465_observability_gap.py.
 #
-# - entry_anomaly_score: defined in SECURITY_METRICS but no record_observation
-#   call site exists — silent slot. Documented per v4.6.3.1 doctrine.
-SECURITY_SUPPRESSED_FROM_PERSISTENCE: frozenset[str] = frozenset({
-    "entry_anomaly_score",
-})
+# Empty since ANOMALY-METRIC-DISPOSITION-1 (2026-11-06) undeclared
+# entry_anomaly_score (its only member). Kept defined: the Security ctor and
+# the meta-tests read it.
+SECURITY_SUPPRESSED_FROM_PERSISTENCE: frozenset[str] = frozenset()
 
 # HVAC-ANOMALY-BLIND-1 residual A (D4): metrics DECLARED on purpose without a
 # producer. Passed to AnomalyDetector(unwired_metric_names=...). With no data
@@ -111,10 +118,9 @@ SECURITY_SUPPRESSED_FROM_PERSISTENCE: frozenset[str] = frozenset({
 # (starved producer = bug); either way they are blind, so the anomaly sensor
 # reads `partial`, not `nominal`. Must be a subset of the SUPPRESSED set and
 # have no record_observation site (meta-test in test_v465_observability_gap.py).
-# Disposition card: ANOMALY-UNWIRED-METRIC-DISPOSITION-1.
-SECURITY_UNWIRED_METRICS: frozenset[str] = frozenset({
-    "entry_anomaly_score",
-})
+# Empty since ANOMALY-METRIC-DISPOSITION-1 (2026-11-06) undeclared
+# entry_anomaly_score. Kept defined: the Security ctor and meta-tests read it.
+SECURITY_UNWIRED_METRICS: frozenset[str] = frozenset()
 
 
 # ============================================================================
@@ -611,6 +617,11 @@ class SecurityCoordinator(BaseCoordinator):
         self._last_lock_sweep: dict[str, Any] = {}
         # NM Cycle A A3: per-entity unavailability dedup (unix ts of last emit).
         self._lock_unavailable_last_notified: dict[str, float] = {}
+        # SECURITY-LOCK-SWEEP-RETRY-CAP-1: per-device retry episode for the
+        # periodic lock check. entity_id -> {"attempts": int, "changed": the
+        # state's last_changed when the episode started, "notified": bool}.
+        # In memory only: an HA restart starts a fresh episode by design.
+        self._lock_retry_episodes: dict[str, dict[str, Any]] = {}
 
         # Sub-components
         self._sanction_checker = SanctionChecker(hass)
@@ -958,10 +969,9 @@ class SecurityCoordinator(BaseCoordinator):
         - alert_trigger_frequency: recorded as a Severity score (LOW=1, MEDIUM=2,
           HIGH=3, CRITICAL=4). Continuous ordinal — not binary. Each entry event
           produces a real severity score value. Suitable for z-score. WIRE.
-        - entry_anomaly_score: defined in SECURITY_METRICS but never recorded via
-          record_observation (no call site exists). SUPPRESSED_FROM_PERSISTENCE —
-          metric is silent; z-score detection never fires for it.
-          Reference: v4.6.3.1 binary-metric doctrine — suppress silent metrics.
+        - entry_anomaly_score: UNDECLARED by ANOMALY-METRIC-DISPOSITION-1
+          (2026-11-06). It never had a record_observation site and the entry
+          verdict is already scored by alert_trigger_frequency.
         """
         # v4.6.5.1 P2: SUPPRESSED_FROM_PERSISTENCE was promoted to module-level
         # constant `SECURITY_SUPPRESSED_FROM_PERSISTENCE` at the top of this
@@ -1761,6 +1771,44 @@ class SecurityCoordinator(BaseCoordinator):
     # Periodic lock check (req #8 — armed-independent)
     # =========================================================================
 
+    def _lock_retry_allows(self, entity_id: str, retry_capped: list[str]) -> bool:
+        """Retry cap gate for one unlocked/open device (RETRY-CAP-1).
+
+        Called only when the device is seen unlocked/open. Returns True if the
+        sweep should send another command. The episode starts at the first
+        unlocked/open sighting and ends ONLY when the caller sees the device
+        ``locked`` / ``closed`` (transient locking/jammed/opening/closing
+        states continue it). After SECURITY_LOCK_RETRY_CAP counted commands it
+        returns False and queues ONE cap notice. SECURITY_LOCK_RETRY_REARM_S
+        after capping, a fresh episode starts.
+
+        Observation mode (bug class #23): evaluate() drops every action, so
+        nothing is counted and no notice is marked sent while it is on.
+        In memory only: restart = fresh episode.
+        """
+        now = dt_util.utcnow()
+        ep = self._lock_retry_episodes.get(entity_id)
+        if (
+            ep is not None
+            and ep["capped_at"] is not None
+            and SECURITY_LOCK_RETRY_REARM_S > 0
+            and (now - ep["capped_at"]).total_seconds() >= SECURITY_LOCK_RETRY_REARM_S
+        ):
+            ep = None
+        if ep is None:
+            ep = {"attempts": 0, "notified": False, "capped_at": None}
+            self._lock_retry_episodes[entity_id] = ep
+        if SECURITY_LOCK_RETRY_CAP > 0 and ep["attempts"] >= SECURITY_LOCK_RETRY_CAP:
+            if ep["capped_at"] is None:
+                ep["capped_at"] = now
+            if not ep["notified"] and not self.observation_mode:
+                ep["notified"] = True
+                retry_capped.append(entity_id)
+            return False
+        if not self.observation_mode:
+            ep["attempts"] += 1
+        return True
+
     async def _evaluate_lock_check(self) -> list[CoordinatorAction]:
         """Check all locks and garage doors, lock any that are unlocked."""
         self._lock_checks_today.increment()
@@ -1770,6 +1818,16 @@ class SecurityCoordinator(BaseCoordinator):
         # SC-LOCK-SWEEP-EXCLUDE-1 D2b: captured once, before any await.
         excluded = self._sweep_excluded()
         excluded_seen: list[str] = []
+        # Drop retry episodes for devices no longer configured, so a removed
+        # lock/cover cannot linger in ``retry_capped`` until restart.
+        _configured = set(self._lock_entities) | set(self._garage_entities)
+        for _eid in [e for e in self._lock_retry_episodes if e not in _configured]:
+            del self._lock_retry_episodes[_eid]
+        # Devices that just hit SECURITY_LOCK_RETRY_CAP (notify once each).
+        retry_capped: list[str] = []
+        # Every device seen unlocked/open (incl. capped ones) for the sensor;
+        # ``unlocked`` below is the subset actually commanded this sweep.
+        found: list[str] = []
 
         for lock_id in self._lock_entities:
             state = self.hass.states.get(lock_id)
@@ -1781,8 +1839,16 @@ class SecurityCoordinator(BaseCoordinator):
             self._lock_compliance[lock_id] = state.state
             if lock_id in excluded:
                 excluded_seen.append(lock_id)
+                # Retry cap is a sweep concept; an excluded lock has no
+                # live episode (clears a stale capped entry on exclusion).
+                self._lock_retry_episodes.pop(lock_id, None)
                 continue
-            if state.state == "unlocked":
+            if state.state == "locked":
+                self._lock_retry_episodes.pop(lock_id, None)
+            elif state.state == "unlocked":
+                found.append(lock_id)
+                if not self._lock_retry_allows(lock_id, retry_capped):
+                    continue
                 unlocked.append(lock_id)
                 actions.append(
                     ServiceCallAction(
@@ -1802,7 +1868,12 @@ class SecurityCoordinator(BaseCoordinator):
                 self._lock_compliance[garage_id] = "unavailable"
                 continue
             self._lock_compliance[garage_id] = state.state
-            if state.state == "open":
+            if state.state == "closed":
+                self._lock_retry_episodes.pop(garage_id, None)
+            elif state.state == "open":
+                found.append(garage_id)
+                if not self._lock_retry_allows(garage_id, retry_capped):
+                    continue
                 unlocked.append(garage_id)
                 actions.append(
                     ServiceCallAction(
@@ -1863,6 +1934,27 @@ class SecurityCoordinator(BaseCoordinator):
                     len(unavailable), int(dedup_s),
                 )
 
+        if retry_capped:
+            _LOGGER.warning(
+                "Periodic lock check: retry cap (%d) reached, stopped "
+                "commanding: %s",
+                SECURITY_LOCK_RETRY_CAP,
+                ", ".join(retry_capped),
+            )
+            actions.append(
+                NotificationAction(
+                    coordinator_id=self.COORDINATOR_ID,
+                    severity=Severity.MEDIUM,
+                    message=(
+                        f"Lock check: {', '.join(retry_capped)} did not "
+                        f"lock/close after {SECURITY_LOCK_RETRY_CAP} tries. "
+                        "URA has stopped retrying until it changes state."
+                    ),
+                    channels=["security"],
+                    description="Lock check retry cap notification",
+                )
+            )
+
         if unlocked:
             _LOGGER.info(
                 "Periodic lock check: %d unlocked, locking: %s",
@@ -1885,8 +1977,12 @@ class SecurityCoordinator(BaseCoordinator):
         # depends on CoordinatorManager conflict resolution.
         self._last_lock_sweep = {
             "timestamp": dt_util.utcnow().isoformat(),
-            "found_unlocked": unlocked,
+            "found_unlocked": found,
             "lock_actions_sent": unlocked.copy(),
+            "retry_capped": sorted(
+                eid for eid, ep in self._lock_retry_episodes.items()
+                if ep["capped_at"] is not None
+            ),
             "unavailable": unavailable,
             "excluded": excluded_seen,
             "checks_today": self._lock_checks_today.value,

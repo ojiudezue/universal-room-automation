@@ -58,3 +58,13 @@ The pre-stay change is the audit's "pre 20": the late-August stay is held throug
   - L2: no WARNING `Guest stay walk failed` in the log after the first morning walk.
   - L3 (next guest stay, event-gated): on the morning after the first empty night that follows a day the guest was in a guest room, `guest_stay_active` stays `true` AND `guest_stay_day_veto_active` is `true` with `guest_stay_day_veto_room` / `guest_stay_day_veto_night` naming that room and night (`guest_stay_day_veto_fraction` ≥ 0.10), and the log has one INFO `Guest stay exit held by the day veto`. It goes `false` (veto attributes cleared) the morning after an empty night whose day reads < 0.10 in both guest rooms. Discriminates against "veto not wired" (would go false a day earlier, veto attributes never set) and against a stay held by a real night (`guest_stay_day_veto_active` false).
   - L4 (event-gated): a "Guest left" press during a vetoed stay sets `guest_stay_active` false at once and the next morning's walk keeps it false.
+
+## Validated 2026-11-10 (restart 12:11 CST, v5.108.5 bundle)
+| Criterion | Result | Evidence |
+|---|---|---|
+| L1 latch off, basis lists last 3 nights not qualifying | PASS | `sensor.ura_presence_coordinator_presence_house_state`: `guest_stay_active` false; nights 11-07..11-09 GB2 fractions 0.0 |
+| Veto attributes published | PASS | `guest_stay_day_veto_active` false, room/night/fraction null. Note: L1 names `sensor.ura_presence_coordinator_house_state`, which does not exist; the attributes are on `..._presence_house_state` |
+| L2 no `Guest stay walk failed` | PASS so far | none 12:11-12:24; recheck after the first morning walk |
+| L3/L4 veto hold + press during vetoed stay | PENDING | needs a guest stay |
+
+No URA ERROR or traceback after restart (two shutdown-time DB write skips from the old instance only).

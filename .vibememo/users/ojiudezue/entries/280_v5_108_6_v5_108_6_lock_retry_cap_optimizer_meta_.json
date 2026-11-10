@@ -1,0 +1,25 @@
+{
+  "format_version": "2.1",
+  "entry_id": "280",
+  "author": "ojiudezue",
+  "session_id": "claude_20261110_235140_ship_v5_108_6",
+  "timestamp": "2026-11-10T23:51:40Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.108.6 shipped: v5.108.6: lock retry cap, optimizer meta never pages, dead anomaly metrics removed",
+  "summary": "v5.108.6: lock retry cap, optimizer meta never pages, dead anomaly metrics removed",
+  "why": "Three overnight-built Tier-1 fixes sat on an integ branch through the v5.108.x arc; operator approved shipping. Retry cap: endless lock.lock/close_cover retries hid broken locks (46 commands in one day), so cap at 3 per episode with one notice and a 24h re-arm; kept separate from the v5.108.3 lockout regime path. META pages: 9/9 critical pages in 30d were the AI layer complaining about its own truncated input, often 1-2:30am, so suppress paging only, keep recording. Anomaly metrics: operator asked fix vs delete; delete chosen because entry_anomaly_score duplicates alert_trigger_frequency (whose real shape defect is carded) and egress pauses are too rare for a z-score; comfort_deviation_hours kept with a producer card, so HVAC stays partial. Verified: merged onto v5.108.5 clean; serial full-suite name-diff 18 vs 18 identical failures, +25 passes; 5 key files 259 passed in isolation.",
+  "implications": "Shipped SECURITY-LOCK-SWEEP-RETRY-CAP-1, OPTIMIZER-META-NEVER-PAGES-1, ANOMALY-METRIC-DISPOSITION-1 at v5.108.6; card(s) sit shipped_organic pending validation. Acceptance in README_v5.108.6.md (Live criteria).",
+  "revisit_trigger": "metric_baselines has 0 rows for egress_pause_frequency/entry_anomaly_score and sensor.ura_security_coordinator_security_anomaly metrics_unwired==[]; notification_log has 0 'URA Optimizer \u2014 meta' rows 7d after restart; sensor.ura_security_coordinator_security_last_lock_sweep has retry_capped attr",
+  "refs": {
+    "cards": [
+      "SECURITY-LOCK-SWEEP-RETRY-CAP-1",
+      "OPTIMIZER-META-NEVER-PAGES-1",
+      "ANOMALY-METRIC-DISPOSITION-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.108.6.md"
+    ],
+    "release_notes": "Periodic lock check stops after 3 failed tries per device and notifies once; optimizer self-complaint (META) findings no longer page; undeclared two anomaly metrics that never had a producer (Security anomaly leaves partial). See docs/readmes/README_v5.108.6.md"
+  }
+}

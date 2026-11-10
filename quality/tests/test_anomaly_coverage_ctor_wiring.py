@@ -93,7 +93,7 @@ def _setup_call(site):
 _SITES = {
     "hvac": (hvac_mod, "HVAC_UNWIRED_METRICS", "comfort_deviation_hours",
              hvac_const.HVAC_SUPPRESSED_FROM_PERSISTENCE),
-    "security": (security_mod, "SECURITY_UNWIRED_METRICS", "entry_anomaly_score",
+    "security": (security_mod, "SECURITY_UNWIRED_METRICS", "alert_trigger_frequency",
                  security_mod.SECURITY_SUPPRESSED_FROM_PERSISTENCE),
     "safety": (safety_mod, "SAFETY_UNWIRED_METRICS", "active_hazard_count",
                safety_mod.SAFETY_SUPPRESSED_FROM_PERSISTENCE),
@@ -132,9 +132,10 @@ def test_coordinator_builds_detector_with_unwired_declaration(site, monkeypatch)
 
 def test_expected_declarations():
     """The declarations themselves (plan D4)."""
-    assert hvac_const.HVAC_UNWIRED_METRICS == frozenset(
-        {"comfort_deviation_hours", "egress_pause_frequency"})
-    assert security_mod.SECURITY_UNWIRED_METRICS == frozenset({"entry_anomaly_score"})
+    # ANOMALY-METRIC-DISPOSITION-1 (2026-11-06) undeclared
+    # egress_pause_frequency and entry_anomaly_score.
+    assert hvac_const.HVAC_UNWIRED_METRICS == frozenset({"comfort_deviation_hours"})
+    assert security_mod.SECURITY_UNWIRED_METRICS == frozenset()
     assert presence_mod.PRESENCE_UNWIRED_METRICS == frozenset()
     assert safety_mod.SAFETY_UNWIRED_METRICS == frozenset()
     assert mf_mod.MUSIC_FOLLOWING_UNWIRED_METRICS == frozenset()

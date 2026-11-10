@@ -252,21 +252,10 @@ def test_security_metrics_alert_trigger_frequency_wired():
     )
 
 
-def test_security_metrics_entry_anomaly_score_suppressed():
-    """D2: Security silent metric entry_anomaly_score must appear in
-    SUPPRESSED_FROM_PERSISTENCE in security.py.
-
-    entry_anomaly_score is defined in SECURITY_METRICS but has no
-    record_observation call site — it is permanently silent.
-    """
-    src = _read("security.py")
-    assert "SUPPRESSED_FROM_PERSISTENCE" in src, (
-        "D2: security.py must define SUPPRESSED_FROM_PERSISTENCE for silent metrics"
-    )
-    assert "entry_anomaly_score" in src, (
-        "D2: entry_anomaly_score must appear in security.py SUPPRESSED_FROM_PERSISTENCE "
-        "— it has no record_observation call site"
-    )
+# test_security_metrics_entry_anomaly_score_suppressed (a source grep) was
+# removed by ANOMALY-METRIC-DISPOSITION-1 (2026-11-06): entry_anomaly_score is
+# no longer declared. Behavioural replacement:
+# test_anomaly_undeclare_dead_metrics.py.
 
 
 def test_security_uses_function_local_anomaly_event_import():

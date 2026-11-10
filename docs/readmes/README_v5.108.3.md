@@ -41,3 +41,11 @@ Every decision writes a `boot_recheck` diagnostic record (`decision` = `engage` 
 | A manual unlock during an engaged episode writes `garage_manual_unlock` to the regime Store | `.storage` file of the lock regime Store: key `garage_manual_unlock` = episode; `manual_unlock` diagnostic record | pending |
 | A restart in the same episode after a manual unlock leaves the lockout unlocked | `boot_recheck` record with `decision=manual_unlock_remembered`; no `lock.lock` call | pending (occurs only if the operator unlocks by hand) |
 | The mark clears at the next wake / home / arriving edge | Store key `garage_manual_unlock` = null after the edge | pending |
+
+## Validated 2026-11-10 (restart 12:11 CST, v5.108.5 bundle)
+Master lockout `switch.ura_security_coordinator_garage_lockout` is OFF, so the recheck is inert by design.
+| Criterion | Result | Evidence |
+|---|---|---|
+| Master OFF: no boot_recheck record, no lock call | PASS | no `boot_recheck` log line or `ura_activity_log` action after restart (lock service calls not independently checked) |
+| boot_recheck decision ~120 s after restart (master ON) | PENDING | needs master ON |
+| Vacation catch-up; manual unlock stored; remembered after restart; mark cleared at wake/home | PENDING | need those events |

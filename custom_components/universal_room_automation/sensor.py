@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.108.5
+# Universal Room Automation vv5.108.6
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -7666,6 +7666,9 @@ class SecurityLastLockSweepSensor(AggregationEntity, SensorEntity):
             "unavailable": sweep.get("unavailable", []),
             # SC-LOCK-SWEEP-EXCLUDE-1: registered locks the sweep skipped.
             "excluded": sweep.get("excluded", []),
+            # SECURITY-LOCK-SWEEP-RETRY-CAP-1: devices the sweep stopped
+            # commanding after the retry cap (until they change state).
+            "retry_capped": sweep.get("retry_capped", []),
             "checks_today": sweep.get("checks_today", 0),
         }
 

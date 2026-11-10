@@ -371,3 +371,14 @@ def test_g7_sweep_excluded_read_failure_excludes_nothing():
 
     w.hass.config_entries.async_entries = boom
     assert sc._sweep_excluded() == set()
+
+
+def test_last_lock_sweep_sensor_exposes_retry_capped():
+    """SECURITY-LOCK-SWEEP-RETRY-CAP-1 x exclude merge (review LOW 1)."""
+    sensor_mod = load("sensor")
+    w, sc = make_sc()
+    sc._last_lock_sweep = {"timestamp": "2026-11-08T08:00:00+00:00", "retry_capped": [DOOR]}
+    w.hass.data[const.DOMAIN]["coordinator_manager"] = SimpleNamespace(coordinators={"security": sc})
+    ent = sensor_mod.SecurityLastLockSweepSensor.__new__(sensor_mod.SecurityLastLockSweepSensor)
+    ent.hass = w.hass
+    assert ent.extra_state_attributes["retry_capped"] == [DOOR]

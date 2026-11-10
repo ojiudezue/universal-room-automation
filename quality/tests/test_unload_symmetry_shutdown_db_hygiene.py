@@ -94,10 +94,32 @@ def _hermetic_db_modules():
     )
     orig_db = _sys.modules.get(db_name)
     orig_cdiag = _sys.modules.get(cdiag_name)
+    # Parent-package attributes: `import a.b.c as m` binds through the
+    # parent attribute, not sys.modules. Restoring only sys.modules left a
+    # stale reloaded copy on the package (later `import ...database as
+    # dbmod` monkeypatches missed — test_house_energy_correctness).
+    _missing = object()
+    _parents = [
+        (db_name.rpartition(".")[0], "database"),
+        (cdiag_name.rpartition(".")[0], "coordinator_diagnostics"),
+    ]
+    orig_attrs = [
+        (pkg, attr, getattr(_sys.modules.get(pkg), attr, _missing))
+        for pkg, attr in _parents
+    ]
     _reload_db_modules()
     try:
         yield
     finally:
+        for pkg, attr, val in orig_attrs:
+            pkg_mod = _sys.modules.get(pkg)
+            if pkg_mod is None:
+                continue
+            if val is _missing:
+                if hasattr(pkg_mod, attr):
+                    delattr(pkg_mod, attr)
+            else:
+                setattr(pkg_mod, attr, val)
         if orig_db is not None:
             _sys.modules[db_name] = orig_db
         else:

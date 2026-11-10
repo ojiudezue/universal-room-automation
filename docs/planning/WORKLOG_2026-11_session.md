@@ -60,3 +60,4 @@
 - 2026-11-09 13:43 **v5.108.0** — v5.108.0 — Visitors present, and GUEST means a guest is staying (cards: GUEST-MODE-SPLIT-VISITORS-1)
 - 2026-11-09 16:39 **v5.108.1** — v5.108.1: Frigate events straight from MQTT, and the face bridge on the live prefix (cards: PERIMETER-FRIGATE-MQTT-DIRECT-1,FRIGATE-FACE-BRIDGE-DEAD-PREFIX-1)
 - 2026-11-10 12:09 **v5.108.5** — v5.108.5: guest stay exit day veto (cards: GUEST-LEFT-BUTTON-READY-1,LOCK-BOOT-RECHECK-ENGAGE-1,HVAC-GUEST-EVIDENCE-RULE-1,GUEST-STAY-EXIT-DAY-VETO-1)
+- 2026-11-10 17:51 **v5.108.6** — v5.108.6: Lock retry cap, optimizer meta never pages, dead anomaly metrics removed (cards: SECURITY-LOCK-SWEEP-RETRY-CAP-1,OPTIMIZER-META-NEVER-PAGES-1,ANOMALY-METRIC-DISPOSITION-1)
