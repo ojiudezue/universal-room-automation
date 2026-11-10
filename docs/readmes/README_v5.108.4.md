@@ -79,4 +79,5 @@ Proven only in-suite: the INV-SHADOW byte-identity of every producer output (gol
 |---|---|---|
 | L1 table exists | PASS | `hvac_evidence_shadow` present, 13 columns (id..details_json); not diffed against plan DDL text |
 | L6 no shadow ERROR/WARNING, no new activity actions | PASS | 0 shadow log lines 12:11-12:24; only existing `shadow_cycle_summary` action |
-| L2-L5, L7 | PENDING | 0 rows at 12:24 (boot exclusion ended ~12:23; first exposure flush after 30 min); needs 24 h + nightly prune |
+| L2 (evidence rule) | PASS | 17:27 CST: `episode/evidence` 9 rows, `exposure/evidence` 10 rows (latest exposure 23:27Z), flushing every 30 min |
+| L2 (night rule), L3-L5, L7 | PENDING | no `rule=night` rows yet (house not in night since restart); needs the first night + nightly prune |
