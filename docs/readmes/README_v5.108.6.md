@@ -45,3 +45,16 @@ Review: `docs/reviews/code-review/anomaly_undeclare_dead_metrics_review.md` (SHI
 - **Meta:** no `notification_log` rows titled `URA Optimizer — meta` after the restart.
 - **Anomaly:** `SELECT COUNT(*) FROM metric_baselines WHERE metric_name IN ('egress_pause_frequency','entry_anomaly_score')` = 0; `sensor.ura_security_coordinator_security_anomaly` `metrics_unwired == []` (pre-deploy: `partial`, `["entry_anomaly_score"]`); `sensor.ura_hvac_coordinator_hvac_anomaly` `metrics_unwired == ["comfort_deviation_hours"]` (pre-deploy: also `egress_pause_frequency`); one "Pruning ... orphaned baseline" INFO each for hvac and security.
 - **Load:** no URA ERROR after restart.
+
+## Validated 2026-11-10 (restart 17:52 CST, v5.108.6 via HACS)
+| Criterion | Result | Evidence |
+|---|---|---|
+| Dead metric rows pruned | PASS | `metric_baselines` count for `egress_pause_frequency`/`entry_anomaly_score` = 0 at 17:54 (INFO prune line not in the WARNING+ log window; the DB row count is the authoritative signal) |
+| Security anomaly leaves partial | PASS | `sensor.ura_security_coordinator_security_anomaly` = `nominal`, `metrics_unwired: []` (was `partial`, `["entry_anomaly_score"]`) |
+| HVAC anomaly as predicted | PASS (as expected) | `sensor.ura_hvac_coordinator_hvac_anomaly` = `partial`, `metrics_unwired: ["comfort_deviation_hours"]` (was also `egress_pause_frequency`) |
+| No meta pages | PASS so far | 0 `notification_log` rows titled `URA Optimizer…meta` since restart; discriminator is 7 days at disposition |
+| Lock sweep `retry_capped` attr | PENDING | `sensor.ura_security_coordinator_security_last_lock_sweep` = `unknown` until the first periodic sweep after boot |
+| Lock cap behaviour on a real failed lock | PENDING | needs a lock/close that does not take; proven in-suite (`test_security_lock_retry_cap.py`) |
+| Load clean | PASS | system_log: no URA ERROR; only the usual boot WARNINGs (room sensors unavailable hold, Bermuda fallback, perimeter `_2` siblings) |
+
+Pre-ship gate: serial full suite, base `pre-merge-v5.108.6` vs candidate: 18 vs 18 failures with identical names, +25 passes; the five cycle files 259 passed in isolation.
