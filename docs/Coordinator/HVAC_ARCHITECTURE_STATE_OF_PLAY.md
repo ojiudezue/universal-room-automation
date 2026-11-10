@@ -1,5 +1,7 @@
 # HVAC — Architecture State of Play (READ FIRST)
 
+**2026-11-10 (doc only):** §2 tick cite → `hvac.py:1692`; fast path marked SHIPPED v5.103.20 (C39). Plan `PLANNING_hvac_evidence_shadow_recording_2026_11.md` (HVAC-GUEST-EVIDENCE-RULE-1 phase 1, display-only shadow rows; not built).
+
 **2026-11-08 (built, `feature/ec-inclement-leftovers`, NOT deployed, display only — EC inclement leftovers D4):** `HVACPredictor.get_intent_attrs` TOU anchor (`anchor_period` / `anchor_starts_in_minutes`, read only by `sensor.py` display) now asks `energy_tou.above_bottom_rate` whether the next / current period ranks above the season's bottom rate (next period ranked in the season AT the transition) instead of the `("peak", "mid_peak")` literal; literal fallback when unrankable. Byte-identical on the PEC tariff. No HVAC decision reads these attrs.
 
 **2026-11-01 (built, `fix/zone-sweep-cleanup`, NOT deployed — HVAC-ZONE-SWEEP-PURPOSE-AND-FIXES-1):** zone vacancy sweep — the "46 · Vacancy Auto-Off" switch is now a master gate ANDed with each zone's own opt-out (it overwrote them before); `vacancy_sweeps_today` counts only sweeps that turned something off; one `vacancy_sweep` activity row per real sweep; a zone with an active pre-arrival keeps its fans (the sweep, not `_deactivate_zone_fans`, was turning off fans pre-arrival had lit 36–61 s earlier). New §4.2c "Zone vacancy sweep — gates"; §8 switch label fixed.
@@ -160,7 +162,7 @@ before doing a damned thing — to prevent drift and avoid compaction-driven err
 
 | Trigger | Site | Notes |
 |---|---|---|
-| Periodic tick, 5 min | `hvac.py:1356-1360` `async_track_time_interval(..., HVAC_DECISION_TICK)`; const `hvac_const.py:13` | "rung-1 module const, cloud API call-rate bound — change requires review" |
+| Periodic tick, 5 min | `hvac.py:1692-1695` `async_track_time_interval(..., HVAC_DECISION_TICK)` (re-verified 2026-11-10; was cited `:1356-1360`); const `hvac_const.py:13` | "rung-1 module const, cloud API call-rate bound — change requires review" |
 | Initial cycle at start | `hvac.py:1363` | |
 | Boot-settle release kick (1 s) | `hvac.py:1539-1547` `async_call_later(..., 1, self._async_decision_cycle)` | only when boot-settle suppressed ≥1 cycle |
 | House-state change | `hvac.py:3260` (`_handle_house_state_changed`, subscribed `hvac.py:1140`; lines re-verified 2026-09-26 after v5.103.16) | |
@@ -169,8 +171,9 @@ before doing a damned thing — to prevent drift and avoid compaction-driven err
 
 Consequences:
 - **Entry latency (UPDATED v5.103.20):** a fast run starts within `HVAC_FAST_PATH_SLA_S` (45 s) of the room's evidence refresh (usually < 5 s). With knob 47 = 1 an away-edge entry waits 60 s of persisted evidence first (D5, §9d). HISTORICAL (C18, before v5.103.20): 5–10 min — the first tick that saw occupancy also started the LIGHTING dwell clock (`current_session_start`) and skipped; dwell 0 (operator 2026-09-26) made it "wait for the next tick". The lighting-session dwell skip is now RETIRED (knob 47 drives D5).
-- The **occupancy fast path was DESIGNED, never built**: commit `82620357a` names `HVAC_DECISION_TICK=5min` as "a hard
-  floor on fast-in ... needs event-driven path"; `HVAC-SUPPLE-SEQUENCE-1` step 5 lists it as conditional. It lives in W2.
+- The **occupancy fast path SHIPPED in v5.103.20** (validated 09-29): `_setup_fast_path_listeners` (`hvac.py:5419`, called
+  from `async_setup` `:1519`) → `_on_room_refresh` (`:5823`) → zone-scoped fast runs (table row above). HISTORICAL: before
+  v5.103.20 it was designed only (commit `82620357a`, "a hard floor on fast-in ... needs event-driven path"). See C39.
 - Carrier cloud refresh after a write takes **42–79 s** (`hvac_override.py:147-150`); arrester temp-suppression is
   **15 s for temperature writes** (`SUPPRESS_TTL_SECONDS`, `hvac_override.py:133`, raised 5 -> 15 by HVAC-ARRESTER-NUDGE-ECHO-FALSE-OVERRIDE-1, 2026-09-26; measured Carrier echo lag 5.3-7.5 s, human-manual floor > 60 s) and **120 s for preset writes** (`SUPPRESS_TTL_SECONDS_PRESET`) — see C17, C23 — URA's own write echoes that arrive later than the window are still booked as overrides.
 
@@ -685,6 +688,8 @@ cause does not. Evidence: HA recorder state history for both entities, 09-23→0
 **C37 (2026-10-15, HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1) — WRONG: "D9 / Custom Preset Ranges is DORMANT (switch off)" (§1 summary; §8 switch row).** The switch has been on since 2026-10-02 21:28:45Z; zone_3 was added to `hvac_s10_rollout_zone_ids` 2026-10-13 and held through live validation; the parent card closed 2026-10-14. The §3.3 LIVE-STATE NOTE 2026-10-03 had it right; §1 and §8 were never updated. Also: the second §9 "9.7" (Zone 1 away feed-split) is renumbered 9.9 so section numbers are unique; and five "built, not deployed" labels corrected to their ship versions (anomaly-blind-metrics v5.103.25, labels/timer-attrs v5.103.22, Batch C v5.103.39 x2, W1-C P2 v5.103.40).
 
 **C38 (2026-10-15, HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1 SHIPPED) — WRONG: "mechanism UNDER MEASUREMENT; residual on §4.2 S10 row" (§4.2 S10 row prior to this build).** The two reachable paths (stale legs + landed write; unresolvable-activity + rejected write) are both GATED by `post_preset_change_settle` (observed-preset-change stamp on `ZoneState`, 600 s), inserted after `climate_unreadable` and strictly ahead of `s1_same_tick`. The failure-counter latch creep is closed by resetting `rec["failures"] = 0` in `_s10_success` on CONFIRMED success only (SKIPPED_ALREADY_CORRECT + limit-matching view) — APPLIED is a wire return and intentionally does NOT reset (ruling A4). R4 discharge: a once-per-day `s10_settle_held` ledger row + `get_s10_diagnostics()['s10_settle_held_s']` field on rollout zones. Two §9.7 → §9.9 code comments corrected (`hvac.py` ~3938 and ~5593).
+
+**C39 (2026-11-10, doc drift, code-verified) — WRONG: §2 "the occupancy fast path was DESIGNED, never built" and the periodic-tick cite `hvac.py:1356-1360`.** The fast path shipped in v5.103.20 (`_setup_fast_path_listeners` `hvac.py:5419`, `_on_room_refresh` `:5823`; this doc's own v5.103.20 header). The tick is registered at `hvac.py:1692-1695`. The other §2 line cites (initial cycle, boot-settle kick, house-state / pre-arrival handlers) were not re-verified in this pass. Found while planning `PLANNING_hvac_evidence_shadow_recording_2026_11.md`.
 
 ## 11. The approved arc (operator-approved 2026-09-26: "The workstreams are approved. Recard.")
 
