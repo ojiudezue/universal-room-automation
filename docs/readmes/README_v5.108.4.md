@@ -73,3 +73,10 @@ Rows go into a new table, `hvac_evidence_shadow`. They are batched (one `execute
 | L7 | First nightly maintenance runs the prune without error | log line `Pruned ... hvac_evidence_shadow` or none (nothing old yet), and no `Nightly hvac_evidence_shadow cleanup failed` |
 
 Proven only in-suite: the INV-SHADOW byte-identity of every producer output (golden), restart and zone-removal handling, the cap, and every verdict-query branch.
+
+## Validated 2026-11-10 (restart 12:11 CST, v5.108.5 bundle)
+| # | Result | Evidence |
+|---|---|---|
+| L1 table exists | PASS | `hvac_evidence_shadow` present, 13 columns (id..details_json); not diffed against plan DDL text |
+| L6 no shadow ERROR/WARNING, no new activity actions | PASS | 0 shadow log lines 12:11-12:24; only existing `shadow_cycle_summary` action |
+| L2-L5, L7 | PENDING | 0 rows at 12:24 (boot exclusion ended ~12:23; first exposure flush after 30 min); needs 24 h + nightly prune |

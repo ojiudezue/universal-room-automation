@@ -16,3 +16,8 @@ Shipped together with v5.108.3, v5.108.4 and v5.108.5 in one release and one res
 
 ## Live validation
 - **Live:** after the restart, `button.ura_presence_coordinator_guest_left` is not `unavailable`.
+
+## Validated 2026-11-10 (restart 12:11 CST, v5.108.5 bundle)
+| Criterion | Result | Evidence |
+|---|---|---|
+| Guest left button not unavailable after restart | PASS | `button.ura_presence_coordinator_guest_left` = `unknown` (never pressed), updated 18:12:24Z |
