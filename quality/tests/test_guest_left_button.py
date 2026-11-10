@@ -234,8 +234,10 @@ def test_press_overrides_day_veto(monkeypatch, tmp_path, proc_tz, store):
     P.occupy_day(db, P.E1, date(2026, 11, 5), 0.5)
     c = P.coord_with(monkeypatch, db)
     assert P.walk(c, P.at(2026, 11, 5)) is True         # vetoed
+    assert c._guest_stay_day_veto is not None
     press(c, P.at(2026, 11, 5, 9).astimezone(UTC))
     assert c._guest_stay_active is False
+    assert c._guest_stay_day_veto is None               # B LOW-2: cleared
     assert P.walk(c, P.at(2026, 11, 5, 10)) is False
     assert P.walk(c, P.at(2026, 11, 6)) is False
 

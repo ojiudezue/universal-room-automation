@@ -1904,6 +1904,10 @@ class PresenceCoordinator(BaseCoordinator):
         self._guest_stay_active: bool = False
         self._guest_stay_since: Optional[datetime] = None  # UTC
         self._guest_stay_basis: Any = []
+        # v5.108.5 Review B LOW-2: the exit day veto holding the latch on the
+        # LAST walked night ({"room", "night", "day_fraction"}), else None.
+        # Display only; written by the walk, cleared by the press.
+        self._guest_stay_day_veto: Optional[Dict[str, Any]] = None
         # Local date of the window END of the last night the walk used.
         self._guest_stay_evaluated_for: Optional[date] = None
         self._guest_stay_task: Optional[asyncio.Task] = None
@@ -6201,6 +6205,7 @@ class PresenceCoordinator(BaseCoordinator):
                 self._guest_stay_active = False
                 self._guest_stay_since = None
                 self._guest_stay_basis = {"error": str(err)}
+                self._guest_stay_day_veto = None
             # A-M1 / B-M2: do NOT stamp the night evaluated; retry after a
             # bounded backoff so one transient error does not cost the day.
             self._guest_stay_retry_at = now_local + timedelta(
@@ -6271,19 +6276,25 @@ class PresenceCoordinator(BaseCoordinator):
                 if scaled else 2.0
             )
 
-            def _day_vetoes(j: int) -> bool:
+            def _veto_room(j: int) -> Optional[tuple[str, float]]:
                 # Press beats veto with no filter here: the veto only acts
                 # on an active stay, a stay only starts on a post-press night,
                 # and n counts only post-press qualifying nights, so an exit
                 # window (x <= n nights, none qualifying) never reaches the
                 # first post-press night, the only one whose day can start
-                # before the press.
-                return any(
-                    float(drows[j][0]) >= veto_min
-                    for (_n, drows) in per_room.values()
-                )
+                # before the press. Returns the guest room with the highest
+                # day fraction >= veto_min on day j, else None.
+                hit: Optional[tuple[str, float]] = None
+                for room_name, (_n, drows) in per_room.items():
+                    f = float(drows[j][0])
+                    if f >= veto_min and (hit is None or f > hit[1]):
+                        hit = (room_name, f)
+                return hit
+
+            veto_held: Optional[Dict[str, Any]] = None
 
             for idx in range(lookback - 1, n_nights):
+                veto_held = None   # entry-reset: only the last night publishes
                 post_press = _after_press(idx)
                 # Review D LOW: nights that started before the press count
                 # toward neither entry (q) nor the exit length (n = q).
@@ -6320,10 +6331,22 @@ class PresenceCoordinator(BaseCoordinator):
                     # cap exceeds lookback. scaled False: x == lookback,
                     # exactly rev 5's q == 0.
                     x = min(exit_max, n) if scaled else lookback
+                    vetoes = [
+                        (j, hit) for j in range(idx - x + 1, idx + 1)
+                        if (hit := _veto_room(j)) is not None
+                    ]
                     if not any(
                         b[2] for b in best[idx - x + 1: idx + 1]
-                    ) and not any(
-                        _day_vetoes(j) for j in range(idx - x + 1, idx + 1)
+                    ) and vetoes:
+                        # Review B LOW-2: the veto is what holds the latch.
+                        j, (v_room, v_frac) = vetoes[-1]
+                        veto_held = {
+                            "room": v_room,
+                            "night": nights[j].isoformat(),
+                            "day_fraction": round(v_frac, 3),
+                        }
+                    elif not any(
+                        b[2] for b in best[idx - x + 1: idx + 1]
                     ):
                         active = False
                         since = None
@@ -6331,6 +6354,15 @@ class PresenceCoordinator(BaseCoordinator):
                         if not grace_stay:
                             ended_on = nights[idx]
                         grace_stay = False
+            prev_veto = self._guest_stay_day_veto
+            self._guest_stay_day_veto = veto_held
+            if veto_held is not None and veto_held != prev_veto:
+                _LOGGER.info(
+                    "Guest stay exit held by the day veto: %s day of night %s "
+                    "read %.3f >= %.2f (empty nights would have ended it)",
+                    veto_held["room"], veto_held["night"],
+                    veto_held["day_fraction"], veto_min,
+                )
             self._guest_stay_active = active
             self._guest_stay_since = since
             self._guest_stay_basis = [
@@ -6404,6 +6436,7 @@ class PresenceCoordinator(BaseCoordinator):
         self._guest_left_at = now_utc
         self._guest_stay_active = False
         self._guest_stay_since = None
+        self._guest_stay_day_veto = None
         _LOGGER.info(
             "Guest left button pressed at %s: stay latch cleared "
             "(reason guest_left_button)", now_utc.isoformat(),
