@@ -24,6 +24,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+import _sysmodules_scope
+
+# The custom_components package stubs + modules loaded below are this file's
+# only: sealed after the imports and re-installed by a module fixture, so
+# collection does not leak them into other files (2026-11-10).
+_SCOPE = _sysmodules_scope.ModuleScope(prefixes=("custom_components",))
+
 # ---------------------------------------------------------------------------
 # Module setup — mock HA before importing URA code
 # ---------------------------------------------------------------------------
@@ -182,6 +189,9 @@ from custom_components.universal_room_automation.domain_coordinators.hvac_fans i
     FanController,
     RoomFanState,
 )
+
+_SCOPE.seal()
+_scoped_sys_modules = _SCOPE.fixture()
 
 # NOTE — Bathroom-exhaust intelligence cycle: the v4.6.2.1 Path B humidity-fan
 # code in hvac_fans.py was removed (humidity fans are now exclusively
