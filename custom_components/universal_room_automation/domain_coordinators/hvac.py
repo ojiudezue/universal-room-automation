@@ -1579,6 +1579,7 @@ class HVACCoordinator(BaseCoordinator):
         # Initial zone update
         self._zone_manager.update_all_zones()
         self._zone_manager.update_room_conditions(house_state=self._house_state)
+        self._drain_hvac_evidence_shadow_rows()
         # HVAC-DEGRADED-ROOM-TRIPWIRE-1 REV-2 D3/F9: drain async NM events
         # queued by the sync producer (per-boot debounced inside ZM).
         await self._drain_hvac_degraded_room_events()
@@ -2337,6 +2338,7 @@ class HVACCoordinator(BaseCoordinator):
             away_edge_fn=self._zone_away_edge,
             return_window_s=self._return_window_s(),
         )
+        self._drain_hvac_evidence_shadow_rows()
         # HVAC-DEGRADED-ROOM-TRIPWIRE-1 REV-2 D3/F9: async NM emission
         # from the coordinator (never from the sync gate — no
         # create_task from a sync tick path).
@@ -5230,6 +5232,40 @@ class HVACCoordinator(BaseCoordinator):
         self._pending_tasks.add(task)
         task.add_done_callback(self._pending_tasks.discard)
 
+    def _drain_hvac_evidence_shadow_rows(self) -> None:
+        """E6 (HVAC-GUEST-EVIDENCE-RULE-1 phase 1, display only): hand the
+        rows the sync producer queued to the DB in ONE batched write,
+        fire-and-forget (never awaited on the decision path; the task is
+        tracked on `_pending_tasks`, cancelled at teardown). Called right
+        after each `update_room_conditions` caller (boot, tick, fast run).
+        No database -> rows dropped with one DEBUG line. Never raises."""
+        try:
+            rows = self._zone_manager.drain_shadow_rows()
+            if not rows:
+                return
+            from ..const import DOMAIN  # noqa: PLC0415
+            db = self.hass.data.get(DOMAIN, {}).get("database")
+            if db is None:
+                _LOGGER.debug(
+                    "HVAC evidence shadow: no database, %d row(s) dropped", len(rows),
+                )
+                return
+            try:
+                grace_s = self._exit_grace_seconds()
+            except Exception:  # noqa: BLE001
+                grace_s = None
+            for r in rows:
+                if r.get("row_type") == "episode":
+                    r.setdefault("details", {})["grace_s_at_close"] = grace_s
+            coro = db.log_hvac_evidence_shadow(rows)
+            # Duck-check (as the climate_write row, hvac_setpoint.py): a
+            # MagicMock database returns a non-coroutine.
+            import inspect  # noqa: PLC0415
+            if inspect.iscoroutine(coro):
+                self._track_task(self.hass.async_create_task(coro))
+        except Exception:  # noqa: BLE001 — diagnostic only
+            _LOGGER.debug("HVAC evidence shadow: drain failed", exc_info=True)
+
     async def _drain_hvac_degraded_room_events(self) -> None:
         """Emit NM notes for rooms newly classified EXCLUDED this pass.
 
@@ -5962,6 +5998,7 @@ class HVACCoordinator(BaseCoordinator):
                         away_edge_fn=self._zone_away_edge,
                         return_window_s=self._return_window_s(),
                     )
+                    self._drain_hvac_evidence_shadow_rows()
                     self._sync_arm_rechecks(zone)
                     _pa_reasons_fp: dict[str, str] = {}
                     if self._zone_intelligence_enabled:
