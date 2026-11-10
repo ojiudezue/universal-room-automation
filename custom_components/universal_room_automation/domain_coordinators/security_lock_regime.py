@@ -7,8 +7,12 @@ and never goes through ``SecurityCoordinator.evaluate()``.
 
 Policy owned this cycle: the two opener "remote lockout" locks.
   * Engage on a SLEEP / VACATION house-state edge, and on GUEST inside the
-    CM sleep window (toggle, Q-G1 option (a)). Edge-only: boot edges and
-    the kill switch OFF -> ON never engage (INV-5).
+    CM sleep window (toggle, Q-G1 option (a)). Boot edges and the kill
+    switch OFF -> ON never engage (INV-5); the one boot recheck
+    (LOCK-BOOT-RECHECK-ENGAGE-1) re-asks for SLEEP / GUEST night / VACATION.
+    A manual unlock during the current episode is remembered in the Store
+    (``garage_manual_unlock``) and the recheck never re-locks it (INV-5);
+    the mark clears at the house-state edge that ends the episode.
   * Release on wake / HOME_* / ARRIVING / morning backstop / any resident
     arrival (P1 person -> home, P2 SIGNAL_PERSON_ARRIVING, P5 proximity
     crossing, optional approach zone) / critical hazard / kill switch OFF /
@@ -188,6 +192,10 @@ class LockRegimeController:
         self.last_action: dict[str, Any] = {}
         self.missing_residents: list[str] = []
         self.reengage_at: str | None = None
+        # v5.108.3: engage reason of the episode in which a human unlocked a
+        # lockout (sleep / vacation / guest_night), else None. Persisted
+        # (Store key "garage_manual_unlock"); the boot recheck honours it.
+        self.manual_unlock_reason: str | None = None
 
         self._setup_ts: float | None = None
         self._torn_down = False
@@ -231,6 +239,8 @@ class LockRegimeController:
         self.away_lock_owned: set[str] = set()
         # entity -> ts a lock.lock was issued, until its read-back ran.
         self._away_engage_inflight: dict[str, float] = {}
+        # True while the SC-disable release unlocks (not a manual unlock).
+        self._disable_releasing: bool = False
         self._away_readback_unsubs: dict[str, Callable[[], None]] = {}
         self._away_dwell_unsub: Callable[[], None] | None = None
         self._away_pending_at: float | None = None
@@ -620,6 +630,11 @@ class LockRegimeController:
             elif house == "vacation":
                 self.reason = REASON_VACATION
                 self._cancel_backstop()
+        # LOCK-BOOT-RECHECK-ENGAGE-1: engage or release to match the house.
+        try:
+            self._boot_recheck_regime()
+        except Exception:  # noqa: BLE001 — never block the away-lock rearm
+            _LOGGER.exception("Lock regime: boot recheck decision failed")
         # D3e (H1): arm the away-lock dwell for the remainder, from the
         # persisted not_home stamps. Replayed boot edges never armed it.
         self._away_boot_discharge(self._cfg())
@@ -722,6 +737,17 @@ class LockRegimeController:
         if not self.kill_switch_on():
             return
         self.release_gen += 1
+        self._disable_releasing = True
+        try:
+            await self._garage_release_on_disable_loop(cfg)
+        finally:
+            self._disable_releasing = False
+        self.reason = REASON_NONE
+        self._clear_manual_unlock()
+
+    async def _garage_release_on_disable_loop(self, cfg: dict[str, Any]) -> None:
+        from ..const import GARAGE_LOCKOUT_TEARDOWN_RELEASE_TIMEOUT_S  # noqa: PLC0415
+
         for ent in self.lockout_entities(cfg):
             if _state_value(self._hass.states.get(ent)) != "locked":
                 continue
@@ -740,7 +766,6 @@ class LockRegimeController:
                     exc_info=True,
                 )
                 await self._notify_failure(ent, "sc_disabled", timeout=True)
-        self.reason = REASON_NONE
 
     # ------------------------------------------------------------------
     # Inputs
@@ -757,53 +782,174 @@ class LockRegimeController:
         if not new:
             return
         cfg = self._cfg()
+        kind, engage_reason = self._edge_decision(new, cfg)
+        if kind == "release":
+            # _after_release clears a remembered manual unlock (episode over).
+            self._release(f"house_state:{new}")
+            return
+        if kind == "none" and (new in _HOME_STATES or new == "waking"):
+            # Review B-2: an awake edge ends any episode even when reason is
+            # already NONE (hazard / kill switch / vacation arrival forced it):
+            # drop a remembered mark so it cannot leak into the next episode.
+            self._clear_manual_unlock()
+            return
+        if kind == "guest_yield_hold":
+            # INV-LOCK-1 (GUEST-MODE-SPLIT rev 5, build review B-M1): see
+            # _edge_decision.
+            self._record("guest_yield_hold", trigger="house_state:home_night", written=[])
+            return
+        if engage_reason is None:
+            return  # AWAY, GUEST outside the window or toggle OFF: inert
+        if not self.kill_switch_on():
+            return
+        self._set_engage_reason(engage_reason, cfg)
+        if self._in_boot_window():
+            # M1: boot replays (incl. boot_settle_override) rebuild only.
+            # LOCK-BOOT-RECHECK-ENGAGE-1: _on_boot_recheck re-asks.
+            self._record("boot_edge_rebuild", trigger=f"house_state:{new}", written=[])
+            return
+        # A live engage edge starts a new episode.
+        self._clear_manual_unlock()
+        self._request_engage(engage_reason, f"house_state:{new}")
+
+    def _edge_decision(self, new: str, cfg: dict[str, Any]) -> tuple[str, str | None]:
+        """What a house-state edge to ``new`` means for the lockouts.
+
+        Shared by ``on_house_state_changed`` and the boot recheck
+        (LOCK-BOOT-RECHECK-ENGAGE-1). Returns ``("release", None)``,
+        ``("guest_yield_hold", None)``, ``("engage", reason)`` or
+        ``("none", None)``. Pure: no command, no state change.
+        """
         if new == "waking":
             if self.reason in SLEEP_LIKE_REASONS:
-                self._release("house_state:waking")
-            return
+                return "release", None
+            return "none", None
         if (
             new == "home_night"
             and self.reason == REASON_GUEST_NIGHT
             and self._in_sleep_window(cfg)
         ):
-            # INV-LOCK-1 (GUEST-MODE-SPLIT rev 5, build review B-M1): the
-            # presence night yield takes GUEST -> HOME_NIGHT ~5 min after the
-            # guest-night clock locked. Hold the lock (lock once, at the
-            # guest-night clock); WAKING / HOME_DAY / HOME_EVENING / ARRIVING
-            # / resident arrival / the backstop still release. A manual
-            # override GUEST -> HOME_NIGHT in the window is held too (the
-            # regime cannot tell the two apart; accepted, plan R26).
-            self._record("guest_yield_hold", trigger="house_state:home_night", written=[])
-            return
+            # INV-LOCK-1: the presence night yield takes GUEST -> HOME_NIGHT
+            # ~5 min after the guest-night clock locked. Hold the lock (lock
+            # once, at the guest-night clock); WAKING / HOME_DAY /
+            # HOME_EVENING / ARRIVING / resident arrival / the backstop still
+            # release. A manual override GUEST -> HOME_NIGHT in the window is
+            # held too (the regime cannot tell the two apart; plan R26).
+            return "guest_yield_hold", None
         if new in _HOME_STATES:
             if self.reason != REASON_NONE:
-                self._release(f"house_state:{new}")
-            return
+                return "release", None
+            return "none", None
         if new == "arriving":
-            self._release("house_state:arriving")
-            return
-        engage_reason: str | None = None
+            return "release", None
         if new == "sleep":
-            engage_reason = REASON_SLEEP
-        elif new == "vacation":
-            engage_reason = REASON_VACATION
-        elif new == "guest":
-            if self._guest_toggle_on(cfg) and self._in_sleep_window(cfg):
-                engage_reason = REASON_GUEST_NIGHT
-        if engage_reason is None:
-            return  # AWAY, GUEST outside the window or toggle OFF: inert
-        if not self.kill_switch_on():
-            return
+            return "engage", REASON_SLEEP
+        if new == "vacation":
+            return "engage", REASON_VACATION
+        if new == "guest" and self._guest_toggle_on(cfg) and self._in_sleep_window(cfg):
+            return "engage", REASON_GUEST_NIGHT
+        return "none", None
+
+    def _set_engage_reason(self, engage_reason: str, cfg: dict[str, Any]) -> None:
         self.reason = engage_reason
         if engage_reason in SLEEP_LIKE_REASONS:
             self._schedule_backstop(cfg)
         else:
             self._cancel_backstop()
-        if self._in_boot_window():
-            # M1: boot replays (incl. boot_settle_override) rebuild only.
-            self._record("boot_edge_rebuild", trigger=f"house_state:{new}", written=[])
+
+    def _boot_recheck_regime(self) -> None:
+        """LOCK-BOOT-RECHECK-ENGAGE-1: "do I need to be locked now?".
+
+        Boot edges only rebuild ``reason`` (M1), so a restart during SLEEP
+        left unlocked lockouts unlocked, and a BOOT_UNKNOWN lock stayed on
+        in an awake house. At the recheck, drive the same decision a real
+        edge to the CURRENT house state would take (``_edge_decision``),
+        through the same engage (``_request_engage``) and release
+        (``_release``) paths. No command when the state is already correct.
+        """
+        if not self.kill_switch_on():
             return
-        self._request_engage(engage_reason, f"house_state:{new}")
+        house = self._house_state()
+        if not house or house in _UNREAL_STATES:
+            _LOGGER.debug("Lock regime: boot recheck skipped, house state %s", house)
+            return
+        cfg = self._cfg()
+        vals = {e: _state_value(self._hass.states.get(e)) for e in self.lockout_entities(cfg)}
+        locked = sorted(e for e, v in vals.items() if v == "locked")
+        unlocked = sorted(e for e, v in vals.items() if v == "unlocked")
+        if (
+            self.reason == REASON_BOOT_UNKNOWN
+            and house == "home_night"
+            and self._guest_toggle_on(cfg)
+            and self._in_sleep_window(cfg)
+        ):
+            # INV-LOCK-1: a lock found at boot in a home_night sleep window
+            # with the guest toggle on may be the guest-night lock after the
+            # yield. Treat it as one: hold now; later edges / backstop release.
+            self.reason = REASON_GUEST_NIGHT
+        kind, engage_reason = self._edge_decision(house, cfg)
+        remembered = self.manual_unlock_reason
+        ended = kind == "release" or (
+            kind != "guest_yield_hold"
+            and (house in _HOME_STATES or house in ("waking", "arriving"))
+        )
+        if remembered is not None and (
+            ended or (kind == "engage" and engage_reason != remembered)
+        ):
+            # The remembered episode ended across the restart.
+            self._clear_manual_unlock()
+            remembered = None
+        decision = "no_change"
+        act: Callable[[], None] | None = None
+        if kind == "release":
+            if self.reason == REASON_BOOT_UNKNOWN and locked:
+                decision = "release"
+                act = functools.partial(self._release, "boot_recheck")
+        elif kind == "guest_yield_hold":
+            decision = "guest_yield_hold"
+        elif kind == "engage" and engage_reason is not None:
+            if not unlocked:
+                decision = "already_locked"
+                if self.reason in (REASON_NONE, REASON_BOOT_UNKNOWN):
+                    self._set_engage_reason(engage_reason, cfg)
+            elif engage_reason in (REASON_SLEEP, REASON_GUEST_NIGHT) and not (
+                self._in_sleep_window(cfg)
+                and self._backstop_delay_s(cfg, allow_immediate=True) > 0
+            ):
+                # Review A HIGH: a house still reading SLEEP after the
+                # backstop deadline (no wake edge) must not re-lock and push
+                # the backstop to tomorrow (locked all day).
+                decision = "past_backstop_no_catchup"
+            elif remembered == engage_reason:
+                # INV-5 (operator 2026-11-10, option B): a manual unlock in
+                # this episode was persisted; a restart never re-locks it.
+                # The reason is rebuilt so later edges / backstop behave.
+                decision = "manual_unlock_remembered"
+                if self.reason in (REASON_NONE, REASON_BOOT_UNKNOWN):
+                    self._set_engage_reason(engage_reason, cfg)
+            elif self._arrival_since_setup():
+                # An arrival inside the boot-arrival window released (or
+                # would have); the re-engage machinery owns re-locking.
+                decision = "arrival_suppressed"
+            else:
+                decision = "engage"
+                self._set_engage_reason(engage_reason, cfg)
+                act = functools.partial(
+                    self._request_engage, engage_reason, "boot_recheck"
+                )
+        self._record(
+            "boot_recheck", trigger=f"boot_recheck:{house}", written=[],
+            extra={"decision": decision, "locked": locked, "unlocked": unlocked},
+        )
+        if act is not None:
+            act()
+
+    def _arrival_since_setup(self) -> bool:
+        """A resident arrival released (or tried to) since setup."""
+        setup = self._setup_ts if self._setup_ts is not None else 0.0
+        return any(
+            float(info.get("at", 0.0)) >= setup for info in self.releasing_set.values()
+        )
 
     @callback
     def _on_guest_clock(self, _now: Any = None) -> None:
@@ -877,9 +1023,14 @@ class LockRegimeController:
         """Critical smoke/fire/CO with egress unlock configured."""
         if self._torn_down:
             return
+        # Review B-1: remember the episode so a restart in the same episode
+        # (power loss during a fire is plausible) never re-locks via the
+        # boot catch-up. Captured before reason is forced to NONE.
+        episode = self._episode_reason()
         self._cancel_reengage()
         self._release("hazard")
         self.reason = REASON_NONE
+        self._remember_episode_released(episode)
         self._away_release("hazard")
 
     def on_kill_switch_changed(self, enabled: bool, key: str | None = None) -> None:
@@ -898,10 +1049,15 @@ class LockRegimeController:
             return
         if self._torn_down or enabled:
             return
+        # Review B-5: OFF -> ON never catches up (INV-5), including across a
+        # restart in the same episode: remember the episode like a manual
+        # unlock. A later new episode (a live engage edge) clears it.
+        episode = self._episode_reason()
         self._cancel_reengage()
         self._cancel_backstop()
         self._release("kill_switch_off", force=True)
         self.reason = REASON_NONE
+        self._remember_episode_released(episode)
 
     def _subscribe_person(self, pid: str) -> None:
         if pid in self._person_unsubs:
@@ -1213,8 +1369,59 @@ class LockRegimeController:
 
     @callback
     def _on_lockout_event(self, event: Any) -> None:
-        if _state_value(event.data.get("new_state")) == "locked":
-            self._engage_inflight.pop(event.data.get("entity_id", ""), None)
+        ent = event.data.get("entity_id", "")
+        new_val = _state_value(event.data.get("new_state"))
+        if new_val == "locked":
+            self._engage_inflight.pop(ent, None)
+            return
+        if (
+            new_val == "unlocked"
+            and _state_value(event.data.get("old_state")) == "locked"
+            and ent not in self._release_inflight
+            and not self._disable_releasing
+        ):
+            self._note_manual_unlock(ent)
+
+    def _episode_reason(self) -> str | None:
+        """Engage reason of the current lock episode, or None."""
+        if self.reason in (REASON_SLEEP, REASON_VACATION, REASON_GUEST_NIGHT):
+            return self.reason
+        if self.reason == REASON_BOOT_UNKNOWN:
+            house = self._house_state()
+            if house == "sleep":
+                return REASON_SLEEP
+            if house == "vacation":
+                return REASON_VACATION
+            if house in ("guest", "home_night"):
+                return REASON_GUEST_NIGHT
+        return None
+
+    def _note_manual_unlock(self, ent: str) -> None:
+        """A human unlocked a lockout (not our release): remember it for the
+        episode so a restart's boot recheck does not re-lock it (INV-5)."""
+        episode = self._episode_reason()
+        if episode is None:
+            return
+        self._record("manual_unlock", trigger="manual_unlock", written=[],
+                     extra={"entity": ent, "episode": episode})
+        if self.manual_unlock_reason != episode:
+            self.manual_unlock_reason = episode
+            self._save_store()
+
+    def _remember_episode_released(self, episode: str | None) -> None:
+        """Hazard / kill-switch-off / vacation-arrival ended the lock for
+        this episode: persist it like a manual unlock so the boot recheck
+        does not re-lock in the same episode (review B-1/B-3/B-5)."""
+        if episode is None:
+            return
+        if self.manual_unlock_reason != episode:
+            self.manual_unlock_reason = episode
+            self._save_store()
+
+    def _clear_manual_unlock(self) -> None:
+        if self.manual_unlock_reason is not None:
+            self.manual_unlock_reason = None
+            self._save_store()
 
     def _lock_in_flight(self, ent: str, val: str | None) -> bool:
         """True while a lock.lock we issued may still land (review A L2).
@@ -1236,16 +1443,22 @@ class LockRegimeController:
         is_arrival = person is not None or trigger.startswith("proximity:")
         if trigger.startswith("house_state:") or trigger in (
             "backstop",
+            "boot_recheck",
         ):
             self._cancel_reengage()
             self._cancel_backstop()
             self.reason = REASON_NONE
             self.releasing_set.clear()
+            # Episode over (edge / morning backstop / boot recheck release).
+            self._clear_manual_unlock()
             return
         if is_arrival:
             if self.reason == REASON_VACATION:
                 self.reason = REASON_NONE
                 self._cancel_reengage()
+                # Review B-3: the house can still read VACATION (min dwell);
+                # a restart must not re-lock with the resident home.
+                self._remember_episode_released(REASON_VACATION)
             elif self.reason in (REASON_SLEEP, REASON_GUEST_NIGHT) and (
                 self._in_sleep_window(cfg)
             ):
@@ -2008,6 +2221,7 @@ class LockRegimeController:
             "away_not_home_since": dict(sorted(self._away_not_home_since.items())),
             "away_lock_inflight": sorted(self._away_engage_inflight),
             "away_attempted_marker": self._away_attempted_marker,
+            "garage_manual_unlock": self.manual_unlock_reason,
         }
 
     def _save_store(self) -> None:
@@ -2038,6 +2252,13 @@ class LockRegimeController:
         inflight = data.get("away_lock_inflight")
         if isinstance(inflight, list):
             self._away_inflight_restored = {o for o in inflight if isinstance(o, str) and o}
+        manual = data.get("garage_manual_unlock")
+        # Missing / corrupt -> None: fail secure (the recheck may re-lock).
+        self.manual_unlock_reason = (
+            manual
+            if manual in (REASON_SLEEP, REASON_VACATION, REASON_GUEST_NIGHT)
+            else None
+        )
         marker = data.get("away_attempted_marker")
         if isinstance(marker, (int, float)) and not isinstance(marker, bool):
             self._away_attempted_marker = float(marker)
