@@ -1,237 +1,454 @@
-# PLANNING: HVAC evidence-rule shadow recording (display only)
+# PLANNING: HVAC evidence-rule shadow recording (display only), rev 2
 
 **Card:** HVAC-GUEST-EVIDENCE-RULE-1, phase 1. **Operator approval:** 2026-11-10, "HVAC recording ok".
-**Tier:** 2, with one adversarial plan review before build (see §8).
+**Rev 2 (2026-11-10):** revised for the plan review `docs/reviews/code-review/PLANREVIEW_hvac_evidence_shadow_recording.md` (FIX-PLAN, F1-F13). The finding-to-fix map is in §12.
+**Tier:** **2-DB** (rev 2 adds a small table, §8). One plan review is done; this revision answers it.
 **Source audit:** `docs/planning/AUDIT_guest_onset_thresholds_and_hvac_evidence_states_2026_11_10.md` Part 2 (§2.5 item 1 is this plan).
 
 ## 0. Goal and shape
 
-In every house state OUTSIDE `HVAC_EVIDENCE_RULE_STATES` (`hvac_const.py:1097`, `("home_day","home_evening")`), compute what the evidence rule WOULD decide for each room, roll it up per zone, and record each zone-level divergence against the decision HVAC actually used. Change no actuation. After the next guest stay, one SQL query (§7) labels each state SAFE / NOT SAFE / INSUFFICIENT.
+In every house state OUTSIDE `HVAC_EVIDENCE_RULE_STATES` (`hvac_const.py:1097`, `("home_day","home_evening")`), compute what the evidence rule WOULD decide per room, roll it up per zone, and record each zone-level divergence from the decision HVAC actually used. Record the exposure as well. Change no actuation. After the next guest stay, one SQL query (§7) labels each state SAFE / NOT SAFE / INSUFFICIENT.
 
-The evidence states are recorded too, as the reference arm. There the evidence rule is live and the legacy shadow is the counterfactual, so the same row shape gives the home_day baseline that the other states are compared against, measured in-system and not reconstructed (the audit's model error was 4.3 % / 2.0 %, §2.2).
+The evidence states are recorded too, as the reference arm. There the evidence rule is live and the legacy shadow is the counterfactual. The same row shape therefore gives an in-system home_day baseline, not the audit's reconstruction (model error 4.3 % / 2.0 %, audit §2.2).
 
-One new behaviour: rows in `ura_activity_log` with `action = 'hvac_evidence_shadow'`. No new table, entity, attribute, signal or config field.
+New behaviour, all of it diagnostic:
+- one new table `hvac_evidence_shadow`, with episode rows and daily exposure rows;
+- its nightly prune.
+
+No entity, attribute, signal, config field, bus event or `ura_activity_log` row is added.
 
 ## 1. Institutional context verified
 
-**Read completely:** `docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md` (all 727 lines, 2026-11-10; §2 drift fixed in the same commit, see §10). The audit above (all 169 lines). Presence is not touched: the plan reads the room evidence stamp HVAC already reads; it changes no presence producer.
+**Read completely:**
+- `docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md` (all lines, 2026-11-10; the §2 drift was fixed in `60b423a1`, C39);
+- the audit above (all 169 lines);
+- the plan review (all of it).
 
-**Prior planning docs:** `PLANNING_hvac_fast_occupancy_response.md` (REV 7; defines the evidence rule, INV-5 "shadow untouched", D5), `AUDIT_hvac_raw_evidence_gaps_2026_09_26.md` (the measurement behind the two evidence states), `AUDIT_exit_evidenced_vacancy_probe.md` (skimmed header, no overlap), `PLANNING_baec_config_flow_and_shadow_eval.md` (energy shadow, different domain; not reusable).
+Presence is not touched: the plan reads the room evidence stamp that HVAC already reads.
 
-### 1.1 Prior-art scan of shadow and diagnostic surfaces (hvac_zones.py, hvac.py, DB)
+**Prior planning docs:**
+- `PLANNING_hvac_fast_occupancy_response.md` REV 7: the evidence rule, INV-5 "shadow untouched", D5.
+- `AUDIT_hvac_raw_evidence_gaps_2026_09_26.md`.
+- `AUDIT_exit_evidenced_vacancy_probe.md` (header skim, no overlap).
+- `PLANNING_baec_config_flow_and_shadow_eval.md` (energy shadow, not reusable).
+- W1-C P1 golden precedent (State of Play W1-C P1 note, `quality/tests/golden/w1c_p1_goldens.json`).
 
-| Surface | Site | What it holds | Verdict |
-|---|---|---|---|
-| Legacy shadow machine `_shadow_hvac_occupied` | `hvac_zones.py:2133`, called `:1561` on every pass in every state | the v5.103.19 output, `_hvac_armed` / `_hvac_tail_until` | **REUSED** as the legacy side in evidence states. Already runs everywhere; nothing added to it |
-| `_hvac_last_ev` / `_hvac_last_active` | written `hvac_zones.py:1632-1633` BEFORE the early return | last evidence time + active flag, every state | **REUSED** as the evidence-rule inputs in legacy states |
-| `_evidence_hold_seconds` | `hvac_zones.py` (called `:1650`) | per-room-type evidence hold | **REUSED**, called read-only for the shadow term |
-| Legacy early return | `hvac_zones.py:1634-1647` (`if rule == "legacy": ... return shadow_out`) | ends the function before `ev_out` exists | **The blocker.** The shadow term is computed before it (D1) |
-| Night rule `ev_out` | `hvac_zones.py:1659-1660`, OR-ed at `:1696` | evidence term in sleep/waking | **REUSED**: captured before the OR |
-| `hvac_occupied_diag` | `hvac_zones.py:2685` → `binary_sensor.py:959-968` attrs | per-room diagnostic incl. `shadow_armed`/`shadow_source` | **NOT extended.** Any key added here publishes on ~43 recorded entities (recorder churn, see State of Play header 2026-10-20). Non-goal |
-| Zone status attrs (`transit_filtered_today`, `pending_hold_s_today`) | `hvac_zones.py:1190-1212` | daily counters on `sensor.ura_hvac_coordinator_zone_{n}_status` | **NOT used.** Recorder keeps 8 days (audit §2.1); a guest stay plus the decision delay can exceed that. A counter also loses the per-episode outcome |
-| `ura_activity_log` | DDL `database.py:1719-1735`; writer `ActivityLogger.log` (`activity_logger.py:63`) → `database.log_activity` `database.py:6925`; prune `database.py:6962` (info 7 d, notable 30 d, retained-actions exempt) | free-form `details_json`, zone, importance | **REUSED.** HVAC already writes episode rows here (`pending_hold_capped` `hvac.py:5540-5575`, same pattern) |
-| `ACTIVITY_LEDGER_RETAINED_ACTIONS` | `const.py:5440` | actions never pruned | **REUSED** (one entry added, D3) |
-| `house_state_log` | DDL `database.py:1494`; never pruned (no `DELETE FROM house_state_log`) | state transitions | **REUSED** as the exposure denominator in the query |
-| `decision_log` | `database.py:1148` | coordinator decisions with action_json | rejected: a decision row per divergence would read as an actuation in every consumer of decision_log |
-| `optimizer_shadow_samples` | `database.py:1343` | optimizer `(dimension, target_id, matched)` | rejected: no duration / outcome / house state; owned by the optimizer |
+### 1.1 Prior-art scan of shadow, diagnostic and persistence surfaces
+
+| Surface | Site | Verdict |
+|---|---|---|
+| Legacy shadow `_shadow_hvac_occupied` | `hvac_zones.py:2133`, called `:1561` on every pass in every state | **REUSED** as the legacy side. Nothing added to it |
+| `_hvac_shadow_release_at` (exact legacy release instant per room) | `hvac_zones.py:348`, written `:1567-1576` | **REUSED** for release timing (F2). Rev 1 missed it |
+| `_hvac_last_ev` / `_hvac_last_active` | written `:1632-1633`, before the early return | **REUSED** as the evidence inputs |
+| `_evidence_hold_seconds` | called `:1650` | **REUSED**, read-only |
+| Legacy early return | `hvac_zones.py:1634-1647` | **The blocker.** The shadow term is computed before it (E1) |
+| Live `_d5_update` | `:1672-1693` | **NOT called** by the shadow (it writes D5 dicts). D5 is handled by exclusion instead (§3.3) |
+| `hvac_occupied_diag` | `:2685` → `binary_sensor.py:959-968` | **NOT extended** (recorder churn on ~43 entities) |
+| Zone status daily counters | `:1190-1212` | **NOT used** (8-day recorder; no outcome field) |
+| Degraded-events queue/drain (sync producer → async side-effect) | `_pending_degraded_events` `hvac_zones.py:404`, `drain_degraded_events` `:2415`; `hvac.py:2341` "no create_task from a sync tick path" | **REUSED pattern** for the writes (F11, §5 D3) |
+| `climate_write` direct DB write (bypasses ActivityLogger) | `hvac_setpoint.py:285-306` | **REUSED pattern**: direct `database` call, fire-and-forget, coroutine duck-check (F3) |
+| `ura_activity_log` + `ACTIVITY_LEDGER_RETAINED_ACTIONS` | `database.py:1719`; `const.py:5434-5445` | **REJECTED** (F3, F4). Its own budget rule (`const.py:5434-5436`: "<= ~1,000 rows/yr, revisit with a dedicated table above 5,000/yr") points to a dedicated table at this plan's ~20k rows/yr. Writing there also reaches `URALastActivitySensor` (`sensor.py:15150-15240`, a live v8 tile), the `ura_action` bus event and `ura/logs/subscribe` |
+| `optimizer_shadow_samples` + `prune_optimizer_shadow_samples` + nightly registration | `database.py:1343`, `:7636`; `nightly_maintenance.py:56` | **REUSED pattern** for the new table's DDL, batched prune and nightly hook. The table itself is rejected (no duration/outcome/state; optimizer-owned) |
+| `house_state_log` | `database.py:1494` | **No longer used** as the denominator (F1, F13). In-system exposure rows replace it |
+| `decision_log` | `database.py:1148` | rejected: reads as an actuation |
+| Zone-delete purge | `database.py:9986` (`DELETE ... WHERE zone = zone_name`, house-zone NAME) | **Not extended** (§5 D3, "Orphans") |
 
 ### 1.2 Per-addition REUSED / NEW
 
 | Addition | Verdict | Grep |
 |---|---|---|
-| Action `hvac_evidence_shadow` (+ `hvac_evidence_shadow_capped`) | NEW action name in an existing table | `grep -rn "evidence_shadow\|shadow_divergen" custom_components docs/planning` → 0 hits |
-| `HVAC_EVIDENCE_SHADOW_ENABLED` (kill switch) | NEW const | `grep -n "SHADOW" domain_coordinators/hvac_const.py const.py` → no HVAC-occupancy shadow const |
-| `HVAC_EVIDENCE_SHADOW_MIN_EPISODE_S` | NEW const | no episode-length floor for occupancy rows exists |
-| `HVAC_EVIDENCE_SHADOW_MAX_ROWS_PER_ZONE_DAY` | NEW const | no per-zone row cap exists in HVAC ledger code |
-| Room dict `_hvac_ev_shadow_out`, zone dict `_ev_shadow_ep`, `_ev_shadow_rows_today` | NEW RAM state on `ZoneManager` | the existing dicts listed `hvac_zones.py:339-375` all feed live decisions; none may be reused (invariant §2) |
-| Exposure denominator | REUSED `house_state_log` | — |
+| Table `hvac_evidence_shadow` | NEW (dedicated table, per the `const.py:5434` rule) | `grep -n "evidence_shadow" database.py` → 0 |
+| `prune_hvac_evidence_shadow` + `nightly_maintenance` entry | NEW method on the existing pattern | — |
+| `HVAC_EVIDENCE_SHADOW_ENABLED`, `_MIN_EPISODE_S`, `_MAX_ROWS_PER_ZONE_DAY`, `_RETENTION_DAYS`, `_BOOT_EXCLUDE_S` | NEW rung-1 consts in `hvac_const.py` | `grep -n "SHADOW" hvac_const.py const.py` → none for HVAC occupancy |
+| RAM dicts on `ZoneManager`: `_hvac_ev_shadow_out`, `_hvac_legacy_shadow_out`, `_ev_shadow_pass_rooms`, `_ev_shadow_ep`, `_ev_shadow_expo`, `_ev_shadow_rows_today`, `_ev_shadow_pending_rows` | NEW. Seven names; rev 1 said three and missed the legacy-output dict (F5) | the existing dicts at `hvac_zones.py:339-375` all feed live decisions; none may be reused |
 
 ## 2. Falsifiable invariant (byte-identical actuation)
 
-**INV-SHADOW.** For any sequence of producer inputs (room data, evidence stamps, refresh results, house states, zone_ids filters, entry-dwell / return-window values), in ANY house state, the following are identical with `HVAC_EVIDENCE_SHADOW_ENABLED = True` and `False`:
-- every `RoomCondition.hvac_occupied` and `zone.any_room_hvac_occupied`;
-- every pre-existing `ZoneManager` dict the producer writes: `_hvac_output`, `_hvac_rule`, `_hvac_day_release_at`, `_hvac_ev_released_at`, `_hvac_pending`, `_hvac_cold`, `_hvac_exempt_reason`, `_hvac_arm_onset`, `_hvac_ep_armed`, `_hvac_armed_at`, `_hvac_arm_class`, `_hvac_arm_span_s`, episode dicts, `transit_filtered_today`, and the shadow machine's `_hvac_armed` / `_hvac_tail_until` / `_hvac_arm_source` / `_hvac_shadow_release_at`;
-- `zone.last_occupied_time`, `continuous_occupied_since`, `zone_release_at`, `room_release_at`, exit-timer arming, and every S1 / row-1 / D6 / D7 / sweep decision and `climate_write` row.
+**INV-SHADOW.** Take any sequence of producer inputs: room data, evidence stamps, refresh results, house states, `zone_ids` filters, entry-dwell / return-window values, and coordinator-absent and hallway rooms. In ANY house state, the following are identical to a **golden captured on pre-build source** (F10). This holds with `HVAC_EVIDENCE_SHADOW_ENABLED = True` AND with `False`.
 
-The ONLY differences are the three new dicts of §1.2 and `ura_activity_log` rows whose action is `hvac_evidence_shadow` or `hvac_evidence_shadow_capped`.
+- Every `RoomCondition.hvac_occupied`, plus `zone.any_room_hvac_occupied`.
+- Every pre-existing `ZoneManager` dict the producer writes:
+  - `_hvac_output`, `_hvac_rule`, `_hvac_day_release_at`, `_hvac_ev_released_at`;
+  - `_hvac_pending`, `_hvac_cold`, `_hvac_exempt_reason`;
+  - `_hvac_arm_onset`, `_hvac_ep_armed`, `_hvac_armed_at`, `_hvac_arm_class`, `_hvac_arm_span_s`, `_hvac_dwell_s`;
+  - the episode dicts and `transit_filtered_today`;
+  - the shadow's `_hvac_armed`, `_hvac_tail_until`, `_hvac_arm_source` and `_hvac_shadow_release_at`.
+- `zone.last_occupied_time`, `continuous_occupied_since`, `zone_release_at`, `room_release_at`.
+- Exit-timer arming, every S1 / row-1 / D6 / D7 / sweep decision, and every `climate_write` row.
 
-**How to break it (what D-style review should try):** the shadow term writes `_hvac_day_release_at` (the live code at `:1653` does, and a copy-paste would too; `zone_release_at` reads it); the shadow term calls `_d5_update` (writes D5 dicts and `transit_filtered_today`); the shadow is computed AFTER the early return mutates state; a recorder exception propagates out of `update_room_conditions`; the new zone loop runs before the rollup and reads a partly-built `room_conditions`.
+The ONLY differences allowed are the seven dicts of §1.2 and rows in `hvac_evidence_shadow`.
+
+**How to break it.** D-style review should try each of these:
+- the shadow term writes `_hvac_day_release_at` (the live line `:1653` does);
+- the shadow calls `_d5_update`;
+- the shadow is computed after the early return mutates state;
+- a tracker exception propagates out of `update_room_conditions`;
+- the tracker runs before the rollup;
+- the tracker or the drain awaits inside the producer;
+- a live line inside `:1561-1747` is edited "harmlessly". The golden catches this; a const on/off diff would not.
 
 ## 3. Producer and consumer checks
 
-### 3.1 Value 1: room shadow evidence output `ev_shadow(room)`
+### 3.1 Value 1: room shadow outputs (per pass)
 
-**Producer.** `active' OR (last_ev is not None AND now < last_ev + hold_ev)`, where `active' = evidence_active if refresh_ok is not False else False` and `hold_ev = _evidence_hold_seconds(room_type, override_day)`. This is the evidence rule's own term, `hvac_zones.py:1650-1660`, WITHOUT:
-- the refresh-failure hold (`:1661-1669`, evidence-only by design; in a legacy state a failed refresh makes the shadow read empty after the hold, which records a "less" episode a live evidence rule would have bridged for up to `HVAC_EVIDENCE_REFRESH_FAIL_HOLD_S`). The row carries `refresh_failed_rooms` so the query can drop them;
-- D5 (`:1672-1693`). D5 only delays ARMING after an away edge; it cannot make a room read occupied later than its evidence hold, so leaving it out can only make the shadow MORE occupied at entry, never change a release. Recorded as a known bias (fewer "more" episodes), irrelevant to the unsafe "less → resumed" signal.
+**`ev_shadow(room)`.** Computed as `active' OR (last_ev is not None AND now < last_ev + hold_ev)`, where:
+- `active' = evidence_active if refresh_ok is not False else False`;
+- `hold_ev = _evidence_hold_seconds(room_type, override_day)`.
 
-Dependencies and health: `last_evidence` comes from the room coordinator's one stamp `_stamp_hvac_evidence` (State of Play §3.1), live in all states since v5.103.20; `_read_room_evidence` already runs for every room every pass (`update_room_conditions` passes it in). Hallways are filtered upstream (`hvac_zones.py:650-665`) and never reach the function; a coordinator-absent room gets a synthetic `RoomCondition` (`:616-641`) and also never reaches it, so it contributes False to both sides.
+This is the live term at `:1650-1660`, without the refresh-fail hold (`:1661-1669`) and without D5. A pure static helper computes it. The result is written to `_hvac_ev_shadow_out[room]`.
 
-In evidence states `ev_shadow(room)` equals the live output minus D5 and minus the refresh-fail hold; the recorder uses the LIVE output `_hvac_output[room]` there (it is the decision), and the legacy shadow `shadow_out` as the counterfactual.
+**`legacy_shadow(room)`.** The `shadow_out` argument, written to `_hvac_legacy_shadow_out[room]` (F5). In evidence states `_hvac_output` holds the EVIDENCE output, so this dict is the only place the legacy answer survives the pass.
 
-**Consumers.** Exactly one: the zone episode tracker (D2). Display/diagnostic only. No trust decision reads it. Pinned by a lint test (D4).
+**Per-pass membership (F6).** E1 adds the room to `_ev_shadow_pass_rooms`, which is cleared at the top of `update_room_conditions` beside `_rooms_processed_this_pass` (`:930`). The tracker reads ONLY rooms in that set. Rooms excluded this way contribute False to both sides for this pass:
+- a coordinator-absent room (the `continue` at `:893-930`);
+- a room re-typed to hallway (marked processed at `:1005-1025` but never reaching `_evidence_rule_output`).
 
-### 3.2 Value 2: zone episode (per zone, per pass)
+The stale dict values are never read. Sides are taken from the per-pass set: the evidence side is `_hvac_ev_shadow_out` in legacy and night states, and the live `_hvac_output` in evidence states; the legacy side is `_hvac_legacy_shadow_out`.
 
-**Producer.** After the zone's rollup in `update_room_conditions` (after the `zone.any_room_hvac_occupied` block, `hvac_zones.py:1096-1110`):
-- `decided = zone.any_room_hvac_occupied` (what HVAC used).
-- `counterfactual`: legacy and night states → OR of `ev_shadow` over the zone's processed rooms; evidence states → OR of `shadow_out` (legacy machine) over the same rooms.
-- `kind`: `less` when the evidence side is empty and the legacy side occupied, `more` for the reverse. In legacy/night states the evidence side is the counterfactual; in evidence states it is the decision.
+**Dependency health.**
+- `last_evidence` comes from the room's single stamp, `_stamp_hvac_evidence` (State of Play §3.1), live in all states since v5.103.20.
+- After a restart it is `None` until the room's first evidence (`coordinator.py:6013-6019`).
+- The shadow's `_hvac_armed` is RAM-only.
+- Both make the first passes after boot unreliable, so boot passes are excluded (§3.3, F9).
 
-An episode opens on the first pass with a divergence and closes on the first pass where:
-- the evidence side becomes occupied again while legacy is still occupied → `outcome = resumed` (the evidence rule would have let the zone go and a person was still there: the CRIT-1 failure; it is premature only if `duration_s ≥ grace`, applied in the query);
-- the legacy side releases too → `released` (the evidence rule only saved lag);
-- the `kind` flips (rare; closes as `flipped`);
-- the house state changes, or the zone is removed → `interrupted`.
+**Consumers.** One: the zone tracker (D2). Display/diagnostic only. The D4 lint pins this.
 
-`duration_s` = close pass time − open pass time. Resolution is the pass cadence: the 5-min tick, plus fast ENTRY runs, which run in EVERY house state (State of Play §2, ruling R7) and so catch the resumption pass within ~45 s of the room's evidence refresh. Exit timers run only in evidence/night states, so in guest/away/arriving/home_night a `released` close can lag up to one tick; this lengthens `released` episodes only, never turns one into `resumed`.
+### 3.2 Value 2: zone episode and exposure
 
-Restart: open episodes are RAM-only and are lost (not written). Accepted; bounded to one episode per zone per restart.
+**Producer.** The tracker runs after the zone rollup in `update_room_conditions` (after `:1096-1110`), only for zones processed in this pass.
 
-**Consumers.** The DB row (D3) and nothing else. Readers of `ura_activity_log` that would see it (checked):
-- `sensor.py:17574` (per-coordinator count today) and `:18061` (last activity per coordinator) filter `coordinator IN (labels)`. Rows are written with `coordinator = "hvac_shadow"` so they do not change any HVAC activity count or "last HVAC action" display. Builder must verify the label lists at those two sites do not include `hvac_shadow`.
-- `hvac.py:8234` reads only `action = 'preset_change'`. Unaffected.
-- `database.get_recent_activities` (`database.py:7825`, unfiltered) and the `ura/logs/subscribe` websocket (`websocket_api.py:291`, via `SIGNAL_ACTIVITY_LOGGED`) WILL show the rows. Importance `info` keeps them below the notable feeds; accepted as diagnostic noise at ≤ ~40/day (§6).
+Sides, each an OR over the zone's per-pass rooms:
+- `L` (legacy side) = `legacy_shadow`.
+- `E` (evidence side) = `ev_shadow` in legacy/night states, and `_hvac_output` (the live evidence decision) in evidence states.
+- In legacy states `L` equals `zone.any_room_hvac_occupied`. In evidence states `E` does. Night states decide on `L OR E`.
 
-## 4. Emission and decision sites (enumerated)
+Kinds:
+- `less` = `L and not E`;
+- `more` = `E and not L`.
+
+**Exposure (F1).** `_ev_shadow_expo[(zone_id, house_state)]` accumulates the seconds `L` was True between consecutive passes. The interval runs from the previous pass to this one and is charged to the previous pass's `L` and house state; intervals longer than 2 × `HVAC_DECISION_TICK` are capped at that length (HA-down time is not exposure, F13). Passes inside the boot window (§3.3) are excluded.
+
+Once per local day, at `reset_daily_counters` (`hvac_zones.py:2725`), each zone writes one row per state with non-zero exposure (`row_type='exposure'`). On orderly shutdown nothing is flushed; a restart loses at most the partial day's exposure. That is symmetric with the lost episodes, and stated.
+
+**Episode close (F2).** An episode opens on the first pass with a divergence. It closes on the first pass where any of the following holds.
+
+1. **`E` returned while `L` is still True.** Classification:
+   - Let `t_ret` = this pass's time.
+   - Let `R` = the rooms that were legacy-occupied at open (`legacy_rooms`).
+   - If any room in `R` has `_hvac_shadow_release_at[room] < t_ret` recorded during the episode, legacy actually released and re-armed between passes. The episode closes `released`, with `ended_at` = the EARLIEST such release instant.
+   - Otherwise it closes `resumed`.
+
+   So a release that no pass observed (guest/away/arriving/home_night have no exit timer) cannot be booked as premature. The release dict is snapshotted per room at each tracker pass, because the shadow pops it on re-arm (`:1566`). An entry seen on any pass during the episode is kept in the episode record.
+2. **`L` released.** Closes `released`, with `ended_at` = the earliest `_hvac_shadow_release_at` of the `legacy_rooms`, else the pass time.
+3. **The kind flips.** Closes `flipped`.
+4. **The house state changes, or the zone is removed.** Closes `interrupted`, recorded under the OLD state.
+
+`duration_s` = `ended_at − started_at`. An episode shorter than `HVAC_EVIDENCE_SHADOW_MIN_EPISODE_S` writes no row.
+
+**Episode fields**, each the union over the whole episode (F8):
+- `legacy_rooms`;
+- `resumed_rooms`;
+- `refresh_failed_rooms` (`refresh_ok is False` on any pass);
+- `pending_rooms` (rooms with `_hvac_pending` True on any pass; evidence states only).
+
+**Restart (F9).** Open episodes are RAM-only and are lost. That biases against long episodes, which are exactly the decision-relevant ones. Accepted: phase 1 measures a rate, and the bias is the same in both arms because restarts do not depend on house state. The row cap (`_ev_shadow_rows_today`) is RAM-only, so a restart resets it. Accepted: at worst it allows one extra day's cap per restart.
+
+**Consumers.** The table (D3) and the §7 query. Nothing in HA reads the table.
+
+### 3.3 Exclusions applied symmetrically (F8, F9)
+
+| Bias | Arm affected | Handling |
+|---|---|---|
+| D5 pending spell (W up to 15 min, `number.py:446-447`). The evidence side is held empty while legacy is armed, which reads as `less → resumed` | reference (evidence states) | Rows carry `pending_rooms`. §7 excludes any episode with a non-empty `pending_rooms` in BOTH arms. The candidate arm never has one, because D5 runs only in evidence states, so the filter is a no-op there and the arms are treated alike |
+| D5 omitted from `ev_shadow` | candidate | D5 only delays ARMING. The shadow evidence side can be MORE occupied at an entry edge, never later at a release. It affects `more` counts only |
+| Refresh-fail hold omitted | candidate | §7 excludes episodes with a non-empty `refresh_failed_rooms` from every count, in both arms |
+| Boot transients (`last_evidence` None, shadow re-arming) | both | No episode opens and no exposure accrues for `HVAC_EVIDENCE_SHADOW_BOOT_EXCLUDE_S` after the ZoneManager's first pass. The row also carries `opened_s_after_boot`, so the query can widen the window |
+
+## 4. Emission and decision sites
 
 | # | Site | Change |
 |---|---|---|
-| E1 | `_evidence_rule_output`, before the `if rule == "legacy"` early return (`hvac_zones.py:1634`) | compute `ev_shadow` via a NEW pure helper and store it in `_hvac_ev_shadow_out[room]`; nothing else above or below changes |
-| E2 | same function, night branch | store the existing local `ev_out` (captured after `:1669`, before `:1696`) into `_hvac_ev_shadow_out[room]` — or simply let E1's helper compute it for night too (preferred: one code path, the live `ev_out` stays untouched) |
-| E3 | `_compute_hvac_occupied` `apply_evidence_rule=False` path (`:1577-1580`) | NO change: only direct legacy callers/tests; the producer always passes `apply_evidence_rule=True` (`:1067`). The tracker ignores rooms with no `_hvac_ev_shadow_out` entry this pass |
-| E4 | `update_room_conditions`, after the zone rollup | the zone tracker (D2), only for zones processed in this pass (honours the `zone_ids` filter of fast runs) |
-| E5 | daily counter reset `reset_daily_counters` (`hvac_zones.py:2725`) | clear `_ev_shadow_rows_today` |
-| E6 | zone removal / rediscovery | drop `_ev_shadow_ep[zone_id]` without a row (or close `interrupted`, builder's choice; test pins it) |
+| E1 | `_evidence_rule_output`, before `if rule == "legacy"` (`hvac_zones.py:1634`) | Only when `HVAC_EVIDENCE_SHADOW_ENABLED`: write `_hvac_ev_shadow_out[room]` (helper), `_hvac_legacy_shadow_out[room] = shadow_out`, and add the room to `_ev_shadow_pass_rooms`. Lines `:1631-1747` are not edited |
+| E2 | `update_room_conditions` top (`:930`) | clear `_ev_shadow_pass_rooms` |
+| E3 | `update_room_conditions`, after the zone rollup | the tracker (D2), per processed zone, inside `try/except Exception` with one DEBUG log |
+| E4 | `reset_daily_counters` (`:2725`) | queue the exposure rows; clear `_ev_shadow_expo` and `_ev_shadow_rows_today` |
+| E5 | zone removal / rediscovery | close the episode `interrupted` (row queued); drop the zone's exposure without a row |
+| E6 | `HVACCoordinator`: one drain call after each `update_room_conditions` caller (`hvac.py:1581` boot, `:2334` tick, `:5959` fast run) | `drain_shadow_rows()` hands the queued rows to the DB, fire-and-forget (D3). A missed caller only delays rows to the next drain, and is pinned by a test |
+| E7 | `_compute_hvac_occupied` `apply_evidence_rule=False` path (`:1577-1580`) | NO change. Such rooms never enter `_ev_shadow_pass_rooms` |
 
-Grep the builder must re-run: `grep -n "_hvac_output\[\|_hvac_rule\[\|_hvac_day_release_at\[" domain_coordinators/hvac_zones.py` before and after; the counts must not change.
+The builder re-runs `grep -n "_hvac_output\[\|_hvac_rule\[\|_hvac_day_release_at\[" domain_coordinators/hvac_zones.py` before and after the change; the counts must be unchanged. The golden is the real oracle.
 
 ## 5. Deliverables
 
-### D1: shadow evidence term before the early return
-A pure `@staticmethod _shadow_evidence_term(*, active, refresh_ok, last_evidence, hold_s, now) -> bool` in `hvac_zones.py`. Called at the top of `_evidence_rule_output` when `HVAC_EVIDENCE_SHADOW_ENABLED`, result into `_hvac_ev_shadow_out[room_name]`. The live lines `:1631-1747` are not edited.
+### D0: pre-build golden (F10)
+Before any production edit, on the current `develop` source, add a replay fixture. It drives `ZoneManager.update_room_conditions` (the real producer, fake room coordinators) through every house state, including:
+- a hallway re-type;
+- a coordinator-absent room;
+- a refresh failure;
+- a D5 away edge with W = 5 min;
+- a `zone_ids` fast run;
+- a restart re-seed.
+
+Snapshot every INV-SHADOW item per pass and commit it as `quality/tests/golden/hvac_evidence_shadow_inv.json`, with the capture commit recorded in the file.
 
 **Acceptance criteria**
-- **Verify:** in `guest`, a room whose last evidence is 200 s old, type bedroom (hold 240): `_hvac_ev_shadow_out[room] is True`; at 250 s it is False while `_hvac_output[room]` (legacy shadow, still in its tail) stays True.
-- **Verify (discriminating):** with the const False, `_hvac_ev_shadow_out` is empty and every dict in INV-SHADOW is equal to the const-True run. Under a plausible wrong build (helper writes `_hvac_day_release_at`), the same comparison fails on `_hvac_day_release_at` in a legacy state, where today it is popped (`:1636`).
-- **Test:** `test_hvac_evidence_shadow.py::test_shadow_term_matches_evidence_rule_in_evidence_states` (helper vs the live `ev_out` on 200 random input tuples with refresh_ok True and W = 0), `::test_shadow_term_computed_in_legacy_states`, `::test_inv_shadow_byte_identical_replay` (one producer replay over every house state, const on vs off, snapshot of every INV-SHADOW item).
+- **Verify:** the golden is committed in its own commit, before the first production edit (`git log --follow` order).
+- **Test:** `test_hvac_evidence_shadow.py::test_inv_shadow_golden_const_on` and `::test_inv_shadow_golden_const_off` both equal the golden.
+- **Mutation (review C):**
+  - an edit inside `:1650-1660` → both tests fail;
+  - the helper writing `_hvac_day_release_at` → `_on` fails.
 
-### D2: zone divergence tracker
-In `update_room_conditions` after the rollup, per processed zone, open/close episodes per §3.2. `MIN_EPISODE_S` filter: an episode shorter than `HVAC_EVIDENCE_SHADOW_MIN_EPISODE_S` is dropped with no row. The tracker body is wrapped in `try/except Exception` with one DEBUG log; it never raises into the producer.
-
-**Acceptance criteria**
-- **Verify:** guest state, zone with one bedroom: evidence stops at t0; legacy tail holds to t0+600; evidence returns at t0+420 → one row `kind=less outcome=resumed duration_s≈(420-240)`. Same but no return → `outcome=released`. A plausible wrong build that compares against `zone.any_room_occupied` (the lighting denomination) produces a different open time in a zone with a hallway occupant; the test includes one.
-- **Verify:** a house-state change mid-episode closes it `interrupted`, with the OLD state in `house_state`.
-- **Verify:** a zone-scoped fast run on zone 2 leaves zone 1's open episode untouched.
-- **Test:** `::test_episode_resumed`, `::test_episode_released`, `::test_episode_interrupted_on_state_change`, `::test_fast_run_zone_filter_isolated`, `::test_tracker_exception_does_not_raise`, `::test_evidence_state_reference_arm_uses_legacy_shadow`.
-
-### D3: the row
-`ActivityLogger.log(coordinator="hvac_shadow", action="hvac_evidence_shadow", zone=zone_id, importance="info", description=f"{zone_name} {kind} {outcome} {duration_s}s in {house_state}", details={...})` via `hass.async_create_task`, as `_log_pending_hold_capped` does (`hvac.py:5557`). The ZoneManager has no logger handle today: pass the HVAC coordinator's `activity_logger` the same way `update_room_conditions` already receives callables (`away_edge_fn`), or resolve it from `hass.data[DOMAIN]` at write time; builder picks, test pins that a missing logger writes nothing and does not raise.
-
-`details`: `kind`, `outcome`, `rule` (evidence / night / legacy), `house_state`, `started_at`, `ended_at` (ISO UTC), `duration_s`, `legacy_rooms` (rooms legacy-occupied at open), `resumed_rooms` (rooms whose evidence came back, `resumed` only), `refresh_failed_rooms`, `grace_s_at_close` (the live knob 48/49 value the HVAC coordinator holds, for the record; the query does not depend on it).
-
-Retention: add `"hvac_evidence_shadow"` to `ACTIVITY_LEDGER_RETAINED_ACTIONS` (`const.py:5440`), because the decision waits for a guest stay of unknown date and info rows prune at 7 days. Phase 2 (the decision) removes the entry and the rows.
-
-Cap: after `HVAC_EVIDENCE_SHADOW_MAX_ROWS_PER_ZONE_DAY` rows for a zone in one local day, write one `hvac_evidence_shadow_capped` row (importance `notable`) and stop writing for that zone until the daily reset.
-
-Dedup: `ActivityLogger._should_log` keys on description (`activity_logger.py:182-194`, 30 s for info); the description includes duration and outcome, so two real episodes do not collide except by exact coincidence. Accepted.
+### D1: shadow terms before the early return
+Implement E1 and E2.
 
 **Acceptance criteria**
-- **Verify:** the row lands with all `details` keys non-null where defined (sentinel check: `duration_s > 0`, `house_state` not null).
-- **Verify:** `prune_activity_log` leaves a 40-day-old `hvac_evidence_shadow` row and deletes a 40-day-old `hvac_evidence_shadow_capped` row.
-- **Verify:** the HVAC activity-count sensor (`sensor.py:17574` path) does not change when a shadow row is written.
-- **Test:** `::test_row_shape`, `::test_row_cap_per_zone_day`, `::test_prune_retains_shadow_rows` (drives the real `prune_activity_log` against the real DDL), `::test_hvac_activity_count_excludes_shadow`.
-- **Live:** within 24 h of restart, `SELECT COUNT(*), MIN(timestamp) FROM ura_activity_log WHERE action='hvac_evidence_shadow'` > 0, at least one row with `json_extract(details_json,'$.rule')='night'` (sleep happens daily) and one with `rule='evidence'`; `duration_s` > 0 on all rows. Sentinel-only rows (nulls) = payload broken.
+- **Verify:** guest state, bedroom (hold 240), last evidence 200 s old → `_hvac_ev_shadow_out` True; at 250 s → False while `_hvac_legacy_shadow_out` stays True (tail).
+- **Verify:** evidence state → `_hvac_legacy_shadow_out[room]` equals the shadow's output, and differs from `_hvac_output` when the evidence hold has expired inside the legacy tail.
+- **Test:**
+  - `::test_shadow_term_matches_evidence_rule_in_evidence_states` (200 random tuples, `refresh_ok` True, W = 0);
+  - `::test_shadow_term_computed_in_legacy_states`;
+  - `::test_legacy_shadow_dict_in_evidence_states`.
 
-### D4: containment tests
-- `::test_shadow_dicts_have_one_reader`: AST/grep lint that `_hvac_ev_shadow_out` and `_ev_shadow_ep` are read only inside the tracker and `reset_daily_counters`.
-- `::test_hvac_occupied_diag_keys_unchanged`: the key set of `hvac_occupied_diag` equals today's list (no recorder churn).
-- Mutation drill for review C: delete the E1 call → the D1 legacy-state test fails; make the helper write `_hvac_day_release_at` → `test_inv_shadow_byte_identical_replay` fails.
+### D2: zone tracker and exposure
+Implement E3 to E5 per §3.2 and §3.3.
+
+**Acceptance criteria**
+- **Verify:** guest state, one bedroom. Evidence stops at t0, the legacy tail holds to t0+600, evidence returns at t0+420 → `less / resumed`, `duration_s` ≈ 180.
+- **Verify (F2):** legacy releases at t0+300, the person re-enters at t0+360, and the next pass is a fast ENTRY run → `released`, with `ended_at` = t0+300. Under the rev-1 rule the same input gives `resumed`, so the test discriminates.
+- **Verify (F6):**
+  - a room re-typed to hallway mid-episode drops out of both sides that pass;
+  - a coordinator-absent room's previous True is not read.
+- **Verify:**
+  - a house-state change closes the episode `interrupted` under the old state;
+  - a fast run on zone 2 leaves zone 1's episode and exposure untouched;
+  - a lighting-only hallway occupant does not open or close an episode.
+- **Verify (F1):** one zone legacy-occupied for exactly 2 h in guest → that zone's exposure row reads 7200 ± one pass. A gap of 3 × tick between passes adds at most 2 × tick.
+- **Verify (F9):** no episode opens and no exposure accrues inside the boot window.
+- **Test:**
+  - `::test_episode_resumed`, `::test_unobserved_release_then_reentry_is_released`;
+  - `::test_hallway_retype_mid_episode`, `::test_absent_room_not_read`;
+  - `::test_episode_interrupted_on_state_change`, `::test_fast_run_zone_filter_isolated`;
+  - `::test_exposure_seconds_and_gap_cap`, `::test_boot_window_excluded`;
+  - `::test_pending_and_refresh_rooms_are_episode_unions`;
+  - `::test_tracker_exception_does_not_raise`.
+
+### D3: the table, the write, the prune (F3, F4, F11)
+
+DDL, created in `database.py` beside `optimizer_shadow_samples`, via `_create_table_safe`:
+
+```sql
+CREATE TABLE IF NOT EXISTS hvac_evidence_shadow (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  timestamp TEXT NOT NULL,          -- UTC ISO, row write time
+  row_type TEXT NOT NULL,           -- 'episode' | 'exposure' | 'capped'
+  zone_id TEXT NOT NULL,            -- HVAC zone id (thermostat-keyed)
+  house_state TEXT NOT NULL,
+  rule TEXT,                        -- evidence | night | legacy
+  kind TEXT,                        -- less | more (episode)
+  outcome TEXT,                     -- resumed | released | flipped | interrupted
+  started_at TEXT, ended_at TEXT,
+  duration_s REAL,                  -- episode length, or exposure seconds
+  opened_s_after_boot REAL,
+  details_json TEXT                 -- room lists (legacy/resumed/refresh_failed/pending), grace_s_at_close
+);
+CREATE INDEX IF NOT EXISTS idx_hvac_ev_shadow_ts ON hvac_evidence_shadow(timestamp);
+```
+
+The columns used by §7 are typed. Only the room lists go into JSON. There is no 2 KB truncation path: the builder caps each list at 20 names.
+
+**Write.**
+- `ZoneManager` queues row dicts (`_ev_shadow_pending_rows`, the degraded-events pattern).
+- `HVACCoordinator` drains them (E6) and calls a new `database.log_hvac_evidence_shadow(rows)`. One connection and ONE `executemany` per drain, batched, never per row.
+- The call is scheduled fire-and-forget with the `climate_write` coroutine duck-check (`hvac_setpoint.py:301-306`). It never awaits on the producer path.
+- No database (`hass.data[DOMAIN].get("database")` is None) → rows are dropped, with one DEBUG log.
+- Write-queue routing: if `database` writes go through `_write_queue` on this branch, use it. Either way it is one task per drain.
+
+**Cap.** After `HVAC_EVIDENCE_SHADOW_MAX_ROWS_PER_ZONE_DAY` episode rows for a zone in a local day, queue one `row_type='capped'` row and stop that zone's episode rows until reset. Exposure rows are not capped.
+
+**Prune.**
+- `prune_hvac_evidence_shadow(window_days=HVAC_EVIDENCE_SHADOW_RETENTION_DAYS)` uses the batched-DELETE shape of `prune_optimizer_shadow_samples` (`database.py:7636`).
+- It is registered in `nightly_maintenance.py` beside `:56`.
+- This is the discharge (Suppression-needs-discharge). Nothing is retained forever.
+
+**Orphans.**
+- The zone-delete purge (`database.py:9986`) is keyed by HOUSE-zone NAME. These rows are keyed by HVAC `zone_id`, and one HVAC zone fans out to several house zones (State of Play §1; House zones ≠ HVAC zones). So a house-zone delete is the wrong scope to purge them, and the plan adds no delete-time purge.
+- Orphans of a removed thermostat age out under the same retention knob, which is the knob for that purge. A delete-time purge keyed by HVAC zone is parked (§9).
+
+**Acceptance criteria**
+- **Verify:** schema is created on a fresh DB and on an existing DB (idempotent); no other table changes.
+- **Verify:** one drain of 5 rows → one connection, one `executemany` (spy).
+- **Verify:** `prune_hvac_evidence_shadow` deletes a row older than retention and keeps a newer one, against the real DDL extracted from `database.py` (no hand-copied DDL).
+- **Verify:** no `ura_activity_log` row, no `SIGNAL_ACTIVITY_LOGGED`, no `ura_action` event per shadow write (`URALastActivitySensor` state unchanged).
+- **Test:**
+  - `::test_table_created_idempotent`, `::test_drain_batches_one_executemany`;
+  - `::test_prune_window`, `::test_no_activity_log_or_signal`;
+  - `::test_row_cap_per_zone_day`, `::test_no_database_drops_quietly`;
+  - `::test_every_update_room_conditions_caller_drains` (the three `hvac.py` callers).
+- **Live (F12):**
+  - Within 24 h of restart, `SELECT row_type, rule, COUNT(*) FROM hvac_evidence_shadow GROUP BY 1,2` shows `episode` rows with `rule='night'` and `rule='evidence'`, and `exposure` rows after the first local midnight.
+  - For one `less` episode in an EVIDENCE state (the decided side is the evidence side there), `started_at` matches within one pass the recorder flip of `sensor.ura_hvac_coordinator_zone_N_status` attribute `any_room_hvac_occupied` to false. Under a wrong build that reads the lighting denomination, the two disagree by about one occupancy timeout (~300 s), so the check discriminates.
+
+### D4: containment
+- `::test_shadow_dicts_have_one_reader`: AST lint. The seven dicts are read only by E1, the tracker, the drain and `reset_daily_counters`.
+- `::test_hvac_occupied_diag_keys_unchanged`.
+- `::test_no_await_in_tracker`: the tracker and queue functions are sync.
+
+### D5: the §7 query as a tested artifact (F7)
+Put the query in `scripts/probes/hvac_evidence_shadow_verdict.sql`, with a runner `scripts/probes/hvac_evidence_shadow_verdict.py` (`--since`, `--grace`, `--boot-exclude`).
+
+**Test:** `::test_verdict_query_branches` builds an in-memory DB from the real DDL with synthetic rows covering:
+- a SAFE state with zero episode rows;
+- NOT SAFE;
+- INSUFFICIENT on exposure;
+- a reference state with no episode rows;
+- a zero reference rate with 1, 2 and 3 premature events;
+- rows excluded by `pending_rooms` / `refresh_failed_rooms` / the boot window.
+
+It asserts each verdict.
 
 ## 6. Knobs, volume and write cost
 
-| Knob | Rung | Default | Why this rung | Kill semantics |
+| Knob (`hvac_const.py`) | Rung | Default | Why | Kill semantics |
 |---|---|---|---|---|
-| `HVAC_EVIDENCE_SHADOW_ENABLED` (`hvac_const.py`) | 1, module const | `True` | Display-only recorder with no actuation; a live switch would add an entity, restore and READY-landing surface for a value the operator turns at most once (marginal benefit fails, §9) | `False` = no helper call, no dict writes, no rows; byte-identical to today |
-| `HVAC_EVIDENCE_SHADOW_MIN_EPISODE_S` | 1 | `60` | Below one minute a divergence is pass jitter; any value below the 300 s grace keeps every decision-relevant episode | `0` = record every divergence |
-| `HVAC_EVIDENCE_SHADOW_MAX_ROWS_PER_ZONE_DAY` | 1 | `96` | Write-flood guard (Optimizer DB write-flood incident 2026-06-09): 96 = one row per 15 min per zone, ~10x the expected rate | lower = earlier cap |
+| `HVAC_EVIDENCE_SHADOW_ENABLED` | 1 | `True` | Display-only recorder; a live switch would add entity/restore/READY surface for a value turned at most once | `False` = no helper call, no dict writes, no rows. Equal to the golden |
+| `HVAC_EVIDENCE_SHADOW_MIN_EPISODE_S` | 1 | `60` | Below a minute is pass jitter; anything below the 300 s grace keeps every decision-relevant episode | `0` = record all |
+| `HVAC_EVIDENCE_SHADOW_MAX_ROWS_PER_ZONE_DAY` | 1 | `96` | Write-flood guard (2026-06-09 incident); about 10x the expected rate | lower = earlier cap |
+| `HVAC_EVIDENCE_SHADOW_RETENTION_DAYS` | 1 | `180` | Must outlast the wait for the next guest stay. It is also the orphan purge for removed thermostats | larger = keep longer; `0` = invalid, clamped to 1 |
+| `HVAC_EVIDENCE_SHADOW_BOOT_EXCLUDE_S` | 1 | `600` | Covers the first-evidence gap after restart and shadow re-arming; 2 ticks | `0` = no exclusion (the query can still filter on `opened_s_after_boot`) |
 
-**Expected volume.** The audit's proxy and Table B give divergence runs ≥ 300 s at 0.10-0.22 per zone-hour; with a 60 s floor assume up to ~0.5 per zone-hour. 3 zones × ~24 h × 0.5 ≈ **up to ~36 rows/day**, typically 15-25 (all states, incl. the home_day reference arm). Each row ≈ 400-600 bytes (details ≤ 2 KB cap). ~13k rows/year ≈ 6 MB if never cleaned; phase 2 deletes them.
+The §7 analysis parameters are NOT runtime knobs: `:grace`, the 30 legacy-occupied zone-hour floor, the 1.5x ratio, the absolute floor and the 3-event minimum. They are stated in the runner's `--help`.
 
-**Write path cost.** `database.log_activity` opens one connection and commits per row (`database.py:6938-6960`); it does NOT go through the batched `_write_queue`. At ≤ 36 rows/day (≤ 1 per pass even in the worst case, 3 per tick at the cap of one per zone) that is far below any queue-pressure regime. The producer itself adds O(rooms) arithmetic per pass and no I/O; the DB write is a scheduled task off the producer path. If the builder finds `log_activity` routed through `_write_queue` on the current branch, the row count does not change this conclusion.
+**Volume.**
+- Episodes: up to about 0.5 per legacy-occupied zone-hour with the 60 s floor, so ≤ ~36/day across 3 zones and all states.
+- Exposure: ≤ 3 zones × ~6 states = 18/day.
+- Total ≤ ~54/day ≈ 20k/yr. At 180-day retention that is ≤ ~10k live rows of about 300 bytes, about 3 MB.
+- This is why the rows do not go in the retained activity list (`const.py:5434` budget ≤ 1k/yr, dedicated table above 5k/yr).
 
-## 7. The query that settles each state
+**Write cost.**
+- One batched write per drain that has rows. Most passes have none; a typical day has tens.
+- The producer adds O(rooms) arithmetic per pass and no I/O.
+- The nightly prune is batched.
 
-Run after the guest stay (via `ssh ha sqlite3` or MCP `ura-sqlite`). `:since` = when D3 went live; `:grace` = 300 (knob 48 live value; re-read before running).
+## 7. The query that settles each state (F1, F7, F13)
+
+The SQL below is the content of `hvac_evidence_shadow_verdict.sql`. Parameters:
+- `:since` = D3 live date;
+- `:grace` = live knob 48 in seconds (re-read before running);
+- `:boot` = 600;
+- `:floor_h` = 30;
+- `:ratio` = 1.5;
+- `:abs_floor` = 0.02 premature per legacy-occupied zone-hour (an absolute bar so a zero reference rate cannot turn one event into NOT SAFE, nor make SAFE unreachable).
 
 ```sql
 WITH ep AS (
-  SELECT json_extract(details_json,'$.house_state') AS st,
-         json_extract(details_json,'$.kind')        AS kind,
-         json_extract(details_json,'$.outcome')     AS outcome,
-         json_extract(details_json,'$.duration_s')  AS dur,
-         json_extract(details_json,'$.refresh_failed_rooms') AS rf
-  FROM ura_activity_log
-  WHERE action = 'hvac_evidence_shadow' AND timestamp >= :since
+  SELECT house_state AS st, kind, outcome, duration_s AS dur
+  FROM hvac_evidence_shadow
+  WHERE row_type = 'episode' AND timestamp >= :since
+    AND COALESCE(opened_s_after_boot, 1e9) >= :boot
+    AND COALESCE(json_array_length(json_extract(details_json,'$.refresh_failed_rooms')),0) = 0
+    AND COALESCE(json_array_length(json_extract(details_json,'$.pending_rooms')),0) = 0
 ),
-hs AS (
-  SELECT state,
-         (julianday(COALESCE(LEAD(timestamp) OVER (ORDER BY timestamp), datetime('now')))
-          - julianday(timestamp)) * 24.0 AS h
-  FROM house_state_log
-  WHERE timestamp >= :since
+expo AS (
+  SELECT house_state AS st, SUM(duration_s) / 3600.0 AS occ_zone_h
+  FROM hvac_evidence_shadow
+  WHERE row_type = 'exposure' AND timestamp >= :since
+  GROUP BY house_state
 ),
-expo AS (SELECT state AS st, SUM(h) * 3 AS zone_h FROM hs GROUP BY state),
 agg AS (
   SELECT st,
-         SUM(kind='less' AND dur >= :grace AND (rf IS NULL OR rf = '[]'))                         AS eligible,
-         SUM(kind='less' AND dur >= :grace AND outcome='resumed' AND (rf IS NULL OR rf = '[]'))  AS premature,
-         SUM(kind='less' AND dur >= :grace AND outcome='released')                               AS saved,
-         ROUND(SUM(CASE WHEN kind='less' THEN dur ELSE 0 END) / 3600.0, 2)                       AS less_h,
-         SUM(kind='more')                                                                        AS more_eps
+         SUM(kind='less' AND dur >= :grace)                       AS eligible,
+         SUM(kind='less' AND dur >= :grace AND outcome='resumed') AS premature,
+         SUM(kind='less' AND dur >= :grace AND outcome='released') AS saved,
+         SUM(CASE WHEN kind='less' THEN dur ELSE 0 END) / 3600.0  AS less_h,
+         SUM(kind='more')                                         AS more_eps
   FROM ep GROUP BY st
 ),
+j AS (
+  SELECT e.st, e.occ_zone_h,
+         COALESCE(a.eligible,0) AS eligible, COALESCE(a.premature,0) AS premature,
+         COALESCE(a.saved,0) AS saved, COALESCE(a.less_h,0) AS less_h,
+         COALESCE(a.more_eps,0) AS more_eps
+  FROM expo e LEFT JOIN agg a USING (st)
+),
 ref AS (
-  SELECT SUM(a.premature) * 1.0 / SUM(e.zone_h) AS ref_rate
-  FROM agg a JOIN expo e USING (st) WHERE st IN ('home_day','home_evening')
+  SELECT SUM(premature) * 1.0 / NULLIF(SUM(occ_zone_h),0) AS ref_rate,
+         SUM(occ_zone_h) AS ref_h
+  FROM j WHERE st IN ('home_day','home_evening')
 )
-SELECT e.st, ROUND(e.zone_h,1) AS zone_h, a.eligible, a.premature, a.saved, a.less_h, a.more_eps,
-       ROUND(a.premature / e.zone_h, 4) AS premature_per_zone_h, ROUND(r.ref_rate, 4) AS ref_rate,
+SELECT j.st, ROUND(j.occ_zone_h,1) AS occ_zone_h, j.eligible, j.premature, j.saved,
+       ROUND(j.less_h,2) AS less_h, j.more_eps,
+       ROUND(j.premature / j.occ_zone_h, 4) AS rate,
+       ROUND(r.ref_rate, 4) AS ref_rate,
+       ROUND(MAX(:ratio * COALESCE(r.ref_rate,0), :abs_floor), 4) AS bar,
        CASE
-         WHEN e.st IN ('home_day','home_evening') THEN 'REFERENCE'
-         WHEN e.zone_h < 30 THEN 'INSUFFICIENT'
-         WHEN a.premature >= 3 AND a.premature / e.zone_h > 1.5 * r.ref_rate THEN 'NOT SAFE'
-         WHEN a.premature / e.zone_h <= 1.5 * r.ref_rate THEN 'SAFE'
+         WHEN j.st IN ('home_day','home_evening') THEN 'REFERENCE'
+         WHEN COALESCE(r.ref_h,0) < :floor_h THEN 'INSUFFICIENT (reference)'
+         WHEN j.occ_zone_h < :floor_h THEN 'INSUFFICIENT'
+         WHEN j.premature / j.occ_zone_h <= MAX(:ratio * COALESCE(r.ref_rate,0), :abs_floor) THEN 'SAFE'
+         WHEN j.premature >= 3 THEN 'NOT SAFE'
          ELSE 'INSUFFICIENT'
        END AS verdict
-FROM expo e LEFT JOIN agg a USING (st) CROSS JOIN ref r
-ORDER BY e.st;
+FROM j CROSS JOIN ref r
+ORDER BY j.st;
 ```
 
-Decision rule in words: a state is SAFE when it has ≥ 30 zone-hours of exposure and its premature-retreat rate is no worse than 1.5x the home_day/home_evening rate measured by the same recorder over the same window; NOT SAFE with ≥ 3 premature events above that bar. The three numbers (30 zone-h, 1.5x, 3 events) are analysis parameters, not runtime knobs; the operator may change them at decision time. Guest exposure: the October stay had 18.7 h of guest house state (audit §2.3 proxy) = 56 zone-h, so one stay of that shape clears 30.
+**Rule in words.** A state is SAFE when it has at least 30 legacy-occupied zone-hours, and its premature rate is no worse than the larger of 1.5x the in-system home_day/home_evening rate and an absolute 0.02 per occupied zone-hour. It is NOT SAFE when it is above that bar with at least 3 premature events. Otherwise it is INSUFFICIENT.
 
-Caveat carried into the decision: the query is zone-level. A premature event in a guest room is in `resumed_rooms`; for guest, also run `SELECT json_extract(details_json,'$.resumed_rooms') ... WHERE outcome='resumed' AND st='guest'` and read the rooms.
+A state with exposure but zero episode rows reads SAFE once it clears the floor. A missing or thin reference reads INSUFFICIENT (reference).
+
+The exposure comes from in-system legacy-occupied seconds, so the `× 3` literal and the `house_state_log` time-zone and seeding issues are gone (F1, F13).
+
+**Guest caveat.** For guest, also list `json_extract(details_json,'$.resumed_rooms')` on `resumed` rows, and read whether the events are in the guest rooms.
 
 ## 8. Tier classification
 
-**Tier 2** (operator asked for Tier 2; matches the trigger). No actuation change, but the code sits inside the HVAC occupancy producer that every retreat decision reads, so one missed write to a live dict (INV-SHADOW) is a real comfort regression. Not Tier 2-DB: no DDL, no DAO change, one new action string in an existing free-form table. Not Tier 3: no value threads into a decision site. Review: ONE adversarial plan review before build; build gets two framing-disjoint reviews (A: local correctness of the term + tracker; B: INV-SHADOW byte-identity + lifecycle: restart, zone_ids filter, exceptions, task scheduling) plus the C mutation drills in D4.
+**Tier 2-DB.** Rev 2 adds a table (DDL in `database.py`) and a new DAO write and prune. That meets the CLAUDE.md Tier 2-DB triggers. Actuation is not touched, but the code sits inside the HVAC occupancy producer that every retreat decision reads.
 
-## 9. Non-goals and marginal-benefit notes
+The build gets three framing-disjoint reviews:
+- **A:** data integrity and DB. DDL idempotence, batched write, prune, no effect on existing tables or readers.
+- **B:** INV-SHADOW and lifecycle. Golden diff, boot window, `zone_ids` fast runs, drain at all three callers, exceptions, restart.
+- **C:** test authority via per-site mutation (D0, D4), and the D5 query fixture.
 
-- No change to `HVAC_EVIDENCE_RULE_STATES` or any actuation. Promotion of a state is phase 2, a separate reviewed change.
-- No new table, entity, sensor attribute, config field or switch. No key added to `hvac_occupied_diag`.
-- No modelling of D5 or the refresh-fail hold in the shadow (§3.1 biases stated).
-- No persistence of open episodes across restart.
-- No backfill from the recorder (the audit already did that; 8-day retention).
-- No anomaly / NM trip-wire on the shadow (it decides nothing).
-- **Parked, with revival trigger:** a live rung-3 switch for the recorder. Revive if the cap row `hvac_evidence_shadow_capped` ever appears, or the operator asks to toggle recording without a deploy.
-- **Simplest version check:** a per-state daily counter on the zone status sensor would be cheaper but cannot carry outcome or duration, and dies with the 8-day recorder window. The episode row is the smallest thing that answers "premature or not".
+Then live validation and the README write-back. Not Tier 3: no value threads into a decision site.
 
-## 10. Same-commit doc fix (State of Play §2)
+## 9. Non-goals and parked items
 
-Verified against code 2026-11-10:
-- The periodic tick is registered at `hvac.py:1692-1695` (`self._decision_timer_unsub = async_track_time_interval(..., HVAC_DECISION_TICK)`), not `:1356-1360`.
-- The occupancy fast path SHIPPED in v5.103.20 (`_setup_fast_path_listeners` `hvac.py:5419`, called `:1519`; `_on_room_refresh` `:5823`; State of Play header "SHIPPED v5.103.20, validated 09-29"). The §2 bullet "DESIGNED, never built" is corrected and the old claim recorded as C39 in §10.
+- No change to `HVAC_EVIDENCE_RULE_STATES` or to any actuation. Promotion is phase 2.
+- No entity, attribute, switch, config field, signal, bus event or activity-log row. No key added to `hvac_occupied_diag`.
+- D5 and the refresh-fail hold are not modelled in the shadow. They are handled by exclusion (§3.3).
+- Open episodes and partial-day exposure are not persisted across restart.
+- No recorder backfill. No anomaly or NM trip-wire.
+- **Parked:** a live rung-3 recorder switch. Revive if a `capped` row appears, or if the operator wants to toggle it without a deploy.
+- **Parked:** a delete-time purge keyed by HVAC `zone_id`. Revive if thermostat removal becomes routine (multi-home rollout).
+- **Simplest-version check:** a daily counter cannot carry outcome or release timing, and it dies with the 8-day recorder. The episode row plus the exposure row is the smallest thing that settles "premature or not, per occupied hour".
 
-## 11. Plan completion accounting (for the build)
-The builder lists any of D1-D4 not done, with reason and card. The README carries the Live row from D3 and the post-restart validation table.
+## 10. Same-commit doc fix (State of Play §2), done in `60b423a1`
+- The tick is at `hvac.py:1692-1695`.
+- The fast path SHIPPED in v5.103.20.
+- Recorded as C39. Rev 2 makes no further State of Play change. The build commit adds the shadow recorder to §3.1 and §4.3 of State of Play.
+
+## 11. Plan completion accounting
+The builder lists any of D0 to D5 not done, with the reason and the card. The README carries the D3 Live rows and the post-restart validation table.
+
+## 12. Rev 2 changelog: review finding → fix
+
+| Finding | Sev | Fix in rev 2 | Where |
+|---|---|---|---|
+| F1 wrong exposure denominator | HIGH | In-system legacy-occupied seconds per (zone, state), with daily `exposure` rows; the query divides by them; `× 3` removed | §3.2 Exposure, D2, §7 |
+| F2 unobserved release → false `resumed` | HIGH | Close classification uses `_hvac_shadow_release_at` (snapshotted per pass, earliest release); test with a re-entry inside one tick | §3.2 close (1)(2), D2 |
+| F3 ActivityLogger side-effects | MED | No `ActivityLogger`, no `ura_activity_log`. Direct DB write in the `climate_write` style, into a dedicated table; no signal/bus event; no 2 KB truncation (typed columns, capped lists). The boot-seed residual of the Last Activity sensor no longer applies (no activity rows) | §1.1, D3 |
+| F4 retention forever / budget / orphans | MED | Dedicated table chosen by the `const.py:5434` rule (≈20k/yr > 5k/yr); batched nightly prune at `HVAC_EVIDENCE_SHADOW_RETENTION_DAYS` = 180; orphans age out under that knob (house-zone purge is wrong scope) | §1.1, D3, §6 |
+| F5 missing fourth dict | MED | `_hvac_legacy_shadow_out` named; all seven dicts listed in §1.2, INV-SHADOW and the D4 lint | §1.2, §2, §3.1, D4 |
+| F6 stale room entries | MED | Per-pass `_ev_shadow_pass_rooms`; the tracker reads only those; hallway-retype and absent-room tests | §3.1, E2, D2 |
+| F7 §7 SQL mislabels | MED | `expo LEFT JOIN agg` with COALESCE; `ref` from the joined exposure; absolute floor `:abs_floor` beside the ratio; exclusions applied uniformly in `ep`; fixture test per branch | §7, D5 |
+| F8 D5 reverse bias + refresh union | MED | `pending_rooms` recorded and excluded in both arms; all room lists are episode unions | §3.2, §3.3, §7 |
+| F9 restart effects | MED | Boot window `HVAC_EVIDENCE_SHADOW_BOOT_EXCLUDE_S` = 600 s (no open, no exposure) + `opened_s_after_boot` column; length bias and RAM cap reset stated and accepted | §3.2, §3.3, §6 |
+| F10 weak oracle | MED | D0 golden on pre-build source, committed first; const on AND off both diffed against it | §2, D0 |
+| F11 logger handle | LOW | Queue then drain (degraded-events pattern); drain at all three `update_room_conditions` callers including the fast run, pinned by a test | E6, D3 |
+| F12 non-discriminating Live | LOW | Live criterion tied to the recorder flip of the zone's decided side vs the lighting denomination | D3 Live |
+| F13 `house_state_log` tz / seeding | LOW | `house_state_log` no longer used; exposure intervals capped at 2 ticks so HA-down time is not exposure | §3.2, §7 |
+
+### Where this revision disagrees with or narrows the review
+- **F4 "zone-id purge".** The review suggests fixing the zone-delete key. The existing purge is keyed by HOUSE-zone name, and an HVAC zone maps to several house zones, so wiring these rows into it is a scope error. Rev 2 uses the retention knob as the purge, and parks a thermostat-keyed purge.
+- **F3 "write through `database.log_activity` directly".** Applied as "direct DB write in the `climate_write` style", but into the dedicated table F4 implies, not `ura_activity_log`. Writing activity rows directly would still feed `get_recent_activities` and the Last Activity boot seed.
+- **F9 length bias.** Accepted, not mitigated. It acts on both arms equally (restarts do not depend on house state), so the ratio test is unbiased to first order. Persisting episodes would add a restore path to a diagnostic and is not worth it.
