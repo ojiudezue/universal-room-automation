@@ -242,3 +242,31 @@ def test_button_entity_wires_to_presence(monkeypatch):
     assert b.available is True
     H.run(b.async_press())
     assert called == [True]
+
+
+def test_button_refreshes_when_presence_becomes_ready(monkeypatch):
+    """Added before the Presence Coordinator registers (boot order): the button
+    must listen for SIGNAL_PRESENCE_COORDINATOR_READY and re-write its state,
+    or it stays unavailable (live 2026-11-10 after the v5.108.1 restart)."""
+    BT = importlib.import_module(f"{H._PKG}.button")
+    from homeassistant.helpers import dispatcher
+    SIG = importlib.import_module(
+        f"{H._PKG}.domain_coordinators.signals").SIGNAL_PRESENCE_COORDINATOR_READY
+    connected = {}
+    monkeypatch.setattr(dispatcher, "async_dispatcher_connect",
+                        lambda hass, sig, fn: connected.setdefault(sig, fn) and None)
+
+    hass = H.MagicMock()
+    manager = H.MagicMock(coordinators={})
+    hass.data = {H.DOMAIN: {"coordinator_manager": manager}}
+    b = BT.GuestLeftButton(hass, H.MagicMock())
+    b.async_on_remove = lambda unsub: None
+    writes = []
+    b.async_write_ha_state = lambda: writes.append(b.available)
+
+    H.run(b.async_added_to_hass())
+    assert b.available is False
+    assert SIG in connected
+    manager.coordinators["presence"] = object()
+    connected[SIG]()
+    assert writes == [True]
