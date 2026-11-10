@@ -1,0 +1,28 @@
+{
+  "format_version": "2.1",
+  "entry_id": "277",
+  "author": "ojiudezue",
+  "session_id": "claude_20261110_lock_guest_decisions",
+  "timestamp": "2026-11-10T14:30:00Z",
+  "type": "decision",
+  "weight": "significant",
+  "title": "Lock boot recheck: remember manual unlocks; vacation re-locks after restart like sleep",
+  "summary": "The garage-lockout regime gains a 120 s post-boot recheck that engages/releases to match house state. Operator chose option B: a manual unlock (and a hazard, kill-switch or vacation-arrival release) is persisted per episode in the regime Store so a restart in the same sleep/vacation/guest-night does not re-lock; vacation now catches up at any hour.",
+  "why": "A restart during sleep left the house unlocked (boot never engaged), but a naive catch-up would re-lock a door a resident had deliberately unlocked. Persisting the episode mark makes the catch-up safe and lets INV-5 (manual vacation unlock survives restart) hold by data instead of by a vacation carve-out. Review B showed a fire release followed by a crash would otherwise re-lock 120 s after boot.",
+  "alternatives_considered": [
+    "A: accept a re-lock after a night restart",
+    "Keep vacation excluded from catch-up"
+  ],
+  "implications": "Missing/corrupt Store fails secure (locks). A late 'unlocked' readback is counted as a manual unlock (fails open for the episode, documented B-4). The mark clears on any awake/home edge, backstop, SC disable or new engage edge.",
+  "confidence": "high",
+  "revisit_trigger": "Live: a remembered unlock is not honoured after a restart, or a lock re-engages after a hazard release + restart",
+  "refs": {
+    "docs": [
+      "docs/readmes/README_v5.108.3.md",
+      "docs/reviews/code-review/v5.108.3_lock_boot_recheck.md"
+    ],
+    "cards": [
+      "LOCK-BOOT-RECHECK-ENGAGE-1"
+    ]
+  }
+}

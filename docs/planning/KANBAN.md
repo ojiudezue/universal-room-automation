@@ -2,29 +2,35 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-10T02:12:43-06:00_ - _Data commit: `6671a46940b0`_ - _last_reconciled: 2026-11-10_
+_Generated: 2026-11-10T02:16:51-06:00_ - _Data commit: `7e254d35487e`_ - _last_reconciled: 2026-11-10_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 0 |
+| 📥 Inbox | 1 |
 | 🔬 Investigating | 0 |
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 17 |
 | 🔨 In progress | 1 |
-| 🔍 Review | 3 |
+| 🔍 Review | 6 |
 | ⏸️ Waiting on operator | 33 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🚀 Shipped (organic open) | 16 |
 | 🅿️ Parked | 115 |
 | ✅ Done | 414 |
 
-## 📥 Inbox (0)
+## 📥 Inbox (1)
 _raw capture_
 
-_(none)_
+### `NM-BUTTON-READY-PATTERN-1` - Two more buttons can stick unavailable after boot (NM mute-person, test perimeter alert): same not-polled pattern as the Guest left button — _#1 · WSJF 6.0 · v2 tc2 u2 /e1_
+thread: **notifications** - status: **inbox**
+_created 2026-11-10 12:10_
+- **Why:** NMMutePersonChannelPrimaryButton (button.py:681) and SendTestPerimeterAlertButton (button.py:2353) compute available from a manager that may register after the platform; no ready-signal subscription. Also add super().async_added_to_hass(...
+- **Next:** Tier 1: subscribe each to its manager's ready signal (SIGNAL_NM_READY if it exists - verify), tests with the async_on_remove handle asserted.
+- **Forensic keys (1):**
+  - `tier`: 1
 
 ## 🔬 Investigating (0)
 _measuring; truth not yet known_
@@ -493,10 +499,28 @@ _created 2026-11-01 · updated 2026-11-05 02:40_
   - `tier`: 2
   - `eval_round_2026_11_07`: Operator-funded iteration ($50 cap, spent $40.31; worktree agent-a657e58090fb1df32 commits e1b08b13 b0d29379 12ac1780; ITERATIONS_2026_11_07.md, LEDGER_2026_11_07.md, RUBRIC.md). NOT PASSING: Sonnet 5.5 3/15 runs, 0 cases by majority; he...
 
-## 🔍 Review (3)
+## 🔍 Review (6)
 _under review_
 
-### `OPTIMIZER-META-NEVER-PAGES-1` - The optimizer's AI layer pages CRITICAL on all 4 channels (often at night) to complain that its own input was truncated: never page on a 'meta' finding — _#1 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
+### `GUEST-LEFT-BUTTON-READY-1` - Guest left button stuck unavailable after boot (added before Presence registers; buttons are not polled) — _#1 · WSJF 10.0 · v4 tc4 u2 /e1_
+thread: **presence** - status: **review**
+_created 2026-11-10 12:10_
+- **Why:** GuestLeftButton.available reads the presence coordinator, which registers after the button platform adds it; a button is never polled, so it never re-evaluates. Fix: subscribe to SIGNAL_PRESENCE_COORDINATOR_READY and write state (75c4628...
+- **Next:** Ship v5.108.2; Live: button available after restart.
+- **Refs:** docs/reviews/code-review/v5.108.2_guest_left_button_ready.md
+- **Forensic keys (1):**
+  - `tier`: 1
+
+### `LOCK-BOOT-RECHECK-ENGAGE-1` - Garage lockout boot recheck: 120 s after boot, lock or release to match house state; remember manual unlocks across restart; vacation catches up like sleep — _#2 · WSJF 6.0 · v6 tc4 u2 /e2_
+thread: **security** - status: **review**
+_created 2026-11-10 12:10_
+- **Why:** A restart during sleep left lockouts unlocked (boot never engaged). Option B persists an episode mark (manual unlock, hazard, kill-switch off, vacation arrival) in the regime Store so the catch-up never re-locks a deliberate unlock; INV-...
+- **Next:** Ship v5.108.3; Live per README_v5.108.3 (boot_recheck decision logged; remembered unlock honoured).
+- **Refs:** docs/readmes/README_v5.108.3.md; docs/reviews/code-review/v5.108.3_lock_boot_recheck.md
+- **Forensic keys (1):**
+  - `tier`: 2-DB
+
+### `OPTIMIZER-META-NEVER-PAGES-1` - The optimizer's AI layer pages CRITICAL on all 4 channels (often at night) to complain that its own input was truncated: never page on a 'meta' finding — _#3 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
 thread: **optimizer** - status: **review** - approval: **implied**
 _created 2026-11-04 02:11 · updated 2026-11-10 02:12 · initial_
 - **Problem / Solution:**
@@ -517,7 +541,16 @@ _created 2026-11-04 02:11 · updated 2026-11-10 02:12 · initial_
   - `adjacency_2026_11_04`: NEW (residual of a done card). Swept: board (findings_recent appears only on OPTIMIZER-PAGING-PRIMITIVE-1, OPT-META-BOOT-TRANSIENT-1, OPTIMIZER-NOTIFY-FLOOD-DEDUP-1, all done), BACKLOG.md (no match), PLANNING_*/AUDIT_* (PLANNING_audit_op...
   - `mergeprep_2026_11_08_overnight`: Overnight 11-08 merge-prep: develop gained v5.106.0 (never-auto-lock list + Away Lock), which edits the same lock-sweep function, so integ/overnight-2026-11-04 and fix/security-lock-sweep-retry-cap NO LONGER MERGE (conflicts in security....
 
-### `ANOMALY-METRIC-DISPOSITION-1` - Dispose of anomaly metrics that cannot work as built: undeclare hvac.egress_pause_frequency + security.entry_anomaly_score; reshape security.alert_trigger_frequency; fix or retire safety.active_hazard_count — _#2 · WSJF 2.3 · v3 tc2 u2 /e3_
+### `GUEST-STAY-EXIT-DAY-VETO-1` - Guest stay exit day veto: empty nights do not end a stay while a guest-room day share >= 0.10 — _#4 · WSJF 5.0 · v5 tc3 u2 /e2_
+thread: **presence** - status: **review**
+_created 2026-11-10 12:10_
+- **Why:** Simpler thresholds were not faster (AUDIT_guest_onset_thresholds...2026_11_10). The October replay dropped GUEST on days guests were present; the veto recovers 19/21 days, 0 false days in the clean period. Kill switch GUEST_STAY_EXIT_DAY...
+- **Next:** Ship v5.108.5; Live L1/L2 now, L3/L4 at the next guest stay.
+- **Refs:** docs/readmes/README_v5.108.5.md; docs/reviews/code-review/v5.108.5_guest_day_veto.md
+- **Forensic keys (1):**
+  - `tier`: 2-DB
+
+### `ANOMALY-METRIC-DISPOSITION-1` - Dispose of anomaly metrics that cannot work as built: undeclare hvac.egress_pause_frequency + security.entry_anomaly_score; reshape security.alert_trigger_frequency; fix or retire safety.active_hazard_count — _#5 · WSJF 2.3 · v3 tc2 u2 /e3_
 thread: **diagnostics** - status: **review** - approval: **implied**
 _created 2026-10-24 08:00 · updated 2026-11-10 02:12 · refined_
 - **Origin:** 2026-10-24 - grooming of the five unminted README_v5.103.25 s5 follow-ups
@@ -534,7 +567,7 @@ _created 2026-10-24 08:00 · updated 2026-11-10 02:12 · refined_
   - `swept_2026_10_24`: DEDUPE_2026_10_24: merges three README-named cards (ANOMALY-UNWIRED-METRIC-DISPOSITION-1, SECURITY-ALERT-TRIGGER-METRIC-SHAPE-1, SAFETY-ANOMALY-STRUCTURALLY-INERT-1) - same shared AnomalyDetector surface and same decision type (does this...
   - `mergeprep_2026_11_08_overnight`: Overnight 11-08 merge-prep: develop gained v5.106.0 (never-auto-lock list + Away Lock), which edits the same lock-sweep function, so integ/overnight-2026-11-04 and fix/security-lock-sweep-retry-cap NO LONGER MERGE (conflicts in security....
 
-### `SECURITY-LOCK-SWEEP-RETRY-CAP-1` - Security lock sweep re-sends lock/close every interval forever when the command doesn't take (46 lock commands on 2026-03-11): add a retry cap + one notification — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `SECURITY-LOCK-SWEEP-RETRY-CAP-1` - Security lock sweep re-sends lock/close every interval forever when the command doesn't take (46 lock commands on 2026-03-11): add a retry cap + one notification — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **security** - status: **review**
 _created 2026-11-01 · updated 2026-11-10 02:12_
 - **Why:** AUDIT_security_sweep_and_mopup.md: _evaluate_lock_check (security.py:1678, 60-min timer, security.py:701-709) is state-gated (no command to an already locked/closed device) and DOES close garage covers (security.py:1712-1721), but has no...
@@ -3189,11 +3222,12 @@ _created 2026-11-03 02:02 · updated 2026-11-04 02:11 · initial_
 - **Tags:** tier-1, found-during-probe, no-fabrication-verify, mutation-drill
 - **Parsimony:** [BUILD] Zone and rooms energy-today totals show a stale, too-high value from just after midnight until the next restart, on 2 of 2 observed nights.
 - **Refs:** docs/readmes/README_v5.103.97.md; custom_components/universal_room_automation/aggregation.py
-- **Forensic keys (4):**
+- **Forensic keys (5):**
   - `soak_exit_2026_11_04`: DISPOSED done. Read 02:02-02:10 on 11-04, i.e. the same post-midnight window where it froze 2 of 2 nights before: sensor.universal_room_automation_rooms_energy_total 4.54 vs room_energies sum 4.53; zone_master_suite 3.44 = rooms 3.34 + z...
   - `tier`: 1
   - `consumers`: Display and HA long-term statistics only (state_class total_increasing). The PWA Rooms view reads rooms_energy_total, the ura-v8 zone chips are planned (URAV8-ZONE-ENERGY-DISPLAY-1) and the zone cost-today sensors multiply zone energy. T...
   - `gate_2026_11_03`: Validity: STILL-REAL (live read above). Config-first: no knob governs the guard. Prior-art: REUSE the existing _last_accepted_date guard and fix it in place in one shared helper for all three sensors (do not add a fourth copy). Parsimony...
+  - `reeval_2026_11_10`: Re-evaluated (docs/planning/EVAL_house_master_tick_2026_11_10.md): no current consumer has a latency or synchrony problem the wheel solves; recommendation PARK. Operator 2026-11-10: 'Park timer'.
 
 ### `OC-LOCAL-MODEL-SLIM-PACK-1` - OC eval: can a small local model (<=9B / MoE) do L03 on a slim ~16k-token pack at 32k context? — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **optimization** - status: **done**

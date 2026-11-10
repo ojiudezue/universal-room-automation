@@ -4,6 +4,10 @@ Card: `GUEST-MODE-SPLIT-VISITORS-1` (follow-up, operator approval 2026-11-10).
 Evidence: `docs/planning/AUDIT_guest_onset_thresholds_and_hvac_evidence_states_2026_11_10.md` §1.3-§1.5.
 Tier 2-DB (house-state exit): three framing-disjoint reviews, then live validation.
 
+**Cards shipped:** `GUEST-LEFT-BUTTON-READY-1` (v5.108.2), `LOCK-BOOT-RECHECK-ENGAGE-1` (v5.108.3), `HVAC-GUEST-EVIDENCE-RULE-1` phase 1 (v5.108.4, display-only shadow), `GUEST-STAY-EXIT-DAY-VETO-1` (v5.108.5).
+
+**Release bundle:** this release (stamped v5.108.5) also ships v5.108.2 (Guest left button ready, `README_v5.108.2.md`), v5.108.3 (lock boot recheck, `README_v5.108.3.md`) and v5.108.4 (HVAC evidence shadow recording, `README_v5.108.4.md`) with one restart. Full-suite name-diff e2ebd904 vs 9610d680: 0 new failing names.
+
 ## What changes
 
 The guest stay latch (`PresenceCoordinator._refresh_guest_stay`) used to end after min(2, n) straight empty nights, regardless of the day. In October that dropped the last real stay day: the re-entry-grace stay had n = 1, night 10-16 read 0, so the stay ended on the 10-17 morning while the guest room read 0.46 (10-16) and 0.22 (10-17) by day.
