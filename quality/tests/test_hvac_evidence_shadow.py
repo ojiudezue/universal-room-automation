@@ -1245,3 +1245,37 @@ def test_room_that_left_the_pass_is_not_a_holder(no_boot):
     r = w.rows()[0]
     assert (r["outcome"], r["ended_at"]) == ("released", _iso(T0 + S(seconds=310)))
 
+
+
+# ==========================================================================
+# v5.108.x: zone delete purges hvac_evidence_shadow (real DAO, real DB)
+# ==========================================================================
+
+@pytest.mark.asyncio
+async def test_zone_delete_purges_evidence_shadow_real_dao(tmp_path):
+    """Drives production async_count_zone_rows + async_delete_zone_data on a
+    real initialised DB. Deleting HVAC zone z1 removes exactly its 3 shadow
+    rows (count 3 before, 0 after, result key 3); z2's 2 rows survive; a
+    husk delete (zone_id None) touches none of them."""
+    db = _make_db(tmp_path)
+
+    async def body():
+        rows = _sample_rows(5)
+        for r in rows[3:]:
+            r["zone_id"] = "z2"
+        await db.log_hvac_evidence_shadow(rows)
+        await db._write_queue.join()
+        husk = await db.async_delete_zone_data("Husk", None)
+        pre = await db.async_count_zone_rows("Zone One", "z1")
+        res = await db.async_delete_zone_data("Zone One", "z1")
+        post = await db.async_count_zone_rows("Zone One", "z1")
+        return husk, pre, res, post
+    husk, pre, res, post = await _with_db(db, body)
+    assert husk["hvac_evidence_shadow"] == 0
+    assert pre["hvac_evidence_shadow"] == 3
+    assert res["hvac_evidence_shadow"] == 3
+    assert post["hvac_evidence_shadow"] == 0
+    con = sqlite3.connect(db.db_file)
+    left = sorted(r[0] for r in con.execute("SELECT zone_id FROM hvac_evidence_shadow"))
+    con.close()
+    assert left == ["z2", "z2"]

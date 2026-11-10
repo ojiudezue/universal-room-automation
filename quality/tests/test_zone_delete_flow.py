@@ -59,6 +59,8 @@ _TABLES_UNDER_TEST = (
     # hvac_excursion_state row as a phantom excursion for a deleted zone.
     "hvac_excursion_state",
     "hvac_excursion_events",
+    # v5.108.x: HVAC-GUEST-EVIDENCE-RULE-1 shadow table (zone_id NOT NULL).
+    "hvac_evidence_shadow",
 )
 
 
@@ -187,6 +189,7 @@ def _run_dao(conn, zone_name: str, zone_id: str | None) -> dict[str, int]:
         "ac_ramp_events": 0,
         "hvac_excursion_state": 0,
         "hvac_excursion_events": 0,
+        "hvac_evidence_shadow": 0,
     }
     conn.execute("BEGIN")
     try:
@@ -199,6 +202,7 @@ def _run_dao(conn, zone_name: str, zone_id: str | None) -> dict[str, int]:
             for tbl in (
                 "ac_reset_state", "egress_state", "ac_ramp_events",
                 "hvac_excursion_state", "hvac_excursion_events",
+                "hvac_evidence_shadow",
             ):
                 cur = conn.execute(
                     f"DELETE FROM {tbl} WHERE zone_id = ?", (zone_id,)
@@ -601,6 +605,7 @@ def test_dao_returns_rowcount_dict_shape(real_zone_schema_db):
         "zone_events", "census_snapshots", "ura_activity_log",
         "ac_reset_state", "egress_state", "ac_ramp_events",
         "hvac_excursion_state", "hvac_excursion_events",
+        "hvac_evidence_shadow",
     }
     result = _run_dao(conn, "Nonexistent Zone", zone_id=None)
     assert set(result.keys()) == expected_keys
@@ -618,10 +623,12 @@ def test_dao_returns_rowcount_dict_shape(real_zone_schema_db):
 # ---------------------------------------------------------------------------
 
 
-def test_six_zone_keyed_tables_enumerated():
+def test_zone_keyed_tables_enumerated():
     """Re-grep ALL CREATE TABLE DDL for zone/zone_id/zone_name columns.
-    Assert count is exactly six (fix-up R5). If a new zone-keyed table
-    ships, this fails and the fixer extends the enumeration.
+    Assert the set is exactly the nine purged by async_delete_zone_data
+    (was "six" at fix-up R5; renamed v5.108.x when it reached nine). If a
+    new zone-keyed table ships, this fails and the fixer extends the
+    enumeration.
     """
     src = _DATABASE_PY.read_text()
     # Find CREATE TABLE blocks that declare a `zone` or `zone_id` column
@@ -654,6 +661,8 @@ def test_six_zone_keyed_tables_enumerated():
         "zone_events", "census_snapshots", "ura_activity_log",
         "ac_reset_state", "egress_state", "ac_ramp_events",
         "hvac_excursion_state", "hvac_excursion_events",
+        # v5.108.x: shadow recorder table (zone_id TEXT NOT NULL).
+        "hvac_evidence_shadow",
     }
     assert zone_tables == expected, (
         f"Zone-keyed table set drifted. Found: {zone_tables}. "
@@ -778,6 +787,7 @@ def test_dao_source_covers_six_tables():
         "ac_reset_state", "egress_state", "ac_ramp_events",
         # HVAC-GOVERNED-EXCURSION-1 fix-up r3:
         "hvac_excursion_state", "hvac_excursion_events",
+        "hvac_evidence_shadow",
     ):
         assert f"DELETE FROM {tbl}" in body, (
             f"async_delete_zone_data missing DELETE for {tbl} "
@@ -891,7 +901,7 @@ def test_tripwire_warns_on_missing_prefix(caplog):
 MUTATION_MAP = {
     # (production site → test that would go RED under mutation)
     "remove_rollback_from_dao": "test_dao_transaction_atomicity_rollback_on_error",
-    "drop_a_zone_keyed_table_from_dao": "test_dao_source_covers_six_tables + test_six_zone_keyed_tables_enumerated",
+    "drop_a_zone_keyed_table_from_dao": "test_dao_source_covers_six_tables + test_zone_keyed_tables_enumerated + test_zone_delete_purges_evidence_shadow_real_dao (hvac_evidence_shadow, in test_hvac_evidence_shadow.py)",
     "drop_a_prefix_from_enumerator": "test_unique_id_prefix_enumeration_covers_all_known_families",
     "neuter_confirm_gate_to_return_true": "test_confirm_name_gate_uses_production_helper",
     "silence_tripwire_warning": "test_tripwire_warns_on_missing_prefix",
