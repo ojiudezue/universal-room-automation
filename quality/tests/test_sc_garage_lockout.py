@@ -581,6 +581,214 @@ async def test_boot_recheck_awake_house_clears_remembered():
     assert store.data["garage_manual_unlock"] is None
 
 
+# ---- v5.108.3 review fix-up: B-1/B-2/B-3/B-5 + C G1-G8 ---------------------
+
+HAZARD_OPTS = dict(security_on_hazard_unlock_egress=True)
+
+
+async def _restart_same_episode(store, house, start):
+    rig2 = await make_rig(start=start, house=house, past_boot=False,
+                          opts=options(**HAZARD_OPTS), store=DictStore(dict(store.data)))
+    await rig2.w.advance(3600)
+    return rig2
+
+
+@pytest.mark.asyncio
+async def test_hazard_release_survives_restart_in_same_episode():
+    """B-1: smoke at 23:00 in SLEEP releases; HA restarts 10 min later with the
+    house still sleep -> the boot catch-up must NOT re-lock."""
+    store = DictStore()
+    rig = await make_rig(opts=options(**HAZARD_OPTS), store=store)
+    await rig.edge("sleep")
+    assert rig.locks() == [LOCK_A, LOCK_B]
+    rig.sc._handle_safety_hazard({"hazard_type": "smoke", "severity": "critical"})
+    await settle()
+    assert rig.regime.reason == "none"
+    assert store.data["garage_manual_unlock"] == "sleep"
+    await rig.regime.async_teardown()
+    rig2 = await _restart_same_episode(store, "sleep", NIGHT + timedelta(minutes=10))
+    assert rig2.locks() == []
+    assert rig2.regime.last_action["decision"] == "manual_unlock_remembered"
+
+
+@pytest.mark.asyncio
+async def test_kill_switch_off_survives_restart_in_same_episode():
+    """B-5 (decided: mark). INV-5 says OFF -> ON never catches up; a restart
+    in the same episode must not catch up either."""
+    store = DictStore()
+    rig = await make_rig(store=store)
+    await rig.edge("sleep")
+    rig.regime.on_kill_switch_changed(False)
+    assert store.data["garage_manual_unlock"] == "sleep"
+    await rig.regime.async_teardown()
+    rig2 = await _restart_same_episode(store, "sleep", NIGHT + timedelta(minutes=10))
+    assert rig2.locks() == []
+
+
+@pytest.mark.asyncio
+async def test_kill_switch_off_with_no_episode_leaves_no_mark():
+    store = DictStore()
+    rig = await make_rig(house="home_day", store=store)
+    rig.regime.on_kill_switch_changed(False)
+    assert rig.regime.manual_unlock_reason is None
+
+
+@pytest.mark.asyncio
+async def test_kill_switch_off_after_hazard_keeps_hazard_mark():
+    """Hazard (mark sleep, reason NONE) then kill switch OFF (no episode now):
+    the hazard mark survives, so a restart in the night still does not lock."""
+    store = DictStore()
+    rig = await make_rig(opts=options(**HAZARD_OPTS), store=store)
+    await rig.edge("sleep")
+    rig.sc._handle_safety_hazard({"hazard_type": "smoke", "severity": "critical"})
+    await settle()
+    rig.regime.on_kill_switch_changed(False)
+    assert store.data["garage_manual_unlock"] == "sleep"
+
+
+@pytest.mark.asyncio
+async def test_vacation_arrival_survives_restart_while_house_reads_vacation():
+    """B-3: a resident arrives in VACATION (lockouts release, reason NONE) but
+    the house still reads vacation (min dwell); a restart must not re-lock."""
+    store = DictStore()
+    rig = await make_rig(house="away", store=store)
+    await rig.edge("vacation")
+    await rig.person(EZ, "home")
+    assert rig.unlocks() == [LOCK_A, LOCK_B]
+    assert rig.regime.reason == "none"
+    assert store.data["garage_manual_unlock"] == "vacation"
+    await rig.regime.async_teardown()
+    rig2 = await _restart_same_episode(store, "vacation", NIGHT + timedelta(minutes=10))
+    assert rig2.locks() == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("end_edge", ["home_day", "waking"])
+async def test_forced_none_mark_cleared_by_awake_edge(end_edge):
+    """B-2: after a hazard forced reason NONE, the awake edge decides 'none'
+    yet must still drop the mark, so next night's restart locks."""
+    store = DictStore()
+    rig = await make_rig(opts=options(**HAZARD_OPTS), store=store)
+    await rig.edge("sleep")
+    rig.sc._handle_safety_hazard({"hazard_type": "smoke", "severity": "critical"})
+    await settle()
+    assert store.data["garage_manual_unlock"] == "sleep"
+    await rig.edge(end_edge)
+    assert store.data["garage_manual_unlock"] is None
+    rig2 = await make_rig(start=BOOT_0200 + timedelta(days=1), house="sleep",
+                          past_boot=False, store=DictStore(dict(store.data)))
+    await rig2.w.advance(121)
+    assert rig2.locks() == [LOCK_A, LOCK_B]
+
+
+@pytest.mark.asyncio
+async def test_boot_recheck_home_night_outside_window_releases_boot_unknown():
+    """G1: a BOOT_UNKNOWN lock at home_night OUTSIDE the sleep window (21:00,
+    guest toggle on) is not the guest-night yield: the recheck releases it.
+
+    Defense in depth: in a real boot the out-of-window BOOT_UNKNOWN backstop
+    fires first (allow_immediate), so the state is seeded here after setup
+    to drive the recheck clause itself."""
+    rig = await make_rig(start=datetime(2026, 11, 8, 21, 0, tzinfo=TZ),
+                         house="home_night", past_boot=False)
+    rig.w.set_state(LOCK_A, "locked")
+    rig.w.set_state(LOCK_B, "locked")
+    rig.regime.reason = "boot_unknown"
+    await rig.w.advance(119)
+    assert rig.unlocks() == []
+    await rig.w.advance(2)
+    assert rig.unlocks() == [LOCK_A, LOCK_B]
+    assert rig.regime.reason == "none"
+
+
+@pytest.mark.asyncio
+async def test_boot_recheck_sleep_remembered_vacation_current_locks():
+    """G2: a remembered SLEEP unlock never suppresses a VACATION re-lock."""
+    store = DictStore({"garage_manual_unlock": "sleep"})
+    rig = await make_rig(start=BOOT_0200, house="vacation", past_boot=False, store=store)
+    await rig.w.advance(121)
+    assert rig.locks() == [LOCK_A, LOCK_B]
+    assert store.data["garage_manual_unlock"] is None
+
+
+@pytest.mark.asyncio
+async def test_unlock_with_no_episode_keeps_existing_mark():
+    """G3: a human unlock while reason is NONE (after a hazard) is no episode:
+    it neither records nor overwrites the persisted mark."""
+    store = DictStore({"garage_manual_unlock": "sleep"})
+    rig = await make_rig(start=BOOT_0200, house="sleep", lockouts="locked", store=store)
+    rig.regime.reason = "none"
+    rig.w.calls.clear()
+    rig.w.set_state(LOCK_A, "unlocked")
+    assert rig.regime.manual_unlock_reason == "sleep"
+    assert store.data["garage_manual_unlock"] == "sleep"
+    assert rig.regime.last_action.get("action") != "manual_unlock"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("edge", ["home_day", "home_evening", "home_night"])
+async def test_home_edge_with_no_reason_never_unlocks_manual_lock(edge):
+    """G4: reason NONE + a home edge must not unlock a lockout a human locked."""
+    rig = await make_rig(start=datetime(2026, 11, 8, 12, 0, tzinfo=TZ), house="home_day",
+                         opts=options(security_lockout_engage_on_guest_sleep=False))
+    assert rig.regime.reason == "none"
+    rig.w.set_state(LOCK_A, "locked")
+    rig.w.calls.clear()
+    await rig.edge(edge)
+    assert rig.unlocks() == []
+
+
+@pytest.mark.asyncio
+async def test_boot_recheck_guest_yield_hold_keeps_guest_night_mark():
+    """G5: remembered guest_night + boot guest_yield_hold: episode not over."""
+    store = DictStore({"garage_manual_unlock": "guest_night"})
+    rig = await make_rig(start=BOOT_0200, house="home_night", lockouts="locked",
+                         past_boot=False, store=store)
+    await rig.w.advance(121)
+    assert rig.regime.last_action["decision"] == "guest_yield_hold"
+    assert store.data["garage_manual_unlock"] == "guest_night"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("house,episode", [
+    ("sleep", "sleep"), ("guest", "guest_night"), ("home_night", "guest_night"),
+])
+async def test_manual_unlock_under_boot_unknown_maps_each_house_state(house, episode):
+    """G6: every BOOT_UNKNOWN -> episode mapping, not just vacation."""
+    rig = await make_rig(start=BOOT_0200, house=house, lockouts="locked")
+    rig.regime.reason = "boot_unknown"
+    rig.w.set_state(LOCK_A, "unlocked")
+    assert rig.regime.manual_unlock_reason == episode
+
+
+@pytest.mark.asyncio
+async def test_boot_recheck_already_locked_rebuilds_reason():
+    """G7: house GUEST in the window, lockouts already locked (BOOT_UNKNOWN at
+    setup): the recheck adopts guest_night and arms the backstop."""
+    rig = await make_rig(start=BOOT_0200, house="guest", lockouts="locked",
+                         past_boot=False)
+    assert rig.regime.reason == "boot_unknown"
+    await rig.w.advance(121)
+    assert rig.regime.last_action["decision"] == "already_locked"
+    assert rig.regime.reason == "guest_night"
+    assert rig.regime._backstop_unsub is not None
+
+
+@pytest.mark.asyncio
+async def test_boot_recheck_exception_still_rearms_away_lock(monkeypatch):
+    """G8: a recheck failure never blocks the away-lock rearm."""
+    rig = await make_rig(start=BOOT_0200, house="sleep", past_boot=False)
+    rearmed = []
+
+    def boom():
+        raise RuntimeError("recheck boom")
+
+    monkeypatch.setattr(rig.regime, "_boot_recheck_regime", boom)
+    monkeypatch.setattr(rig.regime, "_away_rearm", lambda cfg: rearmed.append(1))
+    await rig.w.advance(121)
+    assert rearmed == [1]
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("store", [
     DictStore(None),                                  # missing store file

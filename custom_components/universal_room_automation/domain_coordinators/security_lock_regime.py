@@ -787,6 +787,12 @@ class LockRegimeController:
             # _after_release clears a remembered manual unlock (episode over).
             self._release(f"house_state:{new}")
             return
+        if kind == "none" and (new in _HOME_STATES or new == "waking"):
+            # Review B-2: an awake edge ends any episode even when reason is
+            # already NONE (hazard / kill switch / vacation arrival forced it):
+            # drop a remembered mark so it cannot leak into the next episode.
+            self._clear_manual_unlock()
+            return
         if kind == "guest_yield_hold":
             # INV-LOCK-1 (GUEST-MODE-SPLIT rev 5, build review B-M1): see
             # _edge_decision.
@@ -1017,9 +1023,14 @@ class LockRegimeController:
         """Critical smoke/fire/CO with egress unlock configured."""
         if self._torn_down:
             return
+        # Review B-1: remember the episode so a restart in the same episode
+        # (power loss during a fire is plausible) never re-locks via the
+        # boot catch-up. Captured before reason is forced to NONE.
+        episode = self._episode_reason()
         self._cancel_reengage()
         self._release("hazard")
         self.reason = REASON_NONE
+        self._remember_episode_released(episode)
         self._away_release("hazard")
 
     def on_kill_switch_changed(self, enabled: bool, key: str | None = None) -> None:
@@ -1038,10 +1049,15 @@ class LockRegimeController:
             return
         if self._torn_down or enabled:
             return
+        # Review B-5: OFF -> ON never catches up (INV-5), including across a
+        # restart in the same episode: remember the episode like a manual
+        # unlock. A later new episode (a live engage edge) clears it.
+        episode = self._episode_reason()
         self._cancel_reengage()
         self._cancel_backstop()
         self._release("kill_switch_off", force=True)
         self.reason = REASON_NONE
+        self._remember_episode_released(episode)
 
     def _subscribe_person(self, pid: str) -> None:
         if pid in self._person_unsubs:
@@ -1392,6 +1408,16 @@ class LockRegimeController:
             self.manual_unlock_reason = episode
             self._save_store()
 
+    def _remember_episode_released(self, episode: str | None) -> None:
+        """Hazard / kill-switch-off / vacation-arrival ended the lock for
+        this episode: persist it like a manual unlock so the boot recheck
+        does not re-lock in the same episode (review B-1/B-3/B-5)."""
+        if episode is None:
+            return
+        if self.manual_unlock_reason != episode:
+            self.manual_unlock_reason = episode
+            self._save_store()
+
     def _clear_manual_unlock(self) -> None:
         if self.manual_unlock_reason is not None:
             self.manual_unlock_reason = None
@@ -1430,6 +1456,9 @@ class LockRegimeController:
             if self.reason == REASON_VACATION:
                 self.reason = REASON_NONE
                 self._cancel_reengage()
+                # Review B-3: the house can still read VACATION (min dwell);
+                # a restart must not re-lock with the resident home.
+                self._remember_episode_released(REASON_VACATION)
             elif self.reason in (REASON_SLEEP, REASON_GUEST_NIGHT) and (
                 self._in_sleep_window(cfg)
             ):
