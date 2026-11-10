@@ -132,6 +132,177 @@ async def make_rig(
 
 
 # ============================================================================
+# LOCK-BOOT-RECHECK-ENGAGE-1 — the boot recheck re-asks "locked now?"
+# ============================================================================
+
+BOOT_0200 = datetime(2026, 11, 8, 2, 0, tzinfo=TZ)
+
+
+@pytest.mark.asyncio
+async def test_boot_recheck_engages_sleep_with_lockouts_unlocked():
+    rig = await make_rig(start=BOOT_0200, house="sleep", past_boot=False)
+    await rig.w.advance(119)
+    assert rig.locks() == []
+    await rig.w.advance(2)  # 120 s recheck fires
+    assert rig.locks() == [LOCK_A, LOCK_B]
+    assert rig.regime.last_action["trigger"] == "boot_recheck"
+    assert rig.regime.reason == "sleep"
+    # Backstop scheduled exactly as the sleep edge does: 07:00 releases.
+    await rig.w.advance((datetime(2026, 11, 8, 7, 0, 1, tzinfo=TZ) - rig.w.now).total_seconds())
+    assert rig.unlocks() == [LOCK_A, LOCK_B]
+
+
+@pytest.mark.asyncio
+async def test_boot_recheck_releases_boot_unknown_lock_in_awake_house():
+    rig = await make_rig(start=BOOT_0200, house="home_night", lockouts="locked",
+                         past_boot=False,
+                         opts=options(security_lockout_engage_on_guest_sleep=False))
+    assert rig.regime.reason == "boot_unknown"
+    await rig.w.advance(119)
+    assert rig.unlocks() == []
+    await rig.w.advance(2)
+    assert rig.unlocks() == [LOCK_A, LOCK_B]
+    assert rig.regime.last_action["action"] == "release"
+    assert rig.regime.last_action["trigger"] == "boot_recheck"
+    assert rig.regime.reason == "none"
+    assert rig.regime._backstop_unsub is None
+
+
+@pytest.mark.asyncio
+async def test_boot_recheck_releases_boot_unknown_lock_when_arriving():
+    rig = await make_rig(start=BOOT_0200, house="away", lockouts="locked",
+                         past_boot=False)
+    rig.mgr.house_state = "arriving"  # restore lands late, no signal
+    await rig.w.advance(121)
+    assert rig.unlocks() == [LOCK_A, LOCK_B]
+
+
+@pytest.mark.asyncio
+async def test_boot_recheck_sleep_already_locked_no_command():
+    rig = await make_rig(start=BOOT_0200, house="sleep", lockouts="locked",
+                         past_boot=False)
+    await rig.w.advance(121)
+    assert rig.w.calls == []
+    assert rig.regime.last_action["action"] == "boot_recheck"
+    assert rig.regime.last_action["decision"] == "already_locked"
+
+
+@pytest.mark.asyncio
+async def test_boot_recheck_awake_and_unlocked_no_command():
+    rig = await make_rig(start=datetime(2026, 11, 8, 9, 30, tzinfo=TZ), house="home_day",
+                         past_boot=False)
+    await rig.w.advance(121)
+    assert rig.w.calls == []
+    assert rig.regime.last_action["action"] == "boot_recheck"
+    assert rig.regime.last_action["decision"] == "no_change"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("house", [None, "unknown", "unavailable"])
+async def test_boot_recheck_house_unknown_does_nothing(house):
+    rig = await make_rig(start=BOOT_0200, house="sleep", past_boot=False)
+    rig.mgr.house_state = house
+    await rig.w.advance(121)
+    assert rig.w.calls == []
+    assert rig.regime.last_action.get("action") != "boot_recheck"
+
+
+@pytest.mark.asyncio
+async def test_boot_recheck_house_unknown_with_boot_unknown_lock_no_release():
+    rig = await make_rig(start=BOOT_0200, house="home_night", lockouts="locked",
+                         past_boot=False,
+                         opts=options(security_lockout_engage_on_guest_sleep=False))
+    rig.mgr.house_state = "unavailable"
+    await rig.w.advance(121)
+    assert rig.unlocks() == []
+
+
+@pytest.mark.asyncio
+async def test_boot_recheck_kill_switch_off_does_nothing():
+    rig = await make_rig(start=BOOT_0200, house="sleep", past_boot=False,
+                         opts=options(security_garage_lockout_enabled=False))
+    await rig.w.advance(121)
+    assert rig.w.calls == []
+    assert rig.regime.last_action == {}
+    assert rig.regime.reason == "none"
+    assert rig.regime._backstop_unsub is None
+
+
+@pytest.mark.asyncio
+async def test_boot_recheck_kill_switch_off_boot_unknown_lock_not_released():
+    rig = await make_rig(start=BOOT_0200, house="home_night", lockouts="locked",
+                         past_boot=False,
+                         opts=options(security_garage_lockout_enabled=False,
+                                      security_lockout_engage_on_guest_sleep=False))
+    await rig.w.advance(121)
+    assert rig.w.calls == []
+
+
+@pytest.mark.asyncio
+async def test_boot_recheck_guest_yield_hold_respected():
+    """INV-LOCK-1: a lock found at boot in a home_night sleep window with the
+    guest toggle ON may be the guest-night lock after the yield: held, then
+    released by the next home_day edge like any guest-night lock."""
+    rig = await make_rig(start=BOOT_0200, house="home_night", lockouts="locked",
+                         past_boot=False)
+    await rig.w.advance(121)
+    assert rig.unlocks() == []
+    assert rig.regime.reason == "guest_night"
+    assert rig.regime.last_action["decision"] == "guest_yield_hold"
+    await rig.edge("home_day")
+    assert rig.unlocks() == [LOCK_A, LOCK_B]
+
+
+@pytest.mark.asyncio
+async def test_boot_recheck_guest_in_window_engages_guest_night():
+    rig = await make_rig(start=BOOT_0200, house="guest", past_boot=False)
+    await rig.w.advance(121)
+    assert rig.locks() == [LOCK_A, LOCK_B]
+    assert rig.regime.reason == "guest_night"
+
+
+@pytest.mark.asyncio
+async def test_boot_recheck_arrival_in_boot_window_suppresses_engage():
+    rig = await make_rig(start=BOOT_0200, house="sleep", past_boot=False)
+    await rig.w.advance(60)
+    await rig.person(EZ, "home")  # not_home -> home: a counted arrival
+    await rig.w.advance(61)  # recheck at 120 s
+    assert rig.locks() == []
+    assert rig.regime.last_action["decision"] == "arrival_suppressed"
+
+
+@pytest.mark.asyncio
+async def test_boot_recheck_rebuilt_sleep_reason_not_released_by_recheck():
+    """Release at the recheck is only for a BOOT_UNKNOWN lock; a lock rebuilt
+    as SLEEP is left to the real edges / backstop."""
+    rig = await make_rig(start=BOOT_0200, house="sleep", lockouts="locked",
+                         past_boot=False)
+    rig.mgr.house_state = "home_night"  # silent change, no edge
+    await rig.w.advance(121)
+    assert rig.unlocks() == []
+
+
+@pytest.mark.asyncio
+async def test_boot_recheck_boot_unknown_but_already_unlocked_no_release():
+    rig = await make_rig(start=BOOT_0200, house="home_night", lockouts="locked",
+                         past_boot=False,
+                         opts=options(security_lockout_engage_on_guest_sleep=False))
+    rig.w.set_state(LOCK_A, "unlocked")
+    rig.w.set_state(LOCK_B, "unlocked")
+    await rig.w.advance(121)
+    assert rig.w.calls == []
+    assert rig.regime.last_action["decision"] == "no_change"
+
+
+@pytest.mark.asyncio
+async def test_boot_recheck_vacation_unlocked_no_catchup():
+    rig = await make_rig(start=BOOT_0200, house="vacation", past_boot=False)
+    await rig.w.advance(121)
+    assert rig.locks() == []
+    assert rig.regime.last_action["decision"] == "vacation_no_catchup"
+
+
+# ============================================================================
 # D2 — engage / release on house state (INV-4, INV-5, INV-6)
 # ============================================================================
 
@@ -497,9 +668,11 @@ async def test_guest_night_backstop_releases():
 
 
 @pytest.mark.asyncio
-async def test_boot_never_engages():
+async def test_boot_never_engages_before_the_recheck():
+    """Boot itself never engages (M1); the 120 s recheck is the one catch-up
+    (LOCK-BOOT-RECHECK-ENGAGE-1, anchored below)."""
     rig = await make_rig(house="sleep", past_boot=False)
-    await rig.w.advance(700)
+    await rig.w.advance(119)
     assert rig.locks() == []
 
 
