@@ -219,6 +219,29 @@ def test_pre_press_nights_do_not_lengthen_exit(monkeypatch, tmp_path,
     assert P.walk(c, P.at(2026, 11, 5)) is False
 
 
+# --- press beats the exit day veto (operator 2026-11-10) ------------------------
+
+def test_press_overrides_day_veto(monkeypatch, tmp_path, proc_tz, store):
+    """One-night stay 11-03; night 11-04 empty but day 11-04 at 0.5 vetoes the
+    exit (still on 11-05). A press at 11-05 09:00 clears it at once, and the
+    re-walk plus the next morning's walk stay off although days 11-04 and
+    11-05 are both occupied (the veto never resurrects a pressed stay)."""
+    proc_tz("UTC")
+    db = P._make_db(tmp_path)
+    P.occupy_fraction(db, P.E2, date(2026, 11, 3), 0.9)
+    P.occupy_day(db, P.E2, date(2026, 11, 3), 0.38)
+    P.occupy_day(db, P.E1, date(2026, 11, 4), 0.5)
+    P.occupy_day(db, P.E1, date(2026, 11, 5), 0.5)
+    c = P.coord_with(monkeypatch, db)
+    assert P.walk(c, P.at(2026, 11, 5)) is True         # vetoed
+    assert c._guest_stay_day_veto is not None
+    press(c, P.at(2026, 11, 5, 9).astimezone(UTC))
+    assert c._guest_stay_active is False
+    assert c._guest_stay_day_veto is None               # B LOW-2: cleared
+    assert P.walk(c, P.at(2026, 11, 5, 10)) is False
+    assert P.walk(c, P.at(2026, 11, 6)) is False
+
+
 # --- the entity ------------------------------------------------------------------
 
 def test_button_entity_wires_to_presence(monkeypatch):
@@ -242,3 +265,31 @@ def test_button_entity_wires_to_presence(monkeypatch):
     assert b.available is True
     H.run(b.async_press())
     assert called == [True]
+
+
+def test_button_refreshes_when_presence_becomes_ready(monkeypatch):
+    """Added before the Presence Coordinator registers (boot order): the button
+    must listen for SIGNAL_PRESENCE_COORDINATOR_READY and re-write its state,
+    or it stays unavailable (live 2026-11-10 after the v5.108.1 restart)."""
+    BT = importlib.import_module(f"{H._PKG}.button")
+    from homeassistant.helpers import dispatcher
+    SIG = importlib.import_module(
+        f"{H._PKG}.domain_coordinators.signals").SIGNAL_PRESENCE_COORDINATOR_READY
+    connected = {}
+    monkeypatch.setattr(dispatcher, "async_dispatcher_connect",
+                        lambda hass, sig, fn: connected.setdefault(sig, fn) and None)
+
+    hass = H.MagicMock()
+    manager = H.MagicMock(coordinators={})
+    hass.data = {H.DOMAIN: {"coordinator_manager": manager}}
+    b = BT.GuestLeftButton(hass, H.MagicMock())
+    b.async_on_remove = lambda unsub: None
+    writes = []
+    b.async_write_ha_state = lambda: writes.append(b.available)
+
+    H.run(b.async_added_to_hass())
+    assert b.available is False
+    assert SIG in connected
+    manager.coordinators["presence"] = object()
+    connected[SIG]()
+    assert writes == [True]

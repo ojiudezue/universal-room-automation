@@ -1,0 +1,27 @@
+{
+  "format_version": "2.1",
+  "entry_id": "278",
+  "author": "ojiudezue",
+  "session_id": "claude_20261110_lock_guest_decisions",
+  "timestamp": "2026-11-10T14:30:00Z",
+  "type": "decision",
+  "weight": "significant",
+  "title": "Guest stay exit day veto (>=10% guest-room day share holds the stay); house master tick stays parked",
+  "summary": "Simpler onset thresholds (day >10% / night >30-40% arm-confirm) were measured and none was faster, so entry stays 0.25 night / 0.10 day / 2 nights. Added only an exit veto: empty nights do not end a stay while any guest room's 10:00-to-bedtime non-resident share was >=0.10 on a day paired with a night in the exit window. Guest left press still beats it. The master house timer loop was evaluated and parked (URA-CENTRAL-TICK-WHEEL-1).",
+  "why": "The October replay showed the stay dropping on days guests were plainly present (out all night, in the room by day); the veto recovers 19/21 days with 0 false days in the clean period. The tick wheel offered no consumer whose latency or synchrony problem it solves today, and adds a shared timing primitive.",
+  "alternatives_considered": [
+    "Lower night threshold to 0.10-0.15",
+    "Day-only arm + night confirm",
+    "Leave exit unchanged"
+  ],
+  "implications": "Re-entry grace reaches hold length + 7 days; a phantom daytime hold in GB1/GB2 (no fan-immune witness, GB2 no BLE) can hold GUEST up to the 35-night window, with the 28-day page as notify-only backstop. Veto holder is published on the house-state sensor (guest_stay_day_veto_*). Kill switch: GUEST_STAY_EXIT_DAY_VETO_FRACTION > 1.",
+  "confidence": "medium",
+  "revisit_trigger": "A guest stay held by the veto with no guest present (phantom), or a resident's daytime GB2 use holding GUEST",
+  "refs": {
+    "docs": [
+      "docs/readmes/README_v5.108.5.md",
+      "docs/planning/AUDIT_guest_onset_thresholds_and_hvac_evidence_states_2026_11_10.md",
+      "docs/planning/EVAL_house_master_tick_2026_11_10.md"
+    ]
+  }
+}

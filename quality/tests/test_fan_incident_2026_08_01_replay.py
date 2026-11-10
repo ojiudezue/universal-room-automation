@@ -204,7 +204,14 @@ if _dc_pkg_name + ".hvac_const" not in sys.modules:
     )
 
 # Stub zones + signals (we don't exercise them).
+# v5.108.x suite fix: the hvac_zones stub is SCOPED to loading hvac_fans
+# (its only consumer, a module-level `from .hvac_zones import ZoneManager`)
+# and removed again below. Left installed, every later-collected file that
+# imports hvac_zones got this stub (ZoneManager=MagicMock) instead of the
+# real module: all of test_hvac_evidence_shadow.py failed in suite order.
+_hvac_zones_stubbed = False
 if _dc_pkg_name + ".hvac_zones" not in sys.modules:
+    _hvac_zones_stubbed = True
     sys.modules[_dc_pkg_name + ".hvac_zones"] = _mock_module(
         _dc_pkg_name + ".hvac_zones",
         ZoneManager=MagicMock,
@@ -244,6 +251,16 @@ if _dc_pkg_name + ".hvac_fans" not in sys.modules:
         _dc_pkg_name + ".hvac_fans",
         os.path.join(_ura_root, "domain_coordinators", "hvac_fans.py"),
     )
+
+# Restore: drop the hvac_zones stub we installed (hvac_fans already bound
+# ZoneManager). Leaves a pre-existing real module untouched.
+if _hvac_zones_stubbed:
+    sys.modules.pop(_dc_pkg_name + ".hvac_zones", None)
+    _dc_mod = sys.modules.get(_dc_pkg_name)
+    if _dc_mod is not None and isinstance(
+        getattr(_dc_mod, "hvac_zones", None), types.ModuleType
+    ) and not getattr(_dc_mod.hvac_zones, "__file__", None):
+        delattr(_dc_mod, "hvac_zones")
 
 import custom_components.universal_room_automation.automation as _automation_mod  # noqa: E402
 from custom_components.universal_room_automation.automation import RoomAutomation  # noqa: E402

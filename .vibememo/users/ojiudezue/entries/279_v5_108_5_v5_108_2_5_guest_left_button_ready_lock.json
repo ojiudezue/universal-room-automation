@@ -1,0 +1,26 @@
+{
+  "format_version": "2.1",
+  "entry_id": "279",
+  "author": "ojiudezue",
+  "session_id": "claude_20261110_180954_ship_v5_108_5",
+  "timestamp": "2026-11-10T18:09:54Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.108.5 shipped: v5.108.2-5: Guest left button ready, lock boot recheck (remembered unlocks, vacation catch-up), HVAC evidence shadow recording, guest stay exit day veto",
+  "summary": "v5.108.2-5: Guest left button ready, lock boot recheck (remembered unlocks, vacation catch-up), HVAC evidence shadow recording, guest stay exit day veto",
+  "why": "A restart during sleep left the garage unlocked, but a naive catch-up would re-lock a deliberate unlock, so the regime persists an episode mark (operator option B) and vacation now relocks like sleep. Simpler guest onset thresholds were measured and were not faster; the October replay showed the stay ending on days guests were present, so only an exit day veto was added (19/21 days, 0 false). The HVAC evidence rule for other states had insufficient data, so shadow rows now measure it before any behaviour change. The Guest left button was stuck unavailable because buttons are not polled.",
+  "implications": "Shipped GUEST-LEFT-BUTTON-READY-1, LOCK-BOOT-RECHECK-ENGAGE-1, HVAC-GUEST-EVIDENCE-RULE-1, GUEST-STAY-EXIT-DAY-VETO-1 at v5.108.5; card(s) sit shipped_organic pending validation. Acceptance in README_v5.108.5.md (Live criteria).",
+  "revisit_trigger": "A remembered unlock not honoured after restart; a veto-held stay with no guest present; shadow verdict ready for HVAC-GUEST-EVIDENCE-RULE-1 phase 2",
+  "refs": {
+    "cards": [
+      "GUEST-LEFT-BUTTON-READY-1",
+      "LOCK-BOOT-RECHECK-ENGAGE-1",
+      "HVAC-GUEST-EVIDENCE-RULE-1",
+      "GUEST-STAY-EXIT-DAY-VETO-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.108.5.md"
+    ],
+    "release_notes": "Bundle of v5.108.2 (Guest left button available after boot), v5.108.3 (garage lockout boot recheck; remembered unlocks per episode; vacation catches up like sleep), v5.108.4 (HVAC evidence-rule shadow recording, display only) and v5.108.5 (guest stay exit day veto). See README_v5.108.2..5."
+  }
+}

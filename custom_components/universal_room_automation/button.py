@@ -1,6 +1,6 @@
 """Button platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.108.1
+# Universal Room Automation vv5.108.5
 # Build: 2026-01-04
 # File: button.py
 #
@@ -1654,6 +1654,22 @@ class GuestLeftButton(ButtonEntity):
             model="Presence Coordinator",
             sw_version=VERSION,
         )
+
+    async def async_added_to_hass(self) -> None:
+        # The button is added before the Presence Coordinator registers, and a
+        # button is never polled: without this it stays unavailable after boot.
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_PRESENCE_COORDINATOR_READY
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_PRESENCE_COORDINATOR_READY,
+                self._handle_presence_ready,
+            )
+        )
+
+    @callback
+    def _handle_presence_ready(self) -> None:
+        self.async_write_ha_state()
 
     def _presence(self):
         manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")

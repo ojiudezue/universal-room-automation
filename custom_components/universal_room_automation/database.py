@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv5.108.1
+# Universal Room Automation vv5.108.5
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -1353,6 +1353,38 @@ class UniversalRoomDatabase:
                     ON optimizer_shadow_samples(dimension)""",
                 ]):
                     failed_tables.append("optimizer_shadow_samples")
+
+                # -- HVAC evidence-rule shadow recording -------------------
+                # HVAC-GUEST-EVIDENCE-RULE-1 phase 1 (plan rev 2 D3).
+                # Display/diagnostic only: zone-level divergences between
+                # the evidence rule and the legacy shadow ('episode'),
+                # daily legacy-occupied seconds per (zone, house state)
+                # ('exposure') and the per-zone daily cap marker
+                # ('capped'). Written BATCHED (one executemany per drain)
+                # by HVACCoordinator; pruned nightly
+                # (`prune_hvac_evidence_shadow`). zone_id is the HVAC
+                # (thermostat-keyed) zone id, not a house-zone name.
+                if not await self._create_table_safe(
+                    db, "hvac_evidence_shadow", [
+                    """CREATE TABLE IF NOT EXISTS hvac_evidence_shadow (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp TEXT NOT NULL,
+                        row_type TEXT NOT NULL,
+                        zone_id TEXT NOT NULL,
+                        house_state TEXT NOT NULL,
+                        rule TEXT,
+                        kind TEXT,
+                        outcome TEXT,
+                        started_at TEXT,
+                        ended_at TEXT,
+                        duration_s REAL,
+                        opened_s_after_boot REAL,
+                        details_json TEXT
+                    )""",
+                    """CREATE INDEX IF NOT EXISTS idx_hvac_ev_shadow_ts
+                    ON hvac_evidence_shadow(timestamp)""",
+                ]):
+                    failed_tables.append("hvac_evidence_shadow")
 
                 if not await self._create_table_safe(db, "optimization_daily_digest", [
                     """CREATE TABLE IF NOT EXISTS optimization_daily_digest (
@@ -7679,6 +7711,109 @@ class UniversalRoomDatabase:
         return total_deleted
 
     # ====================================================================
+    # HVAC-GUEST-EVIDENCE-RULE-1 phase 1 — evidence shadow recording DAOs.
+    # ====================================================================
+
+    async def log_hvac_evidence_shadow(self, rows: list[dict]) -> int:
+        """Insert shadow-recording rows in ONE batched executemany.
+
+        Rows come from `ZoneManager.drain_shadow_rows` via HVACCoordinator
+        (one call per drain, never per row). Malformed rows are skipped.
+        Returns the count written.
+        """
+        if not rows:
+            return 0
+        import json  # noqa: PLC0415 — local, as elsewhere in this module
+        params: list[tuple] = []
+        for r in rows:
+            if not isinstance(r, dict):
+                continue
+            ts, rt, zid, hs = (r.get("timestamp"), r.get("row_type"),
+                               r.get("zone_id"), r.get("house_state"))
+            if not all(isinstance(x, str) and x for x in (ts, rt, zid, hs)):
+                continue
+            details = r.get("details")
+            params.append((
+                ts, rt, zid, hs,
+                r.get("rule"), r.get("kind"), r.get("outcome"),
+                r.get("started_at"), r.get("ended_at"),
+                r.get("duration_s"), r.get("opened_s_after_boot"),
+                json.dumps(details, sort_keys=True) if details is not None else None,
+            ))
+        if not params:
+            return 0
+        try:
+            async with self._db() as db:
+                await db.executemany(
+                    """INSERT INTO hvac_evidence_shadow
+                       (timestamp, row_type, zone_id, house_state, rule, kind,
+                        outcome, started_at, ended_at, duration_s,
+                        opened_s_after_boot, details_json)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    params,
+                )
+                await db.commit()
+                return len(params)
+        except DBShuttingDown:
+            # A drain racing HA stop: expected, not a failure (review A-L1).
+            _LOGGER.debug("log_hvac_evidence_shadow: DB shutting down, %d row(s) dropped", len(params))
+            return 0
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.warning("log_hvac_evidence_shadow: insert failed: %s", e)
+            return 0
+
+    async def prune_hvac_evidence_shadow(
+        self, window_days: int | None = None, batch_size: int = 1000,
+    ) -> int:
+        """Nightly prune of `hvac_evidence_shadow` past retention.
+
+        Window defaults to `HVAC_EVIDENCE_SHADOW_RETENTION_DAYS` (clamped
+        to >= 1). Batched-DELETE shape of `prune_optimizer_shadow_samples`
+        (Bug Class #25). This is also the purge for a removed thermostat's
+        rows (keyed by HVAC zone id, so the house-zone delete purge does
+        not apply).
+        """
+        if window_days is None:
+            from .domain_coordinators.hvac_const import (  # noqa: PLC0415
+                HVAC_EVIDENCE_SHADOW_RETENTION_DAYS,
+            )
+            window_days = HVAC_EVIDENCE_SHADOW_RETENTION_DAYS
+        try:
+            window_days = max(1, int(window_days))
+        except (TypeError, ValueError):
+            window_days = 1
+        cutoff = (dt_util.utcnow() - timedelta(days=window_days)).isoformat()
+        total_deleted = 0
+        _batch_count = 0
+        while True:
+            _batch_count += 1
+            if _batch_count > 500:
+                _LOGGER.warning("hvac_evidence_shadow prune hit max batch limit")
+                break
+            try:
+                async with self._db() as db:
+                    cursor = await db.execute(
+                        """DELETE FROM hvac_evidence_shadow
+                           WHERE rowid IN (
+                             SELECT rowid FROM hvac_evidence_shadow
+                             WHERE timestamp < ? LIMIT ?
+                           )""",
+                        (cutoff, batch_size),
+                    )
+                    await db.commit()
+                    deleted = cursor.rowcount
+                    total_deleted += deleted
+            except Exception as e:  # noqa: BLE001
+                _LOGGER.error("Error pruning hvac_evidence_shadow: %s", e)
+                break
+            if deleted < batch_size:
+                break
+            await asyncio.sleep(0.1)
+        if total_deleted > 0:
+            _LOGGER.info("Pruned %d hvac_evidence_shadow entries", total_deleted)
+        return total_deleted
+
+    # ====================================================================
     # v4.7.36 Phase 3 — Optimization daily digest DAOs.
     # ====================================================================
 
@@ -9910,8 +10045,9 @@ class UniversalRoomDatabase:
             Purged only when ``zone_id`` is not None (husk zones with no
             thermostat have no zone_id and never wrote id-keyed rows).
 
-        Eight tables total (fix-up R5 = 6 + HVAC-GOVERNED-EXCURSION-1
-        fix-up r3 = +2 for hvac_excursion_state + hvac_excursion_events).
+        Nine tables total (fix-up R5 = 6 + HVAC-GOVERNED-EXCURSION-1
+        fix-up r3 = +2 for hvac_excursion_state + hvac_excursion_events
+        + v5.108.x = +1 for hvac_evidence_shadow, id-keyed).
         Verified via re-grep of every ``zone TEXT`` and ``zone_id TEXT``
         column in the ``CREATE TABLE`` DDL surface (fix-up R5, review
         A-CRIT-1). ``room_state.last_lux_zone`` is a
@@ -9964,6 +10100,9 @@ class UniversalRoomDatabase:
             "ac_ramp_events": 0,
             "hvac_excursion_state": 0,
             "hvac_excursion_events": 0,
+            # v5.108.x: HVAC-GUEST-EVIDENCE-RULE-1 shadow rows (zone_id
+            # NOT NULL, HVAC zone id) — orphaned on zone delete otherwise.
+            "hvac_evidence_shadow": 0,
         }
         try:
             async with self._db() as db:
@@ -10015,6 +10154,11 @@ class UniversalRoomDatabase:
                             (zone_id,),
                         )
                         result["hvac_excursion_events"] = cur.rowcount or 0
+                        cur = await db.execute(
+                            "DELETE FROM hvac_evidence_shadow WHERE zone_id = ?",
+                            (zone_id,),
+                        )
+                        result["hvac_evidence_shadow"] = cur.rowcount or 0
                     await db.commit()
                 except Exception:
                     try:
@@ -10065,6 +10209,7 @@ class UniversalRoomDatabase:
             # tables added to async_delete_zone_data.
             "hvac_excursion_state": 0,
             "hvac_excursion_events": 0,
+            "hvac_evidence_shadow": 0,
         }
         try:
             async with self._db_read() as db:
@@ -10084,6 +10229,7 @@ class UniversalRoomDatabase:
                     for tbl in (
                         "ac_reset_state", "egress_state", "ac_ramp_events",
                         "hvac_excursion_state", "hvac_excursion_events",
+                        "hvac_evidence_shadow",
                     ):
                         try:
                             cur = await db.execute(

@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.108.1
+# Universal Room Automation vv5.108.5
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -5854,6 +5854,20 @@ class PresenceHouseStateSensor(AggregationEntity, SensorEntity):
             attrs["guest_stay_basis"] = (
                 dict(_stay_basis) if isinstance(_stay_basis, dict)
                 else [dict(b) for b in (_stay_basis or [])]
+            )
+            # v5.108.5 Review B LOW-2: is the exit day veto holding the
+            # latch on the last walked night, and which guest room's day.
+            _veto = getattr(presence, "_guest_stay_day_veto", None)
+            _veto = _veto if isinstance(_veto, dict) else None
+            attrs["guest_stay_day_veto_active"] = _veto is not None
+            attrs["guest_stay_day_veto_room"] = (
+                _veto.get("room") if _veto else None
+            )
+            attrs["guest_stay_day_veto_night"] = (
+                _veto.get("night") if _veto else None
+            )
+            attrs["guest_stay_day_veto_fraction"] = (
+                _veto.get("day_fraction") if _veto else None
             )
             # Unrecorded (per-tick churn): D2 STALE persons counted home;
             # D1 nobody-home zone input (None = kill switch off).

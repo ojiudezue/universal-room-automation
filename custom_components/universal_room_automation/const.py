@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.108.1
+# Universal Room Automation vv5.108.5
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.108.1"
+VERSION: Final = "v5.108.5"
 
 # EC-LOADED-VS-INSTALLED-VERSION-1 — how often the on-disk manifest is re-read
 # to detect an installed-but-not-restarted deploy. Rung 1 (module constant):
@@ -541,6 +541,17 @@ GUEST_STAY_EXIT_MAX_NIGHTS: Final = 2
 # ended the stay. 0 = off. Ignored when GUEST_STAY_EXIT_SCALES_WITH_STAY is
 # False (that path stays rev 5 exactly).
 GUEST_STAY_REENTRY_GRACE_DAYS: Final = 7
+# Exit day veto (operator 2026-11-10, AUDIT_guest_onset_thresholds_and_hvac_
+# evidence_states_2026_11_10.md §1.4-§1.5): the stay does NOT end on empty
+# nights while any guest room's non-resident day fraction (the same 10:00 ->
+# sleep_start day window as the day test) is >= this on a day paired with a
+# night inside the exit window. Replay: recovers 10-17 (19 of 21 stay days),
+# 0 false days 10-19..11-08. A day that starts before a "Guest left" press
+# never vetoes (the press always wins). Kill switch: > 1 = veto off (rev 6
+# exit, byte-identical). Ignored when GUEST_STAY_EXIT_SCALES_WITH_STAY is
+# False (that path stays rev 5 exactly). Module constant: a house-state exit
+# policy fitted on one stay, so a reviewed change.
+GUEST_STAY_EXIT_DAY_VETO_FRACTION: Final = 0.10
 # Day test (rev 5). Fitted: replay plateau 0.03-0.20 at day start 10; above
 # 0.21 the October stay is never entered (recall cliff). 0 = day test off;
 # > 1 = never enters (exit unaffected).

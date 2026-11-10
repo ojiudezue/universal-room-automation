@@ -218,11 +218,30 @@ def test_replay_fixture_day_list(monkeypatch, tmp_path, proc_tz):
     # Re-entry grace 7 d: night 09-04 re-enters after the 09-01 end (09-05);
     # night 10-15 (GB2 0.57, no day) re-enters after the 10-13/10-14 end and
     # holds 10-16 only (n = 1, night 10-16 empty).
+    # Exit day veto OFF here (> 1): this pins the rev 6 list unchanged.
+    monkeypatch.setattr(H.CONST, "GUEST_STAY_EXIT_DAY_VETO_FRACTION", 1.01)
     expected = (_span(date(2026, 8, 25), date(2026, 9, 1))
                 + _span(date(2026, 9, 5), date(2026, 9, 7))
                 + [date(2026, 9, 10), date(2026, 9, 16)]
                 + _span(date(2026, 9, 28), date(2026, 10, 14))
                 + [date(2026, 10, 16)])
+    assert _replay_active_days(monkeypatch, tmp_path) == expected
+
+
+def test_replay_fixture_day_list_day_veto(monkeypatch, tmp_path, proc_tz):
+    """Shipped defaults incl. the exit day veto 0.10 (operator 2026-11-10,
+    AUDIT_guest_onset_thresholds... §1.3). Oracle: an independent pure-Python
+    walk over the same fixture (not the production code), which reproduces
+    the veto-off lists above exactly. October: 10-16 (day 0.46) and 10-17
+    (day 0.22) hold the grace stay, so 10-17 is recovered and the last day is
+    10-18 (19 of 21 stay days); off 10-19..11-08. Before the stay the 08-25
+    stay is held through the daytime-occupied empty nights into 09-12 (the
+    audit's 'pre 20', unlabelled days)."""
+    proc_tz("UTC")
+    expected = (_span(date(2026, 8, 25), date(2026, 9, 12))
+                + [date(2026, 9, 16)]
+                + _span(date(2026, 9, 28), date(2026, 10, 14))
+                + _span(date(2026, 10, 16), date(2026, 10, 18)))
     assert _replay_active_days(monkeypatch, tmp_path) == expected
 
 
@@ -239,7 +258,15 @@ def test_replay_fixture_day_list_entry_nights_2(monkeypatch, tmp_path, proc_tz):
                 + _span(date(2026, 9, 5), date(2026, 9, 7))
                 + _span(date(2026, 9, 30), date(2026, 10, 14))
                 + [date(2026, 10, 16)])
+    monkeypatch.setattr(H.CONST, "GUEST_STAY_EXIT_DAY_VETO_FRACTION", 1.01)
     assert _replay_active_days(monkeypatch, tmp_path) == expected
+    # With the veto (default 0.10), same independent oracle.
+    monkeypatch.setattr(H.CONST, "GUEST_STAY_EXIT_DAY_VETO_FRACTION", 0.10)
+    expected_veto = (_span(date(2026, 8, 26), date(2026, 9, 12))
+                     + [date(2026, 9, 16)]
+                     + _span(date(2026, 9, 30), date(2026, 10, 14))
+                     + _span(date(2026, 10, 16), date(2026, 10, 18)))
+    assert _replay_active_days(monkeypatch, tmp_path / "v") == expected_veto
 
 
 @pytest.mark.parametrize("k", [1, 2])
@@ -602,8 +629,11 @@ def test_db_error_fails_off(monkeypatch, tmp_path):
 
     c = coord_with(monkeypatch, _Boom())
     c._guest_stay_active = True
+    c._guest_stay_day_veto = {"room": GB1, "night": "2026-11-02",
+                              "day_fraction": 0.5}
     assert walk(c, at(2026, 11, 3)) is False
     assert c._guest_stay_basis == {"error": "db locked"}
+    assert c._guest_stay_day_veto is None     # v5.108.5 B LOW-2: fails off
     assert c._guest_stay_since is None
     assert c._guest_stay_evaluated_for is None
     assert c._guest_stay_retry_at == at(2026, 11, 3, 7, 15)
@@ -915,6 +945,18 @@ def test_house_state_sensor_publishes_stay(monkeypatch):
     attrs = s.extra_state_attributes
     assert attrs["guest_stay_basis"] == {"error": "db locked"}
     assert attrs["guest_stay_since"] is None
+    # v5.108.5 Review B LOW-2: no veto -> inactive / None.
+    assert attrs["guest_stay_day_veto_active"] is False
+    assert attrs["guest_stay_day_veto_room"] is None
+    assert attrs["guest_stay_day_veto_night"] is None
+    assert attrs["guest_stay_day_veto_fraction"] is None
+    w.coord._guest_stay_day_veto = {"room": GB1, "night": "2026-11-04",
+                                    "day_fraction": 0.5}
+    attrs = s.extra_state_attributes
+    assert attrs["guest_stay_day_veto_active"] is True
+    assert attrs["guest_stay_day_veto_room"] == GB1
+    assert attrs["guest_stay_day_veto_night"] == "2026-11-04"
+    assert attrs["guest_stay_day_veto_fraction"] == 0.5
 
 
 # --- Review C (test authority) -------------------------------------------------
@@ -1276,3 +1318,169 @@ def test_grace_anchor_kept_inside_window(monkeypatch, tmp_path, proc_tz):
     c = coord_with(monkeypatch, db)
     assert _days(c, [date(2026, 10, d) for d in (8, 9, 11)]) == \
         [True, False, True]
+
+
+# --- Exit day veto (operator 2026-11-10) -----------------------------------------
+# One-night visit: night 11-03 (0.9) + day 11-03 (0.38) enters, n = 1, so the
+# exit window is the single next night 11-04 and its day 11-04 10:00-22:00.
+
+def _visit_then_empty(db):
+    occupy_fraction(db, E2, BND, 0.9)
+    occupy_day(db, E2, BND, 0.38)
+
+
+def test_day_veto_keeps_stay(monkeypatch, tmp_path, proc_tz):
+    """Night 11-04 empty but day 11-04 at 0.5 in GB1 (any guest room): the
+    stay holds on 11-05; night 11-05 and day 11-05 empty: off on 11-06."""
+    proc_tz("UTC")
+    db = _make_db(tmp_path)
+    _visit_then_empty(db)
+    occupy_day(db, E1, date(2026, 11, 4), 0.5)
+    c = coord_with(monkeypatch, db)
+    assert _days(c, [date(2026, 11, d) for d in (4, 5, 6)]) == \
+        [True, True, False]
+
+
+def test_low_day_lets_empty_night_exit(monkeypatch, tmp_path, proc_tz):
+    """Day 11-04 at 0.05: no veto, the empty night ends the stay on 11-05."""
+    proc_tz("UTC")
+    db = _make_db(tmp_path)
+    _visit_then_empty(db)
+    occupy_day(db, E2, date(2026, 11, 4), 0.05)
+    c = coord_with(monkeypatch, db)
+    assert _days(c, [date(2026, 11, 4), date(2026, 11, 5)]) == [True, False]
+
+
+@pytest.mark.parametrize("day_s,expect", [
+    (4320, True),     # exactly 0.10 of 43200 s vetoes (>=)
+    (4277, False),    # 0.099 does not
+    (4752, True),     # 0.11 vetoes (0.15 would not)
+])
+def test_day_veto_boundary(monkeypatch, tmp_path, proc_tz, day_s, expect):
+    proc_tz("UTC")
+    db = _make_db(tmp_path)
+    _visit_then_empty(db)
+    occupy(db, E2, day_start(date(2026, 11, 4)), day_s)
+    assert walk(coord_with(monkeypatch, db), at(2026, 11, 5)) is expect
+
+
+def test_day_veto_kill_switch(monkeypatch, tmp_path, proc_tz):
+    """GUEST_STAY_EXIT_DAY_VETO_FRACTION > 1 = veto off (day 1.0 still
+    exits)."""
+    proc_tz("UTC")
+    monkeypatch.setattr(H.CONST, "GUEST_STAY_EXIT_DAY_VETO_FRACTION", 1.01)
+    db = _make_db(tmp_path)
+    _visit_then_empty(db)
+    occupy_day(db, E1, date(2026, 11, 4), 1.0)
+    assert walk(coord_with(monkeypatch, db), at(2026, 11, 5)) is False
+
+
+def test_day_veto_off_on_fixed_exit(monkeypatch, tmp_path, proc_tz):
+    """GUEST_STAY_EXIT_SCALES_WITH_STAY False keeps rev 5 exactly: 3 empty
+    nights end the stay even with every day occupied."""
+    proc_tz("UTC")
+    monkeypatch.setattr(H.CONST, "GUEST_STAY_EXIT_SCALES_WITH_STAY", False)
+    db = _make_db(tmp_path)
+    _visit_then_empty(db)
+    for d in (4, 5, 6):
+        occupy_day(db, E1, date(2026, 11, d), 0.5)
+    c = coord_with(monkeypatch, db)
+    assert _days(c, [date(2026, 11, d) for d in (6, 7)]) == [True, False]
+
+
+def test_day_veto_only_inside_exit_window(monkeypatch, tmp_path, proc_tz):
+    """Two-night stay (n 2, window 2 nights). Day 11-05 occupied holds the
+    11-06 walk (window nights 11-04, 11-05) and the 11-07 walk (window 11-05,
+    11-06); on 11-08 (window 11-06, 11-07, both days empty) the stay ends:
+    an occupied day that has left the window no longer holds it."""
+    proc_tz("UTC")
+    db = _make_db(tmp_path)
+    _entry_night(db, date(2026, 11, 2))
+    occupy_fraction(db, E1, BND, 0.5)
+    occupy_day(db, E2, date(2026, 11, 5), 0.5)
+    c = coord_with(monkeypatch, db)
+    assert _days(c, [date(2026, 11, d) for d in (6, 7, 8)]) == \
+        [True, True, False]
+
+
+def test_day_veto_restart_same_verdict(monkeypatch, tmp_path, proc_tz):
+    """A fresh coordinator (restart) reproduces the vetoed verdict from the
+    DB alone."""
+    proc_tz("UTC")
+    db = _make_db(tmp_path)
+    _visit_then_empty(db)
+    occupy_day(db, E1, date(2026, 11, 4), 0.5)
+    run = _days(coord_with(monkeypatch, db), [date(2026, 11, 4),
+                                              date(2026, 11, 5)])
+    fresh = walk(coord_with(monkeypatch, db), at(2026, 11, 5))
+    assert run == [True, True]
+    assert fresh is True
+
+
+# --- v5.108.5 fix-up -------------------------------------------------------------
+
+def test_day_veto_boundary_exact_split_other_room(monkeypatch, tmp_path,
+                                                  proc_tz):
+    """Review C LOW: a second exactly-0.10 anchor for >=. GB1 (not the stay's
+    room) holds two 2160 s segments = 4320 s of 43200 s = 0.10: vetoes."""
+    proc_tz("UTC")
+    db = _make_db(tmp_path)
+    _visit_then_empty(db)
+    d0 = day_start(date(2026, 11, 4))
+    occupy(db, E1, d0, 2160)
+    occupy(db, E1, d0 + timedelta(hours=6), 2160)
+    assert walk(coord_with(monkeypatch, db), at(2026, 11, 5)) is True
+
+
+def test_day_veto_published_and_logged(monkeypatch, tmp_path, proc_tz,
+                                       caplog):
+    """Review B LOW-2: the walk publishes which guest room's day holds the
+    latch (highest day fraction >= 0.10), logs it once at INFO, and clears it
+    when the stay is held by a qualifying night or ends."""
+    import logging
+
+    proc_tz("UTC")
+    db = _make_db(tmp_path)
+    _visit_then_empty(db)
+    # GB2 (iterated second) has the higher day: the published room is the
+    # highest fraction, not the first room scanned.
+    occupy_day(db, E1, date(2026, 11, 4), 0.3)
+    occupy_day(db, E2, date(2026, 11, 4), 0.5)
+    c = coord_with(monkeypatch, db)
+    assert walk(c, at(2026, 11, 4)) is True          # entry night, no veto
+    assert c._guest_stay_day_veto is None
+    with caplog.at_level(logging.INFO):
+        assert walk(c, at(2026, 11, 5)) is True      # vetoed
+    assert c._guest_stay_day_veto == {
+        "room": GB2, "night": "2026-11-04", "day_fraction": 0.5}
+    held = [r for r in caplog.records
+            if "held by the day veto" in r.getMessage()]
+    assert len(held) == 1 and held[0].levelno == logging.INFO
+    assert GB2 in held[0].getMessage()
+    assert walk(c, at(2026, 11, 6)) is False         # day 11-05 empty: ends
+    assert c._guest_stay_day_veto is None
+
+
+def test_day_veto_hold_then_exit_then_grace_reentry(monkeypatch, tmp_path,
+                                                    proc_tz):
+    """Review C LOW / Review A MEDIUM-1: one-night stay 11-03; days 11-04..
+    11-06 occupied hold it over empty nights; day 11-07 empty ends it on the
+    11-08 walk (ended_on = night 11-07). A single no-day night 11-14 then
+    re-enters by grace (7 d from 11-07). Without the veto the stay ends on
+    night 11-04 and 11-14 is 10 d out: no grace (the reach = hold + 7 d)."""
+    proc_tz("UTC")
+
+    def seed(path):
+        db = _make_db(path)
+        _visit_then_empty(db)
+        for d in (4, 5, 6):
+            occupy_day(db, E1, date(2026, 11, d), 0.5)
+        occupy_fraction(db, E2, date(2026, 11, 14), 0.6)
+        return db
+
+    c = coord_with(monkeypatch, seed(tmp_path / "a"))
+    assert _days(c, [date(2026, 11, d) for d in (5, 6, 7, 8, 14, 15)]) == \
+        [True, True, True, False, False, True]
+    monkeypatch.setattr(H.CONST, "GUEST_STAY_EXIT_DAY_VETO_FRACTION", 1.01)
+    c = coord_with(monkeypatch, seed(tmp_path / "b"))
+    assert _days(c, [date(2026, 11, d) for d in (5, 15)]) == [False, False]

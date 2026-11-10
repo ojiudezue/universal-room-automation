@@ -54,11 +54,18 @@ New: `test_entry_areas_read_from_egress_tracker`, `test_neighbour_area_bermuda_m
 
 Mutation drill (key reverted to `"transit_validator"`): lock regime → 15 RED; perimeter → 1 RED.
 
-## Live validation (prospective)
+## Live validation
 
-- With `CONF_DOOR_INTERIOR_NEIGHBOURS` configured, a garage face arrival plus a Bermuda move into the
-  garage or a neighbour area releases the lockouts and logs no fail-safe hold.
-- A doorbell D10.5 decision with a BLE move into a configured neighbour area records `demoted = True`.
+### Validated 2026-11-10
+
+Read 2026-11-10 ~02:10-02:20 CST, HA running v5.108.1 (manifest), restart 01:04 CST. Read-only. This release (v5.107.1 through v5.107.6) first ran at that restart. Logging caveat: the integration logger is `log_level: WARNING`, so every INFO marker in these criteria is never written to the HA log, and `ha_get_logs` cannot show it. Log absence is therefore NOT evidence for or against these criteria.
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| 1 | Garage face arrival plus Bermuda move into garage or neighbour area releases the lockouts, logs no fail-safe hold | NOT-YET-OBSERVABLE | No garage face arrival since restart. The release and hold lines are INFO (log-invisible). **Code check, as expected:** deployed `security_lock_regime.py:1013` reads `hass.data[DOMAIN]["egress_tracker"]`, and deployed `perimeter_alert.py:5109` reads `egress_tracker`. The wrong-object read is gone from the deployed build. |
+| 2 | Doorbell D10.5 with BLE move into a configured neighbour area records `demoted = True` | NOT-YET-OBSERVABLE | No doorbell D10.5 decision since restart. No perimeter alert of any kind since 00:37 UTC (pre-restart). |
+
+**Verdict 2026-11-10:** 0 PASS, 0 FAIL, 2 NYO. The fix is confirmed deployed in code. Its behaviour needs a face or doorbell event.
 
 ## Behaviour change to expect
 

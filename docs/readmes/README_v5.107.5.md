@@ -119,18 +119,19 @@ Companion quiet branch, `quiet` threading to Companion, and the TTS and lights s
 `acknowledged=_row_ack` is a belt with no drill of its own: `[audit]` rows are already excluded by
 `get_active_critical`.
 
-## Acceptance (live)
-- **Live:** after an unknown-person page from a dual-role door camera, when a resident is identified within 90 s
-  by the egress identity event (≥ 0.9) or by a Frigate face plus a real arrival, one `Perimeter Alert —
-  Identified` message arrives on the same channels, and Pushover shows no siren. Because both sources are
-  sparse (manual §5.5(c)), this may not occur in a short live window. If it doesn't, the one-shot disposition
-  query is the count of `notification_log` rows titled `Perimeter Alert — Identified`, together with the
-  `identity_followup` gate entries, over the first week. Zero there is a coverage finding, not a pass.
-  Evidence: `notification_log` rows with title `Perimeter Alert — Identified`, and the `identity_followup`
-  entry in `sensor` gate-decision diagnostics (`gate_decisions_by_camera.<key>.identity_followup`).
-- **Live:** no follow-up row ever follows a LOW/demoted perimeter alert. Check by joining `notification_log` on
-  title and location.
-- **Live:** every `Perimeter Alert — Identified` row has `acknowledged = 1`.
+## Live validation
+
+### Validated 2026-11-10
+
+Read 2026-11-10 ~02:10-02:20 CST, HA running v5.108.1 (manifest), restart 01:04 CST. Read-only. This release (v5.107.1 through v5.107.6) first ran at that restart. Logging caveat: the integration logger is `log_level: WARNING`, so every INFO marker in these criteria is never written to the HA log, and `ha_get_logs` cannot show it. Log absence is therefore NOT evidence for or against these criteria.
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Identified follow-up after an unknown door page | NOT-YET-OBSERVABLE | `notification_log` has 0 rows with `Identified` in the title, all time. No dual-role door unknown page since restart. Per the README, a zero count after a week is a coverage finding, not a pass. |
+| No follow-up after a LOW or demoted alert | NOT-YET-OBSERVABLE (vacuous) | Zero follow-ups exist, so the negative cannot be tested. Not a PASS. |
+| Every `Perimeter Alert — Identified` row has `acknowledged = 1` | NOT-YET-OBSERVABLE (vacuous) | Zero rows exist. |
+
+**Verdict 2026-11-10:** 0 PASS, 0 FAIL, 3 NYO. The feature is deployed but has no evidence yet.
 
 ## Not done
 - No per-channel thread or edit: NM has no such primitive. Revival trigger: NM gains a companion `tag` or a

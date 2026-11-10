@@ -54,6 +54,9 @@ def nightly_cleanup_ops() -> list[tuple[str, str, dict[str, Any]]]:
         ("optimization_daily_digest", "prune_optimization_daily_digest", {}),
         # v5.11.0 F-MED: shadow-samples prune.
         ("optimizer_shadow_samples", "prune_optimizer_shadow_samples", {}),
+        # HVAC-GUEST-EVIDENCE-RULE-1 phase 1: evidence shadow rows; window
+        # defaults to HVAC_EVIDENCE_SHADOW_RETENTION_DAYS inside the DAO.
+        ("hvac_evidence_shadow", "prune_hvac_evidence_shadow", {}),
         # Fix-up A-HIGH-1 (Batch 4): decision_log retention, one op per type.
         ("decision_log_dp_eval", "cleanup_decision_log", {"decision_type": "dp_eval", "retention_days": 90}),
         ("decision_log_blind_window_defer", "cleanup_decision_log", {"decision_type": "blind_window_defer", "retention_days": 90}),

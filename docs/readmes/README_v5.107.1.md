@@ -53,17 +53,26 @@ a card.
    Frigate labelled Jaya as "Oji" on 2026-10-24 while Oji was abroad (presence state-of-play §10 #28). Setting it is
    your call; I did not set it.
 
-## Live validation (prospective)
-| # | Criterion | How |
-|---|---|---|
-| L1 | Registry discovery is in use | `sensor.universal_room_automation_persons_in_house` attribute `face_source_registry_hits > 0` on a census tick. Broken index: hits 0 and `face_source_pattern_fallback_stems` lists Frigate face stems (e.g. `family_room`). Fallback stems that are Protect-only or non-Frigate are expected. |
-| L2 | Skip fix is live | `face_source_device_derived_cameras` lists only `*_person_occupancy_2` ids (up to the 17 from the plan §1), `face_source_skipped_person_sensors == 0`. Not wired: derived empty and skipped > 0. Join broken for all: a bare `_person_occupancy` id appears in the derived list. |
-| L3a | S6 scope | With `binary_sensor.*_person_occupancy_2` exterior cameras (garage_a, doorbell_lite) showing a fresh face and BLE all away, a lone playroom Frigate count with Protect 0 still reads `source_agreement: disagree` on the house census (downgrade fired). |
-| L3 | Guest count lowers only with a fresh face | When playroom shows a person and `sensor.playroom_last_recognized_face_2` is fresh, `area_raw_max_pre_cancel` for playroom's area is `count - 1`, not `count`. |
-| L4 | Engine label | After a named crossing, `contributor_engines` on the egress last-attach contains `frigate`, not `frigate2`. `person_entry_exit_events.confidence` for new rows only takes values seen before (0.6 / 0.72 / 0.75 / 0.9); a 0.75 on a single-camera crossing with no Protect leg is the INV-2 break. |
-| L5 | last_camera map | INFO log `D2 frigate last_camera map built: 6 entries` at the first build after restart. |
-| L6 | Alias field | Camera Census options show Face name aliases (Advanced), empty. With none set, `person_entry_exit_events.person_id` values in the 24 h after deploy are a subset of those seen before. |
-| L7 | S8 held | No `Camera face arrival:` INFO log naming one of the 17 `_person_occupancy_2` cameras. |
+## Live validation
+
+### Validated 2026-11-10
+
+Read 2026-11-10 ~02:10-02:20 CST, HA running v5.108.1 (manifest), restart 01:04 CST. Read-only. This release (v5.107.1 through v5.107.6) first ran at that restart. Logging caveat: the integration logger is `log_level: WARNING`, so every INFO marker in these criteria is never written to the HA log, and `ha_get_logs` cannot show it. Log absence is therefore NOT evidence for or against these criteria.
+
+Sources: `sensor.universal_room_automation_persons_in_house` (02:12 CST tick), `core.config_entries`, `person_entry_exit_events` (read-only sqlite).
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| L1 | Registry discovery in use | PASS | `face_source_registry_hits` = 14; `face_source_pattern_fallbacks` = 0; `face_source_pattern_fallback_stems` = []. |
+| L2 | Skip fix live | PASS | `face_source_device_derived_cameras` = 12 ids, all `*_person_occupancy_2`. No bare id. `face_source_skipped_person_sensors` = 0. The README said "up to 17"; this tick lists 12. |
+| L3a | S6 exterior scope | NOT-YET-OBSERVABLE | Needs a fresh face on garage_a or doorbell_lite with BLE all away and a playroom Frigate count. At 02:12: `face_recognized_persons` = [], `frigate_count` = 0, `binary_sensor.playroom_person_occupancy_2` = off. |
+| L3 | Guest count lowers only with a fresh face | NOT-YET-OBSERVABLE | Needs playroom occupied with a fresh face. `sensor.playroom_last_recognized_face_2` = Unknown; `area_raw_max_pre_cancel` = {}. |
+| L4 | Engine label `frigate`, not `frigate2` | NOT-YET-OBSERVABLE | No `person_entry_exit_events` row since restart (max id 8959, 2026-11-10 00:23:59). `egress_identity_last_attach` = {}. **README error:** the "seen before" confidence set (0.6 / 0.72 / 0.75 / 0.9) is wrong. Over all time the table holds only 0.8 (5681 rows) and 0.9 (3278). 0.8 is the most common value. Correct the set before using it as the INV-2 oracle. |
+| L5 | `D2 frigate last_camera map built` INFO | NOT-YET-OBSERVABLE (log-invisible) | Line is `_LOGGER.info` (`camera_census.py:3699`) under a WARNING logger. error_log search returned 0 records, which is expected at this level. |
+| L6 | Alias field empty; person_id subset | PARTIAL: (a) PASS, (b) NOT-YET-OBSERVABLE | (a) `face_name_aliases` key absent from `core.config_entries`, so the `[]` default is in effect. (b) No row since restart. All-time person_id values: ezinne, jaya, oji_udezue, ojini, ziri, NULL. |
+| L7 | S8 held: no `Camera face arrival:` on the 17 `_2` cameras | NOT-YET-OBSERVABLE (log-invisible) | Marker is `_LOGGER.info` (`domain_coordinators/presence.py:5586`). The hold is the constant `FACE_SOURCE_PRESENCE_ARRIVAL_DISAMBIGUATED = False` (develop `const.py:3500`; deployed copy not re-read). |
+
+**Verdict 2026-11-10:** 2 PASS, 1 PARTIAL, 5 NYO, 0 FAIL. The plumbing is live (registry hits, device-derived reads, skip counter). The behavioural criteria wait for a face or crossing event. Two README corrections: the L4 value set, and the INFO lines (L5, L7) cannot be verified from logs at the current logger level.
 
 ## Tests
 `quality/tests/test_face_source_registry.py` (43 tests, every load-bearing site mutation-anchored; 37 per-site drills
