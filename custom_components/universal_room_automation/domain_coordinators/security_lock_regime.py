@@ -874,6 +874,14 @@ class LockRegimeController:
                 decision = "already_locked"
                 if self.reason in (REASON_NONE, REASON_BOOT_UNKNOWN):
                     self._set_engage_reason(engage_reason, cfg)
+            elif engage_reason in (REASON_SLEEP, REASON_GUEST_NIGHT) and not (
+                self._in_sleep_window(cfg)
+                and self._backstop_delay_s(cfg, allow_immediate=True) > 0
+            ):
+                # Review A HIGH: a house still reading SLEEP after the
+                # backstop deadline (no wake edge) must not re-lock and push
+                # the backstop to tomorrow (locked all day).
+                decision = "past_backstop_no_catchup"
             elif engage_reason == REASON_VACATION:
                 # INV-5 falsifier (plan §INV-5): an operator unlock during
                 # VACATION survives a restart. Unlocked-in-vacation at boot is

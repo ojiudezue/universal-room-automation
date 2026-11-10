@@ -295,6 +295,38 @@ async def test_boot_recheck_boot_unknown_but_already_unlocked_no_release():
 
 
 @pytest.mark.asyncio
+async def test_boot_recheck_sleep_at_0900_unlocked_no_engage():
+    """Review A HIGH: SLEEP still read at 09:00 (no wake edge), past the
+    07:00 backstop: no catch-up lock (would hold all day)."""
+    rig = await make_rig(start=datetime(2026, 11, 8, 9, 0, tzinfo=TZ), house="sleep",
+                         past_boot=False)
+    await rig.w.advance(121)
+    assert rig.locks() == []
+    assert rig.regime.last_action["decision"] == "past_backstop_no_catchup"
+    assert rig.regime._backstop_unsub is None
+
+
+@pytest.mark.asyncio
+async def test_boot_recheck_sleep_at_0900_locked_stays_unlocked_after_backstop():
+    rig = await make_rig(start=datetime(2026, 11, 8, 9, 0, tzinfo=TZ), house="sleep",
+                         lockouts="locked", past_boot=False)
+    await rig.w.advance(0)  # immediate backstop releases
+    assert rig.unlocks() == [LOCK_A, LOCK_B]
+    await rig.w.advance(121)
+    assert rig.locks() == []
+    assert rig.regime.last_action["decision"] == "past_backstop_no_catchup"
+
+
+@pytest.mark.asyncio
+async def test_boot_recheck_sleep_at_0630_after_window_no_engage():
+    """Sleep window 22-06: 06:30 is outside it (backstop 07:00 not yet due)."""
+    rig = await make_rig(start=datetime(2026, 11, 8, 6, 30, tzinfo=TZ), house="sleep",
+                         past_boot=False)
+    await rig.w.advance(121)
+    assert rig.locks() == []
+
+
+@pytest.mark.asyncio
 async def test_boot_recheck_vacation_unlocked_no_catchup():
     rig = await make_rig(start=BOOT_0200, house="vacation", past_boot=False)
     await rig.w.advance(121)
