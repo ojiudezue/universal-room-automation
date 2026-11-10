@@ -219,6 +219,27 @@ def test_pre_press_nights_do_not_lengthen_exit(monkeypatch, tmp_path,
     assert P.walk(c, P.at(2026, 11, 5)) is False
 
 
+# --- press beats the exit day veto (operator 2026-11-10) ------------------------
+
+def test_press_overrides_day_veto(monkeypatch, tmp_path, proc_tz, store):
+    """One-night stay 11-03; night 11-04 empty but day 11-04 at 0.5 vetoes the
+    exit (still on 11-05). A press at 11-05 09:00 clears it at once, and the
+    re-walk plus the next morning's walk stay off although days 11-04 and
+    11-05 are both occupied (the veto never resurrects a pressed stay)."""
+    proc_tz("UTC")
+    db = P._make_db(tmp_path)
+    P.occupy_fraction(db, P.E2, date(2026, 11, 3), 0.9)
+    P.occupy_day(db, P.E2, date(2026, 11, 3), 0.38)
+    P.occupy_day(db, P.E1, date(2026, 11, 4), 0.5)
+    P.occupy_day(db, P.E1, date(2026, 11, 5), 0.5)
+    c = P.coord_with(monkeypatch, db)
+    assert P.walk(c, P.at(2026, 11, 5)) is True         # vetoed
+    press(c, P.at(2026, 11, 5, 9).astimezone(UTC))
+    assert c._guest_stay_active is False
+    assert P.walk(c, P.at(2026, 11, 5, 10)) is False
+    assert P.walk(c, P.at(2026, 11, 6)) is False
+
+
 # --- the entity ------------------------------------------------------------------
 
 def test_button_entity_wires_to_presence(monkeypatch):

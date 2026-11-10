@@ -163,9 +163,22 @@ cited to a verified `file:line` on `develop`, or marked **UNVERIFIED**.
      and any longer stay after two (`GUEST_STAY_EXIT_SCALES_WITH_STAY`, rung 1, True; False = the fixed
      3-night exit of rev 5). **Re-entry grace** (`GUEST_STAY_REENTRY_GRACE_DAYS`, 7, 0 = off; only with
      the scaled exit): for 7 days after a stay ends by empty nights, ONE qualifying night in any guest
-     room re-enters, no day test (a guest away overnight who sleeps in the room again). October replay:
-     GUEST 09-28..10-14 and 10-16 (the nights away 10-13/10-14 end it; the night back 10-15 re-enters);
-     0 days in 10-19..11-08. Grace re-entries bypass `GUEST_STAY_ENTRY_NIGHTS`. A stay entered by
+     room re-enters, no day test (a guest away overnight who sleeps in the room again).
+     **Exit day veto (operator 2026-11-10, v5.108.5, `AUDIT_guest_onset_thresholds_and_hvac_evidence_states_2026_11_10.md`
+     §1.3-§1.5):** the empty-night exit does NOT fire while any guest room's non-resident day fraction is
+     ≥ `GUEST_STAY_EXIT_DAY_VETO_FRACTION` (0.10, `const.py:554`, rung 1; > 1 = veto off) on a day
+     window paired with a night inside the exit window (`_day_vetoes`, `presence.py:6274`, conjunct at
+     `:6325-6327`). It reuses the day fractions of the same span read (no new DB read, no new state),
+     applies only with the scaled exit (False = rev 5 exactly), and a "Guest left" press still beats it
+     (a stay only starts on a post-press night and n counts only post-press nights, so an exit window
+     never reaches a pre-press day). October replay with the veto: GUEST 09-28..10-14 and 10-16..10-18
+     (the nights away 10-13/10-14 end it; the night back 10-15 re-enters; days 10-16 (0.46) and 10-17
+     (0.22) hold it, so 10-17 is no longer dropped; 19 of 21 stay days); 0 days in 10-19..11-08. Cost on
+     the unlabelled pre-stay period: the 08-25 stay is held through daytime-occupied empty nights into
+     09-12 (pinned in `test_guest_stay_producer.py::test_replay_fixture_day_list_day_veto`). Residual: a
+     phantom DAYTIME guest-room hold (fan + MS600 radar, no fan-immune witness in GB1/GB2, §6 item 3)
+     now also holds a stay; the D4 28-day page is the backstop. Without the veto the list was 09-28..10-14
+     and 10-16. Grace re-entries bypass `GUEST_STAY_ENTRY_NIGHTS`. A stay entered by
      grace keeps the original stay's end as the anchor and opens no new grace (review D: no phantom
      chain), so the window never extends past 7 days from the last normally-entered stay's end.
      **"Guest left" button** (`button.ura_presence_coordinator_guest_left`, unique id

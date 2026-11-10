@@ -6263,6 +6263,26 @@ class PresenceCoordinator(BaseCoordinator):
                 return left_at is None or windows[j][0] >= left_at
 
             grace_stay = False   # the active stay was entered by grace
+            # Exit day veto (operator 2026-11-10): a day window (paired with a
+            # night in the exit window) where any guest room read >= this
+            # non-resident share holds the stay. > 1 = off. Scaled path only.
+            veto_min = (
+                float(_ura_const.GUEST_STAY_EXIT_DAY_VETO_FRACTION)
+                if scaled else 2.0
+            )
+
+            def _day_vetoes(j: int) -> bool:
+                # Press beats veto with no filter here: the veto only acts
+                # on an active stay, a stay only starts on a post-press night,
+                # and n counts only post-press qualifying nights, so an exit
+                # window (x <= n nights, none qualifying) never reaches the
+                # first post-press night, the only one whose day can start
+                # before the press.
+                return any(
+                    float(drows[j][0]) >= veto_min
+                    for (_n, drows) in per_room.values()
+                )
+
             for idx in range(lookback - 1, n_nights):
                 post_press = _after_press(idx)
                 # Review D LOW: nights that started before the press count
@@ -6300,7 +6320,11 @@ class PresenceCoordinator(BaseCoordinator):
                     # cap exceeds lookback. scaled False: x == lookback,
                     # exactly rev 5's q == 0.
                     x = min(exit_max, n) if scaled else lookback
-                    if not any(b[2] for b in best[idx - x + 1: idx + 1]):
+                    if not any(
+                        b[2] for b in best[idx - x + 1: idx + 1]
+                    ) and not any(
+                        _day_vetoes(j) for j in range(idx - x + 1, idx + 1)
+                    ):
                         active = False
                         since = None
                         n = 0
