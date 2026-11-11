@@ -347,3 +347,92 @@ def test_record_arc_cuts_writes_reason_on_card_only(board_copy: Path) -> None:
     reparsed = yaml.safe_load(after)
     card = next(c for c in reparsed["cards"] if c["id"] == cid)
     assert card["arc_cut_v5_103_57"] == 'cut "for now"'
+
+
+# ---------------------------------------------------------------------------
+# KANBAN-SHIP-FLOW-CARDS-1: one-line (flow-style) cards
+# ---------------------------------------------------------------------------
+
+_MIXED = (
+    "meta:\n"
+    "  last_reconciled: '2026-11-01'\n"
+    "cards:\n"
+    "- id: BLOCK-1\n"
+    "  title: block card before a flow card\n"
+    "  status: review\n"
+    '- {"id": "FLOW-1", "title": "flow card", "status": "review", "tier": 1}\n'
+    "- id: BLOCK-2\n"
+    "  status: inbox\n"
+    '- {"id": "FLOW-2", "title": "last flow card", "status": "inbox"}\n'
+    "parked:\n"
+    "- title: x\n"
+)
+
+
+def _cards(text: str) -> dict:
+    return {c["id"]: c for c in yaml.safe_load(text)["cards"]}
+
+
+def test_flow_card_is_its_own_block_not_folded_into_previous() -> None:
+    blocks = kanban_ship._find_card_blocks(_MIXED.splitlines(keepends=True))
+    ids = [cid for cid, _, _ in blocks]
+    assert ids == ["BLOCK-1", "FLOW-1", "BLOCK-2", "FLOW-2"]
+    spans = {cid: (s, e) for cid, s, e in blocks}
+    assert spans["FLOW-1"][1] - spans["FLOW-1"][0] == 1
+    assert spans["BLOCK-1"][1] == spans["FLOW-1"][0]
+
+
+def test_mark_shipped_edits_flow_card() -> None:
+    after, unknown = kanban_ship.mark_shipped_text(_MIXED, ["FLOW-1"], "5.108.9", "2026-11-11")
+    assert unknown == []
+    cards = _cards(after)
+    assert cards["FLOW-1"]["status"] == "shipped_organic"
+    assert cards["FLOW-1"]["shipped_version"] == "v5.108.9"
+    assert cards["FLOW-1"]["tier"] == 1 and cards["FLOW-1"]["title"] == "flow card"
+    # neighbours untouched, still one line per flow card
+    assert cards["BLOCK-1"]["status"] == "review"
+    assert cards["FLOW-2"]["status"] == "inbox"
+    assert len(after.splitlines()) == len(_MIXED.splitlines())
+
+
+def test_mark_shipped_mixed_block_and_flow_together() -> None:
+    after, unknown = kanban_ship.mark_shipped_text(
+        _MIXED, ["BLOCK-1", "FLOW-1", "FLOW-2"], "v5.108.9", "2026-11-11")
+    assert unknown == []
+    cards = _cards(after)
+    for cid in ("BLOCK-1", "FLOW-1", "FLOW-2"):
+        assert cards[cid]["status"] == "shipped_organic", cid
+        assert cards[cid]["shipped_version"] == "v5.108.9", cid
+    assert cards["BLOCK-2"]["status"] == "inbox"
+
+
+def test_unparseable_flow_card_is_reported_not_silent() -> None:
+    broken = _MIXED.replace('"title": "flow card"', '"title": "flow card"\n  "dangling": 1')
+    # FLOW-1 now spans two lines; the writer must refuse and REPORT it.
+    after, unknown = kanban_ship.mark_shipped_text(broken, ["FLOW-1"], "5.108.9", "2026-11-11")
+    assert unknown == ["FLOW-1"]
+
+
+def test_cli_mark_shipped_flow_card_real_board(board_copy: Path, capsys) -> None:
+    board = kanban_ship.load_board(board_copy)
+    text = board_copy.read_text(encoding="utf-8")
+    flow_ids = [cid for cid, s, _ in kanban_ship._find_card_blocks(text.splitlines(keepends=True))
+                if text.splitlines()[s].startswith("- {")]
+    if not flow_ids:
+        pytest.skip("live board has no flow-style card today")
+    cid = flow_ids[0]
+    assert cid in kanban_ship.all_card_ids(board)
+    rc = kanban_ship.main(["mark-shipped", cid, "--version", "5.999.0",
+                           "--file", str(board_copy), "--today", "2026-11-11"])
+    assert rc == 0
+    card = next(c for c in kanban_ship.load_board(board_copy)["cards"] if c["id"] == cid)
+    assert card["status"] == "shipped_organic"
+    assert card["shipped_version"] == "v5.999.0"
+    assert "NOT marked" not in capsys.readouterr().err
+
+
+def test_record_arc_cuts_on_flow_card_keeps_valid_yaml() -> None:
+    after = kanban_ship.record_arc_cuts_text(_MIXED, {"FLOW-1": 'cut "later"'}, "5.108.9")
+    cards = _cards(after)  # parse error here = the old line-insert corruption
+    assert cards["FLOW-1"]["arc_cut_v5_108_9"] == 'cut "later"'
+    assert "arc_cut_v5_108_9" not in cards["BLOCK-1"]

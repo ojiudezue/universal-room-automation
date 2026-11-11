@@ -26,6 +26,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import datetime as _dt
 import os
 import re
@@ -151,6 +152,11 @@ def record_arc_cuts_text(source: str, cuts: dict[str, str], version: str) -> str
     lines = source.splitlines(keepends=True)
     for cid, start, _end in reversed(_find_card_blocks(lines)):
         if cid in cuts:
+            if _is_flow_line(lines[start]):
+                edited = _edit_flow_card_line(lines[start], {f"arc_cut_{ver}": cuts[cid]})
+                if edited is not None:
+                    lines[start] = edited
+                continue
             reason = cuts[cid].replace("\\", "\\\\").replace('"', '\\"')
             lines.insert(start + 1, f'  arc_cut_{ver}: "{reason}"\n')
     return "".join(lines)
@@ -212,6 +218,35 @@ def mark_shipped(
 
 
 _CARD_START_RE = re.compile(r"^- id:\s*(\S+)\s*$")
+# KANBAN-SHIP-FLOW-CARDS-1: one-line flow-mapping cards, e.g.
+#   - {"id": "CARD-1", "title": "...", "status": "review", ...}
+# Before this, such a line was folded into the PREVIOUS block card's range and
+# mark-shipped skipped it silently (four shipped cards stayed in review).
+_FLOW_CARD_START_RE = re.compile(r"""^- \{\s*["']?id["']?\s*:\s*["']?([^"',}\s]+)""")
+
+
+def _is_flow_line(line: str) -> bool:
+    return line.startswith("- {")
+
+
+def _edit_flow_card_line(line: str, updates: dict) -> str | None:
+    """Return *line* with *updates* applied to its flow mapping, or None.
+
+    The card must be a complete single-line mapping (the format the board
+    writers emit); anything else returns None so the caller reports it
+    instead of corrupting the file. Re-emitted as one JSON line, which is
+    valid YAML flow style and matches how these lines are written.
+    """
+    body = line.rstrip("\n")
+    try:
+        card = yaml.safe_load(body[2:])
+    except yaml.YAMLError:
+        return None
+    if not isinstance(card, dict) or "id" not in card:
+        return None
+    card.update(updates)
+    nl = "\n" if line.endswith("\n") else ""
+    return "- " + json.dumps(card, ensure_ascii=False, default=str) + nl
 _TOPLEVEL_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*:")
 _STATUS_LINE_RE = re.compile(r"^(?P<indent>  )status:\s*(?P<val>\S+)\s*$")
 _SHIPVER_LINE_RE = re.compile(r"^(?P<indent>  )shipped_version:\s*(?P<val>\S.*)$")
@@ -249,7 +284,8 @@ def _find_card_blocks(lines: list[str]) -> list[tuple[str, int, int]]:
     # Walk the cards section collecting card start lines.
     starts: list[tuple[str, int]] = []
     for j in range(cards_start, cards_end):
-        m = _CARD_START_RE.match(lines[j].rstrip("\n"))
+        stripped = lines[j].rstrip("\n")
+        m = _CARD_START_RE.match(stripped) or _FLOW_CARD_START_RE.match(stripped)
         if m:
             starts.append((m.group(1), j))
     for k, (cid, s) in enumerate(starts):
@@ -299,11 +335,25 @@ def mark_shipped_text(
     blocks = _find_card_blocks(lines)
     known = {cid for cid, _, _ in blocks}
     unknown = [i for i in id_set if i not in known]
+    # Known ids whose card could not be edited are reported with the
+    # unknowns, so the caller warns instead of claiming success.
+    unedited: list[str] = []
 
     # Process from the end of the file backwards so insertions do not
     # shift earlier block indexes.
     for cid, start, end in reversed(blocks):
         if cid not in id_set:
+            continue
+        if _is_flow_line(lines[start]):
+            edited = None
+            if end - start == 1:
+                edited = _edit_flow_card_line(
+                    lines[start], {"status": "shipped_organic", "shipped_version": ver}
+                )
+            if edited is None:
+                unedited.append(cid)
+            else:
+                lines[start] = edited
             continue
         status_idx = None
         shipver_idx = None
@@ -320,8 +370,8 @@ def mark_shipped_text(
                 shipver_idx = j
         if status_idx is None:
             # No plain `status:` line (quoted or exotic form) — skip rather
-            # than corrupt. Validation caller (deploy.sh) will see the
-            # sentinels-are-fine outcome; we surface it via the report.
+            # than corrupt, and REPORT it (it used to be silent).
+            unedited.append(cid)
             continue
         nl = "\n" if lines[status_idx].endswith("\n") else ""
         lines[status_idx] = f"{indent}status: shipped_organic{nl}"
@@ -331,7 +381,7 @@ def mark_shipped_text(
         else:
             lines.insert(status_idx + 1, ship_line)
 
-    return "".join(lines), unknown
+    return "".join(lines), unknown + sorted(unedited)
 
 
 def _validate_text_as_board(text: str) -> None:
@@ -431,7 +481,7 @@ def cmd_mark_shipped(args: argparse.Namespace) -> int:
             unknown.append(u)
     if unknown:
         print(
-            "WARN: unknown card ID(s) at write time: " + ", ".join(unknown),
+            "WARN: card(s) NOT marked shipped (unknown id, or card text the writer cannot edit): " + ", ".join(unknown),
             file=sys.stderr,
         )
     atomic_write_yaml(path, new_text)
