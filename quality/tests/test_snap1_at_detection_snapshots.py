@@ -962,6 +962,10 @@ def test_snap1_vehicle_dispatch_threads_snapshot_path():
         mgr._frigate_last_event_id.clear()
         # Force through the vehicle gates by neutering them.
         mgr._in_vehicle_night_window = lambda now: True  # type: ignore
+        # TEST-SUITE-PARALLEL-1 (2026-11-10): the handler gates on
+        # _is_in_vehicle_alert_hours (the old name above is now only an
+        # alias), so this test passed or failed by wall-clock hour.
+        mgr._is_in_vehicle_alert_hours = lambda now: True  # type: ignore
         # Point coordinator-manager house_state at an alerting state.
         hass.data[_c.DOMAIN]["coordinator_manager"].house_state = "away"
         # Neuter boot-settle so the vehicle handler proceeds.
