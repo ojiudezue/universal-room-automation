@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-11T02:21:45-06:00_ - _Data commit: `5d447f190e7b`_ - _last_reconciled: 2026-11-10_
+_Generated: 2026-11-11T02:25:26-06:00_ - _Data commit: `7852634bc165`_ - _last_reconciled: 2026-11-10_
 
 
 ## Columns
@@ -13,8 +13,8 @@ _Generated: 2026-11-11T02:21:45-06:00_ - _Data commit: `5d447f190e7b`_ - _last_r
 | 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 18 |
-| 🔨 In progress | 2 |
-| 🔍 Review | 2 |
+| 🔨 In progress | 1 |
+| 🔍 Review | 3 |
 | ⏸️ Waiting on operator | 32 |
 | ⏳ Waiting on me (Claude) | 2 |
 | 🚀 Shipped (organic open) | 16 |
@@ -494,22 +494,10 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (2)
+## 🔨 In progress (1)
 _being built_
 
-### `SC-GEOFENCE-PERSON-SNAPSHOT-1` - SC geofence person listener snapshots person.* once at setup; misses persons added later or loaded after SC — _#1 · WSJF 7.0 · v3 tc2 u2 /e1_
-thread: **security** - status: **in_progress**
-_created 2026-11-07 15:40 · updated 2026-11-11 02:21_
-- **Why:** security.py:1987-1995 _setup_geofence_listener reads hass.states.async_all('person') once and returns when empty, so the sanction checker never subscribes if persons load after SC and misses persons added later. The lockout regime uses a...
-- **Next:** Tier 1 build: resubscribe the geofence listener on person.* add/remove, reusing the lock-regime pattern at security_lock_regime.py:163-173, plus a test that adds a person after setup. Starts once the review lane drains below 3.
-- **Forensic keys (5):**
-  - `arc_cut_v5_106_0`: separate SC geofence listener fix (different code path from the lock regime, which already tracks persons live)
-  - `arc_cut_v5_105_0`: separate SC geofence listener fix, queued next after door-locks
-  - `tier`: 1
-  - `verify_2026_11_08_overnight`: STILL-REAL. security.py:2098-2117 _setup_geofence_listener reads hass.states.async_all('person') once at setup and subscribes to that fixed list, so a person added later (or loaded after SC) is never watched. Prior art: REUSE the lock re...
-  - `build_2026_11_11_overnight`: Re-verified STILL-REAL 02:21 CST (security.py:2194-2214 reads person.* once). Review lane at 2 (< WIP cap 3), so built tonight: ura-builder dispatched to branch fix/sc-geofence-person-resubscribe (worktree), reusing the lock-regime add/r...
-
-### `OC-CONTEXT-PACK-1` - OC agent context should feel like the orchestrator's: HA + URA ground-truth docs, live config snapshot, doctrine, goals - iterate it against live cases — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `OC-CONTEXT-PACK-1` - OC agent context should feel like the orchestrator's: HA + URA ground-truth docs, live config snapshot, doctrine, goals - iterate it against live cases — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **optimization** - status: **in_progress**
 _created 2026-11-01 · updated 2026-11-05 02:40_
 - **Why:** Already decided in VISION_optimization_coordinator_self_fixing_house.md:157 ('Knowledge, loaded fresh every run': HA concepts; URA_ARCHITECTURE_MAP, HVAC + presence state-of-play, SENSOR_FLEET_CLASSES, DEVICE_TREE; live config snapshot; ...
@@ -519,7 +507,7 @@ _created 2026-11-01 · updated 2026-11-05 02:40_
   - `tier`: 2
   - `eval_round_2026_11_07`: Operator-funded iteration ($50 cap, spent $40.31; worktree agent-a657e58090fb1df32 commits e1b08b13 b0d29379 12ac1780; ITERATIONS_2026_11_07.md, LEDGER_2026_11_07.md, RUBRIC.md). NOT PASSING: Sonnet 5.5 3/15 runs, 0 cases by majority; he...
 
-## 🔍 Review (2)
+## 🔍 Review (3)
 _under review_
 
 ### `KANBAN-SHIP-FLOW-CARDS-1` - deploy.sh --cards silently fails to mark one-line (flow-style) cards shipped, so shipped work stays in review/inbox — _#1 · WSJF 7.5 · v7 tc6 u2 /e2_
@@ -537,7 +525,20 @@ _created 2026-11-11 02:07 · updated 2026-11-11 02:18 · initial_
   - `gate_2026_11_11`: 1 validity: STILL-REAL (4 cards observed, mechanism read in source). 1b config-first: no setting. 2 prior-art: REUSE mark_shipped_text/_find_card_blocks, extend to flow lines; no new tool. 3 parsimony BUILD. 4 cost/benefit: repo tooling ...
   - `built_2026_11_11_overnight`: Built on fix/kanban-ship-flow-cards (worktree .claude/worktrees/ovn-kanban-ship-flow; 6da6cab1 build, d684fc71 review record, 1c6e3635 LOW fix-up; base = develop fc75a6b3, 0 behind). _find_card_blocks now detects '- {"id": ...}' flow car...
 
-### `SNAP1-FRIGATE-TRAVERSAL-1` - test_snap1_frigate_capture_refuses_traversal_event_id fails: 'traversal wrote outside tmp' in perimeter_alert.py snapshot capture — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `SC-GEOFENCE-PERSON-SNAPSHOT-1` - SC geofence person listener snapshots person.* once at setup; misses persons added later or loaded after SC — _#2 · WSJF 7.0 · v3 tc2 u2 /e1_
+thread: **security** - status: **review**
+_created 2026-11-07 15:40 · updated 2026-11-11 02:26_
+- **Why:** security.py:1987-1995 _setup_geofence_listener reads hass.states.async_all('person') once and returns when empty, so the sanction checker never subscribes if persons load after SC and misses persons added later. The lockout regime uses a...
+- **Next:** APPROVE merge + ship at the next attended deploy (Tier 1, security.py only).
+- **Forensic keys (6):**
+  - `arc_cut_v5_106_0`: separate SC geofence listener fix (different code path from the lock regime, which already tracks persons live)
+  - `arc_cut_v5_105_0`: separate SC geofence listener fix, queued next after door-locks
+  - `tier`: 1
+  - `verify_2026_11_08_overnight`: STILL-REAL. security.py:2098-2117 _setup_geofence_listener reads hass.states.async_all('person') once at setup and subscribes to that fixed list, so a person added later (or loaded after SC) is never watched. Prior art: REUSE the lock re...
+  - `build_2026_11_11_overnight`: Re-verified STILL-REAL 02:21 CST (security.py:2194-2214 reads person.* once). Review lane at 2 (< WIP cap 3), so built tonight: ura-builder dispatched to branch fix/sc-geofence-person-resubscribe (worktree), reusing the lock-regime add/r...
+  - `built_2026_11_11_overnight`: Branch fix/sc-geofence-person-resubscribe (01d5e4bd build, 2f5bd19c review record; base develop 297333f7). security.py _setup_geofence_listener now subscribes to person add/remove (async_track_state_added_domain / _removed_domain) and re...
+
+### `SNAP1-FRIGATE-TRAVERSAL-1` - test_snap1_frigate_capture_refuses_traversal_event_id fails: 'traversal wrote outside tmp' in perimeter_alert.py snapshot capture — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **security** - status: **review** - approval: **unreviewed**
 _created 2026-11-11 09:00 · updated 2026-11-11 02:18 · refined_
 - **Why:** Possible real path-traversal gap: a crafted Frigate event_id could write a snapshot outside the intended directory. Production code, so the builder stopped.
@@ -991,7 +992,7 @@ thread: **lighting** - status: **waiting_operator** - approval: **blocked**
 _created 2026-11-03 · updated 2026-11-11 02:25 · refined ×1_
 - **Why:** light.dimmer_tapo_wifi_matter_kitchenoverhead on 21:16 -> 05:01 (11-02/03). Kitchen lights_leave_on_when_empty = [overhead]; _shared_space_turn_off_all exempts leave-on (automation.py:4681). check_scheduled_auto_off fires only in hour 23...
 - **Next:** PICK: K (recommended) per-room opt-in: a 'night failsafe runs while paused' setting, ON only for Kitchen; the built hoist plus one config check, Tier 1, then review B and ship. Or A: all paused shared-space rooms (the ~10 above; built, n...
-- **Forensic keys (7):**
+- **Forensic keys (8):**
   - `recheck_2026_11_07_overnight`: Re-check 02:03 CST: switch.kitchen_automation still off (Kitchen paused), so the gap is still live. No veto on default A since 11-04, and it is Tier 1 / reversible, so under the recommend-don't-menu rule I would take A - but the overnigh...
   - `card_was_wrong_2026_11_04`: The card's diagnosis was INCOMPLETE. It said the 11pm sweep skipped the Kitchen overhead because of the leave-on list. That was a second, latent barrier. The first one is that switch.kitchen_automation has been OFF the whole 10-day recor...
   - `organic_evidence_2026_11_04`: First night live (v5.103.101, loaded at the 11-03 18:01 restart). ura_activity_log: 15 rooms swept exactly once each between 23:00 and 23:38 (Game Room, Media Room Closet, Breakfast Nook, Guest Bedroom 2 Hallway, Kitchen Hallway, Upstair...
@@ -999,6 +1000,7 @@ _created 2026-11-03 · updated 2026-11-11 02:25 · refined ×1_
   - `default_taken_2026_11_11_overnight`: Default A taken under recommend-don't-menu (Tier 1-2, reversible, not outward-facing; offered 11-04, no veto in 7 days). Re-verified 02:19 CST: switch.kitchen_automation still off; the failsafe call is still inside the master-automation ...
   - `my_miss_2026_11_11_overnight`: I WAS WRONG to take default A under recommend-don't-menu. That rule covers reversible, low-blast cards; this one reverses your written 10-18 ruling on paused rooms (kanban.data.yaml ~:32250: 'Paused rooms should stop with lights and fans...
   - `built_2026_11_11_overnight`: Branch fix/shared-space-failsafe-paused-rooms (e3e44a5f build, d0f67ed8 review A; base 98e8baa2). UNMERGED; review B not run. Reach measured by review A (live config x 11-11 switch states): option A would newly sweep Kitchen, Kitchen Hal...
+  - `paged_2026_11_11_overnight`: Paged once in the consolidated overnight Pushover (priority -1, quiet).
 
 ### `SAFEWORD-WINDOW-1` - Safe-word ack window — one "duke" covers perimeter alerts for a bounded period (operator-proposed) — _#26 · WSJF 1.8 · v4 tc3 u2 /e5_
 thread: **notifications** - status: **waiting_operator** - approval: **operator_proposed**
