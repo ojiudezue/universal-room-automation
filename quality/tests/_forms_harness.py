@@ -189,6 +189,75 @@ def frontend_submit(schema, *, omit_sections: bool = False) -> dict:
     return out
 
 
+_PKG = "custom_components.universal_room_automation"
+
+
+def real_ura():
+    """The REAL integration package (another test file may have parked a bare
+    stub in ``sys.modules``; same recipe as test_zone_house_advanced_fields)."""
+    import importlib
+    import sys
+
+    cached = sys.modules.get(_PKG)
+    if cached is not None and hasattr(cached, "_async_update_listener"):
+        return cached
+    saved = {k: v for k, v in sys.modules.items()
+             if k == _PKG or k.startswith(_PKG + ".")}
+    for k in saved:
+        del sys.modules[k]
+    try:
+        real = importlib.import_module(_PKG)
+    finally:
+        for k in [k for k in sys.modules if k == _PKG or k.startswith(_PKG + ".")]:
+            del sys.modules[k]
+        sys.modules.update(saved)
+    return real
+
+
+class ReloadCounter:
+    """A config-entries fake that applies HA core's write rule and drives the
+    REAL ``_async_update_listener``.
+
+    HA only calls update listeners when the options actually change
+    (homeassistant/config_entries.py:2470-2480 on HA 2026.2.3). Every
+    ``async_reload`` the listener schedules is counted.
+    """
+
+    def __init__(self, entry):
+        self.ura = real_ura()
+        self.entry = entry
+        self.reloads = 0
+        self.hass = MagicMock()
+        snapshot_key = {
+            "room": "room_last_applied_options",
+            "integration": "integration_last_applied_options",
+            "cm": "cm_last_applied_options",
+        }
+        self.hass.data = {self.ura.DOMAIN: {
+            v: {entry.entry_id: dict(entry.options)} for v in snapshot_key.values()
+        }}
+
+        def _reload(entry_id):
+            self.reloads += 1
+            return None
+
+        self.hass.config_entries.async_reload = _reload
+        self.hass.async_create_task = lambda coro, *a, **k: (
+            coro.close() if hasattr(coro, "close") else None
+        )
+
+    def save(self, new_options: dict) -> None:
+        if dict(self.entry.options) == dict(new_options):
+            return  # HA core short-circuit: no listener runs
+        self.entry.options = dict(new_options)
+        orig = self.ura._dispatch_integration_key_signals
+        self.ura._dispatch_integration_key_signals = lambda h, e, keys: set(keys)
+        try:
+            run(self.ura._async_update_listener(self.hass, self.entry))
+        finally:
+            self.ura._dispatch_integration_key_signals = orig
+
+
 def section_keys(schema) -> set:
     return {
         str(getattr(m, "schema", m))
