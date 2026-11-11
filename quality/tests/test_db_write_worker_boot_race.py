@@ -256,6 +256,10 @@ def test_mutation_remove_buffering_makes_test_red(tmp_path):
     finally:
         # Re-execute the untouched on-disk source (reload) so later tests see
         # the real module; then prove the file was never modified.
-        importlib.reload(ura_db)
+        # TEST-SUITE-PARALLEL-1: re-exec the original source into the same
+        # namespace instead of importlib.reload, which needs ura_db to still be
+        # THE sys.modules entry (an earlier file's eviction made it raise
+        # ImportError -> order-dependent RED).
+        exec(compile(original, src_path, "exec"), ura_db.__dict__)
         with open(src_path, "rb") as fh:
             assert fh.read() == original, "production database.py changed on disk"

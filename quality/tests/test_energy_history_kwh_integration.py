@@ -125,7 +125,11 @@ def test_predict_energy_tomorrow_is_kwh(db, monkeypatch):
         rows += _day_rows(_DAY + timedelta(days=7 * w), 4.0 + w, exp_kw=0.5)
     _seed(db.db_file, rows)
 
-    import custom_components.universal_room_automation.database as dbmod
+    # TEST-SUITE-PARALLEL-1 (2026-11-10): patch the globals of the database
+    # module the ``db`` fixture's class was built from. Patching
+    # sys.modules[...database] missed whenever an earlier file had replaced
+    # that entry -> real clock -> no matching weekday -> None (order-dependent).
+    g = type(db).initialize.__globals__
 
     class _FakeDT(datetime):
         @classmethod
@@ -134,11 +138,11 @@ def test_predict_energy_tomorrow_is_kwh(db, monkeypatch):
             # Tuesday; LOCAL tomorrow is Monday (weekday 0).
             return datetime(2026, 10, 19, 2, 0, 0)
 
-    monkeypatch.setattr(dbmod, "datetime", _FakeDT)
+    monkeypatch.setitem(g, "datetime", _FakeDT)
     # D3b: the target weekday is the LOCAL date's (Sunday local -> Monday).
     from datetime import timezone as _tz
     from zoneinfo import ZoneInfo
-    monkeypatch.setattr(dbmod.dt_util, "now", lambda *a, **k: datetime(
+    monkeypatch.setattr(g["dt_util"], "now", lambda *a, **k: datetime(
         2026, 10, 18, 21, 0, 0, tzinfo=ZoneInfo("America/Chicago")))
 
     async def _days():
