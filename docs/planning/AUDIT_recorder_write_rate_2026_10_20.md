@@ -86,3 +86,29 @@ The excludes took effect at the 09:59 CDT restart (recorder run 1200, 14:59:25Z)
 | delta | -1,677 (-1.1%) | -9,448 (-100%) | +7,771 (+5.6%) |
 
 The excludes work: the targeted entities wrote 0 rows, and the 9.4k/hr removed matches the ~9.65k/hr estimated above. The total barely moved because everything else rose 5.6% in the after-window. The likely causes are post-boot churn (entities re-reporting and registry updates in the first hour) and the change in time of day. I have not checked either cause. A like-for-like comparison against the same clock hours on a later day would separate them.
+
+## Re-measure 2026-11-11 02:00-02:05 CST (overnight pass, read-only) — batch 2 candidates
+
+Operator instruction 2026-11-10 on RECORDER-WRITE-RATE-ATTENUATION-1: "Prioritize and fix". Source: `/config/home-assistant_v2.db` opened `sqlite3 -readonly` over ssh, window last 24 h.
+
+**Totals:** 3.35M state rows/day (~140k/hr; daily 2.92M on 11-06 rising to 3.40M on 11-10). 138k event rows/day. DB file 10.9 GB (was 15.3 GB on 10-20).
+**The 10-20 batch held:** none of its targets (ESPectre score, UDM CPU/mem, `*_detection_distance`, panel diagnostics, `*_device_time`, invisoutlet air) is in the top 80 any more. **No single entity now writes more than 1.9k/hr.** The load is a wide tail: top 50 entities = 17k/hr, ranks 51-200 = 36k/hr, the remaining 18,420 entities = 87k/hr. So further gains come from **families**, not single entities.
+
+| family | rows/hr | entities | share | history consumers found | lever |
+|---|---|---|---|---|---|
+| `sensor.span_panel*` (2 panels, `_2` = 2nd panel 192.168.8.229, NOT duplicates) | 41,960 | 571 | 30% | Energy prefs: 27 `*_consumed_energy` only; URA history reader `hvac_override.py` (SPAN AC power) | see 2a + 2c |
+| of which `*_produced_energy*` | 9,049 | 92 | 6.5% | **none** (Energy prefs, all `.storage/lovelace*`, automations.yaml, packages, URA code: 0 hits). 84 of 92 have <=2 distinct values/24 h (load-only circuits); the 8 that move are feed_through x2, range, oven, dryer x2, metering kit, mains_emporia_vue | **2a: recorder exclude glob** |
+| `sensor.beszel*` (homelab server monitor) | 16,396 | 502 | 12% | `lovelace.lab_servers` (119 mini-graph cards) + `lovelace.lab_uptime` (76 mini-graph cards) read their history | 2b: operator call (Beszel keeps its own history; the lab dashboards' graphs would go blank) |
+| SPAN poll interval | (~21k/hr if 15 s -> 30 s) | — | — | URA energy/load decisions read SPAN power **live**; slower poll = staler load data | 2c: integration option `snapshot_update_interval: 15.0` on both SPAN entries; NOT recommended without an energy-side review |
+| `call_service` events, `system_log.write` from the wall-kiosk user | 101,449 events/day (was 77k on 11-10) | — | 74% of event rows, ~3% of all rows | none | 2d: panel-side (URA-V8-PANEL-RENDER-SPIN-1); websocket "Connection lost" loop |
+| `sensor.system*`, `sensor.lxc*`, `sensor.envoy*` | 4.3k / 3.6k / 3.0k | 55 / 135 / 105 | ~8% | not checked | later |
+
+**Recommendation (2a, staged, not applied):** add to `recorder: exclude: entity_globs:` in `/config/configuration.yaml`:
+```yaml
+      # 2026-11-11 batch 2a (AUDIT_recorder_write_rate_2026_10_20.md re-measure): SPAN produced-energy
+      # counters, ~9k rows/hr; 84/92 never change (load-only circuits); no Energy pref / dashboard /
+      # automation / URA reader. Consumed-energy + power stay recorded.
+      - sensor.span_panel_*_produced_energy
+      - sensor.span_panel_*_produced_energy_2
+```
+Takes effect at the next restart (do NOT restart for it). Undo per RUNBOOK_recorder_excludes.md. Add the ledger row when applied.
