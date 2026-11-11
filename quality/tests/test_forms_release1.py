@@ -740,3 +740,24 @@ def test_climate_stored_inverted_hold_pair_does_not_block_unrelated_save():
     out = h.run(flow.async_step_climate(sub))
     assert out["type"] == "create_entry", out
     assert out["data"][_HOLD_D] == 900 and out["data"][_HOLD_N] == 600
+
+
+# --- Review C F1: stored options outside the step survive a save ---------------
+
+_UNRELATED = "zz_unrelated_stored_key"
+
+
+@pytest.mark.parametrize("omit", [False, True], ids=["section_sent", "section_omitted"])
+@pytest.mark.parametrize("step", OPTIONS_STEPS)
+def test_save_keeps_unrelated_and_stored_advanced_keys(step, omit):
+    """A save must carry forward every stored option it does not own (an
+    unrelated key from another step) AND a stored, non-default value of an
+    advanced-section key, whether the section is sent untouched or never
+    expanded. Anchors the ``{**options, **flat}`` merge at every step."""
+    s1 = _seed(step)
+    adv_key = MOVED[("options", step)][0]
+    adv_val = _distinct(adv_key, s1.get(adv_key))
+    stored = {**s1, _UNRELATED: "keep-me", adv_key: adv_val}
+    out = _save(step, stored, omit=omit)
+    assert out.get(_UNRELATED) == "keep-me"
+    assert out.get(adv_key) == adv_val
