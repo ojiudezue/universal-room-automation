@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.108.7
+# Universal Room Automation vv5.108.8
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -5627,7 +5627,10 @@ class RoomLightsSwitch(UniversalRoomEntity, SwitchEntity):
             )
 
     async def async_turn_on(self, **kwargs) -> None:
-        from .lighting.resolver import effective_entry_set  # noqa: PLC0415
+        from .lighting.resolver import (  # noqa: PLC0415
+            effective_entry_set,
+            light_transition,
+        )
 
         automation = getattr(self.coordinator, "automation", None)
         if automation is None:
@@ -5648,12 +5651,18 @@ class RoomLightsSwitch(UniversalRoomEntity, SwitchEntity):
         night_lights = [e for e in targets if e.startswith("light.") and e in night]
         switches = [e for e in targets if e.startswith("switch.")]
         if regular_lights:
-            data: dict[str, Any] = {"entity_id": regular_lights}
+            data: dict[str, Any] = {
+                "entity_id": regular_lights,
+                "transition": light_transition(cfg, on=True),
+            }
             if dimmable:
                 data["brightness_pct"] = cfg.get(CONF_LIGHT_BRIGHTNESS_PCT, 100)
             await automation._safe_service_call("light", "turn_on", data, blocking=False)
         if night_lights:
-            data = {"entity_id": night_lights}
+            data = {
+                "entity_id": night_lights,
+                "transition": light_transition(cfg, on=True),
+            }
             if dimmable:
                 data["brightness_pct"] = (
                     cfg.get(CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS, DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS)
@@ -5677,12 +5686,19 @@ class RoomLightsSwitch(UniversalRoomEntity, SwitchEntity):
         automation = getattr(self.coordinator, "automation", None)
         if automation is None:
             return
+        from .lighting.resolver import light_transition  # noqa: PLC0415
+
         lights = self._all_lights()
         actual = [e for e in lights if not e.startswith("switch.")]
         switches = [e for e in lights if e.startswith("switch.")]
         if actual:
             await automation._safe_service_call(
-                "light", "turn_off", {"entity_id": actual}, blocking=False,
+                "light", "turn_off",
+                {
+                    "entity_id": actual,
+                    "transition": light_transition(self._cfg(), on=False),
+                },
+                blocking=False,
             )
         if switches:
             await automation._safe_service_call(

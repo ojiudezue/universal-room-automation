@@ -785,8 +785,11 @@ class TestSwitchRestoreDeferredRetry:
             ha_dispatcher, "async_dispatcher_connect",
             lambda *a, **k: (lambda: None),
         )
+        # TEST-SUITE-PARALLEL-1: raising=False -- the resident RestoreEntity
+        # can be a sibling file's bare stub class (order-dependent error).
         monkeypatch.setattr(
             RestoreEntity, "async_added_to_hass", AsyncMock(return_value=None),
+            raising=False,
         )
 
         def _make(hass_data):

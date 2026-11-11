@@ -22,6 +22,13 @@ import sys
 
 from test_z_sysmodules_probe_0 import SEED_OBJ
 
+# TEST-SUITE-PARALLEL-1 (2026-11-10): under ``-n N --dist loadfile`` the trio
+# can land on different workers, so file 0's seed may never have run here.
+# Seed at IMPORT time (before this module's conftest snapshot is taken) when
+# absent -- same SEED_OBJ, so the serial 0 -> A -> B contract is unchanged and
+# the conftest restore-loop drill still goes RED whenever A precedes B.
+sys.modules.setdefault("_ura_pollute_probe", SEED_OBJ)
+
 
 def test_pollute_probe_was_restored_to_seed_identity():
     """The A replacer's overwrite must have been rebound by the fixture."""

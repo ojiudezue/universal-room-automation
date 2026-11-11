@@ -259,6 +259,7 @@ from .const import (  # noqa: E402
 # already handle at module top (see ``fan_veto`` / ``cover_ownership``
 # imports above).
 from .lighting.resolver import night_light_turn_on_params as _nl_params  # noqa: E402
+from .lighting.resolver import light_transition as _light_transition  # noqa: E402
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -919,7 +920,11 @@ class RoomAutomation:
         )
         if lights:
             await self._safe_service_call(
-                "light", "turn_off", {"entity_id": lights},
+                "light", "turn_off",
+                {
+                    "entity_id": lights,
+                    "transition": _light_transition(self.config, on=False),
+                },
             )
         if switches:
             await self._safe_service_call(
@@ -4689,7 +4694,11 @@ class RoomAutomation:
             if actual_lights:
                 await self._safe_service_call(
                     "light", SERVICE_TURN_OFF,
-                    {"entity_id": actual_lights}, blocking=False,
+                    {
+                        "entity_id": actual_lights,
+                        "transition": _light_transition(self.config, on=False),
+                    },
+                    blocking=False,
                 )
             if switches_as_lights:
                 await self._safe_service_call(

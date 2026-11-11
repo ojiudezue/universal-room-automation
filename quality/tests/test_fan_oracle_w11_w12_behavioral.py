@@ -327,14 +327,35 @@ else:
 
 _hvac_dt_util = _hvac_mod.dt_util
 _predict_dt_util = _predict_mod.dt_util
+# TEST-SUITE-PARALLEL-1 (2026-11-10): the oracle's verdict clock and
+# hvac_fans' clock are their OWN module-level dt references; when an earlier
+# file left them on a different dt copy than hvac/hvac_predict, _set_now did
+# not reach them and the W12 cooldown read wall time (order-dependent RED).
+_oracle_dt_util = FanPolicyOracle.__init__.__globals__.get("_ha_dt")
+_fans_dt_util = getattr(_hvac_fans_mod, "dt_util", None)
 
 
 
 import pytest as _d7_pytest_clock  # noqa: E402
 
 
+@_d7_pytest_clock.fixture
+def _rebind_held_clocks():
+    """TEST-SUITE-PARALLEL-1 (2026-11-10): re-read, per test, the dt objects
+    the production code under test ACTUALLY holds (an earlier file can rebind
+    ``hvac_predict.dt_util`` etc. after this file was collected, so the
+    import-time references went stale and the W12 cooldown read wall time).
+    Runs before the D7 restore below so those objects get restored too."""
+    global _hvac_dt_util, _predict_dt_util, _oracle_dt_util, _fans_dt_util
+    _hvac_dt_util = HVACCoordinator.__init__.__globals__.get("dt_util", _hvac_dt_util)
+    _predict_dt_util = HVACPredictor._activate_zone_fans.__globals__.get(
+        "dt_util", _predict_dt_util)
+    _oracle_dt_util = FanPolicyOracle.__init__.__globals__.get("_ha_dt", _oracle_dt_util)
+    _fans_dt_util = _FanController.__init__.__globals__.get("dt_util", _fans_dt_util)
+
+
 @_d7_pytest_clock.fixture(autouse=True)
-def _d7_restore_set_now_clocks(monkeypatch):
+def _d7_restore_set_now_clocks(monkeypatch, _rebind_held_clocks):
     """TEST-HARNESS D7 slice 2: undo this file's _set_now clock writes after
     every test (they can land on the real / an orphaned real dt module)."""
     from _d7_isolation import restore_clocks_after_test
@@ -348,6 +369,10 @@ def _set_now(dt: datetime) -> None:
     _hvac_dt_util.utcnow = fn
     _predict_dt_util.now = fn
     _predict_dt_util.utcnow = fn
+    for _extra in (_oracle_dt_util, _fans_dt_util):
+        if _extra is not None:
+            _extra.now = fn
+            _extra.utcnow = fn
 
 
 def _run(coro):

@@ -23,6 +23,21 @@ from types import SimpleNamespace
 import pytest
 
 
+@pytest.fixture(autouse=True, scope="module")
+def _real_ura_package():
+    """TEST-SUITE-PARALLEL-1 (2026-11-10): the behavioural tests import
+    ``_migrate_zone_names_to_entries`` from the URA package. Without this they
+    imported whatever package object an earlier-collected file left in
+    sys.modules (a stub shell from test_ac_ramp_pipeline_hardening,
+    test_anomaly_baseline_periodic_save, ...), so the result depended on file
+    order. Import the REAL package for this file and restore sys.modules after
+    (same helper as test_room_dwell_model)."""
+    from occ_dwell_helpers import real_package
+
+    with real_package():
+        yield
+
+
 _INIT_PY = (
     Path(__file__).parent.parent.parent
     / "custom_components" / "universal_room_automation" / "__init__.py"

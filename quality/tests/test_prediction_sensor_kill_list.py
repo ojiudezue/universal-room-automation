@@ -192,10 +192,17 @@ def test_next_occupancy_time_native_value_is_tz_aware(_ha_stubs):
 
 def test_next_occupancy_time_device_class_is_timestamp(_ha_stubs):
     """Frontend countdown rendering relies on device_class=timestamp."""
-    from homeassistant.components.sensor import SensorDeviceClass
+    from custom_components.universal_room_automation import sensor as _sensor_mod
     from custom_components.universal_room_automation.sensor import (
         NextOccupancyTimeSensor,
     )
+
+    # TEST-SUITE-PARALLEL-1 (2026-11-10): compare against the enum the sensor
+    # module itself was built with. Re-importing it from
+    # homeassistant.components.sensor read whatever stub an earlier-collected
+    # file left there (a MagicMock), while sensor.py held the real enum --
+    # order-dependent RED.
+    SensorDeviceClass = _sensor_mod.SensorDeviceClass
 
     # D4c (2026-10-17): read through an INSTANCE. Under real HA the entity
     # metaclass (CachedProperties) turns class-level ``_attr_device_class``

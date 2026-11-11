@@ -87,30 +87,39 @@ def _evict_ura_stubs():
     tests in the broader suite install fake `custom_components.*`
     modules in sys.modules.
     """
-    for modname in list(sys.modules):
-        if (
-            modname == "custom_components.universal_room_automation"
-            or modname.startswith(
-                "custom_components.universal_room_automation."
+    # TEST-SUITE-PARALLEL-1 (2026-11-10): the eviction below used to be
+    # permanent. Every later file then resolved URA modules to the copies
+    # re-imported here, not the ones it had bound (victims: hvac_excursion_*,
+    # cflow_timing_instrumentation, memory_mvp, ble_absence_grace, ... -- order
+    # dependent, so serial and -n 6 disagreed). import_scope puts sys.modules
+    # and the parent-package attributes back after each test.
+    from _d7_isolation import import_scope
+
+    with import_scope(prefixes=("custom_components",), attrs=True):
+        for modname in list(sys.modules):
+            if (
+                modname == "custom_components.universal_room_automation"
+                or modname.startswith(
+                    "custom_components.universal_room_automation."
+                )
+            ):
+                del sys.modules[modname]
+        cc_dir = os.path.abspath(
+            os.path.join(
+                os.path.dirname(__file__), "..", "..", "custom_components",
             )
-        ):
-            del sys.modules[modname]
-    cc_dir = os.path.abspath(
-        os.path.join(
-            os.path.dirname(__file__), "..", "..", "custom_components",
         )
-    )
-    cc = sys.modules.get("custom_components")
-    if cc is None:
-        cc = types.ModuleType("custom_components")
-        cc.__path__ = [cc_dir]
-        sys.modules["custom_components"] = cc
-    else:
-        existing_path = list(getattr(cc, "__path__", []) or [])
-        if cc_dir not in existing_path:
-            existing_path.append(cc_dir)
-            cc.__path__ = existing_path
-    yield
+        cc = sys.modules.get("custom_components")
+        if cc is None:
+            cc = types.ModuleType("custom_components")
+            cc.__path__ = [cc_dir]
+            sys.modules["custom_components"] = cc
+        else:
+            existing_path = list(getattr(cc, "__path__", []) or [])
+            if cc_dir not in existing_path:
+                existing_path.append(cc_dir)
+                cc.__path__ = existing_path
+        yield
 
 
 def _ensure_no_op_async_added(klass_path: str, klass_name: str) -> None:

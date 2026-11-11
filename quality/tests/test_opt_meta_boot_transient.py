@@ -26,6 +26,26 @@ import pytest
 from test_optimization_coordinator import _make_hass  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _no_real_ha_timers(monkeypatch):
+    """TEST-SUITE-PARALLEL-1: MockHassForOpt has no ``loop``/``config``, so
+    these tests only passed when ``homeassistant.helpers.event`` happened to
+    be a stub at import time of optimization.py (whichever file was collected
+    or run before). Pin the two HA trackers async_setup calls to inert fakes
+    on the module the tests actually import, so the outcome no longer depends
+    on file order (serial vs -n 6 --dist loadfile)."""
+    from unittest.mock import MagicMock
+
+    from custom_components.universal_room_automation.domain_coordinators import (
+        optimization as _opt,
+    )
+
+    monkeypatch.setattr(_opt, "async_track_time_interval",
+                        lambda *a, **k: MagicMock(), raising=False)
+    monkeypatch.setattr(_opt, "async_track_state_change_event",
+                        lambda *a, **k: MagicMock(), raising=False)
+
+
 def _fake_db_row(target_id="kitchen", dim="comfort", sev="medium",
                  ts="2026-08-15T10:00:00+00:00", created_by="tier1_rule"):
     return {

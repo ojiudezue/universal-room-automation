@@ -41,6 +41,15 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+import _sysmodules_scope
+
+# TEST-SUITE-PARALLEL-1 (2026-11-10): the HA + custom_components stubs and the
+# module loads below are this file's only. Sealed after the imports and
+# re-installed by a module fixture while this file's tests run. Unscoped, they
+# leaked from collection into every later file (victims:
+# test_unload_symmetry_task_hygiene, test_zone_migration_mint_guard).
+_SCOPE = _sysmodules_scope.ModuleScope(prefixes=("custom_components", "homeassistant"))
+
 
 def _mock_module(name, **attrs):
     m = types.ModuleType(name)
@@ -146,6 +155,9 @@ hvac_const = sys.modules[
 
 OverrideArrester = hvac_override.OverrideArrester
 ZoneState = hvac_zones.ZoneState
+
+_SCOPE.seal()
+_scoped_sys_modules = _SCOPE.fixture()
 
 
 def _mk_zone(zone_id="zone_a", **kwargs):

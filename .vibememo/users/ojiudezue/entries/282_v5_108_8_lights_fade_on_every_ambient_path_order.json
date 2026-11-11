@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "282",
+  "author": "ojiudezue",
+  "session_id": "claude_20261111_130055_ship_v5_108_8",
+  "timestamp": "2026-11-11T13:00:55Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.108.8 shipped: Lights fade on every ambient path; order-proof test suite",
+  "summary": "Lights fade on every ambient path; order-proof test suite",
+  "why": "Operator asked for a 1-2s fade on all light actuation because it reads as higher quality. The room fade knobs already existed and entry/exit used them, but five paths (Room lights switch, away sweep, shared-space off, reconciler dispatch) sent bare on/off, so lights snapped. Reusing the existing knobs keeps one setting per room; alerts stay instant because a fade blunts a warning, and relays cannot fade at all.",
+  "implications": "Shipped LIGHT-TRANSITION-COVERAGE-1, SNAP1-FRIGATE-TRAVERSAL-1 at v5.108.8; card(s) sit shipped_organic pending validation. Acceptance in README_v5.108.8.md (Live criteria).",
+  "revisit_trigger": "If a room sets fade above 5s (LIGHT-FADE-OVER-5S-MANUAL-MISREAD-1) or a device mishandles transition.",
+  "refs": {
+    "cards": [
+      "LIGHT-TRANSITION-COVERAGE-1",
+      "SNAP1-FRIGATE-TRAVERSAL-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.108.8.md"
+    ],
+    "release_notes": "Room fade now applied on Room lights switch, Away leave-on sweep, shared-space off and reconciler dispatch (light.* only; alerts instant; relays never). Test-order pollution fixes + xdist split hook (tests only). Hermetic SNAP1 traversal test."
+  }
+}

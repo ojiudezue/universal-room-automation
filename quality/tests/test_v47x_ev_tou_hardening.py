@@ -59,6 +59,15 @@ def _fixed_now():
 def _as_local(dt):
     return dt
 
+import _sysmodules_scope  # noqa: E402
+
+# TEST-SUITE-PARALLEL-1 (2026-11-10): the force-set HA stubs (event, util.dt,
+# restore_state) and the package shells below are this file's only. Sealed
+# after the imports, re-installed by a module fixture for this file's tests.
+# Unscoped, the restore_state stub (no RestoredExtraData) leaked from
+# collection into test_zone_power_rollup.
+_SCOPE = _sysmodules_scope.ModuleScope(prefixes=("custom_components", "homeassistant"))
+
 _mods = {
     "homeassistant": {},
     "homeassistant.core": {
@@ -202,6 +211,9 @@ from custom_components.universal_room_automation.domain_coordinators.signals imp
     SIGNAL_ENERGY_COORDINATOR_READY,
     SIGNAL_ENERGY_ENTITIES_UPDATE,
 )
+
+_SCOPE.seal()
+_scoped_sys_modules = _SCOPE.fixture()
 
 
 # ---------------------------------------------------------------------------

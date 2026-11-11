@@ -25,6 +25,20 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
+@pytest.fixture(autouse=True, scope="module")
+def _real_ura_package():
+    """TEST-SUITE-PARALLEL-1 (2026-11-10): the room-name-desync tests import
+    the URA package ``__init__``. Without this they got whatever package
+    object an earlier-collected file left in sys.modules (stub shells from
+    test_ac_ramp_pipeline_hardening, test_anomaly_baseline_periodic_save, ...),
+    so the outcome depended on file order. Import the REAL package for this
+    file and restore sys.modules after (same helper as test_room_dwell_model)."""
+    from occ_dwell_helpers import real_package
+
+    with real_package():
+        yield
+
+
 # ---------------------------------------------------------------------------
 # Test helpers
 # ---------------------------------------------------------------------------

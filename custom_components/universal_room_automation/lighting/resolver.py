@@ -155,6 +155,25 @@ def effective_entry_set(
     return _dedup_preserving_order(base)
 
 
+def light_transition(cfg: dict, *, on: bool) -> Any:
+    """Room fade time for an AMBIENT ``light.*`` write (LIGHT-TRANSITION-COVERAGE-1).
+
+    Reuses the room knobs CONF_LIGHT_TRANSITION_ON / _OFF (defaults
+    DEFAULT_LIGHT_TRANSITION_ON / _OFF). Only for ``light`` domain calls —
+    ``switch.*`` relays do not accept ``transition``. Alert / security /
+    safety / warning-flash writes stay instant and must NOT use this.
+    """
+    from ..const import (  # noqa: PLC0415
+        CONF_LIGHT_TRANSITION_OFF,
+        CONF_LIGHT_TRANSITION_ON,
+        DEFAULT_LIGHT_TRANSITION_OFF,
+        DEFAULT_LIGHT_TRANSITION_ON,
+    )
+    if on:
+        return cfg.get(CONF_LIGHT_TRANSITION_ON, DEFAULT_LIGHT_TRANSITION_ON)
+    return cfg.get(CONF_LIGHT_TRANSITION_OFF, DEFAULT_LIGHT_TRANSITION_OFF)
+
+
 def night_light_turn_on_params(
     cfg: dict,
     mode: str,

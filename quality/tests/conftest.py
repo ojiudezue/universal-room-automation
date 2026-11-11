@@ -131,7 +131,12 @@ def _ura_sys_modules_snapshot(request):
 # TEST-HARNESS Wave 1 D3/D6: quarantine + source_mutation markers.
 # Sleep-mask Rev 3.2 R3.2.2: ZONE_OCCUPANCY_PER_ENTITY_ENABLED switch fixture
 # (`per_entity_off`) + the `--per-entity-off` switch-off run.
-pytest_plugins = ["conftest_db", "_tree_integrity_guard", "_markers", "_per_entity_switch"]
+# TEST-SUITE-PARALLEL-1: _xdist_split splits the sandboxed drill files into
+# per-test work units under ``-n N --dist loadfile`` (wall-time bound).
+pytest_plugins = [
+    "conftest_db", "_tree_integrity_guard", "_markers", "_per_entity_switch",
+    "_xdist_split",
+]
 
 
 # =============================================================================

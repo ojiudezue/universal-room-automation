@@ -66,15 +66,29 @@ from custom_components.universal_room_automation.domain_coordinators.hvac_fans i
 )
 
 
+def _automation_dt_util():
+    """The dt module RoomAutomation's methods actually read.
+
+    TEST-SUITE-PARALLEL-1 (2026-11-10): this used to be
+    ``import ...automation as _auto; _auto.dt_util``. That form walks
+    parent-package attributes, while ``from ...automation import
+    RoomAutomation`` uses sys.modules; when an earlier file left the two
+    pointing at different module copies, the freeze landed on a dt module the
+    code under test never read (naive-vs-aware TypeError, order-dependent)."""
+    from custom_components.universal_room_automation.automation import (  # noqa: PLC0415
+        RoomAutomation,
+    )
+
+    return RoomAutomation.handle_temperature_based_fan_control.__globals__["dt_util"]
+
+
 @pytest.fixture(autouse=True)
 def _restore_automation_dt_util():
     """The room helper below freezes ``automation.dt_util.now/utcnow`` by
     assignment on the SHARED dt_util module. Restore after each test so the
     naive frozen clock does not leak into later files (it broke
     test_routine_forecaster / test_house_diag_correctness_rf in full runs)."""
-    import custom_components.universal_room_automation.automation as _auto  # noqa: PLC0415
-
-    mod = _auto.dt_util
+    mod = _automation_dt_util()
     saved = {n: mod.__dict__[n] for n in ("now", "utcnow") if n in mod.__dict__}
     try:
         yield
@@ -533,10 +547,10 @@ def _make_room_auto(
     r.coordinator = MagicMock()
 
     # dt_util freeze
-    import custom_components.universal_room_automation.automation as _auto  # noqa: PLC0415
     if now is not None:
-        _auto.dt_util.now = lambda: now
-        _auto.dt_util.utcnow = lambda: now
+        _dt = _automation_dt_util()
+        _dt.now = lambda: now
+        _dt.utcnow = lambda: now
 
     return r, log
 

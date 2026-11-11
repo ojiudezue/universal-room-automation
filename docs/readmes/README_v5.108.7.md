@@ -46,3 +46,13 @@ After restart, both buttons are NOT `unavailable`:
   e.g. `universal_room_automation_nm_mute_person_oji_imessage` (find by unique_id prefix
   `universal_room_automation_nm_mute_`).
 - Guest left (`button.ura_presence_coordinator_guest_left`) still not `unavailable`.
+
+## Validated 2026-11-10 (restart ~18:40 CST, v5.108.7 via HACS, house away)
+| Criterion | Result | Evidence |
+|---|---|---|
+| Test perimeter alert button available after boot | PASS | `button.ura_notification_manager_send_test_perimeter_alert` = `unknown` (never pressed) at 18:41; was `unavailable` after the 17:52 v5.108.6 restart |
+| NM mute-person button available after boot | PASS | `button.ura_notification_manager_mute_person_oji_udezue_pushover` = `unknown` at 18:41; was `unavailable` after 17:52 |
+| Guest left button still available | PASS | `button.ura_presence_coordinator_guest_left` = `unknown` |
+| Load clean | PASS | system_log: 0 URA ERROR entries |
+
+Pre-ship gate: full suite on merged develop 18 failed / 20,483 passed, failure names identical to v5.108.6 (+3 passes). Review: `docs/reviews/code-review/v5.108.7_nm_button_ready.md` (SHIP).

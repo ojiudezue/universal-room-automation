@@ -76,6 +76,23 @@ def _dt_modules():
     alt = getattr(pkg, "dt", None) if pkg is not None else None
     if alt is not None and alt not in mods:
         mods.append(alt)
+    # TEST-SUITE-PARALLEL-1 (2026-11-10): also pin the dt object the
+    # production modules under test actually hold. When an earlier file
+    # swapped ``homeassistant.util.dt`` in sys.modules, these classes kept an
+    # orphaned copy that no sys.modules-based patch reached -> the frozen
+    # clock silently ran on wall time (ec_reserve_false_revert_fixup,
+    # ec_stage_e_fixup: order-dependent, serial vs -n 6 disagreed).
+    held = [cls.__init__.__globals__.get("dt_util") for cls in (
+        EnergyCoordinator, BatteryStrategy, EVChargerController, WriteVerifier,
+    )]
+    for name in ("inclement", "energy_tou", "energy_const"):
+        mod = sys.modules.get(
+            f"custom_components.universal_room_automation.domain_coordinators.{name}"
+        )
+        held.append(getattr(mod, "dt_util", None))
+    for m in held:
+        if m is not None and hasattr(m, "utcnow") and all(m is not x for x in mods):
+            mods.append(m)
     return mods
 
 
