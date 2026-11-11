@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-11T12:02:55-06:00_ - _Data commit: `bc67a321fc04`_ - _last_reconciled: 2026-11-11_
+_Generated: 2026-11-11T12:14:37-06:00_ - _Data commit: `366644a15934`_ - _last_reconciled: 2026-11-11_
 
 
 ## Columns
@@ -10,7 +10,7 @@ _Generated: 2026-11-11T12:02:55-06:00_ - _Data commit: `bc67a321fc04`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 0 |
-| 🔬 Investigating | 2 |
+| 🔬 Investigating | 4 |
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 25 |
 | 🔨 In progress | 2 |
@@ -26,10 +26,28 @@ _raw capture_
 
 _(none)_
 
-## 🔬 Investigating (2)
+## 🔬 Investigating (4)
 _measuring; truth not yet known_
 
-### `HACS-MARKETPLACE-DEPLOY-1` - HACS merging into an HA Marketplace: verify URA's deploy/install path still works — _#1 · WSJF 5.0 · v5 tc3 u2 /e2_
+### `PERSON-OJI-HOME-FLAP-1` - person.oji_udezue flaps home/not_home in the same second while abroad — _#1 · WSJF 7.0 · v3 tc2 u2 /e1_
+thread: **presence** - status: **investigating**
+_created 2026-11-11 15:10_
+- **Why:** HA history shows home->not_home pairs with identical timestamps (e.g. 11-09 06:10:07). Person has 5 trackers incl. gold_macos_client (Mac, mobile_app) and an iPad that stay home. Each blip fires SIGNAL_PERSON_ARRIVING (geofence) -> HVAC ...
+- **Next:** Me: identify which tracker drives the blips (full-attribute history), then config fix (drop stationary devices from the person) vs code debounce.
+- **Forensic keys (2):**
+  - `tier`: 1
+  - `adjacency`: Swept presence/person cards: NEW.
+
+### `EGRESS-BLE-ARRIVAL-LATENCY-1` - BLE arrival fires ~20-120 s after geofence despite scanners at each egress: measure where the delay is — _#2 · WSJF 6.0 · v3 tc1 u2 /e1_
+thread: **presence** - status: **investigating**
+_created 2026-11-11 15:10_
+- **Why:** BLE pre-arrival needs Bermuda to resolve the phone to a room AND the person to have been LOST >= min_away_minutes (person_coordinator.py:1100-1136). For Jaya/Ziri, 'geofence' is itself BLE (person trackers are private_ble_device/bermuda ...
+- **Next:** Me: per arrival, align scanner first-seen at egress vs person->home vs BLE pre-arrival dispatch.
+- **Forensic keys (2):**
+  - `tier`: 1
+  - `adjacency`: Related PREARRIVAL-NEAR-HOME-ZONE-1.
+
+### `HACS-MARKETPLACE-DEPLOY-1` - HACS merging into an HA Marketplace: verify URA's deploy/install path still works — _#3 · WSJF 5.0 · v5 tc3 u2 /e2_
 thread: **platform** - status: **investigating**
 _created 2026-11-11 12:10_
 - **Why:** deploy.sh plus the post-deploy HACS update_information/download step is how every release reaches the house (memory feedback_verify_hacs_install). If HACS changes, releases stop installing.
@@ -39,7 +57,7 @@ _created 2026-11-11 12:10_
   - `findings_2026_11_11`: HACS becomes built-in Marketplace in HA 2026.11 (hacs.xyz/docs/marketplace, frenck.dev 2026-10-26, integrations/marketplace). Auto-migrates on first start; update entity ids carry over; custom repos need hacs.json (URA has it) + GitHub d...
   - `adjacency`: Swept board for HACS/MARKETPLACE: NEW.
 
-### `FAN-RECHECK-FORM-RESTORE-REVERT-1` - Does the Fan recheck switch's restored state undo a form edit after reload? — _#2 · WSJF 5.0 · v2 tc1 u2 /e1_
+### `FAN-RECHECK-FORM-RESTORE-REVERT-1` - Does the Fan recheck switch's restored state undo a form edit after reload? — _#4 · WSJF 5.0 · v2 tc1 u2 /e1_
 thread: **presence** - status: **investigating**
 _created 2026-11-11 14:40_
 - **Why:** switch.py:6040-6046 restores last state on reload; a form save reloads the entry, so the form value may be overwritten.
