@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "281",
+  "author": "ojiudezue",
+  "session_id": "claude_20261111_003900_ship_v5_108_7",
+  "timestamp": "2026-11-11T00:39:00Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.108.7 shipped: v5.108.7: NM mute-person and test perimeter alert buttons refresh when NM is ready",
+  "summary": "v5.108.7: NM mute-person and test perimeter alert buttons refresh when NM is ready",
+  "why": "Arc-cut residual of v5.108.2: same not-polled button readiness bug; live after the 17:52 restart both buttons were unavailable with NM up, confirming it. Reused existing SIGNAL_NM_READY (signals.py:78) already used by two NM buttons instead of a new signal or polling. Review (Tier 1) verified both registration orders are safe and found no other button with the defect; one pre-existing LOW (optimizer run-now button relies on 30s/180s timed refresh) carded as OPTIMIZER-RUN-NOW-BUTTON-READY-1. Full suite 18 vs 18 identical failures, +3 passes; mutation drills red per site.",
+  "implications": "Shipped NM-BUTTON-READY-PATTERN-1 at v5.108.7; card(s) sit shipped_organic pending validation. Acceptance in README_v5.108.7.md (Live criteria).",
+  "revisit_trigger": "after restart button.ura_notification_manager_send_test_perimeter_alert and button.ura_notification_manager_mute_person_oji_udezue_pushover are not unavailable",
+  "refs": {
+    "cards": [
+      "NM-BUTTON-READY-PATTERN-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.108.7.md"
+    ],
+    "release_notes": "Two Notification Manager buttons stayed unavailable after boot because buttons are never polled; they now subscribe to SIGNAL_NM_READY. GuestLeftButton calls super().async_added_to_hass(). See docs/readmes/README_v5.108.7.md"
+  }
+}
