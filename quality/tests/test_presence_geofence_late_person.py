@@ -82,6 +82,16 @@ def mods():
 
         _core.callback = _real_callback
         _core.is_callback = _real_is_callback
+        # Collection-time donors also overwrite classes on the real core
+        # module (test_fan_manual_on_hold_hvac_tier sets ``State`` /
+        # ``Event`` / ``HomeAssistant`` to MagicMock), and the real state
+        # machine then builds Mock states. The phcc plugin imported the real
+        # objects before any test file was collected, so restore from it
+        # (attrs=True restores the polluted values on exit).
+        from pytest_homeassistant_custom_component import common as _phcc
+        for _name in ("State", "Event", "HomeAssistant", "CoreState",
+                      "ServiceCall", "SupportsResponse"):
+            setattr(_core, _name, getattr(_phcc, _name))
         importlib.invalidate_caches()
         presence = importlib.import_module(_PRESENCE)
         signals = importlib.import_module(_SIGNALS)
