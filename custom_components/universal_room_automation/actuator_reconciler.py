@@ -48,6 +48,7 @@ from .fan_veto import should_veto_comfort_fan  # noqa: E402
 from .const import FAN_OWNER_HVAC, fan_owner  # noqa: E402
 from .lighting.resolver import (  # noqa: E402
     night_light_turn_on_params as _nl_params,
+    light_transition as _light_transition,
     resolve_slot as _resolve_slot,
 )
 from .const import (
@@ -697,6 +698,13 @@ class ActuatorReconciler:
                     pass
 
         payload = {"entity_id": [entity_id], **desired.params}
+        # LIGHT-TRANSITION-COVERAGE-1: ambient light.* reconcile writes fade
+        # with the room knob. Added at dispatch (not in params) so the
+        # has_params_to_apply no-op gate is unchanged. switch.* never.
+        if desired.domain == "light" and not self._is_fan(entity_id):
+            payload["transition"] = _light_transition(
+                self._config(), on=desired.service == "turn_on",
+            )
         await self._safe_service_call(desired.domain, desired.service, payload)
 
         # Telemetry — BATCHED path only (D2.8). NO synchronous DB write here.

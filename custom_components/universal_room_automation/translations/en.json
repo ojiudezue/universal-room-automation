@@ -225,8 +225,8 @@
           "exit_light_action": "What to do with lights when the room becomes vacant",
           "illuminance_dark_threshold": "Lux level below which the room is considered 'dark'",
           "light_brightness_pct": "Brightness level when turning lights on (1-100%)",
-          "light_transition_seconds_on": "Fade-in time when turning lights on",
-          "light_transition_seconds_off": "Fade-out time when turning lights off"
+          "light_transition_seconds_on": "Fade-in time when turning lights on. Relay lights (switch.*) cannot fade and switch instantly.",
+          "light_transition_seconds_off": "Fade-out time when turning lights off. Relay lights (switch.*) cannot fade and switch instantly."
         }
       },
       "init_automation_chaining": {
@@ -1907,8 +1907,8 @@
           "exit_light_action": "What to do with lights when the room becomes vacant",
           "illuminance_dark_threshold": "Lux level below which the room is considered 'dark'",
           "light_brightness_pct": "Brightness level when turning lights on (1-100%)",
-          "light_transition_seconds_on": "Fade-in time when turning lights on",
-          "light_transition_seconds_off": "Fade-out time when turning lights off"
+          "light_transition_seconds_on": "Fade-in time when turning lights on. Relay lights (switch.*) cannot fade and switch instantly.",
+          "light_transition_seconds_off": "Fade-out time when turning lights off. Relay lights (switch.*) cannot fade and switch instantly."
         },
         "sections": {
           "reconcile_advanced": {
@@ -2275,8 +2275,8 @@
           "exit_light_action": "What to do with lights when the room becomes vacant",
           "illuminance_dark_threshold": "Lux level below which the room is considered 'dark'",
           "light_brightness_pct": "Brightness level when turning lights on (1-100%)",
-          "light_transition_seconds_on": "Fade-in time when turning lights on",
-          "light_transition_seconds_off": "Fade-out time when turning lights off"
+          "light_transition_seconds_on": "Fade-in time when turning lights on. Relay lights (switch.*) cannot fade and switch instantly.",
+          "light_transition_seconds_off": "Fade-out time when turning lights off. Relay lights (switch.*) cannot fade and switch instantly."
         },
         "sections": {
           "auto_manual_devices": {
