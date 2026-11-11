@@ -243,4 +243,30 @@ Sites a `near_home` value can flow through, re-run by the plan reviewer:
 - **Non-passive approach zone for the lock (`CONF_SECURITY_LOCKOUT_APPROACH_ZONE`).** Not touched; its live value `zone.home` is inert. Card at build time if the operator wants it cleared or repurposed.
 
 ## 12. D0 report
-_(to be appended by D0)_
+_(D0 appended below)_
+
+### D0 result 2026-11-11
+Probe: ad-hoc read-only replay (sqlite3 `mode=ro` on `/config/home-assistant_v2.db` via `ssh ha`; script not committed). Retention held: 2026-11-04 10:12 UTC to 2026-11-11 18:33 UTC = 7.3 days. Source: `person.*` rows (state, latitude, longitude, gps_accuracy) joined to `state_attributes`; distance = haversine to `zone.home` centre (radius 150 m read from the recorder). Home coordinates deliberately not recorded here. Crossing rule = plan 2.3 (outside = R+100 m, home resets to inside, first fix seeds). False crossing = inside crossing with no `home` edge within 1200 s. Lead = home edge minus first fix inside R after the last fix beyond R+100 m, 3 h look-back. Arrival = non-home to `home` edge with the prior non-home state lasting >= 60 s (flaps dropped).
+
+Fix cadence while non-home within 3 km (gaps < 1 h): Oji median 162 s (n=8 gaps), Ezinne median 99 s (n=5). Accuracy: Oji median 9.8 m / p90 40 m; Ezinne median 11.3 m / p90 82 m (gaps and accuracy samples are small).
+
+| Person | R | arrivals (n) | with lead | none (lead 0) | median lead (s) | leads (s) | false crossings /wk |
+|---|---|---|---|---|---|---|---|
+| Oji | 400 m | 79 | 2 | 77 | 6 | 0, 11 | 0 |
+| Oji | 800 m | 79 | 6 | 73 | 24 | 0, 0, 11, 36, 64, 71 | 0 |
+| Oji | 1.5 km | 79 | 7 | 72 | 36 | + 92 | 0 |
+| Oji | 3 km | 79 | 8 | 71 | 82 | 0, 0, 64, 71, 92, 253, 262, 336 | 0 |
+| Ezinne | 400 m | 10 | 1 | 9 | 36 | 36 | 0 |
+| Ezinne | 800 m | 10 | 3 | 7 | 49 | 36, 49, 56 | 1.0 |
+| Ezinne | 1.5 km | 10 | 5 | 5 | 57 | 36, 49, 56, 167, 252 | 0 |
+| Ezinne | 3 km | 10 | 8 | 2 | 253 | 56, 167, 220, 252, 253, 282, 337, 353 | 0 |
+
+Caveats: (1) Oji's 79 arrivals are inflated by the known flap (PERSON-OJI-HOME-FLAP-1, iPad false home; 89 raw home edges in 7.3 days); only ~8 of them are preceded by a far GPS fix, so the real GPS-arrival sample is ~8 for Oji and 10 for Ezinne. Unverified which of Oji's 71 "none" are spurious edges. (2) Crossings are few (1-8 per person per radius), so the false-crossing rate is weakly measured. (3) The `sensor.madronehaos_*_distance` cross-check was not run. (4) Replay is a lower bound for a passive zone (2.5 / D0 limits: region monitoring unknown).
+
+Verdict per R (GO needs median lead >= 120 s, >= half of arrivals with lead, <= 2 false/person/wk):
+- **400 m: NO-GO** (median lead 6-36 s; nearly all arrivals have no early fix).
+- **800 m: NO-GO** (median 24-49 s).
+- **1.5 km: NO-GO** (median 36-57 s; Ezinne 5/10 with lead but median under 2 min).
+- **3 km: CONDITIONAL GO** (only R that clears the 2-min bar). Ezinne passes all three (median 253 s, 8/10, 0/wk). Oji fails the median (82 s) and, on the raw denominator, the half-of-arrivals test (8/79); on the ~8 genuine GPS arrivals it is 8/8 with a 82 s median. Pooled genuine arrivals (16): median about 236 s, 0.0-1.0 false/wk. Fix cadence (~100-160 s) means leads of 2-5 min are the ceiling; lead is small relative to the 20 min window, so the benefit is a few minutes of pre-cool, which is the marginal-benefit question for the operator.
+- Recommendation: do not build at R below 3 km. If proceeding, use ~3 km and run the plan's operator drive test first (passive zone, drive in once, compare tracker update time vs crossing), since region monitoring could improve or not change these numbers. Oji's sample is pre-trip and flap-contaminated; re-run after PERSON-OJI-HOME-FLAP-1 and his return (~11-16).
+
