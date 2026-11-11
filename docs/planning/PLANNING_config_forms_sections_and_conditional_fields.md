@@ -1,7 +1,7 @@
 # PLANNING — Config forms: collapsed Advanced sections (A) + fields shown only when relevant (B)
 
 Card: **FORM-CONDITIONAL-FIELDS-1** (joint A+B; A's form half moved here from HA-2027-DEPRECATIONS-URA-1, whose device-registry half stays separate).
-Status: plan **rev 3** (rev 2 after two plan reviews, §12; rev 3 = D0 harness result §0, D1 per-key triage §13, text pass §14). Tier: **2-DB, operator-set** (§9).
+Status: plan **rev 4** (rev 2 after two plan reviews, §12; rev 3 = D0 harness result §0, D1 per-key triage §13, text pass §14; rev 4 = fix-ups from plan review 3, `docs/reviews/code-review/config_forms_AB_plan_review_rev3.md`, §15). Tier: **2-DB, operator-set** (§9).
 **Release split decided by D0 (2026-11-11): A (D2 + D3, sections) builds and ships now on the 2026.2.3 harness; B (D4 + D5, `visible=`) waits for a pytest-homeassistant-custom-component release that pins HA 2026.11.** One design, two releases (§0 fallback, now in force).
 
 Operator goal (verbatim): *"The ultimate goal is simplicity + power when you need it."*
@@ -44,7 +44,7 @@ Test harness: `.venv-ha` runs HA **2026.2.3** (`homeassistant.const.__version__`
 
 ### Installed HA source (2026.2.3)
 - `data_entry_flow.py:645-647` property reads `context`; `:649-689` `add_suggested_values_to_schema` drops top-level `description["advanced"]` markers when the flag is False, recurses into a section **only when the section key is in `suggested_values`** (`:670-681`), and replaces `description` wholesale with `{"suggested_value": …}` (`:688-689`).
-- `:915-934` `section.__call__` validates the nested dict; a `vol.Optional("<section>")` with no default that is absent from input never runs its inner schema, so **no inner defaults are applied** (URA's own comment `config_flow.py:5559-5561`).
+- `:915-934` `section.__call__` validates the nested dict; a `vol.Optional("<section>")` with no default that is absent from input never runs its inner schema, so **no inner defaults are applied** (URA's own comment `config_flow.py:5610-5614`, the `fan_recheck_advanced` flatten; rev 4 re-cite, L7).
 - `helpers/config_validation.py:1189-1201` serializer: `expandable`, `expanded = not collapsed`, nesting raises.
 
 ### show_advanced_options readers — re-enumerated (`config_flow.py`, develop)
@@ -127,7 +127,13 @@ Config-first: no setting fixes this; the profile toggle is what HA removed.
 3. Create: `flat` → `{**_absent_field_defaults(schema, flat), **flat}`.
 4. ZM: `flat` → build payload from `flat` → existing update + mirror. Hand-built `user_input.get(K, current)` reads become `flat.get(K, current)`.
 
-**`_absent_field_defaults(schema, flat)` (R1-M3, R2-H1).** Returns marker defaults for exactly two cases: (a) every inner field of a section whose key was absent or not a dict in the raw `user_input` (never expanded), recursing via the `_collect_schema_defaults` walk; (b) every field whose `visible` condition evaluates False against `flat`. It does **not** fill a visible field the user cleared (v5.37.1 clear-field hazard, comment :2440-2445). Evaluating `visible` needs a small evaluator for the six operators; D0 checks whether 2026.11 exposes HA's own evaluator to reuse instead.
+**`_absent_field_defaults(schema, flat)` (R1-M3, R2-H1).** Returns marker defaults for exactly two cases: (a) every inner field of a section whose key was absent or not a dict in the raw `user_input` (never expanded), recursing via the `_collect_schema_defaults` walk; (b) every field whose `visible` condition evaluates False against `flat`. It does **not** fill a visible field the user cleared (v5.37.1 clear-field hazard, comment :2440-2445). Evaluating `visible` needs a small evaluator for the six operators; D0 checks whether 2026.11 exposes HA's own evaluator to reuse instead. **Release 1 (rev 4, L5): case (a) only.** The `visible` evaluator and case (b) ship with D4 in release 2; the release-1 builder does not write them. Case (a) reads marker `default=` only (`_collect_schema_defaults`, `config_flow.py:3942-3968`), never `suggested_value`; that is why area-guessed create fields stay top-level (§4, H4).
+
+**Clear-on-absent sites (rev 4, H2).** Two restructured Options steps delete a stored value when its key is missing from the submit:
+- Options `sensors`: `raw_caps = user_input.pop("sensor_capabilities_json", "")` (`config_flow.py:12892`), then `merged.pop(CONF_SENSOR_CAPABILITIES)` when the parsed payload is empty (`:13215-13218`). `trust_class` / `failure_mode` can only be set through that JSON.
+- Options `options_lighting_behaviour`: the clearable loop (`:14102-14121`) pops the 7 evening/scene keys (rows 55-61) when absent from the submit.
+
+Rule: a clear-on-absent site may clear a key that lives in a section **only when that section's dict was present in the raw `user_input`** (checked before `_flatten_sections`; same rule the energy step already uses, `:6511` "absent section = untouched"). If the section dict is absent, the stored value is kept. For `sensors`, `caps_payload` starts as `{}` and is filled from `raw_caps` only when it is non-empty (`:12957-13017`), so an absent section must be treated as "the operator submitted the stored JSON unchanged": seed `raw_caps` from the stored `CONF_SENSOR_CAPABILITIES` (the same `json.dumps(..., indent=2, sort_keys=True)` the form prefills at `:13596`) before the per-entity dropdown pass runs, so dropdown edits still apply on top and the JSON-only fields survive. `_flatten_sections` therefore also returns the set of section keys that were present (signature `_flatten_sections(user_input, schema) -> tuple[dict, frozenset[str]]`), so these two sites can read it after the flatten line. Top-level clearables (`CONF_LIGHT_DARK_LUX_SOURCE`) keep today's behaviour.
 
 **`_flatten_sections(user_input, schema)` (R2-M1, R1-L2).** Pops every key whose schema value is a `section`; ignores a section key that is absent or not a dict; merges inner keys up (section wins). Collisions are prevented at build time, not at submit: a unit test walks every step schema and fails on a section key equal to a field key or a duplicate inner/outer key. The existing `advanced` section key in `_build_hvac_dynamic_preset_schema` (:8701) is legitimate. Runtime collisions log at debug; the helper never raises in a submit handler.
 
@@ -154,8 +160,8 @@ D1 records, per row: controller level, dependent level, resolution (rule 1, 2 or
 | Step (flow) | → Advanced section | → Conditional (controller → dependents, resolution) |
 |---|---|---|
 | `room_class` (create) | 1 field | — |
-| `sensors` / `sensors_confirm` (create), `sensors` (Options) | `sensor_capabilities_json`; the `advanced_if_empty` sensors (`CONF_MMWAVE_SENSORS`, `CONF_DOOR_SENSORS`, `CONF_WATER_LEAK_SENSOR`, …) | — |
-| `devices` / `devices_confirm` (create), `devices` (Options) | `CONF_AUTO_SWITCHES` and other `advanced_if_empty` / `_adv` fields without a controller | night lights `exists` → 5 night-light colour/brightness fields: **rule 1**, they move out of Advanced to Everyday with `visible=` |
+| `sensors` / `sensors_confirm` (create), `sensors` (Options) | `sensor_capabilities_json` (Options). **Rev 4 (H4):** the create `advanced_if_empty` sensors (`CONF_MMWAVE_SENSORS`, `CONF_DOOR_SENSORS`, `CONF_WATER_LEAK_SENSOR`) stay **top-level**, marker removed | — |
+| `devices` / `devices_confirm` (create), `devices` (Options) | `_adv` fields without a controller. **Rev 4 (H4):** create `CONF_AUTO_SWITCHES`, `CONF_HUMIDITY_FANS` stay **top-level**, marker removed | night lights `exists` → 5 night-light colour/brightness fields: **rule 1**, they move out of Advanced to Everyday with `visible=` |
 | `climate` (Options) | humidity runtime stays in existing `humidity_fan_advanced` | O4: `CONF_ROOM_FAN_MODE eq room_temperature` → `CONF_FAN_SPEED_LOW/MED/HIGH_TEMP` (both top-level today, :14575-14577): **rule 1**, Everyday + `visible=`, replacing the hand-rolled re-routing |
 | `climate` → `fan_speeds` (create) | — | **Unchanged.** The temps are a separate create step today (:3437-3438, :3588), shown only for room-temperature mode, so the create path already asks only when relevant. Merging the steps would change stored keys on create (today no temp keys are stored when the step is skipped). Not worth it |
 | `options_lighting_behaviour` | 13 tuning fields (hold/cooldown, scenes, dark-only, evening brightness/colour) | — (evening fields stay in section; no same-level controller) |
@@ -175,7 +181,7 @@ D1 records, per row: controller level, dependent level, resolution (rule 1, 2 or
 ### House / integration forms
 | Step | → Advanced section | Conditional |
 |---|---|---|
-| `integration_config` (create + Options) | 1-2 | — |
+| `integration_config` (create only; rev 4 L1: no Options step uses `_integration_config_schema`, callers `:1601`, `:1624`) | 8 (§13 rows 1-8) + two `_show_adv` branches (§13 rows 69-70) | — |
 | `global_sensors` | 3 | — |
 | `energy_sensors` | `CONF_HOUSE_DEVICE_POWER_SENSORS` +1 | — |
 | `person_tracking` | 3 | — |
@@ -186,7 +192,7 @@ D1 records, per row: controller level, dependent level, resolution (rule 1, 2 or
 | Step | Conditional |
 |---|---|
 | `coordinator_hvac_settings` | O14: `CONF_HVAC_SOLAR_GAIN_COVER_ENABLED` → `CONF_HVAC_COVER_CLOSE_TEMP` (+ cover entities), rule 1. Note: the same value is a live Number entity and hot-applied, so the dashboard still shows it when the form hides it — accepted, no change. **Arrester → carrier knobs dropped** (not a dependency since W1-C P2) |
-| `hvac_dynamic_preset` | O15: `CONF_DYNAMIC_PRESET_ENABLED` → relax-ceiling mode and offsets; same level as controller verified in D1 (existing `advanced` section :8701 — if dependents are inside it, rule 2 on that section's marker) |
+| `hvac_dynamic_preset` | O15: `CONF_DYNAMIC_PRESET_ENABLED` → relax-ceiling mode and offsets: **rule 1** (rev 4, L2: master, cool-day relax, hot-day tighten and relax mode are all top-level, `config_flow.py:8730-8748`; the existing `advanced` section `:8754` holds dwell/hysteresis/deltas and is not made conditional) |
 | `coordinator_presence` | O17: `CONF_FAN_RECHECK_ENABLED` (top-level, :5675-5681) → whole `fan_recheck_advanced` section: **rule 2** (`visible` on the section marker) |
 | `coordinator_energy` | **O9-O13 parked** (§10) |
 
@@ -216,28 +222,46 @@ Expand §4 per key: key, file:line, step, flow, producer shape (1-4), target, co
 - **Test:** none. **Live:** none.
 
 ### D2 — Helpers + harness
-`_flatten_sections`, `_absent_field_defaults` (renamed from `_hidden_advanced_defaults`), a `visible` evaluator if D0(f) finds none, and the round-trip harness (R2-H4):
+`_flatten_sections`, `_absent_field_defaults` (renamed from `_hidden_advanced_defaults`; **release 1 = case (a) only**, rev 4 L5), a `visible` evaluator if D0(f) finds none (**release 2, with D4**), and the round-trip harness (R2-H4):
 1. build `user_input` from each marker's `default` or `suggested_value`, walking sections (URA prefills Options with `default=self._get_current(...)`, e.g. :5573, :14159-14175);
 2. **nest** section fields under their section key, as the frontend does;
 3. **omit** fields whose `visible` evaluates False, as HA does;
-4. run on **create and Options** for every restructured step; for INV-1b, set one key to a non-default value and assert propagation (and sibling mirror for zones).
+4. run on **create and Options** for every restructured step; for INV-1b, set one key to a non-default value and assert propagation (and sibling mirror for zones);
+5. **(rev 4, H2/L4) second variant: omit every section dict entirely** (the never-expanded case, §8 Q6), on create and Options. INV-1a must hold in both variants; on Options the stored dict must equal the pre-save dict, including `sensor_capabilities` and the 7 lighting evening/scene keys.
+Section detection (rev 4, L6): `_flatten_sections` and the collision test identify sections by `isinstance(val, data_entry_flow.section)`. The `_ha_section` fallback (`config_flow.py:33-35`) returns the bare inner schema, which that check cannot see. `test_section_key_collisions_none` therefore first asserts `config_flow._ha_section is homeassistant.data_entry_flow.section` (the real class is in use), so a mocked harness fails loudly rather than passing blind.
 Builders must not switch prefill to `add_suggested_values_to_schema(schema, options)`: it leaves section fields unfilled (`data_entry_flow.py:670-681`).
 - **Verify:** flatten ignores absent/non-dict section keys; build-time collision test fails on an injected collision and passes on the real schemas (incl. :8701 `advanced`).
 - **Verify:** `_absent_field_defaults` fills an un-expanded section's defaults and does **not** fill a cleared visible field.
-- **Test:** `test_flatten_sections_*`, `test_section_key_collisions_none`, `test_absent_field_defaults_unexpanded_section`, `test_absent_field_defaults_cleared_visible_field_not_filled`.
+- **Verify (rev 4, H2):** saving Options `sensors` and `options_lighting_behaviour` with the section dict omitted keeps `sensor_capabilities` (including a `trust_class` entry) and all 7 evening/scene keys; saving with the section present and a field cleared still clears it (the discriminator: a guard that never clears passes the first and fails the second).
+- **Test:** `test_flatten_sections_*`, `test_section_key_collisions_none`, `test_absent_field_defaults_unexpanded_section`, `test_absent_field_defaults_cleared_visible_field_not_filled` (release 2 only, with case b), `test_options_sensors_omitted_section_keeps_capabilities`, `test_options_lighting_omitted_section_keeps_clearables`, `test_options_lighting_section_present_cleared_key_clears`.
 - **Live:** none.
 
 ### D3 — A: sections replace Advanced mode
-Per §4: Advanced fields into each step's `advanced` section; ordering per §3; delete `_adv`, `advanced_if_empty`, `_caps_default` marker, `_filter_advanced(_schema)`, the two filter-only `add_suggested_values_to_schema(…,{})` calls, `_show_adv`, hint helpers, :4646, hint placeholders in `strings.json` + `translations/en.json`; section label strings added per new section. Update all 11 test files (§1).
+Per §4: Advanced fields into each step's `advanced` section; ordering per §3; delete `_adv`, `advanced_if_empty`, `_caps_default` marker, `_filter_advanced(_schema)`, the two filter-only `add_suggested_values_to_schema(…,{})` calls, `_show_adv`, hint helpers, :4646, hint placeholders in `strings.json` + `translations/en.json`. Update all 11 test files (§1).
+
+**Section strings: move, don't copy (rev 4, M1).** HA reads a section field's label from `step.<id>.sections.<section>.data` / `.data_description`, not from `step.<id>.data` (existing proof: `options.step.coordinator_presence.sections.fan_recheck_advanced.data` holds all fan labels; none is in the step's `data`). For every field moved into a section, the builder **moves** its `data` and `data_description` entries into `sections.advanced.data` / `.data_description` (plus a `name` for the section), in both `strings.json` and `translations/en.json`. A copy left behind in the step's `data` is a dead string; a missing move renders the raw key. Steps that get a new `sections.advanced` block:
+- config: `integration_config`. (`sensors_confirm` and `devices_confirm` no longer get one after H4; their five fields stay top-level.)
+- options: `global_sensors`, `energy_sensors`, `person_tracking`, `camera_census`, `perimeter_alerting`, `zone_rooms`, `zone_media`, `zone_hvac`, `zone_energy`, `zone_dynamic_preset`, `sensors`, `devices`, `options_lighting_behaviour`, `options_covers`, `climate`.
+- `options_lighting_behaviour` and `climate` already have two sections each; `hvac_dynamic_preset` already has an `advanced` section label (`strings.json:1360`). The new `advanced` key must not collide with an existing section name in the same step (the strings check mirrors the schema collision test).
+- Release 2 moves the B rows back out of `sections.advanced` into the step's `data` (same move rule).
+- The label-coverage test resolves a section field against `sections.<name>.data` (audit §4).
+
+**`integration_config` non-marker branches (rev 4, H3; §13 rows 69-70).** With `_show_adv` deleted:
+- Row 69, energy screen: **always shown** (`async_step_energy_setup()` with no `user_input`), as live today (the property returns True). The `if not show_adv: return await self.async_step_energy_setup(user_input={})` skip (`config_flow.py:1620-1622`) is deleted.
+- Row 70, notify fallback: **unconditional when the service is blank.** If `CONF_NOTIFY_SERVICE` is empty after flatten and `CONF_NOTIFY_TARGET` is a `notify.*` entity, set the service from it (`:1608-1617` logic, minus `not show_adv`). Reason: the service field moves into the collapsed section, and the legacy alert sender only fires on `CONF_NOTIFY_SERVICE` (comment `:1605-1610`); nothing else fills it. An explicitly entered service is never overwritten. This is a create-only behaviour change versus live (live never runs the fallback); it matches what the harness tests exercise today.
+
+**Create confirm steps (rev 4, H4).** In `sensors_confirm` and `devices_confirm`, `presence_sensors`, `door_sensor`, `water_leak_sensor`, `auto_switches`, `humidity_fans` stay top-level. D3 removes only their `advanced_if_empty` parameter (always shown, empty when there is no guess). Reason: single-entity guesses travel as `suggested_value`, never `default=` (`:2440-2447`), and `_absent_field_defaults` case (a) reads `default=` only, so a never-expanded section would drop the door and water-leak guesses (the water-leak pre-fill is the safety path, `:2494-2497`); the presence radar list is the still-person holder (SENSOR_FLEET_CLASSES Rule 1) and belongs on the first screen. §6's "a collapsed section shows saved values" does not apply on create, where nothing is saved yet.
 - **Verify:** INV-1a and INV-1b on every restructured step; INV-3 (i) and (ii).
 - **Verify (discriminating):** a missing flatten shows as a section-named key (INV-1a) or the old value after an edit (INV-1b); a missing create backfill shows as absent inner defaults on a never-expanded section; a zone step missing flatten shows as sibling not updated.
 - **Verify (INV-P):** a move-only save of each restructured Options step triggers zero reloads; editing one moved key that is on its entry's suppress set triggers zero reloads; editing one that is not triggers exactly one (the discriminator: zero would mean the save never reached the listener).
-- **Test:** `test_forms_round_trip_<family>_<step>_{create,options}`, `test_forms_edit_propagates_<family>_<step>` (parametrized over moved keys), `test_zone_moved_mirror_key_reaches_sibling`, `test_create_unexpanded_section_stores_defaults`, `test_no_advanced_markers_schema_walk`, `test_full_fields_render_without_advanced_mode`, lint `test_no_show_advanced_options_source`, `test_move_only_save_zero_reloads_<family>` and `test_live_apply_key_stays_live_after_move` (both count `hass.config_entries.async_reload` calls through the real `_async_update_listener`), `test_step_render_no_extra_registry_scans` (counts `_get_area_entities` / `ent_reg.entities` reads per render, before vs after).
+- **Test:** `test_forms_round_trip_<family>_<step>_{create,options}`, `test_forms_edit_propagates_<family>_<step>` (parametrized over moved keys), `test_zone_moved_mirror_key_reaches_sibling`, `test_create_unexpanded_section_stores_defaults`, `test_no_advanced_markers_schema_walk`, `test_full_fields_render_without_advanced_mode`, lint `test_no_show_advanced_options_source`, `test_move_only_save_zero_reloads_<family>` and `test_live_apply_key_stays_live_after_move` (both count `hass.config_entries.async_reload` calls through the real `_async_update_listener`), `test_step_render_no_extra_registry_scans` (counts `_get_area_entities` / `ent_reg.entities` reads per render, before vs after). Rev 4: `test_integration_config_energy_step_always_shown`, `test_integration_config_notify_fallback_blank_service`, `test_integration_config_notify_explicit_service_kept`, `test_create_confirm_guesses_top_level_kept` (door + water-leak `suggested_value` guesses stored on an unedited create submit), `test_section_strings_moved_not_copied` (every section field labelled under `sections.advanced.data` and absent from the step's `data`, both files).
+- **Verify (rev 4, discriminating):** a build that keeps the energy skip fails `..._energy_step_always_shown` (the flow lands on the next step, not `energy_setup`); a build that drops the fallback stores a blank service; a build that moves the five guess fields into a section stores no `door_sensor` on the omitted-section create variant.
 - **Live (INV-P):** with `CFLOW-TIMING` logs, open each restructured step once; EXIT `elapsed_ms` within noise of the audit §1 numbers and below 250. Save a lighting-behaviour step unchanged: no "scheduling reload" log line for that entry and its room entities do not blink.
 - **Live:** open one room's lighting behaviour, one zone's HVAC, house camera census: section collapsed; Save with no edits; the entry's options in `.storage/core.config_entries` equal a pre-save copy and contain no `advanced` key. Edit one zone knob that is mirrored; the sibling zone shows the same value.
 
 ### D4 — B: `visible=` (only if D0 green)
 Per §4 conditional column (O2 narrowed, O3, O4 Options-only, O14 cover temp, O15, O16 after D1 check, O17 rule 2).
+**O4 controller default (rev 4, L3).** `room_fan_mode()` maps a missing key through the legacy toggles and an unknown value to `off` (`const.py:1443-1450`), and `visible` sees the form value. The Options `climate` default for `CONF_ROOM_FAN_MODE` must be `room_fan_mode(merged)`, not the raw stored key, or an unmigrated room hides the temperatures it is using. **Test:** `test_visible_fan_mode_unmigrated_room_shows_temps`.
 - **Verify:** controller off hides dependents; save with it off keeps the old values (merge/ZM) or carries them forward (replace); create stores defaults (same keys as today, since today these fields are shown and their defaults submitted).
 - **Verify (discriminating):** a replace step with a blanket merge fails the clear-a-field test; a replace step with no carry-forward fails `hidden_keeps_saved`.
 - **Verify (INV-P):** saving with a controller off (dependents hidden, values kept) and nothing else changed triggers zero reloads; toggling a controller triggers whatever that key does today (reload or live-apply per D1), never more.
@@ -269,7 +293,7 @@ No behavioural numbers added or changed. Moved fields keep their names and rungs
 3. Q3: `visible` survives `add_suggested_values_to_schema` (2026.2.3 replaces `description` wholesale, :688-689) — D0(a).
 4. Q4: mixed marker classes, `default=` retention — D0(b),(c).
 5. Q5: selectors as controllers — D0(e).
-6. Q6: does the 2026.11 frontend always send a section dict? Plan is built to not care (§3 backfill case a).
+6. Q6: does the 2026.11 frontend always send a section dict? Plan is built to not care: create via §3 backfill case (a) plus the five guessed fields kept top-level (H4); Options via merge plus the clear-on-absent rule (§3, H2). Rev 4 correction: rev 3 said "not care" while two Options sites did care. The D2 harness tests both variants (sent / omitted).
 7. Q7: Wigton HA version — operator.
 8. The 2026.11 release blog was read to 100k of 186k characters.
 
@@ -280,7 +304,7 @@ No behavioural numbers added or changed. Moved fields keep their names and rungs
 - **C — test authority by mutation** (drills below).
 Plan reviews done (2, §12). Live validation written back to the README.
 
-Review C drills (each must turn a named test RED): remove `_flatten_sections` from one Options step and from one create step; stop `_absent_field_defaults` recursing into sections; replace `{**options, **flat}` with `flat` in a step with a `visible` pair; drop one reader's controller gate; flip one `visible` operator `eq`→`not_eq` (GREEN means the harness ignores `visible`); add `{**options}` to a replace step; remove flatten from one zone step (mirror test).
+Review C drills (each must turn a named test RED): remove `_flatten_sections` from one Options step and from one create step; stop `_absent_field_defaults` recursing into sections; replace `{**options, **flat}` with `flat` in a step with a `visible` pair; drop one reader's controller gate; flip one `visible` operator `eq`→`not_eq` (GREEN means the harness ignores `visible`); add `{**options}` to a replace step; remove flatten from one zone step (mirror test). Rev 4 (H2/H3): drop the section-present guard at the lighting clearable loop, then at the sensors caps seed (each must turn `test_options_*_omitted_section_*` RED); restore `not show_adv`-style gating on the notify fallback (fallback test RED); restore the energy-step skip (energy-step test RED).
 
 ## 10. Non-goals
 - Device-registry deprecations (HA-2027-DEPRECATIONS-URA-1).
@@ -349,7 +373,7 @@ Rejected or changed from the reviews' suggestions:
 
 Built from an AST scan of `config_flow.py` on this branch (every `vol.Optional/Required` whose `description` is `_adv(...)`, the `adv` variable, an `{"advanced": True}` literal, or an `advanced_if_empty=True` builder call), CONF names resolved from `const.py` + `domain_coordinators/*_const.py`, then a reader grep over the package (excluding `config_flow.py` and the const modules; multi-line `.get(` calls followed). Save effect is read from the existing allowlists only: `_ROOM_SUPPRESS_KEYS` (`__init__.py:8519`), `OPTIONS_RELOAD_SUPPRESS_KEYS` (`:7526`, including its `*_HVAC_TUNABLE_DISPATCH.keys()`, `*_NM_A2_KEYS`, `*_NM_C_KEYS` members), `INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS` (`:7733`); zone manager = always reload. Producer shapes per §3: 1 merge, 2 replace, 3 create, 4 ZM nested + mirror. No restructured step is shape 2 (every Options save here is `{**options, **…}`). The HVAC state-of-play doc was read in full for the zone_hvac / O14 / O15 rows; nothing here re-asserts a §10 ledger claim.
 
-**Counts.** 67 marker rows + 1 step-skip row (2 fields) + 17 non-marker B dependents. **A-now: 55 fields** (53 marker rows + the 2 `room_class` fields). **B-later: 31 dependent fields** (14 marker rows: 5 night-light, 3 fan-speed, sunset offset, 4 enrichment, zone DPM sleep; + 17 non-marker dependents in table 13.2). Until release 2, B marker rows sit in the step's `advanced` section like A rows. **Dropped from B: 2 pairs** (O16 known guests; O3 Timed-close as controller), **re-specified: 1** (O4 condition). Rows whose readers do not gate on the controller are never made conditional (INV-2).
+**Counts.** 67 marker rows + 1 step-skip row (2 fields) + 17 non-marker B dependents. **A-now: 55 fields** (53 marker rows + the 2 `room_class` fields); **rev 4 (H4): 50 move into a section, 5 create confirm fields (rows 9-13) stay top-level with the marker removed.** Plus rows 69-70 (H3, non-marker `_show_adv` branches). **B-later: 31 dependent fields** (14 marker rows: 5 night-light, 3 fan-speed, sunset offset, 4 enrichment, zone DPM sleep; + 17 non-marker dependents in table 13.2). Until release 2, B marker rows sit in the step's `advanced` section like A rows. **Dropped from B: 2 pairs** (O16 known guests; O3 Timed-close as controller), **re-specified: 1** (O4 condition). Rows whose readers do not gate on the controller are never made conditional (INV-2).
 
 ### 13.1 Advanced markers (all three forms)
 
@@ -363,11 +387,11 @@ Built from an AST scan of `config_flow.py` on this branch (every `vol.Optional/R
 | 6 | `electricity_rate` | `config_flow.py:1717` (adv) | integration_config | create | 3 | `advanced` section of `integration_config` | — | `domain_coordinators/energy_billing.py:48`, `domain_coordinators/energy_billing.py:80`, `domain_coordinators/energy_billing.py:82` (+1) | .get | — | N | create (n/a) | A-now |
 | 7 | `notification_service` | `config_flow.py:1725` (adv) | integration_config | create | 3 | `advanced` section of `integration_config` | — | `aggregation.py:1596`, `__init__.py:5651`, `button.py:462` | .get | — | N | create (n/a) | A-now |
 | 8 | `notification_level` | `config_flow.py:1728` (adv) | integration_config | create | 3 | `advanced` section of `integration_config` | — | `aggregation.py:1598`, `__init__.py:5653` | .get | — | N | create (n/a) | A-now |
-| 9 | `presence_sensors` | `config_flow.py:2478` (advanced_if_empty) | sensors_confirm | create | 3 | `advanced` section of `sensors_confirm` | — | 28 readers (`sensor_capability.py:125`, `chatter_detector.py:80`, `optimization.py` ×6 …), all list reads | .get | — | N | create (n/a) | A-now |
-| 10 | `door_sensor` | `config_flow.py:2493` (advanced_if_empty) | sensors_confirm | create | 3 | `advanced` section of `sensors_confirm` | — | `aggregation.py:1767`, `binary_sensor.py:1410`, `binary_sensor.py:1446` | .get | — | N | create (n/a) | A-now |
-| 11 | `water_leak_sensor` | `config_flow.py:2498` (advanced_if_empty) | sensors_confirm | create | 3 | `advanced` section of `sensors_confirm` | — | `domain_coordinators/safety.py:1347`, `domain_coordinators/safety.py:1422`, `aggregation.py:1563` (+5) | `[]` after `in` check | — | N | create (n/a) | A-now |
-| 12 | `auto_switches` | `config_flow.py:2546` (advanced_if_empty) | devices_confirm | create | 3 | `advanced` section of `devices_confirm` | — | `coordinator.py:1451`, `sensor.py:2267`, `sensor.py:2293` (+6) | .get | — | N | create (n/a) | A-now |
-| 13 | `humidity_fans` | `config_flow.py:2552` (advanced_if_empty) | devices_confirm | create | 3 | `advanced` section of `devices_confirm` | — | `domain_coordinators/appliance_const.py:101`, `domain_coordinators/appliance_const.py:116`, `actuator_reconciler.py:1012` (+10) | .get | — | N | create (n/a) | A-now |
+| 9 | `presence_sensors` | `config_flow.py:2478` (advanced_if_empty) | sensors_confirm | create | 3 | **top-level, marker removed** (rev 4, H4) | — | 28 readers (`sensor_capability.py:125`, `chatter_detector.py:80`, `optimization.py` ×6 …), all list reads | .get | — | N | create (n/a) | A-now (de-marked) |
+| 10 | `door_sensor` | `config_flow.py:2493` (advanced_if_empty) | sensors_confirm | create | 3 | **top-level, marker removed** (rev 4, H4) | — | `aggregation.py:1767`, `binary_sensor.py:1410`, `binary_sensor.py:1446` | .get | — | N | create (n/a) | A-now (de-marked) |
+| 11 | `water_leak_sensor` | `config_flow.py:2498` (advanced_if_empty) | sensors_confirm | create | 3 | **top-level, marker removed** (rev 4, H4) | — | `domain_coordinators/safety.py:1347`, `domain_coordinators/safety.py:1422`, `aggregation.py:1563` (+5) | `[]` after `in` check | — | N | create (n/a) | A-now (de-marked) |
+| 12 | `auto_switches` | `config_flow.py:2546` (advanced_if_empty) | devices_confirm | create | 3 | **top-level, marker removed** (rev 4, H4) | — | `coordinator.py:1451`, `sensor.py:2267`, `sensor.py:2293` (+6) | .get | — | N | create (n/a) | A-now (de-marked) |
+| 13 | `humidity_fans` | `config_flow.py:2552` (advanced_if_empty) | devices_confirm | create | 3 | **top-level, marker removed** (rev 4, H4) | — | `domain_coordinators/appliance_const.py:101`, `domain_coordinators/appliance_const.py:116`, `actuator_reconciler.py:1012` (+10) | .get | — | N | create (n/a) | A-now (de-marked) |
 | 14 | `outdoor_dark_lux` | `config_flow.py:4755` (_adv) | global_sensors | options | 1 | `advanced` section of `global_sensors` | — | `lighting/darkness.py:161` | .get | — | N | reload | A-now |
 | 15 | `electricity_rate` | `config_flow.py:4775` (_adv) | global_sensors | options | 1 | `advanced` section of `global_sensors` | — | `domain_coordinators/energy_billing.py:48`, `domain_coordinators/energy_billing.py:80`, `domain_coordinators/energy_billing.py:82` (+1) | .get | — | N | reload | A-now |
 | 16 | `house_device_power_sensors` | `config_flow.py:4835` (_adv) | energy_sensors | options | 1 | `advanced` section of `energy_sensors` | — | no reader (const.py:377) | .get | — | N | reload | A-now |
@@ -423,6 +447,8 @@ Built from an AST scan of `config_flow.py` on this branch (every `vol.Optional/R
 | 66 | `fan_speed_high_temp` | `config_flow.py:14739` (_adv) | climate | options | 1 (flattens 2 existing sections, :14526-14529) | section now → Everyday + `visible` (B) | `room_fan_mode not_eq off` (1, §4 rev 3) | `automation.py:3206` | .get | Y (`automation.py:2789-2791`) | N | live-apply (_ROOM) | B-later |
 | 67 | `humidity_fan_max_runtime` | `config_flow.py:14758` (_adv) | climate | options | 1 (flattens 2 existing sections, :14526-14529) | `advanced` section of `climate` | — | `automation.py:3528`, `automation.py:3621` | .get | — | N | live-apply (_ROOM) | A-now |
 | 68 | `wet_room`, `room_is_guest_room` | whole-step skip `config_flow.py:2336-2341` | room_class | create | 3 | step always shown (drop the skip; fields Everyday) | — | `room_classification.py:132`; presence `_discover_guest_rooms` `presence.py:5768` | .get | — | N | create (n/a) | A-now |
+| 69 | (non-marker) energy-step skip | `config_flow.py:1620-1622` `_show_adv` branch | integration_config | create | 3 | delete the skip; energy step always shown (as live) | — | `async_step_energy_setup` | — | — | N | create (n/a) | A-now |
+| 70 | (non-marker) `notification_service` fallback from `notification_target` | `config_flow.py:1614-1617` `_show_adv` branch | integration_config | create | 3 | fallback runs whenever the service is blank and the target is `notify.*` | — | `aggregation.py:1596` (legacy alert sender) | .get | — | N | create (n/a) | A-now |
 
 Notes on 13.1:
 - `water_leak_sensor` readers use `options[...]` only after an `in options` check (`aggregation.py:1563-1564`, `:5043-5044`); every other reader is `.get` with a fallback, so an unstored (never-expanded, Options) key reads its default (INV-1a exception holds).
@@ -454,6 +480,7 @@ B-later dependent fields: 14 marker rows (13.1) + B1, B2, B3, B8, B9, B10-B12, B
 ### 13.3 D1 verify
 - Every marker of all three forms has a row: 53 `_adv` + 8 `adv` + 5 `advanced_if_empty` + 1 literal = 67 (13.1), plus the `room_class` skip (row 68). `_caps_default` (§1 form 3) is the literal row 46 (`sensor_capabilities_json`).
 - Every kept O-pair has reader rows (13.2). Dropped pairs carry the reader that breaks INV-2.
+- Rev 4: the two non-marker `_show_adv` branches in `integration_config` are rows 69-70; every other `_show_adv` caller (`:2379`, `:2515`, `:4394`, `:4606`, the `_filter_advanced` sites) is covered by §1 / D3.
 
 ---
 
@@ -463,9 +490,35 @@ Operator, 2026-11-11: *"scan form text and prep usable and simple text and expla
 
 The proposed text, with each description checked against its reader, is `docs/planning/AUDIT_form_text_plain_pass.md`. It ships **in the D3 release**, because D3 already edits the same `strings.json` + `translations/en.json` blocks (section labels, hint removal), and two string edits to one step in two releases would collide.
 
-- **Scope in D3:** the audit's §3.1 (Presence, 18 coordinator rows + 12 room rows), §3.2 C1-C23, §3.3 Z1-Z10; the 22 dead strings removed. Energy step wording (C24) is deferred to the energy consumer audit (§10 non-goal, money path).
-- **Highest-value fixes:** 39 fields that show raw keys today, and 8 helper texts that are wrong about what the code does (Presence geofence trackers, guest persistence, guest confidence, room guest threshold and guest-room flag, camera main entry door, cover close time).
+- **Scope in D3:** the audit's §3.1 (Presence, 18 coordinator rows + 12 room rows), §3.2 C1-C23, §3.3 Z1-Z10; the 24 dead strings removed (rev 4: + `mmwave_sensors`, `door_sensors` on create `sensors_confirm`). Energy step wording (C24) is deferred to the energy consumer audit (§10 non-goal, money path).
+- **Highest-value fixes:** 41 fields that show raw keys today (rev 4: +2 on create `sensors_confirm`, audit M5), and 10 helper texts (rev 4: + C11, P6) that are wrong about what the code does (Presence geofence trackers, guest persistence, guest confidence, room guest threshold and guest-room flag, camera main entry door, cover close time).
 - **Gate:** operator signs off the audit table before the builder edits strings (DPM label-pass rule).
 - **Tests (added to D3):** `test_every_form_field_has_label`, `test_every_form_field_has_description` (allowlist), `test_form_text_denylist`, extended value parity, and the discriminating old-claim pins (audit §4).
 - **Tier:** unchanged (2-DB for the joint cycle); review framing C adds the label-coverage test to its drill list (remove one label → the coverage test must go RED).
 - Findings that need code (dead `geofence_entities`, dead `main_entry_door`, fan-check timing knobs reloading the CM entry, create-flow fan speeds only asked in Room-temperature mode) are cards, not part of this cycle (audit §5).
+
+---
+
+## 15. Plan review 3 fix-ups (rev 4, 2026-11-11)
+
+Review: `docs/reviews/code-review/config_forms_AB_plan_review_rev3.md` (verdict FIX-PLAN). Each finding was re-checked against code before acceptance. All accepted; one accepted with a refinement (H2), one resolved by rewording (M4). No finding dismissed.
+
+| ID | Checked | Resolution |
+|---|---|---|
+| H2 | confirmed: `config_flow.py:12892` pop, `caps_payload` starts `{}` and is filled only from non-empty `raw_caps` (`:12957-13017`), `merged.pop` `:13215-13218`; lighting clearable loop `:14102-14121`; `:6511` precedent | §3 clear-on-absent rule; `_flatten_sections` returns present-section keys. **Refinement:** for `sensors`, "skip the JSON branch" alone still loses JSON-only fields, because the dropdown pass builds `caps_payload` from `{}`; the rule instead seeds `raw_caps` from the stored value when the section is absent. D2 omitted-section variant + 3 tests; Review C drills |
+| H3 | confirmed `:1597-1623` | §13 rows 69-70; D3 behaviour (energy step always, fallback when blank); 3 tests; drills |
+| H4 | confirmed `_opt_single` uses `suggested_value` (`:2440-2458`), `_collect_schema_defaults` reads `default` only (`:3942-3968`) | reviewer's recommendation adopted: the five fields stay top-level, marker removed; `sensors_confirm` / `devices_confirm` get no section; test `test_create_confirm_guesses_top_level_kept` |
+| M1 | confirmed `fan_recheck_advanced` labels live under `sections`; `hvac_dynamic_preset` `advanced` at `strings.json:1360` (review said :1336, drift) | D3 "move, don't copy" with step list (two create steps removed after H4); `test_section_strings_moved_not_copied`; audit §4 |
+| M2 | confirmed `hvac_covers.py:170-189` docstring (room covers first, CM list adds) | audit C11 rewritten |
+| M3 | confirmed `presence.py:1302-1316` (`immediate_engage_empty_house`), `:7585-7598` | audit P6 rewritten |
+| M4 | `switch.py:6040-6046` restores last state over the seeded option; reload effect not run (docs-only cycle) | **reworded**, not tested: P9 / R1 no longer claim "same as"; they point at the switch as the way to change it. Card candidate FAN-RECHECK-FORM-RESTORE-REVERT-1 (verify whether a form edit is undone by RestoreEntity after the CM reload) |
+| M5 | confirmed: `strings.json` `config.step.sensors_confirm.data` has `mmwave_sensors` / `door_sensors`; real keys `presence_sensors` (`const.py:627`), `door_sensor` (`const.py:1111`) | audit counts 39→41 raw, 22→24 dead; rows R6b/R13 added; scan method note (helper-argument keys) |
+| L1 | confirmed: only `:1601`, `:1624` | §4 row |
+| L2 | confirmed `:8730-8754` | §4 row: rule 1 |
+| L3 | confirmed `const.py:1443-1450` | D4 note + test |
+| L4 | — | D2 harness step 5 |
+| L5 | — | §3 + D2: release 1 = case (a) only |
+| L6 | confirmed `:33-35` | D2: assert real `section` class |
+| L7 | confirmed drift | §1 re-cited to `:5610-5614` |
+| L-T1..L-T6, style | each re-read at the cited lines | audit P11, P7, R5, R2, C8/C9, C16, P9/R1 naming; old-claim pins add C11, P6 |
+| Operator (geofence) | `presence.py:5187-5213` `_subscribe_geofence` listens to every `person.*`; `geofence_entities` has no reader | audit P3 + step description rewritten: location comes from HA People settings (each person's device trackers) and `zone.home`; field is a removal candidate (card PRESENCE-GEOFENCE-FIELD-DEAD-1) |
