@@ -42,14 +42,15 @@ def test_closet_advanced_mode_gets_trimmed_menu_and_more_settings():
     assert res["menu_options"] == CLOSET_TRIMMED
     hint = res["description_placeholders"]["menu_hint"]
     assert "a closet usually needs" in hint
-    assert hint.endswith("Advanced settings shown.")
+    # FORM-CONDITIONAL-FIELDS-1: no Advanced-mode sentence any more.
+    assert "Advanced" not in hint
 
 
-def test_closet_simple_mode_hint_still_explains_advanced():
+def test_closet_hint_names_trim_without_advanced_mode():
     hint = run(make_flow("closet", adv=False).async_step_init())[
         "description_placeholders"]["menu_hint"]
-    assert "a closet usually needs" in hint
-    assert "turn on Advanced mode" in hint
+    assert hint == ("Showing the settings a closet usually needs. "
+                    "Pick More settings for the rest.")
 
 
 @pytest.mark.parametrize("adv", [False, True])

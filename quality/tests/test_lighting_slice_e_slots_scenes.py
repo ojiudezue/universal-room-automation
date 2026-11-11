@@ -303,32 +303,18 @@ async def test_maybe_activate_slot_scene_dispatches_scene_turn_on(ra_module):
 # ---------------------------------------------------------------------------
 
 
-def test_lighting_advanced_hint_variants_exist():
+def test_lighting_advanced_hint_retired():
+    """FORM-CONDITIONAL-FIELDS-1: the HA Advanced-mode hint helpers are
+    gone (HA deprecated the profile flag); the step no longer passes one."""
     from custom_components.universal_room_automation import config_flow as cf
 
-    hidden = cf.ADVANCED_HINT_HIDDEN
-    shown = cf.ADVANCED_HINT_SHOWN
-    assert "Advanced mode" in hidden
-    assert "bottom left" in hidden.lower()
-    assert "profile" in hidden.lower()
-    assert "hidden" in hidden.lower()
-    assert "Advanced" in shown
-    assert hidden != shown
+    for name in ("ADVANCED_HINT_HIDDEN", "ADVANCED_HINT_SHOWN", "advanced_hint",
+                 "advanced_hint_for"):
+        assert not hasattr(cf, name), name
 
 
-def test_lighting_advanced_hint_helper_picks_variant():
-    from custom_components.universal_room_automation.config_flow import (
-        ADVANCED_HINT_HIDDEN,
-        ADVANCED_HINT_SHOWN,
-        advanced_hint,
-    )
-
-    assert advanced_hint(False) == ADVANCED_HINT_HIDDEN
-    assert advanced_hint(True) == ADVANCED_HINT_SHOWN
-
-
-def test_lighting_behaviour_description_carries_advanced_hint_placeholder():
-    """strings.json + en.json descriptions must interpolate {advanced_hint}."""
+def test_lighting_behaviour_description_has_no_advanced_hint_placeholder():
+    """strings.json + en.json descriptions no longer interpolate {advanced_hint}."""
     import json
     from pathlib import Path
 
@@ -336,4 +322,5 @@ def test_lighting_behaviour_description_carries_advanced_hint_placeholder():
     for path in (comp / "strings.json", comp / "translations" / "en.json"):
         blob = json.loads(path.read_text())
         step = blob["options"]["step"]["options_lighting_behaviour"]
-        assert "{advanced_hint}" in step["description"], f"missing in {path}"
+        assert "{advanced_hint}" not in step["description"], f"still in {path}"
+        assert "{summary}" in step["description"]

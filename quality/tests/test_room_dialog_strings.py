@@ -85,6 +85,9 @@ ROOM_OPTIONS_STEPS = [
 ]
 
 MAX_HELPER_LEN = 220
+# Operator-signed text longer than the cap (AUDIT_form_text_plain_pass.md
+# rev 2, row R2 — applied verbatim).
+_SIGNED_OFF_LONG = {"fan_recheck_l2_allowed": 230}
 
 
 def _load(p: Path) -> dict:
@@ -159,9 +162,11 @@ def _extract_step_schema_keys() -> dict[str, dict[str, set[str]]]:
     # (the vol.Optional("<key>") right before) + the inner schema body up to
     # the matching close paren of section(...). We split on section calls in
     # the function source and re-scan the inner slice with KEY_PAT.
+    # FORM-CONDITIONAL-FIELDS-1: the collapsed ``advanced`` section is
+    # built as ``vol.Optional(ADVANCED_SECTION): _advanced_section({...})``.
     SECTION_HEAD = re.compile(
-        r"vol\.(?:Optional|Required)\(\s*[\"']([a-z0-9_]+)[\"'][^\)]*\)"
-        r"\s*:\s*(?:section|_ha_section)\("
+        r"vol\.(?:Optional|Required)\(\s*(?:[\"']([a-z0-9_]+)[\"']|(ADVANCED_SECTION))[^\)]*\)"
+        r"\s*:\s*(?:section|_ha_section|_advanced_section)\("
     )
 
     def _slice_balanced(src: str, start_paren: int) -> str:
@@ -190,13 +195,13 @@ def _extract_step_schema_keys() -> dict[str, dict[str, set[str]]]:
         # Mask each section body so top-level scan doesn't pick up nested keys.
         masked = list(src)
         for m in SECTION_HEAD.finditer(src):
-            skey = m.group(1)
+            skey = m.group(1) or "advanced"
             open_paren = m.end() - 1  # position of '(' of section(
             body = _slice_balanced(src, open_paren)
             inner_keys: set[str] = set()
             for km in KEY_PAT.finditer(body):
                 k = _resolve_key(km.group(1), km.group(2))
-                if k and km.group(3) not in ("section", "_ha_section"):
+                if k and km.group(3) not in ("section", "_ha_section", "_advanced_section"):
                     inner_keys.add(k)
             sections[skey] = inner_keys
             # Mask this range in the top-level source.
@@ -207,7 +212,7 @@ def _extract_step_schema_keys() -> dict[str, dict[str, set[str]]]:
         top: set[str] = set()
         for m in KEY_PAT.finditer(top_src):
             k = _resolve_key(m.group(1), m.group(2))
-            if k and m.group(3) not in ("section", "_ha_section"):
+            if k and m.group(3) not in ("section", "_ha_section", "_advanced_section"):
                 top.add(k)
         return top, sections
 
@@ -287,7 +292,7 @@ def test_room_field_has_clean_label_and_helper(section, step_id, section_key, ke
         assert helper, (
             f"{src_name}: {where}.data_description missing helper for '{key}'"
         )
-        assert len(helper) <= MAX_HELPER_LEN, (
+        assert len(helper) <= _SIGNED_OFF_LONG.get(key, MAX_HELPER_LEN), (
             f"{src_name}: {where}.{key} helper is {len(helper)} chars "
             f"(>{MAX_HELPER_LEN}); shorten."
         )

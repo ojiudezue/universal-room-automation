@@ -320,10 +320,10 @@ Review C drills (each must turn a named test RED): remove `_flatten_sections` fr
 |---|---|---|---|
 | D0 harness + gate tests | partial | Q1 answered, route (b) not green; gate tests (a)-(f) wait for a phcc 2026.11 pin | §0 revival trigger |
 | D1 per-key triage | done (rev 3) | §13 | — |
-| D2 helpers + harness | | | |
-| D3 sections (A) | | | |
-| D4 visible (B) | | | |
-| D5 floor + README | | | |
+| D2 helpers + harness | done (release 1, `feature/forms-release-1`) | `_flatten_sections`, `_absent_field_defaults` case (a); harness `quality/tests/_forms_harness.py` (sent + omitted variants). Evaluator + case (b) not built (release 2, rev 4 L5) | — |
+| D3 sections (A) | done (release 1) | 62 marker fields (48 A + 14 B rows) in 16 steps' `advanced` sections; 5 create confirm fields de-marked (H4); rows 68-70; strings moved; text pass applied (C24 deferred) | — |
+| D4 visible (B) | deferred | harness: no phcc pins HA ≥ 2026.11 (§0) | §0 revival trigger |
+| D5 floor + README | deferred (floor); README is the release step | floor ships only with D4 | §0 / D5 |
 | O9-O13 energy | parked | §10 | revival trigger §10 |
 | O5 shared builders | parked | §6 | revisit if create/Options drift found |
 

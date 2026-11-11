@@ -620,11 +620,12 @@ def test_strings_json_carries_door_groups_labels_and_helper_text():
         txt = (repo_root / rel).read_text()
         assert '"door_groups": "Group door cameras"' in txt
         assert '"door_interior_neighbours": "Rooms next to each door"' in txt
-        assert '"main_entry_door": "Main entry door"' in txt
+        # FORM-TEXT-PLAIN-PASS-1 R12: the field has no reader -> honest text.
+        assert '"main_entry_door": "Main entry door (not used)"' in txt
         # Helper text (data_description) presence check
         assert "Map each door camera's name to a group" in txt
         assert "For each door group, list the indoor cameras" in txt
-        assert "Name of the main door group" in txt
+        assert '"main_entry_door": "Not used yet. Leave blank."' in txt
         # Label-style-guide: no "hysteresis", "debounce", etc. in the
         # three helper lines we added.
         for banned in ("hysteresis", "debounce", "provenance", "substrate"):

@@ -301,18 +301,21 @@ def test_d3_toggle_writes_back_to_options():
     assert sw.is_on is True
 
 
-def test_d3_face_toggle_fires_signal_from_switch():
+def test_d3_face_toggle_fires_signal_from_switch(monkeypatch):
     hass, entry = _FakeHass(), _FakeEntry(options={})
     fired = []
-    _DISPATCHER.async_dispatcher_send = lambda h, sig, *a, **kw: fired.append((sig, a))
+    # Scoped: _DISPATCHER can be the REAL HA dispatcher module.
+    monkeypatch.setattr(_DISPATCHER, "async_dispatcher_send",
+                        lambda h, sig, *a, **kw: fired.append((sig, a)))
     _run(_make_face_switch(hass, entry).async_turn_off())
     assert any(sig == "ura_face_recognition_changed" for sig, _ in fired)
 
 
-def test_d3_egress_toggle_does_not_fire_any_signal():
+def test_d3_egress_toggle_does_not_fire_any_signal(monkeypatch):
     hass, entry = _FakeHass(), _FakeEntry(options={})
     fired = []
-    _DISPATCHER.async_dispatcher_send = lambda h, sig, *a, **kw: fired.append(sig)
+    monkeypatch.setattr(_DISPATCHER, "async_dispatcher_send",
+                        lambda h, sig, *a, **kw: fired.append(sig))
     _run(_make_egress_switch(hass, entry).async_turn_off())
     assert fired == [], (
         "egress-identity is fresh-read at all consumers; the switch "
@@ -761,7 +764,7 @@ def test_d2_presence_subscription_block_flips_cached_flag_on_signal():
 # again a moment later; both refresh to the same fresh value).
 # ---------------------------------------------------------------------------
 
-def test_d3_dual_fire_is_idempotent():
+def test_d3_dual_fire_is_idempotent(monkeypatch):
     hass, entry = _FakeHass(), _FakeEntry(options={"face_recognition_enabled": True})
     hass.config_entries.add(entry)
 
@@ -773,9 +776,8 @@ def test_d3_dual_fire_is_idempotent():
                 cached["val"] = cfg.options.get("face_recognition_enabled", True)
 
     fires = []
-    _DISPATCHER.async_dispatcher_send = lambda h, sig, *a, **kw: (
-        fires.append(sig), _refresh()
-    )
+    monkeypatch.setattr(_DISPATCHER, "async_dispatcher_send",
+                        lambda h, sig, *a, **kw: (fires.append(sig), _refresh()))
     _run(_make_face_switch(hass, entry).async_turn_off())
     # Simulate the listener's second fire (belt-and-suspenders):
     _DISPATCHER.async_dispatcher_send(hass, "ura_face_recognition_changed",

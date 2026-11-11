@@ -1162,8 +1162,13 @@ def test_transit_helper_text_matches_constant(mods):
     texts = {}
     for fn in ("strings.json", "translations/en.json"):
         data = json.loads((base / fn).read_text(encoding="utf-8"))
-        helper = data["options"]["step"]["coordinator_hvac_settings"]["data_description"]["hvac_zone_entry_dwell"] \
-            if "coordinator_hvac_settings" in data.get("options", {}).get("step", {}) else None
+        # FORM-CONDITIONAL-FIELDS-1: the field renders in the
+        # ``presence_timing`` section, so its helper lives there.
+        _st = data["options"]["step"].get("coordinator_hvac_settings", {})
+        helper = (
+            (_st.get("sections", {}).get("presence_timing") or {})
+            .get("data_description", {}).get("hvac_zone_entry_dwell")
+        )
         if helper is None:
             # find it anywhere
             helper = next(v for v in _walk_values(data, "hvac_zone_entry_dwell") if "Return window" in v)

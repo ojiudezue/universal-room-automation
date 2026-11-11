@@ -1,17 +1,16 @@
-"""ZONE-DIALOGS-CLEANUP-1 D2 + HOUSE-DIALOGS-CLEANUP-1 D4 (slice B).
+"""ZONE-DIALOGS-CLEANUP-1 D2 + HOUSE-DIALOGS-CLEANUP-1 D4 (slice B), moved
+to collapsed sections by FORM-CONDITIONAL-FIELDS-1 release 1 (D3).
 
-Simple/Advanced markers on the Zone Manager and House options steps,
-reusing the room mechanism (``_adv`` / ``_filter_advanced`` /
-``advanced_hint_for``):
+The rarely-changed Zone Manager and House fields sit in each step's
+collapsed ``advanced`` section (HA deprecated the profile Advanced mode):
 
-- Advanced-only keys are absent in Simple mode and present in Advanced mode.
-- I2: a stored non-default value is rendered in Simple mode anyway, so no
-  stored value is ever unreachable. Dead fields (O1) follow the same rule.
-- I3: a Simple-mode save never drops or overwrites a value that was not on
-  the form (zone saves merge into the zone dict, House saves merge options),
-  and a shared-thermostat sibling zone is not touched for hidden keys.
-- Reload safety: a Simple-mode House save that changes one allowlisted key
-  stays inside ``INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS`` (no reload).
+- The keys live in the section, never at top level, whatever the flag says.
+- I2: a stored value is pre-filled inside the section (one click away).
+- I3: a save whose section was not sent never drops or overwrites a stored
+  value (zone saves merge into the zone dict, House saves merge options),
+  and a shared-thermostat sibling zone is not touched for those keys.
+- Reload safety: a House save that changes one allowlisted key stays inside
+  ``INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS`` (no reload).
 
 Drives the REAL ``UniversalRoomAutomationOptionsFlow`` handlers with a stub
 entry + MagicMock hass (same harness as the room trimmed-menu tests).
@@ -24,6 +23,7 @@ import pytest
 import voluptuous as vol
 
 from _room_menu_helpers import StubEntry, make_hass, render, run, schema_keys
+from _forms_harness import frontend_submit
 from custom_components.universal_room_automation import config_flow as cf
 from custom_components.universal_room_automation.const import (
     CONF_AUTO_ENABLE_PERSON_DETECTION,
@@ -220,15 +220,22 @@ def _house_flow(options: dict, adv: bool = False):
     return flow, entry
 
 
-def _simple_submission(result) -> dict:
-    """What the frontend would submit for a rendered form: every field's
-    default, skipping fields with no default (left empty)."""
-    out = {}
-    for key, val in cf._collect_schema_defaults(result["data_schema"]).items():
-        if val is vol.UNDEFINED:
-            continue
-        out[key] = val() if callable(val) else val
-    return out
+def _simple_submission(result, *, omit_sections: bool = True) -> dict:
+    """What the frontend submits for an untouched form: every field's
+    default, section fields nested under their section key. By default the
+    collapsed section is left out (never expanded)."""
+    return frontend_submit(result["data_schema"], omit_sections=omit_sections)
+
+
+def _top(result) -> set:
+    return schema_keys(result, top_level_only=True)
+
+
+def _adv_keys(result) -> set:
+    for marker, val in result["data_schema"].schema.items():
+        if str(getattr(marker, "schema", marker)) == "advanced":
+            return set(cf._collect_schema_defaults(val.schema))
+    return set()
 
 
 def _submit(flow, step, user_input):
@@ -238,13 +245,12 @@ def _submit(flow, step, user_input):
 # --- D2 zone: classification ----------------------------------------------
 
 @pytest.mark.parametrize("step,key,_val", ZONE_ADVANCED)
-def test_zone_advanced_key_hidden_in_simple_shown_in_advanced(step, key, _val):
-    flow, _ = _zm_flow({ZONE: ZONE_DEFAULTS}, adv=False)
-    off = render(flow, step)
-    assert key not in schema_keys(off), (step, key)
-    flow, _ = _zm_flow({ZONE: ZONE_DEFAULTS}, adv=True)
-    on = render(flow, step)
-    assert key in schema_keys(on), (step, key)
+def test_zone_key_in_collapsed_section(step, key, _val):
+    for adv in (False, True):
+        flow, _ = _zm_flow({ZONE: ZONE_DEFAULTS}, adv=adv)
+        res = render(flow, step)
+        assert key not in _top(res), (step, key)
+        assert key in _adv_keys(res), (step, key)
 
 
 @pytest.mark.parametrize("step,key,val", ZONE_ADVANCED)
@@ -253,23 +259,16 @@ def test_zone_i2_non_default_value_forces_render(step, key, val):
     assert key in schema_keys(render(flow, step)), (step, key, val)
 
 
-def test_zone_absent_key_counts_as_default():
+def test_zone_hvac_first_screen_is_thermostat_only():
     flow, _ = _zm_flow({ZONE: {CONF_ZONE_THERMOSTAT: THERMO}}, adv=False)
-    keys = schema_keys(render(flow, "zone_hvac"))
-    assert keys == {CONF_ZONE_THERMOSTAT}
-
-
-def test_zone_hvac_simple_shows_hint_and_thermostat_only():
-    flow, _ = _zm_flow({ZONE: ZONE_DEFAULTS}, adv=False)
     res = render(flow, "zone_hvac")
-    assert schema_keys(res) == {CONF_ZONE_THERMOSTAT}
-    assert res["description_placeholders"]["advanced_hint"] == cf.ADVANCED_HINT_HIDDEN
-    flow, _ = _zm_flow({ZONE: ZONE_DEFAULTS}, adv=True)
-    res = render(flow, "zone_hvac")
-    # W1-C P2 adds the Advanced "Min heat/cool gap" (thermostat min delta).
-    assert len(schema_keys(res)) == 4
-    assert "hvac_thermostat_min_delta_f" in schema_keys(res)
-    assert res["description_placeholders"]["advanced_hint"] == cf.ADVANCED_HINT_SHOWN
+    assert _top(res) == {CONF_ZONE_THERMOSTAT, "advanced"}
+    assert "advanced_hint" not in (res.get("description_placeholders") or {})
+    # W1-C P2 "Min heat/cool gap" + the two AC overrun fields.
+    assert _adv_keys(res) == {
+        CONF_HVAC_AC_LOAD_SENSOR, CONF_HVAC_AC_RAMP_ZONE_ENABLED,
+        "hvac_thermostat_min_delta_f",
+    }
 
 
 def test_zone_hvac_min_delta_field_range_is_5_to_10_default_5():
@@ -277,7 +276,9 @@ def test_zone_hvac_min_delta_field_range_is_5_to_10_default_5():
     value below the ecobee's own Heat/Cool Min Delta floor (5 °F)."""
     flow, _ = _zm_flow({ZONE: {CONF_ZONE_THERMOSTAT: THERMO}}, adv=True)
     res = render(flow, "zone_hvac")
-    for marker, sel in res["data_schema"].schema.items():
+    sec = next(v for m, v in res["data_schema"].schema.items()
+               if str(getattr(m, "schema", m)) == "advanced")
+    for marker, sel in sec.schema.schema.items():
         if str(marker) == "hvac_thermostat_min_delta_f":
             cfg = sel.config
             assert (cfg["min"], cfg["max"], cfg["step"]) == (5, 10, 1)
@@ -299,9 +300,14 @@ def test_zone_legacy_entry_i2_and_hidden():
     flow.context = {"show_advanced_options": False}
     flow._selected_zone_name = None
     flow._selected_zone_entry_id = None
-    assert CONF_ZONE_PLAYER_MODE not in schema_keys(render(flow, "zone_media"))
+    res = render(flow, "zone_media")
+    assert CONF_ZONE_PLAYER_MODE in _adv_keys(res)
+    assert CONF_ZONE_PLAYER_MODE not in _top(res)
     entry.options = {CONF_ZONE_PLAYER_MODE: ZONE_PLAYER_MODE_INDEPENDENT}
-    assert CONF_ZONE_PLAYER_MODE in schema_keys(render(flow, "zone_media"))
+    sec = next(v for m, v in render(flow, "zone_media")["data_schema"].schema.items()
+               if str(getattr(m, "schema", m)) == "advanced")
+    assert cf._collect_schema_defaults(sec.schema)[CONF_ZONE_PLAYER_MODE] == \
+        ZONE_PLAYER_MODE_INDEPENDENT
 
 
 # --- D2 zone: I3 save guard -------------------------------------------------
@@ -315,7 +321,7 @@ def test_zone_i3_simple_save_keeps_hidden_values(step):
     flow, entry = _zm_flow({ZONE: ZONE_DEFAULTS}, adv=False)
     sub = _simple_submission(render(flow, step))
     hidden = {k for s, k, _ in ZONE_ADVANCED if s == step}
-    assert not (hidden & set(sub)), "fixture: hidden keys must not be submitted"
+    assert not (hidden & set(sub)), "fixture: section keys must not be submitted"
     if step == "zone_rooms":
         sub["zone_name"] = ZONE
     _submit(flow, step, sub)
@@ -388,11 +394,12 @@ def test_zone_mirror_sets_unchanged():
 # --- D4 House: classification ----------------------------------------------
 
 @pytest.mark.parametrize("step,key,_val", HOUSE_ADVANCED)
-def test_house_advanced_key_hidden_in_simple_shown_in_advanced(step, key, _val):
-    flow, _ = _house_flow(HOUSE_DEFAULTS, adv=False)
-    assert key not in schema_keys(render(flow, step)), (step, key)
-    flow, _ = _house_flow(HOUSE_DEFAULTS, adv=True)
-    assert key in schema_keys(render(flow, step)), (step, key)
+def test_house_key_in_collapsed_section(step, key, _val):
+    for adv in (False, True):
+        flow, _ = _house_flow(HOUSE_DEFAULTS, adv=adv)
+        res = render(flow, step)
+        assert key not in _top(res), (step, key)
+        assert key in _adv_keys(res), (step, key)
 
 
 @pytest.mark.parametrize("step,key,val", HOUSE_ADVANCED)
@@ -412,23 +419,19 @@ def test_house_i2_value_in_entry_data_also_forces_render():
     assert CONF_OUTDOOR_DARK_LUX in schema_keys(render(flow, "global_sensors"))
 
 
-def test_camera_census_simple_has_at_most_seven_fields():
+def test_camera_census_first_screen_has_seven_fields():
     flow, _ = _house_flow({}, adv=False)
-    keys = schema_keys(render(flow, "camera_census"))
-    assert len(keys) <= 7, sorted(keys)
-    assert keys == {
+    res = render(flow, "camera_census")
+    assert _top(res) - {"advanced"} == {
         CONF_CAMERA_PERSON_ENTITIES, CONF_EGRESS_CAMERAS, CONF_PERIMETER_CAMERAS,
         CONF_FACE_RECOGNITION_ENABLED, CONF_EGRESS_IDENTITY_ENABLED,
         CONF_KNOWN_FACE_GUESTS, CONF_GUEST_VLAN_SSID,
     }
-    flow, _ = _house_flow({}, adv=True)
-    # 15 pre-cycle + 3 new Advanced door fields (D1 census_inputs_first):
-    # door_groups, door_interior_neighbours, main_entry_door — all
-    # Advanced-only, appended after the existing order.
-    # +1 v5.107.0 PERIMETER-FP D1: perimeter_zone_sensors (Advanced, last).
-    # +1 v5.107.1 FACE-SOURCE-REGISTRY-DISCOVERY-1 D5: face_name_aliases
-    # (Advanced, last).
-    assert len(schema_keys(render(flow, "camera_census"))) == 20
+    # 15 pre-cycle + 3 door fields (D1 census_inputs_first) + perimeter
+    # zone sensors (v5.107.0) + face name aliases (v5.107.1) = 20; 13 of
+    # them in the collapsed section.
+    assert len(schema_keys(res)) == 20
+    assert len(_adv_keys(res)) == 13
 
 
 def test_camera_census_field_order():
@@ -442,12 +445,12 @@ def test_camera_census_field_order():
     ]
 
 
-def test_house_hint_placeholder_present():
+def test_house_steps_pass_no_advanced_hint():
     for step in ("global_sensors", "energy_sensors", "person_tracking",
                  "camera_census", "perimeter_alerting"):
         flow, _ = _house_flow(HOUSE_DEFAULTS, adv=False)
         res = render(flow, step)
-        assert res["description_placeholders"]["advanced_hint"] == cf.ADVANCED_HINT_HIDDEN, step
+        assert "advanced_hint" not in (res.get("description_placeholders") or {}), step
 
 
 # --- D4 House: I3 save guard ------------------------------------------------
@@ -531,8 +534,11 @@ def test_house_simple_save_one_allowlisted_key_does_not_reload(step, key, val):
 
     assert key in ura.INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS
     flow, _ = _house_flow(HOUSE_DEFAULTS, adv=False)
-    sub = _simple_submission(render(flow, step))
-    sub[key] = val
+    sub = _simple_submission(render(flow, step), omit_sections=False)
+    if key in sub.get("advanced", {}):
+        sub["advanced"][key] = val  # the field lives in the section
+    else:
+        sub[key] = val
     post = _submit(flow, step, sub)["data"]
     changed = {k for k in HOUSE_DEFAULTS.keys() | post.keys()
                if HOUSE_DEFAULTS.get(k) != post.get(k)}
@@ -568,14 +574,13 @@ def test_perimeter_save_with_retired_keys_reloads_once():
 
 def test_schema_walkers_treat_vol_all_as_leaf():
     """vol.All keeps a back-reference to its parent schema in ``.schema``;
-    the walkers must not recurse into it (the weather-comfort form has a
-    vol.All offset field next to Advanced-marked fields)."""
+    the walker must not recurse into it (the weather-comfort form has a
+    vol.All offset field)."""
     schema = vol.Schema({
         vol.Optional("offset", default=1.0): vol.All(
             vol.Coerce(float), vol.Range(min=0.0, max=3.0)),
-        vol.Optional("flag", default=True, description={"advanced": True}): bool,
+        vol.Optional("flag", default=True): bool,
     })
-    assert cf._schema_has_advanced(schema) is True
     assert cf._collect_schema_defaults(schema) == {"offset": 1.0, "flag": True}
 
 
@@ -614,6 +619,6 @@ def test_zone_sensors_set_and_cleared_round_trip():
     res = _submit(flow, "camera_census", {_ZS: z})
     assert res["data"][_ZS] == z
     flow2, _ = _house_flow({_ZS: z}, adv=False)
-    assert _ZS in schema_keys(render(flow2, "camera_census"))  # non-default shows in Simple
+    assert _ZS in _adv_keys(render(flow2, "camera_census"))  # in the section
     res2 = _submit(flow2, "camera_census", {_ZS: []})
     assert res2["data"][_ZS] == []  # clearing an existing list is kept

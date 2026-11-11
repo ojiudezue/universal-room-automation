@@ -3605,7 +3605,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 from .const import (
                     CONF_SLEEP_START_HOUR,
                     CONF_SLEEP_END_HOUR,
-                    CONF_GEOFENCE_ENTITIES,
                     CONF_WATER_SHUTOFF_VALVE,
                     CONF_EMERGENCY_LIGHT_ENTITIES,
                     CONF_PRESENCE_ENABLED,
