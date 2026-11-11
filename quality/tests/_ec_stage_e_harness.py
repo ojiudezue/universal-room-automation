@@ -61,6 +61,12 @@ def chi_clock(clock, monkeypatch):
     for m in _dt_modules():
         monkeypatch.setattr(m, "now", lambda: clock.t.astimezone(CHI), raising=False)
         monkeypatch.setattr(m, "as_local", lambda d: d.astimezone(CHI), raising=False)
+        # TEST-SUITE-PARALLEL-1: _dt_modules() now includes the dt copies the
+        # production modules hold; give them the zone too (the lru-cached
+        # getter as well), restored by monkeypatch.
+        if m is not real_dt:
+            monkeypatch.setattr(m, "DEFAULT_TIME_ZONE", CHI, raising=False)
+            monkeypatch.setattr(m, "get_default_time_zone", lambda: CHI, raising=False)
     yield clock
     real_dt.set_default_time_zone(saved)
 
