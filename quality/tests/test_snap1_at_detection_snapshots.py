@@ -819,21 +819,36 @@ def test_snap1_frigate_capture_refuses_traversal_event_id():
         async def _fake_http(url_path):
             return b"POISON"
         mgr._http_get_bytes = _fake_http  # type: ignore[assignment]
+        real_tmp = os.path.realpath(tmp)
+        parent = os.path.dirname(real_tmp)
+        # SNAP1-FRIGATE-TRAVERSAL-1: scope the oracle to entries THIS run
+        # creates. The old version walked the whole system temp dir and
+        # failed forever once any earlier run (e.g. one killed before its
+        # TemporaryDirectory cleanup) left a sibling dir holding a
+        # sanitised '..._etc_passwd.jpg' file.
+        before = set(os.listdir(parent))
         path = _run(mgr._try_capture_frigate_event(
             "front_yard", "camera.front_yard", "frigate", int(time.time()),
         ))
         # Either sanitized to a safe token OR refused; in NO case does
-        # a file appear outside tmp.
-        parent = os.path.dirname(os.path.realpath(tmp))
-        for root, _dirs, files in os.walk(parent):
+        # anything appear outside tmp.
+        new_outside = set(os.listdir(parent)) - before - {os.path.basename(real_tmp)}
+        assert not new_outside, f"traversal wrote outside tmp: {new_outside}"
+        # Today's contract is sanitise-and-write: the frame lands as ONE
+        # flat file directly in the snapshot dir, named from sanitised
+        # tokens. (Pins the sanitiser site: with it bypassed the raw id's
+        # '/' and '..' reach os.path.join and the file is either not
+        # written or lands in a sub-path, and this goes red.)
+        assert path is not None
+        assert os.path.dirname(os.path.realpath(path)) == real_tmp, path
+        base = os.path.basename(path)
+        assert base.startswith("front_yard_") and ".." not in base, base
+        assert "/" not in base[len("front_yard_"):], base
+        for root, _dirs, files in os.walk(real_tmp):
             for f in files:
-                full = os.path.join(root, f)
-                if full.startswith(tmp + os.sep):
-                    continue
-                if "etc" in full and "passwd" in full and tmp not in full:
-                    raise AssertionError(
-                        f"traversal wrote outside tmp: {full}"
-                    )
+                assert os.path.realpath(os.path.join(root, f)).startswith(
+                    real_tmp + os.sep
+                )
 
 
 # --- F3: symlink www guard --------------------------------------------------
