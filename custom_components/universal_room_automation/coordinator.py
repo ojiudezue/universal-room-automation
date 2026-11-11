@@ -5418,12 +5418,11 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 # site below, so the safety cap can fire under master-off /
                 # ManualMode / toggle-#3-off.
 
-                # v3.1.0: Shared space scheduled auto-off check.
-                # SHARED-SPACE-AUTO-OFF-FAILSAFE-1: vacancy-gated night
-                # failsafe — occupancy is this tick's data[STATE_OCCUPIED]
-                # (same source as the temperature fan handler above). The
-                # T-5 warning flash call is removed (D4).
-                await self._run_shared_space_failsafe(data)
+                # SHARED-SPACE-FAILSAFE-PAUSED-ROOMS (option A): the
+                # shared-space night failsafe call is HOISTED OUT of the
+                # master-automation gate to the post-block site below (same
+                # precedent as the humidity safety cap), so it also runs in
+                # rooms whose automation switch is OFF ("paused").
 
                 # v3.6.38: Timed cover open/close (sunrise/sunset/time-based)
                 # v3.20.0: Gated by CoverAutomationSwitch
@@ -5520,6 +5519,29 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             )
         except Exception as e:
             _LOGGER.error("Error in humidity-fan automation: %s", e)
+
+        # SHARED-SPACE-FAILSAFE-PAUSED-ROOMS (option A): the vacancy-gated
+        # shared-space night failsafe runs EXACTLY ONCE per tick whether or
+        # not the room's master automation switch is on — it is a safety
+        # net, not daytime occupancy automation (Kitchen 2026-11: paused
+        # room left the overhead on all night). Gates kept here:
+        #   - skip-first (first refresh after restart): occupancy has not
+        #     been synced to a real tick yet, so never act on it.
+        #   - ManualMode ON: the operator's "hands off this room" switch
+        #     (it folds into _is_automation_enabled, but is distinct from
+        #     the master pause) — kept, conservatively.
+        # Override occupied/vacant already shaped data[STATE_OCCUPIED].
+        # The body (automation.check_scheduled_auto_off) owns shared-space,
+        # hour window, once-per-night and boot-settle gates.
+        if (
+            not _skip_first_this_tick
+            and self._get_room_switch_state("manual_mode") is not True
+        ):
+            try:
+                self.automation._refresh_config()
+                await self._run_shared_space_failsafe(data)
+            except Exception as e:
+                _LOGGER.error("Error in shared-space night failsafe: %s", e)
 
         # === Data Logging (for Phase 3 & 4) ===
         database = self.hass.data[DOMAIN].get("database")
