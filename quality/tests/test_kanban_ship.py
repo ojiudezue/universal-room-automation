@@ -436,3 +436,18 @@ def test_record_arc_cuts_on_flow_card_keeps_valid_yaml() -> None:
     cards = _cards(after)  # parse error here = the old line-insert corruption
     assert cards["FLOW-1"]["arc_cut_v5_108_9"] == 'cut "later"'
     assert "arc_cut_v5_108_9" not in cards["BLOCK-1"]
+
+
+def test_flow_card_followed_by_blank_and_comment_is_edited() -> None:
+    src = _MIXED.replace(
+        '"status": "review", "tier": 1}\n',
+        '"status": "review", "tier": 1}\n\n# a comment\n')
+    after, unknown = kanban_ship.mark_shipped_text(src, ["FLOW-1"], "5.108.9", "2026-11-11")
+    assert unknown == []
+    assert _cards(after)["FLOW-1"]["status"] == "shipped_organic"
+
+
+def test_record_arc_cuts_reports_uneditable_flow_card(capsys) -> None:
+    broken = _MIXED.replace('"title": "flow card"', '"title": "flow card"\n  "dangling": 1')
+    kanban_ship.record_arc_cuts_text(broken, {"FLOW-1": "later"}, "5.108.9")
+    assert "arc cut NOT recorded on FLOW-1" in capsys.readouterr().err

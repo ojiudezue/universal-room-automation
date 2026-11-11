@@ -156,6 +156,9 @@ def record_arc_cuts_text(source: str, cuts: dict[str, str], version: str) -> str
                 edited = _edit_flow_card_line(lines[start], {f"arc_cut_{ver}": cuts[cid]})
                 if edited is not None:
                     lines[start] = edited
+                else:  # review LOW-2: never skip silently
+                    print(f"WARN: arc cut NOT recorded on {cid} (card text the writer "
+                          "cannot edit)", file=sys.stderr)
                 continue
             reason = cuts[cid].replace("\\", "\\\\").replace('"', '\\"')
             lines.insert(start + 1, f'  arc_cut_{ver}: "{reason}"\n')
@@ -346,7 +349,9 @@ def mark_shipped_text(
             continue
         if _is_flow_line(lines[start]):
             edited = None
-            if end - start == 1:
+            # review LOW-1: trailing blank / comment lines do not make a
+            # one-line card multi-line.
+            if all(not l.strip() or l.lstrip().startswith("#") for l in lines[start + 1:end]):
                 edited = _edit_flow_card_line(
                     lines[start], {"status": "shipped_organic", "shipped_version": ver}
                 )

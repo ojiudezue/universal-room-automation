@@ -24,3 +24,16 @@ Tier 1, framing A (local correctness + edge cases). Base: develop fc75a6b3 (veri
 | LOW | kanban_ship.py:249 | Re-emitting a flow line drops any trailing `# comment` on that line and normalises quoting to JSON. No current flow line has a trailing comment. | fidelity |
 
 Recommend fixing LOW 2 in-cycle (2-3 lines); the other two are optional.
+
+## Fix-up (orchestrator, overnight 2026-11-11)
+- LOW-1 fixed: a flow card followed only by blank/comment lines is now edited (test_flow_card_followed_by_blank_and_comment_is_edited).
+- LOW-2 fixed: record_arc_cuts_text warns on stderr when it cannot edit a flow card (test_record_arc_cuts_reports_uneditable_flow_card).
+- LOW-3 (trailing `# comment` on a flow line is dropped on rewrite) deferred: no flow line on the board carries one; documented here.
+- test_kanban_ship.py: 26 passed.
+
+| Severity | Found | Fixed | Deferred |
+|---|---|---|---|
+| CRITICAL/HIGH/MEDIUM | 0 | 0 | 0 |
+| LOW | 3 | 2 | 1 |
+
+Bug class: silent skip on an unrecognised record format (a writer that `continue`s without reporting) — same family as QUALITY_CONTEXT's silent-no-op classes.
