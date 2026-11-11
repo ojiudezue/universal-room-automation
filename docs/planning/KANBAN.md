@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-11T12:14:37-06:00_ - _Data commit: `366644a15934`_ - _last_reconciled: 2026-11-11_
+_Generated: 2026-11-11T12:20:07-06:00_ - _Data commit: `7396361e97d5`_ - _last_reconciled: 2026-11-11_
 
 
 ## Columns
@@ -33,9 +33,12 @@ _measuring; truth not yet known_
 thread: **presence** - status: **investigating**
 _created 2026-11-11 15:10_
 - **Why:** HA history shows home->not_home pairs with identical timestamps (e.g. 11-09 06:10:07). Person has 5 trackers incl. gold_macos_client (Mac, mobile_app) and an iPad that stay home. Each blip fires SIGNAL_PERSON_ARRIVING (geofence) -> HVAC ...
-- **Next:** Me: identify which tracker drives the blips (full-attribute history), then config fix (drop stationary devices from the person) vs code debounce.
-- **Forensic keys (2):**
+- **Next:** Me: one-shot check in ~2 days: count person.oji_udezue home transitions while abroad (expect 0).
+- **Forensic keys (5):**
+  - `status_note`: fix applied
   - `tier`: 1
+  - `root_cause_2026_11_11`: iPhone mobile_app tracker blips unavailable for <1 s on app reconnect (operator suspects VPN reconnects); HA person then falls back to the iPad (okosisipadmini6_2, GPS, home) -> person home, then back. Seen 11-09 06:10:07, 06:36:36.
+  - `fix_2026_11_11`: Operator-approved config change: person.oji_udezue trackers trimmed to iPhone app + Bermuda + private BLE (Mac and iPad removed); person.ziri gained device_tracker.iphone_ziri_bermuda_tracker. Backup of .storage/person in session scratch...
   - `adjacency`: Swept presence/person cards: NEW.
 
 ### `EGRESS-BLE-ARRIVAL-LATENCY-1` - BLE arrival fires ~20-120 s after geofence despite scanners at each egress: measure where the delay is — _#2 · WSJF 6.0 · v3 tc1 u2 /e1_
