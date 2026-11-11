@@ -5263,9 +5263,15 @@ class PresenceCoordinator(BaseCoordinator):
         old_state = event.data.get("old_state")
         if new_state is None:
             return
+        # FORMS-RELEASE-1 B-L1: an event with no old state is an add (a
+        # person created at runtime, possibly delivered to a tracker that
+        # registered during that same dispatch) or a restore — never a
+        # transition, so it must not dispatch an arrival.
+        if old_state is None:
+            return
 
         new_zone = new_state.state
-        old_zone = old_state.state if old_state else None
+        old_zone = old_state.state
 
         # Guard: skip unavailable/unknown
         if new_zone in _UNAVAILABLE_STATES:

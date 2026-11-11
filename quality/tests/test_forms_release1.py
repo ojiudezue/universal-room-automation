@@ -656,3 +656,87 @@ def test_section_strings_moved_not_copied(rel, flow_step):
         assert key not in (st.get("data") or {}), (rel, step, key, "copied")
         assert key not in (st.get("data_description") or {}), (rel, step, key, "copied")
         assert adv.get("data_description", {}).get(key), (rel, step, key, "help")
+
+
+# --- FORMS-RELEASE-1 fix-up: climate step A-L1 + climate_backstop clear rule ---
+# Literal keys (not the imported constants) so a renamed constant cannot move
+# the oracle with it.
+_CAP = "humidity_fan_presence_runtime_cap_s"
+_MAXRT = "humidity_fan_max_runtime"
+_HOLD_D = "hvac_vacancy_hold"
+_HOLD_N = "hvac_vacancy_hold_night"
+
+
+def _climate_submit(stored, *, sections=True):
+    flow, entry = _flow_for("climate", {**_ROOM_SEED, **stored})
+    res = _render(flow, "climate")
+    return flow, h.frontend_submit(res["data_schema"], omit_sections=not sections)
+
+
+def test_climate_cap_checked_against_stored_max_when_section_unsent():
+    """A-L1 repro: stored max runtime 900, Advanced section not sent, cap set
+    to 1800 → the save is rejected (the pair the form rejects when both are
+    on screen)."""
+    flow, sub = _climate_submit({_MAXRT: 900, _CAP: 600}, sections=False)
+    assert "advanced" not in sub and _MAXRT not in sub
+    sub[_CAP] = 1800
+    out = h.run(flow.async_step_climate(sub))
+    assert out["type"] == "form", out
+    assert out["errors"] == {"base": "presence_runtime_cap_above_max"}
+
+
+def test_climate_cap_below_stored_max_section_unsent_saves():
+    flow, sub = _climate_submit({_MAXRT: 900, _CAP: 600}, sections=False)
+    sub[_CAP] = 899
+    out = h.run(flow.async_step_climate(sub))
+    assert out["type"] == "create_entry", out
+    assert out["data"][_CAP] == 899 and out["data"][_MAXRT] == 900
+
+
+def test_climate_cap_checked_against_sent_max():
+    """Section sent: the SUBMITTED max wins over the stored one (both ways)."""
+    flow, sub = _climate_submit({_MAXRT: 900, _CAP: 600})
+    sub["advanced"][_MAXRT] = 3600
+    sub[_CAP] = 1800
+    out = h.run(flow.async_step_climate(sub))
+    assert out["type"] == "create_entry", out
+    assert out["data"][_MAXRT] == 3600 and out["data"][_CAP] == 1800
+
+    flow, sub = _climate_submit({_MAXRT: 3600, _CAP: 600})
+    sub["advanced"][_MAXRT] = 900
+    sub[_CAP] = 1800
+    out = h.run(flow.async_step_climate(sub))
+    assert out["errors"] == {"base": "presence_runtime_cap_above_max"}
+
+
+def test_climate_backstop_omitted_keeps_hvac_holds():
+    """CLIMATE-BACKSTOP-SECTION-CLEAR-ON-ABSENT-1: an unsent climate_backstop
+    section keeps the stored per-room HVAC hold overrides."""
+    flow, sub = _climate_submit({_HOLD_D: 300, _HOLD_N: 1200}, sections=False)
+    assert "climate_backstop" not in sub
+    out = h.run(flow.async_step_climate(sub))
+    assert out["type"] == "create_entry", out
+    assert out["data"][_HOLD_D] == 300
+    assert out["data"][_HOLD_N] == 1200
+
+
+def test_climate_backstop_sent_cleared_hold_clears():
+    """Discriminator: a guard that never clears passes the omitted test and
+    fails this one; the untouched sibling is kept."""
+    flow, sub = _climate_submit({_HOLD_D: 300, _HOLD_N: 1200})
+    assert sub["climate_backstop"][_HOLD_D] == 300
+    del sub["climate_backstop"][_HOLD_D]          # operator blanked it
+    out = h.run(flow.async_step_climate(sub))
+    assert out["type"] == "create_entry", out
+    assert _HOLD_D not in out["data"]
+    assert out["data"][_HOLD_N] == 1200
+
+
+def test_climate_stored_inverted_hold_pair_does_not_block_unrelated_save():
+    """The day/night pair keeps its same-submit rule. A stored inverted pair
+    (legal: one-sided edits; the runtime clamp is the backstop) must not
+    block a save that never sent the climate_backstop section."""
+    flow, sub = _climate_submit({_HOLD_D: 900, _HOLD_N: 600}, sections=False)
+    out = h.run(flow.async_step_climate(sub))
+    assert out["type"] == "create_entry", out
+    assert out["data"][_HOLD_D] == 900 and out["data"][_HOLD_N] == 600

@@ -5,20 +5,80 @@ entities present at setup, so a person added later (Settings → People, or
 a person entity that loads after URA) never produced a geofence signal.
 These tests drive the REAL method on a REAL hass (state machine + event
 bus) and check the arrival path end to end.
+
+Order-proofing (FORMS-RELEASE-1 fix-up): this file used to import
+``presence`` at collection time. Under ``-n 6 --dist loadfile`` a worker
+collects every file first, and legacy donors leave stub ``custom_components``
+/ ``homeassistant`` modules in ``sys.modules`` (AUDIT_test_suite_parallel_2026_11),
+so the import could bind a stub-loaded copy (e.g. a ``helpers.event`` stub
+without ``async_track_state_added_domain``, which the production code treats
+as "unavailable" and silently skips). The module-scoped ``mods`` fixture
+imports the REAL modules fresh inside ``_d7_isolation.import_scope`` after
+dropping URA entries and non-real HA entries, and restores ``sys.modules``
+(entries and attribute writes) when the file's tests end.
 """
 from __future__ import annotations
+
+import importlib
+import sys
+import types
+from pathlib import Path
 
 import pytest
 import pytest_asyncio
 
-from homeassistant.helpers.dispatcher import async_dispatcher_connect
+import homeassistant as _real_ha_pkg
 
-from custom_components.universal_room_automation.domain_coordinators.presence import (
-    PresenceCoordinator,
-)
-from custom_components.universal_room_automation.domain_coordinators.signals import (
-    SIGNAL_PERSON_ARRIVING,
-)
+from _d7_isolation import import_scope
+
+_HA_DIR = Path(_real_ha_pkg.__file__).resolve().parent
+_PRESENCE = "custom_components.universal_room_automation.domain_coordinators.presence"
+_SIGNALS = "custom_components.universal_room_automation.domain_coordinators.signals"
+_FRESH_HELPERS = ("homeassistant.helpers.dispatcher", "homeassistant.helpers.event")
+
+
+def _is_real_ha(mod) -> bool:
+    """A real ``homeassistant`` module: a module object whose file lives in
+    the installed HA package (stubs are bare ModuleType / MagicMock)."""
+    if not isinstance(mod, types.ModuleType):
+        return False
+    f = getattr(mod, "__file__", None)
+    if not f:
+        return False
+    try:
+        return Path(f).resolve().is_relative_to(_HA_DIR)
+    except (OSError, ValueError):
+        return False
+
+
+@pytest.fixture(scope="module")
+def mods():
+    with import_scope(("custom_components", "homeassistant"), attrs=True):
+        for name in [k for k in sys.modules if k == "custom_components"
+                     or k.startswith("custom_components.")]:
+            sys.modules.pop(name, None)
+        for name in [k for k in sys.modules if k.startswith("homeassistant")]:
+            if not _is_real_ha(sys.modules[name]):
+                sys.modules.pop(name, None)
+        # A donor can also overwrite an ATTRIBUTE of the real module
+        # (test_census_device_switches did, on helpers.dispatcher). Fresh
+        # copies of the two helpers presence binds at import: their state
+        # lives in hass.data under string keys, so a copy is equivalent.
+        for name in _FRESH_HELPERS:
+            sys.modules.pop(name, None)
+        importlib.invalidate_caches()
+        presence = importlib.import_module(_PRESENCE)
+        signals = importlib.import_module(_SIGNALS)
+        event = importlib.import_module("homeassistant.helpers.event")
+        dispatcher = importlib.import_module("homeassistant.helpers.dispatcher")
+        assert hasattr(event, "async_track_state_added_domain")
+        yield types.SimpleNamespace(
+            PresenceCoordinator=presence.PresenceCoordinator,
+            SIGNAL_PERSON_ARRIVING=signals.SIGNAL_PERSON_ARRIVING,
+            async_track_state_change_event=event.async_track_state_change_event,
+            async_track_state_added_domain=event.async_track_state_added_domain,
+            async_dispatcher_connect=dispatcher.async_dispatcher_connect,
+        )
 
 
 @pytest_asyncio.fixture
@@ -35,8 +95,8 @@ async def hass():
         await real_hass.async_stop(force=True)
 
 
-def _coord(hass):
-    coord = PresenceCoordinator(hass)
+def _coord(mods, hass):
+    coord = mods.PresenceCoordinator(hass)
     seen: list = []
     coord.handle_geofence_event = lambda pid, zone: seen.append((pid, zone))
     return coord, seen
@@ -44,18 +104,15 @@ def _coord(hass):
 
 async def _teardown(coord):
     for unsub in list(coord._unsub_listeners):
-        try:
-            unsub()
-        except Exception:  # noqa: BLE001
-            pass
+        unsub()
 
 
 @pytest.mark.asyncio
-async def test_person_added_after_setup_is_tracked(hass):
-    coord, seen = _coord(hass)
+async def test_person_added_after_setup_is_tracked(mods, hass):
+    coord, seen = _coord(mods, hass)
     arrivals: list = []
-    unsub_sig = async_dispatcher_connect(
-        hass, SIGNAL_PERSON_ARRIVING, lambda payload: arrivals.append(payload))
+    unsub_sig = mods.async_dispatcher_connect(
+        hass, mods.SIGNAL_PERSON_ARRIVING, lambda payload: arrivals.append(payload))
     try:
         coord._subscribe_geofence()          # no person.* exists yet
         await hass.async_block_till_done()
@@ -63,6 +120,7 @@ async def test_person_added_after_setup_is_tracked(hass):
         hass.states.async_set("person.late", "not_home")   # added later
         await hass.async_block_till_done()
         assert seen == []                    # the add itself is no transition
+        assert coord._geofence_tracked == {"person.late"}
         hass.states.async_set("person.late", "home")
         await hass.async_block_till_done()
         assert seen == [("person.late", "home")]
@@ -76,12 +134,54 @@ async def test_person_added_after_setup_is_tracked(hass):
 
 
 @pytest.mark.asyncio
-async def test_person_present_at_setup_still_tracked_once(hass):
+async def test_person_added_home_with_prior_tracker_is_not_an_arrival(mods, hass):
+    """B-L1: reproduce the live bus order. HA's ``zone`` registers an
+    added-domain tracker during early bootstrap, so the keyed ADDED-DOMAIN
+    bus listener sits BEFORE the keyed STATE-CHANGE one. On the add event the
+    added-domain listener runs first and registers the per-person callback;
+    the state-change listener's filter (evaluated at bus time,
+    ``helpers/event.py`` ``_async_state_filter``) then sees it and schedules
+    the add event itself (``old_state=None``) to the new callback. A person
+    created already ``home`` must not be read as an arrival."""
+    unsub_zone_like = mods.async_track_state_added_domain(
+        hass, "zone", lambda ev: None)          # 1st bus listener: added-domain
+    unsub_other = mods.async_track_state_change_event(
+        hass, ["sensor.unrelated"], lambda ev: None)   # 2nd: state-change
+    coord, seen = _coord(mods, hass)
+    arrivals: list = []
+    unsub_sig = mods.async_dispatcher_connect(
+        hass, mods.SIGNAL_PERSON_ARRIVING, lambda payload: arrivals.append(payload))
+    try:
+        coord._subscribe_geofence()
+        await hass.async_block_till_done()
+
+        hass.states.async_set("person.new_home", "home")   # created at home
+        await hass.async_block_till_done()
+        assert coord._geofence_tracked == {"person.new_home"}
+        assert seen == []
+        assert arrivals == []
+        # The next REAL edge still counts.
+        hass.states.async_set("person.new_home", "not_home")
+        await hass.async_block_till_done()
+        hass.states.async_set("person.new_home", "home")
+        await hass.async_block_till_done()
+        assert seen == [("person.new_home", "not_home"), ("person.new_home", "home")]
+        assert arrivals == [
+            {"person_entity": "person.new_home", "source": "geofence"}]
+    finally:
+        unsub_sig()
+        unsub_other()
+        unsub_zone_like()
+        await _teardown(coord)
+
+
+@pytest.mark.asyncio
+async def test_person_present_at_setup_still_tracked_once(mods, hass):
     """Startup persons keep working and are not double-subscribed when the
     added-domain listener also sees them."""
     hass.states.async_set("person.early", "not_home")
     await hass.async_block_till_done()
-    coord, seen = _coord(hass)
+    coord, seen = _coord(mods, hass)
     try:
         coord._subscribe_geofence()
         assert coord._geofence_tracked == {"person.early"}
@@ -93,10 +193,10 @@ async def test_person_present_at_setup_still_tracked_once(hass):
 
 
 @pytest.mark.asyncio
-async def test_teardown_releases_late_listener(hass):
+async def test_teardown_releases_late_listener(mods, hass):
     """Both listeners live in ``_unsub_listeners``: after teardown a new
     person is not tracked."""
-    coord, seen = _coord(hass)
+    coord, seen = _coord(mods, hass)
     coord._subscribe_geofence()
     await _teardown(coord)
     hass.states.async_set("person.after", "not_home")

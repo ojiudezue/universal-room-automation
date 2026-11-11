@@ -14275,7 +14275,12 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             if isinstance(advanced, dict):
                 user_input.update(advanced)
             climate_group = user_input.pop("climate_backstop", None)
-            if isinstance(climate_group, dict):
+            # CLIMATE-BACKSTOP-SECTION-CLEAR-ON-ABSENT-1: the HVAC hold
+            # clearables live in this section, so they are cleared only
+            # when the section dict was in the raw submit (same rule as
+            # the ``advanced`` sections, FORM-CONDITIONAL-FIELDS-1 H2).
+            _backstop_present = isinstance(climate_group, dict)
+            if _backstop_present:
                 user_input.update(climate_group)
             # Batch D fix-up 1 (A5): a stored "Follow thermostat" on a room no
             # longer in an HVAC zone is SHOWN as "Room temperature" (not an
@@ -14291,7 +14296,38 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 and not room_in_hvac_zone(self.hass, self._config_entry.entry_id)
             ):
                 user_input[CONF_ROOM_FAN_MODE] = FAN_MODE_FOLLOW_THERMOSTAT
-            err = _validate_climate_fans_form(user_input)
+            # HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1 A-MED-2 (v5.103.8): the
+            # per-room HVAC hold overrides are CLEARABLE — an unset field
+            # arrives as an absent key, so pop it from the merge. Only when
+            # the section was sent (an unsent section keeps stored values).
+            _cleared = (
+                [
+                    k for k in (
+                        CONF_HVAC_VACANCY_HOLD,
+                        CONF_HVAC_VACANCY_HOLD_NIGHT,
+                    )
+                    if k not in user_input
+                ]
+                if _backstop_present else []
+            )
+            # FORMS-RELEASE-1 A-L1: cross-field validation reads the values
+            # that will be STORED (stored entry merged with the submit, minus
+            # cleared keys), so a pair split across a sent and an unsent
+            # section (presence-runtime cap vs humidity-fan max runtime) is
+            # still checked.
+            _effective = {
+                **self._config_entry.data,
+                **self._config_entry.options,
+                **user_input,
+            }
+            # The day/night hold pair keeps its documented same-submit rule
+            # (a one-sided edit is legal; the runtime clamp is the backstop),
+            # so those two keys are read from the submit only.
+            for _k in (CONF_HVAC_VACANCY_HOLD, CONF_HVAC_VACANCY_HOLD_NIGHT):
+                _effective.pop(_k, None)
+                if _k in user_input:
+                    _effective[_k] = user_input[_k]
+            err = _validate_climate_fans_form(_effective)
             if err:
                 errors["base"] = err
                 # fall through to redisplay form
@@ -14321,24 +14357,11 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             if not errors:
                 try:
                     merged = {**self._config_entry.options, **user_input}
-                    # HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1 A-MED-2 fixup
-                    # (v5.103.8): the per-room HVAC hold overrides must
-                    # be CLEARABLE. HA delivers unset vol.Optional fields
-                    # as absent keys, so `user_input` won't contain the
-                    # key at all when the operator blanks the field —
-                    # but the merge above would then preserve the prior
-                    # stored value forever. Explicitly POP the two keys
-                    # from `merged` if they weren't submitted, so the
-                    # resolver falls back to the room-type table. Only
-                    # the two knobs this cycle introduced are treated
-                    # this way (others in the step retain their prior-
-                    # behaviour merge semantics).
-                    for _clearable in (
-                        CONF_HVAC_VACANCY_HOLD,
-                        CONF_HVAC_VACANCY_HOLD_NIGHT,
-                    ):
-                        if _clearable not in user_input and _clearable in merged:
-                            merged.pop(_clearable, None)
+                    # Pop the cleared HVAC hold overrides (computed above,
+                    # empty when the climate_backstop section was not sent)
+                    # so the resolver falls back to the room-type table.
+                    for _clearable in _cleared:
+                        merged.pop(_clearable, None)
                     _LOGGER.debug("climate save: entry_id=%s, merged_keys=%d",
                                   self._config_entry.entry_id, len(merged))
                     result = self.async_create_entry(title="", data=merged)
