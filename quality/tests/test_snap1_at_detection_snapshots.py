@@ -794,7 +794,7 @@ def test_snap1_sanitizer_rejects_traversal():
     from custom_components.universal_room_automation.perimeter_alert import (
         _sanitize_snapshot_token, _path_within,
     )
-    assert ".." not in _sanitize_snapshot_token("../../etc/passwd")
+    assert ".." not in _sanitize_snapshot_token("x/../../../evil")
     assert "/" not in _sanitize_snapshot_token("a/b/c")
     assert _sanitize_snapshot_token(None) == ""
     assert _sanitize_snapshot_token("   ") == ""
@@ -805,15 +805,24 @@ def test_snap1_sanitizer_rejects_traversal():
 
 def test_snap1_frigate_capture_refuses_traversal_event_id():
     """F2: a malicious `frigate_events` id must NOT escape the dir."""
-    with tempfile.TemporaryDirectory() as tmp:
+    # Hermetic: the snapshot dir is nested two levels inside a private
+    # outer dir, so "../../x" lands inside `outer` (observable) instead of
+    # in the shared system TMPDIR. Only `outer` is walked.
+    with tempfile.TemporaryDirectory() as outer:
+        outer = os.path.realpath(outer)
+        snap_dir = os.path.join(outer, "a", "snaps")
+        os.makedirs(snap_dir)
+        # Pre-create the intermediate dir the crafted id names, so an
+        # unguarded join would really resolve to outer/evil.jpg.
+        os.makedirs(os.path.join(snap_dir, "front_yard_x"))
         hass, _ = _make_hass()
-        mgr = _mgr_with_dir(hass, tmp)
+        mgr = _mgr_with_dir(hass, snap_dir)
         mgr._sensor_to_camera["binary_sensor.front_yard_person_occupancy"] = (
             "camera.front_yard"
         )
         # Seed a malicious event id.
         mgr._frigate_last_event_id["front_yard"] = (
-            "../../etc/passwd", datetime.now(timezone.utc),
+            "x/../../../evil", datetime.now(timezone.utc),
         )
 
         async def _fake_http(url_path):
@@ -823,16 +832,15 @@ def test_snap1_frigate_capture_refuses_traversal_event_id():
             "front_yard", "camera.front_yard", "frigate", int(time.time()),
         ))
         # Either sanitized to a safe token OR refused; in NO case does
-        # a file appear outside tmp.
-        parent = os.path.dirname(os.path.realpath(tmp))
-        for root, _dirs, files in os.walk(parent):
+        # a file appear outside snap_dir.
+        if path is not None:
+            assert os.path.realpath(path).startswith(snap_dir + os.sep), path
+        for root, _dirs, files in os.walk(outer):
             for f in files:
-                full = os.path.join(root, f)
-                if full.startswith(tmp + os.sep):
-                    continue
-                if "etc" in full and "passwd" in full and tmp not in full:
+                full = os.path.realpath(os.path.join(root, f))
+                if not full.startswith(snap_dir + os.sep):
                     raise AssertionError(
-                        f"traversal wrote outside tmp: {full}"
+                        f"traversal wrote outside snapshot dir: {full}"
                     )
 
 
