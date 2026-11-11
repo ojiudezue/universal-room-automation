@@ -66,6 +66,22 @@ def mods():
         # lives in hass.data under string keys, so a copy is equivalent.
         for name in _FRESH_HELPERS:
             sys.modules.pop(name, None)
+        # Many legacy donors replace ``homeassistant.core.callback`` (and
+        # ``is_callback``) on the REAL core module and never restore it; a
+        # fresh helpers.event import would then decorate its filters with the
+        # stub and the real bus rejects them ("is not a callback"). Put the
+        # real definitions back for this block; attrs=True restores on exit.
+        _core = sys.modules["homeassistant.core"]
+
+        def _real_callback(func):
+            setattr(func, "_hass_callback", True)
+            return func
+
+        def _real_is_callback(func):
+            return getattr(func, "_hass_callback", False) is True
+
+        _core.callback = _real_callback
+        _core.is_callback = _real_is_callback
         importlib.invalidate_caches()
         presence = importlib.import_module(_PRESENCE)
         signals = importlib.import_module(_SIGNALS)
