@@ -230,6 +230,7 @@ cards:
   rank: {"value": 3, "time_criticality": 2, "effort": 1}
   built_2026_10_24: 'Built overnight to review, NOT deployed (tooling only, no HA restart needed). Branch fix/worklog-append-at-ship (fa285d425 + fix 38baad622). New scripts/worklog_ship.py appends ''- <ts> **v<ver>** - <README title or summary> (cards: ...)'' under a trailing ''Release index (auto-appended at deploy)'' section of docs/planning/WORKLOG_<YYYY-MM>_session.md; idempotent per version (v5.103.7 vs v5.103.70 tested), creates the month file if missing. deploy.sh step 4b: warn-only post-push inside the existing set +e block, staged into the reconcile commit; --dry-run rehearses on a temp copy. Tests: quality/tests/test_worklog_ship.py (6); deploy/kanban_ship tests 36 passed. Tier 1 review: SHIP; LOW fixed in-cycle (worklog path computed once so write and git add cannot straddle a month boundary). Remaining LOW accepted: if both kanban and vibememo writes fail the worklog line is written but not staged (tree already dirty in that case).'
 - id: FORM-CONDITIONAL-FIELDS-1
+  arc_cut_v5_108_9: "release 1 (sections) ships in v5.108.9"
   title: "Config forms, one plan: collapsed Advanced sections (A) + fields shown only when relevant (B, HA 2026.11 visible=)"
   thread: platform
   status: planned

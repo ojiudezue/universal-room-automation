@@ -1,0 +1,25 @@
+{
+  "format_version": "2.1",
+  "entry_id": "284",
+  "author": "ojiudezue",
+  "session_id": "claude_20261111_200018_ship_v5_108_9",
+  "timestamp": "2026-11-11T20:00:18Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.108.9 shipped: Simpler forms: collapsed Advanced sections and plain-language text",
+  "summary": "Simpler forms: collapsed Advanced sections and plain-language text",
+  "why": "HA forces Advanced mode on and removes it in 2027.6, so every tuning field already showed on every form; the operator found the coordinator forms, especially Presence, hard to use. Collapsed sections hide rare tuning, and plain one-line text checked against the code tells the operator what each setting does. Save integrity was the risk, so Tier 2-DB with three reviews and mutation drills.",
+  "implications": "Shipped FORM-TEXT-PLAIN-PASS-1, PRESENCE-GEOFENCE-FIELD-DEAD-1, CLIMATE-BACKSTOP-SECTION-CLEAR-ON-ABSENT-1 at v5.108.9; card(s) sit shipped_organic pending validation. Acceptance in README_v5.108.9.md (Live criteria).",
+  "revisit_trigger": "Release 2 (visible= conditional fields + hacs.json floor) when a pytest-homeassistant-custom-component release pins HA 2026.11; energy wording pass.",
+  "refs": {
+    "cards": [
+      "FORM-TEXT-PLAIN-PASS-1",
+      "PRESENCE-GEOFENCE-FIELD-DEAD-1",
+      "CLIMATE-BACKSTOP-SECTION-CLEAR-ON-ABSENT-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.108.9.md"
+    ],
+    "release_notes": "Advanced mode (forced on since HA 2026.10, removed 2027.6) replaced by collapsed Advanced sections on 16 steps; operator-signed plain labels and descriptions (41 raw-key fields fixed, 8 wrong descriptions corrected); unused Presence geofence field removed; people added after startup are followed (never counted as an arrival); climate backstop holds no longer dropped on a save without opening that section."
+  }
+}

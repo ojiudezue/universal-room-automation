@@ -1,0 +1,17 @@
+{
+  "format_version": "2.1",
+  "entry_id": "283",
+  "author": "ojiudezue",
+  "session_id": "claude_20261111_light_circuit_map",
+  "timestamp": "2026-11-11T14:30:00Z",
+  "type": "decision",
+  "weight": "significant",
+  "title": "Fades stop at relays: map every light to its circuit before reworking Shelly/Sonoff",
+  "summary": "46 of 84 URA lights are switch.* relays (Shelly/Sonoff) that cannot fade, so the v5.108.8 fade covers only the smart-bulb half. Operator chose a per-circuit map (fixture, relay, bulb type, mode) over replacing relays, carded as LIGHT-CIRCUIT-MAP-1.",
+  "why": "The 2026-10-13 relay audit showed most relay channels feed dumb fixtures, so fades there need new hardware. A handful feed smart bulbs: Tapo S515D kitchen and Inovelli master are confirmed, Sonoff PatioLights and Shelly Dining1/2 are probable, and the kitchen MINI-2GS is unknown. For those, setting the relay to detached mode and driving the bulb directly gives dimming without replacement. Without a map, nobody knows which case each light is.",
+  "alternatives_considered": ["Replace Shellys/Sonoffs with dimmers at scale (cost, operator rejected for now)", "Leave relays snapping (accepted only for dumb-fixture circuits)"],
+  "implications": "Remote-safe prep now: the map table and drafted automations. The physical checks (Patio, Dining, MINI-2GS) and the switch to detached mode wait for the operator's return around 11-16. Setting a relay to detached mode stops its wall switch from cutting power, so each circuit needs a button-to-bulb automation before the flip.",
+  "confidence": "medium",
+  "revisit_trigger": "Map shows more smart-bulb-behind-relay circuits than the audit predicted, or a dimmer replacement becomes cheaper than the detach work.",
+  "refs": {"cards": ["LIGHT-CIRCUIT-MAP-1", "LIGHT-TRANSITION-COVERAGE-1"], "docs": ["docs/planning/AUDIT_relay_bulb_detach_inventory.md"], "supersedes": []}
+}
