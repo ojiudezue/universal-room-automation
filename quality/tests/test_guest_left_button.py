@@ -276,20 +276,28 @@ def test_button_refreshes_when_presence_becomes_ready(monkeypatch):
     SIG = importlib.import_module(
         f"{H._PKG}.domain_coordinators.signals").SIGNAL_PRESENCE_COORDINATOR_READY
     connected = {}
-    monkeypatch.setattr(dispatcher, "async_dispatcher_connect",
-                        lambda hass, sig, fn: connected.setdefault(sig, fn) and None)
+    unsub = object()
+
+    def _connect(hass, sig, fn):
+        connected[sig] = fn
+        return unsub
+
+    monkeypatch.setattr(dispatcher, "async_dispatcher_connect", _connect)
 
     hass = H.MagicMock()
     manager = H.MagicMock(coordinators={})
     hass.data = {H.DOMAIN: {"coordinator_manager": manager}}
     b = BT.GuestLeftButton(hass, H.MagicMock())
-    b.async_on_remove = lambda unsub: None
+    removers = []
+    b.async_on_remove = removers.append
     writes = []
     b.async_write_ha_state = lambda: writes.append(b.available)
 
     H.run(b.async_added_to_hass())
     assert b.available is False
     assert SIG in connected
+    # The subscription is handed to async_on_remove (cleaned up on removal).
+    assert removers == [unsub]
     manager.coordinators["presence"] = object()
     connected[SIG]()
     assert writes == [True]
