@@ -20,6 +20,19 @@ import pytest
 DOMAIN = "universal_room_automation"
 
 
+@pytest.fixture(autouse=True, scope="module")
+def _real_ura_package():
+    """TEST-SUITE-PARALLEL-1 (2026-11-10): import the REAL URA package for
+    this file. Otherwise ``import_module`` returned whatever package object an
+    earlier-collected file left in sys.modules (e.g. the stub shell installed
+    via test_domain_coordinators' import-time stubs), which has no
+    ``_remove_orphan_zone_devices`` -> order-dependent RED."""
+    from occ_dwell_helpers import real_package
+
+    with real_package():
+        yield
+
+
 class _FakeDevReg:
     def __init__(self, devices):
         self.devices = {d.id: d for d in devices}

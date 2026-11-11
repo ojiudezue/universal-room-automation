@@ -254,17 +254,37 @@ def db():
         yield d
 
 
-def _freeze(monkeypatch, now):
-    import custom_components.universal_room_automation.database as dbmod
+def _db_globals():
+    """Globals of the database module the ``db`` fixture's class was built
+    from. TEST-SUITE-PARALLEL-1 (2026-11-10): patching
+    ``sys.modules[...database]`` instead missed whenever an earlier file had
+    replaced that entry (the class here is bound at collection time)."""
+    from test_database_resilience import UniversalRoomDatabase as _URD
+
+    return _URD.initialize.__globals__
+
+
+def _freeze(monkeypatch, now, tz=None):
+    from datetime import timezone as _tz
+
+    g = _db_globals()
+    dt_util = g["dt_util"]
 
     class _FakeDT(datetime):
         @classmethod
         def utcnow(cls):
             return now
-    monkeypatch.setattr(dbmod, "datetime", _FakeDT)
+    monkeypatch.setitem(g, "datetime", _FakeDT)
+    # TEST-SUITE-PARALLEL-1: pin the zone the oracles assume (UTC = HA's
+    # default unless the test passes one) on the dt module database.py
+    # actually holds. Other files leave DEFAULT_TIME_ZONE at US/Pacific (phcc
+    # hass fixture) or America/Chicago -> order-dependent dates and sums.
+    zone = tz or _tz.utc
+    monkeypatch.setattr(dt_util, "DEFAULT_TIME_ZONE", zone, raising=False)
+    # get_default_time_zone() is lru-cached in HA: pin it too.
+    monkeypatch.setattr(dt_util, "get_default_time_zone", lambda: zone, raising=False)
     # D3b/D4: week/month boundaries and the tomorrow weekday are LOCAL.
-    from datetime import timezone as _tz
-    monkeypatch.setattr(dbmod.dt_util, "now", lambda *a, **k: dbmod.dt_util.as_local(
+    monkeypatch.setattr(dt_util, "now", lambda *a, **k: dt_util.as_local(
         now.replace(tzinfo=_tz.utc)))
 
 
@@ -305,15 +325,11 @@ def test_week_and_month_windows_use_local_midnight(db, monkeypatch):
     midnight (America/Chicago), stored as naive UTC: Monday 10-12 00:00 CDT
     = 05:00Z; Sep 1 00:00 CDT = 05:00Z (UTC midnight would skew 5 h)."""
     from zoneinfo import ZoneInfo
-    import homeassistant.util.dt as hdt
-    prev = hdt.get_default_time_zone()
-    hdt.set_default_time_zone(ZoneInfo("America/Chicago"))
-    try:
-        _freeze(monkeypatch, datetime(2026, 10, 21, 12, 0, 0))
-        weeks = _run(db.get_recent_weeks_energy(2))
-        months = _run(db.get_recent_months_energy(1))
-    finally:
-        hdt.set_default_time_zone(prev)
+
+    _freeze(monkeypatch, datetime(2026, 10, 21, 12, 0, 0),
+            tz=ZoneInfo("America/Chicago"))
+    weeks = _run(db.get_recent_weeks_energy(2))
+    months = _run(db.get_recent_months_energy(1))
     assert [w["week_start"] for w in weeks] == [
         "2026-10-12T05:00:00", "2026-10-05T05:00:00"]
     assert months[0]["month_start"] == "2026-09-01T05:00:00"

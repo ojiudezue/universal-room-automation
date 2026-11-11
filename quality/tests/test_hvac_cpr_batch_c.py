@@ -1644,7 +1644,9 @@ def _switch(mods, monkeypatch, hass, coord, last_state):
 
     async def _noop(self):
         return None
-    monkeypatch.setattr(RestoreEntity, "async_added_to_hass", _noop)
+    # TEST-SUITE-PARALLEL-1: raising=False -- the resident RestoreEntity can be
+    # a sibling file's bare stub class (order-dependent AttributeError).
+    monkeypatch.setattr(RestoreEntity, "async_added_to_hass", _noop, raising=False)
     entry = hass.config_entries.async_entries()[0]
     sw = switch_mod.HVACGuestModeActuationSwitch(hass, entry)
     sw.async_write_ha_state = lambda: None
