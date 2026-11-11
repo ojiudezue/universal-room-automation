@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-11T02:20:40-06:00_ - _Data commit: `297333f7c92f`_ - _last_reconciled: 2026-11-10_
+_Generated: 2026-11-11T02:21:45-06:00_ - _Data commit: `5d447f190e7b`_ - _last_reconciled: 2026-11-10_
 
 
 ## Columns
@@ -13,9 +13,9 @@ _Generated: 2026-11-11T02:20:40-06:00_ - _Data commit: `297333f7c92f`_ - _last_r
 | 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 18 |
-| 🔨 In progress | 3 |
+| 🔨 In progress | 2 |
 | 🔍 Review | 2 |
-| ⏸️ Waiting on operator | 31 |
+| ⏸️ Waiting on operator | 32 |
 | ⏳ Waiting on me (Claude) | 2 |
 | 🚀 Shipped (organic open) | 16 |
 | 🅿️ Parked | 117 |
@@ -494,7 +494,7 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (3)
+## 🔨 In progress (2)
 _being built_
 
 ### `SC-GEOFENCE-PERSON-SNAPSHOT-1` - SC geofence person listener snapshots person.* once at setup; misses persons added later or loaded after SC — _#1 · WSJF 7.0 · v3 tc2 u2 /e1_
@@ -518,18 +518,6 @@ _created 2026-11-01 · updated 2026-11-05 02:40_
   - `verify_2026_11_05_overnight`: CARD-WAS-WRONG on lane (02:40 CST, git read-only). The card sat in inbox, but the pack is being built: plan docs/planning/PLANNING_oc_live_eval_and_context_pack.md (rev 2, 51c81530, plan reviews 1+2 folded), branch feature/oc-live-eval (...
   - `tier`: 2
   - `eval_round_2026_11_07`: Operator-funded iteration ($50 cap, spent $40.31; worktree agent-a657e58090fb1df32 commits e1b08b13 b0d29379 12ac1780; ITERATIONS_2026_11_07.md, LEDGER_2026_11_07.md, RUBRIC.md). NOT PASSING: Sonnet 5.5 3/15 runs, 0 cases by majority; he...
-
-### `SHARED-SPACE-AUTO-OFF-FAILSAFE-1` - 11pm shared-space auto-off skipped Kitchen overhead (leave-on list) and it stayed on all night: make it a vacancy-gated failsafe that ignores leave-on — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **lighting** - status: **in_progress** - approval: **implied**
-_created 2026-11-03 · updated 2026-11-11 02:19 · refined_
-- **Why:** light.dimmer_tapo_wifi_matter_kitchenoverhead on 21:16 -> 05:01 (11-02/03). Kitchen lights_leave_on_when_empty = [overhead]; _shared_space_turn_off_all exempts leave-on (automation.py:4681). check_scheduled_auto_off fires only in hour 23...
-- **Next:** (in flight) builder -> one review -> review lane. Then APPROVE merge + ship at an attended deploy.
-- **Forensic keys (5):**
-  - `recheck_2026_11_07_overnight`: Re-check 02:03 CST: switch.kitchen_automation still off (Kitchen paused), so the gap is still live. No veto on default A since 11-04, and it is Tier 1 / reversible, so under the recommend-don't-menu rule I would take A - but the overnigh...
-  - `card_was_wrong_2026_11_04`: The card's diagnosis was INCOMPLETE. It said the 11pm sweep skipped the Kitchen overhead because of the leave-on list. That was a second, latent barrier. The first one is that switch.kitchen_automation has been OFF the whole 10-day recor...
-  - `organic_evidence_2026_11_04`: First night live (v5.103.101, loaded at the 11-03 18:01 restart). ura_activity_log: 15 rooms swept exactly once each between 23:00 and 23:38 (Game Room, Media Room Closet, Breakfast Nook, Guest Bedroom 2 Hallway, Kitchen Hallway, Upstair...
-  - `tier`: 2
-  - `default_taken_2026_11_11_overnight`: Default A taken under recommend-don't-menu (Tier 1-2, reversible, not outward-facing; offered 11-04, no veto in 7 days). Re-verified 02:19 CST: switch.kitchen_automation still off; the failsafe call is still inside the master-automation ...
 
 ## 🔍 Review (2)
 _under review_
@@ -560,7 +548,7 @@ _created 2026-11-11 09:00 · updated 2026-11-11 02:18 · refined_
   - `investigated_2026_11_11_overnight`: REFUTED as a production bug; REAL as a test defect. Production is safe: perimeter_alert.py _try_capture_frigate_event sanitises the event id (_sanitize_snapshot_token, :3830) and has a second realpath escape guard before writing. Why the...
   - `fix_2026_11_11_overnight`: Branch fix/snap1-traversal-test-oracle (88229251, worktree .claude/worktrees/ovn-snap1-oracle, base develop fc75a6b3): oracle scoped to entries this run creates in the parent dir; pins sanitise-and-write (one flat file in the snapshot di...
 
-## ⏸️ Waiting on operator (31)
+## ⏸️ Waiting on operator (32)
 _needs a human call — groomed first_
 
 ### `PERIMETER-DETECTION-WENT-DARK-1` - Exterior person detection went fully dark for ~26h on 2026-09-14/15 and then recovered on its own — nothing noticed either the outage or the recovery — _#1 · WSJF 10.0 · v9 tc9 u2 /e2_
@@ -998,7 +986,21 @@ _created 2026-10-24 · updated 2026-10-25 02:08 · refined_
   - `tier`: 2
   - `sweep_2026_10_25_overnight`: ADJACENT, not duplicate. Swept board (snapshot/unidentified/guest), BACKLOG (guest false-arming item 3), planning docs (PLANNING_snap1_at_detection_snapshots.md, guest plans), IDENTITY_FUSION_CAMERAS_MANUAL. SNAP-1 (done) built at-detect...
 
-### `SAFEWORD-WINDOW-1` - Safe-word ack window — one "duke" covers perimeter alerts for a bounded period (operator-proposed) — _#25 · WSJF 1.8 · v4 tc3 u2 /e5_
+### `SHARED-SPACE-AUTO-OFF-FAILSAFE-1` - 11pm shared-space auto-off skipped Kitchen overhead (leave-on list) and it stayed on all night: make it a vacancy-gated failsafe that ignores leave-on — _#25 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **lighting** - status: **waiting_operator** - approval: **blocked**
+_created 2026-11-03 · updated 2026-11-11 02:25 · refined ×1_
+- **Why:** light.dimmer_tapo_wifi_matter_kitchenoverhead on 21:16 -> 05:01 (11-02/03). Kitchen lights_leave_on_when_empty = [overhead]; _shared_space_turn_off_all exempts leave-on (automation.py:4681). check_scheduled_auto_off fires only in hour 23...
+- **Next:** PICK: K (recommended) per-room opt-in: a 'night failsafe runs while paused' setting, ON only for Kitchen; the built hoist plus one config check, Tier 1, then review B and ship. Or A: all paused shared-space rooms (the ~10 above; built, n...
+- **Forensic keys (7):**
+  - `recheck_2026_11_07_overnight`: Re-check 02:03 CST: switch.kitchen_automation still off (Kitchen paused), so the gap is still live. No veto on default A since 11-04, and it is Tier 1 / reversible, so under the recommend-don't-menu rule I would take A - but the overnigh...
+  - `card_was_wrong_2026_11_04`: The card's diagnosis was INCOMPLETE. It said the 11pm sweep skipped the Kitchen overhead because of the leave-on list. That was a second, latent barrier. The first one is that switch.kitchen_automation has been OFF the whole 10-day recor...
+  - `organic_evidence_2026_11_04`: First night live (v5.103.101, loaded at the 11-03 18:01 restart). ura_activity_log: 15 rooms swept exactly once each between 23:00 and 23:38 (Game Room, Media Room Closet, Breakfast Nook, Guest Bedroom 2 Hallway, Kitchen Hallway, Upstair...
+  - `tier`: 2
+  - `default_taken_2026_11_11_overnight`: Default A taken under recommend-don't-menu (Tier 1-2, reversible, not outward-facing; offered 11-04, no veto in 7 days). Re-verified 02:19 CST: switch.kitchen_automation still off; the failsafe call is still inside the master-automation ...
+  - `my_miss_2026_11_11_overnight`: I WAS WRONG to take default A under recommend-don't-menu. That rule covers reversible, low-blast cards; this one reverses your written 10-18 ruling on paused rooms (kanban.data.yaml ~:32250: 'Paused rooms should stop with lights and fans...
+  - `built_2026_11_11_overnight`: Branch fix/shared-space-failsafe-paused-rooms (e3e44a5f build, d0f67ed8 review A; base 98e8baa2). UNMERGED; review B not run. Reach measured by review A (live config x 11-11 switch states): option A would newly sweep Kitchen, Kitchen Hal...
+
+### `SAFEWORD-WINDOW-1` - Safe-word ack window — one "duke" covers perimeter alerts for a bounded period (operator-proposed) — _#26 · WSJF 1.8 · v4 tc3 u2 /e5_
 thread: **notifications** - status: **waiting_operator** - approval: **operator_proposed**
 _updated 2026-09-29 01:05_
 - **Origin:** 2026-08-14 - operator: "safe word covers all alerts within 1-3 hours so no need for safe words for a while no matter the notification? The underlying goal is still to tune the classification of events and make sure they are good."
@@ -1014,7 +1016,7 @@ _updated 2026-09-29 01:05_
   - `safety_note`: Blanket-mute is a stopgap while classification precision improves (the operator-stated underlying goal); scope-limiting to perimeter class keeps the failure mode bounded.
   - `organic_evidence`: 2026-08-23 watch-pass: README_v5.75.2 L4=ORGANIC (open) — first real "duke Nh" reply not yet observed. Awaiting real perimeter CRITICAL + operator safeword reply. H1 PENDING.
 
-### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab — _#26 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab — _#27 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **dashboarding** - status: **waiting_operator** - approval: **explicit**
 _updated 2026-09-29 01:05_
 - **Origin:** 2026-08-09 - "add an EV charging detail card to the Ura v8 energy tab. Style well. Detail cards are a bit sensor words vomit. Best judgement because of space though."
@@ -1034,7 +1036,7 @@ _updated 2026-09-29 01:05_
   - `DEDUPE_2026_08_09`: Sweep: dashboarding thread has the PWA + KHOST-1 (kanban board, different surface); EV drain-precedence card is queued BACKLOG work about behaviour not display. No existing card covers a v8 energy-tab EV surface. NEW.
   - `status_correction_2026_08_16`: Was stale in INBOX — the card was BUILT and applied live to ura-v8 Energy tab 2026-08-09; correct state = waiting_operator (refinement review, operator: "I'll review and we can refine").
 
-### `CENSUS-ATHOME-RESIDENT-CORROBORATOR-1` - A resident at home wandering out a side door (porch, garage) cannot be told apart from a visitor — _#27 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `CENSUS-ATHOME-RESIDENT-CORROBORATOR-1` - A resident at home wandering out a side door (porch, garage) cannot be told apart from a visitor — _#28 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **census** - status: **waiting_operator** - approval: **explicit**
 _created 2026-10-05 02:22 · updated 2026-10-14 03:05 · refined_
 - **Problem / Solution:**
@@ -1057,7 +1059,7 @@ _created 2026-10-05 02:22 · updated 2026-10-14 03:05 · refined_
   - `groomed_2026_10_05_overnight`: Inbox -> pre_planning (REAL per the plan's measured Path-beta budget of ~3-4 episodes/day). Sequenced AFTER the parent's D1 stem fix: some of today's unattributable crossings are _2-camera crossings that never reach identity at all (EGRE...
   - `sweep_2026_10_05`: Board census/egress cards swept; GAP-A-CENSUS-HOLE-1 ADJACENT. NEW.
 
-### `SAFETY-RATE-DETECTOR-DEAD-WINDOW-1` - The safety "rapid change" detector almost never runs, because its 30-minute window check can only pass at an exact instant — _#28 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `SAFETY-RATE-DETECTOR-DEAD-WINDOW-1` - The safety "rapid change" detector almost never runs, because its 30-minute window check can only pass at an exact instant — _#29 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **safety** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-09-27 02:40 · updated 2026-10-19 02:03 · refined_
 - **Problem / Solution:**
@@ -1077,7 +1079,7 @@ _created 2026-09-27 02:40 · updated 2026-10-19 02:03 · refined_
   - `contradiction_2026_10_19_overnight`: CARD-WAS-WRONG on its own next: update_2026_10_15 records YOUR answer ('rapid change isn't that a heat thing for fire? If so it's a fix') and verified temperature_rise_extreme maps to OVERHEAT (safety.py:670, :859) -> disposition FIX (B)...
   - `paged_2026_10_19_overnight`: Paged 02:42 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody).
 
-### `WALLPANEL-TOUCH-WITNESS-1` - Wall-panel sensors as URA inputs (touch witness, BLE proxy scanners, ambient noise; temp/lux low value) — _#29 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `WALLPANEL-TOUCH-WITNESS-1` - Wall-panel sensors as URA inputs (touch witness, BLE proxy scanners, ambient noise; temp/lux low value) — _#30 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **presence** - status: **waiting_operator**
 _created 2026-10-20 08:30 · updated 2026-10-23 02:09 · refined ×1_
 - **Origin:** 2026-10-20 - HomeLab accepted idea 3 (ffa7d06).
@@ -1090,7 +1092,7 @@ _created 2026-10-20 08:30 · updated 2026-10-23 02:09 · refined ×1_
   - `tier`: 2
   - `panel_sensor_facts_2026_10_20`: HomeLab withdrew the not-presence framing (operator asked). Temp +3.6-3.8F high vs room sensors, varies with brightness/CPU; humidity within 1-3 pts; lux screen-biased; ambient_noise dBFS ~1/min (activity); last_interaction touch; motion...
 
-### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#30 · WSJF 1.1 · v5 tc2 u2 /e8_
+### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#31 · WSJF 1.1 · v5 tc2 u2 /e8_
 thread: **presence** - status: **waiting_operator**
 _created 2026-09-20 · updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -1105,7 +1107,7 @@ _created 2026-09-20 · updated 2026-09-29 01:05_
   - `FINDINGS_2026_09_20`: Spike RAN (docs/planning/jev_spike/, 58-case eval, LOO). CODE baseline = works 100% / fails 0%% / overall 84.5%% / ECE 0.155 (structurally blind to the all-away-single-sensor phantom + badly calibrated). Logistic-floor arms scored 100%%/...
   - `next_prev1`: PICK/DO (operator): provide INDEPENDENT ground-truth labels for ~20-40 ambiguous occupancy cases (spot-confirm a batch of all-away-single-sensor / still-body episodes as empty-or-occupied), OR approve me sourcing a disjoint truth signal ...
 
-### `EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1` - The arbitrage EV pause flips on and off every 5 minutes when an EV is charging and the battery is low (rung-1 redirect vs WAIT feedback loop) — _#31 · WSJF 0.6 · v4 tc2 u2 /e13_
+### `EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1` - The arbitrage EV pause flips on and off every 5 minutes when an EV is charging and the battery is low (rung-1 redirect vs WAIT feedback loop) — _#32 · WSJF 0.6 · v4 tc2 u2 /e13_
 thread: **energy** - status: **waiting_operator** - approval: **blocked**
 _created 2026-10-03 02:40 · updated 2026-11-09 02:07 · initial_
 - **Problem / Solution:**
