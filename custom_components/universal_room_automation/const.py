@@ -3639,6 +3639,8 @@ DIAGNOSTICS_SCOPE_HOUSE: Final = "house"
 # v3.6.0-c1: Presence Coordinator constants
 CONF_SLEEP_START_HOUR: Final = "sleep_start_hour"
 CONF_SLEEP_END_HOUR: Final = "sleep_end_hour"
+# PRESENCE-GEOFENCE-FIELD-DEAD-1: retired form field (no reader; presence
+# listens to every person.*). Kept so a stored value is recognisable.
 CONF_GEOFENCE_ENTITIES: Final = "geofence_entities"
 DEFAULT_SLEEP_START_HOUR: Final = 23
 DEFAULT_SLEEP_END_HOUR: Final = 6

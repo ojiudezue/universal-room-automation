@@ -646,7 +646,10 @@ class TestD3SplitOptionsStep:
         assert result["type"] == "form"
         assert result["step_id"] == "options_covers"
         keys = _schema_keys(result)
-        assert len(keys) == 11
+        # FORM-CONDITIONAL-FIELDS-1: sunrise/sunset offsets moved into the
+        # collapsed ``advanced`` section -> 9 top-level fields + the section.
+        assert len(keys) == 10
+        assert "advanced" in keys
         assert CONF_COVER_TYPE in keys
         assert CONF_COVER_OPEN_MODE in keys
 

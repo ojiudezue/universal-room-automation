@@ -446,6 +446,10 @@ class TestD4BaselinePresetsUXPolish:
             ("winter_section", "Dec"),
         ]:
             title = sections.get(key, "")
+            # FORM-CONDITIONAL-FIELDS-1: sections are {name, data, ...}
+            # objects (HA's translation shape), not bare titles.
+            if isinstance(title, dict):
+                title = title.get("name", "")
             assert expected_fragment in title, (
                 f"D4: strings.json sections.{key} must mention month (expected '{expected_fragment}', "
                 f"got '{title}')"

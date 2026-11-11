@@ -5190,28 +5190,70 @@ class PresenceCoordinator(BaseCoordinator):
         HA person entities track home/not_home/zone state. When a person
         transitions to 'home' from 'not_home' (or vice versa), this provides
         an early AWAY→ARRIVING signal before camera census updates.
+
+        PRESENCE-GEOFENCE-FIELD-DEAD-1: a person added AFTER this runs (a new
+        person in Settings → People, or a person entity that loads after
+        URA) is picked up through ``async_track_state_added_domain``. The
+        add itself is NOT a geofence transition (no arrival is dispatched for
+        it, the same boot doctrine as the restore edges elsewhere); the next
+        real home/not_home change is. Both unsubs live in
+        ``_unsub_listeners`` (torn down with the coordinator).
         """
+        self._geofence_tracked: set[str] = set()
         person_entity_ids = [
             state.entity_id
             for state in self.hass.states.async_all()
             if state.entity_id.startswith("person.")
         ]
 
-        if not person_entity_ids:
-            _LOGGER.debug("No person entities found — geofence signal unavailable")
-            return
+        if person_entity_ids:
+            self._track_geofence_persons(person_entity_ids)
+            _LOGGER.info(
+                "Subscribed to %d person entities for geofence signals",
+                len(person_entity_ids),
+            )
+        else:
+            _LOGGER.debug(
+                "No person entities found yet — waiting for one to be added"
+            )
 
+        try:
+            from homeassistant.helpers.event import (  # noqa: PLC0415
+                async_track_state_added_domain,
+            )
+        except ImportError:  # pragma: no cover — every supported HA has it
+            _LOGGER.debug("async_track_state_added_domain unavailable")
+            return
+        self._unsub_listeners.append(
+            async_track_state_added_domain(
+                self.hass, "person", self._handle_person_added,
+            )
+        )
+
+    def _track_geofence_persons(self, entity_ids: list[str]) -> None:
+        """Track state changes of ``entity_ids`` not tracked yet."""
+        new_ids = [e for e in entity_ids if e not in self._geofence_tracked]
+        if not new_ids:
+            return
+        self._geofence_tracked.update(new_ids)
         self._unsub_listeners.append(
             async_track_state_change_event(
                 self.hass,
-                person_entity_ids,
+                new_ids,
                 self._handle_geofence_change,
             )
         )
-        _LOGGER.info(
-            "Subscribed to %d person entities for geofence signals",
-            len(person_entity_ids),
-        )
+
+    @callback
+    def _handle_person_added(self, event: Any) -> None:
+        """A ``person.*`` entity appeared after setup: start tracking it."""
+        entity_id = event.data.get("entity_id", "")
+        if not entity_id.startswith("person."):
+            return
+        if entity_id in getattr(self, "_geofence_tracked", set()):
+            return
+        self._track_geofence_persons([entity_id])
+        _LOGGER.info("Geofence: now tracking %s (added after setup)", entity_id)
 
     @callback
     def _handle_geofence_change(self, event: Any) -> None:

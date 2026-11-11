@@ -5,30 +5,39 @@
         "title": "Home Setup",
         "description": "Welcome to Universal Room Automation! Let's set up your whole-home sensors and default notification preferences. These settings will be shared across all rooms.",
         "data": {
-          "outside_temp_sensor": "Outside Temperature Sensor",
-          "outside_humidity_sensor": "Outside Humidity Sensor",
           "weather_entity": "Weather",
           "tracked_persons": "People",
-          "person_data_retention_days": "Keep person history",
-          "transition_detection_window": "Room change window",
-          "solar_production_sensor": "Solar Production Sensor",
-          "electricity_rate": "Fallback Electricity Rate ($/kWh)",
-          "notification_service": "Default Notification Service",
-          "notification_target": "Phone for alerts",
-          "notification_level": "Default Notification Level"
+          "notification_target": "Phone for alerts"
         },
         "data_description": {
-          "outside_temp_sensor": "Sensor for outdoor temperature (used for HVAC predictions)",
-          "outside_humidity_sensor": "Sensor for outdoor humidity",
           "weather_entity": "Weather entity for forecasts and predictions",
-          "solar_production_sensor": "Current solar production for energy calculations",
-          "electricity_rate": "Used only when the Energy Coordinator is not configured. With the Energy Coordinator active, cost calculations use the TOU-aware rate automatically.",
-          "notification_service": "Service to send alerts (e.g., notify.mobile_app_phone)",
           "tracked_persons": "People URA tracks. Untick anyone to leave out.",
-          "person_data_retention_days": "Days of person history to keep.",
-          "transition_detection_window": "How long a move between rooms counts as one trip.",
-          "notification_target": "Used for alerts. You can change this later.",
-          "notification_level": "Which alerts to send: Off, Errors, Important, or All"
+          "notification_target": "Used for alerts. You can change this later."
+        },
+        "sections": {
+          "advanced": {
+            "name": "Advanced (rarely change)",
+            "data": {
+              "outside_temp_sensor": "Outside Temperature Sensor",
+              "outside_humidity_sensor": "Outside Humidity Sensor",
+              "solar_production_sensor": "Solar Production Sensor",
+              "person_data_retention_days": "Keep person history",
+              "transition_detection_window": "Room change window",
+              "electricity_rate": "Fallback Electricity Rate ($/kWh)",
+              "notification_service": "Default Notification Service",
+              "notification_level": "Default Notification Level"
+            },
+            "data_description": {
+              "outside_temp_sensor": "Sensor for outdoor temperature (used for HVAC predictions)",
+              "outside_humidity_sensor": "Sensor for outdoor humidity",
+              "solar_production_sensor": "Current solar production for energy calculations",
+              "person_data_retention_days": "Days of person history to keep.",
+              "transition_detection_window": "How long a move between rooms counts as one trip.",
+              "electricity_rate": "Used only when the Energy Coordinator is not configured. With the Energy Coordinator active, cost calculations use the TOU-aware rate automatically.",
+              "notification_service": "Service to send alerts (e.g., notify.mobile_app_phone)",
+              "notification_level": "Which alerts to send: Off, Errors, Important, or All"
+            }
+          }
         }
       },
       "energy_setup": {
@@ -63,12 +72,14 @@
         "data": {
           "zone_name": "Zone Name",
           "zone_description": "Zone Description",
-          "zone_rooms": "Rooms in this Zone"
+          "zone_rooms": "Rooms in this Zone",
+          "zone_is_outdoor": "Outdoor zone"
         },
         "data_description": {
           "zone_name": "A short, unique name for this zone (e.g., 'Upstairs', 'Guest Suite')",
           "zone_description": "Optional description of what this zone covers",
-          "zone_rooms": "Select existing rooms to include in this zone"
+          "zone_rooms": "Select existing rooms to include in this zone",
+          "zone_is_outdoor": "Turn on for patios, yards and pool areas. Safety uses outdoor limits and the house count ignores people here."
         }
       },
       "room_setup": {
@@ -113,11 +124,12 @@
           "door_type": "Door Type (interior or exterior)",
           "window_sensor": "Window Sensor",
           "is_egress_window": "Treat as egress window",
-          "water_leak_sensor": "Water Leak Sensor"
+          "water_leak_sensor": "Water Leak Sensor",
+          "room_cameras": "Room cameras"
         },
         "data_description": {
-          "motion_sensors": "See movement only.",
-          "presence_sensors": "See people sitting still.",
+          "motion_sensors": "Sensors that see movement only: PIR, and mmWave motion models that lose a person who sits still.",
+          "presence_sensors": "Radar sensors that still see a person who is sitting or sleeping (mmWave presence models). Motion-only radars belong in Motion sensors.",
           "occupancy_sensors": "Radar and motion reported as one signal.",
           "scanner_areas": "Pick areas with no URA room whose Bluetooth scanner covers this room (e.g. an entry nook or vanity). A phone heard there counts as in this room. Leave empty if it has its own scanner; its own area is ignored.",
           "disable_camera_presence": "Skip camera-based presence detection for this room. Use for chronic camera false positives (TV reflections, sun-glare hallways). Other sensors continue to contribute.",
@@ -128,7 +140,8 @@
           "door_type": "Interior doors vs. egress (exterior) doors have different alert thresholds",
           "window_sensor": "Window open/closed sensor for security alerts",
           "is_egress_window": "When ON, leaving this window open for a few minutes pauses the HVAC for the zone that serves this room (so you're not cooling the outside). Turn OFF for small vent windows that open often but shouldn't stop HVAC.",
-          "water_leak_sensor": "Water/moisture sensor for safety alerts"
+          "water_leak_sensor": "Water/moisture sensor for safety alerts",
+          "room_cameras": "Cameras that look into this room. They override the camera-to-room match from Home Assistant areas."
         }
       },
       "devices": {
@@ -145,7 +158,10 @@
           "manual_switches": "Auto-Off Only Devices",
           "auto_devices": "Auto Devices",
           "manual_devices": "Manual Devices",
-          "adjacent_rooms": "Adjacent rooms"
+          "adjacent_rooms": "Adjacent rooms",
+          "room_fan_recheck_enabled": "Fan recheck in this room",
+          "fan_recheck_l2_allowed": "Check when someone is next door",
+          "fan_recheck_trust_sensors_ok": "Check without Bluetooth"
         },
         "data_description": {
           "lights": "Lights to control on entry/exit (auto-detected from area if available)",
@@ -158,7 +174,10 @@
           "manual_switches": "Devices (lights, fans, switches, input_booleans) that only turn off when vacant (not auto-on)",
           "auto_devices": "Devices (lights, fans, switches, input_booleans) that turn on with occupancy and off when vacant",
           "manual_devices": "Devices (lights, fans, switches, input_booleans) that only turn off when vacant (not auto-on)",
-          "adjacent_rooms": "Rooms you can walk straight into from this one. A phone in one of them backs up this room's presence radar while a ceiling fan runs, and nearby wall panels light up for alerts."
+          "adjacent_rooms": "Rooms you can walk straight into from this one. A phone in one of them backs up this room's presence radar while a ceiling fan runs, and nearby wall panels light up for alerts.",
+          "room_fan_recheck_enabled": "Let the fan recheck (Presence settings) pause this room's fan. Needs Fan recheck on there too. This room's Fan Recheck switch controls the same thing; use the switch to change it. Default on.",
+          "fan_recheck_l2_allowed": "In a room with its own Bluetooth scanner, allow a check while people are home in this part of the house if a phone places them in a neighbouring room. Off = skip the check whenever anyone is in this part of the house. Default on.",
+          "fan_recheck_trust_sensors_ok": "In a room without its own Bluetooth scanner, allow a check on room sensors alone. Off = only rooms with a scanner are checked. Default on."
         }
       },
       "night_light_detail": {
@@ -182,31 +201,29 @@
         "description": "Configure how window covers/blinds respond to occupancy and time-of-day.",
         "data": {
           "cover_type": "Cover Type",
-          "entry_cover_action": "Covers when Someone Enters",
           "exit_cover_action": "Covers when the Room Empties",
-          "open_timing_mode": "When Covers Can Open",
-          "open_time_start": "Earliest Open Time",
-          "open_time_end": "Latest Open Time",
           "sunrise_offset": "Sunrise Offset",
           "timed_close_enabled": "Enable Timed Close",
-          "close_timing_mode": "When Covers Auto-Close",
-          "close_time": "Close Time",
           "sunset_offset": "Sunset Offset",
-          "cover_hvac_managed": "Let HVAC Close These for Sun Control"
+          "cover_hvac_managed": "Let HVAC Close These for Sun Control",
+          "cover_open_mode": "Open Mode",
+          "cover_open_time_source": "Open Time Source",
+          "cover_open_hour": "Open Hour",
+          "cover_close_time_source": "Close time from",
+          "cover_close_hour": "Close hour"
         },
         "data_description": {
           "cover_type": "Roller shades (open/close) vs. venetian blinds (tilt)",
-          "entry_cover_action": "When to open covers on room entry",
           "exit_cover_action": "When to close covers on room exit",
-          "open_timing_mode": "Control when covers are allowed to open",
-          "open_time_start": "Earliest hour (0-23) covers can open",
-          "open_time_end": "Latest hour (0-23) covers can open",
           "sunrise_offset": "Minutes before/after sunrise for sun-based timing",
           "timed_close_enabled": "Automatically close covers at a specific time",
-          "close_timing_mode": "Control when covers auto-close",
-          "close_time": "Hour (0-23) for timed auto-close",
           "sunset_offset": "Minutes before/after sunset for sun-based timing",
-          "cover_hvac_managed": "When ON, HVAC may close these covers on hot afternoons to cut cooling load. Turn OFF to exempt this room (e.g. bedrooms for naps or light-sensitive sleep)."
+          "cover_hvac_managed": "When ON, HVAC may close these covers on hot afternoons to cut cooling load. Turn OFF to exempt this room (e.g. bedrooms for naps or light-sensitive sleep).",
+          "cover_open_mode": "When to open covers: manual, on entry, at time, or combo",
+          "cover_open_time_source": "Use sunrise or a specific hour for time-based opening",
+          "cover_open_hour": "Hour (0-23) for specific-time opening",
+          "cover_close_time_source": "When the covers' day ends (sunset or a set hour). Used by timed close and by sun control, which treats covers as meant to be open only before this time.",
+          "cover_close_hour": "When the covers' day ends (sunset or a set hour). Used by timed close and by sun control, which treats covers as meant to be open only before this time."
         }
       },
       "automation_behavior": {
@@ -384,7 +401,7 @@
             "data": {
               "target_temp_heat": "Comfort Range — Low (°F)",
               "target_temp_cool": "Comfort Range — High (°F)",
-              "climate_entity": "Climate/Thermostat Entity (fallback)"
+              "climate_entity": "Thermostat"
             },
             "data_description": {
               "target_temp_heat": "Lower bound of the comfortable temperature range. Used by the comfort/efficiency score sensors.",
@@ -414,16 +431,16 @@
         "description": "Prevent automation from disturbing sleep during nighttime hours.",
         "data": {
           "sleep_protection_enabled": "Enable Sleep Protection",
-          "sleep_start_hour": "Sleep Start Hour",
-          "sleep_end_hour": "Sleep End Hour",
+          "sleep_start_hour": "Room sleep starts (hour)",
+          "sleep_end_hour": "Room sleep ends (hour)",
           "sleep_bypass_motion_count": "Motions Required to Wake Automation",
           "sleep_block_covers": "Block Cover Automation",
           "fan_sleep_policy": "Fans During Sleep"
         },
         "data_description": {
           "sleep_protection_enabled": "Block most automation during sleep hours",
-          "sleep_start_hour": "Hour when sleep mode starts (0-23, e.g., 22 = 10 PM)",
-          "sleep_end_hour": "Hour when sleep mode ends (0-23, e.g., 7 = 7 AM)",
+          "sleep_start_hour": "Hours this room's sleep protection is active. The house sleep window is set in Presence settings.",
+          "sleep_end_hour": "Hours this room's sleep protection is active. The house sleep window is set in Presence settings.",
           "sleep_bypass_motion_count": "How many motion trips during sleep hours before URA treats the room as awake and resumes normal automation.",
           "sleep_block_covers": "Prevent covers from opening during sleep hours",
           "fan_sleep_policy": "How fans behave during sleep hours: off, reduced speed, or normal"
@@ -480,12 +497,12 @@
         "description": "{name}",
         "data": {
           "motion_sensors": "Motion",
-          "mmwave_sensors": "mmWave",
+          "presence_sensors": "Presence sensors",
           "occupancy_sensors": "Occupancy",
           "temperature_sensor": "Temperature",
           "humidity_sensor": "Humidity",
           "illuminance_sensor": "Illuminance",
-          "door_sensors": "Door",
+          "door_sensor": "Door sensor",
           "water_leak_sensor": "Water leak"
         },
         "data_description": {
@@ -493,9 +510,9 @@
           "temperature_sensor": "Optional — leave blank if none.",
           "humidity_sensor": "Optional — leave blank if none.",
           "illuminance_sensor": "Optional — leave blank if none.",
-          "door_sensors": "Optional — leave blank if none.",
+          "door_sensor": "Door open/closed sensor",
           "water_leak_sensor": "Optional — leave blank if none.",
-          "mmwave_sensors": "mmWave / radar presence binary_sensors. Optional — leave blank if none.",
+          "presence_sensors": "Radar sensors that still see a person who is sitting or sleeping (mmWave presence models). Motion-only radars belong in Motion sensors.",
           "occupancy_sensors": "Sensors that already fuse motion + presence into one signal. Optional."
         }
       },
@@ -660,30 +677,48 @@
       },
       "zone_hvac": {
         "title": "🌡️ Thermostat",
-        "description": "Pick the thermostat for this zone. If none is set, the first room's thermostat is used. Zones sharing this thermostat get the same settings. {advanced_hint}",
+        "description": "Pick the thermostat for this zone. If none is set, the first room's thermostat is used. Zones sharing this thermostat get the same settings.",
         "data": {
-          "zone_thermostat": "Thermostat",
-          "hvac_ac_load_sensor": "AC power sensor",
-          "hvac_ac_ramp_zone_enabled": "AC overrun fix",
-          "hvac_thermostat_min_delta_f": "Min heat/cool gap"
+          "zone_thermostat": "Thermostat"
         },
         "data_description": {
-          "zone_thermostat": "Thermostat that controls this zone.",
-          "hvac_ac_load_sensor": "Sensor that measures this AC unit's power, such as a panel circuit. Leave empty to turn off the AC overrun fix for this zone.",
-          "hvac_ac_ramp_zone_enabled": "Briefly eases or restarts the AC when it keeps running after reaching the set temperature. Needs the AC load sensor.",
-          "hvac_thermostat_min_delta_f": "Must be at least the thermostat's own Heat/Cool Min Delta setting (ecobee: Installation Settings → Thresholds)."
+          "zone_thermostat": "Thermostat that controls this zone."
+        },
+        "sections": {
+          "advanced": {
+            "name": "Advanced (rarely change)",
+            "data": {
+              "hvac_ac_load_sensor": "AC power sensor",
+              "hvac_ac_ramp_zone_enabled": "AC overrun fix",
+              "hvac_thermostat_min_delta_f": "Min heat/cool gap"
+            },
+            "data_description": {
+              "hvac_ac_load_sensor": "Sensor that measures this AC unit's power, such as a panel circuit. Leave empty to turn off the AC overrun fix for this zone.",
+              "hvac_ac_ramp_zone_enabled": "Briefly eases or restarts the AC when it keeps running after reaching the set temperature. Needs the AC load sensor.",
+              "hvac_thermostat_min_delta_f": "Must be at least the thermostat's own Heat/Cool Min Delta setting (ecobee: Installation Settings → Thresholds)."
+            }
+          }
         }
       },
       "zone_energy": {
         "title": "⚡ Zone Energy Sensors",
-        "description": "Configure power and energy sensors for zone-level loads (HVAC circuits, subpanel meters). These track energy not attributable to individual rooms. {advanced_hint}",
+        "description": "Configure power and energy sensors for zone-level loads (HVAC circuits, subpanel meters). These track energy not attributable to individual rooms.",
         "data": {
-          "zone_power_sensors": "Power sensors",
           "zone_energy_sensors": "Energy sensors"
         },
         "data_description": {
-          "zone_power_sensors": "Power sensors for zone loads not already in a room. Added to the zone's total power.",
           "zone_energy_sensors": "Energy (kWh) sensors for zone loads, such as AC circuits or a subpanel."
+        },
+        "sections": {
+          "advanced": {
+            "name": "Advanced (rarely change)",
+            "data": {
+              "zone_power_sensors": "Power sensors"
+            },
+            "data_description": {
+              "zone_power_sensors": "Power sensors for zone loads not already in a room. Added to the zone's total power."
+            }
+          }
         }
       },
       "zone_persons": {
@@ -708,56 +743,83 @@
       },
       "zone_dynamic_preset": {
         "title": "🌤️ Weather comfort",
-        "description": "Let weather adjust the thermostat ranges for zone '{zone_name}'. Add a small offset if this zone runs warm or cool. {advanced_hint}",
+        "description": "Let weather adjust the thermostat ranges for zone '{zone_name}'. Add a small offset if this zone runs warm or cool.",
         "data": {
           "zone_dynamic_preset_enabled": "Weather comfort",
-          "zone_dynamic_preset_offset": "Offset (°F)",
-          "zone_dynamic_preset_reset_offset_guest": "No offset with guests",
-          "zone_dynamic_preset_sleep_enabled": "Separate sleep ranges"
+          "zone_dynamic_preset_offset": "Offset (°F)"
         },
         "data_description": {
           "zone_dynamic_preset_enabled": "When on, this zone's thermostat ranges shift with outdoor conditions.",
-          "zone_dynamic_preset_offset": "Extra °F added on top of the weather shift (0 to 3). Use it for zones that run warm or cool.",
-          "zone_dynamic_preset_reset_offset_guest": "When Guest mode is on, set this zone's offset to 0 so guests get the normal range.",
-          "zone_dynamic_preset_sleep_enabled": "When off, sleep uses the same ranges as Home."
+          "zone_dynamic_preset_offset": "Extra °F added on top of the weather shift (0 to 3). Use it for zones that run warm or cool."
+        },
+        "sections": {
+          "advanced": {
+            "name": "Advanced (rarely change)",
+            "data": {
+              "zone_dynamic_preset_reset_offset_guest": "No offset with guests",
+              "zone_dynamic_preset_sleep_enabled": "Separate sleep ranges"
+            },
+            "data_description": {
+              "zone_dynamic_preset_reset_offset_guest": "When Guest mode is on, set this zone's offset to 0 so guests get the normal range.",
+              "zone_dynamic_preset_sleep_enabled": "When off, sleep uses the same ranges as Home."
+            }
+          }
         }
       },
       "global_sensors": {
         "title": "Global Sensors",
-        "description": "Sensors shared by all rooms. Saving briefly restarts URA. {advanced_hint}",
+        "description": "Sensors shared by all rooms. Saving briefly restarts URA.",
         "data": {
           "outside_temp_sensor": "Outdoor temperature",
           "outside_humidity_sensor": "Outdoor humidity",
           "weather_entity": "Weather forecast",
           "solar_production_sensor": "Solar production",
-          "electricity_rate": "Backup power price ($/kWh)",
-          "outdoor_light_sensor": "Outdoor light sensor",
-          "outdoor_dark_lux": "Dark outside below"
+          "outdoor_light_sensor": "Outdoor light sensor"
         },
         "data_description": {
           "outside_temp_sensor": "Sensor for outdoor temperature",
           "outside_humidity_sensor": "Sensor for outdoor humidity",
           "weather_entity": "Weather entity for forecasts",
           "solar_production_sensor": "Current solar production. Used for room energy estimates.",
-          "electricity_rate": "Used only when the Energy coordinator has no price. The Energy coordinator's time-of-use price wins.",
-          "outdoor_light_sensor": "Used to decide if it's dark when a room has no working light sensor. Any outdoor lux sensor works, incl. the weather-adjusted Illuminance integration.",
-          "outdoor_dark_lux": "Outdoor light level, in lux, below which rooms without a sensor count as dark."
+          "outdoor_light_sensor": "Used to decide if it's dark when a room has no working light sensor. Any outdoor lux sensor works, incl. the weather-adjusted Illuminance integration."
+        },
+        "sections": {
+          "advanced": {
+            "name": "Advanced (rarely change)",
+            "data": {
+              "outdoor_dark_lux": "Dark outside below",
+              "electricity_rate": "Backup power price ($/kWh)"
+            },
+            "data_description": {
+              "outdoor_dark_lux": "Outdoor light level, in lux, below which rooms without a sensor count as dark.",
+              "electricity_rate": "Used only when the Energy coordinator has no price. The Energy coordinator's time-of-use price wins."
+            }
+          }
         }
       },
       "energy_sensors": {
         "title": "Energy Sensors",
-        "description": "Energy sensors for whole-house tracking and forecasts. Saving briefly restarts URA. {advanced_hint}",
+        "description": "Energy sensors for whole-house tracking and forecasts. Saving briefly restarts URA.",
         "data": {
           "whole_house_power_sensors": "Whole-house power",
           "whole_house_energy_sensors": "Whole-house energy",
-          "house_device_power_sensors": "Device power sensors",
           "house_device_energy_sensors": "Device energy sensors"
         },
         "data_description": {
           "whole_house_power_sensors": "Live whole-house power sensors. Pick several if you have separate meters.",
           "whole_house_energy_sensors": "Total whole-house energy sensors. Pick several if you have separate meters.",
-          "house_device_power_sensors": "Power sensors for house-wide devices. Not used yet; the energy sensors are what count.",
           "house_device_energy_sensors": "Energy sensors for house-wide devices such as EV chargers, pool pumps and water heaters."
+        },
+        "sections": {
+          "advanced": {
+            "name": "Advanced (rarely change)",
+            "data": {
+              "house_device_power_sensors": "Device power sensors"
+            },
+            "data_description": {
+              "house_device_power_sensors": "Power sensors for house-wide devices. Not used yet; the energy sensors are what count."
+            }
+          }
         }
       },
       "default_notifications": {
@@ -776,90 +838,117 @@
       },
       "person_tracking": {
         "title": "👥 Person Tracking",
-        "description": "Pick which people to follow from room to room. Saving briefly restarts URA. {advanced_hint}",
+        "description": "Pick which people to follow from room to room. Saving briefly restarts URA.",
         "data": {
-          "tracked_persons": "People",
-          "person_data_retention_days": "Keep history (days)",
-          "transition_detection_window": "Room change wait (s)"
+          "tracked_persons": "People"
         },
         "data_description": {
-          "tracked_persons": "People whose room-to-room movement URA follows.",
-          "person_data_retention_days": "Not used yet. History is kept by the database settings.",
-          "transition_detection_window": "Not used yet. Room changes are confirmed automatically."
+          "tracked_persons": "People whose room-to-room movement URA follows."
+        },
+        "sections": {
+          "advanced": {
+            "name": "Advanced (rarely change)",
+            "data": {
+              "person_data_retention_days": "Keep history (days)",
+              "transition_detection_window": "Room change wait (s)"
+            },
+            "data_description": {
+              "person_data_retention_days": "Not used yet. History is kept by the database settings.",
+              "transition_detection_window": "Not used yet. Room changes are confirmed automatically."
+            }
+          }
         }
       },
       "camera_census": {
         "title": "📷 Camera Census",
-        "description": "Pick cameras for counting people. Person sensors are found automatically. Works with UniFi Protect, Frigate, Reolink and Dahua. Some changes here briefly restart URA. {advanced_hint}",
+        "description": "Pick cameras for counting people. Person sensors are found automatically. Works with UniFi Protect, Frigate, Reolink and Dahua. Some changes here briefly restart URA.",
         "data": {
-          "census_cross_validation": "Cross-check camera systems",
-          "census_divergence_downgrade": "Trust the lower count",
           "camera_person_entities": "Indoor Cameras",
           "egress_cameras": "Door Cameras",
           "perimeter_cameras": "Outdoor Cameras",
-          "perimeter_zone_sensors": "Property zone sensors",
           "face_recognition_enabled": "Face recognition",
-          "enhanced_census": "Smarter counting",
           "guest_vlan_ssid": "Guest Wi-Fi name",
-          "census_hold_interior": "Indoor hold (min)",
-          "census_hold_exterior": "Outdoor hold (min)",
-          "census_ble_cancel_enabled": "Phones excuse unknown people",
           "egress_identity_enabled": "Name people at doors",
-          "known_face_guests": "Known guests",
-          "face_name_aliases": "Face name aliases",
-          "egress_identity_failsafe_strict": "Only trust live faces",
-          "auto_enable_person_detection": "Turn on person detection",
-          "door_groups": "Group door cameras",
-          "door_interior_neighbours": "Rooms next to each door",
-          "main_entry_door": "Main entry door"
+          "known_face_guests": "Known guests"
         },
         "data_description": {
-          "census_cross_validation": "If you run more than one camera system (such as Frigate and UniFi Protect), compare their counts. Turn off if you use only one.",
-          "census_divergence_downgrade": "When two camera systems disagree about a room and nothing else backs up the higher count, trust the lower one. Stops one false sighting from turning on Guest mode.",
           "camera_person_entities": "Select cameras inside your home. Each camera is automatically mapped to a room using its area assignment in Home Assistant. Works with UniFi Protect, Frigate, Reolink, and Dahua.",
           "egress_cameras": "Cameras at your exterior doors (front door, back door, garage). Used to track who enters and leaves — not used for room occupancy. Deliveries and visitors at the door won't trigger room automation.",
           "perimeter_cameras": "Cameras covering your yard, driveway, or fence line. Used to count people on your property who are outside the house.",
-          "perimeter_zone_sensors": "Frigate zone person sensors to use instead of the whole-camera sensor, so a person on the street does not alert.",
           "face_recognition_enabled": "Use face matches from your cameras to confirm who someone is. Needs a camera system with face recognition. You can also turn this off from its switch on the House device.",
-          "enhanced_census": "Hold counts for a while, spot guest phones on guest Wi-Fi, and tell people seen apart from people recognized.",
           "guest_vlan_ssid": "SSID of your guest WiFi network (e.g., 'Revel'). Phones connected to this SSID are counted as guests. Leave blank to disable WiFi guest detection.",
-          "census_hold_interior": "Minutes to keep the highest indoor count before it starts to drop. Covers people moving between rooms or out of view. Default 15.",
-          "census_hold_exterior": "Minutes to keep the highest outdoor count before it drops. Shorter than indoor because outdoor sightings pass quickly. Default 5.",
-          "census_ble_cancel_enabled": "When someone's phone places them in the same area as a camera that sees an unrecognized person, don't count that person toward guest detection. Turn off if guest detection seems to miss real guests.",
           "egress_identity_enabled": "Name people who walk through door cameras, using face recognition, so the house count knows who is home. You can also turn this off from its switch on the House device.",
-          "known_face_guests": "Names from your face library that belong to regular guests, not residents. Leave empty if none.",
-          "face_name_aliases": "Map a face-library name to a person, one per line as Name=person (for example Oji=oji_udezue). Use it when a name does not match the person's entity. Leave empty if names already match.",
-          "egress_identity_failsafe_strict": "Only name people at doors when face recognition is working right now. Leave on.",
-          "auto_enable_person_detection": "Turn on person detection on room cameras that have it off. For now URA only lists them in the log.",
-          "door_groups": "Map each door camera's name to a group (e.g. two cameras on one front door → both to 'front'). Leave blank if each camera is its own door.",
-          "door_interior_neighbours": "For each door group, list the indoor cameras right next to it. Used to decide entry vs exit when the door fires. Leave blank to use all indoor cameras.",
-          "main_entry_door": "Name of the main door group (from the list above). Used for arrival estimates. Leave blank if you don't have one."
+          "known_face_guests": "Names from your face library that belong to regular guests, not residents. Leave empty if none."
+        },
+        "sections": {
+          "advanced": {
+            "name": "Advanced (rarely change)",
+            "data": {
+              "census_cross_validation": "Cross-check camera systems",
+              "census_divergence_downgrade": "Trust the lower count",
+              "enhanced_census": "Smarter counting",
+              "egress_identity_failsafe_strict": "Only trust live faces",
+              "census_ble_cancel_enabled": "Phones excuse unknown people",
+              "auto_enable_person_detection": "Turn on person detection",
+              "census_hold_interior": "Indoor hold (min)",
+              "census_hold_exterior": "Outdoor hold (min)",
+              "door_groups": "Group door cameras",
+              "door_interior_neighbours": "Rooms next to each door",
+              "main_entry_door": "Main entry door (not used)",
+              "perimeter_zone_sensors": "Property zone sensors",
+              "face_name_aliases": "Face name aliases"
+            },
+            "data_description": {
+              "census_cross_validation": "If you run more than one camera system (such as Frigate and UniFi Protect), compare their counts. Turn off if you use only one.",
+              "census_divergence_downgrade": "When two camera systems disagree about a room and nothing else backs up the higher count, trust the lower one. Stops one false sighting from turning on Guest mode.",
+              "enhanced_census": "Hold counts for a while, spot guest phones on guest Wi-Fi, and tell people seen apart from people recognized.",
+              "egress_identity_failsafe_strict": "Only name people at doors when face recognition is working right now. Leave on.",
+              "census_ble_cancel_enabled": "When someone's phone places them in the same area as a camera that sees an unrecognized person, don't count that person toward guest detection. Turn off if guest detection seems to miss real guests.",
+              "auto_enable_person_detection": "Turn on person detection on room cameras that have it off. For now URA only lists them in the log.",
+              "census_hold_interior": "Minutes to keep the highest indoor count before it starts to drop. Covers people moving between rooms or out of view. Default 15.",
+              "census_hold_exterior": "Minutes to keep the highest outdoor count before it drops. Shorter than indoor because outdoor sightings pass quickly. Default 5.",
+              "door_groups": "Map each door camera's name to a group (e.g. two cameras on one front door → both to 'front'). Leave blank if each camera is its own door.",
+              "door_interior_neighbours": "For each door group, list the indoor cameras right next to it. Used to decide entry vs exit when the door fires. Leave blank to use all indoor cameras.",
+              "main_entry_door": "Not used yet. Leave blank.",
+              "perimeter_zone_sensors": "Frigate zone person sensors to use instead of the whole-camera sensor, so a person on the street does not alert.",
+              "face_name_aliases": "Map a face-library name to a person, one per line as Name=person (for example Oji=oji_udezue). Use it when a name does not match the person's entity. Leave empty if names already match."
+            }
+          }
         }
       },
       "perimeter_alerting": {
         "title": "🚨 Perimeter Alerting",
-        "description": "Get alerts about vehicles on your outdoor cameras during these hours. Optional AI descriptions add detail. {advanced_hint}",
+        "description": "Get alerts about vehicles on your outdoor cameras during these hours. Optional AI descriptions add detail.",
         "data": {
           "perimeter_vehicle_hours_start": "Start hour (0-23)",
           "perimeter_vehicle_hours_end": "End hour (0-23)",
-          "perimeter_enrichment_enabled": "AI descriptions",
-          "perimeter_enrichment_provider": "AI service",
-          "perimeter_enrichment_person_sensors": "Cameras to describe",
-          "perimeter_enrichment_model": "AI model",
-          "perimeter_enrichment_max_tokens": "Max reply length",
-          "perimeter_enrichment_provider_id": "AI provider ID",
-          "exterior_snapshot_offset_s": "Snapshot delay (s)"
+          "perimeter_enrichment_enabled": "AI descriptions"
         },
         "data_description": {
           "perimeter_vehicle_hours_start": "Vehicle alerts start at this hour. Ranges can cross midnight, for example 23 to 5.",
           "perimeter_vehicle_hours_end": "Vehicle alerts stop at this hour. If it is before the start hour, the range runs overnight.",
-          "perimeter_enrichment_enabled": "Add a short AI description of the snapshot to each alert. Off by default.",
-          "perimeter_enrichment_provider": "Integration that writes the description. Only llmvision works today.",
-          "perimeter_enrichment_person_sensors": "Only alerts from these camera sensors get a description. Leave empty for none.",
-          "perimeter_enrichment_model": "AI model name the service should use.",
-          "perimeter_enrichment_max_tokens": "Longest description the AI may write. Some models reply with nothing if this is too low.",
-          "perimeter_enrichment_provider_id": "Optional. Which llmvision provider to use. Leave empty for its default.",
-          "exterior_snapshot_offset_s": "Wait this many seconds before sending, so the snapshot is closer to the moment. 0 means no wait."
+          "perimeter_enrichment_enabled": "Add a short AI description of the snapshot to each alert. Off by default."
+        },
+        "sections": {
+          "advanced": {
+            "name": "Advanced (rarely change)",
+            "data": {
+              "perimeter_enrichment_provider": "AI service",
+              "perimeter_enrichment_person_sensors": "Cameras to describe",
+              "perimeter_enrichment_model": "AI model",
+              "perimeter_enrichment_max_tokens": "Max reply length",
+              "perimeter_enrichment_provider_id": "AI provider ID",
+              "exterior_snapshot_offset_s": "Snapshot delay (s)"
+            },
+            "data_description": {
+              "perimeter_enrichment_provider": "Integration that writes the description. Only llmvision works today.",
+              "perimeter_enrichment_person_sensors": "Only alerts from these camera sensors get a description. Leave empty for none.",
+              "perimeter_enrichment_model": "AI model name the service should use.",
+              "perimeter_enrichment_max_tokens": "Longest description the AI may write. Some models reply with nothing if this is too low.",
+              "perimeter_enrichment_provider_id": "Optional. Which llmvision provider to use. Leave empty for its default.",
+              "exterior_snapshot_offset_s": "Wait this many seconds before sending, so the snapshot is closer to the moment. 0 means no wait."
+            }
+          }
         }
       },
       "domain_coordinators": {
@@ -873,47 +962,51 @@
         }
       },
       "coordinator_presence": {
-        "title": "👥 Presence Settings",
-        "description": "Configure the Presence Coordinator. Sleep hours determine when the house transitions to sleep/waking states. Geofence trackers detect arrivals and departures.",
+        "title": "👥 Presence",
+        "description": "How the house decides who is home, when it sleeps, and when a running fan is fooling a room sensor. Who is home comes from each person in Home Assistant (Settings → People: the device trackers set for each person, read against your Home zone). Saving restarts the house coordinators.",
         "data": {
-          "sleep_start_hour": "Sleep Start Hour",
-          "sleep_end_hour": "Sleep End Hour",
-          "geofence_entities": "Geofence Device Trackers",
-          "guest_mode_persistence_seconds": "Guest Mode Persistence (seconds)",
-          "guest_mode_require_confidence": "Guest Mode Min Census Confidence",
-          "fan_recheck_enabled": "Fan Recheck (master)"
+          "sleep_start_hour": "House sleep starts (hour)",
+          "sleep_end_hour": "House sleep ends (hour)",
+          "guest_mode_persistence_seconds": "Guest mode exit wait (s)",
+          "guest_mode_require_confidence": "Camera agreement for visitors",
+          "fan_recheck_enabled": "Fan recheck",
+          "lost_away_grace_min": "Silent-phone wait (min)",
+          "lost_away_sleep_exempt": "No Away at night on a silent phone",
+          "presence_anomaly_sensitivity": "Unusual-activity sensitivity"
         },
         "data_description": {
-          "sleep_start_hour": "Hour (0–23) when the house enters sleep mode. Default: 23 (11 PM).",
-          "sleep_end_hour": "Hour (0–23) when the house exits sleep mode. Default: 6 (6 AM).",
-          "geofence_entities": "Device tracker entities used for geofence-based arrival/departure detection. Select person device trackers that report home/not_home zones.",
-          "guest_mode_persistence_seconds": "How long an unidentified person must persist before the house enters Guest mode. Filters transient ID failures (face DB miss, BLE coverage gap). Set to 0 to disable persistence (instant trigger). Default: 300s (5 min).",
-          "guest_mode_require_confidence": "Minimum census confidence required to trigger Guest mode. 'medium' refuses to fire when cameras disagree or no camera data. 'high' requires both camera platforms agree. Default: medium.",
-          "fan_recheck_enabled": "Master kill-switch for the fan-noise Mode-2 BLE-gated fan-pause+recheck. Default OFF; flip ON after live validation. Timing knobs live under the collapsed Advanced section."
+          "sleep_start_hour": "Hour (0-23) from which the house can switch to Sleep while people are home. It also sets the night used for guest-stay detection and the garage lockout. Default 23.",
+          "sleep_end_hour": "Hour (0-23) when the house night ends and Sleep can turn into Waking. Default 6.",
+          "guest_mode_persistence_seconds": "How long Guest mode must look finished before the house leaves it, so a short camera miss does not end it. Also how long an unknown person must stay in view to show as a visitor. 0 = no wait. Default 300.",
+          "guest_mode_require_confidence": "How sure the camera count must be before an unknown person shows on the Visitors Present sensor. It does not turn on Guest mode; a day and a night in a guest room does. Default medium.",
+          "fan_recheck_enabled": "When a ceiling fan may be fooling a room's presence radar, pause the fan briefly and see whether the room is really empty. Off = fans are never paused. The Fan Recheck switch on the Presence device controls the same thing; use the switch to change it. Default off.",
+          "lost_away_grace_min": "When a resident's phone has gone silent, how long to wait before the house may switch to Away without them, unless the cameras and every room have read empty for a few updates in a row. 0 = no wait. Default 60.",
+          "lost_away_sleep_exempt": "At night (from Home Night through Waking, or inside the house sleep hours), a silent phone never lets the house switch to Away. Keep on so a phone that dies overnight cannot mark a sleeper away. Default on.",
+          "presence_anomaly_sensitivity": "How readily presence patterns that look unusual are flagged. Normal suits most homes."
         },
         "sections": {
           "fan_recheck_advanced": {
-            "name": "Fan Recheck Timing (Advanced — rarely change)",
-            "description": "Timing knobs for the fan-noise Mode-2 recheck state machine. Defaults are tuned for typical mmwave + ceiling-fan setups; only adjust if you understand the trade-offs.",
+            "name": "Fan recheck timing (rarely change)",
+            "description": "The defaults suit most rooms.",
             "data": {
-              "fan_recheck_arm_delay_s": "Arm Delay (s)",
-              "fan_recheck_spindown_s": "Fan Spindown (s)",
-              "fan_recheck_window_s": "Recheck Window (s)",
-              "fan_recheck_cooldown_s": "Cooldown After Recheck (s)",
-              "fan_recheck_max_per_hour": "Max Rechecks Per Hour",
-              "fan_recheck_hvac_suppress_s": "HVAC Suppression Window (s)",
-              "fan_recheck_mmwave_history_ticks": "mmWave-Sole Consecutive Ticks",
+              "fan_recheck_arm_delay_s": "Wait before a check (s)",
+              "fan_recheck_spindown_s": "Fan stop time (s)",
+              "fan_recheck_window_s": "Listening time (s)",
+              "fan_recheck_cooldown_s": "Time between checks (s)",
+              "fan_recheck_max_per_hour": "Checks per hour (max)",
+              "fan_recheck_hvac_suppress_s": "Keep HVAC off the fan (s)",
+              "fan_recheck_mmwave_history_ticks": "Radar-only readings needed",
               "fan_recheck_family_scaling_enabled": "Longer wait for slow radars"
             },
             "data_description": {
-              "fan_recheck_arm_delay_s": "Delay between trigger eligibility and arming the recheck. Filters quick false-positives. Default: 60s.",
-              "fan_recheck_spindown_s": "How long airflow takes to stop after the fan is paused. mmWave is ignored during this period. Default: 30s.",
-              "fan_recheck_window_s": "Observation window after spindown. If mmWave drops while the fan is paused, the room vacates. Default: 60s.",
-              "fan_recheck_cooldown_s": "Wait time between rechecks per room before another can fire. Default: 900s (15 min).",
-              "fan_recheck_max_per_hour": "Hard cap on how many rechecks a single room can run per hour. 0 disables the cap. Default: 2.",
-              "fan_recheck_hvac_suppress_s": "How long HVAC fan-routing stays suppressed for this room after a recheck pauses the fan, so heat/cool doesn't immediately re-energize it. Default: 600s (10 min).",
-              "fan_recheck_mmwave_history_ticks": "Number of consecutive presence ticks that must be mmWave-only (no motion/occupancy/camera) before a recheck is eligible. Default: 3.",
-              "fan_recheck_family_scaling_enabled": "Lengthen the recheck window for radar models that take longer to clear after a fan stops (Hobeian presence radars x2, LD2410/LD2412 x3, other radars x1.5). Off = same window for every room. Default: on."
+              "fan_recheck_arm_delay_s": "How long the signs of fan noise must last before the fan is paused. Default 60.",
+              "fan_recheck_spindown_s": "How long the fan needs to stop after it is paused. The radar is ignored during this time. Default 30.",
+              "fan_recheck_window_s": "How long the radar is watched with the fan stopped. If it goes quiet, the room is marked empty and the fan stays off. Default 60.",
+              "fan_recheck_cooldown_s": "Shortest time between two checks in the same room. Default 900 (15 min).",
+              "fan_recheck_max_per_hour": "Most checks one room can run in an hour. 0 = no limit. Default 2.",
+              "fan_recheck_hvac_suppress_s": "After a check pauses a fan, how long HVAC fan control leaves that fan alone. Default 600 (10 min).",
+              "fan_recheck_mmwave_history_ticks": "How many room updates in a row must come from the presence radar alone (no motion, camera or other sensor) before a check can start. Default 3.",
+              "fan_recheck_family_scaling_enabled": "Give radar models that are slow to clear more listening time, up to 3x. Off = the same listening time in every room. Default on."
             }
           }
         }
@@ -928,7 +1021,8 @@
           "global_leak_sensors": "Global Water Leak Sensors",
           "global_aq_sensors": "Global Air Quality Sensors (CO, CO₂, VOC)",
           "global_temp_sensors": "Global Temperature Sensors",
-          "global_humidity_sensors": "Global Humidity Sensors"
+          "global_humidity_sensors": "Global Humidity Sensors",
+          "safety_anomaly_sensitivity": "Unusual-reading sensitivity"
         },
         "data_description": {
           "water_shutoff_valve": "Optional valve entity to close automatically on water leak detection (HIGH severity or above). Leave empty if no shutoff valve is installed — you can add one later.",
@@ -937,7 +1031,8 @@
           "global_leak_sensors": "Water leak sensors not assigned to any URA room (e.g., utility chase, water main).",
           "global_aq_sensors": "Air quality sensors (CO, CO₂, VOC) not assigned to any URA room.",
           "global_temp_sensors": "Temperature sensors not assigned to any URA room (e.g., attic, crawl space).",
-          "global_humidity_sensors": "Humidity sensors not assigned to any URA room."
+          "global_humidity_sensors": "Humidity sensors not assigned to any URA room.",
+          "safety_anomaly_sensitivity": "How readily safety readings that look unusual are flagged. Normal suits most homes."
         }
       },
       "coordinator_security": {
@@ -948,19 +1043,20 @@
           "security_lock_sweep_exclude": "Never auto-lock these",
           "security_away_lock_entities": "Lock when everyone below is out",
           "security_away_lock_persons": "People for the away lock",
-          "security_garage_entities": "Garage Door Entities",
+          "security_garage_entities": "Garage doors",
           "security_entry_sensors": "Entry Sensors (Door/Window)",
-          "security_light_entities": "Security Light Entities",
-          "security_camera_entities": "Camera Entities",
+          "security_light_entities": "Security lights",
+          "security_camera_entities": "Cameras",
           "security_camera_recording": "Enable Camera Recording Triggers",
           "security_camera_record_duration": "Camera Record Duration (seconds)",
-          "security_alarm_panel": "Alarm Panel Entity",
+          "security_alarm_panel": "Alarm panel",
           "security_auto_follow": "Auto-Follow House State",
           "security_lock_check_interval": "Periodic Lock Check Interval (minutes)",
           "security_lockout_entities": "Garage remote lockout locks",
           "security_lockout_excluded_persons": "People who never release the lockout",
           "security_lockout_distance_sensors": "Proximity distance sensors (early release)",
-          "security_lockout_approach_zone": "Approach zone (optional early release)"
+          "security_lockout_approach_zone": "Approach zone (optional early release)",
+          "security_anomaly_sensitivity": "Unusual-activity sensitivity"
         },
         "data_description": {
           "security_lock_entities": "Every lock URA should know about. All of them show in Doors and on the dashboard.",
@@ -979,7 +1075,8 @@
           "security_lockout_entities": "The opener locks that block car remotes and keypads (Garage Lockout switch). Locked at night and on vacation, released when a resident arrives. Never list a lock from Door locks here.",
           "security_lockout_excluded_persons": "Every person counts as a resident who can release the lockout by arriving, except the people listed here (for example a wall-tablet person with no trackers).",
           "security_lockout_distance_sensors": "HA proximity distance sensors, one per resident. Crossing inside the approach radius releases the lockout before the person reaches home. Only proximity distance sensors are listed.",
-          "security_lockout_approach_zone": "Optional. A person entering this zone also releases the lockout."
+          "security_lockout_approach_zone": "Optional. A person entering this zone also releases the lockout.",
+          "security_anomaly_sensitivity": "Same choice for security events."
         },
         "error": {
           "lockout_overlaps_locks": "A lockout lock is also listed under Door locks. Remove it from one list.",
@@ -1076,7 +1173,12 @@
           "energy_dp_span_r1_entity": "Mains power reading 1",
           "energy_dp_span_r2_entity": "Mains power reading 2",
           "energy_pool_speed_entity": "Pool pump speed",
-          "energy_pool_power_entity": "Pool pump power"
+          "energy_pool_power_entity": "Pool pump power",
+          "energy_billing_source": "Cost from",
+          "energy_offpeak_drain_very_poor": "Overnight battery target: very poor solar",
+          "energy_solar_follow_grid_entity": "Grid power sensor for solar charging",
+          "energy_solar_follow_grid_fallback_entity": "Backup grid power sensor",
+          "energy_solar_nameplate_w": "Solar system size (W)"
         },
         "data_description": {
           "energy_solar_entity": "Leave blank to use the solar gateway's reading. Pick a sensor here only if that reading is wrong.",
@@ -1163,7 +1265,13 @@
           "energy_dp_span_r1_entity": "First whole-house mains power sensor (W). Summed with reading 2 for the live house-load estimate used by battery-aware EV charging. Leave blank if you don't have one.",
           "energy_dp_span_r2_entity": "Second whole-house mains power sensor (W), for split-phase panels. Leave blank if you only have one reading.",
           "energy_pool_speed_entity": "Number control for the variable-speed pool pump. URA slows the pump during peak rates. Leave blank if you have no pool pump to manage.",
-          "energy_pool_power_entity": "Power sensor for the pool pump (W). Optional; shown on the energy status."
+          "energy_pool_power_entity": "Power sensor for the pool pump (W). Optional; shown on the energy status.",
+          "energy_billing_source": "How daily cost is worked out: Meter totals (kWh counters), Power readings, or Auto (meter totals when the grid sensors report kWh).",
+          "energy_offpeak_drain_very_poor": "Battery level to drain to overnight when tomorrow's solar looks very poor. Same scale as the other four targets.",
+          "energy_solar_follow_grid_entity": "The grid power reading used to match EV charging to spare solar; the backup is used when the first is unavailable.",
+          "energy_solar_follow_grid_fallback_entity": "The grid power reading used to match EV charging to spare solar; the backup is used when the first is unavailable.",
+          "energy_solar_nameplate_w": "Your solar system's peak output in watts. Used to bound what an old solar reading could mean. Empty = built-in default.",
+          "energy_envoy_entity": "The Enphase gateway's status entity. Required for battery control; a repair appears if it is missing. Picking it fills in the other Enphase entities from its serial number."
         },
         "sections": {
           "inclement_advanced": {
@@ -1274,22 +1382,17 @@
           "hvac_fan_activation_delta": "Fan Activation Threshold",
           "hvac_fan_hysteresis": "Fan Deactivation Threshold",
           "hvac_fan_min_runtime": "Minimum Fan Runtime",
-          "hvac_cover_entities": "Cover Entities",
+          "hvac_cover_entities": "Blinds for sun control",
           "hvac_fan_control_enabled": "Fan Control",
           "hvac_arrester_enabled": "Override Arrester",
           "hvac_ac_reset_enabled": "AC Reset",
           "zone_vacancy_sweep_enabled": "Vacancy Auto-Off",
           "pre_arrival_sources": "Pre-Arrival Trigger Sources",
           "hvac_pre_arrival_window_minutes": "Pre-arrival window (minutes)",
-          "hvac_zone_entry_dwell": "Entry wait (minutes)",
-          "hvac_return_window_minutes": "Return window (minutes)",
-          "hvac_vacancy_grace_minutes": "Zone Vacancy Delay (minutes)",
-          "hvac_vacancy_grace_constrained": "Zone Vacancy Delay · Energy-Saving (minutes)",
-          "hvac_max_occupancy_hours": "Max Zone Occupied Time (hours)",
           "hvac_occupied_cover_close_delta": "Occupied-Room Cover Close Threshold",
           "hvac_solar_gain_cover_enabled": "Solar Cover Management",
           "hvac_cover_close_temp": "Cover Close Temp",
-          "hvac_cover_open_temp": "Cover Open Temp",
+          "hvac_cover_open_temp": "Reopen blinds below (°F)",
           "hvac_cover_override_hours": "Cover Override Duration",
           "hvac_solar_bank_floor": "Solar Banking Cool Floor",
           "hvac_cover_solar_start_hour": "Solar Cover Start Hour",
@@ -1298,7 +1401,14 @@
           "hvac_solar_bank_enabled": "Solar HVAC Banking",
           "hvac_pre_conditioning_enabled": "HVAC Predictive Conditioning",
           "hvac_precool_forecast_high": "Pre-Cool Trigger Temp",
-          "hvac_preheat_forecast_low": "Pre-Heat Trigger Temp"
+          "hvac_preheat_forecast_low": "Pre-Heat Trigger Temp",
+          "hvac_anomaly_sensitivity": "Unusual-activity sensitivity",
+          "hvac_ac_night_start_hhmm": "AC reset night starts",
+          "hvac_ac_night_end_hhmm": "AC reset night ends",
+          "hvac_arrester_immune_persons": "People whose thermostat changes stick",
+          "hvac_carrier_stale_require_blind_corroboration": "Confirm before reloading Carrier",
+          "sleep_fan_on_temp_f": "Bedroom fan on at sleep above (°F)",
+          "energy_precool_enabled": "Energy saver pre-cool"
         },
         "data_description": {
           "hvac_max_sleep_offset": "How much to relax the cooling setpoint during sleep. Higher = more energy savings, less cooling at night.",
@@ -1307,22 +1417,17 @@
           "hvac_fan_activation_delta": "How far above the cooling setpoint the temperature must rise before turning on fans.",
           "hvac_fan_hysteresis": "How far the temperature must drop below the fan activation threshold before turning fans off.",
           "hvac_fan_min_runtime": "Minimum time fans stay on once activated, to prevent short cycling.",
-          "hvac_cover_entities": "Cover entities for solar gain management. If empty, covers are auto-discovered from room entries.",
+          "hvac_cover_entities": "Extra blinds to close on hot, sunny days, on top of the covers in HVAC-zone rooms (a room can opt out on its Covers step).",
           "hvac_fan_control_enabled": "Temperature-based ceiling fan management. When enabled, fans activate in occupied rooms when temperature exceeds the thermostat setpoint. Disable to let external automations manage fans.",
           "hvac_arrester_enabled": "Detect and revert manual thermostat overrides that conflict with URA presets.",
           "hvac_ac_reset_enabled": "Cycle the thermostat off briefly when a stuck cooling/heating cycle is detected. Disable if AC reset is causing issues. The thermostat has its own compressor protection.",
           "zone_vacancy_sweep_enabled": "Turn off lights and fans in zones after they become vacant. Runs after the vacancy grace period expires. Disable to keep lights/fans running when zones empty.",
           "pre_arrival_sources": "Which detection methods trigger zone pre-conditioning when a person arrives home. Geofence uses phone GPS; BLE uses Bluetooth proximity beacons; Camera Face uses Frigate/UniFi face recognition for instant confirmation.",
           "hvac_pre_arrival_window_minutes": "How long URA waits for someone to arrive after an arrival signal before it stops pre-cooling their zone. A pre-cool also ends as soon as someone is in the zone, or when a person changes the thermostat. 5 to 110 minutes.",
-          "hvac_zone_entry_dwell": "How long someone must be in a room before heating and cooling switch a zone that is set to Away back to Home, during the day and evening. People passing through faster than this do not switch it. Someone coming back to a room soon after it emptied counts at once (see Return window). Enter 0 to count any sign of someone at once. Recommended: 1.",
-          "hvac_vacancy_grace_minutes": "Minutes a zone waits after its last room empties before heating and cooling switch to Away. If someone comes back sooner, nothing changes. A shorter wait saves energy but switches a zone to Away more often while someone sits still.",
-          "hvac_vacancy_grace_constrained": "The same wait, used while the house is saving energy. It must be no longer than the normal delay. A shorter wait saves energy but switches a zone to Away more often while someone sits still.",
-          "hvac_return_window_minutes": "If someone comes back into a room within this many minutes after its hold ends — and their earlier stay lasted at least the Entry wait — a zone set to Away switches back to Home straight away instead of waiting the Entry wait again. 0 turns this off.",
-          "hvac_max_occupancy_hours": "If a zone reads continuously occupied this long, HVAC treats the presence signal as stuck and stops trusting it. Default: 8 (hours).",
           "hvac_occupied_cover_close_delta": "When a room is occupied, HVAC only closes its covers for solar-gain reduction if the room temp is at least this many °F above the zone's cooling setpoint. Lower = more aggressive (closes covers sooner when occupied), higher = more conservative (lets occupied rooms get warmer before closing). Default: 2.0°F.",
           "hvac_solar_gain_cover_enabled": "Master toggle for the entire solar-gain cover management feature. When OFF, HVAC does not close or open any covers regardless of per-room settings. Per-room cover automation (timed open/close, exit close) is unaffected.",
           "hvac_cover_close_temp": "Outdoor temperature at which HVAC starts closing covers for solar-gain reduction (during the solar window hours). Texas summer ≥85°F is typical; humid climates may want lower. Default: 85°F.",
-          "hvac_cover_open_temp": "Outdoor temperature at which HVAC reopens previously-closed covers (hysteresis with Cover Close Temp). Must be at least 3°F below Cover Close Temp to prevent flapping. Default: 80°F.",
+          "hvac_cover_open_temp": "Outdoor temperature at which blinds URA closed for sun are opened again. Keep it at least 3 °F below the close temperature.",
           "hvac_cover_override_hours": "How long HVAC respects a manual cover position change before resuming automation. After this many hours, HVAC may reapply solar-gain logic to the cover. Default: 2 hours.",
           "hvac_solar_bank_floor": "Coolest setpoint solar banking will drive HVAC zones to. Banking applies a -3°F offset to the room's normal cool target, but never below this absolute floor. Default: 72°F.",
           "hvac_cover_solar_start_hour": "Hour HVAC starts watching for solar-gain conditions. Set earlier (e.g. 11) for east-facing homes; later for west-only orientations. Default: 13 (1 PM).",
@@ -1331,10 +1436,33 @@
           "hvac_solar_bank_enabled": "Initial state for Solar HVAC Banking. When ON (default), HVAC pre-cools all zones during 10am–2pm whenever the battery is full and surplus solar would otherwise export to grid. Turn OFF if banking is over-cooling the house on good-solar days. NOTE: this field only seeds the initial state after install. At runtime the 'Solar HVAC Banking' switch on the Energy Coordinator device card is authoritative (its last-toggled value persists across restarts via RestoreEntity and OVERRIDES this field).",
           "hvac_pre_conditioning_enabled": "Initial state for the HVAC Predictive Conditioning master gate. When ON (default), HVAC may run weather pre-cool, solar banking, pre-arrival, and pre-heat. When OFF, ALL pre-conditioning branches short-circuit and any in-flight pre-conditioned zones release to their baseline range within one cycle. NOTE 1: this field only seeds the initial state after install. At runtime the 'HVAC Predictive Conditioning' switch on the HVAC Coordinator device card is authoritative (its last-toggled value persists across restarts and OVERRIDES this field). NOTE 2: this switch suppresses PREDICTIVE pre-conditioning only. The Energy Coordinator's REACTIVE TOU pre_heat constraint (driven by the live rate schedule) is a separate mechanism and is NOT suppressed by this switch.",
           "hvac_precool_forecast_high": "When tomorrow's forecast high exceeds this, HVAC pre-cools occupied zones before peak hours. Lower = more pre-cooling; higher = pre-cool only on extreme days. Default: 90°F.",
-          "hvac_preheat_forecast_low": "When outdoor temp drops below this in winter, HVAC pre-heats occupied zones before off-peak ends. Higher = more pre-heating; lower = pre-heat only on coldest days. Default: 35°F."
+          "hvac_preheat_forecast_low": "When outdoor temp drops below this in winter, HVAC pre-heats occupied zones before off-peak ends. Higher = more pre-heating; lower = pre-heat only on coldest days. Default: 35°F.",
+          "hvac_anomaly_sensitivity": "Same choice for heating and cooling.",
+          "hvac_ac_night_start_hhmm": "Clock times (HH:MM) of the night window for AC resets; the night has its own reset budget.",
+          "hvac_ac_night_end_hhmm": "Clock times (HH:MM) of the night window for AC resets; the night has its own reset budget.",
+          "hvac_arrester_immune_persons": "When one of these people changes a thermostat, URA keeps their change instead of putting the preset back (for a few hours).",
+          "hvac_carrier_stale_require_blind_corroboration": "Before reloading a Carrier thermostat that has gone quiet, also require that it reads idle while its circuit draws power. Off = quiet time alone is enough. Default on.",
+          "sleep_fan_on_temp_f": "When the house goes to Sleep, turn on an occupied bedroom's fan once if the room is at or above this temperature. 0 = off. Default 72.",
+          "energy_precool_enabled": "Turn on the solar-aware pre-cool run by the energy coordinator (same as its switch on the Energy device). Default on."
         },
         "sections": {
-          "presence_timing": "Advanced — presence timing (rarely change)"
+          "presence_timing": {
+            "name": "Advanced — presence timing (rarely change)",
+            "data": {
+              "hvac_vacancy_grace_minutes": "Zone Vacancy Delay (minutes)",
+              "hvac_vacancy_grace_constrained": "Zone Vacancy Delay · Energy-Saving (minutes)",
+              "hvac_zone_entry_dwell": "Entry wait (minutes)",
+              "hvac_return_window_minutes": "Return window (minutes)",
+              "hvac_max_occupancy_hours": "Max Zone Occupied Time (hours)"
+            },
+            "data_description": {
+              "hvac_vacancy_grace_minutes": "Minutes a zone waits after its last room empties before heating and cooling switch to Away. If someone comes back sooner, nothing changes. A shorter wait saves energy but switches a zone to Away more often while someone sits still.",
+              "hvac_vacancy_grace_constrained": "The same wait, used while the house is saving energy. It must be no longer than the normal delay. A shorter wait saves energy but switches a zone to Away more often while someone sits still.",
+              "hvac_zone_entry_dwell": "How long someone must be in a room before heating and cooling switch a zone that is set to Away back to Home, during the day and evening. People passing through faster than this do not switch it. Someone coming back to a room soon after it emptied counts at once (see Return window). Enter 0 to count any sign of someone at once. Recommended: 1.",
+              "hvac_return_window_minutes": "If someone comes back into a room within this many minutes after its hold ends — and their earlier stay lasted at least the Entry wait — a zone set to Away switches back to Home straight away instead of waiting the Entry wait again. 0 turns this off.",
+              "hvac_max_occupancy_hours": "If a zone reads continuously occupied this long, HVAC treats the presence signal as stuck and stops trusting it. Default: 8 (hours)."
+            }
+          }
         }
       },
       "hvac_dynamic_preset": {
@@ -1344,85 +1472,109 @@
           "dynamic_preset_enabled": "Enable Dynamic Preset Auto-Adjust",
           "dpm_cool_day_relax_f": "Relax cool ceiling on cool-feeling days (°F)",
           "dpm_hot_day_tighten_f": "Tighten cool ceiling on hot-feeling days (°F)",
-          "dpm_relax_ceiling_mode": "Skip relax on hot days",
-          "dynamic_preset_dwell_minutes": "Weather adjust delay (min)",
-          "dynamic_preset_hysteresis_f": "Weather adjust margin (°F)"
+          "dpm_relax_ceiling_mode": "Skip relax on hot days"
         },
         "data_description": {
           "dynamic_preset_enabled": "Adjusts the Home and Sleep cooling limit with the weather. Only reaches the thermostats when Custom Preset Ranges is on. Off in winter.",
           "dpm_cool_day_relax_f": "How many °F to raise the Home/Sleep cool ceiling on days the forecast feels cooler than the last 2 weeks. 0 = off. Default 1°F (e.g., 70-75 becomes 70-76).",
           "dpm_hot_day_tighten_f": "How many °F to lower the Home/Sleep cool ceiling on days the forecast feels hotter than the last 2 weeks. 0 = off. Default 1°F (e.g., 70-75 becomes 70-74).",
-          "dpm_relax_ceiling_mode": "When the forecast is above this temperature, the system won't widen cool ranges even if today is cooler than recent days. Auto picks a sensible value for your climate.",
-          "dynamic_preset_dwell_minutes": "How long a cooler- or hotter-than-usual forecast must last before the cooling range shifts. 15-240 min. Default 60.",
-          "dynamic_preset_hysteresis_f": "How far past the usual the forecast must be before it counts as a cooler or hotter day. 0.5-5 °F. Default 2."
+          "dpm_relax_ceiling_mode": "When the forecast is above this temperature, the system won't widen cool ranges even if today is cooler than recent days. Auto picks a sensible value for your climate."
         },
         "sections": {
-          "advanced": "Advanced (rarely change)"
+          "advanced": {
+            "name": "Advanced (rarely change)",
+            "data": {
+              "dynamic_preset_dwell_minutes": "Weather adjust delay (min)",
+              "dynamic_preset_hysteresis_f": "Weather adjust margin (°F)"
+            },
+            "data_description": {
+              "dynamic_preset_dwell_minutes": "How long a cooler- or hotter-than-usual forecast must last before the cooling range shifts. 15-240 min. Default 60.",
+              "dynamic_preset_hysteresis_f": "How far past the usual the forecast must be before it counts as a cooler or hotter day. 0.5-5 °F. Default 2."
+            }
+          }
         }
       },
       "hvac_baseline_presets": {
         "title": "📅 Baseline Presets (Seasonal)",
         "description": "Temperature ranges for each preset, by season. When Custom Preset Ranges is on, URA writes these into each thermostat's Home, Sleep, Away and Vacation presets. When you turn it off, each thermostat gets its original ranges back. Cooling must be at least 3°F above heating. To restore factory defaults, check 'Reset all to defaults' and save.",
         "data": {
-          "hvac_baseline_summer_home_cool": "Summer · Home — Cool High (°F)",
-          "hvac_baseline_summer_home_heat": "Summer · Home — Heat Low (°F)",
-          "hvac_baseline_summer_sleep_cool": "Summer · Sleep — Cool High (°F)",
-          "hvac_baseline_summer_sleep_heat": "Summer · Sleep — Heat Low (°F)",
-          "hvac_baseline_summer_away_cool": "Summer · Away — Cool High (°F)",
-          "hvac_baseline_summer_away_heat": "Summer · Away — Heat Low (°F)",
-          "hvac_baseline_summer_vacation_cool": "Summer · Vacation — Cool High (°F)",
-          "hvac_baseline_summer_vacation_heat": "Summer · Vacation — Heat Low (°F)",
-          "hvac_baseline_shoulder_home_cool": "Shoulder · Home — Cool High (°F)",
-          "hvac_baseline_shoulder_home_heat": "Shoulder · Home — Heat Low (°F)",
-          "hvac_baseline_shoulder_sleep_cool": "Shoulder · Sleep — Cool High (°F)",
-          "hvac_baseline_shoulder_sleep_heat": "Shoulder · Sleep — Heat Low (°F)",
-          "hvac_baseline_shoulder_away_cool": "Shoulder · Away — Cool High (°F)",
-          "hvac_baseline_shoulder_away_heat": "Shoulder · Away — Heat Low (°F)",
-          "hvac_baseline_shoulder_vacation_cool": "Shoulder · Vacation — Cool High (°F)",
-          "hvac_baseline_shoulder_vacation_heat": "Shoulder · Vacation — Heat Low (°F)",
-          "hvac_baseline_winter_home_cool": "Winter · Home — Cool High (°F)",
-          "hvac_baseline_winter_home_heat": "Winter · Home — Heat Low (°F)",
-          "hvac_baseline_winter_sleep_cool": "Winter · Sleep — Cool High (°F)",
-          "hvac_baseline_winter_sleep_heat": "Winter · Sleep — Heat Low (°F)",
-          "hvac_baseline_winter_away_cool": "Winter · Away — Cool High (°F)",
-          "hvac_baseline_winter_away_heat": "Winter · Away — Heat Low (°F)",
-          "hvac_baseline_winter_vacation_cool": "Winter · Vacation — Cool High (°F)",
-          "hvac_baseline_winter_vacation_heat": "Winter · Vacation — Heat Low (°F)",
           "hvac_s10_rollout_zone_ids": "Zones that use custom ranges",
           "_reset_all": "Reset all to defaults"
         },
         "data_description": {
-          "hvac_baseline_summer_home_cool": "Summer (Jun–Sep) Home preset cooling target. Default: 77°F.",
-          "hvac_baseline_summer_home_heat": "Summer Home preset heating floor. Default: 70°F.",
-          "hvac_baseline_summer_sleep_cool": "Summer Sleep preset cooling target. Default: 76°F.",
-          "hvac_baseline_summer_sleep_heat": "Summer Sleep preset heating floor. Default: 70°F.",
-          "hvac_baseline_summer_away_cool": "Summer Away preset cooling target. Default: 82°F.",
-          "hvac_baseline_summer_away_heat": "Summer Away preset heating floor. Default: 60°F.",
-          "hvac_baseline_summer_vacation_cool": "Summer Vacation preset cooling target. Default: 85°F.",
-          "hvac_baseline_summer_vacation_heat": "Summer Vacation preset heating floor. Default: 58°F.",
-          "hvac_baseline_shoulder_home_cool": "Shoulder (Mar–May, Oct–Nov) Home preset cooling target. Default: 74°F.",
-          "hvac_baseline_shoulder_home_heat": "Shoulder Home preset heating floor. Default: 70°F.",
-          "hvac_baseline_shoulder_sleep_cool": "Shoulder Sleep preset cooling target. Default: 73°F.",
-          "hvac_baseline_shoulder_sleep_heat": "Shoulder Sleep preset heating floor. Default: 68°F.",
-          "hvac_baseline_shoulder_away_cool": "Shoulder Away preset cooling target. Default: 80°F.",
-          "hvac_baseline_shoulder_away_heat": "Shoulder Away preset heating floor. Default: 62°F.",
-          "hvac_baseline_shoulder_vacation_cool": "Shoulder Vacation preset cooling target. Default: 82°F.",
-          "hvac_baseline_shoulder_vacation_heat": "Shoulder Vacation preset heating floor. Default: 58°F.",
-          "hvac_baseline_winter_home_cool": "Winter (Dec–Feb) Home preset cooling target. Default: 72°F.",
-          "hvac_baseline_winter_home_heat": "Winter Home preset heating floor. Default: 70°F.",
-          "hvac_baseline_winter_sleep_cool": "Winter Sleep preset cooling target. Default: 70°F.",
-          "hvac_baseline_winter_sleep_heat": "Winter Sleep preset heating floor. Default: 68°F.",
-          "hvac_baseline_winter_away_cool": "Winter Away preset cooling target. Default: 78°F.",
-          "hvac_baseline_winter_away_heat": "Winter Away preset heating floor. Default: 60°F.",
-          "hvac_baseline_winter_vacation_cool": "Winter Vacation preset cooling target. Default: 80°F.",
-          "hvac_baseline_winter_vacation_heat": "Winter Vacation preset heating floor. Default: 58°F.",
           "hvac_s10_rollout_zone_ids": "When Custom Preset Ranges is on, only these zones get the ranges written into their thermostat presets. Empty means none. Removing a zone puts its original ranges back.",
           "_reset_all": "Check and save to restore all 24 baseline setpoints to factory defaults. This action requires confirmation on the next screen."
         },
         "sections": {
-          "summer_section": "Summer (Jun–Sep)",
-          "shoulder_section": "Shoulder (Mar–May, Oct–Nov)",
-          "winter_section": "Winter (Dec–Feb)"
+          "summer_section": {
+            "name": "Summer (Jun–Sep)",
+            "data": {
+              "hvac_baseline_summer_home_cool": "Summer · Home — Cool High (°F)",
+              "hvac_baseline_summer_home_heat": "Summer · Home — Heat Low (°F)",
+              "hvac_baseline_summer_sleep_cool": "Summer · Sleep — Cool High (°F)",
+              "hvac_baseline_summer_sleep_heat": "Summer · Sleep — Heat Low (°F)",
+              "hvac_baseline_summer_away_cool": "Summer · Away — Cool High (°F)",
+              "hvac_baseline_summer_away_heat": "Summer · Away — Heat Low (°F)",
+              "hvac_baseline_summer_vacation_cool": "Summer · Vacation — Cool High (°F)",
+              "hvac_baseline_summer_vacation_heat": "Summer · Vacation — Heat Low (°F)"
+            },
+            "data_description": {
+              "hvac_baseline_summer_home_cool": "Summer (Jun–Sep) Home preset cooling target. Default: 77°F.",
+              "hvac_baseline_summer_home_heat": "Summer Home preset heating floor. Default: 70°F.",
+              "hvac_baseline_summer_sleep_cool": "Summer Sleep preset cooling target. Default: 76°F.",
+              "hvac_baseline_summer_sleep_heat": "Summer Sleep preset heating floor. Default: 70°F.",
+              "hvac_baseline_summer_away_cool": "Summer Away preset cooling target. Default: 82°F.",
+              "hvac_baseline_summer_away_heat": "Summer Away preset heating floor. Default: 60°F.",
+              "hvac_baseline_summer_vacation_cool": "Summer Vacation preset cooling target. Default: 85°F.",
+              "hvac_baseline_summer_vacation_heat": "Summer Vacation preset heating floor. Default: 58°F."
+            }
+          },
+          "shoulder_section": {
+            "name": "Shoulder (Mar–May, Oct–Nov)",
+            "data": {
+              "hvac_baseline_shoulder_home_cool": "Shoulder · Home — Cool High (°F)",
+              "hvac_baseline_shoulder_home_heat": "Shoulder · Home — Heat Low (°F)",
+              "hvac_baseline_shoulder_sleep_cool": "Shoulder · Sleep — Cool High (°F)",
+              "hvac_baseline_shoulder_sleep_heat": "Shoulder · Sleep — Heat Low (°F)",
+              "hvac_baseline_shoulder_away_cool": "Shoulder · Away — Cool High (°F)",
+              "hvac_baseline_shoulder_away_heat": "Shoulder · Away — Heat Low (°F)",
+              "hvac_baseline_shoulder_vacation_cool": "Shoulder · Vacation — Cool High (°F)",
+              "hvac_baseline_shoulder_vacation_heat": "Shoulder · Vacation — Heat Low (°F)"
+            },
+            "data_description": {
+              "hvac_baseline_shoulder_home_cool": "Shoulder (Mar–May, Oct–Nov) Home preset cooling target. Default: 74°F.",
+              "hvac_baseline_shoulder_home_heat": "Shoulder Home preset heating floor. Default: 70°F.",
+              "hvac_baseline_shoulder_sleep_cool": "Shoulder Sleep preset cooling target. Default: 73°F.",
+              "hvac_baseline_shoulder_sleep_heat": "Shoulder Sleep preset heating floor. Default: 68°F.",
+              "hvac_baseline_shoulder_away_cool": "Shoulder Away preset cooling target. Default: 80°F.",
+              "hvac_baseline_shoulder_away_heat": "Shoulder Away preset heating floor. Default: 62°F.",
+              "hvac_baseline_shoulder_vacation_cool": "Shoulder Vacation preset cooling target. Default: 82°F.",
+              "hvac_baseline_shoulder_vacation_heat": "Shoulder Vacation preset heating floor. Default: 58°F."
+            }
+          },
+          "winter_section": {
+            "name": "Winter (Dec–Feb)",
+            "data": {
+              "hvac_baseline_winter_home_cool": "Winter · Home — Cool High (°F)",
+              "hvac_baseline_winter_home_heat": "Winter · Home — Heat Low (°F)",
+              "hvac_baseline_winter_sleep_cool": "Winter · Sleep — Cool High (°F)",
+              "hvac_baseline_winter_sleep_heat": "Winter · Sleep — Heat Low (°F)",
+              "hvac_baseline_winter_away_cool": "Winter · Away — Cool High (°F)",
+              "hvac_baseline_winter_away_heat": "Winter · Away — Heat Low (°F)",
+              "hvac_baseline_winter_vacation_cool": "Winter · Vacation — Cool High (°F)",
+              "hvac_baseline_winter_vacation_heat": "Winter · Vacation — Heat Low (°F)"
+            },
+            "data_description": {
+              "hvac_baseline_winter_home_cool": "Winter (Dec–Feb) Home preset cooling target. Default: 72°F.",
+              "hvac_baseline_winter_home_heat": "Winter Home preset heating floor. Default: 70°F.",
+              "hvac_baseline_winter_sleep_cool": "Winter Sleep preset cooling target. Default: 70°F.",
+              "hvac_baseline_winter_sleep_heat": "Winter Sleep preset heating floor. Default: 68°F.",
+              "hvac_baseline_winter_away_cool": "Winter Away preset cooling target. Default: 78°F.",
+              "hvac_baseline_winter_away_heat": "Winter Away preset heating floor. Default: 60°F.",
+              "hvac_baseline_winter_vacation_cool": "Winter Vacation preset cooling target. Default: 80°F.",
+              "hvac_baseline_winter_vacation_heat": "Winter Vacation preset heating floor. Default: 58°F."
+            }
+          }
         }
       },
       "coordinator_music_following": {
@@ -1437,7 +1589,8 @@
           "mf_min_confidence": "Minimum transition confidence",
           "mf_high_confidence_distance": "BLE proximity threshold (ft)",
           "mf_sleep_suppress": "Do not transfer music while sleeping",
-          "mf_night_suppress_mode": "Night-mode transfer policy"
+          "mf_night_suppress_mode": "Night-mode transfer policy",
+          "music_anomaly_sensitivity": "Unusual-activity sensitivity"
         },
         "data_description": {
           "mf_cooldown_seconds": "Minimum seconds between transfers to the same target room per person. Prevents rapid repeated transfers. Default: 8.",
@@ -1448,7 +1601,8 @@
           "mf_min_confidence": "Minimum transition confidence (0.1-1.0) required to trigger a music transfer. Lower values transfer more aggressively. Default: 0.6.",
           "mf_high_confidence_distance": "Only transfer music when the person's closest BLE scanner is within this range (feet). Tighter than person tracking (10ft) to avoid BLE bleed-through from adjacent rooms. Default: 8.",
           "mf_sleep_suppress": "When on, music does not follow anyone while the house is in SLEEP state. Default: on.",
-          "mf_night_suppress_mode": "Policy for HOME_NIGHT: off (default) = follow as normal; own bedroom only = only transfer to the person's dwell room (NOTE: per-person bedroom mapping is not yet wired — this currently behaves as 'block all' and logs a warning); block all = never transfer at night."
+          "mf_night_suppress_mode": "Policy for HOME_NIGHT: off (default) = follow as normal; own bedroom only = only transfer to the person's dwell room (NOTE: per-person bedroom mapping is not yet wired — this currently behaves as 'block all' and logs a warning); block all = never transfer at night.",
+          "music_anomaly_sensitivity": "Same choice for music following."
         }
       },
       "coordinator_appliance": {
@@ -1484,13 +1638,13 @@
         "description": "How autonomous should the Optimizer be? Start in Shadow mode and raise only after you trust its findings. The Kill Switch on the Optimizer device pauses everything instantly.",
         "data": {
           "optimizer_autonomy_level": "Autonomy level",
-          "optimizer_kill_switch": "Kill switch (pause everything)",
+          "optimizer_kill_switch": "Pause the optimizer",
           "optimizer_confidence_gate": "Confidence gate",
           "optimizer_rate_cap_per_hour": "Max actions per hour",
           "optimizer_quiet_hours_source": "Quiet-hours source",
           "optimizer_safety_deny_entities": "Always-skip entities",
-          "optimizer_llm_task_entity": "LLM primary entity",
-          "optimizer_llm_triage_entity": "LLM triage entity",
+          "optimizer_llm_task_entity": "AI model for decisions",
+          "optimizer_llm_triage_entity": "AI model for sorting",
           "optimizer_llm_system_prompt": "LLM system prompt",
           "optimizer_llm_max_invocations_per_24h": "Max LLM calls per 24h"
         },
@@ -1525,8 +1679,8 @@
           "optimizer_llm": {
             "name": "LLM Tier-2 reasoning (Claude / OpenAI / Ollama / Google)",
             "data": {
-              "optimizer_llm_task_entity": "LLM primary entity",
-              "optimizer_llm_triage_entity": "LLM triage entity",
+              "optimizer_llm_task_entity": "AI model for decisions",
+              "optimizer_llm_triage_entity": "AI model for sorting",
               "optimizer_llm_system_prompt": "LLM system prompt",
               "optimizer_llm_max_invocations_per_24h": "Max LLM calls per 24h"
             },
@@ -1590,7 +1744,9 @@
           "nm_person_delivery_pref": "Low/Medium Delivery Preference",
           "nm_person_digest_morning": "Morning Digest Time",
           "nm_person_digest_evening_enabled": "Evening Digest Enabled",
-          "nm_person_digest_evening": "Evening Digest Time"
+          "nm_person_digest_evening": "Evening Digest Time",
+          "nm_person_safe_word": "Safe word",
+          "nm_person_digest_channels": "Digest channels"
         },
         "data_description": {
           "nm_person_entity": "Select a person to configure notifications for.",
@@ -1602,7 +1758,9 @@
           "nm_person_delivery_pref": "How LOW and MEDIUM alerts are delivered. Immediate: each individually. Daily Digest: batched summary. Off: suppressed. CRITICAL/HIGH are always immediate.",
           "nm_person_digest_morning": "Time for morning digest delivery. Default: 08:00.",
           "nm_person_digest_evening_enabled": "Enable a second digest delivery in the evening.",
-          "nm_person_digest_evening": "Time for evening digest delivery. Default: 18:00."
+          "nm_person_digest_evening": "Time for evening digest delivery. Default: 18:00.",
+          "nm_person_safe_word": "This person's own safe word. Empty = use the house safe word.",
+          "nm_person_digest_channels": "Which of this person's channels get the digest. Empty = the first channel set up for them (Pushover, then app, WhatsApp, iMessage)."
         }
       },
       "coordinator_notifications_quiet": {
@@ -1614,7 +1772,8 @@
           "nm_quiet_manual_end": "Manual Quiet End Time",
           "nm_life_safety_repeat_schedule": "Smoke, CO and flood repeat schedule",
           "nm_safe_word": "Safe Word (for CRITICAL alert acknowledgment)",
-          "nm_silence_duration": "Silence Duration (minutes)"
+          "nm_silence_duration": "Silence Duration (minutes)",
+          "nm_security_ack_persons": "Who can clear security alerts"
         },
         "data_description": {
           "nm_quiet_use_house_state": "When enabled, quiet hours activate automatically when house state is SLEEP or HOME_NIGHT. Disable to use manual time window.",
@@ -1622,7 +1781,8 @@
           "nm_quiet_manual_end": "End time for manual quiet hours.",
           "nm_life_safety_repeat_schedule": "How often an unacknowledged smoke, CO, flood, water-leak or freeze alert repeats until someone acknowledges it. Intruder alerts and any hazard types you added as extra life-safety types always repeat every 30 seconds.",
           "nm_safe_word": "A shared household secret word (min 4 chars) required to acknowledge CRITICAL alerts via text reply. Never sent in notifications.",
-          "nm_silence_duration": "How long 'silence' command suppresses non-CRITICAL alerts. Default: 30 minutes."
+          "nm_silence_duration": "How long 'silence' command suppresses non-CRITICAL alerts. Default: 30 minutes.",
+          "nm_security_ack_persons": "Only these people can acknowledge a security alert. Empty = the first person in the notification list. Other alerts can be cleared by anyone who got them."
         }
       },
       "coordinator_notifications_cooldowns": {
@@ -1666,7 +1826,7 @@
         "description": "Cut alert noise without changing how serious alerts are: breaker trip timing, repeat lock alerts, humidity levels, CO2 and TVOC limits, the safety skip list and which optimizer alerts may be urgent.",
         "data": {
           "nm_a1_tripped_breaker_zero_window_s": "Tripped-Breaker Zero-Window (seconds)",
-          "nm_a1_tripped_breaker_route_nm": "Route Tripped-Breaker Alerts to NM",
+          "nm_a1_tripped_breaker_route_nm": "Alert on tripped breakers",
           "nm_a3_lock_unavailable_dedup_s": "Lock Unavailability Dedup Window (seconds)",
           "nm_a4_humidity_log_only_pct": "Humidity Log-Only Ceiling (%)",
           "nm_a4_humidity_medium_pct": "Humidity Medium Threshold (%)",
@@ -1678,7 +1838,7 @@
           "nm_a5_tvoc_sustained_s": "TVOC Sustained Duration (seconds)",
           "nm_a5_safety_discovery_blocklist": "Safety Discovery Blocklist",
           "nm_a2_optimizer_high_allowlist_dimensions": "Optimizer HIGH-Severity Allowlist",
-          "stuck_signal_nm_enabled": "Stuck-Signal Watchdog NM Alerts",
+          "stuck_signal_nm_enabled": "Alert on stuck sensors",
           "stuck_sensor_exclusion_enabled": "Exclude Stuck (Dutycycle) Sensors"
         },
         "data_description": {
@@ -1696,7 +1856,7 @@
           "nm_a5_safety_discovery_blocklist": "Entities to exclude from safety auto-discovery (accepts sensor and binary_sensor). Use for known-noisy or non-safety devices.",
           "nm_a2_optimizer_high_allowlist_dimensions": "Optimizer dimensions permitted to raise HIGH-severity alerts. Empty (default) means no dimension escalates to HIGH.",
           "stuck_signal_nm_enabled": "When on, the stuck-signal watchdog emits notifications for signals that stop updating. Detection continues either way — only the notification is toggled.",
-          "stuck_sensor_exclusion_enabled": "When on, stuck sensors are excluded from dutycycle computation (STUCK-SENSOR-1 D1 rung-2 kill switch)."
+          "stuck_sensor_exclusion_enabled": "When on, a sensor stuck on is ignored when working out how busy a room is."
         }
       },
       "coordinator_notifications_routing": {
@@ -1741,30 +1901,48 @@
       },
       "zone_rooms": {
         "title": "Name and rooms",
-        "description": "Set the zone name and which rooms belong to it. {advanced_hint}",
+        "description": "Set the zone name and which rooms belong to it.",
         "data": {
           "zone_name": "Zone name",
-          "zone_description": "Description",
           "zone_is_outdoor": "Outdoor zone",
           "zone_rooms": "Rooms"
         },
         "data_description": {
           "zone_name": "Name shown for this zone.",
-          "zone_description": "Optional note. Not used by any automation.",
           "zone_is_outdoor": "Turn on for patios, yards and pool areas. Safety uses outdoor limits and the house count ignores people here.",
           "zone_rooms": "Rooms that belong to this zone."
+        },
+        "sections": {
+          "advanced": {
+            "name": "Advanced (rarely change)",
+            "data": {
+              "zone_description": "Description"
+            },
+            "data_description": {
+              "zone_description": "Optional note. Not used by any automation."
+            }
+          }
         }
       },
       "zone_media": {
         "title": "🎵 Zone Media",
-        "description": "Configure how music follows people within this zone. {advanced_hint}",
+        "description": "Configure how music follows people within this zone.",
         "data": {
-          "zone_player_entity": "Zone speaker",
-          "zone_player_mode": "If speaker is off"
+          "zone_player_entity": "Zone speaker"
         },
         "data_description": {
-          "zone_player_entity": "Main speaker or speaker group for this zone.",
-          "zone_player_mode": "What music following does when the zone speaker is unavailable."
+          "zone_player_entity": "Main speaker or speaker group for this zone."
+        },
+        "sections": {
+          "advanced": {
+            "name": "Advanced (rarely change)",
+            "data": {
+              "zone_player_mode": "If speaker is off"
+            },
+            "data_description": {
+              "zone_player_mode": "What music following does when the zone speaker is unavailable."
+            }
+          }
         }
       },
       "basic_setup": {
@@ -1781,8 +1959,8 @@
           "shared_space_warning": "Pre-Off Warning Flash (retired)",
           "occupancy_timeout": "Occupancy Timeout",
           "occupancy_debounce": "Motion Detection Delay",
-          "room_is_guest_room": "Is Guest Room",
-          "room_guest_occupancy_threshold_min": "Minutes of Unknown Occupancy Before Guest Mode"
+          "room_is_guest_room": "Guest room",
+          "room_guest_occupancy_threshold_min": "Visitor time in guest room (min)"
         },
         "data_description": {
           "room_name": "A friendly name for this room",
@@ -1790,18 +1968,18 @@
           "area_id": "Link to a Home Assistant area",
           "zone": "Zone this room belongs to",
           "shared_space": "Enable scheduled auto-off for common areas",
-          "shared_space_auto_off_hour": "Hour (0-23) the night failsafe starts. From this hour, the first time the room is empty, URA turns off everything in it (including leave-on lights). 23 = 11 PM",
-          "shared_space_auto_off_cutoff_hour": "Hour (0-23) the night failsafe gives up if the room never empties. 5 = 5 AM. Set it equal to the start hour to check during that one hour only",
+          "shared_space_auto_off_hour": "Hour (0-23) the night clean-up starts. From this hour, the first time the room is empty, URA turns off everything in it (including leave-on lights). 23 = 11 PM",
+          "shared_space_auto_off_cutoff_hour": "Hour (0-23) the night clean-up gives up if the room never empties. 5 = 5 AM. Set it equal to the start hour to check during that one hour only",
           "shared_space_warning": "Retired, no effect. The failsafe only runs when the room is empty, so there is nobody to warn",
           "occupancy_timeout": "Seconds until room is marked vacant",
           "occupancy_debounce": "How long to wait after a sensor trips before URA calls the room 'occupied'. Lower = faster response, higher = fewer false triggers. Use 0 if your sensor already filters noise (e.g. Screek, LD2410).",
-          "room_is_guest_room": "When enabled, sustained unknown occupancy in this room will arm the guest signal (see Guest Signal Threshold below).",
-          "room_guest_occupancy_threshold_min": "Minutes of continuous unknown occupancy before Guest Mode is triggered via the sustained-occupancy path. Range: 5-240 min. Default: 30."
+          "room_is_guest_room": "Mark rooms where guests sleep. A day and a night here turns on Guest mode; a shorter visit only shows a visitor.",
+          "room_guest_occupancy_threshold_min": "Minutes someone not recognised must stay in this guest room before the house shows a visitor. Guest mode itself needs a day and a night here. Default 30."
         }
       },
       "sensors": {
         "title": "📡 Sensors",
-        "description": "Update presence and environmental sensors. {advanced_hint}",
+        "description": "Update presence and environmental sensors.",
         "data": {
           "motion_sensors": "Motion sensors",
           "presence_sensors": "Presence sensors",
@@ -1816,12 +1994,12 @@
           "window_sensor": "Window Sensor",
           "is_egress_window": "Treat as egress window",
           "water_leak_sensor": "Water Leak Sensor",
-          "sensor_capabilities_json": "Sensor Capabilities (advanced)",
-          "clear_sensor_fields": "Clear Optional Sensors"
+          "clear_sensor_fields": "Clear Optional Sensors",
+          "room_cameras": "Room cameras"
         },
         "data_description": {
-          "motion_sensors": "See movement only.",
-          "presence_sensors": "See people sitting still.",
+          "motion_sensors": "Sensors that see movement only: PIR, and mmWave motion models that lose a person who sits still.",
+          "presence_sensors": "Radar sensors that still see a person who is sitting or sleeping (mmWave presence models). Motion-only radars belong in Motion sensors.",
           "occupancy_sensors": "Radar and motion reported as one signal.",
           "scanner_areas": "Pick areas with no URA room whose Bluetooth scanner covers this room (e.g. an entry nook or vanity). A phone heard there counts as in this room. Leave empty if it has its own scanner; its own area is ignored.",
           "disable_camera_presence": "Skip camera-based presence detection for this room. Use for chronic camera false positives (TV reflections, sun-glare hallways).",
@@ -1833,13 +2011,24 @@
           "window_sensor": "Window open/closed sensor",
           "is_egress_window": "When ON, leaving this window open for a few minutes pauses the HVAC for the zone that serves this room (so you're not cooling the outside). Turn OFF for small vent windows that open often but shouldn't stop HVAC.",
           "water_leak_sensor": "Water/moisture sensor",
-          "sensor_capabilities_json": "Advanced JSON that tags each sensor with its kind and trust class. Leave as-is unless you know what you're editing.",
-          "clear_sensor_fields": "Tick a sensor to clear its current selection above (Temperature, Humidity, Light Level, or Water Leak)."
+          "clear_sensor_fields": "Tick a sensor to clear its current selection above (Temperature, Humidity, Light Level, or Water Leak).",
+          "room_cameras": "Cameras that look into this room. They override the camera-to-room match from Home Assistant areas."
+        },
+        "sections": {
+          "advanced": {
+            "name": "Advanced (rarely change)",
+            "data": {
+              "sensor_capabilities_json": "Sensor types (advanced)"
+            },
+            "data_description": {
+              "sensor_capabilities_json": "Only for sensors the lists above get wrong. Leave as is unless asked to change it."
+            }
+          }
         }
       },
       "devices": {
         "title": "Devices",
-        "description": "Update devices to automate. {advanced_hint}",
+        "description": "Update devices to automate.",
         "data": {
           "lights": "Lights",
           "light_capabilities": "Light Features (auto-detected)",
@@ -1852,7 +2041,9 @@
           "auto_devices": "Auto Devices",
           "manual_devices": "Manual Devices",
           "adjacent_rooms": "Adjacent rooms",
-          "night_light_sleep_hue": "Night-light colour at sleep"
+          "room_fan_recheck_enabled": "Fan recheck in this room",
+          "fan_recheck_l2_allowed": "Check when someone is next door",
+          "fan_recheck_trust_sensors_ok": "Check without Bluetooth"
         },
         "data_description": {
           "lights": "Lights to control on entry/exit",
@@ -1866,29 +2057,28 @@
           "auto_devices": "Devices (lights, fans, switches, input_booleans) that auto-on and off",
           "manual_devices": "Devices (lights, fans, switches, input_booleans) that only auto-off",
           "adjacent_rooms": "Rooms you can walk straight into from this one. A phone in one of them backs up this room's presence radar while a ceiling fan runs, and nearby wall panels light up for alerts.",
-          "night_light_sleep_hue": "Red is easiest on sleep and is used on colour lights. White-only lights use the sleep colour temperature below."
-        }
-      },
-      "automation_behavior": {
-        "title": "Automation",
-        "description": "Update automation behavior.",
-        "data": {
-          "entry_light_action": "Lights on Entry",
-          "exit_light_action": "Lights on Exit",
-          "illuminance_dark_threshold": "Dark Threshold (lux)",
-          "light_brightness_pct": "Light Brightness %",
-          "light_transition_seconds_on": "Fade-In Time (seconds)",
-          "light_transition_seconds_off": "Fade-Out Time (seconds)",
-          "entry_cover_action": "Covers when Someone Enters",
-          "exit_cover_action": "Covers when the Room Empties",
-          "open_timing_mode": "When Covers Can Open",
-          "open_time_start": "Earliest Open Time",
-          "open_time_end": "Latest Open Time",
-          "sunrise_offset": "Sunrise Offset (minutes)",
-          "timed_close_enabled": "Enable Timed Close",
-          "close_timing_mode": "When Covers Auto-Close",
-          "close_time": "Close Time",
-          "sunset_offset": "Sunset Offset (minutes)"
+          "room_fan_recheck_enabled": "Let the fan recheck (Presence settings) pause this room's fan. Needs Fan recheck on there too. This room's Fan Recheck switch controls the same thing; use the switch to change it. Default on.",
+          "fan_recheck_l2_allowed": "In a room with its own Bluetooth scanner, allow a check while people are home in this part of the house if a phone places them in a neighbouring room. Off = skip the check whenever anyone is in this part of the house. Default on.",
+          "fan_recheck_trust_sensors_ok": "In a room without its own Bluetooth scanner, allow a check on room sensors alone. Off = only rooms with a scanner are checked. Default on."
+        },
+        "sections": {
+          "advanced": {
+            "name": "Advanced (rarely change)",
+            "data": {
+              "night_light_sleep_brightness": "Night light brightness (sleep)",
+              "night_light_sleep_hue": "Night-light colour at sleep",
+              "night_light_sleep_color": "Night light color (sleep)",
+              "night_light_day_brightness": "Night light brightness (day)",
+              "night_light_day_color": "Night light color (day)"
+            },
+            "data_description": {
+              "night_light_sleep_brightness": "Brightness for night lights during sleep hours (dim for safety)",
+              "night_light_sleep_hue": "Red is easiest on sleep and is used on colour lights. White-only lights use the sleep colour temperature below.",
+              "night_light_sleep_color": "Color temperature during sleep hours (warm/red tones recommended)",
+              "night_light_day_brightness": "Brightness for night lights outside sleep hours",
+              "night_light_day_color": "Color temperature outside sleep hours (cool/white tones recommended)"
+            }
+          }
         }
       },
       "options_lighting": {
@@ -1924,18 +2114,16 @@
       },
       "options_covers": {
         "title": "Cover Automation",
-        "description": "Configure how motorized blinds and shades respond to events. {advanced_hint}",
+        "description": "Configure how motorized blinds and shades respond to events.",
         "data": {
           "cover_type": "Cover Type",
           "cover_open_mode": "Open Mode",
           "cover_open_time_source": "Open Time Source",
           "cover_open_hour": "Open Hour",
-          "sunrise_offset": "Sunrise Offset (minutes)",
           "exit_cover_action": "Close on Exit",
           "timed_close_enabled": "Enable Timed Close",
-          "cover_close_time_source": "Close Time Source",
-          "cover_close_hour": "Close Hour",
-          "sunset_offset": "Sunset Offset (minutes)",
+          "cover_close_time_source": "Close time from",
+          "cover_close_hour": "Close hour",
           "cover_hvac_managed": "Let HVAC Close These for Sun Control"
         },
         "data_description": {
@@ -1943,13 +2131,24 @@
           "cover_open_mode": "When to open covers: manual, on entry, at time, or combo",
           "cover_open_time_source": "Use sunrise or a specific hour for time-based opening",
           "cover_open_hour": "Hour (0-23) for specific-time opening",
-          "sunrise_offset": "Minutes before/after sunrise for sun-based timing",
           "exit_cover_action": "When to close covers on room exit",
           "timed_close_enabled": "Automatically close covers at a specific time",
-          "cover_close_time_source": "Use sunset or a specific hour for timed close",
-          "cover_close_hour": "Hour (0-23) for timed auto-close",
-          "sunset_offset": "Minutes before/after sunset for sun-based timing",
+          "cover_close_time_source": "When the covers' day ends (sunset or a set hour). Used by timed close and by sun control, which treats covers as meant to be open only before this time.",
+          "cover_close_hour": "When the covers' day ends (sunset or a set hour). Used by timed close and by sun control, which treats covers as meant to be open only before this time.",
           "cover_hvac_managed": "When ON, the HVAC coordinator may close these covers during peak afternoon solar hours to reduce cooling load. Turn OFF to keep this room's covers exempt from HVAC management."
+        },
+        "sections": {
+          "advanced": {
+            "name": "Advanced (rarely change)",
+            "data": {
+              "sunrise_offset": "Sunrise Offset (minutes)",
+              "sunset_offset": "Sunset Offset (minutes)"
+            },
+            "data_description": {
+              "sunrise_offset": "Minutes before/after sunrise for sun-based timing",
+              "sunset_offset": "Minutes before/after sunset for sun-based timing"
+            }
+          }
         }
       },
       "automation_chaining": {
@@ -2070,7 +2269,7 @@
       },
       "climate": {
         "title": "Climate & Fans",
-        "description": "Configure fans first (fan mode, humidity/exhaust), then the climate backstop at the bottom. The fan start and speed temperatures are used only when Fan mode is Room temperature. {advanced_hint}",
+        "description": "Configure fans first (fan mode, humidity/exhaust), then the climate backstop at the bottom. The fan start and speed temperatures are used only when Fan mode is Room temperature.",
         "data": {
           "room_fan_mode": "Fan mode",
           "humidity_fan_control_enabled": "Enable Humidity/Exhaust Fan Control",
@@ -2083,12 +2282,8 @@
           "humidity_fan_presence_runtime_per_min_s": "Extra Run-On per Minute Occupied",
           "humidity_fan_presence_runtime_cap_s": "Max Run-On Time After Vacancy",
           "fan_temp_threshold": "Fan Start Temperature",
-          "fan_speed_low_temp": "Low Speed Temperature",
-          "fan_speed_med_temp": "Medium Speed Temperature",
-          "fan_speed_high_temp": "High Speed Temperature",
           "humidity_fan_threshold": "Humidity Fan Threshold",
           "humidity_fan_timeout": "Humidity Fan Minimum Run Time",
-          "humidity_fan_max_runtime": "Humidity Fan Maximum Run Time",
           "comfort_fan_away_veto_enabled": "Comfort fan off when away",
           "ble_hold_cap_enabled": "Limit phone-only occupancy"
         },
@@ -2111,7 +2306,7 @@
             "data": {
               "target_temp_heat": "Comfort Range — Low (°F)",
               "target_temp_cool": "Comfort Range — High (°F)",
-              "climate_entity": "Climate/Thermostat Entity (fallback)",
+              "climate_entity": "Thermostat",
               "hvac_vacancy_hold": "Empty-room hold (day)",
               "hvac_vacancy_hold_night": "Empty-room hold (night)",
               "hvac_skip_entry_wait": "Skip entry wait"
@@ -2125,14 +2320,26 @@
               "hvac_skip_entry_wait": "For rooms with short-pulse sensors. When on, any detection immediately switches an Away zone back to Home — no entry wait."
             },
             "description": "Defaults — day: closets 1 min, media/utility/general/garage 2, bath/living 3, bedrooms 4. Night: bedrooms/media 30, living 15, bath/garage/utility 10, closets 5."
+          },
+          "advanced": {
+            "name": "Advanced (rarely change)",
+            "data": {
+              "fan_speed_low_temp": "Low Speed Temperature",
+              "fan_speed_med_temp": "Medium Speed Temperature",
+              "fan_speed_high_temp": "High Speed Temperature",
+              "humidity_fan_max_runtime": "Humidity Fan Maximum Run Time"
+            },
+            "data_description": {
+              "fan_speed_low_temp": "Fan mode Room temperature only. Temperature at which fans step to LOW.",
+              "fan_speed_med_temp": "Fan mode Room temperature only. Temperature at which fans step to MEDIUM.",
+              "fan_speed_high_temp": "Fan mode Room temperature only. Temperature at which fans step to HIGH.",
+              "humidity_fan_max_runtime": "Maximum continuous humidity-fan runtime. Forces OFF if humidity stays high longer than this — guards against stuck humidity sensors."
+            }
           }
         },
         "data_description": {
           "room_fan_mode": "Who controls this room's comfort fan: the thermostat zone, this room's own temperature settings, or nobody (you control it).",
           "fan_temp_threshold": "Fan mode Room temperature only. Temperature above which comfort fans turn on.",
-          "fan_speed_low_temp": "Fan mode Room temperature only. Temperature at which fans step to LOW.",
-          "fan_speed_med_temp": "Fan mode Room temperature only. Temperature at which fans step to MEDIUM.",
-          "fan_speed_high_temp": "Fan mode Room temperature only. Temperature at which fans step to HIGH.",
           "comfort_fan_away_veto_enabled": "Keep this room's comfort fan off while the house is Away, even if a sensor says someone is here. Turn off if you want the fan to run while you're out (e.g. for pets). Humidity and exhaust fans are not affected.",
           "ble_hold_cap_enabled": "After a while, stop keeping the room occupied on a phone's Bluetooth signal alone unless motion or presence sensors agree. Stops a phone left behind from holding the room on.",
           "humidity_fan_control_enabled": "Master switch for humidity/exhaust automation. When OFF, URA does not touch the humidity fan.",
@@ -2145,8 +2352,7 @@
           "humidity_fan_presence_runtime_per_min_s": "Additional run-on time added per minute the room was occupied.",
           "humidity_fan_presence_runtime_cap_s": "Hard cap on the post-vacancy run-on. Must be less than or equal to the Humidity Fan Maximum Run Time.",
           "humidity_fan_threshold": "Humidity level above which the exhaust turns on (absolute threshold).",
-          "humidity_fan_timeout": "Once ON, the fan runs at least this long before it's allowed to turn off. Prevents short-cycling.",
-          "humidity_fan_max_runtime": "Maximum continuous humidity-fan runtime. Forces OFF if humidity stays high longer than this — guards against stuck humidity sensors."
+          "humidity_fan_timeout": "Once ON, the fan runs at least this long before it's allowed to turn off. Prevents short-cycling."
         }
       },
       "sleep_protection": {
@@ -2154,16 +2360,16 @@
         "description": "Update sleep protection settings.",
         "data": {
           "sleep_protection_enabled": "Enable Sleep Protection",
-          "sleep_start_hour": "Sleep Start Hour",
-          "sleep_end_hour": "Sleep End Hour",
+          "sleep_start_hour": "Room sleep starts (hour)",
+          "sleep_end_hour": "Room sleep ends (hour)",
           "sleep_bypass_motion_count": "Motions Required to Wake Automation",
           "sleep_block_covers": "Block Cover Automation",
           "fan_sleep_policy": "Fans During Sleep"
         },
         "data_description": {
           "sleep_protection_enabled": "Block most automation during sleep hours",
-          "sleep_start_hour": "Hour when sleep mode starts (0-23, e.g., 22 = 10 PM)",
-          "sleep_end_hour": "Hour when sleep mode ends (0-23, e.g., 7 = 7 AM)",
+          "sleep_start_hour": "Hours this room's sleep protection is active. The house sleep window is set in Presence settings.",
+          "sleep_end_hour": "Hours this room's sleep protection is active. The house sleep window is set in Presence settings.",
           "sleep_bypass_motion_count": "How many motion trips during sleep hours before URA treats the room as awake and resumes normal automation.",
           "sleep_block_covers": "Prevent covers from opening during sleep hours",
           "fan_sleep_policy": "How fans behave during sleep hours: off, reduced speed, or normal"
@@ -2225,26 +2431,16 @@
       },
       "options_lighting_behaviour": {
         "title": "Lighting behaviour",
-        "description": "Role pickers for this room's lights. {summary}\n\n{advanced_hint}",
+        "description": "Role pickers for this room's lights. {summary}",
         "data": {
           "lights_on_entry": "Turn on when someone enters",
-          "lights_on_entry_dark_only": "Wait for dark (exceptions)",
           "night_lights": "Night lights (used during sleep hours)",
           "night_lights_by_day": "Use night lights by day",
           "lights_leave_on_when_empty": "Leave on when the room empties",
           "away_turn_off_leave_on": "…but turn them off when the house is Away",
           "alert_lights": "Alert lights (flashes for notifications)",
-          "light_manual_on_hold_s": "Keep lights I turn on (seconds)",
-          "light_manual_off_cooldown_s": "Keep lights I turn off (seconds)",
           "light_dark_use_sun_fallback": "Use outdoor light when there's no room sensor",
           "light_dark_lux_source": "Borrow another room's light sensor",
-          "light_evening_brightness_pct": "Evening brightness",
-          "light_evening_color_kelvin": "Evening colour temperature",
-          "night_light_evening_brightness": "Evening night-light brightness",
-          "night_light_evening_color": "Evening night-light colour",
-          "light_scene_day": "Day scene",
-          "light_scene_evening": "Evening scene",
-          "light_scene_sleep": "Sleep scene",
           "entry_light_action": "Turn lights on when someone enters",
           "exit_light_action": "Lights on Exit",
           "illuminance_dark_threshold": "Dark Threshold (lux)",
@@ -2254,23 +2450,13 @@
         },
         "data_description": {
           "lights_on_entry": "The lights that come on when someone enters. Leave empty to use every light in this room.",
-          "lights_on_entry_dark_only": "Advanced. Only used when the room is set to Always: these lights still wait for dark.",
           "night_lights": "Lights used instead of the regular set during sleep hours. Dim + warm settings live in Devices.",
           "night_lights_by_day": "Also turn on night lights when it's not dark. Off by default.",
           "lights_leave_on_when_empty": "These lights are not swept off when the room empties. Everything else is.",
           "away_turn_off_leave_on": "When the house is Away, sweep off even the leave-on lights. Only matters when the list above is non-empty.",
           "alert_lights": "Lights that briefly flash to signal notifications. Colour lives in Notifications.",
-          "light_manual_on_hold_s": "Advanced. When someone turns a light on by hand, the room will not turn it off while occupied. It goes off once the room is empty. 0 turns this off.",
-          "light_manual_off_cooldown_s": "Advanced. When someone turns a light off by hand, the room will not turn it back on for this long. 0 turns this off.",
           "light_dark_use_sun_fallback": "When this room has no working light sensor, treat outdoor light as the source of truth. Off preserves today's 'never dark' behaviour.",
           "light_dark_lux_source": "Use this sensor's reading if the room's own sensor is missing or offline.",
-          "light_evening_brightness_pct": "Advanced. Brightness for regular lights after dusk but before sleep. Leave empty to use the day setting.",
-          "light_evening_color_kelvin": "Advanced. Colour temperature for regular lights in the evening. Leave empty for no colour change.",
-          "night_light_evening_brightness": "Advanced. Brightness for night lights in the evening. Leave empty to use the day setting.",
-          "night_light_evening_color": "Advanced. Colour temperature for night lights in the evening. Leave empty to use the day setting.",
-          "light_scene_day": "Advanced. When set, entry activates this scene during the day instead of turning lights on one by one.",
-          "light_scene_evening": "Advanced. When set, entry activates this scene in the evening instead of turning lights on one by one.",
-          "light_scene_sleep": "Advanced. When set, entry activates this scene during sleep hours instead of turning night lights on one by one.",
           "entry_light_action": "Never, Always, or Only when dark. This is the room's darkness setting.",
           "exit_light_action": "What to do with lights when the room becomes vacant",
           "illuminance_dark_threshold": "Lux level below which the room is considered 'dark'",
@@ -2297,6 +2483,33 @@
             },
             "data_description": {
               "flap_sensitivity": "How quickly to quarantine a sensor that toggles rapidly. Relaxed = tolerant of flapping; Normal = default; Aggressive = quarantine sooner."
+            }
+          },
+          "advanced": {
+            "name": "Advanced (rarely change)",
+            "data": {
+              "lights_on_entry_dark_only": "Wait for dark (exceptions)",
+              "light_manual_on_hold_s": "Keep lights I turn on (seconds)",
+              "light_manual_off_cooldown_s": "Keep lights I turn off (seconds)",
+              "light_evening_brightness_pct": "Evening brightness",
+              "light_evening_color_kelvin": "Evening colour temperature",
+              "night_light_evening_brightness": "Evening night-light brightness",
+              "night_light_evening_color": "Evening night-light colour",
+              "light_scene_day": "Day scene",
+              "light_scene_evening": "Evening scene",
+              "light_scene_sleep": "Sleep scene"
+            },
+            "data_description": {
+              "lights_on_entry_dark_only": "Advanced. Only used when the room is set to Always: these lights still wait for dark.",
+              "light_manual_on_hold_s": "Advanced. When someone turns a light on by hand, the room will not turn it off while occupied. It goes off once the room is empty. 0 turns this off.",
+              "light_manual_off_cooldown_s": "Advanced. When someone turns a light off by hand, the room will not turn it back on for this long. 0 turns this off.",
+              "light_evening_brightness_pct": "Advanced. Brightness for regular lights after dusk but before sleep. Leave empty to use the day setting.",
+              "light_evening_color_kelvin": "Advanced. Colour temperature for regular lights in the evening. Leave empty for no colour change.",
+              "night_light_evening_brightness": "Advanced. Brightness for night lights in the evening. Leave empty to use the day setting.",
+              "night_light_evening_color": "Advanced. Colour temperature for night lights in the evening. Leave empty to use the day setting.",
+              "light_scene_day": "Advanced. When set, entry activates this scene during the day instead of turning lights on one by one.",
+              "light_scene_evening": "Advanced. When set, entry activates this scene in the evening instead of turning lights on one by one.",
+              "light_scene_sleep": "Advanced. When set, entry activates this scene during sleep hours instead of turning night lights on one by one."
             }
           }
         }

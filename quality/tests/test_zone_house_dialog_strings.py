@@ -124,12 +124,21 @@ _FIELD_CASES = [
 def _check_field(sid: str, key: str) -> None:
     for name, blob in (("strings.json", _load(_STRINGS)), ("en.json", _load(_EN))):
         step = blob["options"]["step"][sid]
-        label = (step.get("data") or {}).get(key)
+        # FORM-CONDITIONAL-FIELDS-1: a field in the collapsed ``advanced``
+        # section is labelled under ``sections.advanced`` (moved, not copied).
+        block = step
+        adv = (step.get("sections") or {}).get("advanced")
+        if isinstance(adv, dict) and key in (adv.get("data") or {}):
+            assert key not in (step.get("data") or {}), (
+                f"{name}: {sid}.{key} label copied, not moved, into the section"
+            )
+            block = adv
+        label = (block.get("data") or {}).get(key)
         assert label, f"{name}: {sid} has no label for '{key}' (raw key shows)"
         assert label != key and "_" not in label, (
             f"{name}: {sid}.{key} label {label!r} looks like a raw key"
         )
-        helper = (step.get("data_description") or {}).get(key)
+        helper = (block.get("data_description") or {}).get(key)
         assert helper, f"{name}: {sid} has no helper for '{key}'"
         assert len(helper) <= MAX_HELPER_LEN, (
             f"{name}: {sid}.{key} helper is {len(helper)} chars (>{MAX_HELPER_LEN})"

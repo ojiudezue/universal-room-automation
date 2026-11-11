@@ -3,11 +3,13 @@ areas (bulk), S3 Simple single-room chain, S4 dead ends.
 
 Plan: docs/planning/PLANNING_onboarding_simplify_phase2.md (incl. the
 plan-review findings 1-6). Tests drive the production flow methods through
-the shared mocked-HA harness (test_cycle_b_config_flow). Advanced-field
-hiding is asserted on the RENDERED schema (finding 1): the harness binds a
-replica of HA's ``FlowHandler.add_suggested_values_to_schema`` advanced
-drop (homeassistant/data_entry_flow.py:660-667), which the production
-``_filter_advanced`` routes through.
+the shared mocked-HA harness (test_cycle_b_config_flow).
+
+FORM-CONDITIONAL-FIELDS-1 (release 1) retired HA's Advanced mode: the House
+form's rarely-changed fields sit in a collapsed section, the room-class
+screen always shows, and the confirm screens keep every field on the first
+screen. Section submit handling is tested on the real-HA harness in
+test_forms_release1.py.
 """
 from __future__ import annotations
 
@@ -222,33 +224,22 @@ def _area_entities():
 _S1_SHOWN = {C.CONF_WEATHER_ENTITY, C.CONF_TRACKED_PERSONS, C.CONF_NOTIFY_TARGET}
 
 
-def test_house_simple_shows_three_fields(install):
+def test_house_first_screen_three_fields(install):
+    """FORM-CONDITIONAL-FIELDS-1 (D3): Weather, People and Phone on the
+    first screen; the other 8 fields in the collapsed ``advanced`` section
+    (rendered the same whatever the retired profile flag says).
+
+    The submit-side section handling (flatten + un-expanded defaults) needs
+    HA's real ``section`` class and is covered on the real-HA harness in
+    test_forms_release1.py."""
     install([])
     hass = _Hass(notify=["mobile_app_pixel"])
-    simple = _run(_flow(hass).async_step_integration_config())
-    assert _keys(simple) == _S1_SHOWN
-    full = _run(_flow(hass, advanced=True).async_step_integration_config())
-    assert len(_keys(full)) == 11
-    assert _S1_SHOWN < _keys(full)
-
-
-def test_house_simple_hidden_fields_store_defaults(install):
-    """INV-C incl. the Required electricity rate."""
-    install([])
-    hass = _Hass()
-    flow = _flow(hass)
-    _run(flow.async_step_integration_config(user_input={}))
-    house = [e for e in hass._entries
-             if e.data.get(C.CONF_ENTRY_TYPE) == C.ENTRY_TYPE_INTEGRATION]
-    assert len(house) == 1
-    data = house[0].data
-    assert data[C.CONF_ELECTRICITY_RATE] == _const.DEFAULT_ELECTRICITY_RATE
-    assert data[C.CONF_PERSON_DATA_RETENTION] == _const.DEFAULT_PERSON_DATA_RETENTION
-    assert data[C.CONF_TRANSITION_DETECTION_WINDOW] == _const.DEFAULT_TRANSITION_WINDOW
-    assert data[C.CONF_NOTIFY_LEVEL] == _const.NOTIFY_LEVEL_ERRORS
-    for absent in (C.CONF_OUTSIDE_TEMP_SENSOR, C.CONF_OUTSIDE_HUMIDITY_SENSOR,
-                   C.CONF_SOLAR_PRODUCTION_SENSOR, C.CONF_NOTIFY_SERVICE):
-        assert absent not in data, absent
+    for advanced in (False, True):
+        res = _run(_flow(hass, advanced=advanced).async_step_integration_config())
+        assert _keys(res) == _S1_SHOWN | {"advanced"}
+        inner = next(v for k, v in res["data_schema"].schema.items()
+                     if str(k) == "advanced")
+        assert len(getattr(inner, "schema", inner)) == 8
 
 
 def test_house_people_prefill_all_persons(install):
@@ -269,17 +260,16 @@ def test_house_phone_prefilled_when_one_mobile_app(install):
     assert marker.description["suggested_value"] == "notify.mobile_app_pixel"
 
 
-def test_energy_setup_skipped_in_simple(install):
+def test_energy_setup_always_follows_house_form(install):
+    """§13 row 69: the energy screen is always shown (the Simple-mode skip
+    is gone); the House entry is minted when it is submitted."""
     install([])
-    hass = _Hass()
-    simple = _run(_flow(hass).async_step_integration_config(user_input={}))
-    assert simple["type"] == "menu" and simple["step_id"] == "add_first_room"
-    assert len(hass.flow_init_calls) == 1  # House minted
-    hass2 = _Hass()
-    adv = _run(_flow(hass2, advanced=True).async_step_integration_config(
-        user_input={C.CONF_ELECTRICITY_RATE: 0.2}))
-    assert adv["type"] == "form" and adv["step_id"] == "energy_setup"
-    assert hass2.flow_init_calls == []
+    for advanced in (False, True):
+        hass = _Hass()
+        flow = _flow(hass, advanced=advanced)
+        res = _run(flow.async_step_integration_config(user_input={}))
+        assert res["type"] == "form" and res["step_id"] == "energy_setup"
+        assert hass.flow_init_calls == []
 
 
 def _load_process_alerts():
@@ -303,13 +293,16 @@ def _load_process_alerts():
 
 
 def test_simple_house_phone_sends_alert(install):
-    """Plan-review finding 2: a Simple-mode House with only a phone picked
-    must make the real alert sender call that phone's notify service."""
+    """Plan-review finding 2 / §13 row 70: a House with only a phone picked
+    (service left blank) must make the real alert sender call that phone's
+    notify service."""
     install([])
     hass = _Hass(notify=["mobile_app_pixel"])
-    _run(_flow(hass).async_step_integration_config(user_input={
+    flow = _flow(hass)
+    _run(flow.async_step_integration_config(user_input={
         C.CONF_NOTIFY_TARGET: "notify.mobile_app_pixel",
     }))
+    _run(flow.async_step_energy_setup(user_input={}))
     house = next(e for e in hass._entries
                  if e.data.get(C.CONF_ENTRY_TYPE) == C.ENTRY_TYPE_INTEGRATION)
     assert house.data[C.CONF_NOTIFY_SERVICE] == "notify.mobile_app_pixel"
@@ -325,15 +318,17 @@ def test_simple_house_phone_sends_alert(install):
     assert args[0] == "notify" and args[1] == "mobile_app_pixel"
 
 
-def test_advanced_house_keeps_explicit_empty_service(install):
-    """In Advanced mode both fields are visible: no service is derived."""
+def test_house_explicit_service_never_overwritten(install):
+    """§13 row 70: an entered service is kept; the phone only fills a
+    blank one."""
     install([])
     hass = _Hass()
     flow = _flow(hass, advanced=True)
     _run(flow.async_step_integration_config(user_input={
         C.CONF_NOTIFY_TARGET: "notify.mobile_app_pixel",
+        C.CONF_NOTIFY_SERVICE: "notify.family",
     }))
-    assert C.CONF_NOTIFY_SERVICE not in flow._integration_data
+    assert flow._integration_data[C.CONF_NOTIFY_SERVICE] == "notify.family"
 
 
 # ===========================================================================
@@ -579,7 +574,8 @@ def test_room_bulk_create_rejects_non_room(install):
 # S3 — Simple single-room chain
 # ===========================================================================
 
-def test_room_simple_four_screens(install):
+def test_room_chain_five_screens(install):
+    """§13 row 68: the room-class screen always shows now."""
     install(_area_entities(), _AREAS)
     hass = _Hass()
     flow = _house_flow(hass)
@@ -595,25 +591,31 @@ def test_room_simple_four_screens(install):
         step = _run(getattr(flow, f"async_step_{step['step_id']}")(
             user_input=_untouched(step)))
     assert step["type"] == "create_entry"
-    assert seen == ["room_setup", "sensors_confirm", "devices_confirm", "room_summary"]
+    assert seen == ["room_setup", "room_class", "sensors_confirm",
+                    "devices_confirm", "room_summary"]
 
 
 @pytest.mark.parametrize("room_type,wet", [
     ("bathroom", True), ("bedroom", False),
 ])
-def test_room_hidden_class_matches_type_default(install, room_type, wet):
+def test_room_class_untouched_stores_type_default(install, room_type, wet):
+    """An untouched room-class form stores the type defaults (no stored-key
+    change versus the old skip)."""
     install([])
     flow = _flow(_Hass())
     flow._data = {C.CONF_ROOM_NAME: "R", C.CONF_ROOM_TYPE: room_type}
-    nxt = _run(flow.async_step_room_class())
+    form = _run(flow.async_step_room_class())
+    assert form["step_id"] == "room_class"
+    nxt = _run(flow.async_step_room_class(user_input=_untouched(form)))
     assert nxt["step_id"] == "sensors_confirm"
     assert flow._data[C.CONF_WET_ROOM] is wet
     assert flow._data[C.CONF_ROOM_IS_GUEST_ROOM] is False
 
 
-def test_room_class_shown_in_advanced(install):
+@pytest.mark.parametrize("advanced", [False, True])
+def test_room_class_always_shown(install, advanced):
     install([])
-    flow = _flow(_Hass(), advanced=True)
+    flow = _flow(_Hass(), advanced=advanced)
     flow._data = {C.CONF_ROOM_NAME: "R", C.CONF_ROOM_TYPE: "bathroom"}
     assert _run(flow.async_step_room_class())["step_id"] == "room_class"
 
@@ -629,42 +631,42 @@ def test_room_name_prefilled_from_area(install):
     assert [str(k) for k in form["data_schema"].schema][0] == C.CONF_AREA_ID
 
 
-def test_room_simple_hides_unused_fields(install):
+def test_room_confirm_fields_all_on_first_screen(install):
+    """Rev 4 (H4): presence radars, door, water leak, switches and exhaust
+    fans are always on the first screen (no marker, no section)."""
     install(_area_entities(), _AREAS)
+    for advanced in (False, True):
+        flow = _flow(_Hass(), advanced=advanced)
+        flow._data = {C.CONF_ROOM_NAME: "Office", C.CONF_AREA_ID: "a2"}
+        sensors = _keys(_run(flow.async_step_sensors_confirm()))
+        for k in (C.CONF_MMWAVE_SENSORS, C.CONF_DOOR_SENSORS, C.CONF_WATER_LEAK_SENSOR):
+            assert k in sensors, k
+        devices = _keys(_run(flow.async_step_devices_confirm()))
+        assert C.CONF_HUMIDITY_FANS in devices
+        assert C.CONF_AUTO_SWITCHES in devices
+        assert "advanced" not in sensors | devices
+
+
+def test_create_confirm_guesses_top_level_kept(install):
+    """Rev 4 (H4): an unedited create submit stores the door and water-leak
+    area guesses (they travel as ``suggested_value``, which a section
+    backfill could not restore). A build that moves them into a section
+    leaves them out of the untouched submit -> RED here."""
+    install(_area_entities() + [
+        _reg("binary_sensor.bath_leak", dc="moisture", device_id="d9"),
+    ], _AREAS)
     flow = _flow(_Hass())
-    flow._data = {C.CONF_ROOM_NAME: "Office", C.CONF_AREA_ID: "a2"}
-    sensors = _keys(_run(flow.async_step_sensors_confirm()))
-    assert C.CONF_MMWAVE_SENSORS not in sensors
-    assert C.CONF_DOOR_SENSORS not in sensors
-    assert C.CONF_WATER_LEAK_SENSOR not in sensors
-    devices = _keys(_run(flow.async_step_devices_confirm()))
-    assert C.CONF_HUMIDITY_FANS not in devices
-    assert C.CONF_AUTO_SWITCHES not in devices
-    # "Shown when in use": the bath area has a door and a switch.
     flow._data = {C.CONF_ROOM_NAME: "Bath", C.CONF_AREA_ID: "a1"}
-    assert C.CONF_DOOR_SENSORS in _keys(_run(flow.async_step_sensors_confirm()))
-    assert C.CONF_AUTO_SWITCHES in _keys(_run(flow.async_step_devices_confirm()))
-    # Advanced shows everything.
-    adv = _flow(_Hass(), advanced=True)
-    adv._data = {C.CONF_ROOM_NAME: "Office", C.CONF_AREA_ID: "a2"}
-    assert C.CONF_MMWAVE_SENSORS in _keys(_run(adv.async_step_sensors_confirm()))
-    assert C.CONF_HUMIDITY_FANS in _keys(_run(adv.async_step_devices_confirm()))
-
-
-def test_room_simple_hidden_fields_store_defaults(install):
-    install(_area_entities(), _AREAS)
-    flow = _flow(_Hass())
-    flow._data = {C.CONF_ROOM_NAME: "Office", C.CONF_AREA_ID: "a2"}
-    _run(flow.async_step_sensors_confirm(user_input={
-        C.CONF_OCCUPANCY_SENSORS: ["binary_sensor.office_occ"],
-    }))
+    form = _run(flow.async_step_sensors_confirm())
+    nxt = _run(flow.async_step_sensors_confirm(user_input=_untouched(form)))
+    assert nxt["step_id"] == "devices_confirm"
+    assert flow._data[C.CONF_DOOR_SENSORS] == "binary_sensor.bath_door"
+    assert flow._data[C.CONF_WATER_LEAK_SENSOR] == "binary_sensor.bath_leak"
     assert flow._data[C.CONF_MMWAVE_SENSORS] == []
-    assert C.CONF_DOOR_SENSORS not in flow._data
-    _run(flow.async_step_devices_confirm(user_input={
-        C.CONF_LIGHTS: ["light.office_lamp"],
-    }))
+    dev_form = _run(flow.async_step_devices_confirm())
+    _run(flow.async_step_devices_confirm(user_input=_untouched(dev_form)))
+    assert flow._data[C.CONF_AUTO_SWITCHES] == ["switch.bath_relay"]
     assert flow._data[C.CONF_HUMIDITY_FANS] == []
-    assert flow._data[C.CONF_AUTO_SWITCHES] == []
 
 
 # ===========================================================================

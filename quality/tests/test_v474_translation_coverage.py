@@ -17,6 +17,16 @@ import json
 import re
 import pytest
 
+def _all_sub(step: dict, sub: str) -> dict:
+    """Step-level ``sub`` plus every dict section's ``sub``: a field inside a
+    section is labelled under ``sections.<name>`` (FORM-CONDITIONAL-FIELDS-1)."""
+    out = dict(step.get(sub) or {})
+    for sec in (step.get("sections") or {}).values():
+        if isinstance(sec, dict):
+            out.update(sec.get(sub) or {})
+    return out
+
+
 
 # ===========================================================================
 # Fixtures
@@ -145,7 +155,7 @@ class TestD5Surface1FieldCoverage:
 
     def test_d5_surface1_field_coverage_strings(self, strings):
         """All 6 Surface 1 fields must have translation entries in strings.json."""
-        data = strings["options"]["step"]["hvac_dynamic_preset"].get("data", {})
+        data = _all_sub(strings["options"]["step"]["hvac_dynamic_preset"], "data")
         for field in self._SURFACE1_EXPECTED_FIELDS:
             assert field in data, (
                 f"D5: strings.json hvac_dynamic_preset.data is missing '{field}' — "
@@ -154,7 +164,7 @@ class TestD5Surface1FieldCoverage:
 
     def test_d5_surface1_field_coverage_translations_en(self, translations_en):
         """All 6 Surface 1 fields must have translation entries in translations/en.json."""
-        data = translations_en["options"]["step"]["hvac_dynamic_preset"].get("data", {})
+        data = _all_sub(translations_en["options"]["step"]["hvac_dynamic_preset"], "data")
         for field in self._SURFACE1_EXPECTED_FIELDS:
             assert field in data, (
                 f"D5: translations/en.json hvac_dynamic_preset.data is missing '{field}'"
@@ -183,7 +193,7 @@ class TestD5Surface1FieldCoverage:
         """
         idx = config_flow_src.find("def _build_hvac_dynamic_preset_schema(self")
         body = config_flow_src[idx:idx + 3000]
-        data = strings["options"]["step"]["hvac_dynamic_preset"].get("data", {})
+        data = _all_sub(strings["options"]["step"]["hvac_dynamic_preset"], "data")
         # Each CONF in the schema builder corresponds to a field key
         # (the key is the CONF value, which is the snake_case string without the CONF_ prefix).
         # The strings.json uses the CONF value directly as the field key.
@@ -231,7 +241,7 @@ class TestD5Surface2FieldCoverage:
     def test_d5_surface2_field_coverage_strings(self, strings):
         """All 4 Surface 2 top-level fields must have translation entries
         in strings.json (post v4.7.18 D1 strip)."""
-        data = strings["options"]["step"]["zone_dynamic_preset"].get("data", {})
+        data = _all_sub(strings["options"]["step"]["zone_dynamic_preset"], "data")
         for field in self._SURFACE2_EXPECTED_FIELDS:
             assert field in data, (
                 f"D5: strings.json zone_dynamic_preset.data is missing '{field}'"
@@ -240,7 +250,7 @@ class TestD5Surface2FieldCoverage:
     def test_d5_surface2_field_coverage_translations_en(self, translations_en):
         """All 4 Surface 2 top-level fields must have translation entries
         in translations/en.json (post v4.7.18 D1 strip)."""
-        data = translations_en["options"]["step"]["zone_dynamic_preset"].get("data", {})
+        data = _all_sub(translations_en["options"]["step"]["zone_dynamic_preset"], "data")
         for field in self._SURFACE2_EXPECTED_FIELDS:
             assert field in data, (
                 f"D5: translations/en.json zone_dynamic_preset.data is missing '{field}'"
@@ -270,7 +280,7 @@ class TestD5Surface2FieldCoverage:
 
     def test_d5_surface2_no_no_zone_prefixed_fields(self, strings):
         """D5 regression guard: no field key in zone_dynamic_preset data has __ (zone prefix bug)."""
-        data = strings["options"]["step"]["zone_dynamic_preset"].get("data", {})
+        data = _all_sub(strings["options"]["step"]["zone_dynamic_preset"], "data")
         prefixed = [k for k in data if "__" in k]
         assert not prefixed, (
             f"D5 REGRESSION: strings.json zone_dynamic_preset.data has __ prefixed keys: {prefixed}"
@@ -299,7 +309,7 @@ class TestD5BaselineFieldCoverage:
 
     def test_d5_baseline_field_coverage_strings(self, strings):
         """All 24 baseline fields must have translation entries in strings.json."""
-        data = strings["options"]["step"]["hvac_baseline_presets"].get("data", {})
+        data = _all_sub(strings["options"]["step"]["hvac_baseline_presets"], "data")
         for field in self._expected_fields():
             assert field in data, (
                 f"D5: strings.json hvac_baseline_presets.data is missing '{field}'"
@@ -307,7 +317,7 @@ class TestD5BaselineFieldCoverage:
 
     def test_d5_baseline_field_coverage_translations_en(self, translations_en):
         """All 24 baseline fields must have translation entries in translations/en.json."""
-        data = translations_en["options"]["step"]["hvac_baseline_presets"].get("data", {})
+        data = _all_sub(translations_en["options"]["step"]["hvac_baseline_presets"], "data")
         for field in self._expected_fields():
             assert field in data, (
                 f"D5: translations/en.json hvac_baseline_presets.data is missing '{field}'"
@@ -331,7 +341,7 @@ class TestD5BaselineFieldCoverage:
 
     def test_d5_baseline_total_coverage_count(self, strings):
         """D5: Baseline presets step must have at least 24 data fields (24 baseline + optional extras)."""
-        data = strings["options"]["step"]["hvac_baseline_presets"].get("data", {})
+        data = _all_sub(strings["options"]["step"]["hvac_baseline_presets"], "data")
         assert len(data) >= 24, (
             f"D5: strings.json hvac_baseline_presets.data has only {len(data)} fields; "
             "expected >= 24 (3 seasons × 4 presets × 2 dims)"

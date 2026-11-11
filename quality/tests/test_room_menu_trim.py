@@ -77,17 +77,18 @@ def test_simple_menu_snapshot_per_type(room_type):
     flow = make_flow(room_type)
     result = run(flow.async_step_init())
     assert result["menu_options"] == _expected(room_type)
-    assert "Advanced mode" in result["description_placeholders"]["menu_hint"]
+    # FORM-CONDITIONAL-FIELDS-1: the Advanced-mode sentence is gone.
+    assert "Advanced" not in result["description_placeholders"]["menu_hint"]
 
 
 @pytest.mark.parametrize("room_type", ALL_TYPES)
-def test_advanced_mode_menu_is_trimmed_too(room_type):
-    """2026-11-05: Advanced mode no longer bypasses the room-type trim; it
-    only reveals Advanced fields inside steps."""
-    flow = make_flow(room_type, adv=True)
-    result = run(flow.async_step_init())
-    assert result["menu_options"] == _expected(room_type)
-    assert "Advanced settings shown." in result["description_placeholders"]["menu_hint"]
+def test_profile_flag_does_not_change_menu(room_type):
+    """The retired HA profile flag changes neither the menu nor its hint."""
+    off = run(make_flow(room_type, adv=False).async_step_init())
+    on = run(make_flow(room_type, adv=True).async_step_init())
+    assert on["menu_options"] == off["menu_options"] == _expected(room_type)
+    assert (on["description_placeholders"]["menu_hint"]
+            == off["description_placeholders"]["menu_hint"])
 
 
 def test_trimmed_hint_names_room_type():
@@ -176,7 +177,7 @@ def test_more_settings_full_then_trimmed_again():
     full = run(flow.async_step_show_all_settings())
     assert full["step_id"] == "init"
     assert full["menu_options"] == list(ROOM_MENU_STEPS_ALL)
-    assert "Advanced mode" in full["description_placeholders"]["menu_hint"]
+    assert full["description_placeholders"]["menu_hint"] == ""
     assert menu(flow) == _expected(ROOM_TYPE_CLOSET)
 
 
@@ -249,8 +250,8 @@ def test_translations(rel):
     assert "{menu_hint}" in steps["init"]["description"]
     for s in ROOM_MENU_STEPS_ALL:
         assert steps["init"]["menu_options"].get(s), s
-    assert "{advanced_hint}" in steps["options_covers"]["description"]
-    assert "{advanced_hint}" in steps["climate"]["description"]
+    assert "{advanced_hint}" not in steps["options_covers"]["description"]
+    assert "{advanced_hint}" not in steps["climate"]["description"]
 
 
 def test_non_room_menus_pass_empty_menu_hint():
@@ -264,9 +265,10 @@ def test_non_room_menus_pass_empty_menu_hint():
 
 
 # --- B-MEDIUM: hand-written Advanced-only keys (independent oracle) ---------
-# Hand-authored (NOT derived from the shim render): these keys are Advanced-
-# only on their step. If the factory render ever ran with Advanced OFF they
-# would be filtered out of the owned-key set and the step would stay hidden.
+# Hand-authored (NOT derived from the shim render): these keys live in their
+# step's collapsed ``advanced`` section. If the factory render ever stopped
+# descending into sections they would drop out of the owned-key set and the
+# step would stay hidden.
 _HAND_ADVANCED_CASES = [
     (ROOM_TYPE_UTILITY, "options_covers", "sunrise_offset", 15),
     (ROOM_TYPE_UTILITY, "options_covers", "sunset_offset", -20),

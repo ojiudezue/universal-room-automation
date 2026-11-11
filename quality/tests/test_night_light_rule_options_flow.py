@@ -7,8 +7,7 @@ Covers:
 - Round-trip through the options flow — saving True preserves True on
   re-open; saving unchecked persists False (not dropped / reset).
 - The five night-light colour/brightness fields in the ``devices`` step
-  are now Advanced-only (I2): hidden in Simple mode when at defaults;
-  shown in Advanced mode or when a non-default is stored (reach-back).
+  sit in its collapsed ``advanced`` section (FORM-CONDITIONAL-FIELDS-1).
 """
 from __future__ import annotations
 
@@ -93,53 +92,51 @@ _ADVANCED_COLOUR_KEYS = (
 )
 
 
-@pytest.mark.parametrize("key", _ADVANCED_COLOUR_KEYS)
-def test_night_colour_field_hidden_in_simple_mode(key):
-    off = render(make_flow(ROOM_TYPE_BEDROOM, adv=False), "devices")
-    assert key not in schema_keys(off), (
-        f"{key} should be Advanced-only in Simple mode"
-    )
+def _advanced_section_keys(result) -> set:
+    from custom_components.universal_room_automation import config_flow as cf
+    for marker, val in result["data_schema"].schema.items():
+        if str(getattr(marker, "schema", marker)) == "advanced":
+            return set(cf._collect_schema_defaults(val.schema))
+    return set()
 
 
 @pytest.mark.parametrize("key", _ADVANCED_COLOUR_KEYS)
-def test_night_colour_field_shown_in_advanced_mode(key):
-    on = render(make_flow(ROOM_TYPE_BEDROOM, adv=True), "devices")
-    assert key in schema_keys(on, top_level_only=True), key
+def test_night_colour_field_in_collapsed_section(key):
+    """FORM-CONDITIONAL-FIELDS-1: the five fields sit in the Devices
+    step's collapsed ``advanced`` section (not top level), whatever the
+    retired profile flag says."""
+    for adv in (False, True):
+        res = render(make_flow(ROOM_TYPE_BEDROOM, adv=adv), "devices")
+        assert key not in schema_keys(res, top_level_only=True), key
+        assert key in _advanced_section_keys(res), key
 
 
-def test_night_colour_i2_reach_back_non_default_shown_in_simple():
-    """I2 reach-back: a non-default stored sleep brightness stays
-    reachable in Simple mode via `_adv()`'s suggested_value path."""
+def test_night_colour_stored_value_prefilled():
     stored = {CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS: 50}
     assert stored[CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS] != DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS
-    off = render(make_flow(ROOM_TYPE_BEDROOM, options=stored), "devices")
-    assert CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS in schema_keys(off)
+    res = render(make_flow(ROOM_TYPE_BEDROOM, options=stored), "devices")
+    from custom_components.universal_room_automation import config_flow as cf
+    for marker, val in res["data_schema"].schema.items():
+        if str(getattr(marker, "schema", marker)) == "advanced":
+            assert cf._collect_schema_defaults(val.schema)[
+                CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS] == 50
 
 
-def test_night_colour_i3_simple_save_keeps_hidden_values():
-    """I3: a Simple-mode save of the Devices step must not clear the
-    hidden colour fields (they're not on the form)."""
+def test_night_colour_unsent_section_keeps_stored_values():
+    """I3: a save whose section was not sent keeps the stored colours."""
     stored = {
         CONF_NIGHT_LIGHT_DAY_BRIGHTNESS: 42,
-        CONF_NIGHT_LIGHT_DAY_COLOR: 3500,
-    }
-    flow = make_flow(ROOM_TYPE_BEDROOM, options=stored)
-    keys = schema_keys(render(flow, "devices"))
-    # They should NOT be on the Simple form (I2 forces only non-defaults;
-    # DAY_BRIGHTNESS=42 != default 100 → forced; DAY_COLOR=3500 != 4000
-    # → forced). We only care here that a Simple SAVE preserves the
-    # stored values when they're hidden. Build a case where defaults ARE
-    # stored (hidden) and confirm the save keeps them.
-    _ = keys
-
-
-def test_night_colour_i3_simple_save_at_defaults_preserved():
-    stored = {
         CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS: DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
     }
     flow = make_flow(ROOM_TYPE_BEDROOM, options=stored)
-    keys = schema_keys(render(flow, "devices"))
-    assert CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS not in keys
     res = _submit(flow, "devices", {})
-    assert res["data"].get(CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS) == \
+    assert res["data"][CONF_NIGHT_LIGHT_DAY_BRIGHTNESS] == 42
+    assert res["data"][CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS] == \
         DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS
+
+
+def test_night_colour_section_edit_lands_flat():
+    flow = make_flow(ROOM_TYPE_BEDROOM, options={CONF_NIGHT_LIGHT_DAY_BRIGHTNESS: 42})
+    res = _submit(flow, "devices", {"advanced": {CONF_NIGHT_LIGHT_DAY_BRIGHTNESS: 60}})
+    assert res["data"][CONF_NIGHT_LIGHT_DAY_BRIGHTNESS] == 60
+    assert "advanced" not in res["data"]

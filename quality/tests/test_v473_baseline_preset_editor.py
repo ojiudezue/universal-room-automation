@@ -372,14 +372,14 @@ class TestD1BaselinePresetsMenuAndStep:
         )
 
     def test_strings_baseline_presets_step_has_24_data_fields(self, strings):
-        data = strings["options"]["step"]["hvac_baseline_presets"].get("data", {})
+        data = _all_sub(strings["options"]["step"]["hvac_baseline_presets"], "data")
         # v4.7.4 D4 added _reset_all (25 total); original 24 baseline fields must still be present.
         assert len(data) >= 24, (
             f"strings.json hvac_baseline_presets must have at least 24 data fields, found {len(data)}"
         )
 
     def test_strings_baseline_presets_has_data_descriptions(self, strings):
-        desc = strings["options"]["step"]["hvac_baseline_presets"].get("data_description", {})
+        desc = _all_sub(strings["options"]["step"]["hvac_baseline_presets"], "data_description")
         # v4.7.4 D4 added _reset_all description (25 total); original 24 must still be present.
         assert len(desc) >= 24, (
             f"strings.json hvac_baseline_presets must have at least 24 data_description entries, found {len(desc)}"
@@ -399,13 +399,23 @@ class TestD1BaselinePresetsMenuAndStep:
         assert "hvac_baseline_presets" in translations_en["options"]["step"]
 
     def test_translations_baseline_presets_step_has_24_data_fields(self, translations_en):
-        data = translations_en["options"]["step"]["hvac_baseline_presets"].get("data", {})
+        data = _all_sub(translations_en["options"]["step"]["hvac_baseline_presets"], "data")
         # v4.7.4 D4 added _reset_all (25 total); original 24 baseline fields must still be present.
         assert len(data) >= 24
 
     def test_translations_error_key_exists(self, translations_en):
         errors = translations_en["options"].get("error", {})
         assert "baseline_preset_invalid_deadband" in errors
+
+
+def _all_sub(step: dict, sub: str) -> dict:
+    """Step-level ``sub`` plus every dict section's ``sub`` (section fields
+    are labelled under ``sections.<name>`` — FORM-CONDITIONAL-FIELDS-1)."""
+    out = dict(step.get(sub) or {})
+    for sec in (step.get("sections") or {}).values():
+        if isinstance(sec, dict):
+            out.update(sec.get(sub) or {})
+    return out
 
 
 # ===========================================================================

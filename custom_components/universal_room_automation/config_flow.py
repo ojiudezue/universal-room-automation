@@ -40,62 +40,94 @@ except Exception:  # noqa: BLE001 — tests may mock without data_entry_flow
 _LOGGER = logging.getLogger(__name__)
 
 
-# ROOM-LIGHTING-SETUP-REDESIGN-1 Slice E (v5.103.29) — Advanced-mode hint.
-# The Lighting behaviour step has Advanced-only fields (manual-hold windows
-# from Slice D, and the Slice E evening brightness/colour + scenes below).
-# HA hides ``description={"advanced": True}`` fields when the user profile
-# does NOT have Advanced mode on. Wording verified against the current HA
-# frontend: the user profile is reached by clicking the user name at the
-# bottom-left of the sidebar and toggling "Advanced mode".
 from typing import Any, Final  # noqa: E402
-# ROOM-TYPE-TRIMMED-MENU-1: generalised from the Lighting-only hint (renamed
-# from LIGHTING_ADVANCED_HINT_* / lighting_advanced_hint, text unchanged).
-# Used by every room options step with Advanced-only fields and by the room
-# menu. Non-translatable by choice (passed as a description placeholder).
-ADVANCED_HINT_HIDDEN: Final = (
-    "Some rarely-used settings are hidden. To show them, turn on Advanced "
-    "mode in your HA profile (click your name at the bottom left -> "
-    "Advanced mode). Hidden settings keep working."
-)
-ADVANCED_HINT_SHOWN: Final = "Advanced settings shown."
+
+# FORM-CONDITIONAL-FIELDS-1 release 1 (D2/D3): HA deprecated the profile
+# "Advanced mode" (it always reads True until it is removed in 2027.6).
+# Rarely-changed fields now live in a collapsed section keyed ``advanced``
+# on each step. A section's fields arrive as a nested dict, so every
+# submit handler on such a step flattens first (``_flatten_sections``).
+ADVANCED_SECTION: Final = "advanced"
 
 
-def advanced_hint(show_advanced_options: bool) -> str:
-    """Return the correct Advanced-mode hint variant."""
-    return (
-        ADVANCED_HINT_SHOWN
-        if show_advanced_options
-        else ADVANCED_HINT_HIDDEN
-    )
+def _advanced_section(fields: dict):
+    """A collapsed ``advanced`` section holding ``fields``."""
+    return _ha_section(vol.Schema(fields), {"collapsed": True})
 
 
-def _schema_has_advanced(schema) -> bool:
-    """True when any field (descending into sections) is Advanced-marked."""
+def _is_section(val) -> bool:
+    """True when ``val`` is HA's ``data_entry_flow.section``.
+
+    The ``_ha_section`` fallback (no HA) returns the bare inner schema,
+    which this cannot see; ``test_section_key_collisions_none`` asserts the
+    real class is in use so a mocked harness fails loudly.
+    """
+    return isinstance(_ha_section, type) and isinstance(val, _ha_section)
+
+
+def _schema_items(schema) -> dict:
     items = getattr(schema, "schema", schema)
-    if not isinstance(items, dict):
-        return False
-    for marker, val in items.items():
-        inner = getattr(val, "schema", None)
-        # vol.All / vol.Any keep a back-reference to the PARENT schema in
-        # ``.schema``; that is a leaf validator, not a section.
-        if inner is not None and getattr(inner, "schema", None) is items:
-            inner = None
-        if isinstance(inner, vol.Schema) or isinstance(val, vol.Schema):
-            if _schema_has_advanced(inner if inner is not None else val):
-                return True
+    return items if isinstance(items, dict) else {}
+
+
+def _section_keys(schema) -> list[str]:
+    """Section keys of ``schema``, or the names when given a list/tuple."""
+    if isinstance(schema, (list, tuple, set, frozenset)):
+        return [str(k) for k in schema]
+    return [
+        str(getattr(marker, "schema", marker))
+        for marker, val in _schema_items(schema).items()
+        if _is_section(val)
+    ]
+
+
+def _flatten_sections(user_input, schema) -> tuple[dict, frozenset]:
+    """Pop every section dict out of ``user_input`` and merge its keys up.
+
+    ``schema`` is the step schema (sections found by type) or an explicit
+    list of section keys. A section key that is absent or not a dict is
+    dropped. A section key wins over a same-named top-level key
+    (collisions are prevented at build time; logged here at debug, never
+    raised). Returns ``(flat, present)``: ``present`` is the set of section
+    keys whose dict was in the raw submit (the clear-on-absent rule).
+    """
+    raw = dict(user_input or {})
+    keys = _section_keys(schema)
+    flat = {k: v for k, v in raw.items() if k not in keys}
+    present: set = set()
+    for sk in keys:
+        inner = raw.get(sk)
+        if not isinstance(inner, dict):
             continue
-        desc = getattr(marker, "description", None)
-        if isinstance(desc, dict) and desc.get("advanced"):
-            return True
-    return False
+        present.add(sk)
+        for k, v in inner.items():
+            if k in flat:
+                _LOGGER.debug(
+                    "section %s: key %s collides with a top-level key", sk, k,
+                )
+            flat[k] = v
+    return flat, frozenset(present)
 
 
-def advanced_hint_for(schema, show_advanced_options: bool) -> str:
-    """Advanced hint for a form, or "" when the form has no Advanced-only
-    field (nothing hidden / nothing extra shown)."""
-    if not _schema_has_advanced(schema):
-        return ""
-    return advanced_hint(show_advanced_options)
+def _absent_field_defaults(schema, user_input) -> dict:
+    """Create-flow backfill (FORM-CONDITIONAL-FIELDS-1 §3, release 1 = case a).
+
+    For every section whose dict was absent (or not a dict) in the raw
+    ``user_input`` (never expanded), return its inner fields' marker
+    ``default=`` values. ``suggested_value`` is never read, and a field
+    cleared inside a present section is never filled.
+    """
+    raw = user_input or {}
+    out: dict = {}
+    for marker, val in _schema_items(schema).items():
+        if not _is_section(val):
+            continue
+        if isinstance(raw.get(str(getattr(marker, "schema", marker))), dict):
+            continue
+        for k, d in _collect_schema_defaults(val.schema).items():
+            if d is not vol.UNDEFINED:
+                out[k] = d
+    return out
 
 
 # Natural phrasing per room type for the trimmed-menu hint.
@@ -114,17 +146,14 @@ def _room_type_phrase(label: str) -> str:
     return f"{article} {label}"
 
 
-def room_menu_hint(room_type_label: str, trimmed: bool, show_advanced: bool) -> str:
+def room_menu_hint(room_type_label: str, trimmed: bool) -> str:
     """Hint line for the room options menu (ROOM-TYPE-TRIMMED-MENU-1 D8.3)."""
-    # The section trim applies in both modes; Advanced mode only controls
-    # the rarely-used fields inside each section.
     if trimmed:
         return (
             f"Showing the settings {_room_type_phrase(room_type_label)} "
-            "usually needs. "
-            "Pick More settings for the rest. " + advanced_hint(show_advanced)
+            "usually needs. Pick More settings for the rest."
         )
-    return advanced_hint(show_advanced)
+    return ""
 
 
 def _value_is_non_default(value, factory_default) -> bool:
@@ -146,58 +175,6 @@ def _value_is_non_default(value, factory_default) -> bool:
     if factory_default is vol.UNDEFINED or factory_default is None:
         return True
     return value != factory_default
-
-
-def _adv(key: str, merged, factory_default) -> dict | None:
-    """Advanced marker for an Advanced-only field (D8.2, invariant I2).
-
-    Returns ``{"advanced": True}`` only when the stored value is absent or
-    equals the factory default. A non-default stored value renders the field
-    unmarked so it is reachable in Simple mode.
-    """
-    if key in merged and _value_is_non_default(merged.get(key), factory_default):
-        return None
-    return {"advanced": True}
-
-
-def _filter_advanced_schema(flow, schema):
-    """Drop Advanced-marked fields outside Advanced mode.
-
-    HA only drops ``{"advanced": True}`` markers inside
-    ``FlowHandler.add_suggested_values_to_schema`` (homeassistant
-    data_entry_flow.py:660-667); a plain ``async_show_form`` renders them.
-    Shared by the ConfigFlow and OptionsFlow ``_filter_advanced``. Falls
-    back to the unfiltered schema in harnesses without HA's FlowHandler.
-    """
-    fn = getattr(flow, "add_suggested_values_to_schema", None)
-    if fn is None:
-        return schema
-    return fn(schema, {})
-
-
-def _hidden_advanced_defaults(schema, show_advanced: bool) -> dict:
-    """ONBOARDING-SIMPLIFY-1 phase 2 (INV-C): defaults for fields that were
-    hidden because they are Advanced-marked and Advanced mode is off.
-
-    A hidden field is not in the rendered schema, so HA never fills its
-    default on submit. Merging these back stores exactly what the full
-    form stores when the field is left untouched. Fields without a
-    default map to nothing (same as an untouched empty field today).
-    """
-    if show_advanced:
-        return {}
-    out: dict = {}
-    for marker in getattr(schema, "schema", {}):
-        if not isinstance(marker, vol.Marker):
-            continue
-        desc = marker.description
-        if not (isinstance(desc, dict) and desc.get("advanced")):
-            continue
-        default = getattr(marker, "default", vol.UNDEFINED)
-        if default is vol.UNDEFINED:
-            continue
-        out[str(marker.schema)] = default() if callable(default) else default
-    return out
 
 
 def guess_room_type_from_area(area_name: str | None) -> str:
@@ -1245,18 +1222,6 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             menu_options=["add_room", "rooms_from_areas", "add_zone", "add_coordinator"],
         )
 
-    def _show_adv(self) -> bool:
-        """HA profile Advanced mode for this flow (False when unavailable)."""
-        try:
-            return bool(getattr(self, "show_advanced_options", False))
-        except Exception:  # noqa: BLE001 — no context in some harnesses
-            return False
-
-    def _filter_advanced(self, schema):
-        """Phase 2 S1/S3: same routing as the Options flow (plan-review
-        finding 1) — HA does not hide Advanced fields on its own."""
-        return _filter_advanced_schema(self, schema)
-
     async def async_step_add_room(self, user_input=None):
         """Route to room setup."""
         return await self.async_step_room_setup()
@@ -1588,40 +1553,34 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
     async def async_step_integration_config(self, user_input=None):
         """Configure integration-level settings (global sensors, default notifications).
 
-        Phase 2 S1 (Simple House form): Advanced mode off shows only
-        Weather, People and Phone for alerts. The other 8 fields are
-        Advanced-marked and filtered out; their defaults are merged back on
-        submit (INV-C). The energy screen is skipped unless Advanced mode
-        is on (its 4 fields are optional and empty by default).
+        Weather, People and Phone for alerts are on the first screen; the
+        other 8 fields sit in the collapsed ``advanced`` section. An
+        un-expanded section's defaults are merged back on submit
+        (FORM-CONDITIONAL-FIELDS-1 §3 shape 3). The energy screen always
+        follows (§13 row 69).
         """
-        show_adv = self._show_adv()
         if user_input is not None:
-            user_input = {
-                **_hidden_advanced_defaults(
-                    self._integration_config_schema(), show_adv
-                ),
-                **user_input,
-            }
-            # Plan-review finding 2: the legacy alert sender
-            # (aggregation.py `_process_alerts`) only fires when
-            # CONF_NOTIFY_SERVICE is set and calls that service directly;
-            # CONF_NOTIFY_TARGET alone sends nothing. With the service
-            # field hidden, use the chosen phone's notify service.
-            if not show_adv and not user_input.get(CONF_NOTIFY_SERVICE):
+            schema = self._integration_config_schema()
+            flat, _present = _flatten_sections(user_input, schema)
+            user_input = {**_absent_field_defaults(schema, user_input), **flat}
+            # §13 row 70: the legacy alert sender (aggregation.py
+            # `_process_alerts`) only fires when CONF_NOTIFY_SERVICE is set
+            # and calls that service directly; CONF_NOTIFY_TARGET alone
+            # sends nothing. The service field is in the collapsed section,
+            # so when it is blank use the chosen phone's notify service. An
+            # entered service is never overwritten.
+            if not user_input.get(CONF_NOTIFY_SERVICE):
                 phone = user_input.get(CONF_NOTIFY_TARGET)
                 if isinstance(phone, str) and phone.startswith("notify."):
                     user_input[CONF_NOTIFY_SERVICE] = phone
             # Store integration config for later
             self._integration_data = user_input
-            if not show_adv:
-                # Same as submitting the energy screen untouched.
-                return await self.async_step_energy_setup(user_input={})
             # v3.1.6: Route to energy setup next
             return await self.async_step_energy_setup()
 
         return self.async_show_form(
             step_id="integration_config",
-            data_schema=self._filter_advanced(self._integration_config_schema()),
+            data_schema=self._integration_config_schema(),
         )
 
     def _integration_config_schema(self):
@@ -1648,7 +1607,6 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             {"label": "All Events", "value": NOTIFY_LEVEL_ALL},
         ]
 
-        adv = {"advanced": True}
         mobile_targets = [
             t["value"] for t in self._get_mobile_app_targets() if t.get("value")
         ]
@@ -1684,17 +1642,18 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             ): selector.SelectSelector(
                 selector.SelectSelectorConfig(options=self._get_mobile_app_targets(), mode=selector.SelectSelectorMode.DROPDOWN)
             ),
-            # --- Advanced only (S1); defaults merged back when hidden ---
-            vol.Optional(CONF_OUTSIDE_TEMP_SENSOR, description=adv): selector.EntitySelector(
+            # --- Collapsed section; defaults merged back when not expanded ---
+            vol.Optional(ADVANCED_SECTION): _advanced_section({
+            vol.Optional(CONF_OUTSIDE_TEMP_SENSOR): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
             ),
-            vol.Optional(CONF_OUTSIDE_HUMIDITY_SENSOR, description=adv): selector.EntitySelector(
+            vol.Optional(CONF_OUTSIDE_HUMIDITY_SENSOR): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="humidity")
             ),
-            vol.Optional(CONF_SOLAR_PRODUCTION_SENSOR, description=adv): selector.EntitySelector(
+            vol.Optional(CONF_SOLAR_PRODUCTION_SENSOR): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="power")
             ),
-            vol.Optional(CONF_PERSON_DATA_RETENTION, default=DEFAULT_PERSON_DATA_RETENTION, description=adv): selector.NumberSelector(
+            vol.Optional(CONF_PERSON_DATA_RETENTION, default=DEFAULT_PERSON_DATA_RETENTION): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=0,
                     max=365,
@@ -1703,7 +1662,7 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
                     mode=selector.NumberSelectorMode.BOX
                 )
             ),
-            vol.Optional(CONF_TRANSITION_DETECTION_WINDOW, default=DEFAULT_TRANSITION_WINDOW, description=adv): selector.NumberSelector(
+            vol.Optional(CONF_TRANSITION_DETECTION_WINDOW, default=DEFAULT_TRANSITION_WINDOW): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=30,
                     max=300,
@@ -1712,9 +1671,9 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
                     mode=selector.NumberSelectorMode.SLIDER
                 )
             ),
-            # Default electricity rate (Required with a default: when
-            # hidden, the default is merged back on submit — INV-C).
-            vol.Required(CONF_ELECTRICITY_RATE, default=DEFAULT_ELECTRICITY_RATE, description=adv): selector.NumberSelector(
+            # Default electricity rate (Required with a default: when the
+            # section is not expanded, the default is merged back on submit).
+            vol.Required(CONF_ELECTRICITY_RATE, default=DEFAULT_ELECTRICITY_RATE): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=0.01, max=1.00, step=0.01,
                     unit_of_measurement="USD/kWh",
@@ -1722,12 +1681,13 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
                 )
             ),
             # Default Notifications
-            vol.Optional(CONF_NOTIFY_SERVICE, description=adv): selector.SelectSelector(
+            vol.Optional(CONF_NOTIFY_SERVICE): selector.SelectSelector(
                 selector.SelectSelectorConfig(options=notify_services, mode=selector.SelectSelectorMode.DROPDOWN)
             ),
-            vol.Optional(CONF_NOTIFY_LEVEL, default=NOTIFY_LEVEL_ERRORS, description=adv): selector.SelectSelector(
+            vol.Optional(CONF_NOTIFY_LEVEL, default=NOTIFY_LEVEL_ERRORS): selector.SelectSelector(
                 selector.SelectSelectorConfig(options=notify_levels, mode=selector.SelectSelectorMode.DROPDOWN)
             ),
+            }),
         })
 
     async def _mint_house_now(self) -> None:
@@ -2333,14 +2293,8 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
         default_wet = type_defaults[CONF_WET_ROOM]
         default_guest = type_defaults[CONF_ROOM_IS_GUEST_ROOM]
 
-        if user_input is None and not self._show_adv():
-            # Phase 2 S3: screen hidden unless Advanced mode. Store exactly
-            # what an untouched room_class form stores (INV-C).
-            user_input = {
-                CONF_WET_ROOM: default_wet,
-                CONF_ROOM_IS_GUEST_ROOM: default_guest,
-            }
-
+        # FORM-CONDITIONAL-FIELDS-1 §13 row 68: the step always shows (it
+        # was skipped outside the retired HA Advanced mode).
         if user_input is not None:
             # Persist explicit operator choice into _data so the D9 seed at
             # room_summary sees it (SOFT semantics: explicit-False wins).
@@ -2376,17 +2330,9 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
         submitted: dict | None = None
         area_id = self._data.get(CONF_AREA_ID)
         prefill = self._area_prefill(area_id)
-        show_adv = self._show_adv()
         if user_input is not None:
-            # Phase 2 S3 (INV-C): fields hidden in Simple mode store their
-            # untouched default. Only Advanced-marked fields WITHOUT an area
-            # guess are hidden, so no guess is ever re-injected (INV-2).
-            user_input = {
-                **_hidden_advanced_defaults(
-                    self._sensors_confirm_schema(prefill, None), show_adv
-                ),
-                **user_input,
-            }
+            # FORM-CONDITIONAL-FIELDS-1 rev 4 (H4): every field is on the
+            # first screen (no section), so nothing is backfilled.
             motion = user_input.get(CONF_MOTION_SENSORS, []) or []
             mmwave = user_input.get(CONF_MMWAVE_SENSORS, []) or []
             occupancy = user_input.get(CONF_OCCUPANCY_SENSORS, []) or []
@@ -2420,9 +2366,7 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
 
         return self.async_show_form(
             step_id="sensors_confirm",
-            data_schema=self._filter_advanced(
-                self._sensors_confirm_schema(prefill, submitted)
-            ),
+            data_schema=self._sensors_confirm_schema(prefill, submitted),
             errors=errors,
             description_placeholders={"name": hint},
         )
@@ -2431,9 +2375,10 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
         """Full (unfiltered) sensors_confirm schema.
 
         Defaults come from ``area_sensor_defaults`` — the same helper the
-        bulk path uses (plan-review finding 4). Phase 2 S3: mmWave, door
-        and water leak are Advanced-only unless the area pre-fill (or the
-        operator's submitted value) has something for them.
+        bulk path uses (plan-review finding 4). FORM-CONDITIONAL-FIELDS-1
+        rev 4 (H4): presence radars, door and water leak stay on the first
+        screen (their area guesses travel as ``suggested_value``, which a
+        section backfill could not restore).
         """
         defaults = area_sensor_defaults(prefill)
 
@@ -2446,7 +2391,7 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
         # submit when the operator cleared it. Multi-select buckets keep
         # `default=[]` — an empty multi-selector serializes to `[]`
         # unambiguously so it round-trips.
-        def _opt_single(key, advanced_if_empty=False):
+        def _opt_single(key):
             # FIX-2: if the operator submitted the form (error re-render),
             # prefer their value — including an EXPLICIT clear (empty /
             # missing) — over the area guess.
@@ -2457,25 +2402,22 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             desc: dict = {}
             if val:
                 desc["suggested_value"] = val
-            elif advanced_if_empty:
-                desc["advanced"] = True
             return vol.Optional(key, description=desc or None)
 
-        def _multi(key, advanced_if_empty=False):
+        def _multi(key):
             # FIX-2: an operator who submitted `[]` (cleared) must not see
             # the area guess again.
             if submitted is not None:
                 val = submitted.get(key, []) or []
             else:
                 val = defaults.get(key) or []
-            desc = {"advanced": True} if (advanced_if_empty and not val) else None
-            return vol.Optional(key, default=val, description=desc)
+            return vol.Optional(key, default=val)
 
         return vol.Schema({
             _multi(CONF_MOTION_SENSORS): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="binary_sensor", multiple=True)
             ),
-            _multi(CONF_MMWAVE_SENSORS, advanced_if_empty=True): selector.EntitySelector(
+            _multi(CONF_MMWAVE_SENSORS): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="binary_sensor", multiple=True)
             ),
             _multi(CONF_OCCUPANCY_SENSORS): selector.EntitySelector(
@@ -2490,12 +2432,12 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             _opt_single(CONF_ILLUMINANCE_SENSOR): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="illuminance")
             ),
-            _opt_single(CONF_DOOR_SENSORS, advanced_if_empty=True): selector.EntitySelector(
+            _opt_single(CONF_DOOR_SENSORS): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="binary_sensor", device_class=["door", "opening"])
             ),
             # P7 (Tier-3 fix-up): CONF_WATER_LEAK_SENSOR area pre-fill
             # (safety path).
-            _opt_single(CONF_WATER_LEAK_SENSOR, advanced_if_empty=True): selector.EntitySelector(
+            _opt_single(CONF_WATER_LEAK_SENSOR): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="binary_sensor", device_class=["moisture", "water_leak"])
             ),
         })
@@ -2505,17 +2447,11 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
 
         Night-lights + covers-behavior EXCLUDED from essentials auto-prefill
         per D9-M5 decision — set intentionally via Options, not on create.
-        Phase 2 S3: humidity fans and switches are Advanced-only unless the
-        area pre-fill found something for them.
+        FORM-CONDITIONAL-FIELDS-1 rev 4 (H4): every field is on the first
+        screen, so nothing is backfilled.
         """
         prefill = self._area_prefill(self._data.get(CONF_AREA_ID))
         if user_input is not None:
-            user_input = {
-                **_hidden_advanced_defaults(
-                    self._devices_confirm_schema(prefill), self._show_adv()
-                ),
-                **user_input,
-            }
             self._data.update(user_input)
             # P2 (Tier-3 fix-up): light capability is auto-detected from
             # the confirmed lights in the shared `_finalize_room_data`.
@@ -2523,7 +2459,7 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
 
         return self.async_show_form(
             step_id="devices_confirm",
-            data_schema=self._filter_advanced(self._devices_confirm_schema(prefill)),
+            data_schema=self._devices_confirm_schema(prefill),
             description_placeholders={"name": "Confirm auto-detected devices."},
         )
 
@@ -2532,10 +2468,9 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
         shared ``area_device_defaults`` (plan-review finding 4)."""
         defaults = area_device_defaults(prefill)
 
-        def _multi(key, advanced_if_empty=False):
+        def _multi(key):
             val = defaults.get(key) or []
-            desc = {"advanced": True} if (advanced_if_empty and not val) else None
-            return vol.Optional(key, default=val, description=desc)
+            return vol.Optional(key, default=val)
 
         return vol.Schema({
             _multi(CONF_LIGHTS): selector.EntitySelector(
@@ -2543,13 +2478,13 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             ),
             # P7: AUTO_SWITCHES with area pre-fill so switch-only rooms are
             # not silently mute at create time.
-            _multi(CONF_AUTO_SWITCHES, advanced_if_empty=True): selector.EntitySelector(
+            _multi(CONF_AUTO_SWITCHES): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="switch", multiple=True)
             ),
             _multi(CONF_FANS): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain=["fan", "switch"], multiple=True)
             ),
-            _multi(CONF_HUMIDITY_FANS, advanced_if_empty=True): selector.EntitySelector(
+            _multi(CONF_HUMIDITY_FANS): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain=["fan", "switch"], multiple=True)
             ),
             _multi(CONF_COVERS): selector.EntitySelector(
@@ -3911,11 +3846,10 @@ _STEP_EXTRA_OWNED_KEYS: dict = {
     "ai_rules": (CONF_AI_RULES,),
     "energy": (CONF_ENERGY_SENSOR,),
     # SENSOR-FORM-PLAIN-TEXT-1 (2026-10-11): the raw-JSON escape hatch
-    # ``sensor_capabilities_json`` is Advanced-only on the sensors step
-    # (per-entity dropdowns cover the common case). It renders as a
-    # top-level form field in Advanced mode only, so Simple-mode
-    # reachability (I2) is not required — list it here so the global
-    # reach-back check doesn't flag it as missing.
+    # ``sensor_capabilities_json`` is a form-only field (saved as
+    # ``sensor_capabilities``) in the sensors step's collapsed ``advanced``
+    # section — list it here so the global reach-back check doesn't flag
+    # it as missing.
     "sensors": ("sensor_capabilities_json",),
 }
 _MENU_ONLY_ROOM_STEPS: frozenset = frozenset({"automation_chaining", "ai_rules"})
@@ -4388,10 +4322,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             # ai_rules, climate, sleep_protection, music_following, energy,
             # notifications). The menu shows the room type's steps, plus any
             # hidden step holding a non-default value (I1), plus "More
-            # settings" when trimmed. 2026-11-05: this applies in Advanced
-            # mode too; Advanced mode only reveals Advanced FIELDS inside
-            # steps (_filter_advanced), not hidden steps.
-            show_adv = self._show_adv()
+            # settings" when trimmed.
             merged = self._merged_entry_config()
             room_type = merged.get(CONF_ROOM_TYPE) or ROOM_TYPE_GENERIC
             visible = set(
@@ -4416,7 +4347,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 menu_options=menu,
                 description_placeholders={
                     "menu_hint": room_menu_hint(
-                        str(room_type).replace("_", " "), trimmed, show_adv,
+                        str(room_type).replace("_", " "), trimmed,
                     ),
                 },
             )
@@ -4596,28 +4527,15 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
     async def async_step_show_all_settings(self, user_input=None):
         """"More settings" — one-visit full room menu (ROOM-TYPE-TRIMMED-MENU-1).
 
-        Reveals hidden STEPS only; Advanced-only fields still need HA
-        Advanced mode (or a non-default stored value, invariant I2).
+        Reveals hidden STEPS only.
         """
         return self.async_show_menu(
             step_id="init",
             menu_options=list(ROOM_MENU_STEPS_ALL),
-            description_placeholders={
-                "menu_hint": advanced_hint(self._show_adv()),
-            },
+            description_placeholders={"menu_hint": ""},
         )
 
     # ---- ROOM-TYPE-TRIMMED-MENU-1 D3: hidden-step "in use" detection ----
-
-    def _show_adv(self) -> bool:
-        """HA profile Advanced mode for this flow (False when unavailable)."""
-        return bool(getattr(self, "show_advanced_options", False))
-
-    def _filter_advanced(self, schema):
-        """Drop Advanced-marked fields outside Advanced mode via HA's
-        ``add_suggested_values_to_schema`` (empty suggestions). Falls back
-        to the unfiltered schema in harnesses without HA's FlowHandler."""
-        return _filter_advanced_schema(self, schema)
 
     def _merged_entry_config(self) -> dict:
         """Merged room config: options win over data (legacy data-only keys)."""
@@ -4630,8 +4548,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         handler uses ``self._get_current(KEY, FALLBACK)``), so it cannot be
         the comparison baseline. Render on a SEPARATE shim flow whose stub
         entry carries only the entry type + room type, so every
-        ``_get_current`` returns its FALLBACK. Advanced ON so Advanced-only
-        keys are included. The live flow's context is never touched.
+        ``_get_current`` returns its FALLBACK. Section fields are included
+        (``_collect_schema_defaults`` descends into sections). The live
+        flow's context is never touched.
         Returns None when the step is not a form or the render fails.
         """
         merged = self._merged_entry_config()
@@ -4646,7 +4565,6 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         shim.hass = self.hass
         shim.flow_id = self.flow_id
         shim.handler = self.handler
-        shim.context = {"show_advanced_options": True}
         # Internal render: suppress CFLOW-TIMING ENTER/EXIT noise.
         shim._cflow_timing_silent = True
         try:
@@ -4706,15 +4624,15 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
     async def async_step_global_sensors(self, user_input=None):
         """Reconfigure global sensors (integration level)."""
         if user_input is not None:
+            flat, _present = _flatten_sections(user_input, (ADVANCED_SECTION,))
             # FIX v3.2.3.1: Pass merged options directly to async_create_entry
             return self.async_create_entry(
                 title="",
-                data={**self._config_entry.options, **user_input}
+                data={**self._config_entry.options, **flat}
             )
 
-        # HOUSE-DIALOGS-CLEANUP-1 D4: tuning numbers are Advanced-only
-        # (shown anyway when they hold a non-default value, invariant I2).
-        _merged = self._merged_entry_config()
+        # HOUSE-DIALOGS-CLEANUP-1 D4: tuning numbers sit in the collapsed
+        # ``advanced`` section (FORM-CONDITIONAL-FIELDS-1).
         data_schema = vol.Schema({
             vol.Optional(
                 CONF_OUTSIDE_TEMP_SENSOR,
@@ -4753,48 +4671,39 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 )
             ),
             vol.Optional(
-                CONF_OUTDOOR_DARK_LUX,
-                default=self._get_current(
-                    CONF_OUTDOOR_DARK_LUX, DEFAULT_OUTDOOR_DARK_LUX,
-                ),
-                description=_adv(
-                    CONF_OUTDOOR_DARK_LUX, _merged, DEFAULT_OUTDOOR_DARK_LUX,
-                ),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=1, max=2000, step=10, unit_of_measurement="lx",
-                    mode=selector.NumberSelectorMode.BOX,
-                )
-            ),
-            vol.Optional(
                 CONF_SOLAR_PRODUCTION_SENSOR,
                 default=self._get_current(CONF_SOLAR_PRODUCTION_SENSOR) or vol.UNDEFINED
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="power")
             ),
-            vol.Required(
-                CONF_ELECTRICITY_RATE,
-                default=self._get_current(CONF_ELECTRICITY_RATE, DEFAULT_ELECTRICITY_RATE),
-                description=_adv(
-                    CONF_ELECTRICITY_RATE, _merged, DEFAULT_ELECTRICITY_RATE,
+            vol.Optional(ADVANCED_SECTION): _advanced_section({
+                vol.Optional(
+                    CONF_OUTDOOR_DARK_LUX,
+                    default=self._get_current(
+                        CONF_OUTDOOR_DARK_LUX, DEFAULT_OUTDOOR_DARK_LUX,
+                    ),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=1, max=2000, step=10, unit_of_measurement="lx",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
                 ),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=0.01, max=1.00, step=0.01,
-                    unit_of_measurement="USD/kWh",
-                    mode=selector.NumberSelectorMode.BOX
-                )
-            ),
+                vol.Required(
+                    CONF_ELECTRICITY_RATE,
+                    default=self._get_current(CONF_ELECTRICITY_RATE, DEFAULT_ELECTRICITY_RATE),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0.01, max=1.00, step=0.01,
+                        unit_of_measurement="USD/kWh",
+                        mode=selector.NumberSelectorMode.BOX
+                    )
+                ),
+            }),
         })
 
         return self.async_show_form(
             step_id="global_sensors",
-            data_schema=self._filter_advanced(data_schema),
-            description_placeholders={
-                "advanced_hint": advanced_hint_for(
-                    data_schema, self._show_adv(),
-                ),
-            },
+            data_schema=data_schema,
         )
 
     async def async_step_energy_sensors(self, user_input=None):
@@ -4806,7 +4715,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         """
         if user_input is not None:
             try:
-                merged = {**self._config_entry.options, **user_input}
+                flat, _present = _flatten_sections(user_input, (ADVANCED_SECTION,))
+                merged = {**self._config_entry.options, **flat}
                 _LOGGER.debug("energy_sensors save: entry_id=%s, merged_keys=%d",
                               self._config_entry.entry_id, len(merged))
                 return self.async_create_entry(title="", data=merged)
@@ -4815,8 +4725,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 raise
 
         # HOUSE-DIALOGS-CLEANUP-1 D4 (O1): device power sensors have no
-        # runtime reader; shown only in Advanced mode or when already set.
-        _merged = self._merged_entry_config()
+        # runtime reader; they sit in the collapsed ``advanced`` section.
         data_schema = vol.Schema({
             vol.Optional(
                 CONF_WHOLE_HOUSE_POWER_SENSORS,
@@ -4833,28 +4742,24 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 selector.EntitySelectorConfig(domain="sensor", device_class="energy", multiple=True)
             ),
             vol.Optional(
-                CONF_HOUSE_DEVICE_POWER_SENSORS,
-                default=self._get_current(CONF_HOUSE_DEVICE_POWER_SENSORS, []) or vol.UNDEFINED,
-                description=_adv(CONF_HOUSE_DEVICE_POWER_SENSORS, _merged, []),
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="sensor", device_class="power", multiple=True)
-            ),
-            vol.Optional(
                 CONF_HOUSE_DEVICE_ENERGY_SENSORS,
                 default=self._get_current(CONF_HOUSE_DEVICE_ENERGY_SENSORS, []) or vol.UNDEFINED
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="energy", multiple=True)
             ),
+            vol.Optional(ADVANCED_SECTION): _advanced_section({
+                vol.Optional(
+                    CONF_HOUSE_DEVICE_POWER_SENSORS,
+                    default=self._get_current(CONF_HOUSE_DEVICE_POWER_SENSORS, []) or vol.UNDEFINED,
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor", device_class="power", multiple=True)
+                ),
+            }),
         })
 
         return self.async_show_form(
             step_id="energy_sensors",
-            data_schema=self._filter_advanced(data_schema),
-            description_placeholders={
-                "advanced_hint": advanced_hint_for(
-                    data_schema, self._show_adv(),
-                ),
-            },
+            data_schema=data_schema,
         )
     
     def _get_mobile_app_targets(self) -> list[dict]:
@@ -4901,14 +4806,14 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             # FIX v3.2.3.1: Pass merged options directly to async_create_entry
             # Previously used async_update_entry + async_create_entry(data={}) which CLEARED options!
+            flat, _present = _flatten_sections(user_input, (ADVANCED_SECTION,))
             return self.async_create_entry(
                 title="",
-                data={**self._config_entry.options, **user_input}
+                data={**self._config_entry.options, **flat}
             )
 
         # HOUSE-DIALOGS-CLEANUP-1 D4 (O1): retention + transition window
-        # have no runtime reader; Advanced-only unless already non-default.
-        _merged = self._merged_entry_config()
+        # have no runtime reader; they sit in the collapsed section.
         data_schema = vol.Schema({
             vol.Optional(
                 CONF_TRACKED_PERSONS,
@@ -4919,48 +4824,37 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     multiple=True
                 )
             ),
-            vol.Optional(
-                CONF_PERSON_DATA_RETENTION,
-                default=self._get_current(CONF_PERSON_DATA_RETENTION, DEFAULT_PERSON_DATA_RETENTION),
-                description=_adv(
-                    CONF_PERSON_DATA_RETENTION, _merged,
-                    DEFAULT_PERSON_DATA_RETENTION,
+            vol.Optional(ADVANCED_SECTION): _advanced_section({
+                vol.Optional(
+                    CONF_PERSON_DATA_RETENTION,
+                    default=self._get_current(CONF_PERSON_DATA_RETENTION, DEFAULT_PERSON_DATA_RETENTION),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0,
+                        max=365,
+                        step=1,
+                        unit_of_measurement="days",
+                        mode=selector.NumberSelectorMode.BOX
+                    )
                 ),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=0,
-                    max=365,
-                    step=1,
-                    unit_of_measurement="days",
-                    mode=selector.NumberSelectorMode.BOX
-                )
-            ),
-            vol.Optional(
-                CONF_TRANSITION_DETECTION_WINDOW,
-                default=self._get_current(CONF_TRANSITION_DETECTION_WINDOW, DEFAULT_TRANSITION_WINDOW),
-                description=_adv(
-                    CONF_TRANSITION_DETECTION_WINDOW, _merged,
-                    DEFAULT_TRANSITION_WINDOW,
+                vol.Optional(
+                    CONF_TRANSITION_DETECTION_WINDOW,
+                    default=self._get_current(CONF_TRANSITION_DETECTION_WINDOW, DEFAULT_TRANSITION_WINDOW),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=30,
+                        max=300,
+                        step=10,
+                        unit_of_measurement="seconds",
+                        mode=selector.NumberSelectorMode.SLIDER
+                    )
                 ),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=30,
-                    max=300,
-                    step=10,
-                    unit_of_measurement="seconds",
-                    mode=selector.NumberSelectorMode.SLIDER
-                )
-            ),
+            }),
         })
 
         return self.async_show_form(
             step_id="person_tracking",
-            data_schema=self._filter_advanced(data_schema),
-            description_placeholders={
-                "advanced_hint": advanced_hint_for(
-                    data_schema, self._show_adv(),
-                ),
-            },
+            data_schema=data_schema,
         )
 
     @staticmethod
@@ -5024,7 +4918,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             # NOT appear in `entry.options` when the operator hasn't
             # engaged with them. Prevents `None != {}` false-positives
             # in the integration-options reload diff.
-            cleaned = dict(user_input)
+            flat, _present = _flatten_sections(user_input, (ADVANCED_SECTION,))
+            cleaned = dict(flat)
             for _k in (CONF_DOOR_GROUPS, CONF_DOOR_INTERIOR_NEIGHBOURS):
                 if cleaned.get(_k) in ({}, None):
                     cleaned.pop(_k, None)
@@ -5078,11 +4973,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                         existing_ids.add(cam)
 
         # HOUSE-DIALOGS-CLEANUP-1 D4: order = camera pickers, face/identity
-        # switches, guest list + SSID, then Advanced-only tuning. Keys are
-        # unchanged. Advanced fields still render in Simple mode when they
-        # hold a non-default value (invariant I2); a Simple-mode save keeps
-        # hidden values because the save merges into the stored options.
-        _merged = self._merged_entry_config()
+        # switches, guest list + SSID, then the collapsed ``advanced``
+        # section (FORM-CONDITIONAL-FIELDS-1). Keys are unchanged; a save
+        # with the section not expanded keeps stored values (merge).
         data_schema = vol.Schema({
             # Indoor cameras: inside the house (mapped to rooms via area_id)
             vol.Optional(
@@ -5161,183 +5054,145 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ): selector.TextSelector(
                 selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
             ),
-            # --- Advanced-only tuning (D4) ---
-            # Cross-validation toggle
-            vol.Optional(
-                CONF_CENSUS_CROSS_VALIDATION,
-                default=self._get_current(CONF_CENSUS_CROSS_VALIDATION, True),
-                description=_adv(CONF_CENSUS_CROSS_VALIDATION, _merged, True),
-            ): selector.BooleanSelector(),
-            # 2026-08-01 census fusion policy: divergence-aware downgrade.
-            # Default True (min-wins on uncorroborated divergence → DISAGREE).
-            # False = fire-axe restore to pre-cycle max-wins CLOSE behavior.
-            vol.Optional(
-                CONF_CENSUS_DIVERGENCE_DOWNGRADE,
-                default=self._get_current(
+            vol.Optional(ADVANCED_SECTION): _advanced_section({
+                # --- Advanced-only tuning (D4) ---
+                # Cross-validation toggle
+                vol.Optional(
+                    CONF_CENSUS_CROSS_VALIDATION,
+                    default=self._get_current(CONF_CENSUS_CROSS_VALIDATION, True),
+                ): selector.BooleanSelector(),
+                # 2026-08-01 census fusion policy: divergence-aware downgrade.
+                # Default True (min-wins on uncorroborated divergence → DISAGREE).
+                # False = fire-axe restore to pre-cycle max-wins CLOSE behavior.
+                vol.Optional(
                     CONF_CENSUS_DIVERGENCE_DOWNGRADE,
-                    DEFAULT_CENSUS_DIVERGENCE_DOWNGRADE,
-                ),
-                description=_adv(
-                    CONF_CENSUS_DIVERGENCE_DOWNGRADE, _merged,
-                    DEFAULT_CENSUS_DIVERGENCE_DOWNGRADE,
-                ),
-            ): selector.BooleanSelector(),
-            # v3.10.1: Enhanced census v2
-            vol.Optional(
-                CONF_ENHANCED_CENSUS,
-                default=self._get_current(CONF_ENHANCED_CENSUS, True),
-                description=_adv(CONF_ENHANCED_CENSUS, _merged, True),
-            ): selector.BooleanSelector(),
-            # Review OF-1 (2026-09-04): D4 fail-safe STRICT kill-switch.
-            # Default True — every face-emission site is gated by
-            # `_is_face_producer_live()`. Operators who want to disable
-            # the fail-safe machinery (e.g. debugging under a Frigate
-            # outage) turn this OFF. Distinct from the on-demand
-            # `switch.egress_identity_face_failsafe_drill`.
-            vol.Optional(
-                CONF_EGRESS_IDENTITY_FAILSAFE_STRICT,
-                default=self._get_current(
+                    default=self._get_current(
+                        CONF_CENSUS_DIVERGENCE_DOWNGRADE,
+                        DEFAULT_CENSUS_DIVERGENCE_DOWNGRADE,
+                    ),
+                ): selector.BooleanSelector(),
+                # v3.10.1: Enhanced census v2
+                vol.Optional(
+                    CONF_ENHANCED_CENSUS,
+                    default=self._get_current(CONF_ENHANCED_CENSUS, True),
+                ): selector.BooleanSelector(),
+                # Review OF-1 (2026-09-04): D4 fail-safe STRICT kill-switch.
+                # Default True — every face-emission site is gated by
+                # `_is_face_producer_live()`. Operators who want to disable
+                # the fail-safe machinery (e.g. debugging under a Frigate
+                # outage) turn this OFF. Distinct from the on-demand
+                # `switch.egress_identity_face_failsafe_drill`.
+                vol.Optional(
                     CONF_EGRESS_IDENTITY_FAILSAFE_STRICT,
-                    DEFAULT_EGRESS_IDENTITY_FAILSAFE_STRICT,
-                ),
-                description=_adv(
-                    CONF_EGRESS_IDENTITY_FAILSAFE_STRICT, _merged,
-                    DEFAULT_EGRESS_IDENTITY_FAILSAFE_STRICT,
-                ),
-            ): selector.BooleanSelector(),
-            # H3 (2026-07-13): BLE-cancel kill switch. Default True
-            # preserves current behavior; when False the per-area BLE
-            # subtraction (Step 3 in _get_unrecognized_camera_count) is
-            # skipped byte-identically to the pre-BLE-cancel behavior.
-            vol.Optional(
-                CONF_CENSUS_BLE_CANCEL_ENABLED,
-                default=self._get_current(
+                    default=self._get_current(
+                        CONF_EGRESS_IDENTITY_FAILSAFE_STRICT,
+                        DEFAULT_EGRESS_IDENTITY_FAILSAFE_STRICT,
+                    ),
+                ): selector.BooleanSelector(),
+                # H3 (2026-07-13): BLE-cancel kill switch. Default True
+                # preserves current behavior; when False the per-area BLE
+                # subtraction (Step 3 in _get_unrecognized_camera_count) is
+                # skipped byte-identically to the pre-BLE-cancel behavior.
+                vol.Optional(
                     CONF_CENSUS_BLE_CANCEL_ENABLED,
-                    DEFAULT_CENSUS_BLE_CANCEL_ENABLED,
-                ),
-                description=_adv(
-                    CONF_CENSUS_BLE_CANCEL_ENABLED, _merged,
-                    DEFAULT_CENSUS_BLE_CANCEL_ENABLED,
-                ),
-            ): selector.BooleanSelector(),
-            # A-M6/E-LOW-1: expose D4 auto-enable knob for the person-detect
-            # switch scan. Face switches NEVER auto-enable (invariant).
-            vol.Optional(
-                CONF_AUTO_ENABLE_PERSON_DETECTION,
-                default=self._get_current(
+                    default=self._get_current(
+                        CONF_CENSUS_BLE_CANCEL_ENABLED,
+                        DEFAULT_CENSUS_BLE_CANCEL_ENABLED,
+                    ),
+                ): selector.BooleanSelector(),
+                # A-M6/E-LOW-1: expose D4 auto-enable knob for the person-detect
+                # switch scan. Face switches NEVER auto-enable (invariant).
+                vol.Optional(
                     CONF_AUTO_ENABLE_PERSON_DETECTION,
-                    DEFAULT_AUTO_ENABLE_PERSON_DETECTION,
+                    default=self._get_current(
+                        CONF_AUTO_ENABLE_PERSON_DETECTION,
+                        DEFAULT_AUTO_ENABLE_PERSON_DETECTION,
+                    ),
+                ): selector.BooleanSelector(),
+                vol.Optional(
+                    CONF_CENSUS_HOLD_INTERIOR,
+                    default=self._get_current(
+                        CONF_CENSUS_HOLD_INTERIOR, DEFAULT_CENSUS_HOLD_INTERIOR_MINUTES
+                    ),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=1, max=60, step=1, unit_of_measurement="min",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
                 ),
-                description=_adv(
-                    CONF_AUTO_ENABLE_PERSON_DETECTION, _merged,
-                    DEFAULT_AUTO_ENABLE_PERSON_DETECTION,
+                vol.Optional(
+                    CONF_CENSUS_HOLD_EXTERIOR,
+                    default=self._get_current(
+                        CONF_CENSUS_HOLD_EXTERIOR, DEFAULT_CENSUS_HOLD_EXTERIOR_MINUTES
+                    ),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=1, max=30, step=1, unit_of_measurement="min",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
                 ),
-            ): selector.BooleanSelector(),
-            vol.Optional(
-                CONF_CENSUS_HOLD_INTERIOR,
-                default=self._get_current(
-                    CONF_CENSUS_HOLD_INTERIOR, DEFAULT_CENSUS_HOLD_INTERIOR_MINUTES
+                # PLANNING_census_inputs_first D1 (R3.8 / R4.6 / R4.8) —
+                # Advanced-only, APPENDED after the existing order so the
+                # Simple view keeps exactly its 7 fields and the hidden-value
+                # I3 guard (save handler merge into stored options) preserves
+                # these on a Simple save. Factory defaults = empty → `_adv`
+                # keeps them Advanced-marked until the operator sets them.
+                # Shape: {camera_stem: group_name}.
+                vol.Optional(
+                    CONF_DOOR_GROUPS,
+                    default=self._get_current(CONF_DOOR_GROUPS, {}),
+                ): selector.ObjectSelector(),
+                # Shape: {group_name: [interior_cam, ...]}. UNSET or group
+                # not in map → full interior list fallback (R3.1 CRITICAL-1).
+                vol.Optional(
+                    CONF_DOOR_INTERIOR_NEIGHBOURS,
+                    default=self._get_current(
+                        CONF_DOOR_INTERIOR_NEIGHBOURS, {},
+                    ),
+                ): selector.ObjectSelector(),
+                # Main entry door (door-group name). Deferred consumer per
+                # R3.7 — set here now so the estimator cycle can read it.
+                vol.Optional(
+                    CONF_MAIN_ENTRY_DOOR,
+                    default=self._get_current(CONF_MAIN_ENTRY_DOOR, ""),
+                ): selector.TextSelector(),
+                # PERIMETER-FP D1 (v5.107.0): Frigate zone person sensors that
+                # replace a camera's whole-frame Frigate leg (Advanced; shown in
+                # Simple mode once set). Structural: saving it reloads, like the
+                # camera lists.
+                vol.Optional(
+                    CONF_PERIMETER_ZONE_SENSORS,
+                    default=self._get_current(CONF_PERIMETER_ZONE_SENSORS, []),
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(
+                        domain="binary_sensor",
+                        multiple=True,
+                    )
                 ),
-                description=_adv(
-                    CONF_CENSUS_HOLD_INTERIOR, _merged,
-                    DEFAULT_CENSUS_HOLD_INTERIOR_MINUTES,
-                ),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=1, max=60, step=1, unit_of_measurement="min",
-                    mode=selector.NumberSelectorMode.BOX,
-                )
-            ),
-            vol.Optional(
-                CONF_CENSUS_HOLD_EXTERIOR,
-                default=self._get_current(
-                    CONF_CENSUS_HOLD_EXTERIOR, DEFAULT_CENSUS_HOLD_EXTERIOR_MINUTES
-                ),
-                description=_adv(
-                    CONF_CENSUS_HOLD_EXTERIOR, _merged,
-                    DEFAULT_CENSUS_HOLD_EXTERIOR_MINUTES,
-                ),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=1, max=30, step=1, unit_of_measurement="min",
-                    mode=selector.NumberSelectorMode.BOX,
-                )
-            ),
-            # PLANNING_census_inputs_first D1 (R3.8 / R4.6 / R4.8) —
-            # Advanced-only, APPENDED after the existing order so the
-            # Simple view keeps exactly its 7 fields and the hidden-value
-            # I3 guard (save handler merge into stored options) preserves
-            # these on a Simple save. Factory defaults = empty → `_adv`
-            # keeps them Advanced-marked until the operator sets them.
-            # Shape: {camera_stem: group_name}.
-            vol.Optional(
-                CONF_DOOR_GROUPS,
-                default=self._get_current(CONF_DOOR_GROUPS, {}),
-                description=_adv(CONF_DOOR_GROUPS, _merged, {}),
-            ): selector.ObjectSelector(),
-            # Shape: {group_name: [interior_cam, ...]}. UNSET or group
-            # not in map → full interior list fallback (R3.1 CRITICAL-1).
-            vol.Optional(
-                CONF_DOOR_INTERIOR_NEIGHBOURS,
-                default=self._get_current(
-                    CONF_DOOR_INTERIOR_NEIGHBOURS, {},
-                ),
-                description=_adv(
-                    CONF_DOOR_INTERIOR_NEIGHBOURS, _merged, {},
-                ),
-            ): selector.ObjectSelector(),
-            # Main entry door (door-group name). Deferred consumer per
-            # R3.7 — set here now so the estimator cycle can read it.
-            vol.Optional(
-                CONF_MAIN_ENTRY_DOOR,
-                default=self._get_current(CONF_MAIN_ENTRY_DOOR, ""),
-                description=_adv(CONF_MAIN_ENTRY_DOOR, _merged, ""),
-            ): selector.TextSelector(),
-            # PERIMETER-FP D1 (v5.107.0): Frigate zone person sensors that
-            # replace a camera's whole-frame Frigate leg (Advanced; shown in
-            # Simple mode once set). Structural: saving it reloads, like the
-            # camera lists.
-            vol.Optional(
-                CONF_PERIMETER_ZONE_SENSORS,
-                default=self._get_current(CONF_PERIMETER_ZONE_SENSORS, []),
-                description=_adv(CONF_PERIMETER_ZONE_SENSORS, _merged, []),
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(
-                    domain="binary_sensor",
-                    multiple=True,
-                )
-            ),
-            # FACE-SOURCE-REGISTRY-DISCOVERY-1 D5 (Advanced; shown in Simple
-            # mode once set): optional face-name aliases, "FaceName=target"
-            # (target = tracked person slug, with or without "person.", or a
-            # known guest name). Fresh-read, so saving it does not reload.
-            vol.Optional(
-                CONF_FACE_NAME_ALIASES,
-                default=self._get_current(
+                # FACE-SOURCE-REGISTRY-DISCOVERY-1 D5 (Advanced; shown in Simple
+                # mode once set): optional face-name aliases, "FaceName=target"
+                # (target = tracked person slug, with or without "person.", or a
+                # known guest name). Fresh-read, so saving it does not reload.
+                vol.Optional(
                     CONF_FACE_NAME_ALIASES,
-                    DEFAULT_FACE_NAME_ALIASES,
+                    default=self._get_current(
+                        CONF_FACE_NAME_ALIASES,
+                        DEFAULT_FACE_NAME_ALIASES,
+                    ),
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[],
+                        multiple=True,
+                        custom_value=True,
+                        mode=selector.SelectSelectorMode.LIST,
+                    )
                 ),
-                description=_adv(
-                    CONF_FACE_NAME_ALIASES, _merged, DEFAULT_FACE_NAME_ALIASES,
-                ),
-            ): selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=[],
-                    multiple=True,
-                    custom_value=True,
-                    mode=selector.SelectSelectorMode.LIST,
-                )
-            ),
+            }),
         })
 
         return self.async_show_form(
             step_id="camera_census",
-            data_schema=self._filter_advanced(data_schema),
-            description_placeholders={
-                "advanced_hint": advanced_hint_for(
-                    data_schema, self._show_adv(),
-                ),
-            },
+            data_schema=data_schema,
         )
 
     async def async_step_perimeter_alerting(self, user_input=None):
@@ -5352,8 +5207,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
           - Snapshot offset unchanged.
         """
         if user_input is not None:
+            flat, _present = _flatten_sections(user_input, (ADVANCED_SECTION,))
             # STRIP retired notify keys from persisted options on save.
-            new_options = {**self._config_entry.options, **user_input}
+            new_options = {**self._config_entry.options, **flat}
             for _k in (
                 CONF_PERIMETER_ALERT_NOTIFY_SERVICE,
                 CONF_PERIMETER_ALERT_NOTIFY_TARGET,
@@ -5364,8 +5220,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             return self.async_create_entry(title="", data=new_options)
 
         # HOUSE-DIALOGS-CLEANUP-1 D4: AI-description tuning and the snapshot
-        # delay are Advanced-only (shown anyway when non-default, I2).
-        _merged = self._merged_entry_config()
+        # delay sit in the collapsed ``advanced`` section.
         data_schema = vol.Schema({
             # VEHICLE alert start hour (0–23) — renamed from alert_hours.
             vol.Optional(
@@ -5407,106 +5262,80 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     DEFAULT_PERIMETER_ENRICHMENT_ENABLED,
                 ),
             ): selector.BooleanSelector(),
-            vol.Optional(
-                CONF_PERIMETER_ENRICHMENT_PROVIDER,
-                default=self._get_current(
+            vol.Optional(ADVANCED_SECTION): _advanced_section({
+                vol.Optional(
                     CONF_PERIMETER_ENRICHMENT_PROVIDER,
-                    DEFAULT_PERIMETER_ENRICHMENT_PROVIDER,
+                    default=self._get_current(
+                        CONF_PERIMETER_ENRICHMENT_PROVIDER,
+                        DEFAULT_PERIMETER_ENRICHMENT_PROVIDER,
+                    ),
+                ): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
                 ),
-                description=_adv(
-                    CONF_PERIMETER_ENRICHMENT_PROVIDER, _merged,
-                    DEFAULT_PERIMETER_ENRICHMENT_PROVIDER,
-                ),
-            ): selector.TextSelector(
-                selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
-            ),
-            vol.Optional(
-                CONF_PERIMETER_ENRICHMENT_PERSON_SENSORS,
-                default=self._get_current(
+                vol.Optional(
                     CONF_PERIMETER_ENRICHMENT_PERSON_SENSORS,
-                    DEFAULT_PERIMETER_ENRICHMENT_PERSON_SENSORS,
+                    default=self._get_current(
+                        CONF_PERIMETER_ENRICHMENT_PERSON_SENSORS,
+                        DEFAULT_PERIMETER_ENRICHMENT_PERSON_SENSORS,
+                    ),
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(
+                        domain="binary_sensor", multiple=True,
+                    )
                 ),
-                description=_adv(
-                    CONF_PERIMETER_ENRICHMENT_PERSON_SENSORS, _merged,
-                    DEFAULT_PERIMETER_ENRICHMENT_PERSON_SENSORS,
-                ),
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(
-                    domain="binary_sensor", multiple=True,
-                )
-            ),
-            vol.Optional(
-                CONF_PERIMETER_ENRICHMENT_MODEL,
-                default=self._get_current(
+                vol.Optional(
                     CONF_PERIMETER_ENRICHMENT_MODEL,
-                    DEFAULT_PERIMETER_ENRICHMENT_MODEL,
+                    default=self._get_current(
+                        CONF_PERIMETER_ENRICHMENT_MODEL,
+                        DEFAULT_PERIMETER_ENRICHMENT_MODEL,
+                    ),
+                ): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
                 ),
-                description=_adv(
-                    CONF_PERIMETER_ENRICHMENT_MODEL, _merged,
-                    DEFAULT_PERIMETER_ENRICHMENT_MODEL,
-                ),
-            ): selector.TextSelector(
-                selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
-            ),
-            vol.Optional(
-                CONF_PERIMETER_ENRICHMENT_MAX_TOKENS,
-                default=self._get_current(
+                vol.Optional(
                     CONF_PERIMETER_ENRICHMENT_MAX_TOKENS,
-                    DEFAULT_PERIMETER_ENRICHMENT_MAX_TOKENS,
+                    default=self._get_current(
+                        CONF_PERIMETER_ENRICHMENT_MAX_TOKENS,
+                        DEFAULT_PERIMETER_ENRICHMENT_MAX_TOKENS,
+                    ),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=50, max=4000, step=50,
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
                 ),
-                description=_adv(
-                    CONF_PERIMETER_ENRICHMENT_MAX_TOKENS, _merged,
-                    DEFAULT_PERIMETER_ENRICHMENT_MAX_TOKENS,
+                vol.Optional(
+                    CONF_PERIMETER_ENRICHMENT_PROVIDER_ID,
+                    default=self._get_current(
+                        CONF_PERIMETER_ENRICHMENT_PROVIDER_ID, "",
+                    ),
+                ): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
                 ),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=50, max=4000, step=50,
-                    mode=selector.NumberSelectorMode.BOX,
-                )
-            ),
-            vol.Optional(
-                CONF_PERIMETER_ENRICHMENT_PROVIDER_ID,
-                default=self._get_current(
-                    CONF_PERIMETER_ENRICHMENT_PROVIDER_ID, "",
-                ),
-                description=_adv(
-                    CONF_PERIMETER_ENRICHMENT_PROVIDER_ID, _merged, "",
-                ),
-            ): selector.TextSelector(
-                selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
-            ),
-            # Exterior-person snapshot delay (D4). Delays the notification
-            # dispatch on the LIVE fallback path so entity_picture is closer
-            # to the detection moment. Ignored when a Frigate event_id
-            # snapshot is available. 0 = no delay.
-            vol.Optional(
-                CONF_EXTERIOR_SNAPSHOT_OFFSET_S,
-                default=self._get_current(
+                # Exterior-person snapshot delay (D4). Delays the notification
+                # dispatch on the LIVE fallback path so entity_picture is closer
+                # to the detection moment. Ignored when a Frigate event_id
+                # snapshot is available. 0 = no delay.
+                vol.Optional(
                     CONF_EXTERIOR_SNAPSHOT_OFFSET_S,
-                    DEFAULT_EXTERIOR_SNAPSHOT_OFFSET_S,
+                    default=self._get_current(
+                        CONF_EXTERIOR_SNAPSHOT_OFFSET_S,
+                        DEFAULT_EXTERIOR_SNAPSHOT_OFFSET_S,
+                    ),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=MIN_EXTERIOR_SNAPSHOT_OFFSET_S,
+                        max=MAX_EXTERIOR_SNAPSHOT_OFFSET_S,
+                        step=1,
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
                 ),
-                description=_adv(
-                    CONF_EXTERIOR_SNAPSHOT_OFFSET_S, _merged,
-                    DEFAULT_EXTERIOR_SNAPSHOT_OFFSET_S,
-                ),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=MIN_EXTERIOR_SNAPSHOT_OFFSET_S,
-                    max=MAX_EXTERIOR_SNAPSHOT_OFFSET_S,
-                    step=1,
-                    mode=selector.NumberSelectorMode.BOX,
-                )
-            ),
+            }),
         })
 
         return self.async_show_form(
             step_id="perimeter_alerting",
-            data_schema=self._filter_advanced(data_schema),
-            description_placeholders={
-                "advanced_hint": advanced_hint_for(
-                    data_schema, self._show_adv(),
-                ),
-            },
+            data_schema=data_schema,
         )
 
     async def async_step_domain_coordinators(self, user_input=None):
@@ -5546,7 +5375,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
     async def async_step_coordinator_presence(self, user_input=None):
         """Configure Presence Coordinator settings.
 
-        v3.6.0-c2.1: Sleep hours and geofence entity selection.
+        v3.6.0-c2.1: Sleep hours. (The geofence tracker picker was removed by
+        PRESENCE-GEOFENCE-FIELD-DEAD-1: it had no reader; arrivals come
+        from every ``person.*`` entity. A stored value is ignored.)
         v4.6.2.2: Guest mode false-positive hardening knobs.
         Fan-noise Mode-2: master kill switch + 7 timing knobs for the
         room-tier fan-pause + clean recheck mechanism. Default OFF.
@@ -5556,7 +5387,6 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         from .const import (
             CONF_SLEEP_START_HOUR,
             CONF_SLEEP_END_HOUR,
-            CONF_GEOFENCE_ENTITIES,
             DEFAULT_SLEEP_START_HOUR,
             DEFAULT_SLEEP_END_HOUR,
             CONF_GUEST_MODE_PERSISTENCE_SECONDS,
@@ -5639,14 +5469,6 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=0, max=23, step=1, mode="slider"
-                )
-            ),
-            vol.Optional(
-                CONF_GEOFENCE_ENTITIES,
-                default=self._get_current(CONF_GEOFENCE_ENTITIES, []),
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(
-                    domain="device_tracker", multiple=True
                 )
             ),
             # v4.6.2.2: Guest mode hardening knobs
@@ -11154,6 +10976,11 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             )
 
         if user_input is not None:
+            # FORM-CONDITIONAL-FIELDS-1 §3 shape 4: flatten first; nothing
+            # below reads the raw ``user_input``.
+            user_input, _present = _flatten_sections(
+                user_input, (ADVANCED_SECTION,)
+            )
             zone_name = user_input.get(CONF_ZONE_NAME, "").strip()
             selected_rooms = user_input.get(CONF_ZONE_ROOMS, [])
             old_zone_name = orig_zone_name if zm_result else current_zone_name
@@ -11165,7 +10992,6 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     step_id="zone_rooms",
                     data_schema=vol.Schema({
                         vol.Required(CONF_ZONE_NAME, default=zone_name): str,
-                        vol.Optional(CONF_ZONE_DESCRIPTION, default=current_zone_desc): str,
                         vol.Optional(CONF_ZONE_ROOMS, default=selected_rooms): selector.SelectSelector(
                             selector.SelectSelectorConfig(
                                 options=[],
@@ -11173,9 +10999,16 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                                 mode=selector.SelectSelectorMode.LIST,
                             )
                         ),
+                        vol.Optional(ADVANCED_SECTION): _advanced_section({
+                            vol.Optional(
+                                CONF_ZONE_DESCRIPTION,
+                                default=user_input.get(
+                                    CONF_ZONE_DESCRIPTION, current_zone_desc
+                                ),
+                            ): str,
+                        }),
                     }),
                     errors={"base": "zone_name_contains_plus"},
-                    description_placeholders={"advanced_hint": ""},
                 )
 
             # Update each selected room's zone assignment.
@@ -11238,9 +11071,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 # the centralized save path keeps the "one save = one
                 # update_entry" invariant intact.
                 rooms_payload = {
-                    # ZONE-DIALOGS-CLEANUP-1 D2 (I3): the description field
-                    # is hidden in Simple mode, so fall back to the stored
-                    # value instead of clearing it.
+                    # ZONE-DIALOGS-CLEANUP-1 D2 (I3): the description is in
+                    # the collapsed section; when the section is not sent,
+                    # fall back to the stored value instead of clearing it.
                     CONF_ZONE_DESCRIPTION: user_input.get(
                         CONF_ZONE_DESCRIPTION, current_zone_desc
                     ),
@@ -11355,22 +11188,11 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         
         # Build schema
         # ZONE-DIALOGS-CLEANUP-1 D2 (O1): the description has no runtime
-        # reader, so it shows only in Advanced mode or when already set.
-        _zmerged = (
-            zone_data if zm_result
-            else {**zone_entry.data, **zone_entry.options}
-        )
+        # reader; it sits in the collapsed ``advanced`` section (added last).
         schema_fields = {
             vol.Required(
                 CONF_ZONE_NAME,
                 default=current_zone_name
-            ): selector.TextSelector(
-                selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
-            ),
-            vol.Optional(
-                CONF_ZONE_DESCRIPTION,
-                default=current_zone_desc,
-                description=_adv(CONF_ZONE_DESCRIPTION, _zmerged, ""),
             ): selector.TextSelector(
                 selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
             ),
@@ -11392,17 +11214,20 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     mode=selector.SelectSelectorMode.DROPDOWN
                 )
             )
-        
+        schema_fields[vol.Optional(ADVANCED_SECTION)] = _advanced_section({
+            vol.Optional(
+                CONF_ZONE_DESCRIPTION,
+                default=current_zone_desc,
+            ): selector.TextSelector(
+                selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
+            ),
+        })
+
         data_schema = vol.Schema(schema_fields)
 
         return self.async_show_form(
             step_id="zone_rooms",
-            data_schema=self._filter_advanced(data_schema),
-            description_placeholders={
-                "advanced_hint": advanced_hint_for(
-                    data_schema, self._show_adv(),
-                ),
-            },
+            data_schema=data_schema,
         )
 
     async def async_step_zone_media(self, user_input=None):
@@ -11432,6 +11257,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             )
 
         if user_input is not None:
+            user_input, _present = _flatten_sections(
+                user_input, (ADVANCED_SECTION,)
+            )
             if zm_result:
                 # v4.7.5 D4: media is per-house-zone (MIRROR_KEYS_ZONE_MEDIA
                 # is empty). Use the helper for save-path symmetry; mirror is
@@ -11459,12 +11287,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             {"label": "Aggregate (All room players)", "value": ZONE_PLAYER_MODE_AGGREGATE},
         ]
 
-        # ZONE-DIALOGS-CLEANUP-1 D2: the fallback mode is Advanced-only
-        # (shown anyway when it differs from the default, I2).
-        _zmerged = (
-            zone_data if zm_result
-            else {**zone_entry.data, **zone_entry.options}
-        )
+        # ZONE-DIALOGS-CLEANUP-1 D2: the fallback mode sits in the collapsed
+        # ``advanced`` section (FORM-CONDITIONAL-FIELDS-1).
         data_schema = vol.Schema({
             vol.Optional(
                 CONF_ZONE_PLAYER_ENTITY,
@@ -11472,28 +11296,22 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="media_player")
             ),
-            vol.Optional(
-                CONF_ZONE_PLAYER_MODE,
-                default=current_mode,
-                description=_adv(
-                    CONF_ZONE_PLAYER_MODE, _zmerged, ZONE_PLAYER_MODE_FALLBACK,
+            vol.Optional(ADVANCED_SECTION): _advanced_section({
+                vol.Optional(
+                    CONF_ZONE_PLAYER_MODE,
+                    default=current_mode,
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=zone_player_modes,
+                        mode=selector.SelectSelectorMode.DROPDOWN
+                    )
                 ),
-            ): selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=zone_player_modes,
-                    mode=selector.SelectSelectorMode.DROPDOWN
-                )
-            ),
+            }),
         })
 
         return self.async_show_form(
             step_id="zone_media",
-            data_schema=self._filter_advanced(data_schema),
-            description_placeholders={
-                "advanced_hint": advanced_hint_for(
-                    data_schema, self._show_adv(),
-                ),
-            },
+            data_schema=data_schema,
         )
 
     async def async_step_zone_hvac(self, user_input=None):
@@ -11543,6 +11361,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             )
 
         if user_input is not None:
+            user_input, _present = _flatten_sections(
+                user_input, (ADVANCED_SECTION,)
+            )
             if zm_result:
                 # v4.7.5 D4: HVAC fields tie to the shared thermostat. Auto-mirror
                 # to sibling house zones (Option C). Capture the OLD thermostat
@@ -11571,8 +11392,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         # ac_load_sensor accepts kW OR kWh sensors (we filter by device_class
         # at runtime — power preferred, but energy works if user only has
         # kWh totalizers).
-        # ZONE-DIALOGS-CLEANUP-1 D2: the AC overrun fields are Advanced-only
-        # (shown anyway when set / non-default, I2). A Simple-mode save
+        # ZONE-DIALOGS-CLEANUP-1 D2: the AC overrun fields sit in the
+        # collapsed ``advanced`` section. A save with the section not sent
         # omits them, and the mirror payload only carries submitted keys,
         # so stored values on this zone and its siblings are kept (I3).
         _zmerged = (
@@ -11586,58 +11407,46 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="climate")
             ),
-            vol.Optional(
-                CONF_HVAC_AC_LOAD_SENSOR,
-                default=current_ac_load_sensor or vol.UNDEFINED,
-                description=_adv(CONF_HVAC_AC_LOAD_SENSOR, _zmerged, ""),
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(
-                    domain="sensor",
-                    device_class=["power", "energy"],
-                )
-            ),
-            vol.Optional(
-                CONF_HVAC_AC_RAMP_ZONE_ENABLED,
-                default=bool(current_ac_ramp_enabled),
-                description=_adv(
-                    CONF_HVAC_AC_RAMP_ZONE_ENABLED, _zmerged,
-                    DEFAULT_HVAC_AC_RAMP_ZONE_ENABLED,
+            vol.Optional(ADVANCED_SECTION): _advanced_section({
+                vol.Optional(
+                    CONF_HVAC_AC_LOAD_SENSOR,
+                    default=current_ac_load_sensor or vol.UNDEFINED,
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(
+                        domain="sensor",
+                        device_class=["power", "energy"],
+                    )
                 ),
-            ): selector.BooleanSelector(),
-            # HVAC W1-C P2 (operator on-site check 2026-10-05): the
-            # thermostat's own "Heat/Cool Min Delta" installer setting. A
-            # range URA would send narrower than this is widened first
-            # (heat kept, cool raised). Advanced; default 5 °F; 5–10 (fix
-            # D MED-2: below the device's own gap the unit would rewrite
-            # URA's range and every hold would read `manual`).
-            vol.Optional(
-                CONF_HVAC_THERMOSTAT_MIN_DELTA_F,
-                default=float(_zmerged.get(
+                vol.Optional(
+                    CONF_HVAC_AC_RAMP_ZONE_ENABLED,
+                    default=bool(current_ac_ramp_enabled),
+                ): selector.BooleanSelector(),
+                # HVAC W1-C P2 (operator on-site check 2026-10-05): the
+                # thermostat's own "Heat/Cool Min Delta" installer setting. A
+                # range URA would send narrower than this is widened first
+                # (heat kept, cool raised). Advanced; default 5 °F; 5–10 (fix
+                # D MED-2: below the device's own gap the unit would rewrite
+                # URA's range and every hold would read `manual`).
+                vol.Optional(
                     CONF_HVAC_THERMOSTAT_MIN_DELTA_F,
-                    DEFAULT_HVAC_THERMOSTAT_MIN_DELTA_F,
-                )),
-                description=_adv(
-                    CONF_HVAC_THERMOSTAT_MIN_DELTA_F, _zmerged,
-                    DEFAULT_HVAC_THERMOSTAT_MIN_DELTA_F,
+                    default=float(_zmerged.get(
+                        CONF_HVAC_THERMOSTAT_MIN_DELTA_F,
+                        DEFAULT_HVAC_THERMOSTAT_MIN_DELTA_F,
+                    )),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=5, max=10, step=1,
+                        unit_of_measurement="°F",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
                 ),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=5, max=10, step=1,
-                    unit_of_measurement="°F",
-                    mode=selector.NumberSelectorMode.BOX,
-                )
-            ),
+            }),
         }
 
         data_schema = vol.Schema(schema_fields)
         return self.async_show_form(
             step_id="zone_hvac",
-            data_schema=self._filter_advanced(data_schema),
-            description_placeholders={
-                "advanced_hint": advanced_hint_for(
-                    data_schema, self._show_adv(),
-                ),
-            },
+            data_schema=data_schema,
         )
 
     async def async_step_zone_energy(self, user_input=None):
@@ -11672,6 +11481,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             current_thermostat = None
 
         if user_input is not None:
+            user_input, _present = _flatten_sections(
+                user_input, (ADVANCED_SECTION,)
+            )
             if zm_result:
                 # v4.7.5 D4: zone power/energy sensors track the shared AC
                 # sub-circuit; auto-mirror to sibling house zones.
@@ -11697,37 +11509,29 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     data={**zone_entry.options, **user_input},
                 )
 
-        # ZONE-DIALOGS-CLEANUP-1 D2 (O1): zone power sensors show only in
-        # Advanced mode or when already set. (ZONE-LIVE-POWER-ROLLUP-1: they
-        # now feed the zone Total Power sensor; visibility left unchanged.)
-        _zmerged = (
-            zone_data if zm_result
-            else {**zone_entry.data, **zone_entry.options}
-        )
+        # ZONE-DIALOGS-CLEANUP-1 D2 (O1): zone power sensors sit in the
+        # collapsed ``advanced`` section. (ZONE-LIVE-POWER-ROLLUP-1: they
+        # feed the zone Total Power sensor.)
         data_schema = vol.Schema({
-            vol.Optional(
-                CONF_ZONE_POWER_SENSORS,
-                default=current_power or vol.UNDEFINED,
-                description=_adv(CONF_ZONE_POWER_SENSORS, _zmerged, []),
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="sensor", device_class="power", multiple=True)
-            ),
             vol.Optional(
                 CONF_ZONE_ENERGY_SENSORS,
                 default=current_energy or vol.UNDEFINED,
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="energy", multiple=True)
             ),
+            vol.Optional(ADVANCED_SECTION): _advanced_section({
+                vol.Optional(
+                    CONF_ZONE_POWER_SENSORS,
+                    default=current_power or vol.UNDEFINED,
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor", device_class="power", multiple=True)
+                ),
+            }),
         })
 
         return self.async_show_form(
             step_id="zone_energy",
-            data_schema=self._filter_advanced(data_schema),
-            description_placeholders={
-                "advanced_hint": advanced_hint_for(
-                    data_schema, self._show_adv(),
-                ),
-            },
+            data_schema=data_schema,
         )
 
     async def async_step_zone_persons(self, user_input=None):
@@ -11919,9 +11723,11 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             # shape, so the error-render branch was unreachable. Voluptuous
             # coercion failures still surface via HA's data-entry-flow
             # plumbing.
-            # zone_update is a straight copy of user_input (4 scalar fields;
-            # no nested dicts to flatten now that the section blocks are gone).
-            zone_update = {k: v for k, v in user_input.items()
+            # FORM-CONDITIONAL-FIELDS-1: flatten the ``advanced`` section
+            # first (reset-for-guest + sleep live there); any other nested
+            # dict is still dropped.
+            flat, _present = _flatten_sections(user_input, (ADVANCED_SECTION,))
+            zone_update = {k: v for k, v in flat.items()
                            if not isinstance(v, dict)}
             _LOGGER.info(
                 "DPM Surface 2 saved zone=%s (v4.7.18 D1: 4-field surface)",
@@ -11945,13 +11751,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         )
         return self.async_show_form(
             step_id="zone_dynamic_preset",
-            data_schema=self._filter_advanced(data_schema),
-            description_placeholders={
-                "zone_name": zone_name,
-                "advanced_hint": advanced_hint_for(
-                    data_schema, self._show_adv(),
-                ),
-            },
+            data_schema=data_schema,
+            description_placeholders={"zone_name": zone_name},
         )
 
     # =========================================================================
@@ -12597,19 +12398,20 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             vol.Optional(CONF_OFFSET, default=_f(CONF_OFFSET, 0.0)): vol.All(
                 vol.Coerce(float), vol.Range(min=0.0, max=3.0)
             ),
-            # ZONE-DIALOGS-CLEANUP-1 D2: guest reset + sleep ranges are
-            # Advanced-only (shown anyway when non-default, I2). Factory
-            # defaults mirror dynamic_preset.py (reset True, sleep False).
-            vol.Optional(
-                CONF_RESET_GUEST,
-                default=_b(CONF_RESET_GUEST, True),
-                description=_adv(CONF_RESET_GUEST, source_data, True),
-            ): bool,
-            vol.Optional(
-                CONF_SLEEP_ENABLED,
-                default=_b(CONF_SLEEP_ENABLED, False),
-                description=_adv(CONF_SLEEP_ENABLED, source_data, False),
-            ): bool,
+            # ZONE-DIALOGS-CLEANUP-1 D2: guest reset + sleep ranges sit in
+            # the collapsed ``advanced`` section (FORM-CONDITIONAL-FIELDS-1).
+            # Factory defaults mirror dynamic_preset.py (reset True, sleep
+            # False).
+            vol.Optional(ADVANCED_SECTION): _advanced_section({
+                vol.Optional(
+                    CONF_RESET_GUEST,
+                    default=_b(CONF_RESET_GUEST, True),
+                ): bool,
+                vol.Optional(
+                    CONF_SLEEP_ENABLED,
+                    default=_b(CONF_SLEEP_ENABLED, False),
+                ): bool,
+            }),
         })
 
     # =========================================================================
@@ -12860,6 +12662,28 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         errors = {}
         
         if user_input is not None:
+            # FORM-CONDITIONAL-FIELDS-1 §3 (rev 4, H2): flatten first. The
+            # JSON field sits in the collapsed ``advanced`` section; when
+            # that section was not sent, treat it as the stored JSON
+            # submitted unchanged (same text the form pre-fills), so the
+            # JSON-only trust_class / failure_mode survive and dropdown
+            # edits still apply on top. A section that WAS sent with the
+            # field cleared still clears it.
+            user_input, _present = _flatten_sections(
+                user_input, (ADVANCED_SECTION,)
+            )
+            if (
+                ADVANCED_SECTION not in _present
+                and "sensor_capabilities_json" not in user_input
+            ):
+                _stored_caps = (
+                    self._get_current(CONF_SENSOR_CAPABILITIES, {}) or {}
+                )
+                user_input["sensor_capabilities_json"] = (
+                    json.dumps(_stored_caps, indent=2, sort_keys=True)
+                    if _stored_caps
+                    else ""
+                )
             # Own area in scanner_areas is meaningless and demotes the room
             # off direct BLE (person_coordinator._direct_ble_rooms): strip it.
             if CONF_SCANNER_AREAS in user_input:
@@ -13577,37 +13401,6 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             )
 
         data_schema = vol.Schema({**schema_dict,
-            # SENSOR-CAPABILITY-1 D4: per-entity capability overrides
-            # as a JSON textarea (escape hatch for trust_class /
-            # failure_mode — the per-entity dropdowns above only set
-            # `kind`). Blank = no overrides = byte-identical fallback
-            # (I1). Rung 2 (options flow) — infrequent, per-deployment.
-            # Precedence: if a per-entity dropdown selection disagrees
-            # with the `kind` in this JSON, THE DROPDOWN WINS on save.
-            # Shape example:
-            #   {"binary_sensor.bed": {"kind": "bed",
-            #                          "trust_class": "strong_evidence"}}
-            vol.Optional(
-                "sensor_capabilities_json",
-                # A-NIT-5 (2026-08-10): compute once, use the module-level
-                # `json` import (was: `__import__("json")` inline + double
-                # `_get_current` call).
-                default=(
-                    json.dumps(_caps_default, indent=2, sort_keys=True)
-                    if _caps_default
-                    else ""
-                ),
-                # SENSOR-FORM-PLAIN-TEXT-1 (2026-10-11): hide the raw-JSON
-                # escape hatch unless Advanced mode is on. The per-entity
-                # dropdowns cover the common case; trust_class / failure_mode
-                # editing is advanced-only. A room with a non-default stored
-                # value stays visible in Simple mode (I2 reach-back).
-                description=(
-                    None if _caps_default else {"advanced": True}
-                ),
-            ): selector.TextSelector(
-                selector.TextSelectorConfig(multiline=True),
-            ),
             # v3.2.4: Scanner areas for sparse scanner homes
             vol.Optional(
                 CONF_SCANNER_AREAS,
@@ -13703,21 +13496,40 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     mode=selector.SelectSelectorMode.LIST,
                 )
             ),
+            # SENSOR-CAPABILITY-1 D4: per-entity capability overrides
+            # as a JSON textarea (escape hatch for trust_class /
+            # failure_mode — the per-entity dropdowns above only set
+            # `kind`). Blank = no overrides = byte-identical fallback
+            # (I1). Rung 2 (options flow) — infrequent, per-deployment.
+            # Precedence: if a per-entity dropdown selection disagrees
+            # with the `kind` in this JSON, THE DROPDOWN WINS on save.
+            # Shape example:
+            #   {"binary_sensor.bed": {"kind": "bed",
+            #                          "trust_class": "strong_evidence"}}
+            # FORM-CONDITIONAL-FIELDS-1: in the collapsed ``advanced``
+            # section (was hidden outside HA Advanced mode).
+            vol.Optional(ADVANCED_SECTION): _advanced_section({
+                vol.Optional(
+                    "sensor_capabilities_json",
+                    # A-NIT-5 (2026-08-10): compute once, use the
+                    # module-level `json` import.
+                    default=(
+                        json.dumps(_caps_default, indent=2, sort_keys=True)
+                        if _caps_default
+                        else ""
+                    ),
+                ): selector.TextSelector(
+                    selector.TextSelectorConfig(multiline=True),
+                ),
+            }),
         })
 
         return self.async_show_form(
             step_id="sensors",
-            data_schema=self._filter_advanced(data_schema),
+            data_schema=data_schema,
             errors=errors,
             description_placeholders={
                 "name": "Reconfigure sensors - at least one occupancy sensor required",
-                # SENSOR-FORM-PLAIN-TEXT-1 (2026-10-11): sensors step now
-                # carries an Advanced-only field (sensor_capabilities_json),
-                # so emit the same hint the other Advanced-gated steps use.
-                "advanced_hint": advanced_hint_for(
-                    data_schema,
-                    bool(getattr(self, "show_advanced_options", False)),
-                ),
             },
         )
 
@@ -13725,7 +13537,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         """Reconfigure devices."""
         if user_input is not None:
             try:
-                merged = {**self._config_entry.options, **user_input}
+                flat, _present = _flatten_sections(
+                    user_input, (ADVANCED_SECTION,)
+                )
+                merged = {**self._config_entry.options, **flat}
                 _LOGGER.debug("devices save: entry_id=%s, merged_keys=%d",
                               self._config_entry.entry_id, len(merged))
                 return self.async_create_entry(title="", data=merged)
@@ -13756,75 +13571,6 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 default=self._get_current(CONF_LIGHT_CAPABILITIES, LIGHT_CAPABILITY_BASIC)
             ): selector.SelectSelector(
                 selector.SelectSelectorConfig(options=light_capabilities, mode=selector.SelectSelectorMode.DROPDOWN)
-            ),
-            # === v3.2.2.5: Night lights (subset of CONF_LIGHTS) ===
-            # Slice B' (v5.103.28): picker MOVED to options_lighting_behaviour
-            # per D8. Brightness/color fields stay here (they're
-            # value-tunables, not role pickers). CONF_NIGHT_LIGHTS key is
-            # unchanged; no stored-data migration.
-            # NIGHT-LIGHT-ACTION-SELECTOR-1 (REV 3, D4): the five night-
-            # light colour/brightness fields are rarely tuned once set
-            # (defaults are red / 4000K per v5.103.31). Retreat them to
-            # Advanced via `_adv()`. A room with a non-default stored
-            # value still sees its field in Simple mode (I2 reach-back).
-            vol.Optional(
-                CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
-                default=self._get_current(CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS, DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS),
-                description=_adv(
-                    CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
-                    self._merged_entry_config(),
-                    DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
-                ),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=1, max=100, mode=selector.NumberSelectorMode.SLIDER, unit_of_measurement="%")
-            ),
-            vol.Optional(
-                CONF_NIGHT_LIGHT_SLEEP_HUE,
-                default=self._get_current(CONF_NIGHT_LIGHT_SLEEP_HUE, DEFAULT_NIGHT_LIGHT_SLEEP_HUE),
-                description=_adv(
-                    CONF_NIGHT_LIGHT_SLEEP_HUE,
-                    self._merged_entry_config(),
-                    DEFAULT_NIGHT_LIGHT_SLEEP_HUE,
-                ),
-            ): selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=[NIGHT_LIGHT_SLEEP_HUE_RED, NIGHT_LIGHT_SLEEP_HUE_WARM_WHITE],
-                    translation_key="night_light_sleep_hue",
-                    mode=selector.SelectSelectorMode.DROPDOWN,
-                )
-            ),
-            vol.Optional(
-                CONF_NIGHT_LIGHT_SLEEP_COLOR,
-                default=self._get_current(CONF_NIGHT_LIGHT_SLEEP_COLOR, DEFAULT_NIGHT_LIGHT_SLEEP_COLOR),
-                description=_adv(
-                    CONF_NIGHT_LIGHT_SLEEP_COLOR,
-                    self._merged_entry_config(),
-                    DEFAULT_NIGHT_LIGHT_SLEEP_COLOR,
-                ),
-            ): selector.ColorTempSelector(
-                selector.ColorTempSelectorConfig(unit=selector.ColorTempSelectorUnit.KELVIN, min=2000, max=6500)
-            ),
-            vol.Optional(
-                CONF_NIGHT_LIGHT_DAY_BRIGHTNESS,
-                default=self._get_current(CONF_NIGHT_LIGHT_DAY_BRIGHTNESS, DEFAULT_NIGHT_LIGHT_DAY_BRIGHTNESS),
-                description=_adv(
-                    CONF_NIGHT_LIGHT_DAY_BRIGHTNESS,
-                    self._merged_entry_config(),
-                    DEFAULT_NIGHT_LIGHT_DAY_BRIGHTNESS,
-                ),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=1, max=100, mode=selector.NumberSelectorMode.SLIDER, unit_of_measurement="%")
-            ),
-            vol.Optional(
-                CONF_NIGHT_LIGHT_DAY_COLOR,
-                default=self._get_current(CONF_NIGHT_LIGHT_DAY_COLOR, DEFAULT_NIGHT_LIGHT_DAY_COLOR),
-                description=_adv(
-                    CONF_NIGHT_LIGHT_DAY_COLOR,
-                    self._merged_entry_config(),
-                    DEFAULT_NIGHT_LIGHT_DAY_COLOR,
-                ),
-            ): selector.ColorTempSelector(
-                selector.ColorTempSelectorConfig(unit=selector.ColorTempSelectorUnit.KELVIN, min=2000, max=6500)
             ),
             vol.Optional(
                 CONF_FANS,
@@ -13897,29 +13643,61 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ): selector.SelectSelector(
                 selector.SelectSelectorConfig(options=cover_types, mode=selector.SelectSelectorMode.DROPDOWN)
             ),
+            vol.Optional(ADVANCED_SECTION): _advanced_section({
+                # === v3.2.2.5: Night lights (subset of CONF_LIGHTS) ===
+                # Slice B' (v5.103.28): picker MOVED to options_lighting_behaviour
+                # per D8. Brightness/color fields stay here (they're
+                # value-tunables, not role pickers). CONF_NIGHT_LIGHTS key is
+                # unchanged; no stored-data migration.
+                # NIGHT-LIGHT-ACTION-SELECTOR-1 (REV 3, D4): the five night-
+                # light colour/brightness fields are rarely tuned once set
+                # (defaults are red / 4000K per v5.103.31). They sit in the
+                # collapsed ``advanced`` section (FORM-CONDITIONAL-FIELDS-1;
+                # release 2 moves them up behind ``visible=`` on night lights).
+                vol.Optional(
+                    CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
+                    default=self._get_current(CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS, DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=1, max=100, mode=selector.NumberSelectorMode.SLIDER, unit_of_measurement="%")
+                ),
+                vol.Optional(
+                    CONF_NIGHT_LIGHT_SLEEP_HUE,
+                    default=self._get_current(CONF_NIGHT_LIGHT_SLEEP_HUE, DEFAULT_NIGHT_LIGHT_SLEEP_HUE),
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[NIGHT_LIGHT_SLEEP_HUE_RED, NIGHT_LIGHT_SLEEP_HUE_WARM_WHITE],
+                        translation_key="night_light_sleep_hue",
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+                vol.Optional(
+                    CONF_NIGHT_LIGHT_SLEEP_COLOR,
+                    default=self._get_current(CONF_NIGHT_LIGHT_SLEEP_COLOR, DEFAULT_NIGHT_LIGHT_SLEEP_COLOR),
+                ): selector.ColorTempSelector(
+                    selector.ColorTempSelectorConfig(unit=selector.ColorTempSelectorUnit.KELVIN, min=2000, max=6500)
+                ),
+                vol.Optional(
+                    CONF_NIGHT_LIGHT_DAY_BRIGHTNESS,
+                    default=self._get_current(CONF_NIGHT_LIGHT_DAY_BRIGHTNESS, DEFAULT_NIGHT_LIGHT_DAY_BRIGHTNESS),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=1, max=100, mode=selector.NumberSelectorMode.SLIDER, unit_of_measurement="%")
+                ),
+                vol.Optional(
+                    CONF_NIGHT_LIGHT_DAY_COLOR,
+                    default=self._get_current(CONF_NIGHT_LIGHT_DAY_COLOR, DEFAULT_NIGHT_LIGHT_DAY_COLOR),
+                ): selector.ColorTempSelector(
+                    selector.ColorTempSelectorConfig(unit=selector.ColorTempSelectorUnit.KELVIN, min=2000, max=6500)
+                ),
+            }),
             # Slice B' (v5.103.28): CONF_AUTO_SWITCHES / CONF_MANUAL_SWITCHES
             # role pickers MOVED to options_lighting_behaviour per D8. Keys
             # unchanged; no stored-data migration.
         })
 
-        # NIGHT-LIGHT-ACTION-SELECTOR-1 (REV 3, D4): route through
-        # ``add_suggested_values_to_schema`` so fields marked
-        # ``description={"advanced": True}`` are filtered when the user
-        # profile is NOT in Advanced mode (verified: HA
-        # ``data_entry_flow.py:660-666``). The five night-light colour/
-        # brightness fields now carry the Advanced marker via ``_adv()``.
-        filtered_schema = self.add_suggested_values_to_schema(data_schema, {})
-        advanced_hint_text = advanced_hint_for(
-            data_schema,
-            bool(getattr(self, "show_advanced_options", False)),
-        )
         return self.async_show_form(
             step_id="devices",
-            data_schema=filtered_schema,
-            description_placeholders={
-                "name": "Reconfigure devices",
-                "advanced_hint": advanced_hint_text,
-            },
+            data_schema=data_schema,
+            description_placeholders={"name": "Reconfigure devices"},
         )
 
     # =========================================================================
@@ -14052,6 +13830,14 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         currently-stored value) so a saved entity outside CONF_LIGHTS is
         NEVER dropped on save (F5 guard).
         """
+        # FORM-CONDITIONAL-FIELDS-1 §3: flatten the ``advanced`` section
+        # first; ``_present`` drives the clear-on-absent rule below.
+        _present: frozenset = frozenset()
+        if user_input is not None:
+            user_input, _present = _flatten_sections(
+                user_input, (ADVANCED_SECTION,)
+            )
+
         # In-flight state: prefer newly-typed values from user_input over
         # stored options so operator edits within this turn are honoured.
         def _cur(key, default=None):
@@ -14098,25 +13884,22 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 merged = {**self._config_entry.options, **user_input}
                 # Review A MEDIUM: a cleared single-value field is omitted from
                 # the submission; drop it instead of resurrecting the stored
-                # value. Advanced fields only when they were on the form.
+                # value.
                 clearable = [CONF_LIGHT_DARK_LUX_SOURCE]
-                # ROOM-TYPE-TRIMMED-MENU-1 I3: an Advanced key is clearable
-                # only when it was on the form — Advanced mode, or forced
-                # onto the Simple form by a non-default value (I2).
-                _stored = self._merged_entry_config()
-                for _adv_key in (
-                    CONF_LIGHT_EVENING_BRIGHTNESS_PCT,
-                    CONF_LIGHT_EVENING_COLOR_KELVIN,
-                    CONF_NIGHT_LIGHT_EVENING_BRIGHTNESS,
-                    CONF_NIGHT_LIGHT_EVENING_COLOR,
-                    CONF_LIGHT_SCENE_DAY,
-                    CONF_LIGHT_SCENE_EVENING,
-                    CONF_LIGHT_SCENE_SLEEP,
-                ):
-                    if self._show_adv() or _adv(
-                        _adv_key, _stored, vol.UNDEFINED,
-                    ) is None:
-                        clearable.append(_adv_key)
+                # FORM-CONDITIONAL-FIELDS-1 §3 (rev 4, H2): the 7 evening /
+                # scene keys live in the collapsed section. A missing key
+                # means "cleared" only when that section's dict was sent;
+                # an un-sent section keeps every stored value.
+                if ADVANCED_SECTION in _present:
+                    clearable.extend((
+                        CONF_LIGHT_EVENING_BRIGHTNESS_PCT,
+                        CONF_LIGHT_EVENING_COLOR_KELVIN,
+                        CONF_NIGHT_LIGHT_EVENING_BRIGHTNESS,
+                        CONF_NIGHT_LIGHT_EVENING_COLOR,
+                        CONF_LIGHT_SCENE_DAY,
+                        CONF_LIGHT_SCENE_EVENING,
+                        CONF_LIGHT_SCENE_SLEEP,
+                    ))
                 for key in clearable:
                     if key not in user_input:
                         merged.pop(key, None)
@@ -14149,9 +13932,6 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         summary = "Room capability: " + str(room_cap) + "\n" + "\n".join(summary_lines)
 
         leave_on_non_empty = bool(stored_leave_on)
-        # ROOM-TYPE-TRIMMED-MENU-1 D8.2: Advanced markers via _adv so a
-        # non-default stored value stays reachable in Simple mode (I2).
-        _merged = self._merged_entry_config()
 
         schema_dict: dict = {
             vol.Optional(
@@ -14159,17 +13939,6 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(
                     include_entities=_include_for(CONF_LIGHTS_ON_ENTRY, stored_on_entry),
-                    multiple=True,
-                )
-            ),
-            vol.Optional(
-                CONF_LIGHTS_ON_ENTRY_DARK_ONLY, default=stored_dark_only,
-                description=_adv(CONF_LIGHTS_ON_ENTRY_DARK_ONLY, _merged, []),
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(
-                    include_entities=_include_for(
-                        CONF_LIGHTS_ON_ENTRY_DARK_ONLY, stored_dark_only,
-                    ),
                     multiple=True,
                 )
             ),
@@ -14216,40 +13985,6 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     multiple=True,
                 )
             ),
-            # Slice D (v5.103.29): manual hold windows are ADVANCED-only.
-            # Marked description={"advanced": True} — HA hides them unless
-            # the user's profile Advanced mode is on
-            # (homeassistant/data_entry_flow.py:660-666 in
-            # add_suggested_values_to_schema — verified against installed
-            # HA 2026.2.3). The step's return routes through
-            # ``self.add_suggested_values_to_schema`` (below) so the filter
-            # is applied. Defaults are the rung-1 module constants.
-            # 0 = that kind off.
-            vol.Optional(
-                CONF_LIGHT_MANUAL_ON_HOLD_S,
-                default=self._get_current(
-                    CONF_LIGHT_MANUAL_ON_HOLD_S, DEFAULT_LIGHT_MANUAL_ON_HOLD_S,
-                ),
-                description=_adv(CONF_LIGHT_MANUAL_ON_HOLD_S, _merged, DEFAULT_LIGHT_MANUAL_ON_HOLD_S),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=0, max=14400, step=60, unit_of_measurement="s",
-                    mode=selector.NumberSelectorMode.BOX,
-                )
-            ),
-            vol.Optional(
-                CONF_LIGHT_MANUAL_OFF_COOLDOWN_S,
-                default=self._get_current(
-                    CONF_LIGHT_MANUAL_OFF_COOLDOWN_S,
-                    DEFAULT_LIGHT_MANUAL_OFF_COOLDOWN_S,
-                ),
-                description=_adv(CONF_LIGHT_MANUAL_OFF_COOLDOWN_S, _merged, DEFAULT_LIGHT_MANUAL_OFF_COOLDOWN_S),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=0, max=14400, step=60, unit_of_measurement="s",
-                    mode=selector.NumberSelectorMode.BOX,
-                )
-            ),
             vol.Optional(
                 CONF_LIGHT_DARK_USE_SUN_FALLBACK,
                 default=self._get_current(CONF_LIGHT_DARK_USE_SUN_FALLBACK, True),
@@ -14260,73 +13995,105 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")
             ),
-            # Slice E D5 (v5.103.29): evening slot brightness/colour for
-            # regular AND night lights. Absent ⇒ Day / Sleep defaults are
-            # used (byte-identical to pre-Slice-E behaviour). Advanced-only:
-            # rarely tuned; day/sleep already have their own knobs elsewhere.
-            vol.Optional(
-                CONF_LIGHT_EVENING_BRIGHTNESS_PCT,
-                default=self._get_current(CONF_LIGHT_EVENING_BRIGHTNESS_PCT)
-                or vol.UNDEFINED,
-                description=_adv(CONF_LIGHT_EVENING_BRIGHTNESS_PCT, _merged, vol.UNDEFINED),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=1, max=100, step=1, unit_of_measurement="%",
-                    mode=selector.NumberSelectorMode.BOX,
-                )
-            ),
-            vol.Optional(
-                CONF_LIGHT_EVENING_COLOR_KELVIN,
-                default=self._get_current(CONF_LIGHT_EVENING_COLOR_KELVIN)
-                or vol.UNDEFINED,
-                description=_adv(CONF_LIGHT_EVENING_COLOR_KELVIN, _merged, vol.UNDEFINED),
-            ): selector.ColorTempSelector(
-                selector.ColorTempSelectorConfig(unit=selector.ColorTempSelectorUnit.KELVIN, min=2000, max=6500)
-            ),
-            vol.Optional(
-                CONF_NIGHT_LIGHT_EVENING_BRIGHTNESS,
-                default=self._get_current(CONF_NIGHT_LIGHT_EVENING_BRIGHTNESS)
-                or vol.UNDEFINED,
-                description=_adv(CONF_NIGHT_LIGHT_EVENING_BRIGHTNESS, _merged, vol.UNDEFINED),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=1, max=100, step=1, unit_of_measurement="%",
-                    mode=selector.NumberSelectorMode.BOX,
-                )
-            ),
-            vol.Optional(
-                CONF_NIGHT_LIGHT_EVENING_COLOR,
-                default=self._get_current(CONF_NIGHT_LIGHT_EVENING_COLOR)
-                or vol.UNDEFINED,
-                description=_adv(CONF_NIGHT_LIGHT_EVENING_COLOR, _merged, vol.UNDEFINED),
-            ): selector.ColorTempSelector(
-                selector.ColorTempSelectorConfig(unit=selector.ColorTempSelectorUnit.KELVIN, min=2000, max=6500)
-            ),
-            # Slice E D6: optional per-slot scenes. When set, entry calls
-            # scene.turn_on instead of computing per-light brightness/colour;
-            # URA write mark propagates from scene → constituent lights
-            # (see ura_context.URA_LIGHT_WRITE_DOMAINS).
-            vol.Optional(
-                CONF_LIGHT_SCENE_DAY,
-                default=self._get_current(CONF_LIGHT_SCENE_DAY) or vol.UNDEFINED,
-                description=_adv(CONF_LIGHT_SCENE_DAY, _merged, vol.UNDEFINED),
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="scene")
-            ),
-            vol.Optional(
-                CONF_LIGHT_SCENE_EVENING,
-                default=self._get_current(CONF_LIGHT_SCENE_EVENING) or vol.UNDEFINED,
-                description=_adv(CONF_LIGHT_SCENE_EVENING, _merged, vol.UNDEFINED),
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="scene")
-            ),
-            vol.Optional(
-                CONF_LIGHT_SCENE_SLEEP,
-                default=self._get_current(CONF_LIGHT_SCENE_SLEEP) or vol.UNDEFINED,
-                description=_adv(CONF_LIGHT_SCENE_SLEEP, _merged, vol.UNDEFINED),
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="scene")
-            ),
+            # FORM-CONDITIONAL-FIELDS-1: the rarely-tuned fields sit in
+            # the collapsed ``advanced`` section.
+            vol.Optional(ADVANCED_SECTION): _advanced_section({
+                vol.Optional(
+                    CONF_LIGHTS_ON_ENTRY_DARK_ONLY, default=stored_dark_only,
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(
+                        include_entities=_include_for(
+                            CONF_LIGHTS_ON_ENTRY_DARK_ONLY, stored_dark_only,
+                        ),
+                        multiple=True,
+                    )
+                ),
+                # Slice D (v5.103.29): manual hold windows. Defaults are the
+                # rung-1 module constants. 0 = that kind off.
+                vol.Optional(
+                    CONF_LIGHT_MANUAL_ON_HOLD_S,
+                    default=self._get_current(
+                        CONF_LIGHT_MANUAL_ON_HOLD_S, DEFAULT_LIGHT_MANUAL_ON_HOLD_S,
+                    ),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=14400, step=60, unit_of_measurement="s",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Optional(
+                    CONF_LIGHT_MANUAL_OFF_COOLDOWN_S,
+                    default=self._get_current(
+                        CONF_LIGHT_MANUAL_OFF_COOLDOWN_S,
+                        DEFAULT_LIGHT_MANUAL_OFF_COOLDOWN_S,
+                    ),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=14400, step=60, unit_of_measurement="s",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                # Slice E D5 (v5.103.29): evening slot brightness/colour for
+                # regular AND night lights. Absent ⇒ Day / Sleep defaults are
+                # used (byte-identical to pre-Slice-E behaviour). Rarely
+                # tuned; day/sleep already have their own knobs elsewhere.
+                vol.Optional(
+                    CONF_LIGHT_EVENING_BRIGHTNESS_PCT,
+                    default=self._get_current(CONF_LIGHT_EVENING_BRIGHTNESS_PCT)
+                    or vol.UNDEFINED,
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=1, max=100, step=1, unit_of_measurement="%",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Optional(
+                    CONF_LIGHT_EVENING_COLOR_KELVIN,
+                    default=self._get_current(CONF_LIGHT_EVENING_COLOR_KELVIN)
+                    or vol.UNDEFINED,
+                ): selector.ColorTempSelector(
+                    selector.ColorTempSelectorConfig(unit=selector.ColorTempSelectorUnit.KELVIN, min=2000, max=6500)
+                ),
+                vol.Optional(
+                    CONF_NIGHT_LIGHT_EVENING_BRIGHTNESS,
+                    default=self._get_current(CONF_NIGHT_LIGHT_EVENING_BRIGHTNESS)
+                    or vol.UNDEFINED,
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=1, max=100, step=1, unit_of_measurement="%",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Optional(
+                    CONF_NIGHT_LIGHT_EVENING_COLOR,
+                    default=self._get_current(CONF_NIGHT_LIGHT_EVENING_COLOR)
+                    or vol.UNDEFINED,
+                ): selector.ColorTempSelector(
+                    selector.ColorTempSelectorConfig(unit=selector.ColorTempSelectorUnit.KELVIN, min=2000, max=6500)
+                ),
+                # Slice E D6: optional per-slot scenes. When set, entry calls
+                # scene.turn_on instead of computing per-light brightness/colour;
+                # URA write mark propagates from scene → constituent lights
+                # (see ura_context.URA_LIGHT_WRITE_DOMAINS).
+                vol.Optional(
+                    CONF_LIGHT_SCENE_DAY,
+                    default=self._get_current(CONF_LIGHT_SCENE_DAY) or vol.UNDEFINED,
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="scene")
+                ),
+                vol.Optional(
+                    CONF_LIGHT_SCENE_EVENING,
+                    default=self._get_current(CONF_LIGHT_SCENE_EVENING) or vol.UNDEFINED,
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="scene")
+                ),
+                vol.Optional(
+                    CONF_LIGHT_SCENE_SLEEP,
+                    default=self._get_current(CONF_LIGHT_SCENE_SLEEP) or vol.UNDEFINED,
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="scene")
+                ),
+            }),
             # Auto/Manual sub-block (moved from Devices per D8).
             vol.Optional("auto_manual_devices"): _ha_section(
                 vol.Schema({
@@ -14349,30 +14116,13 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ),
         }
 
-        # Slice D (v5.103.29): route through add_suggested_values_to_schema
-        # so vol.Optional keys marked description={"advanced": True} are
-        # filtered out when the user profile is NOT in Advanced mode
-        # (verified: homeassistant/data_entry_flow.py:660-666). An empty
-        # suggested_values mapping is fine — the filter runs regardless.
         full_schema = vol.Schema(
             {**self._lighting_basics_fields(), **schema_dict}
         )
-        filtered_schema = self.add_suggested_values_to_schema(full_schema, {})
-        # Slice E (v5.103.29): tell the user in plain words that some
-        # settings are hidden and how to reveal them. Short variant when
-        # Advanced mode is already on. ``self.show_advanced_options`` is
-        # set by HA's data_entry_flow from the profile flag.
-        advanced_hint_text = advanced_hint_for(
-            full_schema,
-            bool(getattr(self, "show_advanced_options", False)),
-        )
         return self.async_show_form(
             step_id="options_lighting_behaviour",
-            data_schema=filtered_schema,
-            description_placeholders={
-                "summary": summary,
-                "advanced_hint": advanced_hint_text,
-            },
+            data_schema=full_schema,
+            description_placeholders={"summary": summary},
         )
 
     async def async_step_options_covers(self, user_input=None):
@@ -14382,6 +14132,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         """
         if user_input is not None:
             try:
+                user_input, _present = _flatten_sections(
+                    user_input, (ADVANCED_SECTION,)
+                )
                 merged = {**self._config_entry.options, **user_input}
                 _LOGGER.debug(
                     "options_covers save: entry_id=%s, options_keys=%d, input_keys=%d, merged_keys=%d",
@@ -14428,9 +14181,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             {"label": "Specific Hour", "value": TIME_SOURCE_SPECIFIC_HOUR},
         ]
 
-        # ROOM-TYPE-TRIMMED-MENU-1 D7/D8: sunrise/sunset offsets are
-        # Advanced-only (shown anyway when they hold a non-default value).
-        _merged = self._merged_entry_config()
+        # ROOM-TYPE-TRIMMED-MENU-1 D7/D8: sunrise/sunset offsets sit in the
+        # collapsed ``advanced`` section (FORM-CONDITIONAL-FIELDS-1).
         data_schema = vol.Schema({
             vol.Optional(
                 CONF_COVER_TYPE,
@@ -14457,13 +14209,6 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0, max=23, mode=selector.NumberSelectorMode.SLIDER)
             ),
-            vol.Optional(
-                CONF_SUNRISE_OFFSET,
-                default=self._get_current(CONF_SUNRISE_OFFSET, DEFAULT_SUNRISE_OFFSET),
-                description=_adv(CONF_SUNRISE_OFFSET, _merged, DEFAULT_SUNRISE_OFFSET),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=-60, max=120, step=15, unit_of_measurement="min", mode=selector.NumberSelectorMode.BOX)
-            ),
             # --- Close ---
             vol.Optional(
                 CONF_EXIT_COVER_ACTION,
@@ -14487,32 +14232,32 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0, max=23, mode=selector.NumberSelectorMode.SLIDER)
             ),
-            vol.Optional(
-                CONF_SUNSET_OFFSET,
-                default=self._get_current(CONF_SUNSET_OFFSET, DEFAULT_SUNSET_OFFSET),
-                description=_adv(CONF_SUNSET_OFFSET, _merged, DEFAULT_SUNSET_OFFSET),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=-60, max=120, step=15, unit_of_measurement="min", mode=selector.NumberSelectorMode.BOX)
-            ),
             # v4.5.9: HVAC solar-gain cover management opt-out (default ON)
             vol.Optional(
                 CONF_COVER_HVAC_MANAGED,
                 default=self._get_current(CONF_COVER_HVAC_MANAGED, True)
             ): selector.BooleanSelector(),
+            vol.Optional(ADVANCED_SECTION): _advanced_section({
+                vol.Optional(
+                    CONF_SUNRISE_OFFSET,
+                    default=self._get_current(CONF_SUNRISE_OFFSET, DEFAULT_SUNRISE_OFFSET),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=-60, max=120, step=15, unit_of_measurement="min", mode=selector.NumberSelectorMode.BOX)
+                ),
+                vol.Optional(
+                    CONF_SUNSET_OFFSET,
+                    default=self._get_current(CONF_SUNSET_OFFSET, DEFAULT_SUNSET_OFFSET),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=-60, max=120, step=15, unit_of_measurement="min", mode=selector.NumberSelectorMode.BOX)
+                ),
+            }),
         })
 
-        # D8.1: route through add_suggested_values_to_schema so HA drops the
-        # Advanced-marked fields when the profile is not in Advanced mode
-        # (homeassistant/data_entry_flow.py:661-667). Empty suggested
-        # values, as Lighting does — defaults already carry stored values.
         return self.async_show_form(
             step_id="options_covers",
-            data_schema=self._filter_advanced(data_schema),
+            data_schema=data_schema,
             description_placeholders={
                 "name": "Reconfigure cover automation",
-                "advanced_hint": advanced_hint_for(
-                    data_schema, self._show_adv(),
-                ),
             },
         )
 
@@ -14521,6 +14266,11 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         section = _ha_section
         errors: dict[str, str] = {}
         if user_input is not None:
+            # FORM-CONDITIONAL-FIELDS-1 §3: flatten the new ``advanced``
+            # section first (before validation reads the fan temperatures).
+            user_input, _present = _flatten_sections(
+                user_input, (ADVANCED_SECTION,)
+            )
             advanced = user_input.pop("humidity_fan_advanced", None)
             if isinstance(advanced, dict):
                 user_input.update(advanced)
@@ -14630,10 +14380,6 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         })
         if _mode_now == FAN_MODE_FOLLOW_THERMOSTAT and not _in_zone:
             _mode_now = FAN_MODE_ROOM_TEMPERATURE
-        # ROOM-TYPE-TRIMMED-MENU-1 D7/D8: fan-speed temperatures and the
-        # humidity-fan max runtime are Advanced-only (shown anyway when
-        # they hold a non-default value).
-        _merged = self._merged_entry_config()
         data_schema = vol.Schema({
             # --- Fans first ---
             vol.Optional(
@@ -14723,27 +14469,6 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 selector.NumberSelectorConfig(min=60, max=100, unit_of_measurement="°F", mode=selector.NumberSelectorMode.BOX)
             ),
             vol.Optional(
-                CONF_FAN_SPEED_LOW_TEMP,
-                default=self._get_current(CONF_FAN_SPEED_LOW_TEMP, DEFAULT_FAN_SPEED_LOW),
-                description=_adv(CONF_FAN_SPEED_LOW_TEMP, _merged, DEFAULT_FAN_SPEED_LOW),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=60, max=100, unit_of_measurement="°F", mode=selector.NumberSelectorMode.BOX)
-            ),
-            vol.Optional(
-                CONF_FAN_SPEED_MED_TEMP,
-                default=self._get_current(CONF_FAN_SPEED_MED_TEMP, DEFAULT_FAN_SPEED_MED),
-                description=_adv(CONF_FAN_SPEED_MED_TEMP, _merged, DEFAULT_FAN_SPEED_MED),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=60, max=100, unit_of_measurement="°F", mode=selector.NumberSelectorMode.BOX)
-            ),
-            vol.Optional(
-                CONF_FAN_SPEED_HIGH_TEMP,
-                default=self._get_current(CONF_FAN_SPEED_HIGH_TEMP, DEFAULT_FAN_SPEED_HIGH),
-                description=_adv(CONF_FAN_SPEED_HIGH_TEMP, _merged, DEFAULT_FAN_SPEED_HIGH),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=60, max=100, unit_of_measurement="°F", mode=selector.NumberSelectorMode.BOX)
-            ),
-            vol.Optional(
                 CONF_HUMIDITY_FAN_THRESHOLD,
                 default=self._get_current(CONF_HUMIDITY_FAN_THRESHOLD, DEFAULT_HUMIDITY_THRESHOLD),
             ): selector.NumberSelector(
@@ -14754,13 +14479,6 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 default=self._get_current(CONF_HUMIDITY_FAN_TIMEOUT, DEFAULT_HUMIDITY_FAN_TIMEOUT),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=60, max=3600, unit_of_measurement="s", mode=selector.NumberSelectorMode.BOX)
-            ),
-            vol.Optional(
-                CONF_HUMIDITY_FAN_MAX_RUNTIME,
-                default=self._get_current(CONF_HUMIDITY_FAN_MAX_RUNTIME, DEFAULT_HUMIDITY_FAN_MAX_RUNTIME),
-                description=_adv(CONF_HUMIDITY_FAN_MAX_RUNTIME, _merged, DEFAULT_HUMIDITY_FAN_MAX_RUNTIME),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=600, max=14400, unit_of_measurement="s", mode=selector.NumberSelectorMode.BOX)
             ),
             vol.Optional("humidity_fan_advanced"): section(
                 vol.Schema({
@@ -14800,6 +14518,34 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 }),
                 {"collapsed": True},
             ),
+            # FORM-CONDITIONAL-FIELDS-1: rarely-tuned fan temperatures and
+            # the humidity-fan max runtime sit in a collapsed section.
+            vol.Optional(ADVANCED_SECTION): _advanced_section({
+                vol.Optional(
+                    CONF_FAN_SPEED_LOW_TEMP,
+                    default=self._get_current(CONF_FAN_SPEED_LOW_TEMP, DEFAULT_FAN_SPEED_LOW),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=60, max=100, unit_of_measurement="°F", mode=selector.NumberSelectorMode.BOX)
+                ),
+                vol.Optional(
+                    CONF_FAN_SPEED_MED_TEMP,
+                    default=self._get_current(CONF_FAN_SPEED_MED_TEMP, DEFAULT_FAN_SPEED_MED),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=60, max=100, unit_of_measurement="°F", mode=selector.NumberSelectorMode.BOX)
+                ),
+                vol.Optional(
+                    CONF_FAN_SPEED_HIGH_TEMP,
+                    default=self._get_current(CONF_FAN_SPEED_HIGH_TEMP, DEFAULT_FAN_SPEED_HIGH),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=60, max=100, unit_of_measurement="°F", mode=selector.NumberSelectorMode.BOX)
+                ),
+                vol.Optional(
+                    CONF_HUMIDITY_FAN_MAX_RUNTIME,
+                    default=self._get_current(CONF_HUMIDITY_FAN_MAX_RUNTIME, DEFAULT_HUMIDITY_FAN_MAX_RUNTIME),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=600, max=14400, unit_of_measurement="s", mode=selector.NumberSelectorMode.BOX)
+                ),
+            }),
             # --- Climate backstop LAST (D8 demote) ---
             vol.Optional("climate_backstop"): section(
                 vol.Schema({
@@ -14883,20 +14629,11 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ),
         })
 
-        # D8.1: route through add_suggested_values_to_schema so HA drops the
-        # Advanced-marked fields outside Advanced mode. Empty suggested
-        # values: defaults already carry stored values, and the HVAC hold
-        # fields keep their own description suggested_value untouched.
         return self.async_show_form(
             step_id="climate",
-            data_schema=self._filter_advanced(data_schema),
+            data_schema=data_schema,
             errors=errors,
-            description_placeholders={
-                "name": "Reconfigure climate & fans",
-                "advanced_hint": advanced_hint_for(
-                    data_schema, self._show_adv(),
-                ),
-            },
+            description_placeholders={"name": "Reconfigure climate & fans"},
         )
 
     async def async_step_sleep_protection(self, user_input=None):

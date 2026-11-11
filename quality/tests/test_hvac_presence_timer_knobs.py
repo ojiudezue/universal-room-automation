@@ -409,9 +409,23 @@ def test_strings_and_translations_data_keys_in_lockstep(strings_json, translatio
     )
 
 
+def _with_sections(block: dict, sub: str) -> dict:
+    """Step-level ``sub`` merged with every section's ``sub`` (a field in
+    a section is labelled under ``sections.<name>``)."""
+    out = dict(block.get(sub) or {})
+    for sec in (block.get("sections") or {}).values():
+        if isinstance(sec, dict):
+            out.update(sec.get(sub) or {})
+    return out
+
+
 def test_new_presence_timer_keys_present(strings_json, translations_en):
     s = _hvac_settings_block(strings_json)
     t = _hvac_settings_block(translations_en)
+    s = {"data": _with_sections(s, "data"),
+         "data_description": _with_sections(s, "data_description")}
+    t = {"data": _with_sections(t, "data"),
+         "data_description": _with_sections(t, "data_description")}
     for key in (
         "hvac_vacancy_grace_minutes",
         "hvac_vacancy_grace_constrained",
