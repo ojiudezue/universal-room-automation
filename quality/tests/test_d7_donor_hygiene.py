@@ -131,6 +131,21 @@ DONOR_PROBES: dict[str, list[tuple[str, str | None, str]]] = {
         ("homeassistant.util.dt", "now", "ha"),
         ("homeassistant.util.dt", "parse_datetime", "ha"),
     ],
+    # TEST-SUITE-PARALLEL-1 (2026-11-10): the per-test URA eviction donors
+    # are now scoped (import_scope around the eviction). Residue = the URA
+    # package / domain_coordinators objects replaced at run time.
+    "test_oc_pillar_a_handshake.py": [
+        ("custom_components.universal_room_automation", None, "ident"),
+        ("custom_components.universal_room_automation.domain_coordinators", None, "ident"),
+    ],
+    "test_oc_pillar_b_admin_surface.py": [
+        ("custom_components.universal_room_automation", None, "ident"),
+        ("custom_components.universal_room_automation.domain_coordinators", None, "ident"),
+    ],
+    "test_optimization_coordinator.py": [
+        ("custom_components.universal_room_automation", None, "ident"),
+        ("custom_components.universal_room_automation.domain_coordinators", None, "ident"),
+    ],
     "test_hvac_fan_control.py": [
         ("custom_components.universal_room_automation", None, "ura"),
         ("custom_components.universal_room_automation.const", None, "ura"),
@@ -392,6 +407,19 @@ _DRILLS = {
         "        if saved_util is not None:\n            if saved_parent_dt is _absent:",
         "        if False:\n            if saved_parent_dt is _absent:",
     ),
+    # TEST-SUITE-PARALLEL-1: un-scope the per-test eviction.
+    "test_oc_pillar_a_handshake.py": (
+        'with import_scope(prefixes=("custom_components",), attrs=True):',
+        "with import_scope(prefixes=()):",
+    ),
+    "test_oc_pillar_b_admin_surface.py": (
+        'with import_scope(prefixes=("custom_components",), attrs=True):',
+        "with import_scope(prefixes=()):",
+    ),
+    "test_optimization_coordinator.py": (
+        'with import_scope(prefixes=("custom_components", "homeassistant"), attrs=True):',
+        "with import_scope(prefixes=()):",
+    ),
     # Un-scope the import block: restore nothing on exit.
     "test_hvac_fan_control.py": (
         "with _d7_import_scope() as _D7_INSTALLED:",
@@ -506,30 +534,17 @@ def _unpin_nm_clock(src: str) -> str:
 # stay as defense in depth.
 #
 # The per-test URA eviction donors (oc_pillar_a/b, optimization_coordinator)
-# are deliberately NOT scoped: in the full suite their eviction re-imports
-# URA fresh and so HEALS collection-time stubs left by files collected after
-# their victims (zzz_v318, fan_layer_2_d1, ...). Scoping them exposed 21
-# such victims. Their own victims are fixed victim-side instead, until the
-# collection-time donors are gone (see slice-2 report).
+# were left unscoped in slice 2 because their eviction HEALED collection-time
+# stubs for later files. TEST-SUITE-PARALLEL-1 (2026-11-10) scoped them: under
+# -n 6 --dist loadfile the heal only happened on whichever worker ran them,
+# so serial and parallel failure sets disagreed. The victims exposed are fixed
+# individually (see docs/planning/AUDIT_test_suite_parallel_2026_11.md).
 _VICTIM_SIDE_DRILLS = {
-    "test_perimeter_alert_nm_routing.py": (
-        lambda src: src.replace(
-            '    _mod = type("_D7Mod", (), {\n'
-            '        "dt_util": type(mgr)._resolve_snapshot_url_and_delay.__globals__["dt_util"],\n'
-            '    })\n', ""),
-        "test_oc_pillar_b_admin_surface.py",
-    ),
-    "test_sleep_fans_and_flash.py": (
-        lambda src: src.replace(
-            "    if _RoomAutomation is not None:\n        return _D7GlobalsView(",
-            "    if False:\n        return _D7GlobalsView(",
-        ),
-        "test_oc_pillar_b_admin_surface.py",
-    ),
-    "test_v4715_universalize_veto.py": (
-        lambda src: src.replace(_V4715_FIX, _V4715_REVERT),
-        "test_oc_pillar_a_handshake.py",
-    ),
+    # TEST-SUITE-PARALLEL-1 (2026-11-10) retired the perimeter_alert_nm_routing,
+    # sleep_fans_and_flash and v4715_universalize_veto drills: their donors
+    # (oc_pillar_a/b) are now scoped donor-side, so reverting the victim's own
+    # fix no longer turns the pair red. The donors are anchored by residue
+    # drills (_DRILLS); the victim-side fixes stay as defense in depth.
     "test_nm_cycle_c_routing_matrix.py": (_unpin_nm_clock, "test_v5_17_1_part3_seams.py"),
     "test_nm_image_delivery.py": (_unpin_nm_clock, "test_v5_17_1_part3_seams.py"),
 }

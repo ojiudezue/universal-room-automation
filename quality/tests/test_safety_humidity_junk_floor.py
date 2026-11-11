@@ -200,3 +200,16 @@ class TestHouseSafetyAlertJunkFloor:
         hum = [a for a in inst._get_alerts() if a["type"] == "humidity"]
         assert len(hum) == 1
         assert hum[0]["issue"] == "too_dry"
+
+
+# TEST-SUITE-PARALLEL-1 (2026-11-10): ``_house_alert_sensor`` installs the
+# aggregation HA stubs (incl. a restore_state without RestoredExtraData) at
+# run time and never took them out: run-time donor of
+# test_energy_today_midnight_freeze. Same file_scope pattern as
+# test_zone_safety_alert: put back every sys.modules entry / module attribute
+# this file's tests changed when the file finishes.
+@pytest.fixture(autouse=True, scope="module")
+def _restore_module_state_after_file():
+    from _d7_isolation import file_scope
+
+    yield from file_scope()

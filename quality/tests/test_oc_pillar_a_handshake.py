@@ -176,28 +176,37 @@ def _evict_ura_stubs():
     ``test_optimization_coordinator.py`` so sibling-test stubs don't win
     when this file runs alongside ``test_bayesian_predictor`` et al.
     """
-    for _modname in list(sys.modules):
-        if (
-            _modname == "custom_components.universal_room_automation"
-            or _modname.startswith(
-                "custom_components.universal_room_automation."
-            )
-        ):
-            del sys.modules[_modname]
-    cc_dir = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "..", "..", "custom_components")
-    )
-    cc = sys.modules.get("custom_components")
-    if cc is None:
-        cc = types.ModuleType("custom_components")
-        cc.__path__ = [cc_dir]
-        sys.modules["custom_components"] = cc
-    else:
-        existing_path = list(getattr(cc, "__path__", []) or [])
-        if cc_dir not in existing_path:
-            existing_path.append(cc_dir)
-            cc.__path__ = existing_path
-    yield
+    # TEST-SUITE-PARALLEL-1 (2026-11-10): the eviction below used to be
+    # permanent. Every later file then resolved URA modules to the copies
+    # re-imported here, not the ones it had bound (victims: hvac_excursion_*,
+    # cflow_timing_instrumentation, memory_mvp, ble_absence_grace, ... -- order
+    # dependent, so serial and -n 6 disagreed). import_scope puts sys.modules
+    # and the parent-package attributes back after each test.
+    from _d7_isolation import import_scope
+
+    with import_scope(prefixes=("custom_components",), attrs=True):
+        for _modname in list(sys.modules):
+            if (
+                _modname == "custom_components.universal_room_automation"
+                or _modname.startswith(
+                    "custom_components.universal_room_automation."
+                )
+            ):
+                del sys.modules[_modname]
+        cc_dir = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "..", "custom_components")
+        )
+        cc = sys.modules.get("custom_components")
+        if cc is None:
+            cc = types.ModuleType("custom_components")
+            cc.__path__ = [cc_dir]
+            sys.modules["custom_components"] = cc
+        else:
+            existing_path = list(getattr(cc, "__path__", []) or [])
+            if cc_dir not in existing_path:
+                existing_path.append(cc_dir)
+                cc.__path__ = existing_path
+        yield
 
 
 # ---------------------------------------------------------------------------

@@ -726,7 +726,14 @@ class TestDOBSBehavioral:
         """Behavioral kill-switch anchor: mutate the const to 0 → the
         stale-flip MUST NOT fire even for a very old stamp.
         """
-        import custom_components.universal_room_automation.domain_coordinators.energy_const as ec
+        # TEST-SUITE-PARALLEL-1 (2026-11-10): resolve energy_const exactly as
+        # the extracted classifier does (``from ... import`` = sys.modules).
+        # ``import a.b.c as ec`` walks parent-package attributes instead, which
+        # an earlier file can leave pointing at a different copy -> the
+        # mutation missed the module the classifier read (serial-only RED).
+        ec = importlib.import_module(
+            "custom_components.universal_room_automation.domain_coordinators.energy_const"
+        )
         original = ec.DEFAULT_SOLAR_PRODUCTION_MAX_AGE_S
         try:
             ec.DEFAULT_SOLAR_PRODUCTION_MAX_AGE_S = 0

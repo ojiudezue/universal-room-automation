@@ -245,6 +245,21 @@ class TestResolveSafetyBandsReadsTablesByReference:
 # =============================================================================
 
 
+def _nm_cycle_a_as_resolved():
+    """The ``_nm_cycle_a`` module safety.py's lazy ``from ._nm_cycle_a import
+    nm_cycle_a_knob`` will resolve (the sys.modules entry).
+
+    TEST-SUITE-PARALLEL-1 (2026-11-10): ``import a.b._nm_cycle_a as nm`` walks
+    parent-package attributes instead, which an earlier file can leave
+    pointing at a different copy -> the monkeypatch landed on a module the
+    production code never read (serial-only RED)."""
+    import importlib
+
+    return importlib.import_module(
+        "custom_components.universal_room_automation.domain_coordinators._nm_cycle_a"
+    )
+
+
 class TestCMKnobDriftClosedForNormalLadder:
     def _stub_hass(self):
         class _Bag(dict):
@@ -256,7 +271,7 @@ class TestCMKnobDriftClosedForNormalLadder:
         return _HA()
 
     def test_knob_override_medium_flows_into_bands(self, monkeypatch):
-        import custom_components.universal_room_automation.domain_coordinators._nm_cycle_a as nm
+        nm = _nm_cycle_a_as_resolved()
         from custom_components.universal_room_automation.const import (
             CONF_HUMIDITY_NORMAL_MEDIUM_PCT,
             CONF_HUMIDITY_NORMAL_HIGH_PCT,
@@ -275,7 +290,7 @@ class TestCMKnobDriftClosedForNormalLadder:
         assert b.humidity_high_high == 90.0
 
     def test_knob_override_trips_chip_via_evaluate(self, monkeypatch):
-        import custom_components.universal_room_automation.domain_coordinators._nm_cycle_a as nm
+        nm = _nm_cycle_a_as_resolved()
         from custom_components.universal_room_automation.const import (
             CONF_HUMIDITY_NORMAL_MEDIUM_PCT,
         )
@@ -300,7 +315,7 @@ class TestCMKnobDriftClosedForNormalLadder:
 
     def test_bathroom_ignores_knobs(self, monkeypatch):
         # Knob path only applies to the "normal" table.
-        import custom_components.universal_room_automation.domain_coordinators._nm_cycle_a as nm
+        nm = _nm_cycle_a_as_resolved()
         monkeypatch.setattr(nm, "nm_cycle_a_knob",
                             lambda h, k, d: 1.0)
         b = resolve_safety_bands("bathroom", hass=self._stub_hass())

@@ -1187,7 +1187,15 @@ def test_MUTATION_kill_switch_gates_dispatch_byte_identical():
         f"kill={kill_sevs}"
     )
     # Messages should also match (no path enrichment when linker inactive).
-    assert baseline_msgs == kill_msgs
+    # TEST-SUITE-PARALLEL-1 (2026-11-10): the two runs read the wall clock a
+    # moment apart, so the HH:MM:SS in each message could tick over between
+    # them under load (seen under -n 6). Compare with the time masked.
+    import re as _re
+
+    def _mask(msgs):
+        return [_re.sub(r"\b\d\d:\d\d:\d\d\b", "<hh:mm:ss>", m) for m in msgs]
+
+    assert _mask(baseline_msgs) == _mask(kill_msgs)
     # And census is zero under kill switch.
     assert linker_b.census_counts()["exterior_person_tracks_active"] == 0
 
