@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-11T12:20:07-06:00_ - _Data commit: `7396361e97d5`_ - _last_reconciled: 2026-11-11_
+_Generated: 2026-11-11T12:23:44-06:00_ - _Data commit: `ef5cc94fce1e`_ - _last_reconciled: 2026-11-11_
 
 
 ## Columns
@@ -37,7 +37,7 @@ _created 2026-11-11 15:10_
 - **Forensic keys (5):**
   - `status_note`: fix applied
   - `tier`: 1
-  - `root_cause_2026_11_11`: iPhone mobile_app tracker blips unavailable for <1 s on app reconnect (operator suspects VPN reconnects); HA person then falls back to the iPad (okosisipadmini6_2, GPS, home) -> person home, then back. Seen 11-09 06:10:07, 06:36:36.
+  - `root_cause_2026_11_11`: iPhone mobile_app tracker blips unavailable for <1 s on app reconnect (operator suspects VPN reconnects); HA person then falls back to the iPad (okosisipadmini6_2), which reported home (gps_accuracy ~2.9 m) although the iPad was with the...
   - `fix_2026_11_11`: Operator-approved config change: person.oji_udezue trackers trimmed to iPhone app + Bermuda + private BLE (Mac and iPad removed); person.ziri gained device_tracker.iphone_ziri_bermuda_tracker. Backup of .storage/person in session scratch...
   - `adjacency`: Swept presence/person cards: NEW.
 
