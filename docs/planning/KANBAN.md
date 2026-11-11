@@ -2,18 +2,24 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-11T02:26:25-06:00_ - _Data commit: `126421ba3b5a`_ - _last_reconciled: 2026-11-10_
+_Generated: 2026-11-11T06:56:25-06:00_ - _Data commit: `156da7e2610f`_ - _last_reconciled: 2026-11-10_
 
+
+> ## ⚠️ STALE - board has not been reconciled against newer work
+>
+> - newest README README_v5.108.8.md (2026-11-11) is newer than last_reconciled (2026-11-10)
+>
+> Reconcile the board (update `meta.last_reconciled` + move shipped cards) before using it to pick next work.
 
 ## Columns
 
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 0 |
-| 🔬 Investigating | 1 |
+| 🔬 Investigating | 0 |
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 19 |
-| 🔨 In progress | 1 |
+| 🔨 In progress | 2 |
 | 🔍 Review | 2 |
 | ⏸️ Waiting on operator | 32 |
 | ⏳ Waiting on me (Claude) | 2 |
@@ -26,17 +32,10 @@ _raw capture_
 
 _(none)_
 
-## 🔬 Investigating (1)
+## 🔬 Investigating (0)
 _measuring; truth not yet known_
 
-### `TEST-SUITE-PARALLEL-1` - Full test suite takes 24-33 min single-core; parallel run fails 91 vs 18 from test-order pollution — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **process** - status: **investigating** - approval: **unreviewed**
-_created 2026-11-10 19:20 · initial_
-- **Why:** Gate runs ~20.6k tests serially on 1 of 8 cores, twice per release (base + candidate), with 67 source-mutation drills (~4 min). Probe 2026-11-10 on develop 9894bc66: serial 33 min / 18 failed; -n 6 --dist loadfile 19 min / 91 failed, 76 ...
-- **Next:** Fix the pollution clusters with the ModuleScope helper (quality/tests/_sysmodules_scope.py) file by file until serial and parallel name sets match; then switch the gate to -n auto --dist loadfile, cache the baseline name list per develop...
-- **Refs:** quality/tests/_markers.py; quality/TEST_SUITE_ACCESS.md; quality/tests/_sysmodules_scope.py
-- **Forensic keys (1):**
-  - `tier`: 1
+_(none)_
 
 ## 🧭 Pre-planning (13)
 _idea being decomposed_
@@ -505,7 +504,7 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (1)
+## 🔨 In progress (2)
 _being built_
 
 ### `OC-CONTEXT-PACK-1` - OC agent context should feel like the orchestrator's: HA + URA ground-truth docs, live config snapshot, doctrine, goals - iterate it against live cases — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
@@ -517,6 +516,16 @@ _created 2026-11-01 · updated 2026-11-05 02:40_
   - `verify_2026_11_05_overnight`: CARD-WAS-WRONG on lane (02:40 CST, git read-only). The card sat in inbox, but the pack is being built: plan docs/planning/PLANNING_oc_live_eval_and_context_pack.md (rev 2, 51c81530, plan reviews 1+2 folded), branch feature/oc-live-eval (...
   - `tier`: 2
   - `eval_round_2026_11_07`: Operator-funded iteration ($50 cap, spent $40.31; worktree agent-a657e58090fb1df32 commits e1b08b13 b0d29379 12ac1780; ITERATIONS_2026_11_07.md, LEDGER_2026_11_07.md, RUBRIC.md). NOT PASSING: Sonnet 5.5 3/15 runs, 0 cases by majority; he...
+
+### `TEST-SUITE-PARALLEL-1` - Full test suite takes 24-33 min single-core; parallel run fails 91 vs 18 from test-order pollution — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **process** - status: **in_progress** - approval: **unreviewed**
+_created 2026-11-10 19:20 · updated 2026-11-11 07:05 · initial_
+- **Why:** Gate runs ~20.6k tests serially on 1 of 8 cores, twice per release (base + candidate), with 67 source-mutation drills (~4 min). Probe 2026-11-10 on develop 9894bc66: serial 33 min / 18 failed; -n 6 --dist loadfile 19 min / 91 failed, 76 ...
+- **Next:** Scope the donors for arrester_operator_immunity + dp_drain_target_value_stamp (bisect with -n 6 --dist loadfile), then switch the release gate to parallel.
+- **Refs:** quality/tests/_markers.py; quality/TEST_SUITE_ACCESS.md; quality/tests/_sysmodules_scope.py
+- **Forensic keys (2):**
+  - `tier`: 1
+  - `residual_2026_11_11`: Merged to develop 4d5385d4 (v5.108.8). Merged-develop parallel run: 11 failed in 3 min, base serial failures all gone, but 11 parallel-only (pass alone 72/72): test_arrester_operator_immunity x6, test_dp_drain_target_value_stamp x5 (file...
 
 ## 🔍 Review (2)
 _under review_
