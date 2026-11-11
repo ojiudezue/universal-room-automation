@@ -1575,20 +1575,22 @@ class TestZoneHVACFormFields:
         body = config_flow_src[max(0, idx - 5000):idx + 500]
         assert 'device_class=["power", "energy"]' in body
 
+    # FORM-CONDITIONAL-FIELDS-1: both fields render in the zone_hvac step's
+    # collapsed ``advanced`` section, so they are labelled there.
     def test_strings_json_has_ac_load_sensor_label(self, strings_json):
-        zone_hvac = strings_json["options"]["step"]["zone_hvac"]
-        assert "hvac_ac_load_sensor" in zone_hvac["data"]
-        assert "hvac_ac_load_sensor" in zone_hvac["data_description"]
+        adv = strings_json["options"]["step"]["zone_hvac"]["sections"]["advanced"]
+        assert "hvac_ac_load_sensor" in adv["data"]
+        assert "hvac_ac_load_sensor" in adv["data_description"]
 
     def test_strings_json_has_ramp_zone_enabled_label(self, strings_json):
-        zone_hvac = strings_json["options"]["step"]["zone_hvac"]
-        assert "hvac_ac_ramp_zone_enabled" in zone_hvac["data"]
-        assert "hvac_ac_ramp_zone_enabled" in zone_hvac["data_description"]
+        adv = strings_json["options"]["step"]["zone_hvac"]["sections"]["advanced"]
+        assert "hvac_ac_ramp_zone_enabled" in adv["data"]
+        assert "hvac_ac_ramp_zone_enabled" in adv["data_description"]
 
     def test_translations_match_strings(self, translations_en_json):
-        zone_hvac = translations_en_json["options"]["step"]["zone_hvac"]
-        assert "hvac_ac_load_sensor" in zone_hvac["data"]
-        assert "hvac_ac_ramp_zone_enabled" in zone_hvac["data"]
+        adv = translations_en_json["options"]["step"]["zone_hvac"]["sections"]["advanced"]
+        assert "hvac_ac_load_sensor" in adv["data"]
+        assert "hvac_ac_ramp_zone_enabled" in adv["data"]
 
 
 # ===========================================================================

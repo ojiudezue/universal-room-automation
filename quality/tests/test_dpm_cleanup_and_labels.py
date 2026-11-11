@@ -199,10 +199,10 @@ _CYCLE_TOUCHED_KEYS = (
     ("devices", "data", "humidity_fans"),
     ("devices", "data", "auto_switches"),
     ("devices", "data", "manual_switches"),
-    ("cover_behavior", "data", "entry_cover_action"),
+    # entry_cover_action / open_timing_mode / close_timing_mode were dead
+    # strings (no field on the form) and were removed by the form text
+    # pass (AUDIT_form_text_plain_pass.md Z5).
     ("cover_behavior", "data", "exit_cover_action"),
-    ("cover_behavior", "data", "open_timing_mode"),
-    ("cover_behavior", "data", "close_timing_mode"),
     ("cover_behavior", "data", "cover_hvac_managed"),
     ("automation_behavior", "data", "illuminance_dark_threshold"),
     ("automation_behavior", "data", "light_transition_seconds_on"),
@@ -218,11 +218,21 @@ _CYCLE_TOUCHED_KEYS = (
 
 
 def _lookup(root: dict, section: str, step: str, sub: str, field: str):
-    """Return the value at root[<section>].step[<step>][<sub>][<field>], or None."""
+    """Return the value at root[<section>].step[<step>][<sub>][<field>], or None.
+
+    FORM-CONDITIONAL-FIELDS-1: a field moved into a collapsed section is
+    labelled under ``sections.<name>.<sub>`` instead; look there too.
+    """
     try:
-        return root[section]["step"][step][sub][field]
+        st = root[section]["step"][step]
     except (KeyError, TypeError):
         return None
+    if field in (st.get(sub) or {}):
+        return st[sub][field]
+    for sec in (st.get("sections") or {}).values():
+        if isinstance(sec, dict) and field in (sec.get(sub) or {}):
+            return sec[sub][field]
+    return None
 
 
 class TestStringsEnValueParity:
@@ -332,7 +342,8 @@ class TestPart1SchemaSurface:
         )
 
     def test_dpm_strings_data_block_has_only_4_fields(self, strings_data):
-        data = strings_data["options"]["step"]["zone_dynamic_preset"]["data"]
+        st = strings_data["options"]["step"]["zone_dynamic_preset"]
+        data = {**st["data"], **st["sections"]["advanced"]["data"]}
         assert set(data.keys()) == {
             "zone_dynamic_preset_enabled",
             "zone_dynamic_preset_offset",
@@ -341,7 +352,8 @@ class TestPart1SchemaSurface:
         }
 
     def test_dpm_en_data_block_has_only_4_fields(self, en_data):
-        data = en_data["options"]["step"]["zone_dynamic_preset"]["data"]
+        st = en_data["options"]["step"]["zone_dynamic_preset"]
+        data = {**st["data"], **st["sections"]["advanced"]["data"]}
         assert set(data.keys()) == {
             "zone_dynamic_preset_enabled",
             "zone_dynamic_preset_offset",
@@ -400,8 +412,14 @@ def _load_head_strings_keys() -> set[str] | None:
                         keys.add(f"{section}.step.{step_id}.{sub}.{field_key}")
             sections_block = step_dict.get("sections")
             if isinstance(sections_block, dict):
-                for section_key in sections_block:
+                for section_key, sec in sections_block.items():
                     keys.add(f"{section}.step.{step_id}.sections.{section_key}")
+                    # FORM-CONDITIONAL-FIELDS-1: a label MOVED into a section
+                    # is still present (rendered there), not removed.
+                    if isinstance(sec, dict):
+                        for sub in ("data", "data_description"):
+                            for field_key in (sec.get(sub) or {}):
+                                keys.add(f"{section}.step.{step_id}.{sub}.{field_key}")
     return keys
 
 
@@ -419,15 +437,41 @@ def _current_strings_keys(strings: dict) -> set[str]:
                         keys.add(f"{section}.step.{step_id}.{sub}.{field_key}")
             sections_block = step_dict.get("sections")
             if isinstance(sections_block, dict):
-                for section_key in sections_block:
+                for section_key, sec in sections_block.items():
                     keys.add(f"{section}.step.{step_id}.sections.{section_key}")
+                    # FORM-CONDITIONAL-FIELDS-1: a label MOVED into a section
+                    # is still present (rendered there), not removed.
+                    if isinstance(sec, dict):
+                        for sub in ("data", "data_description"):
+                            for field_key in (sec.get(sub) or {}):
+                                keys.add(f"{section}.step.{step_id}.{sub}.{field_key}")
     return keys
 
 
 # The allow-list of keys this cycle is permitted to REMOVE from the
 # pre-cycle baseline. Only the 17 vestigial DPM bucket cells + the
 # sleep_section wrapper live here; everything else is preserved.
-_ALLOWED_REMOVED_KEYS = frozenset(
+# FORM-CONDITIONAL-FIELDS-1 / FORM-TEXT-PLAIN-PASS-1 (audit rev 2): dead
+# strings removed (Z5, Z6, R6b/R13 renames) and the retired geofence field
+# (PRESENCE-GEOFENCE-FIELD-DEAD-1).
+_FORMS_REMOVED_KEYS = frozenset(
+    [f"options.step.automation_behavior.data.{k}" for k in (
+        "entry_light_action", "exit_light_action", "illuminance_dark_threshold",
+        "light_brightness_pct", "light_transition_seconds_on",
+        "light_transition_seconds_off", "entry_cover_action", "exit_cover_action",
+        "open_timing_mode", "open_time_start", "open_time_end", "sunrise_offset",
+        "timed_close_enabled", "close_timing_mode", "close_time", "sunset_offset",
+    )]
+    + [f"config.step.cover_behavior.{sub}.{k}" for sub in ("data", "data_description")
+       for k in ("close_time", "close_timing_mode", "entry_cover_action",
+                 "open_time_end", "open_time_start", "open_timing_mode")]
+    + [f"config.step.sensors_confirm.{sub}.{k}" for sub in ("data", "data_description")
+       for k in ("mmwave_sensors", "door_sensors")]
+    + [f"options.step.coordinator_presence.{sub}.geofence_entities"
+       for sub in ("data", "data_description")]
+)
+
+_ALLOWED_REMOVED_KEYS = _FORMS_REMOVED_KEYS | frozenset(
     f"options.step.zone_dynamic_preset.{sub}.{field}"
     for sub, fields in {
         "data": (

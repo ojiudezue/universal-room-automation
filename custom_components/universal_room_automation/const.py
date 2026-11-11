@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.108.8
+# Universal Room Automation vv5.108.9
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.108.8"
+VERSION: Final = "v5.108.9"
 
 # EC-LOADED-VS-INSTALLED-VERSION-1 — how often the on-disk manifest is re-read
 # to detect an installed-but-not-restarted deploy. Rung 1 (module constant):
@@ -3639,6 +3639,8 @@ DIAGNOSTICS_SCOPE_HOUSE: Final = "house"
 # v3.6.0-c1: Presence Coordinator constants
 CONF_SLEEP_START_HOUR: Final = "sleep_start_hour"
 CONF_SLEEP_END_HOUR: Final = "sleep_end_hour"
+# PRESENCE-GEOFENCE-FIELD-DEAD-1: retired form field (no reader; presence
+# listens to every person.*). Kept so a stored value is recognisable.
 CONF_GEOFENCE_ENTITIES: Final = "geofence_entities"
 DEFAULT_SLEEP_START_HOUR: Final = 23
 DEFAULT_SLEEP_END_HOUR: Final = 6

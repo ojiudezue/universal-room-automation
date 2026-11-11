@@ -30,3 +30,14 @@ The test walked the whole system temp dir and flagged any "etc"+"passwd" path, s
 - Toggle a room's Room lights switch: the `light.turn_on` service data carries `transition` = the room fade-in; a `switch.*` member has none.
 - Alert lights still switch instantly.
 - No URA ERROR after restart.
+
+## Validated 2026-11-11 (restart ~07:02 CST, v5.108.8 via HACS, house `home_day`)
+| Criterion | Result | Evidence |
+|---|---|---|
+| Installed + loaded | PASS | HACS download v5.108.8 succeeded; after restart `sensor.ura_coordinator_manager_house_state` = `home_day`, coordinators up |
+| Load clean | PASS | system_log ERROR: no `universal_room_automation` entries; WARNINGs are the usual boot set (room sensors unavailable hold, Bermuda fallback, perimeter `_2` siblings, HVAC boot-settle timeout) |
+| Room fade sent on the new paths | PROVEN IN-SUITE, live PENDING organic | HA logbook/state history does not expose service-call data, and toggling a Room lights switch would be house-visible with residents home; `test_light_transition_coverage.py` (11, every added site mutation-anchored) |
+| Alert lights stay instant | PROVEN IN-SUITE | `test_alert_lights_stay_instant` |
+| Relays never get `transition` | PROVEN IN-SUITE | site tests assert no `transition` in `switch.*` calls |
+
+Pre-ship gate: serial full suite base `126421ba` vs candidate: 15 vs 15 failures, identical names, +11 passes. Merged develop in parallel (`-n 6 --dist loadfile`, 3 min): 11 failed, 15 base failures gone, 11 parallel-only failures (pass alone 72/72) in `test_arrester_operator_immunity` / `test_dp_drain_target_value_stamp`, carried on `TEST-SUITE-PARALLEL-1`.

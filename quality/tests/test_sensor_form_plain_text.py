@@ -104,9 +104,15 @@ def test_translation_labels_use_plain_english():
         assert '"motion_sensors": "Motion sensors"' in text, rel
         assert '"presence_sensors": "Presence sensors"' in text, rel
         assert '"occupancy_sensors": "Combined sensors"' in text, rel
-        assert '"motion_sensors": "See movement only."' in text, rel
+        # FORM-TEXT-PLAIN-PASS-1 R6 / R7 (SENSOR_FLEET_CLASSES wording).
         assert (
-            '"presence_sensors": "See people sitting still."' in text
+            '"motion_sensors": "Sensors that see movement only: PIR, and '
+            'mmWave motion models that lose a person who sits still."' in text
+        ), rel
+        assert (
+            '"presence_sensors": "Radar sensors that still see a person who '
+            'is sitting or sleeping (mmWave presence models). Motion-only '
+            'radars belong in Motion sensors."' in text
         ), rel
         assert (
             '"occupancy_sensors": "Radar and motion reported as one '
@@ -267,35 +273,47 @@ def test_not_sure_drops_a_kind_only_override_and_preserves_trust_class():
 # D4: JSON textarea hidden in Simple mode, shown in Advanced mode
 # --------------------------------------------------------------------------
 
-def test_sensor_capabilities_json_marked_advanced_when_default():
-    """With NO stored overrides, the raw-JSON textarea carries the
-    ``advanced: True`` marker so HA drops it in Simple mode (via
-    ``add_suggested_values_to_schema`` at runtime). The mock test flow
-    doesn't honour the HA UI filter, so we assert the MARKER directly."""
-    flow = _make()
-    result = _render(flow)
-    marker = _marker_for(result, "sensor_capabilities_json")
-    assert marker is not None
-    desc = marker.description
-    assert isinstance(desc, dict) and desc.get("advanced") is True, desc
+def _real_sensors_render(options):
+    """Render the Options ``sensors`` step on the real-HA harness (the
+    collapsed section is HA's ``section`` class there)."""
+    import _forms_harness as fh
+    return fh.run(fh.options_flow("room", options=options).async_step_sensors(None))
 
 
-def test_sensor_capabilities_json_reachable_when_value_is_non_default():
-    """I2 reach-back: a room with a stored override has NO advanced
-    marker on the textarea, so it stays visible in Simple mode."""
-    flow = _make(
-        options={
-            CONF_MOTION_SENSORS: [_PIR],
-            CONF_SENSOR_CAPABILITIES: {_PIR: {"kind": "pir"}},
-        },
-    )
-    result = _render(flow)
-    marker = _marker_for(result, "sensor_capabilities_json")
+def _section_marker(result, key, section="advanced"):
+    for m, v in result["data_schema"].schema.items():
+        if str(getattr(m, "schema", m)) == section:
+            for im in v.schema.schema:
+                if str(getattr(im, "schema", im)) == key:
+                    return im
+    return None
+
+
+def test_sensor_capabilities_json_in_collapsed_advanced_section():
+    """FORM-CONDITIONAL-FIELDS-1: the raw-JSON textarea sits in the
+    collapsed ``advanced`` section with no Advanced-mode marker."""
+    result = _real_sensors_render({CONF_MOTION_SENSORS: [_PIR]})
+    assert "sensor_capabilities_json" not in {
+        str(getattr(m, "schema", m)) for m in result["data_schema"].schema
+    }
+    marker = _section_marker(result, "sensor_capabilities_json")
     assert marker is not None
-    desc = marker.description
-    # Either no description, or no advanced marker.
-    advanced = isinstance(desc, dict) and desc.get("advanced") is True
-    assert not advanced, desc
+    assert not (isinstance(marker.description, dict)
+                and marker.description.get("advanced"))
+    assert marker.default() == ""
+
+
+def test_sensor_capabilities_json_prefills_stored_value():
+    """A stored override pre-fills the JSON inside the section."""
+    stored = {_PIR: {"kind": "pir"}}
+    result = _real_sensors_render({
+        CONF_MOTION_SENSORS: [_PIR],
+        CONF_SENSOR_CAPABILITIES: stored,
+    })
+    marker = _section_marker(result, "sensor_capabilities_json")
+    assert marker is not None
+    import json as _json
+    assert _json.loads(marker.default()) == stored
 
 
 # --------------------------------------------------------------------------

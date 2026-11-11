@@ -63,3 +63,4 @@
 - 2026-11-10 17:51 **v5.108.6** — v5.108.6: Lock retry cap, optimizer meta never pages, dead anomaly metrics removed (cards: SECURITY-LOCK-SWEEP-RETRY-CAP-1,OPTIMIZER-META-NEVER-PAGES-1,ANOMALY-METRIC-DISPOSITION-1)
 - 2026-11-10 18:39 **v5.108.7** — v5.108.7 — NM buttons refresh when the Notification Manager is ready (cards: NM-BUTTON-READY-PATTERN-1)
 - 2026-11-11 07:00 **v5.108.8** — v5.108.8: Lights fade on every ambient path; faster, order-proof test suite (cards: LIGHT-TRANSITION-COVERAGE-1,SNAP1-FRIGATE-TRAVERSAL-1)
+- 2026-11-11 14:00 **v5.108.9** — v5.108.9: Simpler forms: collapsed Advanced sections and plain-language text (cards: FORM-TEXT-PLAIN-PASS-1,PRESENCE-GEOFENCE-FIELD-DEAD-1,CLIMATE-BACKSTOP-SECTION-CLEAR-ON-ABSENT-1)

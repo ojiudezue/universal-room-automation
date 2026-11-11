@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.108.8
+# Universal Room Automation vv5.108.9
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -3605,7 +3605,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 from .const import (
                     CONF_SLEEP_START_HOUR,
                     CONF_SLEEP_END_HOUR,
-                    CONF_GEOFENCE_ENTITIES,
                     CONF_WATER_SHUTOFF_VALVE,
                     CONF_EMERGENCY_LIGHT_ENTITIES,
                     CONF_PRESENCE_ENABLED,

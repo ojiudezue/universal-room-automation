@@ -1,7 +1,11 @@
-"""ROOM-TYPE-TRIMMED-MENU-1 — Advanced-only room fields (D7-D8).
+"""Rarely-changed room fields live in a collapsed ``advanced`` section.
 
-I2: no stored non-default value is unreachable in Simple mode.
-I3: a Simple-mode save never drops a value that was not on the form.
+ROOM-TYPE-TRIMMED-MENU-1 (D7-D8) put these fields behind HA's profile
+"Advanced mode"; FORM-CONDITIONAL-FIELDS-1 release 1 (D3) moved them into
+each step's collapsed section keyed ``advanced`` (HA deprecated the flag).
+
+I2: every stored value is reachable (one click away, inside the section).
+I3: a save whose section was not sent never drops a stored value.
 """
 from __future__ import annotations
 
@@ -40,9 +44,6 @@ from custom_components.universal_room_automation.const import (
     CONF_ROOM_TYPE,
     CONF_SUNRISE_OFFSET,
     CONF_SUNSET_OFFSET,
-    DEFAULT_FAN_SPEED_LOW,
-    DEFAULT_HUMIDITY_FAN_MAX_RUNTIME,
-    DEFAULT_SUNRISE_OFFSET,
     ROOM_MENU_STEPS_ALL,
     ROOM_MENU_STEPS_BY_TYPE,
     ROOM_TYPE_BEDROOM,
@@ -50,7 +51,7 @@ from custom_components.universal_room_automation.const import (
 
 _COMP = Path(__file__).resolve().parents[2] / "custom_components" / "universal_room_automation"
 
-# D7 Advanced column (NEW) + Lighting's pre-existing advanced keys.
+# Hand-written oracle (plan §13.1 rows 52-67), not derived from the schema.
 ADVANCED = [
     ("options_covers", CONF_SUNRISE_OFFSET),
     ("options_covers", CONF_SUNSET_OFFSET),
@@ -71,27 +72,26 @@ ADVANCED = [
 ]
 
 
-@pytest.mark.parametrize("step,key", ADVANCED)
-def test_classification_advanced_on_present_simple_absent(step, key):
-    on = render(make_flow(ROOM_TYPE_BEDROOM, adv=True), step)
-    assert key in schema_keys(on, top_level_only=True), "plan defect: key not top-level"
-    off = render(make_flow(ROOM_TYPE_BEDROOM, adv=False), step)
-    assert key not in schema_keys(off), key
+def _section_keys(result, name="advanced") -> set:
+    for marker, val in result["data_schema"].schema.items():
+        if str(getattr(marker, "schema", marker)) == name:
+            return set(cf._collect_schema_defaults(val.schema))
+    return set()
 
 
 @pytest.mark.parametrize("step,key", ADVANCED)
-def test_i2_forced_render_when_non_default(step, key):
+def test_key_lives_in_advanced_section(step, key):
+    res = render(make_flow(ROOM_TYPE_BEDROOM), step)
+    assert key not in schema_keys(res, top_level_only=True), key
+    assert key in _section_keys(res), key
+
+
+@pytest.mark.parametrize("step,key", ADVANCED)
+def test_i2_stored_value_rendered_as_section_default(step, key):
     _, defaults = owned_keys(make_flow(ROOM_TYPE_BEDROOM), step)
     val = nondefault(defaults.get(key))
-    off = render(make_flow(ROOM_TYPE_BEDROOM, options={key: val}), step)
-    assert key in schema_keys(off), (key, val)
-
-
-def test_i2_explicit_default_stays_hidden():
-    off = render(make_flow(ROOM_TYPE_BEDROOM,
-                           options={CONF_SUNRISE_OFFSET: DEFAULT_SUNRISE_OFFSET}),
-                 "options_covers")
-    assert CONF_SUNRISE_OFFSET not in schema_keys(off)
+    res = render(make_flow(ROOM_TYPE_BEDROOM, options={key: val}), step)
+    assert key in schema_keys(res), (key, val)
 
 
 @pytest.mark.parametrize("room_type", sorted(ROOM_MENU_STEPS_BY_TYPE))
@@ -112,8 +112,6 @@ def test_i2_global_every_seeded_key_reachable(room_type):
         res = render(flow, step)
         if res.get("data_schema") is not None:
             rendered |= schema_keys(res)
-    # Menu-only steps store their values via sub-steps; the legacy singular
-    # energy key is shown through energy_sensors.
     not_form_keys = {k for v in cf._STEP_EXTRA_OWNED_KEYS.values() for k in v}
     missing = set(seeded) - not_form_keys - rendered
     assert not missing, (room_type, sorted(missing))
@@ -125,112 +123,71 @@ def _submit(flow, step, user_input):
     return run(getattr(flow, f"async_step_{step}")(dict(user_input)))
 
 
-def test_i3_covers_simple_save_keeps_hidden_value():
-    flow = make_flow(ROOM_TYPE_BEDROOM, options={CONF_SUNRISE_OFFSET: DEFAULT_SUNRISE_OFFSET})
-    assert CONF_SUNRISE_OFFSET not in schema_keys(render(flow, "options_covers"))
+def test_i3_covers_unsent_section_keeps_stored_value():
+    flow = make_flow(ROOM_TYPE_BEDROOM, options={CONF_SUNRISE_OFFSET: 45})
     res = _submit(flow, "options_covers", {})
-    assert res["data"][CONF_SUNRISE_OFFSET] == DEFAULT_SUNRISE_OFFSET
+    assert res["data"][CONF_SUNRISE_OFFSET] == 45
+    assert "advanced" not in res["data"]
 
 
-def test_i3_climate_simple_save_keeps_hidden_values():
-    stored = {CONF_FAN_SPEED_LOW_TEMP: DEFAULT_FAN_SPEED_LOW,
-              CONF_HUMIDITY_FAN_MAX_RUNTIME: DEFAULT_HUMIDITY_FAN_MAX_RUNTIME}
+def test_covers_section_edit_lands_flat():
+    flow = make_flow(ROOM_TYPE_BEDROOM, options={CONF_SUNRISE_OFFSET: 45})
+    res = _submit(flow, "options_covers", {"advanced": {CONF_SUNRISE_OFFSET: 90}})
+    assert res["data"][CONF_SUNRISE_OFFSET] == 90
+    assert "advanced" not in res["data"]
+
+
+def test_i3_climate_unsent_section_keeps_stored_values():
+    stored = {CONF_FAN_SPEED_LOW_TEMP: 71, CONF_HUMIDITY_FAN_MAX_RUNTIME: 1800}
     flow = make_flow(ROOM_TYPE_BEDROOM, options=stored)
-    keys = schema_keys(render(flow, "climate"))
-    assert not (set(stored) & keys)
     res = _submit(flow, "climate", {})
     for k, v in stored.items():
         assert res["data"][k] == v
+    assert "advanced" not in res["data"]
 
 
 @pytest.mark.parametrize("key", [
     CONF_LIGHT_SCENE_DAY, CONF_LIGHT_EVENING_BRIGHTNESS_PCT, CONF_NIGHT_LIGHT_EVENING_COLOR,
 ])
-def test_i3_lighting_simple_save_keeps_hidden_value(key):
-    """Stored explicitly at its default (empty) => hidden in Simple mode;
-    a Simple-mode save must not clear it (show_advanced_options gate)."""
-    flow = make_flow(ROOM_TYPE_BEDROOM, options={key: ""})
-    assert key not in schema_keys(render(flow, "options_lighting_behaviour"))
+def test_i3_lighting_unsent_section_keeps_clearable(key):
+    """A clearable evening/scene key survives a save whose section was not
+    sent (plan §3 rev 4, H2)."""
+    flow = make_flow(ROOM_TYPE_BEDROOM, options={key: "scene.a"})
     res = _submit(flow, "options_lighting_behaviour", {})
-    assert key in res["data"] and res["data"][key] == ""
+    assert res["data"][key] == "scene.a"
 
 
-def test_lighting_advanced_save_still_clears_omitted():
-    flow = make_flow(ROOM_TYPE_BEDROOM, options={CONF_LIGHT_SCENE_DAY: "scene.a"}, adv=True)
-    res = _submit(flow, "options_lighting_behaviour", {})
-    assert CONF_LIGHT_SCENE_DAY not in res["data"]
-
-
-def test_lighting_forced_field_clearable_in_simple_mode():
+def test_lighting_sent_section_still_clears_omitted():
     flow = make_flow(ROOM_TYPE_BEDROOM, options={CONF_LIGHT_SCENE_DAY: "scene.a"})
-    assert CONF_LIGHT_SCENE_DAY in schema_keys(render(flow, "options_lighting_behaviour"))
-    res = _submit(flow, "options_lighting_behaviour", {})
+    res = _submit(flow, "options_lighting_behaviour", {"advanced": {}})
     assert CONF_LIGHT_SCENE_DAY not in res["data"]
 
 
-# --- hint ------------------------------------------------------------------
+# --- hint retired ------------------------------------------------------------
 
-@pytest.mark.parametrize("step", ["options_covers", "climate", "options_lighting_behaviour"])
-def test_hint_per_step(step):
-    off = render(make_flow(ROOM_TYPE_BEDROOM), step)
-    on = render(make_flow(ROOM_TYPE_BEDROOM, adv=True), step)
-    assert off["description_placeholders"]["advanced_hint"] == cf.ADVANCED_HINT_HIDDEN
-    assert on["description_placeholders"]["advanced_hint"] == "Advanced settings shown."
+@pytest.mark.parametrize("step", [s for s in ROOM_MENU_STEPS_ALL])
+def test_no_step_passes_advanced_hint(step):
+    res = render(make_flow(ROOM_TYPE_BEDROOM), step)
+    assert "advanced_hint" not in (res.get("description_placeholders") or {}), step
 
 
-def test_meta_every_step_with_advanced_fields_passes_hint():
-    blobs = [json.loads((_COMP / r).read_text()) for r in ("strings.json", "translations/en.json")]
-    with_adv = []
-    for step in ROOM_MENU_STEPS_ALL:
-        on = render(make_flow(ROOM_TYPE_BEDROOM, adv=True), step)
-        if on.get("data_schema") is None:
-            continue
-        off = render(make_flow(ROOM_TYPE_BEDROOM), step)
-        if schema_keys(on) - schema_keys(off):
-            with_adv.append(step)
-            assert "advanced_hint" in (off.get("description_placeholders") or {}), step
-            for blob in blobs:
-                assert "{advanced_hint}" in blob["options"]["step"][step]["description"], step
-    assert set(with_adv) == {
-        "options_covers",
-        "climate",
-        "options_lighting_behaviour",
-        # NIGHT-LIGHT-ACTION-SELECTOR-1 (REV 3, D4): the 5 night-light
-        # colour/brightness fields moved to Advanced in the devices step.
-        "devices",
-        # SENSOR-FORM-PLAIN-TEXT-1 (2026-10-11): the raw-JSON escape
-        # hatch (sensor_capabilities_json) is Advanced-only on sensors.
-        "sensors",
-    }
+@pytest.mark.parametrize("rel", ["strings.json", "translations/en.json"])
+def test_no_advanced_hint_placeholder_in_strings(rel):
+    blob = json.loads((_COMP / rel).read_text())
+    for flow in ("config", "options"):
+        for step_id, step in blob[flow]["step"].items():
+            assert "{advanced_hint}" not in (step.get("description") or ""), (flow, step_id)
 
 
 def test_room_menu_hint_variants():
-    # 2026-11-05: trim applies in Advanced mode too, so the trimmed hint
-    # keeps its room-type line and ends with the "shown" variant.
-    adv = cf.room_menu_hint("closet", True, True)
-    assert adv == ("Showing the settings a closet usually needs. "
-                   "Pick More settings for the rest. Advanced settings shown.")
-    assert cf.room_menu_hint("bedroom", False, True) == "Advanced settings shown."
-    assert cf.room_menu_hint("closet", False, False) == cf.ADVANCED_HINT_HIDDEN
-    t = cf.room_menu_hint("closet", True, False)
-    assert t.startswith("Showing the settings a closet usually needs.")
-    assert cf.room_menu_hint("utility", True, False).startswith(
+    assert cf.room_menu_hint("closet", True) == (
+        "Showing the settings a closet usually needs. "
+        "Pick More settings for the rest."
+    )
+    assert cf.room_menu_hint("bedroom", False) == ""
+    assert cf.room_menu_hint("utility", True).startswith(
         "Showing the settings a utility room usually needs.")
-    assert cf.room_menu_hint("media room", True, False).startswith(
+    assert cf.room_menu_hint("media room", True).startswith(
         "Showing the settings a media room usually needs.")
-    assert cf.room_menu_hint("infrastructure", True, False).startswith(
+    assert cf.room_menu_hint("infrastructure", True).startswith(
         "Showing the settings an equipment room usually needs.")
-    assert t.endswith(cf.ADVANCED_HINT_HIDDEN)
-
-
-def test_advanced_hint_empty_when_form_has_no_advanced_field():
-    """A-LOW 5: no Advanced-only field on the form -> no hint."""
-    import voluptuous as vol
-    plain = vol.Schema({vol.Optional("x", default=1): int})
-    marked = vol.Schema({
-        vol.Optional("y", default=1, description={"advanced": True}): int,
-    })
-    assert cf.advanced_hint_for(plain, False) == ""
-    assert cf.advanced_hint_for(plain, True) == ""
-    assert cf.advanced_hint_for(marked, False) == cf.ADVANCED_HINT_HIDDEN
-    assert cf.advanced_hint_for(marked, True) == cf.ADVANCED_HINT_SHOWN
