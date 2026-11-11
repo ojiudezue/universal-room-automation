@@ -203,6 +203,9 @@ def real_ura():
         return cached
     saved = {k: v for k, v in sys.modules.items()
              if k == _PKG or k.startswith(_PKG + ".")}
+    parent = sys.modules.get("custom_components")
+    _missing = object()
+    saved_attr = getattr(parent, "universal_room_automation", _missing)
     for k in saved:
         del sys.modules[k]
     try:
@@ -211,6 +214,18 @@ def real_ura():
         for k in [k for k in sys.modules if k == _PKG or k.startswith(_PKG + ".")]:
             del sys.modules[k]
         sys.modules.update(saved)
+        # The import bound the REAL package as an attribute of the shared
+        # ``custom_components`` package; ``import a.b.c as x`` resolves via
+        # that attribute, so put the previous binding back (no leak into
+        # later files).
+        if parent is not None:
+            if saved_attr is _missing:
+                try:
+                    delattr(parent, "universal_room_automation")
+                except AttributeError:
+                    pass
+            else:
+                parent.universal_room_automation = saved_attr
     return real
 
 
