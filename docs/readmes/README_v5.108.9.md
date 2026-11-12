@@ -28,9 +28,14 @@ Plan: `config_forms_AB_plan_review_rev3.md` (FIX-PLAN, all fixed in rev 4). Buil
 - Release 2 (`visible=` fields shown only when relevant, `hacs.json` HA floor) waits for a pytest-homeassistant-custom-component release pinned to HA 2026.11 (latest pins 2026.10.4; a hand-built 2026.11.1 venv fails at startup).
 - Energy wording pass.
 
-## Live validation (prospective)
+## Validated 2026-11-11 (installed as part of v5.108.10, restart 19:24 CST)
 
-- Installed through Settings > Marketplace; `update.universal_room_automation_update` shows the new version.
-- No URA ERROR after restart; house state back.
-- Open a room's Options: Advanced section collapsed, labels plain, no raw keys; save without edits leaves options unchanged and causes no reload.
-- Presence options: no geofence field.
+| Criterion | Result | Evidence |
+|---|---|---|
+| Installed through the Marketplace | PASS (as v5.108.10) | Marketplace never offered v5.108.9; operator installed v5.108.10, which contains it |
+| No URA ERROR after restart; house state back | PASS | system_log URA entries WARNING only; `sensor.ura_coordinator_manager_house_state` = home_evening, confidence 0.9 |
+| Room options: Advanced collapsed, plain labels | PASS | options flow API on Study A, Sensors step: `advanced` expandable section holding `sensor_capabilities_json`; auto-filled fields (presence, door, water leak) on first screen; installed en.json has 0 blank labels ("Advanced (rarely change)", "Sensor types (advanced)") |
+| Presence options: no geofence field | PASS | Coordinator Manager > coordinator_presence schema has no geofence field; fan re-check tuning in its own collapsed section |
+| Save without edits leaves options unchanged, no reload | in-suite only | not exercised live (would submit a real save); covered by the release's save-integrity tests |
+
+Flows opened for inspection were aborted (HTTP 200), nothing saved.
