@@ -34426,6 +34426,27 @@ cards:
     context: 'Reuses the stale_source_arrival check the lock hold builds; wait for it to ship.'
   next: 'Me: after the lock hold ships, scope the security expected-arrival window first.'
   rank: {value: 5, time_criticality: 3, effort: 3}
+- id: EC-IMPORT-TODAY-NET-AFTER-RESTART-1
+  title: Energy Import Today drops to net import (import minus export) after an HA restart, so the From grid tile reads 0.7 kWh instead of ~19
+  thread: energy
+  status: investigating
+  created: '2026-11-12 16:37'
+  updated: '2026-11-12 16:37'
+  refinement_status: initial
+  tier: 2
+  live_broken: true
+  approval: implied
+  problem_solution:
+  - 'Problem: on 11-12 sensor.ura_energy_coordinator_energy_import_today matched the Emporia from-grid meter (~19.7 kWh) until the 12:56 CST restart, then fell steadily to 0.687 kWh while exporting, which equals from-grid 19.84 minus to-grid 19.17. The Envoy agrees real import was ~18 kWh. The dashboard From grid tile and probably today''s cost read this sensor. Solution: find why the restart turns the import total into a net figure and fix it so import and export stay separate.'
+  origin:
+    date: '2026-11-12'
+    gist: 'Operator screenshot of the Energy tab: "Are these swapped? To grid and from grid"'
+  why: Not swapped; To grid (19.2) is right, From grid (0.7) is wrong. A total_increasing energy sensor that decreases also corrupts HA long-term statistics.
+  links:
+    related: [EC-BATTERY-CHARGE-SOURCE-DAY-1]
+    context: 'v5.108.10 touched the energy_billing snapshot; the restart that broke it was the v5.108.11 install. Check whether that change is involved.'
+  next: 'Me: read-only root-cause probe (AUDIT_ec_import_today_net_after_restart.md), then fix.'
+  rank: {value: 8, time_criticality: 8, effort: 5}
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
