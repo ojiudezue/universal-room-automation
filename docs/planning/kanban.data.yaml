@@ -34331,7 +34331,7 @@ cards:
   status: investigating
   tier: 1
   created: "2026-11-11 19:40"
-  updated: '2026-11-12 12:55'
+  updated: '2026-11-12 13:05'
   origin: "Boot log after v5.108.10 restart 2026-11-11; operator: 'Def look'."
   why: "__init__.py:~7310 seed reads core.restore_state before the Numbers restore and finds no entry; number.py:3100-3110 then restores and pushes to the zone. Probe: all three zones 0.8 kW live and in every recorder row since 11-04 (= default), so the UNSAFE claim is false. Bug class: seed path disagrees with the entity's own restore path."
   next: 'Me: capture the warning reason text at the v5.108.11 restart (or compare iter_canonical_hvac_zones climate entities with zm.zones at seed time), fix that branch, revert or reword the deferred change, fix the stale 1.30 kW wording.'
@@ -34339,6 +34339,7 @@ cards:
   rank: {"value": 1, "time_criticality": 1, "effort": 1}
   dispatch_2026_11_12: 'ura-builder in worktree, branch fix/zone-kwh-seed-warn; bundles with the review-lane release.'
   review_2026_11_12: 'CARD-WAS-WRONG. The why on this card (seed reads before the Number restores) is WRONG: seed (__init__.py:7276) and Number (HA restore_state.py:295) read the same last_states dict, filled once at load. Live .storage has numeric entries + registered unique_ids for all three zones, so the likely firing branch is no ZoneManager zone matched climate_entity (__init__.py:7311) or spec missing zone_id/climate_entity (:7263). Branch fix/zone-kwh-seed-warn (82e8607e) FIX-REQUIRED, held out of v5.108.11; review record on that branch (2f4fd3f6).'
+  measured_2026_11_12_boot: 'v5.108.11 restart 12:55: all three zones logged the no RestoreState entry branch (__init__.py:7310), while the three Numbers restored 1.0/0.8/0.8. So the seed sees no entry where the Number does: the review claim that both read the same already-filled dict is WRONG at runtime (timing or lookup differs). Next: find why the seed lookup misses (load order of RestoreStateData vs seed, or key used), confirm the zone actually receives 1.0 from number.py:3101-3112, then fix the seed or keep the deferred-debug change on fix/zone-kwh-seed-warn with a corrected comment.'
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers

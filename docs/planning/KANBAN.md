@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-12T12:08:44-06:00_ - _Data commit: `49878819ffa3`_ - _last_reconciled: 2026-11-12_
+_Generated: 2026-11-12T12:53:19-06:00_ - _Data commit: `88e7184425e6`_ - _last_reconciled: 2026-11-12_
 
 
 ## Columns
@@ -14,10 +14,10 @@ _Generated: 2026-11-12T12:08:44-06:00_ - _Data commit: `49878819ffa3`_ - _last_r
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 25 |
 | 🔨 In progress | 2 |
-| 🔍 Review | 4 |
+| 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 33 |
 | ⏳ Waiting on me (Claude) | 2 |
-| 🚀 Shipped (organic open) | 16 |
+| 🚀 Shipped (organic open) | 20 |
 | 🅿️ Parked | 118 |
 | ✅ Done | 425 |
 
@@ -31,13 +31,14 @@ _measuring; truth not yet known_
 
 ### `HVAC-ZONE-KWH-SEED-WARN-WORDING-1` - Zone-kWh seed logs UNSAFE at every boot though the threshold Numbers self-restore a moment later — _#1 · WSJF 4.0 · v1 tc1 u2 /e1_
 thread: **hvac** - status: **investigating**
-_created 2026-11-11 19:40 · updated 2026-11-12 12:55_
+_created 2026-11-11 19:40 · updated 2026-11-12 13:05_
 - **Why:** __init__.py:~7310 seed reads core.restore_state before the Numbers restore and finds no entry; number.py:3100-3110 then restores and pushes to the zone. Probe: all three zones 0.8 kW live and in every recorder row since 11-04 (= default)...
 - **Next:** Me: capture the warning reason text at the v5.108.11 restart (or compare iter_canonical_hvac_zones climate entities with zm.zones at seed time), fix that branch, revert or reword the deferred change, fix the stale 1.30 kW wording.
-- **Forensic keys (3):**
+- **Forensic keys (4):**
   - `tier`: 1
   - `dispatch_2026_11_12`: ura-builder in worktree, branch fix/zone-kwh-seed-warn; bundles with the review-lane release.
   - `review_2026_11_12`: CARD-WAS-WRONG. The why on this card (seed reads before the Number restores) is WRONG: seed (__init__.py:7276) and Number (HA restore_state.py:295) read the same last_states dict, filled once at load. Live .storage has numeric entries + ...
+  - `measured_2026_11_12_boot`: v5.108.11 restart 12:55: all three zones logged the no RestoreState entry branch (__init__.py:7310), while the three Numbers restored 1.0/0.8/0.8. So the seed sees no entry where the Number does: the review claim that both read the same ...
 
 ## 🧭 Pre-planning (13)
 _idea being decomposed_
@@ -584,67 +585,10 @@ _created 2026-11-10 19:20 · updated 2026-11-11 07:05 · initial_
   - `tier`: 1
   - `residual_2026_11_11`: Merged to develop 4d5385d4 (v5.108.8). Merged-develop parallel run: 11 failed in 3 min, base serial failures all gone, but 11 parallel-only (pass alone 72/72): test_arrester_operator_immunity x6, test_dp_drain_target_value_stamp x5 (file...
 
-## 🔍 Review (4)
+## 🔍 Review (0)
 _under review_
 
-### `FAN-RECHECK-FORM-RESTORE-REVERT-1` - Fan re-check switches: a value saved in the settings form gets overwritten by the switch's old state after the reload (CONFIRMED, live instance in Garage A) — _#1 · WSJF 8.0 · v4 tc2 u2 /e1_
-thread: **presence** - status: **review** - approval: **implied**
-_created 2026-11-11 14:40 · updated 2026-11-12 02:09 · refined_
-- **Problem / Solution:**
-  - Problem: the four fan re-check on/off switches (house master + three per-room) remember their last state across a reload, and a settings-form save triggers a reload, so the switch puts its old value back over what was just saved. Garage ...
-- **Why:** switch.py:6040-6046 restores last state on reload; a form save reloads the entry, so the form value may be overwritten.
-- **Next:** APPROVE merge + ship at the next attended deploy (Tier 1, switch.py only). Live check after restart: switch.garage_a_garage_a_fan_recheck and _l2_allowed read off; switch.ura_presence_coordinator_fan_recheck stays on.
-- **Forensic keys (5):**
-  - `tier`: 1
-  - `adjacency`: Swept with audit; NEW.
-  - `finding_2026_11_12`: CONFIRMED by code + HA source + live data. (1) switch.py FanRecheckEnabledSwitch.__init__ seeds from options, then async_added_to_hass overwrites with async_get_last_state (and mirrors that into hass.data fan_recheck_master_enabled, the ...
-  - `gate_2026_11_12`: 1 validity: STILL-REAL (above). 1b config-first: no setting changes restore order. 2 prior-art: REUSE the existing options mirror (_mirror_options keeps options current on every toggle, so options are a complete store); CM reload-suppres...
-  - `built_2026_11_12`: Branch fix/fan-recheck-options-wins-restore (5a286f10 fix + 7d25125f docstring LOW), pushed, NOT merged/deployed. switch.py 3 sites (6050/6106/6170) options-win; 4th site _RoomBooleanOptionSwitch already options-first. 16 tests (quality/...
-
-### `KANBAN-SHIP-FLOW-CARDS-1` - deploy.sh --cards silently fails to mark one-line (flow-style) cards shipped, so shipped work stays in review/inbox — _#2 · WSJF 7.5 · v7 tc6 u2 /e2_
-thread: **process** - status: **review** - approval: **implied**
-_created 2026-11-11 02:07 · updated 2026-11-11 02:18 · initial_
-- **Problem / Solution:**
-  - Problem: the release script is supposed to move every card it ships to 'shipped'. Cards written as a single line (12 on the board today, the format newer sessions use) are skipped without any error, so four shipped cards (v5.108.2/.3/.5/...
-- **Why:** Mechanism (read 02:1x): kanban_ship.py _CARD_START_RE = '^- id:' (:214); _find_card_blocks folds a flow line '- {"id": ...}' into the PREVIOUS block card's range; mark_shipped_text then finds no status line for the flow id and `continue`...
-- **Next:** APPROVE merge of fix/kanban-ship-flow-cards into develop (repo tooling only, no HA restart; takes effect at the next deploy.sh). Left unmerged overnight because the attended session's next deploy depends on this script.
-- **Tags:** tier-1, found-during-probe
-- **Parsimony:** [BUILD] A flow-style card named in deploy.sh --cards keeps its old status after the deploy succeeds.
-- **Refs:** scripts/kanban_ship.py; quality/tests/test_kanban_ship.py
-- **Forensic keys (3):**
-  - `tier`: 1
-  - `gate_2026_11_11`: 1 validity: STILL-REAL (4 cards observed, mechanism read in source). 1b config-first: no setting. 2 prior-art: REUSE mark_shipped_text/_find_card_blocks, extend to flow lines; no new tool. 3 parsimony BUILD. 4 cost/benefit: repo tooling ...
-  - `built_2026_11_11_overnight`: Built on fix/kanban-ship-flow-cards (worktree .claude/worktrees/ovn-kanban-ship-flow; 6da6cab1 build, d684fc71 review record, 1c6e3635 LOW fix-up; base = develop fc75a6b3, 0 behind). _find_card_blocks now detects '- {"id": ...}' flow car...
-
-### `SC-GEOFENCE-PERSON-SNAPSHOT-1` - SC geofence person listener snapshots person.* once at setup; misses persons added later or loaded after SC — _#3 · WSJF 7.0 · v3 tc2 u2 /e1_
-thread: **security** - status: **review**
-_created 2026-11-07 15:40 · updated 2026-11-11 02:26_
-- **Why:** security.py:1987-1995 _setup_geofence_listener reads hass.states.async_all('person') once and returns when empty, so the sanction checker never subscribes if persons load after SC and misses persons added later. The lockout regime uses a...
-- **Next:** APPROVE merge + ship at the next attended deploy (Tier 1, security.py only).
-- **Forensic keys (6):**
-  - `arc_cut_v5_106_0`: separate SC geofence listener fix (different code path from the lock regime, which already tracks persons live)
-  - `arc_cut_v5_105_0`: separate SC geofence listener fix, queued next after door-locks
-  - `tier`: 1
-  - `verify_2026_11_08_overnight`: STILL-REAL. security.py:2098-2117 _setup_geofence_listener reads hass.states.async_all('person') once at setup and subscribes to that fixed list, so a person added later (or loaded after SC) is never watched. Prior art: REUSE the lock re...
-  - `build_2026_11_11_overnight`: Re-verified STILL-REAL 02:21 CST (security.py:2194-2214 reads person.* once). Review lane at 2 (< WIP cap 3), so built tonight: ura-builder dispatched to branch fix/sc-geofence-person-resubscribe (worktree), reusing the lock-regime add/r...
-  - `built_2026_11_11_overnight`: Branch fix/sc-geofence-person-resubscribe (01d5e4bd build, 2f5bd19c review record; base develop 297333f7). security.py _setup_geofence_listener now subscribes to person add/remove (async_track_state_added_domain / _removed_domain) and re...
-
-### `EC-CFG-SELFHEAL-FALSE-CRITICAL-1` - CRITICAL 'Envoy write self-heal loop: charge_from_grid' pages fire after the write already worked (cloud switch lags ~15 min; the alarm never re-checks it) -> re-read the cloud switch before paging — _#4 · WSJF 5.0 · v5 tc3 u2 /e2_
-thread: **energy** - status: **review** - approval: **implied**
-_created 2026-11-09 02:07 · updated 2026-11-12 12:55 · initial_
-- **Problem / Solution:**
-  - Problem: when URA turns battery grid-charging on or off, it checks the Enphase cloud switch to confirm. The cloud switch is slow (about 15 minutes), so URA re-sends, and on the third re-send it pages you CRITICAL on four channels that th...
-- **Origin:** 2026-11-09 - Overnight pass 11-09 noticed 5 CRITICAL rows at 11-08 20:48Z while checking the Envoy outage counter; measured the same night.
-- **Why:** False CRITICAL pages on every channel erode trust in real ones (alert fatigue). 3 events in 13 days (10-27, 11-07, 11-08), all on charge_from_grid; the reserve surface has been quiet since phase 2.
-- **Next:** Build Tier 1 at the next attended session (the overnight pass does not start builds while 8 cards sit in review): the re-read guard + mutation test, then one Tier-1 review.
-- **Refs:** custom_components/universal_room_automation/domain_coordinators/energy_write_verify.py; docs/planning/PLANNING_ec_reserve_oracle_phase2.md
-- **Forensic keys (6):**
-  - `tier`: 1
-  - `measured_2026_11_09_overnight`: CONFIRMED FALSE (read-only: URA DB notification_log, HA recorder). 11-08: page 20:48:22.263Z (14:48:22 CST) 'charge_from_grid=True 3 consecutive cycles'; cloud oracle switch.iq_battery_hacs_charge_battery_from_grid off->on at 14:48:21.94...
-  - `fix_sketch`: Tier 1, alert path only (no command change): in the n>=3 branch, re-read the oracle for the surface; if it equals commanded_value, reset the counter and log debug instead of _emit_anomaly/_maybe_fire_nm. Mutation-anchored test: oracle fl...
-  - `adjacency_2026_11_09`: NEW, linked. Swept: board (EC-SELFHEAL-UNEXPLAINED-RESENDS-1 done = reserve frozen witness; EC-ENPHASE-CONNECTIVITY-RESILIENCE-1 parked = reserve false pages at the nightly Envoy drop; BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1 done), docs/BACK...
-  - `dispatch_2026_11_12`: ura-builder in worktree, branch fix/ec-cfg-selfheal-reread; bundles with the review-lane release.
-  - `review_2026_11_12`: Tier-1 review A SHIP (record c65ed044); 253 passed on the four EC write-verify files; mutation drills RED on the re-read condition and the counter reset. Merged into develop for v5.108.11.
+_(none)_
 
 ## ⏸️ Waiting on operator (33)
 _needs a human call — groomed first_
@@ -1286,7 +1230,7 @@ _created 2026-10-20 08:30 · updated 2026-11-11 02:05_
   - `verify_2026_11_11_overnight`: CARD-WAS-WRONG + PARTIALLY-DONE. The card's 'APPROVE ESPHome filters + UDM templates + panel/device_time excludes' was stale: the 10-20 attended session already applied that batch as recorder excludes (RUNBOOK_recorder_excludes.md ledger...
   - `staged_2026_11_11_overnight`: Batch 2a staged, NOT applied: recorder exclude globs sensor.span_panel_*_produced_energy and _produced_energy_2 (~9k rows/hr, 92 entities, 84 never change; zero consumers in Energy prefs, all lovelace dashboards, automations.yaml, packag...
 
-## 🚀 Shipped (organic open) (16)
+## 🚀 Shipped (organic open) (20)
 _live, awaiting proof_
 
 ### `SC-LOCK-SWEEP-EXCLUDE-1` - Register every lock in SC but let individual locks opt out of the periodic lock sweep (master bedroom: passage mode, sweep only drains battery) — _#1 · WSJF 9.0 · v4 tc3 u2 /e1_
@@ -1322,7 +1266,49 @@ _created 2026-11-08 09:10 · updated 2026-11-09 02:08_
   - `tier`: 1
   - `soak_check_2026_11_09_overnight`: CARD-WAS-WRONG on next (it still said Ship v5.106.1): shipped and validated 11-08 (README_v5.106.1 Validated, post-restart 11:00 CST: send arrives PASS, no send errors PASS, bridge accepts 3.x PASS). Open: sends after 2.x removal (PENDIN...
 
-### `LOCK-BOOT-RECHECK-ENGAGE-1` - Garage lockout boot recheck: 120 s after boot, lock or release to match house state; remember manual unlocks across restart; vacation catches up like sleep — _#4 · WSJF 6.0 · v6 tc4 u2 /e2_
+### `FAN-RECHECK-FORM-RESTORE-REVERT-1` - Fan re-check switches: a value saved in the settings form gets overwritten by the switch's old state after the reload (CONFIRMED, live instance in Garage A) — _#4 · WSJF 8.0 · v4 tc2 u2 /e1_
+thread: **presence** - status: **shipped_organic** - approval: **implied**
+_created 2026-11-11 14:40 · updated 2026-11-12 02:09 · refined_
+- **Problem / Solution:**
+  - Problem: the four fan re-check on/off switches (house master + three per-room) remember their last state across a reload, and a settings-form save triggers a reload, so the switch puts its old value back over what was just saved. Garage ...
+- **Why:** switch.py:6040-6046 restores last state on reload; a form save reloads the entry, so the form value may be overwritten.
+- **Next:** APPROVE merge + ship at the next attended deploy (Tier 1, switch.py only). Live check after restart: switch.garage_a_garage_a_fan_recheck and _l2_allowed read off; switch.ura_presence_coordinator_fan_recheck stays on.
+- **Forensic keys (5):**
+  - `tier`: 1
+  - `adjacency`: Swept with audit; NEW.
+  - `finding_2026_11_12`: CONFIRMED by code + HA source + live data. (1) switch.py FanRecheckEnabledSwitch.__init__ seeds from options, then async_added_to_hass overwrites with async_get_last_state (and mirrors that into hass.data fan_recheck_master_enabled, the ...
+  - `gate_2026_11_12`: 1 validity: STILL-REAL (above). 1b config-first: no setting changes restore order. 2 prior-art: REUSE the existing options mirror (_mirror_options keeps options current on every toggle, so options are a complete store); CM reload-suppres...
+  - `built_2026_11_12`: Branch fix/fan-recheck-options-wins-restore (5a286f10 fix + 7d25125f docstring LOW), pushed, NOT merged/deployed. switch.py 3 sites (6050/6106/6170) options-win; 4th site _RoomBooleanOptionSwitch already options-first. 16 tests (quality/...
+
+### `KANBAN-SHIP-FLOW-CARDS-1` - deploy.sh --cards silently fails to mark one-line (flow-style) cards shipped, so shipped work stays in review/inbox — _#5 · WSJF 7.5 · v7 tc6 u2 /e2_
+thread: **process** - status: **shipped_organic** - approval: **implied**
+_created 2026-11-11 02:07 · updated 2026-11-11 02:18 · initial_
+- **Problem / Solution:**
+  - Problem: the release script is supposed to move every card it ships to 'shipped'. Cards written as a single line (12 on the board today, the format newer sessions use) are skipped without any error, so four shipped cards (v5.108.2/.3/.5/...
+- **Why:** Mechanism (read 02:1x): kanban_ship.py _CARD_START_RE = '^- id:' (:214); _find_card_blocks folds a flow line '- {"id": ...}' into the PREVIOUS block card's range; mark_shipped_text then finds no status line for the flow id and `continue`...
+- **Next:** APPROVE merge of fix/kanban-ship-flow-cards into develop (repo tooling only, no HA restart; takes effect at the next deploy.sh). Left unmerged overnight because the attended session's next deploy depends on this script.
+- **Tags:** tier-1, found-during-probe
+- **Parsimony:** [BUILD] A flow-style card named in deploy.sh --cards keeps its old status after the deploy succeeds.
+- **Refs:** scripts/kanban_ship.py; quality/tests/test_kanban_ship.py
+- **Forensic keys (3):**
+  - `tier`: 1
+  - `gate_2026_11_11`: 1 validity: STILL-REAL (4 cards observed, mechanism read in source). 1b config-first: no setting. 2 prior-art: REUSE mark_shipped_text/_find_card_blocks, extend to flow lines; no new tool. 3 parsimony BUILD. 4 cost/benefit: repo tooling ...
+  - `built_2026_11_11_overnight`: Built on fix/kanban-ship-flow-cards (worktree .claude/worktrees/ovn-kanban-ship-flow; 6da6cab1 build, d684fc71 review record, 1c6e3635 LOW fix-up; base = develop fc75a6b3, 0 behind). _find_card_blocks now detects '- {"id": ...}' flow car...
+
+### `SC-GEOFENCE-PERSON-SNAPSHOT-1` - SC geofence person listener snapshots person.* once at setup; misses persons added later or loaded after SC — _#6 · WSJF 7.0 · v3 tc2 u2 /e1_
+thread: **security** - status: **shipped_organic**
+_created 2026-11-07 15:40 · updated 2026-11-11 02:26_
+- **Why:** security.py:1987-1995 _setup_geofence_listener reads hass.states.async_all('person') once and returns when empty, so the sanction checker never subscribes if persons load after SC and misses persons added later. The lockout regime uses a...
+- **Next:** APPROVE merge + ship at the next attended deploy (Tier 1, security.py only).
+- **Forensic keys (6):**
+  - `arc_cut_v5_106_0`: separate SC geofence listener fix (different code path from the lock regime, which already tracks persons live)
+  - `arc_cut_v5_105_0`: separate SC geofence listener fix, queued next after door-locks
+  - `tier`: 1
+  - `verify_2026_11_08_overnight`: STILL-REAL. security.py:2098-2117 _setup_geofence_listener reads hass.states.async_all('person') once at setup and subscribes to that fixed list, so a person added later (or loaded after SC) is never watched. Prior art: REUSE the lock re...
+  - `build_2026_11_11_overnight`: Re-verified STILL-REAL 02:21 CST (security.py:2194-2214 reads person.* once). Review lane at 2 (< WIP cap 3), so built tonight: ura-builder dispatched to branch fix/sc-geofence-person-resubscribe (worktree), reusing the lock-regime add/r...
+  - `built_2026_11_11_overnight`: Branch fix/sc-geofence-person-resubscribe (01d5e4bd build, 2f5bd19c review record; base develop 297333f7). security.py _setup_geofence_listener now subscribes to person add/remove (async_track_state_added_domain / _removed_domain) and re...
+
+### `LOCK-BOOT-RECHECK-ENGAGE-1` - Garage lockout boot recheck: 120 s after boot, lock or release to match house state; remember manual unlocks across restart; vacation catches up like sleep — _#7 · WSJF 6.0 · v6 tc4 u2 /e2_
 thread: **security** - status: **shipped_organic**
 _created 2026-11-10 12:10 · updated 2026-11-11 02:07_
 - **Why:** A restart during sleep left lockouts unlocked (boot never engaged). Option B persists an episode mark (manual unlock, hazard, kill-switch off, vacation arrival) in the regime Store so the catch-up never re-locks a deliberate unlock; INV-...
@@ -1332,7 +1318,7 @@ _created 2026-11-10 12:10 · updated 2026-11-11 02:07_
   - `tier`: 2-DB
   - `disposition_2026_11_11_overnight`: Moved review -> shipped_organic. Live since the v5.108.5 bundle (restart 2026-11-10 12:11); README_v5.108.3 table: master-OFF row PASS, master-ON rows PENDING (lockout switch OFF). deploy.sh --cards did not mark it: kanban_ship.py mark_s...
 
-### `SC-LOCK-REGIME-DOOR-LOCKS-1` - Move door-lock policy into the new SC lock regime (arming = alarm only) — _#5 · WSJF 5.5 · v5 tc4 u2 /e2_
+### `SC-LOCK-REGIME-DOOR-LOCKS-1` - Move door-lock policy into the new SC lock regime (arming = alarm only) — _#8 · WSJF 5.5 · v5 tc4 u2 /e2_
 thread: **security** - status: **shipped_organic**
 _created 2026-11-07 14:30 · updated 2026-11-09 02:08_
 - **Why:** Operator 2026-11-07: separate arming (alarm) from locks (locking regime). Lockout cycle builds the regime for garage lockouts only; door-lock policy migration deferred.
@@ -1345,7 +1331,7 @@ _created 2026-11-07 14:30 · updated 2026-11-09 02:08_
   - `restart_pending_2026_11_08`: v5.106.0 is INSTALLED but not running: update.universal_room_automation_update reads installed v5.106.0 with 'Restart of Home Assistant required' (installed 11-08 01:05 CST; restart held while the house sleeps). switch.ura_security_coord...
   - `soak_check_2026_11_09_overnight`: CARD-WAS-WRONG on next: it still said to run the README v5.106.0 checks after the next restart; they ran 11-08 (README_v5.106.0 Validated table, post-restart 08:24 CST: 5 PASS, Away Lock engage/release PENDING on operator setup). config_...
 
-### `HVAC-GUEST-EVIDENCE-RULE-1` - Daytime GUEST should condition like HOME_DAY: add guest to HVAC_EVIDENCE_RULE_STATES — _#6 · WSJF 5.5 · v6 tc3 u2 /e2_
+### `HVAC-GUEST-EVIDENCE-RULE-1` - Daytime GUEST should condition like HOME_DAY: add guest to HVAC_EVIDENCE_RULE_STATES — _#9 · WSJF 5.5 · v6 tc3 u2 /e2_
 thread: **hvac** - status: **shipped_organic**
 _created 2026-11-09 14:30_
 - **Why:** hvac_const.py:1097 HVAC_EVIDENCE_RULE_STATES = (home_day, home_evening). guest/arriving/away were left on the pre-v5.103.20 shadow tail pending measurement. v5.108.0 makes GUEST a multi-day DAYTIME state, so a stay day now runs the house...
@@ -1354,7 +1340,7 @@ _created 2026-11-09 14:30_
 - **Forensic keys (1):**
   - `tier`: 2-DB
 
-### `LOCK-ENTRY-AREAS-WRONG-OBJECT-1` - Lock regime and perimeter alerts looked up door groups on the wrong object, so a Bluetooth move never confirmed a face arrival -> read them from the egress tracker — _#7 · WSJF 5.5 · v6 tc3 u2 /e2_
+### `LOCK-ENTRY-AREAS-WRONG-OBJECT-1` - Lock regime and perimeter alerts looked up door groups on the wrong object, so a Bluetooth move never confirmed a face arrival -> read them from the egress tracker — _#10 · WSJF 5.5 · v6 tc3 u2 /e2_
 thread: **security** - status: **shipped_organic** - approval: **implied**
 _created 2026-11-09 02:01 · updated 2026-11-10 02:16 · initial_
 - **Problem / Solution:**
@@ -1368,7 +1354,7 @@ _created 2026-11-09 02:01 · updated 2026-11-10 02:16 · initial_
   - `tier`: 1
   - `review_2026_11_09`: Overnight Tier-1 review (ura-reviewer, framing A) = SHIP; record docs/reviews/code-review/v5.107.6_entry_areas_egress_tracker.md. 205 passed on both touched test files; mutation: key reverted in security_lock_regime.py:999 -> 15 RED, in ...
 
-### `GUEST-STAY-EXIT-DAY-VETO-1` - Guest stay exit day veto: empty nights do not end a stay while a guest-room day share >= 0.10 — _#8 · WSJF 5.0 · v5 tc3 u2 /e2_
+### `GUEST-STAY-EXIT-DAY-VETO-1` - Guest stay exit day veto: empty nights do not end a stay while a guest-room day share >= 0.10 — _#11 · WSJF 5.0 · v5 tc3 u2 /e2_
 thread: **presence** - status: **shipped_organic**
 _created 2026-11-10 12:10 · updated 2026-11-11 02:07_
 - **Why:** Simpler thresholds were not faster (AUDIT_guest_onset_thresholds...2026_11_10). The October replay dropped GUEST on days guests were present; the veto recovers 19/21 days, 0 false days in the clean period. Kill switch GUEST_STAY_EXIT_DAY...
@@ -1378,7 +1364,7 @@ _created 2026-11-10 12:10 · updated 2026-11-11 02:07_
   - `tier`: 2-DB
   - `disposition_2026_11_11_overnight`: Moved review -> shipped_organic. Live since v5.108.5 (restart 2026-11-10 12:11); README_v5.108.5 table L1/L2 PASS, L3/L4 PENDING (need a guest stay). deploy.sh --cards did not mark it: kanban_ship.py mark_shipped_text only recognises '- ...
 
-### `OPTIMIZER-META-NEVER-PAGES-1` - The optimizer's AI layer pages CRITICAL on all 4 channels (often at night) to complain that its own input was truncated: never page on a 'meta' finding — _#9 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
+### `OPTIMIZER-META-NEVER-PAGES-1` - The optimizer's AI layer pages CRITICAL on all 4 channels (often at night) to complain that its own input was truncated: never page on a 'meta' finding — _#12 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
 thread: **optimizer** - status: **shipped_organic** - approval: **implied**
 _created 2026-11-04 02:11 · updated 2026-11-11 02:20 · initial_
 - **Problem / Solution:**
@@ -1400,7 +1386,24 @@ _created 2026-11-04 02:11 · updated 2026-11-11 02:20 · initial_
   - `mergeprep_2026_11_08_overnight`: Overnight 11-08 merge-prep: develop gained v5.106.0 (never-auto-lock list + Away Lock), which edits the same lock-sweep function, so integ/overnight-2026-11-04 and fix/security-lock-sweep-retry-cap NO LONGER MERGE (conflicts in security....
   - `soak_2026_11_11_overnight`: Stale 'APPROVE ship' next replaced (shipped v5.108.6, 11-10 17:52). 02:20 CST: 0 notification_log rows titled like 'Optimizer...meta' since the restart.
 
-### `PERIMETER-FRIGATE-MQTT-DIRECT-1` - URA subscribes to Frigate MQTT events directly (no dependency on the house's 'Frigate MQTT to frigate_events bridge' automation) — required for portability — _#10 · WSJF 4.7 · v7 tc3 u4 /e3_
+### `EC-CFG-SELFHEAL-FALSE-CRITICAL-1` - CRITICAL 'Envoy write self-heal loop: charge_from_grid' pages fire after the write already worked (cloud switch lags ~15 min; the alarm never re-checks it) -> re-read the cloud switch before paging — _#13 · WSJF 5.0 · v5 tc3 u2 /e2_
+thread: **energy** - status: **shipped_organic** - approval: **implied**
+_created 2026-11-09 02:07 · updated 2026-11-12 12:55 · initial_
+- **Problem / Solution:**
+  - Problem: when URA turns battery grid-charging on or off, it checks the Enphase cloud switch to confirm. The cloud switch is slow (about 15 minutes), so URA re-sends, and on the third re-send it pages you CRITICAL on four channels that th...
+- **Origin:** 2026-11-09 - Overnight pass 11-09 noticed 5 CRITICAL rows at 11-08 20:48Z while checking the Envoy outage counter; measured the same night.
+- **Why:** False CRITICAL pages on every channel erode trust in real ones (alert fatigue). 3 events in 13 days (10-27, 11-07, 11-08), all on charge_from_grid; the reserve surface has been quiet since phase 2.
+- **Next:** Build Tier 1 at the next attended session (the overnight pass does not start builds while 8 cards sit in review): the re-read guard + mutation test, then one Tier-1 review.
+- **Refs:** custom_components/universal_room_automation/domain_coordinators/energy_write_verify.py; docs/planning/PLANNING_ec_reserve_oracle_phase2.md
+- **Forensic keys (6):**
+  - `tier`: 1
+  - `measured_2026_11_09_overnight`: CONFIRMED FALSE (read-only: URA DB notification_log, HA recorder). 11-08: page 20:48:22.263Z (14:48:22 CST) 'charge_from_grid=True 3 consecutive cycles'; cloud oracle switch.iq_battery_hacs_charge_battery_from_grid off->on at 14:48:21.94...
+  - `fix_sketch`: Tier 1, alert path only (no command change): in the n>=3 branch, re-read the oracle for the surface; if it equals commanded_value, reset the counter and log debug instead of _emit_anomaly/_maybe_fire_nm. Mutation-anchored test: oracle fl...
+  - `adjacency_2026_11_09`: NEW, linked. Swept: board (EC-SELFHEAL-UNEXPLAINED-RESENDS-1 done = reserve frozen witness; EC-ENPHASE-CONNECTIVITY-RESILIENCE-1 parked = reserve false pages at the nightly Envoy drop; BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1 done), docs/BACK...
+  - `dispatch_2026_11_12`: ura-builder in worktree, branch fix/ec-cfg-selfheal-reread; bundles with the review-lane release.
+  - `review_2026_11_12`: Tier-1 review A SHIP (record c65ed044); 253 passed on the four EC write-verify files; mutation drills RED on the re-read condition and the counter reset. Merged into develop for v5.108.11.
+
+### `PERIMETER-FRIGATE-MQTT-DIRECT-1` - URA subscribes to Frigate MQTT events directly (no dependency on the house's 'Frigate MQTT to frigate_events bridge' automation) — required for portability — _#14 · WSJF 4.7 · v7 tc3 u4 /e3_
 thread: **security** - status: **shipped_organic**
 _created 2026-11-09 00:20 · updated 2026-11-11 02:20_
 - **Why:** Every Frigate payload URA uses (event id for snapshots, score/box/zones for D2-D6, the track linker) arrives via an HA automation that a new home will not have. Without it the gates silently get nothing.
@@ -1412,7 +1415,7 @@ _created 2026-11-09 00:20 · updated 2026-11-11 02:20_
   - `adjacency_2026_11_09`: Swept: perimeter plan D9 (the parked design, absorbed here), D2 bus-silent warning (stays as fallback trip-wire), memory project_frigate_mqtt_topic_collision (shared topic_prefix hazard, fixed homelab-side). NEW card; supersedes the D9 p...
   - `soak_2026_11_11_overnight`: Stale next (plan text) replaced. Indirect evidence the MQTT ingress is live: Frigate-event snapshots are being fetched for g5_bullet/sonoffwindow/rear_ptz alerts (see PERIMETER-FRIGATE-SNAPSHOT-CAPTURE-NEVER-1 disposition).
 
-### `ENVOY-FLAKINESS-181243-1` - Envoy integration flakiness — upstream HA bug #181243 (Session-is-closed background task) + dual-homed device timeouts + corrupt consumption_today — _#11 · WSJF 4.7 · v6 tc6 u2 /e3_
+### `ENVOY-FLAKINESS-181243-1` - Envoy integration flakiness — upstream HA bug #181243 (Session-is-closed background task) + dual-homed device timeouts + corrupt consumption_today — _#15 · WSJF 4.7 · v6 tc6 u2 /e3_
 thread: **energy** - status: **shipped_organic**
 _created 2026-09-21 · updated 2026-11-07 02:02 · refined ×1_
 - **Problem / Solution:**
@@ -1444,7 +1447,7 @@ _created 2026-09-21 · updated 2026-11-07 02:02 · refined ×1_
   - `groom_2026_10_30_overnight`: STILL-REAL, ball moved: gh pr view 183172 -R home-assistant/core -> MERGED 2026-10-15, milestone 2026.10.2 (cherry-picked). update.home_assistant_core_update reads installed 2026.10.1, latest 2026.10.4, so the house is running WITHOUT th...
   - `groom_2026_10_18_overnight`: CARD-WAS-WRONG (mine, 02:02 tonight): I rewrote next as 'Me: draft the upstream report', but that draft already exists (draft_2026_10_14, docs/planning/DRAFT_envoy_upstream_issue.md). The 10-17 default is therefore already done and the b...
 
-### `GARAGE-REMOTE-LOCKOUT-SCHEDULE-1` - Garage remote lockout (A + B): on at night, off in the morning, and released when a family member arrives so a 3 AM return is not locked out — _#12 · WSJF 4.0 · v4 tc2 u2 /e2_
+### `GARAGE-REMOTE-LOCKOUT-SCHEDULE-1` - Garage remote lockout (A + B): on at night, off in the morning, and released when a family member arrives so a 3 AM return is not locked out — _#16 · WSJF 4.0 · v4 tc2 u2 /e2_
 thread: **security** - status: **shipped_organic**
 _created 2026-11-07 12:10 · updated 2026-11-08 02:05_
 - **Why:** lock.konnected_f0f5bd523b00_lock (Garage A) and lock.ratgdov25i_dbfe2a_lock_remotes (Garage B) block car remotes and the outside keypad; the wall button and HA still work. The Security coordinator has no lockout concept. Dashboard part s...
@@ -1458,7 +1461,7 @@ _created 2026-11-07 12:10 · updated 2026-11-08 02:05_
   - `proximity_2026_11_07`: Operator: set up proximity for all 4 persons. Created core proximity entry 01M6VGHPVWX72KF6ENND5HY309 (zone.home; person.oji_udezue, ezinne, ziri, jaya; default tolerance). Sensors sensor.madronehaos_<person>_distance / _direction_of_tra...
   - `phase1_build_2026_11_07`: Plan rev 5 (874e5615) + Q-G1 = option (a) guest-in-sleep-hours engages. Phase 1 build dispatched (ura-builder, worktree).
 
-### `CAMERA-SILENT-PRODUCER-TRIPWIRE-1` - Exterior person detection can go fleet-wide silent for a day at a time and nothing notices — build the stuck-OFF mirror of the stuck-ON trip-wire we already shipped — _#13 · WSJF 4.0 · v9 tc9 u2 /e5_
+### `CAMERA-SILENT-PRODUCER-TRIPWIRE-1` - Exterior person detection can go fleet-wide silent for a day at a time and nothing notices — build the stuck-OFF mirror of the stuck-ON trip-wire we already shipped — _#17 · WSJF 4.0 · v9 tc9 u2 /e5_
 thread: **perimeter** - status: **shipped_organic** - approval: **implied**
 _created 2026-09-17 02:20 · updated 2026-11-08 02:05 · refined_
 - **Problem / Solution:**
@@ -1490,7 +1493,7 @@ _created 2026-09-17 02:20 · updated 2026-11-08 02:05 · refined_
   - `mergeprep_2026_11_03_overnight`: Same merge-prep as HVAC-KWH-AVOIDED-TOTAL-NOT-MONOTONIC-1 (integ/overnight-2026-10-27 merges clean onto develop @30e4c61a, 129 commits of drift; test_camera_detector_hung.py all green on the merge; 0 new failures in neighbouring files).
   - `organic_note_2026_11_08`: Tonight's 7.3 h Frigate2 outage (11-07 13:14-20:32) was host/status UNAVAILABLE mode, and the camera-input-dark check caught it (3 HIGH pages). This card's hung-detector path (frozen detection_fps while Frigate reports running) was not e...
 
-### `PERIMETER-IDENTITY-FOLLOWUP-1` - Door alert sent as unknown, identity resolves within ~90 s -> one quiet follow-up ('Front door: that was Jaya') — _#14 · WSJF 4.0 · v4 tc2 u2 /e2_
+### `PERIMETER-IDENTITY-FOLLOWUP-1` - Door alert sent as unknown, identity resolves within ~90 s -> one quiet follow-up ('Front door: that was Jaya') — _#18 · WSJF 4.0 · v4 tc2 u2 /e2_
 thread: **security** - status: **shipped_organic**
 _created 2026-11-09 00:30 · updated 2026-11-10 02:16_
 - **Why:** Time-sensitive alerts go out immediately (feedback_alert_latency_over_precision); Protect names back-fill 40-80 s later, so identity arrives after the page.
@@ -1500,7 +1503,7 @@ _created 2026-11-09 00:30 · updated 2026-11-10 02:16_
   - `tier`: 1
   - `reconcile_2026_11_09`: Overnight reconcile: board still showed this as planned/investigating/in_progress but v5.107.5 was merged to develop at e7ead0e4 by the 11-08/09 attended session (not yet deployed; develop was 87 commits ahead of origin). Moved to review.
 
-### `PERIMETER-FP-STREET-NOISE-1` - Perimeter alerts still include false positives and street noise: reduce FPs end-to-end (Frigate masks/zones/filters, URA pre-alert gates) + check snapshot storage/archival — _#15 · WSJF 2.7 · v4 tc2 u2 /e3_
+### `PERIMETER-FP-STREET-NOISE-1` - Perimeter alerts still include false positives and street noise: reduce FPs end-to-end (Frigate masks/zones/filters, URA pre-alert gates) + check snapshot storage/archival — _#19 · WSJF 2.7 · v4 tc2 u2 /e3_
 thread: **security** - status: **shipped_organic**
 _created 2026-11-08 14:00_
 - **Why:** Measure first: classify recent perimeter alerts from archived snapshots per camera (true person / street traffic / vehicle / shadow-light / animal / empty), then map each FP class to the cheapest lever: Frigate-side (homelab) motion mask...
@@ -1512,7 +1515,7 @@ _created 2026-11-08 14:00_
   - `arc_2026_11_09`: ARC perimeter-identity-arc-2026-11 (operator: 'Link the arc so we don't lose the thread and we can hit them all after any required measurements'). Releases: v5.107.0 perimeter gates (installed); v5.107.1 face-source registry (FACE-SOURCE...
   - `adjacency_2026_11_08`: Prior art: PERIMETER-PHANTOM-XCORR-1 (done, phantom person + double send + cross-NVR check), docs/planning/AUDIT_perimeter_fp_correlation.md, PLANNING_perimeter_consolidation.md, PLANNING_snap1_at_detection_snapshots.md. ADJACENT not dup...
 
-### `GUEST-MODE-SPLIT-VISITORS-1` - Split 'visitors present' (low bar: any non-resident seen, incl. a known-guest face) from GUEST mode (high bar: corroborated by sustained guest-room occupancy and/or sustained new guest-WiFi presence) — _#16 · WSJF 2.5 · v6 tc2 u2 /e4_
+### `GUEST-MODE-SPLIT-VISITORS-1` - Split 'visitors present' (low bar: any non-resident seen, incl. a known-guest face) from GUEST mode (high bar: corroborated by sustained guest-room occupancy and/or sustained new guest-WiFi presence) — _#20 · WSJF 2.5 · v6 tc2 u2 /e4_
 thread: **presence** - status: **shipped_organic**
 _created 2026-11-09 01:00 · updated 2026-11-09 12:00_
 - **Why:** Guest mode changes HVAC, lighting and security; a single face (Frigate mislabels residents, presence doc #28) or a transient body must not flip it. A visitor-present signal is still useful at a low bar (notifications, census display, per...
