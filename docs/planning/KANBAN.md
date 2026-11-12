@@ -1500,10 +1500,10 @@ _created 2026-11-09 00:30 · updated 2026-11-10 02:16_
 
 ### `GARAGE-REMOTE-LOCKOUT-SCHEDULE-1` - Garage remote lockout (A + B): on at night, off in the morning, and released when a family member arrives so a 3 AM return is not locked out — _#18 · WSJF 4.0 · v4 tc2 u2 /e2_
 thread: **security** - status: **shipped_organic**
-_created 2026-11-07 12:10 · updated 2026-11-12 14:20_
+_created 2026-11-07 12:10 · updated 2026-11-12 14:28_
 - **Why:** lock.konnected_f0f5bd523b00_lock (Garage A) and lock.ratgdov25i_dbfe2a_lock_remotes (Garage B) block car remotes and the outside keypad; the wall button and HA still work. The Security coordinator has no lockout concept. Dashboard part s...
-- **Next:** PICK: hold-time knob only (recommended) or also expose the 15-min away rule as a Number -> Tier 2 build (two reviews) before the lockout is enabled.
-- **Forensic keys (9):**
+- **Next:** Me: verify HA records the per-tracker unavailable->home timing the dropout-only hold needs, then Tier-2 plan + build (two reviews) before the lockout is enabled. Organic proof of the shipped feature still needs the lockout switch on.
+- **Forensic keys (10):**
   - `tier`: 2
   - `adjacency`: Swept board for garage/lockout/keypad: NEW. Related: security arming cards; the 'leave garage B alone' constraint is lifted for this scheme by the operator 2026-11-07.
   - `plan_2026_11_07`: Option B picked. Plan rev1 docs/planning/PLANNING_sc_garage_remote_lockout.md (ea4bc6a8), pre-review. Open operator questions: approach zone 1-2 km; away/vacation engage + hold-until-arrival; keypad physical test; kill-switch-at-night se...
@@ -1513,6 +1513,7 @@ _created 2026-11-07 12:10 · updated 2026-11-12 14:20_
   - `phase1_build_2026_11_07`: Plan rev 5 (874e5615) + Q-G1 = option (a) guest-in-sleep-hours engages. Phase 1 build dispatched (ura-builder, worktree).
   - `INSTANCE_2026_11_12_blip_release_gap`: D0 probe (docs/planning/AUDIT_ble_arrival_d0_probe.md): 78 of Oji's 86 person not_home->home edges 11-05..11-11 were sub-second false arrivals (phone app tracker unavailable -> person fell back to the iPad's home), each dispatching a geo...
   - `operator_decision_2026_11_12_blip`: Operator approved fixing the blip-release gap before the lockout goes on; asked whether 15 min is right and wants a knob (Number entity on the device, plain-language label) after a parsimony check. Parsimony finding: the 15-min away rule...
+  - `measured_2026_11_12_arrival_gap`: Operator called my 'remotes back on well before you press' an untested assumption -> measured (docs/planning/AUDIT_arrival_to_garage_open_gap.md, 11-05..11-12): 27 person-edge -> garage-open pairs, gap min 1.9 s, median 19 s, max 354 s; ...
 
 ### `PERIMETER-FP-STREET-NOISE-1` - Perimeter alerts still include false positives and street noise: reduce FPs end-to-end (Frigate masks/zones/filters, URA pre-alert gates) + check snapshot storage/archival — _#19 · WSJF 2.7 · v4 tc2 u2 /e3_
 thread: **security** - status: **shipped_organic**
