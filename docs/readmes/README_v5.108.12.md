@@ -39,6 +39,14 @@ paused + vacant gets called with vacant, paused + occupied gets called with occu
 
 Full serial suite on 68d5f54a: 0 failed / 20625 passed. Branch tests 157 passed; mutation drills RED on the hoisted call (5 tests) and the hold release (1 test). Known gap: the paused-only condition on the hold release has no dedicated test.
 
+## Validated 2026-11-12 (restart 13:48 CST, house home_day)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Installed | PASS | update entity installed_version v5.108.12; HA manifest v5.108.12 |
+| No URA ERROR after restart | PASS | system_log level ERROR, search universal_room_automation: 0 entries |
+| Kitchen swept on the first vacant night | organic | first night 11-12; disposition via `--revisit` |
+
 ## Live acceptance criteria
 
 - **Live:** on the first night after deploy, with `switch.kitchen_automation` OFF and Kitchen vacant at some tick between the auto-off hour and 05:00, `ura_activity_log` has a row with `action='shared_space_auto_off'`, `room='Kitchen'`, at or after the auto-off hour. The Kitchen overhead is off by morning.
