@@ -41,6 +41,12 @@
 
 **Forms A+B planned together, parked on HA 2026.11.** → [264](entries/264_forms_ab_joint_plan_gated_on_ha_2026_11.json)
 
+## 2026-11-12: measure the guard before you guard
+
+Two lock and charging fixes were reshaped by measurement, not argument. The lock regime counted every away-to-home edge as an arrival, and an iPad left at home gave Oji 78 sub-second false arrivals in a week. A flat 5 s hold looked safe until the arrival-to-garage-open gap measured 1.9 s at its shortest; a "hold after a dropout" rule would have held one of 40 real arrivals. The rule that held zero real arrivals is "the tracker that says home did not itself change at the edge", because the operator's bar is that a real unlock is never delayed. → [288](entries/288_lock_hold_stale_source_rule.json)
+
+The EV rung-1 flip-flop came from crediting a grid-fed car's whole draw as redirectable solar; the fix caps that credit at fresh measured surplus instead of banning daytime charging during arbitrage, which would have cost ~17.5 h/week of overnight charging. → [287](entries/287_ev_rung1_cap_not_blanket_pause.json) An approved "faster BLE arrival" build was dropped when the inventory showed the geofence path already fires at the first scanner hearing. → [289](entries/289_ble_seen_arrival_already_exists.json)
+
 ## Open questions
 
 - OC agent: which fix types earn R1 first, and what promotion evidence lifts one to R2?

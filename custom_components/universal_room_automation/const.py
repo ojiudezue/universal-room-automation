@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.108.12
+# Universal Room Automation vv5.108.13
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.108.12"
+VERSION: Final = "v5.108.13"
 
 # EC-LOADED-VS-INSTALLED-VERSION-1 — how often the on-disk manifest is re-read
 # to detect an installed-but-not-restarted deploy. Rung 1 (module constant):
@@ -3747,6 +3747,20 @@ CONF_GARAGE_LOCKOUT_MORNING_BACKSTOP_MIN: Final = (
 GARAGE_LOCKOUT_MORNING_BACKSTOP_MIN: Final = 60
 CONF_GARAGE_LOCKOUT_REENGAGE_DELAY_S: Final = "garage_lockout_reengage_delay_s"
 GARAGE_LOCKOUT_REENGAGE_DELAY_S: Final = 900
+# Suspicious-arrival hold (plan PLANNING_lock_suspicious_arrival_hold.md rev 2
+# D5): a person home/zone edge whose `source` tracker did not itself change
+# at the edge is held this long before it counts (garage lockout AND away
+# lock; P1 person edge, P2 arriving signal, P5 proximity). Measured blip max
+# 1.17 s. 0 = off (develop behaviour, INV-H4).
+CONF_GARAGE_LOCKOUT_ARRIVAL_HOLD_S: Final = "garage_lockout_arrival_hold_s"
+GARAGE_LOCKOUT_ARRIVAL_HOLD_S: Final = 5
+# Rung 1: the stale-source classifier boundary (plan §2.2: real arrivals have
+# source age <= 0.0003 s, blips >= 4,119 s). Review-only; H = 0 disables.
+LOCK_ARRIVAL_STALE_SOURCE_S: Final = 10.0
+# Rung 1: the away-lock dwell, if due while a listed person's edge is held,
+# re-fires this long after the hold's expiry (plan §5.2 F3: "+0.1 s"), so a
+# confirm replay (which cancels the dwell) always runs first.
+LOCK_ARRIVAL_DWELL_DEFER_PAD_S: Final = 0.1
 # Rung 1 (module constants, review-only). The GARAGE_LOCKOUT_* read-back,
 # blip and boot constants below are SHARED lock-regime constants: the away
 # lock (SC-LOCK-REGIME-DOOR-LOCKS-1) uses READBACK_S / READBACK_RETRIES /

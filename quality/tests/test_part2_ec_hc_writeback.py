@@ -249,6 +249,9 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     "garage_lockout_approach_radius_m",
     "garage_lockout_morning_backstop_min",
     "garage_lockout_reengage_delay_s",
+    # LOCK-SUSPICIOUS-ARRIVAL-HOLD D5 (docs/planning/
+    # PLANNING_lock_suspicious_arrival_hold.md): live Number knob -> 121.
+    "garage_lockout_arrival_hold_s",
 }
 
 
@@ -407,7 +410,9 @@ def test_options_reload_suppress_keys_count_matches_part2_scope():
     # +1 EC-BILL-CYCLE-DAY-WIRED-1 energy_bill_cycle_day -> 111
     # +6 GARAGE-REMOTE-LOCKOUT-SCHEDULE-1 live lock-regime keys -> 117
     # +3 SC-LOCK-SWEEP-EXCLUDE-1 / SC-LOCK-REGIME-DOOR-LOCKS-1 live keys -> 120
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 120
+    # +1 LOCK-SUSPICIOUS-ARRIVAL-HOLD D5 garage_lockout_arrival_hold_s -> 121
+    #    (docs/planning/PLANNING_lock_suspicious_arrival_hold.md)
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 121
 
 
 # ---------------------------------------------------------------------------

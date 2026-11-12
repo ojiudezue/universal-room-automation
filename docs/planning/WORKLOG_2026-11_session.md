@@ -67,3 +67,4 @@
 - 2026-11-11 19:12 **v5.108.10** — v5.108.10 — Battery charge source, per day (cards: EC-BATTERY-CHARGE-SOURCE-DAY-1)
 - 2026-11-12 12:53 **v5.108.11** — v5.108.11 — Four Tier-1 fixes (cards: FAN-RECHECK-FORM-RESTORE-REVERT-1,SC-GEOFENCE-PERSON-SNAPSHOT-1,KANBAN-SHIP-FLOW-CARDS-1,EC-CFG-SELFHEAL-FALSE-CRITICAL-1)
 - 2026-11-12 13:46 **v5.108.12** — v5.108.12 — Shared-space night failsafe runs in paused rooms (cards: SHARED-SPACE-AUTO-OFF-FAILSAFE-1)
+- 2026-11-12 15:49 **v5.108.13** — v5.108.13 — EV rung-1 redirect cap; lock suspicious-arrival hold (cards: EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1,GARAGE-REMOTE-LOCKOUT-SCHEDULE-1)

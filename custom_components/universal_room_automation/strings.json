@@ -2687,6 +2687,10 @@
       }
     },
     "number": {
+      "garage_lockout_arrival_hold_s": {
+        "name": "Garage Lockout Suspicious Arrival Hold",
+        "description": "Applies to the garage lockout and the away lock. When an arrival looks like a phone-tracker glitch (the home reading came from a device that has not moved), wait this many seconds before unlocking. Normal arrivals are never delayed. 0 = off."
+      },
       "hvac_egress_threshold_min": {
         "name": "Egress Pause Threshold",
         "description": "Minutes an egress window must stay open before its HVAC zone pauses. Default 3 — short enough to catch a forgotten-open door, long enough to avoid pausing on a quick walk-through."

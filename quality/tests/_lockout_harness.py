@@ -50,6 +50,8 @@ def load(modname: str):
 
 
 TZ = timezone(timedelta(hours=-6))
+# Suffix of the harness's auto-made fresh person source tracker (set_state).
+AUTO_SRC = "_ura_test_src"
 
 
 class FakeState:
@@ -207,6 +209,16 @@ class World:
             new = None
         else:
             attrs = attributes if attributes is not None else (old.attributes if old else {})
+            if eid.startswith("person.") and (
+                "source" not in attrs or str(attrs.get("source", "")).endswith(AUTO_SRC)
+            ):
+                # Suspicious-arrival hold (plan D2): HA's person always carries
+                # a ``source`` tracker. Model a FRESH one (it changed with the
+                # person, as on every real arrival) unless the test passes its
+                # own ``source``; a stale-source test passes it explicitly.
+                src = f"device_tracker.{eid.split('.', 1)[1]}{AUTO_SRC}"
+                attrs = {**attrs, "source": src}
+                self.hass.states._s[src] = FakeState(src, state, {}, last_changed=self.now)
             new = FakeState(eid, state, attrs, last_changed=self.now)
             self.hass.states._s[eid] = new
         ev = FakeEvent({"entity_id": eid, "old_state": old, "new_state": new})
