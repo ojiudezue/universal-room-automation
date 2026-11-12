@@ -45,12 +45,13 @@ added-domain tracker, and five order-dependent failures from a stubbed `callback
 HVAC-ZONE-KWH-SEED-WARN-WORDING-1: review found the fix targets a warning branch that most likely
 never fired. Back to investigation; this release's restart is used to capture the real reason.
 
-## Live validation (prospective)
+## Validated 2026-11-12 (restart 12:55 CST, house home_day)
 
-- Installed version is 5.108.11.
-- `switch.garage_a_garage_a_fan_recheck` and `..._l2_allowed` read off (options are off);
-  `switch.ura_presence_coordinator_fan_recheck` stays on.
-- No URA ERROR in the log after restart.
-- Security geofence listener set up with no error (system log).
-- Capture the zone-kWh seed WARNING reason text, if it appears, onto its card.
-- Organic: no "self-heal" CRITICAL page whose oracle matched the command at page time.
+| Criterion | Result | Evidence |
+|---|---|---|
+| Installed | PASS | `update.universal_room_automation_update` installed_version v5.108.11; HA manifest v5.108.11 |
+| Garage A fan re-check follows options | PASS | `switch.garage_a_garage_a_fan_recheck` off and `..._l2_allowed` off (were on before; options off); `switch.ura_presence_coordinator_fan_recheck` on |
+| No URA ERROR after restart | PASS | system_log, search universal_room_automation: WARNING only (boot transients: 60 s sensor hold, Bermuda polling fallback, census cameras not ready, Envoy booting) |
+| Security geofence listener sets up | PASS | no security/geofence entry in system_log |
+| Zone-kWh seed reason captured | captured | all three zones: "no RestoreState entry for number.ura_hvac_coordinator_ac_kwh_rate_threshold_*", yet the Numbers restored (zone 1 = 1.0, zones 2/3 = 0.8); recorded on HVAC-ZONE-KWH-SEED-WARN-WORDING-1 |
+| No false self-heal CRITICAL | organic | needs the next CFG/reserve write episode; disposition via the `--revisit` discriminator |
