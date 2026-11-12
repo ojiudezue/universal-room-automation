@@ -649,11 +649,11 @@ cards:
   shipped_version: v5.105.0
   tier: 2
   created: "2026-11-07 12:10"
-  updated: '2026-11-12 14:28'
+  updated: '2026-11-12 14:42'
   rank: {value: 4, time_criticality: 2, effort: 2}
   origin: "Operator 2026-11-07: lockout 'prevents the external keypad from being guessed or bypassed. The SC does not have this concept.' Asked about auto-release ~6 AM and red-eye arrivals at 3 AM; wants Garage B included."
   why: "lock.konnected_f0f5bd523b00_lock (Garage A) and lock.ratgdov25i_dbfe2a_lock_remotes (Garage B) block car remotes and the outside keypad; the wall button and HA still work. The Security coordinator has no lockout concept. Dashboard part shipped 2026-11-07: tiles per garage, and 'Lock all' also engages both lockouts. Unverified: whether myQ still reaches these openers (they run Konnected blaQ / ratgdo) and whether ratgdo's lock also blocks the wireless keypad on this opener model; test physically before relying on it."
-  next: "Me: verify HA records the per-tracker unavailable->home timing the dropout-only hold needs, then Tier-2 plan + build (two reviews) before the lockout is enabled. Organic proof of the shipped feature still needs the lockout switch on."
+  next: "Me: build PLANNING_lock_suspicious_arrival_hold.md rev2 (ura-builder, worktree), three framing-disjoint reviews, suite, ship before the lockout is enabled."
   adjacency: "Swept board for garage/lockout/keypad: NEW. Related: security arming cards; the 'leave garage B alone' constraint is lifted for this scheme by the operator 2026-11-07."
   plan_2026_11_07: "Option B picked. Plan rev1 docs/planning/PLANNING_sc_garage_remote_lockout.md (ea4bc6a8), pre-review. Open operator questions: approach zone 1-2 km; away/vacation engage + hold-until-arrival; keypad physical test; kill-switch-at-night semantics; which residents; 07:00 backstop."
   finding_periodic_sweep_2026_11_07: "Planner audit: the SC periodic lock sweep closes ANY open garage every 60 min regardless of arming, and re-locks everything in security_lock_entities (so lockouts must stay off that list). Out of scope for this cycle; candidate own card after operator look."
@@ -663,6 +663,7 @@ cards:
   INSTANCE_2026_11_12_blip_release_gap: "D0 probe (docs/planning/AUDIT_ble_arrival_d0_probe.md): 78 of Oji's 86 person not_home->home edges 11-05..11-11 were sub-second false arrivals (phone app tracker unavailable -> person fell back to the iPad's home), each dispatching a geofence arrival. security_lock_regime.py:1140-1143 _arrival_counts returns True for any not_home->home edge without the 15-min _really_away check (that check runs only for unavailable->home). So with the lockout armed, such a blip would release it. No release seen because the lockout master is off. The iPad/Mac trim (11-11) removed Oji's source; Ezinne's app tracker blips 32x but has not reached person level. Fix candidate: apply a minimum-dwell / really-away check to not_home->home too, or ignore home edges that revert within N s. Street-facing scanner false arrivals: 0 observed for the other residents."
   operator_decision_2026_11_12_blip: "Operator approved fixing the blip-release gap before the lockout goes on; asked whether 15 min is right and wants a knob (Number entity on the device, plain-language label) after a parsimony check. Parsimony finding: the 15-min away rule does NOT stop Oji-type blips (he had been away days); what stops a sub-second blip is requiring the home reading to hold for a few seconds. Proposed: new Number 'Arrival must hold for' (seconds, default 5, 0 = off) on the garage lockout device next to approach radius / morning backstop / re-engage delay (number.py:4452-4480 pattern), applied to every arrival edge for both lockout release and away-lock unlock; keep GARAGE_LOCKOUT_BLIP_MIN_AWAY_MIN=15 as a module constant (it only guards home->unavailable->home and is rarely tuned)."
   measured_2026_11_12_arrival_gap: "Operator called my 'remotes back on well before you press' an untested assumption -> measured (docs/planning/AUDIT_arrival_to_garage_open_gap.md, 11-05..11-12): 27 person-edge -> garage-open pairs, gap min 1.9 s, median 19 s, max 354 s; 1 under 5 s (Jaya 1.9 s), 6 under 10 s. A flat 5 s hold would have left a remote disabled at the press about 1 in 27 arrivals. Front door: 0 unlocks within 10 min of a person edge. Decision: dropout-only hold (hold an arrival only if that person's tracker was unavailable within the last few seconds); real arrivals stay instant. 15-min rule stays a code constant."
+  plan_2026_11_12: 'docs/planning/PLANNING_lock_suspicious_arrival_hold.md rev2 (ab211e17). Rule: hold an arrival only when the tracker that reports home did not itself change at the edge (0/40 real held, 78/78 blips caught, 7 days); boot window exempt; proximity release covered. Plan review REVISE (no HIGH) applied.'
 - id: ROOM-CONFIG-LEGACY-MMWAVE-KEY-1
   title: "Study A carries an inert legacy 'mmwave_sensors' key (dead Athom radar) in entry.data that no code reads and no form can clear"
   thread: config_flow
@@ -34401,6 +34402,26 @@ cards:
     related: [EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1]
     context: 'Surfaced while planning the rung-1 redirect cap; independent of it.'
   next: 'Me: verify the double append (test on the real sampler) and list the window readers; then Tier-1 fix.'
+- id: STALE-SOURCE-ARRIVAL-CONSUMERS-1
+  title: Other features still treat a stale tracker-fallback 'home' blip as a real arrival (security expected-arrival window first)
+  thread: security
+  status: inbox
+  created: '2026-11-12 14:42'
+  updated: '2026-11-12 14:42'
+  refinement_status: initial
+  tier: 2
+  approval: unreviewed
+  problem_solution:
+  - 'Problem: a sub-second false home reading (a stale tracker HA falls back to, like the iPad case) is treated as a real arrival by features outside the lock regime. Most important: each blip opens Security''s 5-minute expected-arrival window (security.py:2410-2418), which relaxes entry alerts. HVAC pre-arrival and music following also react. Solution: reuse the stale-source check from the lock hold (arrival_edges.py) in these consumers, security first.'
+  origin:
+    date: '2026-11-12'
+    gist: Plan review F11 of PLANNING_lock_suspicious_arrival_hold.md; plan recommended a follow-up card.
+  why: Same blips the lock hold fixes; today no person has two GPS trackers so the trigger is dormant, but one added device reproduced 78 false arrivals in a week.
+  links:
+    blocked_by: [GARAGE-REMOTE-LOCKOUT-SCHEDULE-1]
+    context: 'Reuses the stale_source_arrival check the lock hold builds; wait for it to ship.'
+  next: 'Me: after the lock hold ships, scope the security expected-arrival window first.'
+  rank: {value: 5, time_criticality: 3, effort: 3}
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
