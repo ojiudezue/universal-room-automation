@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-12T14:13:16-06:00_ - _Data commit: `85982fcc5b94`_ - _last_reconciled: 2026-11-12_
+_Generated: 2026-11-12T14:20:53-06:00_ - _Data commit: `ab4dc0413521`_ - _last_reconciled: 2026-11-12_
 
 
 ## Columns
@@ -3204,17 +3204,18 @@ _closed, evidence in refs_
 
 ### `EC-EV-DAYTIME-SOLAR-LED-1` - Explore making daytime EV charging solar-led instead of off-peak-led in the EC — _WSJF 1.8 · v5 tc2 u2 /e5_
 thread: **energy** - status: **done** - approval: **implied**
-_created 2026-11-12 14:07 · updated 2026-11-12 14:20 · initial_
+_created 2026-11-12 14:07 · updated 2026-11-12 14:23 · initial_
 - **Problem / Solution:**
   - Problem: in shoulder and winter the tariff calls midday off-peak (same 4.3 cents as overnight, export the same), so the EC lets the cars charge from the grid in daylight just as it does overnight; excess-solar logic only adds charging an...
 - **Origin:** 2026-11-12 - Operator: "Daytime EV charging should be solar-led ... Explore what this could mean for EC"
 - **Why:** Raised while diagnosing EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1; the rung-1 fix D is kept separate and does not depend on this.
 - **Next:** PICK: (A, recommended) no build; optionally raise number.ura_energy_coordinator_fill_priority_soc 80 -> ~90 (knob, yours); park shapes 2-4 with triggers; or (B) pursue shape 2 (Tier 3). ANSWER: is solar-led about money (zero on this tari...
-- **Forensic keys (4):**
+- **Forensic keys (5):**
   - `tier`: 2
   - `adjacency`: Swept board (no solar-led card), BACKLOG.md (none); prior art in docs/planning: AUDIT_excess_solar_and_evse_prior_art.md, PLANNING_evse_solar_follow_amps.md, PLANNING_evse_solar_idle_dereserve.md, PLANNING_evse_offpeak_fill_priority_rele...
   - `exploration_2026_11_12`: docs/planning/EXPLORE_ec_ev_daytime_solar_led.md. Fill priority already keeps the car off in daylight off-peak until battery 80% on good-forecast days; excess-solar + solar-follow amps take over at battery >=95%. Gaps: battery 80-95%, an...
   - `operator_decision_2026_11_12`: Operator: raise fill priority toward the 95% latch -> DONE 13:5x CST: number.ura_energy_coordinator_fill_priority_soc 80 -> 90 (max 95, step 5; prior value 80 is the rollback). Operator disputes 'sun = grid in value': with sunk costs, su...
+  - `refinement_2026_11_12`: Operator: we rarely export; most sun goes to house/car, so my export-credit framing assumed a case that seldom happens -> conceded. Sharpened: sun is $0 only when it is genuine surplus (house and battery already covered); when there is n...
 
 ### `PERSON-OJI-HOME-FLAP-1` - person.oji_udezue flaps home/not_home in the same second while abroad — _WSJF 7.0 · v3 tc2 u2 /e1_
 thread: **presence** - status: **done**

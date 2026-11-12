@@ -34358,7 +34358,7 @@ cards:
   thread: energy
   status: done
   created: '2026-11-12 14:07'
-  updated: '2026-11-12 14:20'
+  updated: '2026-11-12 14:23'
   refinement_status: initial
   tier: 2
   approval: implied
@@ -34379,6 +34379,7 @@ cards:
   rank: {value: 5, time_criticality: 2, effort: 5}
   exploration_2026_11_12: "docs/planning/EXPLORE_ec_ev_daytime_solar_led.md. Fill priority already keeps the car off in daylight off-peak until battery 80% on good-forecast days; excess-solar + solar-follow amps take over at battery >=95%. Gaps: battery 80-95%, and poor-forecast days. Tariff is symmetric (import = export 4.35c off-peak), so solar vs grid into the car is worth the same; only value is a fuller battery at the evening boundary (<=26c/day shoulder, <=71c/day summer, arithmetic). 7 days data: 14.4 kWh daytime EV, ~all of it the 11-08 poor-day session from grid with no export; 37 kWh export fell on good days with no car charging. Shapes: 1 knob fill_priority_soc 80->90 (config only); 2 solar-only by day unless needed (Tier 3, needs car SOC/departure); 3 excess-solar on export (revives EVSE-SOLAR-STOP-CONDITIONS-1 oscillator); 4 summer-only. Recommend no build."
   operator_decision_2026_11_12: "Operator: raise fill priority toward the 95% latch -> DONE 13:5x CST: number.ura_energy_coordinator_fill_priority_soc 80 -> 90 (max 95, step 5; prior value 80 is the rollback). Operator disputes 'sun = grid in value': with sunk costs, sun into the car is $0. My note: its cash cost is the export credit forgone (4.35c/kWh at off-peak), so the gap vs grid is 0 only while export is credited at the import rate; recorded as a disagreement for the operator to weigh, not resolved. Shapes 2-4 parked with the stated triggers."
+  refinement_2026_11_12: "Operator: we rarely export; most sun goes to house/car, so my export-credit framing assumed a case that seldom happens -> conceded. Sharpened: sun is $0 only when it is genuine surplus (house and battery already covered); when there is no surplus, sun sent to the car is taken from the house or battery, which then buys that energy back from the grid later (often at a higher evening rate). So solar-led means 'car gets the surplus first', which today's fill priority (now 90) + excess-solar at 95 already approximates."
 - id: EC-ATTAIN-RATE-DUP-SAMPLE-1
   title: The battery charge-rate window can record the same reading twice in one tick, shortening its 15-minute window
   thread: energy
