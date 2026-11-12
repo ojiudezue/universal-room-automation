@@ -980,6 +980,16 @@ class PeakAvoidanceTracker:
         self._pa_lifetime_delta: float = 0.0
         self._kwh_avoided_lifetime_delta: float = 0.0
 
+        # EC-BATTERY-CHARGE-SOURCE-DAY-1: daily totals of the per-tick charge
+        # split (same local-midnight reset + snapshot as _pa_today). The split
+        # maths is unchanged; these only sum what accumulate() already returns.
+        self._charge_grid_kwh_today: float = 0.0
+        self._charge_solar_kwh_today: float = 0.0
+        self._charge_unsplit_kwh_today: float = 0.0
+        # Latest tick's live split in kW (None = no tick / net unknown).
+        self._last_grid_charge_kw: float | None = None
+        self._last_solar_charge_kw: float | None = None
+
         self._last_date: str = ""
         self._cycle_start_date: str = ""
         self._last_accumulate_ts: float | None = None
@@ -1020,6 +1030,9 @@ class PeakAvoidanceTracker:
         if today != self._last_date:
             self._pa_today = 0.0
             self._kwh_avoided_today = 0.0
+            self._charge_grid_kwh_today = 0.0
+            self._charge_solar_kwh_today = 0.0
+            self._charge_unsplit_kwh_today = 0.0
             self._last_date = today
         cycle_key = self._get_cycle_start(now).isoformat()
         if cycle_key != self._cycle_start_date:
@@ -1104,6 +1117,9 @@ class PeakAvoidanceTracker:
             # grid/solar split; the charge kWh go back unsplit.
             if net_import_kw is None:
                 tick["charge_kwh_unsplit"] = charge_kw * elapsed_h
+                self._charge_unsplit_kwh_today += tick["charge_kwh_unsplit"]
+                self._last_grid_charge_kw = None
+                self._last_solar_charge_kw = None
                 return tick
             net = float(net_import_kw)
             export_kw = max(0.0, -net)
@@ -1113,6 +1129,10 @@ class PeakAvoidanceTracker:
             grid_charge_kw = min(charge_kw, max(net, 0.0))
             tick["charge_kwh_grid"] = grid_charge_kw * elapsed_h
             tick["charge_kwh_solar"] = (charge_kw - grid_charge_kw) * elapsed_h
+            self._charge_grid_kwh_today += tick["charge_kwh_grid"]
+            self._charge_solar_kwh_today += tick["charge_kwh_solar"]
+            self._last_grid_charge_kw = grid_charge_kw
+            self._last_solar_charge_kw = charge_kw - grid_charge_kw
 
             served_kw = max(
                 0.0,
@@ -1179,6 +1199,18 @@ class PeakAvoidanceTracker:
     def kwh_avoided_lifetime_delta(self) -> float:
         return round(self._kwh_avoided_lifetime_delta, 4)
 
+    @property
+    def charge_grid_kwh_today(self) -> float:
+        return round(self._charge_grid_kwh_today, 4)
+
+    @property
+    def charge_solar_kwh_today(self) -> float:
+        return round(self._charge_solar_kwh_today, 4)
+
+    @property
+    def charge_unsplit_kwh_today(self) -> float:
+        return round(self._charge_unsplit_kwh_today, 4)
+
     METHODOLOGY: str = (
         "Peak-avoidance counterfactual: for each decision tick, credit "
         "served_locally_kW × Δh × effective_import_rate(now), where "
@@ -1216,6 +1248,11 @@ class PeakAvoidanceTracker:
                 self._kwh_avoided_lifetime_delta, 6
             ),
             "last_lifetime_rollup_date": self._last_lifetime_rollup_date,
+            "charge_grid_kwh_today": round(self._charge_grid_kwh_today, 6),
+            "charge_solar_kwh_today": round(self._charge_solar_kwh_today, 6),
+            "charge_unsplit_kwh_today": round(
+                self._charge_unsplit_kwh_today, 6
+            ),
         }
 
     def restore_snapshot(self, snapshot: dict[str, Any] | None) -> None:
@@ -1240,6 +1277,15 @@ class PeakAvoidanceTracker:
                 self._pa_today = float(snapshot.get("pa_today", 0.0) or 0.0)
                 self._kwh_avoided_today = float(
                     snapshot.get("kwh_avoided_today", 0.0) or 0.0
+                )
+                self._charge_grid_kwh_today = float(
+                    snapshot.get("charge_grid_kwh_today", 0.0) or 0.0
+                )
+                self._charge_solar_kwh_today = float(
+                    snapshot.get("charge_solar_kwh_today", 0.0) or 0.0
+                )
+                self._charge_unsplit_kwh_today = float(
+                    snapshot.get("charge_unsplit_kwh_today", 0.0) or 0.0
                 )
                 self._last_date = today
             if snap_cycle == cycle_key:
@@ -1304,6 +1350,17 @@ class PeakAvoidanceTracker:
             "kwh_avoided_today": self.kwh_avoided_today,
             "kwh_avoided_cycle": self.kwh_avoided_cycle,
             "kwh_avoided_lifetime_delta": self.kwh_avoided_lifetime_delta,
+            "charge_grid_kwh_today": self.charge_grid_kwh_today,
+            "charge_solar_kwh_today": self.charge_solar_kwh_today,
+            "charge_unsplit_kwh_today": self.charge_unsplit_kwh_today,
+            "grid_charge_kw": (
+                round(self._last_grid_charge_kw, 3)
+                if self._last_grid_charge_kw is not None else None
+            ),
+            "solar_charge_kw": (
+                round(self._last_solar_charge_kw, 3)
+                if self._last_solar_charge_kw is not None else None
+            ),
             "methodology": self.METHODOLOGY,
         }
 

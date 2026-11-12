@@ -64,3 +64,4 @@
 - 2026-11-10 18:39 **v5.108.7** — v5.108.7 — NM buttons refresh when the Notification Manager is ready (cards: NM-BUTTON-READY-PATTERN-1)
 - 2026-11-11 07:00 **v5.108.8** — v5.108.8: Lights fade on every ambient path; faster, order-proof test suite (cards: LIGHT-TRANSITION-COVERAGE-1,SNAP1-FRIGATE-TRAVERSAL-1)
 - 2026-11-11 14:00 **v5.108.9** — v5.108.9: Simpler forms: collapsed Advanced sections and plain-language text (cards: FORM-TEXT-PLAIN-PASS-1,PRESENCE-GEOFENCE-FIELD-DEAD-1,CLIMATE-BACKSTOP-SECTION-CLEAR-ON-ABSENT-1)
+- 2026-11-11 19:12 **v5.108.10** — v5.108.10 — Battery charge source, per day (cards: EC-BATTERY-CHARGE-SOURCE-DAY-1)

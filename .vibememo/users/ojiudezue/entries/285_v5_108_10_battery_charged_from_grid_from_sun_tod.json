@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "285",
+  "author": "ojiudezue",
+  "session_id": "claude_20261112_011255_ship_v5_108_10",
+  "timestamp": "2026-11-12T01:12:55Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.108.10 shipped: Battery charged from grid / from sun today sensors",
+  "summary": "Battery charged from grid / from sun today sensors",
+  "why": "Operator wanted a day view of battery charge by source. The EC already computed the split per tick for the arbitrage cost inventory but never exposed it; reusing it keeps one integrator and uses the Emporia-derived meter net import instead of the dashboard's cruder solar-minus-SPAN-load estimate. Local-midnight reset because Envoy *_today counters roll at UTC midnight (AUDIT_envoy_telemetry_pairing_manual F4). TOTAL_INCREASING per review LOW so the midnight drop is a reset, not a negative change.",
+  "implications": "Shipped EC-BATTERY-CHARGE-SOURCE-DAY-1 at v5.108.10; card(s) sit shipped_organic pending validation. Acceptance in README_v5.108.10.md (Live criteria).",
+  "revisit_trigger": "After the first full day: grid_today + sun_today + unsplit_kwh_today within 10% of the Envoy lifetime_battery_energy_charged delta for the same local day; both sensors 0 just after local midnight.",
+  "refs": {
+    "cards": [
+      "EC-BATTERY-CHARGE-SOURCE-DAY-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.108.10.md"
+    ],
+    "release_notes": "- Two daily kWh sensors from the Energy Coordinator's existing per-tick battery charge split (grid = min(charge, net import at the meter); sun = the rest). Reset at local midnight, survive restarts. Live kW split and unsplit kWh as attributes.\n- Includes v5.108.9 (simpler forms) for installs that skipped it."
+  }
+}

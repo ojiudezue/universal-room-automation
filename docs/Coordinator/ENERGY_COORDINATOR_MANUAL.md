@@ -452,6 +452,16 @@ caches a rate, so a tariff edit applies on the next tick.
   - the solar share at the export credit forgone;
   - unsplit charge at the off-peak effective rate.
 
+  **Daily charge-source sensors (v5.108.10, EC-BATTERY-CHARGE-SOURCE-DAY-1).** The same
+  per-tick split is summed per day inside `PeakAvoidanceTracker.accumulate`
+  (`energy_billing.py`) and shown as `sensor.ura_energy_coordinator_battery_charged_from_grid_today` and
+  `sensor.ura_energy_coordinator_battery_charged_from_sun_today` (kWh). Both carry `unsplit_kwh_today`
+  (charge while grid net was unknown) and the latest tick's `grid_charge_kw` / `solar_charge_kw`
+  (None when net was unknown). The totals reset at local midnight with the tracker's other
+  "today" values (`_maybe_reset`, keyed on the `dt_util.now()` date the EC passes, not the
+  Envoy `*_today` counters) and ride in the existing `peak_avoidance_snapshot`, so a same-day
+  restart keeps them and a snapshot from an earlier date is discarded. Split maths unchanged.
+
   Discharge removes kWh at the running average, so it never moves the basis. The inventory is
   capped at SOC × capacity (cost scaled with it), persisted (saved every 3 changed ticks and at
   unload), and restored at boot. If the restore fails or SOC is unknown it retries. It is seeded
