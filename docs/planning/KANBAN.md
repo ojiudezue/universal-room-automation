@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-12T16:48:53-06:00_ - _Data commit: `c8c2eeb8546d`_ - _last_reconciled: 2026-11-12_
+_Generated: 2026-11-12T16:53:34-06:00_ - _Data commit: `6b324966b942`_ - _last_reconciled: 2026-11-12_
 
 
 ## Columns
@@ -26,14 +26,15 @@ _raw capture_
 
 ### `STALE-SOURCE-ARRIVAL-CONSUMERS-1` - Other features still treat a stale tracker-fallback 'home' blip as a real arrival (security expected-arrival window first) — _#1 · WSJF 3.3 · v5 tc3 u2 /e3_
 thread: **security** - status: **inbox** - approval: **unreviewed**
-_created 2026-11-12 14:42 · initial_
+_created 2026-11-12 14:42 · updated 2026-11-12 17:01 · initial_
 - **Problem / Solution:**
   - Problem: a sub-second false home reading (a stale tracker HA falls back to, like the iPad case) is treated as a real arrival by features outside the lock regime. Most important: each blip opens Security's 5-minute expected-arrival window...
 - **Origin:** 2026-11-12 - Plan review F11 of PLANNING_lock_suspicious_arrival_hold.md; plan recommended a follow-up card.
 - **Why:** Same blips the lock hold fixes; today no person has two GPS trackers so the trigger is dormant, but one added device reproduced 78 false arrivals in a week.
 - **Next:** Me: after the lock hold ships, scope the security expected-arrival window first.
-- **Forensic keys (1):**
+- **Forensic keys (2):**
   - `tier`: 2
+  - `finding_2026_11_12_expected_arrival_always_on`: CORRECTS the 11-12 inventory claim that the expected-arrival window is off by default. Only the SIGNAL_PERSON_ARRIVING path is gated (CONF_SECURITY_ON_ARRIVAL_ADD_EXPECTED, security.py:2413). The security geofence listener adds expected ...
 
 ### `EC-ATTAIN-RATE-DUP-SAMPLE-1` - The battery charge-rate window can record the same reading twice in one tick, shortening its 15-minute window — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **inbox** - approval: **unreviewed**
@@ -209,13 +210,14 @@ _updated 2026-10-21 22:05_
 
 ### `PERSON-PROFILE-PREFERENCES-1` - Per-person profile for identified household members: their bedroom(s)/bathroom, room ownership (incl. shared owners e.g. master), playlist, opt-in/out of automated arrival actions, welcome scene — _#11 · WSJF 2.0 · v4 tc2 u2 /e4_
 thread: **identity** - status: **pre_planning**
-_created 2026-11-08 20:30_
+_created 2026-11-08 20:30 · updated 2026-11-12 17:01_
 - **Why:** 6.0.0 consumers (arrival/departure keyed to person_id, guest gate) need to know what a known person's arrival should DO. Today nothing records which rooms belong to whom or a person's preferences, so person-keyed actions have no target.
 - **Next:** Pre-plan (prior-art scan FIRST, per the Tier 2+ rule): where it lives (room-entry 'owners' field vs a per-person profile vs both), which consumers read it (arrival actions, Music Following playlist, welcome scene, notifications), per-per...
-- **Forensic keys (3):**
+- **Forensic keys (4):**
   - `tier`: 2
   - `predictions_2026_11_08`: Operator: 'We could also use predictions to personalize?' Yes, as SUGGESTIONS: learned patterns (Bayesian predictive layer, v4.0.0 prior art; per-person room dwell / BLE history; music history) propose profile values (likely bedroom, usu...
   - `adjacency_2026_11_08`: Grepped const.py for owner/pref/bedroom CONF keys (none) and the board for person preference/room owner (none; 'owner' hits are entity/cover ownership, a different concept). Planning docs to read in the pre-plan: known_person_annotation,...
+  - `scope_add_2026_11_12_arrival_music`: Operator: add arrival-triggered music to this card. Today music_following.py:549 only logs on SIGNAL_PERSON_ARRIVING (arrival-start never built). Scope: on a confirmed arrival of an identified person, start their profile playlist in thei...
 
 ### `OC-SHADOW-SAMPLES-EMPTY-1` - Optimization Coordinator shadow track record never accumulates: optimizer_shadow_samples has 0 rows while OC logged 6,822 findings in 14 days (~90% tier-1 noise), so the v2 promotion gate can never be met — _#12 · WSJF 1.4 · v6 tc3 u2 /e8_
 thread: **optimization** - status: **pre_planning**

@@ -554,7 +554,7 @@ cards:
   status: pre_planning
   tier: 2
   created: "2026-11-08 20:30"
-  updated: "2026-11-08 20:30"
+  updated: '2026-11-12 17:01'
   rank: {value: 4, time_criticality: 2, effort: 4}
   origin: "Operator 2026-11-08: 'I supposed we need a place to record personal preferences for identified home people ie bedroom, bathroom, playlist, automate my entries vs not, etc. bedrooms may have a designated owner or owners (master) so there can be a welcome scene, etc.'"
   why: "6.0.0 consumers (arrival/departure keyed to person_id, guest gate) need to know what a known person's arrival should DO. Today nothing records which rooms belong to whom or a person's preferences, so person-keyed actions have no target."
@@ -563,6 +563,7 @@ cards:
   predictions_2026_11_08: "Operator: 'We could also use predictions to personalize?' Yes, as SUGGESTIONS: learned patterns (Bayesian predictive layer, v4.0.0 prior art; per-person room dwell / BLE history; music history) propose profile values (likely bedroom, usual arrival routine, typical playlist). The explicit profile stays the ground truth and the operator confirms. Prediction never silently actuates on its own. Pre-plan must scan the existing prediction code before proposing anything new."
   links: {related: [FACE-SOURCE-REGISTRY-DISCOVERY-1]}
   adjacency_2026_11_08: "Grepped const.py for owner/pref/bedroom CONF keys (none) and the board for person preference/room owner (none; 'owner' hits are entity/cover ownership, a different concept). Planning docs to read in the pre-plan: known_person_annotation, hvac_guest_as_zone_person, owner_set_registry_refactor (entity owners, not people). NEW."
+  scope_add_2026_11_12_arrival_music: "Operator: add arrival-triggered music to this card. Today music_following.py:549 only logs on SIGNAL_PERSON_ARRIVING (arrival-start never built). Scope: on a confirmed arrival of an identified person, start their profile playlist in their arrival room / owned room, honouring the per-person 'automate my arrival' opt-in and quiet hours. Inventory: docs/planning/AUDIT_pre_arrival_inventory_and_precool_standdown.md."
 - id: FACE-SOURCE-REGISTRY-DISCOVERY-1
   live_validation_2026_11_10: "Validated 2026-11-10 ~02:15 CST (README_v5.107.1, commit 32b60846): 2 PASS, 1 PARTIAL, 5 not-yet-observable, 0 FAIL. Registry live: 14 registry hits, 0 fallbacks, 12 _person_occupancy_2 cameras now read, 0 skipped. README's L4 confidence set was wrong (0.8, the most common value, was missing) and is corrected in the table. Log gap: URA's logger runs at WARNING and the README's log markers are _LOGGER.info, so 'no log line' proves nothing either way; prove these via DB rows / entity attributes instead."
   title: "Face-name sources are found by entity-name pattern (<camera>_last_recognized_face[_2]); make discovery home-agnostic via the device/entity registry for Frigate and Protect"
@@ -34411,7 +34412,7 @@ cards:
   thread: security
   status: inbox
   created: '2026-11-12 14:42'
-  updated: '2026-11-12 14:42'
+  updated: '2026-11-12 17:01'
   refinement_status: initial
   tier: 2
   approval: unreviewed
@@ -34426,6 +34427,7 @@ cards:
     context: 'Reuses the stale_source_arrival check the lock hold builds; wait for it to ship.'
   next: 'Me: after the lock hold ships, scope the security expected-arrival window first.'
   rank: {value: 5, time_criticality: 3, effort: 3}
+  finding_2026_11_12_expected_arrival_always_on: "CORRECTS the 11-12 inventory claim that the expected-arrival window is off by default. Only the SIGNAL_PERSON_ARRIVING path is gated (CONF_SECURITY_ON_ARRIVAL_ADD_EXPECTED, security.py:2413). The security geofence listener adds expected arrivals UNCONDITIONALLY: person not_home->home = 10 min, not_home->other zone = 30 min (security.py:2268-2287). While ANY expected arrival exists, every door-entry verdict is SANCTIONED unless census reports an unknown person (security.py:300-303), i.e. the window is house-wide, not per person. So each of Oji's 78 iPad fallback blips (11-05..11-11) opened a 10-min house-wide sanctioned window while the house was otherwise occupied. Priority raised: reuse stale_source_arrival here first."
 - id: EC-IMPORT-TODAY-NET-AFTER-RESTART-1
   title: Energy Import Today drops to net import (import minus export) after an HA restart, so the From grid tile reads 0.7 kWh instead of ~19
   thread: energy
