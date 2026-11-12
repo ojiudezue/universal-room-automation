@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-12T14:04:55-06:00_ - _Data commit: `64ef3740228a`_ - _last_reconciled: 2026-11-12_
+_Generated: 2026-11-12T14:08:19-06:00_ - _Data commit: `c4e905912c2f`_ - _last_reconciled: 2026-11-12_
 
 
 ## Columns
@@ -282,7 +282,7 @@ _created 2026-11-11 15:10 · updated 2026-11-12 14:08 · refined_
   - Problem: when someone gets home, the Bluetooth-based arrival signal fires 8-41 s after the first 'home' signal, even though scanners sit at each door. Measured: about a third of that is the Bluetooth system working out which room the pho...
 - **Why:** BLE pre-arrival needs Bermuda to resolve the phone to a room AND the person to have been LOST >= min_away_minutes (person_coordinator.py:1100-1136). For Jaya/Ziri, 'geofence' is itself BLE (person trackers are private_ble_device/bermuda ...
 - **Next:** Me: run D0 (14-day probe) and D1 (doc write-back), then close.
-- **Forensic keys (10):**
+- **Forensic keys (11):**
   - `tier`: 1
   - `adjacency`: Related PREARRIVAL-NEAR-HOME-ZONE-1.
   - `finding_2026_11_12`: MEASURED (overnight, recorder states + URA ura_activity_log, 5 arrivals 11-11/12). Per arrival: tracker/person->home (t0) -> Bermuda area first resolves to a room -> URA 'pre_arrival source=ble' row. Jaya 22:29:58.8 -> +4.9 s (Garage A) ...
@@ -293,6 +293,7 @@ _created 2026-11-11 15:10 · updated 2026-11-12 14:08 · refined_
   - `plan_2026_11_12`: CARD-WAS-WRONG (the 11-12 overnight framing, repeated by me to the operator). The geofence arrival already IS the BLE-seen arrival: HA person logic lets any non-GPS tracker reading home win, every resident has a Bermuda bluetooth_le trac...
   - `operator_decision_2026_11_12b`: Operator: don't build; D0 probe + D1 doc approved; park Wi-Fi (data is good for decisions). Clarified the 'flip back' count is a KNOWN resident's phone heard from outside (street, driveway), not strangers.
   - `d0_2026_11_12`: D0 done (AUDIT_ble_arrival_d0_probe.md, 7.4 days, recorder from 11-05): 111/118 arrivals had geofence first within 1 s (Ezinne 16/16, Jaya 9/9, Ziri 7/7, Oji exceptions from his iPad blips). Ezinne's person home edges are mostly driven b...
+  - `correction_2026_11_12`: Operator: all BLE scanners are indoor; the network is just dense enough to reach the egress points. My 'street-facing scanner' framing was WRONG; drop it. Second-witness-before-unlock is not needed for the street case (D0 also showed 0 s...
 
 ### `DASH-ANOMALY-COVERAGE-BADGE-1` - PWA badge shows anomaly severity only: add coverage (e.g. HVAC 3/5 partial) so blind coordinators are visible without reading attributes — _#3 · WSJF 5.0 · v2 tc1 u2 /e1_
 thread: **dashboarding** - status: **planned**
