@@ -148,6 +148,7 @@ def _make(
     cap_kwh: str = "40",
     reserve_entity: str = "99",
     cls=BatteryStrategy,
+    solar_fed_net: bool = False,
 ):
     hass = MockHass()
     if soc is not None:
@@ -182,6 +183,13 @@ def _make(
         multi_day_horizon_enabled=multi_day,
     )
     strat._inclement_config_override = {}  # no NWS → allow_discharge
+    if solar_fed_net:
+        # EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1: the rung-1 entry credits
+        # only EV draw NOT covered by grid import and needs a FRESH
+        # net_power. Tests whose subject is the projection / daylight
+        # horizon (not the credit) opt in to a fresh net of 0 W (imp 0 →
+        # credit == EV draw, the pre-cap arithmetic). Wall-clock stamp.
+        hass.set_state(_NET, "0", attributes={"unit_of_measurement": "W"})
     return strat, hass
 
 
@@ -252,7 +260,7 @@ def test_flap_shape_0114_rung1_suppressed_and_p1_equals_p0():
     24 kWh * 10/12 = 20 kWh * 0.5 capture = 10 kWh / 40 kWh = 25.0 %.
     rate term 0 pre-sunrise → p0 = p1 = 9 + 25 = 34.0 < 83 → rung_2.
     """
-    strat, _ = _make(soc=9, boundary=_SHOULDER_BND)
+    strat, _ = _make(soc=9, boundary=_SHOULDER_BND, solar_fed_net=True)
     rung, p0, p1 = _classify(strat, datetime(2026, 10, 1, 1, 14), 9.0, 0.0, 11.6)
     assert rung == "rung_2"
     assert p0 == 34.0
@@ -267,7 +275,7 @@ def test_flap_shape_legacy_sunset_only_bound_latches_rung1(monkeypatch):
     rate_hours = min(946 min, sunset-now 17h46m) = 946/60 h;
     p1 = 9 + 29 %/h * 15.77 h + 25 → clamp 100 ≥ 83 → rung_1.
     """
-    strat, _ = _make(soc=9, boundary=_SHOULDER_BND)
+    strat, _ = _make(soc=9, boundary=_SHOULDER_BND, solar_fed_net=True)
     monkeypatch.setattr(strat, "_daylight_bounds", _legacy_rung_sunrise(strat))
     rung, p0, p1 = _classify(strat, datetime(2026, 10, 1, 1, 14), 9.0, 0.0, 11.6)
     assert rung == "rung_1"
@@ -289,7 +297,8 @@ def test_rung1_never_latches_pre_sunrise_any_ev_load(ev_kw, soc, rate, hhmm, bnd
     """
     now = _D.replace(hour=hhmm[0], minute=hhmm[1])
     boundary = bnd if now < bnd else bnd + timedelta(days=1)
-    strat, _ = _make(soc=soc, boundary=boundary, tomorrow_kwh="24")
+    strat, _ = _make(soc=soc, boundary=boundary, tomorrow_kwh="24",
+                     solar_fed_net=True)
     rung, p0, p1 = _classify(strat, now, soc, rate, ev_kw)
     assert rung != "rung_1"
     assert strat._arb_rung1_latch is False
@@ -304,7 +313,8 @@ def test_rung_projection_daylight_byte_identical():
     16 kWh * 0.5 * 0.5 = 4 kWh / 40 = 10.0 %.
     p0 = 40 + 2*5 + 10 = 60.0 ; EV 2 kW = 5 %/h → p1 = 40 + 7*5 + 10 = 85.0.
     """
-    strat, _ = _make(soc=40, boundary=_SUMMER_BND, remaining_kwh="16")
+    strat, _ = _make(soc=40, boundary=_SUMMER_BND, remaining_kwh="16",
+                     solar_fed_net=True)
     rung, p0, p1 = _classify(strat, datetime(2026, 10, 1, 9, 0), 40.0, 2.0, 2.0)
     assert (p0, p1) == (60.0, 85.0)
     assert rung == "rung_1"  # daylight rung_1 is legitimate (85 >= 83)
@@ -317,7 +327,7 @@ def test_rung_projection_exactly_at_sunrise_rate_counts():
     kWh * 0.5 = 7 kWh / 40 = 17.5 %. p0 = 20 + 1*7 + 17.5 = 44.5;
     EV 2 kW (+5 %/h) → p1 = 20 + 6*7 + 17.5 = 79.5.
     """
-    strat, _ = _make(soc=20, boundary=_SUMMER_BND)
+    strat, _ = _make(soc=20, boundary=_SUMMER_BND, solar_fed_net=True)
     rung, p0, p1 = _classify(strat, datetime(2026, 10, 1, 7, 0), 20.0, 1.0, 2.0)
     assert (p0, p1) == (44.5, 79.5)
     assert rung == "rung_2"
@@ -328,7 +338,7 @@ def test_rung_projection_one_second_before_sunrise_rate_zero():
 
     surplus unchanged (window starts at sunrise) = 17.5 → p0 = p1 = 37.5.
     """
-    strat, _ = _make(soc=20, boundary=_SUMMER_BND)
+    strat, _ = _make(soc=20, boundary=_SUMMER_BND, solar_fed_net=True)
     rung, p0, p1 = _classify(strat, datetime(2026, 10, 1, 6, 59, 59), 20.0, 1.0, 2.0)
     assert (p0, p1) == (37.5, 37.5)
     assert rung == "rung_2"
@@ -342,7 +352,7 @@ def test_rung_projection_one_minute_before_sunset_unchanged():
     p0 = 30 + 0.1 + 5 = 35.1 ; EV 2 kW → p1 = 30 + 11/60 + 5 = 35.18 → 35.2.
     """
     strat, _ = _make(soc=30, boundary=_SHOULDER_BND + timedelta(days=1),
-                     remaining_kwh="4")
+                     remaining_kwh="4", solar_fed_net=True)
     _, p0, p1 = _classify(strat, datetime(2026, 10, 1, 18, 59), 30.0, 6.0, 2.0)
     assert (p0, p1) == (35.1, 35.2)
 
@@ -354,7 +364,7 @@ def test_rung_projection_post_sunset_unchanged():
     0.5 = 10 kWh / 40 = 25.0 → p0 = p1 = 30 + 25 = 55.0.
     """
     strat, _ = _make(soc=30, boundary=_SHOULDER_BND + timedelta(days=1),
-                     tomorrow_kwh="24")
+                     tomorrow_kwh="24", solar_fed_net=True)
     _, p0, p1 = _classify(strat, datetime(2026, 10, 1, 19, 0), 30.0, 6.0, 2.0)
     assert (p0, p1) == (55.0, 55.0)
 
@@ -366,13 +376,14 @@ def test_local_predicate_anchor_with_r7_projector_off(monkeypatch):
     60.0/85.0.
     """
     monkeypatch.setattr(eb_mod, "R7_USE_UNIFIED_PROJECTOR", False)
-    strat, _ = _make(soc=20, boundary=_SUMMER_BND)
+    strat, _ = _make(soc=20, boundary=_SUMMER_BND, solar_fed_net=True)
     _, p0, p1 = _classify(strat, datetime(2026, 10, 1, 6, 59, 59), 20.0, 1.0, 2.0)
     assert (p0, p1) == (37.5, 37.5)
-    strat_at, _ = _make(soc=20, boundary=_SUMMER_BND)
+    strat_at, _ = _make(soc=20, boundary=_SUMMER_BND, solar_fed_net=True)
     _, p0, p1 = _classify(strat_at, datetime(2026, 10, 1, 7, 0), 20.0, 1.0, 2.0)
     assert (p0, p1) == (44.5, 79.5)  # exactly at sunrise: rate counts
-    strat2, _ = _make(soc=40, boundary=_SUMMER_BND, remaining_kwh="16")
+    strat2, _ = _make(soc=40, boundary=_SUMMER_BND, remaining_kwh="16",
+                      solar_fed_net=True)
     _, p0, p1 = _classify(strat2, datetime(2026, 10, 1, 9, 0), 40.0, 2.0, 2.0)
     assert (p0, p1) == (60.0, 85.0)
 
@@ -411,7 +422,8 @@ _NIGHT_CASES = [
 
 @pytest.mark.parametrize("now,bnd", _NIGHT_CASES, ids=["0200", "2105"])
 def test_night_releases_carried_rung1_latch(now, bnd):
-    strat, _ = _make(soc=55, boundary=bnd, tomorrow_kwh="24")
+    strat, _ = _make(soc=55, boundary=bnd, tomorrow_kwh="24",
+                     solar_fed_net=True)
     strat._arb_rung1_latch = True
     strat._arb_last_ev_load_pct_per_h = 5.0
     rung, p0, p1 = _classify(strat, now, 55.0, 0.0, 2.0)
@@ -508,7 +520,7 @@ def test_intent_reset_on_early_return_tick():
 
     10:00 shoulder 17:00: 7 h; surplus [10,17] 7/9 * 24 * .5 / 40 = 23.33.
     p0 = 55 + 0 + 23.3 = 78.3 < 83; entry = 55 + 5*7 + 23.3 → 100 >= 83."""
-    strat, _ = _make(soc=55, boundary=_SHOULDER_BND)
+    strat, _ = _make(soc=55, boundary=_SHOULDER_BND, solar_fed_net=True)
     now = datetime(2026, 10, 1, 10, 0)
     _seed_rate(strat, now, 55.0, 0.0)
     strat.determine_mode("off_peak", "shoulder", now=now, ev_load_w=2000.0)
@@ -541,7 +553,7 @@ def test_sun_unavailable_fallback_envelope_gates_both_ends():
     08:00 → rate counts: mins 360 → 6 h; surplus [08:00,14:00] 6 h / 11 h →
     24*6/11*0.5 = 6.545 kWh / 40 = 16.36 %; p0 = 20 + 6 + 16.36 = 42.4.
     """
-    strat, hass = _make(soc=20, boundary=_SUMMER_BND)
+    strat, hass = _make(soc=20, boundary=_SUMMER_BND, solar_fed_net=True)
     hass._states.pop("sun.sun", None)
     assert hass.states.get("sun.sun") is None
     _, p0, p1 = _classify(strat, datetime(2026, 10, 1, 6, 30), 20.0, 1.0, 2.0)
@@ -565,15 +577,28 @@ def test_inverted_bounds_rate_term_zero():
     assert rung == "rung_2"
 
 
-def test_rung1_post_sunrise_ev_draw_documented():
-    """F6(b) — DOCUMENTS the residual, not correctness.
+def test_rung1_post_sunrise_grid_fed_ev_no_entry():
+    """F6(b) CLOSED by EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1 (redirect cap).
 
-    At sunrise + 1 min with the EV still drawing and a ~0 trailing rate,
-    the entry extrapolates +29 %/h over min(599, 719) min → p1 = 100 →
-    rung_1 (the same pause/release mechanism the plan scopes out: D1 removes
-    the PRE-DAWN window only). Detector: the SPEC INV-1 trip-wire card.
+    Was `test_rung1_post_sunrise_ev_draw_documented` (asserted the residual
+    rung_1). At sunrise + 1 min a GRID-FED EV (11.6 kW, net import 13 kW
+    fresh) earns redirect credit clamp(11.6 - 13, 0, 11.6) = 0 → the entry
+    short-circuits → rung_2, no latch, p1 None (entry not projected).
     """
-    strat, _ = _make(soc=9, boundary=_SHOULDER_BND)
+    strat, hass = _make(soc=9, boundary=_SHOULDER_BND)
+    hass.set_state(_NET, "13000", attributes={"unit_of_measurement": "W"})
+    rung, p0, p1 = _classify(strat, datetime(2026, 10, 1, 7, 1), 9.0, 0.0, 11.6)
+    assert rung == "rung_2"
+    assert strat._arb_rung1_latch is False
+    assert strat._arb_last_redirectable_kw == 0.0
+    assert p1 is None
+
+
+def test_rung1_post_sunrise_solar_fed_ev_enters():
+    """Solar-fed variant: same sunrise + 1 min inputs with a fresh net of
+    0 W → full 11.6 kW credit (29 %/h) over min(599, 719) min → p1 = 100 →
+    rung_1. A redirect is legitimate when the EV really runs on solar."""
+    strat, _ = _make(soc=9, boundary=_SHOULDER_BND, solar_fed_net=True)
     rung, p0, p1 = _classify(strat, datetime(2026, 10, 1, 7, 1), 9.0, 0.0, 11.6)
     assert rung == "rung_1"
     assert p1 == 100.0
@@ -933,7 +958,33 @@ class _ReplayTOU(_FakeTOU):
         super().__init__(None)
 
 
-def _replay(monkeypatch, *, legacy_sunrise: bool = False):
+def _legacy_cap(strat):
+    """Emulate pre-EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1 rung-1 entry: inside
+    `_classify_attain_rung` only, net_power reads fresh and the effective
+    import reads 0, so the redirect credit equals the full EV draw (no cap).
+    Callers also clear `_arb_rung1_latched_at` each tick (no D2 hold)."""
+    import sys as _sys
+
+    real_imp = strat._effective_import_kw
+    real_fresh = strat._read_fresh_power_w
+
+    def _imp():
+        if _sys._getframe(1).f_code.co_name == "_classify_attain_rung":
+            return (0.0, 0.0, 0.0)
+        return real_imp()
+
+    def _fresh(key, max_age, **kw):
+        if (key == "net_power"
+                and _sys._getframe(1).f_code.co_name == "_classify_attain_rung"):
+            return 0.0
+        return real_fresh(key, max_age, **kw)
+
+    strat._effective_import_kw = _imp
+    strat._read_fresh_power_w = _fresh
+
+
+def _replay(monkeypatch, *, legacy_sunrise: bool = False,
+            legacy_cap: bool = False):
     """Drive the REAL off-peak decision per recorded decision tick.
 
     Emitted decisions are asserted PER RECORDED INPUT — the recorder SOC
@@ -976,6 +1027,10 @@ def _replay(monkeypatch, *, legacy_sunrise: bool = False):
             strat._tou = tou
             if legacy_sunrise:
                 strat._daylight_bounds = _legacy_rung_sunrise(strat)
+            if legacy_cap:
+                _legacy_cap(strat)
+        if legacy_cap:
+            strat._arb_rung1_latched_at = None
         bnd = _parse(r["next_high_rate_transition"])
         strat._tou.boundary = bnd
         offset = max(0, (bnd.date() - t.date()).days)
@@ -1027,6 +1082,8 @@ def _replay(monkeypatch, *, legacy_sunrise: bool = False):
         out.append({
             "t": t, "row": r, "ev_w": ev_w, "phase": dec_out["arbitrage_phase"],
             "reason": dec_out["reason"], "rung": strat._arb_last_rung,
+            "intent": strat._arbitrage_intent,
+            "actions": dec_out.get("actions"),
             "gate": strat._arb_last_gate_outcome,
             "p0": strat._arb_last_projection_rung0,
             "p1": strat._arb_last_projection_rung1,
@@ -1066,18 +1123,31 @@ def test_replay_2026_10_01_no_rung1_flap(monkeypatch):
     pre-sunrise EV-drawing tick. Anchor: the SAME replay with sunrise
     discarded (pre-fix) yields >= 10 rung_1 ticks in 01:14-03:20."""
     d = datetime(2026, 10, 1)
+    # EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1: the 10-01 EVs were GRID-fed
+    # (net 17.7 kW), so the rung-1 redirect cap alone also yields zero
+    # credit there and the entry projection p1 is not computed. To keep
+    # this test discriminating for ITS subject (the daylight horizon), the
+    # assertions run on the production replay AND on a replay with the cap
+    # bypassed (`legacy_cap=True`: full EV credit, sunrise fix active).
     out = _replay(monkeypatch)
-    pre = [o for o in out if o["t"].date() == d.date()
-           and o["t"] < o["sunrise"]]
-    assert len(pre) > 50
-    assert [o["t"] for o in pre if o["rung"] == "rung_1"] == []
-    assert [o["t"] for o in pre if o["gate"] == "closed_rung_1"] == []
-    assert [o["t"] for o in pre if o["reason"].startswith("Off-peak hold — SOC")] == []
-    ev_ticks = [o for o in pre if o["ev_w"] > 0 and o["p1"] is not None]
+    uncapped = _replay(monkeypatch, legacy_cap=True)
+    for run in (out, uncapped):
+        pre = [o for o in run if o["t"].date() == d.date()
+               and o["t"] < o["sunrise"]]
+        assert len(pre) > 50
+        assert [o["t"] for o in pre if o["rung"] == "rung_1"] == []
+        assert [o["t"] for o in pre if o["gate"] == "closed_rung_1"] == []
+        assert [o["t"] for o in pre
+                if o["reason"].startswith("Off-peak hold — SOC")] == []
+        assert all(o["p1"] == o["p0"] for o in pre
+                   if o["ev_w"] > 0 and o["p1"] is not None)
+    pre_u = [o for o in uncapped if o["t"].date() == d.date()
+             and o["t"] < o["sunrise"]]
+    ev_ticks = [o for o in pre_u if o["ev_w"] > 0 and o["p1"] is not None]
     assert len(ev_ticks) >= 10
     assert all(o["p1"] == o["p0"] for o in ev_ticks)
 
-    legacy = _replay(monkeypatch, legacy_sunrise=True)
+    legacy = _replay(monkeypatch, legacy_sunrise=True, legacy_cap=True)
     flap = [o for o in legacy if _in(o["t"], d, 1, 14, 3, 21)
             and o["rung"] == "rung_1"]
     assert len(flap) >= 10, len(flap)

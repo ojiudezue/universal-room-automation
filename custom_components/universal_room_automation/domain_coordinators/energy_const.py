@@ -544,10 +544,13 @@ DEFAULT_SOC_UNTRUSTED_PAGE_DWELL_MIN: Final = 10
 #
 # NOTE: `DEFAULT_NET_POWER_MAX_AGE_S` is NOT applied to the
 # BatteryStrategy.net_power_w PRODUCER (per Tier-3 MED-2: the breaker /
-# arbitrage path must see net_power exactly as develop does). Only
-# `CostTracker._get_net_power` and the D-OBS observability sensor read
-# this const; the arbitrage / breaker path is fed by the pre-cycle
-# ungated net_power_w property.
+# arbitrage path must see net_power exactly as develop does). Readers of
+# this const: `CostTracker._get_net_power`, the D-OBS observability
+# sensor, and (EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1) the rung-1 entry
+# credit gate in `BatteryStrategy._classify_attain_rung` — a GATE only
+# (stale/missing net_power → zero redirect credit; `<= 0` disables it
+# there too). The arbitrage / breaker path is still fed by the
+# pre-cycle ungated net_power_w property.
 DEFAULT_NET_POWER_MAX_AGE_S: Final = 180
 DEFAULT_BATTERY_POWER_MAX_AGE_S: Final = 180
 DEFAULT_SOLAR_PRODUCTION_MAX_AGE_S: Final = 180
