@@ -1,7 +1,7 @@
 # v5.108.13 — EV rung-1 redirect cap; lock suspicious-arrival hold
 
 Card: `EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1` (Tier 3). Plan: `docs/planning/PLANNING_ev_rung1_redirect_cap.md` (rev 2).
-Reviews: A, B, C (mutation), D (adversarial completeness) all SHIP (records under docs/reviews/code-review/v_ev_rung1_redirect_cap_review_*.md). Orchestrator verify: cap reverted to full EV credit -> 9 RED; hold boundary >= -> > -> 3 RED; restored clean. Full serial suite on 9f193681: 0 failed / 20667 passed.
+Reviews: A, B, C (mutation), D (adversarial completeness) all SHIP (records under docs/reviews/code-review/v_ev_rung1_redirect_cap_review_*.md). Orchestrator verify: cap reverted to full EV credit -> 9 RED; hold boundary >= -> > -> 3 RED; restored clean. Full serial suite on 9f193681: 0 failed / 20667 passed. Combined release suite on 01e7071a: 0 failed / 20722 passed (first combined run had 7 new names: a pinned suppress-key count and 5 order-dependent real-HA setup errors; both fixed in tests only, 01e7071a).
 
 Accepted residuals: one false pause/resume possible at an EV start when net_power is up to 180 s old (review D-LOW-1); while the SOC reading is missing the hold cannot flush, but night release, solar collapse, counterfactual exit and forecast-closed stay ungated (review B1).
 
