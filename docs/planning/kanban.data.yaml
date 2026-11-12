@@ -646,7 +646,7 @@ cards:
   title: "Garage remote lockout (A + B): on at night, off in the morning, and released when a family member arrives so a 3 AM return is not locked out"
   thread: security
   status: shipped_organic
-  shipped_version: v5.105.0
+  shipped_version: v5.108.13
   tier: 2
   created: "2026-11-07 12:10"
   updated: '2026-11-12 15:30'
@@ -32494,7 +32494,8 @@ cards:
   merged_from_EC_RUNG1_WAIT_EV_PINGPONG_1: "(verbatim from the merged duplicate) D0 replay + breaker investigation 2026-10-03: on 10-01 06:09-08:20Z ~12 full on/off cycles of garage A (11.6 kW); 13/14 turn-ons on ticks with valid SOC, so NOT the Envoy dropout. Pause reason EV pause redirects solar at 06:40Z with no sun. Also 09-28. Breaker-safety alarm cleared: guard reads the cloud CFG switch (off); local Enpower switch is a standing on; battery drew ~0 kW, peak import ~90 A. Latent gap noted: guard trusts cloud CFG switch."
   title: The arbitrage EV pause flips on and off every 5 minutes when an EV is charging and the battery is low (rung-1 redirect vs WAIT feedback loop)
   thread: energy
-  status: review
+  status: shipped_organic
+  shipped_version: v5.108.13
   created: '2026-10-03 02:40'
   updated: '2026-11-12 15:30'
   refinement_status: initial

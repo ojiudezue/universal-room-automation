@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "290",
+  "author": "ojiudezue",
+  "session_id": "claude_20261112_214915_ship_v5_108_13",
+  "timestamp": "2026-11-12T21:49:15Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.108.13 shipped: EV rung-1 redirect cap; lock suspicious-arrival hold",
+  "summary": "EV rung-1 redirect cap; lock suspicious-arrival hold",
+  "why": "Fix D chosen over a blanket EV pause during arbitrage because the loop came from crediting grid-fed EV draw as solar and the blanket pause would cost ~17.5 h/week of overnight charging; lock hold uses the stale-source rule because it was the only measured rule that held 0 of 40 real arrivals while catching all 78 blips (operator: never delay a real unlock).",
+  "implications": "Shipped EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1, GARAGE-REMOTE-LOCKOUT-SCHEDULE-1 at v5.108.13; card(s) sit shipped_organic pending validation. Acceptance in README_v5.108.13.md (Live criteria).",
+  "revisit_trigger": "EV toggle trip-wire stays silent on arbitrage-owned off/on/off; arrival_hold count stays 0 outside the boot window",
+  "refs": {
+    "cards": [
+      "EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1",
+      "GARAGE-REMOTE-LOCKOUT-SCHEDULE-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.108.13.md"
+    ],
+    "release_notes": "Arbitrage no longer pauses a grid-fed EV to redirect solar (credit capped at fresh surplus, latch held until the rate window is post-pause); the lock regime holds arrivals whose home reading comes from a stale tracker (new Number: garage lockout arrival hold, default 5 s, 0 = off)."
+  }
+}
