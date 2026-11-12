@@ -1,0 +1,27 @@
+{
+  "format_version": "2.1",
+  "entry_id": "289",
+  "author": "ojiudezue",
+  "session_id": "claude_20261112_session_75cc297f",
+  "timestamp": "2026-11-12T21:31:19Z",
+  "type": "observation",
+  "weight": "significant",
+  "title": "Approved 'faster BLE arrival' build dropped: the geofence arrival already is the BLE-seen arrival",
+  "summary": "The overnight probe measured 8-41 s from first home signal to URA's BLE arrival and proposed an event-driven listener. A context-wide producer/consumer inventory found HA person goes home on any non-GPS home, every resident has a Bermuda tracker, and presence.py dispatches SIGNAL_PERSON_ARRIVING source=geofence on that edge with no poll: 111/118 arrivals had geofence first within 1 s. The 8-41 s was a redundant second signal.",
+  "why": "Building it would have shortened room-change visibility that perimeter face de-escalation reads, a face-naming regression, for zero latency gain. Operator required the prior-art check before build; it refuted the premise.",
+  "alternatives_considered": [
+    "Area-sensor listener on PersonCoordinator (Tier 2)",
+    "UniFi Wi-Fi association as an arrival signal (measured 30-243 s slower; parked)"
+  ],
+  "implications": "Presence docs record that the geofence arrival is the BLE-seen arrival; Wi-Fi presence parked as decision data only. Operator corrected that all BLE scanners are indoor; false arrivals come from tracker fallback blips, not scanner reach.",
+  "confidence": "high",
+  "revisit_trigger": "A resident without a BLE tracker in person.*, or measured first-arrival lag > 1 s.",
+  "refs": {
+    "cards": [
+      "EGRESS-BLE-ARRIVAL-LATENCY-1"
+    ],
+    "docs": [
+      "docs/planning/PLANNING_ble_seen_at_home_arrival.md"
+    ]
+  }
+}

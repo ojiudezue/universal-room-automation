@@ -1,0 +1,33 @@
+{
+  "format_version": "2.1",
+  "entry_id": "288",
+  "author": "ojiudezue",
+  "session_id": "claude_20261112_session_75cc297f",
+  "timestamp": "2026-11-12T21:31:19Z",
+  "type": "pivot",
+  "weight": "critical",
+  "title": "Lock arrival guard holds only 'stale-source' arrivals; flat hold and dropout rule both rejected on measured data",
+  "summary": "Oji's phone-app dropouts made HA person fall back to an iPad that had read home for days: 78 sub-second false arrivals in a week, each of which the lock regime counts (not_home->home skips the 15-min check) and 49 of which also crossed the 1,500 m proximity radius. The guard holds an arrival only if the tracker that reports home did not itself change at the edge.",
+  "why": "Operator bar: never delay a real unlock ('feeling locked out makes URA feel completely unreliable'). Measured arrival->garage-open gap min 1.9 s, so a flat 5 s hold would disable a remote at press ~1 in 27 arrivals. Confusion matrix over 118 edges: flat hold 40/40 real held; dropout-in-last-N-s 1/40 (Ezinne); GPS-source 19/40; stale-source 0/40 real, 78/78 blips, margin 0.0003 s vs >=4119 s. Boot window exempt because HA restart resets tracker timestamps.",
+  "alternatives_considered": [
+    "Flat 5 s hold on every arrival",
+    "Hold only after a tracker dropout",
+    "Hold only GPS-sourced arrivals",
+    "Second witness (door/garage) before unlock"
+  ],
+  "implications": "Dormant today (no person has two GPS trackers since the 11-11 iPad trim) but closes a lock-release path that one added device reopens. Same blips still open Security's 5-min expected-arrival window (STALE-SOURCE-ARRIVAL-CONSUMERS-1).",
+  "confidence": "high",
+  "revisit_trigger": "Any real arrival held (arrival_hold count >0 outside boot window with a source tracker that changed at the edge), or a person gains a second GPS tracker.",
+  "refs": {
+    "cards": [
+      "GARAGE-REMOTE-LOCKOUT-SCHEDULE-1",
+      "STALE-SOURCE-ARRIVAL-CONSUMERS-1",
+      "PERSON-OJI-HOME-FLAP-1"
+    ],
+    "docs": [
+      "docs/planning/PLANNING_lock_suspicious_arrival_hold.md",
+      "docs/planning/AUDIT_arrival_to_garage_open_gap.md",
+      "docs/planning/AUDIT_ble_arrival_d0_probe.md"
+    ]
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "format_version": "2.1",
+  "entry_id": "287",
+  "author": "ojiudezue",
+  "session_id": "claude_20261112_session_75cc297f",
+  "timestamp": "2026-11-12T21:31:19Z",
+  "type": "decision",
+  "weight": "significant",
+  "title": "EV flip-flop fixed by capping rung-1's solar credit, not by banning EV charging during arbitrage",
+  "summary": "Rung 1 paused EVs on poor-forecast daylight off-peak ticks by crediting the car's whole draw as solar the battery could take; on 11-08 the cars ran on grid (solar 1-2 kW), so the pause freed nothing and the loop toggled 7x/charger in 30 min. Fix D credits only the EV draw not covered by fresh grid import and holds the latch until the rate window is post-pause.",
+  "why": "Measured: no SOC band (episodes at 7-10% and 30%), the 80-90% chatter was fill_priority. A blanket 'no EV during arbitrage' would have blocked ~17.5 h/week of overnight charging (arbitrage active ~53 h/week) and added a standing pause owner; min-hold only slows the loop; the card's 'judge without the paused EV' already existed. Operator wanted overnight off-peak protected and no new machinery on hardened code.",
+  "alternatives_considered": [
+    "Blanket EV pause while arbitrage active",
+    "Minimum hold time on the pause",
+    "Judge projection without the paused EV (already present)",
+    "Retire rung 1 (kept as fallback)"
+  ],
+  "implications": "Rung 1 now rarely fires; a genuine solar-fed but battery-flat case can still cycle once per ~15 min. The duplicate SOC sampler (EC-ATTAIN-RATE-DUP-SAMPLE-1) makes the hold 1 tick in production.",
+  "confidence": "medium",
+  "revisit_trigger": "EV toggle trip-wire fires on an arbitrage-owned off/on/off within 4 ticks, or a recorded daylight episode with fresh import < EV draw that still flaps.",
+  "refs": {
+    "cards": [
+      "EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1",
+      "EC-ATTAIN-RATE-DUP-SAMPLE-1"
+    ],
+    "docs": [
+      "docs/planning/AUDIT_ev_rung1_oscillation_fix_options.md",
+      "docs/planning/PLANNING_ev_rung1_redirect_cap.md"
+    ]
+  }
+}
