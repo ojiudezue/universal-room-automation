@@ -649,7 +649,7 @@ cards:
   shipped_version: v5.105.0
   tier: 2
   created: "2026-11-07 12:10"
-  updated: '2026-11-12 14:42'
+  updated: '2026-11-12 15:30'
   rank: {value: 4, time_criticality: 2, effort: 2}
   origin: "Operator 2026-11-07: lockout 'prevents the external keypad from being guessed or bypassed. The SC does not have this concept.' Asked about auto-release ~6 AM and red-eye arrivals at 3 AM; wants Garage B included."
   why: "lock.konnected_f0f5bd523b00_lock (Garage A) and lock.ratgdov25i_dbfe2a_lock_remotes (Garage B) block car remotes and the outside keypad; the wall button and HA still work. The Security coordinator has no lockout concept. Dashboard part shipped 2026-11-07: tiles per garage, and 'Lock all' also engages both lockouts. Unverified: whether myQ still reaches these openers (they run Konnected blaQ / ratgdo) and whether ratgdo's lock also blocks the wireless keypad on this opener model; test physically before relying on it."
@@ -664,6 +664,7 @@ cards:
   operator_decision_2026_11_12_blip: "Operator approved fixing the blip-release gap before the lockout goes on; asked whether 15 min is right and wants a knob (Number entity on the device, plain-language label) after a parsimony check. Parsimony finding: the 15-min away rule does NOT stop Oji-type blips (he had been away days); what stops a sub-second blip is requiring the home reading to hold for a few seconds. Proposed: new Number 'Arrival must hold for' (seconds, default 5, 0 = off) on the garage lockout device next to approach radius / morning backstop / re-engage delay (number.py:4452-4480 pattern), applied to every arrival edge for both lockout release and away-lock unlock; keep GARAGE_LOCKOUT_BLIP_MIN_AWAY_MIN=15 as a module constant (it only guards home->unavailable->home and is rarely tuned)."
   measured_2026_11_12_arrival_gap: "Operator called my 'remotes back on well before you press' an untested assumption -> measured (docs/planning/AUDIT_arrival_to_garage_open_gap.md, 11-05..11-12): 27 person-edge -> garage-open pairs, gap min 1.9 s, median 19 s, max 354 s; 1 under 5 s (Jaya 1.9 s), 6 under 10 s. A flat 5 s hold would have left a remote disabled at the press about 1 in 27 arrivals. Front door: 0 unlocks within 10 min of a person edge. Decision: dropout-only hold (hold an arrival only if that person's tracker was unavailable within the last few seconds); real arrivals stay instant. 15-min rule stays a code constant."
   plan_2026_11_12: 'docs/planning/PLANNING_lock_suspicious_arrival_hold.md rev2 (ab211e17). Rule: hold an arrival only when the tracker that reports home did not itself change at the edge (0/40 real held, 78/78 blips caught, 7 days); boot window exempt; proximity release covered. Plan review REVISE (no HIGH) applied.'
+  deploy_go_2026_11_12: "Lock suspicious-arrival hold built (feature/lock-suspicious-arrival-hold, 70c6d4ac..609e1607), reviews A SHIP, B fix 607f06b3, C anchors 609e1607; ships in v5.108.13 with operator deploy go 2026-11-12 15:30."
 - id: ROOM-CONFIG-LEGACY-MMWAVE-KEY-1
   title: "Study A carries an inert legacy 'mmwave_sensors' key (dead Athom radar) in entry.data that no code reads and no form can clear"
   thread: config_flow
@@ -32493,9 +32494,9 @@ cards:
   merged_from_EC_RUNG1_WAIT_EV_PINGPONG_1: "(verbatim from the merged duplicate) D0 replay + breaker investigation 2026-10-03: on 10-01 06:09-08:20Z ~12 full on/off cycles of garage A (11.6 kW); 13/14 turn-ons on ticks with valid SOC, so NOT the Envoy dropout. Pause reason EV pause redirects solar at 06:40Z with no sun. Also 09-28. Breaker-safety alarm cleared: guard reads the cloud CFG switch (off); local Enpower switch is a standing on; battery drew ~0 kW, peak import ~90 A. Latent gap noted: guard trusts cloud CFG switch."
   title: The arbitrage EV pause flips on and off every 5 minutes when an EV is charging and the battery is low (rung-1 redirect vs WAIT feedback loop)
   thread: energy
-  status: in_progress
+  status: review
   created: '2026-10-03 02:40'
-  updated: '2026-11-12 14:35'
+  updated: '2026-11-12 15:30'
   refinement_status: initial
   approval: explicit
   approved_by: "operator 2026-11-12 (\"We need to fix regardless\")"
@@ -32526,6 +32527,7 @@ cards:
   operator_decision_2026_11_12c: 'Go on fix D plan ("Go"). Build waits for plan approval.'
   operator_decision_2026_11_12d: 'Plan open questions, operator agreed with my recommendations: Q1 yes freshness gate at the cap; Q2 accept discharge credit; Q3 no trip-wire paging this cycle; Q4 card duplicate sampling separately.'
   plan_approved_2026_11_12: 'Operator approved plan rev2 ("Approved") at 2026-11-12 14:35.'
+  deploy_go_2026_11_12: "Tier-3 pre-deploy checkpoint: operator approved deploy (\"Yes deploy\") 2026-11-12 15:30. Reviews A/B/C/D SHIP; orchestrator mutation verify RED x2; suite clean."
 - id: EC-CFG-SELFHEAL-FALSE-CRITICAL-1
   title: "CRITICAL 'Envoy write self-heal loop: charge_from_grid' pages fire after the write already worked (cloud switch lags ~15 min; the alarm never re-checks it) -> re-read the cloud switch before paging"
   thread: energy

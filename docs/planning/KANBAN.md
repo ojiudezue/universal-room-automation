@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-12T14:35:10-06:00_ - _Data commit: `4df802abe1eb`_ - _last_reconciled: 2026-11-12_
+_Generated: 2026-11-12T14:43:09-06:00_ - _Data commit: `b7e4289ee0ee`_ - _last_reconciled: 2026-11-12_
 
 
 ## Columns
@@ -13,8 +13,8 @@ _Generated: 2026-11-12T14:35:10-06:00_ - _Data commit: `4df802abe1eb`_ - _last_r
 | 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 26 |
-| 🔨 In progress | 3 |
-| 🔍 Review | 0 |
+| 🔨 In progress | 2 |
+| 🔍 Review | 1 |
 | ⏸️ Waiting on operator | 30 |
 | ⏳ Waiting on me (Claude) | 2 |
 | 🚀 Shipped (organic open) | 21 |
@@ -602,7 +602,7 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (3)
+## 🔨 In progress (2)
 _being built_
 
 ### `OC-CONTEXT-PACK-1` - OC agent context should feel like the orchestrator's: HA + URA ground-truth docs, live config snapshot, doctrine, goals - iterate it against live cases — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
@@ -625,9 +625,12 @@ _created 2026-11-10 19:20 · updated 2026-11-11 07:05 · initial_
   - `tier`: 1
   - `residual_2026_11_11`: Merged to develop 4d5385d4 (v5.108.8). Merged-develop parallel run: 11 failed in 3 min, base serial failures all gone, but 11 parallel-only (pass alone 72/72): test_arrester_operator_immunity x6, test_dp_drain_target_value_stamp x5 (file...
 
-### `EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1` - The arbitrage EV pause flips on and off every 5 minutes when an EV is charging and the battery is low (rung-1 redirect vs WAIT feedback loop) — _#3 · WSJF 0.6 · v4 tc2 u2 /e13_
-thread: **energy** - status: **in_progress** - approval: **explicit**
-_created 2026-10-03 02:40 · updated 2026-11-12 14:35 · initial_
+## 🔍 Review (1)
+_under review_
+
+### `EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1` - The arbitrage EV pause flips on and off every 5 minutes when an EV is charging and the battery is low (rung-1 redirect vs WAIT feedback loop) — _#1 · WSJF 0.6 · v4 tc2 u2 /e13_
+thread: **energy** - status: **review** - approval: **explicit**
+_created 2026-10-03 02:40 · updated 2026-11-12 15:30 · initial_
 - **Problem / Solution:**
   - Problem: on 10-01 between about 01:00 and 06:00 CDT the battery strategy switched back and forth every tick between two answers. When the garage car charger was drawing ~11.7 kW, it chose 'pause the EVs to save solar for the battery' (ru...
 - **Origin:** 2026-10-03 - D0 replay in DESIGN_ec_degraded_data_policy.md section 9.1 found the 10-01 flap is an Envoy-independent rung_1 <-> WAIT load-feedback loop; doc 9.3 says card needed (Tier 2+); carded by the overnight pass.
@@ -636,7 +639,7 @@ _created 2026-10-03 02:40 · updated 2026-11-12 14:35 · initial_
 - **Tags:** tier-3, measure-before-build, no-fabrication-verify
 - **Parsimony:** [PENDING-PLAN] With an EV drawing >= 11.6 kW and SOC below the poor-day target, the arbitrage pause toggles every tick (31 EV switch events on 10-01).
 - **Refs:** docs/planning/DESIGN_ec_degraded_data_policy.md section 9.1 / 9.3
-- **Forensic keys (14):**
+- **Forensic keys (15):**
   - `triage_2026_10_17`: Default taken: parked; revival trigger = the EV toggle alarm fires.
   - `trigger_check_2026_10_12_overnight`: Revival trigger checked: the EV toggle alarm DID fire (10-11 19:26:45Z garage_a), but the cause was the fill-priority owner (pause_owners=fill_priority; strategy self_consumption, arbitrage_phase n/a, SOC 79-81%), not rung-1/WAIT. So thi...
   - `paged_2026_10_05_overnight`: Paged 2026-10-05 02:34 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1; sent directly, not through URA NM routing, so it does not wake anyone).
@@ -651,11 +654,7 @@ _created 2026-10-03 02:40 · updated 2026-11-12 14:35 · initial_
   - `operator_decision_2026_11_12c`: Go on fix D plan ("Go"). Build waits for plan approval.
   - `operator_decision_2026_11_12d`: Plan open questions, operator agreed with my recommendations: Q1 yes freshness gate at the cap; Q2 accept discharge credit; Q3 no trip-wire paging this cycle; Q4 card duplicate sampling separately.
   - `plan_approved_2026_11_12`: Operator approved plan rev2 ("Approved") at 2026-11-12 14:35.
-
-## 🔍 Review (0)
-_under review_
-
-_(none)_
+  - `deploy_go_2026_11_12`: Tier-3 pre-deploy checkpoint: operator approved deploy ("Yes deploy") 2026-11-12 15:30. Reviews A/B/C/D SHIP; orchestrator mutation verify RED x2; suite clean.
 
 ## ⏸️ Waiting on operator (30)
 _needs a human call — groomed first_
@@ -1377,10 +1376,10 @@ _created 2026-11-09 02:01 · updated 2026-11-10 02:16 · initial_
 
 ### `GARAGE-REMOTE-LOCKOUT-SCHEDULE-1` - Garage remote lockout (A + B): on at night, off in the morning, and released when a family member arrives so a 3 AM return is not locked out — _#11 · WSJF 5.0 · v4 tc2 u4 /e2_
 thread: **security** - status: **shipped_organic**
-_created 2026-11-07 12:10 · updated 2026-11-12 14:42_
+_created 2026-11-07 12:10 · updated 2026-11-12 15:30_
 - **Why:** lock.konnected_f0f5bd523b00_lock (Garage A) and lock.ratgdov25i_dbfe2a_lock_remotes (Garage B) block car remotes and the outside keypad; the wall button and HA still work. The Security coordinator has no lockout concept. Dashboard part s...
 - **Next:** Me: build PLANNING_lock_suspicious_arrival_hold.md rev2 (ura-builder, worktree), three framing-disjoint reviews, suite, ship before the lockout is enabled.
-- **Forensic keys (11):**
+- **Forensic keys (12):**
   - `tier`: 2
   - `adjacency`: Swept board for garage/lockout/keypad: NEW. Related: security arming cards; the 'leave garage B alone' constraint is lifted for this scheme by the operator 2026-11-07.
   - `plan_2026_11_07`: Option B picked. Plan rev1 docs/planning/PLANNING_sc_garage_remote_lockout.md (ea4bc6a8), pre-review. Open operator questions: approach zone 1-2 km; away/vacation engage + hold-until-arrival; keypad physical test; kill-switch-at-night se...
@@ -1392,6 +1391,7 @@ _created 2026-11-07 12:10 · updated 2026-11-12 14:42_
   - `operator_decision_2026_11_12_blip`: Operator approved fixing the blip-release gap before the lockout goes on; asked whether 15 min is right and wants a knob (Number entity on the device, plain-language label) after a parsimony check. Parsimony finding: the 15-min away rule...
   - `measured_2026_11_12_arrival_gap`: Operator called my 'remotes back on well before you press' an untested assumption -> measured (docs/planning/AUDIT_arrival_to_garage_open_gap.md, 11-05..11-12): 27 person-edge -> garage-open pairs, gap min 1.9 s, median 19 s, max 354 s; ...
   - `plan_2026_11_12`: docs/planning/PLANNING_lock_suspicious_arrival_hold.md rev2 (ab211e17). Rule: hold an arrival only when the tracker that reports home did not itself change at the edge (0/40 real held, 78/78 blips caught, 7 days); boot window exempt; pro...
+  - `deploy_go_2026_11_12`: Lock suspicious-arrival hold built (feature/lock-suspicious-arrival-hold, 70c6d4ac..609e1607), reviews A SHIP, B fix 607f06b3, C anchors 609e1607; ships in v5.108.13 with operator deploy go 2026-11-12 15:30.
 
 ### `GUEST-STAY-EXIT-DAY-VETO-1` - Guest stay exit day veto: empty nights do not end a stay while a guest-room day share >= 0.10 — _#12 · WSJF 5.0 · v5 tc3 u2 /e2_
 thread: **presence** - status: **shipped_organic**
