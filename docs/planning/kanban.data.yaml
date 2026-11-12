@@ -9021,7 +9021,7 @@ cards:
   status: waiting_operator
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: 0 chat_guid hits; _send_imessage builds {addresses:handle} only. Blocked on operator question: is there a non-self URA-alerts chat with a resolvable GUID?'
   created: 2026-08-26 11:00
-  updated: '2026-11-12 13:20'
+  updated: '2026-11-12 16:12'
   refinement_status: refined
   approval: unreviewed
   tags:
@@ -9082,6 +9082,7 @@ cards:
   INSTANCE_2026_11_08_self_echo_volume: "Measured read-only (notification_inbound, 11-01..11-08): URA's own outbound alerts come back as inbound iMessages from person.oji_udezue and are parsed as 'unknown' commands, 7-23 a day (11-06: 23 of 23 inbound rows; 11-08 so far: 11 of 18). They are Perimeter Alert and Uptime Kuma texts. Each row stores response_text 'Unknown command. Reply: 1=Ack 2=Status 3=Silence'. I did NOT verify whether that reply is actually sent back, which would mean one extra text per alert. Steady state, no growth, no loop. This card's fix (send by chat GUID from a separate house Apple ID) removes it."
   operator_2026_11_12_unknown_reply: "Operator: stop the loop, and make the reply friendlier and more helpful, saying it did not understand. Shape: no reply to multi-line/long texts or texts matching our own alert/Kuma/HomeLab headers; for a short unrecognised text, a friendly reply listing what it can do. Tier 1, NM inbound path."
   INSTANCE_2026_11_12_snapshot_missing_imessage: "Operator saw a perimeter alert (g5_bullet, 11-11 17:33:06 CST) on iMessage with the AI description but no image. Capture worked (Frigate event photo written, LLM described it, all 4 channels delivered=1). The BlueBubbles integration sends text first and posts the attachment in a separate request; a failure there raises after the text went, NM logs ERROR and still records delivered (notification_manager.py:2638-2648). Not a v5.108.10/11 regression (no perimeter/NM diff). Unproven which leg lost the image; no attach-result is recorded. Next: read the BlueBubbles server log for 11-11 23:33:14 UTC; add an attach_ok field to the audit row."
+  INSTANCE_2026_11_12_image_test: "Operator reported iMessage images still missing and WhatsApp possibly failed. Findings: all 22 perimeter alerts on 11-12 were HIGH, which legacy routing sends to the companion app only; iMessage/WhatsApp/Pushover get CRITICAL only (last CRITICAL 11-11 17:33 CST, all 4 channels). No channel unhealthy, no mutes. The 175 'WhatsApp Bridge 401' errors are the retired whatsapp 2.x integration (WA-BRIDGE-DOMAIN-1 DO); URA sends via wa_bridge 3.1.1 (running). Live test 11-12 with operator OK: bluebubbles.send_message + wa_bridge.send_message with a snapshot path -> operator confirmed BOTH arrived with the photo. So photo delivery works; the 11-11 17:33 iMessage photo miss is a one-off at the BlueBubbles attachment step, cause unknown. Residual (Tier 1, to build): record per-channel attachment success in the audit row so a future miss is answerable from data."
 - id: EVSE-SOLAR-IDLE-DERESERVE-1
   title: A finished/idle solar bay reserves ~1.44-2.88 kW that starves a charging sibling — de-reserve
     long-idle bays from the solar-follow parked floor WITHOUT removing them from the claim set
