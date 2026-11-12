@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-12T13:46:42-06:00_ - _Data commit: `3e5cf29a7672`_ - _last_reconciled: 2026-11-12_
+_Generated: 2026-11-12T13:50:03-06:00_ - _Data commit: `ad317d6264c4`_ - _last_reconciled: 2026-11-12_
 
 
 ## Columns
@@ -11,11 +11,11 @@ _Generated: 2026-11-12T13:46:42-06:00_ - _Data commit: `3e5cf29a7672`_ - _last_r
 |---|---:|
 | 📥 Inbox | 0 |
 | 🔬 Investigating | 1 |
-| 🧭 Pre-planning | 13 |
+| 🧭 Pre-planning | 14 |
 | 📝 Planned | 26 |
 | 🔨 In progress | 2 |
 | 🔍 Review | 0 |
-| ⏸️ Waiting on operator | 31 |
+| ⏸️ Waiting on operator | 30 |
 | ⏳ Waiting on me (Claude) | 2 |
 | 🚀 Shipped (organic open) | 21 |
 | 🅿️ Parked | 118 |
@@ -40,7 +40,7 @@ _created 2026-11-11 19:40 · updated 2026-11-12 13:05_
   - `review_2026_11_12`: CARD-WAS-WRONG. The why on this card (seed reads before the Number restores) is WRONG: seed (__init__.py:7276) and Number (HA restore_state.py:295) read the same last_states dict, filled once at load. Live .storage has numeric entries + ...
   - `measured_2026_11_12_boot`: v5.108.11 restart 12:55: all three zones logged the no RestoreState entry branch (__init__.py:7310), while the three Numbers restored 1.0/0.8/0.8. So the seed sees no entry where the Number does: the review claim that both read the same ...
 
-## 🧭 Pre-planning (13)
+## 🧭 Pre-planning (14)
 _idea being decomposed_
 
 ### `EC-TOU-TRANSITION-DOUBLE-CONSUME-1` - Manager and timer both consume the TOU-period change; if the manager wins, the arbitrage chunk reset and transition-into-peak check are skipped for that boundary — _#1 · WSJF 3.5 · v3 tc2 u2 /e2_
@@ -225,6 +225,31 @@ _updated 2026-10-21 22:05_
   - `repo`: ~/Code/wall-tablet (HALedController, v1.3 versionCode 5, 2026-08-01)
   - `verified_capabilities`: Per-room MQTT identity already fleet-safe: clientId wall-tablet-<room>, topics home/wallpanel/<room>/{led,sensors,status}; LWT availability; self-registers via MQTT Discovery (no YAML).
   - `orchestrator_assessment`: HIGHEST VALUE IS THE SENSORS, NOT THE CONTROL SURFACE. Per-room lux is a first-class input URA's lighting logic already consumes; a tablet in every room is a lux+temp+humidity fleet arriving for free. That likely beats the quick-action U...
+
+### `EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1` - The arbitrage EV pause flips on and off every 5 minutes when an EV is charging and the battery is low (rung-1 redirect vs WAIT feedback loop) — _#14 · WSJF 0.6 · v4 tc2 u2 /e13_
+thread: **energy** - status: **pre_planning** - approval: **explicit**
+_created 2026-10-03 02:40 · updated 2026-11-12 14:04 · initial_
+- **Problem / Solution:**
+  - Problem: on 10-01 between about 01:00 and 06:00 CDT the battery strategy switched back and forth every tick between two answers. When the garage car charger was drawing ~11.7 kW, it chose 'pause the EVs to save solar for the battery' (ru...
+- **Origin:** 2026-10-03 - D0 replay in DESIGN_ec_degraded_data_policy.md section 9.1 found the 10-01 flap is an Envoy-independent rung_1 <-> WAIT load-feedback loop; doc 9.3 says card needed (Tier 2+); carded by the overnight pass.
+- **Why:** Measured, not assumed. Strategy sensor recorder (sensor.ura_energy_coordinator_battery_strategy) 10-01 06:30-07:20Z: 06:40:05 rung_1 redirect (soc_source=envoy, EVs paused) -> 06:44:45 WAIT (envoy) -> EVs released 06:45:02 -> 06:49:50 ru...
+- **Next:** Me: Tier-3 plan for fix D (ura-planner) + two framing-disjoint plan reviews; then APPROVE plan (operator) before build.
+- **Tags:** tier-3, measure-before-build, no-fabrication-verify
+- **Parsimony:** [PENDING-PLAN] With an EV drawing >= 11.6 kW and SOC below the poor-day target, the arbitrage pause toggles every tick (31 EV switch events on 10-01).
+- **Refs:** docs/planning/DESIGN_ec_degraded_data_policy.md section 9.1 / 9.3
+- **Forensic keys (12):**
+  - `triage_2026_10_17`: Default taken: parked; revival trigger = the EV toggle alarm fires.
+  - `trigger_check_2026_10_12_overnight`: Revival trigger checked: the EV toggle alarm DID fire (10-11 19:26:45Z garage_a), but the cause was the fill-priority owner (pause_owners=fill_priority; strategy self_consumption, arbitrage_phase n/a, SOC 79-81%), not rung-1/WAIT. So thi...
+  - `paged_2026_10_05_overnight`: Paged 2026-10-05 02:34 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1; sent directly, not through URA NM routing, so it does not wake anyone).
+  - `verified_2026_10_05_overnight`: PARTIALLY-ADDRESSED, NOT YET EXERCISED. v5.103.37 (tag 2026-10-03 15:20 CDT, 550d4de95 daylight-gated rung horizon + d6f675c11/75b371795 rung latches released outside daylight) targets exactly the night form of this loop (10-01 06:40Z = ...
+  - `merged_from_EC_RUNG1_WAIT_EV_PINGPONG_1`: (verbatim from the merged duplicate) D0 replay + breaker investigation 2026-10-03: on 10-01 06:09-08:20Z ~12 full on/off cycles of garage A (11.6 kW); 13/14 turn-ons on ticks with valid SOC, so NOT the Envoy dropout. Pause reason EV paus...
+  - `adjacency_2026_10_03`: NEW. Swept: board (grep rung_1/oscillat: only HVAC zone-1 oscillation cards, unrelated), docs/BACKLOG.md (no rung-1 redirect item), docs/planning (only DESIGN_ec_degraded_data_policy.md mentions it, 9.3 'card needed'). Supersedes the pre...
+  - `breaker_must_answer_resolved_2026_10_03`: The design doc (9.3 P1-2/P1-3) asked why EVs were turned on at 06:45:02Z while switch.enpower_482348004678_charge_from_grid read 'on'. ANSWERED, no breaker gap: the release guard reads the WRITE leg (energy.py:6729 _get_entity role='writ...
+  - `trigger_fired_2026_11_09_overnight`: REVIVAL TRIGGER FIRED (measured 02:0x CST 11-09, read-only: URA DB ura_activity_log + HA recorder states/state_attributes). 11-08 14:03-14:33 CST: garage_a charger_off (pause_owners=arbitrage, power 10.1-11.7 kW) at 14:03, 14:13, 14:23, ...
+  - `operator_decision_2026_11_12`: Operator: fix regardless; choose the right fix. Asked: does it only happen between 80 and 90% fill (90% = new arbitrage target)? Is it simpler to never charge the car during arbitrage instead of judge-without-EV or a minimum hold? Answer...
+  - `audit_2026_11_12`: docs/planning/AUDIT_ev_rung1_oscillation_fix_options.md (energy files identical to develop at audit time). Mechanism: rung-1 entry credits the full EV draw (~25 %/h at 10 kW) as solar redirectable to the battery even when the car runs on...
+  - `refinement_2026_11_12`: Operator: why is the car charging on poor-solar days; should daytime EV charging be governed by excess solar, not off-peak? Answer (energy_const.py:36-60): in shoulder (Mar-May, Oct-Nov) off-peak is 00-17 and 21-24, and in winter 00-05, ...
+  - `operator_decision_2026_11_12c`: Go on fix D plan ("Go"). Build waits for plan approval.
 
 ## 📝 Planned (26)
 _has plan / acceptance_
@@ -608,7 +633,7 @@ _under review_
 
 _(none)_
 
-## ⏸️ Waiting on operator (31)
+## ⏸️ Waiting on operator (30)
 _needs a human call — groomed first_
 
 ### `PERIMETER-DETECTION-WENT-DARK-1` - Exterior person detection went fully dark for ~26h on 2026-09-14/15 and then recovered on its own — nothing noticed either the outage or the recovery — _#1 · WSJF 10.0 · v9 tc9 u2 /e2_
@@ -1156,29 +1181,6 @@ _created 2026-09-20 · updated 2026-09-29 01:05_
   - `groom_2026_09_22`: Scored during the overnight groom — it was the only waiting_operator card still running on tier+link defaults (the ⚠ default-scored tripwire). value 5: a research spike, real upside on occupancy-trust correctness but no live defect ridin...
   - `FINDINGS_2026_09_20`: Spike RAN (docs/planning/jev_spike/, 58-case eval, LOO). CODE baseline = works 100% / fails 0%% / overall 84.5%% / ECE 0.155 (structurally blind to the all-away-single-sensor phantom + badly calibrated). Logistic-floor arms scored 100%%/...
   - `next_prev1`: PICK/DO (operator): provide INDEPENDENT ground-truth labels for ~20-40 ambiguous occupancy cases (spot-confirm a batch of all-away-single-sensor / still-body episodes as empty-or-occupied), OR approve me sourcing a disjoint truth signal ...
-
-### `EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1` - The arbitrage EV pause flips on and off every 5 minutes when an EV is charging and the battery is low (rung-1 redirect vs WAIT feedback loop) — _#31 · WSJF 0.6 · v4 tc2 u2 /e13_
-thread: **energy** - status: **waiting_operator** - approval: **explicit**
-_created 2026-10-03 02:40 · updated 2026-11-12 13:38 · initial_
-- **Problem / Solution:**
-  - Problem: on 10-01 between about 01:00 and 06:00 CDT the battery strategy switched back and forth every tick between two answers. When the garage car charger was drawing ~11.7 kW, it chose 'pause the EVs to save solar for the battery' (ru...
-- **Origin:** 2026-10-03 - D0 replay in DESIGN_ec_degraded_data_policy.md section 9.1 found the 10-01 flap is an Envoy-independent rung_1 <-> WAIT load-feedback loop; doc 9.3 says card needed (Tier 2+); carded by the overnight pass.
-- **Why:** Measured, not assumed. Strategy sensor recorder (sensor.ura_energy_coordinator_battery_strategy) 10-01 06:30-07:20Z: 06:40:05 rung_1 redirect (soc_source=envoy, EVs paused) -> 06:44:45 WAIT (envoy) -> EVs released 06:45:02 -> 06:49:50 ru...
-- **Next:** APPROVE: fix shape D (cap rung-1's redirectable estimate at the EV draw that is NOT covered by grid import, using existing _effective_import_kw; hold the rung-1 latch until the 3-tick rate window is all post-pause). -> I write the Tier-3...
-- **Tags:** tier-3, measure-before-build, no-fabrication-verify
-- **Parsimony:** [PENDING-PLAN] With an EV drawing >= 11.6 kW and SOC below the poor-day target, the arbitrage pause toggles every tick (31 EV switch events on 10-01).
-- **Refs:** docs/planning/DESIGN_ec_degraded_data_policy.md section 9.1 / 9.3
-- **Forensic keys (10):**
-  - `triage_2026_10_17`: Default taken: parked; revival trigger = the EV toggle alarm fires.
-  - `trigger_check_2026_10_12_overnight`: Revival trigger checked: the EV toggle alarm DID fire (10-11 19:26:45Z garage_a), but the cause was the fill-priority owner (pause_owners=fill_priority; strategy self_consumption, arbitrage_phase n/a, SOC 79-81%), not rung-1/WAIT. So thi...
-  - `paged_2026_10_05_overnight`: Paged 2026-10-05 02:34 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1; sent directly, not through URA NM routing, so it does not wake anyone).
-  - `verified_2026_10_05_overnight`: PARTIALLY-ADDRESSED, NOT YET EXERCISED. v5.103.37 (tag 2026-10-03 15:20 CDT, 550d4de95 daylight-gated rung horizon + d6f675c11/75b371795 rung latches released outside daylight) targets exactly the night form of this loop (10-01 06:40Z = ...
-  - `merged_from_EC_RUNG1_WAIT_EV_PINGPONG_1`: (verbatim from the merged duplicate) D0 replay + breaker investigation 2026-10-03: on 10-01 06:09-08:20Z ~12 full on/off cycles of garage A (11.6 kW); 13/14 turn-ons on ticks with valid SOC, so NOT the Envoy dropout. Pause reason EV paus...
-  - `adjacency_2026_10_03`: NEW. Swept: board (grep rung_1/oscillat: only HVAC zone-1 oscillation cards, unrelated), docs/BACKLOG.md (no rung-1 redirect item), docs/planning (only DESIGN_ec_degraded_data_policy.md mentions it, 9.3 'card needed'). Supersedes the pre...
-  - `breaker_must_answer_resolved_2026_10_03`: The design doc (9.3 P1-2/P1-3) asked why EVs were turned on at 06:45:02Z while switch.enpower_482348004678_charge_from_grid read 'on'. ANSWERED, no breaker gap: the release guard reads the WRITE leg (energy.py:6729 _get_entity role='writ...
-  - `trigger_fired_2026_11_09_overnight`: REVIVAL TRIGGER FIRED (measured 02:0x CST 11-09, read-only: URA DB ura_activity_log + HA recorder states/state_attributes). 11-08 14:03-14:33 CST: garage_a charger_off (pause_owners=arbitrage, power 10.1-11.7 kW) at 14:03, 14:13, 14:23, ...
-  - `operator_decision_2026_11_12`: Operator: fix regardless; choose the right fix. Asked: does it only happen between 80 and 90% fill (90% = new arbitrage target)? Is it simpler to never charge the car during arbitrage instead of judge-without-EV or a minimum hold? Answer...
-  - `audit_2026_11_12`: docs/planning/AUDIT_ev_rung1_oscillation_fix_options.md (energy files identical to develop at audit time). Mechanism: rung-1 entry credits the full EV draw (~25 %/h at 10 kW) as solar redirectable to the battery even when the car runs on...
 
 ## ⏳ Waiting on me (Claude) (2)
 _I owe something_
