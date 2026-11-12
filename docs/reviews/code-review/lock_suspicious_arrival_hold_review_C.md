@@ -91,3 +91,47 @@ writes a person with an explicit `attributes={}` and `source` removed.
 Must add anchoring tests (each verified by re-running the matching mutation): G1, G2, G3, G4, G5, G6, G7/G8, G9, G12, F1 (missing-source, controller level).
 G10 to G15 are LOW; fix in-cycle if cheap. G16 to G19 need no test (equivalent). The mutation-authority core (compare, hold start, same-state keep, revert
 cancel, confirm replay, D3 signal gate, D4 gate, dwell deferral, teardown, number/const/suppress wiring) is genuinely anchored; the gaps are the edges around it.
+
+## Appendix — re-drill after the must-add tests (2026-11-12)
+
+Base: `feature/lock-suspicious-arrival-hold` @ e39f129f (includes the 607f06b3 fix-up) plus 15 new tests in
+`quality/tests/test_lock_arrival_hold.py` (`test_c_*`). No production change. Same drill script, retargeted, with one added row
+(RA1: the 607f06b3 revert-cancel `_away_rearm` call removed). Each row: one edit, `__pycache__` removed, `python -B`,
+`PYTHONDONTWRITEBYTECODE=1`, `-p no:cacheprovider`, the same 4 files (now 55 tests, all green unmutated), restore in `finally`.
+`git status --short` after the drill shows only the test file (production source restored).
+
+| Row | Mutation | Before | Now | Caught by |
+|---|---|---|---|---|
+| G1 / LR21e | D3 H>0 gate removed | GREEN | RED | `test_c_g1_hold_zero_stale_signal_releases` |
+| G2 / LR21d | D3 boot exemption removed | GREEN | RED | `test_c_g2_boot_window_stale_signal_releases` |
+| G3 / LR22c | D4 boot exemption removed | GREEN | RED | `test_c_g3_boot_window_stale_proximity_releases` |
+| G4 / LR21b | D3 held-edge branch removed | GREEN | RED | `test_c_g4_signal_dropped_while_held_even_if_source_fresh` |
+| G5 / LR27c | `_arrival_counts(..., now)` | GREEN | RED | `test_c_g5_confirm_judges_really_away_at_edge_time` |
+| G6 / LR27d | `_away_on_person(..., now)` | GREEN | GREEN, **equivalent** | `_away_on_person` reads its ts only when `new_val == "not_home"` (the outing stamp). A held edge is never `not_home` (`_should_hold` excludes it; a synthetic hold takes the stale reading, never `not_home`), and on the direct path `edge_ts == now`. No reachable input distinguishes the mutant. |
+| G7 / LR10b | synthetic adopt removed | GREEN | RED | `test_c_g7_g8b_synthetic_hold_adopts_real_edge_old_value` |
+| G8 / LR23b | synthetic `old = current` | GREEN | RED | `test_c_g7_g8b_...`, `test_c_g8_synthetic_hold_old_value_from_last_real` |
+| G8 / LR23c | synthetic flag False | GREEN | RED | `test_c_g7_g8b_...` |
+| G9 / LR5 | `_should_hold` live read | GREEN | RED | `test_c_g9_should_hold_reads_event_new_state` |
+| G10 / LR24b | dwell persons filter removed | GREEN | RED | `test_c_g10_dwell_ignores_unlisted_persons_hold` |
+| G11 / LR24d | dwell `min(dues)` | GREEN | RED | `test_c_g11_dwell_defers_to_latest_hold` |
+| G12 / LR24c | dwell pad removed | GREEN | RED | `test_c_g12_g13_dwell_defers_to_hold_due_plus_pad`, `test_c_g11_...` |
+| G12 / CO3 | pad 0.1 -> 0 | GREEN | RED | same two |
+| G13 / LR24e | `_away_pending_at` not stored | GREEN | RED | same two (snapshot `lock_regime_away_lock_pending_engage_at`) |
+| G14 / LR26 | old None `_drop_hold` removed | GREEN | RED | `test_c_g14_readd_drops_hold` |
+| G15 / LR30 | `_stale` swallow narrowed to KeyError | GREEN | RED | `test_c_g15_stale_read_error_never_blocks_release` |
+| F1 / AE2 | missing source -> not stale | unit-only | RED at controller too | `test_c_f1_missing_source_attribute_held_at_controller` (+ the unit test) |
+| RA1 (607f06b3) | revert-cancel `_away_rearm` removed | n/a | RED | `test_other_listed_leave_during_hold_then_revert_rearms` |
+| G16 / LR14 | confirm state recheck removed | GREEN | GREEN, equivalent (unchanged verdict) | |
+| G17 / LR15 | confirm `_torn_down` guard removed | GREEN | GREEN, equivalent | |
+| G18 / LR18 | confirm resident gate removed | GREEN | GREEN, equivalent | |
+| G19 / LR3 | `not_home` exclusion removed | GREEN | GREEN, equivalent | |
+| G20 / AE8 | person-side `last_updated` | GREEN | GREEN, fixture-equivalent | |
+
+G12 note: the harness breaks equal-time timer ties by registration order (the hold timer always registers first), so the pad's
+ordering role cannot be shown behaviourally in the fake clock; the tests pin the deferral TIME (hold due + 0.1 s, the latest due) as
+published in the snapshot, which is the contract the pad implements. After the 607f06b3 fix a revert re-arms the dwell directly, so the
+pad now matters only on the confirm path.
+
+**Tally (81 drill rows: every row of the original script plus RA1):** 75 RED, 0 untested GREEN, 6 GREEN all equivalent
+(G6, G16, G17, G18, G19, G20). Every must-add row (G1-G9, G12, F1) and every LOW row (G10, G11, G13, G14, G15) is now RED on a
+named test. **Verdict after appendix: SHIP (test authority).**

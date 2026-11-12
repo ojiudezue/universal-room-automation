@@ -659,3 +659,257 @@ async def test_person_removed_drops_hold():
     await rig.advance(10)
     assert rig.unlocks() == []
     assert rig.regime.arrival_hold_confirms == 0
+
+
+# ============================================================================
+# Review C must-add anchors (G1-G15, F1). Each test names the review-C row it
+# pins; each was verified RED with that row's mutation (review C appendix).
+# ============================================================================
+
+JAYA = "person.jaya"
+
+
+def fire(rig, eid, old, new):
+    """Deliver a person event with an explicit old/new pair (bypasses the
+    Rig's old = current-state rule)."""
+    ev = _Ev({"entity_id": eid, "old_state": old, "new_state": new})
+    for rec in list(rig.w.listeners):
+        if rec["active"] and eid in rec["ids"]:
+            rec["cb"](ev)
+
+
+def _pending_engage(rig):
+    iso = rig.regime.snapshot()["lock_regime_away_lock_pending_engage_at"]
+    return None if iso is None else datetime.fromisoformat(iso)
+
+
+@pytest.mark.asyncio
+async def test_c_g1_hold_zero_stale_signal_releases():
+    """G1: H = 0 is develop (INV-H4). A signal for a person reading home on a
+    stale source must release, not be dropped by the D3 gate."""
+    rig = await make_rig(opts=options(garage_lockout_arrival_hold_s=0))
+    rig.w.seed(OJI, "home", {"source": IPAD}, last_changed=rig.w.now)
+    rig.regime.on_person_arriving({"person_entity": OJI, "source": "geofence"})
+    await settle()
+    assert rig.regime.arrival_signal_held == 0
+    assert rig.unlocks() == [LOCK_A, LOCK_B, BED]
+
+
+@pytest.mark.asyncio
+async def test_c_g2_boot_window_stale_signal_releases():
+    """G2: inside the 600 s boot arrival window the D3 gate never drops a
+    signal, even on a stale source."""
+    rig = await make_rig(past_boot=False)
+    await rig.advance(10)
+    rig.relock()
+    rig.w.seed(OJI, "home", {"source": IPAD}, last_changed=rig.w.now)
+    rig.regime.on_person_arriving({"person_entity": OJI, "source": "geofence"})
+    assert rig.regime.arrival_signal_held == 0
+    assert rig.regime._release_inflight == {LOCK_A, LOCK_B, BED}
+
+
+@pytest.mark.asyncio
+async def test_c_g3_boot_window_stale_proximity_releases():
+    """G3: inside the boot arrival window a crossing with the person on a
+    stale home releases at once (no synthetic hold)."""
+    rig = await make_rig(past_boot=False)
+    await rig.advance(10)
+    rig.relock()
+    rig.distance(9000)
+    rig.w.seed(OJI, "home", {"source": IPAD}, last_changed=rig.w.now)
+    rig.distance(0)
+    assert rig.regime._held_edges == {}
+    assert rig.regime._release_inflight == {LOCK_A, LOCK_B}
+
+
+@pytest.mark.asyncio
+async def test_c_g4_signal_dropped_while_held_even_if_source_fresh():
+    """G4: the source turns fresh mid-hold (no person event); the signal is
+    still dropped because the edge is held; the confirm replays it."""
+    rig = await make_rig()
+    rig.stale(OJI, "home")
+    assert OJI in rig.regime._held_edges
+    await rig.advance(1)
+    rig.w.seed(IPAD, "home", {"source_type": "gps"}, last_changed=rig.w.now)
+    assert rig.regime._stale(OJI) is False  # only the held branch can drop it
+    rig.regime.on_person_arriving({"person_entity": OJI, "source": "geofence"})
+    await settle()
+    assert rig.regime.arrival_signal_held == 1
+    assert rig.unlocks() == []
+    await rig.advance(4.1)
+    assert rig.unlocks() == [LOCK_A, LOCK_B, BED]
+
+
+@pytest.mark.asyncio
+async def test_c_g5_confirm_judges_really_away_at_edge_time():
+    """G5 (INV-H5): unavailable -> home held at 898 s after a real leave.
+    At the edge the person was away < 15 min, so no garage release; judged at
+    confirm time (903 s) it would wrongly count."""
+    rig = await make_rig()
+    rig.fresh(OJI, "not_home", PHONE)
+    await rig.advance(1)
+    rig.emit(OJI, "unavailable", {})
+    await rig.advance(897)  # 898 s after the leave
+    rig.stale(OJI, "home")
+    assert OJI in rig.regime._held_edges
+    await rig.advance(5.1)
+    assert rig.regime.arrival_hold_confirms == 1
+    assert LOCK_A not in rig.unlocks() and LOCK_B not in rig.unlocks()
+    assert BED in rig.unlocks()  # the away lock releases on any home
+
+
+@pytest.mark.asyncio
+async def test_c_g7_g8b_synthetic_hold_adopts_real_edge_old_value():
+    """G7 / G8 (flag): a proximity-made hold, then the real not_home -> home
+    event (same held state) adopts not_home as the pre-edge value, so the
+    revert cancels the pair and leaves no stamp."""
+    rig = await make_rig()
+    cur = FakeState(OJI, "home", {"source": IPAD}, last_changed=rig.w.now)
+    rig.w.seed(OJI, "home", {"source": IPAD}, last_changed=rig.w.now)
+    rig.distance(0)
+    held = rig.regime._held_edges[OJI]
+    assert held["old_val"] is None
+    fire(rig, OJI, FakeState(OJI, "not_home", {"source": PHONE}), cur)
+    assert rig.regime._held_edges[OJI]["old_val"] == "not_home"
+    await rig.advance(0.04)
+    rig.fresh(OJI, "not_home", PHONE)
+    await settle()
+    assert rig.regime._held_edges == {}
+    assert rig.regime._last_real.get(OJI) is None
+    await rig.advance(10)
+    assert rig.unlocks() == []
+
+
+@pytest.mark.asyncio
+async def test_c_g8_synthetic_hold_old_value_from_last_real():
+    """G8 (value): the synthetic hold's pre-edge value comes from _last_real
+    (not_home), so the confirm replay is a live arrival edge and stamps the
+    face-corroboration edge at the person's own last_changed."""
+    rig = await make_rig()
+    rig.fresh(OJI, "not_home", PHONE)
+    await rig.advance(1)
+    edge_ts = rig.w.now.timestamp()
+    rig.w.seed(OJI, "home", {"source": IPAD}, last_changed=rig.w.now)
+    rig.distance(0)
+    assert rig.regime._held_edges[OJI]["old_val"] == "not_home"
+    await rig.advance(5.1)
+    assert rig.regime._arrival_edges["oji_udezue"] == edge_ts
+
+
+@pytest.mark.asyncio
+async def test_c_g9_should_hold_reads_event_new_state():
+    """G9 (F2): the event's new_state carries the stale source; by callback
+    time the live state already reads a fresh source. The edge is judged on
+    the event, so it is held."""
+    rig = await make_rig()
+    rig.w.seed(PHONE, "home", {"source_type": "gps"}, last_changed=rig.w.now)
+    rig.w.seed(OJI, "home", {"source": PHONE}, last_changed=rig.w.now)
+    ev_new = FakeState(OJI, "home", {"source": IPAD}, last_changed=rig.w.now)
+    fire(rig, OJI, FakeState(OJI, "not_home", {"source": PHONE}), ev_new)
+    assert OJI in rig.regime._held_edges
+    assert rig.regime._release_inflight == set()
+
+
+@pytest.mark.asyncio
+async def test_c_g10_dwell_ignores_unlisted_persons_hold():
+    """G10: a hold on a person NOT in the away-lock list never defers the
+    away-lock dwell."""
+    rig = await make_rig(past_boot=False, opts=options(security_garage_lockout_enabled=False))
+    rig.w.seed(OJI, "home", {"source": PHONE}, last_changed=DAY)
+    rig.w.seed(EZ, "home", {"source": EZ_PHONE}, last_changed=DAY)
+    await rig.advance(700)
+    rig.w.set_state(JAYA, "not_home", {"source": "device_tracker.jaya_phone"})
+    rig.fresh(OJI, "not_home", PHONE)
+    rig.fresh(EZ, "not_home", EZ_PHONE)
+    await rig.advance(299.5)
+    rig.stale(JAYA, "home", src="device_tracker.jaya_ipad")
+    assert JAYA in rig.regime._held_edges
+    await rig.advance(0.6)
+    assert rig.w.locks_called("lock") == [BED]
+
+
+@pytest.mark.asyncio
+async def test_c_g12_g13_dwell_defers_to_hold_due_plus_pad():
+    """G12 / G13 / CO3: the dwell due inside a hold re-arms at the hold's due
+    + 0.1 s (so the confirm replay always runs first), published as the
+    pending engage time."""
+    rig = await make_rig(past_boot=False, opts=options(security_garage_lockout_enabled=False))
+    rig.w.seed(OJI, "home", {"source": PHONE}, last_changed=DAY)
+    rig.w.seed(EZ, "home", {"source": EZ_PHONE}, last_changed=DAY)
+    await rig.advance(700)
+    rig.fresh(OJI, "not_home", PHONE)
+    rig.fresh(EZ, "not_home", EZ_PHONE)
+    left = rig.w.now
+    await rig.advance(299.5)
+    rig.stale(OJI, "home")  # hold due at left + 304.5
+    await rig.advance(0.6)
+    assert rig.w.locks_called("lock") == []
+    pending = _pending_engage(rig)
+    assert pending is not None
+    assert abs((pending - left).total_seconds() - 304.6) < 0.001
+
+
+@pytest.mark.asyncio
+async def test_c_g11_dwell_defers_to_latest_hold():
+    """G11: two listed persons held; the dwell defers to the LATEST due."""
+    rig = await make_rig(past_boot=False, opts=options(security_garage_lockout_enabled=False))
+    rig.w.seed(OJI, "home", {"source": PHONE}, last_changed=DAY)
+    rig.w.seed(EZ, "home", {"source": EZ_PHONE}, last_changed=DAY)
+    await rig.advance(700)
+    rig.fresh(OJI, "not_home", PHONE)
+    rig.fresh(EZ, "not_home", EZ_PHONE)
+    left = rig.w.now
+    await rig.advance(299.5)
+    rig.stale(OJI, "home")  # due left + 304.5
+    await rig.advance(0.3)
+    rig.stale(EZ, "home", src="device_tracker.ez_ipad")  # due left + 304.8
+    await rig.advance(0.3)  # dwell (left + 300) came due
+    pending = _pending_engage(rig)
+    assert pending is not None
+    assert abs((pending - left).total_seconds() - 304.9) < 0.001
+
+
+@pytest.mark.asyncio
+async def test_c_g14_readd_drops_hold():
+    """G14: a person event with no old state (re-add / restore) drops a
+    pending hold; nothing is replayed at its due time."""
+    rig = await make_rig()
+    rig.stale(OJI, "home")
+    assert OJI in rig.regime._held_edges
+    fire(rig, OJI, None, rig.w.hass.states.get(OJI))
+    assert rig.regime._held_edges == {}
+    await rig.advance(10)
+    assert rig.regime.arrival_hold_confirms == 0
+    assert LOCK_A not in rig.unlocks() and LOCK_B not in rig.unlocks()
+
+
+@pytest.mark.asyncio
+async def test_c_g15_stale_read_error_never_blocks_release():
+    """G15: any error reading the source fails open: no hold, release now."""
+    rig = await make_rig()
+    real_get = rig.w.hass.states.get
+
+    def get(eid):
+        if eid == IPAD:
+            raise RuntimeError("boom")
+        return real_get(eid)
+
+    rig.w.hass.states.get = get
+    rig.w.seed(IPAD, "home", {}, last_changed=rig.w.now - timedelta(seconds=4119))
+    rig.emit(OJI, "home", {"source": IPAD})
+    assert rig.regime._held_edges == {}
+    assert rig.regime._release_inflight == {LOCK_A, LOCK_B, BED}
+
+
+@pytest.mark.asyncio
+async def test_c_f1_missing_source_attribute_held_at_controller():
+    """F1: a person edge with NO source attribute is suspicious: held, then
+    confirmed at H."""
+    rig = await make_rig()
+    rig.emit(OJI, "home", {})
+    assert OJI in rig.regime._held_edges
+    assert rig.regime._release_inflight == set()
+    await rig.advance(4.9)
+    assert rig.unlocks() == []
+    await rig.advance(0.2)
+    assert rig.unlocks() == [LOCK_A, LOCK_B, BED]
