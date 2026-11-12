@@ -2,7 +2,8 @@
 
 Card: GARAGE-REMOTE-LOCKOUT-SCHEDULE-1 residual (`INSTANCE_2026_11_12_blip_release_gap`,
 `operator_decision_2026_11_12_blip`, `measured_2026_11_12_arrival_gap`).
-Status: rev 1, pre-plan-review. Planner run 2026-11-12. No code, no commit, no board edit.
+Status: rev 2, after plan review `docs/reviews/code-review/PLAN_lock_suspicious_arrival_hold_review.md`
+(REVISE (small): 0 HIGH, 2 MED, 2 LOW-MED, 7 LOW; all applied, see §12). Planner run 2026-11-12. No code, no commit, no board edit.
 
 Operator bar: *"Feeling locked out is a nasty feeling and makes URA feel completely unreliable."*
 Real arrivals must stay instant; only suspicious ones may wait.
@@ -79,7 +80,7 @@ lock regime, `hvac.py:1511`, `music_following.py:281`).
 
 | Piece | Verdict | Where |
 |---|---|---|
-| Edge classifier (stale source) | **BUILD, small**, a pure function in the EXISTING shared module | `arrival_edges.py` (holds `live_arrival_slug` :33, `nonface_arrival_source` :128). No existing reader of `person.attributes.source` age anywhere (grep above). |
+| Edge classifier (stale source) | **BUILD, small**, a pure function in the EXISTING shared module | `custom_components/universal_room_automation/arrival_edges.py` (package root, not `domain_coordinators/`; holds `live_arrival_slug` :33, `nonface_arrival_source` :128). No existing reader of `person.attributes.source` age anywhere (grep above). |
 | Person edge listener | REUSE | `security_lock_regime._on_person_event` :1097-1138 (refactored into a body function, §5.2) |
 | Away-lock person edge | REUSE | `_away_on_person` :1885-1928 (called from the same body) |
 | Signal path P2 | REUSE + one gate | `on_person_arriving` :975-1005, `_apply_arrival` :1007-1020 |
@@ -87,7 +88,7 @@ lock regime, `hvac.py:1511`, `music_following.py:281`).
 | Face corroboration stamp | REUSE, moved to confirm time | `_arrival_edges[slug] = now_ts` :1120-1122 (via `live_arrival_slug`) |
 | Timer primitive | REUSE | `self._call_later` (injected, :170-183), the same as re-engage/backstop; teardown pattern in `async_teardown` :653 |
 | 15-min blip rule | REUSE unchanged | `_really_away` :1145-1157, `GARAGE_LOCKOUT_BLIP_MIN_AWAY_MIN` `const.py:3774` (rung 1, stays) |
-| Hold-seconds knob | **NEW** `CONF_GARAGE_LOCKOUT_ARRIVAL_HOLD_S` | No hold/dwell knob exists for the regime (const.py:3736-3776 is the full lockout block). Pattern REUSED: `_SecurityLockoutNumber` `number.py:4415-4433`, builder `:4436-4480`. Must also be added to `OPTIONS_RELOAD_SUPPRESS_KEYS` (`__init__.py:7397`) and `_NO_LIVE_ATTR_KEYS` (`__init__.py:7704`). Missing either one reloads the CM on every knob turn. |
+| Hold-seconds knob | **NEW** `CONF_GARAGE_LOCKOUT_ARRIVAL_HOLD_S` | No hold/dwell knob exists for the regime (const.py:3736-3776 is the full lockout block). Pattern REUSED: `_SecurityLockoutNumber` `number.py:4415-4433`, builder `:4436-4480`. Must also be added to `_NO_LIVE_ATTR_KEYS` (`__init__.py:7382`; approach radius at :7395) and `OPTIONS_RELOAD_SUPPRESS_KEYS` (`__init__.py:7525`; approach radius at :7702). Missing either one reloads the CM on every knob turn. |
 | Stale-source bound | **NEW** rung-1 `LOCK_ARRIVAL_STALE_SOURCE_S` | Classifier boundary, not policy (§6). |
 | Reverts-within-N "blip" classifier elsewhere | None | `grep blip const.py` shows only fan/PIR/Bermuda-hallway uses, none on person edges. |
 
@@ -189,8 +190,10 @@ not be delayed when the person does not read `home` on a stale source.
   *Break it by:* finding any site that reads raw `person.state`, a `home` edge, or the arriving
   signal and reaches `_release` / `_away_release` without passing the predicate.
 - **INV-H2 (reliability: real arrivals never wait).** An edge whose source tracker changed at the
-  edge (age <= M) issues its release in the same callback as on develop. Replay: all 40 real edges
-  release with 0 s added delay, and all 3 real proximity crossings release at the crossing.
+  edge (age <= M), OR any edge inside `_in_boot_arrival_window()` (F4: HA-start and boot edges can
+  carry a stale-looking source on a real arrival), issues its release in the same callback as on
+  develop. Replay: all 40 real edges release with 0 s added delay, and all 3 real proximity
+  crossings release at the crossing.
 - **INV-H3 (clean cancel).** A held edge followed, inside H, by an event back to the pre-edge
   state leaves the regime's state equal to a run in which neither event happened (the fields listed
   in INV-H1, plus no timers left).
@@ -246,8 +249,11 @@ history. `stale_s` comes from `LOCK_ARRIVAL_STALE_SOURCE_S` (10.0).
 - Refactor the body of `_on_person_event` after the `old is None` return (:1117-1138) into
   `_process_person_edge(pid, old_val, new_val, edge_ts, cfg)`, unchanged. The listener calls it
   directly when not holding. This is the only way to hold S1-S5 together without five gates.
-- In the listener, before the body: if `H > 0`, `new_val` is `home` or a non-`not_home` real state,
-  `old_val != new_val`, and `stale_source_arrival(...)` is True, then record
+- In the listener, before the body: if `H > 0`, NOT `_in_boot_arrival_window()` (F4: boot/HA-start
+  edges are never held; that window already counts every edge as an arrival, M-2 (i)), `new_val` is
+  `home` or a non-`not_home` real state, `old_val != new_val`, and `stale_source_arrival(...)` is True
+  (at this site the predicate reads the EVENT's `new_state` for the person and `hass.states` for the
+  source tracker, F2: deterministic, no re-read of the person), then record
   `self._held_edges[pid] = HeldEdge(old_val, new_val, edge_ts, unsub=call_later(H, confirm))` and
   return. Record `arrival_hold` in the snapshot counter. No other state moves.
 - A later event for `pid` while a hold is pending:
@@ -255,12 +261,25 @@ history. `stale_s` comes from `LOCK_ARRIVAL_STALE_SOURCE_S` (10.0).
     this event too**. The pair is a no-op (INV-H3). This matters for S3: without the skip, the
     revert `home -> not_home` is processed as "a real leave" and resets `_away_not_home_since`
     (:1897-1899).
+  - `new_val == held.new_val` (F1: an attribute-only event such as `home -> home` on a source
+    switch, lat/lon or accuracy refresh): **keep the hold and ignore the event entirely**. The held
+    body runs once, at confirm. Without this, `_away_on_person` (:1910-1918) releases on every such
+    event and the hold is defeated for any stale `home` with an intermediate attribute write.
   - Any other value: cancel the hold, then process THIS event with `old_val := held.old_val`, as if
     the held edge never happened. It may itself be held.
 - Confirm timer at `edge_ts + H`: if `hass.states.get(pid)` still reads `held.new_val`, call
-  `_process_person_edge(pid, held.old_val, held.new_val, held.edge_ts, cfg)` (INV-H5; stamps use
-  `edge_ts`, releases fire now). Otherwise drop it. Check `_torn_down` first. Clear the slot before
-  calling (re-entrancy).
+  `_process_person_edge(pid, held.old_val, held.new_val, held.edge_ts, self._cfg())` (INV-H5; stamps
+  use `edge_ts`, releases fire now). The config is **re-read at confirm** (F7): resident, exclusion
+  and away-person lists changed inside H apply. Otherwise drop it. Check `_torn_down` first. Clear
+  the slot before calling (re-entrancy).
+- **Away-lock dwell during a hold (F3).** Choice: `_on_away_dwell` defers while a hold is pending
+  for any away-lock person. It reschedules itself to the latest pending hold's expiry plus 0.1 s
+  and returns BEFORE `_async_away_engage` (so `_set_attempted()` at :2015 is never reached). Why
+  this option rather than re-arming on cancel: the alternative must restore a persisted attempt
+  marker (`_away_attempted_marker`, saved to Store), which is a second writer to persisted state and
+  easy to get wrong. Deferring touches no state. On cancel the dwell fires at expiry and engages as
+  it would have; on confirm the replayed home branch cancels the dwell (:1912) exactly as develop
+  does. Bound: at most H late.
 - `async_teardown` cancels every held timer (add to the timer loop at :653).
 - Not persisted. A restart during a hold loses it; boot rules then apply (§9 R2).
 
@@ -269,7 +288,10 @@ In `_apply_arrival` (:1007), first line: if `H > 0` and (`pid in self._held_edge
 `stale_source_arrival(...)`), return and count `arrival_signal_held`. Do not queue it. Why dropping
 is safe: if the edge confirms, the replayed P1 body releases the garage (`_arrival_counts` is True
 for `not_home -> home`) and the away lock (any home), a superset of P2's effects for the same
-person. Dispatcher order does not matter: HA writes the person state before any listener or signal
+person. A dropped `ble`/`geofence` signal is NOT replayed when the hold is cancelled, by design (F5);
+the next real edge carries the arrival. Off-edge note (review §2): the live predicate can read True
+for a person who really is home (BLE drops, source falls back to an older GPS `home`). That is
+harmless: such a person reads `home`, `_really_away` is False, and develop would not release either. Dispatcher order does not matter: HA writes the person state before any listener or signal
 runs, so the live predicate already sees the stale source even if the signal arrives before the
 regime's own state listener.
 
@@ -280,7 +302,11 @@ person's held edge. If there is no held edge yet, create one keyed to `person.la
 `old_val` taken from `_last_real`. Do not release. On confirm, re-read `_last_distance_m[sid]` and
 release `proximity:{sid}` only if it is still <= radius. On cancel, drop it. `_last_distance_m` is
 updated as today, because distance tracking is not arrival state. A crossing with the person
-`not_home` (real approach, §2.3) is never stale by definition, so it releases at once.
+`not_home` (real approach, §2.3) is never stale by definition, so it releases at once. Synthetic hold (F6): when `_last_real` already
+reads `home`, the edge was already processed. The confirm replay is then a garage no-op and only a
+harmless any-`home` away release; test it. If `_person_for_sensor` returns None (a proximity sensor
+named after a device tracker, which is valid HA config), the gate is bypassed and it releases as on
+develop. This is a named gap (§9 R6), not resolved this cycle.
 
 ### 5.5 Knob (D5)
 `CONF_GARAGE_LOCKOUT_ARRIVAL_HOLD_S = "garage_lockout_arrival_hold_s"`, default
@@ -288,10 +314,11 @@ updated as today, because distance tracking is not arrival state. A crossing wit
 `_SecurityLockoutNumber(min 0, max 60, step 1, unit "s", unique_suffix
 "garage_lockout_arrival_hold_s", entity_id "number.ura_garage_lockout_arrival_hold", name
 "Garage Lockout Suspicious Arrival Hold", icon "mdi:timer-sand")`. Plain-language description in
-strings/en.json: *"When an arrival looks like a phone-tracker glitch (the home reading came from a
-device that has not moved), wait this many seconds before unlocking. Normal arrivals are never
-delayed. 0 = off."* Read live via `self._num(cfg, ...)`. Add the key to `__init__.py:7397`
-and `:7704`. It also governs the away lock: one knob, because it is one predicate (operator decision
+strings/en.json (F10): *"Applies to the garage lockout and the away lock. When an arrival looks like
+a phone-tracker glitch (the home reading came from a device that has not moved), wait this many
+seconds before unlocking. Normal arrivals are never delayed. 0 = off."* Read live via
+`self._num(cfg, ...)`. Add the key to `_NO_LIVE_ATTR_KEYS` (`__init__.py:7382`) and
+`OPTIONS_RELOAD_SUPPRESS_KEYS` (`:7525`). It also governs the away lock: one knob, because it is one predicate (operator decision
 11-12 "applied to every arrival edge for both").
 
 ---
@@ -308,9 +335,14 @@ and `:7704`. It also governs the away lock: one knob, because it is one predicat
 
 ## 7. Non-goals
 
-- Gating the producer (`presence.py:5281` geofence dispatch) for HVAC pre-arrival, music
-  following and the security expected-arrival sanction. Same blips, other consumers. **Card it**
-  (follow-up; reuses D1's predicate).
+- Gating the producer (`presence.py:5281` geofence dispatch). Same blips, other consumers. **Card
+  it** (follow-up; reuses D1's predicate), in priority order:
+  1. **`security.py:2410-2418` expected-arrival sanction (F11, first priority).** When
+     `CONF_SECURITY_ON_ARRIVAL_ADD_EXPECTED` is on, each blip opens a 5-minute "expected entry"
+     window (`add_expected_arrival(..., window_minutes=5)`). That weakens security alerting, not
+     just comfort.
+  2. HVAC pre-arrival (`hvac.py:1511`).
+  3. Music following (`music_following.py:281`).
 - House-state releases (S11/S12) and boot discharge (S10). Measured 0; see §9.
 - `LOCK-REGIME-BOOT-REALLY-AWAY-1` (boot-window `_really_away`). Stays parked with its own trigger;
   its trigger (lockout ON) fires at the same moment, so plan it next.
@@ -346,8 +378,19 @@ and `:7704`. It also governs the away lock: one knob, because it is one predicat
 
 - **R1** A stale-source `home` that lasts ≥ H (attribute-refresh variant) releases at H. That is
   the same as develop, delayed by H. Not observed in the window.
-- **R2** Boot: restore rewrites `last_changed`, so the predicate is blind for edges replayed at
-  boot and for `_away_boot_discharge`. Unchanged from develop.
+- **R2 (corrected, F4)** Boot: the rev-1 claim that boot ages are "about 0" was wrong. At HA start
+  the person waits for `EVENT_HOMEASSISTANT_START` and then runs `_update_state`, while tracker
+  states were written earlier in bootstrap. So a real arrival during a restart can show a source age
+  over 10 s and would have been held. Fix: every edge inside `_in_boot_arrival_window()` is exempt
+  from the hold and processed exactly as on develop, which keeps "real arrivals never wait" literally
+  true. Boot blips are therefore not guarded; that is already accepted by M-2. `_away_boot_discharge`
+  (S10) is unchanged from develop. A person config edit (a tracker added in the UI) can produce the
+  same stale-looking edge outside the boot window. It is held at most H, then confirmed. Rare, accepted.
+- **R5 (F8)** A reload of the lock regime during a hold drops the held edge: the new instance sees no
+  edge (`old is None` path), and only the house-state boot recheck can catch it. With the F4 boot
+  exemption this cannot hit a boot edge; it can hit a live 2-GPS stale edge. Accepted.
+- **R6 (F6)** A proximity sensor that does not resolve to a person (`_person_for_sensor` returns
+  None) bypasses the D4 gate. Develop behaviour; named.
 - **R3** A blip that lasts long enough for a scheduled inference to see it could produce an
   ARRIVING/HOME_* house edge that releases. 0 in 7 days; HOME_* only releases when `reason != NONE`.
 - **R4** A hold drops the P2 signal instead of queueing it. If the person edge is then cancelled by
@@ -385,7 +428,25 @@ edges + 52 crossings; no coordinates, ages only).
   event is processed with `old_val = not_home` (no stamp regression).
 - **Test:** `test_lock_arrival_hold.py::test_blip_pair_noop_garage`, `::test_blip_pair_noop_away_stamp`,
   `::test_fresh_source_releases_same_callback`, `::test_stale_persisting_confirms_at_h_edge_ts`,
-  `::test_hold_cancel_by_other_value`, `::test_teardown_cancels_holds`, `::test_approach_zone_stale_held`.
+  `::test_hold_cancel_by_other_value`, `::test_teardown_cancels_holds`, `::test_approach_zone_stale_held`,
+  `::test_attribute_only_event_keeps_hold` (F1: a `home -> home` attribute event inside H issues no
+  release; one release at confirm), `::test_away_dwell_deferred_during_hold` (F3: dwell due at
+  T-0.5 of a blip; no `_set_attempted`; after the revert the away lock engages within H),
+  `::test_boot_window_edge_not_held` (F4: a stale-source edge inside the boot arrival window releases
+  in the same callback), `::test_confirm_rereads_config` (F7),
+  `::test_proximity_synthetic_hold_already_home_noop` (F6).
+
+### D2b: real-HA test (F2)
+Using the `test_sc_garage_lockout_real_ha.py` pattern, with the real `person` component.
+- **Verify:** a person with two GPS trackers (phone `not_home`, older `home` second device): phone
+  goes `unavailable`, so HA picks the stale device. Held, no unlock; the phone returning `not_home`
+  drops it.
+- **Verify:** the same person, with the stale device getting an attribute-only refresh (bumps
+  `last_updated` only, HA picks it): stays held. This catches a predicate that reads `last_updated`
+  instead of `last_changed`.
+- **Verify:** a BLE-only person `not_home -> home` releases in the same callback.
+- **Test:** `test_lock_arrival_hold_real_ha.py::test_two_gps_dropout_held_and_dropped`,
+  `::test_two_gps_attribute_refresh_stays_held`, `::test_ble_only_arrival_instant`.
 
 ### D3: signal gate (S6-S8)
 - **Verify:** geofence signal dispatched (before or after the regime's state listener) for a
@@ -428,7 +489,8 @@ card.
 - `number.ura_garage_lockout_arrival_hold` exists, reads 5.
 - Lock regime snapshot attributes show `arrival_holds` / `arrival_signal_held` counters at 0, and
   `held_edges` empty after a resident's real arrival. With today's tracker sets the expected
-  count is 0. Discriminator: a non-zero count with no second GPS device on any person means the
+  count is 0, counting only edges OUTSIDE the boot arrival window (boot edges are exempt and never
+  counted; F4). Discriminator: a non-zero count with no second GPS device on any person means the
   predicate is false-holding, i.e. a real-arrival delay. Check `person.*.source` at that edge.
 - Organic (when the lockout is on): every resident arrival's lockout release time equals the
   person edge time (within 1 s) in the activity log. A release H seconds after the edge with a
@@ -443,6 +505,10 @@ card.
 6. Invert the predicate threshold (`<` for `>`): `test_replay_real_instant_blips_never_unlock` fails (real held).
 7. Confirm with confirm-time ts: `test_stale_persisting_confirms_at_h_edge_ts` fails.
 8. Drop the key from `_NO_LIVE_ATTR_KEYS`: `test_arrival_hold_key_in_reload_suppress_and_no_live_attr` fails.
+9. Treat `new_val == held.new_val` as "any other value" (F1): `test_attribute_only_event_keeps_hold` fails.
+10. Remove the dwell deferral in `_on_away_dwell` (F3): `test_away_dwell_deferred_during_hold` fails.
+11. Remove the boot-window exemption (F4): `test_boot_window_edge_not_held` fails.
+12. Make the predicate read `last_updated` (F2): `test_two_gps_attribute_refresh_stays_held` fails.
 
 ---
 
@@ -458,3 +524,21 @@ teardown/restart); C = test authority by mutation + replay fixture. One adversar
 before build (Tier 2 rule). Not Tier 3: no cost/safety state machine shared with other
 coordinators, and the default direction of every hold is "unlock a few seconds later", never
 "never unlock".
+
+---
+
+## 12. Plan-review disposition (rev 1 -> rev 2)
+
+| # | Sev | Finding | Disposition | Where |
+|---|---|---|---|---|
+| F1 | MED | Same-state `home -> home` attribute events inside a hold would cancel it and release | Fixed: a `new_val == held.new_val` event keeps the hold and is ignored; test + drill 9 | §5.2, D2, drills |
+| F2 | MED | Replay never exercises HA's real source selection or `last_changed` | Fixed: D2b real-HA tests (2-GPS dropout, attribute-only refresh, BLE-only instant); the D2 predicate reads the event `new_state`; drill 12 | §5.2, D2b |
+| F3 | LOW-MED | Away dwell fires inside a hold, consumes `_away_attempted`, never re-arms | Fixed by deferring `_on_away_dwell` while a hold is pending. Chosen over re-arm-on-cancel because that must restore the persisted attempt marker (a second writer). Test + drill 10 | §5.2, D2 |
+| F4 | LOW-MED | INV-H2/R2 overclaim; the HA-start edge can hold a real arrival | Fixed per the reviewer's recommendation: edges in `_in_boot_arrival_window()` are exempt; R2 corrected; live hold-count check excludes the boot window; test + drill 11 | §3, §5.2, §9, Live |
+| F5 | LOW | A dropped signal is not replayed on cancel | Stated as by design | §5.3 |
+| F6 | LOW | Synthetic proximity hold on an already-home person; an unresolved sensor bypasses the gate | No-op replay noted and tested; bypass named as R6 | §5.4, §9 |
+| F7 | LOW | Confirm used the hold-time cfg | Confirm re-reads `self._cfg()`; test | §5.2 |
+| F8 | LOW | A reload during a hold drops the edge | Named as R5 | §9 |
+| F9 | LOW | Wrong line cites / module path | Corrected (`:7382` NO_LIVE_ATTR, `:7525` RELOAD_SUPPRESS, `arrival_edges.py` in the package root) | §1.2, §5.5 |
+| F10 | LOW | The knob also governs the away lock | Description says so | §5.5 |
+| F11 | LOW | Expected-arrival sanction should be named with priority | Named first in the follow-up card list | §7 |
