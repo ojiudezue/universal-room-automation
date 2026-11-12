@@ -2169,6 +2169,10 @@ async def test_sc_async_setup_builds_lock_regime(monkeypatch):
     monkeypatch.setattr(sec, "async_track_state_change_event", lambda *a, **k: (lambda: None))
     monkeypatch.setattr(sec, "async_track_time_interval", lambda *a, **k: (lambda: None))
     monkeypatch.setattr(sec, "async_dispatcher_connect", lambda *a, **k: (lambda: None))
+    # SC-GEOFENCE-PERSON-SNAPSHOT-1: geofence listener now subscribes to
+    # person add/remove; the fake hass has no bus, so stub those too.
+    monkeypatch.setattr(sec, "async_track_state_added_domain", lambda *a, **k: (lambda: None))
+    monkeypatch.setattr(sec, "async_track_state_removed_domain", lambda *a, **k: (lambda: None))
     sc = sec.SecurityCoordinator(w.hass, garage_entities=[COVER_A, COVER_B])
     await sc.async_setup()
     assert isinstance(sc.lock_regime, Injected)

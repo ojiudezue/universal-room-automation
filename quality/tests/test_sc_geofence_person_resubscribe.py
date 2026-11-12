@@ -10,12 +10,42 @@ from __future__ import annotations
 
 from datetime import datetime
 
+import sys
+
 import pytest
 
-from _lockout_harness import TZ, World, load
+from _d7_isolation import import_scope
+from _lockout_harness import PKG, TZ, World, load
 
 const = load("const")
 sec = load("domain_coordinators.security")
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _fresh_security():
+    """Order-proofing: the collection-time ``load`` above can run after a
+    legacy donor replaced ``homeassistant.core.callback`` with a stub, leaving
+    the SC's ``@callback`` methods unmarked (the harness's assert_loop_callback
+    then rejects them). Re-import the security module fresh under the REAL
+    callback/is_callback for this file; import_scope restores sys.modules
+    entries and the core attributes on exit."""
+    global const, sec
+    old_const, old_sec = const, sec
+    with import_scope(("homeassistant", PKG), attrs=True):
+        for name in [k for k in sys.modules if k == PKG or k.startswith(PKG + ".")]:
+            sys.modules.pop(name, None)
+        core = sys.modules["homeassistant.core"]
+
+        def _real_callback(func):
+            setattr(func, "_hass_callback", True)
+            return func
+
+        core.callback = _real_callback
+        core.is_callback = lambda func: getattr(func, "_hass_callback", False) is True
+        const = load("const")
+        sec = load("domain_coordinators.security")
+        yield
+    const, sec = old_const, old_sec
 
 START = datetime(2026, 11, 11, 12, 0, tzinfo=TZ)
 OJI = "person.oji"
