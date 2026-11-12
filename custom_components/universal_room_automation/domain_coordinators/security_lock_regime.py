@@ -61,6 +61,7 @@ from ..arrival_edges import (  # noqa: E402
     live_arrival_slug,
     nonface_arrival_source,
     record_bermuda_moves,
+    stale_source_arrival,
 )
 
 
@@ -100,6 +101,16 @@ def _state_value(state: Any) -> str | None:
     if state is None:
         return None
     return getattr(state, "state", None)
+
+
+class _Val:
+    """A bare ``.state`` holder, so a (possibly replayed) person edge given
+    as values goes through the shared ``live_arrival_slug`` rule."""
+
+    __slots__ = ("state",)
+
+    def __init__(self, state: str | None) -> None:
+        self.state = state
 
 
 def distance_to_metres(value: Any, unit: Any) -> float | None:
@@ -231,6 +242,13 @@ class LockRegimeController:
         self._pc_listened: Any = None
         self._residents: set[str] = set()
         self._unavailable_warned: set[str] = set()
+        # Suspicious-arrival hold (PLANNING_lock_suspicious_arrival_hold.md
+        # rev 2): person -> held edge {old_val, new_val, edge_ts, due_ts,
+        # unsub, proximity_sids, synthetic}. Not persisted (R5).
+        self._held_edges: dict[str, dict[str, Any]] = {}
+        self.arrival_holds: int = 0
+        self.arrival_signal_held: int = 0
+        self.arrival_hold_confirms: int = 0
 
         # SC-LOCK-REGIME-DOOR-LOCKS-1 (plan rev 3 D3a): the away-lock policy.
         # Its own state; it never touches reason / release_gen / backstop /
@@ -671,6 +689,9 @@ class LockRegimeController:
         self._away_pending_at = None
         self._pc_listened = None
         self._pending_faces.clear()
+        for held in self._held_edges.values():
+            _safe_unsub(held.get("unsub"))
+        self._held_edges.clear()
         for unsub in self._readback_unsubs.values():
             _safe_unsub(unsub)
         self._readback_unsubs.clear()
@@ -1007,6 +1028,17 @@ class LockRegimeController:
     def _apply_arrival(self, person: str) -> None:
         """P2 effects once an arrival counts (unchanged pre-v5.107.4 body)."""
         cfg = self._cfg()
+        # Suspicious-arrival hold D3 (S6-S8: geofence / ble / camera_face and
+        # the held-face recheck all land here): while this person's edge is
+        # held, or the person reads home on a stale source, drop the signal.
+        # Not queued: a confirmed edge replays P1, a superset of these effects
+        # for the same person; a cancelled one is not replayed (F5, by design).
+        if self._hold_s(cfg) > 0 and (
+            person in self._held_edges
+            or (not self._in_boot_arrival_window() and self._stale(person))
+        ):
+            self.arrival_signal_held += 1
+            return
         # Away lock P2 (D3c): a listed person, same really-away gate.
         away_p2 = person in self.away_lock_persons(cfg)
         if self._is_resident(person, cfg):
@@ -1087,6 +1119,8 @@ class LockRegimeController:
         unsub = self._person_unsubs.pop(pid, None)
         _safe_unsub(unsub)
         self._residents.discard(pid)
+        # Review B-L1: a removed person's pending hold is moot.
+        self._drop_hold(pid)
         # L-5: keep an en-route member blocking re-engage until re-added
         # or the max wait passes.
         if pid in self.releasing_set:
@@ -1106,36 +1140,204 @@ class LockRegimeController:
         # Plan rev 3 §2.2 / Build DO: _last_real is kept for EVERY person.*
         # (an away-lock person may be a lockout-excluded person); the garage
         # effects below stay resident-gated, byte-identical.
-        resident = self._is_resident(pid, cfg)
         new_val = _state_value(new)
         now_ts = self._ts()
         if old is None:
             # Entity (re)added, e.g. HA person restore: not an arrival edge;
-            # stamp last_real as restored (M-2).
+            # stamp last_real as restored (M-2). A pending hold is moot.
+            self._drop_hold(pid)
             if new_val not in _UNREAL_STATES:
                 self._last_real[pid] = (new_val, now_ts, True)
             self._away_on_person(pid, None, new_val, now_ts, cfg)
             return
         old_val = _state_value(old)
+        held = self._held_edges.get(pid)
+        if held is not None:
+            if new_val == held["new_val"]:
+                # F1: a same-state event (attribute-only `home -> home`, a
+                # source switch, a lat/lon refresh) keeps the hold and is
+                # otherwise ignored; the held body runs once, at confirm. A
+                # synthetic (proximity-made) hold adopts the real edge's
+                # pre-edge value.
+                if held.get("synthetic") and old_val != new_val:
+                    held["old_val"] = old_val
+                    held["synthetic"] = False
+                return
+            self._drop_hold(pid)
+            if new_val == held["old_val"]:
+                # The revert: the edge and its revert cancel as a pair, no
+                # state change (INV-H3). Processing the revert would reset
+                # the away-lock outing stamp (_away_on_person, a "real leave").
+                self._record(
+                    "arrival_hold_cancelled", trigger=f"person:{pid}", written=[],
+                    extra={"held": held["new_val"], "edge_ts": held["edge_ts"]},
+                )
+                # Review B-M1: another listed person's edge inside the hold
+                # may have delegated the away-lock re-arm to this person (its
+                # _away_rearm saw the held `home` and dropped the dwell).
+                # Re-arm here; _away_rearm changes no stamp (INV-H3 holds).
+                if not self._in_boot_window():
+                    self._away_rearm(cfg)
+                return
+            # Any other value: as if the held edge never happened.
+            old_val = held["old_val"]
+        if self._should_hold(pid, old_val, new_val, new, cfg):
+            self._start_hold(pid, old_val, new_val, now_ts, cfg)
+            return
+        self._process_person_edge(pid, old_val, new_val, now_ts, cfg)
+
+    def _process_person_edge(
+        self,
+        pid: str,
+        old_val: str | None,
+        new_val: str | None,
+        edge_ts: float,
+        cfg: dict[str, Any],
+    ) -> None:
+        """The person-edge body (S1-S5), unchanged; ``edge_ts`` is the edge's
+        own time (now on the direct path, the held edge's ts on confirm)."""
+        resident = self._is_resident(pid, cfg)
         # Face-arrival corroboration: record LIVE not_home -> home edges
-        # (shared arrival_edges rule; old None returned above).
-        slug = live_arrival_slug(event.data)
+        # (shared arrival_edges rule; old None returned by the listener).
+        slug = live_arrival_slug({
+            "entity_id": pid,
+            "old_state": _Val(old_val),
+            "new_state": _Val(new_val),
+        })
         if slug:
-            self._arrival_edges[slug] = now_ts
+            self._arrival_edges[slug] = edge_ts
         self._ensure_pc_listener()
         if resident:
             if new_val == "home" and old_val != "home":
-                if self._arrival_counts(pid, old_val, now_ts):
+                if self._arrival_counts(pid, old_val, edge_ts):
                     self._release(f"person:{pid}", person=pid)
             elif new_val not in _UNREAL_STATES and new_val != old_val:
                 if self._is_approach_zone(new_val, cfg):
                     self._release(f"approach_zone:{pid}", person=pid)
         # Away lock: before _last_real moves, so P1 sees the pre-edge state.
-        self._away_on_person(pid, old_val, new_val, now_ts, cfg)
+        self._away_on_person(pid, old_val, new_val, edge_ts, cfg)
         if new_val not in _UNREAL_STATES:
             prev = self._last_real.get(pid)
             if prev is None or prev[0] != new_val or prev[2]:
-                self._last_real[pid] = (new_val, now_ts, False)
+                self._last_real[pid] = (new_val, edge_ts, False)
+
+    # ------------------------------------------------------------------
+    # Suspicious-arrival hold (plan rev 2 §5.2-§5.4)
+    # ------------------------------------------------------------------
+
+    def _hold_s(self, cfg: dict[str, Any]) -> float:
+        from ..const import (  # noqa: PLC0415
+            CONF_GARAGE_LOCKOUT_ARRIVAL_HOLD_S,
+            GARAGE_LOCKOUT_ARRIVAL_HOLD_S,
+        )
+
+        return max(
+            0.0,
+            self._num(cfg, CONF_GARAGE_LOCKOUT_ARRIVAL_HOLD_S, GARAGE_LOCKOUT_ARRIVAL_HOLD_S),
+        )
+
+    def _stale(self, pid: str, person_state: Any = None) -> bool:
+        from ..const import LOCK_ARRIVAL_STALE_SOURCE_S  # noqa: PLC0415
+
+        try:
+            return stale_source_arrival(
+                self._hass.states.get, pid, float(LOCK_ARRIVAL_STALE_SOURCE_S),
+                person_state=person_state,
+            )
+        except Exception:  # noqa: BLE001 — never block a release on a read error
+            _LOGGER.debug("Lock regime: stale-source read failed for %s", pid, exc_info=True)
+            return False
+
+    def _should_hold(
+        self,
+        pid: str,
+        old_val: str | None,
+        new_val: str | None,
+        new_state: Any,
+        cfg: dict[str, Any],
+    ) -> bool:
+        """Hold this person edge? H > 0, outside the boot arrival window
+        (F4: boot/HA-start edges are never held), a real non-not_home edge,
+        and the source tracker did not change at the edge (F2: reads the
+        event's own new_state)."""
+        if self._hold_s(cfg) <= 0:
+            return False
+        if self._in_boot_arrival_window():
+            return False
+        if new_val is None or new_val in _UNREAL_STATES or new_val == "not_home":
+            return False
+        if old_val == new_val:
+            return False
+        return self._stale(pid, new_state)
+
+    def _start_hold(
+        self,
+        pid: str,
+        old_val: str | None,
+        new_val: str | None,
+        edge_ts: float,
+        cfg: dict[str, Any],
+        *,
+        synthetic: bool = False,
+    ) -> dict[str, Any]:
+        hold = self._hold_s(cfg)
+        due = edge_ts + hold
+        held: dict[str, Any] = {
+            "old_val": old_val,
+            "new_val": new_val,
+            "edge_ts": edge_ts,
+            "due_ts": due,
+            "proximity_sids": set(),
+            "synthetic": synthetic,
+        }
+        held["unsub"] = self._call_later(
+            self._hass,
+            max(0.0, due - self._ts()),
+            functools.partial(self._on_hold_confirm, pid),
+        )
+        self._held_edges[pid] = held
+        self.arrival_holds += 1
+        self._record(
+            "arrival_hold", trigger=f"person:{pid}", written=[],
+            extra={"held": new_val, "edge_ts": edge_ts, "hold_s": hold},
+        )
+        return held
+
+    def _drop_hold(self, pid: str) -> dict[str, Any] | None:
+        held = self._held_edges.pop(pid, None)
+        if held is not None:
+            _safe_unsub(held.get("unsub"))
+        return held
+
+    @callback
+    def _on_hold_confirm(self, pid: str, _now: Any = None) -> None:
+        """At edge_ts + H: if the person still reads the held state, replay
+        the ORIGINAL edge (stamps carry edge_ts, INV-H5) with the config
+        re-read now (F7); else drop it."""
+        held = self._held_edges.get(pid)
+        if held is None:
+            return
+        # Clear the slot before replaying (re-entrancy).
+        self._held_edges.pop(pid, None)
+        if self._torn_down:
+            return
+        if _state_value(self._hass.states.get(pid)) != held["new_val"]:
+            return
+        cfg = self._cfg()
+        self.arrival_hold_confirms += 1
+        self._record(
+            "arrival_hold_confirmed", trigger=f"person:{pid}", written=[],
+            extra={"held": held["new_val"], "edge_ts": held["edge_ts"]},
+        )
+        self._process_person_edge(
+            pid, held["old_val"], held["new_val"], held["edge_ts"], cfg
+        )
+        if held["proximity_sids"] and self._is_resident(pid, cfg):
+            radius = self._radius_m(cfg)
+            for sid in sorted(held["proximity_sids"]):
+                dist = self._last_distance_m.get(sid)
+                if radius > 0 and dist is not None and dist <= radius:
+                    self._release(f"proximity:{sid}", person=pid)
 
     def _arrival_counts(self, pid: str, old_val: str | None, now_ts: float) -> bool:
         if old_val not in _UNREAL_STATES:
@@ -1325,7 +1527,37 @@ class LockRegimeController:
             person = self._person_for_sensor(sid)
             if person is not None and not self._is_resident(person, cfg):
                 return
+            # Suspicious-arrival hold D4 (S9): a crossing while the person
+            # reads home on a stale source (the iPad blip jumps the distance
+            # to 0) attaches to that person's held edge and is re-read at
+            # confirm. A crossing with the person not_home (a real approach)
+            # is never stale and releases now. An unresolved sensor bypasses
+            # (R6, develop behaviour).
+            if (
+                person is not None
+                and self._hold_s(cfg) > 0
+                and not self._in_boot_arrival_window()
+            ):
+                held = self._held_edges.get(person)
+                if held is None and self._stale(person):
+                    held = self._start_synthetic_hold(person, cfg)
+                if held is not None:
+                    held["proximity_sids"].add(sid)
+                    return
             self._release(f"proximity:{sid}", person=person)
+
+    def _start_synthetic_hold(self, person: str, cfg: dict[str, Any]) -> dict[str, Any]:
+        """D4 with no held person edge yet: hold keyed to the person's own
+        ``last_changed``, pre-edge value from ``_last_real`` (F6: when that
+        already reads the held state the confirm replay is a garage no-op)."""
+        st = self._hass.states.get(person)
+        lc = getattr(st, "last_changed", None)
+        edge_ts = lc.timestamp() if isinstance(lc, datetime) else self._ts()
+        prev = self._last_real.get(person)
+        return self._start_hold(
+            person, prev[0] if prev else None, _state_value(st), edge_ts, cfg,
+            synthetic=True,
+        )
 
     # ------------------------------------------------------------------
     # Release
@@ -2008,6 +2240,22 @@ class LockRegimeController:
         self._away_pending_at = None
         if self._torn_down:
             return
+        # F3: while a listed person's edge is held, defer to the latest such
+        # hold's expiry (+0.1 s) BEFORE _async_away_engage, so the one
+        # attempt per formation (_set_attempted) is never consumed inside a
+        # hold. Cancel -> fires at expiry and engages as it would have;
+        # confirm -> the replayed home branch cancels this timer.
+        persons = set(self.away_lock_persons(self._cfg()))
+        dues = [h["due_ts"] for p, h in self._held_edges.items() if p in persons]
+        if dues:
+            from ..const import LOCK_ARRIVAL_DWELL_DEFER_PAD_S  # noqa: PLC0415
+
+            due = max(dues) + float(LOCK_ARRIVAL_DWELL_DEFER_PAD_S)
+            self._away_pending_at = due
+            self._away_dwell_unsub = self._call_later(
+                self._hass, max(0.0, due - self._ts()), self._on_away_dwell
+            )
+            return
         self._spawn(self._async_away_engage("all_away"))
 
     async def _async_away_engage(self, trigger: str) -> None:
@@ -2353,6 +2601,11 @@ class LockRegimeController:
             "lock_regime_away_lock_owned": sorted(self.away_lock_owned),
             "lock_regime_away_lock_last_action": dict(self.away_lock_last_action),
             "lock_regime_away_lock_pending_engage_at": self._away_pending_iso(),
+            # Suspicious-arrival hold (added keys only). Counts since setup.
+            "lock_regime_arrival_holds": self.arrival_holds,
+            "lock_regime_arrival_signal_held": self.arrival_signal_held,
+            "lock_regime_arrival_hold_confirms": self.arrival_hold_confirms,
+            "lock_regime_held_edges": sorted(self._held_edges),
         }
 
 

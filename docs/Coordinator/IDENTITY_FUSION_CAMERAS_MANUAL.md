@@ -505,6 +505,17 @@ tracker `not_home → home`, or a Bermuda move into an entry area (egress camera
 plus configured door-interior neighbours). The edge must be within 120 s and outside
 the 600 s post-setup exclusion. The rule is shared code (`arrival_edges.py`). This
 is the §5.5(a) doctrine applied to actuation: a face name alone never unlocks.
+**Held edges do not corroborate (suspicious-arrival hold, branch
+`feature/lock-suspicious-arrival-hold`, NOT deployed; plan
+`PLANNING_lock_suspicious_arrival_hold.md` rev 2).** A tracker edge whose person
+`source` did not change at the edge (the 2-GPS stale-device blip) is held 5 s
+(`number.ura_garage_lockout_arrival_hold`); the `_arrival_edges` stamp is written
+only when the edge is processed (directly, or at confirm with the edge's own
+time), so a blip cancelled inside the hold never stamps and cannot corroborate a
+later face. Any `SIGNAL_PERSON_ARRIVING` (face included, and the held-face
+re-check) for a person whose edge is held, or who reads home on a stale source,
+is dropped in `_apply_arrival`. Details: `PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md`
+§1 table.
 
 ### 4.6 DB tables (from `database.py`)
 

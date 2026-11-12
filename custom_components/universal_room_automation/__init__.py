@@ -7395,6 +7395,7 @@ _NO_LIVE_ATTR_KEYS: frozenset[str] = frozenset({
     "garage_lockout_approach_radius_m",
     "garage_lockout_morning_backstop_min",
     "garage_lockout_reengage_delay_s",
+    "garage_lockout_arrival_hold_s",
     _CONF_DYNAMIC_PRESET_DWELL_MINUTES,
     _CONF_DYNAMIC_PRESET_HYSTERESIS_F,
     _CONF_ROUTINE_EVENT_COOLDOWN_DAYS,
@@ -7702,6 +7703,7 @@ OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     "garage_lockout_approach_radius_m",
     "garage_lockout_morning_backstop_min",
     "garage_lockout_reengage_delay_s",
+    "garage_lockout_arrival_hold_s",
 })
 
 

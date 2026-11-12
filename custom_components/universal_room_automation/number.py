@@ -4436,9 +4436,11 @@ class _SecurityLockoutNumber(_ChatterCMNumberBase):
 def _build_security_lockout_numbers(hass: HomeAssistant, entry: ConfigEntry) -> list:
     from .const import (
         CONF_GARAGE_LOCKOUT_APPROACH_RADIUS_M,
+        CONF_GARAGE_LOCKOUT_ARRIVAL_HOLD_S,
         CONF_GARAGE_LOCKOUT_MORNING_BACKSTOP_MIN,
         CONF_GARAGE_LOCKOUT_REENGAGE_DELAY_S,
         GARAGE_LOCKOUT_APPROACH_RADIUS_M,
+        GARAGE_LOCKOUT_ARRIVAL_HOLD_S,
         GARAGE_LOCKOUT_MORNING_BACKSTOP_MIN,
         GARAGE_LOCKOUT_REENGAGE_DELAY_S,
     )
@@ -4475,6 +4477,19 @@ def _build_security_lockout_numbers(hass: HomeAssistant, entry: ConfigEntry) -> 
             name="Garage Lockout Re-engage Delay",
             icon="mdi:timer-lock-outline",
             entity_id="number.ura_garage_lockout_reengage_delay",
+        ),
+        # Suspicious-arrival hold (garage lockout AND away lock). An arrival
+        # whose home reading came from a tracker that did not move waits this
+        # long before it unlocks; normal arrivals are never delayed. 0 = off.
+        _SecurityLockoutNumber(
+            hass, entry,
+            conf_key=CONF_GARAGE_LOCKOUT_ARRIVAL_HOLD_S,
+            default=float(GARAGE_LOCKOUT_ARRIVAL_HOLD_S),
+            min_val=0.0, max_val=60.0, step=1.0, unit="s",
+            unique_suffix="garage_lockout_arrival_hold_s",
+            name="Garage Lockout Suspicious Arrival Hold",
+            icon="mdi:timer-sand",
+            entity_id="number.ura_garage_lockout_arrival_hold",
         ),
     ]
 
