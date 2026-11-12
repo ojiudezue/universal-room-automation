@@ -37,10 +37,17 @@ Run `git status` to find any new directories or files that deploy.sh might miss 
 ```
 Report the PR URL and release URL from the output.
 
-### Step 5: HACS Update
-Use the `mcp__home-assistant__ha_hacs_download` tool:
-- repository_id: "ojiudezue/universal-room-automation"
-- version: "v<version>"
+### Step 5: Marketplace (formerly HACS) Update
+Since HA 2026.11 HACS is the built-in **Marketplace** (live house migrated; verified 2026-11-12:
+`update.universal_room_automation_update` kept its entity id, now platform `marketplace`; store
+`api=marketplace`, `github_connected=true`, `warning_accepted=true` for the MCP user; repository id
+`1160347465`). The old `ha_hacs_download` tool is gone — the MCP tools route to the Marketplace:
+1. `mcp__home-assistant__ha_manage_hacs(action="update_information", repository_id="ojiudezue/universal-room-automation")`
+   — REQUIRED: the Marketplace polls custom repos only ~every 48 h, and it never offered v5.108.9 on its own.
+2. `mcp__home-assistant__ha_manage_hacs(action="download", repository_id="ojiudezue/universal-room-automation", version="v<version>")`
+3. Verify: `mcp__home-assistant__ha_get_hacs_info(action="search", query="universal", installed_only=True)` —
+   `installed_version` must equal `v<version>` before restarting (memory `feedback_verify_hacs_install`).
+   Fallback if the tool errors: operator installs via Settings > Marketplace (UI path proven with v5.108.10).
 
 ### Step 6: Config Check
 Use `mcp__home-assistant__ha_check_config` to validate HA configuration.
