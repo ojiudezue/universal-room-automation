@@ -42,6 +42,46 @@ def live_arrival_slug(event_data: Mapping[str, Any]) -> str | None:
     return slug or None
 
 
+_NOT_ARRIVED = frozenset({"not_home", "unknown", "unavailable"})
+
+
+def stale_source_arrival(
+    states_get: Callable[[str], Any],
+    person_id: str,
+    stale_s: float,
+    *,
+    person_state: Any = None,
+) -> bool:
+    """GARAGE-REMOTE-LOCKOUT-SCHEDULE-1 (suspicious-arrival hold, plan D1).
+
+    True iff the person reads ``home`` or a named zone AND its ``source``
+    tracker did not itself change at the person's edge: the ``source``
+    attribute is missing, the source has no state, either ``last_changed``
+    is missing, or ``person.last_changed - source.last_changed > stale_s``.
+    ``last_changed`` (never ``last_updated``): an attribute-only refresh of a
+    stale tracker moves only ``last_updated``. ``person_state`` (optional)
+    is used instead of reading the person (the event's ``new_state``, F2).
+    Pure and synchronous; reads states only.
+    """
+    st = person_state if person_state is not None else states_get(person_id)
+    if st is None:
+        return False
+    val = getattr(st, "state", None)
+    if val is None or val in _NOT_ARRIVED:
+        return False
+    src = (getattr(st, "attributes", None) or {}).get("source")
+    if not src:
+        return True
+    src_st = states_get(str(src))
+    if src_st is None:
+        return True
+    p_lc = getattr(st, "last_changed", None)
+    s_lc = getattr(src_st, "last_changed", None)
+    if not isinstance(p_lc, datetime) or not isinstance(s_lc, datetime):
+        return True
+    return (p_lc - s_lc).total_seconds() > stale_s
+
+
 def edge_in_window(ts: float | None, at_ts: float, window_s: float, boot_end: float) -> bool:
     """An edge at ``ts`` counts: after the boot exclusion, within the window."""
     return ts is not None and ts >= boot_end and abs(at_ts - ts) <= window_s
