@@ -34320,6 +34320,18 @@ cards:
   next: "ura-builder in worktree: daily grid/sun/unsplit kWh sensors, local-midnight reset (not Envoy UTC counters, AUDIT_envoy_telemetry_pairing_manual F4), restart restore; one review; deploy with the pending v5.108.9 restart; repoint dashboard."
   links: {}
   rank: {"value": 3, "time_criticality": 2, "effort": 2}
+- id: HVAC-ZONE-KWH-SEED-WARN-WORDING-1
+  title: "Zone-kWh seed logs UNSAFE at every boot though the threshold Numbers self-restore a moment later"
+  thread: "hvac"
+  status: "inbox"
+  tier: 1
+  created: "2026-11-11 19:40"
+  updated: "2026-11-11 19:40"
+  origin: "Boot log after v5.108.10 restart 2026-11-11; operator: 'Def look'."
+  why: "__init__.py:~7310 seed reads core.restore_state before the Numbers restore and finds no entry; number.py:3100-3110 then restores and pushes to the zone. Probe: all three zones 0.8 kW live and in every recorder row since 11-04 (= default), so the UNSAFE claim is false. Bug class: seed path disagrees with the entity's own restore path."
+  next: "Downgrade/reword the UNRESOLVED log when the Number will self-restore. Separate operator question: zone 1 (4-ton) has never been set above the 0.8 default (hvac_const.py:734 comment suggests ~1.0)."
+  links: {}
+  rank: {"value": 1, "time_criticality": 1, "effort": 1}
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
