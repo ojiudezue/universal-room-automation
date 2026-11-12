@@ -66,3 +66,4 @@
 - 2026-11-11 14:00 **v5.108.9** — v5.108.9: Simpler forms: collapsed Advanced sections and plain-language text (cards: FORM-TEXT-PLAIN-PASS-1,PRESENCE-GEOFENCE-FIELD-DEAD-1,CLIMATE-BACKSTOP-SECTION-CLEAR-ON-ABSENT-1)
 - 2026-11-11 19:12 **v5.108.10** — v5.108.10 — Battery charge source, per day (cards: EC-BATTERY-CHARGE-SOURCE-DAY-1)
 - 2026-11-12 12:53 **v5.108.11** — v5.108.11 — Four Tier-1 fixes (cards: FAN-RECHECK-FORM-RESTORE-REVERT-1,SC-GEOFENCE-PERSON-SNAPSHOT-1,KANBAN-SHIP-FLOW-CARDS-1,EC-CFG-SELFHEAL-FALSE-CRITICAL-1)
+- 2026-11-12 13:46 **v5.108.12** — v5.108.12 — Shared-space night failsafe runs in paused rooms (cards: SHARED-SPACE-AUTO-OFF-FAILSAFE-1)

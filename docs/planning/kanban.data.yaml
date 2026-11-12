@@ -34072,8 +34072,8 @@ cards:
   updated: '2026-11-12 13:32'
   title: "11pm shared-space auto-off skipped Kitchen overhead (leave-on list) and it stayed on all night: make it a vacancy-gated failsafe that ignores leave-on"
   thread: lighting
-  status: in_progress
-  shipped_version: v5.103.101
+  status: shipped_organic
+  shipped_version: v5.108.12
   tier: 2
   created: "2026-11-03"
   origin: "Operator 2026-11-03: 'We have an 11pm lights sweep. But I woke up early to find the kitchen lights on. Tell me why' -> option A approved: 'Its meant to be the fail safe. It should check for vacancy... stuck sensor aware'; retry-until-vacant w/ 05:00 cutoff OK; accept false-occupied trade; flash only if occupied."
