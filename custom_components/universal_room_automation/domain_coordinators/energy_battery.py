@@ -30,6 +30,7 @@ from .energy_const import (
     DEFAULT_ARBITRAGE_SOC_TARGET,
     DEFAULT_CHARGE_FROM_GRID_ENTITY,
     DEFAULT_GRID_ENABLED_ENTITY,
+    DEFAULT_NET_POWER_MAX_AGE_S,
     DEFAULT_OFFPEAK_DRAIN_EXCELLENT,
     DEFAULT_OFFPEAK_DRAIN_GOOD,
     DEFAULT_OFFPEAK_DRAIN_MODERATE,
@@ -934,6 +935,15 @@ class BatteryStrategy:
         # gate was open AND classifier reached the rung-2 branch).
         self._arb_rung0_latch: bool = False
         self._arb_rung1_latch: bool = False
+        # EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1 D2: tick `now` at which the
+        # rung-1 latch was taken (sole writer = the rung-1 entry). Read only
+        # under latch=True to hold the latch until the rate window is all
+        # post-pause. Not restored across restart (latch is not either).
+        self._arb_rung1_latched_at: datetime | None = None
+        # D3: EV kW not covered by grid import (the rung-1 entry credit),
+        # stamped only on ticks that evaluated rung-1 entry; per-tick reset
+        # in determine_mode. Display only.
+        self._arb_last_redirectable_kw: float | None = None
         # Diagnostic snapshot of last classification — surfaces "why did/
         # didn't the gate open" symmetrically with the v5.3.8 attain
         # projection internals at __init__ above.
@@ -4125,9 +4135,12 @@ class BatteryStrategy:
                    projects SOC ≥ target+ENTRY_HYSTERESIS at the high-rate
                    boundary. Gate STAYS CLOSED; _arbitrage_intent=None.
           rung_1 — Pause the EVs and let solar redirect to the battery. The
-                   projection with EVs paused (rate uplifted by ev_load_w
-                   in %/h) reaches target+ENTRY_HYSTERESIS. Gate STAYS
-                   CLOSED; _arbitrage_intent="redirect".
+                   projection with EVs paused (rate uplifted by the
+                   REDIRECTABLE EV draw in %/h — the part of ev_load_w not
+                   covered by grid import, which needs a fresh net_power;
+                   EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1) reaches
+                   target+ENTRY_HYSTERESIS. Gate STAYS CLOSED;
+                   _arbitrage_intent="redirect". A grid-fed EV earns 0.
           rung_2 — Neither passes. Existing arbitrage CHARGE path fires;
                    _arbitrage_intent="breaker"; EVs are paused for
                    compound-load (panel breaker) protection.
@@ -4168,9 +4181,11 @@ class BatteryStrategy:
 
         # Always feed the trailing-window sampler so the rung machinery
         # has data ready when the forecast gate next opens. The attain
-        # branch ALSO samples on its own path; double-sample-per-tick is
-        # idempotent thanks to (timestamp, soc) tuple equality being
-        # benign for the rate window.
+        # branch ALSO samples on its own path and the sampler does NOT
+        # dedupe: on rung_0/rung_1 ticks (gate closed → attain branch runs)
+        # the same (now, soc) is appended twice, so the K+1 window covers
+        # ~2 ticks there, not K. Not idempotent; see
+        # EC-ATTAIN-RATE-DUP-SAMPLE-1.
         self._record_attain_sample(now, soc)
 
         if soc is None or self._peak_buffer_target is None:
@@ -4218,7 +4233,21 @@ class BatteryStrategy:
         if capacity_kwh is None or capacity_kwh <= 0:
             capacity_kwh = ARB_LADDER_DEFAULT_BATTERY_KWH
         ev_load_kw = max(0.0, float(ev_load_w or 0.0)) / 1000.0
-        ev_load_pct_per_h = (ev_load_kw / capacity_kwh) * 100.0
+        # EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1 D1: credit only the EV draw
+        # NOT covered by grid import. Pausing a grid-fed EV cuts import and
+        # sends nothing to the battery. Requires a fresh net_power (gate
+        # only; `net_power_w` itself stays ungated, MED-2); missing/stale →
+        # 0 credit → rung-1 entry short-circuits to rung_2.
+        redirectable_kw = 0.0
+        if ev_load_kw > 0.0 and self._read_fresh_power_w(
+            "net_power", DEFAULT_NET_POWER_MAX_AGE_S,
+        ) is not None:
+            _imp_snap = self._effective_import_kw()
+            if _imp_snap is not None:
+                redirectable_kw = min(
+                    ev_load_kw, max(0.0, ev_load_kw - _imp_snap[0]),
+                )
+        ev_load_pct_per_h = (redirectable_kw / capacity_kwh) * 100.0
 
         target = float(self._peak_buffer_target)
         entry_band = target + ARB_LADDER_ENTRY_HYSTERESIS_PCT
@@ -4375,11 +4404,19 @@ class BatteryStrategy:
                 self._arb_rung_cache_rung = "rung_0"
                 return "rung_0"
             # Counterfactual still missing entry. Check escalation: the
-            # projection with EVs paused (this is what `rate` already
-            # reflects, == projected_rung0) must STILL clear exit-band
-            # to keep the latch. If it falls below, escalate to rung-2
-            # (solar collapse). Otherwise hold rung-1.
-            if projected_rung0 < exit_band:
+            # projection with EVs paused (== projected_rung0) must STILL
+            # clear exit-band to keep the latch. `rate` only reflects the
+            # pause once the window is all post-pause: until its oldest
+            # sample is at/after the entry tick the escalation is HELD
+            # (EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1 D2; ~1 tick on the
+            # double-sampled determine_mode path). Night release, solar
+            # collapse and the counterfactual exit above stay ungated.
+            _hist = self._attain_soc_history
+            _latched_at = self._arb_rung1_latched_at
+            window_flushed = _latched_at is None or (
+                bool(_hist) and _hist[0][0] >= _latched_at
+            )
+            if window_flushed and projected_rung0 < exit_band:
                 self._arb_rung1_latch = False
                 # Fix-up C-MED-2: clear stale assumed EV-load %/h.
                 self._arb_last_ev_load_pct_per_h = 0.0
@@ -4418,6 +4455,9 @@ class BatteryStrategy:
             self._arb_rung_cache_tick = now
             self._arb_rung_cache_rung = "rung_2"
             return "rung_2"
+
+        # D3 observability: the redirect credit evaluated for entry.
+        self._arb_last_redirectable_kw = round(redirectable_kw, 2)
 
         # Not yet latched. ENTRY form: ask "if we paused the EVs (added
         # ev_load_pct_per_h to the rate), would solar attain?"
@@ -4462,6 +4502,7 @@ class BatteryStrategy:
         self._arb_last_projection_rung1 = round(projected_rung1_entry, 1)
         if projected_rung1_entry >= entry_band:
             self._arb_rung1_latch = True
+            self._arb_rung1_latched_at = now
             # Capture the EV-load %/h at the moment of entry so the
             # counterfactual exit math has a stable assumed load to add
             # back, even after the EVs go to 0 W (paused).
@@ -6422,6 +6463,9 @@ class BatteryStrategy:
         # paths (full_hold / peak / storm ...) never reach _gate_is_open, so
         # without this a prior tick's "redirect" would keep the EVs paused.
         self._arbitrage_intent = None
+        # EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1 D3 ENTRY-RESET: display
+        # stamp is per-tick; set only where rung-1 entry is evaluated.
+        self._arb_last_redirectable_kw = None
         # EC-DEGRADED-DATA-POLICY-1 R2-7 ENTRY-RESET: the D3 withhold flag
         # is per-tick. The fully-blind branch returns without `_result`, so
         # without this a prior tick's True would stick on the sensor.
@@ -8385,6 +8429,10 @@ class BatteryStrategy:
             "arbitrage_gate": self._arb_last_gate_outcome,
             "arb_projection_rung0": self._arb_last_projection_rung0,
             "arb_projection_rung1": self._arb_last_projection_rung1,
+            # EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1 D3: EV kW the rung-1
+            # entry credited (0.0 = grid-fed, no entry); None when the tick
+            # did not evaluate rung-1 entry.
+            "arb_rung1_redirectable_kw": self._arb_last_redirectable_kw,
             # Attainability observability (operator-requested): tri-state +
             # entry-projection internals (frozen at entry while latched).
             "attain_state": self._attain_state,
