@@ -34449,6 +34449,27 @@ cards:
   rank: {value: 8, time_criticality: 8, effort: 5}
   refuted_2026_11_12: "CARD-WAS-WRONG / REFUTED (docs/planning/AUDIT_ec_import_today_net_after_restart.md). Not a regression and not restart-caused: EnergyImportTodaySensor has always returned import - export (sensor.py:12198-12212, state_class TOTAL, v3.14.8 README says net). It matched gross import in the morning only because export was ~0 until solar exported after 13:00 CST. Gross import is the import_kwh attribute (19.859), matching Emporia. Cost and cycle totals use gross accumulators, unaffected. Fix was dashboard-only: v8 Energy 'From grid' tile now shows attributes.import_kwh with 'net X kWh' as subtitle (backup docs/dashboard-prototypes/ura-v8-backups/20261112T_pre_from_grid_gross.json). Parked: rename the sensor to Net Grid Today and/or add a gross sensor; revive if another surface misreads it."
   operator_decision_2026_11_12: 'Rename it and ship with next build.'
+- id: HVAC-PRECOOL-STANDDOWN-WHEN-COOL-1
+  title: Pre-arrival pre-cool lowers the setpoint even when the zone is already at or below target; it should stand down
+  thread: hvac
+  status: pre_planning
+  created: '2026-11-12 16:53'
+  updated: '2026-11-12 16:53'
+  refinement_status: initial
+  tier: 2
+  approval: unreviewed
+  problem_solution:
+  - 'Problem: when someone heads home, pre-cool writes the cool setpoint to the Home baseline minus 2 F (floor 74) without ever reading the zone temperature, so it also fires when the zone is already cool. In the 14 days to 11-12, 17 of 34 measured pre-cool writes (50%) hit a zone already at or below the new target, still opening a borrow, suppressing the arrester and putting the Carrier zone into a manual hold. Solution: skip the pre-cool write when the zone is already at or below the target it would set, the same check the pre-arrival fan helper already uses.'
+  origin:
+    date: '2026-11-12'
+    gist: 'Operator: "Is pre-cool smart enough to know when to stand down if the house is cooler than setpoints?" Answer: no.'
+  why: 'hvac_predict.py:1297-1300 only compares setpoints; the fan helper at :1515-1527 already compares room temp to the cool setpoint (REUSE that idiom). Half the writes buy nothing and carry manual-hold side effects.'
+  refs: [docs/planning/AUDIT_pre_arrival_inventory_and_precool_standdown.md]
+  constraints:
+  - Read HVAC_ARCHITECTURE_STATE_OF_PLAY.md completely before planning.
+  - Decide what 'zone temperature' means for a multi-room zone (thermostat reading vs room average) before building.
+  next: 'Me: marginal-benefit decomposition + Tier-2 plan with one plan review.'
+  rank: {value: 6, time_criticality: 4, effort: 5}
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
