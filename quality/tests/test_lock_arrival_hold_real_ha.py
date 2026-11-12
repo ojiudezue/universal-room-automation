@@ -188,3 +188,43 @@ async def test_ble_only_arrival_instant(hass):
     finally:
         await regime.async_teardown()
         await hass.async_block_till_done()
+
+
+def _fire(hass, seconds):
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=seconds))
+
+
+@pytest.mark.asyncio
+async def test_two_gps_dropout_confirm_timer_fires(hass):
+    """Review B-L3: the real async_call_later fires the @callback confirm
+    partial on the loop; the still-held edge replays and both lockouts unlock."""
+    regime, calls = await _setup(hass)
+    try:
+        hass.states.async_set(PHONE, "unavailable", {"source_type": "gps"})
+        await _flush(hass)
+        assert OJI in regime._held_edges
+        assert calls == []
+        _fire(hass, 6)
+        await _flush(hass)
+        assert regime.arrival_hold_confirms == 1
+        assert regime._held_edges == {}
+        assert sorted(c[1] for c in calls if c[0] == "unlock") == [LOCK_A, LOCK_B]
+    finally:
+        await regime.async_teardown()
+        await hass.async_block_till_done()
+
+
+@pytest.mark.asyncio
+async def test_confirm_timer_does_not_fire_after_teardown(hass):
+    regime, calls = await _setup(hass)
+    hass.states.async_set(PHONE, "unavailable", {"source_type": "gps"})
+    await _flush(hass)
+    assert OJI in regime._held_edges
+    await regime.async_teardown()
+    await hass.async_block_till_done()
+    _fire(hass, 6)
+    await _flush(hass)
+    assert regime.arrival_hold_confirms == 0
+    assert calls == []

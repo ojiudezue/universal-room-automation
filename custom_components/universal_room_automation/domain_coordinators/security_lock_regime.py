@@ -1119,6 +1119,8 @@ class LockRegimeController:
         unsub = self._person_unsubs.pop(pid, None)
         _safe_unsub(unsub)
         self._residents.discard(pid)
+        # Review B-L1: a removed person's pending hold is moot.
+        self._drop_hold(pid)
         # L-5: keep an en-route member blocking re-engage until re-added
         # or the max wait passes.
         if pid in self.releasing_set:
@@ -1170,6 +1172,12 @@ class LockRegimeController:
                     "arrival_hold_cancelled", trigger=f"person:{pid}", written=[],
                     extra={"held": held["new_val"], "edge_ts": held["edge_ts"]},
                 )
+                # Review B-M1: another listed person's edge inside the hold
+                # may have delegated the away-lock re-arm to this person (its
+                # _away_rearm saw the held `home` and dropped the dwell).
+                # Re-arm here; _away_rearm changes no stamp (INV-H3 holds).
+                if not self._in_boot_window():
+                    self._away_rearm(cfg)
                 return
             # Any other value: as if the held edge never happened.
             old_val = held["old_val"]

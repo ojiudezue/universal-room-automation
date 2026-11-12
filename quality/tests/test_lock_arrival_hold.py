@@ -596,3 +596,66 @@ async def test_snapshot_hold_counters():
     assert snap["lock_regime_held_edges"] == [OJI]
     await rig.advance(5.1)
     assert rig.regime.snapshot()["lock_regime_arrival_hold_confirms"] == 1
+
+
+# ============================================================================
+# Review B fix-up
+# ============================================================================
+
+
+async def _other_leaves_inside_hold(hold_s=None):
+    """Review B-M1 sequence: Oji not_home since setup, Ezinne home. Oji's
+    stale blip is held; 0.3 s later Ezinne leaves (her re-arm sees Oji's held
+    `home` and drops the dwell); 0.5 s later Oji's blip reverts."""
+    over = {"security_garage_lockout_enabled": False}
+    if hold_s is not None:
+        over["garage_lockout_arrival_hold_s"] = hold_s
+    rig = await make_rig(past_boot=False, opts=options(**over))
+    rig.w.seed(EZ, "home", {"source": EZ_PHONE}, last_changed=DAY)
+    await rig.advance(700)
+    assert rig.w.locks_called("lock") == []
+    oji_since = rig.regime._away_not_home_since[OJI]
+    rig.stale(OJI, "home")
+    if hold_s is None:
+        assert OJI in rig.regime._held_edges
+    await rig.advance(0.3)
+    rig.fresh(EZ, "not_home", EZ_PHONE)
+    await rig.advance(0.5)
+    rig.fresh(OJI, "not_home", PHONE)  # the revert: cancelled pair
+    await settle()
+    assert rig.regime._held_edges == {}
+    if hold_s is None:
+        # The blip leaves no trace on Oji's stamps (INV-H3).
+        assert rig.regime._away_not_home_since[OJI] == oji_since
+        assert rig.regime._last_real.get(OJI) is None
+    return rig
+
+
+@pytest.mark.asyncio
+async def test_other_listed_leave_during_hold_then_revert_rearms():
+    rig = await _other_leaves_inside_hold()
+    await rig.advance(298)
+    assert rig.w.locks_called("lock") == []  # Ezinne's 300 s dwell not done
+    await rig.advance(3)
+    assert rig.w.locks_called("lock") == [BED]
+
+
+@pytest.mark.asyncio
+async def test_other_listed_leave_hold_zero_control():
+    rig = await _other_leaves_inside_hold(hold_s=0)
+    await rig.advance(400)
+    assert rig.w.locks_called("lock") == [BED]
+
+
+@pytest.mark.asyncio
+async def test_person_removed_drops_hold():
+    rig = await make_rig()
+    rig.stale(OJI, "home")
+    assert OJI in rig.regime._held_edges
+    assert len(rig.hold_timers()) == 1
+    rig.regime._on_person_removed(_Ev({"entity_id": OJI}))
+    assert rig.regime._held_edges == {}
+    assert rig.hold_timers() == []
+    await rig.advance(10)
+    assert rig.unlocks() == []
+    assert rig.regime.arrival_hold_confirms == 0
