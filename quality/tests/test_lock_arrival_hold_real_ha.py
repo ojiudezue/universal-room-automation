@@ -23,7 +23,10 @@ arrival window (boot edges are never held, F4).
 from __future__ import annotations
 
 import asyncio
+import importlib
+import sys
 import time
+import types
 from datetime import timedelta
 from types import SimpleNamespace
 
@@ -31,6 +34,7 @@ import pytest
 import pytest_asyncio
 from homeassistant.util import dt as dt_util
 
+from _d7_isolation import import_scope
 from _lockout_harness import load
 from test_sc_garage_lockout_real_ha import (  # noqa: F401 — fixture reuse
     _real_core_globals,
@@ -54,10 +58,84 @@ JAYA = "person.jaya"
 _REAL_NOW = dt_util.now
 
 
-@pytest_asyncio.fixture
-async def hass(_real_core_globals):
-    import sys
+def _is_stub(value) -> bool:
+    from unittest.mock import NonCallableMock
 
+    return isinstance(value, NonCallableMock)
+
+
+# Real-module attributes legacy donors overwrite with MagicMock at collection
+# time (measured in the full serial run, 2026-11-12).
+_DONOR_MOCKED = {
+    "homeassistant.helpers.entity_registry": ("async_get",),
+    "homeassistant.helpers.translation": ("_TranslationsCacheData",),
+    "homeassistant.helpers.entity": ("EntityCategory",),
+    "homeassistant.components.sensor": ("SensorDeviceClass", "SensorStateClass"),
+    "homeassistant.components.binary_sensor": ("BinarySensorDeviceClass",),
+}
+
+
+@pytest.fixture(scope="module")
+def _real_ha_attrs():
+    """Order-proofing (pattern: test_presence_geofence_late_person).
+
+    Legacy donor files overwrite attributes of REAL ``homeassistant`` modules
+    with MagicMock at collection time and never restore them (in the full run
+    ``helpers.entity_registry.async_get`` is a MagicMock, so
+    ``async_test_home_assistant`` dies awaiting the registry load). Inside an
+    ``import_scope(attrs=True)`` block, take the genuine value of every mocked
+    attribute (``_DONOR_MOCKED``) from a fresh import of its module and write
+    it back onto the module object everyone already holds; restore the real core classes from
+    phcc. ``attrs=True`` puts the donors' values back when the module ends.
+    """
+    with import_scope(("homeassistant",), attrs=True):
+        # Real core callback / classes first: donors replace them on the real
+        # core module, and the fresh imports below would otherwise decorate
+        # their filters with the stub ("is not a callback").
+        from pytest_homeassistant_custom_component import common as _phcc
+
+        _core = sys.modules["homeassistant.core"]
+
+        def _real_callback(func):
+            setattr(func, "_hass_callback", True)
+            return func
+
+        def _real_is_callback(func):
+            return getattr(func, "_hass_callback", False) is True
+
+        _core.callback = _real_callback
+        _core.is_callback = _real_is_callback
+        for _name in ("State", "Event", "HomeAssistant", "CoreState",
+                      "ServiceCall", "SupportsResponse"):
+            setattr(_core, _name, getattr(_phcc, _name))
+        # Stub MODULES (no __file__, e.g. a fake ``homeassistant.util.dt``)
+        # leave sys.modules for this block so the fresh imports below and
+        # the person component bind the real ones.
+        for name in [k for k, m in sys.modules.items() if k.startswith("homeassistant")
+                     and not getattr(m, "__file__", None)
+                     and not getattr(m, "__path__", None)]:
+            sys.modules.pop(name, None)
+        # Only attributes a donor mocks and the real person/registry setup
+        # needs. NOT every mocked attribute: phcc itself patches some (e.g.
+        # network.util.async_get_source_ip) and those must stay patched.
+        polluted = {
+            name: [a for a in attrs if _is_stub(getattr(sys.modules[name], a, None))]
+            for name, attrs in _DONOR_MOCKED.items() if name in sys.modules
+        }
+        for name, attrs in polluted.items():
+            held = sys.modules.pop(name)
+            try:
+                fresh = importlib.import_module(name)
+            finally:
+                sys.modules[name] = held
+            for a in attrs:
+                if hasattr(fresh, a):
+                    setattr(held, a, getattr(fresh, a))
+        yield
+
+
+@pytest_asyncio.fixture
+async def hass(_real_ha_attrs, _real_core_globals):
     from pytest_homeassistant_custom_component.common import async_test_home_assistant
 
     before = {k: v for k, v in sys.modules.items() if k.split(".")[0] == "custom_components"}
