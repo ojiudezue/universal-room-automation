@@ -32492,9 +32492,9 @@ cards:
   merged_from_EC_RUNG1_WAIT_EV_PINGPONG_1: "(verbatim from the merged duplicate) D0 replay + breaker investigation 2026-10-03: on 10-01 06:09-08:20Z ~12 full on/off cycles of garage A (11.6 kW); 13/14 turn-ons on ticks with valid SOC, so NOT the Envoy dropout. Pause reason EV pause redirects solar at 06:40Z with no sun. Also 09-28. Breaker-safety alarm cleared: guard reads the cloud CFG switch (off); local Enpower switch is a standing on; battery drew ~0 kW, peak import ~90 A. Latent gap noted: guard trusts cloud CFG switch."
   title: The arbitrage EV pause flips on and off every 5 minutes when an EV is charging and the battery is low (rung-1 redirect vs WAIT feedback loop)
   thread: energy
-  status: pre_planning
+  status: in_progress
   created: '2026-10-03 02:40'
-  updated: '2026-11-12 14:13'
+  updated: '2026-11-12 14:35'
   refinement_status: initial
   approval: explicit
   approved_by: "operator 2026-11-12 (\"We need to fix regardless\")"
@@ -32512,7 +32512,7 @@ cards:
   parsimony: {problem: 'With an EV drawing >= 11.6 kW and SOC below the poor-day target, the arbitrage pause toggles every tick (31 EV switch events on 10-01).', verdict: PENDING-PLAN}
   adjacency_2026_10_03: "NEW. Swept: board (grep rung_1/oscillat: only HVAC zone-1 oscillation cards, unrelated), docs/BACKLOG.md (no rung-1 redirect item), docs/planning (only DESIGN_ec_degraded_data_policy.md mentions it, 9.3 'card needed'). Supersedes the premise of EV-ARBITRAGE-BREAKER-FLAP-ON-SOC-DROPOUT-1 (refuted: Envoy dropout co-incident, not causal)."
   breaker_must_answer_resolved_2026_10_03: "The design doc (9.3 P1-2/P1-3) asked why EVs were turned on at 06:45:02Z while switch.enpower_482348004678_charge_from_grid read 'on'. ANSWERED, no breaker gap: the release guard reads the WRITE leg (energy.py:6729 _get_entity role='write'); ENERGY_CLOUD_FIRST_WRITES=True (energy_const.py:479) routes it to the CLOUD switch switch.iq_battery_hacs_charge_battery_from_grid (energy_const.py:306), which read 'off' all window. The LOCAL enpower switch has read 'on' in 100% of its available rows for 7 days (183 on / 0 off / 200 unavailable) - it is a standing permission flag, not active grid charging. Physical cross-check: Envoy SOC fell 9 -> 8 -> 7 % 05:48-09:51Z (no grid charge), grid import peaked 17.7 kW with the EV on vs ~5-6 kW off."
-  next: "Me: Tier-3 plan for fix D (ura-planner) + two framing-disjoint plan reviews; then APPROVE plan (operator) before build."
+  next: "Me: ura-super-builder builds PLANNING_ev_rung1_redirect_cap.md rev2 in a worktree; then 4 framing-disjoint reviews (A/B/C mutation/D completeness), orchestrator verify, operator pre-deploy checkpoint."
   links:
     related: [EC-DEGRADED-DATA-POLICY-1, EC-ATTAIN-HOLD-WHEN-ENVOY-BLIND-1, EC-EV-TOGGLE-TRIPWIRE-1, EC-RUNG1-WAIT-EV-PINGPONG-1]
     context: 'EC-DEGRADED-DATA-POLICY-1 is the design doc whose D0 replay found this mechanism; it supersedes EV-ARBITRAGE-BREAKER-FLAP-ON-SOC-DROPOUT-1 whose dropout premise was refuted. EC-EV-TOGGLE-TRIPWIRE-1 is the code trip-wire whose firing would revive this card; EC-RUNG1-WAIT-EV-PINGPONG-1 was a duplicate merged here 2026-10-05.'
@@ -32524,6 +32524,7 @@ cards:
   refinement_2026_11_12: "Operator: why is the car charging on poor-solar days; should daytime EV charging be governed by excess solar, not off-peak? Answer (energy_const.py:36-60): in shoulder (Mar-May, Oct-Nov) off-peak is 00-17 and 21-24, and in winter 00-05, 09-17, 21-24, at 0.043481 import = export. So midday is off-peak, and EV TOU management (switch.ura_energy_coordinator_ev_tou_management on) lets the car charge from grid at the overnight price; excess-solar logic (energy.py:7411 C2) is a separate layer that only adds charging. Grid vs solar for the car is cost-neutral at midday under this tariff. Overnight episodes are already blocked by the v5.103.37 daylight gate. Operator agrees with D, wants overnight off-peak charging protected, and wants no new machinery on hardened code. Whether daytime EV should be solar-led is a separate policy question; not carded yet."
   operator_decision_2026_11_12c: 'Go on fix D plan ("Go"). Build waits for plan approval.'
   operator_decision_2026_11_12d: 'Plan open questions, operator agreed with my recommendations: Q1 yes freshness gate at the cap; Q2 accept discharge credit; Q3 no trip-wire paging this cycle; Q4 card duplicate sampling separately.'
+  plan_approved_2026_11_12: 'Operator approved plan rev2 ("Approved") at 2026-11-12 14:35.'
 - id: EC-CFG-SELFHEAL-FALSE-CRITICAL-1
   title: "CRITICAL 'Envoy write self-heal loop: charge_from_grid' pages fire after the write already worked (cloud switch lags ~15 min; the alarm never re-checks it) -> re-read the cloud switch before paging"
   thread: energy
