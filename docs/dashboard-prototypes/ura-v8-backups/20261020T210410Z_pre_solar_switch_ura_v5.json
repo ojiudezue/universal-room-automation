@@ -1,0 +1,3794 @@
+{
+  "version": 1,
+  "minor_version": 1,
+  "key": "lovelace.ura_v5",
+  "data": {
+    "config": {
+      "views": [
+        {
+          "title": "Overview",
+          "path": "overview",
+          "type": "panel",
+          "badges": [],
+          "cards": [
+            {
+              "type": "vertical-stack",
+              "cards": [
+                {
+                  "type": "custom:mushroom-template-card",
+                  "primary": "{{ states('sensor.ura_presence_coordinator_presence_house_state') | replace('_', ' ') | title }}",
+                  "secondary": "{{ now().strftime('%A, %B %-d') }} - {{ states('sensor.patio_temperature') }}F",
+                  "icon": "mdi:home-automation",
+                  "card_mod": {
+                    "style": "ha-card { border-radius: 18px !important; }"
+                  }
+                },
+                {
+                  "type": "markdown",
+                  "content": "# URA Home\n{{ states('sensor.ura_coordinator_manager_house_state') | replace('_', ' ') | title }} - {{ states('sensor.universal_room_automation_occupant_count') }} people - {{ now().strftime('%I:%M %p') }}",
+                  "card_mod": {
+                    "style": "ha-card { padding: 20px 16px 4px 16px; }\nh1 { font-size: 26px; font-weight: 300; margin: 0 0 4px 0; }\np { color: var(--secondary-text-color); font-size: 13px; margin: 0; }"
+                  }
+                },
+                {
+                  "type": "custom:mushroom-chips-card",
+                  "chips": [
+                    {
+                      "type": "template",
+                      "icon": "mdi:thermometer",
+                      "content": "{{ states('sensor.2024_weather_station_temperature')|float(0)|round(0) }}F",
+                      "icon_color": "blue",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.2024_weather_station_temperature"
+                      }
+                    },
+                    {
+                      "type": "template",
+                      "icon": "mdi:water-percent",
+                      "content": "{{ states('sensor.2024_weather_station_humidity') }}%",
+                      "icon_color": "cyan",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.2024_weather_station_humidity"
+                      }
+                    },
+                    {
+                      "type": "template",
+                      "icon": "mdi:weather-windy",
+                      "content": "{{ states('sensor.2024_weather_station_wind_speed')|float(0)|round(0) }} mph",
+                      "icon_color": "grey",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.2024_weather_station_wind_speed"
+                      }
+                    },
+                    {
+                      "type": "template",
+                      "icon": "mdi:account-group",
+                      "content": "{{ states('sensor.universal_room_automation_persons_in_house') }} in - {{ states('sensor.universal_room_automation_unidentified_persons') }} unknown",
+                      "icon_color": "{% if states('sensor.universal_room_automation_unidentified_persons')|int > 0 %}amber{% else %}green{% endif %}"
+                    },
+                    {
+                      "type": "template",
+                      "icon": "mdi:flash",
+                      "content": "{{ states('sensor.ura_energy_coordinator_tou_period')|replace('_',' ')|title }} - ${{ states('sensor.ura_energy_coordinator_current_energy_rate')|float(0)|round(3) }}/kWh",
+                      "icon_color": "{% if is_state('sensor.ura_energy_coordinator_tou_period', 'peak') %}red{% elif is_state('sensor.ura_energy_coordinator_tou_period', 'mid_peak') %}amber{% else %}green{% endif %}",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.ura_energy_coordinator_tou_period"
+                      }
+                    },
+                    {
+                      "type": "template",
+                      "icon": "mdi:shield-home",
+                      "content": "{{ states('alarm_control_panel.elkm1_area_1')|replace('_',' ')|title }}",
+                      "icon_color": "{% if is_state('alarm_control_panel.elkm1_area_1', 'disarmed') %}grey{% else %}green{% endif %}",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "alarm_control_panel.elkm1_area_1"
+                      }
+                    },
+                    {
+                      "type": "template",
+                      "icon": "mdi:bell",
+                      "content": "{{ states('sensor.ura_notification_manager_notifications_today') }} alerts",
+                      "icon_color": "{% if is_state('binary_sensor.ura_notification_manager_notification_active_alert', 'on') %}red{% else %}green{% endif %}",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.ura_notification_manager_last_notification"
+                      }
+                    },
+                    {
+                      "type": "template",
+                      "icon": "mdi:thermometer-lines",
+                      "content": "{{ states('sensor.patio_temperature')|float(0)|round(0) }}F patio",
+                      "icon_color": "{% if states('sensor.patio_temperature')|float(70) > 90 %}red{% elif states('sensor.patio_temperature')|float(70) > 75 %}orange{% elif states('sensor.patio_temperature')|float(70) < 40 %}blue{% else %}teal{% endif %}",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.patio_temperature"
+                      }
+                    }
+                  ],
+                  "alignment": "center",
+                  "card_mod": {
+                    "style": "ha-card { border-radius: 24px; padding: 8px; margin: 0 8px; }\n.chip-container { gap: 6px !important; }"
+                  }
+                },
+                {
+                  "type": "custom:lovelace-horizon-card",
+                  "card_mod": {
+                    "style": "ha-card { border-radius: 20px; margin: 4px 8px; }"
+                  }
+                },
+                {
+                  "type": "horizontal-stack",
+                  "cards": [
+                    {
+                      "type": "custom:mushroom-person-card",
+                      "entity": "person.oji_udezue",
+                      "icon_type": "entity-picture",
+                      "layout": "vertical",
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-person-card",
+                      "entity": "person.ezinne",
+                      "icon_type": "entity-picture",
+                      "layout": "vertical",
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-person-card",
+                      "entity": "person.jaya",
+                      "icon_type": "entity-picture",
+                      "layout": "vertical",
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-person-card",
+                      "entity": "person.ziri",
+                      "icon_type": "entity-picture",
+                      "layout": "vertical",
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "markdown",
+                  "content": "## Zone Activity",
+                  "card_mod": {
+                    "style": "ha-card { padding: 12px 16px 4px 16px; }\nh2 { color: var(--primary-text-color); font-size: 16px; font-weight: 500; margin: 0; }"
+                  }
+                },
+                {
+                  "type": "custom:mushroom-chips-card",
+                  "chips": [
+                    {
+                      "type": "template",
+                      "icon": "mdi:sofa",
+                      "content": "Entertainment",
+                      "icon_color": "{% set zones = state_attr('sensor.ura_presence_coordinator_presence_house_state', 'zones') %}{% if zones and zones.get('entertainment', {}).get('occupied', false) %}green{% else %}grey{% endif %}",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.ura_presence_coordinator_presence_house_state"
+                      }
+                    },
+                    {
+                      "type": "template",
+                      "icon": "mdi:bed",
+                      "content": "Master",
+                      "icon_color": "{% set zones = state_attr('sensor.ura_presence_coordinator_presence_house_state', 'zones') %}{% if zones and zones.get('master_suite', {}).get('occupied', false) %}green{% else %}grey{% endif %}",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.ura_presence_coordinator_presence_house_state"
+                      }
+                    },
+                    {
+                      "type": "template",
+                      "icon": "mdi:door",
+                      "content": "Back Hall",
+                      "icon_color": "{% set zones = state_attr('sensor.ura_presence_coordinator_presence_house_state', 'zones') %}{% if zones and zones.get('back_hallway', {}).get('occupied', false) %}green{% else %}grey{% endif %}",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.ura_presence_coordinator_presence_house_state"
+                      }
+                    },
+                    {
+                      "type": "template",
+                      "icon": "mdi:stairs",
+                      "content": "Upstairs",
+                      "icon_color": "{% set zones = state_attr('sensor.ura_presence_coordinator_presence_house_state', 'zones') %}{% if zones and zones.get('upstairs', {}).get('occupied', false) %}green{% else %}grey{% endif %}",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.ura_presence_coordinator_presence_house_state"
+                      }
+                    }
+                  ],
+                  "alignment": "center",
+                  "card_mod": {
+                    "style": "ha-card { border-radius: 14px !important; padding: 8px; margin: 0 8px; }"
+                  }
+                },
+                {
+                  "type": "markdown",
+                  "content": "## Occupancy Predictions",
+                  "card_mod": {
+                    "style": "ha-card { padding: 12px 16px 4px 16px; }\nh2 { color: var(--primary-text-color); font-size: 16px; font-weight: 500; margin: 0; }"
+                  }
+                },
+                {
+                  "type": "custom:auto-entities",
+                  "filter": {
+                    "include": [
+                      {
+                        "entity_id": "sensor.*_occupancy_probability",
+                        "sort": {
+                          "method": "state",
+                          "reverse": true,
+                          "numeric": true
+                        },
+                        "options": {
+                          "type": "custom:mushroom-template-card",
+                          "primary": "{{ state_attr(config.entity, 'friendly_name') | replace(' Occupancy Probability', '') | replace('URA ', '') }}",
+                          "secondary": "{{ states(config.entity) }}% - Next: {{ state_attr(config.entity, 'next_occupancy_time') | default('--') }}",
+                          "icon": "mdi:account-clock",
+                          "icon_color": "{% if states(config.entity)|int(0) > 70 %}green{% elif states(config.entity)|int(0) > 40 %}amber{% else %}grey{% endif %}",
+                          "card_mod": {
+                            "style": "ha-card { border-radius: 14px !important; }"
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "sort": {
+                    "method": "state",
+                    "reverse": true,
+                    "numeric": true
+                  },
+                  "show_empty": false,
+                  "card": {
+                    "type": "grid",
+                    "columns": 2,
+                    "square": false
+                  },
+                  "card_param": "cards",
+                  "card_mod": {
+                    "style": "ha-card { margin: 0 8px; }"
+                  }
+                },
+                {
+                  "type": "markdown",
+                  "content": "## Coordinators",
+                  "card_mod": {
+                    "style": "ha-card { padding: 12px 16px 4px 16px; }\nh2 { color: var(--primary-text-color); font-size: 16px; font-weight: 500; margin: 0; }"
+                  }
+                },
+                {
+                  "type": "horizontal-stack",
+                  "cards": [
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "Energy",
+                      "secondary": "{{ states('sensor.ura_energy_coordinator_energy_situation') | replace('_',' ') | title }}",
+                      "icon": "mdi:flash",
+                      "icon_color": "{% if is_state('sensor.ura_energy_coordinator_energy_situation', 'normal') %}green{% elif is_state('sensor.ura_energy_coordinator_energy_situation', 'constrained') %}amber{% else %}red{% endif %}",
+                      "tap_action": {
+                        "action": "navigate",
+                        "navigation_path": "/ura-v5/energy"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "HVAC",
+                      "secondary": "{{ states('sensor.ura_hvac_coordinator_mode') | replace('_',' ') | title }}",
+                      "icon": "mdi:thermostat",
+                      "icon_color": "{% if is_state('sensor.ura_hvac_coordinator_mode', 'normal') %}green{% elif 'cool' in states('sensor.ura_hvac_coordinator_mode') %}blue{% elif 'heat' in states('sensor.ura_hvac_coordinator_mode') %}deep-orange{% else %}amber{% endif %}",
+                      "tap_action": {
+                        "action": "navigate",
+                        "navigation_path": "/ura-v5/hvac"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "Security",
+                      "secondary": "{{ states('sensor.ura_security_coordinator_security_armed_state') | replace('_',' ') | title }}",
+                      "icon": "mdi:shield-home",
+                      "icon_color": "{% if is_state('sensor.ura_security_coordinator_security_armed_state', 'disarmed') %}grey{% elif 'armed' in states('sensor.ura_security_coordinator_security_armed_state') %}green{% else %}red{% endif %}",
+                      "tap_action": {
+                        "action": "navigate",
+                        "navigation_path": "/ura-v5/security"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "horizontal-stack",
+                  "cards": [
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "Presence",
+                      "secondary": "{{ states('sensor.universal_room_automation_rooms_occupied') }} rooms",
+                      "icon": "mdi:account-group",
+                      "icon_color": "{% if is_state('binary_sensor.ura_presence_coordinator_house_occupied', 'on') %}green{% else %}grey{% endif %}",
+                      "tap_action": {
+                        "action": "navigate",
+                        "navigation_path": "/ura-v5/presence"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "Safety",
+                      "secondary": "{{ states('sensor.ura_safety_coordinator_safety_status') | replace('_',' ') | title }}",
+                      "icon": "mdi:fire-extinguisher",
+                      "icon_color": "{% if is_state('sensor.ura_safety_coordinator_safety_status', 'normal') %}green{% else %}red{% endif %}",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.ura_safety_coordinator_safety_status"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "Notif",
+                      "secondary": "{{ states('sensor.ura_notification_manager_notifications_today') }} today",
+                      "icon": "mdi:bell",
+                      "icon_color": "{% if is_state('binary_sensor.ura_notification_manager_notification_active_alert', 'on') %}red{% else %}green{% endif %}",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.ura_notification_manager_last_notification"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "markdown",
+                  "content": "## Energy Glance",
+                  "card_mod": {
+                    "style": "ha-card { padding: 12px 16px 4px 16px; }\nh2 { color: var(--primary-text-color); font-size: 16px; font-weight: 500; margin: 0; }"
+                  }
+                },
+                {
+                  "type": "horizontal-stack",
+                  "cards": [
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "primary": "{{ states('sensor.envoy_482543015950_current_power_production')|float(0)|round(1) }} kW",
+                      "secondary": "Solar",
+                      "icon": "mdi:solar-power",
+                      "icon_color": "orange",
+                      "layout": "vertical",
+                      "tap_action": {
+                        "action": "navigate",
+                        "navigation_path": "/ura-v5/energy"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "primary": "{{ states('sensor.envoy_482543015950_battery')|float(0)|round(0) }}%",
+                      "secondary": "Battery",
+                      "icon": "mdi:battery",
+                      "icon_color": "{% if states('sensor.envoy_482543015950_battery')|int(0) > 50 %}green{% elif states('sensor.envoy_482543015950_battery')|int(0) > 20 %}amber{% else %}red{% endif %}",
+                      "layout": "vertical",
+                      "tap_action": {
+                        "action": "navigate",
+                        "navigation_path": "/ura-v5/energy"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "primary": "{{ states('sensor.envoy_482543015950_current_power_consumption')|float(0)|round(1) }} kW",
+                      "secondary": "Home",
+                      "icon": "mdi:home-lightning-bolt",
+                      "icon_color": "blue",
+                      "layout": "vertical",
+                      "tap_action": {
+                        "action": "navigate",
+                        "navigation_path": "/ura-v5/energy"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "primary": "${{ states('sensor.ura_energy_coordinator_energy_cost_today')|float(0)|round(2) }}",
+                      "secondary": "Cost Today",
+                      "icon": "mdi:currency-usd",
+                      "icon_color": "teal",
+                      "layout": "vertical",
+                      "tap_action": {
+                        "action": "navigate",
+                        "navigation_path": "/ura-v5/energy"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "markdown",
+                  "content": "## HVAC Zones",
+                  "card_mod": {
+                    "style": "ha-card { padding: 12px 16px 4px 16px; }\nh2 { color: var(--primary-text-color); font-size: 16px; font-weight: 500; margin: 0; }"
+                  }
+                },
+                {
+                  "type": "horizontal-stack",
+                  "cards": [
+                    {
+                      "type": "custom:mushroom-climate-card",
+                      "entity": "climate.thermostat_bryant_wifi_studyb_zone_1",
+                      "show_temperature_control": true,
+                      "layout": "horizontal",
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-climate-card",
+                      "entity": "climate.back_hallway_zone_3",
+                      "show_temperature_control": true,
+                      "layout": "horizontal",
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "custom:navbar-card",
+                  "routes": [
+                    {
+                      "url": "/ura-v5/overview",
+                      "icon": "mdi:view-dashboard",
+                      "label": "Home"
+                    },
+                    {
+                      "url": "/ura-v5/energy",
+                      "icon": "mdi:flash",
+                      "label": "Energy"
+                    },
+                    {
+                      "url": "/ura-v5/presence",
+                      "icon": "mdi:account-group",
+                      "label": "Presence"
+                    },
+                    {
+                      "url": "/ura-v5/rooms",
+                      "icon": "mdi:floor-plan",
+                      "label": "Rooms"
+                    },
+                    {
+                      "url": "/ura-v5/hvac",
+                      "icon": "mdi:thermostat",
+                      "label": "HVAC"
+                    },
+                    {
+                      "url": "/ura-v5/security",
+                      "icon": "mdi:shield-home",
+                      "label": "Security"
+                    },
+                    {
+                      "url": "/ura-v5/system",
+                      "icon": "mdi:cog",
+                      "label": "System"
+                    }
+                  ]
+                },
+                {
+                  "type": "custom:mod-card",
+                  "card_mod": {
+                    "style": "ha-card { border: none !important; padding: 8px 0 0 0; }"
+                  },
+                  "card": {
+                    "type": "horizontal-stack",
+                    "cards": [
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:view-dashboard",
+                        "icon_color": "blue",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/overview"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:flash",
+                        "icon_color": "amber",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/energy"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:account-group",
+                        "icon_color": "green",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/presence"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:floor-plan",
+                        "icon_color": "teal",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/rooms"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:thermostat",
+                        "icon_color": "deep-orange",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/hvac"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:shield-home",
+                        "icon_color": "red",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/security"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:cog",
+                        "icon_color": "grey",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/system"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ],
+              "card_mod": {
+                "style": "ha-card { padding: 0; }"
+              }
+            }
+          ]
+        },
+        {
+          "title": "Energy",
+          "path": "energy",
+          "type": "panel",
+          "badges": [],
+          "cards": [
+            {
+              "type": "vertical-stack",
+              "cards": [
+                {
+                  "type": "custom:mushroom-template-card",
+                  "primary": "Energy",
+                  "secondary": "{{ states('sensor.ura_energy_coordinator_battery_soc') }}% Battery",
+                  "icon": "mdi:flash",
+                  "card_mod": {
+                    "style": "ha-card { border-radius: 18px !important; }"
+                  }
+                },
+                {
+                  "type": "markdown",
+                  "content": "# Energy Command Center\nURA intelligence - 24.25 kW solar - 40 kWh battery",
+                  "card_mod": {
+                    "style": "ha-card { padding: 24px 16px 8px 16px; }\nh1 { font-size: 28px; font-weight: 300; margin: 0 0 4px 0; }\np { color: var(--secondary-text-color); font-size: 13px; margin: 0; }"
+                  }
+                },
+                {
+                  "type": "custom:mushroom-chips-card",
+                  "chips": [
+                    {
+                      "type": "template",
+                      "icon": "mdi:solar-power",
+                      "content": "{{ states('sensor.envoy_482543015950_current_power_production')|float(0)|round(2) }} kW",
+                      "icon_color": "orange",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.envoy_482543015950_current_power_production"
+                      }
+                    },
+                    {
+                      "type": "template",
+                      "icon": "mdi:battery-high",
+                      "content": "{{ states('sensor.envoy_482543015950_battery')|float(0)|round(0) }}%",
+                      "icon_color": "green",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.envoy_482543015950_battery"
+                      }
+                    },
+                    {
+                      "type": "template",
+                      "icon": "mdi:home-lightning-bolt",
+                      "content": "{{ states('sensor.envoy_482543015950_current_power_consumption')|float(0)|round(2) }} kW",
+                      "icon_color": "blue",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.envoy_482543015950_current_power_consumption"
+                      }
+                    },
+                    {
+                      "type": "template",
+                      "icon": "mdi:transmission-tower",
+                      "content": "{{ states('sensor.mains_vue_3_power_minute_average')|float(0)|round(2) }} kW",
+                      "icon_color": "{% if states('sensor.mains_vue_3_power_minute_average')|float(0) > 0 %}red{% else %}green{% endif %}",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.mains_vue_3_power_minute_average"
+                      }
+                    },
+                    {
+                      "type": "template",
+                      "icon": "mdi:weather-sunny",
+                      "content": "{{ states('sensor.solcast_pv_forecast_forecast_today')|float(0)|round(1) }} kWh",
+                      "icon_color": "amber",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.solcast_pv_forecast_forecast_today"
+                      }
+                    },
+                    {
+                      "type": "template",
+                      "icon": "mdi:engine",
+                      "content": "{{ states('sensor.generac_2325624_status_2') }}",
+                      "icon_color": "{% if is_state('sensor.generac_2325624_status_2', 'Running') %}red{% elif is_state('sensor.generac_2325624_status_2', 'Ready') %}teal{% else %}grey{% endif %}",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.generac_2325624_status_2"
+                      }
+                    }
+                  ],
+                  "alignment": "center",
+                  "card_mod": {
+                    "style": "ha-card { border-radius: 24px; padding: 8px; margin: 0 8px; }\n.chip-container { gap: 8px !important; }"
+                  }
+                },
+                {
+                  "type": "horizontal-stack",
+                  "cards": [
+                    {
+                      "type": "custom:power-flow-card-plus",
+                      "entities": {
+                        "grid": {
+                          "icon": "mdi:transmission-tower",
+                          "name": "Grid",
+                          "color": {
+                            "production": [
+                              156,
+                              204,
+                              101
+                            ],
+                            "consumption": [
+                              244,
+                              67,
+                              54
+                            ]
+                          },
+                          "entity": "sensor.mains_vue_3_power_minute_average",
+                          "color_icon": true,
+                          "display_state": "two_way"
+                        },
+                        "home": {
+                          "icon": "mdi:home",
+                          "name": "Home",
+                          "color": [
+                            33,
+                            150,
+                            243
+                          ],
+                          "entity": "sensor.envoy_482543015950_current_power_consumption",
+                          "color_icon": true
+                        },
+                        "solar": {
+                          "icon": "mdi:solar-power",
+                          "name": "Solar",
+                          "color": [
+                            255,
+                            152,
+                            0
+                          ],
+                          "entity": "sensor.envoy_482543015950_current_power_production",
+                          "color_icon": true,
+                          "display_zero_state": true
+                        },
+                        "battery": {
+                          "icon": "mdi:battery",
+                          "name": "Battery",
+                          "color": {
+                            "production": [
+                              76,
+                              175,
+                              80
+                            ],
+                            "consumption": [
+                              76,
+                              175,
+                              80
+                            ]
+                          },
+                          "entity": "sensor.envoy_482543015950_current_battery_discharge",
+                          "color_icon": true,
+                          "display_state": "two_way",
+                          "state_of_charge": "sensor.envoy_482543015950_battery"
+                        }
+                      },
+                      "w_decimals": 0,
+                      "kw_decimals": 2,
+                      "max_flow_rate": 6,
+                      "min_flow_rate": 0.75,
+                      "watt_threshold": 0,
+                      "clickable_entities": true,
+                      "display_zero_lines": {
+                        "mode": "show",
+                        "grey_color": [
+                          100,
+                          100,
+                          100
+                        ],
+                        "transparency": 50
+                      },
+                      "use_new_flow_rate_model": true,
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 24px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15); }"
+                      }
+                    },
+                    {
+                      "type": "vertical-stack",
+                      "cards": [
+                        {
+                          "type": "markdown",
+                          "content": "## Billing Period\n**Day {{ ((now().day - 24) % 30) + 1 }} of 30**",
+                          "card_mod": {
+                            "style": "ha-card { padding: 12px 16px 8px 16px; }\nh2 { color: var(--primary-text-color); font-size: 16px; font-weight: 500; margin: 0 0 4px 0; }\np { color: var(--secondary-text-color); font-size: 13px; margin: 0; }"
+                          }
+                        },
+                        {
+                          "type": "custom:mushroom-template-card",
+                          "layout": "horizontal",
+                          "primary": "${{ states('sensor.ura_energy_coordinator_energy_cost_this_cycle')|float(0)|round(2) }}",
+                          "secondary": "Cycle Cost",
+                          "icon": "mdi:currency-usd",
+                          "icon_color": "teal",
+                          "tap_action": {
+                            "action": "more-info",
+                            "entity": "sensor.ura_energy_coordinator_energy_cost_this_cycle"
+                          },
+                          "card_mod": {
+                            "style": "ha-card { border-radius: 16px; }"
+                          }
+                        },
+                        {
+                          "type": "custom:mushroom-template-card",
+                          "layout": "horizontal",
+                          "primary": "{{ states('sensor.ura_energy_coordinator_energy_import_today')|float(0)|round(1) }} kWh",
+                          "secondary": "Grid Import Today",
+                          "icon": "mdi:transmission-tower-import",
+                          "icon_color": "purple",
+                          "tap_action": {
+                            "action": "more-info",
+                            "entity": "sensor.ura_energy_coordinator_energy_import_today"
+                          },
+                          "card_mod": {
+                            "style": "ha-card { border-radius: 16px; }"
+                          }
+                        },
+                        {
+                          "type": "custom:mushroom-template-card",
+                          "layout": "horizontal",
+                          "primary": "{{ states('sensor.ura_energy_coordinator_energy_export_today')|float(0)|round(1) }} kWh",
+                          "secondary": "Grid Export Today",
+                          "icon": "mdi:transmission-tower-export",
+                          "icon_color": "light-green",
+                          "tap_action": {
+                            "action": "more-info",
+                            "entity": "sensor.ura_energy_coordinator_energy_export_today"
+                          },
+                          "card_mod": {
+                            "style": "ha-card { border-radius: 16px; }"
+                          }
+                        },
+                        {
+                          "type": "custom:mushroom-template-card",
+                          "layout": "horizontal",
+                          "primary": "{{ states('sensor.envoy_482543015950_energy_production_today')|float(0)|round(1) }} kWh",
+                          "secondary": "Solar Today",
+                          "icon": "mdi:solar-power",
+                          "icon_color": "orange",
+                          "tap_action": {
+                            "action": "more-info",
+                            "entity": "sensor.envoy_482543015950_energy_production_today"
+                          },
+                          "card_mod": {
+                            "style": "ha-card { border-radius: 16px; }"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "markdown",
+                  "content": "## URA Energy Intelligence",
+                  "card_mod": {
+                    "style": "ha-card { padding: 16px 16px 8px 16px; }\nh2 { color: var(--primary-text-color); font-size: 18px; font-weight: 500; margin: 0; }"
+                  }
+                },
+                {
+                  "type": "horizontal-stack",
+                  "cards": [
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "{{ states('sensor.ura_energy_coordinator_energy_situation') | replace('_',' ') | title }}",
+                      "secondary": "Situation",
+                      "icon": "mdi:pulse",
+                      "icon_color": "{% if is_state('sensor.ura_energy_coordinator_energy_situation', 'normal') %}green{% else %}amber{% endif %}",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.ura_energy_coordinator_energy_situation"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "{{ states('sensor.ura_energy_coordinator_hvac_constraint') | replace('_',' ') | title }}",
+                      "secondary": "HVAC Constraint",
+                      "icon": "mdi:thermostat",
+                      "icon_color": "{% if is_state('sensor.ura_energy_coordinator_hvac_constraint', 'normal') %}green{% elif 'cool' in states('sensor.ura_energy_coordinator_hvac_constraint') %}blue{% elif 'shed' in states('sensor.ura_energy_coordinator_hvac_constraint') %}red{% else %}amber{% endif %}",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.ura_energy_coordinator_hvac_constraint"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "{{ states('sensor.ura_energy_coordinator_load_shedding') | replace('_',' ') | title }}",
+                      "secondary": "Load Shed",
+                      "icon": "mdi:power-plug-off",
+                      "icon_color": "{% if is_state('sensor.ura_energy_coordinator_load_shedding', 'disabled') %}grey{% elif is_state('sensor.ura_energy_coordinator_load_shedding', 'normal') %}green{% else %}red{% endif %}",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.ura_energy_coordinator_load_shedding"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "horizontal-stack",
+                  "cards": [
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "{{ states('sensor.ura_energy_coordinator_solar_day_class') | replace('_',' ') | title }}",
+                      "secondary": "Solar Class",
+                      "icon": "mdi:white-balance-sunny",
+                      "icon_color": "{% if is_state('sensor.ura_energy_coordinator_solar_day_class', 'excellent') %}amber{% elif is_state('sensor.ura_energy_coordinator_solar_day_class', 'good') %}yellow{% else %}grey{% endif %}",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.ura_energy_coordinator_solar_day_class"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "{{ states('sensor.ura_energy_coordinator_tou_period') | replace('_',' ') | title }}",
+                      "secondary": "${{ states('sensor.ura_energy_coordinator_current_energy_rate')|float(0)|round(3) }}/kWh",
+                      "icon": "mdi:clock-outline",
+                      "icon_color": "{% if is_state('sensor.ura_energy_coordinator_tou_period', 'peak') %}red{% elif is_state('sensor.ura_energy_coordinator_tou_period', 'mid_peak') %}amber{% else %}green{% endif %}",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.ura_energy_coordinator_tou_period"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "{{ states('sensor.ura_energy_coordinator_battery_strategy') | replace('_',' ') | title }}",
+                      "secondary": "Battery Strategy",
+                      "icon": "mdi:battery-sync",
+                      "icon_color": "blue",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.ura_energy_coordinator_battery_strategy"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "horizontal-stack",
+                  "cards": [
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "${{ states('sensor.ura_energy_coordinator_predicted_bill')|float(0)|round(2) }}",
+                      "secondary": "Predicted Bill",
+                      "icon": "mdi:receipt-text",
+                      "icon_color": "teal",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.ura_energy_coordinator_predicted_bill"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "{{ states('sensor.ura_energy_coordinator_forecasted_consumption')|float(0)|round(1) }} kWh",
+                      "secondary": "Forecast Consump.",
+                      "icon": "mdi:chart-timeline-variant",
+                      "icon_color": "blue",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.ura_energy_coordinator_forecasted_consumption"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "{{ states('sensor.ura_energy_coordinator_forecasted_energy_import')|float(0)|round(1) }} kWh",
+                      "secondary": "Forecast Import",
+                      "icon": "mdi:chart-bell-curve-cumulative",
+                      "icon_color": "purple",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.ura_energy_coordinator_forecasted_energy_import"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "custom:mushroom-template-card",
+                  "primary": "Smart Recommendations",
+                  "secondary": "{% set forecast = states('sensor.solcast_pv_forecast_forecast_remaining_today')|float(0) %}\n{% set battery = states('sensor.envoy_482543015950_battery')|float(0) %}\n{% set hour = now().hour %}\n{% set constraint = states('sensor.ura_energy_coordinator_hvac_constraint') %}\n{% if constraint not in ['normal', 'unknown'] %}\nHVAC: {{ constraint | replace('_',' ') | title }}\n{% endif %}\n{% if forecast > 10 and battery < 90 %}\nBatteries charging -- {{ forecast|round(1) }} kWh solar remaining\n{% endif %}\n{% if forecast > 5 and hour < 16 %}\nEV Charging Window -- optimal until 4 PM\n{% endif %}\n{% if battery > 80 and hour >= 17 %}\nPre-cool opportunity -- Battery at {{ battery }}%\n{% endif %}\n{% if forecast < 3 %}\nLow Solar -- defer heavy loads\n{% elif forecast <= 5 %}\nModerate Solar -- {{ forecast|round(1) }} kWh remaining\n{% else %}\n{{ forecast|round(1) }} kWh solar remaining today\n{% endif %}",
+                  "icon": "mdi:lightbulb-on",
+                  "icon_color": "amber",
+                  "multiline_secondary": true,
+                  "card_mod": {
+                    "style": "ha-card { border: 1px solid rgba(255, 193, 7, 0.2); border-radius: 20px; margin: 8px; }"
+                  }
+                },
+                {
+                  "type": "vertical-stack",
+                  "cards": [
+                    {
+                      "type": "markdown",
+                      "content": "## Solar Production: Forecast vs Actual",
+                      "card_mod": {
+                        "style": "ha-card { padding: 16px 16px 0 16px; }\nh2 { color: var(--primary-text-color); font-size: 18px; font-weight: 500; margin: 0; }"
+                      }
+                    },
+                    {
+                      "type": "custom:plotly-graph",
+                      "hours_to_show": 24,
+                      "refresh_interval": 10,
+                      "defaults": {
+                        "entity": {
+                          "show_value": true,
+                          "filters": [
+                            {
+                              "resample": "5m"
+                            }
+                          ]
+                        }
+                      },
+                      "layout": {
+                        "height": 220,
+                        "paper_bgcolor": "rgba(0,0,0,0)",
+                        "plot_bgcolor": "rgba(0,0,0,0)",
+                        "font": {
+                          "family": "Roboto, sans-serif",
+                          "color": "var(--primary-text-color)",
+                          "size": 11
+                        },
+                        "margin": {
+                          "l": 50,
+                          "r": 20,
+                          "t": 10,
+                          "b": 40
+                        },
+                        "xaxis": {
+                          "gridcolor": "rgba(255,255,255,0.08)",
+                          "showgrid": true,
+                          "tickfont": {
+                            "color": "var(--secondary-text-color)",
+                            "size": 10
+                          }
+                        },
+                        "yaxis": {
+                          "gridcolor": "rgba(255,255,255,0.08)",
+                          "showgrid": true,
+                          "rangemode": "nonnegative",
+                          "tickfont": {
+                            "color": "var(--secondary-text-color)",
+                            "size": 10
+                          },
+                          "title": {
+                            "text": "Power (kW)",
+                            "font": {
+                              "size": 11,
+                              "color": "var(--secondary-text-color)"
+                            }
+                          }
+                        },
+                        "legend": {
+                          "orientation": "h",
+                          "yanchor": "bottom",
+                          "y": 1.02,
+                          "xanchor": "center",
+                          "x": 0.5,
+                          "font": {
+                            "size": 12,
+                            "color": "var(--primary-text-color)"
+                          }
+                        },
+                        "hoverlabel": {
+                          "bgcolor": "rgba(0,0,0,0.8)",
+                          "font": {
+                            "color": "white",
+                            "size": 11
+                          }
+                        }
+                      },
+                      "entities": [
+                        {
+                          "entity": "sensor.solcast_pv_forecast_forecast_today",
+                          "name": "Forecast",
+                          "internal": true,
+                          "filters": [
+                            {
+                              "fn": "({ ys, xs, hass, entity }) => {\n  const data = [];\n  const fc = hass.states[entity.entity_id].attributes.detailedHourly;\n  if (fc) {\n    fc.forEach(f => {\n      data.push({\n        x: new Date(f.period_start).getTime(),\n        y: f.pv_estimate\n      });\n    });\n  }\n  return {\n    xs: data.map(d => d.x),\n    ys: data.map(d => d.y)\n  };\n}\n"
+                            }
+                          ],
+                          "line": {
+                            "width": 0
+                          },
+                          "fill": "tozeroy",
+                          "fillcolor": "rgba(255, 193, 7, 0.25)"
+                        },
+                        {
+                          "entity": "sensor.envoy_482543015950_current_power_production",
+                          "name": "Actual Production",
+                          "unit_of_measurement": "kW",
+                          "filters": [
+                            {
+                              "map_y": "y / 1000"
+                            }
+                          ],
+                          "line": {
+                            "color": "rgba(255, 152, 0, 1)",
+                            "width": 2.5,
+                            "shape": "spline"
+                          }
+                        }
+                      ],
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 20px; margin: 0 8px 8px 8px; overflow: hidden; }"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "vertical-stack",
+                  "cards": [
+                    {
+                      "type": "markdown",
+                      "content": "## Energy Flow: Hourly Breakdown",
+                      "card_mod": {
+                        "style": "ha-card { padding: 16px 16px 0 16px; }\nh2 { color: var(--primary-text-color); font-size: 18px; font-weight: 500; margin: 0; }"
+                      }
+                    },
+                    {
+                      "type": "custom:plotly-graph",
+                      "hours_to_show": 24,
+                      "refresh_interval": 10,
+                      "defaults": {
+                        "entity": {
+                          "show_value": true,
+                          "statistic": "state",
+                          "period": "hour",
+                          "filters": [
+                            "delta",
+                            {
+                              "filter": "i > 0"
+                            }
+                          ]
+                        }
+                      },
+                      "layout": {
+                        "height": 240,
+                        "paper_bgcolor": "rgba(0,0,0,0)",
+                        "plot_bgcolor": "rgba(0,0,0,0)",
+                        "barmode": "relative",
+                        "font": {
+                          "family": "Roboto, sans-serif",
+                          "color": "var(--primary-text-color)"
+                        },
+                        "margin": {
+                          "l": 50,
+                          "r": 20,
+                          "t": 10,
+                          "b": 40
+                        },
+                        "xaxis": {
+                          "gridcolor": "rgba(255,255,255,0.08)",
+                          "tickfont": {
+                            "color": "var(--secondary-text-color)",
+                            "size": 10
+                          }
+                        },
+                        "yaxis": {
+                          "gridcolor": "rgba(255,255,255,0.08)",
+                          "tickfont": {
+                            "color": "var(--secondary-text-color)",
+                            "size": 10
+                          },
+                          "title": {
+                            "text": "Energy (kWh)",
+                            "font": {
+                              "size": 11,
+                              "color": "var(--secondary-text-color)"
+                            }
+                          }
+                        },
+                        "legend": {
+                          "orientation": "h",
+                          "yanchor": "bottom",
+                          "y": 1.02,
+                          "xanchor": "center",
+                          "x": 0.5,
+                          "font": {
+                            "size": 11
+                          }
+                        },
+                        "hoverlabel": {
+                          "bgcolor": "rgba(0,0,0,0.8)"
+                        }
+                      },
+                      "entities": [
+                        {
+                          "entity": "sensor.envoy_482543015950_energy_production_today",
+                          "name": "Solar Production",
+                          "type": "bar",
+                          "marker": {
+                            "color": "rgba(255, 152, 0, 0.7)",
+                            "line": {
+                              "width": 0
+                            }
+                          }
+                        },
+                        {
+                          "entity": "sensor.envoy_482543015950_energy_consumption_today",
+                          "name": "Home Consumption",
+                          "type": "bar",
+                          "marker": {
+                            "color": "rgba(33, 150, 243, 0.7)",
+                            "line": {
+                              "width": 0
+                            }
+                          }
+                        },
+                        {
+                          "entity": "sensor.mains_vue_3_mainsfromgrid_energy_this_month",
+                          "name": "Grid Import",
+                          "type": "bar",
+                          "marker": {
+                            "color": "rgba(244, 67, 54, 0.7)",
+                            "line": {
+                              "width": 0
+                            }
+                          }
+                        }
+                      ],
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 20px; margin: 0 8px 8px 8px; }"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "vertical-stack",
+                  "cards": [
+                    {
+                      "type": "markdown",
+                      "content": "## Battery Bank\n**40 kWh Total** - {{ states('sensor.envoy_482543015950_battery') }}% Average - {{ (states('sensor.envoy_482543015950_available_battery_energy')|float / 1000)|round(1) }} kWh Available",
+                      "card_mod": {
+                        "style": "ha-card { padding: 16px 16px 8px 16px; }\nh2 { color: var(--primary-text-color); font-size: 18px; font-weight: 500; margin: 0 0 4px 0; }\np { color: var(--secondary-text-color); font-size: 13px; margin: 0; }"
+                      }
+                    },
+                    {
+                      "type": "horizontal-stack",
+                      "cards": [
+                        {
+                          "type": "custom:mushroom-template-card",
+                          "layout": "vertical",
+                          "primary": "{{ states('sensor.encharge_492432007622_battery') }}%",
+                          "secondary": "#1",
+                          "icon": "mdi:battery",
+                          "icon_color": "{% if states('sensor.encharge_492432007622_battery')|int > 50 %}green{% elif states('sensor.encharge_492432007622_battery')|int > 20 %}amber{% else %}red{% endif %}",
+                          "tap_action": {
+                            "action": "more-info",
+                            "entity": "sensor.encharge_492432007622_battery"
+                          },
+                          "card_mod": {
+                            "style": "ha-card { border: 1.5px solid rgba(76, 175, 80, 0.35); border-radius: 16px; }"
+                          }
+                        },
+                        {
+                          "type": "custom:mushroom-template-card",
+                          "layout": "vertical",
+                          "primary": "{{ states('sensor.encharge_492432020546_battery') }}%",
+                          "secondary": "#2",
+                          "icon": "mdi:battery",
+                          "icon_color": "{% if states('sensor.encharge_492432020546_battery')|int > 50 %}green{% elif states('sensor.encharge_492432020546_battery')|int > 20 %}amber{% else %}red{% endif %}",
+                          "tap_action": {
+                            "action": "more-info",
+                            "entity": "sensor.encharge_492432020546_battery"
+                          },
+                          "card_mod": {
+                            "style": "ha-card { border: 1.5px solid rgba(76, 175, 80, 0.35); border-radius: 16px; }"
+                          }
+                        },
+                        {
+                          "type": "custom:mushroom-template-card",
+                          "layout": "vertical",
+                          "primary": "{{ states('sensor.encharge_492432021078_battery') }}%",
+                          "secondary": "#3",
+                          "icon": "mdi:battery",
+                          "icon_color": "{% if states('sensor.encharge_492432021078_battery')|int > 50 %}green{% elif states('sensor.encharge_492432021078_battery')|int > 20 %}amber{% else %}red{% endif %}",
+                          "tap_action": {
+                            "action": "more-info",
+                            "entity": "sensor.encharge_492432021078_battery"
+                          },
+                          "card_mod": {
+                            "style": "ha-card { border: 1.5px solid rgba(76, 175, 80, 0.35); border-radius: 16px; }"
+                          }
+                        },
+                        {
+                          "type": "custom:mushroom-template-card",
+                          "layout": "vertical",
+                          "primary": "{{ states('sensor.encharge_492432021081_battery') }}%",
+                          "secondary": "#4",
+                          "icon": "mdi:battery",
+                          "icon_color": "{% if states('sensor.encharge_492432021081_battery')|int > 50 %}green{% elif states('sensor.encharge_492432021081_battery')|int > 20 %}amber{% else %}red{% endif %}",
+                          "tap_action": {
+                            "action": "more-info",
+                            "entity": "sensor.encharge_492432021081_battery"
+                          },
+                          "card_mod": {
+                            "style": "ha-card { border: 1.5px solid rgba(76, 175, 80, 0.35); border-radius: 16px; }"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "type": "horizontal-stack",
+                      "cards": [
+                        {
+                          "type": "custom:mushroom-template-card",
+                          "layout": "vertical",
+                          "primary": "{{ states('sensor.encharge_492451005488_battery') }}%",
+                          "secondary": "#5",
+                          "icon": "mdi:battery",
+                          "icon_color": "{% if states('sensor.encharge_492451005488_battery')|int > 50 %}green{% elif states('sensor.encharge_492451005488_battery')|int > 20 %}amber{% else %}red{% endif %}",
+                          "tap_action": {
+                            "action": "more-info",
+                            "entity": "sensor.encharge_492451005488_battery"
+                          },
+                          "card_mod": {
+                            "style": "ha-card { border: 1.5px solid rgba(76, 175, 80, 0.35); border-radius: 16px; }"
+                          }
+                        },
+                        {
+                          "type": "custom:mushroom-template-card",
+                          "layout": "vertical",
+                          "primary": "{{ states('sensor.encharge_492451005492_battery') }}%",
+                          "secondary": "#6",
+                          "icon": "mdi:battery",
+                          "icon_color": "{% if states('sensor.encharge_492451005492_battery')|int > 50 %}green{% elif states('sensor.encharge_492451005492_battery')|int > 20 %}amber{% else %}red{% endif %}",
+                          "tap_action": {
+                            "action": "more-info",
+                            "entity": "sensor.encharge_492451005492_battery"
+                          },
+                          "card_mod": {
+                            "style": "ha-card { border: 1.5px solid rgba(76, 175, 80, 0.35); border-radius: 16px; }"
+                          }
+                        },
+                        {
+                          "type": "custom:mushroom-template-card",
+                          "layout": "vertical",
+                          "primary": "{{ states('sensor.encharge_492451006223_battery') }}%",
+                          "secondary": "#7",
+                          "icon": "mdi:battery",
+                          "icon_color": "{% if states('sensor.encharge_492451006223_battery')|int > 50 %}green{% elif states('sensor.encharge_492451006223_battery')|int > 20 %}amber{% else %}red{% endif %}",
+                          "tap_action": {
+                            "action": "more-info",
+                            "entity": "sensor.encharge_492451006223_battery"
+                          },
+                          "card_mod": {
+                            "style": "ha-card { border: 1.5px solid rgba(76, 175, 80, 0.35); border-radius: 16px; }"
+                          }
+                        },
+                        {
+                          "type": "custom:mushroom-template-card",
+                          "layout": "vertical",
+                          "primary": "{{ states('sensor.encharge_492451006228_battery') }}%",
+                          "secondary": "#8",
+                          "icon": "mdi:battery",
+                          "icon_color": "{% if states('sensor.encharge_492451006228_battery')|int > 50 %}green{% elif states('sensor.encharge_492451006228_battery')|int > 20 %}amber{% else %}red{% endif %}",
+                          "tap_action": {
+                            "action": "more-info",
+                            "entity": "sensor.encharge_492451006228_battery"
+                          },
+                          "card_mod": {
+                            "style": "ha-card { border: 1.5px solid rgba(76, 175, 80, 0.35); border-radius: 16px; }"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "vertical-stack",
+                  "cards": [
+                    {
+                      "type": "markdown",
+                      "content": "## Microinverters\n**50 QCell 485W Panels** - Sorted by Output",
+                      "card_mod": {
+                        "style": "ha-card { padding: 16px 16px 8px 16px; }\nh2 { color: var(--primary-text-color); font-size: 18px; font-weight: 500; margin: 0 0 4px 0; }\np { color: var(--secondary-text-color); font-size: 13px; margin: 0; }"
+                      }
+                    },
+                    {
+                      "type": "custom:auto-entities",
+                      "card": {
+                        "type": "glance",
+                        "columns": 10,
+                        "show_icon": true,
+                        "show_name": false,
+                        "show_state": true,
+                        "state_color": false
+                      },
+                      "sort": {
+                        "method": "state",
+                        "numeric": true,
+                        "reverse": true
+                      },
+                      "filter": {
+                        "exclude": [
+                          {
+                            "entity_id": "*ac_current*"
+                          },
+                          {
+                            "entity_id": "*lifetime*"
+                          },
+                          {
+                            "entity_id": "*energy_production*"
+                          }
+                        ],
+                        "include": [
+                          {
+                            "entity_id": "sensor.inverter_5424*",
+                            "attributes": {
+                              "device_class": "power"
+                            }
+                          }
+                        ]
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 20px; padding: 16px; margin: 0 8px 16px 8px; }\n.entity { padding: 8px 4px !important; }\n.state { font-size: 12px !important; font-weight: 600 !important; }\nha-state-icon { --mdc-icon-size: 20px !important; }"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "horizontal-stack",
+                  "cards": [
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "{{ states('sensor.ura_energy_coordinator_ev_charging_status') | replace('_',' ') | title }}",
+                      "secondary": "EV Charging",
+                      "icon": "mdi:ev-station",
+                      "icon_color": "{% if is_state('sensor.ura_energy_coordinator_ev_charging_status', 'idle') %}grey{% else %}blue{% endif %}",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.ura_energy_coordinator_ev_charging_status"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "{{ states('sensor.ura_energy_coordinator_pool_optimization') | replace('_',' ') | title }}",
+                      "secondary": "Pool",
+                      "icon": "mdi:pool",
+                      "icon_color": "cyan",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.ura_energy_coordinator_pool_optimization"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "{{ states('sensor.ura_energy_coordinator_circuit_anomaly') | replace('_',' ') | title }}",
+                      "secondary": "Circuits",
+                      "icon": "mdi:circuit-board",
+                      "icon_color": "{% if is_state('sensor.ura_energy_coordinator_circuit_anomaly', 'normal') %}green{% else %}red{% endif %}",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.ura_energy_coordinator_circuit_anomaly"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "custom:navbar-card",
+                  "routes": [
+                    {
+                      "url": "/ura-v5/overview",
+                      "icon": "mdi:view-dashboard",
+                      "label": "Home"
+                    },
+                    {
+                      "url": "/ura-v5/energy",
+                      "icon": "mdi:flash",
+                      "label": "Energy"
+                    },
+                    {
+                      "url": "/ura-v5/presence",
+                      "icon": "mdi:account-group",
+                      "label": "Presence"
+                    },
+                    {
+                      "url": "/ura-v5/rooms",
+                      "icon": "mdi:floor-plan",
+                      "label": "Rooms"
+                    },
+                    {
+                      "url": "/ura-v5/hvac",
+                      "icon": "mdi:thermostat",
+                      "label": "HVAC"
+                    },
+                    {
+                      "url": "/ura-v5/security",
+                      "icon": "mdi:shield-home",
+                      "label": "Security"
+                    },
+                    {
+                      "url": "/ura-v5/system",
+                      "icon": "mdi:cog",
+                      "label": "System"
+                    }
+                  ]
+                },
+                {
+                  "type": "custom:mod-card",
+                  "card_mod": {
+                    "style": "ha-card { border: none !important; padding: 8px 0 0 0; }"
+                  },
+                  "card": {
+                    "type": "horizontal-stack",
+                    "cards": [
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:view-dashboard",
+                        "icon_color": "blue",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/overview"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:flash",
+                        "icon_color": "amber",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/energy"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:account-group",
+                        "icon_color": "green",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/presence"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:floor-plan",
+                        "icon_color": "teal",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/rooms"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:thermostat",
+                        "icon_color": "deep-orange",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/hvac"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:shield-home",
+                        "icon_color": "red",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/security"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:cog",
+                        "icon_color": "grey",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/system"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ],
+              "card_mod": {
+                "style": "ha-card { padding: 0; }"
+              }
+            }
+          ]
+        },
+        {
+          "title": "Presence",
+          "path": "presence",
+          "type": "panel",
+          "badges": [],
+          "cards": [
+            {
+              "type": "vertical-stack",
+              "cards": [
+                {
+                  "type": "custom:mushroom-template-card",
+                  "primary": "Presence",
+                  "secondary": "{{ states('sensor.ura_presence_coordinator_presence_house_state') | replace('_', ' ') | title }}",
+                  "icon": "mdi:account-group",
+                  "card_mod": {
+                    "style": "ha-card { border-radius: 18px !important; }"
+                  }
+                },
+                {
+                  "type": "markdown",
+                  "content": "# Presence & Activity\n{{ states('sensor.universal_room_automation_persons_in_house') }} people in house - {{ states('sensor.universal_room_automation_rooms_occupied') }} rooms active",
+                  "card_mod": {
+                    "style": "ha-card { padding: 24px 16px 8px 16px; }\nh1 { font-size: 28px; font-weight: 300; margin: 0 0 4px 0; }\np { color: var(--secondary-text-color); font-size: 13px; margin: 0; }"
+                  }
+                },
+                {
+                  "type": "custom:mushroom-chips-card",
+                  "chips": [
+                    {
+                      "type": "template",
+                      "icon": "mdi:home-account",
+                      "content": "{{ states('sensor.universal_room_automation_identified_persons_in_house') }} identified",
+                      "icon_color": "green"
+                    },
+                    {
+                      "type": "template",
+                      "icon": "mdi:account-question",
+                      "content": "{{ states('sensor.universal_room_automation_unidentified_persons') }} unknown",
+                      "icon_color": "{% if states('sensor.universal_room_automation_unidentified_persons')|int > 0 %}amber{% else %}grey{% endif %}"
+                    },
+                    {
+                      "type": "template",
+                      "icon": "mdi:door-open",
+                      "content": "{{ states('sensor.universal_room_automation_rooms_occupied') }} rooms",
+                      "icon_color": "blue"
+                    },
+                    {
+                      "type": "template",
+                      "icon": "mdi:shield-check",
+                      "content": "{{ states('sensor.universal_room_automation_census_confidence') }}",
+                      "icon_color": "{% if is_state('sensor.universal_room_automation_census_confidence', 'high') %}green{% elif is_state('sensor.universal_room_automation_census_confidence', 'medium') %}amber{% else %}red{% endif %}"
+                    }
+                  ],
+                  "alignment": "center",
+                  "card_mod": {
+                    "style": "ha-card { border-radius: 24px; padding: 8px; margin: 0 8px; }"
+                  }
+                },
+                {
+                  "type": "markdown",
+                  "content": "## Outdoor Conditions",
+                  "card_mod": {
+                    "style": "ha-card { padding: 12px 16px 4px 16px; }\nh2 { color: var(--primary-text-color); font-size: 16px; font-weight: 500; margin: 0; }"
+                  }
+                },
+                {
+                  "type": "horizontal-stack",
+                  "cards": [
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "{{ states('weather.forecast_home') | replace('_',' ') | title }}",
+                      "secondary": "Weather",
+                      "icon": "{% set s = states('weather.forecast_home') %}{% if 'cloud' in s %}mdi:weather-cloudy{% elif 'rain' in s %}mdi:weather-rainy{% elif 'sun' in s or 'clear' in s %}mdi:weather-sunny{% else %}mdi:weather-partly-cloudy{% endif %}",
+                      "icon_color": "{% set s = states('weather.forecast_home') %}{% if 'sun' in s or 'clear' in s %}amber{% elif 'cloud' in s %}grey{% elif 'rain' in s %}blue{% else %}cyan{% endif %}",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "weather.forecast_home"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 14px !important; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "{{ states('sensor.patio_temperature')|float(0)|round(0) }}F",
+                      "secondary": "Patio",
+                      "icon": "mdi:thermometer",
+                      "icon_color": "{% if states('sensor.patio_temperature')|float(70) > 90 %}red{% elif states('sensor.patio_temperature')|float(70) > 75 %}orange{% elif states('sensor.patio_temperature')|float(70) < 40 %}blue{% else %}teal{% endif %}",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.patio_temperature"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 14px !important; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "{{ states('sensor.thermostat_bryant_wifi_upstairs_outdoor_temperature')|float(0)|round(0) }}F",
+                      "secondary": "HVAC Outdoor",
+                      "icon": "mdi:home-thermometer-outline",
+                      "icon_color": "cyan",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.thermostat_bryant_wifi_upstairs_outdoor_temperature"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 14px !important; }"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "markdown",
+                  "content": "## Person Locations",
+                  "card_mod": {
+                    "style": "ha-card { padding: 12px 16px 4px 16px; }\nh2 { color: var(--primary-text-color); font-size: 16px; font-weight: 500; margin: 0; }"
+                  }
+                },
+                {
+                  "type": "horizontal-stack",
+                  "cards": [
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "Oji",
+                      "secondary": "{{ states('sensor.universal_room_automation_oji_udezue_location') }}\n-> {{ states('sensor.universal_room_automation_oji_udezue_likely_next_room') }}",
+                      "icon": "mdi:account",
+                      "icon_color": "blue",
+                      "multiline_secondary": true,
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "Ezinne",
+                      "secondary": "{{ states('sensor.universal_room_automation_ezinne_location') }}\n-> {{ states('sensor.universal_room_automation_ezinne_likely_next_room') }}",
+                      "icon": "mdi:account",
+                      "icon_color": "pink",
+                      "multiline_secondary": true,
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "horizontal-stack",
+                  "cards": [
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "Jaya",
+                      "secondary": "{{ states('sensor.universal_room_automation_jaya_location') }}\n-> {{ states('sensor.universal_room_automation_jaya_likely_next_room') }}",
+                      "icon": "mdi:account",
+                      "icon_color": "purple",
+                      "multiline_secondary": true,
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "Ziri",
+                      "secondary": "{{ states('sensor.universal_room_automation_ziri_location') }}\n-> {{ states('sensor.universal_room_automation_ziri_likely_next_room') }}",
+                      "icon": "mdi:account",
+                      "icon_color": "orange",
+                      "multiline_secondary": true,
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "markdown",
+                  "content": "## Zone Activity",
+                  "card_mod": {
+                    "style": "ha-card { padding: 12px 16px 4px 16px; }\nh2 { color: var(--primary-text-color); font-size: 16px; font-weight: 500; margin: 0; }"
+                  }
+                },
+                {
+                  "type": "markdown",
+                  "content": "## Zone Presence States",
+                  "card_mod": {
+                    "style": "ha-card { padding: 12px 16px 4px 16px; }\nh2 { color: var(--primary-text-color); font-size: 16px; font-weight: 500; margin: 0; }"
+                  }
+                },
+                {
+                  "type": "horizontal-stack",
+                  "cards": [
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "Entertainment",
+                      "secondary": "{% set zones = state_attr('sensor.ura_presence_coordinator_presence_house_state', 'zones') %}{% if zones and zones.get('entertainment') %}{{ zones.entertainment.get('state', 'unknown') | replace('_',' ') | title }}{% else %}Unknown{% endif %}",
+                      "icon": "mdi:sofa",
+                      "icon_color": "{% set zones = state_attr('sensor.ura_presence_coordinator_presence_house_state', 'zones') %}{% if zones and zones.get('entertainment', {}).get('occupied', false) %}green{% elif zones and zones.get('entertainment', {}).get('state', '') == 'recently_left' %}yellow{% else %}grey{% endif %}",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.ura_presence_coordinator_presence_house_state"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 14px !important; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "Master Suite",
+                      "secondary": "{% set zones = state_attr('sensor.ura_presence_coordinator_presence_house_state', 'zones') %}{% if zones and zones.get('master_suite') %}{{ zones.master_suite.get('state', 'unknown') | replace('_',' ') | title }}{% else %}Unknown{% endif %}",
+                      "icon": "mdi:bed",
+                      "icon_color": "{% set zones = state_attr('sensor.ura_presence_coordinator_presence_house_state', 'zones') %}{% if zones and zones.get('master_suite', {}).get('occupied', false) %}green{% elif zones and zones.get('master_suite', {}).get('state', '') == 'recently_left' %}yellow{% else %}grey{% endif %}",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.ura_presence_coordinator_presence_house_state"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 14px !important; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "Back Hall",
+                      "secondary": "{% set zones = state_attr('sensor.ura_presence_coordinator_presence_house_state', 'zones') %}{% if zones and zones.get('back_hallway') %}{{ zones.back_hallway.get('state', 'unknown') | replace('_',' ') | title }}{% else %}Unknown{% endif %}",
+                      "icon": "mdi:door",
+                      "icon_color": "{% set zones = state_attr('sensor.ura_presence_coordinator_presence_house_state', 'zones') %}{% if zones and zones.get('back_hallway', {}).get('occupied', false) %}green{% elif zones and zones.get('back_hallway', {}).get('state', '') == 'recently_left' %}yellow{% else %}grey{% endif %}",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.ura_presence_coordinator_presence_house_state"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 14px !important; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "Upstairs",
+                      "secondary": "{% set zones = state_attr('sensor.ura_presence_coordinator_presence_house_state', 'zones') %}{% if zones and zones.get('upstairs') %}{{ zones.upstairs.get('state', 'unknown') | replace('_',' ') | title }}{% else %}Unknown{% endif %}",
+                      "icon": "mdi:stairs",
+                      "icon_color": "{% set zones = state_attr('sensor.ura_presence_coordinator_presence_house_state', 'zones') %}{% if zones and zones.get('upstairs', {}).get('occupied', false) %}green{% elif zones and zones.get('upstairs', {}).get('state', '') == 'recently_left' %}yellow{% else %}grey{% endif %}",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.ura_presence_coordinator_presence_house_state"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 14px !important; }"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "markdown",
+                  "content": "## Occupancy Predictions",
+                  "card_mod": {
+                    "style": "ha-card { padding: 12px 16px 4px 16px; }\nh2 { color: var(--primary-text-color); font-size: 16px; font-weight: 500; margin: 0; }"
+                  }
+                },
+                {
+                  "type": "custom:auto-entities",
+                  "filter": {
+                    "include": [
+                      {
+                        "entity_id": "sensor.*_occupancy_probability",
+                        "sort": {
+                          "method": "state",
+                          "reverse": true,
+                          "numeric": true
+                        },
+                        "options": {
+                          "type": "custom:mushroom-template-card",
+                          "primary": "{{ state_attr(config.entity, 'friendly_name') | replace(' Occupancy Probability', '') | replace('URA ', '') }}",
+                          "secondary": "{{ states(config.entity) }}% - Next: {{ state_attr(config.entity, 'next_occupancy_time') | default('--') }}\n7d avg: {{ state_attr(config.entity, 'weekly_average') | default('--') }}% - Peak: {{ state_attr(config.entity, 'peak_time') | default('--') }}",
+                          "icon": "mdi:account-clock",
+                          "icon_color": "{% if states(config.entity)|int(0) > 70 %}green{% elif states(config.entity)|int(0) > 40 %}amber{% else %}grey{% endif %}",
+                          "multiline_secondary": true,
+                          "card_mod": {
+                            "style": "ha-card { border-radius: 14px !important; }"
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "sort": {
+                    "method": "state",
+                    "reverse": true,
+                    "numeric": true
+                  },
+                  "show_empty": false,
+                  "card": {
+                    "type": "grid",
+                    "columns": 2,
+                    "square": false
+                  },
+                  "card_param": "cards",
+                  "card_mod": {
+                    "style": "ha-card { margin: 0 8px; }"
+                  }
+                },
+                {
+                  "type": "markdown",
+                  "content": "## Census Intelligence",
+                  "card_mod": {
+                    "style": "ha-card { padding: 12px 16px 4px 16px; }\nh2 { color: var(--primary-text-color); font-size: 16px; font-weight: 500; margin: 0; }"
+                  }
+                },
+                {
+                  "type": "horizontal-stack",
+                  "cards": [
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "{{ states('sensor.universal_room_automation_census_confidence') | title }}",
+                      "secondary": "Confidence",
+                      "icon": "mdi:shield-check",
+                      "icon_color": "{% if is_state('sensor.universal_room_automation_census_confidence', 'high') %}green{% elif is_state('sensor.universal_room_automation_census_confidence', 'medium') %}amber{% else %}red{% endif %}",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.universal_room_automation_census_confidence"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 14px !important; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "{{ states('sensor.universal_room_automation_census_validation_age') }}",
+                      "secondary": "Validation Age",
+                      "icon": "mdi:clock-check-outline",
+                      "icon_color": "{% if states('sensor.universal_room_automation_census_validation_age')|int(999) < 300 %}green{% elif states('sensor.universal_room_automation_census_validation_age')|int(999) < 900 %}amber{% else %}red{% endif %}",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.universal_room_automation_census_validation_age"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 14px !important; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "{% if is_state('binary_sensor.universal_room_automation_census_mismatch', 'on') %}Mismatch{% else %}OK{% endif %}",
+                      "secondary": "Census Match",
+                      "icon": "{% if is_state('binary_sensor.universal_room_automation_census_mismatch', 'on') %}mdi:alert-circle{% else %}mdi:check-circle{% endif %}",
+                      "icon_color": "{% if is_state('binary_sensor.universal_room_automation_census_mismatch', 'on') %}red{% else %}green{% endif %}",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "binary_sensor.universal_room_automation_census_mismatch"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 14px !important; }"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "custom:mushroom-template-card",
+                  "primary": "{{ states('sensor.ura_music_following_coordinator_music_following_active_rooms') }}",
+                  "secondary": "Active rooms - {{ states('sensor.ura_music_following_coordinator_music_following_transfers_today') }} transfers today - {{ states('sensor.universal_room_automation_music_following_health') }}",
+                  "icon": "mdi:music-note",
+                  "icon_color": "deep-purple",
+                  "multiline_secondary": true,
+                  "card_mod": {
+                    "style": "ha-card { border-radius: 20px; margin: 0 8px; }"
+                  }
+                },
+                {
+                  "type": "markdown",
+                  "content": "## Weather Station",
+                  "card_mod": {
+                    "style": "ha-card { padding: 12px 16px 4px 16px; }\nh2 { color: var(--primary-text-color); font-size: 16px; font-weight: 500; margin: 0; }"
+                  }
+                },
+                {
+                  "type": "horizontal-stack",
+                  "cards": [
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "{{ states('sensor.2024_weather_station_temperature')|float(0)|round(0) }}F",
+                      "secondary": "Temp",
+                      "icon": "mdi:thermometer",
+                      "icon_color": "red",
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "{{ states('sensor.2024_weather_station_humidity') }}%",
+                      "secondary": "Humidity",
+                      "icon": "mdi:water-percent",
+                      "icon_color": "cyan",
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "{{ states('sensor.2024_weather_station_irradiance') }} W/m2",
+                      "secondary": "Irradiance",
+                      "icon": "mdi:weather-sunny",
+                      "icon_color": "amber",
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "UV {{ states('sensor.2024_weather_station_uv_index') }}",
+                      "secondary": "UV Index",
+                      "icon": "mdi:weather-sunny-alert",
+                      "icon_color": "{% if states('sensor.2024_weather_station_uv_index')|int > 6 %}red{% elif states('sensor.2024_weather_station_uv_index')|int > 3 %}amber{% else %}green{% endif %}",
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "custom:navbar-card",
+                  "routes": [
+                    {
+                      "url": "/ura-v5/overview",
+                      "icon": "mdi:view-dashboard",
+                      "label": "Home"
+                    },
+                    {
+                      "url": "/ura-v5/energy",
+                      "icon": "mdi:flash",
+                      "label": "Energy"
+                    },
+                    {
+                      "url": "/ura-v5/presence",
+                      "icon": "mdi:account-group",
+                      "label": "Presence"
+                    },
+                    {
+                      "url": "/ura-v5/rooms",
+                      "icon": "mdi:floor-plan",
+                      "label": "Rooms"
+                    },
+                    {
+                      "url": "/ura-v5/hvac",
+                      "icon": "mdi:thermostat",
+                      "label": "HVAC"
+                    },
+                    {
+                      "url": "/ura-v5/security",
+                      "icon": "mdi:shield-home",
+                      "label": "Security"
+                    },
+                    {
+                      "url": "/ura-v5/system",
+                      "icon": "mdi:cog",
+                      "label": "System"
+                    }
+                  ]
+                },
+                {
+                  "type": "custom:mod-card",
+                  "card_mod": {
+                    "style": "ha-card { border: none !important; padding: 8px 0 0 0; }"
+                  },
+                  "card": {
+                    "type": "horizontal-stack",
+                    "cards": [
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:view-dashboard",
+                        "icon_color": "blue",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/overview"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:flash",
+                        "icon_color": "amber",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/energy"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:account-group",
+                        "icon_color": "green",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/presence"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:floor-plan",
+                        "icon_color": "teal",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/rooms"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:thermostat",
+                        "icon_color": "deep-orange",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/hvac"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:shield-home",
+                        "icon_color": "red",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/security"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:cog",
+                        "icon_color": "grey",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/system"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ],
+              "card_mod": {
+                "style": "ha-card { padding: 0; }"
+              }
+            }
+          ]
+        },
+        {
+          "title": "Rooms",
+          "path": "rooms",
+          "type": "panel",
+          "badges": [],
+          "cards": [
+            {
+              "type": "vertical-stack",
+              "cards": [
+                {
+                  "type": "custom:mushroom-template-card",
+                  "primary": "Rooms",
+                  "secondary": "{{ states('sensor.ura_presence_coordinator_occupied_rooms') }} rooms occupied",
+                  "icon": "mdi:floor-plan",
+                  "card_mod": {
+                    "style": "ha-card { border-radius: 18px !important; }"
+                  }
+                },
+                {
+                  "type": "markdown",
+                  "content": "# Rooms\n{{ states('sensor.universal_room_automation_rooms_occupied') }} rooms occupied",
+                  "card_mod": {
+                    "style": "ha-card { padding: 24px 16px 8px 16px; }\nh1 { font-size: 28px; font-weight: 300; margin: 0 0 4px 0; }\np { color: var(--secondary-text-color); font-size: 13px; margin: 0; }"
+                  }
+                },
+                {
+                  "type": "custom:auto-entities",
+                  "card": {
+                    "type": "grid",
+                    "columns": 2,
+                    "square": false
+                  },
+                  "sort": {
+                    "method": "state",
+                    "reverse": true
+                  },
+                  "filter": {
+                    "include": [
+                      {
+                        "entity_id": "sensor.*_automation_health",
+                        "options": {
+                          "type": "custom:mushroom-template-card",
+                          "layout": "horizontal",
+                          "primary": "{{ state_attr(config.entity, 'friendly_name') | replace(' Automation Health', '') }}",
+                          "secondary": "{{ states(config.entity) }}",
+                          "icon": "{% if is_state(config.entity, 'healthy') %}mdi:check-circle{% elif is_state(config.entity, 'learning') %}mdi:school{% else %}mdi:alert-circle{% endif %}",
+                          "icon_color": "{% if is_state(config.entity, 'healthy') %}green{% elif is_state(config.entity, 'learning') %}blue{% else %}amber{% endif %}",
+                          "entity": "{{ config.entity }}",
+                          "tap_action": {
+                            "action": "more-info"
+                          },
+                          "card_mod": {
+                            "style": "ha-card { border-radius: 16px; }"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "type": "markdown",
+                  "content": "## AI Automation Status",
+                  "card_mod": {
+                    "style": "ha-card { padding: 12px 16px 4px 16px; }\nh2 { color: var(--primary-text-color); font-size: 16px; font-weight: 500; margin: 0; }"
+                  }
+                },
+                {
+                  "type": "custom:auto-entities",
+                  "card": {
+                    "type": "grid",
+                    "columns": 2,
+                    "square": false
+                  },
+                  "sort": {
+                    "method": "state",
+                    "reverse": true
+                  },
+                  "filter": {
+                    "include": [
+                      {
+                        "entity_id": "sensor.*_ai_automation_status",
+                        "options": {
+                          "type": "custom:mushroom-template-card",
+                          "layout": "horizontal",
+                          "primary": "{{ state_attr(config.entity, 'friendly_name') | replace(' AI Automation Status', '') }}",
+                          "secondary": "{{ states(config.entity) | replace('_',' ') | title }}",
+                          "icon": "{% if is_state(config.entity, 'active') %}mdi:robot{% elif is_state(config.entity, 'conflict') %}mdi:alert{% elif is_state(config.entity, 'error') %}mdi:alert-circle{% else %}mdi:robot-off{% endif %}",
+                          "icon_color": "{% if is_state(config.entity, 'active') %}green{% elif is_state(config.entity, 'conflict') %}orange{% elif is_state(config.entity, 'error') %}red{% else %}grey{% endif %}",
+                          "entity": "{{ config.entity }}",
+                          "tap_action": {
+                            "action": "more-info"
+                          },
+                          "card_mod": {
+                            "style": "ha-card { border-radius: 14px !important; }"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "type": "markdown",
+                  "content": "## Occupancy Predictions",
+                  "card_mod": {
+                    "style": "ha-card { padding: 12px 16px 4px 16px; }\nh2 { color: var(--primary-text-color); font-size: 16px; font-weight: 500; margin: 0; }"
+                  }
+                },
+                {
+                  "type": "custom:auto-entities",
+                  "card": {
+                    "type": "grid",
+                    "columns": 3,
+                    "square": false
+                  },
+                  "sort": {
+                    "method": "name"
+                  },
+                  "filter": {
+                    "include": [
+                      {
+                        "entity_id": "sensor.*_occupancy_prediction",
+                        "options": {
+                          "type": "custom:mushroom-template-card",
+                          "layout": "vertical",
+                          "primary": "{{ state_attr(config.entity, 'friendly_name') | replace(' Occupancy Prediction', '') }}",
+                          "icon": "{% if states(config.entity) | float(0) > 70 %}mdi:account-check{% elif states(config.entity) | float(0) > 30 %}mdi:account-question{% else %}mdi:account-off{% endif %}",
+                          "icon_color": "{% if states(config.entity) | float(0) > 70 %}green{% elif states(config.entity) | float(0) > 30 %}amber{% else %}grey{% endif %}",
+                          "entity": "{{ config.entity }}",
+                          "tap_action": {
+                            "action": "more-info"
+                          },
+                          "card_mod": {
+                            "style": "ha-card { border-radius: 14px !important; }"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "type": "custom:navbar-card",
+                  "routes": [
+                    {
+                      "url": "/ura-v5/overview",
+                      "icon": "mdi:view-dashboard",
+                      "label": "Home"
+                    },
+                    {
+                      "url": "/ura-v5/energy",
+                      "icon": "mdi:flash",
+                      "label": "Energy"
+                    },
+                    {
+                      "url": "/ura-v5/presence",
+                      "icon": "mdi:account-group",
+                      "label": "Presence"
+                    },
+                    {
+                      "url": "/ura-v5/rooms",
+                      "icon": "mdi:floor-plan",
+                      "label": "Rooms"
+                    },
+                    {
+                      "url": "/ura-v5/hvac",
+                      "icon": "mdi:thermostat",
+                      "label": "HVAC"
+                    },
+                    {
+                      "url": "/ura-v5/security",
+                      "icon": "mdi:shield-home",
+                      "label": "Security"
+                    },
+                    {
+                      "url": "/ura-v5/system",
+                      "icon": "mdi:cog",
+                      "label": "System"
+                    }
+                  ]
+                },
+                {
+                  "type": "custom:mod-card",
+                  "card_mod": {
+                    "style": "ha-card { border: none !important; padding: 8px 0 0 0; }"
+                  },
+                  "card": {
+                    "type": "horizontal-stack",
+                    "cards": [
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:view-dashboard",
+                        "icon_color": "blue",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/overview"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:flash",
+                        "icon_color": "amber",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/energy"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:account-group",
+                        "icon_color": "green",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/presence"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:floor-plan",
+                        "icon_color": "teal",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/rooms"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:thermostat",
+                        "icon_color": "deep-orange",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/hvac"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:shield-home",
+                        "icon_color": "red",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/security"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:cog",
+                        "icon_color": "grey",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/system"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ],
+              "card_mod": {
+                "style": "ha-card { padding: 0; }"
+              }
+            }
+          ]
+        },
+        {
+          "title": "HVAC",
+          "path": "hvac",
+          "type": "panel",
+          "badges": [],
+          "cards": [
+            {
+              "type": "vertical-stack",
+              "cards": [
+                {
+                  "type": "custom:mushroom-template-card",
+                  "primary": "HVAC",
+                  "secondary": "{{ states('climate.thermostat') }}",
+                  "icon": "mdi:thermostat",
+                  "card_mod": {
+                    "style": "ha-card { border-radius: 18px !important; }"
+                  }
+                },
+                {
+                  "type": "markdown",
+                  "content": "# HVAC Control\n{{ states('sensor.ura_hvac_coordinator_mode') | replace('_',' ') | title }} - Comfort Risk: {{ states('sensor.ura_hvac_coordinator_hvac_comfort_risk') }}",
+                  "card_mod": {
+                    "style": "ha-card { padding: 24px 16px 8px 16px; }\nh1 { font-size: 28px; font-weight: 300; margin: 0 0 4px 0; }\np { color: var(--secondary-text-color); font-size: 13px; margin: 0; }"
+                  }
+                },
+                {
+                  "type": "custom:mushroom-chips-card",
+                  "chips": [
+                    {
+                      "type": "template",
+                      "icon": "mdi:thermostat",
+                      "content": "{{ states('sensor.ura_hvac_coordinator_mode') | replace('_',' ') | title }}",
+                      "icon_color": "{% if 'cool' in states('sensor.ura_hvac_coordinator_mode') %}blue{% elif 'heat' in states('sensor.ura_hvac_coordinator_mode') %}deep-orange{% else %}green{% endif %}"
+                    },
+                    {
+                      "type": "template",
+                      "icon": "mdi:brain",
+                      "content": "ZI: {{ 'On' if is_state('switch.ura_hvac_coordinator_zone_intelligence', 'on') else 'Off' }}",
+                      "icon_color": "{% if is_state('switch.ura_hvac_coordinator_zone_intelligence', 'on') %}green{% else %}grey{% endif %}"
+                    },
+                    {
+                      "type": "template",
+                      "icon": "mdi:shield-alert",
+                      "content": "Arrester: {{ states('sensor.ura_hvac_coordinator_override_arrester_state') | replace('_',' ') | title }}",
+                      "icon_color": "{% if is_state('sensor.ura_hvac_coordinator_override_arrester_state', 'idle') %}green{% else %}amber{% endif %}"
+                    },
+                    {
+                      "type": "template",
+                      "icon": "mdi:transmission-tower",
+                      "content": "HVAC: {{ states('sensor.ura_energy_coordinator_hvac_constraint') | replace('_',' ') | title }}",
+                      "icon_color": "{% if is_state('sensor.ura_energy_coordinator_hvac_constraint', 'normal') %}green{% elif is_state('sensor.ura_energy_coordinator_hvac_constraint', 'shed') %}red{% else %}amber{% endif %}",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.ura_energy_coordinator_hvac_constraint"
+                      }
+                    },
+                    {
+                      "type": "template",
+                      "icon": "mdi:thermometer",
+                      "content": "Outside: {{ states('sensor.patio_temperature') | float(0) | round(0) }}F",
+                      "icon_color": "{% set t = states('sensor.patio_temperature') | float(70) %}{% if t > 90 %}red{% elif t > 75 %}amber{% elif t < 40 %}blue{% else %}green{% endif %}",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.patio_temperature"
+                      }
+                    }
+                  ],
+                  "alignment": "center",
+                  "card_mod": {
+                    "style": "ha-card { border-radius: 24px; padding: 8px; margin: 0 8px; }"
+                  }
+                },
+                {
+                  "type": "custom:mushroom-template-card",
+                  "primary": "{{ state_attr('sensor.ura_hvac_coordinator_hvac_zone_intelligence', 'zones_occupied') | default(0) }} zones occupied",
+                  "secondary": "Away overrides: {{ state_attr('sensor.ura_hvac_coordinator_hvac_zone_intelligence', 'away_override_count') | default(0) }} | Vacancy sweeps: {{ state_attr('sensor.ura_hvac_coordinator_hvac_zone_intelligence', 'vacancy_sweeps_today') | default(0) }}",
+                  "icon": "mdi:brain",
+                  "icon_color": "{% if state_attr('sensor.ura_hvac_coordinator_hvac_zone_intelligence', 'zones_occupied') | int(0) > 0 %}green{% else %}grey{% endif %}",
+                  "entity": "sensor.ura_hvac_coordinator_hvac_zone_intelligence",
+                  "tap_action": {
+                    "action": "more-info"
+                  },
+                  "card_mod": {
+                    "style": "ha-card { border-radius: 14px !important; }"
+                  }
+                },
+                {
+                  "type": "markdown",
+                  "content": "## Zone Presets",
+                  "card_mod": {
+                    "style": "ha-card { padding: 12px 16px 4px 16px; }\nh2 { color: var(--primary-text-color); font-size: 16px; font-weight: 500; margin: 0; }"
+                  }
+                },
+                {
+                  "type": "horizontal-stack",
+                  "cards": [
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "Zone 1",
+                      "secondary": "{{ states('sensor.ura_hvac_coordinator_hvac_zone_preset_zone_2') | title }} - {{ states('sensor.ura_hvac_coordinator_zone_2_status') }}",
+                      "icon": "mdi:thermostat",
+                      "icon_color": "{% if is_state('sensor.ura_hvac_coordinator_hvac_zone_preset_zone_2', 'home') %}green{% elif is_state('sensor.ura_hvac_coordinator_hvac_zone_preset_zone_2', 'away') %}grey{% else %}blue{% endif %}",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "climate.thermostat_bryant_wifi_studyb_zone_1"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "Zone 2",
+                      "secondary": "{{ states('sensor.ura_hvac_coordinator_hvac_zone_preset_zone_3') | title }} - {{ states('sensor.ura_hvac_coordinator_zone_3_status') }}",
+                      "icon": "mdi:thermostat",
+                      "icon_color": "{% if is_state('sensor.ura_hvac_coordinator_hvac_zone_preset_zone_3', 'home') %}green{% elif is_state('sensor.ura_hvac_coordinator_hvac_zone_preset_zone_3', 'away') %}grey{% else %}blue{% endif %}",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "climate.up_hallway_zone_2"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "Zone 3",
+                      "secondary": "{{ states('sensor.ura_hvac_coordinator_hvac_zone_preset_zone_1') | title }} - {{ states('sensor.ura_hvac_coordinator_zone_1_status') }}",
+                      "icon": "mdi:thermostat",
+                      "icon_color": "{% if is_state('sensor.ura_hvac_coordinator_hvac_zone_preset_zone_1', 'home') %}green{% elif is_state('sensor.ura_hvac_coordinator_hvac_zone_preset_zone_1', 'away') %}grey{% else %}blue{% endif %}",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "climate.back_hallway_zone_3"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "markdown",
+                  "content": "## Thermostats",
+                  "card_mod": {
+                    "style": "ha-card { padding: 12px 16px 4px 16px; }\nh2 { color: var(--primary-text-color); font-size: 16px; font-weight: 500; margin: 0; }"
+                  }
+                },
+                {
+                  "type": "custom:mushroom-climate-card",
+                  "entity": "climate.thermostat_bryant_wifi_studyb_zone_1",
+                  "show_temperature_control": true,
+                  "hvac_modes": [
+                    "heat_cool",
+                    "cool",
+                    "heat",
+                    "off"
+                  ],
+                  "card_mod": {
+                    "style": "ha-card { border-radius: 20px; margin: 0 8px; }"
+                  }
+                },
+                {
+                  "type": "custom:mushroom-climate-card",
+                  "entity": "climate.back_hallway_zone_3",
+                  "show_temperature_control": true,
+                  "hvac_modes": [
+                    "heat_cool",
+                    "cool",
+                    "heat",
+                    "off"
+                  ],
+                  "card_mod": {
+                    "style": "ha-card { border-radius: 20px; margin: 0 8px; }"
+                  }
+                },
+                {
+                  "type": "horizontal-stack",
+                  "cards": [
+                    {
+                      "type": "custom:mushroom-entity-card",
+                      "entity": "switch.ura_hvac_coordinator_zone_intelligence",
+                      "name": "Zone Intelligence",
+                      "icon": "mdi:brain",
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-entity-card",
+                      "entity": "switch.ura_hvac_coordinator_override_arrester",
+                      "name": "Override Arrester",
+                      "icon": "mdi:shield-alert",
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-entity-card",
+                      "entity": "switch.ura_hvac_coordinator_hvac_observation_mode",
+                      "name": "Observation",
+                      "icon": "mdi:eye",
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "custom:navbar-card",
+                  "routes": [
+                    {
+                      "url": "/ura-v5/overview",
+                      "icon": "mdi:view-dashboard",
+                      "label": "Home"
+                    },
+                    {
+                      "url": "/ura-v5/energy",
+                      "icon": "mdi:flash",
+                      "label": "Energy"
+                    },
+                    {
+                      "url": "/ura-v5/presence",
+                      "icon": "mdi:account-group",
+                      "label": "Presence"
+                    },
+                    {
+                      "url": "/ura-v5/rooms",
+                      "icon": "mdi:floor-plan",
+                      "label": "Rooms"
+                    },
+                    {
+                      "url": "/ura-v5/hvac",
+                      "icon": "mdi:thermostat",
+                      "label": "HVAC"
+                    },
+                    {
+                      "url": "/ura-v5/security",
+                      "icon": "mdi:shield-home",
+                      "label": "Security"
+                    },
+                    {
+                      "url": "/ura-v5/system",
+                      "icon": "mdi:cog",
+                      "label": "System"
+                    }
+                  ]
+                },
+                {
+                  "type": "custom:mod-card",
+                  "card_mod": {
+                    "style": "ha-card { border: none !important; padding: 8px 0 0 0; }"
+                  },
+                  "card": {
+                    "type": "horizontal-stack",
+                    "cards": [
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:view-dashboard",
+                        "icon_color": "blue",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/overview"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:flash",
+                        "icon_color": "amber",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/energy"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:account-group",
+                        "icon_color": "green",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/presence"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:floor-plan",
+                        "icon_color": "teal",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/rooms"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:thermostat",
+                        "icon_color": "deep-orange",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/hvac"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:shield-home",
+                        "icon_color": "red",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/security"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:cog",
+                        "icon_color": "grey",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/system"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ],
+              "card_mod": {
+                "style": "ha-card { padding: 0; }"
+              }
+            }
+          ]
+        },
+        {
+          "title": "Security",
+          "path": "security",
+          "type": "panel",
+          "badges": [],
+          "cards": [
+            {
+              "type": "vertical-stack",
+              "cards": [
+                {
+                  "type": "custom:mushroom-template-card",
+                  "primary": "Security",
+                  "secondary": "{{ states('alarm_control_panel.adc_alarm_panel') | replace('_', ' ') | title }}",
+                  "icon": "mdi:shield-home",
+                  "card_mod": {
+                    "style": "ha-card { border-radius: 18px !important; }"
+                  }
+                },
+                {
+                  "type": "markdown",
+                  "content": "# Security\n{{ states('sensor.ura_security_coordinator_security_armed_state') | replace('_',' ') | title }} - {{ states('sensor.ura_security_coordinator_security_open_entries') }} entries open",
+                  "card_mod": {
+                    "style": "ha-card { padding: 24px 16px 8px 16px; }\nh1 { font-size: 28px; font-weight: 300; margin: 0 0 4px 0; }\np { color: var(--secondary-text-color); font-size: 13px; margin: 0; }"
+                  }
+                },
+                {
+                  "type": "custom:mushroom-template-card",
+                  "primary": "{{ states('sensor.ura_security_coordinator_security_armed_state') | replace('_',' ') | title }}",
+                  "secondary": "Security System Status",
+                  "icon": "{% set s = states('sensor.ura_security_coordinator_security_armed_state') %}{% if 'armed' in s %}mdi:shield-lock{% elif 'disarmed' in s %}mdi:shield-off{% elif 'pending' in s %}mdi:shield-alert{% else %}mdi:shield-home{% endif %}",
+                  "icon_color": "{% set s = states('sensor.ura_security_coordinator_security_armed_state') %}{% if s == 'armed_away' %}red{% elif s == 'armed_home' %}amber{% elif s == 'armed_night' %}deep-purple{% elif s == 'disarmed' %}green{% else %}grey{% endif %}",
+                  "entity": "sensor.ura_security_coordinator_security_armed_state",
+                  "tap_action": {
+                    "action": "more-info"
+                  },
+                  "layout": "horizontal",
+                  "card_mod": {
+                    "style": "ha-card { border-radius: 14px !important; }"
+                  }
+                },
+                {
+                  "type": "custom:mushroom-alarm-control-panel-card",
+                  "entity": "alarm_control_panel.elkm1_area_1",
+                  "states": [
+                    "armed_home",
+                    "armed_away",
+                    "armed_night",
+                    "disarmed"
+                  ],
+                  "card_mod": {
+                    "style": "ha-card { border-radius: 20px; margin: 0 8px; }"
+                  }
+                },
+                {
+                  "type": "custom:mushroom-chips-card",
+                  "chips": [
+                    {
+                      "type": "template",
+                      "icon": "mdi:door-open",
+                      "content": "{{ states('sensor.ura_security_coordinator_security_open_entries') }} entries open",
+                      "icon_color": "{% if states('sensor.ura_security_coordinator_security_open_entries') | int(0) > 0 %}red{% else %}green{% endif %}",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.ura_security_coordinator_security_open_entries"
+                      }
+                    },
+                    {
+                      "type": "template",
+                      "icon": "mdi:clock-alert",
+                      "content": "Last sweep: {{ state_attr('sensor.ura_security_coordinator_security_last_lock_sweep', 'last_sweep') | default('Never') }}",
+                      "icon_color": "cyan",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.ura_security_coordinator_security_last_lock_sweep"
+                      }
+                    }
+                  ],
+                  "alignment": "center",
+                  "card_mod": {
+                    "style": "ha-card { border-radius: 24px; padding: 8px; margin: 0 8px; }"
+                  }
+                },
+                {
+                  "type": "markdown",
+                  "content": "## Locks",
+                  "card_mod": {
+                    "style": "ha-card { padding: 12px 16px 4px 16px; }\nh2 { color: var(--primary-text-color); font-size: 16px; font-weight: 500; margin: 0; }"
+                  }
+                },
+                {
+                  "type": "horizontal-stack",
+                  "cards": [
+                    {
+                      "type": "custom:mushroom-lock-card",
+                      "entity": "lock.doorlock_kwikset_zwave_frontentry",
+                      "name": "Front Door",
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "entity": "lock.konnected_f0f5bd523b00_lock",
+                      "primary": "Garage A",
+                      "secondary": "{{ states('lock.konnected_f0f5bd523b00_lock') | title }}",
+                      "icon": "mdi:garage",
+                      "icon_color": "{% if is_state('lock.konnected_f0f5bd523b00_lock', 'locked') %}green{% else %}red{% endif %}",
+                      "tap_action": {
+                        "action": "more-info"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "entity": "lock.ratgdov25i_dbfe2a_lock_remotes",
+                      "primary": "Garage B",
+                      "secondary": "{{ states('lock.ratgdov25i_dbfe2a_lock_remotes') | title }}",
+                      "icon": "mdi:garage",
+                      "icon_color": "{% if is_state('lock.ratgdov25i_dbfe2a_lock_remotes', 'locked') %}green{% else %}red{% endif %}",
+                      "tap_action": {
+                        "action": "more-info"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "markdown",
+                  "content": "## Cameras",
+                  "card_mod": {
+                    "style": "ha-card { padding: 12px 16px 4px 16px; }\nh2 { color: var(--primary-text-color); font-size: 16px; font-weight: 500; margin: 0; }"
+                  }
+                },
+                {
+                  "type": "horizontal-stack",
+                  "cards": [
+                    {
+                      "type": "picture-entity",
+                      "entity": "camera.madrone_g6_entry_high_resolution_channel",
+                      "show_name": true,
+                      "show_state": false,
+                      "camera_view": "live",
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; overflow: hidden; }"
+                      }
+                    },
+                    {
+                      "type": "picture-entity",
+                      "entity": "camera.front_door_aerial_high_resolution_channel",
+                      "show_name": true,
+                      "show_state": false,
+                      "camera_view": "live",
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; overflow: hidden; }"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "horizontal-stack",
+                  "cards": [
+                    {
+                      "type": "picture-entity",
+                      "entity": "camera.back_yard_high_resolution_channel",
+                      "show_name": true,
+                      "show_state": false,
+                      "camera_view": "live",
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; overflow: hidden; }"
+                      }
+                    },
+                    {
+                      "type": "picture-entity",
+                      "entity": "camera.foyer_fisheye_high_resolution_channel",
+                      "show_name": true,
+                      "show_state": false,
+                      "camera_view": "live",
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; overflow: hidden; }"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "custom:navbar-card",
+                  "routes": [
+                    {
+                      "url": "/ura-v5/overview",
+                      "icon": "mdi:view-dashboard",
+                      "label": "Home"
+                    },
+                    {
+                      "url": "/ura-v5/energy",
+                      "icon": "mdi:flash",
+                      "label": "Energy"
+                    },
+                    {
+                      "url": "/ura-v5/presence",
+                      "icon": "mdi:account-group",
+                      "label": "Presence"
+                    },
+                    {
+                      "url": "/ura-v5/rooms",
+                      "icon": "mdi:floor-plan",
+                      "label": "Rooms"
+                    },
+                    {
+                      "url": "/ura-v5/hvac",
+                      "icon": "mdi:thermostat",
+                      "label": "HVAC"
+                    },
+                    {
+                      "url": "/ura-v5/security",
+                      "icon": "mdi:shield-home",
+                      "label": "Security"
+                    },
+                    {
+                      "url": "/ura-v5/system",
+                      "icon": "mdi:cog",
+                      "label": "System"
+                    }
+                  ]
+                },
+                {
+                  "type": "custom:mod-card",
+                  "card_mod": {
+                    "style": "ha-card { border: none !important; padding: 8px 0 0 0; }"
+                  },
+                  "card": {
+                    "type": "horizontal-stack",
+                    "cards": [
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:view-dashboard",
+                        "icon_color": "blue",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/overview"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:flash",
+                        "icon_color": "amber",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/energy"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:account-group",
+                        "icon_color": "green",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/presence"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:floor-plan",
+                        "icon_color": "teal",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/rooms"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:thermostat",
+                        "icon_color": "deep-orange",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/hvac"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:shield-home",
+                        "icon_color": "red",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/security"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:cog",
+                        "icon_color": "grey",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/system"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ],
+              "card_mod": {
+                "style": "ha-card { padding: 0; }"
+              }
+            }
+          ]
+        },
+        {
+          "title": "System",
+          "path": "system",
+          "type": "panel",
+          "badges": [],
+          "cards": [
+            {
+              "type": "vertical-stack",
+              "cards": [
+                {
+                  "type": "custom:mushroom-template-card",
+                  "primary": "System",
+                  "secondary": "{{ states('sensor.ura_coordinator_manager_status') }}",
+                  "icon": "mdi:cog",
+                  "card_mod": {
+                    "style": "ha-card { border-radius: 18px !important; }"
+                  }
+                },
+                {
+                  "type": "markdown",
+                  "content": "# System\nCoordinator Manager: {{ states('sensor.ura_coordinator_manager_coordinator_summary') | replace('_',' ') | title }}",
+                  "card_mod": {
+                    "style": "ha-card { padding: 24px 16px 8px 16px; }\nh1 { font-size: 28px; font-weight: 300; margin: 0 0 4px 0; }\np { color: var(--secondary-text-color); font-size: 13px; margin: 0; }"
+                  }
+                },
+                {
+                  "type": "markdown",
+                  "content": "## Coordinator Toggles",
+                  "card_mod": {
+                    "style": "ha-card { padding: 12px 16px 4px 16px; }\nh2 { color: var(--primary-text-color); font-size: 16px; font-weight: 500; margin: 0; }"
+                  }
+                },
+                {
+                  "type": "horizontal-stack",
+                  "cards": [
+                    {
+                      "type": "custom:mushroom-entity-card",
+                      "entity": "switch.ura_presence_coordinator_enabled",
+                      "name": "Presence",
+                      "icon": "mdi:account-group",
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-entity-card",
+                      "entity": "switch.ura_energy_coordinator_enabled",
+                      "name": "Energy",
+                      "icon": "mdi:flash",
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-entity-card",
+                      "entity": "switch.ura_hvac_coordinator_enabled",
+                      "name": "HVAC",
+                      "icon": "mdi:thermostat",
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "horizontal-stack",
+                  "cards": [
+                    {
+                      "type": "custom:mushroom-entity-card",
+                      "entity": "switch.ura_security_coordinator_enabled",
+                      "name": "Security",
+                      "icon": "mdi:shield-home",
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-entity-card",
+                      "entity": "switch.ura_safety_coordinator_enabled",
+                      "name": "Safety",
+                      "icon": "mdi:fire-extinguisher",
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-entity-card",
+                      "entity": "switch.ura_music_following_enabled",
+                      "name": "Music",
+                      "icon": "mdi:music-note",
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "horizontal-stack",
+                  "cards": [
+                    {
+                      "type": "custom:mushroom-entity-card",
+                      "entity": "switch.ura_notification_manager_enabled",
+                      "name": "Notifications",
+                      "icon": "mdi:bell",
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-entity-card",
+                      "entity": "switch.ura_notification_manager_messaging_suppressed",
+                      "name": "NM Suppress",
+                      "icon": "mdi:bell-off",
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-entity-card",
+                      "entity": "switch.ura_energy_coordinator_observation_mode",
+                      "name": "Energy Obs",
+                      "icon": "mdi:eye",
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "markdown",
+                  "content": "## Coordinator Health",
+                  "card_mod": {
+                    "style": "ha-card { padding: 12px 16px 4px 16px; }\nh2 { color: var(--primary-text-color); font-size: 16px; font-weight: 500; margin: 0; }"
+                  }
+                },
+                {
+                  "type": "horizontal-stack",
+                  "cards": [
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "{{ states('sensor.ura_presence_coordinator_presence_anomaly') | replace('_',' ') | title }}",
+                      "secondary": "Presence",
+                      "icon": "mdi:pulse",
+                      "icon_color": "{% if is_state('sensor.ura_presence_coordinator_presence_anomaly', 'nominal') or is_state('sensor.ura_presence_coordinator_presence_anomaly', 'learning') %}green{% else %}red{% endif %}",
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "{{ states('sensor.ura_hvac_coordinator_hvac_anomaly') | replace('_',' ') | title }}",
+                      "secondary": "HVAC",
+                      "icon": "mdi:pulse",
+                      "icon_color": "{% if is_state('sensor.ura_hvac_coordinator_hvac_anomaly', 'nominal') or is_state('sensor.ura_hvac_coordinator_hvac_anomaly', 'learning') %}green{% else %}red{% endif %}",
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "{{ states('sensor.ura_security_coordinator_security_anomaly') | replace('_',' ') | title }}",
+                      "secondary": "Security",
+                      "icon": "mdi:pulse",
+                      "icon_color": "{% if is_state('sensor.ura_security_coordinator_security_anomaly', 'nominal') or is_state('sensor.ura_security_coordinator_security_anomaly', 'learning') %}green{% else %}red{% endif %}",
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "horizontal-stack",
+                  "cards": [
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "{{ states('sensor.ura_notification_manager_notification_delivery_rate') }}%",
+                      "secondary": "NM Delivery",
+                      "icon": "mdi:email-check",
+                      "icon_color": "{% if states('sensor.ura_notification_manager_notification_delivery_rate')|float(0) > 90 %}green{% else %}amber{% endif %}",
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "{{ states('sensor.ura_music_following_coordinator_music_following_anomaly') | replace('_',' ') | title }}",
+                      "secondary": "Music",
+                      "icon": "mdi:pulse",
+                      "icon_color": "{% if is_state('sensor.ura_music_following_coordinator_music_following_anomaly', 'nominal') %}green{% else %}red{% endif %}",
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "{{ states('sensor.ura_energy_coordinator_circuit_anomaly') | replace('_',' ') | title }}",
+                      "secondary": "Circuits",
+                      "icon": "mdi:pulse",
+                      "icon_color": "{% if is_state('sensor.ura_energy_coordinator_circuit_anomaly', 'normal') %}green{% else %}red{% endif %}",
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 16px; }"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "custom:mushroom-entity-card",
+                  "entity": "select.ura_coordinator_manager_house_state_override",
+                  "name": "House State Override",
+                  "icon": "mdi:home-switch",
+                  "card_mod": {
+                    "style": "ha-card { border-radius: 20px; margin: 0 8px; }"
+                  }
+                },
+                {
+                  "type": "markdown",
+                  "content": "## Notification Health",
+                  "card_mod": {
+                    "style": "ha-card { padding: 12px 16px 4px 16px; }\nh2 { color: var(--primary-text-color); font-size: 16px; font-weight: 500; margin: 0; }"
+                  }
+                },
+                {
+                  "type": "horizontal-stack",
+                  "cards": [
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "{{ states('sensor.ura_notification_manager_notification_channel_status') | replace('_',' ') | title }}",
+                      "secondary": "Channel Status",
+                      "icon": "mdi:access-point",
+                      "icon_color": "{% if is_state('sensor.ura_notification_manager_notification_channel_status', 'all_ok') %}green{% else %}amber{% endif %}",
+                      "entity": "sensor.ura_notification_manager_notification_channel_status",
+                      "tap_action": {
+                        "action": "more-info"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 14px !important; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "{{ states('sensor.ura_notification_manager_notification_delivery_rate') }}%",
+                      "secondary": "Delivery Rate",
+                      "icon": "mdi:email-check",
+                      "icon_color": "{% if states('sensor.ura_notification_manager_notification_delivery_rate') | float(0) > 90 %}green{% elif states('sensor.ura_notification_manager_notification_delivery_rate') | float(0) > 70 %}amber{% else %}red{% endif %}",
+                      "entity": "sensor.ura_notification_manager_notification_delivery_rate",
+                      "tap_action": {
+                        "action": "more-info"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 14px !important; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "{{ states('sensor.ura_notification_manager_notifications_today') }}",
+                      "secondary": "Today",
+                      "icon": "mdi:bell-ring",
+                      "icon_color": "cyan",
+                      "entity": "sensor.ura_notification_manager_notifications_today",
+                      "tap_action": {
+                        "action": "more-info"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 14px !important; }"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "horizontal-stack",
+                  "cards": [
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "{{ states('sensor.ura_notification_manager_notification_diagnostics') | replace('_',' ') | title }}",
+                      "secondary": "NM Diagnostics",
+                      "icon": "mdi:stethoscope",
+                      "icon_color": "{% if is_state('sensor.ura_notification_manager_notification_diagnostics', 'ok') or is_state('sensor.ura_notification_manager_notification_diagnostics', 'nominal') %}green{% else %}amber{% endif %}",
+                      "entity": "sensor.ura_notification_manager_notification_diagnostics",
+                      "tap_action": {
+                        "action": "more-info"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 14px !important; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-entity-card",
+                      "entity": "switch.ura_notification_manager_messaging_suppressed",
+                      "name": "Kill Switch",
+                      "icon": "mdi:bell-cancel",
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 14px !important; }"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "markdown",
+                  "content": "## Census",
+                  "card_mod": {
+                    "style": "ha-card { padding: 12px 16px 4px 16px; }\nh2 { color: var(--primary-text-color); font-size: 16px; font-weight: 500; margin: 0; }"
+                  }
+                },
+                {
+                  "type": "horizontal-stack",
+                  "cards": [
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "{{ states('sensor.universal_room_automation_census_confidence') }}%",
+                      "secondary": "Census Confidence",
+                      "icon": "mdi:target",
+                      "icon_color": "{% if states('sensor.universal_room_automation_census_confidence') | float(0) > 80 %}green{% elif states('sensor.universal_room_automation_census_confidence') | float(0) > 50 %}amber{% else %}red{% endif %}",
+                      "entity": "sensor.universal_room_automation_census_confidence",
+                      "tap_action": {
+                        "action": "more-info"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 14px !important; }"
+                      }
+                    },
+                    {
+                      "type": "custom:mushroom-template-card",
+                      "layout": "vertical",
+                      "primary": "{% if is_state('binary_sensor.universal_room_automation_census_mismatch', 'on') %}Mismatch{% else %}OK{% endif %}",
+                      "secondary": "Census Match",
+                      "icon": "{% if is_state('binary_sensor.universal_room_automation_census_mismatch', 'on') %}mdi:alert-circle{% else %}mdi:check-circle{% endif %}",
+                      "icon_color": "{% if is_state('binary_sensor.universal_room_automation_census_mismatch', 'on') %}red{% else %}green{% endif %}",
+                      "entity": "binary_sensor.universal_room_automation_census_mismatch",
+                      "tap_action": {
+                        "action": "more-info"
+                      },
+                      "card_mod": {
+                        "style": "ha-card { border-radius: 14px !important; }"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "custom:navbar-card",
+                  "routes": [
+                    {
+                      "url": "/ura-v5/overview",
+                      "icon": "mdi:view-dashboard",
+                      "label": "Home"
+                    },
+                    {
+                      "url": "/ura-v5/energy",
+                      "icon": "mdi:flash",
+                      "label": "Energy"
+                    },
+                    {
+                      "url": "/ura-v5/presence",
+                      "icon": "mdi:account-group",
+                      "label": "Presence"
+                    },
+                    {
+                      "url": "/ura-v5/rooms",
+                      "icon": "mdi:floor-plan",
+                      "label": "Rooms"
+                    },
+                    {
+                      "url": "/ura-v5/hvac",
+                      "icon": "mdi:thermostat",
+                      "label": "HVAC"
+                    },
+                    {
+                      "url": "/ura-v5/security",
+                      "icon": "mdi:shield-home",
+                      "label": "Security"
+                    },
+                    {
+                      "url": "/ura-v5/system",
+                      "icon": "mdi:cog",
+                      "label": "System"
+                    }
+                  ]
+                },
+                {
+                  "type": "custom:mod-card",
+                  "card_mod": {
+                    "style": "ha-card { border: none !important; padding: 8px 0 0 0; }"
+                  },
+                  "card": {
+                    "type": "horizontal-stack",
+                    "cards": [
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:view-dashboard",
+                        "icon_color": "blue",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/overview"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:flash",
+                        "icon_color": "amber",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/energy"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:account-group",
+                        "icon_color": "green",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/presence"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:floor-plan",
+                        "icon_color": "teal",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/rooms"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:thermostat",
+                        "icon_color": "deep-orange",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/hvac"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:shield-home",
+                        "icon_color": "red",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/security"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      },
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": "",
+                        "secondary": "",
+                        "icon": "mdi:cog",
+                        "icon_color": "grey",
+                        "tap_action": {
+                          "action": "navigate",
+                          "navigation_path": "/ura-v5/system"
+                        },
+                        "card_mod": {
+                          "style": "ha-card { border-radius: 14px !important; }"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ],
+              "card_mod": {
+                "style": "ha-card { padding: 0; }"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

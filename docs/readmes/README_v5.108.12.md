@@ -1,6 +1,6 @@
-# DRAFT: shared-space night failsafe runs in paused rooms
+# v5.108.12 — Shared-space night failsafe runs in paused rooms
 
-Card: SHARED-SPACE-AUTO-OFF-FAILSAFE-1, option A. Branch `fix/shared-space-failsafe-paused-rooms`. Not yet deployed.
+Card: SHARED-SPACE-AUTO-OFF-FAILSAFE-1, option A. Operator picked option A on 2026-11-12 ("Kitchen fix. Do A."), superseding the 10-18 no-lights-off-when-paused ruling for this failsafe only. Reviews: A (logic SHIP; process HIGH closed by the operator pick), B (FIX-REQUIRED, manual-hold HIGH fixed in 9afa1d88).
 
 ## What changed
 
@@ -34,6 +34,10 @@ Some rooms are paused because their sensors do not see a still person. The fails
 
 `quality/tests/test_shared_space_failsafe_paused_rooms.py` drives the real `UniversalRoomCoordinator._async_update_data`:
 paused + vacant gets called with vacant, paused + occupied gets called with occupied, unpaused gets exactly one call per tick, skip-first and ManualMode get no call, and with the real body a paused vacant room in the window is swept while a paused occupied room is not.
+
+## Suite
+
+Full serial suite on 68d5f54a: 0 failed / 20625 passed. Branch tests 157 passed; mutation drills RED on the hoisted call (5 tests) and the hold release (1 test). Known gap: the paused-only condition on the hold release has no dedicated test.
 
 ## Live acceptance criteria
 

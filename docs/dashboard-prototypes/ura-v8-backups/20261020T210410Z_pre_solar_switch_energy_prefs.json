@@ -1,0 +1,295 @@
+{
+  "version": 1,
+  "minor_version": 3,
+  "key": "energy",
+  "data": {
+    "energy_sources": [
+      {
+        "type": "solar",
+        "stat_energy_from": "sensor.envoy_482543015950_lifetime_energy_production",
+        "config_entry_solar_forecast": [
+          "01JNSVQKVB7G56BAQ2DC8PGGZ1"
+        ],
+        "stat_rate": "sensor.envoy_482543015950_current_power_production"
+      },
+      {
+        "type": "battery",
+        "stat_energy_from": "sensor.envoy_482543015950_lifetime_battery_energy_discharged",
+        "stat_energy_to": "sensor.envoy_482543015950_lifetime_battery_energy_charged",
+        "power_config": {
+          "stat_rate": "sensor.envoy_482543015950_current_battery_discharge"
+        },
+        "stat_rate": "sensor.envoy_482543015950_current_battery_discharge"
+      },
+      {
+        "type": "water",
+        "stat_energy_from": "sensor.flume_sensor_madrone_home_current_day",
+        "stat_cost": null,
+        "entity_energy_price": null,
+        "number_energy_price": null
+      },
+      {
+        "type": "grid",
+        "stat_energy_from": "sensor.mains_vue_3_mainsfromgrid_energy_today",
+        "stat_energy_to": "sensor.main_panels_mains_vue_3_mainstogrid_energy_today",
+        "stat_cost": null,
+        "stat_compensation": null,
+        "entity_energy_price": "sensor.ura_energy_coordinator_tou_rate",
+        "number_energy_price": null,
+        "entity_energy_price_export": "sensor.ura_energy_coordinator_tou_rate",
+        "number_energy_price_export": null,
+        "cost_adjustment_day": 0.0,
+        "power_config": {
+          "stat_rate": "sensor.envoy_482543015950_current_net_power_consumption"
+        },
+        "stat_rate": "sensor.envoy_482543015950_current_net_power_consumption"
+      }
+    ],
+    "device_consumption": [
+      {
+        "stat_consumption": "sensor.span_panel_ac1_consumed_energy",
+        "name": "Master Suite AC"
+      },
+      {
+        "stat_consumption": "sensor.span_panel_ac_2_consumed_energy",
+        "name": "Upstairs AC"
+      },
+      {
+        "stat_consumption": "sensor.span_panel_ac_3_consumed_energy",
+        "name": "Back hallway AC"
+      },
+      {
+        "stat_consumption": "sensor.span_panel_a_v_main_consumed_energy",
+        "name": "Main AV Closet Socket"
+      },
+      {
+        "stat_consumption": "sensor.span_panel_office_closet_consumed_energy",
+        "name": "Study A Closet Sockets"
+      },
+      {
+        "stat_consumption": "sensor.span_panel_double_oven_consumed_energy",
+        "name": "Kitchen Double Oven"
+      },
+      {
+        "stat_consumption": "sensor.span_panel_fridge_consumed_energy",
+        "name": "Kitchen Fridge"
+      },
+      {
+        "stat_consumption": "sensor.span_panel_freezer_consumed_energy",
+        "name": "Kitchen Freezer"
+      },
+      {
+        "stat_consumption": "sensor.span_panel_pool_consumed_energy",
+        "name": "Pool"
+      },
+      {
+        "stat_consumption": "sensor.span_panel_wine_cooler_consumed_energy",
+        "name": "Wine Cooler"
+      },
+      {
+        "stat_consumption": "sensor.span_panel_car_charger_consumed_energy",
+        "name": "Garage A Car charger"
+      },
+      {
+        "stat_consumption": "sensor.span_panel_garage_b_evse_consumed_energy",
+        "name": "Garage B Sub Panel"
+      },
+      {
+        "stat_consumption": "sensor.span_panel_subpanel_consumed_energy",
+        "name": "Garage A Sub Panel "
+      },
+      {
+        "stat_consumption": "sensor.garage_plugs_energy_today",
+        "included_in_stat": "sensor.span_panel_subpanel_consumed_energy",
+        "name": "Garage Plugs"
+      },
+      {
+        "stat_consumption": "sensor.game_room_plugs_energy_today",
+        "name": "Game Room Plugs",
+        "included_in_stat": "sensor.span_panel_subpanel_consumed_energy"
+      },
+      {
+        "stat_consumption": "sensor.kitchen_dishwasher_energy_today",
+        "name": "KItchen Dishwasher",
+        "included_in_stat": "sensor.span_panel_subpanel_consumed_energy"
+      },
+      {
+        "stat_consumption": "sensor.washer_1_energy_today",
+        "name": "Washing Machine 1",
+        "included_in_stat": "sensor.span_panel_subpanel_consumed_energy"
+      },
+      {
+        "stat_consumption": "sensor.washer_2_energy_today",
+        "name": "Washing Machine 2",
+        "included_in_stat": "sensor.span_panel_subpanel_consumed_energy"
+      },
+      {
+        "stat_consumption": "sensor.span_panel_receiving_living_room_plugs_consumed_energy",
+        "name": "Receiving & Living Room Plugs"
+      },
+      {
+        "stat_consumption": "sensor.span_panel_study_b_plugs_consumed_energy",
+        "name": "Study B Plugs"
+      },
+      {
+        "stat_consumption": "sensor.span_panel_study_a_entry_plugs_consumed_energy",
+        "name": "Study A and Entry Plugs"
+      },
+      {
+        "stat_consumption": "sensor.bedroom_5_lights_energy_today",
+        "included_in_stat": "sensor.span_panel_subpanel_consumed_energy",
+        "name": "Bedroom 5 Lights"
+      },
+      {
+        "stat_consumption": "sensor.garage_hall_lights_energy_today",
+        "included_in_stat": "sensor.span_panel_subpanel_consumed_energy",
+        "name": "Garage Hall Lights"
+      },
+      {
+        "stat_consumption": "sensor.kitchen_and_pantry_lights_energy_today",
+        "included_in_stat": "sensor.span_panel_subpanel_consumed_energy",
+        "name": "Kitchen and Pantry lights"
+      },
+      {
+        "stat_consumption": "sensor.media_room_lights_energy_today",
+        "name": "Media Room Lights",
+        "included_in_stat": "sensor.span_panel_subpanel_consumed_energy"
+      },
+      {
+        "stat_consumption": "sensor.pantry_microwave_energy_today",
+        "name": "Pantry Microwave ",
+        "included_in_stat": "sensor.span_panel_subpanel_consumed_energy"
+      },
+      {
+        "stat_consumption": "sensor.powder_lights_energy_today",
+        "name": "Powder Lights",
+        "included_in_stat": "sensor.span_panel_subpanel_consumed_energy"
+      },
+      {
+        "stat_consumption": "sensor.utility_dishwasher_energy_today",
+        "name": "Utility Dishwasher",
+        "included_in_stat": "sensor.span_panel_subpanel_consumed_energy"
+      },
+      {
+        "stat_consumption": "sensor.utility_refridgerator_energy_today",
+        "name": "Utility Fridge ",
+        "included_in_stat": "sensor.span_panel_subpanel_consumed_energy"
+      },
+      {
+        "stat_consumption": "sensor.vent_hood_energy_today",
+        "name": "Vent Hood",
+        "included_in_stat": "sensor.span_panel_subpanel_consumed_energy"
+      },
+      {
+        "stat_consumption": "sensor.water_heater_1_energy_today",
+        "name": "Water Heaters",
+        "included_in_stat": "sensor.span_panel_subpanel_consumed_energy"
+      },
+      {
+        "stat_consumption": "sensor.span_panel_dryer_consumed_energy",
+        "name": "Dryer 1"
+      },
+      {
+        "stat_consumption": "sensor.span_panel_dryer_consumed_energy_2",
+        "name": "Dryer 2"
+      },
+      {
+        "stat_consumption": "sensor.span_panel_grinder_pump_consumed_energy",
+        "name": "Grinder Pump"
+      },
+      {
+        "stat_consumption": "sensor.span_panel_furnace_consumed_energy",
+        "name": "Furnace"
+      },
+      {
+        "stat_consumption": "sensor.span_panel_master_bath_plugs_consumed_energy",
+        "name": "Master Bath Plugs"
+      },
+      {
+        "stat_consumption": "sensor.span_panel_master_lights_consumed_energy",
+        "name": "Master bed and bath lights"
+      },
+      {
+        "stat_consumption": "sensor.span_panel_master_plugs_consumed_energy",
+        "name": "Master Plugs"
+      },
+      {
+        "stat_consumption": "sensor.span_panel_patio_plugs_consumed_energy",
+        "name": "Patio Plugs"
+      },
+      {
+        "stat_consumption": "sensor.span_panel_range_consumed_energy",
+        "name": "Cooking Range "
+      },
+      {
+        "stat_consumption": "sensor.span_panel_span_metering_kit_consumed_energy",
+        "name": "Span Metering Kit"
+      },
+      {
+        "stat_consumption": "sensor.span_panel_warming_drawer_consumed_energy",
+        "name": "Warming Drawer"
+      },
+      {
+        "stat_consumption": "sensor.sub_panel_vue_balance_energy_today",
+        "name": "Garage A Sub Panel Balance",
+        "included_in_stat": "sensor.span_panel_subpanel_consumed_energy"
+      },
+      {
+        "stat_consumption": "sensor.sub_panel_vue_3_b_energy_today_6",
+        "name": "Bedroom 3 plugs",
+        "included_in_stat": "sensor.span_panel_subpanel_consumed_energy"
+      },
+      {
+        "stat_consumption": "sensor.sub_panel_vue_3_b_energy_today_3",
+        "name": "Bedroom 4 plugs",
+        "included_in_stat": "sensor.span_panel_subpanel_consumed_energy"
+      },
+      {
+        "stat_consumption": "sensor.sub_panel_vue_3_b_energy_today_7",
+        "name": "Bedroom 5 plugs",
+        "included_in_stat": "sensor.span_panel_subpanel_consumed_energy"
+      },
+      {
+        "stat_consumption": "sensor.sub_panel_vue_3_b_energy_today_9",
+        "name": "Laundry plugs + Landscape Txformer 1",
+        "included_in_stat": "sensor.span_panel_subpanel_consumed_energy"
+      },
+      {
+        "stat_consumption": "sensor.sub_panel_vue_3_b_energy_today_4",
+        "name": "Exercise Room Plugs",
+        "included_in_stat": "sensor.span_panel_subpanel_consumed_energy"
+      },
+      {
+        "stat_consumption": "sensor.sub_panel_vue_3_b_energy_today_2",
+        "name": "Forced Air Units",
+        "included_in_stat": "sensor.span_panel_subpanel_consumed_energy"
+      },
+      {
+        "stat_consumption": "sensor.sub_panel_vue_3_b_energy_today_5",
+        "name": "Media Room plugs",
+        "included_in_stat": "sensor.span_panel_subpanel_consumed_energy"
+      },
+      {
+        "stat_consumption": "sensor.sub_panel_vue_3_b_energy_today_8",
+        "included_in_stat": "sensor.span_panel_subpanel_consumed_energy",
+        "name": "Kitchen Plugs"
+      },
+      {
+        "stat_consumption": "sensor.gas_energy_today",
+        "included_in_stat": "sensor.span_panel_subpanel_consumed_energy",
+        "name": "Gas"
+      },
+      {
+        "stat_consumption": "sensor.em_shelly_wifi_garageblights_energy",
+        "included_in_stat": "sensor.span_panel_garage_b_evse_consumed_energy",
+        "name": "Garage B Lights"
+      },
+      {
+        "stat_consumption": "sensor.em_shelly_wifi_garageb_energy",
+        "name": "Garage B Plugs",
+        "included_in_stat": "sensor.span_panel_garage_b_evse_consumed_energy"
+      }
+    ],
+    "device_consumption_water": []
+  }
+}
