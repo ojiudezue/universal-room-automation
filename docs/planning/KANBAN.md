@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-12T02:03:04-06:00_ - _Data commit: `1a5b53d19197`_ - _last_reconciled: 2026-11-11_
+_Generated: 2026-11-12T02:05:59-06:00_ - _Data commit: `05e613483a86`_ - _last_reconciled: 2026-11-11_
 
 
 ## Columns
@@ -13,8 +13,8 @@ _Generated: 2026-11-12T02:03:04-06:00_ - _Data commit: `1a5b53d19197`_ - _last_r
 | 🔬 Investigating | 0 |
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 26 |
-| 🔨 In progress | 3 |
-| 🔍 Review | 2 |
+| 🔨 In progress | 2 |
+| 🔍 Review | 3 |
 | ⏸️ Waiting on operator | 33 |
 | ⏳ Waiting on me (Claude) | 2 |
 | 🚀 Shipped (organic open) | 17 |
@@ -574,23 +574,10 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (3)
+## 🔨 In progress (2)
 _being built_
 
-### `FAN-RECHECK-FORM-RESTORE-REVERT-1` - Fan re-check switches: a value saved in the settings form gets overwritten by the switch's old state after the reload (CONFIRMED, live instance in Garage A) — _#1 · WSJF 8.0 · v4 tc2 u2 /e1_
-thread: **presence** - status: **in_progress** - approval: **implied**
-_created 2026-11-11 14:40 · updated 2026-11-12 02:04 · refined_
-- **Problem / Solution:**
-  - Problem: the four fan re-check on/off switches (house master + three per-room) remember their last state across a reload, and a settings-form save triggers a reload, so the switch puts its old value back over what was just saved. Garage ...
-- **Why:** switch.py:6040-6046 restores last state on reload; a form save reloads the entry, so the form value may be overwritten.
-- **Next:** Overnight build in worktree (ura-builder) + one review; to review lane, no deploy. After deploy: Garage A switches should read off.
-- **Forensic keys (4):**
-  - `tier`: 1
-  - `adjacency`: Swept with audit; NEW.
-  - `finding_2026_11_12`: CONFIRMED by code + HA source + live data. (1) switch.py FanRecheckEnabledSwitch.__init__ seeds from options, then async_added_to_hass overwrites with async_get_last_state (and mirrors that into hass.data fan_recheck_master_enabled, the ...
-  - `gate_2026_11_12`: 1 validity: STILL-REAL (above). 1b config-first: no setting changes restore order. 2 prior-art: REUSE the existing options mirror (_mirror_options keeps options current on every toggle, so options are a complete store); CM reload-suppres...
-
-### `OC-CONTEXT-PACK-1` - OC agent context should feel like the orchestrator's: HA + URA ground-truth docs, live config snapshot, doctrine, goals - iterate it against live cases — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `OC-CONTEXT-PACK-1` - OC agent context should feel like the orchestrator's: HA + URA ground-truth docs, live config snapshot, doctrine, goals - iterate it against live cases — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **optimization** - status: **in_progress**
 _created 2026-11-01 · updated 2026-11-05 02:40_
 - **Why:** Already decided in VISION_optimization_coordinator_self_fixing_house.md:157 ('Knowledge, loaded fresh every run': HA concepts; URA_ARCHITECTURE_MAP, HVAC + presence state-of-play, SENSOR_FLEET_CLASSES, DEVICE_TREE; live config snapshot; ...
@@ -600,7 +587,7 @@ _created 2026-11-01 · updated 2026-11-05 02:40_
   - `tier`: 2
   - `eval_round_2026_11_07`: Operator-funded iteration ($50 cap, spent $40.31; worktree agent-a657e58090fb1df32 commits e1b08b13 b0d29379 12ac1780; ITERATIONS_2026_11_07.md, LEDGER_2026_11_07.md, RUBRIC.md). NOT PASSING: Sonnet 5.5 3/15 runs, 0 cases by majority; he...
 
-### `TEST-SUITE-PARALLEL-1` - Full test suite takes 24-33 min single-core; parallel run fails 91 vs 18 from test-order pollution — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `TEST-SUITE-PARALLEL-1` - Full test suite takes 24-33 min single-core; parallel run fails 91 vs 18 from test-order pollution — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **process** - status: **in_progress** - approval: **unreviewed**
 _created 2026-11-10 19:20 · updated 2026-11-11 07:05 · initial_
 - **Why:** Gate runs ~20.6k tests serially on 1 of 8 cores, twice per release (base + candidate), with 67 source-mutation drills (~4 min). Probe 2026-11-10 on develop 9894bc66: serial 33 min / 18 failed; -n 6 --dist loadfile 19 min / 91 failed, 76 ...
@@ -610,10 +597,24 @@ _created 2026-11-10 19:20 · updated 2026-11-11 07:05 · initial_
   - `tier`: 1
   - `residual_2026_11_11`: Merged to develop 4d5385d4 (v5.108.8). Merged-develop parallel run: 11 failed in 3 min, base serial failures all gone, but 11 parallel-only (pass alone 72/72): test_arrester_operator_immunity x6, test_dp_drain_target_value_stamp x5 (file...
 
-## 🔍 Review (2)
+## 🔍 Review (3)
 _under review_
 
-### `KANBAN-SHIP-FLOW-CARDS-1` - deploy.sh --cards silently fails to mark one-line (flow-style) cards shipped, so shipped work stays in review/inbox — _#1 · WSJF 7.5 · v7 tc6 u2 /e2_
+### `FAN-RECHECK-FORM-RESTORE-REVERT-1` - Fan re-check switches: a value saved in the settings form gets overwritten by the switch's old state after the reload (CONFIRMED, live instance in Garage A) — _#1 · WSJF 8.0 · v4 tc2 u2 /e1_
+thread: **presence** - status: **review** - approval: **implied**
+_created 2026-11-11 14:40 · updated 2026-11-12 02:09 · refined_
+- **Problem / Solution:**
+  - Problem: the four fan re-check on/off switches (house master + three per-room) remember their last state across a reload, and a settings-form save triggers a reload, so the switch puts its old value back over what was just saved. Garage ...
+- **Why:** switch.py:6040-6046 restores last state on reload; a form save reloads the entry, so the form value may be overwritten.
+- **Next:** APPROVE merge + ship at the next attended deploy (Tier 1, switch.py only). Live check after restart: switch.garage_a_garage_a_fan_recheck and _l2_allowed read off; switch.ura_presence_coordinator_fan_recheck stays on.
+- **Forensic keys (5):**
+  - `tier`: 1
+  - `adjacency`: Swept with audit; NEW.
+  - `finding_2026_11_12`: CONFIRMED by code + HA source + live data. (1) switch.py FanRecheckEnabledSwitch.__init__ seeds from options, then async_added_to_hass overwrites with async_get_last_state (and mirrors that into hass.data fan_recheck_master_enabled, the ...
+  - `gate_2026_11_12`: 1 validity: STILL-REAL (above). 1b config-first: no setting changes restore order. 2 prior-art: REUSE the existing options mirror (_mirror_options keeps options current on every toggle, so options are a complete store); CM reload-suppres...
+  - `built_2026_11_12`: Branch fix/fan-recheck-options-wins-restore (5a286f10 fix + 7d25125f docstring LOW), pushed, NOT merged/deployed. switch.py 3 sites (6050/6106/6170) options-win; 4th site _RoomBooleanOptionSwitch already options-first. 16 tests (quality/...
+
+### `KANBAN-SHIP-FLOW-CARDS-1` - deploy.sh --cards silently fails to mark one-line (flow-style) cards shipped, so shipped work stays in review/inbox — _#2 · WSJF 7.5 · v7 tc6 u2 /e2_
 thread: **process** - status: **review** - approval: **implied**
 _created 2026-11-11 02:07 · updated 2026-11-11 02:18 · initial_
 - **Problem / Solution:**
@@ -628,7 +629,7 @@ _created 2026-11-11 02:07 · updated 2026-11-11 02:18 · initial_
   - `gate_2026_11_11`: 1 validity: STILL-REAL (4 cards observed, mechanism read in source). 1b config-first: no setting. 2 prior-art: REUSE mark_shipped_text/_find_card_blocks, extend to flow lines; no new tool. 3 parsimony BUILD. 4 cost/benefit: repo tooling ...
   - `built_2026_11_11_overnight`: Built on fix/kanban-ship-flow-cards (worktree .claude/worktrees/ovn-kanban-ship-flow; 6da6cab1 build, d684fc71 review record, 1c6e3635 LOW fix-up; base = develop fc75a6b3, 0 behind). _find_card_blocks now detects '- {"id": ...}' flow car...
 
-### `SC-GEOFENCE-PERSON-SNAPSHOT-1` - SC geofence person listener snapshots person.* once at setup; misses persons added later or loaded after SC — _#2 · WSJF 7.0 · v3 tc2 u2 /e1_
+### `SC-GEOFENCE-PERSON-SNAPSHOT-1` - SC geofence person listener snapshots person.* once at setup; misses persons added later or loaded after SC — _#3 · WSJF 7.0 · v3 tc2 u2 /e1_
 thread: **security** - status: **review**
 _created 2026-11-07 15:40 · updated 2026-11-11 02:26_
 - **Why:** security.py:1987-1995 _setup_geofence_listener reads hass.states.async_all('person') once and returns when empty, so the sanction checker never subscribes if persons load after SC and misses persons added later. The lockout regime uses a...
