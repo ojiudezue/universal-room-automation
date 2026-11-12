@@ -2,14 +2,14 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-12T14:08:55-06:00_ - _Data commit: `ab73900e5de9`_ - _last_reconciled: 2026-11-12_
+_Generated: 2026-11-12T14:12:40-06:00_ - _Data commit: `9ce3f2fe847c`_ - _last_reconciled: 2026-11-12_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 0 |
+| 📥 Inbox | 1 |
 | 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 14 |
 | 📝 Planned | 26 |
@@ -21,10 +21,19 @@ _Generated: 2026-11-12T14:08:55-06:00_ - _Data commit: `ab73900e5de9`_ - _last_r
 | 🅿️ Parked | 118 |
 | ✅ Done | 425 |
 
-## 📥 Inbox (0)
+## 📥 Inbox (1)
 _raw capture_
 
-_(none)_
+### `EC-ATTAIN-RATE-DUP-SAMPLE-1` - The battery charge-rate window can record the same reading twice in one tick, shortening its 15-minute window — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **energy** - status: **inbox** - approval: **unreviewed**
+_created 2026-11-12 14:13 · initial_
+- **Problem / Solution:**
+  - Problem: the observed battery charge rate is measured over a window of recent samples, but the sampler is called from two places in the same tick (energy_battery.py ~:4174 and ~:6008), so one tick can append the same time and SOC twice a...
+- **Origin:** 2026-11-12 - Found by the planner writing PLANNING_ev_rung1_redirect_cap.md (Q4); operator agreed to card it separately.
+- **Why:** Fix D's hold compares timestamps so it is unaffected, but every other reader of the rate window sees a shorter window than intended.
+- **Next:** Me: verify the double append (test on the real sampler) and list the window readers; then Tier-1 fix.
+- **Forensic keys (1):**
+  - `tier`: 1
 
 ## 🔬 Investigating (1)
 _measuring; truth not yet known_
@@ -228,7 +237,7 @@ _updated 2026-10-21 22:05_
 
 ### `EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1` - The arbitrage EV pause flips on and off every 5 minutes when an EV is charging and the battery is low (rung-1 redirect vs WAIT feedback loop) — _#14 · WSJF 0.6 · v4 tc2 u2 /e13_
 thread: **energy** - status: **pre_planning** - approval: **explicit**
-_created 2026-10-03 02:40 · updated 2026-11-12 14:04 · initial_
+_created 2026-10-03 02:40 · updated 2026-11-12 14:13 · initial_
 - **Problem / Solution:**
   - Problem: on 10-01 between about 01:00 and 06:00 CDT the battery strategy switched back and forth every tick between two answers. When the garage car charger was drawing ~11.7 kW, it chose 'pause the EVs to save solar for the battery' (ru...
 - **Origin:** 2026-10-03 - D0 replay in DESIGN_ec_degraded_data_policy.md section 9.1 found the 10-01 flap is an Envoy-independent rung_1 <-> WAIT load-feedback loop; doc 9.3 says card needed (Tier 2+); carded by the overnight pass.
@@ -237,7 +246,7 @@ _created 2026-10-03 02:40 · updated 2026-11-12 14:04 · initial_
 - **Tags:** tier-3, measure-before-build, no-fabrication-verify
 - **Parsimony:** [PENDING-PLAN] With an EV drawing >= 11.6 kW and SOC below the poor-day target, the arbitrage pause toggles every tick (31 EV switch events on 10-01).
 - **Refs:** docs/planning/DESIGN_ec_degraded_data_policy.md section 9.1 / 9.3
-- **Forensic keys (12):**
+- **Forensic keys (13):**
   - `triage_2026_10_17`: Default taken: parked; revival trigger = the EV toggle alarm fires.
   - `trigger_check_2026_10_12_overnight`: Revival trigger checked: the EV toggle alarm DID fire (10-11 19:26:45Z garage_a), but the cause was the fill-priority owner (pause_owners=fill_priority; strategy self_consumption, arbitrage_phase n/a, SOC 79-81%), not rung-1/WAIT. So thi...
   - `paged_2026_10_05_overnight`: Paged 2026-10-05 02:34 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1; sent directly, not through URA NM routing, so it does not wake anyone).
@@ -250,6 +259,7 @@ _created 2026-10-03 02:40 · updated 2026-11-12 14:04 · initial_
   - `audit_2026_11_12`: docs/planning/AUDIT_ev_rung1_oscillation_fix_options.md (energy files identical to develop at audit time). Mechanism: rung-1 entry credits the full EV draw (~25 %/h at 10 kW) as solar redirectable to the battery even when the car runs on...
   - `refinement_2026_11_12`: Operator: why is the car charging on poor-solar days; should daytime EV charging be governed by excess solar, not off-peak? Answer (energy_const.py:36-60): in shoulder (Mar-May, Oct-Nov) off-peak is 00-17 and 21-24, and in winter 00-05, ...
   - `operator_decision_2026_11_12c`: Go on fix D plan ("Go"). Build waits for plan approval.
+  - `operator_decision_2026_11_12d`: Plan open questions, operator agreed with my recommendations: Q1 yes freshness gate at the cap; Q2 accept discharge credit; Q3 no trip-wire paging this cycle; Q4 card duplicate sampling separately.
 
 ## 📝 Planned (26)
 _has plan / acceptance_

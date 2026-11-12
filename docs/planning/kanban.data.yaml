@@ -32492,7 +32492,7 @@ cards:
   thread: energy
   status: pre_planning
   created: '2026-10-03 02:40'
-  updated: '2026-11-12 14:04'
+  updated: '2026-11-12 14:13'
   refinement_status: initial
   approval: explicit
   approved_by: "operator 2026-11-12 (\"We need to fix regardless\")"
@@ -32521,6 +32521,7 @@ cards:
   audit_2026_11_12: "docs/planning/AUDIT_ev_rung1_oscillation_fix_options.md (energy files identical to develop at audit time). Mechanism: rung-1 entry credits the full EV draw (~25 %/h at 10 kW) as solar redirectable to the battery even when the car runs on grid (energy_battery.py _classify_attain_rung :4217-4221/:4433-4463); next tick the 3-tick observed-rate window is still mostly pre-pause, so it escalates to rung 2 (:4377-4389) -> WAIT -> EVs released (energy.py:8185-8195). Q1: NO SOC band: rung 1 fires at any SOC below target on poor/very-poor off-peak daylight ticks with an EV drawing; episodes at 7-10 % (09-20, 09-28, 10-01) and 30 % (11-08, same mechanism, solar 1-2 kW, house still importing 2.4-3.5 kW with cars paused). The 79-83 % chatter (10-09/10-11) was fill_priority, a different owner (done). Q2: blanket pause during arbitrage would block ~17.5 h/week of overnight EV charging (garage A on 23.8 of 52.7 arbitrage-active hours in 7 days) and adds a standing pause owner; not recommended. The card's 'judge without paused EV' already exists (:4333-4376). Min-hold only slows the loop. Recommended D; invariant: an EV is never paused to redirect solar unless its draw exceeds non-battery grid import, and a rung-1 pause is never released before the rate window is all post-pause."
   refinement_2026_11_12: "Operator: why is the car charging on poor-solar days; should daytime EV charging be governed by excess solar, not off-peak? Answer (energy_const.py:36-60): in shoulder (Mar-May, Oct-Nov) off-peak is 00-17 and 21-24, and in winter 00-05, 09-17, 21-24, at 0.043481 import = export. So midday is off-peak, and EV TOU management (switch.ura_energy_coordinator_ev_tou_management on) lets the car charge from grid at the overnight price; excess-solar logic (energy.py:7411 C2) is a separate layer that only adds charging. Grid vs solar for the car is cost-neutral at midday under this tariff. Overnight episodes are already blocked by the v5.103.37 daylight gate. Operator agrees with D, wants overnight off-peak charging protected, and wants no new machinery on hardened code. Whether daytime EV should be solar-led is a separate policy question; not carded yet."
   operator_decision_2026_11_12c: 'Go on fix D plan ("Go"). Build waits for plan approval.'
+  operator_decision_2026_11_12d: 'Plan open questions, operator agreed with my recommendations: Q1 yes freshness gate at the cap; Q2 accept discharge credit; Q3 no trip-wire paging this cycle; Q4 card duplicate sampling separately.'
 - id: EC-CFG-SELFHEAL-FALSE-CRITICAL-1
   title: "CRITICAL 'Envoy write self-heal loop: charge_from_grid' pages fire after the write already worked (cloud switch lags ~15 min; the alarm never re-checks it) -> re-read the cloud switch before paging"
   thread: energy
@@ -34376,6 +34377,25 @@ cards:
   next: "PICK: (A, recommended) no build; optionally raise number.ura_energy_coordinator_fill_priority_soc 80 -> ~90 (knob, yours); park shapes 2-4 with triggers; or (B) pursue shape 2 (Tier 3). ANSWER: is solar-led about money (zero on this tariff) or preference? Is export really credited at 4.35c in every period?"
   rank: {value: 5, time_criticality: 2, effort: 5}
   exploration_2026_11_12: "docs/planning/EXPLORE_ec_ev_daytime_solar_led.md. Fill priority already keeps the car off in daylight off-peak until battery 80% on good-forecast days; excess-solar + solar-follow amps take over at battery >=95%. Gaps: battery 80-95%, and poor-forecast days. Tariff is symmetric (import = export 4.35c off-peak), so solar vs grid into the car is worth the same; only value is a fuller battery at the evening boundary (<=26c/day shoulder, <=71c/day summer, arithmetic). 7 days data: 14.4 kWh daytime EV, ~all of it the 11-08 poor-day session from grid with no export; 37 kWh export fell on good days with no car charging. Shapes: 1 knob fill_priority_soc 80->90 (config only); 2 solar-only by day unless needed (Tier 3, needs car SOC/departure); 3 excess-solar on export (revives EVSE-SOLAR-STOP-CONDITIONS-1 oscillator); 4 summer-only. Recommend no build."
+- id: EC-ATTAIN-RATE-DUP-SAMPLE-1
+  title: The battery charge-rate window can record the same reading twice in one tick, shortening its 15-minute window
+  thread: energy
+  status: inbox
+  created: '2026-11-12 14:13'
+  updated: '2026-11-12 14:13'
+  refinement_status: initial
+  tier: 1
+  approval: unreviewed
+  problem_solution:
+  - 'Problem: the observed battery charge rate is measured over a window of recent samples, but the sampler is called from two places in the same tick (energy_battery.py ~:4174 and ~:6008), so one tick can append the same time and SOC twice and the window covers less time than documented. Solution: confirm with a test or recorder read, then sample once per tick.'
+  origin:
+    date: '2026-11-12'
+    gist: Found by the planner writing PLANNING_ev_rung1_redirect_cap.md (Q4); operator agreed to card it separately.
+  why: Fix D's hold compares timestamps so it is unaffected, but every other reader of the rate window sees a shorter window than intended.
+  links:
+    related: [EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1]
+    context: 'Surfaced while planning the rung-1 redirect cap; independent of it.'
+  next: 'Me: verify the double append (test on the real sampler) and list the window readers; then Tier-1 fix.'
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
