@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-12T12:53:19-06:00_ - _Data commit: `88e7184425e6`_ - _last_reconciled: 2026-11-12_
+_Generated: 2026-11-12T12:57:36-06:00_ - _Data commit: `0dc4d3b28c57`_ - _last_reconciled: 2026-11-12_
 
 
 ## Columns
@@ -595,16 +595,16 @@ _needs a human call — groomed first_
 
 ### `PERIMETER-DETECTION-WENT-DARK-1` - Exterior person detection went fully dark for ~26h on 2026-09-14/15 and then recovered on its own — nothing noticed either the outage or the recovery — _#1 · WSJF 10.0 · v9 tc9 u2 /e2_
 thread: **perimeter** - status: **waiting_operator** - approval: **blocked**
-_created 2026-09-16 03:30 · updated 2026-11-11 02:18 · refined_
+_created 2026-09-16 03:30 · updated 2026-11-12 13:20 · refined_
 - **Problem / Solution:**
   - Problem: the system that spots people outside the house has gone quiet across EVERY outdoor camera at once. Two days ago the cameras between them reported a person about 470 times a day; yesterday that fell to about 40, and so far today ...
 - **Origin:** 2026-09-16 - fell out of re-measuring FRONT-SIDE-PTZ-CHATTER-1 overnight — the chatter had vanished, and checking WHY it vanished turned up a fleet-wide blackout instead of a fix
 - **Why:** exterior person detection feeds perimeter alerts, the property census, the circling/track linker and egress identity. All of them degrade silently when the producer goes quiet, which is precisely the blind spot CAMERA-ZERO-FIRE-DETECTORS...
-- **Next:** PICK for the repeat hangs (5 outages since 09-16; healthy now): (A) treat the Coral as faulty: reseat, swap, or move detection to the CPU/OpenVINO detector, or (B) restart Frigate on a schedule as a stopgap. -> I make the change you pick...
+- **Next:** PICK (when back): A (recommended) treat it as a host problem: keep the ping power-cycle automation, and have HomeLab read the Frigate2 host logs for 11-01 03:53 and 11-07 13:14 (kernel/USB/network) plus /api/stats detectors to confirm wh...
 - **Tags:** measure-before-build, no-fabrication-verify
 - **Parsimony:** [BUILD] every exterior person-detector went silent within ~24h while motion continued, and the operator-facing alerts went silent with them
 - **Refs:** binary_sensor.front_side_ptz_person_occupancy_2; binary_sensor.front_side_ptz_motion_3; notification_log hazard_type=exterior_person
-- **Forensic keys (42):**
+- **Forensic keys (43):**
   - `recheck_2026_11_10_overnight`: 02:01 CST: sensor.frigate_status_2 running, detection_fps_2 = 86 (HA restarted 01:04 by your user; Frigate came back with it). Ask stands.
   - `recheck_2026_11_07_overnight`: Re-check 02:03 CST: sensor.frigate_detection_fps_2 = 57 and binary_sensor.ura_coordinator_manager_camera_input_dark off since the 11-06 14:57 boot - healthy, no new hang. Ask stands.
   - `INSTANCE_2026_11_01_sixth_outage`: Sixth outage, measured 02:04 CST 11-02 (recorder + URA DB, read-only). sensor.frigate_status_2 went unavailable 11-01 03:53:18 CST and stayed down until 11-02 01:42:11 (about 21.8 h). It dropped again 01:58:39-02:00:27, and system_log sh...
@@ -647,6 +647,7 @@ _created 2026-09-16 03:30 · updated 2026-11-11 02:18 · refined_
   - `INSTANCE_2026_11_08_seventh_outage`: SEVENTH OUTAGE, and the first one that was NOTICED. Recorder (read-only): sensor.frigate_status_2 went unavailable 11-07 13:14 CST and came back 20:32 (7.3 h), then had 4 short drops (22:00, 22:56, 23:01, 23:03, under 1 min each). URA's ...
   - `recheck_2026_11_09_overnight`: 02:03 CST: sensor.frigate_status_2 running, detection_fps_2 = 77, camera_input_dark off. Last 14 h: 3 unavailable blips totalling 93 s (latest ended 00:25), no outage. Ask stands.
   - `recheck_2026_11_11_overnight`: 02:11 CST: sensor.frigate_status_2 running (since the 11-10 18:40 restart), detection_fps_2 = 77. Healthy; PICK stands.
+  - `card_was_wrong_2026_11_12`: CARD-WAS-WRONG on cause. Probe (recorder 11-05+, LTS 10-12+): the detection-costing outages in 30 days (11-01 21.8 h, 11-07 7.3 h) were the Frigate2 host/network unreachable (ping down, API refused) then slow Frigate start, with detectio...
 
 ### `SAFETY-SENSOR-FLEET-HEALTH-1` - The house's only smoke detector has been invisible to Home Assistant since the 10-15 restart, and several leak and gas sensors are dead or misfiled, so Safety cannot see those hazards — _#2 · WSJF 9.5 · v9 tc8 u2 /e2_
 thread: **safety** - status: **waiting_operator** - approval: **unreviewed**
@@ -795,17 +796,18 @@ _created 2026-10-05 · updated 2026-11-11 02:05_
 
 ### `EGRESS-BLE-ARRIVAL-LATENCY-1` - BLE arrival fires ~20-120 s after geofence despite scanners at each egress: measure where the delay is — _#9 · WSJF 6.0 · v3 tc1 u2 /e1_
 thread: **presence** - status: **waiting_operator**
-_created 2026-11-11 15:10 · updated 2026-11-12 02:04 · refined_
+_created 2026-11-11 15:10 · updated 2026-11-12 13:18 · refined_
 - **Problem / Solution:**
   - Problem: when someone gets home, the Bluetooth-based arrival signal fires 8-41 s after the first 'home' signal, even though scanners sit at each door. Measured: about a third of that is the Bluetooth system working out which room the pho...
 - **Why:** BLE pre-arrival needs Bermuda to resolve the phone to a room AND the person to have been LOST >= min_away_minutes (person_coordinator.py:1100-1136). For Jaya/Ziri, 'geofence' is itself BLE (person trackers are private_ble_device/bermuda ...
 - **Next:** PICK: A (recommended - no code; the first home signal already starts pre-cool, and lockout release can take whichever arrival signal fires first) or B (Tier 2: a state listener on each person's Bermuda area sensor, armed only while that ...
-- **Forensic keys (5):**
+- **Forensic keys (6):**
   - `tier`: 1
   - `adjacency`: Related PREARRIVAL-NEAR-HOME-ZONE-1.
   - `finding_2026_11_12`: MEASURED (overnight, recorder states + URA ura_activity_log, 5 arrivals 11-11/12). Per arrival: tracker/person->home (t0) -> Bermuda area first resolves to a room -> URA 'pre_arrival source=ble' row. Jaya 22:29:58.8 -> +4.9 s (Garage A) ...
   - `answer_to_card_question`: For garage-lockout release, BLE alone trails the first home signal by 8-41 s (median 32 s) today; an event-driven check would cut that to roughly the Bermuda resolution time, 5-15 s.
   - `gate_2026_11_12`: Opens a possible build, but not clean overnight: an area-sensor listener on the person coordinator changes refresh behaviour in presence (Tier 2; areas flip every few seconds after arrival, see Ezinne 01:11-01:13), and the benefit is abo...
+  - `refinement_2026_11_12`: Operator: separate seen-by-BLE from this-is-the-room so arrival fires faster. Sharpened: arrival only needs the phone seen at home by any scanner, not the resolved room; the room can follow. Also consider UniFi Wi-Fi association as a par...
 
 ### `URA-V8-PANEL-RENDER-SPIN-1` - ura-v8 dashboard renderer spins ~100% CPU on wall panels after screen wake (now + rooms views); stops when screen off — _#10 · WSJF 5.5 · v5 tc4 u2 /e2_
 thread: **dashboarding** - status: **waiting_operator**
@@ -944,7 +946,7 @@ _created 2026-10-24 · updated 2026-11-11 02:18_
 
 ### `NM-BB-CHATGUID-SELFSEND-1` - BlueBubbles v0.7.0 adds send-by-chat-GUID — lets NM target a chat by GUID instead of address, decoupling alert sends from the iMessage account so URA stops messaging the operator's own thread — _#20 · WSJF 3.3 · v5 tc3 u2 /e3_
 thread: **notifications** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-08-26 11:00 · updated 2026-11-12 02:05 · refined ×1_
+_created 2026-08-26 11:00 · updated 2026-11-12 13:20 · refined ×1_
 - **Problem / Solution:**
   - Problem: a message URA sends me shows up TWICE in my iMessage — once when it is sent (my Mac sending as me) and once when it arrives (my phone/Mac receiving as me), so every URA alert reads as a duplicate. Solution to VERIFY (do NOT asse...
 - **Origin:** 2026-08-26 - operator: BlueBubbles v0.7.0 may have a way to decouple messages from the imessage user; check release notes
@@ -952,7 +954,7 @@ _created 2026-08-26 11:00 · updated 2026-11-12 02:05 · refined ×1_
 - **Next:** DO (after the trip, back Sun 10-18): create the house Apple ID; save it as contact 'House' on your iPhone and reply once (Filter Unknown Senders); sign Messages on the Mac mini into it; exchange a few messages -> I check NM's person-hand...
 - **Tags:** nm, no-fabrication-verify
 - **Refs:** custom_components/universal_room_automation/domain_coordinators/notification_manager.py; ~/Code/bluebubbles-integration-guide.md
-- **Forensic keys (15):**
+- **Forensic keys (17):**
   - `INSTANCE_2026_11_12_unknown_command_replies`: Overnight measurement (URA DB notification_inbound, read-only, last 10 days): 110 iMessage inbound rows parsed 'unknown', ALL 110 answered with an 'Unknown command. Reply: 1=Ack 2=Status 3=Silence' text sent back to you (notification_man...
   - `verify_2026_10_23`: Log read 02:01 (ha_get_logs source=system, search 'BlueBubbles'): 0 entries since the 10-21 18:25 restart, so the 10-18 send-failure burst has not recurred in the system log in that window. (system_log only holds WARNING+; this is not pr...
   - `operator_answer_2026_10_14b`: BlueBubbles server runs on Oji's Mac mini (Macmini9,1, the always-on box; verified process /Applications/BlueBubbles.app running 04:2x). So option (2) — a dedicated house Apple ID in Messages on the Mac mini — costs only the operator's i...
@@ -968,6 +970,8 @@ _created 2026-08-26 11:00 · updated 2026-11-12 02:05 · refined ×1_
   - `STATIC_HALF_ANSWERED_2026_09_19`: Step (1) of this cards next is DONE — read, not guessed, and it changes what the fix is. THE SEND PATH HAS NO ADDRESS-BUILDING LOGIC AT ALL. _send_imessage (notification_manager.py:2256-2296) passes `addresses: <handle>` straight through...
   - `INSTANCE_2026_10_19_overnight_send_failures`: system_log (ha_get_logs source=system, 02:2x CDT): notification_manager.py:2305 'iMessage send via BlueBubbles failed: ' (empty error text) x11, first 10-18 22:19:21, last 10-18 23:54:52 CDT. The iMessage channel is failing at transport ...
   - `INSTANCE_2026_11_08_self_echo_volume`: Measured read-only (notification_inbound, 11-01..11-08): URA's own outbound alerts come back as inbound iMessages from person.oji_udezue and are parsed as 'unknown' commands, 7-23 a day (11-06: 23 of 23 inbound rows; 11-08 so far: 11 of ...
+  - `operator_2026_11_12_unknown_reply`: Operator: stop the loop, and make the reply friendlier and more helpful, saying it did not understand. Shape: no reply to multi-line/long texts or texts matching our own alert/Kuma/HomeLab headers; for a short unrecognised text, a friend...
+  - `INSTANCE_2026_11_12_snapshot_missing_imessage`: Operator saw a perimeter alert (g5_bullet, 11-11 17:33:06 CST) on iMessage with the AI description but no image. Capture worked (Frigate event photo written, LLM described it, all 4 channels delivered=1). The BlueBubbles integration send...
 
 ### `ELK-M1-HA-USABILITY-1` - Make ELK M1 usable in HA — only 1 of 15 wired zones (Front Door) is live; 12 read a static short, so the panel can't arm without bypassing them — _#21 · WSJF 3.2 · v6 tc5 u2 /e4_
 thread: **security** - status: **waiting_operator**
@@ -1268,17 +1272,18 @@ _created 2026-11-08 09:10 · updated 2026-11-09 02:08_
 
 ### `FAN-RECHECK-FORM-RESTORE-REVERT-1` - Fan re-check switches: a value saved in the settings form gets overwritten by the switch's old state after the reload (CONFIRMED, live instance in Garage A) — _#4 · WSJF 8.0 · v4 tc2 u2 /e1_
 thread: **presence** - status: **shipped_organic** - approval: **implied**
-_created 2026-11-11 14:40 · updated 2026-11-12 02:09 · refined_
+_created 2026-11-11 14:40 · updated 2026-11-12 13:18 · refined_
 - **Problem / Solution:**
   - Problem: the four fan re-check on/off switches (house master + three per-room) remember their last state across a reload, and a settings-form save triggers a reload, so the switch puts its old value back over what was just saved. Garage ...
 - **Why:** switch.py:6040-6046 restores last state on reload; a form save reloads the entry, so the form value may be overwritten.
 - **Next:** APPROVE merge + ship at the next attended deploy (Tier 1, switch.py only). Live check after restart: switch.garage_a_garage_a_fan_recheck and _l2_allowed read off; switch.ura_presence_coordinator_fan_recheck stays on.
-- **Forensic keys (5):**
+- **Forensic keys (6):**
   - `tier`: 1
   - `adjacency`: Swept with audit; NEW.
   - `finding_2026_11_12`: CONFIRMED by code + HA source + live data. (1) switch.py FanRecheckEnabledSwitch.__init__ seeds from options, then async_added_to_hass overwrites with async_get_last_state (and mirrors that into hass.data fan_recheck_master_enabled, the ...
   - `gate_2026_11_12`: 1 validity: STILL-REAL (above). 1b config-first: no setting changes restore order. 2 prior-art: REUSE the existing options mirror (_mirror_options keeps options current on every toggle, so options are a complete store); CM reload-suppres...
   - `built_2026_11_12`: Branch fix/fan-recheck-options-wins-restore (5a286f10 fix + 7d25125f docstring LOW), pushed, NOT merged/deployed. switch.py 3 sites (6050/6106/6170) options-win; 4th site _RoomBooleanOptionSwitch already options-first. 16 tests (quality/...
+  - `residual_2026_11_12_same_class`: Operator asked: all rooms? broader root cause? The fix is per switch CLASS, so every room. Root cause = dual store: a switch that mirrors its value into entry options AND restores its last state lets the restore win after a reload. Stati...
 
 ### `KANBAN-SHIP-FLOW-CARDS-1` - deploy.sh --cards silently fails to mark one-line (flow-style) cards shipped, so shipped work stays in review/inbox — _#5 · WSJF 7.5 · v7 tc6 u2 /e2_
 thread: **process** - status: **shipped_organic** - approval: **implied**
@@ -3175,6 +3180,20 @@ _created 2026-09-01 20:30 · initial_
 ## ✅ Done (425)
 _closed, evidence in refs_
 
+### `PERSON-OJI-HOME-FLAP-1` - person.oji_udezue flaps home/not_home in the same second while abroad — _WSJF 7.0 · v3 tc2 u2 /e1_
+thread: **presence** - status: **done**
+_created 2026-11-11 15:10 · updated 2026-11-12 13:20_
+- **Why:** HA history shows home->not_home pairs with identical timestamps (e.g. 11-09 06:10:07). Person has 5 trackers incl. gold_macos_client (Mac, mobile_app) and an iPad that stay home. Each blip fires SIGNAL_PERSON_ARRIVING (geofence) -> HVAC ...
+- **Next:** None (closed).
+- **Forensic keys (7):**
+  - `tier`: 1
+  - `root_cause_2026_11_11`: iPhone mobile_app tracker blips unavailable for <1 s on app reconnect (operator suspects VPN reconnects); HA person then falls back to the iPad (okosisipadmini6_2), which reported home (gps_accuracy ~2.9 m) although the iPad was with the...
+  - `fix_2026_11_11`: Operator-approved config change: person.oji_udezue trackers trimmed to iPhone app + Bermuda + private BLE (Mac and iPad removed); person.ziri gained device_tracker.iphone_ziri_bermuda_tracker. Backup of .storage/person in session scratch...
+  - `adjacency`: Swept presence/person cards: NEW.
+  - `verdict_2026_11_12`: CONFIRMED FIXED (overnight one-shot, recorder states table). Since the tracker trim (2026-11-11 21:10Z) to 2026-11-12 07:42Z (~10.5 h, operator still in NZ): person.oji_udezue recorded 84 rows, 0 of them 'home'. Before the fix (11-09 00:...
+  - `disposition_2026_11_12`: done: discriminator met. Unblocks the PERSON-OJI-HOME-FLAP-1 half of PREARRIVAL-NEAR-HOME-ZONE-1's revisit trigger; the other half (operator home after 11-16) still pending.
+  - `INSTANCE_2026_11_12_ezinne`: Same reconnect blip on Ezinne: her app tracker zinny_s_iphone_15 shows unavailable->home pairs (e.g. 11-12 05:29:29 CST) and person.ezinne flapped not_home->home the same second; 15 person arrivals in 7 days. Not yet confirmed she is aff...
+
 ### `EC-BATTERY-CHARGE-SOURCE-DAY-1` - Battery charged from grid / from sun today: expose the EC's existing per-tick charge split as daily kWh sensors; point the URA v8 Battery section at them — _WSJF 3.5 · v3 tc2 u2 /e2_
 thread: **energy** - status: **done**
 _created 2026-11-11 14:30 · updated 2026-11-12 12:20_
@@ -3195,19 +3214,6 @@ _created 2026-11-11 12:10 · updated 2026-11-12 02:04_
   - `adjacency`: Swept board for HACS/MARKETPLACE: NEW.
   - `verdict_2026_11_12`: ALREADY-DONE (mostly) + residual folded into the deploy skill. Read 2026-11-12 02:00: HA is 2026.11.1; Marketplace config entry present, .storage has marketplace.* files, no custom_components/hacs. update.universal_room_automation_update...
   - `fix_2026_11_12`: Rewrote .claude/skills/deploy/SKILL.md step 5 to the Marketplace path: ha_manage_hacs update_information -> download version=v<ver> -> ha_get_hacs_info read-back; UI fallback. Memory feedback_verify_hacs_install updated the same way. The...
-
-### `PERSON-OJI-HOME-FLAP-1` - person.oji_udezue flaps home/not_home in the same second while abroad — _WSJF 7.0 · v3 tc2 u2 /e1_
-thread: **presence** - status: **done**
-_created 2026-11-11 15:10 · updated 2026-11-12 02:04_
-- **Why:** HA history shows home->not_home pairs with identical timestamps (e.g. 11-09 06:10:07). Person has 5 trackers incl. gold_macos_client (Mac, mobile_app) and an iPad that stay home. Each blip fires SIGNAL_PERSON_ARRIVING (geofence) -> HVAC ...
-- **Next:** None (closed).
-- **Forensic keys (6):**
-  - `tier`: 1
-  - `root_cause_2026_11_11`: iPhone mobile_app tracker blips unavailable for <1 s on app reconnect (operator suspects VPN reconnects); HA person then falls back to the iPad (okosisipadmini6_2), which reported home (gps_accuracy ~2.9 m) although the iPad was with the...
-  - `fix_2026_11_11`: Operator-approved config change: person.oji_udezue trackers trimmed to iPhone app + Bermuda + private BLE (Mac and iPad removed); person.ziri gained device_tracker.iphone_ziri_bermuda_tracker. Backup of .storage/person in session scratch...
-  - `adjacency`: Swept presence/person cards: NEW.
-  - `verdict_2026_11_12`: CONFIRMED FIXED (overnight one-shot, recorder states table). Since the tracker trim (2026-11-11 21:10Z) to 2026-11-12 07:42Z (~10.5 h, operator still in NZ): person.oji_udezue recorded 84 rows, 0 of them 'home'. Before the fix (11-09 00:...
-  - `disposition_2026_11_12`: done: discriminator met. Unblocks the PERSON-OJI-HOME-FLAP-1 half of PREARRIVAL-NEAR-HOME-ZONE-1's revisit trigger; the other half (operator home after 11-16) still pending.
 
 ### `PERIMETER-FRIGATE-SNAPSHOT-CAPTURE-NEVER-1` - Perimeter alert images never come from Frigate's stored event snapshot (0 of 272 in 7 days; 244 live grabs, 28 no file), so 'empty frame' alerts may be capture timing, not false detections — _WSJF 5.0 · v5 tc3 u2 /e2_
 thread: **security** - status: **done**
