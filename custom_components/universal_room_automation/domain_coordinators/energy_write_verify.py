@@ -839,6 +839,25 @@ class WriteVerifier:
                         "suppressed (pending episode active)",
                         surface,
                     )
+                elif self._desire_matches_oracle(
+                    surface,
+                    commanded_value,
+                    self._read_oracle_raw(oracle),
+                    self._read_oracle_unit(oracle),
+                ):
+                    # EC-CFG-SELFHEAL-FALSE-CRITICAL-1 — re-read the cloud
+                    # oracle right before paging. The cloud switch lags the
+                    # write by ~15 min; on 11-07/11-08 it flipped to the
+                    # commanded value 0.2-0.3 s before the CRITICAL went out.
+                    # If it now confirms the command, the write landed:
+                    # reset the streak, no anomaly/NM. Applies to every
+                    # surface (reserve's phase-2 witness only covered one).
+                    self._self_heal_consecutive[surface] = 0
+                    _LOGGER.debug(
+                        "WriteVerifier: %s self_heal_starvation "
+                        "suppressed (cloud oracle now confirms %r)",
+                        surface, commanded_value,
+                    )
                 elif (
                     surface == WRITE_VERIFY_SURFACE_RESERVE
                     and self._local_confirms(
