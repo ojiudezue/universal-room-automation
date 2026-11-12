@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.108.10
+# Universal Room Automation vv5.108.11
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -5963,7 +5963,8 @@ class HVACEgressWindowPauseSwitch(SwitchEntity, RestoreEntity):
 # operator value into hass.data[DOMAIN]["fan_recheck_master_enabled"]
 # (FanRecheckManager reads from there each eligibility check) AND into
 # the CM entry.options (URA mirror pattern — entry.options seeds the next
-# coordinator __init__, RestoreEntity is the runtime store).
+# coordinator __init__ and wins at add; RestoreEntity only covers a
+# never-saved key — FAN-RECHECK-FORM-RESTORE-REVERT-1).
 #
 # Per-room switches live on the room device. They write directly into
 # the room entry.options so the next FanRecheckManager._is_eligible call
@@ -6039,10 +6040,17 @@ class FanRecheckEnabledSwitch(SwitchEntity, RestoreEntity):
             )
 
     async def async_added_to_hass(self) -> None:
-        """Restore last state — RestoreEntity is the runtime source."""
+        """Seed from entry options; RestoreEntity only when the key is absent."""
         await super().async_added_to_hass()
         last_state = await self.async_get_last_state()
-        if last_state is not None and last_state.state in ("on", "off"):
+        # FAN-RECHECK-FORM-RESTORE-REVERT-1: options win when the key is
+        # present (an options-flow save reloads the entry and RestoreEntity
+        # would otherwise revert the just-saved form value). Restore only
+        # covers the key-absent case. Every toggle mirrors to options.
+        config = {**self._entry.data, **self._entry.options}
+        if self._conf_key in config:
+            self._is_on = bool(config[self._conf_key])
+        elif last_state is not None and last_state.state in ("on", "off"):
             self._is_on = last_state.state == "on"
         self._mirror_runtime(self._is_on)
         self.async_write_ha_state()
@@ -6067,8 +6075,8 @@ class RoomFanRecheckEnabledSwitch(
 ):
     """Per-room opt-in for the fan-recheck mechanism.
 
-    Default OFF. RestoreEntity is the runtime store; entry.options
-    seeds install-time only. Writes the value back into the room
+    Default OFF. Entry options (data+options) are the runtime store and
+    win at add; RestoreEntity only covers a never-saved key. Writes the value back into the room
     entry.options on toggle so the FanRecheckManager
     `_merged_config(room_coord)` read picks it up immediately.
     """
@@ -6093,7 +6101,12 @@ class RoomFanRecheckEnabledSwitch(
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
         last_state = await self.async_get_last_state()
-        if last_state is not None and last_state.state in ("on", "off"):
+        # FAN-RECHECK-FORM-RESTORE-REVERT-1: options win when key present.
+        entry = self.coordinator.entry
+        merged = {**entry.data, **entry.options}
+        if self._conf_key in merged:
+            self._attr_is_on = bool(merged[self._conf_key])
+        elif last_state is not None and last_state.state in ("on", "off"):
             self._attr_is_on = last_state.state == "on"
 
     def _mirror_options(self, value: bool) -> None:
@@ -6152,7 +6165,12 @@ class RoomFanRecheckL2AllowedSwitch(
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
         last_state = await self.async_get_last_state()
-        if last_state is not None and last_state.state in ("on", "off"):
+        # FAN-RECHECK-FORM-RESTORE-REVERT-1: options win when key present.
+        entry = self.coordinator.entry
+        merged = {**entry.data, **entry.options}
+        if self._conf_key in merged:
+            self._attr_is_on = bool(merged[self._conf_key])
+        elif last_state is not None and last_state.state in ("on", "off"):
             self._attr_is_on = last_state.state == "on"
 
     def _mirror_options(self, value: bool) -> None:

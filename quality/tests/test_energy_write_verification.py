@@ -1299,7 +1299,7 @@ def test_b_h1_1_self_heal_n3_emits_unmaskable_anomaly_and_nm(hass):
     )
     coord = _FakeCoord(hass)
     coord._battery._entities["cloud_reserve_oracle"] = "number.oracle"
-    _set_state(hass, "number.oracle", "50", unit="%")
+    _set_state(hass, "number.oracle", "40", unit="%")  # oracle disagrees (EC-CFG-SELFHEAL-FALSE-CRITICAL-1: a matching oracle is now suppressed)
     orig = m.async_call_later
     m.async_call_later = lambda h, s, cb: (lambda: None)
     try:

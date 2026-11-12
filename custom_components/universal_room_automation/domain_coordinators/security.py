@@ -39,7 +39,9 @@ from homeassistant.helpers.dispatcher import (
 )
 from homeassistant.helpers.event import (
     async_call_later,
+    async_track_state_added_domain,
     async_track_state_change_event,
+    async_track_state_removed_domain,
     async_track_time_interval,
 )
 from homeassistant.util import dt as dt_util
@@ -2192,26 +2194,60 @@ class SecurityCoordinator(BaseCoordinator):
     # =========================================================================
 
     def _setup_geofence_listener(self) -> None:
-        """Subscribe to person.* entities for arrival detection."""
-        person_entities = [
-            state.entity_id
-            for state in self.hass.states.async_all("person")
-        ]
+        """Subscribe to person.* entities for arrival detection.
+
+        SC-GEOFENCE-PERSON-SNAPSHOT-1: the watched set is rebuilt whenever a
+        person entity is added or removed (mirrors the lock regime's
+        ``_on_person_added`` / ``_on_person_removed`` in
+        ``security_lock_regime.py``), so a person created or loaded after SC
+        setup is still watched. The add/remove subscriptions are made even
+        when no person exists yet. All unsubs ride ``_unsub_listeners``.
+        """
+        self._geofence_person_unsub = None
+        self._resubscribe_geofence_persons()
+        self._unsub_listeners.append(self._cancel_geofence_person_listener)
+        self._unsub_listeners.append(
+            async_track_state_added_domain(
+                self.hass, "person", self._on_geofence_person_domain_change
+            )
+        )
+        self._unsub_listeners.append(
+            async_track_state_removed_domain(
+                self.hass, "person", self._on_geofence_person_domain_change
+            )
+        )
+
+    def _cancel_geofence_person_listener(self) -> None:
+        unsub = getattr(self, "_geofence_person_unsub", None)
+        self._geofence_person_unsub = None
+        if unsub is not None:
+            try:
+                unsub()
+            except Exception:  # noqa: BLE001 — stale handle
+                _LOGGER.debug("Geofence person unsub raised", exc_info=True)
+
+    def _resubscribe_geofence_persons(self) -> None:
+        """Replace the per-entity person listener with one over the live set."""
+        self._cancel_geofence_person_listener()
+        person_entities = sorted(
+            state.entity_id for state in self.hass.states.async_all("person")
+        )
+        self._geofence_person_entities = person_entities
         if not person_entities:
             _LOGGER.debug("No person entities found for geofence arrival detection")
             return
+        self._geofence_person_unsub = async_track_state_change_event(
+            self.hass,
+            person_entities,
+            self._handle_person_state_change,
+        )
 
-        _LOGGER.info(
-            "Geofence arrival listener: watching %d person entities",
-            len(person_entities),
-        )
-        self._unsub_listeners.append(
-            async_track_state_change_event(
-                self.hass,
-                person_entities,
-                self._handle_person_state_change,
-            )
-        )
+    @callback
+    def _on_geofence_person_domain_change(self, event: Event) -> None:
+        """A person entity was added or removed: rebuild the watched set."""
+        if getattr(self, "_shutting_down", False):
+            return
+        self._resubscribe_geofence_persons()
 
     @callback
     def _handle_person_state_change(self, event: Event) -> None:

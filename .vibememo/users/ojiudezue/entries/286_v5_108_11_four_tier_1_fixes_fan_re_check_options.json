@@ -1,0 +1,26 @@
+{
+  "format_version": "2.1",
+  "entry_id": "286",
+  "author": "ojiudezue",
+  "session_id": "claude_20261112_185319_ship_v5_108_11",
+  "timestamp": "2026-11-12T18:53:19Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.108.11 shipped: Four Tier-1 fixes: fan re-check options win, SC late-person geofence, ship-flow cards, CFG self-heal re-read",
+  "summary": "Four Tier-1 fixes: fan re-check options win, SC late-person geofence, ship-flow cards, CFG self-heal re-read",
+  "why": "Overnight pass built three Tier-1 fixes to review and the attended session added the false-CRITICAL CFG page fix; each had a SHIP review and mutation drills. The zone-kWh warning fix was held because review showed it targeted a branch that never fired.",
+  "implications": "Shipped FAN-RECHECK-FORM-RESTORE-REVERT-1, SC-GEOFENCE-PERSON-SNAPSHOT-1, KANBAN-SHIP-FLOW-CARDS-1, EC-CFG-SELFHEAL-FALSE-CRITICAL-1 at v5.108.11; card(s) sit shipped_organic pending validation. Acceptance in README_v5.108.11.md (Live criteria).",
+  "revisit_trigger": "Garage A fan re-check switches read off after restart; no self-heal CRITICAL whose oracle matched at page time",
+  "refs": {
+    "cards": [
+      "FAN-RECHECK-FORM-RESTORE-REVERT-1",
+      "SC-GEOFENCE-PERSON-SNAPSHOT-1",
+      "KANBAN-SHIP-FLOW-CARDS-1",
+      "EC-CFG-SELFHEAL-FALSE-CRITICAL-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.108.11.md"
+    ],
+    "release_notes": "Fan re-check switches follow saved options after reload; Security watches persons added after startup; kanban_ship edits single-line cards; write verifier re-reads the oracle before a third-repeat self-heal page."
+  }
+}
