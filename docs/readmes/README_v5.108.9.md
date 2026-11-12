@@ -36,6 +36,6 @@ Plan: `config_forms_AB_plan_review_rev3.md` (FIX-PLAN, all fixed in rev 4). Buil
 | No URA ERROR after restart; house state back | PASS | system_log URA entries WARNING only; `sensor.ura_coordinator_manager_house_state` = home_evening, confidence 0.9 |
 | Room options: Advanced collapsed, plain labels | PASS | options flow API on Study A, Sensors step: `advanced` expandable section holding `sensor_capabilities_json`; auto-filled fields (presence, door, water leak) on first screen; installed en.json has 0 blank labels ("Advanced (rarely change)", "Sensor types (advanced)") |
 | Presence options: no geofence field | PASS | Coordinator Manager > coordinator_presence schema has no geofence field; fan re-check tuning in its own collapsed section |
-| Save without edits leaves options unchanged, no reload | in-suite only | not exercised live (would submit a real save); covered by the release's save-integrity tests |
+| Save without edits leaves options unchanged, no reload | PASS (operator-approved live save) | 2026-11-12 01:32Z: Study A > Sensors submitted with its current values, Advanced section not opened -> `create_entry`; stored options byte-identical before/after; entry stayed `loaded`; `binary_sensor.study_a_occupied` had no state change (no unavailable blip) in the following 20 s |
 
-Flows opened for inspection were aborted (HTTP 200), nothing saved.
+Inspection flows were aborted (HTTP 200); the one save was the approved no-change test above.
