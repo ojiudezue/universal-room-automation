@@ -6042,7 +6042,14 @@ class FanRecheckEnabledSwitch(SwitchEntity, RestoreEntity):
         """Restore last state — RestoreEntity is the runtime source."""
         await super().async_added_to_hass()
         last_state = await self.async_get_last_state()
-        if last_state is not None and last_state.state in ("on", "off"):
+        # FAN-RECHECK-FORM-RESTORE-REVERT-1: options win when the key is
+        # present (an options-flow save reloads the entry and RestoreEntity
+        # would otherwise revert the just-saved form value). Restore only
+        # covers the key-absent case. Every toggle mirrors to options.
+        config = {**self._entry.data, **self._entry.options}
+        if self._conf_key in config:
+            self._is_on = bool(config[self._conf_key])
+        elif last_state is not None and last_state.state in ("on", "off"):
             self._is_on = last_state.state == "on"
         self._mirror_runtime(self._is_on)
         self.async_write_ha_state()
@@ -6093,7 +6100,12 @@ class RoomFanRecheckEnabledSwitch(
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
         last_state = await self.async_get_last_state()
-        if last_state is not None and last_state.state in ("on", "off"):
+        # FAN-RECHECK-FORM-RESTORE-REVERT-1: options win when key present.
+        entry = self.coordinator.entry
+        merged = {**entry.data, **entry.options}
+        if self._conf_key in merged:
+            self._attr_is_on = bool(merged[self._conf_key])
+        elif last_state is not None and last_state.state in ("on", "off"):
             self._attr_is_on = last_state.state == "on"
 
     def _mirror_options(self, value: bool) -> None:
@@ -6152,7 +6164,12 @@ class RoomFanRecheckL2AllowedSwitch(
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
         last_state = await self.async_get_last_state()
-        if last_state is not None and last_state.state in ("on", "off"):
+        # FAN-RECHECK-FORM-RESTORE-REVERT-1: options win when key present.
+        entry = self.coordinator.entry
+        merged = {**entry.data, **entry.options}
+        if self._conf_key in merged:
+            self._attr_is_on = bool(merged[self._conf_key])
+        elif last_state is not None and last_state.state in ("on", "off"):
             self._attr_is_on = last_state.state == "on"
 
     def _mirror_options(self, value: bool) -> None:
