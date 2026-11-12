@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-12T14:12:40-06:00_ - _Data commit: `9ce3f2fe847c`_ - _last_reconciled: 2026-11-12_
+_Generated: 2026-11-12T14:13:16-06:00_ - _Data commit: `85982fcc5b94`_ - _last_reconciled: 2026-11-12_
 
 
 ## Columns
@@ -15,11 +15,11 @@ _Generated: 2026-11-12T14:12:40-06:00_ - _Data commit: `9ce3f2fe847c`_ - _last_r
 | 📝 Planned | 26 |
 | 🔨 In progress | 2 |
 | 🔍 Review | 0 |
-| ⏸️ Waiting on operator | 31 |
+| ⏸️ Waiting on operator | 30 |
 | ⏳ Waiting on me (Claude) | 2 |
 | 🚀 Shipped (organic open) | 21 |
 | 🅿️ Parked | 118 |
-| ✅ Done | 425 |
+| ✅ Done | 426 |
 
 ## 📥 Inbox (1)
 _raw capture_
@@ -645,7 +645,7 @@ _under review_
 
 _(none)_
 
-## ⏸️ Waiting on operator (31)
+## ⏸️ Waiting on operator (30)
 _needs a human call — groomed first_
 
 ### `PERIMETER-DETECTION-WENT-DARK-1` - Exterior person detection went fully dark for ~26h on 2026-09-14/15 and then recovered on its own — nothing noticed either the outage or the recovery — _#1 · WSJF 10.0 · v9 tc9 u2 /e2_
@@ -1103,20 +1103,7 @@ _updated 2026-09-29 01:05_
   - `safety_note`: Blanket-mute is a stopgap while classification precision improves (the operator-stated underlying goal); scope-limiting to perimeter class keeps the failure mode bounded.
   - `organic_evidence`: 2026-08-23 watch-pass: README_v5.75.2 L4=ORGANIC (open) — first real "duke Nh" reply not yet observed. Awaiting real perimeter CRITICAL + operator safeword reply. H1 PENDING.
 
-### `EC-EV-DAYTIME-SOLAR-LED-1` - Explore making daytime EV charging solar-led instead of off-peak-led in the EC — _#26 · WSJF 1.8 · v5 tc2 u2 /e5_
-thread: **energy** - status: **waiting_operator** - approval: **implied**
-_created 2026-11-12 14:07 · updated 2026-11-12 14:12 · initial_
-- **Problem / Solution:**
-  - Problem: in shoulder and winter the tariff calls midday off-peak (same 4.3 cents as overnight, export the same), so the EC lets the cars charge from the grid in daylight just as it does overnight; excess-solar logic only adds charging an...
-- **Origin:** 2026-11-12 - Operator: "Daytime EV charging should be solar-led ... Explore what this could mean for EC"
-- **Why:** Raised while diagnosing EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1; the rung-1 fix D is kept separate and does not depend on this.
-- **Next:** PICK: (A, recommended) no build; optionally raise number.ura_energy_coordinator_fill_priority_soc 80 -> ~90 (knob, yours); park shapes 2-4 with triggers; or (B) pursue shape 2 (Tier 3). ANSWER: is solar-led about money (zero on this tari...
-- **Forensic keys (3):**
-  - `tier`: 2
-  - `adjacency`: Swept board (no solar-led card), BACKLOG.md (none); prior art in docs/planning: AUDIT_excess_solar_and_evse_prior_art.md, PLANNING_evse_solar_follow_amps.md, PLANNING_evse_solar_idle_dereserve.md, PLANNING_evse_offpeak_fill_priority_rele...
-  - `exploration_2026_11_12`: docs/planning/EXPLORE_ec_ev_daytime_solar_led.md. Fill priority already keeps the car off in daylight off-peak until battery 80% on good-forecast days; excess-solar + solar-follow amps take over at battery >=95%. Gaps: battery 80-95%, an...
-
-### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab — _#27 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab — _#26 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **dashboarding** - status: **waiting_operator** - approval: **explicit**
 _updated 2026-09-29 01:05_
 - **Origin:** 2026-08-09 - "add an EV charging detail card to the Ura v8 energy tab. Style well. Detail cards are a bit sensor words vomit. Best judgement because of space though."
@@ -1136,7 +1123,7 @@ _updated 2026-09-29 01:05_
   - `DEDUPE_2026_08_09`: Sweep: dashboarding thread has the PWA + KHOST-1 (kanban board, different surface); EV drain-precedence card is queued BACKLOG work about behaviour not display. No existing card covers a v8 energy-tab EV surface. NEW.
   - `status_correction_2026_08_16`: Was stale in INBOX — the card was BUILT and applied live to ura-v8 Energy tab 2026-08-09; correct state = waiting_operator (refinement review, operator: "I'll review and we can refine").
 
-### `CENSUS-ATHOME-RESIDENT-CORROBORATOR-1` - A resident at home wandering out a side door (porch, garage) cannot be told apart from a visitor — _#28 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `CENSUS-ATHOME-RESIDENT-CORROBORATOR-1` - A resident at home wandering out a side door (porch, garage) cannot be told apart from a visitor — _#27 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **census** - status: **waiting_operator** - approval: **explicit**
 _created 2026-10-05 02:22 · updated 2026-10-14 03:05 · refined_
 - **Problem / Solution:**
@@ -1159,7 +1146,7 @@ _created 2026-10-05 02:22 · updated 2026-10-14 03:05 · refined_
   - `groomed_2026_10_05_overnight`: Inbox -> pre_planning (REAL per the plan's measured Path-beta budget of ~3-4 episodes/day). Sequenced AFTER the parent's D1 stem fix: some of today's unattributable crossings are _2-camera crossings that never reach identity at all (EGRE...
   - `sweep_2026_10_05`: Board census/egress cards swept; GAP-A-CENSUS-HOLE-1 ADJACENT. NEW.
 
-### `SAFETY-RATE-DETECTOR-DEAD-WINDOW-1` - The safety "rapid change" detector almost never runs, because its 30-minute window check can only pass at an exact instant — _#29 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `SAFETY-RATE-DETECTOR-DEAD-WINDOW-1` - The safety "rapid change" detector almost never runs, because its 30-minute window check can only pass at an exact instant — _#28 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **safety** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-09-27 02:40 · updated 2026-10-19 02:03 · refined_
 - **Problem / Solution:**
@@ -1179,7 +1166,7 @@ _created 2026-09-27 02:40 · updated 2026-10-19 02:03 · refined_
   - `contradiction_2026_10_19_overnight`: CARD-WAS-WRONG on its own next: update_2026_10_15 records YOUR answer ('rapid change isn't that a heat thing for fire? If so it's a fix') and verified temperature_rise_extreme maps to OVERHEAT (safety.py:670, :859) -> disposition FIX (B)...
   - `paged_2026_10_19_overnight`: Paged 02:42 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody).
 
-### `WALLPANEL-TOUCH-WITNESS-1` - Wall-panel sensors as URA inputs (touch witness, BLE proxy scanners, ambient noise; temp/lux low value) — _#30 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `WALLPANEL-TOUCH-WITNESS-1` - Wall-panel sensors as URA inputs (touch witness, BLE proxy scanners, ambient noise; temp/lux low value) — _#29 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **presence** - status: **waiting_operator**
 _created 2026-10-20 08:30 · updated 2026-10-23 02:09 · refined ×1_
 - **Origin:** 2026-10-20 - HomeLab accepted idea 3 (ffa7d06).
@@ -1192,7 +1179,7 @@ _created 2026-10-20 08:30 · updated 2026-10-23 02:09 · refined ×1_
   - `tier`: 2
   - `panel_sensor_facts_2026_10_20`: HomeLab withdrew the not-presence framing (operator asked). Temp +3.6-3.8F high vs room sensors, varies with brightness/CPU; humidity within 1-3 pts; lux screen-biased; ambient_noise dBFS ~1/min (activity); last_interaction touch; motion...
 
-### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#31 · WSJF 1.1 · v5 tc2 u2 /e8_
+### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#30 · WSJF 1.1 · v5 tc2 u2 /e8_
 thread: **presence** - status: **waiting_operator**
 _created 2026-09-20 · updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -1513,10 +1500,10 @@ _created 2026-11-09 00:30 · updated 2026-11-10 02:16_
 
 ### `GARAGE-REMOTE-LOCKOUT-SCHEDULE-1` - Garage remote lockout (A + B): on at night, off in the morning, and released when a family member arrives so a 3 AM return is not locked out — _#18 · WSJF 4.0 · v4 tc2 u2 /e2_
 thread: **security** - status: **shipped_organic**
-_created 2026-11-07 12:10 · updated 2026-11-12 14:08_
+_created 2026-11-07 12:10 · updated 2026-11-12 14:20_
 - **Why:** lock.konnected_f0f5bd523b00_lock (Garage A) and lock.ratgdov25i_dbfe2a_lock_remotes (Garage B) block car remotes and the outside keypad; the wall button and HA still work. The Security coordinator has no lockout concept. Dashboard part s...
-- **Next:** Shipped v5.105.0 and validated 11-07 with the feature OFF (README v5.105.0). Organic proof needs the feature on: DO turn on the garage lockout switch when you want it live -> I check the first night's engage at Sleep and release at the m...
-- **Forensic keys (8):**
+- **Next:** PICK: hold-time knob only (recommended) or also expose the 15-min away rule as a Number -> Tier 2 build (two reviews) before the lockout is enabled.
+- **Forensic keys (9):**
   - `tier`: 2
   - `adjacency`: Swept board for garage/lockout/keypad: NEW. Related: security arming cards; the 'leave garage B alone' constraint is lifted for this scheme by the operator 2026-11-07.
   - `plan_2026_11_07`: Option B picked. Plan rev1 docs/planning/PLANNING_sc_garage_remote_lockout.md (ea4bc6a8), pre-review. Open operator questions: approach zone 1-2 km; away/vacation engage + hold-until-arrival; keypad physical test; kill-switch-at-night se...
@@ -1525,6 +1512,7 @@ _created 2026-11-07 12:10 · updated 2026-11-12 14:08_
   - `proximity_2026_11_07`: Operator: set up proximity for all 4 persons. Created core proximity entry 01M6VGHPVWX72KF6ENND5HY309 (zone.home; person.oji_udezue, ezinne, ziri, jaya; default tolerance). Sensors sensor.madronehaos_<person>_distance / _direction_of_tra...
   - `phase1_build_2026_11_07`: Plan rev 5 (874e5615) + Q-G1 = option (a) guest-in-sleep-hours engages. Phase 1 build dispatched (ura-builder, worktree).
   - `INSTANCE_2026_11_12_blip_release_gap`: D0 probe (docs/planning/AUDIT_ble_arrival_d0_probe.md): 78 of Oji's 86 person not_home->home edges 11-05..11-11 were sub-second false arrivals (phone app tracker unavailable -> person fell back to the iPad's home), each dispatching a geo...
+  - `operator_decision_2026_11_12_blip`: Operator approved fixing the blip-release gap before the lockout goes on; asked whether 15 min is right and wants a knob (Number entity on the device, plain-language label) after a parsimony check. Parsimony finding: the 15-min away rule...
 
 ### `PERIMETER-FP-STREET-NOISE-1` - Perimeter alerts still include false positives and street noise: reduce FPs end-to-end (Frigate masks/zones/filters, URA pre-alert gates) + check snapshot storage/archival — _#19 · WSJF 2.7 · v4 tc2 u2 /e3_
 thread: **security** - status: **shipped_organic**
@@ -3211,8 +3199,22 @@ _created 2026-09-01 20:30 · initial_
 - **Tags:** tier-3, no-fabrication-verify, regression-prone
 - **Refs:** docs/planning/PLANNING_shared_power_read_staleness.md; Envoy Tier-3 reviews A/B/C/D 2026-09-01
 
-## ✅ Done (425)
+## ✅ Done (426)
 _closed, evidence in refs_
+
+### `EC-EV-DAYTIME-SOLAR-LED-1` - Explore making daytime EV charging solar-led instead of off-peak-led in the EC — _WSJF 1.8 · v5 tc2 u2 /e5_
+thread: **energy** - status: **done** - approval: **implied**
+_created 2026-11-12 14:07 · updated 2026-11-12 14:20 · initial_
+- **Problem / Solution:**
+  - Problem: in shoulder and winter the tariff calls midday off-peak (same 4.3 cents as overnight, export the same), so the EC lets the cars charge from the grid in daylight just as it does overnight; excess-solar logic only adds charging an...
+- **Origin:** 2026-11-12 - Operator: "Daytime EV charging should be solar-led ... Explore what this could mean for EC"
+- **Why:** Raised while diagnosing EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1; the rung-1 fix D is kept separate and does not depend on this.
+- **Next:** PICK: (A, recommended) no build; optionally raise number.ura_energy_coordinator_fill_priority_soc 80 -> ~90 (knob, yours); park shapes 2-4 with triggers; or (B) pursue shape 2 (Tier 3). ANSWER: is solar-led about money (zero on this tari...
+- **Forensic keys (4):**
+  - `tier`: 2
+  - `adjacency`: Swept board (no solar-led card), BACKLOG.md (none); prior art in docs/planning: AUDIT_excess_solar_and_evse_prior_art.md, PLANNING_evse_solar_follow_amps.md, PLANNING_evse_solar_idle_dereserve.md, PLANNING_evse_offpeak_fill_priority_rele...
+  - `exploration_2026_11_12`: docs/planning/EXPLORE_ec_ev_daytime_solar_led.md. Fill priority already keeps the car off in daylight off-peak until battery 80% on good-forecast days; excess-solar + solar-follow amps take over at battery >=95%. Gaps: battery 80-95%, an...
+  - `operator_decision_2026_11_12`: Operator: raise fill priority toward the 95% latch -> DONE 13:5x CST: number.ura_energy_coordinator_fill_priority_soc 80 -> 90 (max 95, step 5; prior value 80 is the rollback). Operator disputes 'sun = grid in value': with sunk costs, su...
 
 ### `PERSON-OJI-HOME-FLAP-1` - person.oji_udezue flaps home/not_home in the same second while abroad — _WSJF 7.0 · v3 tc2 u2 /e1_
 thread: **presence** - status: **done**
