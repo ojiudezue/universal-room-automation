@@ -34354,9 +34354,9 @@ cards:
 - id: EC-EV-DAYTIME-SOLAR-LED-1
   title: Explore making daytime EV charging solar-led instead of off-peak-led in the EC
   thread: energy
-  status: investigating
+  status: waiting_operator
   created: '2026-11-12 14:07'
-  updated: '2026-11-12 14:07'
+  updated: '2026-11-12 14:12'
   refinement_status: initial
   tier: 2
   approval: implied
@@ -34373,8 +34373,9 @@ cards:
   constraints:
   - Protect overnight off-peak EV charging.
   - No new machinery on hardened code without a clear margin.
-  next: 'Me: read-only exploration doc (ura-planner) -> operator PICK.'
+  next: "PICK: (A, recommended) no build; optionally raise number.ura_energy_coordinator_fill_priority_soc 80 -> ~90 (knob, yours); park shapes 2-4 with triggers; or (B) pursue shape 2 (Tier 3). ANSWER: is solar-led about money (zero on this tariff) or preference? Is export really credited at 4.35c in every period?"
   rank: {value: 5, time_criticality: 2, effort: 5}
+  exploration_2026_11_12: "docs/planning/EXPLORE_ec_ev_daytime_solar_led.md. Fill priority already keeps the car off in daylight off-peak until battery 80% on good-forecast days; excess-solar + solar-follow amps take over at battery >=95%. Gaps: battery 80-95%, and poor-forecast days. Tariff is symmetric (import = export 4.35c off-peak), so solar vs grid into the car is worth the same; only value is a fuller battery at the evening boundary (<=26c/day shoulder, <=71c/day summer, arithmetic). 7 days data: 14.4 kWh daytime EV, ~all of it the 11-08 poor-day session from grid with no export; 37 kWh export fell on good days with no car charging. Shapes: 1 knob fill_priority_soc 80->90 (config only); 2 solar-only by day unless needed (Tier 3, needs car SOC/departure); 3 excess-solar on export (revives EVSE-SOLAR-STOP-CONDITIONS-1 oscillator); 4 summer-only. Recommend no build."
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
