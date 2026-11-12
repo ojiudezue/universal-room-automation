@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-12T16:53:34-06:00_ - _Data commit: `6b324966b942`_ - _last_reconciled: 2026-11-12_
+_Generated: 2026-11-12T17:01:13-06:00_ - _Data commit: `6bc0bc468104`_ - _last_reconciled: 2026-11-12_
 
 
 ## Columns
@@ -10,7 +10,7 @@ _Generated: 2026-11-12T16:53:34-06:00_ - _Data commit: `6b324966b942`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 2 |
-| 🔬 Investigating | 1 |
+| 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 14 |
 | 📝 Planned | 26 |
 | 🔨 In progress | 3 |
@@ -47,7 +47,7 @@ _created 2026-11-12 14:13 · initial_
 - **Forensic keys (1):**
   - `tier`: 1
 
-## 🔬 Investigating (1)
+## 🔬 Investigating (2)
 _measuring; truth not yet known_
 
 ### `HVAC-ZONE-KWH-SEED-WARN-WORDING-1` - Zone-kWh seed logs UNSAFE at every boot though the threshold Numbers self-restore a moment later — _#1 · WSJF 4.0 · v1 tc1 u2 /e1_
@@ -60,6 +60,17 @@ _created 2026-11-11 19:40 · updated 2026-11-12 13:05_
   - `dispatch_2026_11_12`: ura-builder in worktree, branch fix/zone-kwh-seed-warn; bundles with the review-lane release.
   - `review_2026_11_12`: CARD-WAS-WRONG. The why on this card (seed reads before the Number restores) is WRONG: seed (__init__.py:7276) and Number (HA restore_state.py:295) read the same last_states dict, filled once at load. Live .storage has numeric entries + ...
   - `measured_2026_11_12_boot`: v5.108.11 restart 12:55: all three zones logged the no RestoreState entry branch (__init__.py:7310), while the three Numbers restored 1.0/0.8/0.8. So the seed sees no entry where the Number does: the review claim that both read the same ...
+
+### `ZONE-CAMERA-DISCOVERY-DEVICE-AREA-1` - Zone camera discovery reads only the entity's own area, but every camera's area is set on the device, so no zone has any camera (face arrival never worked) — _#2 · WSJF 2.2 · v6 tc3 u2 /e5_
+thread: **identity** - status: **investigating** - approval: **unreviewed**
+_created 2026-11-12 17:06 · initial_
+- **Problem / Solution:**
+  - Problem: the face-match arrival signal has never fired. All 5 zone presence sensors list no cameras, because camera discovery (camera_census.py ~:661) only reads the area set on each camera entity, and in this house all 655 camera entiti...
+- **Origin:** 2026-11-12 - Operator on the pre-arrival list: "Camera face match: enabled but hasn't fired in 14 days. Que? Regression?" Verdict: never worked.
+- **Why:** Probe docs/planning/AUDIT_face_arrival_and_prearrival_fan_rooms.md. Also a portability defect (feedback_portability_imperative): resolve area from the registry the way HA does. Even once fixed, face arrival would rarely fire: exterior ca...
+- **Next:** Me: verify the boot log line Subscribed to N zone camera entities, map every consumer of zone cameras, then plan the device-area fallback.
+- **Forensic keys (1):**
+  - `tier`: 2
 
 ## 🧭 Pre-planning (14)
 _idea being decomposed_

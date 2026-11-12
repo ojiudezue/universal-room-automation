@@ -34472,6 +34472,29 @@ cards:
   - Decide what 'zone temperature' means for a multi-room zone (thermostat reading vs room average) before building.
   next: 'Me: marginal-benefit decomposition + Tier-2 plan with one plan review.'
   rank: {value: 6, time_criticality: 4, effort: 5}
+- id: ZONE-CAMERA-DISCOVERY-DEVICE-AREA-1
+  title: Zone camera discovery reads only the entity's own area, but every camera's area is set on the device, so no zone has any camera (face arrival never worked)
+  thread: identity
+  status: investigating
+  created: '2026-11-12 17:06'
+  updated: '2026-11-12 17:06'
+  refinement_status: initial
+  tier: 2
+  approval: unreviewed
+  problem_solution:
+  - 'Problem: the face-match arrival signal has never fired. All 5 zone presence sensors list no cameras, because camera discovery (camera_census.py ~:661) only reads the area set on each camera entity, and in this house all 655 camera entities have their area on the device instead. So every camera files under no area and no zone gets one. Anything else that relies on zone cameras is also blind. Solution: fall back to the device''s area when the entity has none (HA''s normal rule), then re-check what the zone cameras feed, and decide whether face arrival is worth turning on given the gaps below.'
+  origin:
+    date: '2026-11-12'
+    gist: 'Operator on the pre-arrival list: "Camera face match: enabled but hasn''t fired in 14 days. Que? Regression?" Verdict: never worked.'
+  why: 'Probe docs/planning/AUDIT_face_arrival_and_prearrival_fan_rooms.md. Also a portability defect (feedback_portability_imperative): resolve area from the registry the way HA does. Even once fixed, face arrival would rarely fire: exterior cameras are in no zone, _2 person sensors are skipped by design (FACE_SOURCE_PRESENCE_ARRIVAL_DISAMBIGUATED=False), the name usually arrives after the person edge (8/116 fresh at doorbell_lite), and there is no was-away gate.'
+  constraints:
+  - Read IDENTITY_FUSION_CAMERAS_MANUAL.md and PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md before planning.
+  - Producer AND consumer map of zone cameras before any change (what else consumes zone cameras and would start acting).
+  links:
+    related: [PERSON-PROFILE-PREFERENCES-1]
+    context: 'Identified arrival is a personalization input; face arrival is one candidate producer.'
+  next: 'Me: verify the boot log line Subscribed to N zone camera entities, map every consumer of zone cameras, then plan the device-area fallback.'
+  rank: {value: 6, time_criticality: 3, effort: 5}
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
