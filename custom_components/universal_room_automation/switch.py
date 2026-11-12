@@ -5963,7 +5963,8 @@ class HVACEgressWindowPauseSwitch(SwitchEntity, RestoreEntity):
 # operator value into hass.data[DOMAIN]["fan_recheck_master_enabled"]
 # (FanRecheckManager reads from there each eligibility check) AND into
 # the CM entry.options (URA mirror pattern — entry.options seeds the next
-# coordinator __init__, RestoreEntity is the runtime store).
+# coordinator __init__ and wins at add; RestoreEntity only covers a
+# never-saved key — FAN-RECHECK-FORM-RESTORE-REVERT-1).
 #
 # Per-room switches live on the room device. They write directly into
 # the room entry.options so the next FanRecheckManager._is_eligible call
@@ -6039,7 +6040,7 @@ class FanRecheckEnabledSwitch(SwitchEntity, RestoreEntity):
             )
 
     async def async_added_to_hass(self) -> None:
-        """Restore last state — RestoreEntity is the runtime source."""
+        """Seed from entry options; RestoreEntity only when the key is absent."""
         await super().async_added_to_hass()
         last_state = await self.async_get_last_state()
         # FAN-RECHECK-FORM-RESTORE-REVERT-1: options win when the key is
@@ -6074,8 +6075,8 @@ class RoomFanRecheckEnabledSwitch(
 ):
     """Per-room opt-in for the fan-recheck mechanism.
 
-    Default OFF. RestoreEntity is the runtime store; entry.options
-    seeds install-time only. Writes the value back into the room
+    Default OFF. Entry options (data+options) are the runtime store and
+    win at add; RestoreEntity only covers a never-saved key. Writes the value back into the room
     entry.options on toggle so the FanRecheckManager
     `_merged_config(room_coord)` read picks it up immediately.
     """
