@@ -32514,10 +32514,10 @@ cards:
 - id: EC-CFG-SELFHEAL-FALSE-CRITICAL-1
   title: "CRITICAL 'Envoy write self-heal loop: charge_from_grid' pages fire after the write already worked (cloud switch lags ~15 min; the alarm never re-checks it) -> re-read the cloud switch before paging"
   thread: energy
-  status: planned
+  status: in_progress
   tier: 1
   created: "2026-11-09 02:07"
-  updated: "2026-11-09 02:07"
+  updated: '2026-11-12 12:20'
   refinement_status: initial
   rank: {value: 5, time_criticality: 3, effort: 2}
   problem_solution:
@@ -32531,6 +32531,7 @@ cards:
   next: "Build Tier 1 at the next attended session (the overnight pass does not start builds while 8 cards sit in review): the re-read guard + mutation test, then one Tier-1 review."
   refs: [custom_components/universal_room_automation/domain_coordinators/energy_write_verify.py, docs/planning/PLANNING_ec_reserve_oracle_phase2.md]
   links: {related: [EC-ENPHASE-CONNECTIVITY-RESILIENCE-1, EC-SELFHEAL-UNEXPLAINED-RESENDS-1, PERIMETER-ALERT-VOLUME-FATIGUE-1], context: "EC-ENPHASE-CONNECTIVITY-RESILIENCE-1 and EC-SELFHEAL-UNEXPLAINED-RESENDS-1 fixed the same false-page shape for the reserve surface only (phase-2 N4 left CFG out); false CRITICALs feed the alert-fatigue card."}
+  dispatch_2026_11_12: 'ura-builder in worktree, branch fix/ec-cfg-selfheal-reread; bundles with the review-lane release.'
 - id: RESTORE-UNAVAILABLE-OFF-SWEEP-1
   disposed_2026_10_10_overnight: "DONE (met; the exact after-URA-crash path is proven in-suite, not live). HA recorder, last 72 h, all switch.ura_* / switch.*_automation entities: 396 restore cycles where a switch that was ON went unavailable/unknown and came back - 396 came back ON, 0 came back OFF, and 0 OFF switches came back ON. Those cycles span 7 restarts/reloads (10-08 12:24, 17:20; 10-09 08:14, 09:33, 09:55, 11:23, 17:09). Vacancy Auto-Off (switch.ura_hvac_coordinator_zone_sweep) stayed ON through every one of the 10-09 cycles. None of these followed a URA setup failure, so the specific 10-03 path is covered by quality/tests/test_restore_guard_52_sweep.py (18 tests, each behavioural site drilled red). Closed 2 days ahead of the 10-12 dispose-by."
   reverified_2026_10_09_overnight: "OPERATOR DO DONE: switch.ura_hvac_coordinator_zone_sweep (Vacancy Auto-Off) went off->on at 2026-10-08 21:00:32 CDT with no restart around it (the restarts were 12:24 and 17:20, and it correctly came back OFF from both because it was off before them). Recorder history read via the HA MCP. Back to shipped_organic for the code discriminator."
@@ -34310,28 +34311,30 @@ cards:
 - id: EC-BATTERY-CHARGE-SOURCE-DAY-1
   title: "Battery charged from grid / from sun today: expose the EC's existing per-tick charge split as daily kWh sensors; point the URA v8 Battery section at them"
   thread: "energy"
-  status: shipped_organic
+  status: done
   shipped_version: v5.108.10
   tier: 1
   created: "2026-11-11 14:30"
-  updated: "2026-11-11 14:30"
+  updated: '2026-11-12 12:20'
   origin: "Operator 2026-11-11: 'I want day view' for charge from sun vs grid; 'build it around emporia main sensor... envoy for what goes into batteries'; 'Go. Correct anything on the dashboard that can get more accurate'."
   why: "PeakAvoidanceTracker.accumulate (energy_billing.py:1111-1115) already splits each charge tick into grid=min(charge, net import) and solar=rest, net import from _get_net_power (energy_billing.py:207, Emporia counter-derived in counter mode). The kWh feed only the arbitrage inventory (energy.py:4616) and are never exposed. Dashboard cards used a cruder solar-minus-SPAN-load formula. REUSED split; NEW only the daily sensors (grep of charged_from/grid_to_battery/charge_source found none)."
   next: "ura-builder in worktree: daily grid/sun/unsplit kWh sensors, local-midnight reset (not Envoy UTC counters, AUDIT_envoy_telemetry_pairing_manual F4), restart restore; one review; deploy with the pending v5.108.9 restart; repoint dashboard."
   links: {}
   rank: {"value": 3, "time_criticality": 2, "effort": 2}
+  disposition_2026_11_12: 'DONE on the discriminator. 12:05 CST: sun 25.779 + grid 0.699 + unsplit 0.0 = 26.48 kWh vs Envoy lifetime_battery_energy_charged_2 delta since local midnight 7.95838->7.984692 MWh = 26.31 kWh (+0.6%). Midnight reset not discriminated live (both buckets were ~0 at 23:50 since they started at the 19:24 restart); covered by test_local_midnight_reset / test_reset_keys_on_now_date_of_caller.'
 - id: HVAC-ZONE-KWH-SEED-WARN-WORDING-1
   title: "Zone-kWh seed logs UNSAFE at every boot though the threshold Numbers self-restore a moment later"
   thread: "hvac"
-  status: "inbox"
+  status: in_progress
   tier: 1
   created: "2026-11-11 19:40"
-  updated: "2026-11-11 19:40"
+  updated: '2026-11-12 12:20'
   origin: "Boot log after v5.108.10 restart 2026-11-11; operator: 'Def look'."
   why: "__init__.py:~7310 seed reads core.restore_state before the Numbers restore and finds no entry; number.py:3100-3110 then restores and pushes to the zone. Probe: all three zones 0.8 kW live and in every recorder row since 11-04 (= default), so the UNSAFE claim is false. Bug class: seed path disagrees with the entity's own restore path."
   next: "Downgrade/reword the UNRESOLVED log when the Number will self-restore. Zone 1 (4-ton) set 0.8 -> 1.0 kW by operator decision 2026-11-11 19:31 CST (number.ura_hvac_coordinator_ac_kwh_rate_threshold_entertainment_master_suite)."
   links: {}
   rank: {"value": 1, "time_criticality": 1, "effort": 1}
+  dispatch_2026_11_12: 'ura-builder in worktree, branch fix/zone-kwh-seed-warn; bundles with the review-lane release.'
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
