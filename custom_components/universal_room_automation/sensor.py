@@ -359,6 +359,8 @@ async def async_setup_entry(
             EnergySavingsTotalBillingCycleSensor(hass, entry),
             EnergySavingsTotalLifetimeSensor(hass, entry),
             EnergyKwhAvoidedTodaySensor(hass, entry),
+            EnergyBatteryChargedFromGridTodaySensor(hass, entry),
+            EnergyBatteryChargedFromSunTodaySensor(hass, entry),
             EnergyKwhAvoidedBillingCycleSensor(hass, entry),
             EnergyKwhAvoidedLifetimeSensor(hass, entry),
             EnergyCurrentRateSensor(hass, entry),
@@ -11998,6 +12000,61 @@ class EnergyKwhAvoidedTodaySensor(_KwhAvoidedBase):
         if ec is None:
             return None
         return round(ec.peak_avoidance_status.get("kwh_avoided_today", 0.0), 3)
+
+
+class _BatteryChargeSourceTodayBase(_KwhAvoidedBase):
+    """EC-BATTERY-CHARGE-SOURCE-DAY-1: daily total of the EC per-tick battery
+    charge split (PeakAvoidanceTracker.accumulate). Resets at local midnight
+    and survives a same-day restart via the peak-avoidance snapshot."""
+
+    _attr_icon = "mdi:battery-charging"
+    # Only rises within a day; TOTAL_INCREASING makes the recorder read the
+    # midnight drop as a meter reset, not a negative change.
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _status_key: str = ""
+
+    @property
+    def native_value(self) -> float | None:
+        ec = _ec(self.hass)
+        if ec is None:
+            return None
+        return round(ec.peak_avoidance_status.get(self._status_key, 0.0), 3)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        ec = _ec(self.hass)
+        if ec is None:
+            return {}
+        st = ec.peak_avoidance_status
+        return {
+            "unsplit_kwh_today": round(
+                st.get("charge_unsplit_kwh_today", 0.0) or 0.0, 3
+            ),
+            "grid_charge_kw": st.get("grid_charge_kw"),
+            "solar_charge_kw": st.get("solar_charge_kw"),
+        }
+
+
+class EnergyBatteryChargedFromGridTodaySensor(_BatteryChargeSourceTodayBase):
+    """Entity: sensor.ura_energy_coordinator_battery_charged_from_grid_today"""
+
+    _status_key = "charge_grid_kwh_today"
+
+    def __init__(self, hass, entry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_battery_charged_from_grid_today"
+        self._attr_name = "Battery charged from grid today"
+
+
+class EnergyBatteryChargedFromSunTodaySensor(_BatteryChargeSourceTodayBase):
+    """Entity: sensor.ura_energy_coordinator_battery_charged_from_sun_today"""
+
+    _status_key = "charge_solar_kwh_today"
+
+    def __init__(self, hass, entry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_battery_charged_from_sun_today"
+        self._attr_name = "Battery charged from sun today"
 
 
 class EnergyKwhAvoidedBillingCycleSensor(_KwhAvoidedBase):
