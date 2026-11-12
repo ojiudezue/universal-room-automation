@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-12T13:50:03-06:00_ - _Data commit: `ad317d6264c4`_ - _last_reconciled: 2026-11-12_
+_Generated: 2026-11-12T14:04:55-06:00_ - _Data commit: `64ef3740228a`_ - _last_reconciled: 2026-11-12_
 
 
 ## Columns
@@ -10,7 +10,7 @@ _Generated: 2026-11-12T13:50:03-06:00_ - _Data commit: `ad317d6264c4`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 0 |
-| 🔬 Investigating | 1 |
+| 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 14 |
 | 📝 Planned | 26 |
 | 🔨 In progress | 2 |
@@ -26,7 +26,7 @@ _raw capture_
 
 _(none)_
 
-## 🔬 Investigating (1)
+## 🔬 Investigating (2)
 _measuring; truth not yet known_
 
 ### `HVAC-ZONE-KWH-SEED-WARN-WORDING-1` - Zone-kWh seed logs UNSAFE at every boot though the threshold Numbers self-restore a moment later — _#1 · WSJF 4.0 · v1 tc1 u2 /e1_
@@ -39,6 +39,18 @@ _created 2026-11-11 19:40 · updated 2026-11-12 13:05_
   - `dispatch_2026_11_12`: ura-builder in worktree, branch fix/zone-kwh-seed-warn; bundles with the review-lane release.
   - `review_2026_11_12`: CARD-WAS-WRONG. The why on this card (seed reads before the Number restores) is WRONG: seed (__init__.py:7276) and Number (HA restore_state.py:295) read the same last_states dict, filled once at load. Live .storage has numeric entries + ...
   - `measured_2026_11_12_boot`: v5.108.11 restart 12:55: all three zones logged the no RestoreState entry branch (__init__.py:7310), while the three Numbers restored 1.0/0.8/0.8. So the seed sees no entry where the Number does: the review claim that both read the same ...
+
+### `EC-EV-DAYTIME-SOLAR-LED-1` - Explore making daytime EV charging solar-led instead of off-peak-led in the EC — _#2 · WSJF 1.8 · v5 tc2 u2 /e5_
+thread: **energy** - status: **investigating** - approval: **implied**
+_created 2026-11-12 14:07 · initial_
+- **Problem / Solution:**
+  - Problem: in shoulder and winter the tariff calls midday off-peak (same 4.3 cents as overnight, export the same), so the EC lets the cars charge from the grid in daylight just as it does overnight; excess-solar logic only adds charging an...
+- **Origin:** 2026-11-12 - Operator: "Daytime EV charging should be solar-led ... Explore what this could mean for EC"
+- **Why:** Raised while diagnosing EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1; the rung-1 fix D is kept separate and does not depend on this.
+- **Next:** Me: read-only exploration doc (ura-planner) -> operator PICK.
+- **Forensic keys (2):**
+  - `tier`: 2
+  - `adjacency`: Swept board (no solar-led card), BACKLOG.md (none); prior art in docs/planning: AUDIT_excess_solar_and_evse_prior_art.md, PLANNING_evse_solar_follow_amps.md, PLANNING_evse_solar_idle_dereserve.md, PLANNING_evse_offpeak_fill_priority_rele...
 
 ## 🧭 Pre-planning (14)
 _idea being decomposed_
@@ -265,12 +277,12 @@ _created 2026-11-11 17:00_
 
 ### `EGRESS-BLE-ARRIVAL-LATENCY-1` - BLE arrival fires ~20-120 s after geofence despite scanners at each egress: measure where the delay is — _#2 · WSJF 6.0 · v3 tc1 u2 /e1_
 thread: **presence** - status: **planned** - approval: **explicit**
-_created 2026-11-11 15:10 · updated 2026-11-12 13:49 · refined_
+_created 2026-11-11 15:10 · updated 2026-11-12 14:08 · refined_
 - **Problem / Solution:**
   - Problem: when someone gets home, the Bluetooth-based arrival signal fires 8-41 s after the first 'home' signal, even though scanners sit at each door. Measured: about a third of that is the Bluetooth system working out which room the pho...
 - **Why:** BLE pre-arrival needs Bermuda to resolve the phone to a room AND the person to have been LOST >= min_away_minutes (person_coordinator.py:1100-1136). For Jaya/Ziri, 'geofence' is itself BLE (person trackers are private_ble_device/bermuda ...
 - **Next:** Me: run D0 (14-day probe) and D1 (doc write-back), then close.
-- **Forensic keys (9):**
+- **Forensic keys (10):**
   - `tier`: 1
   - `adjacency`: Related PREARRIVAL-NEAR-HOME-ZONE-1.
   - `finding_2026_11_12`: MEASURED (overnight, recorder states + URA ura_activity_log, 5 arrivals 11-11/12). Per arrival: tracker/person->home (t0) -> Bermuda area first resolves to a room -> URA 'pre_arrival source=ble' row. Jaya 22:29:58.8 -> +4.9 s (Garage A) ...
@@ -280,6 +292,7 @@ _created 2026-11-11 15:10 · updated 2026-11-12 13:49 · refined_
   - `operator_decision_2026_11_12`: Approved: build the seen-at-home BLE arrival. Constraint: a big context-wide prior-art check first, all callers and producers; must not regress locks or face-name production, etc.
   - `plan_2026_11_12`: CARD-WAS-WRONG (the 11-12 overnight framing, repeated by me to the operator). The geofence arrival already IS the BLE-seen arrival: HA person logic lets any non-GPS tracker reading home win, every resident has a Bermuda bluetooth_le trac...
   - `operator_decision_2026_11_12b`: Operator: don't build; D0 probe + D1 doc approved; park Wi-Fi (data is good for decisions). Clarified the 'flip back' count is a KNOWN resident's phone heard from outside (street, driveway), not strangers.
+  - `d0_2026_11_12`: D0 done (AUDIT_ble_arrival_d0_probe.md, 7.4 days, recorder from 11-05): 111/118 arrivals had geofence first within 1 s (Ezinne 16/16, Jaya 9/9, Ziri 7/7, Oji exceptions from his iPad blips). Ezinne's person home edges are mostly driven b...
 
 ### `DASH-ANOMALY-COVERAGE-BADGE-1` - PWA badge shows anomaly severity only: add coverage (e.g. HVAC 3/5 partial) so blind coordinators are visible without reading attributes — _#3 · WSJF 5.0 · v2 tc1 u2 /e1_
 thread: **dashboarding** - status: **planned**
@@ -1444,21 +1457,7 @@ _created 2026-09-21 · updated 2026-11-07 02:02 · refined ×1_
   - `groom_2026_10_30_overnight`: STILL-REAL, ball moved: gh pr view 183172 -R home-assistant/core -> MERGED 2026-10-15, milestone 2026.10.2 (cherry-picked). update.home_assistant_core_update reads installed 2026.10.1, latest 2026.10.4, so the house is running WITHOUT th...
   - `groom_2026_10_18_overnight`: CARD-WAS-WRONG (mine, 02:02 tonight): I rewrote next as 'Me: draft the upstream report', but that draft already exists (draft_2026_10_14, docs/planning/DRAFT_envoy_upstream_issue.md). The 10-17 default is therefore already done and the b...
 
-### `GARAGE-REMOTE-LOCKOUT-SCHEDULE-1` - Garage remote lockout (A + B): on at night, off in the morning, and released when a family member arrives so a 3 AM return is not locked out — _#16 · WSJF 4.0 · v4 tc2 u2 /e2_
-thread: **security** - status: **shipped_organic**
-_created 2026-11-07 12:10 · updated 2026-11-08 02:05_
-- **Why:** lock.konnected_f0f5bd523b00_lock (Garage A) and lock.ratgdov25i_dbfe2a_lock_remotes (Garage B) block car remotes and the outside keypad; the wall button and HA still work. The Security coordinator has no lockout concept. Dashboard part s...
-- **Next:** Shipped v5.105.0 and validated 11-07 with the feature OFF (README v5.105.0). Organic proof needs the feature on: DO turn on the garage lockout switch when you want it live -> I check the first night's engage at Sleep and release at the m...
-- **Forensic keys (7):**
-  - `tier`: 2
-  - `adjacency`: Swept board for garage/lockout/keypad: NEW. Related: security arming cards; the 'leave garage B alone' constraint is lifted for this scheme by the operator 2026-11-07.
-  - `plan_2026_11_07`: Option B picked. Plan rev1 docs/planning/PLANNING_sc_garage_remote_lockout.md (ea4bc6a8), pre-review. Open operator questions: approach zone 1-2 km; away/vacation engage + hold-until-arrival; keypad physical test; kill-switch-at-night se...
-  - `finding_periodic_sweep_2026_11_07`: Planner audit: the SC periodic lock sweep closes ANY open garage every 60 min regardless of arming, and re-locks everything in security_lock_entities (so lockouts must stay off that list). Out of scope for this cycle; candidate own card ...
-  - `operator_2026_11_07_decisions`: Separate arming from locks: arming = security system + alarms; locks = a reasonable locking regime that does not need the alarm armed. Keep lockouts out of the lock sweeps. Accepts planner recommendations (approach zone, hold-until-arriv...
-  - `proximity_2026_11_07`: Operator: set up proximity for all 4 persons. Created core proximity entry 01M6VGHPVWX72KF6ENND5HY309 (zone.home; person.oji_udezue, ezinne, ziri, jaya; default tolerance). Sensors sensor.madronehaos_<person>_distance / _direction_of_tra...
-  - `phase1_build_2026_11_07`: Plan rev 5 (874e5615) + Q-G1 = option (a) guest-in-sleep-hours engages. Phase 1 build dispatched (ura-builder, worktree).
-
-### `CAMERA-SILENT-PRODUCER-TRIPWIRE-1` - Exterior person detection can go fleet-wide silent for a day at a time and nothing notices — build the stuck-OFF mirror of the stuck-ON trip-wire we already shipped — _#17 · WSJF 4.0 · v9 tc9 u2 /e5_
+### `CAMERA-SILENT-PRODUCER-TRIPWIRE-1` - Exterior person detection can go fleet-wide silent for a day at a time and nothing notices — build the stuck-OFF mirror of the stuck-ON trip-wire we already shipped — _#16 · WSJF 4.0 · v9 tc9 u2 /e5_
 thread: **perimeter** - status: **shipped_organic** - approval: **implied**
 _created 2026-09-17 02:20 · updated 2026-11-08 02:05 · refined_
 - **Problem / Solution:**
@@ -1490,7 +1489,7 @@ _created 2026-09-17 02:20 · updated 2026-11-08 02:05 · refined_
   - `mergeprep_2026_11_03_overnight`: Same merge-prep as HVAC-KWH-AVOIDED-TOTAL-NOT-MONOTONIC-1 (integ/overnight-2026-10-27 merges clean onto develop @30e4c61a, 129 commits of drift; test_camera_detector_hung.py all green on the merge; 0 new failures in neighbouring files).
   - `organic_note_2026_11_08`: Tonight's 7.3 h Frigate2 outage (11-07 13:14-20:32) was host/status UNAVAILABLE mode, and the camera-input-dark check caught it (3 HIGH pages). This card's hung-detector path (frozen detection_fps while Frigate reports running) was not e...
 
-### `PERIMETER-IDENTITY-FOLLOWUP-1` - Door alert sent as unknown, identity resolves within ~90 s -> one quiet follow-up ('Front door: that was Jaya') — _#18 · WSJF 4.0 · v4 tc2 u2 /e2_
+### `PERIMETER-IDENTITY-FOLLOWUP-1` - Door alert sent as unknown, identity resolves within ~90 s -> one quiet follow-up ('Front door: that was Jaya') — _#17 · WSJF 4.0 · v4 tc2 u2 /e2_
 thread: **security** - status: **shipped_organic**
 _created 2026-11-09 00:30 · updated 2026-11-10 02:16_
 - **Why:** Time-sensitive alerts go out immediately (feedback_alert_latency_over_precision); Protect names back-fill 40-80 s later, so identity arrives after the page.
@@ -1499,6 +1498,21 @@ _created 2026-11-09 00:30 · updated 2026-11-10 02:16_
   - `live_validation_2026_11_10`: Validated 2026-11-10 ~02:15 CST (README_v5.107.5): 0 PASS, 0 FAIL, 3 not-yet-observable. Zero 'Perimeter Alert - Identified' rows, all time, so the two negative checks are vacuous and were NOT marked PASS. Log gap: URA's logger runs at W...
   - `tier`: 1
   - `reconcile_2026_11_09`: Overnight reconcile: board still showed this as planned/investigating/in_progress but v5.107.5 was merged to develop at e7ead0e4 by the 11-08/09 attended session (not yet deployed; develop was 87 commits ahead of origin). Moved to review.
+
+### `GARAGE-REMOTE-LOCKOUT-SCHEDULE-1` - Garage remote lockout (A + B): on at night, off in the morning, and released when a family member arrives so a 3 AM return is not locked out — _#18 · WSJF 4.0 · v4 tc2 u2 /e2_
+thread: **security** - status: **shipped_organic**
+_created 2026-11-07 12:10 · updated 2026-11-12 14:08_
+- **Why:** lock.konnected_f0f5bd523b00_lock (Garage A) and lock.ratgdov25i_dbfe2a_lock_remotes (Garage B) block car remotes and the outside keypad; the wall button and HA still work. The Security coordinator has no lockout concept. Dashboard part s...
+- **Next:** Shipped v5.105.0 and validated 11-07 with the feature OFF (README v5.105.0). Organic proof needs the feature on: DO turn on the garage lockout switch when you want it live -> I check the first night's engage at Sleep and release at the m...
+- **Forensic keys (8):**
+  - `tier`: 2
+  - `adjacency`: Swept board for garage/lockout/keypad: NEW. Related: security arming cards; the 'leave garage B alone' constraint is lifted for this scheme by the operator 2026-11-07.
+  - `plan_2026_11_07`: Option B picked. Plan rev1 docs/planning/PLANNING_sc_garage_remote_lockout.md (ea4bc6a8), pre-review. Open operator questions: approach zone 1-2 km; away/vacation engage + hold-until-arrival; keypad physical test; kill-switch-at-night se...
+  - `finding_periodic_sweep_2026_11_07`: Planner audit: the SC periodic lock sweep closes ANY open garage every 60 min regardless of arming, and re-locks everything in security_lock_entities (so lockouts must stay off that list). Out of scope for this cycle; candidate own card ...
+  - `operator_2026_11_07_decisions`: Separate arming from locks: arming = security system + alarms; locks = a reasonable locking regime that does not need the alarm armed. Keep lockouts out of the lock sweeps. Accepts planner recommendations (approach zone, hold-until-arriv...
+  - `proximity_2026_11_07`: Operator: set up proximity for all 4 persons. Created core proximity entry 01M6VGHPVWX72KF6ENND5HY309 (zone.home; person.oji_udezue, ezinne, ziri, jaya; default tolerance). Sensors sensor.madronehaos_<person>_distance / _direction_of_tra...
+  - `phase1_build_2026_11_07`: Plan rev 5 (874e5615) + Q-G1 = option (a) guest-in-sleep-hours engages. Phase 1 build dispatched (ura-builder, worktree).
+  - `INSTANCE_2026_11_12_blip_release_gap`: D0 probe (docs/planning/AUDIT_ble_arrival_d0_probe.md): 78 of Oji's 86 person not_home->home edges 11-05..11-11 were sub-second false arrivals (phone app tracker unavailable -> person fell back to the iPad's home), each dispatching a geo...
 
 ### `PERIMETER-FP-STREET-NOISE-1` - Perimeter alerts still include false positives and street noise: reduce FPs end-to-end (Frigate masks/zones/filters, URA pre-alert gates) + check snapshot storage/archival — _#19 · WSJF 2.7 · v4 tc2 u2 /e3_
 thread: **security** - status: **shipped_organic**
