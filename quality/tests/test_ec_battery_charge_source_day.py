@@ -128,6 +128,22 @@ def test_restore_stale_day_discards():
     assert fresh.charge_unsplit_kwh_today == 0.0
 
 
+def test_restore_old_snapshot_without_new_keys():
+    """Upgrade path: a snapshot saved before this cycle has no charge keys."""
+    from homeassistant.util import dt as dt_util
+    tr = _mk()
+    _run(tr, _BASE, 10, battery_kw=5.0, net_kw=2.0)
+    snap = _snap_with(tr, dt_util.now().date().isoformat())
+    for k in ("charge_grid_kwh_today", "charge_solar_kwh_today",
+              "charge_unsplit_kwh_today"):
+        snap.pop(k, None)
+    fresh = _mk()
+    fresh.restore_snapshot(snap)
+    assert fresh.charge_grid_kwh_today == 0.0
+    assert fresh.charge_solar_kwh_today == 0.0
+    assert fresh.charge_unsplit_kwh_today == 0.0
+
+
 class _FakeEC:
     def __init__(self, tracker):
         self._t = tracker

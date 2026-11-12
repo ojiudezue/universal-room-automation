@@ -12008,6 +12008,9 @@ class _BatteryChargeSourceTodayBase(_KwhAvoidedBase):
     and survives a same-day restart via the peak-avoidance snapshot."""
 
     _attr_icon = "mdi:battery-charging"
+    # Only rises within a day; TOTAL_INCREASING makes the recorder read the
+    # midnight drop as a meter reset, not a negative change.
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
     _status_key: str = ""
 
     @property
