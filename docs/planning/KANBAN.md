@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-12T16:12:15-06:00_ - _Data commit: `dbf8b9555bb9`_ - _last_reconciled: 2026-11-12_
+_Generated: 2026-11-12T16:37:43-06:00_ - _Data commit: `c6991843db15`_ - _last_reconciled: 2026-11-12_
 
 
 ## Columns
@@ -10,7 +10,7 @@ _Generated: 2026-11-12T16:12:15-06:00_ - _Data commit: `dbf8b9555bb9`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 2 |
-| 🔬 Investigating | 2 |
+| 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 26 |
 | 🔨 In progress | 2 |
@@ -19,7 +19,7 @@ _Generated: 2026-11-12T16:12:15-06:00_ - _Data commit: `dbf8b9555bb9`_ - _last_r
 | ⏳ Waiting on me (Claude) | 2 |
 | 🚀 Shipped (organic open) | 22 |
 | 🅿️ Parked | 118 |
-| ✅ Done | 426 |
+| ✅ Done | 427 |
 
 ## 📥 Inbox (2)
 _raw capture_
@@ -46,7 +46,7 @@ _created 2026-11-12 14:13 · initial_
 - **Forensic keys (1):**
   - `tier`: 1
 
-## 🔬 Investigating (2)
+## 🔬 Investigating (1)
 _measuring; truth not yet known_
 
 ### `HVAC-ZONE-KWH-SEED-WARN-WORDING-1` - Zone-kWh seed logs UNSAFE at every boot though the threshold Numbers self-restore a moment later — _#1 · WSJF 4.0 · v1 tc1 u2 /e1_
@@ -59,17 +59,6 @@ _created 2026-11-11 19:40 · updated 2026-11-12 13:05_
   - `dispatch_2026_11_12`: ura-builder in worktree, branch fix/zone-kwh-seed-warn; bundles with the review-lane release.
   - `review_2026_11_12`: CARD-WAS-WRONG. The why on this card (seed reads before the Number restores) is WRONG: seed (__init__.py:7276) and Number (HA restore_state.py:295) read the same last_states dict, filled once at load. Live .storage has numeric entries + ...
   - `measured_2026_11_12_boot`: v5.108.11 restart 12:55: all three zones logged the no RestoreState entry branch (__init__.py:7310), while the three Numbers restored 1.0/0.8/0.8. So the seed sees no entry where the Number does: the review claim that both read the same ...
-
-### `EC-IMPORT-TODAY-NET-AFTER-RESTART-1` - Energy Import Today drops to net import (import minus export) after an HA restart, so the From grid tile reads 0.7 kWh instead of ~19 — _#2 · WSJF 3.6 · v8 tc8 u2 /e5_
-thread: **energy** - status: **investigating** - approval: **implied**
-_created 2026-11-12 16:37 · initial_
-- **Problem / Solution:**
-  - Problem: on 11-12 sensor.ura_energy_coordinator_energy_import_today matched the Emporia from-grid meter (~19.7 kWh) until the 12:56 CST restart, then fell steadily to 0.687 kWh while exporting, which equals from-grid 19.84 minus to-grid ...
-- **Origin:** 2026-11-12 - Operator screenshot of the Energy tab: "Are these swapped? To grid and from grid"
-- **Why:** Not swapped; To grid (19.2) is right, From grid (0.7) is wrong. A total_increasing energy sensor that decreases also corrupts HA long-term statistics.
-- **Next:** Me: read-only root-cause probe (AUDIT_ec_import_today_net_after_restart.md), then fix.
-- **Forensic keys (1):**
-  - `tier`: 2
 
 ## 🧭 Pre-planning (13)
 _idea being decomposed_
@@ -3227,8 +3216,20 @@ _created 2026-09-01 20:30 · initial_
 - **Tags:** tier-3, no-fabrication-verify, regression-prone
 - **Refs:** docs/planning/PLANNING_shared_power_read_staleness.md; Envoy Tier-3 reviews A/B/C/D 2026-09-01
 
-## ✅ Done (426)
+## ✅ Done (427)
 _closed, evidence in refs_
+
+### `EC-IMPORT-TODAY-NET-AFTER-RESTART-1` - Energy Import Today drops to net import (import minus export) after an HA restart, so the From grid tile reads 0.7 kWh instead of ~19 — _WSJF 3.6 · v8 tc8 u2 /e5_
+thread: **energy** - status: **done** - approval: **implied**
+_created 2026-11-12 16:37 · updated 2026-11-12 16:39 · initial_
+- **Problem / Solution:**
+  - Problem: on 11-12 sensor.ura_energy_coordinator_energy_import_today matched the Emporia from-grid meter (~19.7 kWh) until the 12:56 CST restart, then fell steadily to 0.687 kWh while exporting, which equals from-grid 19.84 minus to-grid ...
+- **Origin:** 2026-11-12 - Operator screenshot of the Energy tab: "Are these swapped? To grid and from grid"
+- **Why:** Not swapped; To grid (19.2) is right, From grid (0.7) is wrong. A total_increasing energy sensor that decreases also corrupts HA long-term statistics.
+- **Next:** Me: read-only root-cause probe (AUDIT_ec_import_today_net_after_restart.md), then fix.
+- **Forensic keys (2):**
+  - `tier`: 2
+  - `refuted_2026_11_12`: CARD-WAS-WRONG / REFUTED (docs/planning/AUDIT_ec_import_today_net_after_restart.md). Not a regression and not restart-caused: EnergyImportTodaySensor has always returned import - export (sensor.py:12198-12212, state_class TOTAL, v3.14.8 ...
 
 ### `EC-EV-DAYTIME-SOLAR-LED-1` - Explore making daytime EV charging solar-led instead of off-peak-led in the EC — _WSJF 1.8 · v5 tc2 u2 /e5_
 thread: **energy** - status: **done** - approval: **implied**

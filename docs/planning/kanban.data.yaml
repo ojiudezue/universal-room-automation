@@ -34429,12 +34429,12 @@ cards:
 - id: EC-IMPORT-TODAY-NET-AFTER-RESTART-1
   title: Energy Import Today drops to net import (import minus export) after an HA restart, so the From grid tile reads 0.7 kWh instead of ~19
   thread: energy
-  status: investigating
+  status: done
   created: '2026-11-12 16:37'
-  updated: '2026-11-12 16:37'
+  updated: '2026-11-12 16:39'
   refinement_status: initial
   tier: 2
-  live_broken: true
+  live_broken: false
   approval: implied
   problem_solution:
   - 'Problem: on 11-12 sensor.ura_energy_coordinator_energy_import_today matched the Emporia from-grid meter (~19.7 kWh) until the 12:56 CST restart, then fell steadily to 0.687 kWh while exporting, which equals from-grid 19.84 minus to-grid 19.17. The Envoy agrees real import was ~18 kWh. The dashboard From grid tile and probably today''s cost read this sensor. Solution: find why the restart turns the import total into a net figure and fix it so import and export stay separate.'
@@ -34447,6 +34447,7 @@ cards:
     context: 'v5.108.10 touched the energy_billing snapshot; the restart that broke it was the v5.108.11 install. Check whether that change is involved.'
   next: 'Me: read-only root-cause probe (AUDIT_ec_import_today_net_after_restart.md), then fix.'
   rank: {value: 8, time_criticality: 8, effort: 5}
+  refuted_2026_11_12: "CARD-WAS-WRONG / REFUTED (docs/planning/AUDIT_ec_import_today_net_after_restart.md). Not a regression and not restart-caused: EnergyImportTodaySensor has always returned import - export (sensor.py:12198-12212, state_class TOTAL, v3.14.8 README says net). It matched gross import in the morning only because export was ~0 until solar exported after 13:00 CST. Gross import is the import_kwh attribute (19.859), matching Emporia. Cost and cycle totals use gross accumulators, unaffected. Fix was dashboard-only: v8 Energy 'From grid' tile now shows attributes.import_kwh with 'net X kWh' as subtitle (backup docs/dashboard-prototypes/ura-v8-backups/20261112T_pre_from_grid_gross.json). Parked: rename the sensor to Net Grid Today and/or add a gross sensor; revive if another surface misreads it."
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
