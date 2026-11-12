@@ -122,3 +122,51 @@ def test_paused_room_occupied_in_window_real_body_no_sweep(monkeypatch):
     sweep = _real_body(c, monkeypatch, datetime(2026, 11, 12, 1, 30, tzinfo=timezone.utc))
     run(c._async_update_data())
     assert sweep.await_count == 0
+
+
+# --- Review B HIGH: manual-ON hold in a PAUSED room ---------------------
+
+def _held_kitchen(monkeypatch, switches):
+    """Paused Kitchen, person turned the overhead ON at 22:50 with a 3600 s
+    hold (real LightPolicyOracle in hass.data), tick at 23:00 local."""
+    from custom_components.universal_room_automation import automation as A
+    from custom_components.universal_room_automation.domain_coordinators.light_policy_oracle import (
+        get_light_oracle,
+    )
+    c, _ = _coordinator(switches)
+    on_at = datetime(2026, 11, 12, 22, 50, tzinfo=timezone.utc)
+    tick = datetime(2026, 11, 12, 23, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(A.dt_util, "now", lambda: tick)
+    a = c.automation
+    monkeypatch.setattr(a, "_failsafe_boot_settle_done", lambda: True)
+    calls = []
+
+    async def _svc(domain, service, data, *args, **kwargs):
+        calls.append((domain, service, list(data.get("entity_id", []))))
+        return True
+
+    monkeypatch.setattr(a, "_safe_service_call", _svc)
+    oracle = get_light_oracle(c.hass, DOMAIN)
+    oracle.note_manual(a._light_room_key(), "light.kitchen_overhead", "on",
+                       now=on_at, on_hold_s=3600, off_cooldown_s=0)
+    # precondition: the hold is live at 23:00 (would block URA's OFF)
+    assert oracle.allowed(a._light_room_key(), ["light.kitchen_overhead"],
+                          "off", tick) == []
+    return c, calls
+
+
+def _turned_off(calls):
+    return [e for d, s, ents in calls if s == "turn_off" for e in ents]
+
+
+def test_paused_room_vacant_releases_manual_on_hold_and_failsafe_turns_it_off(monkeypatch):
+    c, calls = _held_kitchen(monkeypatch, {"automation": False})
+    run(c._async_update_data())
+    assert _turned_off(calls) == ["light.kitchen_overhead"]
+
+
+def test_paused_room_occupied_keeps_manual_on_hold(monkeypatch):
+    c, calls = _held_kitchen(monkeypatch, {"automation": False,
+                                           "override_occupied": True})
+    run(c._async_update_data())
+    assert _turned_off(calls) == []

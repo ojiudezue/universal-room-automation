@@ -5539,6 +5539,18 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         ):
             try:
                 self.automation._refresh_config()
+                # Review B HIGH: in an enabled room a person's manual-ON
+                # light hold ends when the room empties (handle_occupancy_
+                # change -> release_light_holds_on_vacancy). That handler
+                # never runs in a PAUSED room, so the hold would make the
+                # failsafe skip the very light it exists to catch. Mirror
+                # the enabled-room release on a paused + vacant tick.
+                # Enabled-room semantics are unchanged.
+                if (
+                    not data.get(STATE_OCCUPIED, False)
+                    and not self._is_automation_enabled()
+                ):
+                    self.automation.release_light_holds_on_vacancy()
                 await self._run_shared_space_failsafe(data)
             except Exception as e:
                 _LOGGER.error("Error in shared-space night failsafe: %s", e)

@@ -15,6 +15,21 @@ Gates kept at the new call site:
 - ManualMode ON: no failsafe. This is the "hands off this room" switch, distinct from the master pause, so it stays as a conservative gate.
 - Override occupied / vacant: already applied to `data[STATE_OCCUPIED]` before the call.
 
+Manual-ON holds in paused rooms (review B HIGH): a person switching a light on records an ON hold, and the failsafe never turns off a held light. In an enabled room the hold ends when the room empties (`handle_occupancy_change` calls `release_light_holds_on_vacancy`), but that handler never runs in a paused room. So on a paused, vacant tick the coordinator now calls `release_light_holds_on_vacancy()` just before the failsafe. Example: Kitchen paused, overhead switched on by hand at 22:50 (3600 s hold), Kitchen vacant at 23:00, the overhead is turned off. Enabled rooms behave as before. OFF cooldowns are untouched.
+
+## Rooms newly swept
+
+These shared-space rooms had their master automation switch off, so they never got the failsafe before and now do:
+Kitchen, Kitchen Hallway Garage, Staircase, Patio, Receiving Room, Garage A, Garage Hallway, Exercise Room, Foyer.
+Master Hallway and Media are also paused shared-space rooms, but for them the change affects fans only.
+
+## If a paused room's sensors miss people
+
+Some rooms are paused because their sensors do not see a still person. The failsafe trusts the tick's vacancy, so in such a room it can switch lights off on someone. Ways out, per room:
+- Turn on Override Occupied while the room is in use: the tick reads occupied and the failsafe does not sweep.
+- Turn on ManualMode: no failsafe at all in that room.
+- Turn off `shared_space` in the room config: the room leaves the failsafe entirely.
+
 ## Tests
 
 `quality/tests/test_shared_space_failsafe_paused_rooms.py` drives the real `UniversalRoomCoordinator._async_update_data`:
