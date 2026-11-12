@@ -1,7 +1,9 @@
-# DRAFT README — EV rung-1 redirect cap + post-pause latch hold
+# v5.108.13 — EV rung-1 redirect cap + post-pause latch hold
 
 Card: `EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1` (Tier 3). Plan: `docs/planning/PLANNING_ev_rung1_redirect_cap.md` (rev 2).
-Version: TBD at ship (PATCH bump). Rename to `README_v<version>.md` before `deploy.sh`.
+Reviews: A, B, C (mutation), D (adversarial completeness) all SHIP (records under docs/reviews/code-review/v_ev_rung1_redirect_cap_review_*.md). Orchestrator verify: cap reverted to full EV credit -> 9 RED; hold boundary >= -> > -> 3 RED; restored clean. Full serial suite on 9f193681: 0 failed / 20667 passed.
+
+Accepted residuals: one false pause/resume possible at an EV start when net_power is up to 180 s old (review D-LOW-1); while the SOC reading is missing the hold cannot flush, but night release, solar collapse, counterfactual exit and forecast-closed stay ungated (review B1).
 
 ## What changed
 
