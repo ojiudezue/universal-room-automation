@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: "2026-11-11"
+  last_reconciled: '2026-11-12'
   history_file: docs/planning/kanban.history.yaml
   # BOARD-AUTONOMY-PROGRESS-1: append one entry each time a card is concluded
   # autonomously (built / parked / waiting_operator / shipped / done). The
@@ -32514,10 +32514,10 @@ cards:
 - id: EC-CFG-SELFHEAL-FALSE-CRITICAL-1
   title: "CRITICAL 'Envoy write self-heal loop: charge_from_grid' pages fire after the write already worked (cloud switch lags ~15 min; the alarm never re-checks it) -> re-read the cloud switch before paging"
   thread: energy
-  status: in_progress
+  status: review
   tier: 1
   created: "2026-11-09 02:07"
-  updated: '2026-11-12 12:20'
+  updated: '2026-11-12 12:55'
   refinement_status: initial
   rank: {value: 5, time_criticality: 3, effort: 2}
   problem_solution:
@@ -32532,6 +32532,7 @@ cards:
   refs: [custom_components/universal_room_automation/domain_coordinators/energy_write_verify.py, docs/planning/PLANNING_ec_reserve_oracle_phase2.md]
   links: {related: [EC-ENPHASE-CONNECTIVITY-RESILIENCE-1, EC-SELFHEAL-UNEXPLAINED-RESENDS-1, PERIMETER-ALERT-VOLUME-FATIGUE-1], context: "EC-ENPHASE-CONNECTIVITY-RESILIENCE-1 and EC-SELFHEAL-UNEXPLAINED-RESENDS-1 fixed the same false-page shape for the reserve surface only (phase-2 N4 left CFG out); false CRITICALs feed the alert-fatigue card."}
   dispatch_2026_11_12: 'ura-builder in worktree, branch fix/ec-cfg-selfheal-reread; bundles with the review-lane release.'
+  review_2026_11_12: 'Tier-1 review A SHIP (record c65ed044); 253 passed on the four EC write-verify files; mutation drills RED on the re-read condition and the counter reset. Merged into develop for v5.108.11.'
 - id: RESTORE-UNAVAILABLE-OFF-SWEEP-1
   disposed_2026_10_10_overnight: "DONE (met; the exact after-URA-crash path is proven in-suite, not live). HA recorder, last 72 h, all switch.ura_* / switch.*_automation entities: 396 restore cycles where a switch that was ON went unavailable/unknown and came back - 396 came back ON, 0 came back OFF, and 0 OFF switches came back ON. Those cycles span 7 restarts/reloads (10-08 12:24, 17:20; 10-09 08:14, 09:33, 09:55, 11:23, 17:09). Vacancy Auto-Off (switch.ura_hvac_coordinator_zone_sweep) stayed ON through every one of the 10-09 cycles. None of these followed a URA setup failure, so the specific 10-03 path is covered by quality/tests/test_restore_guard_52_sweep.py (18 tests, each behavioural site drilled red). Closed 2 days ahead of the 10-12 dispose-by."
   reverified_2026_10_09_overnight: "OPERATOR DO DONE: switch.ura_hvac_coordinator_zone_sweep (Vacancy Auto-Off) went off->on at 2026-10-08 21:00:32 CDT with no restart around it (the restarts were 12:24 and 17:20, and it correctly came back OFF from both because it was off before them). Recorder history read via the HA MCP. Back to shipped_organic for the code discriminator."
@@ -34325,16 +34326,17 @@ cards:
 - id: HVAC-ZONE-KWH-SEED-WARN-WORDING-1
   title: "Zone-kWh seed logs UNSAFE at every boot though the threshold Numbers self-restore a moment later"
   thread: "hvac"
-  status: in_progress
+  status: investigating
   tier: 1
   created: "2026-11-11 19:40"
-  updated: '2026-11-12 12:20'
+  updated: '2026-11-12 12:55'
   origin: "Boot log after v5.108.10 restart 2026-11-11; operator: 'Def look'."
   why: "__init__.py:~7310 seed reads core.restore_state before the Numbers restore and finds no entry; number.py:3100-3110 then restores and pushes to the zone. Probe: all three zones 0.8 kW live and in every recorder row since 11-04 (= default), so the UNSAFE claim is false. Bug class: seed path disagrees with the entity's own restore path."
-  next: "Downgrade/reword the UNRESOLVED log when the Number will self-restore. Zone 1 (4-ton) set 0.8 -> 1.0 kW by operator decision 2026-11-11 19:31 CST (number.ura_hvac_coordinator_ac_kwh_rate_threshold_entertainment_master_suite)."
+  next: 'Me: capture the warning reason text at the v5.108.11 restart (or compare iter_canonical_hvac_zones climate entities with zm.zones at seed time), fix that branch, revert or reword the deferred change, fix the stale 1.30 kW wording.'
   links: {}
   rank: {"value": 1, "time_criticality": 1, "effort": 1}
   dispatch_2026_11_12: 'ura-builder in worktree, branch fix/zone-kwh-seed-warn; bundles with the review-lane release.'
+  review_2026_11_12: 'CARD-WAS-WRONG. The why on this card (seed reads before the Number restores) is WRONG: seed (__init__.py:7276) and Number (HA restore_state.py:295) read the same last_states dict, filled once at load. Live .storage has numeric entries + registered unique_ids for all three zones, so the likely firing branch is no ZoneManager zone matched climate_entity (__init__.py:7311) or spec missing zone_id/climate_entity (:7263). Branch fix/zone-kwh-seed-warn (82e8607e) FIX-REQUIRED, held out of v5.108.11; review record on that branch (2f4fd3f6).'
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers

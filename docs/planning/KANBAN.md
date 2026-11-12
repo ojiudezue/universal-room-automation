@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-12T02:09:16-06:00_ - _Data commit: `15d6ae73b356`_ - _last_reconciled: 2026-11-11_
+_Generated: 2026-11-12T12:08:44-06:00_ - _Data commit: `49878819ffa3`_ - _last_reconciled: 2026-11-12_
 
 
 ## Columns
@@ -10,11 +10,11 @@ _Generated: 2026-11-12T02:09:16-06:00_ - _Data commit: `15d6ae73b356`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 0 |
-| 🔬 Investigating | 0 |
+| 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 25 |
-| 🔨 In progress | 4 |
-| 🔍 Review | 3 |
+| 🔨 In progress | 2 |
+| 🔍 Review | 4 |
 | ⏸️ Waiting on operator | 33 |
 | ⏳ Waiting on me (Claude) | 2 |
 | 🚀 Shipped (organic open) | 16 |
@@ -26,10 +26,18 @@ _raw capture_
 
 _(none)_
 
-## 🔬 Investigating (0)
+## 🔬 Investigating (1)
 _measuring; truth not yet known_
 
-_(none)_
+### `HVAC-ZONE-KWH-SEED-WARN-WORDING-1` - Zone-kWh seed logs UNSAFE at every boot though the threshold Numbers self-restore a moment later — _#1 · WSJF 4.0 · v1 tc1 u2 /e1_
+thread: **hvac** - status: **investigating**
+_created 2026-11-11 19:40 · updated 2026-11-12 12:55_
+- **Why:** __init__.py:~7310 seed reads core.restore_state before the Numbers restore and finds no entry; number.py:3100-3110 then restores and pushes to the zone. Probe: all three zones 0.8 kW live and in every recorder row since 11-04 (= default)...
+- **Next:** Me: capture the warning reason text at the v5.108.11 restart (or compare iter_canonical_hvac_zones climate entities with zm.zones at seed time), fix that branch, revert or reword the deferred change, fix the stale 1.30 kW wording.
+- **Forensic keys (3):**
+  - `tier`: 1
+  - `dispatch_2026_11_12`: ura-builder in worktree, branch fix/zone-kwh-seed-warn; bundles with the review-lane release.
+  - `review_2026_11_12`: CARD-WAS-WRONG. The why on this card (seed reads before the Number restores) is WRONG: seed (__init__.py:7276) and Number (HA restore_state.py:295) read the same last_states dict, filled once at load. Live .storage has numeric entries + ...
 
 ## 🧭 Pre-planning (13)
 _idea being decomposed_
@@ -553,35 +561,10 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (4)
+## 🔨 In progress (2)
 _being built_
 
-### `EC-CFG-SELFHEAL-FALSE-CRITICAL-1` - CRITICAL 'Envoy write self-heal loop: charge_from_grid' pages fire after the write already worked (cloud switch lags ~15 min; the alarm never re-checks it) -> re-read the cloud switch before paging — _#1 · WSJF 5.0 · v5 tc3 u2 /e2_
-thread: **energy** - status: **in_progress** - approval: **implied**
-_created 2026-11-09 02:07 · updated 2026-11-12 12:20 · initial_
-- **Problem / Solution:**
-  - Problem: when URA turns battery grid-charging on or off, it checks the Enphase cloud switch to confirm. The cloud switch is slow (about 15 minutes), so URA re-sends, and on the third re-send it pages you CRITICAL on four channels that th...
-- **Origin:** 2026-11-09 - Overnight pass 11-09 noticed 5 CRITICAL rows at 11-08 20:48Z while checking the Envoy outage counter; measured the same night.
-- **Why:** False CRITICAL pages on every channel erode trust in real ones (alert fatigue). 3 events in 13 days (10-27, 11-07, 11-08), all on charge_from_grid; the reserve surface has been quiet since phase 2.
-- **Next:** Build Tier 1 at the next attended session (the overnight pass does not start builds while 8 cards sit in review): the re-read guard + mutation test, then one Tier-1 review.
-- **Refs:** custom_components/universal_room_automation/domain_coordinators/energy_write_verify.py; docs/planning/PLANNING_ec_reserve_oracle_phase2.md
-- **Forensic keys (5):**
-  - `tier`: 1
-  - `measured_2026_11_09_overnight`: CONFIRMED FALSE (read-only: URA DB notification_log, HA recorder). 11-08: page 20:48:22.263Z (14:48:22 CST) 'charge_from_grid=True 3 consecutive cycles'; cloud oracle switch.iq_battery_hacs_charge_battery_from_grid off->on at 14:48:21.94...
-  - `fix_sketch`: Tier 1, alert path only (no command change): in the n>=3 branch, re-read the oracle for the surface; if it equals commanded_value, reset the counter and log debug instead of _emit_anomaly/_maybe_fire_nm. Mutation-anchored test: oracle fl...
-  - `adjacency_2026_11_09`: NEW, linked. Swept: board (EC-SELFHEAL-UNEXPLAINED-RESENDS-1 done = reserve frozen witness; EC-ENPHASE-CONNECTIVITY-RESILIENCE-1 parked = reserve false pages at the nightly Envoy drop; BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1 done), docs/BACK...
-  - `dispatch_2026_11_12`: ura-builder in worktree, branch fix/ec-cfg-selfheal-reread; bundles with the review-lane release.
-
-### `HVAC-ZONE-KWH-SEED-WARN-WORDING-1` - Zone-kWh seed logs UNSAFE at every boot though the threshold Numbers self-restore a moment later — _#2 · WSJF 4.0 · v1 tc1 u2 /e1_
-thread: **hvac** - status: **in_progress**
-_created 2026-11-11 19:40 · updated 2026-11-12 12:20_
-- **Why:** __init__.py:~7310 seed reads core.restore_state before the Numbers restore and finds no entry; number.py:3100-3110 then restores and pushes to the zone. Probe: all three zones 0.8 kW live and in every recorder row since 11-04 (= default)...
-- **Next:** Downgrade/reword the UNRESOLVED log when the Number will self-restore. Zone 1 (4-ton) set 0.8 -> 1.0 kW by operator decision 2026-11-11 19:31 CST (number.ura_hvac_coordinator_ac_kwh_rate_threshold_entertainment_master_suite).
-- **Forensic keys (2):**
-  - `tier`: 1
-  - `dispatch_2026_11_12`: ura-builder in worktree, branch fix/zone-kwh-seed-warn; bundles with the review-lane release.
-
-### `OC-CONTEXT-PACK-1` - OC agent context should feel like the orchestrator's: HA + URA ground-truth docs, live config snapshot, doctrine, goals - iterate it against live cases — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `OC-CONTEXT-PACK-1` - OC agent context should feel like the orchestrator's: HA + URA ground-truth docs, live config snapshot, doctrine, goals - iterate it against live cases — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **optimization** - status: **in_progress**
 _created 2026-11-01 · updated 2026-11-05 02:40_
 - **Why:** Already decided in VISION_optimization_coordinator_self_fixing_house.md:157 ('Knowledge, loaded fresh every run': HA concepts; URA_ARCHITECTURE_MAP, HVAC + presence state-of-play, SENSOR_FLEET_CLASSES, DEVICE_TREE; live config snapshot; ...
@@ -591,7 +574,7 @@ _created 2026-11-01 · updated 2026-11-05 02:40_
   - `tier`: 2
   - `eval_round_2026_11_07`: Operator-funded iteration ($50 cap, spent $40.31; worktree agent-a657e58090fb1df32 commits e1b08b13 b0d29379 12ac1780; ITERATIONS_2026_11_07.md, LEDGER_2026_11_07.md, RUBRIC.md). NOT PASSING: Sonnet 5.5 3/15 runs, 0 cases by majority; he...
 
-### `TEST-SUITE-PARALLEL-1` - Full test suite takes 24-33 min single-core; parallel run fails 91 vs 18 from test-order pollution — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `TEST-SUITE-PARALLEL-1` - Full test suite takes 24-33 min single-core; parallel run fails 91 vs 18 from test-order pollution — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **process** - status: **in_progress** - approval: **unreviewed**
 _created 2026-11-10 19:20 · updated 2026-11-11 07:05 · initial_
 - **Why:** Gate runs ~20.6k tests serially on 1 of 8 cores, twice per release (base + candidate), with 67 source-mutation drills (~4 min). Probe 2026-11-10 on develop 9894bc66: serial 33 min / 18 failed; -n 6 --dist loadfile 19 min / 91 failed, 76 ...
@@ -601,7 +584,7 @@ _created 2026-11-10 19:20 · updated 2026-11-11 07:05 · initial_
   - `tier`: 1
   - `residual_2026_11_11`: Merged to develop 4d5385d4 (v5.108.8). Merged-develop parallel run: 11 failed in 3 min, base serial failures all gone, but 11 parallel-only (pass alone 72/72): test_arrester_operator_immunity x6, test_dp_drain_target_value_stamp x5 (file...
 
-## 🔍 Review (3)
+## 🔍 Review (4)
 _under review_
 
 ### `FAN-RECHECK-FORM-RESTORE-REVERT-1` - Fan re-check switches: a value saved in the settings form gets overwritten by the switch's old state after the reload (CONFIRMED, live instance in Garage A) — _#1 · WSJF 8.0 · v4 tc2 u2 /e1_
@@ -645,6 +628,23 @@ _created 2026-11-07 15:40 · updated 2026-11-11 02:26_
   - `verify_2026_11_08_overnight`: STILL-REAL. security.py:2098-2117 _setup_geofence_listener reads hass.states.async_all('person') once at setup and subscribes to that fixed list, so a person added later (or loaded after SC) is never watched. Prior art: REUSE the lock re...
   - `build_2026_11_11_overnight`: Re-verified STILL-REAL 02:21 CST (security.py:2194-2214 reads person.* once). Review lane at 2 (< WIP cap 3), so built tonight: ura-builder dispatched to branch fix/sc-geofence-person-resubscribe (worktree), reusing the lock-regime add/r...
   - `built_2026_11_11_overnight`: Branch fix/sc-geofence-person-resubscribe (01d5e4bd build, 2f5bd19c review record; base develop 297333f7). security.py _setup_geofence_listener now subscribes to person add/remove (async_track_state_added_domain / _removed_domain) and re...
+
+### `EC-CFG-SELFHEAL-FALSE-CRITICAL-1` - CRITICAL 'Envoy write self-heal loop: charge_from_grid' pages fire after the write already worked (cloud switch lags ~15 min; the alarm never re-checks it) -> re-read the cloud switch before paging — _#4 · WSJF 5.0 · v5 tc3 u2 /e2_
+thread: **energy** - status: **review** - approval: **implied**
+_created 2026-11-09 02:07 · updated 2026-11-12 12:55 · initial_
+- **Problem / Solution:**
+  - Problem: when URA turns battery grid-charging on or off, it checks the Enphase cloud switch to confirm. The cloud switch is slow (about 15 minutes), so URA re-sends, and on the third re-send it pages you CRITICAL on four channels that th...
+- **Origin:** 2026-11-09 - Overnight pass 11-09 noticed 5 CRITICAL rows at 11-08 20:48Z while checking the Envoy outage counter; measured the same night.
+- **Why:** False CRITICAL pages on every channel erode trust in real ones (alert fatigue). 3 events in 13 days (10-27, 11-07, 11-08), all on charge_from_grid; the reserve surface has been quiet since phase 2.
+- **Next:** Build Tier 1 at the next attended session (the overnight pass does not start builds while 8 cards sit in review): the re-read guard + mutation test, then one Tier-1 review.
+- **Refs:** custom_components/universal_room_automation/domain_coordinators/energy_write_verify.py; docs/planning/PLANNING_ec_reserve_oracle_phase2.md
+- **Forensic keys (6):**
+  - `tier`: 1
+  - `measured_2026_11_09_overnight`: CONFIRMED FALSE (read-only: URA DB notification_log, HA recorder). 11-08: page 20:48:22.263Z (14:48:22 CST) 'charge_from_grid=True 3 consecutive cycles'; cloud oracle switch.iq_battery_hacs_charge_battery_from_grid off->on at 14:48:21.94...
+  - `fix_sketch`: Tier 1, alert path only (no command change): in the n>=3 branch, re-read the oracle for the surface; if it equals commanded_value, reset the counter and log debug instead of _emit_anomaly/_maybe_fire_nm. Mutation-anchored test: oracle fl...
+  - `adjacency_2026_11_09`: NEW, linked. Swept: board (EC-SELFHEAL-UNEXPLAINED-RESENDS-1 done = reserve frozen witness; EC-ENPHASE-CONNECTIVITY-RESILIENCE-1 parked = reserve false pages at the nightly Envoy drop; BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1 done), docs/BACK...
+  - `dispatch_2026_11_12`: ura-builder in worktree, branch fix/ec-cfg-selfheal-reread; bundles with the review-lane release.
+  - `review_2026_11_12`: Tier-1 review A SHIP (record c65ed044); 253 passed on the four EC write-verify files; mutation drills RED on the re-read condition and the counter reset. Merged into develop for v5.108.11.
 
 ## ⏸️ Waiting on operator (33)
 _needs a human call — groomed first_
