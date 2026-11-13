@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-13T02:33:09-06:00_ - _Data commit: `03ca9d4f9f4b`_ - _last_reconciled: 2026-11-13_
+_Generated: 2026-11-13T02:36:22-06:00_ - _Data commit: `5260a0fe1b89`_ - _last_reconciled: 2026-11-13_
 
 
 ## Columns
@@ -692,11 +692,12 @@ _created 2026-11-12 19:10 · initial_
 - **Origin:** 2026-11-12 - Found by the face-arrival planner, confirmed by the completeness plan review (PLAN_face_arrival_rebuild_review_completeness.md).
 - **Why:** Same policy principle as FACE-ARRIVAL-REBUILD-1: access actions need identity plus an independent signal; a body alone is weaker than a face.
 - **Next:** Me: D0 probe, build, validator, four Tier-3 reviews, orchestrator verify, operator pre-deploy go; ship before the lockout is switched on (~11-16).
-- **Forensic keys (5):**
+- **Forensic keys (6):**
   - `arc_cut_v5_108_16`: separate Tier-3 lock-regime plan, switches off
   - `tier`: 3
   - `ARC_2026-11-13`: Operator: add to the person-sightings arc. Review D (v_person_sightings_p1_D.md L-1) repro: lockout engaged in SLEEP, house SLEEP -> AWAY, an interior camera sees a body -> ARRIVING -> lockout release.
   - `FINDING_2026-11-13`: AUDIT_arriving_on_body_evidence_2026_11_13.md: 2,642 AWAY->ARRIVING edges since 03-12; 6.4% real arrivals, 48.6% correcting a false AWAY, 32.8% no resident evidence. 68.5% driven by zone sensors with census 0, not cameras. Zero access re...
+  - `REVISIT_ON_RESHAPE`: Operator 2026-11-13: lockout ships now but must be revisited when HOUSE-STATE-FIRST-PRINCIPLES-1 lands (move onto the new arrival signal, retire the taint workaround).
   - `APPROVED_2026-11-13`: Operator approved PLANNING_lock_release_on_arriving.md rev 3 with night re-lock = yes and house-sitter = yes. Auto-follow (plan section 13) out of this build; operator decision pending (park recommended). Build started on feature/lock-re...
 
 ### `NM-NO-CHANNEL-FIRED-1` - 520 notification_log rows since 11-01 record no_channel_fired / delivered=2 (stuck_signal, circuit_anomaly, lock retry-cap, high_co2): may reach nobody — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_

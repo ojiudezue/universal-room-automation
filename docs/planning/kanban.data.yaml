@@ -18628,7 +18628,7 @@ cards:
   - First principles; separate occupancy (is anyone here), residency (which residents are home), and activity/time (sleep, day) instead of one state carrying all three.
   - External research on house/home state machines and occupancy models (HA community, commercial systems, academic occupancy literature) before design.
   - Inventory every producer and consumer of house state first (fire check + forward trace); every consumer gets a migration verdict.
-  - Do not stall the lock-release fix; it ships now and the rethink may retire its workaround later.
+  - 'Do not stall the lock-release fix; it ships now. Operator 2026-11-13: when the reshape lands, REVISIT the lockout (taint flag, ARRIVING hold, D3/D4 pages) and move it onto the new arrival signal; the reshape is not done until that migration ships.'
   - Read PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md, HVAC state of play, and PLANNING_house_state_*.md first.
   - 'Operator hypothesis 2026-11-13: arrival may not be a house state at all; it is closer to a mode/event fed by egress (direction-aware door crossings, person sightings) and the pre-arrival work (geofence/BLE approach, HVAC pre-arrival). If it stays a state, it is fed by much narrower conditions (resident arrival evidence), never by plain occupancy. The proposal must test both options against the consumers.'
   next: 'Me: research + inventory pass (current states, transitions, producers, consumers, measured transition rates and false rates; external research), then a first-principles proposal for operator review.'
@@ -34848,6 +34848,7 @@ cards:
     parent: FACE-ARRIVAL-REBUILD-1
   ARC_2026-11-13: 'Operator: add to the person-sightings arc. Review D (v_person_sightings_p1_D.md L-1) repro: lockout engaged in SLEEP, house SLEEP -> AWAY, an interior camera sees a body -> ARRIVING -> lockout release.'
   FINDING_2026-11-13: 'AUDIT_arriving_on_body_evidence_2026_11_13.md: 2,642 AWAY->ARRIVING edges since 03-12; 6.4% real arrivals, 48.6% correcting a false AWAY, 32.8% no resident evidence. 68.5% driven by zone sensors with census 0, not cameras. Zero access releases ever: lockout, away-lock and auto-follow switches all off; lockout code dates from 11-07. Phone edges lead ARRIVING (median 35 s, 16/17). Fix shape: drop house_state arriving (and the HOME_* follow-on at :858-860) as a lockout release trigger; real arrivals use the person path; trip-wire on any release with trigger house_state:arriving and no resident edge in 120 s; same for auto-follow disarm.'
+  REVISIT_ON_RESHAPE: 'Operator 2026-11-13: lockout ships now but must be revisited when HOUSE-STATE-FIRST-PRINCIPLES-1 lands (move onto the new arrival signal, retire the taint workaround).'
   APPROVED_2026-11-13: 'Operator approved PLANNING_lock_release_on_arriving.md rev 3 with night re-lock = yes and house-sitter = yes. Auto-follow (plan section 13) out of this build; operator decision pending (park recommended). Build started on feature/lock-release-arriving.'
   next: 'Me: D0 probe, build, validator, four Tier-3 reviews, orchestrator verify, operator pre-deploy go; ship before the lockout is switched on (~11-16).'
   rank: {value: 9, time_criticality: 6, effort: 5}
