@@ -1039,3 +1039,374 @@ async def test_tripwire_silent_on_untainted_house_state_release():
     assert rig.unlocks() == [LOCK_A, LOCK_B]
     assert rig.regime.last_action["trigger"] == "house_state:home_day"
     assert nm.of(UNCORR) == []
+
+
+# ============================================================================
+# D4 — trip-wire: a resident arrived (or came back uncounted), lockout locked
+# ============================================================================
+
+AFTER = "lockout_locked_after_arrival"
+UNCOUNTED = "lockout_locked_resident_uncounted_return"
+FAILED = "lockout_release_failed"
+
+
+def neuter_s1(monkeypatch, rig) -> None:
+    """Seam: the S1 person release call does nothing (only person:* triggers)."""
+    real = rig.regime._release
+
+    def patched(trigger, **kw):
+        if trigger.startswith("person:"):
+            return None
+        return real(trigger, **kw)
+
+    monkeypatch.setattr(rig.regime, "_release", patched)
+
+
+async def departure_unseen(rig, pid: str) -> None:
+    """A real home reading (so _last_real = home, not restored), then the phone
+    drops to unavailable: the departure is never seen."""
+    await rig.person(pid, "home")
+    await rig.w.advance(120)  # any D4a check from this edge resolves
+    await rig.person(pid, "unavailable")
+
+
+@pytest.mark.asyncio
+async def test_still_locked_after_arrival_pages(monkeypatch):
+    rig = await make_rig()
+    nm = install_nm(rig)
+    neuter_s1(monkeypatch, rig)
+    await rig.edge("sleep")
+    await rig.edge("away")
+    await rig.person(EZ, "home")
+    assert rig.unlocks() == []
+    await rig.w.advance(89.9)
+    assert nm.of(AFTER) == []
+    await rig.w.advance(0.2)
+    pages = nm.of(AFTER)
+    assert sorted(p["location"] for p in pages) == [
+        f"garage_lockout:still_locked:{LOCK_A}", f"garage_lockout:still_locked:{LOCK_B}"]
+    assert all(int(p["severity"]) == 3 for p in pages)
+    assert "person.ezinne" in pages[0]["title"]
+    assert snap(rig)["lock_regime_still_locked_pages"] == 2
+
+
+@pytest.mark.asyncio
+async def test_still_locked_silent_after_unlock():
+    rig = await make_rig()
+    nm = install_nm(rig)
+    await rig.edge("sleep")
+    await rig.edge("away")
+    await rig.person(EZ, "home")
+    assert rig.unlocks() == [LOCK_A, LOCK_B]
+    await rig.w.advance(91)
+    assert nm.sent == []
+
+
+@pytest.mark.asyncio
+async def test_still_locked_silent_after_later_engage():
+    """F2 repro: reason NONE, lockouts unlocked, resident edge at T; a SLEEP
+    engage at T+30 locks -> no page at T+90 (we locked them)."""
+    rig = await make_rig()
+    nm = install_nm(rig)
+    await rig.person(EZ, "home")
+    await rig.w.advance(30)
+    await rig.edge("sleep")
+    assert rig.locks() == [LOCK_A, LOCK_B]
+    await rig.w.advance(61)
+    assert nm.of(AFTER) == []
+
+
+@pytest.mark.asyncio
+async def test_still_locked_engage_seq_guard_without_last_changed():
+    """engage_seq alone (no usable State.last_changed on the lock): our own
+    engage after the arrival silences the check."""
+    rig = await make_rig()
+    nm = install_nm(rig)
+    rig.w.apply_service_state = False
+
+    def land_without_stamp(domain, service, eid):
+        if domain == "lock" and service == "lock":
+            rig.w.seed(eid, "locked")  # last_changed None
+
+    rig.w.call_hooks.append(land_without_stamp)
+    await rig.person(EZ, "home")
+    await rig.w.advance(30)
+    await rig.edge("sleep")
+    assert rig.locks() == [LOCK_A, LOCK_B]
+    await rig.w.advance(61)
+    assert nm.of(AFTER) == []
+
+
+@pytest.mark.asyncio
+async def test_still_locked_not_silenced_by_second_resident_release():
+    rig = await make_rig()
+    nm = install_nm(rig)
+    await rig.edge("sleep")
+    await rig.person(OJI, "not_home")
+    await rig.edge("away")
+    rig.sc.enabled = False  # S1 cannot unlock (SC not alive)
+    await rig.person(EZ, "home")  # T
+    await rig.w.advance(30)
+    await rig.person(OJI, "home")  # T+30, a second resident
+    await rig.w.advance(61)  # T+91
+    assert rig.unlocks() == []
+    assert len(nm.of(AFTER)) == 2  # EZ's check fired: one page per lock
+
+
+@pytest.mark.asyncio
+async def test_still_locked_one_page_per_lock_two_residents():
+    """R2-7: two residents in one car, S1 cannot unlock -> one page per lock,
+    not per resident; a later D4b check in the same engage episode for the
+    same lock does not page again."""
+    rig = await make_rig(persons={EZ: "not_home", OJI: "home", JAYA: "not_home"})
+    nm = install_nm(rig)
+    await rig.person(OJI, "not_home")
+    await departure_unseen(rig, JAYA)
+    await rig.edge("sleep")
+    await rig.edge("away")
+    rig.sc.enabled = False
+    await rig.person(EZ, "home")
+    await rig.w.advance(1)
+    await rig.person(OJI, "home")
+    await rig.w.advance(120)
+    assert len(nm.of(AFTER)) == 2
+    assert sorted(p["location"] for p in nm.of(AFTER)) == [
+        f"garage_lockout:still_locked:{LOCK_A}", f"garage_lockout:still_locked:{LOCK_B}"]
+    await rig.person(JAYA, "home")  # D4b, same engage episode
+    assert snap(rig)["lock_regime_uncounted_returns"] == 1
+    await rig.w.advance(91)
+    assert nm.of(UNCOUNTED) == []
+    assert snap(rig)["lock_regime_still_locked_pages"] == 2
+
+
+@pytest.mark.asyncio
+async def test_still_locked_dedups_release_failed_nm():
+    rig = await make_rig()
+    nm = install_nm(rig)
+    await rig.edge("sleep")
+    await rig.edge("away")
+    rig.w.apply_service_state = False  # unlocks never land
+    await rig.person(EZ, "home")
+    await rig.w.advance(91)
+    assert sorted(p["location"] for p in nm.of(FAILED)) == [
+        f"garage:{LOCK_A}", f"garage:{LOCK_B}"]
+    assert nm.of(AFTER) == []
+
+
+@pytest.mark.asyncio
+async def test_still_locked_skips_human_relock_in_window():
+    rig = await make_rig()
+    nm = install_nm(rig)
+    await rig.edge("sleep")
+    await rig.edge("away")
+    await rig.person(EZ, "home")
+    assert rig.unlocks() == [LOCK_A, LOCK_B]
+    await rig.w.advance(40)
+    rig.w.set_state(LOCK_A, "locked")  # a human re-locks, not URA
+    await rig.w.advance(51)
+    assert nm.of(AFTER) == []
+
+
+@pytest.mark.asyncio
+async def test_still_locked_never_left_locked_pages(monkeypatch):
+    """The R2-7 counterpart: the lock never left `locked` -> one page per lock."""
+    rig = await make_rig()
+    nm = install_nm(rig)
+    await rig.edge("sleep")
+    await rig.edge("away")
+    rig.sc.enabled = False
+    await rig.person(EZ, "home")
+    await rig.w.advance(91)
+    assert len(nm.of(AFTER)) == 2
+
+
+@pytest.mark.asyncio
+async def test_uncounted_return_pages_when_house_away():
+    rig = await make_rig()
+    nm = install_nm(rig)
+    await departure_unseen(rig, EZ)
+    await rig.edge("sleep")
+    await rig.edge("away")
+    await rig.person(EZ, "home")  # unavailable -> home, rejected (_last_real home)
+    assert rig.unlocks() == []
+    assert rig.regime.last_action["action"] == "arrival_uncounted"
+    await rig.w.advance(89.9)
+    assert nm.of(UNCOUNTED) == []
+    await rig.w.advance(0.2)
+    pages = nm.of(UNCOUNTED)
+    assert len(pages) == 2
+    assert "may be locked out" in pages[0]["title"]
+    assert snap(rig)["lock_regime_uncounted_returns"] == 1
+
+
+@pytest.mark.asyncio
+async def test_uncounted_return_silent_when_house_home_untainted():
+    rig = await make_rig()
+    nm = install_nm(rig)
+    await departure_unseen(rig, EZ)
+    await rig.edge("sleep")
+    rig.mgr.house_state = "home_night"  # no edge: engaged, untainted, awake read
+    await rig.person(EZ, "home")
+    await rig.w.advance(91)
+    assert nm.sent == []
+    assert snap(rig)["lock_regime_uncounted_returns"] == 0
+
+
+@pytest.mark.asyncio
+async def test_uncounted_return_pages_late_reconnect_tainted_home():
+    """R2-3: the phone rejoins after ARRIVING has advanced to HOME_*."""
+    rig = await make_rig()
+    nm = install_nm(rig)
+    await departure_unseen(rig, EZ)
+    await tainted_sleep_episode(rig)
+    await rig.edge("home_night")
+    assert rig.mgr.house_state == "home_night"
+    await rig.person(EZ, "home")
+    await rig.w.advance(91)
+    assert len(nm.of(UNCOUNTED)) == 2
+
+
+@pytest.mark.asyncio
+async def test_uncounted_return_silent_when_reason_none():
+    rig = await make_rig(house="away")
+    nm = install_nm(rig)
+    await departure_unseen(rig, EZ)
+    rig.w.set_state(LOCK_A, "locked")
+    await rig.person(EZ, "home")
+    await rig.w.advance(91)
+    assert nm.sent == []
+    assert snap(rig)["lock_regime_uncounted_returns"] == 0
+
+
+@pytest.mark.asyncio
+async def test_uncounted_page_disabled_by_constant(monkeypatch):
+    monkeypatch.setattr(const, "LOCK_RELEASE_UNCOUNTED_RETURN_PAGE_ENABLED", False)
+    rig = await make_rig()
+    nm = install_nm(rig)
+    await departure_unseen(rig, EZ)
+    await rig.edge("sleep")
+    await rig.edge("away")
+    await rig.person(EZ, "home")
+    await rig.w.advance(91)
+    assert nm.of(UNCOUNTED) == []
+    assert snap(rig)["lock_regime_uncounted_returns"] == 0
+    # D4a unaffected.
+    neuter_s1(monkeypatch, rig)
+    await rig.person(OJI, "not_home")
+    await rig.person(OJI, "home")
+    await rig.w.advance(91)
+    assert len(nm.of(AFTER)) == 2
+
+
+@pytest.mark.asyncio
+async def test_still_locked_cancelled_on_teardown(monkeypatch):
+    rig = await make_rig()
+    nm = install_nm(rig)
+    neuter_s1(monkeypatch, rig)
+    await rig.edge("sleep")
+    await rig.person(EZ, "home")
+    pending = [t for t in rig.w.live_timers() if t["delay"] == 90.0]
+    assert len(pending) == 1
+    await rig.regime.async_teardown()
+    assert pending[0]["cancelled"] is True
+    await rig.w.advance(91)
+    assert nm.of(AFTER) == []
+
+
+@pytest.mark.asyncio
+async def test_still_locked_window_zero_disables(monkeypatch):
+    monkeypatch.setattr(const, "LOCK_RELEASE_ARRIVAL_STILL_LOCKED_S", 0)
+    rig = await make_rig()
+    nm = install_nm(rig)
+    neuter_s1(monkeypatch, rig)
+    await departure_unseen(rig, OJI)
+    await rig.edge("sleep")
+    await rig.edge("away")
+    await rig.person(EZ, "home")
+    await rig.person(OJI, "home")
+    await rig.w.advance(3600)
+    assert nm.sent == []
+    assert snap(rig)["lock_regime_uncounted_returns"] == 0
+    assert rig.regime._still_locked_unsubs == {}
+
+
+def test_still_locked_bound_exceeds_readback_chain():
+    """F3 / H3b: the page waits out the read-back chain plus >= 30 s for two
+    blocking unlock calls (a cross-constant invariant, so constants are read)."""
+    assert (
+        const.LOCK_RELEASE_ARRIVAL_STILL_LOCKED_S
+        - const.GARAGE_LOCKOUT_READBACK_S * (const.GARAGE_LOCKOUT_READBACK_RETRIES + 1)
+        >= 30
+    )
+
+
+@pytest.mark.asyncio
+async def test_still_locked_anchor_after_hold(monkeypatch):
+    """§8: hold = 60 (Number max): the check is anchored at the S1 call
+    (edge + 60), so it fires at edge + 150, not edge + 90."""
+    rig = await make_rig(opts=options(garage_lockout_arrival_hold_s=60))
+    nm = install_nm(rig)
+    neuter_s1(monkeypatch, rig)
+    await rig.edge("sleep")
+    await rig.edge("away")
+    stale_home(rig, EZ, "device_tracker.ez_ipad")
+    await settle()
+    await rig.w.advance(149.9)
+    assert nm.of(AFTER) == []
+    await rig.w.advance(0.2)
+    assert len(nm.of(AFTER)) == 2
+
+
+@pytest.mark.asyncio
+async def test_everyone_excluded_trip_wires_silent():
+    rig = await make_rig(opts=options(
+        security_lockout_excluded_persons=[EZ, OJI, "person.wall_kiosk"]))
+    nm = install_nm(rig)
+    await tainted_sleep_episode(rig)
+    await rig.person(EZ, "home")
+    await rig.w.advance(3600)
+    assert nm.sent == []
+
+
+@pytest.mark.asyncio
+async def test_uncounted_return_silent_when_kill_switch_off():
+    """Kill switch read live (an options edit with no switch callback):
+    no D4b record, no page."""
+    rig = await make_rig()
+    nm = install_nm(rig)
+    await departure_unseen(rig, EZ)
+    await rig.edge("sleep")
+    await rig.edge("away")
+    rig.w.cm_entry.options["security_garage_lockout_enabled"] = False
+    await rig.person(EZ, "home")
+    await rig.w.advance(91)
+    assert nm.sent == []
+    assert snap(rig)["lock_regime_uncounted_returns"] == 0
+
+
+@pytest.mark.asyncio
+async def test_still_locked_silent_when_kill_switch_off_at_fire(monkeypatch):
+    rig = await make_rig()
+    nm = install_nm(rig)
+    neuter_s1(monkeypatch, rig)
+    await rig.edge("sleep")
+    await rig.edge("away")
+    await rig.person(EZ, "home")
+    rig.w.cm_entry.options["security_garage_lockout_enabled"] = False
+    await rig.w.advance(91)
+    assert nm.of(AFTER) == []
+
+
+@pytest.mark.asyncio
+async def test_still_locked_reschedule_cancels_prior_check(monkeypatch):
+    """A second edge for the same person replaces its pending check (one
+    handle per person; no orphan timer that teardown could not cancel)."""
+    rig = await make_rig()
+    neuter_s1(monkeypatch, rig)
+    await rig.edge("sleep")
+    await rig.person(EZ, "home")
+    await rig.w.advance(10)
+    await rig.person(EZ, "not_home")
+    await rig.person(EZ, "home")
+    live = [t for t in rig.w.live_timers() if t["delay"] == 90.0]
+    assert len(live) == 1

@@ -589,6 +589,16 @@ step rejects overlap). It never touches ArmedState and never goes through `evalu
   (`location = garage_lockout:house_state`) names the trigger, the episode reason and the last four house-state
   edges. It observes, never blocks; steady state is zero. Kill switch `LOCK_RELEASE_UNCORROBORATED_TRIPWIRE_ENABLED`
   (rung 1). Counter `lock_regime_uncorroborated_releases`.
+  **Still-locked trip-wire (D4):** `LOCK_RELEASE_ARRIVAL_STILL_LOCKED_S` (90 s, rung 1, 0 = off) after a resident's S1
+  person release call (anchored after the suspicious-arrival hold), each lockout still reading exactly `locked` pages
+  one NM HIGH `lockout_locked_after_arrival` (`location = garage_lockout:still_locked:<lock>`), unless the regime
+  locked again since (`engage_seq`), a `lockout_release_failed` NM for that lock was sent since the release, the lock
+  went `locked` after the arrival (a human re-lock, `last_changed`), or that lock was already paged in this engage
+  episode. D4b: a resident `unknown/unavailable -> home` edge rejected by the really-away rule (departure never seen),
+  in an engaged episode that is tainted or while the house reads away/arriving, records `arrival_uncounted` and pages
+  `lockout_locked_resident_uncounted_return` on the same check (a page, not a release; kill switch
+  `LOCK_RELEASE_UNCOUNTED_RETURN_PAGE_ENABLED`, True; D0 measured 0 false pages/week). Pending checks are not
+  persisted. Counters `lock_regime_still_locked_pages`, `lock_regime_uncounted_returns`.
 - **Residents:** every `person.*` minus `security_lockout_excluded_persons`, tracked live
   (added/removed domain trackers) and persisted in Store
   `universal_room_automation.lock_regime_residents`.

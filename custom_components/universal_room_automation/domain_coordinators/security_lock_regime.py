@@ -268,6 +268,18 @@ class LockRegimeController:
         # (new, old, trigger, ts), F20.
         self.uncorroborated_releases: int = 0
         self._last_house_edges: collections.deque = collections.deque(maxlen=4)
+        # D4 still-locked trip-wire. engage_seq is bumped at every lock.lock
+        # we issue (release_gen cannot serve: only releases bump it, F2/H3a).
+        self.engage_seq: int = 0
+        # entity -> ts a lockout_release_failed NM started (H3b dedup).
+        self._failure_nm_at: dict[str, float] = {}
+        # person -> pending still-locked check; entity -> engage_seq it was
+        # paged in (one page per stuck lock per engage episode, R2-7). Neither
+        # is persisted (a restart drops a pending check; named residual).
+        self._still_locked_unsubs: dict[str, Callable[[], None]] = {}
+        self._still_locked_paged: dict[str, int] = {}
+        self.still_locked_pages: int = 0
+        self.uncounted_returns: int = 0
 
         # SC-LOCK-REGIME-DOOR-LOCKS-1 (plan rev 3 D3a): the away-lock policy.
         # Its own state; it never touches reason / release_gen / backstop /
@@ -726,6 +738,9 @@ class LockRegimeController:
         for held in self._held_edges.values():
             _safe_unsub(held.get("unsub"))
         self._held_edges.clear()
+        for unsub in self._still_locked_unsubs.values():
+            _safe_unsub(unsub)
+        self._still_locked_unsubs.clear()
         for unsub in self._readback_unsubs.values():
             _safe_unsub(unsub)
         self._readback_unsubs.clear()
@@ -1331,6 +1346,16 @@ class LockRegimeController:
             if new_val == "home" and old_val != "home":
                 if self._arrival_counts(pid, old_val, edge_ts):
                     self._release(f"person:{pid}", person=pid)
+                    # D4a: anchored AFTER the S1 call (post-hold, F3).
+                    self._schedule_still_locked(pid, "arrival")
+                elif self._uncounted_return_pages(pid, old_val):
+                    # D4b (INV-REAL-B): a page, never a release (plan §11 Q4).
+                    self.uncounted_returns += 1
+                    self._record(
+                        "arrival_uncounted", trigger=f"person:{pid}", written=[],
+                        extra={"old_state": old_val},
+                    )
+                    self._schedule_still_locked(pid, "uncounted")
             elif new_val not in _UNREAL_STATES and new_val != old_val:
                 if self._is_approach_zone(new_val, cfg):
                     self._release(f"approach_zone:{pid}", person=pid)
@@ -1340,6 +1365,120 @@ class LockRegimeController:
             prev = self._last_real.get(pid)
             if prev is None or prev[0] != new_val or prev[2]:
                 self._last_real[pid] = (new_val, edge_ts, False)
+
+    # ------------------------------------------------------------------
+    # D4 still-locked trip-wire (LOCK-RELEASE-ON-ARRIVING plan rev 3)
+    # ------------------------------------------------------------------
+
+    def _uncounted_return_pages(self, pid: str, old_val: str | None) -> bool:
+        """D4b: a resident ``unknown/unavailable -> home`` edge that
+        ``_arrival_counts`` rejected, in an engaged episode that saw ARRIVING
+        (persisted taint, R2-3) or while the house reads away / arriving."""
+        from ..const import (  # noqa: PLC0415
+            LOCK_RELEASE_ARRIVAL_STILL_LOCKED_S,
+            LOCK_RELEASE_UNCOUNTED_RETURN_PAGE_ENABLED,
+        )
+
+        return (
+            old_val in _UNREAL_STATES
+            and LOCK_RELEASE_UNCOUNTED_RETURN_PAGE_ENABLED
+            and float(LOCK_RELEASE_ARRIVAL_STILL_LOCKED_S) > 0
+            and self.kill_switch_on()
+            and self.reason != REASON_NONE
+            and (self._arrival_taint or self._house_state() in ("away", "arriving"))
+        )
+
+    def _schedule_still_locked(self, pid: str, kind: str) -> None:
+        from ..const import LOCK_RELEASE_ARRIVAL_STILL_LOCKED_S  # noqa: PLC0415
+
+        window = float(LOCK_RELEASE_ARRIVAL_STILL_LOCKED_S)
+        if window <= 0 or not self.kill_switch_on():
+            return
+        anchor = self._ts()
+        # Wall clock for comparing HA State.last_changed (the injected clock
+        # is dt_util.now in production; aware datetimes compare across tz).
+        anchor_wall = self._now()
+        seq = self.engage_seq
+        _safe_unsub(self._still_locked_unsubs.pop(pid, None))
+        self._still_locked_unsubs[pid] = self._call_later(
+            self._hass,
+            window,
+            functools.partial(self._on_still_locked, pid, anchor, anchor_wall, seq, kind),
+        )
+
+    @callback
+    def _on_still_locked(
+        self,
+        pid: str,
+        anchor: float,
+        anchor_wall: datetime,
+        seq: int,
+        kind: str,
+        _now: Any = None,
+    ) -> None:
+        """INV-PAGE / INV-REAL-B: one NM HIGH per lockout still ``locked``."""
+        self._still_locked_unsubs.pop(pid, None)
+        if self._torn_down or not self.kill_switch_on():
+            return
+        if self.engage_seq != seq:
+            return  # we locked again since the arrival (F2)
+        for ent in self.lockout_entities():
+            st = self._hass.states.get(ent)
+            if _state_value(st) != "locked":
+                continue
+            if self._failure_nm_at.get(ent, 0.0) >= anchor:
+                continue  # lockout_release_failed already told the operator (H3b)
+            changed = getattr(st, "last_changed", None)
+            if isinstance(changed, datetime) and changed > anchor_wall:
+                continue  # re-locked after the arrival by someone else (R2-7)
+            if self._still_locked_paged.get(ent) == seq:
+                continue  # one page per stuck lock per engage episode (R2-7)
+            self._still_locked_paged[ent] = seq
+            self.still_locked_pages += 1
+            self._record(
+                "still_locked_page", trigger=f"person:{pid}", written=[],
+                extra={"entity": ent, "kind": kind},
+            )
+            try:
+                self._spawn(self._notify_still_locked(ent, pid, kind))
+            except Exception:  # noqa: BLE001
+                _LOGGER.warning("Lock regime: still-locked NM not sent", exc_info=True)
+
+    async def _notify_still_locked(self, ent: str, pid: str, kind: str) -> None:
+        from ..const import DOMAIN  # noqa: PLC0415
+        from .base import Severity  # noqa: PLC0415
+
+        nm = self._hass.data.get(DOMAIN, {}).get("notification_manager")
+        if nm is None:
+            return
+        name = self._friendly(pid)
+        lock_name = self._friendly(ent)
+        if kind == "uncounted":
+            title = f"{name} may be locked out of the garage"
+            message = (
+                f"{name}'s phone was offline when they left, so their return "
+                f"did not count as an arrival and {lock_name} is still locked. "
+                "Unlock it from the HA app or the opener's own app."
+            )
+            hazard = "lockout_locked_resident_uncounted_return"
+        else:
+            title = f"Garage still locked after {name} got home"
+            message = (
+                f"{lock_name} still reads locked after {name} arrived home. "
+                "Unlock it from the HA app or the opener's own app."
+            )
+            hazard = "lockout_locked_after_arrival"
+        try:
+            await nm.async_notify(
+                coordinator_id="security",
+                severity=Severity.HIGH,
+                title=title,
+                message=message,
+                hazard_type=hazard,
+                location=f"garage_lockout:still_locked:{ent}",
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Lock regime: NM notify failed", exc_info=True)
 
     # ------------------------------------------------------------------
     # Suspicious-arrival hold (plan rev 2 §5.2-§5.4)
@@ -1993,6 +2132,9 @@ class LockRegimeController:
         from ..const import DOMAIN  # noqa: PLC0415
         from .base import Severity  # noqa: PLC0415
 
+        if policy != POLICY_AWAY_LOCK:
+            # D4 (H3b): a still-locked page defers to this failure NM.
+            self._failure_nm_at[ent] = self._ts()
         nm = self._hass.data.get(DOMAIN, {}).get("notification_manager")
         if nm is None:
             return
@@ -2103,6 +2245,7 @@ class LockRegimeController:
                 continue
             # No await between the predicate above and this call (INV-2).
             self._engage_inflight[ent] = self._ts()
+            self.engage_seq += 1  # D4: silences an older still-locked check
             try:
                 await self._hass.services.async_call(
                     "lock", "lock", {"entity_id": ent}, blocking=False, **_ctx_kwargs()
@@ -2828,6 +2971,8 @@ class LockRegimeController:
             "lock_regime_episode_saw_arriving": self._episode_saw_arriving,
             "lock_regime_arriving_holds": self.arriving_holds,
             "lock_regime_uncorroborated_releases": self.uncorroborated_releases,
+            "lock_regime_still_locked_pages": self.still_locked_pages,
+            "lock_regime_uncounted_returns": self.uncounted_returns,
         }
 
 
