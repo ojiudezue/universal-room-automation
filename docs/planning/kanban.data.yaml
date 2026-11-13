@@ -34454,7 +34454,7 @@ cards:
 - id: HVAC-PRECOOL-STANDDOWN-WHEN-COOL-1
   title: Pre-arrival pre-cool lowers the setpoint even when the zone is already at or below target; it should stand down
   thread: hvac
-  status: pre_planning
+  status: in_progress
   created: '2026-11-12 16:53'
   updated: '2026-11-12 16:53'
   refinement_status: initial
@@ -34521,6 +34521,25 @@ cards:
     related: [ZONE-CAMERA-DISCOVERY-DEVICE-AREA-1, PERSON-PROFILE-PREFERENCES-1, FRIGATE-DOOR-FACE-TUNING-1]
   next: 'Me: planner writes Tier-3 plan; two plan reviews; then APPROVE from operator.'
   rank: {value: 8, time_criticality: 4, effort: 8}
+- id: HVAC-PRECOOL-FLOOR-BELOW-ARRIVAL-HEAT-1
+  title: With Solar Banking Cool Floor below ~72, arrival pre-cool can cool a zone already inside Home's band down to the heat setpoint
+  thread: hvac
+  status: inbox
+  created: '2026-11-12 20:00'
+  updated: '2026-11-12 20:00'
+  refinement_status: initial
+  tier: 1
+  approval: unreviewed
+  problem_solution:
+  - 'Problem: pre-cool target is floor-derived; at floor 66 winter, target 70 equals Home heat. Solution: cap the cool target at or above the arrival preset heat (mirror of the heat-leg cap in rev 4).'
+  origin:
+    date: '2026-11-12'
+    gist: 'Plan review rev 3 M2 (PLAN_hvac_precool_standdown_review_rev3.md); deferred by plan rev 4.'
+  why: 'Legal knob extreme; default 74 is unaffected.'
+  links:
+    related: [HVAC-PRECOOL-STANDDOWN-WHEN-COOL-1]
+  next: 'Me: fold into the next HVAC cycle after the stand-down ships.'
+  rank: {value: 3, time_criticality: 1, effort: 2}
 - id: LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1
   title: A camera seeing any body while the house is away moves it to ARRIVING, which releases the garage lockout and auto-disarms security with no identity
   thread: security
