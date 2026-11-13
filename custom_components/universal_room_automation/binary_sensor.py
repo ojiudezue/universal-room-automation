@@ -2308,11 +2308,23 @@ class HouseOccupiedBinarySensor(BinarySensorEntity):
 
     @property
     def is_on(self) -> bool:
-        """Return True if house is occupied."""
+        """Return True if house is occupied.
+
+        HOUSE-STATE step 1a D2 item 6: derived through the presence getter
+        ``get_house_occupancy`` (byte-identical: empty iff AWAY / VACATION);
+        no presence coordinator -> the direct house-state read below.
+        """
         from .const import DOMAIN
         manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
         if manager is None:
             return False
+        try:
+            presence = manager.coordinators.get("presence")
+        except Exception:  # noqa: BLE001
+            presence = None
+        getter = getattr(presence, "get_house_occupancy", None)
+        if callable(getter):
+            return getter() == "occupied"
         from .domain_coordinators.house_state import HouseState
         return manager.house_state not in (
             HouseState.AWAY, HouseState.VACATION

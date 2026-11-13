@@ -1,5 +1,7 @@
 # Plan review (Tier 3, framing 1: completeness): PLANNING_lock_release_on_arriving.md rev 1
 
+> **Pointer (HOUSE-STATE step 1a, 2026-11-13):** `NM_HAZARD_EXTERIOR_PERSON_SEVERITY_BY_HOUSE_STATE` cited below was a dead table (imported, read nowhere) and is deleted; the live source is `NM_HAZARD_EXTERIOR_PERSON_CONTEXTUAL_SEVERITY` (`const.py`). See `PLANNING_house_state_axes_step1.md` D5 and PRESENCE state-of-play §10 #37.
+
 Branch `plan/lock-release-arriving` @ 1e3a54ee (base develop 519af938; the diff is the plan file only).
 Reviewer read COMPLETELY, before reviewing: `docs/Coordinator/IDENTITY_FUSION_CAMERAS_MANUAL.md` (926 lines),
 `docs/Coordinator/PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md` (1027 lines), `docs/architecture/SENSOR_FLEET_CLASSES.md`,

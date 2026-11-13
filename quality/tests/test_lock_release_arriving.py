@@ -1,17 +1,19 @@
 """LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1 (plan PLANNING_lock_release_on_arriving.md rev 3).
 
 House-state ARRIVING is body evidence with no identity (presence.infer moves
-AWAY -> ARRIVING on census_count > 0 or any zone occupied). INV-ARR: with the
-garage lockout ON, an engaged episode that has seen ARRIVING (the taint) never
-releases on a ``house_state:*`` / ``boot_recheck`` trigger, except WAKING and
-an operator ``override_set`` edge. Real arrivals release through the resident
-person edge (S1), which is unchanged.
+AWAY -> ARRIVING on census_count > 0 or any zone occupied). HOUSE-STATE step 1a
+(PLANNING_house_state_axes_step1.md rev 3, INV-LOCK) retired the ARRIVING taint:
+with the garage lockout ON, an engaged episode never releases on a
+``house_state:*`` / ``boot_recheck`` trigger, except WAKING (sleep-like) and an
+operator trigger (``override_set`` / ``override_clear``). The episode's
+``_episode_saw_empty`` flag is a page condition only. Real arrivals release
+through the resident person edge (S1), which is unchanged.
 
 Every test drives the REAL LockRegimeController and the REAL
 SecurityCoordinator house-state bridge (``_on_house_state_changed_signal``)
 through the injected fake clock / timers / trackers of ``_lockout_harness``,
 and asserts on the recorded ``lock.unlock`` stream and regime state. No test
-assigns ``_arrival_taint`` / ``_episode_saw_arriving`` / ``engage_seq``
+assigns ``_episode_saw_empty`` / ``engage_seq``
 directly (plan §7, F17); seams are a patched ``_edge_decision`` return or a
 neutered call. Times and bounds are hardcoded literals, never imported
 constants.
@@ -97,13 +99,12 @@ async def test_body_only_arriving_does_not_release_sleep():
     await tainted_sleep_episode(rig)
     assert rig.unlocks() == []
     assert rig.regime.reason == "sleep"
-    assert rig.regime.last_action["action"] == "arriving_hold"
+    assert rig.regime.last_action["action"] == "house_edge_ignored"
     assert rig.regime.last_action["trigger"] == "house_state:arriving"
     assert rig.regime._backstop_unsub is not None  # backstop still scheduled
     s = snap(rig)
-    assert s["lock_regime_arriving_taint"] is True
-    assert s["lock_regime_episode_saw_arriving"] is True
-    assert s["lock_regime_arriving_holds"] == 1
+    assert s["lock_regime_episode_saw_empty"] is True
+    assert s["lock_regime_house_edges_ignored"] == 1
 
 
 @pytest.mark.asyncio
@@ -116,14 +117,14 @@ async def test_arriving_then_home_star_chain_holds_until_backstop():
     await rig.edge("home_day")
     assert rig.unlocks() == []
     assert rig.regime.reason == "sleep"
-    assert snap(rig)["lock_regime_arriving_holds"] == 4
+    assert snap(rig)["lock_regime_house_edges_ignored"] == 4
     # Morning backstop (sleep_end 06:00 + 60 min) releases once.
     await rig.w.advance(
         (datetime(2026, 11, 8, 7, 0, 1, tzinfo=TZ) - rig.w.now).total_seconds())
     assert rig.unlocks() == [LOCK_A, LOCK_B]
     assert rig.regime.last_action["trigger"] == "backstop"
     assert rig.regime.reason == "none"
-    assert snap(rig)["lock_regime_arriving_taint"] is False
+    assert snap(rig)["lock_regime_episode_saw_empty"] is False
 
 
 @pytest.mark.asyncio
@@ -136,13 +137,13 @@ async def test_person_release_keeps_taint_later_home_star_held():
     await rig.person(EZ, "home")
     assert rig.unlocks() == [LOCK_A, LOCK_B]
     assert rig.regime.last_action["trigger"] == "person:person.ezinne"
-    assert snap(rig)["lock_regime_arriving_taint"] is True
+    assert snap(rig)["lock_regime_episode_saw_empty"] is True
     rig.w.calls.clear()
     await rig.w.advance(2 * 3600)
     await rig.edge("home_night")
     assert rig.w.calls == []
     assert rig.regime.reason == "sleep"
-    assert rig.regime.last_action["action"] == "arriving_hold"
+    assert rig.regime.last_action["action"] == "house_edge_ignored"
 
 
 @pytest.mark.asyncio
@@ -225,8 +226,9 @@ async def test_boot_settle_suppressed_arriving_old_state_taints():
     rig.mgr.house_state = "arriving"  # dispatch suppressed
     await rig.edge("home_night")
     assert rig.unlocks() == []
-    assert rig.regime.last_action["action"] == "arriving_hold"
+    assert rig.regime.last_action["action"] == "house_edge_ignored"
     assert rig.regime.reason == "sleep"
+    assert snap(rig)["lock_regime_episode_saw_empty"] is True
 
 
 @pytest.mark.asyncio
@@ -238,26 +240,26 @@ async def test_boot_rebuild_away_locked_taints():
                          past_boot=False,
                          opts=options(security_lockout_engage_on_guest_sleep=False))
     assert rig.regime.reason == "boot_unknown"
-    assert snap(rig)["lock_regime_arriving_taint"] is True
+    assert snap(rig)["lock_regime_episode_saw_empty"] is True
     rig.mgr.house_state = "home_night"  # silent change, no edge
     await rig.w.advance(121)
     assert rig.unlocks() == []
-    assert rig.regime.last_action["decision"] == "arriving_hold"
+    assert rig.regime.last_action["decision"] == "house_edge_ignored"
 
 
 @pytest.mark.asyncio
 async def test_boot_rebuild_away_then_arriving_home_night_edge_held():
     """Plan D1 H2 AC: restart with house away + lockout locked; a dispatched
-    arriving -> home_night edge (no ARRIVING edge seen) -> arriving_hold; the
-    boot recheck at 120 s -> arriving_hold; 0 unlocks."""
+    arriving -> home_night edge (no ARRIVING edge seen) -> house_edge_ignored;
+    the boot recheck at 120 s -> house_edge_ignored; 0 unlocks."""
     rig = await make_rig(start=BOOT_0200, house="away", lockouts="locked",
                          past_boot=False,
                          opts=options(security_lockout_engage_on_guest_sleep=False))
     await rig.w.advance(30)
     await hs(rig, "home_night", old="arriving")
-    assert rig.regime.last_action["action"] == "arriving_hold"
+    assert rig.regime.last_action["action"] == "house_edge_ignored"
     await rig.w.advance(91)
-    assert rig.regime.last_action["decision"] == "arriving_hold"
+    assert rig.regime.last_action["decision"] == "house_edge_ignored"
     assert rig.unlocks() == []
 
 
@@ -269,7 +271,7 @@ async def test_boot_recheck_arriving_never_releases_even_resident_home():
     rig.mgr.house_state = "arriving"
     await rig.w.advance(121)
     assert rig.unlocks() == []
-    assert rig.regime.last_action["decision"] == "arriving_hold"
+    assert rig.regime.last_action["decision"] == "house_edge_ignored"
     assert rig.regime.last_action["arrival_since_setup"] is False
 
 
@@ -282,18 +284,18 @@ async def test_boot_recheck_arriving_taints_later_home_star_held():
     opts = options(security_lockout_engage_on_guest_sleep=False)
     rig = await make_rig(start=BOOT_0200, house="home_night", lockouts="locked",
                          past_boot=False, store=store, opts=opts)
-    assert snap(rig)["lock_regime_arriving_taint"] is False
+    assert snap(rig)["lock_regime_episode_saw_empty"] is False
     rig.mgr.house_state = "arriving"  # boot settle swallowed the edges
     await rig.w.advance(121)
-    assert rig.regime.last_action["decision"] == "arriving_hold"
-    assert snap(rig)["lock_regime_episode_saw_arriving"] is True
-    assert store.data["garage_arrival_taint"] is True
+    assert rig.regime.last_action["decision"] == "house_edge_ignored"
+    assert snap(rig)["lock_regime_episode_saw_empty"] is True
+    assert store.data["garage_episode_saw_empty"] is True
     rig2 = await make_rig(start=BOOT_0200 + timedelta(minutes=10), house="home_day",
                           lockouts="locked", past_boot=False,
                           store=DictStore(dict(store.data)), opts=opts)
     await rig2.w.advance(121)
     assert rig2.unlocks() == []
-    assert rig2.regime.last_action["decision"] == "arriving_hold"
+    assert rig2.regime.last_action["decision"] == "house_edge_ignored"
 
 
 @pytest.mark.asyncio
@@ -304,12 +306,11 @@ async def test_boot_recheck_sleep_vacation_rebuild_clears_taint(house):
     rig = await make_rig(start=BOOT_0200, house="away", lockouts="locked",
                          past_boot=False,
                          opts=options(security_lockout_engage_on_guest_sleep=False))
-    assert snap(rig)["lock_regime_arriving_taint"] is True
+    assert snap(rig)["lock_regime_episode_saw_empty"] is True
     rig.mgr.house_state = house
     await rig.w.advance(121)
     assert rig.regime.reason == house
-    assert snap(rig)["lock_regime_arriving_taint"] is False
-    assert snap(rig)["lock_regime_episode_saw_arriving"] is False
+    assert snap(rig)["lock_regime_episode_saw_empty"] is False
 
 
 @pytest.mark.asyncio
@@ -318,13 +319,12 @@ async def test_boot_rebuild_sleep_vacation_clears_restored_taint(house):
     store = DictStore()
     rig1 = await make_rig(store=store)
     await tainted_sleep_episode(rig1)
-    assert store.data["garage_arrival_taint"] is True
+    assert store.data["garage_episode_saw_empty"] is True
     rig2 = await make_rig(start=BOOT_0200 + timedelta(days=1), house=house,
                           lockouts="locked", past_boot=False,
                           store=DictStore(dict(store.data)))
     assert rig2.regime.reason == house
-    assert snap(rig2)["lock_regime_arriving_taint"] is False
-    assert snap(rig2)["lock_regime_episode_saw_arriving"] is False
+    assert snap(rig2)["lock_regime_episode_saw_empty"] is False
 
 
 @pytest.mark.asyncio
@@ -332,15 +332,16 @@ async def test_taint_persisted_across_restart_two_rigs():
     store = DictStore()
     rig1 = await make_rig(store=store)
     await tainted_sleep_episode(rig1)
-    assert store.data["garage_arrival_taint"] is True
+    assert store.data["garage_episode_saw_empty"] is True
     rig2 = await make_rig(start=BOOT_0200 + timedelta(days=1), house="home_day",
                           lockouts="locked", past_boot=False,
                           store=DictStore(dict(store.data)))
     # Fix-up D-H1: the persisted engage reason is rebuilt (was boot_unknown).
     assert rig2.regime.reason == "sleep"
+    assert snap(rig2)["lock_regime_episode_saw_empty"] is True
     await rig2.w.advance(121)
     assert rig2.unlocks() == []
-    assert rig2.regime.last_action["decision"] == "arriving_hold"
+    assert rig2.regime.last_action["decision"] == "house_edge_ignored"
 
 
 @pytest.mark.asyncio
@@ -375,32 +376,36 @@ async def test_manual_unlock_memory_survives_tainted_boot_recheck():
                           lockouts="locked", past_boot=False,
                           store=DictStore(dict(store.data)), seed_hook=hook)
     await rig2.w.advance(121)
-    assert rig2.regime.last_action["decision"] == "arriving_hold"
+    assert rig2.regime.last_action["decision"] == "house_edge_ignored"
     assert rig2.regime.manual_unlock_reason == "sleep"
 
 
 @pytest.mark.asyncio
 async def test_guest_clock_clears_taint():
-    """M3 stale-taint repro: VACATION -> ARRIVING -> HOME_DAY -> GUEST, the
-    guest clock engages GUEST_NIGHT (new episode, taint cleared); next morning
-    HOME_DAY releases."""
+    """M3 stale-flag repro: VACATION -> ARRIVING -> HOME_DAY -> GUEST, the
+    guest clock engages GUEST_NIGHT (new episode, saw-empty cleared). Step 1a:
+    next morning's default-trigger HOME_DAY is ignored; the backstop releases."""
     rig = await make_rig(start=datetime(2026, 11, 7, 20, 0, tzinfo=TZ), house="away",
                          opts=options(security_lockout_engage_on_guest_sleep=True))
     await rig.edge("vacation")
     await rig.edge("arriving")
     await rig.edge("home_day")
     await rig.edge("guest")
-    assert snap(rig)["lock_regime_arriving_taint"] is True
+    assert snap(rig)["lock_regime_episode_saw_empty"] is True
     await rig.w.advance(
         (datetime(2026, 11, 7, 22, 0, 1, tzinfo=TZ) - rig.w.now).total_seconds())
     assert rig.regime.reason == "guest_night"
-    assert snap(rig)["lock_regime_arriving_taint"] is False
+    assert snap(rig)["lock_regime_episode_saw_empty"] is False
     assert rig.unlocks() == []
     await rig.w.advance(
         (datetime(2026, 11, 8, 6, 30, tzinfo=TZ) - rig.w.now).total_seconds())
     await rig.edge("home_day")
+    assert rig.unlocks() == []
+    assert rig.regime.last_action["action"] == "house_edge_ignored"
+    await rig.w.advance(
+        (datetime(2026, 11, 8, 7, 0, 1, tzinfo=TZ) - rig.w.now).total_seconds())
     assert rig.unlocks() == [LOCK_A, LOCK_B]
-    assert rig.regime.last_action["trigger"] == "house_state:home_day"
+    assert rig.regime.last_action["trigger"] == "backstop"
 
 
 async def _site_sc_disable(rig):
@@ -439,8 +444,8 @@ async def test_every_reason_none_site_clears_flags(site):
     else:
         rig = await make_rig(store=store)
         await tainted_sleep_episode(rig)
-    assert snap(rig)["lock_regime_arriving_taint"] is True
-    assert store.data["garage_arrival_taint"] is True
+    assert snap(rig)["lock_regime_episode_saw_empty"] is True
+    assert store.data["garage_episode_saw_empty"] is True
     await {
         "sc_disable": _site_sc_disable,
         "hazard": _site_hazard,
@@ -450,17 +455,16 @@ async def test_every_reason_none_site_clears_flags(site):
     }[site](rig)
     assert rig.regime.reason == "none"
     s = snap(rig)
-    assert s["lock_regime_arriving_taint"] is False
-    assert s["lock_regime_episode_saw_arriving"] is False
-    assert store.data["garage_arrival_taint"] is False
-    assert store.data["garage_episode_saw_arriving"] is False
+    assert s["lock_regime_episode_saw_empty"] is False
+    assert store.data["garage_episode_saw_empty"] is False
+    assert "garage_arrival_taint" not in store.data
 
 
 @pytest.mark.asyncio
 async def test_boot_guest_night_rebuild_keeps_taint():
-    """R2-1 repro: GUEST_NIGHT episode, GUEST -> AWAY -> ARRIVING (taint) ->
-    HOME_NIGHT (guest_yield_hold); restart; the boot recheck rebuilds
-    GUEST_NIGHT and keeps the taint; next morning HOME_DAY is held."""
+    """R2-1 repro: GUEST_NIGHT episode, GUEST -> AWAY -> ARRIVING (saw-empty)
+    -> HOME_NIGHT (guest_yield_hold); restart; the boot recheck rebuilds
+    GUEST_NIGHT and keeps the flag; next morning HOME_DAY is ignored."""
     store = DictStore()
     rig1 = await make_rig(store=store,
                           opts=options(security_lockout_engage_on_guest_sleep=True))
@@ -478,41 +482,41 @@ async def test_boot_guest_night_rebuild_keeps_taint():
     await rig2.w.advance(121)
     assert rig2.regime.reason == "guest_night"
     s = snap(rig2)
-    assert s["lock_regime_arriving_taint"] is True
-    assert s["lock_regime_episode_saw_arriving"] is True
+    assert s["lock_regime_episode_saw_empty"] is True
     await rig2.w.advance(
         (datetime(2026, 11, 8, 6, 30, tzinfo=TZ) - rig2.w.now).total_seconds())
     await rig2.edge("home_day")
     assert rig2.unlocks() == []
-    assert rig2.regime.last_action["action"] == "arriving_hold"
+    assert rig2.regime.last_action["action"] == "house_edge_ignored"
 
 
 @pytest.mark.asyncio
 async def test_boot_nothing_locked_clears_stale_taint():
-    """R2-4 repro: tainted SLEEP episode, resident person release (taint
-    kept), restart with nothing locked -> flags cleared; the operator
-    hand-locks; restart with house home_day -> the boot recheck releases as
-    today (not arriving_hold)."""
+    """R2-4 repro: SLEEP episode that saw an empty house, resident person
+    release (flag kept), restart with nothing locked -> flag cleared; the
+    operator hand-locks; restart with house home_day -> step 1a (delta L2):
+    the boot recheck ignores the awake house (house_edge_ignored), the morning
+    backstop owns the release."""
     store = DictStore()
     rig1 = await make_rig(store=store)
     await tainted_sleep_episode(rig1)
     await rig1.person(EZ, "home")
     assert rig1.unlocks() == [LOCK_A, LOCK_B]
-    assert store.data["garage_arrival_taint"] is True
+    assert store.data["garage_episode_saw_empty"] is True
     store2 = DictStore(dict(store.data))
     rig2 = await make_rig(start=BOOT_0200 + timedelta(days=1), house="home_night",
                           lockouts="unlocked", past_boot=False, store=store2,
                           opts=options(security_lockout_engage_on_guest_sleep=False))
-    assert snap(rig2)["lock_regime_arriving_taint"] is False
-    assert store2.data["garage_arrival_taint"] is False
-    assert store2.data["garage_episode_saw_arriving"] is False
+    assert snap(rig2)["lock_regime_episode_saw_empty"] is False
+    assert store2.data["garage_episode_saw_empty"] is False
     rig3 = await make_rig(start=BOOT_0200 + timedelta(days=1, minutes=30),
                           house="home_day", lockouts="locked", past_boot=False,
                           store=DictStore(dict(store2.data)),
                           opts=options(security_lockout_engage_on_guest_sleep=False))
+    assert snap(rig3)["lock_regime_episode_saw_empty"] is False
     await rig3.w.advance(121)
-    assert rig3.unlocks() == [LOCK_A, LOCK_B]
-    assert rig3.regime.last_action["trigger"] == "boot_recheck"
+    assert rig3.unlocks() == []
+    assert rig3.regime.last_action["decision"] == "house_edge_ignored"
 
 
 @pytest.mark.asyncio
@@ -534,9 +538,9 @@ async def test_override_set_arriving_releases_without_taint():
     assert rig.unlocks() == [LOCK_A, LOCK_B]
     assert rig.regime.last_action["trigger"] == "house_state:arriving"
     s = snap(rig)
-    assert s["lock_regime_arriving_taint"] is False
-    assert s["lock_regime_episode_saw_arriving"] is False
-    assert s["lock_regime_arriving_holds"] == 0
+    assert rig.regime.reason == "none"
+    assert s["lock_regime_episode_saw_empty"] is False  # episode ended
+    assert s["lock_regime_house_edges_ignored"] == 0
 
 
 @pytest.mark.asyncio
@@ -548,7 +552,8 @@ async def test_reason_none_arriving_no_unlock():
     assert rig.regime.reason == "none"
     await rig.edge("arriving")
     assert rig.unlocks() == []
-    assert snap(rig)["lock_regime_arriving_taint"] is False
+    assert snap(rig)["lock_regime_episode_saw_empty"] is False
+    assert snap(rig)["lock_regime_house_edges_ignored"] == 0
 
 
 @pytest.mark.asyncio
@@ -565,19 +570,18 @@ async def test_guest_yield_hold_unchanged_with_taint():
 
 @pytest.mark.asyncio
 async def test_override_guest_night_to_home_night_from_arriving_no_taint():
-    """C-2: an override GUEST-night -> HOME_NIGHT edge whose old_state is
-    arriving (guest_yield_hold, no release) must not set or persist the taint."""
+    """C-2 (step 1a delta M2 flips it): an override GUEST-night -> HOME_NIGHT
+    edge whose old_state is arriving is still evidence the house was empty, so
+    ``_episode_saw_empty`` is set (not gated on operator; it only pages). The
+    edge itself is guest_yield_hold, no release."""
     rig = await make_rig(opts=options(security_lockout_engage_on_guest_sleep=True))
     await rig.edge("guest")
     assert rig.regime.reason == "guest_night"
-    assert snap(rig)["lock_regime_arriving_taint"] is False
+    assert snap(rig)["lock_regime_episode_saw_empty"] is False
     await hs(rig, "home_night", old="arriving", trigger="override_set")
     assert rig.regime.last_action["action"] == "guest_yield_hold"
     assert rig.unlocks() == []
-    s = snap(rig)
-    assert s["lock_regime_arriving_taint"] is False
-    assert s["lock_regime_episode_saw_arriving"] is False
-    assert rig.regime._arrival_taint is False
+    assert snap(rig)["lock_regime_episode_saw_empty"] is True
 
 
 # ----------------------------------------------------------------------------
@@ -767,7 +771,7 @@ async def test_extreme_vacation_chain_released_by_waking_after_sleep():
         (datetime(2026, 11, 7, 23, 30, tzinfo=TZ) - rig.w.now).total_seconds())
     await rig.edge("sleep")
     assert rig.regime.reason == "sleep"
-    assert snap(rig)["lock_regime_arriving_taint"] is False
+    assert snap(rig)["lock_regime_episode_saw_empty"] is False
     await rig.w.advance(
         (datetime(2026, 11, 8, 6, 10, tzinfo=TZ) - rig.w.now).total_seconds())
     await rig.edge("waking")
@@ -797,7 +801,7 @@ async def test_extreme_kill_switch_off_in_tainted_episode_releases_once():
     await settle()
     assert rig.unlocks() == [LOCK_A, LOCK_B]
     assert rig.regime.reason == "none"
-    assert snap(rig)["lock_regime_arriving_taint"] is False
+    assert snap(rig)["lock_regime_episode_saw_empty"] is False
 
 
 @pytest.mark.asyncio
@@ -809,7 +813,7 @@ async def test_extreme_reengage_delay_after_night_person_release_then_arriving(d
     await rig.person(EZ, "home")
     assert rig.unlocks() == [LOCK_A, LOCK_B]
     await rig.edge("arriving")
-    assert snap(rig)["lock_regime_arriving_taint"] is True
+    assert snap(rig)["lock_regime_episode_saw_empty"] is True
     if delay == 0:
         assert rig.regime._reengage_unsub is None
         return
@@ -820,7 +824,7 @@ async def test_extreme_reengage_delay_after_night_person_release_then_arriving(d
     assert rig.locks() == [LOCK_A, LOCK_B]  # only the original engage
     assert rig.regime.last_action["action"] == "reengage_abandoned"
     assert rig.regime.last_action["why"] == "house_not_sleep"
-    assert snap(rig)["lock_regime_arriving_taint"] is True
+    assert snap(rig)["lock_regime_episode_saw_empty"] is True
 
 
 @pytest.mark.asyncio
@@ -833,7 +837,7 @@ async def test_extreme_arriving_away_flap_x5_then_resident_edge():
         await rig.edge("arriving")
         await rig.w.advance(60)
     assert rig.unlocks() == []
-    assert snap(rig)["lock_regime_arriving_holds"] == 5
+    assert snap(rig)["lock_regime_house_edges_ignored"] == 5
     await rig.person(EZ, "home")
     assert rig.unlocks() == [LOCK_A, LOCK_B]
 
@@ -865,10 +869,10 @@ def bypass_gate(monkeypatch, rig, *houses: str) -> None:
     named house states; everything else is the real decision."""
     real = rig.regime._edge_decision
 
-    def patched(new, cfg, *, override=False):
+    def patched(new, cfg, *, operator=False):
         if new in houses:
             return "release", None
-        return real(new, cfg, override=override)
+        return real(new, cfg, operator=operator)
 
     monkeypatch.setattr(rig.regime, "_edge_decision", patched)
 
@@ -928,9 +932,9 @@ async def test_tripwire_silent_when_nothing_written(monkeypatch):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("boot_house", ["arriving", "home_day"])
 async def test_tripwire_covers_boot_recheck_channel_two_rigs(monkeypatch, boot_house):
-    """Boot channel: the saw flag survives a restart (store) and is also set by
-    the boot paths. rig 2 boots with the D1 boot arriving_hold mutated to a
-    release -> one page. ``home_day`` relies on the persisted saw flag alone."""
+    """Boot channel: rig 2 boots with the boot house_edge_ignored mutated to a
+    release -> one page (step 1a: the trip-wire reads only the trigger and the
+    operator flag, never an episode flag or ``_edge_decision``)."""
     store = DictStore()
     rig1 = await make_rig(store=store)
     await tainted_sleep_episode(rig1)
@@ -983,12 +987,17 @@ async def test_tripwire_disabled_by_constant(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_tripwire_silent_on_untainted_house_state_release():
-    """A HOME_* release in an episode that never saw ARRIVING is today's
-    behaviour and must not page (saw flag conjunct)."""
+    """Step 1a: a default-trigger HOME_* edge in an episode that never saw an
+    empty house is ignored (no release, no page); an operator override_clear
+    HOME_* edge releases and must not page (operator conjunct)."""
     rig = await make_rig()
     nm = install_nm(rig)
     await rig.edge("sleep")
     await rig.edge("home_day")
+    await settle()
+    assert rig.unlocks() == []
+    assert rig.regime.last_action["action"] == "house_edge_ignored"
+    await hs(rig, "home_day", trigger="override_clear")
     await settle()
     assert rig.unlocks() == [LOCK_A, LOCK_B]
     assert rig.regime.last_action["trigger"] == "house_state:home_day"
@@ -1412,7 +1421,7 @@ async def test_still_locked_tainted_home_night_lock_back_after_30s():
     await rig.w.advance(30)
     rig.w.set_state(LOCK_A, "locked")
     await rig.edge("home_night")
-    assert rig.regime.last_action["action"] == "arriving_hold"
+    assert rig.regime.last_action["action"] == "house_edge_ignored"
     await rig.w.advance(61)
     assert [p["location"] for p in nm.of(AFTER)] == [
         f"garage_lockout:still_locked:{LOCK_A}"]
@@ -1575,7 +1584,7 @@ async def test_boot_recheck_waking_release_kept_no_tripwire():
     store = DictStore()
     rig1 = await make_rig(store=store)
     await tainted_sleep_episode(rig1)
-    assert store.data["garage_episode_saw_arriving"] is True
+    assert store.data["garage_episode_saw_empty"] is True
     rig2 = await make_rig(start=datetime(2026, 11, 8, 6, 10, tzinfo=TZ), house="waking",
                           lockouts="locked", past_boot=False,
                           store=DictStore(dict(store.data)))
@@ -1595,32 +1604,34 @@ async def test_boot_kill_switch_off_clears_restored_taint():
     store = DictStore()
     rig1 = await make_rig(store=store)
     await tainted_sleep_episode(rig1)
-    assert store.data["garage_arrival_taint"] is True
+    assert store.data["garage_episode_saw_empty"] is True
     store2 = DictStore(dict(store.data))
     await make_rig(start=BOOT_0200 + timedelta(days=1), house="home_day",
                    lockouts="locked", past_boot=False, store=store2,
                    opts=options(security_garage_lockout_enabled=False))
-    assert store2.data["garage_arrival_taint"] is False
-    assert store2.data["garage_episode_saw_arriving"] is False
+    assert store2.data["garage_episode_saw_empty"] is False
     rig3 = await make_rig(start=BOOT_0200 + timedelta(days=1, minutes=30),
                           house="home_day", lockouts="locked", past_boot=False,
                           store=DictStore(dict(store2.data)),
                           opts=options(security_lockout_engage_on_guest_sleep=False))
+    assert snap(rig3)["lock_regime_episode_saw_empty"] is False
     await rig3.w.advance(121)
-    assert rig3.unlocks() == [LOCK_A, LOCK_B]
-    assert rig3.regime.last_action["trigger"] == "boot_recheck"
+    # Step 1a delta L2: an awake house at the recheck is ignored (backstop).
+    assert rig3.unlocks() == []
+    assert rig3.regime.last_action["decision"] == "house_edge_ignored"
 
 
 # --- D-L2: a return during a restart is paged, never released ----------------
 
 
 async def _gap_rigs(*, boot_house="away", recheck_house="arriving",
-                    persons=None, opts=None):
+                    persons=None, opts=None, away_edge=True):
     store = DictStore()
     rig1 = await make_rig(store=store, opts=opts)
     await rig1.edge("sleep")
     await rig1.person(OJI, "not_home")
-    await rig1.edge("away")
+    if away_edge:
+        await rig1.edge("away")
     rig2 = await make_rig(start=datetime(2026, 11, 8, 1, 40, tzinfo=TZ), house=boot_house,
                           lockouts="locked", past_boot=False,
                           persons=persons or {EZ: "home", OJI: "not_home"},
@@ -1635,7 +1646,7 @@ async def test_boot_gap_return_pages_never_releases():
     rig, nm = await _gap_rigs()
     await rig.w.advance(121)
     assert rig.unlocks() == []
-    assert rig.regime.last_action["decision"] == "arriving_hold"
+    assert rig.regime.last_action["decision"] == "house_edge_ignored"
     assert rig.regime.last_action["boot_gap_paged"] == [LOCK_A, LOCK_B]
     pages = nm.of(BOOT_GAP)
     assert sorted(p["location"] for p in pages) == [
@@ -1654,10 +1665,21 @@ async def test_boot_gap_return_pages_when_house_still_away():
 
 @pytest.mark.asyncio
 async def test_boot_gap_silent_when_restored_house_not_away():
-    rig, nm = await _gap_rigs(boot_house="home_day", recheck_house="arriving")
+    """Step 1a delta M3 split: restored house home_day and an episode that
+    never saw an empty house (no AWAY edge before the restart, house awake at
+    the recheck) -> silent; the same restored house with the persisted
+    saw-empty flag -> pages."""
+    rig, nm = await _gap_rigs(boot_house="home_day", recheck_house="home_day",
+                              away_edge=False)
+    assert snap(rig)["lock_regime_episode_saw_empty"] is False
     await rig.w.advance(121)
-    assert rig.regime.last_action["decision"] == "arriving_hold"
+    assert rig.regime.last_action["decision"] == "house_edge_ignored"
     assert nm.of(BOOT_GAP) == []
+    rig2, nm2 = await _gap_rigs(boot_house="home_day", recheck_house="home_day")
+    assert snap(rig2)["lock_regime_episode_saw_empty"] is True
+    await rig2.w.advance(121)
+    assert rig2.regime.last_action["decision"] == "house_edge_ignored"
+    assert len(nm2.of(BOOT_GAP)) == 2
 
 
 @pytest.mark.asyncio
@@ -1685,7 +1707,7 @@ async def test_boot_gap_reads_exclusion_list_live():
     rig, nm = await _gap_rigs()
     rig.w.cm_entry.options["security_lockout_excluded_persons"] = [KIOSK, EZ]
     await rig.w.advance(121)
-    assert rig.regime.last_action["decision"] == "arriving_hold"
+    assert rig.regime.last_action["decision"] == "house_edge_ignored"
     assert nm.of(BOOT_GAP) == []
 
 
@@ -1796,9 +1818,10 @@ async def test_restored_vacation_converts_to_sleep_at_recheck():
 
 
 @pytest.mark.asyncio
-async def test_restored_sleep_untainted_home_releases_at_recheck():
-    """Parity with boot_unknown: an untainted store-rebuilt SLEEP lock with
-    the house awake releases at the boot recheck (as before the fix-up)."""
+async def test_restored_sleep_untainted_home_ignored_at_recheck_backstop_releases():
+    """Parity with boot_unknown, step 1a delta L2: a store-rebuilt SLEEP lock
+    with the house awake is NOT released at the boot recheck (a restored awake
+    state is body evidence); the morning backstop releases it."""
     store = DictStore()
     rig1 = await make_rig(store=store)
     await rig1.edge("sleep")
@@ -1809,8 +1832,12 @@ async def test_restored_sleep_untainted_home_releases_at_recheck():
                           opts=options(security_lockout_engage_on_guest_sleep=False))
     assert rig2.regime.reason == "sleep"
     await rig2.w.advance(121)
+    assert rig2.unlocks() == []
+    assert rig2.regime.last_action["decision"] == "house_edge_ignored"
+    await rig2.w.advance(
+        (datetime(2026, 11, 9, 7, 0, 1, tzinfo=TZ) - rig2.w.now).total_seconds())
     assert rig2.unlocks() == [LOCK_A, LOCK_B]
-    assert rig2.regime.last_action["trigger"] == "boot_recheck"
+    assert rig2.regime.last_action["trigger"] == "backstop"
 
 
 @pytest.mark.asyncio
@@ -1880,7 +1907,7 @@ async def test_restored_reason_confirmed_by_boot_window_engage_not_provisional()
     rig2.mgr.house_state = "home_day"  # silent
     await rig2.w.advance(91)
     assert rig2.unlocks() == []
-    assert rig2.regime.last_action["decision"] == "no_change"
+    assert rig2.regime.last_action["decision"] == "house_edge_ignored"
 
 
 @pytest.mark.asyncio
@@ -1904,7 +1931,7 @@ async def test_restored_sleep_home_night_guest_window_held_as_guest_night():
 @pytest.mark.asyncio
 async def test_restored_reason_manual_unlock_remembered_rebuilds_episode():
     """Parity with boot_unknown: a remembered manual unlock at the recheck
-    rebuilds the episode through _set_engage_reason (boot-away taint ends)."""
+    rebuilds the episode through _set_engage_reason (boot-away flag ends)."""
     store = DictStore()
     rig1 = await make_rig(store=store)
     await rig1.edge("sleep")
@@ -1919,9 +1946,9 @@ async def test_restored_reason_manual_unlock_remembered_rebuilds_episode():
                           persons={EZ: "not_home", OJI: "not_home"},
                           store=DictStore(dict(store.data)))
     assert rig2.regime.reason == "sleep"
-    assert snap(rig2)["lock_regime_arriving_taint"] is True  # boot-away taint
+    assert snap(rig2)["lock_regime_episode_saw_empty"] is True  # boot-away flag
     rig2.mgr.house_state = "sleep"
     await rig2.w.advance(121)
     assert rig2.regime.last_action["decision"] == "manual_unlock_remembered"
     assert rig2.locks() == []
-    assert snap(rig2)["lock_regime_arriving_taint"] is False
+    assert snap(rig2)["lock_regime_episode_saw_empty"] is False

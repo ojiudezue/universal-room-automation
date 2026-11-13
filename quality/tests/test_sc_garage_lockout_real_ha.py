@@ -275,7 +275,7 @@ async def test_real_ha_body_only_arriving_holds(hass):
         await hass.async_block_till_done()
         assert [c for c in calls if c[0] == "unlock"] == []
         assert regime.reason == "sleep"
-        assert regime.last_action["action"] == "arriving_hold"
+        assert regime.last_action["action"] == "house_edge_ignored"
         assert hass.states.get(LOCK_A).state == "locked"
     finally:
         await regime.async_teardown()

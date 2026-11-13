@@ -75,6 +75,9 @@ from homeassistant.helpers.event import (
 )
 from homeassistant.util import dt as dt_util
 
+# HOUSE-STATE step 1a D5: the exterior-severity switches are read as module
+# attributes at call time (rung 1; tests patch them in their own body).
+from . import const as _const_mod
 from .const import (
     DOMAIN,
     CONF_PERIMETER_CAMERAS,
@@ -92,7 +95,6 @@ from .const import (
     NM_HAZARD_EXTERIOR_PERSON,
     NM_HAZARD_EXTERIOR_VEHICLE,
     EXTERIOR_CAMERA_KEY_ALIASES,
-    NM_HAZARD_EXTERIOR_PERSON_SEVERITY_BY_HOUSE_STATE,
     NM_HAZARD_EXTERIOR_PERSON_DEFAULT_SEVERITY,
     NM_HAZARD_EXTERIOR_PERSON_CONTEXTUAL_SEVERITY,
     NM_ROUTE_REASON_ENRICHED,
@@ -1448,6 +1450,7 @@ class PerimeterAlertManager:
             severity = self._severity_for_current_house_state(
                 camera_class=_cam_class_early,
                 track_class=_track_class_early,
+                alert_key=_cam_key_early or entity_id,
             )
         except Exception as exc:  # noqa: BLE001
             _LOGGER.warning(
@@ -1979,21 +1982,51 @@ class PerimeterAlertManager:
         self,
         camera_class: str | None = None,
         track_class: str | None = None,
+        alert_key: str | None = None,
     ) -> Severity:
         """Return Severity via the CONSOL-1 §6 contextual severity table.
 
         Fail-safe: any exception → CRITICAL. Total over 9 HouseState
         values (unknown / missing / None → CRITICAL via the case_ arm
         in NM_HAZARD_EXTERIOR_PERSON_CONTEXTUAL_SEVERITY).
+
+        HOUSE-STATE step 1a D5 (INV-SEV): only while the house reads
+        ``arriving``, compute resident evidence (a resident home, or a counted
+        non-stale out-of-boot-window resident arrival within
+        ``EXTERIOR_SEVERITY_RECENT_ARRIVAL_S``); no presence or any error ->
+        False (fails toward CRITICAL through the resolver).
         """
         state = self._get_house_state()
         persons_home = self._get_persons_home()
+        evidence: bool | None = None
+        residents_home: int | None = None
+        recent_person: str | None = None
+        if (state or "").lower() == "arriving":
+            evidence = False
+            try:
+                presence = self._presence()
+                if presence is not None:
+                    residents_home = int(presence.get_residents_home_count())
+                    recent = None
+                    if residents_home < 1:
+                        recent = presence.get_recent_resident_arrival(
+                            float(_const_mod.EXTERIOR_SEVERITY_RECENT_ARRIVAL_S)
+                        )
+                    recent_person = getattr(recent, "person", None)
+                    evidence = residents_home >= 1 or recent is not None
+            except Exception:  # noqa: BLE001 — fail toward CRITICAL
+                _LOGGER.debug(
+                    "PerimeterAlertManager: ARRIVING resident evidence failed",
+                    exc_info=True,
+                )
+                evidence = False
         try:
             name = NM_HAZARD_EXTERIOR_PERSON_CONTEXTUAL_SEVERITY(
                 state,
                 camera_class=camera_class,
                 track_class=track_class,
                 persons_home=persons_home,
+                arriving_resident_evidence=evidence,
             )
         except Exception as exc:  # noqa: BLE001
             _LOGGER.warning(
@@ -2001,6 +2034,12 @@ class PerimeterAlertManager:
                 "raised (%s) — coercing to CRITICAL (fail-safe).", exc,
             )
             return Severity.CRITICAL
+        if evidence is not None:
+            _LOGGER.info(
+                "PerimeterAlertManager: ARRIVING exterior-person severity "
+                "%s (alert %s, residents_home %s, recent arrival %s)",
+                name, alert_key, residents_home, recent_person,
+            )
         try:
             return Severity[name]
         except KeyError:
@@ -2010,25 +2049,34 @@ class PerimeterAlertManager:
             )
             return Severity.CRITICAL
 
-    def _get_persons_home(self) -> int:
-        """Return the trusted persons-home count from PresenceCoordinator.
-
-        Fails to 0 if presence coordinator is absent — the contextual
-        severity table treats `persons_home == 0` as "nobody home",
-        which for home_day/home_evening yields HIGH (anomaly row 5e).
-        """
+    def _presence(self) -> Any:
+        """The PresenceCoordinator via ``CoordinatorManager.coordinators``
+        (HOUSE-STATE step 1a D5, C1). None on any absence or error."""
         try:
             mgr = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
             if mgr is None:
-                return 0
-            presence = getattr(mgr, "presence", None) or getattr(
-                mgr, "_presence_coordinator", None
-            )
+                return None
+            return mgr.coordinators.get("presence")
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _get_persons_home(self) -> int:
+        """``persons_home`` for the contextual severity resolver.
+
+        HOUSE-STATE step 1a D5 (C1): with
+        ``EXTERIOR_SEVERITY_PERSONS_HOME_FROM_RESIDENCY`` False (default) this
+        is 0, the value production resolved before step 1a (the old lookup
+        of ``manager.presence`` never reached presence), so paging is never
+        lowered (INV-NO-LOWER). True: the residency producer's residents-home
+        count. Any error -> 0.
+        """
+        if not _const_mod.EXTERIOR_SEVERITY_PERSONS_HOME_FROM_RESIDENCY:
+            return 0
+        try:
+            presence = self._presence()
             if presence is None:
                 return 0
-            return int(
-                getattr(presence, "_tracked_persons_count_trusted", 0) or 0
-            )
+            return int(presence.get_residents_home_count())
         except Exception:  # noqa: BLE001
             return 0
 
