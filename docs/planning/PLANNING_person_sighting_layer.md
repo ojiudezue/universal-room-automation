@@ -1081,6 +1081,28 @@ Realistic:
    local llmvision provider (if the Ollama host serves a vision model); or off. Interior frames go off-site only on an
    explicit separate toggle (`CROSSING_VISION_INTERIOR_ENABLED`, default False).
 
+8. **Progressive analysis (rev 4, operator 2026-11-12).** A fast first-frame call (one or two frames as soon as the
+   crossing fires) yields a PROVISIONAL hypothesis `{people_count, direction, resident_like}` attached to the crossing
+   with `provenance = vision`, `stage = provisional`, confidence capped at `CONFIDENCE_LOW`. The batched sequence call
+   (item 4) then records `stage = final`, confirming or revising it; both records are kept (never overwritten), each with
+   provenance, confidence and a `revised: bool`, so D0-V can measure how often the first frame was wrong.
+9. **Vision count as census evidence (rev 4, operator 2026-11-12).** An entry/exit people-count ledger per watched door
+   (`+n` on a final entry, `-n` on a final exit). **Ownership does not move:** the census stays the single owner of F2
+   (§2A); the ledger is one more evidence input it reads, like `register_egress_face`, never a second census.
+   Why it is NOT error-free, stated plainly:
+   - doors and paths with no watched camera (any uncovered door makes in-minus-out wrong forever);
+   - tailgating and occlusion (two people in one frame read as one);
+   - night IR frames (lower count and direction accuracy);
+   - exits are not seen as well as entries (backs to camera, faster, different light), so the ledger drifts one way;
+   - provider outage, timeout, refusal, or the daily cap skipping a crossing = a missing term;
+   - an in-minus-out ledger accumulates every error above with no natural correction.
+   Reconciliation design: the ledger is clamped at 0; it is reset to the BLE/tracker resident floor when the house is
+   verifiably empty (all residents away + no body evidence) and at a periodic quiet point; each term decays out after
+   the census decay window, so the ledger answers "who came in recently", not "who is in the house since boot"; a
+   residual above the BLE-known resident count is the GUEST hypothesis, still subject to the census's guest gate.
+   **Gated decision, not a promise:** "census from vision" (the ledger weighed above face/person counts) is decided
+   only on D0-V numbers (§15.4); the default outcome is evidence-only.
+
 Knobs (all proposed for the sibling plan; rung and default set there after D0-V): interval (rung 3), duration
 (rung 3), max sequence (rung 1), concurrency (rung 1), daily cap (rung 3), timeout (rung 3), keep-frames (rung 2),
 interior toggle (rung 2), master enable (rung 2, default off), kill const (rung 1; reuse
@@ -1102,9 +1124,18 @@ Score:
 - **Consistency:** for crossings with a face/BLE name, `matches_named_person` agreement; and for 20 crossing PAIRS
   (same person vs different person by BLE), same-person accuracy from non-face cues.
 - **Refusals, latency per call, estimated cost per crossing** (frames x per-image estimate).
+- **(rev 4) Provisional vs final:** first-frame hypothesis agreement with the final call (count, direction).
+- **(rev 4) Count accuracy, both directions separately:** exact people-count match for entries AND for exits vs BLE/face
+  ground truth; day vs night (IR) split.
+- **(rev 4) Coverage:** of BLE-known resident crossings (a `person.*` / Bermuda home or away edge) over the window, the
+  fraction that pass a WATCHED door (have a `person_entry_exit_events` row on a camera-covered door within ±120 s).
+  Uncovered crossings are the ledger's irreducible error.
 
 Go rule for the sibling plan: description correct-or-partly ≥ 80 %, false resident-like ≤ 5 %, refusals ≤ 10 %,
 p90 latency ≤ 60 s, projected cost at the measured crossing rate ≤ the CONSOL-1 single-digit-dollars/month band.
+Census-from-vision gate (rev 4, separate and stricter): entry AND exit count exact-match each ≥ 95 %, night ≥ 90 %,
+coverage ≥ 95 % of BLE-known crossings, provisional-to-final revision ≤ 10 %. Fail any = vision count stays
+evidence-only (or is not built), with trigger "an uncovered door gets a camera" / "a local model removes outage risk".
 Re-ID pairs are reported but do not gate (they only matter for the 0.3 sighting). Fail = park with trigger "a local
 vision model is available" or "door face recognition stays below 20 % of crossings after FRIGATE-DOOR-FACE-TUNING-1".
 
@@ -1154,6 +1185,7 @@ parked D7, mutation drills M1-M15, live table L1-L9, Tier 3.
 | L5 census ring vs INV-NOOP | Ring gated on `FACE_SIGHTING_ENABLED`; INV-NOOP lists the provenance write | §2, §3.5 |
 | L6 §15 event id source | `FrigateEventIngress` `frigate_ingress.py:147` / `:175` | §15.3 |
 | L7 D7 prior art | Extend `door_interior_neighbours` before minting `INTERIOR_CAMERA_ADJACENCY` | D7 |
+| Operator addition (vision) | §15.3 items 8-9: progressive provisional/final analysis; door count ledger as census EVIDENCE (census stays owner), error sources and reconciliation named; D0-V scores both-direction count accuracy + coverage; census-from-vision a gated decision | §15.3, §15.4 |
 | Cite drift | `register_egress_face` `:4139`, `_prune_snapshot_dir` `:4102` | §1.2a |
 
 Unchanged from rev 3: the arrival rule (D2), the security corroboration rule, trip-wire design (D4), retirement
