@@ -72,3 +72,4 @@
 - 2026-11-12 21:53 **v5.108.15** — v5.108.15 — The exterior seam file actually loads (cards: EXTERIOR-SEAM-FILE-LOADER-1)
 - 2026-11-13 01:14 **v5.108.16** — v5.108.16 — Person sightings, phase 1 (cards: INTERIOR-PATH-MAP-1)
 - 2026-11-13 03:01 **v5.108.17** — v5.108.17 — Alerts that reached no one now reach the digest (cards: NM-NO-CHANNEL-FIRED-1)
+- 2026-11-13 08:46 **v5.108.18** — v5.108.18 — Garage lockout no longer releases on body evidence alone (cards: LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1)

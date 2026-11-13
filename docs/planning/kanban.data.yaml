@@ -18615,6 +18615,7 @@ cards:
     the F2 zone-vs-house divergence with zero witnesses) is LOW marginal benefit today (no active problem)
     — PARKED with organic trigger, see MEMORY-ZONE-PHANTOM-WRITER-1.'
 - id: HOUSE-STATE-FIRST-PRINCIPLES-1
+  arc_cut_v5_108_18: "1a building now"
   title: Rethink the house state machine from first principles; ARRIVING fired by any occupancy is a legacy assumption the lock, alarm and alert code keeps working around
   thread: presence
   status: in_progress
@@ -34701,6 +34702,7 @@ cards:
   DONE_2026-11-13: 'Operator: "Do it now... Monitor". Applied 00:13 CST via options flow camera_census: only egress_cameras, perimeter_cameras, door_groups changed (diff vs backup). 20 min watch: house stayed sleep throughout, URA unavailable entities 5 -> 3 (fewer), no lock/alarm/cover/climate logbook changes.'
   next: 'None. Patio/Study B not added (operator ~99% garage+front); revisit only if weekly labels show patio crossings matter.'
 - id: EGRESS-OUTCOME-WEEKLY-LABEL-1
+  arc_cut_v5_108_18: "recurring after D8a"
   arc_cut_v5_108_16: "recurring, starts with this ship"
   title: Weekly labelling of egress identity outcomes (recurring) so Phase 2 of person sightings becomes decidable
   thread: identity
@@ -34731,6 +34733,7 @@ cards:
   next: 'Me: build as plan D7 after rev-8 fixes; resolve names via CameraResolver; measure hop lags; diff learned vs operator map.'
   rank: {value: 8, time_criticality: 5, effort: 5}
 - id: EGRESS-DIRECTION-AWARE-IDENTITY-1
+  arc_cut_v5_108_18: "planned next"
   arc_cut_v5_108_16: "phase 2, gated on labels (5 true cases met, misrecognition rate pending)"
   title: Egress drops the name of anyone the tracker shows away, in both directions; entries by away people are exactly arrivals
   thread: identity
@@ -34759,6 +34762,7 @@ cards:
   next: 'Me: builder wiring load-at-setup + fallback + D4 + D5 with a wire-in test; two reviews; ship.'
   rank: {value: 8, time_criticality: 7, effort: 3}
 - id: VISION-CROSSING-ANALYSIS-1
+  arc_cut_v5_108_18: "separate plan"
   arc_cut_v5_108_16: "own sibling plan, D0-FRAME/SIM done, re-anchor edits then D0-V"
   title: AI vision of each crossing (fast 3-frame sample + batched time-lapse along the camera chain) as a counting and description input, fused with Frigate/Protect counts
   thread: identity
@@ -34775,6 +34779,7 @@ cards:
   next: 'Me: revise plan section 15.9 frame guard to judge frames directly; resolve the llmvision temperature blocker for GPT-6 models (config-first); then the sibling vision plan.'
   rank: {value: 9, time_criticality: 4, effort: 8}
 - id: PHONE-LEFT-BEHIND-TRANSIENT-FLICKER-1
+  arc_cut_v5_108_18: "with PLB build"
   title: Phone-left-behind flags flicker on for one 30 s poll at arrival ticks and after restarts (17 in 8 days, none real)
   thread: presence
   status: inbox
@@ -34788,6 +34793,7 @@ cards:
   next: 'Me: plan after the camera-leg swap; likely a dwell or census-ready gate.'
   rank: {value: 4, time_criticality: 2, effort: 2}
 - id: PHONE-LEFT-BEHIND-CAMERA-LEG-1
+  arc_cut_v5_108_18: "plan rev 2 now"
   arc_cut_v5_108_16: "needs D1 live first, planned next"
   title: Phone-left-behind sensors never see a camera sighting (TransitValidator camera-sighting store never holds a named sighting; person_id is a display name)
   thread: presence
@@ -34803,6 +34809,7 @@ cards:
   next: 'Me: plan rev 2 with ruling A (branch plan/phone-left-behind-camera), then build (Tier 2-DB, 3 reviews).'
   rank: {value: 5, time_criticality: 3, effort: 3}
 - id: DEPARTURE-ACTIONS-1
+  arc_cut_v5_108_18: "later arc piece"
   arc_cut_v5_108_16: "needs phase 2 departures"
   title: Nothing acts on a named departure; direction-aware egress makes departures available
   thread: identity
@@ -34817,6 +34824,7 @@ cards:
   next: 'Me: after D8 ships, decompose consumers with the operator.'
   rank: {value: 5, time_criticality: 2, effort: 4}
 - id: FACE-ARRIVAL-REBUILD-1
+  arc_cut_v5_108_18: "parent arc card"
   arc_cut_v5_108_16: "main card stays open until phase 2 ships"
   title: 'PERSON SIGHTINGS (main card): one identity-at-place layer (face, egress, later vision) harmonized with egress and census; direction-aware egress identity; access needs a second signal'
   thread: identity
@@ -34878,7 +34886,8 @@ cards:
   arc_cut_v5_108_16: "separate Tier-3 lock-regime plan, switches off"
   title: A camera seeing any body while the house is away moves it to ARRIVING, which releases the garage lockout and auto-disarms security with no identity
   thread: security
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.108.18
   batch: person-sightings
   created: '2026-11-12 19:10'
   updated: '2026-11-12 19:10'
@@ -34930,6 +34939,7 @@ cards:
   next: 'Me: plan after LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1 builds; joint restart test.'
   rank: {value: 6, time_criticality: 5, effort: 3}
 - id: EXTERIOR-PERSONS-HOME-ALWAYS-ZERO-1
+  arc_cut_v5_108_18: "own fix next"
   title: perimeter_alert._get_persons_home always returns 0 in production (asks the coordinator manager for a presence attribute it does not have), so day/evening exterior alerts are always HIGH
   thread: security
   status: inbox
@@ -34943,6 +34953,7 @@ cards:
   next: 'Me: folded into the house-state step-1 plan (getters defined with real producers); fix together with exterior severity.'
   rank: {value: 6, time_criticality: 3, effort: 2}
 - id: EXTERIOR-PERSON-SEVERITY-ARRIVING-BODY-ONLY-1
+  arc_cut_v5_108_18: "folds into step 1a"
   title: While the house reads ARRIVING, exterior-person alerts drop to LOW, so a body-only ARRIVING softens real alerts
   thread: security
   status: inbox
