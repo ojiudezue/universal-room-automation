@@ -9,6 +9,14 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {"fid": "FRIGATE-DOOR-FACE-TUNING-1@2026-11-13T02:12:00", "card_id": "FRIGATE-DOOR-FACE-TUNING-1", "at": "2026-11-13T02:12:00", "outcome": "escalated", "headline": "Door face recognition: it is switched on everywhere and the settings are already lenient. Ezinne and Ziri almost never match at doors, which points at training photos. I could not read Frigate's face scores (no API login). Your step: give me a read-only Frigate login or have HomeLab pull the face counts and 7 days of door scores.", "acknowledged": false}
+  - {"fid": "GARAGE-HALLWAY-LOCK-NONCONVERGE-1@2026-11-13T02:09:00", "card_id": "GARAGE-HALLWAY-LOCK-NONCONVERGE-1", "at": "2026-11-13T02:09:00", "outcome": "escalated", "headline": "Garage hallway lock still won't stay locked (likely batteries). The retry limit works, but 3 HA restarts reset it, and its alert reached nobody. Your pick: let the digest fix carry the alert (recommended) or page you once a day. Sent one quiet push covering tonight's 3 picks.", "acknowledged": false}
+  - {"fid": "OPTIMIZER-DIMENSIONS-STUB-OR-SILENT-1@2026-11-13T02:07:00", "card_id": "OPTIMIZER-DIMENSIONS-STUB-OR-SILENT-1", "at": "2026-11-13T02:07:00", "outcome": "done", "headline": "Closed: of the optimizer's 8 quiet checks, 3 are placeholders already marked as unfinished in the code, and 5 are real checks whose trigger simply hasn't happened (no broken inputs found). The empty shadow-sample table is the bug already on the optimizer redesign card.", "acknowledged": false}
+  - {"fid": "HVAC-ZONE-KWH-SEED-WARN-WORDING-1@2026-11-13T02:07:00", "card_id": "HVAC-ZONE-KWH-SEED-WARN-WORDING-1", "at": "2026-11-13T02:07:00", "outcome": "parked", "headline": "The scary 'UNSAFE' kWh-threshold warning did not appear at tonight's boot, so it is intermittent and harmless (zones run the right values). Parked until a boot logs it again, when I'll capture the exact reason. Note: HA was restarted by a user at 01:44 tonight (not a crash).", "acknowledged": false}
+  - {"fid": "ZONE-CAMERA-DISCOVERY-DEVICE-AREA-1@2026-11-13T02:05:00", "card_id": "ZONE-CAMERA-DISCOVERY-DEVICE-AREA-1", "at": "2026-11-13T02:05:00", "outcome": "escalated", "headline": "Confirmed live: no zone has any camera (all 5 zones show none). The fix is small, but it would also make cameras hold rooms occupied (lights, HVAC) for the first time ever, so it needs your call: roll it in room by room (recommended) or all at once.", "acknowledged": false}
+  - {"fid": "TRIPWIRES-NEVER-FIRED-1@2026-11-13T02:04:00", "card_id": "TRIPWIRES-NEVER-FIRED-1", "at": "2026-11-13T02:04:00", "outcome": "done", "headline": "Closed: the 'camera tripwires never fired' worry was wrong. The Frigate-down alarm fired 3 times (11-01, 11-02, 11-07) and paged you; it was filed under a different label, so the audit missed it. The frozen-detector alarm is set up correctly and has simply never had a freeze to catch.", "acknowledged": false}
+  - {"fid": "ANOMALY-FLOOD-ROWS-1@2026-11-13T02:04:00", "card_id": "ANOMALY-FLOOD-ROWS-1", "at": "2026-11-13T02:04:00", "outcome": "escalated", "headline": "Of the four noisy warnings, three already stopped after earlier fixes. The live one (~100/day) is a real bug: ordinary moves like bedroom to own bathroom get flagged 'impossible' and lose confidence, which can stop music following. Your pick: fix the check (recommended) or just silence the rows.", "acknowledged": false}
+  - {"fid": "ZONE-HAS-HOME-PERSON-UNCALLED-1@2026-11-13T02:04:00", "card_id": "ZONE-HAS-HOME-PERSON-UNCALLED-1", "at": "2026-11-13T02:04:00", "outcome": "built-to-review", "headline": "An unused HVAC helper claimed in its notes to protect comfort; nothing calls it. Kept it and corrected the notes (no behavior change, tests pass). Waiting in review to ride the next deploy.", "acknowledged": false}
   - {"fid": "FAN-RECHECK-FORM-RESTORE-REVERT-1@2026-11-12T02:09:00", "card_id": "FAN-RECHECK-FORM-RESTORE-REVERT-1", "at": "2026-11-12T02:09:00", "outcome": "built-to-review", "headline": "Confirmed and fixed: saving the fan re-check settings in the form was being undone by the switches' remembered state after the reload. Live example: Garage A is set to OFF, and that is what runs, but its switches show ON. Branch fix/fan-recheck-options-wins-restore: 16 tests, mutation drills, review SHIP. After deploy only the displayed state changes. The pass stops here: 3 cards are now in Review.", "acknowledged": false}
   - {"fid": "PERSON-OJI-HOME-FLAP-1@2026-11-12T02:05:00", "card_id": "PERSON-OJI-HOME-FLAP-1", "at": "2026-11-12T02:05:00", "outcome": "done", "headline": "Your phone no longer flips you to 'home' while abroad: 0 'home' readings in the ~10.5 h since the iPad and Mac came off your person, against about 11 a day before. Closed early on that margin. Half of the near-home-zone card's revisit trigger is now met; the other half is you being home.", "acknowledged": false}
   - {"fid": "HACS-MARKETPLACE-DEPLOY-1@2026-11-12T02:05:00", "card_id": "HACS-MARKETPLACE-DEPLOY-1", "at": "2026-11-12T02:05:00", "outcome": "done", "headline": "The Marketplace switch-over is fine for URA: HA 2026.11.1 migrated it, the URA update entity kept its name, and the store is connected to GitHub with the warning accepted. One catch: it never offered v5.108.9 on its own (it only checks every 48 h). Rewrote the deploy steps to force a refresh, then install and read back. The first install through the tool happens at your next deploy.", "acknowledged": false}
@@ -52,10 +60,6 @@ meta:
   - {"fid": "FRONT-DOOR-LOCK-OFFLINE-1@2026-11-06T02:05:00", "card_id": "FRONT-DOOR-LOCK-OFFLINE-1", "at": "2026-11-06T02:05:00", "outcome": "measured", "headline": "Re-checked the cards waiting on you at 02:03. All unchanged: front lock and kitchen smoke detector offline, BLE proxy BP1_B offline, panel alert channel off, Kitchen automation still paused. Frigate healthy (40 detections/s).", "acknowledged": false}
   - {"fid": "OPTIMIZER-META-NEVER-PAGES-1@2026-11-06T02:05:00", "card_id": "OPTIMIZER-META-NEVER-PAGES-1", "at": "2026-11-06T02:05:00", "outcome": "measured", "headline": "Merge-prep: the two fixes waiting in review (optimizer meta pages, lock-check retry cap) still merge cleanly and their tests pass on today's develop. Still ready for your next daytime deploy. Found an old test-order problem along the way (not from these fixes) and logged it on the test-architecture card.", "acknowledged": false}
   - {"fid": "NM-ACK-TTS-IGNORES-DISABLE-1@2026-11-06T02:08:00", "card_id": "NM-ACK-TTS-IGNORES-DISABLE-1", "at": "2026-11-06T02:08:00", "outcome": "done", "headline": "Closed: acknowledging an alert no longer tries to speak on the house speakers. Live proof: your safe-word ack at 09:55 yesterday played on no speaker and logged no error. The leftover (spoken alerts would need a voice engine if you ever turn them on) is parked as its own card.", "acknowledged": false}
-  - {"fid": "ZONE-ORPHAN-DEVICE-REMOVE-GUARD-1@2026-11-05T02:39:00", "card_id": "ZONE-ORPHAN-DEVICE-REMOVE-GUARD-1", "at": "2026-11-05T02:39:00", "outcome": "built-to-review", "headline": "Startup clean-up can no longer delete a zone's device while it still has entities. Before, a briefly incomplete zone list at boot could wipe a live zone device and its entity settings. Reviewed (SHIP), both call sites now have tests that fail when broken, full suite clean. Waiting in review for a daytime deploy.", "acknowledged": false}
-  - {"fid": "SECURITY-LOCK-SWEEP-RETRY-CAP-1@2026-11-05T02:18:00", "card_id": "SECURITY-LOCK-SWEEP-RETRY-CAP-1", "at": "2026-11-05T02:18:00", "outcome": "built-to-review", "headline": "The nightly lock check will stop resending lock and close commands forever when a device doesn't respond: 3 tries, then one notification, re-armed daily. Review found 4 issues; all are fixed and each fix is proven by a test. Full suite clean. Waiting in review for a daytime deploy.", "acknowledged": false}
-  - {"fid": "OPTIMIZER-META-NEVER-PAGES-1@2026-11-05T02:18:00", "card_id": "OPTIMIZER-META-NEVER-PAGES-1", "at": "2026-11-05T02:18:00", "outcome": "built-to-review", "headline": "The optimizer will no longer send CRITICAL pages about its own cut-off input (9 of 9 such pages in 30 days were false, several after 1 am). Built, reviewed and full-suite clean (no new failures). Waiting in review for a daytime deploy.", "acknowledged": false}
-  - {"fid": "EC-ENPHASE-CONNECTIVITY-RESILIENCE-1@2026-11-05T02:02:00", "card_id": "EC-ENPHASE-CONNECTIVITY-RESILIENCE-1", "at": "2026-11-05T02:02:00", "outcome": "parked", "headline": "Battery-reserve false-alarm fix: three nights live with no false alarm, but the reserve stayed at 10 every night, so the case that used to misfire never came up. Parked with a trigger instead of left open; a recurrence would page you on its own.", "acknowledged": false}
 cards:
 - id: NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1
   recheck_2026_11_10_overnight: "02:01 CST URA DB: notification_inbound since 11-09 = 3 rows, all imessage (last 11-10 04:13Z). No whatsapp/companion row. Ask stands."
@@ -307,8 +311,9 @@ cards:
   rank: {value: 2, time_criticality: 1, effort: 2}
   origin: "Lockout plan rev 3 (2026-11-07)."
   why: "Lockout plan audit 2026-11-07: security.py:175-186 mapping leaves Sleep unmapped, auto-follow off live, bridge exits at :1104."
-  next: "Revisit after GARAGE-REMOTE-LOCKOUT-SCHEDULE-1 Phase 1 ships."
-  links: {parent: GARAGE-REMOTE-LOCKOUT-SCHEDULE-1}
+  next: "Revisit after GARAGE-REMOTE-LOCKOUT-SCHEDULE-1 Phase 1 ships, or when the operator wants auto-follow on."
+  links: {parent: GARAGE-REMOTE-LOCKOUT-SCHEDULE-1, related: [LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1, HOUSE-STATE-FIRST-PRINCIPLES-1]}
+  DEDUPE_2026-11-13: "Folded in the auto-follow ARRIVING->DISARMED flaw (operator: park auto-follow, card its fix, same fix as the lockout). PLANNING_lock_release_on_arriving.md section 13 holds the parked D2 design and its review findings (F8-F10, completeness M1, LOW D3.2): disarm on ARRIVING only with a resident arrival edge (person_state_for_trust, not raw state), pending window must survive the ARRIVING->HOME_* hand-off, tracked async discharge. Same root: ARRIVING is body evidence, not arrival. May be superseded by HOUSE-STATE-FIRST-PRINCIPLES-1."
 - id: SC-LOCK-SWEEP-EXCLUDE-1
   title: "Register every lock in SC but let individual locks opt out of the periodic lock sweep (master bedroom: passage mode, sweep only drains battery)"
   thread: security
@@ -18609,6 +18614,38 @@ cards:
     MEMORY-WRITERS-1 is SUBSTANTIALLY SHIPPED — closing as done. The ONE remaining actionable gap (zone_phantom,
     the F2 zone-vs-house divergence with zero witnesses) is LOW marginal benefit today (no active problem)
     — PARKED with organic trigger, see MEMORY-ZONE-PHANTOM-WRITER-1.'
+- id: HOUSE-STATE-FIRST-PRINCIPLES-1
+  title: Rethink the house state machine from first principles; ARRIVING fired by any occupancy is a legacy assumption the lock, alarm and alert code keeps working around
+  thread: presence
+  status: waiting_operator
+  created: '2026-11-13 04:00'
+  updated: '2026-11-13 04:00'
+  tier: 3
+  links: {related: [HOUSE-STATE-UTILIZATION-EPIC, LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1, SC-ARMING-ALARM-ONLY-1, EXTERIOR-PERSON-SEVERITY-ARRIVING-BODY-ONLY-1, HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1, LOCK-REGIME-BOOT-REALLY-AWAY-1, FACE-ARRIVAL-REBUILD-1]}
+  origin: {date: '2026-11-13', gist: 'Operator: "The arriving state itself is likely problematic. It does not make sense that occupancy triggers that house state. That state machine was designed when we were dumber. Time to revisit it from first principles so we do not keep working around dumb stuff and old assumptions. We should even do external research on house state machines as part of the rethink."'}
+  why: 'AUDIT_arriving_on_body_evidence_2026_11_13.md: 2,642 AWAY->ARRIVING edges, 6.4% real arrivals, 48.6% correcting a false AWAY, 68.5% driven by zone sensors with census 0. Consumers (lock release, auto-follow disarm, exterior alert severity) each grew their own workaround. Now we have resident-level arrival edges (BLE, geofence), census, person sightings and egress direction, which the original machine predates.'
+  constraints:
+  - First principles; separate occupancy (is anyone here), residency (which residents are home), and activity/time (sleep, day) instead of one state carrying all three.
+  - External research on house/home state machines and occupancy models (HA community, commercial systems, academic occupancy literature) before design.
+  - Inventory every producer and consumer of house state first (fire check + forward trace); every consumer gets a migration verdict.
+  - 'Do not stall the lock-release fix; it ships now. Operator 2026-11-13: when the reshape lands, REVISIT the lockout (taint flag, ARRIVING hold, D3/D4 pages) and move it onto the new arrival signal; the reshape is not done until that migration ships.'
+  - Read PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md, HVAC state of play, and PLANNING_house_state_*.md first.
+  - 'Operator hypothesis 2026-11-13: arrival may not be a house state at all; it is closer to a mode/event fed by egress (direction-aware door crossings, person sightings) and the pre-arrival work (geofence/BLE approach, HVAC pre-arrival). If it stays a state, it is fed by much narrower conditions (resident arrival evidence), never by plain occupancy. The proposal must test both options against the consumers.'
+  FINDING_2026-11-13: 'AUDIT_house_state_first_principles_2026_11_13.md: only AWAY and GUEST come from evidence; HOME_DAY/EVENING/NIGHT are the clock; SLEEP is someone home in the sleep window (all 203 SLEEP->WAKING at 06:00); ARRIVING and WAKING are 1-minute shims; VACATION never fired; consumers each re-collapse the enum. AWAY false 6/19 (32%) recent; 43% of real resident arrivals had no house arrival. External systems keep who-is-home separate from mode; none treat motion after away as arrival. Proposal: axes occupancy / residency / period, guest and vacation as overlays, per-person arrival and departure events (pre-arrival = expected-arrival mode), legacy house_state derived for migration; arrival-as-event wins for every access consumer; retires ARRIVING, WAKING and the lockout taint. Smallest version: publish residency + arrival events + occupancy alongside the enum and move lock regime and exterior severity first.'
+  next: 'APPROVE/PICK: accept the axis model and arrival-as-event (recommended) -> I write the Tier-3 plan (smallest version first) with two plan reviews.'
+  rank: {value: 9, time_criticality: 5, effort: 8}
+- id: HOUSE-STATE-LOG-MISSING-AWAY-ROWS-1
+  title: house_state_log has ~553 transitions into ARRIVING with no AWAY row before them, so AWAY entry counts are undercounted
+  thread: presence
+  status: investigating
+  created: '2026-11-13 05:00'
+  updated: '2026-11-13 05:00'
+  tier: 2
+  links: {related: [HOUSE-STATE-FIRST-PRINCIPLES-1]}
+  origin: {date: '2026-11-13', gist: 'AUDIT_house_state_first_principles_2026_11_13.md inventory.'}
+  why: 'Every rate built on house_state_log (including the arriving audit) inherits the gap; the rethink needs trustworthy counts.'
+  next: 'Me: read-only probe of why the AWAY row is missing (logging path, dedup, restart restore) before the rethink plan relies on these counts.'
+  rank: {value: 5, time_criticality: 5, effort: 2}
 - id: HOUSE-STATE-UTILIZATION-EPIC
   title: ROADMAP EPIC — give operational meaning to under-consumed house states (HOME_DAY dead, AWAY thin);
     rungs 2-4 unbuilt
@@ -34349,18 +34386,20 @@ cards:
 - id: HVAC-ZONE-KWH-SEED-WARN-WORDING-1
   title: "Zone-kWh seed logs UNSAFE at every boot though the threshold Numbers self-restore a moment later"
   thread: "hvac"
-  status: investigating
+  status: parked
   tier: 1
   created: "2026-11-11 19:40"
-  updated: '2026-11-12 13:05'
+  updated: '2026-11-13 02:07'
   origin: "Boot log after v5.108.10 restart 2026-11-11; operator: 'Def look'."
   why: "__init__.py:~7310 seed reads core.restore_state before the Numbers restore and finds no entry; number.py:3100-3110 then restores and pushes to the zone. Probe: all three zones 0.8 kW live and in every recorder row since 11-04 (= default), so the UNSAFE claim is false. Bug class: seed path disagrees with the entity's own restore path."
-  next: 'Me: capture the warning reason text at the v5.108.11 restart (or compare iter_canonical_hvac_zones climate entities with zm.zones at seed time), fix that branch, revert or reword the deferred change, fix the stale 1.30 kW wording.'
+  next: "Me, on the trigger above: capture the reason text from a noisy boot, then fix the seed or reword the warning."
   links: {}
   rank: {"value": 1, "time_criticality": 1, "effort": 1}
   dispatch_2026_11_12: 'ura-builder in worktree, branch fix/zone-kwh-seed-warn; bundles with the review-lane release.'
   review_2026_11_12: 'CARD-WAS-WRONG. The why on this card (seed reads before the Number restores) is WRONG: seed (__init__.py:7276) and Number (HA restore_state.py:295) read the same last_states dict, filled once at load. Live .storage has numeric entries + registered unique_ids for all three zones, so the likely firing branch is no ZoneManager zone matched climate_entity (__init__.py:7311) or spec missing zone_id/climate_entity (:7263). Branch fix/zone-kwh-seed-warn (82e8607e) FIX-REQUIRED, held out of v5.108.11; review record on that branch (2f4fd3f6).'
   measured_2026_11_12_boot: 'v5.108.11 restart 12:55: all three zones logged the no RestoreState entry branch (__init__.py:7310), while the three Numbers restored 1.0/0.8/0.8. So the seed sees no entry where the Number does: the review claim that both read the same already-filled dict is WRONG at runtime (timing or lookup differs). Next: find why the seed lookup misses (load order of RestoreStateData vs seed, or key used), confirm the zone actually receives 1.0 from number.py:3101-3112, then fix the seed or keep the deferred-debug change on fix/zone-kwh-seed-warn with a corrected comment.'
+  measured_2026_11_13_overnight: "Intermittent, not every boot. HA restarted at 01:44:42 CST tonight (user-initiated homeassistant.restart, see below); ha_get_logs source=system (HA's deduped system_log) has NO 'Zone-kWh seed' entry for this boot, and the buffer still holds boot-time warnings from 01:46:20 (midea, smarthub, enphase), so nothing was evicted and the absence is real. So the warning fired at the 11-12 12:55 boot and did not fire at the 11-13 01:46 boot on the same code. HA restore code re-read (.venv-ha restore_state.py:138-155, :295): seed and Number read the same last_states dict, filled once in bootstrap, so a per-boot difference points at something that varies per boot (entity_id churn: two of the three Numbers carry a _2 suffix, number.ura_hvac_coordinator_ac_kwh_rate_threshold_back_hallway_2 / _upstairs_2, so a registry rename between the store dump and the seed would miss) rather than load order. Live .storage now: all three entity_ids present in core.restore_state (0.8 / 1.0 / 0.8, last_seen 08:02Z) and in the registry. Value 1 / urgency 1: no live harm (zones run the restored values)."
+  revisit_if: "The next boot that logs 'Zone-kWh seed UNRESOLVED': read the full reason with ha_get_logs(source=system, search='Zone-kWh seed', compact=false) and compare the entity_id in the message with core.restore_state at that moment. Branch fix/zone-kwh-seed-warn stays held (review A FIX-REQUIRED)."
 - id: EC-EV-DAYTIME-SOLAR-LED-1
   title: Explore making daytime EV charging solar-led instead of off-peak-led in the EC
   thread: energy
@@ -34477,10 +34516,10 @@ cards:
 - id: ZONE-CAMERA-DISCOVERY-DEVICE-AREA-1
   title: Zone camera discovery reads only the entity's own area, but every camera's area is set on the device, so no zone has any camera (face arrival never worked)
   thread: identity
-  status: investigating
+  status: waiting_operator
   created: '2026-11-12 17:06'
-  updated: '2026-11-12 17:06'
-  refinement_status: initial
+  updated: '2026-11-13 02:05'
+  refinement_status: "refined"
   tier: 2
   approval: unreviewed
   problem_solution:
@@ -34495,9 +34534,13 @@ cards:
   links:
     related: [PERSON-PROFILE-PREFERENCES-1]
     context: 'Identified arrival is a personalization input; face arrival is one candidate producer.'
-  next: 'Me: verify the boot log line Subscribed to N zone camera entities, map every consumer of zone cameras, then plan the device-area fallback.'
+  next: "APPROVE: A (recommended) fix the area lookup to fall back to the device's area, ship it with room camera-hold OFF by default except rooms you list (so lights/HVAC don't suddenly start holding on cameras), and turn on the zone camera tier; Tier 2-DB, 3 reviews, attended deploy. Or B fix it everywhere at once (simpler, but every camera room starts holding occupancy the same day). -> On A I plan it with the presence state-of-play read and the consumer map above."
   rank: {value: 6, time_criticality: 3, effort: 5}
   CORRECTION_2026-11-12: 'Too broad. Only the v3.19 presence face-arrival path never fired; egress faces work and feed egress identity, perimeter naming and census. The operator''s configured zone_cameras (8 interior shared-space/hallway cameras) are stored but only read by a zone-confidence check (presence.py:2389), not face arrival. Device-area fallback still needed for other zone-camera consumers; face arrival moves to FACE-ARRIVAL-REBUILD-1.'
+  verified_2026_11_13_overnight: "STILL-REAL. Live ground truth (recorder, latest row of every sensor.zone_*_presence_status, 02:05 CST): all 5 zones show signal_tiers.camera_sensors=false and cameras={} and face_arrivals_today=0. LOG GAP, stated plainly: I did NOT read the boot line 'Subscribed to N zone camera entities' (presence.py:5197). ha_get_logs error_log returns a 2000-line journald window with no match, and the line is only written when the set is non-empty, so its absence proves nothing either way. The zone-sensor attributes are the evidence used, not the log."
+  consumer_map_2026_11_13: "Three live readers of the area->camera map (camera_census.py _cameras_by_area, built at :1104-1107 and :1186-1189 from entity.area_id only, :664/:1147/:1175): (1) presence.py:5158 zone trackers (zone camera tier + face arrival); (2) coordinator.py:4086-4105 'camera extends room occupancy' - when motion/mmWave time out, a camera person sensor 'on' in the room's area holds the ROOM occupied (lights, fans, HVAC room demand) via get_person_sensor_for_area; (3) sensor.py:2811 room has-camera flag. So the fix is not only face arrival: it would switch on camera-held occupancy in every room that has an interior camera, for the first time ever in this house (including family_room, which sees the patio through glass, CENSUS-PATIO-THROUGH-GLASS-1). Prior art: REUSE resolve_area_id_for_entity (camera_resolver.py:427, entity area else device area), already used at camera_census.py:902, so the code change itself is a small source swap."
+  gate_2026_11_13: "Validity: still real. Config-first: no knob restores this; per-zone CONF_DISABLE_CAMERA_PRESENCE opt-out exists (presence.py ~:5148) and would be the per-zone brake after the fix. Prior art: reuse resolver (above). Parsimony: BUILD the swap, but cost/benefit is NOT a clean Tier-2 call because it turns on a never-before-live occupancy input across rooms and zones (presence <-> HVAC <-> lighting ripple; Tier 2-DB by the regression-prone rule). Ambiguous -> escalated, not built."
+  paged_2026_11_13_overnight: "Paged 2026-11-13 02:09 CST in one consolidated quiet notification (notify.madronehapushover, priority -1, wakes nobody) with the pick."
 - id: LOCK-REGIME-SWITCHES-OFF-1
   title: "Garage lockout and away-lock switches are OFF live, so the shipped lock regime (incl. v5.108.13 suspicious-arrival hold) has made zero decisions in 30 days"
   thread: security
@@ -34513,74 +34556,119 @@ cards:
   revisit_if: 'Operator home (~2026-11-16): ask whether to turn garage lockout and away-lock back on; then run the v5.108.13 lock-hold dispositions (arrival_hold count) and LOCK-REGIME-BOOT-REALLY-AWAY-1 / LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1 checks against live decisions.'
   HOUSEHOLD_2026-11-12: 'Operator: Ezinne is not sure about the away lockout on the master and needs time. Do not propose re-enabling away-lock on the master suite door on return; garage lockout can be discussed separately. Ask the operator before raising it again.'
 - id: GARAGE-HALLWAY-LOCK-NONCONVERGE-1
+  arc_cut_v5_108_17: "waits on operator battery replacement"
   title: "Garage hallway lock: URA re-locks hourly, the lock reverts to unlocked ~7 s later, and the retry cap only writes an audit row"
   thread: security
   status: waiting_operator
   batch: broken-promises-2026-11
   created: '2026-11-12 22:30'
-  updated: '2026-11-12 22:30'
+  updated: '2026-11-13 02:09'
   tier: 2
   origin: {date: '2026-11-12', gist: 'Broken-promise sweep (docs/planning/AUDIT_broken_promises_2026_11_12.md); operator: "A lot of our hardening are broken promises from previous work."'}
   why: "Sweep item 3; lock unlocked now. Physical/firmware or a competing writer; the guard never escalates to the operator."
-  next: "Me: read lock history + who writes it, then card the fix (escalate to NM on retry cap)."
+  next: "DO: replace the Kwikset garage hallway lock batteries (someone at home) -> I re-check reverts. PICK for the alert: A (recommended) let the NM digest fix carry it (no new paging; you see it at 08:00/18:00), or B raise the retry-cap notice to HIGH so a lock that will not stay locked pages you once a day. -> I build B as a one-line Tier 1 change on your pick; A needs nothing extra."
   FINDING_2026-11-12: 'AUDIT_garage_hallway_lock_and_perimeter_gates_2026_11_12.md: only URA periodic lock check (security.py:1830-1865) locks it; each relock reverts 6-7 s later with no person/service context; lock reports alarm_type 169 (low battery to operate, per a community Kwikset table) and replace_battery_now on since 11-10 while battery_level reads 90. No automation or other URA code unlocks it. Likely weak battery/actuator. Code follow-up: when the relock reverts N times, stop retrying and send one HIGH notification naming the lock and the battery signal.'
   next: 'DO: replace the Kwikset garage hallway lock batteries (someone at home) -> I re-check reverts; separately I fix the guard to escalate instead of looping hourly.'
+  recheck_2026_11_13_overnight: "STILL-REAL (recorder + URA DB, ~02:09 CST). Lock is unlocked now; the relock-then-revert pattern continued all evening (locked 21:56/22:56/23:56/01:14 CST, each back to unlocked 7 s later). Kitchen smoke detector still unavailable; Frigate2 healthy (35 fps). CARD-WAS-WRONG on 'the guard loops hourly': the retry cap (security.py:1777-1813, CAP=3, re-arm 24 h, const.py:3918/3922) works as designed - it capped at 19:52 CST (notice row 01:52Z) - but its counter is in memory only, and HA restarted 3 times since (21:09, 21:54, 01:44 CST), each starting a fresh 3-try episode. The real gap is reach: the cap notice is MEDIUM on channel 'security' and logged bucket_outcome=no_channel_fired, delivered=0, so it reached nobody. Branch fix/nm-no-route (df8e323a, NM-NO-CHANNEL-FIRED-1) sends no-route alerts to the 08:00/18:00 digest, which would make it reach you; making the cap notice HIGH (pages now) is the stronger option. Not built overnight: it changes what pages you, which is your call."
+  links: {"related": ["NM-NO-CHANNEL-FIRED-1", "SECURITY-LOCK-SWEEP-RETRY-CAP-1"], "context": "NM-NO-CHANNEL-FIRED-1 is the fix that makes the MEDIUM cap notice reach a human; SECURITY-LOCK-SWEEP-RETRY-CAP-1 shipped the cap (v5.108.6) whose in-memory counter restarts reset."}
+  paged_2026_11_13_overnight: "Paged 2026-11-13 02:09 CST in one consolidated quiet notification (notify.madronehapushover, priority -1, wakes nobody) with the pick."
+- id: TEST-MUSIC-SYSMODULES-LEAK-1
+  title: test_music_following_coordinator.py replaces domain_coordinators/base in sys.modules at import and never restores them, breaking class-identity checks in later test files
+  thread: quality
+  status: inbox
+  created: '2026-11-13 03:00'
+  updated: '2026-11-13 03:00'
+  tier: 1
+  links: {related: [NM-NO-CHANNEL-FIRED-1]}
+  origin: {date: '2026-11-13', gist: 'Found while fixing an order-dependent NM test (test_music_following_coordinator.py:128-138); builder checklist rule 8.'}
+  why: 'Any later test using isinstance on Severity or other base classes can fail depending on order.'
+  next: 'Me: move the patch into a scoped fixture (monkeypatch.setitem on sys.modules) and confirm the minimal ordering still passes.'
+  rank: {value: 3, time_criticality: 2, effort: 1}
+- id: NM-DIGEST-MARK-RACE-1
+  title: mark_digest_delivered marks every undelivered row, including rows queued while the digest was sending, so they never appear in any digest
+  thread: notifications
+  status: inbox
+  created: '2026-11-13 03:30'
+  updated: '2026-11-13 03:30'
+  tier: 1
+  links: {related: [NM-NO-CHANNEL-FIRED-1]}
+  origin: {date: '2026-11-13', gist: 'Review B B3 of fix/nm-no-route (database.py:4958); pre-existing, made more frequent by the digest fallback (~43 rows/day).'}
+  why: 'Lost digest items during a flush window.'
+  next: 'Me: mark only rows with id <= the highest id the digest actually read; test with a row inserted mid-send.'
+  rank: {value: 4, time_criticality: 3, effort: 1}
 - id: NM-NO-CHANNEL-FIRED-1
   title: "520 notification_log rows since 11-01 record no_channel_fired / delivered=2 (stuck_signal, circuit_anomaly, lock retry-cap, high_co2): may reach nobody"
   thread: notifications
-  status: investigating
+  status: shipped_organic
+  shipped_version: v5.108.17
   batch: broken-promises-2026-11
   created: '2026-11-12 22:30'
   updated: '2026-11-12 22:30'
   tier: 2
   origin: {date: '2026-11-12', gist: 'Broken-promise sweep (docs/planning/AUDIT_broken_promises_2026_11_12.md); operator: "A lot of our hardening are broken promises from previous work."'}
   why: "Sweep item 4, unverified: digest sender not found. A safety alert class (high_co2) is in the set."
-  next: "Me: trace delivered=2 semantics and the digest path; confirm whether these reach the operator."
+  FINDING_2026-11-13: "AUDIT_nm_no_channel_fired_2026_11_13.md: real drops. Recipient delivery_pref=digest but channel gates are companion HIGH, WhatsApp/iMessage/pushover CRITICAL, so MEDIUM/LOW route to an empty channel set and the digest-queue write is gated on that same set: nothing is queued. delivered=2 is a digest sweep marking audit sentinels, not a send. Weekly Routine Digest also dropped. Daily heartbeat says All quiet while MEDIUMs drop; delivery_rate 100. high_co2 MEDIUMs were 1500-1597 ppm flapping (stuffiness); two HIGH kitchen events delivered to companion."
+  next: "PICK: lower the WhatsApp/iMessage gate to MEDIUM so sub-HIGH alerts batch into the 08:00/18:00 digest (recommended once the code fix trims noise) -> I apply it. Me (building now): queue digest rows on an empty route set, honest heartbeat (N alerts had no route), count no_channel_fired in delivery_rate, zero-route trip-wire."
 - id: OPTIMIZER-DIMENSIONS-STUB-OR-SILENT-1
   title: "3 of 13 optimizer evaluators are return-[] stubs; 5 more emitted zero findings since 10-20; optimizer_shadow_samples empty"
   thread: optimization
-  status: investigating
+  status: done
   batch: broken-promises-2026-11
   created: '2026-11-12 22:30'
-  updated: '2026-11-12 22:30'
+  updated: '2026-11-13 02:07'
   tier: 2
   origin: {date: '2026-11-12', gist: 'Broken-promise sweep (docs/planning/AUDIT_broken_promises_2026_11_12.md); operator: "A lot of our hardening are broken promises from previous work."'}
   why: "Sweep item 5."
-  next: "Me: classify each evaluator as stub/never-fires-expected/broken; fire-check rule."
+  next: "None. Closed; shadow fix lives in OC-SHADOW-SAMPLES-EMPTY-1 / OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1."
+  measured_2026_11_13_overnight: "Classified (ura-prober read-only, source + URA DB, ~02:00 CST; orchestrator re-read the shadow-validator lines). Labels: each evaluator stamps its own dimension (optimization.py:199-218); only camera_input_dark is relabeled (to sensor_health), so the zero counts below are real. STUBS (3, already self-documented in code): automation_responsiveness :3637 and energy_efficiency :3703 return [] (need per-room command-latency / per-room energy data that does not exist); setpoint_compliance :3717 return [] with 'DEFERRED to a real reader' (ComplianceTracker.get_zone_compliance_rate does not exist). REAL, NO BROKEN INPUT FOUND (5): config_behavior :3653 (fires only on comfort max <= min; live bands valid), vacancy_management :3738 (needs 12 h continuous occupancy without the vacancy sweep; producer hvac.py:3106), override_frequency :3812 (>= 10 overrides/day; counter live in hvac_override.py), state_machine_accuracy :3858 (house-state override held >= 2 h), prediction_accuracy :4099 (input healthy: 7 d prediction_results 1,607 bayesian / 3,671 next_room / 7,003 dwell rows; fires only below 35% top-1 or Brier >= 0.30, not computed). Their zeros look expected, but 4 of 5 are not positively proven unmet. SHADOW SAMPLES = 0: DUPLICATE of OC-SHADOW-SAMPLES-EMPTY-1 (same mechanism, re-verified tonight: validator at :1333 scores only self._last_findings, reassigned at :1285 to this cycle's findings stamped now (comfort and occupancy_accuracy both timestamp=now.isoformat()), against a 900 s age gate (const.py:4832) on a 5-min cycle (const.py:5300), so nothing ever ages enough). That card is folded into OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1."
+  disposition_2026_11_13: "Closed. Three-bucket: the 3 stubs are KEEP+DOCUMENT (their docstrings already say TODO/DEFERRED; deleting enum members is the irreversible option and buys nothing live); no DELETE items. The 'broken promise' is only in old README claims of '13 dimensions watched'; the honest per-dimension status belongs to the OC redesign (OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1), not a standalone build. Side finding passed on, not chased: sensor.ura_optimization_coordinator_optimizer_status reads degraded ('11 findings, 11 high'), probably the security_posture sleep-unlocked finding from the garage hallway lock loop (GARAGE-HALLWAY-LOCK-NONCONVERGE-1)."
+  links: {"related": ["OC-SHADOW-SAMPLES-EMPTY-1", "OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1", "GARAGE-HALLWAY-LOCK-NONCONVERGE-1"], "context": "OC-SHADOW-SAMPLES-EMPTY-1 owns the shadow-sample bug (same mechanism); the OC redesign owns dimension honesty; the garage lock loop is the likely source of the degraded optimizer status."}
 - id: TRIPWIRES-NEVER-FIRED-1
   title: "Detector-hung and fleet-dark tripwires have never produced a finding (sibling camera_stuck has 33)"
   thread: diagnostics
-  status: investigating
+  status: done
   batch: broken-promises-2026-11
   created: '2026-11-12 22:30'
-  updated: '2026-11-12 22:30'
+  updated: '2026-11-13 02:04'
   tier: 2
   origin: {date: '2026-11-12', gist: 'Broken-promise sweep (docs/planning/AUDIT_broken_promises_2026_11_12.md); operator: "A lot of our hardening are broken promises from previous work."'}
   why: "Sweep item 7. Zero may be correct or the evaluators may be blind; needs a forced-condition check."
-  next: "Me: drive each with a synthetic condition in test and check live inputs."
+  next: "None. Closed. If you want a live proof of detector-hung, the staged detector pause in CAMERA-SILENT-PRODUCER-TRIPWIRE-1 is still the optional operator step."
+  verified_2026_11_13_overnight: "REFUTED (premise was a labeling artifact) - read-only URA DB + recorder 02:01-02:04 CST. (1) Fleet-dark (camera_input_dark) HAS fired 3 times: optimization_findings 2026-11-01 10:01Z, 11-02 08:05Z, 11-07 19:23Z, all stored with dimension='sensor_health' and payload kind='camera_input_dark' (the audit grouped by dimension, so it saw zero). The 11-07 one matches the 7.3 h Frigate2 outage (sensor.frigate_status_2 unavailable 13:14-20:32 CST); notification_log shows HIGH companion pages delivered=1 at 19:23Z, 20:13Z and 11-08 00:33Z; binary_sensor.ura_coordinator_manager_camera_input_dark shows nm_latch_fired=1 at 14:13 and 18:33 CST. (2) Detector-hung: resolver (optimization.py:3091) finds exactly one registry match, sensor.frigate_detection_fps_2 (no deleted F1 twin), so it is not inert. Its condition (fps unchanged >= CAMERA_DETECTOR_FROZEN_S=900 s while Frigate runs) never occurred in the recorder window (11-05 to now, 30,649 rows): no gap between numeric changes above 10 min, detector_frozen_s max 0 across all 476 binary-sensor rows. Zero fires is expected; logic covered by 31 tests in test_camera_detector_hung.py. No build."
 - id: ANOMALY-FLOOD-ROWS-1
+  arc_cut_v5_108_17: "separate broken promise awaiting operator pick"
   title: "Anomaly floods: transit.path_implausible 21.5k rows, write_local_witness_divergence 7.6k, crosscheck_divergence 1.7k, circuit_tripped_breaker 4.7k in 90 days"
   thread: diagnostics
-  status: investigating
+  status: waiting_operator
   batch: broken-promises-2026-11
   created: '2026-11-12 22:30'
-  updated: '2026-11-12 22:30'
+  updated: '2026-11-13 02:04'
   tier: 2
   origin: {date: '2026-11-12', gist: 'Broken-promise sweep (docs/planning/AUDIT_broken_promises_2026_11_12.md); operator: "A lot of our hardening are broken promises from previous work."'}
   why: "Sweep item 8; noise buries real signals and grows the DB (DB-SIZE-GROWTH-1)."
-  next: "Me: per detector, true rate vs noise; tune or fix producer."
+  next: "PICK: A (recommended - smallest fix that removes the false penalty) treat no-sighting as no_camera_data unless the from or to room has its own shared-space camera (sightings already carry a room, transit_validator.py:947); Tier 2, presence-adjacent, gets the presence state-of-play read + 2 reviews. Or B keep the penalty, only stop writing the anomaly rows (noise and DB growth gone, confidence harm stays). -> On your pick I build it to review in an attended session. If you have not vetoed by the next session I take A."
+  refinement_status: "refined"
+  measured_2026_11_13_overnight: "Per-detector read of anomaly_log (URA DB, 02:01 CST). (a) energy.circuit_tripped_breaker: last row 10-19, zero since; ALREADY-FIXED by 58cbfa70 + d3660df6 (expected-on gate). (b) energy.crosscheck_divergence: ~25/day until 11-05, zero since; ALREADY-FIXED by e19631ba (ENVOY-FLAKINESS-181243-1). (c) write_local_witness_divergence: reserve_soc rows stopped 10-29 (witness memory fix 80b755e4); the remaining 116 rows in 30 d are all charge_from_grid commanded=on / local_seen=off at 14:00-16:00 CST, and EC-CFG-SELFHEAL-FALSE-CRITICAL-1 already proved the local Enpower CFG switch reads off the whole time (not a usable witness). Folded there, no new card. (d) transit.path_implausible is the only live flood: 724 rows in 7 d (30-290/day), all 4 residents, 217 distinct room pairs. Top pairs are rooms that are next to each other with no shared camera between them: Receiving Room<->Living Room 602, Master Bedroom<->Master Bathroom 328, Kitchen<->Breakfast Nook 273, Jaya Bedroom<->Jaya Bathroom 212."
+  mechanism_2026_11_13: "Producer defect, not tuning. transit_validator.py:686-697 labels a move 'implausible' whenever no shared-space camera saw anyone in the window AND any shared-space camera anywhere in the house was active in the last 10 min. It never checks whether the path passes a camera at all (the docstring at :772 says it deliberately skips topology). So walking from a bedroom into its own bathroom is 'implausible' whenever someone else is in the hallway. Effect beyond noise: each one cuts the move's confidence by 0.15 (:704, applied at transitions.py:625); music_following.py:115 needs 0.6, so a normal 0.65-0.75 move can drop below it."
+  problem_solution: "Problem: the house logs about 100 'impossible room move' warnings a day, but they are ordinary moves such as bedroom to its own bathroom. The check calls a move impossible whenever a hallway camera somewhere saw nothing at that moment, even if no camera covers that path. Each false warning also lowers the move's confidence, which can stop music following. Solution: only call a move impossible when a camera actually covers the path; otherwise treat it as 'no camera data' (no penalty, no warning row)."
+  links: {"related": ["TRANSIT-1", "EC-CFG-SELFHEAL-FALSE-CRITICAL-1", "DB-SIZE-GROWTH-1"], "context": "TRANSIT-1 built the shared-space checkpoint union this validator uses (the producer being fixed); EC-CFG-SELFHEAL-FALSE-CRITICAL-1 owns the charge_from_grid witness rows folded out of this card; DB-SIZE-GROWTH-1 is the DB-growth consumer of this noise."}
+  paged_2026_11_13_overnight: "Paged 2026-11-13 02:09 CST in one consolidated quiet notification (notify.madronehapushover, priority -1, wakes nobody) with the pick."
 - id: ZONE-HAS-HOME-PERSON-UNCALLED-1
+  arc_cut_v5_108_17: "separate card in review, unrelated code path"
   title: "zone_has_home_person person-trust backstop is defined with no callers while its docstring claims use"
   thread: hvac
-  status: investigating
+  status: review
   batch: broken-promises-2026-11
   created: '2026-11-12 22:30'
-  updated: '2026-11-12 22:30'
+  updated: '2026-11-13 02:04'
   tier: 1
   origin: {date: '2026-11-12', gist: 'Broken-promise sweep (docs/planning/AUDIT_broken_promises_2026_11_12.md); operator: "A lot of our hardening are broken promises from previous work."'}
   why: "Sweep item 9; likely superseded by _zone_conditioning_retreat_ok."
-  next: "Me: confirm superseded, then DELETE or KEEP+DOCUMENT per triage rule."
+  next: "Me, next attended deploy: merge fix/zone-has-home-person-docstring into develop and ship with --cards ZONE-HAS-HOME-PERSON-UNCALLED-1 (docs-only; rides any release)."
+  verified_2026_11_13_overnight: "CONFIRMED superseded (git grep on develop 22c0023f): zone_has_home_person (hvac_zones.py:2708) has zero production callers; the D7/row-1 path decides through HVACCoordinator._zone_conditioning_retreat_ok (hvac.py:7103, callers :2951 and :3410), and test_zzz_hvac_conditioning_demand.py ~:927 pins that the shared helper must NOT consult it. test_person_gps_assistive.py:857 already notes 'no production caller'. Three-bucket triage: KEEP+DOCUMENT, not DELETE (a working BLE-overrule-aware person-trust read; not a footgun once the docstring stops claiming use; dead != delete)."
+  built_2026_11_13_overnight: "Branch fix/zone-has-home-person-docstring (e8a38bb9, pushed): docstring-only change marking it RETIRED with the superseding path and the pinning test. No behavior change. Validation: test_zzz_hvac_conditioning_demand.py + test_person_gps_assistive.py 94 passed. Review: self-review of a 10-line docstring diff (no code path touched), so no reviewer dispatch."
 - id: PERIMETER-FP-GATES-DISPOSE-1
+  arc_cut_v5_108_17: "separate investigation, not notification code"
   title: Perimeter false-positive gates D3/D5 shipped shadow-first but D3 can never evaluate (zone sensors never configured) and no shadow counts are kept; no disposal date
   thread: perimeter
   status: investigating
@@ -34771,7 +34859,7 @@ cards:
   arc_cut_v5_108_16: "separate Tier-3 lock-regime plan, switches off"
   title: A camera seeing any body while the house is away moves it to ARRIVING, which releases the garage lockout and auto-disarms security with no identity
   thread: security
-  status: investigating
+  status: in_progress
   batch: person-sightings
   created: '2026-11-12 19:10'
   updated: '2026-11-12 19:10'
@@ -34790,15 +34878,44 @@ cards:
     parent: FACE-ARRIVAL-REBUILD-1
   ARC_2026-11-13: 'Operator: add to the person-sightings arc. Review D (v_person_sightings_p1_D.md L-1) repro: lockout engaged in SLEEP, house SLEEP -> AWAY, an interior camera sees a body -> ARRIVING -> lockout release.'
   FINDING_2026-11-13: 'AUDIT_arriving_on_body_evidence_2026_11_13.md: 2,642 AWAY->ARRIVING edges since 03-12; 6.4% real arrivals, 48.6% correcting a false AWAY, 32.8% no resident evidence. 68.5% driven by zone sensors with census 0, not cameras. Zero access releases ever: lockout, away-lock and auto-follow switches all off; lockout code dates from 11-07. Phone edges lead ARRIVING (median 35 s, 16/17). Fix shape: drop house_state arriving (and the HOME_* follow-on at :858-860) as a lockout release trigger; real arrivals use the person path; trip-wire on any release with trigger house_state:arriving and no resident edge in 120 s; same for auto-follow disarm.'
-  next: 'Me: plan the lock-regime trigger change (Tier 3, plan + 2 plan reviews) before the operator turns the lockout back on (~11-16); no urgency while switches are off.'
+  REVISIT_ON_RESHAPE: 'Operator 2026-11-13: lockout ships now but must be revisited when HOUSE-STATE-FIRST-PRINCIPLES-1 lands (move onto the new arrival signal, retire the taint workaround).'
+  APPROVED_2026-11-13: 'Operator approved PLANNING_lock_release_on_arriving.md rev 3 with night re-lock = yes and house-sitter = yes. Auto-follow (plan section 13) out of this build; operator decision pending (park recommended). Build started on feature/lock-release-arriving.'
+  next: 'Me: D0 probe, build, validator, four Tier-3 reviews, orchestrator verify, operator pre-deploy go; ship before the lockout is switched on (~11-16).'
   rank: {value: 9, time_criticality: 6, effort: 5}
+- id: LOCK-REGIME-BOOT-REALLY-AWAY-1
+  title: After a restart, residents count as away until their first move, so the lockout's really-away check can misjudge returns
+  thread: security
+  status: parked
+  batch: person-sightings
+  created: '2026-11-13 03:00'
+  updated: '2026-11-13 03:00'
+  tier: 3
+  links: {parent: FACE-ARRIVAL-REBUILD-1, related: [LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1, LOCK-REGIME-FACE-ARRIVAL-CORROBORATION-1]}
+  origin: {date: '2026-11-11', gist: 'Review B INFO-B4 residual of LOCK-REGIME-FACE-ARRIVAL-CORROBORATION-1 (security_lock_regime.py ~1149-1153). The board recorded it as its own parked card on 11-11 but the card was never created; created 2026-11-13 during the lock-release plan review.'}
+  why: 'Only matters with the garage lockout ON. PLANNING_lock_release_on_arriving.md rev 2 section 9.1: once ARRIVING no longer releases, this fix must limit the tightening to camera-derived arrivals or pass a joint restart test.'
+  revisit_trigger: 'Garage lockout switched ON, or the lock-release-on-arriving build ships (sequenced next after it).'
+  next: 'Me: plan after LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1 builds; joint restart test.'
+  rank: {value: 6, time_criticality: 5, effort: 3}
+- id: EXTERIOR-PERSON-SEVERITY-ARRIVING-BODY-ONLY-1
+  title: While the house reads ARRIVING, exterior-person alerts drop to LOW, so a body-only ARRIVING softens real alerts
+  thread: security
+  status: inbox
+  batch: person-sightings
+  created: '2026-11-13 03:00'
+  updated: '2026-11-13 03:00'
+  tier: 2
+  links: {parent: FACE-ARRIVAL-REBUILD-1, related: [LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1]}
+  origin: {date: '2026-11-13', gist: 'Lock-release plan completeness review M6 (const.py:2799); scoped out of the lock-release plan rev 2.'}
+  why: 'AUDIT_arriving_on_body_evidence: only 6.4% of AWAY->ARRIVING edges are real arrivals; ARRIVING mostly comes from zone sensors. Alert severity keyed on ARRIVING inherits that noise.'
+  next: 'Me: measure how many exterior-person alerts were downgraded under a false ARRIVING; decide severity keying on resident arrival evidence.'
+  rank: {value: 5, time_criticality: 3, effort: 2}
 - id: FRIGATE-DOOR-FACE-TUNING-1
   title: Door and exterior cameras recognize few faces (garage 36, doorbell 33, entry 16, aerial 7 since 11-05; 9 cameras zero), capping egress identity near 40%
   thread: identity
-  status: investigating
+  status: waiting_operator
   created: '2026-11-12 18:30'
-  updated: '2026-11-12 18:30'
-  refinement_status: initial
+  updated: '2026-11-13 02:12'
+  refinement_status: "refined"
   tier: 2
   approval: unreviewed
   problem_solution:
@@ -34811,8 +34928,11 @@ cards:
   - Frigate config is house-visible and homelab-owned; URA side read-only; final changes made with homelab.
   links:
     related: [FACE-ARRIVAL-REBUILD-1]
-  next: 'Me: read-only score/training probe when an agent slot frees, then hand findings to homelab.'
+  FINDING_2026-11-13: 'AUDIT_frigate_door_face_2026_11_13.md: misses are distance/angle, not threshold. Doorbell 26% named (53% when person fills >45% of frame), garage A 29% (overhead), G6 entry 10% (71% tiny street boxes), aerial 14% (top-down). Scores 0.82-1.0 do not separate right from wrong (Ojini false 10/10 at 0.91-1.0). Ezinne named 8 vs Jaya 63. Hand-off: read F2 /api/faces + /api/config; door-angle crops for Ezinne/Jaya/Ziri; empty Ojini (Frigate + Protect); large model if on small; keep 0.85; head-height camera at garage door and front step; min_area / street mask on G6. Also: /config/www/frigate.yml holds plaintext MQTT/camera passwords and is served unauthenticated at /local/frigate.yml (HTTP 200 without token, checked 2026-11-13).'
+  DONE_2026-11-13_frigate_yml: 'Operator: file is stale (likely from the Frigate config integration); HA is reachable only through the auth-protected tunnel, so no one has seen it. Moved /config/www/frigate.yml to /config/www_moved_2026-11-13/frigate.yml; /local/frigate.yml now 404. frigate_cameras.yml is not in www. No rotation needed per operator.'
+  next: 'Me: hand the audit to the homelab session for Frigate changes (homelab applies).'
   rank: {value: 7, time_criticality: 3, effort: 4}
+  measured_2026_11_13_overnight: "Partial, read-only (ura-prober, HA recorder 11-05 10:00 to 11-13 02:00 CST + homelab config snapshot). Frigate2 API at 192.168.13.18:8971 returned 401; no read-only API credential exists in the homelab repo, port 5000 is container-only, so per-face scores, near-misses and training counts are UNMEASURED. Config (snapshot configs/snapshots/frigate2/config-resolved-pre-perimeter-fp-2026-11-08.json, not a live read): face recognition enabled on all 29 cameras (cause 'not enabled' REFUTED), model large, recognition_threshold 0.8, unknown_score 0.8, detection_threshold 0.6, min_area 250 (already more permissive than Frigate defaults 0.9 / 750). Detect streams: doorbell_lite 1920x2560, garage_a and front_door_aerial 1280x720, g6_entry 720x960, g6_entry_package 400x300 at 2 fps. Recorder conversion (person episodes with a name within 2 min, day): garage_a 24/64, doorbell_lite 35/105, g6_entry 12/56, front_door_aerial 8/20, front_side_ptz 5/21 (a floor, since guests and deliveries can never match). Names at doors are almost all Jaya and Oji; Ezinne and Ziri essentially never match at doors. Resolution is not the limiter alone (master_hallway at 1280x720 logs 126 recognitions; doorbell_lite at high resolution converts ~33%). Lean, weak: thin per-person training (c) plus door angle (b); near-misses (a) cannot be ruled out without Frigate scores. HA's face sensor only records named positives, so near-misses are invisible from HA by construction."
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers

@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "294",
+  "author": "ojiudezue",
+  "session_id": "claude_20261113_090101_ship_v5_108_17",
+  "timestamp": "2026-11-13T09:01:01Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.108.17 shipped: Alerts that reached no one now reach the digest",
+  "summary": "Alerts that reached no one now reach the digest",
+  "why": "About 520 MEDIUM and LOW alerts in 12 days, including the Weekly Routine Digest and moderate CO2 readings, routed to an empty channel set because the recipient prefers digests while channel gates sit at HIGH/CRITICAL, and the digest-queue write was gated on that empty set; the heartbeat said All quiet and delivery_rate read 100. The fix queues them for the digest without changing the operator's channel settings and makes the heartbeat and health numbers honest.",
+  "implications": "Shipped NM-NO-CHANNEL-FIRED-1 at v5.108.17; card(s) sit shipped_organic pending validation. Acceptance in README_v5.108.17.md (Live criteria).",
+  "revisit_trigger": "If digests become too long to read, or nm.no_route_tripwire fires, or delivery_rate drops below 80.",
+  "refs": {
+    "cards": [
+      "NM-NO-CHANNEL-FIRED-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.108.17.md"
+    ],
+    "release_notes": "Digest fallback for unrouted MEDIUM/LOW alerts, honest heartbeat, delivery rate counts routing holes, no-route trip-wire."
+  }
+}

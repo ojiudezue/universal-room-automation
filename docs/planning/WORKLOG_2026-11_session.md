@@ -71,3 +71,4 @@
 - 2026-11-12 21:08 **v5.108.14** — v5.108.14 — Pre-arrival stands down when the zone is already cool; arrival pre-heat; Net Grid Today (cards: HVAC-PRECOOL-STANDDOWN-WHEN-COOL-1,EC-IMPORT-TODAY-NET-AFTER-RESTART-1)
 - 2026-11-12 21:53 **v5.108.15** — v5.108.15 — The exterior seam file actually loads (cards: EXTERIOR-SEAM-FILE-LOADER-1)
 - 2026-11-13 01:14 **v5.108.16** — v5.108.16 — Person sightings, phase 1 (cards: INTERIOR-PATH-MAP-1)
+- 2026-11-13 03:01 **v5.108.17** — v5.108.17 — Alerts that reached no one now reach the digest (cards: NM-NO-CHANNEL-FIRED-1)

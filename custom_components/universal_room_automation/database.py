@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv5.108.16
+# Universal Room Automation vv5.108.17
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -4962,6 +4962,28 @@ class UniversalRoomDatabase:
                 await db.commit()
         except Exception as e:
             _LOGGER.error("Error marking digest delivered: %s", e)
+
+    async def count_no_route_since(self, person_id: str, since_iso: str) -> int:
+        """NM-NO-CHANNEL-FIRED-1: count this recipient's ``no_channel_fired``
+        audit rows (alerts that reached no channel and no digest) since
+        ``since_iso``. Real sends only (``dry_run=0``). Read-only; feeds the
+        digest heartbeat so it never says "All quiet" over dropped alerts.
+        """
+        try:
+            async with self._db_read() as db:
+                cursor = await db.execute("""
+                    SELECT COUNT(*) FROM notification_log
+                    WHERE person_id = ?
+                      AND message = '[audit]'
+                      AND bucket_outcome = 'no_channel_fired'
+                      AND dry_run = 0
+                      AND timestamp >= ?
+                """, (person_id, since_iso))
+                row = await cursor.fetchone()
+                return int(row[0]) if row else 0
+        except Exception as e:
+            _LOGGER.error("Error counting no-route notifications: %s", e)
+            return 0
 
     async def acknowledge_notification(
         self,
