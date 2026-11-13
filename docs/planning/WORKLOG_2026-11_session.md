@@ -73,3 +73,4 @@
 - 2026-11-13 01:14 **v5.108.16** — v5.108.16 — Person sightings, phase 1 (cards: INTERIOR-PATH-MAP-1)
 - 2026-11-13 03:01 **v5.108.17** — v5.108.17 — Alerts that reached no one now reach the digest (cards: NM-NO-CHANNEL-FIRED-1)
 - 2026-11-13 08:46 **v5.108.18** — v5.108.18 — Garage lockout no longer releases on body evidence alone (cards: LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1)
+- 2026-11-13 11:41 **v5.108.19** — v5.108.19 — House-state step 1a: one arrival rule, residents-home producer, ARRIVING severity (cards: HOUSE-STATE-FIRST-PRINCIPLES-1)
