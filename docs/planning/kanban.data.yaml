@@ -9,6 +9,9 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {"fid": "OPTIMIZER-DIMENSIONS-STUB-OR-SILENT-1@2026-11-13T02:07:00", "card_id": "OPTIMIZER-DIMENSIONS-STUB-OR-SILENT-1", "at": "2026-11-13T02:07:00", "outcome": "done", "headline": "Closed: of the optimizer's 8 quiet checks, 3 are placeholders already marked as unfinished in the code, and 5 are real checks whose trigger simply hasn't happened (no broken inputs found). The empty shadow-sample table is the bug already on the optimizer redesign card.", "acknowledged": false}
+  - {"fid": "HVAC-ZONE-KWH-SEED-WARN-WORDING-1@2026-11-13T02:07:00", "card_id": "HVAC-ZONE-KWH-SEED-WARN-WORDING-1", "at": "2026-11-13T02:07:00", "outcome": "parked", "headline": "The scary 'UNSAFE' kWh-threshold warning did not appear at tonight's boot, so it is intermittent and harmless (zones run the right values). Parked until a boot logs it again, when I'll capture the exact reason. Note: HA was restarted by a user at 01:44 tonight (not a crash).", "acknowledged": false}
+  - {"fid": "ZONE-CAMERA-DISCOVERY-DEVICE-AREA-1@2026-11-13T02:05:00", "card_id": "ZONE-CAMERA-DISCOVERY-DEVICE-AREA-1", "at": "2026-11-13T02:05:00", "outcome": "escalated", "headline": "Confirmed live: no zone has any camera (all 5 zones show none). The fix is small, but it would also make cameras hold rooms occupied (lights, HVAC) for the first time ever, so it needs your call: roll it in room by room (recommended) or all at once.", "acknowledged": false}
   - {"fid": "TRIPWIRES-NEVER-FIRED-1@2026-11-13T02:04:00", "card_id": "TRIPWIRES-NEVER-FIRED-1", "at": "2026-11-13T02:04:00", "outcome": "done", "headline": "Closed: the 'camera tripwires never fired' worry was wrong. The Frigate-down alarm fired 3 times (11-01, 11-02, 11-07) and paged you; it was filed under a different label, so the audit missed it. The frozen-detector alarm is set up correctly and has simply never had a freeze to catch.", "acknowledged": false}
   - {"fid": "ANOMALY-FLOOD-ROWS-1@2026-11-13T02:04:00", "card_id": "ANOMALY-FLOOD-ROWS-1", "at": "2026-11-13T02:04:00", "outcome": "escalated", "headline": "Of the four noisy warnings, three already stopped after earlier fixes. The live one (~100/day) is a real bug: ordinary moves like bedroom to own bathroom get flagged 'impossible' and lose confidence, which can stop music following. Your pick: fix the check (recommended) or just silence the rows.", "acknowledged": false}
   - {"fid": "ZONE-HAS-HOME-PERSON-UNCALLED-1@2026-11-13T02:04:00", "card_id": "ZONE-HAS-HOME-PERSON-UNCALLED-1", "at": "2026-11-13T02:04:00", "outcome": "built-to-review", "headline": "An unused HVAC helper claimed in its notes to protect comfort; nothing calls it. Kept it and corrected the notes (no behavior change, tests pass). Waiting in review to ride the next deploy.", "acknowledged": false}
@@ -34348,18 +34351,20 @@ cards:
 - id: HVAC-ZONE-KWH-SEED-WARN-WORDING-1
   title: "Zone-kWh seed logs UNSAFE at every boot though the threshold Numbers self-restore a moment later"
   thread: "hvac"
-  status: investigating
+  status: parked
   tier: 1
   created: "2026-11-11 19:40"
-  updated: '2026-11-12 13:05'
+  updated: '2026-11-13 02:13'
   origin: "Boot log after v5.108.10 restart 2026-11-11; operator: 'Def look'."
   why: "__init__.py:~7310 seed reads core.restore_state before the Numbers restore and finds no entry; number.py:3100-3110 then restores and pushes to the zone. Probe: all three zones 0.8 kW live and in every recorder row since 11-04 (= default), so the UNSAFE claim is false. Bug class: seed path disagrees with the entity's own restore path."
-  next: 'Me: capture the warning reason text at the v5.108.11 restart (or compare iter_canonical_hvac_zones climate entities with zm.zones at seed time), fix that branch, revert or reword the deferred change, fix the stale 1.30 kW wording.'
+  next: "Me, on the trigger above: capture the reason text from a noisy boot, then fix the seed or reword the warning."
   links: {}
   rank: {"value": 1, "time_criticality": 1, "effort": 1}
   dispatch_2026_11_12: 'ura-builder in worktree, branch fix/zone-kwh-seed-warn; bundles with the review-lane release.'
   review_2026_11_12: 'CARD-WAS-WRONG. The why on this card (seed reads before the Number restores) is WRONG: seed (__init__.py:7276) and Number (HA restore_state.py:295) read the same last_states dict, filled once at load. Live .storage has numeric entries + registered unique_ids for all three zones, so the likely firing branch is no ZoneManager zone matched climate_entity (__init__.py:7311) or spec missing zone_id/climate_entity (:7263). Branch fix/zone-kwh-seed-warn (82e8607e) FIX-REQUIRED, held out of v5.108.11; review record on that branch (2f4fd3f6).'
   measured_2026_11_12_boot: 'v5.108.11 restart 12:55: all three zones logged the no RestoreState entry branch (__init__.py:7310), while the three Numbers restored 1.0/0.8/0.8. So the seed sees no entry where the Number does: the review claim that both read the same already-filled dict is WRONG at runtime (timing or lookup differs). Next: find why the seed lookup misses (load order of RestoreStateData vs seed, or key used), confirm the zone actually receives 1.0 from number.py:3101-3112, then fix the seed or keep the deferred-debug change on fix/zone-kwh-seed-warn with a corrected comment.'
+  measured_2026_11_13_overnight: "Intermittent, not every boot. HA restarted at 01:44:42 CST tonight (user-initiated homeassistant.restart, see below); ha_get_logs source=system (HA's deduped system_log) has NO 'Zone-kWh seed' entry for this boot, and the buffer still holds boot-time warnings from 01:46:20 (midea, smarthub, enphase), so nothing was evicted and the absence is real. So the warning fired at the 11-12 12:55 boot and did not fire at the 11-13 01:46 boot on the same code. HA restore code re-read (.venv-ha restore_state.py:138-155, :295): seed and Number read the same last_states dict, filled once in bootstrap, so a per-boot difference points at something that varies per boot (entity_id churn: two of the three Numbers carry a _2 suffix, number.ura_hvac_coordinator_ac_kwh_rate_threshold_back_hallway_2 / _upstairs_2, so a registry rename between the store dump and the seed would miss) rather than load order. Live .storage now: all three entity_ids present in core.restore_state (0.8 / 1.0 / 0.8, last_seen 08:02Z) and in the registry. Value 1 / urgency 1: no live harm (zones run the restored values)."
+  revisit_if: "The next boot that logs 'Zone-kWh seed UNRESOLVED': read the full reason with ha_get_logs(source=system, search='Zone-kWh seed', compact=false) and compare the entity_id in the message with core.restore_state at that moment. Branch fix/zone-kwh-seed-warn stays held (review A FIX-REQUIRED)."
 - id: EC-EV-DAYTIME-SOLAR-LED-1
   title: Explore making daytime EV charging solar-led instead of off-peak-led in the EC
   thread: energy
@@ -34476,10 +34481,10 @@ cards:
 - id: ZONE-CAMERA-DISCOVERY-DEVICE-AREA-1
   title: Zone camera discovery reads only the entity's own area, but every camera's area is set on the device, so no zone has any camera (face arrival never worked)
   thread: identity
-  status: investigating
+  status: waiting_operator
   created: '2026-11-12 17:06'
-  updated: '2026-11-12 17:06'
-  refinement_status: initial
+  updated: '2026-11-13 02:06'
+  refinement_status: "refined"
   tier: 2
   approval: unreviewed
   problem_solution:
@@ -34494,9 +34499,12 @@ cards:
   links:
     related: [PERSON-PROFILE-PREFERENCES-1]
     context: 'Identified arrival is a personalization input; face arrival is one candidate producer.'
-  next: 'Me: verify the boot log line Subscribed to N zone camera entities, map every consumer of zone cameras, then plan the device-area fallback.'
+  next: "APPROVE: A (recommended) fix the area lookup to fall back to the device's area, ship it with room camera-hold OFF by default except rooms you list (so lights/HVAC don't suddenly start holding on cameras), and turn on the zone camera tier; Tier 2-DB, 3 reviews, attended deploy. Or B fix it everywhere at once (simpler, but every camera room starts holding occupancy the same day). -> On A I plan it with the presence state-of-play read and the consumer map above."
   rank: {value: 6, time_criticality: 3, effort: 5}
   CORRECTION_2026-11-12: 'Too broad. Only the v3.19 presence face-arrival path never fired; egress faces work and feed egress identity, perimeter naming and census. The operator''s configured zone_cameras (8 interior shared-space/hallway cameras) are stored but only read by a zone-confidence check (presence.py:2389), not face arrival. Device-area fallback still needed for other zone-camera consumers; face arrival moves to FACE-ARRIVAL-REBUILD-1.'
+  verified_2026_11_13_overnight: "STILL-REAL. Live ground truth (recorder, latest row of every sensor.zone_*_presence_status, 02:05 CST): all 5 zones show signal_tiers.camera_sensors=false and cameras={} and face_arrivals_today=0. LOG GAP, stated plainly: I did NOT read the boot line 'Subscribed to N zone camera entities' (presence.py:5197). ha_get_logs error_log returns a 2000-line journald window with no match, and the line is only written when the set is non-empty, so its absence proves nothing either way. The zone-sensor attributes are the evidence used, not the log."
+  consumer_map_2026_11_13: "Three live readers of the area->camera map (camera_census.py _cameras_by_area, built at :1104-1107 and :1186-1189 from entity.area_id only, :664/:1147/:1175): (1) presence.py:5158 zone trackers (zone camera tier + face arrival); (2) coordinator.py:4086-4105 'camera extends room occupancy' - when motion/mmWave time out, a camera person sensor 'on' in the room's area holds the ROOM occupied (lights, fans, HVAC room demand) via get_person_sensor_for_area; (3) sensor.py:2811 room has-camera flag. So the fix is not only face arrival: it would switch on camera-held occupancy in every room that has an interior camera, for the first time ever in this house (including family_room, which sees the patio through glass, CENSUS-PATIO-THROUGH-GLASS-1). Prior art: REUSE resolve_area_id_for_entity (camera_resolver.py:427, entity area else device area), already used at camera_census.py:902, so the code change itself is a small source swap."
+  gate_2026_11_13: "Validity: still real. Config-first: no knob restores this; per-zone CONF_DISABLE_CAMERA_PRESENCE opt-out exists (presence.py ~:5148) and would be the per-zone brake after the fix. Prior art: reuse resolver (above). Parsimony: BUILD the swap, but cost/benefit is NOT a clean Tier-2 call because it turns on a never-before-live occupancy input across rooms and zones (presence <-> HVAC <-> lighting ripple; Tier 2-DB by the regression-prone rule). Ambiguous -> escalated, not built."
 - id: LOCK-REGIME-SWITCHES-OFF-1
   title: "Garage lockout and away-lock switches are OFF live, so the shipped lock regime (incl. v5.108.13 suspicious-arrival hold) has made zero decisions in 30 days"
   thread: security
@@ -34539,14 +34547,17 @@ cards:
 - id: OPTIMIZER-DIMENSIONS-STUB-OR-SILENT-1
   title: "3 of 13 optimizer evaluators are return-[] stubs; 5 more emitted zero findings since 10-20; optimizer_shadow_samples empty"
   thread: optimization
-  status: investigating
+  status: done
   batch: broken-promises-2026-11
   created: '2026-11-12 22:30'
-  updated: '2026-11-12 22:30'
+  updated: '2026-11-13 02:10'
   tier: 2
   origin: {date: '2026-11-12', gist: 'Broken-promise sweep (docs/planning/AUDIT_broken_promises_2026_11_12.md); operator: "A lot of our hardening are broken promises from previous work."'}
   why: "Sweep item 5."
-  next: "Me: classify each evaluator as stub/never-fires-expected/broken; fire-check rule."
+  next: "None. Closed; shadow fix lives in OC-SHADOW-SAMPLES-EMPTY-1 / OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1."
+  measured_2026_11_13_overnight: "Classified (ura-prober read-only, source + URA DB, ~02:00 CST; orchestrator re-read the shadow-validator lines). Labels: each evaluator stamps its own dimension (optimization.py:199-218); only camera_input_dark is relabeled (to sensor_health), so the zero counts below are real. STUBS (3, already self-documented in code): automation_responsiveness :3637 and energy_efficiency :3703 return [] (need per-room command-latency / per-room energy data that does not exist); setpoint_compliance :3717 return [] with 'DEFERRED to a real reader' (ComplianceTracker.get_zone_compliance_rate does not exist). REAL, NO BROKEN INPUT FOUND (5): config_behavior :3653 (fires only on comfort max <= min; live bands valid), vacancy_management :3738 (needs 12 h continuous occupancy without the vacancy sweep; producer hvac.py:3106), override_frequency :3812 (>= 10 overrides/day; counter live in hvac_override.py), state_machine_accuracy :3858 (house-state override held >= 2 h), prediction_accuracy :4099 (input healthy: 7 d prediction_results 1,607 bayesian / 3,671 next_room / 7,003 dwell rows; fires only below 35% top-1 or Brier >= 0.30, not computed). Their zeros look expected, but 4 of 5 are not positively proven unmet. SHADOW SAMPLES = 0: DUPLICATE of OC-SHADOW-SAMPLES-EMPTY-1 (same mechanism, re-verified tonight: validator at :1333 scores only self._last_findings, reassigned at :1285 to this cycle's findings stamped now (comfort and occupancy_accuracy both timestamp=now.isoformat()), against a 900 s age gate (const.py:4832) on a 5-min cycle (const.py:5300), so nothing ever ages enough). That card is folded into OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1."
+  disposition_2026_11_13: "Closed. Three-bucket: the 3 stubs are KEEP+DOCUMENT (their docstrings already say TODO/DEFERRED; deleting enum members is the irreversible option and buys nothing live); no DELETE items. The 'broken promise' is only in old README claims of '13 dimensions watched'; the honest per-dimension status belongs to the OC redesign (OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1), not a standalone build. Side finding passed on, not chased: sensor.ura_optimization_coordinator_optimizer_status reads degraded ('11 findings, 11 high'), probably the security_posture sleep-unlocked finding from the garage hallway lock loop (GARAGE-HALLWAY-LOCK-NONCONVERGE-1)."
+  links: {"related": ["OC-SHADOW-SAMPLES-EMPTY-1", "OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1", "GARAGE-HALLWAY-LOCK-NONCONVERGE-1"], "context": "OC-SHADOW-SAMPLES-EMPTY-1 owns the shadow-sample bug (same mechanism); the OC redesign owns dimension honesty; the garage lock loop is the likely source of the degraded optimizer status."}
 - id: TRIPWIRES-NEVER-FIRED-1
   title: "Detector-hung and fleet-dark tripwires have never produced a finding (sibling camera_stuck has 33)"
   thread: diagnostics
