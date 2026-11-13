@@ -18617,7 +18617,7 @@ cards:
 - id: HOUSE-STATE-FIRST-PRINCIPLES-1
   title: Rethink the house state machine from first principles; ARRIVING fired by any occupancy is a legacy assumption the lock, alarm and alert code keeps working around
   thread: presence
-  status: investigating
+  status: waiting_operator
   created: '2026-11-13 04:00'
   updated: '2026-11-13 04:00'
   tier: 3
@@ -18631,8 +18631,21 @@ cards:
   - 'Do not stall the lock-release fix; it ships now. Operator 2026-11-13: when the reshape lands, REVISIT the lockout (taint flag, ARRIVING hold, D3/D4 pages) and move it onto the new arrival signal; the reshape is not done until that migration ships.'
   - Read PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md, HVAC state of play, and PLANNING_house_state_*.md first.
   - 'Operator hypothesis 2026-11-13: arrival may not be a house state at all; it is closer to a mode/event fed by egress (direction-aware door crossings, person sightings) and the pre-arrival work (geofence/BLE approach, HVAC pre-arrival). If it stays a state, it is fed by much narrower conditions (resident arrival evidence), never by plain occupancy. The proposal must test both options against the consumers.'
-  next: 'Me: research + inventory pass (current states, transitions, producers, consumers, measured transition rates and false rates; external research), then a first-principles proposal for operator review.'
+  FINDING_2026-11-13: 'AUDIT_house_state_first_principles_2026_11_13.md: only AWAY and GUEST come from evidence; HOME_DAY/EVENING/NIGHT are the clock; SLEEP is someone home in the sleep window (all 203 SLEEP->WAKING at 06:00); ARRIVING and WAKING are 1-minute shims; VACATION never fired; consumers each re-collapse the enum. AWAY false 6/19 (32%) recent; 43% of real resident arrivals had no house arrival. External systems keep who-is-home separate from mode; none treat motion after away as arrival. Proposal: axes occupancy / residency / period, guest and vacation as overlays, per-person arrival and departure events (pre-arrival = expected-arrival mode), legacy house_state derived for migration; arrival-as-event wins for every access consumer; retires ARRIVING, WAKING and the lockout taint. Smallest version: publish residency + arrival events + occupancy alongside the enum and move lock regime and exterior severity first.'
+  next: 'APPROVE/PICK: accept the axis model and arrival-as-event (recommended) -> I write the Tier-3 plan (smallest version first) with two plan reviews.'
   rank: {value: 9, time_criticality: 5, effort: 8}
+- id: HOUSE-STATE-LOG-MISSING-AWAY-ROWS-1
+  title: house_state_log has ~553 transitions into ARRIVING with no AWAY row before them, so AWAY entry counts are undercounted
+  thread: presence
+  status: investigating
+  created: '2026-11-13 05:00'
+  updated: '2026-11-13 05:00'
+  tier: 2
+  links: {related: [HOUSE-STATE-FIRST-PRINCIPLES-1]}
+  origin: {date: '2026-11-13', gist: 'AUDIT_house_state_first_principles_2026_11_13.md inventory.'}
+  why: 'Every rate built on house_state_log (including the arriving audit) inherits the gap; the rethink needs trustworthy counts.'
+  next: 'Me: read-only probe of why the AWAY row is missing (logging path, dedup, restart restore) before the rethink plan relies on these counts.'
+  rank: {value: 5, time_criticality: 5, effort: 2}
 - id: HOUSE-STATE-UTILIZATION-EPIC
   title: ROADMAP EPIC — give operational meaning to under-consumed house states (HOME_DAY dead, AWAY thin);
     rungs 2-4 unbuilt
