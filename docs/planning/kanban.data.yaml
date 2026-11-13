@@ -35122,6 +35122,18 @@ cards:
   fixed_2026_11_13: 'Homelab 6b131ff: Kiosk Satellite 2026.11.11 Impeller GLES abort -> headless respawn, RTSP plugin never attaches, :8554 dead. Cold-started KS on both panels ~14:00 CST; F2 5 fps. Up Hallway down ~39 h (no URA presence source), Study A ~47 min with switch.study_a_panel_rtsp_streaming still on (not a health signal). Fleet-wide: Kitchen 4x, Study A 3x, Up Hallway 1x since 10-21.'
   next: 'Homelab building KS app-health watchdog (operator 2026-11-13: "Restarting the app is beyond frigate. It should just check on ks app health and restart it if something is wrong or maybe just periodically"): health-keyed cold restart, optional periodic restart, cooldown, Pushover. Me: URA NM trip-wire on <panel> foreground_app != kiosk_satellite; record homelab commit.'
   rank: {value: 3, time_criticality: 2, effort: 1}
+- id: PANEL-KS-HEALTH-AS-INPUT-1
+  title: URA trusts wall-panel inputs (camera person, motion, presence) even when the Kiosk Satellite app is down or headless
+  thread: presence
+  status: planned
+  created: '2026-11-13 14:30'
+  updated: '2026-11-13 14:30'
+  tier: 2
+  links: {related: [F2-PANEL-FFMPEG-CRASHLOOP-1]}
+  origin: {date: '2026-11-13', gist: 'Operator: "If the app is down Ura can''t do what it needs to do and enabling new features like motion etc will be compromised." Evidence homelab 6b131ff: Up Hallway KS down ~39 h, no URA presence source; Study A down 47 min with KS still connected and rtsp switch reading on.'}
+  why: 'Panels are a sensor-fleet dependency. A headless KS leaves entities that look healthy (Study A) or go unavailable silently (Up Hallway); URA must stop trusting panel-sourced inputs while KS is unhealthy and say so, or every panel-fed feature (motion, presence, camera person) degrades invisibly.'
+  next: 'Me: prior-art scan (sensor.<room>_unavailable_entities, stuck-signal watchdog, SENSOR_FLEET_CLASSES), then a per-panel health getter (foreground_app == kiosk_satellite AND F2 camera fps > 0) that marks the panel inputs untrusted + NM trip-wire with a zero-fire check. Homelab watchdog restarts; URA detects and degrades.'
+  rank: {value: 7, time_criticality: 5, effort: 2}
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
