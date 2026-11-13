@@ -65,20 +65,22 @@ trigger is `backstop`, outside the house-edge rule.
 `EXTERIOR_SEVERITY_PERSONS_HOME_FROM_RESIDENCY` False, `EXTERIOR_SEVERITY_RECENT_ARRIVAL_S` 300. No config-flow field
 and no Number entity.
 
-## Live validation (to fill after restart)
+## Validated 2026-11-13
 
-- **L1:** within 24 h, `memory_episodes` `person_arrival` / `person_departure` rows match the recorder's resident
-  `-> home` / `home ->` edges, one row per edge (each miss explained; no 60 s window applies to these types). Oji
-  (two-word display name) must have rows.
-- **L2:** the weekly writer-health check shows both types and does not page.
-- **L3:** `sensor.ura_presence_coordinator_residents_home` equals the residents reading home minus any
-  phone-left-behind `on`.
-- **L4:** with the lockout switch on, `sensor.ura_security_coordinator_security_armed_state` carries
-  `lock_regime_episode_saw_empty` and `lock_regime_house_edges_ignored` and no `lock_regime_arriving_*` keys; the first
-  body-only ARRIVING in an episode shows `last_action.action == "house_edge_ignored"`; `decision_log` has 0
-  `lock_regime_release` rows with a `house_state:*` trigger other than waking / operator.
-- **L6:** 7 days after deploy, from the `ARRIVING exterior-person severity` INFO lines: every MEDIUM has a resident
-  home or a counted arrival within the window.
+Restart 11:44 CST, checked 11:53 (house `home_day`; only Ezinne home, Oji in NZ).
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Version loaded | PASS | `update.universal_room_automation_update` installed `v5.108.19`; manifest matches |
+| No URA setup errors | PASS | `system_log/list`: 9 URA entries, all WARNING boot noise, no ERROR |
+| L3 residents home | PASS | `sensor.ura_presence_coordinator_residents_home` 1, `residents: ["ezinne"]`, matches `person.*`; house-state attr `residents_home: 1` |
+| L1 residency rows | PENDING | 0 `person_arrival`/`person_departure` rows; no resident person edge since restart (recorder), so none expected. First edge, incl. Oji's two-word name, is the check |
+| L2 writer health | PENDING | No rows yet |
+| persons_home lookup | PASS (mechanism) | `perimeter_alert.py:2050-2082` resolves `coordinators["presence"]`; switch ships False so value 0 |
+| Store migration | PASS | lock store has `garage_episode_saw_empty`, no `garage_arrival_taint` |
+| Lockout off | PASS | `switch.ura_security_coordinator_garage_lockout` off |
+| L4 lock attributes | PASS (shape) | `lock_regime_episode_saw_empty: false`, `lock_regime_house_edges_ignored: 0`; behaviour needs the lockout on |
+| L6 ARRIVING severity | PENDING | 7-day criterion |
 
 ## Rollback
 
