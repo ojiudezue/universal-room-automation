@@ -1,5 +1,17 @@
 # PLANNING: pre-arrival pre-cool stand-down + seasonal scope
 
+**Rev 2 (2026-11-12)**: applies plan review `docs/reviews/code-review/PLAN_hvac_precool_standdown_review.md`.
+
+| Finding | Resolution | Where |
+|---|---|---|
+| M1 master-OFF release writes a raw baseline on a zone with no borrow | RESOLVED: new D1b, the switch-28 release writes nothing for a zone with no live borrow. Filter at the release site; `_pre_conditioning_zones` membership unchanged (hvac.py:7696 reads it) | §4, D1b |
+| M2 `_pre_arrival_start` is overwritten per trigger, not an episode key | RESOLVED: one row per pre-arrival set membership (`_standdown_logged` flag, cleared when the zone leaves `_pre_arrival_zones`) | D1 |
+| M3 D4 trip-wire cannot tell a fault from the weather | RESOLVED: D4 parked with revival trigger; the D0 check mode stays as the oracle | D4, §6, §9 |
+| L1 no operator ask for a margin knob | RESOLVED: margin is rung-1 const `PRE_ARRIVAL_PRECOOL_STANDDOWN_MARGIN_F = 0.0`; Number parked | §1.1, §6, §9 |
+| L2 stale temperature during an outage | RESOLVED: documented; the None verify no longer claims outage cover | D1, §3.1 |
+| L3 hand-rolled daily counters | RESOLVED: reuse `DailyCounter` | §1.1, D3 |
+| L4 energy pre-cool same shape | RESOLVED: listed as a separate follow-up, not in scope | §7, §9 |
+
 Card: `HVAC-PRECOOL-STANDDOWN-WHEN-COOL-1` (thread hvac, Tier 2). Operator 2026-11-12: "Yes make pre-cool smarter.
 It's a summer feature that we should tune for the seasons."
 
@@ -54,13 +66,14 @@ the fire-check / forward-trace corollary, `CLAUDE.md:416-423`). Nothing in §10 
 | Season source | **REUSED** `PresetManager.current_season` (`hvac_preset.py:100-118`; months `SUMMER_MONTHS {6,7,8,9}`, `WINTER_MONTHS {12,1,2}`, else shoulder, `hvac_const.py:1207-1208`); already read as `season` in `_check_pre_conditioning` (`hvac_predict.py:445`) | No new season resolver. |
 | Season gate idiom | **REUSED** from energy pre-cool `hvac_predict.py:763-766` (`season not in (SEASON_SUMMER, SEASON_SHOULDER)` -> `off_season`) | |
 | Outdoor temperature | Exists (`HVACPredictor._get_outdoor_temp`, `hvac_predict.py:1942-1952`, entity shared from the cover controller `hvac.py:1593-1597`). **Not used** (parked, §9). | |
-| Margin knob | **NEW** Number entity. Grep of `const.py`, `hvac_const.py`, `config_flow.py`, `options_flow.py`, `number.py`, `switch.py`, `select.py`, `domain_coordinators/*` for `standdown`, `stand_down`, `precool_season`, `pre_arrival_season`, `pre_cool_margin`: no equivalent. The only `_stand_down` hits are S10's local skip variable (`hvac.py:4779-4801`), unrelated. Sibling to reuse as a template: `PreArrivalWindowMinutesNumber` (`number.py:602-641`, knob 35). Used knob numbers: 00-04,10,15,20,25-28,30,31,35,40,45-50,52 (`_attr_name` grep of number/switch/select). |
+| Margin | **NEW** rung-1 const `PRE_ARRIVAL_PRECOOL_STANDDOWN_MARGIN_F = 0.0` in `hvac_const.py` (rev 2, L1: no operator ask exists for a live knob; the card `kanban.data.yaml:34454-34474` and the audit contain none). Grep of `const.py`, `hvac_const.py`, `config_flow.py`, `options_flow.py`, `number.py`, `switch.py`, `select.py`, `domain_coordinators/*` for `standdown`, `stand_down`, `precool_season`, `pre_arrival_season`, `pre_cool_margin`: no equivalent. The only `_stand_down` hits are S10's local skip variable (`hvac.py:4779-4801`), unrelated. Number entity parked (§9). |
+| Daily counters | **REUSED** `DailyCounter` (`coordinator_diagnostics.py:880`, RESTART-SAFETY-DOCTRINE-1), as `_pre_arrival_triggers_today` already does (`hvac.py:913`, rollover `:2306`, read `sensor.py:14511`). No hand-rolled midnight reset. |
+| Master-OFF release filter (D1b) | **REUSED** `hvac_excursion.is_borrow_active` (`hvac_excursion.py:597`) + the predictor's `_banking_excursion_tokens` / `_preheat_excursion_tokens` dicts. No new helper. |
 | Season tuple | **NEW** rung-1 const `PRE_ARRIVAL_PRECOOL_SEASONS` in `hvac_const.py` next to `PRE_ARRIVAL_PRECOOL_OFFSET_F` (`:497-500`). No equivalent (grep above). |
 | Stand-down kill switch | **NEW** rung-1 const `PRE_ARRIVAL_PRECOOL_STANDDOWN_ENABLED` (see §6 for why not a switch). |
 | Skip-reason surface | **REUSED** `sensor.ura_hvac_pre_arrival_status` (`sensor.py:14463-14514`, already exposes `fan_rooms_skipped` from `_last_fan_skipped_rooms`, reset per cycle at `hvac_predict.py:454`). New attrs on it, no new entity. |
 | Ledger row | **REUSED** `ura_activity_log` via the predictor's existing activity logging (same channel the `pre_arrival` intake row uses, `hvac.py:7256-7268`). New action name `pre_cool_standdown`. |
-| Trip-wire persistence | **REUSED** the `_zone_state_store` side-key pattern (`__interrupt_latch`, `__immune_holds`, `__tao_state`, §9e). New side-key `__precool_standdown_ring`. |
-| Trip-wire notification | **REUSED** NM dispatch as S10 latches do (`_s10_notify`, severity HIGH because MEDIUM reaches no live channel, STATE_OF_PLAY line 88). |
+| Trip-wire persistence / notification | Rev 2: none. D4 parked (M3); no side-key, no NM. |
 
 ### 1.2 Prior plans consulted
 - `PLANNING_hvac_w1_w2_finish.md` (D3/D4: one write from the baseline, `S12_pre_arrival` caller_site, end triggers,
@@ -104,10 +117,11 @@ thermostat; no house-zone fan-out involved).
 
 | Value | Producer (how computed, health) | Consumers |
 |---|---|---|
-| `zone.current_temperature` | Climate entity attr `current_temperature`, copied per cycle at `hvac_zones.py:711`. Carrier reports whole degrees; the attr only changes on 1 F steps (audit: state age 6 s to ~1.1 h). Healthy on all 3 zones in the 14-day recorder window (34/34 writes after 11-05 had a value). Ground truth = the thermostat's own sensor, which is also what the cool leg acts on. | Today: zone status sensor (display, `hvac_zones.py:1219`), `avg_temperature` fallback. NEW: the stand-down compare (trust decision). |
+| `zone.current_temperature` | Climate entity attr `current_temperature`, copied per cycle at `hvac_zones.py:711`. On `unavailable` the update returns early (`hvac_zones.py:702-703`) without clearing it, so during an outage T is the LAST value seen, not None (rev 2, L2). Harm is nil: a write to an unavailable entity buys nothing either, and S1/B1 already hold writes while the entity is unreadable. Carrier reports whole degrees; the attr only changes on 1 F steps (audit: state age 6 s to ~1.1 h). Healthy on all 3 zones in the 14-day recorder window (34/34 writes after 11-05 had a value). Ground truth = the thermostat's own sensor, which is also what the cool leg acts on. | Today: zone status sensor (display, `hvac_zones.py:1219`), `avg_temperature` fallback. NEW: the stand-down compare (trust decision). |
 | `effective_high` | `max(baseline_home_cool + PRE_ARRIVAL_PRECOOL_OFFSET_F, max(solar_bank_floor, target_temp_low + MIN_DEADBAND))`, `hvac_predict.py:1284-1297`. Live: baseline 77, floor 74 -> 75 (every DB row shows 75). Shoulder default baseline 74 -> 72 -> floored to 74; winter default 72 -> 70 -> 74, i.e. above the season's Home cool. | Today: the write value + the setpoint skip. NEW: the stand-down compare. |
 | `current_season` | Month table, `hvac_preset.py:104-118`. No outdoor input. November = shoulder. | Today: energy pre-cool gate, pre-heat gate, baselines. NEW: pre-arrival gate. |
-| margin (NEW knob) | Number entity, see §6. | Stand-down compare only. |
+| margin (NEW const, 0.0) | Rung-1 const, see §6. | Stand-down compare only. |
+| `_last_pre_conditioning_zones` | Copy of `_pre_conditioning_zones` at cycle end (`hvac_predict.py:739`); a pre-arrival zone is added whatever the pre-cool did (`:706-707`). | Switch-28 OFF release (`:486-509`, see D1b); vacancy/presence logic reads the live set (`hvac.py:7696`), so membership is NOT changed by this plan. |
 
 Reachable oddity to note, not fix: in winter (and shoulder at defaults) the floor makes `effective_high` >= the
 season's Home cool, so the "pre-cool" writes a cool leg no cooler than Home. The season gate removes the winter case;
@@ -162,6 +176,16 @@ Not in the caller for the stand-down because `effective_high` is computed inside
 No other site writes a pre-arrival pre-cool (S12 is the only `climate_write` site with reason `pre_arrival`;
 audit 52/52 rows). The re-grep must be repeated by the plan reviewer and the builder.
 
+**Rev 2, M1: one more reachable write from pre-arrival membership.** A stood-down (or `off_season`, or
+setpoint-skipped) zone is still added to `_pre_conditioning_zones` (`hvac_predict.py:706-707`), copied to
+`_last_pre_conditioning_zones` (`:739`). When switch 28 flips OFF, `release_set` includes it (`:486-488`); it has no
+token, so it is not in `_pa_rel` (`:493-496`) and reaches `_release_banked_zones(release_set)` (`:509`). There,
+no token → `_s11_pre_preset = None` (`:1040`) → Carrier `is_human_manual_snapshot(None)` is True
+(`hvac_strategy.py:790`) → raw baseline `set_setpoints` → a Carrier manual hold on a zone that never borrowed.
+Pre-existing for the setpoint skip; the stand-down raises it to about half of arrivals. Fixed by D1b at the release
+site (`:508-509`), not in `_release_banked_zones` (which pre-heat release also uses) and not by changing set
+membership (`hvac.py:7696` reads it).
+
 ---
 
 ## 5. Deliverables
@@ -181,17 +205,25 @@ the season split has a number. Output: a table appended to this plan's §3.2 and
 In `_execute_zone_pre_cool`, for `reason == "pre_arrival"` and `PRE_ARRIVAL_PRECOOL_STANDDOWN_ENABLED`:
 read `T = zone.current_temperature`. If `T` is numeric and `T <= effective_high + margin`: no borrow, no write;
 record skip reason `already_cool` with `T`, `effective_high`, `margin` in a per-cycle list
-`_last_precool_standdowns` (reset at the same place as `_last_fan_skipped_rooms`, `hvac_predict.py:454`), increment a
-daily counter, and queue ONE `ura_activity_log` row `action=pre_cool_standdown` per (zone, arrival episode) (not per
-tick; key on the zone's `_pre_arrival_start` value). If `T` is None or non-numeric: proceed as today (fail-open to the
-legacy write, record `no_temp` in the skip list, no row). Fail-open is deliberate: a missing reading must not silently
-disable the feature, and the legacy write is the known-safe behaviour.
+`_last_precool_standdowns` (reset at the same place as `_last_fan_skipped_rooms`, `hvac_predict.py:454`), increment
+the `DailyCounter` `_precool_standdowns_today`, and queue ONE `ura_activity_log` row `action=pre_cool_standdown` per
+pre-arrival set membership (rev 2, M2): a per-zone flag `_standdown_logged: set[str]` on the predictor; the row is
+written only when the zone is not in it, then the zone is added; the flag is cleared for every zone NOT in
+`self._hvac_coord._pre_arrival_zones` at the top of the pre-arrival block each cycle (covers arrival, timeout,
+max age, spend, interrupt: all of them discard from that set, `hvac.py:7311`, `:7470`, `:7480`). Not keyed on
+`_pre_arrival_start`, which every repeat trigger overwrites (`hvac.py:7249`). If `T` is None or non-numeric: proceed
+as today (fail-open to the legacy write, record `no_temp` in the skip list, no row). Fail-open is deliberate: a
+missing reading must not silently disable the feature, and the legacy write is the known-safe behaviour. A stale T
+during a thermostat outage is NOT None (§3.1, L2) and is compared as if fresh; accepted, harm nil.
 - **Verify:** zone at 74 with target 75, margin 0 -> no `begin_excursion`, no funnel call, skip `already_cool`.
 - **Verify (discriminating):** zone at 76 -> write happens (75). Under a plausible wrong build that compares
   `avg_temperature` instead, a fixture with rooms at 73 and thermostat at 76 would skip; the test pins that it writes.
   Under a build that placed the check after `begin_excursion`, an orphan banking row appears; the test asserts zero
   excursion rows.
-- **Verify:** `T=None` -> write happens (legacy), skip list shows `no_temp`.
+- **Verify:** `T=None` (attribute missing) -> write happens (legacy), skip list shows `no_temp`. This does NOT cover
+  an outage; see L2.
+- **Verify (M2):** two triggers inside one window (zone stays in `_pre_arrival_zones`, `_pre_arrival_start`
+  rewritten) -> one `pre_cool_standdown` row; the zone leaves the set and a new arrival enters it -> a second row.
 - **Verify:** a zone skipped at tick N whose `T` rises to 77 at tick N+1 (still in `_pre_arrival_zones`) gets the
   pre-cool at N+1.
 - **Verify:** energy caller with `T` far below target writes exactly as before (INV-NOOP).
@@ -201,14 +233,32 @@ disable the feature, and the legacy write is the known-safe behaviour.
   `test_standdown_below_target_skips`, `test_above_target_writes_legacy`,
   `test_uses_thermostat_reading_not_room_average`, `test_none_temperature_fails_open`,
   `test_reevaluates_next_tick_when_zone_warms`, `test_energy_precool_unaffected`,
-  `test_fans_and_presence_label_unaffected`, `test_margin_widens_standdown` (T=76, margin 1 -> skip),
-  `test_one_activity_row_per_episode`, `test_kill_const_false_is_legacy`. Mutation anchor: deleting the compare must
+  `test_fans_and_presence_label_unaffected`, `test_margin_widens_standdown` (const patched to 1: T=76 -> skip),
+  `test_one_activity_row_per_episode`, `test_repeat_trigger_same_membership_one_row`,
+  `test_kill_const_false_is_legacy`. Mutation anchor: deleting the compare must
   turn `test_standdown_at_target_skips_borrow_and_write` red; moving it below `begin_excursion` must turn
   `test_standdown_at_target_...` red via the excursion-row assert.
 - **Live:** over the first 3 days after deploy, every `climate_write` row with `site=S12_pre_cool` and reason
   `pre_arrival` has a recorder thermostat temperature `> 75 + margin` at `ts_issued` (INV-SD probe, the D0 script in
   check mode); at least one `pre_cool_standdown` row exists if any arrival happened with the zone at or below 75
   (zone_2 evenings were the 5 strictly-below cases).
+
+### D1b: Switch-28 release writes nothing for a zone with no live borrow (rev 2, M1)
+In the master-OFF branch of `_check_pre_conditioning`, before `await self._release_banked_zones(release_set)`
+(`hvac_predict.py:508-509`), drop from `release_set` every zone that has none of: a token in
+`_banking_excursion_tokens`, a token in `_preheat_excursion_tokens`, or `hvac_excursion.is_borrow_active(zone_id)`
+(`hvac_excursion.py:597`). Those zones get no write and one DEBUG line. `_pre_conditioning_zones` membership,
+`_release_banked_zones` and borrow code are unchanged. Covers stood-down, `off_season` and setpoint-skipped zones.
+- **Verify:** stood-down zone in `_last_pre_conditioning_zones`, switch 28 OFF -> zero `set_setpoints` /
+  `pin_preset` calls for it, zero `climate_write` rows.
+- **Verify (discriminating):** a zone with a live banking token in the same release still gets its release write
+  (a wrong build that empties `release_set` or skips `_release_banked_zones` entirely fails this).
+- **Verify:** a pre-heat zone with a `_preheat_excursion_tokens` entry and no banking token is still released as
+  today.
+- **Test:** `test_master_off_release_skips_zone_without_borrow`, `test_master_off_release_keeps_banked_zone`,
+  `test_master_off_release_keeps_preheat_zone`. Mutation anchor: removing the filter must turn the first red.
+- **Live:** no `climate_write` row with site `S11*` for a zone with no `hvac_excursion_events` borrow in the
+  preceding window (one-shot query at disposition; switch-28 flips are rare, so in-suite proof is primary).
 
 ### D2: Season gate
 At the pre-arrival caller (`hvac_predict.py:697`), skip the pre-cool call (not fans, not the set add) when
@@ -225,22 +275,23 @@ season change, not per tick.
 ### D3: Observability
 On `sensor.ura_hvac_pre_arrival_status` add attrs `precool_skipped_zones` (the per-cycle list: zone, reason,
 `T`, `effective_high`, margin), `precool_standdowns_today`, `precool_writes_today`, `precool_season_active` (bool).
-Display only; no decision reads them.
-- **Verify:** attrs present and reset at local midnight with the other daily counters.
+Display only; no decision reads them. The two daily counts are `DailyCounter` instances (`coordinator_diagnostics.py:880`)
+with a declared reset-on-restart `reason`, rolled over where `_pre_arrival_triggers_today` is (`hvac.py:2306`).
+- **Verify:** attrs present; counts roll over at the date change via `DailyCounter.rollover_if_needed`.
 - **Test:** `test_status_sensor_exposes_standdown_attrs`.
 - **Live:** `sensor.ura_hvac_pre_arrival_status` shows the four attrs after restart; `precool_season_active` true.
 
-### D4: Zero-fire / all-fire trip-wire (fire-check corollary)
-Persist a 7-slot daily ring `(standdowns, writes)` in `_zone_state_store` side-key `__precool_standdown_ring`, rolled
-at local midnight. At the rollover: if the 7-day total of pre-arrival evaluations (standdowns + writes) is at least
-`PRECOOL_TRIPWIRE_MIN_EVALS` and EITHER standdowns == 0 OR writes == 0 while the season gate is open, send one NM
-(severity HIGH, hazard `precool_standdown_tripwire`, at most once per 7 days) naming which side went silent. Zero
-standdowns over many arrivals means the stand-down is dead (or the weather turned hot, which the NM text says);
-zero writes means it is swallowing every arrival (e.g. a stale temperature).
-- **Verify:** ring survives restart; NM fires once for each silent side; no NM when the season gate is closed.
-- **Test:** `test_tripwire_zero_standdowns`, `test_tripwire_zero_writes`, `test_tripwire_quiet_off_season`,
-  `test_ring_persists_across_restart`.
-- **Live:** `__precool_standdown_ring` present in the zone-state store after the first midnight.
+### D4: Trip-wire — PARKED (rev 2, M3)
+The rev-1 zero-fire / all-fire ring could not tell a fault from the weather: zero stand-downs is normal summer, zero
+writes is normal mild shoulder, and both would page HIGH. The stand-down fails safe (None -> legacy write; a skipped
+zone already reads at or below target). Dropped: the `__precool_standdown_ring` side-key, `PRECOOL_TRIPWIRE_*`
+consts and the four tests.
+The oracle that stays is D0's CHECK MODE (the INV-SD query: every stand-down row and every S12 pre-arrival write
+compared against the recorder thermostat reading at the time), run at the Live validation and at the card's
+organic disposition.
+**Revival trigger:** a `pre_cool_standdown` row whose recorder thermostat reading at the time was
+`> effective_high + margin`, i.e. an actual wrong stand-down. Then build a trip-wire on that fault signal (e.g. a
+stand-down while T is unchanged and `hvac_action == cooling` for N hours), not on counts.
 
 ---
 
@@ -248,17 +299,18 @@ zero writes means it is swallowing every arrival (e.g. a stale temperature).
 
 | Name | Rung | Default | Why this rung | Kill semantics |
 |---|---|---|---|---|
-| `NN · Pre-Cool Stand-down Margin (°F)` (Number, `PreCoolStanddownMarginNumber`, next free HVAC number; template `PreArrivalWindowMinutesNumber` `number.py:602`) range 0.0-3.0 step 0.5 | 3 (live Number) | 0.0 | The operator asked for a margin knob and will tune it by watching which arrivals pull 76-77 F zones down to 75 (12 of 34 writes). Margin 0 = skip only when already at/below target; 1 = also skip the 76 band. | Not a kill switch (0 still stands down at target). |
+| `PRE_ARRIVAL_PRECOOL_STANDDOWN_MARGIN_F` | 1 (const) | 0.0 | Rev 2 (L1): no operator ask for a live knob; parsimony. Carrier reports whole degrees, so only integer values change behaviour (0.5 acts as 0, 1.5 as 1); the const comment says so. 0 = skip only when at/below target; 1 = also skip the 76 band (12 of 34 writes). Promote to a Number only on an operator ask (§9). | Not a kill switch (0 still stands down at target). |
 | `PRE_ARRIVAL_PRECOOL_STANDDOWN_ENABLED` | 1 (const) | True | A back-out, not a policy dial; turning it off should take a reviewed change. | False = today's behaviour exactly (INV-NOOP). |
 | `PRE_ARRIVAL_PRECOOL_SEASONS` | 1 (const) | `(SEASON_SUMMER, SEASON_SHOULDER)` | Mirrors the energy pre-cool gate (also a literal at `hvac_predict.py:764`); per-season enablement is not something the operator should flip by observation. Revisit as rung 2 only if the operator asks to drop shoulder. | Adding `SEASON_WINTER` = today's behaviour. |
-| `PRECOOL_TRIPWIRE_MIN_EVALS` | 1 | 10 | Below ~10 arrivals/week a silent side is noise (measured ~15-30/week). | 0 = trip-wire off (documented on the const). |
-| `PRECOOL_TRIPWIRE_WINDOW_DAYS` | 1 | 7 | Ring length. | — |
 | `PRE_ARRIVAL_PRECOOL_OFFSET_F` | 1 (unchanged) | -2.0 | Not touched. | — |
 
 ---
 
 ## 7. Non-goals
-- Energy pre-cool (caller `hvac_predict.py:635`) and its own season gate: untouched.
+- Energy pre-cool (caller `hvac_predict.py:635`) and its own season gate: untouched. It has the same "never reads
+  temperature" shape (L4); that is a separate follow-up (§9), not in scope, because banking below the current
+  temperature is the point of energy pre-cool and needs its own fire check.
+- A live trip-wire on stand-down counts (D4 parked, M3).
 - Ending a running pre-cool when the zone reaches its target (§0.2: wrong behaviour).
 - Arrival pre-heat, outdoor-temperature gate, per-season offset knobs (parked, §9).
 - The shoulder floor oddity (`effective_high` >= Home cool at default shoulder baselines).
@@ -272,7 +324,8 @@ rather than adding a writer, does not touch a shared primitive, borrow code, fun
 cross-coordinator value, and fails open to today's behaviour. HVAC-control touch argues for care, so: one adversarial
 plan review before build; two framing-disjoint code reviews (A correctness + edge cases incl. None/stale temperature,
 whole-degree boundary, margin extremes 0 and 3; B lifecycle: per-tick re-evaluation, restart with a zone mid-window,
-ring persistence, midnight rollover) plus a per-site mutation pass on the D1 compare and the D2 gate; live validation
+the switch-28 release filter, `DailyCounter` rollover) plus a per-site mutation pass on the D1 compare, the D1b
+filter and the D2 gate; live validation
 with the README write-back. Not Tier 2-DB (no schema change; the new activity-log action uses the existing table).
 
 ## 9. Parked (with revival triggers)
@@ -283,6 +336,13 @@ with the README write-back. Not Tier 2-DB (no schema change; the new activity-lo
 - **Arrival pre-heat mirror** — revive only with winter data showing arrivals into zones below the Home heat leg by
   >= 2 F (first measurable after 12-01) and an operator ask; it is a new heat-leg borrow writer (Tier 3 shape).
 - **Mid-window end on reached target** — not parked; rejected (§0.2).
+- **Stand-down trip-wire (rev-1 D4)** — revive on an actual wrong stand-down (a `pre_cool_standdown` row with the
+  recorder thermostat reading `> effective_high + margin` at the time), found by D0 check mode. Build it on the
+  fault signal, not on counts.
+- **Margin as a live Number** — revive on an operator ask; template `PreArrivalWindowMinutesNumber`
+  (`number.py:602-641`), step 1.0 (Carrier whole degrees).
+- **Energy pre-cool stand-down (L4)** — separate follow-up card (energy sibling, supersession KEEP+WIRE). Needs its
+  own fire check first: how often does energy pre-cool bank a zone already at or below its banking target.
 
 ## 10. Doc write-back owed by the build
-HVAC STATE_OF_PLAY: a header entry, §4.2 S12 row (stand-down + season gate), §8 new knob. README with the Live table.
+HVAC STATE_OF_PLAY: a header entry, §4.2 S12 row (stand-down + season gate) and S11 row (D1b release filter); no §8 change (no new entity). README with the Live table.
