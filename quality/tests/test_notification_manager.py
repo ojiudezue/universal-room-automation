@@ -1563,6 +1563,7 @@ class TestDigestHeartbeat:
         db = MagicMock()
         db.get_pending_digest = AsyncMock(return_value=pending)
         db.mark_digest_delivered = AsyncMock()
+        db.count_no_route_since = AsyncMock(return_value=0)
         hass.data[DOMAIN]["database"] = db
         return db
 

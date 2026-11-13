@@ -267,6 +267,24 @@ WEBHOOK_ID = f"{DOMAIN}_pushover_reply"
 # prior silent-skip behavior (reviewed-change rung).
 NM_DIGEST_HEARTBEAT_ENABLED = True
 
+# NM-NO-CHANNEL-FIRED-1 (2026-11-13). Audit-row outcome labels + the
+# channel label of a channel-agnostic digest-queue row written when legacy
+# routing gives a digest-pref recipient no channel at a sub-HIGH severity.
+NM_BUCKET_NO_CHANNEL_FIRED = "no_channel_fired"
+NM_BUCKET_DIGEST_QUEUED = "digest_queued"
+NM_DIGEST_FALLBACK_CHANNEL = "digest"
+# Zero-route trip-wire. Rung-1 module constants (reviewed change): they bound
+# an integrity alarm, not operator policy. Threshold = no_channel_fired audit
+# rows inside the rolling window that raise ONE HIGH NM alert (HIGH is the
+# lowest severity that is forced immediate, so it reaches any channel whose
+# gate is <= HIGH). Pre-fix the house logged ~43/day; post-fix the expected
+# rate is ~0, so 20/day is a real routing hole. 0 disables (kill switch).
+# The cooldown equals the window: at most one trip-wire alert per window.
+# In-memory only: a restart re-arms with an empty window (by design — the
+# next window will re-trip if the hole persists).
+NM_NO_ROUTE_TRIPWIRE_COUNT = 20
+NM_NO_ROUTE_TRIPWIRE_WINDOW_S = 86400
+
 # Echo-loop guard knobs (2026-08-05 BlueBubbles echo incident). Rung-1
 # module constants: changing these should require review — they bound a
 # spam-loop breaker, not operator policy. 0 for NM_ECHO_GUARD_TTL_S
@@ -493,6 +511,12 @@ class NotificationManager:
         self._send_attempts: int = 0
         self._send_successes: int = 0
         self._send_failures: int = 0
+        # NM-NO-CHANNEL-FIRED-1: recipients for whom an alert routed to no
+        # channel and no digest row (counted as NOT delivered).
+        self._no_route_count: int = 0
+        self._no_route_times: deque[datetime] = deque()
+        self._no_route_tripwire_last: datetime | None = None
+        self._last_digest_flush: dict[str, datetime] = {}
         self._dedup_suppressions: int = 0
         self._quiet_suppressions: int = 0
         self._notifications_by_severity: dict[str, int] = {
@@ -921,9 +945,12 @@ class NotificationManager:
     @property
     def delivery_rate(self) -> float:
         """Return delivery success rate (0-100%)."""
-        if self._send_attempts == 0:
+        # NM-NO-CHANNEL-FIRED-1 (3): an alert that routed to no channel for
+        # a recipient is an undelivered alert, not an absent one.
+        denom = self._send_attempts + self._no_route_count
+        if denom == 0:
             return 100.0
-        return round(self._send_successes / self._send_attempts * 100, 1)
+        return round(self._send_successes / denom * 100, 1)
 
     @property
     def diagnostics_summary(self) -> dict[str, Any]:
@@ -932,6 +959,7 @@ class NotificationManager:
             "send_attempts": self._send_attempts,
             "send_successes": self._send_successes,
             "send_failures": self._send_failures,
+            "no_route_count": self._no_route_count,
             "delivery_rate": self.delivery_rate,
             "dedup_suppressions": self._dedup_suppressions,
             "quiet_suppressions": self._quiet_suppressions,
@@ -2009,6 +2037,9 @@ class NotificationManager:
             # PERIMETER-FP D7 (v5.107.0): what ACTUALLY fired for THIS
             # recipient (channels_fired is per notify, not per person).
             fired_for_person: list[str] = []
+            # NM-NO-CHANNEL-FIRED-1: entry-reset per recipient — did ANY
+            # digest-queue row get written for this recipient on this notify?
+            _digest_queued = False
 
             # NM Cycle C fix-up (2026-07-20, D-R2 MED + D-R3): digest-row
             # writes are NOT transport sends and must NOT be gated on the
@@ -2045,6 +2076,7 @@ class NotificationManager:
                     coordinator_id, severity_str, title, message,
                     hazard_type, location, person_id, "pushover", 0,
                 )
+                _digest_queued = True
 
             # Companion App
             _companion_svc = person_cfg.get(CONF_NM_PERSON_COMPANION_SERVICE, "")
@@ -2075,6 +2107,7 @@ class NotificationManager:
                     coordinator_id, severity_str, title, message,
                     hazard_type, location, person_id, "companion", 0,
                 )
+                _digest_queued = True
 
             # WhatsApp
             _phone = person_cfg.get(CONF_NM_PERSON_WHATSAPP_PHONE, "")
@@ -2102,6 +2135,7 @@ class NotificationManager:
                     coordinator_id, severity_str, title, message,
                     hazard_type, location, person_id, "whatsapp", 0,
                 )
+                _digest_queued = True
 
             # iMessage (BlueBubbles)
             _imessage_handle = person_cfg.get(CONF_NM_PERSON_IMESSAGE_HANDLE, "")
@@ -2126,6 +2160,40 @@ class NotificationManager:
                     coordinator_id, severity_str, title, message,
                     hazard_type, location, person_id, "imessage", 0,
                 )
+                _digest_queued = True
+
+            # NM-NO-CHANNEL-FIRED-1 (2026-11-13): a digest-pref recipient
+            # whose LEGACY routing (no explicit matrix / hazard override)
+            # yields no channel at this severity — e.g. every channel gate is
+            # HIGH/CRITICAL while the alert is MEDIUM — previously got NO
+            # queue row at all: the alert reached nobody, not even the
+            # digest. Queue ONE channel-agnostic digest row instead
+            # (`get_pending_digest` does not filter on channel; the flush
+            # fans out to digest_channels). Explicit matrix / override rows
+            # are operator intent and are respected. Fix-up A2: only a mute
+            # covering EVERY digest channel (empty selection = the legacy
+            # first-wins chain over all known channels) suppresses it; a
+            # mute on a non-digest channel says nothing about the digest.
+            _digest_chs = (
+                person_cfg.get(CONF_NM_PERSON_DIGEST_CHANNELS)
+                or sorted(NM_CHANNELS_KNOWN)
+            )
+            if (
+                effective_pref == NM_DELIVERY_DIGEST
+                and not _digest_queued
+                and database
+                and _matrix_branch == "legacy_fallback"
+                and not all(
+                    self._mute_active(person_id, _ch)
+                    for _ch in _digest_chs
+                )
+            ):
+                await database.log_notification(
+                    coordinator_id, severity_str, title, message,
+                    hazard_type, location, person_id,
+                    NM_DIGEST_FALLBACK_CHANNEL, 0,
+                )
+                _digest_queued = True
 
             # NM Cycle C C2: single per-recipient audit row. Rolled up
             # after all channels are decided so write-volume is bounded
@@ -2165,11 +2233,24 @@ class NotificationManager:
                     channel=",".join(per_person_fired) or None,
                     route_reason=_audit_route_reason,
                     dnd_bypass_applied=_dnd_bypass_applied,
-                    bucket_outcome=("accepted" if per_person_fired else "no_channel_fired"),
+                    bucket_outcome=(
+                        "accepted" if per_person_fired
+                        else NM_BUCKET_DIGEST_QUEUED if _digest_queued
+                        else NM_BUCKET_NO_CHANNEL_FIRED
+                    ),
                     matrix_branch=_matrix_branch,
                     delivered=1 if per_person_fired else 0,
                     dry_run=1 if self._dry_run_active else 0,
                     acknowledged=_row_ack,
+                    # Fix-up A1: an IMMEDIATE-pref recipient whose router
+                    # allowed no channel (gates above severity / mutes /
+                    # explicit matrix) dropped by its OWN policy - not a
+                    # routing hole. The audit outcome stays no_channel_fired;
+                    # only the health counter / trip-wire exclude it.
+                    routing_hole=not (
+                        effective_pref == NM_DELIVERY_IMMEDIATE
+                        and not _router_allowed
+                    ),
                 )
 
         # Activity log: notification sent
@@ -2227,6 +2308,9 @@ class NotificationManager:
         # Fire entity updates
         async_dispatcher_send(self.hass, SIGNAL_NM_ENTITIES_UPDATE)
 
+        # NM-NO-CHANNEL-FIRED-1 (4): zero-route trip-wire.
+        await self._maybe_fire_no_route_tripwire()
+
         # CRITICAL: start ack/repeat engine (never for a quiet follow-up)
         if severity == Severity.CRITICAL and not quiet:
             await self._enter_alerting(
@@ -2235,6 +2319,68 @@ class NotificationManager:
                 snapshot_url=snapshot_url,
                 snapshot_path=snapshot_path,
             )
+
+    async def _maybe_fire_no_route_tripwire(self) -> None:
+        """NM-NO-CHANNEL-FIRED-1 (4): zero-route trip-wire.
+
+        When >= NM_NO_ROUTE_TRIPWIRE_COUNT no_channel_fired outcomes fall in
+        the rolling NM_NO_ROUTE_TRIPWIRE_WINDOW_S window, record an
+        ``nm.no_route_tripwire`` anomaly and raise ONE HIGH NM alert (HIGH is
+        forced immediate). Cooldown = window. The stamp is set BEFORE the
+        inner notify so a no-route of the alert itself cannot recurse.
+        """
+        if NM_NO_ROUTE_TRIPWIRE_COUNT <= 0:
+            return
+        now = dt_util.utcnow()
+        window = timedelta(seconds=NM_NO_ROUTE_TRIPWIRE_WINDOW_S)
+        while self._no_route_times and now - self._no_route_times[0] > window:
+            self._no_route_times.popleft()
+        count = len(self._no_route_times)
+        if count < NM_NO_ROUTE_TRIPWIRE_COUNT:
+            return
+        last = self._no_route_tripwire_last
+        if last is not None and now - last < window:
+            return
+        self._no_route_tripwire_last = now
+        try:
+            from .anomaly_event import (  # noqa: PLC0415
+                AnomalyEvent,
+                AnomalySeverity,
+                AnomalyType,
+                build_context_json,
+            )
+            database = self.hass.data.get(DOMAIN, {}).get("database")
+            if database is not None:
+                await database.save_anomaly_event(AnomalyEvent(
+                    coordinator="notification",
+                    type="nm.no_route_tripwire",
+                    severity=AnomalySeverity.WARNING,
+                    anomaly_type=AnomalyType.POINT_IN_TIME,
+                    detected_at=now.isoformat(),
+                    payload=build_context_json(
+                        source_signal="NM_NO_ROUTE_TRIPWIRE",
+                        extra={
+                            "count": count,
+                            "threshold": NM_NO_ROUTE_TRIPWIRE_COUNT,
+                            "window_s": NM_NO_ROUTE_TRIPWIRE_WINDOW_S,
+                        },
+                    ),
+                    observed_value=float(count),
+                    sample_size=count,
+                ))
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("no-route trip-wire anomaly write failed", exc_info=True)
+        await self.async_notify(
+            "notification", Severity.HIGH,
+            "URA alerts reaching nobody",
+            (
+                f"{count} alerts in the last "
+                f"{NM_NO_ROUTE_TRIPWIRE_WINDOW_S // 3600} h routed to no "
+                "channel and no digest. Check NM channel severity gates and "
+                "recipient routing."
+            ),
+            hazard_type="nm_no_route",
+        )
 
     async def _emit_nm_dispatch_anomaly(
         self,
@@ -5314,6 +5460,7 @@ class NotificationManager:
         delivered: int,
         dry_run: int,
         acknowledged: int = 0,
+        routing_hole: bool = True,
     ) -> None:
         """C2: write a single audit row via the extended `log_notification`.
 
@@ -5331,7 +5478,7 @@ class NotificationManager:
                 "at": dt_util.utcnow().isoformat(),
                 "coordinator_id": coordinator_id,
                 "severity": (
-                    severity.name if isinstance(severity, Severity) else str(severity)
+                    getattr(severity, "name", None) or str(severity)
                 ),
                 "hazard": hazard_type,
                 "location": location,
@@ -5346,13 +5493,30 @@ class NotificationManager:
             })
         except Exception:  # noqa: BLE001
             _LOGGER.debug("NM audit ring append failed (swallowed)", exc_info=True)
+        if (
+            bucket_outcome == NM_BUCKET_NO_CHANNEL_FIRED
+            and routing_hole
+            and not dry_run
+        ):
+            self._no_route_count += 1
+            # Trip-wire scope = MEDIUM+ (audit proposal (c)); LOW holes
+            # still count toward delivery_rate. Compared by integer VALUE,
+            # not class identity: isinstance() mis-scoped a LOW whose
+            # Severity class came from a re-imported base module. A value
+            # that is not int-like fails open into the trip-wire.
+            try:
+                _sev_val = int(severity)
+            except (TypeError, ValueError):
+                _sev_val = int(Severity.MEDIUM)
+            if _sev_val >= int(Severity.MEDIUM):
+                self._no_route_times.append(dt_util.utcnow())
         try:
             database = self.hass.data.get(DOMAIN, {}).get("database")
             if database is None:
                 return
             await database.log_notification(
                 coordinator_id=coordinator_id,
-                severity=severity.name if isinstance(severity, Severity) else str(severity),
+                severity=getattr(severity, "name", None) or str(severity),
                 title=title,
                 message="[audit]",
                 hazard_type=hazard_type,
@@ -5486,10 +5650,29 @@ class NotificationManager:
                 return
             heartbeat = True
 
+        # NM-NO-CHANNEL-FIRED-1 (2): alerts that reached nobody since the
+        # last flush (restart: last 24 h). "All quiet" must not hide them.
+        # Fix-up A4/B1: capture the window end BEFORE the count query and
+        # the delivery await; stamp this value so a row written meanwhile
+        # lands in the next flush's window instead of neither.
+        _flush_now = dt_util.utcnow()
+        _since = self._last_digest_flush.get(person_id) or (
+            _flush_now - timedelta(seconds=NM_NO_ROUTE_TRIPWIRE_WINDOW_S)
+        )
+        no_route = await database.count_no_route_since(
+            person_id, _since.isoformat(),
+        )
+        no_route_line = (
+            f"{no_route} alert{'s' if no_route != 1 else ''} had no route "
+            "(reached no channel and no digest)."
+            if no_route else ""
+        )
+
         if heartbeat:
             today = dt_util.now().strftime("%B %d, %Y")
             digest_message = (
-                f"URA Daily Summary ({today})\n\nAll quiet — no items."
+                f"URA Daily Summary ({today})\n\n"
+                + (no_route_line or "All quiet — no items.")
             )
         else:
             digest_message = self._format_digest(pending) if pending else ""
@@ -5501,10 +5684,13 @@ class NotificationManager:
                     digest_message = (
                         f"URA Daily Summary ({today})\n\n{opt_section}"
                     )
+            if no_route_line:
+                digest_message = digest_message.rstrip() + "\n\n" + no_route_line
 
         sent = await self._deliver_digest(person_id, person_cfg, digest_message)
 
         if sent:
+            self._last_digest_flush[person_id] = _flush_now
             # v5.37.1 Review B MEDIUM-1: do NOT mark on a heartbeat-only
             # flush. The "no-op" reasoning only held for the pending
             # snapshot taken above — a LOW/MEDIUM row INSERTed between
