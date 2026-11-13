@@ -488,3 +488,59 @@ async def test_next_room_window_zero_never_shown(m, monkeypatch):
     # age 0 is not older than a 0 window, so only the explicit <= 0 off
     # switch hides it.
     assert s.extra_state_attributes["transit_camera_validated"] is False
+
+
+# ============================== review C-M1 / C-L1 (read-side deletions)
+@pytest.mark.asyncio
+async def test_validate_transition_ignores_named_sighting_key(m, monkeypatch):
+    """C-M1 (M20): a NAMED, in-window, shared-camera sighting stored under the
+    person's own key must not be read. Only the "unidentified" key is used, so
+    the result is the no-sighting golden. Activity check pinned False so the
+    oracle is no_camera_data (develop's named lookup would give path_confirmed)."""
+    t0 = datetime(2026, 11, 13, 12, 0, 0, tzinfo=timezone.utc)
+    v = _validator(m, face_on=True)
+    monkeypatch.setattr(v, "_get_shared_space_cameras", lambda: ["binary_sensor.hall_person"])
+    monkeypatch.setattr(v, "_are_shared_space_cameras_active", lambda _c: False)
+    monkeypatch.setattr(m.transit.dt_util, "now", lambda: t0)
+    v._camera_sightings = {"Oji Udezue": [{
+        "camera_entity_id": "binary_sensor.hall_person",
+        "timestamp": t0 + timedelta(seconds=30),
+        "room": "Hall",
+        "person_id": "Oji Udezue",
+    }]}
+    r = await v.validate_transition(SimpleNamespace(person_id="Oji Udezue", timestamp=t0), None)
+    assert (r.path_validated, r.path_confidence_delta, r.checkpoint_rooms,
+            r.path_method, r.identity_status, r.camera_person_id) == (
+        False, 0.0, [], "no_camera_data", "unavailable", None)
+
+
+def test_correlator_face_match_rule_retired(m):
+    """C-M1 (M23): a sighting whose person_id equals the transition's must not
+    short-circuit to path_plausible. Rule 2 (closest-timed) assigns the single
+    sighting to Jaya (2 s away vs 58 s), so Oji gets no_camera_data."""
+    t0 = datetime(2026, 11, 13, 12, 0, 0, tzinfo=timezone.utc)
+    v = _validator(m, face_on=True)
+    oji = SimpleNamespace(person_id="Oji Udezue", timestamp=t0)
+    jaya = SimpleNamespace(person_id="Jaya", timestamp=t0 + timedelta(seconds=60))
+    named = [{"camera_entity_id": "binary_sensor.hall_person",
+              "timestamp": t0 + timedelta(seconds=58), "room": "Hall",
+              "person_id": "Oji Udezue"}]
+    assert v._correlate_sighting_to_transition(oji, [jaya], named) == "no_camera_data"
+    assert v._correlate_sighting_to_transition(jaya, [oji], named) == "path_plausible"
+
+
+@pytest.mark.parametrize("bad_ts", ["x", None, object()])
+def test_sighting_attributes_malformed_ts_all_null(m, bad_ts):
+    """C-L1 (M16): a sighting with an unparseable ts yields the all-None shape
+    instead of raising inside extra_state_attributes."""
+    s = SimpleNamespace(ts=bad_ts, sighting_source="interior",
+                        camera="binary_sensor.family_room_person_occupancy",
+                        room="Family Room", census_veto=False)
+    assert m.bs.PersonPhoneLeftBehindSensor._sighting_attributes(s) == {
+        "camera_leg": "display_only",
+        "last_camera_sighting_at": None,
+        "last_sighting_source": None,
+        "last_sighting_camera": None,
+        "last_sighting_room": None,
+        "last_sighting_census_veto": None,
+    }
