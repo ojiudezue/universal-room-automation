@@ -35110,3 +35110,15 @@ broader_backlog_refs:
   why: 'llmvision sends temperature per provider entry; GPT-6 rejects 0.5. Existing entry stays for perimeter enrichment.'
   next: 'DO: HA > llmvision > add OpenAI entry "OpenAI reasoning", model gpt-6-luna, Temperature 1.0, Top P 1.0, type the key yourself -> I run D0a and switch crossing vision. REMIND the operator at each status block until done.'
   rank: {value: 4, time_criticality: 2, effort: 1}
+- id: PERIMETER-GATE-DECISIONS-NOT-PERSISTED-1
+  title: Perimeter demote gates keep only their last decision per camera in memory, so shadow mode leaves no record to judge them by
+  thread: security
+  status: inbox
+  created: '2026-11-13 13:00'
+  updated: '2026-11-13 13:00'
+  tier: 2
+  links: {related: [PERIMETER-SWITCH-LABELS-AND-FLOW-PARITY-1, PERIMETER-ZONE-AGREEMENT-FIX-OR-REMOVE-1]}
+  origin: {date: '2026-11-13', gist: 'AUDIT_perimeter_settings_and_masks_2026_11_13.md: _record_gate overwrites in memory, attribute excluded from recorder; the single-source shadow week could only be rebuilt by proxy (g5_bullet 16 street, 2 own property).'}
+  why: 'Fire check: a shadow mode with no persisted decisions cannot be evaluated; every gate needs a DB row per decision.'
+  next: 'Me: persist each gate decision (memory_episodes or a gate row) with camera, gate, reason, would_demote, severity; weekly scorer.'
+  rank: {value: 5, time_criticality: 3, effort: 2}
