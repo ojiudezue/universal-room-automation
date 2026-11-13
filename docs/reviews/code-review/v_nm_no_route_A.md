@@ -32,3 +32,17 @@ Branch HEAD df8e323a. Merge-base with develop = 2d49a262 (develop has since move
 | HIGH | 0 |
 | MEDIUM | 1 |
 | LOW | 4 |
+
+## Fix-up (2026-11-13)
+
+| # | Disposition | Change | Test | Drill (neuter -> RED) |
+|---|---|---|---|---|
+| A1 | FIXED | `_emit_audit_row(routing_hole=...)`; the call site passes `not (effective_pref == IMMEDIATE and not _router_allowed)`. An immediate-pref recipient whose router allowed nothing (gates above severity, mutes, explicit matrix) is its own policy: the audit row stays `no_channel_fired`, but `_no_route_count`/`delivery_rate` and the trip-wire are not fed. The trip-wire deque only takes MEDIUM+; LOW holes still count toward `delivery_rate`. | `test_immediate_pref_policy_drop_not_counted`, `test_immediate_pref_router_allowed_but_unsent_is_a_hole`, `test_low_no_route_counts_rate_but_not_tripwire` | call-site `routing_hole=True` RED; `not _router_allowed` -> True RED; hook `and routing_hole` -> True RED; MEDIUM+ guard -> True RED |
+| A2 | FIXED | The fallback is skipped only when EVERY digest channel is muted. With an empty digest-channel selection, the check covers all known channels (the legacy first-wins chain). There is no global-mute concept in NM; the all-channels case covers it. | `test_non_digest_channel_mute_does_not_block_fallback`, `test_one_of_two_digest_channels_muted_still_queues`, `test_active_mute_is_respected` (now mutes both digest channels) | revert to `any(... NM_CHANNELS_KNOWN)` RED; `all`->`any` RED; set -> KNOWN RED |
+| A3 | LEFT | Documented design choice (sparse matrix row is labelled `matrix_default`). | - | - |
+| A4 / B1 | FIXED | `_flush_now` is captured before `count_no_route_since`; the window fallback and the `_last_digest_flush` stamp both use it. | `test_no_route_during_delivery_lands_in_next_flush` | stamp `utcnow()` after delivery RED |
+| A5 | FIXED | `conftest_db` f-string tuple walk is bounded at the previous `ALTER TABLE` in the window. Whole-table extractor diff vs develop: `notification_log` +6 and `person_entry_exit_events` +1 (as intended). Two further changes are both corrections. `energy_midnight_snapshot` now gains only its 3 REAL columns (`counter_import_last`, `counter_export_last`, `billing_source_today`, database.py ~2264); they were missing before because the old regex did not match the split f-string, and the 6 energy_daily bleed columns are gone. `ac_reset_state` LOSES a pre-existing spurious `settled_reason`, which had bled from the adjacent `ac_ramp_events` tuple. | `TestSchemaExtractorNoBleed` (3 tests) | drop the bound -> 2 RED |
+| B2 | LEFT | Restart re-report is display-only; accepted. | - | - |
+| B3 | NOT FIXED | Pre-existing mark race; operator to card. | - | - |
+
+Tests: the cycle file (27) plus NM siblings and every `conftest_db`/`real_schema_db` consumer: 734 + 227 passed. All drills restored; `git status` was clean apart from the intended edits.

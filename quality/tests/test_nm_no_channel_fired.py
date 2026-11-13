@@ -279,13 +279,42 @@ class TestDigestFallbackRow:
 
     @pytest.mark.asyncio
     async def test_active_mute_is_respected(self, real_schema_db):
-        """A live mute on the recipient -> no fallback row (mute conjunct)."""
+        """Every digest channel muted -> no fallback row (mute conjunct)."""
+        nm, db = _build(real_schema_db, _person())
+        for ch in ("whatsapp", "imessage"):
+            nm._person_channel_mutes[(PID, ch)] = (
+                _datetime.utcnow() + timedelta(minutes=30)
+            )
+        await _medium(nm)
+        assert await db.get_pending_digest(PID) == []
+
+    @pytest.mark.asyncio
+    async def test_non_digest_channel_mute_does_not_block_fallback(
+        self, real_schema_db,
+    ):
+        """Fix-up A2: pushover (not a digest channel) muted -> the fallback
+        row is still queued. Drill: mute set = NM_CHANNELS_KNOWN -> RED."""
+        nm, db = _build(real_schema_db, _person())
+        nm._person_channel_mutes[(PID, "pushover")] = (
+            _datetime.utcnow() + timedelta(minutes=30)
+        )
+        await _medium(nm)
+        pending = await db.get_pending_digest(PID)
+        assert [p["channel"] for p in pending] == ["digest"]
+
+    @pytest.mark.asyncio
+    async def test_one_of_two_digest_channels_muted_still_queues(
+        self, real_schema_db,
+    ):
+        """Fix-up A2: only whatsapp muted, imessage still carries the digest
+        -> fallback queued. Drill: all() -> any() -> RED."""
         nm, db = _build(real_schema_db, _person())
         nm._person_channel_mutes[(PID, "whatsapp")] = (
             _datetime.utcnow() + timedelta(minutes=30)
         )
         await _medium(nm)
-        assert await db.get_pending_digest(PID) == []
+        pending = await db.get_pending_digest(PID)
+        assert [p["channel"] for p in pending] == ["digest"]
 
 
 # ---------------------------------------------------------------------------
@@ -341,6 +370,30 @@ class TestHeartbeatNoRoute:
         assert "All quiet" in nm._deliver_digest.await_args.args[2]
 
     @pytest.mark.asyncio
+    async def test_no_route_during_delivery_lands_in_next_flush(
+        self, real_schema_db,
+    ):
+        """Fix-up A4/B1: a no-route row written while _deliver_digest awaits
+        is reported by the NEXT flush (window end captured before the count
+        query). Drill: stamp utcnow() after delivery -> RED."""
+        person = _person(matrix=_ALL_FALSE_MEDIUM)
+        nm, db = _build(real_schema_db, person)
+        nm._build_optimizer_digest_section = MagicMock(return_value="")
+        bodies = []
+
+        async def _deliver(pid, cfg, body):
+            bodies.append(body)
+            if len(bodies) == 1:
+                await _medium(nm, 9)
+            return True
+
+        nm._deliver_digest = _deliver
+        await nm._fire_digest(PID, person)
+        assert "All quiet" in bodies[0]
+        await nm._fire_digest(PID, person)
+        assert "1 alert had no route" in bodies[1]
+
+    @pytest.mark.asyncio
     async def test_no_route_line_appended_to_real_digest(self, real_schema_db):
         """Pending items present AND a no-route row -> body carries both."""
         person = _person(matrix={"MEDIUM": {"whatsapp": True}, "LOW": {
@@ -378,6 +431,57 @@ class TestDeliveryRateCountsNoRoute:
         await _medium(nm)
         assert nm.diagnostics_summary["no_route_count"] == 0
         assert nm.delivery_rate == 100.0
+
+    @pytest.mark.asyncio
+    async def test_immediate_pref_policy_drop_not_counted(
+        self, real_schema_db, monkeypatch,
+    ):
+        """Fix-up A1: immediate pref, gates above MEDIUM -> the router allows
+        nothing: the recipient's own policy. Audit row is still
+        no_channel_fired, but delivery_rate / trip-wire are not fed.
+        Drill: routing_hole=True at the call site -> RED."""
+        monkeypatch.setattr(_nm_mod, "NM_NO_ROUTE_TRIPWIRE_COUNT", 1)
+        nm, db = _build(real_schema_db, _person(pref=NM_DELIVERY_IMMEDIATE))
+        await _medium(nm)
+        assert [a["bucket_outcome"] for a in _audit_rows(real_schema_db)] == [
+            "no_channel_fired"
+        ]
+        assert nm.diagnostics_summary["no_route_count"] == 0
+        assert nm.delivery_rate == 100.0
+        assert len(nm._no_route_times) == 0
+        assert _tripwire_calls(nm) == []
+
+    @pytest.mark.asyncio
+    async def test_immediate_pref_router_allowed_but_unsent_is_a_hole(
+        self, real_schema_db,
+    ):
+        """Router allows whatsapp at MEDIUM but the person has no phone ->
+        nothing fires: a real routing hole, counted (discriminates the
+        `not _router_allowed` conjunct)."""
+        person = _person(pref=NM_DELIVERY_IMMEDIATE)
+        person[CONF_NM_PERSON_WHATSAPP_PHONE] = ""
+        nm, db = _build(real_schema_db, person, whatsapp_sev="MEDIUM")
+        await _medium(nm)
+        assert [a["bucket_outcome"] for a in _audit_rows(real_schema_db)] == [
+            "no_channel_fired"
+        ]
+        assert nm.diagnostics_summary["no_route_count"] == 1
+        assert len(nm._no_route_times) == 1
+
+    @pytest.mark.asyncio
+    async def test_low_no_route_counts_rate_but_not_tripwire(
+        self, real_schema_db,
+    ):
+        """Fix-up A1: trip-wire scope is MEDIUM+. A LOW hole still lowers
+        delivery_rate but does not enter the trip-wire window."""
+        person = _person(matrix={"LOW": {
+            "pushover": False, "companion": False,
+            "whatsapp": False, "imessage": False,
+        }})
+        nm, db = _build(real_schema_db, person)
+        await nm.async_notify("presence", Severity.LOW, "Presence blip", "x")
+        assert nm.diagnostics_summary["no_route_count"] == 1
+        assert len(nm._no_route_times) == 0
 
     def test_delivery_rate_mixed_denominator(self):
         """3 successes of 4 attempts + 4 no-route -> 3/8 = 37.5."""
@@ -458,3 +562,32 @@ class TestNoRouteTripwire:
         for i in range(5):
             await _medium(nm, i)
         assert _tripwire_calls(nm) == []
+
+
+# ---------------------------------------------------------------------------
+# Fix-up A5: schema extractor must not bleed a neighbour table's tuple list
+# ---------------------------------------------------------------------------
+
+
+class TestSchemaExtractorNoBleed:
+
+    def _cols(self, table):
+        import pathlib
+        from conftest_db import _extract_alter_table_statements
+        src = (pathlib.Path(__file__).resolve().parents[2]
+               / "custom_components/universal_room_automation/database.py"
+               ).read_text()
+        return {s.split(" ADD COLUMN ")[1].split()[0]
+                for s in _extract_alter_table_statements(src, table)}
+
+    def test_midnight_snapshot_gets_only_its_own_columns(self):
+        assert self._cols("energy_midnight_snapshot") == {
+            "counter_import_last", "counter_export_last", "billing_source_today",
+        }
+
+    def test_ac_reset_state_does_not_absorb_ac_ramp_events_columns(self):
+        assert "settled_reason" not in self._cols("ac_reset_state")
+
+    def test_notification_log_split_alters_extracted(self):
+        assert {"dry_run", "recipient_id", "route_reason", "dnd_bypass_applied",
+                "bucket_outcome", "matrix_branch"} <= self._cols("notification_log")

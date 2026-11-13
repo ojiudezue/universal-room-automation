@@ -135,6 +135,12 @@ def _extract_alter_table_statements(src: str, table_name: str) -> list[str]:
         # statements were never extracted. Detected by v4.7.12 D4 test
         # ``test_schema_extraction_finds_anomaly_type_alter_tuple``.
         window_start = max(0, idx - 2000)
+        # NM-NO-CHANNEL-FIRED-1 fix-up A5: never walk back past the previous
+        # ALTER TABLE statement - its tuple list belongs to another table
+        # (energy_midnight_snapshot was absorbing energy_daily's columns).
+        prev_alter = src.rfind("ALTER TABLE", window_start, idx)
+        if prev_alter != -1:
+            window_start = prev_alter
         window = src[window_start:idx]
         # Extract tuples: ("col_name", "col_def_string")
         # col_def may be double-quoted and contain single-quoted literals,

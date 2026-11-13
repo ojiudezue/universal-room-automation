@@ -2170,15 +2170,22 @@ class NotificationManager:
             # digest. Queue ONE channel-agnostic digest row instead
             # (`get_pending_digest` does not filter on channel; the flush
             # fans out to digest_channels). Explicit matrix / override rows
-            # and active mutes are operator intent and are respected.
+            # are operator intent and are respected. Fix-up A2: only a mute
+            # covering EVERY digest channel (empty selection = the legacy
+            # first-wins chain over all known channels) suppresses it; a
+            # mute on a non-digest channel says nothing about the digest.
+            _digest_chs = (
+                person_cfg.get(CONF_NM_PERSON_DIGEST_CHANNELS)
+                or sorted(NM_CHANNELS_KNOWN)
+            )
             if (
                 effective_pref == NM_DELIVERY_DIGEST
                 and not _digest_queued
                 and database
                 and _matrix_branch == "legacy_fallback"
-                and not any(
+                and not all(
                     self._mute_active(person_id, _ch)
-                    for _ch in NM_CHANNELS_KNOWN
+                    for _ch in _digest_chs
                 )
             ):
                 await database.log_notification(
@@ -2235,6 +2242,15 @@ class NotificationManager:
                     delivered=1 if per_person_fired else 0,
                     dry_run=1 if self._dry_run_active else 0,
                     acknowledged=_row_ack,
+                    # Fix-up A1: an IMMEDIATE-pref recipient whose router
+                    # allowed no channel (gates above severity / mutes /
+                    # explicit matrix) dropped by its OWN policy - not a
+                    # routing hole. The audit outcome stays no_channel_fired;
+                    # only the health counter / trip-wire exclude it.
+                    routing_hole=not (
+                        effective_pref == NM_DELIVERY_IMMEDIATE
+                        and not _router_allowed
+                    ),
                 )
 
         # Activity log: notification sent
@@ -5444,6 +5460,7 @@ class NotificationManager:
         delivered: int,
         dry_run: int,
         acknowledged: int = 0,
+        routing_hole: bool = True,
     ) -> None:
         """C2: write a single audit row via the extended `log_notification`.
 
@@ -5476,9 +5493,19 @@ class NotificationManager:
             })
         except Exception:  # noqa: BLE001
             _LOGGER.debug("NM audit ring append failed (swallowed)", exc_info=True)
-        if bucket_outcome == NM_BUCKET_NO_CHANNEL_FIRED and not dry_run:
+        if (
+            bucket_outcome == NM_BUCKET_NO_CHANNEL_FIRED
+            and routing_hole
+            and not dry_run
+        ):
             self._no_route_count += 1
-            self._no_route_times.append(dt_util.utcnow())
+            # Trip-wire scope = MEDIUM+ (audit proposal (c)); LOW holes
+            # still count toward delivery_rate.
+            if (
+                not isinstance(severity, Severity)
+                or severity >= Severity.MEDIUM
+            ):
+                self._no_route_times.append(dt_util.utcnow())
         try:
             database = self.hass.data.get(DOMAIN, {}).get("database")
             if database is None:
@@ -5621,8 +5648,12 @@ class NotificationManager:
 
         # NM-NO-CHANNEL-FIRED-1 (2): alerts that reached nobody since the
         # last flush (restart: last 24 h). "All quiet" must not hide them.
+        # Fix-up A4/B1: capture the window end BEFORE the count query and
+        # the delivery await; stamp this value so a row written meanwhile
+        # lands in the next flush's window instead of neither.
+        _flush_now = dt_util.utcnow()
         _since = self._last_digest_flush.get(person_id) or (
-            dt_util.utcnow() - timedelta(seconds=NM_NO_ROUTE_TRIPWIRE_WINDOW_S)
+            _flush_now - timedelta(seconds=NM_NO_ROUTE_TRIPWIRE_WINDOW_S)
         )
         no_route = await database.count_no_route_since(
             person_id, _since.isoformat(),
@@ -5655,7 +5686,7 @@ class NotificationManager:
         sent = await self._deliver_digest(person_id, person_cfg, digest_message)
 
         if sent:
-            self._last_digest_flush[person_id] = dt_util.utcnow()
+            self._last_digest_flush[person_id] = _flush_now
             # v5.37.1 Review B MEDIUM-1: do NOT mark on a heartbeat-only
             # flush. The "no-op" reasoning only held for the pending
             # snapshot taken above — a LOW/MEDIUM row INSERTed between
