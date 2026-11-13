@@ -34501,14 +34501,16 @@ cards:
 - id: LOCK-REGIME-SWITCHES-OFF-1
   title: "Garage lockout and away-lock switches are OFF live, so the shipped lock regime (incl. v5.108.13 suspicious-arrival hold) has made zero decisions in 30 days"
   thread: security
-  status: waiting_operator
+  status: parked
   batch: broken-promises-2026-11
   created: '2026-11-12 22:30'
-  updated: '2026-11-12 22:30'
+  updated: '2026-11-12 22:45'
   tier: 1
   origin: {date: '2026-11-12', gist: 'Broken-promise sweep (docs/planning/AUDIT_broken_promises_2026_11_12.md); operator: "A lot of our hardening are broken promises from previous work."'}
   why: "switch.ura_security_coordinator_garage_lockout and _away_lock both off; decision_log zero regime rows in 30 days. Could be a deliberate operator choice; if so the shipped hold work is inert and its organic dispositions cannot validate."
   next: "ANSWER: were these turned off on purpose? -> if not, I turn them on (house-visible, back up first) and re-run the v5.108.13 dispositions."
+  ANSWERED_2026-11-12: 'Operator: "Yes turn off lockout on purpose since I am not home and errors will frustrate my family." Deliberate. Not a broken promise.'
+  revisit_if: 'Operator home (~2026-11-16): ask whether to turn garage lockout and away-lock back on; then run the v5.108.13 lock-hold dispositions (arrival_hold count) and LOCK-REGIME-BOOT-REALLY-AWAY-1 / LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1 checks against live decisions.'
 - id: GARAGE-HALLWAY-LOCK-NONCONVERGE-1
   title: "Garage hallway lock: URA re-locks hourly, the lock reverts to unlocked ~7 s later, and the retry cap only writes an audit row"
   thread: security
