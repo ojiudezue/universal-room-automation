@@ -4,7 +4,9 @@ Card: LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1 (`docs/planning/kanban.data.yaml:
 Evidence: `docs/planning/AUDIT_arriving_on_body_evidence_2026_11_13.md` (the go/no-go probe; measure-before-build is
 satisfied by it, plus the small D0 below). Tier 3.
 
-**Status: rev 2 (2026-11-13).** Applies both Tier-3 plan reviews:
+**Status: rev 3 (2026-11-13).** Applies the focused rev-2 re-review
+`docs/reviews/code-review/PLAN_lock_release_arriving_review_rev2.md` (R2-1..R2-7; §12.1 maps each). Per that reviewer,
+no further plan review is needed when these are applied as stated. Rev 2 applied both Tier-3 plan reviews:
 `docs/reviews/code-review/PLAN_lock_release_arriving_review_build_prediction.md` (F1-F22) and
 `docs/reviews/code-review/PLAN_lock_release_arriving_review_completeness.md` (H1-H3, M1-M7, L1-L6). §12 maps every
 finding to its change. The security auto-follow deliverable (rev 1 D2) moved to a parked sibling section (§13).
@@ -185,15 +187,35 @@ Build order: D0 (probe, parallel) -> D1 -> D3 -> D4 -> D5. D1 + D3 + D4 gate the
 ### D0: one-shot read-only probe (measure the D4b shape before building it)
 
 `ura-prober`, read-only, over the URA DB `house_state_log` (all time) and the HA recorder (7 days): count resident
-`person.*` `unavailable|unknown -> home` transitions (a) while house state is `away` / `arriving`, and (b) while house
-state is `sleep` / `home_night` (the false-page population if (a)'s condition were widened). Also replay audit §7 (a)
+`person.*` `unavailable|unknown -> home` transitions that meet D4b's condition (rev 3, R2-2/R2-3): house reads `away` /
+`arriving`, OR the edge falls inside a *tainted window* (from an AWAY -> ARRIVING edge until the house next reaches
+SLEEP, or the next morning backstop hour, whichever is first; this approximates the persisted taint offline). Split
+every counted edge by the audit's §3.1 classification of the ARRIVING excursion it falls in:
+- **(a-real):** the excursion's ARRIVING edge is class `real_arrival`. These are the pages D4b exists for (a resident
+  whose departure was not seen, or whose phone rejoined after the body evidence).
+- **(a-phantom):** class `resident_already_home` or `no_resident_evidence` (the false-AWAY excursions). Each is a
+  **false page**: a sleeper or at-home resident whose phone flapped during a phantom AWAY/ARRIVING.
+- **(a-unclass):** class `unclassifiable` or no matching excursion; reported separately, counted as false pages for
+  the go/no-go (fail-pessimistic).
+- **(a-late):** the subset of (a-real) whose edge lands after the excursion's ARRIVING -> HOME_* edge (the R2-3 shape
+  that only the taint key catches); reported, not gated.
+
+**False-page estimate (defined):** `(a-phantom + a-unclass) / window_weeks`, computed over the recorder's 7 days AND
+over the all-time `house_state_log` join where person transitions are available (state the window each uses; the
+recent window is authoritative because the false-AWAY rate fell after v5.108.1, audit §3.3). Also replay audit §7 (a)
 and (b) sets through `quality/tests/_lock_arrival_replay.py` decision logic offline if the probe can.
 
 #### Acceptance criteria
-- **Verify:** report in `AUDIT_arriving_on_body_evidence_2026_11_13.md` §8 (appended) with both counts and the
-  window. Go/no-go for D4b: (a) > 0 in the window, or the probe shows phone-unavailable departures exist at all; and
-  the (a)-condition false-page estimate is < 1 per week. If (a) is 0 and no unavailable departure exists in 7 days,
-  D4b still ships (cheap, page-only) but its README names the measured rate.
+- **Verify:** report in `AUDIT_arriving_on_body_evidence_2026_11_13.md` §8 (appended) with the four counts, the
+  windows and the false-page estimate. Go/no-go for D4b:
+  - false-page estimate < 1 per week (recent window): **ship D4b enabled**.
+  - ≥ 1 per week: before shipping D4b enabled, add the discriminator to D4b's condition: the pid had no `_last_real`
+    change during the excursion AND the person's tracker `source` attribute changed between the pid's last `home`
+    reading and this edge (a reconnect on a different source, not a flap of the same one). Re-run the split with the
+    discriminator applied; if still ≥ 1 per week, ship D4b disabled (`LOCK_RELEASE_UNCOUNTED_RETURN_PAGE_ENABLED`
+    False) and record the measured rate in the README.
+  - (a-real) = 0 and no unavailable departure seen in 7 days: D4b still ships under the rule above; the README names
+    the measured rates.
 - **Live:** n/a (offline).
 
 ### D1: lock regime: a tainted episode never releases on house-state edges
@@ -217,9 +239,17 @@ All in `domain_coordinators/security_lock_regime.py`.
    `_set_engage_reason(REASON_GUEST_NIGHT, cfg)`: byte-identical, since that helper does exactly those two things for a
    sleep-like reason), `_boot_rebuild` when it rebuilds SLEEP / VACATION, `_on_boot_recheck` `:648` / `:650`, and every
    `self.reason = REASON_NONE` write: `:767` (SC disable), `:1072` (hazard), `:1099` (kill switch off), `:1701`
-   (`_after_release` episode end), `:1708` (vacation person arrival). The build adds a test that greps every
-   `self.reason = ` assignment in the module and asserts each is either inside `_set_engage_reason` or immediately
-   followed by the helper (structural guard, Bug Class #53), in addition to the behavioural tests.
+   (`_after_release` episode end), `:1708` (vacation person arrival); and `_boot_rebuild`'s nothing-locked early
+   return (`:626-627`, R2-4: `reason` is not persisted, so a restored taint with nothing locked is stale; with reason
+   NONE nothing can be released, and every later engage clears anyway). The build adds a test that parses every
+   `self.reason = ` assignment in the module and asserts each is either inside `_set_engage_reason`, immediately
+   followed by the helper, or on an explicit **allowlist of deliberate no-clear writes** (R2-1):
+   - `_boot_rebuild` BOOT_UNKNOWN write (`:634`): must keep a restored taint (the restart is inside the episode).
+   - `_boot_recheck_regime` guest-night rebuild (`:911`): BOOT_UNKNOWN -> GUEST_NIGHT is the same episode; clearing
+     here wipes a restored taint and the saw flag, re-opening a body-only HOME_* release next morning with D3 silent.
+   The allowlist is keyed by enclosing function + assigned constant (not line numbers, which drift), and the test fails
+   if an allowlisted write ever gains the helper call or if a new unlisted write appears (Bug Class #53). The
+   `_boot_rebuild` SLEEP / VACATION writes (`:630` / `:632`) are followed by the helper as listed above.
    **Never cleared** by `person:*`, `approach_zone:*`, `proximity:*`, `arriving_signal` releases (F1), nor by ARRIVING
    or HOME_* edges, nor by `_request_engage` (re-engage keeps the episode).
 4. **`_edge_decision(new, cfg, *, override: bool = False)`.** `on_house_state_changed` passes
@@ -302,7 +332,13 @@ No change to: `_release` arithmetic, S1-S5, hold, proximity, backstop, re-engage
   `::test_taint_persisted_across_restart_two_rigs`, `::test_manual_unlock_memory_survives_arriving`,
   `::test_manual_unlock_memory_survives_tainted_boot_recheck`, `::test_guest_clock_clears_taint`,
   `::test_every_reason_none_site_clears_flags` (parametrised: SC disable, hazard, kill switch, `_after_release`,
-  vacation person arrival), `::test_reason_assignments_structurally_guarded`, `::test_override_set_bypasses_taint`,
+  vacation person arrival), `::test_reason_assignments_structurally_guarded`, `::test_boot_guest_night_rebuild_keeps_taint` (R2-1 repro: guest
+  toggle ON, sleep window, GUEST_NIGHT episode with the lockout locked; GUEST -> AWAY -> ARRIVING (taint) ->
+  HOME_NIGHT (`guest_yield_hold`); restart on a shared `DictStore`; boot recheck rebuilds GUEST_NIGHT at `:911` ->
+  taint and saw flag still True; next-morning HOME_DAY edge -> `arriving_hold`, 0 unlocks),
+  `::test_boot_nothing_locked_clears_stale_taint` (R2-4 repro: tainted SLEEP episode, resident person release, restart
+  with nothing locked -> flags False; operator hand-locks; restart with house `home_day` -> boot recheck releases as
+  today, not `arriving_hold`), `::test_override_set_bypasses_taint`,
   `::test_reason_none_arriving_no_unlock`, `::test_guest_yield_hold_unchanged_with_taint`,
   `::test_replay_body_only_cluster_zero_house_releases`, `::test_replay_real_arrivals_release_by_person`.
 - **Test changes to existing files (each listed in the build commit with old/new expectation; deleting one is a review
@@ -369,22 +405,40 @@ No change to: `_release` arithmetic, S1-S5, hold, proximity, backstop, re-engage
 2. **Failure stamp.** `_notify_failure` writes `self._failure_nm_at[ent] = self._ts()` at entry (garage policy only).
 3. **D4a schedule.** In `_process_person_edge`, immediately AFTER the S1 `self._release(f"person:{pid}", ...)` call
    returns: if the kill switch is on and `LOCK_RELEASE_ARRIVAL_STILL_LOCKED_S > 0`, capture `anchor = self._ts()` and
-   `seq = self.engage_seq`, cancel any existing `_still_locked_unsubs[pid]`, and schedule
-   `self._call_later(hass, STILL_LOCKED_S, functools.partial(self._on_still_locked, pid, anchor, seq, "arrival"))`
+   `anchor_wall = dt_util.utcnow()` (for comparing against HA `State.last_changed`), and `seq = self.engage_seq`, cancel
+   any existing `_still_locked_unsubs[pid]`, and schedule
+   `self._call_later(self._hass, STILL_LOCKED_S, functools.partial(self._on_still_locked, pid, anchor, anchor_wall, seq, "arrival"))`
    (`@callback`, partial, never a lambda; F22). The timer anchor is the S1 call, which is after the hold (F3).
 4. **D4b schedule (INV-REAL-B).** In the same resident branch, when `new_val == "home"`, `old_val in _UNREAL_STATES`,
-   `_arrival_counts(...)` is False, the kill switch is on, `self.reason != REASON_NONE`, and the house reads `away` or
-   `arriving`: record `arrival_uncounted`, increment `self.uncounted_returns`, and schedule the same timer with kind
-   `"uncounted"`.
-5. **`_on_still_locked(pid, anchor, seq, kind)`:** pop the handle; return if torn down, kill switch off, or
-   `self.engage_seq != seq`. For each lockout entity reading exactly `locked` (unavailable skipped): skip it if
-   `_failure_nm_at.get(ent, 0) >= anchor` (the failure NM already told the operator; H3b dedup); otherwise send one NM
-   HIGH: kind `arrival` -> `hazard_type="lockout_locked_after_arrival"`, title "Garage still locked after <name> got
-   home"; kind `uncounted` -> `hazard_type="lockout_locked_resident_uncounted_return"`, title "<name> may be locked out
-   of the garage" (message: their phone was offline when they left, so the arrival did not count; unlock from the app).
-   `location=f"garage_lockout:{kind}:{pid}"`. Increment `self.still_locked_pages`.
-6. Teardown unsubscribes every `_still_locked_unsubs` handle (next to `_held_edges`). Not persisted (a restart drops a
-   pending check; named).
+   `_arrival_counts(...)` is False, the kill switch is on, `LOCK_RELEASE_UNCOUNTED_RETURN_PAGE_ENABLED`,
+   `self.reason != REASON_NONE`, and **(`self._arrival_taint` or the house reads `away` / `arriving`)** (R2-3, choice
+   and justification below), plus the D0 discriminator if D0's go/no-go required it: record `arrival_uncounted`,
+   increment `self.uncounted_returns`, and schedule the same timer with kind `"uncounted"`.
+   **Why the persisted taint (R2-3).** Keying on the live house read misses a phone that rejoins after ARRIVING has
+   already advanced to HOME_* (~60 s hysteresis): no release and no page, a silent lockout of a resident, which is
+   exactly the operator's constraint. The taint is the regime's own record that this episode saw ARRIVING; it persists
+   across restarts and stays True through HOME_*, so it covers the late reconnect. The house read is kept as a
+   disjunct for the reconnect that lands in AWAY before any ARRIVING edge (taint not yet set). Cost: the false-page
+   population widens to phone flaps for the rest of a tainted episode; D0 measures exactly this population (tainted
+   window) and the go/no-go above gates it. Naming it a residual instead was rejected: a residual is only acceptable
+   when the miss is bounded and noticed, and this one is neither (no page, discharge only at the backstop or never
+   under VACATION).
+5. **`_on_still_locked(pid, anchor, anchor_wall, seq, kind)`:** pop the handle; return if torn down, kill switch off,
+   or `self.engage_seq != seq`. For each lockout entity reading exactly `locked` (unavailable skipped):
+   - skip if `_failure_nm_at.get(ent, 0) >= anchor` (the failure NM already told the operator; H3b dedup);
+   - skip if the entity's `State.last_changed > anchor_wall` (R2-7: it went to `locked` after the arrival, so a human
+     or another actor re-locked it inside the window; nothing is stuck. URA's own locks are excluded by `engage_seq`);
+   - skip if `self._still_locked_paged.get(ent) == seq` (R2-7: one page per stuck lock per engage episode, whatever the
+     number of residents or kinds; two residents in one car give one page). The map is set on send, keyed by entity,
+     in memory only;
+   - otherwise send one NM HIGH: kind `arrival` -> `hazard_type="lockout_locked_after_arrival"`, title "Garage still
+     locked after <name> got home"; kind `uncounted` -> `hazard_type="lockout_locked_resident_uncounted_return"`, title
+     "<name> may be locked out of the garage" (message: their phone was offline when they left, so the arrival did not
+     count; unlock from the app). `location=f"garage_lockout:still_locked:{ent}"` (keyed on the entity, not the pid,
+     so NM dedup also collapses per lock). Set `self._still_locked_paged[ent] = seq`; increment
+     `self.still_locked_pages`.
+6. Teardown unsubscribes every `_still_locked_unsubs` handle (next to `_held_edges`). Neither the handles nor
+   `_still_locked_paged` are persisted (a restart drops a pending check; named).
 7. Snapshot keys `lock_regime_still_locked_pages`, `lock_regime_uncounted_returns`.
 
 #### Acceptance criteria
@@ -397,12 +451,21 @@ No change to: `_release` arithmetic, S1-S5, hold, proximity, backstop, re-engage
 - **Verify (H3b dedup):** unlock fails twice -> exactly one `lockout_release_failed` page and no D4 page.
 - **Verify (D4b):** engaged, house `away`, resident `_last_real == home`, edge `unavailable -> home` rejected -> page
   `lockout_locked_resident_uncounted_return` at `STILL_LOCKED_S`; same edge with house `home_night` -> no page.
+- **Verify (R2-7 dedup):** two residents, one car, S1 cannot unlock (SC not alive) -> exactly one page for the lock,
+  not two; a later D4b timer in the same engage episode for the same lock -> no second page.
+- **Verify (R2-7 human re-lock):** resident S1 unlocks; a non-URA `lock.lock` (state `unlocked -> locked`) at +40 s ->
+  no page at +90 s; same scenario with the lock never leaving `locked` -> one page.
+- **Verify (R2-3 late reconnect):** engaged, tainted episode, house already `home_night`, resident `unavailable ->
+  home` rejected -> page `lockout_locked_resident_uncounted_return`; same edge in an untainted episode with house
+  `home_night` -> no page.
 - **Verify:** `STILL_LOCKED_S - GARAGE_LOCKOUT_READBACK_S * (GARAGE_LOCKOUT_READBACK_RETRIES + 1) >= 30` (test asserts the
   inequality; 30 s covers two blocking unlock calls; F3/H3b).
 - **Test:** `test_lock_release_arriving.py::test_still_locked_after_arrival_pages`,
   `::test_still_locked_silent_after_unlock`, `::test_still_locked_silent_after_later_engage`,
   `::test_still_locked_not_silenced_by_second_resident_release`, `::test_still_locked_dedups_release_failed_nm`,
-  `::test_uncounted_return_pages_when_house_away`, `::test_uncounted_return_silent_when_house_home`,
+  `::test_uncounted_return_pages_when_house_away`, `::test_uncounted_return_silent_when_house_home_untainted`,
+  `::test_uncounted_return_pages_late_reconnect_tainted_home`, `::test_still_locked_one_page_per_lock_two_residents`,
+  `::test_still_locked_skips_human_relock_in_window`, `::test_uncounted_page_disabled_by_constant`,
   `::test_still_locked_cancelled_on_teardown`, `::test_still_locked_window_zero_disables`,
   `::test_still_locked_bound_exceeds_readback_chain`.
 - **Live:** in-suite until a real arrival with the switch on; README states it.
@@ -457,6 +520,7 @@ BOOT_UNKNOWN lock as today (`:885-887`). This is outside INV-ARR because the reg
 |---|---|---|---|---|
 | `LOCK_RELEASE_UNCORROBORATED_TRIPWIRE_ENABLED` (NEW) | True | 1, `const.py` | safety observer; changing it should need review. No window: with F1 the trip-wire needs no evidence window, which removes the F15/L3 coupling | False = D3 off; D1 unaffected |
 | `LOCK_RELEASE_ARRIVAL_STILL_LOCKED_S` (NEW) | 90 | 1 | anchored at the S1 call (post-hold); must exceed read-back × (retries + 1) = 40 s plus ≥ 30 s for two blocking unlock calls; 90 is about when a resident at the door notices | 0 = D4a and D4b off |
+| `LOCK_RELEASE_UNCOUNTED_RETURN_PAGE_ENABLED` (NEW, rev 3) | True unless D0 says otherwise | 1 | D4b alone can be shipped dark if D0's false-page rate fails (R2-2); D4a is unaffected | False = D4b off |
 | `GARAGE_LOCKOUT_ARRIVAL_HOLD_S` | 5 | 3 (Number, existing, max 60) | unchanged; not in D4's bound (anchor is after the hold) | 0 = no hold |
 | `GARAGE_LOCKOUT_REENGAGE_DELAY_S` | 900 | existing option | unchanged | existing |
 | `GARAGE_LOCKOUT_BLIP_MIN_AWAY_MIN` | 15 | 1, existing | unchanged; defines D4b's "uncounted" set | n/a |
@@ -480,7 +544,7 @@ Every evidence window for auto-follow (`..._EVIDENCE_WINDOW_S`, `..._ARRIVING_CO
 | M6b | boot `ended` guard | drop `"arriving_hold"` from the exclusion | `test_manual_unlock_memory_survives_tainted_boot_recheck` |
 | M7 | clear helper call at `:1072` (one representative reason-NONE site) | remove the call | `test_every_reason_none_site_clears_flags[hazard]` |
 | M7b | clear helper in `_set_engage_reason` | remove | `test_guest_clock_clears_taint` |
-| M7c | F1 guard: clear helper wrongly added to `_after_release` arrival branch | add the call | `test_person_release_keeps_taint_later_home_star_held` |
+| M7c | F1 guard: clear helper wrongly added to `_after_release`'s SLEEP / GUEST_NIGHT arm (`:1713`, the `elif self.reason in (REASON_SLEEP, REASON_GUEST_NIGHT)` re-engage branch; NOT the VACATION arm at `:1708`, which clears by design) | add the call | `test_person_release_keeps_taint_later_home_star_held` |
 | M8 | `_boot_rebuild` away/arriving taint set | remove | `test_boot_rebuild_away_locked_taints` |
 | M9 | saw-flag set in `on_house_state_changed` | remove the saw statement only | `test_tripwire_fires_...` (no page) |
 | M10 | saw-flag store key | drop | `test_tripwire_covers_boot_recheck_channel_two_rigs` |
@@ -491,6 +555,11 @@ Every evidence window for auto-follow (`..._EVIDENCE_WINDOW_S`, `..._ARRIVING_CO
 | M15 | D4b schedule | remove | `test_uncounted_return_pages_when_house_away` |
 | M16 | S1 `_release` (INV-REAL anchor, pre-existing) | delete the call | `test_real_arrival_edge_before_arriving_releases`, `..._after_arriving_releases_8632_shape` |
 | M17 | `override` bypass | ignore `override` | `test_override_set_bypasses_taint` |
+| M19 | `_boot_recheck_regime` guest-night write (`:911`, R2-1) | add the clear helper after it | `test_boot_guest_night_rebuild_keeps_taint`; `test_reason_assignments_structurally_guarded` |
+| M20 | `_boot_rebuild` nothing-locked early return (R2-4) | remove the helper call | `test_boot_nothing_locked_clears_stale_taint` |
+| M21 | D4b taint disjunct (R2-3) | drop `self._arrival_taint or` | `test_uncounted_return_pages_late_reconnect_tainted_home` |
+| M22 | D4 per-lock dedup (R2-7) | drop the `_still_locked_paged` check | `test_still_locked_one_page_per_lock_two_residents` |
+| M23 | D4 human re-lock skip (R2-7) | drop the `last_changed` check | `test_still_locked_skips_human_relock_in_window` |
 | M18 | swapped test `:2512` original property | break the spawn-latch clear | the swapped test still goes RED |
 
 Restore and `git status` clean after every drill; `PYTHONDONTWRITEBYTECODE=1` and clear `__pycache__` (stale-pyc memory).
@@ -554,6 +623,14 @@ therefore softens exterior-person alerts with no identity, which conflicts with 
   HOME_* and no taint saved: the boot recheck releases a BOOT_UNKNOWN lock as today (`:885-887`). The regime cannot
   observe an ARRIVING it was never told about. Bounded: needs the excursion entirely inside boot settle.
 - A pending D4 check is lost on restart.
+- **Stale or failed house-state restore (R2-5).** When the restore fails or is stale (`manager.py:479-480`) the machine
+  stays at AWAY; `_boot_rebuild` sees `away` + locked and taints. A restart after a long outage therefore holds HOME_*
+  until a live SLEEP engage, the backstop, or an override. Accepted: bounded and fail-closed (a hold, never an unlock),
+  and gating the taint on `boot_restore_active` would add a cross-coordinator read to a boot path for a rare case.
+- D4 does not page a lock that went `locked` after the arrival anchor (R2-7 human re-lock exemption); a lock that was
+  re-locked by a person and then is genuinely needed open is the operator's own action.
+- D4b false pages at the rate D0 measured (R2-2); if D0 shipped D4b disabled, INV-REAL-B is unenforced and the README
+  says so.
 - Phoneless arrivals in a VACATION episode with the house still reading VACATION have no backstop (unchanged).
 - Rescue release for uncounted returns is parked (§11 Q4); revival trigger: D4b pages on a real arrival.
 
@@ -564,7 +641,7 @@ Revive if resident tracker edges stop leading ARRIVING, measured by D4a firing.
 
 ## 10. Tier
 
-Tier 3. Triggers: a release value threaded through a state machine with several decision sites (edge, boot recheck,
+Tier 3 (unchanged in rev 3). Triggers: a release value threaded through a state machine with several decision sites (edge, boot recheck,
 manual-unlock memory, store, eleven `reason` writes) where one missed site is a silent unlock (Bug Class #53);
 access-safety impact; operator constraint against lockout. Plan review: the two Tier-3 reviews are done; rev 2 applies
 them; a focused re-review of §2, §4 D1 items 2-6 and §12 is recommended before build (rev 2 changed the clear rule and
@@ -621,6 +698,18 @@ M1, M3b, M5, M7c, M16 before ship; operator checkpoint before deploy (back ~11-1
 | M5 | INV-REAL-B + D4b page; D0 probe; rescue release parked (§11 Q4) |
 | M6 | §3.3 row + §9.2 card `EXTERIOR-PERSON-SEVERITY-ARRIVING-BODY-ONLY-1` |
 | L6 | Every Live row marked in-suite until the switch is on |
+
+### 12.1 Fix table (rev 2 -> rev 3, review `PLAN_lock_release_arriving_review_rev2.md`)
+
+| Finding | Change in rev 3 |
+|---|---|
+| R2-1 (MED) | D1 item 3 structural guard is an explicit allowlist (`_boot_rebuild` BOOT_UNKNOWN `:634`, `_boot_recheck_regime` guest-night `:911`), keyed by function + constant; new test `test_boot_guest_night_rebuild_keeps_taint` (reviewer's repro); drill M19 |
+| R2-2 (MED) | D0 split into a-real / a-phantom / a-unclass / a-late by joining against audit §3.1 classes; false-page estimate defined as (a-phantom + a-unclass) per week; go/no-go: < 1/week ship, else source-change discriminator, else ship dark via `LOCK_RELEASE_UNCOUNTED_RETURN_PAGE_ENABLED` |
+| R2-3 (MED) | Chose the persisted-taint key (`_arrival_taint or house away/arriving`); justification in D4 item 4; D0 measures the widened tainted-window population; tests for late reconnect and untainted HOME_*; drill M21 |
+| R2-4 (LOW) | `_boot_rebuild` nothing-locked early return calls `_end_episode_arrival_flags()`; test + drill M20 |
+| R2-5 (LOW) | Named in §9.3 as an accepted, fail-closed residual |
+| R2-6 (LOW) | M7c re-pointed at the SLEEP/GUEST_NIGHT arm `:1713` |
+| R2-7 (LOW) | D4 pages once per lock per engage episode (`_still_locked_paged`, `location` keyed on entity); human re-lock inside the window skipped via `last_changed > anchor_wall`; `hass` -> `self._hass`; tests + drills M22/M23 |
 
 **Rejected or narrowed:**
 - **M5's suggestion to arm the still-locked check at every `arriving_hold`** (rejected as stated): with a sleeper home
