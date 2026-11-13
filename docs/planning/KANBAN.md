@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-12T22:18:08-06:00_ - _Data commit: `3348d3790c09`_ - _last_reconciled: 2026-11-12_
+_Generated: 2026-11-12T22:19:03-06:00_ - _Data commit: `7ae9d8f21b77`_ - _last_reconciled: 2026-11-12_
 
 
 ## Columns
@@ -98,8 +98,9 @@ _created 2026-11-12 19:10 · initial_
 - **Origin:** 2026-11-12 - Found by the face-arrival planner, confirmed by the completeness plan review (PLAN_face_arrival_rebuild_review_completeness.md).
 - **Why:** Same policy principle as FACE-ARRIVAL-REBUILD-1: access actions need identity plus an independent signal; a body alone is weaker than a face.
 - **Next:** Me: read-only probe of away->ARRIVING transitions over recorder history, their evidence source and resulting lockout releases / disarms.
-- **Forensic keys (1):**
+- **Forensic keys (2):**
   - `tier`: 3
+  - `ARC_2026-11-13`: Operator: add to the person-sightings arc. Review D (v_person_sightings_p1_D.md L-1) repro: lockout engaged in SLEEP, house SLEEP -> AWAY, an interior camera sees a body -> ARRIVING -> lockout release.
 
 ### `FRIGATE-DOOR-FACE-TUNING-1` - Door and exterior cameras recognize few faces (garage 36, doorbell 33, entry 16, aerial 7 since 11-05; 9 cameras zero), capping egress identity near 40% — _#3 · WSJF 3.0 · v7 tc3 u2 /e4_
 thread: **identity** - status: **investigating** - approval: **unreviewed**
@@ -468,10 +469,11 @@ thread: **identity** - status: **planned**
 _created 2026-11-12 23:10_
 - **Origin:** 2026-11-12 - Operator: patio camera and the Reolink above the Study B door are technically egress; patio covers 1-5 are egress covers; Garage B is detached and opens to itself.
 - **Why:** Live egress config has five egress cameras (garage A group incl. doorbell_lite, front aerial + G6 entry, garage B). Patio and Study B crossings are invisible to the egress tracker, so census, direction and sightings miss them. Garage B c...
-- **Next:** PICK + DO: (a) add patio (camera.reolinkpatio, group patio) and Study B (camera.reolinkstudybporchptz, group study_b) to egress cameras in the options flow — I list exact fields and check whether a camera may be both perimeter and egress...
-- **Forensic keys (2):**
+- **Next:** DO: in URA options (Coordinator Manager > cameras): egress cameras remove Garage B; perimeter cameras add Garage B; door groups drop garage_b -> I verify the live options and that the egress tracker no longer lists garage_b, then close t...
+- **Forensic keys (3):**
   - `tier`: 2
   - `FINDING_2026-11-12`: Live CM options: egress_cameras = madrone_g6_entry, doorbell_lite, front_door_aerial, garage_a_2, garage_b_2; door_groups = {doorbell_lite: garage_a, garage_a: garage_a, front_door_aerial: front, madrone_g6_entry: front, garage_b: garage...
+  - `DECISION_2026-11-13`: Operator: garage and front are ~99% of entries and exits (house renders shared); Garage B is not a house entry. Config-first: Garage B is fixed by settings, no code. Remove camera.garage_b_2 from egress_cameras and the garage_b door grou...
 
 ### `TEST-HARNESS-REAL-HA-DEFAULT-1` - Make the real-HA venv the default test harness — the blocker is ONE plugin fixture, not the "large infrastructure project" every review doc assumed — _#10 · WSJF 3.8 · v8 tc5 u6 /e5_
 thread: **quality** - status: **planned** - approval: **explicit**
@@ -789,10 +791,11 @@ _created 2026-11-12 18:30 · initial_
 - **Origin:** 2026-11-12 - Operator: "Face arrival should be able to understand what can unlock and what cannot... I chose those cameras because they track common area and entry paths... We should start from first principles and build this up." Granul...
 - **Why:** AUDIT_face_arrival_and_prearrival_fan_rooms.md, AUDIT_face_production_after_nov_fixes.md (85% of named faces interior; doors weak; egress attach ~40%).
 - **Next:** Me: planner writes Tier-3 plan; two plan reviews; then APPROVE from operator.
-- **Forensic keys (3):**
+- **Forensic keys (4):**
   - `APPROVED_2026-11-12`: Operator approved the plan (rev 8, plus fixes from its two rev-8 plan reviews) and asked: "capture everything and main card, connected cards and drive to finish. And for it to be actually complete." Plan: docs/planning/PLANNING_person_si...
   - `arc_deliverables`: D0 probes (P1-P7, incl. vetoed-arrival count) — read-only gate
   - `tier`: 3
+  - `DECISION_2026-11-13_comfort`: Operator on review D L-2 (HVAC pre-arrival and music-follow accept a face arrival with no second signal): fine for an actually identified known person; keep thinking about 2nd and 3rd order consequences. Phase 2 gate: before FACE_ARRIVAL...
 
 ## 🔍 Review (0)
 _under review_

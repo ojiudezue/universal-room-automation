@@ -34602,10 +34602,10 @@ cards:
   links: {parent: FACE-ARRIVAL-REBUILD-1, related: [INTERIOR-PATH-MAP-1]}
   origin: {date: '2026-11-12', gist: 'Operator: patio camera and the Reolink above the Study B door are technically egress; patio covers 1-5 are egress covers; Garage B is detached and opens to itself.'}
   why: 'Live egress config has five egress cameras (garage A group incl. doorbell_lite, front aerial + G6 entry, garage B). Patio and Study B crossings are invisible to the egress tracker, so census, direction and sightings miss them. Garage B crossings must not count as house entries.'
-  next: 'Me: read the live egress options (cameras, door contacts, cover entities), list what is missing for patio (patio cam, slider contact, covers 1-5) and Study B (reolink, door contact), and whether Garage B is already treated as not-the-house; then propose the options change to the operator (config-first) and fold into D7.'
   rank: {value: 7, time_criticality: 4, effort: 3}
   FINDING_2026-11-12: 'Live CM options: egress_cameras = madrone_g6_entry, doorbell_lite, front_door_aerial, garage_a_2, garage_b_2; door_groups = {doorbell_lite: garage_a, garage_a: garage_a, front_door_aerial: front, madrone_g6_entry: front, garage_b: garage_b}; main_entry_door garage_a. No patio or Study B group. camera.reolinkstudybporchptz is a PERIMETER camera today (and in the seam ring); candidate patio cameras camera.reolinkpatio / camera.reolink_patio_fluent. No code concept of a detached door group (grep detached: only a const comment), so Garage B crossings are treated as HOUSE entries/exits by the egress tracker, census and sightings -> code needed, not just config.'
-  next: 'PICK + DO: (a) add patio (camera.reolinkpatio, group patio) and Study B (camera.reolinkstudybporchptz, group study_b) to egress cameras in the options flow — I list exact fields and check whether a camera may be both perimeter and egress first; (b) I build a door-group attribute house_entry: false for garage_b (Tier 2, census/house-state ripple -> Tier 2-DB) so detached crossings never count as house entries.'
+  DECISION_2026-11-13: 'Operator: garage and front are ~99% of entries and exits (house renders shared); Garage B is not a house entry. Config-first: Garage B is fixed by settings, no code. Remove camera.garage_b_2 from egress_cameras and the garage_b door group; add it to perimeter_cameras so it is still watched. Patio and Study B egress: not added (marginal value at ~1% of crossings); revisit if the weekly egress labels show patio/Study B crossings matter. The house_entry:false code attribute is dropped (a portability option to revisit only if another house needs a detached door that is still tracked).'
+  next: 'DO: in URA options (Coordinator Manager > cameras): egress cameras remove Garage B; perimeter cameras add Garage B; door groups drop garage_b -> I verify the live options and that the egress tracker no longer lists garage_b, then close this card.'
 - id: EGRESS-OUTCOME-WEEKLY-LABEL-1
   title: Weekly labelling of egress identity outcomes (recurring) so Phase 2 of person sightings becomes decidable
   thread: identity
@@ -34734,6 +34734,7 @@ cards:
   links:
     related: [ZONE-CAMERA-DISCOVERY-DEVICE-AREA-1, PERSON-PROFILE-PREFERENCES-1, FRIGATE-DOOR-FACE-TUNING-1]
   next: 'Me: planner writes Tier-3 plan; two plan reviews; then APPROVE from operator.'
+  DECISION_2026-11-13_comfort: 'Operator on review D L-2 (HVAC pre-arrival and music-follow accept a face arrival with no second signal): fine for an actually identified known person; keep thinking about 2nd and 3rd order consequences. Phase 2 gate: before FACE_ARRIVAL_INTERIOR_ENABLED goes on, list the 2nd/3rd-order effects per comfort consumer (misrecognition, a resident seen while their tracker says away, repeated triggers) with a measured misrecognition rate from the weekly labels.'
   rank: {value: 8, time_criticality: 4, effort: 8}
 - id: HVAC-PRECOOL-FLOOR-BELOW-ARRIVAL-HEAT-1
   title: With Solar Banking Cool Floor below ~72, arrival pre-cool can cool a zone already inside Home's band down to the heat setpoint
@@ -34758,6 +34759,7 @@ cards:
   title: A camera seeing any body while the house is away moves it to ARRIVING, which releases the garage lockout and auto-disarms security with no identity
   thread: security
   status: investigating
+  batch: person-sightings
   created: '2026-11-12 19:10'
   updated: '2026-11-12 19:10'
   refinement_status: initial
@@ -34772,7 +34774,8 @@ cards:
   constraints:
   - Read IDENTITY_FUSION_CAMERAS_MANUAL.md, PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md before planning. Do not regress real arrivals unlocking (operator, "Feeling locked out is a nasty feeling").
   links:
-    related: [FACE-ARRIVAL-REBUILD-1]
+    parent: FACE-ARRIVAL-REBUILD-1
+  ARC_2026-11-13: 'Operator: add to the person-sightings arc. Review D (v_person_sightings_p1_D.md L-1) repro: lockout engaged in SLEEP, house SLEEP -> AWAY, an interior camera sees a body -> ARRIVING -> lockout release.'
   next: 'Me: read-only probe of away->ARRIVING transitions over recorder history, their evidence source and resulting lockout releases / disarms.'
   rank: {value: 9, time_criticality: 6, effort: 5}
 - id: FRIGATE-DOOR-FACE-TUNING-1
