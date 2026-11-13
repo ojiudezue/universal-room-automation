@@ -110,3 +110,11 @@ Not proposed here: rear_ptz (existing y < 0.62 mask retained; needs the Protect-
 - Code: `/Users/okosisi/Code/universal-room-automation/custom_components/universal_room_automation/select.py:1178`, `.../switch.py:210-271,615`, `.../perimeter_alert.py:1783,4594,4780-4850,4920`, `.../perimeter_enrichment.py:263`, `.../sensor.py:4449`
 - Joint plan: `/Users/okosisi/Code/universal-room-automation/docs/planning/PLAN_perimeter_fp_joint_2026_11.md`; homelab: `/Users/okosisi/Code/homelab-automation/.vibememo/users/ojiudezue/entries/117_frigate2_perimeter_fp_phase1.json`, `/Users/okosisi/Code/homelab-automation/docs/CONFIGS.md:491`
 - Scratch (contact sheets): `/private/tmp/claude-501/-Users-okosisi-Code-universal-room-automation/75cc297f-1426-4620-b7aa-da058bc0fab0/scratchpad/out/`
+
+## 5. Outcome (homelab, 2026-11-13, commit 45761e2 in homelab-automation)
+
+- Both 11-08 masks were live; the misses were geometry. g5_bullet street boxes had bottom-centres at y 0.14-0.21 (x 0.83-0.98), below the old edge; my feet estimate (0.03-0.14) was high.
+- g5_bullet, applied ~13:40 CST: objects.mask `0.52,0,1,0,1,0.24,0.9,0.17,0.8,0.12,0.68,0.075,0.58,0.04` (the proposal above). Covers 26/26 street walkers in 30 days of person bottom-centres (180 events), no property person. Plus a camera-level person `min_area 300` for a 112-180 px² night phantom at (0.831,0.157); street walkers >= 420 px², property people > 4000 px².
+- utilities_ptz: unchanged. The mask covers the road at the parked view. The view moves because Protect auto-tracking (person, with zoom, return home after 30 s) follows road walkers. Fix is in Protect: turn auto-tracking off, or a Protect zone excluding the road. Operator action.
+- Record: `configs/snapshots/frigate2/g5-utilities-mask-v2-2026-11-13.md` plus pre/post resolved configs; F2 backup `config.yaml.bak-pre-g5-mask-v2-2026-11-13`.
+- Separate: F2 `study_a_panel` and `up_hallway_panel` ffmpeg crash-looping (~20k log lines/3 h), pre-existing, untouched.
