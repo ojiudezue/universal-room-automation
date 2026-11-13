@@ -666,97 +666,15 @@ async def test_d2_transit_validator_teardown_clears_face_recog_unsub(
     assert tv._face_recog_signal_unsub is None
 
 
-# --- PresenceCoordinator: exec the REAL production subscription block ------
-
-def _extract_presence_subscription_block() -> str:
-    """Extract the exact source text of the presence.py face-recog
-    subscription try/except (lines starting at the CENSUS-TOGGLES marker,
-    ending at the matching `exc_info=True,\\n                )`).
-
-    Executing this source in a controlled namespace proves the REAL
-    production text is capable of registering and refreshing. Deleting
-    or renaming any line inside the block changes the extracted text and
-    the mutation-drill will bite.
-    """
-    start_marker = "# CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1 (2026-08-18): subscribe"
-    src_lines = PRESENCE_SRC.splitlines(keepends=True)
-    start_idx = None
-    for i, line in enumerate(src_lines):
-        if start_marker in line:
-            start_idx = i
-            break
-    assert start_idx is not None, (
-        "presence.py missing the face-recog subscription block marker"
-    )
-    # Find the block's closing `)` of the except block: search forward
-    # for the line that begins the next unrelated section ("# v3.6.0.3").
-    end_idx = None
-    for j in range(start_idx + 1, len(src_lines)):
-        if "# v3.6.0.3: Wrap discovery/subscription" in src_lines[j]:
-            end_idx = j
-            break
-    assert end_idx is not None, "could not locate end of block"
-    # Dedent uniformly by the leading whitespace of the marker line.
-    marker_line = src_lines[start_idx]
-    indent = len(marker_line) - len(marker_line.lstrip())
-    block = "".join(line[indent:] if len(line) > indent else line
-                    for line in src_lines[start_idx:end_idx])
-    return block
-
-
-def test_d2_presence_subscription_block_flips_cached_flag_on_signal():
-    """BEHAVIORAL (HIGH-3 fix): exec the REAL presence.py subscription
-    block (extracted verbatim from source) against a stub self, capture
-    the callback via a spy async_dispatcher_connect, flip entry options,
-    invoke callback, assert cached flag flipped. If the block is deleted
-    from presence.py, `_extract_presence_subscription_block` fails first.
-    """
-    block_src = _extract_presence_subscription_block()
-
-    captured: list[tuple] = []
-
-    def _spy_connect(_hass, sig, cb):
-        captured.append((sig, cb))
-        return lambda: None
-
-    hass, entry = _hass_with_integration_entry({"face_recognition_enabled": True})
-
-    class _StubPresence:
-        pass
-    stub_self = _StubPresence()
-    stub_self.hass = hass
-    stub_self._face_recognition_enabled = True
-    stub_self._unsub_listeners = []
-
-    ns = {
-        "self": stub_self,
-        "async_dispatcher_connect": _spy_connect,
-        "DOMAIN": "universal_room_automation",
-        "_LOGGER": MagicMock(),
-        # `from ..const import ...` inside the block needs a package
-        # context to resolve; anchoring to domain_coordinators makes
-        # `..const` resolve to the real const module registered above.
-        "__package__": "custom_components.universal_room_automation.domain_coordinators",
-        "__name__": "custom_components.universal_room_automation.domain_coordinators.presence",
-    }
-    # Wrap in a fake enclosing scope. The block uses top-level `try:` so
-    # we can exec directly (indent-preserved for the try body).
-    exec(compile(block_src, "<presence-face-recog-block>", "exec"), ns)
-
-    face_cbs = [cb for sig, cb in captured
-                if sig == "ura_face_recognition_changed"]
-    assert face_cbs, (
-        "presence.py face-recog subscription block did not register the "
-        "signal handler — the wire-in has been neutered"
-    )
-    # Real production callback executed against real entry.options change.
-    entry.options["face_recognition_enabled"] = False
-    face_cbs[0](entry.entry_id, "face_recognition_enabled")
-    assert stub_self._face_recognition_enabled is False
-    assert hass.config_entries.reload_calls == []
-    # The unsub must be tracked in _unsub_listeners for teardown by
-    # _cancel_listeners (Bug Class #38).
-    assert len(stub_self._unsub_listeners) == 1
+# --- PresenceCoordinator face-recog subscription ---------------------------
+# The former source-exec test (`_extract_presence_subscription_block`) was
+# converted to a behavioural test when the handler became the @callback
+# method `PresenceCoordinator._on_face_recog_changed` (person sightings review
+# B-L2): `test_person_sighting_review_b.py::
+# test_bl2_face_recognition_flip_applies_on_the_loop` runs the REAL
+# `async_setup`, flips the integration option, dispatches the signal, asserts
+# the cached flag flips on the loop, and that `async_teardown` releases the
+# subscription.
 
 
 # ---------------------------------------------------------------------------

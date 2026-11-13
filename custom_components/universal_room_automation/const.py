@@ -6065,6 +6065,20 @@ MEMORY_WRITER_HEALTH_EXEMPT_TYPES: Final = frozenset({
     # (No current exemptions. Add here as ``"type_name",  # <reason>``.)
 })
 
+# Writer-backed types whose rows come only from people moving through the
+# house (person sightings review B-L4, 2026-11-12). A zero-row week is NOT
+# paged when the house_state_log proves the house was AWAY or VACATION for
+# the WHOLE window (state at the window start away/vacation AND every
+# transition inside the window away/vacation). No proof (no row before the
+# window, any home-ish state, a DB error) = page as usual. Rung 1: the
+# membership is a reviewed choice; empty set = old behaviour.
+MEMORY_WRITER_HEALTH_ABSENCE_EXEMPT_TYPES: Final = frozenset({
+    # egress_identity_outcome: rows come only from door crossings; a
+    # 7-day vacation has none.
+    "egress_identity_outcome",
+})
+MEMORY_WRITER_HEALTH_ABSENT_HOUSE_STATES: Final = frozenset({"away", "vacation"})
+
 MEMORY_FACT_TOPICS: Final = frozenset({
     "occupancy_reliability",
     "sensor_trust",

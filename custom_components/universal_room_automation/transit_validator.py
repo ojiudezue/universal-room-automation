@@ -11,6 +11,7 @@ tracks egress camera direction (entry vs exit) via interior correlation.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections import deque
 from dataclasses import dataclass, field
@@ -1068,6 +1069,11 @@ class EgressDirectionTracker:
         self._path_map_unsubs: list = []
         self._path_map_reval_unsub = None
         self._path_map_tasks: set = set()
+        # Review B-L3: serialise loads. The reload button awaits
+        # async_load_path_map directly while a debounced re-validation load
+        # may be in flight; without the lock both install state after their
+        # executor read and the last to finish wins.
+        self._path_map_lock = asyncio.Lock()
 
     async def async_init(self) -> None:
         """Subscribe to egress and near-door interior cameras.
@@ -2451,7 +2457,12 @@ class EgressDirectionTracker:
         validated const or no map; (4) file invalid on a later load (button,
         re-validation) -> the previous map is kept. ``path_map_sha256`` names
         the INSTALLED source only (the file's sha when the file is installed,
-        else None; never a rejected file's sha). Never raises."""
+        else None; never a rejected file's sha). Never raises. Loads are
+        serialised (review B-L3): a second caller waits for the first."""
+        async with self._path_map_lock:
+            return await self._async_load_path_map_locked()
+
+    async def _async_load_path_map_locked(self) -> str:
         from .interior_paths import PathMapError, validate  # noqa: PLC0415
         from .json_file_loader import (  # noqa: PLC0415
             STATUS_ABSENT,

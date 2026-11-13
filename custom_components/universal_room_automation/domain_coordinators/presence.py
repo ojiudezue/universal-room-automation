@@ -2974,38 +2974,13 @@ class PresenceCoordinator(BaseCoordinator):
             # parent-entry reload (key is in
             # INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS).
             try:
-                from ..const import (
-                    SIGNAL_URA_FACE_RECOGNITION_CHANGED,
-                    CONF_FACE_RECOGNITION_ENABLED as _CONF_FR,
-                    DEFAULT_FACE_RECOGNITION_ENABLED as _DEF_FR,
-                    ENTRY_TYPE_INTEGRATION as _ETI,
-                    CONF_ENTRY_TYPE as _CET,
-                )
-
-                def _on_face_recog_changed(*_a) -> None:
-                    previous = self._face_recognition_enabled
-                    for cfg in self.hass.config_entries.async_entries(DOMAIN):
-                        if cfg.data.get(_CET) == _ETI:
-                            try:
-                                merged2 = {**cfg.data, **cfg.options}
-                                self._face_recognition_enabled = merged2.get(
-                                    _CONF_FR, _DEF_FR,
-                                )
-                            except Exception:  # noqa: BLE001
-                                pass
-                            break
-                    if previous != self._face_recognition_enabled:
-                        _LOGGER.info(
-                            "PresenceCoordinator: face-recognition-enabled "
-                            "%s → %s (via SIGNAL_URA_FACE_RECOGNITION_CHANGED)",
-                            previous, self._face_recognition_enabled,
-                        )
+                from ..const import SIGNAL_URA_FACE_RECOGNITION_CHANGED
 
                 self._unsub_listeners.append(
                     async_dispatcher_connect(
                         self.hass,
                         SIGNAL_URA_FACE_RECOGNITION_CHANGED,
-                        _on_face_recog_changed,
+                        self._on_face_recog_changed,
                     )
                 )
             except Exception:  # noqa: BLE001
@@ -3156,7 +3131,16 @@ class PresenceCoordinator(BaseCoordinator):
                 self._subscribe_geofence()
 
                 # FACE-ARRIVAL-REBUILD-1 D1: person sightings producer.
-                self._setup_person_sightings()
+                # Review B-L1: own guard, so a failure here cannot skip the
+                # census / zone-delete / ZM-zones / optimizer subscriptions
+                # registered below in this shared discovery block.
+                try:
+                    self._setup_person_sightings()
+                except Exception:  # noqa: BLE001
+                    _LOGGER.warning(
+                        "Person sightings setup failed (non-fatal; presence "
+                        "continues without sightings)", exc_info=True,
+                    )
 
                 # Subscribe to census updates
                 # B-H1 fix-up: async_dispatcher_connect now imported at
@@ -3810,6 +3794,35 @@ class PresenceCoordinator(BaseCoordinator):
         self.hass.async_create_task(self._run_inference("occupancy_change"))
 
     @callback
+    def _on_face_recog_changed(self, *_a) -> None:
+        """SIGNAL_URA_FACE_RECOGNITION_CHANGED: re-read the operator's Face
+        Recognition switch. ``@callback`` (review B-L2, Bug Class #64): the
+        flag gates every interior person sighting, the zone last-face write
+        and the D4 trip-wire, so it must apply on the loop at dispatch, not
+        later as an executor job. Sync-safe: config-entry reads and a bool
+        write only, no I/O."""
+        from ..const import (  # noqa: PLC0415
+            CONF_FACE_RECOGNITION_ENABLED as _CONF_FR,
+            DEFAULT_FACE_RECOGNITION_ENABLED as _DEF_FR,
+            ENTRY_TYPE_INTEGRATION as _ETI,
+        )
+        previous = self._face_recognition_enabled
+        for cfg in self.hass.config_entries.async_entries(DOMAIN):
+            if cfg.data.get(CONF_ENTRY_TYPE) == _ETI:
+                try:
+                    merged2 = {**cfg.data, **cfg.options}
+                    self._face_recognition_enabled = merged2.get(_CONF_FR, _DEF_FR)
+                except Exception:  # noqa: BLE001
+                    pass
+                break
+        if previous != self._face_recognition_enabled:
+            _LOGGER.info(
+                "PresenceCoordinator: face-recognition-enabled "
+                "%s → %s (via SIGNAL_URA_FACE_RECOGNITION_CHANGED)",
+                previous, self._face_recognition_enabled,
+            )
+
+    @callback
     def _on_room_entry_lifecycle(
         self,
         entry_id: str,
@@ -3827,7 +3840,23 @@ class PresenceCoordinator(BaseCoordinator):
 
         The refresh is a coroutine on ``OccupancySubstrate``; schedule it
         as a background task so this @callback stays sync.
+
+        Person sightings (review B-M1): a room options edit can change the
+        room's ``CONF_ROOM_CAMERAS``, which a URA fused zone pick resolves
+        through. Rebuild the producer's bindings here (a full rebind; cheap
+        dict walks) so the new cameras' faces emit and the D4 trip-wire
+        denominator joins through the refreshed face map. Runs before the
+        substrate guard: the producer does not depend on the substrate.
         """
+        producer = self._person_sightings
+        if producer is not None:
+            try:
+                producer.rebind()
+            except Exception:  # noqa: BLE001 — never raise from dispatcher
+                _LOGGER.debug(
+                    "person sightings: rebind on room lifecycle (%s) failed",
+                    action, exc_info=True,
+                )
         if self._substrate is None:
             # Presence coordinator not fully initialized yet — substrate
             # will pick this room up at its own async_setup() enumeration.

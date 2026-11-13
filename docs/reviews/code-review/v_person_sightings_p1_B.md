@@ -83,3 +83,26 @@ B-L2 at the same time (each is under 5 lines). B-L3 is a Phase 2 note. B-L4 need
 | #64 executor-typed callback | 1 |
 | Concurrent load race | 1 |
 | Health-check false page | 1 |
+
+## Fix-up round 2 (2026-11-12)
+
+| # | Disposition | Change | Test (RED on neuter) |
+|---|---|---|---|
+| B-M1 | FIXED | `presence._on_room_entry_lifecycle` (REUSED subscription to `SIGNAL_ROOM_ENTRY_LIFECYCLE`, writers loaded / unloaded / options_updated / removed) calls `PersonSightingProducer.rebind()` (full rebuild) BEFORE the substrate guard, so a room-cameras edit re-resolves fused picks; `_face_to_physical`, which the D4 `_denominator` joins through, is rebuilt in the same call. | `test_person_sighting_review_b.py::test_bm1_room_cameras_edit_rebinds_via_lifecycle_signal` (real `async_setup` subscription + real dispatch; old camera stops, new camera emits as Study B, denominator 3), `::test_bm1_lifecycle_rebind_without_substrate` |
+| B-L1 | FIXED | `_setup_person_sightings()` wrapped in its own `try/except` with a WARNING inside the discovery block. | `::test_bl1_sighting_setup_failure_keeps_later_subscriptions` (setup raises; `SIGNAL_CENSUS_UPDATED` still reaches `_handle_census_update`) |
+| B-L2 | FIXED | Closure moved to the `@callback` method `PresenceCoordinator._on_face_recog_changed` (sync-safe: config-entry reads + one bool write, no I/O). The source-exec test `test_census_device_switches.py::test_d2_presence_subscription_block_flips_cached_flag_on_signal` (Bug Class #62) is replaced by the behavioural test. | `::test_bl2_face_recognition_flip_applies_on_the_loop` (flag flips before the loop yields; teardown releases the subscription) |
+| B-L3 | FIXED | `EgressDirectionTracker._path_map_lock` (`asyncio.Lock`); `async_load_path_map` holds it around `_async_load_path_map_locked`, so the button load and a debounced load never overlap. | `::test_bl3_path_map_loads_are_serialised` (max concurrent loader reads = 1) |
+| B-L4 | FIXED (operator default) | Choice: skip the page for crossing-only writers when the house was provably absent, rather than a blanket exemption (a blanket exemption would hide a dead logger during a normal week). New rung-1 consts `MEMORY_WRITER_HEALTH_ABSENCE_EXEMPT_TYPES` = {`egress_identity_outcome`} and `MEMORY_WRITER_HEALTH_ABSENT_HOUSE_STATES` = {`away`, `vacation`}. `URADatabase._memory_writer_house_absent_throughout` returns True only when the last `house_state_log` row before the window is away/vacation AND every row inside it is away/vacation; no prior row, any home-ish state, or a DB error pages as before. AWAY is included with VACATION because a 7-day AWAY week has no crossings either. Result dict gains `absence_suppressed_types`. Only the listed types are ever suppressed. | `test_memory_writer_health.py::test_bl4_house_absent_whole_window_suppresses_egress_page[*]`, `::test_bl4_house_not_proven_absent_pages_egress[*]` (5 cases incl. no prior row, came home inside), `::test_bl4_absence_never_suppresses_other_writers` |
+
+Mutation drills (source edited, `PYTHONDONTWRITEBYTECODE=1`, `__pycache__` cleared, restored, `git status` checked):
+
+| Site neutered | RED |
+|---|---|
+| lifecycle `producer.rebind()` call -> `pass` | both `test_bm1_*` |
+| B-L1 guard -> `except ZeroDivisionError` | `test_bl1_*` |
+| drop `@callback` on `_on_face_recog_changed` | `test_bl2_*` |
+| drop `async with self._path_map_lock` | `test_bl3_*` |
+| absence call site -> `if False and ...` | 3x `test_bl4_house_absent_*`, `test_bl4_absence_never_*` |
+| prior-row conjunct removed | 4x `test_bl4_house_not_proven_*`, `test_zero_row_writer_backed_type_fires_anomaly` |
+| in-window conjunct -> `return True` | `test_bl4_house_not_proven_absent_pages_egress[rows2]` |
+| `egress_identity_outcome` removed from the exempt set | 3x `test_bl4_house_absent_*`, `test_bl4_absence_never_*` |

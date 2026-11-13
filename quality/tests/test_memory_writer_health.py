@@ -85,11 +85,15 @@ def _const():  # noqa: N802 — read as attribute, not function in call sites
 
 
 class _Cursor:
-    def __init__(self, row):
+    def __init__(self, row, rows=None):
         self._row = row
+        self._rows = rows if rows is not None else []
 
     async def fetchone(self):
         return self._row
+
+    async def fetchall(self):
+        return self._rows
 
 
 class _FakeDBConn:
@@ -100,10 +104,18 @@ class _FakeDBConn:
         WHERE episode_type = ? AND started_at >= ?
     """
 
-    def __init__(self, counts_by_type):
+    def __init__(self, counts_by_type, house=None):
         self._counts = counts_by_type
+        self._house = house  # sqlite3 connection holding house_state_log
 
     async def execute(self, _sql, params):
+        if "house_state_log" in _sql:
+            # Review B-L4: house-absence read runs real SQL on a real
+            # sqlite house_state_log (None = empty table -> no proof).
+            if self._house is None:
+                return _Cursor(None, [])
+            rows = self._house.execute(_sql, params).fetchall()
+            return _Cursor(rows[0] if rows else None, rows)
         ep_type = params[0]
         count = self._counts.get(ep_type, 0)
         return _Cursor((count,))
@@ -112,8 +124,9 @@ class _FakeDBConn:
 class _FakeURADatabase:
     """Stand-in that implements the surface the method consumes."""
 
-    def __init__(self, counts_by_type):
+    def __init__(self, counts_by_type, house=None):
         self._counts_by_type = counts_by_type
+        self._house = house
         self.anomaly_events: list = []
         self._last_memory_writer_health_check_ts = None
         # Fix-up #7: minimal energy_state key/value surface so the
@@ -122,7 +135,10 @@ class _FakeURADatabase:
 
     @asynccontextmanager
     async def _db(self):
-        yield _FakeDBConn(self._counts_by_type)
+        yield _FakeDBConn(self._counts_by_type, self._house)
+
+    async def _memory_writer_house_absent_throughout(self, since_utc):
+        return await _db_class()._memory_writer_house_absent_throughout(self, since_utc)
 
     async def save_anomaly_event(self, event):
         self.anomaly_events.append(event)
@@ -137,6 +153,14 @@ class _FakeURADatabase:
 # Bind the real method off the production URADatabase class and invoke
 # it as a free function against the fake. Avoids rebuilding
 # URADatabase's full __init__.
+def _db_class():
+    db_mod = _sys.modules.get(f"{_pkg_name}.database")
+    if db_mod is None or not hasattr(db_mod, "URADatabase"):
+        _bind_method()
+        db_mod = _sys.modules[f"{_pkg_name}.database"]
+    return getattr(db_mod, "URADatabase", None) or getattr(db_mod, "UniversalRoomDatabase")
+
+
 def _bind_method():
     # Lazy-load database.py by file path to avoid full HA runtime.
     # NOTE: database.py imports HA bits; we rely on the test harness
@@ -225,3 +249,82 @@ async def test_cadence_guard_skips_repeat_within_window():
     assert second is None, (
         "Within 7d the nightly path must no-op; got a second real run."
     )
+
+
+# ----------------------------------------------------------------------
+# Person sightings review B-L4: a crossing-only writer (egress outcome) is
+# not paged when house_state_log proves the house was away/vacation for the
+# whole 7-day window. Real sqlite house_state_log; naive-UTC timestamps as
+# log_house_state_change writes them.
+# ----------------------------------------------------------------------
+import sqlite3 as _sqlite3  # noqa: E402
+
+_EGRESS = "egress_identity_outcome"
+
+
+def _house(rows):
+    """rows: [(days_ago, state)] -> in-memory house_state_log."""
+    con = _sqlite3.connect(":memory:")
+    con.execute(
+        "CREATE TABLE house_state_log (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "timestamp TEXT NOT NULL, state TEXT NOT NULL, confidence REAL NOT NULL, "
+        "trigger TEXT, previous_state TEXT)"
+    )
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    for days_ago, state in rows:
+        con.execute(
+            "INSERT INTO house_state_log (timestamp, state, confidence) VALUES (?, ?, 1.0)",
+            ((now - timedelta(days=days_ago)).isoformat(), state),
+        )
+    return con
+
+
+def _counts_only_egress_silent():
+    counts = {t: 4 for t in _const().MEMORY_WRITER_BACKED_EPISODE_TYPES}
+    counts[_EGRESS] = 0
+    return counts
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rows", [
+    [(10, "away")],                                   # away since before the window
+    [(10, "away"), (3, "vacation")],                  # away -> vacation inside it
+    [(9, "vacation")],
+])
+async def test_bl4_house_absent_whole_window_suppresses_egress_page(rows):
+    run = _bind_method()
+    db = _FakeURADatabase(_counts_only_egress_silent(), house=_house(rows))
+    stats = await run(db, cadence_days=7, triggered_by="nightly")
+    assert stats["zero_row_types"] == []
+    assert stats["absence_suppressed_types"] == [_EGRESS]
+    assert db.anomaly_events == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rows", [
+    [],                                               # no proof at all
+    [(10, "home_day")],                               # home the whole week
+    [(10, "away"), (2, "home_evening")],              # came home inside the window
+    [(6, "away")],                                    # no row BEFORE the window
+    [(10, "home_day"), (6.9, "away")],                # left after the window began
+])
+async def test_bl4_house_not_proven_absent_pages_egress(rows):
+    run = _bind_method()
+    db = _FakeURADatabase(_counts_only_egress_silent(), house=_house(rows))
+    stats = await run(db, cadence_days=7, triggered_by="nightly")
+    assert stats["zero_row_types"] == [_EGRESS]
+    assert stats["absence_suppressed_types"] == []
+    assert len(db.anomaly_events) == 1
+
+
+@pytest.mark.asyncio
+async def test_bl4_absence_never_suppresses_other_writers():
+    """Only crossing-only types are exempt: house_state_transition silent in an
+    away week still pages."""
+    run = _bind_method()
+    counts = _counts_only_egress_silent()
+    counts["house_state_transition"] = 0
+    db = _FakeURADatabase(counts, house=_house([(10, "away")]))
+    stats = await run(db, cadence_days=7, triggered_by="nightly")
+    assert stats["zero_row_types"] == ["house_state_transition"]
+    assert stats["absence_suppressed_types"] == [_EGRESS]
