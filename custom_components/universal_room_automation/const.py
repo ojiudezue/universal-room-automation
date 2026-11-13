@@ -2785,10 +2785,9 @@ NM_HAZARD_EXTERIOR_PERSON_GUEST_SEVERITY: Final = "MEDIUM"
 # change). False = every GUEST case MEDIUM (pre-change).
 NM_HAZARD_EXTERIOR_PERSON_GUEST_KEEP_HIGH: Final = True
 
-# HOUSE-STATE step 1a D5: the flat house-state -> severity table
-# (NM_HAZARD_EXTERIOR_PERSON_SEVERITY_BY_HOUSE_STATE) was deleted: it was read
-# nowhere (the live resolver below is the only source; its ARRIVING row was
-# MEDIUM, not the table's LOW).
+# HOUSE-STATE step 1a D5: the flat house-state -> severity dict that lived
+# here was deleted: it was read nowhere (the live resolver below is the only
+# source; its ARRIVING row was MEDIUM, not the dict's LOW).
 NM_HAZARD_EXTERIOR_PERSON_DEFAULT_SEVERITY: Final = "CRITICAL"  # fail-safe
 
 # HOUSE-STATE step 1a D5 (PLANNING_house_state_axes_step1.md rev 3), rung 1

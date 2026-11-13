@@ -116,10 +116,11 @@ Toggle `security_lockout_engage_on_guest_sleep` (CM options, default True). On a
 - ~22:05: GUEST → HOME_NIGHT inside the sleep window while the reason is `guest_night` does **not** release; the regime
   records `guest_yield_hold` (`security_lock_regime.on_house_state_changed`, INV-LOCK-1).
 - SLEEP: reason becomes `sleep`; the engage is a no-op on locks already locked.
-- WAKING / HOME_DAY / HOME_EVENING / a resident arrival / the backstop release as usual. ARRIVING does NOT release
-  (LOCK-RELEASE-ON-ARRIVING, branch `feature/lock-release-arriving`, NOT deployed): it is body evidence with no identity.
-  Once the episode has seen ARRIVING (the taint), the GUEST -> HOME_* guest exit and every other HOME_* edge are held
-  too (`arriving_hold`) until WAKING, a resident's own arrival edge, the backstop, an operator override or the switch.
+- WAKING / a resident arrival / the backstop release as usual. HOUSE-STATE step 1a D4 (branch
+  `feature/house-state-step1a`, NOT deployed): HOME_* and ARRIVING edges are body evidence with no identity, so they
+  release only on an operator trigger (`override_set` / `override_clear`); otherwise `house_edge_ignored`. A GUEST ->
+  HOME_DAY / HOME_EVENING guest exit with reason `guest_night` (reachable only with the stay rule kill switch OFF) is
+  therefore released by the morning backstop instead of at the exit.
 - A manual override GUEST → HOME_NIGHT inside the window is held too (the regime cannot tell it from the yield).
 
 Pinned by `test_sc_garage_lockout.py::test_lock_once_at_guest_clock_no_unlock_on_yield` and

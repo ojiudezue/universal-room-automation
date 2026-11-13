@@ -502,3 +502,23 @@ async def test_arrival_outside_window_keeps_backstop_ends_episode():
     await rig2.w.advance(121)
     assert decisions == ["engage"]
     assert rig2.locks() == [LOCK_A, LOCK_B]
+
+
+@pytest.mark.asyncio
+async def test_vacation_armed_while_home_held_until_sleep():
+    """Config extreme (Q9): VACATION selected while the family is home
+    engages at selection; the override-clearing default-trigger HOME_* edge
+    is ignored; the next SLEEP converts the reason and WAKING releases."""
+    rig = await make_rig(start=datetime(2026, 11, 7, 14, 0, tzinfo=TZ), house="home_day",
+                         persons={EZ: "home", OJI: "home"})
+    await hs(rig, "vacation", trigger="override_set")
+    assert rig.locks() == [LOCK_A, LOCK_B]
+    await rig.edge("home_day")  # inference clears the override
+    assert rig.unlocks() == []
+    assert rig.regime.reason == "vacation"
+    await _to(rig, 7, 23, 30)
+    await rig.edge("sleep")
+    assert rig.regime.reason == "sleep"
+    await _to(rig, 8, 6, 10)
+    await rig.edge("waking")
+    assert rig.unlocks() == [LOCK_A, LOCK_B]

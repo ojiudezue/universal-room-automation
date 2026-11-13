@@ -567,7 +567,11 @@ alone), so it is body evidence, the same class as an unnamed camera body. The ga
 releases on it, nor on a HOME_* edge in an episode that saw it: access needs a resident's own arrival edge (a
 `person.*` -> home edge counted by `_arrival_counts`, an approach-zone / proximity crossing, or a corroborated
 `SIGNAL_PERSON_ARRIVING`). Same doctrine as §5.5(a) and the face rule above: an inference with no identity never
-unlocks.
+unlocks. HOUSE-STATE step 1a D4 (branch `feature/house-state-step1a`, NOT deployed) completes it: no HOME_* / ARRIVING
+house edge releases an open episode unless its trigger is an operator override (`override_set` / `override_clear`).
+**Residency records use no identity (step 1a D2):** the presence residency producer's `person_arrival` /
+`person_departure` records and `residents_home` read only `person.*` state (raw edges; trust level via
+`person_state_for_trust`) and the phone-left-behind sensor; no face, camera or egress input.
 
 **Exterior seam file (EXTERIOR-SEAM-LOADER, branch `feature/exterior-seam-loader`,
 shipped v5.108.15; plan `PLANNING_exterior_seam_file_injection.md` D4/D5/D6).** The

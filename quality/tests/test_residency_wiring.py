@@ -23,7 +23,6 @@ import pytest
 
 import _provenance_harness  # noqa: F401
 from _provenance_harness import make_hass
-from homeassistant.core import State
 
 from custom_components.universal_room_automation import const as C
 from custom_components.universal_room_automation.domain_coordinators import (
@@ -32,6 +31,21 @@ from custom_components.universal_room_automation.domain_coordinators import (
 from custom_components.universal_room_automation.domain_coordinators.presence import (
     PresenceCoordinator,
 )
+
+class State:
+    """Minimal immutable-enough HA State stand-in (entity_id, state,
+    attributes, last_changed). Local on purpose: a legacy test file replaces
+    ``homeassistant.core.State`` with a MagicMock at collection, which would
+    poison these fixtures in a multi-file run (order-robustness, DoD 10)."""
+
+    def __init__(self, entity_id, state, attributes=None, last_changed=None):
+        from datetime import datetime as _dt, timezone as _tz
+
+        self.entity_id = entity_id
+        self.state = state
+        self.attributes = dict(attributes or {})
+        self.last_changed = last_changed or _dt.now(_tz.utc)
+
 
 _URA = pathlib.Path(__file__).resolve().parents[2] / "custom_components" / "universal_room_automation"
 

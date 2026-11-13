@@ -1,5 +1,7 @@
 # PLANNING — Perimeter Notification + Identification Consolidation
 
+> **Pointer (HOUSE-STATE step 1a, 2026-11-13):** `NM_HAZARD_EXTERIOR_PERSON_SEVERITY_BY_HOUSE_STATE` cited below was a dead table (imported, read nowhere) and is deleted; the live source is `NM_HAZARD_EXTERIOR_PERSON_CONTEXTUAL_SEVERITY` (`const.py`). See `PLANNING_house_state_axes_step1.md` D5 and PRESENCE state-of-play §10 #37.
+
 **Status:** DRAFT for operator ratification (2026-08-07). The **surfacing
 question in §3 is explicitly for the operator to rule on** — three real
 options are presented with a recommendation, not a fait accompli.

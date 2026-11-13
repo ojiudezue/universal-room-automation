@@ -1818,7 +1818,7 @@ async def test_restored_vacation_converts_to_sleep_at_recheck():
 
 
 @pytest.mark.asyncio
-async def test_restored_sleep_untainted_home_releases_at_recheck():
+async def test_restored_sleep_untainted_home_ignored_at_recheck_backstop_releases():
     """Parity with boot_unknown, step 1a delta L2: a store-rebuilt SLEEP lock
     with the house awake is NOT released at the boot recheck (a restored awake
     state is body evidence); the morning backstop releases it."""

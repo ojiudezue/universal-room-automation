@@ -17,7 +17,6 @@ import logging
 import pathlib
 
 import pytest
-from homeassistant.core import State
 
 from custom_components.universal_room_automation import const as C
 from custom_components.universal_room_automation import perimeter_alert as PA
@@ -29,7 +28,7 @@ from custom_components.universal_room_automation.domain_coordinators.house_state
 from custom_components.universal_room_automation.domain_coordinators.manager import (
     CoordinatorManager,
 )
-from test_residency_wiring import EZ, OJI, T_SETUP, _coord, _feed, _registry
+from test_residency_wiring import EZ, OJI, T_SETUP, State, _coord, _feed, _registry
 
 GOLDEN = json.loads(
     (pathlib.Path(__file__).resolve().parent / "fixtures"
@@ -39,6 +38,24 @@ STATES = ["away", "vacation", "sleep", "home_night", "guest", "home_day",
 CCS = ["perimeter", "egress", "other"]
 TCS = ["approach", "linger", "first_sighting", "circling"]
 RANK = {"LOW": 0, "MEDIUM": 1, "HIGH": 2, "CRITICAL": 3}
+
+
+def _switch(monkeypatch, name, value):
+    """Patch a D5 switch where the code under test reads it: the perimeter
+    module's own const binding and the resolver's module globals (order-proof
+    when another file left a second const module object behind)."""
+    import sys
+
+    owners = [PA._const_mod]
+    resolver_mod = sys.modules.get(PA.NM_HAZARD_EXTERIOR_PERSON_CONTEXTUAL_SEVERITY.__module__)
+    if resolver_mod is not None and resolver_mod is not PA._const_mod:
+        owners.append(resolver_mod)
+    for mod in owners:  # setattr only: one undo stack, LIFO-safe
+        monkeypatch.setattr(mod, name, value)
+
+
+def _resolve(*a, **kw):
+    return PA.NM_HAZARD_EXTERIOR_PERSON_CONTEXTUAL_SEVERITY(*a, **kw)
 
 
 def _manager(hass, presence, state):
@@ -142,8 +159,8 @@ async def test_arriving_rule_ignores_persons_home_switch(monkeypatch, ph_switch)
     """M4: the ARRIVING arm never reads persons_home. Every resident away ->
     CRITICAL; a resident home -> MEDIUM, whatever the persons_home switch
     (with the switch False persons_home is 0 even with Oji home)."""
-    monkeypatch.setattr(C, "EXTERIOR_SEVERITY_PERSONS_HOME_FROM_RESIDENCY", ph_switch)
-    monkeypatch.setattr(C, "EXTERIOR_SEVERITY_ARRIVING_NEEDS_RESIDENT", True)
+    _switch(monkeypatch, "EXTERIOR_SEVERITY_PERSONS_HOME_FROM_RESIDENCY", ph_switch)
+    _switch(monkeypatch, "EXTERIOR_SEVERITY_ARRIVING_NEEDS_RESIDENT", True)
     _hass, coord, st, pam = _world()
     coord._residency_clock.t = T_SETUP + 5000
     st[OJI] = State(OJI, "not_home")
@@ -156,7 +173,7 @@ async def test_arriving_rule_ignores_persons_home_switch(monkeypatch, ph_switch)
 
 @pytest.mark.asyncio
 async def test_arriving_switch_off_keeps_medium(monkeypatch):
-    monkeypatch.setattr(C, "EXTERIOR_SEVERITY_ARRIVING_NEEDS_RESIDENT", False)
+    _switch(monkeypatch, "EXTERIOR_SEVERITY_ARRIVING_NEEDS_RESIDENT", False)
     _hass, coord, _st, pam = _world()
     coord._residency_clock.t = T_SETUP + 5000
     assert _sev(pam) == Severity.MEDIUM
@@ -192,16 +209,16 @@ async def test_persons_home_real_manager_lookup(monkeypatch):
     assert not hasattr(mgr, "presence")
     assert not hasattr(mgr, "_presence_coordinator")
     st[OJI] = State(OJI, "home")
-    monkeypatch.setattr(C, "EXTERIOR_SEVERITY_PERSONS_HOME_FROM_RESIDENCY", True)
+    _switch(monkeypatch, "EXTERIOR_SEVERITY_PERSONS_HOME_FROM_RESIDENCY", True)
     assert pam._get_persons_home() == 1
     assert _sev(pam, "egress", "first_sighting") == Severity.LOW
-    monkeypatch.setattr(C, "EXTERIOR_SEVERITY_PERSONS_HOME_FROM_RESIDENCY", False)
+    _switch(monkeypatch, "EXTERIOR_SEVERITY_PERSONS_HOME_FROM_RESIDENCY", False)
     assert _sev(pam, "egress", "first_sighting") == Severity.HIGH
 
 
 @pytest.mark.asyncio
 async def test_persons_home_switch_off_is_zero(monkeypatch):
-    monkeypatch.setattr(C, "EXTERIOR_SEVERITY_PERSONS_HOME_FROM_RESIDENCY", False)
+    _switch(monkeypatch, "EXTERIOR_SEVERITY_PERSONS_HOME_FROM_RESIDENCY", False)
     _hass, coord, st, pam = _world("home_day")
     st[OJI] = State(OJI, "home")
     st[EZ] = State(EZ, "home")
@@ -219,8 +236,8 @@ async def test_no_lower_golden(monkeypatch):
     """With PERSONS_HOME_FROM_RESIDENCY False (two residents at home, so a
     leak would show), every cell resolves >= develop's production value
     (persons_home 0) and differs only on ARRIVING with evidence False."""
-    monkeypatch.setattr(C, "EXTERIOR_SEVERITY_PERSONS_HOME_FROM_RESIDENCY", False)
-    monkeypatch.setattr(C, "EXTERIOR_SEVERITY_ARRIVING_NEEDS_RESIDENT", True)
+    _switch(monkeypatch, "EXTERIOR_SEVERITY_PERSONS_HOME_FROM_RESIDENCY", False)
+    _switch(monkeypatch, "EXTERIOR_SEVERITY_ARRIVING_NEEDS_RESIDENT", True)
     _hass, coord, st, pam = _world("home_day")
     st[OJI] = State(OJI, "home")
     st[EZ] = State(EZ, "home")
@@ -230,7 +247,7 @@ async def test_no_lower_golden(monkeypatch):
             for tc in TCS:
                 base = GOLDEN[f"{s}|{cc}|{tc}|0"]
                 for ev in (None, False, True):
-                    got = C.NM_HAZARD_EXTERIOR_PERSON_CONTEXTUAL_SEVERITY(
+                    got = _resolve(
                         s, camera_class=cc, track_class=tc, persons_home=ph,
                         arriving_resident_evidence=ev)
                     assert RANK[got] >= RANK[base], (s, cc, tc, ev, got, base)
@@ -244,8 +261,8 @@ async def test_no_lower_golden(monkeypatch):
 async def test_switches_off_golden_full_table(monkeypatch):
     """Both switches False -> every cell equals develop's production resolve
     (persons_home 0), through the real manager, whatever the evidence."""
-    monkeypatch.setattr(C, "EXTERIOR_SEVERITY_PERSONS_HOME_FROM_RESIDENCY", False)
-    monkeypatch.setattr(C, "EXTERIOR_SEVERITY_ARRIVING_NEEDS_RESIDENT", False)
+    _switch(monkeypatch, "EXTERIOR_SEVERITY_PERSONS_HOME_FROM_RESIDENCY", False)
+    _switch(monkeypatch, "EXTERIOR_SEVERITY_ARRIVING_NEEDS_RESIDENT", False)
     for s in STATES:
         _hass, coord, st, pam = _world(s)
         coord._residency_clock.t = T_SETUP + 5000
@@ -257,6 +274,7 @@ async def test_switches_off_golden_full_table(monkeypatch):
 
 def test_flat_table_deleted_no_reader():
     assert not hasattr(C, "NM_HAZARD_EXTERIOR_PERSON_SEVERITY_BY_HOUSE_STATE")
+    assert not hasattr(PA._const_mod, "NM_HAZARD_EXTERIOR_PERSON_SEVERITY_BY_HOUSE_STATE")
     assert not hasattr(PA, "NM_HAZARD_EXTERIOR_PERSON_SEVERITY_BY_HOUSE_STATE")
 
 
@@ -271,7 +289,7 @@ def test_fake_manager_coordinators_shape(monkeypatch):
     assert fake.get_residents_home_count() == 2
     assert fake.get_recent_resident_arrival(300) is None
     pam = _pam(hass)
-    monkeypatch.setattr(C, "EXTERIOR_SEVERITY_PERSONS_HOME_FROM_RESIDENCY", True)
+    _switch(monkeypatch, "EXTERIOR_SEVERITY_PERSONS_HOME_FROM_RESIDENCY", True)
     assert pam._get_persons_home() == 2
-    monkeypatch.setattr(C, "EXTERIOR_SEVERITY_PERSONS_HOME_FROM_RESIDENCY", False)
+    _switch(monkeypatch, "EXTERIOR_SEVERITY_PERSONS_HOME_FROM_RESIDENCY", False)
     assert pam._get_persons_home() == 0
