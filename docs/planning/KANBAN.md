@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-13T14:14:02-06:00_ - _Data commit: `528fb5d93c2f`_ - _last_reconciled: 2026-11-13_
+_Generated: 2026-11-13T14:45:48-06:00_ - _Data commit: `76cc9e28e5a3`_ - _last_reconciled: 2026-11-13_
 
 
 ## Columns
@@ -195,7 +195,7 @@ _created 2026-11-12 22:00_
 - **Origin:** 2026-11-12 - Operator: watch arrivals with AI vision; time-lapse; fast first frames; counting is easy, naming is hard; guests are the census problem; OpenAI models (GPT-6 Luna/Sol); deconflict with camera counts until trusted (100 crossi...
 - **Why:** Design in PLANNING_person_sighting_layer.md section 15. Gates: D0-FRAME (blank-frame experiment), D0-SIM (timing simulation), D0-V (model scoring incl. dry call per GPT-6 model for llmvision param compatibility). Then its own sibling plan.
 - **Next:** Me: revise plan section 15.9 frame guard to judge frames directly; resolve the llmvision temperature blocker for GPT-6 models (config-first); then the sibling vision plan.
-- **Forensic keys (9):**
+- **Forensic keys (10):**
   - `arc_cut_v5_108_19`: shadow build running
   - `arc_cut_v5_108_18`: separate plan
   - `arc_cut_v5_108_16`: own sibling plan, D0-FRAME/SIM done, re-anchor edits then D0-V
@@ -205,6 +205,7 @@ _created 2026-11-12 22:00_
   - `operator_2026_11_13_accuracy`: Operator: expose vision accuracy as sensors (exact-count rate, blank rate, drift at AWAY reset, match coverage, latency) and page the operator (here or via URA NM) when new images need grading. Phase 2 unblocked: per-frame D0d gate remov...
   - `operator_2026_11_13_phase2_defaults`: Operator "Ok on recos": Q1 reset 3600 s; Q2 flip = reviewed code constant + downgrade-only switch; Q3 gpt-6-luna from shadow day 1; Q4 +-10 s until wrong-event rate measured; Q5 operator stages ~10 group walks; Q6 ledger only holds/delay...
   - `operator_2026_11_13_objective`: Operator rejects the AWAY-hold Phase 2: "We don't have an away problem... Away Provenance is fine. Vision is to assist census accuracy. And assist arrivals accuracy and personalization. Especially when combined with facial recognition fr...
+  - `operator_2026_11_13_away_fast`: Operator: "it seems like it will delay away and I need away to be fast acting. That's how it saves $ on energy treatment." HARD constraint: vision counts never delay or block AWAY entry (INV-P2-AWAY-LATENCY; AWAY predicates read pre-visi...
 
 ## 🧭 Pre-planning (13)
 _idea being decomposed_
