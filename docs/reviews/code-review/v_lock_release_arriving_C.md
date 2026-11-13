@@ -92,3 +92,5 @@ Sites covered RED: taint set (old==arriving, reason!=NONE, save), all clear site
 
 ## Verdict: FIX-REQUIRED (minor)
 Must-fix: C-1 (add the two assertions; the unguarded stamp-before-spawn order is a latent suppression if the `home` guard is ever refactored). C-2 should be fixed in-cycle (LOW, ~10 LoC test). C-3 optional. No production-code defect found; fix-ups are test-only, after which SHIP.
+
+**Fix-up 2026-11-13:** C-1 closed: `test_boot_gap_silent_when_no_resident_home` / `_only_excluded_person_home` now also assert `still_locked_pages == 0` and `_still_locked_paged == {}`; M54 drill (`if not home:` -> `if False:`) goes RED on both (2 failed), restored. C-2 closed: new `test_override_guest_night_to_home_night_from_arriving_no_taint` (override GUEST-night -> HOME_NIGHT, old_state=arriving, guest_yield_hold, taint and saw flag stay False); M08 drill (drop `and not override`) RED on it (1 failed), restored. test_lock_release_arriving.py 111 passed; tree clean. C-3 left optional.

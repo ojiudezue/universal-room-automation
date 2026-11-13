@@ -563,6 +563,23 @@ async def test_guest_yield_hold_unchanged_with_taint():
     assert rig.regime.reason == "guest_night"
 
 
+@pytest.mark.asyncio
+async def test_override_guest_night_to_home_night_from_arriving_no_taint():
+    """C-2: an override GUEST-night -> HOME_NIGHT edge whose old_state is
+    arriving (guest_yield_hold, no release) must not set or persist the taint."""
+    rig = await make_rig(opts=options(security_lockout_engage_on_guest_sleep=True))
+    await rig.edge("guest")
+    assert rig.regime.reason == "guest_night"
+    assert snap(rig)["lock_regime_arriving_taint"] is False
+    await hs(rig, "home_night", old="arriving", trigger="override_set")
+    assert rig.regime.last_action["action"] == "guest_yield_hold"
+    assert rig.unlocks() == []
+    s = snap(rig)
+    assert s["lock_regime_arriving_taint"] is False
+    assert s["lock_regime_episode_saw_arriving"] is False
+    assert rig.regime._arrival_taint is False
+
+
 # ----------------------------------------------------------------------------
 # Replays (F21): audit §7 (a) and (b) through the real regime
 # ----------------------------------------------------------------------------
@@ -1648,6 +1665,8 @@ async def test_boot_gap_silent_when_no_resident_home():
     rig, nm = await _gap_rigs(persons={EZ: "not_home", OJI: "not_home"})
     await rig.w.advance(121)
     assert nm.of(BOOT_GAP) == []
+    assert snap(rig)["lock_regime_still_locked_pages"] == 0
+    assert rig.regime._still_locked_paged == {}
 
 
 @pytest.mark.asyncio
@@ -1655,6 +1674,8 @@ async def test_boot_gap_silent_when_only_excluded_person_home():
     rig, nm = await _gap_rigs(persons={EZ: "not_home", OJI: "not_home", KIOSK: "home"})
     await rig.w.advance(121)
     assert nm.of(BOOT_GAP) == []
+    assert snap(rig)["lock_regime_still_locked_pages"] == 0
+    assert rig.regime._still_locked_paged == {}
 
 
 @pytest.mark.asyncio
