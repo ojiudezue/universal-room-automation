@@ -42,14 +42,19 @@ left (`band_inverted`). Runs only when the thermostat is in `heat_cool` (single 
 name is now "Net Grid Today" (icon transmission tower); entity_id and unique_id unchanged. Gross import stays in the
 `import_kwh` attribute (the v8 dashboard "From grid" tile reads it). User manual corrected.
 
-## Live validation (to fill after restart)
+## Validated 2026-11-12 (restart 21:10 CST, house home_night)
 
-- Installed version v5.108.14.
-- `sensor.ura_hvac_pre_arrival_status` shows the four new attributes.
-- No URA ERROR in the log after restart.
-- `sensor.ura_energy_coordinator_energy_import_today` friendly name "Net Grid Today".
-- Organic: next arrival into a zone at or below target produces a `pre_arrival_standdown` row and no climate write;
-  INV-SD-COOL check mode (D0 probe) over 3 days shows zero violating rows.
+| Criterion | Result | Evidence |
+|---|---|---|
+| Installed | PASS | `update.universal_room_automation_update` installed_version v5.108.14; HA manifest v5.108.14; PR #694 diff carries hvac_predict/hvac/hvac_const/hvac_override/sensor changes |
+| New status attributes | PASS | `sensor.ura_hvac_coordinator_hvac_pre_arrival_status` (idle): `prearrival_skips` [], `prearrival_standdowns_today` 0, `precool_writes_today` 0, `preheat_writes_today` 0 |
+| No URA ERROR after restart | PASS | system_log, search universal_room_automation, level ERROR: 0 entries |
+| Net Grid Today | PASS | `sensor.ura_energy_coordinator_energy_import_today` friendly name "URA: Energy Coordinator Net Grid Today", state 1.47, `import_kwh` 20.642 |
+| Stand-down on a real arrival | organic | needs the next arrival into a zone at/below target; disposition via the `--revisit` discriminator (D0 probe check mode) |
+| Pre-heat | in-suite only | no November arrival is below the heat target (D0); covered by 76 tests and per-site mutation drills |
+
+Suite: full serial suite 0 failed / 20801 passed, zero new names vs 4e3ca3bc; isolation of 110 HVAC test files clean except two
+pre-existing order-dependent files that fail identically at the baseline.
 
 ## Not done from the plan
 
