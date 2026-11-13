@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-12T17:07:02-06:00_ - _Data commit: `db5608cee1aa`_ - _last_reconciled: 2026-11-12_
+_Generated: 2026-11-12T19:15:06-06:00_ - _Data commit: `03626ec0bf8b`_ - _last_reconciled: 2026-11-12_
 
 
 ## Columns
@@ -10,7 +10,7 @@ _Generated: 2026-11-12T17:07:02-06:00_ - _Data commit: `db5608cee1aa`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 2 |
-| 🔬 Investigating | 3 |
+| 🔬 Investigating | 4 |
 | 🧭 Pre-planning | 15 |
 | 📝 Planned | 26 |
 | 🔨 In progress | 3 |
@@ -47,7 +47,7 @@ _created 2026-11-12 14:13 · initial_
 - **Forensic keys (1):**
   - `tier`: 1
 
-## 🔬 Investigating (3)
+## 🔬 Investigating (4)
 _measuring; truth not yet known_
 
 ### `HVAC-ZONE-KWH-SEED-WARN-WORDING-1` - Zone-kWh seed logs UNSAFE at every boot though the threshold Numbers self-restore a moment later — _#1 · WSJF 4.0 · v1 tc1 u2 /e1_
@@ -61,7 +61,18 @@ _created 2026-11-11 19:40 · updated 2026-11-12 13:05_
   - `review_2026_11_12`: CARD-WAS-WRONG. The why on this card (seed reads before the Number restores) is WRONG: seed (__init__.py:7276) and Number (HA restore_state.py:295) read the same last_states dict, filled once at load. Live .storage has numeric entries + ...
   - `measured_2026_11_12_boot`: v5.108.11 restart 12:55: all three zones logged the no RestoreState entry branch (__init__.py:7310), while the three Numbers restored 1.0/0.8/0.8. So the seed sees no entry where the Number does: the review claim that both read the same ...
 
-### `FRIGATE-DOOR-FACE-TUNING-1` - Door and exterior cameras recognize few faces (garage 36, doorbell 33, entry 16, aerial 7 since 11-05; 9 cameras zero), capping egress identity near 40% — _#2 · WSJF 3.0 · v7 tc3 u2 /e4_
+### `LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1` - A camera seeing any body while the house is away moves it to ARRIVING, which releases the garage lockout and auto-disarms security with no identity — _#2 · WSJF 3.4 · v9 tc6 u2 /e5_
+thread: **security** - status: **investigating** - approval: **unreviewed**
+_created 2026-11-12 19:10 · initial_
+- **Problem / Solution:**
+  - Problem: presence.py:1347-1369 moves house away -> ARRIVING on camera body evidence; ARRIVING releases the garage lockout (security_lock_regime.py:864, :809) and makes security auto-disarm (security.py:192, :1452). Away-lock is not on th...
+- **Origin:** 2026-11-12 - Found by the face-arrival planner, confirmed by the completeness plan review (PLAN_face_arrival_rebuild_review_completeness.md).
+- **Why:** Same policy principle as FACE-ARRIVAL-REBUILD-1: access actions need identity plus an independent signal; a body alone is weaker than a face.
+- **Next:** Me: read-only probe of away->ARRIVING transitions over recorder history, their evidence source and resulting lockout releases / disarms.
+- **Forensic keys (1):**
+  - `tier`: 3
+
+### `FRIGATE-DOOR-FACE-TUNING-1` - Door and exterior cameras recognize few faces (garage 36, doorbell 33, entry 16, aerial 7 since 11-05; 9 cameras zero), capping egress identity near 40% — _#3 · WSJF 3.0 · v7 tc3 u2 /e4_
 thread: **identity** - status: **investigating** - approval: **unreviewed**
 _created 2026-11-12 18:30 · initial_
 - **Problem / Solution:**
@@ -72,7 +83,7 @@ _created 2026-11-12 18:30 · initial_
 - **Forensic keys (1):**
   - `tier`: 2
 
-### `ZONE-CAMERA-DISCOVERY-DEVICE-AREA-1` - Zone camera discovery reads only the entity's own area, but every camera's area is set on the device, so no zone has any camera (face arrival never worked) — _#3 · WSJF 2.2 · v6 tc3 u2 /e5_
+### `ZONE-CAMERA-DISCOVERY-DEVICE-AREA-1` - Zone camera discovery reads only the entity's own area, but every camera's area is set on the device, so no zone has any camera (face arrival never worked) — _#4 · WSJF 2.2 · v6 tc3 u2 /e5_
 thread: **identity** - status: **investigating** - approval: **unreviewed**
 _created 2026-11-12 17:06 · initial_
 - **Problem / Solution:**

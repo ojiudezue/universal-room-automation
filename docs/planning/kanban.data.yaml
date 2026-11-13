@@ -34521,6 +34521,27 @@ cards:
     related: [ZONE-CAMERA-DISCOVERY-DEVICE-AREA-1, PERSON-PROFILE-PREFERENCES-1, FRIGATE-DOOR-FACE-TUNING-1]
   next: 'Me: planner writes Tier-3 plan; two plan reviews; then APPROVE from operator.'
   rank: {value: 8, time_criticality: 4, effort: 8}
+- id: LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1
+  title: A camera seeing any body while the house is away moves it to ARRIVING, which releases the garage lockout and auto-disarms security with no identity
+  thread: security
+  status: investigating
+  created: '2026-11-12 19:10'
+  updated: '2026-11-12 19:10'
+  refinement_status: initial
+  tier: 3
+  approval: unreviewed
+  problem_solution:
+  - 'Problem: presence.py:1347-1369 moves house away -> ARRIVING on camera body evidence; ARRIVING releases the garage lockout (security_lock_regime.py:864, :809) and makes security auto-disarm (security.py:192, :1452). Away-lock is not on this path. Solution: TBD; first measure how often away->ARRIVING fired from camera-only evidence and what it actuated (fire check + forward trace), then require identity or a non-camera arrival edge for access-class actions.'
+  origin:
+    date: '2026-11-12'
+    gist: 'Found by the face-arrival planner, confirmed by the completeness plan review (PLAN_face_arrival_rebuild_review_completeness.md).'
+  why: 'Same policy principle as FACE-ARRIVAL-REBUILD-1: access actions need identity plus an independent signal; a body alone is weaker than a face.'
+  constraints:
+  - Read IDENTITY_FUSION_CAMERAS_MANUAL.md, PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md before planning. Do not regress real arrivals unlocking (operator, "Feeling locked out is a nasty feeling").
+  links:
+    related: [FACE-ARRIVAL-REBUILD-1]
+  next: 'Me: read-only probe of away->ARRIVING transitions over recorder history, their evidence source and resulting lockout releases / disarms.'
+  rank: {value: 9, time_criticality: 6, effort: 5}
 - id: FRIGATE-DOOR-FACE-TUNING-1
   title: Door and exterior cameras recognize few faces (garage 36, doorbell 33, entry 16, aerial 7 since 11-05; 9 cameras zero), capping egress identity near 40%
   thread: identity
