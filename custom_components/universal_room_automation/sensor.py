@@ -4505,6 +4505,13 @@ class ExteriorOpenTracksDiagnosticSensor(AggregationEntity, SensorEntity):
                 )
             except Exception:  # noqa: BLE001
                 pass
+            # EXTERIOR-SEAM-LOADER D5: which seam graph is live (file vs
+            # built-in const), its size, the validator verdict, and the
+            # file hash so an edit-without-reload is visible.
+            try:
+                attrs.update(linker.seam_status())
+            except Exception:  # noqa: BLE001
+                pass
             # B-M3: per-camera unlinked-events counter (events that opened a
             # fresh single-hop track rather than extending an existing one —
             # diagnostic proxy for adjacency gaps).

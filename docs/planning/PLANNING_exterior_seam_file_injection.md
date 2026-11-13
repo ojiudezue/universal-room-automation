@@ -1,6 +1,6 @@
 # PLANNING — Operator-injectable exterior camera seam file
 
-**Status:** PLAN ONLY — build/no-build decision pending operator.
+**Status:** D1/D2/D4/D5/D6 + load path BUILT (2026-11-12, `feature/exterior-seam-loader`, not deployed); D3 upload spiked only.
 **Date:** 2026-09-13 · **Proposed tier:** 2 (new load path into a safety-adjacent primitive; no new coordinator, no DB)
 **Cards:** CAMERA-SEAM-VALIDATION-1, CAMERA-SEAM-RING-CONTRADICTION-1, CAMERA-PTULTRA-NOT-IN-PERIMETER-1, EGRESS-CAMERA-LIST-STALE-5-NOT-3-1
 
@@ -173,9 +173,14 @@ disable cross-camera linking (every track fragments, which looks like "working")
 | **D1** format/parser | **BUILT** — `exterior_seams.py` on `feature/exterior-seam-file-d1d2` |
 | **D2** validator | **BUILT** — 6 rules, whole-file rejection, derived egress-adjacent |
 | **D3** upload | **SPIKED ONLY** — viable, 4 gotchas documented above; manifest needs `file_upload` |
-| **D4** reload button | carded, not built |
-| **D5** provenance attrs | carded, not built |
-| **D6** const fallback | **CONFIRMED** against TOU source; enforced by D2's reject-wholesale contract |
+| **Load path (wire-in)** | **BUILT 2026-11-12** (`feature/exterior-seam-loader`) — found missing 2026-11-12: D1/D2 were marked BUILT but nothing imported `exterior_seams.py`. Now `ExteriorTrackLinker.async_setup` -> `async_load_seam_file` (executor read, D2 validation vs configured camera keys, `set_adjacency` + derived egress-adjacent; `_classify` reads the installed set) |
+| **D4** reload button | **BUILT 2026-11-12** — `button.ura_reload_exterior_seams`; rejected reload keeps the previous good graph |
+| **D5** provenance attrs | **BUILT 2026-11-12** — `seam_source` / `seam_count` / `seam_validation` / `seam_file_sha256` / `seam_egress_adjacent` on the exterior open-tracks diagnostic sensor |
+| **D6** const fallback | **BUILT 2026-11-12** — absent file -> const; invalid -> previous graph (const at boot), one WARNING with the first error |
+
+Live file (rev 2) vs const, 2026-11-12: identical (21 seams, 13 cameras, same egress-adjacent
+set), so the takeover is behaviour-neutral. Tests: `quality/tests/test_exterior_seam_loader.py`
+(13), each load-bearing site mutation-drilled RED.
 
 Tests: 15, plus two mutation drills — neutering the fenced-pair check and neutering the
 egress-camera exclusion each turned a specific named test RED; restored, residue 0.
