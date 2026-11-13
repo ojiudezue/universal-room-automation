@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-13T03:08:06-06:00_ - _Data commit: `6aaab9399361`_ - _last_reconciled: 2026-11-13_
+_Generated: 2026-11-13T03:19:33-06:00_ - _Data commit: `ab7a602feff8`_ - _last_reconciled: 2026-11-13_
 
 
 ## Columns
@@ -140,11 +140,12 @@ thread: **identity** - status: **investigating**
 _created 2026-11-12 22:00_
 - **Origin:** 2026-11-12 - Operator: watch arrivals with AI vision; time-lapse; fast first frames; counting is easy, naming is hard; guests are the census problem; OpenAI models (GPT-6 Luna/Sol); deconflict with camera counts until trusted (100 crossi...
 - **Why:** Design in PLANNING_person_sighting_layer.md section 15. Gates: D0-FRAME (blank-frame experiment), D0-SIM (timing simulation), D0-V (model scoring incl. dry call per GPT-6 model for llmvision param compatibility). Then its own sibling plan.
-- **Next:** Me: apply the re-anchor edits to plan section 15 (arm at the camera edge, group-wide frame guard, thumbnails as fallback, 90/120 s windows, cap 40, Doorbell Lite in garage A); then D0-V (about 50 past frames to OpenAI, operator-approved ...
-- **Forensic keys (3):**
+- **Next:** Me: revise plan section 15.9 frame guard to judge frames directly; resolve the llmvision temperature blocker for GPT-6 models (config-first); then the sibling vision plan.
+- **Forensic keys (4):**
   - `arc_cut_v5_108_16`: own sibling plan, D0-FRAME/SIM done, re-anchor edits then D0-V
   - `tier`: 3
   - `FINDING_2026-11-13`: AUDIT_vision_d0_frame_sim_2026_11_13.md: D0-FRAME and D0-SIM NO-GO as written, GO if re-anchored. Plan assumed crossing emit t0 = edge + 0-20 s; code is edge + 45 s (ENTRY_WINDOW_SECONDS). At t0: 63% of crossings have zero usable frames;...
+  - `HANDLABEL_2026-11-13`: Operator hand-labelled 30 door frames (page EQVeja6NrUaZ9DFUPcR8PW, labels in its db). Frigate person-tracking proxy agreed on 22/30 (73%), below the 95% gate: 5 frames had a person the proxy missed (aerial, garage_a, doorbell, G6, one w...
 
 ## 🧭 Pre-planning (13)
 _idea being decomposed_
