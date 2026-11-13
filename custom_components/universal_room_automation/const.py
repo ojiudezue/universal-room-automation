@@ -3594,6 +3594,11 @@ FACE_SOURCE_INCLUDE_DISAMBIGUATED_PERSON_SENSORS: Final = True
 # the skip fix adds include the doorbell / garage / entry cameras, so this
 # flag ALSO gates the S8 device join; S5-S7 (census) follow the flag above.
 # False = S8 legacy skip for `_N` person sensors (pre-cycle behaviour).
+# RETIRED (FACE-ARRIVAL-REBUILD-1 D5, KEEP + DOCUMENT): its only reader,
+# `_get_face_for_camera`, is deleted with the dead v3.19 face-arrival path.
+# The person-sighting producer resolves `_N` picks unconditionally (a
+# producer is never narrowed to protect a consumer, INV-PRODUCER); access
+# consumers are protected by the D3 corroboration gate instead. No reader.
 FACE_SOURCE_PRESENCE_ARRIVAL_DISAMBIGUATED: Final = False
 # D4: kill-switch that ENABLES the provenance filter + producer-health
 # guard (see plan §6 knob table). ON by default; opposite concept

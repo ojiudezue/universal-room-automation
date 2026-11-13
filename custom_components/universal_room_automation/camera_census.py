@@ -4098,20 +4098,6 @@ class PersonCensus:
         warned.add(raw)
         _LOGGER.warning("face_name_aliases: ignoring entry %r (%s)", raw, why)
 
-    def face_alias_person_slug(self, face_name: Any) -> str | None:
-        """D5 for presence face pre-arrival: the TRACKED person slug an
-        explicit alias maps ``face_name`` to, else None (guest targets and
-        unaliased names return None). Empty alias list = always None."""
-        try:
-            t = self._face_alias_target(
-                self._norm_face_name(face_name), self._get_tracked_person_slugs(),
-            )
-        except Exception:  # noqa: BLE001
-            return None
-        if t and not t.startswith("guest:"):
-            return t
-        return None
-
     # Back-compat alias — external callers historically used the old name.
     def _normalize_person_name(self, name: Any) -> str:
         return self._canonical_person_slug(name)

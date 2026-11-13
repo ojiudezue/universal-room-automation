@@ -95,12 +95,15 @@ suffix-tolerant match helper is
   (`_device_derived_face_entity_id`, `camera_census.py:3265`) after the legacy suffix test
   fails. S7 stays fail-closed (no face sensor -> whole count unrecognized) and can only go
   down (INV-4). Kill switch `FACE_SOURCE_INCLUDE_DISAMBIGUATED_PERSON_SENSORS` (rung 1, True).
-- **Presence face pre-arrival (S8, `presence._get_face_for_camera`) is held OFF for those
-  cameras** by its own rung-1 `FACE_SOURCE_PRESENCE_ARRIVAL_DISAMBIGUATED` (False): it
-  dispatches `SIGNAL_PERSON_ARRIVING(source=camera_face)`, which the SC lock regime turns into
-  a garage-lockout release and an away-lock UNLOCK for a resident who was away
-  (`security_lock_regime.on_person_arriving`). The 17 include the doorbell / garage / entry
-  cameras. Operator decision pending (README_v5.107.1).
+- **Presence face pre-arrival (S8) is RETIRED (FACE-ARRIVAL-REBUILD-1 D5, branch
+  `feature/person-sightings-p1`, NOT deployed).** `presence._get_face_for_camera`,
+  `_handle_face_arrival` and `_find_person_entity_from_face` are deleted: the path fired 0 times in
+  ~90 days (zone trackers had no cameras; edge race; `_N` producer disabled; no was-away test).
+  `FACE_SOURCE_PRESENCE_ARRIVAL_DISAMBIGUATED` is KEEP + DOCUMENT with no reader. Faces now become
+  person sightings (§4.5a) over the operator's `zone_cameras` picks, `_N` picks included; a
+  `camera_face` arrival comes only from the D2 rule (interior class (i) "face before phone",
+  `FACE_ARRIVAL_INTERIOR_ENABLED` False: D0-P3 failed) and access consumers still need an
+  independent edge (§4.5).
 - `FaceLeg.engine` is the device family (`CameraResolver.face_engine_tag`, `:737`):
   `frigate` / `protect` / ..., the hint on any miss, never `frigate2` / `unknown`. The entity
   leg and the synthetic latch leg use the same helper, so they still dedup (INV-2). Live
@@ -332,9 +335,9 @@ face / ble / DB / `person.<slug>` all agree). **Face-name aliases (v5.107.1):** 
 `face_name_aliases` option (Camera Census, Advanced; entries `FaceName=target`, target = a
 tracked slug with or without `person.`, or a `known_face_guests` name) is consulted after the
 direct slug match and before first-token inference (`_face_alias_target`, `:4013`). Empty by
-default (no change). An alias also lets presence map a face to `person.<slug>`
-(`face_alias_person_slug`, used by `_find_person_entity_from_face`), and widens the perimeter
-D10.5 `known` set. Fresh-read; saving it does not reload the integration.
+default (no change). Aliases are applied ONLY inside `_canonical_person_slug` (the one mapper; the presence-side
+`face_alias_person_slug` / `_find_person_entity_from_face` pair was DELETED by
+FACE-ARRIVAL-REBUILD-1 D5), and widen the perimeter D10.5 `known` set. Fresh-read; saving it does not reload the integration.
 
 Cutover flag `CENSUS_USE_NEW_RESOLVER = True`
 (`camera_resolver.py:102`) — the census's
@@ -521,8 +524,10 @@ without that automation got nothing. Both now register on one
   silent" WARN now fires only when BOTH sources are silent.
 
 **SC lock regime face arrivals (v5.107.4, LOCK-REGIME-FACE-ARRIVAL-CORROBORATION-1,
-branch `feature/lock-face-arrival`, shipped v5.107.6).** A `SIGNAL_PERSON_ARRIVING` with
-`source: camera_face` (presence `_handle_face_arrival`, any zone camera) used to
+branch `feature/lock-face-arrival`, shipped v5.107.6).** (FACE-ARRIVAL-REBUILD-1 D5: the only
+`camera_face` producer is now the D2 rule, interior class (i) only and off by default; egress
+identity feeds no arrival.) A `SIGNAL_PERSON_ARRIVING` with
+`source: camera_face` (formerly presence `_handle_face_arrival`, any zone camera) used to
 release the garage lockouts and the away lock whenever the person was really away.
 It now also needs the same independent same-person arrival edge as D10.5: a live
 tracker `not_home → home`, or a Bermuda move into an entry area (egress camera areas
@@ -788,9 +793,15 @@ back to `"unidentified"` when it is NULL:
 | `LastPersonEntrySensor` | `sensor.py:4464` | `person_id` → last-entry name |
 | `LastPersonExitSensor` | `sensor.py:4512` | `person_id` → last-exit name |
 
-**NOTHING reads `identity_confidence` / `agreement_class` yet.** The
-confidence tier is produced and persisted but has zero live consumers —
-every consumer below is a *should-be-consuming gap*, not shipped wiring.
+**CORRECTED (FACE-ARRIVAL-REBUILD-1 D5, code wins): `identity_confidence` HAS a live reader.**
+`TransitValidator._arrival_departure_notify` (`transit_validator.py`, called from
+`_resolve_direction`) names the person in "X arrived / left" only at `identity_confidence >=
+ARRIVAL_NAME_CONFIDENCE_THRESHOLD` (0.75), else "Someone" (notification-naming class, (b) below).
+It is the ONE arrival/departure notification site. Since D1 the person-sighting producer (§4.5a)
+also reads the bus `identity_confidence` / `identity_provenance` (display-class: it copies them
+into an egress sighting). `agreement_class` still has no decision reader. Egress identity feeds no
+arrival, and the security expected-arrival suppression is done by an independent non-face edge
+(`face_input_corroborated`), never by the face (F7 resolved without a doctrine change).
 
 **(a) SAFETY DOCTRINE — the invariant for any identity consumer.**
 Egress identity may only **DE-ESCALATE or ANNOTATE** a security
