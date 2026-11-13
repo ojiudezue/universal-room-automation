@@ -346,7 +346,9 @@ reviews, orchestrator re-grep and mutation, operator checkpoint).
 ## 8. Non-goals
 
 Vision supplying a name or any `identity_provenance = "vision"`; vision direction; B-stage chains across cameras and
-interior head counts (VISION-INTERIOR-SIGHTINGS-1); Protect-only crossings (22 %, recorded `no_frigate_event`; revival:
-`no_frigate_event` > 25 % of a door group's crossings); two models per crossing; ledger replay across restarts; frame
+interior head counts (VISION-INTERIOR-SIGHTINGS-1); crossings with no matched Frigate event (all four door cameras run Frigate; 26 % unmatched at ±10 s, 17 % at ±30 s,
+12 % at ±60 s per `AUDIT_crossing_vision_d0_2026_11_13.md`; recorded `no_frigate_event`; first lever is widening
+`CROSSING_VISION_EVENT_MATCH_S`, then a probe of Protect event clips; revival: `no_frigate_event` > 25 % of a door
+group's crossings); two models per crossing; ledger replay across restarts; frame
 extraction inside URA; any house-state, security, lock, perimeter or HVAC change (the census plan's ladder governs reach);
 the parked Rev 4 guard A / veto B (operator: stay parked).

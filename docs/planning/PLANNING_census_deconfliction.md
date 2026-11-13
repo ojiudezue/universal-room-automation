@@ -341,7 +341,8 @@ deny/allow lists, "appeared since last empty anchor"); "absent is not zero" degr
 max; `census.health` ∈ {ok, degraded, absent}); the empty-anchor idea (implemented as the ledger anchor, sibling plan);
 resident subtraction once.
 
-Not carried as build (operator decision needed, see report): the door-tally attribution pipeline (leg-collapse,
+Not carried as build (operator parked 2026-11-13 on CENSUS-DOOR-TALLY-ATTRIBUTION-PARKED-1, revival on a bar a / a2 miss
+or the house-state rung): the door-tally attribution pipeline (leg-collapse,
 same-person, round-trip pairing, main-entry-door prior with reversal, P-AMB ambiguous policy, `T_amb` / `B` ESTIMATE
 band) and the FLOOR → `total_persons` promotion (estimator D6, which is rung 4 here). The ledger replaces T; whether
 any attribution step should be added to the ledger is decided by bar a (drift) and bar a2 (reconcile load).
