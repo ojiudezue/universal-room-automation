@@ -34515,7 +34515,7 @@ cards:
 - id: GARAGE-HALLWAY-LOCK-NONCONVERGE-1
   title: "Garage hallway lock: URA re-locks hourly, the lock reverts to unlocked ~7 s later, and the retry cap only writes an audit row"
   thread: security
-  status: investigating
+  status: waiting_operator
   batch: broken-promises-2026-11
   created: '2026-11-12 22:30'
   updated: '2026-11-12 22:30'
@@ -34523,6 +34523,8 @@ cards:
   origin: {date: '2026-11-12', gist: 'Broken-promise sweep (docs/planning/AUDIT_broken_promises_2026_11_12.md); operator: "A lot of our hardening are broken promises from previous work."'}
   why: "Sweep item 3; lock unlocked now. Physical/firmware or a competing writer; the guard never escalates to the operator."
   next: "Me: read lock history + who writes it, then card the fix (escalate to NM on retry cap)."
+  FINDING_2026-11-12: 'AUDIT_garage_hallway_lock_and_perimeter_gates_2026_11_12.md: only URA periodic lock check (security.py:1830-1865) locks it; each relock reverts 6-7 s later with no person/service context; lock reports alarm_type 169 (low battery to operate, per a community Kwikset table) and replace_battery_now on since 11-10 while battery_level reads 90. No automation or other URA code unlocks it. Likely weak battery/actuator. Code follow-up: when the relock reverts N times, stop retrying and send one HIGH notification naming the lock and the battery signal.'
+  next: 'DO: replace the Kwikset garage hallway lock batteries (someone at home) -> I re-check reverts; separately I fix the guard to escalate instead of looping hourly.'
 - id: NM-NO-CHANNEL-FIRED-1
   title: "520 notification_log rows since 11-01 record no_channel_fired / delivered=2 (stuck_signal, circuit_anomaly, lock retry-cap, high_co2): may reach nobody"
   thread: notifications
@@ -34578,6 +34580,17 @@ cards:
   origin: {date: '2026-11-12', gist: 'Broken-promise sweep (docs/planning/AUDIT_broken_promises_2026_11_12.md); operator: "A lot of our hardening are broken promises from previous work."'}
   why: "Sweep item 9; likely superseded by _zone_conditioning_retreat_ok."
   next: "Me: confirm superseded, then DELETE or KEEP+DOCUMENT per triage rule."
+- id: PERIMETER-FP-GATES-DISPOSE-1
+  title: Perimeter false-positive gates D3/D5 shipped shadow-first but D3 can never evaluate (zone sensors never configured) and no shadow counts are kept; no disposal date
+  thread: perimeter
+  status: investigating
+  batch: broken-promises-2026-11
+  created: '2026-11-12 22:55'
+  updated: '2026-11-12 22:55'
+  tier: 2
+  origin: {date: '2026-11-12', gist: 'Operator asked why the gates are off. AUDIT_garage_hallway_lock_and_perimeter_gates_2026_11_12.md.'}
+  why: 'Off by design as shadow-first (README v5.107.0, PLANNING_perimeter_fp_build_2026_11.md), but gate_decisions_by_camera {} and zone_map {} live; D5 learning (g5_bullet clears bar); D5 settle 8 s shorter than most camera lag. 2,295 CRITICAL + 1,754 HIGH exterior_person alerts in ~30 days.'
+  next: 'Me: persist shadow would_demote counts, list the D1 zone sensors needed (operator config), retune D5 settle, then dispose by a fixed date.'
 - id: INTERIOR-PATH-MAP-1
   title: Interior camera path map (outside > door > inside), built from the operator fixture, stored as a validated file with const fallback like the exterior seams
   thread: identity
