@@ -250,7 +250,7 @@ def test_reload_button_entity_id_pinned():
     btn_mod = importlib.import_module("custom_components.universal_room_automation.button")
     b = btn_mod.ReloadExteriorSeamsButton(SimpleNamespace(data={}), SimpleNamespace())
     assert b.entity_id == "button.ura_reload_exterior_seams"
-    assert b.unique_id == f"{DOMAIN}_reload_exterior_seams"
+    assert b._attr_unique_id == f"{DOMAIN}_reload_exterior_seams"
 
 
 # ----------------------------------------------------- provenance (D5) ---
