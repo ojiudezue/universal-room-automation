@@ -246,3 +246,28 @@ Acceptance criteria that discriminate: (a) replay the 10-14 -> 10-18 cluster and
 - `/Users/okosisi/Code/universal-room-automation/custom_components/universal_room_automation/domain_coordinators/security_lock_regime.py` (836-870, 1040-1052, 1566-1600, 1674-1697)
 - `/Users/okosisi/Code/universal-room-automation/custom_components/universal_room_automation/domain_coordinators/security.py` (192, 1186-1203, 1387-1455)
 - Per-edge CSV: scratchpad path in section 2.
+
+## 10. D0 probe for D4b (appended 2026-11-13, `PLANNING_lock_release_on_arriving.md` rev 3 D0)
+
+Plan D0 asks for this section as "§8 (appended)"; §8 above was already taken by Limits, so it lands here.
+Read-only, ura-prober, run 2026-11-13 02:28 CST. No state or repo file changed by the probe.
+
+| Item | Value |
+|---|---|
+| Recorder window (authoritative) | `/config/home-assistant_v2.db` `states`, 2026-11-05 04:12 CST -> 2026-11-13 02:28 CST (~7.9 days, 1.13 weeks) |
+| House-state window | URA DB `house_state_log`, 8,636 rows, 2026-03-12T05:20:40Z -> 2026-11-13T04:00:14Z |
+| Resident `person.*` rows in `unavailable` / `unknown` (oji_udezue, ezinne, ziri, jaya) | **0** (the 44 such rows in the window are all `person.wall_kiosk`, not a resident; this shows the query can return them) |
+| Resident `unavailable/unknown -> home` edges | **0** |
+| a-real / a-phantom / a-unclass / a-late | **0 / 0 / 0 / 0** |
+| Resident `home -> unavailable/unknown` (departure unseen) | **0** |
+| False-page estimate, recent window | (0 + 0) / 1.13 weeks = **0 per week** |
+| False-page estimate, all time | not computable: `person_presence_snapshots` stores only `away` or a Bermuda room name at 15-minute cadence, never `unavailable` / `unknown` |
+
+Query: `select m.entity_id, s.state, count(*) from states s join states_meta m using(metadata_id) where m.entity_id like 'person.%' group by 1,2`.
+Per resident (home / not_home rows): Oji 1111 / 739, Ezinne 1578 / 256, Ziri 9 / 50, Jaya 789 / 42.
+
+**Go/no-go (plan D0): < 1 per week -> D4b ships ENABLED** (`LOCK_RELEASE_UNCOUNTED_RETURN_PAGE_ENABLED = True`). The
+source-change discriminator was not needed and is not built. The tainted-window join and the §7 (a)/(b) offline replay
+were not run by the probe because there were no edges to place; the replay acceptance is covered in-suite by the D1
+replay tests. Limits: 8 days of recorder only; the zero says the shape did not occur in this window, not that it cannot.
+HA's `person` entity reads `unknown` only when every tracker is unknown, which with one GPS tracker per resident is rare.

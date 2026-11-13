@@ -218,6 +218,12 @@ and (b) sets through `quality/tests/_lock_arrival_replay.py` decision logic offl
     the measured rates.
 - **Live:** n/a (offline).
 
+**D0 result (2026-11-13, recorded in the audit §10):** recorder 2026-11-05 04:12 -> 11-13 02:28 CST (1.13 weeks):
+0 resident `unavailable/unknown -> home` edges, 0 resident `home -> unavailable/unknown` departures; a-real 0,
+a-phantom 0, a-unclass 0, a-late 0; false-page estimate 0 per week (all-time not computable: the snapshot table never
+stores unavailable/unknown). Decision: **D4b ships enabled** (`LOCK_RELEASE_UNCOUNTED_RETURN_PAGE_ENABLED = True`); the
+source-change discriminator is not built.
+
 ### D1: lock regime: a tainted episode never releases on house-state edges
 
 All in `domain_coordinators/security_lock_regime.py`.
