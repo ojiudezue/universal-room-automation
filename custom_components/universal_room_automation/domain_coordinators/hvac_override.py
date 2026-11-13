@@ -3962,8 +3962,10 @@ class OverrideArrester:
         _ended_pa = False
         if _ended_tok is not None:
             try:
-                from .hvac_const import S12_PRE_ARRIVAL_SITE as _s12pa_n4  # noqa: PLC0415
-                _ended_pa = _ended_tok.caller_site == _s12pa_n4
+                # HVAC-PRECOOL-STANDDOWN-WHEN-COOL-1 C4: either pre-arrival
+                # leg (cool S12 / heat S13) takes the arrival reference.
+                from .hvac_const import PRE_ARRIVAL_CALLER_SITES as _pa_sites_n4  # noqa: PLC0415
+                _ended_pa = _ended_tok.caller_site in _pa_sites_n4
             except Exception:  # noqa: BLE001
                 _ended_pa = False
         # HVAC Batch D (INFO-1, operator ruling "B"): a person's change ENDED
