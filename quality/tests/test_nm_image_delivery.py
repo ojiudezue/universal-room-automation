@@ -701,6 +701,7 @@ class TestD3AuditSentinelFilter:
             },
         ])
         db.mark_digest_delivered = AsyncMock()
+        db.count_no_route_since = AsyncMock(return_value=0)
         hass.data[DOMAIN]["database"] = db
 
         asyncio.get_event_loop().run_until_complete(

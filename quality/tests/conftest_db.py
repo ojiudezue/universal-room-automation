@@ -107,8 +107,11 @@ def _extract_alter_table_statements(src: str, table_name: str) -> list[str]:
 
     # Pattern 1: literal ALTER TABLE strings — must NOT contain { (that would
     # be an f-string template, not a concrete SQL statement).
+    # NM-NO-CHANNEL-FIRED-1: also accept the implicitly-concatenated split
+    # form  "ALTER TABLE t "  "ADD COLUMN col TYPE"  (notification_log
+    # dry_run + Cycle C audit columns were silently missing before).
     literal_pattern = re.compile(
-        rf'"ALTER TABLE {re.escape(table_name)} ADD COLUMN ([^"{{]+)"'
+        rf'"ALTER TABLE {re.escape(table_name)} (?:"\s*")?ADD COLUMN ([^"{{]+)"'
     )
     for match in literal_pattern.finditer(src):
         col_part = match.group(1)
@@ -120,7 +123,7 @@ def _extract_alter_table_statements(src: str, table_name: str) -> list[str]:
     # Then walk backward to find the tuple list that defines the columns.
     fstring_template = f"ALTER TABLE {table_name} ADD COLUMN "
     fstring_pattern = re.compile(
-        rf'f"ALTER TABLE {re.escape(table_name)} ADD COLUMN \{{[^}}]+\}}'
+        rf'f"ALTER TABLE {re.escape(table_name)} (?:"\s*f")?ADD COLUMN \{{[^}}]+\}}'
     )
     for fmatch in fstring_pattern.finditer(src):
         idx = fmatch.start()
