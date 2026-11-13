@@ -2,14 +2,14 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-13T14:03:04-06:00_ - _Data commit: `688042b311b8`_ - _last_reconciled: 2026-11-13_
+_Generated: 2026-11-13T14:08:44-06:00_ - _Data commit: `cbeb8c3f0c1e`_ - _last_reconciled: 2026-11-13_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 14 |
+| 📥 Inbox | 15 |
 | 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 30 |
@@ -21,7 +21,7 @@ _Generated: 2026-11-13T14:03:04-06:00_ - _Data commit: `688042b311b8`_ - _last_r
 | 🅿️ Parked | 124 |
 | ✅ Done | 432 |
 
-## 📥 Inbox (14)
+## 📥 Inbox (15)
 _raw capture_
 
 ### `NM-DIGEST-MARK-RACE-1` - mark_digest_delivered marks every undelivered row, including rows queued while the digest was sending, so they never appear in any digest — _#1 · WSJF 9.0 · v4 tc3 u2 /e1_
@@ -92,7 +92,16 @@ _created 2026-11-13 13:00_
 - **Forensic keys (1):**
   - `tier`: 2
 
-### `PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1` - Circling hop 1 and hop 3 are both HIGH in production, so the claim that their severities differ (and their NM dedup keys cannot collide) does not hold — _#8 · WSJF 4.5 · v4 tc3 u2 /e2_
+### `CAMERA-STREAM-DEAD-ZONE-AND-CENSUS-1` - Zone tier, census and fan recheck ignore room-level sensor exclusions, so a frozen dead-camera 'on' still holds the zone — _#8 · WSJF 5.0 · v5 tc3 u2 /e2_
+thread: **presence** - status: **inbox**
+_created 2026-11-13 15:30_
+- **Origin:** 2026-11-13 - Planner (plan/perimeter-batch 70d72c8e, Part B D4): up_hallway_panel_person_occupancy froze on 14 h during the KS outage and held Upstairs Hallway 4 h; D4 excludes the dead input at room level, but zone/census/fan recheck do...
+- **Why:** D4 alone leaves the zone and census holding a dead camera input; residual of the panel-health fix.
+- **Next:** Me: fold into the D4 cycle plan (Part B of PLANNING_perimeter_gate_evidence_and_input_health.md) or sequence right after; enumerate zone/census/fan readers of camera inputs.
+- **Forensic keys (1):**
+  - `tier`: 2
+
+### `PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1` - Circling hop 1 and hop 3 are both HIGH in production, so the claim that their severities differ (and their NM dedup keys cannot collide) does not hold — _#9 · WSJF 4.5 · v4 tc3 u2 /e2_
 thread: **security** - status: **inbox**
 _created 2026-11-13 12:00_
 - **Origin:** 2026-11-13 - Review A-L1 of house-state step 1a; pre-existing (persons_home always 0 live).
@@ -101,7 +110,7 @@ _created 2026-11-13 12:00_
 - **Forensic keys (1):**
   - `tier`: 2
 
-### `PHONE-LEFT-BEHIND-TRANSIENT-FLICKER-1` - Phone-left-behind flags flicker on for one 30 s poll at arrival ticks and after restarts (17 in 8 days, none real) — _#9 · WSJF 4.0 · v4 tc2 u2 /e2_
+### `PHONE-LEFT-BEHIND-TRANSIENT-FLICKER-1` - Phone-left-behind flags flicker on for one 30 s poll at arrival ticks and after restarts (17 in 8 days, none real) — _#10 · WSJF 4.0 · v4 tc2 u2 /e2_
 thread: **presence** - status: **inbox**
 _created 2026-11-13 04:30_
 - **Origin:** 2026-11-13 - Measured by the phone-left-behind plan: 10 arrival ticks (house still AWAY while BLE places person in a room), 6 first-tick-after-restart before census ready, 1 other.
@@ -112,7 +121,7 @@ _created 2026-11-13 04:30_
   - `arc_cut_v5_108_18`: with PLB build
   - `tier`: 2
 
-### `PERIMETER-SWITCH-LABELS-AND-FLOW-PARITY-1` - Perimeter demote switches have unclear names and no config-flow entry; every device switch needs an options-flow field — _#10 · WSJF 4.0 · v4 tc2 u2 /e2_
+### `PERIMETER-SWITCH-LABELS-AND-FLOW-PARITY-1` - Perimeter demote switches have unclear names and no config-flow entry; every device switch needs an options-flow field — _#11 · WSJF 4.0 · v4 tc2 u2 /e2_
 thread: **security** - status: **inbox**
 _created 2026-11-13 12:30_
 - **Origin:** 2026-11-13 - Operator: "Name of switch. not good yet." "Switches should have a config flow entry. They are on the device for convenience and quick access."
@@ -121,7 +130,7 @@ _created 2026-11-13 12:30_
 - **Forensic keys (1):**
   - `tier`: 1
 
-### `STALE-SOURCE-ARRIVAL-CONSUMERS-1` - Other features still treat a stale tracker-fallback 'home' blip as a real arrival (security expected-arrival window first) — _#11 · WSJF 3.3 · v5 tc3 u2 /e3_
+### `STALE-SOURCE-ARRIVAL-CONSUMERS-1` - Other features still treat a stale tracker-fallback 'home' blip as a real arrival (security expected-arrival window first) — _#12 · WSJF 3.3 · v5 tc3 u2 /e3_
 thread: **security** - status: **inbox** - approval: **unreviewed**
 _created 2026-11-12 14:42 · updated 2026-11-12 17:01 · initial_
 - **Problem / Solution:**
@@ -133,7 +142,7 @@ _created 2026-11-12 14:42 · updated 2026-11-12 17:01 · initial_
   - `tier`: 2
   - `finding_2026_11_12_expected_arrival_always_on`: CORRECTS the 11-12 inventory claim that the expected-arrival window is off by default. Only the SIGNAL_PERSON_ARRIVING path is gated (CONF_SECURITY_ON_ARRIVAL_ADD_EXPECTED, security.py:2413). The security geofence listener adds expected ...
 
-### `HVAC-PRECOOL-FLOOR-BELOW-ARRIVAL-HEAT-1` - With Solar Banking Cool Floor below ~72, arrival pre-cool can cool a zone already inside Home's band down to the heat setpoint — _#12 · WSJF 3.0 · v3 tc1 u2 /e2_
+### `HVAC-PRECOOL-FLOOR-BELOW-ARRIVAL-HEAT-1` - With Solar Banking Cool Floor below ~72, arrival pre-cool can cool a zone already inside Home's band down to the heat setpoint — _#13 · WSJF 3.0 · v3 tc1 u2 /e2_
 thread: **hvac** - status: **inbox** - approval: **unreviewed**
 _created 2026-11-12 20:00 · initial_
 - **Problem / Solution:**
@@ -144,7 +153,7 @@ _created 2026-11-12 20:00 · initial_
 - **Forensic keys (1):**
   - `tier`: 1
 
-### `DEPARTURE-ACTIONS-1` - Nothing acts on a named departure; direction-aware egress makes departures available — _#13 · WSJF 2.2 · v5 tc2 u2 /e4_
+### `DEPARTURE-ACTIONS-1` - Nothing acts on a named departure; direction-aware egress makes departures available — _#14 · WSJF 2.2 · v5 tc2 u2 /e4_
 thread: **identity** - status: **inbox**
 _created 2026-11-12 22:00_
 - **Origin:** 2026-11-12 - Plan rev 8 section 2B: no departure signal this cycle.
@@ -156,7 +165,7 @@ _created 2026-11-12 22:00_
   - `arc_cut_v5_108_16`: needs phase 2 departures
   - `tier`: 2
 
-### `EC-ATTAIN-RATE-DUP-SAMPLE-1` - The battery charge-rate window can record the same reading twice in one tick, shortening its 15-minute window — _#14 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `EC-ATTAIN-RATE-DUP-SAMPLE-1` - The battery charge-rate window can record the same reading twice in one tick, shortening its 15-minute window — _#15 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **inbox** - approval: **unreviewed**
 _created 2026-11-12 14:13 · initial_
 - **Problem / Solution:**
@@ -401,8 +410,9 @@ _created 2026-11-13 14:30_
 - **Origin:** 2026-11-13 - Operator: "If the app is down Ura can't do what it needs to do and enabling new features like motion etc will be compromised." Evidence homelab 6b131ff: Up Hallway KS down ~39 h, no URA presence source; Study A down 47 min w...
 - **Why:** Panels are a sensor-fleet dependency. A headless KS leaves entities that look healthy (Study A) or go unavailable silently (Up Hallway); URA must stop trusting panel-sourced inputs while KS is unhealthy and say so, or every panel-fed fea...
 - **Next:** Me: prior-art scan (sensor.<room>_unavailable_entities, stuck-signal watchdog, SENSOR_FLEET_CLASSES), then a per-panel health getter (foreground_app == kiosk_satellite AND F2 camera fps > 0) that marks the panel inputs untrusted + NM tri...
-- **Forensic keys (1):**
+- **Forensic keys (2):**
   - `tier`: 2
+  - `planner_2026_11_13`: Plan 70d72c8e Part B (D4): KS foreground_app is the WRONG signal (unavailable 18 h on Study A while streaming); Frigate camera.<panel> unavailable matched both outages exactly. D4 = generic rule: ignore a camera-derived input while its o...
 
 ### `EGRESS-BLE-ARRIVAL-LATENCY-1` - BLE arrival fires ~20-120 s after geofence despite scanners at each egress: measure where the delay is — _#3 · WSJF 6.0 · v3 tc1 u2 /e1_
 thread: **presence** - status: **planned** - approval: **explicit**

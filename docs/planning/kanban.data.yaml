@@ -35133,8 +35133,21 @@ cards:
   links: {related: [F2-PANEL-FFMPEG-CRASHLOOP-1]}
   origin: {date: '2026-11-13', gist: 'Operator: "If the app is down Ura can''t do what it needs to do and enabling new features like motion etc will be compromised." Evidence homelab 6b131ff: Up Hallway KS down ~39 h, no URA presence source; Study A down 47 min with KS still connected and rtsp switch reading on.'}
   why: 'Panels are a sensor-fleet dependency. A headless KS leaves entities that look healthy (Study A) or go unavailable silently (Up Hallway); URA must stop trusting panel-sourced inputs while KS is unhealthy and say so, or every panel-fed feature (motion, presence, camera person) degrades invisibly.'
+  planner_2026_11_13: 'Plan 70d72c8e Part B (D4): KS foreground_app is the WRONG signal (unavailable 18 h on Study A while streaming); Frigate camera.<panel> unavailable matched both outages exactly. D4 = generic rule: ignore a camera-derived input while its own camera entity is unavailable past grace; reuses room sensor exclusion. Own cycle after Part A.'
   next: 'Me: prior-art scan (sensor.<room>_unavailable_entities, stuck-signal watchdog, SENSOR_FLEET_CLASSES), then a per-panel health getter (foreground_app == kiosk_satellite AND F2 camera fps > 0) that marks the panel inputs untrusted + NM trip-wire with a zero-fire check. Homelab watchdog restarts; URA detects and degrades.'
   rank: {value: 7, time_criticality: 5, effort: 2}
+- id: CAMERA-STREAM-DEAD-ZONE-AND-CENSUS-1
+  title: Zone tier, census and fan recheck ignore room-level sensor exclusions, so a frozen dead-camera 'on' still holds the zone
+  thread: presence
+  status: inbox
+  created: '2026-11-13 15:30'
+  updated: '2026-11-13 15:30'
+  tier: 2
+  links: {related: [PANEL-KS-HEALTH-AS-INPUT-1]}
+  origin: {date: '2026-11-13', gist: 'Planner (plan/perimeter-batch 70d72c8e, Part B D4): up_hallway_panel_person_occupancy froze on 14 h during the KS outage and held Upstairs Hallway 4 h; D4 excludes the dead input at room level, but zone/census/fan recheck do not honour room exclusions.'}
+  why: 'D4 alone leaves the zone and census holding a dead camera input; residual of the panel-health fix.'
+  next: 'Me: fold into the D4 cycle plan (Part B of PLANNING_perimeter_gate_evidence_and_input_health.md) or sequence right after; enumerate zone/census/fan readers of camera inputs.'
+  rank: {value: 5, time_criticality: 3, effort: 2}
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
