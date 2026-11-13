@@ -451,7 +451,13 @@ How they relate:
   is PROJECTED into one egress sighting (place = the crossing's room). The sighting copies the slug, provenance and
   confidence the egress producer decided; it never re-runs the JOIN. Exit backfill (late BLE naming) produces no
   sighting.
-- **The census does not read sightings, and sightings do not feed the census.** Both read the SAME face sensors
+- **CORRECTION 2026-11-13: the next bullet's rule is RETIRED (operator, CLAUDE.md d1d7b387).** Replacement:
+  sightings, interior vision included, MAY feed F2, but only through ONE deconfliction function that dedups by
+  evidence source (camera, base stem, slug, time) so no face or body is counted twice. That was the old rule's only
+  job. The function is specified in `ARC_identity_vision_census_map.md` §3. Code today has no sighting-to-census
+  path (the census face legs and the sighting producer still read the same sensors independently), so nothing in the
+  shipped code contradicts either rule; the retirement only changes what future plans may build.
+- ~~**The census does not read sightings, and sightings do not feed the census.**~~ (RETIRED, see above.) Both read the SAME face sensors
   and latch through the SAME mapper and suppression primitives. A feed in either direction would count one face
   twice (the census double-count history, CLAUDE.md producer/consumer rule). The census keeps registering egress
   identities itself (`register_egress_face`), as today.

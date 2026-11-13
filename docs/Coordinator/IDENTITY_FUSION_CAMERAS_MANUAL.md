@@ -637,6 +637,14 @@ co-detections are a report only: `AUDIT_interior_path_map_learned_vs_operator.md
 
 ### 4.5a Person sightings (FACE-ARRIVAL-REBUILD-1 D1 + D4, branch `feature/person-sightings-p1`, NOT deployed)
 
+**CORRECTION 2026-11-13: the rule "the census and sightings never feed each other" (person-sighting plan §2A) is
+RETIRED** (operator, CLAUDE.md d1d7b387: "past its usefulness"). Replacement: sightings, interior vision included, MAY
+feed F2 (`PersonCensus`), but only through ONE deconfliction function that dedups by evidence source, so no face or
+body is counted twice. The function and the plans that feed it: `docs/planning/ARC_identity_vision_census_map.md` §3.
+Code wins: no sighting-to-census path exists in code today; the census face legs dedup synthetic legs by
+`(canonical_slug, engine, base_stem)` (`camera_census.py:3576-3588`) and the identified union canonicalises names
+(`camera_census.py:2533-2540`). Unchanged: a crossing is not a sighting; access never acts on F4 alone.
+
 `person_sighting.PersonSightingProducer` (built by `PresenceCoordinator._setup_person_sightings` in
 `async_setup`, ticked from `_periodic_inference`, torn down in `async_teardown`) emits
 `SIGNAL_PERSON_SIGHTING` with a frozen `PersonSighting`: "P was seen at camera/room/house zones at
