@@ -30,6 +30,9 @@ from .camera_resolver import _strip_disambiguation_suffix
 from . import const as _ura_const  # rung-1 flags read at call time
 
 from .const import (
+    IDENTITY_PROVENANCE_BLE,
+    IDENTITY_PROVENANCE_BLE_FACE,
+    IDENTITY_PROVENANCE_FACE,
     DOMAIN,
     CONF_AREA_ID,
     CONF_ROOM_NAME,
@@ -4138,7 +4141,7 @@ class PersonCensus:
 
     def register_egress_face(
         self, name: str, ts: datetime | None = None,
-        provenance: str = "face",
+        provenance: str = IDENTITY_PROVENANCE_FACE,
     ) -> None:
         """Record a face-identified egress crossing so the census union
         fuses this identity for up to ``EGRESS_FACE_UNION_TTL_S``.
@@ -4192,9 +4195,13 @@ class PersonCensus:
         # Review A-LOW-2 (2026-09-04): admit the "ble+face" tag
         # emitted by the corroborated branch in transit_validator; only
         # coerce genuinely unknown values to "face".
-        _prov = provenance if isinstance(provenance, str) else "face"
+        _prov = provenance if isinstance(provenance, str) else IDENTITY_PROVENANCE_FACE
         self._egress_face_ids_provenance[norm] = (
-            _prov if _prov in ("face", "ble", "ble+face") else "face"
+            _prov if _prov in (
+                IDENTITY_PROVENANCE_FACE,
+                IDENTITY_PROVENANCE_BLE,
+                IDENTITY_PROVENANCE_BLE_FACE,
+            ) else IDENTITY_PROVENANCE_FACE
         )
         # C-LOW-1: register-time TTL prune backstop so the dict stays
         # bounded even if readers stop firing.
@@ -4266,8 +4273,10 @@ class PersonCensus:
         if strict and not self._is_face_producer_live():
             visible = {
                 n for n in self._egress_face_ids.keys()
-                if self._egress_face_ids_provenance.get(n, "face")
-                in ("ble", "ble+face")
+                if self._egress_face_ids_provenance.get(
+                    n, IDENTITY_PROVENANCE_FACE,
+                )
+                in (IDENTITY_PROVENANCE_BLE, IDENTITY_PROVENANCE_BLE_FACE)
             }
             return visible
         return set(self._egress_face_ids.keys())
@@ -4769,7 +4778,7 @@ class PersonCensus:
                 direction="arriving",
                 engine="ble",
                 confidence=BLE_TRANSITION_CONFIDENCE,
-                provenance="ble",
+                provenance=IDENTITY_PROVENANCE_BLE,
                 source_entity=tracker_id,
             )
             self._ble_transition_cache.append(leg)

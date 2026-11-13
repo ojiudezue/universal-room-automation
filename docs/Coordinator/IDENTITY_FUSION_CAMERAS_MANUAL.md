@@ -369,6 +369,30 @@ Emits `ura_person_egress_event` bus event with fields `direction`,
 `egress_camera`, `timestamp`, `person_id`, `confidence`. Persists to
 `person_entry_exit_events` (schema below).
 
+**Return channel, provenance key and outcome log (FACE-ARRIVAL-REBUILD-1 D8a, branch
+`feature/person-sightings-p1`, NOT deployed; plan `PLANNING_person_sighting_layer.md` rev 11).**
+- `_resolve_direction` (the one production caller) now calls `_resolve_egress_face_identity_ex`,
+  which returns the old 3-tuple plus a frozen `EgressResolution` built fresh on EVERY return path:
+  outcome label (the census deque label, plus `census_unavailable` / `resolver_error` for the two
+  paths that record none), the slug considered (the vetoed slug on a veto), the tier and `synthetic`
+  from the module-level PURE `egress_identity_tier` helper, the raw person state, and `provenance`
+  (`face` / `ble` / `ble+face`, None when nothing attached). `_resolve_egress_face_identity` stays as a
+  thin 3-tuple wrapper. The veto path calls only the pure helper, so a vetoed crossing never appends to
+  the BOOST ledger or sets the synthetic stash (develop behaviour, pinned by a golden replay).
+- The bus event gains one additive key, `identity_provenance`, read from that resolution (never from
+  the `_egress_identity_last_attach` stash); None when `person_id` is None. The face-only attach now
+  also writes `provenance: face` into the stash explicitly (the value every reader already defaulted to).
+  The provenance strings are named constants `const.IDENTITY_PROVENANCE_*` (pure rename, same values).
+- **Outcome log:** one `memory_episodes` row (`episode_type = egress_identity_outcome`, `node_id` /
+  `source_ref` per crossing) per resolution, slug included on vetoed rows, written as a tracked task
+  (`_outcome_log_tasks`, gathered with a 5 s bound in `async_teardown`; a `_torn_down` latch set first
+  stops a late `_delayed_resolve` from writing after teardown). No decision reads it. Kill switch
+  `EGRESS_OUTCOME_LOG_PERSIST` (rung 1, True); the type is in `MEMORY_WRITER_BACKED_EPISODE_TYPES`, so
+  the weekly memory-writer health check pages on 0 rows in 7 days (about 15 a day expected). Weekly
+  labeller `scripts/probes/egress_outcome_label_weekly.py` (read-only; snapshots raw path edges and GPS
+  fixes) feeds `quality/tests/fixtures/egress_arrival_d0_labelled.json`; card
+  EGRESS-OUTCOME-WEEKLY-LABEL-1. The face-only `not_home` veto itself is UNCHANGED in Phase 1.
+
 Direction gating on the census union feed
 (`transit_validator.py:1298-1310`):
 - `entry` → register the identity into the census union.

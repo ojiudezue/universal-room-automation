@@ -3350,6 +3350,41 @@ assert CONFIDENCE_MEDIUM < FACE_MATCH_CORRELATED_BOOST < CONFIDENCE_HIGH, (
     "CONFIDENCE_MEDIUM and CONFIDENCE_HIGH"
 )
 
+# FACE-ARRIVAL-REBUILD-1 (person sightings, plan §1.2a / §2A): the ONE
+# provenance vocabulary of an egress identity attach. These name the string
+# values the census and the transit validator already used as literals
+# (pure rename; values unchanged, pinned by
+# test_identity_provenance_consts.py). `vision` is reserved for the later
+# vision provenance (plan §15) and has no producer.
+IDENTITY_PROVENANCE_FACE: Final = "face"
+IDENTITY_PROVENANCE_BLE: Final = "ble"
+IDENTITY_PROVENANCE_BLE_FACE: Final = "ble+face"
+IDENTITY_PROVENANCE_VISION: Final = "vision"
+IDENTITY_PROVENANCE_VALUES: Final = frozenset({
+    IDENTITY_PROVENANCE_FACE,
+    IDENTITY_PROVENANCE_BLE,
+    IDENTITY_PROVENANCE_BLE_FACE,
+    IDENTITY_PROVENANCE_VISION,
+})
+
+# FACE-ARRIVAL-REBUILD-1 D8a (plan rev 11): persisted egress outcome log.
+# One memory_episodes row (episode_type `egress_identity_outcome`) per
+# egress identity resolution, every return path, vetoed slug included.
+# Observational only: no decision reads the row. Rung 1 kill switch
+# (False = no row). Flipping it False is a reviewed change that, in the
+# SAME commit, adds `egress_identity_outcome` to
+# MEMORY_WRITER_HEALTH_EXEMPT_TYPES with a reason (the weekly writer-health
+# check would otherwise page on 0 rows); pinned by
+# test_egress_outcome_log.py::test_registered_for_writer_health_unless_persist_off.
+EGRESS_OUTCOME_LOG_PERSIST: Final = True
+EGRESS_OUTCOME_EPISODE_TYPE: Final = "egress_identity_outcome"
+# Bound on the teardown gather of in-flight outcome-log writes (seconds).
+# Precedent: ExteriorTrackLinker teardown bound.
+EGRESS_OUTCOME_LOG_TEARDOWN_TIMEOUT_S: Final = 5.0
+# Auto-label windows the weekly labeller reports (seconds; offline only,
+# scripts/probes/egress_outcome_label_weekly.py).
+EGRESS_OUTCOME_LABEL_WINDOWS_S: Final = (120, 300, 600, 1800)
+
 # EGRESS_IDENTITY_ENABLED: options-flow kill switch for the D1 egress-face
 # identity fuse (2026-08-18). DEFAULT False — feature ships dormant per
 # operator (mirrors D2 PROTECT_CORROBORATION_ENABLED). Kill-switch semantics:
@@ -5900,6 +5935,10 @@ MEMORY_EPISODE_TYPES: Final = frozenset({
     # restore + follow-up manual-ON within N minutes + house_state.
     # Observational — never read on an actuation path.
     "fan_recheck_outcome",
+    # FACE-ARRIVAL-REBUILD-1 D8a (2026-11-12): one row per egress identity
+    # resolution (EgressDirectionTracker). Observational; the Phase 2 gate's
+    # data source. No decision reads it.
+    "egress_identity_outcome",
 })
 
 # Set of episode types that have a LIVE writer. The weekly writer-health
@@ -5916,6 +5955,11 @@ MEMORY_WRITER_BACKED_EPISODE_TYPES: Final = frozenset({
     "house_state_transition",
     # fan_recheck_outcome: one row per completed fan-recheck (D2).
     "fan_recheck_outcome",
+    # egress_identity_outcome (FACE-ARRIVAL-REBUILD-1 D8a): ~15 rows/day
+    # (one per resolved egress crossing), so 0 in 7 days is a dead logger.
+    # If EGRESS_OUTCOME_LOG_PERSIST is ever set False, add this type to
+    # MEMORY_WRITER_HEALTH_EXEMPT_TYPES in the same commit.
+    "egress_identity_outcome",
     # sensor_dropout: writer exists and is correctly scheduled, but has
     # produced 0 rows in >2 months (per AUDIT_memory_writer_coverage.md,
     # 2026-10-11). KEEP in the checked set so the trip-wire surfaces this

@@ -66,9 +66,76 @@ from .const import (
     FACE_PRODUCER_STALE_TTL_S,
     CONF_EGRESS_IDENTITY_FAILSAFE_STRICT,
     DEFAULT_EGRESS_IDENTITY_FAILSAFE_STRICT,
+    IDENTITY_PROVENANCE_BLE,
+    IDENTITY_PROVENANCE_BLE_FACE,
+    IDENTITY_PROVENANCE_FACE,
+    EGRESS_OUTCOME_LOG_PERSIST,
+    EGRESS_OUTCOME_EPISODE_TYPE,
+    EGRESS_OUTCOME_LOG_TEARDOWN_TIMEOUT_S,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class EgressResolution:
+    """FACE-ARRIVAL-REBUILD-1 D8a (plan rev 11 §9 D8a): the ONE return channel
+    of an egress identity resolution, built fresh on EVERY return path of
+    ``EgressDirectionTracker._resolve_egress_face_identity_ex``.
+
+    ``outcome`` is the same label the census outcome deque records (plus
+    ``census_unavailable`` / ``resolver_error`` for the two paths that record
+    none). ``slug`` is the person considered (the vetoed slug on a veto; None
+    when there is none). ``tier`` / ``synthetic`` come from the pure
+    ``egress_identity_tier`` helper on the face paths. ``provenance`` is
+    ``face`` / ``ble`` / ``ble+face`` on an attach, else None. No decision
+    reads this record; the outcome logger persists it.
+    """
+
+    outcome: str
+    direction: str
+    agreement: str
+    slug: str | None = None
+    identity_confidence: float | None = None
+    tier: float | None = None
+    synthetic: bool | None = None
+    person_state: str | None = None
+    provenance: str | None = None
+
+
+def egress_identity_tier(in_window_legs) -> tuple[float, bool]:
+    """FACE-ARRIVAL-REBUILD-1 D8a: PURE confidence-tier arithmetic of a
+    single-slug face leg set (no stash, no ledger append, no I/O).
+
+    Returns ``(tier, synthetic)``:
+      * ``CONFIDENCE_HIGH`` when two legs resolve to DIFFERENT physical
+        cameras (distinct ``base_stem``); ``synthetic`` is True when that 0.9
+        holds only with a synthetic (MQTT latch) leg in the pair;
+      * ``FACE_MATCH_CORRELATED_BOOST`` for >= 2 legs on one camera;
+      * ``CONFIDENCE_MEDIUM`` for one leg.
+    Module-level on purpose (plan rev 11 M2): tests call the resolver unbound
+    with a bare ``SimpleNamespace`` self.
+    """
+    legs = list(in_window_legs)
+    n = len(legs)
+
+    def _independent(h_i, h_j) -> bool:
+        return h_i.base_stem != h_j.base_stem
+
+    has_independent_pair = any(
+        _independent(legs[i], legs[j])
+        for i in range(n) for j in range(i + 1, n)
+    )
+    if has_independent_pair:
+        live = [h for h in legs if not getattr(h, "synthetic", False)]
+        synthetic = not any(
+            _independent(live[i], live[j])
+            for i in range(len(live)) for j in range(i + 1, len(live))
+        )
+        return float(CONFIDENCE_HIGH), synthetic
+    if n >= 2:
+        return float(FACE_MATCH_CORRELATED_BOOST), False
+    return float(CONFIDENCE_MEDIUM), False
 
 
 def _normalize_checkpoint_areas(
@@ -961,6 +1028,12 @@ class EgressDirectionTracker:
         # for the buffer listener; keys never string-built — resolved
         # from `info.person_count_sensor` only).
         self._count_sensor_to_stem: dict[str, str] = {}
+        # FACE-ARRIVAL-REBUILD-1 D8a: in-flight outcome-log writes (precedent
+        # ExteriorTrackLinker._episode_tasks) and the teardown latch that
+        # stops a `_delayed_resolve` already scheduled from writing after the
+        # teardown gather (the DB closes after the tracker teardown).
+        self._outcome_log_tasks: set = set()
+        self._torn_down: bool = False
 
     async def async_init(self) -> None:
         """Subscribe to egress and near-door interior cameras.
@@ -1360,6 +1433,24 @@ class EgressDirectionTracker:
         timestamp: datetime,
         direction: str,
     ) -> tuple[str | None, float | None, str]:
+        """3-tuple wrapper kept for its existing callers (plan rev 11 M2).
+
+        Production calls ``_resolve_egress_face_identity_ex`` (one site,
+        ``_resolve_direction``); this returns its first three values.
+        """
+        pid, conf, agree, _resolution = (
+            EgressDirectionTracker._resolve_egress_face_identity_ex(
+                self, egress_camera_id, timestamp, direction,
+            )
+        )
+        return pid, conf, agree
+
+    def _resolve_egress_face_identity_ex(
+        self,
+        egress_camera_id: str,
+        timestamp: datetime,
+        direction: str,
+    ) -> tuple[str | None, float | None, str, EgressResolution]:
         """EGRESS-IDENTITY-JOIN-GAP-1 (2026-08-28) D2b: corroborated
         identity from the evaluation leg-set. Returns
         ``(canonical_slug_or_None, identity_confidence_or_None, agreement_class)``.
@@ -1394,9 +1485,30 @@ class EgressDirectionTracker:
         self._last_identity_synthetic_corroborated = False
         census = self.hass.data.get(DOMAIN, {}).get("census")
 
+        # FACE-ARRIVAL-REBUILD-1 D8a: every return builds a FRESH
+        # EgressResolution (INV-LOG: one record per call, every path).
+        def _ret(
+            pid, conf, agree, outcome, *, slug=None, tier=None,
+            synthetic=None, person_state=None, provenance=None,
+        ):
+            return (
+                pid, conf, agree,
+                EgressResolution(
+                    outcome=outcome,
+                    direction=direction,
+                    agreement=agree,
+                    slug=slug,
+                    identity_confidence=conf,
+                    tier=tier,
+                    synthetic=synthetic,
+                    person_state=person_state,
+                    provenance=provenance,
+                ),
+            )
+
         # Kill-switch — before any leg read.
         if census is None:
-            return (None, None, CENSUS_AGREEMENT_DISABLED)
+            return _ret(None, None, CENSUS_AGREEMENT_DISABLED, "census_unavailable")
         try:
             if not census._is_egress_identity_enabled():
                 _note = getattr(census, "_note_egress_identity_outcome", None)
@@ -1408,9 +1520,9 @@ class EgressDirectionTracker:
                 census._egress_identity_agreement_class_last = (
                     CENSUS_AGREEMENT_DISABLED
                 )
-                return (None, None, CENSUS_AGREEMENT_DISABLED)
+                return _ret(None, None, CENSUS_AGREEMENT_DISABLED, "disabled")
         except Exception:  # noqa: BLE001 — defensive; unknown census shape
-            return (None, None, CENSUS_AGREEMENT_DISABLED)
+            return _ret(None, None, CENSUS_AGREEMENT_DISABLED, "resolver_error")
 
         def _record(outcome: str, agreement_class: str) -> None:
             """Single write path for D3 outcome + agreement class."""
@@ -1429,15 +1541,15 @@ class EgressDirectionTracker:
         # write-gate semantics unchanged.
         if direction == "ambiguous":
             _record("direction_ambiguous", CENSUS_AGREEMENT_DISAGREE)
-            return (None, None, CENSUS_AGREEMENT_DISAGREE)
+            return _ret(None, None, CENSUS_AGREEMENT_DISAGREE, "direction_ambiguous")
 
         if not egress_camera_id:
             _record("no_leg", CENSUS_AGREEMENT_SINGLE)
-            return (None, None, CENSUS_AGREEMENT_SINGLE)
+            return _ret(None, None, CENSUS_AGREEMENT_SINGLE, "no_leg")
         egress_stem = self._extract_camera_stem(egress_camera_id)
         if not egress_stem:
             _record("no_leg", CENSUS_AGREEMENT_SINGLE)
-            return (None, None, CENSUS_AGREEMENT_SINGLE)
+            return _ret(None, None, CENSUS_AGREEMENT_SINGLE, "no_leg")
 
         # Assemble the leg-set (stems): egress-cam ∪ interior-adjacent
         # camera stems, deduplicated. `_get_interior_cameras_near`
@@ -1611,7 +1723,7 @@ class EgressDirectionTracker:
                     except Exception:  # noqa: BLE001
                         pass
                     _record("abstain", CENSUS_AGREEMENT_DISAGREE)
-                    return (None, None, CENSUS_AGREEMENT_DISAGREE)
+                    return _ret(None, None, CENSUS_AGREEMENT_DISAGREE, "abstain")
                 slug = next(iter(ble_slugs))
                 # D-5: INV-EGRESS-ID — a leg produced before a slug
                 # was untracked must not attach after.
@@ -1625,7 +1737,10 @@ class EgressDirectionTracker:
                     except Exception:  # noqa: BLE001
                         pass
                     _record("abstain", CENSUS_AGREEMENT_DISAGREE)
-                    return (None, None, CENSUS_AGREEMENT_DISAGREE)
+                    return _ret(
+                        None, None, CENSUS_AGREEMENT_DISAGREE, "abstain",
+                        slug=slug,
+                    )
                 # D-2: cross-resident mislabel guard. If ANY tracked
                 # resident currently derives ZERO bluetooth_le
                 # trackers (i.e. an invisible potential crosser),
@@ -1651,7 +1766,10 @@ class EgressDirectionTracker:
                     except Exception:  # noqa: BLE001
                         pass
                     _record("abstain_ble_ambiguous", CENSUS_AGREEMENT_DISAGREE)
-                    return (None, None, CENSUS_AGREEMENT_DISAGREE)
+                    return _ret(
+                        None, None, CENSUS_AGREEMENT_DISAGREE,
+                        "abstain_ble_ambiguous", slug=slug,
+                    )
                 _leg = next(l for l in ble_legs if l.person_slug == slug)
                 try:
                     census._egress_identity_last_attach = {
@@ -1665,7 +1783,7 @@ class EgressDirectionTracker:
                         "direction": direction,
                         "agreement_class": CENSUS_AGREEMENT_SINGLE,
                         "contributor_engines": ["ble"],
-                        "provenance": "ble",
+                        "provenance": IDENTITY_PROVENANCE_BLE,
                     }
                 except Exception:  # noqa: BLE001
                     pass
@@ -1675,10 +1793,13 @@ class EgressDirectionTracker:
                     census._consume_ble_arriving_legs(slug)
                 except Exception:  # noqa: BLE001
                     pass
-                return (
+                return _ret(
                     slug,
                     float(BLE_TRANSITION_ONLY_CONFIDENCE),
                     CENSUS_AGREEMENT_SINGLE,
+                    "attached_ble",
+                    slug=slug,
+                    provenance=IDENTITY_PROVENANCE_BLE,
                 )
             # BLE + face both present. Enumerate by single BLE slug for
             # H2 clarity (BLE window is narrow enough that concurrent
@@ -1713,7 +1834,7 @@ class EgressDirectionTracker:
                             "contributor_engines": sorted(
                                 {l.engine for l, _ in in_window} | {"ble"}
                             ),
-                            "provenance": "ble+face",
+                            "provenance": IDENTITY_PROVENANCE_BLE_FACE,
                         }
                     except Exception:  # noqa: BLE001
                         pass
@@ -1722,10 +1843,13 @@ class EgressDirectionTracker:
                         census._consume_ble_arriving_legs(b_slug)
                     except Exception:  # noqa: BLE001
                         pass
-                    return (
+                    return _ret(
                         b_slug,
                         float(BLE_PLUS_FACE_CORROBORATED_CONFIDENCE),
                         CENSUS_AGREEMENT_TWO_ENGINES,
+                        "attached_ble_face_corroborated",
+                        slug=b_slug,
+                        provenance=IDENTITY_PROVENANCE_BLE_FACE,
                     )
                 # DISAGREEMENT — H2 / Review AT-1 (A-HIGH-2) 2026-09-04:
                 # abstain unless the face slug is itself a TRACKED
@@ -1755,7 +1879,10 @@ class EgressDirectionTracker:
                         "abstain_resident_vs_guest",
                         CENSUS_AGREEMENT_DISAGREE,
                     )
-                    return (None, None, CENSUS_AGREEMENT_DISAGREE)
+                    return _ret(
+                        None, None, CENSUS_AGREEMENT_DISAGREE,
+                        "abstain_resident_vs_guest",
+                    )
                 # Two tracked residents disagree: BLE wins over face.
                 _LOGGER.info(
                     "egress-identity: BLE wins over disagreeing face "
@@ -1774,7 +1901,7 @@ class EgressDirectionTracker:
                         "direction": direction,
                         "agreement_class": CENSUS_AGREEMENT_SINGLE,
                         "contributor_engines": ["ble"],
-                        "provenance": "ble",
+                        "provenance": IDENTITY_PROVENANCE_BLE,
                     }
                 except Exception:  # noqa: BLE001
                     pass
@@ -1783,10 +1910,13 @@ class EgressDirectionTracker:
                     census._consume_ble_arriving_legs(b_slug)
                 except Exception:  # noqa: BLE001
                     pass
-                return (
+                return _ret(
                     b_slug,
                     float(BLE_TRANSITION_ONLY_CONFIDENCE),
                     CENSUS_AGREEMENT_SINGLE,
+                    "ble_face_disagree_ble_wins",
+                    slug=b_slug,
+                    provenance=IDENTITY_PROVENANCE_BLE,
                 )
             # Multi-slug on either side w/ BLE present: retain existing
             # ABSTAIN semantics (transit_validator.py DISAGREE branch,
@@ -1797,11 +1927,11 @@ class EgressDirectionTracker:
                 except Exception:  # noqa: BLE001
                     pass
                 _record("abstain", CENSUS_AGREEMENT_DISAGREE)
-                return (None, None, CENSUS_AGREEMENT_DISAGREE)
+                return _ret(None, None, CENSUS_AGREEMENT_DISAGREE, "abstain")
 
         if not in_window:
             _record("no_leg", CENSUS_AGREEMENT_SINGLE)
-            return (None, None, CENSUS_AGREEMENT_SINGLE)
+            return _ret(None, None, CENSUS_AGREEMENT_SINGLE, "no_leg")
 
         slugs = {leg.canonical_slug for leg, _ in in_window}
 
@@ -1832,7 +1962,7 @@ class EgressDirectionTracker:
                 outcome, len(slugs), sorted(slugs),
             )
             _record(outcome, CENSUS_AGREEMENT_DISAGREE)
-            return (None, None, CENSUS_AGREEMENT_DISAGREE)
+            return _ret(None, None, CENSUS_AGREEMENT_DISAGREE, outcome)
 
         # |slugs| == 1.
         slug = next(iter(slugs))
@@ -1842,47 +1972,40 @@ class EgressDirectionTracker:
             person_state = self.hass.states.get(f"person.{slug}")
         except Exception:  # noqa: BLE001
             person_state = None
+        _person_raw = (
+            getattr(person_state, "state", None)
+            if person_state is not None else None
+        )
+        # HIGH-1 (2026-08-28): base_stem-ONLY independence predicate.
+        # Protect + Frigate on the SAME physical camera have DIFFERENT
+        # device_ids but the SAME base_stem — device_id is retained on
+        # FaceLeg for observability only. FACE-ARRIVAL-REBUILD-1 D8a: the
+        # tier arithmetic is the module-level PURE `egress_identity_tier`;
+        # the veto path calls only that (no stash, no BOOST ledger append on
+        # a vetoed crossing), the attach path below keeps its side effects.
+        legs_only = [leg for leg, _ in in_window]
         if (
             person_state is not None
-            and getattr(person_state, "state", None) == "not_home"
+            and _person_raw == "not_home"
         ):
             _LOGGER.debug(
                 "egress-identity: %s vetoed by person.%s=not_home",
                 slug, slug,
             )
             _record("vetoed", CENSUS_AGREEMENT_SINGLE)
-            return (None, None, CENSUS_AGREEMENT_SINGLE)
+            _v_tier, _v_syn = egress_identity_tier(legs_only)
+            return _ret(
+                None, None, CENSUS_AGREEMENT_SINGLE, "vetoed",
+                slug=slug, tier=_v_tier, synthetic=_v_syn,
+                person_state=_person_raw,
+            )
 
-        # HIGH-1 (2026-08-28): base_stem-ONLY independence predicate.
-        # Protect + Frigate on the SAME physical camera have DIFFERENT
-        # device_ids but the SAME base_stem — device_id is retained on
-        # FaceLeg for observability only.
-        legs_only = [leg for leg, _ in in_window]
-
-        def _independent(h_i, h_j) -> bool:
-            return h_i.base_stem != h_j.base_stem
-
-        has_independent_pair = False
-        n = len(legs_only)
-        for i in range(n):
-            for j in range(i + 1, n):
-                if _independent(legs_only[i], legs_only[j]):
-                    has_independent_pair = True
-                    break
-            if has_independent_pair:
-                break
-
-        if has_independent_pair:
-            identity_confidence: float = float(CONFIDENCE_HIGH)
+        identity_confidence, _tier_synthetic = egress_identity_tier(legs_only)
+        if identity_confidence == float(CONFIDENCE_HIGH):
             agreement_class = CENSUS_AGREEMENT_BOTH
             # B-M1: does the 0.9 survive without the synthetic latch legs?
-            live = [h for h in legs_only if not getattr(h, "synthetic", False)]
-            self._last_identity_synthetic_corroborated = not any(
-                _independent(live[i], live[j])
-                for i in range(len(live)) for j in range(i + 1, len(live))
-            )
-        elif n >= 2:
-            identity_confidence = float(FACE_MATCH_CORRELATED_BOOST)
+            self._last_identity_synthetic_corroborated = _tier_synthetic
+        elif identity_confidence == float(FACE_MATCH_CORRELATED_BOOST):
             agreement_class = CENSUS_AGREEMENT_BOTH
             # BOOST event ledger (24h-filtered at the reader; MED-1).
             try:
@@ -1892,7 +2015,6 @@ class EgressDirectionTracker:
             except Exception:  # noqa: BLE001
                 pass
         else:
-            identity_confidence = float(CONFIDENCE_MEDIUM)
             agreement_class = CENSUS_AGREEMENT_SINGLE
 
         # MED-5: derive contributor_engines + signed_lag_delta from the
@@ -1913,6 +2035,9 @@ class EgressDirectionTracker:
                 "direction": direction,
                 "agreement_class": agreement_class,
                 "contributor_engines": contributor_engines,
+                # FACE-ARRIVAL-REBUILD-1 (plan rev 4 H1): explicit, the value
+                # every reader already defaulted to for this path.
+                "provenance": IDENTITY_PROVENANCE_FACE,
             }
         except Exception:  # noqa: BLE001
             _LOGGER.debug(
@@ -1920,7 +2045,11 @@ class EgressDirectionTracker:
                 exc_info=True,
             )
         _record("attached", agreement_class)
-        return (slug, identity_confidence, agreement_class)
+        return _ret(
+            slug, identity_confidence, agreement_class, "attached",
+            slug=slug, tier=identity_confidence, synthetic=_tier_synthetic,
+            person_state=_person_raw, provenance=IDENTITY_PROVENANCE_FACE,
+        )
 
     async def _resolve_direction(
         self, egress_camera_id: str, egress_timestamp: datetime
@@ -2008,9 +2137,13 @@ class EgressDirectionTracker:
             person_id,
             identity_confidence,
             agreement_class,
-        ) = self._resolve_egress_face_identity(
+            resolution,
+        ) = self._resolve_egress_face_identity_ex(
             egress_camera_id, egress_timestamp, direction,
         )
+        # FACE-ARRIVAL-REBUILD-1 D8a: persist the outcome (one row per
+        # resolution, every path). Observational; nothing below reads it.
+        self._log_egress_outcome(resolution, egress_camera_id, egress_timestamp)
 
         # Fire event on HA bus (pre-cycle `confidence` semantics preserved).
         self.hass.bus.async_fire("ura_person_egress_event", {
@@ -2027,6 +2160,12 @@ class EgressDirectionTracker:
             # latch leg. Perimeter D10.5 then needs a non-face arrival edge.
             "identity_synthetic_corroborated": bool(
                 getattr(self, "_last_identity_synthetic_corroborated", False)
+            ),
+            # FACE-ARRIVAL-REBUILD-1 (additive): how the identity was known,
+            # read from THIS call's resolution (never the last-attach stash).
+            # None when person_id is None.
+            "identity_provenance": (
+                resolution.provenance if person_id is not None else None
             ),
         })
 
@@ -2084,10 +2223,10 @@ class EgressDirectionTracker:
                         try:
                             _prov = str(
                                 (getattr(census_ref, "_egress_identity_last_attach", {}) or {})
-                                .get("provenance", "face")
+                                .get("provenance", IDENTITY_PROVENANCE_FACE)
                             )
                         except Exception:  # noqa: BLE001
-                            _prov = "face"
+                            _prov = IDENTITY_PROVENANCE_FACE
                         census_ref.register_egress_face(
                             person_id, egress_timestamp, provenance=_prov,
                         )
@@ -2133,6 +2272,71 @@ class EgressDirectionTracker:
                     )
                 except Exception as e:
                     _LOGGER.error("Failed to log entry/exit event: %s", e)
+
+    def _log_egress_outcome(
+        self,
+        resolution: EgressResolution,
+        egress_camera_id: str,
+        egress_timestamp: datetime,
+    ) -> None:
+        """FACE-ARRIVAL-REBUILD-1 D8a: persist ONE memory_episodes row
+        (`egress_identity_outcome`) for this resolution.
+
+        Never raises, never awaited by the caller (a tracked task in
+        ``_outcome_log_tasks``, gathered with a bound at teardown). Returns
+        without a task once ``async_teardown`` started (``_torn_down``) or
+        when ``EGRESS_OUTCOME_LOG_PERSIST`` is False. ``node_id`` and
+        ``source_ref`` are per crossing, so the 60 s (node_id, type) dedup of
+        ``log_memory_episode`` cannot merge two crossings.
+        """
+        if self._torn_down or not EGRESS_OUTCOME_LOG_PERSIST:
+            return
+        database = self.hass.data.get(DOMAIN, {}).get("database")
+        if database is None:
+            return
+        try:
+            ts_iso = egress_timestamp.isoformat()
+        except Exception:  # noqa: BLE001
+            ts_iso = str(egress_timestamp)
+        crossing_key = f"{egress_camera_id}@{ts_iso}"
+        attrs = {
+            "outcome": resolution.outcome,
+            "direction": resolution.direction,
+            "agreement": resolution.agreement,
+            "slug": resolution.slug,
+            "identity_confidence": resolution.identity_confidence,
+            "tier": resolution.tier,
+            "synthetic": resolution.synthetic,
+            "person_state": resolution.person_state,
+            "provenance": resolution.provenance,
+            "egress_camera": egress_camera_id,
+            "crossing_ts": ts_iso,
+        }
+
+        async def _write() -> None:
+            try:
+                await database.log_memory_episode(
+                    node_id=f"egress:{crossing_key}",
+                    episode_type=EGRESS_OUTCOME_EPISODE_TYPE,
+                    attrs=attrs,
+                    source_ref=crossing_key,
+                    started_at=ts_iso,
+                    ended_at=ts_iso,
+                    dedup_source_ref=False,
+                )
+            except Exception:  # noqa: BLE001 — observational only
+                _LOGGER.debug("egress outcome log failed", exc_info=True)
+
+        try:
+            task = self.hass.async_create_task(_write())
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("egress outcome log task create failed", exc_info=True)
+            return
+        self._outcome_log_tasks.add(task)
+        try:
+            task.add_done_callback(self._outcome_log_tasks.discard)
+        except Exception:  # noqa: BLE001
+            pass
 
     # ARRIVAL-DEPARTURE-NOTIFY-1 (Wave-1 consumer #1)
     ARRIVAL_NAME_CONFIDENCE_THRESHOLD = 0.75
@@ -2275,6 +2479,10 @@ class EgressDirectionTracker:
 
     async def async_teardown(self) -> None:
         """Unsubscribe all listeners."""
+        # FACE-ARRIVAL-REBUILD-1 D8a (plan rev 11 L3): latch FIRST so a
+        # `_delayed_resolve` already scheduled cannot create an outcome-log
+        # task after the gather below.
+        self._torn_down = True
         for unsub in self._unsub:
             try:
                 unsub()
@@ -2284,6 +2492,19 @@ class EgressDirectionTracker:
         self._peak_count_unsubs.clear()
         self._peak_count_buffer.clear()
         self._count_sensor_to_stem.clear()
+        pending = [t for t in self._outcome_log_tasks if not t.done()]
+        if pending:
+            import asyncio  # noqa: PLC0415
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*pending, return_exceptions=True),
+                    timeout=EGRESS_OUTCOME_LOG_TEARDOWN_TIMEOUT_S,
+                )
+            except Exception:  # noqa: BLE001 — bounded; never block unload
+                for t in pending:
+                    if not t.done():
+                        t.cancel()
+        self._outcome_log_tasks.clear()
         _LOGGER.debug("EgressDirectionTracker torn down")
 
 
