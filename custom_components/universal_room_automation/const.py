@@ -2785,21 +2785,29 @@ NM_HAZARD_EXTERIOR_PERSON_GUEST_SEVERITY: Final = "MEDIUM"
 # change). False = every GUEST case MEDIUM (pre-change).
 NM_HAZARD_EXTERIOR_PERSON_GUEST_KEEP_HIGH: Final = True
 
-# House-state (HouseState StrEnum values are lowercase, e.g. "away") →
-# Severity name. Fallback (unknown / missing / None) is CRITICAL (fail-safe
-# rule — unknown state is treated as away).
-NM_HAZARD_EXTERIOR_PERSON_SEVERITY_BY_HOUSE_STATE: Final = {
-    "away": "CRITICAL",
-    "vacation": "CRITICAL",
-    "sleep": "CRITICAL",
-    "home_night": "CRITICAL",   # unattended-observation state
-    "guest": NM_HAZARD_EXTERIOR_PERSON_GUEST_SEVERITY,
-    "home_day": "LOW",
-    "home_evening": "LOW",
-    "arriving": "LOW",
-    "waking": "LOW",
-}
+# HOUSE-STATE step 1a D5: the flat house-state -> severity table
+# (NM_HAZARD_EXTERIOR_PERSON_SEVERITY_BY_HOUSE_STATE) was deleted: it was read
+# nowhere (the live resolver below is the only source; its ARRIVING row was
+# MEDIUM, not the table's LOW).
 NM_HAZARD_EXTERIOR_PERSON_DEFAULT_SEVERITY: Final = "CRITICAL"  # fail-safe
+
+# HOUSE-STATE step 1a D5 (PLANNING_house_state_axes_step1.md rev 3), rung 1
+# (alert policy, review-only). ARRIVING is body evidence with no identity: an
+# exterior-person alert while the house reads ARRIVING resolves CRITICAL unless
+# a resident is home (trust state, phone-left-behind cut) or a resident made a
+# COUNTED, non-stale, out-of-boot-window arrival within
+# EXTERIOR_SEVERITY_RECENT_ARRIVAL_S; then MEDIUM. False = ARRIVING MEDIUM
+# (pre-change).
+EXTERIOR_SEVERITY_ARRIVING_NEEDS_RESIDENT: Final = True
+# Rung 1: feed the resolver's `persons_home` from the residency producer
+# (residents home). False (default) = 0, the value production resolved before
+# step 1a (the old lookup never reached presence), so paging is never lowered.
+# True de-escalates live pages (HOME_* HIGH -> LOW / MEDIUM, GUEST egress HIGH
+# -> MEDIUM); operator decision Q4.
+EXTERIOR_SEVERITY_PERSONS_HOME_FROM_RESIDENCY: Final = False
+# Rung 1: "likely the resident approaching" window for the ARRIVING arm.
+# 0 = only a resident at home softens ARRIVING.
+EXTERIOR_SEVERITY_RECENT_ARRIVAL_S: Final = 300
 
 
 def NM_HAZARD_EXTERIOR_PERSON_CONTEXTUAL_SEVERITY(  # noqa: N802 (const-like)
@@ -2807,6 +2815,7 @@ def NM_HAZARD_EXTERIOR_PERSON_CONTEXTUAL_SEVERITY(  # noqa: N802 (const-like)
     camera_class=None,  # type: Optional[str]
     track_class=None,   # type: Optional[str]
     persons_home=None,  # type: Optional[int]
+    arriving_resident_evidence=None,  # type: Optional[bool]
 ):
     # type: (...) -> str
     """Contextual severity resolver (CONSOL-1 §6, rev-2 TOTAL table).
@@ -2867,7 +2876,15 @@ def NM_HAZARD_EXTERIOR_PERSON_CONTEXTUAL_SEVERITY(  # noqa: N802 (const-like)
         return "LOW" if ph >= 1 else "HIGH"
 
     if hs == "arriving":
-        # "likely the operator approaching" — not silenced, not CRITICAL.
+        # "likely the operator approaching" — not silenced. HOUSE-STATE step
+        # 1a D5: ARRIVING is body evidence only, so with no resident evidence
+        # (False) it resolves CRITICAL; None (caller did not compute it) keeps
+        # MEDIUM. Never reads persons_home (completeness M4).
+        if (
+            arriving_resident_evidence is False
+            and EXTERIOR_SEVERITY_ARRIVING_NEEDS_RESIDENT
+        ):
+            return "CRITICAL"
         return "MEDIUM"
 
     if hs == "waking":
@@ -3901,6 +3918,17 @@ GARAGE_LOCKOUT_REENGAGE_MAX_WAIT_S: Final = 3600
 RESIDENT_RETURN_MIN_AWAY_MIN: Final = 15
 RESIDENT_RETURN_BOOT_WINDOW_S: Final = 600
 GARAGE_LOCKOUT_BOOT_ARRIVAL_WINDOW_S: Final = RESIDENT_RETURN_BOOT_WINDOW_S
+# HOUSE-STATE step 1a D2 (residency producer), rung 1. One memory_episodes row
+# per resident arrival / departure record (episode types person_arrival /
+# person_departure). False = no rows; then move both types to
+# MEMORY_WRITER_HEALTH_EXEMPT_TYPES in the same commit.
+RESIDENCY_EVENT_LOG_PERSIST: Final = True
+RESIDENCY_ARRIVAL_EPISODE_TYPE: Final = "person_arrival"
+RESIDENCY_DEPARTURE_EPISODE_TYPE: Final = "person_departure"
+# Ring of the last N residency records kept in RAM (rung 1, size only).
+RESIDENCY_RECENT_EVENTS: Final = 32
+# Bound on awaiting in-flight residency rows at presence teardown.
+RESIDENCY_LOG_TEARDOWN_TIMEOUT_S: Final = 5.0
 # Edges before setup + this only rebuild `reason`, never engage (M1);
 # the house state is re-read once at this delay (H1).
 GARAGE_LOCKOUT_BOOT_RECHECK_S: Final = 120
@@ -6068,6 +6096,11 @@ MEMORY_EPISODE_TYPES: Final = frozenset({
     # resolution (EgressDirectionTracker). Observational; the Phase 2 gate's
     # data source. No decision reads it.
     "egress_identity_outcome",
+    # HOUSE-STATE step 1a D2 (2026-11-13): one row per resident raw person
+    # edge (presence residency tracker). Observational; no decision reads the
+    # rows (exterior severity reads the in-RAM record ring).
+    "person_arrival",
+    "person_departure",
 })
 
 # Set of episode types that have a LIVE writer. The weekly writer-health
@@ -6089,6 +6122,12 @@ MEMORY_WRITER_BACKED_EPISODE_TYPES: Final = frozenset({
     # If EGRESS_OUTCOME_LOG_PERSIST is ever set False, add this type to
     # MEMORY_WRITER_HEALTH_EXEMPT_TYPES in the same commit.
     "egress_identity_outcome",
+    # person_arrival / person_departure (HOUSE-STATE step 1a D2): ~10 counted
+    # arrivals and ~10 departures a day (recorder 7.7 days), so 0 in 7 days is
+    # a dead producer. If RESIDENCY_EVENT_LOG_PERSIST is ever set False, add
+    # both to MEMORY_WRITER_HEALTH_EXEMPT_TYPES in the same commit.
+    "person_arrival",
+    "person_departure",
     # sensor_dropout: writer exists and is correctly scheduled, but has
     # produced 0 rows in >2 months (per AUDIT_memory_writer_coverage.md,
     # 2026-10-11). KEEP in the checked set so the trip-wire surfaces this
@@ -6120,6 +6159,11 @@ MEMORY_WRITER_HEALTH_ABSENCE_EXEMPT_TYPES: Final = frozenset({
     # egress_identity_outcome: rows come only from door crossings; a
     # 7-day vacation has none.
     "egress_identity_outcome",
+    # person_arrival / person_departure (step 1a D2, build M7): a 7-day trip
+    # has no resident edges. Accepted in 1a: a phantom ARRIVING row inside
+    # the window voids the absence proof and the check pages.
+    "person_arrival",
+    "person_departure",
 })
 MEMORY_WRITER_HEALTH_ABSENT_HOUSE_STATES: Final = frozenset({"away", "vacation"})
 

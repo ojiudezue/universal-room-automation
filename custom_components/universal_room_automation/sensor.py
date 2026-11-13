@@ -267,6 +267,8 @@ async def async_setup_entry(
             # v3.6.0-c1: Presence Coordinator sensors
             PresenceHouseStateSensor(hass, entry),
             HouseStateConfidenceSensor(hass, entry),
+            # HOUSE-STATE step 1a D2 item 7: residents home (display).
+            ResidentsHomeSensor(hass, entry),
             # v4.7.15 D5: Input-agreement confidence (distinct from state confidence).
             SignalConsensusConfidenceSensor(hass, entry),
             PresenceAnomalySensor(hass, entry),
@@ -5794,6 +5796,12 @@ class PresenceHouseStateSensor(AggregationEntity, SensorEntity):
         if presence is not None:
             attrs["confidence"] = round(presence.confidence, 2)
             attrs["census_count"] = presence.census_count
+            # HOUSE-STATE step 1a D2 item 8 (recorded, low churn).
+            try:
+                attrs["residents_home"] = presence.get_residents_home_count()
+                attrs["occupancy"] = presence.get_house_occupancy()
+            except Exception:  # noqa: BLE001 — display only
+                pass
             # PATH-ALPHA D2c (2026-08-16): expose face_recognized_count
             # alongside census_count. Post-GAP-A D8, path α now gates on
             # face_recognized_count (camera-provable identity only) — NOT
@@ -6074,6 +6082,88 @@ class HouseStateConfidenceSensor(AggregationEntity, SensorEntity):
         if presence is None:
             return None
         return round(presence.confidence, 2)
+
+
+class ResidentsHomeSensor(SensorEntity):
+    """HOUSE-STATE step 1a D2: residents at home (display only).
+
+    State = ``PresenceCoordinator.get_residents_home_count()``: residents
+    whose trust state (``person_state_for_trust``) reads home, minus any
+    whose phone-left-behind sensor is ``on``. Polled; no presence -> None.
+
+    Entity: sensor.ura_presence_coordinator_residents_home
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:home-group"
+    _unrecorded_attributes = frozenset({"persons", "last_arrival", "last_departure"})
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        self.hass = hass
+        self.entry = entry
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self._attr_unique_id = f"{DOMAIN}_residents_home"
+        self._attr_name = "Residents Home"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "presence_coordinator")},
+            name="URA: Presence Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Presence Coordinator",
+            sw_version=VERSION,
+        )
+
+    def _presence(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        try:
+            return manager.coordinators.get("presence")
+        except Exception:  # noqa: BLE001
+            return None
+
+    @property
+    def native_value(self) -> int | None:
+        presence = self._presence()
+        if presence is None:
+            return None
+        return presence.get_residents_home_count()
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        presence = self._presence()
+        if presence is None:
+            return {}
+        from .domain_coordinators.residency import person_slug
+
+        home = presence.get_residents_home()
+        snap = presence.get_residency_snapshot()
+        excluded: list[str] = []
+        try:
+            from .person_coordinator import person_state_for_trust
+
+            for pid in sorted(presence._residency_residents() or ()):
+                slug = person_slug(pid)
+                if (
+                    person_state_for_trust(self.hass, pid) == "home"
+                    and presence._phone_left_behind_on(slug)
+                ):
+                    excluded.append(slug)
+        except Exception:  # noqa: BLE001 — display only
+            excluded = []
+        persons = dict(snap.get("persons") or {})
+        for pid in home:
+            persons.setdefault(person_slug(pid), {"arrived_at": None, "left_at": None})
+        for slug, rec in persons.items():
+            rec["home"] = any(person_slug(p) == slug for p in home)
+        return {
+            "residents": sorted(person_slug(p) for p in home),
+            "persons": persons,
+            "last_arrival": snap.get("last_arrival"),
+            "last_departure": snap.get("last_departure"),
+            "phone_left_behind_excluded": excluded,
+        }
 
 
 def _zone_provenance_breakdown(tracker) -> dict:

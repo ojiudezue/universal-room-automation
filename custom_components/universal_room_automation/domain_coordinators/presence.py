@@ -1829,6 +1829,12 @@ class PresenceCoordinator(BaseCoordinator):
         # not_home|zone -> home edge, written ONLY by `_handle_geofence_change`
         # (raw, edge-triggered; empty after a restart, covered by the boot gate).
         self._last_home_edge_ts: Dict[str, float] = {}
+        # HOUSE-STATE step 1a D2: residency producer (built in async_setup
+        # before the geofence subscription; fed by `_handle_geofence_change`).
+        self._residency = None
+        self._residency_clock = time.time
+        self._residency_log_tasks: set = set()
+        self._residency_torn_down = False
 
         # build/pc-observability: three P1 kill switches (default ON).
         # Each is bound to a switch entity that uses the v5.48.0 signal-
@@ -3126,6 +3132,10 @@ class PresenceCoordinator(BaseCoordinator):
                     self._maybe_schedule_guest_stay_refresh()
                 except Exception:  # noqa: BLE001
                     _LOGGER.debug("guest stay setup kick failed", exc_info=True)
+
+                # HOUSE-STATE step 1a D2: the residency tracker exists before
+                # the first geofence event can arrive.
+                self._setup_residency()
 
                 # Subscribe to geofence (person entity state changes)
                 self._subscribe_geofence()
@@ -4749,39 +4759,16 @@ class PresenceCoordinator(BaseCoordinator):
                 )
             return gated_rooms, ladder
 
-        # Build the phone-trustworthy checker once per call (mirrors the
-        # v4.7.14.1 H2 pattern at presence.py:3289). Fail-OPEN: missing
-        # sensor / unknown / unavailable -> True (preserves v4.7.14
-        # baseline). Resolves entity_id via entity_registry by
-        # unique_id rather than string construction.
-        try:
-            from homeassistant.helpers import entity_registry as er
-            _entity_reg = er.async_get(self.hass)
-        except Exception:  # noqa: BLE001 — defensive
-            _entity_reg = None
+        # Phone-trustworthy checker (mirrors the v4.7.14.1 H2 pattern).
+        # Fail-OPEN: missing sensor / unknown / unavailable -> True
+        # (preserves v4.7.14 baseline). Resolves entity_id via
+        # entity_registry by unique_id rather than string construction
+        # (`_phone_left_behind_on`, HOUSE-STATE step 1a D2 item 4).
 
         def _phone_trustworthy(person_name: str) -> bool:
-            person_slug = (person_name or "").lower().replace(" ", "_")
-            if not person_slug:
-                return True
-            unique_id = f"{DOMAIN}_person_{person_slug}_phone_left_behind"
-            entity_id: Optional[str] = None
-            if _entity_reg is not None:
-                try:
-                    entity_id = _entity_reg.async_get_entity_id(
-                        "binary_sensor", DOMAIN, unique_id,
-                    )
-                except Exception:  # noqa: BLE001 — fail-OPEN
-                    entity_id = None
-            if entity_id is None:
-                return True
-            try:
-                state = self.hass.states.get(entity_id)
-            except Exception:  # noqa: BLE001 — fail-OPEN
-                return True
-            if state is None or state.state in _UNAVAILABLE_STATES:
-                return True
-            return state.state != "on"
+            # HOUSE-STATE step 1a D2 item 4: the ONE extracted rule
+            # (`_phone_left_behind_on`); same fail-open semantics.
+            return not self._phone_left_behind_on(person_name)
 
         def _trustworthy_persons_in_room(room: str) -> List[str]:
             if person_coord is None or not room:
@@ -5223,6 +5210,261 @@ class PresenceCoordinator(BaseCoordinator):
                         break
 
     # ------------------------------------------------------------------
+    # HOUSE-STATE-FIRST-PRINCIPLES-1 step 1a D2: residency producer + getters
+    # (PLANNING_house_state_axes_step1.md rev 3, Part A)
+    # ------------------------------------------------------------------
+
+    def _setup_residency(self) -> None:
+        """Build the residency tracker (setup_ts = now). Never raises."""
+        try:
+            from .residency import ResidencyTracker  # noqa: PLC0415
+
+            self._residency_torn_down = False
+            self._residency = ResidencyTracker(
+                self._residency_residents,
+                setup_ts=self._residency_clock(),
+                boot_window_s=float(_ura_const.RESIDENT_RETURN_BOOT_WINDOW_S),
+                min_away_s=float(_ura_const.RESIDENT_RETURN_MIN_AWAY_MIN) * 60.0,
+                recent_events=int(_ura_const.RESIDENCY_RECENT_EVENTS),
+            )
+        except Exception:  # noqa: BLE001 — observational producer
+            _LOGGER.debug("Residency: tracker setup failed", exc_info=True)
+            self._residency = None
+
+    def _residency_residents(self) -> frozenset | None:
+        """Resident person entity ids, or None while unresolved.
+
+        ``PersonTrackingCoordinator.tracked_persons`` (entity-id form); a
+        person coordinator that is up with an EMPTY list -> every
+        ``person.*``; no person coordinator yet -> None (unresolved).
+        """
+        pc = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+        if pc is None:
+            return None
+        tracked = list(getattr(pc, "tracked_persons", None) or [])
+        if tracked:
+            return frozenset(
+                str(p) if str(p).startswith("person.") else f"person.{p}"
+                for p in tracked
+            )
+        return frozenset(
+            st.entity_id
+            for st in self.hass.states.async_all()
+            if st.entity_id.startswith("person.")
+        )
+
+    def _feed_residency(self, entity_id: str, old_state: Any, new_state: Any) -> None:
+        """Feed one raw person event to the tracker (never raises).
+
+        ``old_state`` None (an add / HA restore) stamps the ledger restored and
+        writes no record. Otherwise a live event: the tracker classifies it
+        (arrivals carry ``source_stale``) and a record is persisted.
+        """
+        try:
+            tracker = getattr(self, "_residency", None)
+            if tracker is None or new_state is None:
+                return
+            now = self._residency_clock()
+            new_val = getattr(new_state, "state", None)
+            if old_state is None:
+                tracker.on_restore(entity_id, new_val, now)
+                return
+            old_val = getattr(old_state, "state", None)
+            stale = False
+            if new_val == "home" and old_val != "home":
+                from ..arrival_edges import stale_source_arrival  # noqa: PLC0415
+
+                stale = stale_source_arrival(
+                    self.hass.states.get,
+                    entity_id,
+                    float(_ura_const.LOCK_ARRIVAL_STALE_SOURCE_S),
+                    person_state=new_state,
+                )
+            try:
+                house = self.house_state
+            except Exception:  # noqa: BLE001 — display only
+                house = None
+            record = tracker.on_event(
+                entity_id, old_val, new_val, now,
+                source_stale=stale, house_state=house,
+            )
+            if record is not None:
+                self._persist_residency_event(record)
+        except Exception:  # noqa: BLE001 — observational producer
+            _LOGGER.debug("Residency: event for %s not recorded", entity_id, exc_info=True)
+
+    def _persist_residency_event(self, record: Any) -> None:
+        """One memory_episodes row per record, as a tracked task."""
+        if getattr(self, "_residency_torn_down", False):
+            return
+        if not _ura_const.RESIDENCY_EVENT_LOG_PERSIST:
+            return
+        database = self.hass.data.get(DOMAIN, {}).get("database")
+        if database is None:
+            return
+        from .residency import KIND_ARRIVAL, person_slug  # noqa: PLC0415
+
+        episode_type = (
+            _ura_const.RESIDENCY_ARRIVAL_EPISODE_TYPE
+            if record.kind == KIND_ARRIVAL
+            else _ura_const.RESIDENCY_DEPARTURE_EPISODE_TYPE
+        )
+        try:
+            ts_iso = datetime.fromtimestamp(record.edge_ts, tz=timezone.utc).isoformat()
+        except Exception:  # noqa: BLE001
+            ts_iso = None
+        attrs = record.as_dict()
+        slug = person_slug(record.person)
+
+        async def _write() -> None:
+            try:
+                await database.log_memory_episode(
+                    node_id=slug,
+                    episode_type=episode_type,
+                    attrs=attrs,
+                    source_ref=f"{record.person}@{record.edge_ts}",
+                    started_at=ts_iso,
+                    ended_at=ts_iso,
+                )
+            except Exception:  # noqa: BLE001 — observational only
+                _LOGGER.debug("Residency: memory row failed", exc_info=True)
+
+        try:
+            task = self.hass.async_create_task(_write())
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Residency: row task create failed", exc_info=True)
+            return
+        tasks = getattr(self, "_residency_log_tasks", None)
+        if tasks is None:
+            tasks = self._residency_log_tasks = set()
+        tasks.add(task)
+        try:
+            task.add_done_callback(tasks.discard)
+        except Exception:  # noqa: BLE001
+            pass
+
+    async def _async_teardown_residency(self) -> None:
+        """Flag first, then await in-flight rows with a bound."""
+        self._residency_torn_down = True
+        tasks = getattr(self, "_residency_log_tasks", None) or set()
+        pending = [t for t in tasks if not t.done()]
+        if pending:
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*pending, return_exceptions=True),
+                    timeout=float(_ura_const.RESIDENCY_LOG_TEARDOWN_TIMEOUT_S),
+                )
+            except Exception:  # noqa: BLE001 — bounded; never block unload
+                for t in pending:
+                    if not t.done():
+                        t.cancel()
+        tasks.clear()
+
+    def _phone_left_behind_on(self, person_name: str) -> bool:
+        """True iff the person's phone-left-behind sensor reads ``on``.
+
+        Extracted from the fan-interference gate's closure (step 1a D2 item
+        4), same semantics: empty slug -> False; the registry lookup and the
+        state read each wrapped (any error -> False, i.e. fail-open);
+        missing / unknown / unavailable -> False. The unique id mirrors
+        ``PersonPhoneLeftBehindSensor``:
+        ``f"{DOMAIN}_person_{<slug>}_phone_left_behind"``. The twin closure
+        inside ``_run_inference`` is deliberately untouched (INV-MACHINE);
+        a parity test pins the two on every non-raising input.
+        """
+        person_slug = (person_name or "").lower().replace(" ", "_")
+        if not person_slug:
+            return False
+        try:
+            from homeassistant.helpers import entity_registry as er  # noqa: PLC0415
+
+            entity_reg = er.async_get(self.hass)
+        except Exception:  # noqa: BLE001 — fail-OPEN
+            entity_reg = None
+        unique_id = f"{DOMAIN}_person_{person_slug}_phone_left_behind"
+        entity_id: Optional[str] = None
+        if entity_reg is not None:
+            try:
+                entity_id = entity_reg.async_get_entity_id(
+                    "binary_sensor", DOMAIN, unique_id,
+                )
+            except Exception:  # noqa: BLE001 — fail-OPEN
+                entity_id = None
+        if entity_id is None:
+            return False
+        try:
+            state = self.hass.states.get(entity_id)
+        except Exception:  # noqa: BLE001 — fail-OPEN
+            return False
+        if state is None or state.state in _UNAVAILABLE_STATES:
+            return False
+        return state.state == "on"
+
+    def get_residents_home(self) -> frozenset:
+        """Residents at home (LEVEL, trust state): ``person_state_for_trust``
+        reads ``home`` and the phone-left-behind sensor is not ``on``.
+        Unresolved resident set -> empty (severity fails toward CRITICAL).
+        Synchronous, never raises, safe before setup."""
+        try:
+            residents = self._residency_residents()
+            if not residents:
+                return frozenset()
+            from ..person_coordinator import person_state_for_trust  # noqa: PLC0415
+            from .residency import person_slug  # noqa: PLC0415
+
+            home = set()
+            for pid in residents:
+                if person_state_for_trust(self.hass, pid) != "home":
+                    continue
+                if self._phone_left_behind_on(person_slug(pid)):
+                    continue
+                home.add(pid)
+            return frozenset(home)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Residency: residents_home failed", exc_info=True)
+            return frozenset()
+
+    def get_residents_home_count(self) -> int:
+        return len(self.get_residents_home())
+
+    def get_recent_resident_arrival(
+        self, within_s: float, now_ts: float | None = None
+    ) -> Any:
+        """Newest COUNTED, non-stale, out-of-boot-window resident arrival
+        record within ``within_s``, else None. Never raises."""
+        try:
+            tracker = getattr(self, "_residency", None)
+            if tracker is None:
+                return None
+            now = self._residency_clock() if now_ts is None else float(now_ts)
+            return tracker.recent_arrival(
+                float(within_s), now,
+                counted=True, include_stale=False, include_boot=False,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Residency: recent arrival read failed", exc_info=True)
+            return None
+
+    def get_house_occupancy(self) -> str:
+        """``empty`` iff the house state is away or vacation, else
+        ``occupied`` (byte-identical to binary_sensor.ura_house_occupied)."""
+        try:
+            state = self.house_state
+        except Exception:  # noqa: BLE001
+            state = "away"
+        return "empty" if state in ("away", "vacation") else "occupied"
+
+    def get_residency_snapshot(self) -> dict:
+        """Display attributes for the residents-home sensor. Never raises."""
+        try:
+            tracker = getattr(self, "_residency", None)
+            return tracker.snapshot() if tracker is not None else {
+                "persons": {}, "last_arrival": None, "last_departure": None,
+            }
+        except Exception:  # noqa: BLE001
+            return {"persons": {}, "last_arrival": None, "last_departure": None}
+
+    # ------------------------------------------------------------------
     # Geofence: person entity state changes (home/not_home)
     # ------------------------------------------------------------------
 
@@ -5305,6 +5547,10 @@ class PresenceCoordinator(BaseCoordinator):
         old_state = event.data.get("old_state")
         if new_state is None:
             return
+        # HOUSE-STATE step 1a D2 (INV-PRODUCER): the residency record is
+        # written for EVERY event, before the restore / unavailable returns
+        # and whatever the observation mode or boot settle (never raises).
+        self._feed_residency(entity_id, old_state, new_state)
         # FORMS-RELEASE-1 B-L1: an event with no old state is an add (a
         # person created at runtime, possibly delivered to a tracker that
         # registered during that same dispatch) or a restore — never a
@@ -8901,6 +9147,11 @@ class PresenceCoordinator(BaseCoordinator):
 
     async def async_teardown(self) -> None:
         """Tear down the Presence Coordinator."""
+        # HOUSE-STATE step 1a D2: residency rows (flag first, bounded gather).
+        try:
+            await self._async_teardown_residency()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("residency teardown failed", exc_info=True)
         # Fan-noise review A-M2/B-2: pending held-belief decay timers.
         _cancel_fan_belief_decay(self)
         # FACE-ARRIVAL-REBUILD-1 D1: sighting producer (listeners, census

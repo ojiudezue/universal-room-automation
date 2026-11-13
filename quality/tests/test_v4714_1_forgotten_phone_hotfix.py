@@ -727,33 +727,51 @@ class TestH2PhoneLeftBehindExclusion:
             "H2: must reference the phone_left_behind unique_id suffix"
         )
 
-    def test_h2_filter_uses_entity_registry(self):
+    def test_h2_filter_uses_entity_registry(self, monkeypatch):
         """A-H1: H2 MUST resolve via entity_registry (not by string concat).
 
         Replaces the prior `test_h2_filter_uses_hass_states_get` — the bare
         `f"binary_sensor.{slug}_phone_left_behind"` form was the exact bug
         A-H1 surfaced (silent no-op because the real entity_id is
         `binary_sensor.universal_room_automation_<slug>_phone_left_behind`).
+
+        HOUSE-STATE step 1a D2: converted from a source-text window (Bug
+        Class #62) to a behavioural test of the ONE extracted rule
+        `PresenceCoordinator._phone_left_behind_on`, which the fan gate's
+        `_phone_trustworthy` closure now delegates to.
         """
-        helper_idx = PRESENCE_SRC.find("def _phone_trustworthy")
-        assert helper_idx >= 0, "H2: _phone_trustworthy helper missing"
-        helper_block = PRESENCE_SRC[helper_idx: helper_idx + 2400]
-        assert "async_get_entity_id" in helper_block, (
-            "A-H1: _phone_trustworthy must resolve entity_id via "
-            "entity_registry.async_get_entity_id"
+        from types import SimpleNamespace
+
+        from homeassistant.helpers import entity_registry as er
+
+        from custom_components.universal_room_automation.const import DOMAIN
+        from custom_components.universal_room_automation.domain_coordinators import (
+            presence as PR,
         )
-        assert "binary_sensor" in helper_block, (
-            "A-H1: helper must pass 'binary_sensor' domain to async_get_entity_id"
-        )
-        # The unique_id format must mirror binary_sensor.py:1000:
-        # f"{DOMAIN}_person_<slug>_phone_left_behind"
-        assert "_person_" in helper_block, (
-            "A-H1: unique_id must mirror binary_sensor.py:1000 format"
-        )
-        # Defensive: the bare-slug bug form MUST NOT be in the helper body.
-        assert 'f"binary_sensor.' not in helper_block, (
-            "A-H1: bare-slug entity_id construction is the bug — must not return"
-        )
+
+        real_eid = f"binary_sensor.{DOMAIN}_oji_udezue_phone_left_behind"
+        calls = []
+
+        class _Reg:
+            def async_get_entity_id(self, domain, platform, unique_id):
+                calls.append((domain, platform, unique_id))
+                if unique_id == f"{DOMAIN}_person_oji_udezue_phone_left_behind":
+                    return real_eid
+                return None
+
+        monkeypatch.setattr(er, "async_get", lambda hass: _Reg())
+        states = {
+            real_eid: SimpleNamespace(state="on"),
+            # The bare-slug bug form: must never be read.
+            "binary_sensor.jaya_phone_left_behind": SimpleNamespace(state="on"),
+        }
+        coord = object.__new__(PR.PresenceCoordinator)
+        coord.hass = SimpleNamespace(states=SimpleNamespace(get=states.get))
+        assert coord._phone_left_behind_on("Oji Udezue") is True
+        assert calls == [
+            ("binary_sensor", DOMAIN, f"{DOMAIN}_person_oji_udezue_phone_left_behind")
+        ]
+        assert coord._phone_left_behind_on("Jaya") is False
 
 
 # ===========================================================================

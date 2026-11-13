@@ -164,6 +164,20 @@ _perimeter.dt_util = _real_dt_util
 
 # --- Test helpers -------------------------------------------------------------
 
+class _FakeResidencyPresence:
+    """Presence fake with the two real D5 getters (fixed values)."""
+
+    def __init__(self, residents_home: int, recent=None) -> None:
+        self._residents_home = int(residents_home)
+        self._recent = recent
+
+    def get_residents_home_count(self) -> int:
+        return self._residents_home
+
+    def get_recent_resident_arrival(self, within_s, now_ts=None):
+        return self._recent
+
+
 def _make_hass(
     house_state: str | None = "away",
     perimeter_cameras: list[str] | None = None,
@@ -174,7 +188,7 @@ def _make_hass(
     include_nm: bool = True,
     external_url: str | None = None,
     internal_url: str | None = None,
-    persons_home: int = 1,  # CONSOL-1: default "someone home" so home_day/evening → LOW not HIGH
+    persons_home: int = 1,  # residents-home count the fake presence reports
     enrichment_enabled: bool = False,
     enrichment_cameras: list[str] | None = None,
 ):
@@ -198,10 +212,10 @@ def _make_hass(
     # Coordinator manager exposing house_state property (mirrors real path)
     cm = MagicMock()
     cm.house_state = house_state
-    # CONSOL-1: presence sub-coord carrying trusted persons count.
-    _presence = MagicMock()
-    _presence._tracked_persons_count_trusted = persons_home
-    cm.presence = _presence
+    # HOUSE-STATE step 1a D5 fixture rule: presence is reached through
+    # `coordinators["presence"]` (the real CoordinatorManager shape) and the
+    # fake has REAL getters with fixed values (no MagicMock coercion).
+    cm.coordinators = {"presence": _FakeResidencyPresence(persons_home)}
 
     # NM mock — AsyncMock so async_notify awaits cleanly
     nm = MagicMock()
@@ -282,16 +296,19 @@ def _run(coro):
     "house_state,expected",
     [
         # CONSOL-1 §6 contextual severity — TOTAL over 9 HouseState values.
-        # persons_home defaults to 1 in _make_hass so home_day/evening
-        # take the "someone home" rows (LOW). arriving/waking non-perimeter
-        # are MEDIUM (row 7 / row 8b). Unknown/None → CRITICAL (case_).
+        # HOUSE-STATE step 1a D5 (C1): with
+        # EXTERIOR_SEVERITY_PERSONS_HOME_FROM_RESIDENCY False (default)
+        # persons_home is 0, as production resolved before 1a, so
+        # home_day/evening take the "nobody home" rows (HIGH). arriving:
+        # the fake reports 1 resident home -> MEDIUM. Unknown/None →
+        # CRITICAL (case_).
         ("away", Severity.CRITICAL),
         ("vacation", Severity.CRITICAL),
         ("sleep", Severity.CRITICAL),
         ("home_night", Severity.CRITICAL),
         ("guest", Severity.MEDIUM),
-        ("home_day", Severity.LOW),
-        ("home_evening", Severity.LOW),
+        ("home_day", Severity.HIGH),
+        ("home_evening", Severity.HIGH),
         # waking + perimeter → CRITICAL (row 8). camera_class is derived
         # from the fixture's CONF_PERIMETER_CAMERAS membership so the
         # test camera resolves to "perimeter" → CRITICAL, not MEDIUM.
@@ -317,7 +334,8 @@ def test_severity_maps_by_house_state(house_state, expected):
 @pytest.mark.parametrize("cc,tc,ph,expected", [
     ("perimeter", "circling", 1, Severity.HIGH),
     ("egress", "first_sighting", 0, Severity.HIGH),
-    ("egress", "first_sighting", 1, Severity.MEDIUM),
+    # Step 1a D5 (C1): switch False -> persons_home 0 whatever the fake says.
+    ("egress", "first_sighting", 1, Severity.HIGH),
     ("perimeter", "approach", 0, Severity.MEDIUM),
 ])
 def test_guest_keep_high_through_consumer(cc, tc, ph, expected):
@@ -497,7 +515,8 @@ def test_snapshot_failure_does_not_block_alert():
 
 def test_MUTATION_contextual_severity_load_bearing():
     """CONSOL-1: neuter the contextual severity function → home_day would
-    hit the fail-safe CRITICAL arm. Restore proves home_day → LOW."""
+    hit the fail-safe CRITICAL arm. Restore proves home_day → HIGH (step 1a
+    D5: persons_home 0 with the residency switch False)."""
     orig = _perimeter.NM_HAZARD_EXTERIOR_PERSON_CONTEXTUAL_SEVERITY
     try:
         _perimeter.NM_HAZARD_EXTERIOR_PERSON_CONTEXTUAL_SEVERITY = (
@@ -510,12 +529,12 @@ def test_MUTATION_contextual_severity_load_bearing():
         assert nm.async_notify.await_args.kwargs["severity"] == Severity.CRITICAL
     finally:
         _perimeter.NM_HAZARD_EXTERIOR_PERSON_CONTEXTUAL_SEVERITY = orig
-    # Restore proof: home_day with persons_home=1 → LOW.
+    # Restore proof: home_day with the residency switch False → HIGH.
     hass, nm = _make_hass(house_state="home_day")
     mgr = asyncio.run(_setup_neutered(_perimeter.PerimeterAlertManager, hass))
     asyncio.run(mgr._async_handle_perimeter_trigger(
         "binary_sensor.front_yard_person_occupancy"))
-    assert nm.async_notify.await_args.kwargs["severity"] == Severity.LOW
+    assert nm.async_notify.await_args.kwargs["severity"] == Severity.HIGH
 
 
 def test_MUTATION_snapshot_threading_load_bearing():
