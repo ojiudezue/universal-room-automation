@@ -34571,6 +34571,18 @@ cards:
   recheck_2026_11_13_overnight: "STILL-REAL (recorder + URA DB, ~02:09 CST). Lock is unlocked now; the relock-then-revert pattern continued all evening (locked 21:56/22:56/23:56/01:14 CST, each back to unlocked 7 s later). Kitchen smoke detector still unavailable; Frigate2 healthy (35 fps). CARD-WAS-WRONG on 'the guard loops hourly': the retry cap (security.py:1777-1813, CAP=3, re-arm 24 h, const.py:3918/3922) works as designed - it capped at 19:52 CST (notice row 01:52Z) - but its counter is in memory only, and HA restarted 3 times since (21:09, 21:54, 01:44 CST), each starting a fresh 3-try episode. The real gap is reach: the cap notice is MEDIUM on channel 'security' and logged bucket_outcome=no_channel_fired, delivered=0, so it reached nobody. Branch fix/nm-no-route (df8e323a, NM-NO-CHANNEL-FIRED-1) sends no-route alerts to the 08:00/18:00 digest, which would make it reach you; making the cap notice HIGH (pages now) is the stronger option. Not built overnight: it changes what pages you, which is your call."
   links: {"related": ["NM-NO-CHANNEL-FIRED-1", "SECURITY-LOCK-SWEEP-RETRY-CAP-1"], "context": "NM-NO-CHANNEL-FIRED-1 is the fix that makes the MEDIUM cap notice reach a human; SECURITY-LOCK-SWEEP-RETRY-CAP-1 shipped the cap (v5.108.6) whose in-memory counter restarts reset."}
   paged_2026_11_13_overnight: "Paged 2026-11-13 02:09 CST in one consolidated quiet notification (notify.madronehapushover, priority -1, wakes nobody) with the pick."
+- id: TEST-MUSIC-SYSMODULES-LEAK-1
+  title: test_music_following_coordinator.py replaces domain_coordinators/base in sys.modules at import and never restores them, breaking class-identity checks in later test files
+  thread: quality
+  status: inbox
+  created: '2026-11-13 03:00'
+  updated: '2026-11-13 03:00'
+  tier: 1
+  links: {related: [NM-NO-CHANNEL-FIRED-1]}
+  origin: {date: '2026-11-13', gist: 'Found while fixing an order-dependent NM test (test_music_following_coordinator.py:128-138); builder checklist rule 8.'}
+  why: 'Any later test using isinstance on Severity or other base classes can fail depending on order.'
+  next: 'Me: move the patch into a scoped fixture (monkeypatch.setitem on sys.modules) and confirm the minimal ordering still passes.'
+  rank: {value: 3, time_criticality: 2, effort: 1}
 - id: NM-DIGEST-MARK-RACE-1
   title: mark_digest_delivered marks every undelivered row, including rows queued while the digest was sending, so they never appear in any digest
   thread: notifications
