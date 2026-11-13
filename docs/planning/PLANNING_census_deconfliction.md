@@ -69,7 +69,7 @@ agreement metadata.
 |---|---|---|---|---|
 | 0 | (value flip) F-LEAD | changes the awareness value | Bars a, b, d, e (§3.4) AND every §15.7a number: ≥ 100 graded crossings over ≥ 7 days incl. ≥ 10 with a non-resident; exact ≥ 95 % overall and ≥ 90 % at night, per door; vision wins ≥ 80 % of B/C disagreements; false guest ≤ 2 %; healthy ≥ 95 %. After the flip the same numbers over a rolling 14 days are a trip-wire (AnomalyDetector → NM, "revert F-LEAD") | gated |
 | 1 | `display` | the two awareness entities, `crossing_vision_last`, personalization suggestions (suggestion = display) | none: legal and active at deploy (`frozenset({"display"})`), because F2-A equals F2-T until F-LEAD | ships active |
-| 2 | `notification` (F-NOTIFY) | the arrival count follow-up (sibling plan) | bar c (groups) + exact-count ≥ `CROSSING_VISION_NOTIFY_EXACT_MIN` (0.90) on ≥ `CROSSING_VISION_NOTIFY_MIN_GRADED` (30) graded crossings, AND EGRESS-DIRECTION-AWARE-IDENTITY-1 shipped or measured entry attach ≥ `CROSSING_VISION_NOTIFY_MIN_ATTACH` (0.50). Names stay ≥ 0.75 from F3 | legal now, inactive |
+| 2 | `notification` (F-NOTIFY) | the arrival count follow-up (sibling plan) | bars a, b, d, e + bar c (groups) + exact-count ≥ `CROSSING_VISION_NOTIFY_EXACT_MIN` (0.90) on ≥ `CROSSING_VISION_NOTIFY_MIN_GRADED` (30) graded crossings, AND EGRESS-DIRECTION-AWARE-IDENTITY-1 shipped or measured entry attach ≥ `CROSSING_VISION_NOTIFY_MIN_ATTACH` (0.50). Names stay ≥ 0.75 from F3 | legal now, inactive |
 | 3 | `comfort` | HVAC guest mode, pre-arrival conditioning (operator 2026-11-13: "HVAC is comfort basically so since it's not security I'd say it can once it's earned") | F-LEAD live ≥ 30 days with the rolling F-LEAD numbers held, false guest ≤ `CENSUS_LADDER_COMFORT_FALSE_GUEST_MAX` (0.02) on comfort-relevant hours, and a rung plan that reads `HVAC_ARCHITECTURE_STATE_OF_PLAY.md` completely and names the HVAC input it changes. Which HVAC input drives guest mode today is not verified here | NOT legal; needs its own Tier-3 plan |
 | 4 | `house_state` | AWAY, ARRIVING, SLEEP, WAKING, GUEST latch, Path A, boot seed | comfort rung live ≥ 30 days AND a proof that AWAY entry time and `_run_inference` call count are unchanged or earlier on a replay (INV-P2-AWAY-LATENCY at this rung), AND live AWAY latency (last resident departure → AWAY row) median / p90 within 10 % of the P2-D0 (v) baseline over 7 days | NOT legal; needs its own Tier-3 plan |
 | 5 | `security` | SC auto-follow, lock regime, SanctionChecker, perimeter severity | last. Bound by manual §5.5(a): de-escalate or annotate only, never escalate, actuate or suppress below 0.9; a count carries no identity confidence, so this rung needs its own confidence model. Revival trigger: notification rung live ≥ 30 days with bars held and p90 latency at the security target (≤ 15 s) | NOT legal; needs its own Tier-3 plan |
@@ -284,7 +284,8 @@ payload dict or any existing field.
 threshold over `CROSSING_VISION_GO_REGRESSION_DAYS` (14) → NM "revert F-LEAD"; per promoted rung, its bar regressing →
 NM recommending demotion.
 - **Tests:** `test_consumer_classes_rejects_illegal`, `test_switch_off_reads_trust`, `test_disagree_persist_pages`,
-  `test_bar_regression_pages_only_after_flip`.
+  `test_bar_regression_pages_only_after_flip`. Config extremes: class set `{display}` vs the full legal set; switch OFF
+  with classes on; ledger `unknown`; `CROSSING_VISION_GRADE_DAILY_N = 0`.
 - **Live:** switch entity present, ON; no page on day one.
 
 ### CD4: flips (operator Tier-3 checkpoints, one const edit each)

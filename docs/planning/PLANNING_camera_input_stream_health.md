@@ -135,7 +135,8 @@ says otherwise, so S2 changes only which camera inputs the census treats as pres
 
 ## 7. Dependencies and sequence
 
-S1 after perimeter Part A ships (independent code). S2 after S1, and before the census plan's F-LEAD. Reviews per ship:
+S1 after perimeter Part A ships (independent code). Each ship updates `PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md` in the
+same commit. S2 after S1, and before the census plan's F-LEAD. Reviews per ship:
 A correctness (grace timing, resolution cache, state vocabulary); B cross-coordinator effects (HVAC `hvac_occupied`, zone
 roll-up, fan recheck with a vacated room) + restart; C per-site mutation; plus a goal-fidelity framing per the charter.
 

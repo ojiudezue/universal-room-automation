@@ -249,12 +249,16 @@ latency (person-sighting §15.5 F/B/S): F at the Frigate event START on the door
 on the awareness entities' `last_crossing` attribute, never applied to the ledger. B = the Phase 1 call, `stage = final`.
 S at `max(B outcome, E + CROSSING_VISION_NAME_SETTLE_S)` joins F, B, names and camera counts into the arrival record and
 the ONE ledger term (final count; F only if B failed); F vs B disagreement recorded (`revised`). Dispatch blocked until
-the P2-D0 (vi) audit row exists. Adopting F or any model change resets the bar window (rows carry `pipeline_version`).
+the P2-D0 (vi) audit row exists. The same simulation also prices the single-call levers (L1 call at event start + fixed
+delay, L2 snapshot-first, L3 3 frames, L4 model / reasoning effort, L5 call at E before direction resolves); a lever is
+adopted if p90 drops and exact-count stays within 2 points of the D0b 93.3 %. If the F gate fails, the audit names the
+failing number and the operator decides between an adopted lever, a re-measure, or parking F with a card and revival
+trigger; F is never dropped silently. Adopting F or any model change resets the bar window (rows carry `pipeline_version`).
 
 **P2-D9 arrival record (Tier 2-DB) + count follow-up (rung 2).** NEW type `crossing_vision_arrival`, written once per
 crossing (cluster: once, keyed by the primary, members listed) at `max(vision outcome, E + CROSSING_VISION_NAME_SETTLE_S)`
 for entries and `E + CROSSING_VISION_EXIT_NAME_SETTLE_S` for exits; one tracked timer per crossing, cancelled at
-teardown; restart drops pending (counted). `node_id = vision_arrival:<crossing_key>`, `source_ref = egress_camera@E`,
+teardown; restart drops pending (counted). The type joins `MEMORY_WRITER_BACKED_EPISODE_TYPES`. `node_id = vision_arrival:<crossing_key>`, `source_ref = egress_camera@E`,
 `dedup_source_ref=False` (with True, the global `source_ref` check at `database.py:10765-10770` would skip every row
 because the shadow and outcome rows already hold that key). `named` = union, canonicalised through
 `_canonical_person_slug`, of: each member's bus `person_id`; for exits the backfilled `person_id` re-read from
