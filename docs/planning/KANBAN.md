@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-13T00:09:11-06:00_ - _Data commit: `a332663099f2`_ - _last_reconciled: 2026-11-12_
+_Generated: 2026-11-13T00:24:01-06:00_ - _Data commit: `f9ed58724e09`_ - _last_reconciled: 2026-11-12_
 
 
 ## Columns
@@ -97,10 +97,11 @@ _created 2026-11-12 19:10 · initial_
   - Problem: presence.py:1347-1369 moves house away -> ARRIVING on camera body evidence; ARRIVING releases the garage lockout (security_lock_regime.py:864, :809) and makes security auto-disarm (security.py:192, :1452). Away-lock is not on th...
 - **Origin:** 2026-11-12 - Found by the face-arrival planner, confirmed by the completeness plan review (PLAN_face_arrival_rebuild_review_completeness.md).
 - **Why:** Same policy principle as FACE-ARRIVAL-REBUILD-1: access actions need identity plus an independent signal; a body alone is weaker than a face.
-- **Next:** Me: read-only probe of away->ARRIVING transitions over recorder history, their evidence source and resulting lockout releases / disarms.
-- **Forensic keys (2):**
+- **Next:** Me: plan the lock-regime trigger change (Tier 3, plan + 2 plan reviews) before the operator turns the lockout back on (~11-16); no urgency while switches are off.
+- **Forensic keys (3):**
   - `tier`: 3
   - `ARC_2026-11-13`: Operator: add to the person-sightings arc. Review D (v_person_sightings_p1_D.md L-1) repro: lockout engaged in SLEEP, house SLEEP -> AWAY, an interior camera sees a body -> ARRIVING -> lockout release.
+  - `FINDING_2026-11-13`: AUDIT_arriving_on_body_evidence_2026_11_13.md: 2,642 AWAY->ARRIVING edges since 03-12; 6.4% real arrivals, 48.6% correcting a false AWAY, 32.8% no resident evidence. 68.5% driven by zone sensors with census 0, not cameras. Zero access re...
 
 ### `FRIGATE-DOOR-FACE-TUNING-1` - Door and exterior cameras recognize few faces (garage 36, doorbell 33, entry 16, aerial 7 since 11-05; 9 cameras zero), capping egress identity near 40% — _#3 · WSJF 3.0 · v7 tc3 u2 /e4_
 thread: **identity** - status: **investigating** - approval: **unreviewed**
