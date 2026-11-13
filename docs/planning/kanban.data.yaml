@@ -35163,6 +35163,19 @@ cards:
   why: 'Unbounded growth on a shared table; the scorer only needs ~30-90 days.'
   next: 'Me: measure memory_episodes size per type, propose per-type retention (e.g. perimeter_gate_decision 90 d) in the nightly maintenance; Tier 1 after measure.'
   rank: {value: 2, time_criticality: 1, effort: 1}
+- id: VISION-INTERIOR-SIGHTINGS-1
+  title: Interior vision - unnamed sightings ("2 people in the family room") from interior cameras, fused with NVR faces
+  thread: identity
+  status: planned
+  batch: person-sightings
+  created: '2026-11-13 18:00'
+  updated: '2026-11-13 18:00'
+  tier: 3
+  links: {parent: VISION-CROSSING-ANALYSIS-1, related: [FACE-ARRIVAL-REBUILD-1, PERSON-PROFILE-PREFERENCES-1, CENSUS-OCCUPANCY-ESTIMATOR-1, INTERIOR-PATH-MAP-1]}
+  origin: {date: '2026-11-13', gist: 'Operator: "We need this. Sequence is optional as long as you don''t drop it. Add to arc." (on unnamed interior sightings after crossing vision).'}
+  why: 'F4 today needs a name (face). Interior vision gives per-room people counts and unnamed presence in shared spaces/hallways (cameras only in shared spaces), the input census accuracy and personalization need. Must respect the F1-F5 model: a count is evidence (F4-shaped, unnamed) not belief (F2); census and sightings never feed each other without the deconfliction rule; access never acts on it.'
+  next: 'Me: after crossing vision Phase 1 accuracy is measured, plan it (Tier 3, prior-art scan: sighting producer, CameraResolver, interior path map, census interior camera counts, CROSSING_VISION_INTERIOR_ENABLED parked name) with measure-first probe on interior frames; decide F4 unnamed-sighting shape vs a per-room count signal.'
+  rank: {value: 8, time_criticality: 3, effort: 3}
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
