@@ -35085,6 +35085,9 @@ broader_backlog_refs:
   origin: {date: '2026-11-13', gist: 'Operator: "Lets card and fix soon. Or remove." perimeter_alert.py:4672 _apply_zone_agreement_gate; perimeter_zone_sensors empty live.'}
   why: 'Most accurate test (uses where the person was) but inert; the real fix for street alerts is masks (operator).'
   next: 'Me: decide FIX (derive property zones per camera from Frigate-2 zone config, map in options) vs REMOVE (dead knob) after the masks land; measure from gate records.'
+  residual_2026_11_13_vlm_location: 'Operator 2026-11-13: per-camera pixel masks/PTZ-specific fixes are "not agnostic enough". Proposal: extend the Perimeter AI Person Check (VLM gate) to answer on-property vs street/road and demote street; camera- and view-agnostic, no new calls. Shadow first on 18 g5 cases + utilities road alerts; hard bar: never calls 11-08 00:31 driveway person street. Daylight-only rule still applies. May supersede zone agreement (FIX-OR-REMOVE -> REMOVE).'
+  residual_2026_11_13_masks: 'Homelab 45761e2: g5 F2 mask v2 + person min_area 300 live 13:40; utilities_ptz kept as is by operator (Protect auto-tracking moves view). Audit fdb13121.'
+  residual_2026_11_13_daylight_only: 'Operator 2026-11-13: single-source demote only in daylight, never after sunset. Evidence: g5_bullet 11-08 00:31 own-driveway night person was Protect-only and would have been demoted. Reuse sun.sun elevation < SUN_DARK_ELEVATION_DEG (lighting/darkness.py:10). Fail-safe inverted vs lighting: sun.sun unavailable -> treat as night -> do NOT demote. Knob PERIMETER_SS_DAYLIGHT_ONLY (rung 1, True). Build next after crossing vision, Tier 2.'
   rank: {value: 5, time_criticality: 3, effort: 3}
 - id: PERIMETER-SWITCH-LABELS-AND-FLOW-PARITY-1
   title: Perimeter demote switches have unclear names and no config-flow entry; every device switch needs an options-flow field
@@ -35101,14 +35104,15 @@ broader_backlog_refs:
 - id: LLMVISION-GPT6-ENTRY-1
   title: Add a second llmvision OpenAI entry for GPT-6 (temperature 1.0) so crossing vision can use the cheaper model
   thread: identity
-  status: waiting_operator
+  status: done
   created: '2026-11-13 12:30'
-  updated: '2026-11-13 12:30'
+  updated: '2026-11-13 14:00'
   tier: 1
   links: {related: [VISION-CROSSING-ANALYSIS-1]}
   origin: {date: '2026-11-13', gist: 'Operator: "yes. You may have to remind me again." Garage A frames to OpenAI: approved.'}
   why: 'llmvision sends temperature per provider entry; GPT-6 rejects 0.5. Existing entry stays for perimeter enrichment.'
   next: 'DO: HA > llmvision > add OpenAI entry "OpenAI reasoning", model gpt-6-luna, Temperature 1.0, Top P 1.0, type the key yourself -> I run D0a and switch crossing vision. REMIND the operator at each status block until done.'
+  done_2026_11_13: 'Operator added entry 01M7B731T26P2HXVW77AQR62PP "OpenAI Madrone Vision" gpt-6-luna temp 1.0 top_p 1.0; old OpenAI entry (gpt-5-mini) untouched for perimeter. Follow-on (D0a on the new entry, switch crossing vision) tracked on VISION-CROSSING-ANALYSIS-1.'
   rank: {value: 4, time_criticality: 2, effort: 1}
 - id: PERIMETER-GATE-DECISIONS-NOT-PERSISTED-1
   title: Perimeter demote gates keep only their last decision per camera in memory, so shadow mode leaves no record to judge them by
@@ -35122,3 +35126,14 @@ broader_backlog_refs:
   why: 'Fire check: a shadow mode with no persisted decisions cannot be evaluated; every gate needs a DB row per decision.'
   next: 'Me: persist each gate decision (memory_episodes or a gate row) with camera, gate, reason, would_demote, severity; weekly scorer.'
   rank: {value: 5, time_criticality: 3, effort: 2}
+- id: F2-PANEL-FFMPEG-CRASHLOOP-1
+  title: Frigate-2 study_a_panel and up_hallway_panel ffmpeg crash-loop (~20k log lines / 3 h)
+  thread: infra
+  status: in_progress
+  created: '2026-11-13 14:00'
+  updated: '2026-11-13 14:00'
+  tier: 1
+  origin: {date: '2026-11-13', gist: 'Homelab session found it during g5 mask v2; operator: "homelab should look at the crashes. Start with wall panel config and kiosk satellite."'}
+  why: 'Log flood on F2 and two dead camera legs; pre-existing, not caused by mask v2. Homelab-side work (capture rule 5).'
+  next: 'Homelab (homelab-automation-15) investigating panel config + kiosk satellite; I record root cause + commit when it reports.'
+  rank: {value: 3, time_criticality: 2, effort: 1}
