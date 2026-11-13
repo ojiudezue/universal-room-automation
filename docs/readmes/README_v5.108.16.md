@@ -40,11 +40,18 @@ Full suite 20979 passed, 0 failed (develop baseline 20815, 0 failed); every chan
 `URA_SOURCE_MUTATION=1` and `URA_D7_HYGIENE=1` green (review C). Review C ran 92 per-site source mutations; all
 load-bearing sites go RED on a named test after fix-up 3.
 
-## Live validation (prospective)
+## Validated 2026-11-13 (restart 01:44 CST on operator instruction, house sleep)
 
-L1 picks resolved; L1b face provenance on egress events; L3 no sighting in first 600 s; L4/L7 no arrival or access effect
-from sightings; L5 egress face sighting, no `camera_face` arrival; L8 no trip-wire page; L9 setup INFO line; L10 path map
-source and validation; L14 one outcome row per crossing; L19 geofence arrival still adds an expected arrival.
+| Criterion | Result | Evidence |
+|---|---|---|
+| Installed | PASS | `update.universal_room_automation_update` installed_version v5.108.16 via `update.install` version pin |
+| House state survives restart | PASS | `sensor.ura_coordinator_manager_house_state` sleep before and after |
+| L1 picks resolved | PASS | `face_sighting_picks_resolved` 7 (family room, foyer, master hallway, playroom, staircase, stairs top, upstairs hall) = D0-P1; Garage A pick unresolved `room_cameras_empty`, as expected |
+| L7 no access effect | PASS (at boot) | security `expected_arrivals` [], lock regime last actions {} |
+| L10 path map | PASS | first load `none` / `file absent`; after installing `interior_paths.json` and pressing reload: `interior_paths.json (schema 1, 19 edges)`, validation `ok`, sha c13b38b7… equals the file, doors [front, garage_a]. First file named `camera.rear_ptz_2` (not a configured exterior camera, rule-7 warning); example corrected to `camera.rear_ptz_high_resolution_channel` and reloaded clean |
+| No URA ERROR | PASS | system_log: URA WARNINGs only (boot holds, coverage re-anchor, deprecation notices) |
+| L9 setup INFO line | n/a | INFO not in the logged window; the picks attributes carry the same data |
+| L1b, L2, L3, L4, L5, L14, L19 | PENDING | need real door crossings and a waking house; checked after the morning crossings |
 
 ## Not done
 

@@ -4,7 +4,7 @@
     "garage_a": {
       "edges": [
         {
-          "from": "camera.rear_ptz_2",
+          "from": "camera.rear_ptz_high_resolution_channel",
           "to": "camera.garage_a_2",
           "kind": "approach",
           "lag_p90_s": 55
@@ -16,7 +16,7 @@
           "lag_p90_s": 73
         },
         {
-          "from": "camera.rear_ptz_2",
+          "from": "camera.rear_ptz_high_resolution_channel",
           "to": "camera.doorbell_lite",
           "kind": "approach"
         },
