@@ -2677,6 +2677,9 @@ PERIMETER_EGRESS_FACE_NONFACE_WINDOW_S: Final = 120
 # GARAGE_LOCKOUT_BOOT_ARRIVAL_WINDOW_S (max of the two), so lowering this value
 # never shrinks the unlock guard; raising the window widens BOTH consumers.
 PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S: Final = 600
+# FACE-ARRIVAL-REBUILD-1 (person sightings) also reads this as the ONE boot
+# drop of person sightings (`ts < presence setup + this`, sources a/b/c) and
+# the D2 arrival rule's boot gate. Raising it delays sightings after a restart.
 # D10.5 (rung 1, review A-M4): own corroboration settle, decoupled from the
 # D5 settle. D5a probe (30 d): second-engine lag p90 doorbell_lite 20.2 s,
 # front_door_aerial 18.0 s, madrone_g6_entry 22.4 s (p50 1.3-2.2 s). 20 s
@@ -3349,6 +3352,19 @@ assert CONFIDENCE_MEDIUM < FACE_MATCH_CORRELATED_BOOST < CONFIDENCE_HIGH, (
     "FACE_MATCH_CORRELATED_BOOST must sit strictly between "
     "CONFIDENCE_MEDIUM and CONFIDENCE_HIGH"
 )
+
+# FACE-ARRIVAL-REBUILD-1 D3 (plan rev 11 §2 INV-ACCESS): the ONE set of
+# camera-derived `SIGNAL_PERSON_ARRIVING` sources. Both access gates (the SC
+# lock regime and the security expected-arrival gate) classify a source with
+# `arrival_edges.arrival_source_needs_corroboration`: a source in this set, or
+# any string in neither set (e.g. a future "camera_vision", ""), needs an
+# independent non-face arrival edge (fail closed); a source in
+# NON_CAMERA_ARRIVAL_SOURCES, or a MISSING source (None, develop behaviour:
+# production always sends one), does not. Vocabulary, not a kill switch: a new
+# camera-derived source is recognised only by adding it here. `camera_egress`
+# has no producer in Phase 1; it is listed so the gates exist before one does.
+CAMERA_DERIVED_ARRIVAL_SOURCES: Final = frozenset({"camera_face", "camera_egress"})
+NON_CAMERA_ARRIVAL_SOURCES: Final = frozenset({"geofence", "ble"})
 
 # FACE-ARRIVAL-REBUILD-1 (person sightings, plan §1.2a / §2A): the ONE
 # provenance vocabulary of an egress identity attach. These name the string

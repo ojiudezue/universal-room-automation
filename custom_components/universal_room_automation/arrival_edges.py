@@ -24,10 +24,32 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Callable, Mapping
 
+from .const import CAMERA_DERIVED_ARRIVAL_SOURCES, NON_CAMERA_ARRIVAL_SOURCES
 from .perimeter_fp_gates import zone_slug
 
 SOURCE_PERSON_TRACKER = "person_tracker"
 SOURCE_BLE = "ble"
+
+
+def arrival_source_needs_corroboration(source: Any) -> bool:
+    """FACE-ARRIVAL-REBUILD-1 D3 (plan rev 11 §2 INV-ACCESS): the ONE source
+    classifier both access gates use (SC lock regime release/unlock, security
+    expected-arrival). True = this `SIGNAL_PERSON_ARRIVING` is camera-derived
+    (or unknown) and may act only with an independent non-face arrival edge.
+
+      * ``None`` (key missing) -> False: develop behaviour, not camera-derived
+        (production always sets a source; ~20 tests dispatch without one);
+      * in ``NON_CAMERA_ARRIVAL_SOURCES`` (geofence, ble) -> False;
+      * in ``CAMERA_DERIVED_ARRIVAL_SOURCES`` -> True;
+      * any other value (``"camera_vision"``, ``""``) -> True (fail closed).
+    """
+    if source is None:
+        return False
+    if source in NON_CAMERA_ARRIVAL_SOURCES:
+        return False
+    if source in CAMERA_DERIVED_ARRIVAL_SOURCES:
+        return True
+    return True
 
 
 def live_arrival_slug(event_data: Mapping[str, Any]) -> str | None:

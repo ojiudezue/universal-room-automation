@@ -529,6 +529,20 @@ tracker `not_home → home`, or a Bermuda move into an entry area (egress camera
 plus configured door-interior neighbours). The edge must be within 120 s and outside
 the 600 s post-setup exclusion. The rule is shared code (`arrival_edges.py`). This
 is the §5.5(a) doctrine applied to actuation: a face name alone never unlocks.
+**One camera-derived source set, two gates (FACE-ARRIVAL-REBUILD-1 D3, branch
+`feature/person-sightings-p1`, NOT deployed).** The lock regime no longer tests the literal
+`source == "camera_face"`: both access gates call `arrival_edges.arrival_source_needs_corroboration`,
+which returns True for any source in `const.CAMERA_DERIVED_ARRIVAL_SOURCES`
+(`{"camera_face", "camera_egress"}`; `camera_egress` has no producer in Phase 1) and for any unknown
+string (fail closed), and False for `NON_CAMERA_ARRIVAL_SOURCES` (`geofence`, `ble`) and for a missing
+source (develop behaviour). The second gate is NEW: with `security_on_arrival_add_expected` on, the
+Security Coordinator adds an expected arrival (which suppresses the entry alarm person-agnostically)
+for such a source only when `SecurityLockRegime.face_input_corroborated(person, at_ts)` (public wrapper
+over `_face_arrival_corroborated`, same stamps / window / boot floor) finds the independent edge;
+`at_ts` is the sighting's recognition time when the payload carries one, else the regime's own now. No
+lock regime (or a torn-down one) rejects; there is no held re-check. Before this, a face-only
+`camera_face` arrival with the toggle on sanctioned every door for 5 minutes (latent: the toggle is
+off live and the face producer never fired).
 **Held edges do not corroborate (suspicious-arrival hold, branch
 `feature/lock-suspicious-arrival-hold`, shipped v5.108.13; plan
 `PLANNING_lock_suspicious_arrival_hold.md` rev 2).** A tracker edge whose person
