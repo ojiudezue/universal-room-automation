@@ -34925,6 +34925,19 @@ cards:
   revisit_trigger: 'Garage lockout switched ON, or the lock-release-on-arriving build ships (sequenced next after it).'
   next: 'Me: plan after LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1 builds; joint restart test.'
   rank: {value: 6, time_criticality: 5, effort: 3}
+- id: EXTERIOR-PERSONS-HOME-ALWAYS-ZERO-1
+  title: perimeter_alert._get_persons_home always returns 0 in production (asks the coordinator manager for a presence attribute it does not have), so day/evening exterior alerts are always HIGH
+  thread: security
+  status: inbox
+  batch: person-sightings
+  created: '2026-11-13 05:30'
+  updated: '2026-11-13 05:30'
+  tier: 2
+  links: {parent: FACE-ARRIVAL-REBUILD-1, related: [EXTERIOR-PERSON-SEVERITY-ARRIVING-BODY-ONLY-1, HOUSE-STATE-FIRST-PRINCIPLES-1]}
+  origin: {date: '2026-11-13', gist: 'House-state step-1 plan review (build-prediction C1): perimeter_alert.py:2013-2032; only a test fake sets the attribute (test_house_state_sleep_mask_ble_memory.py:310), so the test is hollow. Also security entry verdict reads census persons_home that nothing writes.'}
+  why: 'Severity keyed on residents home has never worked; safe direction today (over-alerts) but any fix changes paging and must not lower it while the house is empty.'
+  next: 'Me: folded into the house-state step-1 plan (getters defined with real producers); fix together with exterior severity.'
+  rank: {value: 6, time_criticality: 3, effort: 2}
 - id: EXTERIOR-PERSON-SEVERITY-ARRIVING-BODY-ONLY-1
   title: While the house reads ARRIVING, exterior-person alerts drop to LOW, so a body-only ARRIVING softens real alerts
   thread: security
