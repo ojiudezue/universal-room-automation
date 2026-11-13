@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-12T17:01:13-06:00_ - _Data commit: `6bc0bc468104`_ - _last_reconciled: 2026-11-12_
+_Generated: 2026-11-12T17:07:02-06:00_ - _Data commit: `db5608cee1aa`_ - _last_reconciled: 2026-11-12_
 
 
 ## Columns
@@ -10,8 +10,8 @@ _Generated: 2026-11-12T17:01:13-06:00_ - _Data commit: `6bc0bc468104`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 2 |
-| 🔬 Investigating | 2 |
-| 🧭 Pre-planning | 14 |
+| 🔬 Investigating | 3 |
+| 🧭 Pre-planning | 15 |
 | 📝 Planned | 26 |
 | 🔨 In progress | 3 |
 | 🔍 Review | 0 |
@@ -47,7 +47,7 @@ _created 2026-11-12 14:13 · initial_
 - **Forensic keys (1):**
   - `tier`: 1
 
-## 🔬 Investigating (2)
+## 🔬 Investigating (3)
 _measuring; truth not yet known_
 
 ### `HVAC-ZONE-KWH-SEED-WARN-WORDING-1` - Zone-kWh seed logs UNSAFE at every boot though the threshold Numbers self-restore a moment later — _#1 · WSJF 4.0 · v1 tc1 u2 /e1_
@@ -61,7 +61,18 @@ _created 2026-11-11 19:40 · updated 2026-11-12 13:05_
   - `review_2026_11_12`: CARD-WAS-WRONG. The why on this card (seed reads before the Number restores) is WRONG: seed (__init__.py:7276) and Number (HA restore_state.py:295) read the same last_states dict, filled once at load. Live .storage has numeric entries + ...
   - `measured_2026_11_12_boot`: v5.108.11 restart 12:55: all three zones logged the no RestoreState entry branch (__init__.py:7310), while the three Numbers restored 1.0/0.8/0.8. So the seed sees no entry where the Number does: the review claim that both read the same ...
 
-### `ZONE-CAMERA-DISCOVERY-DEVICE-AREA-1` - Zone camera discovery reads only the entity's own area, but every camera's area is set on the device, so no zone has any camera (face arrival never worked) — _#2 · WSJF 2.2 · v6 tc3 u2 /e5_
+### `FRIGATE-DOOR-FACE-TUNING-1` - Door and exterior cameras recognize few faces (garage 36, doorbell 33, entry 16, aerial 7 since 11-05; 9 cameras zero), capping egress identity near 40% — _#2 · WSJF 3.0 · v7 tc3 u2 /e4_
+thread: **identity** - status: **investigating** - approval: **unreviewed**
+_created 2026-11-12 18:30 · initial_
+- **Problem / Solution:**
+  - Problem: Frigate-side recognition at doors is weak (matcher, training images, threshold, angle/resolution). Solution: read-only probe of per-camera face scores and training sets, then agree changes with the homelab session; homelab appli...
+- **Origin:** 2026-11-12 - Operator: "yes on frigate but collaborate with homelab for final changes".
+- **Why:** AUDIT_face_production_after_nov_fixes.md.
+- **Next:** Me: read-only score/training probe when an agent slot frees, then hand findings to homelab.
+- **Forensic keys (1):**
+  - `tier`: 2
+
+### `ZONE-CAMERA-DISCOVERY-DEVICE-AREA-1` - Zone camera discovery reads only the entity's own area, but every camera's area is set on the device, so no zone has any camera (face arrival never worked) — _#3 · WSJF 2.2 · v6 tc3 u2 /e5_
 thread: **identity** - status: **investigating** - approval: **unreviewed**
 _created 2026-11-12 17:06 · initial_
 - **Problem / Solution:**
@@ -69,10 +80,11 @@ _created 2026-11-12 17:06 · initial_
 - **Origin:** 2026-11-12 - Operator on the pre-arrival list: "Camera face match: enabled but hasn't fired in 14 days. Que? Regression?" Verdict: never worked.
 - **Why:** Probe docs/planning/AUDIT_face_arrival_and_prearrival_fan_rooms.md. Also a portability defect (feedback_portability_imperative): resolve area from the registry the way HA does. Even once fixed, face arrival would rarely fire: exterior ca...
 - **Next:** Me: verify the boot log line Subscribed to N zone camera entities, map every consumer of zone cameras, then plan the device-area fallback.
-- **Forensic keys (1):**
+- **Forensic keys (2):**
   - `tier`: 2
+  - `CORRECTION_2026-11-12`: Too broad. Only the v3.19 presence face-arrival path never fired; egress faces work and feed egress identity, perimeter naming and census. The operator's configured zone_cameras (8 interior shared-space/hallway cameras) are stored but on...
 
-## 🧭 Pre-planning (14)
+## 🧭 Pre-planning (15)
 _idea being decomposed_
 
 ### `EC-TOU-TRANSITION-DOUBLE-CONSUME-1` - Manager and timer both consume the TOU-period change; if the manager wins, the arbitrage chunk reset and transition-into-peak check are skipped for that boundary — _#1 · WSJF 3.5 · v3 tc2 u2 /e2_
@@ -230,7 +242,18 @@ _created 2026-11-08 20:30 · updated 2026-11-12 17:01_
   - `adjacency_2026_11_08`: Grepped const.py for owner/pref/bedroom CONF keys (none) and the board for person preference/room owner (none; 'owner' hits are entity/cover ownership, a different concept). Planning docs to read in the pre-plan: known_person_annotation,...
   - `scope_add_2026_11_12_arrival_music`: Operator: add arrival-triggered music to this card. Today music_following.py:549 only logs on SIGNAL_PERSON_ARRIVING (arrival-start never built). Scope: on a confirmed arrival of an identified person, start their profile playlist in thei...
 
-### `OC-SHADOW-SAMPLES-EMPTY-1` - Optimization Coordinator shadow track record never accumulates: optimizer_shadow_samples has 0 rows while OC logged 6,822 findings in 14 days (~90% tier-1 noise), so the v2 promotion gate can never be met — _#12 · WSJF 1.4 · v6 tc3 u2 /e8_
+### `FACE-ARRIVAL-REBUILD-1` - Rebuild face arrival from first principles as one face-evidence signal with action-class policy in each consumer — _#12 · WSJF 1.8 · v8 tc4 u2 /e8_
+thread: **identity** - status: **pre_planning** - approval: **unreviewed**
+_created 2026-11-12 18:30 · initial_
+- **Problem / Solution:**
+  - Problem: v3.19 face-confirmed arrival never fired (listens to area-discovered cameras, finds none; configured picks unread; _2 path disabled at the producer to protect locks; 30 s freshness drops late Protect names); egress faces never s...
+- **Origin:** 2026-11-12 - Operator: "Face arrival should be able to understand what can unlock and what cannot... I chose those cameras because they track common area and entry paths... We should start from first principles and build this up." Granul...
+- **Why:** AUDIT_face_arrival_and_prearrival_fan_rooms.md, AUDIT_face_production_after_nov_fixes.md (85% of named faces interior; doors weak; egress attach ~40%).
+- **Next:** Me: planner writes Tier-3 plan; two plan reviews; then APPROVE from operator.
+- **Forensic keys (1):**
+  - `tier`: 3
+
+### `OC-SHADOW-SAMPLES-EMPTY-1` - Optimization Coordinator shadow track record never accumulates: optimizer_shadow_samples has 0 rows while OC logged 6,822 findings in 14 days (~90% tier-1 noise), so the v2 promotion gate can never be met — _#13 · WSJF 1.4 · v6 tc3 u2 /e8_
 thread: **optimization** - status: **pre_planning**
 _created 2026-10-16 · updated 2026-11-09 02:09 · refined_
 - **Problem / Solution:**
@@ -245,7 +268,7 @@ _created 2026-10-16 · updated 2026-11-09 02:09 · refined_
   - `measured_2026_10_16_overnight`: CONFIRMED, with mechanism (read-only, live URA DB ~02:10 CDT + code trace; orchestrator re-read the key lines). optimizer_shadow_samples: 0 rows ever. optimization_findings: 6,886 rows 09-18..10-16, ~550-576 house + 160-500 room per day;...
   - `verify_2026_11_09_overnight`: STILL-REAL: optimizer_shadow_samples = 0 rows (URA DB, 02:09 CST). CARD-WAS-WRONG on next: it still showed the A/B PICK that was settled 10-17; corrected.
 
-### `APPLIANCE-COST-DEFERRAL-1` - Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip — _#13 · WSJF 1.0 · v4 tc2 u2 /e8_
+### `APPLIANCE-COST-DEFERRAL-1` - Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip — _#14 · WSJF 1.0 · v4 tc2 u2 /e8_
 thread: **energy** - status: **pre_planning**
 _created 2026-08-18 02:30 · updated 2026-09-29 01:05 · refined_
 - **Next:** NOT greenfield — ready Tier 2-DB v3 spec exists (PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md supersedes v1.1/v2; BACKLOG B5: P7 strictness, D2 options-flow, D8 Rainbird kill switch). Run marginal-benefit decomposition AGAINST that plan's...
@@ -256,7 +279,7 @@ _created 2026-08-18 02:30 · updated 2026-09-29 01:05 · refined_
   - `disposition_2026_09_12_sweep4`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL greenfield (~30-40h): no appliance/thinq/rainbird coordinator exists (0 files). Ready v3 spec at PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md. Run marginal-benefit d...
   - `problem`: No appliance_coordinator exists (thinq/rainbird->0 files). Deferring washer/dishwasher starts and skipping sprinkler runs to off-peak/solar windows is recurring-$ value but ~30-40h of work.
 
-### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions) — _#14 · WSJF 0.6 · v2 tc1 u2 /e8_
+### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions) — _#15 · WSJF 0.6 · v2 tc1 u2 /e8_
 thread: **tablets** - status: **pre_planning** - approval: **unreviewed**
 _updated 2026-10-21 22:05_
 - **Origin:** 2026-08-08 - operator: master tablet upgrades tested and working (sensors, lights, all over MQTT); thinking house-device tablet control, wake on URA room occupancy, conditional room quick-actions. NO ACTION YET - thoughts requested.
