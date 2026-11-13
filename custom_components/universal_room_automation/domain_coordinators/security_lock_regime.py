@@ -100,6 +100,13 @@ REASON_BOOT_UNKNOWN = "boot_unknown"
 SLEEP_LIKE_REASONS = frozenset({REASON_SLEEP, REASON_GUEST_NIGHT, REASON_BOOT_UNKNOWN})
 
 _UNREAL_STATES = frozenset({"unknown", "unavailable"})
+# Fix-up A-1 / B-H1 / D-M1: a lockout reaching `locked` FROM one of these is an
+# observed re-lock (a human or an app locked it). `unlocking -> locked` is a
+# failed unlock, and `unavailable/unknown -> locked` is an availability return;
+# neither is a re-lock.
+_RELOCK_FROM = frozenset({"unlocked", "locking", "open", "opening"})
+# Fix-up D-H1: engage reasons a restart may rebuild from the Store.
+_PERSISTED_REASONS = frozenset({"sleep", "vacation", "guest_night"})
 _HOME_STATES = frozenset({"home_day", "home_evening", "home_night"})
 
 
@@ -204,7 +211,21 @@ class LockRegimeController:
         self._store = store
         self._to_metres = to_metres or distance_to_metres
 
-        self.reason: str = REASON_NONE
+        # Fix-up D-H1: ``reason`` is a property; every write is persisted
+        # (Store key garage_reason) so a restart rebuilds the episode's real
+        # reason instead of boot_unknown. Set directly here (no save at init).
+        self._reason: str = REASON_NONE
+        # Persisted reason loaded at setup, consumed once by _boot_rebuild.
+        self._restored_reason: str | None = None
+        # Fix-up D-L2: house state _boot_rebuild read (the restored one).
+        self._boot_house: str | None = None
+        # Fix-up D-H1: reason came from the Store at _boot_rebuild and has not
+        # been written since; the boot recheck treats it like boot_unknown
+        # (same conversions and release), so only the backstop / VACATION
+        # semantics change. Cleared by an engage (_set_engage_reason); kept
+        # through the recheck's SLEEP / VACATION conversion so the recheck
+        # still re-engages (and schedules the backstop) as for boot_unknown.
+        self._reason_from_store: bool = False
         self.release_gen: int = 0
         self.last_action: dict[str, Any] = {}
         self.missing_residents: list[str] = []
@@ -276,8 +297,15 @@ class LockRegimeController:
         # person -> pending still-locked check; entity -> engage_seq it was
         # paged in (one page per stuck lock per engage episode, R2-7). Neither
         # is persisted (a restart drops a pending check; named residual).
+        # Fix-up B-L1: one pending check per person; a pending check from the
+        # same engage_seq is kept (the earliest anchor and its kind), never
+        # replaced, so a flapping phone cannot postpone the page.
         self._still_locked_unsubs: dict[str, Callable[[], None]] = {}
+        self._still_locked_seq: dict[str, int] = {}
         self._still_locked_paged: dict[str, int] = {}
+        # Fix-up A-1 / B-H1 / D-M1: lockout -> ts of the last OBSERVED re-lock
+        # (`_RELOCK_FROM -> locked`, seen by _on_lockout_event). Not persisted.
+        self._lockout_relocked_at: dict[str, float] = {}
         self.still_locked_pages: int = 0
         self.uncounted_returns: int = 0
 
@@ -310,6 +338,17 @@ class LockRegimeController:
         # Persisted: the ONLY dwell source after a restart (H1).
         self._away_not_home_since: dict[str, float] = {}
         self.away_lock_last_action: dict[str, Any] = {}
+
+    @property
+    def reason(self) -> str:
+        return self._reason
+
+    @reason.setter
+    def reason(self, value: str) -> None:
+        # Fix-up D-H1: persist every change (the payload is read at write time).
+        if value != self._reason:
+            self._reason = value
+            self._save_store()
 
     # ------------------------------------------------------------------
     # Live configuration (never a setup snapshot, Bug Class #14 / M-1)
@@ -637,6 +676,11 @@ class LockRegimeController:
 
         return float(GARAGE_LOCKOUT_BOOT_RECHECK_S)
 
+    def _boot_provisional(self) -> bool:
+        """The reason was rebuilt at boot (boot_unknown, or the persisted
+        reason, fix-up D-H1) and no engage has confirmed it."""
+        return self.reason == REASON_BOOT_UNKNOWN or self._reason_from_store
+
     def _boot_rebuild(self, cfg: dict[str, Any]) -> None:
         """Boot never engages and never releases on a resident reading home;
         it only rebuilds ``reason`` (H1).
@@ -647,7 +691,10 @@ class LockRegimeController:
         arrivals during a restart are caught by the boot-arrival window in
         ``_arrival_counts`` (any -> home edge within 600 s of setup).
         """
+        restored, self._restored_reason = self._restored_reason, None
         if not self.kill_switch_on():
+            # Fix-up A-3: reason stays NONE, so a restored taint is stale.
+            self._end_episode_arrival_flags()
             return
         locked = [
             e for e in self.lockout_entities(cfg)
@@ -659,6 +706,7 @@ class LockRegimeController:
             self._end_episode_arrival_flags()
             return
         house = self._house_state()
+        self._boot_house = house
         if house == "sleep":
             self.reason = REASON_SLEEP
             self._end_episode_arrival_flags()
@@ -667,8 +715,15 @@ class LockRegimeController:
             self._end_episode_arrival_flags()
         else:
             # Deliberate no-clear write: a restart is inside the episode, so a
-            # restored taint is kept (plan D1 item 3 allowlist).
-            self.reason = REASON_BOOT_UNKNOWN
+            # restored taint is kept (plan D1 item 3 allowlist). Fix-up D-H1:
+            # the persisted engage reason wins over boot_unknown, so a
+            # VACATION lock found after the house left VACATION (override
+            # cleared by AWAY) is not degraded to a sleep-like reason that the
+            # daytime backstop releases at once.
+            self.reason = (
+                restored if restored in _PERSISTED_REASONS else REASON_BOOT_UNKNOWN
+            )
+            self._reason_from_store = self.reason != REASON_BOOT_UNKNOWN
             if house in ("away", "arriving"):
                 # H2 / F5: a lock found locked while the house reads empty or
                 # arriving is an excursion the regime may never see an edge of.
@@ -741,6 +796,7 @@ class LockRegimeController:
         for unsub in self._still_locked_unsubs.values():
             _safe_unsub(unsub)
         self._still_locked_unsubs.clear()
+        self._still_locked_seq.clear()
         for unsub in self._readback_unsubs.values():
             _safe_unsub(unsub)
         self._readback_unsubs.clear()
@@ -969,6 +1025,7 @@ class LockRegimeController:
         # Every engage (live, boot-window, boot-recheck, guest clock) is an
         # episode boundary (LOCK-RELEASE-ON-ARRIVING D1 item 3).
         self._end_episode_arrival_flags()
+        self._reason_from_store = False
         self.reason = engage_reason
         if engage_reason in SLEEP_LIKE_REASONS:
             self._schedule_backstop(cfg)
@@ -1009,7 +1066,7 @@ class LockRegimeController:
         locked = sorted(e for e, v in vals.items() if v == "locked")
         unlocked = sorted(e for e, v in vals.items() if v == "unlocked")
         if (
-            self.reason == REASON_BOOT_UNKNOWN
+            self._boot_provisional()
             and house == "home_night"
             and self._guest_toggle_on(cfg)
             and self._in_sleep_window(cfg)
@@ -1042,7 +1099,7 @@ class LockRegimeController:
         decision = "no_change"
         act: Callable[[], None] | None = None
         if kind == "release":
-            if self.reason == REASON_BOOT_UNKNOWN and locked:
+            if self._boot_provisional() and locked:
                 decision = "release"
                 act = functools.partial(self._release, "boot_recheck")
         elif kind == "guest_yield_hold":
@@ -1054,7 +1111,7 @@ class LockRegimeController:
         elif kind == "engage" and engage_reason is not None:
             if not unlocked:
                 decision = "already_locked"
-                if self.reason in (REASON_NONE, REASON_BOOT_UNKNOWN):
+                if self.reason == REASON_NONE or self._boot_provisional():
                     self._set_engage_reason(engage_reason, cfg)
             elif engage_reason in (REASON_SLEEP, REASON_GUEST_NIGHT) and not (
                 self._in_sleep_window(cfg)
@@ -1069,7 +1126,7 @@ class LockRegimeController:
                 # this episode was persisted; a restart never re-locks it.
                 # The reason is rebuilt so later edges / backstop behave.
                 decision = "manual_unlock_remembered"
-                if self.reason in (REASON_NONE, REASON_BOOT_UNKNOWN):
+                if self.reason == REASON_NONE or self._boot_provisional():
                     self._set_engage_reason(engage_reason, cfg)
             elif self._arrival_since_setup():
                 # An arrival inside the boot-arrival window released (or
@@ -1081,15 +1138,61 @@ class LockRegimeController:
                 act = functools.partial(
                     self._request_engage, engage_reason, "boot_recheck"
                 )
+        gap_paged: list[str] = []
+        if decision in ("arriving_hold", "no_change"):
+            # Fix-up D-L2: held at boot with a resident home after a restored
+            # away / arriving house -> page (never release).
+            try:
+                gap_paged = self._boot_gap_return_page(locked)
+            except Exception:  # noqa: BLE001
+                _LOGGER.warning("Lock regime: boot gap-return check failed", exc_info=True)
         self._record(
             "boot_recheck", trigger=f"boot_recheck:{house}", written=[],
             extra={
                 "decision": decision, "locked": locked, "unlocked": unlocked,
                 "arrival_since_setup": self._arrival_since_setup(),
+                "boot_gap_paged": gap_paged,
             },
         )
         if act is not None:
             act()
+
+    def _boot_gap_return_page(self, locked: list[str]) -> list[str]:
+        """Fix-up D-L2: a page (never a release) when a resident reads home
+        after a restart that restored the house as away / arriving while a
+        lockout is still locked and the episode is still held. A real return
+        during the restart produced no person edge, so S1 / D4 never ran."""
+        from ..const import LOCK_RELEASE_BOOT_GAP_RETURN_PAGE_ENABLED  # noqa: PLC0415
+
+        if (
+            not LOCK_RELEASE_BOOT_GAP_RETURN_PAGE_ENABLED
+            or not self.kill_switch_on()
+            or self.reason == REASON_NONE
+            or self._boot_house not in ("away", "arriving")
+        ):
+            return []
+        cfg = self._cfg()
+        home = sorted(
+            pid for pid in self._residents
+            if self._is_resident(pid, cfg)
+            and _state_value(self._hass.states.get(pid)) == "home"
+        )
+        if not home:
+            return []
+        setup = self._setup_ts if self._setup_ts is not None else 0.0
+        paged: list[str] = []
+        for ent in locked:
+            if ent in self._release_inflight:
+                continue  # an unlock is on its way (its read-back pages on failure)
+            if self._failure_nm_at.get(ent, 0.0) >= setup:
+                continue
+            if self._still_locked_paged.get(ent) == self.engage_seq:
+                continue
+            self._still_locked_paged[ent] = self.engage_seq
+            self.still_locked_pages += 1
+            paged.append(ent)
+            self._spawn(self._notify_still_locked(ent, home[0], "boot_gap"))
+        return paged
 
     def _arrival_since_setup(self) -> bool:
         """A resident arrival released (or tried to) since setup."""
@@ -1395,16 +1498,20 @@ class LockRegimeController:
         window = float(LOCK_RELEASE_ARRIVAL_STILL_LOCKED_S)
         if window <= 0 or not self.kill_switch_on():
             return
-        anchor = self._ts()
-        # Wall clock for comparing HA State.last_changed (the injected clock
-        # is dt_util.now in production; aware datetimes compare across tz).
-        anchor_wall = self._now()
+        key = pid
         seq = self.engage_seq
-        _safe_unsub(self._still_locked_unsubs.pop(pid, None))
-        self._still_locked_unsubs[pid] = self._call_later(
+        if key in self._still_locked_unsubs and self._still_locked_seq.get(key) == seq:
+            # Fix-up B-L1: keep the earliest pending check; a flapping phone
+            # must not push the page out (a check from an older engage_seq
+            # would be silenced at fire, so that one is replaced).
+            return
+        anchor = self._ts()
+        _safe_unsub(self._still_locked_unsubs.pop(key, None))
+        self._still_locked_seq[key] = seq
+        self._still_locked_unsubs[key] = self._call_later(
             self._hass,
             window,
-            functools.partial(self._on_still_locked, pid, anchor, anchor_wall, seq, kind),
+            functools.partial(self._on_still_locked, pid, anchor, seq, kind),
         )
 
     @callback
@@ -1412,40 +1519,66 @@ class LockRegimeController:
         self,
         pid: str,
         anchor: float,
-        anchor_wall: datetime,
         seq: int,
         kind: str,
         _now: Any = None,
+        *,
+        recheck: bool = False,
     ) -> None:
-        """INV-PAGE / INV-REAL-B: one NM HIGH per lockout still ``locked``."""
-        self._still_locked_unsubs.pop(pid, None)
+        """INV-PAGE / INV-REAL-B: one NM HIGH per lockout still ``locked``.
+
+        A lockout reading unknown / unavailable is re-checked once after the
+        same window and paged if it still does not read unlocked (fix-up B-H1:
+        an unreadable lock is not evidence the resident got in).
+        """
+        key = pid
+        self._still_locked_unsubs.pop(key, None)
+        self._still_locked_seq.pop(key, None)
         if self._torn_down or not self.kill_switch_on():
             return
         if self.engage_seq != seq:
             return  # we locked again since the arrival (F2)
+        unreadable = False
         for ent in self.lockout_entities():
-            st = self._hass.states.get(ent)
-            if _state_value(st) != "locked":
+            val = _state_value(self._hass.states.get(ent))
+            if val is None or val in _UNREAL_STATES:
+                if not recheck:
+                    unreadable = True
+                    continue
+            elif val != "locked":
                 continue
             if self._failure_nm_at.get(ent, 0.0) >= anchor:
                 continue  # lockout_release_failed already told the operator (H3b)
-            changed = getattr(st, "last_changed", None)
-            if isinstance(changed, datetime) and changed > anchor_wall:
-                continue  # re-locked after the arrival by someone else (R2-7)
+            if self._lockout_relocked_at.get(ent, 0.0) > anchor:
+                continue  # observed re-lock after the arrival (R2-7, fix-up A-1)
             if self._still_locked_paged.get(ent) == seq:
                 continue  # one page per stuck lock per engage episode (R2-7)
             self._still_locked_paged[ent] = seq
             self.still_locked_pages += 1
             self._record(
                 "still_locked_page", trigger=f"person:{pid}", written=[],
-                extra={"entity": ent, "kind": kind},
+                extra={"entity": ent, "kind": kind, "state": val},
             )
             try:
-                self._spawn(self._notify_still_locked(ent, pid, kind))
+                self._spawn(self._notify_still_locked(
+                    ent, pid, kind, unreadable=val != "locked"))
             except Exception:  # noqa: BLE001
                 _LOGGER.warning("Lock regime: still-locked NM not sent", exc_info=True)
+        if unreadable:
+            from ..const import LOCK_RELEASE_ARRIVAL_STILL_LOCKED_S  # noqa: PLC0415
 
-    async def _notify_still_locked(self, ent: str, pid: str, kind: str) -> None:
+            self._still_locked_seq[key] = seq
+            self._still_locked_unsubs[key] = self._call_later(
+                self._hass,
+                float(LOCK_RELEASE_ARRIVAL_STILL_LOCKED_S),
+                functools.partial(
+                    self._on_still_locked, pid, anchor, seq, kind, recheck=True
+                ),
+            )
+
+    async def _notify_still_locked(
+        self, ent: str, pid: str, kind: str, *, unreadable: bool = False
+    ) -> None:
         from ..const import DOMAIN  # noqa: PLC0415
         from .base import Severity  # noqa: PLC0415
 
@@ -1454,7 +1587,27 @@ class LockRegimeController:
             return
         name = self._friendly(pid)
         lock_name = self._friendly(ent)
-        if kind == "uncounted":
+        if unreadable:
+            title = f"Garage lockout unreadable after {name} got home"
+            message = (
+                f"{lock_name} has not reported its state since {name} arrived "
+                "home, so URA could not unlock it and cannot tell whether it is "
+                "still locked. Check it from the HA app or the opener's own app."
+            )
+            hazard = (
+                "lockout_locked_resident_uncounted_return" if kind == "uncounted"
+                else "lockout_locked_after_arrival"
+            )
+        elif kind == "boot_gap":
+            title = f"Garage may be locked after {name} got home"
+            message = (
+                f"{lock_name} is still locked after a restart. {name} reads home, "
+                "but the house read away before the restart, so the return was "
+                "not seen and nothing unlocked it. Unlock it from the HA app or "
+                "the opener's own app."
+            )
+            hazard = "lockout_locked_boot_gap_return"
+        elif kind == "uncounted":
             title = f"{name} may be locked out of the garage"
             message = (
                 f"{name}'s phone was offline when they left, so their return "
@@ -1897,8 +2050,8 @@ class LockRegimeController:
         release WROTE an unlock in an episode that had seen ARRIVING.
 
         Observes, never blocks (the D1 gate is the protection). Exempt:
-        nothing written (F7), WAKING (only reachable after SLEEP), an operator
-        ``override_set`` edge.
+        nothing written (F7), WAKING (only reachable after SLEEP; the edge or
+        the boot recheck reading it), an operator ``override_set`` edge.
         """
         from ..const import LOCK_RELEASE_UNCORROBORATED_TRIPWIRE_ENABLED  # noqa: PLC0415
 
@@ -1907,6 +2060,9 @@ class LockRegimeController:
             and (trigger.startswith("house_state:") or trigger == "boot_recheck")
             and saw_before
             and trigger != "house_state:waking"
+            # Fix-up A-2 / D-L1: the boot recheck reading WAKING is the same
+            # evidence class as the exempt house_state:waking edge.
+            and not (trigger == "boot_recheck" and self._house_state() == "waking")
             and not override
         )
         if not violation or not LOCK_RELEASE_UNCORROBORATED_TRIPWIRE_ENABLED:
@@ -1954,6 +2110,8 @@ class LockRegimeController:
         new_val = _state_value(event.data.get("new_state"))
         if new_val == "locked":
             self._engage_inflight.pop(ent, None)
+            if _state_value(event.data.get("old_state")) in _RELOCK_FROM:
+                self._lockout_relocked_at[ent] = self._ts()
             return
         if (
             new_val == "unlocked"
@@ -2828,6 +2986,8 @@ class LockRegimeController:
             # LOCK-RELEASE-ON-ARRIVING D1 / D3.
             "garage_arrival_taint": self._arrival_taint,
             "garage_episode_saw_arriving": self._episode_saw_arriving,
+            # Fix-up D-H1: the engage reason (rebuilt at boot when locked).
+            "garage_reason": self._reason,
         }
 
     def _save_store(self) -> None:
@@ -2868,6 +3028,9 @@ class LockRegimeController:
         # Missing / non-bool -> False (plan D1 item 1).
         self._arrival_taint = data.get("garage_arrival_taint") is True
         self._episode_saw_arriving = data.get("garage_episode_saw_arriving") is True
+        # Fix-up D-H1: missing / corrupt / none / boot_unknown -> None.
+        stored = data.get("garage_reason")
+        self._restored_reason = stored if stored in _PERSISTED_REASONS else None
         marker = data.get("away_attempted_marker")
         if isinstance(marker, (int, float)) and not isinstance(marker, bool):
             self._away_attempted_marker = float(marker)

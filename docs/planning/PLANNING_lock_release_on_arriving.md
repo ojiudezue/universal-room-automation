@@ -115,8 +115,9 @@ write (`:767`, `:1072`, `:1099`, `:1701`, `:1708`).
 
 **INV-ARR (the one D must break).** With the garage lockout kill switch ON, in a tainted engaged episode, no
 `_release` call with trigger `house_state:*` or `boot_recheck` writes an unlock (non-empty `written`) or ends the
-episode, unless the trigger is `house_state:waking` (reachable only from SLEEP; reason sleep-like) or the edge's
-payload trigger is `override_set` (an operator action). Releases on `person:*`, `approach_zone:*`, `proximity:*`,
+episode, unless the trigger is `house_state:waking` (reachable only from SLEEP; reason sleep-like), or the trigger is
+`boot_recheck` with the house reading `waking` (the same evidence class; fix-up D-L1, code review 2026-11-13), or the
+edge's payload trigger is `override_set` (an operator action). Releases on `person:*`, `approach_zone:*`, `proximity:*`,
 `arriving_signal`, `backstop`, `hazard`, `kill_switch_off`, `sc_disabled` are outside INV-ARR and unchanged.
 Breaking it means: a legal config + an edge/time/restart sequence that ends in such an unlock.
 
@@ -134,9 +135,12 @@ one NM HIGH (`hazard_type = "lockout_locked_resident_uncounted_return"`). This i
 Q4). Before this cycle the house ARRIVING edge released that case.
 
 **INV-PAGE (D4).** After an S1 person release call with the kill switch ON, if a lockout still reads `locked`
-`LOCK_RELEASE_ARRIVAL_STILL_LOCKED_S` after the call, no `lock.lock` was issued after the call, and no
-`lockout_release_failed` NM for that entity was sent after the call, exactly one NM HIGH
-`lockout_locked_after_arrival` is sent.
+`LOCK_RELEASE_ARRIVAL_STILL_LOCKED_S` after the call, no `lock.lock` was issued after the call, no
+`lockout_release_failed` NM for that entity was sent after the call, and no re-lock of that entity was OBSERVED after
+the call (an `unlocked` / `locking` / `open` / `opening` -> `locked` event; an `unavailable` / `unknown` -> `locked`
+return is not a re-lock), exactly one NM HIGH `lockout_locked_after_arrival` is sent. A lockout reading `unavailable`
+/ `unknown` at that time is re-checked once after the same window and paged unless it then reads unlocked (fix-up
+A-1 / B-H1 / D-M1, code review 2026-11-13; the rev 3 `State.last_changed > anchor` skip was wrong).
 
 ---
 
@@ -434,6 +438,11 @@ No change to: `_release` arithmetic, S1-S5, hold, proximity, backstop, re-engage
    - skip if `_failure_nm_at.get(ent, 0) >= anchor` (the failure NM already told the operator; H3b dedup);
    - skip if the entity's `State.last_changed > anchor_wall` (R2-7: it went to `locked` after the arrival, so a human
      or another actor re-locked it inside the window; nothing is stuck. URA's own locks are excluded by `engage_seq`);
+     **SUPERSEDED by the code-review fix-up (A-1 / B-H1 / D-M1):** `last_changed` also moves on `unavailable ->
+     locked`, so a lockout skipped at S1 and back `locked` was silenced. The skip now needs an OBSERVED re-lock stamp
+     (`_lockout_relocked_at`, written by `_on_lockout_event` on `_RELOCK_FROM -> locked`) later than the anchor, and a
+     lockout reading unavailable/unknown at the timer is re-checked once (same window) and then paged. One pending
+     check per person; a check from the same `engage_seq` is never replaced (B-L1: flaps cannot postpone the page);
    - skip if `self._still_locked_paged.get(ent) == seq` (R2-7: one page per stuck lock per engage episode, whatever the
      number of residents or kinds; two residents in one car give one page). The map is set on send, keyed by entity,
      in memory only;
@@ -561,11 +570,11 @@ Every evidence window for auto-follow (`..._EVIDENCE_WINDOW_S`, `..._ARRIVING_CO
 | M15 | D4b schedule | remove | `test_uncounted_return_pages_when_house_away` |
 | M16 | S1 `_release` (INV-REAL anchor, pre-existing) | delete the call | `test_real_arrival_edge_before_arriving_releases`, `..._after_arriving_releases_8632_shape` |
 | M17 | `override` bypass | ignore `override` | `test_override_set_bypasses_taint` |
-| M19 | `_boot_recheck_regime` guest-night write (`:911`, R2-1) | add the clear helper after it | `test_boot_guest_night_rebuild_keeps_taint`; `test_reason_assignments_structurally_guarded` |
+| M19 | `_boot_recheck_regime` guest-night write (`:911`, R2-1) | add the clear helper after it | `test_boot_guest_night_rebuild_keeps_taint` (the AST source-read guard was removed in the code-review fix-up, Bug Class #62; every write is pinned behaviourally) |
 | M20 | `_boot_rebuild` nothing-locked early return (R2-4) | remove the helper call | `test_boot_nothing_locked_clears_stale_taint` |
 | M21 | D4b taint disjunct (R2-3) | drop `self._arrival_taint or` | `test_uncounted_return_pages_late_reconnect_tainted_home` |
 | M22 | D4 per-lock dedup (R2-7) | drop the `_still_locked_paged` check | `test_still_locked_one_page_per_lock_two_residents` |
-| M23 | D4 human re-lock skip (R2-7) | drop the `last_changed` check | `test_still_locked_skips_human_relock_in_window` |
+| M23 | D4 human re-lock skip (R2-7) | drop the re-lock stamp check (was `last_changed`, fix-up A-1) | `test_still_locked_skips_human_relock_in_window` |
 | M18 | swapped test `:2512` original property | break the spawn-latch clear | the swapped test still goes RED |
 
 Restore and `git status` clean after every drill; `PYTHONDONTWRITEBYTECODE=1` and clear `__pycache__` (stale-pyc memory).
@@ -633,8 +642,27 @@ therefore softens exterior-person alerts with no identity, which conflicts with 
   stays at AWAY; `_boot_rebuild` sees `away` + locked and taints. A restart after a long outage therefore holds HOME_*
   until a live SLEEP engage, the backstop, or an override. Accepted: bounded and fail-closed (a hold, never an unlock),
   and gating the taint on `boot_restore_active` would add a cross-coordinator read to a boot path for a rare case.
-- D4 does not page a lock that went `locked` after the arrival anchor (R2-7 human re-lock exemption); a lock that was
+- D4 does not page a lock with an OBSERVED re-lock after the arrival anchor (R2-7 human re-lock exemption, keyed on an
+  `unlocked/locking/open/opening -> locked` event since the code-review fix-up, not on `last_changed`); a lock that was
   re-locked by a person and then is genuinely needed open is the operator's own action.
+- **Fix-up D-L2 (was unnamed): a real return during a restart.** HA restart or SC reload spanning a real night return
+  while the house read `away` produces no person edge, so no S1, no D4. Now PAGED, not released: at the boot recheck,
+  if `_boot_rebuild` saw the house `away` / `arriving`, the episode is held (`arriving_hold` / `no_change`), a resident
+  reads `home` and a lockout still reads `locked` with no unlock in flight and no failure / still-locked page already
+  sent, one NM HIGH `lockout_locked_boot_gap_return` per lock (`LOCK_RELEASE_BOOT_GAP_RETURN_PAGE_ENABLED`, rung 1,
+  True). Discharge stays the morning backstop, the kill switch or a manual unlock.
+- **Fix-up D-H1 (pre-existing HIGH, fixed in this cycle):** the engage reason is persisted (Store key `garage_reason`,
+  written on every change through the `reason` property). `_boot_rebuild` uses it instead of `boot_unknown` when the
+  house is not `sleep` / `vacation`, so a VACATION lock found after the house left VACATION (an AWAY clears the
+  override) is no longer released by the daytime boot backstop. A store-rebuilt reason is provisional at the boot
+  recheck exactly like `boot_unknown` (same guest-night conversion, release and re-engage), until an engage confirms it.
+- **D-L3 (accepted, card LOCK-VACATION-PHANTOM-SLEEP-DAILY-UNLOCK-1):** during a real vacation a phantom zone sensor can
+  drive AWAY -> ARRIVING -> HOME_* (held) -> SLEEP; the SLEEP engage ends the taint, the next WAKING releases, and
+  nothing re-locks by day; repeats nightly. Strictly better than develop (released at ARRIVING) but D3 is blind to it.
+  The cycle README must state this in its notes.
+- **D-L4 (pre-existing, card LOCK-BOOT-LOCKOUT-UNAVAILABLE-AT-SETUP-1):** a lockout not yet available at setup counts as
+  "nothing locked" (reason NONE, restored taint cleared); if it then reads `locked` with the house awake at the
+  recheck, nothing but a person edge / proximity / the switch discharges it.
 - D4b false pages at the rate D0 measured (R2-2); if D0 shipped D4b disabled, INV-REAL-B is unenforced and the README
   says so.
 - Phoneless arrivals in a VACATION episode with the house still reading VACATION have no backstop (unchanged).
@@ -729,6 +757,18 @@ M1, M3b, M5, M7c, M16 before ship; operator checkpoint before deploy (back ~11-1
   §13 lists it beside the simpler "evidence at the signal" gate for the sibling plan to decide.
 
 ---
+
+### 12.2 Code-review fix-up (reviews `v_lock_release_arriving_{A,B,D}.md`, 2026-11-13)
+
+| Finding | Change |
+|---|---|
+| A-1 / B-H1 / D-M1 | D4 re-lock skip keyed on an observed `_RELOCK_FROM -> locked` event, not `last_changed`; unreadable lockout re-checked once then paged (INV-PAGE amended) |
+| B-L1 | one pending D4 check per person, never replaced within the same `engage_seq` |
+| A-2 / D-L1 | D3 exempts `boot_recheck` with the house reading `waking`; INV-ARR exception list amended |
+| A-3 | `_boot_rebuild` clears a restored taint before the kill-switch-off return |
+| D-L2 | boot gap-return page (§9.3) |
+| D-H1 | engage reason persisted and rebuilt (§9.3) |
+| D-L3, D-L4 | carded, not fixed (§9.3) |
 
 ## 13. Parked sibling: security auto-follow ARRIVING disarm (rev 1 D2)
 

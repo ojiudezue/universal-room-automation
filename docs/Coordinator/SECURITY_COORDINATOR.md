@@ -592,13 +592,23 @@ step rejects overlap). It never touches ArmedState and never goes through `evalu
   **Still-locked trip-wire (D4):** `LOCK_RELEASE_ARRIVAL_STILL_LOCKED_S` (90 s, rung 1, 0 = off) after a resident's S1
   person release call (anchored after the suspicious-arrival hold), each lockout still reading exactly `locked` pages
   one NM HIGH `lockout_locked_after_arrival` (`location = garage_lockout:still_locked:<lock>`), unless the regime
-  locked again since (`engage_seq`), a `lockout_release_failed` NM for that lock was sent since the release, the lock
-  went `locked` after the arrival (a human re-lock, `last_changed`), or that lock was already paged in this engage
-  episode. D4b: a resident `unknown/unavailable -> home` edge rejected by the really-away rule (departure never seen),
+  locked again since (`engage_seq`), a `lockout_release_failed` NM for that lock was sent since the release, a re-lock
+  of that lock was OBSERVED after the arrival (an `unlocked` / `locking` / `open` / `opening` -> `locked` event; an
+  `unavailable` -> `locked` return is not one, code-review fix-up A-1 / B-H1 / D-M1), or that lock was already paged
+  in this engage episode. A lockout reading `unavailable` / `unknown` at the check is re-checked once after the same
+  window and then paged ("unreadable") unless it reads unlocked. One pending check per person; a later edge in the
+  same engage episode never postpones it (B-L1). D4b: a resident `unknown/unavailable -> home` edge rejected by the really-away rule (departure never seen),
   in an engaged episode that is tainted or while the house reads away/arriving, records `arrival_uncounted` and pages
   `lockout_locked_resident_uncounted_return` on the same check (a page, not a release; kill switch
   `LOCK_RELEASE_UNCOUNTED_RETURN_PAGE_ENABLED`, True; D0 measured 0 false pages/week). Pending checks are not
   persisted. Counters `lock_regime_still_locked_pages`, `lock_regime_uncounted_returns`.
+  **Boot gap-return page (fix-up D-L2):** at the boot recheck, when the restart restored the house `away` /
+  `arriving`, the episode is still held, a resident reads `home` and a lockout still reads `locked` (no unlock in
+  flight, no failure or still-locked page already sent), one NM HIGH `lockout_locked_boot_gap_return` per lock; never a
+  release. Kill switch `LOCK_RELEASE_BOOT_GAP_RETURN_PAGE_ENABLED` (rung 1, True).
+  **Engage reason persisted (fix-up D-H1):** Store key `garage_reason` (every change of `reason`). A restart with a
+  lockout locked and the house not `sleep` / `vacation` rebuilds the stored reason instead of `boot_unknown`, so a
+  VACATION lock is not released by the daytime boot backstop after the house left VACATION.
 - **Residents:** every `person.*` minus `security_lockout_excluded_persons`, tracked live
   (added/removed domain trackers) and persisted in Store
   `universal_room_automation.lock_regime_residents`.

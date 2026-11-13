@@ -3930,6 +3930,14 @@ LOCK_RELEASE_ARRIVAL_STILL_LOCKED_S: Final = 90
 # (audit AUDIT_arriving_on_body_evidence_2026_11_13.md §10), so it ships on.
 # False = D4b off (D4a unaffected).
 LOCK_RELEASE_UNCOUNTED_RETURN_PAGE_ENABLED: Final = True
+# LOCK-RELEASE-ON-ARRIVING fix-up D-L2, rung 1 (review-only: a safety
+# observer). At the boot recheck, one NM HIGH per lockout
+# (lockout_locked_boot_gap_return) when the restart restored the house as
+# away / arriving, a resident now reads home, the episode is still held and the
+# lockout still reads locked with no unlock in flight: a return during the
+# restart produced no person edge, so nothing released it. A page, never a
+# release. False = off.
+LOCK_RELEASE_BOOT_GAP_RETURN_PAGE_ENABLED: Final = True
 # SECURITY-LOCK-SWEEP-RETRY-CAP-1: the periodic lock check re-sends
 # lock.lock / cover.close_cover every interval while a device stays
 # unlocked/open. After this many FAILED attempts in one episode (device still

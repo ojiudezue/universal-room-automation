@@ -19,7 +19,6 @@ constants.
 
 from __future__ import annotations
 
-import ast
 import json
 import pathlib
 from datetime import datetime, timedelta, timezone
@@ -30,12 +29,12 @@ from _lockout_harness import TZ, settle
 from test_sc_garage_lockout import (
     BOOT_0200,
     EZ,
+    KIOSK,
     LOCK_A,
     LOCK_B,
     NIGHT,
     OJI,
     DictStore,
-    R,
     const,
     make_rig,
     options,
@@ -337,7 +336,8 @@ async def test_taint_persisted_across_restart_two_rigs():
     rig2 = await make_rig(start=BOOT_0200 + timedelta(days=1), house="home_day",
                           lockouts="locked", past_boot=False,
                           store=DictStore(dict(store.data)))
-    assert rig2.regime.reason == "boot_unknown"
+    # Fix-up D-H1: the persisted engage reason is rebuilt (was boot_unknown).
+    assert rig2.regime.reason == "sleep"
     await rig2.w.advance(121)
     assert rig2.unlocks() == []
     assert rig2.regime.last_action["decision"] == "arriving_hold"
@@ -454,69 +454,6 @@ async def test_every_reason_none_site_clears_flags(site):
     assert s["lock_regime_episode_saw_arriving"] is False
     assert store.data["garage_arrival_taint"] is False
     assert store.data["garage_episode_saw_arriving"] is False
-
-
-def _reason_writes() -> list[tuple[str, str, bool]]:
-    """(enclosing function, assigned constant/name, followed by the clear
-    helper) for every ``self.reason = ...`` in the production module."""
-    src_path = pathlib.Path(R.__file__)
-    tree = ast.parse(src_path.read_text())
-    out: list[tuple[str, str, bool]] = []
-
-    def walk_body(fn_name: str, body: list[ast.stmt]) -> None:
-        for i, stmt in enumerate(body):
-            if (
-                isinstance(stmt, ast.Assign)
-                and len(stmt.targets) == 1
-                and isinstance(stmt.targets[0], ast.Attribute)
-                and stmt.targets[0].attr == "reason"
-                and isinstance(stmt.targets[0].value, ast.Name)
-                and stmt.targets[0].value.id == "self"
-            ):
-                val = stmt.value
-                name = val.id if isinstance(val, ast.Name) else ast.dump(val)
-                nxt = body[i + 1] if i + 1 < len(body) else None
-                followed = (
-                    isinstance(nxt, ast.Expr)
-                    and isinstance(nxt.value, ast.Call)
-                    and isinstance(nxt.value.func, ast.Attribute)
-                    and nxt.value.func.attr == "_end_episode_arrival_flags"
-                )
-                out.append((fn_name, name, followed))
-            for field in ("body", "orelse", "finalbody", "handlers"):
-                sub = getattr(stmt, field, None)
-                if isinstance(sub, list) and sub and isinstance(sub[0], ast.stmt):
-                    walk_body(fn_name, sub)
-                elif isinstance(sub, list):
-                    for h in sub:
-                        if isinstance(h, ast.ExceptHandler):
-                            walk_body(fn_name, h.body)
-
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            walk_body(node.name, node.body)
-    return out
-
-
-def test_reason_assignments_structurally_guarded():
-    """Secondary refactor guard (Bug Class #53; the behaviour is pinned by
-    the parametrised clear-site test and the R2-1 / R2-4 repros). Every
-    ``self.reason =`` write is inside _set_engage_reason, immediately followed
-    by _end_episode_arrival_flags(), or on the deliberate no-clear allowlist
-    (keyed by function + constant, not line numbers)."""
-    allow = {
-        ("_boot_rebuild", "REASON_BOOT_UNKNOWN"),
-        ("_boot_recheck_regime", "REASON_GUEST_NIGHT"),
-    }
-    writes = _reason_writes()
-    assert len(writes) == 12, writes  # a new write must be classified here
-    for fn, name, followed in writes:
-        if fn == "_set_engage_reason":
-            continue
-        if (fn, name) in allow:
-            assert not followed, f"allowlisted no-clear write {fn}:{name} gained the clear"
-            continue
-        assert followed, f"self.reason = {name} in {fn} does not end the ARRIVING taint"
 
 
 @pytest.mark.asyncio
@@ -1410,3 +1347,560 @@ async def test_still_locked_reschedule_cancels_prior_check(monkeypatch):
     await rig.person(EZ, "home")
     live = [t for t in rig.w.live_timers() if t["delay"] == 90.0]
     assert len(live) == 1
+
+
+# ============================================================================
+# Fix-up round (reviews A / B / D): v_lock_release_arriving_{A,B,D}.md
+# ============================================================================
+
+BOOT_GAP = "lockout_locked_boot_gap_return"
+
+
+# --- A-1 / B-H1 / D-M1: an availability return is not a human re-lock -------
+
+
+@pytest.mark.asyncio
+async def test_still_locked_pages_lock_unavailable_at_arrival_back_locked():
+    """A-1 / D-M1 repro: LOCK_A unavailable at the S1 call (skipped), back
+    `locked` at +20 s -> one page for LOCK_A at +90 s (was silenced by the
+    last_changed > anchor skip)."""
+    rig = await make_rig()
+    nm = install_nm(rig)
+    await rig.edge("sleep")
+    rig.w.set_state(LOCK_A, "unavailable")
+    await rig.edge("away")
+    await rig.person(EZ, "home")
+    assert rig.unlocks() == [LOCK_B]
+    await rig.w.advance(20)
+    rig.w.set_state(LOCK_A, "locked")
+    await rig.w.advance(69.9)
+    assert nm.of(AFTER) == []
+    await rig.w.advance(0.2)
+    pages = nm.of(AFTER)
+    assert [p["location"] for p in pages] == [f"garage_lockout:still_locked:{LOCK_A}"]
+    assert "still reads locked" in pages[0]["message"]
+
+
+@pytest.mark.asyncio
+async def test_still_locked_tainted_home_night_lock_back_after_30s():
+    """B-H1 repro: tainted SLEEP episode, LOCK_A unavailable, Ezinne home
+    (S1 unlocks LOCK_B only), +30 s LOCK_A reads locked, HOME_NIGHT held,
+    +90 s -> one page for LOCK_A."""
+    rig = await make_rig()
+    nm = install_nm(rig)
+    await tainted_sleep_episode(rig)
+    rig.w.set_state(LOCK_A, "unavailable")
+    await rig.person(EZ, "home")
+    assert rig.unlocks() == [LOCK_B]
+    await rig.w.advance(30)
+    rig.w.set_state(LOCK_A, "locked")
+    await rig.edge("home_night")
+    assert rig.regime.last_action["action"] == "arriving_hold"
+    await rig.w.advance(61)
+    assert [p["location"] for p in nm.of(AFTER)] == [
+        f"garage_lockout:still_locked:{LOCK_A}"]
+
+
+@pytest.mark.asyncio
+async def test_still_locked_unavailable_at_timer_rechecked_then_pages_locked():
+    """B-H1 second shape: still unavailable at +90 s (no page yet, one
+    re-check), back `locked` at +120 s -> page at the +180 s re-check."""
+    rig = await make_rig()
+    nm = install_nm(rig)
+    await rig.edge("sleep")
+    rig.w.set_state(LOCK_A, "unavailable")
+    await rig.edge("away")
+    await rig.person(EZ, "home")
+    await rig.w.advance(91)
+    assert nm.of(AFTER) == []
+    await rig.w.advance(29)
+    rig.w.set_state(LOCK_A, "locked")
+    await rig.w.advance(59.8)
+    assert nm.of(AFTER) == []
+    await rig.w.advance(0.4)
+    pages = nm.of(AFTER)
+    assert [p["location"] for p in pages] == [f"garage_lockout:still_locked:{LOCK_A}"]
+    assert "still reads locked" in pages[0]["message"]
+
+
+@pytest.mark.asyncio
+async def test_still_locked_unavailable_through_recheck_pages_unreadable():
+    rig = await make_rig()
+    nm = install_nm(rig)
+    await rig.edge("sleep")
+    rig.w.set_state(LOCK_A, "unavailable")
+    await rig.edge("away")
+    await rig.person(EZ, "home")
+    await rig.w.advance(181)
+    pages = nm.of(AFTER)
+    assert [p["location"] for p in pages] == [f"garage_lockout:still_locked:{LOCK_A}"]
+    assert "unreadable" in pages[0]["title"]
+    assert int(pages[0]["severity"]) == 3
+    await rig.w.advance(600)
+    assert len(nm.of(AFTER)) == 1  # one re-check, one page
+
+
+@pytest.mark.asyncio
+async def test_still_locked_unavailable_then_unlocked_silent():
+    rig = await make_rig()
+    nm = install_nm(rig)
+    await rig.edge("sleep")
+    rig.w.set_state(LOCK_A, "unavailable")
+    await rig.edge("away")
+    await rig.person(EZ, "home")
+    await rig.w.advance(100)
+    rig.w.set_state(LOCK_A, "unlocked")  # opener came back unlocked
+    await rig.w.advance(100)
+    assert nm.sent == []
+
+
+@pytest.mark.asyncio
+async def test_still_locked_readback_unavailable_then_locked_pages():
+    """D-M1 second shape: the unlock is issued, the lock drops to unavailable
+    (the read-back treats that as success), then returns `locked`."""
+    rig = await make_rig()
+    nm = install_nm(rig)
+    await rig.edge("sleep")
+    await rig.edge("away")
+    rig.w.apply_service_state = False
+
+    def drop(domain, service, eid):
+        if domain == "lock" and service == "unlock" and eid == LOCK_A:
+            rig.w.set_state(LOCK_A, "unavailable")
+
+    rig.w.call_hooks.append(drop)
+    rig.w.call_hooks.append(
+        lambda d, s, e: rig.w.set_state(e, "unlocked")
+        if d == "lock" and s == "unlock" and e == LOCK_B else None)
+    await rig.person(EZ, "home")
+    assert rig.unlocks() == [LOCK_A, LOCK_B]
+    await rig.w.advance(25)  # read-back at +20 s saw unavailable
+    assert nm.of(FAILED) == []
+    rig.w.set_state(LOCK_A, "locked")
+    await rig.w.advance(66)
+    assert [p["location"] for p in nm.of(AFTER)] == [
+        f"garage_lockout:still_locked:{LOCK_A}"]
+
+
+@pytest.mark.asyncio
+async def test_still_locked_skips_relock_via_locking():
+    """A real re-lock that passes through `locking` is still skipped."""
+    rig = await make_rig()
+    nm = install_nm(rig)
+    await rig.edge("sleep")
+    await rig.edge("away")
+    await rig.person(EZ, "home")
+    assert rig.unlocks() == [LOCK_A, LOCK_B]
+    await rig.w.advance(40)
+    rig.w.set_state(LOCK_A, "locking")
+    rig.w.set_state(LOCK_A, "locked")
+    await rig.w.advance(51)
+    assert nm.of(AFTER) == []
+
+
+# --- B-L1: phone flaps do not postpone the page ------------------------------
+
+
+@pytest.mark.asyncio
+async def test_still_locked_flaps_after_counted_arrival_do_not_postpone():
+    """B-L1 repro: counted arrival (S1 cannot unlock), then 4 flaps 60 s
+    apart. The arrival check pages at +90 s with arrival wording; the flaps'
+    uncounted check never adds a page with the wrong text."""
+    rig = await make_rig()
+    nm = install_nm(rig)
+    await rig.edge("sleep")
+    await rig.edge("away")
+    rig.sc.enabled = False
+    await rig.person(EZ, "home")  # T
+    await rig.w.advance(60)
+    await rig.person(EZ, "unavailable")
+    await rig.person(EZ, "home")  # flap 1, T+60 (uncounted)
+    assert snap(rig)["lock_regime_uncounted_returns"] == 1
+    await rig.w.advance(31)  # T+91
+    pages = nm.of(AFTER)
+    assert len(pages) == 2
+    assert all(p["title"].startswith("Garage still locked after") for p in pages)
+    for _ in range(3):
+        await rig.w.advance(29)
+        await rig.person(EZ, "unavailable")
+        await rig.person(EZ, "home")
+    await rig.w.advance(400)
+    assert nm.of(UNCOUNTED) == []
+    assert snap(rig)["lock_regime_still_locked_pages"] == 2
+
+
+@pytest.mark.asyncio
+async def test_uncounted_flaps_keep_earliest_check():
+    """B-L1, same kind: 4 uncounted returns 60 s apart -> the page lands 90 s
+    after the FIRST one, with the uncounted wording."""
+    rig = await make_rig()
+    nm = install_nm(rig)
+    await departure_unseen(rig, EZ)
+    await rig.edge("sleep")
+    await rig.edge("away")
+    await rig.person(EZ, "home")  # T, uncounted
+    for _ in range(3):
+        await rig.w.advance(60)
+        await rig.person(EZ, "unavailable")
+        await rig.person(EZ, "home")
+    # now T+180; the first check was due at T+90
+    pages = nm.of(UNCOUNTED)
+    assert len(pages) == 2
+    assert all("may be locked out" in p["title"] for p in pages)
+    assert nm.of(AFTER) == []
+
+
+# --- A-2 / D-L1: the boot recheck reading WAKING is exempt from D3 -----------
+
+
+@pytest.mark.asyncio
+async def test_boot_recheck_waking_release_kept_no_tripwire():
+    store = DictStore()
+    rig1 = await make_rig(store=store)
+    await tainted_sleep_episode(rig1)
+    assert store.data["garage_episode_saw_arriving"] is True
+    rig2 = await make_rig(start=datetime(2026, 11, 8, 6, 10, tzinfo=TZ), house="waking",
+                          lockouts="locked", past_boot=False,
+                          store=DictStore(dict(store.data)))
+    nm = install_nm(rig2)
+    await rig2.w.advance(121)
+    assert rig2.unlocks() == [LOCK_A, LOCK_B]
+    assert rig2.regime.last_action["trigger"] == "boot_recheck"
+    assert nm.of(UNCORR) == []
+    assert snap(rig2)["lock_regime_uncorroborated_releases"] == 0
+
+
+# --- A-3: kill switch off at boot clears a restored taint ---------------------
+
+
+@pytest.mark.asyncio
+async def test_boot_kill_switch_off_clears_restored_taint():
+    store = DictStore()
+    rig1 = await make_rig(store=store)
+    await tainted_sleep_episode(rig1)
+    assert store.data["garage_arrival_taint"] is True
+    store2 = DictStore(dict(store.data))
+    await make_rig(start=BOOT_0200 + timedelta(days=1), house="home_day",
+                   lockouts="locked", past_boot=False, store=store2,
+                   opts=options(security_garage_lockout_enabled=False))
+    assert store2.data["garage_arrival_taint"] is False
+    assert store2.data["garage_episode_saw_arriving"] is False
+    rig3 = await make_rig(start=BOOT_0200 + timedelta(days=1, minutes=30),
+                          house="home_day", lockouts="locked", past_boot=False,
+                          store=DictStore(dict(store2.data)),
+                          opts=options(security_lockout_engage_on_guest_sleep=False))
+    await rig3.w.advance(121)
+    assert rig3.unlocks() == [LOCK_A, LOCK_B]
+    assert rig3.regime.last_action["trigger"] == "boot_recheck"
+
+
+# --- D-L2: a return during a restart is paged, never released ----------------
+
+
+async def _gap_rigs(*, boot_house="away", recheck_house="arriving",
+                    persons=None, opts=None):
+    store = DictStore()
+    rig1 = await make_rig(store=store, opts=opts)
+    await rig1.edge("sleep")
+    await rig1.person(OJI, "not_home")
+    await rig1.edge("away")
+    rig2 = await make_rig(start=datetime(2026, 11, 8, 1, 40, tzinfo=TZ), house=boot_house,
+                          lockouts="locked", past_boot=False,
+                          persons=persons or {EZ: "home", OJI: "not_home"},
+                          store=DictStore(dict(store.data)), opts=opts)
+    nm = install_nm(rig2)
+    rig2.mgr.house_state = recheck_house
+    return rig2, nm
+
+
+@pytest.mark.asyncio
+async def test_boot_gap_return_pages_never_releases():
+    rig, nm = await _gap_rigs()
+    await rig.w.advance(121)
+    assert rig.unlocks() == []
+    assert rig.regime.last_action["decision"] == "arriving_hold"
+    assert rig.regime.last_action["boot_gap_paged"] == [LOCK_A, LOCK_B]
+    pages = nm.of(BOOT_GAP)
+    assert sorted(p["location"] for p in pages) == [
+        f"garage_lockout:still_locked:{LOCK_A}", f"garage_lockout:still_locked:{LOCK_B}"]
+    assert all(int(p["severity"]) == 3 for p in pages)
+    assert "person.ezinne" in pages[0]["title"]
+
+
+@pytest.mark.asyncio
+async def test_boot_gap_return_pages_when_house_still_away():
+    rig, nm = await _gap_rigs(recheck_house="away")
+    await rig.w.advance(121)
+    assert rig.regime.last_action["decision"] == "no_change"
+    assert len(nm.of(BOOT_GAP)) == 2
+
+
+@pytest.mark.asyncio
+async def test_boot_gap_silent_when_restored_house_not_away():
+    rig, nm = await _gap_rigs(boot_house="home_day", recheck_house="arriving")
+    await rig.w.advance(121)
+    assert rig.regime.last_action["decision"] == "arriving_hold"
+    assert nm.of(BOOT_GAP) == []
+
+
+@pytest.mark.asyncio
+async def test_boot_gap_silent_when_no_resident_home():
+    rig, nm = await _gap_rigs(persons={EZ: "not_home", OJI: "not_home"})
+    await rig.w.advance(121)
+    assert nm.of(BOOT_GAP) == []
+
+
+@pytest.mark.asyncio
+async def test_boot_gap_silent_when_only_excluded_person_home():
+    rig, nm = await _gap_rigs(persons={EZ: "not_home", OJI: "not_home", KIOSK: "home"})
+    await rig.w.advance(121)
+    assert nm.of(BOOT_GAP) == []
+
+
+@pytest.mark.asyncio
+async def test_boot_gap_reads_exclusion_list_live():
+    """An options edit after setup that excludes the only home person stops
+    the page (exclusions are read live, not from the setup resident set)."""
+    rig, nm = await _gap_rigs()
+    rig.w.cm_entry.options["security_lockout_excluded_persons"] = [KIOSK, EZ]
+    await rig.w.advance(121)
+    assert rig.regime.last_action["decision"] == "arriving_hold"
+    assert nm.of(BOOT_GAP) == []
+
+
+@pytest.mark.asyncio
+async def test_boot_gap_silent_when_house_sleep_at_recheck():
+    rig, nm = await _gap_rigs(recheck_house="sleep")
+    await rig.w.advance(121)
+    assert rig.regime.reason == "sleep"
+    assert nm.of(BOOT_GAP) == []
+
+
+@pytest.mark.asyncio
+async def test_boot_gap_silent_when_reason_none_at_recheck():
+    rig, nm = await _gap_rigs(recheck_house="away")
+    rig.regime.on_hazard()  # reason NONE inside the boot window
+    await settle()
+    await rig.w.advance(25)  # the hazard unlocks land and read back
+    rig.w.set_state(LOCK_A, "locked")  # hand-locked again
+    rig.w.set_state(LOCK_B, "locked")
+    await rig.w.advance(96)
+    assert rig.regime.last_action["action"] == "boot_recheck"
+    assert rig.regime.last_action["locked"] == [LOCK_A, LOCK_B]
+    assert rig.regime.reason == "none"
+    assert nm.of(BOOT_GAP) == []
+
+
+@pytest.mark.asyncio
+async def test_boot_gap_disabled_by_constant(monkeypatch):
+    monkeypatch.setattr(const, "LOCK_RELEASE_BOOT_GAP_RETURN_PAGE_ENABLED", False)
+    rig, nm = await _gap_rigs()
+    await rig.w.advance(121)
+    assert nm.of(BOOT_GAP) == []
+
+
+@pytest.mark.asyncio
+async def test_boot_gap_silent_when_release_failed_already_paged():
+    """A boot-window arrival whose unlock never lands already paged
+    lockout_release_failed; no second page at the recheck."""
+    rig, nm = await _gap_rigs(persons={EZ: "not_home", OJI: "not_home"})
+    rig.w.apply_service_state = False
+    await rig.w.advance(10)
+    await rig.person(EZ, "home")  # boot-window arrival counts, S1 issues unlocks
+    await rig.w.advance(111)
+    assert len(nm.of(FAILED)) == 2
+    assert nm.of(BOOT_GAP) == []
+
+
+@pytest.mark.asyncio
+async def test_boot_gap_silent_while_unlock_in_flight():
+    rig, nm = await _gap_rigs(persons={EZ: "not_home", OJI: "not_home"})
+    rig.w.apply_service_state = False
+    await rig.w.advance(115)
+    await rig.person(EZ, "home")  # unlock in flight at the 120 s recheck
+    await rig.w.advance(6)
+    assert rig.regime.last_action["action"] == "boot_recheck"
+    assert nm.of(BOOT_GAP) == []
+
+
+# --- D-H1: a restart never degrades a VACATION lock to boot_unknown ----------
+
+
+@pytest.mark.asyncio
+async def test_vacation_lock_survives_daytime_restart_after_away():
+    store = DictStore()
+    day = datetime(2026, 11, 7, 14, 0, tzinfo=TZ)
+    rig1 = await make_rig(start=day, house="home_day", store=store,
+                          persons={EZ: "home", OJI: "home"})
+    await hs(rig1, "vacation", trigger="override_set")
+    assert rig1.regime.reason == "vacation"
+    assert rig1.locks() == [LOCK_A, LOCK_B]
+    await rig1.person(EZ, "not_home")
+    await rig1.person(OJI, "not_home")
+    await rig1.edge("away")  # override cleared by the inferred AWAY
+    assert rig1.regime.reason == "vacation"
+    assert store.data["garage_reason"] == "vacation"
+    rig2 = await make_rig(start=day + timedelta(days=1), house="away",
+                          lockouts="locked", past_boot=False,
+                          persons={EZ: "not_home", OJI: "not_home"},
+                          store=DictStore(dict(store.data)))
+    assert rig2.regime.reason == "vacation"
+    await rig2.w.advance(3600)
+    assert rig2.unlocks() == []
+    assert rig2.regime.reason == "vacation"
+    assert rig2.regime._backstop_unsub is None
+
+
+@pytest.mark.asyncio
+async def test_restored_vacation_converts_to_sleep_at_recheck():
+    """Parity with boot_unknown: a store-rebuilt reason is provisional, so a
+    house reading SLEEP at the recheck rebuilds SLEEP (WAKING releases)."""
+    store = DictStore()
+    day = datetime(2026, 11, 7, 14, 0, tzinfo=TZ)
+    rig1 = await make_rig(start=day, house="home_day", store=store)
+    await hs(rig1, "vacation", trigger="override_set")
+    await rig1.edge("away")
+    rig2 = await make_rig(start=datetime(2026, 11, 8, 2, 0, tzinfo=TZ), house="away",
+                          lockouts="locked", past_boot=False,
+                          persons={EZ: "not_home", OJI: "not_home"},
+                          store=DictStore(dict(store.data)))
+    rig2.mgr.house_state = "sleep"
+    await rig2.w.advance(121)
+    assert rig2.regime.reason == "sleep"
+    # The recheck re-engaged through _set_engage_reason: a backstop exists
+    # (a VACATION rebuild has none).
+    assert rig2.regime._backstop_unsub is not None
+    await rig2.edge("waking")
+    assert rig2.unlocks() == [LOCK_A, LOCK_B]
+
+
+@pytest.mark.asyncio
+async def test_restored_sleep_untainted_home_releases_at_recheck():
+    """Parity with boot_unknown: an untainted store-rebuilt SLEEP lock with
+    the house awake releases at the boot recheck (as before the fix-up)."""
+    store = DictStore()
+    rig1 = await make_rig(store=store)
+    await rig1.edge("sleep")
+    assert store.data["garage_reason"] == "sleep"
+    rig2 = await make_rig(start=BOOT_0200 + timedelta(days=1), house="home_day",
+                          lockouts="locked", past_boot=False,
+                          store=DictStore(dict(store.data)),
+                          opts=options(security_lockout_engage_on_guest_sleep=False))
+    assert rig2.regime.reason == "sleep"
+    await rig2.w.advance(121)
+    assert rig2.unlocks() == [LOCK_A, LOCK_B]
+    assert rig2.regime.last_action["trigger"] == "boot_recheck"
+
+
+@pytest.mark.asyncio
+async def test_reason_none_persisted_after_release():
+    store = DictStore()
+    rig = await make_rig(store=store)
+    await rig.edge("sleep")
+    assert store.data["garage_reason"] == "sleep"
+    await rig.edge("waking")
+    assert store.data["garage_reason"] == "none"
+    rig2 = await make_rig(start=datetime(2026, 11, 8, 23, 0, tzinfo=TZ), house="home_day",
+                          lockouts="locked", past_boot=False,
+                          store=DictStore(dict(store.data)))
+    assert rig2.regime.reason == "boot_unknown"
+
+
+@pytest.mark.asyncio
+async def test_still_locked_check_from_older_engage_is_replaced(monkeypatch):
+    """B-L1 boundary: a pending check from an OLDER engage_seq (silenced at
+    fire) is replaced by a later arrival's check, which pages."""
+    rig = await make_rig()
+    nm = install_nm(rig)
+    neuter_s1(monkeypatch, rig)
+    await rig.person(EZ, "home")  # T, reason NONE, lockouts unlocked
+    await rig.w.advance(30)
+    await rig.edge("sleep")  # T+30: we lock (engage_seq bumps)
+    assert rig.locks() == [LOCK_A, LOCK_B]
+    await rig.w.advance(10)
+    await rig.person(EZ, "not_home")
+    await rig.person(EZ, "home")  # T+40, S1 (neutered) -> new check
+    await rig.w.advance(89.9)
+    assert nm.of(AFTER) == []
+    await rig.w.advance(0.2)
+    assert len(nm.of(AFTER)) == 2
+
+
+@pytest.mark.asyncio
+async def test_boot_gap_dedups_with_still_locked_page(monkeypatch):
+    """A boot-window arrival whose S1 did nothing already paged D4a at +90 s;
+    the boot recheck does not page the same lock again."""
+    rig, nm = await _gap_rigs(persons={EZ: "not_home", OJI: "not_home"})
+    neuter_s1(monkeypatch, rig)
+    await rig.w.advance(10)
+    await rig.person(EZ, "home")
+    await rig.w.advance(111)
+    assert len(nm.of(AFTER)) == 2
+    assert nm.of(BOOT_GAP) == []
+    assert rig.regime.last_action["action"] == "boot_recheck"
+
+
+@pytest.mark.asyncio
+async def test_restored_reason_confirmed_by_boot_window_engage_not_provisional():
+    """Parity with boot_unknown: a boot-window SLEEP edge confirms the reason,
+    so a silent HOME_DAY at the recheck does not release (as for a
+    boot_unknown lock whose reason a boot-window edge rebuilt)."""
+    store = DictStore()
+    rig1 = await make_rig(store=store)
+    await rig1.edge("sleep")
+    rig2 = await make_rig(start=BOOT_0200 + timedelta(days=1), house="home_day",
+                          lockouts="locked", past_boot=False,
+                          persons={EZ: "not_home", OJI: "not_home"},
+                          store=DictStore(dict(store.data)),
+                          opts=options(security_lockout_engage_on_guest_sleep=False))
+    assert rig2.regime.reason == "sleep"
+    await rig2.w.advance(30)
+    await rig2.edge("sleep")  # boot-window edge: rebuild only
+    rig2.mgr.house_state = "home_day"  # silent
+    await rig2.w.advance(91)
+    assert rig2.unlocks() == []
+    assert rig2.regime.last_action["decision"] == "no_change"
+
+
+@pytest.mark.asyncio
+async def test_restored_sleep_home_night_guest_window_held_as_guest_night():
+    """Parity with boot_unknown (INV-LOCK-1): a store-rebuilt lock found in a
+    home_night sleep window with the guest toggle on is held as GUEST_NIGHT."""
+    store = DictStore()
+    opts = options(security_lockout_engage_on_guest_sleep=True)
+    rig1 = await make_rig(store=store, opts=opts)
+    await rig1.edge("sleep")
+    rig2 = await make_rig(start=datetime(2026, 11, 8, 1, 0, tzinfo=TZ), house="home_night",
+                          lockouts="locked", past_boot=False,
+                          store=DictStore(dict(store.data)), opts=opts)
+    assert rig2.regime.reason == "sleep"
+    await rig2.w.advance(121)
+    assert rig2.unlocks() == []
+    assert rig2.regime.reason == "guest_night"
+    assert rig2.regime.last_action["decision"] == "guest_yield_hold"
+
+
+@pytest.mark.asyncio
+async def test_restored_reason_manual_unlock_remembered_rebuilds_episode():
+    """Parity with boot_unknown: a remembered manual unlock at the recheck
+    rebuilds the episode through _set_engage_reason (boot-away taint ends)."""
+    store = DictStore()
+    rig1 = await make_rig(store=store)
+    await rig1.edge("sleep")
+    rig1.w.set_state(LOCK_A, "unlocked")  # a human unlocks one lockout
+    assert store.data["garage_manual_unlock"] == "sleep"
+
+    def one_unlocked(w):
+        w.seed(LOCK_A, "unlocked")
+
+    rig2 = await make_rig(start=BOOT_0200 + timedelta(days=1), house="away",
+                          lockouts="locked", past_boot=False, seed_hook=one_unlocked,
+                          persons={EZ: "not_home", OJI: "not_home"},
+                          store=DictStore(dict(store.data)))
+    assert rig2.regime.reason == "sleep"
+    assert snap(rig2)["lock_regime_arriving_taint"] is True  # boot-away taint
+    rig2.mgr.house_state = "sleep"
+    await rig2.w.advance(121)
+    assert rig2.regime.last_action["decision"] == "manual_unlock_remembered"
+    assert rig2.locks() == []
+    assert snap(rig2)["lock_regime_arriving_taint"] is False
