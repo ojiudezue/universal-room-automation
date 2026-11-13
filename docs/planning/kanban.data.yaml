@@ -34605,7 +34605,7 @@ cards:
   title: The exterior seam file the operator ratified is never loaded; the linker runs on the code constant only
   thread: perimeter
   status: in_progress
-  batch: person-sightings
+  batch: exterior-seam-loader
   created: '2026-11-12 22:00'
   updated: '2026-11-12 22:00'
   tier: 2
