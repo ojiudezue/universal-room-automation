@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-13T02:46:19-06:00_ - _Data commit: `d64ea08bfd1d`_ - _last_reconciled: 2026-11-13_
+_Generated: 2026-11-13T02:47:54-06:00_ - _Data commit: `aa9d89a2ccf6`_ - _last_reconciled: 2026-11-13_
 
 
 ## Columns
@@ -1165,10 +1165,11 @@ _created 2026-11-12 18:30 · updated 2026-11-13 02:12 · refined_
   - Problem: Frigate-side recognition at doors is weak (matcher, training images, threshold, angle/resolution). Solution: read-only probe of per-camera face scores and training sets, then agree changes with the homelab session; homelab appli...
 - **Origin:** 2026-11-12 - Operator: "yes on frigate but collaborate with homelab for final changes".
 - **Why:** AUDIT_face_production_after_nov_fixes.md.
-- **Next:** DO: approve moving www/frigate.yml and www/frigate_cameras.yml out of /config/www, then rotate MQTT + camera passwords (homelab) -> I move them and confirm /local returns 404; I hand the audit to the homelab session.
-- **Forensic keys (3):**
+- **Next:** Me: hand the audit to the homelab session for Frigate changes (homelab applies).
+- **Forensic keys (4):**
   - `tier`: 2
   - `FINDING_2026-11-13`: AUDIT_frigate_door_face_2026_11_13.md: misses are distance/angle, not threshold. Doorbell 26% named (53% when person fills >45% of frame), garage A 29% (overhead), G6 entry 10% (71% tiny street boxes), aerial 14% (top-down). Scores 0.82-...
+  - `DONE_2026-11-13_frigate_yml`: Operator: file is stale (likely from the Frigate config integration); HA is reachable only through the auth-protected tunnel, so no one has seen it. Moved /config/www/frigate.yml to /config/www_moved_2026-11-13/frigate.yml; /local/frigat...
   - `measured_2026_11_13_overnight`: Partial, read-only (ura-prober, HA recorder 11-05 10:00 to 11-13 02:00 CST + homelab config snapshot). Frigate2 API at 192.168.13.18:8971 returned 401; no read-only API credential exists in the homelab repo, port 5000 is container-only, ...
 
 ### `WALLPANEL-URA-NOTIFY-1` - URA drives the wall-panel bezel LEDs and room-targeted announcements (NM surface) — _#23 · WSJF 2.8 · v6 tc6 u2 /e5_
