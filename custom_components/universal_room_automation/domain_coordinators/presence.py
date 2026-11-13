@@ -5586,6 +5586,24 @@ class PresenceCoordinator(BaseCoordinator):
             sighting.person_entity, sighting.camera,
         )
 
+    def _prune_face_cooldowns(self, now: float | None = None) -> None:
+        """Day-boundary hygiene (review A4): drop only debounce keys whose
+        window has run out, so a midnight crossing never re-opens a live
+        sighting (``FACE_SIGHTING_DEBOUNCE_S``) or arrival
+        (``FACE_ARRIVAL_DEBOUNCE_S``) window. Unknown key shapes are dropped."""
+        now = time.time() if now is None else now
+        windows = {
+            "sighting": float(_ura_const.FACE_SIGHTING_DEBOUNCE_S),
+            "arrival": float(_ura_const.FACE_ARRIVAL_DEBOUNCE_S),
+        }
+        for key in list(self._face_arrival_cooldown):
+            start = self._face_arrival_cooldown.get(key)
+            kind = key[0] if isinstance(key, tuple) and key else None
+            window = windows.get(kind)
+            if (window is None or not isinstance(start, (int, float))
+                    or now >= start + window):
+                self._face_arrival_cooldown.pop(key, None)
+
     def _bump_hvac_face_counter(self, sighting: Any) -> None:
         """HVAC `camera_face_arrivals_today` by zone MEMBERSHIP, once per
         distinct HVAC zone: the zone whose rooms contain the sighting's room,
@@ -8693,7 +8711,7 @@ class PresenceCoordinator(BaseCoordinator):
             # v3.19.0: Reset face arrival counters at midnight
             for tracker in self._zone_trackers.values():
                 tracker._face_arrivals_today = 0
-            self._face_arrival_cooldown.clear()
+            self._prune_face_cooldowns()
             if self._person_sightings is not None:
                 self._person_sightings.reset_daily()
         self._transitions_today += 1

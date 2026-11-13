@@ -1,0 +1,123 @@
+{
+  "schema_version": 1,
+  "doors": {
+    "garage_a": {
+      "edges": [
+        {
+          "from": "camera.rear_ptz_2",
+          "to": "camera.garage_a_2",
+          "kind": "approach",
+          "lag_p90_s": 55
+        },
+        {
+          "from": "camera.g5_bullet",
+          "to": "camera.garage_a_2",
+          "kind": "approach",
+          "lag_p90_s": 73
+        },
+        {
+          "from": "camera.rear_ptz_2",
+          "to": "camera.doorbell_lite",
+          "kind": "approach"
+        },
+        {
+          "from": "camera.g5_bullet",
+          "to": "camera.doorbell_lite",
+          "kind": "approach"
+        },
+        {
+          "from": "camera.garage_a_2",
+          "to": "camera.staircase_2",
+          "kind": "inward",
+          "lag_p90_s": 63
+        },
+        {
+          "from": "camera.staircase_2",
+          "to": "camera.stairs_top_2",
+          "kind": "inward",
+          "lag_p90_s": 72
+        },
+        {
+          "from": "camera.stairs_top_2",
+          "to": "camera.playroom",
+          "kind": "inward",
+          "lag_p90_s": 67
+        },
+        {
+          "from": "camera.stairs_top_2",
+          "to": "camera.upstairs_hall_2",
+          "kind": "inward",
+          "lag_p90_s": 84
+        },
+        {
+          "from": "camera.staircase_2",
+          "to": "camera.family_room",
+          "kind": "inward",
+          "lag_p90_s": 85
+        }
+      ],
+      "same_view": []
+    },
+    "front": {
+      "edges": [
+        {
+          "from": "camera.front_side_ptz",
+          "to": "camera.front_door_aerial",
+          "kind": "approach",
+          "lag_p90_s": 38
+        },
+        {
+          "from": "camera.utilities_ptz_2",
+          "to": "camera.front_door_aerial",
+          "kind": "approach"
+        },
+        {
+          "from": "camera.sonoffwindow",
+          "to": "camera.front_door_aerial",
+          "kind": "approach",
+          "lag_p90_s": 12
+        },
+        {
+          "from": "camera.front_side_ptz",
+          "to": "camera.madrone_g6_entry",
+          "kind": "approach"
+        },
+        {
+          "from": "camera.utilities_ptz_2",
+          "to": "camera.madrone_g6_entry",
+          "kind": "approach"
+        },
+        {
+          "from": "camera.sonoffwindow",
+          "to": "camera.madrone_g6_entry",
+          "kind": "approach"
+        },
+        {
+          "from": "camera.front_door_aerial",
+          "to": "camera.foyer_fisheye",
+          "kind": "inward",
+          "lag_p90_s": 63
+        },
+        {
+          "from": "camera.madrone_g6_entry",
+          "to": "camera.foyer_fisheye",
+          "kind": "inward",
+          "lag_p90_s": 87
+        },
+        {
+          "from": "camera.foyer_fisheye",
+          "to": "camera.family_room",
+          "kind": "inward",
+          "lag_p90_s": 81
+        },
+        {
+          "from": "camera.foyer_fisheye",
+          "to": "camera.master_hallway",
+          "kind": "inward",
+          "lag_p90_s": 82
+        }
+      ],
+      "same_view": []
+    }
+  }
+}

@@ -252,7 +252,7 @@ def install_entries(hass, monkeypatch, ents):
 
 async def build(m, hass, monkeypatch, *, zones=None, past_boot=True, setup=True,
                 study_cameras=(STAIRCASE,), garage_cameras=(), strict=False,
-                aliases=None, persons=None):
+                aliases=None, persons=None, face_recognition=True):
     """Build the full rig; returns a namespace."""
     ents = entries(m, zones=zones, study_cameras=study_cameras,
                    garage_cameras=garage_cameras, strict=strict, aliases=aliases)
@@ -269,6 +269,8 @@ async def build(m, hass, monkeypatch, *, zones=None, past_boot=True, setup=True,
     await hass.async_block_till_done()
     presence = m.presence.PresenceCoordinator(hass)
     presence._room_area_ids = dict(ROOM_AREAS)
+    # The operator's Face Recognition switch (A2 gate); ON in the live house.
+    presence._face_recognition_enabled = face_recognition
     zones_map = {"Entertainment": ["Family Room"], "Master Suite": ["Master Hallway"],
                  "Upstairs": ["Upstairs Hall", "Playroom"], "Back Hallway": ["Garage A"],
                  "Study": ["Study B"]}

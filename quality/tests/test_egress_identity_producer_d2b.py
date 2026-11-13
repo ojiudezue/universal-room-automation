@@ -853,3 +853,55 @@ def test_b_m1_live_pair_not_flagged_and_entry_reset():
     )
     assert idc == 0.9
     assert tracker._last_identity_synthetic_corroborated is False
+
+
+def test_a5_boost_branch_by_label_not_float_equality(monkeypatch):
+    """Review A5 (#63): a retune making BOOST == HIGH (both 0.9) must still
+    take the BOOST branch for a same-camera pair (ledger append), not the
+    HIGH branch. Float-equality branching would skip the append."""
+    import custom_components.universal_room_automation.transit_validator as tv
+    monkeypatch.setattr(tv, "FACE_MATCH_CORRELATED_BOOST", 0.9)
+    monkeypatch.setattr(tv, "CONFIDENCE_HIGH", 0.9)
+    now = datetime(2026, 8, 28, 12, 0, 0, tzinfo=UTC)
+    census, hass, _ = _make_census({})
+    tracker = _make_tracker(census, hass, interior_stems=[])
+    _install_legs(census, {
+        "front_door": [
+            _leg("sensor.front_door_last_recognized_face", "frigate",
+                 "dev_A", "oji_udezue", now + timedelta(seconds=-120),
+                 base_stem="front_door"),
+            _leg("sensor.front_door_face_recognized", "protect",
+                 "dev_B", "oji_udezue", now + timedelta(seconds=20),
+                 confidence=0.9, base_stem="front_door"),
+        ],
+    })
+    boost_before = len(census._egress_identity_boost_events)
+    slug, idc, agc = tracker._resolve_egress_face_identity(
+        "binary_sensor.front_door_person_occupancy", now, "exit",
+    )
+    assert (slug, idc, agc) == ("oji_udezue", 0.9, ura_const.CENSUS_AGREEMENT_BOTH)
+    assert len(census._egress_identity_boost_events) == boost_before + 1
+
+
+def test_a5_medium_never_takes_boost_branch_on_equal_values(monkeypatch):
+    """Review A5, other direction: a retune making MEDIUM == BOOST (0.75)
+    must leave a single leg on the MEDIUM branch (SINGLE, no ledger append)."""
+    import custom_components.universal_room_automation.transit_validator as tv
+    monkeypatch.setattr(tv, "FACE_MATCH_CORRELATED_BOOST", 0.75)
+    monkeypatch.setattr(tv, "CONFIDENCE_MEDIUM", 0.75)
+    now = datetime(2026, 8, 28, 12, 0, 0, tzinfo=UTC)
+    census, hass, _ = _make_census({})
+    tracker = _make_tracker(census, hass, interior_stems=[])
+    _install_legs(census, {
+        "front_door": [
+            _leg("sensor.front_door_last_recognized_face", "frigate",
+                 "dev_A", "oji_udezue", now + timedelta(seconds=-20),
+                 base_stem="front_door"),
+        ],
+    })
+    boost_before = len(census._egress_identity_boost_events)
+    slug, idc, agc = tracker._resolve_egress_face_identity(
+        "binary_sensor.front_door_person_occupancy", now, "exit",
+    )
+    assert (slug, idc, agc) == ("oji_udezue", 0.75, ura_const.CENSUS_AGREEMENT_SINGLE)
+    assert len(census._egress_identity_boost_events) == boost_before

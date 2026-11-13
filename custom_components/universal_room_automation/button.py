@@ -2387,7 +2387,7 @@ class ReloadExteriorSeamsButton(ButtonEntity):
 
 class ReloadInteriorPathsButton(ButtonEntity):
     """FACE-ARRIVAL-REBUILD-1 D7 — re-read, re-validate and apply
-    ``interior_paths.json`` on the live egress tracker without a restart. A
+    ``interior_paths.json`` on the live door direction tracker without a restart. A
     rejected file keeps the previously installed map (never partial); the
     verdict lands on the Outside: Open Tracks sensor (path_map_validation).
 
@@ -2415,9 +2415,10 @@ class ReloadInteriorPathsButton(ButtonEntity):
         )
 
     async def async_press(self) -> None:
-        tracker = self.hass.data.get(DOMAIN, {}).get("egress_tracker")
+        from .const import DIRECTION_TRACKER_DATA_KEY
+        tracker = self.hass.data.get(DOMAIN, {}).get(DIRECTION_TRACKER_DATA_KEY)
         if tracker is None:
-            _LOGGER.warning("Reload interior paths: egress tracker not initialized")
+            _LOGGER.warning("Reload interior paths: door direction tracker not initialized")
             return
         verdict = await tracker.async_load_path_map()
         _LOGGER.info(

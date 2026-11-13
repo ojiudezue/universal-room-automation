@@ -128,7 +128,8 @@ def validate(spec: Any, ctx: ValidationContext) -> tuple[PathMap, list[str]]:
             seen.add((fk, tk))
             lag = raw.get("lag_p90_s")
             if lag is not None:
-                if not isinstance(lag, (int, float)) or not 0 < float(lag) <= ctx.buffer_s:
+                if (isinstance(lag, bool) or not isinstance(lag, (int, float))
+                        or not 0 < float(lag) <= ctx.buffer_s):
                     errors.append(
                         f"rule 8: door '{door}': lag_p90_s {lag!r} not in (0, {ctx.buffer_s:g}]")
                     continue

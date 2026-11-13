@@ -110,7 +110,18 @@ class EgressResolution:
     provenance: str | None = None
 
 
+EGRESS_TIER_HIGH = "high"
+EGRESS_TIER_BOOST = "boost"
+EGRESS_TIER_MEDIUM = "medium"
+
+
 def egress_identity_tier(in_window_legs) -> tuple[float, bool]:
+    """``(tier, synthetic)`` of :func:`egress_identity_tier_labelled`."""
+    _label, tier, synthetic = egress_identity_tier_labelled(in_window_legs)
+    return tier, synthetic
+
+
+def egress_identity_tier_labelled(in_window_legs) -> tuple[str, float, bool]:
     """FACE-ARRIVAL-REBUILD-1 D8a: PURE confidence-tier arithmetic of a
     single-slug face leg set (no stash, no ledger append, no I/O).
 
@@ -121,7 +132,9 @@ def egress_identity_tier(in_window_legs) -> tuple[float, bool]:
       * ``FACE_MATCH_CORRELATED_BOOST`` for >= 2 legs on one camera;
       * ``CONFIDENCE_MEDIUM`` for one leg.
     Module-level on purpose (plan rev 11 M2): tests call the resolver unbound
-    with a bare ``SimpleNamespace`` self.
+    with a bare ``SimpleNamespace`` self. The leading label names the branch
+    (review A5): callers branch on it, never on float equality of the tiers
+    (a retune making BOOST == HIGH must not change the branch taken).
     """
     legs = list(in_window_legs)
     n = len(legs)
@@ -139,10 +152,10 @@ def egress_identity_tier(in_window_legs) -> tuple[float, bool]:
             _independent(live[i], live[j])
             for i in range(len(live)) for j in range(i + 1, len(live))
         )
-        return float(CONFIDENCE_HIGH), synthetic
+        return EGRESS_TIER_HIGH, float(CONFIDENCE_HIGH), synthetic
     if n >= 2:
-        return float(FACE_MATCH_CORRELATED_BOOST), False
-    return float(CONFIDENCE_MEDIUM), False
+        return EGRESS_TIER_BOOST, float(FACE_MATCH_CORRELATED_BOOST), False
+    return EGRESS_TIER_MEDIUM, float(CONFIDENCE_MEDIUM), False
 
 
 def _normalize_checkpoint_areas(
@@ -2021,12 +2034,14 @@ class EgressDirectionTracker:
                 person_state=_person_raw,
             )
 
-        identity_confidence, _tier_synthetic = egress_identity_tier(legs_only)
-        if identity_confidence == float(CONFIDENCE_HIGH):
+        _tier_label, identity_confidence, _tier_synthetic = (
+            egress_identity_tier_labelled(legs_only)
+        )
+        if _tier_label == EGRESS_TIER_HIGH:
             agreement_class = CENSUS_AGREEMENT_BOTH
             # B-M1: does the 0.9 survive without the synthetic latch legs?
             self._last_identity_synthetic_corroborated = _tier_synthetic
-        elif identity_confidence == float(FACE_MATCH_CORRELATED_BOOST):
+        elif _tier_label == EGRESS_TIER_BOOST:
             agreement_class = CENSUS_AGREEMENT_BOTH
             # BOOST event ledger (24h-filtered at the reader; MED-1).
             try:
@@ -2480,13 +2495,15 @@ class EgressDirectionTracker:
             self.path_map_validation = f"{verdict} (kept previous)"
             return self.path_map_validation
         # (2)/(3) and re-validation of a const/none install: validated const
-        # or no map. The const is VALIDATED like the file (on a foreign
-        # install its entity ids do not resolve -> no map).
-        try:
-            fallback, _warns = validate(INTERIOR_PATH_MAP_FALLBACK, ctx)
-        except PathMapError as exc:
-            fallback = None
-            verdict = f"{verdict}; built-in const rejected: {exc}"
+        # or no map. The shipped const is None (no house map in code); a
+        # non-None const is VALIDATED like the file.
+        fallback = None
+        if INTERIOR_PATH_MAP_FALLBACK is not None:
+            try:
+                fallback, _warns = validate(INTERIOR_PATH_MAP_FALLBACK, ctx)
+            except PathMapError as exc:
+                fallback = None
+                verdict = f"{verdict}; built-in const rejected: {exc}"
         self.path_map = fallback
         self._path_map_from_file = False
         self.path_map_sha256 = None

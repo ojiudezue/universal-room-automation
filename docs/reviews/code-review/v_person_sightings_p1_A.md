@@ -41,3 +41,29 @@ LOWs A4-A8 at builder discretion.
 | MEDIUM | 1 |
 | LOW | 5 |
 | NIT | 1 |
+
+## Fix-up (builder, 2026-11-12)
+
+| # | Sev | Fixed | Change | Test (RED on neuter) |
+|---|---|---|---|---|
+| A1 | HIGH | yes | `person_sighting._denominator`: cutoff = `max(now - window, setup_ts + PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S)` | `test_person_sighting_review_a.py::test_a1_restart_boot_window_faces_do_not_page`, `::test_a1_presence_resetup_does_not_page`, `::test_a1_denominator_boundary_literal` (S+599 not counted, S+601 pages) |
+| A2 | MEDIUM | yes | `_face_recognition_on()` reads presence `_face_recognition_enabled` live (the existing `SIGNAL_URA_FACE_RECOGNITION_CHANGED` handler keeps it current). OFF: `_emit_interior` (sources a + b) returns, counted `face_recognition_off`; `_update_tracker_fields` writes nothing; `face_sighting_zero` does not evaluate. Egress (c) sightings still emit (not the presence face path in develop either) | `::test_a2_switch_off_no_sighting_no_arrival_no_display`, `::test_a2_switch_off_egress_sighting_writes_no_zone_display`, `::test_a2_switch_off_tripwire_silent` |
+| A3 | LOW | yes | `_on_face_state` returns when `old.state == new.state` | `::test_a3_attribute_only_update_is_not_a_sighting` |
+| A4 | LOW | yes | `_count_transition` day change calls `_prune_face_cooldowns()`: drops only keys past their window (sighting 60 s, arrival 600 s) and unknown key shapes | `::test_a4_day_change_prunes_only_expired_keys` (three drills: clear, call dropped, expiry compare) |
+| A5 | LOW | yes | `egress_identity_tier_labelled` returns a branch label; the caller branches on it. `egress_identity_tier` keeps its signature | `test_egress_identity_producer_d2b.py::test_a5_boost_branch_by_label_not_float_equality` (HIGH==BOOST), `::test_a5_medium_never_takes_boost_branch_on_equal_values` (MEDIUM==BOOST) |
+| A6 | LOW | yes | non-string source -> True (fail closed) before set membership | `::test_a6_unhashable_source_fails_closed` |
+| A7 | LOW | yes | `is None` check; 0.0 kept | `::test_a7_zero_identity_confidence_preserved` |
+| A8 | NIT | yes | rule 8 rejects bool | `::test_a8_bool_lag_rejected` |
+
+Validator regressions (both now pass, tests unchanged):
+- `test_ec_role_defaults_rev5::test_default_literals_contain_no_house_entity_ids`: `const.INTERIOR_PATH_MAP_FALLBACK` is now `None` (no house entity id in code; no file = no map). This house's map moved verbatim to `docs/examples/interior_paths.example.json` (operator installs it as `/config/universal_room_automation/interior_paths.json`). Loader skips validation of a `None` const. Tests: `test_interior_paths.py::test_shipped_const_is_no_map`, `::test_example_file_installs_on_this_house` (19 edges); the const-fallback mechanism tests now monkeypatch the example in as the const. Manual §D7 entry updated with install steps.
+- `test_v478_egress_window::test_v478_force_charge_button_unaffected_by_egress_pause`: the reload button docstring/log say "door direction tracker"; the `hass.data` key is read through the new `const.DIRECTION_TRACKER_DATA_KEY` (same value `"egress_tracker"`). Drill: wrong key -> `test_interior_paths.py::test_reload_button_swaps_map` RED.
+
+Also: deferred D5 lint `test_person_sighting_review_a.py::test_retired_flag_unread` (AST, lint only, not test authority; plan L5). Hand stub in `test_identity_fusion_d2_d3_d4.py::_sighting_producer` and the shared rig set the switch ON.
+
+| Sev | Found | Fixed | Deferred |
+|---|---|---|---|
+| HIGH | 1 | 1 | 0 |
+| MEDIUM | 1 | 1 | 0 |
+| LOW | 5 | 5 | 0 |
+| NIT | 1 | 1 | 0 |

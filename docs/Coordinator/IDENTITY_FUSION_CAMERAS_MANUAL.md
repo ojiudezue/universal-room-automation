@@ -598,15 +598,23 @@ valid. `EXTERIOR_ADJACENCY_GRAPH` / `EXTERIOR_TRACK_EGRESS_ADJACENT_CAMERAS` in
 
 **Interior path map (FACE-ARRIVAL-REBUILD-1 D7 / INTERIOR-PATH-MAP-1, branch
 `feature/person-sightings-p1`, NOT deployed).** `/config/universal_room_automation/interior_paths.json`
-(primary) or `const.INTERIOR_PATH_MAP_FALLBACK` (this house's operator map with D0-P4 lags) is
+(primary) or `const.INTERIOR_PATH_MAP_FALLBACK` (shipped `None`: no house entity id in code, so with no
+valid file there is no map, `path_map_source: none`) is
 loaded by `EgressDirectionTracker.async_load_path_map` through the shared
 `json_file_loader.load_validated_json` (read, sha, parse, validate; never installs; the seam loader
 now calls it too, behaviour pinned by `test_seam_sha_on_rejected_file_unchanged`). Validated by the
 HA-free `interior_paths.validate` (rules 1-10; nodes = physical cameras via
 `canonical_camera_key`; whole-file rejection; rule 10: a detached door, `INTERIOR_PATH_DETACHED_DOORS`
 = {garage_b}, may not point inward into a house camera). Outcomes: valid file -> file; absent ->
-validated const or none; invalid at first load -> validated const or none; invalid later -> previous
-kept. First load at `EVENT_HOMEASSISTANT_STARTED` (or at once on an entry reload); re-validated on
+validated const or none (none with the shipped `None`); invalid at first load -> validated const or
+none; invalid later -> previous kept. **This house's map** (operator fixture
+`FIXTURE_camera_paths_interior.md` answers 2026-11-12, `lag_p90_s` from D0-P4; 19 edges, doors
+`garage_a` + `front`) is the committed example `docs/examples/interior_paths.example.json`. Install
+it: copy it to `/config/universal_room_automation/interior_paths.json` (Samba/SSH), then press
+`button.ura_reload_interior_paths` (or restart); `path_map_source` should read
+`interior_paths.json (schema 1, 19 edges)` (pinned by
+`test_interior_paths.py::test_example_file_installs_on_this_house`). Until it is installed the house
+has no path map (no runtime reader in Phase 1, so no behaviour change). First load at `EVENT_HOMEASSISTANT_STARTED` (or at once on an entry reload); re-validated on
 `entity_registry_updated` (debounced `INTERIOR_PATH_MAP_REVALIDATE_DEBOUNCE_S`, 30 s) while the file
 is not installed; `button.ura_reload_interior_paths` reloads. Provenance on the Outside: Open Tracks
 sensor: `path_map_source`, `path_map_validation`, `path_map_sha256` (installed file only),
@@ -631,6 +639,12 @@ co-detections are a report only: `AUDIT_interior_path_map_learned_vs_operator.md
   Frigate's own `Unknown` -> name is. `_N` picks resolve (no flag).
 - **(c)** `ura_person_egress_event` with `person_id` and `identity_provenance` in face / ble+face
   (projected, never re-decided; `ble` / missing provenance / ambiguous never; exit backfill never).
+**Face Recognition switch (review A2 fix-up):** with the operator's Face Recognition switch OFF
+(presence `_face_recognition_enabled`, kept current by its `SIGNAL_URA_FACE_RECOGNITION_CHANGED`
+handler) sources (a) and (b) emit nothing (counted `face_recognition_off`), so no `camera_face`
+arrival, and no sighting writes the zone last-face display fields (develop gated the v3.19 path the
+same way). Source (c) egress sightings still emit (the transit validator's identity, not this
+switch's). A same-state face-sensor update (attributes only) is ignored (A3).
 Filters are evidence-only: `_face_suppressed_now()`, sentinel names, the boot drop
 (`ts < presence setup + PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S`, all sources), the ONE mapper
 `_canonical_person_slug` with an explicit tracked-slug membership test (`guest:*` and passthrough
@@ -653,10 +667,12 @@ consumer may act on one alone. Re-resolution: a rebuilt resolver or a changed pi
 `FACE_SIGHTING_PICK_RERESOLVE_S` (300 s).
 **D4 trip-wire `face_sighting_zero` (HIGH):** denominator = the census ring
 `_frigate_face_named_ring` (post-sentinel, created only while `FACE_SIGHTING_ENABLED`) entries in the
-last `FACE_SIGHTING_ZERO_WINDOW_H` (24) whose name maps to a tracked resident, whose stems join a
+last `FACE_SIGHTING_ZERO_WINDOW_H` (24) AND at or after this producer's setup +
+`PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S` (600 s; the ring survives a restart's boot drop and a presence
+re-setup, review A1) whose name maps to a tracked resident, whose stems join a
 resolved pick, and that were not appended under face suppression; numerator = interior sightings.
 Denominator >= `FACE_SIGHTING_ZERO_MIN_FACES` (10) with 0 sightings pages once (RAM latch, re-armed
-when sightings resume). `face_arrival_zero` (LOW) is armed only with interior arrivals on. Kill
+when sightings resume; silent while the Face Recognition switch is OFF). `face_arrival_zero` (LOW) is armed only with interior arrivals on. Kill
 switch for the whole producer: `FACE_SIGHTING_ENABLED` (rung 1). Live (D0, 2026-11-12): 7 of 8 picks
 resolve; Garage A's fused pick is `room_cameras_empty` until the operator sets its room cameras.
 

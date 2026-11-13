@@ -433,6 +433,10 @@ class PersonSightingProducer:
         if old_state is None or getattr(old_state, "state", None) in _UNREADY:
             self.counters["restore_dropped"] += 1
             return
+        # A3: an attribute-only update (same state) is not a new recognition;
+        # its last_changed is the ORIGINAL recognition time.
+        if getattr(old_state, "state", None) == getattr(new_state, "state", None):
+            return
         entity_id = data.get("entity_id") or getattr(new_state, "entity_id", "")
         key = self._face_to_physical.get(entity_id)
         if key is None:
@@ -475,7 +479,10 @@ class PersonSightingProducer:
         self._emit(
             slug=str(person_id), face_name=None, camera=cam, physical_camera=key,
             area_id=area, room=room, house_zones=(zone,) if zone else (), ts=ts,
-            confidence=float(data.get("identity_confidence") or _c.CONFIDENCE_MEDIUM),
+            confidence=float(
+                _c.CONFIDENCE_MEDIUM if data.get("identity_confidence") is None
+                else data.get("identity_confidence")
+            ),
             provenance=str(provenance),
             sighting_source=(
                 SIGHTING_SOURCE_EGRESS_ENTRY if direction == "entry"
@@ -512,9 +519,20 @@ class PersonSightingProducer:
             pass
         return []
 
+    def _face_recognition_on(self) -> bool:
+        """The operator's Face Recognition switch (presence
+        ``_face_recognition_enabled``, kept current by its
+        SIGNAL_URA_FACE_RECOGNITION_CHANGED handler). OFF = no interior face
+        sighting (so no camera_face arrival) and no zone last-face display,
+        as develop's v3.19 path was gated."""
+        return bool(getattr(self._presence, "_face_recognition_enabled", False))
+
     def _emit_interior(self, key: str, name: str, ts: float, *, synthetic: bool) -> None:
         view = self._views.get(key)
         if view is None:
+            return
+        if not self._face_recognition_on():
+            self.counters["face_recognition_off"] += 1
             return
         self._emit(
             slug=name, face_name=name, camera=view.picks[0] if view.picks else key,
@@ -637,6 +655,8 @@ class PersonSightingProducer:
         return sighting
 
     def _update_tracker_fields(self, sighting: PersonSighting) -> None:
+        if not self._face_recognition_on():
+            return
         trackers = getattr(self._presence, "_zone_trackers", {}) or {}
         when = dt_util.utc_from_timestamp(sighting.ts)
         for zone in sighting.house_zones:
@@ -694,7 +714,13 @@ class PersonSightingProducer:
         except Exception:  # noqa: BLE001
             return 0
         resolver = self._bound_resolver
-        cutoff = now - window_s
+        # A1: count only faces the producer could have turned into a
+        # sighting: inside the window AND after this producer's boot drop
+        # (a restart or a presence re-setup; the census ring survives both).
+        cutoff = max(
+            now - window_s,
+            (self._setup_ts or 0.0) + float(_c.PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S),
+        )
         n = 0
         for entry in list(ring):
             t, _cam, stems, name, suppressed = entry
@@ -729,7 +755,8 @@ class PersonSightingProducer:
             return
         now = self._now() if now is None else now
         window_h = float(_c.FACE_SIGHTING_ZERO_WINDOW_H)
-        if window_h > 0:
+        # A2: switch OFF = no sightings expected; nothing to page.
+        if window_h > 0 and self._face_recognition_on():
             window_s = window_h * 3600.0
             numerator = sum(1 for t in self._interior_emits if t >= now - window_s)
             if numerator > 0:

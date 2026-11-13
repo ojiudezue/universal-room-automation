@@ -659,7 +659,8 @@ def _sighting_producer(census, hass, face_entity="sensor.front_door_last_recogni
         PersonSightingProducer, _PhysicalView,
     )
     presence = _NS(_face_arrival_cooldown={}, _zone_trackers={},
-                   _room_area_ids={}, get_room_zone=lambda r: None)
+                   _room_area_ids={}, get_room_zone=lambda r: None,
+                   _face_recognition_enabled=True)  # operator switch ON
     prod = PersonSightingProducer(hass, presence)
     prod._setup_ts = _time.time() - 700
     prod._views = {"dev_front": _PhysicalView(

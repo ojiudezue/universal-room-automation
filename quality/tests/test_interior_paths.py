@@ -38,6 +38,14 @@ GOOD = {"schema_version": 1, "doors": {"garage_a": {"edges": [
 ], "same_view": []}}}
 
 
+# This house's map: the committed example the operator installs as
+# /config/universal_room_automation/interior_paths.json (the shipped code
+# fallback is None: no house entity id in code).
+EXAMPLE_PATH = (__import__("pathlib").Path(__file__).resolve().parents[2]
+                / "docs" / "examples" / "interior_paths.example.json")
+EXAMPLE = json.loads(EXAMPLE_PATH.read_text())
+
+
 def _write(hass, spec):
     import os
     path = hass.config.path("universal_room_automation", "interior_paths.json")
@@ -69,6 +77,9 @@ async def tr(mods, hass, monkeypatch):
     t._egress_entities = list(EGRESS)
     t._load_door_config()
     hass.data[R.DOMAIN]["egress_tracker"] = t
+    # The const-fallback mechanism is exercised with this house's example as
+    # the const (the shipped const is None; see test_shipped_const_is_no_map).
+    monkeypatch.setattr(mods.transit, "INTERIOR_PATH_MAP_FALLBACK", copy.deepcopy(EXAMPLE))
     _rm(hass)
     yield t
     await t.async_teardown()
@@ -119,6 +130,34 @@ async def test_four_load_outcomes(tr, hass, mods, monkeypatch):
     assert (t2.path_map_source, t2.path_map) == ("none", None)
     assert "camera.not_here" in t2.path_map_validation
     assert t2.path_map_sha256 is None
+
+
+@pytest.mark.asyncio
+async def test_shipped_const_is_no_map(tr, hass, mods, monkeypatch):
+    """Portability: the shipped fallback is None, so with no file there is
+    no map on ANY install (no house entity id in code)."""
+    assert mods.const.INTERIOR_PATH_MAP_FALLBACK is None
+    monkeypatch.setattr(mods.transit, "INTERIOR_PATH_MAP_FALLBACK",
+                        mods.const.INTERIOR_PATH_MAP_FALLBACK)
+    await tr.async_load_path_map()
+    assert (tr.path_map_source, tr.path_map, tr.path_map_validation) == (
+        "none", None, "file absent")
+    _write(hass, {"schema_version": 2})
+    await tr.async_load_path_map()
+    assert (tr.path_map_source, tr.path_map) == ("none", None)
+    assert tr.path_map_validation.startswith("rejected:")
+
+
+@pytest.mark.asyncio
+async def test_example_file_installs_on_this_house(tr, hass):
+    """The committed example, installed as the file, validates against the
+    live-house registry fixture: 19 edges, both live doors."""
+    raw = _write(hass, EXAMPLE_PATH.read_text())
+    await tr.async_load_path_map()
+    assert tr.path_map_source == "interior_paths.json (schema 1, 19 edges)"
+    assert tr.path_map_validation.startswith("ok")
+    assert sorted(tr.path_map.doors) == ["front", "garage_a"]
+    assert tr.path_map_sha256 == hashlib.sha256(raw.encode()).hexdigest()
 
 
 @pytest.mark.asyncio
@@ -281,7 +320,7 @@ async def test_path_score_front_door_dag(tr, mods):
     and an anchor; Foyer is inward. Front PTZ -> aerial (t-10), aerial ->
     foyer (t+10), G6 -> foyer (t+1 -> t+10), foyer -> master hallway (t+30)
     = 4; the aerial/G6 pair (both egress anchors) never scores."""
-    pmap, _w = mods.paths.validate(mods.const.INTERIOR_PATH_MAP_FALLBACK, _ctx(mods, tr))
+    pmap, _w = mods.paths.validate(EXAMPLE, _ctx(mods, tr))
     ctx = _ctx(mods, tr)
     k = lambda n: ctx.resolve_node(f"camera.{n}")[0]  # noqa: E731
     t = 500.0

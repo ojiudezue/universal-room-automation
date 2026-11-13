@@ -45,6 +45,8 @@ def arrival_source_needs_corroboration(source: Any) -> bool:
     """
     if source is None:
         return False
+    if not isinstance(source, str):
+        return True  # review A6: unhashable / non-string -> fail closed
     if source in NON_CAMERA_ARRIVAL_SOURCES:
         return False
     if source in CAMERA_DERIVED_ARRIVAL_SOURCES:
