@@ -411,6 +411,26 @@ asked who READ the count; nobody asked how it was MADE.
 under the fix and under a plausible different failure. If identical, choose another
 observation.
 
+**Corollary — has it ever fired, and does it reach the action? (operator-coined 2026-11-12).**
+Two checks every producer/consumer trace must include:
+1. **Fire check.** For every signal/producer in scope, measure how often it actually fired
+   (recorder, DB, log, its own counter) over a real window. A producer at zero for weeks is a
+   finding, not a quiet feature. Every new producer ships with a zero-fire trip-wire (anomaly
+   to NM) so silence is noticed in code, not by luck.
+2. **Forward trace.** Run each producer FORWARD to the actions it should drive (unlock,
+   HVAC, personalization, notify), not only backward from a new value to its readers. A
+   producer whose output reaches no action, or an action that never receives its producer,
+   is a gap.
+3. **Policy lives in the consumer.** A safety rule for one action class (e.g. "face alone may
+   not unlock") gates that consumer; it must not switch off the producer for every other
+   consumer.
+Why: v3.19.0 face-confirmed arrival fired zero times for months (listened to area-discovered
+cameras, found none; the operator's configured zone cameras were stored but unread), its `_2`
+fix was switched off at the producer to protect locks, and egress faces never sent an arrival
+signal. Census and egress audits ran backward from person_id and never asked whether the
+arrival path had ever fired (`AUDIT_face_arrival_and_prearrival_fan_rooms.md`,
+`AUDIT_face_production_after_nov_fixes.md`).
+
 ## Post-Ship Supersession & Consumer-Gap Audit — MANDATORY after a capability ships
 
 **Operator-coined 2026-08-18 (census/identity cycle group).** After a cycle ships a new
