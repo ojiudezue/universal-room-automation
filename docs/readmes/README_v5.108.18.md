@@ -34,8 +34,14 @@ AWAY, including a phantom zone sensor, so body evidence with no resident could u
 `test_lock_release_arriving.py` (111). Full suite 21091 passed, 0 new failures. Orchestrator mutation drills
 2026-11-13: removing the taint hold turns 20 tests red; making ARRIVING release turns 50 red; both restored clean.
 
-## Live validation (prospective)
+## Validated 2026-11-13
 
-- Boot: `garage_reason` restored; no lock-regime errors in the log.
-- Lockout currently OFF, so live releases cannot be observed; `arriving_holds` counter present and 0.
-- Next ARRIVING with the lockout ON: decision `arriving_hold`, not `release`.
+Restart 08:48 CST with the house AWAY (`update.universal_room_automation_update` installed `v5.108.18`).
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Loads without errors | PASS | `/api/error_log` has no URA or lock-regime ERROR or Traceback |
+| `arriving_holds` visible | NOT EXPOSED | The counter is internal; no entity attribute carries it. Proven in-suite only |
+| Hold on ARRIVING | PENDING (lockout OFF) | `switch.ura_security_coordinator_garage_lockout` is off, so no live decision can occur. In-suite: 111 tests plus the orchestrator mutation drills |
+
+Revisit when the operator turns the lockout on (about 11-16): the next ARRIVING should log `arriving_hold`.
