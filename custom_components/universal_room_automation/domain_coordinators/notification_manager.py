@@ -5478,7 +5478,7 @@ class NotificationManager:
                 "at": dt_util.utcnow().isoformat(),
                 "coordinator_id": coordinator_id,
                 "severity": (
-                    severity.name if isinstance(severity, Severity) else str(severity)
+                    getattr(severity, "name", None) or str(severity)
                 ),
                 "hazard": hazard_type,
                 "location": location,
@@ -5500,11 +5500,15 @@ class NotificationManager:
         ):
             self._no_route_count += 1
             # Trip-wire scope = MEDIUM+ (audit proposal (c)); LOW holes
-            # still count toward delivery_rate.
-            if (
-                not isinstance(severity, Severity)
-                or severity >= Severity.MEDIUM
-            ):
+            # still count toward delivery_rate. Compared by integer VALUE,
+            # not class identity: isinstance() mis-scoped a LOW whose
+            # Severity class came from a re-imported base module. A value
+            # that is not int-like fails open into the trip-wire.
+            try:
+                _sev_val = int(severity)
+            except (TypeError, ValueError):
+                _sev_val = int(Severity.MEDIUM)
+            if _sev_val >= int(Severity.MEDIUM):
                 self._no_route_times.append(dt_util.utcnow())
         try:
             database = self.hass.data.get(DOMAIN, {}).get("database")
@@ -5512,7 +5516,7 @@ class NotificationManager:
                 return
             await database.log_notification(
                 coordinator_id=coordinator_id,
-                severity=severity.name if isinstance(severity, Severity) else str(severity),
+                severity=getattr(severity, "name", None) or str(severity),
                 title=title,
                 message="[audit]",
                 hazard_type=hazard_type,
