@@ -584,6 +584,11 @@ step rejects overlap). It never touches ArmedState and never goes through `evalu
   SC disable. The taint ends only at an episode boundary (any engage, a boot SLEEP/VACATION rebuild, every
   `reason = none` write). With reason `none`, ARRIVING does nothing (it no longer unlocks a hand-locked lockout).
   Snapshot: `lock_regime_arriving_taint`, `lock_regime_episode_saw_arriving`, `lock_regime_arriving_holds`.
+  **Trip-wire (D3):** if a `house_state:*` or `boot_recheck` release ever writes an unlock in an episode that saw
+  ARRIVING (WAKING and `override_set` exempt), one NM HIGH `hazard_type = lock_release_uncorroborated`
+  (`location = garage_lockout:house_state`) names the trigger, the episode reason and the last four house-state
+  edges. It observes, never blocks; steady state is zero. Kill switch `LOCK_RELEASE_UNCORROBORATED_TRIPWIRE_ENABLED`
+  (rung 1). Counter `lock_regime_uncorroborated_releases`.
 - **Residents:** every `person.*` minus `security_lockout_excluded_persons`, tracked live
   (added/removed domain trackers) and persisted in Store
   `universal_room_automation.lock_regime_residents`.

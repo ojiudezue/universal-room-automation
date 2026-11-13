@@ -45,6 +45,7 @@ test files installed.
 from __future__ import annotations
 
 import asyncio
+import collections
 import functools
 import logging
 from datetime import datetime, timedelta
@@ -263,6 +264,10 @@ class LockRegimeController:
         self._arrival_taint: bool = False
         self._episode_saw_arriving: bool = False
         self.arriving_holds: int = 0
+        # D3 trip-wire: count + the last house-state edges for its message
+        # (new, old, trigger, ts), F20.
+        self.uncorroborated_releases: int = 0
+        self._last_house_edges: collections.deque = collections.deque(maxlen=4)
 
         # SC-LOCK-REGIME-DOOR-LOCKS-1 (plan rev 3 D3a): the away-lock policy.
         # Its own state; it never touches reason / release_gen / backstop /
@@ -835,6 +840,7 @@ class LockRegimeController:
             old = str(getattr(payload, "old_state", "") or "")
             trig = str(getattr(payload, "trigger", "") or "")
         override = trig == "override_set"
+        self._last_house_edges.append((new, old, trig, self._ts()))
         # LOCK-RELEASE-ON-ARRIVING D1 item 2: taint BEFORE the decision and
         # before every later return. old_state == arriving closes H2 (a
         # boot-settle-suppressed ARRIVING first seen as arriving -> HOME_*).
@@ -854,7 +860,7 @@ class LockRegimeController:
         kind, engage_reason = self._edge_decision(new, cfg, override=override)
         if kind == "release":
             # _after_release clears a remembered manual unlock (episode over).
-            self._release(f"house_state:{new}")
+            self._release(f"house_state:{new}", override=override)
             return
         if kind == "arriving_hold":
             # Body evidence only: the episode stays open (reason, backstop,
@@ -1688,8 +1694,22 @@ class LockRegimeController:
     # Release
     # ------------------------------------------------------------------
 
-    def _release(self, trigger: str, *, person: str | None = None, force: bool = False) -> None:
-        """Bump the generation, then unlock every locked / lock-pending lockout."""
+    def _release(
+        self,
+        trigger: str,
+        *,
+        person: str | None = None,
+        force: bool = False,
+        override: bool = False,
+    ) -> None:
+        """Bump the generation, then unlock every locked / lock-pending lockout.
+
+        ``override`` (from ``on_house_state_changed`` only): the edge was an
+        operator ``override_set``; the D3 trip-wire exempts it.
+        """
+        # D3: captured before _after_release can end the episode.
+        saw_before = self._episode_saw_arriving
+        reason_before = self.reason
         self.release_gen += 1
         if person is not None:
             self.releasing_set[person] = {"at": self._ts(), "removed": False}
@@ -1723,6 +1743,70 @@ class LockRegimeController:
             written.append(ent)
         self._after_release(trigger, person, cfg)
         self._record("release", trigger=trigger, written=written)
+        self._check_uncorroborated(trigger, written, saw_before, reason_before, override)
+
+    def _check_uncorroborated(
+        self,
+        trigger: str,
+        written: list[str],
+        saw_before: bool,
+        reason_before: str,
+        override: bool,
+    ) -> None:
+        """LOCK-RELEASE-ON-ARRIVING D3: page when a house-state / boot-recheck
+        release WROTE an unlock in an episode that had seen ARRIVING.
+
+        Observes, never blocks (the D1 gate is the protection). Exempt:
+        nothing written (F7), WAKING (only reachable after SLEEP), an operator
+        ``override_set`` edge.
+        """
+        from ..const import LOCK_RELEASE_UNCORROBORATED_TRIPWIRE_ENABLED  # noqa: PLC0415
+
+        violation = (
+            bool(written)
+            and (trigger.startswith("house_state:") or trigger == "boot_recheck")
+            and saw_before
+            and trigger != "house_state:waking"
+            and not override
+        )
+        if not violation or not LOCK_RELEASE_UNCORROBORATED_TRIPWIRE_ENABLED:
+            return
+        self.uncorroborated_releases += 1
+        edges = [list(e) for e in self._last_house_edges]
+        self._record(
+            "uncorroborated_release", trigger=trigger, written=list(written),
+            extra={"reason_before": reason_before, "last_house_edges": edges},
+        )
+        try:
+            self._spawn(self._notify_uncorroborated(trigger, reason_before, edges))
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning("Lock regime: uncorroborated-release NM not sent", exc_info=True)
+
+    async def _notify_uncorroborated(
+        self, trigger: str, reason_before: str, edges: list[list[Any]]
+    ) -> None:
+        from ..const import DOMAIN  # noqa: PLC0415
+        from .base import Severity  # noqa: PLC0415
+
+        nm = self._hass.data.get(DOMAIN, {}).get("notification_manager")
+        if nm is None:
+            return
+        shown = ", ".join(f"{e[1] or '?'} -> {e[0]} ({e[2] or '?'})" for e in edges)
+        try:
+            await nm.async_notify(
+                coordinator_id="security",
+                severity=Severity.HIGH,
+                title="Garage lockout released without a resident arrival",
+                message=(
+                    f"The garage lockout was released by {trigger} (episode "
+                    f"{reason_before}) after the house showed ARRIVING with no "
+                    f"resident arrival. Last house-state edges: {shown}."
+                ),
+                hazard_type="lock_release_uncorroborated",
+                location="garage_lockout:house_state",
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Lock regime: NM notify failed", exc_info=True)
 
     @callback
     def _on_lockout_event(self, event: Any) -> None:
@@ -2743,6 +2827,7 @@ class LockRegimeController:
             "lock_regime_arriving_taint": self._arrival_taint,
             "lock_regime_episode_saw_arriving": self._episode_saw_arriving,
             "lock_regime_arriving_holds": self.arriving_holds,
+            "lock_regime_uncorroborated_releases": self.uncorroborated_releases,
         }
 
 

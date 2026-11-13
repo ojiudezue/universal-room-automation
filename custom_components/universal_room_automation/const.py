@@ -3908,6 +3908,14 @@ GARAGE_LOCKOUT_RELEASE_MAX_S: Final = 5
 GARAGE_LOCKOUT_BLIP_MIN_AWAY_MIN: Final = 15
 # Bound on the awaited unlock inside SC teardown on the disable path (C1).
 GARAGE_LOCKOUT_TEARDOWN_RELEASE_TIMEOUT_S: Final = 5
+# LOCK-RELEASE-ON-ARRIVING D3 (plan PLANNING_lock_release_on_arriving.md rev 3),
+# rung 1 (review-only: a safety observer). One NM HIGH
+# (hazard_type lock_release_uncorroborated) when a garage-lockout release on a
+# house_state:* / boot_recheck trigger writes an unlock in an episode that has
+# seen ARRIVING (WAKING and operator override_set edges exempt). Observes, never
+# blocks; expected steady state is zero fires. False = trip-wire off (the D1
+# gate is unaffected).
+LOCK_RELEASE_UNCORROBORATED_TRIPWIRE_ENABLED: Final = True
 # SECURITY-LOCK-SWEEP-RETRY-CAP-1: the periodic lock check re-sends
 # lock.lock / cover.close_cover every interval while a device stays
 # unlocked/open. After this many FAILED attempts in one episode (device still

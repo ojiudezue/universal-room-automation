@@ -882,3 +882,160 @@ async def test_extreme_arriving_away_flap_x5_then_resident_edge():
     assert snap(rig)["lock_regime_arriving_holds"] == 5
     await rig.person(EZ, "home")
     assert rig.unlocks() == [LOCK_A, LOCK_B]
+
+
+# ============================================================================
+# D3 — trip-wire: an unlock on a house-state trigger in a tainted episode pages
+# ============================================================================
+
+
+class FakeNM:
+    def __init__(self):
+        self.sent: list[dict] = []
+
+    async def async_notify(self, **kw):
+        self.sent.append(kw)
+
+    def of(self, hazard_type: str) -> list[dict]:
+        return [k for k in self.sent if k.get("hazard_type") == hazard_type]
+
+
+def install_nm(rig) -> FakeNM:
+    nm = FakeNM()
+    rig.w.hass.data[const.DOMAIN]["notification_manager"] = nm
+    return nm
+
+
+def bypass_gate(monkeypatch, rig, *houses: str) -> None:
+    """Seam (plan §7, F17): _edge_decision mutated back to 'release' for the
+    named house states; everything else is the real decision."""
+    real = rig.regime._edge_decision
+
+    def patched(new, cfg, *, override=False):
+        if new in houses:
+            return "release", None
+        return real(new, cfg, override=override)
+
+    monkeypatch.setattr(rig.regime, "_edge_decision", patched)
+
+
+UNCORR = "lock_release_uncorroborated"
+
+
+@pytest.mark.asyncio
+async def test_tripwire_fires_on_house_state_unlock_when_gate_bypassed(monkeypatch):
+    rig = await make_rig()
+    nm = install_nm(rig)
+    bypass_gate(monkeypatch, rig, "arriving")
+    await tainted_sleep_episode(rig)
+    await settle()
+    assert rig.unlocks() == [LOCK_A, LOCK_B]  # observes, never blocks
+    pages = nm.of(UNCORR)
+    assert len(pages) == 1
+    assert int(pages[0]["severity"]) == 3  # Severity.HIGH
+    assert pages[0]["location"] == "garage_lockout:house_state"
+    assert "house_state:arriving" in pages[0]["message"]
+    assert "sleep" in pages[0]["message"]
+    assert "away -> arriving" in pages[0]["message"]
+    assert snap(rig)["lock_regime_uncorroborated_releases"] == 1
+
+
+@pytest.mark.asyncio
+async def test_tripwire_silent_on_real_arrival_chain():
+    rig = await make_rig()
+    nm = install_nm(rig)
+    await rig.edge("sleep")
+    await rig.edge("away")
+    await rig.person(EZ, "home")
+    await rig.edge("arriving")
+    await rig.edge("home_night")
+    await settle()
+    assert rig.unlocks() == [LOCK_A, LOCK_B]
+    assert nm.sent == []
+    assert snap(rig)["lock_regime_uncorroborated_releases"] == 0
+
+
+@pytest.mark.asyncio
+async def test_tripwire_silent_when_nothing_written(monkeypatch):
+    rig = await make_rig()
+    nm = install_nm(rig)
+    bypass_gate(monkeypatch, rig, "arriving")
+    await rig.edge("sleep")
+    rig.w.set_state(LOCK_A, "unlocked")  # human unlocks both
+    rig.w.set_state(LOCK_B, "unlocked")
+    await rig.edge("away")
+    await rig.edge("arriving")
+    await settle()
+    assert rig.unlocks() == []
+    assert rig.regime.last_action["action"] == "release"
+    assert nm.of(UNCORR) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("boot_house", ["arriving", "home_day"])
+async def test_tripwire_covers_boot_recheck_channel_two_rigs(monkeypatch, boot_house):
+    """Boot channel: the saw flag survives a restart (store) and is also set by
+    the boot paths. rig 2 boots with the D1 boot arriving_hold mutated to a
+    release -> one page. ``home_day`` relies on the persisted saw flag alone."""
+    store = DictStore()
+    rig1 = await make_rig(store=store)
+    await tainted_sleep_episode(rig1)
+    rig2 = await make_rig(start=BOOT_0200 + timedelta(days=1), house=boot_house,
+                          lockouts="locked", past_boot=False,
+                          store=DictStore(dict(store.data)))
+    nm = install_nm(rig2)
+    bypass_gate(monkeypatch, rig2, boot_house)
+    await rig2.w.advance(121)
+    assert rig2.unlocks() == [LOCK_A, LOCK_B]
+    assert rig2.regime.last_action["trigger"] == "boot_recheck"
+    pages = nm.of(UNCORR)
+    assert len(pages) == 1
+    assert "boot_recheck" in pages[0]["message"]
+
+
+@pytest.mark.asyncio
+async def test_tripwire_waking_and_override_exempt():
+    rig = await make_rig()
+    nm = install_nm(rig)
+    await tainted_sleep_episode(rig)
+    await rig.edge("waking")  # saw flag set, WAKING exempt
+    await settle()
+    assert rig.unlocks() == [LOCK_A, LOCK_B]
+    assert nm.of(UNCORR) == []
+
+    rig2 = await make_rig()
+    nm2 = install_nm(rig2)
+    await tainted_sleep_episode(rig2)
+    await hs(rig2, "home_day", trigger="override_set")
+    await settle()
+    assert rig2.unlocks() == [LOCK_A, LOCK_B]
+    assert nm2.of(UNCORR) == []
+
+
+@pytest.mark.asyncio
+async def test_tripwire_disabled_by_constant(monkeypatch):
+    monkeypatch.setattr(const, "LOCK_RELEASE_UNCORROBORATED_TRIPWIRE_ENABLED", False)
+    rig = await make_rig()
+    nm = install_nm(rig)
+    await tainted_sleep_episode(rig)  # D1 unaffected: held
+    assert rig.unlocks() == []
+    bypass_gate(monkeypatch, rig, "home_night")
+    await rig.edge("home_night")
+    await settle()
+    assert rig.unlocks() == [LOCK_A, LOCK_B]
+    assert nm.of(UNCORR) == []
+    assert snap(rig)["lock_regime_uncorroborated_releases"] == 0
+
+
+@pytest.mark.asyncio
+async def test_tripwire_silent_on_untainted_house_state_release():
+    """A HOME_* release in an episode that never saw ARRIVING is today's
+    behaviour and must not page (saw flag conjunct)."""
+    rig = await make_rig()
+    nm = install_nm(rig)
+    await rig.edge("sleep")
+    await rig.edge("home_day")
+    await settle()
+    assert rig.unlocks() == [LOCK_A, LOCK_B]
+    assert rig.regime.last_action["trigger"] == "house_state:home_day"
+    assert nm.of(UNCORR) == []
