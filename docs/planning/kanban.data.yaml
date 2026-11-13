@@ -35151,6 +35151,18 @@ cards:
   why: 'D4 alone leaves the zone and census holding a dead camera input; residual of the panel-health fix.'
   next: 'Me: fold into the D4 cycle plan (Part B of PLANNING_perimeter_gate_evidence_and_input_health.md) or sequence right after; enumerate zone/census/fan readers of camera inputs.'
   rank: {value: 5, time_criticality: 3, effort: 2}
+- id: MEMORY-EPISODES-PERIMETER-GATE-RETENTION-1
+  title: memory_episodes has no retention; perimeter gate rows add ~30-90 MB/yr unbounded
+  thread: infra
+  status: inbox
+  created: '2026-11-13 17:00'
+  updated: '2026-11-13 17:00'
+  tier: 1
+  links: {related: [PERIMETER-GATE-DECISIONS-NOT-PERSISTED-1]}
+  origin: {date: '2026-11-13', gist: 'Perimeter gate evidence review A-L1: ~100-300 rows/day at ~800 B; nothing deletes memory_episodes rows.'}
+  why: 'Unbounded growth on a shared table; the scorer only needs ~30-90 days.'
+  next: 'Me: measure memory_episodes size per type, propose per-type retention (e.g. perimeter_gate_decision 90 d) in the nightly maintenance; Tier 1 after measure.'
+  rank: {value: 2, time_criticality: 1, effort: 1}
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers

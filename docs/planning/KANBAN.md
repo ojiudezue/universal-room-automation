@@ -2,14 +2,14 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-13T14:46:33-06:00_ - _Data commit: `c46959c2e2bf`_ - _last_reconciled: 2026-11-13_
+_Generated: 2026-11-13T14:47:03-06:00_ - _Data commit: `4e7a53729e13`_ - _last_reconciled: 2026-11-13_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 15 |
+| 📥 Inbox | 16 |
 | 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 30 |
@@ -21,7 +21,7 @@ _Generated: 2026-11-13T14:46:33-06:00_ - _Data commit: `c46959c2e2bf`_ - _last_r
 | 🅿️ Parked | 124 |
 | ✅ Done | 432 |
 
-## 📥 Inbox (15)
+## 📥 Inbox (16)
 _raw capture_
 
 ### `NM-DIGEST-MARK-RACE-1` - mark_digest_delivered marks every undelivered row, including rows queued while the digest was sending, so they never appear in any digest — _#1 · WSJF 9.0 · v4 tc3 u2 /e1_
@@ -101,7 +101,16 @@ _created 2026-11-13 15:30_
 - **Forensic keys (1):**
   - `tier`: 2
 
-### `PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1` - Circling hop 1 and hop 3 are both HIGH in production, so the claim that their severities differ (and their NM dedup keys cannot collide) does not hold — _#9 · WSJF 4.5 · v4 tc3 u2 /e2_
+### `MEMORY-EPISODES-PERIMETER-GATE-RETENTION-1` - memory_episodes has no retention; perimeter gate rows add ~30-90 MB/yr unbounded — _#9 · WSJF 5.0 · v2 tc1 u2 /e1_
+thread: **infra** - status: **inbox**
+_created 2026-11-13 17:00_
+- **Origin:** 2026-11-13 - Perimeter gate evidence review A-L1: ~100-300 rows/day at ~800 B; nothing deletes memory_episodes rows.
+- **Why:** Unbounded growth on a shared table; the scorer only needs ~30-90 days.
+- **Next:** Me: measure memory_episodes size per type, propose per-type retention (e.g. perimeter_gate_decision 90 d) in the nightly maintenance; Tier 1 after measure.
+- **Forensic keys (1):**
+  - `tier`: 1
+
+### `PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1` - Circling hop 1 and hop 3 are both HIGH in production, so the claim that their severities differ (and their NM dedup keys cannot collide) does not hold — _#10 · WSJF 4.5 · v4 tc3 u2 /e2_
 thread: **security** - status: **inbox**
 _created 2026-11-13 12:00_
 - **Origin:** 2026-11-13 - Review A-L1 of house-state step 1a; pre-existing (persons_home always 0 live).
@@ -110,7 +119,7 @@ _created 2026-11-13 12:00_
 - **Forensic keys (1):**
   - `tier`: 2
 
-### `PHONE-LEFT-BEHIND-TRANSIENT-FLICKER-1` - Phone-left-behind flags flicker on for one 30 s poll at arrival ticks and after restarts (17 in 8 days, none real) — _#10 · WSJF 4.0 · v4 tc2 u2 /e2_
+### `PHONE-LEFT-BEHIND-TRANSIENT-FLICKER-1` - Phone-left-behind flags flicker on for one 30 s poll at arrival ticks and after restarts (17 in 8 days, none real) — _#11 · WSJF 4.0 · v4 tc2 u2 /e2_
 thread: **presence** - status: **inbox**
 _created 2026-11-13 04:30_
 - **Origin:** 2026-11-13 - Measured by the phone-left-behind plan: 10 arrival ticks (house still AWAY while BLE places person in a room), 6 first-tick-after-restart before census ready, 1 other.
@@ -121,7 +130,7 @@ _created 2026-11-13 04:30_
   - `arc_cut_v5_108_18`: with PLB build
   - `tier`: 2
 
-### `PERIMETER-SWITCH-LABELS-AND-FLOW-PARITY-1` - Perimeter demote switches have unclear names and no config-flow entry; every device switch needs an options-flow field — _#11 · WSJF 4.0 · v4 tc2 u2 /e2_
+### `PERIMETER-SWITCH-LABELS-AND-FLOW-PARITY-1` - Perimeter demote switches have unclear names and no config-flow entry; every device switch needs an options-flow field — _#12 · WSJF 4.0 · v4 tc2 u2 /e2_
 thread: **security** - status: **inbox**
 _created 2026-11-13 12:30_
 - **Origin:** 2026-11-13 - Operator: "Name of switch. not good yet." "Switches should have a config flow entry. They are on the device for convenience and quick access."
@@ -130,7 +139,7 @@ _created 2026-11-13 12:30_
 - **Forensic keys (1):**
   - `tier`: 1
 
-### `STALE-SOURCE-ARRIVAL-CONSUMERS-1` - Other features still treat a stale tracker-fallback 'home' blip as a real arrival (security expected-arrival window first) — _#12 · WSJF 3.3 · v5 tc3 u2 /e3_
+### `STALE-SOURCE-ARRIVAL-CONSUMERS-1` - Other features still treat a stale tracker-fallback 'home' blip as a real arrival (security expected-arrival window first) — _#13 · WSJF 3.3 · v5 tc3 u2 /e3_
 thread: **security** - status: **inbox** - approval: **unreviewed**
 _created 2026-11-12 14:42 · updated 2026-11-12 17:01 · initial_
 - **Problem / Solution:**
@@ -142,7 +151,7 @@ _created 2026-11-12 14:42 · updated 2026-11-12 17:01 · initial_
   - `tier`: 2
   - `finding_2026_11_12_expected_arrival_always_on`: CORRECTS the 11-12 inventory claim that the expected-arrival window is off by default. Only the SIGNAL_PERSON_ARRIVING path is gated (CONF_SECURITY_ON_ARRIVAL_ADD_EXPECTED, security.py:2413). The security geofence listener adds expected ...
 
-### `HVAC-PRECOOL-FLOOR-BELOW-ARRIVAL-HEAT-1` - With Solar Banking Cool Floor below ~72, arrival pre-cool can cool a zone already inside Home's band down to the heat setpoint — _#13 · WSJF 3.0 · v3 tc1 u2 /e2_
+### `HVAC-PRECOOL-FLOOR-BELOW-ARRIVAL-HEAT-1` - With Solar Banking Cool Floor below ~72, arrival pre-cool can cool a zone already inside Home's band down to the heat setpoint — _#14 · WSJF 3.0 · v3 tc1 u2 /e2_
 thread: **hvac** - status: **inbox** - approval: **unreviewed**
 _created 2026-11-12 20:00 · initial_
 - **Problem / Solution:**
@@ -153,7 +162,7 @@ _created 2026-11-12 20:00 · initial_
 - **Forensic keys (1):**
   - `tier`: 1
 
-### `DEPARTURE-ACTIONS-1` - Nothing acts on a named departure; direction-aware egress makes departures available — _#14 · WSJF 2.2 · v5 tc2 u2 /e4_
+### `DEPARTURE-ACTIONS-1` - Nothing acts on a named departure; direction-aware egress makes departures available — _#15 · WSJF 2.2 · v5 tc2 u2 /e4_
 thread: **identity** - status: **inbox**
 _created 2026-11-12 22:00_
 - **Origin:** 2026-11-12 - Plan rev 8 section 2B: no departure signal this cycle.
@@ -165,7 +174,7 @@ _created 2026-11-12 22:00_
   - `arc_cut_v5_108_16`: needs phase 2 departures
   - `tier`: 2
 
-### `EC-ATTAIN-RATE-DUP-SAMPLE-1` - The battery charge-rate window can record the same reading twice in one tick, shortening its 15-minute window — _#15 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `EC-ATTAIN-RATE-DUP-SAMPLE-1` - The battery charge-rate window can record the same reading twice in one tick, shortening its 15-minute window — _#16 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **inbox** - approval: **unreviewed**
 _created 2026-11-12 14:13 · initial_
 - **Problem / Solution:**
