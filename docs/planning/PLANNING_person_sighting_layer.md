@@ -1327,6 +1327,45 @@ the URA DB and the registry. The report goes into this doc as §7.1 before build
 Fixture: P3 output hand-labelled for ~20 events (operator or BLE ground truth), committed as
 `quality/tests/fixtures/face_arrival_d0_labelled.json`. That table is the D2 acceptance oracle.
 
+### 7.1 D0 report (run 2026-11-12 22:21 CST, 7.5-day window; `scripts/probes/face_sighting_d0.py`, read-only)
+
+Probe is an offline approximation of the binding rules (registry device + name-stem join); the live
+`face_sighting_picks_resolved` attribute is the authority after deploy.
+
+- **P1: GO (7 of 8 picks resolve; Garage A excluded).** Every Frigate pick reaches exactly one face-name sensor
+  (`*_last_recognized_face_2`), including the two `_person_occupancy_2` picks (upstairs_hall, playroom).
+  `binary_sensor.garage_a_camera_person_detected` is UNRESOLVED `room_cameras_empty` (operator action §13.3 not taken).
+  Resident-named changes in window: family_room 407, master_hallway 115, upstairs_hall 40, playroom 22, staircase 19,
+  stairs_top 16, foyer_fisheye 2.
+- **P2.** Name lag after the pick's person `on` edge: p50 2-4 s on every pick except family_room (p50 449 s: the
+  sensor stays `on` for long sits, so names keep landing deep into one `on` span). Names after the person sensor went
+  `off`: 47/407 family_room, 8/115 master_hallway, 4/40 upstairs_hall (the D1 discriminating case is real). Egress bus
+  events: entry named 17 (0.6 face 9, 0.72 BLE 8), exit named 16 (all 0.6), unnamed entry 39 / exit 38, ambiguous 98.
+  "Named entry whose tracker read not_home 300 s BEFORE" = 9: those people's trackers flipped home inside the 300 s
+  (the veto reads the state AT resolution), so this is not a veto leak.
+- **P3: NO-GO for interior arrivals.** Classes over interior resident faces: (iv) 234, (ii) 276, (iii) 96, (i) 5,
+  (i, 10-30 min) 9. (i)/week = 4.7 passes the >= 1 floor but (i)/((i)+(ii)) = 0.02 fails the >= 0.5 rule. (ii) is
+  dominated by Jaya (family_room 181, master_hallway 25): her tracker reads `not_home` while cameras name her at home
+  (phoneless / tracker degraded, the audit's 220 "not home" events). **`FACE_ARRIVAL_INTERIOR_ENABLED` stays False;
+  sightings only.** `FACE_ARRIVAL_PRIOR_HOME_GAP_S` = p90 of the (iii) home-edge-to-face lag, capped 300 -> **300**.
+  Revival trigger unchanged ("a resident's tracker degrades so (i) rises"); note that Jaya's tracker already reads
+  wrong, which inflates (ii), not (i).
+- **P4 (hop lags, D7 input).** Person-sensor `on` -> `on` within 120 s, hops/day and p50/p90 s: g5_bullet->garage_a
+  9.2/d 17/73; rear_ptz->garage_a 0.9/d 24/55; garage_a->staircase 12.7/d 22/63; staircase->stairs_top 4.5/d 18/72;
+  stairs_top->playroom 8.4/d 13/67; stairs_top->upstairs_hall 8.3/d 31/84; staircase->family_room 18.3/d 27/85;
+  front_side_ptz->front_door_aerial 2.4/d 14/38; utilities_ptz->front_door_aerial 0 hops; sonoffwindow->front_door_aerial
+  0.8/d 6/12; front_door_aerial->foyer_fisheye 3.7/d 13/63; madrone_g6_entry->foyer_fisheye 4.9/d 21/87;
+  foyer_fisheye->family_room 42.7/d 16/81; foyer_fisheye->master_hallway 39.9/d 18/82; reolinkpatio->family_room
+  0.8/d 43/104. The P4 propagation-yield go rule (named-sighting gain) was NOT measured: D7 in Phase 1 is the validated
+  file and pure scorer with no runtime reader (rev 10), so it is not gated on it; propagation stays with
+  FACE-SIGHTING-TRACK-PROPAGATION-1.
+- **P5.** `security_on_arrival_add_expected` absent (default False). `pre_arrival_sources` = geofence, ble,
+  camera_face. Garage lockout switch off (guest-nights on), away lock off, HVAC pre-arrival conditioning on.
+- **P7 baseline (7.5 days, replay of the face-only single-slug rule over recorder face history).** 6 would-be
+  candidates: 1 true (home edge within 10 min), 5 mis/phoneless (4 of them Jaya, whose tracker reads away while she
+  is home; two of those had the egress producer name a DIFFERENT person). Consistent with P7's floor of ~1/week; the
+  Phase 2 gate is not judged until the D8a log reaches 28 days and n >= 10.
+
 ---
 
 ## 8. Non-goals
