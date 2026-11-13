@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-13T15:09:06-06:00_ - _Data commit: `18b8c95d4781`_ - _last_reconciled: 2026-11-13_
+_Generated: 2026-11-13T15:13:44-06:00_ - _Data commit: `810dd5f5f806`_ - _last_reconciled: 2026-11-13_
 
 
 ## Columns
@@ -204,7 +204,7 @@ _created 2026-11-12 22:00_
 - **Origin:** 2026-11-12 - Operator: watch arrivals with AI vision; time-lapse; fast first frames; counting is easy, naming is hard; guests are the census problem; OpenAI models (GPT-6 Luna/Sol); deconflict with camera counts until trusted (100 crossi...
 - **Why:** Design in PLANNING_person_sighting_layer.md section 15. Gates: D0-FRAME (blank-frame experiment), D0-SIM (timing simulation), D0-V (model scoring incl. dry call per GPT-6 model for llmvision param compatibility). Then its own sibling plan.
 - **Next:** Me: revise plan section 15.9 frame guard to judge frames directly; resolve the llmvision temperature blocker for GPT-6 models (config-first); then the sibling vision plan.
-- **Forensic keys (13):**
+- **Forensic keys (14):**
   - `arc_cut_v5_108_19`: shadow build running
   - `arc_cut_v5_108_18`: separate plan
   - `arc_cut_v5_108_16`: own sibling plan, D0-FRAME/SIM done, re-anchor edits then D0-V
@@ -218,6 +218,7 @@ _created 2026-11-12 22:00_
   - `operator_2026_11_13_census_split`: Operator: "split the census output by use, in line with the model... Do it. Let's get it right." Rev 7: F2 publishes a trust view (byte-identical, house state/AWAY/security) and an awareness view (vision + Frigate/Protect deconflicted, p...
   - `blocked_by_f_notify`: F-NOTIFY (notifications read the awareness view) blocked on EGRESS-DIRECTION-AWARE-IDENTITY-1 or measured entry attach >= 0.50 (30% today).
   - `operator_2026_11_13_clean_doc`: Operator: "Make sure the plan or plans that emerge are clean and streamlined in the actual document even if you have to write it yourself." After the arc map merge decisions: one clean consolidated plan per merged scope (no rev layers, n...
+  - `operator_2026_11_13_promotion`: Operator on arc-map Qs: (1) trust view: "This is where it starts but it can prove itself and be promoted. No dogma here." (2) guests-present -> HVAC: "This is also about accuracy and confidence. HVAC is comfort basically so since it's no...
 
 ## 🧭 Pre-planning (14)
 _idea being decomposed_
