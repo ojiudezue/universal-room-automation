@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-13T10:07:28-06:00_ - _Data commit: `203358dad3d6`_ - _last_reconciled: 2026-11-13_
+_Generated: 2026-11-13T11:41:53-06:00_ - _Data commit: `2af4552c89bd`_ - _last_reconciled: 2026-11-13_
 
 
 ## Columns
@@ -13,11 +13,11 @@ _Generated: 2026-11-13T10:07:28-06:00_ - _Data commit: `203358dad3d6`_ - _last_r
 | 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 28 |
-| 🔨 In progress | 4 |
+| 🔨 In progress | 3 |
 | 🔍 Review | 1 |
 | ⏸️ Waiting on operator | 34 |
 | ⏳ Waiting on me (Claude) | 3 |
-| 🚀 Shipped (organic open) | 28 |
+| 🚀 Shipped (organic open) | 29 |
 | 🅿️ Parked | 123 |
 | ✅ Done | 431 |
 
@@ -48,7 +48,8 @@ _created 2026-11-13 05:30_
 - **Origin:** 2026-11-13 - House-state step-1 plan review (build-prediction C1): perimeter_alert.py:2013-2032; only a test fake sets the attribute (test_house_state_sleep_mask_ble_memory.py:310), so the test is hollow. Also security entry verdict read...
 - **Why:** Severity keyed on residents home has never worked; safe direction today (over-alerts) but any fix changes paging and must not lower it while the house is empty.
 - **Next:** Me: folded into the house-state step-1 plan (getters defined with real producers); fix together with exterior severity.
-- **Forensic keys (2):**
+- **Forensic keys (3):**
+  - `arc_cut_v5_108_19`: lookup fixed here, closes at validation
   - `arc_cut_v5_108_18`: own fix next
   - `tier`: 2
 
@@ -58,7 +59,8 @@ _created 2026-11-13 03:00_
 - **Origin:** 2026-11-13 - Lock-release plan completeness review M6 (const.py:2799); scoped out of the lock-release plan rev 2.
 - **Why:** AUDIT_arriving_on_body_evidence: only 6.4% of AWAY->ARRIVING edges are real arrivals; ARRIVING mostly comes from zone sensors. Alert severity keyed on ARRIVING inherits that noise.
 - **Next:** Me: measure how many exterior-person alerts were downgraded under a false ARRIVING; decide severity keying on resident arrival evidence.
-- **Forensic keys (2):**
+- **Forensic keys (3):**
+  - `arc_cut_v5_108_19`: shipped in this release, closes at validation
   - `arc_cut_v5_108_18`: folds into step 1a
   - `tier`: 2
 
@@ -68,7 +70,8 @@ _created 2026-11-13 04:30_
 - **Origin:** 2026-11-13 - Measured by the phone-left-behind plan: 10 arrival ticks (house still AWAY while BLE places person in a room), 6 first-tick-after-restart before census ready, 1 other.
 - **Why:** House-state trust input; transient true flags can briefly change the AWAY veto denominator.
 - **Next:** Me: plan after the camera-leg swap; likely a dwell or census-ready gate.
-- **Forensic keys (2):**
+- **Forensic keys (3):**
+  - `arc_cut_v5_108_19`: with PLB build
   - `arc_cut_v5_108_18`: with PLB build
   - `tier`: 2
 
@@ -101,7 +104,8 @@ _created 2026-11-12 22:00_
 - **Origin:** 2026-11-12 - Plan rev 8 section 2B: no departure signal this cycle.
 - **Why:** Candidate consumers: last-resident-out arming (LAST-RESIDENT-EGRESS-ARM-1), HVAC setback, personalization.
 - **Next:** Me: after D8 ships, decompose consumers with the operator.
-- **Forensic keys (3):**
+- **Forensic keys (4):**
+  - `arc_cut_v5_108_19`: later arc piece
   - `arc_cut_v5_108_18`: later arc piece
   - `arc_cut_v5_108_16`: needs phase 2 departures
   - `tier`: 2
@@ -136,7 +140,8 @@ _created 2026-11-12 22:00_
 - **Origin:** 2026-11-12 - Operator: watch arrivals with AI vision; time-lapse; fast first frames; counting is easy, naming is hard; guests are the census problem; OpenAI models (GPT-6 Luna/Sol); deconflict with camera counts until trusted (100 crossi...
 - **Why:** Design in PLANNING_person_sighting_layer.md section 15. Gates: D0-FRAME (blank-frame experiment), D0-SIM (timing simulation), D0-V (model scoring incl. dry call per GPT-6 model for llmvision param compatibility). Then its own sibling plan.
 - **Next:** Me: revise plan section 15.9 frame guard to judge frames directly; resolve the llmvision temperature blocker for GPT-6 models (config-first); then the sibling vision plan.
-- **Forensic keys (5):**
+- **Forensic keys (6):**
+  - `arc_cut_v5_108_19`: shadow build running
   - `arc_cut_v5_108_18`: separate plan
   - `arc_cut_v5_108_16`: own sibling plan, D0-FRAME/SIM done, re-anchor edits then D0-V
   - `tier`: 3
@@ -484,24 +489,14 @@ _created 2026-11-12 22:00_
 - **Origin:** 2026-11-12 - Found by the person-sightings planner (rev 3).
 - **Why:** All four phone-left-behind sensors show hours_since_camera_sighting null. Move to the new last-sighting accessor after D1 ships. House-state input: Tier 2-DB minimum.
 - **Next:** Me: plan rev 2 with ruling A (branch plan/phone-left-behind-camera), then build (Tier 2-DB, 3 reviews).
-- **Forensic keys (4):**
+- **Forensic keys (5):**
+  - `arc_cut_v5_108_19`: plan ready, build next
   - `arc_cut_v5_108_18`: plan rev 2 now
   - `arc_cut_v5_108_16`: needs D1 live first, planned next
   - `tier`: 2
   - `RULING_2026-11-13`: Operator chose H1 option A: the camera leg is display only (attributes), it does not change the phone-left-behind verdict.
 
-### `EGRESS-DIRECTION-AWARE-IDENTITY-1` - Egress drops the name of anyone the tracker shows away, in both directions; entries by away people are exactly arrivals — _#13 · WSJF 3.0 · v8 tc5 u2 /e5_
-thread: **identity** - status: **planned**
-_created 2026-11-12 22:00_
-- **Origin:** 2026-11-12 - Operator: "Who made this rule? I didn't... It should do both especially since we have a direction detector."
-- **Why:** not_home veto at transit_validator.py:1840-1854 copied from the census veto in Aug 2026 without direction. Plan rev 8 section 2B: entry+away = arrival candidate, exit+home = departure candidate, guards (face conf, path, GPS), census keep...
-- **Next:** Me: build as plan D8 after rev-8 fixes.
-- **Forensic keys (3):**
-  - `arc_cut_v5_108_18`: planned next
-  - `arc_cut_v5_108_16`: phase 2, gated on labels (5 true cases met, misrecognition rate pending)
-  - `tier`: 3
-
-### `SAFETY-NO-INITIAL-SENSOR-PASS-1` - After a restart or URA reload, Safety does not know about a smoke/CO/leak detector that is still on — _#14 · WSJF 3.0 · v8 tc5 u2 /e5_
+### `SAFETY-NO-INITIAL-SENSOR-PASS-1` - After a restart or URA reload, Safety does not know about a smoke/CO/leak detector that is still on — _#13 · WSJF 3.0 · v8 tc5 u2 /e5_
 status: **planned** - approval: **explicit**
 _updated 2026-10-21 22:05_
 - **Why:** Safety learns hazards only from state-change events; _async_periodic_check evaluates no sensors and setup reads no current states (plan review N1). So a detector still ON across a restart leaves _active_hazards empty: no hazard entity, a...
@@ -519,13 +514,25 @@ _updated 2026-10-21 22:05_
   - `related`: SAFETY-NM-REFIRE-UNWIRED-1
   - `groom_2026_10_18_overnight`: Next rewritten: the PICK was answered (operator approved on the board 10-17 22:59 CDT; triage took the recommended defaults). Its blocker (safety re-page merge) has cleared - feature/safety-nm-refire is 0 commits ahead of develop and con...
 
-### `TEST-OC-PILLAR-EVICT-STUBS-LEAK-1` - test_oc_pillar_a_handshake.py autouse _evict_ura_stubs deletes every URA module from sys.modules and never restores them, so later tests that import URA modules in-body re-import against stubbed HA helpers (order-dependent failures) — _#15 · WSJF 3.0 · v3 tc1 u2 /e2_
+### `TEST-OC-PILLAR-EVICT-STUBS-LEAK-1` - test_oc_pillar_a_handshake.py autouse _evict_ura_stubs deletes every URA module from sys.modules and never restores them, so later tests that import URA modules in-body re-import against stubbed HA helpers (order-dependent failures) — _#14 · WSJF 3.0 · v3 tc1 u2 /e2_
 thread: **quality** - status: **planned**
 _created 2026-11-09 08:00_
 - **Why:** Breaks builder rule 8 (no permanent sys.modules surgery); any in-body import after it can flake in the full suite, producing false NEW names in name-diffs.
 - **Next:** Make the fixture restore what it evicted (snapshot+restore sys.modules entries), then a full name-diff to confirm the failure set only shrinks.
 - **Forensic keys (1):**
   - `tier`: 2
+
+### `EGRESS-DIRECTION-AWARE-IDENTITY-1` - Egress drops the name of anyone the tracker shows away, in both directions; entries by away people are exactly arrivals — _#15 · WSJF 3.0 · v8 tc5 u2 /e5_
+thread: **identity** - status: **planned**
+_created 2026-11-12 22:00_
+- **Origin:** 2026-11-12 - Operator: "Who made this rule? I didn't... It should do both especially since we have a direction detector."
+- **Why:** not_home veto at transit_validator.py:1840-1854 copied from the census veto in Aug 2026 without direction. Plan rev 8 section 2B: entry+away = arrival candidate, exit+home = departure candidate, guards (face conf, path, GPS), census keep...
+- **Next:** Me: build as plan D8 after rev-8 fixes.
+- **Forensic keys (4):**
+  - `arc_cut_v5_108_19`: planned next
+  - `arc_cut_v5_108_18`: planned next
+  - `arc_cut_v5_108_16`: phase 2, gated on labels (5 true cases met, misrecognition rate pending)
+  - `tier`: 3
 
 ### `HVAC-COMFORT-DEVIATION-PRODUCER-1` - HVAC anomaly comfort_deviation_hours has no producer: build a daily per-zone emit so a long setpoint miss (e.g. zone 2 212 min +8F) becomes an anomaly trip-wire — _#16 · WSJF 2.7 · v4 tc2 u2 /e3_
 thread: **hvac** - status: **planned**
@@ -709,22 +716,10 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (4)
+## 🔨 In progress (3)
 _being built_
 
-### `HOUSE-STATE-FIRST-PRINCIPLES-1` - Rethink the house state machine from first principles; ARRIVING fired by any occupancy is a legacy assumption the lock, alarm and alert code keeps working around — _#1 · WSJF 2.0 · v9 tc5 u2 /e8_
-thread: **presence** - status: **in_progress**
-_created 2026-11-13 04:00 · updated 2026-11-13 09:00_
-- **Origin:** 2026-11-13 - Operator: "The arriving state itself is likely problematic. It does not make sense that occupancy triggers that house state. That state machine was designed when we were dumber. Time to revisit it from first principles so we...
-- **Why:** AUDIT_arriving_on_body_evidence_2026_11_13.md: 2,642 AWAY->ARRIVING edges, 6.4% real arrivals, 48.6% correcting a false AWAY, 68.5% driven by zone sensors with census 0. Consumers (lock release, auto-follow disarm, exterior alert severit...
-- **Next:** APPROVE/PICK: accept the axis model and arrival-as-event (recommended) -> I write the Tier-3 plan (smallest version first) with two plan reviews.
-- **Forensic keys (4):**
-  - `arc_cut_v5_108_18`: 1a building now
-  - `tier`: 3
-  - `APPROVED_2026-11-13`: Operator: split approved, 1a builds now; 1b (vacation overlay) added to the person-sightings arc so it is not forgotten (HOUSE-STATE-VACATION-OVERLAY-1B).
-  - `FINDING_2026-11-13`: AUDIT_house_state_first_principles_2026_11_13.md: only AWAY and GUEST come from evidence; HOME_DAY/EVENING/NIGHT are the clock; SLEEP is someone home in the sleep window (all 203 SLEEP->WAKING at 06:00); ARRIVING and WAKING are 1-minute ...
-
-### `OC-CONTEXT-PACK-1` - OC agent context should feel like the orchestrator's: HA + URA ground-truth docs, live config snapshot, doctrine, goals - iterate it against live cases — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `OC-CONTEXT-PACK-1` - OC agent context should feel like the orchestrator's: HA + URA ground-truth docs, live config snapshot, doctrine, goals - iterate it against live cases — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **optimization** - status: **in_progress**
 _created 2026-11-01 · updated 2026-11-05 02:40_
 - **Why:** Already decided in VISION_optimization_coordinator_self_fixing_house.md:157 ('Knowledge, loaded fresh every run': HA concepts; URA_ARCHITECTURE_MAP, HVAC + presence state-of-play, SENSOR_FLEET_CLASSES, DEVICE_TREE; live config snapshot; ...
@@ -734,7 +729,7 @@ _created 2026-11-01 · updated 2026-11-05 02:40_
   - `tier`: 2
   - `eval_round_2026_11_07`: Operator-funded iteration ($50 cap, spent $40.31; worktree agent-a657e58090fb1df32 commits e1b08b13 b0d29379 12ac1780; ITERATIONS_2026_11_07.md, LEDGER_2026_11_07.md, RUBRIC.md). NOT PASSING: Sonnet 5.5 3/15 runs, 0 cases by majority; he...
 
-### `TEST-SUITE-PARALLEL-1` - Full test suite takes 24-33 min single-core; parallel run fails 91 vs 18 from test-order pollution — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `TEST-SUITE-PARALLEL-1` - Full test suite takes 24-33 min single-core; parallel run fails 91 vs 18 from test-order pollution — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **process** - status: **in_progress** - approval: **unreviewed**
 _created 2026-11-10 19:20 · updated 2026-11-11 07:05 · initial_
 - **Why:** Gate runs ~20.6k tests serially on 1 of 8 cores, twice per release (base + candidate), with 67 source-mutation drills (~4 min). Probe 2026-11-10 on develop 9894bc66: serial 33 min / 18 failed; -n 6 --dist loadfile 19 min / 91 failed, 76 ...
@@ -744,7 +739,7 @@ _created 2026-11-10 19:20 · updated 2026-11-11 07:05 · initial_
   - `tier`: 1
   - `residual_2026_11_11`: Merged to develop 4d5385d4 (v5.108.8). Merged-develop parallel run: 11 failed in 3 min, base serial failures all gone, but 11 parallel-only (pass alone 72/72): test_arrester_operator_immunity x6, test_dp_drain_target_value_stamp x5 (file...
 
-### `FACE-ARRIVAL-REBUILD-1` - PERSON SIGHTINGS (main card): one identity-at-place layer (face, egress, later vision) harmonized with egress and census; direction-aware egress identity; access needs a second signal — _#4 · WSJF 1.8 · v8 tc4 u2 /e8_
+### `FACE-ARRIVAL-REBUILD-1` - PERSON SIGHTINGS (main card): one identity-at-place layer (face, egress, later vision) harmonized with egress and census; direction-aware egress identity; access needs a second signal — _#3 · WSJF 1.8 · v8 tc4 u2 /e8_
 thread: **identity** - status: **in_progress** - approval: **unreviewed**
 _created 2026-11-12 18:30 · initial_
 - **Problem / Solution:**
@@ -752,7 +747,8 @@ _created 2026-11-12 18:30 · initial_
 - **Origin:** 2026-11-12 - Operator: "Face arrival should be able to understand what can unlock and what cannot... I chose those cameras because they track common area and entry paths... We should start from first principles and build this up." Granul...
 - **Why:** AUDIT_face_arrival_and_prearrival_fan_rooms.md, AUDIT_face_production_after_nov_fixes.md (85% of named faces interior; doors weak; egress attach ~40%).
 - **Next:** Me: planner writes Tier-3 plan; two plan reviews; then APPROVE from operator.
-- **Forensic keys (6):**
+- **Forensic keys (7):**
+  - `arc_cut_v5_108_19`: parent arc card
   - `arc_cut_v5_108_18`: parent arc card
   - `arc_cut_v5_108_16`: main card stays open until phase 2 ships
   - `APPROVED_2026-11-12`: Operator approved the plan (rev 8, plus fixes from its two rev-8 plan reviews) and asked: "capture everything and main card, connected cards and drive to finish. And for it to be actually complete." Plan: docs/planning/PLANNING_person_si...
@@ -1392,7 +1388,8 @@ _created 2026-11-12 23:30_
 - **Origin:** 2026-11-12 - Plan rev 11 M6/M7: recorder keeps 7 days; Phase 2 needs >= 10 operator-reviewed confirmations (~10 weeks).
 - **Why:** Run the weekly labeller after D8a ships; it snapshots raw path-edge times and GPS fixes; operator reviews a sample of labels.
 - **Next:** ANSWER: was Jaya's phone with her all day 11-11; do Ojini and Ziri carry phones with trackers? (resolves ~20 of 30 REVIEW rows) -> I finish labels and compute the misrecognition rate; ship D8a soon to stop losing vetoed names.
-- **Forensic keys (5):**
+- **Forensic keys (6):**
+  - `arc_cut_v5_108_19`: recurring after D8a
   - `arc_cut_v5_108_18`: recurring after D8a
   - `arc_cut_v5_108_16`: recurring, starts with this ship
   - `tier`: 1
@@ -1440,7 +1437,7 @@ _created 2026-10-20 08:30 · updated 2026-11-11 02:05_
   - `verify_2026_11_11_overnight`: CARD-WAS-WRONG + PARTIALLY-DONE. The card's 'APPROVE ESPHome filters + UDM templates + panel/device_time excludes' was stale: the 10-20 attended session already applied that batch as recorder excludes (RUNBOOK_recorder_excludes.md ledger...
   - `staged_2026_11_11_overnight`: Batch 2a staged, NOT applied: recorder exclude globs sensor.span_panel_*_produced_energy and _produced_energy_2 (~9k rows/hr, 92 entities, 84 never change; zero consumers in Energy prefs, all lovelace dashboards, automations.yaml, packag...
 
-## 🚀 Shipped (organic open) (28)
+## 🚀 Shipped (organic open) (29)
 _live, awaiting proof_
 
 ### `SC-LOCK-SWEEP-EXCLUDE-1` - Register every lock in SC but let individual locks opt out of the periodic lock sweep (master bedroom: passage mode, sweep only drains battery) — _#1 · WSJF 9.0 · v4 tc3 u2 /e1_
@@ -1829,7 +1826,19 @@ _created 2026-11-12 22:30_
   - `tier`: 2
   - `FINDING_2026-11-13`: AUDIT_nm_no_channel_fired_2026_11_13.md: real drops. Recipient delivery_pref=digest but channel gates are companion HIGH, WhatsApp/iMessage/pushover CRITICAL, so MEDIUM/LOW route to an empty channel set and the digest-queue write is gate...
 
-### `EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1` - The arbitrage EV pause flips on and off every 5 minutes when an EV is charging and the battery is low (rung-1 redirect vs WAIT feedback loop) — _#28 · WSJF 0.6 · v4 tc2 u2 /e13_
+### `HOUSE-STATE-FIRST-PRINCIPLES-1` - Rethink the house state machine from first principles; ARRIVING fired by any occupancy is a legacy assumption the lock, alarm and alert code keeps working around — _#28 · WSJF 2.0 · v9 tc5 u2 /e8_
+thread: **presence** - status: **shipped_organic**
+_created 2026-11-13 04:00 · updated 2026-11-13 09:00_
+- **Origin:** 2026-11-13 - Operator: "The arriving state itself is likely problematic. It does not make sense that occupancy triggers that house state. That state machine was designed when we were dumber. Time to revisit it from first principles so we...
+- **Why:** AUDIT_arriving_on_body_evidence_2026_11_13.md: 2,642 AWAY->ARRIVING edges, 6.4% real arrivals, 48.6% correcting a false AWAY, 68.5% driven by zone sensors with census 0. Consumers (lock release, auto-follow disarm, exterior alert severit...
+- **Next:** APPROVE/PICK: accept the axis model and arrival-as-event (recommended) -> I write the Tier-3 plan (smallest version first) with two plan reviews.
+- **Forensic keys (4):**
+  - `arc_cut_v5_108_18`: 1a building now
+  - `tier`: 3
+  - `APPROVED_2026-11-13`: Operator: split approved, 1a builds now; 1b (vacation overlay) added to the person-sightings arc so it is not forgotten (HOUSE-STATE-VACATION-OVERLAY-1B).
+  - `FINDING_2026-11-13`: AUDIT_house_state_first_principles_2026_11_13.md: only AWAY and GUEST come from evidence; HOME_DAY/EVENING/NIGHT are the clock; SLEEP is someone home in the sleep window (all 203 SLEEP->WAKING at 06:00); ARRIVING and WAKING are 1-minute ...
+
+### `EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1` - The arbitrage EV pause flips on and off every 5 minutes when an EV is charging and the battery is low (rung-1 redirect vs WAIT feedback loop) — _#29 · WSJF 0.6 · v4 tc2 u2 /e13_
 thread: **energy** - status: **shipped_organic** - approval: **explicit**
 _created 2026-10-03 02:40 · updated 2026-11-12 15:30 · initial_
 - **Problem / Solution:**
@@ -1992,17 +2001,7 @@ _created 2026-09-28 22:50 · updated 2026-10-29 02:02_
   - `verify_2026_10_02_overnight`: STILL-REAL, unchanged picks (URA DB energy_daily + HA REST, read-only). 10-01 also has an all-NULL row (consumption_kwh, solar_production_kwh and predicted_consumption_kwh are empty for 09-28, 09-29, 09-30 and 10-01), so the count is now...
   - `INSTANCE_2026_10_24_overnight`: Still live: system_log energy.py:3581 WARNING x6 since 21:25 CDT 10-24: Consumption cross-check divergence, Envoy today=33324-33342 kWh vs our delta 0-126 kWh (the Envoy today counter is reporting its lifetime total again). Your two call...
 
-### `LOCK-REGIME-BOOT-REALLY-AWAY-1` - After a restart, residents count as away until their first move, so the lockout's really-away check can misjudge returns — _#11 · WSJF 4.3 · v6 tc5 u2 /e3_
-thread: **security** - status: **parked**
-_created 2026-11-13 03:00_
-- **Origin:** 2026-11-11 - Review B INFO-B4 residual of LOCK-REGIME-FACE-ARRIVAL-CORROBORATION-1 (security_lock_regime.py ~1149-1153). The board recorded it as its own parked card on 11-11 but the card was never created; created 2026-11-13 during the ...
-- **Why:** Only matters with the garage lockout ON. PLANNING_lock_release_on_arriving.md rev 2 section 9.1: once ARRIVING no longer releases, this fix must limit the tightening to camera-derived arrivals or pass a joint restart test.
-- **Next:** Me: plan after LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1 builds; joint restart test.
-- **Forensic keys (2):**
-  - `tier`: 3
-  - `revisit_trigger`: Garage lockout switched ON, or the lock-release-on-arriving build ships (sequenced next after it).
-
-### `COVERAGE-EVENING-ATTRIBUTION-DRIFT-1` - Every evening the room-by-room energy totals creep past the whole-house meter and keep growing until midnight, and nobody has explained why — _#12 · WSJF 4.3 · v7 tc4 u2 /e3_
+### `COVERAGE-EVENING-ATTRIBUTION-DRIFT-1` - Every evening the room-by-room energy totals creep past the whole-house meter and keep growing until midnight, and nobody has explained why — _#11 · WSJF 4.3 · v7 tc4 u2 /e3_
 thread: **energy** - status: **parked** - approval: **unreviewed**
 _created 2026-09-23 03:10 · updated 2026-10-23 02:43 · refined_
 - **Problem / Solution:**
@@ -2026,6 +2025,16 @@ _created 2026-09-23 03:10 · updated 2026-10-23 02:43 · refined_
   - `input_health_2026_09_27`: INPUT CHECK for the planned fix (overnight 2026-09-27, recorder): the Envoy TOTAL consumption sensor this card wants to add, sensor.envoy_482543015950_lifetime_energy_consumption, was unavailable from 09-25 18:11 until the 09-26 12:50 HA...
   - `measured_2026_09_23`: FIRST MEASUREMENT, which is what created this card. Ten days of recorder history for sensor.universal_room_automation_energy_coverage_delta, grouped by local hour, all samples rated Anomalous. Three clean episodes: 2026-09-21 14:00-23:00...
   - `gate_2026_10_21_overnight`: FOUR-STEP GATE passed: (1) validity - still real: aggregation.py coverage sensor still reads CONF_WHOLE_HOUSE_ENERGY_SENSORS (:3540), live = NET sensor; (1b) config-first - no (cost wants NET from the same field); (2) prior art - REUSE C...
+
+### `LOCK-REGIME-BOOT-REALLY-AWAY-1` - After a restart, residents count as away until their first move, so the lockout's really-away check can misjudge returns — _#12 · WSJF 4.3 · v6 tc5 u2 /e3_
+thread: **security** - status: **parked**
+_created 2026-11-13 03:00_
+- **Origin:** 2026-11-11 - Review B INFO-B4 residual of LOCK-REGIME-FACE-ARRIVAL-CORROBORATION-1 (security_lock_regime.py ~1149-1153). The board recorded it as its own parked card on 11-11 but the card was never created; created 2026-11-13 during the ...
+- **Why:** Only matters with the garage lockout ON. PLANNING_lock_release_on_arriving.md rev 2 section 9.1: once ARRIVING no longer releases, this fix must limit the tightening to camera-derived arrivals or pass a joint restart test.
+- **Next:** Me: plan after LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1 builds; joint restart test.
+- **Forensic keys (2):**
+  - `tier`: 3
+  - `revisit_trigger`: Garage lockout switched ON, or the lock-release-on-arriving build ships (sequenced next after it).
 
 ### `EGRESS-EXIT-JOINT-DEPART-ONE-ROW-1` - When two residents leave together and the camera records one exit, the backfill names whoever's tracker edge arrives first: possibly the wrong person — _#13 · WSJF 4.0 · v4 tc2 u2 /e2_
 thread: **identity** - status: **parked** - approval: **unreviewed**
@@ -2140,20 +2149,7 @@ _created 2026-10-14 02:10 · updated 2026-10-21 22:05_
 - **Forensic keys (1):**
   - `links_added_2026_10_21`: related+RECORDER-WRITE-RATE-ATTENUATION-1: ESPectre is the top recorder writer (~5k rows/hr); attenuation keeps it on.
 
-### `LOCK-VACATION-PHANTOM-SLEEP-DAILY-UNLOCK-1` - During a real vacation, a phantom room sensor can walk the house into SLEEP each night, so the garage lockout unlocks every morning and stays unlocked by day — _#21 · WSJF 3.0 · v4 tc3 u2 /e3_
-thread: **security** - status: **parked** - approval: **unreviewed**
-_created 2026-11-13 12:00 · initial_
-- **Problem / Solution:**
-  - Problem: with nobody home on VACATION, a phantom zone sensor (measured: Back Hallway) can drive AWAY -> ARRIVING -> HOME_* (held by the taint) -> SLEEP at sleep hours. The SLEEP engage starts a new episode and clears the ARRIVING taint, ...
-- **Why:** security_lock_regime.py _set_engage_reason ends the episode flags on every engage. Strictly better than develop (which released at ARRIVING). Matters only with the garage lockout ON during travel.
-- **Next:** Parked. Revisit with the lockout ON before travel; first measure how often VACATION -> ... -> SLEEP happens in the house_state_log.
-- **Parsimony:** [PARK] Daily unlock during a vacation if a phantom sensor fakes occupancy.
-- **Refs:** custom_components/universal_room_automation/domain_coordinators/security_lock_regime.py
-- **Forensic keys (2):**
-  - `tier`: 2
-  - `revisit_if`: The garage lockout is ON and the operator plans travel, or D3 / house-state logs show a SLEEP engage straight after a VACATION episode.
-
-### `CAMERA-SEAM-CLOSE-PAIR-SEMANTICS-1` - Operator marked 5 camera transitions "[C] not a big transition" — semantics unclear, may matter for circling — _#22 · WSJF 3.0 · v5 tc2 u2 /e3_
+### `CAMERA-SEAM-CLOSE-PAIR-SEMANTICS-1` - Operator marked 5 camera transitions "[C] not a big transition" — semantics unclear, may matter for circling — _#21 · WSJF 3.0 · v5 tc2 u2 /e3_
 thread: **perimeter** - status: **parked**
 _created 2026-09-13 22:10 · updated 2026-09-13 22:40 · refined_
 - **Problem / Solution:**
@@ -2169,7 +2165,7 @@ _created 2026-09-13 22:10 · updated 2026-09-13 22:40 · refined_
   - `resolved_2026_09_13`: AMBIGUITY RESOLVED — and MY EARLIER READING WAS AN UNDER-READ, corrected here. (1) [C] is NOT a system designation; the operator confirms it was explanatory notation only. (2) I called the notation ambiguous and reported only armcrest+ba...
   - `ambiguity_2026_09_13`: "[C] on the camera right after" can mean either (a) this camera is close to the one BEFORE it in the ring, or (b) close to the one AFTER it. The five marks sit after front_door_aerial, the Madrone PT Ultra/Reolink hub, armcrest, back_yar...
 
-### `HVAC-PRECOOL-WINDOW-TOU-DERIVED-1` - Path A pre-cool window is summer-hardcoded [10,14) — not responsive to shoulder/winter TOU peaks (same phase-blindness we just deleted) — _#23 · WSJF 3.0 · v8 tc5 u2 /e5_
+### `HVAC-PRECOOL-WINDOW-TOU-DERIVED-1` - Path A pre-cool window is summer-hardcoded [10,14) — not responsive to shoulder/winter TOU peaks (same phase-blindness we just deleted) — _#22 · WSJF 3.0 · v8 tc5 u2 /e5_
 thread: **hvac** - status: **parked** - approval: **explicit**
 _created 2026-09-18 · updated 2026-09-26 02:40_
 - **Problem / Solution:**
@@ -2183,7 +2179,7 @@ _created 2026-09-18 · updated 2026-09-26 02:40_
   - `workstream`: HVAC-W3-ENERGY-AWARE
   - `operator_priority_2026_09_25`: Operator 2026-09-25: "these all seem high value". value raised to 8.
 
-### `HVAC-EQUIPMENT-HEALTH-OBSERVABILITY-1` - HVAC equipment-health observability + closed-loop tuning from the Bryant ODU/IDU telemetry (ONE workstream, not a card flurry) — _#24 · WSJF 3.0 · v8 tc5 u2 /e5_
+### `HVAC-EQUIPMENT-HEALTH-OBSERVABILITY-1` - HVAC equipment-health observability + closed-loop tuning from the Bryant ODU/IDU telemetry (ONE workstream, not a card flurry) — _#23 · WSJF 3.0 · v8 tc5 u2 /e5_
 thread: **hvac** - status: **parked**
 _created 2026-09-17 · updated 2026-09-26 02:40_
 - **Problem / Solution:**
@@ -2199,7 +2195,7 @@ _created 2026-09-17 · updated 2026-09-26 02:40_
   - `operator_priority_2026_09_25`: Operator 2026-09-25: "these all seem high value". value raised to 8.
   - `SUB_IDEAS_2026_09_17`: Checklist inside this one workstream (do NOT mint separate cards): (a) compressor/ refrigerant health anomaly (superheat/discharge/suction) -> SC+anomaly->NM; (b) airflow/dirty-filter (static_pressure + filter_remaining cross-corroborate...
 
-### `PREARRIVAL-NEAR-HOME-ZONE-1` - Pre-cool lead time: optional 'near home' zone as an earlier arrival signal — _#25 · WSJF 3.0 · v3 tc1 u2 /e2_
+### `PREARRIVAL-NEAR-HOME-ZONE-1` - Pre-cool lead time: optional 'near home' zone as an earlier arrival signal — _#24 · WSJF 3.0 · v3 tc1 u2 /e2_
 thread: **hvac** - status: **parked**
 _created 2026-11-11 14:40_
 - **Why:** 30d activity log: geofence 215 pre-arrivals, BLE 112; 84 geofence arrivals had no BLE within 1h; when both fired BLE was ~0.5 min after geofence (p90 22 min). Geofence itself gives ~30 s lead because home starts at the Home zone edge.
@@ -2211,6 +2207,19 @@ _created 2026-11-11 14:40_
   - `plan_review_2026_11_11`: FIX-PLAN: HIGH-1 home reset must run before the GPS-source filter (BLE-sourced home never resets -> departure fires); MED in_zones on 2026.11, INV-NH-2 vs D2, setup-only registration. docs/reviews/code-review/prearrival_near_home_zone_pl...
   - `revisit_trigger`: Operator home after 11-16 and PERSON-OJI-HOME-FLAP-1 verified: re-run D0 on clean data; if 3 km still gives several minutes, operator drive test, fix plan per review, build.
   - `adjacency`: Swept HVAC pre-arrival (hvac.py:7211, CONF_PRE_ARRIVAL_SOURCES): NEW.
+
+### `LOCK-VACATION-PHANTOM-SLEEP-DAILY-UNLOCK-1` - During a real vacation, a phantom room sensor can walk the house into SLEEP each night, so the garage lockout unlocks every morning and stays unlocked by day — _#25 · WSJF 3.0 · v4 tc3 u2 /e3_
+thread: **security** - status: **parked** - approval: **unreviewed**
+_created 2026-11-13 12:00 · initial_
+- **Problem / Solution:**
+  - Problem: with nobody home on VACATION, a phantom zone sensor (measured: Back Hallway) can drive AWAY -> ARRIVING -> HOME_* (held by the taint) -> SLEEP at sleep hours. The SLEEP engage starts a new episode and clears the ARRIVING taint, ...
+- **Why:** security_lock_regime.py _set_engage_reason ends the episode flags on every engage. Strictly better than develop (which released at ARRIVING). Matters only with the garage lockout ON during travel.
+- **Next:** Parked. Revisit with the lockout ON before travel; first measure how often VACATION -> ... -> SLEEP happens in the house_state_log.
+- **Parsimony:** [PARK] Daily unlock during a vacation if a phantom sensor fakes occupancy.
+- **Refs:** custom_components/universal_room_automation/domain_coordinators/security_lock_regime.py
+- **Forensic keys (2):**
+  - `tier`: 2
+  - `revisit_if`: The garage lockout is ON and the operator plans travel, or D3 / house-state logs show a SLEEP engage straight after a VACATION episode.
 
 ### `DRAIN-TARGET-DAY-STALENESS-1` - Off-peak drain target reads CALENDAR-tomorrow (solcast_tomorrow) not the peak-anchored target day, so after local midnight in the cross-midnight off-peak window it forecasts a day too far — _#26 · WSJF 2.8 · v5 tc3 u6 /e5 ⚠_
 thread: **energy** - status: **parked** - approval: **explicit**
@@ -2260,20 +2269,7 @@ _updated 2026-10-24 02:06_
   - `related`: EC-ENPHASE-CONNECTIVITY-RESILIENCE-1
   - `residual_2026_10_24_first_hold_alert`: Folded in from EC-STORM-PRODUCT-SELECTION-EXTERNAL-1 + EC-STORM-PREONSET-TIMING-1 (closed 10-24). Revival trigger: the FIRST hold-class NWS alert after v5.103.70. Then one-shot check: on sensor.ura_energy_coordinator_battery_strategy, in...
 
-### `LOCK-BOOT-LOCKOUT-UNAVAILABLE-AT-SETUP-1` - A garage lockout that is still connecting at HA startup counts as 'nothing locked', so if it then reads locked with the house awake nothing releases it — _#28 · WSJF 2.7 · v4 tc2 u2 /e3_
-thread: **security** - status: **parked** - approval: **unreviewed**
-_created 2026-11-13 12:00 · initial_
-- **Problem / Solution:**
-  - Problem: at setup the lock regime rebuilds its reason only from lockouts that read locked. An ESPHome/ratgdo/Konnected lockout still connecting reads unavailable, so the regime decides nothing is locked (reason none, restored taint clear...
-- **Why:** security_lock_regime.py _boot_rebuild (nothing-locked return) + _boot_recheck_regime. Pre-existing; develop's only extra discharge was the unconditional ARRIVING release, which LOCK-RELEASE-ON-ARRIVING removed. Matters only with the gara...
-- **Next:** Parked. When the lockout goes ON: Tier-2 fix at the boot recheck plus a test (lockout unavailable at setup, locked at +60 s, house home_day at the recheck -> released or rebuilt).
-- **Parsimony:** [PARK] A lockout late to connect at boot can stay locked with no automatic release.
-- **Refs:** custom_components/universal_room_automation/domain_coordinators/security_lock_regime.py
-- **Forensic keys (2):**
-  - `tier`: 2
-  - `revisit_if`: switch.ura_security_coordinator_garage_lockout is turned ON.
-
-### `ROADMAP-STALE-AGENTIC-LAYER-1` - Roadmap is stale (says v4.0.0 next; we are at v5.80.0) + the room-to-room agentic layer is unplanned — _#29 · WSJF 2.7 · v4 tc2 u2 /e3_
+### `ROADMAP-STALE-AGENTIC-LAYER-1` - Roadmap is stale (says v4.0.0 next; we are at v5.80.0) + the room-to-room agentic layer is unplanned — _#28 · WSJF 2.7 · v4 tc2 u2 /e3_
 thread: **planning** - status: **parked** - approval: **unreviewed**
 _created 2026-08-18 02:45 · updated 2026-10-08 03:20 · initial_
 - **Problem / Solution:**
@@ -2291,6 +2287,19 @@ _created 2026-08-18 02:45 · updated 2026-10-08 03:20 · initial_
   - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: roadmap-refresh half discharged (docs/ROADMAP_v12.md 2026-08-28). Narrowed: only the operator scope/priority call on the room-to-room AGENTIC layer remains (mu...
   - `lane_note_2026_08_28`: ROADMAP_v12.md now written (2026-08-28) — the roadmap-refresh half is discharged. What remains is operator green-light on scope/priority for the room-to-room AGENTIC layer, which v12 names as the next-MINOR-capability track. Hence waitin...
   - `audit_ledger_2026_08_18`: AUDIT_roadmap_undone_worthwhile.md now provides the "already shipped" ledger for the roadmap rewrite: mark ROADMAP v9/v10/v11 + VISION_v7 + ROADMAP_REMAINING as HISTORICAL; most v3.22 "future" shipped under other names (arbitrage hardeni...
+
+### `LOCK-BOOT-LOCKOUT-UNAVAILABLE-AT-SETUP-1` - A garage lockout that is still connecting at HA startup counts as 'nothing locked', so if it then reads locked with the house awake nothing releases it — _#29 · WSJF 2.7 · v4 tc2 u2 /e3_
+thread: **security** - status: **parked** - approval: **unreviewed**
+_created 2026-11-13 12:00 · initial_
+- **Problem / Solution:**
+  - Problem: at setup the lock regime rebuilds its reason only from lockouts that read locked. An ESPHome/ratgdo/Konnected lockout still connecting reads unavailable, so the regime decides nothing is locked (reason none, restored taint clear...
+- **Why:** security_lock_regime.py _boot_rebuild (nothing-locked return) + _boot_recheck_regime. Pre-existing; develop's only extra discharge was the unconditional ARRIVING release, which LOCK-RELEASE-ON-ARRIVING removed. Matters only with the gara...
+- **Next:** Parked. When the lockout goes ON: Tier-2 fix at the boot recheck plus a test (lockout unavailable at setup, locked at +60 s, house home_day at the recheck -> released or rebuilt).
+- **Parsimony:** [PARK] A lockout late to connect at boot can stay locked with no automatic release.
+- **Refs:** custom_components/universal_room_automation/domain_coordinators/security_lock_regime.py
+- **Forensic keys (2):**
+  - `tier`: 2
+  - `revisit_if`: switch.ura_security_coordinator_garage_lockout is turned ON.
 
 ### `ENERGY-TODAY-STATS-STEPPED-RESET-1` - Staggered midnight room resets reach HA long-term statistics as 2-3 partial drops, each read as a meter reset, so part of yesterday's energy is counted again — _#30 · WSJF 2.5 · v2 tc1 u2 /e2_
 thread: **energy** - status: **parked**
@@ -10417,3 +10426,6 @@ _created 2026-11-01_
 - {'id': 'PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1', 'title': 'Circling hop 1 and hop 3 are both HIGH in production, so the claim that their severities differ (and their NM dedup keys cannot collide) does not hold', 'thread': 'security', 'status': 'inbox', 'batch': 'person-sightings', 'created': '2026-11-13 12:00', 'updated': '2026-11-13 12:00', 'tier': 2, 'links': {'parent': 'HOUSE-STATE-FIRST-PRINCIPLES-1', 'related': ['EXTERIOR-PERSONS-HOME-ALWAYS-ZERO-1']}, 'origin': {'date': '2026-11-13', 'gist': 'Review A-L1 of house-state step 1a; pre-existing (persons_home always 0 live).'}, 'why': 'Circling escalation may be deduped away. Re-measure once the persons-home-from-residency switch is decided.', 'next': 'Me: check NM dedup keys for hop 1 vs hop 3 with both HIGH; fix or close.', 'rank': {'value': 4, 'time_criticality': 3, 'effort': 2}}
 - {'id': 'LOCK-UNCOUNTED-RETURN-ARM-REDUNDANT-1', 'title': 'Uncounted-return page has a redundant away/arriving arm, and ARRIVING evidence is computed and logged for every exterior alert outside ARRIVING', 'thread': 'security', 'status': 'inbox', 'batch': 'person-sightings', 'created': '2026-11-13 12:00', 'updated': '2026-11-13 12:00', 'tier': 1, 'links': {'parent': 'HOUSE-STATE-FIRST-PRINCIPLES-1'}, 'origin': {'date': '2026-11-13', 'gist': 'Review C-4 of house-state step 1a; no behaviour change.'}, 'why': 'Dead arm invites drift; INFO log noise on every exterior alert.', 'next': 'Me: delete or pin the arm; compute evidence only in ARRIVING.', 'rank': {'value': 2, 'time_criticality': 1, 'effort': 1}}
 - {'id': 'PERSON-ID-NORMALISE-ONE-RULE-1', 'title': 'Name-to-person-entity-id normalisation is copied at person_coordinator.py 807/979/1729; point them at tracked_person_entity_id()', 'thread': 'presence', 'status': 'inbox', 'batch': 'person-sightings', 'created': '2026-11-13 12:00', 'updated': '2026-11-13 12:00', 'tier': 1, 'links': {'parent': 'HOUSE-STATE-FIRST-PRINCIPLES-1'}, 'origin': {'date': '2026-11-13', 'gist': 'Step 1a fix-up: the residency producer was dead live because it skipped this rule; one rule prevents the next copy drifting.'}, 'why': 'Three hand copies of one rule; the 1a HIGH was a fourth site that got it wrong. Reviewer D re-check is sweeping other tracked_persons readers.', 'next': 'Me: after 1a ships, route the copies through the helper; also the four latent readers below.', 'residual_2026-11-13': 'Review D re-check sweep: __init__.py:3145-3163 rewrites entry.data to display names while options keep ids, so merged readers see ids here but names on a fresh install. Latent (portability) at camera_census.py:6159-6176, 6311-6320, 3900-3912 and perimeter_alert.py:5117-5121. Not reachable on this house.', 'rank': {'value': 4, 'time_criticality': 2, 'effort': 1}}
+- {'id': 'PERIMETER-ZONE-AGREEMENT-FIX-OR-REMOVE-1', 'title': 'The off-property zone-agreement demote does nothing (no property zones mapped) and cannot see Protect-only alerts; fix it soon or remove it', 'thread': 'security', 'status': 'planned', 'created': '2026-11-13 12:30', 'updated': '2026-11-13 12:30', 'tier': 2, 'links': {'related': ['PERIMETER-FP-GATES-DISPOSE-1', 'PERIMETER-SWITCH-LABELS-AND-FLOW-PARITY-1']}, 'origin': {'date': '2026-11-13', 'gist': 'Operator: "Lets card and fix soon. Or remove." perimeter_alert.py:4672 _apply_zone_agreement_gate; perimeter_zone_sensors empty live.'}, 'why': 'Most accurate test (uses where the person was) but inert; the real fix for street alerts is masks (operator).', 'next': 'Me: decide FIX (derive property zones per camera from Frigate-2 zone config, map in options) vs REMOVE (dead knob) after the masks land; measure from gate records.', 'rank': {'value': 5, 'time_criticality': 3, 'effort': 3}}
+- {'id': 'PERIMETER-SWITCH-LABELS-AND-FLOW-PARITY-1', 'title': 'Perimeter demote switches have unclear names and no config-flow entry; every device switch needs an options-flow field', 'thread': 'security', 'status': 'inbox', 'created': '2026-11-13 12:30', 'updated': '2026-11-13 12:30', 'tier': 1, 'links': {'related': ['PERIMETER-ZONE-AGREEMENT-FIX-OR-REMOVE-1']}, 'origin': {'date': '2026-11-13', 'gist': 'Operator: "Name of switch. not good yet." "Switches should have a config flow entry. They are on the device for convenience and quick access."'}, 'why': 'Labels say Quiet when the alert goes to the digest at LOW; settings must be findable in the options flow. Parity audit running (AUDIT_perimeter_settings_and_masks_2026_11_13.md).', 'next': 'Me: rename per label style guide, add options-flow fields for every _IntegrationOptionsSwitch key lacking one; operator reviews names.', 'rank': {'value': 4, 'time_criticality': 2, 'effort': 2}}
+- {'id': 'LLMVISION-GPT6-ENTRY-1', 'title': 'Add a second llmvision OpenAI entry for GPT-6 (temperature 1.0) so crossing vision can use the cheaper model', 'thread': 'identity', 'status': 'waiting_operator', 'created': '2026-11-13 12:30', 'updated': '2026-11-13 12:30', 'tier': 1, 'links': {'related': ['VISION-CROSSING-ANALYSIS-1']}, 'origin': {'date': '2026-11-13', 'gist': 'Operator: "yes. You may have to remind me again." Garage A frames to OpenAI: approved.'}, 'why': 'llmvision sends temperature per provider entry; GPT-6 rejects 0.5. Existing entry stays for perimeter enrichment.', 'next': 'DO: HA > llmvision > add OpenAI entry "OpenAI reasoning", model gpt-6-luna, Temperature 1.0, Top P 1.0, type the key yourself -> I run D0a and switch crossing vision. REMIND the operator at each status block until done.', 'rank': {'value': 4, 'time_criticality': 2, 'effort': 1}}
