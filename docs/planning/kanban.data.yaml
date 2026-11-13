@@ -18617,10 +18617,12 @@ cards:
 - id: HOUSE-STATE-FIRST-PRINCIPLES-1
   title: Rethink the house state machine from first principles; ARRIVING fired by any occupancy is a legacy assumption the lock, alarm and alert code keeps working around
   thread: presence
-  status: waiting_operator
+  status: in_progress
+  batch: person-sightings
   created: '2026-11-13 04:00'
-  updated: '2026-11-13 04:00'
+  updated: '2026-11-13 09:00'
   tier: 3
+  APPROVED_2026-11-13: 'Operator: split approved, 1a builds now; 1b (vacation overlay) added to the person-sightings arc so it is not forgotten (HOUSE-STATE-VACATION-OVERLAY-1B).'
   links: {related: [HOUSE-STATE-UTILIZATION-EPIC, LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1, SC-ARMING-ALARM-ONLY-1, EXTERIOR-PERSON-SEVERITY-ARRIVING-BODY-ONLY-1, HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1, LOCK-REGIME-BOOT-REALLY-AWAY-1, FACE-ARRIVAL-REBUILD-1]}
   origin: {date: '2026-11-13', gist: 'Operator: "The arriving state itself is likely problematic. It does not make sense that occupancy triggers that house state. That state machine was designed when we were dumber. Time to revisit it from first principles so we do not keep working around dumb stuff and old assumptions. We should even do external research on house state machines as part of the rethink."'}
   why: 'AUDIT_arriving_on_body_evidence_2026_11_13.md: 2,642 AWAY->ARRIVING edges, 6.4% real arrivals, 48.6% correcting a false AWAY, 68.5% driven by zone sensors with census 0. Consumers (lock release, auto-follow disarm, exterior alert severity) each grew their own workaround. Now we have resident-level arrival edges (BLE, geofence), census, person sightings and egress direction, which the original machine predates.'
@@ -34797,7 +34799,8 @@ cards:
   links: {parent: FACE-ARRIVAL-REBUILD-1}
   origin: {date: '2026-11-12', gist: 'Found by the person-sightings planner (rev 3).'}
   why: 'All four phone-left-behind sensors show hours_since_camera_sighting null. Move to the new last-sighting accessor after D1 ships. House-state input: Tier 2-DB minimum.'
-  next: 'Me: plan PLANNING_phone_left_behind_camera_leg.md (branch plan/phone-left-behind-camera) in its one plan review; then build (Tier 2-DB, 3 reviews).'
+  RULING_2026-11-13: 'Operator chose H1 option A: the camera leg is display only (attributes), it does not change the phone-left-behind verdict.'
+  next: 'Me: plan rev 2 with ruling A (branch plan/phone-left-behind-camera), then build (Tier 2-DB, 3 reviews).'
   rank: {value: 5, time_criticality: 3, effort: 3}
 - id: DEPARTURE-ACTIONS-1
   arc_cut_v5_108_16: "needs phase 2 departures"
@@ -34901,10 +34904,11 @@ cards:
 - id: LOCK-LOCKOUT-UNAVAILABLE-AT-SETUP-1
   title: A garage lockout still unavailable when URA sets up counts as nothing locked; if the house is awake at recheck it stays locked with no backstop, release or page
   thread: security
-  status: inbox
+  status: done
   batch: person-sightings
   created: '2026-11-13 03:30'
-  updated: '2026-11-13 03:30'
+  updated: '2026-11-13 09:00'
+  DEDUPE_2026-11-13: 'Duplicate of LOCK-BOOT-LOCKOUT-UNAVAILABLE-AT-SETUP-1 (same review D-L4, carded on the lock branch, merged 11-13). Survivor is parked with trigger lockout ON; this card adds nothing beyond its Wi-Fi reconnect note, copied here for the record.'
   tier: 2
   links: {parent: FACE-ARRIVAL-REBUILD-1, related: [LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1]}
   origin: {date: '2026-11-13', gist: 'Review D D-L4 of feature/lock-release-arriving (pre-existing on develop).'}
@@ -34994,3 +34998,17 @@ broader_backlog_refs:
 - Forecaster wire-up (LightGBM + BatteryStrategy)
 - Dashboarding workstream (ura-v6 rebuild + PWA)
 - Memory week-one gate + first coordinator-consumer proposal
+- id: HOUSE-STATE-VACATION-OVERLAY-1B
+  title: 'House-state step 1b: vacation becomes an overlay on AWAY instead of its own state, so nothing has to special-case it'
+  thread: presence
+  status: parked
+  batch: person-sightings
+  created: '2026-11-13 09:00'
+  updated: '2026-11-13 09:00'
+  tier: 3
+  links: {parent: HOUSE-STATE-FIRST-PRINCIPLES-1, related: [LOCK-VACATION-PHANTOM-SLEEP-DAILY-UNLOCK-1]}
+  origin: {date: '2026-11-13', gist: 'Operator: split 1a now / 1b later, "add to arc so we don''t forget". Operator earlier: vacation should supersede or encapsulate away.'}
+  why: 'Part B of PLANNING_house_state_axes_step1.md rev 3 (branch plan/house-state-step1). Kept in the person-sightings arc so the arc cannot close without it.'
+  revisit_if: 'Step 1a (HOUSE-STATE-FIRST-PRINCIPLES-1) ships and is live-validated.'
+  next: 'Me: after 1a validates, revise Part B against what 1a shipped, two plan reviews, then build.'
+  rank: {value: 6, time_criticality: 3, effort: 5}
