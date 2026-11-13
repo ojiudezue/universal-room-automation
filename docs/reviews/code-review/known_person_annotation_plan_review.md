@@ -1,5 +1,7 @@
 # Plan Review — Known-Person Annotation Pipeline v1 (rev-2)
 
+> **Pointer (HOUSE-STATE step 1a, 2026-11-13):** `NM_HAZARD_EXTERIOR_PERSON_SEVERITY_BY_HOUSE_STATE` cited below was a dead table (imported, read nowhere) and is deleted; the live source is `NM_HAZARD_EXTERIOR_PERSON_CONTEXTUAL_SEVERITY` (`const.py`). See `PLANNING_house_state_axes_step1.md` D5 and PRESENCE state-of-play §10 #37.
+
 - **Plan under review:** `docs/planning/PLANNING_known_person_annotation.md` @ commit `58ca0d9f7` (rev-2, folded D3 stranger-alert leg).
 - **Reviewer framing:** Tier 2-DB adversarial pre-build pass — independently re-enumerate emission sites, NM hazard-consumer surfaces, and stranger-leg guard bypass paths; verify with greps not with the plan's own citations.
 - **Load-bearing invariant under adversarial test:** INV-KP clauses (a)-(e), with special attention to (e) — stranger leg is strictly additive; base dispatch is never delayed, blocked, mutated, or dedup'd by any code path in the stranger leg.

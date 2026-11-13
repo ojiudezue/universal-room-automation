@@ -1,5 +1,7 @@
 # PLANNING — Exterior Person Escalation (perimeter_alert ↔ NotificationManager)
 
+> **Pointer (HOUSE-STATE step 1a, 2026-11-13):** `NM_HAZARD_EXTERIOR_PERSON_SEVERITY_BY_HOUSE_STATE` cited below was a dead table (imported, read nowhere) and is deleted; the live source is `NM_HAZARD_EXTERIOR_PERSON_CONTEXTUAL_SEVERITY` (`const.py`). See `PLANNING_house_state_axes_step1.md` D5 and PRESENCE state-of-play §10 #37.
+
 **Tier:** 2 (feature cycle) — elevated per standing "3 framing-disjoint reviews for regression-prone work" policy. Change threads perimeter detections into NM's severity / DND / bucket / dedup machinery; a mis-wire silently drops security alerts.
 **Branch:** `feature/exterior-person-escalation`
 **Scope target:** ≤ ~5 files touched.

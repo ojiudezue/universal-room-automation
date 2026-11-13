@@ -88,10 +88,17 @@ def test_founding_shape_dispatch_count_is_three():
     )
 
 
-def test_founding_shape_produces_exactly_one_high_circling_page():
+def test_founding_shape_produces_exactly_one_high_circling_page(monkeypatch):
     """The hop-3 exemption dispatch resolves to HIGH via the
     home_day + circling contextual severity — hops 1 and 2 are LOW/
     DIGEST/MEDIUM. Exactly ONE HIGH page over the founding sequence."""
+    # HOUSE-STATE step 1a D5 (C1): this scenario has a resident at home, which
+    # production expresses only with EXTERIOR_SEVERITY_PERSONS_HOME_FROM_RESIDENCY
+    # True (False, the shipped default, resolves persons_home 0 as production
+    # always did, and every home_day hop is HIGH). Patched in this test body.
+    from quality.tests.perimeter.test_circling_founding_case import _perimeter
+    monkeypatch.setattr(
+        _perimeter._const_mod, "EXTERIOR_SEVERITY_PERSONS_HOME_FROM_RESIDENCY", True)
     hass, nm, linker = _make_hass_no_safeword(CAMS)
     mgr = _run(_setup(hass))
     _replay_founding(mgr, linker)

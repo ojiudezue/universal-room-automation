@@ -106,6 +106,83 @@ def stale_source_arrival(
     return (p_lc - s_lc).total_seconds() > stale_s
 
 
+# ---------------------------------------------------------------------------
+# HOUSE-STATE-FIRST-PRINCIPLES-1 step 1a D1 (PLANNING_house_state_axes_step1.md
+# rev 3): the ONE counted-return rule and the ONE ``_last_real`` ledger rule.
+# Extracted verbatim from the SC lock regime (``_arrival_counts`` /
+# ``_really_away`` / S5 / the restore stamp) so the lock and the residency
+# producer can never drift. A ledger entry is ``(state, since_ts, restored)``.
+# Pure: no HA import, no clock read (callers pass ``now_ts`` / ``ts``), and the
+# window / minimum VALUES stay with each caller (each reads its own constant).
+# ---------------------------------------------------------------------------
+
+_UNREAL = frozenset({"unknown", "unavailable"})
+
+
+def really_away(
+    prev_real: tuple[str, float, bool] | None,
+    now_ts: float,
+    *,
+    in_boot_window: bool,
+    min_away_s: float,
+) -> bool:
+    """Was the person genuinely away (H3a), with the M-2 boot exceptions."""
+    if in_boot_window:
+        return True  # M-2 (i)
+    if prev_real is None or prev_real[2]:
+        return True  # M-2 (ii): no real transition seen since setup
+    state, since, _restored = prev_real
+    if state == "home":
+        return False  # H3a: blip while home
+    return (now_ts - since) >= min_away_s
+
+
+def counted_return(
+    old_val: str | None,
+    prev_real: tuple[str, float, bool] | None,
+    now_ts: float,
+    *,
+    in_boot_window: bool,
+    min_away_s: float,
+) -> bool:
+    """A ``-> home`` edge counts as a real return: a real (not_home / zone)
+    old state always counts; an unknown / unavailable one only when the
+    person was really away (``really_away``)."""
+    if old_val not in _UNREAL:
+        return True  # not_home / named zone -> home
+    return really_away(
+        prev_real, now_ts, in_boot_window=in_boot_window, min_away_s=min_away_s
+    )
+
+
+def update_last_real(
+    ledger: dict[str, tuple[str, float, bool]],
+    pid: str,
+    new_val: str | None,
+    ts: float,
+) -> None:
+    """Live edge: stamp ``(new_val, ts, False)`` when ``new_val`` is real and
+    the entry is missing, differs, or was restored. A same-state event
+    (attribute refresh) never re-stamps ``since``."""
+    if new_val in _UNREAL:
+        return
+    prev = ledger.get(pid)
+    if prev is None or prev[0] != new_val or prev[2]:
+        ledger[pid] = (new_val, ts, False)
+
+
+def stamp_restored(
+    ledger: dict[str, tuple[str, float, bool]],
+    pid: str,
+    new_val: str | None,
+    ts: float,
+) -> None:
+    """Restore / add event (``old_state`` None): stamp the entry restored."""
+    if new_val in _UNREAL:
+        return
+    ledger[pid] = (new_val, ts, True)
+
+
 def edge_in_window(ts: float | None, at_ts: float, window_s: float, boot_end: float) -> bool:
     """An edge at ``ts`` counts: after the boot exclusion, within the window."""
     return ts is not None and ts >= boot_end and abs(at_ts - ts) <= window_s

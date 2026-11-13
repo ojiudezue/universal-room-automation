@@ -262,7 +262,13 @@ def test_transition_exemption_fires_after_safeword_window_expires():
 # --- D5: RAISE branch on exemption dispatch ---------------------------------
 
 
-def test_exemption_dispatch_severity_survives_coercion():
+def test_exemption_dispatch_severity_survives_coercion(monkeypatch):
+    # HOUSE-STATE step 1a D5 (C1): this scenario has a resident at home, which
+    # production expresses only with EXTERIOR_SEVERITY_PERSONS_HOME_FROM_RESIDENCY
+    # True (False, the shipped default, resolves persons_home 0 as production
+    # always did, and every home_day hop is HIGH). Patched in this test body.
+    monkeypatch.setattr(
+        _perimeter._const_mod, "EXTERIOR_SEVERITY_PERSONS_HOME_FROM_RESIDENCY", True)
     hass, nm, linker, mgr = _fresh_mgr()
     _replay_founding_sequence(mgr, linker)
     # Hop-3 dispatch severity must be HIGH (contextual home_day +
@@ -337,7 +343,7 @@ def test_exemption_dispatch_severity_survives_xcorr1_single_camera_night():
 # --- D7: NM dedup non-collision on exemption path ---------------------------
 
 
-def test_exemption_hop_not_deduplicated_against_baseline_hop():
+def test_exemption_hop_not_deduplicated_against_baseline_hop(monkeypatch):
     """MED-2 pin. Under today's contextual severity map, (person,
     pass_by) resolves to LOW/MEDIUM/DIGEST in every house state — never
     HIGH — so the hop-3 exemption dispatch (HIGH circling) has a
@@ -348,6 +354,12 @@ def test_exemption_hop_not_deduplicated_against_baseline_hop():
     Verified structurally by asserting the dispatched severities of
     hop-1 and hop-3 differ; this is the observable proxy for
     non-collision without spinning up a real NM instance."""
+    # HOUSE-STATE step 1a D5 (C1): this scenario has a resident at home, which
+    # production expresses only with EXTERIOR_SEVERITY_PERSONS_HOME_FROM_RESIDENCY
+    # True (False, the shipped default, resolves persons_home 0 as production
+    # always did, and every home_day hop is HIGH). Patched in this test body.
+    monkeypatch.setattr(
+        _perimeter._const_mod, "EXTERIOR_SEVERITY_PERSONS_HOME_FROM_RESIDENCY", True)
     hass, nm, linker, mgr = _fresh_mgr()
     _replay_founding_sequence(mgr, linker)
     sev_names = [

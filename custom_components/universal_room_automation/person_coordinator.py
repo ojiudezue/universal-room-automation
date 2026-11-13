@@ -1,6 +1,6 @@
 """Person tracking coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv5.108.18
+# Universal Room Automation vv5.108.19
 # Build: 2026-01-03
 # File: person_coordinator.py
 # v3.2.9: No changes (zone fixes in aggregation.py, fan fixes in automation.py)
@@ -125,6 +125,20 @@ def _stamp(status: str, location: str, confidence: float,
         ATTR_TRACKING_REASON: tracking_reason,
         ATTR_TRACKER_SOURCES: dict(tracker_sources),
     }
+
+
+def tracked_person_entity_id(name: Any) -> str:
+    """``person.*`` entity id for one ``tracked_persons`` entry.
+
+    Same rule as ``_async_update_data`` (``person.`` + name lowercased with
+    spaces as ``_``): ``tracked_persons`` holds display names on the live
+    install (``'Oji Udezue'`` -> ``person.oji_udezue``). An entry that is
+    already a ``person.*`` id is kept as is.
+    """
+    s = str(name)
+    if s.startswith("person."):
+        return s
+    return f"person.{s.lower().replace(' ', '_')}"
 
 
 def person_state_for_trust(hass, person_entity_id: str) -> str | None:

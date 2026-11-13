@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "296",
+  "author": "ojiudezue",
+  "session_id": "claude_20261113_174153_ship_v5_108_19",
+  "timestamp": "2026-11-13T17:41:53Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.108.19 shipped: House-state step 1a: one arrival rule, residents-home producer",
+  "summary": "House-state step 1a: one arrival rule, residents-home producer",
+  "why": "ARRIVING fires on any occupancy, so lock, alarm and alert code kept working around it. Step 1a moves the lock and alerts onto real resident arrivals from one shared rule and a residency producer, without touching the house state engine. Tier 3: four reviews, one fix-up round with re-check, clean suite name-diff, orchestrator mutation drill (16 red), operator go 2026-11-13.",
+  "implications": "Shipped HOUSE-STATE-FIRST-PRINCIPLES-1 at v5.108.19; card(s) sit shipped_organic pending validation. Acceptance in README_v5.108.19.md (Live criteria).",
+  "revisit_trigger": "Step 1b vacation overlay after 1a live validation; persons-home severity switch when the operator decides.",
+  "refs": {
+    "cards": [
+      "HOUSE-STATE-FIRST-PRINCIPLES-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.108.19.md"
+    ],
+    "release_notes": "Lock regime decides house edges by trigger (wake after sleep or operator override only); shared counted-arrival rule and per-resident residency producer with residents-home sensor; exterior alerts during body-only ARRIVING go CRITICAL unless a resident is home or just arrived; persons_home lookup fixed (severity switch ships off)."
+  }
+}

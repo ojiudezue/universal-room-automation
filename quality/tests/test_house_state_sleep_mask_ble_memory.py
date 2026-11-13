@@ -1383,17 +1383,30 @@ def test_reliable_signal_lists_aligned_with_stale(monkeypatch, clock):
 
 
 def test_perimeter_persons_home_counts_stale(monkeypatch, clock):
-    """Row 3.2 a: NM perimeter severity input persons_home counts a STALE
-    resident (2 trusted, was 1)."""
+    """HOUSE-STATE step 1a D5 rewrite (C1). The old version asserted 2 through
+    a fake ``manager.presence`` the real CoordinatorManager does not have
+    (a hollow anchor: production always resolved 0). Now: the manager exposes
+    presence only through ``coordinators`` (no ``.presence`` attribute);
+    with EXTERIOR_SEVERITY_PERSONS_HOME_FROM_RESIDENCY False the perimeter
+    input is 0 (production before 1a), with it True it is the residency
+    producer's residents-home count (trust state; Jaya home, Oji away -> 1)."""
     w, h = _d2_world(monkeypatch, clock)
     h.tick()
     clock.advance(30)
     w.states["sensor.jaya_area"] = _State("unknown")
     h.tick()
     w.tick()
+    w.states["person.jaya"] = _State("home")
+    w.hass.data[DOMAIN]["person_coordinator"] = types.SimpleNamespace(
+        tracked_persons=["person.jaya", "person.oji"])
+    w.hass.data[DOMAIN]["coordinator_manager"] = types.SimpleNamespace(
+        coordinators={"presence": w.coord})
     pam = object.__new__(PA.PerimeterAlertManager)
     pam.hass = w.hass
-    assert PA.PerimeterAlertManager._get_persons_home(pam) == 2
+    monkeypatch.setattr(CONST, "EXTERIOR_SEVERITY_PERSONS_HOME_FROM_RESIDENCY", False)
+    assert PA.PerimeterAlertManager._get_persons_home(pam) == 0
+    monkeypatch.setattr(CONST, "EXTERIOR_SEVERITY_PERSONS_HOME_FROM_RESIDENCY", True)
+    assert PA.PerimeterAlertManager._get_persons_home(pam) == 1
 
 
 def test_signal_consensus_with_stale_resident(monkeypatch, clock):

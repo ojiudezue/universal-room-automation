@@ -171,6 +171,12 @@ def test_followup_not_armed_for_known_demoted_alert(monkeypatch):
 def test_followup_not_armed_for_low_alert(monkeypatch):
     """Unknown + corroborated, but house-state severity is LOW: nothing
     reached the operator, so there is nothing to follow up."""
+    # HOUSE-STATE step 1a D5 (C1): LOW at home_day needs a resident home,
+    # which production expresses only with the residency switch True
+    # (the shipped False resolves persons_home 0 -> HIGH). Patched here.
+    from custom_components.universal_room_automation import perimeter_alert as _pa
+    monkeypatch.setattr(
+        _pa._const_mod, "EXTERIOR_SEVERITY_PERSONS_HOME_FROM_RESIDENCY", True)
     _scheduled.clear()
     hass, nm, mgr = _d105(monkeypatch, legs=[])
     hass.data[_const.DOMAIN]["coordinator_manager"].house_state = "home_day"

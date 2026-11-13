@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv5.108.18
+# Universal Room Automation vv5.108.19
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -10694,6 +10694,7 @@ class UniversalRoomDatabase:
         started_at: str | None = None,
         ended_at: str | None = None,
         dedup_source_ref: bool = False,
+        window_dedup: bool = True,
     ) -> int | None:
         """Insert a memory_episodes row. Returns row id or None on failure.
 
@@ -10705,6 +10706,12 @@ class UniversalRoomDatabase:
         be skipped and None returned (B-H3 real per-track dedup — used by
         ExteriorTrackLinker so teardown-flush + a subsequent idle-sweep
         close on the same track do not double-write).
+
+        ``window_dedup`` False skips the per-(node_id, episode_type)
+        in-memory window gate (and leaves its stamp untouched): for a writer
+        whose rows are already one per real edge (HOUSE-STATE step 1a
+        residency, review A-M2), where the window only drops real edges.
+        Default True keeps every existing caller identical.
         """
         import json as _json  # noqa: PLC0415
         try:
@@ -10723,23 +10730,24 @@ class UniversalRoomDatabase:
             # a repeat fire inside MEMORY_EPISODE_DEDUP_WINDOW_S is dropped
             # (Stage 1: no UPDATE-count machinery). Instance-scoped so it
             # survives across calls but resets on process restart.
-            _dedup = self.__dict__.setdefault(
-                "_memory_episode_dedup", {},
-            )
-            _dedup_key = (node_id, episode_type)
-            _now_mono = datetime.now(timezone.utc).timestamp()
-            _prev = _dedup.get(_dedup_key)
-            if _prev is not None and (
-                _now_mono - _prev
-            ) < MEMORY_EPISODE_DEDUP_WINDOW_S:
-                _LOGGER.debug(
-                    "log_memory_episode: dropped repeat "
-                    "(node=%s type=%s dt=%.1fs<%ds)",
-                    node_id, episode_type, _now_mono - _prev,
-                    MEMORY_EPISODE_DEDUP_WINDOW_S,
+            if window_dedup:
+                _dedup = self.__dict__.setdefault(
+                    "_memory_episode_dedup", {},
                 )
-                return None
-            _dedup[_dedup_key] = _now_mono
+                _dedup_key = (node_id, episode_type)
+                _now_mono = datetime.now(timezone.utc).timestamp()
+                _prev = _dedup.get(_dedup_key)
+                if _prev is not None and (
+                    _now_mono - _prev
+                ) < MEMORY_EPISODE_DEDUP_WINDOW_S:
+                    _LOGGER.debug(
+                        "log_memory_episode: dropped repeat "
+                        "(node=%s type=%s dt=%.1fs<%ds)",
+                        node_id, episode_type, _now_mono - _prev,
+                        MEMORY_EPISODE_DEDUP_WINDOW_S,
+                    )
+                    return None
+                _dedup[_dedup_key] = _now_mono
             now_iso = datetime.now(timezone.utc).isoformat()
             started = started_at or now_iso
             adjudicated_at_iso = (

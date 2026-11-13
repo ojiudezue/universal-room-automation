@@ -188,6 +188,20 @@ _HISTORICAL_ADJACENCY_2026_08 = {
 }
 
 
+class _FakeResidencyPresence:
+    """Presence fake with the two real D5 getters (fixed values)."""
+
+    def __init__(self, residents_home: int, recent=None) -> None:
+        self._residents_home = int(residents_home)
+        self._recent = recent
+
+    def get_residents_home_count(self) -> int:
+        return self._residents_home
+
+    def get_recent_resident_arrival(self, within_s, now_ts=None):
+        return self._recent
+
+
 def _make_hass_with_linker(cameras: list[str], house_state: str = "home_day"):
     hass = MagicMock()
     cfg = MagicMock()
@@ -205,9 +219,9 @@ def _make_hass_with_linker(cameras: list[str], house_state: str = "home_day"):
 
     cm = MagicMock()
     cm.house_state = house_state
-    presence = MagicMock()
-    presence._tracked_persons_count_trusted = 1
-    cm.presence = presence
+    # HOUSE-STATE step 1a D5 fixture rule: presence through
+    # `coordinators["presence"]` with REAL getters (fixed values).
+    cm.coordinators = {"presence": _FakeResidencyPresence(1)}
 
     nm = MagicMock()
     nm.enabled = True
