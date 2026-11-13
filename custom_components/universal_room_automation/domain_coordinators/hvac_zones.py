@@ -2709,10 +2709,16 @@ class ZoneManager:
         """Person-trust backstop (D-HIGH-1 companion, 2026-09-17).
 
         Return True iff any of the zone's `zone_persons` phone trackers
-        currently reads `home`. Used by the D7 / row-1 fail-open path
-        as the v4.7.13-style veto when the fused signal is
-        UNESTABLISHED or DEGRADED — preserve the preset (don't retreat)
-        on the backstop of "a person known to be home".
+        currently reads `home`.
+
+        RETIRED — NO PRODUCTION CALLER (ZONE-HAS-HOME-PERSON-UNCALLED-1,
+        2026-11-13). It was written for the D7 / row-1 fail-open path as a
+        v4.7.13-style veto, but that path decides through
+        `HVACCoordinator._zone_conditioning_retreat_ok`, which deliberately
+        does NOT consult this helper (pinned by
+        test_zzz_hvac_conditioning_demand.py ~:927). Kept as an available
+        person-trust read (BLE-overrule-aware) if a caller is revisited;
+        do not assume anything vetoes on it today.
 
         Fail-closed on missing / error — never let a lookup fault flip
         this into a spurious preserve.
