@@ -9,6 +9,9 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {"fid": "TRIPWIRES-NEVER-FIRED-1@2026-11-13T02:04:00", "card_id": "TRIPWIRES-NEVER-FIRED-1", "at": "2026-11-13T02:04:00", "outcome": "done", "headline": "Closed: the 'camera tripwires never fired' worry was wrong. The Frigate-down alarm fired 3 times (11-01, 11-02, 11-07) and paged you; it was filed under a different label, so the audit missed it. The frozen-detector alarm is set up correctly and has simply never had a freeze to catch.", "acknowledged": false}
+  - {"fid": "ANOMALY-FLOOD-ROWS-1@2026-11-13T02:04:00", "card_id": "ANOMALY-FLOOD-ROWS-1", "at": "2026-11-13T02:04:00", "outcome": "escalated", "headline": "Of the four noisy warnings, three already stopped after earlier fixes. The live one (~100/day) is a real bug: ordinary moves like bedroom to own bathroom get flagged 'impossible' and lose confidence, which can stop music following. Your pick: fix the check (recommended) or just silence the rows.", "acknowledged": false}
+  - {"fid": "ZONE-HAS-HOME-PERSON-UNCALLED-1@2026-11-13T02:04:00", "card_id": "ZONE-HAS-HOME-PERSON-UNCALLED-1", "at": "2026-11-13T02:04:00", "outcome": "built-to-review", "headline": "An unused HVAC helper claimed in its notes to protect comfort; nothing calls it. Kept it and corrected the notes (no behavior change, tests pass). Waiting in review to ride the next deploy.", "acknowledged": false}
   - {"fid": "FAN-RECHECK-FORM-RESTORE-REVERT-1@2026-11-12T02:09:00", "card_id": "FAN-RECHECK-FORM-RESTORE-REVERT-1", "at": "2026-11-12T02:09:00", "outcome": "built-to-review", "headline": "Confirmed and fixed: saving the fan re-check settings in the form was being undone by the switches' remembered state after the reload. Live example: Garage A is set to OFF, and that is what runs, but its switches show ON. Branch fix/fan-recheck-options-wins-restore: 16 tests, mutation drills, review SHIP. After deploy only the displayed state changes. The pass stops here: 3 cards are now in Review.", "acknowledged": false}
   - {"fid": "PERSON-OJI-HOME-FLAP-1@2026-11-12T02:05:00", "card_id": "PERSON-OJI-HOME-FLAP-1", "at": "2026-11-12T02:05:00", "outcome": "done", "headline": "Your phone no longer flips you to 'home' while abroad: 0 'home' readings in the ~10.5 h since the iPad and Mac came off your person, against about 11 a day before. Closed early on that margin. Half of the near-home-zone card's revisit trigger is now met; the other half is you being home.", "acknowledged": false}
   - {"fid": "HACS-MARKETPLACE-DEPLOY-1@2026-11-12T02:05:00", "card_id": "HACS-MARKETPLACE-DEPLOY-1", "at": "2026-11-12T02:05:00", "outcome": "done", "headline": "The Marketplace switch-over is fine for URA: HA 2026.11.1 migrated it, the URA update entity kept its name, and the store is connected to GitHub with the warning accepted. One catch: it never offered v5.108.9 on its own (it only checks every 48 h). Rewrote the deploy steps to force a refresh, then install and read back. The first install through the tool happens at your next deploy.", "acknowledged": false}
@@ -52,10 +55,6 @@ meta:
   - {"fid": "FRONT-DOOR-LOCK-OFFLINE-1@2026-11-06T02:05:00", "card_id": "FRONT-DOOR-LOCK-OFFLINE-1", "at": "2026-11-06T02:05:00", "outcome": "measured", "headline": "Re-checked the cards waiting on you at 02:03. All unchanged: front lock and kitchen smoke detector offline, BLE proxy BP1_B offline, panel alert channel off, Kitchen automation still paused. Frigate healthy (40 detections/s).", "acknowledged": false}
   - {"fid": "OPTIMIZER-META-NEVER-PAGES-1@2026-11-06T02:05:00", "card_id": "OPTIMIZER-META-NEVER-PAGES-1", "at": "2026-11-06T02:05:00", "outcome": "measured", "headline": "Merge-prep: the two fixes waiting in review (optimizer meta pages, lock-check retry cap) still merge cleanly and their tests pass on today's develop. Still ready for your next daytime deploy. Found an old test-order problem along the way (not from these fixes) and logged it on the test-architecture card.", "acknowledged": false}
   - {"fid": "NM-ACK-TTS-IGNORES-DISABLE-1@2026-11-06T02:08:00", "card_id": "NM-ACK-TTS-IGNORES-DISABLE-1", "at": "2026-11-06T02:08:00", "outcome": "done", "headline": "Closed: acknowledging an alert no longer tries to speak on the house speakers. Live proof: your safe-word ack at 09:55 yesterday played on no speaker and logged no error. The leftover (spoken alerts would need a voice engine if you ever turn them on) is parked as its own card.", "acknowledged": false}
-  - {"fid": "ZONE-ORPHAN-DEVICE-REMOVE-GUARD-1@2026-11-05T02:39:00", "card_id": "ZONE-ORPHAN-DEVICE-REMOVE-GUARD-1", "at": "2026-11-05T02:39:00", "outcome": "built-to-review", "headline": "Startup clean-up can no longer delete a zone's device while it still has entities. Before, a briefly incomplete zone list at boot could wipe a live zone device and its entity settings. Reviewed (SHIP), both call sites now have tests that fail when broken, full suite clean. Waiting in review for a daytime deploy.", "acknowledged": false}
-  - {"fid": "SECURITY-LOCK-SWEEP-RETRY-CAP-1@2026-11-05T02:18:00", "card_id": "SECURITY-LOCK-SWEEP-RETRY-CAP-1", "at": "2026-11-05T02:18:00", "outcome": "built-to-review", "headline": "The nightly lock check will stop resending lock and close commands forever when a device doesn't respond: 3 tries, then one notification, re-armed daily. Review found 4 issues; all are fixed and each fix is proven by a test. Full suite clean. Waiting in review for a daytime deploy.", "acknowledged": false}
-  - {"fid": "OPTIMIZER-META-NEVER-PAGES-1@2026-11-05T02:18:00", "card_id": "OPTIMIZER-META-NEVER-PAGES-1", "at": "2026-11-05T02:18:00", "outcome": "built-to-review", "headline": "The optimizer will no longer send CRITICAL pages about its own cut-off input (9 of 9 such pages in 30 days were false, several after 1 am). Built, reviewed and full-suite clean (no new failures). Waiting in review for a daytime deploy.", "acknowledged": false}
-  - {"fid": "EC-ENPHASE-CONNECTIVITY-RESILIENCE-1@2026-11-05T02:02:00", "card_id": "EC-ENPHASE-CONNECTIVITY-RESILIENCE-1", "at": "2026-11-05T02:02:00", "outcome": "parked", "headline": "Battery-reserve false-alarm fix: three nights live with no false alarm, but the reserve stayed at 10 every night, so the case that used to misfire never came up. Parked with a trigger instead of left open; a recurrence would page you on its own.", "acknowledged": false}
 cards:
 - id: NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1
   recheck_2026_11_10_overnight: "02:01 CST URA DB: notification_inbound since 11-09 = 3 rows, all imessage (last 11-10 04:13Z). No whatsapp/companion row. Ask stands."
@@ -34551,36 +34550,44 @@ cards:
 - id: TRIPWIRES-NEVER-FIRED-1
   title: "Detector-hung and fleet-dark tripwires have never produced a finding (sibling camera_stuck has 33)"
   thread: diagnostics
-  status: investigating
+  status: done
   batch: broken-promises-2026-11
   created: '2026-11-12 22:30'
-  updated: '2026-11-12 22:30'
+  updated: '2026-11-13 02:04'
   tier: 2
   origin: {date: '2026-11-12', gist: 'Broken-promise sweep (docs/planning/AUDIT_broken_promises_2026_11_12.md); operator: "A lot of our hardening are broken promises from previous work."'}
   why: "Sweep item 7. Zero may be correct or the evaluators may be blind; needs a forced-condition check."
-  next: "Me: drive each with a synthetic condition in test and check live inputs."
+  next: "None. Closed. If you want a live proof of detector-hung, the staged detector pause in CAMERA-SILENT-PRODUCER-TRIPWIRE-1 is still the optional operator step."
+  verified_2026_11_13_overnight: "REFUTED (premise was a labeling artifact) - read-only URA DB + recorder 02:01-02:04 CST. (1) Fleet-dark (camera_input_dark) HAS fired 3 times: optimization_findings 2026-11-01 10:01Z, 11-02 08:05Z, 11-07 19:23Z, all stored with dimension='sensor_health' and payload kind='camera_input_dark' (the audit grouped by dimension, so it saw zero). The 11-07 one matches the 7.3 h Frigate2 outage (sensor.frigate_status_2 unavailable 13:14-20:32 CST); notification_log shows HIGH companion pages delivered=1 at 19:23Z, 20:13Z and 11-08 00:33Z; binary_sensor.ura_coordinator_manager_camera_input_dark shows nm_latch_fired=1 at 14:13 and 18:33 CST. (2) Detector-hung: resolver (optimization.py:3091) finds exactly one registry match, sensor.frigate_detection_fps_2 (no deleted F1 twin), so it is not inert. Its condition (fps unchanged >= CAMERA_DETECTOR_FROZEN_S=900 s while Frigate runs) never occurred in the recorder window (11-05 to now, 30,649 rows): no gap between numeric changes above 10 min, detector_frozen_s max 0 across all 476 binary-sensor rows. Zero fires is expected; logic covered by 31 tests in test_camera_detector_hung.py. No build."
 - id: ANOMALY-FLOOD-ROWS-1
   title: "Anomaly floods: transit.path_implausible 21.5k rows, write_local_witness_divergence 7.6k, crosscheck_divergence 1.7k, circuit_tripped_breaker 4.7k in 90 days"
   thread: diagnostics
-  status: investigating
+  status: waiting_operator
   batch: broken-promises-2026-11
   created: '2026-11-12 22:30'
-  updated: '2026-11-12 22:30'
+  updated: '2026-11-13 02:04'
   tier: 2
   origin: {date: '2026-11-12', gist: 'Broken-promise sweep (docs/planning/AUDIT_broken_promises_2026_11_12.md); operator: "A lot of our hardening are broken promises from previous work."'}
   why: "Sweep item 8; noise buries real signals and grows the DB (DB-SIZE-GROWTH-1)."
-  next: "Me: per detector, true rate vs noise; tune or fix producer."
+  next: "PICK: A (recommended - smallest fix that removes the false penalty) treat no-sighting as no_camera_data unless the from or to room has its own shared-space camera (sightings already carry a room, transit_validator.py:947); Tier 2, presence-adjacent, gets the presence state-of-play read + 2 reviews. Or B keep the penalty, only stop writing the anomaly rows (noise and DB growth gone, confidence harm stays). -> On your pick I build it to review in an attended session. If you have not vetoed by the next session I take A."
+  refinement_status: "refined"
+  measured_2026_11_13_overnight: "Per-detector read of anomaly_log (URA DB, 02:01 CST). (a) energy.circuit_tripped_breaker: last row 10-19, zero since; ALREADY-FIXED by 58cbfa70 + d3660df6 (expected-on gate). (b) energy.crosscheck_divergence: ~25/day until 11-05, zero since; ALREADY-FIXED by e19631ba (ENVOY-FLAKINESS-181243-1). (c) write_local_witness_divergence: reserve_soc rows stopped 10-29 (witness memory fix 80b755e4); the remaining 116 rows in 30 d are all charge_from_grid commanded=on / local_seen=off at 14:00-16:00 CST, and EC-CFG-SELFHEAL-FALSE-CRITICAL-1 already proved the local Enpower CFG switch reads off the whole time (not a usable witness). Folded there, no new card. (d) transit.path_implausible is the only live flood: 724 rows in 7 d (30-290/day), all 4 residents, 217 distinct room pairs. Top pairs are rooms that are next to each other with no shared camera between them: Receiving Room<->Living Room 602, Master Bedroom<->Master Bathroom 328, Kitchen<->Breakfast Nook 273, Jaya Bedroom<->Jaya Bathroom 212."
+  mechanism_2026_11_13: "Producer defect, not tuning. transit_validator.py:686-697 labels a move 'implausible' whenever no shared-space camera saw anyone in the window AND any shared-space camera anywhere in the house was active in the last 10 min. It never checks whether the path passes a camera at all (the docstring at :772 says it deliberately skips topology). So walking from a bedroom into its own bathroom is 'implausible' whenever someone else is in the hallway. Effect beyond noise: each one cuts the move's confidence by 0.15 (:704, applied at transitions.py:625); music_following.py:115 needs 0.6, so a normal 0.65-0.75 move can drop below it."
+  problem_solution: "Problem: the house logs about 100 'impossible room move' warnings a day, but they are ordinary moves such as bedroom to its own bathroom. The check calls a move impossible whenever a hallway camera somewhere saw nothing at that moment, even if no camera covers that path. Each false warning also lowers the move's confidence, which can stop music following. Solution: only call a move impossible when a camera actually covers the path; otherwise treat it as 'no camera data' (no penalty, no warning row)."
+  links: {"related": ["TRANSIT-1", "EC-CFG-SELFHEAL-FALSE-CRITICAL-1", "DB-SIZE-GROWTH-1"], "context": "TRANSIT-1 built the shared-space checkpoint union this validator uses (the producer being fixed); EC-CFG-SELFHEAL-FALSE-CRITICAL-1 owns the charge_from_grid witness rows folded out of this card; DB-SIZE-GROWTH-1 is the DB-growth consumer of this noise."}
 - id: ZONE-HAS-HOME-PERSON-UNCALLED-1
   title: "zone_has_home_person person-trust backstop is defined with no callers while its docstring claims use"
   thread: hvac
-  status: investigating
+  status: review
   batch: broken-promises-2026-11
   created: '2026-11-12 22:30'
-  updated: '2026-11-12 22:30'
+  updated: '2026-11-13 02:04'
   tier: 1
   origin: {date: '2026-11-12', gist: 'Broken-promise sweep (docs/planning/AUDIT_broken_promises_2026_11_12.md); operator: "A lot of our hardening are broken promises from previous work."'}
   why: "Sweep item 9; likely superseded by _zone_conditioning_retreat_ok."
-  next: "Me: confirm superseded, then DELETE or KEEP+DOCUMENT per triage rule."
+  next: "Me, next attended deploy: merge fix/zone-has-home-person-docstring into develop and ship with --cards ZONE-HAS-HOME-PERSON-UNCALLED-1 (docs-only; rides any release)."
+  verified_2026_11_13_overnight: "CONFIRMED superseded (git grep on develop 22c0023f): zone_has_home_person (hvac_zones.py:2708) has zero production callers; the D7/row-1 path decides through HVACCoordinator._zone_conditioning_retreat_ok (hvac.py:7103, callers :2951 and :3410), and test_zzz_hvac_conditioning_demand.py ~:927 pins that the shared helper must NOT consult it. test_person_gps_assistive.py:857 already notes 'no production caller'. Three-bucket triage: KEEP+DOCUMENT, not DELETE (a working BLE-overrule-aware person-trust read; not a footgun once the docstring stops claiming use; dead != delete)."
+  built_2026_11_13_overnight: "Branch fix/zone-has-home-person-docstring (e8a38bb9, pushed): docstring-only change marking it RETIRED with the superseding path and the pinning test. No behavior change. Validation: test_zzz_hvac_conditioning_demand.py + test_person_gps_assistive.py 94 passed. Review: self-review of a 10-line docstring diff (no code path touched), so no reviewer dispatch."
 - id: PERIMETER-FP-GATES-DISPOSE-1
   title: Perimeter false-positive gates D3/D5 shipped shadow-first but D3 can never evaluate (zone sensors never configured) and no shadow counts are kept; no disposal date
   thread: perimeter
