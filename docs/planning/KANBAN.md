@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-13T02:04:51-06:00_ - _Data commit: `fd65676b1019`_ - _last_reconciled: 2026-11-13_
+_Generated: 2026-11-13T02:07:56-06:00_ - _Data commit: `442dc6c34d27`_ - _last_reconciled: 2026-11-13_
 
 
 ## Columns
@@ -1167,30 +1167,21 @@ _created 2026-10-20 08:30 · updated 2026-11-10 02:12_
 
 ### `ZONE-CAMERA-DISCOVERY-DEVICE-AREA-1` - Zone camera discovery reads only the entity's own area, but every camera's area is set on the device, so no zone has any camera (face arrival never worked) — _#23 · WSJF 2.2 · v6 tc3 u2 /e5_
 thread: **identity** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-11-12 17:06 · updated 2026-11-13 02:06 · refined_
+_created 2026-11-12 17:06 · updated 2026-11-13 02:05 · refined_
 - **Problem / Solution:**
   - Problem: the face-match arrival signal has never fired. All 5 zone presence sensors list no cameras, because camera discovery (camera_census.py ~:661) only reads the area set on each camera entity, and in this house all 655 camera entiti...
 - **Origin:** 2026-11-12 - Operator on the pre-arrival list: "Camera face match: enabled but hasn't fired in 14 days. Que? Regression?" Verdict: never worked.
 - **Why:** Probe docs/planning/AUDIT_face_arrival_and_prearrival_fan_rooms.md. Also a portability defect (feedback_portability_imperative): resolve area from the registry the way HA does. Even once fixed, face arrival would rarely fire: exterior ca...
 - **Next:** APPROVE: A (recommended) fix the area lookup to fall back to the device's area, ship it with room camera-hold OFF by default except rooms you list (so lights/HVAC don't suddenly start holding on cameras), and turn on the zone camera tier...
-- **Forensic keys (5):**
+- **Forensic keys (6):**
   - `tier`: 2
   - `CORRECTION_2026-11-12`: Too broad. Only the v3.19 presence face-arrival path never fired; egress faces work and feed egress identity, perimeter naming and census. The operator's configured zone_cameras (8 interior shared-space/hallway cameras) are stored but on...
   - `verified_2026_11_13_overnight`: STILL-REAL. Live ground truth (recorder, latest row of every sensor.zone_*_presence_status, 02:05 CST): all 5 zones show signal_tiers.camera_sensors=false and cameras={} and face_arrivals_today=0. LOG GAP, stated plainly: I did NOT read ...
   - `consumer_map_2026_11_13`: Three live readers of the area->camera map (camera_census.py _cameras_by_area, built at :1104-1107 and :1186-1189 from entity.area_id only, :664/:1147/:1175): (1) presence.py:5158 zone trackers (zone camera tier + face arrival); (2) coor...
   - `gate_2026_11_13`: Validity: still real. Config-first: no knob restores this; per-zone CONF_DISABLE_CAMERA_PRESENCE opt-out exists (presence.py ~:5148) and would be the per-zone brake after the fix. Prior art: reuse resolver (above). Parsimony: BUILD the s...
+  - `paged_2026_11_13_overnight`: Paged 2026-11-13 02:09 CST in one consolidated quiet notification (notify.madronehapushover, priority -1, wakes nobody) with the pick.
 
-### `GARAGE-HALLWAY-LOCK-NONCONVERGE-1` - Garage hallway lock: URA re-locks hourly, the lock reverts to unlocked ~7 s later, and the retry cap only writes an audit row — _#24 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **security** - status: **waiting_operator**
-_created 2026-11-12 22:30_
-- **Origin:** 2026-11-12 - Broken-promise sweep (docs/planning/AUDIT_broken_promises_2026_11_12.md); operator: "A lot of our hardening are broken promises from previous work."
-- **Why:** Sweep item 3; lock unlocked now. Physical/firmware or a competing writer; the guard never escalates to the operator.
-- **Next:** DO: replace the Kwikset garage hallway lock batteries (someone at home) -> I re-check reverts; separately I fix the guard to escalate instead of looping hourly.
-- **Forensic keys (2):**
-  - `tier`: 2
-  - `FINDING_2026-11-12`: AUDIT_garage_hallway_lock_and_perimeter_gates_2026_11_12.md: only URA periodic lock check (security.py:1830-1865) locks it; each relock reverts 6-7 s later with no person/service context; lock reports alarm_type 169 (low battery to opera...
-
-### `ANOMALY-FLOOD-ROWS-1` - Anomaly floods: transit.path_implausible 21.5k rows, write_local_witness_divergence 7.6k, crosscheck_divergence 1.7k, circuit_tripped_breaker 4.7k in 90 days — _#25 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ANOMALY-FLOOD-ROWS-1` - Anomaly floods: transit.path_implausible 21.5k rows, write_local_witness_divergence 7.6k, crosscheck_divergence 1.7k, circuit_tripped_breaker 4.7k in 90 days — _#24 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **diagnostics** - status: **waiting_operator**
 _created 2026-11-12 22:30 · updated 2026-11-13 02:04 · refined_
 - **Problem / Solution:**
@@ -1198,10 +1189,23 @@ _created 2026-11-12 22:30 · updated 2026-11-13 02:04 · refined_
 - **Origin:** 2026-11-12 - Broken-promise sweep (docs/planning/AUDIT_broken_promises_2026_11_12.md); operator: "A lot of our hardening are broken promises from previous work."
 - **Why:** Sweep item 8; noise buries real signals and grows the DB (DB-SIZE-GROWTH-1).
 - **Next:** PICK: A (recommended - smallest fix that removes the false penalty) treat no-sighting as no_camera_data unless the from or to room has its own shared-space camera (sightings already carry a room, transit_validator.py:947); Tier 2, presen...
-- **Forensic keys (3):**
+- **Forensic keys (4):**
   - `tier`: 2
   - `measured_2026_11_13_overnight`: Per-detector read of anomaly_log (URA DB, 02:01 CST). (a) energy.circuit_tripped_breaker: last row 10-19, zero since; ALREADY-FIXED by 58cbfa70 + d3660df6 (expected-on gate). (b) energy.crosscheck_divergence: ~25/day until 11-05, zero si...
   - `mechanism_2026_11_13`: Producer defect, not tuning. transit_validator.py:686-697 labels a move 'implausible' whenever no shared-space camera saw anyone in the window AND any shared-space camera anywhere in the house was active in the last 10 min. It never chec...
+  - `paged_2026_11_13_overnight`: Paged 2026-11-13 02:09 CST in one consolidated quiet notification (notify.madronehapushover, priority -1, wakes nobody) with the pick.
+
+### `GARAGE-HALLWAY-LOCK-NONCONVERGE-1` - Garage hallway lock: URA re-locks hourly, the lock reverts to unlocked ~7 s later, and the retry cap only writes an audit row — _#25 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **security** - status: **waiting_operator**
+_created 2026-11-12 22:30 · updated 2026-11-13 02:09_
+- **Origin:** 2026-11-12 - Broken-promise sweep (docs/planning/AUDIT_broken_promises_2026_11_12.md); operator: "A lot of our hardening are broken promises from previous work."
+- **Why:** Sweep item 3; lock unlocked now. Physical/firmware or a competing writer; the guard never escalates to the operator.
+- **Next:** DO: replace the Kwikset garage hallway lock batteries (someone at home) -> I re-check reverts; separately I fix the guard to escalate instead of looping hourly.
+- **Forensic keys (4):**
+  - `tier`: 2
+  - `FINDING_2026-11-12`: AUDIT_garage_hallway_lock_and_perimeter_gates_2026_11_12.md: only URA periodic lock check (security.py:1830-1865) locks it; each relock reverts 6-7 s later with no person/service context; lock reports alarm_type 169 (low battery to opera...
+  - `recheck_2026_11_13_overnight`: STILL-REAL (recorder + URA DB, ~02:09 CST). Lock is unlocked now; the relock-then-revert pattern continued all evening (locked 21:56/22:56/23:56/01:14 CST, each back to unlocked 7 s later). Kitchen smoke detector still unavailable; Friga...
+  - `paged_2026_11_13_overnight`: Paged 2026-11-13 02:09 CST in one consolidated quiet notification (notify.madronehapushover, priority -1, wakes nobody) with the pick.
 
 ### `WALLPANEL-BROWSER-MOD-POPUPS-1` - Wall panels: Browser Mod fixed IDs + view-independent pop-ups (doorbell/security/timer/laundry) instead of select-driven view reloads — _#26 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **dashboards** - status: **waiting_operator**
@@ -1950,7 +1954,7 @@ _created 2026-10-17 17:10 · updated 2026-10-19 02:09 · initial_
 
 ### `HVAC-ZONE-KWH-SEED-WARN-WORDING-1` - Zone-kWh seed logs UNSAFE at every boot though the threshold Numbers self-restore a moment later — _#13 · WSJF 4.0 · v1 tc1 u2 /e1_
 thread: **hvac** - status: **parked**
-_created 2026-11-11 19:40 · updated 2026-11-13 02:13_
+_created 2026-11-11 19:40 · updated 2026-11-13 02:07_
 - **Why:** __init__.py:~7310 seed reads core.restore_state before the Numbers restore and finds no entry; number.py:3100-3110 then restores and pushes to the zone. Probe: all three zones 0.8 kW live and in every recorder row since 11-04 (= default)...
 - **Next:** Me, on the trigger above: capture the reason text from a noisy boot, then fix the seed or reword the warning.
 - **Forensic keys (6):**
@@ -3450,7 +3454,7 @@ _closed, evidence in refs_
 
 ### `OPTIMIZER-DIMENSIONS-STUB-OR-SILENT-1` - 3 of 13 optimizer evaluators are return-[] stubs; 5 more emitted zero findings since 10-20; optimizer_shadow_samples empty — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **optimization** - status: **done**
-_created 2026-11-12 22:30 · updated 2026-11-13 02:10_
+_created 2026-11-12 22:30 · updated 2026-11-13 02:07_
 - **Origin:** 2026-11-12 - Broken-promise sweep (docs/planning/AUDIT_broken_promises_2026_11_12.md); operator: "A lot of our hardening are broken promises from previous work."
 - **Why:** Sweep item 5.
 - **Next:** None. Closed; shadow fix lives in OC-SHADOW-SAMPLES-EMPTY-1 / OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1.
