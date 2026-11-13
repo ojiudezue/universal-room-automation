@@ -47,7 +47,17 @@ from .const import (
     NM_HAZARD_EXTERIOR_TRACK_SEVERITY_MAP,
 )
 
+from .exterior_seams import (  # noqa: E402
+    DEFAULT_EXTERIOR_SEAM_FILE,
+    derive_egress_adjacent,
+    graph_from_spec,
+    split_egress,
+    validate_seam_spec,
+)
+
 _LOGGER = logging.getLogger(__name__)
+
+SEAM_SOURCE_CONST = "built-in const"
 
 # Frigate HA-bus event name (same as perimeter_alert.py). Since
 # PERIMETER-FRIGATE-MQTT-DIRECT-1 the listener is FrigateEventIngress (bus +
@@ -222,6 +232,18 @@ class ExteriorTrackLinker:
             self._adjacency.setdefault(a, set()).update(neigh)
             for b in neigh:
                 self._adjacency.setdefault(b, set()).add(a)
+        # EXTERIOR-SEAM-LOADER (D4/D5/D6): the operator seam file
+        # (exterior_seams.json) is PRIMARY; the const graph above is the
+        # FALLBACK. async_load_seam_file() swaps both the adjacency and the
+        # egress-adjacent set; until it runs (or when it rejects) the const
+        # values stand. _classify reads self._egress_adjacent, never the const.
+        self._egress_adjacent: tuple[str, ...] = tuple(
+            EXTERIOR_TRACK_EGRESS_ADJACENT_CAMERAS
+        )
+        self.seam_source: str = SEAM_SOURCE_CONST
+        self.seam_count: int = self._edge_count()
+        self.seam_validation: str = "not loaded"
+        self.seam_file_sha256: str | None = None
         self._id_gen = itertools.count(1)
         # In-flight episode-write tasks (B-H2). done_callback discards on
         # completion; teardown gathers with bounded wait.
@@ -307,6 +329,9 @@ class ExteriorTrackLinker:
             )
             self._unsub_sweep = None
         self._active = True
+        # EXTERIOR-SEAM-LOADER: install the operator seam file (or keep the
+        # const fallback) before the first event can link. Never raises.
+        await self.async_load_seam_file()
         _LOGGER.info(
             "ExteriorTrackLinker: active (link_window=%ds, close_idle=%ds, "
             "adjacency_nodes=%d)",
@@ -398,6 +423,146 @@ class ExteriorTrackLinker:
             for b in neigh:
                 adj.setdefault(b, set()).add(a)
         self._adjacency = adj
+
+    # ---------------- operator seam file (EXTERIOR-SEAM-LOADER) ----------
+    def _edge_count(self) -> int:
+        """Undirected seam count of the installed adjacency."""
+        return sum(len(v) for v in self._adjacency.values()) // 2
+
+    def _install_const_seams(self) -> None:
+        """Restore the built-in fallback graph + egress-adjacent set (D6)."""
+        self.set_adjacency(
+            {a: set(n) for a, n in EXTERIOR_ADJACENCY_GRAPH.items()}
+        )
+        self._egress_adjacent = tuple(EXTERIOR_TRACK_EGRESS_ADJACENT_CAMERAS)
+        self.seam_source = SEAM_SOURCE_CONST
+        self.seam_count = self._edge_count()
+
+    def _seam_known_cameras(self) -> set[str] | None:
+        """Configured exterior camera keys for validator RULE 1.
+
+        The installed allowlist when present; otherwise the allowlist the
+        PerimeterAlertManager staged (it is set up BEFORE the linker in
+        __init__.py, but the install arrives later via the READY signal).
+        None = unknown, RULE 1 skipped (validator contract).
+        """
+        if self._allowed_cameras:
+            return set(self._allowed_cameras)
+        try:
+            from .const import DOMAIN  # noqa: PLC0415
+            pam = (getattr(self.hass, "data", None) or {}).get(DOMAIN, {}).get(
+                "perimeter_alert_manager"
+            )
+            staged = getattr(pam, "_perimeter_allowlist", None)
+            if staged:
+                return {self.normalize_camera(c) for c in staged}
+        except Exception:  # noqa: BLE001
+            pass
+        return None
+
+    def _seam_file_path(self) -> str:
+        return self.hass.config.path(DEFAULT_EXTERIOR_SEAM_FILE)
+
+    @staticmethod
+    def _read_seam_file(path: str) -> tuple[bytes | None, str | None]:
+        """Blocking read — ALWAYS via the executor. (bytes, error)."""
+        import os  # noqa: PLC0415
+        if not os.path.exists(path):
+            return None, None
+        try:
+            with open(path, "rb") as fh:
+                return fh.read(), None
+        except OSError as exc:
+            return None, f"unreadable: {exc}"
+
+    async def async_load_seam_file(self) -> str:
+        """(Re)load exterior_seams.json: validate, then install or fall back.
+
+        Outcomes (returned + surfaced as seam_validation):
+          * file valid  -> set_adjacency(file graph) + derived egress-adjacent.
+          * file absent -> const graph (operator deleting the file = revert).
+          * file invalid/unreadable -> REJECTED WHOLESALE; the previously
+            installed graph is kept (at setup that IS the const), never an
+            empty graph. One WARNING naming the first error.
+        Never raises — a loader fault must not take down exterior tracking.
+        """
+        import hashlib  # noqa: PLC0415
+        import json  # noqa: PLC0415
+        path = "<unresolved>"
+        try:
+            path = self._seam_file_path()
+            raw, read_err = await self.hass.async_add_executor_job(
+                self._read_seam_file, path
+            )
+        except Exception as exc:  # noqa: BLE001
+            raw, read_err = None, f"load failed: {exc}"
+        if raw is None and read_err is None:
+            self._install_const_seams()
+            self.seam_file_sha256 = None
+            self.seam_validation = "file absent"
+            _LOGGER.info(
+                "ExteriorTrackLinker: no seam file at %s — using built-in "
+                "EXTERIOR_ADJACENCY_GRAPH (%d seams)", path, self.seam_count,
+            )
+            return self.seam_validation
+        self.seam_file_sha256 = (
+            hashlib.sha256(raw).hexdigest() if raw is not None else None
+        )
+        errors: list[str] = []
+        warnings: list[str] = []
+        spec: Any = None
+        if read_err is not None:
+            errors = [read_err]
+        else:
+            try:
+                spec = json.loads(raw.decode("utf-8"))
+            except (ValueError, UnicodeDecodeError) as exc:
+                errors = [f"invalid JSON: {exc}"]
+        if not errors:
+            errors, warnings = validate_seam_spec(
+                spec, self._seam_known_cameras()
+            )
+        if errors:
+            self.seam_validation = f"rejected: {errors[0]}"
+            _LOGGER.warning(
+                "ExteriorTrackLinker: seam file %s REJECTED (%d error(s); "
+                "first: %s) — keeping %s (%d seams)",
+                path, len(errors), errors[0], self.seam_source, self.seam_count,
+            )
+            return self.seam_validation
+        graph = graph_from_spec(spec)
+        self.set_adjacency(graph)
+        ext_egress, _interior = split_egress(spec)
+        if ext_egress:
+            self._egress_adjacent = derive_egress_adjacent(spec, graph)
+        else:
+            # File declares no exterior egress: keep the const-derived set
+            # rather than silently disabling `approach` classification.
+            self._egress_adjacent = tuple(EXTERIOR_TRACK_EGRESS_ADJACENT_CAMERAS)
+        self.seam_count = self._edge_count()
+        self.seam_source = (
+            f"exterior_seams.json (schema {spec.get('schema_version')}, "
+            f"{self.seam_count} seams)"
+        )
+        self.seam_validation = "ok" if not warnings else f"ok ({len(warnings)} warning(s): {warnings[0]})"
+        for w in warnings:
+            _LOGGER.info("ExteriorTrackLinker: seam file warning: %s", w)
+        _LOGGER.info(
+            "ExteriorTrackLinker: seam file %s installed (%d seams, "
+            "egress-adjacent=%s)", path, self.seam_count,
+            list(self._egress_adjacent),
+        )
+        return self.seam_validation
+
+    def seam_status(self) -> dict[str, Any]:
+        """D5 provenance attrs for the exterior diagnostic sensor."""
+        return {
+            "seam_source": self.seam_source,
+            "seam_count": self.seam_count,
+            "seam_validation": self.seam_validation,
+            "seam_file_sha256": self.seam_file_sha256,
+            "seam_egress_adjacent": list(self._egress_adjacent),
+        }
 
     @property
     def is_active(self) -> bool:
@@ -731,7 +896,7 @@ class ExteriorTrackLinker:
         ):
             return "circling"
         # Approach: touches an operator-declared egress-adjacent camera.
-        egress_adj = set(EXTERIOR_TRACK_EGRESS_ADJACENT_CAMERAS)
+        egress_adj = set(self._egress_adjacent)
         if egress_adj and any(c in egress_adj for c in cams):
             return "approach"
         if (
