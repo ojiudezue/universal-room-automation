@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-13T15:03:50-06:00_ - _Data commit: `e661f7093214`_ - _last_reconciled: 2026-11-13_
+_Generated: 2026-11-13T15:06:50-06:00_ - _Data commit: `ca610e4b2a34`_ - _last_reconciled: 2026-11-13_
 
 
 ## Columns
@@ -204,7 +204,7 @@ _created 2026-11-12 22:00_
 - **Origin:** 2026-11-12 - Operator: watch arrivals with AI vision; time-lapse; fast first frames; counting is easy, naming is hard; guests are the census problem; OpenAI models (GPT-6 Luna/Sol); deconflict with camera counts until trusted (100 crossi...
 - **Why:** Design in PLANNING_person_sighting_layer.md section 15. Gates: D0-FRAME (blank-frame experiment), D0-SIM (timing simulation), D0-V (model scoring incl. dry call per GPT-6 model for llmvision param compatibility). Then its own sibling plan.
 - **Next:** Me: revise plan section 15.9 frame guard to judge frames directly; resolve the llmvision temperature blocker for GPT-6 models (config-first); then the sibling vision plan.
-- **Forensic keys (11):**
+- **Forensic keys (12):**
   - `arc_cut_v5_108_19`: shadow build running
   - `arc_cut_v5_108_18`: separate plan
   - `arc_cut_v5_108_16`: own sibling plan, D0-FRAME/SIM done, re-anchor edits then D0-V
@@ -216,6 +216,7 @@ _created 2026-11-12 22:00_
   - `operator_2026_11_13_objective`: Operator rejects the AWAY-hold Phase 2: "We don't have an away problem... Away Provenance is fine. Vision is to assist census accuracy. And assist arrivals accuracy and personalization. Especially when combined with facial recognition fr...
   - `operator_2026_11_13_away_fast`: Operator: "it seems like it will delay away and I need away to be fast acting. That's how it saves $ on energy treatment." HARD constraint: vision counts never delay or block AWAY entry (INV-P2-AWAY-LATENCY; AWAY predicates read pre-visi...
   - `operator_2026_11_13_census_split`: Operator: "split the census output by use, in line with the model... Do it. Let's get it right." Rev 7: F2 publishes a trust view (byte-identical, house state/AWAY/security) and an awareness view (vision + Frigate/Protect deconflicted, p...
+  - `blocked_by_f_notify`: F-NOTIFY (notifications read the awareness view) blocked on EGRESS-DIRECTION-AWARE-IDENTITY-1 or measured entry attach >= 0.50 (30% today).
 
 ## 🧭 Pre-planning (14)
 _idea being decomposed_
@@ -226,8 +227,9 @@ _created 2026-11-13 18:30_
 - **Origin:** 2026-11-13 - Operator: "we may need a consolidated boundary crossing and person awareness function... that all consumers can [read] and producers can feed" after inspecting reuse. Inventory AUDIT_person_awareness_interface_inventory_2026...
 - **Why:** Expresses the F1-F5 model in code so consumers and producers stop drifting: PresenceCoordinator already owns F1/F4/F5 getters (presence.py:5409,:5433,:5436,:5907); ~20 private PersonCensus methods are called 40+ times from transit_valida...
 - **Next:** Me: ura-planner Tier 2 plan (REUSE/EXTEND per inventory): public census accessors, one id-normalisation function, class-aware read views on PresenceCoordinator, migrate private reads; no behaviour change (byte-identical), mutation-anchor...
-- **Forensic keys (1):**
+- **Forensic keys (2):**
   - `tier`: 2
+  - `rev7_2026_11_13`: Crossing vision rev 7 (62c4bb3a) builds a MINIMAL slice in its cycle: PresenceCoordinator.get_house_census(view) + view_for_class(cls) (trust for house-state/security/HVAC always). This card = the full migration (~40 private census reads...
 
 ### `EC-TOU-TRANSITION-DOUBLE-CONSUME-1` - Manager and timer both consume the TOU-period change; if the manager wins, the arbitrage chunk reset and transition-into-peak check are skipped for that boundary — _#2 · WSJF 3.5 · v3 tc2 u2 /e2_
 thread: **energy** - status: **pre_planning**
