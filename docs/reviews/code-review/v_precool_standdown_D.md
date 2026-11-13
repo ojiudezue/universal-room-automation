@@ -56,3 +56,7 @@ Repro: Carrier cloud outage, zone_2 last read `heat_cool` with T 64; a winter pr
 | LOW | 3 | pending |
 
 Bug classes: #53 one-missed-site (D-M1, D-L1); hollow guard / #63-adjacent (D-L2); doc drift (D-L3).
+
+## Fix-up disposition (2026-11-12)
+
+D-M1 FIXED at both sites via `_zone_has_borrow_to_release` (energy gate-OFF: `test_energy_gate_off_skips_zone_without_borrow` drives the TAO 68/72 repro; restart orphans: `test_restart_orphan_skips_zone_without_borrow` + `test_restart_orphan_still_releases_live_borrow`; each mutation RED). `test_v5_7_1_energy_precool` C2/C3 updated: C2's banked zone now holds its token; C3's orphan holds a live row. Effect: the orphan reconciliation releases only zones with a still-live row after the boot audit. D-L1 FIXED (unreturned pre-heat token only; `test_master_off_skips_returned_preheat_token`). D-L2 FIXED for the heat leg (live entity read; `test_unreadable_mode_cool_open_heat_closed` drives stale ZoneState heat_cool/T 65 with the entity unavailable/unknown). The cool leg still reads ZoneState (plan L4, fail open). D-L3 FIXED in STATE_OF_PLAY wording.

@@ -1534,6 +1534,10 @@ class TestC2EcGateOffMidCycleRelease:
         # Pre-populate last-cycle banked set as if cycle N ran banked.
         pred._last_precool_gate_enabled = True
         pred._last_precool_zones = {"z1"}
+        # HVAC-PRECOOL-STANDDOWN-WHEN-COOL-1 fix-up D-M1: a release needs a
+        # borrow — z1 holds its energy banking token.
+        from types import SimpleNamespace as _NS
+        pred._banking_excursion_tokens = {"z1": _NS(caller_site="S12_pre_cool")}
         pred._first_eval_done = True
         _install_ec(
             hass, enabled=False,    # sub-switch OFF mid-cycle
@@ -1596,6 +1600,12 @@ class TestC3PostRestartOrphanReconciliation:
             released.append(set(zones_))
 
         pred._release_banked_zones = _spy_release
+        # Fix-up D-M1: only a zone whose excursion row is still live (the
+        # boot audit did not close it) is an orphan borrow; a below-baseline
+        # zone with no row is a person's setpoint and is left alone.
+        # (The live-row predicate itself is anchored in
+        # test_hvac_prearrival_conditioning; here z_banked's row is live.)
+        pred._zone_has_borrow_to_release = lambda z: z == "z_banked"
         _run_coro(pred._check_pre_conditioning(
             _make_constraint(soc=98, forecast_high=95),
             house_state="home_day",

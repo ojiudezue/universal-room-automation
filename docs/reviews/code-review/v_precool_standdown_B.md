@@ -65,3 +65,7 @@ Cleared (beyond the trace): concurrent begin between the cool return and the hea
 | LOW | 2 | optional (B-L2 is a one-string change) |
 
 Bug-class frequency: cross-coordinator precedence x1, observability x1. QUALITY_CONTEXT candidate: none.
+
+## Fix-up disposition (2026-11-12)
+
+B-L1 ACCEPTED (the zone is being heated toward the arrival target anyway; inherited from the cool leg's BANKING row). B-L2 FIXED (trigger `s13_prearrival_wire_failed`; `test_preheat_wire_failure_trigger_is_prearrival`).

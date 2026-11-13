@@ -56,3 +56,7 @@ Cleared (holds because):
 
 Bug-class frequency: #63 ×1, #53-shape ×1, kill-switch incompleteness ×1, observation gating ×1.
 QUALITY_CONTEXT candidate: none new. A-M1 is a #63 instance ("at or above the heat target" was treated as equal to "inside the band").
+
+## Fix-up disposition (2026-11-12)
+
+A-M1 FIXED (heat leg returns `above_band` for T > effective_high + margin; `test_cool_deferred_or_failed_no_standdown_row` x3 + `test_heat_leg_band_edges`; mutation RED). A-L1 FIXED (cool mode check gated on `PRE_ARRIVAL_PRECOOL_STANDDOWN_ENABLED`; `test_cool_mode_check_off_with_backout`). A-L2 FIXED (`_precool_effective_high`, one derivation; `test_heat_band_tracks_cool_floor`). A-L3 ACCEPTED (display only; at most one row fewer when a leave-and-re-enter happens while master/ZI is off).

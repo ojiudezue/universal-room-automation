@@ -27,6 +27,7 @@ from .hvac_const import (
     ENERGY_PRECOOL_SCOPE_VALUES,
     ENERGY_PRECOOL_SCOPE_WHOLE_HOUSE,
     MIN_DEADBAND,
+    HVAC_CLIMATE_UNREADABLE_STATES,
     PRE_ARRIVAL_CALLER_SITES,
     PRE_ARRIVAL_LEG_MODES,
     PRE_ARRIVAL_PRECOOL_OFFSET_F,
@@ -557,14 +558,8 @@ class HVACPredictor:
             # release — `_release_banked_zones` with no token would write the
             # raw baseline (a Carrier manual hold on a zone that never
             # borrowed).
-            _pht_m = getattr(self, "_preheat_excursion_tokens", {}) or {}
-            from . import hvac_excursion as _ex_d1b  # noqa: PLC0415
             for _z in sorted(release_set):
-                if (
-                    _z not in _toks_m
-                    and _z not in _pht_m
-                    and not _ex_d1b.is_borrow_active(_z)
-                ):
+                if not self._zone_has_borrow_to_release(_z):
                     release_set.discard(_z)
                     _LOGGER.debug(
                         "HVAC: master-OFF release skips %s — no live borrow", _z,
@@ -634,6 +629,18 @@ class HVACPredictor:
                     _base_low, base_high = baseline
                     if cur_high < base_high - 0.5:
                         orphans.add(zone_id)
+                # HVAC-PRECOOL-STANDDOWN-WHEN-COOL-1 fix-up (D-M1): the D1b
+                # rule — no token and no live row -> nothing to release (a
+                # below-baseline setpoint with no borrow is a person's, e.g.
+                # under Temp Arrester Override). The boot audit already closed
+                # every S12/S13 BANKING row `stale_boot_release`.
+                for _z in sorted(orphans):
+                    if not self._zone_has_borrow_to_release(_z):
+                        orphans.discard(_z)
+                        _LOGGER.debug(
+                            "HVAC: post-restart reconciliation skips %s — "
+                            "no live borrow", _z,
+                        )
                 if orphans:
                     _LOGGER.info(
                         "HVAC: post-restart energy-pre-cool reconciliation — "
@@ -661,6 +668,16 @@ class HVACPredictor:
                     _LOGGER.debug(
                         "HVAC: energy pre-cool gate OFF leaves %s — a "
                         "pre-arrival borrow owns it", _z,
+                    )
+                # Fix-up (D-M1): the D1b rule — a zone the energy loop only
+                # visited (setpoint_skip / foreign / stood down) has no
+                # borrow; releasing it would write the raw baseline over a
+                # person's setpoint.
+                elif not self._zone_has_borrow_to_release(_z):
+                    _rel_c.discard(_z)
+                    _LOGGER.debug(
+                        "HVAC: energy pre-cool gate OFF skips %s — no live "
+                        "borrow", _z,
                     )
             if _rel_c:
                 await self._release_banked_zones(_rel_c)
@@ -1386,7 +1403,8 @@ class HVACPredictor:
         # HVAC-PRECOOL-STANDDOWN-WHEN-COOL-1 D3: the cool leg runs only when
         # the thermostat's live mode serves it. Unreadable mode -> fail OPEN
         # (today's write). Pre-arrival only; the energy caller is untouched.
-        if reason == "pre_arrival":
+        # Gated by the cool back-out (review A-L1): const False = today.
+        if reason == "pre_arrival" and PRE_ARRIVAL_PRECOOL_STANDDOWN_ENABLED:
             _mode_c = getattr(zone, "hvac_mode", "") or ""
             if (
                 _mode_c not in PRE_ARRIVAL_UNREADABLE_MODES
@@ -1409,8 +1427,7 @@ class HVACPredictor:
         else:
             banked_high = zone.target_temp_high + offset  # offset is negative
         # v4.5.10: floor is now self._solar_bank_floor (configurable).
-        floor = max(self._solar_bank_floor, zone.target_temp_low + MIN_DEADBAND)
-        effective_high = max(banked_high, floor)
+        effective_high = self._precool_effective_high(zone, banked_high)
 
         if effective_high >= zone.target_temp_high:
             return "setpoint_skip"  # Floor prevents any meaningful change
@@ -1560,7 +1577,7 @@ class HVACPredictor:
                 _LOGGER.info(
                     "HVAC: Zone %s pre-cool (%s): %.1f -> %.1f (offset=%.1f, floor=%.1f)",
                     zone.zone_name, reason,
-                    zone.target_temp_high, effective_high, offset, floor,
+                    zone.target_temp_high, effective_high, offset, self._precool_effective_high(zone, float("-inf")),
                 )
                 # Wire landed — commit the excursion + register token
                 # so _release_banked_zones can find it later.
@@ -1647,6 +1664,49 @@ class HVACPredictor:
         except Exception:  # noqa: BLE001
             _LOGGER.debug("pre_arrival_standdown row failed", exc_info=True)
 
+    def _precool_effective_high(self, zone, banked_high: float) -> float:
+        """The pre-cool target: ``banked_high`` floored at the solar-bank
+        floor and the live low + MIN_DEADBAND. ONE derivation, read by the
+        cool leg's write and the heat leg's band (review A-L2)."""
+        floor = max(
+            self._solar_bank_floor, float(zone.target_temp_low) + MIN_DEADBAND,
+        )
+        return max(float(banked_high), floor)
+
+    def _zone_has_borrow_to_release(self, zone_id: str) -> bool:
+        """D1b rule (+ fix-up D-M1, D-L1): True when a release on this zone
+        has something to return — a banking token, an UNRETURNED energy
+        pre-heat token, or a live excursion row. Otherwise
+        `_release_banked_zones` would write the raw baseline over whatever a
+        person set."""
+        if zone_id in (getattr(self, "_banking_excursion_tokens", {}) or {}):
+            return True
+        _pht = (getattr(self, "_preheat_excursion_tokens", {}) or {}).get(zone_id)
+        if _pht is not None and not getattr(_pht, "returned", False):
+            return True
+        from . import hvac_excursion as _ex_r  # noqa: PLC0415
+        return bool(_ex_r.is_borrow_active(zone_id))
+
+    def _live_mode_and_temp(self, zone) -> tuple[str, float | None]:
+        """Live ``(hvac_mode, current_temperature)`` of the zone's climate
+        entity (review D-L2). An unreadable entity returns its state
+        (`unavailable` / `unknown`) and T None. A missing entity or a failed
+        read falls back to ZoneState (as `_climate_unreadable` treats it as
+        readable)."""
+        try:
+            st = self.hass.states.get(zone.climate_entity)
+        except Exception:  # noqa: BLE001
+            st = None
+        if st is None or not isinstance(getattr(st, "state", None), str):
+            return (
+                getattr(zone, "hvac_mode", "") or "",
+                _num_or_none(getattr(zone, "current_temperature", None)),
+            )
+        if st.state in HVAC_CLIMATE_UNREADABLE_STATES:
+            return st.state, None
+        attrs = getattr(st, "attributes", None) or {}
+        return st.state, _num_or_none(attrs.get("current_temperature"))
+
     async def _execute_zone_pre_heat_arrival(self, zone) -> str:
         """HVAC-PRECOOL-STANDDOWN-WHEN-COOL-1 D2: arrival PRE-HEAT.
 
@@ -1671,8 +1731,10 @@ class HVACPredictor:
             return "egress_paused"
         if zone.target_temp_high is None or zone.target_temp_low is None:
             return "no_targets"
-        # D3 (review M3): heat_cool only; unreadable -> closed.
-        _mode = getattr(zone, "hvac_mode", "") or ""
+        # D3 (review M3): heat_cool only; unreadable -> closed. Fix-up
+        # (D-L2): read the LIVE entity, as `_climate_unreadable` does —
+        # ZoneState keeps its last readable values through an outage.
+        _mode, _t_live = self._live_mode_and_temp(zone)
         if _mode in PRE_ARRIVAL_UNREADABLE_MODES:
             self._note_prearrival_skip(zone, "heat", "mode_unreadable", None, None)
             return "mode_unreadable"
@@ -1695,9 +1757,8 @@ class HVACPredictor:
         )
         # The cool leg's target, computed as `_execute_zone_pre_cool` does
         # for a pre-arrival (baseline cool + offset, floored).
-        effective_high = max(
-            base_cool + PRE_ARRIVAL_PRECOOL_OFFSET_F,
-            max(self._solar_bank_floor, float(zone.target_temp_low) + MIN_DEADBAND),
+        effective_high = self._precool_effective_high(
+            zone, base_cool + PRE_ARRIVAL_PRECOOL_OFFSET_F,
         )
         if effective_low > effective_high:
             # Inverted band (rev 4, M2): the heat leg yields.
@@ -1714,12 +1775,20 @@ class HVACPredictor:
             return "band_inverted"
         if effective_low <= zone.target_temp_low:
             return "setpoint_skip"  # nothing to raise
-        _t = _num_or_none(getattr(zone, "current_temperature", None))
+        _t = _t_live
         if _t is None:
             self._note_prearrival_skip(
                 zone, "heat", "no_temp", effective_low, effective_high,
             )
             return "no_temp"
+        if _t > effective_high + PRE_ARRIVAL_STANDDOWN_MARGIN_F:
+            # Fix-up (A-M1): above the band is NOT a stand-down — the cool
+            # leg owns it (deferred / failed / back-out off). No row.
+            self._note_prearrival_skip(
+                zone, "heat", "above_band", effective_low, effective_high,
+                temp=_t,
+            )
+            return "above_band"
         if _t >= effective_low - PRE_ARRIVAL_STANDDOWN_MARGIN_F:
             self._note_prearrival_skip(
                 zone, "heat", "heat_standdown", effective_low, effective_high,
@@ -1776,7 +1845,7 @@ class HVACPredictor:
             self._override_arrester.suppress(zone.climate_entity, kind="temp")
 
         async with _ex_mod.auto_release_on_incomplete(
-            _bt, trigger="s13_preheat_wire_failed",
+            _bt, trigger="s13_prearrival_wire_failed",
         ) as _guard:
             # W4 (M1): a person's change landed while begin awaited.
             if (_bt is not None and _bt.returned) or self._interrupt_latched(zone):

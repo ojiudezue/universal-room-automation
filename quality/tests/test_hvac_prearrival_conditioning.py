@@ -50,6 +50,7 @@ def _entity_registry_not_loaded(monkeypatch):
 
 Z1, E1 = "zone_1", "climate.test_zone_1"
 Z2, E2 = "zone_2", "climate.test_zone_2"
+Z3, E3 = "zone_3", "climate.test_zone_3"
 # Seasonal (cool, heat) profiles, hand-typed. WINTER = SEASONAL_DEFAULTS
 # winter (Home 72/70, Away 78/60); SUMMER = summer defaults (Home 77/70).
 WINTER = {"home": (72.0, 70.0), "away": (78.0, 60.0), "sleep": (70.0, 68.0)}
@@ -512,6 +513,9 @@ async def test_preheat_none_temperature_fails_closed(mods, monkeypatch, temp):
     coord, hass, db, _ = _setup(mods, monkeypatch, temp=65.0)
     z = coord.zone_manager.zones[Z2]
     z.current_temperature = temp
+    # Fix-up D-L2: the heat leg reads the LIVE entity.
+    H.set_climate(hass, z.climate_entity, preset_mode="away", low=60.0, high=78.0,
+                  state="heat_cool", extra={"current_temperature": temp})
     n = len(hass.services.calls)
     out = await coord._predictor._execute_zone_pre_heat_arrival(z)
     await H.drain(hass)
@@ -823,15 +827,21 @@ async def test_leg_mode_table(mods, monkeypatch, mode, temp, cool_writes, heat_w
     assert bool(_heat_rows(hass, mods)) is heat_writes
 
 
-@pytest.mark.parametrize("mode", ["", "unknown"])
+@pytest.mark.parametrize("mode", ["unavailable", "unknown"])
 @pytest.mark.asyncio
 async def test_unreadable_mode_cool_open_heat_closed(mods, monkeypatch, mode):
+    """Cool reads ZoneState mode (fails open, plan L4). Heat reads the LIVE
+    entity (fix-up D-L2): ZoneState keeps `heat_cool`/T 65 from before the
+    outage (hvac_zones returns early on unavailable), the live entity is
+    unreadable -> no heat write."""
     coord, hass, db, _ = _setup(mods, monkeypatch, mode="heat_cool", temp=80.0)
-    coord.zone_manager.zones[Z2].hvac_mode = mode
+    coord.zone_manager.zones[Z2].hvac_mode = "" if mode == "unavailable" else mode
     await _pass(coord, hass)
     assert len(_cool_rows(hass, mods)) == 1          # cool fails open
     coord2, hass2, db2, _ = _setup(mods, monkeypatch, mode="heat_cool", temp=65.0)
-    coord2.zone_manager.zones[Z2].hvac_mode = mode
+    z2 = coord2.zone_manager.zones[Z2]
+    assert (z2.hvac_mode, z2.current_temperature) == ("heat_cool", 65.0)
+    hass2.states.async_set(z2.climate_entity, mode, {})
     await _pass(coord2, hass2)
     assert _heat_rows(hass2, mods) == []              # heat fails closed
     assert ("heat", "mode_unreadable") in {(s["leg"], s["reason"]) for s in _skips(coord2)}
@@ -891,3 +901,183 @@ def test_no_raw_s12_prearrival_site_comparisons():
                 if any(_is_site(x) for x in [node.left, *node.comparators]):
                     offenders.append(f"{path.name}:{node.lineno}")
     assert offenders == []
+
+
+# ==========================================================================
+# Fix-up (reviews A/B/D)
+# ==========================================================================
+
+
+def _fail_cool_writes(mods, monkeypatch):
+    """The cool leg's funnel call raises (-> "failed"); the heat leg's is real."""
+    real = mods["hvac_predict"]._w1c_strategy
+
+    def _strategy(hass, ent):
+        st = real(hass, ent)
+
+        class _Wrap:
+            async def set_setpoints(self, *a, **kw):
+                if kw.get("site") == "S12_pre_cool":
+                    raise RuntimeError("wire down")
+                return await st.set_setpoints(*a, **kw)
+        return _Wrap()
+    monkeypatch.setattr(mods["hvac_predict"], "_w1c_strategy", _strategy)
+
+
+@pytest.mark.parametrize("case", ["cool_deferred", "cool_failed", "cool_backout_deferred"])
+@pytest.mark.asyncio
+async def test_cool_deferred_or_failed_no_standdown_row(mods, monkeypatch, case):
+    """A-M1 repro: SUMMER Home 77/70, live 60/82, floor 74, T 77. Band is
+    72-75; T 77 is ABOVE it. Cool does not land (deferred / failed) -> the
+    heat leg must say above_band, not standdown -> NO row, counter 0."""
+    if case == "cool_backout_deferred":
+        monkeypatch.setattr(mods["hvac_predict"], "PRE_ARRIVAL_PRECOOL_STANDDOWN_ENABLED", False)
+    coord, hass, db, _ = _summer(mods, monkeypatch, 77.0)
+    if case == "cool_failed":
+        _fail_cool_writes(mods, monkeypatch)
+    else:
+        monkeypatch.setattr(coord._override_arrester, "comfort_delay_active", lambda z: True)
+    await _pass(coord, hass)
+    assert _cool_rows(hass, mods) == [] and _heat_rows(hass, mods) == []
+    heat = [(s["reason"], s["effective_low"], s["effective_high"])
+            for s in _skips(coord) if s["leg"] == "heat"]
+    assert heat == [("above_band", 72.0, 75.0)]
+    assert _standdown_rows(hass, mods) == []
+    assert int(coord._predictor._prearrival_standdowns_today) == 0
+
+
+@pytest.mark.parametrize("temp,out", [(72.0, "standdown"), (75.0, "standdown"),
+                                      (76.0, "above_band"), (71.0, "began")])
+@pytest.mark.asyncio
+async def test_heat_leg_band_edges(mods, monkeypatch, temp, out):
+    """Heat leg alone, band 72-75 (Home 77/70, floor 74, live 60/82): both band
+    edges stand down, one degree above is above_band, one below writes."""
+    coord, hass, db, _ = _summer(mods, monkeypatch, temp)
+    z = coord.zone_manager.zones[Z2]
+    assert await coord._predictor._execute_zone_pre_heat_arrival(z) == out
+
+
+@pytest.mark.asyncio
+async def test_cool_mode_check_off_with_backout(mods, monkeypatch):
+    """A-L1: const False -> today's write even in single `heat` mode."""
+    monkeypatch.setattr(mods["hvac_predict"], "PRE_ARRIVAL_PRECOOL_STANDDOWN_ENABLED", False)
+    coord, hass, db, _ = _summer(mods, monkeypatch, 80.0, mode="heat")
+    await _pass(coord, hass)
+    assert [r["values_after"]["target_temp_high"] for r in _cool_rows(hass, mods)] == [75.0]
+
+
+@pytest.mark.asyncio
+async def test_heat_band_tracks_cool_floor(mods, monkeypatch):
+    """A-L2: one derivation — a change to the shared helper moves the heat
+    leg's band (eff_high) with the cool leg's target."""
+    coord, hass, db, _ = _summer(mods, monkeypatch, 76.0)
+    pred = coord._predictor
+    z = coord.zone_manager.zones[Z2]
+    assert await pred._execute_zone_pre_heat_arrival(z) == "above_band"
+    monkeypatch.setattr(pred, "_precool_effective_high", lambda zone, b: 76.0)
+    pred._last_prearrival_skips = []
+    assert await pred._execute_zone_pre_heat_arrival(z) == "standdown"
+
+
+@pytest.mark.asyncio
+async def test_preheat_wire_failure_trigger_is_prearrival(mods, monkeypatch):
+    """B-L2: a deferred arrival pre-heat releases with its own trigger."""
+    coord, hass, db, _ = _setup(mods, monkeypatch, temp=65.0)
+    monkeypatch.setattr(coord._override_arrester, "comfort_delay_active", lambda z: True)
+    await _pass(coord, hass)
+    trig = [e.get("trigger") for e in db.events
+            if e.get("site") == "S13_pre_arrival" and e.get("trigger")]
+    assert "s13_prearrival_wire_failed" in trig
+    assert "s13_preheat_wire_failed" not in trig
+
+
+async def _tao_manual_zone3_setpoint_skip(mods, monkeypatch):
+    """D-M1 repro: summer, energy pre-cool ON whole_house, home_day, Home 70/76.
+    A person under TAO holds zone_3 at 68/72. Energy trigger -> zone_3
+    `setpoint_skip` (73 >= 72) but tracked in `_last_precool_zones`."""
+    seasonal = {**SUMMER, "home": (76.0, 70.0)}
+    coord, hass, db, _ = _setup(mods, monkeypatch, seasonal=seasonal, low=68.0,
+                                high=72.0, temp=72.0, floor=72.0, zones=(Z3,))
+    pred = coord._predictor
+    pred._first_eval_done = True
+    _install_cm(hass, mods, pre_cond=True, energy_on=True)
+    monkeypatch.setattr(pred, "_should_energy_precool", lambda c, n: True)
+    await pred._check_pre_conditioning(None, "home_day", datetime(2026, 7, 1, 10, 30),
+                                       pre_arrival_zones=set(), zone_intelligence_enabled=True)
+    await H.drain(hass)
+    assert Z3 in pred._last_precool_zones and Z3 not in pred._banking_excursion_tokens
+    assert H.temp_writes(hass, E3) == []
+    return coord, hass, pred
+
+
+@pytest.mark.asyncio
+async def test_energy_gate_off_skips_zone_without_borrow(mods, monkeypatch):
+    """D-M1 site 1: gate OFF writes nothing to the TAO-held zone_3."""
+    coord, hass, pred = await _tao_manual_zone3_setpoint_skip(mods, monkeypatch)
+    _install_cm(hass, mods, pre_cond=True, energy_on=False)
+    n = len(hass.services.calls)
+    await pred._check_pre_conditioning(None, "home_day", datetime(2026, 7, 1, 12, 0),
+                                       pre_arrival_zones=set(), zone_intelligence_enabled=True)
+    await H.drain(hass)
+    assert [c for c in hass.services.calls[n:] if c[2].get("entity_id") == E3] == []
+    assert pred._last_precool_zones == set()
+
+
+@pytest.mark.asyncio
+async def test_restart_orphan_skips_zone_without_borrow(mods, monkeypatch):
+    """D-M1 site 2: first eval after boot, gate OFF, zone_3 held 68/72 by a
+    person (72 < 76 - 0.5 -> orphan candidate) with no token and no row ->
+    no write."""
+    seasonal = {**SUMMER, "home": (76.0, 70.0)}
+    coord, hass, db, _ = _setup(mods, monkeypatch, seasonal=seasonal, low=68.0,
+                                high=72.0, temp=72.0, floor=72.0, zones=(Z3,))
+    pred = coord._predictor
+    pred._first_eval_done = False
+    _install_cm(hass, mods, pre_cond=True, energy_on=False)
+    n = len(hass.services.calls)
+    await pred._check_pre_conditioning(None, "home_day", datetime(2026, 7, 1, 12, 0),
+                                       pre_arrival_zones=set(), zone_intelligence_enabled=True)
+    await H.drain(hass)
+    assert pred._first_eval_done is True
+    assert [c for c in hass.services.calls[n:] if c[2].get("entity_id") == E3] == []
+
+
+@pytest.mark.asyncio
+async def test_restart_orphan_still_releases_live_borrow(mods, monkeypatch):
+    """D-M1 site 2, positive side: a zone that DOES hold a borrow is still
+    handed to the release."""
+    seasonal = {**SUMMER, "home": (76.0, 70.0)}
+    coord, hass, db, _ = _setup(mods, monkeypatch, seasonal=seasonal, low=68.0,
+                                high=72.0, temp=72.0, floor=72.0, zones=(Z3,))
+    pred = coord._predictor
+    pred._first_eval_done = False
+    pred._banking_excursion_tokens = {Z3: SimpleNamespace(caller_site="S12_pre_cool")}
+    released: list = []
+
+    async def _rel(zone_ids, *, trigger="banking_release"):
+        released.append(set(zone_ids))
+    monkeypatch.setattr(pred, "_release_banked_zones", _rel)
+    _install_cm(hass, mods, pre_cond=True, energy_on=False)
+    await pred._check_pre_conditioning(None, "home_day", datetime(2026, 7, 1, 12, 0),
+                                       pre_arrival_zones=set(), zone_intelligence_enabled=True)
+    assert released == [{Z3}]
+
+
+@pytest.mark.asyncio
+async def test_master_off_skips_returned_preheat_token(mods, monkeypatch):
+    """D-L1: a RETURNED energy pre-heat token (kept until the boundary timer)
+    is not a borrow -> no release, no raw baseline write."""
+    coord, hass, db, _ = _summer(mods, monkeypatch, 80.0)
+    pred = coord._predictor
+    pred._preheat_excursion_tokens = {Z2: SimpleNamespace(returned=True)}
+    pred._last_pre_conditioning_zones = {Z2}
+    pred._last_pre_conditioning_gate_enabled = True
+    released: list = []
+
+    async def _rel(zone_ids, *, trigger="banking_release"):
+        released.append((set(zone_ids), trigger))
+    monkeypatch.setattr(pred, "_release_banked_zones", _rel)
+    _install_cm(hass, mods, pre_cond=False, energy_on=False)
+    await pred._check_pre_conditioning(None, "home_night", datetime(2026, 7, 1, 11, 0),
+                                       pre_arrival_zones=set(), zone_intelligence_enabled=True)
+    assert released == []
