@@ -70,3 +70,4 @@
 - 2026-11-12 15:49 **v5.108.13** — v5.108.13 — EV rung-1 redirect cap; lock suspicious-arrival hold (cards: EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1,GARAGE-REMOTE-LOCKOUT-SCHEDULE-1)
 - 2026-11-12 21:08 **v5.108.14** — v5.108.14 — Pre-arrival stands down when the zone is already cool; arrival pre-heat; Net Grid Today (cards: HVAC-PRECOOL-STANDDOWN-WHEN-COOL-1,EC-IMPORT-TODAY-NET-AFTER-RESTART-1)
 - 2026-11-12 21:53 **v5.108.15** — v5.108.15 — The exterior seam file actually loads (cards: EXTERIOR-SEAM-FILE-LOADER-1)
+- 2026-11-13 01:14 **v5.108.16** — v5.108.16 — Person sightings, phase 1 (cards: INTERIOR-PATH-MAP-1)
