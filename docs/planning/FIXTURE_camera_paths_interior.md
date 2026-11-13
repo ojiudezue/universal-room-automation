@@ -43,7 +43,9 @@ shares a field of view with the family room camera (expect simultaneous detectio
 Corrected front-door path: Front PTZ (left) / Utilities PTZ (right) / Sonoff window (driveway) > {Front door aerial,
 G6 Entry} (egress, simultaneous) > Foyer (interior, door witness) > Family room or Master hallway.
 
-Still open: Garage B path; patio egress (add one?); is "Game room" the `playroom` camera.
+- **"Game room" = the `playroom` camera.**
+
+Still open: Garage B path; patio egress (add one?).
 
 ## Open items
 
