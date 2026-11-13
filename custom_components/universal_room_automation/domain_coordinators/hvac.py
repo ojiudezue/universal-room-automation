@@ -49,7 +49,7 @@ from .hvac_const import (
     DEFAULT_HVAC_RETURN_WINDOW_MINUTES,
     # HVAC W1/W2 finish D5: knob 35 "Pre-Arrival Window (min)".
     DEFAULT_HVAC_PRE_ARRIVAL_WINDOW_MINUTES,
-    S12_PRE_ARRIVAL_SITE,
+    PRE_ARRIVAL_CALLER_SITES,
     HVAC_CLIMATE_UNREADABLE_STATES,
     clamp_hvac_pre_arrival_window_minutes,
     pre_arrival_reference_preset,
@@ -2329,6 +2329,16 @@ class HVACCoordinator(BaseCoordinator):
             # computed above from dt_util.now(), LOCAL day) keeps clock
             # semantics consistent across the tracker.
             await self._emit_and_reset_short_cycles(today)
+            # HVAC-PRECOOL-STANDDOWN-WHEN-COOL-1 D4: predictor display
+            # counters roll over on the same hinge.
+            for _pc_name in (
+                "_prearrival_standdowns_today",
+                "_precool_writes_today",
+                "_preheat_writes_today",
+            ):
+                _pc = getattr(self._predictor, _pc_name, None)
+                if _pc is not None:
+                    _pc.rollover_if_needed()
 
         # Update zone states
         self._zone_manager.update_all_zones()
@@ -7451,7 +7461,7 @@ class HVACCoordinator(BaseCoordinator):
             _tok = tokens.get(zone_id)
             if (
                 _tok is not None
-                and getattr(_tok, "caller_site", None) == S12_PRE_ARRIVAL_SITE
+                and getattr(_tok, "caller_site", None) in PRE_ARRIVAL_CALLER_SITES
                 and _tok.returned
             ):
                 # Fix-up 2 (N2): the person ended this arrival's pre-cool —

@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.108.13
+# Universal Room Automation vv5.108.14
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -12173,14 +12173,22 @@ class EnergyDeliveryRateSensor(AggregationEntity, SensorEntity):
 
 
 class EnergyImportTodaySensor(AggregationEntity, SensorEntity):
-    """Net grid exchange today (positive=import, negative=export).
+    """Net grid exchange today: import_kwh - export_kwh (positive=net import,
+    negative=net export). NOT gross import.
 
-    Entity: sensor.ura_energy_import_today
+    Display name "Net Grid Today" (EC-IMPORT-TODAY-NET-AFTER-RESTART-1); the
+    class name, unique_id ``{DOMAIN}_energy_import_today`` and registry
+    entity_id ``sensor.ura_energy_coordinator_energy_import_today`` are kept
+    deliberately -- HA keeps the registered entity_id for an existing
+    unique_id on a name change (precedent: v3.2.6 rename, see
+    ``_migrate_sensor_entity_ids`` docstring in __init__.py), so dashboards,
+    automations and long-term statistics are unaffected.
+
     Device: URA: Energy Coordinator
     """
 
     _attr_has_entity_name = True
-    _attr_icon = "mdi:transmission-tower-import"
+    _attr_icon = "mdi:transmission-tower"
     _attr_device_class = SensorDeviceClass.ENERGY
     # v4.7.16.5 hotfix: was MEASUREMENT which HA platform rejects for
     # device_class=ENERGY. Use TOTAL (not TOTAL_INCREASING) because
@@ -12195,7 +12203,7 @@ class EnergyImportTodaySensor(AggregationEntity, SensorEntity):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_energy_import_today"
-        self._attr_name = "Energy Import Today"
+        self._attr_name = "Net Grid Today"
         self._attr_device_info = _energy_device_info()
 
     @property
@@ -14512,6 +14520,11 @@ class HVACPreArrivalDiagnosticSensor(AggregationEntity, SensorEntity):
             "person_zone_map": getattr(hvac, '_person_zone_map', {}),
             "fan_rooms_activated": getattr(predictor, '_last_fan_activation_rooms', []) if predictor else [],
             "fan_rooms_skipped": getattr(predictor, '_last_fan_skipped_rooms', []) if predictor else [],
+            # HVAC-PRECOOL-STANDDOWN-WHEN-COOL-1 D4 (display only).
+            "prearrival_skips": list(getattr(predictor, '_last_prearrival_skips', []) or []) if predictor else [],
+            "prearrival_standdowns_today": int(getattr(predictor, '_prearrival_standdowns_today', 0) or 0) if predictor else 0,
+            "precool_writes_today": int(getattr(predictor, '_precool_writes_today', 0) or 0) if predictor else 0,
+            "preheat_writes_today": int(getattr(predictor, '_preheat_writes_today', 0) or 0) if predictor else 0,
         }
 
     @property

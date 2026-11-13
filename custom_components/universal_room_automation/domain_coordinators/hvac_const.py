@@ -503,6 +503,43 @@ PRE_ARRIVAL_PRECOOL_OFFSET_F: Final = -2.0
 # the Q7 reference-preset rule and the interrupt pull in
 # `_expire_pre_arrival_zones`.
 S12_PRE_ARRIVAL_SITE: Final = "S12_pre_arrival"
+# HVAC-PRECOOL-STANDDOWN-WHEN-COOL-1 D2 (plan PLANNING_hvac_precool_standdown_
+# and_seasons.md rev 4): the arrival PRE-HEAT leg. Same lifecycle as the
+# pre-arrival pre-cool (BANKING kind, ended by the pre-arrival end path); its
+# own `caller_site` (the `climate_write` site is `S13_pre_heat`, reason
+# `pre_arrival` — the energy pre-heat shares that site with reason
+# `pre_heat`). RUNG 1: identifiers, not behaviour numbers.
+S13_PRE_ARRIVAL_SITE: Final = "S13_pre_arrival"
+# Every reader that keys on "is this a pre-arrival borrow" tests membership in
+# this set, never `== S12_PRE_ARRIVAL_SITE` (lint
+# `test_no_raw_s12_prearrival_site_comparisons`).
+PRE_ARRIVAL_CALLER_SITES: Final = frozenset({S12_PRE_ARRIVAL_SITE, S13_PRE_ARRIVAL_SITE})
+# Heat-leg offset from the arrival preset's configured HEAT setpoint (mirror of
+# PRE_ARRIVAL_PRECOOL_OFFSET_F). RUNG 1 — a comfort magnitude with no evidence
+# yet for a live knob. 0 = pre-heat to the Home heat; not a kill.
+PRE_ARRIVAL_PREHEAT_OFFSET_F: Final = 2.0
+# Stand-down margin shared by both legs (cool: T <= effective_high + margin
+# stands down; heat: T >= effective_low - margin stands down). RUNG 1 (operator
+# ruling O3, no ask for a live knob); Carrier reads whole degrees, so only
+# integers change behaviour. 0.0 still stands down inside the band — not a kill.
+PRE_ARRIVAL_STANDDOWN_MARGIN_F: Final = 0.0
+# Back-outs (RUNG 1: turning either off should take review). False = today's
+# behaviour exactly: no cool stand-down / no heat leg. Switch 35 "Pre-Arrival
+# Conditioning" already turns the whole feature off live.
+PRE_ARRIVAL_PRECOOL_STANDDOWN_ENABLED: Final = True
+PRE_ARRIVAL_PREHEAT_ENABLED: Final = True
+# D3: the thermostat `hvac_mode` values in which each leg runs. HA mode
+# vocabulary, not a tunable (RUNG 1). The heat leg runs ONLY in `heat_cool`
+# (review M3: a low/high pair in single `heat` is unverified per brand and a
+# deferred begin re-tries every pass; single `heat` and `auto` are parked).
+# A readable mode outside the set skips that leg; an unreadable mode
+# (PRE_ARRIVAL_UNREADABLE_MODES) fails OPEN on the cool leg (legacy write) and
+# CLOSED on the heat leg.
+PRE_ARRIVAL_LEG_MODES: Final = {
+    "cool": frozenset({"heat_cool", "cool"}),
+    "heat": frozenset({"heat_cool"}),
+}
+PRE_ARRIVAL_UNREADABLE_MODES: Final = frozenset({"", "unknown", "unavailable"})
 # HVAC Batch D (HVAC-WRITES-WHILE-THERMOSTAT-UNAVAILABLE-1): climate entity
 # states in which the heat_cool enforcer (B1) and S1 do NOT write — the
 # integration cannot act on them and every tick re-sent the same write (09-28

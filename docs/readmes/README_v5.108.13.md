@@ -24,6 +24,17 @@ Accepted residuals: one false pause/resume possible at an EV start when net_powe
 - No change to `energy.py` (pause-reason / breaker ordering), `energy_pool.py`, `net_power_w`, or
   `_effective_import_kw`. No new knob.
 
+## Validated 2026-11-12 (restart 15:50 CST, house home_day)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Installed | PASS | update entity installed_version v5.108.13; HA manifest v5.108.13 |
+| No URA ERROR after restart | PASS | system_log level ERROR, search universal_room_automation: 0 entries |
+| New knob live | PASS | `number.ura_garage_lockout_arrival_hold` = 5.0 |
+| D3 attribute present | PASS | `sensor.ura_energy_coordinator_battery_strategy` `arb_rung1_redirectable_kw` = None (strategy self_consumption, not a rung-1 entry tick, as designed) |
+| No arbitrage EV flip-flop | organic | needs a poor-forecast daylight off-peak tick with an EV drawing; disposition via `--revisit` (EV toggle trip-wire anomaly-table query) |
+| No real arrival held | organic | arrival_hold count stays 0 outside the boot window; lockout master still off |
+
 ## Live acceptance criteria (prospective — replace with a `Validated <date>` table after restart)
 
 - **Live 1 (binary, disposition query):** `ura_activity_log` `energy_pool` `charger_off` rows with `pause_owners`
