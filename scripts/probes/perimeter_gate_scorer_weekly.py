@@ -22,7 +22,7 @@ import json
 import os
 import sys
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timezone
 
 EPISODE = "perimeter_gate_decision"
 WEEK_S = 7 * 86400
@@ -90,7 +90,8 @@ def main():
     import sqlite3
     import time
 
-    since = datetime.fromtimestamp(time.time() - WEEK_S).isoformat()
+    # started_at is UTC (aware ISO); compare against a UTC since.
+    since = datetime.fromtimestamp(time.time() - WEEK_S, tz=timezone.utc).isoformat()
     con = sqlite3.connect(URA_DB, uri=True)
     rows = [
         json.loads(r[0]) for r in con.execute(

@@ -65,7 +65,7 @@ import logging
 import os
 import re as _re
 import time as _time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from homeassistant.core import HomeAssistant, callback, Event
@@ -1213,6 +1213,9 @@ class PerimeterAlertManager:
             )
 
         self._setup_time = dt_util.now()
+        # Review A LOW-3: re-arm the gate-row latch so a reused instance
+        # (setup after teardown) records rows again.
+        self._gate_log_torn_down = False
         self._active = True
 
     async def async_teardown(self) -> None:
@@ -4657,6 +4660,19 @@ class PerimeterAlertManager:
             elev = None
         return elev, is_daylight(elev, PERIMETER_SS_DAYLIGHT_MIN_ELEVATION_DEG)
 
+    @staticmethod
+    def _gate_row_utc(at: str) -> str:
+        """Gate-row timestamp in UTC; unparsable/naive-safe (falls back to now)."""
+        try:
+            parsed = datetime.fromisoformat(str(at))
+        except (TypeError, ValueError):
+            parsed = None
+        if parsed is None or parsed.tzinfo is None:
+            # Production stamps are aware (dt_util.now()); anything else is
+            # not trustworthy as a local time -> stamp now in UTC.
+            return datetime.now(timezone.utc).isoformat()
+        return parsed.astimezone(timezone.utc).isoformat()
+
     def _persist_gate_decision(self, cam_key: str, d: dict[str, Any]) -> None:
         if (
             not PERIMETER_GATE_LOG_PERSIST
@@ -4698,7 +4714,12 @@ class PerimeterAlertManager:
                 attrs[k] = d[k]
         if snap:
             attrs["snapshot"] = os.path.basename(str(snap))
-        ref = f"{cam_key}|{gate}|{at}"
+        # Review A LOW-2: the row timestamp is UTC like the other episode
+        # writers (database.py log_memory_episode default) so the UTC
+        # writer-health window and cross-type joins line up. attrs["at"]
+        # keeps the local stamp the in-memory diagnostic shows.
+        at_utc = self._gate_row_utc(at)
+        ref = f"{cam_key}|{gate}|{at_utc}"
 
         async def _write() -> None:
             try:
@@ -4707,8 +4728,8 @@ class PerimeterAlertManager:
                     episode_type=PERIMETER_GATE_EPISODE_TYPE,
                     attrs=attrs,
                     source_ref=ref,
-                    started_at=at,
-                    ended_at=at,
+                    started_at=at_utc,
+                    ended_at=at_utc,
                     dedup_source_ref=False,
                     window_dedup=False,
                 )

@@ -491,3 +491,90 @@ def test_teardown_latch_alone_blocks_rows(monkeypatch):
         await _flush(mgr)
     asyncio.run(_go())
     assert calls == []
+
+
+# ---------------------------------------------------------------- fix-up LOWs
+
+def test_row_started_at_is_utc(monkeypatch):
+    """Review A LOW-2: started_at/ended_at/source_ref use UTC like the other
+    episode writers; attrs.at keeps the local stamp."""
+    calls: list = []
+
+    class _Db:
+        async def log_memory_episode(self, **kw):
+            calls.append(kw)
+
+    hass, _nm, mgr = _d5(monkeypatch)
+
+    async def _go():
+        _wire(hass, mgr, _Db())
+        mgr._record_gate(RP_KEY, {"gate": "vlm", "at": "2026-11-13T12:00:00-06:00"})
+        mgr._record_gate(RP_KEY, {"gate": "zone_agreement", "at": "garbage"})
+        await _flush(mgr)
+    asyncio.run(_go())
+    kw, kw2 = calls
+    assert kw["started_at"] == "2026-11-13T18:00:00+00:00"
+    assert kw["ended_at"] == "2026-11-13T18:00:00+00:00"
+    assert kw["source_ref"] == f"{RP_KEY}|vlm|2026-11-13T18:00:00+00:00"
+    assert kw["attrs"]["at"] == "2026-11-13T12:00:00-06:00"
+    # unparsable stamp falls back to an aware UTC now, never the raw string
+    assert kw2["started_at"].endswith("+00:00")
+
+
+def test_setup_after_teardown_rearms_latch(monkeypatch):
+    """Review A LOW-3: a reused instance (setup after teardown) writes rows."""
+    calls: list = []
+
+    class _Db:
+        async def log_memory_episode(self, **kw):
+            calls.append(kw)
+
+    hass, _nm, mgr = _d5(monkeypatch)
+
+    async def _go():
+        _wire(hass, mgr, _Db())
+        await mgr.async_teardown()
+        assert mgr._gate_log_torn_down is True
+        await mgr.async_setup()
+        mgr._record_gate(RP_KEY, {"gate": "vlm", "at": "2026-11-13T12:00:00+00:00"})
+        await _flush(mgr)
+    asyncio.run(_go())
+    assert [kw["attrs"]["gate"] for kw in calls] == ["vlm"]
+
+
+def test_hung_writer_never_blocks_alert_and_teardown_cancels(monkeypatch):
+    """Review B LOW-1: a DB writer that never returns does not delay the
+    alert; teardown waits PERIMETER_GATE_LOG_TEARDOWN_TIMEOUT_S then cancels."""
+    monkeypatch.setattr(_perimeter, "PERIMETER_GATE_LOG_TEARDOWN_TIMEOUT_S", 0.1)
+    started: list = []
+    cancelled: list = []
+
+    class _Hung:
+        async def log_memory_episode(self, **kw):
+            started.append(kw)
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancelled.append(kw["attrs"]["gate"])
+                raise
+
+    hass, nm, mgr = _d5(monkeypatch)
+
+    async def _go():
+        _wire(hass, mgr, _Hung())
+        await asyncio.wait_for(_drive(mgr, RP_PR), timeout=5.0)
+        assert nm.async_notify.await_count == 1 and _sev(nm) == Severity.LOW
+        for _ in range(5):
+            await asyncio.sleep(0)
+        pending = list(mgr._gate_log_tasks)
+        assert len(pending) == 1 and len(started) == 1
+        loop = asyncio.get_running_loop()
+        t0 = loop.time()
+        await asyncio.wait_for(mgr.async_teardown(), timeout=3.0)
+        elapsed = loop.time() - t0
+        await asyncio.sleep(0)
+        assert 0.09 <= elapsed < 1.0
+        assert all(t.cancelled() for t in pending)
+        assert mgr._gate_log_tasks == set()
+    asyncio.run(_go())
+    assert cancelled == ["single_source"]

@@ -16,8 +16,10 @@ PERIMETER-GATE-DECISIONS-NOT-PERSISTED-1.
   the alert goes out at full severity, and the "that was <name>" follow-up can fire. Known-person
   de-escalation is unchanged.
 - **D2 — every gate decision is a DB row.** `memory_episodes`, `episode_type = perimeter_gate_decision`,
-  one row per decision (D3 zone, D5, D6, D10.5, follow-up), carrying sun elevation and is_day. ~100-200
-  rows/day, ~30 MB/year (Q5 accepted). Weekly scorer: `ssh ha "python3 -" < scripts/probes/perimeter_gate_scorer_weekly.py`.
+  one row per decision (D3 zone, D5, D6, D10.5, follow-up), carrying sun elevation and is_day. ~100-300
+  rows/day (1-3 per alert), ~30-90 MB/year, unbounded (no pruning of `memory_episodes`); retention is carded
+  as MEMORY-EPISODES-PERIMETER-GATE-RETENTION-1. `started_at` is UTC like the other episode writers;
+  `attrs.at` keeps the local stamp. Weekly scorer: `ssh ha "python3 -" < scripts/probes/perimeter_gate_scorer_weekly.py`.
 - **D3 — VLM location question: built, DARK.** The D0-B replay was a no-go (street recall 8/26 = 31%,
   g5 0/15; PERSON parity failed on 2 frames; 7 replies echoed "Line 1:"; max latency 4.18 s over the 4.0 s
   timeout; own-property bar passed). `PERIMETER_VLM_LOCATION_ASK` ships **False**: every select mode sends
