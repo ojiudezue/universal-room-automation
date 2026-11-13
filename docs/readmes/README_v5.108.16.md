@@ -57,5 +57,5 @@ load-bearing sites go RED on a named test after fix-up 3.
 
 - HVAC pre-arrival filter (`pre_arrival_sources`) unchanged and not driven by any test in this cycle.
 - D0 P4 propagation yield not measured.
-- Interior path map file not installed on HA (operator copies the example, then presses reload).
+- Interior path map file installed on HA 2026-11-13 by Claude (copied from the example, reloaded); no runtime reader until phase 2.
 - Phase 2 (direction-aware egress identity, provisional naming, `camera_egress` HVAC source): gated on labels.
