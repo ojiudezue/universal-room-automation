@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "293",
+  "author": "ojiudezue",
+  "session_id": "claude_20261113_071417_ship_v5_108_16",
+  "timestamp": "2026-11-13T07:14:17Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.108.16 shipped: Person sightings phase 1",
+  "summary": "Person sightings phase 1",
+  "why": "Phase 1 of the approved person-sightings plan: one identity-at-place layer from operator zone picks and egress faces, shared with census and egress; access actions require an independent second signal; the egress outcome log stops losing vetoed names (about 3 phase-2 examples a day lost to Frigate retention); no actuation change because D0-P3 showed face-before-phone is rarely a real arrival.",
+  "implications": "Shipped INTERIOR-PATH-MAP-1 at v5.108.16; card(s) sit shipped_organic pending validation. Acceptance in README_v5.108.16.md (Live criteria).",
+  "revisit_trigger": "If face_sighting_zero pages, or outcome rows stop, or any lock or expected-arrival change cites a camera source.",
+  "refs": {
+    "cards": [
+      "INTERIOR-PATH-MAP-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.108.16.md"
+    ],
+    "release_notes": "Sighting layer, access needs a second signal, egress outcome log, interior path map loader; no new actuation."
+  }
+}

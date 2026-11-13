@@ -57,6 +57,7 @@ from homeassistant.util.unit_conversion import DistanceConverter  # noqa: E402
 
 from ..arrival_edges import (  # noqa: E402
     area_slug_of_entity,
+    arrival_source_needs_corroboration,
     door_entry_areas,
     live_arrival_slug,
     nonface_arrival_source,
@@ -1013,14 +1014,21 @@ class LockRegimeController:
         # really-away gate below. A face counts only with an independent
         # arrival edge for the SAME person (v5.107.0 D10.5 rule, shared
         # arrival_edges helper). Non-face sources are unchanged.
+        # FACE-ARRIVAL-REBUILD-1 D3: membership in the ONE camera-derived set
+        # (`const.CAMERA_DERIVED_ARRIVAL_SOURCES`) through the shared
+        # classifier, not a literal; an unknown source fails closed, a missing
+        # source (None) is develop behaviour (not camera-derived).
         self._ensure_pc_listener()
-        if source == "camera_face" and not self._face_arrival_corroborated(person):
+        if (
+            arrival_source_needs_corroboration(source)
+            and not self._face_arrival_corroborated(person)
+        ):
             # Review A MED-1: a Bermuda entry move that lands AFTER the face
             # (inside the window) re-checks this face once (_on_pc_update).
             self._pending_faces[person] = self._ts()
             _LOGGER.info(
-                "Lock regime: camera_face arrival for %s held "
-                "(no independent arrival edge yet)", person,
+                "Lock regime: %s arrival for %s held "
+                "(no independent arrival edge yet)", source, person,
             )
             return
         self._apply_arrival(person)
@@ -1370,6 +1378,17 @@ class LockRegimeController:
 
         tracker = self._hass.data.get(DOMAIN, {}).get("egress_tracker")
         return door_entry_areas(tracker, self._area_of_entity)
+
+    def face_input_corroborated(self, person: str, at_ts: float | None = None) -> bool:
+        """FACE-ARRIVAL-REBUILD-1 D3 (plan rev 11 §3.4): the PUBLIC
+        corroboration primitive every access-class consumer of a
+        camera-derived input calls (today: the security expected-arrival gate).
+        A wrapper over ``_face_arrival_corroborated`` (same stamps, same boot
+        floor, same window); a torn-down regime is never corroborated (fail
+        closed)."""
+        if self._torn_down:
+            return False
+        return self._face_arrival_corroborated(person, at_ts)
 
     def _face_arrival_corroborated(self, person: str, at_ts: float | None = None) -> bool:
         """LOCK-REGIME-FACE-ARRIVAL-CORROBORATION-1: an independent arrival

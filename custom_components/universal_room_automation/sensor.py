@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.108.15
+# Universal Room Automation vv5.108.16
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -4512,6 +4512,14 @@ class ExteriorOpenTracksDiagnosticSensor(AggregationEntity, SensorEntity):
                 attrs.update(linker.seam_status())
             except Exception:  # noqa: BLE001
                 pass
+            # FACE-ARRIVAL-REBUILD-1 D7: interior path map provenance
+            # (path_map_source / _validation / _sha256 / _doors).
+            try:
+                _et = self.hass.data.get(DOMAIN, {}).get("egress_tracker")
+                if _et is not None:
+                    attrs.update(_et.path_map_status())
+            except Exception:  # noqa: BLE001
+                pass
             # B-M3: per-camera unlinked-events counter (events that opened a
             # fresh single-hop track rather than extending an existing one —
             # diagnostic proxy for adjacency gaps).
@@ -5733,6 +5741,18 @@ class PresenceHouseStateSensor(AggregationEntity, SensorEntity):
             "signal_consensus",
             "signal_consensus_band",
             "signal_consensus_inputs",
+            # FACE-ARRIVAL-REBUILD-1 D4 person-sighting diagnostics (all
+            # unrecorded; live state only).
+            "face_sightings_today",
+            "face_sightings_by_source",
+            "face_arrivals_derived_today",
+            "face_arrival_skips_by_reason",
+            "face_sighting_last",
+            "face_sighting_unmapped_names",
+            "egress_non_face_skipped",
+            "multi_pick_messages",
+            "face_sighting_picks_resolved",
+            "face_sighting_picks_unresolved",
         }
     )
 
@@ -5878,6 +5898,14 @@ class PresenceHouseStateSensor(AggregationEntity, SensorEntity):
             attrs["guest_stay_day_veto_fraction"] = (
                 _veto.get("day_fraction") if _veto else None
             )
+            # FACE-ARRIVAL-REBUILD-1 D4: person-sighting diagnostics
+            # (unrecorded; empty dict when the producer is off/absent).
+            _sight = getattr(presence, "get_person_sighting_diagnostics", None)
+            if callable(_sight):
+                try:
+                    attrs.update(_sight() or {})
+                except Exception:  # noqa: BLE001 — display only
+                    pass
             # Unrecorded (per-tick churn): D2 STALE persons counted home;
             # D1 nobody-home zone input (None = kill switch off).
             attrs["stale_counted_home"] = list(

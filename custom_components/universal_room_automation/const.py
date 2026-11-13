@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.108.15
+# Universal Room Automation vv5.108.16
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.108.15"
+VERSION: Final = "v5.108.16"
 
 # EC-LOADED-VS-INSTALLED-VERSION-1 — how often the on-disk manifest is re-read
 # to detect an installed-but-not-restarted deploy. Rung 1 (module constant):
@@ -2677,6 +2677,9 @@ PERIMETER_EGRESS_FACE_NONFACE_WINDOW_S: Final = 120
 # GARAGE_LOCKOUT_BOOT_ARRIVAL_WINDOW_S (max of the two), so lowering this value
 # never shrinks the unlock guard; raising the window widens BOTH consumers.
 PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S: Final = 600
+# FACE-ARRIVAL-REBUILD-1 (person sightings) also reads this as the ONE boot
+# drop of person sightings (`ts < presence setup + this`, sources a/b/c) and
+# the D2 arrival rule's boot gate. Raising it delays sightings after a restart.
 # D10.5 (rung 1, review A-M4): own corroboration settle, decoupled from the
 # D5 settle. D5a probe (30 d): second-engine lag p90 doorbell_lite 20.2 s,
 # front_door_aerial 18.0 s, madrone_g6_entry 22.4 s (p50 1.3-2.2 s). 20 s
@@ -3350,6 +3353,118 @@ assert CONFIDENCE_MEDIUM < FACE_MATCH_CORRELATED_BOOST < CONFIDENCE_HIGH, (
     "CONFIDENCE_MEDIUM and CONFIDENCE_HIGH"
 )
 
+# FACE-ARRIVAL-REBUILD-1 D1/D2/D4 (person sightings, plan rev 11 §6). All
+# rung 1 (protocol windows / semantics; change by review). The boot drop of
+# sightings REUSES PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S (one check,
+# `ts < presence setup + that`, sources a/b/c).
+# Kill switch of the whole sighting producer. False = INV-NOOP: no listener,
+# no census bridge callback, no ring, no SIGNAL_PERSON_SIGHTING.
+FACE_SIGHTING_ENABLED: Final = True
+# Fixed (non-sliding) dedup window per (slug, physical_camera), seconds.
+# 0 = no debounce.
+FACE_SIGHTING_DEBOUNCE_S: Final = 60
+# Retry period of pick resolution while any pick is unresolved (add-only),
+# seconds. 0 = only the events (registry change / HA started / pick change).
+FACE_SIGHTING_PICK_RERESOLVE_S: Final = 300
+# Bound on the census post-sentinel named-face ring (trip-wire denominator);
+# about 2 days at the measured rate.
+FACE_SIGHTING_BRIDGE_RING_MAX: Final = 2000
+# Interior class (i) "face before phone" arrivals (D2). False until D0-P3
+# passes; D0 2026-11-12: (i)/((i)+(ii)) = 0.02 < 0.5 -> stays False
+# (sightings only). False = no camera_face arrival at all.
+FACE_ARRIVAL_INTERIOR_ENABLED: Final = False
+# A home edge this long before the face, or any time after it, means the
+# phone already arrived (D2 rule 5). D0-P3: p90 of the home-edge-to-face lag
+# capped at 300. 0 = only edges after the face count.
+FACE_ARRIVAL_PRIOR_HOME_GAP_S: Final = 300
+# One camera_face arrival per person per episode (fixed window), seconds.
+FACE_ARRIVAL_DEBOUNCE_S: Final = 600
+# D4 `face_sighting_zero` (HIGH): mapped resident faces on picked cameras
+# >= MIN_FACES in the trailing window with zero interior sightings pages
+# once (RAM latch, re-armed when sightings resume). WINDOW_H 0 = off.
+FACE_SIGHTING_ZERO_WINDOW_H: Final = 24
+FACE_SIGHTING_ZERO_MIN_FACES: Final = 10
+# D4 `face_arrival_zero` (LOW): sightings > 0 but no derived arrival for this
+# many days. Armed only while FACE_ARRIVAL_INTERIOR_ENABLED. 0 = off.
+FACE_ARRIVAL_ZERO_DAYS: Final = 14
+
+# FACE-ARRIVAL-REBUILD-1 D7 / INTERIOR-PATH-MAP-1 (plan rev 11 §9 D7):
+# interior camera path map. File primary (rung 2, operator data), this const
+# fallback (rung 1). Phase 1 has NO runtime reader; the map is loaded,
+# validated and exposed (provenance attrs) only. Whole-file rejection, never
+# partial.
+DEFAULT_INTERIOR_PATH_FILE: Final = "universal_room_automation/interior_paths.json"
+# Horizon of path-node events before the egress edge (also validator rule 8's
+# upper bound on lag_p90_s), seconds.
+EGRESS_PATH_BUFFER_S: Final = 180
+# Window for a map edge with no measured lag_p90_s, seconds.
+EGRESS_PATH_HOP_DEFAULT_WINDOW_S: Final = 30
+# Debounce of the entity-registry re-validation while the file is NOT the
+# installed source, seconds. 0 = re-validate on every registry event.
+INTERIOR_PATH_MAP_REVALIDATE_DEBOUNCE_S: Final = 30
+# Door groups that are detached buildings (open only to themselves): a map
+# may give them no inward edge into a house camera (validator rule 10).
+# Until EGRESS-CONFIG-PATIO-STUDYB-1 provides a config attribute.
+INTERIOR_PATH_DETACHED_DOORS: Final = frozenset({"garage_b"})
+# No built-in map (portability: a code default must name no house entity id;
+# test_ec_role_defaults_rev5 lint). None = with no valid file there is no map
+# (`path_map_source: none`). This house's map (operator fixture
+# FIXTURE_camera_paths_interior.md, answers 2026-11-12, lag_p90_s from D0-P4)
+# is the committed example docs/examples/interior_paths.example.json, which
+# the operator installs as /config/universal_room_automation/interior_paths.json.
+INTERIOR_PATH_MAP_FALLBACK: Final[dict | None] = None
+# hass.data[DOMAIN] key of the door direction tracker (EgressDirectionTracker),
+# for readers outside transit_validator / __init__ (the path-map reload button).
+DIRECTION_TRACKER_DATA_KEY: Final = "egress_tracker"
+
+# FACE-ARRIVAL-REBUILD-1 D3 (plan rev 11 §2 INV-ACCESS): the ONE set of
+# camera-derived `SIGNAL_PERSON_ARRIVING` sources. Both access gates (the SC
+# lock regime and the security expected-arrival gate) classify a source with
+# `arrival_edges.arrival_source_needs_corroboration`: a source in this set, or
+# any string in neither set (e.g. a future "camera_vision", ""), needs an
+# independent non-face arrival edge (fail closed); a source in
+# NON_CAMERA_ARRIVAL_SOURCES, or a MISSING source (None, develop behaviour:
+# production always sends one), does not. Vocabulary, not a kill switch: a new
+# camera-derived source is recognised only by adding it here. `camera_egress`
+# has no producer in Phase 1; it is listed so the gates exist before one does.
+CAMERA_DERIVED_ARRIVAL_SOURCES: Final = frozenset({"camera_face", "camera_egress"})
+NON_CAMERA_ARRIVAL_SOURCES: Final = frozenset({"geofence", "ble"})
+
+# FACE-ARRIVAL-REBUILD-1 (person sightings, plan §1.2a / §2A): the ONE
+# provenance vocabulary of an egress identity attach. These name the string
+# values the census and the transit validator already used as literals
+# (pure rename; values unchanged, pinned by
+# test_identity_provenance_consts.py). `vision` is reserved for the later
+# vision provenance (plan §15) and has no producer.
+IDENTITY_PROVENANCE_FACE: Final = "face"
+IDENTITY_PROVENANCE_BLE: Final = "ble"
+IDENTITY_PROVENANCE_BLE_FACE: Final = "ble+face"
+IDENTITY_PROVENANCE_VISION: Final = "vision"
+IDENTITY_PROVENANCE_VALUES: Final = frozenset({
+    IDENTITY_PROVENANCE_FACE,
+    IDENTITY_PROVENANCE_BLE,
+    IDENTITY_PROVENANCE_BLE_FACE,
+    IDENTITY_PROVENANCE_VISION,
+})
+
+# FACE-ARRIVAL-REBUILD-1 D8a (plan rev 11): persisted egress outcome log.
+# One memory_episodes row (episode_type `egress_identity_outcome`) per
+# egress identity resolution, every return path, vetoed slug included.
+# Observational only: no decision reads the row. Rung 1 kill switch
+# (False = no row). Flipping it False is a reviewed change that, in the
+# SAME commit, adds `egress_identity_outcome` to
+# MEMORY_WRITER_HEALTH_EXEMPT_TYPES with a reason (the weekly writer-health
+# check would otherwise page on 0 rows); pinned by
+# test_egress_outcome_log.py::test_registered_for_writer_health_unless_persist_off.
+EGRESS_OUTCOME_LOG_PERSIST: Final = True
+EGRESS_OUTCOME_EPISODE_TYPE: Final = "egress_identity_outcome"
+# Bound on the teardown gather of in-flight outcome-log writes (seconds).
+# Precedent: ExteriorTrackLinker teardown bound.
+EGRESS_OUTCOME_LOG_TEARDOWN_TIMEOUT_S: Final = 5.0
+# Auto-label windows the weekly labeller reports (seconds; offline only,
+# scripts/probes/egress_outcome_label_weekly.py).
+EGRESS_OUTCOME_LABEL_WINDOWS_S: Final = (120, 300, 600, 1800)
+
 # EGRESS_IDENTITY_ENABLED: options-flow kill switch for the D1 egress-face
 # identity fuse (2026-08-18). DEFAULT False — feature ships dormant per
 # operator (mirrors D2 PROTECT_CORROBORATION_ENABLED). Kill-switch semantics:
@@ -3508,6 +3623,11 @@ FACE_SOURCE_INCLUDE_DISAMBIGUATED_PERSON_SENSORS: Final = True
 # the skip fix adds include the doorbell / garage / entry cameras, so this
 # flag ALSO gates the S8 device join; S5-S7 (census) follow the flag above.
 # False = S8 legacy skip for `_N` person sensors (pre-cycle behaviour).
+# RETIRED (FACE-ARRIVAL-REBUILD-1 D5, KEEP + DOCUMENT): its only reader,
+# `_get_face_for_camera`, is deleted with the dead v3.19 face-arrival path.
+# The person-sighting producer resolves `_N` picks unconditionally (a
+# producer is never narrowed to protect a consumer, INV-PRODUCER); access
+# consumers are protected by the D3 corroboration gate instead. No reader.
 FACE_SOURCE_PRESENCE_ARRIVAL_DISAMBIGUATED: Final = False
 # D4: kill-switch that ENABLES the provenance filter + producer-health
 # guard (see plan §6 knob table). ON by default; opposite concept
@@ -5900,6 +6020,10 @@ MEMORY_EPISODE_TYPES: Final = frozenset({
     # restore + follow-up manual-ON within N minutes + house_state.
     # Observational — never read on an actuation path.
     "fan_recheck_outcome",
+    # FACE-ARRIVAL-REBUILD-1 D8a (2026-11-12): one row per egress identity
+    # resolution (EgressDirectionTracker). Observational; the Phase 2 gate's
+    # data source. No decision reads it.
+    "egress_identity_outcome",
 })
 
 # Set of episode types that have a LIVE writer. The weekly writer-health
@@ -5916,6 +6040,11 @@ MEMORY_WRITER_BACKED_EPISODE_TYPES: Final = frozenset({
     "house_state_transition",
     # fan_recheck_outcome: one row per completed fan-recheck (D2).
     "fan_recheck_outcome",
+    # egress_identity_outcome (FACE-ARRIVAL-REBUILD-1 D8a): ~15 rows/day
+    # (one per resolved egress crossing), so 0 in 7 days is a dead logger.
+    # If EGRESS_OUTCOME_LOG_PERSIST is ever set False, add this type to
+    # MEMORY_WRITER_HEALTH_EXEMPT_TYPES in the same commit.
+    "egress_identity_outcome",
     # sensor_dropout: writer exists and is correctly scheduled, but has
     # produced 0 rows in >2 months (per AUDIT_memory_writer_coverage.md,
     # 2026-10-11). KEEP in the checked set so the trip-wire surfaces this
@@ -5935,6 +6064,20 @@ MEMORY_WRITER_BACKED_EPISODE_TYPES: Final = frozenset({
 MEMORY_WRITER_HEALTH_EXEMPT_TYPES: Final = frozenset({
     # (No current exemptions. Add here as ``"type_name",  # <reason>``.)
 })
+
+# Writer-backed types whose rows come only from people moving through the
+# house (person sightings review B-L4, 2026-11-12). A zero-row week is NOT
+# paged when the house_state_log proves the house was AWAY or VACATION for
+# the WHOLE window (state at the window start away/vacation AND every
+# transition inside the window away/vacation). No proof (no row before the
+# window, any home-ish state, a DB error) = page as usual. Rung 1: the
+# membership is a reviewed choice; empty set = old behaviour.
+MEMORY_WRITER_HEALTH_ABSENCE_EXEMPT_TYPES: Final = frozenset({
+    # egress_identity_outcome: rows come only from door crossings; a
+    # 7-day vacation has none.
+    "egress_identity_outcome",
+})
+MEMORY_WRITER_HEALTH_ABSENT_HOUSE_STATES: Final = frozenset({"away", "vacation"})
 
 MEMORY_FACT_TOPICS: Final = frozenset({
     "occupancy_reliability",

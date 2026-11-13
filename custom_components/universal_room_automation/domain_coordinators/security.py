@@ -46,6 +46,7 @@ from homeassistant.helpers.event import (
 )
 from homeassistant.util import dt as dt_util
 
+from ..arrival_edges import arrival_source_needs_corroboration
 from ..const import (
     CONF_SECURITY_ALARM_PANEL,
     CONF_SECURITY_AUTO_FOLLOW,
@@ -2412,6 +2413,36 @@ class SecurityCoordinator(BaseCoordinator):
         from ..const import CONF_SECURITY_ON_ARRIVAL_ADD_EXPECTED
 
         if self._get_signal_config(CONF_SECURITY_ON_ARRIVAL_ADD_EXPECTED):
+            # FACE-ARRIVAL-REBUILD-1 D3 (plan rev 11 §3.4, INV-ACCESS): a
+            # camera-derived (or unknown) source may add an expected arrival
+            # (alarm suppression) only when the lock regime's public primitive
+            # finds an independent non-face arrival edge for the SAME person.
+            # No lock regime -> reject (fail closed). No held re-check: a face
+            # whose edge comes later is rejected for good; that later edge
+            # produces its own geofence/ble arrival.
+            if isinstance(payload, dict):
+                source = payload.get("source")
+                sighting = payload.get("sighting")
+            else:
+                source = getattr(payload, "source", None)
+                sighting = getattr(payload, "sighting", None)
+            if arrival_source_needs_corroboration(source):
+                # The face's own recognition time when the payload carries a
+                # sighting; else None = "now" on the lock regime's OWN clock
+                # (`_face_arrival_corroborated` defaults to `_ts()`, epoch),
+                # so the two gates never read two clocks (plan rev 11 L9).
+                sighting_ts = getattr(sighting, "ts", None) if sighting is not None else None
+                at_ts = float(sighting_ts) if sighting_ts is not None else None
+                regime = self._lock_regime
+                if regime is None or not regime.face_input_corroborated(
+                    person_entity, at_ts,
+                ):
+                    _LOGGER.info(
+                        "Security: %s arrival for %s NOT added to expected "
+                        "arrivals (no independent arrival edge)",
+                        source, person_entity,
+                    )
+                    return
             _LOGGER.info(
                 "Security: Person arriving %s — adding to expected arrivals",
                 person_entity,

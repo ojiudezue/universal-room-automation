@@ -37,11 +37,16 @@ setup list reds the registration test; eight more per-site drills by the builder
 order-dependent failure in this file's id test (stubbed ButtonEntity in the full run), fixed by reading
 `_attr_unique_id` (55284696).
 
-## Live validation (to fill after restart)
+## Validated 2026-11-12 (restart 21:55 CST, house home_night)
 
-- `seam_source` names `exterior_seams.json`; `seam_validation` ok with the `sonoffwindow` warning; `seam_count` 21.
-- `button.ura_reload_exterior_seams` exists.
-- No URA ERROR after restart.
+| Criterion | Result | Evidence |
+|---|---|---|
+| Installed | PASS | HA manifest v5.108.15; installed `exterior_track_linker.py` imports `exterior_seams` (checked on the HA config mount, the check the broken-promise sweep got wrong) |
+| File is the live source | PASS | `sensor.ura_security_coordinator_outside_open_tracks_diagnostic` `seam_source` "exterior_seams.json (schema 1, 21 seams)", `seam_count` 21 |
+| Validation | PASS (expected warning) | `seam_validation` "ok (1 warning(s): configured exterior camera(s) absent from the ring: ['sonoffwindow'] ...)" |
+| Egress-adjacent from file | PASS | `seam_egress_adjacent` armcrest, front_side_ptz, g5_bullet, rear_ptz, utilities_ptz (same as the constant) |
+| Reload button exists | PASS | `button.ura_reload_exterior_seams` state unknown (never pressed) |
+| No URA ERROR | PASS | system_log ERROR search universal_room_automation: 0 entries |
 
 ## Not done
 

@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.108.15
+# Universal Room Automation vv5.108.16
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -3471,6 +3471,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         egress_tracker = EgressDirectionTracker(hass)
                         await egress_tracker.async_init()
                         hass.data[DOMAIN]["egress_tracker"] = egress_tracker
+                        # FACE-ARRIVAL-REBUILD-1 D7: interior path map, first
+                        # load at HA started (or now on a reload).
+                        try:
+                            egress_tracker.async_setup_path_map()
+                        except Exception:  # noqa: BLE001
+                            _LOGGER.warning("Interior path map setup failed", exc_info=True)
 
                         _LOGGER.info("Transit validation and egress direction tracking initialized")
                     except Exception as e:

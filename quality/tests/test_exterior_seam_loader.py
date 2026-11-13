@@ -286,3 +286,19 @@ def test_live_ratified_file_shape_validates_with_live_cameras():
     errors, warnings = seams.validate_seam_spec(spec, live_known)
     assert errors == []
     assert any("sonoffwindow" in w for w in warnings)
+
+
+def test_seam_sha_on_rejected_file_unchanged(tmp_path, monkeypatch):
+    """FACE-ARRIVAL-REBUILD-1 D7 step 0 (pinned BEFORE the shared-loader
+    extraction): a REJECTED seam file still publishes the sha256 of its raw
+    bytes (today's behaviour: sha set before validation), and the const graph
+    stays installed."""
+    import hashlib
+
+    bad = '{"schema_version": 999, "seams": []}'
+    _hass, lk = _linker(tmp_path, monkeypatch, bad)
+    asyncio.run(lk.async_setup())
+    assert lk.seam_validation.startswith("rejected: ")
+    assert lk.seam_file_sha256 == hashlib.sha256(bad.encode()).hexdigest()
+    assert lk._adjacency == _const_adj()
+    assert lk.seam_source == "built-in const"

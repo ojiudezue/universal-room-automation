@@ -29,6 +29,35 @@ is still to be filled in from the CameraResolver registry (do not guess stems; r
 The patio camera covers the covered patio, a hallway between interior and egress. When the patio doors are open it
 shares a field of view with the family room camera (expect simultaneous detections; dedupe, not a hop).
 
+## Operator answers (2026-11-12, later)
+
+- **Doorbell Lite is EGRESS** for the garage: it sits just outside the garage and views it and the back driveway
+  (matches the live egress config grouping it with Garage A). The garage table's exterior row is Back PTZ, G5.
+- **Foyer is INTERIOR** (properly indoor) but sees the front door from high up, so it can serve as a door witness.
+  It is not classed as egress because the front door already has two egress cameras.
+- **"Entry way" = Front door aerial.** The front door's egress cameras are Front door aerial (from above) and the G6
+  Entry doorbell (from the side). Both see a person almost at the same time from different angles; treat as one
+  crossing, two views. Aerial is poor for faces but good for counting; the G6 doorbell is the face camera.
+- **Sonoff window cam (driveway) leads to** Front door aerial and the G6 Entry doorbell.
+
+Corrected front-door path: Front PTZ (left) / Utilities PTZ (right) / Sonoff window (driveway) > {Front door aerial,
+G6 Entry} (egress, simultaneous) > Foyer (interior, door witness) > Family room or Master hallway.
+
+- **"Game room" = the `playroom` camera.**
+
+- **Patio is egress.** A large sliding door connects the covered patio and the living room; family and guests use it
+  mostly when entertaining. The patio camera is an egress camera for that door. Patio covers 1-5 are also egress
+  openings (they open the covered patio to the outside), so the patio is a semi-outdoor vestibule: outside > covers >
+  patio (patio camera) > sliding door > family room. Shared field of view with the family room when the doors are open
+  still applies (dedupe, not a hop).
+- **Study B has an outside door; the Reolink camera above it outside (`reolinkstudybporchptz`) is its egress camera.**
+  The door rarely opens.
+- **Garage B is detached.** It opens to itself, not the house. Same exterior approach cameras as the garage path, plus
+  one interior camera of its own. Crossings there are garage entries/exits, not house entries; it must never count as
+  entering the house.
+
+No open map questions remain.
+
 ## Open items
 
 - Resolve each name to its physical camera (CameraResolver `canonical_camera_key`) and list its Frigate/Protect legs.

@@ -72,6 +72,7 @@ from ..const import (
     TRACKING_STATUS_STALE,  # v5.7.0 WS-A1
 )
 from .. import const as _ura_const  # ZONE_OCCUPANCY_PER_ENTITY_ENABLED (attr read, §R3.2.2)
+from ..person_sighting import PersonSightingProducer  # FACE-ARRIVAL-REBUILD-1 D1
 from .base import BaseCoordinator, CoordinatorAction, Intent, Severity
 from .coordinator_diagnostics import (
     AnomalyDetector,
@@ -1816,9 +1817,18 @@ class PresenceCoordinator(BaseCoordinator):
         # can cancel it if the config entry unloads mid-flight.
         self._boot_reconcile_task = None
 
-        # v3.19.0: Face-confirmed arrival state
-        self._face_arrival_cooldown: Dict[str, datetime] = {}
+        # v3.19.0: Face-confirmed arrival state. FACE-ARRIVAL-REBUILD-1: the
+        # ONE debounce store, re-keyed: ("sighting", slug, physical_camera)
+        # and ("arrival", slug) -> epoch window start; cleared at midnight.
+        self._face_arrival_cooldown: Dict[Any, Any] = {}
         self._face_recognition_enabled: bool = False
+        # FACE-ARRIVAL-REBUILD-1 D1: the person-sighting producer (built in
+        # async_setup, torn down in async_teardown).
+        self._person_sightings = None
+        # FACE-ARRIVAL-REBUILD-1 D2: slug -> epoch of the last LIVE
+        # not_home|zone -> home edge, written ONLY by `_handle_geofence_change`
+        # (raw, edge-triggered; empty after a restart, covered by the boot gate).
+        self._last_home_edge_ts: Dict[str, float] = {}
 
         # build/pc-observability: three P1 kill switches (default ON).
         # Each is bound to a switch entity that uses the v5.48.0 signal-
@@ -2964,38 +2974,13 @@ class PresenceCoordinator(BaseCoordinator):
             # parent-entry reload (key is in
             # INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS).
             try:
-                from ..const import (
-                    SIGNAL_URA_FACE_RECOGNITION_CHANGED,
-                    CONF_FACE_RECOGNITION_ENABLED as _CONF_FR,
-                    DEFAULT_FACE_RECOGNITION_ENABLED as _DEF_FR,
-                    ENTRY_TYPE_INTEGRATION as _ETI,
-                    CONF_ENTRY_TYPE as _CET,
-                )
-
-                def _on_face_recog_changed(*_a) -> None:
-                    previous = self._face_recognition_enabled
-                    for cfg in self.hass.config_entries.async_entries(DOMAIN):
-                        if cfg.data.get(_CET) == _ETI:
-                            try:
-                                merged2 = {**cfg.data, **cfg.options}
-                                self._face_recognition_enabled = merged2.get(
-                                    _CONF_FR, _DEF_FR,
-                                )
-                            except Exception:  # noqa: BLE001
-                                pass
-                            break
-                    if previous != self._face_recognition_enabled:
-                        _LOGGER.info(
-                            "PresenceCoordinator: face-recognition-enabled "
-                            "%s → %s (via SIGNAL_URA_FACE_RECOGNITION_CHANGED)",
-                            previous, self._face_recognition_enabled,
-                        )
+                from ..const import SIGNAL_URA_FACE_RECOGNITION_CHANGED
 
                 self._unsub_listeners.append(
                     async_dispatcher_connect(
                         self.hass,
                         SIGNAL_URA_FACE_RECOGNITION_CHANGED,
-                        _on_face_recog_changed,
+                        self._on_face_recog_changed,
                     )
                 )
             except Exception:  # noqa: BLE001
@@ -3144,6 +3129,18 @@ class PresenceCoordinator(BaseCoordinator):
 
                 # Subscribe to geofence (person entity state changes)
                 self._subscribe_geofence()
+
+                # FACE-ARRIVAL-REBUILD-1 D1: person sightings producer.
+                # Review B-L1: own guard, so a failure here cannot skip the
+                # census / zone-delete / ZM-zones / optimizer subscriptions
+                # registered below in this shared discovery block.
+                try:
+                    self._setup_person_sightings()
+                except Exception:  # noqa: BLE001
+                    _LOGGER.warning(
+                        "Person sightings setup failed (non-fatal; presence "
+                        "continues without sightings)", exc_info=True,
+                    )
 
                 # Subscribe to census updates
                 # B-H1 fix-up: async_dispatcher_connect now imported at
@@ -3797,6 +3794,35 @@ class PresenceCoordinator(BaseCoordinator):
         self.hass.async_create_task(self._run_inference("occupancy_change"))
 
     @callback
+    def _on_face_recog_changed(self, *_a) -> None:
+        """SIGNAL_URA_FACE_RECOGNITION_CHANGED: re-read the operator's Face
+        Recognition switch. ``@callback`` (review B-L2, Bug Class #64): the
+        flag gates every interior person sighting, the zone last-face write
+        and the D4 trip-wire, so it must apply on the loop at dispatch, not
+        later as an executor job. Sync-safe: config-entry reads and a bool
+        write only, no I/O."""
+        from ..const import (  # noqa: PLC0415
+            CONF_FACE_RECOGNITION_ENABLED as _CONF_FR,
+            DEFAULT_FACE_RECOGNITION_ENABLED as _DEF_FR,
+            ENTRY_TYPE_INTEGRATION as _ETI,
+        )
+        previous = self._face_recognition_enabled
+        for cfg in self.hass.config_entries.async_entries(DOMAIN):
+            if cfg.data.get(CONF_ENTRY_TYPE) == _ETI:
+                try:
+                    merged2 = {**cfg.data, **cfg.options}
+                    self._face_recognition_enabled = merged2.get(_CONF_FR, _DEF_FR)
+                except Exception:  # noqa: BLE001
+                    pass
+                break
+        if previous != self._face_recognition_enabled:
+            _LOGGER.info(
+                "PresenceCoordinator: face-recognition-enabled "
+                "%s → %s (via SIGNAL_URA_FACE_RECOGNITION_CHANGED)",
+                previous, self._face_recognition_enabled,
+            )
+
+    @callback
     def _on_room_entry_lifecycle(
         self,
         entry_id: str,
@@ -3814,7 +3840,23 @@ class PresenceCoordinator(BaseCoordinator):
 
         The refresh is a coroutine on ``OccupancySubstrate``; schedule it
         as a background task so this @callback stays sync.
+
+        Person sightings (review B-M1): a room options edit can change the
+        room's ``CONF_ROOM_CAMERAS``, which a URA fused zone pick resolves
+        through. Rebuild the producer's bindings here (a full rebind; cheap
+        dict walks) so the new cameras' faces emit and the D4 trip-wire
+        denominator joins through the refreshed face map. Runs before the
+        substrate guard: the producer does not depend on the substrate.
         """
+        producer = self._person_sightings
+        if producer is not None:
+            try:
+                producer.rebind()
+            except Exception:  # noqa: BLE001 — never raise from dispatcher
+                _LOGGER.debug(
+                    "person sightings: rebind on room lifecycle (%s) failed",
+                    action, exc_info=True,
+                )
         if self._substrate is None:
             # Presence coordinator not fully initialized yet — substrate
             # will pick this room up at its own async_setup() enumeration.
@@ -5279,6 +5321,13 @@ class PresenceCoordinator(BaseCoordinator):
 
         # Detect home arrival or departure
         if new_zone == "home" and old_zone != "home":
+            # FACE-ARRIVAL-REBUILD-1 D2 rule 5: the phone's live home edge
+            # (a real not_home / named-zone old state only).
+            if old_zone not in _UNAVAILABLE_STATES:
+                lc = getattr(new_state, "last_changed", None)
+                self._last_home_edge_ts[entity_id.split(".", 1)[-1]] = (
+                    lc.timestamp() if isinstance(lc, datetime) else time.time()
+                )
             self.handle_geofence_event(entity_id, "home")
             # v3.17.0 D3: Signal person arriving for HVAC zone pre-conditioning
             # v3.21.1 D1: Gate signal dispatch on observation mode
@@ -5471,205 +5520,151 @@ class PresenceCoordinator(BaseCoordinator):
                 matched_zone_name = _zone_name
                 break
 
-        # v3.19.0: Face-confirmed arrival (ADDITIVE — all failures return gracefully)
-        if detected and matched_zone_name and self._face_recognition_enabled:
-            face_name = self._get_face_for_camera(entity_id)
-            if face_name:
-                self._handle_face_arrival(entity_id, face_name, matched_zone_name)
+        # FACE-ARRIVAL-REBUILD-1 D5: the v3.19 face-arrival branch (dead: 0
+        # fires in ~90 days) is retired; faces become person sightings
+        # (person_sighting.py) and arrivals come only from the D2 rule.
 
         self.hass.async_create_task(self._run_inference("camera_detection"))
 
     # ------------------------------------------------------------------
-    # v3.19.0: Face-confirmed arrival helpers (additive — never modify
-    # existing camera detection behavior, all failures return gracefully)
+    # FACE-ARRIVAL-REBUILD-1 D1: person sightings (person_sighting.py)
     # ------------------------------------------------------------------
 
-    def _get_face_for_camera(self, camera_entity: str) -> Optional[str]:
-        """Get recognized face from Frigate face sensor for this camera.
+    def _setup_person_sightings(self) -> None:
+        """Build the ONE person-sighting producer and register its sources
+        (census MQTT bridge callback, face-sensor changes on resolved zone
+        camera picks, ``ura_person_egress_event``). With
+        FACE_SIGHTING_ENABLED False it registers nothing (INV-NOOP)."""
+        prior = self._person_sightings
+        if prior is not None:
+            prior.async_teardown()
+        producer = PersonSightingProducer(
+            self.hass, self, arrival_rule=self._derive_face_arrival,
+        )
+        self._person_sightings = producer
+        producer.async_setup()
 
-        v3.19.0: Uses confirmed Frigate naming pattern:
-        binary_sensor.{name}_person_occupancy → sensor.{name}_last_recognized_face
+    def _derive_face_arrival(self, sighting: Any) -> None:
+        """FACE-ARRIVAL-REBUILD-1 D2 (plan rev 11 §3.3): THE one site that turns
+        a sighting into ``SIGNAL_PERSON_ARRIVING(source="camera_face")``.
 
-        CENSUS-FACE-RESOLVER-MIGRATE-1 (2026-08-18): resolves the face
-        entity via ``camera_census._resolve_face_entity_id`` so `_2`-only
-        cameras (post-Frigate-1 retirement — see memory
-        "frigate 1 retired 2 suffix") are picked up. Previously the bare
-        ``sensor.{base}_last_recognized_face`` string was built inline and
-        silently missed `_2`-only cams.
+        Phase 1: interior class (i) "face before phone" only, behind
+        FACE_ARRIVAL_INTERIOR_ENABLED (False: D0-P3 failed). Every egress
+        sighting is skipped ``not_arrival_role`` (no ``camera_egress`` in
+        Phase 1). Raw person state, fail closed on unknown. Access consumers
+        still require an independent edge (D3)."""
+        producer = self._person_sightings
+        skips = producer.skips_by_reason if producer is not None else None
 
-        Returns face name if fresh (<30s), None on any failure.
-        All failures are graceful — face rec is an accelerator, not a requirement.
-        """
-        try:
-            # Review FS-4 (D-3) 2026-09-04: route this second face-emission
-            # path through the central face-suppression checkpoint. Under
-            # the D4 fail-safe (drill / Frigate down / configured-but-
-            # absent + STRICT ON), pre-arrival must NOT fire on face.
-            try:
-                census = self.hass.data.get(DOMAIN, {}).get("census")
-                if census is not None and census._face_suppressed_now():
-                    return None
-            except Exception:  # noqa: BLE001
-                pass
-            # Derive face sensor from camera entity using Frigate naming convention
-            bs_id = camera_entity
-            base_name = None
-            for suffix in ("_person_occupancy", "_person_detected", "_occupancy"):
-                if bs_id.startswith("binary_sensor.") and bs_id.endswith(suffix):
-                    base_name = bs_id[len("binary_sensor."):-len(suffix)]
-                    break
+        def _skip(reason: str) -> None:
+            if skips is not None:
+                skips[reason] += 1
 
-            census = self.hass.data.get(DOMAIN, {}).get("census")
-            face_sensor_id: Optional[str] = None
-            if not base_name:
-                # FACE-SOURCE-REGISTRY-DISCOVERY-1 D3 (S8): a `_N` / renamed
-                # person sensor (e.g. `..._person_occupancy_2`) used to stop
-                # here. Join the face sensor through the person sensor's
-                # device (gated by FACE_SOURCE_INCLUDE_DISAMBIGUATED_PERSON_
-                # SENSORS inside the census helper). No census -> None.
-                if census is None or not hasattr(census, "_device_derived_face_entity_id"):
-                    return None  # Not a recognized camera pattern
-                # Separate rung-1 gate: this path feeds SIGNAL_PERSON_ARRIVING
-                # -> SC lock regime release / away-lock unlock (const comment).
-                from .. import const as _c  # noqa: PLC0415
-                if not getattr(_c, "FACE_SOURCE_PRESENCE_ARRIVAL_DISAMBIGUATED", False):
-                    return None
-                face_sensor_id = census._device_derived_face_entity_id(bs_id)
-                if not isinstance(face_sensor_id, str) or not face_sensor_id:
-                    return None
-
-            # Route through the census resolver — it tolerates the `_2`
-            # disambiguation suffix (see camera_census._resolve_face_entity_id).
-            # If the census coordinator isn't wired yet (early boot / test),
-            # fall back to the bare canonical id so behavior is at least as
-            # good as pre-migration.
-            # NOTE (L2): the census resolver increments its per-tick
-            # `_face_lookup_missing_count` (surfaced at camera_census.py:1288)
-            # on every miss, so presence-driven lookups now contribute to
-            # that counter too — a rate shift, not a correctness bug.
-            if face_sensor_id is None and census is not None:
-                # Narrow except (L1): AttributeError (resolver renamed /
-                # removed) must PROPAGATE so the rename surfaces loudly
-                # instead of silently falling back to the bare-string path.
-                try:
-                    face_sensor_id = census._resolve_face_entity_id(base_name)
-                except (LookupError, ValueError, TypeError):
-                    face_sensor_id = None
-            if face_sensor_id is None:
-                face_sensor_id = f"sensor.{base_name}_last_recognized_face"
-
-            state = self.hass.states.get(face_sensor_id)
-            if not state:
-                return None  # Face sensor doesn't exist
-
-            # Check for valid face name
-            face_value = state.state.strip() if state.state else ""
-            if not face_value or face_value.lower() in ("unknown", "unavailable", "none", "no_match", ""):
-                return None  # No face recognized
-
-            # Freshness check: face rec must be recent (<30s)
-            if state.last_changed:
-                age = (dt_util.utcnow() - state.last_changed).total_seconds()
-                if age > 30:  # FACE_FRESHNESS_SECONDS
-                    return None  # Stale face data
-
-            return face_value
-        except Exception:  # noqa: BLE001
-            return None  # Face rec is an accelerator — never fail
-
-    @callback
-    def _handle_face_arrival(self, camera_entity: str, face_name: str, zone_name: str) -> None:
-        """Fire pre-arrival signal for face-recognized person in a zone.
-
-        v3.19.0: Debounced (60s per person+zone). All failures graceful.
-        """
-        try:
-            # async_dispatcher_send imported at module top (v4.7.20.1) — no
-            # function-local import, to avoid re-scoping it as a method-local.
-            # Map face name to person entity
-            person_entity = self._find_person_entity_from_face(face_name)
-            if not person_entity:
-                _LOGGER.debug("Face '%s' has no matching person entity — skipping", face_name)
-                return
-
-            # Debounce: 60s cooldown per person+zone
-            key = f"{person_entity}:{zone_name}"
-            now = dt_util.utcnow()
-            last = self._face_arrival_cooldown.get(key)
-            if last and (now - last).total_seconds() < 60:
-                return
-            self._face_arrival_cooldown[key] = now
-
-            # Update zone tracker face state
-            tracker = self._zone_trackers.get(zone_name)
-            if tracker:
-                tracker._last_face_recognized = face_name
-                tracker._last_face_time = now
+        if sighting.sighting_source != "interior_pick":
+            _skip("not_arrival_role")
+            return
+        if not _ura_const.FACE_ARRIVAL_INTERIOR_ENABLED:
+            _skip("disabled_interior")
+            return
+        if self.observation_mode:
+            _skip("observation_mode")
+            return
+        setup_ts = getattr(producer, "_setup_ts", None) or 0.0
+        if sighting.ts < setup_ts + float(_ura_const.PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S):
+            _skip("boot")
+            return
+        st = self.hass.states.get(sighting.person_entity)
+        raw = getattr(st, "state", None) if st is not None else None
+        if raw == "home":
+            _skip("home")
+            return
+        if raw is None or raw in _UNAVAILABLE_STATES:
+            _skip("unknown_state")
+            return
+        edge = self._last_home_edge_ts.get(sighting.slug)
+        if edge is not None and edge >= sighting.ts - float(
+                _ura_const.FACE_ARRIVAL_PRIOR_HOME_GAP_S):
+            _skip("phone_already_home")
+            return
+        key = ("arrival", sighting.slug)
+        start = self._face_arrival_cooldown.get(key)
+        window = float(_ura_const.FACE_ARRIVAL_DEBOUNCE_S)
+        if isinstance(start, (int, float)) and sighting.ts < start + window:
+            _skip("debounce")
+            return
+        self._face_arrival_cooldown[key] = sighting.ts
+        for zone in sighting.house_zones:
+            tracker = self._zone_trackers.get(zone)
+            if tracker is not None:
                 tracker._face_arrivals_today += 1
+        self._bump_hvac_face_counter(sighting)
+        if producer is not None:
+            producer.note_arrival(sighting.ts)
+        async_dispatcher_send(
+            self.hass,
+            SIGNAL_PERSON_ARRIVING,
+            {
+                "person_entity": sighting.person_entity,
+                "source": "camera_face",
+                "sighting": sighting,
+                "zone": sighting.house_zones[0] if sighting.house_zones else "",
+            },
+        )
+        _LOGGER.info(
+            "Camera face arrival: %s seen at %s before the phone arrived",
+            sighting.person_entity, sighting.camera,
+        )
 
-            # Update HVAC zone counter if available
-            try:
-                manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
-                if manager:
-                    hvac = manager.coordinators.get("hvac")
-                    if hvac and hvac.zone_manager:
-                        for _zid, zstate in hvac.zone_manager.zones.items():
-                            if zstate.zone_name == zone_name:
-                                zstate.camera_face_arrivals_today += 1
-                                break
-            except Exception:  # noqa: BLE001
-                pass  # Best effort — don't fail face arrival on HVAC counter update
+    def _prune_face_cooldowns(self, now: float | None = None) -> None:
+        """Day-boundary hygiene (review A4): drop only debounce keys whose
+        window has run out, so a midnight crossing never re-opens a live
+        sighting (``FACE_SIGHTING_DEBOUNCE_S``) or arrival
+        (``FACE_ARRIVAL_DEBOUNCE_S``) window. Unknown key shapes are dropped."""
+        now = time.time() if now is None else now
+        windows = {
+            "sighting": float(_ura_const.FACE_SIGHTING_DEBOUNCE_S),
+            "arrival": float(_ura_const.FACE_ARRIVAL_DEBOUNCE_S),
+        }
+        for key in list(self._face_arrival_cooldown):
+            start = self._face_arrival_cooldown.get(key)
+            kind = key[0] if isinstance(key, tuple) and key else None
+            window = windows.get(kind)
+            if (window is None or not isinstance(start, (int, float))
+                    or now >= start + window):
+                self._face_arrival_cooldown.pop(key, None)
 
-            # Fire the signal
-            # v3.21.1 D1: Gate signal dispatch on observation mode
-            if self.observation_mode:
-                _LOGGER.info(
-                    "[observation mode] Presence would dispatch "
-                    "SIGNAL_PERSON_ARRIVING for %s (camera_face) in zone %s — suppressed",
-                    face_name, zone_name,
-                )
-            else:
-                async_dispatcher_send(
-                    self.hass,
-                    SIGNAL_PERSON_ARRIVING,
-                    {"person_entity": person_entity, "source": "camera_face"},
-                )
-                _LOGGER.info(
-                    "Camera face arrival: %s recognized in zone %s via %s",
-                    face_name, zone_name, camera_entity,
-                )
-        except Exception:  # noqa: BLE001
-            _LOGGER.debug("Face arrival handling failed (non-fatal)", exc_info=True)
-
-    def _find_person_entity_from_face(self, face_name: str) -> Optional[str]:
-        """Map Frigate face name to HA person entity.
-
-        v3.19.0: Frigate face names are configured names (e.g., "Oji", "Jaya").
-        Try matching to person.{lowercase_name}.
-        """
+    def _bump_hvac_face_counter(self, sighting: Any) -> None:
+        """HVAC `camera_face_arrivals_today` by zone MEMBERSHIP, once per
+        distinct HVAC zone: the zone whose rooms contain the sighting's room,
+        or whose compound name (" + ") contains one of its house zones. Never
+        string equality (one thermostat zone spans several house zones)."""
         try:
-            candidate = f"person.{face_name.lower().replace(' ', '_')}"
-            if self.hass.states.get(candidate):
-                return candidate
-            # Try without modification
-            candidate2 = f"person.{face_name}"
-            if self.hass.states.get(candidate2):
-                return candidate2
-            # FACE-SOURCE-REGISTRY-DISCOVERY-1 D5: an explicit operator
-            # alias (`face_name_aliases`, e.g. "Oji=oji_udezue") maps a
-            # face-library name to a tracked person whose entity id is not
-            # `person.<face name>`. Empty alias list -> no change.
-            census = self.hass.data.get(DOMAIN, {}).get("census")
-            alias_fn = getattr(census, "face_alias_person_slug", None) if census is not None else None
-            if callable(alias_fn):
-                slug = alias_fn(face_name)
-                if isinstance(slug, str) and slug:
-                    candidate3 = f"person.{slug}"
-                    if self.hass.states.get(candidate3):
-                        return candidate3
-            return None
-        except Exception:  # noqa: BLE001
-            return None  # Face rec is an accelerator — never fail
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            hvac = manager.coordinators.get("hvac") if manager else None
+            zm = getattr(hvac, "zone_manager", None) if hvac else None
+            if zm is None:
+                return
+            house = set(sighting.house_zones)
+            for zstate in zm.zones.values():
+                names = {n.strip() for n in str(zstate.zone_name).split(" + ")}
+                if (sighting.room and sighting.room in (zstate.rooms or [])) or (names & house):
+                    zstate.camera_face_arrivals_today += 1
+        except Exception:  # noqa: BLE001 — display counter only
+            _LOGGER.debug("HVAC face counter update failed", exc_info=True)
+
+    def get_last_person_sighting(self, person_entity: str):
+        """Last sighting of ``person.<slug>`` (RAM, cleared on teardown), or
+        None. The read side future consumers use (plan §3.1)."""
+        producer = self._person_sightings
+        return producer.get_last(person_entity) if producer is not None else None
+
+    def get_last_person_sightings(self) -> dict:
+        producer = self._person_sightings
+        return producer.get_all_last() if producer is not None else {}
+
+    def get_person_sighting_diagnostics(self) -> dict:
+        producer = self._person_sightings
+        return producer.diagnostics() if producer is not None else {}
 
     async def _periodic_inference(self, _now: Any = None) -> None:
         """Run periodic inference for time-based transitions and camera timeouts.
@@ -5678,6 +5673,14 @@ class PresenceCoordinator(BaseCoordinator):
         """
         # Update BLE presence for each zone (Tier 3)
         self._update_ble_zone_presence()
+
+        # FACE-ARRIVAL-REBUILD-1: sighting re-resolution triggers + D4
+        # trip-wires (display / NM only; never raises into inference).
+        if self._person_sightings is not None:
+            try:
+                self._person_sightings.on_tick()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("person sightings tick failed", exc_info=True)
 
         # Sleep-mask cycle D3: roll away_entries_today at local midnight.
         try:
@@ -8737,7 +8740,9 @@ class PresenceCoordinator(BaseCoordinator):
             # v3.19.0: Reset face arrival counters at midnight
             for tracker in self._zone_trackers.values():
                 tracker._face_arrivals_today = 0
-            self._face_arrival_cooldown.clear()
+            self._prune_face_cooldowns()
+            if self._person_sightings is not None:
+                self._person_sightings.reset_daily()
         self._transitions_today += 1
 
         # v4.6.4 P1: record and emit if anomalously high transition count
@@ -8898,6 +8903,14 @@ class PresenceCoordinator(BaseCoordinator):
         """Tear down the Presence Coordinator."""
         # Fan-noise review A-M2/B-2: pending held-belief decay timers.
         _cancel_fan_belief_decay(self)
+        # FACE-ARRIVAL-REBUILD-1 D1: sighting producer (listeners, census
+        # bridge callback, stores).
+        if self._person_sightings is not None:
+            try:
+                self._person_sightings.async_teardown()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("person sightings teardown failed", exc_info=True)
+            self._person_sightings = None
         # Cancel deferred retry timer
         if self._retry_unsub is not None:
             self._retry_unsub()

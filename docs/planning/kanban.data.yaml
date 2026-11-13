@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-11-12'
+  last_reconciled: '2026-11-13'
   history_file: docs/planning/kanban.history.yaml
   # BOARD-AUTONOMY-PROGRESS-1: append one entry each time a card is concluded
   # autonomously (built / parked / waiting_operator / shipped / done). The
@@ -34501,18 +34501,21 @@ cards:
 - id: LOCK-REGIME-SWITCHES-OFF-1
   title: "Garage lockout and away-lock switches are OFF live, so the shipped lock regime (incl. v5.108.13 suspicious-arrival hold) has made zero decisions in 30 days"
   thread: security
-  status: waiting_operator
+  status: parked
   batch: broken-promises-2026-11
   created: '2026-11-12 22:30'
-  updated: '2026-11-12 22:30'
+  updated: '2026-11-12 22:45'
   tier: 1
   origin: {date: '2026-11-12', gist: 'Broken-promise sweep (docs/planning/AUDIT_broken_promises_2026_11_12.md); operator: "A lot of our hardening are broken promises from previous work."'}
   why: "switch.ura_security_coordinator_garage_lockout and _away_lock both off; decision_log zero regime rows in 30 days. Could be a deliberate operator choice; if so the shipped hold work is inert and its organic dispositions cannot validate."
   next: "ANSWER: were these turned off on purpose? -> if not, I turn them on (house-visible, back up first) and re-run the v5.108.13 dispositions."
+  ANSWERED_2026-11-12: 'Operator: "Yes turn off lockout on purpose since I am not home and errors will frustrate my family." Deliberate. Not a broken promise.'
+  revisit_if: 'Operator home (~2026-11-16): ask whether to turn garage lockout and away-lock back on; then run the v5.108.13 lock-hold dispositions (arrival_hold count) and LOCK-REGIME-BOOT-REALLY-AWAY-1 / LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1 checks against live decisions.'
+  HOUSEHOLD_2026-11-12: 'Operator: Ezinne is not sure about the away lockout on the master and needs time. Do not propose re-enabling away-lock on the master suite door on return; garage lockout can be discussed separately. Ask the operator before raising it again.'
 - id: GARAGE-HALLWAY-LOCK-NONCONVERGE-1
   title: "Garage hallway lock: URA re-locks hourly, the lock reverts to unlocked ~7 s later, and the retry cap only writes an audit row"
   thread: security
-  status: investigating
+  status: waiting_operator
   batch: broken-promises-2026-11
   created: '2026-11-12 22:30'
   updated: '2026-11-12 22:30'
@@ -34520,6 +34523,8 @@ cards:
   origin: {date: '2026-11-12', gist: 'Broken-promise sweep (docs/planning/AUDIT_broken_promises_2026_11_12.md); operator: "A lot of our hardening are broken promises from previous work."'}
   why: "Sweep item 3; lock unlocked now. Physical/firmware or a competing writer; the guard never escalates to the operator."
   next: "Me: read lock history + who writes it, then card the fix (escalate to NM on retry cap)."
+  FINDING_2026-11-12: 'AUDIT_garage_hallway_lock_and_perimeter_gates_2026_11_12.md: only URA periodic lock check (security.py:1830-1865) locks it; each relock reverts 6-7 s later with no person/service context; lock reports alarm_type 169 (low battery to operate, per a community Kwikset table) and replace_battery_now on since 11-10 while battery_level reads 90. No automation or other URA code unlocks it. Likely weak battery/actuator. Code follow-up: when the relock reverts N times, stop retrying and send one HIGH notification naming the lock and the battery signal.'
+  next: 'DO: replace the Kwikset garage hallway lock batteries (someone at home) -> I re-check reverts; separately I fix the guard to escalate instead of looping hourly.'
 - id: NM-NO-CHANNEL-FIRED-1
   title: "520 notification_log rows since 11-01 record no_channel_fired / delivered=2 (stuck_signal, circuit_anomaly, lock retry-cap, high_co2): may reach nobody"
   thread: notifications
@@ -34575,10 +34580,55 @@ cards:
   origin: {date: '2026-11-12', gist: 'Broken-promise sweep (docs/planning/AUDIT_broken_promises_2026_11_12.md); operator: "A lot of our hardening are broken promises from previous work."'}
   why: "Sweep item 9; likely superseded by _zone_conditioning_retreat_ok."
   next: "Me: confirm superseded, then DELETE or KEEP+DOCUMENT per triage rule."
+- id: PERIMETER-FP-GATES-DISPOSE-1
+  title: Perimeter false-positive gates D3/D5 shipped shadow-first but D3 can never evaluate (zone sensors never configured) and no shadow counts are kept; no disposal date
+  thread: perimeter
+  status: investigating
+  batch: broken-promises-2026-11
+  created: '2026-11-12 22:55'
+  updated: '2026-11-12 22:55'
+  tier: 2
+  origin: {date: '2026-11-12', gist: 'Operator asked why the gates are off. AUDIT_garage_hallway_lock_and_perimeter_gates_2026_11_12.md.'}
+  why: 'Off by design as shadow-first (README v5.107.0, PLANNING_perimeter_fp_build_2026_11.md), but gate_decisions_by_camera {} and zone_map {} live; D5 learning (g5_bullet clears bar); D5 settle 8 s shorter than most camera lag. 2,295 CRITICAL + 1,754 HIGH exterior_person alerts in ~30 days.'
+  next: 'Me: persist shadow would_demote counts, list the D1 zone sensors needed (operator config), retune D5 settle, then dispose by a fixed date.'
+- id: EGRESS-CONFIG-PATIO-STUDYB-1
+  title: The patio sliding door (patio camera, covers 1-5) and the Study B outside door (Reolink porch camera) are real egresses with no egress config; Garage B must be marked detached
+  thread: identity
+  status: done
+  batch: person-sightings
+  created: '2026-11-12 23:10'
+  updated: '2026-11-12 23:10'
+  tier: 2
+  links: {parent: FACE-ARRIVAL-REBUILD-1, related: [INTERIOR-PATH-MAP-1]}
+  origin: {date: '2026-11-12', gist: 'Operator: patio camera and the Reolink above the Study B door are technically egress; patio covers 1-5 are egress covers; Garage B is detached and opens to itself.'}
+  why: 'Live egress config has five egress cameras (garage A group incl. doorbell_lite, front aerial + G6 entry, garage B). Patio and Study B crossings are invisible to the egress tracker, so census, direction and sightings miss them. Garage B crossings must not count as house entries.'
+  rank: {value: 7, time_criticality: 4, effort: 3}
+  FINDING_2026-11-12: 'Live CM options: egress_cameras = madrone_g6_entry, doorbell_lite, front_door_aerial, garage_a_2, garage_b_2; door_groups = {doorbell_lite: garage_a, garage_a: garage_a, front_door_aerial: front, madrone_g6_entry: front, garage_b: garage_b}; main_entry_door garage_a. No patio or Study B group. camera.reolinkstudybporchptz is a PERIMETER camera today (and in the seam ring); candidate patio cameras camera.reolinkpatio / camera.reolink_patio_fluent. No code concept of a detached door group (grep detached: only a const comment), so Garage B crossings are treated as HOUSE entries/exits by the egress tracker, census and sightings -> code needed, not just config.'
+  DECISION_2026-11-13: 'Operator: garage and front are ~99% of entries and exits (house renders shared); Garage B is not a house entry. Config-first: Garage B is fixed by settings, no code. Remove camera.garage_b_2 from egress_cameras and the garage_b door group; add it to perimeter_cameras so it is still watched. Patio and Study B egress: not added (marginal value at ~1% of crossings); revisit if the weekly egress labels show patio/Study B crossings matter. The house_entry:false code attribute is dropped (a portability option to revisit only if another house needs a detached door that is still tracked).'
+  APPROVED_2026-11-13: 'Operator: "Do the garage b move". Held at 00:08 CST: house in sleep, and saving camera lists reloads the parent entry (no reload while asleep). config_entries backed up to .claude/scratch/core.config_entries.bak-202611130008.'
+  DONE_2026-11-13: 'Operator: "Do it now... Monitor". Applied 00:13 CST via options flow camera_census: only egress_cameras, perimeter_cameras, door_groups changed (diff vs backup). 20 min watch: house stayed sleep throughout, URA unavailable entities 5 -> 3 (fewer), no lock/alarm/cover/climate logbook changes.'
+  next: 'None. Patio/Study B not added (operator ~99% garage+front); revisit only if weekly labels show patio crossings matter.'
+- id: EGRESS-OUTCOME-WEEKLY-LABEL-1
+  arc_cut_v5_108_16: "recurring, starts with this ship"
+  title: Weekly labelling of egress identity outcomes (recurring) so Phase 2 of person sightings becomes decidable
+  thread: identity
+  status: waiting_me
+  batch: person-sightings
+  created: '2026-11-12 23:30'
+  updated: '2026-11-12 23:30'
+  tier: 1
+  links: {parent: FACE-ARRIVAL-REBUILD-1}
+  origin: {date: '2026-11-12', gist: 'Plan rev 11 M6/M7: recorder keeps 7 days; Phase 2 needs >= 10 operator-reviewed confirmations (~10 weeks).'}
+  why: 'Run the weekly labeller after D8a ships; it snapshots raw path-edge times and GPS fixes; operator reviews a sample of labels.'
+  DECISION_2026-11-13: 'Operator chose (1) label historical crossings now from URA DB/Frigate history, (3) lower the Phase 2 bar from 10 to 5 confirmed true cases plus a measured misrecognition rate, and (2) staged arrivals opportunistically: scheduled Sat 2026-11-21 11:00-11:45 CT on the operator calendar (10 passes, phone in airplane mode, garage A and front door).'
+  FINDING_2026-11-13: 'AUDIT_egress_history_labels_2026_11_13.md: usable history is only 14 days (Frigate sub_label retention); URA egress rows store only post-veto results, so vetoed names are lost, about 3 candidates/day until D8a ships. 41 candidates 10-30..11-12: 10 TRUE (5-case bar met), 1 FALSE (Oji named at garage A 11-12 07:23 while in NZ), 30 REVIEW (19 Jaya). Misrecognition rate not yet measurable (bounds 2-76%); face score does not discriminate. Also: 8 named arrivals labelled exit (direction errors); 4 cross-person disagreements Frigate vs URA attach.'
+  next: 'ANSWER: was Jaya''s phone with her all day 11-11; do Ojini and Ziri carry phones with trackers? (resolves ~20 of 30 REVIEW rows) -> I finish labels and compute the misrecognition rate; ship D8a soon to stop losing vetoed names.'
+  rank: {value: 5, time_criticality: 6, effort: 1}
 - id: INTERIOR-PATH-MAP-1
   title: Interior camera path map (outside > door > inside), built from the operator fixture, stored as a validated file with const fallback like the exterior seams
   thread: identity
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.108.16
   batch: person-sightings
   created: '2026-11-12 22:00'
   updated: '2026-11-12 22:00'
@@ -34589,6 +34639,7 @@ cards:
   next: 'Me: build as plan D7 after rev-8 fixes; resolve names via CameraResolver; measure hop lags; diff learned vs operator map.'
   rank: {value: 8, time_criticality: 5, effort: 5}
 - id: EGRESS-DIRECTION-AWARE-IDENTITY-1
+  arc_cut_v5_108_16: "phase 2, gated on labels (5 true cases met, misrecognition rate pending)"
   title: Egress drops the name of anyone the tracker shows away, in both directions; entries by away people are exactly arrivals
   thread: identity
   status: planned
@@ -34616,6 +34667,7 @@ cards:
   next: 'Me: builder wiring load-at-setup + fallback + D4 + D5 with a wire-in test; two reviews; ship.'
   rank: {value: 8, time_criticality: 7, effort: 3}
 - id: VISION-CROSSING-ANALYSIS-1
+  arc_cut_v5_108_16: "own sibling plan, D0-FRAME/SIM done, re-anchor edits then D0-V"
   title: AI vision of each crossing (fast 3-frame sample + batched time-lapse along the camera chain) as a counting and description input, fused with Frigate/Protect counts
   thread: identity
   status: investigating
@@ -34626,9 +34678,11 @@ cards:
   links: {parent: FACE-ARRIVAL-REBUILD-1, depends_on: [INTERIOR-PATH-MAP-1]}
   origin: {date: '2026-11-12', gist: 'Operator: watch arrivals with AI vision; time-lapse; fast first frames; counting is easy, naming is hard; guests are the census problem; OpenAI models (GPT-6 Luna/Sol); deconflict with camera counts until trusted (100 crossings / 7 days using resident BLE truth).'}
   why: 'Design in PLANNING_person_sighting_layer.md section 15. Gates: D0-FRAME (blank-frame experiment), D0-SIM (timing simulation), D0-V (model scoring incl. dry call per GPT-6 model for llmvision param compatibility). Then its own sibling plan.'
-  next: 'Me: run D0-FRAME and D0-SIM (read-only) after the sightings build starts; D0-V sends ~50 past frames to OpenAI (operator-approved provider).'
+  FINDING_2026-11-13: 'AUDIT_vision_d0_frame_sim_2026_11_13.md: D0-FRAME and D0-SIM NO-GO as written, GO if re-anchored. Plan assumed crossing emit t0 = edge + 0-20 s; code is edge + 45 s (ENTRY_WINDOW_SECONDS). At t0: 63% of crossings have zero usable frames; at the camera edge: 3/3 frames on 100%. Guard must choose across the door group cameras (single camera on at edge+3 s only 32-79%). Best-snapshot 404s 17-30% (doorbell, G6), thumbnails 100%. Volume 14/day (max 30): cap >= 40. Time-lapse 60 s from t0 catches first interior hop 12-22%; from edge 84-88%; garage A needs 90 s, front 120 s. Plan table wrongly lists Doorbell Lite under front. Open: 30-frame operator hand-label of the blank proxy.'
+  next: 'Me: apply the re-anchor edits to plan section 15 (arm at the camera edge, group-wide frame guard, thumbnails as fallback, 90/120 s windows, cap 40, Doorbell Lite in garage A); then D0-V (about 50 past frames to OpenAI, operator-approved provider). Operator: 30-frame hand-label when convenient.'
   rank: {value: 9, time_criticality: 4, effort: 8}
 - id: PHONE-LEFT-BEHIND-CAMERA-LEG-1
+  arc_cut_v5_108_16: "needs D1 live first, planned next"
   title: Phone-left-behind sensors never see a camera sighting (TransitValidator camera-sighting store never holds a named sighting; person_id is a display name)
   thread: presence
   status: inbox
@@ -34642,6 +34696,7 @@ cards:
   next: 'Me: after D1 ships, plan the source swap.'
   rank: {value: 5, time_criticality: 3, effort: 3}
 - id: DEPARTURE-ACTIONS-1
+  arc_cut_v5_108_16: "needs phase 2 departures"
   title: Nothing acts on a named departure; direction-aware egress makes departures available
   thread: identity
   status: inbox
@@ -34655,9 +34710,10 @@ cards:
   next: 'Me: after D8 ships, decompose consumers with the operator.'
   rank: {value: 5, time_criticality: 2, effort: 4}
 - id: FACE-ARRIVAL-REBUILD-1
+  arc_cut_v5_108_16: "main card stays open until phase 2 ships"
   title: 'PERSON SIGHTINGS (main card): one identity-at-place layer (face, egress, later vision) harmonized with egress and census; direction-aware egress identity; access needs a second signal'
   thread: identity
-  status: planned
+  status: in_progress
   APPROVED_2026-11-12: 'Operator approved the plan (rev 8, plus fixes from its two rev-8 plan reviews) and asked: "capture everything and main card, connected cards and drive to finish. And for it to be actually complete." Plan: docs/planning/PLANNING_person_sighting_layer.md on branch plan/face-arrival-rebuild. Arc = batch person-sightings; every deliverable below ships or is parked with a trigger, and each ship is checked by a wire-in test that drives the real path, not a status table.'
   arc_deliverables:
   - 'D0 probes (P1-P7, incl. vetoed-arrival count) — read-only gate'
@@ -34690,6 +34746,7 @@ cards:
   links:
     related: [ZONE-CAMERA-DISCOVERY-DEVICE-AREA-1, PERSON-PROFILE-PREFERENCES-1, FRIGATE-DOOR-FACE-TUNING-1]
   next: 'Me: planner writes Tier-3 plan; two plan reviews; then APPROVE from operator.'
+  DECISION_2026-11-13_comfort: 'Operator on review D L-2 (HVAC pre-arrival and music-follow accept a face arrival with no second signal): fine for an actually identified known person; keep thinking about 2nd and 3rd order consequences. Phase 2 gate: before FACE_ARRIVAL_INTERIOR_ENABLED goes on, list the 2nd/3rd-order effects per comfort consumer (misrecognition, a resident seen while their tracker says away, repeated triggers) with a measured misrecognition rate from the weekly labels.'
   rank: {value: 8, time_criticality: 4, effort: 8}
 - id: HVAC-PRECOOL-FLOOR-BELOW-ARRIVAL-HEAT-1
   title: With Solar Banking Cool Floor below ~72, arrival pre-cool can cool a zone already inside Home's band down to the heat setpoint
@@ -34711,9 +34768,11 @@ cards:
   next: 'Me: fold into the next HVAC cycle after the stand-down ships.'
   rank: {value: 3, time_criticality: 1, effort: 2}
 - id: LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1
+  arc_cut_v5_108_16: "separate Tier-3 lock-regime plan, switches off"
   title: A camera seeing any body while the house is away moves it to ARRIVING, which releases the garage lockout and auto-disarms security with no identity
   thread: security
   status: investigating
+  batch: person-sightings
   created: '2026-11-12 19:10'
   updated: '2026-11-12 19:10'
   refinement_status: initial
@@ -34728,8 +34787,10 @@ cards:
   constraints:
   - Read IDENTITY_FUSION_CAMERAS_MANUAL.md, PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md before planning. Do not regress real arrivals unlocking (operator, "Feeling locked out is a nasty feeling").
   links:
-    related: [FACE-ARRIVAL-REBUILD-1]
-  next: 'Me: read-only probe of away->ARRIVING transitions over recorder history, their evidence source and resulting lockout releases / disarms.'
+    parent: FACE-ARRIVAL-REBUILD-1
+  ARC_2026-11-13: 'Operator: add to the person-sightings arc. Review D (v_person_sightings_p1_D.md L-1) repro: lockout engaged in SLEEP, house SLEEP -> AWAY, an interior camera sees a body -> ARRIVING -> lockout release.'
+  FINDING_2026-11-13: 'AUDIT_arriving_on_body_evidence_2026_11_13.md: 2,642 AWAY->ARRIVING edges since 03-12; 6.4% real arrivals, 48.6% correcting a false AWAY, 32.8% no resident evidence. 68.5% driven by zone sensors with census 0, not cameras. Zero access releases ever: lockout, away-lock and auto-follow switches all off; lockout code dates from 11-07. Phone edges lead ARRIVING (median 35 s, 16/17). Fix shape: drop house_state arriving (and the HOME_* follow-on at :858-860) as a lockout release trigger; real arrivals use the person path; trip-wire on any release with trigger house_state:arriving and no resident edge in 120 s; same for auto-follow disarm.'
+  next: 'Me: plan the lock-regime trigger change (Tier 3, plan + 2 plan reviews) before the operator turns the lockout back on (~11-16); no urgency while switches are off.'
   rank: {value: 9, time_criticality: 6, effort: 5}
 - id: FRIGATE-DOOR-FACE-TUNING-1
   title: Door and exterior cameras recognize few faces (garage 36, doorbell 33, entry 16, aerial 7 since 11-05; 9 cameras zero), capping egress identity near 40%

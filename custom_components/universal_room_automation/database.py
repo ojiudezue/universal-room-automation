@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv5.108.15
+# Universal Room Automation vv5.108.16
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -11370,6 +11370,40 @@ class UniversalRoomDatabase:
     # ------------------------------------------------------------------
     _last_memory_writer_health_check_ts: float | None = None
 
+    async def _memory_writer_house_absent_throughout(
+        self, since_utc: datetime,
+    ) -> bool:
+        """True only when ``house_state_log`` PROVES the house was in an
+        absent state (``MEMORY_WRITER_HEALTH_ABSENT_HOUSE_STATES``) from
+        ``since_utc`` to now: the last row before the window is absent AND
+        every row inside the window is absent. No prior row, any other state
+        or any error -> False (page as usual). Rows are naive UTC
+        (``log_house_state_change`` writes ``datetime.utcnow()``)."""
+        from .const import MEMORY_WRITER_HEALTH_ABSENT_HOUSE_STATES  # noqa: PLC0415
+        absent = {str(s).lower() for s in MEMORY_WRITER_HEALTH_ABSENT_HOUSE_STATES}
+        if not absent:
+            return False
+        since_naive = since_utc.astimezone(timezone.utc).replace(tzinfo=None).isoformat()
+        try:
+            async with self._db() as db:
+                cursor = await db.execute(
+                    "SELECT state FROM house_state_log WHERE timestamp < ? "
+                    "ORDER BY timestamp DESC, id DESC LIMIT 1",
+                    (since_naive,),
+                )
+                prior = await cursor.fetchone()
+                if prior is None or str(prior[0]).lower() not in absent:
+                    return False
+                cursor = await db.execute(
+                    "SELECT DISTINCT state FROM house_state_log WHERE timestamp >= ?",
+                    (since_naive,),
+                )
+                rows = await cursor.fetchall()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("memory_writer_health: house absence read failed", exc_info=True)
+            return False
+        return all(str(r[0]).lower() in absent for r in rows)
+
     async def run_memory_writer_health_check(
         self, *, cadence_days: int = 7, triggered_by: str = "nightly",
     ) -> dict | None:
@@ -11385,6 +11419,7 @@ class UniversalRoomDatabase:
         """
         from .const import (  # noqa: PLC0415
             MEMORY_WRITER_BACKED_EPISODE_TYPES,
+            MEMORY_WRITER_HEALTH_ABSENCE_EXEMPT_TYPES,
             MEMORY_WRITER_HEALTH_EXEMPT_TYPES,
         )
         try:
@@ -11466,6 +11501,23 @@ class UniversalRoomDatabase:
             zero_types = sorted(
                 t for t, n in counts.items() if n == 0
             )
+            # Review B-L4 (person sightings P1): a crossing-only writer is
+            # not paged when the house was away/vacation the whole window.
+            absence_suppressed: list[str] = []
+            absence_types = [
+                t for t in zero_types
+                if t in MEMORY_WRITER_HEALTH_ABSENCE_EXEMPT_TYPES
+            ]
+            if absence_types and await self._memory_writer_house_absent_throughout(
+                now - timedelta(days=cadence_days),
+            ):
+                absence_suppressed = absence_types
+                zero_types = [t for t in zero_types if t not in absence_types]
+                _LOGGER.info(
+                    "memory_writer_health: %s silent but the house was "
+                    "away/vacation for the whole %dd window; not paged",
+                    absence_suppressed, cadence_days,
+                )
             if zero_types:
                 _LOGGER.warning(
                     "memory_writer_health: %d writer-backed episode "
@@ -11524,6 +11576,7 @@ class UniversalRoomDatabase:
                 "triggered_by": triggered_by,
                 "zero_row_types": zero_types,
                 "exempt_types": sorted(MEMORY_WRITER_HEALTH_EXEMPT_TYPES),
+                "absence_suppressed_types": absence_suppressed,
                 "counts": counts,
             }
         except Exception as e:  # noqa: BLE001 — observational, never raises
