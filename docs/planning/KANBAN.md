@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-13T14:45:48-06:00_ - _Data commit: `76cc9e28e5a3`_ - _last_reconciled: 2026-11-13_
+_Generated: 2026-11-13T14:46:33-06:00_ - _Data commit: `c46959c2e2bf`_ - _last_reconciled: 2026-11-13_
 
 
 ## Columns
@@ -571,8 +571,9 @@ _created 2026-11-13 12:30_
 - **Origin:** 2026-11-13 - Operator: "Lets card and fix soon. Or remove." perimeter_alert.py:4672 _apply_zone_agreement_gate; perimeter_zone_sensors empty live.
 - **Why:** Most accurate test (uses where the person was) but inert; the real fix for street alerts is masks (operator).
 - **Next:** Me: decide FIX (derive property zones per camera from Frigate-2 zone config, map in options) vs REMOVE (dead knob) after the masks land; measure from gate records.
-- **Forensic keys (4):**
+- **Forensic keys (5):**
   - `tier`: 2
+  - `d0b_2026_11_13`: D0-B NO-GO for VLM location (gpt-4o-mini, 96 calls): own-property never called street (GO) but street recall 8/26 (g5 0/15), PERSON parity fails 2 frames, Line 1: echo breaks parser, max 4.18 s > 4.0 s timeout. D3 ships dark. FINDING: to...
   - `residual_2026_11_13_vlm_location`: Operator 2026-11-13: per-camera pixel masks/PTZ-specific fixes are "not agnostic enough". Proposal: extend the Perimeter AI Person Check (VLM gate) to answer on-property vs street/road and demote street; camera- and view-agnostic, no new...
   - `residual_2026_11_13_masks`: Homelab 45761e2: g5 F2 mask v2 + person min_area 300 live 13:40; utilities_ptz kept as is by operator (Protect auto-tracking moves view). Audit fdb13121.
   - `residual_2026_11_13_daylight_only`: Operator 2026-11-13: single-source demote only in daylight, never after sunset. Evidence: g5_bullet 11-08 00:31 own-driveway night person was Protect-only and would have been demoted. Reuse sun.sun elevation < SUN_DARK_ELEVATION_DEG (lig...
