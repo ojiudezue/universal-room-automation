@@ -517,6 +517,42 @@ re-check) for a person whose edge is held, or who reads home on a stale source,
 is dropped in `_apply_arrival`. Details: `PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md`
 §1 table.
 
+**Exterior seam file (EXTERIOR-SEAM-LOADER, branch `feature/exterior-seam-loader`,
+NOT deployed; plan `PLANNING_exterior_seam_file_injection.md` D4/D5/D6).** The
+exterior track linker's camera adjacency ("seams") and the egress-adjacent set
+that drives `approach` classification now come from
+`/config/universal_room_automation/exterior_seams.json` when it is present and
+valid. `EXTERIOR_ADJACENCY_GRAPH` / `EXTERIOR_TRACK_EGRESS_ADJACENT_CAMERAS` in
+`const.py` are the fallback. Before this build nothing imported
+`exterior_seams.py`; the linker ran on the const only.
+- **Load.** `ExteriorTrackLinker.async_setup` calls `async_load_seam_file`
+  (executor read). The file is validated by `exterior_seams.validate_seam_spec`
+  against the configured exterior camera keys (the linker allowlist, or the
+  allowlist the PerimeterAlertManager staged before the READY signal). Valid:
+  `set_adjacency(graph_from_spec)`, and the egress-adjacent set is derived from
+  the file's EXTERIOR egress cameras (`derive_egress_adjacent`; if the file lists
+  none, the const set is kept). Absent: the const graph. Invalid or unreadable:
+  rejected whole, the previously installed graph stays (the const at boot, never
+  an empty graph), one WARNING naming the first error.
+- **Reload.** `button.ura_reload_exterior_seams` (Security Coordinator device)
+  runs the same load with no restart. A rejected reload keeps the previous good
+  graph; deleting the file and reloading reverts to the const.
+- **Provenance** (on the exterior open-tracks diagnostic sensor): `seam_source`
+  (`exterior_seams.json (schema 1, N seams)` or `built-in const`), `seam_count`,
+  `seam_validation` (`ok`, `ok (N warning(s): ...)`, `file absent`, or
+  `rejected: <first error>`), `seam_file_sha256`, `seam_egress_adjacent`.
+- **Live file vs const (2026-11-12).** The ratified rev-2 file and the const are
+  identical: same 21 undirected seams, same 13 cameras, same egress-adjacent set
+  (armcrest, front_side_ptz, g5_bullet, rear_ptz, utilities_ptz). The takeover
+  changes no behaviour. Expect one validator warning: `sonoffwindow` is a
+  configured perimeter camera that is not in the ring.
+- **Rejection risk.** Validator rule 1 rejects the WHOLE file if the ring names a
+  camera key missing from the allowlist (e.g. a camera whose person legs did not
+  resolve at setup). The fallback is the identical const graph, so the house
+  behaves the same; `seam_validation` names the camera.
+- No upload UI yet (plan D3 is spiked only). Edit the file over Samba/SSH, then
+  press the reload button.
+
 ### 4.6 DB tables (from `database.py`)
 
 `person_entry_exit_events` (`database.py:793-808`) — the egress

@@ -1,6 +1,6 @@
 """Button platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.108.14
+# Universal Room Automation vv5.108.15
 # Build: 2026-01-04
 # File: button.py
 #
@@ -49,6 +49,8 @@ async def async_setup_entry(
             # a live enrichment smoke test when the operator has D3
             # enabled).
             SendTestPerimeterAlertButton(hass, entry),
+            # EXTERIOR-SEAM-LOADER D4: re-read + re-validate exterior_seams.json
+            ReloadExteriorSeamsButton(hass, entry),
             ClearBayesianBeliefsButton(hass, entry),
             # v4.5.12 D10: diagnostic dump button (house-wide, on HVAC device)
             HVACACRampDiagnosticDumpButton(hass, entry),
@@ -2333,6 +2335,52 @@ class OptimizerRunCycleNowButton(_OptimizerCMButtonBase):
             )
             return
         _LOGGER.info("Optimizer cycle requested manually via Run Cycle Now")
+
+
+class ReloadExteriorSeamsButton(ButtonEntity):
+    """EXTERIOR-SEAM-LOADER D4 — re-read, re-validate and apply
+    ``exterior_seams.json`` on the live linker without a restart.
+
+    A rejected file keeps the previously installed graph (never empty);
+    the verdict lands on the Outside: Open Tracks sensor (seam_validation).
+
+    Entity: button.ura_reload_exterior_seams
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:graph-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.hass = hass
+        self._entry = entry
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self._attr_unique_id = f"{DOMAIN}_reload_exterior_seams"
+        self._attr_name = "Reload Exterior Seams"
+        # Pin the object id (entity_platform uses a preset entity_id as the
+        # suggested object id) so the operator-facing id is stable.
+        self.entity_id = "button.ura_reload_exterior_seams"
+        # Same device as the Outside: Open Tracks sensor that carries the
+        # seam_* verdict attrs (sensor.py _security_device_info).
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "security_coordinator")},
+            name="URA: Security Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Security Coordinator",
+            sw_version=VERSION,
+        )
+
+    async def async_press(self) -> None:
+        linker = self.hass.data.get(DOMAIN, {}).get("exterior_track_linker")
+        if linker is None:
+            _LOGGER.warning("Reload exterior seams: linker not initialized")
+            return
+        verdict = await linker.async_load_seam_file()
+        _LOGGER.info(
+            "Exterior seams reloaded by operator: %s (%s, %d seams)",
+            verdict, linker.seam_source, linker.seam_count,
+        )
 
 
 class SendTestPerimeterAlertButton(ButtonEntity):
