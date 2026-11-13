@@ -34771,11 +34771,24 @@ cards:
   FINDING_2026-11-13: 'AUDIT_vision_d0_frame_sim_2026_11_13.md: D0-FRAME and D0-SIM NO-GO as written, GO if re-anchored. Plan assumed crossing emit t0 = edge + 0-20 s; code is edge + 45 s (ENTRY_WINDOW_SECONDS). At t0: 63% of crossings have zero usable frames; at the camera edge: 3/3 frames on 100%. Guard must choose across the door group cameras (single camera on at edge+3 s only 32-79%). Best-snapshot 404s 17-30% (doorbell, G6), thumbnails 100%. Volume 14/day (max 30): cap >= 40. Time-lapse 60 s from t0 catches first interior hop 12-22%; from edge 84-88%; garage A needs 90 s, front 120 s. Plan table wrongly lists Doorbell Lite under front. Open: 30-frame operator hand-label of the blank proxy.'
   next: 'Me: apply the re-anchor edits to plan section 15 (arm at the camera edge, group-wide frame guard, thumbnails as fallback, 90/120 s windows, cap 40, Doorbell Lite in garage A); then D0-V (about 50 past frames to OpenAI, operator-approved provider). Operator: 30-frame hand-label when convenient.'
   rank: {value: 9, time_criticality: 4, effort: 8}
+- id: PHONE-LEFT-BEHIND-TRANSIENT-FLICKER-1
+  title: Phone-left-behind flags flicker on for one 30 s poll at arrival ticks and after restarts (17 in 8 days, none real)
+  thread: presence
+  status: inbox
+  batch: person-sightings
+  created: '2026-11-13 04:30'
+  updated: '2026-11-13 04:30'
+  tier: 2
+  links: {parent: FACE-ARRIVAL-REBUILD-1, related: [PHONE-LEFT-BEHIND-CAMERA-LEG-1]}
+  origin: {date: '2026-11-13', gist: 'Measured by the phone-left-behind plan: 10 arrival ticks (house still AWAY while BLE places person in a room), 6 first-tick-after-restart before census ready, 1 other.'}
+  why: 'House-state trust input; transient true flags can briefly change the AWAY veto denominator.'
+  next: 'Me: plan after the camera-leg swap; likely a dwell or census-ready gate.'
+  rank: {value: 4, time_criticality: 2, effort: 2}
 - id: PHONE-LEFT-BEHIND-CAMERA-LEG-1
   arc_cut_v5_108_16: "needs D1 live first, planned next"
   title: Phone-left-behind sensors never see a camera sighting (TransitValidator camera-sighting store never holds a named sighting; person_id is a display name)
   thread: presence
-  status: inbox
+  status: planned
   batch: person-sightings
   created: '2026-11-12 22:00'
   updated: '2026-11-12 22:00'
@@ -34783,7 +34796,7 @@ cards:
   links: {parent: FACE-ARRIVAL-REBUILD-1}
   origin: {date: '2026-11-12', gist: 'Found by the person-sightings planner (rev 3).'}
   why: 'All four phone-left-behind sensors show hours_since_camera_sighting null. Move to the new last-sighting accessor after D1 ships. House-state input: Tier 2-DB minimum.'
-  next: 'Me: after D1 ships, plan the source swap.'
+  next: 'Me: plan PLANNING_phone_left_behind_camera_leg.md (branch plan/phone-left-behind-camera) in its one plan review; then build (Tier 2-DB, 3 reviews).'
   rank: {value: 5, time_criticality: 3, effort: 3}
 - id: DEPARTURE-ACTIONS-1
   arc_cut_v5_108_16: "needs phase 2 departures"
