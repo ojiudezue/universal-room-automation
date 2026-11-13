@@ -34883,6 +34883,19 @@ cards:
   APPROVED_2026-11-13: 'Operator approved PLANNING_lock_release_on_arriving.md rev 3 with night re-lock = yes and house-sitter = yes. Auto-follow (plan section 13) out of this build; operator decision pending (park recommended). Build started on feature/lock-release-arriving.'
   next: 'Me: D0 probe, build, validator, four Tier-3 reviews, orchestrator verify, operator pre-deploy go; ship before the lockout is switched on (~11-16).'
   rank: {value: 9, time_criticality: 6, effort: 5}
+- id: LOCK-LOCKOUT-UNAVAILABLE-AT-SETUP-1
+  title: A garage lockout still unavailable when URA sets up counts as nothing locked; if the house is awake at recheck it stays locked with no backstop, release or page
+  thread: security
+  status: inbox
+  batch: person-sightings
+  created: '2026-11-13 03:30'
+  updated: '2026-11-13 03:30'
+  tier: 2
+  links: {parent: FACE-ARRIVAL-REBUILD-1, related: [LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1]}
+  origin: {date: '2026-11-13', gist: 'Review D D-L4 of feature/lock-release-arriving (pre-existing on develop).'}
+  why: 'Wi-Fi garage openers drop off often; a slow reconnect at boot can strand the lock locked silently.'
+  next: 'Me: re-run the boot rebuild when a lockout first becomes available after setup; test.'
+  rank: {value: 5, time_criticality: 4, effort: 2}
 - id: LOCK-REGIME-BOOT-REALLY-AWAY-1
   title: After a restart, residents count as away until their first move, so the lockout's really-away check can misjudge returns
   thread: security
