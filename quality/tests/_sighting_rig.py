@@ -127,6 +127,13 @@ def import_real_modules():
                 const=importlib.import_module(f"{_PKG}.const"),
                 signals=importlib.import_module(f"{_PKG}.domain_coordinators.signals"),
                 security=importlib.import_module(f"{_PKG}.domain_coordinators.security"),
+                transit=importlib.import_module(f"{_PKG}.transit_validator"),
+                paths=importlib.import_module(f"{_PKG}.interior_paths"),
+                loader=importlib.import_module(f"{_PKG}.json_file_loader"),
+                linker=importlib.import_module(f"{_PKG}.exterior_track_linker"),
+                arrival_edges=importlib.import_module(f"{_PKG}.arrival_edges"),
+                perimeter=importlib.import_module(f"{_PKG}.perimeter_alert"),
+                button=importlib.import_module(f"{_PKG}.button"),
                 dispatcher=importlib.import_module("homeassistant.helpers.dispatcher"),
                 event=importlib.import_module("homeassistant.helpers.event"),
             )

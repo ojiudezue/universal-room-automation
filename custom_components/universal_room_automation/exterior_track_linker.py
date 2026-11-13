@@ -487,50 +487,50 @@ class ExteriorTrackLinker:
             empty graph. One WARNING naming the first error.
         Never raises — a loader fault must not take down exterior tracking.
         """
-        import hashlib  # noqa: PLC0415
-        import json  # noqa: PLC0415
+        from .json_file_loader import (  # noqa: PLC0415
+            STATUS_ABSENT,
+            STATUS_LOADED,
+            load_validated_json,
+        )
         path = "<unresolved>"
+        known = None
         try:
             path = self._seam_file_path()
-            raw, read_err = await self.hass.async_add_executor_job(
-                self._read_seam_file, path
-            )
-        except Exception as exc:  # noqa: BLE001
-            raw, read_err = None, f"load failed: {exc}"
-        if raw is None and read_err is None:
-            self._install_const_seams()
+        except Exception as exc:  # noqa: BLE001 — same as a failed read
             self.seam_file_sha256 = None
+            self.seam_validation = f"rejected: load failed: {exc}"
+            return self.seam_validation
+        known = self._seam_known_cameras()
+
+        def _validate(spec_: Any):
+            errs, warns = validate_seam_spec(spec_, known)
+            if errs:
+                raise ValueError(errs[0])
+            return spec_, warns
+
+        outcome = await load_validated_json(self.hass, path, parse_validate=_validate)
+        # FACE-ARRIVAL-REBUILD-1 D7: the shared helper only reads/validates;
+        # this caller keeps its semantics byte-identical (sha of the raw bytes
+        # read, also on a rejected file; None when absent / unreadable).
+        self.seam_file_sha256 = outcome.raw_sha256
+        if outcome.status == STATUS_ABSENT:
+            self._install_const_seams()
             self.seam_validation = "file absent"
             _LOGGER.info(
                 "ExteriorTrackLinker: no seam file at %s — using built-in "
                 "EXTERIOR_ADJACENCY_GRAPH (%d seams)", path, self.seam_count,
             )
             return self.seam_validation
-        self.seam_file_sha256 = (
-            hashlib.sha256(raw).hexdigest() if raw is not None else None
-        )
-        errors: list[str] = []
-        warnings: list[str] = []
-        spec: Any = None
-        if read_err is not None:
-            errors = [read_err]
-        else:
-            try:
-                spec = json.loads(raw.decode("utf-8"))
-            except (ValueError, UnicodeDecodeError) as exc:
-                errors = [f"invalid JSON: {exc}"]
-        if not errors:
-            errors, warnings = validate_seam_spec(
-                spec, self._seam_known_cameras()
-            )
-        if errors:
-            self.seam_validation = f"rejected: {errors[0]}"
+        if outcome.status != STATUS_LOADED:
+            self.seam_validation = f"rejected: {outcome.error}"
             _LOGGER.warning(
-                "ExteriorTrackLinker: seam file %s REJECTED (%d error(s); "
-                "first: %s) — keeping %s (%d seams)",
-                path, len(errors), errors[0], self.seam_source, self.seam_count,
+                "ExteriorTrackLinker: seam file %s REJECTED (first error: %s) "
+                "— keeping %s (%d seams)",
+                path, outcome.error, self.seam_source, self.seam_count,
             )
             return self.seam_validation
+        spec = outcome.value
+        warnings = list(outcome.warnings)
         graph = graph_from_spec(spec)
         self.set_adjacency(graph)
         ext_egress, _interior = split_egress(spec)

@@ -3388,6 +3388,65 @@ FACE_SIGHTING_ZERO_MIN_FACES: Final = 10
 # many days. Armed only while FACE_ARRIVAL_INTERIOR_ENABLED. 0 = off.
 FACE_ARRIVAL_ZERO_DAYS: Final = 14
 
+# FACE-ARRIVAL-REBUILD-1 D7 / INTERIOR-PATH-MAP-1 (plan rev 11 §9 D7):
+# interior camera path map. File primary (rung 2, operator data), this const
+# fallback (rung 1). Phase 1 has NO runtime reader; the map is loaded,
+# validated and exposed (provenance attrs) only. Whole-file rejection, never
+# partial. On another install the entity ids do not resolve, the validator
+# rejects the const and there is no map (`path_map_source: none`).
+DEFAULT_INTERIOR_PATH_FILE: Final = "universal_room_automation/interior_paths.json"
+# Horizon of path-node events before the egress edge (also validator rule 8's
+# upper bound on lag_p90_s), seconds.
+EGRESS_PATH_BUFFER_S: Final = 180
+# Window for a map edge with no measured lag_p90_s, seconds.
+EGRESS_PATH_HOP_DEFAULT_WINDOW_S: Final = 30
+# Debounce of the entity-registry re-validation while the file is NOT the
+# installed source, seconds. 0 = re-validate on every registry event.
+INTERIOR_PATH_MAP_REVALIDATE_DEBOUNCE_S: Final = 30
+# Door groups that are detached buildings (open only to themselves): a map
+# may give them no inward edge into a house camera (validator rule 10).
+# Until EGRESS-CONFIG-PATIO-STUDYB-1 provides a config attribute.
+INTERIOR_PATH_DETACHED_DOORS: Final = frozenset({"garage_b"})
+# This house's map, from the operator fixture (FIXTURE_camera_paths_interior.md,
+# answers 2026-11-12) with lag_p90_s from D0-P4 (2026-11-12, 7.5 days). Patio,
+# Study B and Garage B are absent until their door groups exist
+# (EGRESS-CONFIG-PATIO-STUDYB-1); a door key that is not a live group is a
+# validator error.
+INTERIOR_PATH_MAP_FALLBACK: Final = {
+    "schema_version": 1,
+    "doors": {
+        "garage_a": {
+            "edges": [
+                {"from": "camera.rear_ptz_2", "to": "camera.garage_a_2", "kind": "approach", "lag_p90_s": 55},
+                {"from": "camera.g5_bullet", "to": "camera.garage_a_2", "kind": "approach", "lag_p90_s": 73},
+                {"from": "camera.rear_ptz_2", "to": "camera.doorbell_lite", "kind": "approach"},
+                {"from": "camera.g5_bullet", "to": "camera.doorbell_lite", "kind": "approach"},
+                {"from": "camera.garage_a_2", "to": "camera.staircase_2", "kind": "inward", "lag_p90_s": 63},
+                {"from": "camera.staircase_2", "to": "camera.stairs_top_2", "kind": "inward", "lag_p90_s": 72},
+                {"from": "camera.stairs_top_2", "to": "camera.playroom", "kind": "inward", "lag_p90_s": 67},
+                {"from": "camera.stairs_top_2", "to": "camera.upstairs_hall_2", "kind": "inward", "lag_p90_s": 84},
+                {"from": "camera.staircase_2", "to": "camera.family_room", "kind": "inward", "lag_p90_s": 85},
+            ],
+            "same_view": [],
+        },
+        "front": {
+            "edges": [
+                {"from": "camera.front_side_ptz", "to": "camera.front_door_aerial", "kind": "approach", "lag_p90_s": 38},
+                {"from": "camera.utilities_ptz_2", "to": "camera.front_door_aerial", "kind": "approach"},
+                {"from": "camera.sonoffwindow", "to": "camera.front_door_aerial", "kind": "approach", "lag_p90_s": 12},
+                {"from": "camera.front_side_ptz", "to": "camera.madrone_g6_entry", "kind": "approach"},
+                {"from": "camera.utilities_ptz_2", "to": "camera.madrone_g6_entry", "kind": "approach"},
+                {"from": "camera.sonoffwindow", "to": "camera.madrone_g6_entry", "kind": "approach"},
+                {"from": "camera.front_door_aerial", "to": "camera.foyer_fisheye", "kind": "inward", "lag_p90_s": 63},
+                {"from": "camera.madrone_g6_entry", "to": "camera.foyer_fisheye", "kind": "inward", "lag_p90_s": 87},
+                {"from": "camera.foyer_fisheye", "to": "camera.family_room", "kind": "inward", "lag_p90_s": 81},
+                {"from": "camera.foyer_fisheye", "to": "camera.master_hallway", "kind": "inward", "lag_p90_s": 82},
+            ],
+            "same_view": [],
+        },
+    },
+}
+
 # FACE-ARRIVAL-REBUILD-1 D3 (plan rev 11 §2 INV-ACCESS): the ONE set of
 # camera-derived `SIGNAL_PERSON_ARRIVING` sources. Both access gates (the SC
 # lock regime and the security expected-arrival gate) classify a source with

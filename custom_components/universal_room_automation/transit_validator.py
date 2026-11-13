@@ -72,6 +72,13 @@ from .const import (
     EGRESS_OUTCOME_LOG_PERSIST,
     EGRESS_OUTCOME_EPISODE_TYPE,
     EGRESS_OUTCOME_LOG_TEARDOWN_TIMEOUT_S,
+    CONF_PERIMETER_CAMERAS,
+    DEFAULT_INTERIOR_PATH_FILE,
+    EGRESS_PATH_BUFFER_S,
+    EGRESS_PATH_HOP_DEFAULT_WINDOW_S,
+    INTERIOR_PATH_DETACHED_DOORS,
+    INTERIOR_PATH_MAP_FALLBACK,
+    INTERIOR_PATH_MAP_REVALIDATE_DEBOUNCE_S,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -1034,6 +1041,20 @@ class EgressDirectionTracker:
         # teardown gather (the DB closes after the tracker teardown).
         self._outcome_log_tasks: set = set()
         self._torn_down: bool = False
+        # FACE-ARRIVAL-REBUILD-1 D7 / INTERIOR-PATH-MAP-1: the interior path
+        # map (Phase 1: loaded, validated, exposed; NO runtime reader). Owner
+        # is this tracker (the Phase 2 scorer's caller). Provenance reads
+        # `pending` until the first load (EVENT_HOMEASSISTANT_STARTED, or
+        # immediately on an entry reload while HA runs).
+        self.path_map = None
+        self.path_map_source: str = "pending"
+        self.path_map_validation: str = "pending"
+        self.path_map_sha256: str | None = None
+        self._path_map_loaded_once: bool = False
+        self._path_map_from_file: bool = False
+        self._path_map_unsubs: list = []
+        self._path_map_reval_unsub = None
+        self._path_map_tasks: set = set()
 
     async def async_init(self) -> None:
         """Subscribe to egress and near-door interior cameras.
@@ -2273,6 +2294,216 @@ class EgressDirectionTracker:
                 except Exception as e:
                     _LOGGER.error("Failed to log entry/exit event: %s", e)
 
+    # ------------------------------------------------------------------
+    # FACE-ARRIVAL-REBUILD-1 D7: interior path map loading
+    # ------------------------------------------------------------------
+
+    def async_setup_path_map(self) -> None:
+        """Schedule the FIRST path-map load at the resolver-ready point:
+        immediately when HA is already running (an entry reload), else at
+        EVENT_HOMEASSISTANT_STARTED (Frigate / Protect may register their
+        cameras after URA). Also subscribes the registry-update re-validation
+        (debounced) used while the installed source is not the file."""
+        from homeassistant.const import EVENT_HOMEASSISTANT_STARTED  # noqa: PLC0415
+
+        if bool(getattr(self.hass, "is_running", False)):
+            self._spawn_path_map_load()
+        else:
+            started = {"unsub": None}
+
+            @callback
+            def _on_started(_event=None) -> None:
+                started["unsub"] = None
+                self._spawn_path_map_load()
+
+            started["unsub"] = self.hass.bus.async_listen_once(
+                EVENT_HOMEASSISTANT_STARTED, _on_started,
+            )
+            self._path_map_unsubs.append(lambda: started["unsub"] and started["unsub"]())
+        try:
+            from homeassistant.helpers.entity_registry import (  # noqa: PLC0415
+                EVENT_ENTITY_REGISTRY_UPDATED,
+            )
+        except Exception:  # noqa: BLE001
+            EVENT_ENTITY_REGISTRY_UPDATED = "entity_registry_updated"
+        self._path_map_unsubs.append(
+            self.hass.bus.async_listen(
+                EVENT_ENTITY_REGISTRY_UPDATED, self._on_registry_updated_path_map,
+            )
+        )
+
+    @callback
+    def _on_registry_updated_path_map(self, _event=None) -> None:
+        """Re-validation while the file is NOT installed (whole-file
+        rejection: one camera registered late kept the const / none). Once
+        the file is installed, registry events do nothing (the button
+        reloads)."""
+        if self._torn_down or self._path_map_from_file or not self._path_map_loaded_once:
+            return
+        from homeassistant.helpers.event import async_call_later  # noqa: PLC0415
+
+        if self._path_map_reval_unsub is not None:
+            self._path_map_reval_unsub()
+        delay = float(INTERIOR_PATH_MAP_REVALIDATE_DEBOUNCE_S)
+
+        @callback
+        def _fire(_now=None) -> None:
+            self._path_map_reval_unsub = None
+            self._spawn_path_map_load()
+
+        self._path_map_reval_unsub = async_call_later(self.hass, delay, _fire)
+
+    def _spawn_path_map_load(self) -> None:
+        if self._torn_down:
+            return
+        task = self.hass.async_create_task(self.async_load_path_map())
+        self._path_map_tasks.add(task)
+        try:
+            task.add_done_callback(self._path_map_tasks.discard)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _path_map_context(self):
+        """Validator context from the live install (registry-resolved)."""
+        from .camera_resolver import canonical_camera_key  # noqa: PLC0415
+        from .interior_paths import ValidationContext  # noqa: PLC0415
+
+        cm = self.hass.data.get(DOMAIN, {}).get("camera_manager")
+        resolver = None
+        try:
+            resolver = cm._get_resolver() if cm is not None else None
+        except Exception:  # noqa: BLE001
+            resolver = None
+        cache: dict = {}
+
+        def resolve_node(entity_id: str):
+            if entity_id in cache:
+                return cache[entity_id]
+            out = (None, False)
+            if resolver is not None and isinstance(entity_id, str):
+                try:
+                    if resolver._er.async_get(entity_id) is not None:
+                        fusions = resolver.resolve_operator_declaration([entity_id])
+                        if fusions:
+                            out = (
+                                canonical_camera_key(fusions[0]),
+                                any(src.person_binary_sensor for src in fusions[0].sources),
+                            )
+                except Exception:  # noqa: BLE001
+                    out = (None, False)
+            cache[entity_id] = out
+            return out
+
+        groups: set[str] = set()
+        egress_keys: dict[str, set[str]] = {}
+        for ent in self._egress_entities:
+            stem = self._extract_camera_stem(ent)
+            group = self._door_group_for_stem(stem) or stem
+            if not group:
+                continue
+            groups.add(group)
+            key, _leg = resolve_node(ent)
+            if key:
+                egress_keys.setdefault(group, set()).add(key)
+        exterior: set[str] = set().union(*egress_keys.values()) if egress_keys else set()
+        try:
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_INTEGRATION:
+                    continue
+                merged = {**entry.data, **entry.options}
+                for cam in merged.get(CONF_PERIMETER_CAMERAS) or []:
+                    key, _leg = resolve_node(cam)
+                    if key:
+                        exterior.add(key)
+                break
+        except Exception:  # noqa: BLE001
+            pass
+        return ValidationContext(
+            live_groups=groups,
+            resolve_node=resolve_node,
+            egress_keys_by_group=egress_keys,
+            exterior_keys=exterior,
+            detached_doors=set(INTERIOR_PATH_DETACHED_DOORS),
+            buffer_s=float(EGRESS_PATH_BUFFER_S),
+            default_window_s=float(EGRESS_PATH_HOP_DEFAULT_WINDOW_S),
+        )
+
+    async def async_load_path_map(self) -> str:
+        """Load ``interior_paths.json`` through the shared JSON loader.
+
+        Four outcomes: (1) file valid -> file map; (2) file absent -> the
+        validated const, or no map; (3) file invalid at the FIRST load ->
+        validated const or no map; (4) file invalid on a later load (button,
+        re-validation) -> the previous map is kept. ``path_map_sha256`` names
+        the INSTALLED source only (the file's sha when the file is installed,
+        else None; never a rejected file's sha). Never raises."""
+        from .interior_paths import PathMapError, validate  # noqa: PLC0415
+        from .json_file_loader import (  # noqa: PLC0415
+            STATUS_ABSENT,
+            STATUS_LOADED,
+            load_validated_json,
+        )
+
+        try:
+            ctx = self._path_map_context()
+            path = self.hass.config.path(DEFAULT_INTERIOR_PATH_FILE)
+            outcome = await load_validated_json(
+                self.hass, path, parse_validate=lambda spec: validate(spec, ctx),
+            )
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.warning("Interior path map load failed: %s", exc)
+            return self.path_map_validation
+        first = not self._path_map_loaded_once
+        self._path_map_loaded_once = True
+        if outcome.status == STATUS_LOADED:
+            pmap = outcome.value
+            self.path_map = pmap
+            self._path_map_from_file = True
+            self.path_map_sha256 = outcome.raw_sha256
+            self.path_map_source = (
+                f"interior_paths.json (schema 1, {pmap.edge_count} edges)"
+            )
+            self.path_map_validation = (
+                "ok" if not outcome.warnings
+                else f"ok ({len(outcome.warnings)} warning(s): {outcome.warnings[0]})"
+            )
+            _LOGGER.info("Interior path map installed from %s (%s)", path, self.path_map_source)
+            return self.path_map_validation
+        verdict = (
+            "file absent" if outcome.status == STATUS_ABSENT
+            else f"rejected: {outcome.error}"
+        )
+        if outcome.status != STATUS_ABSENT:
+            _LOGGER.warning("Interior path map file %s REJECTED: %s", path, outcome.error)
+        if not first and self._path_map_from_file:
+            # (4) a later invalid / absent file keeps the previous good map.
+            self.path_map_validation = f"{verdict} (kept previous)"
+            return self.path_map_validation
+        # (2)/(3) and re-validation of a const/none install: validated const
+        # or no map. The const is VALIDATED like the file (on a foreign
+        # install its entity ids do not resolve -> no map).
+        try:
+            fallback, _warns = validate(INTERIOR_PATH_MAP_FALLBACK, ctx)
+        except PathMapError as exc:
+            fallback = None
+            verdict = f"{verdict}; built-in const rejected: {exc}"
+        self.path_map = fallback
+        self._path_map_from_file = False
+        self.path_map_sha256 = None
+        self.path_map_source = "built-in const" if fallback is not None else "none"
+        self.path_map_validation = verdict
+        return self.path_map_validation
+
+    def path_map_status(self) -> dict[str, Any]:
+        """D7 provenance attrs (next to the seam ones)."""
+        pmap = self.path_map
+        return {
+            "path_map_source": self.path_map_source,
+            "path_map_validation": self.path_map_validation,
+            "path_map_sha256": self.path_map_sha256,
+            "path_map_doors": sorted(pmap.doors) if pmap is not None else [],
+        }
+
     def _log_egress_outcome(
         self,
         resolution: EgressResolution,
@@ -2505,6 +2736,23 @@ class EgressDirectionTracker:
                     if not t.done():
                         t.cancel()
         self._outcome_log_tasks.clear()
+        # D7: path-map listeners, debounce timer and in-flight loads.
+        for unsub in self._path_map_unsubs:
+            try:
+                unsub()
+            except Exception:  # noqa: BLE001
+                pass
+        self._path_map_unsubs.clear()
+        if self._path_map_reval_unsub is not None:
+            try:
+                self._path_map_reval_unsub()
+            except Exception:  # noqa: BLE001
+                pass
+            self._path_map_reval_unsub = None
+        for t in list(self._path_map_tasks):
+            if not t.done():
+                t.cancel()
+        self._path_map_tasks.clear()
         _LOGGER.debug("EgressDirectionTracker torn down")
 
 

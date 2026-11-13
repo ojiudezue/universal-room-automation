@@ -51,6 +51,8 @@ async def async_setup_entry(
             SendTestPerimeterAlertButton(hass, entry),
             # EXTERIOR-SEAM-LOADER D4: re-read + re-validate exterior_seams.json
             ReloadExteriorSeamsButton(hass, entry),
+            # FACE-ARRIVAL-REBUILD-1 D7: re-read + re-validate interior_paths.json
+            ReloadInteriorPathsButton(hass, entry),
             ClearBayesianBeliefsButton(hass, entry),
             # v4.5.12 D10: diagnostic dump button (house-wide, on HVAC device)
             HVACACRampDiagnosticDumpButton(hass, entry),
@@ -2380,6 +2382,47 @@ class ReloadExteriorSeamsButton(ButtonEntity):
         _LOGGER.info(
             "Exterior seams reloaded by operator: %s (%s, %d seams)",
             verdict, linker.seam_source, linker.seam_count,
+        )
+
+
+class ReloadInteriorPathsButton(ButtonEntity):
+    """FACE-ARRIVAL-REBUILD-1 D7 — re-read, re-validate and apply
+    ``interior_paths.json`` on the live egress tracker without a restart. A
+    rejected file keeps the previously installed map (never partial); the
+    verdict lands on the Outside: Open Tracks sensor (path_map_validation).
+
+    Entity: button.ura_reload_interior_paths
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:map-marker-path"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.hass = hass
+        self._entry = entry
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self._attr_unique_id = f"{DOMAIN}_reload_interior_paths"
+        self._attr_name = "Reload Interior Paths"
+        self.entity_id = "button.ura_reload_interior_paths"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "security_coordinator")},
+            name="URA: Security Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Security Coordinator",
+            sw_version=VERSION,
+        )
+
+    async def async_press(self) -> None:
+        tracker = self.hass.data.get(DOMAIN, {}).get("egress_tracker")
+        if tracker is None:
+            _LOGGER.warning("Reload interior paths: egress tracker not initialized")
+            return
+        verdict = await tracker.async_load_path_map()
+        _LOGGER.info(
+            "Interior paths reloaded by operator: %s (%s)",
+            verdict, tracker.path_map_source,
         )
 
 

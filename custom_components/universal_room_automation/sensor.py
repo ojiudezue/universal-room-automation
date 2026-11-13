@@ -4512,6 +4512,14 @@ class ExteriorOpenTracksDiagnosticSensor(AggregationEntity, SensorEntity):
                 attrs.update(linker.seam_status())
             except Exception:  # noqa: BLE001
                 pass
+            # FACE-ARRIVAL-REBUILD-1 D7: interior path map provenance
+            # (path_map_source / _validation / _sha256 / _doors).
+            try:
+                _et = self.hass.data.get(DOMAIN, {}).get("egress_tracker")
+                if _et is not None:
+                    attrs.update(_et.path_map_status())
+            except Exception:  # noqa: BLE001
+                pass
             # B-M3: per-camera unlinked-events counter (events that opened a
             # fresh single-hop track rather than extending an existing one —
             # diagnostic proxy for adjacency gaps).
