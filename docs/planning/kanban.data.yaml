@@ -35061,5 +35061,6 @@ broader_backlog_refs:
   links: {parent: HOUSE-STATE-FIRST-PRINCIPLES-1}
   origin: {date: '2026-11-13', gist: 'Step 1a fix-up: the residency producer was dead live because it skipped this rule; one rule prevents the next copy drifting.'}
   why: 'Three hand copies of one rule; the 1a HIGH was a fourth site that got it wrong. Reviewer D re-check is sweeping other tracked_persons readers.'
-  next: 'Me: after 1a ships, route the copies through the helper; fold in any reader D finds.'
+  next: 'Me: after 1a ships, route the copies through the helper; also the four latent readers below.'
+  residual_2026-11-13: 'Review D re-check sweep: __init__.py:3145-3163 rewrites entry.data to display names while options keep ids, so merged readers see ids here but names on a fresh install. Latent (portability) at camera_census.py:6159-6176, 6311-6320, 3900-3912 and perimeter_alert.py:5117-5121. Not reachable on this house.'
   rank: {value: 4, time_criticality: 2, effort: 1}
