@@ -35176,6 +35176,19 @@ cards:
   why: 'F4 today needs a name (face). Interior vision gives per-room people counts and unnamed presence in shared spaces/hallways (cameras only in shared spaces), the input census accuracy and personalization need. Must respect the F1-F5 model: a count is evidence (F4-shaped, unnamed) not belief (F2); census and sightings never feed each other without the deconfliction rule; access never acts on it.'
   next: 'Me: after crossing vision Phase 1 accuracy is measured, plan it (Tier 3, prior-art scan: sighting producer, CameraResolver, interior path map, census interior camera counts, CROSSING_VISION_INTERIOR_ENABLED parked name) with measure-first probe on interior frames; decide F4 unnamed-sighting shape vs a per-room count signal.'
   rank: {value: 8, time_criticality: 3, effort: 3}
+- id: PERSON-AWARENESS-READ-API-1
+  title: One public person-awareness read API on PresenceCoordinator (F1-F5), replacing ~40 private PersonCensus reads and 14+ inline id-normalisation copies
+  thread: identity
+  status: pre_planning
+  batch: person-sightings
+  created: '2026-11-13 18:30'
+  updated: '2026-11-13 18:30'
+  tier: 2
+  links: {related: [PERSON-ID-NORMALISE-ONE-RULE-1, VISION-CROSSING-ANALYSIS-1, VISION-INTERIOR-SIGHTINGS-1, PERSON-PROFILE-PREFERENCES-1, FACE-ARRIVAL-REBUILD-1]}
+  origin: {date: '2026-11-13', gist: 'Operator: "we may need a consolidated boundary crossing and person awareness function... that all consumers can [read] and producers can feed" after inspecting reuse. Inventory AUDIT_person_awareness_interface_inventory_2026_11_13.md.'}
+  why: 'Expresses the F1-F5 model in code so consumers and producers stop drifting: PresenceCoordinator already owns F1/F4/F5 getters (presence.py:5409,:5433,:5436,:5907); ~20 private PersonCensus methods are called 40+ times from transit_validator/perimeter_alert/person_sighting/__init__; 5 id namespaces, 14+ name->entity copies, 5 .title() inverses. Folds PERSON-ID-NORMALISE-ONE-RULE-1 residuals (Residual A also feeds sightings + egress BLE leg). Doc drift: F3 owner in code is EgressDirectionTracker, not TransitValidator (fix manual §5.5 + plan §2A). Dead seed read presence.py:3222.'
+  next: 'Me: ura-planner Tier 2 plan (REUSE/EXTEND per inventory): public census accessors, one id-normalisation function, class-aware read views on PresenceCoordinator, migrate private reads; no behaviour change (byte-identical), mutation-anchored. Sequence alongside Phase 2 census split so vision fields land on the API.'
+  rank: {value: 7, time_criticality: 4, effort: 3}
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
