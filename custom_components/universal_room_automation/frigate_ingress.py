@@ -104,6 +104,45 @@ def discover_frigate_topic_prefixes(hass: HomeAssistant) -> set[str]:
     return out
 
 
+def discover_frigate_instance_ids(hass: HomeAssistant) -> dict[str, str]:
+    """Return ``{topic_prefix: instance_id}`` for every running Frigate entry.
+
+    Same runtime source as ``discover_frigate_topic_prefixes``. The instance
+    id is the entry's MQTT ``client_id``, the value the Frigate integration
+    itself uses in its multi-instance URLs (frigate ``views.py``
+    ``get_frigate_instance_id``: ``config["mqtt"]["client_id"]``; route
+    ``/api/frigate/{frigate_instance_id}/notifications/{event_id}/...``). An
+    entry with no prefix is keyed by ``""``. Never raises; any error yields
+    ``{}``. (VISION-CROSSING-SHADOW-1 D1.7, plan rev 2 F4.)
+    """
+    out: dict[str, str] = {}
+    try:
+        runtime = hass.data.get(FRIGATE_DOMAIN)
+        if not isinstance(runtime, Mapping):
+            return out
+        entries = hass.config_entries.async_entries(FRIGATE_DOMAIN) or []
+        for entry in entries:
+            ent = runtime.get(getattr(entry, "entry_id", None))
+            if not isinstance(ent, Mapping):
+                continue
+            cfg = ent.get("config")
+            if not isinstance(cfg, Mapping):
+                continue
+            mq = cfg.get("mqtt")
+            if not isinstance(mq, Mapping):
+                continue
+            client_id = mq.get("client_id")
+            if not isinstance(client_id, str) or not client_id.strip():
+                continue
+            prefix = mq.get("topic_prefix")
+            prefix = prefix.strip().rstrip("/") if isinstance(prefix, str) else ""
+            out[prefix] = client_id.strip()
+    except Exception:  # noqa: BLE001
+        _LOGGER.debug("Frigate instance-id discovery failed", exc_info=True)
+        return {}
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Normaliser: MQTT payload -> the dict the bridge automation puts on the bus
 # ---------------------------------------------------------------------------

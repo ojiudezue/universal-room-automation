@@ -1,0 +1,15 @@
+{
+  "_source": "STUB from PLANNING_person_sighting_layer.md §15.9.6 (live door_groups, operator fixture). Replace 'cameras' with the D0c hand-built table (docs/planning/FIXTURE_crossing_vision_door_cameras.md: Frigate after.camera -> stem -> door group) when it lands. Camera names here ASSUME Frigate camera name == stem; D0c verifies.",
+  "door_groups": {
+    "doorbell_lite": "garage_a",
+    "garage_a": "garage_a",
+    "front_door_aerial": "front",
+    "madrone_g6_entry": "front"
+  },
+  "cameras": {
+    "doorbell_lite": {"stem": "doorbell_lite", "door_group": "garage_a"},
+    "garage_a": {"stem": "garage_a", "door_group": "garage_a"},
+    "front_door_aerial": {"stem": "front_door_aerial", "door_group": "front"},
+    "madrone_g6_entry": {"stem": "madrone_g6_entry", "door_group": "front"}
+  }
+}

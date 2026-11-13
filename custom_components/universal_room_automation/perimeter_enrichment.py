@@ -339,3 +339,113 @@ async def enrich_with_verdicts(
         return VlmVerdicts(*parse_vlm_verdicts(raw))
     desc, person = parse_vlm_verdict(raw)
     return VlmVerdicts(desc, person, LOCATION_UNSURE)
+
+
+# ---------------------------------------------------------------------------
+# VISION-CROSSING-SHADOW-1 D1.7 (PLANNING_crossing_vision.md rev 2): the
+# llmvision `video_analyzer` adapter for the crossing-vision shadow producer.
+# Same contract shape as `enrich_dispatched_alert`: kill check first,
+# `asyncio.wait_for`, never raises. It returns the raw service response with a
+# status so the caller can record the right outcome class (the shadow row
+# distinguishes timeout / error / refused / unparseable; a bare None would not).
+# ---------------------------------------------------------------------------
+
+_LLMVISION_VIDEO_SERVICE = "video_analyzer"
+
+CROSSING_CALL_RESPONSE = "response"
+CROSSING_CALL_TIMEOUT = "timeout"
+CROSSING_CALL_ERROR = "error"
+
+
+async def analyze_crossing_frames(
+    hass: Any,
+    event_id: str | None,
+    *,
+    video_file: str | None,
+    model: str,
+    max_frames: int,
+    target_width: int,
+    timeout_s: float,
+    structure: str,
+    prompt: str,
+    expose_images: bool,
+) -> dict[str, Any] | None:
+    """Ask llmvision for a structured per-frame people count on one clip.
+
+    Exactly one of ``video_file`` (an instance-scoped
+    ``/api/frigate/<instance>/notifications/<id>/clip.mp4`` path) or
+    ``event_id`` (llmvision builds the default-instance URL) is sent;
+    ``video_file`` wins when both are given. llmvision signs the HA path and
+    fetches it through HA's Frigate proxy, so no URA code holds or sends
+    Frigate credentials. ``provider`` is the perimeter's
+    ``CONF_PERIMETER_ENRICHMENT_PROVIDER_ID`` (read the same way as
+    ``enrich_dispatched_alert``); ``store_in_timeline`` and ``use_memory`` are
+    always False (§15.2: llmvision memory never carries resident faces).
+
+    Returns:
+      * None when ``LLMVISION_ENRICHMENT_KILL`` is set or there is no clip
+        reference (no service call is made);
+      * ``{"status": "response", "result": <service response>}``;
+      * ``{"status": "timeout"}`` / ``{"status": "error", "error": str}``.
+    Never raises.
+    """
+    if LLMVISION_ENRICHMENT_KILL:
+        return None
+    if not video_file and not event_id:
+        return None
+    try:
+        cfg = _get_integration_config(hass)
+        provider_id = cfg.get(CONF_PERIMETER_ENRICHMENT_PROVIDER_ID) or None
+        max_tokens = int(cfg.get(
+            CONF_PERIMETER_ENRICHMENT_MAX_TOKENS,
+            DEFAULT_PERIMETER_ENRICHMENT_MAX_TOKENS,
+        ))
+        service_data: dict[str, Any] = {
+            "message": prompt,
+            "model": model,
+            "max_frames": int(max_frames),
+            "target_width": int(target_width),
+            "max_tokens": max_tokens,
+            "include_filename": False,
+            "generate_title": False,
+            "store_in_timeline": False,
+            "use_memory": False,
+            "expose_images": bool(expose_images),
+            "response_format": "json",
+            "structure": structure,
+        }
+        if video_file:
+            service_data["video_file"] = video_file
+        else:
+            service_data["event_id"] = str(event_id)
+        if provider_id:
+            service_data["provider"] = provider_id
+    except Exception as exc:  # noqa: BLE001
+        return {"status": CROSSING_CALL_ERROR, "error": f"build: {exc}"}
+
+    async def _call() -> Any:
+        return await hass.services.async_call(
+            _LLMVISION_DOMAIN,
+            _LLMVISION_VIDEO_SERVICE,
+            service_data,
+            blocking=True,
+            return_response=True,
+        )
+
+    try:
+        result = await asyncio.wait_for(_call(), timeout=float(timeout_s))
+    except asyncio.TimeoutError:
+        _LOGGER.info(
+            "analyze_crossing_frames: timeout after %.1fs (event %s)",
+            float(timeout_s), event_id,
+        )
+        return {"status": CROSSING_CALL_TIMEOUT}
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        _LOGGER.info(
+            "analyze_crossing_frames: service error for event %s: %s",
+            event_id, exc,
+        )
+        return {"status": CROSSING_CALL_ERROR, "error": str(exc)[:200]}
+    return {"status": CROSSING_CALL_RESPONSE, "result": result}

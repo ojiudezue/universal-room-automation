@@ -396,6 +396,33 @@ Emits `ura_person_egress_event` bus event with fields `direction`,
   fixes) feeds `quality/tests/fixtures/egress_arrival_d0_labelled.json`; card
   EGRESS-OUTCOME-WEEKLY-LABEL-1. The face-only `not_home` veto itself is UNCHANGED in Phase 1.
 
+**Crossing vision, shadow (VISION-CROSSING-SHADOW-1, branch `feature/crossing-vision-shadow`, NOT
+deployed; plan `PLANNING_crossing_vision.md` rev 2, Phase 1).**
+- **D2:** `ura_person_egress_event` gains one additive key, `peak_person_count`. `_resolve_direction`
+  samples `_sample_peak_person_count` ONCE before the bus fire and hands the same local to the DB row
+  (INV-ADDITIVE); ambiguous crossings sample nothing and carry None. All listeners read named keys.
+- **D1:** `crossing_vision.CrossingVisionShadow` (integration entry, after the linker; torn down before
+  the Frigate ingress) listens to that event and to the Frigate ingress (consumer `crossing_vision`).
+  For each entry/exit crossing it matches a person event on a camera in the crossing's configured
+  door group (start within `CROSSING_VISION_EVENT_MATCH_S` of E; a stem with no group is a group of
+  one), waits for the event end (or `CROSSING_VISION_EVENT_END_WAIT_S`), and calls llmvision
+  `video_analyzer` once with the instance-scoped clip
+  `/api/frigate/<client_id>/notifications/<id>/clip.mp4` (instance from the MQTT source prefix via
+  `frigate_ingress.discover_frigate_instance_ids`; `event_id` only with exactly one Frigate entry;
+  otherwise `no_clip_url`, no call). `use_memory` / `store_in_timeline` are always False. One
+  `memory_episodes` row (`crossing_vision_shadow`, `node_id = vision:<crossing_key>`) per crossing:
+  `ok` / `blank` (all frame counts 0: never a count of 0) / `no_frigate_event` / `clustered` /
+  `skipped_cap` / `skipped_busy` / `no_clip_url` / `error` / `timeout` / `refused` / `unparseable`.
+- **Response shape (code wins over the plan, D0 2026-11-13):** with `response_format: json` llmvision
+  returns `structured_response` (+ `key_frame`) and NO `response_text`; the parser reads
+  `structured_response` (a `service_response` envelope is unwrapped), treats an empty one as
+  `refused`, and still accepts JSON text. Vision direction carries no signal (D0) and is not asked
+  for or recorded.
+- **Shadow:** nothing decides on the row (INV-SHADOW). Gates (`switch.ura_crossing_vision_shadow`,
+  `LLMVISION_ENRICHMENT_KILL`, Number `crossing_vision_daily_calls` > 0) are read at schedule AND at
+  call time. Trip-wires: `crossing_vision_zero` (HIGH) and `crossing_vision_errors` (MEDIUM).
+  Diagnostics `crossing_vision_today` / `_last` on Outside: Open Tracks (unrecorded).
+
 Direction gating on the census union feed
 (`transit_validator.py:1298-1310`):
 - `entry` → register the identity into the census union.

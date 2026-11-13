@@ -3514,6 +3514,68 @@ EGRESS_OUTCOME_LOG_TEARDOWN_TIMEOUT_S: Final = 5.0
 # scripts/probes/egress_outcome_label_weekly.py).
 EGRESS_OUTCOME_LABEL_WINDOWS_S: Final = (120, 300, 600, 1800)
 
+# VISION-CROSSING-SHADOW-1 (PLANNING_crossing_vision.md rev 2, Phase 1, D1-D3):
+# shadow producer `crossing_vision.CrossingVisionShadow`. One llmvision
+# `video_analyzer` call per entry/exit crossing on the matched Frigate event,
+# one `memory_episodes` row (`crossing_vision_shadow`). Nothing decides on it
+# (INV-SHADOW). Knob ladder: plan §6. The master switch is
+# `switch.ura_crossing_vision_shadow` (rung 3, off at ship); the daily cap is
+# a rung-3 Number (CM entry option `crossing_vision_daily_calls`).
+CROSSING_VISION_EPISODE_TYPE: Final = "crossing_vision_shadow"
+# hass.data[DOMAIN] keys: the producer, the switch flag (written by the
+# switch, survives an integration reload) and the live daily cap (written by
+# the Number).
+CROSSING_VISION_HASS_KEY: Final = "crossing_vision"
+CROSSING_VISION_SWITCH_HASS_KEY: Final = "crossing_vision_shadow_on"
+CROSSING_VISION_CAP_HASS_KEY: Final = "crossing_vision_daily_calls"
+CONF_CROSSING_VISION_DAILY_CALLS: Final = "crossing_vision_daily_calls"
+# Rung 3 default (Number). §15.9.5: max measured day 30 + headroom; 0 = no
+# calls. The counter is RAM, reset at local midnight: each HA restart can
+# allow up to one more cap that day (≤ $0.50 on gpt-4o-mini; plan rev 2 F7).
+CROSSING_VISION_DAILY_CALLS: Final = 40
+CROSSING_VISION_DAILY_CALLS_MAX: Final = 200
+# Rung 1: model change needs a dry call first (D5 moves it).
+CROSSING_VISION_MODEL: Final = "gpt-4o-mini"
+# Rung 1: first (pre-roll) frame + 3. Keep >= 3: D0b found the first
+# frame empty in 53 % of responses.
+CROSSING_VISION_MAX_FRAMES: Final = 4
+# Rung 1: D0-V measured at 768 px.
+CROSSING_VISION_TARGET_WIDTH: Final = 768
+# Rung 1 (rev 2 F6): above llmvision's own request_timeout (default 60 s) plus
+# clip fetch + ffmpeg, because wait_for cancels llmvision's handler in place.
+# D0b measured p99 17.8 s, max 19.4 s: 90 kept.
+CROSSING_VISION_TIMEOUT_S: Final = 90
+# Rung 1: Frigate event start must lie in [E - this, E + this]. D0c:
+# coverage 74 % at +-10 s, 88 % at +-60 s (scorer note; window unchanged).
+CROSSING_VISION_EVENT_MATCH_S: Final = 10
+# Rung 1: call when the matched event ends, or this long after the bus
+# event, whichever first (longest measured event 134 s).
+CROSSING_VISION_EVENT_END_WAIT_S: Final = 120
+# Rung 1: a crossing within this of another request's E on the same door
+# group shares that request (no second call; own `clustered` row).
+CROSSING_VISION_CLUSTER_S: Final = 60
+# Rung 1: requests waiting or calling at once (measured max 2, §15.9.4).
+CROSSING_VISION_MAX_CONCURRENT: Final = 2
+# Rung 1: Frigate person events kept per door-group camera.
+CROSSING_VISION_EVENT_RING: Final = 20
+# Rung 1: llmvision `expose_images` (frames kept under
+# /media/llmvision/snapshots, llmvision's retention). False = none kept.
+CROSSING_VISION_KEEP_FRAMES: Final = True
+# Rung 1 trip-wires (D3). Zero-ok: >= this many entry/exit crossings seen in
+# the window with the switch on and 0 `ok` rows pages HIGH.
+CROSSING_VISION_ZERO_MIN_CROSSINGS: Final = 5
+# Error trip-wire: (error + timeout + unparseable + refused) / calls above
+# this, with at least ERROR_MIN_CALLS calls in the window, pages MEDIUM.
+# A value > 1 turns it off.
+CROSSING_VISION_ERROR_RATE_MAX: Final = 0.25
+CROSSING_VISION_ERROR_MIN_CALLS: Final = 8
+CROSSING_VISION_TRIPWIRE_WINDOW_S: Final = 86400
+CROSSING_VISION_TRIPWIRE_EVAL_S: Final = 3600
+# Rung 1: cap on the stored `desc`.
+CROSSING_VISION_DESC_MAX_CHARS: Final = 200
+# Rung 1: bound on gathering in-flight tasks at unload.
+CROSSING_VISION_TEARDOWN_GATHER_S: Final = 5
+
 # EGRESS_IDENTITY_ENABLED: options-flow kill switch for the D1 egress-face
 # identity fuse (2026-08-18). DEFAULT False — feature ships dormant per
 # operator (mirrors D2 PROTECT_CORROBORATION_ENABLED). Kill-switch semantics:
@@ -6137,6 +6199,10 @@ MEMORY_EPISODE_TYPES: Final = frozenset({
     # decision (`PerimeterAlertManager._record_gate`). Observational; the
     # weekly scorer is the only reader.
     "perimeter_gate_decision",
+    # VISION-CROSSING-SHADOW-1 (2026-11-13): one row per entry/exit crossing
+    # seen while the shadow switch is on (crossing_vision.py). Shadow only;
+    # no decision reads it and Phase 1 adds no MEMORY_COMPACTION_RULES entry.
+    "crossing_vision_shadow",
 })
 
 # Set of episode types that have a LIVE writer. The weekly writer-health
@@ -6170,6 +6236,11 @@ MEMORY_WRITER_BACKED_EPISODE_TYPES: Final = frozenset({
     # alerts). If PERIMETER_GATE_LOG_PERSIST is ever set False, move it to
     # MEMORY_WRITER_HEALTH_EXEMPT_TYPES in the same commit.
     "perimeter_gate_decision",
+    # crossing_vision_shadow (VISION-CROSSING-SHADOW-1 D3): ~10-14 rows/day
+    # with the shadow switch on. The switch ships OFF, so this pages after 7
+    # days if the operator never turns it on; the documented discharge for a
+    # long-term OFF is adding the type to MEMORY_WRITER_HEALTH_EXEMPT_TYPES.
+    "crossing_vision_shadow",
     # sensor_dropout: writer exists and is correctly scheduled, but has
     # produced 0 rows in >2 months (per AUDIT_memory_writer_coverage.md,
     # 2026-10-11). KEEP in the checked set so the trip-wire surfaces this
@@ -6206,6 +6277,8 @@ MEMORY_WRITER_HEALTH_ABSENCE_EXEMPT_TYPES: Final = frozenset({
     # the window voids the absence proof and the check pages.
     "person_arrival",
     "person_departure",
+    # crossing_vision_shadow: one row per door crossing (same reason).
+    "crossing_vision_shadow",
 })
 MEMORY_WRITER_HEALTH_ABSENT_HOUSE_STATES: Final = frozenset({"away", "vacation"})
 
