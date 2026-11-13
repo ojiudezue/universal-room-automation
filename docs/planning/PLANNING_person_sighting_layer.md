@@ -5,6 +5,11 @@ orchestrator renames the card; this planner did not edit the kanban yaml). Relat
 PERSON-PROFILE-PREFERENCES-1, FRIGATE-DOOR-FACE-TUNING-1, EGRESS-IDENTITY-JOIN-GAP-1 (egress producer, shipped),
 HVAC-PRECOOL-STANDDOWN-WHEN-COOL-1 (sibling). File renamed with `git mv` from `PLANNING_face_arrival_rebuild.md`.
 
+**Rev 6, 2026-11-12, ura-planner.** Operator 2026-11-12: (1) guest count = vision AND Frigate/Protect person
+counts fused with an explicit deconfliction rule until vision is trusted (§15.7 rewritten, trust criterion §15.7a);
+(2) fast sample = 3 detection-timed frames with a blank-frame guard (§15.5 F-stage, §15.5a) and an offline frame-timing
+experiment D0-FRAME (§15.4a). Changelog §19.
+
 **Rev 5, 2026-11-12, ura-planner.** Operator direction 2026-11-12: vision is a strong INPUT if latency is decent;
 design its timing (fast sample, batch, synthesis), simulate it before building (D0-SIM), and define how every
 signal is weighed in the census and sightings (vision does not replace integration face/person counts). Adds §15.5
@@ -1102,8 +1107,8 @@ Realistic:
    interior cameras in the enrichment purview (entry chains end indoors; §15.8 head counts are interior). The toggle
    stays, as the explicit privacy switch, but the sibling plan's intended live setting is ON after D0-V passes.
 
-8. **Progressive analysis (rev 4, operator 2026-11-12).** A fast first-frame call (one or two frames as soon as the
-   crossing fires) yields a PROVISIONAL hypothesis `{people_count, direction, resident_like}` attached to the crossing
+8. **Progressive analysis (rev 4, operator 2026-11-12).** A fast first call (rev 6: three detection-timed, guarded
+   frames, §15.5a) yields a PROVISIONAL hypothesis `{people_count, direction, resident_like}` attached to the crossing
    with `provenance = vision`, `stage = provisional`, confidence capped at `CONFIDENCE_LOW`. The batched sequence call
    (item 4) then records `stage = final`, confirming or revising it; both records are kept (never overwritten), each with
    provenance, confidence and a `revised: bool`, so D0-V can measure how often the first frame was wrong.
@@ -1127,7 +1132,8 @@ Realistic:
    therefore answers one question: non-resident count = vision ledger total minus BLE-home residents (clamped ≥ 0).
    Vision counts groups and people walking away well; naming stays with face/BLE. Independent checks on the ledger:
    empty-house reset, periodic interior head count (§15.8), exit-chain matching (an exit cluster of n closes n open
-   entry terms). Weighting against Frigate/Protect counts is §15.7.
+   entry terms). **Rev 6:** the guest count is never the ledger alone; it is the fused value of §15.7 (vision AND
+   Frigate/Protect counts, deconflicted), and camera counts stay in it until the §15.7a trust decision.
 
 Knobs (all proposed for the sibling plan; rung and default set there after D0-V): interval (rung 3), duration
 (rung 3), max sequence (rung 1), concurrency (rung 1), daily cap (rung 3), timeout (rung 3), keep-frames (rung 2),
@@ -1158,7 +1164,7 @@ Score:
   Uncovered crossings are the ledger's irreducible error.
 - **(rev 5) Model comparison.** Step 0: one dry call per candidate (`gpt-4o-mini` baseline, `gpt-6-luna`,
   `gpt-6.1-sol`; `gpt-6-astra` only if Sol fails accuracy) through llmvision to prove it is accepted (§15.1
-  temperature caveat). Then each crossing runs both stages per model: FAST (§15.5 F-stage: 2 frames, 768 px) and
+  temperature caveat). Then each crossing runs both stages per model: FAST (§15.5 F-stage, rev 6: 3 guarded frames, 768 px) and
   BATCH (§15.5 B-stage: up to 12 frames, 1024 px). Recommended pairing to test first: Luna for fast, Sol for batch.
 - **(rev 5) Fast vs batch accuracy**, scored separately per model, per stage, for entries and exits: count exact-match,
   direction, group size, refusal rate.
@@ -1170,6 +1176,42 @@ Score:
   `usage.prompt_tokens` / `completion_tokens`; every §15.5 token figure is replaced by the measured one.
 - **(rev 5) Latency per stage per model:** p50/p90 of call duration and of frames-ready-to-result, fed to D0-SIM.
 - **(rev 5) Agreement with Frigate/Protect counts** on the same crossing (the §15.7 disagreement rate).
+- **(rev 6) Per-case deconfliction scoring:** for every crossing, the §15.7 case (A agree / B vision higher / C camera
+  higher / D one side missing) and which side matched ground truth in each case. This is the data the §15.7a trust
+  criterion is computed from; D0-V reports it per camera and day/night.
+- **(rev 6) Frame selection:** F-stage frames come from D0-FRAME's chosen offsets (§15.4a), not fixed seconds.
+
+### 15.4a D0-FRAME: frame timing and blank-frame experiment (rev 6, read-only, offline; runs BEFORE D0-V)
+
+Operator 2026-11-12: "more frames in the initial analysis, maybe 3; well timed so we don't send blanks; a guard and
+some experiments." Measure-before-build: the frame offsets are an empirical property of each camera, so they are
+measured over recorded events, not guessed.
+
+Inputs (existing only): Frigate event payloads for the egress and chain cameras (the `frigate_events` stream that
+`FrigateEventIngress` normalises, `frigate_ingress.py:110` / `:147`; recorder or Frigate's own event API on the
+homelab, read-only), the event snapshots and clips Frigate still retains (`/api/frigate/notifications/<id>/snapshot.jpg`
+and `clip.mp4`, the paths `perimeter_alert.py:2125` already builds), and `person_entry_exit_events` for t0. Which
+per-update fields Frigate's payload carries (object box, score, frame time, has-snapshot) is read from the recorded
+payloads in step 0, not assumed; if the box is absent the guard falls back to a person-detection check on the frame
+(step 3).
+
+Method (scratchpad script, no HA or URA writes, no cloud call):
+0. Dump 50 recorded person events per egress camera; list the `after` keys actually present. Record whether a box,
+   score and frame time arrive on each update.
+1. For each event, extract frames from the clip at offsets relative to (a) the event start, (b) the first update with
+   a person box, (c) the event best snapshot frame time, (d) t0 (crossing emit). Offsets -2 to +8 s, 0.5 s step.
+2. **Blank** = no person in the frame. Label automatically with the box-in-frame test at that frame time when the
+   payload has boxes; otherwise run Frigate's own detection result for that frame where available; 30 frames per camera
+   are hand-labelled by the operator to check the automatic label (agreement ≥ 95 % or the automatic label is not used).
+3. Per camera, split day vs night (IR): blank rate at each offset per anchor; the best 3-frame set (the set maximising
+   frames-with-person and spread for direction); the latency cost of each set (how long after t0 the 3rd frame exists).
+
+Report: per camera × day/night, blank rate by anchor and offset, chosen 3 offsets, and their latency. Thresholds
+(stated now): the chosen set has **≥ 2 of 3 frames with a person on ≥ 95 % of events and 0 all-blank sets on ≥ 99 %**,
+and its 3rd frame exists by **t0 + 6 s p90**. A camera that fails at night gets night-only offsets or F = event
+snapshot + 2 detection updates only; a camera that fails both = F runs with whatever non-blank frames exist (min 1) and
+is marked `fast_frames_short`. Output goes in `docs/planning/AUDIT_crossing_vision_d0_sim.md` (same audit as D0-SIM),
+and the chosen offsets become rung-1 knobs in the sibling plan.
 
 Go rule for the sibling plan: description correct-or-partly ≥ 80 %, false resident-like ≤ 5 %, refusals ≤ 10 %,
 p90 latency ≤ 60 s, projected cost at the measured crossing rate ≤ the CONSOL-1 single-digit-dollars/month band.
@@ -1213,13 +1255,14 @@ Clustering (same door, gap ≤ W): W = 60 s → 11.9 clusters/day; **120 s → 1
 | Stage | What | Frames / size | Model | Lands (modeled p50 / p90) |
 |---|---|---|---|---|
 | Edge | Camera person edge to crossing emit; includes `PERIMETER_EGRESS_XCORR_SETTLE_S` (20 s) where it applies | n/a | n/a | t0 is 0-20 s after the camera edge; D0-SIM measures it |
-| F (fast) | Fire at t0. Frame 1 = Frigate event best snapshot if the event id is known (no camera load), else live grab; frame 2 = live grab at t0 + 2 s. Door camera only. Prompt asks only `{people_count, direction, group, resident_like}` | 2 × 768 px wide (~425 tokens each by the 4o formula), ~400 text tokens in, ≤ 150 out | `gpt-6-luna` | capture 1-3 s + call 2-4 s → **t0 + 5 s / t0 + 10 s** |
+| F (fast, rev 6) | Three frames timed to DETECTION, not wall clock (§15.5a): frame 1 = Frigate event best snapshot (event id from `FrigateEventIngress`), frames 2-3 = the frames at the next two Frigate updates that carry a person box, spaced ≥ `CROSSING_VISION_FAST_MIN_SPACING_S` (modeled 1 s), at D0-FRAME's per-camera offsets. Blank-frame guard drops any frame with no person and replaces it from the next update; send when 3 guarded frames exist or at `CROSSING_VISION_FAST_MAX_WAIT_S` (modeled 6 s) with ≥ 1. Door camera only. Prompt asks only `{people_count, direction, group, resident_like}` | 3 × 768 px wide (~425 tokens each by the 4o formula), ~400 text tokens in, ≤ 150 out | `gpt-6-luna` | frames ready 2-6 s + call 2-5 s → **t0 + 6 s / t0 + 12 s** |
 | B (batch) | Window opens at t0, closes at t0 + 60 s (extended by clustering, cap 180 s). Door camera every 5 s for the first 20 s then every 10 s; up to 2 chain cameras (§15.8: interior for entries, exterior for exits) every 10 s from t0 + 5 s. Frames with no person detection on that camera are dropped before the call | ≤ 12 × 1024 px (~765 tokens each), ~600 text in, ≤ 600 out | `gpt-6.1-sol` | window 60 s + call 5-20 s → **t0 + 70 s / t0 + 90 s** unclustered; clustered worst t0 + 180 s + 30 s |
 | S (synthesis) | Join F, B, face (Protect names back-fill ~1-2 min; `FACE_MATCH_WINDOW_S` 60), BLE (home edges; exit backfill `BLE_EGRESS_EXIT_BACKFILL_WINDOW_S` 600) and Frigate/Protect counts into the final crossing record and the ledger term | none | none (local) | entries **t0 + 120 s**; exits wait for BLE backfill, **≤ t0 + 600 s** |
 
 Why these numbers: the person usually reaches the next camera on the chain 5-20 s after the door (assumed; D0-SIM
 measures hop times from Frigate events), so a 60 s window covers the door plus 2-3 hops, and a 5 s door cadence gives
-4 frames of the door moment, which is where groups split. Two frames for F because one frame cannot give direction.
+4 frames of the door moment, which is where groups split. Three frames for F (rev 6): two give direction, the third
+separates a tailgater from one person and survives one bad frame; detection timing keeps all three on the person.
 768 px for F because count and direction do not need detail; 1024 px for B because tailgating and occlusion do.
 
 **Against the census windows:** interior hold `DEFAULT_CENSUS_HOLD_INTERIOR_MINUTES` = 3 min, exterior 5 min,
@@ -1233,14 +1276,34 @@ and 25 (no clustering).
 
 | Item | Calls/day mean (worst) | Tokens/call in (out) | Cost/day mean (worst) |
 |---|---|---|---|
-| F on `gpt-6-luna` | 14.4 (25) | ~1,250 (150) | $0.003 ($0.005) |
+| F on `gpt-6-luna` (rev 6: 3 frames) | 14.4 (25) | ~1,675 (150) | $0.004 ($0.007) |
 | B on `gpt-6.1-sol` | 10.5 (25) | ~9,800 (600) | $0.27 ($0.64) |
 | Interior head count (§15.8) on `gpt-6-luna`, 1 call per 30 min while occupied, 12 cameras × 768 px | 48 (48) | ~5,500 (200) | $0.03 ($0.03) |
-| **Total** | ~73 (98) | | **~$0.30 ($0.68) → ~$9/month mean, ~$20 worst** |
+| **Total** | ~73 (98) | | **~$0.30 ($0.68) → ~$9/month mean, ~$20 worst** (rev 6: the third F frame adds ~$0.03/month) |
 | Baseline: same F + B on `gpt-4o-mini` (images priced at ~2,833 base + 5,667/tile tokens at $0.15/1M by the same published formula) | | | ~$0.55/day |
 
 B dominates the bill. If D0-V shows Luna's batch accuracy meets the gate, Luna for both stages cuts the total to about
 $1/month. The daily cap (`CROSSING_VISION_DAILY_CALLS`) is set from the worst-case column, not the mean.
+
+### 15.5a Blank-frame guard and detection timing (rev 6)
+
+Reuse, not new capture: the event id and updates come from `FrigateEventIngress.register_consumer`
+(`frigate_ingress.py:175`); the best snapshot from the existing Frigate notifications snapshot path
+(`perimeter_alert.py:2125`, multi-instance form `:36`); frames stored in the perimeter snapshot directory with its
+prune (`_prune_snapshot_dir`). Rules:
+1. A frame is eligible only if a Frigate update for that camera at that frame time reports a `person` object (box
+   present, score ≥ the camera's existing Frigate threshold; no new score knob). Protect-only door (doorbell leg): its
+   smart-detect thumbnail is frame 1, live grabs at the D0-FRAME offsets after a Protect person edge are frames 2-3.
+2. A frame failing rule 1 is dropped, never sent; the next qualifying update replaces it.
+3. Frames closer than `CROSSING_VISION_FAST_MIN_SPACING_S` to the previous chosen frame are skipped (no near-duplicates).
+4. At `CROSSING_VISION_FAST_MAX_WAIT_S` send what exists if ≥ 1; zero guarded frames = no call, record
+   `skipped_blank` (counted; a camera whose `skipped_blank` rate exceeds the D0-FRAME threshold trips the anomaly
+   detector wired to NM).
+5. The same guard applies to B-stage frames (already "frames with no person detection dropped", now via rule 1).
+
+Knobs (sibling plan): `CROSSING_VISION_FAST_FRAMES` (rung 1, 3), `CROSSING_VISION_FAST_MIN_SPACING_S` (rung 1, from
+D0-FRAME), `CROSSING_VISION_FAST_MAX_WAIT_S` (rung 1, from D0-FRAME; 0 = F disabled, B only), per-camera offsets
+(rung 1 table from D0-FRAME).
 
 **Concurrency:** at most 2 doors active within 300 s measured, so `CROSSING_VISION_MAX_CONCURRENT` = 2 open sequences
 covers every observed day; a third is `skipped_busy`.
@@ -1268,7 +1331,8 @@ clock through four stages:
 
 | Check | Pass |
 |---|---|
-| F lands by t0 + 10 s | ≥ 90 % of crossings (measured run) |
+| F lands by t0 + 12 s (rev 6, 3 frames) | ≥ 90 % of crossings (measured run) |
+| F sends ≥ 2 non-blank frames (rev 6, D0-FRAME offsets) | ≥ 95 % of crossings; 0 blank frames sent |
 | B lands inside the census interior hold (t0 + 180 s) | ≥ 95 % of crossings, clustered ones included |
 | B window contains every chain camera the person hit in the first 60 s | ≥ 90 % of entries |
 | Entry S lands inside `EGRESS_FACE_UNION_TTL_S` (300 s) | ≥ 95 % |
@@ -1299,12 +1363,37 @@ How they combine (all inside the existing census owner, no second owner):
    never move a resident home or away.
 2. **Identity** comes from face and BLE only (the union, manual §3 rule 4). Vision may only confirm a name already
    attached (`vision_consistent`), never supply one.
-3. **How many non-residents** = vision ledger minus BLE-home residents, when vision is healthy (provider up, not
-   capped, within its D0-V accuracy). When vision is unhealthy or the crossing was skipped, the census falls back to
-   today's path: `unidentified_count = max(0, camera_total - |known|)` from Frigate/Protect counts
-   (`camera_census.py:2533`), and the result is marked camera-only.
-4. **No signal silently wins.** When the vision non-resident estimate and the camera-count estimate differ, both are
-   recorded on the census result and the difference is flagged.
+3. **How many guests (rev 6, operator: "both vision and Frigate/Protect person counts with deconfliction, until we
+   trust vision").** Two estimates are always computed: `guest_cam = max(0, camera_total - |known|)` (today's path,
+   `camera_census.py:2533`) and `guest_vis = max(0, vision_ledger - BLE_home_residents)`. Camera counts are NEVER
+   dropped while vision is untrusted. Deconfliction, per census evaluation:
+
+   | Case | Condition | Guest count used | Flag |
+   |---|---|---|---|
+   | A agree | `abs(guest_vis - guest_cam) ≤ CROSSING_VISION_DISAGREE_FLAG_MIN - 1` (modeled 0) | the shared value | `agreement=agree` |
+   | B vision higher | `guest_vis > guest_cam` | `guest_cam` (camera stays authoritative while untrusted); `guest_vis` recorded | `vision_higher` (likely occlusion/tailgate the cameras merged) |
+   | C camera higher | `guest_cam > guest_vis` | `guest_cam` | `camera_higher` (likely ghost / handoff spike, or vision missed an entry) |
+   | D one side missing | vision unhealthy, capped, skipped, or no camera count | whichever exists | `camera_only` / `vision_only`; `vision_only` never raises the guest gate by itself while untrusted |
+
+   While untrusted, the camera count is the value the guest gate reads in every case; vision changes nothing that
+   acts, only the recorded agreement. Each case is persisted per crossing with ground truth when BLE/face supply it,
+   which is the §15.7a trust data.
+4. **No signal silently wins.** Both estimates and the case are recorded on the census result; persistent B or C on
+   one camera (≥ `CROSSING_VISION_DISAGREE_PERSIST_N`, rung 1, modeled 5 in 24 h) trips the AnomalyDetector → NM.
+
+### 15.7a When vision may lead (rev 6): a measured criterion, then a reviewed decision
+
+Vision leads the guest count (cases B and C resolve to `guest_vis`) only when ALL hold over ≥ 14 days and ≥ 100
+crossings with ground truth (BLE/face-attributed, plus operator-labelled guest days), from D0-V then organic records:
+- vision exact guest-count match ≥ 95 % overall, ≥ 90 % at night, per watched door;
+- in disagreement cases B and C, vision is the side matching ground truth ≥ 80 % of the time (it must win the
+  disagreements, not just the easy agreements);
+- false guest (vision says ≥ 1 guest, none present) ≤ 2 %;
+- vision healthy (not case D) on ≥ 95 % of crossings.
+Meeting the numbers does not flip anything: the switch is `CROSSING_VISION_COUNT_AUTHORITY` (`evidence_only` →
+`vision_led`), changed only in a reviewed cycle (Tier 2-DB minimum, house-state rule) with the numbers attached. Under
+`vision_led` camera counts stay computed and case flags stay recorded; any criterion falling below its bar over a
+rolling 14 days trips NM and recommends reverting the knob.
 
 Reuse, not new structure: `CensusZoneResult` already carries `source_agreement`, `degraded_mode` and
 `active_platforms` (`camera_census.py:305-321`). The sibling plan adds `vision` to `active_platforms` when vision
@@ -1315,7 +1404,9 @@ changes, only after the D0-V census gate passes, is which estimate feeds it.
 
 Knob sketch for the sibling plan: `CROSSING_VISION_HEALTH_MAX_AGE_S` (rung 1, how stale the last good vision call
 may be before fallback), `CROSSING_VISION_COUNT_AUTHORITY` (rung 2 select: `evidence_only` default / `vision_led`),
-`CROSSING_VISION_DISAGREE_FLAG_MIN` (rung 1, persons of disagreement before flagging).
+`CROSSING_VISION_DISAGREE_FLAG_MIN` (rung 1, persons of disagreement before flagging), rev 6
+`CROSSING_VISION_DISAGREE_PERSIST_N` (rung 1). `CROSSING_VISION_COUNT_AUTHORITY` stays rung 2 but rev 6 adds: changing
+it to `vision_led` requires the §15.7a numbers and a reviewed cycle.
 
 ### 15.8 Coverage model (rev 5)
 
@@ -1397,3 +1488,19 @@ Unchanged from rev 3: the arrival rule (D2), the security corroboration rule, tr
 
 Unchanged: INV-ACCESS (vision is never access-class), all rev 4 fixes, D1-D7, drills, live table, Tier 3. This cycle
 still builds nothing in §15; the sibling plan (CROSSING-VISION-SEQUENCE-1) is gated on D0-SIM and D0-V.
+
+---
+
+## 19. Rev 6 changelog (operator 2026-11-12)
+
+| Change | Why | Where |
+|---|---|---|
+| Guest count fuses vision and Frigate/Protect counts with a 4-case deconfliction table (agree / vision higher / camera higher / one side missing); camera count is what the guest gate reads while vision is untrusted; every case recorded and persistent disagreement trips NM | Operator: "both vision and frigate/protect person counts with deconfliction, until we trust vision" | §15.7 items 3-4, §15.3 item 9 |
+| Measurable trust criterion (≥ 14 d, ≥ 100 ground-truth crossings, 95 % / 90 % night exact, wins ≥ 80 % of disagreements, false guest ≤ 2 %, healthy ≥ 95 %); switch is a reviewed change of `CROSSING_VISION_COUNT_AUTHORITY`, auto-revert recommendation via NM | Operator: until we trust vision | §15.7a, §15.4 per-case scoring |
+| Fast sample = 3 frames, timed to Frigate detection updates (best snapshot + next two person-box updates), not wall-clock offsets | Operator: more frames, maybe 3, well timed | §15.5 F row, §15.3 item 8 |
+| Blank-frame guard reusing `FrigateEventIngress`, the Frigate snapshot path and the perimeter snapshot dir; `skipped_blank` counted and trip-wired | Operator: no blanks, need a guard | §15.5a |
+| D0-FRAME offline experiment: blank rate by anchor/offset per camera, day vs night, chosen 3-frame set, thresholds stated | Operator: some experiments | §15.4a |
+| Timing F t0 + 6 / 12 s; F tokens ~1,675 in; F cost $0.004/day mean ($0.007 worst), total unchanged at ~$9/month; D0-SIM F row + non-blank row | 3 frames | §15.5, §15.6 |
+
+Unchanged: this cycle builds nothing in §15; D1-D7, invariants, drills, Tier 3. Sibling plan gated on D0-FRAME,
+D0-SIM and D0-V.
