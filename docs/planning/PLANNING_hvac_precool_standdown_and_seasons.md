@@ -222,6 +222,14 @@ reads `:577-632`, boot audit `:1119-1300`; `hvac_zones.py:130-145`, `:698-711`; 
 Nov 1-12 45 (34). `ura_activity_log` `pre_arrival` intake rows: 136 (Oct 13-31), 201 (Nov 1-12). Audit 14 d: 52
 writes, 34 with T known, 17 at or below 75, 5 strictly below. Pre-cool fires 2-4 times a day.
 
+**D0 results (builder, 2026-11-12, `scripts/probes/hvac_prearrival_conditioning_probe.py`).** Live CM options: floor
+74; Home (heat, cool) summer 70/76, shoulder 70/77, winter 70/77 (operator-edited; not the defaults). Survey, per
+intake (repeat triggers counted): 2026-11 THERMOSTAT T: 52 pre-cool / 101 stand-down / 0 pre-heat; 2026-11 PROXY
+(room average, no thermostat T): 32 / 6 / 4; 2026-10 PROXY: 136 / 24 / 13; 2026-09 PROXY 2 / 0 / 0. Check mode
+11-01→11-13 (before-baseline): 44 pre-arrival cool writes, 17 with recorder T <= the written target (INV-SD-COOL
+would have stood them down), 0 lifecycle violations. Expected Live pre-heat count in a Texas November: ~0 (PROXY
+pre-heat counts are room averages, not the thermostat T the leg reads).
+
 Pre-heat cannot be fire-checked (it does not exist). D0 measures the proxy the operator asked for: how often an
 arriving zone read below the heat target.
 

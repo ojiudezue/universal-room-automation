@@ -14512,6 +14512,11 @@ class HVACPreArrivalDiagnosticSensor(AggregationEntity, SensorEntity):
             "person_zone_map": getattr(hvac, '_person_zone_map', {}),
             "fan_rooms_activated": getattr(predictor, '_last_fan_activation_rooms', []) if predictor else [],
             "fan_rooms_skipped": getattr(predictor, '_last_fan_skipped_rooms', []) if predictor else [],
+            # HVAC-PRECOOL-STANDDOWN-WHEN-COOL-1 D4 (display only).
+            "prearrival_skips": list(getattr(predictor, '_last_prearrival_skips', []) or []) if predictor else [],
+            "prearrival_standdowns_today": int(getattr(predictor, '_prearrival_standdowns_today', 0) or 0) if predictor else 0,
+            "precool_writes_today": int(getattr(predictor, '_precool_writes_today', 0) or 0) if predictor else 0,
+            "preheat_writes_today": int(getattr(predictor, '_preheat_writes_today', 0) or 0) if predictor else 0,
         }
 
     @property

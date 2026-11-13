@@ -132,8 +132,13 @@ def _setup(mods, monkeypatch, *, zones=(Z2,), house_state="home_night", seasonal
     for zid in zones:
         z = coord.zone_manager.zones[zid]
         z.target_temp_low, z.target_temp_high, z.preset_mode = 68.0, 80.0, "away"
+        # HVAC-PRECOOL-STANDDOWN-WHEN-COOL-1: these tests exercise the
+        # pre-cool lifecycle, so the zone reads HOT (above any pre-cool
+        # target) — a zone at/below the target now stands down (D1).
+        z.current_temperature = 80.0
         H.set_climate(hass, z.climate_entity, preset_mode="away",
-                      hold_activity="away", low=68.0, high=80.0)
+                      hold_activity="away", low=68.0, high=80.0,
+                      extra={"current_temperature": 80.0})
         _occ(mods, coord, zid)
     return coord, hass, db, sched
 
