@@ -365,9 +365,9 @@ name>)`, a store that never held a name, §10 #38). The person's newest sighting
 `PresenceCoordinator.get_last_person_sighting(person.<slug>)` (key from
 `person_coordinator.tracked_person_entity_id`, passed in by `async_setup_entry`) is published as attributes:
 `camera_leg: display_only`, `last_camera_sighting_at` (ISO, recorded, static between sightings),
-`hours_since_camera_sighting` (stepped to `PHONE_LEFT_BEHIND_SIGHTING_AGE_QUANTUM_S` 900 s and unrecorded,
-because HA writes a state row on any attribute change), `last_sighting_source` / `_camera` / `_room` /
-`_census_veto`. Exit and census-vetoed sightings are shown as they are. A misread face is a display error
+`last_sighting_source` / `_camera` / `_room` / `_census_veto`. No age attribute: HA writes a state row on any
+attribute change and the four sensors are enabled live, so a moving age cost ~384 rows/day (review A-M1, removed
+in the fix-up). The NextRoom `camera_last_seen` 4 h window is applied at attribute-read time (review B2). Exit and census-vetoed sightings are shown as they are. A misread face is a display error
 only. Any future use of sightings in the verdict needs its own plan (manual §5.5(a) floor, true-positive
 delay). The class attr `PHONE_LEFT_BEHIND_HOURS` and the attribute `phone_left_behind_hours` are gone.
 

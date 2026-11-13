@@ -3253,10 +3253,6 @@ TRANSIT_CHECKPOINT_WINDOW_SECONDS: Final = 120
 # NextRoom `camera_last_seen` shows the person's last sighting only while it is
 # younger than this (names the old implicit 4 h default). <= 0 = never shown.
 NEXT_ROOM_CAMERA_SIGHTING_MAX_AGE_S: Final = 14400
-# Phone-left-behind `hours_since_camera_sighting` is stepped to this quantum so
-# the attribute changes at most once per quantum (HA writes a state row on any
-# attribute change). <= 0 = unstepped.
-PHONE_LEFT_BEHIND_SIGHTING_AGE_QUANTUM_S: Final = 900
 
 # ---------------------------------------------------------------------------
 # PATH-ALPHA D9 (GAP-B, 2026-08-16): PersonPhoneLeftBehindSensor room-occupancy

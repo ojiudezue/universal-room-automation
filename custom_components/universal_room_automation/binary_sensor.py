@@ -2127,11 +2127,6 @@ class PersonPhoneLeftBehindSensor(BinarySensorEntity):
     _attr_entity_registry_enabled_default = False
     _attr_has_entity_name = True
 
-    # The age is display only and moves every poll; HA writes a state row on
-    # any attribute change, so it is also stepped (quantum below). This set
-    # only keeps it out of the recorded attribute blob.
-    _unrecorded_attributes = frozenset({"hours_since_camera_sighting"})
-
     SLEEP_START_HOUR: int = 22
     SLEEP_END_HOUR: int = 7
 
@@ -2309,12 +2304,14 @@ class PersonPhoneLeftBehindSensor(BinarySensorEntity):
     @staticmethod
     def _sighting_attributes(sighting: Any) -> dict:
         """Display attributes for one ``PersonSighting`` (or None)."""
-        from .const import PHONE_LEFT_BEHIND_SIGHTING_AGE_QUANTUM_S
-
+        # No age attribute on purpose (review A-M1): a moving age changes the
+        # attributes between sightings, and HA writes a state row on any
+        # attribute change (~384 rows/day for the four enabled sensors).
+        # `last_camera_sighting_at` is static between sightings and carries
+        # the same information.
         out: dict[str, Any] = {
             "camera_leg": "display_only",
             "last_camera_sighting_at": None,
-            "hours_since_camera_sighting": None,
             "last_sighting_source": None,
             "last_sighting_camera": None,
             "last_sighting_room": None,
@@ -2328,11 +2325,6 @@ class PersonPhoneLeftBehindSensor(BinarySensorEntity):
             return out
         # Recorded and static between sightings: the sighting's own time.
         out["last_camera_sighting_at"] = dt_util.utc_from_timestamp(ts).isoformat()
-        age_s = max(0.0, dt_util.utcnow().timestamp() - ts)
-        quantum = float(PHONE_LEFT_BEHIND_SIGHTING_AGE_QUANTUM_S)
-        if quantum > 0:
-            age_s = (age_s // quantum) * quantum
-        out["hours_since_camera_sighting"] = round(age_s / 3600, 2)
         out["last_sighting_source"] = getattr(sighting, "sighting_source", None)
         out["last_sighting_camera"] = getattr(sighting, "camera", None)
         out["last_sighting_room"] = getattr(sighting, "room", None)

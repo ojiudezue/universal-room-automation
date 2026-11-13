@@ -13,6 +13,12 @@ REAL production modules (imported fresh inside `_sighting_rig`'s import scope,
 so no donor stub leaks in or out). Oracles are hand-derived: the develop
 verdict ladder is re-written below from the plan's description of develop
 with the legacy camera leg forced None (its value on every live tick).
+
+Accepted limit (review A-L1 / A-L2): that oracle shares the plan's assumption
+that the legacy leg is always None. Develop differed only for a camera entity
+carrying a `person_id` / `face_id` / `label` attribute equal to the person's
+display name with face recognition on (measured 0 of 102 person entities), so
+the oracle cannot catch a divergence on that unreachable input.
 """
 from __future__ import annotations
 
@@ -202,7 +208,7 @@ def test_attributes_from_last_sighting(m, monkeypatch):
     attrs = _plb(m, _firing_data(m, sightings={OJI: s})).extra_state_attributes
     assert attrs["camera_leg"] == "display_only"
     assert attrs["last_camera_sighting_at"] == "2026-11-13T17:29:00+00:00"
-    assert attrs["hours_since_camera_sighting"] == 0.5  # 1860 s stepped to 1800 s
+    assert "hours_since_camera_sighting" not in attrs  # review A-M1: no moving age
     assert attrs["last_sighting_source"] == "interior"
     assert attrs["last_sighting_camera"] == "binary_sensor.family_room_person_occupancy"
     assert attrs["last_sighting_room"] == "Family Room"
@@ -210,11 +216,17 @@ def test_attributes_from_last_sighting(m, monkeypatch):
     assert "phone_left_behind_hours" not in attrs
 
 
-@pytest.mark.parametrize("age_s, hours", [(899, 0.0), (900, 0.25), (901, 0.25)])
-def test_hours_since_stepped_at_quantum_boundary(m, monkeypatch, age_s, hours):
-    _clock(m, monkeypatch)
-    attrs = _plb(m, _firing_data(m, sightings={OJI: _sighting(m, age_s=age_s)})).extra_state_attributes
-    assert attrs["hours_since_camera_sighting"] == hours
+def test_attributes_static_between_polls_no_age(m, monkeypatch):
+    """Review A-M1: between sightings the WHOLE attribute dict must not move
+    (HA writes a state row on any attribute change). Polls at +30 s, +20 min
+    and +3 h after the first read must return an identical dict."""
+    clock = _clock(m, monkeypatch)
+    sensor = _plb(m, _firing_data(m, sightings={OJI: _sighting(m, age_s=120)}))
+    first = sensor.extra_state_attributes
+    assert "hours_since_camera_sighting" not in first
+    for later_s in (30, 1200, 10800):
+        clock["utc"] = NOW_UTC + timedelta(seconds=later_s)
+        assert sensor.extra_state_attributes == first, later_s
 
 
 def test_sighting_at_static_between_polls(m, monkeypatch):
@@ -226,9 +238,8 @@ def test_sighting_at_static_between_polls(m, monkeypatch):
     assert first == second == "2026-11-13T17:58:00+00:00"
 
 
-def test_hours_since_unrecorded(m):
+def test_sighting_at_is_recorded(m):
     combined = m.bs.PersonPhoneLeftBehindSensor._Entity__combined_unrecorded_attributes
-    assert "hours_since_camera_sighting" in combined
     assert "last_camera_sighting_at" not in combined
 
 
@@ -246,9 +257,10 @@ def test_presence_missing_attrs_null(m, monkeypatch):
     _clock(m, monkeypatch)
     attrs = _plb(m, _firing_data(m, presence=False)).extra_state_attributes
     assert attrs["camera_leg"] == "display_only"
-    for k in ("last_camera_sighting_at", "hours_since_camera_sighting", "last_sighting_source",
+    for k in ("last_camera_sighting_at", "last_sighting_source",
               "last_sighting_camera", "last_sighting_room", "last_sighting_census_veto"):
         assert attrs[k] is None, k
+    assert "hours_since_camera_sighting" not in attrs
 
 
 def test_other_persons_sighting_not_shown(m, monkeypatch):
@@ -361,8 +373,24 @@ async def test_next_room_no_prediction_no_fetch(m, monkeypatch):
     data = {"coordinator_manager": _manager(_presence(m, {OJI: _sighting(m)}, calls))}
     s = _next_room(m, data)
     await s.async_update()
+    attrs = s.extra_state_attributes
     assert calls.n == 0
-    assert s._last_camera_sighting is None
+    assert "camera_last_seen" not in attrs
+
+
+@pytest.mark.asyncio
+async def test_next_room_window_applied_at_attribute_read(m, monkeypatch):
+    """Review B2: a sighting that ages past the 4 h window between updates is
+    hidden at the next attribute read, with no new update."""
+    clock = _clock(m, monkeypatch, module=m.sensor)
+    data = _with_prediction({"coordinator_manager": _manager(_presence(m, {OJI: _sighting(m, age_s=14000)}))})
+    s = _next_room(m, data)
+    await s.async_update()
+    assert s.extra_state_attributes["transit_camera_validated"] is True
+    clock["utc"] = NOW_UTC + timedelta(seconds=401)  # age 14401 s > 14400 s
+    attrs = s.extra_state_attributes
+    assert attrs["transit_camera_validated"] is False
+    assert attrs["camera_last_seen"] is None
 
 
 @pytest.mark.asyncio

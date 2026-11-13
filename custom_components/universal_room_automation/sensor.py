@@ -3356,7 +3356,6 @@ class PersonLikelyNextRoomSensor(AggregationEntity, SensorEntity):
         self._attr_unique_id = f"{DOMAIN}_person_{person_id.lower()}_likely_next_room"
         self._attr_name = f"{person_id} Likely Next Room"
         self._cached_prediction: dict | None = None
-        self._last_camera_sighting: dict | None = None
         self._prediction_source: str = "none"
 
     async def async_update(self) -> None:
@@ -3554,16 +3553,6 @@ class PersonLikelyNextRoomSensor(AggregationEntity, SensorEntity):
                     self._person_id, e,
                 )
 
-        # PHONE-LEFT-BEHIND-CAMERA-LEG-1 D2: camera attributes from the
-        # person-sighting store (display only), fetched only with a prediction.
-        try:
-            if self._cached_prediction:
-                self._last_camera_sighting = self._recent_person_sighting()
-            else:
-                self._last_camera_sighting = None
-        except Exception:
-            self._last_camera_sighting = None
-
     def _recent_person_sighting(self) -> dict | None:
         """The person's last sighting younger than
         NEXT_ROOM_CAMERA_SIGHTING_MAX_AGE_S, as {timestamp, room}, or None."""
@@ -3605,7 +3594,14 @@ class PersonLikelyNextRoomSensor(AggregationEntity, SensorEntity):
         }
         if not self._cached_prediction:
             return attrs
-        sighting = self._last_camera_sighting
+        # PHONE-LEFT-BEHIND-CAMERA-LEG-1 D2 (review B2): the camera attributes
+        # are read from the person-sighting store here, at attribute-read
+        # time (one dict get), so the age window is applied now, not only at
+        # the last update. Display only; fetched only with a prediction.
+        try:
+            sighting = self._recent_person_sighting()
+        except Exception:  # noqa: BLE001 — display only
+            sighting = None
         ts = sighting.get("timestamp") if sighting else None
         if ts and hasattr(ts, "isoformat"):
             ts = ts.isoformat()
