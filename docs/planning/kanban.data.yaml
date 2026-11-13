@@ -34809,7 +34809,7 @@ cards:
   arc_cut_v5_108_16: "separate Tier-3 lock-regime plan, switches off"
   title: A camera seeing any body while the house is away moves it to ARRIVING, which releases the garage lockout and auto-disarms security with no identity
   thread: security
-  status: investigating
+  status: in_progress
   batch: person-sightings
   created: '2026-11-12 19:10'
   updated: '2026-11-12 19:10'
@@ -34828,7 +34828,8 @@ cards:
     parent: FACE-ARRIVAL-REBUILD-1
   ARC_2026-11-13: 'Operator: add to the person-sightings arc. Review D (v_person_sightings_p1_D.md L-1) repro: lockout engaged in SLEEP, house SLEEP -> AWAY, an interior camera sees a body -> ARRIVING -> lockout release.'
   FINDING_2026-11-13: 'AUDIT_arriving_on_body_evidence_2026_11_13.md: 2,642 AWAY->ARRIVING edges since 03-12; 6.4% real arrivals, 48.6% correcting a false AWAY, 32.8% no resident evidence. 68.5% driven by zone sensors with census 0, not cameras. Zero access releases ever: lockout, away-lock and auto-follow switches all off; lockout code dates from 11-07. Phone edges lead ARRIVING (median 35 s, 16/17). Fix shape: drop house_state arriving (and the HOME_* follow-on at :858-860) as a lockout release trigger; real arrivals use the person path; trip-wire on any release with trigger house_state:arriving and no resident edge in 120 s; same for auto-follow disarm.'
-  next: 'Me: plan the lock-regime trigger change (Tier 3, plan + 2 plan reviews) before the operator turns the lockout back on (~11-16); no urgency while switches are off.'
+  APPROVED_2026-11-13: 'Operator approved PLANNING_lock_release_on_arriving.md rev 3 with night re-lock = yes and house-sitter = yes. Auto-follow (plan section 13) out of this build; operator decision pending (park recommended). Build started on feature/lock-release-arriving.'
+  next: 'Me: D0 probe, build, validator, four Tier-3 reviews, orchestrator verify, operator pre-deploy go; ship before the lockout is switched on (~11-16).'
   rank: {value: 9, time_criticality: 6, effort: 5}
 - id: LOCK-REGIME-BOOT-REALLY-AWAY-1
   title: After a restart, residents count as away until their first move, so the lockout's really-away check can misjudge returns
