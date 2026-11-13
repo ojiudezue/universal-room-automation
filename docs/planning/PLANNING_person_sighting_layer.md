@@ -1383,8 +1383,14 @@ How they combine (all inside the existing census owner, no second owner):
 
 ### 15.7a When vision may lead (rev 6): a measured criterion, then a reviewed decision
 
-Vision leads the guest count (cases B and C resolve to `guest_vis`) only when ALL hold over ≥ 14 days and ≥ 100
-crossings with ground truth (BLE/face-attributed, plus operator-labelled guest days), from D0-V then organic records:
+Vision leads the guest count (cases B and C resolve to `guest_vis`) only when ALL hold over ≥ 100 crossings with
+ground truth and ≥ 7 days (rev 7, operator 2026-11-12: "as long as it includes identified people visual census vs the
+BLE signal ... get to trust faster"). The main accuracy stream is RESIDENT crossings: every crossing where BLE/tracker
+says which residents moved gives an exact expected head count for vision to match, so at ~14 crossings/day the bar is
+reachable in about a week. Because residents-only truth tests counting but not the guest case, the set must also
+include ≥ 10 crossings with a non-resident present (deliveries/visitors from Frigate events or operator-labelled
+guest days); false-guest rate is scored on the resident-only crossings (vision must report 0 guests). Sources: D0-V
+then organic records:
 - vision exact guest-count match ≥ 95 % overall, ≥ 90 % at night, per watched door;
 - in disagreement cases B and C, vision is the side matching ground truth ≥ 80 % of the time (it must win the
   disagreements, not just the easy agreements);
