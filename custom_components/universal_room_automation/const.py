@@ -3894,7 +3894,13 @@ GARAGE_LOCKOUT_REENGAGE_MAX_WAIT_S: Final = 3600
 # setup counts unconditionally (M-2).
 # Also the FLOOR of the camera_face unlock gate's boot exclusion (v5.107.4,
 # max with PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S; review A MED-2).
-GARAGE_LOCKOUT_BOOT_ARRIVAL_WINDOW_S: Final = 600
+# HOUSE-STATE step 1a D1: one "really away" concept for the lock regime and
+# the residency producer (rung 1). The lock reads the GARAGE_LOCKOUT_* names,
+# the producer the RESIDENT_RETURN_* names (separate bindings: patching one
+# never moves the other consumer).
+RESIDENT_RETURN_MIN_AWAY_MIN: Final = 15
+RESIDENT_RETURN_BOOT_WINDOW_S: Final = 600
+GARAGE_LOCKOUT_BOOT_ARRIVAL_WINDOW_S: Final = RESIDENT_RETURN_BOOT_WINDOW_S
 # Edges before setup + this only rebuild `reason`, never engage (M1);
 # the house state is re-read once at this delay (H1).
 GARAGE_LOCKOUT_BOOT_RECHECK_S: Final = 120
@@ -3905,7 +3911,7 @@ GARAGE_LOCKOUT_READBACK_RETRIES: Final = 1
 GARAGE_LOCKOUT_RELEASE_MAX_S: Final = 5
 # unknown/unavailable -> home counts as an arrival only if the last real
 # state was not home and held >= this long (H3a). 0 = every blip counts.
-GARAGE_LOCKOUT_BLIP_MIN_AWAY_MIN: Final = 15
+GARAGE_LOCKOUT_BLIP_MIN_AWAY_MIN: Final = RESIDENT_RETURN_MIN_AWAY_MIN
 # Bound on the awaited unlock inside SC teardown on the disable path (C1).
 GARAGE_LOCKOUT_TEARDOWN_RELEASE_TIMEOUT_S: Final = 5
 # LOCK-RELEASE-ON-ARRIVING D3 (plan PLANNING_lock_release_on_arriving.md rev 3),

@@ -63,11 +63,15 @@ from homeassistant.util.unit_conversion import DistanceConverter  # noqa: E402
 from ..arrival_edges import (  # noqa: E402
     area_slug_of_entity,
     arrival_source_needs_corroboration,
+    counted_return,
     door_entry_areas,
     live_arrival_slug,
     nonface_arrival_source,
+    really_away,
     record_bermuda_moves,
     stale_source_arrival,
+    stamp_restored,
+    update_last_real,
 )
 
 
@@ -1385,8 +1389,7 @@ class LockRegimeController:
             # Entity (re)added, e.g. HA person restore: not an arrival edge;
             # stamp last_real as restored (M-2). A pending hold is moot.
             self._drop_hold(pid)
-            if new_val not in _UNREAL_STATES:
-                self._last_real[pid] = (new_val, now_ts, True)
+            stamp_restored(self._last_real, pid, new_val, now_ts)
             self._away_on_person(pid, None, new_val, now_ts, cfg)
             return
         old_val = _state_value(old)
@@ -1465,10 +1468,8 @@ class LockRegimeController:
                     self._release(f"approach_zone:{pid}", person=pid)
         # Away lock: before _last_real moves, so P1 sees the pre-edge state.
         self._away_on_person(pid, old_val, new_val, edge_ts, cfg)
-        if new_val not in _UNREAL_STATES:
-            prev = self._last_real.get(pid)
-            if prev is None or prev[0] != new_val or prev[2]:
-                self._last_real[pid] = (new_val, edge_ts, False)
+        # HOUSE-STATE step 1a D1: the shared ledger rule (arrival_edges).
+        update_last_real(self._last_real, pid, new_val, edge_ts)
 
     # ------------------------------------------------------------------
     # D4 still-locked trip-wire (LOCK-RELEASE-ON-ARRIVING plan rev 3)
@@ -1753,23 +1754,28 @@ class LockRegimeController:
                     self._release(f"proximity:{sid}", person=pid)
 
     def _arrival_counts(self, pid: str, old_val: str | None, now_ts: float) -> bool:
-        if old_val not in _UNREAL_STATES:
-            return True  # not_home / named zone -> home
-        return self._really_away(pid, now_ts)
-
-    def _really_away(self, pid: str, now_ts: float) -> bool:
-        """Was ``pid`` genuinely away (H3a) — with the M-2 boot exceptions."""
+        """HOUSE-STATE step 1a D1: the shared counted-return rule."""
         from ..const import GARAGE_LOCKOUT_BLIP_MIN_AWAY_MIN  # noqa: PLC0415
 
-        if self._in_boot_arrival_window():
-            return True  # M-2 (i)
-        prev = self._last_real.get(pid)
-        if prev is None or prev[2]:
-            return True  # M-2 (ii): no real transition seen since setup
-        state, since, _restored = prev
-        if state == "home":
-            return False  # H3a: blip while home
-        return (now_ts - since) >= GARAGE_LOCKOUT_BLIP_MIN_AWAY_MIN * 60
+        return counted_return(
+            old_val,
+            self._last_real.get(pid),
+            now_ts,
+            in_boot_window=self._in_boot_arrival_window(),
+            min_away_s=GARAGE_LOCKOUT_BLIP_MIN_AWAY_MIN * 60,
+        )
+
+    def _really_away(self, pid: str, now_ts: float) -> bool:
+        """Was ``pid`` genuinely away (H3a) — with the M-2 boot exceptions
+        (HOUSE-STATE step 1a D1: the shared ``arrival_edges.really_away``)."""
+        from ..const import GARAGE_LOCKOUT_BLIP_MIN_AWAY_MIN  # noqa: PLC0415
+
+        return really_away(
+            self._last_real.get(pid),
+            now_ts,
+            in_boot_window=self._in_boot_arrival_window(),
+            min_away_s=GARAGE_LOCKOUT_BLIP_MIN_AWAY_MIN * 60,
+        )
 
     def _area_of_entity(self, entity_id: str) -> str:
         return area_slug_of_entity(self._hass, entity_id)
