@@ -115,7 +115,10 @@ class ArmedState(Enum):
 
 HOUSE_STATE_TO_ARMED = {
     HouseState.AWAY: ArmedState.AWAY,
-    HouseState.ARRIVING: ArmedState.DISARMED,  # Disarm for arrival
+    HouseState.ARRIVING: ArmedState.DISARMED,  # Disarm for arrival (auto-follow, off by default;
+                                               # unchanged by LOCK-RELEASE-ON-ARRIVING, parked
+                                               # sibling plan §13: body-only ARRIVING still disarms
+                                               # if auto-follow is ever turned on)
     HouseState.HOME_DAY: ArmedState.DISARMED,
     HouseState.HOME_EVENING: ArmedState.HOME,   # Perimeter only
     HouseState.HOME_NIGHT: ArmedState.HOME,
@@ -563,13 +566,49 @@ step rejects overlap). It never touches ArmedState and never goes through `evalu
   evaluated synchronously immediately before its own call, with no `await` between. Under SC
   observation mode an engage is logged `would_engage` and not issued.
 - **Release** (direct `lock.unlock` + read-back at 20 s, one retry, then HIGH NM): wake,
-  HOME_* (override or guest exit), ARRIVING, morning backstop (`sleep_end_hour` +
+  HOME_* (override or guest exit; NOT in an episode that has seen ARRIVING, see below), morning backstop (`sleep_end_hour` +
   `garage_lockout_morning_backstop_min`, never for VACATION), any resident arrival (person →
   `home`, `SIGNAL_PERSON_ARRIVING`, proximity distance crossing inside
   `garage_lockout_approach_radius_m`, optional approach zone), critical smoke/fire/CO with
   egress unlock configured, kill switch ON → OFF, and SC teardown when the LIVE CM entry says SC
   should not run (the Enabled switch's real disable path). **Release is never suppressed by SC
   observation mode.** A release also unlocks a lockout whose `lock.lock` is still in flight.
+- **ARRIVING never releases (LOCK-RELEASE-ON-ARRIVING, branch `feature/lock-release-arriving`, NOT deployed; plan
+  `docs/planning/PLANNING_lock_release_on_arriving.md` rev 3).** House-state ARRIVING is body evidence (census or any
+  zone occupied), not identity. In an engaged episode an ARRIVING edge records `arriving_hold` and sets a persisted
+  taint (`garage_arrival_taint`; also set by an `arriving -> *` edge, a boot that finds the house `away`/`arriving`
+  with a lockout locked, and a boot recheck reading `arriving`). While tainted, HOME_* edges and the boot recheck
+  never release and never end the episode (reason, backstop, re-engage timer and manual-unlock memory are kept).
+  Releases that remain: the resident's own person edge / approach zone / proximity / `SIGNAL_PERSON_ARRIVING`,
+  WAKING, the morning backstop (sleep-like reasons), an operator `override_set` house-state edge, hazard, kill switch,
+  SC disable. The taint ends only at an episode boundary (any engage, a boot SLEEP/VACATION rebuild, every
+  `reason = none` write). With reason `none`, ARRIVING does nothing (it no longer unlocks a hand-locked lockout).
+  Snapshot: `lock_regime_arriving_taint`, `lock_regime_episode_saw_arriving`, `lock_regime_arriving_holds`.
+  **Trip-wire (D3):** if a `house_state:*` or `boot_recheck` release ever writes an unlock in an episode that saw
+  ARRIVING (WAKING and `override_set` exempt), one NM HIGH `hazard_type = lock_release_uncorroborated`
+  (`location = garage_lockout:house_state`) names the trigger, the episode reason and the last four house-state
+  edges. It observes, never blocks; steady state is zero. Kill switch `LOCK_RELEASE_UNCORROBORATED_TRIPWIRE_ENABLED`
+  (rung 1). Counter `lock_regime_uncorroborated_releases`.
+  **Still-locked trip-wire (D4):** `LOCK_RELEASE_ARRIVAL_STILL_LOCKED_S` (90 s, rung 1, 0 = off) after a resident's S1
+  person release call (anchored after the suspicious-arrival hold), each lockout still reading exactly `locked` pages
+  one NM HIGH `lockout_locked_after_arrival` (`location = garage_lockout:still_locked:<lock>`), unless the regime
+  locked again since (`engage_seq`), a `lockout_release_failed` NM for that lock was sent since the release, a re-lock
+  of that lock was OBSERVED after the arrival (an `unlocked` / `locking` / `open` / `opening` -> `locked` event; an
+  `unavailable` -> `locked` return is not one, code-review fix-up A-1 / B-H1 / D-M1), or that lock was already paged
+  in this engage episode. A lockout reading `unavailable` / `unknown` at the check is re-checked once after the same
+  window and then paged ("unreadable") unless it reads unlocked. One pending check per person; a later edge in the
+  same engage episode never postpones it (B-L1). D4b: a resident `unknown/unavailable -> home` edge rejected by the really-away rule (departure never seen),
+  in an engaged episode that is tainted or while the house reads away/arriving, records `arrival_uncounted` and pages
+  `lockout_locked_resident_uncounted_return` on the same check (a page, not a release; kill switch
+  `LOCK_RELEASE_UNCOUNTED_RETURN_PAGE_ENABLED`, True; D0 measured 0 false pages/week). Pending checks are not
+  persisted. Counters `lock_regime_still_locked_pages`, `lock_regime_uncounted_returns`.
+  **Boot gap-return page (fix-up D-L2):** at the boot recheck, when the restart restored the house `away` /
+  `arriving`, the episode is still held, a resident reads `home` and a lockout still reads `locked` (no unlock in
+  flight, no failure or still-locked page already sent), one NM HIGH `lockout_locked_boot_gap_return` per lock; never a
+  release. Kill switch `LOCK_RELEASE_BOOT_GAP_RETURN_PAGE_ENABLED` (rung 1, True).
+  **Engage reason persisted (fix-up D-H1):** Store key `garage_reason` (every change of `reason`). A restart with a
+  lockout locked and the house not `sleep` / `vacation` rebuilds the stored reason instead of `boot_unknown`, so a
+  VACATION lock is not released by the daytime boot backstop after the house left VACATION.
 - **Residents:** every `person.*` minus `security_lockout_excluded_persons`, tracked live
   (added/removed domain trackers) and persisted in Store
   `universal_room_automation.lock_regime_residents`.

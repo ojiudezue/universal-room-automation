@@ -34,13 +34,22 @@ Digest returns. Channel severity settings are unchanged.
 `test_nm_no_channel_fired.py` (27). Full suite 21006 passed, 0 failed (baseline 20979, 0 failed). 19 + 9 mutation drills,
 each RED then restored.
 
-## Live validation (prospective)
+## Validated 2026-11-13
 
-- Next digest flush: digest rows with channel `digest` delivered; heartbeat or digest carries the no-route line only if
-  holes remain.
-- `notification_log` audit rows since restart: `digest_queued`, not `no_channel_fired`, for sub-HIGH alerts.
-- No `nm.no_route_tripwire` anomaly.
-- `delivery_rate` sensor and `no_route_count` diagnostic present.
+Restart 06:51 CST (`update.universal_room_automation_update` last_changed 12:51:27Z, installed `v5.108.17`). Window to
+08:42 CST.
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Sub-HIGH alerts queue to digest | PASS | 10 `notification_log` rows `digest_queued` (LOW 4, MEDIUM 6), route reason `legacy_fallback` |
+| No `no_channel_fired` | PASS | 0 rows since restart |
+| Digest rows delivered at flush | PASS | 4 of the 10 `digest` rows at delivered=2; HIGH companion row delivered=1 |
+| No trip-wire anomaly | PASS | 34 `anomaly_log` rows since restart, none `nm.no_route_tripwire` |
+| `delivery_rate` present | PASS | `sensor.ura_notification_manager_notification_delivery_rate` 100.0 (15/15) |
+| `no_route_count` present | PASS | `sensor.ura_notification_manager_notification_diagnostics` healthy, `no_route_count: 0` |
+| No URA setup errors | PARTIAL | `/api/error_log` has no URA ERROR or Traceback; the full boot log could not be read over ssh |
+
+The heartbeat no-route line was not observed because no holes remain. The test suite proves it.
 
 ## Not done
 

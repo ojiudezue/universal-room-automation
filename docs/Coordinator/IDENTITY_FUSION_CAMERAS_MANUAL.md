@@ -560,6 +560,15 @@ re-check) for a person whose edge is held, or who reads home on a stale source,
 is dropped in `_apply_arrival`. Details: `PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md`
 §1 table.
 
+**House state is not identity (LOCK-RELEASE-ON-ARRIVING, branch `feature/lock-release-arriving`, NOT
+deployed; plan `PLANNING_lock_release_on_arriving.md` rev 3).** House-state ARRIVING is inferred from
+`census_count > 0 or any_zone_occupied` with no name attached (68.5 % of ARRIVING edges are room-sensor occupancy
+alone), so it is body evidence, the same class as an unnamed camera body. The garage lockout therefore no longer
+releases on it, nor on a HOME_* edge in an episode that saw it: access needs a resident's own arrival edge (a
+`person.*` -> home edge counted by `_arrival_counts`, an approach-zone / proximity crossing, or a corroborated
+`SIGNAL_PERSON_ARRIVING`). Same doctrine as §5.5(a) and the face rule above: an inference with no identity never
+unlocks.
+
 **Exterior seam file (EXTERIOR-SEAM-LOADER, branch `feature/exterior-seam-loader`,
 shipped v5.108.15; plan `PLANNING_exterior_seam_file_injection.md` D4/D5/D6).** The
 exterior track linker's camera adjacency ("seams") and the egress-adjacent set

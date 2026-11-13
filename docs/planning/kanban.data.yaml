@@ -18615,12 +18615,15 @@ cards:
     the F2 zone-vs-house divergence with zero witnesses) is LOW marginal benefit today (no active problem)
     — PARKED with organic trigger, see MEMORY-ZONE-PHANTOM-WRITER-1.'
 - id: HOUSE-STATE-FIRST-PRINCIPLES-1
+  arc_cut_v5_108_18: "1a building now"
   title: Rethink the house state machine from first principles; ARRIVING fired by any occupancy is a legacy assumption the lock, alarm and alert code keeps working around
   thread: presence
-  status: waiting_operator
+  status: in_progress
+  batch: person-sightings
   created: '2026-11-13 04:00'
-  updated: '2026-11-13 04:00'
+  updated: '2026-11-13 09:00'
   tier: 3
+  APPROVED_2026-11-13: 'Operator: split approved, 1a builds now; 1b (vacation overlay) added to the person-sightings arc so it is not forgotten (HOUSE-STATE-VACATION-OVERLAY-1B).'
   links: {related: [HOUSE-STATE-UTILIZATION-EPIC, LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1, SC-ARMING-ALARM-ONLY-1, EXTERIOR-PERSON-SEVERITY-ARRIVING-BODY-ONLY-1, HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1, LOCK-REGIME-BOOT-REALLY-AWAY-1, FACE-ARRIVAL-REBUILD-1]}
   origin: {date: '2026-11-13', gist: 'Operator: "The arriving state itself is likely problematic. It does not make sense that occupancy triggers that house state. That state machine was designed when we were dumber. Time to revisit it from first principles so we do not keep working around dumb stuff and old assumptions. We should even do external research on house state machines as part of the rethink."'}
   why: 'AUDIT_arriving_on_body_evidence_2026_11_13.md: 2,642 AWAY->ARRIVING edges, 6.4% real arrivals, 48.6% correcting a false AWAY, 68.5% driven by zone sensors with census 0. Consumers (lock release, auto-follow disarm, exterior alert severity) each grew their own workaround. Now we have resident-level arrival edges (BLE, geofence), census, person sightings and egress direction, which the original machine predates.'
@@ -18630,6 +18633,8 @@ cards:
   - Inventory every producer and consumer of house state first (fire check + forward trace); every consumer gets a migration verdict.
   - 'Do not stall the lock-release fix; it ships now. Operator 2026-11-13: when the reshape lands, REVISIT the lockout (taint flag, ARRIVING hold, D3/D4 pages) and move it onto the new arrival signal; the reshape is not done until that migration ships.'
   - Read PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md, HVAC state of play, and PLANNING_house_state_*.md first.
+  - 'Operator 2026-11-13: VACATION should supersede or encapsulate AWAY, not compete with it. Today the operator sets VACATION while home, inference moves the house to AWAY when everyone leaves and that clears the VACATION override (review D D-H1 of the lock-release build), so every consumer special-cases VACATION. Design: vacation is an overlay on an empty house (an away that is expected to last), set before leaving, kept through AWAY and restarts, ended by a resident arrival or the operator; consumers read occupancy + overlay instead of a separate state.'
+  - 'Operator 2026-11-13: AWAY has been accurate and responsive recently; the audit 32% false-AWAY figure was a bad measurement (short real absences counted as false) and is corrected. Keep AWAY as the trusted anchor of the occupancy axis; do not add an uncertain value without evidence.'
   - 'Operator hypothesis 2026-11-13: arrival may not be a house state at all; it is closer to a mode/event fed by egress (direction-aware door crossings, person sightings) and the pre-arrival work (geofence/BLE approach, HVAC pre-arrival). If it stays a state, it is fed by much narrower conditions (resident arrival evidence), never by plain occupancy. The proposal must test both options against the consumers.'
   FINDING_2026-11-13: 'AUDIT_house_state_first_principles_2026_11_13.md: only AWAY and GUEST come from evidence; HOME_DAY/EVENING/NIGHT are the clock; SLEEP is someone home in the sleep window (all 203 SLEEP->WAKING at 06:00); ARRIVING and WAKING are 1-minute shims; VACATION never fired; consumers each re-collapse the enum. AWAY false 6/19 (32%) recent; 43% of real resident arrivals had no house arrival. External systems keep who-is-home separate from mode; none treat motion after away as arrival. Proposal: axes occupancy / residency / period, guest and vacation as overlays, per-person arrival and departure events (pre-arrival = expected-arrival mode), legacy house_state derived for migration; arrival-as-event wins for every access consumer; retires ARRIVING, WAKING and the lockout taint. Smallest version: publish residency + arrival events + occupancy alongside the enum and move lock regime and exterior severity first.'
   next: 'APPROVE/PICK: accept the axis model and arrival-as-event (recommended) -> I write the Tier-3 plan (smallest version first) with two plan reviews.'
@@ -34697,6 +34702,7 @@ cards:
   DONE_2026-11-13: 'Operator: "Do it now... Monitor". Applied 00:13 CST via options flow camera_census: only egress_cameras, perimeter_cameras, door_groups changed (diff vs backup). 20 min watch: house stayed sleep throughout, URA unavailable entities 5 -> 3 (fewer), no lock/alarm/cover/climate logbook changes.'
   next: 'None. Patio/Study B not added (operator ~99% garage+front); revisit only if weekly labels show patio crossings matter.'
 - id: EGRESS-OUTCOME-WEEKLY-LABEL-1
+  arc_cut_v5_108_18: "recurring after D8a"
   arc_cut_v5_108_16: "recurring, starts with this ship"
   title: Weekly labelling of egress identity outcomes (recurring) so Phase 2 of person sightings becomes decidable
   thread: identity
@@ -34727,6 +34733,7 @@ cards:
   next: 'Me: build as plan D7 after rev-8 fixes; resolve names via CameraResolver; measure hop lags; diff learned vs operator map.'
   rank: {value: 8, time_criticality: 5, effort: 5}
 - id: EGRESS-DIRECTION-AWARE-IDENTITY-1
+  arc_cut_v5_108_18: "planned next"
   arc_cut_v5_108_16: "phase 2, gated on labels (5 true cases met, misrecognition rate pending)"
   title: Egress drops the name of anyone the tracker shows away, in both directions; entries by away people are exactly arrivals
   thread: identity
@@ -34755,6 +34762,7 @@ cards:
   next: 'Me: builder wiring load-at-setup + fallback + D4 + D5 with a wire-in test; two reviews; ship.'
   rank: {value: 8, time_criticality: 7, effort: 3}
 - id: VISION-CROSSING-ANALYSIS-1
+  arc_cut_v5_108_18: "separate plan"
   arc_cut_v5_108_16: "own sibling plan, D0-FRAME/SIM done, re-anchor edits then D0-V"
   title: AI vision of each crossing (fast 3-frame sample + batched time-lapse along the camera chain) as a counting and description input, fused with Frigate/Protect counts
   thread: identity
@@ -34767,13 +34775,29 @@ cards:
   origin: {date: '2026-11-12', gist: 'Operator: watch arrivals with AI vision; time-lapse; fast first frames; counting is easy, naming is hard; guests are the census problem; OpenAI models (GPT-6 Luna/Sol); deconflict with camera counts until trusted (100 crossings / 7 days using resident BLE truth).'}
   why: 'Design in PLANNING_person_sighting_layer.md section 15. Gates: D0-FRAME (blank-frame experiment), D0-SIM (timing simulation), D0-V (model scoring incl. dry call per GPT-6 model for llmvision param compatibility). Then its own sibling plan.'
   FINDING_2026-11-13: 'AUDIT_vision_d0_frame_sim_2026_11_13.md: D0-FRAME and D0-SIM NO-GO as written, GO if re-anchored. Plan assumed crossing emit t0 = edge + 0-20 s; code is edge + 45 s (ENTRY_WINDOW_SECONDS). At t0: 63% of crossings have zero usable frames; at the camera edge: 3/3 frames on 100%. Guard must choose across the door group cameras (single camera on at edge+3 s only 32-79%). Best-snapshot 404s 17-30% (doorbell, G6), thumbnails 100%. Volume 14/day (max 30): cap >= 40. Time-lapse 60 s from t0 catches first interior hop 12-22%; from edge 84-88%; garage A needs 90 s, front 120 s. Plan table wrongly lists Doorbell Lite under front. Open: 30-frame operator hand-label of the blank proxy.'
-  next: 'Me: apply the re-anchor edits to plan section 15 (arm at the camera edge, group-wide frame guard, thumbnails as fallback, 90/120 s windows, cap 40, Doorbell Lite in garage A); then D0-V (about 50 past frames to OpenAI, operator-approved provider). Operator: 30-frame hand-label when convenient.'
+  HANDLABEL_2026-11-13: 'Operator hand-labelled 30 door frames (page EQVeja6NrUaZ9DFUPcR8PW, labels in its db). Frigate person-tracking proxy agreed on 22/30 (73%), below the 95% gate: 5 frames had a person the proxy missed (aerial, garage_a, doorbell, G6, one with 2 people), 3 proxy-on frames were empty (doorbell, G6 x2). One 2-person frame, no 3+. Gate FAILS: the proxy cannot time captures; the blank-frame guard must judge the frames themselves (cheap model check or detector boxes), not Frigate event state.'
+  next: 'Me: revise plan section 15.9 frame guard to judge frames directly; resolve the llmvision temperature blocker for GPT-6 models (config-first); then the sibling vision plan.'
   rank: {value: 9, time_criticality: 4, effort: 8}
+- id: PHONE-LEFT-BEHIND-TRANSIENT-FLICKER-1
+  arc_cut_v5_108_18: "with PLB build"
+  title: Phone-left-behind flags flicker on for one 30 s poll at arrival ticks and after restarts (17 in 8 days, none real)
+  thread: presence
+  status: inbox
+  batch: person-sightings
+  created: '2026-11-13 04:30'
+  updated: '2026-11-13 04:30'
+  tier: 2
+  links: {parent: FACE-ARRIVAL-REBUILD-1, related: [PHONE-LEFT-BEHIND-CAMERA-LEG-1]}
+  origin: {date: '2026-11-13', gist: 'Measured by the phone-left-behind plan: 10 arrival ticks (house still AWAY while BLE places person in a room), 6 first-tick-after-restart before census ready, 1 other.'}
+  why: 'House-state trust input; transient true flags can briefly change the AWAY veto denominator.'
+  next: 'Me: plan after the camera-leg swap; likely a dwell or census-ready gate.'
+  rank: {value: 4, time_criticality: 2, effort: 2}
 - id: PHONE-LEFT-BEHIND-CAMERA-LEG-1
+  arc_cut_v5_108_18: "plan rev 2 now"
   arc_cut_v5_108_16: "needs D1 live first, planned next"
   title: Phone-left-behind sensors never see a camera sighting (TransitValidator camera-sighting store never holds a named sighting; person_id is a display name)
   thread: presence
-  status: inbox
+  status: planned
   batch: person-sightings
   created: '2026-11-12 22:00'
   updated: '2026-11-12 22:00'
@@ -34781,9 +34805,11 @@ cards:
   links: {parent: FACE-ARRIVAL-REBUILD-1}
   origin: {date: '2026-11-12', gist: 'Found by the person-sightings planner (rev 3).'}
   why: 'All four phone-left-behind sensors show hours_since_camera_sighting null. Move to the new last-sighting accessor after D1 ships. House-state input: Tier 2-DB minimum.'
-  next: 'Me: after D1 ships, plan the source swap.'
+  RULING_2026-11-13: 'Operator chose H1 option A: the camera leg is display only (attributes), it does not change the phone-left-behind verdict.'
+  next: 'Me: plan rev 2 with ruling A (branch plan/phone-left-behind-camera), then build (Tier 2-DB, 3 reviews).'
   rank: {value: 5, time_criticality: 3, effort: 3}
 - id: DEPARTURE-ACTIONS-1
+  arc_cut_v5_108_18: "later arc piece"
   arc_cut_v5_108_16: "needs phase 2 departures"
   title: Nothing acts on a named departure; direction-aware egress makes departures available
   thread: identity
@@ -34798,6 +34824,7 @@ cards:
   next: 'Me: after D8 ships, decompose consumers with the operator.'
   rank: {value: 5, time_criticality: 2, effort: 4}
 - id: FACE-ARRIVAL-REBUILD-1
+  arc_cut_v5_108_18: "parent arc card"
   arc_cut_v5_108_16: "main card stays open until phase 2 ships"
   title: 'PERSON SIGHTINGS (main card): one identity-at-place layer (face, egress, later vision) harmonized with egress and census; direction-aware egress identity; access needs a second signal'
   thread: identity
@@ -34859,7 +34886,8 @@ cards:
   arc_cut_v5_108_16: "separate Tier-3 lock-regime plan, switches off"
   title: A camera seeing any body while the house is away moves it to ARRIVING, which releases the garage lockout and auto-disarms security with no identity
   thread: security
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.108.18
   batch: person-sightings
   created: '2026-11-12 19:10'
   updated: '2026-11-12 19:10'
@@ -34882,6 +34910,20 @@ cards:
   APPROVED_2026-11-13: 'Operator approved PLANNING_lock_release_on_arriving.md rev 3 with night re-lock = yes and house-sitter = yes. Auto-follow (plan section 13) out of this build; operator decision pending (park recommended). Build started on feature/lock-release-arriving.'
   next: 'Me: D0 probe, build, validator, four Tier-3 reviews, orchestrator verify, operator pre-deploy go; ship before the lockout is switched on (~11-16).'
   rank: {value: 9, time_criticality: 6, effort: 5}
+- id: LOCK-LOCKOUT-UNAVAILABLE-AT-SETUP-1
+  title: A garage lockout still unavailable when URA sets up counts as nothing locked; if the house is awake at recheck it stays locked with no backstop, release or page
+  thread: security
+  status: done
+  batch: person-sightings
+  created: '2026-11-13 03:30'
+  updated: '2026-11-13 09:00'
+  DEDUPE_2026-11-13: 'Duplicate of LOCK-BOOT-LOCKOUT-UNAVAILABLE-AT-SETUP-1 (same review D-L4, carded on the lock branch, merged 11-13). Survivor is parked with trigger lockout ON; this card adds nothing beyond its Wi-Fi reconnect note, copied here for the record.'
+  tier: 2
+  links: {parent: FACE-ARRIVAL-REBUILD-1, related: [LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1]}
+  origin: {date: '2026-11-13', gist: 'Review D D-L4 of feature/lock-release-arriving (pre-existing on develop).'}
+  why: 'Wi-Fi garage openers drop off often; a slow reconnect at boot can strand the lock locked silently.'
+  next: 'Me: re-run the boot rebuild when a lockout first becomes available after setup; test.'
+  rank: {value: 5, time_criticality: 4, effort: 2}
 - id: LOCK-REGIME-BOOT-REALLY-AWAY-1
   title: After a restart, residents count as away until their first move, so the lockout's really-away check can misjudge returns
   thread: security
@@ -34896,7 +34938,22 @@ cards:
   revisit_trigger: 'Garage lockout switched ON, or the lock-release-on-arriving build ships (sequenced next after it).'
   next: 'Me: plan after LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1 builds; joint restart test.'
   rank: {value: 6, time_criticality: 5, effort: 3}
+- id: EXTERIOR-PERSONS-HOME-ALWAYS-ZERO-1
+  arc_cut_v5_108_18: "own fix next"
+  title: perimeter_alert._get_persons_home always returns 0 in production (asks the coordinator manager for a presence attribute it does not have), so day/evening exterior alerts are always HIGH
+  thread: security
+  status: inbox
+  batch: person-sightings
+  created: '2026-11-13 05:30'
+  updated: '2026-11-13 05:30'
+  tier: 2
+  links: {parent: FACE-ARRIVAL-REBUILD-1, related: [EXTERIOR-PERSON-SEVERITY-ARRIVING-BODY-ONLY-1, HOUSE-STATE-FIRST-PRINCIPLES-1]}
+  origin: {date: '2026-11-13', gist: 'House-state step-1 plan review (build-prediction C1): perimeter_alert.py:2013-2032; only a test fake sets the attribute (test_house_state_sleep_mask_ble_memory.py:310), so the test is hollow. Also security entry verdict reads census persons_home that nothing writes.'}
+  why: 'Severity keyed on residents home has never worked; safe direction today (over-alerts) but any fix changes paging and must not lower it while the house is empty.'
+  next: 'Me: folded into the house-state step-1 plan (getters defined with real producers); fix together with exterior severity.'
+  rank: {value: 6, time_criticality: 3, effort: 2}
 - id: EXTERIOR-PERSON-SEVERITY-ARRIVING-BODY-ONLY-1
+  arc_cut_v5_108_18: "folds into step 1a"
   title: While the house reads ARRIVING, exterior-person alerts drop to LOW, so a body-only ARRIVING softens real alerts
   thread: security
   status: inbox
@@ -34933,6 +34990,8 @@ cards:
   next: 'Me: hand the audit to the homelab session for Frigate changes (homelab applies).'
   rank: {value: 7, time_criticality: 3, effort: 4}
   measured_2026_11_13_overnight: "Partial, read-only (ura-prober, HA recorder 11-05 10:00 to 11-13 02:00 CST + homelab config snapshot). Frigate2 API at 192.168.13.18:8971 returned 401; no read-only API credential exists in the homelab repo, port 5000 is container-only, so per-face scores, near-misses and training counts are UNMEASURED. Config (snapshot configs/snapshots/frigate2/config-resolved-pre-perimeter-fp-2026-11-08.json, not a live read): face recognition enabled on all 29 cameras (cause 'not enabled' REFUTED), model large, recognition_threshold 0.8, unknown_score 0.8, detection_threshold 0.6, min_area 250 (already more permissive than Frigate defaults 0.9 / 750). Detect streams: doorbell_lite 1920x2560, garage_a and front_door_aerial 1280x720, g6_entry 720x960, g6_entry_package 400x300 at 2 fps. Recorder conversion (person episodes with a name within 2 min, day): garage_a 24/64, doorbell_lite 35/105, g6_entry 12/56, front_door_aerial 8/20, front_side_ptz 5/21 (a floor, since guests and deliveries can never match). Names at doors are almost all Jaya and Oji; Ezinne and Ziri essentially never match at doors. Resolution is not the limiter alone (master_hallway at 1280x720 logs 126 recognitions; doorbell_lite at high resolution converts ~33%). Lean, weak: thin per-person training (c) plus door angle (b); near-misses (a) cannot be ruled out without Frigate scores. HA's face sensor only records named positives, so near-misses are invisible from HA by construction."
+- {"id": "LOCK-BOOT-LOCKOUT-UNAVAILABLE-AT-SETUP-1", "title": "A garage lockout that is still connecting at HA startup counts as 'nothing locked', so if it then reads locked with the house awake nothing releases it", "thread": "security", "status": "parked", "tier": 2, "batch": "person-sightings", "created": "2026-11-13 12:00", "updated": "2026-11-13 12:00", "refinement_status": "initial", "approval": "unreviewed", "problem_solution": ["Problem: at setup the lock regime rebuilds its reason only from lockouts that read locked. An ESPHome/ratgdo/Konnected lockout still connecting reads unavailable, so the regime decides nothing is locked (reason none, restored taint cleared). When the lockout then reports locked and the house is awake at the 120 s boot recheck, the decision is 'none': no backstop, no house release, no uncounted-return page. Only a person edge, proximity or the switch discharges it. Solution: at the boot recheck, a lockout reading locked with reason none rebuilds boot_unknown (or the persisted reason) the way _boot_rebuild would have."], "origin": "Code review D-L4 on feature/lock-release-arriving (docs/reviews/code-review/v_lock_release_arriving_D.md), 2026-11-13; carded, not fixed, per orchestrator.", "why": "security_lock_regime.py _boot_rebuild (nothing-locked return) + _boot_recheck_regime. Pre-existing; develop's only extra discharge was the unconditional ARRIVING release, which LOCK-RELEASE-ON-ARRIVING removed. Matters only with the garage lockout ON.", "parsimony": {"problem": "A lockout late to connect at boot can stay locked with no automatic release.", "verdict": "PARK"}, "revisit_if": "switch.ura_security_coordinator_garage_lockout is turned ON.", "next": "Parked. When the lockout goes ON: Tier-2 fix at the boot recheck plus a test (lockout unavailable at setup, locked at +60 s, house home_day at the recheck -> released or rebuilt).", "links": {"parent": "LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1", "related": ["GARAGE-REMOTE-LOCKOUT-SCHEDULE-1"]}, "rank": {"value": 4, "time_criticality": 2, "effort": 3}, "refs": ["custom_components/universal_room_automation/domain_coordinators/security_lock_regime.py"]}
+- {"id": "LOCK-VACATION-PHANTOM-SLEEP-DAILY-UNLOCK-1", "title": "During a real vacation, a phantom room sensor can walk the house into SLEEP each night, so the garage lockout unlocks every morning and stays unlocked by day", "thread": "security", "status": "parked", "tier": 2, "batch": "person-sightings", "created": "2026-11-13 12:00", "updated": "2026-11-13 12:00", "refinement_status": "initial", "approval": "unreviewed", "problem_solution": ["Problem: with nobody home on VACATION, a phantom zone sensor (measured: Back Hallway) can drive AWAY -> ARRIVING -> HOME_* (held by the taint) -> SLEEP at sleep hours. The SLEEP engage starts a new episode and clears the ARRIVING taint, the next WAKING releases the lockout, and nothing re-locks it by day; it repeats nightly. The D3 trip-wire cannot see it because the SLEEP engage launders the taint. Solution options: carry the saw-ARRIVING flag across a SLEEP engage whose previous reason was VACATION (D3 only, not the gate), or keep VACATION as the episode reason while the house cycles through phantom states."], "origin": "Code review D-L3 on feature/lock-release-arriving (docs/reviews/code-review/v_lock_release_arriving_D.md), 2026-11-13; accepted residual (plan \u00a79.3), carded per orchestrator; the cycle README must state it in its notes.", "why": "security_lock_regime.py _set_engage_reason ends the episode flags on every engage. Strictly better than develop (which released at ARRIVING). Matters only with the garage lockout ON during travel.", "parsimony": {"problem": "Daily unlock during a vacation if a phantom sensor fakes occupancy.", "verdict": "PARK"}, "revisit_if": "The garage lockout is ON and the operator plans travel, or D3 / house-state logs show a SLEEP engage straight after a VACATION episode.", "next": "Parked. Revisit with the lockout ON before travel; first measure how often VACATION -> ... -> SLEEP happens in the house_state_log.", "links": {"parent": "LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1", "related": ["GARAGE-REMOTE-LOCKOUT-SCHEDULE-1"]}, "rank": {"value": 4, "time_criticality": 3, "effort": 3}, "refs": ["custom_components/universal_room_automation/domain_coordinators/security_lock_regime.py"]}
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
@@ -34950,3 +35009,17 @@ broader_backlog_refs:
 - Forecaster wire-up (LightGBM + BatteryStrategy)
 - Dashboarding workstream (ura-v6 rebuild + PWA)
 - Memory week-one gate + first coordinator-consumer proposal
+- id: HOUSE-STATE-VACATION-OVERLAY-1B
+  title: 'House-state step 1b: vacation becomes an overlay on AWAY instead of its own state, so nothing has to special-case it'
+  thread: presence
+  status: parked
+  batch: person-sightings
+  created: '2026-11-13 09:00'
+  updated: '2026-11-13 09:00'
+  tier: 3
+  links: {parent: HOUSE-STATE-FIRST-PRINCIPLES-1, related: [LOCK-VACATION-PHANTOM-SLEEP-DAILY-UNLOCK-1]}
+  origin: {date: '2026-11-13', gist: 'Operator: split 1a now / 1b later, "add to arc so we don''t forget". Operator earlier: vacation should supersede or encapsulate away.'}
+  why: 'Part B of PLANNING_house_state_axes_step1.md rev 3 (branch plan/house-state-step1). Kept in the person-sightings arc so the arc cannot close without it.'
+  revisit_if: 'Step 1a (HOUSE-STATE-FIRST-PRINCIPLES-1) ships and is live-validated.'
+  next: 'Me: after 1a validates, revise Part B against what 1a shipped, two plan reviews, then build.'
+  rank: {value: 6, time_criticality: 3, effort: 5}

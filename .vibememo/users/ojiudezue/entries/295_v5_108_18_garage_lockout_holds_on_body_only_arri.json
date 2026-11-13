@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "295",
+  "author": "ojiudezue",
+  "session_id": "claude_20261113_144613_ship_v5_108_18",
+  "timestamp": "2026-11-13T14:46:13Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.108.18 shipped: Garage lockout holds on body-only ARRIVING",
+  "summary": "Garage lockout holds on body-only ARRIVING",
+  "why": "ARRIVING fires on any occupancy after AWAY, including phantom zone sensors, so the old unconditional release could unlock the garage on body evidence with no resident. The fix holds on ARRIVING, taints the episode, and pages on any tainted release. Tier 3 with four reviews, orchestrator mutation drills, operator go 2026-11-13.",
+  "implications": "Shipped LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1 at v5.108.18; card(s) sit shipped_organic pending validation. Acceptance in README_v5.108.18.md (Live criteria).",
+  "revisit_trigger": "When house-state step 1a lands, move onto the new arrival signal and retire the taint.",
+  "refs": {
+    "cards": [
+      "LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.108.18.md"
+    ],
+    "release_notes": "ARRIVING no longer releases the garage lockout; tainted episodes hold HOME_* releases unless an override or resident arrival; trip-wires page on tainted releases and still-locked returns."
+  }
+}

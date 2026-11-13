@@ -13,10 +13,14 @@ Policy owned this cycle: the two opener "remote lockout" locks.
     A manual unlock during the current episode is remembered in the Store
     (``garage_manual_unlock``) and the recheck never re-locks it (INV-5);
     the mark clears at the house-state edge that ends the episode.
-  * Release on wake / HOME_* / ARRIVING / morning backstop / any resident
+  * Release on wake / HOME_* / morning backstop / any resident
     arrival (P1 person -> home, P2 SIGNAL_PERSON_ARRIVING, P5 proximity
     crossing, optional approach zone) / critical hazard / kill switch OFF /
-    SC disabled (teardown on the real disable path).
+    SC disabled (teardown on the real disable path). LOCK-RELEASE-ON-ARRIVING
+    (plan PLANNING_lock_release_on_arriving.md rev 3): a house-state ARRIVING
+    edge never releases an engaged episode, and once an episode has seen
+    ARRIVING (the "taint") no HOME_* edge or boot recheck releases it either;
+    an operator ``override_set`` edge still does.
 
 Write paths (rev 5 §6.1b H-1):
   * Release = direct ``lock.unlock`` in a tracked task (observation mode
@@ -41,6 +45,7 @@ test files installed.
 from __future__ import annotations
 
 import asyncio
+import collections
 import functools
 import logging
 from datetime import datetime, timedelta
@@ -95,6 +100,13 @@ REASON_BOOT_UNKNOWN = "boot_unknown"
 SLEEP_LIKE_REASONS = frozenset({REASON_SLEEP, REASON_GUEST_NIGHT, REASON_BOOT_UNKNOWN})
 
 _UNREAL_STATES = frozenset({"unknown", "unavailable"})
+# Fix-up A-1 / B-H1 / D-M1: a lockout reaching `locked` FROM one of these is an
+# observed re-lock (a human or an app locked it). `unlocking -> locked` is a
+# failed unlock, and `unavailable/unknown -> locked` is an availability return;
+# neither is a re-lock.
+_RELOCK_FROM = frozenset({"unlocked", "locking", "open", "opening"})
+# Fix-up D-H1: engage reasons a restart may rebuild from the Store.
+_PERSISTED_REASONS = frozenset({"sleep", "vacation", "guest_night"})
 _HOME_STATES = frozenset({"home_day", "home_evening", "home_night"})
 
 
@@ -199,7 +211,21 @@ class LockRegimeController:
         self._store = store
         self._to_metres = to_metres or distance_to_metres
 
-        self.reason: str = REASON_NONE
+        # Fix-up D-H1: ``reason`` is a property; every write is persisted
+        # (Store key garage_reason) so a restart rebuilds the episode's real
+        # reason instead of boot_unknown. Set directly here (no save at init).
+        self._reason: str = REASON_NONE
+        # Persisted reason loaded at setup, consumed once by _boot_rebuild.
+        self._restored_reason: str | None = None
+        # Fix-up D-L2: house state _boot_rebuild read (the restored one).
+        self._boot_house: str | None = None
+        # Fix-up D-H1: reason came from the Store at _boot_rebuild and has not
+        # been written since; the boot recheck treats it like boot_unknown
+        # (same conversions and release), so only the backstop / VACATION
+        # semantics change. Cleared by an engage (_set_engage_reason); kept
+        # through the recheck's SLEEP / VACATION conversion so the recheck
+        # still re-engages (and schedules the backstop) as for boot_unknown.
+        self._reason_from_store: bool = False
         self.release_gen: int = 0
         self.last_action: dict[str, Any] = {}
         self.missing_residents: list[str] = []
@@ -250,6 +276,38 @@ class LockRegimeController:
         self.arrival_holds: int = 0
         self.arrival_signal_held: int = 0
         self.arrival_hold_confirms: int = 0
+        # LOCK-RELEASE-ON-ARRIVING D1 (plan rev 3 §2): this engage episode has
+        # seen house-state ARRIVING (body evidence, no identity). While set,
+        # no house-state / boot-recheck edge releases. Persisted (store keys
+        # garage_arrival_taint / garage_episode_saw_arriving). Set and cleared
+        # ONLY at the sites named in the plan; the saw flag is D3's own copy
+        # (separate set statements, so the trip-wire survives a taint bug).
+        self._arrival_taint: bool = False
+        self._episode_saw_arriving: bool = False
+        self.arriving_holds: int = 0
+        # D3 trip-wire: count + the last house-state edges for its message
+        # (new, old, trigger, ts), F20.
+        self.uncorroborated_releases: int = 0
+        self._last_house_edges: collections.deque = collections.deque(maxlen=4)
+        # D4 still-locked trip-wire. engage_seq is bumped at every lock.lock
+        # we issue (release_gen cannot serve: only releases bump it, F2/H3a).
+        self.engage_seq: int = 0
+        # entity -> ts a lockout_release_failed NM started (H3b dedup).
+        self._failure_nm_at: dict[str, float] = {}
+        # person -> pending still-locked check; entity -> engage_seq it was
+        # paged in (one page per stuck lock per engage episode, R2-7). Neither
+        # is persisted (a restart drops a pending check; named residual).
+        # Fix-up B-L1: one pending check per person; a pending check from the
+        # same engage_seq is kept (the earliest anchor and its kind), never
+        # replaced, so a flapping phone cannot postpone the page.
+        self._still_locked_unsubs: dict[str, Callable[[], None]] = {}
+        self._still_locked_seq: dict[str, int] = {}
+        self._still_locked_paged: dict[str, int] = {}
+        # Fix-up A-1 / B-H1 / D-M1: lockout -> ts of the last OBSERVED re-lock
+        # (`_RELOCK_FROM -> locked`, seen by _on_lockout_event). Not persisted.
+        self._lockout_relocked_at: dict[str, float] = {}
+        self.still_locked_pages: int = 0
+        self.uncounted_returns: int = 0
 
         # SC-LOCK-REGIME-DOOR-LOCKS-1 (plan rev 3 D3a): the away-lock policy.
         # Its own state; it never touches reason / release_gen / backstop /
@@ -280,6 +338,17 @@ class LockRegimeController:
         # Persisted: the ONLY dwell source after a restart (H1).
         self._away_not_home_since: dict[str, float] = {}
         self.away_lock_last_action: dict[str, Any] = {}
+
+    @property
+    def reason(self) -> str:
+        return self._reason
+
+    @reason.setter
+    def reason(self, value: str) -> None:
+        # Fix-up D-H1: persist every change (the payload is read at write time).
+        if value != self._reason:
+            self._reason = value
+            self._save_store()
 
     # ------------------------------------------------------------------
     # Live configuration (never a setup snapshot, Bug Class #14 / M-1)
@@ -607,6 +676,11 @@ class LockRegimeController:
 
         return float(GARAGE_LOCKOUT_BOOT_RECHECK_S)
 
+    def _boot_provisional(self) -> bool:
+        """The reason was rebuilt at boot (boot_unknown, or the persisted
+        reason, fix-up D-H1) and no engage has confirmed it."""
+        return self.reason == REASON_BOOT_UNKNOWN or self._reason_from_store
+
     def _boot_rebuild(self, cfg: dict[str, Any]) -> None:
         """Boot never engages and never releases on a resident reading home;
         it only rebuilds ``reason`` (H1).
@@ -617,21 +691,45 @@ class LockRegimeController:
         arrivals during a restart are caught by the boot-arrival window in
         ``_arrival_counts`` (any -> home edge within 600 s of setup).
         """
+        restored, self._restored_reason = self._restored_reason, None
         if not self.kill_switch_on():
+            # Fix-up A-3: reason stays NONE, so a restored taint is stale.
+            self._end_episode_arrival_flags()
             return
         locked = [
             e for e in self.lockout_entities(cfg)
             if _state_value(self._hass.states.get(e)) == "locked"
         ]
         if not locked:
+            # R2-4: reason is not persisted, so a restored taint with nothing
+            # locked is stale; nothing can be released with reason NONE.
+            self._end_episode_arrival_flags()
             return
         house = self._house_state()
+        self._boot_house = house
         if house == "sleep":
             self.reason = REASON_SLEEP
+            self._end_episode_arrival_flags()
         elif house == "vacation":
             self.reason = REASON_VACATION
+            self._end_episode_arrival_flags()
         else:
-            self.reason = REASON_BOOT_UNKNOWN
+            # Deliberate no-clear write: a restart is inside the episode, so a
+            # restored taint is kept (plan D1 item 3 allowlist). Fix-up D-H1:
+            # the persisted engage reason wins over boot_unknown, so a
+            # VACATION lock found after the house left VACATION (override
+            # cleared by AWAY) is not degraded to a sleep-like reason that the
+            # daytime backstop releases at once.
+            self.reason = (
+                restored if restored in _PERSISTED_REASONS else REASON_BOOT_UNKNOWN
+            )
+            self._reason_from_store = self.reason != REASON_BOOT_UNKNOWN
+            if house in ("away", "arriving"):
+                # H2 / F5: a lock found locked while the house reads empty or
+                # arriving is an excursion the regime may never see an edge of.
+                self._arrival_taint = True
+                self._episode_saw_arriving = True
+                self._save_store()
         self._record("boot_rebuild", trigger=f"boot:{house}", written=[])
         if self.reason in SLEEP_LIKE_REASONS:
             self._schedule_backstop(cfg, allow_immediate=True)
@@ -646,8 +744,10 @@ class LockRegimeController:
             house = self._house_state()
             if house == "sleep":
                 self.reason = REASON_SLEEP
+                self._end_episode_arrival_flags()
             elif house == "vacation":
                 self.reason = REASON_VACATION
+                self._end_episode_arrival_flags()
                 self._cancel_backstop()
         # LOCK-BOOT-RECHECK-ENGAGE-1: engage or release to match the house.
         try:
@@ -693,6 +793,10 @@ class LockRegimeController:
         for held in self._held_edges.values():
             _safe_unsub(held.get("unsub"))
         self._held_edges.clear()
+        for unsub in self._still_locked_unsubs.values():
+            _safe_unsub(unsub)
+        self._still_locked_unsubs.clear()
+        self._still_locked_seq.clear()
         for unsub in self._readback_unsubs.values():
             _safe_unsub(unsub)
         self._readback_unsubs.clear()
@@ -765,6 +869,7 @@ class LockRegimeController:
         finally:
             self._disable_releasing = False
         self.reason = REASON_NONE
+        self._end_episode_arrival_flags()
         self._clear_manual_unlock()
 
     async def _garage_release_on_disable_loop(self, cfg: dict[str, Any]) -> None:
@@ -799,15 +904,43 @@ class LockRegimeController:
             return
         if isinstance(payload, dict):
             new = str(payload.get("new_state", "") or "")
+            old = str(payload.get("old_state", "") or "")
+            trig = str(payload.get("trigger", "") or "")
         else:
             new = str(getattr(payload, "new_state", "") or "")
+            old = str(getattr(payload, "old_state", "") or "")
+            trig = str(getattr(payload, "trigger", "") or "")
+        override = trig == "override_set"
+        self._last_house_edges.append((new, old, trig, self._ts()))
+        # LOCK-RELEASE-ON-ARRIVING D1 item 2: taint BEFORE the decision and
+        # before every later return. old_state == arriving closes H2 (a
+        # boot-settle-suppressed ARRIVING first seen as arriving -> HOME_*).
+        if (
+            self.reason != REASON_NONE
+            and not override
+            and (new == "arriving" or old == "arriving")
+        ):
+            changed = not (self._arrival_taint and self._episode_saw_arriving)
+            self._arrival_taint = True
+            self._episode_saw_arriving = True
+            if changed:
+                self._save_store()
         if not new:
             return
         cfg = self._cfg()
-        kind, engage_reason = self._edge_decision(new, cfg)
+        kind, engage_reason = self._edge_decision(new, cfg, override=override)
         if kind == "release":
             # _after_release clears a remembered manual unlock (episode over).
-            self._release(f"house_state:{new}")
+            self._release(f"house_state:{new}", override=override)
+            return
+        if kind == "arriving_hold":
+            # Body evidence only: the episode stays open (reason, backstop,
+            # re-engage and the manual-unlock memory are all kept).
+            self.arriving_holds += 1
+            self._record(
+                "arriving_hold", trigger=f"house_state:{new}", written=[],
+                extra={"reason": self.reason, "old_state": old},
+            )
             return
         if kind == "none" and (new in _HOME_STATES or new == "waking"):
             # Review B-2: an awake edge ends any episode even when reason is
@@ -834,13 +967,22 @@ class LockRegimeController:
         self._clear_manual_unlock()
         self._request_engage(engage_reason, f"house_state:{new}")
 
-    def _edge_decision(self, new: str, cfg: dict[str, Any]) -> tuple[str, str | None]:
+    def _edge_decision(
+        self, new: str, cfg: dict[str, Any], *, override: bool = False
+    ) -> tuple[str, str | None]:
         """What a house-state edge to ``new`` means for the lockouts.
 
         Shared by ``on_house_state_changed`` and the boot recheck
         (LOCK-BOOT-RECHECK-ENGAGE-1). Returns ``("release", None)``,
-        ``("guest_yield_hold", None)``, ``("engage", reason)`` or
-        ``("none", None)``. Pure: no command, no state change.
+        ``("guest_yield_hold", None)``, ``("arriving_hold", None)``,
+        ``("engage", reason)`` or ``("none", None)``. Pure: no command, no
+        state change.
+
+        LOCK-RELEASE-ON-ARRIVING D1 item 4: ARRIVING is body evidence with no
+        identity, so it never releases an engaged episode (``arriving_hold``)
+        and, with reason NONE, does nothing (it no longer unlocks a lockout
+        locked by hand, F19). HOME_* in a tainted episode is held too. Only an
+        operator ``override_set`` edge (``override``) keeps today's release.
         """
         if new == "waking":
             if self.reason in SLEEP_LIKE_REASONS:
@@ -854,16 +996,23 @@ class LockRegimeController:
             # INV-LOCK-1: the presence night yield takes GUEST -> HOME_NIGHT
             # ~5 min after the guest-night clock locked. Hold the lock (lock
             # once, at the guest-night clock); WAKING / HOME_DAY /
-            # HOME_EVENING / ARRIVING / resident arrival / the backstop still
-            # release. A manual override GUEST -> HOME_NIGHT in the window is
-            # held too (the regime cannot tell the two apart; plan R26).
+            # HOME_EVENING (untainted) / resident arrival / the backstop still
+            # release (ARRIVING no longer does, LOCK-RELEASE-ON-ARRIVING). A
+            # manual override GUEST -> HOME_NIGHT in the window is held too
+            # (the regime cannot tell the two apart; plan R26).
             return "guest_yield_hold", None
         if new in _HOME_STATES:
             if self.reason != REASON_NONE:
+                if self._arrival_taint and not override:
+                    return "arriving_hold", None
                 return "release", None
             return "none", None
         if new == "arriving":
-            return "release", None
+            if override:
+                return "release", None
+            if self.reason != REASON_NONE:
+                return "arriving_hold", None
+            return "none", None
         if new == "sleep":
             return "engage", REASON_SLEEP
         if new == "vacation":
@@ -873,11 +1022,28 @@ class LockRegimeController:
         return "none", None
 
     def _set_engage_reason(self, engage_reason: str, cfg: dict[str, Any]) -> None:
+        # Every engage (live, boot-window, boot-recheck, guest clock) is an
+        # episode boundary (LOCK-RELEASE-ON-ARRIVING D1 item 3).
+        self._end_episode_arrival_flags()
+        self._reason_from_store = False
         self.reason = engage_reason
         if engage_reason in SLEEP_LIKE_REASONS:
             self._schedule_backstop(cfg)
         else:
             self._cancel_backstop()
+
+    def _end_episode_arrival_flags(self) -> None:
+        """Clear the ARRIVING taint and the D3 saw flag (episode boundary).
+
+        The ONE clear site (plan D1 item 3): engages, the boot SLEEP /
+        VACATION rebuilds, the nothing-locked boot return and every
+        ``reason = NONE`` write. Never a person / approach / proximity /
+        arriving-signal release (F1).
+        """
+        if self._arrival_taint or self._episode_saw_arriving:
+            self._arrival_taint = False
+            self._episode_saw_arriving = False
+            self._save_store()
 
     def _boot_recheck_regime(self) -> None:
         """LOCK-BOOT-RECHECK-ENGAGE-1: "do I need to be locked now?".
@@ -900,7 +1066,7 @@ class LockRegimeController:
         locked = sorted(e for e, v in vals.items() if v == "locked")
         unlocked = sorted(e for e, v in vals.items() if v == "unlocked")
         if (
-            self.reason == REASON_BOOT_UNKNOWN
+            self._boot_provisional()
             and house == "home_night"
             and self._guest_toggle_on(cfg)
             and self._in_sleep_window(cfg)
@@ -908,12 +1074,21 @@ class LockRegimeController:
             # INV-LOCK-1: a lock found at boot in a home_night sleep window
             # with the guest toggle on may be the guest-night lock after the
             # yield. Treat it as one: hold now; later edges / backstop release.
+            # Deliberate no-clear write (R2-1): BOOT_UNKNOWN -> GUEST_NIGHT is
+            # the same episode; a restored taint and saw flag are kept.
             self.reason = REASON_GUEST_NIGHT
+        if house == "arriving" and self.reason != REASON_NONE:
+            # H1 / F5: the house reads ARRIVING at the recheck (boot settle may
+            # have swallowed the edge). Taint before the decision.
+            self._arrival_taint = True
+            self._episode_saw_arriving = True
+            self._save_store()
         kind, engage_reason = self._edge_decision(house, cfg)
         remembered = self.manual_unlock_reason
+        # F6 / M7: ARRIVING and a tainted HOME_* do not end the episode.
         ended = kind == "release" or (
-            kind != "guest_yield_hold"
-            and (house in _HOME_STATES or house in ("waking", "arriving"))
+            kind not in ("guest_yield_hold", "arriving_hold")
+            and (house in _HOME_STATES or house == "waking")
         )
         if remembered is not None and (
             ended or (kind == "engage" and engage_reason != remembered)
@@ -924,15 +1099,19 @@ class LockRegimeController:
         decision = "no_change"
         act: Callable[[], None] | None = None
         if kind == "release":
-            if self.reason == REASON_BOOT_UNKNOWN and locked:
+            if self._boot_provisional() and locked:
                 decision = "release"
                 act = functools.partial(self._release, "boot_recheck")
         elif kind == "guest_yield_hold":
             decision = "guest_yield_hold"
+        elif kind == "arriving_hold":
+            # Never released at boot on body evidence, whatever a resident
+            # reads (M2: the "resident reads home" rule is deleted).
+            decision = "arriving_hold"
         elif kind == "engage" and engage_reason is not None:
             if not unlocked:
                 decision = "already_locked"
-                if self.reason in (REASON_NONE, REASON_BOOT_UNKNOWN):
+                if self.reason == REASON_NONE or self._boot_provisional():
                     self._set_engage_reason(engage_reason, cfg)
             elif engage_reason in (REASON_SLEEP, REASON_GUEST_NIGHT) and not (
                 self._in_sleep_window(cfg)
@@ -947,7 +1126,7 @@ class LockRegimeController:
                 # this episode was persisted; a restart never re-locks it.
                 # The reason is rebuilt so later edges / backstop behave.
                 decision = "manual_unlock_remembered"
-                if self.reason in (REASON_NONE, REASON_BOOT_UNKNOWN):
+                if self.reason == REASON_NONE or self._boot_provisional():
                     self._set_engage_reason(engage_reason, cfg)
             elif self._arrival_since_setup():
                 # An arrival inside the boot-arrival window released (or
@@ -959,12 +1138,61 @@ class LockRegimeController:
                 act = functools.partial(
                     self._request_engage, engage_reason, "boot_recheck"
                 )
+        gap_paged: list[str] = []
+        if decision in ("arriving_hold", "no_change"):
+            # Fix-up D-L2: held at boot with a resident home after a restored
+            # away / arriving house -> page (never release).
+            try:
+                gap_paged = self._boot_gap_return_page(locked)
+            except Exception:  # noqa: BLE001
+                _LOGGER.warning("Lock regime: boot gap-return check failed", exc_info=True)
         self._record(
             "boot_recheck", trigger=f"boot_recheck:{house}", written=[],
-            extra={"decision": decision, "locked": locked, "unlocked": unlocked},
+            extra={
+                "decision": decision, "locked": locked, "unlocked": unlocked,
+                "arrival_since_setup": self._arrival_since_setup(),
+                "boot_gap_paged": gap_paged,
+            },
         )
         if act is not None:
             act()
+
+    def _boot_gap_return_page(self, locked: list[str]) -> list[str]:
+        """Fix-up D-L2: a page (never a release) when a resident reads home
+        after a restart that restored the house as away / arriving while a
+        lockout is still locked and the episode is still held. A real return
+        during the restart produced no person edge, so S1 / D4 never ran."""
+        from ..const import LOCK_RELEASE_BOOT_GAP_RETURN_PAGE_ENABLED  # noqa: PLC0415
+
+        if (
+            not LOCK_RELEASE_BOOT_GAP_RETURN_PAGE_ENABLED
+            or not self.kill_switch_on()
+            or self.reason == REASON_NONE
+            or self._boot_house not in ("away", "arriving")
+        ):
+            return []
+        cfg = self._cfg()
+        home = sorted(
+            pid for pid in self._residents
+            if self._is_resident(pid, cfg)
+            and _state_value(self._hass.states.get(pid)) == "home"
+        )
+        if not home:
+            return []
+        setup = self._setup_ts if self._setup_ts is not None else 0.0
+        paged: list[str] = []
+        for ent in locked:
+            if ent in self._release_inflight:
+                continue  # an unlock is on its way (its read-back pages on failure)
+            if self._failure_nm_at.get(ent, 0.0) >= setup:
+                continue
+            if self._still_locked_paged.get(ent) == self.engage_seq:
+                continue
+            self._still_locked_paged[ent] = self.engage_seq
+            self.still_locked_pages += 1
+            paged.append(ent)
+            self._spawn(self._notify_still_locked(ent, home[0], "boot_gap"))
+        return paged
 
     def _arrival_since_setup(self) -> bool:
         """A resident arrival released (or tried to) since setup."""
@@ -990,8 +1218,9 @@ class LockRegimeController:
             and self._house_state() == "guest"
             and not self._in_boot_window()
         ):
-            self.reason = REASON_GUEST_NIGHT
-            self._schedule_backstop(cfg)
+            # Routed through the engage choke point (byte-identical: same
+            # reason write + backstop; it also ends the ARRIVING taint, M3).
+            self._set_engage_reason(REASON_GUEST_NIGHT, cfg)
             self._request_engage(REASON_GUEST_NIGHT, "guest_clock")
 
     def on_person_arriving(self, payload: Any) -> None:
@@ -1070,6 +1299,7 @@ class LockRegimeController:
         self._cancel_reengage()
         self._release("hazard")
         self.reason = REASON_NONE
+        self._end_episode_arrival_flags()
         self._remember_episode_released(episode)
         self._away_release("hazard")
 
@@ -1097,6 +1327,7 @@ class LockRegimeController:
         self._cancel_backstop()
         self._release("kill_switch_off", force=True)
         self.reason = REASON_NONE
+        self._end_episode_arrival_flags()
         self._remember_episode_released(episode)
 
     def _subscribe_person(self, pid: str) -> None:
@@ -1219,6 +1450,16 @@ class LockRegimeController:
             if new_val == "home" and old_val != "home":
                 if self._arrival_counts(pid, old_val, edge_ts):
                     self._release(f"person:{pid}", person=pid)
+                    # D4a: anchored AFTER the S1 call (post-hold, F3).
+                    self._schedule_still_locked(pid, "arrival")
+                elif self._uncounted_return_pages(pid, old_val):
+                    # D4b (INV-REAL-B): a page, never a release (plan §11 Q4).
+                    self.uncounted_returns += 1
+                    self._record(
+                        "arrival_uncounted", trigger=f"person:{pid}", written=[],
+                        extra={"old_state": old_val},
+                    )
+                    self._schedule_still_locked(pid, "uncounted")
             elif new_val not in _UNREAL_STATES and new_val != old_val:
                 if self._is_approach_zone(new_val, cfg):
                     self._release(f"approach_zone:{pid}", person=pid)
@@ -1228,6 +1469,170 @@ class LockRegimeController:
             prev = self._last_real.get(pid)
             if prev is None or prev[0] != new_val or prev[2]:
                 self._last_real[pid] = (new_val, edge_ts, False)
+
+    # ------------------------------------------------------------------
+    # D4 still-locked trip-wire (LOCK-RELEASE-ON-ARRIVING plan rev 3)
+    # ------------------------------------------------------------------
+
+    def _uncounted_return_pages(self, pid: str, old_val: str | None) -> bool:
+        """D4b: a resident ``unknown/unavailable -> home`` edge that
+        ``_arrival_counts`` rejected, in an engaged episode that saw ARRIVING
+        (persisted taint, R2-3) or while the house reads away / arriving."""
+        from ..const import (  # noqa: PLC0415
+            LOCK_RELEASE_ARRIVAL_STILL_LOCKED_S,
+            LOCK_RELEASE_UNCOUNTED_RETURN_PAGE_ENABLED,
+        )
+
+        return (
+            old_val in _UNREAL_STATES
+            and LOCK_RELEASE_UNCOUNTED_RETURN_PAGE_ENABLED
+            and float(LOCK_RELEASE_ARRIVAL_STILL_LOCKED_S) > 0
+            and self.kill_switch_on()
+            and self.reason != REASON_NONE
+            and (self._arrival_taint or self._house_state() in ("away", "arriving"))
+        )
+
+    def _schedule_still_locked(self, pid: str, kind: str) -> None:
+        from ..const import LOCK_RELEASE_ARRIVAL_STILL_LOCKED_S  # noqa: PLC0415
+
+        window = float(LOCK_RELEASE_ARRIVAL_STILL_LOCKED_S)
+        if window <= 0 or not self.kill_switch_on():
+            return
+        key = pid
+        seq = self.engage_seq
+        if key in self._still_locked_unsubs and self._still_locked_seq.get(key) == seq:
+            # Fix-up B-L1: keep the earliest pending check; a flapping phone
+            # must not push the page out (a check from an older engage_seq
+            # would be silenced at fire, so that one is replaced).
+            return
+        anchor = self._ts()
+        _safe_unsub(self._still_locked_unsubs.pop(key, None))
+        self._still_locked_seq[key] = seq
+        self._still_locked_unsubs[key] = self._call_later(
+            self._hass,
+            window,
+            functools.partial(self._on_still_locked, pid, anchor, seq, kind),
+        )
+
+    @callback
+    def _on_still_locked(
+        self,
+        pid: str,
+        anchor: float,
+        seq: int,
+        kind: str,
+        _now: Any = None,
+        *,
+        recheck: bool = False,
+    ) -> None:
+        """INV-PAGE / INV-REAL-B: one NM HIGH per lockout still ``locked``.
+
+        A lockout reading unknown / unavailable is re-checked once after the
+        same window and paged if it still does not read unlocked (fix-up B-H1:
+        an unreadable lock is not evidence the resident got in).
+        """
+        key = pid
+        self._still_locked_unsubs.pop(key, None)
+        self._still_locked_seq.pop(key, None)
+        if self._torn_down or not self.kill_switch_on():
+            return
+        if self.engage_seq != seq:
+            return  # we locked again since the arrival (F2)
+        unreadable = False
+        for ent in self.lockout_entities():
+            val = _state_value(self._hass.states.get(ent))
+            if val is None or val in _UNREAL_STATES:
+                if not recheck:
+                    unreadable = True
+                    continue
+            elif val != "locked":
+                continue
+            if self._failure_nm_at.get(ent, 0.0) >= anchor:
+                continue  # lockout_release_failed already told the operator (H3b)
+            if self._lockout_relocked_at.get(ent, 0.0) > anchor:
+                continue  # observed re-lock after the arrival (R2-7, fix-up A-1)
+            if self._still_locked_paged.get(ent) == seq:
+                continue  # one page per stuck lock per engage episode (R2-7)
+            self._still_locked_paged[ent] = seq
+            self.still_locked_pages += 1
+            self._record(
+                "still_locked_page", trigger=f"person:{pid}", written=[],
+                extra={"entity": ent, "kind": kind, "state": val},
+            )
+            try:
+                self._spawn(self._notify_still_locked(
+                    ent, pid, kind, unreadable=val != "locked"))
+            except Exception:  # noqa: BLE001
+                _LOGGER.warning("Lock regime: still-locked NM not sent", exc_info=True)
+        if unreadable:
+            from ..const import LOCK_RELEASE_ARRIVAL_STILL_LOCKED_S  # noqa: PLC0415
+
+            self._still_locked_seq[key] = seq
+            self._still_locked_unsubs[key] = self._call_later(
+                self._hass,
+                float(LOCK_RELEASE_ARRIVAL_STILL_LOCKED_S),
+                functools.partial(
+                    self._on_still_locked, pid, anchor, seq, kind, recheck=True
+                ),
+            )
+
+    async def _notify_still_locked(
+        self, ent: str, pid: str, kind: str, *, unreadable: bool = False
+    ) -> None:
+        from ..const import DOMAIN  # noqa: PLC0415
+        from .base import Severity  # noqa: PLC0415
+
+        nm = self._hass.data.get(DOMAIN, {}).get("notification_manager")
+        if nm is None:
+            return
+        name = self._friendly(pid)
+        lock_name = self._friendly(ent)
+        if unreadable:
+            title = f"Garage lockout unreadable after {name} got home"
+            message = (
+                f"{lock_name} has not reported its state since {name} arrived "
+                "home, so URA could not unlock it and cannot tell whether it is "
+                "still locked. Check it from the HA app or the opener's own app."
+            )
+            hazard = (
+                "lockout_locked_resident_uncounted_return" if kind == "uncounted"
+                else "lockout_locked_after_arrival"
+            )
+        elif kind == "boot_gap":
+            title = f"Garage may be locked after {name} got home"
+            message = (
+                f"{lock_name} is still locked after a restart. {name} reads home, "
+                "but the house read away before the restart, so the return was "
+                "not seen and nothing unlocked it. Unlock it from the HA app or "
+                "the opener's own app."
+            )
+            hazard = "lockout_locked_boot_gap_return"
+        elif kind == "uncounted":
+            title = f"{name} may be locked out of the garage"
+            message = (
+                f"{name}'s phone was offline when they left, so their return "
+                f"did not count as an arrival and {lock_name} is still locked. "
+                "Unlock it from the HA app or the opener's own app."
+            )
+            hazard = "lockout_locked_resident_uncounted_return"
+        else:
+            title = f"Garage still locked after {name} got home"
+            message = (
+                f"{lock_name} still reads locked after {name} arrived home. "
+                "Unlock it from the HA app or the opener's own app."
+            )
+            hazard = "lockout_locked_after_arrival"
+        try:
+            await nm.async_notify(
+                coordinator_id="security",
+                severity=Severity.HIGH,
+                title=title,
+                message=message,
+                hazard_type=hazard,
+                location=f"garage_lockout:still_locked:{ent}",
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Lock regime: NM notify failed", exc_info=True)
 
     # ------------------------------------------------------------------
     # Suspicious-arrival hold (plan rev 2 §5.2-§5.4)
@@ -1582,8 +1987,22 @@ class LockRegimeController:
     # Release
     # ------------------------------------------------------------------
 
-    def _release(self, trigger: str, *, person: str | None = None, force: bool = False) -> None:
-        """Bump the generation, then unlock every locked / lock-pending lockout."""
+    def _release(
+        self,
+        trigger: str,
+        *,
+        person: str | None = None,
+        force: bool = False,
+        override: bool = False,
+    ) -> None:
+        """Bump the generation, then unlock every locked / lock-pending lockout.
+
+        ``override`` (from ``on_house_state_changed`` only): the edge was an
+        operator ``override_set``; the D3 trip-wire exempts it.
+        """
+        # D3: captured before _after_release can end the episode.
+        saw_before = self._episode_saw_arriving
+        reason_before = self.reason
         self.release_gen += 1
         if person is not None:
             self.releasing_set[person] = {"at": self._ts(), "removed": False}
@@ -1617,6 +2036,73 @@ class LockRegimeController:
             written.append(ent)
         self._after_release(trigger, person, cfg)
         self._record("release", trigger=trigger, written=written)
+        self._check_uncorroborated(trigger, written, saw_before, reason_before, override)
+
+    def _check_uncorroborated(
+        self,
+        trigger: str,
+        written: list[str],
+        saw_before: bool,
+        reason_before: str,
+        override: bool,
+    ) -> None:
+        """LOCK-RELEASE-ON-ARRIVING D3: page when a house-state / boot-recheck
+        release WROTE an unlock in an episode that had seen ARRIVING.
+
+        Observes, never blocks (the D1 gate is the protection). Exempt:
+        nothing written (F7), WAKING (only reachable after SLEEP; the edge or
+        the boot recheck reading it), an operator ``override_set`` edge.
+        """
+        from ..const import LOCK_RELEASE_UNCORROBORATED_TRIPWIRE_ENABLED  # noqa: PLC0415
+
+        violation = (
+            bool(written)
+            and (trigger.startswith("house_state:") or trigger == "boot_recheck")
+            and saw_before
+            and trigger != "house_state:waking"
+            # Fix-up A-2 / D-L1: the boot recheck reading WAKING is the same
+            # evidence class as the exempt house_state:waking edge.
+            and not (trigger == "boot_recheck" and self._house_state() == "waking")
+            and not override
+        )
+        if not violation or not LOCK_RELEASE_UNCORROBORATED_TRIPWIRE_ENABLED:
+            return
+        self.uncorroborated_releases += 1
+        edges = [list(e) for e in self._last_house_edges]
+        self._record(
+            "uncorroborated_release", trigger=trigger, written=list(written),
+            extra={"reason_before": reason_before, "last_house_edges": edges},
+        )
+        try:
+            self._spawn(self._notify_uncorroborated(trigger, reason_before, edges))
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning("Lock regime: uncorroborated-release NM not sent", exc_info=True)
+
+    async def _notify_uncorroborated(
+        self, trigger: str, reason_before: str, edges: list[list[Any]]
+    ) -> None:
+        from ..const import DOMAIN  # noqa: PLC0415
+        from .base import Severity  # noqa: PLC0415
+
+        nm = self._hass.data.get(DOMAIN, {}).get("notification_manager")
+        if nm is None:
+            return
+        shown = ", ".join(f"{e[1] or '?'} -> {e[0]} ({e[2] or '?'})" for e in edges)
+        try:
+            await nm.async_notify(
+                coordinator_id="security",
+                severity=Severity.HIGH,
+                title="Garage lockout released without a resident arrival",
+                message=(
+                    f"The garage lockout was released by {trigger} (episode "
+                    f"{reason_before}) after the house showed ARRIVING with no "
+                    f"resident arrival. Last house-state edges: {shown}."
+                ),
+                hazard_type="lock_release_uncorroborated",
+                location="garage_lockout:house_state",
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Lock regime: NM notify failed", exc_info=True)
 
     @callback
     def _on_lockout_event(self, event: Any) -> None:
@@ -1624,6 +2110,8 @@ class LockRegimeController:
         new_val = _state_value(event.data.get("new_state"))
         if new_val == "locked":
             self._engage_inflight.pop(ent, None)
+            if _state_value(event.data.get("old_state")) in _RELOCK_FROM:
+                self._lockout_relocked_at[ent] = self._ts()
             return
         if (
             new_val == "unlocked"
@@ -1699,6 +2187,7 @@ class LockRegimeController:
             self._cancel_reengage()
             self._cancel_backstop()
             self.reason = REASON_NONE
+            self._end_episode_arrival_flags()
             self.releasing_set.clear()
             # Episode over (edge / morning backstop / boot recheck release).
             self._clear_manual_unlock()
@@ -1706,6 +2195,7 @@ class LockRegimeController:
         if is_arrival:
             if self.reason == REASON_VACATION:
                 self.reason = REASON_NONE
+                self._end_episode_arrival_flags()
                 self._cancel_reengage()
                 # Review B-3: the house can still read VACATION (min dwell);
                 # a restart must not re-lock with the resident home.
@@ -1801,6 +2291,9 @@ class LockRegimeController:
         from ..const import DOMAIN  # noqa: PLC0415
         from .base import Severity  # noqa: PLC0415
 
+        if policy != POLICY_AWAY_LOCK:
+            # D4 (H3b): a still-locked page defers to this failure NM.
+            self._failure_nm_at[ent] = self._ts()
         nm = self._hass.data.get(DOMAIN, {}).get("notification_manager")
         if nm is None:
             return
@@ -1911,6 +2404,7 @@ class LockRegimeController:
                 continue
             # No await between the predicate above and this call (INV-2).
             self._engage_inflight[ent] = self._ts()
+            self.engage_seq += 1  # D4: silences an older still-locked check
             try:
                 await self._hass.services.async_call(
                     "lock", "lock", {"entity_id": ent}, blocking=False, **_ctx_kwargs()
@@ -2489,6 +2983,11 @@ class LockRegimeController:
             "away_lock_inflight": sorted(self._away_engage_inflight),
             "away_attempted_marker": self._away_attempted_marker,
             "garage_manual_unlock": self.manual_unlock_reason,
+            # LOCK-RELEASE-ON-ARRIVING D1 / D3.
+            "garage_arrival_taint": self._arrival_taint,
+            "garage_episode_saw_arriving": self._episode_saw_arriving,
+            # Fix-up D-H1: the engage reason (rebuilt at boot when locked).
+            "garage_reason": self._reason,
         }
 
     def _save_store(self) -> None:
@@ -2526,6 +3025,12 @@ class LockRegimeController:
             if manual in (REASON_SLEEP, REASON_VACATION, REASON_GUEST_NIGHT)
             else None
         )
+        # Missing / non-bool -> False (plan D1 item 1).
+        self._arrival_taint = data.get("garage_arrival_taint") is True
+        self._episode_saw_arriving = data.get("garage_episode_saw_arriving") is True
+        # Fix-up D-H1: missing / corrupt / none / boot_unknown -> None.
+        stored = data.get("garage_reason")
+        self._restored_reason = stored if stored in _PERSISTED_REASONS else None
         marker = data.get("away_attempted_marker")
         if isinstance(marker, (int, float)) and not isinstance(marker, bool):
             self._away_attempted_marker = float(marker)
@@ -2625,6 +3130,13 @@ class LockRegimeController:
             "lock_regime_arrival_signal_held": self.arrival_signal_held,
             "lock_regime_arrival_hold_confirms": self.arrival_hold_confirms,
             "lock_regime_held_edges": sorted(self._held_edges),
+            # LOCK-RELEASE-ON-ARRIVING (added keys only).
+            "lock_regime_arriving_taint": self._arrival_taint,
+            "lock_regime_episode_saw_arriving": self._episode_saw_arriving,
+            "lock_regime_arriving_holds": self.arriving_holds,
+            "lock_regime_uncorroborated_releases": self.uncorroborated_releases,
+            "lock_regime_still_locked_pages": self.still_locked_pages,
+            "lock_regime_uncounted_returns": self.uncounted_returns,
         }
 
 
