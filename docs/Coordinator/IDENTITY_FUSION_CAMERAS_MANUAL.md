@@ -7,7 +7,7 @@ egress/perimeter pipeline.
 platform roles, identity sources and their real coverage, the
 cross-modal fusion doctrine, the census + resolver architecture, the
 egress-identity JOIN and the 6.0.0 gate that depends on it.
-**Frigate MQTT (v5.108.1, branch, NOT deployed):** URA reads Frigate events and
+**Frigate MQTT (shipped v5.108.1):** URA reads Frigate events and
 face names straight from MQTT on the runtime topic prefix (§1.3, §4.5).
 **Current through:** URA v5.91.3 (`camera_census.py:3`); the egress-identity
 PRODUCER is **built on `feature/egress-identity-producer`, shipped pending
@@ -148,7 +148,7 @@ Frigate-2 `topic_prefix: frigate2`, client ids `frigate-f1` /
 `frigate-f2`).
 
 **Where URA gets the MQTT prefix (v5.108.1, branch
-`feature/frigate-mqtt-direct`, NOT deployed).** Never from a literal and never
+`feature/frigate-mqtt-direct`, shipped v5.108.1).** Never from a literal and never
 from the Frigate config ENTRY. The entry holds no prefix key: the live
 "Frigate 2" entry has only url, username, password and validate_ssl. The
 prefix comes from the running integration,
@@ -456,7 +456,7 @@ under `gate_decisions_by_camera`:
   key (`perimeter_alert.py` `_arm_identity_followup` / `_followup_check`).
 
 **Frigate event ingress (v5.108.1, PERIMETER-FRIGATE-MQTT-DIRECT-1, branch
-`feature/frigate-mqtt-direct`, NOT deployed; plan
+`feature/frigate-mqtt-direct`, shipped v5.108.1; plan
 `PLANNING_frigate_mqtt_direct_2026_11.md` rev 2).** Before this build, perimeter
 alerts (snapshot event ids, the D2 event cache, D3 zone gating) and the exterior
 track linker heard Frigate events only through the `frigate_events` bus event.
@@ -497,7 +497,7 @@ without that automation got nothing. Both now register on one
   silent" WARN now fires only when BOTH sources are silent.
 
 **SC lock regime face arrivals (v5.107.4, LOCK-REGIME-FACE-ARRIVAL-CORROBORATION-1,
-branch `feature/lock-face-arrival`, NOT deployed).** A `SIGNAL_PERSON_ARRIVING` with
+branch `feature/lock-face-arrival`, shipped v5.107.6).** A `SIGNAL_PERSON_ARRIVING` with
 `source: camera_face` (presence `_handle_face_arrival`, any zone camera) used to
 release the garage lockouts and the away lock whenever the person was really away.
 It now also needs the same independent same-person arrival edge as D10.5: a live
@@ -506,7 +506,7 @@ plus configured door-interior neighbours). The edge must be within 120 s and out
 the 600 s post-setup exclusion. The rule is shared code (`arrival_edges.py`). This
 is the §5.5(a) doctrine applied to actuation: a face name alone never unlocks.
 **Held edges do not corroborate (suspicious-arrival hold, branch
-`feature/lock-suspicious-arrival-hold`, NOT deployed; plan
+`feature/lock-suspicious-arrival-hold`, shipped v5.108.13; plan
 `PLANNING_lock_suspicious_arrival_hold.md` rev 2).** A tracker edge whose person
 `source` did not change at the edge (the 2-GPS stale-device blip) is held 5 s
 (`number.ura_garage_lockout_arrival_hold`); the `_arrival_edges` stamp is written
@@ -518,7 +518,7 @@ is dropped in `_apply_arrival`. Details: `PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md
 §1 table.
 
 **Exterior seam file (EXTERIOR-SEAM-LOADER, branch `feature/exterior-seam-loader`,
-NOT deployed; plan `PLANNING_exterior_seam_file_injection.md` D4/D5/D6).** The
+shipped v5.108.15; plan `PLANNING_exterior_seam_file_injection.md` D4/D5/D6).** The
 exterior track linker's camera adjacency ("seams") and the egress-adjacent set
 that drives `approach` classification now come from
 `/config/universal_room_automation/exterior_seams.json` when it is present and
@@ -682,7 +682,7 @@ identity was corroborated:
   operators can distinguish "no face" from "face resolver broken".
 - **`person.<slug>` = `not_home` veto** (see §4.3) — mirrored in
   `camera_census._get_face_recognized_person_names` (~`camera_census.py:5893-5940`).
-  Since CENSUS-BLE-OVER-FACE-1 (branch `fix/census-ble-over-face`, NOT deployed) that interior
+  Since CENSUS-BLE-OVER-FACE-1 (branch `fix/census-ble-over-face`, shipped v5.103.91) that interior
   latch also drops a face for a GPS+BLE adult the BLE-leads rule overruled
   (`person_coordinator.person_state_for_trust` → `not_home`), while switch BLE Leads Home/Away is on
   and rung-1 `CENSUS_FACE_LATCH_FOLLOWS_BLE_LEADS` is True. BLE decides presence; face confirms.
@@ -744,12 +744,12 @@ lives on cards:
 | **`EGRESS-IDENTITY-JOIN-GAP-1`** | Face recognition works but egress crossings carry no identity — `person_entry_exit_events.person_id` is 0 of ~7,010 rows all-time. Root cause: same-stem 60s face-join never matches (door cams rarely recognize). Fix = interior-fusion + asymmetric signed-lag window (~63% ceiling, measured). Blocks all identity consumers. |
 | **`EGRESS-IDENTITY-PRODUCER-EMITS-NOTHING-1`** | Blocking parent for the eight identity-consumer cards below — the producer emits nothing to consume today. |
 | **`PERIMETER-ALERT-NAME-PERSON-1`** | Perimeter alerts still say "person detected" when identity is known. |
-| **`GUEST-GATE-DOOR-IDENTITY-1`** | Guest gate ignores door-identity. Stays parked. Since GUEST-MODE-SPLIT-VISITORS-1 (v5.108.0, branch `feature/guest-mode-split`, NOT deployed) GUEST no longer reads instantaneous evidence at all: it follows a night-stay latch over the URA DB: one night with ≥ 0.25 non-resident occupancy of a guest room plus ≥ 0.10 of that room's day before (residents subtracted by BLE), exit after min(2, n) straight empty nights, a 7-day one-night re-entry grace after a stay ends by empty nights, and a "Guest left" button that ends the stay (see `docs/Coordinator/GUEST_MODE.md`). Faces, Path A and WiFi never enter GUEST; Path A feeds only `visitors_present` (display). Door identity could later shorten the arrival-day gap (same revival trigger as plan §2.4). |
+| **`GUEST-GATE-DOOR-IDENTITY-1`** | Guest gate ignores door-identity. Stays parked. Since GUEST-MODE-SPLIT-VISITORS-1 (shipped v5.108.0, branch `feature/guest-mode-split`) GUEST no longer reads instantaneous evidence at all: it follows a night-stay latch over the URA DB: one night with ≥ 0.25 non-resident occupancy of a guest room plus ≥ 0.10 of that room's day before (residents subtracted by BLE), exit after min(2, n) straight empty nights, a 7-day one-night re-entry grace after a stay ends by empty nights, and a "Guest left" button that ends the stay (see `docs/Coordinator/GUEST_MODE.md`). Faces, Path A and WiFi never enter GUEST; Path A feeds only `visitors_present` (display). Door identity could later shorten the arrival-day gap (same revival trigger as plan §2.4). |
 | **`ARRIVAL-DEPARTURE-NOTIFY-1`** | No arrival/departure notification consumes `person_id`. |
 | **`EXTERIOR-GUEST-FACE-FASTFOLLOW-1` D2** | Protect Alarm Manager webhook `ura_kp_face_probe` receiving side verified; Protect-side rule delivering empty payloads. |
 | **`EXTERIOR-GUEST-EGRESS-1`** | Face-independent approach-track FALLBACK — DEFERRED, gated on the identity path proving insufficient. Do NOT re-recommend this off the sparse-face number. |
 | **`PERIMETER-PHANTOM-XCORR-1`**, **`FRIGATE-LEG-NAMING-1`** | Dead-leg / cross-corroboration hygiene. |
-| **`PERIMETER-FRIGATE-MQTT-DIRECT-1`** + **`FRIGATE-FACE-BRIDGE-DEAD-PREFIX-1`** | Built v5.108.1 (branch, NOT deployed): Frigate events and the face bridge read MQTT directly on the runtime prefix (§1.3, §4.5). Live check: L1-L5 in `README_v5.108.1.md`. |
+| **`PERIMETER-FRIGATE-MQTT-DIRECT-1`** + **`FRIGATE-FACE-BRIDGE-DEAD-PREFIX-1`** | Shipped v5.108.1: Frigate events and the face bridge read MQTT directly on the runtime prefix (§1.3, §4.5). Live check: L1-L5 in `README_v5.108.1.md`. |
 
 Audit / research trail:
 `docs/planning/AUDIT_census_identity_supersession_and_consumers.md`,

@@ -45,7 +45,18 @@ G6 Entry} (egress, simultaneous) > Foyer (interior, door witness) > Family room 
 
 - **"Game room" = the `playroom` camera.**
 
-Still open: Garage B path; patio egress (add one?).
+- **Patio is egress.** A large sliding door connects the covered patio and the living room; family and guests use it
+  mostly when entertaining. The patio camera is an egress camera for that door. Patio covers 1-5 are also egress
+  openings (they open the covered patio to the outside), so the patio is a semi-outdoor vestibule: outside > covers >
+  patio (patio camera) > sliding door > family room. Shared field of view with the family room when the doors are open
+  still applies (dedupe, not a hop).
+- **Study B has an outside door; the Reolink camera above it outside (`reolinkstudybporchptz`) is its egress camera.**
+  The door rarely opens.
+- **Garage B is detached.** It opens to itself, not the house. Same exterior approach cameras as the garage path, plus
+  one interior camera of its own. Crossings there are garage entries/exits, not house entries; it must never count as
+  entering the house.
+
+No open map questions remain.
 
 ## Open items
 
