@@ -64,12 +64,14 @@ class Rig:
         self.regime = regime
         self.mgr = mgr
 
-    async def edge(self, new: str) -> None:
+    async def edge(self, new: str, trigger: str = "t") -> None:
+        """A house-state edge. The default trigger ``"t"`` is NOT an operator
+        trigger (step 1a INV-LOCK); never change the default."""
         old = self.mgr.house_state
         self.mgr.house_state = new
         # Through the REAL SC bridge (wire-in anchor).
         self.sc._on_house_state_changed_signal(
-            {"old_state": old, "new_state": new, "trigger": "t", "confidence": 1.0}
+            {"old_state": old, "new_state": new, "trigger": trigger, "confidence": 1.0}
         )
         await settle()
 
@@ -153,19 +155,25 @@ async def test_boot_recheck_engages_sleep_with_lockouts_unlocked():
 
 
 @pytest.mark.asyncio
-async def test_boot_recheck_releases_boot_unknown_lock_in_awake_house():
+async def test_boot_recheck_ignores_boot_unknown_lock_in_awake_house_backstop_releases():
+    """Step 1a (delta L2, reverses part of LOCK-BOOT-RECHECK-ENGAGE-1): a
+    restored awake house is body evidence, not an operator act, so the boot
+    recheck no longer releases a BOOT_UNKNOWN lock; the morning backstop
+    (sleep end 06:00 + 60 min) does."""
     rig = await make_rig(start=BOOT_0200, house="home_night", lockouts="locked",
                          past_boot=False,
                          opts=options(security_lockout_engage_on_guest_sleep=False))
     assert rig.regime.reason == "boot_unknown"
-    await rig.w.advance(119)
+    await rig.w.advance(121)
     assert rig.unlocks() == []
-    await rig.w.advance(2)
+    assert rig.regime.last_action["decision"] == "house_edge_ignored"
+    assert rig.regime.reason == "boot_unknown"
+    assert rig.regime._backstop_unsub is not None
+    await rig.w.advance(
+        (datetime(2026, 11, 8, 7, 0, 1, tzinfo=TZ) - rig.w.now).total_seconds())
     assert rig.unlocks() == [LOCK_A, LOCK_B]
-    assert rig.regime.last_action["action"] == "release"
-    assert rig.regime.last_action["trigger"] == "boot_recheck"
+    assert rig.regime.last_action["trigger"] == "backstop"
     assert rig.regime.reason == "none"
-    assert rig.regime._backstop_unsub is None
 
 
 @pytest.mark.asyncio
@@ -177,7 +185,7 @@ async def test_boot_recheck_holds_boot_unknown_lock_when_arriving():
     rig.mgr.house_state = "arriving"  # restore lands late, no signal
     await rig.w.advance(121)
     assert rig.unlocks() == []
-    assert rig.regime.last_action["decision"] == "arriving_hold"
+    assert rig.regime.last_action["decision"] == "house_edge_ignored"
     assert rig.regime.reason == "boot_unknown"
 
 
@@ -245,8 +253,9 @@ async def test_boot_recheck_kill_switch_off_boot_unknown_lock_not_released():
 @pytest.mark.asyncio
 async def test_boot_recheck_guest_yield_hold_respected():
     """INV-LOCK-1: a lock found at boot in a home_night sleep window with the
-    guest toggle ON may be the guest-night lock after the yield: held, then
-    released by the next home_day edge like any guest-night lock."""
+    guest toggle ON may be the guest-night lock after the yield: held. Step
+    1a: the next default-trigger home_day edge is ignored like any HOME_*
+    edge; the morning backstop releases."""
     rig = await make_rig(start=BOOT_0200, house="home_night", lockouts="locked",
                          past_boot=False)
     await rig.w.advance(121)
@@ -254,7 +263,12 @@ async def test_boot_recheck_guest_yield_hold_respected():
     assert rig.regime.reason == "guest_night"
     assert rig.regime.last_action["decision"] == "guest_yield_hold"
     await rig.edge("home_day")
+    assert rig.unlocks() == []
+    assert rig.regime.last_action["action"] == "house_edge_ignored"
+    await rig.w.advance(
+        (datetime(2026, 11, 8, 7, 0, 1, tzinfo=TZ) - rig.w.now).total_seconds())
     assert rig.unlocks() == [LOCK_A, LOCK_B]
+    assert rig.regime.last_action["trigger"] == "backstop"
 
 
 @pytest.mark.asyncio
@@ -295,7 +309,7 @@ async def test_boot_recheck_boot_unknown_but_already_unlocked_no_release():
     rig.w.set_state(LOCK_B, "unlocked")
     await rig.w.advance(121)
     assert rig.w.calls == []
-    assert rig.regime.last_action["decision"] == "no_change"
+    assert rig.regime.last_action["decision"] == "house_edge_ignored"
 
 
 @pytest.mark.asyncio
@@ -513,15 +527,23 @@ async def test_sc_disable_flag_alone_suppresses_detection(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("end_edge", ["waking", "home_day"])
+@pytest.mark.parametrize("end_edge", ["waking", "backstop"])
 async def test_remembered_unlock_cleared_at_episode_end_next_episode_locks(end_edge):
+    """Step 1a: a default-trigger HOME_* edge no longer ends a SLEEP episode,
+    so the episode ends at WAKING or at the morning backstop."""
     store = DictStore()
     rig = await make_rig(store=store)
     await rig.edge("sleep")
     rig.w.set_state(LOCK_A, "unlocked")
     rig.w.set_state(LOCK_B, "unlocked")
     assert rig.regime.manual_unlock_reason == "sleep"
-    await rig.edge(end_edge)
+    if end_edge == "backstop":
+        await rig.edge("home_day")  # ignored: the memory is kept
+        assert rig.regime.manual_unlock_reason == "sleep"
+        await rig.w.advance(
+            (datetime(2026, 11, 8, 7, 0, 1, tzinfo=TZ) - rig.w.now).total_seconds())
+    else:
+        await rig.edge(end_edge)
     assert rig.regime.manual_unlock_reason is None
     assert store.data["garage_manual_unlock"] is None
     # Next night's episode restarts mid-sleep: the catch-up locks.
@@ -533,12 +555,20 @@ async def test_remembered_unlock_cleared_at_episode_end_next_episode_locks(end_e
 
 @pytest.mark.asyncio
 async def test_vacation_end_clears_remembered_unlock():
+    """Step 1a: a default-trigger HOME_* edge no longer ends a VACATION
+    episode (memory kept); a resident arrival ends it (reason NONE, episode
+    remembered), and the next awake edge with reason NONE clears the memory."""
     store = DictStore()
     rig = await make_rig(house="away", store=store)
     await rig.edge("vacation")
     rig.w.set_state(LOCK_A, "unlocked")
     assert store.data["garage_manual_unlock"] == "vacation"
     await rig.edge("home_evening")
+    assert store.data["garage_manual_unlock"] == "vacation"
+    assert rig.regime.reason == "vacation"
+    await rig.person(EZ, "home")
+    assert rig.regime.reason == "none"
+    await rig.edge("home_day")
     assert store.data["garage_manual_unlock"] is None
 
 
@@ -686,9 +716,11 @@ async def test_forced_none_mark_cleared_by_awake_edge(end_edge):
 
 
 @pytest.mark.asyncio
-async def test_boot_recheck_home_night_outside_window_releases_boot_unknown():
+async def test_boot_recheck_home_night_outside_window_not_guest_yield():
     """G1: a BOOT_UNKNOWN lock at home_night OUTSIDE the sleep window (21:00,
-    guest toggle on) is not the guest-night yield: the recheck releases it.
+    guest toggle on) is not the guest-night yield. Step 1a (delta L2): the
+    recheck treats it like any awake house (house_edge_ignored), not as a
+    guest-night hold and not as a release.
 
     Defense in depth: in a real boot the out-of-window BOOT_UNKNOWN backstop
     fires first (allow_immediate), so the state is seeded here after setup
@@ -698,11 +730,10 @@ async def test_boot_recheck_home_night_outside_window_releases_boot_unknown():
     rig.w.set_state(LOCK_A, "locked")
     rig.w.set_state(LOCK_B, "locked")
     rig.regime.reason = "boot_unknown"
-    await rig.w.advance(119)
+    await rig.w.advance(121)
     assert rig.unlocks() == []
-    await rig.w.advance(2)
-    assert rig.unlocks() == [LOCK_A, LOCK_B]
-    assert rig.regime.reason == "none"
+    assert rig.regime.reason == "boot_unknown"  # not converted to guest_night
+    assert rig.regime.last_action["decision"] == "house_edge_ignored"
 
 
 @pytest.mark.asyncio
@@ -886,9 +917,11 @@ async def test_wake_releases_sleep_engaged():
 
 @pytest.mark.asyncio
 async def test_override_sleep_to_home_releases():
+    """Step 1a: re-pointed to the operator trigger (its subject is the
+    override); a default-trigger HOME_* edge is ignored."""
     rig = await make_rig()
     await rig.edge("sleep")
-    await rig.edge("home_day")
+    await rig.edge("home_day", trigger="override_set")
     assert rig.unlocks() == [LOCK_A, LOCK_B]
 
 
@@ -901,7 +934,7 @@ async def test_arriving_does_not_release_engaged_episode():
     await rig.edge("arriving")
     assert rig.unlocks() == []
     assert rig.regime.reason == "vacation"
-    assert rig.regime.last_action["action"] == "arriving_hold"
+    assert rig.regime.last_action["action"] == "house_edge_ignored"
 
 
 @pytest.mark.asyncio
@@ -1061,14 +1094,26 @@ async def test_guest_clock_does_nothing_if_house_not_guest():
 
 @pytest.mark.asyncio
 async def test_guest_exit_to_home_releases_guest_night():
-    """A GUEST -> HOME_DAY / HOME_EVENING exit releases as before. (GUEST ->
-    HOME_NIGHT inside the window is now HELD: INV-LOCK-1 tests below.)"""
+    """Step 1a: a default-trigger GUEST -> HOME_DAY / HOME_EVENING exit is
+    ignored (reachable with reason guest_night only with the stay rule OFF);
+    the morning backstop releases. An operator override_clear exit releases.
+    (GUEST -> HOME_NIGHT inside the window is HELD: INV-LOCK-1 tests below.)"""
     for home in ("home_day", "home_evening"):
         rig = await make_rig()
         await rig.edge("guest")
         await rig.edge(home)
+        assert rig.unlocks() == [], home
+        assert rig.regime.reason == "guest_night"
+        await rig.w.advance(
+            (datetime(2026, 11, 8, 7, 0, 1, tzinfo=TZ) - rig.w.now).total_seconds())
         assert rig.unlocks() == [LOCK_A, LOCK_B], home
+        assert rig.regime.last_action["trigger"] == "backstop"
         assert rig.regime.reason == "none"
+        rig2 = await make_rig()
+        await rig2.edge("guest")
+        await rig2.edge(home, trigger="override_clear")
+        assert rig2.unlocks() == [LOCK_A, LOCK_B], home
+        assert rig2.regime.reason == "none"
 
 
 # ---- INV-LOCK-1 (GUEST-MODE-SPLIT rev 5, build review B-M1) ---------------
@@ -1113,7 +1158,8 @@ async def test_lock_once_at_guest_clock_no_unlock_on_yield():
 @pytest.mark.asyncio
 async def test_lock_held_if_home_night_until_morning():
     """GUEST -> HOME_NIGHT at 22:05 and the house never reaches SLEEP: still
-    held overnight, released at HOME_DAY (06:00, before the 07:00 backstop)."""
+    held overnight. Step 1a: the 06:00 default-trigger HOME_DAY is ignored;
+    the 07:00 backstop releases."""
     rig = await make_rig(start=GUEST_EVE, house="guest")
     await _to(rig, 22, 0)
     await _to(rig, 22, 5)
@@ -1123,8 +1169,11 @@ async def test_lock_held_if_home_night_until_morning():
     assert rig.regime.reason == "guest_night"
     await _to(rig, 6, 0, day=8)
     await rig.edge("home_day")
+    assert rig.unlocks() == []
+    await _to(rig, 7, 1, day=8)
     assert rig.locks() == [LOCK_A, LOCK_B]
     assert rig.unlocks() == [LOCK_A, LOCK_B]
+    assert rig.regime.last_action["trigger"] == "backstop"
 
 
 @pytest.mark.asyncio
@@ -1153,7 +1202,8 @@ async def test_manual_sleep_to_home_night_in_window_releases():
     rig = await make_rig()                        # 23:10, in window
     await rig.edge("sleep")
     assert rig.regime.reason == "sleep"
-    await rig.edge("home_night")
+    # Step 1a: re-pointed to the operator trigger (the subject is the override).
+    await rig.edge("home_night", trigger="override_set")
     assert rig.unlocks() == [LOCK_A, LOCK_B]
     assert rig.regime.reason == "none"
 
@@ -1166,7 +1216,8 @@ async def test_guest_night_home_night_outside_window_releases():
     await rig.edge("guest")                       # 23:10, engages guest_night
     await _to(rig, 6, 30, day=8)                  # past 06:00, before backstop
     assert rig.regime.reason == "guest_night"
-    await rig.edge("home_night")
+    # Step 1a: re-pointed to the operator trigger ("forced" = an override).
+    await rig.edge("home_night", trigger="override_set")
     assert rig.unlocks() == [LOCK_A, LOCK_B]
 
 

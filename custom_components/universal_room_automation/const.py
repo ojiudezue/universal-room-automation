@@ -3944,6 +3944,14 @@ LOCK_RELEASE_UNCOUNTED_RETURN_PAGE_ENABLED: Final = True
 # restart produced no person edge, so nothing released it. A page, never a
 # release. False = off.
 LOCK_RELEASE_BOOT_GAP_RETURN_PAGE_ENABLED: Final = True
+# HOUSE-STATE step 1a D4 item 10 (PLANNING_house_state_axes_step1.md rev 3,
+# INV-LOCK), rung 1 (access policy, review-only): the house-state edge
+# triggers that count as an operator act. A HOME_* / ARRIVING edge releases an
+# open garage-lockout episode only with one of these triggers; every other
+# HOME_* / ARRIVING edge is ignored (`house_edge_ignored`). Removing a trigger
+# removes that release. Known and accepted: the boot-settle override re-emit
+# uses `override_set`, so a restored override counts as an operator act.
+LOCK_HOUSE_RELEASE_OPERATOR_TRIGGERS: Final = frozenset({"override_set", "override_clear"})
 # SECURITY-LOCK-SWEEP-RETRY-CAP-1: the periodic lock check re-sends
 # lock.lock / cover.close_cover every interval while a device stays
 # unlocked/open. After this many FAILED attempts in one episode (device still
