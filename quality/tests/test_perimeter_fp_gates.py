@@ -121,6 +121,9 @@ def _build(
                     for (e, g) in src.get(cam, [])]
 
     cam_mgr._get_resolver = lambda: _Resolver()
+    # PERIMETER-GATE-EVIDENCE D1: the frozen clock is 14:00, so the sun is
+    # up; demote tests need daylight (night = no demote by design).
+    hass._states["sun.sun"] = _St("above_horizon", {"elevation": 35.0})
     if live:
         for lst in legs.values():
             for e, _g in lst:
@@ -1739,8 +1742,13 @@ def test_nvr_family_frigate_vs_frigate2_not_corroboration(monkeypatch):
 
 def test_vlm_shadow_sends_verdict_prompt(monkeypatch):
     import custom_components.universal_room_automation.perimeter_enrichment as pe
+    # PERIMETER-GATE-EVIDENCE D3 ships dark (ask knob default False after
+    # the D0-B no-go): shadow keeps today's prompt; knob on -> location prompt.
     _mgr, _nm, prompts = _d6(monkeypatch, "shadow", "PERSON: NO\nEmpty.")
     assert prompts == [pe._VERDICT_PROMPT]
+    monkeypatch.setattr(_perimeter, "PERIMETER_VLM_LOCATION_ASK", True)
+    _mgr, _nm, prompts = _d6(monkeypatch, "shadow", "PERSON: NO\nEmpty.")
+    assert prompts == [pe._VERDICT_LOCATION_PROMPT]
 
 
 def test_enrich_with_verdict_exception_is_unsure(monkeypatch):
@@ -1891,3 +1899,43 @@ def test_diag_sensor_merges_gate_stats(monkeypatch):
         "exterior_track_linker": lk, "perimeter_alert_manager": mgr}})
     attrs = s_.extra_state_attributes
     assert attrs["gate_decisions_by_camera"] == {"cam": {"vlm": {"reason": "x"}}}
+
+
+# =========================================================================
+# PERIMETER-GATE-EVIDENCE (Part A) pure helpers: D1 is_daylight, D3 parser
+# =========================================================================
+
+@pytest.mark.parametrize("elev,min_deg,expected", [
+    (0.0, 0.0, True), (-0.01, 0.0, False), (35.0, 0.0, True),
+    ("12.5", 0.0, True), (None, 0.0, False), ("abc", 0.0, False),
+    (True, 0.0, False), (89.0, 90.0, False), (-5.0, -6.0, True),
+    (10.0, "bad", False), (float("nan"), 0.0, False),
+])
+def test_is_daylight_threshold_and_none(elev, min_deg, expected):
+    assert _gates.is_daylight(elev, min_deg) is expected
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("PERSON: YES\nLOCATION: STREET\nA man walks", ("A man walks", "YES", "STREET")),
+    ("PERSON: NO\nA dog", ("A dog", "NO", "UNSURE")),
+    ("**Person:** yes\n**Location:** property\nOn the patio.",
+     ("On the patio.", "YES", "PROPERTY")),
+    ("PERSON: YES\n\n  location: unsure\nDark yard.", ("Dark yard.", "YES", "UNSURE")),
+    ("PERSON: YES\nLOCATION: road\nx", ("x", "YES", "UNSURE")),
+    ("PERSON: YES\nA man.\nLOCATION: STREET", ("A man.\nLOCATION: STREET", "YES", "UNSURE")),
+    ("PERSON: YES\nLOCATION: STREET", (None, "YES", "STREET")),
+    ("LOCATION: STREET\nPERSON: YES", ("LOCATION: STREET\nPERSON: YES", "UNSURE", "UNSURE")),
+    ("A cat.", ("A cat.", "UNSURE", "UNSURE")),
+    ("", (None, "UNSURE", "UNSURE")),
+    (None, (None, "UNSURE", "UNSURE")),
+])
+def test_parse_vlm_verdicts_table(text, expected):
+    assert _gates.parse_vlm_verdicts(text) == expected
+
+
+def test_parse_vlm_verdict_unchanged():
+    """Today's parser is untouched by D3 (its output on a 2-line reply keeps
+    the LOCATION line in the text — which is why D3 has its own parser)."""
+    assert _gates.parse_vlm_verdict("PERSON: YES\nLOCATION: STREET\nA man") == (
+        "LOCATION: STREET\nA man", "YES")
+    assert _gates.parse_vlm_verdict("PERSON: NO\nA dog") == ("A dog", "NO")

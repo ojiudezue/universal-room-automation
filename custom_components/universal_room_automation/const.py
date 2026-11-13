@@ -2637,6 +2637,39 @@ PERIMETER_SS_SETTLE_S: Final = 8          # 0 = lookback only, no wait
 PERIMETER_SS_MIN_AGREEMENT: Final = 0.6   # 1.01 = never eligible
 PERIMETER_SS_MIN_SAMPLES: Final = 20      # clamped to >= 1
 PERIMETER_SS_WINDOW_N: Final = 100
+# PERIMETER-GATE-EVIDENCE D1 (rung 1, operator safety ruling 2026-11-13):
+# the D5 single-source demote applies only in daylight. A missing /
+# unreadable `sun.sun` counts as NIGHT (no demote) — the opposite fail-safe
+# of lighting's SUN_DARK_ELEVATION_DEG and energy's clock fallback, so a
+# separate constant (concept split, not a duplicate). False = all-hours D5.
+PERIMETER_SS_DAYLIGHT_ONLY: Final = True
+# Q3: 0.0 = sun on the horizon ("never after sunset"). 90.0 = never daylight
+# = never demote.
+PERIMETER_SS_DAYLIGHT_MIN_ELEVATION_DEG: Final = 0.0
+# D1b (rung 1, Q1): same rule for the D10.5 `egress_uncorroborated` demote on
+# dual-role door cameras. `egress_known_person` is NOT affected. False =
+# all-hours D10.5.
+PERIMETER_EGRESS_UNCORROBORATED_DAYLIGHT_ONLY: Final = True
+# D2 (rung 1): one memory_episodes row per perimeter gate decision
+# (`_record_gate`). Observational, never read on an alert path. If ever set
+# False, add PERIMETER_GATE_EPISODE_TYPE to MEMORY_WRITER_HEALTH_EXEMPT_TYPES
+# in the same commit.
+PERIMETER_GATE_LOG_PERSIST: Final = True
+PERIMETER_GATE_EPISODE_TYPE: Final = "perimeter_gate_decision"
+# Bounded wait for in-flight gate-row writes at teardown. 0 = do not wait.
+PERIMETER_GATE_LOG_TEARDOWN_TIMEOUT_S: Final = 5.0
+# D3 (rung 1): ask the VLM a second, LOCATION question (property / street)
+# alongside the PERSON verdict. Recorded only — no branch reads it. False =
+# today's verdict prompt byte-for-byte in every select mode.
+# DEFAULT OFF (D0-B 2026-11-13 NO-GO: street recall 8/26, PERSON parity fails
+# on 2 frames, replies echoed "Line 1:"; AUDIT_perimeter_d0_location_2026_11_13).
+# Dark pending a better prompt/model; re-run D0-B before turning on.
+PERIMETER_VLM_LOCATION_ASK: Final = False
+# D3 (rung 1, plan review PERSON parity): the location prompt can shift the
+# PERSON answer, which demotes in `enforce`. Until the D0-B replay shows
+# PERSON parity with today's prompt, `enforce` keeps today's verdict prompt
+# and only `shadow` asks location. Set True only after D0-B parity passes.
+PERIMETER_VLM_LOCATION_ASK_IN_ENFORCE: Final = False
 # D6 (rung 3 select, options-backed): VLM gate off | shadow | enforce.
 CONF_PERIMETER_VLM_GATE: Final = "perimeter_vlm_gate"
 PERIMETER_VLM_GATE_OFF: Final = "off"
@@ -6100,6 +6133,10 @@ MEMORY_EPISODE_TYPES: Final = frozenset({
     # rows (exterior severity reads the in-RAM record ring).
     "person_arrival",
     "person_departure",
+    # PERIMETER-GATE-EVIDENCE D2 (2026-11-13): one row per perimeter gate
+    # decision (`PerimeterAlertManager._record_gate`). Observational; the
+    # weekly scorer is the only reader.
+    "perimeter_gate_decision",
 })
 
 # Set of episode types that have a LIVE writer. The weekly writer-health
@@ -6127,6 +6164,12 @@ MEMORY_WRITER_BACKED_EPISODE_TYPES: Final = frozenset({
     # both to MEMORY_WRITER_HEALTH_EXEMPT_TYPES in the same commit.
     "person_arrival",
     "person_departure",
+    # perimeter_gate_decision (PERIMETER-GATE-EVIDENCE D2): ~100 exterior
+    # person alerts a day and every one passes D5 or D10.5, so 0 in 7 days is
+    # a dead writer. Not absence-exempt (an empty house still gets street
+    # alerts). If PERIMETER_GATE_LOG_PERSIST is ever set False, move it to
+    # MEMORY_WRITER_HEALTH_EXEMPT_TYPES in the same commit.
+    "perimeter_gate_decision",
     # sensor_dropout: writer exists and is correctly scheduled, but has
     # produced 0 rows in >2 months (per AUDIT_memory_writer_coverage.md,
     # 2026-10-11). KEEP in the checked set so the trip-wire surfaces this
