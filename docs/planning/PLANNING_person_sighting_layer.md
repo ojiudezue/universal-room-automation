@@ -6,6 +6,12 @@ VISION-CROSSING-ANALYSIS-1, PHONE-LEFT-BEHIND-CAMERA-LEG-1, DEPARTURE-ACTIONS-1.
 PERSON-PROFILE-PREFERENCES-1, FRIGATE-DOOR-FACE-TUNING-1, EGRESS-IDENTITY-JOIN-GAP-1 (egress producer, shipped),
 HVAC-PRECOOL-STANDDOWN-WHEN-COOL-1 (sibling). File renamed with `git mv` from `PLANNING_face_arrival_rebuild.md`.
 
+**Rev 12, 2026-11-13, ura-planner. Vision re-anchor + Phase 2 gate restated.** Applies
+`AUDIT_vision_d0_frame_sim_2026_11_13.md` (D0-FRAME / D0-SIM: NO-GO as written, GO if re-anchored) to §15 and the new
+§15.9, which wins over any older §15 text it contradicts. Folds `AUDIT_egress_history_labels_2026_11_13.md` into the
+Phase 2 gate (§0A): the bar is now 5 true cases (met: 10) plus a measured misrecognition rate (operator 2026-11-13).
+Phase 1 text is unchanged. Rev-12 changelog: §26.
+
 **Rev 11, 2026-11-12, ura-planner. BUILD-READY PHASE 1.** Applies every finding of
 `docs/reviews/code-review/PLAN_person_sighting_layer_review_rev10_phase1.md` (FIX-PLAN, 0 H / 7 M / 13 L) and the
 operator's last camera-map answers (patio and Study B are egress, Garage B is detached; D7, config side on card
@@ -229,7 +235,29 @@ confirmation waiter, `SIGNAL_EGRESS_ENTRY_CONFIRMED`, the notify follow-up, `dep
 subscriptions and `path_score` on the bus, sighting source (c'), the D2 egress branch, and HVAC `camera_egress`
 (default, selector, migration). Phase 1 does not change the face-only veto.
 
-**Phase 2 gate (its own go decision, its own Tier-3 plan reviews before build):** (a) the D8a log covers >= 28 days;
+**Phase 2 gate, rev 12 (operator 2026-11-13; supersedes the rev-11 gate below where they differ).** Two halves, both
+required, then Phase 2's own Tier-3 plan reviews before build:
+1. **True cases: >= 5 confirmed would-be arrivals the face-only veto drops. MET: 10** (history backfill,
+   `AUDIT_egress_history_labels_2026_11_13.md`; every one had its home edge 260-810 s after the crossing, outside the 45 s
+   veto window). Caveats carried: 8 of 10 are front door, 2 garage A; 4 of 10 rest on 15-minute snapshot resolution.
+2. **A measured misrecognition rate, reported with its Wilson 95 % interval, identity kept separate from tracker
+   fault.** Measured so far (40 identity-decided clusters, 2026-10-30 to 11-12): tracked residents **1/30 (3.3 %,
+   [0.6, 16.7]) under the operator's Jaya rule, up to 3/30 (10 %, [3.5, 25.6])** with the two evidence-backed flips, and
+   **6/30 at the outer bound** with every contested cluster flipped. The dominant failure is **Jaya-vs-Ezinne
+   confusion** (e.g. 2026-11-11 08:25: Ezinne's phone arrives the same second a "Jaya" face is named) plus the
+   cross-person attaches in that audit (Frigate Jaya, URA `ojini` / `oji_udezue`). Ojini's face label is false 10/10
+   (operator fact): Ojini is not a tracked resident and is excluded from the resident rate but must never become a
+   candidate (no tracker = no confirmation leg). The Phase 2 decision is taken on the measured rate and its upper
+   bound, not on the go-rule point estimate; the operator states the acceptable ceiling at decision time. **Open
+   before decision:** the Jaya rule itself (2 of 19 Jaya clusters contradict it), and Protect-side face labels, which
+   HA cannot see (manual §4).
+The 28-day D8a log and the Wilson >= 0.85 / n >= 10 rule below remain the confirmation-quality check on the LIVE log
+after Phase 2 ships behind its flag; they are no longer the precondition for the go decision, because the backfill
+supplied the true cases the log was waiting for. Consequence for Phase 2 design: a pair-confusion guard (§2B.3,
+"revival trigger: D0-P7 shows misrecognitions concentrated in one resident pair") has FIRED on Jaya/Ezinne and must be
+designed into the Phase 2 rev, not parked.
+
+**Phase 2 gate, rev 11 (kept for history):** (a) the D8a log covers >= 28 days;
 (b) the operator has reviewed the weekly labels (§7 P7); (c) the P7 go rules in §7 pass. Fail = Phase 2 stays parked
 with the triggers in §7 P7. **Honest timing (rev 11, review L10):** (a) is satisfied at day 28, but the Wilson rule needs
 n >= 10 operator-reviewed confirmations, and P7's own floor is about 1 would-be candidate a week. So the realistic
@@ -1282,6 +1310,8 @@ the URA DB and the registry. The report goes into this doc as §7.1 before build
   - Phone-first share (the phone's home edge before resolution: those are `attached` today) vs after.
   - Exits: departures where the tracker still read `home` at resolution, and the time to `home -> not_home`.
   - `path_score <= 0` on resolved directions (EGRESS-PATH-OVERRIDES-DIRECTION-1 evidence).
+  - **Rev 12: the Phase 2 go decision now uses the §0A rev-12 gate (5 true cases, met 10, plus a measured
+    misrecognition rate); the rules below are the live-log confirmation check after the flag ships.**
   - **Go rule, `EGRESS_IDENTITY_DIRECTION_AWARE = True`:** over >= 28 days, >= 4 would-be candidates (about 1 a week);
     and on the CONFIRMED subset, the Wilson 95 % lower bound of "the confirming edge belongs to the named person AND that
     person is the one the operator's review says came through the door" >= 0.85 with n >= 10. Fewer than 10 confirmed =
@@ -2229,8 +2259,9 @@ Realistic:
 
 ### 15.3 Design (for the sibling plan)
 
-1. **Trigger:** an egress crossing with direction `entry` or `exit` (F3; `ura_person_egress_event`). Ambiguous
-   crossings are skipped. Display-only, so it is not time-sensitive.
+1. **Trigger (rev 12, §15.9.1: superseded):** ~~an egress crossing with direction `entry` or `exit` (F3; `ura_person_egress_event`).~~
+   Capture is ARMED at the camera person edge E on the door group; the crossing event (E + 45 s) only labels
+   direction and closes the decision. Ambiguous crossings are still not analysed. Display-only, so it is not time-sensitive.
 2. **Capture a snapshot sequence** at cadence `CROSSING_VISION_SNAPSHOT_INTERVAL_S` for
    `CROSSING_VISION_SEQUENCE_DURATION_S`, on the door camera plus the next cameras on the path: interior neighbours
    from `transit_validator._get_interior_cameras_near` for entries, exterior neighbours from
@@ -2241,7 +2272,7 @@ Realistic:
    registration `register_consumer` `:175`; rev 4 L6), not a new MQTT listener.
 3. **Clustering:** crossings that start while a sequence is open on the same door extend that sequence (one
    sequence, several crossing ids attached), capped at `CROSSING_VISION_SEQUENCE_MAX_S`. Different doors run
-   independent sequences, at most `CROSSING_VISION_MAX_CONCURRENT` at once; extra crossings are counted `skipped_busy`,
+   independent sequences (rev 12: windows anchored at E, §15.9.4), at most `CROSSING_VISION_MAX_CONCURRENT` at once; extra crossings are counted `skipped_busy`,
    never queued without bound. A daily cap `CROSSING_VISION_DAILY_CALLS` bounds cost; over the cap = skip + counter.
 4. **One batched analysis per sequence** after it closes: a multi-image variant of
    `perimeter_enrichment.enrich_dispatched_alert` (same kill switch, timeout, never-raise and non-empty rules), JSON
@@ -2368,7 +2399,7 @@ Method (scratchpad script, no HA or URA writes, no cloud call):
 
 Report: per camera × day/night, blank rate by anchor and offset, chosen 3 offsets, and their latency. Thresholds
 (stated now): the chosen set has **≥ 2 of 3 frames with a person on ≥ 95 % of events and 0 all-blank sets on ≥ 99 %**,
-and its 3rd frame exists by **t0 + 6 s p90**. A camera that fails at night gets night-only offsets or F = event
+and its 3rd frame exists by **t0 + 6 s p90** (rev 12: restated as **E + 6 s p90**; measured E + 2 s, §15.9). A camera that fails at night gets night-only offsets or F = event
 snapshot + 2 detection updates only; a camera that fails both = F runs with whatever non-blank frames exist (min 1) and
 is marked `fast_frames_short`. Output goes in `docs/planning/AUDIT_crossing_vision_d0_sim.md` (same audit as D0-SIM),
 and the chosen offsets become rung-1 knobs in the sibling plan.
@@ -2401,7 +2432,7 @@ The GPT-6 models may count image tokens differently; that is exactly what D0-V's
 
 | Door (all legs) | Rows / 14 d | Per day | Entry / exit |
 |---|---|---|---|
-| Front (doorbell_lite + front_door_aerial, Protect + Frigate legs) | 92 | 6.6 | 59 / 33 |
+| Front (doorbell_lite + front_door_aerial, Protect + Frigate legs) **(rev 12: WRONG grouping; live `door_groups` puts doorbell_lite in garage_a and madrone_g6_entry in front; re-measured split in §15.9.6)** | 92 | 6.6 | 59 / 33 |
 | Garage A | 63 | 4.5 | 23 / 40 |
 | Madrone G6 entry | 45 | 3.2 | 22 / 23 |
 | **All** | **201** (some are the same crossing seen by two legs) | **14.4 mean, 3-25 range** | 106 / 95 |
@@ -2414,9 +2445,9 @@ Clustering (same door, gap ≤ W): W = 60 s → 11.9 clusters/day; **120 s → 1
 
 | Stage | What | Frames / size | Model | Lands (modeled p50 / p90) |
 |---|---|---|---|---|
-| Edge | Camera person edge to crossing emit; includes `PERIMETER_EGRESS_XCORR_SETTLE_S` (20 s) where it applies | n/a | n/a | t0 is 0-20 s after the camera edge; D0-SIM measures it |
-| F (fast, rev 6) | Three frames timed to DETECTION, not wall clock (§15.5a): frame 1 = Frigate event best snapshot (event id from `FrigateEventIngress`), frames 2-3 = the frames at the next two Frigate updates that carry a person box, spaced ≥ `CROSSING_VISION_FAST_MIN_SPACING_S` (modeled 1 s), at D0-FRAME's per-camera offsets. Blank-frame guard drops any frame with no person and replaces it from the next update; send when 3 guarded frames exist or at `CROSSING_VISION_FAST_MAX_WAIT_S` (modeled 6 s) with ≥ 1. Door camera only. Prompt asks only `{people_count, direction, group, resident_like}` | 3 × 768 px wide (~425 tokens each by the 4o formula), ~400 text tokens in, ≤ 150 out | `gpt-6-luna` | frames ready 2-6 s + call 2-5 s → **t0 + 6 s / t0 + 12 s** |
-| B (batch) | Window opens at t0, closes at t0 + 60 s (extended by clustering, cap 180 s). Door camera every 5 s for the first 20 s then every 10 s; up to 2 chain cameras (§15.8: interior for entries, exterior for exits) every 10 s from t0 + 5 s. Frames with no person detection on that camera are dropped before the call | ≤ 12 × 1024 px (~765 tokens each), ~600 text in, ≤ 600 out | `gpt-6.1-sol` | window 60 s + call 5-20 s → **t0 + 70 s / t0 + 90 s** unclustered; clustered worst t0 + 180 s + 30 s |
+| Edge | Camera person edge to crossing emit; includes `PERIMETER_EGRESS_XCORR_SETTLE_S` (20 s) where it applies | n/a | n/a | ~~t0 is 0-20 s after the camera edge~~ **Rev 12, measured + code: t0 = E + 45 s** (`EGRESS_ENTRY_WINDOW_SECONDS`, `const.py:3299`; `transit_validator.py:1386-1388` `async_call_later`, fire `:2191`; the event's `timestamp` field is E) |
+| F (fast, rev 6; **rev 12: anchored at E, frames from any door-group camera, source chain best-snapshot -> thumbnail -> clip frame, §15.9**) | Three frames timed to DETECTION, not wall clock (§15.5a): frame 1 = Frigate event best snapshot (event id from `FrigateEventIngress`), frames 2-3 = the frames at the next two Frigate updates that carry a person box, spaced ≥ `CROSSING_VISION_FAST_MIN_SPACING_S` (modeled 1 s), at D0-FRAME's per-camera offsets. Blank-frame guard drops any frame with no person and replaces it from the next update; send when 3 guarded frames exist or at `CROSSING_VISION_FAST_MAX_WAIT_S` (modeled 6 s) with ≥ 1. Door camera only. Prompt asks only `{people_count, direction, group, resident_like}` | 3 × 768 px wide (~425 tokens each by the 4o formula), ~400 text tokens in, ≤ 150 out | `gpt-6-luna` | frames ready 2-6 s + call 2-5 s → **t0 + 6 s / t0 + 12 s** |
+| B (batch; **rev 12: opens at E, `CROSSING_VISION_WINDOW_GARAGE_A_S` 90 s / `CROSSING_VISION_WINDOW_FRONT_S` 120 s, §15.9.4**) | Window opens at t0, closes at t0 + 60 s (extended by clustering, cap 180 s). Door camera every 5 s for the first 20 s then every 10 s; up to 2 chain cameras (§15.8: interior for entries, exterior for exits) every 10 s from t0 + 5 s. Frames with no person detection on that camera are dropped before the call | ≤ 12 × 1024 px (~765 tokens each), ~600 text in, ≤ 600 out | `gpt-6.1-sol` | window 60 s + call 5-20 s → **t0 + 70 s / t0 + 90 s** unclustered; clustered worst t0 + 180 s + 30 s |
 | S (synthesis) | Join F, B, face (Protect names back-fill ~1-2 min; `FACE_MATCH_WINDOW_S` 60), BLE (home edges; exit backfill `BLE_EGRESS_EXIT_BACKFILL_WINDOW_S` 600) and Frigate/Protect counts into the final crossing record and the ledger term | none | none (local) | entries **t0 + 120 s**; exits wait for BLE backfill, **≤ t0 + 600 s** |
 
 Why these numbers: the person usually reaches the next camera on the chain 5-20 s after the door (assumed; D0-SIM
@@ -2443,7 +2474,8 @@ and 25 (no clustering).
 | Baseline: same F + B on `gpt-4o-mini` (images priced at ~2,833 base + 5,667/tile tokens at $0.15/1M by the same published formula) | | | ~$0.55/day |
 
 B dominates the bill. If D0-V shows Luna's batch accuracy meets the gate, Luna for both stages cuts the total to about
-$1/month. The daily cap (`CROSSING_VISION_DAILY_CALLS`) is set from the worst-case column, not the mean.
+$1/month. The daily cap (`CROSSING_VISION_DAILY_CALLS`) is set from the worst-case column, not the mean. **Rev 12: measured worst
+day is 30 crossings (2026-10-31), so the cap is >= 40 per stage (§15.9.5), not 25.**
 
 ### 15.5a Blank-frame guard and detection timing (rev 6)
 
@@ -2451,6 +2483,8 @@ Reuse, not new capture: the event id and updates come from `FrigateEventIngress.
 (`frigate_ingress.py:175`); the best snapshot from the existing Frigate notifications snapshot path
 (`perimeter_alert.py:2125`, multi-instance form `:36`); frames stored in the perimeter snapshot directory with its
 prune (`_prune_snapshot_dir`). Rules:
+0. **(rev 12)** Rule 1 is evaluated across EVERY camera in the crossing's door group, and the frame comes from whichever
+   camera passes at that time; a single fixed camera is blank on 21-79 % of crossings (§15.9.2).
 1. A frame is eligible only if a Frigate update for that camera at that frame time reports a `person` object (box
    present, score ≥ the camera's existing Frigate threshold; no new score knob). Protect-only door (doorbell leg): its
    smart-detect thumbnail is frame 1, live grabs at the D0-FRAME offsets after a Protect person edge are frames 2-3.
@@ -2487,7 +2521,7 @@ clock through four stages:
    cluster sizes, concurrency and daily call/token totals under the caps.
 4. Sensitivity: rerun with B window 30/60/90 s, door cadence 3/5/10 s, `target_width` 768/1024/1280.
 
-**Pass/fail, stated now:**
+**Pass/fail, stated now:** (rev 12: every `t0` below reads `E`; result of the run is in §15.9)
 
 | Check | Pass |
 |---|---|
@@ -2592,6 +2626,85 @@ D0-V's coverage score (BLE-known crossings that pass a watched door) becomes per
 covered when it hits at least the door camera of some chain.
 
 ---
+
+### 15.9 Rev 12 re-anchor from D0-FRAME / D0-SIM (2026-11-13; wins over §15.3-§15.6 where they differ)
+
+Source: `docs/planning/AUDIT_vision_d0_frame_sim_2026_11_13.md` (read-only probe, 69 recorder-backed and 117 total
+garage-A/front clusters, 2026-10-31 to 11-13). Verdict there: D0-FRAME and D0-SIM **NO-GO as written, GO if
+re-anchored**. Every edit below is one of its findings; nothing here is built in this cycle.
+
+**15.9.1 Two clocks, named.** `E` = the camera person edge on the door group: the `timestamp` the transit validator
+stamps at the egress state change (`transit_validator.py` ~`:1362`, `dt_util.now()`), carried verbatim as the
+`timestamp` field of `ura_person_egress_event` (`:2191-2194`). `t0` = the crossing emit, which fires inside
+`_delayed_resolve` after `async_call_later(..., self.ENTRY_WINDOW_SECONDS)` (`:1386-1388`), `ENTRY_WINDOW_SECONDS =
+EGRESS_ENTRY_WINDOW_SECONDS = 45` (`const.py:3299`, `transit_validator.py:1019`). So **t0 = E + 45 s** for both
+directions (the 30 s exit window is not used by the delayed resolve). Measured: Frigate event start minus E p10/p50/p90 =
+-7.4 / -0.6 / +8.7 s (103 clusters). The rev-5 "t0 is 0-20 s after the edge" was wrong. Anchored at t0, 63 % of
+crossings have zero guarded frames; anchored at E, 3 of 3 frames exist on 100 % (Wilson low 94.7 %, sensor proxy).
+
+**Capture is anchored at E; the call is made at t0.** Decision (marginal-benefit, simplest version first): the vision
+pass needs frames FROM the edge, not a call AT the edge. At t0 the direction is known and the crossing exists, so the
+call volume stays one per crossing (an edge that never becomes a crossing costs nothing). Frames are taken
+retrospectively at t0 from what Frigate retains for events starting in `[E - 10 s, E + 10 s]` on any door-group camera
+(event id via `FrigateEventIngress`, `frigate_ingress.py:147/:175`; covers ~88 % of crossings), at offsets from the
+event start (measured best set (0, 1, 2) s: >= 2 of 3 with a person on 100 % garage A, 100 % front). **Live grab at E
+is needed only for Protect-only crossings (22 %)**, armed on the same egress state change that stamps E (no new
+listener: one more callback on the existing edge, held frames discarded at t0 + grace if no crossing resolves). The
+F stage is therefore a "first look" landing at about t0 + call latency, not a pre-t0 pass. **Parked:** a pre-t0 F call
+at E + 5 s (audit V3 design B). Revival trigger: D0-V or the census shows the 45 s matters to a consumer (a guest count
+that must update before t0). It adds calls for edges that never resolve to a crossing and a second trigger path.
+
+**15.9.2 Frame guard chooses across the door group.** §15.5a rule 1 runs across EVERY camera in the crossing's
+door group (live `door_groups`, URA options), picking at each frame time a camera whose detector reports a person. A
+single fixed camera is on at E+3 s only 32-79 % of the time (audit F4); the union is ~0-6 % blank. "Door camera only"
+in the §15.5 F row means "door-group cameras only" (still no interior frames in F).
+
+**15.9.3 Frame source chain.** Per frame: Frigate event best snapshot -> else event thumbnail (200 on 160/160
+sampled) -> else a frame extracted from the event clip (clips present 31/32 sampled; 5-116 MB, 1-22 s to fetch, so
+last resort) -> Protect-only: smart-detect thumbnail + live grab at E. Best snapshot 404s on 17.5 % of doorbell_lite and
+30 % of madrone_g6_entry events (100 % present on garage_a and front_door_aerial), so the thumbnail fallback is
+required, not optional. Each sent frame records its `frame_source` (snapshot / thumbnail / clip / protect_thumb /
+live_grab) so D0-V can score accuracy by source; thumbnails are low resolution and may cost count accuracy.
+
+**15.9.4 Time-lapse (B) windows, anchored at E, one knob per door group.** First interior hop inside the window
+(entries that hop at all): garage A 84 % at 60 s, 94 % at 90 s; front 88 % at 60 and 90 s, 100 % at 120 s. Chain
+coverage is capped at ~55-67 % of ALL entries regardless of window (33-47 % never reach a listed neighbour camera), and
+front exits reach a chain camera on only 2 of 19: state that ceiling, do not tune past it.
+- `CROSSING_VISION_WINDOW_GARAGE_A_S` = 90, **rung 3 (Number entity)**: the operator tunes it by observation; 0 = B
+  disabled for that door (F only). Why 90: 94 % of first hops vs 84 % at 60; 120 adds 3 points for 33 % more frames.
+- `CROSSING_VISION_WINDOW_FRONT_S` = 120, **rung 3 (Number entity)**: 100 % of first hops; 0 = B disabled for that door.
+- Clustering cap `CROSSING_VISION_SEQUENCE_MAX_S` stays 180 s, **rung 1**, now measured from E. A door group with no
+  named window uses neither knob: B is off for it until a knob is added (garage B, patio, Study B are not in this
+  sample). Per-door knobs, not one global window, because the two measured doors need different values; a third door
+  gets its own knob after a measurement, not a guess.
+- Concurrency `CROSSING_VISION_MAX_CONCURRENT` = 2, **rung 1**: measured max 1 at 60 s, 2 at 90 s.
+
+**15.9.5 Daily cap.** `CROSSING_VISION_DAILY_CALLS` = 40 per stage, **rung 3 (Number entity)**; 0 = vision off (the
+master enable remains the primary kill). Why 40: measured garage-A + front crossings p50 12/day, p90 26, max 30
+(2026-10-31); 40 keeps one-third headroom over the worst observed day. Over the cap = `skipped_cap` counter, never a
+queue. Mean volume unchanged from §15.5: F 14.1 calls/day, B 9.5-10.1, so the cost envelope stands (unmeasured until
+D0-V).
+
+**15.9.6 Doorbell Lite is in garage_a.** Live `door_groups`: `doorbell_lite` -> garage_a, `garage_a` -> garage_a,
+`front_door_aerial` -> front, `madrone_g6_entry` -> front (operator fixture agrees). The §15.5 measured-inputs table
+grouped it with front. Re-measured (deduped, 13.1 d): garage A 127 crossings = 9.7/day (68 entry / 59 exit), front 58 =
+4.4/day (26 / 32). Interior neighbours: garage_a -> garage hallway (Protect), staircase, stairs_top; front ->
+foyer_fisheye, family_room.
+
+**15.9.7 Gate added: operator 30-frame hand-label (blocks D0-FRAME closure and therefore D0-V's frame selection).**
+Every D0-FRAME "blank" figure is a detection-state proxy (sensor on / Frigate event live), an upper bound on non-blank;
+no boxes were retained. The operator labels 30 frames per door group (garage A, front), drawn at the chosen offsets
+from E, stratified half day / half night and across cameras and frame sources: person visible yes/no. Pass: proxy
+agrees with the label on >= 95 % per door group (i.e. at most 1 disagreement in 30) AND the label shows >= 2 of 3
+frames with a person on >= 90 % of the sampled sets. Fail = the proxy is not used to choose offsets; the guard falls
+back to a per-frame person check and D0-FRAME is rerun with that check. Until this passes, D0-FRAME is "GO
+conditional", not GO.
+
+**15.9.8 Restated gate rows.** §15.4a "3rd frame by t0 + 6 s p90" -> **E + 6 s p90** (measured E + 2 s). §15.6 "F lands
+by t0 + 12 s" -> F lands by **t0 + 12 s** under the call-at-t0 decision (frames already held); "B window contains every
+chain camera hit in the first 60 s" -> **in the first W s after E** with W from 15.9.4, bar >= 90 % of entries that hop
+(met at 94 % / 100 % on the proxy). "No day exceeds the daily cap" -> with cap 40 (measured max 30). Still OPEN: B
+inside the census interior hold, entry S inside the 300 s TTL, measured cost (all need D0-V latency and usage).
 
 ## 16. Rev 3 changelog
 
@@ -2911,4 +3024,20 @@ Code wins; each is reflected in the build:
     deleted fs4 test; the re-pointed test reads no presence clock, so the drill entry is removed (the multi-donor
     set still runs the re-pointed test).
 11. **D0 P4 propagation yield** was not measured (Phase 1 D7 is the file + scorer, not propagation).
+
+---
+## 26. Rev 12 changelog (2026-11-13: D0-FRAME/D0-SIM findings + history labels)
+
+| Change | Source | Where |
+|---|---|---|
+| Two clocks named: E (camera edge, event `timestamp`) and t0 = E + 45 s (`EGRESS_ENTRY_WINDOW_SECONDS`); rev-5 "0-20 s" struck | audit Finding 0a; code `const.py:3299`, `transit_validator.py:1386-1388, :2191` | §15.5 Edge row, §15.9.1 |
+| Capture anchored at E (retrospective from Frigate events at t0; live grab at E for Protect-only); call at t0; pre-t0 F call parked with trigger | audit F1, V3; marginal benefit | §15.3 item 1, §15.9.1 |
+| Frame guard evaluated across the door group's cameras | audit F4 | §15.5a rule 0, §15.9.2 |
+| Source chain best snapshot -> thumbnail -> clip frame; Protect thumbnail + live grab | audit F3, F5 | §15.9.3 |
+| B windows from E: `CROSSING_VISION_WINDOW_GARAGE_A_S` 90 s, `CROSSING_VISION_WINDOW_FRONT_S` 120 s (rung 3 each); 55-67 % chain ceiling stated | audit V4, V5 | §15.5 B row, §15.9.4 |
+| `CROSSING_VISION_DAILY_CALLS` = 40 per stage (rung 3) | audit V1 (max 30/day) | §15.5 envelope note, §15.9.5 |
+| Doorbell Lite moved to garage_a; volumes re-split | audit Finding 0b, live `door_groups` | §15.5 table note, §15.9.6 |
+| Operator 30-frame hand-label added as a gate | audit F6 open row | §15.9.7 |
+| Gate rows re-anchored to E | audit F6, V7 | §15.4a, §15.6, §15.9.8 |
+| Phase 2 gate: 5 true cases (met 10) + measured misrecognition rate (1/30-6/30 tracked residents; Jaya-vs-Ezinne confusion); pair-confusion guard trigger fired | `AUDIT_egress_history_labels_2026_11_13.md`; operator 2026-11-13 | §0A, §7 P7 note |
 
