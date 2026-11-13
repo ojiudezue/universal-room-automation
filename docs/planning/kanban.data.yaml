@@ -34787,6 +34787,7 @@ cards:
   operator_2026_11_13_away_fast: 'Operator: "it seems like it will delay away and I need away to be fast acting. That''s how it saves $ on energy treatment." HARD constraint: vision counts never delay or block AWAY entry (INV-P2-AWAY-LATENCY; AWAY predicates read pre-vision census values).'
   operator_2026_11_13_census_split: 'Operator: "split the census output by use, in line with the model... Do it. Let''s get it right." Rev 7: F2 publishes a trust view (byte-identical, house state/AWAY/security) and an awareness view (vision + Frigate/Protect deconflicted, provenance) for display/notification/personalization; via PERSON-AWARENESS-READ-API-1; then Tier-3 re-review.'
   blocked_by_f_notify: 'F-NOTIFY (notifications read the awareness view) blocked on EGRESS-DIRECTION-AWARE-IDENTITY-1 or measured entry attach >= 0.50 (30% today).'
+  operator_2026_11_13_clean_doc: 'Operator: "Make sure the plan or plans that emerge are clean and streamlined in the actual document even if you have to write it yourself." After the arc map merge decisions: one clean consolidated plan per merged scope (no rev layers, no override sections, history archived), equivalence-checked by a reviewer against the reviewed rev 7.1 (1e76c98a) before approval.'
   next: 'Me: revise plan section 15.9 frame guard to judge frames directly; resolve the llmvision temperature blocker for GPT-6 models (config-first); then the sibling vision plan.'
   rank: {value: 9, time_criticality: 4, effort: 8}
 - id: PHONE-LEFT-BEHIND-TRANSIENT-FLICKER-1
