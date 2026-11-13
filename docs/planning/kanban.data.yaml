@@ -34604,6 +34604,19 @@ cards:
   why: 'Live egress config has five egress cameras (garage A group incl. doorbell_lite, front aerial + G6 entry, garage B). Patio and Study B crossings are invisible to the egress tracker, so census, direction and sightings miss them. Garage B crossings must not count as house entries.'
   next: 'Me: read the live egress options (cameras, door contacts, cover entities), list what is missing for patio (patio cam, slider contact, covers 1-5) and Study B (reolink, door contact), and whether Garage B is already treated as not-the-house; then propose the options change to the operator (config-first) and fold into D7.'
   rank: {value: 7, time_criticality: 4, effort: 3}
+- id: EGRESS-OUTCOME-WEEKLY-LABEL-1
+  title: Weekly labelling of egress identity outcomes (recurring) so Phase 2 of person sightings becomes decidable
+  thread: identity
+  status: waiting_me
+  batch: person-sightings
+  created: '2026-11-12 23:30'
+  updated: '2026-11-12 23:30'
+  tier: 1
+  links: {parent: FACE-ARRIVAL-REBUILD-1}
+  origin: {date: '2026-11-12', gist: 'Plan rev 11 M6/M7: recorder keeps 7 days; Phase 2 needs >= 10 operator-reviewed confirmations (~10 weeks).'}
+  why: 'Run the weekly labeller after D8a ships; it snapshots raw path-edge times and GPS fixes; operator reviews a sample of labels.'
+  next: 'Me: every week after D8a ships, run the labeller and bring the operator a short REVIEW list.'
+  rank: {value: 5, time_criticality: 6, effort: 1}
 - id: INTERIOR-PATH-MAP-1
   title: Interior camera path map (outside > door > inside), built from the operator fixture, stored as a validated file with const fallback like the exterior seams
   thread: identity
@@ -34686,7 +34699,7 @@ cards:
 - id: FACE-ARRIVAL-REBUILD-1
   title: 'PERSON SIGHTINGS (main card): one identity-at-place layer (face, egress, later vision) harmonized with egress and census; direction-aware egress identity; access needs a second signal'
   thread: identity
-  status: planned
+  status: in_progress
   APPROVED_2026-11-12: 'Operator approved the plan (rev 8, plus fixes from its two rev-8 plan reviews) and asked: "capture everything and main card, connected cards and drive to finish. And for it to be actually complete." Plan: docs/planning/PLANNING_person_sighting_layer.md on branch plan/face-arrival-rebuild. Arc = batch person-sightings; every deliverable below ships or is parked with a trigger, and each ship is checked by a wire-in test that drives the real path, not a status table.'
   arc_deliverables:
   - 'D0 probes (P1-P7, incl. vetoed-arrival count) — read-only gate'

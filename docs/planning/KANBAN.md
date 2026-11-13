@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-12T22:02:35-06:00_ - _Data commit: `c5b6bad88beb`_ - _last_reconciled: 2026-11-12_
+_Generated: 2026-11-12T22:12:59-06:00_ - _Data commit: `525de3a2bf75`_ - _last_reconciled: 2026-11-12_
 
 
 ## Columns
@@ -12,11 +12,11 @@ _Generated: 2026-11-12T22:02:35-06:00_ - _Data commit: `c5b6bad88beb`_ - _last_r
 | 📥 Inbox | 5 |
 | 🔬 Investigating | 11 |
 | 🧭 Pre-planning | 13 |
-| 📝 Planned | 30 |
-| 🔨 In progress | 2 |
+| 📝 Planned | 29 |
+| 🔨 In progress | 3 |
 | 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 31 |
-| ⏳ Waiting on me (Claude) | 2 |
+| ⏳ Waiting on me (Claude) | 3 |
 | 🚀 Shipped (organic open) | 25 |
 | 🅿️ Parked | 119 |
 | ✅ Done | 426 |
@@ -374,7 +374,7 @@ _updated 2026-10-21 22:05_
   - `verified_capabilities`: Per-room MQTT identity already fleet-safe: clientId wall-tablet-<room>, topics home/wallpanel/<room>/{led,sensors,status}; LWT availability; self-registers via MQTT Discovery (no YAML).
   - `orchestrator_assessment`: HIGHEST VALUE IS THE SENSORS, NOT THE CONTROL SURFACE. Per-room lux is a first-class input URA's lighting logic already consumes; a tablet in every room is a lux+temp+humidity fleet arriving for free. That likely beats the quick-action U...
 
-## 📝 Planned (30)
+## 📝 Planned (29)
 _has plan / acceptance_
 
 ### `CLIMATE-BACKSTOP-SECTION-CLEAR-ON-ABSENT-1` - Climate step's climate_backstop section clears stored HVAC hold keys when the section is not sent — _#1 · WSJF 7.0 · v3 tc2 u2 /e1_
@@ -666,20 +666,7 @@ _created 2026-11-11 09:00 · updated 2026-11-11 10:00 · refined_
   - `investigated_2026_11_11_overnight`: REFUTED as a production bug; REAL as a test defect. Production is safe: perimeter_alert.py _try_capture_frigate_event sanitises the event id (_sanitize_snapshot_token, :3830) and has a second realpath escape guard before writing. Why the...
   - `fix_2026_11_11_overnight`: Branch fix/snap1-traversal-test-oracle (88229251, worktree .claude/worktrees/ovn-snap1-oracle, base develop fc75a6b3): oracle scoped to entries this run creates in the parent dir; pins sanitise-and-write (one flat file in the snapshot di...
 
-### `FACE-ARRIVAL-REBUILD-1` - PERSON SIGHTINGS (main card): one identity-at-place layer (face, egress, later vision) harmonized with egress and census; direction-aware egress identity; access needs a second signal — _#26 · WSJF 1.8 · v8 tc4 u2 /e8_
-thread: **identity** - status: **planned** - approval: **unreviewed**
-_created 2026-11-12 18:30 · initial_
-- **Problem / Solution:**
-  - Problem: v3.19 face-confirmed arrival never fired (listens to area-discovered cameras, finds none; configured picks unread; _2 path disabled at the producer to protect locks; 30 s freshness drops late Protect names); egress faces never s...
-- **Origin:** 2026-11-12 - Operator: "Face arrival should be able to understand what can unlock and what cannot... I chose those cameras because they track common area and entry paths... We should start from first principles and build this up." Granul...
-- **Why:** AUDIT_face_arrival_and_prearrival_fan_rooms.md, AUDIT_face_production_after_nov_fixes.md (85% of named faces interior; doors weak; egress attach ~40%).
-- **Next:** Me: planner writes Tier-3 plan; two plan reviews; then APPROVE from operator.
-- **Forensic keys (3):**
-  - `APPROVED_2026-11-12`: Operator approved the plan (rev 8, plus fixes from its two rev-8 plan reviews) and asked: "capture everything and main card, connected cards and drive to finish. And for it to be actually complete." Plan: docs/planning/PLANNING_person_si...
-  - `arc_deliverables`: D0 probes (P1-P7, incl. vetoed-arrival count) — read-only gate
-  - `tier`: 3
-
-### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#27 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#26 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
 _updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -696,7 +683,7 @@ _updated 2026-09-29 01:05_
   - `d0_impact_2026_08_17`: D0 probe impact: the gate ("D1 identity accurate") CANNOT be met via faces — face coverage at egress is ~7% even post-suffix-fix. So the identity-based interior-count reinforcement is not viable on current sensing. IF cycle 3 rescopes to...
   - `coverage_ceiling_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
-### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#28 · WSJF 1.6 · v7 tc4 u2 /e8_
+### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#27 · WSJF 1.6 · v7 tc4 u2 /e8_
 thread: **platform** - status: **planned** - approval: **needs_operator**
 _updated 2026-10-15 02:14_
 - **Origin:** 2026-08-21 - Operator, on the governed-excursion primitive: "Especially the restartability. I almost want to generalize that. Ura is not universally restart safe." Correct, and this session produced four independent instances without loo...
@@ -716,7 +703,7 @@ _updated 2026-10-15 02:14_
   - `SCOPE_DECISION_NO_CARD_SPRAY_2026_08_21`: The audit recommends CHECKLIST + one narrow primitive, and I agree with that shape — the existing persistence mechanisms are diverse because each is fitted to its data shape, and a shared library would flatten correct choices. The real g...
   - `INSTANCE_2026_09_16_TEARDOWN_ONLY_BASELINES`: MEASURED INSTANCE of this card's general rule, found while confirming residual B on HVAC-ANOMALY-BLIND-1 (see its MEASURED_2026_09_16 for the evidence and the method, including the immutable=1 freshness validation). Filed here as an inst...
 
-### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#29 · WSJF 1.5 · v9 tc8 u2 /e13_
+### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#28 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **planned** - approval: **explicit**
 _created 2026-08-19 07:45 · updated 2026-11-06 02:37 · refined_
 - **Next:** Epic, open: the next slice (what poisons test_v47x_weather_manager.py in suite order) is the same production-stub shadowing class carried by TEST-SUITE-ORDER-INDEP-PRODSTUBS-1; drive it there. Keep this card as the parent of the test-ord...
@@ -755,7 +742,7 @@ _created 2026-08-19 07:45 · updated 2026-11-06 02:37 · refined_
   - `INSTANCE_2026_10_18_unload_hygiene_order`: Overnight build observation: test_unload_symmetry_task_hygiene.py::test_room_name_desync_retry_registers_on_unload_when_loaded and ::test_room_name_desync_retry_cancels_inline_when_not_loaded fail with AttributeError when run together wi...
   - `INSTANCE_2026_11_03_optimization_isolation`: Found during overnight merge-prep. quality/tests/test_optimization_coordinator.py run ALONE on develop @30e4c61a gives 10 failed (registration, arrester_via_coordinator_manager, handshake_suppresses_hvac, handshake_veto, kill_switch_abor...
 
-### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#30 · WSJF 1.0 · v4 tc2 u2 /e8_
+### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#29 · WSJF 1.0 · v4 tc2 u2 /e8_
 thread: **presence** - status: **planned** - approval: **unreviewed**
 _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -770,7 +757,7 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (2)
+## 🔨 In progress (3)
 _being built_
 
 ### `OC-CONTEXT-PACK-1` - OC agent context should feel like the orchestrator's: HA + URA ground-truth docs, live config snapshot, doctrine, goals - iterate it against live cases — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
@@ -792,6 +779,19 @@ _created 2026-11-10 19:20 · updated 2026-11-11 07:05 · initial_
 - **Forensic keys (2):**
   - `tier`: 1
   - `residual_2026_11_11`: Merged to develop 4d5385d4 (v5.108.8). Merged-develop parallel run: 11 failed in 3 min, base serial failures all gone, but 11 parallel-only (pass alone 72/72): test_arrester_operator_immunity x6, test_dp_drain_target_value_stamp x5 (file...
+
+### `FACE-ARRIVAL-REBUILD-1` - PERSON SIGHTINGS (main card): one identity-at-place layer (face, egress, later vision) harmonized with egress and census; direction-aware egress identity; access needs a second signal — _#3 · WSJF 1.8 · v8 tc4 u2 /e8_
+thread: **identity** - status: **in_progress** - approval: **unreviewed**
+_created 2026-11-12 18:30 · initial_
+- **Problem / Solution:**
+  - Problem: v3.19 face-confirmed arrival never fired (listens to area-discovered cameras, finds none; configured picks unread; _2 path disabled at the producer to protect locks; 30 s freshness drops late Protect names); egress faces never s...
+- **Origin:** 2026-11-12 - Operator: "Face arrival should be able to understand what can unlock and what cannot... I chose those cameras because they track common area and entry paths... We should start from first principles and build this up." Granul...
+- **Why:** AUDIT_face_arrival_and_prearrival_fan_rooms.md, AUDIT_face_production_after_nov_fixes.md (85% of named faces interior; doors weak; egress attach ~40%).
+- **Next:** Me: planner writes Tier-3 plan; two plan reviews; then APPROVE from operator.
+- **Forensic keys (3):**
+  - `APPROVED_2026-11-12`: Operator approved the plan (rev 8, plus fixes from its two rev-8 plan reviews) and asked: "capture everything and main card, connected cards and drive to finish. And for it to be actually complete." Plan: docs/planning/PLANNING_person_si...
+  - `arc_deliverables`: D0 probes (P1-P7, incl. vetoed-arrival count) — read-only gate
+  - `tier`: 3
 
 ## 🔍 Review (0)
 _under review_
@@ -1358,10 +1358,19 @@ _created 2026-09-20 · updated 2026-09-29 01:05_
   - `FINDINGS_2026_09_20`: Spike RAN (docs/planning/jev_spike/, 58-case eval, LOO). CODE baseline = works 100% / fails 0%% / overall 84.5%% / ECE 0.155 (structurally blind to the all-away-single-sensor phantom + badly calibrated). Logistic-floor arms scored 100%%/...
   - `next_prev1`: PICK/DO (operator): provide INDEPENDENT ground-truth labels for ~20-40 ambiguous occupancy cases (spot-confirm a batch of all-away-single-sensor / still-body episodes as empty-or-occupied), OR approve me sourcing a disjoint truth signal ...
 
-## ⏳ Waiting on me (Claude) (2)
+## ⏳ Waiting on me (Claude) (3)
 _I owe something_
 
-### `HA-GC-GEN2-PAUSES-1` - Home Assistant freezes for about 2 seconds once a minute while Python cleans up memory (full garbage collection on a very large heap) — _#1 · WSJF 6.5 · v7 tc4 u2 /e2_
+### `EGRESS-OUTCOME-WEEKLY-LABEL-1` - Weekly labelling of egress identity outcomes (recurring) so Phase 2 of person sightings becomes decidable — _#1 · WSJF 13.0 · v5 tc6 u2 /e1_
+thread: **identity** - status: **waiting_me**
+_created 2026-11-12 23:30_
+- **Origin:** 2026-11-12 - Plan rev 11 M6/M7: recorder keeps 7 days; Phase 2 needs >= 10 operator-reviewed confirmations (~10 weeks).
+- **Why:** Run the weekly labeller after D8a ships; it snapshots raw path-edge times and GPS fixes; operator reviews a sample of labels.
+- **Next:** Me: every week after D8a ships, run the labeller and bring the operator a short REVIEW list.
+- **Forensic keys (1):**
+  - `tier`: 1
+
+### `HA-GC-GEN2-PAUSES-1` - Home Assistant freezes for about 2 seconds once a minute while Python cleans up memory (full garbage collection on a very large heap) — _#2 · WSJF 6.5 · v7 tc4 u2 /e2_
 thread: **health_monitor** - status: **waiting_me** - approval: **explicit**
 _created 2026-10-14 02:50 · updated 2026-11-02 02:04 · refined_
 - **Problem / Solution:**
@@ -1387,7 +1396,7 @@ _created 2026-10-14 02:50 · updated 2026-11-02 02:04 · refined_
   - `applied_2026_10_24`: Set HM gc_refreeze_h 0 -> 4 h at ~22:05Z (options flow; stored value 4.0 verified in core.config_entries). Discriminator: sensor.hahm_loop_lag_p95 gc_gen2_1h and hahm_loop_stalls < 5/h at an 8-12 h re-read; else lower to 2 h.
   - `measured_2026_10_14_overnight`: HA Health Monitor diagnostics, ~50 min after the 01:16 CDT restart: gen-2 collections 59 (mean 1,804 ms, max 2,137 ms); gen-1 4,734 (mean 3.9 ms); gen-0 52,079. Stall samples: 44 of 50 are gen-2 GC; burst of one every ~3.5 s at 06:29-06:...
 
-### `RECORDER-WRITE-RATE-ATTENUATION-1` - Attenuate top recorder writers (ESPectre, UDM CPU/mem, LD2410 distance, panel diagnostics, device_time) — _#2 · WSJF 6.5 · v6 tc5 u2 /e2_
+### `RECORDER-WRITE-RATE-ATTENUATION-1` - Attenuate top recorder writers (ESPectre, UDM CPU/mem, LD2410 distance, panel diagnostics, device_time) — _#3 · WSJF 6.5 · v6 tc5 u2 /e2_
 thread: **platform** - status: **waiting_me**
 _created 2026-10-20 08:30 · updated 2026-11-11 02:05_
 - **Origin:** 2026-10-20 - HomeLab handoff: DB 15.3 GB, ESPectre ~6k rows/hr. Operator: attenuate, don't stop; keep ESPectre on.
