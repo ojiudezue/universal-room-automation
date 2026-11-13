@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-12T23:49:45-06:00_ - _Data commit: `9a90a510c9dd`_ - _last_reconciled: 2026-11-12_
+_Generated: 2026-11-13T00:09:11-06:00_ - _Data commit: `a332663099f2`_ - _last_reconciled: 2026-11-12_
 
 
 ## Columns
@@ -1359,9 +1359,10 @@ thread: **identity** - status: **waiting_me**
 _created 2026-11-12 23:30_
 - **Origin:** 2026-11-12 - Plan rev 11 M6/M7: recorder keeps 7 days; Phase 2 needs >= 10 operator-reviewed confirmations (~10 weeks).
 - **Why:** Run the weekly labeller after D8a ships; it snapshots raw path-edge times and GPS fixes; operator reviews a sample of labels.
-- **Next:** Me: every week after D8a ships, run the labeller and bring the operator a short REVIEW list.
-- **Forensic keys (1):**
+- **Next:** Me: probe how far back URA DB egress rows (person_id, direction, GPS) and Frigate event history go; label what exists; after D8a ships keep the weekly labeller; after 11-21 label the staged passes.
+- **Forensic keys (2):**
   - `tier`: 1
+  - `DECISION_2026-11-13`: Operator chose (1) label historical crossings now from URA DB/Frigate history, (3) lower the Phase 2 bar from 10 to 5 confirmed true cases plus a measured misrecognition rate, and (2) staged arrivals opportunistically: scheduled Sat 2026...
 
 ### `HA-GC-GEN2-PAUSES-1` - Home Assistant freezes for about 2 seconds once a minute while Python cleans up memory (full garbage collection on a very large heap) — _#2 · WSJF 6.5 · v7 tc4 u2 /e2_
 thread: **health_monitor** - status: **waiting_me** - approval: **explicit**

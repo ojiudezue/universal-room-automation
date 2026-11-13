@@ -34618,7 +34618,8 @@ cards:
   links: {parent: FACE-ARRIVAL-REBUILD-1}
   origin: {date: '2026-11-12', gist: 'Plan rev 11 M6/M7: recorder keeps 7 days; Phase 2 needs >= 10 operator-reviewed confirmations (~10 weeks).'}
   why: 'Run the weekly labeller after D8a ships; it snapshots raw path-edge times and GPS fixes; operator reviews a sample of labels.'
-  next: 'Me: every week after D8a ships, run the labeller and bring the operator a short REVIEW list.'
+  DECISION_2026-11-13: 'Operator chose (1) label historical crossings now from URA DB/Frigate history, (3) lower the Phase 2 bar from 10 to 5 confirmed true cases plus a measured misrecognition rate, and (2) staged arrivals opportunistically: scheduled Sat 2026-11-21 11:00-11:45 CT on the operator calendar (10 passes, phone in airplane mode, garage A and front door).'
+  next: 'Me: probe how far back URA DB egress rows (person_id, direction, GPS) and Frigate event history go; label what exists; after D8a ships keep the weekly labeller; after 11-21 label the staged passes.'
   rank: {value: 5, time_criticality: 6, effort: 1}
 - id: INTERIOR-PATH-MAP-1
   title: Interior camera path map (outside > door > inside), built from the operator fixture, stored as a validated file with const fallback like the exterior seams
