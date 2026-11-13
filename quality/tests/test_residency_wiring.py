@@ -52,6 +52,11 @@ _URA = pathlib.Path(__file__).resolve().parents[2] / "custom_components" / "univ
 OJI = "person.oji_udezue"
 EZ = "person.ezinne_udezue"
 KIOSK = "person.wall_kiosk"
+# Review A-H1 / B-H1 / D HIGH-1: the live install's tracked_persons holds
+# DISPLAY NAMES (integration entry data), never entity ids. Every fixture
+# below uses this production shape, two-word names included.
+OJI_NAME = "Oji Udezue"
+EZ_NAME = "Ezinne Udezue"
 T_SETUP = 1_000_000.0
 
 
@@ -75,7 +80,7 @@ class _FakeDB:
         return 1
 
 
-def _coord(*, tracked=(OJI, EZ), states=None, db=None, loop_tasks=True):
+def _coord(*, tracked=(OJI_NAME, EZ_NAME), states=None, db=None, loop_tasks=True):
     hass = make_hass()
     st = dict(states or {})
     hass.states.get = lambda eid: st.get(eid)
@@ -281,7 +286,7 @@ async def test_residents_home_trust_and_phone_left_behind(monkeypatch):
     overruled = {OJI}
 
     class _PC:
-        tracked_persons = [OJI, EZ]
+        tracked_persons = [OJI_NAME, EZ_NAME]
 
         def effective_person_state(self, pid):
             if pid in overruled:
@@ -312,7 +317,7 @@ async def test_residents_home_resident_set():
     st.update({OJI: State(OJI, "home"), KIOSK: State(KIOSK, "home")})
     hass.states.async_all = MagicMock(return_value=[st[OJI], st[KIOSK]])
     assert coord.get_residents_home() == frozenset({OJI, KIOSK})
-    hass.data[C.DOMAIN]["person_coordinator"] = SimpleNamespace(tracked_persons=[OJI])
+    hass.data[C.DOMAIN]["person_coordinator"] = SimpleNamespace(tracked_persons=[OJI_NAME])
     assert coord.get_residents_home() == frozenset({OJI})
     del hass.data[C.DOMAIN]["person_coordinator"]
     assert coord.get_residents_home() == frozenset()

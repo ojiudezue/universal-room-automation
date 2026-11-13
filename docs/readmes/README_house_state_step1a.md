@@ -14,6 +14,11 @@ lockout uses (one shared function, `arrival_edges.counted_return`). New sensor
 `sensor.ura_presence_coordinator_residents_home`: residents whose trusted state is home, minus anyone whose
 phone-left-behind sensor is on. The house-state sensor gains `residents_home` and `occupancy` attributes.
 `binary_sensor.ura_house_occupied` now reads the same `get_house_occupancy()` getter (same result as before).
+Residents are the person coordinator's `tracked_persons`, which the live install stores as display names
+(`'Oji Udezue'`); each is mapped to its `person.*` id by the person coordinator's own rule
+(`person_coordinator.tracked_person_entity_id`). A resident's arrival stops counting as recent evidence once the same
+person has a later departure. Each edge writes its own row: the 60 s per-type window in `log_memory_episode` is skipped
+for these two types (`window_dedup=False`); a replay of the same edge is still deduplicated on its `source_ref`.
 
 **Garage lockout: house edges no longer release on their own.** While a lockout episode is open, a HOME_* or ARRIVING
 house-state edge releases only when it was an operator override (`override_set` or `override_clear`). Every other such
@@ -34,6 +39,13 @@ Behaviour changes versus v5.108.18:
 - An operator override to ARRIVING with no open episode no longer unlocks a hand-locked lockout.
 - The boot gap page also fires when the episode saw an empty house, not only when the restored house read away or
   arriving.
+- A restart that finds a VACATION lock while the house reads neither vacation nor sleep marks the episode as having
+  seen an empty house, so the boot gap page fires (with a resident home) instead of a silent stay. Vacation has no
+  backstop (review D LOW-2).
+
+Known and accepted (review D LOW-1, plan delta L1, unchanged): a lockout locked by hand while no episode is open has no
+persisted reason, so a restart rebuilds it as `boot_unknown` (sleep-like) and the daytime backstop releases it. The
+trigger is `backstop`, outside the house-edge rule.
 
 **Exterior-person severity.**
 - While the house reads ARRIVING, an exterior-person alert is CRITICAL unless a resident is home or made a counted,
@@ -56,7 +68,8 @@ and no Number entity.
 ## Live validation (to fill after restart)
 
 - **L1:** within 24 h, `memory_episodes` `person_arrival` / `person_departure` rows match the recorder's resident
-  `-> home` / `home ->` edges (each miss explained; note the 60 s per-person dedup in `log_memory_episode`).
+  `-> home` / `home ->` edges, one row per edge (each miss explained; no 60 s window applies to these types). Oji
+  (two-word display name) must have rows.
 - **L2:** the weekly writer-health check shows both types and does not page.
 - **L3:** `sensor.ura_presence_coordinator_residents_home` equals the residents reading home minus any
   phone-left-behind `on`.
@@ -66,6 +79,13 @@ and no Number entity.
   `lock_regime_release` rows with a `house_state:*` trigger other than waking / operator.
 - **L6:** 7 days after deploy, from the `ARRIVING exterior-person severity` INFO lines: every MEDIUM has a resident
   home or a counted arrival within the window.
+
+## Rollback
+
+The store migration is one-way (review B-L2). This release stops writing `garage_arrival_taint`; a lockout episode
+open at the time of a rollback to v5.108.18 loads that taint as False, so an ARRIVING-then-HOME_* edge in that episode
+releases again (the older, laxer rule). New episodes after the rollback behave exactly as v5.108.18. The new
+`garage_episode_saw_empty` key is ignored by v5.108.18. Residency `memory_episodes` rows stay in the DB and are inert.
 
 ## Plan completion
 

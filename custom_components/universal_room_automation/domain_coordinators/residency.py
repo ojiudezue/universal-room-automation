@@ -171,11 +171,19 @@ class ResidencyTracker:
     ) -> ResidencyEvent | None:
         """The newest arrival record within ``within_s`` of ``now_ts`` that
         passes the filters, else None. ``within_s <= 0`` -> None. Records
-        with an unresolved resident set never qualify."""
+        with an unresolved resident set never qualify, and neither does an
+        arrival followed by a later departure of the same person (review
+        A-M1: a geofence bounce is not evidence of a resident home)."""
         if within_s <= 0:
             return None
+        departed_after: set[str] = set()
         for ev in reversed(self.recent):
+            if ev.kind == KIND_DEPARTURE:
+                departed_after.add(ev.person)
+                continue
             if ev.kind != KIND_ARRIVAL or not ev.resident_set_resolved:
+                continue
+            if ev.person in departed_after:
                 continue
             age = now_ts - ev.edge_ts
             if age < 0 or age > within_s:

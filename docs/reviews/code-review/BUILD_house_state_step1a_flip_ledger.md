@@ -100,3 +100,10 @@ tests only passed because their fake claimed a resident at home. Card candidate.
 Pre-existing, order-dependent and unchanged by this build: `test_house_state_attr_unrecorded.py::test_churny_keys_unrecorded`
 and `::test_low_churn_diagnostics_stay_recorded` fail in the same multi-file run on develop 7d826060. Running
 `test_v4714_1_forgotten_phone_hotfix.py` on its own fails at collection on develop too.
+
+## Review fix-up (A-H1/B-H1/D HIGH-1, A-M1, A-M2, B-L1, C-1..C-3, D LOW-2)
+
+| Test | Old | New | How |
+|---|---|---|---|
+| `test_residency_wiring.py` fixture `_coord` default and the `_PC` / resident-set fakes | `tracked_persons` in entity-id form (`person.oji_udezue`), a shape production never has | display names (`"Oji Udezue"`, `"Ezinne Udezue"`), the live integration-entry shape | fixture rule (production shape) |
+| `test_lock_house_edges_axes.py::test_boot_gap_page_on_saw_empty_vacation` (rig3 discriminator) | restored vacation lock, stored flag False, house home_day at boot -> no page | same scenario -> flag set at the boot rebuild, 2 boot-gap pages, no unlock | D LOW-2 behaviour change (operator-requested) |

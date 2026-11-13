@@ -222,7 +222,10 @@ async def test_boot_gap_page_on_saw_empty_vacation():
     """Delta M3: VACATION engaged; vacation -> away (saw-empty); body
     arriving -> home_day ignored; restart with the house restored home_day
     and a resident restored home -> recheck house_edge_ignored and one
-    boot_gap page per lockout. The same restart with the flag False -> none."""
+    boot_gap page per lockout. Fix-up D LOW-2 (flip): the same restart with
+    the stored flag False now pages too, because a restored VACATION lock read
+    in an awake house sets the flag at the boot rebuild (it was a silent stay;
+    vacation has no backstop)."""
     day = datetime(2026, 11, 7, 14, 0, tzinfo=TZ)
     store = DictStore()
     rig1 = await make_rig(start=day, house="away", store=store,
@@ -246,7 +249,8 @@ async def test_boot_gap_page_on_saw_empty_vacation():
     assert rig2.regime.reason == "vacation"
     assert rig2.regime.last_action["decision"] == "house_edge_ignored"
     assert len(nm.of(BOOT_GAP)) == 2
-    # Discriminator: the flag cleared in the store -> no page.
+    # D LOW-2 flip: the flag cleared in the store is re-set at the boot
+    # rebuild for a restored vacation lock in an awake house -> pages.
     data = dict(store.data)
     data["garage_episode_saw_empty"] = False
     rig3 = await make_rig(start=day + timedelta(hours=3), house="home_day",
@@ -254,9 +258,11 @@ async def test_boot_gap_page_on_saw_empty_vacation():
                           persons={EZ: "home", OJI: "not_home"},
                           store=DictStore(data))
     nm3 = install_nm(rig3)
+    assert snap(rig3)["lock_regime_episode_saw_empty"] is True
     await rig3.w.advance(121)
+    assert rig3.unlocks() == []
     assert rig3.regime.last_action["decision"] == "house_edge_ignored"
-    assert nm3.of(BOOT_GAP) == []
+    assert len(nm3.of(BOOT_GAP)) == 2
 
 
 # ============================================================================

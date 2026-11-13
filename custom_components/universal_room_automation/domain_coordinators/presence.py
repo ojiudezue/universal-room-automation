@@ -5234,19 +5234,21 @@ class PresenceCoordinator(BaseCoordinator):
     def _residency_residents(self) -> frozenset | None:
         """Resident person entity ids, or None while unresolved.
 
-        ``PersonTrackingCoordinator.tracked_persons`` (entity-id form); a
-        person coordinator that is up with an EMPTY list -> every
-        ``person.*``; no person coordinator yet -> None (unresolved).
+        ``PersonTrackingCoordinator.tracked_persons`` holds display names on
+        the live install (``'Oji Udezue'``); each entry is mapped by the
+        person coordinator's own rule (``tracked_person_entity_id``,
+        review A-H1 / B-H1 / D HIGH-1). A person coordinator that is up
+        with an EMPTY list -> every ``person.*``; no person coordinator
+        yet -> None (unresolved).
         """
         pc = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
         if pc is None:
             return None
         tracked = list(getattr(pc, "tracked_persons", None) or [])
         if tracked:
-            return frozenset(
-                str(p) if str(p).startswith("person.") else f"person.{p}"
-                for p in tracked
-            )
+            from ..person_coordinator import tracked_person_entity_id  # noqa: PLC0415
+
+            return frozenset(tracked_person_entity_id(p) for p in tracked)
         return frozenset(
             st.entity_id
             for st in self.hass.states.async_all()
@@ -5325,6 +5327,10 @@ class PresenceCoordinator(BaseCoordinator):
                     source_ref=f"{record.person}@{record.edge_ts}",
                     started_at=ts_iso,
                     ended_at=ts_iso,
+                    # Review A-M2: one row per raw edge; dedup on the
+                    # per-edge source_ref, never the 60 s type window.
+                    window_dedup=False,
+                    dedup_source_ref=True,
                 )
             except Exception:  # noqa: BLE001 — observational only
                 _LOGGER.debug("Residency: memory row failed", exc_info=True)
@@ -9147,11 +9153,10 @@ class PresenceCoordinator(BaseCoordinator):
 
     async def async_teardown(self) -> None:
         """Tear down the Presence Coordinator."""
-        # HOUSE-STATE step 1a D2: residency rows (flag first, bounded gather).
-        try:
-            await self._async_teardown_residency()
-        except Exception:  # noqa: BLE001
-            _LOGGER.debug("residency teardown failed", exc_info=True)
+        # HOUSE-STATE step 1a D2: residency flag first (no new row task from
+        # here on); the bounded gather runs at the END (review B-L1), so a
+        # slow write queue never delays the timer / listener cancels below.
+        self._residency_torn_down = True
         # Fan-noise review A-M2/B-2: pending held-belief decay timers.
         _cancel_fan_belief_decay(self)
         # FACE-ARRIVAL-REBUILD-1 D1: sighting producer (listeners, census
@@ -9283,6 +9288,13 @@ class PresenceCoordinator(BaseCoordinator):
             self._routine_forecaster = None
 
         self._cancel_listeners()
+
+        # HOUSE-STATE step 1a D2 (review B-L1): in-flight residency rows,
+        # bounded gather, after every cancel above.
+        try:
+            await self._async_teardown_residency()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("residency teardown failed", exc_info=True)
 
         # Save anomaly baselines
         if self.anomaly_detector is not None:

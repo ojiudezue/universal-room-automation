@@ -735,10 +735,14 @@ class LockRegimeController:
                 restored if restored in _PERSISTED_REASONS else REASON_BOOT_UNKNOWN
             )
             self._reason_from_store = self.reason != REASON_BOOT_UNKNOWN
-            if house in ("away", "arriving"):
+            if house in ("away", "arriving") or self.reason == REASON_VACATION:
                 # H2 / F5: a lock found locked while the house reads empty or
                 # arriving is an excursion the regime may never see an edge of
                 # (step 1a D4 item 5: a page condition, never a release).
+                # Review D LOW-2: a restored VACATION lock read in a house that
+                # is neither vacation nor sleep (this branch) left vacation
+                # unseen; mark it so the boot gap page can fire instead of a
+                # silent stay (vacation has no backstop).
                 self._episode_saw_empty = True
                 self._save_store()
         self._record("boot_rebuild", trigger=f"boot:{house}", written=[])

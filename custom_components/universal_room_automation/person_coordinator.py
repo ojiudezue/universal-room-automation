@@ -127,6 +127,20 @@ def _stamp(status: str, location: str, confidence: float,
     }
 
 
+def tracked_person_entity_id(name: Any) -> str:
+    """``person.*`` entity id for one ``tracked_persons`` entry.
+
+    Same rule as ``_async_update_data`` (``person.`` + name lowercased with
+    spaces as ``_``): ``tracked_persons`` holds display names on the live
+    install (``'Oji Udezue'`` -> ``person.oji_udezue``). An entry that is
+    already a ``person.*`` id is kept as is.
+    """
+    s = str(name)
+    if s.startswith("person."):
+        return s
+    return f"person.{s.lower().replace(' ', '_')}"
+
+
 def person_state_for_trust(hass, person_entity_id: str) -> str | None:
     """Person state for trust readers (PERSON-BLE-WINS-OVER-STALE-GPS-1 §6b).
 
