@@ -6,6 +6,14 @@ VISION-CROSSING-ANALYSIS-1, PHONE-LEFT-BEHIND-CAMERA-LEG-1, DEPARTURE-ACTIONS-1.
 PERSON-PROFILE-PREFERENCES-1, FRIGATE-DOOR-FACE-TUNING-1, EGRESS-IDENTITY-JOIN-GAP-1 (egress producer, shipped),
 HVAC-PRECOOL-STANDDOWN-WHEN-COOL-1 (sibling). File renamed with `git mv` from `PLANNING_face_arrival_rebuild.md`.
 
+**Rev 11, 2026-11-12, ura-planner. BUILD-READY PHASE 1.** Applies every finding of
+`docs/reviews/code-review/PLAN_person_sighting_layer_review_rev10_phase1.md` (FIX-PLAN, 0 H / 7 M / 13 L) and the
+operator's last camera-map answers (patio and Study B are egress, Garage B is detached; D7, config side on card
+**EGRESS-CONFIG-PATIO-STUDYB-1**). Develop merged (fixture answers, the new card, HVAC state of play and manual marked
+shipped). New §9A is the Phase 1 build brief: per deliverable, the production caller, the wire-in anchor test, the red
+drill and the live check. Where any rev-9/rev-10 text below disagrees with §0A, §9 D-sections or §9A, those win; every
+known stale line has been struck or relabelled **(Phase 2)**. Rev-11 changelog: §24.
+
 **Rev 10, 2026-11-12, ura-planner. The plan is now TWO PHASES (§0A).** Phase 1 is built now and ships the
 operator-approved arc complete: D0 probes (incl. P7 data collection), D8a persisted egress outcome log, D3 access gates
 with the shared camera-derived source set, D1 sightings, D4 trip-wires, D2 interior arrival rule + HVAC face counter
@@ -223,7 +231,10 @@ subscriptions and `path_score` on the bus, sighting source (c'), the D2 egress b
 
 **Phase 2 gate (its own go decision, its own Tier-3 plan reviews before build):** (a) the D8a log covers >= 28 days;
 (b) the operator has reviewed the weekly labels (§7 P7); (c) the P7 go rules in §7 pass. Fail = Phase 2 stays parked
-with the triggers in §7 P7. Phase 2's design (§2B) is kept and already carries every rev-9 fix (§2B.7) so a later
+with the triggers in §7 P7. **Honest timing (rev 11, review L10):** (a) is satisfied at day 28, but the Wilson rule needs
+n >= 10 operator-reviewed confirmations, and P7's own floor is about 1 would-be candidate a week. So the realistic
+earliest decision is about 10 weeks after the D8a ship, longer if weeks are missed or candidates are rarer. The board
+must not expect a day-28 decision; at day 28 the only possible outcome is "not judged, keep logging" unless n >= 10. Phase 2's design (§2B) is kept and already carries every rev-9 fix (§2B.7) so a later
 build starts from a reviewed text.
 
 **Phase 1 build order (each step a ship; every dependency ships before its user).**
@@ -231,14 +242,17 @@ build starts from a reviewed text.
 | Step | Deliverable | Depends on | Why here |
 |---|---|---|---|
 | 1 | D0 (P1-P5; P7 baseline replay over 7 days of recorder) | nothing | read-only gate |
-| 2 | D8a outcome log + `EgressResolution` channel + pure tier helper + weekly labeller | nothing | starts the 28-day P7 clock |
+| 2 | D8a outcome log + `EgressResolution` channel (`_resolve_egress_face_identity_ex`, old name a thin wrapper) + module-level pure tier helper + memory-writer trip-wire registration + weekly labeller (snapshots raw G2/G3 inputs) + recurring board card | nothing | starts the P7 clock |
 | 3 | D3 access gates: `CAMERA_DERIVED_ARRIVAL_SOURCES` = {camera_face, camera_egress}, lock `:1017` and security `:2412-2419` by membership, `face_input_corroborated`, unknown fails closed | nothing | before any new arrival emitter (completeness M1) |
 | 4 | D1 sightings + `canonical_camera_key` + `resolve_pick_to_fusions` + accessor + `identity_provenance` key + provenance consts; D4 diagnostics and the zero-fire trip-wire in the same ship | D3 (D1 emits nothing access-relevant, but D2 follows) | a new producer ships with its trip-wire |
 | 5 | D2 interior arrival rule (flag False) + HVAC face counter fix; D5 retire v3.19 + docs; D6 real-hass test | D1, D3 | replaces the dead producer in one ship |
-| 6 | D7 interior path map (shared loader helper, `interior_paths.py` + scorer, reload button, provenance) | D1 (`canonical_camera_key`) | build-prediction M1 |
+| 6 | D7 interior path map (pinning test on develop first, then shared loader helper, `interior_paths.py` + scorer, reload button, provenance, re-validation on options/registry change) | D1 (`canonical_camera_key`) | build-prediction M1 |
 
 The orchestrator's labels map as: "D3/D4 security gate + shared set" = plan D3; "D6 zero-fire trip-wire" = plan D4
 §3.5 (plan D6 is the real-hass test, also Phase 1).
+
+**Build brief:** §9A lists, per Phase 1 deliverable, the production caller, wire-in anchor test, red drill and live
+check. A deliverable is "actually complete" only when all four exist and the drill was run red then restored.
 
 **Phase 1 falsifiable invariants:** INV-ACCESS, INV-PRODUCER, INV-PROVENANCE, INV-NOOP (Phase 1 form, §2) and INV-LOG
 (§2). INV-PROVISIONAL, INV-CANDIDATE and INV-CENSUS-HOME are Phase 2 invariants; in Phase 1 they hold trivially
@@ -704,7 +718,7 @@ Today direction = the closest interior-neighbour edge within +45 s (entry) or �
 | Phone-left-behind | `binary_sensor.py:2196-2218` | Unaffected (store written from camera attributes) | None (PHONE-LEFT-BEHIND-CAMERA-LEG-1) |
 | Exit backfill | `camera_census._backfill_exit_identity` | Unaffected: it queries `direction = 'exit'` (default of the extended DAO) | None |
 | Sightings | §3.2 | Candidate: none at the crossing. Confirmation: one `egress_entry` sighting, `identity_role = arrival_confirmed` | Source (c') |
-| HVAC | `hvac.py:7231` source filter; `hvac.py:1436` option read; default `hvac_const.py:350` | Without a change HVAC drops every `camera_egress` arrival (build H1, completeness H1) | D8a adds `camera_egress` to the default, the selector and the stored option (migration) |
+| HVAC | `hvac.py:7231` source filter; `hvac.py:1436` option read; default `hvac_const.py:350` | Without a change HVAC drops every `camera_egress` arrival (build H1, completeness H1) | **(Phase 2, D8b; rev 11 relabel)** D8b adds `camera_egress` to the default, the selector and the stored option (migration). Phase 1 changes none of these |
 | Access (lock regime, security, disarm) | §3.4 | Only through D2 -> `SIGNAL_PERSON_ARRIVING(camera_egress)`, which needs `face_input_corroborated` | `camera_egress` in `CAMERA_DERIVED_ARRIVAL_SOURCES` |
 | Outcome log (new) | §9 D8a | One memory_episodes row per resolution, switch on or off | New writer |
 
@@ -716,7 +730,7 @@ Today direction = the closest interior-neighbour edge within +45 s (entry) or �
   discriminator: a tracker-confirmed candidate reads `home` -> `home` skip (geofence already dispatched); a
   BLE-confirmed one is skipped `arrival_already_dispatched` (§2B.7); only a GPS-confirmed candidate before any
   geofence/ble arrival dispatches.
-- **HVAC must accept it (both H1).** D8a adds `camera_egress` to `DEFAULT_PRE_ARRIVAL_SOURCES` (`hvac_const.py:350`),
+- **HVAC must accept it (both H1; Phase 2, D8b; rev 11 relabel, NOT D8a).** D8b adds `camera_egress` to `DEFAULT_PRE_ARRIVAL_SOURCES` (`hvac_const.py:350`),
   to the options selector (`config_flow.py:8192-8201`, label "Camera at a door (confirmed arrival)"), and migrates the
   live CM option (`pre_arrival_sources = ['geofence', 'ble', 'camera_face']`, read 2026-11-12) once: append
   `camera_egress` when the stored list contains `camera_face` and lacks it (an operator who removed `camera_face` keeps
@@ -746,11 +760,24 @@ garage-lockout release (`SecurityLockRegime._release`), away-lock unlock (`_away
 disarm (`SecurityCoordinator.handle_disarm`, `security.py:2472`).
 
 - "Camera-derived input" = a `PersonSighting`, or a `SIGNAL_PERSON_ARRIVING` whose `source` is a member of
-  `CAMERA_DERIVED_ARRIVAL_SOURCES` (rung-1 frozenset in `const.py`; **`{"camera_face", "camera_egress"}` from D8a on**,
-  rev 9 M6; a future `camera_vision` / `interior_track` source is added there, once). Rev 4 (M5): the lock regime
-  (`security_lock_regime.py:1017`, today a literal `== "camera_face"`) and the security gate (§3.4) both test
-  membership in this set. A source string that is in neither the set nor the known non-camera set (`geofence`, `ble`)
-  is treated as camera-derived (fail closed): pinned by `test_unknown_arrival_source_requires_corroboration`.
+  `CAMERA_DERIVED_ARRIVAL_SOURCES` (rung-1 frozenset in `const.py`; **`{"camera_face", "camera_egress"}` from D3 on**
+  (rev 11: D3 is its one home; no other deliverable defines it); a future `camera_vision` / `interior_track` source is
+  added there, once). Rev 4 (M5): the lock regime (`security_lock_regime.py:1017`, today a literal `== "camera_face"`)
+  and the security gate (§3.4) both test membership in this set.
+- **Source classification (rev 11, review M1/L12), one helper used by both gates:**
+  `arrival_source_needs_corroboration(source) -> bool`:
+  - `source is None` (key missing) -> **False: today's behaviour, not camera-derived.** Develop treats a missing source
+    as non-face (`security_lock_regime.py:1006-1009` reads `payload.get("source")`), production always sends one
+    (`presence.py:5297`, `person_coordinator.py:1132`), about 20 existing tests dispatch with no source, and the presence
+    doc §1 says missing source is unchanged. Those tests and that doc line stay unchanged. Pinned by the existing
+    `test_lock_face_arrival_corroboration.py::test_non_face_sources_release_without_corroboration[None]` plus new
+    `test_face_access_invariant.py::test_missing_source_is_not_camera_derived`.
+  - `source in NON_CAMERA_ARRIVAL_SOURCES` (NEW rung-1 const next to the set, `frozenset({"geofence", "ble"})`) -> False.
+  - `source in CAMERA_DERIVED_ARRIVAL_SOURCES` -> True.
+  - any other string (e.g. `"camera_vision"`, `""`) -> True (fail closed): pinned by
+    `test_unknown_arrival_source_requires_corroboration`.
+  Named residual: a future producer that forgets to set `source` is treated as non-camera. Every camera-derived producer
+  sets `source` (D2 is the only one in Phase 1, pinned by `test_d2_dispatch_carries_camera_face_source`).
 - Such an action needs an independent non-face arrival edge for the SAME person per
   `arrival_edges.nonface_arrival_source`, within `PERIMETER_EGRESS_FACE_NONFACE_WINDOW_S` (120 s), outside the boot
   exclusion, **as judged by the lock regime's `face_input_corroborated`**. No lock regime (None, torn down, setup
@@ -786,14 +813,13 @@ dispatches they see on develop today (zero `camera_face`), no new listener or ce
 only producer-side changes outside presence are the additive egress bus key and the explicit face provenance write
 (both value-identical for existing readers). Rev 4 (L5): the census post-sentinel ring (§3.5) is gated on
 `FACE_SIGHTING_ENABLED`; with it False the ring is not created or appended.
+**(Phase 2 form, D8b; rev 11 relabel: not a Phase 1 requirement; Phase 1 uses the "Phase 1 form" paragraph below.)**
 **Rev 9 (build M4), `EGRESS_IDENTITY_DIRECTION_AWARE = False`:** the outcome deque label, every column of the DB row,
 the notification title, the census register/evict calls and the bus dict are byte-identical to develop, except two
 switch-independent additions: D1's `identity_provenance` bus key, and D8a's outcome-log memory_episodes row (own kill
 switch `EGRESS_OUTCOME_LOG_PERSIST`). The keys `identity_role`, `candidate_person_id`, `identity_guards`, `path_score`
-are ABSENT; no path-node subscription is registered; no path score is computed; no waiter is created. D8a's other
-switch-independent changes are inert on behaviour: the HVAC source option gains `camera_egress` (no producer dispatches
-it while the egress branch is off), and the attach-rate set `EGRESS_OUTCOMES_ATTACHED` equals `{"attached"}` in effect
-because `departure_candidate` cannot occur. The golden replay (`test_switch_off_golden_replay`) compares the full bus
+are ABSENT; no path-node subscription is registered; no path score is computed; no waiter is created. (Rev 11: the
+HVAC source option and `EGRESS_OUTCOMES_ATTACHED` are D8b changes, not D8a; in Phase 1 neither exists.) The golden replay (`test_switch_off_golden_replay`) compares the full bus
 dict minus `identity_provenance`, the DB row, the outcome label and the notification title, over a fixture that MUST
 contain entry x {home, not_home, named zone, unknown} and exit x {home, not_home, named zone}.
 **Switch-on deltas (declared, not violations):** entry + zone -> provisional candidate; exit + zone -> vetoed (no evict);
@@ -807,8 +833,10 @@ memory_episodes row per resolution. The pure tier helper has no side effects; th
 same helper for its arithmetic and keeps its stash and ledger append in place. Golden `test_switch_off_golden_replay`
 fixture includes a vetoed 0.75 crossing and a vetoed synthetic 0.9 crossing.
 
-**INV-LOG (rev 10, Phase 1).** Every call of `_resolve_egress_face_identity` yields exactly one outcome record, on
-every return path (no legs, abstain, disagree, ambiguous, vetoed, attached), slug None when there is none; no decision
+**INV-LOG (rev 10, Phase 1).** Every call of `_resolve_egress_face_identity_ex` yields exactly one outcome record, on
+every return path (no legs, abstain, disagree, ambiguous, vetoed, attached, and (rev 11, L1) `census_unavailable` for the
+`census is None` return at `transit_validator.py:1398-1399` and `resolver_error` for the defensive `except` at
+`:1412-1413`), slug None when there is none; after `async_teardown` no record is written (`_torn_down` guard, L3); no decision
 reads the record or the row. Falsifier: a resolution with zero rows or two rows (switch on), or any output above that
 changes with the log on vs off.
 
@@ -972,7 +1000,10 @@ Source (b) subscriptions are re-made to match the new bindings (old unsubs dropp
 **Dispatch.** Sightings are dispatched regardless of Presence observation mode (M4): they drive no action, only the
 D2 adapter (which is gated) and diagnostics. Tracker display fields (F11): for each zone in `house_zones`, set the
 tracker's `_last_face_recognized` (slug) and `_last_face_time` (ts), so `sensor.py:5979-5981` and
-`presence.py:1031-1032` keep working.
+`presence.py:1031-1032` keep working. **Rev 11 (L7):** `_last_face_time` stays a `datetime` (`presence.py:1032` and
+`sensor.py:5988` call `.isoformat()`); an epoch `ts` is converted with `dt_util.utc_from_timestamp`. Declared display
+change: `_last_face_recognized` now holds the person slug, not the raw Frigate name. Test
+`test_person_sighting.py::test_tracker_face_fields_updated` asserts the type and the slug.
 
 **Removal.** The v3.19 face branch of `_handle_camera_change` (`:5478-5481`), `_get_face_for_camera`,
 `_handle_face_arrival` and `_find_person_entity_from_face` are removed. The tracker camera-occupancy routing
@@ -1026,9 +1057,9 @@ FACE-SIGHTING-CONSUMERS-1 names it as the required gate.
 
 | Consumer | Class | Policy for `source in CAMERA_DERIVED_ARRIVAL_SOURCES` (rev 4, M5) | Change |
 |---|---|---|---|
-| `hvac._handle_person_arriving` `:7212` | comfort | Face alone OK, filtered by `pre_arrival_sources` (`hvac.py:7231`). Interior class (i) and confirmed egress arrivals reach it. | Rev 9 (both H1): `camera_egress` added to `DEFAULT_PRE_ARRIVAL_SOURCES`, the selector and the stored option (D8a migration); no logic change. Episode guard `pre_arrival_spent` bounds repeats. |
+| `hvac._handle_person_arriving` `:7222` (subscribed `:1510-1513`; rev 11 re-grep, L8) | comfort | Face alone OK, filtered by `pre_arrival_sources` (`hvac.py:7231`). Phase 1: interior class (i) only. | Phase 1: none. **(Phase 2, D8b):** `camera_egress` added to `DEFAULT_PRE_ARRIVAL_SOURCES`, the selector and the stored option (migration); no logic change. Episode guard `pre_arrival_spent` bounds repeats. |
 | `security_lock_regime.on_person_arriving` `:996` | access (unlock / lockout release) | Unchanged rule: `_face_arrival_corroborated` + the held re-check + the suspicious-arrival hold drop in `_apply_arrival`. | Rev 4 (M5): the literal `source == "camera_face"` at `:1017` becomes membership in `CAMERA_DERIVED_ARRIVAL_SOURCES` (byte-identical today, set = `{"camera_face"}`), unknown sources fail closed. Tests. |
-| `security._handle_person_arriving_signal` -> `add_expected_arrival` `:2412-2419` | access (alarm suppression) | Accept only if `self._lock_regime is not None and self._lock_regime.face_input_corroborated(person, sighting.ts)`. Lock regime None -> reject (fail closed). **No held re-check:** a face whose edge comes later is rejected for good (asymmetric with the lock regime by design; a late edge produces its own geofence/ble arrival, which security handles normally). Here the non-face edge, not the face, is what suppresses. | **Code change.** Closes the latent leak (toggle on + face-only arrival sanctions every door for 5 min). |
+| `security._handle_person_arriving_signal` -> `add_expected_arrival` `:2412-2419` | access (alarm suppression) | For a source where `arrival_source_needs_corroboration(source)` (§2): accept only if `self._lock_regime is not None and self._lock_regime.face_input_corroborated(person, at_ts)`, with `at_ts = sighting.ts` when the payload carries a sighting, else `time.time()` (rev 11, L9: same epoch clock as the lock regime's `_ts()`, `security_lock_regime.py:416-417`, and its own default at `:1373`). Lock regime None -> reject (fail closed). **No held re-check:** a face whose edge comes later is rejected for good (asymmetric with the lock regime by design; a late edge produces its own geofence/ble arrival, which security handles normally). Here the non-face edge, not the face, is what suppresses. | **Code change.** Closes the latent leak (toggle on + face-only arrival sanctions every door for 5 min). |
 | `music_following._handle_person_arriving` `:549` | personalization | Face OK (logs). | None. |
 | Disarm | access | No arrival consumer disarms (`handle_disarm` callers: `security.py:1452` auto-follow on house state; service `__init__.py:6595`). | Test pins no face path reaches it. |
 
@@ -1054,7 +1085,10 @@ census (only when `FACE_SIGHTING_ENABLED`, rev 4 L5) appends `(now, camname, fro
 `_frigate_face_named_ring` (`deque(maxlen=FACE_SIGHTING_BRIDGE_RING_MAX)`), independent of any presence callback.
 Presence's trip-wire computes, over the trailing window: denominator = ring entries whose name maps to a tracked
 resident (census mapper) AND whose stems join a resolved pick; numerator = interior sightings emitted. Unknown names,
-unmapped names and unpicked cameras do not count.
+unmapped names and unpicked cameras do not count. **Rev 11 (L5):** each ring entry records `suppressed =
+census._face_suppressed_now()` at append time, and suppressed entries are excluded from the denominator, so a face drill
+or a not-live producer judgement (when the producer correctly emits nothing) never pages. Test
+`test_face_sighting_tripwire.py::test_suppressed_faces_silent`.
 
 - **`face_sighting_zero` (HIGH):** one `fire_stuck_signal` NM when denominator ≥ `FACE_SIGHTING_ZERO_MIN_FACES` and
   numerator = 0 over `FACE_SIGHTING_ZERO_WINDOW_H`. RAM latch, re-armed when sightings resume. This is the v3.19
@@ -1145,7 +1179,8 @@ review.
 | `FACE_SIGHTING_ENABLED` | True | 1 | Kill switch for the whole producer. False = INV-NOOP. |
 | `FACE_SIGHTING_DEBOUNCE_S` | 60 | 1 | Fixed window per (slug, physical_camera). 0 = no debounce. |
 | Boot exclusion | REUSE `PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S` (600, `const.py:2679`), as one `ts < boot_end` check on sources a/b/c (rev 4 L3/M3) | 1 | Rev 3: no second boot constant. Same cause (HA restore stamps `last_changed` at boot) as the arrival-edge rule. The builder adds this module to the coupling comment at `const.py:2675`. 0 = off. |
-| `CAMERA_DERIVED_ARRIVAL_SOURCES` | `frozenset({"camera_face", "camera_egress"})` from D8a (was `{"camera_face"}`) | 1 | Rev 4 (M5). The one set the lock regime and the security gate test by membership. Not a kill switch; adding a source here is the only way a new camera-derived source is recognised (unknown sources fail closed regardless). |
+| `CAMERA_DERIVED_ARRIVAL_SOURCES` | `frozenset({"camera_face", "camera_egress"})`, defined once, in D3 (rev 11) | 1 | Rev 4 (M5). The one set the lock regime and the security gate test by membership. Not a kill switch; adding a source here is the only way a new camera-derived source is recognised (unknown sources fail closed regardless). |
+| `NON_CAMERA_ARRIVAL_SOURCES` (rev 11, L12) | `frozenset({"geofence", "ble"})` | 1 | The known non-camera sources; with a missing source (None, today's behaviour) the only sources that skip corroboration. Vocabulary, not a kill switch. Defined in D3 next to the set above. |
 | `FACE_SIGHTING_PICK_RERESOLVE_S` | 300 | 1 | Retry period while any pick is unresolved. 0 = only the event triggers. |
 | `FACE_SIGHTING_BRIDGE_RING_MAX` | 2000 | 1 | Bound on the trip-wire denominator ring (≈ 2 days at measured rates). |
 | `FACE_ARRIVAL_INTERIOR_ENABLED` | False until D0-P3 passes | 1 | Interior class (i) arrivals. False = sightings only. |
@@ -1168,10 +1203,11 @@ review.
 | `EGRESS_ARRIVAL_MAX_PENDING` (rev 9) | 8 | 1 | Waiter cap; beyond it a candidate gets no waiter. |
 | `EGRESS_PATH_BUFFER_S` (rev 9) | 180 | 1 | Horizon of the `_path_events` list (exterior and other path nodes). |
 | `EGRESS_PATH_HOP_DEFAULT_WINDOW_S` (rev 9) | 30 | 1 | Window for a map edge with no measured `lag_p90_s`. |
-| `EGRESS_OUTCOME_LOG_PERSIST` (rev 9) | True | 1 | D8a outcome log. False = no row. |
-| `EGRESS_OUTCOMES_ATTACHED` (rev 9) | `{"attached", "departure_candidate"}` | 1 | Vocabulary, not a knob: which outcomes count as attached. |
+| `EGRESS_OUTCOME_LOG_PERSIST` (rev 9) | True | 1 | D8a outcome log. False = no row. Flipping it False is a reviewed change that, in the same commit, moves `egress_identity_outcome` into `MEMORY_WRITER_HEALTH_EXEMPT_TYPES` with a reason (rev 11, M7); a const-equality test pins the pairing. |
+| `EGRESS_OUTCOMES_ATTACHED` (rev 9; **Phase 2, D8b**) | `{"attached", "departure_candidate"}` | 1 | Vocabulary, not a knob: which outcomes count as attached. |
 | `FACE_ARRIVAL_EGRESS_ENABLED` (rev 8) | False until D0-P7 passes | 1 | Confirmed candidate -> `SIGNAL_PERSON_ARRIVING(camera_egress)`. False = labels, notifications, sightings only. |
 | `pre_arrival_sources` default (rev 9) | REUSE `DEFAULT_PRE_ARRIVAL_SOURCES` + `"camera_egress"` (`hvac_const.py:350`) | 2 | Operator-owned per install; the live option is migrated once. Unticking it = HVAC ignores egress arrivals. |
+| `INTERIOR_PATH_MAP_REVALIDATE_DEBOUNCE_S` (rev 11, M5) | 30 | 1 | Debounce of the registry-update re-validation of the path map. 0 = re-validate on every registry event. |
 | Path map (D7, rev 9) | file `interior_paths.json` primary, const `INTERIOR_PATH_MAP_FALLBACK` fallback; learned map = offline report only | 2 (operator file) / 1 (const) | House-specific data. Invalid source = no map (G2 skipped), never partial. No file and no resolvable const = no map. |
 | Picks | REUSE `zone_cameras` | 2 | Operator-owned. |
 | Aliases | REUSE `face_name_aliases` | 2 | Optional; the census mapper already handles unique first names. |
@@ -1259,10 +1295,25 @@ the URA DB and the registry. The report goes into this doc as §7.1 before build
     (read-only, `ssh ha "python3 -"`), reads that week's outcome-log rows, labels each would-be candidate from tracker
     edges, Bermuda moves and GPS fixes (recorder, still inside retention) plus `person_presence_snapshots` and
     activity-log `pre_arrival` rows (URA DB), replays the Phase 2 confirmation rule INCLUDING the §2B.7 abstain rules,
-    and appends to `quality/tests/fixtures/egress_arrival_d0_labelled.json`. The operator reviews that week's `mis` labels
+    and appends to `quality/tests/fixtures/egress_arrival_d0_labelled.json`. **Rev 11 (M6): the run also snapshots the
+    raw guard inputs into each would-be candidate's fixture row, because the recorder drops them after 7 days and the G2
+    scorer and ratified map only arrive at step 6:** (1) every person-edge timestamp (`on` and `off`) on every camera
+    that could be a path node for that door (all cameras in `FIXTURE_camera_paths_interior.md` plus the live
+    `door_interior_neighbours` and perimeter cameras) over the §2B.4 horizon before the crossing
+    (`EGRESS_PATH_BUFFER_S`, 180 s) and the 75 s after; (2) for each of the person's `device_tracker` entities with
+    `source_type == gps`, every state in [crossing − `EGRESS_ARRIVAL_GPS_MAX_AGE_S`, crossing + 600 s] as
+    (lat, lon, gps_accuracy, `last_updated`, `last_changed`). That lets G2 (shared scorer, once D7 ships) and G3 (both
+    timestamps) be replayed at any later date. Schema version field `raw_inputs_v: 1` on each row; test
+    `test_egress_label_weekly.py::test_row_carries_raw_path_and_gps_inputs` runs the labeller's pure functions over a
+    canned recorder extract. The operator reviews that week's `mis` labels
     and every replayed confirmation while the crossing snapshots still exist. The auto-label "a non-face edge follows
     within 10 min" IS the confirmation rule, so it cannot measure the rule's precision; the Wilson n counts only
-    operator-reviewed confirmations. A missed week is a gap in n, never back-filled from memory.
+    operator-reviewed confirmations. A missed week is a gap in n, never back-filled from memory. **Forcing hook (rev 11,
+    M7):** a recurring board card **EGRESS-OUTCOME-WEEKLY-LABEL-1** (status `planned`, recurring, swept at session start
+    by the ura-kanban protocol): each sweep runs the labeller if the last run is >= 7 days old, records the run date and
+    row count on the card, and pages the operator (NM) for the review. Missed weeks are recorded on the card, not
+    hidden. During operator travel the agent still runs the labeller (read-only) so the raw inputs are saved; only the
+    review waits, and the snapshots keep the review possible after the recorder expires.
   - Before Phase 2 there are no candidates: "confirmed" in these rules means "the replayed rule would have confirmed".
   - Fail = switches stay False, numbers recorded, triggers "door face recognition rate doubles after
     FRIGATE-DOOR-FACE-TUNING-1" and "the outcome log shows >= 1 confirmed candidate a week".
@@ -1291,8 +1342,8 @@ Fixture: P3 output hand-labelled for ~20 events (operator or BLE ground truth), 
 - No change to the egress producer's windows, abstain/disagree rules, BLE branches, `base_stem` predicate or exit
   backfill. **Exceptions:** the additive `identity_provenance` bus key (F2); and (rev 8) the direction-aware rule that
   replaces the face-only veto (§2B.2), the guards (§2B.3), `path_score` (§2B.4), provisional candidates and their
-  confirmation (§2B.3a), all behind `EGRESS_IDENTITY_DIRECTION_AWARE`; and (rev 9, switch-independent) the outcome
-  log, the HVAC source option and the attach-label set (D8a).
+  confirmation (§2B.3a), all behind `EGRESS_IDENTITY_DIRECTION_AWARE` (Phase 2); and the outcome log (D8a, Phase 1,
+  switch-independent). Rev 11: the HVAC source option and the attach-label set are Phase 2 (D8b), not D8a.
 - (rev 9) No change to `door_interior_neighbours`, its validator or its four readers; no runtime-learned path map; no
   change to perimeter D10.5 code; no DB schema change (the outcome log uses memory_episodes; confirmation uses the
   existing backfill UPDATE).
@@ -1373,9 +1424,9 @@ Fixture: P3 output hand-labelled for ~20 events (operator or BLE ground truth), 
 **Rev 10 (Phase 1):** D2 ships the interior branch only. Rule 2's egress branch, `FACE_ARRIVAL_EGRESS_ENABLED` and
 the `camera_egress` source are Phase 2 (D8b). In Phase 1 every egress sighting is skipped `not_arrival_role`.
 - **Verify:**
-  - Egress sightings dispatch `SIGNAL_PERSON_ARRIVING` only as `camera_egress` for an `arrival_confirmed` sighting with
-    `FACE_ARRIVAL_EGRESS_ENABLED` (rev 9, D8b), subject to rules 3-6 at confirmation; every other egress sighting never
-    dispatches.
+  - (Rev 11, M3: the `camera_egress` bullet moved to D8b.) Every egress sighting is skipped `not_arrival_role`; Phase 1
+    contains no code that can dispatch `source="camera_egress"` (grep `camera_egress` in production code finds only the
+    D3 set).
   - With `FACE_ARRIVAL_INTERIOR_ENABLED` False (expected default), no `camera_face` arrival at all; skips counted
     `disabled`.
   - When enabled: fixture class (i) dispatches; (ii) is dispatched only if the raw state is a real non-home value
@@ -1387,7 +1438,10 @@ the `camera_egress` source are Phase 2 (D8b). In Phase 1 every egress sighting i
 - **Test:** `test_face_arrival_rule.py::test_fixture_classes`, `::test_home_resident_no_arrival`,
   `::test_phone_already_home_skip`, `::test_unknown_state_fails_closed`, `::test_egress_never_arrival`,
   `::test_observation_mode_suppresses_arrival`, `::test_boot_window_suppresses_arrival`,
-  `::test_arrival_debounce_per_person`, `::test_hvac_counter_matches_compound_zone`, `::test_kill_switch_noop`.
+  `::test_arrival_debounce_per_person`, `::test_hvac_counter_matches_compound_zone` (rev 11, L6: `master_hallway` is in
+  two house zones that both map to HVAC zone_1; the counter rises by 1, once per distinct HVAC zone), `::test_kill_switch_noop`,
+  (rev 11) `::test_d2_dispatch_carries_camera_face_source`, `::test_last_home_edge_written_by_real_person_listener`
+  (L11: driven through the real `person.*` listener, then `test_phone_already_home_skip` reads the written value).
 - **Live:** if interior arrivals ship, `face_arrivals_derived_today` and HVAC `camera_face_arrivals_today` move only
   on events the recorder shows as class (i). If they do not ship, both stay 0 and `face_arrival_skips_by_reason`
   shows `disabled` counts matching sightings.
@@ -1399,7 +1453,8 @@ the `camera_egress` source are Phase 2 (D8b). In Phase 1 every egress sighting i
   - Same with the lock regime None: stays empty (fail closed).
   - With a stamped Bermuda entry-area move or a tracker home edge within 120 s: it adds.
   - A face whose edge arrives after the face: rejected, not re-checked.
-  - geofence/ble arrivals unchanged.
+  - geofence/ble arrivals unchanged; a payload with no `source` key behaves exactly as on develop (rev 11, M1).
+  - A `camera_face` payload with no `sighting` key uses `at_ts = now` (rev 11, L9).
 - **Verify:** the lock regime, with the person really away and no edge, puts an interior camera_face arrival in
   `_pending_faces` (held path) and does not release; with an entry edge it releases.
 - **Test:** `test_security_face_expected_arrival.py::test_face_only_rejected`, `::test_face_with_edge_accepted`,
@@ -1410,7 +1465,10 @@ the `camera_egress` source are Phase 2 (D8b). In Phase 1 every egress sighting i
   `source="camera_vision"` with no edge to both the lock regime and security: no release, no expected arrival),
   `::test_camera_derived_set_used_by_both_gates`, (rev 10, moved from D8a, build M1) `::test_camera_egress_requires_corroboration`
   (the set is `{"camera_face", "camera_egress"}` from this ship, before any emitter of `camera_egress` exists);
-  `test_face_access_invariant.py::test_no_face_path_reaches_disarm`; config extremes: window 0 (never), alias
+  `test_face_access_invariant.py::test_no_face_path_reaches_disarm`, (rev 11) `::test_missing_source_is_not_camera_derived`,
+  `::test_no_sighting_payload_uses_now`, `::test_source_classifier_shared_by_both_gates`; existing
+  `test_lock_face_arrival_corroboration.py::test_non_face_sources_release_without_corroboration` (incl. `None`) and the
+  ~20 no-source dispatch tests pass unchanged; config extremes: window 0 (never), alias
   set/unset, egress 0.9 synthetic (no arrival exists), toggle on with both lock switches on, restart with restored
   face sensors.
 - **Live:** lock `lock_regime_*` snapshot and security `expected_arrivals` show no face-only effect. Any
@@ -1444,9 +1502,32 @@ the `camera_egress` source are Phase 2 (D8b). In Phase 1 every egress sighting i
     never fired;
   - HVAC_ARCHITECTURE_STATE_OF_PLAY: pre-arrival source line, and fix the stale `_handle_person_arriving` cites
     (`hvac.py:4186` / `:1196` -> `:7212` / `:1511`, F9).
+- **Existing tests that call the deleted functions (rev 11, M4).** Each is DELETE (pins a deleted function) or
+  RE-POINT (pins an invariant that must keep holding on the new producer). No test is silently dropped.
+
+  | Test | Disposition |
+  |---|---|
+  | `test_face_source_registry.py::test_presence_face_for_camera_reads_device_face` | DELETE: pins `_get_face_for_camera`; the device ladder is covered by `test_person_sighting.py::test_protect_pick_walks_to_frigate_twin_face` |
+  | `test_face_source_registry.py::test_presence_arrival_flag_default_off_keeps_legacy_skip` | DELETE: pins the retired flag's skip; its replacement is `::test_n_suffix_pick_resolves_without_flag` |
+  | `test_face_source_registry.py::test_presence_bare_camera_unchanged` | DELETE: bare-camera lookup is gone; bare-before-`_N` ordering stays pinned on `face_name_entities_for_device` tests |
+  | `test_face_source_registry.py::test_presence_alias_maps_face_to_person` | RE-POINT to the census mapper: `test_face_source_registry.py::test_census_mapper_alias_maps_face_to_person` (alias set, `_canonical_person_slug` returns the tracked slug) |
+  | `test_identity_fusion_d2_d3_d4.py::test_fs4_presence_get_face_for_camera_gated_under_suppression` | RE-POINT: renamed `::test_fs4_person_sighting_emit_gated_under_suppression`; drives the sighting producer (sources a and b) with `_face_suppressed_now()` True and asserts no `SIGNAL_PERSON_SIGHTING` |
+  | `test_identity_fusion_d2_d3_d4.py::test_fs_all_four_paths_suppressed_under_drill` | RE-POINT: path 4 becomes the `person_sighting` emit; the cross-path invariant ("every face-emission site gates on `_face_suppressed_now()`", `camera_census.py:4458`) now covers the new producer |
+  | `test_face_resolver_migrate.py::test_face_resolver_finds_suffix_only_camera`, `::test_face_resolver_finds_bare_canonical_camera`, `::test_face_resolver_no_sensor_returns_none` | DELETE: drive `PresenceCoordinator._get_face_for_camera`. `::test_real_person_census_exposes_resolve_face_entity_id` is census-side: KEEP unchanged |
+  | `test_d7_donor_hygiene.py` drill table entries naming `test_fs4_presence_get_face_for_camera_gated_under_suppression` (`:733`, `:819`) | RE-POINT the node ids to the renamed test |
+
+- **Supersession triage of `camera_census.face_alias_person_slug` (`camera_census.py:4089`; rev 11, M4).** After D5 its
+  only reader (`presence.py:5663`) is gone. Bucket: **DELETE**, in the D5 commit. Reasons: no use case (the one mapper,
+  `_canonical_person_slug`, already applies aliases through the same `_face_alias_target`), and it is a footgun: a second
+  public name-to-person entry point that skips the mapper's passthrough/ambiguity rules, which is what this plan forbids
+  (§1.2a, one mapper). Its tests in `test_face_source_registry.py` are re-pointed to `_canonical_person_slug` (row
+  above). Manual §4.2's line "(`face_alias_person_slug`, used by `_find_person_entity_from_face`)" is rewritten in the
+  same commit to say aliases are applied only inside `_canonical_person_slug`.
+- **HVAC doc cite (rev 11, L8):** re-grep at build; today `_handle_person_arriving` is `hvac.py:7222`, subscribed
+  `:1510-1513`.
 - **Test:** the authority for D5 is behavioural: `test_person_sighting.py::test_n_suffix_pick_resolves_without_flag`
-  (fails if any `_N` skip returns). `::test_retired_flag_unread` stays as a lint only (L5, Bug Class #62), not counted
-  as test authority.
+  (fails if any `_N` skip returns) and the re-pointed `::test_fs_all_four_paths_suppressed_under_drill`.
+  `::test_retired_flag_unread` stays as a lint only (L5, Bug Class #62), not counted as test authority.
 - **Live:** n/a.
 
 ### D6: Real-HA integration test
@@ -1461,18 +1542,54 @@ Prerequisite of §2B.4. EXTERIOR-SEAM-FILE-LOADER-1 shipped (v5.108.15). D7 ship
 offline diff report. Phase 1 has NO runtime reader of the map; `_path_events` subscriptions and `path_score` on the
 bus are Phase 2.
 
-- **Shared loader helper (rev 10, build M2, completeness L4).** Extract `load_validated_json` (§1.2c) from
-  `async_load_seam_file`; the linker keeps its outcomes exactly (const unvalidated, `validate_fallback=False`) and
-  `test_exterior_seam_loader.py` passes unchanged. D7 calls the same helper with `validate_fallback=True`, owned by
-  `EgressDirectionTracker`. **Four outcomes for the interior map:** (1) file valid -> file map; (2) file absent ->
-  validated const, or `none` if the const does not validate; (3) file invalid at setup -> validated const or `none`;
-  (4) file invalid at reload -> the previous installed map is kept. `path_map_sha256` is the sha of the INSTALLED
-  source (None for const / none), never of a rejected file. Tests `test_four_load_outcomes`,
-  `test_sha_names_installed_source`, `test_seam_loader_unchanged_after_extraction`; drill M42.
-- **Resolver-ready ordering (build L2).** Validator rule 2 (live door groups) and rule 3 (cameras resolve) need a
-  populated `CameraResolver` and the tracker's door groups. The first load runs at the resolver-ready point (after
-  `EVENT_HOMEASSISTANT_STARTED` / the census's first resolver pass), not inside `EgressDirectionTracker` setup at
-  `__init__.py:3471`; until then provenance reads `pending`. Test `test_cold_boot_valid_file_loads_after_resolver_ready`.
+- **Step 0, BEFORE the extraction commit (rev 11, M5): pin the seam's rejected-file sha on develop.** Add
+  `test_exterior_seam_loader.py::test_seam_sha_on_rejected_file_unchanged`: an invalid seam file leaves
+  `seam_file_sha256` = the sha of the REJECTED file's raw bytes (today's behaviour, set before validation at
+  `exterior_track_linker.py:509`) and the const map installed. It lands in its own commit and passes on develop; the
+  extraction commit must keep it green unmodified. Without it, "seam tests pass unchanged" cannot detect a builder who
+  "fixes" the seam to installed-source semantics.
+- **Shared loader helper (rev 10, build M2; signature fixed rev 11, M5).** New module `json_file_loader.py`:
+  ```python
+  @dataclass(frozen=True)
+  class LoadOutcome:
+      status: str            # "loaded" | "absent" | "rejected" | "read_error"
+      raw_sha256: str | None # sha of the bytes read, None if absent/unreadable (set even when rejected)
+      error: str | None      # validation or read error text
+      value: Any | None      # parsed+validated object when status == "loaded"
+
+  async def load_validated_json(
+      hass, path: str, *, parse_validate: Callable[[Any], Any],
+  ) -> LoadOutcome
+  ```
+  The helper only reads (executor), hashes, parses and validates. **It never installs and never falls back.** Each
+  caller decides from the outcome, so setup-vs-reload needs no flag:
+  - Seam caller (`async_load_seam_file`): unchanged behaviour. Its constructor already installs the const
+    (`exterior_track_linker.py:237`); on `loaded` it installs the value; on any other status it keeps what is installed;
+    it assigns `self.seam_file_sha256 = outcome.raw_sha256` on `loaded` and `rejected`, None on `absent` (today's
+    semantics, `:502`, `:509`).
+  - Interior-map caller (`EgressDirectionTracker.async_load_path_map`): at construction it installs `PENDING` (no map,
+    provenance `pending`). Its FIRST load (setup) computes `fallback = validate(INTERIOR_PATH_MAP_FALLBACK)` or `None`
+    and installs: `loaded` -> file map; anything else -> `fallback` (const or none). A LATER load (reload button or
+    re-validation) installs only on `loaded`, otherwise keeps the previous installed map. The setup/reload distinction
+    is the caller's own `self._path_map_loaded_once` flag. `path_map_sha256 = outcome.raw_sha256` only when the file was
+    installed; None for const / none; never a rejected file's sha.
+  - **Four outcomes for the interior map:** (1) file valid -> file map; (2) file absent -> validated const, or `none`;
+    (3) file invalid at setup -> validated const or `none`; (4) file invalid at reload -> previous map kept.
+  Tests `test_interior_paths.py::test_four_load_outcomes`, `::test_sha_names_installed_source`,
+  `test_json_file_loader.py::test_helper_never_installs_or_falls_back`, `test_exterior_seam_loader.py` (all, incl. the
+  step-0 test) unchanged; drill M42, M43.
+- **Resolver-ready hook (build L2; named rev 11, M5).** There is no resolver-ready signal (`grep RESOLVER_READY|
+  resolver_ready` = 0; `CameraIntegrationManager._get_resolver`, `camera_census.py:525`, builds lazily). The first load
+  runs from: `if hass.is_running: schedule now` (an entry reload) `else: hass.bus.async_listen_once(
+  EVENT_HOMEASSISTANT_STARTED, ...)`; the load then calls `census._get_resolver()` itself, which builds the resolver if
+  needed. Not inside `EgressDirectionTracker` setup at `__init__.py:3471`. Until it runs, provenance reads `pending`.
+  Tests `test_cold_boot_valid_file_loads_after_ha_started`, `test_entry_reload_loads_immediately_when_running`.
+- **Re-validation trigger (rev 11, M5; brought into Phase 1).** Whole-file rejection means one camera not yet
+  registered at first load leaves the const or `none`. So Phase 1 re-runs the load (reload semantics, but a const/none
+  installed by setup may be upgraded to the file) on `EVENT_ENTITY_REGISTRY_UPDATED` (debounced
+  `INTERIOR_PATH_MAP_REVALIDATE_DEBOUNCE_S`, 30 s) while the installed source is not the file, and on an egress options
+  update (door groups / egress cameras; the tracker already reloads with the entry). Once the file is installed,
+  registry events do not reload it (the button does). Test `test_registry_update_upgrades_const_to_file`; drill M44.
 
 - **Storage (build H3, completeness H2).** Its own file `/config/universal_room_automation/interior_paths.json`, its
   own HA-free module `interior_paths.py` (parse, validate, score), same contract as `exterior_seams.py`: schema
@@ -1499,7 +1616,10 @@ bus are Phase 2.
   {`approach`, `inward`}, no self edge, no duplicate edge; (5) acyclic per door; (6) each door's edges touch at least one
   live egress camera of that group (else WARN: door unanchored, `skipped`); (7) an `approach` edge's `from` node should
   be a perimeter or exterior-egress camera per the seam file or `perimeter_cameras` (WARN, the operator is the oracle);
-  (8) `lag_p90_s` in (0, `EGRESS_PATH_BUFFER_S`]; (9) `same_view` nodes known.
+  (8) `lag_p90_s` in (0, `EGRESS_PATH_BUFFER_S`]; (9) `same_view` nodes known; (10) (rev 11) a door whose group is
+  marked detached (today: `garage_b`, by name in the const `INTERIOR_PATH_DETACHED_DOORS`, rung 1, until
+  EGRESS-CONFIG-PATIO-STUDYB-1 provides a config attribute) has no `inward` edge to a camera that is an `inward` node
+  of any non-detached door (error).
 - **Loading.** At setup through the loader (executor read), file primary, const `INTERIOR_PATH_MAP_FALLBACK` (rung 1)
   fallback. The const holds this house's ratified map once D0-P4 resolves the names (same status as
   `EXTERIOR_ADJACENCY_GRAPH`); on another install its entity ids do not resolve, the validator rejects it, and there is
@@ -1515,9 +1635,27 @@ bus are Phase 2.
   hallway/stairs -> Stair top -> Game room (= `playroom`) / Upstairs hallway. Front: Front PTZ, Utilities PTZ, Sonoff
   window (driveway) -> {Front door aerial, G6 Entry} (both egress, group front, simultaneous views of one crossing; the
   aerial counts, the G6 is the face camera; their pair never scores) -> Foyer (interior door witness, inward) -> Family
-  room or Master hallway. "Entry way" in the fixture is Front door aerial. Still open: Garage B path, patio egress
-  (§13.4); those doors get no map (`skipped`). The table below is the rev-9 reconciliation; rows marked RESOLVED follow
-  these answers.
+  room or Master hallway. "Entry way" in the fixture is Front door aerial. **Rev 11 (operator, fixture "Operator
+  answers" on develop):**
+  - **Patio is an egress (semi-outdoor vestibule).** Path: outside -> patio covers 1-5 (egress openings) -> patio
+    (patio camera = the egress camera of the patio sliding door) -> sliding door -> Family room (inward). The patio
+    and family room cameras share a view when the slider is open: a `same_view` pair, never a hop.
+  - **Study B outside door is an egress;** its egress camera is the Reolink porch camera above it outside
+    (`reolinkstudybporchptz`). The door rarely opens. Interior side: Study B (no interior camera on the map unless the
+    D0-P4 registry walk finds one).
+  - **Garage B is detached and opens only to itself, never into the house.** Same exterior approach cameras as the
+    garage path, plus one interior camera of its own. Its crossings are garage-B entries/exits, never house entries.
+    The map gives Garage B no `inward` edge into any house camera; validator rule (10) below rejects one.
+  - **Config side is NOT code (config-first):** none of patio, Study B or Garage-B-as-detached is in the live egress
+    options today (live egress cameras: `madrone_g6_entry`, `doorbell_lite`, `front_door_aerial`, `garage_a_2`,
+    `garage_b_2`). Adding the patio camera, slider contact and covers 1-5, the Study B camera and door contact, and
+    marking Garage B detached is the operator options change carried by card **EGRESS-CONFIG-PATIO-STUDYB-1** (Tier 2,
+    agent proposes the exact options, operator applies). D7 is not blocked on it: a door key that is not a live door
+    group is a validator error (rule 2), so the file ships only the doors that are live; patio and Study B doors are
+    added to `interior_paths.json` (file, not code) after that card lands, and get `skipped` until then. **Whether the
+    egress tracker needs code to honour "detached" (e.g. a door-group attribute that suppresses census/house-entry
+    effects for `garage_b`) is that card's first finding; if code is needed it is a separate card, not D7.**
+  The table below is the rev-9 reconciliation; rows marked RESOLVED follow these answers.
 - **Fixture vs live egress config (completeness M5).** Live 2026-11-12: `egress_cameras` = `madrone_g6_entry`,
   `doorbell_lite`, `front_door_aerial`, `garage_a_2`, `garage_b_2`; `door_groups` = doorbell_lite -> garage_a,
   front_door_aerial -> front, garage_a -> garage_a, garage_b -> garage_b, madrone_g6_entry -> front;
@@ -1542,9 +1680,12 @@ bus are Phase 2.
   | Foyer | `foyer_fisheye` | front neighbour, NOT an egress camera | RESOLVED: interior door witness, inward from the front anchors |
   | Master hallway | `master_hallway` | not configured | inward from Foyer |
   | Front door aerial | `front_door_aerial` | egress, group front | RESOLVED: = "Entry way" (row above) |
-  | (absent) Garage B | `garage_b_2` | egress, group garage_b, neighbours [] | no map, `skipped`. OPEN (§13.4 Q5) |
-  | Patio | `reolinkpatio` / `reolink_patio_fluent` / Protect patio PTZ | not an egress camera (Patio room is `door_type` egress with no camera) | `same_view` with Family room recorded; no patio crossings exist today. OPEN (§13.4 Q6) |
-- **Consumers this cycle:** `path_score` only. Later: VISION-CROSSING-ANALYSIS-1 chains (§15.8), FACE-SIGHTING-TRACK-PROPAGATION-1.
+  | Garage B | `garage_b_2` (+ its one interior camera; D0-P4 names it) | egress, group garage_b, neighbours [] | RESOLVED: detached. Approach edges from the garage exterior cameras; one `inward` edge to Garage B's own interior camera only; never an edge into a house camera (rule 10). Detached marking: EGRESS-CONFIG-PATIO-STUDYB-1 |
+  | Patio | `reolinkpatio` / `reolink_patio_fluent` / Protect patio PTZ (D0-P4 picks the face-capable leg) | not an egress camera today (Patio room is `door_type` egress with no camera) | RESOLVED: egress camera of the patio slider; covers 1-5 are its outer openings; `inward` -> Family room; `same_view` with Family room. Map entry waits for the door group (EGRESS-CONFIG-PATIO-STUDYB-1) |
+  | Study B porch | `reolinkstudybporchptz` | not configured | RESOLVED: egress camera of the Study B outside door (rarely used). Map entry waits for the door group (EGRESS-CONFIG-PATIO-STUDYB-1) |
+- **Consumers this cycle (rev 11, M3):** none at runtime in Phase 1. The scorer is called by the D0-P4/P7 offline
+  scripts and by tests; `path_score` on the bus is Phase 2 (D8b). Later: VISION-CROSSING-ANALYSIS-1 chains (§15.8),
+  FACE-SIGHTING-TRACK-PROPAGATION-1.
 - **Verify (discriminating):** with a valid file, `path_map_source` names the file; with a file naming an unknown
   camera, the source is the const (or `none` on a foreign house) and the error names the camera (under a partial-apply
   bug the known edges would load instead); `door_entry_areas`, `_near_areas`, `_get_interior_cameras_near` and the
@@ -1557,22 +1698,32 @@ bus are Phase 2.
   (Entry way as approach end and anchor, Foyer inward), `::test_egress_pair_same_group_not_scored`,
   `::test_path_score_ignores_hops_after_resolution`, `::test_no_map_for_door_is_skipped_not_zero`,
   `::test_reload_button_swaps_map`, `::test_probe_and_runtime_share_scorer`;
-  `test_door_neighbours_untouched.py::test_entry_areas_near_areas_direction_identical_with_map`.
-- **Live:** L10.
+  `test_door_neighbours_untouched.py::test_entry_areas_near_areas_direction_identical_with_map`, (rev 11)
+  `::test_detached_door_inward_to_house_rejected`, `::test_patio_family_room_same_view_not_a_hop`.
+- **Live:** L10 (Phase 1 form): `path_map_source` / `path_map_validation` / `path_map_sha256` / `path_map_doors` on the
+  provenance sensor after restart; the diff report committed; the lock regime's entry areas identical before and after
+  the map loaded. No `path_score` check in Phase 1.
 
 ### D8 (rev 9): direction-aware egress identity (§2B) — card EGRESS-DIRECTION-AWARE-IDENTITY-1
 Two increments.
 
 **D8a (PHASE 1, step 2; switch-independent; Tier 2-DB minimum inside the Tier-3 arc).**
-- **Channel (rev 10, build M4).** `_resolve_egress_face_identity` returns a 4-tuple `(person_id, identity_confidence,
-  agreement_class, resolution)`; `resolution` is a frozen `EgressResolution` built fresh per call and returned on
+- **Channel (rev 10, build M4; shape fixed rev 11, M2).** The existing 3-tuple method `_resolve_egress_face_identity`
+  is KEPT, signature and return unchanged, as a thin wrapper: `pid, conf, agree, _ = self._resolve_egress_face_identity_ex(...)`;
+  `return pid, conf, agree`. The 44 existing test unpack sites (five files) stay untouched. NEW
+  `_resolve_egress_face_identity_ex` holds the body and returns `(person_id, identity_confidence, agreement_class,
+  resolution)`; `_resolve_direction` (the one production call site, `transit_validator.py:2011`) calls `_ex`. `resolution` is a frozen `EgressResolution` built fresh per call and returned on
   EVERY path (no legs, abstain, disagree, `direction_ambiguous` at `:1430`, vetoed, BLE branches, attached) with
   {outcome label (the same string the census outcome deque records), slug considered (None when none; the vetoed slug
-  on a veto), identity tier and synthetic (from the pure helper below), person raw state, agreement, direction}.
+  on a veto), identity tier and synthetic (from the pure helper below), person raw state, agreement, direction, and
+  (rev 11, L13) `provenance` (`face` / `ble` / `ble+face`, None when no attach)}. Sighting source (c) and the
+  `identity_provenance` bus key read `resolution.provenance`, not the `_egress_identity_last_attach` stash (one
+  channel; the stash keeps its existing display readers).
   Phase 2 adds `role`, `candidate_slug`, `guards`, `path_score` with None defaults (this replaces rev 9's separate
   `EgressRoleResult`: one channel). One call site, `transit_validator.py:2011`. No `self._last_*` stash.
-- **Pure tier helper (completeness M4).** `egress_identity_tier(in_window_legs) -> (tier, synthetic)` with no stash and
-  no ledger append. The existing confidence block (`:1858-1896`) calls it for the arithmetic and keeps its side effects
+- **Pure tier helper (completeness M4).** `egress_identity_tier(in_window_legs) -> (tier, synthetic)`, a MODULE-LEVEL
+  function in `transit_validator.py` (rev 11, M2: `test_frigate_face_name_bridge.py:521-532` calls the unbound method
+  with a `SimpleNamespace` self that has no extra methods), with no stash and no ledger append. The existing confidence block (`:1858-1896`) calls it for the arithmetic and keeps its side effects
   (`_last_identity_synthetic_corroborated` `:1880`, `_egress_identity_boost_events` `:1888-1891`) where they are; the veto
   path calls only the helper. One derivation, no side effect on a vetoed crossing.
 - **Logger (build M4, completeness L6).** `_resolve_direction` (async) hands the `EgressResolution` plus crossing ts and
@@ -1580,16 +1731,34 @@ Two increments.
   egress_identity_outcome`, registered in `MEMORY_EPISODE_TYPES`, `node_id` per crossing, `source_ref` per crossing,
   `dedup_source_ref=False`: the per-crossing `node_id` already prevents merging and the source_ref SELECT is unindexed).
   The write is a task in the tracker's `_outcome_log_tasks` set (precedent linker `_episode_tasks`), cancelled and
-  gathered with a bound in `async_teardown` before the DB worker stops. About 15 rows a day. No decision reads it. Kill
-  switch `EGRESS_OUTCOME_LOG_PERSIST` (rung 1, True).
-- **Weekly labeller** `scripts/probes/egress_outcome_label_weekly.py` (§7 P7) and operator action §13.6.
+  gathered with a bound in `async_teardown` before the DB worker stops. **Rev 11 (L3):** `async_teardown` sets
+  `self._torn_down = True` first (precedent `_guest_stay_torn_down`), and the logger returns without creating a task when
+  it is set, so a `_delayed_resolve` already scheduled cannot write after the gather (DB closes at `__init__.py:5972`,
+  after the tracker teardown at `:5920`). About 15 rows a day. No decision reads it. Kill switch
+  `EGRESS_OUTCOME_LOG_PERSIST` (rung 1, True).
+- **Dead-logger trip-wire (rev 11, M7).** `log_memory_episode` never raises (WARN and return None,
+  `database.py:10773-10775`) and rejects an unregistered type with only a WARNING (`:10693-10699`). So the D8a commit
+  adds `"egress_identity_outcome"` to `MEMORY_WRITER_BACKED_EPISODE_TYPES` (`const.py:5910`) as well as
+  `MEMORY_EPISODE_TYPES`; the existing weekly memory-writer health check (`database.py:11420-11445`) then flags 0 rows in
+  its window (about 105 expected a week). Interaction with the kill switch: `EGRESS_OUTCOME_LOG_PERSIST = False` must be
+  paired, in the same commit, with membership in `MEMORY_WRITER_HEALTH_EXEMPT_TYPES` plus a reason; test
+  `test_egress_outcome_log.py::test_registered_for_writer_health_unless_persist_off` asserts
+  `PERSIST or type in EXEMPT` and `type in BACKED`.
+- **Weekly labeller** `scripts/probes/egress_outcome_label_weekly.py` (§7 P7, incl. the raw-input snapshot, M6), its
+  recurring board card EGRESS-OUTCOME-WEEKLY-LABEL-1 (minted with the D8a ship), and operator action §13.6.
 - **Verify:** one row per resolution including a no-legs crossing and an ambiguous one; vetoed rows carry the slug,
   tier and synthetic; log OFF = golden identical including the boost count and the synthetic flag for a vetoed 0.75 and
   a vetoed synthetic 0.9 crossing (a side-effecting tier helper would raise the boost count on the vetoed crossing).
-- **Test:** `test_egress_outcome_log.py::test_every_resolution_persists_one_row_switch_off` (includes no-legs and
-  ambiguous), `::test_vetoed_row_carries_slug_tier_synthetic`, `::test_two_crossings_10s_apart_both_persist`,
-  `::test_persist_kill_switch`, `::test_vetoed_path_no_boost_no_synthetic_stash`,
-  `::test_logger_task_gathered_at_teardown`; `test_egress_direction_aware.py::test_switch_off_golden_replay` (Phase 1
+- **Test:** `test_egress_outcome_log.py::test_every_resolution_persists_one_row_switch_off` (rev 11, L4: driven through
+  `_on_egress_state_change` with time advanced past the 45 s schedule into `_resolve_direction`, never by calling the
+  resolver directly; includes no-legs, ambiguous, `census_unavailable` and `resolver_error`),
+  `::test_vetoed_row_carries_slug_tier_synthetic`, `::test_two_crossings_both_persist` (rev 11, L2: two crossings on
+  DIFFERENT door groups 10 s apart, because `DOOR_STEM_DEDUP_S` = 30 drops a same-group same-direction second crossing
+  before the resolver runs; replaces `::test_two_crossings_10s_apart_both_persist`), `::test_persist_kill_switch`,
+  `::test_vetoed_path_no_boost_no_synthetic_stash`, `::test_logger_task_gathered_at_teardown`,
+  `::test_no_row_after_teardown` (L3), `::test_registered_for_writer_health_unless_persist_off` (M7),
+  `::test_resolution_carries_provenance` (L13); `test_egress_face_identity_wrapper.py::test_three_tuple_wrapper_equals_ex_prefix`
+  (M2); the 44 existing 3-tuple unpack sites unchanged; `test_egress_direction_aware.py::test_switch_off_golden_replay` (Phase 1
   form: no direction-aware code exists yet; asserts the log adds nothing else).
 - **Live:** L14 (one row per resolved crossing since restart, vetoed rows with slug).
 - Moved OUT of D8a by rev 10: HVAC `camera_egress` (Phase 2, §2B.7); `CAMERA_DERIVED_ARRIVAL_SOURCES` (Phase 1 D3,
@@ -1597,6 +1766,10 @@ Two increments.
   confirmation need them; the DAO parameter is superseded by row-id backfill).
 
 **D8b (PHASE 2; behind `EGRESS_IDENTITY_DIRECTION_AWARE`, default False until P7 passes; its own plan reviews and go).**
+Rev 11 addition to D8b: the D2 Verify bullet "egress sightings dispatch `SIGNAL_PERSON_ARRIVING` only as
+`camera_egress` for an `arrival_confirmed` sighting with `FACE_ARRIVAL_EGRESS_ENABLED`, subject to rules 3-6 at
+confirmation; every other egress sighting never dispatches" (moved from D2, review M3); L11, L13, L15, L16 and the
+`path_score` part of rev-10 L10.
 Rev 10 additions to D8b: HVAC `camera_egress` (default, selector, help text, `hvac.py:881`, migration per §2B.7),
 `EGRESS_OUTCOMES_ATTACHED` at `sensor.py:3950`, `log_entry_exit_event` returning the row id, `_recent_crossings`,
 `_confirm_tasks`, and the D2 egress branch with its four `test_face_arrival_rule.py` tests (they land in D8b because D2
@@ -1699,12 +1872,29 @@ now direction-aware), §4.6 and §5.5 (`person_id` meaning, provisional candidat
 | M40 (rev 10, P2) | Abstain rule removed | `::test_intervening_crossing_abstains` |
 | M41 (rev 10, P2) | Name switch not re-read before the DB write | `::test_name_switch_off_before_db_write_writes_nothing` |
 | M42 (rev 10, P1) | D7 const fallback installed without validation | `test_interior_paths.py::test_four_load_outcomes` (foreign-house const -> `none`) |
+| M30 (rev 11 re-point, P1) | Outcome log with a constant `node_id` | `test_egress_outcome_log.py::test_two_crossings_both_persist` (different door groups) |
+| M43 (rev 11, P1, M5) | Seam caller assigns the sha only on `loaded` (installed-source semantics) | `test_exterior_seam_loader.py::test_seam_sha_on_rejected_file_unchanged` |
+| M44 (rev 11, P1, M5) | Delete the registry-update re-validation subscription | `test_interior_paths.py::test_registry_update_upgrades_const_to_file` |
+| M45 (rev 11, P1, M5) | First path-map load called inside tracker setup (no STARTED wait) | `::test_cold_boot_valid_file_loads_after_ha_started` |
+| M46 (rev 11, P1, L4) | Delete the logger call in `_resolve_direction` | `test_egress_outcome_log.py::test_every_resolution_persists_one_row_switch_off` |
+| M47 (rev 11, P1, L4) | Logger ignores `EGRESS_OUTCOME_LOG_PERSIST` | `::test_persist_kill_switch` |
+| M48 (rev 11, P1, L3) | Remove the `_torn_down` check in the logger | `::test_no_row_after_teardown` |
+| M49 (rev 11, P1, M7) | Remove `egress_identity_outcome` from `MEMORY_WRITER_BACKED_EPISODE_TYPES` | `::test_registered_for_writer_health_unless_persist_off` |
+| M50 (rev 11, P1, M1) | Classifier treats `None` as camera-derived | `test_lock_face_arrival_corroboration.py::test_non_face_sources_release_without_corroboration[None]` and `test_face_access_invariant.py::test_missing_source_is_not_camera_derived` |
+| M51 (rev 11, P1, L11) | Delete the `_last_home_edge_ts` write in `_handle_geofence_change` | `test_face_arrival_rule.py::test_last_home_edge_written_by_real_person_listener` |
+| M52 (rev 11, P1, L5) | Trip-wire denominator counts suppressed ring entries | `test_face_sighting_tripwire.py::test_suppressed_faces_silent` |
+| M53 (rev 11, P1, M4) | Sighting emit skips the `_face_suppressed_now()` gate | `test_identity_fusion_d2_d3_d4.py::test_fs_all_four_paths_suppressed_under_drill` |
+| M54 (rev 11, P1, L13) | Bus `identity_provenance` read from the stash instead of `resolution.provenance` (stash stale from a previous crossing) | `::test_resolution_carries_provenance` |
+| M55 (rev 11, P1, D7) | Validator rule 10 removed | `test_interior_paths.py::test_detached_door_inward_to_house_rejected` |
 
-**Phase column (rev 10).** Phase 1 drills: M1-M19, M25, M26 (scorer is Phase 1), M30 (now `node_id` only), M31, M32,
-M36, M37, M42, M23 (D3). Phase 2 drills: M20-M22, M21b, M24, M27, M28, M28b, M29, M33-M35, M38-M41. M27's earlier
+**Phase column (rev 10; rev 11).** Phase 1 drills: M1-M19, M25, M26 (scorer is Phase 1), M30 (rev-11 row), M31, M32,
+M36, M37, M42-M55, M23 (D3). Phase 2 drills: M20-M22, M21b, M24, M27, M28, M28b, M29, M33-M35, M38-M41. M27's earlier
 row (abs-window home edge) is superseded by the rev-10 row.
 
 ### Live validation table (written back into the README after restart)
+Rev 11 (M3): each row is tagged **[P1]** (checked after the Phase 1 ship that delivers it) or **[P2]** (Phase 2 only).
+L1-L9, L1b, L10 (Phase 1 form), L14, L17-L19 are [P1]; L11, L12, L13, L15, L16 and the `path_score` clause of rev-10 L10
+are [P2].
 - L1 picks resolved ≥ D0-P1; the fused Garage A pick reported unresolved with `room_cameras_empty` unless §13.3 was
   done (then resolved).
 - L1b (rev 4) `ura_person_egress_event` rows for face-only crossings carry `identity_provenance: "face"` (not null).
@@ -1719,13 +1909,63 @@ row (abs-window home edge) is superseded by the rev-10 row.
 - L7 no face-only lock release or expected arrival (snapshot + log scan).
 - L8 no trip-wire NM.
 - L9 INFO setup line `Face sighting: N/M picks resolved, K egress cameras`.
-- L10 (rev 9) `path_map_source` names `interior_paths.json` (or `built-in const`) with `path_map_validation: ok`; the learned-vs-operator diff report is committed; a real garage entry in the recorder gets `path_score >= 2` on its bus event; the lock regime's entry areas are the same before and after the map loaded.
-- L11 (rev 9, only if the switch is on) the first `arrival_candidate`: bus `person_id` null, `candidate_person_id` set, DB row NULL, "Someone arrived"; then either a confirmation within 10 min (DB row named, Persons Entered Today shows the name, one quiet "That was X") or an `arrival_unconfirmed` log row. Never in `_get_egress_face_ids_fresh` through the egress path.
-- L12 (rev 9) no perimeter D10.5 reason cites a candidate (log scan).
-- L13 (rev 9) outcome labels: `vetoed` only on exits (or with the switch off); entry vetoes appear as `vetoed_arrival_unverified` with the failed guard named.
-- L14 (rev 9) memory_episodes `egress_identity_outcome` rows = resolved crossings since restart (one each; vetoed rows carry the slug).
-- L15 (rev 9) the CM entry's `pre_arrival_sources` contains `camera_egress` and the migration sentinel is set; the first `camera_egress` arrival (if the egress flag is on) gives an HVAC `pre_arrival` row or a skip reason other than `pre_arrival_sources`.
-- L16 (rev 9) attach rate unchanged in meaning: `egress_identity_attach_rate_24h` counts departure candidates.
+- L10 [P1] (rev 11 form) `path_map_source` names `interior_paths.json` (or `built-in const`) with `path_map_validation: ok`, `path_map_sha256` equals the sha of the file on disk, `path_map_doors` lists only live door groups; the learned-vs-operator diff report is committed; the lock regime's entry areas are the same before and after the map loaded. [P2] a real garage entry gets `path_score >= 2` on its bus event.
+- L11 [P2] (rev 9, only if the switch is on) the first `arrival_candidate`: bus `person_id` null, `candidate_person_id` set, DB row NULL, "Someone arrived"; then either a confirmation within 10 min (DB row named, Persons Entered Today shows the name, one quiet "That was X") or an `arrival_unconfirmed` log row. Never in `_get_egress_face_ids_fresh` through the egress path.
+- L12 [P2] (rev 9) no perimeter D10.5 reason cites a candidate (log scan).
+- L13 [P2] (rev 9) outcome labels: `vetoed` only on exits (or with the switch off); entry vetoes appear as `vetoed_arrival_unverified` with the failed guard named.
+- L14 [P1] (rev 9) memory_episodes `egress_identity_outcome` rows = resolved crossings since restart (one each; vetoed rows carry the slug).
+- L15 [P2] (rev 9) the CM entry's `pre_arrival_sources` contains `camera_egress` and the migration sentinel is set; the first `camera_egress` arrival (if the egress flag is on) gives an HVAC `pre_arrival` row or a skip reason other than `pre_arrival_sources`.
+- L16 [P2] (rev 9) attach rate unchanged in meaning: `egress_identity_attach_rate_24h` counts departure candidates.
+- L17 [P1] (rev 11, M7) the memory-writer health check lists `egress_identity_outcome` among checked types with a non-zero
+  row count after the first week.
+- L18 [P1] (rev 11) EGRESS-OUTCOME-WEEKLY-LABEL-1 shows a first run date and row count; the fixture rows carry
+  `raw_inputs_v: 1` with path-edge and GPS arrays.
+- L19 [P1] (rev 11, M1) after the D3 ship, a geofence arrival still adds an expected arrival when the toggle is on (if the
+  toggle is off, the security log shows the geofence arrival handled as on develop).
+
+---
+
+## 9A. Phase 1 build brief: wire-in anchors, drills and live checks (rev 11)
+
+Operator rule: a deliverable is "actually complete" only with (1) a PRODUCTION caller (file and function, not a test
+calling the helper), (2) a wire-in anchor test that drives that production caller, (3) a drill: mutate the named site,
+see the named test go RED, restore, `git status` clean, stale `.pyc` cleared, and (4) a live check written back into
+the README. Builders paste the drill output (RED test name + restore) into the ship's review doc. Tests that drive a
+helper directly are supporting tests, never the anchor.
+
+| Step | Deliverable piece | Production caller (wire-in site) | Anchor test (drives the caller) | Drill (mutation -> RED) | Live check |
+|---|---|---|---|---|---|
+| 1 | D0 probes P1-P5, P7 baseline | `scripts/probes/face_sighting_d0.py` run on HA | n/a (read-only) | n/a | §7.1 report committed; go/no-go recorded |
+| 2 | D8a `_ex` channel + wrapper | `_resolve_direction` -> `_resolve_egress_face_identity_ex` (`transit_validator.py:2011`) | `test_egress_outcome_log.py::test_every_resolution_persists_one_row_switch_off` (via `_on_egress_state_change`, time advanced) | M36 (skip record on no-legs/ambiguous), M46 (delete logger call) | L14 |
+| 2 | D8a pure tier helper | confidence block `:1858-1896` and veto path call module-level `egress_identity_tier` | `::test_vetoed_path_no_boost_no_synthetic_stash` | M37 | L14 (vetoed rows carry tier) |
+| 2 | D8a logger + kill switch + teardown | `_resolve_direction` -> logger -> `log_memory_episode` | `::test_every_resolution_persists_one_row_switch_off`, `::test_persist_kill_switch`, `::test_no_row_after_teardown` | M30, M47, M48 | L14 |
+| 2 | D8a writer-health registration | `MEMORY_WRITER_BACKED_EPISODE_TYPES` read by `database.py:11420-11445` | `::test_registered_for_writer_health_unless_persist_off` | M49 | L17 |
+| 2 | D8a `resolution.provenance` | bus key + source (c) read `resolution.provenance` | `::test_resolution_carries_provenance`; `test_transit_validator_provenance.py::test_face_only_real_path_provenance_face` | M54, M16 | L1b |
+| 2 | Weekly labeller + raw snapshot | `scripts/probes/egress_outcome_label_weekly.py`; board card EGRESS-OUTCOME-WEEKLY-LABEL-1 | `test_egress_label_weekly.py::test_row_carries_raw_path_and_gps_inputs` | delete the GPS snapshot block -> that test RED | L18 |
+| 3 | D3 classifier + set + lock gate | `security_lock_regime.on_person_arriving` `:1017` -> `arrival_source_needs_corroboration` | `test_face_access_invariant.py::test_unknown_arrival_source_requires_corroboration` | M19 (lock side), M50 | L7, L19 |
+| 3 | D3 security gate | `security._handle_person_arriving_signal` `:2412-2419` -> classifier -> `face_input_corroborated` | `test_security_face_expected_arrival.py::test_face_only_rejected`, `::test_lock_regime_none_rejects`, `test_face_access_invariant.py::test_no_sighting_payload_uses_now` | M5, M13, M19 (security side), M23 | L7, L19 |
+| 3 | D3 public wrapper | `SecurityLockRegime.face_input_corroborated` called from security | `test_sc_lock_person_sighting.py::test_face_input_corroborated_matches_private` | M6 | L7 |
+| 4 | D1 source (a) bridge hook | `camera_census._on_frigate_face_msg` after the latch loop -> `hass.data[DOMAIN]["face_latch_callbacks"]` -> presence | `test_person_sighting.py::test_bridge_only_name_after_edge_emits` | M1, M2 | L2 |
+| 4 | D1 source (b) sensor change | presence `async_track_state_change_event` on bound face entities | `::test_sensor_change_only_emits`, `::test_boot_restore_not_a_sighting` | M10 | L2, L3 |
+| 4 | D1 source (c) egress | presence listener on `ura_person_egress_event` | `::test_egress_face_provenance_sighting`, `::test_egress_boot_window_not_a_sighting` | M12, M18 | L5 |
+| 4 | D1 pick resolution | presence setup + re-resolve triggers -> `CameraResolver.resolve_pick_to_fusions` + `canonical_camera_key` | `::test_ura_fused_room_pick_resolves_via_room_cameras`, `::test_protect_pick_and_frigate_egress_one_key`, `::test_n_suffix_pick_resolves_without_flag` | M7, M17 | L1, L9 |
+| 4 | D1 debounce/dedup | the one emit function | `::test_bridge_and_sensor_dedup_single_emit`, `::test_debounce_fixed_window_not_sliding` | M3, M14 | L2 |
+| 4 | D1 suppression gate | the one emit function -> `census._face_suppressed_now()` | `test_identity_fusion_d2_d3_d4.py::test_fs_all_four_paths_suppressed_under_drill` (re-pointed) | M53 | L8 |
+| 4 | D4 trip-wire | presence periodic check reading the census ring -> `fire_stuck_signal` | `test_face_sighting_tripwire.py::test_zero_with_faces_pages`, `::test_unknown_name_faces_silent`, `::test_suppressed_faces_silent` | M8, M15, M52 | L8 |
+| 5 | D2 arrival rule | the one D2 site in presence, called from the sighting emit | `test_face_arrival_rule.py::test_home_resident_no_arrival`, `::test_observation_mode_suppresses_arrival`, `::test_d2_dispatch_carries_camera_face_source` | M4, M11 | L4, L6 |
+| 5 | D2 `_last_home_edge_ts` writer | `presence._handle_geofence_change` | `::test_last_home_edge_written_by_real_person_listener` | M51 | L4 |
+| 5 | D2 HVAC counter | HVAC zone counter by membership, once per distinct HVAC zone | `::test_hvac_counter_matches_compound_zone` | M9 | L6 |
+| 5 | D5 retirement | (deletion) | `test_person_sighting.py::test_n_suffix_pick_resolves_without_flag`; re-pointed suppression test | M7, M53 | grep: no `camera_face` dispatch outside the D2 site |
+| 5 | D6 real-hass | real config entries, census + presence + security + HVAC | `test_face_sighting_realhass.py` | no drill by nature (the test is itself the integration anchor); reviewer C confirms it fails when the bridge callback list is not registered at setup | L1-L9 |
+| 6 | D7 step 0 seam pin | existing `async_load_seam_file` | `test_exterior_seam_loader.py::test_seam_sha_on_rejected_file_unchanged` (on develop, before extraction) | M43 | n/a |
+| 6 | D7 helper + four outcomes | `async_load_seam_file` and `EgressDirectionTracker.async_load_path_map` both call `load_validated_json` | `test_interior_paths.py::test_four_load_outcomes`, `::test_invalid_file_rejected_whole_keeps_previous` | M32, M42 | L10 |
+| 6 | D7 STARTED hook + re-validation | `async_listen_once(EVENT_HOMEASSISTANT_STARTED)` / `hass.is_running`; registry-update listener | `::test_cold_boot_valid_file_loads_after_ha_started`, `::test_registry_update_upgrades_const_to_file` | M45, M44 | L10 |
+| 6 | D7 reload button | `button.ura_reload_interior_paths` press -> `async_load_path_map` | `::test_reload_button_swaps_map` | unregister the button's call -> RED | L10 |
+| 6 | D7 isolation from neighbours | (no reader) | `test_door_neighbours_untouched.py::test_entry_areas_near_areas_direction_identical_with_map` | M31 | L10 |
+| 6 | D7 scorer + detached rule | offline scripts + validator | `::test_path_score_reverse_order_negative`, `::test_path_score_ignores_hops_after_resolution`, `::test_detached_door_inward_to_house_rejected` | M25, M26, M55 | diff report committed |
+
+Orchestrator before each Phase 1 ship: re-grep §5 and re-run the drills that ship touches from M5, M6, M13, M19, M23,
+M36, M37, M50, M53 personally (Tier 3).
 
 ---
 
@@ -1780,13 +2020,13 @@ membership) and D5's doc cite fix. Phase 2: the pre-arrival input set gains `cam
 (`hvac_const.py:350`), the selector (`config_flow.py:8192-8201`), a one-shot migration of the stored CM option. No HVAC
 decision logic changes; the filter at `hvac.py:7231` is untouched. This planner read
 `HVAC_ARCHITECTURE_STATE_OF_PLAY.md` completely for rev 9. Contradiction found (code wins): its §2 pre-arrival row
-cites `hvac.py:4186` / `:1196`; the code is `_handle_person_arriving` `:7212`, subscribed `:1511` (D5 already fixes the
+cites `hvac.py:4186` / `:1196`; the code is `_handle_person_arriving` `:7222` (rev 11 re-grep), subscribed `:1510-1513` (D5 already fixes the
 cite, F9). D8b's commit adds the source to that doc. Builders and reviewers read it completely before touching
 `hvac*.py` or `config_flow.py`'s HVAC step.
 
-**Sibling HVAC-PRECOOL-STANDDOWN-WHEN-COOL-1** SHIPPED as v5.108.14 (merged here). No code overlap. Doc contradiction
-(code wins, reported): HVAC_ARCHITECTURE_STATE_OF_PLAY's header entry for it still says "built, NOT deployed"; D5's doc
-commit corrects it to v5.108.14 unless the HVAC owner fixes it first. Its stand-down is an expected HVAC skip reason in L6.
+**Sibling HVAC-PRECOOL-STANDDOWN-WHEN-COOL-1** SHIPPED as v5.108.14 (merged here). No code overlap. Rev 11: develop
+76a4c926 already marked it shipped in HVAC_ARCHITECTURE_STATE_OF_PLAY (and the seam loader in the manual), so D5 no
+longer carries those two doc fixes. Its stand-down is an expected HVAC skip reason in L6.
 
 ## 12. Cards to mint (adjacency sweep before minting)
 - **LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1** (investigate): AWAY -> ARRIVING from body evidence alone releases the
@@ -1829,14 +2069,17 @@ commit corrects it to v5.108.14 unless the HVAC owner fixes it first. Its stand-
 4. **Path map questions (rev 9, completeness M5).** Answers go into `interior_paths.json` (or into egress config, which
    is a settings change, not code). Until answered the affected door edges are omitted, never guessed.
    - Q1-Q4, Q7, Q8: ANSWERED 2026-11-12 (fixture "Operator answers"; applied in D7).
-   - Q5 Garage B: its exterior approach cameras and first interior camera (live neighbours are empty).
-   - Q6 Patio: there is a patio camera (Reolink) but no patio egress camera configured. Add one to egress cameras, or
-     leave patio crossings unwatched? (Unwatched doors are also the named residual of the Phase 2 abstain rule.)
+   - Q5 Garage B: ANSWERED rev 11 (detached, opens to itself, same exterior approach, one interior camera, never a
+     house entry). Q6 Patio: ANSWERED rev 11 (patio camera is the slider's egress camera, covers 1-5 are egress
+     openings; plus the Study B porch Reolink is the Study B door's egress camera). Config side: card
+     **EGRESS-CONFIG-PATIO-STUDYB-1** (the agent reads the live egress options and proposes the exact change; the
+     operator applies it in the options flow; no code).
 5. **Pre-arrival sources (rev 9; Phase 2 only).** The Phase 2 migration adds "Camera at a door (confirmed arrival)" to HVAC pre-arrival
    sources because `camera_face` is ticked today. Untick it in the CM options to keep HVAC off egress arrivals.
 6. **Weekly P7 label review (rev 10, Phase 1, from the D8a ship on).** Each week, review the labeller's `mis` labels and
    every replayed confirmation within 7 days (crossing snapshots and recorder history expire). This is what makes the
-   Phase 2 decision possible; a skipped week shrinks n.
+   Phase 2 decision possible; a skipped week shrinks n. Rev 11: the board card EGRESS-OUTCOME-WEEKLY-LABEL-1 carries
+   the cadence; the agent runs the labeller each week regardless, so a late review still has the raw inputs.
 
 ---
 
@@ -2556,3 +2799,43 @@ doc commit if not fixed first.
 
 Status: rev 10. Phase 1 needs one adversarial plan review of the rev-10 deltas (§0A, D3, D7, D8a, INV-LOG) before
 build dispatch; Phase 2 gets its own two reviews at its gate.
+
+---
+
+## 24. Rev 11 changelog (review `PLAN_person_sighting_layer_review_rev10_phase1.md`; operator camera map)
+
+| Finding | Resolution | Where |
+|---|---|---|
+| M1 missing `source` | `None` = today's behaviour (not camera-derived); one classifier for both gates; `NON_CAMERA_ARRIVAL_SOURCES`; existing tests and presence doc line unchanged; residual named | §2 INV-ACCESS, §3.4, §6, D3, M50, L19 |
+| M2 44 test unpacks | `_resolve_egress_face_identity_ex` (4-tuple); old name a thin 3-tuple wrapper; tests untouched; tier helper module-level | D8a, §9A |
+| M3 stale rev-9 text | HVAC rows in §2B.5/§2B.6/§3.4 and non-goals relabelled Phase 2 (D8b); set's one home = D3 (INV-ACCESS, §6); INV-NOOP rev-9 paragraph labelled Phase 2 form; D2 `camera_egress` Verify bullet moved to D8b; Live rows tagged P1/P2; D7 Live is Phase 1 provenance + diff report | §0A, §2, §2B.5, §2B.6, §3.4, §6, §8, D2, D7, D8b, live table |
+| M4 D5 test dispositions | Per-test DELETE / RE-POINT table; suppression-drill re-pointed at the sighting emit; alias test re-pointed at the census mapper; `face_alias_person_slug` = DELETE (dead, second-mapper footgun); manual §4.2 line rewritten | D5, M53 |
+| M5 loader API | Helper only reads/hashes/validates and returns `LoadOutcome` (incl. `raw_sha256`); each caller installs and assigns its sha; interior caller's setup-vs-reload by its own flag; step-0 rejected-sha test on develop; hook = STARTED or `hass.is_running`, then `census._get_resolver()`; registry-update re-validation in Phase 1 | D7, §6, M43-M45 |
+| M6 P7 raw inputs | Weekly labeller snapshots path-node person edges over the horizon and every GPS fix (lat, lon, acc, `last_updated`, `last_changed`) into the fixture (`raw_inputs_v: 1`) | §7 P7, §9A, L18 |
+| M7 dead logger | Type registered in `MEMORY_WRITER_BACKED_EPISODE_TYPES`; persist-off pairs with EXEMPT + reason; recurring card EGRESS-OUTCOME-WEEKLY-LABEL-1 swept at session start | D8a, §6, §7, §13.6, M49, L17 |
+| L1 unlabeled paths | `census_unavailable`, `resolver_error` | INV-LOG, D8a test |
+| L2 dedup in M30 test | Different door groups | D8a, M30 |
+| L3 teardown race | `_torn_down` guard | D8a, M48 |
+| L4 logger anchor | Driven via `_on_egress_state_change`; drills on the call and the kill switch | D8a, M46, M47 |
+| L5 suppressed ring | Excluded from denominator | §3.5, M52 |
+| L6 compound zone counter | Once per distinct HVAC zone | D2 |
+| L7 `_last_face_time` type | `datetime`; slug display change declared | §3.2 |
+| L8 HVAC cite | `:7222`, `:1510-1513`; re-grep at build | §3.4, §11, D5 |
+| L9 `at_ts` | `now` when no sighting | §3.4, D3 |
+| L10 gate timing | About 10 weeks, not 28 days | §0A |
+| L11 home-edge writer | Anchor via real listener; M51 | D2 |
+| L12 non-camera set | Named const | §6 |
+| L13 one channel | `provenance` on `EgressResolution` | D8a, M54 |
+
+Operator camera map (fixture on develop): patio camera = egress of the patio slider, covers 1-5 egress openings,
+semi-outdoor vestibule, `same_view` with Family room; Reolink porch camera above the Study B outside door = egress
+(rarely used); Garage B detached, opens to itself, one interior camera, never a house entry (validator rule 10). Config
+side on EGRESS-CONFIG-PATIO-STUDYB-1 (config-first; whether "detached" needs code is that card's first finding).
+§13.4 Q5/Q6 answered.
+
+Develop merge: HVAC state of play and manual already mark the precool stand-down and seam loader shipped, so D5 drops
+those two doc fixes. New §9A build brief. New board cards to mint with the D8a ship: EGRESS-OUTCOME-WEEKLY-LABEL-1
+(recurring).
+
+Status: rev 11, Phase 1 build-ready. Build dispatch per §0A step order, `ura-super-builder`, four build reviews per
+ship (§11). Phase 2 unchanged and gated (§0A).
