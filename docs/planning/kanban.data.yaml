@@ -34556,6 +34556,7 @@ cards:
   revisit_if: 'Operator home (~2026-11-16): ask whether to turn garage lockout and away-lock back on; then run the v5.108.13 lock-hold dispositions (arrival_hold count) and LOCK-REGIME-BOOT-REALLY-AWAY-1 / LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1 checks against live decisions.'
   HOUSEHOLD_2026-11-12: 'Operator: Ezinne is not sure about the away lockout on the master and needs time. Do not propose re-enabling away-lock on the master suite door on return; garage lockout can be discussed separately. Ask the operator before raising it again.'
 - id: GARAGE-HALLWAY-LOCK-NONCONVERGE-1
+  arc_cut_v5_108_17: "waits on operator battery replacement"
   title: "Garage hallway lock: URA re-locks hourly, the lock reverts to unlocked ~7 s later, and the retry cap only writes an audit row"
   thread: security
   status: waiting_operator
@@ -34598,7 +34599,8 @@ cards:
 - id: NM-NO-CHANNEL-FIRED-1
   title: "520 notification_log rows since 11-01 record no_channel_fired / delivered=2 (stuck_signal, circuit_anomaly, lock retry-cap, high_co2): may reach nobody"
   thread: notifications
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.108.17
   batch: broken-promises-2026-11
   created: '2026-11-12 22:30'
   updated: '2026-11-12 22:30'
@@ -34634,6 +34636,7 @@ cards:
   next: "None. Closed. If you want a live proof of detector-hung, the staged detector pause in CAMERA-SILENT-PRODUCER-TRIPWIRE-1 is still the optional operator step."
   verified_2026_11_13_overnight: "REFUTED (premise was a labeling artifact) - read-only URA DB + recorder 02:01-02:04 CST. (1) Fleet-dark (camera_input_dark) HAS fired 3 times: optimization_findings 2026-11-01 10:01Z, 11-02 08:05Z, 11-07 19:23Z, all stored with dimension='sensor_health' and payload kind='camera_input_dark' (the audit grouped by dimension, so it saw zero). The 11-07 one matches the 7.3 h Frigate2 outage (sensor.frigate_status_2 unavailable 13:14-20:32 CST); notification_log shows HIGH companion pages delivered=1 at 19:23Z, 20:13Z and 11-08 00:33Z; binary_sensor.ura_coordinator_manager_camera_input_dark shows nm_latch_fired=1 at 14:13 and 18:33 CST. (2) Detector-hung: resolver (optimization.py:3091) finds exactly one registry match, sensor.frigate_detection_fps_2 (no deleted F1 twin), so it is not inert. Its condition (fps unchanged >= CAMERA_DETECTOR_FROZEN_S=900 s while Frigate runs) never occurred in the recorder window (11-05 to now, 30,649 rows): no gap between numeric changes above 10 min, detector_frozen_s max 0 across all 476 binary-sensor rows. Zero fires is expected; logic covered by 31 tests in test_camera_detector_hung.py. No build."
 - id: ANOMALY-FLOOD-ROWS-1
+  arc_cut_v5_108_17: "separate broken promise awaiting operator pick"
   title: "Anomaly floods: transit.path_implausible 21.5k rows, write_local_witness_divergence 7.6k, crosscheck_divergence 1.7k, circuit_tripped_breaker 4.7k in 90 days"
   thread: diagnostics
   status: waiting_operator
@@ -34651,6 +34654,7 @@ cards:
   links: {"related": ["TRANSIT-1", "EC-CFG-SELFHEAL-FALSE-CRITICAL-1", "DB-SIZE-GROWTH-1"], "context": "TRANSIT-1 built the shared-space checkpoint union this validator uses (the producer being fixed); EC-CFG-SELFHEAL-FALSE-CRITICAL-1 owns the charge_from_grid witness rows folded out of this card; DB-SIZE-GROWTH-1 is the DB-growth consumer of this noise."}
   paged_2026_11_13_overnight: "Paged 2026-11-13 02:09 CST in one consolidated quiet notification (notify.madronehapushover, priority -1, wakes nobody) with the pick."
 - id: ZONE-HAS-HOME-PERSON-UNCALLED-1
+  arc_cut_v5_108_17: "separate card in review, unrelated code path"
   title: "zone_has_home_person person-trust backstop is defined with no callers while its docstring claims use"
   thread: hvac
   status: review
@@ -34664,6 +34668,7 @@ cards:
   verified_2026_11_13_overnight: "CONFIRMED superseded (git grep on develop 22c0023f): zone_has_home_person (hvac_zones.py:2708) has zero production callers; the D7/row-1 path decides through HVACCoordinator._zone_conditioning_retreat_ok (hvac.py:7103, callers :2951 and :3410), and test_zzz_hvac_conditioning_demand.py ~:927 pins that the shared helper must NOT consult it. test_person_gps_assistive.py:857 already notes 'no production caller'. Three-bucket triage: KEEP+DOCUMENT, not DELETE (a working BLE-overrule-aware person-trust read; not a footgun once the docstring stops claiming use; dead != delete)."
   built_2026_11_13_overnight: "Branch fix/zone-has-home-person-docstring (e8a38bb9, pushed): docstring-only change marking it RETIRED with the superseding path and the pinning test. No behavior change. Validation: test_zzz_hvac_conditioning_demand.py + test_person_gps_assistive.py 94 passed. Review: self-review of a 10-line docstring diff (no code path touched), so no reviewer dispatch."
 - id: PERIMETER-FP-GATES-DISPOSE-1
+  arc_cut_v5_108_17: "separate investigation, not notification code"
   title: Perimeter false-positive gates D3/D5 shipped shadow-first but D3 can never evaluate (zone sensors never configured) and no shadow counts are kept; no disposal date
   thread: perimeter
   status: investigating
