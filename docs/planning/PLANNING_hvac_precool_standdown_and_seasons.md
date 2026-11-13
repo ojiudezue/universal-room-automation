@@ -1,5 +1,12 @@
 # PLANNING: pre-arrival conditioning — pre-cool stand-down + arrival pre-heat
 
+**Rev 4 (2026-11-12)**: pre-build fix pass. The operator APPROVED the plan 2026-11-12. Applied plan review
+`docs/reviews/code-review/PLAN_hvac_precool_standdown_review_rev3.md` (FIX-PLAN): M1 energy pre-cool gate-OFF release
+of a live pre-arrival borrow → new R5 + D1c; M2 heat target capped at the arrival preset's cool + inverted-band rule +
+config-extreme tests (§0.2 band table qualified "at floor 74"); M3 heat leg runs only in `heat_cool` (single `heat`
+parked); L1 full stand-down row rule; L2 shared `S13_pre_heat` site called out; L3 INV-ONE-LEG reworded; L4 stale-T
+note on the heat leg. The HVAC STATE_OF_PLAY was re-read completely for rev 4; nothing in §10 is re-asserted.
+
 **Rev 3 (2026-11-12)**: operator rulings 2026-11-12 on top of rev 2.
 
 | Ruling | Resolution | Where |
@@ -47,15 +54,27 @@ Mirror of the cool target, verified: cool = `_resolve_baseline_range(zone)[1] + 
 floored at `max(hvac_solar_bank_floor, target_temp_low + MIN_DEADBAND)` (`hvac_predict.py:1287-1297`).
 `_resolve_baseline_range` (`:918-955`) returns the configured `(heat, cool)` of the HOUSE-state target preset for the
 current season (`get_seasonal_setpoints`, entry options with `SEASONAL_DEFAULTS` fallback, `hvac_const.py:1225-1245`).
-Heat mirror: `effective_low = min(baseline_heat + PRE_ARRIVAL_PREHEAT_OFFSET_F (+2), zone.target_temp_high -
-MIN_DEADBAND)`. There is no heat-side analogue of `hvac_solar_bank_floor` (that floor is an energy-banking bound), so
-the only cap is the deadband against the live cool leg, which the write needs anyway.
+Heat mirror (rev 4, review M2): `effective_low = min(baseline_heat + PRE_ARRIVAL_PREHEAT_OFFSET_F (+2), baseline_cool,
+zone.target_temp_high - MIN_DEADBAND)`. There is no heat-side analogue of `hvac_solar_bank_floor` (that floor is an
+energy-banking bound). Two caps: the arrival preset's own cool (`_resolve_baseline_range(zone)[1]`), so a narrow-gap
+baseline (e.g. Home 73/72) never pre-heats above the cool leg S1 pins on arrival; and the deadband against the live
+cool leg, which the write needs anyway.
 
 Defaults (Home heat is 70 in every season, `hvac_const.py:1227-1244`): heat target 72 all year. Cool target: summer
 77-2 = 75 (live: 75, every DB row); shoulder 74-2 = 72 floored to 74; winter 72-2 = 70 floored to 74.
 
 Result per arrival, by the thermostat reading T: `T > effective_high` → pre-cool; `T < effective_low` → pre-heat;
-otherwise stand down. At defaults the stand-down band is 72 <= T <= 75 (summer) and 72 <= T <= 74 (shoulder, winter).
+otherwise stand down. At defaults AND `hvac_solar_bank_floor` 74 (live), the stand-down band is 72 <= T <= 75
+(summer) and 72 <= T <= 74 (shoulder, winter). The band depends on the floor knob (`64 · Solar Banking Cool Floor`,
+range 65-80, `number.py:2768-2777`): at floor <= 71 in winter (Home 72/70, zone in Away 78/60) `effective_high` = 70 <
+`effective_low` = 72, i.e. the band is EMPTY (review M2).
+
+**Inverted-band rule (rev 4).** When `effective_low > effective_high` the heat leg does not write (skip
+`band_inverted`, INFO once per membership). The cool leg is pre-existing and unchanged (INV-NOOP): at floor 66, winter,
+T 71 it writes cool 70 as it does today. That cool-leg behaviour (cooling a zone to the arrival preset's HEAT setpoint)
+is real but pre-existing and only reachable with the floor below Home cool; it is carded, not fixed here
+(`HVAC-PRECOOL-FLOOR-BELOW-ARRIVAL-HEAT-1`, mirror fix `effective_high >= base_heat`, §9). Why heat yields: adding a
+second writer inside a misconfigured band can only add a furnace-then-AC pair; standing down is the safe default.
 
 Marginal-benefit check. Benefit on THIS house: probably near zero (Texas; D0 counts arrivals below 72). Benefit for
 other homes: the symmetric half of an existing feature. Ingredient risk: a NEW thermostat writer on the heat leg and
@@ -83,7 +102,7 @@ defaults: Home 70-72, effective_high 74, effective_low 72.
   mode buys nothing. The minimal non-season fix is D3: a leg runs only when the thermostat's live `hvac_mode` serves
   it. No measured failure on this install; it is portability, and it is the "heat_cool/auto handling" the heat leg
   needs anyway.
-Remaining real failure from dropping the gate: none measured. Rev-2's winter-gate rationale ("a winter zone above
+Remaining real failure from dropping the gate: none measured at floor 74 (live). At floor <= 71 see the inverted-band rule in §0.2. Rev-2's winter-gate rationale ("a winter zone above
 the target would run the AC") is the season baseline doing its job, not a defect.
 
 ### 0.4 Config-first
@@ -105,6 +124,7 @@ offers a heat leg for arrivals. Code is needed.
 | Cool target | **REUSED** unchanged (`hvac_predict.py:1287-1297`) | |
 | Heat target baseline | **REUSED** `_resolve_baseline_range` (`hvac_predict.py:918`), `[0]` = configured Home heat for the house-state target preset and season | Same source as the cool leg; per-season, operator-edited baselines `CONF_HVAC_BASELINE_<SEASON>_<PRESET>_HEAT`. |
 | Heat offset | **NEW** rung-1 `PRE_ARRIVAL_PREHEAT_OFFSET_F = +2.0` next to `PRE_ARRIVAL_PRECOOL_OFFSET_F` (`hvac_const.py:500`) | grep `PREHEAT_OFFSET\|preheat_offset\|PRE_HEAT_OFFSET` in `const.py`, `hvac_const.py`, `config_flow.py`, `options_flow.py`, `number.py`, `domain_coordinators/*`: none. The energy path's `+ 2` is an inline literal (`hvac_predict.py:1679`) on a different base (live low). |
+| Arrival-preset cap (rev 4, M2) | **REUSED** `_resolve_baseline_range(zone)[1]` (the cool the cool leg already reads, `hvac_predict.py:1287-1297`) | No new value. |
 | Deadband cap | **REUSED** `MIN_DEADBAND` (`hvac_const.py:474`, 2.0) | Same constant the cool floor uses. |
 | Pre-heat borrow begin / write / own-row check / interrupt exit | **REUSED by pattern** from `_execute_zone_pre_cool` (`hvac_predict.py:1259-1438`). NOT `_execute_pre_heat` (energy; timer return, live-low base, all zones). | §4 gives the exact copy list. Builder may factor the shared tail (begin → D4b → suppress → CM → M1 → gated `set_setpoints` → token store) into one private helper with a `leg` argument, provided the cool call stays byte-identical (W1-C P1 goldens `quality/tests/golden/w1c_p1_goldens.json` unchanged). |
 | Borrow kind | **REUSED** `EXCURSION_KIND.BANKING` (`hvac_excursion.py:125`) with a NEW `caller_site` `S13_pre_arrival` | Kind PREHEAT rejected: the boot audit RE-HYDRATES PREHEAT rows (`hvac_excursion.py:1138-1141`) while it RELEASES BANKING rows at boot (`:1249-1296`). The predictor's token dict and `_pre_arrival_zones` are RAM-only, so a rehydrated PREHEAT pre-arrival row would sit until the 2 h lease cap (`EXCURSION_LEASE_MAX_S`, `duration_s=None`) with gate (e) holding S1 off the zone. Fixing that needs a borrow-code change, which §9e forbids. BANKING gives the heat leg the exact boot, lease and interrupt behaviour of the pre-cool (interrupt-endable: `hvac_override.py:3868`). The leg is recorded by `caller_site` and by `excursion_target_low` vs `_high`. |
@@ -157,17 +177,21 @@ reads `:577-632`, boot audit `:1119-1300`; `hvac_zones.py:130-145`, `:698-711`; 
   is numeric and `T <= effective_high + margin`. Falsified by such a row whose recorder thermostat
   `current_temperature` at or before `ts_issued` is `<= values_after.target_temp_high + margin`.
 - **INV-SD-HEAT.** No reachable path begins a pre-arrival pre-heat (a row with `caller_site S13_pre_arrival`, or a
-  `climate_write` row `site=S13_pre_heat, reason=pre_arrival`) unless T is numeric and `T < effective_low - margin`.
+  `climate_write` row `site=S13_pre_heat, reason=pre_arrival`; the energy pre-heat shares `site=S13_pre_heat` with
+  `reason=pre_heat` (`hvac_predict.py:1773`), so the query MUST filter on `reason`, review L2) unless T is numeric and `T < effective_low - margin`.
   In particular T None, non-numeric, or a mode that does not serve the heat leg → no begin, no write. Falsified by
   such a row with recorder T missing or `>= values_after.target_temp_low - margin`.
-- **INV-ONE-LEG.** A zone never has two pre-arrival borrows at once, and the heat leg is never evaluated in a pass
-  where the cool leg began. (Enforced by `is_borrow_active` at the caller and `begin_excursion`'s reject; the order
-  is cool then heat.)
+- **INV-ONE-LEG (reworded rev 4, L3).** A zone never has two pre-arrival borrows at once, and no pass writes both
+  legs. (Enforced by `is_borrow_active` at the caller and `begin_excursion`'s reject; the order is cool then heat. On
+  the cool leg's comfort-delay defer path the begin lands and the CM releases the row (`hvac_predict.py:1396-1427`),
+  so the heat leg IS evaluated in that pass; the same gate defers its write. Harmless, and why the wording is "writes",
+  not "evaluated".)
 - **INV-LIFECYCLE.** Every `S13_pre_arrival` borrow ends by exactly the paths an `S12_pre_arrival` borrow ends by
   (arrived / timeout / max_age / interrupted / inactive / master-OFF `pre_arrival_inactive` / boot release), with a
   presets-only return and the arrival reference preset on interrupt. Falsified by an `S13_pre_arrival` row ended by
   `lease_expiry`, ended by `banking_release`, or still live after the window + one tick while the zone is out of
-  `_pre_arrival_zones`.
+  `_pre_arrival_zones`. Applies to `S12_pre_arrival` rows too: no path other than the pre-arrival end path (incl. the
+  energy pre-cool gate-OFF release, R5) may close a live pre-arrival row.
 - **INV-NO-RELEASE-WRITE (rev 2 M1).** Switch-28 OFF writes nothing to a zone with no live borrow.
 - **INV-NOOP.** With both new kill consts False, or with T > effective_high and the mode serving cool, the cool
   path's call sequence, excursion row and `climate_write` row equal today's; the energy pre-cool caller
@@ -185,9 +209,10 @@ reads `:577-632`, boot audit `:1119-1300`; `hvac_zones.py:130-145`, `:698-711`; 
 | `zone.current_temperature` (T) | Climate attr, copied per cycle `hvac_zones.py:711`. On `unavailable` the update returns early (`:702-703`) and T is the last value seen (rev 2 L2; harm nil: B1/S1 already hold writes while unreadable, and the funnel write to an unavailable entity buys nothing). Carrier whole degrees. Healthy on all 3 zones (34/34 writes after 11-05 had a value). | Display (`hvac_zones.py:1219`), `avg_temperature` fallback; NEW: both stand-down compares (trust decisions). |
 | `zone.hvac_mode` | `state.state`, same refresh (`hvac_zones.py:705`). Carrier: always `heat_cool` under B1. | Display; B1 enforcer; NEW: D3 leg check. |
 | `effective_high` | `hvac_predict.py:1287-1297` (above). Live 75. | Write value, setpoint skip, NEW cool compare. |
-| `effective_low` (NEW) | `min(baseline_heat + 2, zone.target_temp_high - MIN_DEADBAND)`; at defaults 72; skip if `effective_low <= zone.target_temp_low` (mirror of the cool setpoint skip: nothing to raise). Baseline health = the same `get_seasonal_setpoints` read the cool leg and every S11 release already depend on. | Heat write value, heat setpoint skip, heat compare. |
+| `effective_low` (NEW) | `min(baseline_heat + 2, baseline_cool, zone.target_temp_high - MIN_DEADBAND)`; at defaults 72; `> effective_high` → heat leg skip `band_inverted` (§0.2); skip if `effective_low <= zone.target_temp_low` (mirror of the cool setpoint skip: nothing to raise). Baseline health = the same `get_seasonal_setpoints` read the cool leg and every S11 release already depend on. | Heat write value, heat setpoint skip, heat compare. |
 | baseline preset | House-state target preset (`get_preset_for_house_state`), NOT the zone's preset (pre-existing note at `:932-935`). Pre-arrival runs only when the house is not away/vacation (`:684`), so this is Home (or Sleep in sleep states) for both legs. | Both legs. |
 | margin (const 0.0) | §6. | Both compares. |
+| `_last_precool_zones` (energy pre-cool) | `hvac_predict.py:635-644`: every visited zone is added whatever the call did (only the interrupt latch `continue`s), INCLUDING a zone whose `_execute_zone_pre_cool` was refused because a pre-arrival token owns it. | Energy pre-cool gate flip-OFF release `:584-589` (trust decision; review M1, fixed by D1c). |
 | `_last_pre_conditioning_zones` | `:739`; pre-arrival zones added whatever the legs did (`:706-707`). | Switch-28 OFF release (D1b filter); `hvac.py:7696` reads the live set (unchanged). |
 | `caller_site` on pre-arrival tokens | Set at `begin_excursion` by the leg. | The four readers in §4 (trust decisions: end, interrupt, Q7, master-OFF). |
 
@@ -240,6 +265,12 @@ Greps (re-run by the plan reviewer and the builder):
 | R2 | boot audit BANKING release (`hvac_excursion.py:1249`) | `_auto_return(stale_boot_release)` pins `pre_preset` (manual skip, C26). Same as the pre-cool. |
 | R3 | lease sweep `_auto_return` (`duration_s=None` → 2 h cap) | Backstop only; INV-LIFECYCLE says it never fires in a live process. |
 | R4 | arrester interrupt (`hvac_override.py:3868`) | BANKING is endable → `human_interrupt`, no write, latch. |
+| R5 (rev 4, M1) | energy pre-cool gate flip-OFF `_release_banked_zones(set(self._last_precool_zones))` (`hvac_predict.py:584-589`) | **LEAK today (pre-existing for S12, inherited by S13).** The energy loop adds a zone to `_last_precool_zones` even when `_execute_zone_pre_cool` was refused over a live pre-arrival token (`:635-644`, `:1340-1359`); gate OFF then pops that token (`:1139`) and closes it `banking_release`, no episode spent → the next pass begins a second pre-arrival borrow. Fixed by D1c. |
+
+Every `_release_banked_zones(` caller (reviewer D enumerates ALL of them, not only `caller_site` readers): `:498`
+(master-OFF pre-arrival split, C2), `:509` (master-OFF remainder, D1b), `:579` (post-restart energy orphans), `:588`
+(R5), `:1225` (`async_end_pre_arrival_borrows`, R1). The `:579` orphan set must also be checked by D for pre-arrival
+tokens.
 
 ### 4.3 Readers that must change `== S12_PRE_ARRIVAL_SITE` → `in PRE_ARRIVAL_CALLER_SITES`
 | # | Site | Miss consequence (why each is load-bearing) |
@@ -309,24 +340,46 @@ line each.
 - **Live:** in-suite primary (switch-28 flips are rare); one-shot query at disposition: no `S11*` `climate_write`
   row for a zone with no borrow row in the preceding window.
 
+### D1c: Energy pre-cool gate-OFF release leaves pre-arrival borrows alone (rev 4, review M1 option b)
+At `hvac_predict.py:586-588`, before `_release_banked_zones(set(self._last_precool_zones))`, drop every zone whose
+token in `_banking_excursion_tokens` has `caller_site in PRE_ARRIVAL_CALLER_SITES` (the pre-arrival end path owns it;
+mirrors the `_pa_rel` split at `:490-506`). One DEBUG line per dropped zone. `_last_precool_zones` is still cleared.
+Option (a) (track only zones whose own token is stored) rejected: it also changes `_energy_precool_zones` /
+`_pre_conditioning_zones` display and the switch-28 path, a wider edit for the same guarantee.
+- **Verify:** zone_2 holds a live `S12_pre_arrival` token and is in `_last_precool_zones`; gate flips OFF → no
+  `return_excursion` on zone_2, token still in the dict, zone still pre-arrival; a zone with an energy `S12_pre_cool`
+  token is released `banking_release` as today.
+- **Verify (discriminating):** under today's code the same fixture closes zone_2 `banking_release`; the test asserts
+  the token survives AND that the next pass does not begin a second borrow.
+- **Test:** `test_energy_precool_gate_off_leaves_prearrival_borrow` (parametrised cool leg / heat leg),
+  `test_energy_precool_gate_off_releases_energy_token`. Mutation anchor: delete the filter → the first red.
+- **Live:** INV-LIFECYCLE query: no `S12_pre_arrival` / `S13_pre_arrival` row ended `banking_release`.
+
 ### D2: Arrival pre-heat (NEW, operator ruling O2)
 At the pre-arrival caller (`hvac_predict.py:697-701`), after the cool call: if `PRE_ARRIVAL_PREHEAT_ENABLED` and
 `not is_borrow_active(zone_id)` (re-read after the cool call — INV-ONE-LEG), call the heat leg. Heat leg, in order:
 1. latch → return; egress paused → return; `target_temp_low` / `target_temp_high` None → return (mirror `:1278-1286`).
 2. Mode (D3) not serving heat → skip `mode_excludes_heat`.
 3. `_resolve_baseline_range` None → skip `no_baseline`, INFO (mirror `:1289-1294`).
-4. `effective_low = min(base_heat + PRE_ARRIVAL_PREHEAT_OFFSET_F, zone.target_temp_high - MIN_DEADBAND)`;
-   `effective_low <= zone.target_temp_low` → return (nothing to raise; mirror of `:1298-1299`).
+4. `effective_low = min(base_heat + PRE_ARRIVAL_PREHEAT_OFFSET_F, base_cool, zone.target_temp_high - MIN_DEADBAND)`
+   (M2); `effective_low > effective_high` (the cool leg's value, computed the same way as `:1287-1297`) → skip
+   `band_inverted`, no write; `effective_low <= zone.target_temp_low` → return (nothing to raise; mirror of
+   `:1298-1299`).
 5. T None / non-numeric → skip `no_temp`, NO write (fail CLOSED; there is no legacy heat write to fall back to).
+   Stale T (L4): on `unavailable` the zone update returns early and T is the last value seen (`hvac_zones.py:701-711`),
+   so the heat leg, like the cool leg, can act on it. Harm nil: a write to an unavailable entity buys nothing.
 6. `T >= effective_low - margin` → stand down, skip `heat_standdown`.
 7. Otherwise W1-W4 (§4.1), token stored in `_banking_excursion_tokens` on a landed write, `_pre_conditioning_zones`
    add unchanged (the caller does it). Carrier manual-hold avoidance is the same as the cool leg: one write per
    arrival episode (the D4b own-row check and `is_borrow_active` block repeats), the stand-down skips inert writes,
    the return is presets-only (R1), and D1b keeps switch 28 from writing to non-borrowing zones.
 Plus the four §4.3 membership edits and the lint test.
-One activity row per pre-arrival set membership, action `pre_arrival_standdown`, written when BOTH legs ended in a
-stand-down (cool `cool_standdown` and heat `heat_standdown`, or a leg disabled/mode-excluded and the other stood
-down), details `{T, effective_low, effective_high, margin, hvac_mode}`. Keyed by the rev-2 M2 flag
+One activity row per pre-arrival set membership, action `pre_arrival_standdown`. Rule (rev 4, L1): **a row iff no
+leg began a borrow in this pass AND at least one leg reached its T compare and stood down** (`cool_standdown` or
+`heat_standdown`). Every other leg outcome (setpoint skip, `no_temp`, `no_baseline`, `band_inverted`,
+`mode_excludes_*`, kill const off, latch, egress paused) neither writes a row by itself nor blocks one. So: cool
+stand-down + heat setpoint skip → row; both setpoint skips → no row; cool `no_temp` (legacy write) → no row (it
+began). Details `{T, effective_low, effective_high, margin, hvac_mode}`. Keyed by the rev-2 M2 flag
 `_standdown_logged` (set on write; cleared at the top of the pre-arrival block for every zone not in
 `self._hvac_coord._pre_arrival_zones`). No row for a began borrow (its excursion and `climate_write` rows exist).
 - **Verify:** T 69, Home heat 70, live range 60-78 → one BANKING row `caller_site S13_pre_arrival`, one
@@ -337,6 +390,12 @@ down), details `{T, effective_low, effective_high, margin, hvac_mode}`. Keyed by
 - **Verify:** T None → no begin, no write (a wrong build that copies the cool leg's fail-open writes 72; the test
   asserts zero funnel calls).
 - **Verify:** live high 73, Home heat 72 → effective_low = 71 (deadband cap), not 74.
+- **Verify (M2, arrival cap):** winter Home 73/72 (gap 1), live 60-78, T 70 → effective_low = 73 (capped at Home
+  cool), not 74.
+- **Verify (M2, config extreme):** floor 65, winter defaults, zone in Away 78/60: effective_high 70, effective_low
+  72 → band inverted. T 69 → cool stands down, heat skip `band_inverted`, zero heat writes. T 71 → cool writes 70 as
+  today (INV-NOOP; pinned so the pre-existing behaviour is visible, not endorsed).
+- **Verify (L1):** cool stand-down + heat setpoint skip → one row; both setpoint skips → no row.
 - **Verify (INV-ONE-LEG):** fixture where the cool leg begins → heat leg not called; fixture where a foreign
   COMPROMISE row is live → neither leg writes.
 - **Verify (INV-LIFECYCLE):** heat borrow then (a) zone HVAC-occupied → ended `pre_arrival_arrived`, presets-only
@@ -355,10 +414,14 @@ down), details `{T, effective_low, effective_high, margin, hvac_mode}`. Keyed by
   `test_preheat_interrupt_uses_arrival_reference`, `test_preheat_interrupt_spends_episode`,
   `test_preheat_master_off_is_pre_arrival_inactive`, `test_preheat_boot_audit_releases_row`,
   `test_energy_preheat_refused_over_prearrival_heat`, `test_preheat_kill_const_false_never_writes`,
-  `test_one_standdown_row_per_membership`, `test_no_raw_s12_prearrival_site_comparisons` (lint). Mutation anchors
+  `test_one_standdown_row_per_membership`, `test_standdown_row_rule_table` (L1),
+  `test_preheat_capped_at_arrival_cool_narrow_gap`, `test_preheat_band_inverted_floor_65_no_write`,
+  `test_cool_floor_65_winter_unchanged`, `test_preheat_deferred_write_two_passes_one_begin` (M3),
+  `test_no_raw_s12_prearrival_site_comparisons` (lint). Mutation anchors
   (one per site, each must turn a named test red): the heat compare; the `is_borrow_active` re-read; C1 (revert to
   `==`) → `test_preheat_ends_on_arrival_presets_only`; C2 → `test_preheat_master_off_is_pre_arrival_inactive`;
-  C3 → `test_preheat_interrupt_spends_episode`; C4 → `test_preheat_interrupt_uses_arrival_reference`.
+  C3 → `test_preheat_interrupt_spends_episode`; C4 → `test_preheat_interrupt_uses_arrival_reference`; the `base_cool` cap → `test_preheat_capped_at_arrival_cool_narrow_gap`;
+  the inverted-band skip → `test_preheat_band_inverted_floor_65_no_write`.
 - **Live:** INV-SD-HEAT check mode over the first 3 days: zero violating rows. Expected pre-heat count = D0's
   "T < effective_low" rate (likely 0 in a Texas November); zero `S13_pre_arrival` rows is the expected outcome, and
   the proof is in-suite. If any `S13_pre_arrival` row exists: it ended with a `pre_arrival_*` or `human_interrupt`
@@ -366,15 +429,22 @@ down), details `{T, effective_low, effective_high, margin, hvac_mode}`. Keyed by
   deadband cap). One-shot query at the card's organic disposition, not a soak.
 
 ### D3: Leg/mode check (operator ruling O1: the non-season fix)
-Both legs read `zone.hvac_mode`. `PRE_ARRIVAL_LEG_MODES = {"cool": {"heat_cool", "cool"}, "heat": {"heat_cool",
-"heat"}}`. A readable mode not in the leg's set (`off`, the other single leg, `auto`, `fan_only`, `dry`) → that leg is
+Both legs read `zone.hvac_mode`. `PRE_ARRIVAL_LEG_MODES = {"cool": {"heat_cool", "cool"}, "heat": {"heat_cool"}}`
+(rev 4, review M3). The heat leg runs ONLY in `heat_cool` for now: every leg writes a low/high pair through
+`set_setpoints`; the ecobee adapter DEFERS outside `heat_cool` (`hvac_strategy.py:1843-1866`) and what HA or a Generic
+integration does with a range in single `heat` is unverified. A defer releases the row without spending the episode,
+so a single-`heat` heat leg would re-begin every 5 min for the whole window. Single `heat` is PARKED (§9). The cool
+leg keeps single `cool` (pre-existing, unchanged; its same retry shape is out of scope). A readable mode not in the
+leg's set (`off`, `heat` or `cool` for the heat leg, `heat` for the cool leg, `auto`, `fan_only`, `dry`) → that leg is
 skipped (`mode_excludes_cool` / `mode_excludes_heat`). An unreadable mode (`""`, `unknown`, `unavailable`) → cool
 fails open (legacy), heat fails closed. `auto` is excluded on purpose: HA defines AUTO as device schedule/AI driven,
 and no adapter here writes a range in it (UNVERIFIED per brand; revisit on a real AUTO thermostat).
 On the 3 Carrier zones B1 keeps `heat_cool`, so this never fires (zero expected); it exists for other homes. Cool leg
 in a single-`cool` mode: the adapter writes a range as today (no change to what is sent; out of scope).
-- **Verify:** mode `heat`, T 78 → no cool write; mode `cool`, T 65 → no heat write; mode `off` → neither; mode `""`
-  → cool legacy, heat none.
+- **Verify:** mode `heat`, T 78 → no cool write; mode `heat`, T 65 → no heat write (`mode_excludes_heat`, M3); mode
+  `cool`, T 65 → no heat write; mode `off` → neither; mode `""` → cool legacy, heat none.
+- **Verify (M3 bound):** `heat_cool`, heat write deferred by the adapter on two consecutive passes → at most one
+  heat begin per pass and no begin storm beyond what the cool leg does today; the test pins the count.
 - **Test:** `test_leg_mode_table`, `test_unreadable_mode_cool_open_heat_closed`.
 - **Live:** `precool`/`preheat` skip lists show no `mode_excludes_*` on the Carrier zones (B1 holds heat_cool).
 
@@ -433,8 +503,11 @@ framing-disjoint code reviews in parallel: **A** local correctness (both compare
 `DailyCounter` rollover, W1-C P1 goldens unchanged); **D** adversarial completeness (state INV-LIFECYCLE and
 INV-SD-HEAT falsifiably, re-enumerate every reader of `caller_site`, `_banking_excursion_tokens`, BANKING kind and the
 pre-arrival sets across `domain_coordinators/`, `sensor.py`, `binary_sensor.py`, including pre-existing code, with a
-legal-config repro for any leak). Per-site source-mutation pass (`ura-reviewer-mutation`) on the D1 compare, the D2
-heat compare, the `is_borrow_active` re-read, C1-C4 and the D1b filter. Orchestrator re-greps §4 before ship. Live
+legal-config repro for any leak). D MUST also enumerate every `_release_banked_zones(` caller (§4.2 list) and every
+path that adds a zone to `_last_precool_zones` / `_energy_precool_zones` / `_pre_conditioning_zones`, not only
+`caller_site` comparisons (rev 4, M1), and test the band at config extremes (floor 65 and 80, Home gap 1 F). Per-site source-mutation pass (`ura-reviewer-mutation`) on the D1 compare, the D2
+heat compare, the `is_borrow_active` re-read, C1-C4, the D1b filter, the D1c filter, the `base_cool` cap and the
+`band_inverted` skip. Orchestrator re-greps §4 before ship. Live
 validation with the README write-back. No schema change (new activity action and new `caller_site` value use existing
 columns).
 
@@ -450,6 +523,12 @@ columns).
   `number.py:602-641`, step 1.0), **per-leg switch** — revive on an operator ask.
 - **Trip-wire (rev-1 D4)** — revive on a wrong stand-down or an `S13_pre_arrival` `lease_expiry` end (D0 check mode).
 - **Energy pre-cool / energy pre-heat stand-down (L4)** — separate sibling card; needs its own fire check.
+- **Heat leg in single `heat` mode (rev 4, M3)** — revive when a single-setpoint write is verified per brand (HA +
+  that integration accept and apply a heat target outside `heat_cool`), same trigger as AUTO; or bound the retry by
+  spending the episode on a deferred/failed heat begin.
+- **Cool-leg floor below the arrival preset's heat (rev 4, M2)** — card `HVAC-PRECOOL-FLOOR-BELOW-ARRIVAL-HEAT-1`:
+  mirror cap `effective_high >= base_heat` on the pre-existing cool leg. Revive/build if the floor knob is ever set
+  below Home cool, or D0 shows a pre-arrival cool write with target < Home heat.
 - **AUTO-mode handling** — revive on a deployed thermostat whose integration reports `auto` with usable range legs.
 
 ## 10. Doc write-back owed by the build
@@ -464,3 +543,9 @@ Live table.
 - Rev 3: season gate dropped (O1) with winter worked through; arrival pre-heat D2 added (O2) on the pre-cool's
   lifecycle (BANKING kind, `S13_pre_arrival`, C1-C4 membership edits, fail-closed on None); D3 mode/leg check;
   margin shared const (O3); D4 attrs renamed; activity action `pre_arrival_standdown`; Tier 2-DB elevated.
+- Rev 4 (pre-build, operator APPROVED 2026-11-12): review `PLAN_hvac_precool_standdown_review_rev3.md`. M1: R5 +
+  D1c (energy pre-cool gate-OFF release skips pre-arrival tokens), test + mutation anchor, reviewer D enumerates
+  every `_release_banked_zones(` caller. M2: `effective_low` capped at `base_cool`; inverted-band rule (heat skips
+  `band_inverted`; cool unchanged, mirror cap carded); floor-65 and gap-1 tests; §0.2 band qualified "at floor 74".
+  M3: heat leg `heat_cool` only, single `heat` parked with a revival trigger, deferred-write test. L1 stand-down row
+  rule; L2 shared `S13_pre_heat` site, filter on `reason`; L3 INV-ONE-LEG reworded; L4 stale-T note on the heat leg.
