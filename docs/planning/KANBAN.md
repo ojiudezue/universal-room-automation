@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-13T00:26:17-06:00_ - _Data commit: `80a992976384`_ - _last_reconciled: 2026-11-12_
+_Generated: 2026-11-13T00:32:08-06:00_ - _Data commit: `cc523c14ce8b`_ - _last_reconciled: 2026-11-12_
 
 
 ## Columns
@@ -16,10 +16,10 @@ _Generated: 2026-11-13T00:26:17-06:00_ - _Data commit: `80a992976384`_ - _last_r
 | 🔨 In progress | 3 |
 | 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 31 |
-| ⏳ Waiting on me (Claude) | 4 |
+| ⏳ Waiting on me (Claude) | 3 |
 | 🚀 Shipped (organic open) | 25 |
 | 🅿️ Parked | 119 |
-| ✅ Done | 426 |
+| ✅ Done | 427 |
 
 ## 📥 Inbox (5)
 _raw capture_
@@ -1353,7 +1353,7 @@ _created 2026-09-20 · updated 2026-09-29 01:05_
   - `FINDINGS_2026_09_20`: Spike RAN (docs/planning/jev_spike/, 58-case eval, LOO). CODE baseline = works 100% / fails 0%% / overall 84.5%% / ECE 0.155 (structurally blind to the all-away-single-sensor phantom + badly calibrated). Logistic-floor arms scored 100%%/...
   - `next_prev1`: PICK/DO (operator): provide INDEPENDENT ground-truth labels for ~20-40 ambiguous occupancy cases (spot-confirm a batch of all-away-single-sensor / still-body episodes as empty-or-occupied), OR approve me sourcing a disjoint truth signal ...
 
-## ⏳ Waiting on me (Claude) (4)
+## ⏳ Waiting on me (Claude) (3)
 _I owe something_
 
 ### `EGRESS-OUTCOME-WEEKLY-LABEL-1` - Weekly labelling of egress identity outcomes (recurring) so Phase 2 of person sightings becomes decidable — _#1 · WSJF 13.0 · v5 tc6 u2 /e1_
@@ -1361,10 +1361,11 @@ thread: **identity** - status: **waiting_me**
 _created 2026-11-12 23:30_
 - **Origin:** 2026-11-12 - Plan rev 11 M6/M7: recorder keeps 7 days; Phase 2 needs >= 10 operator-reviewed confirmations (~10 weeks).
 - **Why:** Run the weekly labeller after D8a ships; it snapshots raw path-edge times and GPS fixes; operator reviews a sample of labels.
-- **Next:** Me: probe how far back URA DB egress rows (person_id, direction, GPS) and Frigate event history go; label what exists; after D8a ships keep the weekly labeller; after 11-21 label the staged passes.
-- **Forensic keys (2):**
+- **Next:** ANSWER: was Jaya's phone with her all day 11-11; do Ojini and Ziri carry phones with trackers? (resolves ~20 of 30 REVIEW rows) -> I finish labels and compute the misrecognition rate; ship D8a soon to stop losing vetoed names.
+- **Forensic keys (3):**
   - `tier`: 1
   - `DECISION_2026-11-13`: Operator chose (1) label historical crossings now from URA DB/Frigate history, (3) lower the Phase 2 bar from 10 to 5 confirmed true cases plus a measured misrecognition rate, and (2) staged arrivals opportunistically: scheduled Sat 2026...
+  - `FINDING_2026-11-13`: AUDIT_egress_history_labels_2026_11_13.md: usable history is only 14 days (Frigate sub_label retention); URA egress rows store only post-veto results, so vetoed names are lost, about 3 candidates/day until D8a ships. 41 candidates 10-30....
 
 ### `HA-GC-GEN2-PAUSES-1` - Home Assistant freezes for about 2 seconds once a minute while Python cleans up memory (full garbage collection on a very large heap) — _#2 · WSJF 6.5 · v7 tc4 u2 /e2_
 thread: **health_monitor** - status: **waiting_me** - approval: **explicit**
@@ -1406,18 +1407,6 @@ _created 2026-10-20 08:30 · updated 2026-11-11 02:05_
   - `operator_decision_2026_11_10`: Prioritize and fix (board instruction 2026-11-10 21:53 UTC). Treated as authority.
   - `verify_2026_11_11_overnight`: CARD-WAS-WRONG + PARTIALLY-DONE. The card's 'APPROVE ESPHome filters + UDM templates + panel/device_time excludes' was stale: the 10-20 attended session already applied that batch as recorder excludes (RUNBOOK_recorder_excludes.md ledger...
   - `staged_2026_11_11_overnight`: Batch 2a staged, NOT applied: recorder exclude globs sensor.span_panel_*_produced_energy and _produced_energy_2 (~9k rows/hr, 92 entities, 84 never change; zero consumers in Energy prefs, all lovelace dashboards, automations.yaml, packag...
-
-### `EGRESS-CONFIG-PATIO-STUDYB-1` - The patio sliding door (patio camera, covers 1-5) and the Study B outside door (Reolink porch camera) are real egresses with no egress config; Garage B must be marked detached — _#4 · WSJF 4.3 · v7 tc4 u2 /e3_
-thread: **identity** - status: **waiting_me**
-_created 2026-11-12 23:10_
-- **Origin:** 2026-11-12 - Operator: patio camera and the Reolink above the Study B door are technically egress; patio covers 1-5 are egress covers; Garage B is detached and opens to itself.
-- **Why:** Live egress config has five egress cameras (garage A group incl. doorbell_lite, front aerial + G6 entry, garage B). Patio and Study B crossings are invisible to the egress tracker, so census, direction and sightings miss them. Garage B c...
-- **Next:** Me: once house is home_*, run options flow camera_census on entry 01KAYV8P69B381KCK3516YVM76: egress_cameras minus camera.garage_b_2, perimeter_cameras plus camera.garage_b_2, door_groups without garage_b; verify live options + egress tr...
-- **Forensic keys (4):**
-  - `tier`: 2
-  - `FINDING_2026-11-12`: Live CM options: egress_cameras = madrone_g6_entry, doorbell_lite, front_door_aerial, garage_a_2, garage_b_2; door_groups = {doorbell_lite: garage_a, garage_a: garage_a, front_door_aerial: front, madrone_g6_entry: front, garage_b: garage...
-  - `DECISION_2026-11-13`: Operator: garage and front are ~99% of entries and exits (house renders shared); Garage B is not a house entry. Config-first: Garage B is fixed by settings, no code. Remove camera.garage_b_2 from egress_cameras and the garage_b door grou...
-  - `APPROVED_2026-11-13`: Operator: "Do the garage b move". Held at 00:08 CST: house in sleep, and saving camera lists reloads the parent entry (no reload while asleep). config_entries backed up to .claude/scratch/core.config_entries.bak-202611130008.
 
 ## 🚀 Shipped (organic open) (25)
 _live, awaiting proof_
@@ -3457,8 +3446,21 @@ _created 2026-09-01 20:30 · initial_
 - **Tags:** tier-3, no-fabrication-verify, regression-prone
 - **Refs:** docs/planning/PLANNING_shared_power_read_staleness.md; Envoy Tier-3 reviews A/B/C/D 2026-09-01
 
-## ✅ Done (426)
+## ✅ Done (427)
 _closed, evidence in refs_
+
+### `EGRESS-CONFIG-PATIO-STUDYB-1` - The patio sliding door (patio camera, covers 1-5) and the Study B outside door (Reolink porch camera) are real egresses with no egress config; Garage B must be marked detached — _WSJF 4.3 · v7 tc4 u2 /e3_
+thread: **identity** - status: **done**
+_created 2026-11-12 23:10_
+- **Origin:** 2026-11-12 - Operator: patio camera and the Reolink above the Study B door are technically egress; patio covers 1-5 are egress covers; Garage B is detached and opens to itself.
+- **Why:** Live egress config has five egress cameras (garage A group incl. doorbell_lite, front aerial + G6 entry, garage B). Patio and Study B crossings are invisible to the egress tracker, so census, direction and sightings miss them. Garage B c...
+- **Next:** None. Patio/Study B not added (operator ~99% garage+front); revisit only if weekly labels show patio crossings matter.
+- **Forensic keys (5):**
+  - `tier`: 2
+  - `FINDING_2026-11-12`: Live CM options: egress_cameras = madrone_g6_entry, doorbell_lite, front_door_aerial, garage_a_2, garage_b_2; door_groups = {doorbell_lite: garage_a, garage_a: garage_a, front_door_aerial: front, madrone_g6_entry: front, garage_b: garage...
+  - `DECISION_2026-11-13`: Operator: garage and front are ~99% of entries and exits (house renders shared); Garage B is not a house entry. Config-first: Garage B is fixed by settings, no code. Remove camera.garage_b_2 from egress_cameras and the garage_b door grou...
+  - `APPROVED_2026-11-13`: Operator: "Do the garage b move". Held at 00:08 CST: house in sleep, and saving camera lists reloads the parent entry (no reload while asleep). config_entries backed up to .claude/scratch/core.config_entries.bak-202611130008.
+  - `DONE_2026-11-13`: Operator: "Do it now... Monitor". Applied 00:13 CST via options flow camera_census: only egress_cameras, perimeter_cameras, door_groups changed (diff vs backup). 20 min watch: house stayed sleep throughout, URA unavailable entities 5 -> ...
 
 ### `EC-EV-DAYTIME-SOLAR-LED-1` - Explore making daytime EV charging solar-led instead of off-peak-led in the EC — _WSJF 1.8 · v5 tc2 u2 /e5_
 thread: **energy** - status: **done** - approval: **implied**
