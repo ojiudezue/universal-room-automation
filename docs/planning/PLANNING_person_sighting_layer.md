@@ -2878,3 +2878,37 @@ those two doc fixes. New §9A build brief. New board cards to mint with the D8a 
 
 Status: rev 11, Phase 1 build-ready. Build dispatch per §0A step order, `ura-super-builder`, four build reviews per
 ship (§11). Phase 2 unchanged and gated (§0A).
+
+---
+
+## 25. Phase 1 builder notes (ura-super-builder, 2026-11-12) — plan text that was wrong against code
+
+Code wins; each is reflected in the build:
+1. **Resolver owner.** The plan (§1.2c, D7 "resolver-ready hook") says `census._get_resolver()`. The census
+   has no such method; the resolver is `CameraIntegrationManager._get_resolver()` at
+   `hass.data[DOMAIN]["camera_manager"]` (`camera_census.py:528`). The producer and the path-map context use it.
+2. **No ZM options-update signal for picks.** `SIGNAL_ZM_ZONES_UPDATED` is dispatched only on a zone DELETE
+   (`config_flow.py:12172`), and presence lives on the parent entry. Re-resolution trigger 3 (§3.2) is implemented
+   as a per-tick comparison of the pick set read from the ZM entry (plus trigger 1 = a rebuilt resolver instance).
+3. **Census veto predicate.** `census_would_veto` needs the census's own predicate (§2A); it was inline in
+   `_get_face_recognized_person_names`. Extracted unchanged as `_face_latch_veto_source` (counter stays in the
+   caller) and exposed read-only as `face_person_would_be_vetoed`.
+4. **Security `at_ts` with no sighting (L9).** Passing `time.time()` reads a second clock; the build passes
+   `None`, which `_face_arrival_corroborated` already resolves to the regime's own `_ts()` (same epoch in
+   production, one clock by construction).
+5. **Face-sensor restore guard (H2).** The idle Frigate face state is `Unknown` (capital U, Frigate's no-match
+   name). The guard compares HA's own `unknown` / `unavailable` case-sensitively; `Unknown` -> name IS a recognition.
+6. **D4 diagnostics host.** `sensor.ura_presence_coordinator_presence_diagnostics` is disabled by default, so
+   live checks L1/L9 would need an operator toggle; the attributes are on `sensor.ura_presence_house_state`
+   (enabled, polled), all in `_unrecorded_attributes` (plan allowed either).
+7. **Manual §5.2 entry window.** The manual says entry `[-300, +60]`; the code is `FACE_MATCH_ENTRY_WINDOW_BEFORE_S`
+   = 60 / `_AFTER_S` = 300, i.e. `[-60, +300]` (face after the crossing). Not changed by this cycle; noted.
+8. **§2B.4 golden.** "Game room at t_E+60 still scores 3": with no `lag_p90_s` on that edge the 30 s default window
+   already excludes it, so it does not test the horizon; the test uses a 25 s hop landing after T instead.
+9. **M3 (debounce key without the camera).** `test_bridge_and_sensor_dedup_single_emit` cannot go red under it (a
+   wider key still dedups); anchored by the new `test_two_cameras_same_person_two_sightings`.
+10. **D5 donor-hygiene drill.** `test_d7_donor_hygiene._MULTI_VICTIM_DRILLS` pinned a presence-clock fix inside the
+    deleted fs4 test; the re-pointed test reads no presence clock, so the drill entry is removed (the multi-donor
+    set still runs the re-pointed test).
+11. **D0 P4 propagation yield** was not measured (Phase 1 D7 is the file + scorer, not propagation).
+

@@ -596,6 +596,24 @@ valid. `EXTERIOR_ADJACENCY_GRAPH` / `EXTERIOR_TRACK_EGRESS_ADJACENT_CAMERAS` in
 - No upload UI yet (plan D3 is spiked only). Edit the file over Samba/SSH, then
   press the reload button.
 
+**Interior path map (FACE-ARRIVAL-REBUILD-1 D7 / INTERIOR-PATH-MAP-1, branch
+`feature/person-sightings-p1`, NOT deployed).** `/config/universal_room_automation/interior_paths.json`
+(primary) or `const.INTERIOR_PATH_MAP_FALLBACK` (this house's operator map with D0-P4 lags) is
+loaded by `EgressDirectionTracker.async_load_path_map` through the shared
+`json_file_loader.load_validated_json` (read, sha, parse, validate; never installs; the seam loader
+now calls it too, behaviour pinned by `test_seam_sha_on_rejected_file_unchanged`). Validated by the
+HA-free `interior_paths.validate` (rules 1-10; nodes = physical cameras via
+`canonical_camera_key`; whole-file rejection; rule 10: a detached door, `INTERIOR_PATH_DETACHED_DOORS`
+= {garage_b}, may not point inward into a house camera). Outcomes: valid file -> file; absent ->
+validated const or none; invalid at first load -> validated const or none; invalid later -> previous
+kept. First load at `EVENT_HOMEASSISTANT_STARTED` (or at once on an entry reload); re-validated on
+`entity_registry_updated` (debounced `INTERIOR_PATH_MAP_REVALIDATE_DEBOUNCE_S`, 30 s) while the file
+is not installed; `button.ura_reload_interior_paths` reloads. Provenance on the Outside: Open Tracks
+sensor: `path_map_source`, `path_map_validation`, `path_map_sha256` (installed file only),
+`path_map_doors`. Phase 1 has NO runtime reader; `door_interior_neighbours` and its readers are
+untouched. The pure scorer `interior_paths.score_path` is shared with offline scripts. Learned
+co-detections are a report only: `AUDIT_interior_path_map_learned_vs_operator.md`.
+
 ### 4.5a Person sightings (FACE-ARRIVAL-REBUILD-1 D1 + D4, branch `feature/person-sightings-p1`, NOT deployed)
 
 `person_sighting.PersonSightingProducer` (built by `PresenceCoordinator._setup_person_sightings` in
