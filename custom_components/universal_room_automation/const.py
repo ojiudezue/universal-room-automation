@@ -3908,6 +3908,36 @@ GARAGE_LOCKOUT_RELEASE_MAX_S: Final = 5
 GARAGE_LOCKOUT_BLIP_MIN_AWAY_MIN: Final = 15
 # Bound on the awaited unlock inside SC teardown on the disable path (C1).
 GARAGE_LOCKOUT_TEARDOWN_RELEASE_TIMEOUT_S: Final = 5
+# LOCK-RELEASE-ON-ARRIVING D3 (plan PLANNING_lock_release_on_arriving.md rev 3),
+# rung 1 (review-only: a safety observer). One NM HIGH
+# (hazard_type lock_release_uncorroborated) when a garage-lockout release on a
+# house_state:* / boot_recheck trigger writes an unlock in an episode that has
+# seen ARRIVING (WAKING and operator override_set edges exempt). Observes, never
+# blocks; expected steady state is zero fires. False = trip-wire off (the D1
+# gate is unaffected).
+LOCK_RELEASE_UNCORROBORATED_TRIPWIRE_ENABLED: Final = True
+# LOCK-RELEASE-ON-ARRIVING D4, rung 1. Seconds after a resident's S1 person
+# release call (anchored AFTER the suspicious-arrival hold) at which a lockout
+# still reading `locked` pages NM HIGH once (lockout_locked_after_arrival).
+# Must exceed the read-back chain READBACK_S x (READBACK_RETRIES + 1) = 40 s by
+# >= 30 s (two blocking unlock calls); 90 s is about when a resident at the door
+# notices. 0 = D4a AND D4b off.
+LOCK_RELEASE_ARRIVAL_STILL_LOCKED_S: Final = 90
+# D4b (INV-REAL-B), rung 1: an `unknown/unavailable -> home` resident edge that
+# the really-away rule rejects (departure never seen) while the episode is
+# tainted or the house reads away/arriving schedules the same check, paging
+# lockout_locked_resident_uncounted_return. D0 measured 0 false pages/week
+# (audit AUDIT_arriving_on_body_evidence_2026_11_13.md §10), so it ships on.
+# False = D4b off (D4a unaffected).
+LOCK_RELEASE_UNCOUNTED_RETURN_PAGE_ENABLED: Final = True
+# LOCK-RELEASE-ON-ARRIVING fix-up D-L2, rung 1 (review-only: a safety
+# observer). At the boot recheck, one NM HIGH per lockout
+# (lockout_locked_boot_gap_return) when the restart restored the house as
+# away / arriving, a resident now reads home, the episode is still held and the
+# lockout still reads locked with no unlock in flight: a return during the
+# restart produced no person edge, so nothing released it. A page, never a
+# release. False = off.
+LOCK_RELEASE_BOOT_GAP_RETURN_PAGE_ENABLED: Final = True
 # SECURITY-LOCK-SWEEP-RETRY-CAP-1: the periodic lock check re-sends
 # lock.lock / cover.close_cover every interval while a device stays
 # unlocked/open. After this many FAILED attempts in one episode (device still
