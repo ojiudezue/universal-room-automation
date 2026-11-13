@@ -18630,6 +18630,7 @@ cards:
   - Inventory every producer and consumer of house state first (fire check + forward trace); every consumer gets a migration verdict.
   - Do not stall the lock-release fix; it ships now and the rethink may retire its workaround later.
   - Read PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md, HVAC state of play, and PLANNING_house_state_*.md first.
+  - 'Operator hypothesis 2026-11-13: arrival may not be a house state at all; it is closer to a mode/event fed by egress (direction-aware door crossings, person sightings) and the pre-arrival work (geofence/BLE approach, HVAC pre-arrival). If it stays a state, it is fed by much narrower conditions (resident arrival evidence), never by plain occupancy. The proposal must test both options against the consumers.'
   next: 'Me: research + inventory pass (current states, transitions, producers, consumers, measured transition rates and false rates; external research), then a first-principles proposal for operator review.'
   rank: {value: 9, time_criticality: 5, effort: 8}
 - id: HOUSE-STATE-UTILIZATION-EPIC
