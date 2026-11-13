@@ -3554,17 +3554,41 @@ class PersonLikelyNextRoomSensor(AggregationEntity, SensorEntity):
                     self._person_id, e,
                 )
 
-        # v3.5.2: Fetch camera sighting for transit validation attribute
+        # PHONE-LEFT-BEHIND-CAMERA-LEG-1 D2: camera attributes from the
+        # person-sighting store (display only), fetched only with a prediction.
         try:
-            transit_validator = self.hass.data.get(DOMAIN, {}).get("transit_validator")
-            if transit_validator and self._cached_prediction:
-                self._last_camera_sighting = transit_validator.get_last_camera_sighting(
-                    self._person_id
-                )
+            if self._cached_prediction:
+                self._last_camera_sighting = self._recent_person_sighting()
             else:
                 self._last_camera_sighting = None
         except Exception:
             self._last_camera_sighting = None
+
+    def _recent_person_sighting(self) -> dict | None:
+        """The person's last sighting younger than
+        NEXT_ROOM_CAMERA_SIGHTING_MAX_AGE_S, as {timestamp, room}, or None."""
+        from .const import NEXT_ROOM_CAMERA_SIGHTING_MAX_AGE_S
+        from .person_coordinator import tracked_person_entity_id
+
+        max_age = float(NEXT_ROOM_CAMERA_SIGHTING_MAX_AGE_S)
+        if max_age <= 0:
+            return None
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        presence = manager.coordinators.get("presence") if manager is not None else None
+        if presence is None:
+            return None
+        sighting = presence.get_last_person_sighting(
+            tracked_person_entity_id(self._person_id)
+        )
+        if sighting is None:
+            return None
+        age = dt_util.utcnow().timestamp() - float(sighting.ts)
+        if age > max_age:
+            return None
+        return {
+            "timestamp": dt_util.utc_from_timestamp(float(sighting.ts)),
+            "room": sighting.room,
+        }
 
     @property
     def native_value(self) -> str | None:

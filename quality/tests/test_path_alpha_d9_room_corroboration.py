@@ -203,8 +203,9 @@ def _build_sensor(sensor_class_pair, ble_location, room_occupied):
     person_coord.data = {"Ezinne": {"location": ble_location}}
     person_coord._is_room_occupied = MagicMock(return_value=room_occupied)
 
+    # PHONE-LEFT-BEHIND-CAMERA-LEG-1: the camera leg is display only; the
+    # validator's presence alone keeps step 4's legacy fail-open path.
     transit_validator = MagicMock()
-    transit_validator.get_last_camera_sighting = MagicMock(return_value=None)
 
     census = MagicMock()
     census.last_result = MagicMock()

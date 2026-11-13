@@ -670,7 +670,10 @@ confidence `CONFIDENCE_MEDIUM` (0.6); egress copies the producer's tier. Each si
 `face_person_would_be_vetoed` -> `_face_latch_veto_source`, extracted from
 `_get_face_recognized_person_names` unchanged): a face of an away resident IS a sighting but not a
 census identity (named concept split). Readers: `PresenceCoordinator.get_last_person_sighting(s)`
-(RAM), the tracker display fields `_last_face_recognized` (now the slug) / `_last_face_time`, and the
+(RAM; display consumers since PHONE-LEFT-BEHIND-CAMERA-LEG-1, branch `feature/phone-left-behind-camera`,
+NOT deployed: the `*_phone_left_behind` attributes `last_camera_sighting_at` / `last_sighting_*` and the
+`*_likely_next_room` `camera_last_seen` / `camera_last_room` attributes; neither verdict nor prediction
+reads them), the tracker display fields `_last_face_recognized` (now the slug) / `_last_face_time`, and the
 D4 diagnostics on `sensor.ura_presence_house_state` (all unrecorded): `face_sightings_today`,
 `face_sightings_by_source`, `face_sighting_last`, `face_sighting_unmapped_names`,
 `egress_non_face_skipped`, `multi_pick_messages`, `face_sighting_picks_resolved` /
