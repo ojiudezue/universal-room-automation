@@ -34818,6 +34818,33 @@ cards:
   FINDING_2026-11-13: 'AUDIT_arriving_on_body_evidence_2026_11_13.md: 2,642 AWAY->ARRIVING edges since 03-12; 6.4% real arrivals, 48.6% correcting a false AWAY, 32.8% no resident evidence. 68.5% driven by zone sensors with census 0, not cameras. Zero access releases ever: lockout, away-lock and auto-follow switches all off; lockout code dates from 11-07. Phone edges lead ARRIVING (median 35 s, 16/17). Fix shape: drop house_state arriving (and the HOME_* follow-on at :858-860) as a lockout release trigger; real arrivals use the person path; trip-wire on any release with trigger house_state:arriving and no resident edge in 120 s; same for auto-follow disarm.'
   next: 'Me: plan the lock-regime trigger change (Tier 3, plan + 2 plan reviews) before the operator turns the lockout back on (~11-16); no urgency while switches are off.'
   rank: {value: 9, time_criticality: 6, effort: 5}
+- id: LOCK-REGIME-BOOT-REALLY-AWAY-1
+  title: After a restart, residents count as away until their first move, so the lockout's really-away check can misjudge returns
+  thread: security
+  status: parked
+  batch: person-sightings
+  created: '2026-11-13 03:00'
+  updated: '2026-11-13 03:00'
+  tier: 3
+  links: {parent: FACE-ARRIVAL-REBUILD-1, related: [LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1, LOCK-REGIME-FACE-ARRIVAL-CORROBORATION-1]}
+  origin: {date: '2026-11-11', gist: 'Review B INFO-B4 residual of LOCK-REGIME-FACE-ARRIVAL-CORROBORATION-1 (security_lock_regime.py ~1149-1153). The board recorded it as its own parked card on 11-11 but the card was never created; created 2026-11-13 during the lock-release plan review.'}
+  why: 'Only matters with the garage lockout ON. PLANNING_lock_release_on_arriving.md rev 2 section 9.1: once ARRIVING no longer releases, this fix must limit the tightening to camera-derived arrivals or pass a joint restart test.'
+  revisit_trigger: 'Garage lockout switched ON, or the lock-release-on-arriving build ships (sequenced next after it).'
+  next: 'Me: plan after LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1 builds; joint restart test.'
+  rank: {value: 6, time_criticality: 5, effort: 3}
+- id: EXTERIOR-PERSON-SEVERITY-ARRIVING-BODY-ONLY-1
+  title: While the house reads ARRIVING, exterior-person alerts drop to LOW, so a body-only ARRIVING softens real alerts
+  thread: security
+  status: inbox
+  batch: person-sightings
+  created: '2026-11-13 03:00'
+  updated: '2026-11-13 03:00'
+  tier: 2
+  links: {parent: FACE-ARRIVAL-REBUILD-1, related: [LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1]}
+  origin: {date: '2026-11-13', gist: 'Lock-release plan completeness review M6 (const.py:2799); scoped out of the lock-release plan rev 2.'}
+  why: 'AUDIT_arriving_on_body_evidence: only 6.4% of AWAY->ARRIVING edges are real arrivals; ARRIVING mostly comes from zone sensors. Alert severity keyed on ARRIVING inherits that noise.'
+  next: 'Me: measure how many exterior-person alerts were downgraded under a false ARRIVING; decide severity keying on resident arrival evidence.'
+  rank: {value: 5, time_criticality: 3, effort: 2}
 - id: FRIGATE-DOOR-FACE-TUNING-1
   title: Door and exterior cameras recognize few faces (garage 36, doorbell 33, entry 16, aerial 7 since 11-05; 9 cameras zero), capping egress identity near 40%
   thread: identity
