@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-13T02:27:50-06:00_ - _Data commit: `e4069fca96bb`_ - _last_reconciled: 2026-11-13_
+_Generated: 2026-11-13T02:28:40-06:00_ - _Data commit: `d5721c2d90a2`_ - _last_reconciled: 2026-11-13_
 
 
 ## Columns
@@ -10,7 +10,7 @@ _Generated: 2026-11-13T02:27:50-06:00_ - _Data commit: `e4069fca96bb`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 7 |
-| 🔬 Investigating | 2 |
+| 🔬 Investigating | 3 |
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 27 |
 | 🔨 In progress | 5 |
@@ -96,7 +96,7 @@ _created 2026-11-12 14:13 · initial_
 - **Forensic keys (1):**
   - `tier`: 1
 
-## 🔬 Investigating (2)
+## 🔬 Investigating (3)
 _measuring; truth not yet known_
 
 ### `PERIMETER-FP-GATES-DISPOSE-1` - Perimeter false-positive gates D3/D5 shipped shadow-first but D3 can never evaluate (zone sensors never configured) and no shadow counts are kept; no disposal date — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
@@ -108,7 +108,16 @@ _created 2026-11-12 22:55_
 - **Forensic keys (1):**
   - `tier`: 2
 
-### `VISION-CROSSING-ANALYSIS-1` - AI vision of each crossing (fast 3-frame sample + batched time-lapse along the camera chain) as a counting and description input, fused with Frigate/Protect counts — _#2 · WSJF 1.9 · v9 tc4 u2 /e8_
+### `HOUSE-STATE-FIRST-PRINCIPLES-1` - Rethink the house state machine from first principles; ARRIVING fired by any occupancy is a legacy assumption the lock, alarm and alert code keeps working around — _#2 · WSJF 2.0 · v9 tc5 u2 /e8_
+thread: **presence** - status: **investigating**
+_created 2026-11-13 04:00_
+- **Origin:** 2026-11-13 - Operator: "The arriving state itself is likely problematic. It does not make sense that occupancy triggers that house state. That state machine was designed when we were dumber. Time to revisit it from first principles so we...
+- **Why:** AUDIT_arriving_on_body_evidence_2026_11_13.md: 2,642 AWAY->ARRIVING edges, 6.4% real arrivals, 48.6% correcting a false AWAY, 68.5% driven by zone sensors with census 0. Consumers (lock release, auto-follow disarm, exterior alert severit...
+- **Next:** Me: research + inventory pass (current states, transitions, producers, consumers, measured transition rates and false rates; external research), then a first-principles proposal for operator review.
+- **Forensic keys (1):**
+  - `tier`: 3
+
+### `VISION-CROSSING-ANALYSIS-1` - AI vision of each crossing (fast 3-frame sample + batched time-lapse along the camera chain) as a counting and description input, fused with Frigate/Protect counts — _#3 · WSJF 1.9 · v9 tc4 u2 /e8_
 thread: **identity** - status: **investigating**
 _created 2026-11-12 22:00_
 - **Origin:** 2026-11-12 - Operator: watch arrivals with AI vision; time-lapse; fast first frames; counting is easy, naming is hard; guests are the census problem; OpenAI models (GPT-6 Luna/Sol); deconflict with camera counts until trusted (100 crossi...
@@ -2246,9 +2255,10 @@ _created 2026-11-07 14:30_
 thread: **security** - status: **parked**
 _created 2026-11-07 14:30_
 - **Why:** Lockout plan audit 2026-11-07: security.py:175-186 mapping leaves Sleep unmapped, auto-follow off live, bridge exits at :1104.
-- **Next:** Revisit after GARAGE-REMOTE-LOCKOUT-SCHEDULE-1 Phase 1 ships.
-- **Forensic keys (1):**
+- **Next:** Revisit after GARAGE-REMOTE-LOCKOUT-SCHEDULE-1 Phase 1 ships, or when the operator wants auto-follow on.
+- **Forensic keys (2):**
   - `tier`: 2
+  - `DEDUPE_2026-11-13`: Folded in the auto-follow ARRIVING->DISARMED flaw (operator: park auto-follow, card its fix, same fix as the lockout). PLANNING_lock_release_on_arriving.md section 13 holds the parked D2 design and its review findings (F8-F10, completene...
 
 ### `REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1` - Room renames split one room's history across two labels and manufacture fake "routine drift" — _#32 · WSJF 2.4 · v7 tc3 u2 /e5_
 thread: **analytics** - status: **parked**
