@@ -1,6 +1,6 @@
-# House-state step 1a: residency, lock house edges, exterior ARRIVING severity
+# v5.108.19 — House-state step 1a: one arrival rule, residents-home producer, ARRIVING severity
 
-**Draft, not yet versioned.** Rename to `README_v<version>.md` at deploy. Card HOUSE-STATE-FIRST-PRINCIPLES-1 (step 1a),
+Card HOUSE-STATE-FIRST-PRINCIPLES-1 (step 1a),
 which folds in EXTERIOR-PERSON-SEVERITY-ARRIVING-BODY-ONLY-1 and EXTERIOR-PERSONS-HOME-ALWAYS-ZERO-1. Plan
 `docs/planning/PLANNING_house_state_axes_step1.md` rev 3, Part A. Tier 3. Part B (vacation overlay) is not in this
 release (HOUSE-STATE-VACATION-OVERLAY-1B).
