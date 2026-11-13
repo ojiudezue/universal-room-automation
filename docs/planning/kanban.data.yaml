@@ -34594,7 +34594,7 @@ cards:
 - id: EGRESS-CONFIG-PATIO-STUDYB-1
   title: The patio sliding door (patio camera, covers 1-5) and the Study B outside door (Reolink porch camera) are real egresses with no egress config; Garage B must be marked detached
   thread: identity
-  status: planned
+  status: waiting_me
   batch: person-sightings
   created: '2026-11-12 23:10'
   updated: '2026-11-12 23:10'
@@ -34605,7 +34605,8 @@ cards:
   rank: {value: 7, time_criticality: 4, effort: 3}
   FINDING_2026-11-12: 'Live CM options: egress_cameras = madrone_g6_entry, doorbell_lite, front_door_aerial, garage_a_2, garage_b_2; door_groups = {doorbell_lite: garage_a, garage_a: garage_a, front_door_aerial: front, madrone_g6_entry: front, garage_b: garage_b}; main_entry_door garage_a. No patio or Study B group. camera.reolinkstudybporchptz is a PERIMETER camera today (and in the seam ring); candidate patio cameras camera.reolinkpatio / camera.reolink_patio_fluent. No code concept of a detached door group (grep detached: only a const comment), so Garage B crossings are treated as HOUSE entries/exits by the egress tracker, census and sightings -> code needed, not just config.'
   DECISION_2026-11-13: 'Operator: garage and front are ~99% of entries and exits (house renders shared); Garage B is not a house entry. Config-first: Garage B is fixed by settings, no code. Remove camera.garage_b_2 from egress_cameras and the garage_b door group; add it to perimeter_cameras so it is still watched. Patio and Study B egress: not added (marginal value at ~1% of crossings); revisit if the weekly egress labels show patio/Study B crossings matter. The house_entry:false code attribute is dropped (a portability option to revisit only if another house needs a detached door that is still tracked).'
-  next: 'DO: in URA options (Coordinator Manager > cameras): egress cameras remove Garage B; perimeter cameras add Garage B; door groups drop garage_b -> I verify the live options and that the egress tracker no longer lists garage_b, then close this card.'
+  APPROVED_2026-11-13: 'Operator: "Do the garage b move". Held at 00:08 CST: house in sleep, and saving camera lists reloads the parent entry (no reload while asleep). config_entries backed up to .claude/scratch/core.config_entries.bak-202611130008.'
+  next: 'Me: once house is home_*, run options flow camera_census on entry 01KAYV8P69B381KCK3516YVM76: egress_cameras minus camera.garage_b_2, perimeter_cameras plus camera.garage_b_2, door_groups without garage_b; verify live options + egress tracker; close.'
 - id: EGRESS-OUTCOME-WEEKLY-LABEL-1
   title: Weekly labelling of egress identity outcomes (recurring) so Phase 2 of person sightings becomes decidable
   thread: identity
