@@ -849,7 +849,7 @@ back to `"unidentified"` when it is NULL:
 | `LastPersonExitSensor` | `sensor.py:4512` | `person_id` → last-exit name |
 
 **CORRECTED (FACE-ARRIVAL-REBUILD-1 D5, code wins): `identity_confidence` HAS a live reader.**
-`TransitValidator._arrival_departure_notify` (`transit_validator.py`, called from
+`EgressDirectionTracker._arrival_departure_notify` (`transit_validator.py:2603`; the class is `EgressDirectionTracker` at `:1007`, not `TransitValidator`, corrected 2026-11-13; called from
 `_resolve_direction`) names the person in "X arrived / left" only at `identity_confidence >=
 ARRIVAL_NAME_CONFIDENCE_THRESHOLD` (0.75), else "Someone" (notification-naming class, (b) below).
 It is the ONE arrival/departure notification site. Since D1 the person-sighting producer (§4.5a)

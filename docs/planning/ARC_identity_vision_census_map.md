@@ -166,6 +166,9 @@ Docs to consolidate:
 
 ## 5. Needs the operator
 
+**Answered 2026-11-13:** Q1 and Q2 → a promotion ladder (display → notification → comfort → house_state → security), stated once in `PLANNING_census_deconfliction.md` §3.2; Q3 approved and done (`PLANNING_census_deconfliction.md`, `PLANNING_person_awareness_read_api.md`, `PLANNING_camera_input_stream_health.md`, trimmed `PLANNING_crossing_vision.md`; estimator plan and crossing-vision history in `docs/planning/archive/`); Q4 approved (one labelling session, crossing-vision P2-D10). Original questions kept below.
+
+
 1. **Does the awareness view ever reach the trust view?** The new rule lets sightings feed F2; rev 7 keeps F2-T
    byte-identical. Default: interior and vision terms move F2-A only; F2-T changes need their own Tier-3 decision.
 2. **Estimator `guests_present` flag** was designed to drive HVAC guest-mode actuation (a trust read). Under rev 7 that

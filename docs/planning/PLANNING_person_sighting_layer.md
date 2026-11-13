@@ -442,7 +442,7 @@ Three components already make identity facts. This layer adds one fact and chang
 |---|---|---|---|
 | F1 Is person P home? | HA `person.*` + `PersonCoordinator` (`person_state_for_trust` for trust readers, raw state for edge readers) | everyone | HA recorder |
 | F2 Who is in the house now (count + identified set) | `PersonCensus` (union of face ids, BLE ids, egress registrations) | presence inference, guest, displays | census sensors |
-| F3 A door crossing (camera, direction, ts) and its identity attach (slug, provenance, confidence) | `TransitValidator` / `EgressDirectionTracker` | census union (`register_egress_face`), four display sensors, perimeter D10.5, **the existing arrival/departure NM `TransitValidator._arrival_departure_notify` (`transit_validator.py:2047`, `:2140`; names the person at `identity_confidence >= ARRIVAL_NAME_CONFIDENCE_THRESHOLD`, live since 2026-09)**, **sightings** | `person_entry_exit_events` + bus `ura_person_egress_event` |
+| F3 A door crossing (camera, direction, ts) and its identity attach (slug, provenance, confidence) | `EgressDirectionTracker` (`transit_validator.py:1007`; corrected 2026-11-13, code wins: not `TransitValidator`, which is `:282-1006`) | census union (`register_egress_face`), four display sensors, perimeter D10.5, **the existing arrival/departure NM `EgressDirectionTracker._arrival_departure_notify` (`transit_validator.py:2603`, bus fire `:2191`; names the person at `identity_confidence >= ARRIVAL_NAME_CONFIDENCE_THRESHOLD`, live since 2026-09)**, **sightings** | `person_entry_exit_events` + bus `ura_person_egress_event` |
 | F4 **P was seen at place X at T** (provenance, confidence, camera, room, house zones) | **NEW: the sighting producer in presence** (one emit function) | last-sighting accessor, D2 arrival rule, tracker display fields, diagnostics; later personalization | RAM only |
 | F5 P is arriving (event) | presence geofence (`presence.py:5297`), `person_coordinator` ble (`:1132`), and the one D2 site | HVAC, security, lock regime, music | activity log |
 
@@ -497,7 +497,7 @@ Shared vocabulary (one name per concept, across FaceLeg, the egress attach, the 
 | Boot guard | `PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S`, one `ts < boot_end` check for sources a/b/c | reused constant |
 | Physical camera key | `camera_resolver.canonical_camera_key(fusion)` (min source device id) | new helper (rev 4, M1); interior and egress |
 | Camera-derived arrival sources | `CAMERA_DERIVED_ARRIVAL_SOURCES` frozenset | new (rev 4, M5); lock regime + security gate by membership |
-| Arrival/departure notification | `TransitValidator._arrival_departure_notify` | existing, one site (rev 4, M6); future consumers extend it, never add a second |
+| Arrival/departure notification | `EgressDirectionTracker._arrival_departure_notify` | existing, one site (rev 4, M6); future consumers extend it, never add a second |
 | Last-seen store | `get_last_person_sighting` | new; legacy `_camera_sightings` carded for migration |
 
 ---
@@ -1099,7 +1099,7 @@ FACE-SIGHTING-CONSUMERS-1 names it as the required gate.
 
 A SIGHTING has no consumer this cycle beyond the D2 adapter, the tracker display fields and diagnostics.
 
-**Existing notification consumer (rev 4, M6).** `TransitValidator._arrival_departure_notify` (`transit_validator.py:2047`,
+**Existing notification consumer (rev 4, M6).** `EgressDirectionTracker._arrival_departure_notify` (`transit_validator.py:2603`; was cited `:2047`,
 `:2140`) already sends "X arrived / left" from the egress bus identity. It is a display-class consumer of F3, not of
 sightings, and is unchanged this cycle. It is the ONE arrival/departure notification site; any later use of sightings
 for notification wording extends it, never adds a second producer.
@@ -1411,7 +1411,7 @@ Probe is an offline approximation of the binding rules (registry device + name-s
   (ZONE-CAMERA-DISCOVERY-DEVICE-AREA-1).
 - No sighting feeds census, house-state inference, the guest gate, `check_zone_occupancy_confidence`, or NM.
 - No private-room location from cameras; no personalization consumer (PERSON-PROFILE-PREFERENCES-1).
-- No new arrival/departure notification producer. One already exists, `TransitValidator._arrival_departure_notify`
+- No new arrival/departure notification producer. One already exists, `EgressDirectionTracker._arrival_departure_notify`
   (`transit_validator.py:2047`, `:2140`); rev 9 adds only its quiet `followup` branch for confirmed candidates.
 - ~~No egress-derived arrivals~~ (rev 8: restored, D0-gated, §2B.6).
 - No change to the egress producer's windows, abstain/disagree rules, BLE branches, `base_stem` predicate or exit
