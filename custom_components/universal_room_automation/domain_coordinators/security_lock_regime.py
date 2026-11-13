@@ -941,8 +941,9 @@ class LockRegimeController:
             # ~5 min after the guest-night clock locked. Hold the lock (lock
             # once, at the guest-night clock); WAKING / HOME_DAY /
             # HOME_EVENING (untainted) / resident arrival / the backstop still
-            # release (ARRIVING no longer does, LOCK-RELEASE-ON-ARRIVING). A manual override GUEST -> HOME_NIGHT in the window is
-            # held too (the regime cannot tell the two apart; plan R26).
+            # release (ARRIVING no longer does, LOCK-RELEASE-ON-ARRIVING). A
+            # manual override GUEST -> HOME_NIGHT in the window is held too
+            # (the regime cannot tell the two apart; plan R26).
             return "guest_yield_hold", None
         if new in _HOME_STATES:
             if self.reason != REASON_NONE:
