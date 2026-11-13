@@ -34591,6 +34591,19 @@ cards:
   origin: {date: '2026-11-12', gist: 'Operator asked why the gates are off. AUDIT_garage_hallway_lock_and_perimeter_gates_2026_11_12.md.'}
   why: 'Off by design as shadow-first (README v5.107.0, PLANNING_perimeter_fp_build_2026_11.md), but gate_decisions_by_camera {} and zone_map {} live; D5 learning (g5_bullet clears bar); D5 settle 8 s shorter than most camera lag. 2,295 CRITICAL + 1,754 HIGH exterior_person alerts in ~30 days.'
   next: 'Me: persist shadow would_demote counts, list the D1 zone sensors needed (operator config), retune D5 settle, then dispose by a fixed date.'
+- id: EGRESS-CONFIG-PATIO-STUDYB-1
+  title: The patio sliding door (patio camera, covers 1-5) and the Study B outside door (Reolink porch camera) are real egresses with no egress config; Garage B must be marked detached
+  thread: identity
+  status: planned
+  batch: person-sightings
+  created: '2026-11-12 23:10'
+  updated: '2026-11-12 23:10'
+  tier: 2
+  links: {parent: FACE-ARRIVAL-REBUILD-1, related: [INTERIOR-PATH-MAP-1]}
+  origin: {date: '2026-11-12', gist: 'Operator: patio camera and the Reolink above the Study B door are technically egress; patio covers 1-5 are egress covers; Garage B is detached and opens to itself.'}
+  why: 'Live egress config has five egress cameras (garage A group incl. doorbell_lite, front aerial + G6 entry, garage B). Patio and Study B crossings are invisible to the egress tracker, so census, direction and sightings miss them. Garage B crossings must not count as house entries.'
+  next: 'Me: read the live egress options (cameras, door contacts, cover entities), list what is missing for patio (patio cam, slider contact, covers 1-5) and Study B (reolink, door contact), and whether Garage B is already treated as not-the-house; then propose the options change to the operator (config-first) and fold into D7.'
+  rank: {value: 7, time_criticality: 4, effort: 3}
 - id: INTERIOR-PATH-MAP-1
   title: Interior camera path map (outside > door > inside), built from the operator fixture, stored as a validated file with const fallback like the exterior seams
   thread: identity
