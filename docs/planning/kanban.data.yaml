@@ -35129,11 +35129,12 @@ broader_backlog_refs:
 - id: F2-PANEL-FFMPEG-CRASHLOOP-1
   title: Frigate-2 study_a_panel and up_hallway_panel ffmpeg crash-loop (~20k log lines / 3 h)
   thread: infra
-  status: in_progress
+  status: waiting_operator
   created: '2026-11-13 14:00'
   updated: '2026-11-13 14:00'
   tier: 1
   origin: {date: '2026-11-13', gist: 'Homelab session found it during g5 mask v2; operator: "homelab should look at the crashes. Start with wall panel config and kiosk satellite."'}
   why: 'Log flood on F2 and two dead camera legs; pre-existing, not caused by mask v2. Homelab-side work (capture rule 5).'
-  next: 'Homelab (homelab-automation-15) investigating panel config + kiosk satellite; I record root cause + commit when it reports.'
+  fixed_2026_11_13: 'Homelab 6b131ff: Kiosk Satellite 2026.11.11 Impeller GLES abort -> headless respawn, RTSP plugin never attaches, :8554 dead. Cold-started KS on both panels ~14:00 CST; F2 5 fps. Up Hallway down ~39 h (no URA presence source), Study A ~47 min with switch.study_a_panel_rtsp_streaming still on (not a health signal). Fleet-wide: Kitchen 4x, Study A 3x, Up Hallway 1x since 10-21.'
+  next: 'PICK: A (recommended) homelab builds an auto-recovery watchdog (checks :8554, cold-starts KS over ADB, cooldown, Pushover; needs an always-on host with an authorized ADB key) + URA trip-wire on <panel> foreground_app != kiosk_satellite or F2 camera fps 0 -> NM; B URA trip-wire only, recover by hand. Also report upstream to KS.'
   rank: {value: 3, time_criticality: 2, effort: 1}
