@@ -5,6 +5,11 @@ orchestrator renames the card; this planner did not edit the kanban yaml). Relat
 PERSON-PROFILE-PREFERENCES-1, FRIGATE-DOOR-FACE-TUNING-1, EGRESS-IDENTITY-JOIN-GAP-1 (egress producer, shipped),
 HVAC-PRECOOL-STANDDOWN-WHEN-COOL-1 (sibling). File renamed with `git mv` from `PLANNING_face_arrival_rebuild.md`.
 
+**Rev 4, 2026-11-12, ura-planner.** Applies `docs/reviews/code-review/PLAN_person_sighting_layer_review_rev3.md`
+(FIX-PLAN: H1, M1-M6, L1-L7). Design unchanged; fixes are explicit egress face provenance, one canonical physical-camera
+key, the Garage A config premise, an egress boot drop, a named census/sighting split, a shared camera-derived source
+set for the access gates, and the existing egress arrival notification. Changelog: §17.
+
 **Rev 3, 2026-11-12, ura-planner.** Operator 2026-11-12: "reframe this, rename it and make sure it's really
 harmonized with egress arrival/departure and census. And reuse any primitives that make sense. I don't want a cowboy
 one off" and "why can't we watch people when we detect an arrival ... AI vision ... We have to get more ambitious",
@@ -165,16 +170,16 @@ perimeter_alert.py const.py`; llmvision `services.yaml` + `__init__.py:457-468` 
 
 | Primitive | Verdict | Where | Why / note |
 |---|---|---|---|
-| Name -> person slug | **REUSE** | `camera_census._canonical_person_slug` `:3903` (aliases + `known_face_guests` -> `guest:<head>` inside it) | The only mapper. `guest:*` slugs emit no resident sighting (counted `guest_names`), same split as `register_egress_face` `:4175`. |
+| Name -> person slug | **REUSE** | `camera_census._canonical_person_slug` `:3903` (aliases + `known_face_guests` -> `guest:<head>` inside it) | The only mapper. `guest:*` slugs emit no resident sighting (counted `guest_names`), same split as `register_egress_face` (defined `:4139`). **Unmapped (rev 4, L4):** the mapper passes unknown names through lowercased (`:3903-3990`), so "mapped" is an explicit membership test: result in `census._get_tracked_person_slugs()`. A result not in that set and not `guest:*`, or `""` (ambiguous head), is unmapped: no sighting, counted `unmapped_names`. |
 | Per-leg face evidence shape | **REUSE (vocabulary)** | `camera_census.FaceLeg` `:349` (`engine`, `base_stem`, `canonical_slug`, `last_changed`, `confidence`, `synthetic`) | `PersonSighting` uses the same field names for the same meanings; no second leg type. Interior evidence is built by the same face sensors `_resolve_face_legs` (`:3312`) reads. |
-| Provenance vocabulary | **EXTEND (name the existing values)** | literals `"face"` / `"ble"` / `"ble+face"` at `camera_census.py:4197, :4270`, `transit_validator.py:1668, :1716, :1777` | NEW rung-1 constants `IDENTITY_PROVENANCE_FACE/_BLE/_BLE_FACE` (+ reserved `_VISION`, unused) and a frozenset of valid values, with the SAME string values. Census and transit validator switch their literals to the constants in the same build (pure rename, byte-identical values; a test pins the values). |
+| Provenance vocabulary | **EXTEND (name the existing values)** | literals `"face"` / `"ble"` / `"ble+face"` at `camera_census.py:4197` (default), `:4270`, `:4772` (`provenance="ble"`), `transit_validator.py:1668, :1716, :1777`, and the reader default `transit_validator.py:2087` | NEW rung-1 constants `IDENTITY_PROVENANCE_FACE/_BLE/_BLE_FACE` (+ reserved `_VISION`, unused) and a frozenset of valid values, with the SAME string values. Census and transit validator switch every literal and default above to the constants in the same build (pure rename, byte-identical values; a test pins the values). **Rev 4 (H1): the face-only attach at `transit_validator.py:1908-1916` today writes NO `provenance` key** (face is implied only by the reader default at `:2086-2087`). The rename adds `"provenance": IDENTITY_PROVENANCE_FACE` to that write explicitly. This is the one non-rename line; the value is the one the reader already assumes. |
 | Confidence ladder | **REUSE** | `CONFIDENCE_HIGH/MEDIUM/LOW` `const.py:315-317`; `FACE_MATCH_CORRELATED_BOOST` `:3345`; `BLE_TRANSITION_ONLY_CONFIDENCE` `:3378` | Interior sighting = 0.6 (one recognizer). No new number. Consumer thresholds are manual §5.5(b) unchanged. |
-| Physical-camera identity (dedup key) | **REUSE** | `RoomCameraFusion.physical_camera_id` via `CameraResolver.resolve_operator_declaration` `camera_resolver.py:767` | Both interior and egress sightings key on it (the egress camera id goes through the same resolver call). Concept split NAMED, not changed: the egress producer's independence predicate uses `base_stem` (manual §5.2); this layer does not touch it. |
+| Physical-camera identity (dedup key) | **EXTEND (rev 4, M1)** | `RoomCameraFusion` / `FusionSource.device_id` from `CameraResolver.resolve_operator_declaration` `camera_resolver.py:767` | `physical_camera_id` alone is NOT canonical: `resolve_capabilities` sets it to `sorted(device_ids)[0]` over its INPUT devices (`:1029`), and `resolve_operator_declaration` passes one input device per call (`:785-797`), so a Protect leg and its Frigate twin give different ids. NEW one helper `camera_resolver.canonical_camera_key(fusion) -> str = min(s.device_id for s in fusion.sources)` (the camera's FULL device set after the ladder walk), used by interior AND egress. The egress side resolves the egress person entity that fired (`transit_validator.py:1272, :1323`, Frigate or Protect leg) through `resolve_operator_declaration([entity])` then the same helper. No caller reads `physical_camera_id` for dedup. Concept split NAMED, not changed: the egress producer's independence predicate uses `base_stem` (manual §5.2); this layer does not touch it. |
 | Pick -> camera walk | **REUSE + EXTEND** | resolver ladder `:767/:801/:752`; NEW thin `resolve_pick_to_fusions` for URA fused room picks (§3.2) | Rev 2 unchanged. |
 | Face producer suppression | **REUSE** | `census._face_suppressed_now` `:4458` | |
 | Fast face path (MQTT latch) | **REUSE + hook** | `_on_frigate_face_msg` `:5459` | No second MQTT subscription, no second latch. |
 | Egress identity, provenance, confidence | **REUSE + one additive key** | `ura_person_egress_event` `transit_validator.py:2016`; `_egress_identity_last_attach["provenance"]` | Sightings PROJECT the egress decision; they never re-decide identity. |
-| Boot exclusion | **REUSE** | `arrival_edges.edge_in_window` `:85` + `PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S` `const.py:2679` | Rev 2's separate `FACE_SIGHTING_BOOT_EXCLUDE_S` is withdrawn. |
+| Boot exclusion | **REUSE (constant)** | `PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S` `const.py:2679` | Rev 2's separate `FACE_SIGHTING_BOOT_EXCLUDE_S` is withdrawn. Rev 4 (L3): `arrival_edges.edge_in_window` (`:85-87`) is a window helper (`ts >= boot_end and abs(at_ts - ts) <= window_s`), not a boot guard. The producer computes `boot_end = presence_setup_ts + PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S` once and drops any sighting with `ts < boot_end`; all three sources (a/b/c) use that one check. |
 | Arrival corroboration | **REUSE** | `arrival_edges.nonface_arrival_source` `:168`; lock `_face_arrival_corroborated` `:1374` (public wrapper only) | |
 | Debounce | **REUSE (re-keyed)** | `presence._face_arrival_cooldown` | Rev 2 unchanged. No other debounce exists for this fact. |
 | Freshness | **none needed** | — | A sighting carries its recognition `ts`; consumers age it. The egress `FACE_MATCH_*` windows belong to the identity JOIN and stay there. |
@@ -182,7 +187,7 @@ perimeter_alert.py const.py`; llmvision `services.yaml` + `__init__.py:457-468` 
 | **Existing camera "sighting" store** | **KEEP + CARD (do not write into it)** | `TransitValidator._camera_sightings` `transit_validator.py:214`, writer `_on_camera_state_change` `:797` (person from `person_id`/`face_id`/`label` state attributes, else `"unidentified"`), reader `get_last_camera_sighting` `:653`; consumers `PersonPhoneLeftBehindSensor` `binary_sensor.py:2196, :2217` and `sensor.py:3559` | Found in rev 3. Live 2026-11-12: `hours_since_camera_sighting` is `null` on every `*_phone_left_behind` sensor, and their `person_id` attribute is a display name (`"Oji Udezue"`), not a slug. So this store never holds a named sighting today. Phone-left-behind is a HOUSE-STATE trust input (it removes a person from the AWAY-veto denominator, presence state-of-play §3), so feeding it named sightings would change house state. It stays untouched this cycle; card **PHONE-LEFT-BEHIND-CAMERA-LEG-1** (Tier 2-DB minimum, house state) migrates it to `get_last_person_sighting(slug)` and retires the named branch of `_camera_sightings`. Until then two stores exist by design: the old one is unnamed-only in practice. |
 | Last-sighting accessor | **NEW (small)** | `PresenceCoordinator.get_last_person_sighting` | NEW because the only existing store (row above) would wake a house-state consumer if written. Long-term single store = this one (card above). |
 | Sighting signal + payload | **NEW** | `SIGNAL_PERSON_SIGHTING`, `PersonSighting` | `grep -rn -i sighting` finds no signal or typed record; the transit store is an untyped dict keyed by attribute strings. |
-| Snapshot capture + retention (for §15) | **REUSE** | `perimeter_alert._capture_at_detection_snapshot` `:3690`, `_try_capture_live_grab` (`camera.snapshot`), `PERIMETER_SNAPSHOT_DIR` `const.py:3136`, `_prune_snapshot_dir` `:4113` with `PERIMETER_SNAPSHOT_RETENTION_AGE_H` (168) / `_COUNT` (5000) | §15 only; not built this cycle. |
+| Snapshot capture + retention (for §15) | **REUSE** | `perimeter_alert._capture_at_detection_snapshot` `:3690`, `_try_capture_live_grab` (`camera.snapshot`), `PERIMETER_SNAPSHOT_DIR` `const.py:3136`, `_prune_snapshot_dir` `:4102` with `PERIMETER_SNAPSHOT_RETENTION_AGE_H` (168) / `_COUNT` (5000) | §15 only; not built this cycle. |
 | Vision call | **REUSE** | `perimeter_enrichment.enrich_dispatched_alert` / `enrich_with_verdict` (timeout, never-raise, non-empty rules) | §15 only. Needs a multi-image variant (llmvision `image_file` takes newline-separated paths, `__init__.py:457`). |
 | Path cameras after a crossing | **REUSE** | `EXTERIOR_ADJACENCY_GRAPH` via `ExteriorTrackLinker.adjacent_cameras` `exterior_track_linker.py:919`; `transit_validator._get_interior_cameras_near` `:2203` | §15 only. |
 
@@ -212,7 +217,7 @@ Three components already make identity facts. This layer adds one fact and chang
 |---|---|---|---|
 | F1 Is person P home? | HA `person.*` + `PersonCoordinator` (`person_state_for_trust` for trust readers, raw state for edge readers) | everyone | HA recorder |
 | F2 Who is in the house now (count + identified set) | `PersonCensus` (union of face ids, BLE ids, egress registrations) | presence inference, guest, displays | census sensors |
-| F3 A door crossing (camera, direction, ts) and its identity attach (slug, provenance, confidence) | `TransitValidator` / `EgressDirectionTracker` | census union (`register_egress_face`), four display sensors, perimeter D10.5, **sightings** | `person_entry_exit_events` + bus `ura_person_egress_event` |
+| F3 A door crossing (camera, direction, ts) and its identity attach (slug, provenance, confidence) | `TransitValidator` / `EgressDirectionTracker` | census union (`register_egress_face`), four display sensors, perimeter D10.5, **the existing arrival/departure NM `TransitValidator._arrival_departure_notify` (`transit_validator.py:2047`, `:2140`; names the person at `identity_confidence >= ARRIVAL_NAME_CONFIDENCE_THRESHOLD`, live since 2026-09)**, **sightings** | `person_entry_exit_events` + bus `ura_person_egress_event` |
 | F4 **P was seen at place X at T** (provenance, confidence, camera, room, house zones) | **NEW: the sighting producer in presence** (one emit function) | last-sighting accessor, D2 arrival rule, tracker display fields, diagnostics; later personalization | RAM only |
 | F5 P is arriving (event) | presence geofence (`presence.py:5297`), `person_coordinator` ble (`:1132`), and the one D2 site | HVAC, security, lock regime, music | activity log |
 
@@ -222,9 +227,17 @@ How they relate:
   confidence the egress producer decided; it never re-runs the JOIN. Exit backfill (late BLE naming) produces no
   sighting.
 - **The census does not read sightings, and sightings do not feed the census.** Both read the SAME face sensors
-  and latch through the SAME mapper, suppression and veto primitives, so they agree by construction. A feed in
-  either direction would count one face twice (the census double-count history, CLAUDE.md producer/consumer rule).
-  The census keeps registering egress identities itself (`register_egress_face`), as today.
+  and latch through the SAME mapper and suppression primitives. A feed in either direction would count one face
+  twice (the census double-count history, CLAUDE.md producer/consumer rule). The census keeps registering egress
+  identities itself (`register_egress_face`), as today.
+- **Named concept split (rev 4, M4; Bug Class #63): they do NOT agree by construction.** The census face path drops
+  a face for a `not_home` person and, under BLE Leads, for an overruled adult (`_get_face_recognized_person_names`,
+  `camera_census.py:6205-6240`; manual §5.4). The sighting producer keeps those faces on purpose (the class (i)
+  candidate, §3.2 Filters). So a Frigate mislabel of an away resident (the 10-24 Jaya-as-Oji case) is a sighting but
+  not a census identity. "Seen" (F4, evidence) and "counted in the house" (F2, belief) are different facts. Each
+  sighting carries `person_state_at_emit` (raw tracker state) and `census_would_veto` (bool, computed by calling the
+  census's own veto predicate, not a re-derivation), so later consumers can apply the census rule without
+  re-deriving it.
 - **F5 from F4 only through D2** (interior class (i), D0-gated). Egress sightings never become arrivals (rev 2 H1).
 - **Access never reads F4 alone** (INV-ACCESS). Corroboration comes from F1 edges / Bermuda moves via
   `arrival_edges`.
@@ -249,8 +262,10 @@ Shared vocabulary (one name per concept, across FaceLeg, the egress attach, the 
 | Debounce | `_face_arrival_cooldown` (re-keyed) | reused |
 | Latch | census MQTT face latch | reused (hook) |
 | Freshness | none (ts carried) | n/a |
-| Boot guard | `edge_in_window` + `PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S` | reused |
-| Physical camera key | resolver `physical_camera_id` | reused |
+| Boot guard | `PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S`, one `ts < boot_end` check for sources a/b/c | reused constant |
+| Physical camera key | `camera_resolver.canonical_camera_key(fusion)` (min source device id) | new helper (rev 4, M1); interior and egress |
+| Camera-derived arrival sources | `CAMERA_DERIVED_ARRIVAL_SOURCES` frozenset | new (rev 4, M5); lock regime + security gate by membership |
+| Arrival/departure notification | `TransitValidator._arrival_departure_notify` | existing, one site (rev 4, M6); future consumers extend it, never add a second |
 | Last-seen store | `get_last_person_sighting` | new; legacy `_camera_sightings` carded for migration |
 
 ---
@@ -259,13 +274,19 @@ Shared vocabulary (one name per concept, across FaceLeg, the egress attach, the 
 
 **INV-ACCESS (load-bearing; rev 3 widens "face-derived" to "camera-derived identity", so a future `vision`
 provenance is covered with no new invariant).** In any reachable path, a camera-derived identity input (any
-`PersonSighting`, whatever its provenance, or a `SIGNAL_PERSON_ARRIVING` whose `source` is `camera_face`) can never,
+`PersonSighting`, whatever its provenance, or a `SIGNAL_PERSON_ARRIVING` whose `source` is in
+`CAMERA_DERIVED_ARRIVAL_SOURCES`) can never,
 on its own, cause:
 garage-lockout release (`SecurityLockRegime._release`), away-lock unlock (`_away_release`), an expected-arrival entry
 (`SanctionChecker.add_expected_arrival`, `security.py:257`, consumed person-agnostically at `:302`), or a security
 disarm (`SecurityCoordinator.handle_disarm`, `security.py:2472`).
 
-- "Face-derived input" = a `PersonSighting`, or a `SIGNAL_PERSON_ARRIVING` whose `source` is `camera_face`.
+- "Camera-derived input" = a `PersonSighting`, or a `SIGNAL_PERSON_ARRIVING` whose `source` is a member of
+  `CAMERA_DERIVED_ARRIVAL_SOURCES` (rung-1 frozenset in `const.py`, today `{"camera_face"}`; a future `camera_vision` /
+  `interior_track` source is added there, once). Rev 4 (M5): the lock regime (`security_lock_regime.py:1017`, today a
+  literal `== "camera_face"`) and the security gate (§3.4) both test membership in this set. A source string that is
+  in neither the set nor the known non-camera set (`geofence`, `ble`) is treated as camera-derived (fail closed):
+  pinned by `test_unknown_arrival_source_requires_corroboration`.
 - Such an action needs an independent non-face arrival edge for the SAME person per
   `arrival_edges.nonface_arrival_source`, within `PERIMETER_EGRESS_FACE_NONFACE_WINDOW_S` (120 s), outside the boot
   exclusion, **as judged by the lock regime's `face_input_corroborated`**. No lock regime (None, torn down, setup
@@ -285,13 +306,18 @@ evidence quality only (§3.2). Falsifier: a recognised resident face on any reso
 sensor and the URA fused Garage A pick, that produces no `SIGNAL_PERSON_SIGHTING` while `face_recognition_enabled`,
 `FACE_SIGHTING_ENABLED`, outside the boot exclusion and not `_face_suppressed_now()`.
 
-**INV-PROVENANCE (new, F2).** A `PersonSighting` exists only for real face evidence. An egress identity whose
-provenance is `ble` never becomes a sighting. Falsifier: an egress event with `identity_provenance == "ble"` (or
-missing) that yields a sighting.
+**INV-PROVENANCE (new, F2; rev 4 L1).** A `PersonSighting` exists only for real face evidence, or for vision evidence
+under the sibling plan's rules (§15.3 item 5, which amends this invariant only when that plan ships). An egress
+identity whose provenance is `ble` never becomes a sighting. A face-only egress identity always does (rev 4, H1: the
+face-only attach writes `provenance: face` explicitly). Falsifier: an egress event with `identity_provenance == "ble"`
+that yields a sighting, OR a face-only egress crossing (real `_resolve_egress_face_identity` path, no BLE leg) whose
+bus event lacks `identity_provenance == "face"`.
 
 **INV-NOOP.** With `FACE_SIGHTING_ENABLED = False`, the four `SIGNAL_PERSON_ARRIVING` consumers see exactly the
 dispatches they see on develop today (zero `camera_face`), no new listener or census hook is registered, and the
-only producer-side change outside presence is the additive egress bus key.
+only producer-side changes outside presence are the additive egress bus key and the explicit face provenance write
+(both value-identical for existing readers). Rev 4 (L5): the census post-sentinel ring (§3.5) is gated on
+`FACE_SIGHTING_ENABLED`; with it False the ring is not created or appended.
 
 ---
 
@@ -306,7 +332,9 @@ only producer-side change outside presence is the additive egress bus key.
 |---|---|
 | `person_entity`, `slug`, `face_name` | `person.<slug>` from the census mapper; raw Frigate name. Unmapped names emit nothing and are counted in `unmapped_names`. |
 | `camera` | Interior: the pick entity id. Egress: the egress camera id. |
-| `physical_camera` | The dedup key: the pick's device id (interior, Frigate pick) or the fused room's `RoomCameraFusion.physical_camera_id` that matched (URA fused pick), or the egress camera's device id. |
+| `physical_camera` | The dedup key, ONE definition (rev 4, M1): `canonical_camera_key(fusion)` = min `device_id` over the matched fusion's full source set. Interior (any pick kind) and egress (the fired egress entity's fusion) use the same helper. |
+| `person_state_at_emit` | Rev 4 (M4). Raw `person.<slug>` state when the sighting is emitted (None if missing). |
+| `census_would_veto` | Rev 4 (M4). True when the census face path would drop this face (not_home, or BLE-Leads overrule), from the census's own predicate. Display/consumer hint only; the producer does not filter on it. |
 | `area_id`, `room` | Via `resolve_area_id_for_entity`, then the URA room whose `CONF_AREA_ID` matches; None if no room. **Egress: where the crossing happened, NOT where the face was seen** (the egress identity may come from an interior face up to 300 s earlier, manual §5.2). |
 | `house_zones` | Sorted tuple (L2) of house zones whose picks include this pick. Egress: zone of `room`, else `()`. |
 | `ts` | When the face was recognised: latch write time (a), the face sensor's `last_changed` on a real transition (b), the egress event `timestamp` (c). Never dispatch time. |
@@ -355,7 +383,13 @@ entities for that camera, through `CameraResolver` (device + registry):
    area_id, room, house_zones}`. Area/room: for a URA fused pick, the owning room; otherwise
    `resolve_area_id_for_entity(pick)` -> room.
 - A pick whose fusions carry no face-name entity is reported in `face_sighting_picks_unresolved` with its reason
-  (`no_fusion`, `no_face_name_source` e.g. Protect-only, `room_entry_missing`), never guessed.
+  (`no_fusion`, `no_face_name_source` e.g. Protect-only, `room_entry_missing`, and rev 4 (M2) `room_cameras_empty`:
+  a URA fused room pick whose room's `CONF_ROOM_CAMERAS` is `[]`), never guessed.
+- **Live today (rev 4, M2):** Garage A's `room_cameras` is `[]` (live entry, 2026-11-12), so
+  `CameraPersonDetectedSensor` is permanently off (`binary_sensor.py:1529`, `:1582-1586`) and the Back Hallway pick
+  `binary_sensor.garage_a_camera_person_detected` resolves to `room_cameras_empty`. This is a config premise, not a
+  code defect; the fix is operator action §13.3. The fused-pick path stays in scope and tested (it is real for other
+  rooms).
 - `census._device_derived_face_entity_id` (`camera_census.py:3274`) is NOT used for picks: it joins only the pick's
   own device and would miss Protect-picked cameras whose Frigate twin is a different device.
 
@@ -385,16 +419,22 @@ Source (b) subscriptions are re-made to match the new bindings (old unsubs dropp
   `identity_provenance` in (`face`, `ble+face`) gives `egress_entry` / `egress_exit`. `ble`, missing provenance and
   `ambiguous` give nothing (counted `egress_non_face_skipped`). Exit backfills (`SIGNAL_EGRESS_EXIT_BACKFILLED`) are
   not sightings. **Producer change (F2, the only one):** the transit validator adds one additive key,
-  `identity_provenance`, to the bus event at `:2016`, taken from `census._egress_identity_last_attach["provenance"]`
-  right after `_resolve_egress_face_identity` returns (the same read already done at `:2080-2092`), `None` when
-  `person_id` is None. Existing bus readers ignore unknown keys (the four display sensors, perimeter D10.5).
+  `identity_provenance`, to the bus event at `:2016`, taken from `census._egress_identity_last_attach` right after
+  `_resolve_egress_face_identity` returns (the same read already done at `:2080-2092`), `None` when `person_id` is
+  None. **Rev 4 (H1):** the face-only attach at `:1908-1916` writes `provenance: IDENTITY_PROVENANCE_FACE`
+  explicitly (it writes no key today), and the bus key is read as
+  `last_attach.get("provenance", IDENTITY_PROVENANCE_FACE)` when `person_id` is not None, so both the write and the
+  read agree with the existing reader default at `:2087`. Without this, a plain `["provenance"]` copy puts `None` on
+  every face-only crossing and the most common face case never becomes a sighting. Existing bus readers ignore
+  unknown keys (the four display sensors, perimeter D10.5, `_arrival_departure_notify`).
 
 **Filters (evidence quality only, never about consumers).**
 - face suppression (`_face_suppressed_now`);
 - sentinel names (`Unknown`, empty, `unknown`, `none`, case-insensitive);
-- boot exclusion: any sighting with `ts` within `PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S` of presence setup is dropped (H2;
-  both interior sources; egress inherits the transit validator's own boot handling, and egress sightings never
-  feed an arrival);
+- boot exclusion: any sighting with `ts < boot_end` (`boot_end` = presence setup +
+  `PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S`) is dropped, for ALL THREE sources including egress (H2; rev 4 M3: the
+  transit validator has NO boot window of its own, grep finds only a comment at `transit_validator.py:271`, so egress
+  does not inherit one; the producer applies the same drop to source (c));
 - interior: the name must join a pick; egress: a face-provenance identity;
 - raw `person.<slug> == not_home` does NOT drop an interior sighting (that is the class (i) candidate).
 - `switch.ura_name_people_at_doors` (L4): egress sightings honour it through the egress producer (no `person_id`
@@ -464,15 +504,20 @@ wrapper over `_face_arrival_corroborated` (`:1374`). It reads the regime's own `
 stamps and boot floor; no second stamping path. Every access-class consumer of a face-derived input calls it.
 FACE-SIGHTING-CONSUMERS-1 names it as the required gate.
 
-| Consumer | Class | Policy for `source == camera_face` | Change |
+| Consumer | Class | Policy for `source in CAMERA_DERIVED_ARRIVAL_SOURCES` (rev 4, M5) | Change |
 |---|---|---|---|
 | `hvac._handle_person_arriving` `:7212` | comfort | Face alone OK (existing `pre_arrival_sources`). Interior class (i) only reaches it. | None to logic. Episode guard `pre_arrival_spent` bounds repeats. |
-| `security_lock_regime.on_person_arriving` `:996` | access (unlock / lockout release) | Unchanged: `_face_arrival_corroborated` + the held re-check + the suspicious-arrival hold drop in `_apply_arrival`. | Tests only. |
+| `security_lock_regime.on_person_arriving` `:996` | access (unlock / lockout release) | Unchanged rule: `_face_arrival_corroborated` + the held re-check + the suspicious-arrival hold drop in `_apply_arrival`. | Rev 4 (M5): the literal `source == "camera_face"` at `:1017` becomes membership in `CAMERA_DERIVED_ARRIVAL_SOURCES` (byte-identical today, set = `{"camera_face"}`), unknown sources fail closed. Tests. |
 | `security._handle_person_arriving_signal` -> `add_expected_arrival` `:2412-2419` | access (alarm suppression) | Accept only if `self._lock_regime is not None and self._lock_regime.face_input_corroborated(person, sighting.ts)`. Lock regime None -> reject (fail closed). **No held re-check:** a face whose edge comes later is rejected for good (asymmetric with the lock regime by design; a late edge produces its own geofence/ble arrival, which security handles normally). Here the non-face edge, not the face, is what suppresses. | **Code change.** Closes the latent leak (toggle on + face-only arrival sanctions every door for 5 min). |
 | `music_following._handle_person_arriving` `:549` | personalization | Face OK (logs). | None. |
 | Disarm | access | No arrival consumer disarms (`handle_disarm` callers: `security.py:1452` auto-follow on house state; service `__init__.py:6595`). | Test pins no face path reaches it. |
 
 A SIGHTING has no consumer this cycle beyond the D2 adapter, the tracker display fields and diagnostics.
+
+**Existing notification consumer (rev 4, M6).** `TransitValidator._arrival_departure_notify` (`transit_validator.py:2047`,
+`:2140`) already sends "X arrived / left" from the egress bus identity. It is a display-class consumer of F3, not of
+sightings, and is unchanged this cycle. It is the ONE arrival/departure notification site; any later use of sightings
+for notification wording extends it, never adds a second producer.
 
 ### 3.5 Diagnostics and trip-wires (D4)
 
@@ -485,7 +530,7 @@ crowded), all in `_unrecorded_attributes`:
 - `face_sighting_picks_resolved` / `face_sighting_picks_unresolved` (with reason per pick).
 
 **New denominator (M2, F6; BUILD).** At the latch write in `_on_frigate_face_msg`, AFTER the sentinel drop, the
-census appends `(now, camname, frozenset(base_stems), name)` to a bounded RAM ring
+census (only when `FACE_SIGHTING_ENABLED`, rev 4 L5) appends `(now, camname, frozenset(base_stems), name)` to a bounded RAM ring
 `_frigate_face_named_ring` (`deque(maxlen=FACE_SIGHTING_BRIDGE_RING_MAX)`), independent of any presence callback.
 Presence's trip-wire computes, over the trailing window: denominator = ring entries whose name maps to a tracked
 resident (census mapper) AND whose stems join a resolved pick; numerator = interior sightings emitted. Unknown names,
@@ -566,7 +611,8 @@ review.
 |---|---|---|---|
 | `FACE_SIGHTING_ENABLED` | True | 1 | Kill switch for the whole producer. False = INV-NOOP. |
 | `FACE_SIGHTING_DEBOUNCE_S` | 60 | 1 | Fixed window per (slug, physical_camera). 0 = no debounce. |
-| Boot exclusion | REUSE `PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S` (600, `const.py:2679`) through `arrival_edges.edge_in_window` (`arrival_edges.py:85`) | 1 | Rev 3: no second boot constant. Same cause (HA restore stamps `last_changed` at boot) as the arrival-edge rule. The builder adds this module to the coupling comment at `const.py:2675`. 0 = off. |
+| Boot exclusion | REUSE `PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S` (600, `const.py:2679`), as one `ts < boot_end` check on sources a/b/c (rev 4 L3/M3) | 1 | Rev 3: no second boot constant. Same cause (HA restore stamps `last_changed` at boot) as the arrival-edge rule. The builder adds this module to the coupling comment at `const.py:2675`. 0 = off. |
+| `CAMERA_DERIVED_ARRIVAL_SOURCES` | `frozenset({"camera_face"})` | 1 | Rev 4 (M5). The one set the lock regime and the security gate test by membership. Not a kill switch; adding a source here is the only way a new camera-derived source is recognised (unknown sources fail closed regardless). |
 | `FACE_SIGHTING_PICK_RERESOLVE_S` | 300 | 1 | Retry period while any pick is unresolved. 0 = only the event triggers. |
 | `FACE_SIGHTING_BRIDGE_RING_MAX` | 2000 | 1 | Bound on the trip-wire denominator ring (≈ 2 days at measured rates). |
 | `FACE_ARRIVAL_INTERIOR_ENABLED` | False until D0-P3 passes | 1 | Interior class (i) arrivals. False = sightings only. |
@@ -593,8 +639,9 @@ the URA DB and the registry. The report goes into this doc as §7.1 before build
 
 - **P1, pick resolution.** For each of the 8 picks, through the §3.2 binding rules (device join; URA fused room ->
   `CONF_ROOM_CAMERAS` -> fusions -> `face_name_entities_for_stem`): resolved face entities, named events in window,
-  and pick -> area -> room hit (None is reported, not guessed). Garage A: which face sensor(s) the fused room
-  reaches (expected `sensor.garage_a_last_recognized_face_2` through its Frigate fusion). Go: ≥ 5 picks resolve.
+  and pick -> area -> room hit (None is reported, not guessed). Garage A (rev 4, M2): expected UNRESOLVED with reason
+  `room_cameras_empty` (its `room_cameras` is `[]`); P1 records whether operator action §13.3 has been taken and, if
+  so, which face sensor the pick then reaches. Go: ≥ 5 picks resolve (Garage A not counted).
 - **P2, volume, timing, egress.**
   - Per pick: named events/day; lag from the person `on` edge to the name; fraction named after the sensor went
     `off` (the case D1's discriminating test uses).
@@ -602,7 +649,8 @@ the URA DB and the registry. The report goes into this doc as §7.1 before build
   - Egress events with `person_id` per day by direction, split by provenance (`face`, `ble+face`, `ble`), and
     **entries with `person_id` whose person was not_home within 300 s before** (H1; expected ~0 because of the
     veto). This confirms egress = sightings only.
-  - Double sightings expected from the Garage A pick + garage_a egress (F8 dedup expectation).
+  - Double sightings expected from a door pick + the same door's egress (F8 dedup expectation; for Garage A only
+    after §13.3, rev 4 M2).
 - **P3, arrival rule (critical gate).** For each interior resident face event, the raw person state at `ts` and the
   nearest `-> home` edge:
   - (i) not_home at ts and a home edge follows within 10 min: **face before phone** (the only class that can ship);
@@ -636,7 +684,8 @@ Fixture: P3 output hand-labelled for ~20 events (operator or BLE ground truth), 
   (ZONE-CAMERA-DISCOVERY-DEVICE-AREA-1).
 - No sighting feeds census, house-state inference, the guest gate, `check_zone_occupancy_confidence`, or NM.
 - No private-room location from cameras; no personalization consumer (PERSON-PROFILE-PREFERENCES-1).
-- No arrival/departure notifications (ARRIVAL-DEPARTURE-NOTIFY-1).
+- No new arrival/departure notification. One already exists, `TransitValidator._arrival_departure_notify`
+  (`transit_validator.py:2047`, `:2140`), and is unchanged (rev 4, M6).
 - **No egress-derived arrivals** (H1; parked with trigger, §0).
 - No change to the egress producer's logic, windows, veto or exit backfill. **One exception:** the additive
   `identity_provenance` bus key (F2), a value it already computes.
@@ -659,10 +708,11 @@ Fixture: P3 output hand-labelled for ~20 events (operator or BLE ground truth), 
 - **Live:** n/a.
 
 ### D1: Sighting producer (sources a/b/c), signal, payload, bindings, last-sighting accessor
-- **Verify:** a named face on any resolved pick, including `upstairs_hall_person_occupancy_2`,
-  `playroom_person_occupancy_2` and the URA fused `garage_a_camera_person_detected`, emits exactly one
-  `SIGNAL_PERSON_SIGHTING` per (slug, physical_camera, fixed window), with the right room and sorted `house_zones`.
-  `master_hallway` gives `("Entertainment", "Master Suite")`.
+- **Verify:** a named face on any resolved pick, including `upstairs_hall_person_occupancy_2` and
+  `playroom_person_occupancy_2`, emits exactly one `SIGNAL_PERSON_SIGHTING` per (slug, physical_camera, fixed
+  window), with the right room and sorted `house_zones`. `master_hallway` gives `("Entertainment", "Master Suite")`.
+  The URA fused `garage_a_camera_person_detected` is reported unresolved with reason `room_cameras_empty` (rev 4,
+  M2) until operator action §13.3; the fused-pick path is proven in-suite on a room with cameras.
 - **Verify (discriminating):**
   - A name arriving 45 s after the person edge, with the person sensor already `off`, emits, with
     `person_edge_age_s ≈ 45`. (Rev 1 compared against the deleted edge-read code, which cannot run.)
@@ -670,7 +720,15 @@ Fixture: P3 output hand-labelled for ~20 events (operator or BLE ground truth), 
   - A stale retained MQTT name emits nothing; `Unknown` emits nothing.
   - An egress entry with `identity_provenance == "ble"` emits nothing; with `"face"` it emits `egress_entry` with
     `room` = the crossing's room.
-  - The same recognition through the fused Garage A pick and garage_a egress gives one sighting (F8).
+  - The same recognition through a door pick and that door's egress gives one sighting (F8), including when the
+    pick is the Protect leg and the egress crossing fires on the Frigate leg (rev 4, M1; under the old
+    `physical_camera_id` this gives two).
+  - A face-only egress crossing driven through the REAL `_resolve_egress_face_identity` path (no BLE leg, no
+    hand-stamped key) fires a bus event with `identity_provenance == "face"` and yields an `egress_entry` sighting
+    (rev 4, H1; under a plain `["provenance"]` copy it carries `None` and yields nothing).
+  - An egress crossing at `ts < boot_end` yields no sighting (rev 4, M3).
+  - A Frigate name for a resident whose tracker reads `not_home` yields a sighting with
+    `census_would_veto=True` and `person_state_at_emit="not_home"` (rev 4, M4).
 - **Verify:** a non-picked camera's face emits nothing (interior). Bindings resolve after
   `EVENT_HOMEASSISTANT_STARTED` when Frigate loads after URA.
 - **Test:** `test_person_sighting.py::test_bridge_only_name_after_edge_emits` (source (b) absent; asserts
@@ -686,10 +744,17 @@ Fixture: P3 output hand-labelled for ~20 events (operator or BLE ground truth), 
   `::test_door_pick_and_egress_dedup`, `::test_last_sighting_accessor_upgrades_not_reemits`,
   `::test_census_reload_keeps_callback`, `::test_tracker_face_fields_updated`, `::test_teardown_unsubscribes_all`,
   (rev 3) `::test_interior_confidence_is_medium`, `::test_guest_slug_not_a_resident_sighting`,
-  `::test_boot_exclusion_uses_shared_edge_helper`, `::test_egress_provenance_copied_not_recomputed`;
+  `::test_boot_exclusion_drops_before_boot_end_keeps_after` (rev 4 L3, behavioural: `ts = boot_end - 1` dropped,
+  `boot_end + 1` kept; replaces `test_boot_exclusion_uses_shared_edge_helper`), `::test_egress_provenance_copied_not_recomputed`;
+  (rev 4) `::test_egress_boot_window_not_a_sighting` (M3, also an egress case inside `test_boot_restore_not_a_sighting`),
+  `::test_protect_pick_and_frigate_egress_one_key` (M1), `::test_canonical_camera_key_same_for_all_legs` (M1),
+  `::test_ura_fused_pick_room_cameras_empty_unresolved` (M2), `::test_not_home_face_sighting_carries_census_veto` (M4),
+  `::test_unmapped_passthrough_name_not_emitted` (L4: lowercased passthrough and `""` both unmapped);
   `test_identity_provenance_consts.py::test_values_unchanged` (constants equal the old literals;
   census/transit read them)
-  (real hass); `test_transit_validator_provenance.py::test_bus_event_carries_identity_provenance`.
+  (real hass); `test_transit_validator_provenance.py::test_bus_event_carries_identity_provenance`,
+  `::test_face_only_real_path_provenance_face` (rev 4 H1: drives the real `_resolve_egress_face_identity` face-only
+  path, asserts `identity_provenance == "face"` on the fired event; no hand-stamped attach).
 - **Live:** `face_sighting_picks_resolved` ≥ the D0-P1 count after a restart. Every `*_last_recognized_face*`
   change to a resident name on a resolved pick (outside the boot window) has a matching sighting ±debounce. No
   sighting in the first 600 s after restart. `ura_person_egress_event` rows carry `identity_provenance`.
@@ -727,6 +792,9 @@ Fixture: P3 output hand-labelled for ~20 events (operator or BLE ground truth), 
   `::test_lock_regime_none_rejects`, `::test_late_edge_not_rechecked`, `::test_geofence_unchanged`;
   `test_sc_lock_person_sighting.py::test_interior_face_held_pending_when_really_away`,
   `::test_face_released_with_bermuda_entry_edge`, `::test_face_input_corroborated_matches_private`;
+  (rev 4, M5) `test_face_access_invariant.py::test_unknown_arrival_source_requires_corroboration` (dispatch
+  `source="camera_vision"` with no edge to both the lock regime and security: no release, no expected arrival),
+  `::test_camera_derived_set_used_by_both_gates`;
   `test_face_access_invariant.py::test_no_face_path_reaches_disarm`; config extremes: window 0 (never), alias
   set/unset, egress 0.9 synthetic (no arrival exists), toggle on with both lock switches on, restart with restored
   face sensors.
@@ -752,7 +820,10 @@ Fixture: P3 output hand-labelled for ~20 events (operator or BLE ground truth), 
   - IDENTITY_FUSION_CAMERAS_MANUAL §1.1 (S8 paragraph), §4.3 (the `identity_provenance` key), §4.5 (lock face
     arrivals now come only from interior class (i)), §5.5 (consumer map: sightings; one-line clarification that the
     security expected-arrival suppression is done by the non-face edge, and that egress identity feeds no
-    arrival — this resolves F7 without a doctrine change);
+    arrival — this resolves F7 without a doctrine change). **Rev 4 (M6): §5.5's claim "NOTHING reads
+    `identity_confidence`" is stale (code wins): `_arrival_departure_notify` (`transit_validator.py:2047`, `:2140`)
+    reads it against `ARRIVAL_NAME_CONFIDENCE_THRESHOLD`. Correct §5.5 and add it to the consumer map.** Also note
+    the `provenance: face` explicit write (H1) in §4.3;
   - PRESENCE_ARCHITECTURE_STATE_OF_PLAY §1 `SIGNAL_PERSON_ARRIVING` row ("camera_face fires for any zone-camera
     face, no was-away gate" becomes the D2 rule) and a §10 entry: "face arrival worked since v3.19" is false, it
     never fired;
@@ -770,7 +841,9 @@ and an egress event; restart-shaped restore. Assert the sightings, the (absent o
 consumer's effect. Guards the v5.8.0 fake-coordinator incident class.
 
 ### D7 (PARKED unless D0-P4 passes): interior track sequence
-If P4 passes: `INTERIOR_CAMERA_ADJACENCY` (rung 1, modelled on `EXTERIOR_ADJACENCY_GRAPH`); propagate a name to an
+If P4 passes: first extend the live `door_interior_neighbours` option (already encodes door-to-interior adjacency,
+e.g. garage_a: garagehallway, staircase, stairs_top; rev 4 L7); mint `INTERIOR_CAMERA_ADJACENCY` (rung 1, modelled on
+`EXTERIOR_ADJACENCY_GRAPH`) only for interior-to-interior pairs it cannot hold; propagate a name to an
 unnamed person edge on an adjacent camera within the measured lag; emit `synthetic=True`,
 `sighting_source="interior_track"`, never an arrival. Revival trigger if parked: door camera recognition below 20 %
 of crossings after FRIGATE-DOOR-FACE-TUNING-1 AND a personalization consumer needs hallway continuity.
@@ -794,11 +867,17 @@ of crossings after FRIGATE-DOOR-FACE-TUNING-1 AND a personalization consumer nee
 | M13 | Security treats lock regime None as corroborated | `::test_lock_regime_none_rejects` |
 | M14 | Debounce refreshed by each duplicate (sliding) | `::test_debounce_fixed_window_not_sliding` |
 | M15 | Trip-wire denominator counts pre-sentinel / unmapped | `::test_unknown_name_faces_silent` |
+| M16 (rev 4, H1) | Remove the explicit `provenance: face` write at `transit_validator.py:1908` AND the `.get` default on the bus key (each separately) | `test_transit_validator_provenance.py::test_face_only_real_path_provenance_face` |
+| M17 (rev 4, M1) | `canonical_camera_key` returns the input leg's device id instead of the min over sources | `::test_protect_pick_and_frigate_egress_one_key` |
+| M18 (rev 4, M3) | Skip the boot drop for source (c) | `::test_egress_boot_window_not_a_sighting` |
+| M19 (rev 4, M5) | Lock regime or security reverts to literal `== "camera_face"` (each separately) | `::test_unknown_arrival_source_requires_corroboration` |
 
 ### Live validation table (written back into the README after restart)
-- L1 picks resolved ≥ D0-P1, incl. the fused Garage A pick or its recorded reason.
+- L1 picks resolved ≥ D0-P1; the fused Garage A pick reported unresolved with `room_cameras_empty` unless §13.3 was
+  done (then resolved).
+- L1b (rev 4) `ura_person_egress_event` rows for face-only crossings carry `identity_provenance: "face"` (not null).
 - L2 the first sighting outside the boot window matches a recorder face change.
-- L3 no sighting in the first 600 s after restart.
+- L3 no sighting (interior or egress) in the first 600 s after restart.
 - L4 no arrival from a home resident's interior sighting (pick one from the recorder).
 - L5 egress: a named face-provenance entry gives an `egress_entry` sighting and NO `camera_face` arrival; a
   BLE-provenance entry gives no sighting.
@@ -845,9 +924,10 @@ second rebases. Its stand-down is an expected HVAC skip reason in L6.
 ## 12. Cards to mint (adjacency sweep before minting)
 - **LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1** (investigate): AWAY -> ARRIVING from body evidence alone releases the
   garage lockout and can auto-follow disarm; review against §5.5(a).
-- **FACE-SIGHTING-CONSUMERS-1** (backlog, after ship): personalization and notifications read
-  `get_last_person_sighting` / the signal, declare an action class, and use `face_input_corroborated` for any access
-  class.
+- **FACE-SIGHTING-CONSUMERS-1** (backlog, after ship): personalization reads `get_last_person_sighting` / the
+  signal, declares an action class, and uses `face_input_corroborated` for any access class. Rev 4 (M6):
+  notifications are NOT a new producer here; any sighting-based wording extends the existing
+  `_arrival_departure_notify`. ARRIVAL-DEPARTURE-NOTIFY-1 is not a gap (that site exists).
 - **FACE-EGRESS-ARRIVAL-1** (parked): egress-derived arrivals; trigger in §0.
 - **PHONE-LEFT-BEHIND-CAMERA-LEG-1** (rev 3, Tier 2-DB minimum, house state): its camera leg reads
   `TransitValidator._camera_sightings`, which never holds a named sighting live (`hours_since_camera_sighting` null on
@@ -861,6 +941,12 @@ second rebases. Its stand-down is an expected HVAC skip reason in L6.
    is unique among tracked persons).
 2. No decision is needed on manual §5.5 (F7): egress identity feeds no arrival, and the face never suppresses on its
    own. Recorded in D5's doc update.
+3. **Garage A pick (rev 4, M2; config-first, operator action, no code, not done by this plan).** The Back Hallway
+   pick `binary_sensor.garage_a_camera_person_detected` is the URA fused sensor of a room whose `room_cameras` is
+   `[]`, so it is permanently off and resolves to nothing. Operator chooses one, in settings:
+   (a) Garage A room options: set its room cameras to the Garage A camera; or
+   (b) Back Hallway zone cameras: replace that pick with the Garage A camera's own person sensor.
+   Either makes the pick resolve with no code change. Until then the plan reports it `room_cameras_empty`.
 
 ---
 
@@ -967,7 +1053,8 @@ Realistic:
    `ExteriorTrackLinker.adjacent_cameras` for exits. Capture reuses the perimeter live-grab path
    (`_try_capture_live_grab`, `camera.snapshot`) into `PERIMETER_SNAPSHOT_DIR/crossings/<crossing_id>/`. Prefer the
    Frigate event snapshot/clip when the crossing camera's Frigate event id is known (fewer grabs; no extra camera
-   load).
+   load). That event id comes from the existing `FrigateEventIngress` (`frigate_ingress.py:147`, consumer
+   registration `register_consumer` `:175`; rev 4 L6), not a new MQTT listener.
 3. **Clustering:** crossings that start while a sequence is open on the same door extend that sequence (one
    sequence, several crossing ids attached), capped at `CROSSING_VISION_SEQUENCE_MAX_S`. Different doors run
    independent sequences, at most `CROSSING_VISION_MAX_CONCURRENT` at once; extra crossings are counted `skipped_busy`,
@@ -1046,3 +1133,28 @@ That is why it is a separate, measured, default-off cycle rather than part of th
 
 Unchanged from rev 2: the arrival rule (D2), consumer policy (D3), trip-wires (D4), retirement (D5), real-HA test (D6),
 parked D7, mutation drills M1-M15, live table L1-L9, Tier 3.
+
+---
+
+## 17. Rev 4 changelog (review `PLAN_person_sighting_layer_review_rev3.md`)
+
+| Finding | Resolution | Where |
+|---|---|---|
+| H1 face-only egress attach writes no `provenance`; plain copy drops every face-only sighting | Explicit `provenance: IDENTITY_PROVENANCE_FACE` at `transit_validator.py:1908`; bus key read with `.get(..., FACE)`; real-path test `test_face_only_real_path_provenance_face`; drill M16 | §1.2a, §2 INV-PROVENANCE, §3.2 (c), D1, drills, L1b |
+| M1 `physical_camera_id` depends on the input leg | One helper `canonical_camera_key(fusion)` = min device id over the full source set, interior and egress; Protect-pick + Frigate-egress test; drill M17 | §1.2a, §2A checklist, §3.1, D1, drills |
+| M2 Garage A `room_cameras` is `[]` | Unresolved reason `room_cameras_empty`; D1/P1/L1 restated; operator action §13.3 (set room cameras, or pick the camera's own sensor); fused-pick test kept | §3.2, §7 P1/P2, D1, L1, §13.3 |
+| M3 egress has no boot guard to inherit | Same `ts < boot_end` drop on source (c); egress boot test; drill M18 | §3.2 Filters, §6, D1, drills, L3 |
+| M4 "agree by construction" is false | Named concept split (seen vs counted); `person_state_at_emit` + `census_would_veto` stamped on the sighting | §2A, §3.1, D1 |
+| M5 access gates match the literal `camera_face` | `CAMERA_DERIVED_ARRIVAL_SOURCES` (rung 1), membership in lock regime `:1017` and security gate; unknown sources fail closed; test + drill M19 | §2 INV-ACCESS, §3.4, §6, D3, drills |
+| M6 `_arrival_departure_notify` missing | Added to F3 readers, no-duplicates checklist, §3.4 note, §8; FACE-SIGHTING-CONSUMERS-1 extends it; D5 corrects manual §5.5 | §2A, §3.4, §8, §12, D5 |
+| L1 INV-PROVENANCE vs §15.3 | Reworded: face evidence, or vision under the sibling plan's rules | §2 |
+| L2 provenance literal list | Added `camera_census.py:4772` and defaults `transit_validator.py:2087`, `camera_census.py:4197` | §1.2a |
+| L3 `edge_in_window` is not a boot guard | Explicit `ts < boot_end` check; behavioural test replaces the call-was-made test | §1.2a, §2A, §6, D1 |
+| L4 "unmapped" undefined | Membership in `_get_tracked_person_slugs()`; `""` unmapped; test | §1.2a, D1 |
+| L5 census ring vs INV-NOOP | Ring gated on `FACE_SIGHTING_ENABLED`; INV-NOOP lists the provenance write | §2, §3.5 |
+| L6 §15 event id source | `FrigateEventIngress` `frigate_ingress.py:147` / `:175` | §15.3 |
+| L7 D7 prior art | Extend `door_interior_neighbours` before minting `INTERIOR_CAMERA_ADJACENCY` | D7 |
+| Cite drift | `register_egress_face` `:4139`, `_prune_snapshot_dir` `:4102` | §1.2a |
+
+Unchanged from rev 3: the arrival rule (D2), the security corroboration rule, trip-wire design (D4), retirement
+(D5 scope), real-HA test (D6), §15 vision design, Tier 3. Status: plan only; operator APPROVE next.
