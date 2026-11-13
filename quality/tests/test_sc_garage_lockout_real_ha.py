@@ -204,3 +204,96 @@ async def test_real_ha_arrival_release_runs_on_loop_and_unlocks(hass):
     finally:
         await regime.async_teardown()
         await hass.async_block_till_done()
+
+
+async def _real_rig(hass):
+    """LOCK-RELEASE-ON-ARRIVING: the regime on a real HA core, lockouts locked
+    in a SLEEP episode (rebuilt at setup from house=sleep)."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    MockConfigEntry(
+        domain=const.DOMAIN,
+        entry_id="cm",
+        title="CM",
+        data={const.CONF_ENTRY_TYPE: const.ENTRY_TYPE_COORDINATOR_MANAGER},
+        options={
+            "security_garage_lockout_enabled": True,
+            "security_lockout_entities": [LOCK_A, LOCK_B],
+            "security_coordinator_enabled": True,
+        },
+    ).add_to_hass(hass)
+    mgr = SimpleNamespace(house_state="sleep")
+    hass.data[const.DOMAIN] = {"coordinator_manager": mgr}
+    calls: list[tuple[str, str]] = []
+
+    async def _handler(call):
+        calls.append((call.service, call.data["entity_id"]))
+        hass.states.async_set(
+            call.data["entity_id"], "unlocked" if call.service == "unlock" else "locked"
+        )
+
+    hass.services.async_register("lock", "unlock", _handler)
+    hass.services.async_register("lock", "lock", _handler)
+    hass.states.async_set(LOCK_A, "locked")
+    hass.states.async_set(LOCK_B, "locked")
+    hass.states.async_set(EZ, "not_home")
+    await hass.async_block_till_done()
+    sc = SimpleNamespace(
+        enabled=True, _shutting_down=False, observation_mode=False,
+        _garage_entities=[], decision_logger=None,
+    )
+    regime = R.LockRegimeController(
+        hass, sc,
+        now=_REAL_NOW,
+        call_later=async_call_later,
+        track_state=async_track_state_change_event,
+        track_added_domain=async_track_state_added_domain,
+        track_removed_domain=async_track_state_removed_domain,
+        store=None,
+    )
+    await regime.async_setup()
+    assert regime.reason == "sleep"
+
+    def edge(new):
+        old = mgr.house_state
+        mgr.house_state = new
+        regime.on_house_state_changed(
+            {"old_state": old, "new_state": new, "trigger": "census_update",
+             "confidence": 0.8}
+        )
+
+    return regime, calls, edge
+
+
+@pytest.mark.asyncio
+async def test_real_ha_body_only_arriving_holds(hass):
+    regime, calls, edge = await _real_rig(hass)
+    try:
+        edge("away")
+        edge("arriving")
+        edge("home_day")
+        await hass.async_block_till_done()
+        assert [c for c in calls if c[0] == "unlock"] == []
+        assert regime.reason == "sleep"
+        assert regime.last_action["action"] == "arriving_hold"
+        assert hass.states.get(LOCK_A).state == "locked"
+    finally:
+        await regime.async_teardown()
+        await hass.async_block_till_done()
+
+
+@pytest.mark.asyncio
+async def test_real_ha_8632_shape_person_edge_after_arriving_releases(hass):
+    regime, calls, edge = await _real_rig(hass)
+    try:
+        edge("away")
+        edge("arriving")
+        await hass.async_block_till_done()
+        assert [c for c in calls if c[0] == "unlock"] == []
+        hass.states.async_set(EZ, "home")  # the resident's edge, after ARRIVING
+        await hass.async_block_till_done()
+        assert sorted(c[1] for c in calls if c[0] == "unlock") == [LOCK_A, LOCK_B]
+        assert regime.last_action["trigger"] == "person:person.ezinne"
+    finally:
+        await regime.async_teardown()
+        await hass.async_block_till_done()

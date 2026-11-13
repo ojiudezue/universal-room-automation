@@ -115,7 +115,10 @@ class ArmedState(Enum):
 
 HOUSE_STATE_TO_ARMED = {
     HouseState.AWAY: ArmedState.AWAY,
-    HouseState.ARRIVING: ArmedState.DISARMED,  # Disarm for arrival
+    HouseState.ARRIVING: ArmedState.DISARMED,  # Disarm for arrival (auto-follow, off by default;
+                                               # unchanged by LOCK-RELEASE-ON-ARRIVING, parked
+                                               # sibling plan §13: body-only ARRIVING still disarms
+                                               # if auto-follow is ever turned on)
     HouseState.HOME_DAY: ArmedState.DISARMED,
     HouseState.HOME_EVENING: ArmedState.HOME,   # Perimeter only
     HouseState.HOME_NIGHT: ArmedState.HOME,
@@ -563,13 +566,24 @@ step rejects overlap). It never touches ArmedState and never goes through `evalu
   evaluated synchronously immediately before its own call, with no `await` between. Under SC
   observation mode an engage is logged `would_engage` and not issued.
 - **Release** (direct `lock.unlock` + read-back at 20 s, one retry, then HIGH NM): wake,
-  HOME_* (override or guest exit), ARRIVING, morning backstop (`sleep_end_hour` +
+  HOME_* (override or guest exit; NOT in an episode that has seen ARRIVING, see below), morning backstop (`sleep_end_hour` +
   `garage_lockout_morning_backstop_min`, never for VACATION), any resident arrival (person →
   `home`, `SIGNAL_PERSON_ARRIVING`, proximity distance crossing inside
   `garage_lockout_approach_radius_m`, optional approach zone), critical smoke/fire/CO with
   egress unlock configured, kill switch ON → OFF, and SC teardown when the LIVE CM entry says SC
   should not run (the Enabled switch's real disable path). **Release is never suppressed by SC
   observation mode.** A release also unlocks a lockout whose `lock.lock` is still in flight.
+- **ARRIVING never releases (LOCK-RELEASE-ON-ARRIVING, branch `feature/lock-release-arriving`, NOT deployed; plan
+  `docs/planning/PLANNING_lock_release_on_arriving.md` rev 3).** House-state ARRIVING is body evidence (census or any
+  zone occupied), not identity. In an engaged episode an ARRIVING edge records `arriving_hold` and sets a persisted
+  taint (`garage_arrival_taint`; also set by an `arriving -> *` edge, a boot that finds the house `away`/`arriving`
+  with a lockout locked, and a boot recheck reading `arriving`). While tainted, HOME_* edges and the boot recheck
+  never release and never end the episode (reason, backstop, re-engage timer and manual-unlock memory are kept).
+  Releases that remain: the resident's own person edge / approach zone / proximity / `SIGNAL_PERSON_ARRIVING`,
+  WAKING, the morning backstop (sleep-like reasons), an operator `override_set` house-state edge, hazard, kill switch,
+  SC disable. The taint ends only at an episode boundary (any engage, a boot SLEEP/VACATION rebuild, every
+  `reason = none` write). With reason `none`, ARRIVING does nothing (it no longer unlocks a hand-locked lockout).
+  Snapshot: `lock_regime_arriving_taint`, `lock_regime_episode_saw_arriving`, `lock_regime_arriving_holds`.
 - **Residents:** every `person.*` minus `security_lockout_excluded_persons`, tracked live
   (added/removed domain trackers) and persisted in Store
   `universal_room_automation.lock_regime_residents`.

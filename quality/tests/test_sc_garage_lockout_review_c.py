@@ -206,7 +206,10 @@ async def test_latch_cleared_after_readback_retries_exhausted():
     await rig.w.advance(600)
     assert rig.regime._release_inflight == set()
     rig.w.calls.clear()
-    await rig.edge("arriving")  # a later release for the same lock still works
+    # A later release for the same lock still works. LOCK-RELEASE-ON-ARRIVING
+    # trigger swap: a resident not_home -> home edge (was an ARRIVING edge).
+    await rig.person(OJI, "not_home")
+    await rig.person(OJI, "home")
     assert rig.unlocks() == [LOCK_A, LOCK_B]
 
 

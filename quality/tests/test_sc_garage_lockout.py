@@ -169,12 +169,16 @@ async def test_boot_recheck_releases_boot_unknown_lock_in_awake_house():
 
 
 @pytest.mark.asyncio
-async def test_boot_recheck_releases_boot_unknown_lock_when_arriving():
+async def test_boot_recheck_holds_boot_unknown_lock_when_arriving():
+    """LOCK-RELEASE-ON-ARRIVING (real flip): house ARRIVING at the boot
+    recheck is body evidence only; it no longer releases a BOOT_UNKNOWN lock."""
     rig = await make_rig(start=BOOT_0200, house="away", lockouts="locked",
                          past_boot=False)
     rig.mgr.house_state = "arriving"  # restore lands late, no signal
     await rig.w.advance(121)
-    assert rig.unlocks() == [LOCK_A, LOCK_B]
+    assert rig.unlocks() == []
+    assert rig.regime.last_action["decision"] == "arriving_hold"
+    assert rig.regime.reason == "boot_unknown"
 
 
 @pytest.mark.asyncio
@@ -509,7 +513,7 @@ async def test_sc_disable_flag_alone_suppresses_detection(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("end_edge", ["waking", "home_day", "arriving"])
+@pytest.mark.parametrize("end_edge", ["waking", "home_day"])
 async def test_remembered_unlock_cleared_at_episode_end_next_episode_locks(end_edge):
     store = DictStore()
     rig = await make_rig(store=store)
@@ -889,12 +893,26 @@ async def test_override_sleep_to_home_releases():
 
 
 @pytest.mark.asyncio
-async def test_arriving_releases():
+async def test_arriving_does_not_release_engaged_episode():
+    """LOCK-RELEASE-ON-ARRIVING (real flip of test_arriving_releases): an
+    ARRIVING edge in an engaged VACATION episode holds; the episode stays."""
     rig = await make_rig(house="away")
     await rig.edge("vacation")
     await rig.edge("arriving")
-    assert rig.unlocks() == [LOCK_A, LOCK_B]
+    assert rig.unlocks() == []
+    assert rig.regime.reason == "vacation"
+    assert rig.regime.last_action["action"] == "arriving_hold"
+
+
+@pytest.mark.asyncio
+async def test_arriving_with_reason_none_does_not_release_hand_lock():
+    """F19 variant: reason NONE, lockouts locked by hand, ARRIVING -> no unlock."""
+    rig = await make_rig(house="away")
+    rig.w.set_state(LOCK_A, "locked")
+    rig.w.set_state(LOCK_B, "locked")
     assert rig.regime.reason == "none"
+    await rig.edge("arriving")
+    assert rig.unlocks() == []
 
 
 @pytest.mark.asyncio
@@ -2509,7 +2527,9 @@ async def test_failed_spawn_never_poisons_release_latch():
     await settle()
     assert LOCK_A not in rig.regime._release_inflight
     rig.w.calls.clear()
-    await rig.edge("arriving")
+    # LOCK-RELEASE-ON-ARRIVING trigger swap: a fresh resident not_home ->
+    # home edge (ARRIVING no longer releases an engaged episode).
+    await rig.person(EZ, "home")
     assert LOCK_A in rig.unlocks()
 
 
