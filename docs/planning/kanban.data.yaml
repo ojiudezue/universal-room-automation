@@ -18642,7 +18642,7 @@ cards:
 - id: HOUSE-STATE-LOG-MISSING-AWAY-ROWS-1
   title: house_state_log has ~553 transitions into ARRIVING with no AWAY row before them, so AWAY entry counts are undercounted
   thread: presence
-  status: investigating
+  status: done
   created: '2026-11-13 05:00'
   updated: '2026-11-13 05:00'
   tier: 2
@@ -18651,6 +18651,7 @@ cards:
   why: 'Every rate built on house_state_log (including the arriving audit) inherits the gap; the rethink needs trustworthy counts.'
   next: 'Me: read-only probe of why the AWAY row is missing (logging path, dedup, restart restore) before the rethink plan relies on these counts.'
   rank: {value: 5, time_criticality: 5, effort: 2}
+  RESOLVED_2026-11-13: 'Explained, no writer fix. 552 of 553 gaps are silent AWAY entries (boot default AWAY with no restore before v5.103.27; 64% unexplained, manager reload the leading unproven candidate). Gaps per month Mar-Nov 62,104,108,81,57,65,75,1,0; zero since 10-03 across 23 restarts. Pre-October ARRIVING rows overcount by ~21%. Optional follow-ups noted in AUDIT_house_state_log_gaps_2026_11_13.md (boot_default trigger row, previous_state mismatch trip-wire).'
 - id: HOUSE-STATE-UTILIZATION-EPIC
   title: ROADMAP EPIC — give operational meaning to under-consumed house states (HOME_DAY dead, AWAY thin);
     rungs 2-4 unbuilt
