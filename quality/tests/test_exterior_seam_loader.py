@@ -219,6 +219,33 @@ def test_reload_invalid_keeps_previous_good_graph(tmp_path, monkeypatch):
     assert lk.seam_validation.startswith("rejected: invalid JSON")
 
 
+def test_reload_button_registered_on_cm_setup(monkeypatch):
+    """Wire-in anchor: the CM entry's button platform setup adds the reload button."""
+    btn_mod = importlib.import_module("custom_components.universal_room_automation.button")
+    from homeassistant.components.button import ButtonEntity
+    # Stub every OTHER button class so the CM list builds with a bare hass.
+    for _name, _obj in list(vars(btn_mod).items()):
+        if (isinstance(_obj, type) and issubclass(_obj, ButtonEntity)
+                and _obj is not ButtonEntity
+                and _obj is not btn_mod.ReloadExteriorSeamsButton):
+            monkeypatch.setattr(btn_mod, _name, lambda *a, **k: object())
+    monkeypatch.setattr(btn_mod, "_discover_ac_zones", lambda _h: [], raising=False)
+    from custom_components.universal_room_automation.const import (
+        CONF_ENTRY_TYPE, ENTRY_TYPE_COORDINATOR_MANAGER,
+    )
+    added: list = []
+    entry = SimpleNamespace(
+        data={CONF_ENTRY_TYPE: ENTRY_TYPE_COORDINATOR_MANAGER}, options={},
+        entry_id="cm", title="CM",
+    )
+    hass = SimpleNamespace(data={DOMAIN: {}})
+    try:
+        asyncio.run(btn_mod.async_setup_entry(hass, entry, added.extend))
+    except Exception:  # noqa: BLE001 - other buttons may need more hass; the list is built first
+        pass
+    assert any(isinstance(e, btn_mod.ReloadExteriorSeamsButton) for e in added)
+
+
 def test_reload_button_entity_id_pinned():
     btn_mod = importlib.import_module("custom_components.universal_room_automation.button")
     b = btn_mod.ReloadExteriorSeamsButton(SimpleNamespace(data={}), SimpleNamespace())

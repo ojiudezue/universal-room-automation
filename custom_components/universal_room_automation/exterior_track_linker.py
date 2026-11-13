@@ -298,6 +298,10 @@ class ExteriorTrackLinker:
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("ExteriorTrackLinker: frigate parse failed", exc_info=True)
 
+        # EXTERIOR-SEAM-LOADER: install the operator seam file (or keep the
+        # const fallback) before the Frigate listener is registered, so no
+        # event links on the wrong graph. Never raises.
+        await self.async_load_seam_file()
         self._unsub_frigate = register_frigate_consumer(
             self.hass, "linker", _on_frigate,
         )
@@ -329,9 +333,6 @@ class ExteriorTrackLinker:
             )
             self._unsub_sweep = None
         self._active = True
-        # EXTERIOR-SEAM-LOADER: install the operator seam file (or keep the
-        # const fallback) before the first event can link. Never raises.
-        await self.async_load_seam_file()
         _LOGGER.info(
             "ExteriorTrackLinker: active (link_window=%ds, close_idle=%ds, "
             "adjacency_nodes=%d)",
