@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.108.14
+# Universal Room Automation vv5.108.15
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -4503,6 +4503,13 @@ class ExteriorOpenTracksDiagnosticSensor(AggregationEntity, SensorEntity):
                 attrs["allowlist_camera_count"] = len(
                     getattr(linker, "_allowed_cameras", ()) or ()
                 )
+            except Exception:  # noqa: BLE001
+                pass
+            # EXTERIOR-SEAM-LOADER D5: which seam graph is live (file vs
+            # built-in const), its size, the validator verdict, and the
+            # file hash so an edit-without-reload is visible.
+            try:
+                attrs.update(linker.seam_status())
             except Exception:  # noqa: BLE001
                 pass
             # B-M3: per-camera unlinked-events counter (events that opened a

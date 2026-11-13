@@ -34498,6 +34498,83 @@ cards:
   next: 'Me: verify the boot log line Subscribed to N zone camera entities, map every consumer of zone cameras, then plan the device-area fallback.'
   rank: {value: 6, time_criticality: 3, effort: 5}
   CORRECTION_2026-11-12: 'Too broad. Only the v3.19 presence face-arrival path never fired; egress faces work and feed egress identity, perimeter naming and census. The operator''s configured zone_cameras (8 interior shared-space/hallway cameras) are stored but only read by a zone-confidence check (presence.py:2389), not face arrival. Device-area fallback still needed for other zone-camera consumers; face arrival moves to FACE-ARRIVAL-REBUILD-1.'
+- id: LOCK-REGIME-SWITCHES-OFF-1
+  title: "Garage lockout and away-lock switches are OFF live, so the shipped lock regime (incl. v5.108.13 suspicious-arrival hold) has made zero decisions in 30 days"
+  thread: security
+  status: waiting_operator
+  batch: broken-promises-2026-11
+  created: '2026-11-12 22:30'
+  updated: '2026-11-12 22:30'
+  tier: 1
+  origin: {date: '2026-11-12', gist: 'Broken-promise sweep (docs/planning/AUDIT_broken_promises_2026_11_12.md); operator: "A lot of our hardening are broken promises from previous work."'}
+  why: "switch.ura_security_coordinator_garage_lockout and _away_lock both off; decision_log zero regime rows in 30 days. Could be a deliberate operator choice; if so the shipped hold work is inert and its organic dispositions cannot validate."
+  next: "ANSWER: were these turned off on purpose? -> if not, I turn them on (house-visible, back up first) and re-run the v5.108.13 dispositions."
+- id: GARAGE-HALLWAY-LOCK-NONCONVERGE-1
+  title: "Garage hallway lock: URA re-locks hourly, the lock reverts to unlocked ~7 s later, and the retry cap only writes an audit row"
+  thread: security
+  status: investigating
+  batch: broken-promises-2026-11
+  created: '2026-11-12 22:30'
+  updated: '2026-11-12 22:30'
+  tier: 2
+  origin: {date: '2026-11-12', gist: 'Broken-promise sweep (docs/planning/AUDIT_broken_promises_2026_11_12.md); operator: "A lot of our hardening are broken promises from previous work."'}
+  why: "Sweep item 3; lock unlocked now. Physical/firmware or a competing writer; the guard never escalates to the operator."
+  next: "Me: read lock history + who writes it, then card the fix (escalate to NM on retry cap)."
+- id: NM-NO-CHANNEL-FIRED-1
+  title: "520 notification_log rows since 11-01 record no_channel_fired / delivered=2 (stuck_signal, circuit_anomaly, lock retry-cap, high_co2): may reach nobody"
+  thread: notifications
+  status: investigating
+  batch: broken-promises-2026-11
+  created: '2026-11-12 22:30'
+  updated: '2026-11-12 22:30'
+  tier: 2
+  origin: {date: '2026-11-12', gist: 'Broken-promise sweep (docs/planning/AUDIT_broken_promises_2026_11_12.md); operator: "A lot of our hardening are broken promises from previous work."'}
+  why: "Sweep item 4, unverified: digest sender not found. A safety alert class (high_co2) is in the set."
+  next: "Me: trace delivered=2 semantics and the digest path; confirm whether these reach the operator."
+- id: OPTIMIZER-DIMENSIONS-STUB-OR-SILENT-1
+  title: "3 of 13 optimizer evaluators are return-[] stubs; 5 more emitted zero findings since 10-20; optimizer_shadow_samples empty"
+  thread: optimization
+  status: investigating
+  batch: broken-promises-2026-11
+  created: '2026-11-12 22:30'
+  updated: '2026-11-12 22:30'
+  tier: 2
+  origin: {date: '2026-11-12', gist: 'Broken-promise sweep (docs/planning/AUDIT_broken_promises_2026_11_12.md); operator: "A lot of our hardening are broken promises from previous work."'}
+  why: "Sweep item 5."
+  next: "Me: classify each evaluator as stub/never-fires-expected/broken; fire-check rule."
+- id: TRIPWIRES-NEVER-FIRED-1
+  title: "Detector-hung and fleet-dark tripwires have never produced a finding (sibling camera_stuck has 33)"
+  thread: diagnostics
+  status: investigating
+  batch: broken-promises-2026-11
+  created: '2026-11-12 22:30'
+  updated: '2026-11-12 22:30'
+  tier: 2
+  origin: {date: '2026-11-12', gist: 'Broken-promise sweep (docs/planning/AUDIT_broken_promises_2026_11_12.md); operator: "A lot of our hardening are broken promises from previous work."'}
+  why: "Sweep item 7. Zero may be correct or the evaluators may be blind; needs a forced-condition check."
+  next: "Me: drive each with a synthetic condition in test and check live inputs."
+- id: ANOMALY-FLOOD-ROWS-1
+  title: "Anomaly floods: transit.path_implausible 21.5k rows, write_local_witness_divergence 7.6k, crosscheck_divergence 1.7k, circuit_tripped_breaker 4.7k in 90 days"
+  thread: diagnostics
+  status: investigating
+  batch: broken-promises-2026-11
+  created: '2026-11-12 22:30'
+  updated: '2026-11-12 22:30'
+  tier: 2
+  origin: {date: '2026-11-12', gist: 'Broken-promise sweep (docs/planning/AUDIT_broken_promises_2026_11_12.md); operator: "A lot of our hardening are broken promises from previous work."'}
+  why: "Sweep item 8; noise buries real signals and grows the DB (DB-SIZE-GROWTH-1)."
+  next: "Me: per detector, true rate vs noise; tune or fix producer."
+- id: ZONE-HAS-HOME-PERSON-UNCALLED-1
+  title: "zone_has_home_person person-trust backstop is defined with no callers while its docstring claims use"
+  thread: hvac
+  status: investigating
+  batch: broken-promises-2026-11
+  created: '2026-11-12 22:30'
+  updated: '2026-11-12 22:30'
+  tier: 1
+  origin: {date: '2026-11-12', gist: 'Broken-promise sweep (docs/planning/AUDIT_broken_promises_2026_11_12.md); operator: "A lot of our hardening are broken promises from previous work."'}
+  why: "Sweep item 9; likely superseded by _zone_conditioning_retreat_ok."
+  next: "Me: confirm superseded, then DELETE or KEEP+DOCUMENT per triage rule."
 - id: INTERIOR-PATH-MAP-1
   title: Interior camera path map (outside > door > inside), built from the operator fixture, stored as a validated file with const fallback like the exterior seams
   thread: identity
@@ -34527,8 +34604,9 @@ cards:
 - id: EXTERIOR-SEAM-FILE-LOADER-1
   title: The exterior seam file the operator ratified is never loaded; the linker runs on the code constant only
   thread: perimeter
-  status: in_progress
-  batch: person-sightings
+  status: shipped_organic
+  shipped_version: v5.108.15
+  batch: exterior-seam-loader
   created: '2026-11-12 22:00'
   updated: '2026-11-12 22:00'
   tier: 2
