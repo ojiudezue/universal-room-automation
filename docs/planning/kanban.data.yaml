@@ -34766,6 +34766,7 @@ cards:
   next: 'Me: builder wiring load-at-setup + fallback + D4 + D5 with a wire-in test; two reviews; ship.'
   rank: {value: 8, time_criticality: 7, effort: 3}
 - id: VISION-CROSSING-ANALYSIS-1
+  operator_2026_11_13_plans_approved: "Plans approved (the four clean plans: census deconfliction, person awareness read API, camera input stream health, crossing vision producer). Merged to develop 2602929c; estimator plan archived."
   arc_cut_v5_108_19: "shadow build running"
   arc_cut_v5_108_18: "separate plan"
   arc_cut_v5_108_16: "own sibling plan, D0-FRAME/SIM done, re-anchor edits then D0-V"
