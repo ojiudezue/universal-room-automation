@@ -5,6 +5,20 @@ orchestrator renames the card; this planner did not edit the kanban yaml). Relat
 PERSON-PROFILE-PREFERENCES-1, FRIGATE-DOOR-FACE-TUNING-1, EGRESS-IDENTITY-JOIN-GAP-1 (egress producer, shipped),
 HVAC-PRECOOL-STANDDOWN-WHEN-COOL-1 (sibling). File renamed with `git mv` from `PLANNING_face_arrival_rebuild.md`.
 
+**Rev 8, 2026-11-12, ura-planner.** Operator 2026-11-12, on "egress only names people already home, so it can't
+catch an arrival": "Who made this rule? I didn't. It doesn't make sense. It should do both especially since we have a
+direction detector, which the path I outlined should improve." Rev 8 makes the egress identity rule DIRECTION-AWARE
+(§2B): an entry naming a `not_home` person is an ARRIVAL CANDIDATE (name kept), an exit naming a `home` person is a
+DEPARTURE CANDIDATE. The veto's protection against misrecognition is replaced by named, measurable guards (path
+corroboration from the operator's camera-path fixture, face confidence, GPS plausibility, and for access consumers the
+unchanged independent-second-signal rule). Egress arrivals return as a source (FACE-EGRESS-ARRIVAL-1 un-parked,
+D0-gated). D7 becomes a prerequisite built from the operator map. New portability section (§20) and D0-P7 (vetoed
+would-be arrivals). Rev-8 changelog: §21. Read for rev 8 (completely): IDENTITY_FUSION_CAMERAS_MANUAL.md,
+PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md, SENSOR_FLEET_CLASSES.md, `FIXTURE_camera_paths_interior.md`; by section:
+`PLANNING_egress_identity_producer.md` (D2b algorithm step 1), `transit_validator.py` 1357-1923 (identity) and
+1925-2140 (direction, emit, union feed, notify), `camera_census.py` 4139-4280 (union register/read) and 6270-6340
+(census veto), `perimeter_alert.py` 4985-5015 (D10.5 egress read).
+
 **Rev 6, 2026-11-12, ura-planner.** Operator 2026-11-12: (1) guest count = vision AND Frigate/Protect person
 counts fused with an explicit deconfliction rule until vision is trusted (§15.7 rewritten, trust criterion §15.7a);
 (2) fast sample = 3 detection-timed frames with a blank-frame guard (§15.5 F-stage, §15.5a) and an offline frame-timing
@@ -105,9 +119,12 @@ without an alias. The alias is optional hygiene, not a fix.
 
 **Honest expected value (rev 2, per review build-prediction "pushback should go further").**
 
-- **Egress produces sightings only, never arrivals (H1).** `transit_validator.py:1840-1854` vetoes an egress
-  identity whenever `person.<slug>` reads `not_home`, so every named egress entry is someone the tracker already
-  shows home. An arrival from it would be a post-arrival duplicate.
+- ~~**Egress produces sightings only, never arrivals (H1).**~~ **SUPERSEDED rev 8 (§2B).** H1 was true of the code
+  but the cause was the veto, not egress: `transit_validator.py:1840-1854` drops an egress face identity whenever
+  `person.<slug>` reads `not_home`, so every named egress entry was someone already home. That veto was copied from
+  the census "who is home now" guard (`camera_census.py:6283-6338`; the egress plan's D2b step 1 says only "veto
+  preserved", `PLANNING_egress_identity_producer.md:286-290`) with no direction analysis. For an ENTRY, `not_home` is
+  exactly the arrival case. Rev 8 makes the rule direction-aware and restores egress arrivals as a D0-gated source.
 - **Interior class (iii) is dropped (M7).** A face after the phone's home edge adds nothing; geofence/ble already
   dispatched.
 - What remains as an arrival is interior class (i): a face seen before the phone arrives. D0-P3 gates it. **The
@@ -117,9 +134,10 @@ without an alias. The alias is optional hygiene, not a fix.
   - D3's security gate is worth shipping on its own, because it closes a latent alarm-suppression sink;
   - the dead v3.19 path and its producer-disabling flag go away.
 
-**Parked, with revival triggers:** the interior track sequence (§9 D7, D0-P4 decides; default PARK); any
-presence/census fusion of sightings; egress-derived arrivals (revival trigger: the egress not_home veto changes,
-or D0-P2 shows named egress entries for not-home persons ≥ 1 per week).
+**Parked, with revival triggers:** any presence/census fusion of sightings. **Rev 8: no longer parked:** egress
+arrivals (the revival trigger "the egress not_home veto changes" fires: §2B changes it; D0-P7 sizes it) and the
+interior/approach track sequence (D7 is now a prerequisite of §2B path corroboration, built from the operator's
+fixture).
 
 ---
 
@@ -250,7 +268,8 @@ How they relate:
   sighting carries `person_state_at_emit` (raw tracker state) and `census_would_veto` (bool, computed by calling the
   census's own veto predicate, not a re-derivation), so later consumers can apply the census rule without
   re-deriving it.
-- **F5 from F4 only through D2** (interior class (i), D0-gated). Egress sightings never become arrivals (rev 2 H1).
+- **F5 from F4 only through D2** (interior class (i), D0-gated; rev 8 adds egress ARRIVAL CANDIDATES, §2B, also
+  D0-gated, through the same one D2 site).
 - **Access never reads F4 alone** (INV-ACCESS). Corroboration comes from F1 edges / Bermuda moves via
   `arrival_edges`.
 
@@ -279,6 +298,123 @@ Shared vocabulary (one name per concept, across FaceLeg, the egress attach, the 
 | Camera-derived arrival sources | `CAMERA_DERIVED_ARRIVAL_SOURCES` frozenset | new (rev 4, M5); lock regime + security gate by membership |
 | Arrival/departure notification | `TransitValidator._arrival_departure_notify` | existing, one site (rev 4, M6); future consumers extend it, never add a second |
 | Last-seen store | `get_last_person_sighting` | new; legacy `_camera_sightings` carded for migration |
+
+---
+
+## 2B. Direction-aware egress identity (rev 8)
+
+### 2B.1 What the code does today (verified 2026-11-12)
+
+- `_resolve_egress_face_identity` (`transit_validator.py:1357`) has three outcome families. BLE-leg branches
+  (`attached_ble`, `attached_ble_face_corroborated`, `:1600-1790`) return BEFORE the veto, so BLE identity is never
+  vetoed. Only the FACE-ONLY single-slug path reaches the veto at `:1840-1854`: raw `person.<slug>.state == "not_home"`
+  -> outcome `vetoed`, `(None, None, SINGLE)`. Missing / unknown / unavailable person -> not vetoed (fail-open).
+- The veto ignores `direction`. It is read when the identity is resolved, i.e. after direction resolution
+  (`_resolve_direction` `:1925`, which runs `ENTRY_WINDOW_SECONDS` = 45 s, `const.py:3296`, after the egress edge),
+  so a phone whose home edge lands inside those 45 s is not vetoed and one that lands later is.
+- Its origin: the census stale-face latch guard (`camera_census.py:6283-6338`, "drop the face-recognized person if
+  their tracker reports not_home ... Frigate's last_camera sensor flaps ... re-stamping last_changed"). That guard
+  answers "who is in the house NOW" and protects against a STALE face sensor. The egress plan copied it ("veto
+  preserved", `PLANNING_egress_identity_producer.md:286-290`); a second copy exists as
+  `census.is_face_leg_person_vetoed` (`camera_census.py:4497`, unconsumed per `transit_validator.py:1522-1527`).
+- Its effect by direction:
+  - **Entry:** every face-only arrival of a person whose phone has not yet reached home is erased. That is the
+    arrival case itself. (This is why rev 2 H1 found named entries were only ever already-home people.)
+  - **Exit:** a departing person's tracker usually still reads `home` at the exit, so the veto rarely fires; when it
+    does fire (tracker already `not_home`), the person is already away by the tracker: either a stale face or a
+    misrecognition. The veto is reasonable there.
+- What the veto actually protected against, on entries: (a) a stale or flapping face sensor re-stamping an old name
+  (FS-2, `transit_validator.py:1499-1508`; the per-leg wall-clock staleness gate `:1509-1550` and the signed-lag window
+  already cover this independently); (b) a resident's face matched on a stranger while that resident is away (the
+  10-24 Jaya-as-Oji case, presence §10 #28). (b) is the one that needs a replacement.
+
+### 2B.2 The rule (replaces the face-only veto at `:1840-1854`)
+
+On the face-only single-slug path, with raw state `S = person.<slug>.state`:
+
+| Direction | `S` | Outcome (new name) | `person_id` | Today |
+|---|---|---|---|---|
+| entry | `home` | `attached` (unchanged) | slug | same |
+| entry | `not_home` or a named zone | **`arrival_candidate`** if every guard in §2B.3 passes, else `vetoed_arrival_unverified` (reason recorded) | slug if candidate, else None | always `vetoed` |
+| entry | missing / unknown / unavailable | `attached` (fail-open, unchanged) | slug | same |
+| exit | `home` | **`departure_candidate`** (the tracker has not yet seen the departure) | slug | `attached` (label only changes) |
+| exit | `not_home` / zone | `vetoed` (unchanged: already away by the tracker; stale or misrecognised) | None | same |
+| exit | missing / unknown / unavailable | `attached` (unchanged) | slug | same |
+| ambiguous | any | unchanged (`direction_ambiguous`, never reaches the veto, `:1430`) | None | same |
+
+BLE branches are unchanged (they never reached the veto). The DB row and bus event carry the slug for candidates. One
+additive bus key, `identity_role` in (`attached`, `arrival_candidate`, `departure_candidate`), plus
+`identity_guards` (dict of guard -> pass/fail/skipped) on candidates only. Readers that ignore unknown keys see only
+more names on entries. Kill switch `EGRESS_IDENTITY_DIRECTION_AWARE` (rung 1, default False until D0-P7 passes):
+False = byte-identical to today's veto.
+
+### 2B.3 What replaces the veto's misrecognition protection (all must pass for `arrival_candidate`)
+
+| Guard | Rule | Source (REUSE) | Missing input |
+|---|---|---|---|
+| G1 face confidence | `identity_confidence >= EGRESS_ARRIVAL_CANDIDATE_MIN_CONFIDENCE` (rung 1, default 0.75 = two engines on one camera or better; a single 0.6 recognizer is not enough to override the tracker) and not synthetic-only (`identity_synthetic_corroborated` False) | egress confidence ladder (manual §5.3), synthetic flag (manual §4.5) | n/a (face path always has a confidence) |
+| G2 direction / path corroboration | `path_score >= EGRESS_ARRIVAL_PATH_MIN` (§2B.4): the body actually travelled outside -> door -> inside in the fixture order, not just "an interior camera fired within 45 s" | D7 path map (§9 D7) + existing interior-neighbour match | no path map for that door -> `skipped`; the candidate then needs G1 at 0.9 non-synthetic (two physical cameras) |
+| G3 GPS plausibility | NOT (the person's last GPS fix is younger than `EGRESS_ARRIVAL_GPS_MAX_AGE_S` (rung 1, 600) AND farther than `EGRESS_ARRIVAL_GPS_MAX_KM` (rung 1, 2.0) from home). A face of someone whose phone was 27 km away 5 min ago is not that person. This is the direct guard for the 10-24 case | HA `person.<slug>` `latitude`/`longitude`/`gps_accuracy` attributes and `zone.home`; or the per-resident proximity sensor already configured for the lock regime (`CONF_SECURITY_LOCKOUT_DISTANCE_SENSORS`, `const.py:3733`) when present | no GPS tracker / no fix -> `skipped` (not a fail) |
+| G4 no conflicting name | the existing abstain / disagree rules already ran (`:1800-1835`); G4 is that they returned a single slug | unchanged | n/a |
+
+Not a guard, recorded only: `away_for_s` (seconds since the person's last live `home -> not_home` edge). D0-P7 decides
+whether a minimum belongs here (a resident who stepped out 2 minutes ago and comes back is a real arrival too).
+
+Access consumers are NOT protected by G1-G4. They keep INV-ACCESS: an arrival candidate is camera-derived and needs
+an independent non-face arrival edge (`face_input_corroborated`, §3.4). G1-G4 protect the comfort, notification,
+display and perimeter de-escalation consumers below.
+
+### 2B.4 Direction confidence from the camera path (uses the operator fixture)
+
+Today direction = the closest interior-neighbour edge within +45 s (entry) or -30 s (exit) of the egress edge, and
+`confidence` = 0.9 / 0.8 by platform count (`transit_validator.py:1953-2000`). One interior hit is the whole evidence.
+
+Rev 8 adds `path_score` (an integer, recorded on the bus event and DB-free) computed from the D7 path map, an ordered
+list of stages per door from `docs/planning/FIXTURE_camera_paths_interior.md` (e.g. garage: exterior {Back PTZ, G5,
+Doorbell Lite} -> egress Garage A -> interior Garage hallway/stairs -> Stair top -> Game room -> Upstairs hallway,
+branch Garage hallway/stairs -> Family room):
+
+- +1 for each ordered hop the person made in the crossing's direction within that hop's measured lag window (p90 of
+  D0-P4's per-pair lag, stored in the map): for an entry, an exterior-stage camera edge BEFORE the egress edge, and
+  interior-stage edges AFTER it in stage order; for an exit, the reverse.
+- -1 for each hop seen in the opposite order inside the same window (someone going the other way).
+- Same-field-of-view pairs (patio <-> family room with the patio doors open) are deduplicated, never a hop (fixture
+  "Patio").
+- `direction_confidence` stays the existing 0.9 / 0.8 value; `path_score` is a separate, additive field. A direction
+  is `path_corroborated` when `path_score >= EGRESS_ARRIVAL_PATH_MIN` (rung 1, default 2: e.g. one exterior hop + one
+  interior hop, or two interior hops in order).
+- Path scoring never changes the resolved direction this cycle (non-goal); D0-P7 reports how often a path score of
+  <= 0 coincides with a resolved direction, which is the evidence for a later cycle letting the path override it.
+
+### 2B.5 Consumers of the vetoed outcome and of egress `person_id` (per consumer, rev 8)
+
+| Consumer | file:line | Sees more names? | Is that right? | Change |
+|---|---|---|---|---|
+| Census union feed (`register_egress_face` on entry, `evict_egress_face` on exit) | `transit_validator.py:2075-2100`; `camera_census.py:4139`, `:4210`, read `_get_egress_face_ids_fresh` `:4236` (no not_home check on read) | Would, if fed | **No.** The census answers "who is home now". Registering an away-by-tracker resident from a face would put a name in the identified set; if the face is a stranger mislabelled as that resident, `unidentified_count` drops to 0 and path α can fire AWAY with the stranger inside (presence §2 step 1). **The census veto stays:** the transit validator does NOT register an `arrival_candidate`. The person enters the census through BLE / tracker when their phone arrives, as today. `departure_candidate` evicts as today (exit evict is unchanged). | One branch at `:2075`: skip `register_egress_face` when `identity_role == arrival_candidate`; counter `egress_union_skipped_arrival_candidate`. |
+| Census face veto itself | `camera_census.py:6283-6338` | n/a | Unchanged. It answers a different question; no evidence it should change. | None. |
+| Four display sensors (entered/exited today, last entry/exit) | `sensor.py` `_handle_egress_event` (`:4759`, `:4904`, `:4990`, `:5103`) | Yes, on entries | Yes. They describe crossings; an arrival is the most informative entry to name. Names come with `identity_role` for display. | None (they read `person_id`). |
+| Arrival/departure notification | `transit_validator._arrival_departure_notify` `:2140` (names at `>= ARRIVAL_NAME_CONFIDENCE_THRESHOLD` 0.75) | Yes | Mostly. A wrong "Oji arrived" while Oji is abroad is the visible failure. G3 removes that case when GPS exists. Rule: name an `arrival_candidate` now only when it is `path_corroborated` (else "Someone arrived" now) and send one quiet named follow-up if the person's non-face arrival edge (`arrival_edges.nonface_arrival_source`) lands within `EGRESS_ARRIVAL_FOLLOWUP_WINDOW_S` (rung 1, 600; same pattern as the perimeter "That was <name>" follow-up, manual §4.5). Latency first (operator doctrine: send now, identity follows). | Two branches in the one notify site; no second notification producer. |
+| Perimeter D10.5 known-person de-escalation | `perimeter_alert.py:1006` listener, `:4985-5015` read (de-escalates at `>= 0.9`) | Yes, could | **Not without corroboration.** De-escalating a dual-role door alert because a stranger was named as an away resident is the dangerous case. Rule: an `arrival_candidate` is treated exactly like the existing synthetic hit (`:5000-5011`): it de-escalates only with `_nonface_agrees` (same-person non-face arrival edge within 120 s). | The perimeter's `_recent_egress_identity` entry gains the role; the synthetic branch tests `synthetic or arrival_candidate`. |
+| Phone-left-behind | `binary_sensor.py:2196-2218` via `TransitValidator.get_last_camera_sighting` | No | Unaffected: its store `_camera_sightings` is written by `_on_camera_state_change` (`transit_validator.py:797-886`) from camera state attributes, not from egress `person_id`. | None. |
+| Exit backfill | `camera_census._backfill_exit_identity` (manual §4.3a) | No | Unaffected (writes only NULL exit rows; a `departure_candidate` row is not NULL). | None. |
+| Sightings (this plan, source (c)) | §3.2 | Yes | Yes. `arrival_candidate` yields an `egress_entry` sighting with `identity_role`. | Payload field `identity_role`. |
+| Access consumers (lock regime, security expected arrival, disarm) | §3.4 | Only through D2 -> `SIGNAL_PERSON_ARRIVING` | Only with an independent non-face edge (INV-ACCESS unchanged). | Source `camera_egress` added to `CAMERA_DERIVED_ARRIVAL_SOURCES`. |
+
+### 2B.6 Egress arrivals and departures as a source (FACE-EGRESS-ARRIVAL-1 restored)
+
+- **Arrivals.** The one D2 site (§3.3) dispatches `SIGNAL_PERSON_ARRIVING(source="camera_egress")` for an
+  `egress_entry` sighting whose `identity_role == arrival_candidate`, when `FACE_ARRIVAL_EGRESS_ENABLED` (rung 1,
+  default False until D0-P7 passes) and rules 3, 4, 6 of §3.3 hold. Rule 5 is already implied (the person was
+  `not_home` at resolution). `CAMERA_DERIVED_ARRIVAL_SOURCES` becomes `{"camera_face", "camera_egress"}`.
+- **Reconciling H1.** H1 said an egress arrival would duplicate geofence/ble. That held because only already-home
+  people survived the veto. A candidate is by construction someone the tracker has NOT yet seen home, so it is not a
+  duplicate; when the phone does arrive, HVAC's episode guard (`pre_arrival_spent`) and the per-person debounce absorb
+  the second arrival. D0-P7 measures how often the phone beats the candidate anyway (then the source adds little).
+- **Access invariant.** Face or vision alone never unlocks, releases, disarms, or adds an expected arrival:
+  `camera_egress` is in `CAMERA_DERIVED_ARRIVAL_SOURCES`, so both gates (§3.4) require `face_input_corroborated`.
+- **Departures.** No `SIGNAL_PERSON_DEPARTING` exists (grep: 0 hits) and none is added. A `departure_candidate` is a
+  labelled exit row + sighting + the existing notification and census evict. Departure-driven actions are a separate
+  card (§12).
 
 ---
 
@@ -329,7 +465,20 @@ bus event lacks `identity_provenance == "face"`.
 dispatches they see on develop today (zero `camera_face`), no new listener or census hook is registered, and the
 only producer-side changes outside presence are the additive egress bus key and the explicit face provenance write
 (both value-identical for existing readers). Rev 4 (L5): the census post-sentinel ring (§3.5) is gated on
-`FACE_SIGHTING_ENABLED`; with it False the ring is not created or appended.
+`FACE_SIGHTING_ENABLED`; with it False the ring is not created or appended. Rev 8: with
+`EGRESS_IDENTITY_DIRECTION_AWARE = False` every egress outcome, DB row and bus `person_id` is byte-identical to today
+(the new keys `identity_role` / `identity_guards` / `path_score` may still be written; no reader acts on them).
+
+**INV-CENSUS-HOME (rev 8).** An egress `arrival_candidate` never enters the census identified set: under any
+config, `register_egress_face` is never called for a slug whose `identity_role == arrival_candidate`, so the census
+answer to "who is home now" is unchanged by §2B. Falsifier: a face-only entry for a `not_home` resident, all guards
+passing, after which `_get_egress_face_ids_fresh` contains that slug before the person's tracker reads `home`.
+
+**INV-CANDIDATE (rev 8).** An `arrival_candidate` exists only when G1 passes and G3 does not fail, and G2 passes or is
+`skipped` with G1 at 0.9 non-synthetic (§2B.3). Falsifier: a candidate with `identity_confidence` 0.6, OR synthetic-only,
+OR a GPS fix younger than `EGRESS_ARRIVAL_GPS_MAX_AGE_S` farther than `EGRESS_ARRIVAL_GPS_MAX_KM`, OR `path_score` below
+the minimum on a door that has a path map. And perimeter D10.5 never de-escalates on a candidate without
+`_nonface_agrees` (falsifier: a LOW dual-role alert whose only known-identity basis is a candidate).
 
 ---
 
@@ -486,7 +635,9 @@ On each sighting, presence dispatches `SIGNAL_PERSON_ARRIVING` with
 ALL hold:
 
 1. `FACE_SIGHTING_ENABLED` and `FACE_ARRIVAL_INTERIOR_ENABLED` (D0-gated, default False);
-2. `sighting_source == "interior_pick"` (**egress never arrives**, H1);
+2. `sighting_source == "interior_pick"` (source `camera_face`), **or (rev 8)** `sighting_source == "egress_entry"` with
+   `identity_role == "arrival_candidate"` and `FACE_ARRIVAL_EGRESS_ENABLED` (source `camera_egress`, §2B.6; rule 5 is
+   satisfied by construction for this branch). Other egress sightings never arrive;
 3. not `self.observation_mode` (M4/F5; same gate as geofence `:5285` and v3.19 `:5622-5628`);
 4. outside `PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S` of presence setup (H2);
 5. **class (i), "face before phone" (M5, M7):** the person's raw `person.<slug>` state NOW is a real non-home value
@@ -634,6 +785,13 @@ review.
 | `FACE_SIGHTING_ZERO_MIN_FACES` | 10 | 1 | Denominator floor before zero sightings is a fault. |
 | `FACE_ARRIVAL_ZERO_DAYS` | 14 | 1 | Second trip-wire; 0 = off; armed only with interior arrivals on. |
 | Security face gate window | REUSE `PERIMETER_EGRESS_FACE_NONFACE_WINDOW_S` (120) + lock boot floor, via `face_input_corroborated` | 1 | Coupling note at `const.py:2674` applies: widening it widens all three access consumers. |
+| `EGRESS_IDENTITY_DIRECTION_AWARE` (rev 8) | False until D0-P7 passes | 1 | §2B rule. False = today's direction-blind veto, byte-identical. |
+| `EGRESS_ARRIVAL_CANDIDATE_MIN_CONFIDENCE` (rev 8) | 0.75 | 1 | G1. Below it the tracker wins. 1.0 = no candidates (kill). |
+| `EGRESS_ARRIVAL_PATH_MIN` (rev 8) | 2 (D0-P7 may move it) | 1 | G2 `path_score` floor. 0 = path not required. |
+| `EGRESS_ARRIVAL_GPS_MAX_AGE_S` / `_MAX_KM` (rev 8) | 600 / 2.0 | 1 | G3 plausibility. Age 0 = G3 off. |
+| `EGRESS_ARRIVAL_FOLLOWUP_WINDOW_S` (rev 8) | 600 | 1 | Named follow-up after an anonymous arrival notice. 0 = no follow-up. |
+| `FACE_ARRIVAL_EGRESS_ENABLED` (rev 8) | False until D0-P7 passes | 1 | Candidate -> `SIGNAL_PERSON_ARRIVING(camera_egress)`. False = candidates are sightings/notifications only. |
+| Path map (D7, rev 8) | learned from recorder; operator fixture as override | 2 (config) + learned | House-specific data, never a code constant (§20). |
 | Picks | REUSE `zone_cameras` | 2 | Operator-owned. |
 | Aliases | REUSE `face_name_aliases` | 2 | Optional; the census mapper already handles unique first names. |
 
@@ -677,6 +835,30 @@ the URA DB and the registry. The report goes into this doc as §7.1 before build
 - **P4, interior track sequence.** Per ordered camera pair, the distribution of person-edge lags (A on -> B on
   within 120 s), and the fraction of UNNAMED interior person edges a named edge on an adjacent camera within 60 s
   could label. **Go rule for D7:** ≥ 25 % more named sightings with ≤ 10 % conflicting-name pairs; else park.
+- **P4 rev 8 addition (D7 input).** Resolve every fixture name to its physical camera(s) through the registry
+  (`canonical_camera_key`, no guessed stems) and measure, per ordered fixture pair and for unlisted pairs with
+  co-detections, the hop lag distribution (p50/p90) and hop rate per day, day vs night. Unlisted pairs with a strong
+  co-detection signal and fixture pairs with no hops are both findings (they go in the D7 map diff). Compare with the
+  live `door_interior_neighbours` option and `EXTERIOR_ADJACENCY_GRAPH`.
+- **P7 (rev 8), vetoed would-be arrivals (the go/no-go for §2B and `FACE_ARRIVAL_EGRESS_ENABLED`).** Over all retained
+  history (URA DB `person_entry_exit_events` + recorder `person.*` history + Frigate face sensor history + the census
+  `egress_identity_outcomes` deque if persisted, else a replay of the face-only rule on the recorder face history):
+  - count entries where a face named a person (face-only path, single slug) whose `person.<slug>` read `not_home` at
+    resolution, i.e. would-be arrivals the veto erased today; split by camera, day/night, `identity_confidence` tier
+    (0.6 / 0.75 / 0.9), synthetic or not;
+  - for each, the time to that person's next live `not_home -> home` edge: **true arrival** if within
+    `N` = 10 min (also report 2 / 5 / 30 min), **misrecognition or phoneless** if none within 30 min. Hand-label 20 with
+    the operator (BLE ground truth) and commit them to `quality/tests/fixtures/egress_arrival_d0_labelled.json`;
+  - for each, G1-G3 and the replayed `path_score` (from the P4 map): how many true arrivals each guard keeps and how
+    many misrecognitions it removes; the GPS distance/age at the crossing (G3), with fix availability per person;
+  - the phone-first share: true arrivals where the phone's home edge came BEFORE resolution + 45 s (not a candidate
+    today either) vs AFTER (the candidates this rev adds);
+  - exits: departures where the tracker still read `home` at resolution, and the time to `home -> not_home`.
+  - **Go rule:** set `EGRESS_IDENTITY_DIRECTION_AWARE = True` only if, with all guards on, true / (true +
+    misrecognition) >= 0.9 on the labelled set and >= 1 candidate per week; set `FACE_ARRIVAL_EGRESS_ENABLED = True`
+    only if additionally the candidate precedes the phone's home edge by a median >= 60 s (else it adds nothing over
+    geofence/ble to HVAC). Fail = keep the switch False, record the numbers, trigger "door face recognition rate
+    doubles after FRIGATE-DOOR-FACE-TUNING-1".
 - **P5, consumer reality.** Live `security_on_arrival_add_expected`; lock-regime garage lockout and away-lock
   switch states; HVAC `pre_arrival_enabled`; whether the sibling precool stand-down is deployed.
 
@@ -698,9 +880,13 @@ Fixture: P3 output hand-labelled for ~20 events (operator or BLE ground truth), 
 - No private-room location from cameras; no personalization consumer (PERSON-PROFILE-PREFERENCES-1).
 - No new arrival/departure notification. One already exists, `TransitValidator._arrival_departure_notify`
   (`transit_validator.py:2047`, `:2140`), and is unchanged (rev 4, M6).
-- **No egress-derived arrivals** (H1; parked with trigger, §0).
-- No change to the egress producer's logic, windows, veto or exit backfill. **One exception:** the additive
-  `identity_provenance` bus key (F2), a value it already computes.
+- ~~No egress-derived arrivals~~ (rev 8: restored, D0-gated, §2B.6).
+- No change to the egress producer's windows, abstain/disagree rules, BLE branches, `base_stem` predicate or exit
+  backfill. **Exceptions:** the additive `identity_provenance` bus key (F2); and (rev 8) the direction-aware rule that
+  replaces the face-only veto (§2B.2), the guards (§2B.3), `path_score` (§2B.4), the census-union skip for candidates
+  and the perimeter/notification branches (§2B.5), all behind `EGRESS_IDENTITY_DIRECTION_AWARE`.
+- (rev 8) The path score never changes the resolved direction; no `SIGNAL_PERSON_DEPARTING`; no departure-driven
+  actuation; no change to the census face veto.
 - No change to the lock regime's corroboration rule or the suspicious-arrival hold; one public wrapper only.
 - No held re-check in security (§3.4).
 - No Protect face-name bridge (parked D1-PROTECT-FACE-BRIDGE-ADDON-1).
@@ -773,7 +959,8 @@ Fixture: P3 output hand-labelled for ~20 events (operator or BLE ground truth), 
 
 ### D2: Arrival derivation (one site)
 - **Verify:**
-  - Egress sightings never dispatch `SIGNAL_PERSON_ARRIVING`.
+  - Egress sightings dispatch `SIGNAL_PERSON_ARRIVING` only as `camera_egress` for an `arrival_candidate` with
+    `FACE_ARRIVAL_EGRESS_ENABLED` (rev 8, D8); every other egress sighting never dispatches.
   - With `FACE_ARRIVAL_INTERIOR_ENABLED` False (expected default), no `camera_face` arrival at all; skips counted
     `disabled`.
   - When enabled: fixture class (i) dispatches; (ii) is dispatched only if the raw state is a real non-home value
@@ -852,13 +1039,54 @@ pick), census + presence + security (lock regime on and off) + HVAC up. Fire a f
 and an egress event; restart-shaped restore. Assert the sightings, the (absent or present) arrival, and each
 consumer's effect. Guards the v5.8.0 fake-coordinator incident class.
 
-### D7 (PARKED unless D0-P4 passes): interior track sequence
-If P4 passes: first extend the live `door_interior_neighbours` option (already encodes door-to-interior adjacency,
-e.g. garage_a: garagehallway, staircase, stairs_top; rev 4 L7); mint `INTERIOR_CAMERA_ADJACENCY` (rung 1, modelled on
-`EXTERIOR_ADJACENCY_GRAPH`) only for interior-to-interior pairs it cannot hold; propagate a name to an
-unnamed person edge on an adjacent camera within the measured lag; emit `synthetic=True`,
-`sighting_source="interior_track"`, never an arrival. Revival trigger if parked: door camera recognition below 20 %
-of crossings after FRIGATE-DOOR-FACE-TUNING-1 AND a personalization consumer needs hallway continuity.
+### D7 (rev 8: PREREQUISITE, built from the operator map, hop lags measured): camera path map
+Was "parked, face-gated". Now the input to §2B.4 path corroboration, so it is built in this cycle before D8.
+- **Data, not a constant.** One path map per door: ordered stages (exterior approach -> egress -> interior), each a
+  set of physical cameras keyed by `canonical_camera_key`, each ordered pair with a lag window (p90 from D0-P4) and a
+  `same_view` flag for shared fields of view (patio <-> family room). Stored as config on the CM / integration entry
+  (rung 2), extending the existing `door_interior_neighbours` option (interior side, `const.py:3314`) rather than
+  minting a parallel option; the exterior side reads the same option's new `approach` list.
+- **Learned default, operator override.** The default map is LEARNED from recorder co-detection (D0-P4's method run
+  at setup / weekly on recorder history: ordered pairs with a hop rate above a floor and a tight lag). The operator
+  fixture `FIXTURE_camera_paths_interior.md` is (a) the override when the operator sets it in the options flow and
+  (b) the acceptance fixture the learned map is diffed against (hand-build first, automate second). Diffs are
+  recorded, not silently resolved.
+- **Consumers this cycle:** `path_score` (§2B.4) only. Name propagation along the interior track (rev 2 idea) stays
+  out of scope: `synthetic=True` `interior_track` sightings are a later card (FACE-SIGHTING-TRACK-PROPAGATION-1).
+- **Verify:** the learned map reproduces every fixture edge with a measured lag (or the gap is listed); the egress
+  stages resolve to the five egress cameras; `path_score` for a replayed garage entry (Back PTZ -> Garage A ->
+  Garage hallway/stairs -> Stair top) is 3, and for an exit the reverse order scores 3.
+- **Test:** `test_camera_path_map.py::test_fixture_override_wins`, `::test_learned_map_from_codetections`,
+  `::test_same_view_pair_not_a_hop`, `::test_path_score_entry_order`, `::test_path_score_reverse_order_negative`,
+  `::test_no_map_for_door_is_skipped_not_zero`, `::test_unresolvable_fixture_name_reported`.
+- **Live:** the D7 diagnostic lists each door's stages with resolved cameras and lag windows; L10 below.
+
+### D8 (rev 8): direction-aware egress identity (§2B)
+- Replace the face-only veto at `transit_validator.py:1840-1854` with the §2B.2 table behind
+  `EGRESS_IDENTITY_DIRECTION_AWARE`; guards G1-G3; `identity_role` / `identity_guards` / `path_score` on the bus
+  event; outcome labels `arrival_candidate`, `departure_candidate`, `vetoed_arrival_unverified` in the outcome deque;
+  census-union skip; perimeter D10.5 candidate-as-synthetic; notification now/follow-up rule;
+  `CAMERA_DERIVED_ARRIVAL_SOURCES += camera_egress`; D2 egress branch behind `FACE_ARRIVAL_EGRESS_ENABLED`.
+- **Verify (discriminating):**
+  - Entry, face 0.75 non-synthetic, person `not_home`, path_score 2, no GPS fix: `arrival_candidate`, `person_id`
+    set, NOT registered in the census union (under today's code: `vetoed`, `person_id` None).
+  - Same with face 0.6: `vetoed_arrival_unverified` (G1). Same with the person's GPS fix 3 min old at 27 km:
+    `vetoed_arrival_unverified` (G3). Same with path_score 0 on a mapped door: `vetoed_arrival_unverified` (G2).
+  - Exit, person `home`: `departure_candidate`, union evicts as today. Exit, person `not_home`: `vetoed` (unchanged).
+  - Switch False: every outcome equals today's on the same fixture (golden replay).
+  - Perimeter: a dual-role alert whose only identity is a candidate stays at its severity; with the person's
+    tracker `not_home -> home` within 120 s it de-escalates.
+  - Notification: candidate without path corroboration -> "Someone arrived" now, "That was X" once when the tracker
+    edge lands within 600 s; with path corroboration -> "X arrived" now.
+  - Access: a `camera_egress` arrival with no non-face edge reaches no release, unlock, or expected arrival.
+- **Test:** `test_egress_direction_aware.py::test_entry_not_home_becomes_candidate`, `::test_candidate_not_in_census_union`,
+  `::test_g1_low_confidence_vetoed`, `::test_g1_synthetic_only_vetoed`, `::test_g3_far_gps_vetoed`,
+  `::test_g3_no_gps_skipped_not_failed`, `::test_g2_path_below_min_vetoed`, `::test_g2_no_map_requires_0_9`,
+  `::test_exit_home_departure_candidate`, `::test_exit_not_home_still_vetoed`, `::test_ble_branches_unchanged`,
+  `::test_switch_off_golden_replay`, `::test_perimeter_candidate_needs_nonface`, `::test_notify_anonymous_then_followup`,
+  `::test_notify_named_when_path_corroborated`; `test_face_access_invariant.py::test_camera_egress_requires_corroboration`;
+  `test_face_arrival_rule.py::test_egress_candidate_dispatches_camera_egress`, `::test_egress_non_candidate_never_arrives`.
+- **Live:** L11-L13 below.
 
 ### Mutation drills (framing C; each must turn a named test RED; restore and check `git status` after each)
 
@@ -883,6 +1111,12 @@ of crossings after FRIGATE-DOOR-FACE-TUNING-1 AND a personalization consumer nee
 | M17 (rev 4, M1) | `canonical_camera_key` returns the input leg's device id instead of the min over sources | `::test_protect_pick_and_frigate_egress_one_key` |
 | M18 (rev 4, M3) | Skip the boot drop for source (c) | `::test_egress_boot_window_not_a_sighting` |
 | M19 (rev 4, M5) | Lock regime or security reverts to literal `== "camera_face"` (each separately) | `::test_unknown_arrival_source_requires_corroboration` |
+| M20 (rev 8) | Register `arrival_candidate` in the census union | `test_egress_direction_aware.py::test_candidate_not_in_census_union` |
+| M21 (rev 8) | Drop G1 / G2 / G3 (each separately) | `::test_g1_low_confidence_vetoed` / `::test_g2_path_below_min_vetoed` / `::test_g3_far_gps_vetoed` |
+| M22 (rev 8) | Perimeter treats a candidate as a normal 0.9 hit | `::test_perimeter_candidate_needs_nonface` |
+| M23 (rev 8) | Remove `camera_egress` from `CAMERA_DERIVED_ARRIVAL_SOURCES` (it then fails closed as unknown; mutate the fail-closed default too) | `test_face_access_invariant.py::test_camera_egress_requires_corroboration` |
+| M24 (rev 8) | Apply the direction-aware rule with the switch False | `::test_switch_off_golden_replay` |
+| M25 (rev 8) | `path_score` ignores stage order | `test_camera_path_map.py::test_path_score_reverse_order_negative` |
 
 ### Live validation table (written back into the README after restart)
 - L1 picks resolved ≥ D0-P1; the fused Garage A pick reported unresolved with `room_cameras_empty` unless §13.3 was
@@ -899,6 +1133,14 @@ of crossings after FRIGATE-DOOR-FACE-TUNING-1 AND a personalization consumer nee
 - L7 no face-only lock release or expected arrival (snapshot + log scan).
 - L8 no trip-wire NM.
 - L9 INFO setup line `Face sighting: N/M picks resolved, K egress cameras`.
+- L10 (rev 8) path map: each door's stages resolve to cameras; learned-vs-fixture diff published; a real garage
+  entry in the recorder gets `path_score >= 2` on its bus event.
+- L11 (rev 8, only if the switch is on) the first `arrival_candidate` is followed by that person's tracker
+  `not_home -> home` within 10 min (recorder), is absent from `_get_egress_face_ids_fresh` until then, and its
+  notification follows the now/follow-up rule.
+- L12 (rev 8) no perimeter de-escalation whose only identity basis is a candidate (log scan + D10.5 reasons).
+- L13 (rev 8) `egress_identity_outcomes` show `vetoed` only on exits or with switch off; entry vetoes appear as
+  `vetoed_arrival_unverified` with a failed guard named.
 
 ---
 
@@ -925,6 +1167,14 @@ worktree; four build reviews (A local, B integration/lifecycle incl. restart and
 M1-M15, D adversarial completeness against INV-ACCESS / INV-PRODUCER / INV-PROVENANCE incl. pre-existing code);
 orchestrator re-greps §5 and re-runs M5, M6, M13; operator checkpoint before deploy.
 
+**Rev 8 re-check: still Tier 3, with more reasons.** §2B changes the egress producer's DECISION logic (a shared
+identity primitive read by the census union, perimeter de-escalation, notifications, four displays and now the arrival
+signal), adds a second camera-derived source into the access-guarded signal, and sits next to house state (the census
+union feeds AWAY inference; INV-CENSUS-HOME keeps it out). Reviewer D's surface now includes every reader of
+`ura_person_egress_event` and of `_egress_face_ids` (pre-existing code, not just the diff), and INV-CENSUS-HOME /
+INV-CANDIDATE. Orchestrator re-runs M20, M22, M23 before ship. Build order inside the cycle: D0 (incl. P4 map and P7)
+-> D7 -> D1 -> D8 -> D2-D6; D8 and `FACE_ARRIVAL_EGRESS_ENABLED` ship switched off unless P7 passes.
+
 **HVAC touch:** only the pre-arrival entry point's input set changes. The builder and reviewers read
 `HVAC_ARCHITECTURE_STATE_OF_PLAY.md` completely before touching `hvac.py` (this planner did not; no HVAC logic
 change is planned, and D5 only fixes stale cites).
@@ -940,7 +1190,18 @@ second rebases. Its stand-down is an expected HVAC skip reason in L6.
   signal, declares an action class, and uses `face_input_corroborated` for any access class. Rev 4 (M6):
   notifications are NOT a new producer here; any sighting-based wording extends the existing
   `_arrival_departure_notify`. ARRIVAL-DEPARTURE-NOTIFY-1 is not a gap (that site exists).
-- **FACE-EGRESS-ARRIVAL-1** (parked): egress-derived arrivals; trigger in §0.
+- **FACE-EGRESS-ARRIVAL-1** (rev 8: UN-PARKED, folded into this cycle as D8 + the D2 egress branch; card moves to
+  this plan, D0-P7 gated).
+- **EGRESS-DEPARTURE-ACTIONS-1** (rev 8, backlog): consumers of `departure_candidate` (e.g. HVAC setback or
+  away-lock hints) with their own action class; no `SIGNAL_PERSON_DEPARTING` until one exists.
+- **EGRESS-PATH-OVERRIDES-DIRECTION-1** (rev 8, investigate): let `path_score` override or veto the resolved
+  direction, if D0-P7 shows path <= 0 on resolved directions often enough to matter.
+- **FACE-SIGHTING-TRACK-PROPAGATION-1** (rev 8, backlog): name propagation along the D7 interior track
+  (`synthetic` `interior_track` sightings), the rev 2 D7 idea.
+- **EXTERIOR-ADJACENCY-TO-CONFIG-1** (rev 8, portability): `EXTERIOR_ADJACENCY_GRAPH` (`const.py:2948`) is this
+  house's camera ring as a code constant; move it into the D7 path-map config with a learned default (§20).
+- **LOCK-ENTRY-AREAS-WRONG-OBJECT-1** (exists; presence doc §1): G2 does not depend on it, but any consumer that
+  wants Bermuda entry-area corroboration for a candidate needs it fixed first.
 - **PHONE-LEFT-BEHIND-CAMERA-LEG-1** (rev 3, Tier 2-DB minimum, house state): its camera leg reads
   `TransitValidator._camera_sightings`, which never holds a named sighting live (`hours_since_camera_sighting` null on
   all four sensors 2026-11-12; `person_id` attribute is a display name, not a slug). Migrate to
@@ -1510,3 +1771,53 @@ still builds nothing in §15; the sibling plan (CROSSING-VISION-SEQUENCE-1) is g
 
 Unchanged: this cycle builds nothing in §15; D1-D7, invariants, drills, Tier 3. Sibling plan gated on D0-FRAME,
 D0-SIM and D0-V.
+
+---
+
+## 20. Portability (rev 8)
+
+Rule (memory `feedback_portability_imperative`): everything house-specific is config or learned, and every missing
+piece removes a capability without errors. Inventory for this plan:
+
+| House-specific input | Where it comes from | Missing -> capability lost (no error) |
+|---|---|---|
+| Camera picks per house zone | `zone_cameras` (ZM entry, rung 2), resolved by registry/device (`resolve_pick_to_fusions`) | no picks -> no interior sightings; `face_sighting_picks_resolved = 0`; trip-wire silent (denominator 0) |
+| Egress cameras, door groups, interior neighbours | existing integration options (`CONF_DOOR_INTERIOR_NEIGHBOURS`, door groups) | none -> no crossings -> no egress sightings, no candidates |
+| Path map (D7) | config (rung 2) with a learned default from recorder co-detection lags; operator map = override + validator | no map / no recorder history -> G2 `skipped`; candidates need 0.9 non-synthetic; path_score absent |
+| Exterior adjacency | today a code constant (`EXTERIOR_ADJACENCY_GRAPH`, house ring) | carded EXTERIOR-ADJACENCY-TO-CONFIG-1; D7 reads the config map, never the constant |
+| Camera integrations | per-integration capability adapters already in `CameraResolver` (Frigate face names via registry token, Protect detect only, Reolink/Amcrest/Dahua person only) | an integration without face names yields person legs only: crossings and direction still work, identity does not |
+| Face recognition | Frigate face sensors / MQTT latch (and the parked Protect bridge) | no face source -> no sightings, no candidates; D4 trip-wire silent; egress identity from BLE only |
+| BLE / Bermuda | optional (`person_coordinator`) | no BLE -> no BLE legs; candidates still possible from face; arrival edges from `person.*` only |
+| GPS / proximity | `person.*` GPS attributes or `CONF_SECURITY_LOCKOUT_DISTANCE_SENSORS` | none -> G3 `skipped` |
+| Vision provider / model | llmvision entry + model as settings (§15) | none -> §15 off |
+| Doors | config only, never names | n/a |
+
+No code path may build an entity id from a slug or name (manual §1.1), and no house name appears in code.
+
+**Acceptance tests (D6 extends the real-hass test with three install shapes):**
+- `test_portability_shapes.py::test_protect_only_house`: Protect person sensors only (no Frigate, no face names).
+  Crossings and direction resolve; zero sightings; zero candidates; `face_sighting_picks_unresolved` reasons are
+  `no_face_name_source`; no exception, no ERROR log; trip-wire silent.
+- `::test_person_sensor_no_face_house`: Reolink/Amcrest-style person sensors, BLE on. Egress identity from BLE only;
+  §2B never reached (no face path); arrivals only from geofence/ble.
+- `::test_camera_less_house` (Wigton-like): no cameras, no egress, BLE optional. Sighting producer registers no
+  listeners, D7 builds an empty map, D8 is inert, every diagnostic reads zero or `skipped`, setup completes, no ERROR.
+- `::test_no_gps_no_path_map`: face-only house with no GPS and no path map; candidates require 0.9 non-synthetic.
+
+## 21. Rev 8 changelog (operator 2026-11-12)
+
+| Change | Why | Where |
+|---|---|---|
+| Egress identity rule made direction-aware: entry + `not_home` = arrival candidate (name kept), exit + `home` = departure candidate; exit + `not_home` still vetoed; BLE branches unchanged | Operator: "Who made this rule? ... It should do both". The veto was copied from the census "who is home now" guard without considering direction | §2B.1-2B.2, §0 |
+| Misrecognition protection replaced by G1 face confidence (>= 0.75, not synthetic-only), G2 path corroboration, G3 GPS plausibility, G4 existing abstain; access consumers keep the independent-second-signal rule | The veto's one real job (a resident's face on a stranger) needs an explicit guard | §2B.3, INV-CANDIDATE |
+| Per-consumer audit: census union does NOT take candidates (census veto stays, INV-CENSUS-HOME); displays name more (right); notification names now only when path-corroborated, else anonymous + named follow-up; perimeter D10.5 treats a candidate like a synthetic hit; phone-left-behind and exit backfill unaffected | Every reader of the vetoed outcome and of egress `person_id` checked | §2B.5 |
+| Egress arrivals restored as `camera_egress` through the one D2 site, D0-gated; added to `CAMERA_DERIVED_ARRIVAL_SOURCES`; H1 reconciled (it was the veto's artefact) | FACE-EGRESS-ARRIVAL-1 revival trigger fired | §2B.6, §3.3 rule 2, §12 |
+| `path_score` from the operator's ordered camera path; D7 reframed from parked to prerequisite: path map as config, learned default from recorder hop lags, operator fixture as override and validator | Operator: "a direction detector, which the path I outlined should improve" | §2B.4, D7, D0-P4 |
+| D8 deliverable with discriminating tests and drills M20-M25; live L10-L13 | Sprint contract | §9 |
+| D0-P7: count vetoed would-be arrivals and how often the tracker flips home within N min (true arrival vs misrecognition), guard yield, phone-first share; go rule | Measure-first | §7 |
+| Portability section and three install-shape tests | Operator: everything house-specific is config or learned | §20 |
+| Knobs for every new number (rung 1 switches and guards, rung 2 path map) | Numbers get knobs | §6 |
+| Tier re-checked: Tier 3, wider D surface | Egress decision logic + access-guarded signal + house-state adjacency | §11 |
+
+Unchanged: INV-ACCESS, INV-PRODUCER, INV-PROVENANCE, D1/D3-D6, §15 vision design. Status: plan only; plan reviews
+(completeness + build-prediction) of rev 8 then operator APPROVE.
