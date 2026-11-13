@@ -90,3 +90,15 @@ async def test_census_register_keeps_ble_face_tag(rig):
     fresh = census._get_egress_face_ids_fresh(NOW + timedelta(seconds=5))
     assert "oji_udezue" in fresh
     assert "jaya" not in fresh
+
+
+@pytest.mark.asyncio
+async def test_face_only_attach_stash_provenance_face(rig):
+    """C-M5: the face-only attach stamps census._egress_identity_last_attach
+    provenance "face" explicitly (readers gate face names on it)."""
+    rig.legs["front_door"] = [_leg("front_door", "oji_udezue", NOW + timedelta(seconds=3))]
+    rig.states["person.oji_udezue"] = _state("home")
+    await _cross(rig, "binary_sensor.front_door_person_occupancy", at=NOW)
+    stash = rig.census._egress_identity_last_attach
+    assert stash["person"] == "oji_udezue"
+    assert stash["provenance"] == "face"

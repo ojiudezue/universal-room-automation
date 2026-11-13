@@ -208,3 +208,13 @@ async def test_hvac_counter_matches_compound_zone(rig, interior_on):
     t = rig.presence._zone_trackers
     assert (t["Entertainment"]._face_arrivals_today,
             t["Master Suite"]._face_arrivals_today) == (1, 1)
+
+
+@pytest.mark.asyncio
+async def test_emitted_arrival_notes_producer(rig, interior_on):
+    """C-L1: a dispatched arrival re-arms the face_arrival_zero anchor
+    (producer._last_arrival_ts) and counts the arrival."""
+    await R.face(rig, "family_room", "Oji")
+    assert len(rig.arrivals) == 1
+    assert rig.producer._last_arrival_ts == rig.sightings[0].ts
+    assert rig.producer.arrivals_derived_today == 1

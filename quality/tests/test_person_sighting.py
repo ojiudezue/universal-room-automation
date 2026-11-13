@@ -536,3 +536,15 @@ async def test_registry_rebuild_and_periodic_retry_rebind(mods, hass, monkeypatc
         assert R.GARAGE_FUSED in p.diagnostics()["face_sighting_picks_resolved"]
     finally:
         await R.teardown(rig)
+
+
+@pytest.mark.asyncio
+async def test_egress_sighting_ts_is_crossing_time(rig):
+    """C-L3: the egress sighting carries the event's crossing timestamp,
+    not processing time."""
+    from homeassistant.util import dt as dt_util
+    rig.producer._setup_ts = time.time() - 3600
+    crossing = dt_util.utcnow() - __import__("datetime").timedelta(seconds=120)
+    await R.egress(rig, timestamp=crossing.isoformat())
+    s = _only(rig)
+    assert abs(s.ts - crossing.timestamp()) < 0.001

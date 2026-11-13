@@ -410,3 +410,36 @@ async def test_reload_button_swaps_map(tr, hass, mods):
     btn = mods.button.ReloadInteriorPathsButton(hass, SimpleNamespace(entry_id="x"))
     await btn.async_press()
     assert tr.path_map_source.startswith("interior_paths.json")
+
+
+@pytest.mark.asyncio
+async def test_registry_update_ignored_while_file_installed(tr, hass):
+    """C-L4: once the file is installed, registry events do nothing (the
+    button reloads). A changed file on disk must not be picked up."""
+    from datetime import timedelta
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+    _write(hass, GOOD)
+    tr.async_setup_path_map()
+    await hass.async_block_till_done()
+    assert tr.path_map_source == "interior_paths.json (schema 1, 4 edges)"
+    sha = tr.path_map_sha256
+    smaller = copy.deepcopy(GOOD)
+    smaller["doors"]["garage_a"]["edges"].pop()
+    _write(hass, smaller)
+    hass.bus.async_fire("entity_registry_updated", {"action": "create"})
+    await hass.async_block_till_done()
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=31))
+    await hass.async_block_till_done()
+    assert tr.path_map_source == "interior_paths.json (schema 1, 4 edges)"
+    assert tr.path_map_sha256 == sha
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("lag", [9999, -1, 0])
+async def test_rule8_lag_out_of_range_rejected(tr, mods, lag):
+    """C-L5: lag_p90_s must lie in (0, buffer_s]."""
+    bad = copy.deepcopy(GOOD)
+    bad["doors"]["garage_a"]["edges"][0]["lag_p90_s"] = lag
+    with pytest.raises(mods.paths.PathMapError, match="rule 8"):
+        mods.paths.validate(bad, _ctx(mods, tr))

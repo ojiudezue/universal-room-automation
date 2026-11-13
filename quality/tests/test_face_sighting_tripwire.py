@@ -146,3 +146,47 @@ async def test_arrival_zero_unarmed_when_interior_off(rig, monkeypatch):
     monkeypatch.setattr(rig.m.const, "FACE_ARRIVAL_INTERIOR_ENABLED", True)
     await _tick(rig)
     assert ("face_arrival_zero", "LOW") in rig.pages
+
+
+# -------- review C fix-up: window bounds on both sides of the ratio --------
+@pytest.mark.asyncio
+async def test_old_sighting_outside_window_does_not_suppress_page(rig):
+    """C-M2: a sighting from two days ago (the emit ring holds 2000) is
+    outside the literal 24 h window; the dead producer must still page."""
+    import time
+    rig.producer._interior_emits.append(time.time() - 2 * 86400)
+    _kill_hook(rig)
+    await _faces(rig, 10)
+    await _tick(rig)
+    assert rig.pages == [("face_sighting_zero", "HIGH")]
+
+
+@pytest.mark.asyncio
+async def test_faces_older_than_window_silent(rig):
+    """C-M3: 10 mapped faces from two days ago, none in the last 24 h, zero
+    sightings: the denominator counts only the window, so no page."""
+    import time
+    rig.producer._setup_ts = time.time() - 3 * 86400   # boot floor far back
+    _kill_hook(rig)
+    await _faces(rig, 10)
+    ring = rig.census._frigate_face_named_ring
+    shifted = [(t - 2 * 86400, *rest) for (t, *rest) in ring]
+    ring.clear()
+    ring.extend(shifted)
+    await _tick(rig)
+    assert rig.pages == []
+
+
+@pytest.mark.asyncio
+async def test_midnight_reset_clears_today_counters(rig):
+    """C-L2: presence's day rollover (_count_transition) resets the
+    producer's today-counters."""
+    await R.face(rig, "family_room", "Oji")
+    diag = rig.producer.diagnostics()
+    assert diag["face_sightings_today"] == 1
+    assert diag["face_sightings_by_source"] != {}
+    rig.presence._transition_reset_date = "2000-01-01"
+    await rig.presence._count_transition()
+    diag = rig.producer.diagnostics()
+    assert diag["face_sightings_today"] == 0
+    assert diag["face_sightings_by_source"] == {}

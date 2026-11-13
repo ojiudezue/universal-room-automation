@@ -257,19 +257,14 @@ async def test_cadence_guard_skips_repeat_within_window():
 # whole 7-day window. Real sqlite house_state_log; naive-UTC timestamps as
 # log_house_state_change writes them.
 # ----------------------------------------------------------------------
-import sqlite3 as _sqlite3  # noqa: E402
 
 _EGRESS = "egress_identity_outcome"
 
 
-def _house(rows):
-    """rows: [(days_ago, state)] -> in-memory house_state_log."""
-    con = _sqlite3.connect(":memory:")
-    con.execute(
-        "CREATE TABLE house_state_log (id INTEGER PRIMARY KEY AUTOINCREMENT, "
-        "timestamp TEXT NOT NULL, state TEXT NOT NULL, confidence REAL NOT NULL, "
-        "trigger TEXT, previous_state TEXT)"
-    )
+def _house(con, rows):
+    """rows: [(days_ago, state)] -> house_state_log on ``con``, whose schema
+    is extracted from production database.py (conftest_db.real_schema_db;
+    review C-M4: never hand-typed DDL)."""
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     for days_ago, state in rows:
         con.execute(
@@ -291,9 +286,9 @@ def _counts_only_egress_silent():
     [(10, "away"), (3, "vacation")],                  # away -> vacation inside it
     [(9, "vacation")],
 ])
-async def test_bl4_house_absent_whole_window_suppresses_egress_page(rows):
+async def test_bl4_house_absent_whole_window_suppresses_egress_page(rows, real_schema_db):
     run = _bind_method()
-    db = _FakeURADatabase(_counts_only_egress_silent(), house=_house(rows))
+    db = _FakeURADatabase(_counts_only_egress_silent(), house=_house(real_schema_db, rows))
     stats = await run(db, cadence_days=7, triggered_by="nightly")
     assert stats["zero_row_types"] == []
     assert stats["absence_suppressed_types"] == [_EGRESS]
@@ -308,9 +303,9 @@ async def test_bl4_house_absent_whole_window_suppresses_egress_page(rows):
     [(6, "away")],                                    # no row BEFORE the window
     [(10, "home_day"), (6.9, "away")],                # left after the window began
 ])
-async def test_bl4_house_not_proven_absent_pages_egress(rows):
+async def test_bl4_house_not_proven_absent_pages_egress(rows, real_schema_db):
     run = _bind_method()
-    db = _FakeURADatabase(_counts_only_egress_silent(), house=_house(rows))
+    db = _FakeURADatabase(_counts_only_egress_silent(), house=_house(real_schema_db, rows))
     stats = await run(db, cadence_days=7, triggered_by="nightly")
     assert stats["zero_row_types"] == [_EGRESS]
     assert stats["absence_suppressed_types"] == []
@@ -318,13 +313,13 @@ async def test_bl4_house_not_proven_absent_pages_egress(rows):
 
 
 @pytest.mark.asyncio
-async def test_bl4_absence_never_suppresses_other_writers():
+async def test_bl4_absence_never_suppresses_other_writers(real_schema_db):
     """Only crossing-only types are exempt: house_state_transition silent in an
     away week still pages."""
     run = _bind_method()
     counts = _counts_only_egress_silent()
     counts["house_state_transition"] = 0
-    db = _FakeURADatabase(counts, house=_house([(10, "away")]))
+    db = _FakeURADatabase(counts, house=_house(real_schema_db, [(10, "away")]))
     stats = await run(db, cadence_days=7, triggered_by="nightly")
     assert stats["zero_row_types"] == ["house_state_transition"]
     assert stats["absence_suppressed_types"] == [_EGRESS]

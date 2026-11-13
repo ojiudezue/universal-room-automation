@@ -74,3 +74,24 @@ tests); `URA_D7_HYGIENE=1` full cycle set -> 436 passed, 1 skipped. Both green.
 ## Verdict: FIX-REQUIRED
 
 Must-fix before ship: **C-M2 and C-M3** (trip-wire window tests: a window-bound regression silently blinds or false-pages the HIGH NM page); **C-M4** (fixture schema from production); **C-M5** (dedicated test for the `_egress_identity_last_attach` provenance stamp). LOWs C-L1..L5 should get one-line tests in the same fix-up (cheap, 1-3 assertions each); C-L6..L8 at builder discretion.
+
+## Fix-up round 3 (test authority) — tests only, no production change
+
+Each site mutated in source (one at a time, Python mutate/run/restore in `finally`, `PYTHONDONTWRITEBYTECODE=1`,
+`-p no:cacheprovider`, `__pycache__` cleared before every run); `git status` clean of production files afterwards.
+No test exposed a production bug.
+
+| Finding | Site mutated | Mutation | New test (RED on mutation) |
+|---|---|---|---|
+| C-M2 | `person_sighting.py:761` numerator | `sum(t >= now - window_s)` -> `len(_interior_emits)` | test_face_sighting_tripwire::test_old_sighting_outside_window_does_not_suppress_page |
+| C-M3 | `person_sighting.py:722` denominator cutoff | `now - window_s` -> `0.0` | test_face_sighting_tripwire::test_faces_older_than_window_silent |
+| C-M4 | `test_memory_writer_health.py` `_house` now builds on `conftest_db.real_schema_db` (production-extracted); hand DDL removed | `database.py:1529` column `state` -> `house_state` | test_memory_writer_health::test_bl4_* (all 9 rows; drill ran test_bl4_absence_never_suppresses_other_writers) |
+| C-M5 | `transit_validator.py:2082` last-attach stash | `IDENTITY_PROVENANCE_FACE` -> `IDENTITY_PROVENANCE_BLE` | test_transit_validator_provenance::test_face_only_attach_stash_provenance_face |
+| C-L1 | `presence.py:5602` `producer.note_arrival(...)` | call -> `pass` | test_face_arrival_rule::test_emitted_arrival_notes_producer |
+| C-L2 | `presence.py:8745` `reset_daily()` | call -> `pass` | test_face_sighting_tripwire::test_midnight_reset_clears_today_counters |
+| C-L3 | `person_sighting.py:466` egress ts | `parsed.timestamp()` -> `self._now()` | test_person_sighting::test_egress_sighting_ts_is_crossing_time |
+| C-L4 | `transit_validator.py:2377` guard | drop `self._path_map_from_file` | test_interior_paths::test_registry_update_ignored_while_file_installed |
+| C-L5 | `interior_paths.py:131` rule 8 range | drop `not 0 < lag <= buffer_s` | test_interior_paths::test_rule8_lag_out_of_range_rejected[9999,-1,0] (3 RED) |
+
+C-L6..L8 not addressed (builder discretion per verdict; equivalent/counter-label mutants). Cycle files green (135 passed,
+reverse file order also green).
