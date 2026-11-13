@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "292",
+  "author": "ojiudezue",
+  "session_id": "claude_20261113_035342_ship_v5_108_15",
+  "timestamp": "2026-11-13T03:53:42Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.108.15 shipped: Exterior seam file actually loads",
+  "summary": "Exterior seam file actually loads",
+  "why": "The operator ratified exterior_seams.json in September as the primary seam source, but nothing in production imported the parser, so the linker silently ran on the code constant while the plan said BUILT. This wires the load at setup with a validated whole-file contract and const fallback, adds a reload button and provenance attributes, and anchors the wire-in with tests.",
+  "implications": "Shipped EXTERIOR-SEAM-FILE-LOADER-1 at v5.108.15; card(s) sit shipped_organic pending validation. Acceptance in README_v5.108.15.md (Live criteria).",
+  "revisit_trigger": "seam_source names exterior_seams.json and seam_validation is ok (sonoffwindow warning only) after restart; an edited file applies via the reload button",
+  "refs": {
+    "cards": [
+      "EXTERIOR-SEAM-FILE-LOADER-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.108.15.md"
+    ],
+    "release_notes": "The operator-ratified exterior_seams.json is now the primary seam source with const fallback, reload button and provenance attributes. See docs/readmes/README_v5.108.15.md"
+  }
+}

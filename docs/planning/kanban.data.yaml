@@ -34604,7 +34604,8 @@ cards:
 - id: EXTERIOR-SEAM-FILE-LOADER-1
   title: The exterior seam file the operator ratified is never loaded; the linker runs on the code constant only
   thread: perimeter
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.108.15
   batch: exterior-seam-loader
   created: '2026-11-12 22:00'
   updated: '2026-11-12 22:00'
