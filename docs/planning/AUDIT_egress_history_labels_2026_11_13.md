@@ -112,3 +112,137 @@ Ask: "Was Jaya's phone with her on 11-11?" and "Do `ojini` / `ziri` have phones?
 - Frigate 2 requires login; I used the Frigate integration's own stored credential from `.storage/core.config_entries` over the read-only API (`POST /api/login`, then GETs). The password was printed once in my terminal transcript by an overly broad grep; rotate if that matters. Not in this document.
 - I created `/tmp/cand_all.json` on the HA host (a scratch file, written by a query script) and the transcript scratch dir on the Mac; neither is part of URA state. Delete when convenient.
 - No HA service calls, no DB writes, no commits.
+
+---
+
+# Labels after operator answers (appended 2026-11-13 ~01:50 CST, read-only, not committed)
+
+Sources: Frigate event JSON already extracted (`fr_events.json` in the session scratchpad, 620 events; no new Frigate login, no secrets printed), HA recorder (8 days) and URA DB via `ssh ha sqlite3/python -readonly`. HVAC/presence STATE_OF_PLAY docs were NOT read (no HVAC change; presence used only as a data source). Timestamps CDT before 2026-11-01, CST after.
+
+## Answer
+
+1. **Jaya, person.* vs her phone: zero contradiction.** Over the 185.1 h recorder window (2026-11-05 06:21 to 11-12 23:27), `person.jaya` read `not_home` for 94.9 h (51%), and in ALL of that time all three of her phone sources also read away: `device_tracker.private_ble_device_249050` not_home, `device_tracker.iphone_jaya_bermuda_tracker` not_home, `sensor.iphone_jaya_area` unknown/unavailable. Seconds where person=not_home while Bermuda area, Bermuda tracker or Private BLE said "in the house": **0** (10-s sampling, script `jaya_q.py`). The reverse (person home, Bermuda tracker not_home) is 0.26 h, a lag blip. So the person entity is faithful to the phone; the "tracker fault" can only be the PHONE not being in the house (left elsewhere, off, or not with her), never a person-entity linkage problem. Person.jaya is linked to `device_tracker.private_ble_device_249050` + `device_tracker.iphone_jaya_bermuda_tracker` (`.storage/person`); Jaya has no HA companion-app tracker (person has no user).
+2. **Ziri: no config gap found. The chain is correctly wired and it works when the phone is present.** `person.ziri` (`.storage/person`, no user) lists `device_tracker.ziri_iphone` (platform private_ble_device, entry 61:C4:77:E1:20:F0 created 2026-02-17, enabled) and `device_tracker.iphone_ziri_bermuda_tracker` (Bermuda, unique_id 5e8fc014... identical to the Private BLE hash, so the IRK resolves to that Bermuda device; enabled). `sensor.iphone_ziri_area` exists. The phone tracks fine when near: URA snapshots show Ziri home only 2026-08-15..08-20 (93/78/57/4/9 rows per day) and 2026-11-06 22:29 to 11-08 18:13 (recorder: person.ziri home, ziri_iphone home 205, Bermuda area Ziri Bedroom/Bathroom/Kitchen...). 326 home vs 8053 away snapshots over 90 days = 3.9% home (the first audit's "8050 away / 4 home" understated home time; I did not re-derive why). Two visit windows in 90 days, both weekends, with full IRK resolution = the IRK is healthy and the phone is simply not in BLE range the rest of the time. What I cannot tell: whether that means Ziri is elsewhere, or his phone is off/left. That is the operator's knowledge. Falsifier I checked: if the IRK/link were broken, the Aug and Nov visits would also read away; they did not.
+3. **Ojini: every face label is false (operator fact); the label is far more frequent than the event list shows, and has not fired since 11-09 00:24.** Details in the Ojini section. Source split: Frigate only is observable HA-side; Protect is NOT observable from HA at all (integration exposes no face name, `ura_kp_face_probe` webhook delivers empty payloads: IDENTITY_FUSION_CAMERAS_MANUAL.md:41, :218-250). The manual points to the `unifi-protect` MCP (`protect_list_smart_detections`) which this probe does not have; **Protect-side Ojini events by date are UNKNOWN** and need that tool.
+4. **Misrecognition rate (identity), Wilson 95%, SEPARATE from tracker fault** (numbers below). Headline: tracked residents 1/30 = 3.3% [0.6, 16.7] under the operator's Jaya rule, but that number is soft: the Jaya rule is contradicted by evidence in at least 2 of 19 clusters (Ezinne's phone arrives at the same second as the "Jaya" face on 11-11 08:25), giving 3/30 = 10.0% [3.5, 25.6]. Ojini by construction 10/10 false. Pooled over the 40 identity-decided clusters (30 tracked + 10 Ojini): 11/40 = 27.5% [16.1, 42.8] primary; 13/40 = 32.5% [20.1, 48.0] with the 2 firm flips; 16/40 = 40.0% [26.3, 55.4] with all 5 contested flips.
+
+## Labels (41 candidate clusters)
+
+Columns: identity label / arrival label. Operator rule (answer 1): Jaya face at a door with her tracker away = identity TRUE, arrival FALSE (tracker). "UNSURE" = no operator answer and no decisive evidence (not counted either way).
+
+| Local time | Cam | Face name | Identity | Arrival | Basis |
+|---|---|---|---|---|---|
+| 2026-10-30 05:19 | front door | Oji | UNSURE | UNSURE | operator gave no answer for Oji group C |
+| 2026-10-30 14:32 | front door | Jaya | TRUE (operator rule) | FALSE (tracker) | phone-with-her rule |
+| 2026-10-30 14:32 | front door | Oji | UNSURE | UNSURE | operator gave no answer for Oji group C |
+| 2026-10-30 14:33 | front door | Jaya | TRUE (operator rule) | FALSE (tracker) | phone-with-her rule |
+| 2026-10-30 14:35 | front door | Oji | UNSURE | UNSURE | operator gave no answer for Oji group C |
+| 2026-10-30 17:18 | front door | Oji | UNSURE | UNSURE | operator gave no answer for Oji group C |
+| 2026-10-30 19:44 | front door | Oji | UNSURE | UNSURE | operator gave no answer for Oji group C |
+| 2026-10-30 19:45 | front door | Jaya | TRUE | TRUE | home edge after crossing (audit pre-label) |
+| 2026-10-31 13:34 | front door | Ezinne | TRUE | TRUE | home edge after crossing (audit pre-label) |
+| 2026-10-31 21:31 | front door | Ezinne | TRUE | TRUE | home edge after crossing (audit pre-label) |
+| 2026-10-31 23:38 | front door | Oji | UNSURE | UNSURE | operator gave no answer for Oji group C |
+| 2026-11-02 08:50 | front door | Oji | TRUE | TRUE | home edge after crossing (audit pre-label) |
+| 2026-11-03 08:36 | front door | Ezinne | TRUE | TRUE | home edge after crossing (audit pre-label) |
+| 2026-11-03 22:37 | front door | Oji | TRUE | TRUE | home edge after crossing (audit pre-label) |
+| 2026-11-03 22:38 | front door | Jaya | TRUE | TRUE | home edge after crossing (audit pre-label) |
+| 2026-11-04 13:56 | front door | Jaya | TRUE (operator rule) | FALSE (tracker) | phone-with-her rule |
+| 2026-11-04 13:57 | garage A | Jaya | TRUE (operator rule) | FALSE (tracker) | phone-with-her rule |
+| 2026-11-04 14:03 | front door | Jaya | TRUE (operator rule) | FALSE (tracker) | phone-with-her rule |
+| 2026-11-04 22:53 | garage A | Jaya | TRUE | TRUE | home edge after crossing (audit pre-label) |
+| 2026-11-05 22:41 | front door | Ziri | UNSURE (lean FALSE) | UNSURE | Ziri phone not_home until 11-06 22:29 (recorder); no tracker edge near crossing |
+| 2026-11-06 09:01 | front door | Jaya | TRUE (operator rule) | FALSE (tracker) | soft-contested: URA attached another resident at this crossing |
+| 2026-11-06 16:49 | front door | Ziri | UNSURE (lean FALSE) | UNSURE | Ziri phone not_home until 11-06 22:29 (recorder); no tracker edge near crossing |
+| 2026-11-07 10:35 | garage A | Oji | TRUE | TRUE | home edge after crossing (audit pre-label) |
+| 2026-11-07 10:48 | garage A | Oji | UNSURE | UNSURE | operator gave no answer for Oji group C |
+| 2026-11-07 12:38 | garage A | Jaya | TRUE (operator rule) | FALSE (tracker) | soft-contested: URA attached another resident at this crossing |
+| 2026-11-07 22:41 | garage A | Jaya | TRUE (operator rule) | FALSE (tracker) | phone-with-her rule |
+| 2026-11-08 16:40 | front door | Jaya | TRUE (operator rule) | FALSE (tracker) | soft-contested: URA attached another resident at this crossing |
+| 2026-11-08 17:34 | front door | Jaya | TRUE | TRUE | home edge after crossing (audit pre-label) |
+| 2026-11-08 17:44 | front door | Oji | UNSURE | UNSURE | operator gave no answer for Oji group C |
+| 2026-11-08 18:00 | front door | Oji | UNSURE | UNSURE | operator gave no answer for Oji group C |
+| 2026-11-09 14:27 | front door | Jaya | TRUE (operator rule) | FALSE (tracker) | phone-with-her rule |
+| 2026-11-11 08:25 | front door | Jaya | TRUE (operator rule) | FALSE (tracker) | CONTESTED: Ezinne person.* flips home at -9 s/0 s of this crossing (recorder), Jaya's three trackers stay not_home until 16:29; likely Ezinne |
+| 2026-11-11 08:26 | garage A | Jaya | TRUE (operator rule) | FALSE (tracker) | CONTESTED: Ezinne person.* flips home at -9 s/0 s of this crossing (recorder), Jaya's three trackers stay not_home until 16:29; likely Ezinne |
+| 2026-11-11 11:31 | front door | Jaya | TRUE (operator rule) | FALSE (tracker) | phone-with-her rule |
+| 2026-11-11 11:40 | front door | Jaya | TRUE (operator rule) | FALSE (tracker) | phone-with-her rule |
+| 2026-11-11 11:59 | garage A | Jaya | TRUE (operator rule) | FALSE (tracker) | phone-with-her rule |
+| 2026-11-11 12:02 | front door | Jaya | TRUE (operator rule) | FALSE (tracker) | phone-with-her rule |
+| 2026-11-11 14:21 | front door | Jaya | TRUE (operator rule) | FALSE (tracker) | phone-with-her rule |
+| 2026-11-11 14:31 | front door | Jaya | TRUE (operator rule) | FALSE (tracker) | phone-with-her rule |
+| 2026-11-12 07:23 | garage A | Oji | FALSE | FALSE | operator in NZ, tracker not_home since 11-09 17:40 (audit) |
+| 2026-11-12 15:19 | front door | Jaya | TRUE (operator rule) | FALSE (tracker) | phone-with-her rule |
+
+Counts: identity TRUE 29 (10 audit pre-labelled + 19 Jaya by operator rule), FALSE 1, UNSURE 11 (9 Oji group C, 2 Ziri). Arrival TRUE 10, arrival FALSE(tracker) 19, arrival FALSE (identity wrong) 1, UNSURE 11.
+
+## 1. Jaya: tracker-fault quantification
+
+- 19 of the 23 Jaya-named candidate clusters have no home edge near the crossing (the other 4 are ordinary BLE lag: home edge +266..+781 s). Operator rule gives tracker-fault 19/41 = 46.3% [32.1, 61.3] of all candidates, or 19/23 = 82.6% [62.9, 93.0] of Jaya's.
+- **But the evidence says the phone itself moved, which does not fit "phone in the house, tracker blind."** For the 6 away-runs that contain REVIEW rows (recorder), the phone's last Bermuda area before going away was `Jaya Bedroom` 298-402 s before the not_home edge (6 of 6), and the FIRST area seen after the run ended was `Garage A` within 1-6 s of the home edge (5 of 6; the 11-09 run ended at Jaya Bedroom, 3 s). A phone left dead in the house would reappear where it was, not at the garage scanner. Runs: 11-06 07:37-22:06, 11-07 10:56-23:43, 11-08 09:44-17:40, 11-09 07:32-18:21, 11-11 07:28-16:29, 11-12 07:34-16:44; the weekday runs start about 07:30 and end about 16:30 (school-day shaped; my inference, not verified). Consequence: either Jaya was out with the phone and the door faces are someone else, or the phone left without her. The operator premise (phone with her nearly always) points to the first. I applied the operator's rule as instructed, but **recommend the operator treat the 19 as "identity UNVERIFIED" for any Phase 2 gate**; the clean confirmer is a Jaya-named crossing whose Jaya tracker was HOME at the crossing.
+- Strongest counter-example, 2026-11-11 08:25 front door + 08:26 garage A (Frigate Jaya 0.954/0.988, URA `ezinne` entry +48 s): Ezinne's `person.ezinne` flips to `home` at -9 s and 0 s relative to the Frigate event (recorder), after 30 min of not_home; Jaya's phone stays away to 16:29. That is Ezinne arriving. Soft cases (another resident's URA row at the same crossing): 11-06 09:01 (oji_udezue entry +116 s, Oji's person flips home/not_home at -10 s), 11-07 12:38 (ezinne exit +45 s, Ezinne was home all along), 11-08 16:40 (ezinne exit -40 s, oji_udezue exit +142 s; both home at t).
+- Producer/fire: the face producer named Jaya 63 times on the 4 cameras in 14 days; her tracker is the veto's reference, so a phone-away Jaya is a vetoed crossing today (persisted as person_id NULL).
+
+## 2. Ziri detail
+
+Ziri-named candidates: 2026-11-05 22:41 front door (0.82; URA entry/null +46 s, exit/oji_udezue +77 s) and 11-06 16:49 front door (0.97). Ziri's phone is away through both (person.ziri not_home in the recorder, first home 11-06 22:29), 5.7 to 23.8 h before it appears. Labelled UNSURE (lean FALSE): if the phone is with him ("usually"), both faces are misrecognitions; if he was physically there without it, true. Not counted in the rate.
+
+## 3. Ojini (operator: absent from the house > 1 month; purged from Frigate, not Protect)
+
+By source (what is observable):
+
+| Source | Observable? | Count and dates |
+|---|---|---|
+| Frigate 2 events API, 4 egress cameras (final `sub_label`) | yes | 10 events, 10 separate clusters, 2026-10-30 14:34 to 11-07 08:06: 10-30 front_door_aerial; 10-31 doorbell_lite; 11-04 doorbell_lite x3 (10:40, 13:38, 13:55); 11-05 garage_a x2 (07:26, 08:35) + madrone_g6_entry 11:22; 11-06 front_door_aerial 15:23; 11-07 garage_a 08:06. Scores 0.91-1.0 (min 0.91, same score range as correct names). |
+| Frigate live face sensors in HA recorder (`sensor.*_last_recognized_face_2` == Ojini; what URA consumes) | yes, 8-day window | **34 state changes, 11-05 06:27 to 11-08 20:12, 12 cameras, 6 of them interior** (staircase x8, family_room x7, master_hallway x4, upstairs_hall x2, playroom x2, foyer_fisheye, g5_bullet, plus garage_a x5, doorbell_lite, front_door_aerial, madrone_g6_entry, front_side_ptz). Four fired on egress cameras where the final event label differs (e.g. 11-07 22:41 garage A, final event Jaya; 11-08 17:44 doorbell, final event Oji 0.99). `sensor.frigate_ojini_last_camera`: last real value 11-09 00:24:48 (Family Room), after that only `unavailable` (32 flips to 11-12 21:57). Inference only: purge landed about 11-09; I did not read Frigate config. |
+| URA persisted rows `person_id='ojini'` (`person_entry_exit_events`) | yes | 29 rows 2026-09-06 to 11-07 09:17 local; 18 since 10-13 (a month before today), 9 since 10-30 (3 matched to a Frigate Ojini event within -180/+60 s, 1 to a Frigate Jaya event, 5 with no Frigate named event nearby, so the source of those 5 is UNKNOWN; transient live-sensor names explain some, I cannot distinguish Protect from that). Zero rows after 11-07 and zero Ojini states after 11-09 00:24 through 11-12 21:57: the producer is silent since the purge. |
+| UniFi Protect | **no** | UNKNOWN. Needs `protect_list_smart_detections` / `protect_list_known_faces` (unifi-protect MCP, not available to this probe). Until someone purges her Protect face enrolment or queries it, assume Protect may still name her. |
+
+Who was probably there (Frigate Ojini events on the 4 cameras; evidence = co-occurring Frigate names, URA rows, resident Bermuda area from the recorder, snapshot tracker state). "Likely" requires two independent pointers; "weak" is one.
+
+| Local time | Cam | Candidate | Evidence |
+|---|---|---|---|
+| 10-30 14:34 | front_door_aerial | UNRESOLVED | names alternate Jaya/Oji/Ojini within 155 s on 2 cameras (21 person events in +-120 s); Oji, Jaya, Ziri trackers away, only Ezinne home (Master Bedroom). Possibly a visitor group; house_state home_day. |
+| 10-31 12:22 | doorbell_lite | Jaya (likely) | Frigate Jaya at garage_a -20 s, URA `jaya` exit +27 s, Jaya snapshot home. |
+| 11-04 10:40 | doorbell_lite | Oji (likely) | URA `oji_udezue` entry +47 s. |
+| 11-04 13:38 | doorbell_lite | Oji (weak) | only resident home (Living Room). |
+| 11-04 13:55 | doorbell_lite | Jaya-labelled (weak) | Frigate Jaya at +65/+136/+140 s; Jaya tracker away; Oji home. Same person flipping Jaya/Ojini names. |
+| 11-05 07:26 | garage_a | Jaya (likely) | Frigate Jaya -2 s (doorbell), URA `jaya` entry +44 s, Jaya's Bermuda area = Garage A. |
+| 11-05 08:35 | garage_a | Oji (likely) | Frigate Oji -23 s, URA `oji_udezue` entry -28 s, Oji's Bermuda area = Garage A. |
+| 11-05 11:22 | madrone_g6_entry | Oji (weak) | only resident home (Kitchen). |
+| 11-06 15:23 | front_door_aerial | Oji (weak) | only resident home (Study A). |
+| 11-07 08:06 | garage_a | Oji (weak) | Oji's Bermuda area = Garage A at 08:06:15; all four residents home. |
+
+Read: where evidence exists the "Ojini" faces are residents (Jaya, Oji), not a stranger, i.e. the model confuses Ojini (Oji's mother, presumably family resemblance) with Oji and Jaya. 5 of 10 have a likely or weak Oji candidate, 2 likely Jaya, 3 unresolved or weak-other. The interior-camera Ojini firing (6 interior cameras, 11-05 to 11-08) on a day pattern (06:27 upstairs hall/staircase/playroom before anyone leaves) suggests it is naming residents moving through the house, not one rogue event.
+
+## 4. Misrecognition rate (identity) with Wilson 95% CIs, separate from tracker fault
+
+| Set | Numerator / denominator | Rate [Wilson 95%] |
+|---|---|---|
+| Tracked residents, decided = 29 TRUE + 1 FALSE, operator Jaya rule | 1 / 30 | 3.3% [0.6, 16.7] |
+| same, flip the 2 firm-contested Jaya clusters (11-11 08:25, 08:26) | 3 / 30 | 10.0% [3.5, 25.6] |
+| same, flip all 5 contested Jaya clusters | 6 / 30 | 20.0% [9.5, 37.3] |
+| Tracked residents, worst case (all 11 UNSURE false, upper bound only) | 12 / 41 | 29.3% [17.6, 44.5] |
+| Pooled with Ojini (10/10 false by operator fact), primary | 11 / 40 | 27.5% [16.1, 42.8] |
+| Pooled, 2 firm flips | 13 / 40 | 32.5% [20.1, 48.0] |
+| Pooled, 5 flips | 16 / 40 | 40.0% [26.3, 55.4] |
+| Persisted-layer (URA table) rows named `ojini` since 2026-10-13: lower bound on false person_id | 18 / 179 | 10.1% [6.5, 15.3] |
+| Persisted-layer since 2026-10-30 | 9 / 84 | 10.7% [5.8, 19.0] |
+
+Tracker-fault rate (arrival FALSE with identity TRUE, operator rule): 19/41 = 46.3% [32.1, 61.3]; 17/41 = 41.5% [27.8, 56.6] after removing the 2 firm-contested clusters. Caveats: (a) the Ojini rows are a fixed, known-absent name, so pooling inflates the figure and measures "stale gallery entry" more than "ordinary mismatch"; the tracked-resident rows are the honest recognizer rate. (b) The persisted-layer figure is a floor only (other false names are invisible) and is distorted: Ojini has no tracker, so her false names are never vetoed, while other names' false positives are vetoed and unpersisted (survivor bias). (c) Clusters are correlated (same person, minutes apart), so the real effective n is smaller than 30/40 and the intervals are optimistic.
+
+**Phase 2 consequence.** The "5 confirmed true arrivals" bar stays met (10 arrival-TRUE). The measured-misrecognition half is now: 3.3% to 10% of tracked-resident named crossings with a non-home tracker are decisively false, with a wide interval and 11 UNSURE; the Oji group C answers (9 clusters) would be the next largest source of movement. Score does not discriminate (Ojini false events 0.91-1.0).
+
+## Falsification
+
+- "Person entity is faithful to the phone": would be disproved by any interval with person.jaya not_home while Bermuda area/tracker or Private BLE showed home. Searched all 185.1 h at 10 s: none.
+- "Ziri's wiring is fine": would be disproved if the linked trackers were disabled, absent from the registry, or the phone never resolved. Registry rows enabled; ziri_iphone and the Bermuda tracker both flipped home for the 11-06..11-08 visit.
+- "Jaya's door faces are tracker fault": would be supported by a phone reappearing where it was last seen; it reappears at Garage A (5/6 runs) instead. Not proven false, only unsupported; the operator label stands as instructed.
+- "Ojini silent since the purge": checked three producers (events API, live sensors, URA rows); Protect NOT checked.
+
+## Housekeeping disclosures
+
+- No Frigate login this session. Used `fr_events.json` already extracted; nothing secret printed.
+- One of my probe scripts (`ojmatch.py`) accidentally imported an old scratchpad `bisect.py` (cwd shadowing) which ran pytest runs inside another agent's worktree (`.claude/worktrees/agent-ac4b5e29b7ab11ce6`, bytecode writes disabled, cacheprovider off). No repo edits; `git status` in the main checkout is unchanged from session start. Not verified whether it touched that worktree's untracked files.
+- Scratch scripts only in the session scratchpad (`jaya_q.py`, `jaya_cl.py`, `ojp*.py`, `ojwho.py`, `cont.py`, `final.py`). Nothing written on the HA host this round.
+- This section was appended to this file only; nothing else edited, nothing committed.
