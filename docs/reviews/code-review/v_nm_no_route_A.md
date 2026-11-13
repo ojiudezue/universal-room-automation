@@ -1,0 +1,34 @@
+# Review A (correctness + edge cases): fix/nm-no-route (NM-NO-CHANNEL-FIRED-1)
+
+Branch HEAD df8e323a. Merge-base with develop = 2d49a262 (develop has since moved to a9d2bcb5; diff taken three-dot `develop...HEAD`). Evidence doc: `docs/planning/AUDIT_nm_no_channel_fired_2026_11_13.md`. Ran only `quality/tests/test_nm_no_channel_fired.py` (18 passed).
+
+## Findings
+
+| # | SEV | Site | Finding | Bug class |
+|---|---|---|---|---|
+| A1 | MEDIUM | `notification_manager.py` `_record`/audit hook (`bucket_outcome == NM_BUCKET_NO_CHANNEL_FIRED`, ~5479) + `_maybe_fire_no_route_tripwire` | Trip-wire and `delivery_rate` count EVERY `no_channel_fired` row, including **immediate-pref** recipients whose gates are above the alert severity. That is configured policy (gate HIGH means "don't send me MEDIUM"), not a routing hole. Repro (legal config, portability): a second person with `delivery_pref=immediate`, all gates HIGH; ~43 sub-HIGH alerts/day (the live rate in the audit) -> >=20 no_channel_fired/24h -> a daily HIGH "URA alerts reaching nobody" alert and `delivery_rate` near 0. The audit's proposal (c) scoped the trip-wire to severity >= MEDIUM; the build counts LOW too. In THIS house (single digest-pref recipient) it does not fire post-fix, so not a live regression. Fix: count only digest-pref recipients (the real hole), or label immediate-pref sub-gate drops with a distinct outcome (e.g. `below_gate`). | #63 coincidental equality (policy drop vs routing hole share one label) |
+| A2 | LOW | `notification_manager.py:2176-2182` | Fallback is skipped when ANY channel is muted for the recipient, including a channel that is not a digest channel. Repro: digest-pref person, digest_channels [whatsapp, imessage], pushover muted 30 min, MEDIUM alert -> no fallback row -> `no_channel_fired` (alert lost, the exact symptom this cycle fixes). Suggest: skip only if all of the recipient's `digest_channels` are muted. | edge case |
+| A3 | LOW | `_route_branch_label` (~5326) vs fallback guard `_matrix_branch == "legacy_fallback"` | A sparse matrix with no row for this severity is labelled `matrix_default`, but `_route_for_recipient` routes it through legacy. So matrix `{CRITICAL: {...}}` + MEDIUM alert + gates HIGH -> no fallback -> dropped. A missing matrix row is not explicit silence. Documented label semantics (A-MED-2) make this a design choice; flag only. | #53-adjacent |
+| A4 | LOW | `notification_manager.py` `_fire_digest` (~5624 / ~5658) | `_last_digest_flush` is stamped with a fresh `utcnow()` AFTER `_deliver_digest` awaits network sends. A no-route row written between the count query and that stamp is counted in neither flush. Capture `now` before the count query and stamp that local. | capture-before-await |
+| A5 | LOW | `quality/tests/conftest_db.py:114,126` | New regex now also matches `energy_midnight_snapshot`'s split f-string; the pre-existing 2000-char backward tuple window then bleeds the adjacent `energy_daily` tuple list in. Verified by running old vs new extractor over every table: `energy_midnight_snapshot` gains 6 spurious columns (`predicted_consumption_kwh`, `avg_temperature`, `prediction_error_pct`, `adjustment_factor`, `predicted_consumption_source`, `billing_source`) on top of its 3 real ones. `notification_log` (+6 real) and `person_entry_exit_events` (+1 real) are correct. Fixture schema is now a superset of prod for that table. Harmless to current tests, but it breaks the "fixture = production schema" guarantee. Fix: stop the backward walk at the nearest `for ... in [` list (or the previous `ALTER TABLE`). | fixture fidelity |
+
+## Cleared (holds because)
+
+- Fallback conditions: only `effective_pref == digest` (HIGH/CRITICAL forced immediate at ~1963, so fallback is sub-HIGH only), `not _digest_queued` (entry-reset per recipient at ~2042, set at all 4 channel queue sites), DB present, legacy branch. Hazard override and matrix are excluded via the label. Correct.
+- Fallback row reaches the digest: `get_pending_digest` (`database.py:4925`) does not filter by channel; `mark_digest_delivered` sweeps it; the CRITICAL-only readers (ack/cooldown) never see it (sub-HIGH). Channel label `digest` is not in any channel-keyed reader.
+- Audit outcome: `accepted` > `digest_queued` > `no_channel_fired`, with `delivered` still `1 if fired else 0`. A digest-queued recipient is no longer counted as no-route. Correct.
+- Heartbeat: `count_no_route_since` filters `message='[audit]'`, outcome, `dry_run=0`, person. Timestamps are `utcnow().isoformat()` on both sides (`database.py:4821`), so the string compare is valid. Restart fallback window is 24 h. Non-heartbeat path can't produce an empty body before the append (pending or opt_section is non-empty there). Singular/plural is right.
+- delivery_rate: denominator `attempts + no_route`, zero guard kept, dry-run rows excluded at the increment. Units are mixed (per-channel attempts vs per-recipient no-routes), which is acceptable for a health percentage.
+- Trip-wire: kill switch `<= 0`; window prune is strict `>`; threshold `>=`; cooldown = window; the stamp is set before the inner `async_notify`, so the nested call's own `_maybe_fire` returns at the cooldown check (no recursion). Anomaly write is try/except-wrapped. The HIGH alert reaches companion (gate HIGH) in the live config. If every gate is CRITICAL, the trip-wire alert itself no-routes. That limit is inherent and acceptable.
+- None handling: `count_no_route_since` returns 0 on error; `_last_digest_flush.get` falls back.
+
+## Verdict
+
+**SHIP** with recommended follow-ups. No CRITICAL/HIGH. A1 (MEDIUM) is not live in this house's config, but it should be fixed in-cycle per the fix-LOWs policy before the trip-wire is relied on across installs. A2, A4 and A5 are small and worth folding into the same fix-up.
+
+| SEV | Found |
+|---|---|
+| CRITICAL | 0 |
+| HIGH | 0 |
+| MEDIUM | 1 |
+| LOW | 4 |
