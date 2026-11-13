@@ -58,3 +58,29 @@ in the areas reviewed (row 83 / §7 / #35 match the code).
 
 **FIX-REQUIRED** — must fix A-1 (MEDIUM, INV-PAGE leak, with a test). A-2 and A-3 are cheap in-cycle LOWs. D1's
 release gate itself (INV-ARR) holds locally on every site reviewed.
+
+## Fix-up round (reviews A, B, D), 2026-11-13, commit e6a86c06
+
+| Finding | Sev | Bug class | Disposition | Fix | Test (RED on neuter) |
+|---|---|---|---|---|---|
+| A-1 / B-H1 / D-M1 | HIGH (B) / MED | #63 coincidental equality (availability return read as re-lock) | FIXED | `_on_lockout_event` stamps `_lockout_relocked_at` on `unlocked/locking/open/opening -> locked`; `_on_still_locked` skips only on a stamp after the anchor; an unavailable/unknown lockout is re-checked once (same window) and paged "unreadable" unless it reads unlocked | `test_still_locked_pages_lock_unavailable_at_arrival_back_locked` (A repro), `test_still_locked_tainted_home_night_lock_back_after_30s` (B repro), `test_still_locked_unavailable_at_timer_rechecked_then_pages_locked`, `test_still_locked_unavailable_through_recheck_pages_unreadable`, `test_still_locked_readback_unavailable_then_locked_pages` (D read-back shape), `test_still_locked_skips_human_relock_in_window` + `test_still_locked_skips_relock_via_locking` (real re-lock still skipped) |
+| B-L1 | LOW | suppression without discharge | FIXED | one pending check per person; a check from the same `engage_seq` is kept (earliest anchor and its kind); an older-seq check is replaced | `test_still_locked_flaps_after_counted_arrival_do_not_postpone` (4 flaps), `test_uncounted_flaps_keep_earliest_check`, `test_still_locked_check_from_older_engage_is_replaced` |
+| A-2 / D-L1 | LOW | trip-wire precision | FIXED | D3 exempts `boot_recheck` with the house reading `waking`; release kept; INV-ARR exception amended (plan §2) | `test_boot_recheck_waking_release_kept_no_tripwire` |
+| A-3 | LOW | stale persisted state | FIXED | `_boot_rebuild` calls `_end_episode_arrival_flags()` before the kill-switch-off return | `test_boot_kill_switch_off_clears_restored_taint` |
+| D-L2 | LOW | restart state loss | FIXED (page, not release) | `_boot_gap_return_page` at the boot recheck: restored house away/arriving, decision `arriving_hold`/`no_change`, reason not none, a resident (live exclusions) reads home, lockout locked, no unlock in flight, no failure/still-locked page already sent -> NM HIGH `lockout_locked_boot_gap_return`; knob `LOCK_RELEASE_BOOT_GAP_RETURN_PAGE_ENABLED` (rung 1, True) | `test_boot_gap_return_pages_never_releases` + 11 conjunct tests (`test_boot_gap_*`) |
+| D-H1 | HIGH (pre-existing) | restart state loss | FIXED | `reason` is a property persisting every change (Store `garage_reason`); `_boot_rebuild` rebuilds the stored reason when the house is not sleep/vacation; the rebuilt reason is provisional at the boot recheck like `boot_unknown` (`_boot_provisional`) until an engage | `test_vacation_lock_survives_daytime_restart_after_away`, `test_reason_none_persisted_after_release`, `test_restored_sleep_untainted_home_releases_at_recheck`, `test_restored_vacation_converts_to_sleep_at_recheck`, `test_restored_sleep_home_night_guest_window_held_as_guest_night`, `test_restored_reason_manual_unlock_remembered_rebuilds_episode`, `test_restored_reason_confirmed_by_boot_window_engage_not_provisional` |
+| D-L3 | LOW | episode-boundary laundering | CARDED `LOCK-VACATION-PHANTOM-SLEEP-DAILY-UNLOCK-1`; plan §9.3; README notes must state it | - | - |
+| D-L4 | LOW (pre-existing) | restart state loss | CARDED `LOCK-BOOT-LOCKOUT-UNAVAILABLE-AT-SETUP-1`; plan §9.3 | - | - |
+| A-4 | note | - | no change (harmless) | - | - |
+| B-L2 | LOW | test coverage | NOT DONE (not in the fix-up brief): real-HA rig still does not fire `_on_still_locked` on a real loop | - | - |
+| B-I3 | INFO | - | NOT DONE here: README note that "override" includes `ura.set_house_state` (README not yet written) | - | - |
+
+Test changes to existing tests: `test_taint_persisted_across_restart_two_rigs` now expects the persisted `sleep` (was `boot_unknown`, D-H1). `test_reason_assignments_structurally_guarded` (AST source read, Bug Class #62) removed: the new store-rebuild write broke it, and every `self.reason` write is pinned by a behavioural test (parametrised clear-site test, boot rebuild/recheck tests, guest-night keep test, D-H1 tests).
+
+Mutation drills (one site neutered at a time, `PYTHONDONTWRITEBYTECODE=1`, `__pycache__` cleared, restored, `git status` clean): 31 sites, 31 RED. Suites: `test_lock_release_arriving.py` 110 passed; lock-regime siblings (12 files) 655 passed, both orders checked.
+
+| Severity | Found (A+B+D) | Fixed | Carded / deferred |
+|---|---|---|---|
+| HIGH | 2 (B-H1, D-H1) | 2 | 0 |
+| MEDIUM | 2 (A-1, D-M1; same bug as B-H1) | 2 | 0 |
+| LOW | 8 (A-2, A-3, B-L1, B-L2, D-L1, D-L2, D-L3, D-L4) | 5 (A-2, A-3, B-L1, D-L1, D-L2) | 3 (D-L3, D-L4 carded; B-L2 deferred) |
