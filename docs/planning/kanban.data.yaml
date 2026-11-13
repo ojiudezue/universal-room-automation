@@ -34431,7 +34431,8 @@ cards:
 - id: EC-IMPORT-TODAY-NET-AFTER-RESTART-1
   title: Energy Import Today drops to net import (import minus export) after an HA restart, so the From grid tile reads 0.7 kWh instead of ~19
   thread: energy
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.108.14
   created: '2026-11-12 16:37'
   updated: '2026-11-12 16:48'
   refinement_status: initial
@@ -34454,7 +34455,8 @@ cards:
 - id: HVAC-PRECOOL-STANDDOWN-WHEN-COOL-1
   title: Pre-arrival pre-cool lowers the setpoint even when the zone is already at or below target; it should stand down
   thread: hvac
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.108.14
   created: '2026-11-12 16:53'
   updated: '2026-11-12 16:53'
   refinement_status: initial

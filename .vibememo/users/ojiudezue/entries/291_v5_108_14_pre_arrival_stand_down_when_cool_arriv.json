@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "291",
+  "author": "ojiudezue",
+  "session_id": "claude_20261113_030828_ship_v5_108_14",
+  "timestamp": "2026-11-13T03:08:28Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.108.14 shipped: Pre-arrival stand-down when cool + arrival pre-heat; Net Grid Today",
+  "summary": "Pre-arrival stand-down when cool + arrival pre-heat; Net Grid Today",
+  "why": "Pre-cool never read zone temperature, so 17 of 44 November arrival writes landed on zones already at or below target and put Carrier zones into needless holds. The operator dropped the season gate because targets already follow season baselines, and asked for arrival pre-heat so the feature is complete for colder homes. The import-today sensor was net by design but named as gross import.",
+  "implications": "Shipped HVAC-PRECOOL-STANDDOWN-WHEN-COOL-1, EC-IMPORT-TODAY-NET-AFTER-RESTART-1 at v5.108.14; card(s) sit shipped_organic pending validation. Acceptance in README_v5.108.14.md (Live criteria).",
+  "revisit_trigger": "Next arrival into a zone at/below target writes a pre_arrival_standdown row and no climate write; D0 probe check mode shows zero INV-SD-COOL violations over 3 days",
+  "refs": {
+    "cards": [
+      "HVAC-PRECOOL-STANDDOWN-WHEN-COOL-1",
+      "EC-IMPORT-TODAY-NET-AFTER-RESTART-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.108.14.md"
+    ],
+    "release_notes": "Pre-arrival pre-cool skips zones already at/below target; new arrival pre-heat (heat_cool only); no stray release writes; Net Grid Today rename. See docs/readmes/README_v5.108.14.md"
+  }
+}
