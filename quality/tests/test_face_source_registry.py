@@ -624,51 +624,12 @@ def _presence_with_census(census, hass_states):
     return pc
 
 
-def test_presence_face_for_camera_reads_device_face(monkeypatch):
-    """S8: `_get_face_for_camera` on a `_person_occupancy_2` camera returns
-    the fresh face via the device join; OFF -> None (legacy)."""
-    fx = _load_fixture()
-    info, pc, face = _frigate_cam(fx, "doorbell_lite")
-    now = datetime.now(UTC)
-    states = {face: _state("Jaya", now - timedelta(seconds=5))}
-    census, _, _ = _census(states, monkeypatch=monkeypatch)
-    pres = _presence_with_census(census, states)
-    _set_flag(monkeypatch, "FACE_SOURCE_PRESENCE_ARRIVAL_DISAMBIGUATED", True)
-    assert pres._get_face_for_camera(info.entity_id) == "Jaya"
-    _set_flag(monkeypatch, "FACE_SOURCE_INCLUDE_DISAMBIGUATED_PERSON_SENSORS", False)
-    assert pres._get_face_for_camera(info.entity_id) is None
+# FACE-ARRIVAL-REBUILD-1 D5: the three `_get_face_for_camera` tests were
+# DELETED with the function (dead v3.19 path). Their invariants moved:
+# device ladder -> test_person_sighting.py::test_protect_pick_walks_to_frigate_twin_face;
+# `_N` pick -> ::test_n_suffix_pick_resolves_without_flag (no flag, by design).
 
 
-def test_presence_arrival_flag_default_off_keeps_legacy_skip(monkeypatch):
-    """Shipped default: S8 does NOT widen camera_face arrivals onto `_N`
-    person sensors (the door/garage cameras), because SIGNAL_PERSON_ARRIVING
-    feeds the SC lock regime release / away-lock unlock. Census S5-S7 still
-    read the same face (skip fix live there)."""
-    fx = _load_fixture()
-    info, pc, face = _frigate_cam(fx, "doorbell_lite")
-    now = datetime.now(UTC)
-    states = {face: _state("Jaya", now - timedelta(seconds=5)), pc: _state("1")}
-    census, _, _ = _census(states, cameras={info.entity_id: info}, monkeypatch=monkeypatch)
-    pres = _presence_with_census(census, states)
-    assert pres._get_face_for_camera(info.entity_id) is None
-    assert census._get_face_recognized_persons() == {"Jaya"}
-
-
-def test_presence_bare_camera_unchanged(monkeypatch):
-    fx = _load_fixture()
-    info, pc, face = _frigate_cam(fx, "family_room")
-    now = datetime.now(UTC)
-    states = {face: _state("Ziri", now - timedelta(seconds=5))}
-    census, _, _ = _census(states, monkeypatch=monkeypatch)
-    pres = _presence_with_census(census, states)
-    a = pres._get_face_for_camera(info.entity_id)
-    _set_flag(monkeypatch, "FACE_SOURCE_INCLUDE_DISAMBIGUATED_PERSON_SENSORS", False)
-    _set_flag(monkeypatch, "FACE_SOURCE_REGISTRY_DISCOVERY_ENABLED", False)
-    assert a == pres._get_face_for_camera(info.entity_id) == "Ziri"
-
-
-# ---------------------------------------------------------------------------
-# D4 — engine tag from the device (INV-2)
 # ---------------------------------------------------------------------------
 
 
@@ -774,7 +735,6 @@ def test_alias_empty_is_noop(monkeypatch):
     assert census._canonical_person_slug("Oji") == "oji_udezue"
     assert census._canonical_person_slug("Ojini") == "guest:ojini"
     assert census._canonical_person_slug("Boss") == "boss"
-    assert census.face_alias_person_slug("Oji") is None
 
 
 def test_alias_maps_nickname(monkeypatch):
@@ -783,8 +743,6 @@ def test_alias_maps_nickname(monkeypatch):
     assert census._canonical_person_slug("Ojini") == "oji_udezue"
     assert census._canonical_person_slug("Boss") == "oji_udezue"
     assert census._canonical_person_slug("Pal") == "guest:ojini"
-    assert census.face_alias_person_slug("Boss") == "oji_udezue"
-    assert census.face_alias_person_slug("Pal") is None
 
 
 def test_alias_beats_ambiguous_head(monkeypatch):
@@ -805,17 +763,17 @@ def test_alias_bad_target_ignored(monkeypatch, caplog):
     assert len(warns) == 2  # one per bad entry, not per lookup
 
 
-def test_presence_alias_maps_face_to_person(monkeypatch):
-    """S8 person mapping: 'Oji' has no `person.oji`; the alias
-    'Oji=oji_udezue' maps it to `person.oji_udezue`. Empty -> None."""
-    states = {"person.oji_udezue": _state("home")}
+def test_census_mapper_alias_maps_face_to_person(monkeypatch):
+    """RE-POINTED (FACE-ARRIVAL-REBUILD-1 D5) from the deleted presence
+    mapper: aliases apply ONLY inside the one mapper `_canonical_person_slug`.
+    'Ojo' (no tracked first name) maps to the tracked slug only with the
+    alias 'Ojo=oji_udezue'; an unaliased name passes through unmapped."""
     census, _, _ = _census({}, aliases=[], monkeypatch=monkeypatch)
-    pres = _presence_with_census(census, states)
-    assert pres._find_person_entity_from_face("Oji") is None
-    census2, _, _ = _census({}, aliases=["Oji=oji_udezue"], monkeypatch=monkeypatch)
-    pres2 = _presence_with_census(census2, states)
-    assert pres2._find_person_entity_from_face("Oji") == "person.oji_udezue"
-    assert pres2._find_person_entity_from_face("Jaya") is None
+    assert census._canonical_person_slug("Ojo") == "ojo"
+    assert "ojo" not in census._get_tracked_person_slugs()
+    census2, _, _ = _census({}, aliases=["Ojo=oji_udezue"], monkeypatch=monkeypatch)
+    assert census2._canonical_person_slug("Ojo") == "oji_udezue"
+    assert census2._canonical_person_slug("Jaya") == "jaya"
 
 
 # ---------------------------------------------------------------------------

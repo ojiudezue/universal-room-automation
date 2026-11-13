@@ -647,62 +647,62 @@ def test_fs3_raw_face_recognized_persons_gated_under_suppression():
     assert census._get_face_recognized_persons() == set()
 
 
-# --- FS-4: presence pre-arrival face path ---------------------------------
-
-
-def test_fs4_presence_get_face_for_camera_gated_under_suppression():
-    """`domain_coordinators/presence.py::_get_face_for_camera` reads
-    face sensors directly and drives pre-arrival. Under drill/outage
-    + STRICT, it must return None even when the sensor is fresh + valid.
-    Mutation anchor: the early-return guard at the top of the method."""
-    from custom_components.universal_room_automation.domain_coordinators.presence import (
-        PresenceCoordinator as _PresenceCoord,
+def _sighting_producer(census, hass, face_entity="sensor.front_door_last_recognized_face"):
+    """FACE-ARRIVAL-REBUILD-1 D5 re-point: the REAL person-sighting producer
+    (path 4 of the face-emission invariant), bound to one face entity on one
+    physical camera. Sources (a) MQTT bridge and (b) face-sensor change are
+    driven through their real handlers; the producer's one emit function
+    holds the `_face_suppressed_now()` gate."""
+    import time as _time
+    from types import SimpleNamespace as _NS
+    from custom_components.universal_room_automation.person_sighting import (
+        PersonSightingProducer, _PhysicalView,
     )
+    presence = _NS(_face_arrival_cooldown={}, _zone_trackers={},
+                   _room_area_ids={}, get_room_zone=lambda r: None,
+                   _face_recognition_enabled=True)  # operator switch ON
+    prod = PersonSightingProducer(hass, presence)
+    prod._setup_ts = _time.time() - 700
+    prod._views = {"dev_front": _PhysicalView(
+        key="dev_front", picks=["binary_sensor.front_door_person_occupancy"],
+        face_entities={face_entity})}
+    prod._face_to_physical = {face_entity: "dev_front"}
+    prod._bound_resolver = _NS(face_name_entities_for_stem=lambda stem: [face_entity])
+    prod._maybe_rebind = lambda: None
+    census._get_tracked_person_slugs = lambda: ["oji_udezue"]
+    return prod
+
+
+def _drive_sighting_sources(prod, now, face_entity="sensor.front_door_last_recognized_face"):
+    from types import SimpleNamespace as _NS
+    prod._on_bridge("front_door", frozenset({"front_door"}), "Oji", now)
+    prod._on_face_state(_NS(data={
+        "entity_id": face_entity,
+        "new_state": _NS(entity_id=face_entity, state="Oji", last_changed=now),
+        "old_state": _NS(entity_id=face_entity, state="Unknown"),
+    }))
+    return int(prod.counters.get("sightings_today", 0))
+
+
+# --- FS-4: person-sighting emit (re-pointed from the deleted presence path)
+
+
+def test_fs4_person_sighting_emit_gated_under_suppression():
+    """RE-POINTED (FACE-ARRIVAL-REBUILD-1 D5) from
+    `test_fs4_presence_get_face_for_camera_gated_under_suppression`: the
+    person-sighting producer (sources a and b) emits with the drill OFF and
+    emits NOTHING with it ON (Frigate healthy, STRICT)."""
     now = datetime.now(UTC).replace(microsecond=0)
-    states = {
-        "sensor.front_door_last_recognized_face": _make_state(
-            "Oji", now - timedelta(seconds=5),
-        ),
-    }
     census, hass, st_map = _make_census_with_frigate(
-        states=states,
-        present_health=("sensor.frigate_status_2",),
-        frigate_status="on",
+        states={}, present_health=("sensor.frigate_status_2",), frigate_status="on",
     )
     hass.data.setdefault(ura_const.DOMAIN, {})["census"] = census
-    coord = _PresenceCoord.__new__(_PresenceCoord)
-    coord.hass = hass
-    # Pin dt_util.utcnow to a tz-aware value so the presence helper's
-    # freshness arithmetic does NOT silently swallow via its broad
-    # try/except (test-only harness gap). This lets us observe the
-    # difference between "guard fired" and "guard did not fire".
-    import homeassistant.util.dt as _dt_util
-    _orig_utcnow = _dt_util.utcnow
-    _dt_util.utcnow = lambda: now
-    # TEST-HARNESS D7 slice 2: pin the clock presence.py ACTUALLY reads
-    # (its own module-level dt_util). After a sibling file imported presence
-    # under a stub homeassistant.util.dt, that object is not
-    # sys.modules["homeassistant.util.dt"], and the pin above missed it.
-    _presence_dt = _PresenceCoord._get_face_for_camera.__globals__["dt_util"]
-    _orig_presence_utcnow = _presence_dt.utcnow
-    _presence_dt.utcnow = lambda: now
-    try:
-        # Baseline (drill OFF): helper returns "Oji" through the
-        # ungated downstream path.
-        PersonCensus.set_face_drill_forced(hass, False)
-        assert coord._get_face_for_camera(
-            "binary_sensor.front_door_person_occupancy",
-        ) == "Oji"
-        # Drill ON: suppression gate MUST short-circuit to None
-        # BEFORE the downstream lookup. Neutering the guard flips
-        # this back to "Oji".
-        PersonCensus.set_face_drill_forced(hass, True)
-        assert coord._get_face_for_camera(
-            "binary_sensor.front_door_person_occupancy",
-        ) is None
-    finally:
-        _presence_dt.utcnow = _orig_presence_utcnow
-        _dt_util.utcnow = _orig_utcnow
+    PersonCensus.set_face_drill_forced(hass, False)
+    assert _drive_sighting_sources(_sighting_producer(census, hass), now) == 1
+    PersonCensus.set_face_drill_forced(hass, True)
+    prod = _sighting_producer(census, hass)
+    assert _drive_sighting_sources(prod, now) == 0
+    assert prod.counters["suppressed"] == 2
 
 
 # --- AT-1: disagree branch abstains on any non-resident face slug ---------
@@ -892,9 +892,6 @@ def test_fs_all_four_paths_suppressed_under_drill():
     NONE of them attaches a face identity when the drill is engaged
     with Frigate healthy. Real code drives each check (no monkeypatch
     of the guard)."""
-    from custom_components.universal_room_automation.domain_coordinators.presence import (
-        PresenceCoordinator as _PresenceCoord,
-    )
     now = datetime.now(UTC).replace(microsecond=0)
     states = {
         "sensor.front_door_last_recognized_face": _make_state(
@@ -954,12 +951,11 @@ def test_fs_all_four_paths_suppressed_under_drill():
     assert _face_recognized == []
     assert census._face_dropped_producer_down_ticks == ticks_before + 1
 
-    # 4) Presence pre-arrival: returns None.
-    coord = _PresenceCoord.__new__(_PresenceCoord)
-    coord.hass = hass
-    assert coord._get_face_for_camera(
-        "binary_sensor.front_door_person_occupancy",
-    ) is None
+    # 4) Person sightings (FACE-ARRIVAL-REBUILD-1 D5 re-point; the v3.19
+    #    presence pre-arrival path is deleted): sources (a) and (b) emit
+    #    nothing under the drill.
+    prod = _sighting_producer(census, hass)
+    assert _drive_sighting_sources(prod, now) == 0
 
 
 # --- IDENTITY-FACE-HEALTH-BOOTCACHE-1 self-heal ---------------------------

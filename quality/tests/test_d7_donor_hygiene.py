@@ -730,7 +730,7 @@ MULTI_DONOR_VICTIMS: dict[tuple[str, ...], list[str]] = {
         "test_fan_sweep_trio.py",
         "test_hvac_excursion_d1_auto_release.py",
     ): [
-        "test_identity_fusion_d2_d3_d4.py::test_fs4_presence_get_face_for_camera_gated_under_suppression",
+        "test_identity_fusion_d2_d3_d4.py::test_fs4_person_sighting_emit_gated_under_suppression",
     ],
     # Second identity_fusion set (after carrier_freshness was fixed), ddmin
     # over a 76-file reduced prefix. Fixed donor: hvac_vacancy_sweep (frozen
@@ -815,12 +815,12 @@ def test_drill_multi_donor_fix_neutered_victim_goes_red(donor):
 
 # Victim-side fix anchored by a multi-donor set: revert the victim's fix in a
 # sandbox copy -> the set anchor goes RED.
-_MULTI_VICTIM_DRILLS = {
-    "test_identity_fusion_d2_d3_d4.py::test_fs4_presence_get_face_for_camera_gated_under_suppression": (
-        "    _presence_dt.utcnow = lambda: now\n",
-        "",
-    ),
-}
+# FACE-ARRIVAL-REBUILD-1 D5: the only entry pinned the victim-side clock fix
+# inside `test_fs4_presence_get_face_for_camera_gated_under_suppression`; the
+# re-pointed `test_fs4_person_sighting_emit_gated_under_suppression` reads no
+# presence clock, so there is no victim fix left to revert. The multi-donor
+# set above still runs the re-pointed test after its donors.
+_MULTI_VICTIM_DRILLS: dict = {}
 
 
 @pytest.mark.source_mutation

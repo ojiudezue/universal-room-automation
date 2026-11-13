@@ -83,45 +83,11 @@ def _make_census(hass):
     return _Census(hass)
 
 
-def _stub_coord(hass):
-    stub = MagicMock()
-    stub.hass = hass
-    # Bind the real production method to the stub — we're testing the
-    # helper, not the coordinator's construction.
-    stub._get_face_for_camera = MethodType(
-        PresenceCoordinator._get_face_for_camera, stub,
-    )
-    return stub
-
-
-def test_face_resolver_finds_suffix_only_camera():
-    """FIX: a `_2`-only Frigate face sensor is now resolved."""
-    hass = make_hass()
-    # Only the _2 variant exists — the pre-fix bare-string build missed it.
-    _install_states(hass, {
-        "sensor.frontdoor_last_recognized_face_2": _State("Oji"),
-    })
-    hass.data = {DOMAIN: {"census": _make_census(hass)}}
-
-    coord = _stub_coord(hass)
-    result = coord._get_face_for_camera("binary_sensor.frontdoor_person_occupancy")
-    assert result == "Oji", (
-        "regression: _2-only face sensor not resolved — the census "
-        "resolver call is not wired"
-    )
-
-
-def test_face_resolver_finds_bare_canonical_camera():
-    """No regression: cameras with the bare canonical sensor still resolve."""
-    hass = make_hass()
-    _install_states(hass, {
-        "sensor.backdoor_last_recognized_face": _State("Ezinne"),
-    })
-    hass.data = {DOMAIN: {"census": _make_census(hass)}}
-
-    coord = _stub_coord(hass)
-    result = coord._get_face_for_camera("binary_sensor.backdoor_person_occupancy")
-    assert result == "Ezinne"
+# FACE-ARRIVAL-REBUILD-1 D5: `test_face_resolver_finds_suffix_only_camera`,
+# `test_face_resolver_finds_bare_canonical_camera` and
+# `test_face_resolver_no_sensor_returns_none` drove the DELETED
+# `PresenceCoordinator._get_face_for_camera` and were deleted with it. The
+# census-side contract below is kept unchanged.
 
 
 def test_real_person_census_exposes_resolve_face_entity_id():
@@ -170,14 +136,3 @@ def test_real_person_census_exposes_resolve_face_entity_id():
     assert callable(getattr(PersonCensus, "_resolve_face_entity_id")), (
         "PersonCensus._resolve_face_entity_id is not callable"
     )
-
-
-def test_face_resolver_no_sensor_returns_none():
-    """Absent face sensor -> None (accelerator, not requirement)."""
-    hass = make_hass()
-    _install_states(hass, {})
-    hass.data = {DOMAIN: {"census": _make_census(hass)}}
-
-    coord = _stub_coord(hass)
-    result = coord._get_face_for_camera("binary_sensor.nowhere_person_occupancy")
-    assert result is None

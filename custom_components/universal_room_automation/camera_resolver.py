@@ -457,6 +457,30 @@ def resolve_area_id_for_entity(entity_registry: Any, device_registry: Any, entit
     return getattr(dev, "area_id", None)
 
 
+def canonical_camera_key(fusion: "RoomCameraFusion") -> str:
+    """FACE-ARRIVAL-REBUILD-1 (plan rev 4 M1): the ONE physical-camera dedup
+    key, used by interior picks AND egress crossings: the smallest
+    ``device_id`` over the fusion's FULL source set (after the ladder walk).
+
+    ``physical_camera_id`` is NOT canonical: ``resolve_capabilities`` sets it
+    to ``sorted(input device_ids)[0]`` and ``resolve_operator_declaration``
+    passes one input device per call, so a Protect leg and its Frigate twin
+    would get different ids. Empty fusion -> its ``physical_camera_id``.
+    """
+    ids = [s.device_id for s in getattr(fusion, "sources", None) or () if s.device_id]
+    if not ids:
+        return str(getattr(fusion, "physical_camera_id", "") or "")
+    return min(ids)
+
+
+# Reasons `CameraResolver.resolve_pick_to_fusions` reports for a pick that
+# resolves to no camera (plan rev 11 §3.2). Never guessed.
+PICK_UNRESOLVED_NO_FUSION = "no_fusion"
+PICK_UNRESOLVED_ROOM_ENTRY_MISSING = "room_entry_missing"
+PICK_UNRESOLVED_ROOM_CAMERAS_EMPTY = "room_cameras_empty"
+URA_PLATFORM = "universal_room_automation"
+
+
 def _is_package_detector(entity_id: str) -> bool:
     """F3: exclude Frigate ``_package_*`` object detectors from person fusion.
 
@@ -763,6 +787,51 @@ class CameraResolver:
         if not did:
             _LOGGER.warning("CameraResolver: entity %s has no device_id", entity_id)
         return did
+
+    def area_id_for_entity(self, entity_id: str) -> str | None:
+        """Entity area, else its device's area (``resolve_area_id_for_entity``
+        over this resolver's registries)."""
+        return resolve_area_id_for_entity(self._er, self._dr, entity_id)
+
+    def resolve_pick_to_fusions(
+        self,
+        entity_id: str,
+        room_cameras_lookup: Callable[[str], list[str] | None],
+    ) -> tuple[list[RoomCameraFusion], str | None, str | None]:
+        """FACE-ARRIVAL-REBUILD-1 D1 (plan rev 11 §3.2): the SINGLE entry point
+        from a zone-camera pick to its physical camera(s). No string-building.
+
+        * A URA fused room sensor (registry platform ``universal_room_automation``,
+          e.g. ``binary_sensor.garage_a_camera_person_detected``): its device is
+          the URA room device, which owns no camera, so the indirection is
+          registry ``config_entry_id`` -> ``room_cameras_lookup(entry_id)`` (that
+          room's ``CONF_ROOM_CAMERAS``; None = no such room entry) ->
+          ``resolve_operator_declaration``.
+        * Any other pick (Frigate / Protect / Reolink / Amcrest / Dahua):
+          ``resolve_operator_declaration([pick])`` (device + correlation ladder).
+
+        Returns ``(fusions, reason, owner_entry_id)``: ``reason`` is None when
+        at least one fusion resolved, else one of the PICK_UNRESOLVED_*
+        values; ``owner_entry_id`` is the URA room entry for a fused pick.
+        """
+        try:
+            ent = self._er.async_get(entity_id)
+        except Exception:  # noqa: BLE001
+            ent = None
+        if ent is not None and getattr(ent, "platform", None) == URA_PLATFORM:
+            entry_id = getattr(ent, "config_entry_id", None)
+            cams = room_cameras_lookup(entry_id) if entry_id else None
+            if cams is None:
+                return [], PICK_UNRESOLVED_ROOM_ENTRY_MISSING, entry_id
+            cams = [c for c in cams if isinstance(c, str) and c]
+            if not cams:
+                return [], PICK_UNRESOLVED_ROOM_CAMERAS_EMPTY, entry_id
+            fusions = self.resolve_operator_declaration(cams)
+            return fusions, (None if fusions else PICK_UNRESOLVED_NO_FUSION), entry_id
+        if ent is None:
+            return [], PICK_UNRESOLVED_NO_FUSION, None
+        fusions = self.resolve_operator_declaration([entity_id])
+        return fusions, (None if fusions else PICK_UNRESOLVED_NO_FUSION), None
 
     def resolve_operator_declaration(
         self,
