@@ -27,7 +27,7 @@ Read-only. No code changed, no HA state changed. Prepared by ura-planner, 2026-1
    (not_home -> home after >= 15 min away) against 19 AWAY->ARRIVING rows; 40 of 75 arrived with another resident home and 32 of 75 had
    no house AWAY/ARRIVING within +/-10 min. Anything that wants "Ezinne got home" cannot get it from house state at all. That supports
    the operator hypothesis: arrival is a per-person **event**, not a house state.
-5. **AWAY itself is unreliable as a fact.** Exact recorder window: 6 of 19 AWAY entries false (32%; 1 with a resident home, 5 with a
+5. **[CORRECTED 2026-11-13: see section 2.3; recent AWAY is reliable, ~1/19 questionable.] AWAY itself is unreliable as a fact.** Exact recorder window: 6 of 19 AWAY entries false (32%; 1 with a resident home, 5 with a
    resident back inside 15 min). 89-day bracketed: ~73% false (snapshot-based, older era, not comparable). ARRIVING's false rate is
    mostly AWAY's false rate showing up one tick later (48.6% of ARRIVING edges are false-AWAY corrections, prior audit).
 6. **Recommendation:** separate axes (§4): `occupancy` (empty / occupied / uncertain, with a slow-to-empty, fast-to-occupied rule),
@@ -142,6 +142,7 @@ Top edges last 30 d: home_day->away 80, away->arriving 144, arriving->home_day 7
 | Transition | Window | Result |
 |---|---|---|
 | ->AWAY | recorder 11-05..11-13, exact | 6/19 false (32%): 1 resident home, 5 resident back < 15 min; all 6 `census_update` |
+| ->AWAY (CORRECTED 2026-11-13, operator challenge) | same | The 32% is wrong as a false rate. 5 of the 6 were a resident returning within 15 min, which is a real short absence (errand, drive), not a false AWAY. Only 1/19 (~5%) had a resident's person entity at home at the AWAY edge, and person entities are partly the same evidence AWAY uses, so even that is not independent ground truth. Defensible reading: AWAY is reliable in this window; the 73% snapshot figure is from an older era with a different producer and is not comparable. |
 | ->AWAY | 08-16..11-13, 15-min snapshots (bracketed) | ~219/298 false (73%; certain floor 70%); older era, not comparable |
 | AWAY->ARRIVING | 03-12..11-13 (prior audit) | 6.4% real, 48.6% false-AWAY correction, 32.8% no resident evidence |
 | AWAY->ARRIVING | recorder, exact | 17/19 with a resident edge ±10 min (median lead 35 s) |
