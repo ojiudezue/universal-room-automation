@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-12T22:12:59-06:00_ - _Data commit: `525de3a2bf75`_ - _last_reconciled: 2026-11-12_
+_Generated: 2026-11-12T22:18:08-06:00_ - _Data commit: `3348d3790c09`_ - _last_reconciled: 2026-11-12_
 
 
 ## Columns
@@ -468,9 +468,10 @@ thread: **identity** - status: **planned**
 _created 2026-11-12 23:10_
 - **Origin:** 2026-11-12 - Operator: patio camera and the Reolink above the Study B door are technically egress; patio covers 1-5 are egress covers; Garage B is detached and opens to itself.
 - **Why:** Live egress config has five egress cameras (garage A group incl. doorbell_lite, front aerial + G6 entry, garage B). Patio and Study B crossings are invisible to the egress tracker, so census, direction and sightings miss them. Garage B c...
-- **Next:** Me: read the live egress options (cameras, door contacts, cover entities), list what is missing for patio (patio cam, slider contact, covers 1-5) and Study B (reolink, door contact), and whether Garage B is already treated as not-the-hou...
-- **Forensic keys (1):**
+- **Next:** PICK + DO: (a) add patio (camera.reolinkpatio, group patio) and Study B (camera.reolinkstudybporchptz, group study_b) to egress cameras in the options flow — I list exact fields and check whether a camera may be both perimeter and egress...
+- **Forensic keys (2):**
   - `tier`: 2
+  - `FINDING_2026-11-12`: Live CM options: egress_cameras = madrone_g6_entry, doorbell_lite, front_door_aerial, garage_a_2, garage_b_2; door_groups = {doorbell_lite: garage_a, garage_a: garage_a, front_door_aerial: front, madrone_g6_entry: front, garage_b: garage...
 
 ### `TEST-HARNESS-REAL-HA-DEFAULT-1` - Make the real-HA venv the default test harness — the blocker is ONE plugin fixture, not the "large infrastructure project" every review doc assumed — _#10 · WSJF 3.8 · v8 tc5 u6 /e5_
 thread: **quality** - status: **planned** - approval: **explicit**
