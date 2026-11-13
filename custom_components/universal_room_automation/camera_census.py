@@ -1531,6 +1531,15 @@ class PersonCensus:
         # under drill / producer outage) — no gate added here.
         # Key: URA base_stem. Value: (canonical_name_raw, utcnow ts).
         self._frigate_face_latch: dict[str, tuple[str, datetime]] = {}
+        # FACE-ARRIVAL-REBUILD-1 D4 (plan rev 11 §3.5): post-sentinel ring of
+        # named face messages, the trip-wire DENOMINATOR (independent of any
+        # presence callback). Entries (epoch_ts, camname, frozenset(stems),
+        # name, suppressed). Created and appended ONLY while
+        # FACE_SIGHTING_ENABLED (INV-NOOP); None otherwise.
+        self._frigate_face_named_ring: deque | None = (
+            deque(maxlen=int(_ura_const.FACE_SIGHTING_BRIDGE_RING_MAX))
+            if _ura_const.FACE_SIGHTING_ENABLED else None
+        )
         # MQTT subscription unsub callable (populated by
         # `async_register_frigate_face_listener`, drained by
         # `async_teardown_frigate_face_listener`). None when MQTT is
@@ -5600,6 +5609,9 @@ class PersonCensus:
             for stem in base_stems:
                 self._frigate_face_latch[stem] = (name, now)
                 self._frigate_face_last_latched = (stem, name, now)
+            # FACE-ARRIVAL-REBUILD-1 D1 source (a) + D4 ring: ONE hook per
+            # message, after the latch loop (post-sentinel).
+            self._after_face_latch(camname, frozenset(base_stems), name, now)
             _LOGGER.debug(
                 "frigate-face bridge: latched name=%r camname=%r "
                 "stems=%r (latch_size=%d)",
@@ -5612,6 +5624,91 @@ class PersonCensus:
                 "frigate-face bridge: cb raised (non-fatal)",
                 exc_info=True,
             )
+
+    def _after_face_latch(
+        self, camname: str, stems: frozenset, name: str, now: datetime,
+    ) -> None:
+        """FACE-ARRIVAL-REBUILD-1: append the D4 ring entry (with the
+        suppression verdict at append time) and call every registered person
+        sighting callback ONCE for this message. Callbacks live in
+        ``hass.data[DOMAIN]["face_latch_callbacks"]`` (read per message, so a
+        census rebuild keeps the registration); a raising callback is logged,
+        never raised into the bridge."""
+        ring = self._frigate_face_named_ring
+        if ring is not None:
+            try:
+                suppressed = bool(self._face_suppressed_now())
+            except Exception:  # noqa: BLE001
+                suppressed = False
+            ring.append((now.timestamp(), camname, stems, name, suppressed))
+        try:
+            callbacks = list(
+                self.hass.data.get(DOMAIN, {}).get("face_latch_callbacks") or ()
+            )
+        except Exception:  # noqa: BLE001
+            callbacks = []
+        for cb in callbacks:
+            try:
+                cb(camname, stems, name, now)
+            except Exception:  # noqa: BLE001
+                _LOGGER.warning(
+                    "frigate-face bridge: person-sighting callback raised",
+                    exc_info=True,
+                )
+
+    def face_person_would_be_vetoed(self, slug: str) -> bool:
+        """FACE-ARRIVAL-REBUILD-1 D1: True when the census face path
+        (`_get_face_recognized_person_names`) would DROP a face for this
+        person right now: raw ``not_home``, or (rung-1
+        CENSUS_FACE_LATCH_FOLLOWS_BLE_LEADS) the BLE-leads overrule. The SAME
+        predicate the census uses (`_face_latch_veto_source`); no counters.
+        Read-only; used by person sightings as a display hint."""
+        trust_reader = self._face_latch_trust_reader()
+        return self._face_latch_veto_source(
+            f"person.{str(slug).lower()}", trust_reader,
+        ) is not None
+
+    def _face_latch_trust_reader(self):
+        """The census face-latch trust reader (None when the rung-1 flag is
+        False or the import fails: raw decision kept)."""
+        if not _ura_const.CENSUS_FACE_LATCH_FOLLOWS_BLE_LEADS:
+            return None
+        try:
+            from .person_coordinator import person_state_for_trust
+            return person_state_for_trust
+        except Exception:  # noqa: BLE001 — fail-open to raw
+            _LOGGER.debug(
+                "Face latch trust reader import failed; raw kept",
+                exc_info=True,
+            )
+            return None
+
+    def _face_latch_veto_source(
+        self, person_entity_id: str, trust_reader,
+    ) -> str | None:
+        """The census stale-face latch veto (CENSUS-BLE-OVER-FACE-1): returns
+        ``"raw"`` for raw ``not_home``, ``"ble_overrule"`` when the trust
+        reader returns ``not_home``, else None. Pure decision (no counter)."""
+        try:
+            person_state = self.hass.states.get(person_entity_id)
+        except Exception:  # noqa: BLE001 — defensive
+            person_state = None
+        raw_value = person_state.state if person_state is not None else None
+        if raw_value == "not_home":
+            return "raw"
+        if trust_reader is not None:
+            trust_value = raw_value
+            try:
+                trust_value = trust_reader(self.hass, person_entity_id)
+            except Exception:  # noqa: BLE001 — fail-open to raw
+                _LOGGER.debug(
+                    "Face latch trust read failed for %s; raw kept",
+                    person_entity_id,
+                    exc_info=True,
+                )
+            if trust_value == "not_home":
+                return "ble_overrule"
+        return None
 
     def async_cancel_pending_backfill_tasks(self) -> None:
         """EGRESS-EXIT-IDENTITY-BACKFILL-1 fix-up (2026-09-05) —
@@ -6240,16 +6337,7 @@ class PersonCensus:
         # CENSUS-BLE-OVER-FACE-1: resolve the trust reader once per call
         # (review A-L1), and only when the rung-1 flag is True. Import
         # failure -> None -> the guard keeps the raw decision (fail-open).
-        _trust_reader = None
-        if _ura_const.CENSUS_FACE_LATCH_FOLLOWS_BLE_LEADS:
-            try:
-                from .person_coordinator import person_state_for_trust
-                _trust_reader = person_state_for_trust
-            except Exception:  # noqa: BLE001 — fail-open to raw
-                _LOGGER.debug(
-                    "Face latch trust reader import failed; raw kept",
-                    exc_info=True,
-                )
+        _trust_reader = self._face_latch_trust_reader()
 
         for person_slug in tracked_persons:
             # CENSUS-ACCURACY-1 D2: DO NOT construct the entity_id. The live
@@ -6303,36 +6391,20 @@ class PersonCensus:
                     # last person tick (switch BLE Leads Home/Away on, URA
                     # location away). Flag False -> the helper is never called
                     # and the decision is byte-identical to the raw guard.
-                    try:
-                        person_state = self.hass.states.get(person_entity_id)
-                    except Exception:  # noqa: BLE001 — defensive
-                        person_state = None
-                    raw_value = (
-                        person_state.state if person_state is not None else None
+                    # FACE-ARRIVAL-REBUILD-1: the decision is the shared
+                    # predicate `_face_latch_veto_source` (person sightings
+                    # read it through `face_person_would_be_vetoed`); the
+                    # counter stays here.
+                    drop_source = self._face_latch_veto_source(
+                        person_entity_id, _trust_reader,
                     )
-                    drop_source: str | None = None
-                    if raw_value == "not_home":
-                        drop_source = "raw"
-                    elif _trust_reader is not None:  # flag True (resolved above)
-                        trust_value = raw_value
-                        try:
-                            trust_value = _trust_reader(
-                                self.hass, person_entity_id,
+                    if drop_source == "ble_overrule":
+                        self._face_dropped_ble_overrule_count = (
+                            getattr(
+                                self, "_face_dropped_ble_overrule_count", 0,
                             )
-                        except Exception:  # noqa: BLE001 — fail-open to raw
-                            _LOGGER.debug(
-                                "Face latch trust read failed for %s; raw kept",
-                                person_entity_id,
-                                exc_info=True,
-                            )
-                        if trust_value == "not_home":
-                            drop_source = "ble_overrule"
-                            self._face_dropped_ble_overrule_count = (
-                                getattr(
-                                    self, "_face_dropped_ble_overrule_count", 0,
-                                )
-                                + 1
-                            )
+                            + 1
+                        )
                     if drop_source is not None:
                         _LOGGER.debug(
                             "Face-recognized person %s dropped: "

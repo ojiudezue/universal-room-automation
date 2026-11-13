@@ -3353,6 +3353,41 @@ assert CONFIDENCE_MEDIUM < FACE_MATCH_CORRELATED_BOOST < CONFIDENCE_HIGH, (
     "CONFIDENCE_MEDIUM and CONFIDENCE_HIGH"
 )
 
+# FACE-ARRIVAL-REBUILD-1 D1/D2/D4 (person sightings, plan rev 11 §6). All
+# rung 1 (protocol windows / semantics; change by review). The boot drop of
+# sightings REUSES PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S (one check,
+# `ts < presence setup + that`, sources a/b/c).
+# Kill switch of the whole sighting producer. False = INV-NOOP: no listener,
+# no census bridge callback, no ring, no SIGNAL_PERSON_SIGHTING.
+FACE_SIGHTING_ENABLED: Final = True
+# Fixed (non-sliding) dedup window per (slug, physical_camera), seconds.
+# 0 = no debounce.
+FACE_SIGHTING_DEBOUNCE_S: Final = 60
+# Retry period of pick resolution while any pick is unresolved (add-only),
+# seconds. 0 = only the events (registry change / HA started / pick change).
+FACE_SIGHTING_PICK_RERESOLVE_S: Final = 300
+# Bound on the census post-sentinel named-face ring (trip-wire denominator);
+# about 2 days at the measured rate.
+FACE_SIGHTING_BRIDGE_RING_MAX: Final = 2000
+# Interior class (i) "face before phone" arrivals (D2). False until D0-P3
+# passes; D0 2026-11-12: (i)/((i)+(ii)) = 0.02 < 0.5 -> stays False
+# (sightings only). False = no camera_face arrival at all.
+FACE_ARRIVAL_INTERIOR_ENABLED: Final = False
+# A home edge this long before the face, or any time after it, means the
+# phone already arrived (D2 rule 5). D0-P3: p90 of the home-edge-to-face lag
+# capped at 300. 0 = only edges after the face count.
+FACE_ARRIVAL_PRIOR_HOME_GAP_S: Final = 300
+# One camera_face arrival per person per episode (fixed window), seconds.
+FACE_ARRIVAL_DEBOUNCE_S: Final = 600
+# D4 `face_sighting_zero` (HIGH): mapped resident faces on picked cameras
+# >= MIN_FACES in the trailing window with zero interior sightings pages
+# once (RAM latch, re-armed when sightings resume). WINDOW_H 0 = off.
+FACE_SIGHTING_ZERO_WINDOW_H: Final = 24
+FACE_SIGHTING_ZERO_MIN_FACES: Final = 10
+# D4 `face_arrival_zero` (LOW): sightings > 0 but no derived arrival for this
+# many days. Armed only while FACE_ARRIVAL_INTERIOR_ENABLED. 0 = off.
+FACE_ARRIVAL_ZERO_DAYS: Final = 14
+
 # FACE-ARRIVAL-REBUILD-1 D3 (plan rev 11 §2 INV-ACCESS): the ONE set of
 # camera-derived `SIGNAL_PERSON_ARRIVING` sources. Both access gates (the SC
 # lock regime and the security expected-arrival gate) classify a source with

@@ -23,6 +23,12 @@ SIGNAL_SECURITY_ENTITIES_UPDATE: Final = "ura_security_entities_update"
 SIGNAL_NM_ENTITIES_UPDATE: Final = "ura_nm_entities_update"
 SIGNAL_NM_ALERT_STATE_CHANGED: Final = "ura_nm_alert_state_changed"
 SIGNAL_PERSON_ARRIVING: Final = "ura_person_arriving"
+# FACE-ARRIVAL-REBUILD-1 D1 (plan rev 11 §3.1): "person P was seen at place X
+# at T" (payload: frozen ``person_sighting.PersonSighting``). ONE producer
+# (``PersonSightingProducer._emit``, presence). Display / diagnostics / the D2
+# arrival rule only; access consumers must never act on it alone
+# (INV-ACCESS: use ``SecurityLockRegime.face_input_corroborated``).
+SIGNAL_PERSON_SIGHTING: Final = "ura_person_sighting"
 SIGNAL_ENERGY_ENTITIES_UPDATE: Final = "ura_energy_entities_update"
 SIGNAL_ACTIVITY_LOGGED: Final = "ura_activity_logged"
 # EGRESS-EXIT-DISPLAY-REREAD-1 (2026-09-05): dispatched by camera_census

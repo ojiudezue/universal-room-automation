@@ -5733,6 +5733,18 @@ class PresenceHouseStateSensor(AggregationEntity, SensorEntity):
             "signal_consensus",
             "signal_consensus_band",
             "signal_consensus_inputs",
+            # FACE-ARRIVAL-REBUILD-1 D4 person-sighting diagnostics (all
+            # unrecorded; live state only).
+            "face_sightings_today",
+            "face_sightings_by_source",
+            "face_arrivals_derived_today",
+            "face_arrival_skips_by_reason",
+            "face_sighting_last",
+            "face_sighting_unmapped_names",
+            "egress_non_face_skipped",
+            "multi_pick_messages",
+            "face_sighting_picks_resolved",
+            "face_sighting_picks_unresolved",
         }
     )
 
@@ -5878,6 +5890,14 @@ class PresenceHouseStateSensor(AggregationEntity, SensorEntity):
             attrs["guest_stay_day_veto_fraction"] = (
                 _veto.get("day_fraction") if _veto else None
             )
+            # FACE-ARRIVAL-REBUILD-1 D4: person-sighting diagnostics
+            # (unrecorded; empty dict when the producer is off/absent).
+            _sight = getattr(presence, "get_person_sighting_diagnostics", None)
+            if callable(_sight):
+                try:
+                    attrs.update(_sight() or {})
+                except Exception:  # noqa: BLE001 — display only
+                    pass
             # Unrecorded (per-tick churn): D2 STALE persons counted home;
             # D1 nobody-home zone input (None = kill switch off).
             attrs["stale_counted_home"] = list(

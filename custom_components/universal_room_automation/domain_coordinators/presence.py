@@ -72,6 +72,7 @@ from ..const import (
     TRACKING_STATUS_STALE,  # v5.7.0 WS-A1
 )
 from .. import const as _ura_const  # ZONE_OCCUPANCY_PER_ENTITY_ENABLED (attr read, §R3.2.2)
+from ..person_sighting import PersonSightingProducer  # FACE-ARRIVAL-REBUILD-1 D1
 from .base import BaseCoordinator, CoordinatorAction, Intent, Severity
 from .coordinator_diagnostics import (
     AnomalyDetector,
@@ -1816,9 +1817,14 @@ class PresenceCoordinator(BaseCoordinator):
         # can cancel it if the config entry unloads mid-flight.
         self._boot_reconcile_task = None
 
-        # v3.19.0: Face-confirmed arrival state
-        self._face_arrival_cooldown: Dict[str, datetime] = {}
+        # v3.19.0: Face-confirmed arrival state. FACE-ARRIVAL-REBUILD-1: the
+        # ONE debounce store, re-keyed: ("sighting", slug, physical_camera)
+        # and ("arrival", slug) -> epoch window start; cleared at midnight.
+        self._face_arrival_cooldown: Dict[Any, Any] = {}
         self._face_recognition_enabled: bool = False
+        # FACE-ARRIVAL-REBUILD-1 D1: the person-sighting producer (built in
+        # async_setup, torn down in async_teardown).
+        self._person_sightings = None
 
         # build/pc-observability: three P1 kill switches (default ON).
         # Each is bound to a switch entity that uses the v5.48.0 signal-
@@ -3144,6 +3150,9 @@ class PresenceCoordinator(BaseCoordinator):
 
                 # Subscribe to geofence (person entity state changes)
                 self._subscribe_geofence()
+
+                # FACE-ARRIVAL-REBUILD-1 D1: person sightings producer.
+                self._setup_person_sightings()
 
                 # Subscribe to census updates
                 # B-H1 fix-up: async_dispatcher_connect now imported at
@@ -5671,6 +5680,36 @@ class PresenceCoordinator(BaseCoordinator):
         except Exception:  # noqa: BLE001
             return None  # Face rec is an accelerator — never fail
 
+    # ------------------------------------------------------------------
+    # FACE-ARRIVAL-REBUILD-1 D1: person sightings (person_sighting.py)
+    # ------------------------------------------------------------------
+
+    def _setup_person_sightings(self) -> None:
+        """Build the ONE person-sighting producer and register its sources
+        (census MQTT bridge callback, face-sensor changes on resolved zone
+        camera picks, ``ura_person_egress_event``). With
+        FACE_SIGHTING_ENABLED False it registers nothing (INV-NOOP)."""
+        prior = self._person_sightings
+        if prior is not None:
+            prior.async_teardown()
+        producer = PersonSightingProducer(self.hass, self)
+        self._person_sightings = producer
+        producer.async_setup()
+
+    def get_last_person_sighting(self, person_entity: str):
+        """Last sighting of ``person.<slug>`` (RAM, cleared on teardown), or
+        None. The read side future consumers use (plan §3.1)."""
+        producer = self._person_sightings
+        return producer.get_last(person_entity) if producer is not None else None
+
+    def get_last_person_sightings(self) -> dict:
+        producer = self._person_sightings
+        return producer.get_all_last() if producer is not None else {}
+
+    def get_person_sighting_diagnostics(self) -> dict:
+        producer = self._person_sightings
+        return producer.diagnostics() if producer is not None else {}
+
     async def _periodic_inference(self, _now: Any = None) -> None:
         """Run periodic inference for time-based transitions and camera timeouts.
 
@@ -5678,6 +5717,14 @@ class PresenceCoordinator(BaseCoordinator):
         """
         # Update BLE presence for each zone (Tier 3)
         self._update_ble_zone_presence()
+
+        # FACE-ARRIVAL-REBUILD-1: sighting re-resolution triggers + D4
+        # trip-wires (display / NM only; never raises into inference).
+        if self._person_sightings is not None:
+            try:
+                self._person_sightings.on_tick()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("person sightings tick failed", exc_info=True)
 
         # Sleep-mask cycle D3: roll away_entries_today at local midnight.
         try:
@@ -8738,6 +8785,8 @@ class PresenceCoordinator(BaseCoordinator):
             for tracker in self._zone_trackers.values():
                 tracker._face_arrivals_today = 0
             self._face_arrival_cooldown.clear()
+            if self._person_sightings is not None:
+                self._person_sightings.reset_daily()
         self._transitions_today += 1
 
         # v4.6.4 P1: record and emit if anomalously high transition count
@@ -8898,6 +8947,14 @@ class PresenceCoordinator(BaseCoordinator):
         """Tear down the Presence Coordinator."""
         # Fan-noise review A-M2/B-2: pending held-belief decay timers.
         _cancel_fan_belief_decay(self)
+        # FACE-ARRIVAL-REBUILD-1 D1: sighting producer (listeners, census
+        # bridge callback, stores).
+        if self._person_sightings is not None:
+            try:
+                self._person_sightings.async_teardown()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("person sightings teardown failed", exc_info=True)
+            self._person_sightings = None
         # Cancel deferred retry timer
         if self._retry_unsub is not None:
             self._retry_unsub()

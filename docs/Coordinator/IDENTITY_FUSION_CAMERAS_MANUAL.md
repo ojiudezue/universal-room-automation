@@ -591,6 +591,52 @@ valid. `EXTERIOR_ADJACENCY_GRAPH` / `EXTERIOR_TRACK_EGRESS_ADJACENT_CAMERAS` in
 - No upload UI yet (plan D3 is spiked only). Edit the file over Samba/SSH, then
   press the reload button.
 
+### 4.5a Person sightings (FACE-ARRIVAL-REBUILD-1 D1 + D4, branch `feature/person-sightings-p1`, NOT deployed)
+
+`person_sighting.PersonSightingProducer` (built by `PresenceCoordinator._setup_person_sightings` in
+`async_setup`, ticked from `_periodic_inference`, torn down in `async_teardown`) emits
+`SIGNAL_PERSON_SIGHTING` with a frozen `PersonSighting`: "P was seen at camera/room/house zones at
+`ts` (recognition time), provenance, confidence". ONE emit function, three sources:
+- **(a)** the census MQTT face bridge: `_on_frigate_face_msg` calls `_after_face_latch` once per message
+  after the latch loop, which appends the D4 ring entry and calls every callback in
+  `hass.data[DOMAIN]["face_latch_callbacks"]` (read per message, so a census rebuild keeps the
+  registration). `synthetic = True`.
+- **(b)** face-name sensor state changes on the operator's `zone_cameras` picks, resolved with
+  `CameraResolver.resolve_pick_to_fusions` (camera-integration pick -> device ladder; URA fused room
+  pick -> that room's `CONF_ROOM_CAMERAS` -> ladder) and `face_name_entities_for_device` per fusion
+  source. A restore edge (`old_state` None or HA `unavailable`/`unknown`) is not a recognition;
+  Frigate's own `Unknown` -> name is. `_N` picks resolve (no flag).
+- **(c)** `ura_person_egress_event` with `person_id` and `identity_provenance` in face / ble+face
+  (projected, never re-decided; `ble` / missing provenance / ambiguous never; exit backfill never).
+Filters are evidence-only: `_face_suppressed_now()`, sentinel names, the boot drop
+(`ts < presence setup + PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S`, all sources), the ONE mapper
+`_canonical_person_slug` with an explicit tracked-slug membership test (`guest:*` and passthrough
+names are counted, never emitted). Dedup key `(slug, canonical_camera_key)`; fixed 60 s window
+(`FACE_SIGHTING_DEBOUNCE_S`) across sources; a later non-synthetic copy only upgrades the
+last-sighting store. `camera_resolver.canonical_camera_key(fusion)` = min device_id over the
+fusion's full source set, so a Protect pick and its Frigate egress twin are ONE camera. Interior
+confidence `CONFIDENCE_MEDIUM` (0.6); egress copies the producer's tier. Each sighting carries
+`person_state_at_emit` and `census_would_veto` (the census's own predicate,
+`face_person_would_be_vetoed` -> `_face_latch_veto_source`, extracted from
+`_get_face_recognized_person_names` unchanged): a face of an away resident IS a sighting but not a
+census identity (named concept split). Readers: `PresenceCoordinator.get_last_person_sighting(s)`
+(RAM), the tracker display fields `_last_face_recognized` (now the slug) / `_last_face_time`, and the
+D4 diagnostics on `sensor.ura_presence_house_state` (all unrecorded): `face_sightings_today`,
+`face_sightings_by_source`, `face_sighting_last`, `face_sighting_unmapped_names`,
+`egress_non_face_skipped`, `multi_pick_messages`, `face_sighting_picks_resolved` /
+`_unresolved` (with reason). Sightings feed NO census, inference, guest gate or NM, and no access
+consumer may act on one alone. Re-resolution: a rebuilt resolver or a changed pick set (next tick),
+`EVENT_HOMEASSISTANT_STARTED`, and an add-only retry of unresolved picks every
+`FACE_SIGHTING_PICK_RERESOLVE_S` (300 s).
+**D4 trip-wire `face_sighting_zero` (HIGH):** denominator = the census ring
+`_frigate_face_named_ring` (post-sentinel, created only while `FACE_SIGHTING_ENABLED`) entries in the
+last `FACE_SIGHTING_ZERO_WINDOW_H` (24) whose name maps to a tracked resident, whose stems join a
+resolved pick, and that were not appended under face suppression; numerator = interior sightings.
+Denominator >= `FACE_SIGHTING_ZERO_MIN_FACES` (10) with 0 sightings pages once (RAM latch, re-armed
+when sightings resume). `face_arrival_zero` (LOW) is armed only with interior arrivals on. Kill
+switch for the whole producer: `FACE_SIGHTING_ENABLED` (rung 1). Live (D0, 2026-11-12): 7 of 8 picks
+resolve; Garage A's fused pick is `room_cameras_empty` until the operator sets its room cameras.
+
 ### 4.6 DB tables (from `database.py`)
 
 `person_entry_exit_events` (`database.py:793-808`) — the egress
