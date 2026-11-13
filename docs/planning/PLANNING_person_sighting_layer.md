@@ -5,6 +5,13 @@ orchestrator renames the card; this planner did not edit the kanban yaml). Relat
 PERSON-PROFILE-PREFERENCES-1, FRIGATE-DOOR-FACE-TUNING-1, EGRESS-IDENTITY-JOIN-GAP-1 (egress producer, shipped),
 HVAC-PRECOOL-STANDDOWN-WHEN-COOL-1 (sibling). File renamed with `git mv` from `PLANNING_face_arrival_rebuild.md`.
 
+**Rev 5, 2026-11-12, ura-planner.** Operator direction 2026-11-12: vision is a strong INPUT if latency is decent;
+design its timing (fast sample, batch, synthesis), simulate it before building (D0-SIM), and define how every
+signal is weighed in the census and sightings (vision does not replace integration face/person counts). Adds §15.5
+timing design with a per-day cost envelope from measured crossing rates, §15.6 D0-SIM, §15.7 signal-weighting
+model, §15.8 coverage model (camera chains, interior purview); folds the queued points into §15.3 and D0-V (§15.4).
+The access invariant, rev 4 fixes, and Tier 3 are unchanged. This cycle still builds nothing in §15. Changelog: §18.
+
 **Rev 4, 2026-11-12, ura-planner.** Applies `docs/reviews/code-review/PLAN_person_sighting_layer_review_rev3.md`
 (FIX-PLAN: H1, M1-M6, L1-L7). Design unchanged; fixes are explicit egress face provenance, one canonical physical-camera
 key, the Garage A config premise, an egress boot drop, a named census/sighting split, a shared camera-derived source
@@ -1020,6 +1027,18 @@ value is unmeasured, and a measurement is cheap; (3) the identity model in §2A 
   `structure` JSON schema), `video_analyzer` (`video_file`, or Frigate `event_id` fetched through HA's Frigate proxy
   `/api/frigate/notifications/<id>/clip.mp4`; `max_frames` 1-10, frames with most movement), `stream_analyzer`, and a
   "memory" feature (reference images with name strings).
+- **Model plumbing (rev 5, read from llmvision 1.7.1 `providers.py`, not assumed).** The OpenAI provider passes
+  `call.model` straight into the payload (`providers.py:691`), so any model id string works with no llmvision change;
+  URA already sends `model` per call (`perimeter_enrichment.py:206`). Images go as `image_url` data URIs with NO
+  `detail` field (`providers.py:746-750`), so OpenAI's default (`auto`) applies; resolution is controlled only by
+  `target_width` (default 1280, range 512-1920, `services.yaml:69-78`). Two caveats D0-V must check with one dry call
+  per model: (a) `temperature`/`top_p` are sent for every model except the exact names `gpt-5`, `gpt-5-mini`,
+  `gpt-5-nano` (`providers.py:707`); the OpenAI entry sets 0.5/0.9, and a reasoning model that rejects them would
+  fail every call; (b) the reasoning-effort table (`providers.py:616-627`) has no `gpt-6*` prefix, so no
+  `reasoning_effort` is sent. Candidate ids from OpenAI's models page (fetched 2026-11-12): `gpt-6-luna` ($0.10 /
+  $0.50 per 1M in/out), `gpt-6.1-sol` ($2 / $10), `gpt-6-astra` ($10 / $50); all accept image input. Temperature
+  support is not stated there. Live today: the llmvision OpenAI entry default is `gpt-5-mini`; URA pins
+  `gpt-4o-mini` per call.
 - Measured (`AUDIT_consol_1_d0_probe.md`): gpt-4o-mini, one snapshot, 1.4-2.0 s, 0 errors in 25 calls; estimated
   ~$0.003-0.008 per single-image call (llmvision does not report token usage, so cost is an estimate). Multi-image
   cost and latency are NOT measured; D0-V measures them.
@@ -1079,7 +1098,9 @@ Realistic:
    `exterior_track_linker.py:694`), batched through the DB write queue, one row per sequence.
 7. **Privacy:** frames go to OpenAI while the provider is cloud. Operator choices: cloud with door cameras only; a
    local llmvision provider (if the Ollama host serves a vision model); or off. Interior frames go off-site only on an
-   explicit separate toggle (`CROSSING_VISION_INTERIOR_ENABLED`, default False).
+   explicit separate toggle (`CROSSING_VISION_INTERIOR_ENABLED`, default False). **Rev 5:** the operator wants the
+   interior cameras in the enrichment purview (entry chains end indoors; §15.8 head counts are interior). The toggle
+   stays, as the explicit privacy switch, but the sibling plan's intended live setting is ON after D0-V passes.
 
 8. **Progressive analysis (rev 4, operator 2026-11-12).** A fast first-frame call (one or two frames as soon as the
    crossing fires) yields a PROVISIONAL hypothesis `{people_count, direction, resident_like}` attached to the crossing
@@ -1102,6 +1123,11 @@ Realistic:
    residual above the BLE-known resident count is the GUEST hypothesis, still subject to the census's guest gate.
    **Gated decision, not a promise:** "census from vision" (the ledger weighed above face/person counts) is decided
    only on D0-V numbers (§15.4); the default outcome is evidence-only.
+   **Rev 5 framing (operator):** residents are solved by BLE/trackers; the census problem is NON-residents. The ledger
+   therefore answers one question: non-resident count = vision ledger total minus BLE-home residents (clamped ≥ 0).
+   Vision counts groups and people walking away well; naming stays with face/BLE. Independent checks on the ledger:
+   empty-house reset, periodic interior head count (§15.8), exit-chain matching (an exit cluster of n closes n open
+   entry terms). Weighting against Frigate/Protect counts is §15.7.
 
 Knobs (all proposed for the sibling plan; rung and default set there after D0-V): interval (rung 3), duration
 (rung 3), max sequence (rung 1), concurrency (rung 1), daily cap (rung 3), timeout (rung 3), keep-frames (rung 2),
@@ -1130,6 +1156,20 @@ Score:
 - **(rev 4) Coverage:** of BLE-known resident crossings (a `person.*` / Bermuda home or away edge) over the window, the
   fraction that pass a WATCHED door (have a `person_entry_exit_events` row on a camera-covered door within ±120 s).
   Uncovered crossings are the ledger's irreducible error.
+- **(rev 5) Model comparison.** Step 0: one dry call per candidate (`gpt-4o-mini` baseline, `gpt-6-luna`,
+  `gpt-6.1-sol`; `gpt-6-astra` only if Sol fails accuracy) through llmvision to prove it is accepted (§15.1
+  temperature caveat). Then each crossing runs both stages per model: FAST (§15.5 F-stage: 2 frames, 768 px) and
+  BATCH (§15.5 B-stage: up to 12 frames, 1024 px). Recommended pairing to test first: Luna for fast, Sol for batch.
+- **(rev 5) Fast vs batch accuracy**, scored separately per model, per stage, for entries and exits: count exact-match,
+  direction, group size, refusal rate.
+- **(rev 5) Guest-ledger return to zero.** Replay a full day: does vision-ledger minus BLE residents return to 0 at
+  the empty-house / all-guests-left points (operator labels when guests were present)? Residual at day end, and the
+  number of hours it sat ≠ 0 with no guest present.
+- **(rev 5) Tokens and cost per crossing per model, measured.** llmvision does not return usage, so D0-V sends the
+  same payload once directly to the OpenAI API (same frames, same `target_width`, `detail` omitted) to read
+  `usage.prompt_tokens` / `completion_tokens`; every §15.5 token figure is replaced by the measured one.
+- **(rev 5) Latency per stage per model:** p50/p90 of call duration and of frames-ready-to-result, fed to D0-SIM.
+- **(rev 5) Agreement with Frigate/Protect counts** on the same crossing (the §15.7 disagreement rate).
 
 Go rule for the sibling plan: description correct-or-partly ≥ 80 %, false resident-like ≤ 5 %, refusals ≤ 10 %,
 p90 latency ≤ 60 s, projected cost at the measured crossing rate ≤ the CONSOL-1 single-digit-dollars/month band.
@@ -1143,6 +1183,156 @@ vision model is available" or "door face recognition stays below 20 % of crossin
 gain is small, because a vision attribution is capped at 0.3 and cannot name anyone the face/BLE path did not. The
 ingredients are a cloud dependency, off-site frames and a new batch path; none touches a shared primitive or access.
 That is why it is a separate, measured, default-off cycle rather than part of this one.
+
+**Rev 5 go rule additions:** fast-stage count exact-match ≥ 85 % (it is provisional), batch ≥ 95 % entries and ≥ 90 %
+exits; ledger returns to 0 within one empty-house reset on ≥ 95 % of labelled days; measured cost within the §15.5
+envelope ×1.5; D0-SIM (§15.6) passes. A model that fails step 0 is dropped, not patched around.
+
+### 15.5 Timing design (rev 5): fast sample, batch, synthesis
+
+Every number below is a MODELED starting value. D0-SIM replays them, D0-V replaces the latency and token figures with
+measured ones, and the sibling plan puts each on the knob ladder. Token figures use OpenAI's published GPT-4o-family
+tile formula (low-detail base 85 tokens + 170 per 512-px tile after scaling; I applied it, I did not measure it).
+The GPT-6 models may count image tokens differently; that is exactly what D0-V's direct-API usage read settles.
+
+**Measured inputs (URA DB `person_entry_exit_events`, 14 days to 2026-11-12, via `ssh ha sqlite3 -readonly`):**
+
+| Door (all legs) | Rows / 14 d | Per day | Entry / exit |
+|---|---|---|---|
+| Front (doorbell_lite + front_door_aerial, Protect + Frigate legs) | 92 | 6.6 | 59 / 33 |
+| Garage A | 63 | 4.5 | 23 / 40 |
+| Madrone G6 entry | 45 | 3.2 | 22 / 23 |
+| **All** | **201** (some are the same crossing seen by two legs) | **14.4 mean, 3-25 range** | 106 / 95 |
+
+Clustering (same door, gap ≤ W): W = 60 s → 11.9 clusters/day; **120 s → 10.5/day (largest 8 rows)**; 300 s → 9.6/day;
+600 s → 9.1/day (largest 15). At most 2 doors were active within any 300 s. `peak_person_count`: 1 = 132, 2 = 56,
+3 = 4, 6 = 1, 0 = 8. Hours (UTC) cluster 13-01, i.e. 07:00-19:00 CT plus a late-evening block; ~1/3 are after dark.
+
+**Stage timeline (t0 = the egress crossing event, `ura_person_egress_event`):**
+
+| Stage | What | Frames / size | Model | Lands (modeled p50 / p90) |
+|---|---|---|---|---|
+| Edge | Camera person edge to crossing emit; includes `PERIMETER_EGRESS_XCORR_SETTLE_S` (20 s) where it applies | n/a | n/a | t0 is 0-20 s after the camera edge; D0-SIM measures it |
+| F (fast) | Fire at t0. Frame 1 = Frigate event best snapshot if the event id is known (no camera load), else live grab; frame 2 = live grab at t0 + 2 s. Door camera only. Prompt asks only `{people_count, direction, group, resident_like}` | 2 × 768 px wide (~425 tokens each by the 4o formula), ~400 text tokens in, ≤ 150 out | `gpt-6-luna` | capture 1-3 s + call 2-4 s → **t0 + 5 s / t0 + 10 s** |
+| B (batch) | Window opens at t0, closes at t0 + 60 s (extended by clustering, cap 180 s). Door camera every 5 s for the first 20 s then every 10 s; up to 2 chain cameras (§15.8: interior for entries, exterior for exits) every 10 s from t0 + 5 s. Frames with no person detection on that camera are dropped before the call | ≤ 12 × 1024 px (~765 tokens each), ~600 text in, ≤ 600 out | `gpt-6.1-sol` | window 60 s + call 5-20 s → **t0 + 70 s / t0 + 90 s** unclustered; clustered worst t0 + 180 s + 30 s |
+| S (synthesis) | Join F, B, face (Protect names back-fill ~1-2 min; `FACE_MATCH_WINDOW_S` 60), BLE (home edges; exit backfill `BLE_EGRESS_EXIT_BACKFILL_WINDOW_S` 600) and Frigate/Protect counts into the final crossing record and the ledger term | none | none (local) | entries **t0 + 120 s**; exits wait for BLE backfill, **≤ t0 + 600 s** |
+
+Why these numbers: the person usually reaches the next camera on the chain 5-20 s after the door (assumed; D0-SIM
+measures hop times from Frigate events), so a 60 s window covers the door plus 2-3 hops, and a 5 s door cadence gives
+4 frames of the door moment, which is where groups split. Two frames for F because one frame cannot give direction.
+768 px for F because count and direction do not need detail; 1024 px for B because tailgating and occlusion do.
+
+**Against the census windows:** interior hold `DEFAULT_CENSUS_HOLD_INTERIOR_MINUTES` = 3 min, exterior 5 min,
+`EGRESS_FACE_UNION_TTL_S` = 300 s, face window `CENSUS_FACE_RECOGNITION_WINDOW_SECONDS` = 1800 s. F lands inside the
+first census debounce (`CENSUS_EVENT_DEBOUNCE_SECONDS` = 30); B lands well inside the 3-min interior hold
+unclustered; S for entries lands inside the 300 s egress TTL. Exit synthesis can exceed 300 s; that is acceptable
+because an exit lowers a count and the existing hold already covers it, and D0-SIM checks it.
+
+**Per-day envelope (calls, tokens, cost) at the measured rates.** Mean = 14.4 crossings, 10.5 clusters; worst = 25
+and 25 (no clustering).
+
+| Item | Calls/day mean (worst) | Tokens/call in (out) | Cost/day mean (worst) |
+|---|---|---|---|
+| F on `gpt-6-luna` | 14.4 (25) | ~1,250 (150) | $0.003 ($0.005) |
+| B on `gpt-6.1-sol` | 10.5 (25) | ~9,800 (600) | $0.27 ($0.64) |
+| Interior head count (§15.8) on `gpt-6-luna`, 1 call per 30 min while occupied, 12 cameras × 768 px | 48 (48) | ~5,500 (200) | $0.03 ($0.03) |
+| **Total** | ~73 (98) | | **~$0.30 ($0.68) → ~$9/month mean, ~$20 worst** |
+| Baseline: same F + B on `gpt-4o-mini` (images priced at ~2,833 base + 5,667/tile tokens at $0.15/1M by the same published formula) | | | ~$0.55/day |
+
+B dominates the bill. If D0-V shows Luna's batch accuracy meets the gate, Luna for both stages cuts the total to about
+$1/month. The daily cap (`CROSSING_VISION_DAILY_CALLS`) is set from the worst-case column, not the mean.
+
+**Concurrency:** at most 2 doors active within 300 s measured, so `CROSSING_VISION_MAX_CONCURRENT` = 2 open sequences
+covers every observed day; a third is `skipped_busy`.
+
+### 15.6 D0-SIM: simulate before building (read-only, offline)
+
+Purpose: prove the §15.5 timings and sizes are right BEFORE any code, against the house's own crossings.
+
+Inputs (all existing, read-only): `person_entry_exit_events` (14+ days), the HA recorder history of the egress
+cameras' person sensors and the chain cameras' person sensors (for camera-edge and hop times), BLE `person.*` /
+Bermuda edges, Frigate events and snapshots/clips where retained (P0 of D0-V counts them), Protect face-name
+back-fill times from the recorder.
+
+Method: a script in the scratchpad, run once, no HA writes, no URA writes. It replays each crossing on a simulated
+clock through four stages:
+1. **Modeled run:** §15.5 latencies and token sizes as fixed distributions.
+2. **Measured run:** the same replay with D0-V's measured per-model latency and usage distributions substituted.
+3. For each crossing it records: when F, B and S land relative to t0; where the person was on the chain at each
+   landing (from the camera edges); whether B's window contained every chain camera the person actually hit;
+   whether the stage landed inside the census interior hold, the 300 s egress TTL and the 30 s debounce; and
+   cluster sizes, concurrency and daily call/token totals under the caps.
+4. Sensitivity: rerun with B window 30/60/90 s, door cadence 3/5/10 s, `target_width` 768/1024/1280.
+
+**Pass/fail, stated now:**
+
+| Check | Pass |
+|---|---|
+| F lands by t0 + 10 s | ≥ 90 % of crossings (measured run) |
+| B lands inside the census interior hold (t0 + 180 s) | ≥ 95 % of crossings, clustered ones included |
+| B window contains every chain camera the person hit in the first 60 s | ≥ 90 % of entries |
+| Entry S lands inside `EGRESS_FACE_UNION_TTL_S` (300 s) | ≥ 95 % |
+| No day exceeds the daily call cap or 2 concurrent sequences | 100 % of replayed days |
+| Measured daily cost | ≤ §15.5 worst × 1.5 |
+
+Fail on a timing row = change the window or cadence and rerun; fail on cost = drop B to Luna or lower width; fail twice
+= park the sibling plan with the failing number recorded. The report goes in
+`docs/planning/AUDIT_crossing_vision_d0_sim.md`.
+
+### 15.7 Signal weighting for the census and sightings (rev 5)
+
+Vision is one input among several; it does not replace integration face or person counts. Each signal is good for a
+different fact: COUNT (how many), IDENTITY (who), LOCATION (where).
+
+| Signal | Good for | Reliability here | Latency | Failure modes |
+|---|---|---|---|---|
+| BLE / trackers (`person.*`, Bermuda) | identity + home/away of residents; room for private rooms | high for residents carrying phones; blind to non-residents | seconds-minutes; exit backfill ≤ 600 s | phone left behind, BLE budget, scanner gaps |
+| Frigate face (`_2` legs) | identity at a camera | sparse (attach 44 % of egress crossings over 14 d to 11-08) | ~1-5 s | night, angle, no-face, mis-name |
+| Protect face (webhook / name back-fill) | identity at a camera | front door only | name back-fills ~1-2 min | async name, single camera |
+| Frigate / Protect person count | count at a camera, local, always on | good for presence of a body, weak for groups | ~1 s | ghosts (§1.3 cross-corroboration), occlusion, handoff spikes |
+| Egress crossing (transit validator) | count + direction at a door; identity when attached | covers the 3 watched doors | 0-20 s settle | ambiguous direction, double legs |
+| Vision fast (F) | provisional count, direction, group | unmeasured (D0-V) | t0 + 5-10 s | refusal, outage, night IR |
+| Vision batch (B) | count, direction, group, walking away, re-ID across a chain | unmeasured (D0-V) | t0 + 70-90 s | as F, plus cost cap skips |
+
+How they combine (all inside the existing census owner, no second owner):
+1. **Who is home stays BLE-led.** `person_state_for_trust` and the BLE-leads rule are unchanged. Face and vision
+   never move a resident home or away.
+2. **Identity** comes from face and BLE only (the union, manual §3 rule 4). Vision may only confirm a name already
+   attached (`vision_consistent`), never supply one.
+3. **How many non-residents** = vision ledger minus BLE-home residents, when vision is healthy (provider up, not
+   capped, within its D0-V accuracy). When vision is unhealthy or the crossing was skipped, the census falls back to
+   today's path: `unidentified_count = max(0, camera_total - |known|)` from Frigate/Protect counts
+   (`camera_census.py:2533`), and the result is marked camera-only.
+4. **No signal silently wins.** When the vision non-resident estimate and the camera-count estimate differ, both are
+   recorded on the census result and the difference is flagged.
+
+Reuse, not new structure: `CensusZoneResult` already carries `source_agreement`, `degraded_mode` and
+`active_platforms` (`camera_census.py:305-321`). The sibling plan adds `vision` to `active_platforms` when vision
+contributed, records a vision-vs-camera agreement value using the existing `CENSUS_AGREEMENT_*` vocabulary, and uses
+`degraded_mode` semantics for "camera-only". The persistent-disagreement trip-wire goes to the AnomalyDetector wired
+to NM (CLAUDE.md No-Soak), not a calendar. The guest gate keeps reading the census's `unidentified_count`; what
+changes, only after the D0-V census gate passes, is which estimate feeds it.
+
+Knob sketch for the sibling plan: `CROSSING_VISION_HEALTH_MAX_AGE_S` (rung 1, how stale the last good vision call
+may be before fallback), `CROSSING_VISION_COUNT_AUTHORITY` (rung 2 select: `evidence_only` default / `vision_led`),
+`CROSSING_VISION_DISAGREE_FLAG_MIN` (rung 1, persons of disagreement before flagging).
+
+### 15.8 Coverage model (rev 5)
+
+The operator reports 20+ cameras watching outside to inside on every approach. Coverage is therefore modeled as
+CAMERA CHAINS, not single doors: each approach is an ordered list (exterior approach camera(s) → door camera →
+interior landing camera(s)). The sibling plan builds chains from existing adjacency, not a new map:
+`ExteriorTrackLinker.adjacent_cameras` for the outside legs and `transit_validator._get_interior_cameras_near` (`:2203`, which reads
+the operator-set `door_interior_neighbours` option, `config_flow.py:4861`) for the inside legs (`adjacent_cameras` at `exterior_track_linker.py:919`). D0-SIM measures, per approach, whether the person actually hit each
+chain camera and how long each hop took; that is the evidence for the B-stage chain choice.
+
+Interior cameras join the enrichment purview (under the §15.3 item 7 toggle) for two reasons: entry chains end
+indoors, and the periodic interior head count is the ledger's independent check. Head count = one Luna call every
+`CROSSING_VISION_HEADCOUNT_INTERVAL_S` (modeled 1800 s) while the house is occupied, one frame per interior camera,
+counting people; it is compared with the ledger and with Frigate/Protect counts per §15.7, never written over them.
+
+D0-V's coverage score (BLE-known crossings that pass a watched door) becomes per-chain under rev 5: a crossing is
+covered when it hits at least the door camera of some chain.
 
 ---
 
@@ -1190,3 +1380,20 @@ parked D7, mutation drills M1-M15, live table L1-L9, Tier 3.
 
 Unchanged from rev 3: the arrival rule (D2), the security corroboration rule, trip-wire design (D4), retirement
 (D5 scope), real-HA test (D6), §15 vision design, Tier 3. Status: plan only; operator APPROVE next.
+
+---
+
+## 18. Rev 5 changelog (operator direction 2026-11-12)
+
+| Change | Why | Where |
+|---|---|---|
+| llmvision model plumbing read from source: model string passed through; no `detail` field; `target_width` controls size; temperature/top_p caveat; no `gpt-6*` reasoning entry. Candidate ids and prices from OpenAI's models page | Operator: use OpenAI GPT-6 lineup; verify llmvision accepts it | §15.1 |
+| Timing design: F (2 × 768 px, Luna, t0 + 5/10 s), B (≤ 12 × 1024 px over 60 s along the chain, Sol, t0 + 70/90 s), S (t0 + 120 s entries, ≤ 600 s exits); clustering and concurrency from measured data; per-day call/token/cost envelope from 14 days of crossings | Operator: focus on the technical timing | §15.5 |
+| D0-SIM: offline replay, modeled then measured, pass/fail table up front | Operator: simulate timings and sizes | §15.6 |
+| Signal-weighting model: BLE leads who-is-home; face/BLE give identity; vision leads non-resident count when healthy, Frigate/Protect counts are the fallback marked camera-only; disagreements recorded and flagged; reuses `CensusZoneResult` fields, no second owner | Operator: integration face counts still used; weigh signals | §15.7 |
+| Coverage as camera chains; interior cameras in purview; periodic interior head count | Operator: 20+ cameras on every approach | §15.8, §15.3 item 7 |
+| Non-resident framing of the ledger; empty-house reset, head count, exit-chain matching as checks | Operator: residents solved, guests are the problem | §15.3 item 9 |
+| D0-V: model step 0, fast vs batch accuracy, entries/exits, ledger return to zero, measured tokens via direct API usage, latency per stage, agreement with camera counts; go-rule additions | Queued points folded | §15.4 |
+
+Unchanged: INV-ACCESS (vision is never access-class), all rev 4 fixes, D1-D7, drills, live table, Tier 3. This cycle
+still builds nothing in §15; the sibling plan (CROSSING-VISION-SEQUENCE-1) is gated on D0-SIM and D0-V.
