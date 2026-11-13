@@ -535,6 +535,16 @@ class TestD1GatePreConditioning:
         )
 
         async def _spy_precool(zone, offset, reason):
+            # HVAC-PRECOOL-STANDDOWN-WHEN-COOL-1 D1b: the master-OFF release
+            # only touches a zone with a live borrow, so the bank this cycle
+            # "lands" registers its token (a HUMAN_MANUAL `None` snapshot ->
+            # the raw-baseline release path this test pins).
+            from types import SimpleNamespace as _NS
+            pred._banking_excursion_tokens = getattr(
+                pred, "_banking_excursion_tokens", {}) or {}
+            pred._banking_excursion_tokens[zone.zone_id] = _NS(
+                returned=False, excursion_id=None, pre_preset=None,
+                caller_site="S12_pre_cool")
             return None
         pred._execute_zone_pre_cool = _spy_precool
         pred._get_net_power = MagicMock(return_value=-800.0)

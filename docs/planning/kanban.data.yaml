@@ -34431,7 +34431,8 @@ cards:
 - id: EC-IMPORT-TODAY-NET-AFTER-RESTART-1
   title: Energy Import Today drops to net import (import minus export) after an HA restart, so the From grid tile reads 0.7 kWh instead of ~19
   thread: energy
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.108.14
   created: '2026-11-12 16:37'
   updated: '2026-11-12 16:48'
   refinement_status: initial
@@ -34454,7 +34455,8 @@ cards:
 - id: HVAC-PRECOOL-STANDDOWN-WHEN-COOL-1
   title: Pre-arrival pre-cool lowers the setpoint even when the zone is already at or below target; it should stand down
   thread: hvac
-  status: pre_planning
+  status: shipped_organic
+  shipped_version: v5.108.14
   created: '2026-11-12 16:53'
   updated: '2026-11-12 16:53'
   refinement_status: initial
@@ -34495,6 +34497,93 @@ cards:
     context: 'Identified arrival is a personalization input; face arrival is one candidate producer.'
   next: 'Me: verify the boot log line Subscribed to N zone camera entities, map every consumer of zone cameras, then plan the device-area fallback.'
   rank: {value: 6, time_criticality: 3, effort: 5}
+  CORRECTION_2026-11-12: 'Too broad. Only the v3.19 presence face-arrival path never fired; egress faces work and feed egress identity, perimeter naming and census. The operator''s configured zone_cameras (8 interior shared-space/hallway cameras) are stored but only read by a zone-confidence check (presence.py:2389), not face arrival. Device-area fallback still needed for other zone-camera consumers; face arrival moves to FACE-ARRIVAL-REBUILD-1.'
+- id: FACE-ARRIVAL-REBUILD-1
+  title: Rebuild face arrival from first principles as one face-evidence signal with action-class policy in each consumer
+  thread: identity
+  status: pre_planning
+  created: '2026-11-12 18:30'
+  updated: '2026-11-12 18:30'
+  refinement_status: initial
+  tier: 3
+  approval: unreviewed
+  batch: face-arrival-rebuild
+  problem_solution:
+  - 'Problem: v3.19 face-confirmed arrival never fired (listens to area-discovered cameras, finds none; configured picks unread; _2 path disabled at the producer to protect locks; 30 s freshness drops late Protect names); egress faces never send an arrival. Solution: one face sighting signal (person, camera, room, zone, time, confidence) from the operator''s interior picks plus egress identity; consumers pick granularity; comfort/personalization may act on face alone, presence fuses it, access (unlock/lockout/disarm) needs an independent second signal; zero-fire trip-wire.'
+  origin:
+    date: '2026-11-12'
+    gist: 'Operator: "Face arrival should be able to understand what can unlock and what cannot... I chose those cameras because they track common area and entry paths... We should start from first principles and build this up." Granularity: keep zone, extend to camera/room. Cameras are only in shared spaces and hallways.'
+  why: 'AUDIT_face_arrival_and_prearrival_fan_rooms.md, AUDIT_face_production_after_nov_fixes.md (85% of named faces interior; doors weak; egress attach ~40%).'
+  constraints:
+  - Cameras exist only in shared spaces and hallways; room-level face location is a hallway/shared-room sighting, not bedroom entry. Personalization must combine with BLE for private rooms.
+  - Policy lives in the consumer; never disable the producer to protect one consumer (CLAUDE.md fire-check corollary).
+  - Salvage from v3.19 where sound (picks, alias mapping, debounce, fail-quiet, HVAC counter); replace listener source, freshness, granularity, unlock coupling.
+  - Evaluate an interior track sequence (camera order along paths) with measurement first.
+  links:
+    related: [ZONE-CAMERA-DISCOVERY-DEVICE-AREA-1, PERSON-PROFILE-PREFERENCES-1, FRIGATE-DOOR-FACE-TUNING-1]
+  next: 'Me: planner writes Tier-3 plan; two plan reviews; then APPROVE from operator.'
+  rank: {value: 8, time_criticality: 4, effort: 8}
+- id: HVAC-PRECOOL-FLOOR-BELOW-ARRIVAL-HEAT-1
+  title: With Solar Banking Cool Floor below ~72, arrival pre-cool can cool a zone already inside Home's band down to the heat setpoint
+  thread: hvac
+  status: inbox
+  created: '2026-11-12 20:00'
+  updated: '2026-11-12 20:00'
+  refinement_status: initial
+  tier: 1
+  approval: unreviewed
+  problem_solution:
+  - 'Problem: pre-cool target is floor-derived; at floor 66 winter, target 70 equals Home heat. Solution: cap the cool target at or above the arrival preset heat (mirror of the heat-leg cap in rev 4).'
+  origin:
+    date: '2026-11-12'
+    gist: 'Plan review rev 3 M2 (PLAN_hvac_precool_standdown_review_rev3.md); deferred by plan rev 4.'
+  why: 'Legal knob extreme; default 74 is unaffected.'
+  links:
+    related: [HVAC-PRECOOL-STANDDOWN-WHEN-COOL-1]
+  next: 'Me: fold into the next HVAC cycle after the stand-down ships.'
+  rank: {value: 3, time_criticality: 1, effort: 2}
+- id: LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1
+  title: A camera seeing any body while the house is away moves it to ARRIVING, which releases the garage lockout and auto-disarms security with no identity
+  thread: security
+  status: investigating
+  created: '2026-11-12 19:10'
+  updated: '2026-11-12 19:10'
+  refinement_status: initial
+  tier: 3
+  approval: unreviewed
+  problem_solution:
+  - 'Problem: presence.py:1347-1369 moves house away -> ARRIVING on camera body evidence; ARRIVING releases the garage lockout (security_lock_regime.py:864, :809) and makes security auto-disarm (security.py:192, :1452). Away-lock is not on this path. Solution: TBD; first measure how often away->ARRIVING fired from camera-only evidence and what it actuated (fire check + forward trace), then require identity or a non-camera arrival edge for access-class actions.'
+  origin:
+    date: '2026-11-12'
+    gist: 'Found by the face-arrival planner, confirmed by the completeness plan review (PLAN_face_arrival_rebuild_review_completeness.md).'
+  why: 'Same policy principle as FACE-ARRIVAL-REBUILD-1: access actions need identity plus an independent signal; a body alone is weaker than a face.'
+  constraints:
+  - Read IDENTITY_FUSION_CAMERAS_MANUAL.md, PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md before planning. Do not regress real arrivals unlocking (operator, "Feeling locked out is a nasty feeling").
+  links:
+    related: [FACE-ARRIVAL-REBUILD-1]
+  next: 'Me: read-only probe of away->ARRIVING transitions over recorder history, their evidence source and resulting lockout releases / disarms.'
+  rank: {value: 9, time_criticality: 6, effort: 5}
+- id: FRIGATE-DOOR-FACE-TUNING-1
+  title: Door and exterior cameras recognize few faces (garage 36, doorbell 33, entry 16, aerial 7 since 11-05; 9 cameras zero), capping egress identity near 40%
+  thread: identity
+  status: investigating
+  created: '2026-11-12 18:30'
+  updated: '2026-11-12 18:30'
+  refinement_status: initial
+  tier: 2
+  approval: unreviewed
+  problem_solution:
+  - 'Problem: Frigate-side recognition at doors is weak (matcher, training images, threshold, angle/resolution). Solution: read-only probe of per-camera face scores and training sets, then agree changes with the homelab session; homelab applies final Frigate config changes.'
+  origin:
+    date: '2026-11-12'
+    gist: 'Operator: "yes on frigate but collaborate with homelab for final changes".'
+  why: 'AUDIT_face_production_after_nov_fixes.md.'
+  constraints:
+  - Frigate config is house-visible and homelab-owned; URA side read-only; final changes made with homelab.
+  links:
+    related: [FACE-ARRIVAL-REBUILD-1]
+  next: 'Me: read-only score/training probe when an agent slot frees, then hand findings to homelab.'
+  rank: {value: 7, time_criticality: 3, effort: 4}
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers

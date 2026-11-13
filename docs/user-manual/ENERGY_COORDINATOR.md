@@ -345,7 +345,8 @@ A live audit on 2026-06-09 found zone/room energy sensors poisoned by a 1000× u
 If a zone shows an implausible cost/energy figure, check `coverage_rating` for "Anomalous" and look for `scope_mismatch_warning` / `energy_sensors_dead` attributes before suspecting the rate engine.
 
 ### Today + cycle accounting
-- **`Energy Import Today`** / **`Energy Export Today`** — kWh totals reset at midnight.
+- **`Net Grid Today`** (entity id `..._energy_import_today`) — today's NET grid energy (import minus export), kWh, reset at midnight. Gross import is its `import_kwh` attribute.
+- **`Energy Export Today`** — today's grid export kWh, reset at midnight.
 - **`Cost Today`** / **`Cost Cycle`** — dollar totals (daily, billing-cycle).
 - **`Predicted Bill`** — current month's bill prediction based on consumption pace + rate schedule.
 
@@ -574,7 +575,7 @@ The `_paused_by_<reason>` set + precedence-rule pattern is the same architecture
 ### Sensors (today / cycle / forecast)
 | Entity ID | Purpose |
 |---|---|
-| `sensor.ura_energy_coordinator_energy_import_today` | Today's grid import kWh |
+| `sensor.ura_energy_coordinator_energy_import_today` | Net Grid Today: net grid kWh (import minus export); gross import in attribute `import_kwh` |
 | `sensor.ura_energy_coordinator_energy_export_today` | Today's grid export kWh |
 | `sensor.ura_energy_coordinator_cost_today` | Today's $ cost |
 | `sensor.ura_energy_coordinator_cost_cycle` | Billing cycle $ cost |

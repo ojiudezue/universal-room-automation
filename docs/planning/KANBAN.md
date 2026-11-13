@@ -2,18 +2,18 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-12T17:01:13-06:00_ - _Data commit: `6bc0bc468104`_ - _last_reconciled: 2026-11-12_
+_Generated: 2026-11-12T19:26:04-06:00_ - _Data commit: `9701c9383038`_ - _last_reconciled: 2026-11-12_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 2 |
-| 🔬 Investigating | 2 |
+| 📥 Inbox | 3 |
+| 🔬 Investigating | 4 |
 | 🧭 Pre-planning | 14 |
 | 📝 Planned | 26 |
-| 🔨 In progress | 3 |
+| 🔨 In progress | 4 |
 | 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 30 |
 | ⏳ Waiting on me (Claude) | 2 |
@@ -21,7 +21,7 @@ _Generated: 2026-11-12T17:01:13-06:00_ - _Data commit: `6bc0bc468104`_ - _last_r
 | 🅿️ Parked | 118 |
 | ✅ Done | 426 |
 
-## 📥 Inbox (2)
+## 📥 Inbox (3)
 _raw capture_
 
 ### `STALE-SOURCE-ARRIVAL-CONSUMERS-1` - Other features still treat a stale tracker-fallback 'home' blip as a real arrival (security expected-arrival window first) — _#1 · WSJF 3.3 · v5 tc3 u2 /e3_
@@ -36,7 +36,18 @@ _created 2026-11-12 14:42 · updated 2026-11-12 17:01 · initial_
   - `tier`: 2
   - `finding_2026_11_12_expected_arrival_always_on`: CORRECTS the 11-12 inventory claim that the expected-arrival window is off by default. Only the SIGNAL_PERSON_ARRIVING path is gated (CONF_SECURITY_ON_ARRIVAL_ADD_EXPECTED, security.py:2413). The security geofence listener adds expected ...
 
-### `EC-ATTAIN-RATE-DUP-SAMPLE-1` - The battery charge-rate window can record the same reading twice in one tick, shortening its 15-minute window — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `HVAC-PRECOOL-FLOOR-BELOW-ARRIVAL-HEAT-1` - With Solar Banking Cool Floor below ~72, arrival pre-cool can cool a zone already inside Home's band down to the heat setpoint — _#2 · WSJF 3.0 · v3 tc1 u2 /e2_
+thread: **hvac** - status: **inbox** - approval: **unreviewed**
+_created 2026-11-12 20:00 · initial_
+- **Problem / Solution:**
+  - Problem: pre-cool target is floor-derived; at floor 66 winter, target 70 equals Home heat. Solution: cap the cool target at or above the arrival preset heat (mirror of the heat-leg cap in rev 4).
+- **Origin:** 2026-11-12 - Plan review rev 3 M2 (PLAN_hvac_precool_standdown_review_rev3.md); deferred by plan rev 4.
+- **Why:** Legal knob extreme; default 74 is unaffected.
+- **Next:** Me: fold into the next HVAC cycle after the stand-down ships.
+- **Forensic keys (1):**
+  - `tier`: 1
+
+### `EC-ATTAIN-RATE-DUP-SAMPLE-1` - The battery charge-rate window can record the same reading twice in one tick, shortening its 15-minute window — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **inbox** - approval: **unreviewed**
 _created 2026-11-12 14:13 · initial_
 - **Problem / Solution:**
@@ -47,7 +58,7 @@ _created 2026-11-12 14:13 · initial_
 - **Forensic keys (1):**
   - `tier`: 1
 
-## 🔬 Investigating (2)
+## 🔬 Investigating (4)
 _measuring; truth not yet known_
 
 ### `HVAC-ZONE-KWH-SEED-WARN-WORDING-1` - Zone-kWh seed logs UNSAFE at every boot though the threshold Numbers self-restore a moment later — _#1 · WSJF 4.0 · v1 tc1 u2 /e1_
@@ -61,7 +72,29 @@ _created 2026-11-11 19:40 · updated 2026-11-12 13:05_
   - `review_2026_11_12`: CARD-WAS-WRONG. The why on this card (seed reads before the Number restores) is WRONG: seed (__init__.py:7276) and Number (HA restore_state.py:295) read the same last_states dict, filled once at load. Live .storage has numeric entries + ...
   - `measured_2026_11_12_boot`: v5.108.11 restart 12:55: all three zones logged the no RestoreState entry branch (__init__.py:7310), while the three Numbers restored 1.0/0.8/0.8. So the seed sees no entry where the Number does: the review claim that both read the same ...
 
-### `ZONE-CAMERA-DISCOVERY-DEVICE-AREA-1` - Zone camera discovery reads only the entity's own area, but every camera's area is set on the device, so no zone has any camera (face arrival never worked) — _#2 · WSJF 2.2 · v6 tc3 u2 /e5_
+### `LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1` - A camera seeing any body while the house is away moves it to ARRIVING, which releases the garage lockout and auto-disarms security with no identity — _#2 · WSJF 3.4 · v9 tc6 u2 /e5_
+thread: **security** - status: **investigating** - approval: **unreviewed**
+_created 2026-11-12 19:10 · initial_
+- **Problem / Solution:**
+  - Problem: presence.py:1347-1369 moves house away -> ARRIVING on camera body evidence; ARRIVING releases the garage lockout (security_lock_regime.py:864, :809) and makes security auto-disarm (security.py:192, :1452). Away-lock is not on th...
+- **Origin:** 2026-11-12 - Found by the face-arrival planner, confirmed by the completeness plan review (PLAN_face_arrival_rebuild_review_completeness.md).
+- **Why:** Same policy principle as FACE-ARRIVAL-REBUILD-1: access actions need identity plus an independent signal; a body alone is weaker than a face.
+- **Next:** Me: read-only probe of away->ARRIVING transitions over recorder history, their evidence source and resulting lockout releases / disarms.
+- **Forensic keys (1):**
+  - `tier`: 3
+
+### `FRIGATE-DOOR-FACE-TUNING-1` - Door and exterior cameras recognize few faces (garage 36, doorbell 33, entry 16, aerial 7 since 11-05; 9 cameras zero), capping egress identity near 40% — _#3 · WSJF 3.0 · v7 tc3 u2 /e4_
+thread: **identity** - status: **investigating** - approval: **unreviewed**
+_created 2026-11-12 18:30 · initial_
+- **Problem / Solution:**
+  - Problem: Frigate-side recognition at doors is weak (matcher, training images, threshold, angle/resolution). Solution: read-only probe of per-camera face scores and training sets, then agree changes with the homelab session; homelab appli...
+- **Origin:** 2026-11-12 - Operator: "yes on frigate but collaborate with homelab for final changes".
+- **Why:** AUDIT_face_production_after_nov_fixes.md.
+- **Next:** Me: read-only score/training probe when an agent slot frees, then hand findings to homelab.
+- **Forensic keys (1):**
+  - `tier`: 2
+
+### `ZONE-CAMERA-DISCOVERY-DEVICE-AREA-1` - Zone camera discovery reads only the entity's own area, but every camera's area is set on the device, so no zone has any camera (face arrival never worked) — _#4 · WSJF 2.2 · v6 tc3 u2 /e5_
 thread: **identity** - status: **investigating** - approval: **unreviewed**
 _created 2026-11-12 17:06 · initial_
 - **Problem / Solution:**
@@ -69,8 +102,9 @@ _created 2026-11-12 17:06 · initial_
 - **Origin:** 2026-11-12 - Operator on the pre-arrival list: "Camera face match: enabled but hasn't fired in 14 days. Que? Regression?" Verdict: never worked.
 - **Why:** Probe docs/planning/AUDIT_face_arrival_and_prearrival_fan_rooms.md. Also a portability defect (feedback_portability_imperative): resolve area from the registry the way HA does. Even once fixed, face arrival would rarely fire: exterior ca...
 - **Next:** Me: verify the boot log line Subscribed to N zone camera entities, map every consumer of zone cameras, then plan the device-area fallback.
-- **Forensic keys (1):**
+- **Forensic keys (2):**
   - `tier`: 2
+  - `CORRECTION_2026-11-12`: Too broad. Only the v3.19 presence face-arrival path never fired; egress faces work and feed egress identity, perimeter naming and census. The operator's configured zone_cameras (8 interior shared-space/hallway cameras) are stored but on...
 
 ## 🧭 Pre-planning (14)
 _idea being decomposed_
@@ -110,19 +144,7 @@ _created 2026-10-17 02:12 · initial_
   - `arc`: ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)
   - `adjacency_2026_10_17`: Swept board (observation + evse/drain), BACKLOG.md, plan review table: NEW (different targets and code path from EC-OBSERVATION-MODE-RESERVE-BYPASS-1; sibling, same bug class).
 
-### `HVAC-PRECOOL-STANDDOWN-WHEN-COOL-1` - Pre-arrival pre-cool lowers the setpoint even when the zone is already at or below target; it should stand down — _#4 · WSJF 2.4 · v6 tc4 u2 /e5_
-thread: **hvac** - status: **pre_planning** - approval: **unreviewed**
-_created 2026-11-12 16:53 · initial_
-- **Problem / Solution:**
-  - Problem: when someone heads home, pre-cool writes the cool setpoint to the Home baseline minus 2 F (floor 74) without ever reading the zone temperature, so it also fires when the zone is already cool. In the 14 days to 11-12, 17 of 34 me...
-- **Origin:** 2026-11-12 - Operator: "Is pre-cool smart enough to know when to stand down if the house is cooler than setpoints?" Answer: no.
-- **Why:** hvac_predict.py:1297-1300 only compares setpoints; the fan helper at :1515-1527 already compares room temp to the cool setpoint (REUSE that idiom). Half the writes buy nothing and carry manual-hold side effects.
-- **Next:** Me: marginal-benefit decomposition + Tier-2 plan with one plan review.
-- **Refs:** docs/planning/AUDIT_pre_arrival_inventory_and_precool_standdown.md
-- **Forensic keys (1):**
-  - `tier`: 2
-
-### `CENSUS-ACCURACY-1` - Interior census accuracy: separate census decay from guest hysteresis + fix the _2-suffix fresh-face resolution (exterior dashboard wiring is a minor bonus) — _#5 · WSJF 2.2 · v6 tc3 u2 /e5_
+### `CENSUS-ACCURACY-1` - Interior census accuracy: separate census decay from guest hysteresis + fix the _2-suffix fresh-face resolution (exterior dashboard wiring is a minor bonus) — _#4 · WSJF 2.2 · v6 tc3 u2 /e5_
 thread: **presence** - status: **pre_planning** - approval: **explicit**
 _updated 2026-10-16 02:16_
 - **Problem / Solution:**
@@ -153,7 +175,7 @@ _updated 2026-10-16 02:16_
   - `scope_clarification_2026_08_17`: Operator scope check 2026-08-17: "Isn't cycle 2 about interior accuracy? The exterior was a bonus? Or does cycle 1 fix that?" — CONFIRMED. Cycle 1 (CENSUS-GHOST-DEDUP-1) fixes GUEST MODE, not the interior count (its D1 clamp is a no-op w...
   - `d3_dashboards_done_2026_08_18`: D3 (P12) exterior dashboards DONE (display-only, no producer change): composed card (deduped headline + G1 naive-floor fallback [never 0 when floor>0] + divergence badge) added to HA ura-v6 (Presence/Census Cross-Confirmation), ura-v8 (S...
 
-### `OC-REQUEST-FIX-DISPATCHER-1` - OC agent: thin request_fix(type, target, evidence) dispatcher that does tier/sleep/log/check-back and calls the owning coordinator path (no new actuation path) — _#6 · WSJF 2.2 · v6 tc3 u2 /e5_
+### `OC-REQUEST-FIX-DISPATCHER-1` - OC agent: thin request_fix(type, target, evidence) dispatcher that does tier/sleep/log/check-back and calls the owning coordinator path (no new actuation path) — _#5 · WSJF 2.2 · v6 tc3 u2 /e5_
 thread: **optimization** - status: **pre_planning**
 _created 2026-10-21 · updated 2026-10-21 22:05_
 - **Why:** Shared gate/log/check-back work for every agent fix type in one place, without reopening the rev-3 risks (manual holds, arrester misattribution, precedence bypass).
@@ -163,7 +185,7 @@ _created 2026-10-21 · updated 2026-10-21 22:05_
   - `tier`: 2
   - `adjacency_2026_10_21`: Swept board (OC-*, HVAC funnel cards), PLANNING_/AUDIT_ request-API audit: ADJACENT to HVAC-OPTIMIZER-CLIMATE-FUNNEL-ROUTING-1 (P3 path) and OC-SHADOW-SAMPLES-EMPTY-1 (action log). NEW as a mechanism.
 
-### `CENSUS-OCCUPANCY-ESTIMATOR-1` - Build the hybrid house head-count estimator (and a guests-present flag) now that its inputs are fixed — _#7 · WSJF 2.0 · v7 tc3 u6 /e8_
+### `CENSUS-OCCUPANCY-ESTIMATOR-1` - Build the hybrid house head-count estimator (and a guests-present flag) now that its inputs are fixed — _#6 · WSJF 2.0 · v7 tc3 u6 /e8_
 thread: **census** - status: **pre_planning** - approval: **explicit**
 _created 2026-10-11 02:15 · updated 2026-10-16 02:03 · refined_
 - **Problem / Solution:**
@@ -181,7 +203,7 @@ _created 2026-10-11 02:15 · updated 2026-10-16 02:03 · refined_
   - `operator_instruction_2026_10_15`: Check the latest census work and approved if not subsumed
   - `sweep_2026_10_11`: Board grep for OCCUPANCY-ESTIMATOR / occupancy_estimator: only references inside CENSUS-INPUTS-FIRST-1 refs; BACKLOG.md: none. The plan doc is the prior art (REUSE it). NEW card.
 
-### `CENSUS-GUEST-FLOOR-1` - Census blind to guests (read 4 with 10 in house) — re-admit the WiFi guest-VLAN count as a bounded FLOOR, gated to contain the FP problem that unplugged it — _#8 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `CENSUS-GUEST-FLOOR-1` - Census blind to guests (read 4 with 10 in house) — re-admit the WiFi guest-VLAN count as a bounded FLOOR, gated to contain the FP problem that unplugged it — _#7 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **pre_planning** - approval: **unreviewed**
 - **Origin:** 2026-08-15 - operator: "census says 4 but there are 4 of us and 6 guests — how is it missing this many people"
 - **Why:** Census total = identified(BLE+face, structurally household-only) + camera_unrecognized(3-min hold). Guests only count while standing in view of transit-tier census cameras; the guest phones on the Revel VLAN ARE counted by _get_wifi_gues...
@@ -193,7 +215,7 @@ thread: **presence** - status: **pre_planning** - approval: **unreviewed**
   - `proposed_shape`: total = max(total, identified + wifi_guest_floor), the floor admitted ONLY under guards: guest-mode active OR count stable >N min; existing family-exclusion layers retained; kill switch = existing exclusion default. Numbers get knobs.
   - `parked_2026_08_15`: SHRUNK by the regression root-cause (CENSUS-SUFFIX-FIX-1): the census was count-accurate until 08-13; the suffix fix restores that. Revisit trigger: AFTER the fix ships + one real gathering, if guest counts still under-read materially, r...
 
-### `PATHBETA-VESTIGIAL-1` - Path-beta infrastructure is now dead-code-like after D2b — scoped cleanup (reviewer B: do NOT bundle into PATH-ALPHA) — _#9 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `PATHBETA-VESTIGIAL-1` - Path-beta infrastructure is now dead-code-like after D2b — scoped cleanup (reviewer B: do NOT bundle into PATH-ALPHA) — _#8 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **pre_planning** - approval: **unreviewed**
 _updated 2026-10-16 02:15_
 - **Origin:** 2026-08-16 - PATH-ALPHA review B finding F2 (62820d23c): after the relaxed-predicate retirement, path-beta infra at presence.py:1146-1215 + call site :5787-5799 is vestigial — lost_away_persons_present=False from the sole caller, immedia...
@@ -205,7 +227,7 @@ _updated 2026-10-16 02:15_
   - `gate_2026_09_12`: PARKED at the pre-build gate. VALIDITY: still vestigial (presence.py:1049 lost_away_persons_present param, sole caller never sets it), not shipped. PARSIMONY/COST-BENEFIT: HYGIENE not a defect (card own why: correctness preserved, beta c...
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: presence.py:1049 lost_away_persons_present param still F2-shape (sole caller :6165 never sets it). Hygiene cleanup unscoped.
 
-### `OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1` - Optimization Coordinator redesign toward a self-optimizing house: goals + tools + log-driven problem spotting + optimization loops (current OC = 6,822 findings/14d, ~90% noise, never left shadow) — _#10 · WSJF 2.0 · v9 tc5 u2 /e8_
+### `OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1` - Optimization Coordinator redesign toward a self-optimizing house: goals + tools + log-driven problem spotting + optimization loops (current OC = 6,822 findings/14d, ~90% noise, never left shadow) — _#9 · WSJF 2.0 · v9 tc5 u2 /e8_
 thread: **optimization** - status: **pre_planning**
 _updated 2026-10-21 22:05_
 - **Why:** AUDIT_v6_milestone_candidates.md: OC in shadow, never actuated; findings ~90% tier-1 noise; optimizer_shadow_samples 0 rows so the v2 promotion gate can never pass. Operator wants the house to find and fix its own problems instead of the...
@@ -219,7 +241,7 @@ _updated 2026-10-21 22:05_
   - `adjacency_2026_10_16`: ADJACENT to ROADMAP-STALE-AGENTIC-LAYER-1 (rooms as agents): same vision surface (goals, tools, memory, loops). One vision doc covers both; separate cards for the OC redesign vs room agents.
   - `residual_2026_10_21_never_fires_restart_repeat`: From OC-STUCK-SENSOR-GENERALIZE-1 disposal: the (sensor_never_fires, eid) dedup is in memory and resets each HA restart, so the same silent sensor is re-reported ~18 min after every start. Belongs in the first slice (persistent problem d...
 
-### `PERSON-PROFILE-PREFERENCES-1` - Per-person profile for identified household members: their bedroom(s)/bathroom, room ownership (incl. shared owners e.g. master), playlist, opt-in/out of automated arrival actions, welcome scene — _#11 · WSJF 2.0 · v4 tc2 u2 /e4_
+### `PERSON-PROFILE-PREFERENCES-1` - Per-person profile for identified household members: their bedroom(s)/bathroom, room ownership (incl. shared owners e.g. master), playlist, opt-in/out of automated arrival actions, welcome scene — _#10 · WSJF 2.0 · v4 tc2 u2 /e4_
 thread: **identity** - status: **pre_planning**
 _created 2026-11-08 20:30 · updated 2026-11-12 17:01_
 - **Why:** 6.0.0 consumers (arrival/departure keyed to person_id, guest gate) need to know what a known person's arrival should DO. Today nothing records which rooms belong to whom or a person's preferences, so person-keyed actions have no target.
@@ -229,6 +251,17 @@ _created 2026-11-08 20:30 · updated 2026-11-12 17:01_
   - `predictions_2026_11_08`: Operator: 'We could also use predictions to personalize?' Yes, as SUGGESTIONS: learned patterns (Bayesian predictive layer, v4.0.0 prior art; per-person room dwell / BLE history; music history) propose profile values (likely bedroom, usu...
   - `adjacency_2026_11_08`: Grepped const.py for owner/pref/bedroom CONF keys (none) and the board for person preference/room owner (none; 'owner' hits are entity/cover ownership, a different concept). Planning docs to read in the pre-plan: known_person_annotation,...
   - `scope_add_2026_11_12_arrival_music`: Operator: add arrival-triggered music to this card. Today music_following.py:549 only logs on SIGNAL_PERSON_ARRIVING (arrival-start never built). Scope: on a confirmed arrival of an identified person, start their profile playlist in thei...
+
+### `FACE-ARRIVAL-REBUILD-1` - Rebuild face arrival from first principles as one face-evidence signal with action-class policy in each consumer — _#11 · WSJF 1.8 · v8 tc4 u2 /e8_
+thread: **identity** - status: **pre_planning** - approval: **unreviewed**
+_created 2026-11-12 18:30 · initial_
+- **Problem / Solution:**
+  - Problem: v3.19 face-confirmed arrival never fired (listens to area-discovered cameras, finds none; configured picks unread; _2 path disabled at the producer to protect locks; 30 s freshness drops late Protect names); egress faces never s...
+- **Origin:** 2026-11-12 - Operator: "Face arrival should be able to understand what can unlock and what cannot... I chose those cameras because they track common area and entry paths... We should start from first principles and build this up." Granul...
+- **Why:** AUDIT_face_arrival_and_prearrival_fan_rooms.md, AUDIT_face_production_after_nov_fixes.md (85% of named faces interior; doors weak; egress attach ~40%).
+- **Next:** Me: planner writes Tier-3 plan; two plan reviews; then APPROVE from operator.
+- **Forensic keys (1):**
+  - `tier`: 3
 
 ### `OC-SHADOW-SAMPLES-EMPTY-1` - Optimization Coordinator shadow track record never accumulates: optimizer_shadow_samples has 0 rows while OC logged 6,822 findings in 14 days (~90% tier-1 noise), so the v2 promotion gate can never be met — _#12 · WSJF 1.4 · v6 tc3 u2 /e8_
 thread: **optimization** - status: **pre_planning**
@@ -627,7 +660,7 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (3)
+## 🔨 In progress (4)
 _being built_
 
 ### `EC-IMPORT-TODAY-NET-AFTER-RESTART-1` - Energy Import Today drops to net import (import minus export) after an HA restart, so the From grid tile reads 0.7 kWh instead of ~19 — _#1 · WSJF 3.6 · v8 tc8 u2 /e5_
@@ -643,7 +676,19 @@ _created 2026-11-12 16:37 · updated 2026-11-12 16:48 · initial_
   - `refuted_2026_11_12`: CARD-WAS-WRONG / REFUTED (docs/planning/AUDIT_ec_import_today_net_after_restart.md). Not a regression and not restart-caused: EnergyImportTodaySensor has always returned import - export (sensor.py:12198-12212, state_class TOTAL, v3.14.8 ...
   - `operator_decision_2026_11_12`: Rename it and ship with next build.
 
-### `OC-CONTEXT-PACK-1` - OC agent context should feel like the orchestrator's: HA + URA ground-truth docs, live config snapshot, doctrine, goals - iterate it against live cases — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `HVAC-PRECOOL-STANDDOWN-WHEN-COOL-1` - Pre-arrival pre-cool lowers the setpoint even when the zone is already at or below target; it should stand down — _#2 · WSJF 2.4 · v6 tc4 u2 /e5_
+thread: **hvac** - status: **in_progress** - approval: **unreviewed**
+_created 2026-11-12 16:53 · initial_
+- **Problem / Solution:**
+  - Problem: when someone heads home, pre-cool writes the cool setpoint to the Home baseline minus 2 F (floor 74) without ever reading the zone temperature, so it also fires when the zone is already cool. In the 14 days to 11-12, 17 of 34 me...
+- **Origin:** 2026-11-12 - Operator: "Is pre-cool smart enough to know when to stand down if the house is cooler than setpoints?" Answer: no.
+- **Why:** hvac_predict.py:1297-1300 only compares setpoints; the fan helper at :1515-1527 already compares room temp to the cool setpoint (REUSE that idiom). Half the writes buy nothing and carry manual-hold side effects.
+- **Next:** Me: marginal-benefit decomposition + Tier-2 plan with one plan review.
+- **Refs:** docs/planning/AUDIT_pre_arrival_inventory_and_precool_standdown.md
+- **Forensic keys (1):**
+  - `tier`: 2
+
+### `OC-CONTEXT-PACK-1` - OC agent context should feel like the orchestrator's: HA + URA ground-truth docs, live config snapshot, doctrine, goals - iterate it against live cases — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **optimization** - status: **in_progress**
 _created 2026-11-01 · updated 2026-11-05 02:40_
 - **Why:** Already decided in VISION_optimization_coordinator_self_fixing_house.md:157 ('Knowledge, loaded fresh every run': HA concepts; URA_ARCHITECTURE_MAP, HVAC + presence state-of-play, SENSOR_FLEET_CLASSES, DEVICE_TREE; live config snapshot; ...
@@ -653,7 +698,7 @@ _created 2026-11-01 · updated 2026-11-05 02:40_
   - `tier`: 2
   - `eval_round_2026_11_07`: Operator-funded iteration ($50 cap, spent $40.31; worktree agent-a657e58090fb1df32 commits e1b08b13 b0d29379 12ac1780; ITERATIONS_2026_11_07.md, LEDGER_2026_11_07.md, RUBRIC.md). NOT PASSING: Sonnet 5.5 3/15 runs, 0 cases by majority; he...
 
-### `TEST-SUITE-PARALLEL-1` - Full test suite takes 24-33 min single-core; parallel run fails 91 vs 18 from test-order pollution — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `TEST-SUITE-PARALLEL-1` - Full test suite takes 24-33 min single-core; parallel run fails 91 vs 18 from test-order pollution — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **process** - status: **in_progress** - approval: **unreviewed**
 _created 2026-11-10 19:20 · updated 2026-11-11 07:05 · initial_
 - **Why:** Gate runs ~20.6k tests serially on 1 of 8 cores, twice per release (base + candidate), with 67 source-mutation drills (~4 min). Probe 2026-11-10 on develop 9894bc66: serial 33 min / 18 failed; -n 6 --dist loadfile 19 min / 91 failed, 76 ...
