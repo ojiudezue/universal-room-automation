@@ -316,6 +316,16 @@ ladder (rungs, `camera_resolver.py:11-36`):
 6. **operator-declared** — `CONF_ROOM_CAMERAS` multi-select is
    ground truth.
 
+**Frigate object-name rung (NVR-WITNESS W1, branch `feature/nvr-witness-w1-pairing`, NOT deployed).**
+In rung 5, a Frigate input device also pairs with the one non-Frigate camera device whose registry name
+(`name_by_user`, else `name`, through HA `slugify`) equals the Frigate object name from the Frigate device
+identifier. All of: input is Frigate; exactly one non-Frigate device owning an enabled `camera.*` has that slug; no
+other Frigate device has that object name; the candidate has no Frigate identifier. Basis `frigate_object_name`.
+Knob `RESOLVER_FRIGATE_OBJECT_NAME_EVIDENCE` (rung 1, True). It closes the Frigate → Protect direction for cameras
+whose Frigate entity is `X_2` (garage_a, garage_b, rear_ptz, stairs_top, upstairs_hall, utilities_ptz) or whose
+Protect stem differs (foyer_fisheye). `resolve_detection_legs` already reached those Protect legs through its own
+`_N`-stripped stem bridge, so perimeter legs do not change. Details: `docs/readmes/README_nvr_witness_w1_DRAFT.md`.
+
 Key APIs: `resolve_operator_declaration`, `resolve_capabilities`,
 `resolve_detection_legs` (returns `DetectionLeg` with engine tag —
 `frigate`/`frigate2`/`protect`/`protect2`/`reolink`/`amcrest`/`dahua`,

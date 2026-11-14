@@ -1,0 +1,6124 @@
+{
+ "_source": "camera_resolver.py at develop 4b825c50 over nvr_w1_live_registry_shape.json",
+ "cameras": {
+  "camera.armcrest": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "28878bf764a946e6547c3037531401b7",
+     "physical_camera_id": "28878bf764a946e6547c3037531401b7",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "28878bf764a946e6547c3037531401b7",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.armcrest_person_occupancy_2",
+       "person_count_sensor": "sensor.armcrest_person_count",
+       "person_detect_switch": null
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "28878bf764a946e6547c3037531401b7",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.armcrest_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "28878bf764a946e6547c3037531401b7",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "28878bf764a946e6547c3037531401b7",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.armcrest_person_occupancy_2",
+        "person_count_sensor": "sensor.armcrest_person_count",
+        "person_detect_switch": null
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.armcrestash41b_2": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "4c79697fbe930f23c216bba19255ad06",
+     "physical_camera_id": "4c79697fbe930f23c216bba19255ad06",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "4c79697fbe930f23c216bba19255ad06",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.armcrestash41b_person_occupancy_2",
+       "person_count_sensor": "sensor.armcrestash41b_person_count",
+       "person_detect_switch": null
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "4c79697fbe930f23c216bba19255ad06",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.armcrestash41b_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "4c79697fbe930f23c216bba19255ad06",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "4c79697fbe930f23c216bba19255ad06",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.armcrestash41b_person_occupancy_2",
+        "person_count_sensor": "sensor.armcrestash41b_person_count",
+        "person_detect_switch": null
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.armcrestpooloverhead_armcrestint_main_stream": {
+   "decl": [],
+   "legs": {
+    "animal": [],
+    "person": [],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [],
+    "owner": null,
+    "reason": "no_fusion"
+   }
+  },
+  "camera.armcrestpooloverhead_armcrestint_sub_stream_1": {
+   "decl": [],
+   "legs": {
+    "animal": [],
+    "person": [],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [],
+    "owner": null,
+    "reason": "no_fusion"
+   }
+  },
+  "camera.armcrestpooloverhead_armcrestint_sub_stream_2": {
+   "decl": [],
+   "legs": {
+    "animal": [],
+    "person": [],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [],
+    "owner": null,
+    "reason": "no_fusion"
+   }
+  },
+  "camera.armcrestpooloverhead_main": {
+   "decl": [],
+   "legs": {
+    "animal": [],
+    "person": [],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [],
+    "owner": null,
+    "reason": "no_fusion"
+   }
+  },
+  "camera.armcrestpooloverhead_sub": {
+   "decl": [],
+   "legs": {
+    "animal": [],
+    "person": [],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [],
+    "owner": null,
+    "reason": "no_fusion"
+   }
+  },
+  "camera.armcrestpooloverhead_sub_2": {
+   "decl": [],
+   "legs": {
+    "animal": [],
+    "person": [],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [],
+    "owner": null,
+    "reason": "no_fusion"
+   }
+  },
+  "camera.back_yard": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "19b23740ff8329713e9601408f81ef25",
+     "physical_camera_id": "4ab50f757faacfd7ad96aca24bab36dd",
+     "sources": [
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "19b23740ff8329713e9601408f81ef25",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.back_yard_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.back_yard_detections_person"
+      },
+      {
+       "correlation_basis": "same_device",
+       "device_id": "4ab50f757faacfd7ad96aca24bab36dd",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.back_yard_person_occupancy_2",
+       "person_count_sensor": "sensor.back_yard_person_count",
+       "person_detect_switch": null
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "19b23740ff8329713e9601408f81ef25",
+      "engine": "protect",
+      "entity_id": "binary_sensor.back_yard_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "4ab50f757faacfd7ad96aca24bab36dd",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.back_yard_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "4ab50f757faacfd7ad96aca24bab36dd",
+      "sources": [
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "19b23740ff8329713e9601408f81ef25",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.back_yard_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.back_yard_detections_person"
+       },
+       {
+        "correlation_basis": "same_device",
+        "device_id": "4ab50f757faacfd7ad96aca24bab36dd",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.back_yard_person_occupancy_2",
+        "person_count_sensor": "sensor.back_yard_person_count",
+        "person_detect_switch": null
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.back_yard_high_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "19b23740ff8329713e9601408f81ef25",
+     "physical_camera_id": "19b23740ff8329713e9601408f81ef25",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "19b23740ff8329713e9601408f81ef25",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.back_yard_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.back_yard_detections_person"
+      },
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "4ab50f757faacfd7ad96aca24bab36dd",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.back_yard_person_occupancy_2",
+       "person_count_sensor": "sensor.back_yard_person_count",
+       "person_detect_switch": null
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "19b23740ff8329713e9601408f81ef25",
+      "engine": "protect",
+      "entity_id": "binary_sensor.back_yard_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "4ab50f757faacfd7ad96aca24bab36dd",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.back_yard_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "19b23740ff8329713e9601408f81ef25",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "19b23740ff8329713e9601408f81ef25",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.back_yard_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.back_yard_detections_person"
+       },
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "4ab50f757faacfd7ad96aca24bab36dd",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.back_yard_person_occupancy_2",
+        "person_count_sensor": "sensor.back_yard_person_count",
+        "person_detect_switch": null
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.back_yard_low_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "19b23740ff8329713e9601408f81ef25",
+     "physical_camera_id": "19b23740ff8329713e9601408f81ef25",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "19b23740ff8329713e9601408f81ef25",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.back_yard_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.back_yard_detections_person"
+      },
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "4ab50f757faacfd7ad96aca24bab36dd",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.back_yard_person_occupancy_2",
+       "person_count_sensor": "sensor.back_yard_person_count",
+       "person_detect_switch": null
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "19b23740ff8329713e9601408f81ef25",
+      "engine": "protect",
+      "entity_id": "binary_sensor.back_yard_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "4ab50f757faacfd7ad96aca24bab36dd",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.back_yard_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "19b23740ff8329713e9601408f81ef25",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "19b23740ff8329713e9601408f81ef25",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.back_yard_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.back_yard_detections_person"
+       },
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "4ab50f757faacfd7ad96aca24bab36dd",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.back_yard_person_occupancy_2",
+        "person_count_sensor": "sensor.back_yard_person_count",
+        "person_detect_switch": null
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.balcony_amcrest_ip5m_t1277eb_ai_high_resolution_channel": {
+   "decl": [],
+   "legs": {
+    "animal": [],
+    "person": [],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [],
+    "owner": null,
+    "reason": "no_fusion"
+   }
+  },
+  "camera.doorbell_lite": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "aba94d43690d4e657b28e16e2ef69030",
+     "physical_camera_id": "bd2dd0c81464adf85b93503b35327e12",
+     "sources": [
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "aba94d43690d4e657b28e16e2ef69030",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.doorbell_lite_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.doorbell_lite_detections_person"
+      },
+      {
+       "correlation_basis": "same_device",
+       "device_id": "bd2dd0c81464adf85b93503b35327e12",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.doorbell_lite_person_occupancy_2",
+       "person_count_sensor": "sensor.doorbell_lite_person_count",
+       "person_detect_switch": null
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "aba94d43690d4e657b28e16e2ef69030",
+      "engine": "protect",
+      "entity_id": "binary_sensor.doorbell_lite_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "bd2dd0c81464adf85b93503b35327e12",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.doorbell_lite_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "bd2dd0c81464adf85b93503b35327e12",
+      "sources": [
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "aba94d43690d4e657b28e16e2ef69030",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.doorbell_lite_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.doorbell_lite_detections_person"
+       },
+       {
+        "correlation_basis": "same_device",
+        "device_id": "bd2dd0c81464adf85b93503b35327e12",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.doorbell_lite_person_occupancy_2",
+        "person_count_sensor": "sensor.doorbell_lite_person_count",
+        "person_detect_switch": null
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.doorbell_lite_high_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "aba94d43690d4e657b28e16e2ef69030",
+     "physical_camera_id": "aba94d43690d4e657b28e16e2ef69030",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "aba94d43690d4e657b28e16e2ef69030",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.doorbell_lite_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.doorbell_lite_detections_person"
+      },
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "bd2dd0c81464adf85b93503b35327e12",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.doorbell_lite_person_occupancy_2",
+       "person_count_sensor": "sensor.doorbell_lite_person_count",
+       "person_detect_switch": null
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "aba94d43690d4e657b28e16e2ef69030",
+      "engine": "protect",
+      "entity_id": "binary_sensor.doorbell_lite_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "bd2dd0c81464adf85b93503b35327e12",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.doorbell_lite_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "aba94d43690d4e657b28e16e2ef69030",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "aba94d43690d4e657b28e16e2ef69030",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.doorbell_lite_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.doorbell_lite_detections_person"
+       },
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "bd2dd0c81464adf85b93503b35327e12",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.doorbell_lite_person_occupancy_2",
+        "person_count_sensor": "sensor.doorbell_lite_person_count",
+        "person_detect_switch": null
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.entry_way_panel_camera": {
+   "decl": [],
+   "legs": {
+    "animal": [],
+    "person": [],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [],
+    "owner": null,
+    "reason": "no_fusion"
+   }
+  },
+  "camera.entry_way_panel_screenshot": {
+   "decl": [],
+   "legs": {
+    "animal": [],
+    "person": [],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [],
+    "owner": null,
+    "reason": "no_fusion"
+   }
+  },
+  "camera.family_room": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "62f7b21e657126f3482121f0f49d08fc",
+     "physical_camera_id": "62f7b21e657126f3482121f0f49d08fc",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "62f7b21e657126f3482121f0f49d08fc",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.family_room_person_occupancy",
+       "person_count_sensor": "sensor.family_room_person_count",
+       "person_detect_switch": null
+      },
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "c580a1b3bb405a01b84de5a9239a0f57",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.family_room_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.family_room_detections_person"
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "c580a1b3bb405a01b84de5a9239a0f57",
+      "engine": "protect",
+      "entity_id": "binary_sensor.family_room_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "62f7b21e657126f3482121f0f49d08fc",
+      "engine": "frigate",
+      "entity_id": "binary_sensor.family_room_person_occupancy",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "62f7b21e657126f3482121f0f49d08fc",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "62f7b21e657126f3482121f0f49d08fc",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.family_room_person_occupancy",
+        "person_count_sensor": "sensor.family_room_person_count",
+        "person_detect_switch": null
+       },
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "c580a1b3bb405a01b84de5a9239a0f57",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.family_room_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.family_room_detections_person"
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.family_room_high_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "62f7b21e657126f3482121f0f49d08fc",
+     "physical_camera_id": "c580a1b3bb405a01b84de5a9239a0f57",
+     "sources": [
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "62f7b21e657126f3482121f0f49d08fc",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.family_room_person_occupancy",
+       "person_count_sensor": "sensor.family_room_person_count",
+       "person_detect_switch": null
+      },
+      {
+       "correlation_basis": "same_device",
+       "device_id": "c580a1b3bb405a01b84de5a9239a0f57",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.family_room_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.family_room_detections_person"
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "c580a1b3bb405a01b84de5a9239a0f57",
+      "engine": "protect",
+      "entity_id": "binary_sensor.family_room_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "62f7b21e657126f3482121f0f49d08fc",
+      "engine": "frigate",
+      "entity_id": "binary_sensor.family_room_person_occupancy",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "c580a1b3bb405a01b84de5a9239a0f57",
+      "sources": [
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "62f7b21e657126f3482121f0f49d08fc",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.family_room_person_occupancy",
+        "person_count_sensor": "sensor.family_room_person_count",
+        "person_detect_switch": null
+       },
+       {
+        "correlation_basis": "same_device",
+        "device_id": "c580a1b3bb405a01b84de5a9239a0f57",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.family_room_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.family_room_detections_person"
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.family_room_low_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "62f7b21e657126f3482121f0f49d08fc",
+     "physical_camera_id": "c580a1b3bb405a01b84de5a9239a0f57",
+     "sources": [
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "62f7b21e657126f3482121f0f49d08fc",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.family_room_person_occupancy",
+       "person_count_sensor": "sensor.family_room_person_count",
+       "person_detect_switch": null
+      },
+      {
+       "correlation_basis": "same_device",
+       "device_id": "c580a1b3bb405a01b84de5a9239a0f57",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.family_room_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.family_room_detections_person"
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "c580a1b3bb405a01b84de5a9239a0f57",
+      "engine": "protect",
+      "entity_id": "binary_sensor.family_room_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "62f7b21e657126f3482121f0f49d08fc",
+      "engine": "frigate",
+      "entity_id": "binary_sensor.family_room_person_occupancy",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "c580a1b3bb405a01b84de5a9239a0f57",
+      "sources": [
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "62f7b21e657126f3482121f0f49d08fc",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.family_room_person_occupancy",
+        "person_count_sensor": "sensor.family_room_person_count",
+        "person_detect_switch": null
+       },
+       {
+        "correlation_basis": "same_device",
+        "device_id": "c580a1b3bb405a01b84de5a9239a0f57",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.family_room_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.family_room_detections_person"
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.family_room_medium_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "62f7b21e657126f3482121f0f49d08fc",
+     "physical_camera_id": "c580a1b3bb405a01b84de5a9239a0f57",
+     "sources": [
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "62f7b21e657126f3482121f0f49d08fc",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.family_room_person_occupancy",
+       "person_count_sensor": "sensor.family_room_person_count",
+       "person_detect_switch": null
+      },
+      {
+       "correlation_basis": "same_device",
+       "device_id": "c580a1b3bb405a01b84de5a9239a0f57",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.family_room_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.family_room_detections_person"
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "c580a1b3bb405a01b84de5a9239a0f57",
+      "engine": "protect",
+      "entity_id": "binary_sensor.family_room_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "62f7b21e657126f3482121f0f49d08fc",
+      "engine": "frigate",
+      "entity_id": "binary_sensor.family_room_person_occupancy",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "c580a1b3bb405a01b84de5a9239a0f57",
+      "sources": [
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "62f7b21e657126f3482121f0f49d08fc",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.family_room_person_occupancy",
+        "person_count_sensor": "sensor.family_room_person_count",
+        "person_detect_switch": null
+       },
+       {
+        "correlation_basis": "same_device",
+        "device_id": "c580a1b3bb405a01b84de5a9239a0f57",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.family_room_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.family_room_detections_person"
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.foyer_fisheye": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "f095ee1afbb60cd69699623eef1d3706",
+     "physical_camera_id": "f095ee1afbb60cd69699623eef1d3706",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "f095ee1afbb60cd69699623eef1d3706",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.foyer_fisheye_person_occupancy",
+       "person_count_sensor": "sensor.foyer_fisheye_person_count",
+       "person_detect_switch": null
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "f095ee1afbb60cd69699623eef1d3706",
+      "engine": "frigate",
+      "entity_id": "binary_sensor.foyer_fisheye_person_occupancy",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "f095ee1afbb60cd69699623eef1d3706",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "f095ee1afbb60cd69699623eef1d3706",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.foyer_fisheye_person_occupancy",
+        "person_count_sensor": "sensor.foyer_fisheye_person_count",
+        "person_detect_switch": null
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.foyer_fisheye_high_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "f095ee1afbb60cd69699623eef1d3706",
+     "physical_camera_id": "fb4e9a02e2886aa9ba0f4eb00feee1a1",
+     "sources": [
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "f095ee1afbb60cd69699623eef1d3706",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.foyer_fisheye_person_occupancy",
+       "person_count_sensor": "sensor.foyer_fisheye_person_count",
+       "person_detect_switch": null
+      },
+      {
+       "correlation_basis": "same_device",
+       "device_id": "fb4e9a02e2886aa9ba0f4eb00feee1a1",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.foyer_fisheye_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.foyer_fisheye_detections_person"
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "fb4e9a02e2886aa9ba0f4eb00feee1a1",
+      "engine": "protect",
+      "entity_id": "binary_sensor.foyer_fisheye_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "f095ee1afbb60cd69699623eef1d3706",
+      "engine": "frigate",
+      "entity_id": "binary_sensor.foyer_fisheye_person_occupancy",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "fb4e9a02e2886aa9ba0f4eb00feee1a1",
+      "sources": [
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "f095ee1afbb60cd69699623eef1d3706",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.foyer_fisheye_person_occupancy",
+        "person_count_sensor": "sensor.foyer_fisheye_person_count",
+        "person_detect_switch": null
+       },
+       {
+        "correlation_basis": "same_device",
+        "device_id": "fb4e9a02e2886aa9ba0f4eb00feee1a1",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.foyer_fisheye_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.foyer_fisheye_detections_person"
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.foyer_fisheye_low_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "f095ee1afbb60cd69699623eef1d3706",
+     "physical_camera_id": "fb4e9a02e2886aa9ba0f4eb00feee1a1",
+     "sources": [
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "f095ee1afbb60cd69699623eef1d3706",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.foyer_fisheye_person_occupancy",
+       "person_count_sensor": "sensor.foyer_fisheye_person_count",
+       "person_detect_switch": null
+      },
+      {
+       "correlation_basis": "same_device",
+       "device_id": "fb4e9a02e2886aa9ba0f4eb00feee1a1",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.foyer_fisheye_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.foyer_fisheye_detections_person"
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "fb4e9a02e2886aa9ba0f4eb00feee1a1",
+      "engine": "protect",
+      "entity_id": "binary_sensor.foyer_fisheye_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "f095ee1afbb60cd69699623eef1d3706",
+      "engine": "frigate",
+      "entity_id": "binary_sensor.foyer_fisheye_person_occupancy",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "fb4e9a02e2886aa9ba0f4eb00feee1a1",
+      "sources": [
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "f095ee1afbb60cd69699623eef1d3706",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.foyer_fisheye_person_occupancy",
+        "person_count_sensor": "sensor.foyer_fisheye_person_count",
+        "person_detect_switch": null
+       },
+       {
+        "correlation_basis": "same_device",
+        "device_id": "fb4e9a02e2886aa9ba0f4eb00feee1a1",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.foyer_fisheye_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.foyer_fisheye_detections_person"
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.front_door_aerial": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "94f4938b1cfcdd085de17c0a99868da0",
+     "physical_camera_id": "94f4938b1cfcdd085de17c0a99868da0",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "94f4938b1cfcdd085de17c0a99868da0",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.front_door_aerial_person_occupancy_2",
+       "person_count_sensor": "sensor.front_door_aerial_person_count",
+       "person_detect_switch": null
+      },
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "d834a366baad8dcbb2aca0f3099e07b5",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.front_door_aerial_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.front_door_aerial_detections_person"
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "d834a366baad8dcbb2aca0f3099e07b5",
+      "engine": "protect",
+      "entity_id": "binary_sensor.front_door_aerial_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "94f4938b1cfcdd085de17c0a99868da0",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.front_door_aerial_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "94f4938b1cfcdd085de17c0a99868da0",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "94f4938b1cfcdd085de17c0a99868da0",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.front_door_aerial_person_occupancy_2",
+        "person_count_sensor": "sensor.front_door_aerial_person_count",
+        "person_detect_switch": null
+       },
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "d834a366baad8dcbb2aca0f3099e07b5",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.front_door_aerial_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.front_door_aerial_detections_person"
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.front_door_aerial_high_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "94f4938b1cfcdd085de17c0a99868da0",
+     "physical_camera_id": "d834a366baad8dcbb2aca0f3099e07b5",
+     "sources": [
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "94f4938b1cfcdd085de17c0a99868da0",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.front_door_aerial_person_occupancy_2",
+       "person_count_sensor": "sensor.front_door_aerial_person_count",
+       "person_detect_switch": null
+      },
+      {
+       "correlation_basis": "same_device",
+       "device_id": "d834a366baad8dcbb2aca0f3099e07b5",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.front_door_aerial_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.front_door_aerial_detections_person"
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "d834a366baad8dcbb2aca0f3099e07b5",
+      "engine": "protect",
+      "entity_id": "binary_sensor.front_door_aerial_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "94f4938b1cfcdd085de17c0a99868da0",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.front_door_aerial_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "d834a366baad8dcbb2aca0f3099e07b5",
+      "sources": [
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "94f4938b1cfcdd085de17c0a99868da0",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.front_door_aerial_person_occupancy_2",
+        "person_count_sensor": "sensor.front_door_aerial_person_count",
+        "person_detect_switch": null
+       },
+       {
+        "correlation_basis": "same_device",
+        "device_id": "d834a366baad8dcbb2aca0f3099e07b5",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.front_door_aerial_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.front_door_aerial_detections_person"
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.front_door_aerial_low_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "94f4938b1cfcdd085de17c0a99868da0",
+     "physical_camera_id": "d834a366baad8dcbb2aca0f3099e07b5",
+     "sources": [
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "94f4938b1cfcdd085de17c0a99868da0",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.front_door_aerial_person_occupancy_2",
+       "person_count_sensor": "sensor.front_door_aerial_person_count",
+       "person_detect_switch": null
+      },
+      {
+       "correlation_basis": "same_device",
+       "device_id": "d834a366baad8dcbb2aca0f3099e07b5",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.front_door_aerial_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.front_door_aerial_detections_person"
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "d834a366baad8dcbb2aca0f3099e07b5",
+      "engine": "protect",
+      "entity_id": "binary_sensor.front_door_aerial_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "94f4938b1cfcdd085de17c0a99868da0",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.front_door_aerial_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "d834a366baad8dcbb2aca0f3099e07b5",
+      "sources": [
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "94f4938b1cfcdd085de17c0a99868da0",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.front_door_aerial_person_occupancy_2",
+        "person_count_sensor": "sensor.front_door_aerial_person_count",
+        "person_detect_switch": null
+       },
+       {
+        "correlation_basis": "same_device",
+        "device_id": "d834a366baad8dcbb2aca0f3099e07b5",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.front_door_aerial_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.front_door_aerial_detections_person"
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.front_side_ptz": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "35a77a9b88c74f8af230857160bf0264",
+     "physical_camera_id": "35a77a9b88c74f8af230857160bf0264",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "35a77a9b88c74f8af230857160bf0264",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.front_side_ptz_person_occupancy_2",
+       "person_count_sensor": "sensor.front_side_ptz_person_count",
+       "person_detect_switch": null
+      },
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "ede8f7b4c084e052832ad186364ee49e",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.front_side_ptz_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.front_side_ptz_detections_person"
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "ede8f7b4c084e052832ad186364ee49e",
+      "engine": "protect",
+      "entity_id": "binary_sensor.front_side_ptz_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "35a77a9b88c74f8af230857160bf0264",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.front_side_ptz_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "35a77a9b88c74f8af230857160bf0264",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "35a77a9b88c74f8af230857160bf0264",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.front_side_ptz_person_occupancy_2",
+        "person_count_sensor": "sensor.front_side_ptz_person_count",
+        "person_detect_switch": null
+       },
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "ede8f7b4c084e052832ad186364ee49e",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.front_side_ptz_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.front_side_ptz_detections_person"
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.front_side_ptz_high_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "35a77a9b88c74f8af230857160bf0264",
+     "physical_camera_id": "ede8f7b4c084e052832ad186364ee49e",
+     "sources": [
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "35a77a9b88c74f8af230857160bf0264",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.front_side_ptz_person_occupancy_2",
+       "person_count_sensor": "sensor.front_side_ptz_person_count",
+       "person_detect_switch": null
+      },
+      {
+       "correlation_basis": "same_device",
+       "device_id": "ede8f7b4c084e052832ad186364ee49e",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.front_side_ptz_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.front_side_ptz_detections_person"
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "ede8f7b4c084e052832ad186364ee49e",
+      "engine": "protect",
+      "entity_id": "binary_sensor.front_side_ptz_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "35a77a9b88c74f8af230857160bf0264",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.front_side_ptz_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "ede8f7b4c084e052832ad186364ee49e",
+      "sources": [
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "35a77a9b88c74f8af230857160bf0264",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.front_side_ptz_person_occupancy_2",
+        "person_count_sensor": "sensor.front_side_ptz_person_count",
+        "person_detect_switch": null
+       },
+       {
+        "correlation_basis": "same_device",
+        "device_id": "ede8f7b4c084e052832ad186364ee49e",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.front_side_ptz_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.front_side_ptz_detections_person"
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.front_side_ptz_low_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "35a77a9b88c74f8af230857160bf0264",
+     "physical_camera_id": "ede8f7b4c084e052832ad186364ee49e",
+     "sources": [
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "35a77a9b88c74f8af230857160bf0264",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.front_side_ptz_person_occupancy_2",
+       "person_count_sensor": "sensor.front_side_ptz_person_count",
+       "person_detect_switch": null
+      },
+      {
+       "correlation_basis": "same_device",
+       "device_id": "ede8f7b4c084e052832ad186364ee49e",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.front_side_ptz_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.front_side_ptz_detections_person"
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "ede8f7b4c084e052832ad186364ee49e",
+      "engine": "protect",
+      "entity_id": "binary_sensor.front_side_ptz_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "35a77a9b88c74f8af230857160bf0264",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.front_side_ptz_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "ede8f7b4c084e052832ad186364ee49e",
+      "sources": [
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "35a77a9b88c74f8af230857160bf0264",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.front_side_ptz_person_occupancy_2",
+        "person_count_sensor": "sensor.front_side_ptz_person_count",
+        "person_detect_switch": null
+       },
+       {
+        "correlation_basis": "same_device",
+        "device_id": "ede8f7b4c084e052832ad186364ee49e",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.front_side_ptz_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.front_side_ptz_detections_person"
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.g3_instant_high_resolution_channel": {
+   "decl": [],
+   "legs": {
+    "animal": [],
+    "person": [],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [],
+    "owner": null,
+    "reason": "no_fusion"
+   }
+  },
+  "camera.g3_instant_high_resolution_channel_2": {
+   "decl": [],
+   "legs": {
+    "animal": [],
+    "person": [],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [],
+    "owner": null,
+    "reason": "no_fusion"
+   }
+  },
+  "camera.g3_instant_study_a_low_resolution_channel": {
+   "decl": [],
+   "legs": {
+    "animal": [],
+    "person": [],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [],
+    "owner": null,
+    "reason": "no_fusion"
+   }
+  },
+  "camera.g3_instant_study_a_medium_resolution_channel": {
+   "decl": [],
+   "legs": {
+    "animal": [],
+    "person": [],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [],
+    "owner": null,
+    "reason": "no_fusion"
+   }
+  },
+  "camera.g5_bullet": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "9f978a5880bafd7d82ca91874bb68a5c",
+     "physical_camera_id": "b9242be0c752cc1b85310e7fed1694b4",
+     "sources": [
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "9f978a5880bafd7d82ca91874bb68a5c",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.g5_bullet_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.g5_bullet_detections_person"
+      },
+      {
+       "correlation_basis": "same_device",
+       "device_id": "b9242be0c752cc1b85310e7fed1694b4",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.g5_bullet_person_occupancy_2",
+       "person_count_sensor": "sensor.g5_bullet_person_count",
+       "person_detect_switch": null
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "9f978a5880bafd7d82ca91874bb68a5c",
+      "engine": "protect",
+      "entity_id": "binary_sensor.g5_bullet_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "b9242be0c752cc1b85310e7fed1694b4",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.g5_bullet_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "b9242be0c752cc1b85310e7fed1694b4",
+      "sources": [
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "9f978a5880bafd7d82ca91874bb68a5c",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.g5_bullet_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.g5_bullet_detections_person"
+       },
+       {
+        "correlation_basis": "same_device",
+        "device_id": "b9242be0c752cc1b85310e7fed1694b4",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.g5_bullet_person_occupancy_2",
+        "person_count_sensor": "sensor.g5_bullet_person_count",
+        "person_detect_switch": null
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.g5_bullet_high_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "9f978a5880bafd7d82ca91874bb68a5c",
+     "physical_camera_id": "9f978a5880bafd7d82ca91874bb68a5c",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "9f978a5880bafd7d82ca91874bb68a5c",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.g5_bullet_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.g5_bullet_detections_person"
+      },
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "b9242be0c752cc1b85310e7fed1694b4",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.g5_bullet_person_occupancy_2",
+       "person_count_sensor": "sensor.g5_bullet_person_count",
+       "person_detect_switch": null
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "9f978a5880bafd7d82ca91874bb68a5c",
+      "engine": "protect",
+      "entity_id": "binary_sensor.g5_bullet_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "b9242be0c752cc1b85310e7fed1694b4",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.g5_bullet_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "9f978a5880bafd7d82ca91874bb68a5c",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "9f978a5880bafd7d82ca91874bb68a5c",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.g5_bullet_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.g5_bullet_detections_person"
+       },
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "b9242be0c752cc1b85310e7fed1694b4",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.g5_bullet_person_occupancy_2",
+        "person_count_sensor": "sensor.g5_bullet_person_count",
+        "person_detect_switch": null
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.g5_bullet_low_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "9f978a5880bafd7d82ca91874bb68a5c",
+     "physical_camera_id": "9f978a5880bafd7d82ca91874bb68a5c",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "9f978a5880bafd7d82ca91874bb68a5c",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.g5_bullet_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.g5_bullet_detections_person"
+      },
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "b9242be0c752cc1b85310e7fed1694b4",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.g5_bullet_person_occupancy_2",
+       "person_count_sensor": "sensor.g5_bullet_person_count",
+       "person_detect_switch": null
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "9f978a5880bafd7d82ca91874bb68a5c",
+      "engine": "protect",
+      "entity_id": "binary_sensor.g5_bullet_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "b9242be0c752cc1b85310e7fed1694b4",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.g5_bullet_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "9f978a5880bafd7d82ca91874bb68a5c",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "9f978a5880bafd7d82ca91874bb68a5c",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.g5_bullet_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.g5_bullet_detections_person"
+       },
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "b9242be0c752cc1b85310e7fed1694b4",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.g5_bullet_person_occupancy_2",
+        "person_count_sensor": "sensor.g5_bullet_person_count",
+        "person_detect_switch": null
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.garage_a_2": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "7c45bd09807dc95870bc7e747e5a3225",
+     "physical_camera_id": "7c45bd09807dc95870bc7e747e5a3225",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "7c45bd09807dc95870bc7e747e5a3225",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.garage_a_person_occupancy_2",
+       "person_count_sensor": "sensor.garage_a_person_count",
+       "person_detect_switch": null
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "f84347c3bdb5ae35165371bc6b0ef46d",
+      "engine": "protect",
+      "entity_id": "binary_sensor.garage_a_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "7c45bd09807dc95870bc7e747e5a3225",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.garage_a_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "7c45bd09807dc95870bc7e747e5a3225",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "7c45bd09807dc95870bc7e747e5a3225",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.garage_a_person_occupancy_2",
+        "person_count_sensor": "sensor.garage_a_person_count",
+        "person_detect_switch": null
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.garage_a_high_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "7c45bd09807dc95870bc7e747e5a3225",
+     "physical_camera_id": "f84347c3bdb5ae35165371bc6b0ef46d",
+     "sources": [
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "7c45bd09807dc95870bc7e747e5a3225",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.garage_a_person_occupancy_2",
+       "person_count_sensor": "sensor.garage_a_person_count",
+       "person_detect_switch": null
+      },
+      {
+       "correlation_basis": "same_device",
+       "device_id": "f84347c3bdb5ae35165371bc6b0ef46d",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.garage_a_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.garage_a_detections_person"
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "f84347c3bdb5ae35165371bc6b0ef46d",
+      "engine": "protect",
+      "entity_id": "binary_sensor.garage_a_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "7c45bd09807dc95870bc7e747e5a3225",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.garage_a_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "f84347c3bdb5ae35165371bc6b0ef46d",
+      "sources": [
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "7c45bd09807dc95870bc7e747e5a3225",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.garage_a_person_occupancy_2",
+        "person_count_sensor": "sensor.garage_a_person_count",
+        "person_detect_switch": null
+       },
+       {
+        "correlation_basis": "same_device",
+        "device_id": "f84347c3bdb5ae35165371bc6b0ef46d",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.garage_a_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.garage_a_detections_person"
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.garage_a_low_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "7c45bd09807dc95870bc7e747e5a3225",
+     "physical_camera_id": "f84347c3bdb5ae35165371bc6b0ef46d",
+     "sources": [
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "7c45bd09807dc95870bc7e747e5a3225",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.garage_a_person_occupancy_2",
+       "person_count_sensor": "sensor.garage_a_person_count",
+       "person_detect_switch": null
+      },
+      {
+       "correlation_basis": "same_device",
+       "device_id": "f84347c3bdb5ae35165371bc6b0ef46d",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.garage_a_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.garage_a_detections_person"
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "f84347c3bdb5ae35165371bc6b0ef46d",
+      "engine": "protect",
+      "entity_id": "binary_sensor.garage_a_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "7c45bd09807dc95870bc7e747e5a3225",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.garage_a_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "f84347c3bdb5ae35165371bc6b0ef46d",
+      "sources": [
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "7c45bd09807dc95870bc7e747e5a3225",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.garage_a_person_occupancy_2",
+        "person_count_sensor": "sensor.garage_a_person_count",
+        "person_detect_switch": null
+       },
+       {
+        "correlation_basis": "same_device",
+        "device_id": "f84347c3bdb5ae35165371bc6b0ef46d",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.garage_a_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.garage_a_detections_person"
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.garage_b_2": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "590cae754d03a07ee4a335847f5cdacd",
+     "physical_camera_id": "590cae754d03a07ee4a335847f5cdacd",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "590cae754d03a07ee4a335847f5cdacd",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.garage_b_person_occupancy",
+       "person_count_sensor": "sensor.garage_b_person_count",
+       "person_detect_switch": null
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "da2ea2728aa39a4607f875fb7a0ca1da",
+      "engine": "protect",
+      "entity_id": "binary_sensor.garage_b_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "590cae754d03a07ee4a335847f5cdacd",
+      "engine": "frigate",
+      "entity_id": "binary_sensor.garage_b_person_occupancy",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "590cae754d03a07ee4a335847f5cdacd",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "590cae754d03a07ee4a335847f5cdacd",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.garage_b_person_occupancy",
+        "person_count_sensor": "sensor.garage_b_person_count",
+        "person_detect_switch": null
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.garage_b_high_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "590cae754d03a07ee4a335847f5cdacd",
+     "physical_camera_id": "da2ea2728aa39a4607f875fb7a0ca1da",
+     "sources": [
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "590cae754d03a07ee4a335847f5cdacd",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.garage_b_person_occupancy",
+       "person_count_sensor": "sensor.garage_b_person_count",
+       "person_detect_switch": null
+      },
+      {
+       "correlation_basis": "same_device",
+       "device_id": "da2ea2728aa39a4607f875fb7a0ca1da",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.garage_b_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.garage_b_detections_person"
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "da2ea2728aa39a4607f875fb7a0ca1da",
+      "engine": "protect",
+      "entity_id": "binary_sensor.garage_b_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "590cae754d03a07ee4a335847f5cdacd",
+      "engine": "frigate",
+      "entity_id": "binary_sensor.garage_b_person_occupancy",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "da2ea2728aa39a4607f875fb7a0ca1da",
+      "sources": [
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "590cae754d03a07ee4a335847f5cdacd",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.garage_b_person_occupancy",
+        "person_count_sensor": "sensor.garage_b_person_count",
+        "person_detect_switch": null
+       },
+       {
+        "correlation_basis": "same_device",
+        "device_id": "da2ea2728aa39a4607f875fb7a0ca1da",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.garage_b_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.garage_b_detections_person"
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.garage_b_low_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "590cae754d03a07ee4a335847f5cdacd",
+     "physical_camera_id": "da2ea2728aa39a4607f875fb7a0ca1da",
+     "sources": [
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "590cae754d03a07ee4a335847f5cdacd",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.garage_b_person_occupancy",
+       "person_count_sensor": "sensor.garage_b_person_count",
+       "person_detect_switch": null
+      },
+      {
+       "correlation_basis": "same_device",
+       "device_id": "da2ea2728aa39a4607f875fb7a0ca1da",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.garage_b_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.garage_b_detections_person"
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "da2ea2728aa39a4607f875fb7a0ca1da",
+      "engine": "protect",
+      "entity_id": "binary_sensor.garage_b_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "590cae754d03a07ee4a335847f5cdacd",
+      "engine": "frigate",
+      "entity_id": "binary_sensor.garage_b_person_occupancy",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "da2ea2728aa39a4607f875fb7a0ca1da",
+      "sources": [
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "590cae754d03a07ee4a335847f5cdacd",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.garage_b_person_occupancy",
+        "person_count_sensor": "sensor.garage_b_person_count",
+        "person_detect_switch": null
+       },
+       {
+        "correlation_basis": "same_device",
+        "device_id": "da2ea2728aa39a4607f875fb7a0ca1da",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.garage_b_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.garage_b_detections_person"
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.garage_doorbell_lite_low_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "aba94d43690d4e657b28e16e2ef69030",
+     "physical_camera_id": "aba94d43690d4e657b28e16e2ef69030",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "aba94d43690d4e657b28e16e2ef69030",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.doorbell_lite_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.doorbell_lite_detections_person"
+      },
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "bd2dd0c81464adf85b93503b35327e12",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.doorbell_lite_person_occupancy_2",
+       "person_count_sensor": "sensor.doorbell_lite_person_count",
+       "person_detect_switch": null
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "aba94d43690d4e657b28e16e2ef69030",
+      "engine": "protect",
+      "entity_id": "binary_sensor.doorbell_lite_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "bd2dd0c81464adf85b93503b35327e12",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.doorbell_lite_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "aba94d43690d4e657b28e16e2ef69030",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "aba94d43690d4e657b28e16e2ef69030",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.doorbell_lite_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.doorbell_lite_detections_person"
+       },
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "bd2dd0c81464adf85b93503b35327e12",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.doorbell_lite_person_occupancy_2",
+        "person_count_sensor": "sensor.doorbell_lite_person_count",
+        "person_detect_switch": null
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.general_ash41_b_high_resolution_channel": {
+   "decl": [],
+   "legs": {
+    "animal": [],
+    "person": [],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [],
+    "owner": null,
+    "reason": "no_fusion"
+   }
+  },
+  "camera.hot_tub": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "1ab472b4cb473d4ee4dd3102978f6b24",
+     "physical_camera_id": "1ab472b4cb473d4ee4dd3102978f6b24",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "1ab472b4cb473d4ee4dd3102978f6b24",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.hot_tub_person_occupancy_2",
+       "person_count_sensor": "sensor.hot_tub_person_count",
+       "person_detect_switch": null
+      },
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "baaf04024b6ceda3ca4500d0867c9a84",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.hot_tub_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.hot_tub_detections_person"
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "baaf04024b6ceda3ca4500d0867c9a84",
+      "engine": "protect",
+      "entity_id": "binary_sensor.hot_tub_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "1ab472b4cb473d4ee4dd3102978f6b24",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.hot_tub_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "1ab472b4cb473d4ee4dd3102978f6b24",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "1ab472b4cb473d4ee4dd3102978f6b24",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.hot_tub_person_occupancy_2",
+        "person_count_sensor": "sensor.hot_tub_person_count",
+        "person_detect_switch": null
+       },
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "baaf04024b6ceda3ca4500d0867c9a84",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.hot_tub_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.hot_tub_detections_person"
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.hot_tub_high_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "1ab472b4cb473d4ee4dd3102978f6b24",
+     "physical_camera_id": "baaf04024b6ceda3ca4500d0867c9a84",
+     "sources": [
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "1ab472b4cb473d4ee4dd3102978f6b24",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.hot_tub_person_occupancy_2",
+       "person_count_sensor": "sensor.hot_tub_person_count",
+       "person_detect_switch": null
+      },
+      {
+       "correlation_basis": "same_device",
+       "device_id": "baaf04024b6ceda3ca4500d0867c9a84",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.hot_tub_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.hot_tub_detections_person"
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "baaf04024b6ceda3ca4500d0867c9a84",
+      "engine": "protect",
+      "entity_id": "binary_sensor.hot_tub_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "1ab472b4cb473d4ee4dd3102978f6b24",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.hot_tub_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "baaf04024b6ceda3ca4500d0867c9a84",
+      "sources": [
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "1ab472b4cb473d4ee4dd3102978f6b24",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.hot_tub_person_occupancy_2",
+        "person_count_sensor": "sensor.hot_tub_person_count",
+        "person_detect_switch": null
+       },
+       {
+        "correlation_basis": "same_device",
+        "device_id": "baaf04024b6ceda3ca4500d0867c9a84",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.hot_tub_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.hot_tub_detections_person"
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.hot_tub_low_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "1ab472b4cb473d4ee4dd3102978f6b24",
+     "physical_camera_id": "baaf04024b6ceda3ca4500d0867c9a84",
+     "sources": [
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "1ab472b4cb473d4ee4dd3102978f6b24",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.hot_tub_person_occupancy_2",
+       "person_count_sensor": "sensor.hot_tub_person_count",
+       "person_detect_switch": null
+      },
+      {
+       "correlation_basis": "same_device",
+       "device_id": "baaf04024b6ceda3ca4500d0867c9a84",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.hot_tub_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.hot_tub_detections_person"
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "baaf04024b6ceda3ca4500d0867c9a84",
+      "engine": "protect",
+      "entity_id": "binary_sensor.hot_tub_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "1ab472b4cb473d4ee4dd3102978f6b24",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.hot_tub_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "baaf04024b6ceda3ca4500d0867c9a84",
+      "sources": [
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "1ab472b4cb473d4ee4dd3102978f6b24",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.hot_tub_person_occupancy_2",
+        "person_count_sensor": "sensor.hot_tub_person_count",
+        "person_detect_switch": null
+       },
+       {
+        "correlation_basis": "same_device",
+        "device_id": "baaf04024b6ceda3ca4500d0867c9a84",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.hot_tub_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.hot_tub_detections_person"
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.kitchen_eufy_ae_c10_map": {
+   "decl": [],
+   "legs": {
+    "animal": [],
+    "person": [],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [],
+    "owner": null,
+    "reason": "no_fusion"
+   }
+  },
+  "camera.kitchen_panel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "dd5643cdf59fce698bdda2f12229c3ad",
+     "physical_camera_id": "dd5643cdf59fce698bdda2f12229c3ad",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "dd5643cdf59fce698bdda2f12229c3ad",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.kitchen_panel_person_occupancy",
+       "person_count_sensor": "sensor.kitchen_panel_person_count",
+       "person_detect_switch": null
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "dd5643cdf59fce698bdda2f12229c3ad",
+      "engine": "frigate",
+      "entity_id": "binary_sensor.kitchen_panel_person_occupancy",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "dd5643cdf59fce698bdda2f12229c3ad",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "dd5643cdf59fce698bdda2f12229c3ad",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.kitchen_panel_person_occupancy",
+        "person_count_sensor": "sensor.kitchen_panel_person_count",
+        "person_detect_switch": null
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.kitchen_panel_camera": {
+   "decl": [],
+   "legs": {
+    "animal": [],
+    "person": [],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [],
+    "owner": null,
+    "reason": "no_fusion"
+   }
+  },
+  "camera.kitchen_panel_screenshot": {
+   "decl": [],
+   "legs": {
+    "animal": [],
+    "person": [],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [],
+    "owner": null,
+    "reason": "no_fusion"
+   }
+  },
+  "camera.madrone_g6_entry": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "6e7a11b9baf62e629855c99c74d1f65c",
+     "physical_camera_id": "6e7a11b9baf62e629855c99c74d1f65c",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "6e7a11b9baf62e629855c99c74d1f65c",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.madrone_g6_entry_person_occupancy_2",
+       "person_count_sensor": "sensor.madrone_g6_entry_person_count",
+       "person_detect_switch": null
+      },
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "ff7daafd146a35700453322f79f632f7",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.madrone_g6_entry_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.madrone_g6_entry_person_detection"
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "ff7daafd146a35700453322f79f632f7",
+      "engine": "protect",
+      "entity_id": "binary_sensor.madrone_g6_entry_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "6e7a11b9baf62e629855c99c74d1f65c",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.madrone_g6_entry_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "6e7a11b9baf62e629855c99c74d1f65c",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "6e7a11b9baf62e629855c99c74d1f65c",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.madrone_g6_entry_person_occupancy_2",
+        "person_count_sensor": "sensor.madrone_g6_entry_person_count",
+        "person_detect_switch": null
+       },
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "ff7daafd146a35700453322f79f632f7",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.madrone_g6_entry_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.madrone_g6_entry_person_detection"
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.madrone_g6_entry_high_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "6e7a11b9baf62e629855c99c74d1f65c",
+     "physical_camera_id": "ff7daafd146a35700453322f79f632f7",
+     "sources": [
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "6e7a11b9baf62e629855c99c74d1f65c",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.madrone_g6_entry_person_occupancy_2",
+       "person_count_sensor": "sensor.madrone_g6_entry_person_count",
+       "person_detect_switch": null
+      },
+      {
+       "correlation_basis": "same_device",
+       "device_id": "ff7daafd146a35700453322f79f632f7",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.madrone_g6_entry_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.madrone_g6_entry_person_detection"
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "ff7daafd146a35700453322f79f632f7",
+      "engine": "protect",
+      "entity_id": "binary_sensor.madrone_g6_entry_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "6e7a11b9baf62e629855c99c74d1f65c",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.madrone_g6_entry_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "ff7daafd146a35700453322f79f632f7",
+      "sources": [
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "6e7a11b9baf62e629855c99c74d1f65c",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.madrone_g6_entry_person_occupancy_2",
+        "person_count_sensor": "sensor.madrone_g6_entry_person_count",
+        "person_detect_switch": null
+       },
+       {
+        "correlation_basis": "same_device",
+        "device_id": "ff7daafd146a35700453322f79f632f7",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.madrone_g6_entry_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.madrone_g6_entry_person_detection"
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.madrone_g6_entry_low_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "6e7a11b9baf62e629855c99c74d1f65c",
+     "physical_camera_id": "ff7daafd146a35700453322f79f632f7",
+     "sources": [
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "6e7a11b9baf62e629855c99c74d1f65c",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.madrone_g6_entry_person_occupancy_2",
+       "person_count_sensor": "sensor.madrone_g6_entry_person_count",
+       "person_detect_switch": null
+      },
+      {
+       "correlation_basis": "same_device",
+       "device_id": "ff7daafd146a35700453322f79f632f7",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.madrone_g6_entry_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.madrone_g6_entry_person_detection"
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "ff7daafd146a35700453322f79f632f7",
+      "engine": "protect",
+      "entity_id": "binary_sensor.madrone_g6_entry_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "6e7a11b9baf62e629855c99c74d1f65c",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.madrone_g6_entry_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "ff7daafd146a35700453322f79f632f7",
+      "sources": [
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "6e7a11b9baf62e629855c99c74d1f65c",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.madrone_g6_entry_person_occupancy_2",
+        "person_count_sensor": "sensor.madrone_g6_entry_person_count",
+        "person_detect_switch": null
+       },
+       {
+        "correlation_basis": "same_device",
+        "device_id": "ff7daafd146a35700453322f79f632f7",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.madrone_g6_entry_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.madrone_g6_entry_person_detection"
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.madrone_g6_entry_medium_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "6e7a11b9baf62e629855c99c74d1f65c",
+     "physical_camera_id": "ff7daafd146a35700453322f79f632f7",
+     "sources": [
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "6e7a11b9baf62e629855c99c74d1f65c",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.madrone_g6_entry_person_occupancy_2",
+       "person_count_sensor": "sensor.madrone_g6_entry_person_count",
+       "person_detect_switch": null
+      },
+      {
+       "correlation_basis": "same_device",
+       "device_id": "ff7daafd146a35700453322f79f632f7",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.madrone_g6_entry_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.madrone_g6_entry_person_detection"
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "ff7daafd146a35700453322f79f632f7",
+      "engine": "protect",
+      "entity_id": "binary_sensor.madrone_g6_entry_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "6e7a11b9baf62e629855c99c74d1f65c",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.madrone_g6_entry_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "ff7daafd146a35700453322f79f632f7",
+      "sources": [
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "6e7a11b9baf62e629855c99c74d1f65c",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.madrone_g6_entry_person_occupancy_2",
+        "person_count_sensor": "sensor.madrone_g6_entry_person_count",
+        "person_detect_switch": null
+       },
+       {
+        "correlation_basis": "same_device",
+        "device_id": "ff7daafd146a35700453322f79f632f7",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.madrone_g6_entry_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.madrone_g6_entry_person_detection"
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.madrone_g6_entry_package_2": {
+   "decl": [],
+   "legs": {
+    "animal": [],
+    "person": [],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [],
+    "owner": null,
+    "reason": "no_fusion"
+   }
+  },
+  "camera.madrone_g6_entry_package_camera": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "6e7a11b9baf62e629855c99c74d1f65c",
+     "physical_camera_id": "ff7daafd146a35700453322f79f632f7",
+     "sources": [
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "6e7a11b9baf62e629855c99c74d1f65c",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.madrone_g6_entry_person_occupancy_2",
+       "person_count_sensor": "sensor.madrone_g6_entry_person_count",
+       "person_detect_switch": null
+      },
+      {
+       "correlation_basis": "same_device",
+       "device_id": "ff7daafd146a35700453322f79f632f7",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.madrone_g6_entry_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.madrone_g6_entry_person_detection"
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "ff7daafd146a35700453322f79f632f7",
+      "engine": "protect",
+      "entity_id": "binary_sensor.madrone_g6_entry_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "6e7a11b9baf62e629855c99c74d1f65c",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.madrone_g6_entry_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "ff7daafd146a35700453322f79f632f7",
+      "sources": [
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "6e7a11b9baf62e629855c99c74d1f65c",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.madrone_g6_entry_person_occupancy_2",
+        "person_count_sensor": "sensor.madrone_g6_entry_person_count",
+        "person_detect_switch": null
+       },
+       {
+        "correlation_basis": "same_device",
+        "device_id": "ff7daafd146a35700453322f79f632f7",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.madrone_g6_entry_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.madrone_g6_entry_person_detection"
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.madroneptultra": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "0edc550df93221e7c3bf22a66bd622cd",
+     "physical_camera_id": "0edc550df93221e7c3bf22a66bd622cd",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "0edc550df93221e7c3bf22a66bd622cd",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.madroneptultra_person_occupancy",
+       "person_count_sensor": "sensor.madroneptultra_person_count",
+       "person_detect_switch": null
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "0edc550df93221e7c3bf22a66bd622cd",
+      "engine": "frigate",
+      "entity_id": "binary_sensor.madroneptultra_person_occupancy",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "0edc550df93221e7c3bf22a66bd622cd",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "0edc550df93221e7c3bf22a66bd622cd",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.madroneptultra_person_occupancy",
+        "person_count_sensor": "sensor.madroneptultra_person_count",
+        "person_detect_switch": null
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.master_hallway": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "01dfad506f0741fb00d9daf9b34dee08",
+     "physical_camera_id": "01dfad506f0741fb00d9daf9b34dee08",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "01dfad506f0741fb00d9daf9b34dee08",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.master_hallway_person_occupancy",
+       "person_count_sensor": "sensor.master_hallway_person_count",
+       "person_detect_switch": null
+      },
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "f3dd4ac5062095d208acf433acc10c25",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.master_hallway_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.master_hallway_detections_person"
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "f3dd4ac5062095d208acf433acc10c25",
+      "engine": "protect",
+      "entity_id": "binary_sensor.master_hallway_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "01dfad506f0741fb00d9daf9b34dee08",
+      "engine": "frigate",
+      "entity_id": "binary_sensor.master_hallway_person_occupancy",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "01dfad506f0741fb00d9daf9b34dee08",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "01dfad506f0741fb00d9daf9b34dee08",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.master_hallway_person_occupancy",
+        "person_count_sensor": "sensor.master_hallway_person_count",
+        "person_detect_switch": null
+       },
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "f3dd4ac5062095d208acf433acc10c25",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.master_hallway_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.master_hallway_detections_person"
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.master_hallway_high_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "01dfad506f0741fb00d9daf9b34dee08",
+     "physical_camera_id": "f3dd4ac5062095d208acf433acc10c25",
+     "sources": [
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "01dfad506f0741fb00d9daf9b34dee08",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.master_hallway_person_occupancy",
+       "person_count_sensor": "sensor.master_hallway_person_count",
+       "person_detect_switch": null
+      },
+      {
+       "correlation_basis": "same_device",
+       "device_id": "f3dd4ac5062095d208acf433acc10c25",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.master_hallway_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.master_hallway_detections_person"
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "f3dd4ac5062095d208acf433acc10c25",
+      "engine": "protect",
+      "entity_id": "binary_sensor.master_hallway_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "01dfad506f0741fb00d9daf9b34dee08",
+      "engine": "frigate",
+      "entity_id": "binary_sensor.master_hallway_person_occupancy",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "f3dd4ac5062095d208acf433acc10c25",
+      "sources": [
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "01dfad506f0741fb00d9daf9b34dee08",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.master_hallway_person_occupancy",
+        "person_count_sensor": "sensor.master_hallway_person_count",
+        "person_detect_switch": null
+       },
+       {
+        "correlation_basis": "same_device",
+        "device_id": "f3dd4ac5062095d208acf433acc10c25",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.master_hallway_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.master_hallway_detections_person"
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.master_hallway_low_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "01dfad506f0741fb00d9daf9b34dee08",
+     "physical_camera_id": "f3dd4ac5062095d208acf433acc10c25",
+     "sources": [
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "01dfad506f0741fb00d9daf9b34dee08",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.master_hallway_person_occupancy",
+       "person_count_sensor": "sensor.master_hallway_person_count",
+       "person_detect_switch": null
+      },
+      {
+       "correlation_basis": "same_device",
+       "device_id": "f3dd4ac5062095d208acf433acc10c25",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.master_hallway_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.master_hallway_detections_person"
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "f3dd4ac5062095d208acf433acc10c25",
+      "engine": "protect",
+      "entity_id": "binary_sensor.master_hallway_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "01dfad506f0741fb00d9daf9b34dee08",
+      "engine": "frigate",
+      "entity_id": "binary_sensor.master_hallway_person_occupancy",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "f3dd4ac5062095d208acf433acc10c25",
+      "sources": [
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "01dfad506f0741fb00d9daf9b34dee08",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.master_hallway_person_occupancy",
+        "person_count_sensor": "sensor.master_hallway_person_count",
+        "person_detect_switch": null
+       },
+       {
+        "correlation_basis": "same_device",
+        "device_id": "f3dd4ac5062095d208acf433acc10c25",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.master_hallway_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.master_hallway_detections_person"
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.master_panel_camera": {
+   "decl": [],
+   "legs": {
+    "animal": [],
+    "person": [],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [],
+    "owner": null,
+    "reason": "no_fusion"
+   }
+  },
+  "camera.master_panel_screenshot": {
+   "decl": [],
+   "legs": {
+    "animal": [],
+    "person": [],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [],
+    "owner": null,
+    "reason": "no_fusion"
+   }
+  },
+  "camera.media_room_panel_camera": {
+   "decl": [],
+   "legs": {
+    "animal": [],
+    "person": [],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [],
+    "owner": null,
+    "reason": "no_fusion"
+   }
+  },
+  "camera.media_room_panel_screenshot": {
+   "decl": [],
+   "legs": {
+    "animal": [],
+    "person": [],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [],
+    "owner": null,
+    "reason": "no_fusion"
+   }
+  },
+  "camera.patio_ptzcam_reolinktrackmix_poe_pstudybporch_high_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "c2bf2aabbe814d5d68281030447bcb81",
+     "physical_camera_id": "3aaa97918b0f801941cd7740ac7bc38f",
+     "sources": [
+      {
+       "correlation_basis": "mac",
+       "device_id": "c2bf2aabbe814d5d68281030447bcb81",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "reolink",
+       "person_binary_sensor": "binary_sensor.ptzcamreolinktmixpstudybporch_person",
+       "person_count_sensor": null,
+       "person_detect_switch": null
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "c2bf2aabbe814d5d68281030447bcb81",
+      "engine": "reolink",
+      "entity_id": "binary_sensor.ptzcamreolinktmixpstudybporch_person",
+      "integration": "reolink"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "3aaa97918b0f801941cd7740ac7bc38f",
+      "sources": [
+       {
+        "correlation_basis": "mac",
+        "device_id": "c2bf2aabbe814d5d68281030447bcb81",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "reolink",
+        "person_binary_sensor": "binary_sensor.ptzcamreolinktmixpstudybporch_person",
+        "person_count_sensor": null,
+        "person_detect_switch": null
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.playroom": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "12391404210a931c8986b239cbe389ac",
+     "physical_camera_id": "12391404210a931c8986b239cbe389ac",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "12391404210a931c8986b239cbe389ac",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.playroom_person_occupancy_2",
+       "person_count_sensor": "sensor.playroom_person_count",
+       "person_detect_switch": null
+      },
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "cdb4bd0a56aed9706ececb1feb9c06d6",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.playroom_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.playroom_detections_person"
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "cdb4bd0a56aed9706ececb1feb9c06d6",
+      "engine": "protect",
+      "entity_id": "binary_sensor.playroom_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "12391404210a931c8986b239cbe389ac",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.playroom_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "12391404210a931c8986b239cbe389ac",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "12391404210a931c8986b239cbe389ac",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.playroom_person_occupancy_2",
+        "person_count_sensor": "sensor.playroom_person_count",
+        "person_detect_switch": null
+       },
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "cdb4bd0a56aed9706ececb1feb9c06d6",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.playroom_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.playroom_detections_person"
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.playroom_high_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "12391404210a931c8986b239cbe389ac",
+     "physical_camera_id": "cdb4bd0a56aed9706ececb1feb9c06d6",
+     "sources": [
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "12391404210a931c8986b239cbe389ac",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.playroom_person_occupancy_2",
+       "person_count_sensor": "sensor.playroom_person_count",
+       "person_detect_switch": null
+      },
+      {
+       "correlation_basis": "same_device",
+       "device_id": "cdb4bd0a56aed9706ececb1feb9c06d6",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.playroom_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.playroom_detections_person"
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "cdb4bd0a56aed9706ececb1feb9c06d6",
+      "engine": "protect",
+      "entity_id": "binary_sensor.playroom_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "12391404210a931c8986b239cbe389ac",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.playroom_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "cdb4bd0a56aed9706ececb1feb9c06d6",
+      "sources": [
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "12391404210a931c8986b239cbe389ac",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.playroom_person_occupancy_2",
+        "person_count_sensor": "sensor.playroom_person_count",
+        "person_detect_switch": null
+       },
+       {
+        "correlation_basis": "same_device",
+        "device_id": "cdb4bd0a56aed9706ececb1feb9c06d6",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.playroom_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.playroom_detections_person"
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.playroom_low_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "12391404210a931c8986b239cbe389ac",
+     "physical_camera_id": "cdb4bd0a56aed9706ececb1feb9c06d6",
+     "sources": [
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "12391404210a931c8986b239cbe389ac",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.playroom_person_occupancy_2",
+       "person_count_sensor": "sensor.playroom_person_count",
+       "person_detect_switch": null
+      },
+      {
+       "correlation_basis": "same_device",
+       "device_id": "cdb4bd0a56aed9706ececb1feb9c06d6",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.playroom_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.playroom_detections_person"
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "cdb4bd0a56aed9706ececb1feb9c06d6",
+      "engine": "protect",
+      "entity_id": "binary_sensor.playroom_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "12391404210a931c8986b239cbe389ac",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.playroom_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "cdb4bd0a56aed9706ececb1feb9c06d6",
+      "sources": [
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "12391404210a931c8986b239cbe389ac",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.playroom_person_occupancy_2",
+        "person_count_sensor": "sensor.playroom_person_count",
+        "person_detect_switch": null
+       },
+       {
+        "correlation_basis": "same_device",
+        "device_id": "cdb4bd0a56aed9706ececb1feb9c06d6",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.playroom_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.playroom_detections_person"
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.pool_equipment": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "5a6a7a8c25fd95074e0d8dc32e232ef5",
+     "physical_camera_id": "a77cadda5af515ddef45089567622f73",
+     "sources": [
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "5a6a7a8c25fd95074e0d8dc32e232ef5",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.pool_equipment_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.pool_equipment_detections_person"
+      },
+      {
+       "correlation_basis": "same_device",
+       "device_id": "a77cadda5af515ddef45089567622f73",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.pool_equipment_person_occupancy_2",
+       "person_count_sensor": "sensor.pool_equipment_person_count",
+       "person_detect_switch": null
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "5a6a7a8c25fd95074e0d8dc32e232ef5",
+      "engine": "protect",
+      "entity_id": "binary_sensor.pool_equipment_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "a77cadda5af515ddef45089567622f73",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.pool_equipment_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "a77cadda5af515ddef45089567622f73",
+      "sources": [
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "5a6a7a8c25fd95074e0d8dc32e232ef5",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.pool_equipment_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.pool_equipment_detections_person"
+       },
+       {
+        "correlation_basis": "same_device",
+        "device_id": "a77cadda5af515ddef45089567622f73",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.pool_equipment_person_occupancy_2",
+        "person_count_sensor": "sensor.pool_equipment_person_count",
+        "person_detect_switch": null
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.pool_equipment_high_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "5a6a7a8c25fd95074e0d8dc32e232ef5",
+     "physical_camera_id": "5a6a7a8c25fd95074e0d8dc32e232ef5",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "5a6a7a8c25fd95074e0d8dc32e232ef5",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.pool_equipment_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.pool_equipment_detections_person"
+      },
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "a77cadda5af515ddef45089567622f73",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.pool_equipment_person_occupancy_2",
+       "person_count_sensor": "sensor.pool_equipment_person_count",
+       "person_detect_switch": null
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "5a6a7a8c25fd95074e0d8dc32e232ef5",
+      "engine": "protect",
+      "entity_id": "binary_sensor.pool_equipment_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "a77cadda5af515ddef45089567622f73",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.pool_equipment_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "5a6a7a8c25fd95074e0d8dc32e232ef5",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "5a6a7a8c25fd95074e0d8dc32e232ef5",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.pool_equipment_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.pool_equipment_detections_person"
+       },
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "a77cadda5af515ddef45089567622f73",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.pool_equipment_person_occupancy_2",
+        "person_count_sensor": "sensor.pool_equipment_person_count",
+        "person_detect_switch": null
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.pool_equipment_low_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "5a6a7a8c25fd95074e0d8dc32e232ef5",
+     "physical_camera_id": "5a6a7a8c25fd95074e0d8dc32e232ef5",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "5a6a7a8c25fd95074e0d8dc32e232ef5",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.pool_equipment_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.pool_equipment_detections_person"
+      },
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "a77cadda5af515ddef45089567622f73",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.pool_equipment_person_occupancy_2",
+       "person_count_sensor": "sensor.pool_equipment_person_count",
+       "person_detect_switch": null
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "5a6a7a8c25fd95074e0d8dc32e232ef5",
+      "engine": "protect",
+      "entity_id": "binary_sensor.pool_equipment_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "a77cadda5af515ddef45089567622f73",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.pool_equipment_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "5a6a7a8c25fd95074e0d8dc32e232ef5",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "5a6a7a8c25fd95074e0d8dc32e232ef5",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.pool_equipment_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.pool_equipment_detections_person"
+       },
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "a77cadda5af515ddef45089567622f73",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.pool_equipment_person_occupancy_2",
+        "person_count_sensor": "sensor.pool_equipment_person_count",
+        "person_detect_switch": null
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.pt_ultra_back_pt_ultra_snapshot": {
+   "decl": [],
+   "legs": {
+    "animal": [],
+    "person": [],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [],
+    "owner": null,
+    "reason": "no_fusion"
+   }
+  },
+  "camera.ptzcamreolinktmixpstudybporch_fluent_lens_0": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "c2bf2aabbe814d5d68281030447bcb81",
+     "physical_camera_id": "c2bf2aabbe814d5d68281030447bcb81",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "c2bf2aabbe814d5d68281030447bcb81",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "reolink",
+       "person_binary_sensor": "binary_sensor.ptzcamreolinktmixpstudybporch_person",
+       "person_count_sensor": null,
+       "person_detect_switch": null
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "c2bf2aabbe814d5d68281030447bcb81",
+      "engine": "reolink",
+      "entity_id": "binary_sensor.ptzcamreolinktmixpstudybporch_person",
+      "integration": "reolink"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "c2bf2aabbe814d5d68281030447bcb81",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "c2bf2aabbe814d5d68281030447bcb81",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "reolink",
+        "person_binary_sensor": "binary_sensor.ptzcamreolinktmixpstudybporch_person",
+        "person_count_sensor": null,
+        "person_detect_switch": null
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.ptzcamreolinktmixpstudybporch_fluent_lens_1": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "c2bf2aabbe814d5d68281030447bcb81",
+     "physical_camera_id": "c2bf2aabbe814d5d68281030447bcb81",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "c2bf2aabbe814d5d68281030447bcb81",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "reolink",
+       "person_binary_sensor": "binary_sensor.ptzcamreolinktmixpstudybporch_person",
+       "person_count_sensor": null,
+       "person_detect_switch": null
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "c2bf2aabbe814d5d68281030447bcb81",
+      "engine": "reolink",
+      "entity_id": "binary_sensor.ptzcamreolinktmixpstudybporch_person",
+      "integration": "reolink"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "c2bf2aabbe814d5d68281030447bcb81",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "c2bf2aabbe814d5d68281030447bcb81",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "reolink",
+        "person_binary_sensor": "binary_sensor.ptzcamreolinktmixpstudybporch_person",
+        "person_count_sensor": null,
+        "person_detect_switch": null
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.rear_ptz_2": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "c887ef1b0cc5a66151f54ea0106f1d03",
+     "physical_camera_id": "c887ef1b0cc5a66151f54ea0106f1d03",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "c887ef1b0cc5a66151f54ea0106f1d03",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.rear_ptz_person_occupancy_2",
+       "person_count_sensor": "sensor.rear_ptz_person_count",
+       "person_detect_switch": null
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "c62cb38727b5a8e0747ca42c2878cebc",
+      "engine": "protect",
+      "entity_id": "binary_sensor.rear_ptz_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "c887ef1b0cc5a66151f54ea0106f1d03",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.rear_ptz_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "c887ef1b0cc5a66151f54ea0106f1d03",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "c887ef1b0cc5a66151f54ea0106f1d03",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.rear_ptz_person_occupancy_2",
+        "person_count_sensor": "sensor.rear_ptz_person_count",
+        "person_detect_switch": null
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.rear_ptz_high_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "c62cb38727b5a8e0747ca42c2878cebc",
+     "physical_camera_id": "c62cb38727b5a8e0747ca42c2878cebc",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "c62cb38727b5a8e0747ca42c2878cebc",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.rear_ptz_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.rear_ptz_detections_person"
+      },
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "c887ef1b0cc5a66151f54ea0106f1d03",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.rear_ptz_person_occupancy_2",
+       "person_count_sensor": "sensor.rear_ptz_person_count",
+       "person_detect_switch": null
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "c62cb38727b5a8e0747ca42c2878cebc",
+      "engine": "protect",
+      "entity_id": "binary_sensor.rear_ptz_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "c887ef1b0cc5a66151f54ea0106f1d03",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.rear_ptz_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "c62cb38727b5a8e0747ca42c2878cebc",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "c62cb38727b5a8e0747ca42c2878cebc",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.rear_ptz_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.rear_ptz_detections_person"
+       },
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "c887ef1b0cc5a66151f54ea0106f1d03",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.rear_ptz_person_occupancy_2",
+        "person_count_sensor": "sensor.rear_ptz_person_count",
+        "person_detect_switch": null
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.rear_ptz_low_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "c62cb38727b5a8e0747ca42c2878cebc",
+     "physical_camera_id": "c62cb38727b5a8e0747ca42c2878cebc",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "c62cb38727b5a8e0747ca42c2878cebc",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.rear_ptz_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.rear_ptz_detections_person"
+      },
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "c887ef1b0cc5a66151f54ea0106f1d03",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.rear_ptz_person_occupancy_2",
+       "person_count_sensor": "sensor.rear_ptz_person_count",
+       "person_detect_switch": null
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "c62cb38727b5a8e0747ca42c2878cebc",
+      "engine": "protect",
+      "entity_id": "binary_sensor.rear_ptz_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "c887ef1b0cc5a66151f54ea0106f1d03",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.rear_ptz_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "c62cb38727b5a8e0747ca42c2878cebc",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "c62cb38727b5a8e0747ca42c2878cebc",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.rear_ptz_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.rear_ptz_detections_person"
+       },
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "c887ef1b0cc5a66151f54ea0106f1d03",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.rear_ptz_person_occupancy_2",
+        "person_count_sensor": "sensor.rear_ptz_person_count",
+        "person_detect_switch": null
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.reolink_patio_fluent": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "c5445dcc79ab08cc9b61ad0680f79ee3",
+     "physical_camera_id": "c5445dcc79ab08cc9b61ad0680f79ee3",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "c5445dcc79ab08cc9b61ad0680f79ee3",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "reolink",
+       "person_binary_sensor": "binary_sensor.reolink_patio_person",
+       "person_count_sensor": null,
+       "person_detect_switch": null
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "c5445dcc79ab08cc9b61ad0680f79ee3",
+      "engine": "reolink",
+      "entity_id": "binary_sensor.reolink_patio_person",
+      "integration": "reolink"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "c5445dcc79ab08cc9b61ad0680f79ee3",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "c5445dcc79ab08cc9b61ad0680f79ee3",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "reolink",
+        "person_binary_sensor": "binary_sensor.reolink_patio_person",
+        "person_count_sensor": null,
+        "person_detect_switch": null
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.reolink_rlc_1224a_high_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "c5445dcc79ab08cc9b61ad0680f79ee3",
+     "physical_camera_id": "e7d03166001af2d8367dd5b6e7489853",
+     "sources": [
+      {
+       "correlation_basis": "mac",
+       "device_id": "c5445dcc79ab08cc9b61ad0680f79ee3",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "reolink",
+       "person_binary_sensor": "binary_sensor.reolink_patio_person",
+       "person_count_sensor": null,
+       "person_detect_switch": null
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "c5445dcc79ab08cc9b61ad0680f79ee3",
+      "engine": "reolink",
+      "entity_id": "binary_sensor.reolink_patio_person",
+      "integration": "reolink"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "e7d03166001af2d8367dd5b6e7489853",
+      "sources": [
+       {
+        "correlation_basis": "mac",
+        "device_id": "c5445dcc79ab08cc9b61ad0680f79ee3",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "reolink",
+        "person_binary_sensor": "binary_sensor.reolink_patio_person",
+        "person_count_sensor": null,
+        "person_detect_switch": null
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.reolinkpatio": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "4d37e6ac219a0e4338d77893d9e23c34",
+     "physical_camera_id": "4d37e6ac219a0e4338d77893d9e23c34",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "4d37e6ac219a0e4338d77893d9e23c34",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.reolinkpatio_person_occupancy",
+       "person_count_sensor": "sensor.reolinkpatio_person_count",
+       "person_detect_switch": null
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "4d37e6ac219a0e4338d77893d9e23c34",
+      "engine": "frigate",
+      "entity_id": "binary_sensor.reolinkpatio_person_occupancy",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "4d37e6ac219a0e4338d77893d9e23c34",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "4d37e6ac219a0e4338d77893d9e23c34",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.reolinkpatio_person_occupancy",
+        "person_count_sensor": "sensor.reolinkpatio_person_count",
+        "person_detect_switch": null
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.reolinkstudybporchptz": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "35da2eb75c86710cbf6af4d0ff28bab1",
+     "physical_camera_id": "35da2eb75c86710cbf6af4d0ff28bab1",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "35da2eb75c86710cbf6af4d0ff28bab1",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.reolinkstudybporchptz_person_occupancy_2",
+       "person_count_sensor": "sensor.reolinkstudybporchptz_person_count",
+       "person_detect_switch": null
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "35da2eb75c86710cbf6af4d0ff28bab1",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.reolinkstudybporchptz_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "35da2eb75c86710cbf6af4d0ff28bab1",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "35da2eb75c86710cbf6af4d0ff28bab1",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.reolinkstudybporchptz_person_occupancy_2",
+        "person_count_sensor": "sensor.reolinkstudybporchptz_person_count",
+        "person_detect_switch": null
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.sonoffwindow": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "01f7f0e70727cbc56ba3722608adb409",
+     "physical_camera_id": "01f7f0e70727cbc56ba3722608adb409",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "01f7f0e70727cbc56ba3722608adb409",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.sonoffwindow_person_occupancy",
+       "person_count_sensor": "sensor.sonoffwindow_person_count",
+       "person_detect_switch": null
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "01f7f0e70727cbc56ba3722608adb409",
+      "engine": "frigate",
+      "entity_id": "binary_sensor.sonoffwindow_person_occupancy",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "01f7f0e70727cbc56ba3722608adb409",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "01f7f0e70727cbc56ba3722608adb409",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.sonoffwindow_person_occupancy",
+        "person_count_sensor": "sensor.sonoffwindow_person_count",
+        "person_detect_switch": null
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.staircase_2": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "02a52ec450bc773069b95bc9c8842858",
+     "physical_camera_id": "02a52ec450bc773069b95bc9c8842858",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "02a52ec450bc773069b95bc9c8842858",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.staircase_person_occupancy",
+       "person_count_sensor": "sensor.staircase_person_count",
+       "person_detect_switch": null
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "43f04c977ae5d2ade40a03151954590b",
+      "engine": "protect",
+      "entity_id": "binary_sensor.camera_protect_garagehallway_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "02a52ec450bc773069b95bc9c8842858",
+      "engine": "frigate",
+      "entity_id": "binary_sensor.staircase_person_occupancy",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "02a52ec450bc773069b95bc9c8842858",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "02a52ec450bc773069b95bc9c8842858",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.staircase_person_occupancy",
+        "person_count_sensor": "sensor.staircase_person_count",
+        "person_detect_switch": null
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.staircase_high_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "02a52ec450bc773069b95bc9c8842858",
+     "physical_camera_id": "43f04c977ae5d2ade40a03151954590b",
+     "sources": [
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "02a52ec450bc773069b95bc9c8842858",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.staircase_person_occupancy",
+       "person_count_sensor": "sensor.staircase_person_count",
+       "person_detect_switch": null
+      },
+      {
+       "correlation_basis": "same_device",
+       "device_id": "43f04c977ae5d2ade40a03151954590b",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": null,
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.staircase_detections_person"
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "43f04c977ae5d2ade40a03151954590b",
+      "engine": "protect",
+      "entity_id": "binary_sensor.camera_protect_garagehallway_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "02a52ec450bc773069b95bc9c8842858",
+      "engine": "frigate",
+      "entity_id": "binary_sensor.staircase_person_occupancy",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "43f04c977ae5d2ade40a03151954590b",
+      "sources": [
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "02a52ec450bc773069b95bc9c8842858",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.staircase_person_occupancy",
+        "person_count_sensor": "sensor.staircase_person_count",
+        "person_detect_switch": null
+       },
+       {
+        "correlation_basis": "same_device",
+        "device_id": "43f04c977ae5d2ade40a03151954590b",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": null,
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.staircase_detections_person"
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.staircase_low_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "02a52ec450bc773069b95bc9c8842858",
+     "physical_camera_id": "43f04c977ae5d2ade40a03151954590b",
+     "sources": [
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "02a52ec450bc773069b95bc9c8842858",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.staircase_person_occupancy",
+       "person_count_sensor": "sensor.staircase_person_count",
+       "person_detect_switch": null
+      },
+      {
+       "correlation_basis": "same_device",
+       "device_id": "43f04c977ae5d2ade40a03151954590b",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": null,
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.staircase_detections_person"
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "43f04c977ae5d2ade40a03151954590b",
+      "engine": "protect",
+      "entity_id": "binary_sensor.camera_protect_garagehallway_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "02a52ec450bc773069b95bc9c8842858",
+      "engine": "frigate",
+      "entity_id": "binary_sensor.staircase_person_occupancy",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "43f04c977ae5d2ade40a03151954590b",
+      "sources": [
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "02a52ec450bc773069b95bc9c8842858",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.staircase_person_occupancy",
+        "person_count_sensor": "sensor.staircase_person_count",
+        "person_detect_switch": null
+       },
+       {
+        "correlation_basis": "same_device",
+        "device_id": "43f04c977ae5d2ade40a03151954590b",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": null,
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.staircase_detections_person"
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.stairs_top_2": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "ebc6db55a43805610583a5f97499e123",
+     "physical_camera_id": "ebc6db55a43805610583a5f97499e123",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "ebc6db55a43805610583a5f97499e123",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.stairs_top_person_occupancy",
+       "person_count_sensor": "sensor.stairs_top_person_count",
+       "person_detect_switch": null
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "74f1d0a01d1af703634f541c7db596e1",
+      "engine": "protect",
+      "entity_id": "binary_sensor.stairs_top_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "ebc6db55a43805610583a5f97499e123",
+      "engine": "frigate",
+      "entity_id": "binary_sensor.stairs_top_person_occupancy",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "ebc6db55a43805610583a5f97499e123",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "ebc6db55a43805610583a5f97499e123",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.stairs_top_person_occupancy",
+        "person_count_sensor": "sensor.stairs_top_person_count",
+        "person_detect_switch": null
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.stairs_top_high_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "74f1d0a01d1af703634f541c7db596e1",
+     "physical_camera_id": "74f1d0a01d1af703634f541c7db596e1",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "74f1d0a01d1af703634f541c7db596e1",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.stairs_top_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.stairs_top_detections_person"
+      },
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "ebc6db55a43805610583a5f97499e123",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.stairs_top_person_occupancy",
+       "person_count_sensor": "sensor.stairs_top_person_count",
+       "person_detect_switch": null
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "74f1d0a01d1af703634f541c7db596e1",
+      "engine": "protect",
+      "entity_id": "binary_sensor.stairs_top_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "ebc6db55a43805610583a5f97499e123",
+      "engine": "frigate",
+      "entity_id": "binary_sensor.stairs_top_person_occupancy",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "74f1d0a01d1af703634f541c7db596e1",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "74f1d0a01d1af703634f541c7db596e1",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.stairs_top_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.stairs_top_detections_person"
+       },
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "ebc6db55a43805610583a5f97499e123",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.stairs_top_person_occupancy",
+        "person_count_sensor": "sensor.stairs_top_person_count",
+        "person_detect_switch": null
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.stairs_top_low_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "74f1d0a01d1af703634f541c7db596e1",
+     "physical_camera_id": "74f1d0a01d1af703634f541c7db596e1",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "74f1d0a01d1af703634f541c7db596e1",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.stairs_top_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.stairs_top_detections_person"
+      },
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "ebc6db55a43805610583a5f97499e123",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.stairs_top_person_occupancy",
+       "person_count_sensor": "sensor.stairs_top_person_count",
+       "person_detect_switch": null
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "74f1d0a01d1af703634f541c7db596e1",
+      "engine": "protect",
+      "entity_id": "binary_sensor.stairs_top_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "ebc6db55a43805610583a5f97499e123",
+      "engine": "frigate",
+      "entity_id": "binary_sensor.stairs_top_person_occupancy",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "74f1d0a01d1af703634f541c7db596e1",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "74f1d0a01d1af703634f541c7db596e1",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.stairs_top_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.stairs_top_detections_person"
+       },
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "ebc6db55a43805610583a5f97499e123",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.stairs_top_person_occupancy",
+        "person_count_sensor": "sensor.stairs_top_person_count",
+        "person_detect_switch": null
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.study_a_closet_reolink_reolink_home_hub_high_resolution_channel": {
+   "decl": [],
+   "legs": {
+    "animal": [],
+    "person": [],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [],
+    "owner": null,
+    "reason": "no_fusion"
+   }
+  },
+  "camera.study_a_panel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "fb5ea1f62ae5036188b696e83aac9369",
+     "physical_camera_id": "fb5ea1f62ae5036188b696e83aac9369",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "fb5ea1f62ae5036188b696e83aac9369",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.study_a_panel_person_occupancy",
+       "person_count_sensor": "sensor.study_a_panel_person_count",
+       "person_detect_switch": null
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "fb5ea1f62ae5036188b696e83aac9369",
+      "engine": "frigate",
+      "entity_id": "binary_sensor.study_a_panel_person_occupancy",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "fb5ea1f62ae5036188b696e83aac9369",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "fb5ea1f62ae5036188b696e83aac9369",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.study_a_panel_person_occupancy",
+        "person_count_sensor": "sensor.study_a_panel_person_count",
+        "person_detect_switch": null
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.study_a_panel_camera": {
+   "decl": [],
+   "legs": {
+    "animal": [],
+    "person": [],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [],
+    "owner": null,
+    "reason": "no_fusion"
+   }
+  },
+  "camera.study_a_panel_screenshot": {
+   "decl": [],
+   "legs": {
+    "animal": [],
+    "person": [],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [],
+    "owner": null,
+    "reason": "no_fusion"
+   }
+  },
+  "camera.study_a_panel_stream": {
+   "decl": [],
+   "legs": {
+    "animal": [],
+    "person": [],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [],
+    "owner": null,
+    "reason": "no_fusion"
+   }
+  },
+  "camera.study_b_panel_camera": {
+   "decl": [],
+   "legs": {
+    "animal": [],
+    "person": [],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [],
+    "owner": null,
+    "reason": "no_fusion"
+   }
+  },
+  "camera.study_b_panel_screenshot": {
+   "decl": [],
+   "legs": {
+    "animal": [],
+    "person": [],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [],
+    "owner": null,
+    "reason": "no_fusion"
+   }
+  },
+  "camera.up_hallway_panel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "48b0493a87d54ec9a47a38565d057ecf",
+     "physical_camera_id": "48b0493a87d54ec9a47a38565d057ecf",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "48b0493a87d54ec9a47a38565d057ecf",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.up_hallway_panel_person_occupancy",
+       "person_count_sensor": "sensor.up_hallway_panel_person_count",
+       "person_detect_switch": null
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "48b0493a87d54ec9a47a38565d057ecf",
+      "engine": "frigate",
+      "entity_id": "binary_sensor.up_hallway_panel_person_occupancy",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "48b0493a87d54ec9a47a38565d057ecf",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "48b0493a87d54ec9a47a38565d057ecf",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.up_hallway_panel_person_occupancy",
+        "person_count_sensor": "sensor.up_hallway_panel_person_count",
+        "person_detect_switch": null
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.up_hallway_panel_camera": {
+   "decl": [],
+   "legs": {
+    "animal": [],
+    "person": [],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [],
+    "owner": null,
+    "reason": "no_fusion"
+   }
+  },
+  "camera.up_hallway_panel_screenshot": {
+   "decl": [],
+   "legs": {
+    "animal": [],
+    "person": [],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [],
+    "owner": null,
+    "reason": "no_fusion"
+   }
+  },
+  "camera.upstairs_hall_2": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "b75c48d227a1b6830f85f4f5abba6bac",
+     "physical_camera_id": "b75c48d227a1b6830f85f4f5abba6bac",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "b75c48d227a1b6830f85f4f5abba6bac",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.upstairs_hall_person_occupancy_2",
+       "person_count_sensor": "sensor.upstairs_hall_person_count",
+       "person_detect_switch": null
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "b063bbf5881d859b456429b6f3d41575",
+      "engine": "protect",
+      "entity_id": "binary_sensor.upstairs_hall_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "b75c48d227a1b6830f85f4f5abba6bac",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.upstairs_hall_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "b75c48d227a1b6830f85f4f5abba6bac",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "b75c48d227a1b6830f85f4f5abba6bac",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.upstairs_hall_person_occupancy_2",
+        "person_count_sensor": "sensor.upstairs_hall_person_count",
+        "person_detect_switch": null
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.upstairs_hall_high_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "b063bbf5881d859b456429b6f3d41575",
+     "physical_camera_id": "b063bbf5881d859b456429b6f3d41575",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "b063bbf5881d859b456429b6f3d41575",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.upstairs_hall_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.upstairs_hall_detections_person"
+      },
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "b75c48d227a1b6830f85f4f5abba6bac",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.upstairs_hall_person_occupancy_2",
+       "person_count_sensor": "sensor.upstairs_hall_person_count",
+       "person_detect_switch": null
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "b063bbf5881d859b456429b6f3d41575",
+      "engine": "protect",
+      "entity_id": "binary_sensor.upstairs_hall_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "b75c48d227a1b6830f85f4f5abba6bac",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.upstairs_hall_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "b063bbf5881d859b456429b6f3d41575",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "b063bbf5881d859b456429b6f3d41575",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.upstairs_hall_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.upstairs_hall_detections_person"
+       },
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "b75c48d227a1b6830f85f4f5abba6bac",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.upstairs_hall_person_occupancy_2",
+        "person_count_sensor": "sensor.upstairs_hall_person_count",
+        "person_detect_switch": null
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.upstairs_hall_low_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "b063bbf5881d859b456429b6f3d41575",
+     "physical_camera_id": "b063bbf5881d859b456429b6f3d41575",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "b063bbf5881d859b456429b6f3d41575",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.upstairs_hall_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.upstairs_hall_detections_person"
+      },
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "b75c48d227a1b6830f85f4f5abba6bac",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.upstairs_hall_person_occupancy_2",
+       "person_count_sensor": "sensor.upstairs_hall_person_count",
+       "person_detect_switch": null
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "b063bbf5881d859b456429b6f3d41575",
+      "engine": "protect",
+      "entity_id": "binary_sensor.upstairs_hall_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "b75c48d227a1b6830f85f4f5abba6bac",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.upstairs_hall_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "b063bbf5881d859b456429b6f3d41575",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "b063bbf5881d859b456429b6f3d41575",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.upstairs_hall_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.upstairs_hall_detections_person"
+       },
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "b75c48d227a1b6830f85f4f5abba6bac",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.upstairs_hall_person_occupancy_2",
+        "person_count_sensor": "sensor.upstairs_hall_person_count",
+        "person_detect_switch": null
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.utilities_ptz_2": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "7fafaf02752b565a43df4ed175b8ceb3",
+     "physical_camera_id": "7fafaf02752b565a43df4ed175b8ceb3",
+     "sources": [
+      {
+       "correlation_basis": "same_device",
+       "device_id": "7fafaf02752b565a43df4ed175b8ceb3",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.utilities_ptz_person_occupancy_2",
+       "person_count_sensor": "sensor.utilities_ptz_person_count",
+       "person_detect_switch": null
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "eeab47f71d4653e8a08179d11483a5fa",
+      "engine": "protect",
+      "entity_id": "binary_sensor.utilities_ptz_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "7fafaf02752b565a43df4ed175b8ceb3",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.utilities_ptz_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "7fafaf02752b565a43df4ed175b8ceb3",
+      "sources": [
+       {
+        "correlation_basis": "same_device",
+        "device_id": "7fafaf02752b565a43df4ed175b8ceb3",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.utilities_ptz_person_occupancy_2",
+        "person_count_sensor": "sensor.utilities_ptz_person_count",
+        "person_detect_switch": null
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.utilities_ptz_high_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "7fafaf02752b565a43df4ed175b8ceb3",
+     "physical_camera_id": "eeab47f71d4653e8a08179d11483a5fa",
+     "sources": [
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "7fafaf02752b565a43df4ed175b8ceb3",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.utilities_ptz_person_occupancy_2",
+       "person_count_sensor": "sensor.utilities_ptz_person_count",
+       "person_detect_switch": null
+      },
+      {
+       "correlation_basis": "same_device",
+       "device_id": "eeab47f71d4653e8a08179d11483a5fa",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.utilities_ptz_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.utilities_ptz_detections_person"
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "eeab47f71d4653e8a08179d11483a5fa",
+      "engine": "protect",
+      "entity_id": "binary_sensor.utilities_ptz_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "7fafaf02752b565a43df4ed175b8ceb3",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.utilities_ptz_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "eeab47f71d4653e8a08179d11483a5fa",
+      "sources": [
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "7fafaf02752b565a43df4ed175b8ceb3",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.utilities_ptz_person_occupancy_2",
+        "person_count_sensor": "sensor.utilities_ptz_person_count",
+        "person_detect_switch": null
+       },
+       {
+        "correlation_basis": "same_device",
+        "device_id": "eeab47f71d4653e8a08179d11483a5fa",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.utilities_ptz_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.utilities_ptz_detections_person"
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  },
+  "camera.utilities_ptz_low_resolution_channel": {
+   "decl": [
+    {
+     "dropped_person_sensors": [],
+     "key": "7fafaf02752b565a43df4ed175b8ceb3",
+     "physical_camera_id": "eeab47f71d4653e8a08179d11483a5fa",
+     "sources": [
+      {
+       "correlation_basis": "name_stem",
+       "device_id": "7fafaf02752b565a43df4ed175b8ceb3",
+       "face_binary_sensor": null,
+       "face_capability": "usable",
+       "face_detect_switch": null,
+       "integration": "frigate",
+       "person_binary_sensor": "binary_sensor.utilities_ptz_person_occupancy_2",
+       "person_count_sensor": "sensor.utilities_ptz_person_count",
+       "person_detect_switch": null
+      },
+      {
+       "correlation_basis": "same_device",
+       "device_id": "eeab47f71d4653e8a08179d11483a5fa",
+       "face_binary_sensor": null,
+       "face_capability": "absent",
+       "face_detect_switch": null,
+       "integration": "unifiprotect",
+       "person_binary_sensor": "binary_sensor.utilities_ptz_person_detected",
+       "person_count_sensor": null,
+       "person_detect_switch": "switch.utilities_ptz_detections_person"
+      }
+     ]
+    }
+   ],
+   "legs": {
+    "animal": [],
+    "person": [
+     {
+      "device_id": "eeab47f71d4653e8a08179d11483a5fa",
+      "engine": "protect",
+      "entity_id": "binary_sensor.utilities_ptz_person_detected",
+      "integration": "unifiprotect"
+     },
+     {
+      "device_id": "7fafaf02752b565a43df4ed175b8ceb3",
+      "engine": "frigate2",
+      "entity_id": "binary_sensor.utilities_ptz_person_occupancy_2",
+      "integration": "frigate"
+     }
+    ],
+    "vehicle": []
+   },
+   "pick": {
+    "fusions": [
+     {
+      "dropped_person_sensors": [],
+      "physical_camera_id": "eeab47f71d4653e8a08179d11483a5fa",
+      "sources": [
+       {
+        "correlation_basis": "name_stem",
+        "device_id": "7fafaf02752b565a43df4ed175b8ceb3",
+        "face_binary_sensor": null,
+        "face_capability": "usable",
+        "face_detect_switch": null,
+        "integration": "frigate",
+        "person_binary_sensor": "binary_sensor.utilities_ptz_person_occupancy_2",
+        "person_count_sensor": "sensor.utilities_ptz_person_count",
+        "person_detect_switch": null
+       },
+       {
+        "correlation_basis": "same_device",
+        "device_id": "eeab47f71d4653e8a08179d11483a5fa",
+        "face_binary_sensor": null,
+        "face_capability": "absent",
+        "face_detect_switch": null,
+        "integration": "unifiprotect",
+        "person_binary_sensor": "binary_sensor.utilities_ptz_person_detected",
+        "person_count_sensor": null,
+        "person_detect_switch": "switch.utilities_ptz_detections_person"
+       }
+      ]
+     }
+    ],
+    "owner": null,
+    "reason": null
+   }
+  }
+ }
+}

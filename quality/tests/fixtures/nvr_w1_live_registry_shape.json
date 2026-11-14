@@ -1,0 +1,3726 @@
+{
+ "_source": "live HA core.device_registry + core.entity_registry 2026-11-13 (camera devices; camera/person/face/count/switch/event entities)",
+ "devices": [
+  {
+   "connections": [
+    [
+     "mac",
+     "f4:e2:c6:7b:f1:df"
+    ]
+   ],
+   "id": "c580a1b3bb405a01b84de5a9239a0f57",
+   "identifiers": [],
+   "model": "AI Theta",
+   "name": "Family Room",
+   "name_by_user": null
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "28:70:4e:18:fc:13"
+    ]
+   ],
+   "id": "f84347c3bdb5ae35165371bc6b0ef46d",
+   "identifiers": [],
+   "model": "G5 Turret Ultra",
+   "name": "Garage A",
+   "name_by_user": null
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "28:70:4e:18:f6:61"
+    ]
+   ],
+   "id": "b063bbf5881d859b456429b6f3d41575",
+   "identifiers": [],
+   "model": "G5 Turret Ultra",
+   "name": "Upstairs Hall",
+   "name_by_user": null
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "28:70:4e:17:ee:02"
+    ]
+   ],
+   "id": "43f04c977ae5d2ade40a03151954590b",
+   "identifiers": [],
+   "model": "G5 Turret Ultra",
+   "name": "Staircase",
+   "name_by_user": "Camera_Protect_GarageHallway"
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "28:70:4e:18:f4:31"
+    ]
+   ],
+   "id": "da2ea2728aa39a4607f875fb7a0ca1da",
+   "identifiers": [],
+   "model": "G5 Turret Ultra",
+   "name": "Garage B",
+   "name_by_user": null
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "28:70:4e:18:f7:ca"
+    ]
+   ],
+   "id": "5a6a7a8c25fd95074e0d8dc32e232ef5",
+   "identifiers": [],
+   "model": "G5 Turret Ultra",
+   "name": "Pool Equipment ",
+   "name_by_user": null
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "04:18:d6:a2:92:65"
+    ]
+   ],
+   "id": "9f978a5880bafd7d82ca91874bb68a5c",
+   "identifiers": [],
+   "model": "G5 Bullet",
+   "name": "G5 Bullet",
+   "name_by_user": null
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "28:70:4e:17:50:12"
+    ]
+   ],
+   "id": "c62cb38727b5a8e0747ca42c2878cebc",
+   "identifiers": [],
+   "model": "G5 PTZ",
+   "name": "Rear PTZ",
+   "name_by_user": null
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "a0:60:32:06:34:8e"
+    ]
+   ],
+   "id": "79eb40230a665f2d6959b44d66c15cf7",
+   "identifiers": [],
+   "model": "Amcrest",
+   "name": "Amcrest IP5M-T1277EB-AI",
+   "name_by_user": null
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "28:70:4e:19:03:47"
+    ]
+   ],
+   "id": "19b23740ff8329713e9601408f81ef25",
+   "identifiers": [],
+   "model": "G5 Turret Ultra",
+   "name": "Back Yard",
+   "name_by_user": null
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "28:70:4e:18:0c:ce"
+    ]
+   ],
+   "id": "baaf04024b6ceda3ca4500d0867c9a84",
+   "identifiers": [],
+   "model": "G5 Turret Ultra",
+   "name": "Hot tub",
+   "name_by_user": null
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "28:70:4e:17:51:f7"
+    ]
+   ],
+   "id": "eeab47f71d4653e8a08179d11483a5fa",
+   "identifiers": [],
+   "model": "G5 PTZ",
+   "name": "Utilities PTZ",
+   "name_by_user": null
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "f4:e2:c6:0b:6f:a5"
+    ]
+   ],
+   "id": "fb4e9a02e2886aa9ba0f4eb00feee1a1",
+   "identifiers": [],
+   "model": "AI Theta",
+   "name": "Foyer Fisheye",
+   "name_by_user": null
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "28:70:4e:18:0f:67"
+    ]
+   ],
+   "id": "74f1d0a01d1af703634f541c7db596e1",
+   "identifiers": [],
+   "model": "G5 Turret Ultra",
+   "name": "Stairs - top",
+   "name_by_user": null
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "28:70:4e:18:0f:41"
+    ]
+   ],
+   "id": "d834a366baad8dcbb2aca0f3099e07b5",
+   "identifiers": [],
+   "model": "G5 Turret Ultra",
+   "name": "Front Door Aerial",
+   "name_by_user": null
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "28:70:4e:18:f4:af"
+    ]
+   ],
+   "id": "cdb4bd0a56aed9706ececb1feb9c06d6",
+   "identifiers": [],
+   "model": "G5 Turret Ultra",
+   "name": "Playroom",
+   "name_by_user": null
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "28:70:4e:17:50:c3"
+    ]
+   ],
+   "id": "ede8f7b4c084e052832ad186364ee49e",
+   "identifiers": [],
+   "model": "G5 PTZ",
+   "name": "Front Side PTZ",
+   "name_by_user": null
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "28:70:4e:14:f2:7a"
+    ]
+   ],
+   "id": "f3dd4ac5062095d208acf433acc10c25",
+   "identifiers": [],
+   "model": "G5 Turret Ultra",
+   "name": "Master Hallway",
+   "name_by_user": null
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "0c:ea:14:29:e7:00"
+    ]
+   ],
+   "id": "ad92de17fdcc58af0909dad519f40763",
+   "identifiers": [
+    [
+     "unifiprotect",
+     "0CEA1429E700"
+    ]
+   ],
+   "model": "UNVR Pro",
+   "name": "Phalanax NVR Pro",
+   "name_by_user": "Phalanx NVR Pro"
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "c0:8a:60:eb:82:a6"
+    ]
+   ],
+   "id": "7cbdd9793e8d1d237b9d2ac5286dd792",
+   "identifiers": [
+    [
+     "robovac_mqtt",
+     "APY2923F01708486"
+    ]
+   ],
+   "model": "T2292",
+   "name": "eufy AE C10",
+   "name_by_user": null
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "ec:71:db:b1:fa:3c"
+    ]
+   ],
+   "id": "26057e1b73c7c4b797764a116a0033dc",
+   "identifiers": [],
+   "model": "IPC-BO",
+   "name": "REOLINK Reolink Home Hub",
+   "name_by_user": null
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "ec:71:db:b1:fa:3c"
+    ]
+   ],
+   "id": "c9c5f4ed14c70bad05dfcde1e11210bb",
+   "identifiers": [
+    [
+     "reolink",
+     "9527000I94CUS302"
+    ]
+   ],
+   "model": "Reolink Home Hub",
+   "name": "Reolink Hub",
+   "name_by_user": null
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "ec:71:db:91:8a:a9"
+    ]
+   ],
+   "id": "c2bf2aabbe814d5d68281030447bcb81",
+   "identifiers": [
+    [
+     "reolink",
+     "9527000J307DK5L5"
+    ]
+   ],
+   "model": "Reolink TrackMix PoE",
+   "name": "PTZCamReolinkTMixPStudyBPorch",
+   "name_by_user": "PTZCam_ReolinkTrackMix_POE_PStudyBPorch"
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "ec:71:db:91:8a:a9"
+    ]
+   ],
+   "id": "3aaa97918b0f801941cd7740ac7bc38f",
+   "identifiers": [],
+   "model": "IPC-BO",
+   "name": "REOLINK TrackMix PoE",
+   "name_by_user": "PTZCam_ReolinkTrackMix_POE_PStudyBPorch"
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "ec:71:db:91:8a:a9"
+    ]
+   ],
+   "id": "854fef16652738f5c92d312e1abe8f3f",
+   "identifiers": [
+    [
+     "reolink",
+     "9527000J307DK5L5"
+    ]
+   ],
+   "model": "IPC-BO",
+   "name": "REOLINK Reolink TrackMix PoE",
+   "name_by_user": "PTZCam_ReolinkTrackMix_POE_PStudyBPorch"
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "e0:63:da:01:b5:0b"
+    ]
+   ],
+   "id": "cc013bd3f510998a7628d7b16b1db80f",
+   "identifiers": [],
+   "model": "G3 Instant",
+   "name": "G3 Instant",
+   "name_by_user": null
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "a8:9c:6c:b0:43:13"
+    ]
+   ],
+   "id": "aba94d43690d4e657b28e16e2ef69030",
+   "identifiers": [],
+   "model": "Doorbell Lite",
+   "name": "Garage Doorbell Lite",
+   "name_by_user": null
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "0e:f1:87:c9:d5:05"
+    ]
+   ],
+   "id": "26b46b50373dff15da0bb910e97e227d",
+   "identifiers": [],
+   "model": "General ASH41-B",
+   "name": "General ASH41-B",
+   "name_by_user": null
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "a8:9c:6c:b6:35:9c"
+    ]
+   ],
+   "id": "ff7daafd146a35700453322f79f632f7",
+   "identifiers": [],
+   "model": "G6 Entry",
+   "name": "Madrone G6 Entry",
+   "name_by_user": null
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "68:d7:9a:e3:2d:d5"
+    ]
+   ],
+   "id": "59daf6de64e3b1f6ec5d7c8719e0d2ab",
+   "identifiers": [],
+   "model": "G3 Instant",
+   "name": "G3 Instant Study A",
+   "name_by_user": null
+  },
+  {
+   "connections": [],
+   "id": "28a6ff54d2fa751d8f82ff9203cac5a6",
+   "identifiers": [
+    [
+     "dahua",
+     "AMC09469DB290453D5"
+    ]
+   ],
+   "model": "IP5M-T1277EB-AI",
+   "name": "ArmCrestPoolOverhead",
+   "name_by_user": null
+  },
+  {
+   "connections": [],
+   "id": "35da2eb75c86710cbf6af4d0ff28bab1",
+   "identifiers": [
+    [
+     "frigate",
+     "01KM239Z8ZQWQTN1D9CV5JRA7V:reolinkstudybporchptz"
+    ]
+   ],
+   "model": "5.15.6/0.18.2-cfa08c5",
+   "name": "ReolinkStudyBPorchPTZ",
+   "name_by_user": null
+  },
+  {
+   "connections": [],
+   "id": "28878bf764a946e6547c3037531401b7",
+   "identifiers": [
+    [
+     "frigate",
+     "01KM239Z8ZQWQTN1D9CV5JRA7V:armcrest"
+    ]
+   ],
+   "model": "5.15.6/0.18.2-cfa08c5",
+   "name": "ArmCrest",
+   "name_by_user": null
+  },
+  {
+   "connections": [],
+   "id": "4c79697fbe930f23c216bba19255ad06",
+   "identifiers": [
+    [
+     "frigate",
+     "01KM239Z8ZQWQTN1D9CV5JRA7V:armcrestash41b"
+    ]
+   ],
+   "model": "5.15.6/0.18.2-cfa08c5",
+   "name": "ArmCrestASH41B",
+   "name_by_user": null
+  },
+  {
+   "connections": [],
+   "id": "4ab50f757faacfd7ad96aca24bab36dd",
+   "identifiers": [
+    [
+     "frigate",
+     "01KM239Z8ZQWQTN1D9CV5JRA7V:back_yard"
+    ]
+   ],
+   "model": "5.15.6/0.18.2-cfa08c5",
+   "name": "Back Yard",
+   "name_by_user": null
+  },
+  {
+   "connections": [],
+   "id": "bd2dd0c81464adf85b93503b35327e12",
+   "identifiers": [
+    [
+     "frigate",
+     "01KM239Z8ZQWQTN1D9CV5JRA7V:doorbell_lite"
+    ]
+   ],
+   "model": "5.15.6/0.18.2-cfa08c5",
+   "name": "Doorbell Lite",
+   "name_by_user": null
+  },
+  {
+   "connections": [],
+   "id": "62f7b21e657126f3482121f0f49d08fc",
+   "identifiers": [
+    [
+     "frigate",
+     "01KM239Z8ZQWQTN1D9CV5JRA7V:family_room"
+    ]
+   ],
+   "model": "5.15.6/0.18.2-cfa08c5",
+   "name": "Family Room",
+   "name_by_user": null
+  },
+  {
+   "connections": [],
+   "id": "f095ee1afbb60cd69699623eef1d3706",
+   "identifiers": [
+    [
+     "frigate",
+     "01KM239Z8ZQWQTN1D9CV5JRA7V:foyer_fisheye"
+    ]
+   ],
+   "model": "5.15.6/0.18.2-cfa08c5",
+   "name": "Foyer Fisheye",
+   "name_by_user": null
+  },
+  {
+   "connections": [],
+   "id": "94f4938b1cfcdd085de17c0a99868da0",
+   "identifiers": [
+    [
+     "frigate",
+     "01KM239Z8ZQWQTN1D9CV5JRA7V:front_door_aerial"
+    ]
+   ],
+   "model": "5.15.6/0.18.2-cfa08c5",
+   "name": "Front Door Aerial",
+   "name_by_user": null
+  },
+  {
+   "connections": [],
+   "id": "35a77a9b88c74f8af230857160bf0264",
+   "identifiers": [
+    [
+     "frigate",
+     "01KM239Z8ZQWQTN1D9CV5JRA7V:front_side_ptz"
+    ]
+   ],
+   "model": "5.15.6/0.18.2-cfa08c5",
+   "name": "Front Side PTZ",
+   "name_by_user": null
+  },
+  {
+   "connections": [],
+   "id": "b9242be0c752cc1b85310e7fed1694b4",
+   "identifiers": [
+    [
+     "frigate",
+     "01KM239Z8ZQWQTN1D9CV5JRA7V:g5_bullet"
+    ]
+   ],
+   "model": "5.15.6/0.18.2-cfa08c5",
+   "name": "G5 Bullet",
+   "name_by_user": null
+  },
+  {
+   "connections": [],
+   "id": "7c45bd09807dc95870bc7e747e5a3225",
+   "identifiers": [
+    [
+     "frigate",
+     "01KM239Z8ZQWQTN1D9CV5JRA7V:garage_a"
+    ]
+   ],
+   "model": "5.15.6/0.18.2-cfa08c5",
+   "name": "Garage A",
+   "name_by_user": null
+  },
+  {
+   "connections": [],
+   "id": "590cae754d03a07ee4a335847f5cdacd",
+   "identifiers": [
+    [
+     "frigate",
+     "01KM239Z8ZQWQTN1D9CV5JRA7V:garage_b"
+    ]
+   ],
+   "model": "5.15.6/0.18.2-cfa08c5",
+   "name": "Garage B",
+   "name_by_user": null
+  },
+  {
+   "connections": [],
+   "id": "1ab472b4cb473d4ee4dd3102978f6b24",
+   "identifiers": [
+    [
+     "frigate",
+     "01KM239Z8ZQWQTN1D9CV5JRA7V:hot_tub"
+    ]
+   ],
+   "model": "5.15.6/0.18.2-cfa08c5",
+   "name": "Hot Tub",
+   "name_by_user": null
+  },
+  {
+   "connections": [],
+   "id": "6e7a11b9baf62e629855c99c74d1f65c",
+   "identifiers": [
+    [
+     "frigate",
+     "01KM239Z8ZQWQTN1D9CV5JRA7V:madrone_g6_entry"
+    ]
+   ],
+   "model": "5.15.6/0.18.2-cfa08c5",
+   "name": "Madrone G6 Entry",
+   "name_by_user": null
+  },
+  {
+   "connections": [],
+   "id": "b709259b09db869833ffd6eed43485e0",
+   "identifiers": [
+    [
+     "frigate",
+     "01KM239Z8ZQWQTN1D9CV5JRA7V:madrone_g6_entry_package"
+    ]
+   ],
+   "model": "5.15.6/0.18.2-cfa08c5",
+   "name": "Madrone G6 Entry Package",
+   "name_by_user": null
+  },
+  {
+   "connections": [],
+   "id": "01dfad506f0741fb00d9daf9b34dee08",
+   "identifiers": [
+    [
+     "frigate",
+     "01KM239Z8ZQWQTN1D9CV5JRA7V:master_hallway"
+    ]
+   ],
+   "model": "5.15.6/0.18.2-cfa08c5",
+   "name": "Master Hallway",
+   "name_by_user": null
+  },
+  {
+   "connections": [],
+   "id": "12391404210a931c8986b239cbe389ac",
+   "identifiers": [
+    [
+     "frigate",
+     "01KM239Z8ZQWQTN1D9CV5JRA7V:playroom"
+    ]
+   ],
+   "model": "5.15.6/0.18.2-cfa08c5",
+   "name": "Playroom",
+   "name_by_user": null
+  },
+  {
+   "connections": [],
+   "id": "a77cadda5af515ddef45089567622f73",
+   "identifiers": [
+    [
+     "frigate",
+     "01KM239Z8ZQWQTN1D9CV5JRA7V:pool_equipment"
+    ]
+   ],
+   "model": "5.15.6/0.18.2-cfa08c5",
+   "name": "Pool Equipment",
+   "name_by_user": null
+  },
+  {
+   "connections": [],
+   "id": "c887ef1b0cc5a66151f54ea0106f1d03",
+   "identifiers": [
+    [
+     "frigate",
+     "01KM239Z8ZQWQTN1D9CV5JRA7V:rear_ptz"
+    ]
+   ],
+   "model": "5.15.6/0.18.2-cfa08c5",
+   "name": "Rear PTZ",
+   "name_by_user": null
+  },
+  {
+   "connections": [],
+   "id": "02a52ec450bc773069b95bc9c8842858",
+   "identifiers": [
+    [
+     "frigate",
+     "01KM239Z8ZQWQTN1D9CV5JRA7V:staircase"
+    ]
+   ],
+   "model": "5.15.6/0.18.2-cfa08c5",
+   "name": "Staircase",
+   "name_by_user": null
+  },
+  {
+   "connections": [],
+   "id": "ebc6db55a43805610583a5f97499e123",
+   "identifiers": [
+    [
+     "frigate",
+     "01KM239Z8ZQWQTN1D9CV5JRA7V:stairs_top"
+    ]
+   ],
+   "model": "5.15.6/0.18.2-cfa08c5",
+   "name": "Stairs Top",
+   "name_by_user": null
+  },
+  {
+   "connections": [],
+   "id": "b75c48d227a1b6830f85f4f5abba6bac",
+   "identifiers": [
+    [
+     "frigate",
+     "01KM239Z8ZQWQTN1D9CV5JRA7V:upstairs_hall"
+    ]
+   ],
+   "model": "5.15.6/0.18.2-cfa08c5",
+   "name": "Upstairs Hall",
+   "name_by_user": null
+  },
+  {
+   "connections": [],
+   "id": "7fafaf02752b565a43df4ed175b8ceb3",
+   "identifiers": [
+    [
+     "frigate",
+     "01KM239Z8ZQWQTN1D9CV5JRA7V:utilities_ptz"
+    ]
+   ],
+   "model": "5.15.6/0.18.2-cfa08c5",
+   "name": "Utilities PTZ",
+   "name_by_user": null
+  },
+  {
+   "connections": [],
+   "id": "b06f4308b27105ae29c93e06d78962d9",
+   "identifiers": [
+    [
+     "frigate",
+     "01KM239Z8ZQWQTN1D9CV5JRA7V"
+    ]
+   ],
+   "model": "5.15.6/0.18.2-cfa08c5",
+   "name": "Frigate",
+   "name_by_user": null
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "90:7a:be:e4:e6:67"
+    ]
+   ],
+   "id": "ac3d97bde932487d6ad3d8d36aecff3a",
+   "identifiers": [
+    [
+     "reolink",
+     "9527000I94CUS302_9527000MJAZEH3RO"
+    ]
+   ],
+   "model": "Argus PT Ultra",
+   "name": "Madrone PT Ultra",
+   "name_by_user": null
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "a0:60:32:06:34:8e"
+    ]
+   ],
+   "id": "230e6f9f2c6c977ea6cbf8f58ba07cab",
+   "identifiers": [
+    [
+     "amcrest",
+     "AMC09469DB290453D5"
+    ]
+   ],
+   "model": "IP5M-T1277EB-AI",
+   "name": "ArmCrestPoolOverhead",
+   "name_by_user": null
+  },
+  {
+   "connections": [],
+   "id": "0edc550df93221e7c3bf22a66bd622cd",
+   "identifiers": [
+    [
+     "frigate",
+     "01KM239Z8ZQWQTN1D9CV5JRA7V:madroneptultra"
+    ]
+   ],
+   "model": "5.15.6/0.18.2-cfa08c5",
+   "name": "MadronePTUltra",
+   "name_by_user": null
+  },
+  {
+   "connections": [],
+   "id": "94a549531a40ba319bc86c444ef4f51b",
+   "identifiers": [
+    [
+     "mqtt",
+     "ptultra"
+    ]
+   ],
+   "model": "Altas PT Ultra",
+   "name": "PT Ultra (Back)",
+   "name_by_user": null
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "ec:71:db:44:3a:aa"
+    ]
+   ],
+   "id": "e7d03166001af2d8367dd5b6e7489853",
+   "identifiers": [],
+   "model": "REOLINK RLC-1224A",
+   "name": "REOLINK RLC-1224A",
+   "name_by_user": null
+  },
+  {
+   "connections": [],
+   "id": "4d37e6ac219a0e4338d77893d9e23c34",
+   "identifiers": [
+    [
+     "frigate",
+     "01KM239Z8ZQWQTN1D9CV5JRA7V:reolinkpatio"
+    ]
+   ],
+   "model": "5.15.6/0.18.2-cfa08c5",
+   "name": "ReolinkPatio",
+   "name_by_user": null
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "8c:ed:e1:24:cf:97"
+    ]
+   ],
+   "id": "fabfcc5011a6c40383e5775f652a9c58",
+   "identifiers": [
+    [
+     "unifiprotect",
+     "8CEDE124CF97"
+    ]
+   ],
+   "model": "USL-Fob-US",
+   "name": "USL Fob",
+   "name_by_user": null
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "ec:71:db:44:3a:aa"
+    ]
+   ],
+   "id": "c5445dcc79ab08cc9b61ad0680f79ee3",
+   "identifiers": [
+    [
+     "reolink",
+     "9527000LG0CXFBMT"
+    ]
+   ],
+   "model": "RLC-1224A",
+   "name": "Reolink Patio",
+   "name_by_user": null
+  },
+  {
+   "connections": [],
+   "id": "01f7f0e70727cbc56ba3722608adb409",
+   "identifiers": [
+    [
+     "frigate",
+     "01KM239Z8ZQWQTN1D9CV5JRA7V:sonoffwindow"
+    ]
+   ],
+   "model": "5.15.6/0.18.2-cfa08c5",
+   "name": "SonoffWindow",
+   "name_by_user": null
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "66:a3:b9:66:3b:83"
+    ]
+   ],
+   "id": "09decd96df43e4871274043cf899d8ca",
+   "identifiers": [],
+   "model": "bluetooth_proxy",
+   "name": "Master Panel",
+   "name_by_user": "Master Panel"
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "72:fc:b3:8c:f1:c4"
+    ]
+   ],
+   "id": "31b8e2c063947b3228db38fb6e784d37",
+   "identifiers": [],
+   "model": "bluetooth_proxy",
+   "name": "Study A Panel",
+   "name_by_user": null
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "4e:1c:47:9b:4f:24"
+    ]
+   ],
+   "id": "1d3d32dc040e1c8a5bfd4e7cfbec84a5",
+   "identifiers": [],
+   "model": "bluetooth_proxy",
+   "name": "Study B Panel",
+   "name_by_user": null
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "8e:2a:0c:a9:47:da"
+    ]
+   ],
+   "id": "53be97d28d95190653b14ea9af2a265d",
+   "identifiers": [],
+   "model": "bluetooth_proxy",
+   "name": "Media Room Panel",
+   "name_by_user": null
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "7a:4f:ed:50:dd:21"
+    ]
+   ],
+   "id": "192a262ff42d921e2ee1b90d8d86096b",
+   "identifiers": [],
+   "model": "bluetooth_proxy",
+   "name": "Up Hallway Panel",
+   "name_by_user": null
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "4a:c1:a2:0b:88:4a"
+    ]
+   ],
+   "id": "c1c5392cee9482e2b81b4fa6b970e4a8",
+   "identifiers": [],
+   "model": "bluetooth_proxy",
+   "name": "Kitchen Panel",
+   "name_by_user": null
+  },
+  {
+   "connections": [
+    [
+     "mac",
+     "5a:3f:80:e7:b7:c9"
+    ]
+   ],
+   "id": "03f40196f64715b44af97752692e8fb3",
+   "identifiers": [],
+   "model": "bluetooth_proxy",
+   "name": "Entry Way Panel",
+   "name_by_user": null
+  },
+  {
+   "connections": [],
+   "id": "8cb862e51bedb5f5aef7aa2918916456",
+   "identifiers": [
+    [
+     "generic",
+     "01M5N8SPC61KXW1HJ35GR5W69F"
+    ]
+   ],
+   "model": null,
+   "name": "192_168_12_90",
+   "name_by_user": null
+  },
+  {
+   "connections": [],
+   "id": "fb5ea1f62ae5036188b696e83aac9369",
+   "identifiers": [
+    [
+     "frigate",
+     "01KM239Z8ZQWQTN1D9CV5JRA7V:study_a_panel"
+    ]
+   ],
+   "model": "5.15.6/0.18.2-cfa08c5",
+   "name": "Study a Panel",
+   "name_by_user": null
+  },
+  {
+   "connections": [],
+   "id": "dd5643cdf59fce698bdda2f12229c3ad",
+   "identifiers": [
+    [
+     "frigate",
+     "01KM239Z8ZQWQTN1D9CV5JRA7V:kitchen_panel"
+    ]
+   ],
+   "model": "5.15.6/0.18.2-cfa08c5",
+   "name": "Kitchen Panel",
+   "name_by_user": null
+  },
+  {
+   "connections": [],
+   "id": "48b0493a87d54ec9a47a38565d057ecf",
+   "identifiers": [
+    [
+     "frigate",
+     "01KM239Z8ZQWQTN1D9CV5JRA7V:up_hallway_panel"
+    ]
+   ],
+   "model": "5.15.6/0.18.2-cfa08c5",
+   "name": "Up Hallway Panel",
+   "name_by_user": null
+  },
+  {
+   "connections": [],
+   "id": "518e0ee51a3d2a238af1b50a06918cad",
+   "identifiers": [
+    [
+     "frigate",
+     "01KM239Z8ZQWQTN1D9CV5JRA7V:g5_bullet_property"
+    ]
+   ],
+   "model": "5.15.6/0.18.2-cfa08c5",
+   "name": "G5 Bullet Property",
+   "name_by_user": null
+  },
+  {
+   "connections": [],
+   "id": "5667545aa448a52801dcb5cbe359b4be",
+   "identifiers": [
+    [
+     "frigate",
+     "01KM239Z8ZQWQTN1D9CV5JRA7V:rear_ptz_property"
+    ]
+   ],
+   "model": "5.15.6/0.18.2-cfa08c5",
+   "name": "Rear PTZ Property",
+   "name_by_user": null
+  },
+  {
+   "connections": [],
+   "id": "fcb4100591c6feddd76d1fcc2b5cd474",
+   "identifiers": [
+    [
+     "frigate",
+     "01KM239Z8ZQWQTN1D9CV5JRA7V:utilities_ptz_property"
+    ]
+   ],
+   "model": "5.15.6/0.18.2-cfa08c5",
+   "name": "Utilities PTZ Property",
+   "name_by_user": null
+  },
+  {
+   "connections": [],
+   "id": "3fa09e937528cda97dede5b29ae24068",
+   "identifiers": [
+    [
+     "frigate",
+     "01KM239Z8ZQWQTN1D9CV5JRA7V:madrone_g6_entry_property"
+    ]
+   ],
+   "model": "5.15.6/0.18.2-cfa08c5",
+   "name": "Madrone G6 Entry Property",
+   "name_by_user": null
+  },
+  {
+   "connections": [],
+   "id": "f7c2ed7796841fb956c7042e6b9dd025",
+   "identifiers": [
+    [
+     "frigate",
+     "01KM239Z8ZQWQTN1D9CV5JRA7V:doorbell_lite_property"
+    ]
+   ],
+   "model": "5.15.6/0.18.2-cfa08c5",
+   "name": "Doorbell Lite Property",
+   "name_by_user": null
+  },
+  {
+   "connections": [],
+   "id": "8ab002432bccfcb10b79059578e72b6f",
+   "identifiers": [
+    [
+     "frigate",
+     "01KM239Z8ZQWQTN1D9CV5JRA7V:front_side_ptz_property"
+    ]
+   ],
+   "model": "5.15.6/0.18.2-cfa08c5",
+   "name": "Front Side PTZ Property",
+   "name_by_user": null
+  },
+  {
+   "connections": [],
+   "id": "3dc2f92043a3f211abff937b160c8210",
+   "identifiers": [
+    [
+     "frigate",
+     "01KM239Z8ZQWQTN1D9CV5JRA7V:front_door_aerial_property"
+    ]
+   ],
+   "model": "5.15.6/0.18.2-cfa08c5",
+   "name": "Front Door Aerial Property",
+   "name_by_user": null
+  }
+ ],
+ "entities": [
+  {
+   "config_entry_id": "01K0JJNYFXVTQ21X963FRN9D8X",
+   "device_id": "c2bf2aabbe814d5d68281030447bcb81",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.ptzcamreolinktmixpstudybporch_person",
+   "platform": "reolink",
+   "unique_id": "9527000J307DK5L5_0_person"
+  },
+  {
+   "config_entry_id": "01K0JJNYFXVTQ21X963FRN9D8X",
+   "device_id": "c2bf2aabbe814d5d68281030447bcb81",
+   "disabled_by": null,
+   "entity_id": "camera.ptzcamreolinktmixpstudybporch_fluent_lens_0",
+   "platform": "reolink",
+   "unique_id": "9527000J307DK5L5_0_sub"
+  },
+  {
+   "config_entry_id": "01K0JJNYFXVTQ21X963FRN9D8X",
+   "device_id": "c2bf2aabbe814d5d68281030447bcb81",
+   "disabled_by": null,
+   "entity_id": "camera.ptzcamreolinktmixpstudybporch_fluent_lens_1",
+   "platform": "reolink",
+   "unique_id": "9527000J307DK5L5_1_sub"
+  },
+  {
+   "config_entry_id": "01K0JJNYFXVTQ21X963FRN9D8X",
+   "device_id": "c2bf2aabbe814d5d68281030447bcb81",
+   "disabled_by": "integration",
+   "entity_id": "camera.ptzcamreolinktmixpstudybporch_clear_lens_0",
+   "platform": "reolink",
+   "unique_id": "9527000J307DK5L5_0_main"
+  },
+  {
+   "config_entry_id": "01K0JJNYFXVTQ21X963FRN9D8X",
+   "device_id": "c2bf2aabbe814d5d68281030447bcb81",
+   "disabled_by": "integration",
+   "entity_id": "camera.ptzcamreolinktmixpstudybporch_clear_lens_1",
+   "platform": "reolink",
+   "unique_id": "9527000J307DK5L5_1_main"
+  },
+  {
+   "config_entry_id": "01K0JJNYFXVTQ21X963FRN9D8X",
+   "device_id": "c2bf2aabbe814d5d68281030447bcb81",
+   "disabled_by": "integration",
+   "entity_id": "camera.ptzcamreolinktmixpstudybporch_snapshots_fluent_lens_0",
+   "platform": "reolink",
+   "unique_id": "9527000J307DK5L5_0_snapshots_sub"
+  },
+  {
+   "config_entry_id": "01K0JJNYFXVTQ21X963FRN9D8X",
+   "device_id": "c2bf2aabbe814d5d68281030447bcb81",
+   "disabled_by": "integration",
+   "entity_id": "camera.ptzcamreolinktmixpstudybporch_snapshots_fluent_lens_1",
+   "platform": "reolink",
+   "unique_id": "9527000J307DK5L5_1_snapshots_sub"
+  },
+  {
+   "config_entry_id": "01K0JJNYFXVTQ21X963FRN9D8X",
+   "device_id": "c2bf2aabbe814d5d68281030447bcb81",
+   "disabled_by": "integration",
+   "entity_id": "camera.ptzcamreolinktmixpstudybporch_snapshots_clear_lens_0",
+   "platform": "reolink",
+   "unique_id": "9527000J307DK5L5_0_snapshots"
+  },
+  {
+   "config_entry_id": "01K0JJNYFXVTQ21X963FRN9D8X",
+   "device_id": "c2bf2aabbe814d5d68281030447bcb81",
+   "disabled_by": "integration",
+   "entity_id": "camera.ptzcamreolinktmixpstudybporch_snapshots_clear_lens_1",
+   "platform": "reolink",
+   "unique_id": "9527000J307DK5L5_1_snapshots"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "9f978a5880bafd7d82ca91874bb68a5c",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.g5_bullet_person_detected",
+   "platform": "unifiprotect",
+   "unique_id": "0418D6A29265_smart_obj_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "f84347c3bdb5ae35165371bc6b0ef46d",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.garage_a_person_detected",
+   "platform": "unifiprotect",
+   "unique_id": "28704E18FC13_smart_obj_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "5a6a7a8c25fd95074e0d8dc32e232ef5",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.pool_equipment_person_detected",
+   "platform": "unifiprotect",
+   "unique_id": "28704E18F7CA_smart_obj_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "c62cb38727b5a8e0747ca42c2878cebc",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.rear_ptz_person_detected",
+   "platform": "unifiprotect",
+   "unique_id": "28704E175012_smart_obj_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "b063bbf5881d859b456429b6f3d41575",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.upstairs_hall_person_detected",
+   "platform": "unifiprotect",
+   "unique_id": "28704E18F661_smart_obj_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "cdb4bd0a56aed9706ececb1feb9c06d6",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.playroom_person_detected",
+   "platform": "unifiprotect",
+   "unique_id": "28704E18F4AF_smart_obj_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "d834a366baad8dcbb2aca0f3099e07b5",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.front_door_aerial_person_detected",
+   "platform": "unifiprotect",
+   "unique_id": "28704E180F41_smart_obj_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "74f1d0a01d1af703634f541c7db596e1",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.stairs_top_person_detected",
+   "platform": "unifiprotect",
+   "unique_id": "28704E180F67_smart_obj_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "fb4e9a02e2886aa9ba0f4eb00feee1a1",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.foyer_fisheye_person_detected",
+   "platform": "unifiprotect",
+   "unique_id": "F4E2C60B6FA5_smart_obj_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "eeab47f71d4653e8a08179d11483a5fa",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.utilities_ptz_person_detected",
+   "platform": "unifiprotect",
+   "unique_id": "28704E1751F7_smart_obj_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "baaf04024b6ceda3ca4500d0867c9a84",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.hot_tub_person_detected",
+   "platform": "unifiprotect",
+   "unique_id": "28704E180CCE_smart_obj_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "da2ea2728aa39a4607f875fb7a0ca1da",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.garage_b_person_detected",
+   "platform": "unifiprotect",
+   "unique_id": "28704E18F431_smart_obj_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "c580a1b3bb405a01b84de5a9239a0f57",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.family_room_person_detected",
+   "platform": "unifiprotect",
+   "unique_id": "F4E2C67BF1DF_smart_obj_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "f3dd4ac5062095d208acf433acc10c25",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.master_hallway_person_detected",
+   "platform": "unifiprotect",
+   "unique_id": "28704E14F27A_smart_obj_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "ede8f7b4c084e052832ad186364ee49e",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.front_side_ptz_person_detected",
+   "platform": "unifiprotect",
+   "unique_id": "28704E1750C3_smart_obj_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "19b23740ff8329713e9601408f81ef25",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.back_yard_person_detected",
+   "platform": "unifiprotect",
+   "unique_id": "28704E190347_smart_obj_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "9f978a5880bafd7d82ca91874bb68a5c",
+   "disabled_by": null,
+   "entity_id": "camera.g5_bullet_high_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "0418D6A29265_0"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "9f978a5880bafd7d82ca91874bb68a5c",
+   "disabled_by": "integration",
+   "entity_id": "camera.g5_bullet_medium_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "0418D6A29265_1"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "9f978a5880bafd7d82ca91874bb68a5c",
+   "disabled_by": null,
+   "entity_id": "camera.g5_bullet_low_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "0418D6A29265_2"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "f84347c3bdb5ae35165371bc6b0ef46d",
+   "disabled_by": null,
+   "entity_id": "camera.garage_a_high_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E18FC13_0"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "f84347c3bdb5ae35165371bc6b0ef46d",
+   "disabled_by": "integration",
+   "entity_id": "camera.garage_a_medium_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E18FC13_1"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "f84347c3bdb5ae35165371bc6b0ef46d",
+   "disabled_by": null,
+   "entity_id": "camera.garage_a_low_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E18FC13_2"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "5a6a7a8c25fd95074e0d8dc32e232ef5",
+   "disabled_by": null,
+   "entity_id": "camera.pool_equipment_high_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E18F7CA_0"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "5a6a7a8c25fd95074e0d8dc32e232ef5",
+   "disabled_by": "integration",
+   "entity_id": "camera.pool_equipment_medium_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E18F7CA_1"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "5a6a7a8c25fd95074e0d8dc32e232ef5",
+   "disabled_by": null,
+   "entity_id": "camera.pool_equipment_low_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E18F7CA_2"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "c62cb38727b5a8e0747ca42c2878cebc",
+   "disabled_by": null,
+   "entity_id": "camera.rear_ptz_high_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E175012_0"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "c62cb38727b5a8e0747ca42c2878cebc",
+   "disabled_by": "integration",
+   "entity_id": "camera.rear_ptz_medium_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E175012_1"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "c62cb38727b5a8e0747ca42c2878cebc",
+   "disabled_by": null,
+   "entity_id": "camera.rear_ptz_low_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E175012_2"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "b063bbf5881d859b456429b6f3d41575",
+   "disabled_by": null,
+   "entity_id": "camera.upstairs_hall_high_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E18F661_0"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "b063bbf5881d859b456429b6f3d41575",
+   "disabled_by": "integration",
+   "entity_id": "camera.upstairs_hall_medium_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E18F661_1"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "b063bbf5881d859b456429b6f3d41575",
+   "disabled_by": null,
+   "entity_id": "camera.upstairs_hall_low_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E18F661_2"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "43f04c977ae5d2ade40a03151954590b",
+   "disabled_by": null,
+   "entity_id": "camera.staircase_high_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E17EE02_0"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "43f04c977ae5d2ade40a03151954590b",
+   "disabled_by": "integration",
+   "entity_id": "camera.staircase_medium_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E17EE02_1"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "43f04c977ae5d2ade40a03151954590b",
+   "disabled_by": null,
+   "entity_id": "camera.staircase_low_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E17EE02_2"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "cdb4bd0a56aed9706ececb1feb9c06d6",
+   "disabled_by": null,
+   "entity_id": "camera.playroom_high_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E18F4AF_0"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "cdb4bd0a56aed9706ececb1feb9c06d6",
+   "disabled_by": "integration",
+   "entity_id": "camera.playroom_medium_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E18F4AF_1"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "cdb4bd0a56aed9706ececb1feb9c06d6",
+   "disabled_by": null,
+   "entity_id": "camera.playroom_low_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E18F4AF_2"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "d834a366baad8dcbb2aca0f3099e07b5",
+   "disabled_by": null,
+   "entity_id": "camera.front_door_aerial_high_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E180F41_0"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "d834a366baad8dcbb2aca0f3099e07b5",
+   "disabled_by": null,
+   "entity_id": "camera.front_door_aerial_low_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E180F41_2"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "74f1d0a01d1af703634f541c7db596e1",
+   "disabled_by": null,
+   "entity_id": "camera.stairs_top_high_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E180F67_0"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "74f1d0a01d1af703634f541c7db596e1",
+   "disabled_by": "integration",
+   "entity_id": "camera.stairs_top_medium_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E180F67_1"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "74f1d0a01d1af703634f541c7db596e1",
+   "disabled_by": null,
+   "entity_id": "camera.stairs_top_low_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E180F67_2"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "fb4e9a02e2886aa9ba0f4eb00feee1a1",
+   "disabled_by": null,
+   "entity_id": "camera.foyer_fisheye_high_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "F4E2C60B6FA5_0"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "fb4e9a02e2886aa9ba0f4eb00feee1a1",
+   "disabled_by": "integration",
+   "entity_id": "camera.foyer_fisheye_medium_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "F4E2C60B6FA5_1"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "fb4e9a02e2886aa9ba0f4eb00feee1a1",
+   "disabled_by": null,
+   "entity_id": "camera.foyer_fisheye_low_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "F4E2C60B6FA5_2"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "eeab47f71d4653e8a08179d11483a5fa",
+   "disabled_by": null,
+   "entity_id": "camera.utilities_ptz_high_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E1751F7_0"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "eeab47f71d4653e8a08179d11483a5fa",
+   "disabled_by": "integration",
+   "entity_id": "camera.utilities_ptz_medium_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E1751F7_1"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "eeab47f71d4653e8a08179d11483a5fa",
+   "disabled_by": null,
+   "entity_id": "camera.utilities_ptz_low_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E1751F7_2"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "baaf04024b6ceda3ca4500d0867c9a84",
+   "disabled_by": null,
+   "entity_id": "camera.hot_tub_high_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E180CCE_0"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "baaf04024b6ceda3ca4500d0867c9a84",
+   "disabled_by": "integration",
+   "entity_id": "camera.hot_tub_medium_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E180CCE_1"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "baaf04024b6ceda3ca4500d0867c9a84",
+   "disabled_by": null,
+   "entity_id": "camera.hot_tub_low_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E180CCE_2"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "da2ea2728aa39a4607f875fb7a0ca1da",
+   "disabled_by": null,
+   "entity_id": "camera.garage_b_high_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E18F431_0"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "da2ea2728aa39a4607f875fb7a0ca1da",
+   "disabled_by": "integration",
+   "entity_id": "camera.garage_b_medium_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E18F431_1"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "da2ea2728aa39a4607f875fb7a0ca1da",
+   "disabled_by": null,
+   "entity_id": "camera.garage_b_low_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E18F431_2"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "c580a1b3bb405a01b84de5a9239a0f57",
+   "disabled_by": null,
+   "entity_id": "camera.family_room_high_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "F4E2C67BF1DF_0"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "c580a1b3bb405a01b84de5a9239a0f57",
+   "disabled_by": null,
+   "entity_id": "camera.family_room_medium_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "F4E2C67BF1DF_1"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "c580a1b3bb405a01b84de5a9239a0f57",
+   "disabled_by": null,
+   "entity_id": "camera.family_room_low_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "F4E2C67BF1DF_2"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "f3dd4ac5062095d208acf433acc10c25",
+   "disabled_by": null,
+   "entity_id": "camera.master_hallway_high_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E14F27A_0"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "f3dd4ac5062095d208acf433acc10c25",
+   "disabled_by": "integration",
+   "entity_id": "camera.master_hallway_medium_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E14F27A_1"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "f3dd4ac5062095d208acf433acc10c25",
+   "disabled_by": null,
+   "entity_id": "camera.master_hallway_low_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E14F27A_2"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "ede8f7b4c084e052832ad186364ee49e",
+   "disabled_by": null,
+   "entity_id": "camera.front_side_ptz_high_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E1750C3_0"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "ede8f7b4c084e052832ad186364ee49e",
+   "disabled_by": "integration",
+   "entity_id": "camera.front_side_ptz_medium_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E1750C3_1"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "ede8f7b4c084e052832ad186364ee49e",
+   "disabled_by": null,
+   "entity_id": "camera.front_side_ptz_low_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E1750C3_2"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "19b23740ff8329713e9601408f81ef25",
+   "disabled_by": null,
+   "entity_id": "camera.back_yard_high_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E190347_0"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "19b23740ff8329713e9601408f81ef25",
+   "disabled_by": null,
+   "entity_id": "camera.back_yard_low_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E190347_2"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "9f978a5880bafd7d82ca91874bb68a5c",
+   "disabled_by": null,
+   "entity_id": "switch.g5_bullet_detections_person",
+   "platform": "unifiprotect",
+   "unique_id": "0418D6A29265_smart_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "f84347c3bdb5ae35165371bc6b0ef46d",
+   "disabled_by": null,
+   "entity_id": "switch.garage_a_detections_person",
+   "platform": "unifiprotect",
+   "unique_id": "28704E18FC13_smart_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "5a6a7a8c25fd95074e0d8dc32e232ef5",
+   "disabled_by": null,
+   "entity_id": "switch.pool_equipment_detections_person",
+   "platform": "unifiprotect",
+   "unique_id": "28704E18F7CA_smart_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "c62cb38727b5a8e0747ca42c2878cebc",
+   "disabled_by": null,
+   "entity_id": "switch.rear_ptz_detections_person",
+   "platform": "unifiprotect",
+   "unique_id": "28704E175012_smart_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "c62cb38727b5a8e0747ca42c2878cebc",
+   "disabled_by": null,
+   "entity_id": "switch.rear_ptz_tracking_person",
+   "platform": "unifiprotect",
+   "unique_id": "28704E175012_track_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "b063bbf5881d859b456429b6f3d41575",
+   "disabled_by": null,
+   "entity_id": "switch.upstairs_hall_detections_person",
+   "platform": "unifiprotect",
+   "unique_id": "28704E18F661_smart_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "26057e1b73c7c4b797764a116a0033dc",
+   "disabled_by": null,
+   "entity_id": "switch.reolink_reolink_home_hub_tracking_person",
+   "platform": "unifiprotect",
+   "unique_id": "EC71DBB1FA3C_track_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "43f04c977ae5d2ade40a03151954590b",
+   "disabled_by": null,
+   "entity_id": "switch.staircase_detections_person",
+   "platform": "unifiprotect",
+   "unique_id": "28704E17EE02_smart_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "cdb4bd0a56aed9706ececb1feb9c06d6",
+   "disabled_by": null,
+   "entity_id": "switch.playroom_detections_person",
+   "platform": "unifiprotect",
+   "unique_id": "28704E18F4AF_smart_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "d834a366baad8dcbb2aca0f3099e07b5",
+   "disabled_by": null,
+   "entity_id": "switch.front_door_aerial_detections_person",
+   "platform": "unifiprotect",
+   "unique_id": "28704E180F41_smart_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "74f1d0a01d1af703634f541c7db596e1",
+   "disabled_by": null,
+   "entity_id": "switch.stairs_top_detections_person",
+   "platform": "unifiprotect",
+   "unique_id": "28704E180F67_smart_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "fb4e9a02e2886aa9ba0f4eb00feee1a1",
+   "disabled_by": null,
+   "entity_id": "switch.foyer_fisheye_detections_person",
+   "platform": "unifiprotect",
+   "unique_id": "F4E2C60B6FA5_smart_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "eeab47f71d4653e8a08179d11483a5fa",
+   "disabled_by": null,
+   "entity_id": "switch.utilities_ptz_detections_person",
+   "platform": "unifiprotect",
+   "unique_id": "28704E1751F7_smart_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "eeab47f71d4653e8a08179d11483a5fa",
+   "disabled_by": null,
+   "entity_id": "switch.utilities_ptz_tracking_person",
+   "platform": "unifiprotect",
+   "unique_id": "28704E1751F7_track_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "baaf04024b6ceda3ca4500d0867c9a84",
+   "disabled_by": null,
+   "entity_id": "switch.hot_tub_detections_person",
+   "platform": "unifiprotect",
+   "unique_id": "28704E180CCE_smart_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "3aaa97918b0f801941cd7740ac7bc38f",
+   "disabled_by": null,
+   "entity_id": "switch.reolink_reolink_trackmix_poe_tracking_person",
+   "platform": "unifiprotect",
+   "unique_id": "EC71DB918AA9_track_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "da2ea2728aa39a4607f875fb7a0ca1da",
+   "disabled_by": null,
+   "entity_id": "switch.garage_b_detections_person",
+   "platform": "unifiprotect",
+   "unique_id": "28704E18F431_smart_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "c580a1b3bb405a01b84de5a9239a0f57",
+   "disabled_by": null,
+   "entity_id": "switch.family_room_detections_person",
+   "platform": "unifiprotect",
+   "unique_id": "F4E2C67BF1DF_smart_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "f3dd4ac5062095d208acf433acc10c25",
+   "disabled_by": null,
+   "entity_id": "switch.master_hallway_detections_person",
+   "platform": "unifiprotect",
+   "unique_id": "28704E14F27A_smart_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "ede8f7b4c084e052832ad186364ee49e",
+   "disabled_by": null,
+   "entity_id": "switch.front_side_ptz_detections_person",
+   "platform": "unifiprotect",
+   "unique_id": "28704E1750C3_smart_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "ede8f7b4c084e052832ad186364ee49e",
+   "disabled_by": null,
+   "entity_id": "switch.front_side_ptz_tracking_person",
+   "platform": "unifiprotect",
+   "unique_id": "28704E1750C3_track_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "19b23740ff8329713e9601408f81ef25",
+   "disabled_by": null,
+   "entity_id": "switch.back_yard_detections_person",
+   "platform": "unifiprotect",
+   "unique_id": "28704E190347_smart_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "43f04c977ae5d2ade40a03151954590b",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.camera_protect_garagehallway_person_detected",
+   "platform": "unifiprotect",
+   "unique_id": "28704E17EE02_smart_obj_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "cc013bd3f510998a7628d7b16b1db80f",
+   "disabled_by": null,
+   "entity_id": "camera.g3_instant_high_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "E063DA01B50B_0"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "cc013bd3f510998a7628d7b16b1db80f",
+   "disabled_by": "integration",
+   "entity_id": "camera.g3_instant_medium_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "E063DA01B50B_1"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "cc013bd3f510998a7628d7b16b1db80f",
+   "disabled_by": "integration",
+   "entity_id": "camera.g3_instant_low_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "E063DA01B50B_2"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "aba94d43690d4e657b28e16e2ef69030",
+   "disabled_by": null,
+   "entity_id": "camera.doorbell_lite_high_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "A89C6CB04313_0"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "aba94d43690d4e657b28e16e2ef69030",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.doorbell_lite_person_detected",
+   "platform": "unifiprotect",
+   "unique_id": "A89C6CB04313_smart_obj_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "aba94d43690d4e657b28e16e2ef69030",
+   "disabled_by": null,
+   "entity_id": "switch.doorbell_lite_detections_person",
+   "platform": "unifiprotect",
+   "unique_id": "A89C6CB04313_smart_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "aba94d43690d4e657b28e16e2ef69030",
+   "disabled_by": null,
+   "entity_id": "camera.garage_doorbell_lite_low_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "A89C6CB04313_2"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "aba94d43690d4e657b28e16e2ef69030",
+   "disabled_by": "integration",
+   "entity_id": "camera.garage_doorbell_lite_medium_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "A89C6CB04313_1"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "26b46b50373dff15da0bb910e97e227d",
+   "disabled_by": null,
+   "entity_id": "switch.general_ash41_b_tracking_person",
+   "platform": "unifiprotect",
+   "unique_id": "0EF187C9D505_track_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "ff7daafd146a35700453322f79f632f7",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.madrone_g6_entry_person_detected",
+   "platform": "unifiprotect",
+   "unique_id": "A89C6CB6359C_smart_obj_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "ff7daafd146a35700453322f79f632f7",
+   "disabled_by": null,
+   "entity_id": "camera.madrone_g6_entry_high_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "A89C6CB6359C_0"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "ff7daafd146a35700453322f79f632f7",
+   "disabled_by": null,
+   "entity_id": "switch.madrone_g6_entry_person_detection",
+   "platform": "unifiprotect",
+   "unique_id": "A89C6CB6359C_smart_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "ff7daafd146a35700453322f79f632f7",
+   "disabled_by": null,
+   "entity_id": "camera.madrone_g6_entry_medium_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "A89C6CB6359C_1"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "ff7daafd146a35700453322f79f632f7",
+   "disabled_by": null,
+   "entity_id": "camera.madrone_g6_entry_low_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "A89C6CB6359C_2"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "ff7daafd146a35700453322f79f632f7",
+   "disabled_by": null,
+   "entity_id": "camera.madrone_g6_entry_package_camera",
+   "platform": "unifiprotect",
+   "unique_id": "A89C6CB6359C_3"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "59daf6de64e3b1f6ec5d7c8719e0d2ab",
+   "disabled_by": null,
+   "entity_id": "camera.g3_instant_high_resolution_channel_2",
+   "platform": "unifiprotect",
+   "unique_id": "68D79AE32DD5_0"
+  },
+  {
+   "config_entry_id": "01KFAD40ZH75M7JJBVHEXZEX33",
+   "device_id": "28a6ff54d2fa751d8f82ff9203cac5a6",
+   "disabled_by": null,
+   "entity_id": "camera.armcrestpooloverhead_main",
+   "platform": "dahua",
+   "unique_id": "AMC09469DB290453D5_Main"
+  },
+  {
+   "config_entry_id": "01KFAD40ZH75M7JJBVHEXZEX33",
+   "device_id": "28a6ff54d2fa751d8f82ff9203cac5a6",
+   "disabled_by": null,
+   "entity_id": "camera.armcrestpooloverhead_sub",
+   "platform": "dahua",
+   "unique_id": "AMC09469DB290453D5_Sub"
+  },
+  {
+   "config_entry_id": "01KFAD40ZH75M7JJBVHEXZEX33",
+   "device_id": "28a6ff54d2fa751d8f82ff9203cac5a6",
+   "disabled_by": null,
+   "entity_id": "camera.armcrestpooloverhead_sub_2",
+   "platform": "dahua",
+   "unique_id": "AMC09469DB290453D5_Sub_2"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "59daf6de64e3b1f6ec5d7c8719e0d2ab",
+   "disabled_by": null,
+   "entity_id": "camera.g3_instant_study_a_medium_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "68D79AE32DD5_1"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "59daf6de64e3b1f6ec5d7c8719e0d2ab",
+   "disabled_by": null,
+   "entity_id": "camera.g3_instant_study_a_low_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "68D79AE32DD5_2"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "4c79697fbe930f23c216bba19255ad06",
+   "disabled_by": null,
+   "entity_id": "camera.armcrestash41b_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:camera:ArmCrestASH41B"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "7c45bd09807dc95870bc7e747e5a3225",
+   "disabled_by": null,
+   "entity_id": "camera.garage_a_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:camera:garage_a"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "590cae754d03a07ee4a335847f5cdacd",
+   "disabled_by": null,
+   "entity_id": "camera.garage_b_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:camera:garage_b"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "b709259b09db869833ffd6eed43485e0",
+   "disabled_by": null,
+   "entity_id": "camera.madrone_g6_entry_package_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:camera:madrone_g6_entry_package"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "c887ef1b0cc5a66151f54ea0106f1d03",
+   "disabled_by": null,
+   "entity_id": "camera.rear_ptz_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:camera:rear_ptz"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "02a52ec450bc773069b95bc9c8842858",
+   "disabled_by": null,
+   "entity_id": "camera.staircase_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:camera:staircase"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "ebc6db55a43805610583a5f97499e123",
+   "disabled_by": null,
+   "entity_id": "camera.stairs_top_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:camera:stairs_top"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "b75c48d227a1b6830f85f4f5abba6bac",
+   "disabled_by": null,
+   "entity_id": "camera.upstairs_hall_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:camera:upstairs_hall"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "7fafaf02752b565a43df4ed175b8ceb3",
+   "disabled_by": null,
+   "entity_id": "camera.utilities_ptz_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:camera:utilities_ptz"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "35a77a9b88c74f8af230857160bf0264",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.front_side_ptz_person_occupancy_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:occupancy_sensor:front_side_ptz_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "b9242be0c752cc1b85310e7fed1694b4",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.g5_bullet_person_occupancy_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:occupancy_sensor:g5_bullet_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "1ab472b4cb473d4ee4dd3102978f6b24",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.hot_tub_person_occupancy_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:occupancy_sensor:hot_tub_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "4ab50f757faacfd7ad96aca24bab36dd",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.back_yard_person_occupancy_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:occupancy_sensor:back_yard_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "bd2dd0c81464adf85b93503b35327e12",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.doorbell_lite_person_occupancy_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:occupancy_sensor:doorbell_lite_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "35da2eb75c86710cbf6af4d0ff28bab1",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.reolinkstudybporchptz_person_occupancy_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:occupancy_sensor:ReolinkStudyBPorchPTZ_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "c887ef1b0cc5a66151f54ea0106f1d03",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.rear_ptz_person_occupancy_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:occupancy_sensor:rear_ptz_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "7fafaf02752b565a43df4ed175b8ceb3",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.utilities_ptz_person_occupancy_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:occupancy_sensor:utilities_ptz_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "94f4938b1cfcdd085de17c0a99868da0",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.front_door_aerial_person_occupancy_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:occupancy_sensor:front_door_aerial_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "7c45bd09807dc95870bc7e747e5a3225",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.garage_a_person_occupancy_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:occupancy_sensor:garage_a_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "28878bf764a946e6547c3037531401b7",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.armcrest_person_occupancy_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:occupancy_sensor:ArmCrest_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "6e7a11b9baf62e629855c99c74d1f65c",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.madrone_g6_entry_person_occupancy_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:occupancy_sensor:madrone_g6_entry_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "12391404210a931c8986b239cbe389ac",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.playroom_person_occupancy_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:occupancy_sensor:playroom_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "a77cadda5af515ddef45089567622f73",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.pool_equipment_person_occupancy_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:occupancy_sensor:pool_equipment_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "b75c48d227a1b6830f85f4f5abba6bac",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.upstairs_hall_person_occupancy_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:occupancy_sensor:upstairs_hall_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "b709259b09db869833ffd6eed43485e0",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.madrone_g6_entry_package_person_occupancy_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:occupancy_sensor:madrone_g6_entry_package_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "4c79697fbe930f23c216bba19255ad06",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.armcrestash41b_person_occupancy_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:occupancy_sensor:ArmCrestASH41B_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "35da2eb75c86710cbf6af4d0ff28bab1",
+   "disabled_by": null,
+   "entity_id": "sensor.reolinkstudybporchptz_last_recognized_face_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_recognized_face:ReolinkStudyBPorchPTZ"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "28878bf764a946e6547c3037531401b7",
+   "disabled_by": null,
+   "entity_id": "sensor.armcrest_last_recognized_face_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_recognized_face:ArmCrest"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "4c79697fbe930f23c216bba19255ad06",
+   "disabled_by": null,
+   "entity_id": "sensor.armcrestash41b_last_recognized_face_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_recognized_face:ArmCrestASH41B"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "4ab50f757faacfd7ad96aca24bab36dd",
+   "disabled_by": null,
+   "entity_id": "sensor.back_yard_last_recognized_face_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_recognized_face:back_yard"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "bd2dd0c81464adf85b93503b35327e12",
+   "disabled_by": null,
+   "entity_id": "sensor.doorbell_lite_last_recognized_face_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_recognized_face:doorbell_lite"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "62f7b21e657126f3482121f0f49d08fc",
+   "disabled_by": null,
+   "entity_id": "sensor.family_room_last_recognized_face_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_recognized_face:family_room"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "f095ee1afbb60cd69699623eef1d3706",
+   "disabled_by": null,
+   "entity_id": "sensor.foyer_fisheye_last_recognized_face_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_recognized_face:foyer_fisheye"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "94f4938b1cfcdd085de17c0a99868da0",
+   "disabled_by": null,
+   "entity_id": "sensor.front_door_aerial_last_recognized_face_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_recognized_face:front_door_aerial"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "35a77a9b88c74f8af230857160bf0264",
+   "disabled_by": null,
+   "entity_id": "sensor.front_side_ptz_last_recognized_face_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_recognized_face:front_side_ptz"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "b9242be0c752cc1b85310e7fed1694b4",
+   "disabled_by": null,
+   "entity_id": "sensor.g5_bullet_last_recognized_face_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_recognized_face:g5_bullet"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "7c45bd09807dc95870bc7e747e5a3225",
+   "disabled_by": null,
+   "entity_id": "sensor.garage_a_last_recognized_face_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_recognized_face:garage_a"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "590cae754d03a07ee4a335847f5cdacd",
+   "disabled_by": null,
+   "entity_id": "sensor.garage_b_last_recognized_face_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_recognized_face:garage_b"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "1ab472b4cb473d4ee4dd3102978f6b24",
+   "disabled_by": null,
+   "entity_id": "sensor.hot_tub_last_recognized_face_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_recognized_face:hot_tub"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "6e7a11b9baf62e629855c99c74d1f65c",
+   "disabled_by": null,
+   "entity_id": "sensor.madrone_g6_entry_last_recognized_face_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_recognized_face:madrone_g6_entry"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "b709259b09db869833ffd6eed43485e0",
+   "disabled_by": null,
+   "entity_id": "sensor.madrone_g6_entry_package_last_recognized_face_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_recognized_face:madrone_g6_entry_package"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "01dfad506f0741fb00d9daf9b34dee08",
+   "disabled_by": null,
+   "entity_id": "sensor.master_hallway_last_recognized_face_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_recognized_face:master_hallway"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "12391404210a931c8986b239cbe389ac",
+   "disabled_by": null,
+   "entity_id": "sensor.playroom_last_recognized_face_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_recognized_face:playroom"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "a77cadda5af515ddef45089567622f73",
+   "disabled_by": null,
+   "entity_id": "sensor.pool_equipment_last_recognized_face_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_recognized_face:pool_equipment"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "c887ef1b0cc5a66151f54ea0106f1d03",
+   "disabled_by": null,
+   "entity_id": "sensor.rear_ptz_last_recognized_face_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_recognized_face:rear_ptz"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "02a52ec450bc773069b95bc9c8842858",
+   "disabled_by": null,
+   "entity_id": "sensor.staircase_last_recognized_face_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_recognized_face:staircase"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "ebc6db55a43805610583a5f97499e123",
+   "disabled_by": null,
+   "entity_id": "sensor.stairs_top_last_recognized_face_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_recognized_face:stairs_top"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "b75c48d227a1b6830f85f4f5abba6bac",
+   "disabled_by": null,
+   "entity_id": "sensor.upstairs_hall_last_recognized_face_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_recognized_face:upstairs_hall"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "7fafaf02752b565a43df4ed175b8ceb3",
+   "disabled_by": null,
+   "entity_id": "sensor.utilities_ptz_last_recognized_face_2",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_recognized_face:utilities_ptz"
+  },
+  {
+   "config_entry_id": "01KRN8761VKAXYYC6NF3QJPAJY",
+   "device_id": "7cbdd9793e8d1d237b9d2ac5286dd792",
+   "disabled_by": null,
+   "entity_id": "camera.kitchen_eufy_ae_c10_map",
+   "platform": "robovac_mqtt",
+   "unique_id": "APY2923F01708486_map"
+  },
+  {
+   "config_entry_id": "01KW5R0DVXD0VTKXHKV8JZ5DZ5",
+   "device_id": "ac3d97bde932487d6ad3d8d36aecff3a",
+   "disabled_by": "device",
+   "entity_id": "binary_sensor.madrone_pt_ultra_person",
+   "platform": "reolink",
+   "unique_id": "9527000I94CUS302_9527000MJAZEH3RO_person"
+  },
+  {
+   "config_entry_id": "01KW5R0DVXD0VTKXHKV8JZ5DZ5",
+   "device_id": "ac3d97bde932487d6ad3d8d36aecff3a",
+   "disabled_by": "device",
+   "entity_id": "camera.madrone_pt_ultra_fluent",
+   "platform": "reolink",
+   "unique_id": "9527000I94CUS302_9527000MJAZEH3RO_sub"
+  },
+  {
+   "config_entry_id": "01KW5R0DVXD0VTKXHKV8JZ5DZ5",
+   "device_id": "ac3d97bde932487d6ad3d8d36aecff3a",
+   "disabled_by": "integration",
+   "entity_id": "camera.madrone_pt_ultra_clear",
+   "platform": "reolink",
+   "unique_id": "9527000I94CUS302_9527000MJAZEH3RO_main"
+  },
+  {
+   "config_entry_id": "01KW5R0DVXD0VTKXHKV8JZ5DZ5",
+   "device_id": "ac3d97bde932487d6ad3d8d36aecff3a",
+   "disabled_by": "integration",
+   "entity_id": "camera.madrone_pt_ultra_snapshots_fluent",
+   "platform": "reolink",
+   "unique_id": "9527000I94CUS302_9527000MJAZEH3RO_snapshots_sub"
+  },
+  {
+   "config_entry_id": "01KW5R0DVXD0VTKXHKV8JZ5DZ5",
+   "device_id": "ac3d97bde932487d6ad3d8d36aecff3a",
+   "disabled_by": "integration",
+   "entity_id": "camera.madrone_pt_ultra_snapshots_clear",
+   "platform": "reolink",
+   "unique_id": "9527000I94CUS302_9527000MJAZEH3RO_snapshots"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "26b46b50373dff15da0bb910e97e227d",
+   "disabled_by": null,
+   "entity_id": "camera.general_ash41_b_high_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "0EF187C9D505_0"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "79eb40230a665f2d6959b44d66c15cf7",
+   "disabled_by": null,
+   "entity_id": "camera.balcony_amcrest_ip5m_t1277eb_ai_high_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "A0603206348E_0"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "26057e1b73c7c4b797764a116a0033dc",
+   "disabled_by": null,
+   "entity_id": "camera.study_a_closet_reolink_reolink_home_hub_high_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "EC71DBB1FA3C_0"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "3aaa97918b0f801941cd7740ac7bc38f",
+   "disabled_by": null,
+   "entity_id": "camera.patio_ptzcam_reolinktrackmix_poe_pstudybporch_high_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "EC71DB918AA9_0"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "19b23740ff8329713e9601408f81ef25",
+   "disabled_by": "integration",
+   "entity_id": "camera.outside_perimeter_back_yard_medium_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E190347_1"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "aba94d43690d4e657b28e16e2ef69030",
+   "disabled_by": null,
+   "entity_id": "event.garage_a_garage_doorbell_lite_smart_detection",
+   "platform": "unifiprotect",
+   "unique_id": "A89C6CB04313_smart_detection"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "c62cb38727b5a8e0747ca42c2878cebc",
+   "disabled_by": null,
+   "entity_id": "event.outside_perimeter_rear_ptz_smart_detection",
+   "platform": "unifiprotect",
+   "unique_id": "28704E175012_smart_detection"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "f84347c3bdb5ae35165371bc6b0ef46d",
+   "disabled_by": null,
+   "entity_id": "event.garage_a_garage_a_smart_detection",
+   "platform": "unifiprotect",
+   "unique_id": "28704E18FC13_smart_detection"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "19b23740ff8329713e9601408f81ef25",
+   "disabled_by": null,
+   "entity_id": "event.outside_perimeter_back_yard_smart_detection",
+   "platform": "unifiprotect",
+   "unique_id": "28704E190347_smart_detection"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "da2ea2728aa39a4607f875fb7a0ca1da",
+   "disabled_by": null,
+   "entity_id": "event.garage_b_garage_b_smart_detection",
+   "platform": "unifiprotect",
+   "unique_id": "28704E18F431_smart_detection"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "fb4e9a02e2886aa9ba0f4eb00feee1a1",
+   "disabled_by": null,
+   "entity_id": "event.entry_way_foyer_fisheye_smart_detection",
+   "platform": "unifiprotect",
+   "unique_id": "F4E2C60B6FA5_smart_detection"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "9f978a5880bafd7d82ca91874bb68a5c",
+   "disabled_by": null,
+   "entity_id": "event.outside_perimeter_g5_bullet_smart_detection",
+   "platform": "unifiprotect",
+   "unique_id": "0418D6A29265_smart_detection"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "5a6a7a8c25fd95074e0d8dc32e232ef5",
+   "disabled_by": null,
+   "entity_id": "event.outside_perimeter_pool_equipment_smart_detection",
+   "platform": "unifiprotect",
+   "unique_id": "28704E18F7CA_smart_detection"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "b063bbf5881d859b456429b6f3d41575",
+   "disabled_by": null,
+   "entity_id": "event.upstairs_hallway_upstairs_hall_smart_detection",
+   "platform": "unifiprotect",
+   "unique_id": "28704E18F661_smart_detection"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "43f04c977ae5d2ade40a03151954590b",
+   "disabled_by": null,
+   "entity_id": "event.garage_hallway_camera_protect_garagehallway_smart_detection",
+   "platform": "unifiprotect",
+   "unique_id": "28704E17EE02_smart_detection"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "ede8f7b4c084e052832ad186364ee49e",
+   "disabled_by": null,
+   "entity_id": "event.outside_perimeter_front_side_ptz_smart_detection",
+   "platform": "unifiprotect",
+   "unique_id": "28704E1750C3_smart_detection"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "d834a366baad8dcbb2aca0f3099e07b5",
+   "disabled_by": null,
+   "entity_id": "event.front_porch_front_door_aerial_smart_detection",
+   "platform": "unifiprotect",
+   "unique_id": "28704E180F41_smart_detection"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "f3dd4ac5062095d208acf433acc10c25",
+   "disabled_by": null,
+   "entity_id": "event.master_hallway_master_hallway_smart_detection",
+   "platform": "unifiprotect",
+   "unique_id": "28704E14F27A_smart_detection"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "74f1d0a01d1af703634f541c7db596e1",
+   "disabled_by": null,
+   "entity_id": "event.stairs_stairs_top_smart_detection",
+   "platform": "unifiprotect",
+   "unique_id": "28704E180F67_smart_detection"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "cdb4bd0a56aed9706ececb1feb9c06d6",
+   "disabled_by": null,
+   "entity_id": "event.game_room_playroom_smart_detection",
+   "platform": "unifiprotect",
+   "unique_id": "28704E18F4AF_smart_detection"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "baaf04024b6ceda3ca4500d0867c9a84",
+   "disabled_by": null,
+   "entity_id": "event.outside_perimeter_hot_tub_smart_detection",
+   "platform": "unifiprotect",
+   "unique_id": "28704E180CCE_smart_detection"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "eeab47f71d4653e8a08179d11483a5fa",
+   "disabled_by": null,
+   "entity_id": "event.outside_perimeter_utilities_ptz_smart_detection",
+   "platform": "unifiprotect",
+   "unique_id": "28704E1751F7_smart_detection"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "c580a1b3bb405a01b84de5a9239a0f57",
+   "disabled_by": null,
+   "entity_id": "event.living_room_family_room_smart_detection",
+   "platform": "unifiprotect",
+   "unique_id": "F4E2C67BF1DF_smart_detection"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "ff7daafd146a35700453322f79f632f7",
+   "disabled_by": null,
+   "entity_id": "event.front_porch_madrone_g6_entry_smart_detection",
+   "platform": "unifiprotect",
+   "unique_id": "A89C6CB6359C_smart_detection"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "62f7b21e657126f3482121f0f49d08fc",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.family_room_person_occupancy",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:occupancy_sensor:family_room_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "f095ee1afbb60cd69699623eef1d3706",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.foyer_fisheye_person_occupancy",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:occupancy_sensor:foyer_fisheye_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "590cae754d03a07ee4a335847f5cdacd",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.garage_b_person_occupancy",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:occupancy_sensor:garage_b_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "01dfad506f0741fb00d9daf9b34dee08",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.master_hallway_person_occupancy",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:occupancy_sensor:master_hallway_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "02a52ec450bc773069b95bc9c8842858",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.staircase_person_occupancy",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:occupancy_sensor:staircase_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "ebc6db55a43805610583a5f97499e123",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.stairs_top_person_occupancy",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:occupancy_sensor:stairs_top_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "28878bf764a946e6547c3037531401b7",
+   "disabled_by": null,
+   "entity_id": "camera.armcrest",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:camera:ArmCrest"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "4ab50f757faacfd7ad96aca24bab36dd",
+   "disabled_by": null,
+   "entity_id": "camera.back_yard",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:camera:back_yard"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "bd2dd0c81464adf85b93503b35327e12",
+   "disabled_by": null,
+   "entity_id": "camera.doorbell_lite",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:camera:doorbell_lite"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "62f7b21e657126f3482121f0f49d08fc",
+   "disabled_by": null,
+   "entity_id": "camera.family_room",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:camera:family_room"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "f095ee1afbb60cd69699623eef1d3706",
+   "disabled_by": null,
+   "entity_id": "camera.foyer_fisheye",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:camera:foyer_fisheye"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "94f4938b1cfcdd085de17c0a99868da0",
+   "disabled_by": null,
+   "entity_id": "camera.front_door_aerial",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:camera:front_door_aerial"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "35a77a9b88c74f8af230857160bf0264",
+   "disabled_by": null,
+   "entity_id": "camera.front_side_ptz",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:camera:front_side_ptz"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "b9242be0c752cc1b85310e7fed1694b4",
+   "disabled_by": null,
+   "entity_id": "camera.g5_bullet",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:camera:g5_bullet"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "1ab472b4cb473d4ee4dd3102978f6b24",
+   "disabled_by": null,
+   "entity_id": "camera.hot_tub",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:camera:hot_tub"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "6e7a11b9baf62e629855c99c74d1f65c",
+   "disabled_by": null,
+   "entity_id": "camera.madrone_g6_entry",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:camera:madrone_g6_entry"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "01dfad506f0741fb00d9daf9b34dee08",
+   "disabled_by": null,
+   "entity_id": "camera.master_hallway",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:camera:master_hallway"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "12391404210a931c8986b239cbe389ac",
+   "disabled_by": null,
+   "entity_id": "camera.playroom",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:camera:playroom"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "a77cadda5af515ddef45089567622f73",
+   "disabled_by": null,
+   "entity_id": "camera.pool_equipment",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:camera:pool_equipment"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "35da2eb75c86710cbf6af4d0ff28bab1",
+   "disabled_by": null,
+   "entity_id": "camera.reolinkstudybporchptz",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:camera:ReolinkStudyBPorchPTZ"
+  },
+  {
+   "config_entry_id": "01KW5R0DVXD0VTKXHKV8JZ5DZ5",
+   "device_id": "ac3d97bde932487d6ad3d8d36aecff3a",
+   "disabled_by": "integration",
+   "entity_id": "camera.outside_perimeter_madrone_pt_ultra_balanced",
+   "platform": "reolink",
+   "unique_id": "9527000I94CUS302_9527000MJAZEH3RO_ext"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "01dfad506f0741fb00d9daf9b34dee08",
+   "disabled_by": null,
+   "entity_id": "sensor.master_hallway_person_count",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_object_count:master_hallway_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "12391404210a931c8986b239cbe389ac",
+   "disabled_by": null,
+   "entity_id": "sensor.playroom_person_count",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_object_count:playroom_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "590cae754d03a07ee4a335847f5cdacd",
+   "disabled_by": null,
+   "entity_id": "sensor.garage_b_person_count",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_object_count:garage_b_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "f095ee1afbb60cd69699623eef1d3706",
+   "disabled_by": null,
+   "entity_id": "sensor.foyer_fisheye_person_count",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_object_count:foyer_fisheye_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "4c79697fbe930f23c216bba19255ad06",
+   "disabled_by": null,
+   "entity_id": "sensor.armcrestash41b_person_count",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_object_count:ArmCrestASH41B_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "62f7b21e657126f3482121f0f49d08fc",
+   "disabled_by": null,
+   "entity_id": "sensor.family_room_person_count",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_object_count:family_room_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "c887ef1b0cc5a66151f54ea0106f1d03",
+   "disabled_by": null,
+   "entity_id": "sensor.rear_ptz_person_count",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_object_count:rear_ptz_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "02a52ec450bc773069b95bc9c8842858",
+   "disabled_by": null,
+   "entity_id": "sensor.staircase_person_count",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_object_count:staircase_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "28878bf764a946e6547c3037531401b7",
+   "disabled_by": null,
+   "entity_id": "sensor.armcrest_person_count",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_object_count:ArmCrest_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "7c45bd09807dc95870bc7e747e5a3225",
+   "disabled_by": null,
+   "entity_id": "sensor.garage_a_person_count",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_object_count:garage_a_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "35da2eb75c86710cbf6af4d0ff28bab1",
+   "disabled_by": null,
+   "entity_id": "sensor.reolinkstudybporchptz_person_count",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_object_count:ReolinkStudyBPorchPTZ_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "4ab50f757faacfd7ad96aca24bab36dd",
+   "disabled_by": null,
+   "entity_id": "sensor.back_yard_person_count",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_object_count:back_yard_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "bd2dd0c81464adf85b93503b35327e12",
+   "disabled_by": null,
+   "entity_id": "sensor.doorbell_lite_person_count",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_object_count:doorbell_lite_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "ebc6db55a43805610583a5f97499e123",
+   "disabled_by": null,
+   "entity_id": "sensor.stairs_top_person_count",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_object_count:stairs_top_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "35a77a9b88c74f8af230857160bf0264",
+   "disabled_by": null,
+   "entity_id": "sensor.front_side_ptz_person_count",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_object_count:front_side_ptz_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "a77cadda5af515ddef45089567622f73",
+   "disabled_by": null,
+   "entity_id": "sensor.pool_equipment_person_count",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_object_count:pool_equipment_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "94f4938b1cfcdd085de17c0a99868da0",
+   "disabled_by": null,
+   "entity_id": "sensor.front_door_aerial_person_count",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_object_count:front_door_aerial_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "7fafaf02752b565a43df4ed175b8ceb3",
+   "disabled_by": null,
+   "entity_id": "sensor.utilities_ptz_person_count",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_object_count:utilities_ptz_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "b9242be0c752cc1b85310e7fed1694b4",
+   "disabled_by": null,
+   "entity_id": "sensor.g5_bullet_person_count",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_object_count:g5_bullet_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "b709259b09db869833ffd6eed43485e0",
+   "disabled_by": null,
+   "entity_id": "sensor.madrone_g6_entry_package_person_count",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_object_count:madrone_g6_entry_package_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "6e7a11b9baf62e629855c99c74d1f65c",
+   "disabled_by": null,
+   "entity_id": "sensor.madrone_g6_entry_person_count",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_object_count:madrone_g6_entry_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "1ab472b4cb473d4ee4dd3102978f6b24",
+   "disabled_by": null,
+   "entity_id": "sensor.hot_tub_person_count",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_object_count:hot_tub_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "b75c48d227a1b6830f85f4f5abba6bac",
+   "disabled_by": null,
+   "entity_id": "sensor.upstairs_hall_person_count",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_object_count:upstairs_hall_person"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "d834a366baad8dcbb2aca0f3099e07b5",
+   "disabled_by": "integration",
+   "entity_id": "camera.front_porch_front_door_aerial_medium_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "28704E180F41_1"
+  },
+  {
+   "config_entry_id": "01M04FCEJ58KD1Y7FPF1XTPZQ4",
+   "device_id": "230e6f9f2c6c977ea6cbf8f58ba07cab",
+   "disabled_by": null,
+   "entity_id": "camera.armcrestpooloverhead_armcrestint_main_stream",
+   "platform": "amcrest",
+   "unique_id": "AMC09469DB290453D5-0"
+  },
+  {
+   "config_entry_id": "01M04FCEJ58KD1Y7FPF1XTPZQ4",
+   "device_id": "230e6f9f2c6c977ea6cbf8f58ba07cab",
+   "disabled_by": null,
+   "entity_id": "camera.armcrestpooloverhead_armcrestint_sub_stream_1",
+   "platform": "amcrest",
+   "unique_id": "AMC09469DB290453D5-1"
+  },
+  {
+   "config_entry_id": "01M04FCEJ58KD1Y7FPF1XTPZQ4",
+   "device_id": "230e6f9f2c6c977ea6cbf8f58ba07cab",
+   "disabled_by": null,
+   "entity_id": "camera.armcrestpooloverhead_armcrestint_sub_stream_2",
+   "platform": "amcrest",
+   "unique_id": "AMC09469DB290453D5-2"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "0edc550df93221e7c3bf22a66bd622cd",
+   "disabled_by": null,
+   "entity_id": "camera.madroneptultra",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:camera:MadronePTUltra"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "0edc550df93221e7c3bf22a66bd622cd",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.madroneptultra_person_occupancy",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:occupancy_sensor:MadronePTUltra_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "0edc550df93221e7c3bf22a66bd622cd",
+   "disabled_by": null,
+   "entity_id": "sensor.madroneptultra_person_count",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_object_count:MadronePTUltra_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "0edc550df93221e7c3bf22a66bd622cd",
+   "disabled_by": null,
+   "entity_id": "sensor.madroneptultra_last_recognized_face",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_recognized_face:MadronePTUltra"
+  },
+  {
+   "config_entry_id": "01JR38ZEVA1YXAAMYDBAF3SZH0",
+   "device_id": "94a549531a40ba319bc86c444ef4f51b",
+   "disabled_by": null,
+   "entity_id": "camera.pt_ultra_back_pt_ultra_snapshot",
+   "platform": "mqtt",
+   "unique_id": "ptultra_snap"
+  },
+  {
+   "config_entry_id": "01K1SBX7CWG96MAGXTQMFRS5EW",
+   "device_id": "e7d03166001af2d8367dd5b6e7489853",
+   "disabled_by": null,
+   "entity_id": "camera.reolink_rlc_1224a_high_resolution_channel",
+   "platform": "unifiprotect",
+   "unique_id": "EC71DB443AAA_0"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "4d37e6ac219a0e4338d77893d9e23c34",
+   "disabled_by": null,
+   "entity_id": "camera.reolinkpatio",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:camera:ReolinkPatio"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "4d37e6ac219a0e4338d77893d9e23c34",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.reolinkpatio_person_occupancy",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:occupancy_sensor:ReolinkPatio_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "4d37e6ac219a0e4338d77893d9e23c34",
+   "disabled_by": null,
+   "entity_id": "sensor.reolinkpatio_person_count",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_object_count:ReolinkPatio_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "4d37e6ac219a0e4338d77893d9e23c34",
+   "disabled_by": null,
+   "entity_id": "sensor.reolinkpatio_last_recognized_face",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_recognized_face:ReolinkPatio"
+  },
+  {
+   "config_entry_id": "01M4SDZYNHDAAQQPG90XG2EH9C",
+   "device_id": "c5445dcc79ab08cc9b61ad0680f79ee3",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.reolink_patio_person",
+   "platform": "reolink",
+   "unique_id": "9527000LG0CXFBMT_0_person"
+  },
+  {
+   "config_entry_id": "01M4SDZYNHDAAQQPG90XG2EH9C",
+   "device_id": "c5445dcc79ab08cc9b61ad0680f79ee3",
+   "disabled_by": null,
+   "entity_id": "camera.reolink_patio_fluent",
+   "platform": "reolink",
+   "unique_id": "9527000LG0CXFBMT_0_sub"
+  },
+  {
+   "config_entry_id": "01M4SDZYNHDAAQQPG90XG2EH9C",
+   "device_id": "c5445dcc79ab08cc9b61ad0680f79ee3",
+   "disabled_by": "integration",
+   "entity_id": "camera.reolink_patio_clear",
+   "platform": "reolink",
+   "unique_id": "9527000LG0CXFBMT_0_main"
+  },
+  {
+   "config_entry_id": "01M4SDZYNHDAAQQPG90XG2EH9C",
+   "device_id": "c5445dcc79ab08cc9b61ad0680f79ee3",
+   "disabled_by": "integration",
+   "entity_id": "camera.reolink_patio_snapshots_fluent",
+   "platform": "reolink",
+   "unique_id": "9527000LG0CXFBMT_0_snapshots_sub"
+  },
+  {
+   "config_entry_id": "01M4SDZYNHDAAQQPG90XG2EH9C",
+   "device_id": "c5445dcc79ab08cc9b61ad0680f79ee3",
+   "disabled_by": "integration",
+   "entity_id": "camera.reolink_patio_snapshots_clear",
+   "platform": "reolink",
+   "unique_id": "9527000LG0CXFBMT_0_snapshots"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "01f7f0e70727cbc56ba3722608adb409",
+   "disabled_by": null,
+   "entity_id": "camera.sonoffwindow",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:camera:SonoffWindow"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "01f7f0e70727cbc56ba3722608adb409",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.sonoffwindow_person_occupancy",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:occupancy_sensor:SonoffWindow_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "01f7f0e70727cbc56ba3722608adb409",
+   "disabled_by": null,
+   "entity_id": "sensor.sonoffwindow_person_count",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_object_count:SonoffWindow_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "01f7f0e70727cbc56ba3722608adb409",
+   "disabled_by": null,
+   "entity_id": "sensor.sonoffwindow_last_recognized_face",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_recognized_face:SonoffWindow"
+  },
+  {
+   "config_entry_id": "01M59HKJS7NMND1DX37KG7K7RB",
+   "device_id": "09decd96df43e4871274043cf899d8ca",
+   "disabled_by": null,
+   "entity_id": "sensor.master_panel_ipv4_addresses_by_interface",
+   "platform": "esphome",
+   "unique_id": "66:A3:B9:66:3B:83/0/text_sensor/IPv4 addresses by interface"
+  },
+  {
+   "config_entry_id": "01M59HKJS7NMND1DX37KG7K7RB",
+   "device_id": "09decd96df43e4871274043cf899d8ca",
+   "disabled_by": null,
+   "entity_id": "sensor.master_panel_ipv6_addresses_by_interface",
+   "platform": "esphome",
+   "unique_id": "66:A3:B9:66:3B:83/0/text_sensor/IPv6 addresses by interface"
+  },
+  {
+   "config_entry_id": "01M59HKJS7NMND1DX37KG7K7RB",
+   "device_id": "09decd96df43e4871274043cf899d8ca",
+   "disabled_by": null,
+   "entity_id": "camera.master_panel_screenshot",
+   "platform": "esphome",
+   "unique_id": "66:A3:B9:66:3B:83/0/camera/Screenshot"
+  },
+  {
+   "config_entry_id": "01M59HKJS7NMND1DX37KG7K7RB",
+   "device_id": "09decd96df43e4871274043cf899d8ca",
+   "disabled_by": null,
+   "entity_id": "camera.master_panel_camera",
+   "platform": "esphome",
+   "unique_id": "66:A3:B9:66:3B:83/0/camera/Camera"
+  },
+  {
+   "config_entry_id": "01M59HKJS7NMND1DX37KG7K7RB",
+   "device_id": "09decd96df43e4871274043cf899d8ca",
+   "disabled_by": null,
+   "entity_id": "switch.master_panel_screensaver_face_detection",
+   "platform": "esphome",
+   "unique_id": "66:A3:B9:66:3B:83/0/switch/Screensaver face detection"
+  },
+  {
+   "config_entry_id": "01M5BGW1DCY6NQ15GKBY5QEPRR",
+   "device_id": "31b8e2c063947b3228db38fb6e784d37",
+   "disabled_by": null,
+   "entity_id": "sensor.study_a_panel_ipv4_addresses_by_interface",
+   "platform": "esphome",
+   "unique_id": "72:FC:B3:8C:F1:C4/0/text_sensor/IPv4 addresses by interface"
+  },
+  {
+   "config_entry_id": "01M5BGW1DCY6NQ15GKBY5QEPRR",
+   "device_id": "31b8e2c063947b3228db38fb6e784d37",
+   "disabled_by": null,
+   "entity_id": "sensor.study_a_panel_ipv6_addresses_by_interface",
+   "platform": "esphome",
+   "unique_id": "72:FC:B3:8C:F1:C4/0/text_sensor/IPv6 addresses by interface"
+  },
+  {
+   "config_entry_id": "01M5BGW1DCY6NQ15GKBY5QEPRR",
+   "device_id": "31b8e2c063947b3228db38fb6e784d37",
+   "disabled_by": null,
+   "entity_id": "camera.study_a_panel_screenshot",
+   "platform": "esphome",
+   "unique_id": "72:FC:B3:8C:F1:C4/0/camera/Screenshot"
+  },
+  {
+   "config_entry_id": "01M5BGW1DCY6NQ15GKBY5QEPRR",
+   "device_id": "31b8e2c063947b3228db38fb6e784d37",
+   "disabled_by": null,
+   "entity_id": "camera.study_a_panel_camera",
+   "platform": "esphome",
+   "unique_id": "72:FC:B3:8C:F1:C4/0/camera/Camera"
+  },
+  {
+   "config_entry_id": "01M5BGW1DCY6NQ15GKBY5QEPRR",
+   "device_id": "31b8e2c063947b3228db38fb6e784d37",
+   "disabled_by": null,
+   "entity_id": "switch.study_a_panel_screensaver_face_detection",
+   "platform": "esphome",
+   "unique_id": "72:FC:B3:8C:F1:C4/0/switch/Screensaver face detection"
+  },
+  {
+   "config_entry_id": "01M5BJ19376QPWZ3WA455X6JDR",
+   "device_id": "1d3d32dc040e1c8a5bfd4e7cfbec84a5",
+   "disabled_by": null,
+   "entity_id": "sensor.study_b_panel_ipv4_addresses_by_interface",
+   "platform": "esphome",
+   "unique_id": "4E:1C:47:9B:4F:24/0/text_sensor/IPv4 addresses by interface"
+  },
+  {
+   "config_entry_id": "01M5BJ19376QPWZ3WA455X6JDR",
+   "device_id": "1d3d32dc040e1c8a5bfd4e7cfbec84a5",
+   "disabled_by": null,
+   "entity_id": "sensor.study_b_panel_ipv6_addresses_by_interface",
+   "platform": "esphome",
+   "unique_id": "4E:1C:47:9B:4F:24/0/text_sensor/IPv6 addresses by interface"
+  },
+  {
+   "config_entry_id": "01M5BJ19376QPWZ3WA455X6JDR",
+   "device_id": "1d3d32dc040e1c8a5bfd4e7cfbec84a5",
+   "disabled_by": null,
+   "entity_id": "camera.study_b_panel_screenshot",
+   "platform": "esphome",
+   "unique_id": "4E:1C:47:9B:4F:24/0/camera/Screenshot"
+  },
+  {
+   "config_entry_id": "01M5BJ19376QPWZ3WA455X6JDR",
+   "device_id": "1d3d32dc040e1c8a5bfd4e7cfbec84a5",
+   "disabled_by": null,
+   "entity_id": "camera.study_b_panel_camera",
+   "platform": "esphome",
+   "unique_id": "4E:1C:47:9B:4F:24/0/camera/Camera"
+  },
+  {
+   "config_entry_id": "01M5BJ19376QPWZ3WA455X6JDR",
+   "device_id": "1d3d32dc040e1c8a5bfd4e7cfbec84a5",
+   "disabled_by": null,
+   "entity_id": "switch.study_b_panel_screensaver_face_detection",
+   "platform": "esphome",
+   "unique_id": "4E:1C:47:9B:4F:24/0/switch/Screensaver face detection"
+  },
+  {
+   "config_entry_id": "01M5BXMA8R1R6F8TF4TJN1ZKXT",
+   "device_id": "53be97d28d95190653b14ea9af2a265d",
+   "disabled_by": null,
+   "entity_id": "sensor.media_room_panel_ipv4_addresses_by_interface",
+   "platform": "esphome",
+   "unique_id": "8E:2A:0C:A9:47:DA/0/text_sensor/IPv4 addresses by interface"
+  },
+  {
+   "config_entry_id": "01M5BXMA8R1R6F8TF4TJN1ZKXT",
+   "device_id": "53be97d28d95190653b14ea9af2a265d",
+   "disabled_by": null,
+   "entity_id": "sensor.media_room_panel_ipv6_addresses_by_interface",
+   "platform": "esphome",
+   "unique_id": "8E:2A:0C:A9:47:DA/0/text_sensor/IPv6 addresses by interface"
+  },
+  {
+   "config_entry_id": "01M5BXMA8R1R6F8TF4TJN1ZKXT",
+   "device_id": "53be97d28d95190653b14ea9af2a265d",
+   "disabled_by": null,
+   "entity_id": "camera.media_room_panel_screenshot",
+   "platform": "esphome",
+   "unique_id": "8E:2A:0C:A9:47:DA/0/camera/Screenshot"
+  },
+  {
+   "config_entry_id": "01M5BXMA8R1R6F8TF4TJN1ZKXT",
+   "device_id": "53be97d28d95190653b14ea9af2a265d",
+   "disabled_by": null,
+   "entity_id": "camera.media_room_panel_camera",
+   "platform": "esphome",
+   "unique_id": "8E:2A:0C:A9:47:DA/0/camera/Camera"
+  },
+  {
+   "config_entry_id": "01M5BXMA8R1R6F8TF4TJN1ZKXT",
+   "device_id": "53be97d28d95190653b14ea9af2a265d",
+   "disabled_by": null,
+   "entity_id": "switch.media_room_panel_screensaver_face_detection",
+   "platform": "esphome",
+   "unique_id": "8E:2A:0C:A9:47:DA/0/switch/Screensaver face detection"
+  },
+  {
+   "config_entry_id": "01M5BY2DKRWDYD072VADHWBABA",
+   "device_id": "192a262ff42d921e2ee1b90d8d86096b",
+   "disabled_by": null,
+   "entity_id": "sensor.up_hallway_panel_ipv4_addresses_by_interface",
+   "platform": "esphome",
+   "unique_id": "7A:4F:ED:50:DD:21/0/text_sensor/IPv4 addresses by interface"
+  },
+  {
+   "config_entry_id": "01M5BY2DKRWDYD072VADHWBABA",
+   "device_id": "192a262ff42d921e2ee1b90d8d86096b",
+   "disabled_by": null,
+   "entity_id": "sensor.up_hallway_panel_ipv6_addresses_by_interface",
+   "platform": "esphome",
+   "unique_id": "7A:4F:ED:50:DD:21/0/text_sensor/IPv6 addresses by interface"
+  },
+  {
+   "config_entry_id": "01M5BY2DKRWDYD072VADHWBABA",
+   "device_id": "192a262ff42d921e2ee1b90d8d86096b",
+   "disabled_by": null,
+   "entity_id": "camera.up_hallway_panel_screenshot",
+   "platform": "esphome",
+   "unique_id": "7A:4F:ED:50:DD:21/0/camera/Screenshot"
+  },
+  {
+   "config_entry_id": "01M5BY2DKRWDYD072VADHWBABA",
+   "device_id": "192a262ff42d921e2ee1b90d8d86096b",
+   "disabled_by": null,
+   "entity_id": "camera.up_hallway_panel_camera",
+   "platform": "esphome",
+   "unique_id": "7A:4F:ED:50:DD:21/0/camera/Camera"
+  },
+  {
+   "config_entry_id": "01M5BY2DKRWDYD072VADHWBABA",
+   "device_id": "192a262ff42d921e2ee1b90d8d86096b",
+   "disabled_by": null,
+   "entity_id": "switch.up_hallway_panel_screensaver_face_detection",
+   "platform": "esphome",
+   "unique_id": "7A:4F:ED:50:DD:21/0/switch/Screensaver face detection"
+  },
+  {
+   "config_entry_id": "01M5BZJWS8P7KXYA8G9GSDMS46",
+   "device_id": "c1c5392cee9482e2b81b4fa6b970e4a8",
+   "disabled_by": null,
+   "entity_id": "sensor.kitchen_panel_ipv4_addresses_by_interface",
+   "platform": "esphome",
+   "unique_id": "4A:C1:A2:0B:88:4A/0/text_sensor/IPv4 addresses by interface"
+  },
+  {
+   "config_entry_id": "01M5BZJWS8P7KXYA8G9GSDMS46",
+   "device_id": "c1c5392cee9482e2b81b4fa6b970e4a8",
+   "disabled_by": null,
+   "entity_id": "sensor.kitchen_panel_ipv6_addresses_by_interface",
+   "platform": "esphome",
+   "unique_id": "4A:C1:A2:0B:88:4A/0/text_sensor/IPv6 addresses by interface"
+  },
+  {
+   "config_entry_id": "01M5BZJWS8P7KXYA8G9GSDMS46",
+   "device_id": "c1c5392cee9482e2b81b4fa6b970e4a8",
+   "disabled_by": null,
+   "entity_id": "camera.kitchen_panel_screenshot",
+   "platform": "esphome",
+   "unique_id": "4A:C1:A2:0B:88:4A/0/camera/Screenshot"
+  },
+  {
+   "config_entry_id": "01M5BZJWS8P7KXYA8G9GSDMS46",
+   "device_id": "c1c5392cee9482e2b81b4fa6b970e4a8",
+   "disabled_by": null,
+   "entity_id": "camera.kitchen_panel_camera",
+   "platform": "esphome",
+   "unique_id": "4A:C1:A2:0B:88:4A/0/camera/Camera"
+  },
+  {
+   "config_entry_id": "01M5BZJWS8P7KXYA8G9GSDMS46",
+   "device_id": "c1c5392cee9482e2b81b4fa6b970e4a8",
+   "disabled_by": null,
+   "entity_id": "switch.kitchen_panel_screensaver_face_detection",
+   "platform": "esphome",
+   "unique_id": "4A:C1:A2:0B:88:4A/0/switch/Screensaver face detection"
+  },
+  {
+   "config_entry_id": "01M5BZX9J9YJ1SJ8M3QJSBGRQE",
+   "device_id": "03f40196f64715b44af97752692e8fb3",
+   "disabled_by": null,
+   "entity_id": "sensor.entry_way_panel_ipv4_addresses_by_interface",
+   "platform": "esphome",
+   "unique_id": "5A:3F:80:E7:B7:C9/0/text_sensor/IPv4 addresses by interface"
+  },
+  {
+   "config_entry_id": "01M5BZX9J9YJ1SJ8M3QJSBGRQE",
+   "device_id": "03f40196f64715b44af97752692e8fb3",
+   "disabled_by": null,
+   "entity_id": "sensor.entry_way_panel_ipv6_addresses_by_interface",
+   "platform": "esphome",
+   "unique_id": "5A:3F:80:E7:B7:C9/0/text_sensor/IPv6 addresses by interface"
+  },
+  {
+   "config_entry_id": "01M5BZX9J9YJ1SJ8M3QJSBGRQE",
+   "device_id": "03f40196f64715b44af97752692e8fb3",
+   "disabled_by": null,
+   "entity_id": "camera.entry_way_panel_screenshot",
+   "platform": "esphome",
+   "unique_id": "5A:3F:80:E7:B7:C9/0/camera/Screenshot"
+  },
+  {
+   "config_entry_id": "01M5BZX9J9YJ1SJ8M3QJSBGRQE",
+   "device_id": "03f40196f64715b44af97752692e8fb3",
+   "disabled_by": null,
+   "entity_id": "camera.entry_way_panel_camera",
+   "platform": "esphome",
+   "unique_id": "5A:3F:80:E7:B7:C9/0/camera/Camera"
+  },
+  {
+   "config_entry_id": "01M5BZX9J9YJ1SJ8M3QJSBGRQE",
+   "device_id": "03f40196f64715b44af97752692e8fb3",
+   "disabled_by": null,
+   "entity_id": "switch.entry_way_panel_screensaver_face_detection",
+   "platform": "esphome",
+   "unique_id": "5A:3F:80:E7:B7:C9/0/switch/Screensaver face detection"
+  },
+  {
+   "config_entry_id": "01M5N8SPC61KXW1HJ35GR5W69F",
+   "device_id": "8cb862e51bedb5f5aef7aa2918916456",
+   "disabled_by": null,
+   "entity_id": "camera.study_a_panel_stream",
+   "platform": "generic",
+   "unique_id": "01M5N8SPC61KXW1HJ35GR5W69F"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "fb5ea1f62ae5036188b696e83aac9369",
+   "disabled_by": null,
+   "entity_id": "camera.study_a_panel",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:camera:study_a_panel"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "fb5ea1f62ae5036188b696e83aac9369",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.study_a_panel_person_occupancy",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:occupancy_sensor:study_a_panel_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "fb5ea1f62ae5036188b696e83aac9369",
+   "disabled_by": null,
+   "entity_id": "sensor.study_a_panel_person_count",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_object_count:study_a_panel_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "fb5ea1f62ae5036188b696e83aac9369",
+   "disabled_by": null,
+   "entity_id": "sensor.study_a_panel_last_recognized_face",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_recognized_face:study_a_panel"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "dd5643cdf59fce698bdda2f12229c3ad",
+   "disabled_by": null,
+   "entity_id": "camera.kitchen_panel",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:camera:kitchen_panel"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "dd5643cdf59fce698bdda2f12229c3ad",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.kitchen_panel_person_occupancy",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:occupancy_sensor:kitchen_panel_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "dd5643cdf59fce698bdda2f12229c3ad",
+   "disabled_by": null,
+   "entity_id": "sensor.kitchen_panel_person_count",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_object_count:kitchen_panel_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "dd5643cdf59fce698bdda2f12229c3ad",
+   "disabled_by": null,
+   "entity_id": "sensor.kitchen_panel_last_recognized_face",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_recognized_face:kitchen_panel"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "48b0493a87d54ec9a47a38565d057ecf",
+   "disabled_by": null,
+   "entity_id": "camera.up_hallway_panel",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:camera:up_hallway_panel"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "48b0493a87d54ec9a47a38565d057ecf",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.up_hallway_panel_person_occupancy",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:occupancy_sensor:up_hallway_panel_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "48b0493a87d54ec9a47a38565d057ecf",
+   "disabled_by": null,
+   "entity_id": "sensor.up_hallway_panel_person_count",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_object_count:up_hallway_panel_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "48b0493a87d54ec9a47a38565d057ecf",
+   "disabled_by": null,
+   "entity_id": "sensor.up_hallway_panel_last_recognized_face",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_recognized_face:up_hallway_panel"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "518e0ee51a3d2a238af1b50a06918cad",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.g5_bullet_property_person_occupancy",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:occupancy_sensor:g5_bullet_property_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "5667545aa448a52801dcb5cbe359b4be",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.rear_ptz_property_person_occupancy",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:occupancy_sensor:rear_ptz_property_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "fcb4100591c6feddd76d1fcc2b5cd474",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.utilities_ptz_property_person_occupancy",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:occupancy_sensor:utilities_ptz_property_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "3fa09e937528cda97dede5b29ae24068",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.madrone_g6_entry_property_person_occupancy",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:occupancy_sensor:madrone_g6_entry_property_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "f7c2ed7796841fb956c7042e6b9dd025",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.doorbell_lite_property_person_occupancy",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:occupancy_sensor:doorbell_lite_property_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "8ab002432bccfcb10b79059578e72b6f",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.front_side_ptz_property_person_occupancy",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:occupancy_sensor:front_side_ptz_property_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "3dc2f92043a3f211abff937b160c8210",
+   "disabled_by": null,
+   "entity_id": "binary_sensor.front_door_aerial_property_person_occupancy",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:occupancy_sensor:front_door_aerial_property_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "518e0ee51a3d2a238af1b50a06918cad",
+   "disabled_by": null,
+   "entity_id": "sensor.g5_bullet_property_person_count",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_object_count:g5_bullet_property_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "5667545aa448a52801dcb5cbe359b4be",
+   "disabled_by": null,
+   "entity_id": "sensor.rear_ptz_property_person_count",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_object_count:rear_ptz_property_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "fcb4100591c6feddd76d1fcc2b5cd474",
+   "disabled_by": null,
+   "entity_id": "sensor.utilities_ptz_property_person_count",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_object_count:utilities_ptz_property_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "3fa09e937528cda97dede5b29ae24068",
+   "disabled_by": null,
+   "entity_id": "sensor.madrone_g6_entry_property_person_count",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_object_count:madrone_g6_entry_property_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "f7c2ed7796841fb956c7042e6b9dd025",
+   "disabled_by": null,
+   "entity_id": "sensor.doorbell_lite_property_person_count",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_object_count:doorbell_lite_property_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "8ab002432bccfcb10b79059578e72b6f",
+   "disabled_by": null,
+   "entity_id": "sensor.front_side_ptz_property_person_count",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_object_count:front_side_ptz_property_person"
+  },
+  {
+   "config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+   "device_id": "3dc2f92043a3f211abff937b160c8210",
+   "disabled_by": null,
+   "entity_id": "sensor.front_door_aerial_property_person_count",
+   "platform": "frigate",
+   "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:sensor_object_count:front_door_aerial_property_person"
+  }
+ ]
+}
