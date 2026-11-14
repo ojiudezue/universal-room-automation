@@ -1804,3 +1804,110 @@ async def test_mf_cm_form_round_trip_flattens_fine_tuning(rig, mods):
     assert res["data"] == {"pre_existing": "keep", "mf_follow_mode": "extend",
                            "mf_sleep_suppress": True, "mf_unjoin_delay": 0,
                            "mf_cooldown_seconds": 0}
+
+
+@pytest.mark.asyncio
+async def test_mf_digest_line_reaches_delivered_nm_digest(rig, mods):
+    """Wire-in anchor: the REAL NotificationManager._fire_digest appends the
+    music-following line to the message it delivers (heartbeat day)."""
+    rig.world.play("garage_b")
+    set_area(rig, "Laundry")
+    await move(rig, "Garage B", "Laundry")
+    sent = []
+
+    class _DB:
+        async def get_pending_digest(self, pid):
+            return []
+
+        async def count_no_route_since(self, pid, since):
+            return 0
+
+        async def mark_digest_delivered(self, *a, **k):
+            return None
+
+    rig.hass.data[DOMAIN]["database"] = _DB()
+    NM = mods.nm.NotificationManager
+    nm_like = types.SimpleNamespace(hass=rig.hass, _last_digest_flush={}, _config={})
+    nm_like._build_optimizer_digest_section = lambda: ""
+    nm_like._build_music_following_digest_section = types.MethodType(
+        NM._build_music_following_digest_section, nm_like)
+    nm_like._format_digest = lambda pending: ""
+
+    async def _deliver(pid, cfg, msg):
+        sent.append(msg)
+        return False
+
+    nm_like._deliver_digest = _deliver
+    await NM._fire_digest(nm_like, "person.oji_udezue", {})
+    assert sent and sent[0].endswith("Music following, last 24 h: 1 moves, 1 played.")
+
+
+@pytest.mark.asyncio
+async def test_mf_bonus_never_joins_non_grouping_speaker(rig, mods):
+    """An MA player in the room without GROUPING is never joined."""
+    er = rig.er
+    cfg = mods.MockConfigEntry(domain="sonos", data={})
+    cfg.add_to_hass(rig.hass)
+    d = rig.dr.async_get_or_create(config_entry_id=cfg.entry_id,
+                                   connections={("mac", "aa:bb:cc:dd:ee:09")})
+    rig.dr.async_update_device(d.id, area_id="master_bedroom")
+    er.async_get_or_create("media_player", "sonos", "u-radio", suggested_object_id="radio",
+                           device_id=d.id, config_entry=cfg)
+    cfg2 = mods.MockConfigEntry(domain="music_assistant", data={})
+    cfg2.add_to_hass(rig.hass)
+    d2 = rig.dr.async_get_or_create(config_entry_id=cfg2.entry_id,
+                                    identifiers={("music_assistant", "upaabbccddee09")})
+    er.async_get_or_create("media_player", "music_assistant", "u-radio-ma",
+                           suggested_object_id="radio_ma", device_id=d2.id, config_entry=cfg2)
+    rig.world.speaker("radio", "media_player.radio", "media_player.radio_ma", features=512)
+    rig.world.play("kitchen")
+    set_area(rig, "Master Bedroom")
+    assert await move(rig, "Kitchen", "Master Bedroom") == "success"
+    joined = [m for j in rig.world.services("media_player", "join") for m in j[2]["group_members"]]
+    assert joined == ["media_player.move_ma"]
+
+
+@pytest.mark.asyncio
+async def test_mf_verify_reads_native_primary_not_ma_twin(rig):
+    """MA path: the MA twin reads playing but the room's configured speaker
+    does not -> verify_failed (only the primary confirms)."""
+    twin = Speaker("study_ma")
+    twin.entities.append("media_player.study_a_5")
+    rig.world.by_entity["media_player.study_a_5"] = twin
+    rig.world.speakers["study_ma"] = twin
+    rig.world.play("kitchen")
+    set_area(rig, "Study A")
+    assert await move(rig, "Kitchen", "Study A") == "verify_failed"
+    assert twin.state == "playing" and rig.world.state("study_a") == "idle"
+
+
+@pytest.mark.asyncio
+async def test_mf_ura_context_stop_of_target_is_not_reversal(rig):
+    rig.world.play("garage_b")
+    set_area(rig, "Laundry")
+    await move(rig, "Garage B", "Laundry")
+    await rig.mf._call("media_player", "media_stop", {"entity_id": "media_player.utility_3"})
+    await rig.hass.async_block_till_done()
+    assert rig.mf.accuracy()["reversals"] == 0
+
+
+@pytest.mark.asyncio
+async def test_mf_silent_tripwire_quiet_with_one_success(rig, monkeypatch):
+    fired = []
+
+    async def _fire(*a, **kw):
+        fired.append(a)
+        return True
+
+    monkeypatch.setattr(rig.mods.stuck, "fire_stuck_signal", _fire)
+    rig.mf.apply_config({"mf_cooldown_seconds": 0})
+    for i in range(3):
+        rig.world.speakers["utility"].state = "idle"
+        rig.world.push(rig.world.speakers["utility"])
+        rig.world.play("garage_b")
+        rig.world.speakers["utility"].never_plays = i > 0
+        set_area(rig, "Laundry")
+        rig.clock.t += 100
+        await move(rig, "Garage B", "Laundry")
+    res = await rig.mf.async_nightly_health_check()
+    assert res["candidates"] == 3 and res["successes"] == 1 and fired == []
