@@ -671,29 +671,24 @@ class MusicFollowingCoordinator(BaseCoordinator):
             )
 
     async def _stop_all_playback(self) -> None:
-        """Stop the configured room and zone players (safety/security).
+        """Critical safety / security stop of the speakers URA drives.
 
-        MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D7.4: scoped to the speakers URA
-        is configured to drive (room ``room_media_player`` + zone players),
-        not every media_player in the house (352 live, incl. TVs, phones and
-        Macs). Best-effort: failures logged but do not propagate.
+        MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D7.4 + review fix-up (A-M1, B2):
+        scoped to the speakers URA drives (configured room / zone players
+        AND every speaker music following started itself), not every
+        media_player in the house (352 live, incl. TVs, phones and Macs).
+        Delegated to ``MusicFollowing.async_hazard_stop``, which also
+        cancels in-flight moves, blocks new ones for MF_HAZARD_BLOCK_S and
+        stops with the URA context. Best-effort: never raises.
         """
-        stopped = 0
         mf = self._music_following or self.hass.data.get(DOMAIN, {}).get("music_following")
-        scope = mf.configured_players() if mf is not None else set()
-        for entity_id in sorted(scope):
-            state = self.hass.states.get(entity_id)
-            if state is not None and state.state in ("playing", "paused"):
-                try:
-                    await self.hass.services.async_call(
-                        "media_player", "media_stop",
-                        {"entity_id": entity_id}, blocking=False,
-                    )
-                    stopped += 1
-                except Exception:  # noqa: BLE001
-                    _LOGGER.warning(
-                        "MusicFollowing: Failed to stop %s", entity_id
-                    )
+        if mf is None:
+            return
+        try:
+            stopped = await mf.async_hazard_stop()
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning("MusicFollowing: hazard stop failed", exc_info=True)
+            return
         if stopped > 0:
             _LOGGER.info("MusicFollowing: Stopped %d media player(s)", stopped)
 

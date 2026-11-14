@@ -175,7 +175,12 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
         )
         self.integration_entry = integration_entry
         self.tracked_persons = integration_entry.data.get(CONF_TRACKED_PERSONS, [])
-        
+        # MUSIC-FOLLOWING-TRANSFER-REPAIR-1 fix-up (review A-H1): the nearest
+        # in-area scanner distance (feet) measured by THIS tick's
+        # _calculate_confidence, per person; None = no reading. Read only by
+        # the ura_person_location_change fire in the same tick.
+        self._closest_distance_ft: dict[str, float | None] = {}
+
         # Distance thresholds for confidence calculation
         self.high_confidence_distance = integration_entry.data.get(
             CONF_PERSON_HIGH_CONFIDENCE_DISTANCE,
@@ -1061,11 +1066,14 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                                 # MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D1
                                 # (additive): the BLE facts behind this room
                                 # change, captured at fire time. Music
-                                # following re-reads the live area sensor
-                                # against ``bermuda_area`` at decision time.
+                                # following ("strict") reads the nearest
+                                # in-area scanner distance from here, never
+                                # from a Bermuda entity (review A-H1).
                                 "method": "bermuda",
                                 "bermuda_area": bermuda_area,
                                 "area_sensor": area_sensor,
+                                "closest_distance_ft": getattr(
+                                    self, "_closest_distance_ft", {}).get(person_name),
                             }
                             self.hass.bus.async_fire(
                                 "ura_person_location_change",
@@ -1836,6 +1844,9 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
         3. Count how many see the device within high confidence distance
         4. Return tiered confidence based on scanner agreement
         """
+        # Entry reset: a tick that finds no in-area reading publishes None.
+        closest_cache = self.__dict__.setdefault("_closest_distance_ft", {})
+        closest_cache[person_name] = None
         try:
             # Get Bermuda distance sensors for this person
             # v3.6.17: Only scan Bermuda entities instead of ALL entities
@@ -1906,6 +1917,15 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                         # v3.6.24: Track closest distance
                         if closest_area_distance is None or distance_ft < closest_area_distance:
                             closest_area_distance = distance_ft
+                            # Music following "strict" reads this in feet;
+                            # Bermuda may publish metres.
+                            unit = str((sensor_state.attributes or {}).get(
+                                "unit_of_measurement") or "").lower()
+                            closest_cache[person_name] = (
+                                distance_ft * 3.28084
+                                if unit in ("m", "meters", "metres")
+                                else distance_ft
+                            )
                         if distance_ft < very_close_threshold:
                             very_close_scanners += 1
                             _LOGGER.debug(

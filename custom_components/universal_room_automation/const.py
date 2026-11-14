@@ -4270,17 +4270,19 @@ CONF_MF_RELEASE_DELAY: Final = CONF_MF_UNJOIN_DELAY
 # speaker can never lead, delay or fail a move (INV-MF-6).
 CONF_MF_BONUS_JOINS: Final = "mf_bonus_joins"
 DEFAULT_MF_BONUS_JOINS: Final = True
-# Location certainty, a named bucket (re-based 2026-11-14 on LIVE inputs; the
-# person BLE confidence is a constant and closest_distance is never stored,
-# AUDIT_ble_person_sensor_resolution_2026_11_14.md):
+# Location certainty, a named bucket. Music following is consumer class
+# "comfort" and reads the person-awareness layer only (review A-H1,
+# CONTRACT_person_awareness_layer.md §4.1 / §7), never a Bermuda entity:
 #   "any"    = no BLE check;
-#   "normal" = at decision time the person's own Bermuda area sensor (resolved
-#              through the registry from the person's bermuda device_tracker)
-#              still reads the area that produced the room change;
-#   "strict" = normal + the person's live Bermuda nearest-scanner distance is
-#              within CONF_MF_HIGH_CONFIDENCE_DISTANCE.
-# A missing or dead input never blocks a move: it is counted
-# (``ble_input_missing``) and the check passes.
+#   "normal" = at decision time the person's resolved room from the layer
+#              (PersonTrackingCoordinator.get_person_location) is still the
+#              room the change went to;
+#   "strict" = normal + the nearest in-area scanner distance carried on the
+#              room-change event (``closest_distance_ft``, measured by the
+#              producer at fire time) is within CONF_MF_HIGH_CONFIDENCE_DISTANCE.
+# A missing input (no location, location unknown, event without BLE keys or
+# without a distance) never blocks a move: it is counted once per room
+# change (``ble_input_missing``) and the check passes.
 CONF_MF_MIN_BLE_CONFIDENCE: Final = "mf_min_ble_confidence"
 MF_BLE_CERTAINTY_ANY: Final = "any"
 MF_BLE_CERTAINTY_NORMAL: Final = "normal"
@@ -4313,8 +4315,20 @@ MF_JOIN_LEADER_RELEASE_SAFE_PLATFORMS: Final = frozenset()
 # Memory episode types (registered in MEMORY_EPISODE_TYPES).
 MF_DECISION_EPISODE_TYPE: Final = "music_follow_decision"
 MF_REVERSAL_EPISODE_TYPE: Final = "music_follow_reversal"
-# Rolling in-memory decision window for the nightly trip-wire (seconds).
+# Rolling decision window for the nightly trip-wire (seconds). Counted from
+# the persisted decision rows when the database is up (survives a restart,
+# review B7); the in-memory list is the fallback.
 MF_TRIPWIRE_WINDOW_S: Final = 86400
+# Seconds new music moves are refused after a critical safety / security
+# stop (review B2). Each stop re-arms it; there is no "hazard cleared"
+# signal, so this window IS the hazard's duration for music following.
+# 0 = no block (in-flight moves are still cancelled). Rung 1: safety bound.
+MF_HAZARD_BLOCK_S: Final = 1800
+# Restart safety for the move-mode fade (review B3): pre-fade volumes are
+# persisted and put back at the next start, but only on a speaker that still
+# reads within this distance of MF_FADE_TARGET_VOLUME (someone who turned it
+# up by hand keeps their volume). Rung 1.
+MF_RESTORE_FADE_TOLERANCE: Final = 0.02
 
 # v5.10.0 D11: per-room speaker loudness calibration (form field only —
 # NOT a Number entity). Applied on cross-platform generic transfers to

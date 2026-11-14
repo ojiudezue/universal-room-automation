@@ -5730,6 +5730,17 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         )
 
 
+async def _async_teardown_music_following(hass: HomeAssistant) -> None:
+    """Tear down the MusicFollowing singleton if present (idempotent)."""
+    mf = hass.data.get(DOMAIN, {}).get("music_following")
+    if mf is None or not hasattr(mf, "async_teardown"):
+        return
+    try:
+        await mf.async_teardown()
+    except Exception:  # noqa: BLE001
+        _LOGGER.warning("MusicFollowing teardown failed during unload", exc_info=True)
+
+
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     entry_type = entry.data.get(CONF_ENTRY_TYPE)
@@ -5809,6 +5820,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # quality/tests/test_v4519_transition_detector_teardown.py:166,188
         # (which search for the literal `for key in ["transition_detector",
         # "pattern_learner"`) still pin the teardown→deletion ordering.
+        # Review B8 (music following repair): tear the MusicFollowing
+        # singleton down (in-flight moves, reversal-watch listeners and
+        # timers, saved volumes) BEFORE dropping it; the CM coordinator's
+        # teardown may run after this or not at all.
+        await _async_teardown_music_following(hass)
         for key in ["transition_detector", "pattern_learner", "music_following"]:
             hass.data[DOMAIN].pop(key, None)
 

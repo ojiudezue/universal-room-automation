@@ -44,6 +44,9 @@ class RoomTransition:
     ble_area: Optional[str] = None
     ble_area_sensor: Optional[str] = None
     ble_method: Optional[str] = None
+    # Nearest in-area scanner distance in feet at fire time (event key
+    # ``closest_distance_ft``); None = no reading. Music following "strict".
+    ble_closest_ft: Optional[float] = None
 
 
 class TransitionDetector:
@@ -235,6 +238,10 @@ class TransitionDetector:
             transition.ble_area = data.get("bermuda_area")
             transition.ble_area_sensor = data.get("area_sensor")
             transition.ble_method = data.get("method")
+            _closest = data.get("closest_distance_ft")
+            transition.ble_closest_ft = (
+                float(_closest) if isinstance(_closest, (int, float)) else None
+            )
             _LOGGER.info(
                 "Transition: %s %s → %s (%s, %ds, confidence=%.2f)",
                 person_id, previous_location, current_location,

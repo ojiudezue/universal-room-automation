@@ -104,12 +104,18 @@ def mods():
 
 @pytest_asyncio.fixture
 async def hass():
-    from pytest_homeassistant_custom_component.common import async_test_home_assistant
+    from pytest_homeassistant_custom_component.common import (
+        async_test_home_assistant,
+        mock_storage,
+    )
 
-    async with async_test_home_assistant() as real_hass:
-        yield real_hass
-        await real_hass.async_block_till_done()
-        await real_hass.async_stop(force=True)
+    # Real HA Store, in-memory backing (review B3 saved volumes persist).
+    with mock_storage() as stored:
+        async with async_test_home_assistant() as real_hass:
+            real_hass.data["_mf_test_storage"] = stored
+            yield real_hass
+            await real_hass.async_block_till_done()
+            await real_hass.async_stop(force=True)
 
 
 # ---------------------------------------------------------------------------
@@ -438,17 +444,21 @@ async def _make_rig(hass, mods, *, rooms=None, cm_options=None, db=None):
     hass.data.setdefault(DOMAIN, {})["music_following"] = mf
     if db is not None:
         hass.data[DOMAIN]["database"] = db
+    hass.data[DOMAIN]["person_coordinator"] = FakePersonLayer()
+    hass.data[DOMAIN]["person_coordinator"].locations[PERSON] = "Kitchen"
     await hass.async_block_till_done()
     return Rig(hass=hass, mods=mods, world=world, mf=mf, clock=clock, td=td, cm=cm,
                er=er, dr=dr)
 
 
-def T(rig, frm, to, *, person=PERSON, area="Kitchen", dwell=5, conf=0.95, path="direct"):
+def T(rig, frm, to, *, person=PERSON, area="Kitchen", dwell=5, conf=0.95, path="direct",
+      closest=None, method="bermuda"):
     from homeassistant.util import dt as dt_util
     return rig.mods.trans.RoomTransition(
         person_id=person, from_room=frm, to_room=to, timestamp=dt_util.now(),
         duration_seconds=dwell, path_type=path, confidence=conf,
-        ble_area=area, ble_area_sensor=None, ble_method="bermuda",
+        ble_area=area, ble_area_sensor=None, ble_method=method,
+        ble_closest_ft=closest,
     )
 
 
@@ -461,8 +471,42 @@ async def move(rig, frm, to, **kw):
     return rig.mf._last_decision.get("outcome")
 
 
-def set_area(rig, area, person="oji"):
-    rig.hass.states.async_set(f"sensor.iphone_{person}_area", area, {})
+class FakePersonLayer:
+    """The F4-BLE owner's public read (PersonTrackingCoordinator §4.1):
+    ``tracked_persons`` + ``get_person_location``. ``data`` is deliberately
+    a trap: music following must never read the store (INV-LAYER-READ)."""
+
+    def __init__(self):
+        self.locations: dict[str, str] = {}
+        self.reads: list[str] = []
+
+    @property
+    def tracked_persons(self):
+        return list(self.locations)
+
+    def get_person_location(self, name):
+        self.reads.append(name)
+        return self.locations.get(name, "unknown")
+
+    @property
+    def data(self):
+        raise AssertionError("music following read person_coordinator.data")
+
+
+def layer(rig) -> FakePersonLayer:
+    pc = rig.hass.data[DOMAIN].get("person_coordinator")
+    if not isinstance(pc, FakePersonLayer):
+        pc = FakePersonLayer()
+        rig.hass.data[DOMAIN]["person_coordinator"] = pc
+    return pc
+
+
+_WHO = {"oji": PERSON, "jaya": PERSON2}
+
+
+def set_area(rig, room, person="oji"):
+    """The layer's resolved room for the person (what the gate compares)."""
+    layer(rig).locations[_WHO.get(person, person)] = room
 
 
 @pytest_asyncio.fixture
