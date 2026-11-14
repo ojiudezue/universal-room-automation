@@ -35511,6 +35511,42 @@ cards:
   operator_2026_11_14_pick: "Ble arrivals for hvac - A"
   next: "Me: A approved. The producer always sends, and HVAC ignores BLE arrivals while its pre-arrival switch is off. Plan right after layer ship 3 (it builds on dispatch_person_arriving and the G9 setter), and land it before v6.0.0 so step 8 arrival music keeps BLE arrivals (ship 3 rev 2 review DG MEDIUM-5). Behaviour change, Tier 2."
   rank: {value: 4, time_criticality: 2, effort: 2}
+- id: CAMERA-PERSON-DETECTED-FUSED-STREAM-HEALTH-1
+  title: Room fused camera_person_detected sensor (fan_veto's live camera leg) does not honour camera stream health
+  thread: presence
+  status: inbox
+  created: '2026-11-14 12:00'
+  updated: '2026-11-14 12:00'
+  tier: 2
+  links: {related: [CAMERA-STREAM-DEAD-ZONE-AND-CENSUS-1]}
+  origin: {date: '2026-11-14', gist: 'S2 reviews A-L3 / G-2: the S2 fan_veto guard sits on the legacy camera leg, which runs only when binary_sensor.<room>_camera_person_detected has no state; every room creates that entity, so the comfort-fan camera leg is not stream-health aware in practice.'}
+  why: 'Comfort-only (fails toward the fan running in AWAY); no room lists a panel in CONF_ROOM_CAMERAS live. Changing it moves a room entity''s state and attributes, so it needs its own small plan.'
+  next: 'Me: plan Tier 2: route the fused sensor''s per-camera reads through camera_stream_health.entity_stream_view (dead = unknown, the S2 hold rule), list attribute/state effects, mutation-anchor. Seam: layer ship 3b dead-camera rule.'
+  rank: {value: 2, time_criticality: 1, effort: 2}
+- id: CENSUS-FACE-READS-STREAM-HEALTH-1
+  title: Census face reads and the stuck-camera watchdog do not honour camera stream health
+  thread: identity
+  status: inbox
+  created: '2026-11-14 12:00'
+  updated: '2026-11-14 12:00'
+  tier: 2
+  links: {related: [CAMERA-STREAM-DEAD-ZONE-AND-CENSUS-1]}
+  origin: {date: '2026-11-14', gist: 'S2 builder not-done list + review A G-2: face legs are windowed (CENSUS_FACE_RECOGNITION_WINDOW_SECONDS 1800 s), so a dead camera''s last face ages out; the watchdog already discounts downward only.'}
+  why: 'Low marginal value today; record so the face path is not assumed covered by S2.'
+  next: 'Me: measure first (has a dead camera ever held a face leg past its window?); build only if it has.'
+  rank: {value: 1, time_criticality: 1, effort: 2}
+- id: PERIMETER-RING-CAMERAS-STREAM-WATCH-1
+  title: Perimeter ring cameras are watched by no room, so camera_stream_dead answers None for them (blocks NVR witness W6b)
+  thread: identity
+  status: inbox
+  created: '2026-11-14 12:00'
+  updated: '2026-11-14 12:00'
+  tier: 2
+  links: {related: [CAMERA-STREAM-DEAD-ZONE-AND-CENSUS-1]}
+  origin: {date: '2026-11-14', gist: 'S2 review A G-2 item 3: the camera-keyed getter is None (unknown) for a camera no room input or camera-override sensor watches; perimeter ring cameras are not room inputs.'}
+  why: 'None is the correct "unknown"; W6b needs these cameras watched before it can bridge. Must add the watch through the same tracker, not a second liveness rule.'
+  next: 'Me: fold into the W6b plan: watch perimeter cameras through CameraInputStreamHealth (one getter), no second rule. Seam: layer ship 3b keeps house-level twin stamps.'
+  rank: {value: 2, time_criticality: 1, effort: 2}
 - id: BLE-CONFIDENCE-SCANNER-NAME-PARSE-1
   title: "Person BLE confidence reads the scanner name from the distance sensor's entity_id (split 'distance_to_') instead of the registry"
   status: planned
