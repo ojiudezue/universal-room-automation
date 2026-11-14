@@ -9,6 +9,7 @@ Tests cover:
 - Sensor state and attributes
 - Logbook formatting
 """
+import importlib
 import json
 import sys
 import time
@@ -115,6 +116,16 @@ _mods = {
 }
 
 for name, attrs in _mods.items():
+    # Prefer the REAL module when it imports (the .venv-ha interpreter ships
+    # homeassistant). Injecting a stub module that is merely "missing so far"
+    # leaked into every later file in a full collection: e.g. a fake
+    # ``homeassistant.components.select`` made URA's select entities inherit
+    # an empty ``SelectEntity`` (no ``unique_id``) for the rest of the run.
+    if name not in sys.modules:
+        try:
+            importlib.import_module(name)
+        except Exception:  # noqa: BLE001 — not installed: stub it below
+            pass
     if isinstance(attrs, dict):
         existing = sys.modules.get(name)
         if existing is None:

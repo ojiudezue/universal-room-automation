@@ -118,6 +118,15 @@ def _load_fan_recheck_module():
     sys.modules[f"{pkg_name}.domain_coordinators.signals"] = signals_mod
     signals_spec.loader.exec_module(signals_mod)
 
+    # Load REAL person_ids.py (pure): _ble_corroboration's phone-left-behind
+    # unique-id key comes from it (PERSON-AWARENESS-READ-API-1 RA9).
+    pid_spec = importlib.util.spec_from_file_location(
+        f"{pkg_name}.person_ids", str(ROOT_DIR / ROOT_REL / "person_ids.py"),
+    )
+    pid_mod = importlib.util.module_from_spec(pid_spec)
+    sys.modules[f"{pkg_name}.person_ids"] = pid_mod
+    pid_spec.loader.exec_module(pid_mod)
+
     # Load REAL _ble_corroboration.py.
     ble_src = ROOT_DIR / ROOT_REL / "domain_coordinators" / "_ble_corroboration.py"
     ble_spec = importlib.util.spec_from_file_location(

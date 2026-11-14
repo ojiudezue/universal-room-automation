@@ -102,3 +102,46 @@ async def test_face_only_attach_stash_provenance_face(rig):
     stash = rig.census._egress_identity_last_attach
     assert stash["person"] == "oji_udezue"
     assert stash["provenance"] == "face"
+
+
+@pytest.mark.asyncio
+async def test_entry_registration_forwards_attach_provenance_and_stamps_class(rig):
+    """PERSON-AWARENESS-READ-API-1 RA6 anchors: on an ENTRY crossing the
+    census registration carries the provenance of the resolver's last attach
+    (read through ``census.egress_identity_last_attach()``; BLE-only -> "ble",
+    face-only -> "face"), and the resolver stamps the census agreement class
+    it returned (``set_egress_identity_agreement_class``)."""
+    from custom_components.universal_room_automation.camera_census import (
+        BleTransitionLeg,
+    )
+
+    census = rig.census
+    registered: list = []
+    real_register = census.register_egress_face
+
+    def _spy(name, ts=None, provenance="face"):
+        registered.append((name, provenance))
+        return real_register(name, ts, provenance=provenance)
+
+    census.register_egress_face = _spy
+    census._ble_tracker_slug_map = {
+        "device_tracker.oji_ble": "oji_udezue",
+        "device_tracker.jaya_ble": "jaya",
+    }
+    leg = BleTransitionLeg(
+        person_slug="oji_udezue",
+        transition_ts=NOW - timedelta(seconds=20),
+        direction="arriving",
+        engine="ble",
+        confidence=ura_const.BLE_TRANSITION_CONFIDENCE,
+        provenance=ura_const.IDENTITY_PROVENANCE_BLE,
+        source_entity="device_tracker.oji_ble",
+    )
+    census._resolve_ble_legs = lambda ts, direction: [leg]
+    census._consume_ble_arriving_legs = lambda slug: None
+    await _cross(rig, "binary_sensor.front_door_person_occupancy", at=NOW)
+    payload = rig.fired[-1][1]
+    assert payload["direction"] == "entry"
+    assert registered[-1] == ("oji_udezue", "ble")
+    assert census._egress_identity_agreement_class_last == payload["agreement_class"]
+    assert payload["agreement_class"] is not None

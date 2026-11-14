@@ -451,6 +451,9 @@ def test_d2b_kill_switch_disabled_short_circuits():
     # The 'disabled' outcome is EXCLUDED from rate denominators.
     labels = [o for _t, o in census._egress_identity_outcomes]
     assert labels[-1] == "disabled"
+    # PERSON-AWARENESS-READ-API-1 RA6: the disabled path also stamps the
+    # census agreement class (read by the census diagnostics sensor).
+    assert census._egress_identity_agreement_class_last == "disabled"
 
 
 # ---------------------------------------------------------------------------

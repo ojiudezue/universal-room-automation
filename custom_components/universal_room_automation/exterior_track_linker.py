@@ -51,6 +51,7 @@ from .exterior_seams import (  # noqa: E402
     DEFAULT_EXTERIOR_SEAM_FILE,
     derive_egress_adjacent,
     graph_from_spec,
+    mute_covers_from_spec,
     split_egress,
     validate_seam_spec,
 )
@@ -244,6 +245,12 @@ class ExteriorTrackLinker:
         self.seam_count: int = self._edge_count()
         self.seam_validation: str = "not loaded"
         self.seam_file_sha256: str | None = None
+        # PERIMETER-GLOBAL-EGRESS-MUTE-1 D2: door key -> covered perimeter
+        # camera keys, from the seam file's `egress_mute_covers`. Read ONLY by
+        # PerimeterAlertManager's egress mute; the adjacency graph, track
+        # linking, burst-demote and circling never read it. {} = no mute.
+        self.egress_mute_covers: dict[str, tuple[str, ...]] = {}
+        self.mute_covers_source: str = "not loaded"
         self._id_gen = itertools.count(1)
         # In-flight episode-write tasks (B-H2). done_callback discards on
         # completion; teardown gathers with bounded wait.
@@ -499,11 +506,15 @@ class ExteriorTrackLinker:
         except Exception as exc:  # noqa: BLE001 — same as a failed read
             self.seam_file_sha256 = None
             self.seam_validation = f"rejected: load failed: {exc}"
+            self._clear_mute_covers_rejected()
             return self.seam_validation
         known = self._seam_known_cameras()
+        perimeter_only = self._seam_perimeter_only_cameras()
 
         def _validate(spec_: Any):
-            errs, warns = validate_seam_spec(spec_, known)
+            errs, warns = validate_seam_spec(
+                spec_, known, perimeter_cameras=perimeter_only,
+            )
             if errs:
                 raise ValueError(errs[0])
             return spec_, warns
@@ -516,6 +527,8 @@ class ExteriorTrackLinker:
         if outcome.status == STATUS_ABSENT:
             self._install_const_seams()
             self.seam_validation = "file absent"
+            self.egress_mute_covers = {}
+            self.mute_covers_source = "file absent"
             _LOGGER.info(
                 "ExteriorTrackLinker: no seam file at %s — using built-in "
                 "EXTERIOR_ADJACENCY_GRAPH (%d seams)", path, self.seam_count,
@@ -523,6 +536,10 @@ class ExteriorTrackLinker:
             return self.seam_validation
         if outcome.status != STATUS_LOADED:
             self.seam_validation = f"rejected: {outcome.error}"
+            # Review A1 (INV-MUTE-FAILOPEN): the GRAPH keeps the last good
+            # spec, but a rejected file means NO egress mute — the old map
+            # must not keep muting after an edit the validator refused.
+            self._clear_mute_covers_rejected()
             _LOGGER.warning(
                 "ExteriorTrackLinker: seam file %s REJECTED (first error: %s) "
                 "— keeping %s (%d seams)",
@@ -541,6 +558,16 @@ class ExteriorTrackLinker:
             # rather than silently disabling `approach` classification.
             self._egress_adjacent = tuple(EXTERIOR_TRACK_EGRESS_ADJACENT_CAMERAS)
         self.seam_count = self._edge_count()
+        self.egress_mute_covers = {
+            self.normalize_camera(d): tuple(sorted(
+                {self.normalize_camera(c) for c in cams}
+            ))
+            for d, cams in mute_covers_from_spec(spec).items()
+        }
+        self.mute_covers_source = (
+            f"loaded ({len(self.egress_mute_covers)} door(s))"
+            if self.egress_mute_covers else "absent (no egress mute)"
+        )
         self.seam_source = (
             f"exterior_seams.json (schema {spec.get('schema_version')}, "
             f"{self.seam_count} seams)"
@@ -555,6 +582,26 @@ class ExteriorTrackLinker:
         )
         return self.seam_validation
 
+    def _clear_mute_covers_rejected(self) -> None:
+        self.egress_mute_covers = {}
+        self.mute_covers_source = "rejected (no egress mute)"
+
+    def _seam_perimeter_only_cameras(self) -> set[str] | None:
+        """Review A5: perimeter-only camera keys staged by the
+        PerimeterAlertManager (the only cameras the scoped mute acts on).
+        None = unknown, the covered-camera perimeter check is skipped."""
+        try:
+            from .const import DOMAIN  # noqa: PLC0415
+            pam = (getattr(self.hass, "data", None) or {}).get(DOMAIN, {}).get(
+                "perimeter_alert_manager"
+            )
+            keys = getattr(pam, "perimeter_only_camera_keys", None)
+            if keys:
+                return {self.normalize_camera(c) for c in keys}
+        except Exception:  # noqa: BLE001
+            pass
+        return None
+
     def seam_status(self) -> dict[str, Any]:
         """D5 provenance attrs for the exterior diagnostic sensor."""
         return {
@@ -563,6 +610,7 @@ class ExteriorTrackLinker:
             "seam_validation": self.seam_validation,
             "seam_file_sha256": self.seam_file_sha256,
             "seam_egress_adjacent": list(self._egress_adjacent),
+            "mute_covers_source": self.mute_covers_source,
         }
 
     @property

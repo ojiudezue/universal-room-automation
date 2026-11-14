@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio as _asyncio_fusion
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -1270,3 +1271,94 @@ def test_rev5_fixup_ble_only_abstains_when_resident_has_zero_ble_trackers():
     assert census._ble_legs_abstained_count >= 1
     labels = [o for _t, o in census._egress_identity_outcomes]
     assert labels[-1] == "abstain_ble_ambiguous"
+
+
+# ---------------------------------------------------------------------------
+# PERSON-AWARENESS-READ-API-1 RA6: per-branch anchors for the census
+# side-effects the resolver now makes through the PUBLIC PersonCensus surface
+# (abstain counter, single-use consume, BOOST ledger, last-attach record,
+# tracked-slug read). One crossing per BLE precedence branch.
+# ---------------------------------------------------------------------------
+_RA6_TRACKERS = {
+    "device_tracker.oji_ble": "oji_udezue",
+    "device_tracker.ezinne_ble": "ezinne_udezue",
+}
+
+
+def _ra6_face(slug, lc):
+    return FaceLeg(
+        entity_id="sensor.front_door_last_recognized_face", engine="frigate",
+        device_id="dev_front", base_stem="front_door", canonical_slug=slug,
+        last_changed=lc, confidence=None,
+    )
+
+
+def _ra6_cross(*, ble_slugs, face_slugs=(), trackers=None):
+    now = datetime.now(UTC).replace(microsecond=0)
+    census, hass, _ = _make_census({})
+    tracker = _make_tracker(census, hass, interior_stems=[])
+    census._ble_tracker_slug_map = dict(_RA6_TRACKERS if trackers is None else trackers)
+    for s in ble_slugs:
+        _seed_ble_transition(census, s, now - timedelta(seconds=8), direction="arriving")
+    legs = [_ra6_face(s, now + timedelta(seconds=2)) for s in face_slugs]
+    census._resolve_face_legs = lambda stem: list(legs) if stem == "front_door" else []
+    abstained0 = census._ble_legs_abstained_count
+    boosts0 = len(census._egress_identity_boost_events)
+    result = tracker._resolve_egress_face_identity(
+        "binary_sensor.front_door_person_occupancy", now, "entry",
+    )
+    return SimpleNamespace(
+        result=result, census=census,
+        abstained=census._ble_legs_abstained_count - abstained0,
+        boosts=len(census._egress_identity_boost_events) - boosts0,
+        cache=[l.person_slug for l in census._ble_transition_cache],
+        attach=dict(census._egress_identity_last_attach or {}),
+        outcome=[o for _t, o in census._egress_identity_outcomes][-1],
+    )
+
+
+def test_ra6_ble_only_two_slugs_abstains_and_counts():
+    r = _ra6_cross(ble_slugs=["oji_udezue", "ezinne_udezue"])
+    assert r.result[0] is None and r.outcome == "abstain"
+    assert r.abstained == 1
+
+
+def test_ra6_ble_only_untracked_slug_abstains_and_counts():
+    r = _ra6_cross(ble_slugs=["stranger"])
+    assert r.result[0] is None and r.outcome == "abstain"
+    assert r.abstained == 1
+
+
+def test_ra6_ble_only_attach_consumes_the_leg():
+    r = _ra6_cross(ble_slugs=["oji_udezue"])
+    assert r.result[0] == "oji_udezue" and r.outcome == "attached_ble"
+    assert r.cache == [] and r.abstained == 0
+
+
+def test_ra6_ble_face_agree_boosts_records_and_consumes():
+    r = _ra6_cross(ble_slugs=["oji_udezue"], face_slugs=["oji_udezue"])
+    assert r.result[0] == "oji_udezue"
+    assert r.outcome == "attached_ble_face_corroborated"
+    assert r.boosts == 1
+    assert r.attach["person"] == "oji_udezue" and r.attach["provenance"] == "ble+face"
+    assert r.cache == []
+
+
+def test_ra6_ble_face_guest_disagree_abstains_and_counts():
+    r = _ra6_cross(ble_slugs=["oji_udezue"], face_slugs=["ojini"])
+    assert r.result[0] is None and r.outcome == "abstain_resident_vs_guest"
+    assert r.abstained == 1
+    assert r.cache == ["oji_udezue"]  # not consumed
+
+
+def test_ra6_ble_face_resident_disagree_ble_wins_records_and_consumes():
+    r = _ra6_cross(ble_slugs=["oji_udezue"], face_slugs=["ezinne_udezue"])
+    assert r.result[0] == "oji_udezue" and r.outcome == "ble_face_disagree_ble_wins"
+    assert r.attach["person"] == "oji_udezue" and r.attach["provenance"] == "ble"
+    assert r.cache == [] and r.abstained == 0
+
+
+def test_ra6_ble_plus_two_face_slugs_abstains_and_counts():
+    r = _ra6_cross(ble_slugs=["oji_udezue"], face_slugs=["oji_udezue", "ezinne_udezue"])
+    assert r.result[0] is None and r.outcome == "abstain"
+    assert r.abstained == 1
