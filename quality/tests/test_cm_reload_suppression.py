@@ -158,6 +158,8 @@ def _load_init_listener_helpers():
         "_NM_A2_KEYS",
         # NM Cycle C (2026-07-20) — matrix/DND-bypass/mute-duration.
         "_NM_C_KEYS",
+        # MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D7: MF knob bundle.
+        "_MF_LIVE_KEYS",
         # F16 (2026-08-22, v5.89.0). This loader uses ONE `keep` set for both
         # names and function defs (the FunctionDef branch checks the same set),
         # so the helper and the dict it reads both belong here.

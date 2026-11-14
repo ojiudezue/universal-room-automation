@@ -519,12 +519,7 @@ class MusicFollowing:
     def _record_stat(self, outcome: str, person_id: str = "", from_room: str = "",
                      to_room: str = "") -> None:
         """Count one outcome (or counter) and notify listeners."""
-        today = dt_util.now().strftime("%Y-%m-%d")
-        if today != self._stats_date:
-            for key in self._transfer_stats:
-                self._transfer_stats[key] = 0
-            self._stats_date = today
-            self._target_unavailable_skips = 0
+        self._roll_day()
         if outcome in self._transfer_stats:
             self._transfer_stats[outcome] += 1
         else:
@@ -548,7 +543,17 @@ class MusicFollowing:
                 self._target_unavailable_skips += 1
         self._notify_listeners()
 
+    def _roll_day(self) -> None:
+        """Daily reset of the counters (local day)."""
+        today = dt_util.now().strftime("%Y-%m-%d")
+        if today != self._stats_date:
+            for key in self._transfer_stats:
+                self._transfer_stats[key] = 0
+            self._stats_date = today
+            self._target_unavailable_skips = 0
+
     def _count(self, counter: str) -> None:
+        self._roll_day()
         self._transfer_stats[counter] = self._transfer_stats.get(counter, 0) + 1
 
     def success_count(self) -> int:
@@ -718,6 +723,17 @@ class MusicFollowing:
         self._inflight[rec.person_key] = rec
         task = self._spawn(self._run(rec, old_task), f"ura_mf_transfer_{rec.person_key}")
         rec.task = task
+
+        def _on_done(_t, rec=rec) -> None:
+            # A task cancelled before its first step never runs its own
+            # finally: book it here so every room change has one outcome.
+            if not rec.outcome:
+                self._finish(rec, "superseded", f"by_room={rec.superseded_to}")
+            if self._inflight.get(rec.person_key) is rec:
+                self._inflight.pop(rec.person_key, None)
+            rec.decided.set()
+
+        task.add_done_callback(_on_done)
         await rec.decided.wait()
 
     def _spawn(self, coro, name: str) -> asyncio.Task:
@@ -806,6 +822,17 @@ class MusicFollowing:
             if since < self._cooldown_s:
                 d["knob"] = f"cooldown={self._cooldown_s:g} left={self._cooldown_s - since:.0f}"
                 return "cooldown_blocked", ""
+        # Bounce back into the room a superseded move came from (INV-MF-5):
+        # its cleanup already left the music there at its own volume.
+        sup = self._last_superseded.get(rec.person_key)
+        if sup and sup.get("source_room") == rec.to_room:
+            fresh = self._monotonic() - sup.get("ts", 0) <= _c.MF_RETURN_MATCH_WINDOW_S
+            back = await self._get_room_player(rec.to_room)
+            bst = self.hass.states.get(back) if back else None
+            self._last_superseded.pop(rec.person_key, None)
+            if fresh and bst is not None and bst.state == STATE_PLAYING:
+                rec.target_player = back
+                return "returned_in_flight", f"superseded_target={sup.get('target_room')}"
         # Source.
         outcome = await self._resolve_source(rec)
         if outcome:
@@ -832,11 +859,6 @@ class MusicFollowing:
         if to_player == rec.source_player:
             return "active_playback_blocked", "same_speaker"
         if to_state.state == STATE_PLAYING:
-            sup = self._last_superseded.get(rec.person_key)
-            if (sup and sup.get("source_room") == rec.to_room
-                    and self._monotonic() - sup.get("ts", 0) <= _c.MF_RETURN_MATCH_WINDOW_S):
-                self._last_superseded.pop(rec.person_key, None)
-                return "returned_in_flight", f"superseded_target={sup.get('target_room')}"
             return "active_playback_blocked", ""
 
         # The move.
