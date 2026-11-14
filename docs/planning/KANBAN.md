@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-13T18:02:02-06:00_ - _Data commit: `4f0b8441327b`_ - _last_reconciled: 2026-11-13_
+_Generated: 2026-11-13T18:07:49-06:00_ - _Data commit: `ec18ab98092e`_ - _last_reconciled: 2026-11-13_
 
 
 ## Columns
@@ -10,7 +10,7 @@ _Generated: 2026-11-13T18:02:02-06:00_ - _Data commit: `4f0b8441327b`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 16 |
-| 🔬 Investigating | 2 |
+| 🔬 Investigating | 3 |
 | 🧭 Pre-planning | 14 |
 | 📝 Planned | 32 |
 | 🔨 In progress | 4 |
@@ -185,10 +185,19 @@ _created 2026-11-12 14:13 · initial_
 - **Forensic keys (1):**
   - `tier`: 1
 
-## 🔬 Investigating (2)
+## 🔬 Investigating (3)
 _measuring; truth not yet known_
 
-### `PERIMETER-FP-GATES-DISPOSE-1` - Perimeter false-positive gates D3/D5 shipped shadow-first but D3 can never evaluate (zone sensors never configured) and no shadow counts are kept; no disposal date — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `AUDIT-ROOM-AI-AUTOMATION-CHAINING-MUSIC-1` - Audit room AI automation, automation chaining and music following (old, rarely exercised) - correctness, HA currency, test coverage, observability/config — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+status: **investigating**
+- **Origin:** 2026-11-13 - Operator request, not urgent, use a free slot.
+- **Why:** Surfaces: automation.py, music_following.py, domain_coordinators music coordinator; tests test_ai_automation.py, test_automation_chaining.py, test_music_following*.py, test_v5100_music_following.py; prior docs PLANNING_v3.10.0_AI_AUTOMAT...
+- **Next:** Me: read-only Fable audit running -> AUDIT_room_ai_automation_chaining_music_2026_11_13.md; bring conclusions to the operator; card findings.
+- **Forensic keys (2):**
+  - `tier`: 1
+  - `operator_2026_11_13_request`: If you have a slot free at some point (not urgent) I want an audit of AI automation in room code. And AI chaining in room code and music following. Use the fable agent and then bring me conclusions. They were written. Long time ago and a...
+
+### `PERIMETER-FP-GATES-DISPOSE-1` - Perimeter false-positive gates D3/D5 shipped shadow-first but D3 can never evaluate (zone sensors never configured) and no shadow counts are kept; no disposal date — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **perimeter** - status: **investigating**
 _created 2026-11-12 22:55_
 - **Origin:** 2026-11-12 - Operator asked why the gates are off. AUDIT_garage_hallway_lock_and_perimeter_gates_2026_11_12.md.
@@ -198,7 +207,7 @@ _created 2026-11-12 22:55_
   - `arc_cut_v5_108_17`: separate investigation, not notification code
   - `tier`: 2
 
-### `VISION-CROSSING-ANALYSIS-1` - AI vision of each crossing (fast 3-frame sample + batched time-lapse along the camera chain) as a counting and description input, fused with Frigate/Protect counts — _#2 · WSJF 1.9 · v9 tc4 u2 /e8_
+### `VISION-CROSSING-ANALYSIS-1` - AI vision of each crossing (fast 3-frame sample + batched time-lapse along the camera chain) as a counting and description input, fused with Frigate/Protect counts — _#3 · WSJF 1.9 · v9 tc4 u2 /e8_
 thread: **identity** - status: **investigating**
 _created 2026-11-12 22:00_
 - **Origin:** 2026-11-12 - Operator: watch arrivals with AI vision; time-lapse; fast first frames; counting is easy, naming is hard; guests are the census problem; OpenAI models (GPT-6 Luna/Sol); deconflict with camera counts until trusted (100 crossi...
@@ -699,12 +708,15 @@ _created 2026-11-09 00:30_
 status: **planned**
 - **Origin:** 2026-11-13 - Operator question on the crossing vision plan.
 - **Why:** Crossing vision plan fetches clips from Frigate only; Protect enters only as the late face name. Three separate Frigate-vs-Protect rules exist: camera_census.py:2330 _cross_validate_platforms (counts; Frigate number wins when both see; l...
-- **Next:** Me: Protect mechanics probe running (AUDIT_protect_clip_witness_probe_2026_11_13.md); then the plan amendment.
-- **Forensic keys (4):**
+- **Next:** Me: plan amendment to the operator after perimeter Part A and crossing vision Phase 1 ship. Open unknowns: garage_a Protect leg; llmvision on a Protect clip (one paid dry call needs operator ok); NVR disagreement ground truth (use the we...
+- **Forensic keys (7):**
   - `tier`: 3
   - `operator_2026_11_13_both_nvrs`: For all camera work I like to exercise both nvr platforms simultaneously, then cross compare to reduce errors. Did you base this plan on only frigate? How can protect be a separate witness? And we can maybe centralize the rules to deconf...
   - `operator_2026_11_13_consolidate`: Yes, centralize the evidence and keep the policy with each feature... I generally favor consolidation so there's no drift and there is one place to make better but there can be arguement against it. Critique this conclusion and be sure.....
   - `queue`: After perimeter Part A ships and crossing vision Phase 1 ships (do not disturb in-flight branches). Order: Protect mechanics probe (now, read-only) -> plan amendment to the operator -> follow-up cycle.
+  - `operator_2026_11_13_agreement_record`: One record of how often the two NVRs agree on each camera, learned once and used everywhere: "Critical for learning. Has to be baked into the design. Note this." => DESIGN REQUIREMENT: the shared layer stores raw per-NVR fire events and ...
+  - `probe_2026_11_13`: AUDIT_protect_clip_witness_probe_2026_11_13.md, verdict MODERATE. Clip access easy: HA unifiprotect proxy /api/unifiprotect/video/{nvr}/{camera}/{start}/{end} and /video/{nvr}/{event_id} (views.py:275/:332) returned 200 video/mp4 live on...
+  - `FINDING_garage_a_protect_leg_2026_11_13`: garage_a Protect person sensor fired 85x in 7 days but none of 71 garage_a crossings in 14 days got confidence 0.9 or a Protect trigger: the Protect leg appears not to reach transit_validator._count_platforms_fired. Cause unverified. Fol...
 
 ### `URAV8-ZONE-ENERGY-DISPLAY-1` - ura-v8: show energy on the zone chips under Rooms, and a house zone-energy breakdown card (pie/bar) on the Energy tab — _#24 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **dashboard** - status: **planned**
