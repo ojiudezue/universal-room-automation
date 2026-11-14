@@ -1,5 +1,7 @@
 # v5.108.23: census deconfliction + crossing ledger (ships dark)
 
+Card: CENSUS-DECONFLICTION-LEDGER-1 (parent VISION-CROSSING-ANALYSIS-1).
+
 Branch `feature/census-deconfliction-p2-ledger`, merged into develop after v5.108.22 (batch 2). Tier 3: four code
 reviews (A/B/C/D, `docs/reviews/code-review/v_census_p2_ledger_*.md`), then the merge with batch 2 and the G7 swap
 with per-site mutation drills, then a full-suite name-diff (0 failed / 22167 passed vs the batch 2 baseline) and the
