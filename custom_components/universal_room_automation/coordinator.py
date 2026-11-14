@@ -2613,8 +2613,11 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             + list(mmwave_sensors or [])
             + list(occupancy_sensors or [])
         )
+        # Review B-M1: the v3.5.1 camera override reads these person sensors
+        # too; watch them so a dead stream cannot hold the room that way.
         dead, to_page, to_recover = self._camera_stream_health.evaluate(
             now, inputs, self.hass.states.get, self._camera_stream_registry,
+            extra_inputs=self._camera_override_person_sensors(),
         )
         for _eid, (_cam, _since) in dead.items():
             self._exclusion_set.promote(
@@ -2653,11 +2656,32 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 ),
             ))
 
+    def _camera_override_person_sensors(self) -> list[str]:
+        """Person sensors the v3.5.1 camera override reads for this room's
+        area (camera manager). One lookup for the override block and the
+        camera stream health tick. Never raises; [] on any miss."""
+        try:
+            camera_manager = self.hass.data.get(DOMAIN, {}).get("camera_manager")
+            if not camera_manager:
+                return []
+            room_area = self._get_room_area()
+            if not room_area:
+                return []
+            return list(camera_manager.get_person_sensor_for_area(room_area) or [])
+        except Exception:  # noqa: BLE001 — never break the room tick
+            _LOGGER.debug(
+                "camera override person sensor lookup raised (swallowed)",
+                exc_info=True,
+            )
+            return []
+
     def camera_input_stream_dead(self, input_eid: str) -> bool | None:
         """THE camera input stream health getter (plan S1; read by S2 zone /
         fan recheck / census and any later NVR-witness layer, never
         re-derived elsewhere).
 
+        Inputs = the room's motion / presence / occupancy lists plus the
+        person sensors its camera override reads.
         ``None``: the input is not one of this room's inputs, or its device
         does not resolve to exactly one enabled camera entity (no opinion).
         ``True``: the input is excluded this tick because its camera entity
@@ -4228,39 +4252,41 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # If motion/mmWave have timed out but a camera in this room's area still
         # sees a person, override vacancy and keep the room occupied.
         # Fix #8: Skip camera override if failsafe just fired (prevents stuck camera defeating failsafe)
+        # Camera input stream health (review B-M1): the person sensors go
+        # through the same exclusion filter as the fusion legs, so a sensor
+        # whose camera stream is dead (or that is stuck / chattering) cannot
+        # hold the room through this path.
         if not data.get(STATE_OCCUPIED) and not self._failsafe_fired:
-            camera_manager = self.hass.data.get(DOMAIN, {}).get("camera_manager")
-            if camera_manager:
-                room_area = self._get_room_area()
-                if room_area:
-                    person_sensors = camera_manager.get_person_sensor_for_area(room_area)
-                    for person_sensor in person_sensors:
-                        state = self.hass.states.get(person_sensor)
-                        if state and state.state == "on":
-                            data[STATE_OCCUPIED] = True
-                            data[STATE_OCCUPANCY_SOURCE] = "camera"
-                            data[STATE_TIMEOUT_REMAINING] = self._occupancy_timeout
-                            if not self._last_motion_time:
-                                self._last_motion_time = now
-                            # Ensure failsafe timer tracks camera-held occupancy
-                            if self._became_occupied_time is None:
-                                self._became_occupied_time = now
-                            # HIGH-1: camera-visible person is real body
-                            # corroboration; clear the BLE-only anchor
-                            # so a camera→BLE handoff does not carry a
-                            # stale motion-timeout clock into the cap.
-                            self._ble_only_hold_since = None
-                            self._ble_absent_since = None
-                            self._ble_grace_used = False
-                            if not self._last_occupied_state:
-                                self._last_occupied_time = now
-                            _LOGGER.debug(
-                                "Room %s: Camera person sensor %s overrides vacancy — "
-                                "person detected",
-                                room_name,
-                                person_sensor,
-                            )
-                            break
+            person_sensors = self._fusion_filter_active(
+                self._camera_override_person_sensors()
+            )
+            for person_sensor in person_sensors:
+                state = self.hass.states.get(person_sensor)
+                if state and state.state == "on":
+                    data[STATE_OCCUPIED] = True
+                    data[STATE_OCCUPANCY_SOURCE] = "camera"
+                    data[STATE_TIMEOUT_REMAINING] = self._occupancy_timeout
+                    if not self._last_motion_time:
+                        self._last_motion_time = now
+                    # Ensure failsafe timer tracks camera-held occupancy
+                    if self._became_occupied_time is None:
+                        self._became_occupied_time = now
+                    # HIGH-1: camera-visible person is real body
+                    # corroboration; clear the BLE-only anchor
+                    # so a camera→BLE handoff does not carry a
+                    # stale motion-timeout clock into the cap.
+                    self._ble_only_hold_since = None
+                    self._ble_absent_since = None
+                    self._ble_grace_used = False
+                    if not self._last_occupied_state:
+                        self._last_occupied_time = now
+                    _LOGGER.debug(
+                        "Room %s: Camera person sensor %s overrides vacancy — "
+                        "person detected",
+                        room_name,
+                        person_sensor,
+                    )
+                    break
 
         # === v3.8.8: BLE/Bermuda extends room occupancy ===
         # If motion/mmWave/camera have timed out but person_coordinator knows

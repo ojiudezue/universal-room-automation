@@ -25,9 +25,14 @@ import pytest
 
 import _provenance_harness  # noqa: F401 — bootstrap homeassistant mocks
 
+from custom_components.universal_room_automation import coordinator as _coord_mod
 from custom_components.universal_room_automation.const import (
+    DOMAIN,
     STATE_MOTION_DETECTED,
+    STATE_OCCUPANCY_SOURCE,
+    STATE_OCCUPIED,
     STATE_PRESENCE_DETECTED,
+    STATE_TIMEOUT_REMAINING,
 )
 from custom_components.universal_room_automation.coordinator import (
     UniversalRoomCoordinator,
@@ -63,10 +68,11 @@ T0 = datetime(2026, 11, 11, 22, 52, 0)
 # ---------------------------------------------------------------------------
 
 
-def _tick_slice():
+def _slice(start_marker, end_marker):
+    """Compile a contiguous block of ``_async_update_data`` (production
+    source, executed, not grepped) dedented to module level."""
     src = _COORD_SRC.read_text(encoding="utf-8")
-    start = src.index("        self._exclusion_set.reset_tick()\n")
-    end_marker = "        data[STATE_PRESENCE_DETECTED] = presence_detected\n"
+    start = src.index(start_marker)
     end = src.index(end_marker, start) + len(end_marker)
     lines = []
     for ln in src[start:end].splitlines():
@@ -74,7 +80,18 @@ def _tick_slice():
     return compile("\n".join(lines), str(_COORD_SRC), "exec")
 
 
-_TICK = _tick_slice()
+# reset_tick -> ... -> camera stream health -> motion, presence and
+# occupancy legs.
+_TICK = _slice(
+    "        self._exclusion_set.reset_tick()\n",
+    "            for s in self._fusion_filter_active(occupancy_sensors)\n"
+    "        )\n",
+)
+# The v3.5.1 camera override block (review B-M1).
+_OVERRIDE = _slice(
+    "        # === v3.5.1: Camera extends room occupancy ===\n",
+    "                    break\n",
+)
 
 
 class _Registry:
@@ -119,15 +136,39 @@ class _Room:
     SensorExclusionSet + real CameraInputStreamHealth. Unrelated writers in
     the slice (P22, duty-cycle, chatter) are quiet."""
 
-    def __init__(self, registry, *, motion=(ZV,), presence=(PANEL,)):
-        self.states: dict[str, str] = {}
+    def __init__(self, registry, *, motion=(ZV,), presence=(PANEL,),
+                 occupancy=(), override=()):
+        # value: a state string, or (state, attributes).
+        self.states: dict = {}
         self.registry = registry
         self.motion = list(motion)
         self.presence = list(presence)
+        self.occupancy = list(occupancy)
         self.tasks: list = []
+        self.occupancy_detected = None
         _ROOMS.append(self)
         self.hass = MagicMock()
         self.hass.states.get = self._get_state
+        # Camera manager double for the v3.5.1 override: the person sensors
+        # of cameras in this room's area (e.g. camera.up_hallway_panel added
+        # to Upstairs Hallway, area upstairs_hallway).
+        self.area = "upstairs_hallway"
+        override_list = list(override)
+        self.hass.data = {DOMAIN: {"camera_manager": SimpleNamespace(
+            get_person_sensor_for_area=lambda area: (
+                list(override_list) if area == "upstairs_hallway" else []
+            ),
+        )}} if override_list else {}
+        # Room fields the override block reads / writes.
+        self._failsafe_fired = False
+        self._occupancy_timeout = 300
+        self._last_motion_time = None
+        self._became_occupied_time = None
+        self._last_occupied_state = False
+        self._last_occupied_time = None
+        self._ble_only_hold_since = None
+        self._ble_absent_since = None
+        self._ble_grace_used = False
 
         def _capture(coro, *a, **kw):
             self.tasks.append(coro)
@@ -148,6 +189,7 @@ class _Room:
             "_apply_camera_stream_health_tick", "camera_input_stream_dead",
             "camera_stream_health_snapshot",
             "_subscribe_camera_stream_registry_updates",
+            "_camera_override_person_sensors",
         ):
             fn = getattr(UniversalRoomCoordinator, name)
             setattr(self, name, fn.__get__(self, type(self)))
@@ -155,7 +197,14 @@ class _Room:
     # HA seam + quiet writers -------------------------------------------
     def _get_state(self, eid):
         v = self.states.get(eid)
-        return SimpleNamespace(state=v) if v is not None else None
+        if v is None:
+            return None
+        if isinstance(v, tuple):
+            return SimpleNamespace(state=v[0], attributes=dict(v[1]))
+        return SimpleNamespace(state=v, attributes={})
+
+    def _get_room_area(self):
+        return self.area
 
     def _camera_stream_registry(self):
         return self.registry
@@ -184,13 +233,28 @@ class _Room:
             "self": self, "now": now, "data": {}, "room_name": ROOM,
             "motion_sensors": list(self.motion),
             "mmwave_sensors": list(self.presence),
-            "occupancy_sensors": [],
+            "occupancy_sensors": list(self.occupancy),
             "_LOGGER": logging.getLogger("camera_stream_health_test"),
             "STATE_MOTION_DETECTED": STATE_MOTION_DETECTED,
             "STATE_PRESENCE_DETECTED": STATE_PRESENCE_DETECTED,
         }
         exec(_TICK, ns)
+        self.occupancy_detected = ns["occupancy_detected"]
         return ns["data"]
+
+    def override(self, now):
+        """Run the production camera override block on a vacant tick;
+        returns (occupied, source)."""
+        data = {STATE_OCCUPIED: False}
+        ns = {
+            "self": self, "now": now, "data": data, "room_name": ROOM,
+            "_LOGGER": logging.getLogger("camera_stream_health_test"),
+            "STATE_OCCUPIED": STATE_OCCUPIED,
+            "STATE_OCCUPANCY_SOURCE": STATE_OCCUPANCY_SOURCE,
+            "STATE_TIMEOUT_REMAINING": STATE_TIMEOUT_REMAINING,
+        }
+        exec(_OVERRIDE, ns)
+        return data[STATE_OCCUPIED], data.get(STATE_OCCUPANCY_SOURCE)
 
     def close_tasks(self):
         for c in self.tasks:
@@ -391,6 +455,11 @@ def test_nm_after_threshold_and_recovery(nm_calls):
     _drain(r)
     assert len(nm_calls["recover"]) == 1
     assert nm_calls["recover"][0]["key"] == (ROOM, PANEL)
+    # The recovered NM pairs with the page: same kind.
+    assert nm_calls["recover"][0]["kind"] == "camera_stream_dead"
+    assert "counts again" in nm_calls["recover"][0]["message"]
+    assert PANEL_CAM in nm_calls["recover"][0]["message"]
+    assert page["title_override"] == f"Camera stream dead: {ROOM}"
     # Second outage the same day: excluded again, but no second page.
     r.states[PANEL_CAM] = "unavailable"
     r.tick(T0 + timedelta(seconds=1900))
@@ -472,10 +541,12 @@ def test_unknown_state_no_opinion():
     r.states[PANEL_CAM] = "unavailable"
     r.tick(T0 + timedelta(seconds=1000))  # stamp at 1000
     r.states[PANEL_CAM] = "unknown"
-    d = r.tick(T0 + timedelta(seconds=1200))
+    d = r.tick(T0 + timedelta(seconds=1060))
     assert d[STATE_PRESENCE_DETECTED] is True  # no opinion this tick
     r.states[PANEL_CAM] = "unavailable"
-    d = r.tick(T0 + timedelta(seconds=1250))  # 250 s after the 1000 stamp
+    # 120 s after the last `unavailable` reading (gap within the grace):
+    # the stamp survived the `unknown` tick, so 120 s of outage -> excluded.
+    d = r.tick(T0 + timedelta(seconds=1120))
     assert d[STATE_PRESENCE_DETECTED] is False
 
 
@@ -656,3 +727,448 @@ def test_sensor_surface_attributes():
     assert {"camera_stream_dead_inputs", "camera_stream_inputs_resolved"} <= (
         sen.UnavailableEntitiesSensor._unrecorded_attributes
     )
+
+
+# ---------------------------------------------------------------------------
+# Fix-up round (reviews A / B / C)
+# ---------------------------------------------------------------------------
+
+
+def test_real_registry_seam_reaches_er_async_get(monkeypatch):
+    """Review C HIGH-1: the production seam `_camera_stream_registry` (not a
+    stub override) hands `er.async_get(self.hass)` to the tracker."""
+    reg = _panel_registry()
+    r = _Room(reg)
+    r._camera_stream_registry = UniversalRoomCoordinator._camera_stream_registry.__get__(
+        r, type(r),
+    )
+    seen = []
+
+    def _async_get(hass):
+        seen.append(hass)
+        return reg if hass is r.hass else None
+
+    monkeypatch.setattr(_coord_mod, "er", SimpleNamespace(async_get=_async_get))
+    r.states = {PANEL: "on", PANEL_CAM: "unavailable", ZV: "off"}
+    r.tick(T0)
+    d = r.tick(T0 + timedelta(seconds=120))
+    assert seen and seen[0] is r.hass
+    assert d[STATE_PRESENCE_DETECTED] is False
+    assert r.camera_input_stream_dead(PANEL) is True
+
+
+def test_camera_backed_input_in_motion_list_excluded():
+    """Review C HIGH-2: a camera-backed input filed under motion_sensors."""
+    r = _Room(_panel_registry(), motion=(PANEL,), presence=())
+    r.states = {PANEL: "on", PANEL_CAM: "unavailable"}
+    d = r.tick(T0)
+    assert d[STATE_MOTION_DETECTED] is True
+    d = r.tick(T0 + timedelta(seconds=120))
+    assert d[STATE_MOTION_DETECTED] is False
+    assert r._exclusion_set.clients_for(PANEL) == {"camera_stream_dead"}
+
+
+def test_camera_backed_input_in_occupancy_list_excluded():
+    """Review C HIGH-2: a camera-backed input filed under occupancy_sensors."""
+    r = _Room(_panel_registry(), motion=(), presence=(), occupancy=(PANEL,))
+    r.states = {PANEL: "on", PANEL_CAM: "unavailable"}
+    r.tick(T0)
+    assert r.occupancy_detected is True
+    r.tick(T0 + timedelta(seconds=120))
+    assert r.occupancy_detected is False
+    assert r._exclusion_set.clients_for(PANEL) == {"camera_stream_dead"}
+
+
+def _real_coordinator(monkeypatch):
+    """A real UniversalRoomCoordinator whose bus records every listener,
+    with the real registry subscription (not patched)."""
+    from unittest.mock import AsyncMock, patch
+
+    import homeassistant.helpers.entity_registry as er_mod
+    import homeassistant.helpers.frame as _frame
+
+    monkeypatch.setattr(er_mod, "EVENT_ENTITY_REGISTRY_UPDATED",
+                        "entity_registry_updated", raising=False)
+    hass = MagicMock()
+    hass.data = {DOMAIN: {}}
+    subs = []  # (callback, unsub) for entity_registry_updated
+
+    def _listen(event_type, cb):
+        unsub = MagicMock(name=f"unsub_{event_type}_{len(subs)}")
+        if event_type == "entity_registry_updated":
+            subs.append((cb, unsub))
+        return unsub
+
+    hass.bus.async_listen = _listen
+    entry = MagicMock()
+    entry.data = {"room_name": ROOM}
+    entry.options = {}
+    entry.entry_id = "E1"
+    with patch.object(_frame, "report_usage", lambda *a, **k: None):
+        c = UniversalRoomCoordinator(hass, entry)
+    base = UniversalRoomCoordinator.__mro__[1]
+    monkeypatch.setattr(base, "async_config_entry_first_refresh",
+                        AsyncMock(return_value=None), raising=False)
+    c._async_load_stuck_state = AsyncMock(return_value=None)
+    c._update_signal_subscriptions = MagicMock()
+    c._get_config = lambda key, default=None: default
+    return hass, entry, c, subs
+
+
+def _run(coro):
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
+
+def test_registry_listener_survives_setup_clear_and_invalidates(monkeypatch):
+    """Review C HIGH-3a: after the real first refresh the registry listener
+    is live (subscribed AFTER the re-setup clear block) and its callback
+    marks the resolution stale."""
+    hass, entry, c, subs = _real_coordinator(monkeypatch)
+    _run(c.async_config_entry_first_refresh())
+    assert len(subs) == 1
+    cb, unsub = subs[0]
+    assert unsub in c._unsub_state_listeners
+    unsub.assert_not_called()
+    # Callback drives the real tracker: a camera added to the device after
+    # the first resolution is picked up only after the registry event.
+    reg = _Registry([_entry(PANEL, "dev_panel")])
+    states = {PANEL_CAM: SimpleNamespace(state="unavailable", attributes={})}
+    h = c._camera_stream_health
+    h.evaluate(T0, [PANEL], states.get, lambda: reg)
+    assert h.is_dead(PANEL) is None
+    reg._by_id[PANEL_CAM] = _entry(PANEL_CAM, "dev_panel")
+    h.evaluate(T0 + timedelta(seconds=10), [PANEL], states.get, lambda: reg)
+    assert h.is_dead(PANEL) is None  # cached
+    cb(MagicMock())
+    h.evaluate(T0 + timedelta(seconds=20), [PANEL], states.get, lambda: reg)
+    assert h.is_dead(PANEL) is False
+
+
+def test_registry_listener_not_duplicated_on_resetup(monkeypatch):
+    """Review C HIGH-3b: a second first refresh (re-setup) unsubscribes the
+    old listener and leaves exactly one live one."""
+    hass, entry, c, subs = _real_coordinator(monkeypatch)
+    _run(c.async_config_entry_first_refresh())
+    _run(c.async_config_entry_first_refresh())
+    assert len(subs) == 2
+    (_cb1, unsub1), (_cb2, unsub2) = subs
+    unsub1.assert_called_once()
+    unsub2.assert_not_called()
+    live = [u for _c, u in subs if u in c._unsub_state_listeners]
+    assert live == [unsub2]
+
+
+def _real_async_unload_entry():
+    """The production ``async_unload_entry`` from ``__init__.py``, compiled
+    and executed on its own (the package ``__init__`` cannot be imported
+    under the homeassistant stubs). Its module-level names are supplied;
+    the room-entry branch runs verbatim."""
+    import ast
+
+    from custom_components.universal_room_automation import const as _c
+
+    init_path = _COORD_SRC.with_name("__init__.py")
+    tree = ast.parse(init_path.read_text(encoding="utf-8"))
+    fn = next(
+        n for n in tree.body
+        if isinstance(n, ast.AsyncFunctionDef) and n.name == "async_unload_entry"
+    )
+    mod = ast.Module(body=[fn], type_ignores=[])
+    ns = {
+        "__name__": "custom_components.universal_room_automation",
+        "__package__": "custom_components.universal_room_automation",
+        "_LOGGER": logging.getLogger("camera_stream_health_test_unload"),
+        "HomeAssistant": object, "ConfigEntry": object,
+        "DOMAIN": DOMAIN,
+        "CONF_ENTRY_TYPE": _c.CONF_ENTRY_TYPE,
+        "ENTRY_TYPE_INTEGRATION": _c.ENTRY_TYPE_INTEGRATION,
+        "ENTRY_TYPE_ZONE_MANAGER": _c.ENTRY_TYPE_ZONE_MANAGER,
+        "ENTRY_TYPE_COORDINATOR_MANAGER": _c.ENTRY_TYPE_COORDINATOR_MANAGER,
+        "ENTRY_TYPE_ZONE": _c.ENTRY_TYPE_ZONE,
+        "PLATFORMS": [], "INTEGRATION_PLATFORMS": [], "Platform": MagicMock(),
+    }
+    exec(compile(mod, str(init_path), "exec"), ns)
+    return ns["async_unload_entry"]
+
+
+def test_registry_listener_unsubscribed_on_unload(monkeypatch):
+    """Review C HIGH-3c: the real room-entry unload releases the listener."""
+    from unittest.mock import AsyncMock
+
+    async_unload_entry = _real_async_unload_entry()
+    hass, entry, c, subs = _real_coordinator(monkeypatch)
+    _run(c.async_config_entry_first_refresh())
+    hass.data[DOMAIN][entry.entry_id] = c
+    hass.config_entries.async_unload_platforms = AsyncMock(return_value=True)
+    hass.config_entries.async_entries = MagicMock(return_value=[])
+    assert _run(async_unload_entry(hass, entry)) is True
+    _cb, unsub = subs[0]
+    unsub.assert_called_once()
+    assert c._unsub_state_listeners == []
+
+
+def test_tick_fail_open_when_tracker_raises():
+    """Review C MEDIUM-4: a raise in the stream tick leaves this tick with
+    pre-S1 fusion; the room tick itself does not raise."""
+    r = _Room(_panel_registry())
+    r.states = {PANEL: "on", PANEL_CAM: "unavailable", ZV: "off"}
+
+    def _boom(*a, **k):
+        raise RuntimeError("tracker exploded")
+
+    r._camera_stream_health.evaluate = _boom
+    d = r.tick(T0 + timedelta(seconds=600))
+    assert d[STATE_PRESENCE_DETECTED] is True
+    assert not r._exclusion_set.is_excluded(PANEL)
+
+
+def test_missing_state_keeps_stamp():
+    """Review C MEDIUM-5: no state (entity left the state machine) is no
+    opinion: the stamp is neither set nor cleared."""
+    r = _Room(_panel_registry())
+    r.states = {PANEL: "on", PANEL_CAM: "unavailable", ZV: "off"}
+    r.tick(T0)  # stamp at T0
+    del r.states[PANEL_CAM]
+    d = r.tick(T0 + timedelta(seconds=60))
+    assert d[STATE_PRESENCE_DETECTED] is True
+    r.states[PANEL_CAM] = "unavailable"
+    d = r.tick(T0 + timedelta(seconds=120))  # gap 120 s, since still T0
+    assert d[STATE_PRESENCE_DETECTED] is False
+    assert r._exclusion_set.provenance(PANEL)["camera_stream_dead"] == (
+        f"{PANEL_CAM} unavailable since {T0.isoformat()}"
+    )
+
+
+def test_no_opinion_stretch_longer_than_grace_restarts_stamp():
+    """Review A LOW-1: `unavailable` must be continuous. A no-opinion gap of
+    121 s (> grace) between two `unavailable` readings restarts the clock."""
+    r = _Room(_panel_registry())
+    r.states = {PANEL: "on", PANEL_CAM: "unavailable", ZV: "off"}
+    r.tick(T0)
+    r.states[PANEL_CAM] = "unknown"
+    r.tick(T0 + timedelta(seconds=60))
+    r.states[PANEL_CAM] = "unavailable"
+    d = r.tick(T0 + timedelta(seconds=121))  # 121 s since last reading
+    assert d[STATE_PRESENCE_DETECTED] is True
+    d = r.tick(T0 + timedelta(seconds=240))  # 119 s into the new stamp
+    assert d[STATE_PRESENCE_DETECTED] is True
+    d = r.tick(T0 + timedelta(seconds=241))  # 120 s
+    assert d[STATE_PRESENCE_DETECTED] is False
+    assert r._exclusion_set.provenance(PANEL)["camera_stream_dead"] == (
+        f"{PANEL_CAM} unavailable since "
+        f"{(T0 + timedelta(seconds=121)).isoformat()}"
+    )
+
+
+def test_stamp_pruned_when_camera_unwatched():
+    """Review C MEDIUM-7: an input removed from the room drops its camera's
+    stamp; re-added 60 s later it gets a fresh grace."""
+    reg = _panel_registry()
+    h = CameraInputStreamHealth(ROOM)
+    states = {PANEL_CAM: SimpleNamespace(state="unavailable", attributes={})}
+    h.evaluate(T0, [PANEL], states.get, lambda: reg)
+    h.evaluate(T0 + timedelta(seconds=30), [ZV], states.get, lambda: reg)
+    dead, _p, _r = h.evaluate(T0 + timedelta(seconds=90), [PANEL], states.get,
+                              lambda: reg)
+    assert dead == {}
+    dead, _p, _r = h.evaluate(T0 + timedelta(seconds=209), [PANEL],
+                              states.get, lambda: reg)
+    assert dead == {}
+    dead, _p, _r = h.evaluate(T0 + timedelta(seconds=210), [PANEL],
+                              states.get, lambda: reg)
+    assert dead == {PANEL: (PANEL_CAM, T0 + timedelta(seconds=90))}
+
+
+def test_is_dead_before_first_tick_and_after_invalidate():
+    """Review C MEDIUM-8 + review A LOW-2: the getter is None before any
+    tick; after a registry event it keeps the old answer (True for an input
+    the room is excluding) until the next tick rebuilds."""
+    reg = _panel_registry()
+    h = CameraInputStreamHealth(ROOM)
+    assert h.is_dead(PANEL) is None
+    states = {PANEL_CAM: SimpleNamespace(state="unavailable", attributes={})}
+    h.evaluate(T0, [PANEL], states.get, lambda: reg)
+    h.evaluate(T0 + timedelta(seconds=120), [PANEL], states.get, lambda: reg)
+    assert h.is_dead(PANEL) is True
+    h.invalidate()
+    assert h.is_dead(PANEL) is True
+    assert h.snapshot()["camera_stream_inputs_resolved"] == 1
+
+
+def test_restored_unavailable_camera_is_no_opinion_no_page(nm_calls):
+    """Review B-L1: Frigate in setup retry. HA writes its registry entities
+    as `unavailable` with `restored: True`: not loaded = no opinion, so no
+    exclusion and no HIGH page however long it lasts."""
+    r = _Room(_panel_registry())
+    r.states = {
+        PANEL: "on",
+        PANEL_CAM: ("unavailable", {"restored": True}),
+        ZV: "off",
+    }
+    for s in (0, 120, 1800, 3600):
+        d = r.tick(T0 + timedelta(seconds=s))
+        assert d[STATE_PRESENCE_DETECTED] is True
+    _drain(r)
+    assert nm_calls == {"page": [], "recover": []}
+    assert r.camera_input_stream_dead(PANEL) is False
+    # Once loaded and really unavailable, the grace starts then.
+    r.states[PANEL_CAM] = "unavailable"
+    r.tick(T0 + timedelta(seconds=3630))
+    d = r.tick(T0 + timedelta(seconds=3750))
+    assert d[STATE_PRESENCE_DETECTED] is False
+
+
+def test_input_removed_mid_episode_no_recovery_nm():
+    """Review A LOW-3: a paged input removed from the room is dropped
+    silently, no "counts again" message."""
+    reg = _panel_registry()
+    h = CameraInputStreamHealth(ROOM)
+    states = {PANEL_CAM: SimpleNamespace(state="unavailable", attributes={})}
+    h.evaluate(T0, [PANEL, ZV], states.get, lambda: reg)
+    _d, page, _r = h.evaluate(T0 + timedelta(seconds=1800), [PANEL, ZV],
+                              states.get, lambda: reg)
+    assert [p[0] for p in page] == [PANEL]
+    _d, _p, recover = h.evaluate(T0 + timedelta(seconds=1830), [ZV],
+                                 states.get, lambda: reg)
+    assert recover == []
+    _d, _p, recover = h.evaluate(T0 + timedelta(seconds=1860), [ZV],
+                                 states.get, lambda: reg)
+    assert recover == []
+
+
+def test_camera_override_not_held_by_dead_stream_input():
+    """Review B-M1 repro: camera.up_hallway_panel added to Upstairs
+    Hallway's cameras, so the v3.5.1 override reads the frozen panel person
+    sensor that is also a presence input. Once its stream is dead past the
+    grace the override cannot hold the room either."""
+    r = _Room(_panel_registry(), override=(PANEL,))
+    r.states = {PANEL: "on", PANEL_CAM: "unavailable", ZV: "off"}
+    r.tick(T0)
+    assert r.override(T0) == (True, "camera")  # before the grace: holds
+    r.tick(T0 + timedelta(seconds=120))
+    assert r.override(T0 + timedelta(seconds=120)) == (False, None)
+
+
+def test_camera_override_sensor_outside_inputs_watched_not_paged(nm_calls):
+    """Review B-M1: an override person sensor that is NOT a configured room
+    input is watched too (excluded once its camera is dead), but never paged
+    and not shown on the sensor (it is not a configured input)."""
+    r = _Room(_panel_registry(), motion=(ZV,), presence=(), override=(PANEL,))
+    r.states = {PANEL: "on", PANEL_CAM: "streaming", ZV: "off"}
+    r.tick(T0)
+    assert r.override(T0) == (True, "camera")  # discriminator: live stream
+    r.states[PANEL_CAM] = "unavailable"
+    r.tick(T0 + timedelta(seconds=30))
+    r.tick(T0 + timedelta(seconds=150))
+    assert r.override(T0 + timedelta(seconds=150)) == (False, None)
+    assert r.camera_input_stream_dead(PANEL) is True
+    r.tick(T0 + timedelta(seconds=30 + 1800))
+    _drain(r)
+    assert nm_calls["page"] == []
+    assert r.camera_stream_health_snapshot() == {
+        "camera_stream_dead_inputs": {},
+        "camera_stream_inputs_resolved": 0,
+    }
+
+
+def test_registry_getter_raise_fails_open():
+    """Review C LOW: a raising registry getter -> every input unresolved
+    (registry_error), nothing excluded, no raise."""
+    h = CameraInputStreamHealth(ROOM)
+
+    def _boom():
+        raise RuntimeError("registry down")
+
+    states = {PANEL_CAM: SimpleNamespace(state="unavailable", attributes={})}
+    h.evaluate(T0, [PANEL], states.get, _boom)
+    dead, _p, _r = h.evaluate(T0 + timedelta(seconds=600), [PANEL],
+                              states.get, _boom)
+    assert dead == {}
+    assert h.is_dead(PANEL) is None
+
+
+def test_state_getter_raise_is_no_opinion():
+    """Review C LOW: a raising state getter is no state: no exclusion, and
+    an existing stamp survives."""
+    reg = _panel_registry()
+    h = CameraInputStreamHealth(ROOM)
+    ok = {PANEL_CAM: SimpleNamespace(state="unavailable", attributes={})}
+
+    def _boom(_eid):
+        raise RuntimeError("state machine hiccup")
+
+    h.evaluate(T0, [PANEL], ok.get, lambda: reg)
+    dead, _p, _r = h.evaluate(T0 + timedelta(seconds=60), [PANEL], _boom,
+                              lambda: reg)
+    assert dead == {}
+    dead, _p, _r = h.evaluate(T0 + timedelta(seconds=120), [PANEL], ok.get,
+                              lambda: reg)
+    assert dead == {PANEL: (PANEL_CAM, T0)}
+
+
+def test_unresolved_warn_silent_for_non_camera_and_partial_rooms(caplog):
+    """Review C LOW: no WARNING for a room without camera-derived inputs,
+    nor for a room where at least one camera-derived input resolves."""
+    two_cam = _entry("camera.other_a", "dev_other")
+    reg = _panel_registry(extra=(
+        _entry("binary_sensor.other_person_occupancy", "dev_other"),
+        two_cam, _entry("camera.other_b", "dev_other"),
+    ))
+    with caplog.at_level(logging.WARNING):
+        CameraInputStreamHealth(ROOM).evaluate(T0, [ZV], lambda e: None,
+                                               lambda: reg)
+        CameraInputStreamHealth(ROOM).evaluate(
+            T0, [PANEL, "binary_sensor.other_person_occupancy"],
+            lambda e: None, lambda: reg,
+        )
+    assert not [r for r in caplog.records
+                if "no single camera entity" in r.message]
+
+
+def test_grace_read_from_const(monkeypatch):
+    """Review C LOW: the grace comes from CAMERA_INPUT_STREAM_DEAD_GRACE_S."""
+    monkeypatch.setattr(_csh._const, "CAMERA_INPUT_STREAM_DEAD_GRACE_S", 300.0)
+    reg = _panel_registry()
+    h = CameraInputStreamHealth(ROOM)
+    states = {PANEL_CAM: SimpleNamespace(state="unavailable", attributes={})}
+    for s in (0, 30, 60, 90, 120, 150, 180, 210, 240, 270):
+        dead, _p, _r = h.evaluate(T0 + timedelta(seconds=s), [PANEL],
+                                  states.get, lambda: reg)
+        assert dead == {}
+    dead, _p, _r = h.evaluate(T0 + timedelta(seconds=300), [PANEL],
+                              states.get, lambda: reg)
+    assert dead == {PANEL: (PANEL_CAM, T0)}
+
+
+def test_sensor_surface_degrades_when_snapshot_raises():
+    """Review C LOW (sn.exc-unguarded): a raising snapshot leaves the two
+    attributes out and the rest of the sensor's attributes intact."""
+    try:
+        from custom_components.universal_room_automation import sensor as sen
+    except Exception:  # noqa: BLE001
+        pytest.skip("sensor.py not importable in this environment")
+    hass = MagicMock()
+    hass.states.get = lambda eid: None
+    coord = MagicMock()
+    coord.entry.data = {"presence_sensors": [PANEL], "motion_sensors": [ZV]}
+    coord.entry.options = {}
+    coord.hass = hass
+    coord._chattering_entities = set()
+    coord._chatter_detector = None
+    coord._dutycycle_notify_active = None
+    coord._actuator_reconciler = None
+
+    def _boom():
+        raise RuntimeError("snapshot broken")
+
+    coord.camera_stream_health_snapshot = _boom
+    s = object.__new__(sen.UnavailableEntitiesSensor)
+    s.coordinator = coord
+    attrs = s.extra_state_attributes
+    assert "camera_stream_dead_inputs" not in attrs
+    assert "camera_stream_inputs_resolved" not in attrs
+    assert attrs  # the rest still built

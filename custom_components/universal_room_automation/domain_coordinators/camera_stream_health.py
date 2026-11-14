@@ -21,9 +21,20 @@ fusion byte-identical to pre-S1).
 
 State vocabulary for the camera entity:
   * ``unavailable``            -> stamp ``since`` on first observation.
+    "Continuously": if no ``unavailable`` reading was seen for longer than
+    the grace (a no-opinion stretch), the stamp restarts at this reading.
+  * ``unavailable`` with attribute ``restored: True`` -> no opinion: HA's
+    placeholder for a registry entity whose integration has not loaded it
+    (e.g. Frigate in setup retry), not a dead stream.
   * ``unknown`` or no state    -> no opinion: ``since`` neither set nor
     cleared, and the input is not dead this tick (INV needs ``unavailable``).
   * anything else              -> live: ``since`` cleared.
+
+Watched inputs: the room's configured motion / presence / occupancy lists
+(paged, shown on the sensor) plus ``extra_inputs``, the person sensors the
+room's camera override reads (coordinator v3.5.1 camera override); those
+are excluded the same way but never paged or shown, because they are not
+configured inputs.
 
 One public reader for the room and its siblings:
 ``UniversalRoomCoordinator.camera_input_stream_dead(input_eid)`` (S2 zone /
@@ -57,8 +68,18 @@ class CameraInputStreamHealth:
         # input_eid -> (camera_eid | None, reason, camera_derived)
         self._resolution: dict[str, tuple[str | None, str, bool]] | None = None
         self._resolution_inputs: tuple[str, ...] = ()
+        # Set by invalidate(): rebuild on the next tick, but keep answering
+        # from the old resolution until then (the exclusion set still holds
+        # this tick's promotions, so the getter must not read None).
+        self._resolution_dirty = False
+        # Configured inputs of the last tick (paging + display scope).
+        self._configured: frozenset[str] = frozenset()
         # camera_eid -> first observed `unavailable` time.
         self._unavail_since: dict[str, datetime] = {}
+        # camera_eid -> last tick that read `unavailable` (continuity).
+        self._unavail_seen: dict[str, datetime] = {}
+        # Cameras that read no-opinion since their last `unavailable`.
+        self._gap_seen: set[str] = set()
         # input_eid -> (camera_eid, since): dead THIS tick.
         self._dead_now: dict[str, tuple[str, datetime]] = {}
         # NM bookkeeping: inputs whose current episode paged; per-day latch.
@@ -71,13 +92,19 @@ class CameraInputStreamHealth:
     # ------------------------------------------------------------------
 
     def invalidate(self) -> None:
-        """Drop the resolution cache (entity registry changed)."""
-        self._resolution = None
+        """Mark the resolution cache stale (entity registry changed). The
+        next tick rebuilds it; until then readers keep the old answer."""
+        self._resolution_dirty = True
 
     def _ensure_resolution(
         self, inputs: tuple[str, ...], registry_getter: Callable[[], Any],
+        configured: frozenset[str] = frozenset(),
     ) -> dict[str, tuple[str | None, str, bool]]:
-        if self._resolution is not None and inputs == self._resolution_inputs:
+        if (
+            self._resolution is not None
+            and not self._resolution_dirty
+            and inputs == self._resolution_inputs
+        ):
             return self._resolution
         try:
             registry = registry_getter()
@@ -93,7 +120,10 @@ class CameraInputStreamHealth:
             )
         self._resolution = resolution
         self._resolution_inputs = inputs
-        self._maybe_warn_unresolved(resolution)
+        self._resolution_dirty = False
+        self._maybe_warn_unresolved(
+            {e: v for e, v in resolution.items() if e in configured},
+        )
         return resolution
 
     def _maybe_warn_unresolved(
@@ -126,6 +156,7 @@ class CameraInputStreamHealth:
         inputs: Iterable[str],
         state_getter: Callable[[str], Any],
         registry_getter: Callable[[], Any],
+        extra_inputs: Iterable[str] = (),
     ) -> tuple[
         dict[str, tuple[str, datetime]],
         list[tuple[str, str, datetime]],
@@ -137,13 +168,23 @@ class CameraInputStreamHealth:
         ``to_page``: (input, camera, since) whose exclusion just passed
         ``CAMERA_INPUT_STREAM_DEAD_NM_AFTER_S`` (once per episode, once per
         input per local day). ``to_recover``: (input, camera) whose paged
-        episode ended this tick.
+        episode ended this tick. Pages and recoveries cover configured
+        ``inputs`` only; ``extra_inputs`` (camera override person sensors)
+        can be in ``dead_now`` but never page.
         """
         ordered: list[str] = []
         for eid in inputs:
             if eid and eid not in ordered:
                 ordered.append(eid)
-        resolution = self._ensure_resolution(tuple(ordered), registry_getter)
+        configured = frozenset(ordered)
+        watched = list(ordered)
+        for eid in extra_inputs or ():
+            if eid and eid not in watched:
+                watched.append(eid)
+        self._configured = configured
+        resolution = self._ensure_resolution(
+            tuple(watched), registry_getter, configured,
+        )
 
         enabled = bool(getattr(_const, "CAMERA_INPUT_STREAM_HEALTH_ENABLED", False))
         grace_s = float(getattr(_const, "CAMERA_INPUT_STREAM_DEAD_GRACE_S", 120.0))
@@ -156,6 +197,8 @@ class CameraInputStreamHealth:
         for cam in list(self._unavail_since):
             if cam not in cameras:
                 self._unavail_since.pop(cam, None)
+                self._unavail_seen.pop(cam, None)
+                self._gap_seen.discard(cam)
         camera_state: dict[str, str | None] = {}
         for cam in cameras:
             try:
@@ -163,17 +206,33 @@ class CameraInputStreamHealth:
             except Exception:  # noqa: BLE001
                 st = None
             value = getattr(st, "state", None) if st is not None else None
+            if value == _UNAVAILABLE and _is_restored(st):
+                value = None  # not loaded yet: no opinion
             camera_state[cam] = value
             if value is None or value == _UNKNOWN:
+                if cam in self._unavail_since:
+                    self._gap_seen.add(cam)
                 continue  # no opinion
             if value == _UNAVAILABLE:
-                self._unavail_since.setdefault(cam, now)
+                last = self._unavail_seen.get(cam)
+                if cam not in self._unavail_since or (
+                    cam in self._gap_seen
+                    and last is not None
+                    and (now - last).total_seconds() > grace_s
+                ):
+                    # First reading, or a no-opinion stretch longer than the
+                    # grace broke continuity since the last one: restart.
+                    self._unavail_since[cam] = now
+                self._unavail_seen[cam] = now
+                self._gap_seen.discard(cam)
             else:
                 self._unavail_since.pop(cam, None)
+                self._unavail_seen.pop(cam, None)
+                self._gap_seen.discard(cam)
 
         dead: dict[str, tuple[str, datetime]] = {}
         if enabled:
-            for eid in ordered:
+            for eid in watched:
                 cam = resolution.get(eid, (None, "", False))[0]
                 if not cam or camera_state.get(cam) != _UNAVAILABLE:
                     continue
@@ -187,6 +246,8 @@ class CameraInputStreamHealth:
         today = now.date().isoformat()
         if nm_after_s > 0:
             for eid, (cam, since) in dead.items():
+                if eid not in configured:
+                    continue  # override sensor: excluded, never paged
                 if eid in self._paged_episode:
                     continue
                 if self._paged_day.get(eid) == today:
@@ -198,6 +259,11 @@ class CameraInputStreamHealth:
 
         to_recover: list[tuple[str, str]] = []
         for eid in sorted(self._paged_episode):
+            if eid not in configured:
+                # Input removed from the room mid-episode: drop silently
+                # (no "counts again" for an input that no longer exists).
+                self._paged_episode.discard(eid)
+                continue
             if eid not in dead:
                 prev = self._dead_now.get(eid)
                 to_recover.append((eid, prev[0] if prev else ""))
@@ -223,12 +289,25 @@ class CameraInputStreamHealth:
     def snapshot(self) -> dict[str, Any]:
         """Display surface for ``sensor.<room>_unavailable_entities``."""
         resolution = self._resolution or {}
+        configured = self._configured
         return {
             "camera_stream_dead_inputs": {
                 eid: {"camera": cam, "since": since.isoformat()}
                 for eid, (cam, since) in sorted(self._dead_now.items())
+                if eid in configured
             },
             "camera_stream_inputs_resolved": sum(
-                1 for cam, _r, _d in resolution.values() if cam
+                1 for eid, (cam, _r, _d) in resolution.items()
+                if cam and eid in configured
             ),
         }
+
+
+def _is_restored(state: Any) -> bool:
+    """HA marks a registry entity that no integration has loaded yet as
+    ``unavailable`` with attribute ``restored: True``."""
+    attrs = getattr(state, "attributes", None)
+    try:
+        return bool(attrs) and attrs.get("restored") is True
+    except Exception:  # noqa: BLE001
+        return False
