@@ -16,6 +16,12 @@ Written so the analysis survives compaction. Companion docs: `ARC_identity_visio
   how fast that comes back. What the later batch tells us and how fast that comes back and when the complete
   synthesis lands. We need to simulate this"; "egress only names people who are already home... Who made this rule?
   ... It should do both".
+- Added 2026-11-14: "vision will eventually be able to pull short clips of video to watch. Make sure no plan precludes
+  that." (Constraint: every vision deliverable keeps a frame-source path that can take a short clip, e.g. llmvision
+  `video_analyzer` on a Frigate clip, not only still frames; plan reviews check it.) Also: "Interior vision is meant to
+  supplement person counts sensors. And allow us to describe what is happening with people when we need it. It should
+  add depth (emotion is the deepest). Privacy in the main objection." "Accept privacy now. If the accuracy holds up, we
+  should move to local." "A dead camera is not a presence or absence of signal. Its faulty equipment."
 - Settings: "help with accuracy (first) and contribute to good alert hygiene (second)"; "Switches should have a
   config flow entry"; "Name of switch. not good yet."
 - Process: "We should do the hard parts sooner and learn faster"; "We need completion"; "Always forward for this
