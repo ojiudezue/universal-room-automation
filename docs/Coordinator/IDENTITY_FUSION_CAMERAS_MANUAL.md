@@ -359,6 +359,32 @@ reverts ONLY the census merge path; the D3 per-room fused sensor,
 D5 fan_veto camera leg, and D4 dry-run scan remain on the new
 resolver.
 
+### 4.2a Census awareness view and the one dedup function (census deconfliction CD1-CD3, branch `feature/census-deconfliction-p2-ledger`, NOT deployed, ships dark)
+
+Plan `docs/planning/PLANNING_census_deconfliction.md`. F2 has two views, one writer (`PersonCensus`), one site
+(`_apply_enhanced_house_census`, which calls `census_deconflict.deconflict_house` once per evaluation, sync).
+- **Trust view (F2-T):** the existing fields, payload and entities, byte-identical (develop golden, every vision
+  variant). Every AWAY / house-state / security / lock / HVAC reader keeps reading it.
+- **Awareness view (F2-A):** new house fields `aware_guests`, `aware_total = identified_count + aware_guests`,
+  `aware_identified` (= `identified_persons`, no second identity path), `count_provenance` (`camera` / `vision` /
+  `agree`), `aware_agreement` (`CENSUS_AGREEMENT_*`), plus display `aware_vision_status` (`switch_off` /
+  `unknown_ledger` / `dark` / `ok`) and `aware_ledger_state`. Not on `SIGNAL_CENSUS_UPDATED`, not in the DB snapshot.
+- **Terms:** `guest_cam` = the trust post-hold `unidentified_count`; `guest_vis` = the crossing ledger's
+  `max(0, L - R)` from `census_tick` (§4.3), None when unknown or unhealthy (an unhealthy source is missing, never 0).
+  Cases A (|diff| < `CROSSING_VISION_DISAGREE_FLAG_MIN`), B (vision higher), C (camera higher), D (vision missing).
+  Guest-side terms combine by max (`guest_terms_max`); residents are subtracted once (`R`).
+- **F-LEAD** `CROSSING_VISION_AWARENESS_VISION_LEADS` (rung 1, False): while False `aware_guests == guest_cam`.
+- **Readers:** `PresenceCoordinator.get_house_census("awareness")` (read API) and, through
+  `view_for_class("display")`, `sensor.ura_census_people_around` / `sensor.ura_census_guests_around` (Universal Room
+  Automation device; recorded states, unrecorded attributes; never unknown). Promotion ladder §3.2 of the plan:
+  `CROSSING_VISION_CONSUMER_CLASSES` = {display}, legal {display, notification}; the downgrade switch
+  `switch.ura_crossing_vision_census_authority` ("Vision Assisted Census", CM device; default ON on an install
+  with a camera entity, else OFF, a stored state wins; OFF = every class reads trust).
+- **Trip-wires (display / NM):** `crossing_vision_disagree` (per door group, case B or C on `ok` rows ≥
+  `CROSSING_VISION_DISAGREE_PERSIST_N` (5) in 24 h, MEDIUM, 0 = off) and, only after F-LEAD, one HIGH "revert F-LEAD"
+  page when ledger bar a (drift on independent anchors) or bar e (known share) regresses over 14 days (RAM; bars b, d
+  and the graded numbers need the scorer / grading, P2-D6 / P2-D10).
+
 ### 4.3 `TransitValidator` (`transit_validator.py`) — egress crossings
 
 Consumes egress-camera person events, dedups by camera stem (5s
@@ -438,6 +464,41 @@ deployed; plan `PLANNING_crossing_vision.md` rev 2, Phase 1).**
   Vision" llmvision entry, `gpt-6-luna`, temperature / top_p 1.0 set on that entry) when that entry
   exists on the install, else the perimeter provider; own `CROSSING_VISION_MAX_TOKENS` (1500). The
   llmvision call is a background task (HA stop does not wait on it).
+- **Provider (P2-D1, branch `feature/census-deconfliction-p2-ledger`, NOT deployed):** the integration option
+  `crossing_vision_provider_id` (Perimeter Alerting -> Advanced, rung 2, read fresh per call, reload-suppressed); when
+  it is empty, the rung-1 install default `CROSSING_VISION_PROVIDER_ID` (the Luna entry, kept: review A-HIGH-3). Either
+  id is used only when it is an llmvision config entry on this install, else the perimeter provider (another house
+  never has the default id).
+- **Crossing ledger (P2-D2 / P2-D3, same branch, NOT deployed):** `crossing_ledger.CrossingLedger` (pure; RAM; boot
+  `unknown`, a restart never restores `known`) owned by the shadow producer. Terms from every outcome: vision
+  `people_count` on `ok` (`term_source = vision`), else `camera_peak_count`, else 1 (`camera`; policy
+  `CROSSING_VISION_LEDGER_FALLBACK`); a cluster gets one term (primary count) or per-member camera terms when
+  directions are mixed; a `finally` backstop gives a crashed call its camera term; ambiguous = no term. Switch off /
+  kill / cap 0 = ledger `unknown`. A camera term is `max(1, camera_peak_count)` (a resolved direction is at least
+  one person). Anchor every `CROSSING_VISION_LEDGER_EVAL_S` (60 s; 0 = 1 s): camera bodies 0 (fresh within
+  2 x max(eval, 1)), fleet not dark, no HELD Tier-1 input, no Tier-1 rising edge (`SIGNAL_SUBSTRATE_KIND_CHANGED`),
+  no entry term (applied, late or while unknown), for `CROSSING_VISION_LEDGER_EMPTY_RESET_S` (900 s, operator
+  2026-11-14 on the window sweep) -> `L = R`, credits and applied exits cleared; no Tier-1 map = blocked; a Tier-1
+  entity in no registry entry with no state is ignored and flagged (INV-P2-DISCHARGE; reads no house state or resident
+  set). Held (`crossing_ledger.classify_held`, built per eval by `CrossingVisionShadow._held_inputs` from the
+  substrate's Tier-1 map `OccupancySubstrate.tier1_entity_ids()`, `hass.states`, a RAM last-known-good map and, per
+  input, the S2 view `camera_stream_health.entity_stream_view` (contract G7, built 2026-11-14 after the batch-2 merge;
+  its input route is `input_stream_view`, its fallback the input's own camera)): reads `on`; or its stream view is
+  HELD or RELEASED, whatever its last good reading (RELEASED is never "off" for the anchor, INV-MISSING-NOT-ZERO); or
+  dead by state (missing / unavailable / unknown) with last good `on` or no good reading since setup. A dead input
+  holds, never releases (operator 2026-11-14: "A dead camera is not a presence or absence of signal. Its faulty
+  equipment."). Kill switch `CROSSING_VISION_LEDGER_ANCHOR_NEEDS_NO_HOLD` (True). Resident floor = arrival credit
+  (INV-P2-ONCE): only when `R` rises above its previous tick value and `L < R`, lift `k = R − L` and open a credit
+  `(t, k)`; an entry term with E in [t − 300, t + 60] consumes it oldest first (`L += n − m`); a credit expires at
+  t + 60 + 210 s and its lift stays. Resident departures (`SIGNAL_RESIDENCY_EVENT`) are judged at `t_e + LAG +
+  timeout + end wait`: one person is consumed from the earliest APPLIED exit with E in [t_e − 900, t_e + 60] and
+  persons left (cancel), else `L − 1`; late / unknown exits are not stored. F2 hand-off ONLY via `census_tick`
+  (§4.2a). Rows: `crossing_vision_ledger` (one per term / anchor / reconcile / lift; terms carry `credit_consumed`),
+  one batched write per tick, writer-health backed but not checked while the shadow switch is off
+  (`MEMORY_WRITER_HEALTH_SWITCH_GATED_TYPES`). Pages: `crossing_ledger_stuck` (HIGH, 7200 s; held inputs block it)
+  and `crossing_ledger_anchor_zero` (LOW, 48 h; names the holders seen since the last anchor, dead ones first; silent
+  while no `census_tick` has ever arrived; clock restarts when the switch turns on). Diagnostics: `crossing_ledger` on
+  Outside: Open Tracks (unrecorded; adds `open_credits`, `held` (first 5), `anchor_zero_suppressed`).
 - **Known upstream leak (review B1):** cancelling a call (timeout or unload) during llmvision 1.7.1's
   clip fetch / ffmpeg (`media_handlers.py:662-845`) leaves one temp `.mp4` and the ffmpeg process
   running until its pipe closes (cleanup not in a `finally`, no `process.kill()`). Rare; fix belongs

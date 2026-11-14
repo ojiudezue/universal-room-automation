@@ -335,6 +335,20 @@ class CensusZoneResult:
     # ``PersonCensus._last_ble_cancelled_count``. Zero on the raw path and
     # whenever no cancellation occurred.
     ble_cancelled_count: int = 0
+    # Census deconfliction CD1: the AWARENESS view (F2-A), house zone only,
+    # written ONLY by ``_apply_enhanced_house_census`` through
+    # ``census_deconflict.deconflict_house``. None on the raw path, the
+    # property zone and with enhanced census off (readers then fall back to
+    # the trust fields). No existing reader, payload key, DB column or entity
+    # reads these (INV-P2-AWARE-NO-TRUST): awareness readers use
+    # ``PresenceCoordinator.get_house_census("awareness")``.
+    aware_guests: int | None = None
+    aware_total: int | None = None
+    aware_identified: list[str] | None = None
+    count_provenance: str | None = None
+    aware_agreement: str | None = None
+    aware_vision_status: str | None = None
+    aware_ledger_state: str | None = None
 
 
 @dataclass
@@ -1403,6 +1417,14 @@ class PersonCensus:
         # four *_pre_cancel/_ble_* attributes let observability discriminate
         # "BLE-cancel ran and cancelled zero" from "BLE-cancel never ran".
         self._last_camera_total_pre_cancel: int = 0
+        # Census deconfliction CD1: the house raw path's camera body total
+        # (every configured interior platform, before face subtraction and
+        # BLE cancel), None when every platform is unavailable or before the
+        # first run. Reset at the top of each `_calculate_house_census`. Read
+        # only by the crossing-ledger hand-off (`census_tick`). NOT
+        # `_last_camera_total_pre_cancel` (Frigate only, minus one body per
+        # fresh face).
+        self._last_house_camera_bodies: int | None = None
         self._last_area_raw_max_pre_cancel: dict[str, int] = {}
         self._last_ble_by_area: dict[str, int] = {}
         self._last_ble_cancel_enabled: bool = False
@@ -2007,6 +2029,9 @@ class PersonCensus:
           All cameras down:       BLE only, LOW confidence
           No cameras configured:  BLE only, confidence NONE
         """
+        # CD1 entry-reset: no stale body total survives a failed run.
+        self._last_house_camera_bodies = None
+        all_platforms_unavailable = False
         cross_validation_enabled = self._is_cross_validation_enabled()
         configured_interior = self._get_interior_camera_entities()
 
@@ -2215,6 +2240,7 @@ class PersonCensus:
                 camera_total = 0
                 agreement = CENSUS_AGREEMENT_SINGLE
                 degraded = True
+                all_platforms_unavailable = True
                 _LOGGER.warning("Census: all camera platforms unavailable")
 
         else:
@@ -2224,6 +2250,7 @@ class PersonCensus:
             degraded = False
 
             single_source_total = 0
+            any_xval_off_available = False
             _stream_dead = self._stream_dead_interior(configured_interior)
             _stream_held = self._stream_held_interior(configured_interior)
             for entity_id in configured_interior:
@@ -2253,6 +2280,7 @@ class PersonCensus:
                     if platform and platform not in active_platforms:
                         active_platforms.append(platform)
                     continue
+                any_xval_off_available = True
 
                 if platform == CAMERA_PLATFORM_FRIGATE:
                     camera_info = self._camera_manager._camera_by_entity.get(entity_id)
@@ -2282,6 +2310,19 @@ class PersonCensus:
             # values from a prior enabled run don't leak into attributes.
             self._last_area_contributions = {}
             self._last_raw_pre_dedup_sum = single_source_total
+            # CD1 (review A-MED-3): no configured entity available on this
+            # path = every platform unavailable. The ledger copy only.
+            if configured_interior and not any_xval_off_available:
+                all_platforms_unavailable = True
+
+        # CD1: the body total the crossing ledger samples. Missing, never 0,
+        # when every platform is unavailable or no interior camera is
+        # configured (an absent source is missing: review A-MED-3; the trust
+        # view's camera_total = 0 there is unchanged).
+        self._last_house_camera_bodies = (
+            None if (all_platforms_unavailable or not configured_interior)
+            else int(camera_total)
+        )
 
         # Cross-correlate with BLE
         ble_id_set = set(ble_persons)
@@ -2725,9 +2766,9 @@ class PersonCensus:
         sensor as a room input, else its own camera).
 
         Operator ruling 2026-11-14 ("a dead input holds"): while the census
-        hold lasts (CAMERA_INPUT_STREAM_DEAD_CENSUS_HOLD_MAX_S, 600 s, from
-        the camera's first `unavailable` room tick; its own cap, shorter than
-        the zone's) a dead camera is unknown, not absent, so its frozen
+        hold lasts (CAMERA_INPUT_STREAM_DEAD_CENSUS_HOLD_MAX_S, 900 s, from
+        the camera's first `unavailable` room tick; its own constant, equal
+        to the zone's today and allowed to diverge) a dead camera is unknown, not absent, so its frozen
         reading keeps counting as before; a camera dying cannot by itself
         drop the census to 0 (nobody-home) or the unidentified count (path
         alpha). Unresolved / live / kill switch off / error = empty set
@@ -6782,6 +6823,13 @@ class PersonCensus:
 
         total = clamped_total
 
+        # Census deconfliction CD1: the awareness view, from the ONE dedup
+        # function. Sync, no await; reads the trust values computed above and
+        # never writes them (INV-P2-AWAY-LATENCY choke point 3).
+        awareness = self._compute_awareness(
+            identified_count, sorted(recognized_set), clamped_unidentified, total,
+        )
+
         return CensusZoneResult(
             zone=raw_result.zone,
             identified_count=identified_count,
@@ -6808,7 +6856,94 @@ class PersonCensus:
             # always defined (seeded 0 in __init__), so no getattr
             # dance required.
             ble_cancelled_count=self._last_ble_cancelled_count,
+            **awareness,
         )
+
+    # ------------------------------------------------------------------
+    # Census deconfliction CD1 (PLANNING_census_deconfliction.md §3.3)
+    # ------------------------------------------------------------------
+    def _resident_term(self, identified_count: int) -> int:
+        """R = max(presence residents home, identified_count). Presence via
+        the coordinator manager; missing presence or any error ->
+        identified_count."""
+        try:
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            presence = (
+                manager.coordinators.get("presence") if manager is not None else None
+            )
+            if presence is None:
+                return int(identified_count)
+            return max(int(presence.get_residents_home_count()), int(identified_count))
+        except Exception:  # noqa: BLE001
+            return int(identified_count)
+
+    def _ledger_tick(self, resident_term: int) -> tuple[Any, bool, Any]:
+        """The ONE crossing-ledger hand-off per evaluation:
+        ``(guest_vis | None, healthy, producer | None)``. Missing producer or
+        any exception -> ``(None, False, ...)`` (case D)."""
+        cv = self.hass.data.get(DOMAIN, {}).get(_ura_const.CROSSING_VISION_HASS_KEY)
+        if cv is None:
+            return None, False, None
+        try:
+            guest_vis, healthy = cv.census_tick(
+                resident_term=resident_term,
+                camera_bodies=self._last_house_camera_bodies,
+                # The previous run's latch (refreshed after the result):
+                # accepted one-interval lag.
+                camera_input_dark=bool(self._camera_input_dark_latched),
+            )
+            return guest_vis, bool(healthy), cv
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("crossing ledger census_tick failed", exc_info=True)
+            return None, False, cv
+
+    def _compute_awareness(
+        self,
+        identified_count: int,
+        identified_persons: list[str],
+        guest_cam: int,
+        total: int,
+    ) -> dict[str, Any]:
+        """Awareness fields for the house result (never raises; any error ->
+        case D, awareness = trust)."""
+        from .census_deconflict import TrustFields, deconflict_house  # noqa: PLC0415
+
+        trust = TrustFields(
+            identified_count=int(identified_count),
+            identified_persons=tuple(identified_persons),
+            unidentified_count=int(guest_cam),
+            total_persons=int(total),
+        )
+        status, ledger_state = "switch_off", "unknown"
+        try:
+            r_term = self._resident_term(identified_count)
+            guest_vis, healthy, cv = self._ledger_tick(r_term)
+            if cv is not None:
+                try:
+                    status = str(cv.vision_status(healthy))
+                    ledger_state = str(cv.ledger_state)
+                except Exception:  # noqa: BLE001
+                    status = "unknown_ledger"
+            # Rule 5: an unhealthy source is missing (case D), never zero.
+            vis = guest_vis if healthy else None
+            _t, aw = deconflict_house(
+                trust,
+                guest_vis=vis,
+                vision_leads=bool(_ura_const.CROSSING_VISION_AWARENESS_VISION_LEADS),
+                flag_min=int(_ura_const.CROSSING_VISION_DISAGREE_FLAG_MIN),
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("census awareness compute failed", exc_info=True)
+            _t, aw = deconflict_house(trust, guest_vis=None, vision_leads=False, flag_min=1)
+        return {
+            "aware_guests": aw.aware_guests,
+            "aware_total": aw.aware_total,
+            "aware_identified": list(aw.aware_identified),
+            "count_provenance": aw.count_provenance,
+            "aware_agreement": aw.aware_agreement,
+            "aware_vision_status": status,
+            "aware_ledger_state": ledger_state,
+        }
 
     def _apply_enhanced_property_census(
         self,

@@ -235,6 +235,14 @@ SIGNAL_FAN_RECHECK_FINISHED: Final = "ura_fan_recheck_finished"
 # legitimate temporal smoothing on top of this common substrate.
 SIGNAL_SUBSTRATE_KIND_CHANGED: Final = "ura_substrate_kind_changed"
 
+# Crossing vision P2-D3 (PLANNING_crossing_vision.md): one residency record
+# (``residency.ResidencyEvent``, a resident arrival / departure edge on RAW
+# ``person.*`` state) per call, dispatched by
+# ``PresenceCoordinator._feed_residency`` right after the record is made.
+# Payload: the frozen record. Reader: the crossing ledger's departure
+# reconcile (display / F2-awareness input only, never house state).
+SIGNAL_RESIDENCY_EVENT: Final = "ura_residency_event"
+
 # Substrate re-subscribe on room add/remove/edit (post-v5.11.0 fix cycle).
 # Dispatched from ROOM entry lifecycle sites in __init__.py:
 #   - ROOM async_setup_entry (action="loaded")   — after coordinator stored

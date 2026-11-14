@@ -111,6 +111,7 @@ from .const import (
     CONF_PERIMETER_ENRICHMENT_MAX_TOKENS,
     CONF_PERIMETER_ENRICHMENT_PROVIDER_ID,
     CONF_EXTERIOR_SNAPSHOT_OFFSET_S,
+    CONF_CROSSING_VISION_PROVIDER_ID,
 )
 from .const import VERSION
 # ROOM-CREATE-AREA-PREFILL-DETRITUS-1 (D4): hoisted top-level so the
@@ -7831,6 +7832,9 @@ INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     CONF_PERIMETER_ENRICHMENT_MAX_TOKENS,
     CONF_PERIMETER_ENRICHMENT_PROVIDER_ID,
     CONF_EXTERIOR_SNAPSHOT_OFFSET_S,
+    # Crossing vision P2-D1: read fresh per llmvision call
+    # (CrossingVisionShadow._provider_id); no cached consumer.
+    CONF_CROSSING_VISION_PROVIDER_ID,
     # PERIMETER-FP (v5.107.0): gate switches/select, path-(a) fresh-read via
     # PerimeterAlertManager._options_flag() on every alert. No cached
     # consumer, no signal. CONF_PERIMETER_ZONE_SENSORS is DELIBERATELY
