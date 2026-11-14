@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.108.22
+# Universal Room Automation vv5.108.23
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.108.22"
+VERSION: Final = "v5.108.23"
 
 # EC-LOADED-VS-INSTALLED-VERSION-1 — how often the on-disk manifest is re-read
 # to detect an installed-but-not-restarted deploy. Rung 1 (module constant):
@@ -3573,10 +3573,17 @@ CROSSING_VISION_DAILY_CALLS_MAX: Final = 200
 # llmvision entry's data, llmvision __init__.py:101-102, not on the service
 # call, so URA sends neither).
 CROSSING_VISION_MODEL: Final = "gpt-6-luna"
-# Rung 1: llmvision config entry id sent as the `provider` service field,
-# used only when it is an llmvision entry on this install; empty or absent =
-# the perimeter's provider (CONF_PERIMETER_ENRICHMENT_PROVIDER_ID). An entry
-# id, not a credential. Plan P2-D1 moves this to a rung-2 options field.
+# P2-D1 (rung 2, integration options, Perimeter Alerting -> Advanced): the
+# llmvision config entry id sent as the `provider` service field. Used only
+# when it is an llmvision entry on THIS install (portability: another house
+# has other entry ids); empty, absent or not an llmvision entry = the
+# perimeter's provider (CONF_PERIMETER_ENRICHMENT_PROVIDER_ID). An entry id,
+# not a credential. Read fresh at every call (no reload).
+CONF_CROSSING_VISION_PROVIDER_ID: Final = "crossing_vision_provider_id"
+# Rung 1 install default (P2-D1, review A-HIGH-3): used only when the option
+# above is empty AND an llmvision config entry with this id exists on THIS
+# install (the Luna entry "OpenAI Madrone Vision"). Another house never has
+# this id, so it falls through to its perimeter provider.
 CROSSING_VISION_PROVIDER_ID: Final = "01M7B731T26P2HXVW77AQR62PP"
 # Rung 1 (review A6): own max_tokens, so lowering the perimeter's
 # CONF_PERIMETER_ENRICHMENT_MAX_TOKENS for alerts cannot truncate this JSON.
@@ -3627,6 +3634,44 @@ CROSSING_VISION_TRIPWIRE_EVAL_S: Final = 3600
 CROSSING_VISION_DESC_MAX_CHARS: Final = 200
 # Rung 1: bound on gathering in-flight tasks at unload.
 CROSSING_VISION_TEARDOWN_GATHER_S: Final = 5
+
+# ---------------------------------------------------------------------------
+# Crossing ledger (PLANNING_crossing_vision.md P2-D2 / P2-D3; RAM, boot =
+# unknown). All rung 1 (reviewed change): the anchor and reconcile rules are
+# the INV-P2-DISCHARGE contract.
+# ---------------------------------------------------------------------------
+CROSSING_VISION_LEDGER_EPISODE_TYPE: Final = "crossing_vision_ledger"
+# Anchor window: camera bodies 0, fleet lit, no held Tier-1 input, no
+# Tier-1 rising edge, no entry term, continuously this long -> L = R. 0 =
+# anchor on the first passing sample. 900 = 15 min (operator 2026-11-14,
+# card VISION-CROSSING-ANALYSIS-1; basis
+# docs/planning/AUDIT_ledger_checkpoint_window_sweep_2026_11_14.md: 15
+# checkpoints / 7 d, 4 empty episodes / wk, 0 unexplained resurfacings at
+# R = 60 min once arrival precursors are excluded).
+CROSSING_VISION_LEDGER_EMPTY_RESET_S: Final = 900
+# Held-input conjunct of the anchor predicate (P2-D2 step 2, review D-M1):
+# a Tier-1 input reading on, or dead (unavailable / unknown / missing, or
+# its camera stream dead) with a last known-good on or no known-good reading
+# since setup, blocks the anchor. False = the edge-only predicate (kill
+# switch; a still guest on a radar is then anchored away).
+CROSSING_VISION_LEDGER_ANCHOR_NEEDS_NO_HOLD: Final = True
+# Anchor sample cadence (tracked interval). A stored body value older than
+# 2 x max(this, 1) fails the sample. 0 = a 1 s interval (not "never").
+CROSSING_VISION_LEDGER_EVAL_S: Final = 60
+# Departure reconcile: a resident departure edge at t_e is judged at
+# t_e + LAG + CROSSING_VISION_TIMEOUT_S + CROSSING_VISION_EVENT_END_WAIT_S;
+# an exit term with E in [t_e - LEAD, t_e + LAG] cancels it, else L - 1.
+# LEAD 0 and LAG 0 = reconcile off.
+CROSSING_VISION_LEDGER_RECONCILE_LEAD_S: Final = 900
+CROSSING_VISION_LEDGER_RECONCILE_LAG_S: Final = 60
+# Term count when vision has no `ok` count: "camera" (camera_peak_count,
+# else 1) or "skip" (vision-only terms).
+CROSSING_VISION_LEDGER_FALLBACK: Final = "camera"
+# Trip-wires: stuck (HIGH; guest_vis >= 1 with every sample zero bodies and
+# no rising edge for this long) and anchor-zero (LOW; no anchor for this
+# long). 0 = off.
+CROSSING_VISION_LEDGER_STUCK_S: Final = 7200
+CROSSING_VISION_LEDGER_ANCHOR_ZERO_S: Final = 172800
 
 # EGRESS_IDENTITY_ENABLED: options-flow kill switch for the D1 egress-face
 # identity fuse (2026-08-18). DEFAULT False — feature ships dormant per
@@ -6305,6 +6350,10 @@ MEMORY_EPISODE_TYPES: Final = frozenset({
     # seen while the shadow switch is on (crossing_vision.py). Shadow only;
     # no decision reads it and Phase 1 adds no MEMORY_COMPACTION_RULES entry.
     "crossing_vision_shadow",
+    # Crossing vision P2-D3: one row per ledger term / anchor / reconcile
+    # (crossing_vision.py ledger wiring). Display / scorer only; no
+    # MEMORY_COMPACTION_RULES entry.
+    "crossing_vision_ledger",
 })
 
 # Set of episode types that have a LIVE writer. The weekly writer-health
@@ -6343,6 +6392,10 @@ MEMORY_WRITER_BACKED_EPISODE_TYPES: Final = frozenset({
     # days if the operator never turns it on; the documented discharge for a
     # long-term OFF is adding the type to MEMORY_WRITER_HEALTH_EXEMPT_TYPES.
     "crossing_vision_shadow",
+    # crossing_vision_ledger (P2-D3): one term row per crossing while the
+    # shadow switch is on, plus anchors. Not checked while the shadow switch
+    # is off (MEMORY_WRITER_HEALTH_SWITCH_GATED_TYPES, review B-L4).
+    "crossing_vision_ledger",
     # sensor_dropout: writer exists and is correctly scheduled, but has
     # produced 0 rows in >2 months (per AUDIT_memory_writer_coverage.md,
     # 2026-10-11). KEEP in the checked set so the trip-wire surfaces this
@@ -6383,6 +6436,14 @@ MEMORY_WRITER_HEALTH_ABSENCE_EXEMPT_TYPES: Final = frozenset({
     "crossing_vision_shadow",
 })
 MEMORY_WRITER_HEALTH_ABSENT_HOUSE_STATES: Final = frozenset({"away", "vacation"})
+# Writer-backed types whose writer is gated by a switch (review B-L4,
+# crossing vision P2-D3): type -> the hass.data[DOMAIN] key holding the
+# switch. The type is not checked while that key reads False (the switch
+# off: the writer cannot run). Rung 1. A switch turned on mid-window is
+# checked on the next run that finds it on.
+MEMORY_WRITER_HEALTH_SWITCH_GATED_TYPES: Final = {
+    "crossing_vision_ledger": CROSSING_VISION_SWITCH_HASS_KEY,
+}
 
 MEMORY_FACT_TOPICS: Final = frozenset({
     "occupancy_reliability",
@@ -6598,3 +6659,46 @@ def validate_consumer_classes(active, legal) -> frozenset:
 validate_consumer_classes(
     CROSSING_VISION_CONSUMER_CLASSES, CROSSING_VISION_LEGAL_CONSUMER_CLASSES,
 )
+
+
+# ============================================================================
+# Census deconfliction (PLANNING_census_deconfliction.md §3.2-§3.4, §6)
+# ============================================================================
+# F-LEAD (rung 1, CD4 operator checkpoint): False = the awareness value equals
+# the trust value (aware_guests == guest_cam in every case; F2-A = F2-T plus
+# agreement metadata). True = vision may change the awareness value.
+CROSSING_VISION_AWARENESS_VISION_LEADS: Final = False
+# Agreement threshold: |guest_vis - guest_cam| below this = case A (agree);
+# at it = close; above = disagree.
+CROSSING_VISION_DISAGREE_FLAG_MIN: Final = 1
+# Disagreement page: per-crossing count disagreement (shadow agreement case B
+# or C) on one door group at least this many times in 24 h pages via NM.
+# 0 = off.
+CROSSING_VISION_DISAGREE_PERSIST_N: Final = 5
+CROSSING_VISION_DISAGREE_WINDOW_S: Final = 86400
+# Rung-2 (notification) bar (consumed by the CD4 F-NOTIFY checkpoint and the
+# P2-D6 scorer; no runtime reader in this build).
+CROSSING_VISION_NOTIFY_EXACT_MIN: Final = 0.90
+CROSSING_VISION_NOTIFY_MIN_GRADED: Final = 30
+CROSSING_VISION_NOTIFY_MIN_ATTACH: Final = 0.50
+# Bars a-e (§3.4), shared by the P2-D6 scorer and the F-LEAD regression
+# trip-wire. Window / regression window in days.
+CROSSING_VISION_GO_WINDOW_DAYS: Final = 7
+CROSSING_VISION_GO_REGRESSION_DAYS: Final = 14
+CROSSING_VISION_GO_DRIFT_ZERO_SHARE: Final = 0.80
+CROSSING_VISION_GO_DRIFT_MAX_ABS: Final = 1
+CROSSING_VISION_GO_MIN_ANCHORS: Final = 10
+CROSSING_VISION_GO_RECONCILE_SHARE_MAX: Final = 0.20
+CROSSING_VISION_GO_ARRIVAL_MATCH_MIN: Final = 0.90
+CROSSING_VISION_GO_VISION_TERM_SHARE_MIN: Final = 0.75
+CROSSING_VISION_GO_ARRIVAL_WINDOW_BEFORE_S: Final = 300
+CROSSING_VISION_GO_ARRIVAL_WINDOW_AFTER_S: Final = 60
+CROSSING_VISION_GO_GROUP_EXACT_MIN: Final = 0.80
+CROSSING_VISION_GO_GROUP_MIN_N: Final = 10
+CROSSING_VISION_GO_FALSE_GUEST_MAX: Final = 0.02
+CROSSING_VISION_GO_KNOWN_SHARE_MIN: Final = 0.90
+# Rung-3 (comfort) bar; NOT legal in this build (its own Tier-3 plan).
+CENSUS_LADDER_COMFORT_FALSE_GUEST_MAX: Final = 0.02
+# The downgrade switch (rung 3, default ON, RestoreEntity; OFF = every class
+# reads trust). hass.data flag key written by the switch.
+CROSSING_VISION_AUTHORITY_HASS_KEY: Final = "crossing_vision_census_authority_on"

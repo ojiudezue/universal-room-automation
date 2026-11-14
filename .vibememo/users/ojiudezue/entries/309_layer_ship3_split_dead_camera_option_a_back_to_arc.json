@@ -1,0 +1,43 @@
+{
+  "format_version": "2.1",
+  "entry_id": "309",
+  "author": "ojiudezue",
+  "session_id": "claude_20261114_layer_ship3",
+  "timestamp": "2026-11-14T22:55:00Z",
+  "type": "pivot",
+  "weight": "critical",
+  "category": "architecture",
+  "title": "Layer ship 3 split into 3a (no-op plumbing + leak guard) and 3b (dead-camera pages only); coverage parked; leak cleanup carded; back to the arc",
+  "summary": "The person-awareness layer's producer side ships as 3a: one arrival send, a crossing ring with one amend primitive, edges and moves feeds, typed ingests, and a guard (R1-R14) pinning every remaining bypass at 238 rows with a ratchet. The dead-camera rule ships as 3b in option A only: 'camera dead = every NVR lost it' drives HIGH pages, with house-level camera health for every census/zone camera. Per-reader twin coverage is parked. The 34 remaining leak groups are accepted and carded behind the arc. The operator redirected: the layer is a prerequisite, the arc comes first.",
+  "why": "Coverage failed four plan-review rounds in a row. Each found a HIGH that was a path to a wrong AWAY or a missed alert (frozen twin standing in, motion covering a person sensor, census guest reader losing a guest, per-room readers judged house-wide). Its benefit is at most 15 minutes off a hold, and the live registry suggests it may never fire. Splitting 3a from 3b keeps 3a's byte-identity proof clean. Leaving the 34 leak groups to cards, guarded by a ratchet, avoids turning a no-op ship into a behaviour change across about 40 rooms. The operator then judged a full afternoon on the layer to be drift away from the arc's deliverables.",
+  "alternatives_considered": [
+    "Option B: build coverage now with all review fixes (rejected: risk vs a rare 15-minute benefit; parked as DEAD-CAMERA-TWIN-COVERAGE-1 with a measured trigger)",
+    "Option C: build nothing more (rejected: false HIGH pages on one-NVR outages and uncapped frozen readings on unwatched cameras stay)",
+    "Fix all 34 leak groups inside ship 3 (rejected: behaviour change in ~40 rooms inside a no-op ship)",
+    "One card per leak group (rejected by operator: 34 is a lot; grouped cleanup cards instead)"
+  ],
+  "implications": "Step 7 and step 8 now build on 3a's shapes: plain tuples, one time type per read, a separate truncation check, and reserved guard rows. The guard fails on any new bypass, so later cycles must route person facts through the layer or add a reviewed allowlist row with a card. The dead-camera rule is only half delivered by design: a dead NVR's frozen reading still holds up to 15 min during a one-NVR outage. Arc order resumes with census-p2 ship, music repair ship, step 8 re-review plus its parallel build, 3a, step 7, then interior vision.",
+  "confidence": "high",
+  "revisit_trigger": "Ship 3 D0 (d) shows twin inputs share a reader set and one-NVR outages hold 30+ decision-relevant minutes a week (uncork coverage); or the guard total stops falling for two releases (schedule LAYER-LEAK-CLEANUP-PLAN-1).",
+  "refs": {
+    "cards": [
+      "PERSON-AWARENESS-READ-API-1",
+      "NVR-WITNESS-CONSOLIDATION-1",
+      "DEAD-CAMERA-TWIN-COVERAGE-1",
+      "LAYER-LEAK-CLEANUP-1",
+      "LAYER-LEAK-CLEANUP-PLAN-1",
+      "BLE-ARRIVAL-PRODUCER-HVAC-GATED-1"
+    ],
+    "docs": [
+      "docs/planning/PLANNING_person_awareness_layer_ship3.md (plan/person-awareness-ship3)",
+      "docs/planning/ARC_DRIFT_ANALYSIS_identity_vision_census_2026_11_13.md (drifts 15-22)"
+    ],
+    "operator_quotes": [
+      "Most important thing to get right.",
+      "Smart. Do it",
+      "Dead camera - option A. Card B and why we would uncork it later. Link it",
+      "Leak groups accepted but I'm going to need a size on cleaning that up. And a plan.",
+      "Card the plan and then get back to the arc. The layer was just a prereq"
+    ]
+  }
+}

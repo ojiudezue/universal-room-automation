@@ -645,6 +645,7 @@ from .const import (
     CONF_PERIMETER_ENRICHMENT_MODEL,
     CONF_PERIMETER_ENRICHMENT_MAX_TOKENS,
     CONF_PERIMETER_ENRICHMENT_PROVIDER_ID,
+    CONF_CROSSING_VISION_PROVIDER_ID,
     DEFAULT_PERIMETER_ENRICHMENT_ENABLED,
     DEFAULT_PERIMETER_ENRICHMENT_PROVIDER,
     DEFAULT_PERIMETER_ENRICHMENT_PERSON_SENSORS,
@@ -5392,6 +5393,16 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     CONF_PERIMETER_ENRICHMENT_PROVIDER_ID,
                     default=self._get_current(
                         CONF_PERIMETER_ENRICHMENT_PROVIDER_ID, "",
+                    ),
+                ): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
+                ),
+                # Crossing vision P2-D1 (rung 2): the llmvision entry the
+                # door-crossing count uses; empty = the provider above.
+                vol.Optional(
+                    CONF_CROSSING_VISION_PROVIDER_ID,
+                    default=self._get_current(
+                        CONF_CROSSING_VISION_PROVIDER_ID, "",
                     ),
                 ): selector.TextSelector(
                     selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)

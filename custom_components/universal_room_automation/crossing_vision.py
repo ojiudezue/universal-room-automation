@@ -41,7 +41,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections import OrderedDict, deque
+from collections import Counter, OrderedDict, deque
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -51,9 +51,16 @@ from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.util import dt as dt_util
 
 from . import const as _c
+from . import crossing_ledger as _cl
 from .const import DOMAIN
+from .domain_coordinators import camera_stream_health as _csh
 
 _LOGGER = logging.getLogger(__name__)
+
+# Pseudo-holder returned by ``_held_inputs`` while no Tier-1 map is
+# available (no substrate, torn down, or its getter failed): the empty-house
+# anchor is blocked, because unknown is not empty (ruling Q2).
+TIER1_MAP_UNAVAILABLE = "tier1_map_unavailable"
 
 EGRESS_EVENT = "ura_person_egress_event"
 FRIGATE_CONSUMER_NAME = "crossing_vision"
@@ -256,6 +263,10 @@ class _Request:
     crossing_keys: list[str] = field(default_factory=list)
     status: str = "waiting"  # waiting -> calling -> done
     unsub_timer: Callable[[], None] | None = None
+    # P2-D3 ledger: every member crossing (primary first) and whether the
+    # request's ledger term(s) were applied (exactly once per request).
+    members: list[dict[str, Any]] = field(default_factory=list)
+    term_done: bool = False
 
 
 class CrossingVisionShadow:
@@ -281,6 +292,47 @@ class CrossingVisionShadow:
         self._calls: deque[tuple[float, str]] = deque()
         self._zero_latched = False
         self._errors_latched = False
+        # P2-D2/D3: the house crossing ledger (RAM; boot = unknown, a
+        # restart never restores known). Knobs read once here (rung 1).
+        self._ledger = _cl.CrossingLedger(
+            empty_reset_s=float(_c.CROSSING_VISION_LEDGER_EMPTY_RESET_S),
+            eval_s=float(_c.CROSSING_VISION_LEDGER_EVAL_S),
+            reconcile_lead_s=float(_c.CROSSING_VISION_LEDGER_RECONCILE_LEAD_S),
+            reconcile_lag_s=float(_c.CROSSING_VISION_LEDGER_RECONCILE_LAG_S),
+            reconcile_delay_s=float(_c.CROSSING_VISION_TIMEOUT_S)
+            + float(_c.CROSSING_VISION_EVENT_END_WAIT_S),
+            arrival_before_s=float(_c.CROSSING_VISION_GO_ARRIVAL_WINDOW_BEFORE_S),
+            arrival_after_s=float(_c.CROSSING_VISION_GO_ARRIVAL_WINDOW_AFTER_S),
+            stuck_s=float(_c.CROSSING_VISION_LEDGER_STUCK_S),
+            anchor_zero_s=float(_c.CROSSING_VISION_LEDGER_ANCHOR_ZERO_S),
+            setup_ts=self._epoch(),
+            anchor_needs_no_hold=bool(_c.CROSSING_VISION_LEDGER_ANCHOR_NEEDS_NO_HOLD),
+        )
+        self._ledger_events: list[_cl.LedgerEvent] = []
+        # P2-D3 held inputs: RAM last-known-good map (entity -> "on"/"off",
+        # never persisted) and the holders seen since the last anchor (for
+        # the anchor-zero page; dead ones named first).
+        self._last_good: dict[str, str] = {}
+        self._holder_counts: Counter[str] = Counter()
+        self._holder_dead: set[str] = set()
+        # Tier-1 entities that never existed in HA (no registry entry, no
+        # state): ignored for the held set, shown on the diagnostics, one
+        # WARNING per entity per lifetime.
+        self._tier1_missing_now: tuple[str, ...] = ()
+        self._tier1_missing_logged: set[str] = set()
+        self._ledger_was_enabled = False
+        self._ledger_day: Any = None
+        self._reconcile_timers: dict[str, Callable[[], None]] = {}
+        # CD3 trip-wires (RAM, a restart starts them empty).
+        # Per-crossing count disagreement (agreement case B / C on an `ok`
+        # row): (epoch, door group) samples, latched per group.
+        self._disagree: deque[tuple[float, str]] = deque(maxlen=4096)
+        self._disagree_latched: set[str] = set()
+        # F-LEAD regression inputs measurable from the ledger now: bar a
+        # (independent anchor residues) and bar e (known share of samples).
+        self._anchor_residues: deque[tuple[float, int]] = deque(maxlen=4096)
+        self._known_samples: deque[tuple[float, bool]] = deque(maxlen=40320)
+        self._flead_latched = False
         self._roll_day()
 
     # ---- gates ----------------------------------------------------------
@@ -339,11 +391,49 @@ class CrossingVisionShadow:
                 timedelta(seconds=int(_c.CROSSING_VISION_TRIPWIRE_EVAL_S)),
             )
         )
+        # P2-D3 ledger feeds: the anchor sampler, Tier-1 room rising edges
+        # (the substrate's single-writer dispatch) and resident departures
+        # (the residency producer's records). All unsubscribed in teardown.
+        from homeassistant.helpers.dispatcher import (  # noqa: PLC0415
+            async_dispatcher_connect,
+        )
+
+        from .domain_coordinators.signals import (  # noqa: PLC0415
+            SIGNAL_RESIDENCY_EVENT,
+            SIGNAL_SUBSTRATE_KIND_CHANGED,
+        )
+
+        self._unsubs.append(
+            async_track_time_interval(
+                self.hass,
+                self._on_ledger_eval,
+                timedelta(seconds=max(1, int(_c.CROSSING_VISION_LEDGER_EVAL_S))),
+            )
+        )
+        self._unsubs.append(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_SUBSTRATE_KIND_CHANGED, self._on_substrate_edge,
+            )
+        )
+        self._unsubs.append(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_RESIDENCY_EVENT, self._on_residency_event,
+            )
+        )
 
     async def async_teardown(self) -> None:
         """Latch first, then unsubscribe, cancel timers, gather in-flight
-        tasks with a bound (the transit_validator outcome-log pattern)."""
+        tasks with a bound (the transit_validator outcome-log pattern).
+        Buffered ledger rows are handed to a tracked write first, so the
+        bounded gather covers them."""
+        self._flush_ledger_events()
         self._torn_down = True
+        for unsub in list(self._reconcile_timers.values()):
+            try:
+                unsub()
+            except Exception:  # noqa: BLE001
+                pass
+        self._reconcile_timers.clear()
         for unsub in self._unsubs:
             try:
                 unsub()
@@ -523,7 +613,9 @@ class CrossingVisionShadow:
             return
         self._roll_day()
         # INV-OFF: no row, no call while off (and no trip-wire sample).
+        # P2-D3: and the ledger goes unknown (no term).
         if not self._enabled():
+            self._ledger_disabled()
             return
         camera = data.get("egress_camera")
         ts_raw = data.get("timestamp")
@@ -558,6 +650,10 @@ class CrossingVisionShadow:
             "frigate_events_in_window": self._events_in_window(members, e_epoch),
             "e_ts": e_ts,
         }
+        member = {
+            "crossing_key": crossing_key, "direction": direction,
+            "camera_peak_count": crossing["camera_peak_count"], "e_ts": e_epoch,
+        }
         self._prune_requests(e_epoch)
 
         # 1. Cluster: any request (open or completed) of this door group
@@ -567,22 +663,26 @@ class CrossingVisionShadow:
             if req.group_key == group_key and abs(
                 req.e_ts.timestamp() - e_epoch
             ) <= cluster_s:
-                self._join_cluster(req, crossing)
+                self._join_cluster(req, crossing, member)
                 return
 
         # 2. Match a Frigate person event on a door-group camera.
         match = self._match_event(members, e_epoch)
         if match is None:
             self._record(crossing, OUTCOME_NO_EVENT)
+            self._ledger_terms([member], OUTCOME_NO_EVENT, None)
             return
         prior = match.get("analysed_by")
         if prior is not None:
             primary = next((r for r in self._requests if r.key == prior), None)
             if primary is not None:
-                self._join_cluster(primary, crossing)
+                self._join_cluster(primary, crossing, member)
             else:
                 self._record(crossing, OUTCOME_CLUSTERED, primary_crossing_key=prior,
                              event=match)
+                # The primary left the request ring: this member's own
+                # camera term (its primary's term was already applied).
+                self._ledger_terms([member], OUTCOME_CLUSTERED, None)
             return
 
         # 3. Schedule-time gates (cap, concurrency). Off was handled above.
@@ -590,15 +690,17 @@ class CrossingVisionShadow:
         #    `waiting` ones are added (reviews A1/B4: no double count).
         if self._calls_today + self._waiting() >= self.daily_cap():
             self._record(crossing, OUTCOME_SKIPPED_CAP, event=match)
+            self._ledger_terms([member], OUTCOME_SKIPPED_CAP, None)
             return
         if self._pending() >= max(0, int(_c.CROSSING_VISION_MAX_CONCURRENT)):
             self._record(crossing, OUTCOME_SKIPPED_BUSY, event=match)
+            self._ledger_terms([member], OUTCOME_SKIPPED_BUSY, None)
             return
 
         req = _Request(
             key=crossing_key, group_key=group_key, door_group=door_group,
             members_stems=members, e_ts=e_ts, event=match, crossing=crossing,
-            crossing_keys=[crossing_key],
+            crossing_keys=[crossing_key], members=[member],
         )
         match["analysed_by"] = crossing_key
         self._requests.append(req)
@@ -618,13 +720,28 @@ class CrossingVisionShadow:
             self.hass, float(_c.CROSSING_VISION_EVENT_END_WAIT_S), _timeout,
         )
 
-    def _join_cluster(self, primary: _Request, crossing: dict[str, Any]) -> None:
+    def _join_cluster(
+        self, primary: _Request, crossing: dict[str, Any],
+        member: dict[str, Any] | None = None,
+    ) -> None:
         if crossing["crossing_key"] not in primary.crossing_keys:
             primary.crossing_keys.append(crossing["crossing_key"])
         self._record(
             crossing, OUTCOME_CLUSTERED,
             primary_crossing_key=primary.key, event=primary.event,
         )
+        if member is None:
+            return
+        if not primary.term_done:
+            # Folded into the primary's term(s) when its outcome lands.
+            primary.members.append(member)
+            return
+        # Late joiner (the primary's term is already applied): same
+        # direction = counted by the primary's count, no term; a different
+        # direction gets its own camera term.
+        prim_dir = primary.members[0]["direction"] if primary.members else None
+        if member["direction"] != prim_dir:
+            self._ledger_terms([member], OUTCOME_CLUSTERED, None)
 
     def _events_in_window(self, members: frozenset[str], e_epoch: float) -> int:
         lo = e_epoch - float(_c.CROSSING_VISION_EVENT_MATCH_S)
@@ -679,12 +796,22 @@ class CrossingVisionShadow:
         self._spawn(self._run(req), background=True)
 
     def _provider_id(self) -> str | None:
-        """The llmvision entry id to send as ``provider``: the rung-1
-        ``CROSSING_VISION_PROVIDER_ID`` only when that id is an llmvision
-        config entry on THIS install (portability: another house has other
-        entry ids); otherwise None, and the adapter falls back to the
-        perimeter's provider."""
-        pid = str(_c.CROSSING_VISION_PROVIDER_ID or "").strip()
+        """The llmvision entry id to send as ``provider`` (P2-D1, read
+        fresh): the rung-2 option ``CONF_CROSSING_VISION_PROVIDER_ID`` when
+        set; when empty, the rung-1 install default
+        ``CROSSING_VISION_PROVIDER_ID`` (review A-HIGH-3). Either id is used
+        only when it is an llmvision config entry on THIS install
+        (portability: another house has other entry ids); otherwise None,
+        and the adapter falls back to the perimeter's provider."""
+        from .perimeter_enrichment import _get_integration_config  # noqa: PLC0415
+
+        try:
+            raw = _get_integration_config(self.hass).get(
+                _c.CONF_CROSSING_VISION_PROVIDER_ID
+            )
+        except Exception:  # noqa: BLE001
+            raw = None
+        pid = str(raw or "").strip() or str(_c.CROSSING_VISION_PROVIDER_ID or "").strip()
         if not pid:
             return None
         try:
@@ -732,17 +859,22 @@ class CrossingVisionShadow:
         try:
             self._roll_day()
             # INV-OFF re-read at call time: switch / kill / cap 0 -> no call,
-            # no row.
+            # no row (P2-D3: no term, ledger unknown).
             if self._torn_down or not self._enabled():
+                req.term_done = True
+                if not self._torn_down:
+                    self._ledger_disabled()
                 return
             if self._calls_today >= self.daily_cap():
                 self._record(req.crossing, OUTCOME_SKIPPED_CAP, event=req.event,
                              crossing_keys=req.crossing_keys)
+                self._request_terms(req, OUTCOME_SKIPPED_CAP, None)
                 return
             video_file, event_id = self._clip_reference(req.event)
             if video_file is None and event_id is None:
                 self._record(req.crossing, OUTCOME_NO_CLIP_URL, event=req.event,
                              crossing_keys=req.crossing_keys)
+                self._request_terms(req, OUTCOME_NO_CLIP_URL, None)
                 return
             self._calls_today += 1
             self._today["calls"] = self._today.get("calls", 0) + 1
@@ -766,6 +898,8 @@ class CrossingVisionShadow:
                 # Kill set between the gate and the call: no call was made.
                 self._calls_today -= 1
                 self._today["calls"] -= 1
+                req.term_done = True
+                self._ledger_disabled()
                 return
             status = reply.get("status")
             if status == CROSSING_CALL_RESPONSE:
@@ -786,10 +920,18 @@ class CrossingVisionShadow:
                 latency_s=latency,
                 frame_source=FRAME_SOURCE_VIDEO,
             )
+            self._request_terms(req, outcome, parsed.get("people_count"))
         except Exception:  # noqa: BLE001 — shadow: never raise
             _LOGGER.debug("crossing_vision: run failed", exc_info=True)
         finally:
             req.status = "done"
+            # Any path that recorded no term (an unexpected exception, a
+            # cancel) still gives the crossing its camera term.
+            if not req.term_done and not self._torn_down:
+                try:
+                    self._request_terms(req, OUTCOME_ERROR, None)
+                except Exception:  # noqa: BLE001
+                    req.term_done = True
 
     # ---- record ---------------------------------------------------------
     def _record(
@@ -835,6 +977,11 @@ class CrossingVisionShadow:
             "identity_provenance": crossing.get("identity_provenance"),
             "agreement_case": agreement_case(people, camera_peak),
         }
+        if outcome == OUTCOME_OK and attrs["agreement_case"] in (
+            CASE_VISION_HIGHER, CASE_CAMERA_HIGHER,
+        ):
+            group = crossing.get("door_group") or crossing["crossing_key"].split("@", 1)[0]
+            self._disagree.append((self._epoch(), str(group)))
         self._last = {
             "outcome": outcome,
             "people_count": people,
@@ -864,6 +1011,357 @@ class CrossingVisionShadow:
                 _LOGGER.debug("crossing_vision row write failed", exc_info=True)
 
         self._spawn(_write())
+
+    # ---- ledger (P2-D3) --------------------------------------------------
+    # The ledger reaches F2 ONLY through ``census_tick`` (INV-SHADOW): the
+    # census calls it once per evaluation and owns F2. Every other output
+    # here is a ``crossing_vision_ledger`` row, a diagnostic attribute or a
+    # trip-wire page.
+    def _ledger_disabled(self) -> None:
+        """Switch off / kill / cap 0: the ledger goes unknown (INV-OFF)."""
+        if not self.switch_on():
+            reason = "switch_off"
+        elif bool(_c.LLMVISION_ENRICHMENT_KILL):
+            reason = "kill"
+        else:
+            reason = "cap_zero"
+        if (
+            self._ledger.state != _cl.STATE_UNKNOWN
+            or self._ledger.unknown_reason != reason
+        ):
+            self._ledger.set_unknown(reason)
+        self._ledger_was_enabled = False
+
+    def _ledger_enabled_now(self) -> bool:
+        """Gate every ledger feed on the producer gates (re-read each call).
+        Disabled -> unknown; the enable edge restarts the anchor-zero clock."""
+        if not self._enabled():
+            self._ledger_disabled()
+            return False
+        if not self._ledger_was_enabled:
+            self._ledger_was_enabled = True
+            self._ledger.rebase(self._epoch())
+            self._holder_counts.clear()
+            self._holder_dead.clear()
+        return True
+
+    @staticmethod
+    def _ledger_fallback() -> str:
+        fb = str(_c.CROSSING_VISION_LEDGER_FALLBACK)
+        return fb if fb in (_cl.FALLBACK_CAMERA, _cl.FALLBACK_SKIP) else _cl.FALLBACK_CAMERA
+
+    def _ledger_terms(
+        self, members: list[dict[str, Any]], outcome: str | None, people: Any,
+    ) -> None:
+        """Apply the term(s) for these member crossings (P2-D2 3)."""
+        if self._torn_down or not self._ledger_enabled_now():
+            return
+        now = self._epoch()
+        for t in _cl.cluster_terms(members, outcome, people, self._ledger_fallback()):
+            ev = self._ledger.apply_term(
+                direction=t["direction"], n=t["n"], term_source=t["term_source"],
+                crossing_key=t["crossing_key"], e_ts=t["e_ts"], now=now,
+            )
+            if ev is not None:
+                self._ledger_events.append(ev)
+
+    def _request_terms(self, req: _Request, outcome: str | None, people: Any) -> None:
+        """A request's term(s), exactly once, with all its cluster members."""
+        if req.term_done:
+            return
+        req.term_done = True
+        self._ledger_terms(list(req.members), outcome, people)
+
+    def census_tick(
+        self, *, resident_term: Any, camera_bodies: Any, camera_input_dark: Any,
+    ) -> tuple[int | None, bool]:
+        """The ONE F2 hand-off (called by ``PersonCensus`` once per
+        evaluation): ``(guest_vis | None, healthy)``. Off / torn down ->
+        ``(None, False)`` (case D at the census)."""
+        if self._torn_down or not self._ledger_enabled_now():
+            return None, False
+        result = self._ledger.census_tick(
+            self._epoch(), resident_term, camera_bodies, camera_input_dark,
+        )
+        # Arrival-floor lifts (P2-D2 step 4): one ledger row each, written
+        # with the next eval tick's batch.
+        self._ledger_events.extend(self._ledger.drain_events())
+        return result
+
+    @property
+    def ledger_state(self) -> str:
+        return self._ledger.state
+
+    def vision_status(self, healthy: bool) -> str:
+        """Awareness-entity attribute: switch_off / unknown_ledger / dark / ok."""
+        if not self._enabled():
+            return "switch_off"
+        if self._ledger.state != _cl.STATE_KNOWN:
+            return "unknown_ledger"
+        if not healthy:
+            return "dark"
+        return "ok"
+
+    def _held_inputs(self) -> tuple[set[str], set[str]]:
+        """The held Tier-1 inputs this sample (P2-D2 step 2): every entity
+        in the substrate's Tier-1 map, its ``hass.states`` reading, the RAM
+        last-known-good map, and the camera input stream health view
+        (contract G7: ``camera_stream_health.entity_stream_view``, whose input
+        route is ``input_stream_view`` and whose fallback is the input's own
+        camera). Any non-None view (HELD or RELEASED) marks the input
+        stream-dead; RELEASED is never "off" for the anchor
+        (INV-MISSING-NOT-ZERO). Returns ``(held, dead_held)``.
+
+        No substrate (or its getter fails) -> no Tier-1 map -> the anchor is
+        BLOCKED: unknown is not empty (planner ruling Q2). The pseudo-holder
+        ``TIER1_MAP_UNAVAILABLE`` is returned as held (and dead, so the
+        anchor-zero page names it first). A live substrate with an empty map
+        is an available map with nothing to hold.
+
+        A Tier-1 entity with no entity-registry entry AND no state never
+        existed in HA (e.g. a stale config entry left after a device rename):
+        it is ignored for the held set, listed on the diagnostics
+        (``tier1_not_in_registry``) and logged once per entity. A registry
+        read error ignores nothing."""
+        data = self._domain_data()
+        substrate = data.get("occupancy_substrate")
+        eids: Any = None
+        if substrate is not None and not getattr(substrate, "_is_torn_down", False):
+            try:
+                eids = frozenset(substrate.tier1_entity_ids())
+            except Exception:  # noqa: BLE001
+                eids = None
+        if eids is None:
+            self._tier1_missing_now = ()
+            return {TIER1_MAP_UNAVAILABLE}, {TIER1_MAP_UNAVAILABLE}
+        try:
+            from homeassistant.helpers import entity_registry as er  # noqa: PLC0415
+
+            registry = er.async_get(self.hass)
+        except Exception:  # noqa: BLE001
+            registry = None
+        missing: list[str] = []
+        readings: dict[str, tuple[Any, Any]] = {}
+        for eid in eids:
+            try:
+                st = self.hass.states.get(eid)
+            except Exception:  # noqa: BLE001
+                st = None
+            if st is None and registry is not None:
+                try:
+                    never_existed = registry.async_get(eid) is None
+                except Exception:  # noqa: BLE001
+                    never_existed = False
+                if never_existed:
+                    missing.append(str(eid))
+                    if str(eid) not in self._tier1_missing_logged:
+                        self._tier1_missing_logged.add(str(eid))
+                        _LOGGER.warning(
+                            "crossing ledger: Tier-1 input %s is not in the "
+                            "entity registry and has no state; ignored for the "
+                            "empty-house anchor (fix the room's sensor list)",
+                            eid,
+                        )
+                    continue
+            state = getattr(st, "state", None) if st is not None else None
+            try:
+                view = _csh.entity_stream_view(self.hass, str(eid))
+            except Exception:  # noqa: BLE001 - no opinion
+                view = None
+            readings[str(eid)] = (state, True if view is not None else None)
+        self._tier1_missing_now = tuple(sorted(missing))
+        return _cl.classify_held(readings, self._last_good)
+
+    def _holders_text(self) -> str:
+        """The holders seen most since the last anchor, dead ones first."""
+        if not self._holder_counts:
+            return ""
+        ranked = sorted(
+            self._holder_counts.items(),
+            key=lambda kv: (kv[0] not in self._holder_dead, -kv[1], kv[0]),
+        )
+        names = [
+            f"{eid} (dead)" if eid in self._holder_dead else eid
+            for eid, _n in ranked[:5]
+        ]
+        return ", ".join(names)
+
+    @callback
+    def _on_substrate_edge(self, room_name: Any, kind: Any, new_state: Any) -> None:
+        """Tier-1 room rising edge (OccupancySubstrate single-writer
+        dispatch): catches a pulse shorter than the eval interval. Levels
+        reach the anchor as the held set (``_held_inputs``)."""
+        del room_name, kind
+        if self._torn_down or new_state is not True:
+            return
+        self._ledger.note_rising_edge(self._epoch())
+
+    @callback
+    def _on_residency_event(self, record: Any) -> None:
+        """A resident departure edge -> one tracked reconcile timer per
+        person (superseded per person, cancelled in teardown; a restart
+        drops pending)."""
+        from .domain_coordinators.residency import KIND_DEPARTURE  # noqa: PLC0415
+
+        if self._torn_down or getattr(record, "kind", None) != KIND_DEPARTURE:
+            return
+        if not self._ledger_enabled_now():
+            return
+        try:
+            person = str(record.person)
+            t_e = float(record.edge_ts)
+        except (AttributeError, TypeError, ValueError):
+            return
+        old = self._reconcile_timers.pop(person, None)
+        if old is not None:
+            try:
+                old()
+            except Exception:  # noqa: BLE001
+                pass
+        due = self._ledger.note_departure(person, t_e)
+        if due is None:
+            return
+        from homeassistant.helpers.event import async_call_later  # noqa: PLC0415
+
+        @callback
+        def _judge(_now: Any) -> None:
+            self._reconcile_timers.pop(person, None)
+            if self._torn_down:
+                return
+            ev = self._ledger.judge_reconcile(person, self._epoch())
+            if ev is not None:
+                self._ledger_events.append(ev)
+
+        self._reconcile_timers[person] = async_call_later(
+            self.hass, max(0.0, due - self._epoch()), _judge,
+        )
+
+    def _roll_ledger_day(self) -> None:
+        day = dt_util.now().date()
+        if day != self._ledger_day:
+            if self._ledger_day is not None:
+                self._ledger.reset_daily_counters()
+            self._ledger_day = day
+
+    @callback
+    def _on_ledger_eval(self, _now: Any) -> None:
+        """Anchor sample + ledger trip-wires + one batched row write."""
+        if self._torn_down:
+            return
+        try:
+            self._roll_ledger_day()
+            if self._ledger_enabled_now():
+                now = self._epoch()
+                held, dead_held = self._held_inputs()
+                self._holder_counts.update(held)
+                self._holder_dead |= dead_held
+                evs = self._ledger.evaluate(now, held)
+                self._ledger_events.extend(evs)
+                for ev in evs:
+                    if ev.kind == _cl.KIND_ANCHOR:
+                        self._holder_counts.clear()
+                        self._holder_dead.clear()
+                    if ev.kind == _cl.KIND_ANCHOR and ev.independent and ev.residue is not None:
+                        self._anchor_residues.append((now, int(ev.residue)))
+                self._known_samples.append((now, self._ledger.state == _cl.STATE_KNOWN))
+                if self._ledger.stuck_due(now):
+                    self._spawn(self._page_ledger_stuck())
+                if self._ledger.anchor_zero_due(now):
+                    self._spawn(self._page_ledger_anchor_zero())
+        except Exception:  # noqa: BLE001 — shadow: never raise
+            _LOGGER.debug("crossing_vision: ledger eval failed", exc_info=True)
+        self._flush_ledger_events()
+
+    def _flush_ledger_events(self) -> None:
+        """Batched write: every buffered ledger event in ONE tracked task
+        (one ``crossing_vision_ledger`` row each)."""
+        if self._torn_down or not self._ledger_events:
+            return
+        events, self._ledger_events = self._ledger_events, []
+        database = self._domain_data().get("database")
+        if database is None:
+            return
+
+        def _iso(ts: Any) -> str | None:
+            try:
+                return dt_util.utc_from_timestamp(float(ts)).isoformat()
+            except (TypeError, ValueError):
+                return None
+
+        async def _write() -> None:
+            for ev in events:
+                ref = ev.crossing_key or ev.person or ""
+                try:
+                    await database.log_memory_episode(
+                        node_id=f"ledger:{ev.kind}:{ref}@{ev.at}",
+                        episode_type=_c.CROSSING_VISION_LEDGER_EPISODE_TYPE,
+                        attrs=ev.as_dict(),
+                        source_ref=ev.crossing_key,
+                        started_at=_iso(ev.e_ts if ev.e_ts is not None else ev.at),
+                        ended_at=_iso(ev.at),
+                        dedup_source_ref=False,
+                        window_dedup=False,
+                    )
+                except Exception:  # noqa: BLE001 — observational only
+                    _LOGGER.debug("crossing_vision ledger row failed", exc_info=True)
+
+        self._spawn(_write())
+
+    async def _page_ledger_stuck(self) -> None:
+        from .domain_coordinators._stuck_signal_nm import (  # noqa: PLC0415
+            fire_stuck_signal,
+        )
+
+        hours = int(float(_c.CROSSING_VISION_LEDGER_STUCK_S) // 3600)
+        await fire_stuck_signal(
+            self.hass,
+            "crossing_ledger_stuck",
+            ("house",),
+            f"Crossing ledger has counted extra people (guests {self._ledger.guest_vis()}) "
+            f"for {hours} h while every camera saw nobody and no room sensor fired.",
+            remedy=(
+                "The empty-house anchor is blocked (an entry-term stream or a "
+                "missed exit). See crossing_ledger on Outside: Open Tracks; "
+                "turning the crossing vision switch off and on resets it."
+            ),
+            severity="HIGH",
+        )
+
+    async def _page_ledger_anchor_zero(self) -> None:
+        from .domain_coordinators._stuck_signal_nm import (  # noqa: PLC0415
+            fire_stuck_signal,
+        )
+
+        hours = int(float(_c.CROSSING_VISION_LEDGER_ANCHOR_ZERO_S) // 3600)
+        holders = self._holders_text()
+        held_txt = (
+            f" Inputs holding it: {holders}." if holders else ""
+        )
+        await fire_stuck_signal(
+            self.hass,
+            "crossing_ledger_anchor_zero",
+            ("house",),
+            f"Crossing ledger: no empty-house anchor in {hours} h, so its "
+            f"count can drift.{held_txt}",
+            remedy=(
+                "Normal while someone is always home. A dead input is faulty "
+                "equipment: fix it first. Otherwise check the interior "
+                "camera counts and the room sensors named."
+            ),
+            severity="LOW",
+        )
+
+    def ledger_diag(self) -> dict[str, Any]:
+        snap = self._ledger.snapshot()
+        last = snap.get("last_anchor")
+        if last is not None:
+            try:
+                snap["last_anchor"] = dt_util.utc_from_timestamp(float(last)).isoformat()
+            except (TypeError, ValueError):
+                snap["last_anchor"] = None
+        snap["tier1_not_in_registry"] = list(self._tier1_missing_now)
+        snap["tier1_not_in_registry_count"] = len(self._tier1_missing_now)
+        return snap
 
     # ---- trip-wires (D3) ------------------------------------------------
     @callback
@@ -934,6 +1432,106 @@ class CrossingVisionShadow:
                 f"refused or unparseable).",
                 remedy="See crossing_vision_last on Outside: Open Tracks.",
             )
+        await self._evaluate_disagree(now)
+        await self._evaluate_flead_regression(now)
+
+    async def _evaluate_disagree(self, now: float) -> None:
+        """CD3 ``crossing_vision_disagree``: vision and camera disagree on the
+        count (case B or C) at least DISAGREE_PERSIST_N times on one door
+        group in the window -> one page per group, re-armed when the group's
+        count falls back under the bar. PERSIST_N 0 = off."""
+        from .domain_coordinators._stuck_signal_nm import (  # noqa: PLC0415
+            fire_stuck_signal,
+        )
+
+        bar = int(_c.CROSSING_VISION_DISAGREE_PERSIST_N)
+        window = float(_c.CROSSING_VISION_DISAGREE_WINDOW_S)
+        while self._disagree and now - self._disagree[0][0] > window:
+            self._disagree.popleft()
+        if bar <= 0:
+            return
+        counts: dict[str, int] = {}
+        for _t, group in self._disagree:
+            counts[group] = counts.get(group, 0) + 1
+        for group in list(self._disagree_latched):
+            if counts.get(group, 0) < bar:
+                self._disagree_latched.discard(group)
+        for group, n in sorted(counts.items()):
+            if n < bar or group in self._disagree_latched:
+                continue
+            self._disagree_latched.add(group)
+            await fire_stuck_signal(
+                self.hass,
+                "crossing_vision_disagree",
+                (group,),
+                f"Crossing vision and the camera count disagreed on {n} "
+                f"crossings at door {group} in the last "
+                f"{int(window // 3600)} h.",
+                remedy=(
+                    "Check the door camera's person count and the Frigate "
+                    "event match; crossing_vision_last shows the latest case."
+                ),
+                # MEDIUM reaches no channel under the live NM config
+                # (_stuck_signal_nm.py:178-182; review B-M1).
+                severity="HIGH",
+            )
+
+    def flead_regression(self, now: float) -> list[str]:
+        """CD3: the F-LEAD numbers measurable from the ledger in RAM that
+        are below their bar over CROSSING_VISION_GO_REGRESSION_DAYS: bar a
+        (drift, independent anchors) and bar e (known share). Bars b, d and
+        the graded numbers need the scorer / grading (P2-D6 / P2-D10)."""
+        window = float(_c.CROSSING_VISION_GO_REGRESSION_DAYS) * 86400.0
+        while self._anchor_residues and now - self._anchor_residues[0][0] > window:
+            self._anchor_residues.popleft()
+        while self._known_samples and now - self._known_samples[0][0] > window:
+            self._known_samples.popleft()
+        failing: list[str] = []
+        residues = [res for _t, res in self._anchor_residues]
+        if len(residues) >= int(_c.CROSSING_VISION_GO_MIN_ANCHORS):
+            zero_share = sum(1 for x in residues if x == 0) / len(residues)
+            if zero_share < float(_c.CROSSING_VISION_GO_DRIFT_ZERO_SHARE) or any(
+                abs(x) > int(_c.CROSSING_VISION_GO_DRIFT_MAX_ABS) for x in residues
+            ):
+                failing.append("a_drift")
+        span_needed = float(_c.CROSSING_VISION_GO_WINDOW_DAYS) * 86400.0
+        if self._known_samples and now - self._known_samples[0][0] >= span_needed:
+            known = sum(1 for _t, k in self._known_samples if k)
+            if known / len(self._known_samples) < float(_c.CROSSING_VISION_GO_KNOWN_SHARE_MIN):
+                failing.append("e_known")
+        return failing
+
+    async def _evaluate_flead_regression(self, now: float) -> None:
+        """After F-LEAD only: a regressed bar pages ONCE (HIGH, "revert
+        F-LEAD"); re-armed when every measurable bar holds again."""
+        if not bool(_c.CROSSING_VISION_AWARENESS_VISION_LEADS):
+            self._flead_latched = False
+            return
+        failing = self.flead_regression(now)
+        if not failing:
+            self._flead_latched = False
+            return
+        if self._flead_latched:
+            return
+        self._flead_latched = True
+        from .domain_coordinators._stuck_signal_nm import (  # noqa: PLC0415
+            fire_stuck_signal,
+        )
+
+        await fire_stuck_signal(
+            self.hass,
+            "crossing_vision_flead_regression",
+            ("house",),
+            "Vision now leads the census awareness count, and its ledger bars "
+            f"regressed ({', '.join(failing)}) over the last "
+            f"{int(_c.CROSSING_VISION_GO_REGRESSION_DAYS)} days.",
+            remedy=(
+                "Revert F-LEAD: turn off switch.ura_crossing_vision_census_"
+                "authority now (seconds), then set "
+                "CROSSING_VISION_AWARENESS_VISION_LEADS back to False."
+            ),
+            severity="HIGH",
+        )
 
     # ---- diagnostics ----------------------------------------------------
     def diag_status(self) -> dict[str, Any]:
@@ -951,6 +1549,7 @@ class CrossingVisionShadow:
         return {
             "crossing_vision_today": dict(self._today),
             "crossing_vision_last": last,
+            "crossing_ledger": self.ledger_diag(),
         }
 
 

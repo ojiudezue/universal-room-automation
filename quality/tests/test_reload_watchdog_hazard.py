@@ -189,6 +189,9 @@ def _load_ns(*, kill_switch: bool = True,
         "CONF_PERIMETER_ENRICHMENT_MODEL": "perimeter_enrichment_model",
         "CONF_PERIMETER_ENRICHMENT_MAX_TOKENS": "perimeter_enrichment_max_tokens",
         "CONF_PERIMETER_ENRICHMENT_PROVIDER_ID": "perimeter_enrichment_provider_id",
+        # Crossing vision P2-D1: fresh-read per llmvision call
+        # (CrossingVisionShadow._provider_id), suppress-listed.
+        "CONF_CROSSING_VISION_PROVIDER_ID": "crossing_vision_provider_id",
         # PERIMETER-FP (v5.107.0) gate keys.
         "CONF_PERIMETER_ZONE_AGREEMENT_DEMOTE": "perimeter_zone_agreement_demote",
         "CONF_PERIMETER_SINGLE_SOURCE_DEMOTE": "perimeter_single_source_demote",
@@ -604,6 +607,8 @@ def test_egress_perimeter_keys_not_in_allowlist_v1():
         "perimeter_enrichment_model",
         "perimeter_enrichment_max_tokens",
         "perimeter_enrichment_provider_id",
+        # P2-D1: read fresh by CrossingVisionShadow._provider_id.
+        "crossing_vision_provider_id",
         "exterior_snapshot_offset_s",
         # PERIMETER-FP (v5.107.0): gate switches/select, fresh-read per alert.
         "perimeter_zone_agreement_demote",
@@ -1112,6 +1117,7 @@ _PERIMETER_FRESH_READ_KEYS = [
     ("perimeter_enrichment_model", "gpt-5o", "gpt-5o-mini"),
     ("perimeter_enrichment_max_tokens", 400, 200),
     ("perimeter_enrichment_provider_id", "adapter.a", "adapter.b"),
+    ("crossing_vision_provider_id", "01AAA", ""),
     ("exterior_snapshot_offset_s", 6, 5),
 ]
 
