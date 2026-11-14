@@ -84,9 +84,18 @@ device integration; Dahua, Amcrest, Reolink are their own families). Parked trig
 
 ### 4.1 Every family classifier site
 
-`family_of(entity_id)` = `nvr_family(_engine_tag(...))` from the entity's device integration, cached per entity_id and
-invalidated on the layer's one rescan path. No registry entry → suffix fallback inside `family_of` only, returning a
-family or the sentinel `"unknown"`.
+Operator rule (CLAUDE.md "Registry, never name guessing", 2026-11-13): "We have to make this bulletproof everywhere. I
+thought we were using the entity db vs slugs and guessing. Unacceptable to do the latter anymore."
+
+`family_of(entity_id)` = `nvr_family(_engine_tag(...))` from the entity registry only: the entry's `platform`, its device's
+integration identifiers, and the owning config entry's domain. Cached per entity_id, invalidated on the layer's one
+rescan path. The entity-name suffix is NOT an accepted path. An entity with no registry entry (or no resolvable platform)
+returns the sentinel `"unknown"`; the only name-based step left is a last resort inside `family_of`, logged at WARNING
+once per entity and counted in `sensor.ura_nvr_witness` attribute `name_fallback_count`, target zero. W0 reports how many
+live entities would hit it (expected zero: every door and perimeter leg is in the registry, probe Q3).
+`test_no_live_camera_entity_needs_name_fallback` runs `family_of` over the live-config fixture (every configured camera
+and its resolved legs) and fails on any fallback hit. The house-wide sweep of other name guesses is card
+REGISTRY-NOT-NAMES-1 (referenced, not absorbed).
 
 | Site | Decides | Decision | Ships |
 |---|---|---|---|
@@ -100,9 +109,11 @@ family or the sentinel `"unknown"`.
 
 Census value space (H3). `platform_for(entity_id) -> CAMERA_PLATFORM_*`: `frigate` → `CAMERA_PLATFORM_FRIGATE`; `protect`
 → `CAMERA_PLATFORM_UNIFI` (`"unifiprotect"`, `const.py:2432`); `reolink` / `dahua` → `_CAMERA_PLATFORM_REOLINK` /
-`_CAMERA_PLATFORM_DAHUA`; any other integration → its integration string (as today); `"unknown"` → develop's rule kept:
-a `_person_detected` suffix is UniFi-like (`CAMERA_PLATFORM_UNIFI`, `camera_census.py:648-650`), a `_person_occupancy`
-suffix is Frigate, else `CAMERA_PLATFORM_UNIFI` (develop's default at `:898`). Census never stores a bare family string.
+`_CAMERA_PLATFORM_DAHUA`; any other integration → its integration string (as today); `"unknown"` → `CAMERA_PLATFORM_UNIFI`, develop's
+binary-platform default (`:898`), so an unresolvable entity still counts as a binary platform rather than vanishing;
+it is counted and logged with the `family_of` fallback, target zero. Develop's suffix-based UniFi-like branch
+(`camera_census.py:648-650`) is replaced by the registry platform and survives only as that counted last resort.
+Census never stores a bare family string.
 
 W0 lists every live person entity with its suffix class and its `family_of` / `platform_for` class; each mismatch is a
 named behaviour change in the deliverable that migrates the site.
@@ -135,7 +146,10 @@ Transit subscribes `person_binary_sensor` per `CameraInfo` from `resolve_cross_p
 identifier tuple or both-Frigate (`_shares_evidence_with_inputs`, `:1485`), none present. Fusion, not subscription.
 Config-first: renaming the entity ripples into every list and does not help another install.
 
-Fix, with a uniqueness condition so the A-MED-2 guard is not reopened. HA names a Frigate camera `X_2` exactly when a
+Fix, registry evidence only (operator rule, §4.1), with a uniqueness condition so the A-MED-2 guard is not reopened.
+The Frigate object name is read from the Frigate DEVICE registry identifier (`(frigate, "<instance>:garage_a")`, via
+`_frigate_object_name_for_device`), never from an entity id; the candidate's dstem comes from the device's registered
+camera entity, compared only under the conditions below. HA names a Frigate camera `X_2` exactly when a
 `camera.X` already exists, so a shared name alone is not evidence. Accept a candidate device in the `_N` collapse only if
 ALL hold: (1) the input device is Frigate and its object name (`_frigate_object_name_for_device`) equals the candidate's
 dstem; (2) exactly one non-Frigate camera device in the registry has that dstem; (3) no other Frigate device has that
@@ -167,7 +181,7 @@ perimeter Part A input for garage_a (its egress wiring gains the Protect leg; `f
   deletes it). W2 lands the test with the transit and perimeter rows; W5b and W5c each move their rows from "not yet"
   to "legacy opt-out". After the last flip is validated, the supersession audit deletes legacy branches and the allowlist
   shrinks to the KEEP rows. (b) A behavioural test per migrated site: an entity whose suffix says Frigate but whose device
-  is Protect classifies as Protect with the knob on, and as develop with it off. (a) without (b) would be hollow.
+  is Protect classifies as Protect with the knob on, and as develop with it off. (a) without (b) would be hollow. (c) No live-config camera entity classifies through the name fallback (`test_no_live_camera_entity_needs_name_fallback`).
 - **INV-W-EVIDENCE-ONLY.** The layer writes no consumer state, census field, house state, `person_id`, or NM alert other
   than its own zero-fire page.
 - **INV-W-ONE-HEALTH.** Stream death comes only from the stream-health getter; the layer adds only leg-state availability
@@ -238,7 +252,7 @@ memory (orphaned); their rows stay for analysis via `device_ids_json` and age ou
 ### W0: read-only probe (now)
 Tables: fires/day per (camera, family) for all covered cameras (sizing); inter-fire gaps and episode spans (gap and max);
 perimeter, census and room fusion agreement distributions; suffix vs `family_of` / `platform_for` class for every live
-person entity; the W1 fixture (all four door cameras plus every `_N` camera entity and every same-name pair).
+person entity, and the count of live entities that would hit the name fallback (target zero); the W1 fixture (all four door cameras plus every `_N` camera entity and every same-name pair).
 - **Verify:** `docs/planning/AUDIT_nvr_witness_w0_<date>.md` with all five tables. **Live:** none.
 
 ### W1: resolver Frigate object-name evidence with uniqueness (Tier 2-DB, ships first, alone; Q4)
@@ -268,7 +282,8 @@ rate or `ineligible`, last 7 days.
   `test_family_from_device_not_suffix` (per migrated site, knob on and off), `test_one_classifier_grep_with_allowlist`,
   `test_windows_le_gap_and_ring`, `test_gap_inversion_documents_split`, `test_single_family_camera_ineligible`,
   `test_four_family_episode_recorded`, `test_layer_built_once_lazy_fetch_reload_no_orphan`, `test_single_rescan_per_registry_event`,
-  `test_family_of_cache_invalidated_on_rescan`, `test_stream_health_absent_reports_unknown`, `test_transit_optout_golden`,
+  `test_family_of_cache_invalidated_on_rescan`, `test_no_live_camera_entity_needs_name_fallback`,
+  `test_name_fallback_logged_and_counted`, `test_stream_health_absent_reports_unknown`, `test_transit_optout_golden`,
   `test_perimeter_classifier_optout_golden`, `test_master_kill_all_consumers_golden`, `test_transit_optin_matches_legacy_on_door_fixture`.
   DB (schema extracted from production DDL, real DAO): `test_records_batched_one_executemany_per_flush`,
   `test_perimeter_store_import_idempotent`, `test_alert_samples_not_in_episode_rate`, `test_prune_retention`,
@@ -355,7 +370,8 @@ labelling, arc map M10); any AWAY, house-state, lock or HVAC change.
 - `PLANNING_camera_input_stream_health.md` S2: camera-keyed dead-stream getter from `_camera_unavail_since`.
 - Perimeter docs: W1 changes garage_a egress legs; tracker samples mirrored from W2; `.storage` retired after W5a.
 - `ARC_identity_vision_census_map.md`: row + merge entry M13 (four comparison and nine classifier sites → one layer).
-- `IDENTITY_FUSION_CAMERAS_MANUAL.md` §3 (layer, `family_of`, record) and §4 (W1 uniqueness rule).
+- REGISTRY-NOT-NAMES-1 (house-wide sweep): this plan's sites are its first instances; the sweep owns the rest.
+- `IDENTITY_FUSION_CAMERAS_MANUAL.md` §3 (layer, registry-only `family_of`, record) and §4 (W1 uniqueness rule).
 - Presence state-of-play and SENSOR_FLEET docs: W5c agreement basis (by the W5c build).
 
 ## 12. Open questions
