@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.108.21
+# Universal Room Automation vv5.108.22
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -3978,9 +3978,9 @@ class URAPersonsInHouseSensor(_CensusBaseSensor):
                     _now_ts = _dt_util.utcnow().timestamp()
                     _cutoff = _now_ts - 86400.0
 
-                    outcomes_deque = getattr(
-                        census, "_egress_identity_outcomes", None,
-                    )
+                    # RA6: census public readers (same objects).
+                    _r = getattr(census, "egress_identity_outcomes", None)
+                    outcomes_deque = _r() if _r is not None else None
                     denom = 0
                     attached = 0
                     ambiguous = 0
@@ -4011,9 +4011,8 @@ class URAPersonsInHouseSensor(_CensusBaseSensor):
 
                     # MED-1: BOOST count is 24h-filtered at the reader, not
                     # lifetime len(deque).
-                    boost_deque = getattr(
-                        census, "_egress_identity_boost_events", None,
-                    )
+                    _r = getattr(census, "egress_identity_boost_events", None)
+                    boost_deque = _r() if _r is not None else None
                     if boost_deque is not None:
                         b_snap = tuple(boost_deque)
                         attrs["egress_identity_correlated_boost_count_24h"] = sum(
@@ -4021,8 +4020,9 @@ class URAPersonsInHouseSensor(_CensusBaseSensor):
                         )
                     else:
                         attrs["egress_identity_correlated_boost_count_24h"] = 0
+                    _r = getattr(census, "egress_identity_last_attach", None)
                     attrs["egress_identity_last_attach"] = dict(
-                        getattr(census, "_egress_identity_last_attach", {}) or {}
+                        (_r() if _r is not None else {}) or {}
                     )
                     # EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1 rev5
                     # D3 observability. Retired the pre-rev5
@@ -4591,6 +4591,10 @@ class ExteriorOpenTracksDiagnosticSensor(AggregationEntity, SensorEntity):
         "crossing_vision_today", "crossing_vision_last",
         # P2-D3: ledger diagnostics (display only).
         "crossing_ledger",
+        # PERIMETER-GLOBAL-EGRESS-MUTE-1 D4: change on every mute decision.
+        "egress_mute_counts_by_reason", "egress_mute_covers",
+        "egress_mute_episodes", "egress_mute_door_key_fallbacks",
+        "egress_mute_unmapped_producer_legs",
     })
     _attr_has_entity_name = True
     _attr_icon = "mdi:map-marker-path"
@@ -5326,13 +5330,12 @@ class UnidentifiedPersonsSensor(AggregationEntity, SensorEntity):
         ``None`` as graceful-degradation when the census is unavailable
         (matching the pre-migration None-when-source-missing semantics).
         """
-        census = self.hass.data.get(DOMAIN, {}).get("census")
-        if not census or census.last_result is None:
-            return None
-        try:
-            return census.last_result.house.unidentified_count
-        except Exception:
-            return None
+        # RA7: the one F2 read (trust view); None when the census or its
+        # result is missing or unreadable, as before.
+        from .census_view import house_census_view  # noqa: PLC0415
+
+        view = house_census_view(self.hass, "trust")
+        return view.unidentified_or_guests if view is not None else None
 
     @property
     def extra_state_attributes(self) -> dict:
@@ -5343,18 +5346,15 @@ class UnidentifiedPersonsSensor(AggregationEntity, SensorEntity):
         (BLE-active count fused independently of the census) is replaced by
         ``identified_count`` from the same ``house`` record.
         """
-        census = self.hass.data.get(DOMAIN, {}).get("census")
-        camera_total = None
-        identified_count = None
-        unidentified_count = None
-        if census and census.last_result is not None:
-            try:
-                house = census.last_result.house
-                camera_total = house.total_persons
-                identified_count = house.identified_count
-                unidentified_count = house.unidentified_count
-            except Exception:
-                pass
+        # RA7: the one F2 read (trust view), one snapshot for all three.
+        from .census_view import house_census_view  # noqa: PLC0415
+
+        view = house_census_view(self.hass, "trust")
+        camera_total = view.total if view is not None else None
+        identified_count = view.identified if view is not None else None
+        unidentified_count = (
+            view.unidentified_or_guests if view is not None else None
+        )
         return {
             "camera_total": camera_total,
             "identified_count": identified_count,
@@ -16567,7 +16567,9 @@ class PersonRoutineStatusSensor(AggregationEntity, SensorEntity):
         """Initialize."""
         super().__init__(hass, entry)
         self._person_id = person_id
-        person_slug = person_id.lower().replace(" ", "_")
+        from .person_ids import entity_key_slug  # noqa: PLC0415
+
+        person_slug = entity_key_slug(person_id)
         self._attr_unique_id = f"{DOMAIN}_person_{person_slug}_routine_status"
         self._attr_name = f"{person_id} Routine Status"
         self._attr_device_info = _cm_device_info()

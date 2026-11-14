@@ -1079,22 +1079,27 @@ def test_egress_only_stamp_suppresses_dual_role(monkeypatch):
     assert mgr._last_suppression[DB_KEY]["reason"] == "egress_suppression"
 
 
-def test_egress_other_still_suppresses(monkeypatch):
-    """Perimeter-only camera: any egress stamp suppresses (today)."""
+def test_egress_other_stamp_no_longer_mutes(monkeypatch):
+    """PERIMETER-GLOBAL-EGRESS-MUTE-1: a bare egress stamp no longer mutes a
+    perimeter-only camera (was: any stamp suppressed for 120 s). The scoped
+    mute needs a qualifying stored crossing on a covering door
+    (test_perimeter_egress_mute_scoped.py)."""
     _h, nm, mgr, subs = _d10(monkeypatch)
     _egress_cb(subs, DB_PR)(_edge(DB_PR))
     _run(mgr._async_handle_perimeter_trigger(FS_PR))
-    assert nm.async_notify.await_count == 0
+    assert nm.async_notify.await_count == 1
 
 
 def test_egress_perimeter_only_byte_identical(monkeypatch):
     hass, nm = _build(perimeter=(FS_CAM,), egress=(GA_CAM,))
     mgr, subs = _setup(hass, monkeypatch)
     assert mgr._dual_role_cameras == set()
-    assert mgr._unsub_egress_identity is None
+    # PERIMETER-GLOBAL-EGRESS-MUTE-1 D1: the crossing listener now registers
+    # whenever egress cameras exist (feeds the scoped mute).
+    assert mgr._unsub_egress_identity is not None
     _egress_cb(subs, GA_PR)(_edge(GA_PR))
     _run(mgr._async_handle_perimeter_trigger(FS_PR))
-    assert nm.async_notify.await_count == 0
+    assert nm.async_notify.await_count == 1  # stamp alone never mutes now
 
 
 def test_dual_role_vehicle_leg_skipped(monkeypatch):
@@ -1129,6 +1134,20 @@ class _Census:
 
     def _resolve_face_legs(self, stem):
         return list(self.legs)
+
+    # RA6: the public PersonCensus surface the perimeter calls (delegates,
+    # same shape as camera_census.PersonCensus).
+    def tracked_person_slugs(self):
+        return self._get_tracked_person_slugs()
+
+    def known_face_guests(self):
+        return self._get_known_face_guests()
+
+    def canonical_person_slug(self, n):
+        return self._canonical_person_slug(n)
+
+    def resolve_face_legs(self, stem):
+        return self._resolve_face_legs(stem)
 
 
 def _leg(slug, conf, age_s=0):
@@ -1859,7 +1878,13 @@ def _platform_entities(module_name, opts=None):
     added: list = []
     hass = MagicMock()
     hass.data = {_const.DOMAIN: {}}
-    asyncio.run(mod.async_setup_entry(hass, _integration_entry(opts), lambda ents, *a, **k: added.extend(ents)))
+    # PERIMETER-SWITCH-LABELS-AND-FLOW-PARITY-1: the single-sourced switch
+    # needs a dual-NVR camera; model the two-NVR install (scoped patch).
+    from unittest.mock import patch as _patch
+    gates_mod = importlib.import_module(
+        "custom_components.universal_room_automation.perimeter_fp_gates")
+    with _patch.object(gates_mod, "dual_nvr_present", lambda hass: True):
+        asyncio.run(mod.async_setup_entry(hass, _integration_entry(opts), lambda ents, *a, **k: added.extend(ents)))
     return {getattr(e, "entity_id", ""): e for e in added}
 
 
@@ -1939,3 +1964,33 @@ def test_parse_vlm_verdict_unchanged():
     assert _gates.parse_vlm_verdict("PERSON: YES\nLOCATION: STREET\nA man") == (
         "LOCATION: STREET\nA man", "YES")
     assert _gates.parse_vlm_verdict("PERSON: NO\nA dog") == ("A dog", "NO")
+
+
+class _GuestCensus(_Census):
+    """Census whose operator-configured known face guest ``Ojini`` maps to
+    the ``guest:ojini`` slug (camera_census._canonical_person_slug D3)."""
+
+    def _get_known_face_guests(self):
+        return ["Ojini"]
+
+    def _canonical_person_slug(self, n):
+        return "guest:ojini" if str(n) == "Ojini" else str(n).lower()
+
+
+@pytest.mark.parametrize("guests, want_known", [(True, True), (False, False)])
+def test_egress_gate_known_face_guest_counts_as_known(monkeypatch, guests, want_known):
+    """PERSON-AWARENESS-READ-API-1 RA6 anchor: the D10.5 known set includes
+    the known face guests through ``census.known_face_guests()`` mapped by
+    ``census.canonical_person_slug()``; an egress identity naming the guest
+    slug at 0.9 demotes, the same event with no configured guest does not."""
+    hass, nm, mgr = _d105(monkeypatch)
+    if guests:
+        hass.data[_const.DOMAIN]["census"] = _GuestCensus()
+    cb = [c.args[1] for c in hass.bus.async_listen.call_args_list
+          if c.args[0] == "ura_person_egress_event"][0]
+    monkeypatch.setattr(_perimeter.dt_util, "parse_datetime",
+                        lambda s: _now() - timedelta(seconds=3), raising=False)
+    cb(SimpleNamespace(data={"egress_camera": DB_PR, "timestamp": "x",
+                             "person_id": "guest:ojini", "identity_confidence": 0.9}))
+    _run(mgr._async_handle_perimeter_trigger(DB_PR))
+    assert (_reason(mgr) == "egress_known_person") is want_known

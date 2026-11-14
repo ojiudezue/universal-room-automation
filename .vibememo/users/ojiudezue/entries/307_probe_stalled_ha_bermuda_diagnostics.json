@@ -1,0 +1,22 @@
+{
+  "format_version": "2.1",
+  "author": "ojiudezue",
+  "session_id": "claude_20261114_overnight_pass",
+  "entry_id": "307",
+  "type": "counseling",
+  "weight": "notable",
+  "timestamp": "2026-11-14T08:10:00Z",
+  "title": "A read-only probe stalled HA: Bermuda diagnostics redact 13 MB on the event loop",
+  "summary": "Four ha_get_integration include_diagnostics calls on Bermuda each froze the HA event loop about 20 s (02:02-02:04 CST, during an overnight pass in a sleeping house). Byte caps don't help, because HA builds the whole dump before the tool trims it.",
+  "why": "'Read-only' is not the same as 'harmless'. Heavy diagnostic endpoints run integration code on the loop. The same answer came from .storage registries and the integration source at no cost.",
+  "implications": "New memory feedback_no_bermuda_diagnostics_live. Probes check the HA system log after touching heavy endpoints. The incident is recorded on the Bermuda card and the feed.",
+  "alternatives_considered": [],
+  "confidence": "high",
+  "revisit_trigger": "None.",
+  "refs": {
+    "cards": [
+      "BERMUDA-DISTANCE-SENSORS-DEAD-1"
+    ],
+    "docs": []
+  }
+}

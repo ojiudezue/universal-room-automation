@@ -49,7 +49,6 @@ from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import (
     async_track_time_interval,
-    async_track_state_change_event,
 )
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util import dt as dt_util
@@ -2276,7 +2275,10 @@ class PersonTrackingDiagnosticSensor(AggregationEntity, SensorEntity):
     
     _attr_icon = "mdi:account-search"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
-    
+    # BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1 fire check: counters move every
+    # tick, so keep them out of the recorder.
+    _unrecorded_attributes = frozenset({"bermuda_resolve"})
+
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize."""
         super().__init__(hass, entry)
@@ -2334,6 +2336,9 @@ class PersonTrackingDiagnosticSensor(AggregationEntity, SensorEntity):
             "room_coordinators_count": diag.get("room_coordinators_count", 0),
         }
         
+        if "bermuda_resolve" in diag:
+            attrs["bermuda_resolve"] = diag["bermuda_resolve"]
+
         # Add person details
         if diag.get("persons_data"):
             attrs["persons"] = diag["persons_data"]
@@ -4756,16 +4761,13 @@ class ZoneAnyoneBinarySensor(ZoneSensorBase, BinarySensorEntity):
 
             # PERSON-BLE-WINS-OVER-STALE-GPS-1 §6b: trust read routed through
             # the BLE-overrule-aware helper (raw state unless overruled).
-            from .person_coordinator import person_state_for_trust  # noqa: PLC0415
+            # RA8: the one F1 per-zone level read. Strict "home" only —
+            # unknown/unavailable intentionally not trusted.
+            from .person_coordinator import first_person_home_for_trust  # noqa: PLC0415
 
-            any_person_home = False
-            home_person_entity = ""
-            for person_entity in zone_persons:
-                # Strict "home" only — unknown/unavailable intentionally not trusted.
-                if person_state_for_trust(self.hass, person_entity) == "home":
-                    any_person_home = True
-                    home_person_entity = person_entity
-                    break
+            _first_home = first_person_home_for_trust(self.hass, zone_persons)
+            any_person_home = _first_home is not None
+            home_person_entity = _first_home if _first_home is not None else ""
             if not any_person_home:
                 return False
 
@@ -4893,14 +4895,13 @@ class ZoneAnyoneBinarySensor(ZoneSensorBase, BinarySensorEntity):
                 return False
 
             # PERSON-BLE-WINS-OVER-STALE-GPS-1 §6b: BLE-overrule-aware trust read.
-            from .person_coordinator import person_state_for_trust  # noqa: PLC0415
+            # RA8: the one F1 per-zone level read. Conservative: require
+            # literal "home" — unknown/unavailable not trusted.
+            from .person_coordinator import first_person_home_for_trust  # noqa: PLC0415
 
-            # Conservative: require literal "home" — unknown/unavailable not trusted.
-            any_person_home = False
-            for person_entity in zone_persons:
-                if person_state_for_trust(self.hass, person_entity) == "home":
-                    any_person_home = True
-                    break
+            any_person_home = (
+                first_person_home_for_trust(self.hass, zone_persons) is not None
+            )
             if not any_person_home:
                 return False
 
@@ -6122,29 +6123,11 @@ class PersonLocationSensor(AggregationEntity, SensorEntity):
             person_coordinator.async_add_listener(self._handle_coordinator_update)
         )
         
-        # Find Bermuda sensors for this person
-        bermuda_sensors = self._find_bermuda_sensors()
-        
-        if bermuda_sensors:
-            _LOGGER.info(
-                "PersonLocationSensor %s: Setting up listeners for %d Bermuda sensors",
-                self.person_id, len(bermuda_sensors)
-            )
-            
-            # Subscribe to state changes on Bermuda sensors
-            for sensor_id in bermuda_sensors:
-                unsub = async_track_state_change_event(
-                    self.hass,
-                    [sensor_id],
-                    self._handle_bermuda_state_change,
-                )
-                self._unsub_state_listeners.append(unsub)
-        else:
-            _LOGGER.warning(
-                "PersonLocationSensor %s: No Bermuda sensors found, falling back to polling",
-                self.person_id
-            )
-        
+        # BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1 D4: the per-person Bermuda
+        # name scan (0 matches since v3.6 naming; only logged a WARNING) is
+        # gone. Bermuda freshness arrives through the person_coordinator
+        # listener above (_update_from_coordinator stamps the update time).
+
         # Set up decay timer (runs every 30 seconds to check staleness)
         self._unsub_decay_timer = async_track_time_interval(
             self.hass,
@@ -6167,34 +6150,6 @@ class PersonLocationSensor(AggregationEntity, SensorEntity):
             self._unsub_decay_timer()
             self._unsub_decay_timer = None
     
-    def _find_bermuda_sensors(self) -> list[str]:
-        """Find Bermuda distance sensors for this person.
-        
-        v3.2.8: Searches for sensor.bermuda_{person}_* patterns.
-        """
-        bermuda_sensors = []
-        
-        # Search patterns - Bermuda uses first name only
-        # e.g., person.oji_udezue -> sensor.bermuda_oji_*
-        person_first_name = self.person_id.split('_')[0].lower()
-        
-        # Find all Bermuda sensors for this person
-        for state in self.hass.states.async_all():
-            entity_id = state.entity_id
-            
-            # Match Bermuda distance sensors
-            if entity_id.startswith(f"sensor.bermuda_{person_first_name}_"):
-                # Distance sensors typically end with area names
-                if "_distance" not in entity_id.lower():
-                    bermuda_sensors.append(entity_id)
-        
-        _LOGGER.debug(
-            "Found %d Bermuda sensors for person %s: %s",
-            len(bermuda_sensors), self.person_id, bermuda_sensors[:5]  # Log first 5
-        )
-        
-        return bermuda_sensors
-    
     @callback
     def _handle_coordinator_update(self) -> None:
         """Handle person_coordinator data update - instant update.
@@ -6215,30 +6170,6 @@ class PersonLocationSensor(AggregationEntity, SensorEntity):
                 self.person_id, e
             )
 
-    @callback
-    def _handle_bermuda_state_change(self, event: Event) -> None:
-        """Handle Bermuda sensor state change - instant update.
-        
-        v3.2.8: Called immediately when any Bermuda sensor updates.
-        This provides sub-second response time.
-        """
-        try:
-            # Update timestamp
-            self._last_bermuda_update = dt_util.now()
-            self._tracking_status = TRACKING_STATUS_ACTIVE
-            
-            # Schedule coordinator update (non-blocking)
-            self.hass.async_create_task(self._update_from_coordinator())
-            
-            # Trigger HA state update
-            self.async_schedule_update_ha_state()
-
-        except Exception as e:
-            _LOGGER.error(
-                "Error handling Bermuda state change for %s: %s",
-                self.person_id, e
-            )
-    
     async def _update_from_coordinator(self) -> None:
         """Update cached values from person coordinator."""
         try:
@@ -6737,19 +6668,20 @@ class ZoneGuestCountSensor(ZoneSensorBase, SensorEntity):
         census) is replaced by ``identified_count`` from the same ``house``
         record.
         """
-        census = self.hass.data.get(DOMAIN, {}).get("census")
+        # RA7: the one F2 read (trust view), one snapshot for all fields.
+        from .census_view import house_census_view  # noqa: PLC0415
 
         camera_total = 0
         identified_count = 0
         unidentified_count = 0
         confidence = "none"
 
-        if census and census.last_result:
-            house = census.last_result.house
-            camera_total = house.total_persons
-            identified_count = house.identified_count
-            unidentified_count = house.unidentified_count
-            confidence = house.confidence
+        view = house_census_view(self.hass, "trust")
+        if view is not None:
+            camera_total = view.total
+            identified_count = view.identified
+            unidentified_count = view.unidentified_or_guests
+            confidence = view.confidence
 
         return {
             "camera_total": camera_total,
@@ -6770,12 +6702,14 @@ class ZoneGuestCountSensor(ZoneSensorBase, SensorEntity):
         graceful-degradation sentinel when the census is unavailable.
         """
         try:
-            census = self.hass.data.get(DOMAIN, {}).get("census")
+            # RA7: the one F2 read (trust view).
+            from .census_view import house_census_view  # noqa: PLC0415
 
-            if not census or census.last_result is None:
+            view = house_census_view(self.hass, "trust")
+            if view is None:
                 return 0
 
-            return census.last_result.house.unidentified_count
+            return view.unidentified_or_guests
         except Exception as exc:
             _LOGGER.error(
                 "ZoneGuestCountSensor '%s': error calculating guest count: %s",

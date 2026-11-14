@@ -430,8 +430,11 @@ async def test_resident_term_identified_above_presence(mods, hass, monkeypatch, 
 
 @pytest.mark.asyncio
 async def test_boot_seed_from_manager_reads_trust_total(mods, hass, monkeypatch):  # noqa: F811
-    """Review C M3 (AW5): the boot seed from the census manager's
-    last_result reads trust total_persons (2), never aware_total (50)."""
+    """Review C M3 (AW5), re-pinned at the batch-2 merge: develop (RA7)
+    deleted the ``camera_integration_manager`` seed branch (nothing writes
+    that key), so a manager object carrying awareness 50 / trust 2 seeds
+    nothing: the boot seed reads only the trust entity state
+    (``test_boot_seed_ignores_vision_sensors``), never ``aware_total``."""
     rig = await H.R.build(mods, hass, monkeypatch, setup=False)
     try:
         hass.data[H.DOMAIN].pop("census", None)
@@ -447,7 +450,7 @@ async def test_boot_seed_from_manager_reads_trust_total(mods, hass, monkeypatch)
 
         rig.presence._run_inference = _spy
         await rig.presence.async_setup()
-        assert seen[0] == ("startup", 2)
+        assert seen[0] == ("startup", 0)
         await rig.presence.async_teardown()
     finally:
         hass.data[H.DOMAIN].pop("camera_integration_manager", None)

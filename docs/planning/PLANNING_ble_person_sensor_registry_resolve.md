@@ -95,7 +95,14 @@ filter (filtered + unfiltered) minus foreign phones.
 `log_person_snapshot` (value change, no shape change). `location` / `bermuda_area`: census BLE leg, perimeter, lock,
 room fusion; unchanged values (all four resolve the same area sensor they do today). `closest_distance` (`:1923`):
 never populated today or after (ghost inputs and stale-dict store, both out of scope). Forward trace: no action
-changes; that is the point (correctness without behaviour change).
+changes; that is the point (correctness without behaviour change). Decay (`:1181`, `max(0.1, c*0.5)`: 0.5->0.25,
+0.3->0.15) stays below the `< 0.3` filter (`:2160`) either way, so no change there.
+**Latent change:** D3 gives Oji a real distance set (13 enabled). If Bermuda restores its per-scanner entities, his
+`closest_distance` and the 8 ft music gate go live, which is already true for the other three.
+**Cross-plan constraint (seam with `PLANNING_music_following_repair.md`):** "no decision changes" holds only while the
+music plan is unshipped. Its `CONF_MF_MIN_BLE_CONFIDENCE` (D1, ~:136-140, knob ~:315) is a trust reader of this value.
+Its D0 must run after this cycle ships or exclude Oji's pre-ship 0.5 rows; its default must be <= 0.3 with strict `<`,
+or every resident is blocked (measured constant 0.3 for Ezinne/Ziri/Jaya).
 
 **`aggregation._find_bermuda_sensors` triage (`:6170-6196`) -> DELETE.** It scans `sensor.bermuda_<first>_*` excluding
 `_distance`: 0 matches for every person since at least v3.6 naming (sweep L2), so it only ever logs the "falling back to
@@ -109,13 +116,22 @@ the decay timer stays.
 ## 4. Deliverables
 
 ### D1: `_bermuda_device_for_person(person_entity_id) -> (device_id | None, route, uid | None)`
-In `person_coordinator.py`. Routes (a)/(b) exactly as §3; never `dr.async_get_device` for route (b); exception in any
-registry call -> unresolved. Unresolved reasons: `no_person_state`, `no_bermuda_tracker`, `multiple_bermuda_trackers`,
-`private_ble_ambiguous`, `private_ble_no_twin`. Miss: `_bermuda_resolve_misses[(P, reason)] += 1`; one WARN per (P,
+In `person_coordinator.py`. Routes (a)/(b) exactly as §3. Route (b) enumerates by full scan,
+`for dev in dr.devices.values(): if (PBLE_DOMAIN, X) in dev.identifiers`; never `async_get_device` / `get_entry` /
+`get_entries`, which all read the one-slot-per-identifier index (`.venv-ha .../helpers/device_registry.py:660`, `:662-672`,
+`:674-700`). Exception in any registry call -> unresolved. Signatures unchanged: `_find_bermuda_area_sensor(person_name)`
+and `_calculate_confidence(person_name, bermuda_area, resolved_room)` keep their names and arguments and call D1 inside
+with `tracked_person_entity_id(person_name)` (call sites `:1032` / `:1042` hold only `person_name`).
+Candidate filters (all `domain == "sensor"` and `platform == "bermuda"` on D(P)): area = `unique_id == uid`; distance =
+`unique_id.startswith(uid + "_")` and ends `_range` or `_range_raw`, and `!= uid + "_range"` (Bermuda
+`device_tracker.py:75-77`, `sensor.py:153-158`; siblings `_floor` / `_scanner` / `_rssi` / `_area_switch_reason` at
+`sensor.py:244/263/285/446` are excluded by the suffix test). A route (a) tracker with `device_id` None = unresolved,
+reason `tracker_no_device`. Unresolved reasons: `no_person_state`, `no_bermuda_tracker`, `multiple_bermuda_trackers`,
+`tracker_no_device`, `private_ble_ambiguous`, `private_ble_no_twin`. Miss: `_bermuda_resolve_misses[(P, reason)] += 1`; one WARN per (P,
 reason) on the second consecutive miss (sibling rule, absorbs the boot race R7), one INFO on recovery. No cache.
 - **Verify:** Oji fixture resolves `435615c6` via route (a) for all 24 orderings of his 4 trackers.
 - **Verify:** with the bermuda tracker removed from `device_trackers`, route (b) resolves `435615c6`, not `f8ff410c`,
-  in both registry insertion orders (the index-slot hazard of §0.3); a mutant using `async_get_device` fails one order.
+  in both registry insertion orders (the index-slot hazard of §0.3); mutants using `async_get_device` or `get_entries` each fail one order.
 - **Verify:** two bermuda trackers -> None, reason `multiple_bermuda_trackers`, no name fallback.
 - **Test:** `test_ble_person_registry_resolve.py::test_route_a_any_tracker_order`, `::test_route_b_same_identifier_twin`,
   `::test_two_bermuda_trackers_unresolved`, `::test_no_bermuda_tracker_unresolved_counted`,
@@ -137,7 +153,7 @@ and reload the Bermuda entry). Empty set -> the existing `return 0.5`. Scanner-n
 - **Verify (discriminates):** fixture with Oji's phone holding `distance_to_jaya_3`: Jaya's set excludes it (old code
   includes it). Foreign-sensor count 12 -> 0 for Ezinne/Ziri/Jaya; their sets equal old set minus foreign (114 each).
 - **Verify:** Oji's set = his 13 enabled own-device sensors (old 0); with all inputs `unavailable` he returns 0.3
-  (old 0.5). No `disabled_by` write in any test (spy on `async_update_entity`: 0 calls).
+  (old 0.5); the test pins `_get_area_scanners(bermuda_area)` non-empty (empty -> the 0.5 branch). No `disabled_by` write in any test (spy on `async_update_entity`: 0 calls).
 - **Test:** `::test_no_foreign_phone_sensors`, `::test_oji_resolves_own_device`, `::test_never_enables_disabled`,
   `::test_nearest_range_sensor_excluded`.
 
@@ -148,7 +164,9 @@ and reload the Bermuda entry). Empty set -> the existing `return 0.5`. Scanner-n
 
 ### Live (one post-restart read, feeds the README table)
 - `person_presence_snapshots` / `person_visits` rows after restart: Ezinne/Jaya/Ziri confidence 0.3 (unchanged); Oji
-  0.3 if he is home (0.5 before; he is abroad until ~11-16, so expect no new Oji BLE rows and mark "not observable").
+  0.3 if he is home and his area has matched scanners (0.5 before; he is abroad until ~11-16, so expect no new Oji BLE
+  rows and mark "not observable").
+- MF gate not yet shipped (or `ble_low_confidence` count 0 for residents).
 - HA log after boot: zero `No Bermuda area sensor` WARNs; zero `Auto-enabled Bermuda distance sensor` INFOs; no
   Bermuda config-entry reload in the boot window.
 - Entity registry: count of enabled `bermuda` entities identical before and after (no enables).
@@ -159,11 +177,12 @@ Real `hass` fixture (pytest-homeassistant-custom-component), real `er`/`dr`: a M
 for `private_ble_device`, devices and entities created with `dr.async_get_or_create` / `er.async_get_or_create` in the
 live shape (Oji: two `mobile_app` trackers, one `private_ble_device` tracker on device A, one `bermuda` tracker on
 device B; A and B both carrying `('private_ble_device', X)`; B holding area `<uid>`, `<uid>_range`, per-scanner
-`<uid>_<mac>_range` / `_range_raw`, 101 of them disabled). No `SimpleNamespace` registries (audit R8). The two existing
-tests that stub `_find_bermuda_area_sensor` (`test_census_ble_over_face.py:354`,
-`test_house_state_sleep_mask_ble_memory.py:1184`) keep their stubs. Mutation drills (review C): restore the substring
+`<uid>_<mac>_range` / `_range_raw`, 101 of them disabled). No `SimpleNamespace` registries (audit R8). Existing stub
+sites keep working because signatures are unchanged: `test_path_alpha_d2a_matrix_classifier.py:452, :464, :687`;
+`test_person_gps_assistive.py:246, :253, :615` (+ `_calculate_confidence` stub `:414`);
+`test_house_state_sleep_mask_ble_memory.py:1184, :1186`; `test_census_ble_over_face.py:354`. Mutation drills (review C): restore the substring
 test at `:1847` -> `test_no_foreign_phone_sensors` red; restore auto-enable -> `test_never_enables_disabled` red; swap
-route (b) to `async_get_device` -> `test_route_b_same_identifier_twin` red.
+route (b) to `async_get_device`, and separately to `get_entries` -> `test_route_b_same_identifier_twin` red.
 
 ## 6. Knobs
 None. No behavioural number is added; the miss-warn rule (second consecutive miss) is a protocol constant matching the
@@ -186,4 +205,6 @@ sibling. Kill switch not provided: the old path is a name guess the operator rul
 framings A = correctness + registry shapes + route (b) hazard; B = lifecycle (boot order, late Bermuda load, per-tick
 cost, listener removal in D4). Plus one adversarial plan review before build. Not 2-DB: no schema, DAO, payload shape
 or house-state change; DB values shift only for Oji (0.5 -> 0.3), display-only. Escalate to 2-DB if the build finds any
-reader that thresholds confidence at 0.5.
+reader whose threshold is above 0.3, including the planned MF gate. Cross-plan constraint: see §3 (music plan
+`CONF_MF_MIN_BLE_CONFIDENCE` must default <= 0.3 with strict `<`, and its D0 must follow this ship or exclude Oji's
+pre-ship 0.5 rows).

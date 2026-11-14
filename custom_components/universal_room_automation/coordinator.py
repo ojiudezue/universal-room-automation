@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv5.108.21
+# Universal Room Automation vv5.108.22
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -157,6 +157,7 @@ from .domain_coordinators.camera_stream_health import (
     CameraInputStreamHealth,
     EXCLUSION_CLIENT as CAMERA_STREAM_EXCLUSION_CLIENT,
     NM_KIND as CAMERA_STREAM_NM_KIND,
+    NM_KIND_HOLD_RELEASED as CAMERA_STREAM_NM_KIND_HOLD_RELEASED,
 )
 from .domain_coordinators.sensor_capability import capability_routing_enabled
 from ._humidity_gate import humidity_venting_enabled
@@ -725,6 +726,14 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         self._camera_stream_health: CameraInputStreamHealth = (
             CameraInputStreamHealth(self.entry.data.get("room_name", "unknown"))
         )
+        # S2: inputs dead on the previous tick, and dead inputs whose zone
+        # hold was over (flip detection -> substrate recheck).
+        self._camera_stream_prev_dead: frozenset[str] = frozenset()
+        self._camera_stream_prev_expired: frozenset[str] = frozenset()
+        # S2 review B-L1: True while this room's own tick runs the substrate
+        # recheck, so the room's substrate-edge handler does not spawn a
+        # second refresh of the room in the middle of this one.
+        self._camera_stream_rechecking: bool = False
         # STEP D2/D3 — physics-based chatter detector (first NEW client
         # of the shared primitive). Constructor is side-effect free;
         # listener is armed in _update_signal_subscriptions (idempotent,
@@ -1367,18 +1376,10 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         """Get identified persons from census or BLE fallback."""
         room_name = self.entry.data.get(CONF_ROOM_NAME, "")
 
-        # Census (cameras + BLE fusion)
-        census = self.hass.data.get(DOMAIN, {}).get("census")
-        if census is not None:
-            # KEEP + DOCUMENT (CENSUS-BLE-OVER-FACE-1 §5.3): PersonCensus has no
-            # get_room_identified_persons, so this branch is dead and room identity
-            # always falls back to person_coordinator (BLE). Hook kept for a future
-            # per-room census identity.
-            result = getattr(census, "get_room_identified_persons", lambda r: None)(room_name)
-            if result is not None:
-                return result
-
-        # BLE-only fallback
+        # RA7 (PERSON-AWARENESS-READ-API-1): the dead census hook
+        # (``get_room_identified_persons``, which PersonCensus never had) is
+        # deleted; room identity is the person coordinator's BLE room, as it
+        # always was in practice.
         person_coord = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
         if person_coord is not None:
             return getattr(person_coord, "get_persons_in_room", lambda r: [])(room_name)
@@ -1666,6 +1667,8 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 """
                 if payload_room_name != room_name:
                     return
+                if not self._substrate_edge_wants_refresh():
+                    return  # S2 B-L1: own tick's stream recheck
                 _LOGGER.info(
                     "Room %s: substrate kind=%s edge -> %s",
                     room_name, payload_kind, payload_new_state,
@@ -2624,6 +2627,27 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 CAMERA_STREAM_EXCLUSION_CLIENT, _eid,
                 reason=f"{_cam} unavailable since {_since.isoformat()}",
             )
+        # S2 discharge: the zone tier (occupancy substrate) is event-driven
+        # and a frozen input sends no event, so tell it which inputs flipped
+        # dead / live this tick; it re-reads those kinds through the getter.
+        # The hold end (CAMERA_INPUT_STREAM_DEAD_HOLD_MAX_S) is a flip too:
+        # a held input turns RELEASED with no event either.
+        _dead_set = frozenset(dead)
+        _expired_set = self._camera_stream_health.hold_expired_now
+        # Review D-M1: an input held from t0 (unavailable with its camera)
+        # that this tick confirms as an ordinary sensor outage (camera live)
+        # turns off with no event either. (Its other exits need no flip: a
+        # recovery is a state event, a dead camera is a dead flip.)
+        _flipped = (
+            (_dead_set ^ self._camera_stream_prev_dead)
+            | (_expired_set ^ self._camera_stream_prev_expired)
+            | self._camera_stream_health.newly_plain_now
+        )
+        self._camera_stream_prev_dead = _dead_set
+        self._camera_stream_prev_expired = _expired_set
+        if _flipped:
+            self._notify_substrate_stream_flips(_flipped)
+        self._fire_camera_hold_pages(now, room_name)
         if not (to_page or to_recover):
             return
         from .domain_coordinators._stuck_signal_nm import (  # noqa: PLC0415
@@ -2655,6 +2679,65 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                     f"(camera {_cam or 'stream'} back)"
                 ),
             ))
+
+    def _fire_camera_hold_pages(self, now, room_name: str) -> None:
+        """S2 hold-release page (operator 2026-11-14): once a dead camera
+        passes the first positive hold cap its inputs are released, and a
+        camera dead that long is a hardware or host failure, not a normal
+        outage (audit: ordinary outages end within 6.3 min). ONE HIGH page
+        per camera per outage (key = camera, shared by every room; the
+        per-day latch is cleared by the LOW recovery), LOW when it streams
+        again."""
+        pages = list(self._camera_stream_health.hold_pages)
+        recoveries = list(self._camera_stream_health.hold_recoveries)
+        if not (pages or recoveries):
+            return
+        from .domain_coordinators._stuck_signal_nm import (  # noqa: PLC0415
+            fire_stuck_signal,
+            fire_stuck_signal_recovered,
+        )
+        for _cam, _since, _cap in pages:
+            _mins = int((now - _since).total_seconds() // 60)
+            self.hass.async_create_task(fire_stuck_signal(  # noqa: untracked-ok
+                self.hass,
+                kind=CAMERA_STREAM_NM_KIND_HOLD_RELEASED,
+                key=(_cam,),
+                diagnosis=(
+                    f"camera {_cam} has been dead for {_mins} min (unavailable "
+                    f"since {_since.isoformat()}): hardware or host failure, "
+                    f"not a normal outage. Its inputs no longer hold occupancy "
+                    f"or the census (hold cap {int(_cap)} s; seen by room "
+                    f"{room_name})."
+                ),
+                remedy=(
+                    "check the camera's power / network and its NVR or "
+                    "kiosk host"
+                ),
+                title_override=f"Camera dead {_mins} min: {_cam}",
+                exclusion_engaged=True,
+                severity="HIGH",
+            ))
+        for _cam in recoveries:
+            self.hass.async_create_task(fire_stuck_signal_recovered(  # noqa: untracked-ok
+                self.hass,
+                kind=CAMERA_STREAM_NM_KIND_HOLD_RELEASED,
+                key=(_cam,),
+                message=f"camera {_cam} streams again; its inputs count again",
+            ))
+
+    def camera_input_stream_unavailable_held(self, input_eid: str) -> bool | None:
+        """Review D-M1 getter: None = not this room's resolved input; True =
+        the input reads ``unavailable`` and no tick has seen its camera live
+        in this episode (held from t0, not off)."""
+        return self._camera_stream_health.is_unavailable_held(input_eid)
+
+    def camera_input_room_quarantined(self, input_eid: str) -> bool | None:
+        """Review D-L2 getter: True iff this room's exclusion set currently
+        quarantines the input (any client); None otherwise (no opinion)."""
+        try:
+            return True if self._exclusion_set.is_excluded(input_eid) else None
+        except Exception:  # noqa: BLE001
+            return None
 
     def _camera_override_live_person_sensors(self) -> list[str]:
         """Override person sensors minus those whose own camera stream is
@@ -2701,6 +2784,50 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         while CAMERA_INPUT_STREAM_HEALTH_ENABLED is False).
         """
         return self._camera_stream_health.is_dead(input_eid)
+
+    def camera_input_stream_hold_expired(
+        self, input_eid: str, census: bool = False,
+    ) -> bool | None:
+        """S2 hold getter: None = not this room's resolved input; True =
+        dead AND its hold is over this tick (zone cap
+        CAMERA_INPUT_STREAM_DEAD_HOLD_MAX_S, or with ``census`` the census
+        cap CAMERA_INPUT_STREAM_DEAD_CENSUS_HOLD_MAX_S); False otherwise."""
+        return self._camera_stream_health.is_hold_expired(input_eid, census)
+
+    def camera_stream_hold_expired(
+        self, camera_eid: str, census: bool = False,
+    ) -> bool | None:
+        """Camera-keyed form of ``camera_input_stream_hold_expired``."""
+        return self._camera_stream_health.camera_hold_expired(camera_eid, census)
+
+    def camera_stream_dead(self, camera_eid: str) -> bool | None:
+        """Camera-keyed form of the getter above (same tick evaluation):
+        None = this room does not watch that camera; True = an input of it
+        is excluded this tick; False = watched and live."""
+        return self._camera_stream_health.camera_is_dead(camera_eid)
+
+    def _notify_substrate_stream_flips(self, flipped) -> None:
+        """Ask the occupancy substrate to re-read the kinds of inputs whose
+        dead-stream answer changed (S2 discharge). Never raises."""
+        try:
+            substrate = self.hass.data.get(DOMAIN, {}).get("occupancy_substrate")
+            if substrate is None:
+                return
+            self._camera_stream_rechecking = True
+            substrate.recheck_entities(sorted(flipped))
+        except Exception:  # noqa: BLE001 — never break the room tick
+            _LOGGER.debug(
+                "camera stream health substrate recheck raised (swallowed)",
+                exc_info=True,
+            )
+        finally:
+            self._camera_stream_rechecking = False
+
+    def _substrate_edge_wants_refresh(self) -> bool:
+        """S2 review B-L1: an edge the substrate dispatched while THIS
+        room's tick runs its stream recheck needs no extra refresh (the
+        room tier already decided this tick through S1)."""
+        return not self._camera_stream_rechecking
 
     def camera_stream_health_snapshot(self) -> dict[str, Any]:
         """Display attributes for sensor.<room>_unavailable_entities."""

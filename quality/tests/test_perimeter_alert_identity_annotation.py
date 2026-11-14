@@ -56,6 +56,8 @@ def _install_census(hass, legs=None, raise_exc: Exception | None = None):
         census._resolve_face_legs = _boom
     else:
         census._resolve_face_legs = lambda _stem: list(legs or [])
+    # RA6: callers use the public PersonCensus surface (thin delegate).
+    census.resolve_face_legs = census._resolve_face_legs
     hass.data[_perimeter.DOMAIN]["census"] = census
     return census
 

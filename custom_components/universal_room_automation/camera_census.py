@@ -1,6 +1,6 @@
 """Camera integration and person census for Universal Room Automation v3.5.0."""
 #
-# Universal Room Automation vv5.108.21
+# Universal Room Automation vv5.108.22
 # Build: 2026-02-23
 # File: camera_census.py
 # Cycle 3: Camera Integration & Census Core
@@ -1508,6 +1508,12 @@ class PersonCensus:
         # census this tick. Consumed by `_calculate_house_census` — populated
         # by `_watchdog_stuck_cameras` after the corroboration check.
         self._watchdog_discounted_cameras: set[str] = set()
+        # Camera input stream health S2, review D-M1: last available body
+        # reading per interior entity (Frigate count, or 1/0 binary), used
+        # only while the entity reads unavailable AND is held (it went
+        # unavailable together with its camera). RAM: after a restart there
+        # is no reading to hold, so it is a missing term as before.
+        self._stream_last_reading: dict[str, int] = {}
         # FIX 5 (A-HIGH-2) 2026-07-28: one-time WARN dedup for null-area
         # cameras. Grows bounded by camera count; entries persist for the
         # process lifetime (deliberate — one WARN per problem camera).
@@ -1722,6 +1728,20 @@ class PersonCensus:
         if not raw_cameras:
             return []
         return self._camera_manager.resolve_cross_platform_sensors(raw_cameras)
+
+    def get_transit_egress_entities_by_camera(self) -> dict[str, list[CameraInfo]]:
+        """Per configured egress camera, the SAME cross-platform legs
+        ``get_transit_egress_entities`` resolves (the egress producer's own
+        leg set), keeping the camera -> legs grouping the flat list loses.
+        Read by PerimeterAlertManager's egress-mute door-key map."""
+        out: dict[str, list[CameraInfo]] = {}
+        for cam in self._get_raw_camera_list(CONF_EGRESS_CAMERAS) or []:
+            try:
+                out[cam] = self._camera_manager.resolve_cross_platform_sensors([cam])
+            except Exception:  # noqa: BLE001 — one camera must not hide the rest
+                _LOGGER.debug("egress legs for %s failed", cam, exc_info=True)
+                out[cam] = []
+        return out
 
     def get_transit_interior_entities(self) -> list[CameraInfo]:
         """Return cross-platform CameraInfo for configured interior cameras."""
@@ -2045,17 +2065,38 @@ class PersonCensus:
             raw_frigate_sum = 0
             raw_binary_sum = 0
 
+            _stream_dead = self._stream_dead_interior(configured_interior)
+            _stream_held = self._stream_held_interior(configured_interior)
             for entity_id in configured_interior:
+                if entity_id in _stream_dead:
+                    # Camera input stream health S2: a dead stream whose
+                    # hold is over is a MISSING term (as if the camera were
+                    # unavailable), never a zero count.
+                    continue
                 platform = self._camera_manager.get_platform_for_camera(entity_id)
                 camera_info = self._camera_manager._camera_by_entity.get(entity_id)
                 area_id = camera_info.area_id if camera_info else None
+                # Review D-M1: held + unavailable = its last reading.
+                _held_value = (
+                    self._held_reading(entity_id)
+                    if entity_id in _stream_held else None
+                )
 
                 if platform == CAMERA_PLATFORM_FRIGATE:
                     if camera_info and camera_info.person_count_sensor:
                         state = self.hass.states.get(camera_info.person_count_sensor)
-                        if state and state.state not in ("unavailable", "unknown"):
+                        _live = bool(
+                            state and state.state not in ("unavailable", "unknown")
+                        )
+                        if _live or _held_value is not None:
                             frigate_available = True
-                            count = self._get_sensor_int(camera_info.person_count_sensor)
+                            if _live:
+                                count = self._get_sensor_int(
+                                    camera_info.person_count_sensor,
+                                )
+                                self._remember_reading(entity_id, count)
+                            else:
+                                count = _held_value
                             # Stuck-Signal D1 discount (truth-preserving
                             # DOWNWARD only — never raises a count, never
                             # fires when interior corroboration is present;
@@ -2080,19 +2121,21 @@ class PersonCensus:
                         # If unavailable, skip — falls through to degraded mode
                     else:
                         # Binary-only Frigate sensor
-                        if self._is_entity_available(entity_id):
+                        _on = self._binary_reading(entity_id, _held_value)
+                        if _on is not None:
                             frigate_available = True
-                            if self._is_entity_on(entity_id):
+                            if _on:
                                 raw_frigate_sum += 1
                                 frigate_contributions.append((area_id, 1))
 
                 else:
                     # Non-Frigate platforms (UniFi, Reolink, Dahua): binary.
-                    if self._is_entity_available(entity_id):
+                    _on = self._binary_reading(entity_id, _held_value)
+                    if _on is not None:
                         binary_platforms_available = True
                         if platform and platform not in active_platforms:
                             active_platforms.append(platform)
-                        if self._is_entity_on(entity_id):
+                        if _on:
                             raw_binary_sum += 1
                             binary_contributions.append((area_id, 1))
 
@@ -2208,6 +2251,8 @@ class PersonCensus:
 
             single_source_total = 0
             any_xval_off_available = False
+            _stream_dead = self._stream_dead_interior(configured_interior)
+            _stream_held = self._stream_held_interior(configured_interior)
             for entity_id in configured_interior:
                 entry = ent_reg.async_get(entity_id)
                 device_id = entry.device_id if entry else None
@@ -2217,22 +2262,40 @@ class PersonCensus:
                         continue
                     seen_device_ids.add(device_id)
 
+                # S2: released dead stream = missing term, skipped AFTER the device
+                # dedup exactly like an unavailable entity (review A-L1).
+                if entity_id in _stream_dead:
+                    continue
+                platform = self._camera_manager.get_platform_for_camera(entity_id)
                 if not self._is_entity_available(entity_id):
+                    # Review D-M1: held (unavailable together with its
+                    # camera) = its last reading; else a missing term.
+                    _held_value = (
+                        self._held_reading(entity_id)
+                        if entity_id in _stream_held else None
+                    )
+                    if _held_value is None:
+                        continue
+                    single_source_total += _held_value
+                    if platform and platform not in active_platforms:
+                        active_platforms.append(platform)
                     continue
                 any_xval_off_available = True
 
-                platform = self._camera_manager.get_platform_for_camera(entity_id)
                 if platform == CAMERA_PLATFORM_FRIGATE:
                     camera_info = self._camera_manager._camera_by_entity.get(entity_id)
                     if camera_info and camera_info.person_count_sensor:
                         count = self._get_sensor_int(camera_info.person_count_sensor)
                         single_source_total += count
+                        self._remember_reading(entity_id, count)
                     else:
-                        if self._is_entity_on(entity_id):
-                            single_source_total += 1
+                        _on = 1 if self._is_entity_on(entity_id) else 0
+                        single_source_total += _on
+                        self._remember_reading(entity_id, _on)
                 else:
-                    if self._is_entity_on(entity_id):
-                        single_source_total += 1
+                    _on = 1 if self._is_entity_on(entity_id) else 0
+                    single_source_total += _on
+                    self._remember_reading(entity_id, _on)
 
                 if platform and platform not in active_platforms:
                     active_platforms.append(platform)
@@ -2694,6 +2757,72 @@ class PersonCensus:
     # ------------------------------------------------------------------
     # Helper: read HA state
     # ------------------------------------------------------------------
+
+    def _stream_dead_interior(self, entity_ids: list[str]) -> frozenset[str]:
+        """Camera input stream health S2: the interior camera entities the
+        census treats as a MISSING term (census plan dedup rule 5): their
+        camera stream is dead AND its hold is over (ONE getter, via
+        ``camera_stream_health.entity_stream_view`` == released: the person
+        sensor as a room input, else its own camera).
+
+        Operator ruling 2026-11-14 ("a dead input holds"): while the census
+        hold lasts (CAMERA_INPUT_STREAM_DEAD_CENSUS_HOLD_MAX_S, 600 s, from
+        the camera's first `unavailable` room tick; its own cap, shorter than
+        the zone's) a dead camera is unknown, not absent, so its frozen
+        reading keeps counting as before; a camera dying cannot by itself
+        drop the census to 0 (nobody-home) or the unidentified count (path
+        alpha). Unresolved / live / kill switch off / error = empty set
+        (byte-identical)."""
+        return self._stream_view_set(entity_ids, "released")
+
+    def _stream_held_interior(self, entity_ids: list[str]) -> frozenset[str]:
+        """Review D-M1: interior entities whose census view is HELD (dead
+        or unavailable together with their camera, cap not passed). A held
+        entity that reads unavailable counts its last available reading
+        (``_held_reading``), not a missing term."""
+        return self._stream_view_set(entity_ids, "held")
+
+    def _stream_view_set(self, entity_ids, wanted: str) -> frozenset[str]:
+        try:
+            from .domain_coordinators.camera_stream_health import (  # noqa: PLC0415
+                entity_stream_view,
+            )
+        except Exception:  # noqa: BLE001
+            return frozenset()
+        out = set()
+        for eid in entity_ids or ():
+            try:
+                if entity_stream_view(self.hass, eid, census=True) == wanted:
+                    out.add(eid)
+            except Exception:  # noqa: BLE001 — fail open
+                continue
+        return frozenset(out)
+
+    def _remember_reading(self, entity_id: str, value: int) -> None:
+        """Last available body reading (D-M1 hold source)."""
+        try:
+            self._stream_last_reading[entity_id] = int(value)
+        except AttributeError:  # constructed without __init__ (tests)
+            self._stream_last_reading = {entity_id: int(value)}
+
+    def _binary_reading(
+        self, entity_id: str, held_value: int | None,
+    ) -> bool | None:
+        """A binary camera person sensor's reading for the census: its live
+        on/off (remembered), else the held last reading (D-M1), else None
+        (missing term: unavailable, as before)."""
+        if self._is_entity_available(entity_id):
+            on = bool(self._is_entity_on(entity_id))
+            self._remember_reading(entity_id, 1 if on else 0)
+            return on
+        if held_value is not None:
+            return held_value > 0
+        return None
+
+    def _held_reading(self, entity_id: str) -> int | None:
+        """The remembered reading of a held unavailable entity, or None
+        (nothing remembered: a missing term, as before)."""
+        return getattr(self, "_stream_last_reading", {}).get(entity_id)
 
     def _is_entity_available(self, entity_id: str) -> bool:
         """Return True if an entity exists and is not unavailable/unknown."""
@@ -3962,6 +4091,111 @@ class PersonCensus:
         Same as ``_canonical_person_slug``; the private stays the
         implementation."""
         return self._canonical_person_slug(name)
+
+    # ------------------------------------------------------------------
+    # PERSON-AWARENESS-READ-API-1 RA6: the public surface the identity
+    # producers (egress tracker, sighting producer, perimeter, setup) use
+    # instead of reaching into census privates. Each is a thin delegate:
+    # the private stays the implementation (and the patch seam the tests
+    # use), so behaviour is byte-identical.
+    # ------------------------------------------------------------------
+    def tracked_person_slugs(self) -> list[str]:
+        """Tracked residents as URA slugs (``_get_tracked_person_slugs``)."""
+        return self._get_tracked_person_slugs()
+
+    def face_suppressed_now(self) -> bool:
+        """The central face-emission checkpoint (``_face_suppressed_now``)."""
+        return self._face_suppressed_now()
+
+    def known_face_guests(self) -> list[str]:
+        """Operator-configured known face guests (``_get_known_face_guests``)."""
+        return self._get_known_face_guests()
+
+    def resolve_face_legs(self, base_name: str) -> list["FaceLeg"]:
+        """Live NAME-carrying face legs for a camera stem (``_resolve_face_legs``)."""
+        return self._resolve_face_legs(base_name)
+
+    def resolve_ble_legs(self, timestamp: datetime, direction: str) -> list:
+        """In-window BLE-transition legs (``_resolve_ble_legs``)."""
+        return self._resolve_ble_legs(timestamp, direction)
+
+    def consume_ble_arriving_legs(self, slug: str) -> int:
+        """Single-use removal after an attach (``_consume_ble_arriving_legs``)."""
+        return self._consume_ble_arriving_legs(slug)
+
+    def egress_identity_enabled(self) -> bool:
+        """EGRESS_IDENTITY_ENABLED kill switch (``_is_egress_identity_enabled``)."""
+        return self._is_egress_identity_enabled()
+
+    def egress_identity_failsafe_strict(self) -> bool:
+        """D4 provenance filter switch (``_is_egress_identity_failsafe_strict``)."""
+        return self._is_egress_identity_failsafe_strict()
+
+    def face_producer_live(self) -> bool:
+        """Read-time face-producer health (``_is_face_producer_live``)."""
+        return self._is_face_producer_live()
+
+    def note_egress_identity_outcome(self, outcome: str) -> None:
+        """Append one egress-identity outcome (``_note_egress_identity_outcome``)."""
+        self._note_egress_identity_outcome(outcome)
+
+    def register_ble_transition_listeners(self) -> list:
+        """Setup wiring (``_register_ble_transition_listeners``)."""
+        return self._register_ble_transition_listeners()
+
+    def refresh_ble_crossing_listeners(self) -> int:
+        """Boot-race re-register (``_refresh_ble_crossing_listeners``)."""
+        return self._refresh_ble_crossing_listeners()
+
+    def frigate_face_named_ring(self) -> Any:
+        """The Frigate named-face ring (``_frigate_face_named_ring``; None
+        when the bridge is off)."""
+        return getattr(self, "_frigate_face_named_ring", None)
+
+    def ble_tracker_slug_map(self) -> Any:
+        """bluetooth_le tracker -> slug map (``_ble_tracker_slug_map``)."""
+        return getattr(self, "_ble_tracker_slug_map", {})
+
+    def egress_identity_last_attach(self) -> Any:
+        """Last egress-identity attach record (``_egress_identity_last_attach``)."""
+        return getattr(self, "_egress_identity_last_attach", {})
+
+    def egress_identity_outcomes(self) -> Any:
+        """Rolling 24 h outcome deque (``_egress_identity_outcomes``)."""
+        return getattr(self, "_egress_identity_outcomes", None)
+
+    def egress_identity_boost_events(self) -> Any:
+        """BOOST event ledger (``_egress_identity_boost_events``)."""
+        return getattr(self, "_egress_identity_boost_events", None)
+
+    # Counter / record writers (the egress tracker owns these values; the
+    # census owns the storage and the diagnostics sensor reads it).
+    def note_ble_leg_abstained(self) -> None:
+        """One BLE-leg abstain (``_ble_legs_abstained_count``)."""
+        self._ble_legs_abstained_count += 1
+
+    def note_face_dropped_producer_down(self, n: int) -> None:
+        """Face legs dropped under STRICT + producer down, per LEG
+        (``_face_dropped_producer_down_leg_count``)."""
+        if not hasattr(self, "_face_dropped_producer_down_leg_count"):
+            self._face_dropped_producer_down_leg_count = 0
+        self._face_dropped_producer_down_leg_count += n
+
+    def note_face_dropped_stale(self) -> None:
+        """One stale face leg dropped (``_face_dropped_stale_count``)."""
+        self._face_dropped_stale_count += 1
+
+    def note_egress_identity_boost(self, ts: float) -> None:
+        """One BOOST event (``_egress_identity_boost_events``)."""
+        self._egress_identity_boost_events.append(ts)
+
+    def set_egress_identity_agreement_class(self, value: Any) -> None:
+        """Last agreement class (``_egress_identity_agreement_class_last``)."""
+        self._egress_identity_agreement_class_last = value
+
+    def set_egress_identity_last_attach(self, record: dict) -> None:
+        """Last attach record (``_egress_identity_last_attach``)."""
+        self._egress_identity_last_attach = record
 
     def _canonical_person_slug(self, name: Any) -> str:
         """Canonicalize a person identifier to the URA person-slug namespace
@@ -6029,8 +6263,12 @@ class PersonCensus:
         # cameras contribute individually and are never cancelled.
         ble_by_area = self._ble_home_by_area()
         raw_contributions: list[tuple[str | None, int]] = []
+        _stream_dead = self._stream_dead_interior(configured_interior)
+        _stream_held = self._stream_held_interior(configured_interior)
 
         for entity_id in configured_interior:
+            if entity_id in _stream_dead:
+                continue  # S2: released dead stream = missing term (no guest count)
             platform = self._camera_manager.get_platform_for_camera(entity_id)
             if platform != CAMERA_PLATFORM_FRIGATE:
                 continue
@@ -6041,6 +6279,12 @@ class PersonCensus:
 
             # Check if this camera currently sees a person
             count = self._get_sensor_int(camera_info.person_count_sensor)
+            if entity_id in _stream_held:
+                # Review D-M1: a held count sensor that reads unavailable
+                # (it went with its camera) keeps its last reading.
+                _cs = self.hass.states.get(camera_info.person_count_sensor)
+                if _cs is None or _cs.state in ("unavailable", "unknown"):
+                    count = self._held_reading(entity_id) or 0
             if count <= 0:
                 continue
 

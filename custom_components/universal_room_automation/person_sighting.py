@@ -574,7 +574,7 @@ class PersonSightingProducer:
         # Face suppression (central checkpoint, camera_census
         # `_face_suppressed_now`: every face-emission site gates on it).
         try:
-            if census is not None and census._face_suppressed_now():
+            if census is not None and census.face_suppressed_now():
                 self.counters["suppressed"] += 1
                 return None
         except Exception:  # noqa: BLE001
@@ -592,8 +592,8 @@ class PersonSightingProducer:
             self.counters["unmapped_names"] += 1
             return None
         try:
-            mapped = slug if name_is_slug else census._canonical_person_slug(slug)
-            tracked = set(census._get_tracked_person_slugs())
+            mapped = slug if name_is_slug else census.canonical_person_slug(slug)
+            tracked = set(census.tracked_person_slugs())
         except Exception:  # noqa: BLE001
             mapped, tracked = "", set()
         if isinstance(mapped, str) and mapped.startswith("guest:"):
@@ -706,11 +706,15 @@ class PersonSightingProducer:
     # ------------------------------------------------------------ trip-wires
     def _denominator(self, now: float, window_s: float) -> int:
         census = self._census()
-        ring = getattr(census, "_frigate_face_named_ring", None) if census is not None else None
+        _ring_fn = (
+            getattr(census, "frigate_face_named_ring", None)
+            if census is not None else None
+        )
+        ring = _ring_fn() if _ring_fn is not None else None
         if not ring:
             return 0
         try:
-            tracked = set(census._get_tracked_person_slugs())
+            tracked = set(census.tracked_person_slugs())
         except Exception:  # noqa: BLE001
             return 0
         resolver = self._bound_resolver
@@ -727,7 +731,7 @@ class PersonSightingProducer:
             if t < cutoff or suppressed:
                 continue
             try:
-                slug = census._canonical_person_slug(name)
+                slug = census.canonical_person_slug(name)
             except Exception:  # noqa: BLE001
                 continue
             if slug not in tracked:

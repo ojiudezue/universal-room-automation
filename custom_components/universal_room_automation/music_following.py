@@ -58,10 +58,10 @@ def _person_key(value: str) -> str:
     """
     if not value:
         return ""
-    s = str(value)
-    if s.startswith("person."):
-        s = s[len("person."):]
-    return s.replace("_", " ").strip().casefold()
+    # RA9: the one id rule (person_ids.slug_of), then the display form.
+    from .person_ids import slug_of  # noqa: PLC0415
+
+    return slug_of(value).replace("_", " ").strip().casefold()
 
 # Platform identifiers
 PLATFORM_SONOS = "sonos"
