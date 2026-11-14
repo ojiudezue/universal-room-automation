@@ -2,14 +2,14 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-13T17:53:59-06:00_ - _Data commit: `d077edd65f1a`_ - _last_reconciled: 2026-11-13_
+_Generated: 2026-11-13T17:58:00-06:00_ - _Data commit: `4a26a0054a0c`_ - _last_reconciled: 2026-11-13_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 16 |
+| 📥 Inbox | 17 |
 | 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 14 |
 | 📝 Planned | 31 |
@@ -21,7 +21,7 @@ _Generated: 2026-11-13T17:53:59-06:00_ - _Data commit: `d077edd65f1a`_ - _last_r
 | 🅿️ Parked | 125 |
 | ✅ Done | 432 |
 
-## 📥 Inbox (16)
+## 📥 Inbox (17)
 _raw capture_
 
 ### `NM-DIGEST-MARK-RACE-1` - mark_digest_delivered marks every undelivered row, including rows queued while the digest was sending, so they never appear in any digest — _#1 · WSJF 9.0 · v4 tc3 u2 /e1_
@@ -174,7 +174,16 @@ _created 2026-11-12 22:00_
   - `arc_cut_v5_108_16`: needs phase 2 departures
   - `tier`: 2
 
-### `EC-ATTAIN-RATE-DUP-SAMPLE-1` - The battery charge-rate window can record the same reading twice in one tick, shortening its 15-minute window — _#16 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `NVR-WITNESS-CONSOLIDATION-1` - One shared Frigate-vs-Protect witness layer (who saw it, agreement history) with policy kept per consumer; crossing vision gets Protect as a second witness — _#16 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+status: **inbox**
+- **Origin:** 2026-11-13 - Operator question on the crossing vision plan.
+- **Why:** Crossing vision plan fetches clips from Frigate only; Protect enters only as the late face name. Three separate Frigate-vs-Protect rules exist: camera_census.py:2330 _cross_validate_platforms (counts; Frigate number wins when both see; l...
+- **Next:** Me: probe first (read-only): can HA fetch a UniFi Protect event clip for a door crossing, and does llmvision analyse it; Protect vs Frigate per-camera agreement on door crossings from existing history. Then seam check against the arc map...
+- **Forensic keys (2):**
+  - `tier`: 3
+  - `operator_2026_11_13_both_nvrs`: For all camera work I like to exercise both nvr platforms simultaneously, then cross compare to reduce errors. Did you base this plan on only frigate? How can protect be a separate witness? And we can maybe centralize the rules to deconf...
+
+### `EC-ATTAIN-RATE-DUP-SAMPLE-1` - The battery charge-rate window can record the same reading twice in one tick, shortening its 15-minute window — _#17 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **inbox** - approval: **unreviewed**
 _created 2026-11-12 14:13 · initial_
 - **Problem / Solution:**
