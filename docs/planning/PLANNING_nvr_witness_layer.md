@@ -148,11 +148,13 @@ Config-first: renaming the entity ripples into every list and does not help anot
 
 Fix, registry evidence only (operator rule, §4.1), with a uniqueness condition so the A-MED-2 guard is not reopened.
 The Frigate object name is read from the Frigate DEVICE registry identifier (`(frigate, "<instance>:garage_a")`, via
-`_frigate_object_name_for_device`), never from an entity id; the candidate's dstem comes from the device's registered
-camera entity, compared only under the conditions below. HA names a Frigate camera `X_2` exactly when a
+`_frigate_object_name_for_device`), never from an entity id. It is compared with the candidate DEVICE's registry name (`name_by_user`, else `name`),
+normalised with HA's `slugify` (the same function that produced `camera.garage_a` from the device name "Garage A"), so no
+entity_id string is parsed. Live: Protect device "Garage A" → `garage_a` = Frigate identifier object name `garage_a`.
+The comparison runs only under the conditions below. HA names a Frigate camera `X_2` exactly when a
 `camera.X` already exists, so a shared name alone is not evidence. Accept a candidate device in the `_N` collapse only if
-ALL hold: (1) the input device is Frigate and its object name (`_frigate_object_name_for_device`) equals the candidate's
-dstem; (2) exactly one non-Frigate camera device in the registry has that dstem; (3) no other Frigate device has that
+ALL hold: (1) the input device is Frigate and its object name (`_frigate_object_name_for_device`) equals the slugified registry
+name of the candidate device; (2) exactly one non-Frigate camera device in the registry has that slugified name; (3) no other Frigate device has that
 object name; (4) the candidate device has no Frigate identifier of its own. Otherwise refuse, as today. Residual: two
 different cameras with one name, one on each NVR and no other camera of that name, still collapse. Nothing in the
 registry distinguishes that from the true pair; it is the same residual the bare-name exact-stem rung (`:972-982`) already
@@ -226,22 +228,32 @@ alert-conditioned rate is a separate record kind (below), with its own `last_n` 
 `min_samples` (`PERIMETER_SS_MIN_SAMPLES`, 20).
 
 **Persistence (Q3, operator yes 2026-11-13): table `nvr_witness_records`.** Created via `_create_table_safe`:
-`id INTEGER PK, record_kind TEXT NOT NULL ('episode' | 'alert_sample'), camera_key TEXT NOT NULL, device_ids_json TEXT,
+`id INTEGER PK, record_kind TEXT NOT NULL ('episode' | 'alert_sample' | 'import_marker'), camera_key TEXT NOT NULL, device_ids_json TEXT,
 started_at TEXT, ended_at TEXT, families_json TEXT, per_family_json TEXT, families_subscribed_json TEXT,
 families_live_json TEXT, close_reason TEXT, alert_family TEXT, corroborated INTEGER, imported INTEGER NOT NULL DEFAULT 0,
-seq INTEGER, pipeline_version INTEGER NOT NULL`. Indexes `(camera_key, record_kind, started_at)`, `(record_kind, started_at)`.
+seq INTEGER, pipeline_version INTEGER NOT NULL`. Indexes `(camera_key, record_kind, started_at)` (boot load, episode rates), `(camera_key, record_kind, seq)` (last N
+alert samples by `seq`), `(record_kind, started_at)` (prune). Every reader filters by an explicit `record_kind`; no
+query uses `record_kind != ...`.
 DAO `log_nvr_witness_records(rows)`: one batched `executemany` per flush (shape of `log_hvac_evidence_shadow`), through
 `_db()` and the serialized write path; closed records buffer in memory and flush every `NVR_WITNESS_FLUSH_S` and at
 teardown; `DBShuttingDown` drops are counted, never retried in a loop. Boot load (after DB ready): last `last_n` records per
-current camera key per kind, one query. Retention: `prune_nvr_witness_records` nightly batched delete past
-`NVR_WITNESS_RETENTION_DAYS`. Sizing: probe Q4 gives about 80 Frigate edges a day on the four door cameras; W0 measures all
+current camera key per kind, one query. Retention: `prune_nvr_witness_records` nightly batched delete of `episode` rows past
+`NVR_WITNESS_RETENTION_DAYS`; `alert_sample` rows have no date retention (the tracker keeps the last N with no age limit,
+`perimeter_fp_gates.py:139, :166`): prune keeps the newest `PERIMETER_SS_WINDOW_N` per camera by `seq`; the
+`import_marker` row is never pruned. Sizing: probe Q4 gives about 80 Frigate edges a day on the four door cameras; W0 measures all
 covered cameras; at an assumed ≤ 1,000 records/day and ~300 B/row, 90 days ≈ 27 MB; W0 replaces the assumption and a test
 bounds rows written per flush.
 
 **Perimeter history, one place.** At W2: a one-time idempotent import of `universal_room_automation.perimeter_agreement`
-outcomes into `alert_sample` rows (`imported = 1`, `started_at` NULL, `seq` keeps order; a marker row prevents a second
-import). From W2, perimeter's `finalize_due` also appends each finalised sample as an `alert_sample` row (additive; its
-decision still reads its in-memory tracker until W5a). Alert samples are never mixed into episode rates. The `.storage`
+outcomes into `alert_sample` rows (`imported = 1`, `started_at` NULL). One ordering key for all alert samples: `seq`,
+a per-camera integer; imported rows take 1..k in the tracker's deque order, new rows continue k+1, k+2, so "last N" =
+highest N `seq`, exactly the tracker's deque. The imported rows and one `import_marker` row are written in ONE `_db()`
+block with ONE commit; at boot the import runs only when no `import_marker` row exists, so a stop at any point either
+committed both or neither (idempotent on restart). From W2, perimeter's `finalize_due` also appends each finalised sample
+as an `alert_sample` row (additive; its decision still reads its in-memory tracker until W5a). This mirror write is
+skipped entirely when `NVR_WITNESS_ENABLED` is False. Accepted residual: a teardown flush racing `DBShuttingDown` drops the
+last buffered alert samples, so the table can lag `.storage` by a few samples per restart; the W5a replay compares the
+table's per-camera sample counts and rates with the tracker's and lists any gap. Alert samples are never mixed into episode rates. The `.storage`
 file is read only by perimeter until the W5a flip and deleted in the supersession audit.
 
 **Key change.** Records keyed by `canonical_camera_key`. On boot, keys not in the current fusion set are not loaded into
@@ -262,7 +274,7 @@ person entity, and the count of live entities that would hit the name fallback (
   `driveway`) on DISTINCT cameras, plus a second non-Frigate `driveway` device → not collapsed (condition 2). Two Frigate
   devices with object name `driveway` → not collapsed (condition 3).
 - **Tests:** `test_resolver_object_name_collapses_unique_protect_sibling`, `test_resolver_object_name_refuses_two_candidates`,
-  `test_resolver_object_name_refuses_two_frigate_devices`, `test_resolver_knob_off_byte_identical_all_callers`,
+  `test_resolver_object_name_refuses_two_frigate_devices`, `test_resolver_pairs_on_device_registry_name_not_entity_id` (renamed entity id, unchanged device name → still pairs; device renamed via `name_by_user` → compares the new name), `test_resolver_knob_off_byte_identical_all_callers`,
   `test_fusion_callers_golden_except_garage_shape` (every §5 caller incl. perimeter; garage_a delta written out). Mutation:
   drop condition 2 → refuses-two-candidates red.
 - **Live:** within a day a `person_entry_exit_events` row with `egress_camera = binary_sensor.garage_a_person_detected` or
@@ -284,9 +296,13 @@ rate or `ineligible`, last 7 days.
   `test_four_family_episode_recorded`, `test_layer_built_once_lazy_fetch_reload_no_orphan`, `test_single_rescan_per_registry_event`,
   `test_family_of_cache_invalidated_on_rescan`, `test_no_live_camera_entity_needs_name_fallback`,
   `test_name_fallback_logged_and_counted`, `test_stream_health_absent_reports_unknown`, `test_transit_optout_golden`,
-  `test_perimeter_classifier_optout_golden`, `test_master_kill_all_consumers_golden`, `test_transit_optin_matches_legacy_on_door_fixture`.
+  `test_perimeter_classifier_optout_golden`, `test_master_kill_all_consumers_golden` (also asserts zero rows written, perimeter mirror included), `test_transit_optin_matches_legacy_on_door_fixture`.
   DB (schema extracted from production DDL, real DAO): `test_records_batched_one_executemany_per_flush`,
-  `test_perimeter_store_import_idempotent`, `test_alert_samples_not_in_episode_rate`, `test_prune_retention`,
+  `test_perimeter_store_import_idempotent`, `test_perimeter_store_import_crash_between_rows_and_marker_no_duplicate`,
+  `test_alert_sample_rate_equals_tracker_on_imported_corpus` (last N by `seq`, imported plus new rows),
+  `test_prune_keeps_alert_samples_last_n_and_marker`, `test_readers_filter_explicit_record_kind`,
+  `test_protect_pre_post_within_crossing_vision_limits` (const test: `PRE_S + POST_S` within the crossing vision clip and
+  settle limits), `test_alert_samples_not_in_episode_rate`, `test_prune_retention`,
   `test_orphan_key_not_loaded`. Mutation: count fires instead of episodes; drop the MAX close; drop the opt-out branch;
   reinstate one perimeter `endswith` tag; write per row → each a named red.
 - **Live:** sensor lists per camera samples / both / per-family-only for 7 days; door-camera numbers within ±15 % of probe
@@ -315,7 +331,8 @@ and the episode's `families`. Before build: the one approved paid dry call (Q2).
 
 ### W5: perimeter gate, census, room fusion read the layer (Tier 2-DB each, after ≥ 14 days of W2 records)
 **W5a perimeter.** With `NVR_WITNESS_USE_PERIMETER`: `families_live`, `corroborated(cam, t, 60)`, and the alert-sample rate
-from the table (same semantics as its tracker, `last_n` 100, `min_samples` 20). Pre-flip replay: every perimeter alert in
+from the table: last `PERIMETER_SS_WINDOW_N` (100) samples by `seq`, `min_samples` 20, no age limit, identical to the
+tracker's deque (tested on the imported corpus in W2). Pre-flip replay: every perimeter alert in
 the window, count demote outcomes that change; non-zero → list to the operator, flip waits for ok.
 **W5b census.** `CameraInfo.platform` via `platform_for`; `_cross_validate_platforms` arithmetic unchanged;
 `deconflict_house` reads `families_live` (rule 5) and per-camera agreement as display provenance; `NVR_WITNESS_USE_CENSUS`.
