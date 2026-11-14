@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-13T21:21:42-06:00_ - _Data commit: `ef79ea61f278`_ - _last_reconciled: 2026-11-13_
+_Generated: 2026-11-13T21:22:56-06:00_ - _Data commit: `c5cd29c03ff7`_ - _last_reconciled: 2026-11-13_
 
 
 ## Columns
@@ -475,15 +475,7 @@ _created 2026-11-13 14:30_
   - `planner_2026_11_13`: Plan 70d72c8e Part B (D4): KS foreground_app is the WRONG signal (unavailable 18 h on Study A while streaming); Frigate camera.<panel> unavailable matched both outages exactly. D4 = generic rule: ignore a camera-derived input while its o...
   - `homelab_2026_11_13`: KS app-health watchdog live (homelab 7b54953), see F2-PANEL-FFMPEG-CRASHLOOP-1. URA side is stream health S1 (feature/camera-input-stream-health-s1), in review.
 
-### `ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1` - Room occupied sensor looked up by a slug-built entity id; 11 of 47 rooms have a different real id, so the HVAC fan-off-while-occupied guard (and memory/NM readers) silently fail open there — _#3 · WSJF 6.7 · v10 tc8 u2 /e3_
-status: **planned**
-- **Origin:** 2026-11-13 - Found by the registry-not-names sweep; verified live.
-- **Why:** hvac_fans.py:1714-1729 _read_room_occupied_state builds binary_sensor.<slug>_occupied; live: binary_sensor.foyer_occupied 404 vs binary_sensor.foyer_foyer_occupied 200; jaya_bedroom_occupied 404 vs jaya_bedroom_bedroom_4_occupied 200 (20...
-- **Next:** Me: one resolver (room config entry -> its occupied binary_sensor via entity registry unique_id) used by every reader; Tier 2-DB reviews; live check all 47 rooms resolve.
-- **Forensic keys (1):**
-  - `tier`: 2
-
-### `PERIMETER-GLOBAL-EGRESS-MUTE-1` - One global egress stamp from any door camera mutes ALL perimeter cameras for 120 s, chaining for as long as door cameras keep firing (driveway camera muted ~25 min on 11-14), with no known-resident check — _#4 · WSJF 6.0 · v9 tc7 u2 /e3_
+### `PERIMETER-GLOBAL-EGRESS-MUTE-1` - One global egress stamp from any door camera mutes ALL perimeter cameras for 120 s, chaining for as long as door cameras keep firing (driveway camera muted ~25 min on 11-14), with no known-resident check — _#3 · WSJF 6.0 · v9 tc7 u2 /e3_
 status: **planned**
 - **Origin:** 2026-11-14 - Found while checking why v5.108.20 wrote no gate rows after restart.
 - **Why:** AUDIT_perimeter_silence_post_v5_108_20.md: perimeter_alert.py:1370-1387 drops any perimeter person edge within 120 s (window :301) of ANY egress-camera on-edge (egress cameras madrone_g6_entry, doorbell_lite, front_door_aerial, garage_a_...
@@ -491,7 +483,7 @@ status: **planned**
 - **Forensic keys (1):**
   - `tier`: 2
 
-### `EGRESS-BLE-ARRIVAL-LATENCY-1` - BLE arrival fires ~20-120 s after geofence despite scanners at each egress: measure where the delay is — _#5 · WSJF 6.0 · v3 tc1 u2 /e1_
+### `EGRESS-BLE-ARRIVAL-LATENCY-1` - BLE arrival fires ~20-120 s after geofence despite scanners at each egress: measure where the delay is — _#4 · WSJF 6.0 · v3 tc1 u2 /e1_
 thread: **presence** - status: **planned** - approval: **explicit**
 _created 2026-11-11 15:10 · updated 2026-11-12 14:08 · refined_
 - **Problem / Solution:**
@@ -511,7 +503,7 @@ _created 2026-11-11 15:10 · updated 2026-11-12 14:08 · refined_
   - `d0_2026_11_12`: D0 done (AUDIT_ble_arrival_d0_probe.md, 7.4 days, recorder from 11-05): 111/118 arrivals had geofence first within 1 s (Ezinne 16/16, Jaya 9/9, Ziri 7/7, Oji exceptions from his iPad blips). Ezinne's person home edges are mostly driven b...
   - `correction_2026_11_12`: Operator: all BLE scanners are indoor; the network is just dense enough to reach the egress points. My 'street-facing scanner' framing was WRONG; drop it. Second-witness-before-unlock is not needed for the street case (D0 also showed 0 s...
 
-### `DASH-ANOMALY-COVERAGE-BADGE-1` - PWA badge shows anomaly severity only: add coverage (e.g. HVAC 3/5 partial) so blind coordinators are visible without reading attributes — _#6 · WSJF 5.0 · v2 tc1 u2 /e1_
+### `DASH-ANOMALY-COVERAGE-BADGE-1` - PWA badge shows anomaly severity only: add coverage (e.g. HVAC 3/5 partial) so blind coordinators are visible without reading attributes — _#5 · WSJF 5.0 · v2 tc1 u2 /e1_
 thread: **dashboarding** - status: **planned**
 _created 2026-10-24 08:00_
 - **Origin:** 2026-10-24 - grooming of README_v5.103.25 s5 follow-ups
@@ -521,7 +513,7 @@ _created 2026-10-24 08:00_
 - **Forensic keys (1):**
   - `swept_2026_10_24`: NEW. Lovelace side already done under DASHBOARD-V8-FIX-BATCH-1; no PWA card exists.
 
-### `TEST-SUITE-POLLUTION-AND-STALE-DRILLS-1` - Test hygiene: fan_incident replay corrupts real homeassistant.core; two stale mutation drills — _#7 · WSJF 5.0 · v2 tc1 u2 /e1_
+### `TEST-SUITE-POLLUTION-AND-STALE-DRILLS-1` - Test hygiene: fan_incident replay corrupts real homeassistant.core; two stale mutation drills — _#6 · WSJF 5.0 · v2 tc1 u2 /e1_
 thread: **quality** - status: **planned**
 _created 2026-11-07 17:30 · updated 2026-11-08 02:06_
 - **Why:** (1) quality/tests/test_fan_incident_2026_08_01_replay.py:146-153 setattr()s MagicMock onto the REAL homeassistant.core (State/Event/HomeAssistant/callback) at import; it breaks later real-HA tests (lockout real-HA test needed a restore f...
@@ -530,7 +522,7 @@ _created 2026-11-07 17:30 · updated 2026-11-08 02:06_
   - `tier`: 1
   - `verify_2026_11_08_overnight`: STILL-REAL for (1): quality/tests/test_fan_incident_2026_08_01_replay.py:146-155 still setattr()s mocks onto an already-imported real module at import time (the 'else: setattr(_existing, ...)' branch), so it pollutes later real-HA tests....
 
-### `PRESENCE-GEOFENCE-FIELD-DEAD-1` - Presence 'geofence device trackers' field is never read — _#8 · WSJF 5.0 · v2 tc1 u2 /e1_
+### `PRESENCE-GEOFENCE-FIELD-DEAD-1` - Presence 'geofence device trackers' field is never read — _#7 · WSJF 5.0 · v2 tc1 u2 /e1_
 thread: **platform** - status: **planned**
 _created 2026-11-11 13:30_
 - **Why:** The coordinator listens to every person.* entity (presence.py:5193); the field's help text claims otherwise.
@@ -541,7 +533,7 @@ _created 2026-11-11 13:30_
   - `also`: Presence subscribes to person.* only at startup (presence.py:5194-5198); a person added later is ignored until restart. Fix in the same cycle (track entity registry adds).
   - `adjacency`: Swept with the audit; NEW.
 
-### `CENSUS-MAIN-ENTRY-DOOR-FIELD-DEAD-1` - Camera census 'main entry door' claims arrival estimates but has no reader — _#9 · WSJF 5.0 · v2 tc1 u2 /e1_
+### `CENSUS-MAIN-ENTRY-DOOR-FIELD-DEAD-1` - Camera census 'main entry door' claims arrival estimates but has no reader — _#8 · WSJF 5.0 · v2 tc1 u2 /e1_
 thread: **platform** - status: **planned**
 _created 2026-11-11 13:30_
 - **Why:** Help text promises behaviour nothing implements.
@@ -550,7 +542,7 @@ _created 2026-11-11 13:30_
   - `tier`: 1
   - `adjacency`: Swept with the audit; NEW.
 
-### `PRESENCE-FAN-RECHECK-RELOAD-SUPPRESS-1` - Fan-check timing knobs read live but missing from reload-suppress set — _#10 · WSJF 5.0 · v2 tc1 u2 /e1_
+### `PRESENCE-FAN-RECHECK-RELOAD-SUPPRESS-1` - Fan-check timing knobs read live but missing from reload-suppress set — _#9 · WSJF 5.0 · v2 tc1 u2 /e1_
 thread: **platform** - status: **planned**
 _created 2026-11-11 13:30_
 - **Why:** Every Presence step save reloads the house coordinators unnecessarily.
@@ -559,7 +551,7 @@ _created 2026-11-11 13:30_
   - `tier`: 1
   - `adjacency`: Swept with the audit; NEW.
 
-### `CREATE-FLOW-FAN-SPEEDS-FOLLOW-THERMOSTAT-1` - Create flow asks fan-speed temps only in Room-temperature mode, but Follow-thermostat rooms use them — _#11 · WSJF 5.0 · v2 tc1 u2 /e1_
+### `CREATE-FLOW-FAN-SPEEDS-FOLLOW-THERMOSTAT-1` - Create flow asks fan-speed temps only in Room-temperature mode, but Follow-thermostat rooms use them — _#10 · WSJF 5.0 · v2 tc1 u2 /e1_
 thread: **platform** - status: **planned**
 _created 2026-11-11 13:30_
 - **Why:** automation.py:2789-2801,:3204 read them in follow-thermostat rooms.
@@ -568,7 +560,7 @@ _created 2026-11-11 13:30_
   - `tier`: 1
   - `adjacency`: Swept with the audit; NEW.
 
-### `MUSIC-FOLLOWING-TRANSFER-REPAIR-1` - Music following transfers are wired wrong (join leader inverted, MA transfer_queue wrong keys) plus dead timing knobs, reload listener leak and uncounted skips — _#12 · WSJF 4.8 · v10 tc7 u2 /e4_
+### `MUSIC-FOLLOWING-TRANSFER-REPAIR-1` - Music following transfers are wired wrong (join leader inverted, MA transfer_queue wrong keys) plus dead timing knobs, reload listener leak and uncounted skips — _#11 · WSJF 4.8 · v10 tc7 u2 /e4_
 status: **planned** - approval: **explicit**
 - **Origin:** 2026-11-13 - From the room AI/music audit.
 - **Why:** music_following.py:1505 media_player.join with entity_id=target (idle) and group_members=[source]: HA join makes entity_id the leader, so the idle player leads (verified in code; live effect unverified). :1553 music_assistant.transfer_qu...
@@ -589,6 +581,16 @@ status: **planned** - approval: **explicit**
   - `next_build`: Me or the overnight agent: one re-verify plan review of the rewrite (substantial fix round), then build in a worktree, three framing-disjoint reviews, validate to review. Off the arc critical path (operator: not P0).
   - `operator_2026_11_13_bounce_and_primary`: We have to make sure you bounce btw 2 rooms adjacent to each other fast that bad things don't happen. Also not every room has speakers. Some MA devices are puny like the wall tablets. So for example transfers into master should primarily...
   - `operator_2026_11_13_ai_task_paid`: Yes on paid Ai task
+
+### `ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1` - Room occupied sensor looked up by a slug-built entity id; 11 of 47 rooms have a different real id, so the HVAC fan-off-while-occupied guard (and memory/NM readers) silently fail open there — _#12 · WSJF 4.3 · v7 tc4 u2 /e3_
+status: **planned**
+- **Origin:** 2026-11-13 - Found by the registry-not-names sweep; verified live.
+- **Why:** hvac_fans.py:1714-1729 _read_room_occupied_state builds binary_sensor.<slug>_occupied; live: binary_sensor.foyer_occupied 404 vs binary_sensor.foyer_foyer_occupied 200; jaya_bedroom_occupied 404 vs jaya_bedroom_bedroom_4_occupied 200 (20...
+- **Next:** Me: one resolver (room config entry -> its occupied binary_sensor via entity registry unique_id) used by every reader; Tier 2-DB reviews; live check all 47 rooms resolve.
+- **Forensic keys (3):**
+  - `tier`: 2
+  - `reranked_2026_11_14`: Lowered from 10/8: live harm today is small (no fan in the 10 miss rooms follows the thermostat; Jaya memory baseline learns 0 of 3 signals). Not on the identity arc critical path; it serves the operator registry rule and room learning t...
+  - `plan_review_2026_11_14`: PLANREVIEW_room_occupied_registry_resolve.md (45bd4194): FIX-PLAN, 0 CRIT/HIGH, 5 MED: invariant must cover every key read (camera_person_detected, switch keys), co2/tvoc have no room sensors (drop them, do not feed the miss counter), tw...
 
 ### `VISION-INTERIOR-SIGHTINGS-1` - Interior vision - unnamed sightings ("2 people in the family room") from interior cameras, fused with NVR faces — _#13 · WSJF 4.3 · v8 tc3 u2 /e3_
 thread: **identity** - status: **planned**

@@ -34838,7 +34838,9 @@ cards:
   origin: {date: '2026-11-13', gist: 'Found by the registry-not-names sweep; verified live.'}
   why: 'hvac_fans.py:1714-1729 _read_room_occupied_state builds binary_sensor.<slug>_occupied; live: binary_sensor.foyer_occupied 404 vs binary_sensor.foyer_foyer_occupied 200; jaya_bedroom_occupied 404 vs jaya_bedroom_bedroom_4_occupied 200 (2026-11-13). Sweep: 11/47 rooms differ; same blind spot in memory_baseline, memory_facade, NM conditioning. Prior partial fix v5.51.0 M-1 (punctuation only). Registry-first pattern exists in coordinator.py and fan_veto.py. HVAC-adjacent: builder and reviewers read HVAC_ARCHITECTURE_STATE_OF_PLAY.md completely.'
   next: 'Me: one resolver (room config entry -> its occupied binary_sensor via entity registry unique_id) used by every reader; Tier 2-DB reviews; live check all 47 rooms resolve.'
-  rank: {value: 10, time_criticality: 8, effort: 3}
+  rank: {value: 7, time_criticality: 4, effort: 3}
+  reranked_2026_11_14: 'Lowered from 10/8: live harm today is small (no fan in the 10 miss rooms follows the thermostat; Jaya memory baseline learns 0 of 3 signals). Not on the identity arc critical path; it serves the operator registry rule and room learning that later feeds personalization.'
+  plan_review_2026_11_14: 'PLANREVIEW_room_occupied_registry_resolve.md (45bd4194): FIX-PLAN, 0 CRIT/HIGH, 5 MED: invariant must cover every key read (camera_person_detected, switch keys), co2/tvoc have no room sensors (drop them, do not feed the miss counter), two Live checks do not discriminate, notification path keeps an uncounted name read (make it counted per the rule), pass entry_id wherever the caller holds the entry. Three build reviews incl. mutation.'
 - id: BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1
   title: Person BLE distance sensors found by name (oji_udezue) instead of the person's device_trackers; Oji matches 0 of his iphone_oji_* Bermuda sensors and gets the fixed 0.5 confidence
   status: investigating
