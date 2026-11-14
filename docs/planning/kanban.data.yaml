@@ -34714,6 +34714,7 @@ cards:
   DONE_2026-11-13: 'Operator: "Do it now... Monitor". Applied 00:13 CST via options flow camera_census: only egress_cameras, perimeter_cameras, door_groups changed (diff vs backup). 20 min watch: house stayed sleep throughout, URA unavailable entities 5 -> 3 (fewer), no lock/alarm/cover/climate logbook changes.'
   next: 'None. Patio/Study B not added (operator ~99% garage+front); revisit only if weekly labels show patio crossings matter.'
 - id: EGRESS-OUTCOME-WEEKLY-LABEL-1
+  arc_cut_v5_108_21: "labelling run, independent"
   arc_cut_v5_108_19: "recurring after D8a"
   arc_cut_v5_108_18: "recurring after D8a"
   arc_cut_v5_108_16: "recurring, starts with this ship"
@@ -34746,6 +34747,7 @@ cards:
   next: 'Me: build as plan D7 after rev-8 fixes; resolve names via CameraResolver; measure hop lags; diff learned vs operator map.'
   rank: {value: 8, time_criticality: 5, effort: 5}
 - id: EGRESS-DIRECTION-AWARE-IDENTITY-1
+  arc_cut_v5_108_21: "arc step 7, after crossing vision live"
   arc_cut_v5_108_19: "planned next"
   arc_cut_v5_108_18: "planned next"
   arc_cut_v5_108_16: "phase 2, gated on labels (5 true cases met, misrecognition rate pending)"
@@ -34776,6 +34778,7 @@ cards:
   next: 'Me: builder wiring load-at-setup + fallback + D4 + D5 with a wire-in test; two reviews; ship.'
   rank: {value: 8, time_criticality: 7, effort: 3}
 - id: VISION-CROSSING-ANALYSIS-1
+  arc_cut_v5_108_21: "phase 1 ships here, phase 2 later"
   operator_2026_11_13_plans_approved: "Plans approved (the four clean plans: census deconfliction, person awareness read API, camera input stream health, crossing vision producer). Merged to develop 2602929c; estimator plan archived."
   arc_cut_v5_108_19: "shadow build running"
   arc_cut_v5_108_18: "separate plan"
@@ -34819,6 +34822,7 @@ cards:
   revival_trigger: 'Either: (a) the crossing ledger misses its drift bars in PLANNING_census_deconfliction.md (bar a: residue 0 on < 80% of >= 10 empty anchors, or any |residue| > 1; bar a2: reconcile share of resident departures > 20%) over the 7-day window, and the misses trace to unattributed crossings; or (b) the house-state rung of the promotion ladder is reached and needs a count written into total_persons. Check at every crossing-vision ship and at the bar disposition (P2-D6).'
   next: 'Parked. Revisit at the bar disposition; stays linked to VISION-CROSSING-ANALYSIS-1 after the plan ships so the arc-close gate keeps seeing it.'
 - id: REGISTRY-NOT-NAMES-1
+  arc_cut_v5_108_21: "house-wide sweep, clusters in progress"
   title: Replace every entity-name / suffix / slug guess (platform, NVR family, device, person, room) with registry lookups, house-wide
   status: investigating
   tier: 2
@@ -34831,6 +34835,7 @@ cards:
   rank: {value: 9, time_criticality: 6, effort: 6}
   sweep_2026_11_13: 'AUDIT_registry_not_names_sweep_2026_11_13.md: 171 raw hits, 8 clusters, ~45 decision sites. Children: ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1, BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1. NVR gaps for the witness plan: perimeter_alert.py:2179 snapshot name, camera_census.py:3440 _2 branch, :652 person-in-name (use translation_key). Cross-NVR pairing is not a registry fact (Frigate devices have no MAC): one explicit pairing resolver. Lock proximity mapping by name (security_lock_regime.py:1934). 48 URA-owned *_camera_person_detected collide with Protect suffix. CI guard: AST scan with per-function counts, shrinking allowlist with owner card and reason, warn then fail; runtime name_fallback_total counter with NM trip-wire. Order: room resolver, BLE person, NVR gaps, pairing resolver, lock proximity, counters.'
 - id: ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1
+  arc_cut_v5_108_21: "planned, plan fix pending"
   title: Room occupied sensor looked up by a slug-built entity id; 11 of 47 rooms have a different real id, so the HVAC fan-off-while-occupied guard (and memory/NM readers) silently fail open there
   status: planned
   tier: 2
@@ -34843,6 +34848,7 @@ cards:
   reranked_2026_11_14: 'Lowered from 10/8: live harm today is small (no fan in the 10 miss rooms follows the thermostat; Jaya memory baseline learns 0 of 3 signals). Not on the identity arc critical path; it serves the operator registry rule and room learning that later feeds personalization.'
   plan_review_2026_11_14: 'PLANREVIEW_room_occupied_registry_resolve.md (45bd4194): FIX-PLAN, 0 CRIT/HIGH, 5 MED: invariant must cover every key read (camera_person_detected, switch keys), co2/tvoc have no room sensors (drop them, do not feed the miss counter), two Live checks do not discriminate, notification path keeps an uncounted name read (make it counted per the rule), pass entry_id wherever the caller holds the entry. Three build reviews incl. mutation.'
 - id: BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1
+  arc_cut_v5_108_21: "later step (registry sweep), investigating"
   title: Person BLE distance sensors found by name (oji_udezue) instead of the person's device_trackers; Oji matches 0 of his iphone_oji_* Bermuda sensors and gets the fixed 0.5 confidence
   status: investigating
   tier: 2
@@ -34853,6 +34859,7 @@ cards:
   next: 'Me: trace consumers of person BLE confidence/closest_distance (fire check), then resolve via person -> device_trackers -> device -> Bermuda sensors in the registry; Tier 2 plan.'
   rank: {value: 9, time_criticality: 7, effort: 4}
 - id: LLMVISION-TIMEOUT-LEAK-UPSTREAM-1
+  arc_cut_v5_108_21: "upstream draft for operator"
   title: llmvision keeps running (and billing) a call after the caller's timeout; raise upstream, keep URA's bounded teardown
   status: inbox
   tier: 1
@@ -34862,6 +34869,7 @@ cards:
   why: 'Crossing vision fix-up (a10cd299/9407eaef) documented the leak at CROSSING_VISION_TIMEOUT_S and in the IDENTITY manual; the call is now a background task so HA stop does not wait. Upstream issue or PR to llmvision is outward-facing: draft only, operator posts or approves.'
   next: 'Me: draft the upstream issue text with a minimal repro for the operator to post.'
 - id: PERIMETER-GLOBAL-EGRESS-MUTE-1
+  arc_cut_v5_108_21: "built and reviewed, ships in batch 2"
   title: One global egress stamp from any door camera mutes ALL perimeter cameras for 120 s, chaining for as long as door cameras keep firing (driveway camera muted ~25 min on 11-14), with no known-resident check
   status: planned
   tier: 2
@@ -34878,6 +34886,7 @@ cards:
   operator_2026_11_14_seam_rev4: 'remove and don''t add. => APPLIED: live exterior_seams.json rev 4 removes skip front_side_ptz<->utilities_ptz (far apart, held only by PTZ reach); no replacement shortcut. Validated offline (no errors, no warnings), reloaded: 21 seams, validation ok, sha 1bdf1c70. Backup .claude/tmp/exterior_seams.json.bak-20261114-rev3.'
   reviews_2026_11_14: 'A FIX (A1 rejected file keeps old covers, A2 late veto -> operator chose re-alert, A3 silent name fallback for door key: build map from census.get_transit_egress_entities, count fallback), B SHIP-after-MED (zero-fire counts unmapped doors), C FIX (trip-wire cooldown, ratio non-fire, anomaly row, task tracking, stale covers on file delete, diagnostics). Live: perimeter_gate_decision has 0 rows; only 1 of ~79 crossings in 9 days had identity >= 0.9.'
 - id: NVR-WITNESS-CONSOLIDATION-1
+  arc_cut_v5_108_21: "W1 ships here, W2-W6 later"
   title: One shared Frigate-vs-Protect witness layer (who saw it, agreement history) with policy kept per consumer; crossing vision gets Protect as a second witness
   status: planned
   batch: person-sightings
@@ -34994,6 +35003,7 @@ cards:
   operator_2026_11_13_bounce_and_primary: 'We have to make sure you bounce btw 2 rooms adjacent to each other fast that bad things don''t happen. Also not every room has speakers. Some MA devices are puny like the wall tablets. So for example transfers into master should primarily transfer into the Sonos system there. If the tablets join because they''re in that room, that''s a bonus.'
   operator_2026_11_13_ai_task_paid: 'Yes on paid Ai task'
 - id: PHONE-LEFT-BEHIND-TRANSIENT-FLICKER-1
+  arc_cut_v5_108_21: "arc step 10"
   arc_cut_v5_108_19: "with PLB build"
   arc_cut_v5_108_18: "with PLB build"
   title: Phone-left-behind flags flicker on for one 30 s poll at arrival ticks and after restarts (17 in 8 days, none real)
@@ -35014,7 +35024,8 @@ cards:
   arc_cut_v5_108_16: "needs D1 live first, planned next"
   title: Phone-left-behind sensors never see a camera sighting (TransitValidator camera-sighting store never holds a named sighting; person_id is a display name)
   thread: presence
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.108.21
   batch: person-sightings
   created: '2026-11-12 22:00'
   updated: '2026-11-12 22:00'
@@ -35026,6 +35037,7 @@ cards:
   next: 'Me: plan rev 2 with ruling A (branch plan/phone-left-behind-camera), then build (Tier 2-DB, 3 reviews).'
   rank: {value: 5, time_criticality: 3, effort: 3}
 - id: DEPARTURE-ACTIONS-1
+  arc_cut_v5_108_21: "arc step 8, after census deconfliction"
   arc_cut_v5_108_19: "later arc piece"
   arc_cut_v5_108_18: "later arc piece"
   arc_cut_v5_108_16: "needs phase 2 departures"
@@ -35042,6 +35054,7 @@ cards:
   next: 'Me: after D8 ships, decompose consumers with the operator.'
   rank: {value: 5, time_criticality: 2, effort: 4}
 - id: FACE-ARRIVAL-REBUILD-1
+  arc_cut_v5_108_21: "parent of the arc, continues"
   arc_cut_v5_108_19: "parent arc card"
   arc_cut_v5_108_18: "parent arc card"
   arc_cut_v5_108_16: "main card stays open until phase 2 ships"
@@ -35158,6 +35171,7 @@ cards:
   next: 'Me: plan after LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1 builds; joint restart test.'
   rank: {value: 6, time_criticality: 5, effort: 3}
 - id: EXTERIOR-PERSONS-HOME-ALWAYS-ZERO-1
+  arc_cut_v5_108_21: "separate card, not in this batch"
   arc_cut_v5_108_19: "lookup fixed here, closes at validation"
   arc_cut_v5_108_18: "own fix next"
   title: perimeter_alert._get_persons_home always returns 0 in production (asks the coordinator manager for a presence attribute it does not have), so day/evening exterior alerts are always HIGH
@@ -35173,6 +35187,7 @@ cards:
   next: 'Me: folded into the house-state step-1 plan (getters defined with real producers); fix together with exterior severity.'
   rank: {value: 6, time_criticality: 3, effort: 2}
 - id: EXTERIOR-PERSON-SEVERITY-ARRIVING-BODY-ONLY-1
+  arc_cut_v5_108_21: "separate perimeter card, not in this batch"
   arc_cut_v5_108_19: "shipped in this release, closes at validation"
   arc_cut_v5_108_18: "folds into step 1a"
   title: While the house reads ARRIVING, exterior-person alerts drop to LOW, so a body-only ARRIVING softens real alerts
@@ -35228,6 +35243,7 @@ cards:
   next: 'Me: after 1a validates, revise Part B against what 1a shipped, two plan reviews, then build.'
   rank: {value: 6, time_criticality: 3, effort: 5}
 - id: PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1
+  arc_cut_v5_108_21: "separate perimeter card"
   title: Circling hop 1 and hop 3 are both HIGH in production, so the claim that their severities differ (and their NM dedup keys cannot collide) does not hold
   thread: security
   status: inbox
@@ -35241,6 +35257,7 @@ cards:
   next: 'Me: check NM dedup keys for hop 1 vs hop 3 with both HIGH; fix or close.'
   rank: {value: 4, time_criticality: 3, effort: 2}
 - id: LOCK-UNCOUNTED-RETURN-ARM-REDUNDANT-1
+  arc_cut_v5_108_21: "arc step 4 cleanup, next"
   title: Uncounted-return page has a redundant away/arriving arm, and ARRIVING evidence is computed and logged for every exterior alert outside ARRIVING
   thread: security
   status: inbox
@@ -35254,6 +35271,7 @@ cards:
   next: 'Me: delete or pin the arm; compute evidence only in ARRIVING.'
   rank: {value: 2, time_criticality: 1, effort: 1}
 - id: PERSON-ID-NORMALISE-ONE-RULE-1
+  arc_cut_v5_108_21: "closed by read API ship 2 (batch 2)"
   title: Name-to-person-entity-id normalisation is copied at person_coordinator.py 807/979/1729; point them at tracked_person_entity_id()
   thread: presence
   status: inbox
@@ -35342,7 +35360,8 @@ cards:
 - id: PANEL-KS-HEALTH-AS-INPUT-1
   title: URA trusts wall-panel inputs (camera person, motion, presence) even when the Kiosk Satellite app is down or headless
   thread: presence
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.108.21
   created: '2026-11-13 14:30'
   updated: '2026-11-13 14:30'
   tier: 2
@@ -35378,6 +35397,7 @@ cards:
   next: 'Me: measure memory_episodes size per type, propose per-type retention (e.g. perimeter_gate_decision 90 d) in the nightly maintenance; Tier 1 after measure.'
   rank: {value: 2, time_criticality: 1, effort: 1}
 - id: VISION-INTERIOR-SIGHTINGS-1
+  arc_cut_v5_108_21: "arc step 9"
   title: Interior vision - unnamed sightings ("2 people in the family room") from interior cameras, fused with NVR faces
   thread: identity
   status: planned
@@ -35391,6 +35411,7 @@ cards:
   next: 'Me: after crossing vision Phase 1 accuracy is measured, plan it (Tier 3, prior-art scan: sighting producer, CameraResolver, interior path map, census interior camera counts, CROSSING_VISION_INTERIOR_ENABLED parked name) with measure-first probe on interior frames; decide F4 unnamed-sighting shape vs a per-room count signal.'
   rank: {value: 8, time_criticality: 3, effort: 3}
 - id: PERSON-AWARENESS-READ-API-1
+  arc_cut_v5_108_21: "ship 1 here, ship 2 in batch 2"
   title: One public person-awareness read API on PresenceCoordinator (F1-F5), replacing ~40 private PersonCensus reads and 14+ inline id-normalisation copies
   thread: identity
   status: pre_planning

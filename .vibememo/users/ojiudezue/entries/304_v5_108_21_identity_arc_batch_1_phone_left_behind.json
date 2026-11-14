@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "304",
+  "author": "ojiudezue",
+  "session_id": "claude_20261114_055633_ship_v5_108_21",
+  "timestamp": "2026-11-14T05:56:33Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.108.21 shipped: Identity arc batch 1: phone-left-behind camera leg, crossing vision shadow, read API, camera stream health, two-NVR camera pairing",
+  "summary": "Identity arc batch 1: phone-left-behind camera leg, crossing vision shadow, read API, camera stream health, two-NVR camera pairing",
+  "why": "Arc steps 1, 2, 3 and 5 of the identity/vision/census arc in one batch to limit restarts. Crossing vision starts the shadow scorer clock the census promotion ladder needs; the read API gives every new consumer one interface and one person-id rule; stream health stops dead panel cameras holding rooms for hours (Up Hallway 4 h); W1 fixes garage_a never getting its Protect leg, a name-guessing bug, and pairs six more cameras the operator accepted.",
+  "implications": "Shipped PHONE-LEFT-BEHIND-CAMERA-LEG-1, PANEL-KS-HEALTH-AS-INPUT-1 at v5.108.21; card(s) sit shipped_organic pending validation. Acceptance in README_v5.108.21.md (Live criteria).",
+  "revisit_trigger": "If any room loses occupancy unexpectedly after restart, check camera_stream_dead exclusions on the unavailable-entities sensor; if crossing vision error rate trips, check the GPT-6 llmvision entry; if garage_a crossings flip direction more than ~2/week, raise W2 shared corroboration priority.",
+  "refs": {
+    "cards": [
+      "PHONE-LEFT-BEHIND-CAMERA-LEG-1",
+      "PANEL-KS-HEALTH-AS-INPUT-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.108.21.md"
+    ],
+    "release_notes": "Phone-left-behind shows real camera sightings. Crossing vision Phase 1 runs in shadow on the GPT-6 Luna entry (rows and metrics only, no decisions). Person-awareness read API ship 1 (one person-id rule; byte-identical under the live config). Camera input stream health S1: a room input stops holding occupancy 120 s after its own camera goes unavailable; HIGH page after 30 min. NVR witness W1: Frigate cameras pair with their Protect twins from registry evidence only (7 cameras incl. garage_a). See docs/readmes/README_v5.108.21.md."
+  }
+}
