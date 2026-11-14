@@ -484,3 +484,33 @@ def test_perimeter_resolve_legs_unchanged(mods, monkeypatch):
     off = legs()
     assert on == off
     assert ("binary_sensor.garage_a_person_detected", "protect") in on["camera.garage_a_2"]
+
+
+# ============================================================================
+# Fix-up: B-L1 pairing INFO log, C-1 slugify import fail-closed
+# ============================================================================
+
+def test_resolver_pairing_info_log_once_per_pairing(caplog, monkeypatch):
+    monkeypatch.setattr(RW, "_LOGGED_OBJECT_NAME_PAIRINGS", set())
+    caplog.set_level("INFO", logger=RW._LOGGER.name)
+    for _ in range(3):
+        r = build(GA_FRIGATE, GA_PROTECT)
+        sources(r, "camera.garage_a_2")
+    hits = [rec.getMessage() for rec in caplog.records
+            if "object-name pairing accepted" in rec.getMessage()]
+    assert hits == ["CameraResolver: Frigate object-name pairing accepted: "
+                    "frigate_device=f_ga protect_device=p_ga object_name=garage_a"]
+
+
+def test_resolver_slugify_import_failure_fails_closed(monkeypatch):
+    import builtins
+    real_import = builtins.__import__
+
+    def _imp(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "homeassistant.util" and fromlist and "slugify" in fromlist:
+            raise ImportError("no slugify")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", _imp)
+    r = build(GA_FRIGATE, GA_PROTECT)
+    assert sources(r, "camera.garage_a_2") == F_ONLY

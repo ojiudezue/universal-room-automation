@@ -70,6 +70,22 @@ def _device_name_slug(dev: Any | None) -> str | None:
     return slugify(name) or None
 
 
+# W1 B-L1: accepted object-name pairings already logged in this process
+# (once per pairing per setup; the resolver is rebuilt often).
+_LOGGED_OBJECT_NAME_PAIRINGS: set[tuple[str, str, str | None]] = set()
+
+
+def _log_object_name_pairing(frigate_did: str, other_did: str, obj: str | None) -> None:
+    key = (frigate_did, other_did, obj)
+    if key in _LOGGED_OBJECT_NAME_PAIRINGS:
+        return
+    _LOGGED_OBJECT_NAME_PAIRINGS.add(key)
+    _LOGGER.info(
+        "CameraResolver: Frigate object-name pairing accepted: frigate_device=%s "
+        "protect_device=%s object_name=%s", frigate_did, other_did, obj,
+    )
+
+
 def _norm_mac(value: Any) -> str:
     """Normalize a MAC connection value. A-L1: prefer HA's format_mac (canonical
     lowercase colon-separated form), else fall back to a lowercased string so
@@ -1049,6 +1065,10 @@ class CameraResolver:
                 sibling_did = self._frigate_object_name_sibling(did)
                 if sibling_did and sibling_did not in expanded:
                     expanded[sibling_did] = BASIS_FRIGATE_OBJECT_NAME
+                    _log_object_name_pairing(
+                        did, sibling_did,
+                        self._frigate_object_name_for_device(self._device(did)),
+                    )
 
         # ---- F2 collapse: pre-select the winning Frigate device per object-name
         # A-M3 fix — deterministic winner:

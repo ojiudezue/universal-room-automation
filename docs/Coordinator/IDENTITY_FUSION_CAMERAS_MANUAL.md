@@ -321,6 +321,8 @@ In rung 5, a Frigate input device also pairs with the one non-Frigate camera dev
 (`name_by_user`, else `name`, through HA `slugify`) equals the Frigate object name from the Frigate device
 identifier. All of: input is Frigate; exactly one non-Frigate device owning an enabled `camera.*` has that slug; no
 other Frigate device has that object name; the candidate has no Frigate identifier. Basis `frigate_object_name`.
+Pairing fails closed: the object name is compared as-is against slugified device names, so a Frigate object name
+that is not already a slug (or an unavailable HA `slugify`) pairs nothing. Each accepted pairing logs one INFO line.
 Knob `RESOLVER_FRIGATE_OBJECT_NAME_EVIDENCE` (rung 1, True). It closes the Frigate → Protect direction for cameras
 whose Frigate entity is `X_2` (garage_a, garage_b, rear_ptz, stairs_top, upstairs_hall, utilities_ptz) or whose
 Protect stem differs (foyer_fisheye). `resolve_detection_legs` already reached those Protect legs through its own

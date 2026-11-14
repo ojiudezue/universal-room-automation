@@ -26,7 +26,7 @@ that name, pair even if they are two physical cameras. The registry cannot tell 
 ## Effect on this house (measured against the live registry, 2026-11-13)
 
 The plan expected one change (garage_a). The live registry gives seven: every Frigate camera whose HA camera entity
-did not share a stem with its Protect sibling.
+did not share a stem with its Protect sibling. The operator accepted all seven pairings on 2026-11-14.
 
 | Frigate camera | Gains Protect source | Fusion key | Live consumer reached |
 |---|---|---|---|
@@ -38,10 +38,20 @@ did not share a stem with its Protect sibling.
 | `camera.utilities_ptz_2` | `binary_sensor.utilities_ptz_person_detected` | unchanged | none live (same) |
 | `camera.garage_b_2` | `binary_sensor.garage_b_person_detected` | unchanged | perimeter leg set unchanged (see below) |
 
+**Expected rates (review B-M1).** garage_a gains a third egress trigger (the Protect person sensor). Expect about
+12 new directed crossings a week from Protect-only detections, and about 2 a week where Frigate and Protect fire in
+opposite directions, giving one extra crossing row and one extra arrived/left notification. This split already happens
+on the two-leg doors (28 such pairs in 14 days), so it is not new behaviour, only a new door. The proper fix is the
+shared corroboration in W2, not a W1 change.
+
+**Fan-veto consumer (review B-L3).** The Upstairs Hallway room fused sensor gains a second source. A second source
+can make the room read split, and the fan-veto rebuttal is denied in AWAY / VACATION. Inert today: there is no fan in
+Upstairs Hallway.
+
 Unchanged, by test: census `get_transit_interior_entities` (the camera-person list already names the Protect cameras;
 the merge dedups), transit `_path_map_context` door and exterior keys, every other camera's fusion, picks and legs.
 
-**Perimeter Part A.** The plan (§5, plan review 1 M1) says W1 changes shipped perimeter Part A input for garage_a.
+**Perimeter Part A legs do NOT change.** The plan (§5, plan review 1 M1) says W1 changes shipped perimeter Part A input for garage_a.
 Measured: it does not. Perimeter takes its legs from `resolve_detection_legs`, which on develop already reaches
 garage_a's Protect leg through its own `_N`-stripped stem bridge (`camera_resolver.py` `resolve_detection_legs`,
 `candidate_stems` loop). The leg sets of every live perimeter camera and of `camera.garage_a_2` are identical with the
@@ -50,10 +60,11 @@ AgreementTracker samples on this house. (That stem bridge is itself a name guess
 
 ## Tests
 
-`quality/tests/test_nvr_witness_w1_resolver.py` (19), helper `quality/tests/_nvr_w1_registry.py`, fixtures
+`quality/tests/test_nvr_witness_w1_resolver.py` (21), helper `quality/tests/_nvr_w1_registry.py`, fixtures
 `quality/tests/fixtures/nvr_w1_live_registry_shape.json` (live registry extract) and
 `nvr_w1_resolver_golden_develop.json` (develop 4b825c50 resolver output over that fixture). Every condition, the
 knob, the call site, the slug function, the `name_by_user` precedence and the camera-device gate are mutation-anchored.
+Fix-up: the once-per-pairing INFO log (B-L1) and slugify-import fail-closed (C-1) each have a RED-on-mutation test.
 
 ## Live validation (prospective)
 
@@ -65,4 +76,5 @@ knob, the call site, the slug function, the `name_by_user` precedence and the ca
   `correlation_basis: frigate_object_name`.
 - **Live:** no other camera's pairing changes beyond the table above: the fused sensor attributes of Living Room,
   Game Room and Study A list the same sources as before.
+- **Live:** one INFO line `Frigate object-name pairing accepted` per accepted pairing after restart (seven expected).
 - **Live:** no WARNING / ERROR from `camera_resolver` or `camera_census` cutover after restart.
