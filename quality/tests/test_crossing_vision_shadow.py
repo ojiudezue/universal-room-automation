@@ -103,6 +103,14 @@ def mods():
             # perimeter_alert is imported lazily by the producer; load it
             # inside the scope so the lazy import binds this real copy.
             pa=importlib.import_module(f"{_PKG}.perimeter_alert"),
+            # Platforms used by the surface tests, imported inside the scope
+            # so a stale or stubbed copy left in sys.modules by an earlier
+            # file can never be picked up at test time (the order-dependent
+            # test_switch_restore_only_on failure in the full run).
+            switch=importlib.import_module(f"{_PKG}.switch"),
+            number=importlib.import_module(f"{_PKG}.number"),
+            sensor=importlib.import_module(f"{_PKG}.sensor"),
+            init=importlib.import_module(_PKG),
         )
         yield ns
 
@@ -245,13 +253,13 @@ async def cross(rig, camera, e_ts, *, direction="entry", peak=2,
         "identity_provenance": None, "peak_person_count": peak,
     }
     rig.hass.bus.async_fire("ura_person_egress_event", payload)
-    await rig.hass.async_block_till_done()
+    await rig.hass.async_block_till_done(wait_background_tasks=True)
     return f"{camera}@{e_ts.isoformat()}"
 
 
 async def settle(rig):
     for _ in range(3):
-        await rig.hass.async_block_till_done()
+        await rig.hass.async_block_till_done(wait_background_tasks=True)
         await asyncio.sleep(0)
 
 
@@ -292,8 +300,9 @@ async def test_one_call_one_row_per_crossing(rig):
         "/api/frigate/frigate-f2/notifications/1763050000.1-abc/clip.mp4"
     )
     assert "event_id" not in call
-    assert call["model"] == "gpt-4o-mini"
-    assert call["provider"] == "prov_openai"
+    assert call["model"] == "gpt-6-luna"
+    assert call["provider"] == "01M7B731T26P2HXVW77AQR62PP"
+    assert call["max_tokens"] == 1500
     assert call["max_frames"] == 4 and call["target_width"] == 768
     assert call["response_format"] == "json"
     assert json.loads(call["structure"])["required"] == [
@@ -313,7 +322,7 @@ async def test_one_call_one_row_per_crossing(rig):
     assert row["door_group"] == "garage_a"
     assert row["event_id"] == "1763050000.1-abc"
     assert row["event_camera"] == "garage_a"
-    assert row["model"] == "gpt-4o-mini"
+    assert row["model"] == "gpt-6-luna"
     assert row["frame_source"] == "video_analyzer"
     assert row["crossing_keys"] == [key]
     assert row["frigate_events_in_window"] == 1
@@ -556,6 +565,7 @@ async def test_cluster_one_call(rig):
     assert by_src[k2]["primary_crossing_key"] == k1
     assert by_src[k1]["outcome"] == "ok"
     assert by_src[k1]["crossing_keys"] == [k1, k2]
+    assert len(rows(rig)) == 2  # M16: exactly one row per crossing
 
 
 @pytest.mark.asyncio
@@ -983,7 +993,7 @@ async def test_setup_registers_ingress_consumer_and_bus_listener(rig):
 
 @pytest.mark.asyncio
 async def test_switch_restore_only_on(mods, hass):
-    sw_mod = importlib.import_module(f"{_PKG}.switch")
+    sw_mod = mods.switch
     C = mods.const
 
     class _St:
@@ -1015,7 +1025,7 @@ async def test_switch_restore_only_on(mods, hass):
 async def test_daily_cap_number_publishes_and_persists(mods, hass):
     from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-    num_mod = importlib.import_module(f"{_PKG}.number")
+    num_mod = mods.number
     C = mods.const
     entry = MockConfigEntry(domain=C.DOMAIN, entry_id="cm", data={
         C.CONF_ENTRY_TYPE: C.ENTRY_TYPE_COORDINATOR_MANAGER},
@@ -1036,7 +1046,7 @@ async def test_daily_cap_number_publishes_and_persists(mods, hass):
 
 @pytest.mark.asyncio
 async def test_cap_key_reload_suppressed(mods):
-    init_mod = importlib.import_module(_PKG)
+    init_mod = mods.init
     assert "crossing_vision_daily_calls" in init_mod.OPTIONS_RELOAD_SUPPRESS_KEYS
     assert "crossing_vision_daily_calls" in init_mod._NO_LIVE_ATTR_KEYS
 
@@ -1045,7 +1055,7 @@ async def test_cap_key_reload_suppressed(mods):
 async def test_open_tracks_sensor_carries_diag_unrecorded(rig):
     """D1.10 wire-in: the Outside: Open Tracks sensor publishes the
     producer's counters, and both attributes stay out of the recorder."""
-    sensor_mod = importlib.import_module(f"{_PKG}.sensor")
+    sensor_mod = rig.mods.sensor
     await ended_crossing(rig, "ev-sensor")
 
     class _Linker:
@@ -1067,3 +1077,499 @@ async def test_open_tracks_sensor_carries_diag_unrecorded(rig):
     assert attrs["crossing_vision_last"]["outcome"] == "ok"
     assert {"crossing_vision_today", "crossing_vision_last"} <= set(
         cls._unrecorded_attributes)
+
+
+# ===================================================================
+# Fix-up round (Review C must-fix + reviews A/B). Each test names the
+# Review C mutation id(s) it kills.
+# ===================================================================
+def fire_cross_nowait(rig, camera, e_ts, *, direction="entry", peak=2):
+    """Fire a crossing WITHOUT async_block_till_done (used while an
+    in-flight call or row write must stay in flight)."""
+    rig.hass.bus.async_fire("ura_person_egress_event", {
+        "direction": direction, "egress_camera": camera,
+        "timestamp": e_ts.isoformat(), "person_id": None,
+        "identity_provenance": None, "peak_person_count": peak,
+    })
+    return f"{camera}@{e_ts.isoformat()}"
+
+
+async def spin(n=20):
+    for _ in range(n):
+        await asyncio.sleep(0)
+
+
+# ---------------------------------------------------- wiring (M120/M122)
+@pytest.mark.asyncio
+async def test_setup_publishes_producer_and_teardown_awaits(mods, hass):
+    """M120 / M119 / M121 / M122: the REAL module entrypoints. Setup
+    publishes the producer under CROSSING_VISION_HASS_KEY with its bus
+    listener and Frigate consumer live; a second setup (partial reload)
+    tears the first down; teardown pops the key AND awaits the producer's
+    own teardown (listener and consumer gone)."""
+    C, cvm = mods.const, mods.cv
+    ingress = mods.fi.FrigateEventIngress(hass)
+    hass.data.setdefault(C.DOMAIN, {})[mods.fi.FRIGATE_INGRESS_HASS_KEY] = ingress
+    base = hass.bus.async_listeners().get("ura_person_egress_event", 0)
+
+    await cvm.async_setup_crossing_vision(hass)
+    cv1 = hass.data[C.DOMAIN].get("crossing_vision")
+    assert isinstance(cv1, cvm.CrossingVisionShadow)
+    assert ingress._consumers.get("crossing_vision") is not None
+    assert hass.bus.async_listeners().get("ura_person_egress_event", 0) == base + 1
+
+    await cvm.async_setup_crossing_vision(hass)
+    cv2 = hass.data[C.DOMAIN].get("crossing_vision")
+    assert cv2 is not cv1
+    assert cv1._torn_down is True
+    assert hass.bus.async_listeners().get("ura_person_egress_event", 0) == base + 1
+
+    await cvm.async_teardown_crossing_vision(hass)
+    assert "crossing_vision" not in hass.data[C.DOMAIN]
+    assert cv2._torn_down is True
+    assert ingress._consumers.get("crossing_vision") is None
+    assert hass.bus.async_listeners().get("ura_person_egress_event", 0) == base
+
+
+@pytest.mark.asyncio
+async def test_setup_failure_unsubscribes_bus_listener(mods, hass, monkeypatch):
+    """Review B3: the Frigate consumer registration raises after the bus
+    listener was added -> no producer published and no leaked listener."""
+    C, cvm = mods.const, mods.cv
+    hass.data.setdefault(C.DOMAIN, {})
+    base = hass.bus.async_listeners().get("ura_person_egress_event", 0)
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("consumer registration failed")
+
+    monkeypatch.setattr(mods.fi, "register_frigate_consumer", _boom)
+    await cvm.async_setup_crossing_vision(hass)
+    assert "crossing_vision" not in hass.data[C.DOMAIN]
+    assert hass.bus.async_listeners().get("ura_person_egress_event", 0) == base
+
+
+# ------------------------------------------------ platforms (S06 / N01)
+def _cm_entry(mods, hass, entry_id="cm_plat"):
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    C = mods.const
+    e = MockConfigEntry(domain=C.DOMAIN, entry_id=entry_id, data={
+        C.CONF_ENTRY_TYPE: C.ENTRY_TYPE_COORDINATOR_MANAGER})
+    e.add_to_hass(hass)
+    return e
+
+
+@pytest.mark.asyncio
+async def test_switch_platform_registers_crossing_vision_switch(mods, hass):
+    """S06: the REAL switch.async_setup_entry for the CM entry yields the
+    crossing-vision shadow switch."""
+    added: list = []
+    await mods.switch.async_setup_entry(
+        hass, _cm_entry(mods, hass), lambda ents, *a, **k: added.extend(ents))
+    hits = [e for e in added
+            if type(e).__name__ == "CrossingVisionShadowSwitch"]
+    assert len(hits) == 1
+    assert hits[0].entity_id == "switch.ura_crossing_vision_shadow"
+
+
+@pytest.mark.asyncio
+async def test_number_platform_registers_daily_calls_number(mods, hass):
+    """N01: the REAL number.async_setup_entry for the CM entry yields the
+    daily-cap Number, which publishes the cap key."""
+    added: list = []
+    await mods.number.async_setup_entry(
+        hass, _cm_entry(mods, hass), lambda ents, *a, **k: added.extend(ents))
+    hits = [e for e in added
+            if type(e).__name__ == "CrossingVisionDailyCallsNumber"]
+    assert len(hits) == 1
+    assert hass.data[mods.const.DOMAIN][
+        mods.const.CROSSING_VISION_CAP_HASS_KEY] == 40
+
+
+# ------------------------------------------------------ INV-OFF (M04)
+@pytest.mark.asyncio
+async def test_switch_key_absent_means_off(rig):
+    """M04: boot-before-restore (switch key not yet published) = OFF: no
+    call, no row, no trip-wire sample."""
+    rig.hass.data[rig.C.DOMAIN].pop(rig.C.CROSSING_VISION_SWITCH_HASS_KEY)
+    await ended_crossing(rig, "ev-nokey")
+    await cross(rig, FRONT_EGRESS, _now(rig) - timedelta(seconds=300))
+    await settle(rig)
+    assert rig.llm.calls == []
+    assert rows(rig) == []
+    assert len(rig.cv._seen) == 0
+
+
+# -------------------------------------------------- day roll (M91/M92/M09)
+@pytest.mark.asyncio
+async def test_daily_cap_resets_at_local_midnight(rig):
+    """Cap 1: one call, the next crossing is skipped_cap; after the local
+    date rolls, the next crossing (schedule-time gate on the egress path)
+    makes a call again."""
+    from homeassistant.util import dt as real_dt
+
+    rig.hass.data[rig.C.DOMAIN][rig.C.CROSSING_VISION_CAP_HASS_KEY] = 1
+    await ended_crossing(rig, "ev-d1")
+    await ended_crossing(rig, "ev-d2", camera="front_door_aerial",
+                         egress=FRONT_EGRESS)
+    assert len(rig.llm.calls) == 1
+
+    shim = types.SimpleNamespace(
+        now=lambda *a, **k: real_dt.now(*a, **k) + timedelta(days=1),
+        utcnow=real_dt.utcnow,
+        parse_datetime=real_dt.parse_datetime,
+    )
+    rig.monkeypatch.setattr(rig.mods.cv, "dt_util", shim)
+    await ended_crossing(rig, "ev-d3", offset_s=300)
+    assert len(rig.llm.calls) == 2
+    assert [r["outcome"] for r in rows(rig)] == ["ok", "skipped_cap", "ok"]
+
+
+# --------------------------------------------- cap double count (A1/B4)
+@pytest.mark.asyncio
+async def test_cap_does_not_double_count_in_flight_call(rig):
+    """Cap 2 with one call IN FLIGHT: a second crossing (other door, event
+    ended) is still allowed its call (1 made + 0 waiting < 2)."""
+    rig.hass.data[rig.C.DOMAIN][rig.C.CROSSING_VISION_CAP_HASS_KEY] = 2
+    rig.llm.reply = ("sleep", 0.3)
+    e = _now(rig) - timedelta(seconds=45)
+    s = e.timestamp() + 1
+    frigate(rig, "ev-if1", "garage_a", s, typ="end", end=s + 3)
+    fire_cross_nowait(rig, GARAGE_EGRESS, e)
+    for _ in range(50):
+        await asyncio.sleep(0)
+        if rig.llm.calls:
+            break
+    assert len(rig.llm.calls) == 1
+    rig.llm.reply = _ok_reply()
+    frigate(rig, "ev-if2", "front_door_aerial", s, typ="end", end=s + 3)
+    k2 = fire_cross_nowait(rig, FRONT_EGRESS, e + timedelta(seconds=2))
+    await asyncio.sleep(0.4)
+    await settle(rig)
+    assert len(rig.llm.calls) == 2
+    assert {r["src"]: r["outcome"] for r in rows(rig)}[k2] == "ok"
+
+
+# ------------------------------------------------ cluster / bounds
+@pytest.mark.asyncio
+async def test_cluster_join_writes_exactly_one_row(rig):
+    """M16: a crossing that joins an open request gets ONE clustered row
+    (no fall-through to a second join or a match)."""
+    e = _now(rig) - timedelta(seconds=45)
+    s = e.timestamp() + 1
+    frigate(rig, "ev-cl1", "garage_a", s)
+    k1 = await cross(rig, GARAGE_EGRESS, e)
+    k2 = await cross(rig, "binary_sensor.doorbell_lite_person_occupancy",
+                     e + timedelta(seconds=20))
+    frigate(rig, "ev-cl1", "garage_a", s, typ="end", end=s + 30)
+    await settle(rig)
+    srcs = [r["src"] for r in rows(rig)]
+    assert sorted(srcs) == sorted([k1, k2])
+    assert len(srcs) == 2
+
+
+@pytest.mark.asyncio
+async def test_ring_bounded_per_camera(rig):
+    """M35: the per-camera ring keeps the newest EVENT_RING events."""
+    rig.monkeypatch.setattr(rig.C, "CROSSING_VISION_EVENT_RING", 2)
+    s = _now(rig).timestamp()
+    for i in range(3):
+        frigate(rig, f"ev-r{i}", "garage_a", s + i)
+    assert list(rig.cv._ring["garage_a"]) == ["ev-r1", "ev-r2"]
+
+
+@pytest.mark.asyncio
+async def test_done_request_pruned_after_horizon(rig):
+    """M45: a done request older than 2 x CLUSTER_S (120 s) is pruned when
+    the next crossing arrives."""
+    await ended_crossing(rig, "ev-p1")
+    assert len(rig.cv._requests) == 1
+    await ended_crossing(rig, "ev-p2", camera="front_door_aerial",
+                         egress=FRONT_EGRESS, offset_s=200)
+    assert [r.event["id"] for r in rig.cv._requests] == ["ev-p2"]
+
+
+@pytest.mark.asyncio
+async def test_waiting_request_never_pruned(rig):
+    """M46: a WAITING request older than the horizon is kept (only done
+    ones are pruned) and still makes its call when the event ends."""
+    e = _now(rig) - timedelta(seconds=245)
+    s = e.timestamp() + 1
+    frigate(rig, "ev-w-old", "garage_a", s)
+    await cross(rig, GARAGE_EGRESS, e)
+    await cross(rig, FRONT_EGRESS, e + timedelta(seconds=200))
+    await settle(rig)
+    assert [r.status for r in rig.cv._requests] == ["waiting"]
+    frigate(rig, "ev-w-old", "garage_a", s, typ="end", end=s + 5)
+    await settle(rig)
+    assert len(rig.llm.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_non_person_event_never_enters_ring(rig):
+    """M32: a car event on a door camera is not held or matched."""
+    e = _now(rig) - timedelta(seconds=45)
+    s = e.timestamp() + 1
+    frigate(rig, "ev-car", "garage_a", s, label="car")
+    frigate(rig, "ev-car", "garage_a", s, typ="end", end=s + 4, label="car")
+    await cross(rig, GARAGE_EGRESS, e)
+    await settle(rig)
+    assert "ev-car" not in rig.cv._ring.get("garage_a", {})
+    assert rig.llm.calls == []
+    assert rows(rig)[0]["outcome"] == "no_frigate_event"
+
+
+# ------------------------------------------------ URL safety (M73/M74/F02)
+@pytest.mark.asyncio
+async def test_unsafe_instance_id_never_sent(rig):
+    """M73: an instance id that is not a safe path token -> no_clip_url."""
+    rig.hass.data["frigate"]["f2"]["config"]["mqtt"]["client_id"] = "../evil"
+    await ended_crossing(rig, "ev-badinst")
+    assert rig.llm.calls == []
+    assert rows(rig)[-1]["outcome"] == "no_clip_url"
+
+
+@pytest.mark.asyncio
+async def test_single_running_instance_fallback(rig):
+    """M74: a bus-sourced event (no instance) with exactly ONE running
+    Frigate instance uses that instance, even with two config entries."""
+    e = _now(rig) - timedelta(seconds=45)
+    s = e.timestamp() + 1
+    frigate(rig, "ev-bus1", "garage_a", s, source="bus")
+    frigate(rig, "ev-bus1", "garage_a", s, typ="end", end=s + 3, source="bus")
+    await cross(rig, GARAGE_EGRESS, e)
+    await settle(rig)
+    assert rig.llm.calls[-1]["video_file"] == (
+        "/api/frigate/frigate-f2/notifications/ev-bus1/clip.mp4")
+
+
+@pytest.mark.asyncio
+async def test_discover_instance_ids_normalises(mods, hass):
+    """F01 / F02 / F03 / F04: keyed by the stripped topic prefix without a
+    trailing '/', client_id stripped, blank client_id skipped, any error ->
+    {} (never a partial map)."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    fi = mods.fi
+    for eid in ("fa", "fb", "fc"):
+        MockConfigEntry(domain="frigate", entry_id=eid).add_to_hass(hass)
+    hass.data["frigate"] = {
+        "fa": {"config": {"mqtt": {"client_id": " frigate-a ",
+                                    "topic_prefix": " frigate2/ "}}},
+        "fb": {"config": {"mqtt": {"client_id": "   ", "topic_prefix": "x"}}},
+    }
+    assert fi.discover_frigate_instance_ids(hass) == {"frigate2": "frigate-a"}
+
+    class _Boom(dict):
+        def get(self, key, default=None):
+            if key == "fb":
+                raise RuntimeError("bad runtime")
+            return super().get(key, default)
+
+    hass.data["frigate"] = _Boom(hass.data["frigate"])
+    assert fi.discover_frigate_instance_ids(hass) == {}
+
+
+# --------------------------------------------- agreement case (P18/M83)
+def test_agreement_case_pins(mods):
+    ac = mods.cv.agreement_case
+    assert ac(2, 2) == "A"
+    assert ac(3, 2) == "B"   # vision higher
+    assert ac(2, 3) == "C"   # camera higher
+    assert ac(None, 2) == "D" and ac(2, None) == "D"
+
+
+@pytest.mark.asyncio
+async def test_row_agreement_case_vision_vs_camera(rig):
+    """M83: row label uses (vision, camera) order: vision 2 vs camera 1 ->
+    B; vision 2 vs camera 3 -> C."""
+    await ended_crossing(rig, "ev-ab", peak=1)
+    await ended_crossing(rig, "ev-ac", camera="front_door_aerial",
+                         egress=FRONT_EGRESS, peak=3)
+    assert [r["agreement_case"] for r in rows(rig)] == ["B", "C"]
+
+
+# ------------------------------------- trip-wire classes (M102/M105/P06)
+@pytest.mark.asyncio
+async def test_error_rate_counts_timeout_unparseable_refused(rig):
+    """M102: timeout + unparseable + refused (no plain 'error') out of 8
+    calls (3/8 > 0.25) page the error trip-wire."""
+    rig.monkeypatch.setattr(rig.C, "CROSSING_VISION_TIMEOUT_S", 0.05)
+    replies = [("sleep", 1.0), {"response_text": "two people"}, {}] + [
+        _ok_reply()] * 5
+    base = _now(rig) - timedelta(seconds=45) - timedelta(seconds=8 * 120)
+    for i, reply in enumerate(replies):
+        rig.llm.reply = reply
+        e = base + timedelta(seconds=i * 120)
+        s = e.timestamp() + 1
+        frigate(rig, f"ev-x{i}", "garage_a", s, typ="end", end=s + 3)
+        await cross(rig, GARAGE_EGRESS, e)
+        await settle(rig)
+        await asyncio.sleep(0.1)
+        await settle(rig)
+    assert [r["outcome"] for r in rows(rig)][:3] == [
+        "timeout", "unparseable", "refused"]
+    await rig.cv.async_evaluate_tripwires()
+    assert [p["kind"] for p in rig.pages] == ["crossing_vision_errors"]
+
+
+@pytest.mark.asyncio
+async def test_error_page_rearms_when_rate_recovers(rig):
+    """M105: once the rate drops back under the bar the latch clears, so a
+    later bad spell pages again."""
+    cv, now = rig.cv, rig.cv._epoch()
+    bad = [(now, "error")] * 3 + [(now, "ok")] * 5
+    cv._calls.extend(bad)
+    await cv.async_evaluate_tripwires()
+    cv._calls.clear()
+    cv._calls.extend([(now, "ok")] * 8)
+    await cv.async_evaluate_tripwires()
+    cv._calls.clear()
+    cv._calls.extend(bad)
+    await cv.async_evaluate_tripwires()
+    assert [p["kind"] for p in rig.pages] == [
+        "crossing_vision_errors", "crossing_vision_errors"]
+
+
+def test_parse_shapes_pinned(mods):
+    """P06 / P07 / P13 / P14 / P15: frames not a list or missing ->
+    unparseable (a counted failure, never blank); a non-mapping frame or a
+    bool people value -> unparseable; group must be a bool; desc is cut to
+    desc_max."""
+    p = mods.cv.parse_vision_response
+
+    def sr(**kw):
+        body = {"frames": [{"index": 1, "people": 1}], "people_total": 1,
+                "group": False, "desc": "abcdefgh"}
+        body.update(kw)
+        return {"structured_response": body}
+
+    assert p(sr(frames="x"), 200)["outcome"] == "unparseable"
+    assert p({"structured_response": {"people_total": 1}}, 200)["outcome"] == (
+        "unparseable")
+    assert p(sr(frames=[3]), 200)["outcome"] == "unparseable"
+    assert p(sr(frames=[{"index": 1, "people": True}]), 200)["outcome"] == (
+        "unparseable")
+    assert p(sr(group="yes"), 200)["group"] is None
+    assert p(sr(), 5)["desc"] == "abcde"
+
+
+# -------------------------------------- teardown in flight (M115/M118/M81)
+@pytest.mark.asyncio
+async def test_teardown_cancels_in_flight_call(rig):
+    """M118 / M115: the in-flight llmvision call is a tracked task, and
+    teardown gathers then cancels it (bounded); no row afterwards."""
+    rig.monkeypatch.setattr(rig.C, "CROSSING_VISION_TEARDOWN_GATHER_S", 0.05)
+    rig.llm.reply = ("sleep", 30)
+    e = _now(rig) - timedelta(seconds=45)
+    s = e.timestamp() + 1
+    frigate(rig, "ev-fly", "garage_a", s, typ="end", end=s + 3)
+    fire_cross_nowait(rig, GARAGE_EGRESS, e)
+    for _ in range(50):
+        await asyncio.sleep(0)
+        if rig.llm.calls:
+            break
+    assert len(rig.llm.calls) == 1
+    tasks = set(rig.cv._tasks)
+    assert len(tasks) == 1
+    await rig.cv.async_teardown()
+    await spin()
+    assert all(t.done() for t in tasks)
+    assert rows(rig) == []
+
+
+@pytest.mark.asyncio
+async def test_row_write_is_tracked_and_cancelled_at_teardown(rig):
+    """M81: the row write is a tracked task, so an unload with a write
+    still in flight cancels it instead of leaking it."""
+    rig.monkeypatch.setattr(rig.C, "CROSSING_VISION_TEARDOWN_GATHER_S", 0.05)
+    gate = asyncio.Event()
+
+    async def _slow_write(**_kw):
+        await gate.wait()
+
+    rig.monkeypatch.setattr(rig.db, "log_memory_episode", _slow_write)
+    fire_cross_nowait(rig, GARAGE_EGRESS, _now(rig) - timedelta(seconds=45))
+    await spin()
+    tasks = set(rig.cv._tasks)
+    assert len(tasks) == 1
+    await rig.cv.async_teardown()
+    await spin()
+    assert all(t.done() for t in tasks)
+
+
+# ------------------------------------------- call arguments (M68/K14/A6)
+@pytest.mark.asyncio
+async def test_call_arguments_timeout_provider_tokens(rig):
+    """M68 / K14: timeout_s handed to the adapter is 90 s (plan F6: above
+    llmvision's own 60 s request timeout). Model wiring: provider is the
+    operator's "OpenAI Madrone Vision" entry and model gpt-6-luna. A6: the
+    crossing max_tokens (1500) does not follow the perimeter option."""
+    seen: list = []
+    real = rig.mods.pe.analyze_crossing_frames
+
+    async def _spy(*a, **kw):
+        seen.append(kw)
+        return await real(*a, **kw)
+
+    rig.monkeypatch.setattr(rig.mods.pe, "analyze_crossing_frames", _spy)
+    for entry in rig.hass.config_entries.async_entries(rig.C.DOMAIN):
+        rig.hass.config_entries.async_update_entry(entry, options={
+            rig.C.CONF_PERIMETER_ENRICHMENT_MAX_TOKENS: 50})
+    await ended_crossing(rig, "ev-args")
+    [kw] = seen
+    assert kw["timeout_s"] == 90.0
+    assert kw["timeout_s"] > 60
+    assert kw["provider"] == "01M7B731T26P2HXVW77AQR62PP"
+    assert kw["model"] == "gpt-6-luna"
+    call = rig.llm.calls[0]
+    assert call["provider"] == "01M7B731T26P2HXVW77AQR62PP"
+    assert call["max_tokens"] == 1500
+
+
+@pytest.mark.asyncio
+async def test_empty_provider_const_falls_back_to_perimeter_provider(rig):
+    rig.monkeypatch.setattr(rig.C, "CROSSING_VISION_PROVIDER_ID", "")
+    await ended_crossing(rig, "ev-prov")
+    assert rig.llm.calls[0]["provider"] == "prov_openai"
+
+
+# --------------------------------------------- writer health (K03)
+@pytest.mark.asyncio
+async def test_writer_health_absence_exempt_during_vacation(rig):
+    """K03: zero crossing-vision rows over a week the house was away for
+    the whole window is not paged (absence-exempt), through the real
+    writer-health check on the real DB."""
+    from datetime import datetime, timezone
+
+    ts = (datetime.now(timezone.utc) - timedelta(days=10)).replace(
+        tzinfo=None).isoformat()
+    conn = sqlite3.connect(rig.db.db_file)
+    try:
+        conn.execute(
+            "INSERT INTO house_state_log (timestamp, state, confidence) "
+            "VALUES (?, 'away', 1.0)", (ts,))
+        conn.commit()
+    finally:
+        conn.close()
+    stats = await rig.db.run_memory_writer_health_check(triggered_by="manual")
+    assert "crossing_vision_shadow" in stats["absence_suppressed_types"]
+
+
+@pytest.mark.asyncio
+async def test_call_is_background_task(rig):
+    """Review B2: the llmvision call runs as a background task, so an HA
+    stop (which waits on ordinary tasks) is not held for up to TIMEOUT_S by
+    an in-flight call. hass.async_block_till_done() without background
+    tasks returns while the call is still in flight."""
+    rig.monkeypatch.setattr(rig.C, "CROSSING_VISION_TEARDOWN_GATHER_S", 0.05)
+    rig.llm.reply = ("sleep", 30)
+    e = _now(rig) - timedelta(seconds=45)
+    s = e.timestamp() + 1
+    frigate(rig, "ev-bg", "garage_a", s, typ="end", end=s + 3)
+    fire_cross_nowait(rig, GARAGE_EGRESS, e)
+    await spin()
+    assert len(rig.llm.calls) == 1
+    await asyncio.wait_for(rig.hass.async_block_till_done(), timeout=2)
+    assert rows(rig) == []
+    await rig.cv.async_teardown()

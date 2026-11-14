@@ -126,3 +126,36 @@ def test_unload_entry_tears_down_crossing_vision_before_ingress(monkeypatch):
     with pytest.raises(_Reached):
         asyncio.run(init_mod.async_unload_entry(hass, entry))
     assert calls == [True]
+
+
+def test_unload_entry_awaits_real_producer_teardown(monkeypatch):
+    """Review C M122 / M121 through the REAL unload path: neither
+    async_unload_entry nor async_teardown_crossing_vision is stubbed. A
+    published producer's own async_teardown must be awaited (it raises the
+    BaseException sentinel, so reaching it stops the unload there) and its
+    hass.data key popped. Not awaiting it -> the sentinel never fires ->
+    RED."""
+    init_mod = importlib.import_module("custom_components.universal_room_automation")
+    const = importlib.import_module("custom_components.universal_room_automation.const")
+    fi = importlib.import_module(
+        "custom_components.universal_room_automation.frigate_ingress"
+    )
+    hass = StubHass()
+    entry = StubConfigEntry("integ", const.ENTRY_TYPE_INTEGRATION, data={})
+    seen = []
+
+    class _Producer:
+        async def async_teardown(self):
+            seen.append(const.CROSSING_VISION_HASS_KEY in hass.data[const.DOMAIN])
+            raise _Reached()
+
+    hass.data.setdefault(const.DOMAIN, {})[fi.FRIGATE_INGRESS_HASS_KEY] = object()
+    hass.data[const.DOMAIN][const.CROSSING_VISION_HASS_KEY] = _Producer()
+
+    async def _unload_platforms(_entry, _platforms):
+        return True
+
+    hass.config_entries.async_unload_platforms = _unload_platforms
+    with pytest.raises(_Reached):
+        asyncio.run(init_mod.async_unload_entry(hass, entry))
+    assert seen == [False]  # popped BEFORE the producer teardown runs

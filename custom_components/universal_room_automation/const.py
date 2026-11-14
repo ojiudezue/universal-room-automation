@@ -3534,8 +3534,20 @@ CONF_CROSSING_VISION_DAILY_CALLS: Final = "crossing_vision_daily_calls"
 # allow up to one more cap that day (≤ $0.50 on gpt-4o-mini; plan rev 2 F7).
 CROSSING_VISION_DAILY_CALLS: Final = 40
 CROSSING_VISION_DAILY_CALLS_MAX: Final = 200
-# Rung 1: model change needs a dry call first (D5 moves it).
-CROSSING_VISION_MODEL: Final = "gpt-4o-mini"
+# Rung 1: model change needs a dry call first (D5 moves it). Operator
+# 2026-11-13: the producer uses its own llmvision entry "OpenAI Madrone
+# Vision" (model gpt-6-luna; temperature 1.0 and top_p 1.0 live on that
+# llmvision entry's data, llmvision __init__.py:101-102, not on the service
+# call, so URA sends neither).
+CROSSING_VISION_MODEL: Final = "gpt-6-luna"
+# Rung 1: llmvision config entry id sent as the `provider` service field.
+# Empty string = fall back to the perimeter's provider
+# (CONF_PERIMETER_ENRICHMENT_PROVIDER_ID). An entry id, not a credential.
+CROSSING_VISION_PROVIDER_ID: Final = "01M7B731T26P2HXVW77AQR62PP"
+# Rung 1 (review A6): own max_tokens, so lowering the perimeter's
+# CONF_PERIMETER_ENRICHMENT_MAX_TOKENS for alerts cannot truncate this JSON.
+# 1500 = the perimeter default the D0 dry calls ran with.
+CROSSING_VISION_MAX_TOKENS: Final = 1500
 # Rung 1: first (pre-roll) frame + 3. Keep >= 3: D0b found the first
 # frame empty in 53 % of responses.
 CROSSING_VISION_MAX_FRAMES: Final = 4
@@ -3544,6 +3556,12 @@ CROSSING_VISION_TARGET_WIDTH: Final = 768
 # Rung 1 (rev 2 F6): above llmvision's own request_timeout (default 60 s) plus
 # clip fetch + ffmpeg, because wait_for cancels llmvision's handler in place.
 # D0b measured p99 17.8 s, max 19.4 s: 90 kept.
+# Review B1 (known upstream leak, llmvision 1.7.1 media_handlers.py:662-845):
+# a cancel (this timeout, or the unload gather cancel) during clip fetch or
+# ffmpeg leaves one temp .mp4 (NamedTemporaryFile(delete=False), removed only
+# on the normal path, not in a finally) and the ffmpeg subprocess running
+# until its pipe closes. Rare at ~14 calls/day under 20 s. Upstream fix
+# (try/finally + process.kill()) is carded, not a URA change.
 CROSSING_VISION_TIMEOUT_S: Final = 90
 # Rung 1: Frigate event start must lie in [E - this, E + this]. D0c:
 # coverage 74 % at +-10 s, 88 % at +-60 s (scorer note; window unchanged).

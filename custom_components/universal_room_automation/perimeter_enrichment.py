@@ -369,6 +369,8 @@ async def analyze_crossing_frames(
     structure: str,
     prompt: str,
     expose_images: bool,
+    provider: str | None = None,
+    max_tokens: int | None = None,
 ) -> dict[str, Any] | None:
     """Ask llmvision for a structured per-frame people count on one clip.
 
@@ -377,9 +379,11 @@ async def analyze_crossing_frames(
     ``event_id`` (llmvision builds the default-instance URL) is sent;
     ``video_file`` wins when both are given. llmvision signs the HA path and
     fetches it through HA's Frigate proxy, so no URA code holds or sends
-    Frigate credentials. ``provider`` is the perimeter's
-    ``CONF_PERIMETER_ENRICHMENT_PROVIDER_ID`` (read the same way as
-    ``enrich_dispatched_alert``); ``store_in_timeline`` and ``use_memory`` are
+    Frigate credentials. ``provider`` (an llmvision config entry id) wins
+    when given; otherwise the perimeter's
+    ``CONF_PERIMETER_ENRICHMENT_PROVIDER_ID`` is used (read the same way as
+    ``enrich_dispatched_alert``). ``max_tokens`` likewise wins over the
+    perimeter's max-tokens option; ``store_in_timeline`` and ``use_memory`` are
     always False (§15.2: llmvision memory never carries resident faces).
 
     Returns:
@@ -395,17 +399,20 @@ async def analyze_crossing_frames(
         return None
     try:
         cfg = _get_integration_config(hass)
-        provider_id = cfg.get(CONF_PERIMETER_ENRICHMENT_PROVIDER_ID) or None
-        max_tokens = int(cfg.get(
-            CONF_PERIMETER_ENRICHMENT_MAX_TOKENS,
-            DEFAULT_PERIMETER_ENRICHMENT_MAX_TOKENS,
-        ))
+        provider_id = (
+            provider or cfg.get(CONF_PERIMETER_ENRICHMENT_PROVIDER_ID) or None
+        )
+        if max_tokens is None:
+            max_tokens = int(cfg.get(
+                CONF_PERIMETER_ENRICHMENT_MAX_TOKENS,
+                DEFAULT_PERIMETER_ENRICHMENT_MAX_TOKENS,
+            ))
         service_data: dict[str, Any] = {
             "message": prompt,
             "model": model,
             "max_frames": int(max_frames),
             "target_width": int(target_width),
-            "max_tokens": max_tokens,
+            "max_tokens": int(max_tokens),
             "include_filename": False,
             "generate_title": False,
             "store_in_timeline": False,

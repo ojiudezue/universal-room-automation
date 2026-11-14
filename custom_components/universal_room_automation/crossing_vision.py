@@ -151,8 +151,9 @@ def parse_vision_response(result: Any, desc_max: int) -> dict[str, Any]:
     provider supports structured output and the text parsed as JSON; it
     returns ``{"response_text": "<text>"}`` otherwise. Both are accepted.
 
-    Returns ``{"outcome", "people_count", "frame_counts", "vision_direction",
-    "group", "desc"}``. Outcomes: ok / blank (INV-BLANK) / unparseable /
+    Returns ``{"outcome", "people_count", "frame_counts", "group", "desc"}``
+    (no direction field: D0 found no usable direction signal, so the
+    producer neither asks for nor records one). Outcomes: ok / blank (INV-BLANK) / unparseable /
     refused (empty text or an empty dict).
     """
     out: dict[str, Any] = {
@@ -312,6 +313,9 @@ class CrossingVisionShadow:
     def _pending(self) -> int:
         return sum(1 for r in self._requests if r.status in ("waiting", "calling"))
 
+    def _waiting(self) -> int:
+        return sum(1 for r in self._requests if r.status == "waiting")
+
     # ---- lifecycle ------------------------------------------------------
     async def async_setup(self) -> None:
         from homeassistant.helpers.event import (  # noqa: PLC0415
@@ -367,12 +371,20 @@ class CrossingVisionShadow:
                         t.cancel()
         self._tasks.clear()
 
-    def _spawn(self, coro: Any) -> None:
+    def _spawn(self, coro: Any, *, background: bool = False) -> None:
+        """Track a task for the bounded teardown gather. ``background`` (the
+        llmvision call, review B2) uses a background task so an HA stop does
+        not wait up to TIMEOUT_S on it; row writes stay ordinary tasks."""
         if self._torn_down:
             coro.close()
             return
         try:
-            task = self.hass.async_create_task(coro)
+            if background:
+                task = self.hass.async_create_background_task(
+                    coro, "crossing_vision_run",
+                )
+            else:
+                task = self.hass.async_create_task(coro)
         except Exception:  # noqa: BLE001
             coro.close()
             _LOGGER.debug("crossing_vision: task create failed", exc_info=True)
@@ -574,7 +586,9 @@ class CrossingVisionShadow:
             return
 
         # 3. Schedule-time gates (cap, concurrency). Off was handled above.
-        if self._calls_today + self._pending() >= self.daily_cap():
+        #    A `calling` request is already in _calls_today, so only the
+        #    `waiting` ones are added (reviews A1/B4: no double count).
+        if self._calls_today + self._waiting() >= self.daily_cap():
             self._record(crossing, OUTCOME_SKIPPED_CAP, event=match)
             return
         if self._pending() >= max(0, int(_c.CROSSING_VISION_MAX_CONCURRENT)):
@@ -662,7 +676,7 @@ class CrossingVisionShadow:
         if req.status != "waiting":
             return
         req.status = "calling"
-        self._spawn(self._run(req))
+        self._spawn(self._run(req), background=True)
 
     def _clip_reference(self, ev: Mapping[str, Any]) -> tuple[str | None, str | None]:
         """Return (video_file, event_id) per plan rev 2 F4; (None, None) when
@@ -727,6 +741,8 @@ class CrossingVisionShadow:
                 structure=RESPONSE_STRUCTURE,
                 prompt=PROMPT,
                 expose_images=bool(_c.CROSSING_VISION_KEEP_FRAMES),
+                provider=str(_c.CROSSING_VISION_PROVIDER_ID) or None,
+                max_tokens=int(_c.CROSSING_VISION_MAX_TOKENS),
             )
             latency = round(self._epoch() - started, 2)
             if reply is None:
@@ -930,11 +946,19 @@ async def async_setup_crossing_vision(hass: HomeAssistant) -> None:
     is torn down first. Any failure leaves the key absent; nothing else
     depends on it."""
     await async_teardown_crossing_vision(hass)
+    cv: CrossingVisionShadow | None = None
     try:
         cv = CrossingVisionShadow(hass)
         await cv.async_setup()
-        hass.data[DOMAIN][_c.CROSSING_VISION_HASS_KEY] = cv
+        hass.data.setdefault(DOMAIN, {})[_c.CROSSING_VISION_HASS_KEY] = cv
     except Exception:  # noqa: BLE001
+        # Review B3: a partial setup (bus listener registered, consumer or
+        # interval failed) must not leak the listener for the process life.
+        if cv is not None:
+            try:
+                await cv.async_teardown()
+            except Exception:  # noqa: BLE001
+                pass
         _LOGGER.error("Crossing vision shadow setup failed", exc_info=True)
 
 
