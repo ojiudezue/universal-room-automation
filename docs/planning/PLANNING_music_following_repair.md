@@ -17,7 +17,9 @@ TEST-MUSIC-SYSMODULES-LEAK-1. Plan review: `docs/reviews/plan-review/PLANREVIEW_
 - Operator answers 2026-11-13: (1) the old room follows the original design: fade the source to 10 percent,
   confirm the target plays, then remove the source after a short delay and restore its volume (named knob, confirmed
   on the weekend walk). (2) "We should check to see if every player is on MA. Then consolidate on MA. With backup of
-  the native interfaces which are likely Wiim/linkplay, denon, Sonos and Apple?"
+  the native interfaces which are likely Wiim/linkplay, denon, Sonos and Apple?" (3) "bounce btw 2 rooms adjacent to each other
+  fast that bad things don't happen... transfers into master should primarily transfer into the Sonos system there. If
+  the tablets join because they're in that room, that's a bonus."
 
 What that means here: the feature stays ON. Music Assistant is the primary path for every player it covers; native
 paths are the fallback. When a person walks from a room with music to a room with a speaker, the
@@ -48,11 +50,7 @@ code change since the review base 434a7aae).
 | Live knobs | FIX | `update_gate_config` `:311`; CM in-place allowlist `__init__.py:7643-7645`, apply block `:8393`, seed `:3875-3905`; monkey-assign `dc:145-146` |
 | URA context stamp | REUSE | `ura_context.ura_ctx_kwargs` `ura_context.py:80`, `is_ura_context` `:87`; MF stamps nothing today |
 | Memory writer | REUSE | `database.log_memory_episode` `database.py:10686`, `MEMORY_EPISODE_TYPES` `const.py:6092`, `MEMORY_WRITER_BACKED_EPISODE_TYPES` `:6147`, `MEMORY_WRITER_HEALTH_ABSENCE_EXEMPT_TYPES` `:6200`; read via `memory_query` (`__init__.py:6439`) |
-| Digest | REUSE | `NotificationManager._fire_digest` `notification_manager.py:5620`, section pattern `_build_optimizer_digest_section` `:5788`, called `:5640` |
-| Zero-fire page | REUSE | `fire_stuck_signal` `domain_coordinators/_stuck_signal_nm.py:165` |
-| Nightly hook | REUSE | `nightly_maintenance.py` op list (`memory_writer_health` row) |
-| Collapsed form section | REUSE | `_advanced_section` `config_flow.py:53` |
-| Health sensors | REUSE | `MusicFollowingHealthSensor` `sensor.py:8129` (+ 3 more at `8359, 8430, 8510`) |
+| Digest, page, nightly, form, sensors | REUSE | digest `_fire_digest` `notification_manager.py:5620` (pattern `:5788`, call `:5640`); `fire_stuck_signal` `_stuck_signal_nm.py:165`; `nightly_maintenance.py` op list; `_advanced_section` `config_flow.py:53`; `MusicFollowingHealthSensor` `sensor.py:8129` (+ `8359, 8430, 8510`) |
 | Source lookback, outcome registry, accuracy sensor, follow-mode knob | NEW | grep `lookback`, `follow_mode`, `accuracy` in `music_following.py`, `const.py`, `config_flow.py`, `sensor.py` = 0 |
 
 MA schema verified upstream (review table): `music_assistant.transfer_queue` targets the destination `media_player`;
@@ -63,9 +61,8 @@ pass long dwells, but it gates on the wrong quantity and still blocks nothing us
 
 ## 2. Identity model and consumer class
 
-MF consumes F4-shaped per-person room location from dense BLE (PersonCoordinator), plus F1 (tracked persons). It reads
-no F2, F3 or F5 and produces no identity fact. Consumer class: comfort. Policy (BLE thresholds, sleep, night) lives
-in MF. Cameras are not an input.
+Consumes F4-shaped per-person room from dense BLE plus F1; no F2, F3, F5; produces no identity fact. Comfort class;
+policy lives in MF; cameras are not an input.
 
 ## 3. Falsifiable invariants
 
@@ -81,6 +78,13 @@ in MF. Cameras are not an input.
   room with a speaker, directly or through one room without a speaker within the lookback, gets a transfer attempt.
   Time spent in the first room is never a skip reason.
 - **INV-MF-4 (knobs are live).** Every knob in §7 changes behaviour on options save without a reload or restart.
+- **INV-MF-5 (fast bounce is safe).** Under any sequence A->B->A->B at any speed, including a transition that lands
+  inside another transfer's fade, verify, stop or restore window, and with ping-pong 0 and cooldown 0: music is never
+  silent in both rooms, never left at the faded volume, never loses or restarts its queue; every saved volume is
+  restored; at most one transfer per person is in flight. Operator: "bounce btw 2 rooms adjacent to each other fast
+  that bad things don't happen."
+- **INV-MF-6 (primary decides).** Only the configured `CONF_ROOM_MEDIA_PLAYER` reading `playing` confirms success.
+  Bonus players never lead, never delay and never fail a move.
 
 ## 4. Producer and consumer checks
 
@@ -88,11 +92,9 @@ in MF. Cameras are not an input.
 `closest_distance` are BLE facts; the transition `confidence` is dwell arithmetic (G-1) and is logged, never gated.
 **Producer: transfer outcome.** Fire check: last observed success 2026-10-11, `transfers_today 0`, `low_confidence 21`
 on audit day, which matches the dwell gate rejecting real moves. Skips and successes were not separable; D4 fixes it.
-**Consumers:** stats feed four sensors (display) and the anomaly baseline (observability). New consumers: digest,
-nightly trip-wire, room memory, PERSON-PROFILE-PREFERENCES-1 later (reads episodes, display/suggestion only).
-**Forward trace:** location event -> `TransitionDetector` -> `_on_person_transition` (gates) -> source resolution ->
-`_execute_transfer` -> path call -> verify -> source release -> outcome record -> stats, log, episode -> digest and
-trip-wire. Every link is a deliverable below.
+**Consumers:** four sensors and the anomaly baseline (display/observability); new: digest, trip-wire, room memory,
+later PERSON-PROFILE-PREFERENCES-1. **Forward trace:** event -> detector -> gates -> source -> path -> verify ->
+release -> outcome -> log, stats, episode -> digest, trip-wire; every link is a deliverable.
 
 ## 5. Emission and decision sites
 
@@ -117,7 +119,12 @@ Sonos https://www.music-assistant.io/player-support/sonos/ ; AirPlay https://www
 Apple TV has no provider page of its own; MA reaches it, if at all, through AirPlay (UNVERIFIED until D0). Grouping
 support per provider is not stated on that page; D0 reads the MA entity's `supported_features`. Output: a table of
 every player with MA coverage yes/no and, for each "no", what it would take (enable the MA provider, re-add the
-player in MA, or native-only). (b) From the recorder, for 7 days of room changes, the
+player in MA, or native-only). Each room's players are classed PRIMARY (the configured `CONF_ROOM_MEDIA_PLAYER`;
+live: Master Bedroom `media_player.master_bedroom_sonos_2` (Sonos), Master Bathroom `master_bathroom_3`, Kitchen
+`kitchen_3`, Living Room `living_room_2`, Study A/B, Guest Bedroom 1/2, Garage B, Laundry `utility_3`) or
+BONUS-ELIGIBLE (other players in the same HA area, e.g. MA-exposed wall tablets). Any room whose primary is itself a
+small device (a tablet) is flagged for the operator to fix config. A room with no player stays a counted
+`no_target_player` skip. (b) From the recorder, for 7 days of room changes, the
 `ble_confidence` distribution and how often a walk passes through a player-less room between two player rooms, with
 the gap length. (c) Count transitions per day where both rooms resolve a player (sizes episode volume).
 - **Verify:** the README carries the three tables. (b) sets the defaults of `CONF_MF_MIN_BLE_CONFIDENCE` and
@@ -155,6 +162,12 @@ cooldown, source resolution, target player, target unavailable, source others, s
   `leader_from_attr` in the decision; the live walk confirms it). Call `join(entity_id=leader, group_members=[to])`.
 - **Generic** otherwise: `play_media` of the source's content on the target, seek by `CONF_MF_POSITION_OFFSET`
   (the literal `+ 3` at `:1634` goes).
+- **Primary and bonus:** the move targets the primary only; verify reads the primary only. After the primary reads
+  `playing`, bonus players in the target room are joined to the primary's group if they group on the same path (same
+  provider for MA, `GROUPING` and same platform for native), best effort: a bonus failure is logged as
+  `bonus_join_failed` and changes nothing else. Knob `CONF_MF_BONUS_JOINS`, default on (operator calls it "a bonus";
+  it is attempted only after success, so it cannot cost the move). Bonus players are released with the room on the
+  next move out.
 - **Path order:** MA for every player D0 shows MA covers (when the MA source is the thing playing), then native
   join, then generic. One resolver returns the path and the reason; the reason is logged.
 - **Follow policy** `CONF_MF_FOLLOW_MODE`, default `move` (the original design, operator 2026-11-13): save the
@@ -173,6 +186,25 @@ cooldown, source resolution, target player, target unavailable, source others, s
 - **Discriminates:** the old join puts the idle target in `entity_id`; the old MA call sends `source`/`target` keys;
   both fail the payload tests against a FakeServices that validates the upstream schema.
 
+### D3b: fast bounce, one transfer in flight per person (INV-MF-5)
+Per person, MF keeps one in-flight record: phase (`fading`, `verifying`, `releasing`, `restoring`), source, target,
+saved volumes. A new transition for the same person while one is in flight supersedes it: the old task is cancelled,
+and its cleanup runs in a `finally` that restores every saved volume it took (a cancelled fade is undone). The old
+transfer records `superseded`. The new one is then evaluated from live state: if the music is already playing in
+its target (the bounce returned before the source was stopped), it records `returned_in_flight` and only restores
+volumes; otherwise it moves from whichever room is actually playing. A transition while the old move is past stop
+but before restore restores first, then evaluates. Ping-pong suppression runs first (in `transitions.py`, before MF)
+and cooldown second; both can be 0, and the in-flight rule alone must hold INV-MF-5 then. Different people are
+independent; two people moving between the same rooms are serialised by the existing `_transfer_lock`, and a move
+whose source now has the other person in it records `source_has_others`. New outcome names: `superseded`,
+`returned_in_flight`, `bonus_join_failed` (counted, not a move outcome).
+- **Test (fake clock):** `test_mf_bounce_during_fade_restores_and_keeps_queue`,
+  `test_mf_bounce_after_stop_before_restore`, `test_mf_rapid_triple_bounce_one_room_playing_volumes_restored`,
+  `test_mf_two_people_bounce_same_rooms`, all at ping-pong 0 and cooldown 0; `test_mf_bonus_join_failure_does_not_fail_move`,
+  `test_mf_verify_reads_primary_only`, `test_mf_bonus_off_knob`.
+- **Discriminates:** a version that cancels without the `finally` leaves a room at 10 percent; the triple-bounce test
+  asserts every player's final `volume_level` equals its saved value and exactly one room plays.
+
 ### D4: verify on ground truth; one outcome registry (fixes C-4, C-5, C-6, C-10)
 After any path, wait `CONF_MF_VERIFY_DELAY` and read the target. `success` iff `playing`. Only then release the
 source. The `media_play` nudge stays only on the generic path when the target's `media_content_id` matches what MF
@@ -185,7 +217,7 @@ WARNING and counts `unknown_outcome`. Names: `success`, `success_nudged`, `verif
 `coordinator_disabled`, `person_not_enabled`, `same_room`, `ble_low_confidence`, `ble_too_far`, `stale_transition`,
 `cooldown_blocked`, `ping_pong_suppressed`, `no_source_player`, `no_target_player`, `target_unavailable`,
 `source_has_others`, `source_not_playing`, `active_playback_blocked`, `sleep_suppressed`, `night_suppressed`,
-`exception`. The anomaly consumer (`dc:306`) reads the success rate from the same registry.
+`superseded`, `returned_in_flight`, `exception` (plus the counter `bonus_join_failed`). The anomaly consumer (`dc:306`) reads the success rate from the same registry.
 - **Test:** `test_mf_every_transition_has_exactly_one_outcome` (table-driven: one case per name, drives the real
   `_on_person_transition`), `test_mf_record_stat_unknown_name_is_counted`, `test_mf_source_untouched_when_target_not_playing`
   (3 paths), `test_mf_manual_transfer_verifies_before_release`, `test_mf_nudge_only_on_own_generic_media`.
@@ -257,15 +289,16 @@ Close TEST-MUSIC-SYSMODULES-LEAK-1 (fixture restores `sys.modules`).
 - **Test (Review C):** per-site source mutation on the join payload, MA payload, MA-only-if-playing check, verify gate,
   source release, lookback, BLE gate, outcome registry: each turns a named test red.
 
-### D9: options-flow UI and docs
-UI in §8. Update `docs/Coordinator/MUSIC_FOLLOWING.md` (gates, paths, follow mode, outcomes, episodes) and the
-presence state-of-play §1 consumer row for `ura_person_location_change` (new payload keys; MF as comfort consumer).
+### D9: UI (§8) and docs
+`MUSIC_FOLLOWING.md` (gates, paths, modes, outcomes, episodes); presence state-of-play §1 row for the new event keys.
 
 ### D10: live validation (operator walk, Saturday or Sunday)
-Music on a WiiM in room A for at least 5 minutes, walk to WiiM room B; then B -> C; then A -> hallway -> B; then an
-MA room if D0 found one.
+Music in room A for 5+ minutes, walk to B; B -> C; A -> hallway -> B; into Master Bedroom (Sonos primary, tablets as
+bonus); then bounce A <-> B four times within 30 s.
 - **Live:** target reads `playing` within the verify delay; in `move` mode the source drops to 10 percent, is
-  removed about 5 s after the target plays, and reads its original `volume_level` afterwards; `group_members` read on both players and the leader matches the decision log;
+  removed about 5 s after the target plays, and reads its original `volume_level` afterwards; after the bounce exactly
+one room plays at its own volume and the log shows `superseded`/`returned_in_flight`; in Master the Sonos reads
+`playing` and is the leader; `group_members` and the leader match the decision log;
   `outcomes_today.success` increments; one `music_follow_decision` row per leg in room memory; the digest shows the
   line next morning. A walk with nothing playing records `source_not_playing`, or `source_has_others` /
   `target_unavailable` when those gates apply first (order in D2).
@@ -278,6 +311,7 @@ MA room if D0 found one.
 |---|---|---|---|
 | `CONF_MF_FOLLOW_MODE` | 2 NEW | `move` | move (fade, verify, remove, restore) vs play in both rooms; operator confirms on the walk |
 | `CONF_MF_RELEASE_DELAY` | 2 (existing `CONF_MF_UNJOIN_DELAY` key, now wired) | 5 | seconds after the target plays before the source is removed; 0 = at once |
+| `CONF_MF_BONUS_JOINS` | 2 NEW | on | join other players in the target room after success; off = primary only |
 | `CONF_MF_MIN_BLE_CONFIDENCE` | 2 NEW | 0.5 (D0 sets) | BLE room confidence floor; 0 = off |
 | `CONF_MF_HIGH_CONFIDENCE_DISTANCE` | 2 existing | 8 ft | BLE bleed guard; 0 = off; now pushed live |
 | `CONF_MF_SOURCE_LOOKBACK_SECONDS` | 2 NEW | 90 (D0 sets) | hallway walk-through; 0 = off |
@@ -339,8 +373,8 @@ no cost or safety path. Live validation (D10) and README write-back required.
 
 ## 11. Plan-review findings disposition
 
-All fixed: G-1 (D1), G-2 (D2), G-3 (D3 follow mode, default move), C-1, C-2, C-3 (D3), C-4, C-5, C-6, C-10 (D4,
-§3), C-7, C-8, C-9 (D7, §7), C-11 (D10 conditional outcome with gate order). Declined: none.
+All fixed, none declined: G-1 D1; G-2 D2; G-3, C-1, C-2, C-3 D3; C-4, C-5, C-6, C-10 D4 and §3; C-7, C-8, C-9 D7, §7;
+C-11 D10.
 
 ## 12. Plan completion tracking
 
