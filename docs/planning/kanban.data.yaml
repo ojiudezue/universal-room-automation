@@ -34868,6 +34868,9 @@ cards:
   operator_2026_11_13_priority: 'Make high priority cards. When a lane opens we can plan it. And execute. Consider if the overnight agent can grab it.'
   overnight_note: 'Overnight may write the plan and run its one plan review, then build to review (no deploy). Do NOT make the paid ai_task test call unattended; it waits for the operator''s ok. If the shared trust layer adds a new DB row type, use Tier 2-DB reviews.'
   autonomy: overnight-agentic
+  operator_2026_11_13_mission_critical: 'No shadow mode. I tested music following like 2 a long time ago. And it worked which was mind blowing. Treat the reformulations as full blown mission critical feature that must work on day 1. My trust just means get it right and make sure it''s tested well. No delays. This is where our features die and are not switched on'
+  FINDING_ai_task_schema_2026_11_13: 'Operator-approved live call (ai_task.generate_data with the rule parser structure, default entity): HTTP 500 "OpenAI output schema requires explicitly defined object fields at $.properties.actions.items". The object/multiple selector is rejected (same class as v5.2.1 Anthropic 400, const.py:5523-5531). So every rule parse fails and rules are stored needs_parsing with no actions. Fix: the proven OPTIMIZER_LLM_STRUCTURE pattern (a text field holding a JSON array, json.loads + validation), provider-portable.'
+  delivery_2026_11_13: 'No shadow stage. Ships ON and working on day 1. Reviews at Tier 2-DB strength; real-path tests; live validation of a real rule.'
 - id: MUSIC-FOLLOWING-TRANSFER-REPAIR-1
   design_2026_11_13: 'DESIGN_reimagine_room_ai_chaining_music_2026_11_13.md steps 0, 1 and 5: probes first (one WiiM-to-WiiM walk while playing, read group_members on both; map each room player to its Music Assistant entity via the device registry); then MA-first transfer, success only when the target is actually playing; later per-person preferences from PERSON-PROFILE-PREFERENCES-1 (music following is its first consumer). Comfort-class consumer of person location (BLE room transitions, nearest F4); moves to the awareness read API when it has a per-person room view.'
   title: Music following transfers are wired wrong (join leader inverted, MA transfer_queue wrong keys) plus dead timing knobs, reload listener leak and uncounted skips
@@ -34885,6 +34888,10 @@ cards:
   operator_2026_11_13_priority: 'Make high priority cards. When a lane opens we can plan it. And execute. Consider if the overnight agent can grab it.'
   overnight_note: 'Overnight may plan, build, review and validate to review (no deploy). Code-side probe (MA entity mapping via device registry) is read-only and fine. The live WiiM walk and the deploy wait for the operator.'
   autonomy: overnight-agentic
+  operator_2026_11_13_mission_critical: 'No shadow mode. I tested music following like 2 a long time ago. And it worked which was mind blowing. Treat the reformulations as full blown mission critical feature that must work on day 1. My trust just means get it right and make sure it''s tested well. No delays. This is where our features die and are not switched on'
+  operator_2026_11_13_ble_solved: 'Note that we already know the rooms everyone we know is in via dense ble. Again this is solved. Vision confirms known person tracks and locations and guest locations and egress, ingress. It''s complementary to a lot of what we have. Ble is literal, Vision adds depth. Eventually we should be able to see and decode emotion.'
+  delivery_2026_11_13: 'No shadow stage. Ships ON and working on day 1. Reviews at Tier 2-DB strength (three framings); real-path tests asserting the actual service payloads; person room comes from the existing dense-BLE per-person location now (no wait for the awareness API).'
+  live_walk: 'Operator: "let''s do it Sat or Sunday" (WiiM-to-WiiM walk while playing, read group_members on both players). Also the day-1 live validation.'
 - id: PHONE-LEFT-BEHIND-TRANSIENT-FLICKER-1
   arc_cut_v5_108_19: "with PLB build"
   arc_cut_v5_108_18: "with PLB build"
