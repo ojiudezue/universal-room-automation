@@ -35216,7 +35216,7 @@ cards:
 - id: PERIMETER-SWITCH-LABELS-AND-FLOW-PARITY-1
   title: Perimeter demote switches have unclear names and no config-flow entry; every device switch needs an options-flow field
   thread: security
-  status: waiting_operator
+  status: planned
   created: '2026-11-13 12:30'
   updated: '2026-11-13 12:30'
   tier: 1
@@ -35224,8 +35224,9 @@ cards:
   origin: {date: '2026-11-13', gist: 'Operator: "Name of switch. not good yet." "Switches should have a config flow entry. They are on the device for convenience and quick access."'}
   why: 'Labels say Quiet when the alert goes to the digest at LOW; settings must be findable in the options flow. Parity audit running (AUDIT_perimeter_settings_and_masks_2026_11_13.md).'
   label_proposals_2026_11_13: 'Device names (<=3-4 words) -> options-flow helper text. (1) perimeter_zone_agreement_demote: Quiet Off-Property Alerts -> Lower Street Alerts; helper: People seen only off your property (street, sidewalk) go to the digest as low priority instead of alerting. (2) perimeter_single_source_demote: Quiet Single-Camera-System Alerts -> Lower Unconfirmed Alerts; helper: In daylight, a first alert seen by only one camera system (Frigate or Protect) goes out as low priority unless the other confirms within 8 seconds. Never after sunset. (3) perimeter_egress_known_xcorr_gate: Door Alerts Only for Strangers -> Doors: Strangers Only; helper: Door cameras alert only for a person who is not recognised and is seen by both camera systems. (4) perimeter_identity_followup: Door Alert Name Follow-Up -> Name Follow-Up; helper: When a door alert person is recognised a little later, send a short follow-up with their name. (5) select perimeter_vlm_gate: Perimeter AI Person Check -> AI Person Check; options off / shadow / enforce shown as Off / Watch only / On; helper: An AI looks at the snapshot to confirm a real person before alerting. All five get an options-flow step Perimeter alerts (5 of 7 have no flow field today).'
-  next: 'APPROVE or edit the five names -> I build the renames + the Perimeter alerts options-flow step (Tier 1), entity ids unchanged.'
-  rank: {value: 4, time_criticality: 2, effort: 2}
+  operator_2026_11_13_names: '1. Lower Road alerts 2. Lower Single-sourced alerts > this one feels like it should only be available if the customer has 2 nvr systems using the same cams. Most people won''t have this. 3. Unknown person door alert 4. Add names to alerts 5. AI Person Check'
+  decided_names: 'perimeter_zone_agreement_demote = Lower Road Alerts; perimeter_single_source_demote = Lower Single-Sourced Alerts (switch AND options-flow field shown ONLY when at least one camera has both a Frigate and a Protect leg on the same physical camera, via the camera resolver; otherwise not created / hidden, setting treated as off); perimeter_egress_known_xcorr_gate = Unknown Person Door Alert; perimeter_identity_followup = Add Names to Alerts; perimeter_vlm_gate = AI Person Check (Off / Watch only / On). Helper texts per label_proposals_2026_11_13, adjusted to the new names.'
+  next: 'Me: Tier 1 build when a builder slot frees: renames (entity ids unchanged), Perimeter alerts options-flow step with all five, conditional exposure of the single-sourced switch (reuse the NVR family detection; coordinate with NVR-WITNESS-CONSOLIDATION-1 family_of when it lands), tests incl. one-NVR and two-NVR installs.'
 - id: LLMVISION-GPT6-ENTRY-1
   title: Add a second llmvision OpenAI entry for GPT-6 (temperature 1.0) so crossing vision can use the cheaper model
   thread: identity
