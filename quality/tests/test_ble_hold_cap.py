@@ -603,48 +603,52 @@ def test_MUTATION_reset_tier1_primary_branch_clears_anchor():
 
 
 def test_MUTATION_reset_camera_branch_clears_anchor():
-    """Deleting the `self._ble_only_hold_since = None` inside the
-    camera override branch (~coordinator.py:3676) MUST flip this test
-    RED. Drives the exact production region."""
+    """Deleting the `self._ble_only_hold_since = None` inside the v3.5.1
+    camera override branch MUST flip this test RED.
+
+    Executes the REAL camera override section of `_async_update_data`
+    (anchored on its stable section-header comments, dedented with
+    `textwrap.dedent`, so re-indentation of the block cannot break the
+    extraction) with a person sensor reporting `on`: the camera branch
+    must fire (occupied, source camera) AND clear the BLE-only anchor."""
+    import textwrap  # noqa: PLC0415
     src = _COORD_PATH.read_text(encoding="utf-8")
-    # Extract just the innermost admit block (indent = 28 spaces).
-    marker_start = "                            data[STATE_OCCUPIED] = True\n                            data[STATE_OCCUPANCY_SOURCE] = \"camera\""
-    marker_end = "                            _LOGGER.debug(\n                                \"Room %s: Camera person sensor %s overrides vacancy \u2014 \""
-    i = src.index(marker_start)
-    j = src.index(marker_end, i)
-    block = src[i:j]
-    # Dedent 28 spaces.
-    lines = block.splitlines()
-    out = []
-    for ln in lines:
-        if ln.startswith(" " * 28):
-            out.append(ln[28:])
-        elif ln.strip() == "":
-            out.append("")
-        else:
-            out.append(ln.lstrip())
-    body = "\n".join(out)
+    i = src.index("# === v3.5.1: Camera extends room occupancy ===")
+    j = src.index("# === v3.8.8: BLE/Bermuda extends room occupancy ===", i)
+    # Re-indent the header line to match the block body, then dedent.
+    line_start = src.rfind("\n", 0, i) + 1
+    body = textwrap.dedent(src[line_start:j])
     code = compile(body, str(_COORD_PATH), "exec")
     now = dt_util.now()
     self_ = _FakeCoord()
     self_._occupancy_timeout = 300
+    self_._failsafe_fired = False
     self_._last_motion_time = None
-    self_._last_motion_bit_time = None
     self_._became_occupied_time = None
     self_._ble_only_hold_since = now - timedelta(seconds=8100)
+    self_._ble_absent_since = now - timedelta(seconds=30)
+    self_._ble_grace_used = True
     self_._last_occupied_state = False
     self_._last_occupied_time = None
+    _cam = "binary_sensor.camera_person"
+    self_._camera_override_live_person_sensors = lambda: [_cam]
+    _on = MagicMock()
+    _on.state = "on"
+    self_.hass = MagicMock()
+    self_.hass.states.get = lambda eid: _on if eid == _cam else None
+    data: dict = {}
     ns = {
-        "self": self_, "now": now,
-        "data": {},
+        "self": self_, "now": now, "data": data,
         "STATE_OCCUPIED": "occupied",
         "STATE_TIMEOUT_REMAINING": "timeout_remaining",
         "STATE_OCCUPANCY_SOURCE": "occupancy_source",
-        "person_sensor": "binary_sensor.camera_person",
         "room_name": "MasterBathroom",
         "_LOGGER": __import__("logging").getLogger("cap_camera_test"),
     }
     exec(code, ns)
+    # The camera branch actually fired (not a vacuous pass).
+    assert data["occupied"] is True
+    assert data["occupancy_source"] == "camera"
     assert self_._ble_only_hold_since is None, (
         "Camera override branch did not reset _ble_only_hold_since \u2014 "
         "a camera\u2192BLE handoff would carry a stale motion-timeout clock."

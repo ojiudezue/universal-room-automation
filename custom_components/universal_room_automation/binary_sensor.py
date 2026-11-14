@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 from datetime import timedelta
+from typing import Any
 
 from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
@@ -115,6 +116,10 @@ async def async_setup_entry(
 
         # v3.5.2: Per-person phone-left-behind sensor (one per tracked person)
         from .const import CONF_TRACKED_PERSONS
+        # PHONE-LEFT-BEHIND-CAMERA-LEG-1: the person-sighting store is keyed
+        # by ``person.<slug>``; tracked_persons may hold display names, so the
+        # id comes from the one normalising rule, never a hand-built string.
+        from .person_coordinator import tracked_person_entity_id
         merged_config = {**entry.data, **entry.options}
         tracked_person_entities = merged_config.get(CONF_TRACKED_PERSONS, [])
         for entity_id in tracked_person_entities:
@@ -122,7 +127,11 @@ async def async_setup_entry(
                 person_name = entity_id.replace("person.", "").replace("_", " ").title()
             else:
                 person_name = entity_id.replace("_", " ").title()
-            census_binary.append(PersonPhoneLeftBehindSensor(hass, entry, person_name))
+            census_binary.append(
+                PersonPhoneLeftBehindSensor(
+                    hass, entry, person_name, tracked_person_entity_id(entity_id),
+                )
+            )
 
         async_add_entities(census_binary)
         return
@@ -2096,14 +2105,19 @@ class CensusMismatchSensor(BinarySensorEntity):
 
 
 class PersonPhoneLeftBehindSensor(BinarySensorEntity):
-    """Diagnostic: BLE says person is home but camera hasn't seen them recently.
+    """Diagnostic: BLE says person is home but nothing corroborates them.
 
     Fires when:
       - BLE places person in a room (not away/unknown)
-      - No camera has seen this person in PHONE_LEFT_BEHIND_HOURS (1h)
-      - Camera census is NOT currently seeing unidentified persons
+      - The BLE room's coordinator does not report occupied (D9)
+      - Camera census is NOT currently seeing any persons
         (if census sees people, the phone holder is likely present)
       - Outside sleep hours (10 PM – 7 AM)
+
+    Camera leg (PHONE-LEFT-BEHIND-CAMERA-LEG-1, operator ruling A
+    2026-11-13): DISPLAY ONLY. The person's last sighting
+    (``PresenceCoordinator.get_last_person_sighting``) is published as
+    attributes and never read by ``is_on``.
 
     Disabled by default — enable manually if the signal is reliable in your home.
     """
@@ -2113,15 +2127,25 @@ class PersonPhoneLeftBehindSensor(BinarySensorEntity):
     _attr_entity_registry_enabled_default = False
     _attr_has_entity_name = True
 
-    PHONE_LEFT_BEHIND_HOURS: float = 1.0
     SLEEP_START_HOUR: int = 22
     SLEEP_END_HOUR: int = 7
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, person_id: str) -> None:
-        """Initialize."""
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: ConfigEntry,
+        person_id: str,
+        person_entity: str,
+    ) -> None:
+        """Initialize.
+
+        ``person_id`` is the display name (person_coordinator data key);
+        ``person_entity`` the ``person.*`` id the sighting store is keyed by.
+        """
         self.hass = hass
         self.entry = entry
         self._person_id = person_id
+        self._person_entity = person_entity
         self._attr_unique_id = f"{DOMAIN}_person_{person_id.lower().replace(' ', '_')}_phone_left_behind"
         self._attr_name = f"{person_id} Phone Left Behind"
         self._attr_device_info = DeviceInfo(
@@ -2189,43 +2213,48 @@ class PersonPhoneLeftBehindSensor(BinarySensorEntity):
             if house.total_persons > 0:
                 return False
 
-        # 4. Check camera sighting age — 1 hour threshold
-        transit_validator = self.hass.data.get(DOMAIN, {}).get("transit_validator")
-        if not transit_validator:
+        # 4. Camera leg: DISPLAY ONLY (operator ruling A, 2026-11-13,
+        #    PHONE-LEFT-BEHIND-CAMERA-LEG-1). Person sightings are shown in
+        #    extra_state_attributes and must NOT be read here. The old leg
+        #    read a store that never held a name, so it was always "not
+        #    seen"; the transit-validator-missing fail-open is kept so the
+        #    verdict is identical to before (INV-1).
+        if not self.hass.data.get(DOMAIN, {}).get("transit_validator"):
             return None
-        sighting = transit_validator.get_last_camera_sighting(
-            self._person_id,
-            max_age_hours=self.PHONE_LEFT_BEHIND_HOURS,
-        )
-        return sighting is None
+        return True
+
+    def _last_sighting(self) -> Any:
+        """Newest ``PersonSighting`` for this person, or None (display only).
+
+        Presence missing, no producer, or any error -> None.
+        """
+        try:
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            if manager is None:
+                return None
+            presence = manager.coordinators.get("presence")
+            if presence is None:
+                return None
+            return presence.get_last_person_sighting(self._person_entity)
+        except Exception:  # noqa: BLE001 — display only
+            return None
 
     @property
     def extra_state_attributes(self) -> dict:
         """Return diagnostic details."""
         person_coordinator = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
-        transit_validator = self.hass.data.get(DOMAIN, {}).get("transit_validator")
 
         ble_location = None
-        hours_since_sighting = None
         census_persons = None
 
         if person_coordinator:
             person_data = person_coordinator.data.get(self._person_id, {})
             ble_location = person_data.get("location")
 
-        if transit_validator:
-            sighting = transit_validator.get_last_camera_sighting(
-                self._person_id, max_age_hours=24.0
-            )
-            if sighting:
-                ts = sighting.get("timestamp")
-                if ts:
-                    if isinstance(ts, str):
-                        from homeassistant.util import dt as dt_util2
-                        ts = dt_util2.parse_datetime(ts)
-                    if ts:
-                        delta = dt_util.now() - ts
-                        hours_since_sighting = round(delta.total_seconds() / 3600, 2)
+        # PHONE-LEFT-BEHIND-CAMERA-LEG-1 D1: the person's newest sighting,
+        # shown as-is (exit and census-vetoed sightings included, with their
+        # source and veto flag). Display only; is_on never reads it.
+        sighting_attrs = self._sighting_attributes(self._last_sighting())
 
         census = self.hass.data.get(DOMAIN, {}).get("census")
         if census and census.last_result:
@@ -2264,14 +2293,43 @@ class PersonPhoneLeftBehindSensor(BinarySensorEntity):
         return {
             "person_id": self._person_id,
             "ble_location": ble_location,
-            "hours_since_camera_sighting": hours_since_sighting,
-            "phone_left_behind_hours": self.PHONE_LEFT_BEHIND_HOURS,
+            **sighting_attrs,
             "census_persons_in_house": census_persons,
             # PATH-ALPHA D2c/D9 (2026-08-16): room-corroboration surface.
             "room_corroboration_suppressed": room_corroboration_suppressed,
             "room_corroboration_source": room_corroboration_source,
             "room_corroboration_evidence": room_corroboration_evidence,
         }
+
+    @staticmethod
+    def _sighting_attributes(sighting: Any) -> dict:
+        """Display attributes for one ``PersonSighting`` (or None)."""
+        # No age attribute on purpose (review A-M1): a moving age changes the
+        # attributes between sightings, and HA writes a state row on any
+        # attribute change (~384 rows/day for the four enabled sensors).
+        # `last_camera_sighting_at` is static between sightings and carries
+        # the same information.
+        out: dict[str, Any] = {
+            "camera_leg": "display_only",
+            "last_camera_sighting_at": None,
+            "last_sighting_source": None,
+            "last_sighting_camera": None,
+            "last_sighting_room": None,
+            "last_sighting_census_veto": None,
+        }
+        if sighting is None:
+            return out
+        try:
+            ts = float(sighting.ts)
+        except (AttributeError, TypeError, ValueError):
+            return out
+        # Recorded and static between sightings: the sighting's own time.
+        out["last_camera_sighting_at"] = dt_util.utc_from_timestamp(ts).isoformat()
+        out["last_sighting_source"] = getattr(sighting, "sighting_source", None)
+        out["last_sighting_camera"] = getattr(sighting, "camera", None)
+        out["last_sighting_room"] = getattr(sighting, "room", None)
+        out["last_sighting_census_veto"] = getattr(sighting, "census_would_veto", None)
+        return out
 
 
 # ============================================================================

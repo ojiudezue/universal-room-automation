@@ -316,6 +316,18 @@ ladder (rungs, `camera_resolver.py:11-36`):
 6. **operator-declared** — `CONF_ROOM_CAMERAS` multi-select is
    ground truth.
 
+**Frigate object-name rung (NVR-WITNESS W1, branch `feature/nvr-witness-w1-pairing`, NOT deployed).**
+In rung 5, a Frigate input device also pairs with the one non-Frigate camera device whose registry name
+(`name_by_user`, else `name`, through HA `slugify`) equals the Frigate object name from the Frigate device
+identifier. All of: input is Frigate; exactly one non-Frigate device owning an enabled `camera.*` has that slug; no
+other Frigate device has that object name; the candidate has no Frigate identifier. Basis `frigate_object_name`.
+Pairing fails closed: the object name is compared as-is against slugified device names, so a Frigate object name
+that is not already a slug (or an unavailable HA `slugify`) pairs nothing. Each accepted pairing logs one INFO line.
+Knob `RESOLVER_FRIGATE_OBJECT_NAME_EVIDENCE` (rung 1, True). It closes the Frigate → Protect direction for cameras
+whose Frigate entity is `X_2` (garage_a, garage_b, rear_ptz, stairs_top, upstairs_hall, utilities_ptz) or whose
+Protect stem differs (foyer_fisheye). `resolve_detection_legs` already reached those Protect legs through its own
+`_N`-stripped stem bridge, so perimeter legs do not change. Details: `docs/readmes/README_nvr_witness_w1_DRAFT.md`.
+
 Key APIs: `resolve_operator_declaration`, `resolve_capabilities`,
 `resolve_detection_legs` (returns `DetectionLeg` with engine tag —
 `frigate`/`frigate2`/`protect`/`protect2`/`reolink`/`amcrest`/`dahua`,
@@ -395,6 +407,41 @@ Emits `ura_person_egress_event` bus event with fields `direction`,
   labeller `scripts/probes/egress_outcome_label_weekly.py` (read-only; snapshots raw path edges and GPS
   fixes) feeds `quality/tests/fixtures/egress_arrival_d0_labelled.json`; card
   EGRESS-OUTCOME-WEEKLY-LABEL-1. The face-only `not_home` veto itself is UNCHANGED in Phase 1.
+
+**Crossing vision, shadow (VISION-CROSSING-SHADOW-1, branch `feature/crossing-vision-shadow`, NOT
+deployed; plan `PLANNING_crossing_vision.md` rev 2, Phase 1).**
+- **D2:** `ura_person_egress_event` gains one additive key, `peak_person_count`. `_resolve_direction`
+  samples `_sample_peak_person_count` ONCE before the bus fire and hands the same local to the DB row
+  (INV-ADDITIVE); ambiguous crossings sample nothing and carry None. All listeners read named keys.
+- **D1:** `crossing_vision.CrossingVisionShadow` (integration entry, after the linker; torn down before
+  the Frigate ingress) listens to that event and to the Frigate ingress (consumer `crossing_vision`).
+  For each entry/exit crossing it matches a person event on a camera in the crossing's configured
+  door group (start within `CROSSING_VISION_EVENT_MATCH_S` of E; a stem with no group is a group of
+  one), waits for the event end (or `CROSSING_VISION_EVENT_END_WAIT_S`), and calls llmvision
+  `video_analyzer` once with the instance-scoped clip
+  `/api/frigate/<client_id>/notifications/<id>/clip.mp4` (instance from the MQTT source prefix via
+  `frigate_ingress.discover_frigate_instance_ids`; `event_id` only with exactly one Frigate entry;
+  otherwise `no_clip_url`, no call). `use_memory` / `store_in_timeline` are always False. One
+  `memory_episodes` row (`crossing_vision_shadow`, `node_id = vision:<crossing_key>`) per crossing:
+  `ok` / `blank` (all frame counts 0: never a count of 0) / `no_frigate_event` / `clustered` /
+  `skipped_cap` / `skipped_busy` / `no_clip_url` / `error` / `timeout` / `refused` / `unparseable`.
+- **Response shape (code wins over the plan, D0 2026-11-13):** with `response_format: json` llmvision
+  returns `structured_response` (+ `key_frame`) and NO `response_text`; the parser reads
+  `structured_response` (a `service_response` envelope is unwrapped), treats an empty one as
+  `refused`, and still accepts JSON text. Vision direction carries no signal (D0) and is not asked
+  for or recorded.
+- **Shadow:** nothing decides on the row (INV-SHADOW). Gates (`switch.ura_crossing_vision_shadow`,
+  `LLMVISION_ENRICHMENT_KILL`, Number `crossing_vision_daily_calls` > 0) are read at schedule AND at
+  call time. Trip-wires: `crossing_vision_zero` (HIGH) and `crossing_vision_errors` (MEDIUM).
+  Diagnostics `crossing_vision_today` / `_last` on Outside: Open Tracks (unrecorded).
+- **Model (fix-up 2026-11-13):** `provider` = `CROSSING_VISION_PROVIDER_ID` (the "OpenAI Madrone
+  Vision" llmvision entry, `gpt-6-luna`, temperature / top_p 1.0 set on that entry) when that entry
+  exists on the install, else the perimeter provider; own `CROSSING_VISION_MAX_TOKENS` (1500). The
+  llmvision call is a background task (HA stop does not wait on it).
+- **Known upstream leak (review B1):** cancelling a call (timeout or unload) during llmvision 1.7.1's
+  clip fetch / ffmpeg (`media_handlers.py:662-845`) leaves one temp `.mp4` and the ffmpeg process
+  running until its pipe closes (cleanup not in a `finally`, no `process.kill()`). Rare; fix belongs
+  upstream in llmvision.
 
 Direction gating on the census union feed
 (`transit_validator.py:1298-1310`):
@@ -695,7 +742,10 @@ confidence `CONFIDENCE_MEDIUM` (0.6); egress copies the producer's tier. Each si
 `face_person_would_be_vetoed` -> `_face_latch_veto_source`, extracted from
 `_get_face_recognized_person_names` unchanged): a face of an away resident IS a sighting but not a
 census identity (named concept split). Readers: `PresenceCoordinator.get_last_person_sighting(s)`
-(RAM), the tracker display fields `_last_face_recognized` (now the slug) / `_last_face_time`, and the
+(RAM; display consumers since PHONE-LEFT-BEHIND-CAMERA-LEG-1, branch `feature/phone-left-behind-camera`,
+NOT deployed: the `*_phone_left_behind` attributes `last_camera_sighting_at` / `last_sighting_*` and the
+`*_likely_next_room` `camera_last_seen` / `camera_last_room` attributes; neither verdict nor prediction
+reads them), the tracker display fields `_last_face_recognized` (now the slug) / `_last_face_time`, and the
 D4 diagnostics on `sensor.ura_presence_house_state` (all unrecorded): `face_sightings_today`,
 `face_sightings_by_source`, `face_sighting_last`, `face_sighting_unmapped_names`,
 `egress_non_face_skipped`, `multi_pick_messages`, `face_sighting_picks_resolved` /
@@ -868,7 +918,7 @@ back to `"unidentified"` when it is NULL:
 **CORRECTED (FACE-ARRIVAL-REBUILD-1 D5, code wins): `identity_confidence` HAS a live reader.**
 `EgressDirectionTracker._arrival_departure_notify` (`transit_validator.py:2603`; the class is `EgressDirectionTracker` at `:1007`, not `TransitValidator`, corrected 2026-11-13; called from
 `_resolve_direction`) names the person in "X arrived / left" only at `identity_confidence >=
-ARRIVAL_NAME_CONFIDENCE_THRESHOLD` (0.75), else "Someone" (notification-naming class, (b) below).
+ARRIVAL_NAME_CONFIDENCE_THRESHOLD` (0.75; since read API ship 1 the compare reads `const.CONSUMER_CLASS_MIN_CONFIDENCE["notification"]` directly and the class attribute is removed), else "Someone" (notification-naming class, (b) below).
 It is the ONE arrival/departure notification site. Since D1 the person-sighting producer (§4.5a)
 also reads the bus `identity_confidence` / `identity_provenance` (display-class: it copies them
 into an egress sighting). `agreement_class` still has no decision reader. Egress identity feeds no
@@ -891,6 +941,11 @@ an alert is safe; acting because a name appeared is not.
 | **Security suppress / de-escalate** | **≥0.9** | de-escalate/annotate only — never escalate, never suppress below 0.9 |
 | **Notification naming** | **≥0.75** | name the person in the message; anonymous below |
 | **Display** | **none** | show name-or-"unidentified"; never a trust decision |
+
+In code (PERSON-AWARENESS-READ-API-1 ship 1, branch `feature/person-awareness-read-api-ship1`, NOT deployed) the
+table is one rung-1 constant, `const.CONSUMER_CLASS_MIN_CONFIDENCE` (security 0.9, notification 0.75, display 0),
+read by `EgressDirectionTracker._arrival_departure_notify` (notification) and `PerimeterAlertManager._known_identity_for`
+(security floor; `PERIMETER_EGRESS_KNOWN_MIN_CONF` is still clamped up to it). Values unchanged.
 
 **(c) MEASURE-BEFORE-BUILD gate.** Before building ANY new consumer,
 re-measure the REAL production rate of `person_id` on the live

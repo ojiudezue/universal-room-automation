@@ -88,8 +88,69 @@ def _is_real_ha(mod) -> bool:
         return False
 
 
-def import_real_modules():
-    """Context manager yielding a namespace of freshly imported REAL modules."""
+_TESTS_DIR = Path(__file__).resolve().parent
+# Never popped: the rig re-points this module's attributes itself, and a
+# fresh copy would split HomeAssistant/State identity from phcc's.
+_NO_PURGE = frozenset({"homeassistant", "homeassistant.core"})
+
+
+def _is_foreign_stub(value) -> bool:
+    """True for a test-authored stand-in: a mock, or a class/function
+    defined in a module that lives under quality/tests."""
+    from unittest.mock import NonCallableMock  # noqa: PLC0415
+
+    if isinstance(value, NonCallableMock):
+        return True
+    if not isinstance(value, (type, types.FunctionType)):
+        return False
+    owner = sys.modules.get(getattr(value, "__module__", None) or "")
+    f = getattr(owner, "__file__", None)
+    if not f:
+        return False
+    try:
+        return Path(f).resolve().is_relative_to(_TESTS_DIR)
+    except (OSError, ValueError):
+        return False
+
+
+def purge_attr_tainted_ha() -> list[str]:
+    """Pop REAL Home Assistant entity-platform modules (real ``__file__``)
+    whose entity base classes a donor test file replaced in place, e.g.
+    ``homeassistant.components.switch.SwitchEntity`` set to a stub class at
+    collection time. The file-path check alone keeps such a module, and a
+    URA platform imported afterwards subclasses the stub.
+
+    Deliberately narrow: only ``homeassistant.components.<platform>``
+    packages and ``homeassistant.helpers.restore_state``, and only when a
+    tainted attribute is an entity base (``*Entity`` / ``*DeviceClass`` /
+    ``*StateClass``). Re-importing those leaves is consistent with the
+    retained real ``helpers.entity``; popping deeper helpers splits class
+    identity (metaclass conflicts). Call inside an ``import_scope`` so the
+    tainted copies are put back on exit. Returns the popped names."""
+    popped = []
+    for name in [k for k in sys.modules if k.startswith("homeassistant")]:
+        parts = name.split(".")
+        leaf = (len(parts) == 3 and parts[1] == "components") or (
+            name == "homeassistant.helpers.restore_state")
+        mod = sys.modules.get(name)
+        if not leaf or name in _NO_PURGE or not _is_real_ha(mod):
+            continue
+        d = getattr(mod, "__dict__", None) or {}
+        if any(
+            k.endswith(("Entity", "DeviceClass", "StateClass"))
+            and _is_foreign_stub(v)
+            for k, v in list(d.items())
+        ):
+            sys.modules.pop(name, None)
+            popped.append(name)
+    return popped
+
+
+def import_real_modules(*, purge_tainted: bool = False):
+    """Context manager yielding a namespace of freshly imported REAL modules.
+
+    ``purge_tainted``: also drop real HA modules whose attributes a donor
+    replaced with test stubs (see ``purge_attr_tainted_ha``)."""
     from contextlib import contextmanager
 
     @contextmanager
@@ -103,6 +164,8 @@ def import_real_modules():
                     sys.modules.pop(name, None)
             for name in ("homeassistant.helpers.dispatcher", "homeassistant.helpers.event"):
                 sys.modules.pop(name, None)
+            if purge_tainted:
+                purge_attr_tainted_ha()
             _core = sys.modules["homeassistant.core"]
 
             def _real_callback(func):

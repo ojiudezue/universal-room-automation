@@ -27,6 +27,8 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 
 from .camera_resolver import _strip_disambiguation_suffix
+from .person_ids import slug_of as _person_slug_of
+from .person_ids import tracked_person_entity_id as _tracked_person_entity_id
 from . import const as _ura_const  # rung-1 flags read at call time
 
 from .const import (
@@ -3906,11 +3908,19 @@ class PersonCensus:
                 raw = merged.get("tracked_persons", []) or []
                 out: list[str] = []
                 for p in raw:
-                    slug = str(p).replace("person.", "").strip().lower()
+                    # RA4 Residual A: one id rule (display name or entity id).
+                    slug = _person_slug_of(p)
                     if slug:
                         out.append(slug)
                 return out
         return []
+
+    def canonical_person_slug(self, name: Any) -> str:
+        """Public face first-name mapper (PERSON-AWARENESS-READ-API-1 RA4).
+
+        Same as ``_canonical_person_slug``; the private stays the
+        implementation."""
+        return self._canonical_person_slug(name)
 
     def _canonical_person_slug(self, name: Any) -> str:
         """Canonicalize a person identifier to the URA person-slug namespace
@@ -6162,7 +6172,12 @@ class PersonCensus:
                 merged = {**entry.data, **entry.options}
                 guest_ssid = merged.get(CONF_GUEST_VLAN_SSID, DEFAULT_GUEST_VLAN_SSID)
                 raw = merged.get("tracked_persons", [])
-                tracked_persons = [p.strip() for p in raw if p.strip()]
+                # RA4 Residual B: entries may be display names; resolve
+                # each to its person.* entity id through the one rule.
+                tracked_persons = [
+                    _tracked_person_entity_id(p.strip())
+                    for p in raw if p.strip()
+                ]
                 break
 
         # Build set of family device_tracker entity_ids from person entities
@@ -6315,7 +6330,8 @@ class PersonCensus:
                 raw = merged.get("tracked_persons", [])
                 for p in raw:
                     # Normalize to slug: "person.oji_udezue" -> "oji_udezue"
-                    slug = p.replace("person.", "").strip()
+                    # RA4 Residual C: one id rule (display name or entity id).
+                    slug = _person_slug_of(p)
                     if slug:
                         tracked_persons.append(slug)
                 break

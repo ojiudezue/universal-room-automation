@@ -3592,6 +3592,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         except Exception as e:
             _LOGGER.error("Failed to initialize exterior track linker: %s", e)
 
+        # VISION-CROSSING-SHADOW-1 D1 (PLANNING_crossing_vision.md rev 2):
+        # crossing-vision SHADOW producer. Same integration-entry lifecycle
+        # as the linker; registers on the Frigate ingress (created above)
+        # and reads the egress tracker lazily. Switch ships OFF.
+        try:
+            from .crossing_vision import async_setup_crossing_vision
+
+            await async_setup_crossing_vision(hass)
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.error("Failed to initialize crossing vision shadow: %s", e)
+
         # v3.6.0: Initialize domain coordinator manager if enabled
         # NOTE: Zone Manager and Coordinator Manager devices are now registered
         # under their own config entries (not under the integration entry).
@@ -5894,6 +5905,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await exterior_track_linker.async_teardown()
             hass.data[DOMAIN].pop("exterior_track_linker", None)
 
+        # VISION-CROSSING-SHADOW-1: tear down the crossing-vision producer
+        # (bus listener, ingress consumer, timers, in-flight calls) BEFORE
+        # the Frigate ingress it consumes.
+        from .crossing_vision import async_teardown_crossing_vision
+
+        await async_teardown_crossing_vision(hass)
+
         # PERIMETER-FRIGATE-MQTT-DIRECT-1: tear down the Frigate ingress
         # AFTER its consumers (census face bridge, perimeter, linker): bus
         # listener, every MQTT subscription, reconcile timer, pending tasks.
@@ -7402,6 +7420,9 @@ _NO_LIVE_ATTR_KEYS: frozenset[str] = frozenset({
     "garage_lockout_morning_backstop_min",
     "garage_lockout_reengage_delay_s",
     "garage_lockout_arrival_hold_s",
+    # VISION-CROSSING-SHADOW-1: the crossing-vision daily cap Number
+    # publishes its value to hass.data; the producer reads it live.
+    "crossing_vision_daily_calls",
     _CONF_DYNAMIC_PRESET_DWELL_MINUTES,
     _CONF_DYNAMIC_PRESET_HYSTERESIS_F,
     _CONF_ROUTINE_EVENT_COOLDOWN_DAYS,
@@ -7710,6 +7731,8 @@ OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     "garage_lockout_morning_backstop_min",
     "garage_lockout_reengage_delay_s",
     "garage_lockout_arrival_hold_s",
+    # VISION-CROSSING-SHADOW-1: read live from hass.data (no CM reload).
+    "crossing_vision_daily_calls",
 })
 
 
