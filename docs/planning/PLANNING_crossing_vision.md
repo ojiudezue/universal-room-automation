@@ -69,11 +69,19 @@ No access, house-state, security or HVAC reader. No `MEMORY_COMPACTION_RULES` en
 - **INV-BLANK.** All-zero (or absent) per-frame counts → `outcome = blank`, `people_count = None`, never 0, never in the
   accuracy numerator. No matching Frigate event → `no_frigate_event`, no call.
 - **INV-P2-DISCHARGE.** For any crossing sequence, terms, missed exits, vision errors, cap skips, restarts or resident
-  tracker state (incl. a phone left at home): once the camera body total is 0, the fleet is not dark, no room rising
-  edge has occurred and no entry term was applied, continuously for `CROSSING_VISION_LEDGER_EMPTY_RESET_S`, the anchor
-  sets `L = R` and `guest_vis` is 0 at the next evaluation. Bound: reset window + one eval interval + one census
-  interval. The predicate reads no house state, census output, resident set or ledger value. Late terms (crossing E
-  before the last anchor) are recorded, not applied; a restart never restores `known`.
+  tracker state (incl. a phone left at home): once the camera body total is 0, the fleet is not dark, no Tier-1 input
+  is held (P2-D2 step 2: reads `on`, or is dead with a last known-good `on` or no known-good reading), no room rising
+  edge has occurred and no entry term arrived, continuously for `CROSSING_VISION_LEDGER_EMPTY_RESET_S`, the anchor sets
+  `L = R`, clears every arrival credit and `guest_vis` is 0 at the next evaluation. Bound: reset window + one eval
+  interval + one census interval. The predicate reads no house state, census output, resident set or ledger value. A
+  held input (a still guest on a radar, a stuck-on sensor, a dead input) blocks the anchor by design; the surplus then
+  waits, and `crossing_ledger_anchor_zero` pages naming the holders. Late terms (crossing E before the last anchor) are
+  recorded, not applied; a restart never restores `known`.
+- **INV-P2-ONCE.** Every person is counted in `L` at most once per arrival and removed at most once per departure: a
+  resident arrival raises `L` once whether the resident edge or the door entry term comes first; a resident departure
+  lowers it once whether the exit term or the departure edge comes first; one exit term pays for at most `n` departure
+  reconciles. Break it by any order of (edge, term, census tick) in the P2-D2 worked examples (W1-W8) that ends with
+  `guest_vis ≠` the true guest count once the transient window (step 5) has passed. No identity attach is read.
 - **INV-P2-IDENTITY.** The ledger and the arrival record never change `identified_count`, `identified_persons`, any
   `person_id`, any resident's home/away, or any input of `get_residents_home` (PLB included); names are read, never
   re-decided.
@@ -178,60 +186,164 @@ for F); (viii) Protect name back-fill p99 at door cameras. Census-side items (v)
 are in the census plan. (vii) is closed (grading path cited below). **Acceptance:** audit
 `AUDIT_crossing_vision_p2_d0_<date>.md`, one row per item with numbers.
 
-**P2-D1 Luna (Tier 1):** `CONF_CROSSING_VISION_PROVIDER_ID` (rung 2, options Advanced, empty = perimeter provider) set to
-the Luna entry; `CROSSING_VISION_MODEL = gpt-6-luna`. Ships before the shadow switch goes on so all bar data is one model.
-**Tests:** `test_provider_override_used`, `test_empty_override_falls_back`. **Live:** ≥ 1 `ok` row with
-`model = gpt-6-luna`.
+**P2-D1 Luna (Tier 1):** `CONF_CROSSING_VISION_PROVIDER_ID` (rung 2, options Advanced) names the llmvision entry;
+`CROSSING_VISION_MODEL = gpt-6-luna`. Ships before the shadow switch goes on so all bar data is one model. Resolution
+(review A-HIGH-3; the option is empty on this install until someone opens the form): option set → that entry; option
+empty → the rung-1 install default `CROSSING_VISION_PROVIDER_ID` (`01M7B731T26P2HXVW77AQR62PP`, the Luna entry; kept, not
+deleted) only if an `llmvision` config entry with that id exists on THIS install (the Phase 1 portability check); else
+the perimeter provider. Another house never has that id, so it falls through to its perimeter provider. The model
+stamped on each row is the model sent.
+**Tests:** `test_provider_override_used`, `test_empty_option_uses_install_present_default` (option empty, entry
+`01M7…PP` present with domain `llmvision` → that id), `test_empty_override_falls_back` (option empty, default id absent
+or not `llmvision` → perimeter provider). **Live:** ≥ 1 `ok` row with `model = gpt-6-luna` and no
+`crossing_vision_errors` page in the first day.
 
 **P2-D2 `crossing_ledger.py` pure core (Tier 3).** No HA import, time passed in. One house ledger, RAM, state `known` /
-`unknown`; holds `L ≥ 0`, `L_raw` (unclamped, diagnostic), anchor time, counters.
+`unknown`; holds `L ≥ 0` (people in the house, residents and guests, unattributed), `L_raw` (unclamped, diagnostic),
+`R_prev` (the resident term at the previous census tick), arrival credits, applied exits, anchor time, counters.
+`guest_vis = max(0, L − R)`. No step reads identity attach (≈ 17 % of crossings carry a confident name); residents and
+guests are told apart only through `R`.
 1. Boot = `unknown` (`guest_vis` None) until the first anchor. No replay (parked; revival: median anchor gap > 24 h).
-2. Anchor, evaluated every `CROSSING_VISION_LEDGER_EVAL_S` by a tracked interval: the window `[t_start, now]` holds iff
-   at every sample the camera body total is a number and 0, `camera_input_dark` is False, no Tier-1 room rising edge was
-   noted (`OccupancySubstrate.subscribe`; edges, not levels, so a stuck-on sensor cannot block it) and no ENTRY term was
-   applied. Any failure sets `t_start = None`; the next passing sample sets `t_start = now`. Fires at `now − t_start ≥
-   CROSSING_VISION_LEDGER_EMPTY_RESET_S`: `L = R_last`, `known`, residue = `L_before − R_last`, `t_start = now`. Exit
-   terms, reconciles and the floor do not restart the window. A sample whose stored body value is older than 2 × eval
-   interval fails. While dark or the body total is None, `census_tick` returns `healthy = False`. A body seen only between
-   samples is missed (accepted; bound carries + 1 interval).
-3. Term per outcome with validator direction: entry `L += n`, exit `L = max(0, L − n)`; `ambiguous` no term. `n`: vision
-   `people_count` when `ok` (`term_source = vision`), else `camera_peak_count`, else 1 (`term_source = camera`; `blank`
-   falls back too). Cluster: one term with the primary's count if all members share a direction, else per-member camera
-   terms. Vision direction never used. Policy `CROSSING_VISION_LEDGER_FALLBACK` (`camera` / `skip`). While `unknown`,
-   terms are recorded, `L` stays unknown. Late terms not applied.
-4. Floor: at each `census_tick`, `L = max(L, R)` while `known`.
+2. Anchor, evaluated every `CROSSING_VISION_LEDGER_EVAL_S` by a tracked interval. The window `[t_start, now]` holds iff
+   at every sample: the camera body total is a number and 0; `camera_input_dark` is False; no Tier-1 input is held; no
+   Tier-1 room rising edge was noted (`OccupancySubstrate.subscribe`, catches a motion pulse shorter than the eval
+   interval); no ENTRY term arrived (any entry term, applied, late or while unknown: review A-MED-2). Any failure sets
+   `t_start = None`; the next passing sample sets `t_start = now`. Fires at `now − t_start ≥
+   CROSSING_VISION_LEDGER_EMPTY_RESET_S`: `L = R_last`, `L_raw = R_last`, `R_prev = R_last`, credits cleared, `known`,
+   residue = `L_before − R_last`, `t_start = now`. Exit terms, reconciles and floor lifts do not restart the window.
+   **Held input (review D-M1, operator 2026-11-14 "a dead input holds instead of releasing").** The wiring passes
+   `held` (a set of entity ids) to `evaluate(now, held)`. A Tier-1 input (every entity in the substrate's Tier-1 map,
+   the map `_kind_on_now` ORs; levels, so a presence radar holding a still person counts) is held when it reads `on`,
+   or when it is dead (`unavailable`, `unknown`, missing, or `camera_input_stream_dead(eid)` True once S2 is built)
+   and its last known-good reading (RAM map in the wiring, updated from every `on` / `off` reading) was `on`, or it
+   has no known-good reading since setup. A dead input therefore blocks, never enables, the anchor. A stuck-on sensor
+   also blocks (accepted: the anchor-zero page names it; this replaces the earlier "edges, not levels" rule).
+   Kill switch `CROSSING_VISION_LEDGER_ANCHOR_NEEDS_NO_HOLD` (rung 1, True; False = the edge-only predicate).
+   **Freshness:** a sample whose stored body value is older than `2 × max(eval_s, 1)` fails; `EVAL_S = 0` means a 1 s
+   interval, not "never anchor" (review D-L2). While dark or the body total is None, `census_tick` returns
+   `healthy = False`. A body seen only between samples is missed (accepted; bound carries + 1 interval).
+   **Measured (read-only replay, 2026-11-14, 14 days of `census_snapshots` + `occupancy_events` entry/exit episodes
+   as the held proxy (room `STATE_OCCUPIED`, so it over-blocks) + door entry rows; script
+   `.claude/tmp/anchorprobe/replay.py`, not in the repo):** anchors 14 d / last 7 d / during AWAY: edge rule at 3600 s
+   48 / 22 / 9 (reproduces P2-D0 (ii)); held rule at 3600 s 6 / 5 / 6; at 1800 s 20 / 13 / 18; at 900 s 55 / 31 / 48.
+   The night anchors the edge rule fired (81 % outside AWAY) were exactly the D-M1 shape: held rooms (top holders
+   Jaya Bedroom, Garage B, Master Bedroom). Hence the default moves to 1800 s (bar a's ≥ 10 per 7 days holds: 13), and
+   18 of its 20 anchors fall in AWAY, where "zero guests" is independently true (resolves the P2-D0 (ii) independence
+   caveat). No configured Tier-1 input read dead on 2026-11-14 (the five rooms with unavailable entities list only
+   actuators and non-occupancy sensors), so the dead rule costs no anchors today.
+3. Term per outcome with validator direction. `n`: vision `people_count` when `ok` (`term_source = vision`; ≥ 1 by
+   INV-BLANK), else `max(1, camera_peak_count)` with None as 1 (`term_source = camera`; `blank` falls back too; a
+   resolved direction is at least one person: review A-MED-1). Cluster: one term with the primary's count if all members
+   share a direction, else per-member camera terms. Vision direction never used. Policy
+   `CROSSING_VISION_LEDGER_FALLBACK` (`camera` / `skip`). While `unknown`, terms are recorded, `L` stays unknown. Late
+   terms (E before the last anchor) are recorded, not applied. `ambiguous` no term.
+   - **Entry** (applied): `c` = consumable credit, the sum of open credits whose window contains E (step 4); consume
+     `m = min(n, c)` oldest first; `L += n − m`, `L_raw += n − m`.
+   - **Exit** (applied): `L_raw −= n`, `L = max(0, L − n)`; store `(E, n)` in the applied-exit store for step 5. Late
+     or unknown exits are never stored (review D-L1: a reconcile cannot be cancelled by an exit the ledger never paid).
+4. **Resident floor = arrival credit (reviews A-HIGH-1, A-HIGH-2; replaces "every census tick `L = max(L, R)`").** At
+   `census_tick` while `known`, with `r` the new resident term: if `r > R_prev` and `L < r`, lift `k = r − L`:
+   `L += k`, `L_raw += k`, and open a credit `(t = now, k)`. Then `R_prev = r`. The floor never runs when `R` is flat
+   or falling, and never lowers `L`. A credit is consumable by an entry term with E in
+   [`t − CROSSING_VISION_GO_ARRIVAL_WINDOW_BEFORE_S`, `t + CROSSING_VISION_GO_ARRIVAL_WINDOW_AFTER_S`] (REUSED 300 / 60:
+   the same "this entry term is this arrival" match bar b scores) and expires at `t + AFTER_S + reconcile_delay_s`
+   (the term's outcome delay, already passed in); an expired credit's lift stays in `L` (a resident who came in
+   through a door the cameras did not count). Why this and not the alternatives: not writing the floor at all (read-time
+   `max(L, R)`) leaves a missed resident entry as a hidden deficit that absorbs the next guest until the next anchor; a
+   floor on every tick re-lifts after an exit term (A-HIGH-2). The credit fixes both repros, keeps INV-P2-DISCHARGE
+   (the anchor clears credits) and needs no identity.
 5. Departure reconcile: a resident departure edge at `t_e` is judged at `t_e + LAG + CROSSING_VISION_TIMEOUT_S +
-   EVENT_END_WAIT_S` (one tracked timer per pending departure, superseded per person, cancelled in teardown); an exit
-   term with E ∈ [`t_e − LEAD`, `t_e + LAG`] cancels it; else `L = max(0, L − 1)`, counted. Only while `known`; an anchor
-   at or after `t_e` voids it; restart drops pending.
-6. `census_tick(now, resident_term, camera_bodies, camera_input_dark) → (guest_vis | None, healthy)`, `guest_vis =
-   max(0, L − R)`; the module stores what it is given and never reads the census or presence.
-- **Tests** (`test_crossing_ledger.py`): `test_boot_unknown_until_anchor`, `test_anchor_needs_zero_bodies_and_no_edge_for_window`,
-  `test_anchor_sets_L_to_resident_term`, `test_entry_term_restarts_anchor_window`, `test_exit_term_does_not_restart_window`,
-  `test_dark_fleet_stops_window`, `test_none_bodies_is_failing_sample`, `test_rising_edge_restarts_anchor_window`,
-  `test_stuck_on_sensor_does_not_block_anchor`, `test_exit_clamps_at_zero_raw_kept`, `test_floor_raises_only`,
-  `test_reconcile_only_without_exit_term`, `test_reconcile_waits_for_late_exit_outcome`, `test_anchor_voids_pending_reconcile`,
-  `test_ambiguous_no_term`, `test_cluster_one_term_same_direction`, `test_cluster_mixed_direction_per_member`,
-  `test_fallback_camera_then_one`, `test_residue_recorded_before_reset`, `test_anchor_independent_of_house_state`,
-  `test_guest_surplus_discharges_with_resident_phone_home`, `test_stuck_page_resident_independent`; config extremes
-  `test_reset_window_zero_means_instant_anchor`, `test_reconcile_window_zero_disables`, `test_fallback_skip_policy`.
+   EVENT_END_WAIT_S` (one tracked timer per pending departure, superseded per person, cancelled in teardown). Judging
+   consumes one person from the earliest applied exit with E ∈ [`t_e − LEAD`, `t_e + LAG`] and `n_left ≥ 1` (cancel);
+   else `L = max(0, L − 1)`, `L_raw −= 1`, counted. One exit term of `n` cancels at most `n` reconciles (review
+   A-MED-4). Only while `known`; an anchor at or after `t_e` voids it; restart drops pending. **Transient (accepted,
+   measured by bar d):** when the departure edge lands before the exit term's outcome, `guest_vis` reads + 1 for up to
+   `reconcile_delay_s` (≈ 210 s); when an entry term's outcome lands before the arrival edge, + 1 until the edge.
+   Parked: "a pending departure counts as a provisional exit" (revival: bar d fails, or > half its false-guest time
+   sits within `reconcile_delay_s` of a resident edge).
+6. `census_tick(now, resident_term, camera_bodies, camera_input_dark) → (guest_vis | None, healthy)`; the module stores
+   what it is given and never reads the census or presence. `evaluate(now, held)` takes the held set from the wiring.
+
+Worked examples (start: anchored, `L = R = 1`, resident A home; term outcomes land ≈ 210 s after E; census tick 30 s):
+
+| # | Case | Sequence | Result |
+|---|---|---|---|
+| W1 | Resident B arrives alone | edge t=0 → tick R 1→2: lift k=1, `L = 2`, credit (0,1); entry term E=−20, n=1 → consumes 1, `L = 2` | `guest_vis 0` (old floor: 1) |
+| W1b | same, term first | entry E=−200 applied at 10 → `L = 2`; tick R 1→2, `L ≥ r` no lift | `guest_vis 0` |
+| W2 | B arrives with a guest | edge → lift `L = 2`, credit 1; entry n=2 → consume 1, add 1, `L = 3`, R = 2 | `guest_vis 1` |
+| W3 | Guest arrives alone | entry n=1, no credit → `L = 2`, R = 1 | `guest_vis 1` |
+| W4 | Resident departs (A-HIGH-2 repro) | `L = R = 2`; exit E=200 → `L = 1`; tick at 290, R = 2 flat → no lift; departure t_e=500, R = 1; judge consumes E=200 | `L = 1`, `guest_vis 0` (old floor: 1) |
+| W5 | Resident departs with guest | `L = 3`, R = 2; exit n=2 → `L = 1`; departure R = 1; judge consumes 1 of 2 | `guest_vis 0` |
+| W6 | Resident's phone stays home, resident walks out | `L = R = 2`; exit n=1 → `L = 1`; no edge, R = 2 flat, no lift → `guest_vis 0`; returns: entry n=1 → `L = 2` | `guest_vis 0` throughout (old floor: 1 after return). A guest arriving while the resident is out is absorbed (undercount, safe direction; PLB `on` lowers R and removes it) |
+| W7 | Residents B and C arrive together, one edge each | edges at 0 and 40 → lifts to `L = 2`, `L = 3`, credits 1 + 1; entry n=2 → consumes 2, `L = 3`, R = 3 | `guest_vis 0`. Camera undercounts n=1: consumes 1, the other credit expires, its lift stays, `L = 3`, still 0 |
+| W8 | B arrives through an uncounted door | lift `L = 2`, credit expires; later B exits through a counted door: exit → `L = 1`, departure R = 1, judge consumes | `guest_vis 0` |
+
+Named residuals: a guest's entry within the arrival window of a resident who came through an uncounted door consumes
+that credit (guest missed until the next entry/anchor, safe direction); a guest's exit inside a resident's departure
+window, when the resident's own exit was missed, cancels that reconcile (guest-side `L` one high until the anchor);
+`R = max(residents_home, identified_count)` rising on a face rather than an arrival opens a credit that only an entry
+in the window can consume.
+
+- **Tests** (`test_crossing_ledger.py`; inputs as in the table, defaults otherwise):
+  `test_boot_unknown_until_anchor`; `test_anchor_needs_zero_bodies_and_no_edge_for_window`;
+  `test_anchor_sets_L_to_resident_term`; `test_entry_term_restarts_anchor_window`;
+  `test_entry_term_while_unknown_restarts_window` (unknown, window 600, bodies 0, entry E=290 → no anchor at 600, anchor at
+  ≥ 890); `test_exit_term_does_not_restart_window`; `test_dark_fleet_stops_window`; `test_none_bodies_is_failing_sample`;
+  `test_rising_edge_restarts_anchor_window`; `test_held_radar_blocks_anchor` (D-M1 repro: R=2, guest entry L=3, bodies 0,
+  no edges for 2 h, `held = {radar_gb1}` → no anchor, `guest_vis 1`); `test_dead_input_last_on_blocks_anchor`
+  (input `on` then `unavailable` → held); `test_dead_input_last_off_does_not_block` (`off` then `unavailable` → not
+  held); `test_dead_input_no_known_good_blocks` (unavailable since setup → held); `test_stuck_on_sensor_blocks_anchor`
+  (replaces `test_stuck_on_sensor_does_not_block_anchor`); `test_no_hold_kill_switch_restores_edge_rule`;
+  `test_eval_zero_means_one_second` (EVAL_S 0, sample 1.5 s old → fresh, anchor fires);
+  `test_resident_arrival_before_entry_term_counted_once` (W1, A-HIGH-1 repro: `(guest_vis) == 0`, was 1);
+  `test_entry_term_before_arrival_edge_no_lift` (W1b); `test_resident_with_guest_counts_guest` (W2 → 1);
+  `test_guest_alone_counts` (W3 → 1); `test_exit_term_before_departure_edge_no_phantom` (W4, A-HIGH-2 repro: `L = 1`,
+  `guest_vis 0`, reason `exit_term`); `test_resident_and_guest_depart_together` (W5 → 0);
+  `test_phone_home_walk_out_and_back_no_phantom` (W6 → 0 at every step); `test_two_residents_one_term_two_edges` (W7 → 0,
+  both n=2 and n=1 variants); `test_uncounted_door_arrival_lift_persists` (W8 → 0); `test_credit_expires_lift_stays`
+  (lift, no entry by `t + 60 + delay` → `L` keeps the lift, a later guest entry adds 1); `test_floor_only_on_rise`
+  (R flat at 2 while `L = 1` for 10 ticks → `L` stays 1); `test_floor_never_lowers`;
+  `test_exit_consumed_once_by_reconciles` (A-MED-4: two departures, one exit n=1 → first cancels, second applies,
+  `L` drops by 1 net of the exit); `test_late_exit_does_not_cancel_reconcile` (D-L1: exit E, anchor at E+30, outcome
+  late, departure t_e = E+300 → reconcile applies, `guest_vis 0`); `test_camera_peak_zero_is_one` (A-MED-1: peak 0 and
+  None → n = 1); `test_exit_clamps_at_zero_raw_kept`; `test_reconcile_only_without_exit_term`;
+  `test_reconcile_waits_for_late_exit_outcome`; `test_anchor_voids_pending_reconcile`; `test_anchor_clears_credits`;
+  `test_ambiguous_no_term`; `test_cluster_one_term_same_direction`; `test_cluster_mixed_direction_per_member`;
+  `test_fallback_camera_then_one`; `test_residue_recorded_before_reset`; `test_anchor_independent_of_house_state`;
+  `test_guest_surplus_discharges_with_resident_phone_home`; `test_stuck_page_resident_independent`; config extremes
+  `test_reset_window_zero_means_instant_anchor`, `test_reconcile_window_zero_disables`, `test_fallback_skip_policy`,
+  `test_arrival_window_zero_credit_unconsumable` (BEFORE = AFTER = 0 → only E == t consumes; the lift stays).
 - **Mutation:** remove the rising-edge restart → `test_rising_edge_restarts_anchor_window`; read house state in the
-  predicate → `test_anchor_independent_of_house_state`; drop the floor → `test_floor_raises_only`; remove the entry-term
-  restart → `test_entry_term_restarts_anchor_window`; re-add a residents-empty conjunct →
-  `test_guest_surplus_discharges_with_resident_phone_home`; judge reconcile at `t_e + LAG` →
+  predicate → `test_anchor_independent_of_house_state`; drop the held check → `test_held_radar_blocks_anchor`; treat a
+  dead input as off → `test_dead_input_last_on_blocks_anchor`; restore the per-tick floor →
+  `test_exit_term_before_departure_edge_no_phantom`; skip credit consumption →
+  `test_resident_arrival_before_entry_term_counted_once`; drop the floor →
+  `test_uncounted_door_arrival_lift_persists`; remove the entry-term restart → `test_entry_term_restarts_anchor_window`;
+  return before the restart while unknown → `test_entry_term_while_unknown_restarts_window`; `any()` instead of consume →
+  `test_exit_consumed_once_by_reconciles`; store late exits → `test_late_exit_does_not_cancel_reconcile`; re-add a
+  residents-empty conjunct → `test_guest_surplus_discharges_with_resident_phone_home`; judge reconcile at `t_e + LAG` →
   `test_reconcile_waits_for_late_exit_outcome`.
 
 **P2-D3 ledger wiring (Tier 3).** Terms from every outcome path (`off` excluded: switch off → ledger `unknown`);
-subscribe residency departures and substrate rising edges (unsubscribed in teardown); one `crossing_vision_ledger`
-episode per term / anchor / reconcile (kind, n, `term_source`, L before/after, residue, crossing_key), batched.
-Diagnostics: `crossing_ledger` {state, L, L_raw, last_anchor, residue_last, terms_today by source, reconciled_today}.
-Trip-wires: `crossing_ledger_stuck` HIGH (`guest_vis ≥ 1` while every sample for `CROSSING_VISION_LEDGER_STUCK_S` had
-zero bodies and no rising edge; entry terms do not count, so a term stream that blocks the anchor IS paged;
-resident-independent; RAM latch re-armed at `guest_vis` 0); `crossing_ledger_anchor_zero` LOW (no anchor in
-`CROSSING_VISION_LEDGER_ANCHOR_ZERO_S`). The type joins `MEMORY_WRITER_BACKED_EPISODE_TYPES`.
+subscribe residency departures and substrate rising edges (unsubscribed in teardown); build `held` per eval from the
+substrate's Tier-1 entity map, `hass.states` and the RAM last-known-good map (P2-D2 step 2; the map is updated on every
+eval from `on` / `off` readings, never persisted); one `crossing_vision_ledger` episode per term / anchor / reconcile /
+lift (kind, n, `term_source`, L before/after, residue, credit consumed, crossing_key), batched.
+Diagnostics: `crossing_ledger` {state, L, L_raw, last_anchor, residue_last, terms_today by source, reconciled_today,
+open_credits, held (first 5 entity ids)}.
+Trip-wires: `crossing_ledger_stuck` HIGH (`guest_vis ≥ 1` while every sample for `CROSSING_VISION_LEDGER_STUCK_S` passed
+the anchor predicate except the entry-term conjunct, held inputs included, so a still guest on a radar never pages it
+and a term stream that blocks the anchor IS paged; resident-independent; RAM latch re-armed at `guest_vis` 0);
+`crossing_ledger_anchor_zero` LOW (no anchor in `CROSSING_VISION_LEDGER_ANCHOR_ZERO_S`; the text names the holders seen
+most in that span, dead ones first, since a dead input is faulty equipment to fix; suppressed, with the cause named in
+diagnostics, while no `census_tick` has ever arrived, e.g. enhanced census off: reviews A-LOW-1 / D-L3). The type joins
+`MEMORY_WRITER_BACKED_EPISODE_TYPES`.
 - **Tests:** `test_every_outcome_yields_one_term_or_documented_none`, `test_switch_off_sets_unknown`,
-  `test_teardown_unsubscribes_ledger_feeds`, `test_ledger_episode_per_term_batched`, `test_stuck_ledger_pages_once`,
-  `test_anchor_zero_pages`. Mutation: remove the stuck latch → `test_stuck_ledger_pages_once`.
+  `test_teardown_unsubscribes_ledger_feeds` (asserts the dispatcher listener sets hold no entry for the instance, review
+  B-L2), `test_ledger_episode_per_term_batched`, `test_stuck_ledger_pages_once`, `test_stuck_not_paged_while_held`,
+  `test_anchor_zero_pages`, `test_anchor_zero_names_dead_holder`, `test_anchor_zero_silent_without_census_tick`,
+  `test_held_set_from_substrate_map_and_lkg`. Mutation: remove the stuck latch → `test_stuck_ledger_pages_once`; drop the
+  LKG lookup → `test_held_set_from_substrate_map_and_lkg`.
 - **Live:** ≥ 1 `crossing_vision_ledger` term row with non-null `L_after`; `crossing_ledger.state` reads `known` after
   the first anchor. Phase 1 merged to develop is a precondition.
 
@@ -304,7 +416,8 @@ if Companion actions are unavailable: a dashboard select per pending crossing. T
 | `LLMVISION_ENRICHMENT_KILL` (REUSED) | False | 1 | All llmvision use |
 | `CROSSING_VISION_DAILY_CALLS` | 40 | 3 (Number) | 0 = no calls; RAM counter, local midnight |
 | `CROSSING_VISION_MODEL` | `gpt-4o-mini` → `gpt-6-luna` (P2-D1) | 1 | Dry call first |
-| `CONF_CROSSING_VISION_PROVIDER_ID` | empty = perimeter provider | 2 | Portable provider |
+| `CONF_CROSSING_VISION_PROVIDER_ID` | empty = install default if present, else perimeter provider | 2 | Portable provider |
+| `CROSSING_VISION_PROVIDER_ID` (kept) | `01M7B731T26P2HXVW77AQR62PP` | 1 | Used only when the option is empty AND this id is an `llmvision` entry on the install (P2-D1) |
 | `CROSSING_VISION_MAX_FRAMES` / `_TARGET_WIDTH` | 4 / 768 | 1 | D0b / D0-V |
 | `CROSSING_VISION_TIMEOUT_S` | 90 | 1 | ≥ 1.5 × measured p99, above llmvision's request timeout (cancelling can orphan its ffmpeg) |
 | `CROSSING_VISION_EVENT_MATCH_S` | 10 (→ 30 if P2-D0 (iii) ≤ `CROSSING_VISION_EVENT_MATCH_WRONG_MAX` 0.02) | 1 | Coverage vs mismatch |
@@ -316,8 +429,10 @@ if Companion actions are unavailable: a dashboard select per pending crossing. T
 | `CROSSING_VISION_ZERO_MIN_CROSSINGS` / `_ERROR_RATE_MAX` / `_ERROR_MIN_CALLS` | 5 / 0.25 / 8 | 1 | Trip-wires; rate > 1 = off |
 | `CROSSING_VISION_TRIPWIRE_WINDOW_S` / `_EVAL_S` | 86400 / 3600 | 1 | Trip-wire window / cadence |
 | `CROSSING_VISION_DESC_MAX_CHARS` / `_TEARDOWN_GATHER_S` | 200 / 5 | 1 | Row size / unload bound |
-| `CROSSING_VISION_LEDGER_EMPTY_RESET_S` | 3600 (operator) | 1 | Anchor window; 0 = instant |
-| `CROSSING_VISION_LEDGER_EVAL_S` | 60 | 1 | Anchor cadence |
+| `CROSSING_VISION_LEDGER_EMPTY_RESET_S` | 1800 (was the operator's 3600 under the edge rule; held rule at 3600 gives 5 anchors / 7 d, below bar a's 10; operator confirms at the deploy checkpoint) | 1 | Anchor window; 0 = instant |
+| `CROSSING_VISION_LEDGER_ANCHOR_NEEDS_NO_HOLD` | True | 1 | Held-input conjunct (P2-D2 step 2); False = edge-only predicate |
+| `CROSSING_VISION_LEDGER_EVAL_S` | 60 | 1 | Anchor cadence; 0 = 1 s (interval and freshness) |
+| `CROSSING_VISION_GO_ARRIVAL_WINDOW_BEFORE_S` / `_AFTER_S` (REUSED from the census plan bar b) | 300 / 60 | 1 | Arrival-credit match window (P2-D2 step 4); 0 / 0 = a lift is never consumed (old double count returns only for exact-time terms) |
 | `CROSSING_VISION_LEDGER_RECONCILE_LEAD_S` / `_LAG_S` | 900 / 60 | 1 | 0 / 0 = reconcile off |
 | `CROSSING_VISION_LEDGER_FALLBACK` | `camera` | 1 | `skip` = vision-only terms |
 | `CROSSING_VISION_LEDGER_STUCK_S` / `_ANCHOR_ZERO_S` | 7200 / 172800 | 1 | Pages; 0 = off |
