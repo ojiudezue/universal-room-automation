@@ -34861,6 +34861,18 @@ cards:
   operator_2026_11_14_names_and_window: 'Switch label: Vision Assisted Census (helper: Show people counts that include AI vision of door crossings. Off uses sensors only. Never affects Away, security or locks.). Checkpoint window: 15 mins (CROSSING_VISION_LEDGER_EMPTY_RESET_S = 900, measured: AUDIT_ledger_checkpoint_window_sweep_2026_11_14.md). Exercise Room presence sensor reconfigured to binary_sensor.mmwave_zigbee_exerciseroom_presence (renamed ZK radar) via the options flow 2026-11-14; anchor must ignore entities that never existed (flag + count).'
   operator_2026_11_14_default_on: 'Should be on by default if there are cameras in the house. => Vision Assisted Census switch defaults ON when the install has at least one camera (registry: any camera entity from a camera integration), OFF otherwise; a stored off still wins. Safe because awareness equals trust until vision leads (CD4 flip), and the switch never reaches Away, security, locks or HVAC.'
   operator_2026_11_14_v6: 'It feels like the last ship of this arc should move to v6.x? This is a major arc. And its going to lead to OC and personalization and Ai enhancements for rooms. / Btw we don''t need to be so conservative on shipping this live as soon as the arc matures and comes together. step 8 is fine. You better get a move on. => v6.0.0 = arc step 8 (named arrivals + first personalization acting on a recognised person); ship arc pieces live as they mature.'
+- id: CENSUS-DECONFLICTION-LEDGER-1
+  title: "Core census: one dedup function (deconflict_house), the crossing ledger with its empty-house anchor, the awareness view and Vision Assisted Census switch (ships dark, trust view unchanged)"
+  status: review
+  tier: 3
+  batch: person-sightings
+  links: {parent: VISION-CROSSING-ANALYSIS-1, related: [PERSON-AWARENESS-READ-API-1, CAMERA-STREAM-DEAD-ZONE-AND-CENSUS-1]}
+  created: "2026-11-14 16:10"
+  origin: {date: '2026-11-14', gist: 'Ship card for the census-p2 branch (crossing vision P2-D1..D3, census CD1..CD3, contract G7), which had no card of its own.'}
+  operator_2026_11_14: "'Sure' (ship the core census after the leak audit); 'Ok' (swap plus mutation test, no extra review round)."
+  why: "Plans PLANNING_crossing_vision.md P2-D1..D3 and PLANNING_census_deconfliction.md CD1..CD3. Reviews A/B/C/D (docs/reviews/code-review/v_census_p2_ledger_*.md). Merged with batch 2. The G7 swap makes the anchor read the S2 stream view, so held or released blocks it. Full-suite name-diff clean (22167 passed), D7 gate passed. Orchestrator mutation on classify_held: 5 tests RED. README_v5.108.23.md."
+  next: "Me: deploy v5.108.23, restart while awake, live acceptance L1-L9 into the README."
+  rank: {value: 8, time_criticality: 6, effort: 1}
 - id: CENSUS-DOOR-TALLY-ATTRIBUTION-PARKED-1
   title: Parked estimator pieces - door-tally per-person attribution pipeline and the count-becomes-total_persons step
   status: parked
