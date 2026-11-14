@@ -15,6 +15,8 @@ feedback_mutation_verification_pycache_staleness).
 
 # Bootstrap the HA mock shim and the SolarFollow harness.
 from test_solar_follow_amps import _Harness, _run, LIMIT_A, LIMIT_B  # noqa: F401
+# Autouse fixture: scoped async_call_later stub (file self-sufficiency).
+from test_solar_follow_amps import _stub_verify_timer  # noqa: F401
 
 from datetime import datetime, timedelta, timezone
 

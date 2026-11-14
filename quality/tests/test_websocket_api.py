@@ -17,6 +17,7 @@ source to confirm the tests are load-bearing.
 
 import asyncio
 import contextlib
+import importlib
 import os
 import sqlite3
 import sys
@@ -466,6 +467,23 @@ _D4B_SKIP_PREFIX = "D4B-REAL-HA-POISONED"
 
 @pytest_asyncio.fixture
 async def real_hass(tmp_path, request):
+    # Constructing a real hass is not enough: an earlier module can leave the
+    # HA dispatcher / ``callback`` replaced by stubs (or restore them only
+    # after URA's websocket_api was imported against the stubs). Then the
+    # subscribe listener never registers and the B-H tests fail on a harness
+    # artefact. Require the genuine HA symbols (checked before hass exists, so
+    # a skip leaves no lingering timers), and give each test a FRESH
+    # websocket_api bound to them (restored afterwards, so no leak outward).
+    _bad = _d4b_stubbed_ha_symbols()
+    if _bad:
+        if os.environ.get(_D4B_CLEAN_ENV):
+            raise AssertionError(f"stubbed HA symbols in clean interpreter: {_bad}")
+        _D4B_POISON_SKIPS.append(request.node.nodeid)
+        pytest.skip(
+            f"{_D4B_SKIP_PREFIX}: HA symbols replaced in-process ({_bad}); an "
+            f"earlier test module mutated homeassistant.* (D7 donor). Executed "
+            f"instead by test_zz_d4b_real_ha_clean_interpreter."
+        )
     stack = contextlib.AsyncExitStack()
     try:
         hass = await stack.enter_async_context(
@@ -482,12 +500,33 @@ async def real_hass(tmp_path, request):
             f"homeassistant.* at import (D7 donor). Executed instead by "
             f"test_zz_d4b_real_ha_clean_interpreter."
         )
+    _ws_name = "custom_components.universal_room_automation.websocket_api"
+    _prior_ws = sys.modules.pop(_ws_name, None)
     try:
+        importlib.import_module(_ws_name)
         yield hass
         await hass.async_block_till_done()
         await hass.async_stop(force=True)
     finally:
+        if _prior_ws is not None:
+            sys.modules[_ws_name] = _prior_ws
+        else:
+            sys.modules.pop(_ws_name, None)
         await stack.aclose()
+
+
+def _d4b_stubbed_ha_symbols() -> list[str]:
+    """Names of HA symbols the subscribe path needs that are not genuine."""
+    bad = []
+    for mod_name, attr in (
+        ("homeassistant.helpers.dispatcher", "async_dispatcher_connect"),
+        ("homeassistant.helpers.dispatcher", "async_dispatcher_send"),
+        ("homeassistant.core", "callback"),
+    ):
+        obj = getattr(sys.modules.get(mod_name), attr, None)
+        if getattr(obj, "__module__", None) != mod_name:
+            bad.append(f"{mod_name}.{attr}")
+    return bad
 
 
 

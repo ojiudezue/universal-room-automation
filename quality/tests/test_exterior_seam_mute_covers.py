@@ -220,7 +220,13 @@ def test_mute_covers_not_in_adjacency_graph(tmp_path, monkeypatch):
 
 
 def test_shipped_example_covers_validate_with_live_cameras():
-    spec = json.loads(pathlib.Path("docs/examples/exterior_seams.example.json").read_text())
+    # Anchor to the repo that holds THIS test file, not the cwd: a run launched
+    # from another checkout silently read that checkout's (older) example.
+    example = (
+        pathlib.Path(__file__).resolve().parents[2]
+        / "docs" / "examples" / "exterior_seams.example.json"
+    )
+    spec = json.loads(example.read_text())
     live_known = {
         "reolinkstudybporchptz", "rear_ptz", "utilities_ptz", "front_side_ptz",
         "armcrest", "hot_tub", "pool_equipment", "g5_bullet", "back_yard",
