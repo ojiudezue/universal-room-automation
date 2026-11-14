@@ -27,6 +27,25 @@ sighting store. Each part is sound; nothing proves every producer and consumer g
 This contract therefore makes the INGEST half as concrete as the read half (§2), states the invariants falsifiably
 (§3), and defines the check every plan review and the arc-map merge step runs (§6).
 
+### 0a. Why the layer is worth having (utility, judged 2026-11-13, restated 2026-11-14)
+
+On 2026-11-13 a read-only inventory of every F1-F5 producer and reader was run before anything was built, and the
+idea was judged good and buildable from what exists. The findings that made the case:
+- **Consumers were reaching into internals.** About 20 private census methods were called 40+ times from the transit
+  validator, perimeter alerts, sightings and setup. Every one is a place a change to the census can silently break a
+  consumer.
+- **Person identity was normalized in many places.** Five ID formats; the name-to-`person.*` rule copied inline 14+
+  times and the reverse 5 more. It worked in this house only because settings happened to store entity IDs. The worst
+  copy fed the census, sightings and the egress BLE leg. One function removes the class of bug.
+- **The natural host already existed.** PresenceCoordinator already owned the F1, F4 and F5 getters, the sighting
+  producer and the census counts, so the layer is an extension, not a new coordinator.
+- **It sets the ceiling the arc works under.** F5 arrivals over 14 days: 152 geofence, 68 BLE, 0 camera faces. F3
+  crossings carried a name 30% (entry) / 49% (exit). A single layer is where vision and egress naming raise those
+  numbers once, for every consumer, instead of per feature.
+- **It is what lets vision lead later.** Census "based entirely on [vision]" only works if vision feeds one
+  deconfliction point and every consumer reads one view by class; separate parts would each need re-wiring.
+Verdict then: build it reuse-first (carded PERSON-AWARENESS-READ-API-1). What was missed then: the ingest half (§0).
+
 ## 1. The layer, in one picture
 
 ```

@@ -29,6 +29,9 @@ Written so the analysis survives compaction. Companion docs: `ARC_identity_visio
   seams but never checked plans against this contract, so it could not catch it. Operator 2026-11-14: "This is why we
   consolidated the plans." Correction: the contract names both halves; the merge check and every plan review now test
   "feeds through the one ingest, reads through the one surface".
+  Name: **the person-awareness layer**. Diagram: CONTRACT_person_awareness_layer.md §1. Why it is worth having (the
+  2026-11-13 utility judgment: private census reads, scattered ID normalization, existing host, the F3/F5 ceilings,
+  vision leading later): same doc §0a.
 - Added 2026-11-14: "vision will eventually be able to pull short clips of video to watch. Make sure no plan precludes
   that." (Constraint: every vision deliverable keeps a frame-source path that can take a short clip, e.g. llmvision
   `video_analyzer` on a Frigate clip, not only still frames; plan reviews check it.) Also: "Interior vision is meant to
