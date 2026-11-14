@@ -6460,3 +6460,65 @@ MEMORY_SEED_FACTS: Final = (
         ),
     },
 )
+
+
+# ============================================================================
+# PERSON-AWARENESS-READ-API-1 ship 1 (PLANNING_person_awareness_read_api.md)
+# ============================================================================
+# Consumer classes (identity model F1-F5; manual §5.5(b)). The class a reader
+# is in decides which census view it reads and the identity confidence it
+# needs before it may act on a name.
+CONSUMER_CLASS_SECURITY: Final = "security"
+CONSUMER_CLASS_NOTIFICATION: Final = "notification"
+CONSUMER_CLASS_DISPLAY: Final = "display"
+CONSUMER_CLASS_COMFORT: Final = "comfort"
+CONSUMER_CLASS_HOUSE_STATE: Final = "house_state"
+
+# RA3 (rung 1, module const: doctrine values, changing them requires review).
+# One table replacing scattered literals, values unchanged from develop:
+#   security     >= 0.9  de-escalate / annotate only (manual §5.5(a));
+#                        read by perimeter_alert._known_identity_for (floor).
+#   notification >= 0.75 name the person, anonymous below (manual §5.5(b));
+#                        read by EgressDirectionTracker._arrival_departure_notify.
+#   display      0       show name-or-"unidentified"; never a trust decision.
+# comfort and house_state read the trust view and add no identity threshold.
+# A read-only mapping so no caller can mutate the doctrine at runtime.
+from types import MappingProxyType as _MappingProxyType  # noqa: E402
+
+CONSUMER_CLASS_MIN_CONFIDENCE: Final = _MappingProxyType({
+    CONSUMER_CLASS_SECURITY: 0.9,
+    CONSUMER_CLASS_NOTIFICATION: 0.75,
+    CONSUMER_CLASS_DISPLAY: 0.0,
+})
+
+# RA2 promotion ladder inputs (owned by PLANNING_census_deconfliction.md
+# §3.2; defined here because view_for_class reads them and ship 1 lands
+# first). CROSSING_VISION_CONSUMER_CLASSES (rung 1) = classes promoted to the
+# awareness view; members must be in the LEGAL set (rungs whose consumer
+# wiring has been built and reviewed) or the module raises at import.
+# Promotion also needs the downgrade switch (rung 3, built by the census
+# plan) to read ON: a missing switch entity = every class reads trust.
+CROSSING_VISION_LEGAL_CONSUMER_CLASSES: Final = frozenset({
+    CONSUMER_CLASS_DISPLAY, CONSUMER_CLASS_NOTIFICATION,
+})
+CROSSING_VISION_CONSUMER_CLASSES: Final = frozenset({CONSUMER_CLASS_DISPLAY})
+CROSSING_VISION_CENSUS_AUTHORITY_SWITCH: Final = (
+    "switch.ura_crossing_vision_census_authority"
+)
+
+
+def validate_consumer_classes(active, legal) -> frozenset:
+    """Raise ValueError unless every active class is a legal member."""
+    active_set = frozenset(active)
+    illegal = active_set - frozenset(legal)
+    if illegal:
+        raise ValueError(
+            "CROSSING_VISION_CONSUMER_CLASSES has illegal members: "
+            f"{sorted(illegal)} (legal: {sorted(legal)})"
+        )
+    return active_set
+
+
+validate_consumer_classes(
+    CROSSING_VISION_CONSUMER_CLASSES, CROSSING_VISION_LEGAL_CONSUMER_CLASSES,
+)

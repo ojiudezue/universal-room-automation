@@ -906,7 +906,7 @@ back to `"unidentified"` when it is NULL:
 **CORRECTED (FACE-ARRIVAL-REBUILD-1 D5, code wins): `identity_confidence` HAS a live reader.**
 `EgressDirectionTracker._arrival_departure_notify` (`transit_validator.py:2603`; the class is `EgressDirectionTracker` at `:1007`, not `TransitValidator`, corrected 2026-11-13; called from
 `_resolve_direction`) names the person in "X arrived / left" only at `identity_confidence >=
-ARRIVAL_NAME_CONFIDENCE_THRESHOLD` (0.75), else "Someone" (notification-naming class, (b) below).
+ARRIVAL_NAME_CONFIDENCE_THRESHOLD` (0.75; since read API ship 1 the compare reads `const.CONSUMER_CLASS_MIN_CONFIDENCE["notification"]` directly and the class attribute is removed), else "Someone" (notification-naming class, (b) below).
 It is the ONE arrival/departure notification site. Since D1 the person-sighting producer (§4.5a)
 also reads the bus `identity_confidence` / `identity_provenance` (display-class: it copies them
 into an egress sighting). `agreement_class` still has no decision reader. Egress identity feeds no
@@ -929,6 +929,11 @@ an alert is safe; acting because a name appeared is not.
 | **Security suppress / de-escalate** | **≥0.9** | de-escalate/annotate only — never escalate, never suppress below 0.9 |
 | **Notification naming** | **≥0.75** | name the person in the message; anonymous below |
 | **Display** | **none** | show name-or-"unidentified"; never a trust decision |
+
+In code (PERSON-AWARENESS-READ-API-1 ship 1, branch `feature/person-awareness-read-api-ship1`, NOT deployed) the
+table is one rung-1 constant, `const.CONSUMER_CLASS_MIN_CONFIDENCE` (security 0.9, notification 0.75, display 0),
+read by `EgressDirectionTracker._arrival_departure_notify` (notification) and `PerimeterAlertManager._known_identity_for`
+(security floor; `PERIMETER_EGRESS_KNOWN_MIN_CONF` is still clamped up to it). Values unchanged.
 
 **(c) MEASURE-BEFORE-BUILD gate.** Before building ANY new consumer,
 re-measure the REAL production rate of `person_id` on the live

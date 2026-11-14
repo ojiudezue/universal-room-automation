@@ -291,6 +291,32 @@ class TransientSignal:
 
 
 @dataclass(frozen=True)
+class HouseCensusView:
+    """F2 house census as one consumer class reads it
+    (PERSON-AWARENESS-READ-API-1 RA1). Built by
+    ``PresenceCoordinator.get_house_census``; values are copied from
+    ``census.last_result.house`` (never ``_census_count``).
+
+    view: ``trust`` or ``awareness``.
+    identified: house ``identified_count``.
+    unidentified_or_guests: house ``unidentified_count``.
+    total: house ``total_persons``.
+    provenance: where the count came from (``camera`` until the census
+        deconfliction plan adds vision).
+    agreement: house ``source_agreement``.
+    as_of: house ``timestamp``.
+    """
+
+    view: str
+    identified: int
+    unidentified_or_guests: int
+    total: int
+    provenance: str
+    agreement: str
+    as_of: Any
+
+
+@dataclass(frozen=True)
 class VetoDecision:
     """Result of a Bug Class #48 transient-vs-reliable arbitration.
 
@@ -5917,6 +5943,87 @@ class PresenceCoordinator(BaseCoordinator):
     def get_person_sighting_diagnostics(self) -> dict:
         producer = self._person_sightings
         return producer.diagnostics() if producer is not None else {}
+
+    # ------------------------------------------------------------------
+    # PERSON-AWARENESS-READ-API-1 ship 1: the person-awareness read API.
+    # Readers pick a view by consumer class (view_for_class); the presence
+    # inference path never calls these.
+    # ------------------------------------------------------------------
+    def get_house_census(self, view: str = "trust") -> HouseCensusView | None:
+        """RA1: F2 house census for ``view`` (``trust`` / ``awareness``).
+
+        Reads ``census.last_result.house``. Sync, never raises; no census or
+        no result yet -> None. Until the census deconfliction plan adds the
+        awareness fields, the awareness view returns the trust values with
+        provenance ``camera``. Any view string other than ``awareness``
+        reads trust.
+        """
+        try:
+            census = self.hass.data.get(DOMAIN, {}).get("census")
+            if census is None:
+                return None
+            last = census.last_result
+            if last is None:
+                return None
+            house = last.house
+            if house is None:
+                return None
+            return HouseCensusView(
+                view="awareness" if view == "awareness" else "trust",
+                identified=int(house.identified_count),
+                unidentified_or_guests=int(house.unidentified_count),
+                total=int(house.total_persons),
+                provenance="camera",
+                agreement=str(house.source_agreement),
+                as_of=house.timestamp,
+            )
+        except Exception:  # noqa: BLE001 - read API never raises
+            _LOGGER.debug("get_house_census failed", exc_info=True)
+            return None
+
+    def view_for_class(self, cls: Any) -> str:
+        """RA2: the census view a consumer class reads (allow-list).
+
+        ``awareness`` ONLY when ``cls`` is in the active promoted set
+        (``CROSSING_VISION_CONSUMER_CLASSES``) AND in the legal set AND the
+        downgrade switch reads ``on``. Every other input (class not
+        promoted, unknown / misspelt / non-string class, switch missing or
+        not on, any error) -> ``trust``.
+        """
+        try:
+            if not isinstance(cls, str):
+                return "trust"
+            if cls not in _ura_const.CROSSING_VISION_CONSUMER_CLASSES:
+                return "trust"
+            if cls not in _ura_const.CROSSING_VISION_LEGAL_CONSUMER_CLASSES:
+                return "trust"
+            st = self.hass.states.get(
+                _ura_const.CROSSING_VISION_CENSUS_AUTHORITY_SWITCH
+            )
+            if st is None or st.state != "on":
+                return "trust"
+            return "awareness"
+        except Exception:  # noqa: BLE001 - fail to trust
+            return "trust"
+
+    def get_last_crossing(self, camera: str | None = None):
+        """RA5: last F3 door crossing (``CrossingRecord``) from the egress
+        tracker, overall or for one egress camera; None if no tracker or no
+        crossing yet. Sync, never raises."""
+        try:
+            tracker = self.hass.data.get(DOMAIN, {}).get("egress_tracker")
+            if tracker is None:
+                return None
+            return tracker.get_last_crossing(camera)
+        except Exception:  # noqa: BLE001
+            return None
+
+    def get_last_arrival_record(self):
+        """RA5: last crossing-vision arrival record (F3 attribute).
+
+        The arrival record store ships with the crossing-vision plan; until
+        then there is no store and this returns None."""
+        return None
 
     async def _periodic_inference(self, _now: Any = None) -> None:
         """Run periodic inference for time-based transitions and camera timeouts.
