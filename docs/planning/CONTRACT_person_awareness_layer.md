@@ -379,18 +379,20 @@ the ledger anchor never uses the released view (orchestrator); AWAY stays fast a
 named; fixes must not change what is delivered unless the operator says so (S1 keeps the 30-min approach window and
 guest arrivals; S5 not wired); room occupancy is a comfort-class reader of the one BLE-in-room read.
 
-Still needs the operator:
-- **Q1 (G6).** Apply the phone-left-behind filter to room occupancy (`coordinator.py:3315, 4440, 5003`)? Recommended
-  yes, after the §2.4a probe. Consequence: a person flagged phone-left-behind no longer extends a room's occupancy by
-  BLE. If no, room occupancy keeps a named raw meaning.
-- **Q2 (S5).** Wire the security census input? It has never had a producer (`manager.py:1022-1033`), so the
+Operator answers 2026-11-14 (verbatim: "Qs: 1 - yes. 2- unwired. But is there a trigger. 3 - keep it. S1 - confirm"):
+- **Q1 (G6): YES.** Apply the phone-left-behind filter to room occupancy (`coordinator.py:3315, 4440, 5003`), after
+  the §2.4a probe (zero or near-zero changed rooms = ship). A person flagged phone-left-behind no longer extends a
+  room's occupancy by BLE.
+- **Q2 (S5): UNWIRED.** Revival trigger (proposed 2026-11-14): two weeks of census logs with at most one false
+  "unknown person" per week while no guests are present, AND the operator asks for unknown-person alerts. Detail:
+  wire the security census input? It has never had a producer (`manager.py:1022-1033`), so the
   unknown-person ALERT_HIGH (fires even disarmed, `security.py:369-371`), the census-intent lock-all-doors path
   (`security.py:1104-1115`) and the persons-home SANCTIONED leg have never fired. Wiring it ACTIVATES a dormant
   lock-all-doors path fed by the census (the census that produced the phantom-GUEST class). Class `access`. This
   contract does not wire it; KEEP + DOCUMENT. If the operator wants it, it is its own Tier-3 card.
-- **Q3 (D11, low).** `BLE_TRANSITION_CONFIDENCE` = 0.75 equals the notification bar, so a BLE-only egress identity
+- **Q3 (D11, low): KEEP.** `BLE_TRANSITION_CONFIDENCE` = 0.75 equals the notification bar, so a BLE-only egress identity
   names the person in "X arrived" today (`>=`). Intended? The contract records it as intended unless the operator
   says otherwise.
-- **S1 hold semantics (confirm).** S1 moves onto G1 with the stale-source rule applied as the lock regime applies it:
+- **S1 hold semantics: CONFIRMED.** S1 moves onto G1 with the stale-source rule applied as the lock regime applies it:
   a stale-source edge is HELD for the hold window and confirmed, not dropped, so a real arrival still opens the
   window (seconds later) and the 78-per-week iPad blips do not. Approach window (30 min) and guest arrivals unchanged.
