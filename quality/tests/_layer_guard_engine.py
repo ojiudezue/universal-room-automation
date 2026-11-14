@@ -165,7 +165,14 @@ R2_STORE_OWNERS: dict[str, tuple[str, ...]] = {
 R2_PRIVATE_STORES = frozenset({"_last_sightings", "_camera_sightings"})
 # Plan rev 3.3 §5 D7 (ruled 4d337e44): lifecycle callees only, by name; a
 # person-fact read during setup still counts.
-R2_LIFECYCLE_EXACT = frozenset({"async_init", "async_teardown", "async_shutdown", "rebind"})
+R2_LIFECYCLE_EXACT = frozenset({
+    "async_init", "async_teardown", "async_shutdown", "rebind",
+    # Coordinator ruling on the six first-run lifecycle rows (explicit names,
+    # no pattern): listener (un)registration / memory load / task cancel.
+    "register_ble_transition_listeners", "async_register_frigate_face_listener",
+    "async_load_fleet_memory", "async_cancel_pending_backfill_tasks",
+    "async_teardown_ble_transition_listeners", "async_teardown_frigate_face_listener",
+})
 R2_LIFECYCLE_PREFIXES = ("async_setup", "async_unload")
 
 

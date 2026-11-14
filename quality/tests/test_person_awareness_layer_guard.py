@@ -62,14 +62,8 @@ def test_allowlist_is_provisional_until_census_p2():
     assert A.LAYER_ALLOWLIST_TOTAL == sum(r["max"] for r in A.ROWS.values())
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "STOP for the orchestrator: after the plan rev 3.3 §17 rulings, 6 R2 rows "
-    "remain unruled (lifecycle callees outside §5 D7's named list: "
-    "register_ble_transition_listeners, async_register_frigate_face_listener, "
-    "async_load_fleet_memory, async_cancel_pending_backfill_tasks, "
-    "async_teardown_ble_transition_listeners, async_teardown_frigate_face_listener). "
-    "Flips to XPASS (strict -> red) once they are ruled."))
 def test_provisional_rows_all_explained():
+    """Every row is ruled (plan rev 3.3 §17 + the coordinator's lifecycle ruling)."""
     unexplained = sorted(k for k, r in A.ROWS.items() if not r["explained"])
     assert unexplained == []
 
@@ -124,6 +118,11 @@ TIGHTEN = [
      "def async_setup_entry(hass):\n    pc = hass.data['d']['person_coordinator']\n    pc.async_setup()\n",
      "def async_setup_entry(hass):\n    pc = hass.data['d']['person_coordinator']\n"
      "    return pc.get_persons_in_room('k')\n", "R2"),
+    ("named_lifecycle_callee",
+     "async def async_setup_entry(hass):\n    pc = hass.data['d']['person_coordinator']\n"
+     "    await pc.async_load_fleet_memory()\n",
+     "async def async_setup_entry(hass):\n    pc = hass.data['d']['person_coordinator']\n"
+     "    await pc.async_load_fleet_memory()\n    return pc.get_persons_in_room('k')\n", "R2"),
 ]
 
 
@@ -186,7 +185,8 @@ _MEMBERS = {
         "    def get_persons_in_room(self, room): return []\n"
         "    def set_pre_arrival_enabled(self, v): self._pre_arrival_enabled = v\n"
         "    def async_add_listener(self, cb): return lambda: None\n"
-        "    def async_setup(self): return None\n"),
+        "    def async_setup(self): return None\n"
+        "    def async_load_fleet_memory(self): return None\n"),
     "domain_coordinators/presence.py": (
         "class PresenceCoordinator:\n"
         "    def __init__(self):\n"

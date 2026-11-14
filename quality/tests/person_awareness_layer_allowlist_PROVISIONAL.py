@@ -3,7 +3,7 @@
 NOT THE FINAL ALLOWLIST. Plan PLANNING_person_awareness_layer_ship3.md rev 3.2
 §5 D7 / §11: the final allowlist and LAYER_ALLOWLIST_TOTAL are produced by the
 first real run on the post-census-p2 tree. This file is the first run on
-develop + ship 3a phase 1 (builder HEAD 888a58d7), classified into plan §9
+develop + ship 3a phase 1 (builder HEAD 9d61a315), classified into plan §9
 groups. Rows with ``explained: False`` are NOT explained by the plan's sizing
 or §9: they are a STOP for the orchestrator (plan §5 D7: "never pasted in"),
 pinned here only so the scaffolding is exact; see
@@ -16,12 +16,13 @@ Generated; regenerate rather than hand-edit.
 """
 
 PROVISIONAL = True
-LAYER_ALLOWLIST_TOTAL_PROVISIONAL = 267
+LAYER_ALLOWLIST_TOTAL_PROVISIONAL = 261
 # Plan rev 3.3 (4d337e44) §9 / §17 expects 238 rows / max-sum 266. The rule
-# text of §5 D7 applied exactly gives the sum below (builder report: 5 ruled
-# rows also removed by the by-name exclusions, 6 lifecycle callees outside
-# the named list). Pinned to what the rules produce, not to 266.
-LAYER_ALLOWLIST_TOTAL = 267
+# text of §5 D7 applied exactly removes 5 more ruled rows (by-name
+# exclusions: _boot_settle_done x4, census get_stuck_cameras x1; accepted by
+# the coordinator), and the six named lifecycle callees are ruled exempt.
+# Pinned to what the rules produce: 233 rows.
+LAYER_ALLOWLIST_TOTAL = 261
 RULED = 'plan rev 3.3 §17 (4d337e44)'
 
 # group -> (card, reason). '#N' = plan §9 row N; 'UNEXPLAINED' = STOP.
@@ -54,7 +55,6 @@ GROUPS = {
     'OWN': ('PERSON-AWARENESS-READ-API-1', 'owner row named by the plan'),
     'R13': ('PERSON-AWARENESS-READ-API-1', 'pinned ingest feeder (plan §5 D7 R13)'),
     'R8': ('PERSON-AWARENESS-READ-API-1', 'class-threshold-equal confidence constant, seed (contract §9 Q3)'),
-    'UNEXPLAINED': ('UNEXPLAINED', 'STOP: no plan §9 group explains this row; orchestrator decision'),
 }
 
 ROWS = {
@@ -218,12 +218,6 @@ ROWS = {
     ('R13', 'person_sighting.py', 'PersonSightingProducer.async_setup:register_face_latch_callback'): {'max': 1, 'group': 'R13', 'reserved': False, 'explained': True},
     ('R13', 'transit_validator.py', '<step 7 D8 camera_egress sender>:dispatch_person_arriving'): {'max': 1, 'group': 'reserved', 'reserved': True, 'explained': True, 'card': 'EGRESS-DIRECTION-AWARE-IDENTITY-1', 'reason': 'step 7 D8 camera_egress F5 feeder (reserved, file-pinned)'},
     ('R13', 'transit_validator.py', 'amend_crossing:attach_crossing_attribute'): {'max': 1, 'group': 'R13', 'reserved': False, 'explained': True},
-    ('R2', '__init__.py', '_async_start_person_coordinator:async_load_fleet_memory'): {'max': 1, 'group': 'UNEXPLAINED', 'reserved': False, 'explained': False},
-    ('R2', '__init__.py', 'async_setup_entry:async_register_frigate_face_listener'): {'max': 1, 'group': 'UNEXPLAINED', 'reserved': False, 'explained': False},
-    ('R2', '__init__.py', 'async_setup_entry:register_ble_transition_listeners'): {'max': 1, 'group': 'UNEXPLAINED', 'reserved': False, 'explained': False},
-    ('R2', '__init__.py', 'async_unload_entry:async_cancel_pending_backfill_tasks'): {'max': 1, 'group': 'UNEXPLAINED', 'reserved': False, 'explained': False},
-    ('R2', '__init__.py', 'async_unload_entry:async_teardown_ble_transition_listeners'): {'max': 1, 'group': 'UNEXPLAINED', 'reserved': False, 'explained': False},
-    ('R2', '__init__.py', 'async_unload_entry:async_teardown_frigate_face_listener'): {'max': 1, 'group': 'UNEXPLAINED', 'reserved': False, 'explained': False},
     ('R2', 'aggregation.py', 'OccupantCountSensor.extra_state_attributes:data'): {'max': 2, 'group': '#26', 'reserved': False, 'explained': True},
     ('R2', 'aggregation.py', 'PersonLocationSensor.extra_state_attributes:data'): {'max': 2, 'group': '#26', 'reserved': False, 'explained': True},
     ('R2', 'aggregation.py', 'PersonPreviousLocationSensor.async_added_to_hass:seed_previous_location'): {'max': 1, 'group': '#34', 'reserved': False, 'explained': True},
