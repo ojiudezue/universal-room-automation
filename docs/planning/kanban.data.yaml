@@ -35556,6 +35556,7 @@ cards:
   next: "Me: plan after ship 3 (Tier 2-DB minimum: house-state change)."
   rank: {value: 5, time_criticality: 3, effort: 2}
 - id: PERSON-AWARENESS-READ-API-1
+  operator_2026_11_14_ship3_questions: "'Defaults are good by me' (ship 3 rev 2 Q1-Q8): G6 rest to G6-ONE-BLE-ROOM-READ-1 after ship 3a; ship 3a carries SIGNAL_RESIDENCY_EVENT if census-p2 slips; display callers stay on trust; HVAC switch = BLE-ARRIVAL-PRODUCER-HVAC-GATED-1 option A; keep SIGNAL_PERSON_SIGHTING with no listeners; pool-overhead twin deferred to NVR witness W2; Frigate-only outage = lower-priority 'one NVR down, other covering' notice, HIGH only when every NVR is dead; a dead Tier-1 input with no readable Tier-1 twin keeps blocking the anchor."
   operator_2026_11_14_contract_rev2: "Qs: 1 - yes. 2- unwired. But is there a trigger. 3 - keep it. S1 - confirm. Dead camera - sure. I assume if even one nvr has the cam it doesn't count as dead. Did we execute that shared layer we discussed? Tell me"
   arc_cut_v5_108_21: "ship 1 here, ship 2 in batch 2"
   title: One public person-awareness read API on PresenceCoordinator (F1-F5), replacing ~40 private PersonCensus reads and 14+ inline id-normalisation copies
