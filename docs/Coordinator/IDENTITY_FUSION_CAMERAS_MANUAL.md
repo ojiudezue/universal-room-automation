@@ -482,6 +482,23 @@ under `gate_decisions_by_camera`:
   window expiry, teardown, and any later dispatched alert on the same camera
   key (`perimeter_alert.py` `_arm_identity_followup` / `_followup_check`).
 
+**Gate evidence (PERIMETER-GATE-EVIDENCE Part A, branch `feature/perimeter-gate-evidence`,
+NOT deployed; plan `PLANNING_perimeter_gate_evidence_and_input_health.md`).**
+- **Daylight-only single-source demotes (D1/D1b).** D5 `single_source` and the D10.5
+  `egress_uncorroborated` branch demote only while `sun.sun` elevation ≥
+  `PERIMETER_SS_DAYLIGHT_MIN_ELEVATION_DEG` (0.0). Missing / unavailable / non-numeric sun
+  = night = no demote. D5 reasons `night` (no hold) and `night_after_settle` (sun set during
+  the 8 s settle); D10.5 reason `egress_uncorroborated_night` (read after both holds), which
+  also arms the "that was <name>" follow-up. `egress_known_person` is unchanged. Kill
+  switches `PERIMETER_SS_DAYLIGHT_ONLY` / `PERIMETER_EGRESS_UNCORROBORATED_DAYLIGHT_ONLY`.
+- **Persisted decisions (D2).** Every `_record_gate` call writes one `memory_episodes` row
+  (`perimeter_gate_decision`, node `perimeter_gate:<cam_key>`, `window_dedup=False`) with
+  sun state on every row. Writer-health checked. Reader: `scripts/probes/perimeter_gate_scorer_weekly.py`.
+- **VLM location (D3) ships DARK.** `PERIMETER_VLM_LOCATION_ASK` = False after the D0-B
+  replay no-go (street recall 8/26; `AUDIT_perimeter_d0_location_2026_11_13.md`). When on,
+  shadow asks LOCATION and records it only; enforce keeps `_VERDICT_PROMPT` unless
+  `PERIMETER_VLM_LOCATION_ASK_IN_ENFORCE`.
+
 **Frigate event ingress (v5.108.1, PERIMETER-FRIGATE-MQTT-DIRECT-1, branch
 `feature/frigate-mqtt-direct`, shipped v5.108.1; plan
 `PLANNING_frigate_mqtt_direct_2026_11.md` rev 2).** Before this build, perimeter
@@ -636,6 +653,14 @@ untouched. The pure scorer `interior_paths.score_path` is shared with offline sc
 co-detections are a report only: `AUDIT_interior_path_map_learned_vs_operator.md`.
 
 ### 4.5a Person sightings (FACE-ARRIVAL-REBUILD-1 D1 + D4, branch `feature/person-sightings-p1`, NOT deployed)
+
+**CORRECTION 2026-11-13: the rule "the census and sightings never feed each other" (person-sighting plan §2A) is
+RETIRED** (operator, CLAUDE.md d1d7b387: "past its usefulness"). Replacement: sightings, interior vision included, MAY
+feed F2 (`PersonCensus`), but only through ONE deconfliction function that dedups by evidence source, so no face or
+body is counted twice. The function and the plans that feed it: `docs/planning/ARC_identity_vision_census_map.md` §3.
+Code wins: no sighting-to-census path exists in code today; the census face legs dedup synthetic legs by
+`(canonical_slug, engine, base_stem)` (`camera_census.py:3576-3588`) and the identified union canonicalises names
+(`camera_census.py:2533-2540`). Unchanged: a crossing is not a sighting; access never acts on F4 alone.
 
 `person_sighting.PersonSightingProducer` (built by `PresenceCoordinator._setup_person_sightings` in
 `async_setup`, ticked from `_periodic_inference`, torn down in `async_teardown`) emits
@@ -841,7 +866,7 @@ back to `"unidentified"` when it is NULL:
 | `LastPersonExitSensor` | `sensor.py:4512` | `person_id` → last-exit name |
 
 **CORRECTED (FACE-ARRIVAL-REBUILD-1 D5, code wins): `identity_confidence` HAS a live reader.**
-`TransitValidator._arrival_departure_notify` (`transit_validator.py`, called from
+`EgressDirectionTracker._arrival_departure_notify` (`transit_validator.py:2603`; the class is `EgressDirectionTracker` at `:1007`, not `TransitValidator`, corrected 2026-11-13; called from
 `_resolve_direction`) names the person in "X arrived / left" only at `identity_confidence >=
 ARRIVAL_NAME_CONFIDENCE_THRESHOLD` (0.75), else "Someone" (notification-naming class, (b) below).
 It is the ONE arrival/departure notification site. Since D1 the person-sighting producer (§4.5a)

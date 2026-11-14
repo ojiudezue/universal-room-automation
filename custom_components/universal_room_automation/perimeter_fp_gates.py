@@ -70,6 +70,62 @@ def parse_vlm_verdict(text: str | None) -> tuple[str | None, str]:
         return None, VERDICT_UNSURE
 
 
+# PERIMETER-GATE-EVIDENCE D3: second line `LOCATION: PROPERTY|STREET|UNSURE`.
+_LOCATION_LINE_RE = re.compile(
+    r"^\s*\**\s*location\s*\**\s*:\s*\**\s*([a-z]+)", re.I,
+)
+LOCATION_PROPERTY = "PROPERTY"
+LOCATION_STREET = "STREET"
+LOCATION_UNSURE = "UNSURE"
+
+
+def parse_vlm_verdicts(text: str | None) -> tuple[str | None, str, str]:
+    """Return (description, person_verdict, location_verdict).
+
+    PERSON is parsed exactly as ``parse_vlm_verdict`` does (it is called).
+    LOCATION is read ONLY from the next non-empty line after the PERSON line
+    when that line starts ``LOCATION:``; that line is then removed from the
+    description. Any other shape gives location UNSURE and leaves the text
+    exactly as ``parse_vlm_verdict`` returns it. Never raises.
+    """
+    desc, person = parse_vlm_verdict(text)
+    try:
+        if not desc:
+            return desc, person, LOCATION_UNSURE
+        lines = str(text).splitlines()
+        first = next((i for i, ln in enumerate(lines) if ln.strip()), None)
+        if first is None or not _VERDICT_LINE_RE.match(lines[first]):
+            return desc, person, LOCATION_UNSURE
+        nxt = next(
+            (i for i in range(first + 1, len(lines)) if lines[i].strip()), None,
+        )
+        if nxt is None:
+            return desc, person, LOCATION_UNSURE
+        m = _LOCATION_LINE_RE.match(lines[nxt])
+        if not m:
+            return desc, person, LOCATION_UNSURE
+        word = m.group(1).upper()
+        loc = word if word in (
+            LOCATION_PROPERTY, LOCATION_STREET, LOCATION_UNSURE,
+        ) else LOCATION_UNSURE
+        rest = "\n".join(lines[nxt + 1:]).strip()
+        return (rest or None), person, loc
+    except Exception:  # noqa: BLE001
+        return desc, person, LOCATION_UNSURE
+
+
+def is_daylight(elevation: Any, min_deg: Any) -> bool:
+    """PERIMETER-GATE-EVIDENCE D1: True only for a numeric sun elevation at
+    or above ``min_deg``. None / non-numeric / any error -> False (NIGHT):
+    a missing sun reading must never permit a demote. Never raises."""
+    try:
+        if elevation is None or isinstance(elevation, bool):
+            return False
+        return float(elevation) >= float(min_deg)
+    except Exception:  # noqa: BLE001
+        return False
+
+
 class AgreementTracker:
     """D5: per-camera last-N "was the alert corroborated by the other NVR
     family within ±window" outcomes.

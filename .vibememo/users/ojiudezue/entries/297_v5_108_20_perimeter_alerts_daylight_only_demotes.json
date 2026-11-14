@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "297",
+  "author": "ojiudezue",
+  "session_id": "claude_20261114_004835_ship_v5_108_20",
+  "timestamp": "2026-11-14T00:48:35Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.108.20 shipped: Perimeter alerts: daylight-only demotes, every gate decision logged",
+  "summary": "Perimeter alerts: daylight-only demotes, every gate decision logged",
+  "why": "Operator ruled single-source demotion should apply only in daylight, never after sunset, because at night a lone detection is more likely a real person and demoting it hides it. Gate decisions were not persisted, so nobody could score whether the gates helped or hurt alert hygiene; rows now make that measurable weekly. The VLM location check failed its replay (street recall 31%) so it ships dark rather than being dropped.",
+  "implications": "Shipped PERIMETER-ZONE-AGREEMENT-FIX-OR-REMOVE-1, PERIMETER-GATE-DECISIONS-NOT-PERSISTED-1 at v5.108.20; card(s) sit shipped_organic pending validation. Acceptance in README_v5.108.20.md (Live criteria).",
+  "revisit_trigger": "Re-run the D0-B VLM location replay with the GPT-6 entry before flipping PERIMETER_VLM_LOCATION_ASK; revisit gate-row retention on MEMORY-EPISODES-PERIMETER-GATE-RETENTION-1 if memory_episodes growth exceeds 90 MB/yr.",
+  "refs": {
+    "cards": [
+      "PERIMETER-ZONE-AGREEMENT-FIX-OR-REMOVE-1",
+      "PERIMETER-GATE-DECISIONS-NOT-PERSISTED-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.108.20.md"
+    ],
+    "release_notes": "Single-source and uncorroborated-door demotes now apply only in daylight (sun at or above 0 deg; unreadable sun = night). Every perimeter gate decision is written to memory_episodes (perimeter_gate_decision) with sun elevation, for weekly scoring. The VLM location question is built but ships dark (PERIMETER_VLM_LOCATION_ASK=False) after its replay failed. See docs/readmes/README_v5.108.20.md."
+  }
+}

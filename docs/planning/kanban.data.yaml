@@ -34766,6 +34766,7 @@ cards:
   next: 'Me: builder wiring load-at-setup + fallback + D4 + D5 with a wire-in test; two reviews; ship.'
   rank: {value: 8, time_criticality: 7, effort: 3}
 - id: VISION-CROSSING-ANALYSIS-1
+  operator_2026_11_13_plans_approved: "Plans approved (the four clean plans: census deconfliction, person awareness read API, camera input stream health, crossing vision producer). Merged to develop 2602929c; estimator plan archived."
   arc_cut_v5_108_19: "shadow build running"
   arc_cut_v5_108_18: "separate plan"
   arc_cut_v5_108_16: "own sibling plan, D0-FRAME/SIM done, re-anchor edits then D0-V"
@@ -34781,8 +34782,63 @@ cards:
   why: 'Design in PLANNING_person_sighting_layer.md section 15. Gates: D0-FRAME (blank-frame experiment), D0-SIM (timing simulation), D0-V (model scoring incl. dry call per GPT-6 model for llmvision param compatibility). Then its own sibling plan.'
   FINDING_2026-11-13: 'AUDIT_vision_d0_frame_sim_2026_11_13.md: D0-FRAME and D0-SIM NO-GO as written, GO if re-anchored. Plan assumed crossing emit t0 = edge + 0-20 s; code is edge + 45 s (ENTRY_WINDOW_SECONDS). At t0: 63% of crossings have zero usable frames; at the camera edge: 3/3 frames on 100%. Guard must choose across the door group cameras (single camera on at edge+3 s only 32-79%). Best-snapshot 404s 17-30% (doorbell, G6), thumbnails 100%. Volume 14/day (max 30): cap >= 40. Time-lapse 60 s from t0 catches first interior hop 12-22%; from edge 84-88%; garage A needs 90 s, front 120 s. Plan table wrongly lists Doorbell Lite under front. Open: 30-frame operator hand-label of the blank proxy.'
   HANDLABEL_2026-11-13: 'Operator hand-labelled 30 door frames (page EQVeja6NrUaZ9DFUPcR8PW, labels in its db). Frigate person-tracking proxy agreed on 22/30 (73%), below the 95% gate: 5 frames had a person the proxy missed (aerial, garage_a, doorbell, G6, one with 2 people), 3 proxy-on frames were empty (doorbell, G6 x2). One 2-person frame, no 3+. Gate FAILS: the proxy cannot time captures; the blank-frame guard must judge the frames themselves (cheap model check or detector boxes), not Frigate event state.'
+  operator_2026_11_13_accuracy: 'Operator: expose vision accuracy as sensors (exact-count rate, blank rate, drift at AWAY reset, match coverage, latency) and page the operator (here or via URA NM) when new images need grading. Phase 2 unblocked: per-frame D0d gate removed; go/no-go = ledger drift + resident-arrival match + group sample, measured from shadow.'
+  operator_2026_11_13_phase2_defaults: 'Operator "Ok on recos": Q1 reset 3600 s; Q2 flip = reviewed code constant + downgrade-only switch; Q3 gpt-6-luna from shadow day 1; Q4 +-10 s until wrong-event rate measured; Q5 operator stages ~10 group walks; Q6 ledger only holds/delays AWAY, never initiates ARRIVING (no disarm path); Q7 sleep-mask guard A/veto B stay parked. Plan cd02b16e+ on plan/crossing-vision; plan review #2 pending.'
+  operator_2026_11_13_objective: 'Operator rejects the AWAY-hold Phase 2: "We don''t have an away problem... Away Provenance is fine. Vision is to assist census accuracy. And assist arrivals accuracy and personalization. Especially when combined with facial recognition from the nvr systems. Frankly our job is to make it faster and faster until it can eventually be used in security applications too." Phase 2 rescoped: vision feeds census counts + arrival identity (fused with NVR face), policy gated in consumers (security/locks excluded until proven), latency as a first-class metric.'
+  operator_2026_11_13_away_fast: 'Operator: "it seems like it will delay away and I need away to be fast acting. That''s how it saves $ on energy treatment." HARD constraint: vision counts never delay or block AWAY entry (INV-P2-AWAY-LATENCY; AWAY predicates read pre-vision census values).'
+  operator_2026_11_13_census_split: 'Operator: "split the census output by use, in line with the model... Do it. Let''s get it right." Rev 7: F2 publishes a trust view (byte-identical, house state/AWAY/security) and an awareness view (vision + Frigate/Protect deconflicted, provenance) for display/notification/personalization; via PERSON-AWARENESS-READ-API-1; then Tier-3 re-review.'
+  blocked_by_f_notify: 'F-NOTIFY (notifications read the awareness view) blocked on EGRESS-DIRECTION-AWARE-IDENTITY-1 or measured entry attach >= 0.50 (30% today).'
+  operator_2026_11_13_clean_doc: 'Operator: "Make sure the plan or plans that emerge are clean and streamlined in the actual document even if you have to write it yourself." After the arc map merge decisions: one clean consolidated plan per merged scope (no rev layers, no override sections, history archived), equivalence-checked by a reviewer against the reviewed rev 7.1 (1e76c98a) before approval.'
+  operator_2026_11_13_promotion: 'Operator on arc-map Qs: (1) trust view: "This is where it starts but it can prove itself and be promoted. No dogma here." (2) guests-present -> HVAC: "This is also about accuracy and confidence. HVAC is comfort basically so since it''s not security I''d say it can once it''s earned." (3) three new clean docs + estimator plan superseded: approved. (4) one weekly labelling run: approved. => Promotion ladder: evidence starts in the awareness view; each consumer class (display -> notification -> comfort/HVAC -> house-state trust -> security last) is promoted by a measured bar and an operator checkpoint, never by dogma.'
   next: 'Me: revise plan section 15.9 frame guard to judge frames directly; resolve the llmvision temperature blocker for GPT-6 models (config-first); then the sibling vision plan.'
+  operator_2026_11_13_protect_face_latency: 'Protect seems to label slowly - a pseudo known "limitation" I''m suspicious of but is the current truth we''re using. => P2-D0 (viii) must split the delay: Protect event start -> name present in Protect itself -> name on the HA entity, per door camera, p50/p99, so we know whether the lag is Protect recognition or the HA integration delivery. Feeds CROSSING_VISION_NAME_SETTLE_S (180 s today, assumed).'
+  MATCH_COVERAGE_2026_11_13: 'The plan''s "Protect-only crossings (22%)" non-goal is mislabelled. All four door cameras run Frigate; those crossings simply have no Frigate person event within +-10 s (AUDIT_crossing_vision_d0_2026_11_13.md: 74% matched at +-10 s, 83% at +-30 s, 88% at +-60 s). Plan: widen CROSSING_VISION_EVENT_MATCH_S to 30 if shadow shows no wrong-event picks on back-to-back crossings; read-only probe whether llmvision can analyse a UniFi Protect event clip as the fallback for the unmatched rest (unverified). Plan wording to change to "no matched Frigate event".'
   rank: {value: 9, time_criticality: 4, effort: 8}
+- id: CENSUS-DOOR-TALLY-ATTRIBUTION-PARKED-1
+  title: Parked estimator pieces - door-tally per-person attribution pipeline and the count-becomes-total_persons step
+  status: parked
+  batch: person-sightings
+  tier: 3
+  links: {parent: VISION-CROSSING-ANALYSIS-1, related: [CENSUS-OCCUPANCY-ESTIMATOR-1]}
+  origin: {date: '2026-11-13', gist: 'Operator approved parking both on one card, linked into the arc.'}
+  operator_2026_11_13_park: 'Do it. Link even after you ship our plan'
+  why: 'From the archived estimator (docs/planning/archive/HISTORY_census_occupancy_estimator_round6.md). Not carried by PLANNING_census_deconfliction.md (see its "Not carried as build" note). (1) Attribution pipeline: leg-collapse, same-person, round-trip pairing, main-entry-door prior with reversal, P-AMB ambiguous policy, T_amb / B ESTIMATE band. Failed the 10-03 replay (G2 64% vs 95%, G5 30% vs 90%) because only 29-31% of door crossings carry a name and the +-120 s phone-edge fallback covered 19%. The crossing-vision ledger replaces the door tally T. (2) FLOOR -> total_persons (estimator D6): the promotion ladder house-state rung decides it once vision earns it.'
+  revival_trigger: 'Either: (a) the crossing ledger misses its drift bars in PLANNING_census_deconfliction.md (bar a: residue 0 on < 80% of >= 10 empty anchors, or any |residue| > 1; bar a2: reconcile share of resident departures > 20%) over the 7-day window, and the misses trace to unattributed crossings; or (b) the house-state rung of the promotion ladder is reached and needs a count written into total_persons. Check at every crossing-vision ship and at the bar disposition (P2-D6).'
+  next: 'Parked. Revisit at the bar disposition; stays linked to VISION-CROSSING-ANALYSIS-1 after the plan ships so the arc-close gate keeps seeing it.'
+- id: NVR-WITNESS-CONSOLIDATION-1
+  title: One shared Frigate-vs-Protect witness layer (who saw it, agreement history) with policy kept per consumer; crossing vision gets Protect as a second witness
+  status: planned
+  batch: person-sightings
+  tier: 3
+  links: {parent: VISION-CROSSING-ANALYSIS-1, related: [CENSUS-DOOR-TALLY-ATTRIBUTION-PARKED-1]}
+  origin: {date: '2026-11-13', gist: 'Operator question on the crossing vision plan.'}
+  operator_2026_11_13_both_nvrs: 'For all camera work I like to exercise both nvr platforms simultaneously, then cross compare to reduce errors. Did you base this plan on only frigate? How can protect be a separate witness? And we can maybe centralize the rules to deconflict to increase confidence. We have that in more than 1 place? We could centralize it depending on the application or problem?'
+  why: 'Crossing vision plan fetches clips from Frigate only; Protect enters only as the late face name. Three separate Frigate-vs-Protect rules exist: camera_census.py:2330 _cross_validate_platforms (counts; Frigate number wins when both see; lone reading dropped to 0 unless corroborated); transit_validator.py:2689 _count_platforms_fired (crossing confidence 0.9 vs 0.8; platform guessed from entity-name suffix); perimeter_alert.py:4780 _apply_single_source_gate + perimeter_fp_gates.py:16 nvr_family (learned per-camera agreement rate, demotes a lone first alert). Earlier operator mandate (board line ~18084): cross-correlate BOTH NVRs for face ID. Merge candidate with PLANNING_census_deconfliction.md (deconflict_house consumes it) and the camera input stream health plan (which NVR leg is alive).'
+  operator_2026_11_13_consolidate: 'Yes, centralize the evidence and keep the policy with each feature... I generally favor consolidation so there''s no drift and there is one place to make better but there can be arguement against it. Critique this conclusion and be sure... Card and queue. Bring me a plan amendment but it''s not necessary to disturb what''s in flight. We can schedule a follow up. But check to see if the protect mechanics will allow easy implementation'
+  queue: 'After perimeter Part A ships and crossing vision Phase 1 ships (do not disturb in-flight branches). Order: Protect mechanics probe (now, read-only) -> plan amendment to the operator -> follow-up cycle.'
+  operator_2026_11_13_agreement_record: 'One record of how often the two NVRs agree on each camera, learned once and used everywhere: "Critical for learning. Has to be baked into the design. Note this." => DESIGN REQUIREMENT: the shared layer stores raw per-NVR fire events and keeps a per-camera agreement history as a first-class output; each consumer computes agreement over its own window from it; the plan cannot ship without it.'
+  probe_2026_11_13: 'AUDIT_protect_clip_witness_probe_2026_11_13.md, verdict MODERATE. Clip access easy: HA unifiprotect proxy /api/unifiprotect/video/{nvr}/{camera}/{start}/{end} and /video/{nvr}/{event_id} (views.py:275/:332) returned 200 video/mp4 live on 2026.11.1; all 4 door cameras have Protect person sensor + event entity + camera and record always. llmvision video_analyzer takes a local path or http//api URL (video_file), not a stream; untested on a Protect clip (cost). Event route 400s while the event is ongoing; use the time-range route. 7-day agreement on 73 anchored crossings: +-10 s both 46 / Frigate only 20 / Protect only 7; +-30 s 54/14/5. madrone_g6_entry lopsided (10/19 Frigate only), truth unmeasured.'
+  FINDING_garage_a_protect_leg_2026_11_13: 'garage_a Protect person sensor fired 85x in 7 days but none of 71 garage_a crossings in 14 days got confidence 0.9 or a Protect trigger: the Protect leg appears not to reach transit_validator._count_platforms_fired. Cause unverified. Folded here (same surface the shared layer replaces); verify cause at plan time, fix in this cycle unless it is a one-line config issue, then fix now.'
+  next: 'Me: plan amendment to the operator after perimeter Part A and crossing vision Phase 1 ship. Open unknowns: garage_a Protect leg; llmvision on a Protect clip (one paid dry call needs operator ok); NVR disagreement ground truth (use the weekly labelling run).'
+- id: AUDIT-ROOM-AI-AUTOMATION-CHAINING-MUSIC-1
+  title: Audit room AI automation, automation chaining and music following (old, rarely exercised) - correctness, HA currency, test coverage, observability/config
+  status: investigating
+  tier: 1
+  links: {related: [MUSIC-FOLLOWING-NO-TRANSFERS-SINCE-MAY-1, TEST-MUSIC-SYSMODULES-LEAK-1]}
+  origin: {date: '2026-11-13', gist: 'Operator request, not urgent, use a free slot.'}
+  operator_2026_11_13_request: 'If you have a slot free at some point (not urgent) I want an audit of AI automation in room code. And AI chaining in room code and music following. Use the fable agent and then bring me conclusions. They were written. Long time ago and are rarely exercised and I want to understand if they''re solid. Goals: Correctness; Up to date with HA updates, what we''re learning and our hardened patterns; Good test coverage; Observability and configuration. Ok to reference external research and context on HA, Sendspin, Music Assistant, etc'
+  why: 'Surfaces: automation.py, music_following.py, domain_coordinators music coordinator; tests test_ai_automation.py, test_automation_chaining.py, test_music_following*.py, test_v5100_music_following.py; prior docs PLANNING_v3.10.0_AI_AUTOMATION.md, REVIEW_MUSIC_PEOPLE_FOLLOWING.md, CRITIQUE_audit_music_following_2026-07-10.md, PLANNING_audit_music_following.md.'
+  result_2026_11_13: 'AUDIT_room_ai_automation_chaining_music_2026_11_13.md (Fable). Chaining SOLID but unused (0/47 rooms). AI NL rules NEEDS WORK: one live rule stored unparsed (needs_parsing true, actions []) with no re-parse path yet status says active; person filter compares person.* entity id to display names so it never matches (coordinator.py:1183, verified). Music following NEEDS WORK: media_player.join makes the idle target the leader (music_following.py:1505, verified); MA transfer_queue sent source/target keys (:1553, verified) so it always falls through; five CM timing knobs stored but unused (domain_coordinators/music_following.py:111-115); diagnostic listeners leak across reload; no-player skips uncounted. Tests mostly inline replicas; test_v5100 is the only real-path suite. Producer healthy (8,126 transitions / 14 d); no provable transfer since 10-11.'
+  status_note: 'Audit done. Music fixes carded as MUSIC-FOLLOWING-TRANSFER-REPAIR-1. AI rules: operator pick below.'
+  next: 'PICK: retire the AI natural-language rule executor and parsers (recommended: one rule, its room toggle off, never parsed, person filter never matches; chaining stays) or fix them (person filter via music_following._person_key, re-parse path, honest status) -> I card the chosen work and queue it behind the vision arc.'
+- id: MUSIC-FOLLOWING-TRANSFER-REPAIR-1
+  title: Music following transfers are wired wrong (join leader inverted, MA transfer_queue wrong keys) plus dead timing knobs, reload listener leak and uncounted skips
+  status: planned
+  tier: 2
+  links: {parent: AUDIT-ROOM-AI-AUTOMATION-CHAINING-MUSIC-1, related: [TEST-MUSIC-SYSMODULES-LEAK-1, MUSIC-FOLLOWING-NO-TRANSFERS-SINCE-MAY-1]}
+  origin: {date: '2026-11-13', gist: 'From the room AI/music audit.'}
+  why: 'music_following.py:1505 media_player.join with entity_id=target (idle) and group_members=[source]: HA join makes entity_id the leader, so the idle player leads (verified in code; live effect unverified). :1553 music_assistant.transfer_queue sent {source,target}; real schema is target entity + source_player/auto_play, so it raises and falls to play_media (188/352 players are MA; MA-first path is the modern route, Sendspin is an MA provider). Five CM knobs (cooldown, ping-pong window, verify delay, unjoin delay, position offset) are read and only logged (Bug Class #32); stale_transition_seconds has no field. Diagnostic listeners not removed on CM reload. No-player / source-not-playing skips not counted, BLE-distance rejects booked as low_confidence. test_v5100 FakeServices lacks target= kwarg. _stop_all_playback would stop all 352 players (off by default); music_on_arrival_start offered in the form but a no-op.'
+  next: 'Me: Tier 2 build after the vision-arc builds free a builder slot: fix join direction and transfer_queue schema (MA-first), wire or remove the five knobs, listener removal, count skips, fix the test fixture and assert the transfer calls; validate with one live walk between two player rooms.'
 - id: PHONE-LEFT-BEHIND-TRANSIENT-FLICKER-1
   arc_cut_v5_108_19: "with PLB build"
   arc_cut_v5_108_18: "with PLB build"
@@ -35003,23 +35059,6 @@ cards:
   measured_2026_11_13_overnight: "Partial, read-only (ura-prober, HA recorder 11-05 10:00 to 11-13 02:00 CST + homelab config snapshot). Frigate2 API at 192.168.13.18:8971 returned 401; no read-only API credential exists in the homelab repo, port 5000 is container-only, so per-face scores, near-misses and training counts are UNMEASURED. Config (snapshot configs/snapshots/frigate2/config-resolved-pre-perimeter-fp-2026-11-08.json, not a live read): face recognition enabled on all 29 cameras (cause 'not enabled' REFUTED), model large, recognition_threshold 0.8, unknown_score 0.8, detection_threshold 0.6, min_area 250 (already more permissive than Frigate defaults 0.9 / 750). Detect streams: doorbell_lite 1920x2560, garage_a and front_door_aerial 1280x720, g6_entry 720x960, g6_entry_package 400x300 at 2 fps. Recorder conversion (person episodes with a name within 2 min, day): garage_a 24/64, doorbell_lite 35/105, g6_entry 12/56, front_door_aerial 8/20, front_side_ptz 5/21 (a floor, since guests and deliveries can never match). Names at doors are almost all Jaya and Oji; Ezinne and Ziri essentially never match at doors. Resolution is not the limiter alone (master_hallway at 1280x720 logs 126 recognitions; doorbell_lite at high resolution converts ~33%). Lean, weak: thin per-person training (c) plus door angle (b); near-misses (a) cannot be ruled out without Frigate scores. HA's face sensor only records named positives, so near-misses are invisible from HA by construction."
 - {"id": "LOCK-BOOT-LOCKOUT-UNAVAILABLE-AT-SETUP-1", "title": "A garage lockout that is still connecting at HA startup counts as 'nothing locked', so if it then reads locked with the house awake nothing releases it", "thread": "security", "status": "parked", "tier": 2, "batch": "person-sightings", "created": "2026-11-13 12:00", "updated": "2026-11-13 12:00", "refinement_status": "initial", "approval": "unreviewed", "problem_solution": ["Problem: at setup the lock regime rebuilds its reason only from lockouts that read locked. An ESPHome/ratgdo/Konnected lockout still connecting reads unavailable, so the regime decides nothing is locked (reason none, restored taint cleared). When the lockout then reports locked and the house is awake at the 120 s boot recheck, the decision is 'none': no backstop, no house release, no uncounted-return page. Only a person edge, proximity or the switch discharges it. Solution: at the boot recheck, a lockout reading locked with reason none rebuilds boot_unknown (or the persisted reason) the way _boot_rebuild would have."], "origin": "Code review D-L4 on feature/lock-release-arriving (docs/reviews/code-review/v_lock_release_arriving_D.md), 2026-11-13; carded, not fixed, per orchestrator.", "why": "security_lock_regime.py _boot_rebuild (nothing-locked return) + _boot_recheck_regime. Pre-existing; develop's only extra discharge was the unconditional ARRIVING release, which LOCK-RELEASE-ON-ARRIVING removed. Matters only with the garage lockout ON.", "parsimony": {"problem": "A lockout late to connect at boot can stay locked with no automatic release.", "verdict": "PARK"}, "revisit_if": "switch.ura_security_coordinator_garage_lockout is turned ON.", "next": "Parked. When the lockout goes ON: Tier-2 fix at the boot recheck plus a test (lockout unavailable at setup, locked at +60 s, house home_day at the recheck -> released or rebuilt).", "links": {"parent": "LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1", "related": ["GARAGE-REMOTE-LOCKOUT-SCHEDULE-1"]}, "rank": {"value": 4, "time_criticality": 2, "effort": 3}, "refs": ["custom_components/universal_room_automation/domain_coordinators/security_lock_regime.py"]}
 - {"id": "LOCK-VACATION-PHANTOM-SLEEP-DAILY-UNLOCK-1", "title": "During a real vacation, a phantom room sensor can walk the house into SLEEP each night, so the garage lockout unlocks every morning and stays unlocked by day", "thread": "security", "status": "parked", "tier": 2, "batch": "person-sightings", "created": "2026-11-13 12:00", "updated": "2026-11-13 12:00", "refinement_status": "initial", "approval": "unreviewed", "problem_solution": ["Problem: with nobody home on VACATION, a phantom zone sensor (measured: Back Hallway) can drive AWAY -> ARRIVING -> HOME_* (held by the taint) -> SLEEP at sleep hours. The SLEEP engage starts a new episode and clears the ARRIVING taint, the next WAKING releases the lockout, and nothing re-locks it by day; it repeats nightly. The D3 trip-wire cannot see it because the SLEEP engage launders the taint. Solution options: carry the saw-ARRIVING flag across a SLEEP engage whose previous reason was VACATION (D3 only, not the gate), or keep VACATION as the episode reason while the house cycles through phantom states."], "origin": "Code review D-L3 on feature/lock-release-arriving (docs/reviews/code-review/v_lock_release_arriving_D.md), 2026-11-13; accepted residual (plan \u00a79.3), carded per orchestrator; the cycle README must state it in its notes.", "why": "security_lock_regime.py _set_engage_reason ends the episode flags on every engage. Strictly better than develop (which released at ARRIVING). Matters only with the garage lockout ON during travel.", "parsimony": {"problem": "Daily unlock during a vacation if a phantom sensor fakes occupancy.", "verdict": "PARK"}, "revisit_if": "The garage lockout is ON and the operator plans travel, or D3 / house-state logs show a SLEEP engage straight after a VACATION episode.", "next": "Parked. Revisit with the lockout ON before travel; first measure how often VACATION -> ... -> SLEEP happens in the house_state_log.", "links": {"parent": "LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1", "related": ["GARAGE-REMOTE-LOCKOUT-SCHEDULE-1"]}, "rank": {"value": 4, "time_criticality": 3, "effort": 3}, "refs": ["custom_components/universal_room_automation/domain_coordinators/security_lock_regime.py"]}
-parked:
-- title: Pre-roll frame buffer
-  revisit_if: rising-edge frames look late for fast walkers
-- title: Anticipatory TOU tick
-  revisit_if: boundary-lag data shows real cost
-- title: Adjacency config-flow (adjacency-as-data / TOU pattern)
-  status: approved-queued (exterior-stragglers batch, seq 3)
-- title: Security config home
-  revisit_if: a 2nd security-config surface would join the top menu
-broader_backlog_refs:
-- EV drain-precedence (queued)
-- Load-shedding foundations (vision doc first)
-- Fusion paper (gated)
-- Shipwatch v1.2.0 deploy.sh hook
-- Forecaster wire-up (LightGBM + BatteryStrategy)
-- Dashboarding workstream (ura-v6 rebuild + PWA)
-- Memory week-one gate + first coordinator-consumer proposal
 - id: HOUSE-STATE-VACATION-OVERLAY-1B
   title: 'House-state step 1b: vacation becomes an overlay on AWAY instead of its own state, so nothing has to special-case it'
   thread: presence
@@ -35074,3 +35113,151 @@ broader_backlog_refs:
   next: 'Me: after 1a ships, route the copies through the helper; also the four latent readers below.'
   residual_2026-11-13: 'Review D re-check sweep: __init__.py:3145-3163 rewrites entry.data to display names while options keep ids, so merged readers see ids here but names on a fresh install. Latent (portability) at camera_census.py:6159-6176, 6311-6320, 3900-3912 and perimeter_alert.py:5117-5121. Not reachable on this house.'
   rank: {value: 4, time_criticality: 2, effort: 1}
+- id: PERIMETER-ZONE-AGREEMENT-FIX-OR-REMOVE-1
+  title: The off-property zone-agreement demote does nothing (no property zones mapped) and cannot see Protect-only alerts; fix it soon or remove it
+  thread: security
+  status: shipped_organic
+  shipped_version: v5.108.20
+  created: '2026-11-13 12:30'
+  updated: '2026-11-13 12:30'
+  tier: 2
+  links: {related: [PERIMETER-FP-GATES-DISPOSE-1, PERIMETER-SWITCH-LABELS-AND-FLOW-PARITY-1]}
+  origin: {date: '2026-11-13', gist: 'Operator: "Lets card and fix soon. Or remove." perimeter_alert.py:4672 _apply_zone_agreement_gate; perimeter_zone_sensors empty live.'}
+  why: 'Most accurate test (uses where the person was) but inert; the real fix for street alerts is masks (operator).'
+  d0b_2026_11_13: 'D0-B NO-GO for VLM location (gpt-4o-mini, 96 calls): own-property never called street (GO) but street recall 8/26 (g5 0/15), PERSON parity fails 2 frames, Line 1: echo breaks parser, max 4.18 s > 4.0 s timeout. D3 ships dark. FINDING: today''s _VERDICT_PROMPT says NO person on real own-property 11-09 07:24 frame x3 -> enforce would demote a real person; keep select off. Next: better prompt/model (gpt-6-luna entry?) before any shadow. D0-A: 4/26 street cases stay full severity at night under D1.'
+  next: 'Me: decide FIX (derive property zones per camera from Frigate-2 zone config, map in options) vs REMOVE (dead knob) after the masks land; measure from gate records.'
+  residual_2026_11_13_vlm_location: 'Operator 2026-11-13: per-camera pixel masks/PTZ-specific fixes are "not agnostic enough". Proposal: extend the Perimeter AI Person Check (VLM gate) to answer on-property vs street/road and demote street; camera- and view-agnostic, no new calls. Shadow first on 18 g5 cases + utilities road alerts; hard bar: never calls 11-08 00:31 driveway person street. Daylight-only rule still applies. May supersede zone agreement (FIX-OR-REMOVE -> REMOVE).'
+  residual_2026_11_13_masks: 'Homelab 45761e2: g5 F2 mask v2 + person min_area 300 live 13:40; utilities_ptz kept as is by operator (Protect auto-tracking moves view). Audit fdb13121.'
+  residual_2026_11_13_daylight_only: 'Operator 2026-11-13: single-source demote only in daylight, never after sunset. Evidence: g5_bullet 11-08 00:31 own-driveway night person was Protect-only and would have been demoted. Reuse sun.sun elevation < SUN_DARK_ELEVATION_DEG (lighting/darkness.py:10). Fail-safe inverted vs lighting: sun.sun unavailable -> treat as night -> do NOT demote. Knob PERIMETER_SS_DAYLIGHT_ONLY (rung 1, True). Build next after crossing vision, Tier 2.'
+  rank: {value: 5, time_criticality: 3, effort: 3}
+- id: PERIMETER-SWITCH-LABELS-AND-FLOW-PARITY-1
+  title: Perimeter demote switches have unclear names and no config-flow entry; every device switch needs an options-flow field
+  thread: security
+  status: inbox
+  created: '2026-11-13 12:30'
+  updated: '2026-11-13 12:30'
+  tier: 1
+  links: {related: [PERIMETER-ZONE-AGREEMENT-FIX-OR-REMOVE-1]}
+  origin: {date: '2026-11-13', gist: 'Operator: "Name of switch. not good yet." "Switches should have a config flow entry. They are on the device for convenience and quick access."'}
+  why: 'Labels say Quiet when the alert goes to the digest at LOW; settings must be findable in the options flow. Parity audit running (AUDIT_perimeter_settings_and_masks_2026_11_13.md).'
+  next: 'Me: rename per label style guide, add options-flow fields for every _IntegrationOptionsSwitch key lacking one; operator reviews names.'
+  rank: {value: 4, time_criticality: 2, effort: 2}
+- id: LLMVISION-GPT6-ENTRY-1
+  title: Add a second llmvision OpenAI entry for GPT-6 (temperature 1.0) so crossing vision can use the cheaper model
+  thread: identity
+  status: done
+  created: '2026-11-13 12:30'
+  updated: '2026-11-13 14:00'
+  tier: 1
+  links: {related: [VISION-CROSSING-ANALYSIS-1]}
+  origin: {date: '2026-11-13', gist: 'Operator: "yes. You may have to remind me again." Garage A frames to OpenAI: approved.'}
+  why: 'llmvision sends temperature per provider entry; GPT-6 rejects 0.5. Existing entry stays for perimeter enrichment.'
+  next: 'DO: HA > llmvision > add OpenAI entry "OpenAI reasoning", model gpt-6-luna, Temperature 1.0, Top P 1.0, type the key yourself -> I run D0a and switch crossing vision. REMIND the operator at each status block until done.'
+  done_2026_11_13: 'Operator added entry 01M7B731T26P2HXVW77AQR62PP "OpenAI Madrone Vision" gpt-6-luna temp 1.0 top_p 1.0; old OpenAI entry (gpt-5-mini) untouched for perimeter. Follow-on (D0a on the new entry, switch crossing vision) tracked on VISION-CROSSING-ANALYSIS-1.'
+  rank: {value: 4, time_criticality: 2, effort: 1}
+- id: PERIMETER-GATE-DECISIONS-NOT-PERSISTED-1
+  title: Perimeter demote gates keep only their last decision per camera in memory, so shadow mode leaves no record to judge them by
+  thread: security
+  status: shipped_organic
+  shipped_version: v5.108.20
+  created: '2026-11-13 13:00'
+  updated: '2026-11-13 13:00'
+  tier: 2
+  links: {related: [PERIMETER-SWITCH-LABELS-AND-FLOW-PARITY-1, PERIMETER-ZONE-AGREEMENT-FIX-OR-REMOVE-1]}
+  origin: {date: '2026-11-13', gist: 'AUDIT_perimeter_settings_and_masks_2026_11_13.md: _record_gate overwrites in memory, attribute excluded from recorder; the single-source shadow week could only be rebuilt by proxy (g5_bullet 16 street, 2 own property).'}
+  why: 'Fire check: a shadow mode with no persisted decisions cannot be evaluated; every gate needs a DB row per decision.'
+  next: 'Me: persist each gate decision (memory_episodes or a gate row) with camera, gate, reason, would_demote, severity; weekly scorer.'
+  rank: {value: 5, time_criticality: 3, effort: 2}
+- id: F2-PANEL-FFMPEG-CRASHLOOP-1
+  title: Frigate-2 study_a_panel and up_hallway_panel ffmpeg crash-loop (~20k log lines / 3 h)
+  thread: infra
+  status: in_progress
+  created: '2026-11-13 14:00'
+  updated: '2026-11-13 14:00'
+  tier: 1
+  origin: {date: '2026-11-13', gist: 'Homelab session found it during g5 mask v2; operator: "homelab should look at the crashes. Start with wall panel config and kiosk satellite."'}
+  why: 'Log flood on F2 and two dead camera legs; pre-existing, not caused by mask v2. Homelab-side work (capture rule 5).'
+  fixed_2026_11_13: 'Homelab 6b131ff: Kiosk Satellite 2026.11.11 Impeller GLES abort -> headless respawn, RTSP plugin never attaches, :8554 dead. Cold-started KS on both panels ~14:00 CST; F2 5 fps. Up Hallway down ~39 h (no URA presence source), Study A ~47 min with switch.study_a_panel_rtsp_streaming still on (not a health signal). Fleet-wide: Kitchen 4x, Study A 3x, Up Hallway 1x since 10-21.'
+  next: 'Homelab building KS app-health watchdog (operator 2026-11-13: "Restarting the app is beyond frigate. It should just check on ks app health and restart it if something is wrong or maybe just periodically"): health-keyed cold restart, optional periodic restart, cooldown, Pushover. Me: URA NM trip-wire on <panel> foreground_app != kiosk_satellite; record homelab commit.'
+  rank: {value: 3, time_criticality: 2, effort: 1}
+- id: PANEL-KS-HEALTH-AS-INPUT-1
+  title: URA trusts wall-panel inputs (camera person, motion, presence) even when the Kiosk Satellite app is down or headless
+  thread: presence
+  status: planned
+  created: '2026-11-13 14:30'
+  updated: '2026-11-13 14:30'
+  tier: 2
+  links: {related: [F2-PANEL-FFMPEG-CRASHLOOP-1]}
+  origin: {date: '2026-11-13', gist: 'Operator: "If the app is down Ura can''t do what it needs to do and enabling new features like motion etc will be compromised." Evidence homelab 6b131ff: Up Hallway KS down ~39 h, no URA presence source; Study A down 47 min with KS still connected and rtsp switch reading on.'}
+  why: 'Panels are a sensor-fleet dependency. A headless KS leaves entities that look healthy (Study A) or go unavailable silently (Up Hallway); URA must stop trusting panel-sourced inputs while KS is unhealthy and say so, or every panel-fed feature (motion, presence, camera person) degrades invisibly.'
+  planner_2026_11_13: 'Plan 70d72c8e Part B (D4): KS foreground_app is the WRONG signal (unavailable 18 h on Study A while streaming); Frigate camera.<panel> unavailable matched both outages exactly. D4 = generic rule: ignore a camera-derived input while its own camera entity is unavailable past grace; reuses room sensor exclusion. Own cycle after Part A.'
+  next: 'Me: prior-art scan (sensor.<room>_unavailable_entities, stuck-signal watchdog, SENSOR_FLEET_CLASSES), then a per-panel health getter (foreground_app == kiosk_satellite AND F2 camera fps > 0) that marks the panel inputs untrusted + NM trip-wire with a zero-fire check. Homelab watchdog restarts; URA detects and degrades.'
+  rank: {value: 7, time_criticality: 5, effort: 2}
+- id: CAMERA-STREAM-DEAD-ZONE-AND-CENSUS-1
+  title: Zone tier, census and fan recheck ignore room-level sensor exclusions, so a frozen dead-camera 'on' still holds the zone
+  thread: presence
+  status: inbox
+  created: '2026-11-13 15:30'
+  updated: '2026-11-13 15:30'
+  tier: 2
+  links: {related: [PANEL-KS-HEALTH-AS-INPUT-1]}
+  origin: {date: '2026-11-13', gist: 'Planner (plan/perimeter-batch 70d72c8e, Part B D4): up_hallway_panel_person_occupancy froze on 14 h during the KS outage and held Upstairs Hallway 4 h; D4 excludes the dead input at room level, but zone/census/fan recheck do not honour room exclusions.'}
+  why: 'D4 alone leaves the zone and census holding a dead camera input; residual of the panel-health fix.'
+  next: 'Me: fold into the D4 cycle plan (Part B of PLANNING_perimeter_gate_evidence_and_input_health.md) or sequence right after; enumerate zone/census/fan readers of camera inputs.'
+  rank: {value: 5, time_criticality: 3, effort: 2}
+- id: MEMORY-EPISODES-PERIMETER-GATE-RETENTION-1
+  title: memory_episodes has no retention; perimeter gate rows add ~30-90 MB/yr unbounded
+  thread: infra
+  status: inbox
+  created: '2026-11-13 17:00'
+  updated: '2026-11-13 17:00'
+  tier: 1
+  links: {related: [PERIMETER-GATE-DECISIONS-NOT-PERSISTED-1]}
+  origin: {date: '2026-11-13', gist: 'Perimeter gate evidence review A-L1: ~100-300 rows/day at ~800 B; nothing deletes memory_episodes rows.'}
+  why: 'Unbounded growth on a shared table; the scorer only needs ~30-90 days.'
+  next: 'Me: measure memory_episodes size per type, propose per-type retention (e.g. perimeter_gate_decision 90 d) in the nightly maintenance; Tier 1 after measure.'
+  rank: {value: 2, time_criticality: 1, effort: 1}
+- id: VISION-INTERIOR-SIGHTINGS-1
+  title: Interior vision - unnamed sightings ("2 people in the family room") from interior cameras, fused with NVR faces
+  thread: identity
+  status: planned
+  batch: person-sightings
+  created: '2026-11-13 18:00'
+  updated: '2026-11-13 18:00'
+  tier: 3
+  links: {parent: VISION-CROSSING-ANALYSIS-1, related: [FACE-ARRIVAL-REBUILD-1, PERSON-PROFILE-PREFERENCES-1, CENSUS-OCCUPANCY-ESTIMATOR-1, INTERIOR-PATH-MAP-1]}
+  origin: {date: '2026-11-13', gist: 'Operator: "We need this. Sequence is optional as long as you don''t drop it. Add to arc." (on unnamed interior sightings after crossing vision).'}
+  why: 'F4 today needs a name (face). Interior vision gives per-room people counts and unnamed presence in shared spaces/hallways (cameras only in shared spaces), the input census accuracy and personalization need. Must respect the F1-F5 model: a count is evidence (F4-shaped, unnamed) not belief (F2); census and sightings never feed each other without the deconfliction rule; access never acts on it.'
+  next: 'Me: after crossing vision Phase 1 accuracy is measured, plan it (Tier 3, prior-art scan: sighting producer, CameraResolver, interior path map, census interior camera counts, CROSSING_VISION_INTERIOR_ENABLED parked name) with measure-first probe on interior frames; decide F4 unnamed-sighting shape vs a per-room count signal.'
+  rank: {value: 8, time_criticality: 3, effort: 3}
+- id: PERSON-AWARENESS-READ-API-1
+  title: One public person-awareness read API on PresenceCoordinator (F1-F5), replacing ~40 private PersonCensus reads and 14+ inline id-normalisation copies
+  thread: identity
+  status: pre_planning
+  batch: person-sightings
+  created: '2026-11-13 18:30'
+  updated: '2026-11-13 18:30'
+  tier: 2
+  links: {related: [PERSON-ID-NORMALISE-ONE-RULE-1, VISION-CROSSING-ANALYSIS-1, VISION-INTERIOR-SIGHTINGS-1, PERSON-PROFILE-PREFERENCES-1, FACE-ARRIVAL-REBUILD-1]}
+  origin: {date: '2026-11-13', gist: 'Operator: "we may need a consolidated boundary crossing and person awareness function... that all consumers can [read] and producers can feed" after inspecting reuse. Inventory AUDIT_person_awareness_interface_inventory_2026_11_13.md.'}
+  why: 'Expresses the F1-F5 model in code so consumers and producers stop drifting: PresenceCoordinator already owns F1/F4/F5 getters (presence.py:5409,:5433,:5436,:5907); ~20 private PersonCensus methods are called 40+ times from transit_validator/perimeter_alert/person_sighting/__init__; 5 id namespaces, 14+ name->entity copies, 5 .title() inverses. Folds PERSON-ID-NORMALISE-ONE-RULE-1 residuals (Residual A also feeds sightings + egress BLE leg). Doc drift: F3 owner in code is EgressDirectionTracker, not TransitValidator (fix manual §5.5 + plan §2A). Dead seed read presence.py:3222.'
+  rev7_2026_11_13: 'Crossing vision rev 7 (62c4bb3a) builds a MINIMAL slice in its cycle: PresenceCoordinator.get_house_census(view) + view_for_class(cls) (trust for house-state/security/HVAC always). This card = the full migration (~40 private census reads, 14+ id-normalisation copies) as a parallel Tier-2 plan.'
+  next: 'Me: ura-planner Tier 2 plan (REUSE/EXTEND per inventory): public census accessors, one id-normalisation function, class-aware read views on PresenceCoordinator, migrate private reads; no behaviour change (byte-identical), mutation-anchored. Sequence alongside Phase 2 census split so vision fields land on the API.'
+  rank: {value: 7, time_criticality: 4, effort: 3}
+parked:
+- title: Pre-roll frame buffer
+  revisit_if: rising-edge frames look late for fast walkers
+- title: Anticipatory TOU tick
+  revisit_if: boundary-lag data shows real cost
+- title: Adjacency config-flow (adjacency-as-data / TOU pattern)
+  status: approved-queued (exterior-stragglers batch, seq 3)
+- title: Security config home
+  revisit_if: a 2nd security-config surface would join the top menu
+broader_backlog_refs:
+- EV drain-precedence (queued)
+- Load-shedding foundations (vision doc first)
+- Fusion paper (gated)
+- Shipwatch v1.2.0 deploy.sh hook
+- Forecaster wire-up (LightGBM + BatteryStrategy)
+- Dashboarding workstream (ura-v6 rebuild + PWA)
+- Memory week-one gate + first coordinator-consumer proposal

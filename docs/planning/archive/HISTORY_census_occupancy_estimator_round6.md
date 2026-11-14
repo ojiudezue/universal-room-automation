@@ -1,3 +1,9 @@
+# NOT A BUILD SPEC: census occupancy estimator, round 6 (2026-10-04, history)
+
+Superseded 2026-11-13 (operator approved the merge) by `docs/planning/PLANNING_census_deconfliction.md`, which carries forward its terms, rules and invariants as listed in that plan §9 "Carried from the estimator". Its GUEST-reader migration (D5, §6.2.a) predates GUEST-MODE-SPLIT-VISITORS-1 (v5.108.0) and is stale. Nothing here is an instruction.
+
+---
+
 # PLANNING — Census Occupancy Estimator (HYBRID: held camera floor + deduped door tally) + `guests_present` flag
 
 **Status:** REVISED 2026-10-04 (round 6) against a re-verify review that returned FIX-PLAN (C1 + H1-H4 + MEDs). Round-5 CR/H/M findings remain fixed; round-6 fixes applied in-place; see §15 changelog. No code is changed by this document.
