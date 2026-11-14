@@ -1,0 +1,1187 @@
+{
+ "generated_on": "3ec3f4d2",
+ "generator": "scripts/probes/gen_census_trust_golden.py",
+ "note": "INV-P2-AWAY-LATENCY / trust-view golden; regenerate ONLY on a develop commit with no deconfliction production change",
+ "ticks": [
+  {
+   "away_verdict": "None",
+   "house": {
+    "active_platforms": [
+     "frigate"
+    ],
+    "ble_cancelled_count": 0,
+    "camera_unrecognized": 2,
+    "confidence": "medium",
+    "degraded_mode": false,
+    "enhanced_census": true,
+    "face_recognized_persons": [],
+    "frigate_count": 2,
+    "identified_count": 2,
+    "identified_persons": [
+     "ezinne",
+     "oji_udezue"
+    ],
+    "peak_age_minutes": 0,
+    "peak_held": false,
+    "source_agreement": "single_source",
+    "total_persons": 2,
+    "unidentified_count": 0,
+    "unifi_count": 0,
+    "wifi_guest_floor": 0
+   },
+   "inference_triggers": [
+    "census_update"
+   ],
+   "payload": {
+    "camera_input_dark": false,
+    "confidence": "medium",
+    "degraded_mode": false,
+    "face_lookup_missing_count": 8,
+    "face_recognized_count": 0,
+    "identified_count": 2,
+    "interior_count": 2,
+    "peak_age_seconds": 0,
+    "peak_held": false,
+    "peak_refresh_suppressed_count": 0,
+    "property_count": 0,
+    "source_agreement": "single_source",
+    "total_on_property": 2,
+    "unidentified_count": 0
+   },
+   "presence": {
+    "_census_camera_input_dark": false,
+    "_census_confidence": "medium",
+    "_census_count": 2,
+    "_face_recognized_count": 0,
+    "_unidentified_count": 0
+   },
+   "property": {
+    "total_persons": 0,
+    "unidentified_count": 0
+   },
+   "sensors": {
+    "identified": 2,
+    "persons_in_house": 2,
+    "total_on_property": 2,
+    "unidentified": 0
+   },
+   "tick": 0,
+   "veto_path": "none"
+  },
+  {
+   "away_verdict": "None",
+   "house": {
+    "active_platforms": [
+     "frigate"
+    ],
+    "ble_cancelled_count": 0,
+    "camera_unrecognized": 3,
+    "confidence": "medium",
+    "degraded_mode": false,
+    "enhanced_census": true,
+    "face_recognized_persons": [],
+    "frigate_count": 3,
+    "identified_count": 2,
+    "identified_persons": [
+     "ezinne",
+     "oji_udezue"
+    ],
+    "peak_age_minutes": 0,
+    "peak_held": true,
+    "source_agreement": "single_source",
+    "total_persons": 3,
+    "unidentified_count": 1,
+    "unifi_count": 0,
+    "wifi_guest_floor": 0
+   },
+   "inference_triggers": [
+    "census_update"
+   ],
+   "payload": {
+    "camera_input_dark": false,
+    "confidence": "medium",
+    "degraded_mode": false,
+    "face_lookup_missing_count": 8,
+    "face_recognized_count": 0,
+    "identified_count": 2,
+    "interior_count": 3,
+    "peak_age_seconds": 30,
+    "peak_held": true,
+    "peak_refresh_suppressed_count": 1,
+    "property_count": 0,
+    "source_agreement": "single_source",
+    "total_on_property": 3,
+    "unidentified_count": 1
+   },
+   "presence": {
+    "_census_camera_input_dark": false,
+    "_census_confidence": "medium",
+    "_census_count": 3,
+    "_face_recognized_count": 0,
+    "_unidentified_count": 1
+   },
+   "property": {
+    "total_persons": 0,
+    "unidentified_count": 0
+   },
+   "sensors": {
+    "identified": 2,
+    "persons_in_house": 3,
+    "total_on_property": 3,
+    "unidentified": 1
+   },
+   "tick": 1,
+   "veto_path": "none"
+  },
+  {
+   "away_verdict": "None",
+   "house": {
+    "active_platforms": [
+     "frigate"
+    ],
+    "ble_cancelled_count": 0,
+    "camera_unrecognized": 3,
+    "confidence": "medium",
+    "degraded_mode": false,
+    "enhanced_census": true,
+    "face_recognized_persons": [],
+    "frigate_count": 3,
+    "identified_count": 2,
+    "identified_persons": [
+     "ezinne",
+     "oji_udezue"
+    ],
+    "peak_age_minutes": 0,
+    "peak_held": false,
+    "source_agreement": "single_source",
+    "total_persons": 3,
+    "unidentified_count": 1,
+    "unifi_count": 0,
+    "wifi_guest_floor": 0
+   },
+   "inference_triggers": [],
+   "payload": {
+    "camera_input_dark": false,
+    "confidence": "medium",
+    "degraded_mode": false,
+    "face_lookup_missing_count": 8,
+    "face_recognized_count": 0,
+    "identified_count": 2,
+    "interior_count": 3,
+    "peak_age_seconds": 0,
+    "peak_held": false,
+    "peak_refresh_suppressed_count": 2,
+    "property_count": 0,
+    "source_agreement": "single_source",
+    "total_on_property": 3,
+    "unidentified_count": 1
+   },
+   "presence": {
+    "_census_camera_input_dark": false,
+    "_census_confidence": "medium",
+    "_census_count": 3,
+    "_face_recognized_count": 0,
+    "_unidentified_count": 1
+   },
+   "property": {
+    "total_persons": 0,
+    "unidentified_count": 0
+   },
+   "sensors": {
+    "identified": 2,
+    "persons_in_house": 3,
+    "total_on_property": 3,
+    "unidentified": 1
+   },
+   "tick": 2,
+   "veto_path": "none"
+  },
+  {
+   "away_verdict": "None",
+   "house": {
+    "active_platforms": [
+     "frigate"
+    ],
+    "ble_cancelled_count": 0,
+    "camera_unrecognized": 4,
+    "confidence": "medium",
+    "degraded_mode": false,
+    "enhanced_census": true,
+    "face_recognized_persons": [],
+    "frigate_count": 4,
+    "identified_count": 2,
+    "identified_persons": [
+     "ezinne",
+     "oji_udezue"
+    ],
+    "peak_age_minutes": 0,
+    "peak_held": true,
+    "source_agreement": "single_source",
+    "total_persons": 4,
+    "unidentified_count": 2,
+    "unifi_count": 0,
+    "wifi_guest_floor": 0
+   },
+   "inference_triggers": [
+    "census_update"
+   ],
+   "payload": {
+    "camera_input_dark": false,
+    "confidence": "medium",
+    "degraded_mode": false,
+    "face_lookup_missing_count": 8,
+    "face_recognized_count": 0,
+    "identified_count": 2,
+    "interior_count": 4,
+    "peak_age_seconds": 30,
+    "peak_held": true,
+    "peak_refresh_suppressed_count": 3,
+    "property_count": 0,
+    "source_agreement": "single_source",
+    "total_on_property": 4,
+    "unidentified_count": 2
+   },
+   "presence": {
+    "_census_camera_input_dark": false,
+    "_census_confidence": "medium",
+    "_census_count": 4,
+    "_face_recognized_count": 0,
+    "_unidentified_count": 2
+   },
+   "property": {
+    "total_persons": 0,
+    "unidentified_count": 0
+   },
+   "sensors": {
+    "identified": 2,
+    "persons_in_house": 4,
+    "total_on_property": 4,
+    "unidentified": 2
+   },
+   "tick": 3,
+   "veto_path": "none"
+  },
+  {
+   "away_verdict": "None",
+   "house": {
+    "active_platforms": [
+     "frigate"
+    ],
+    "ble_cancelled_count": 0,
+    "camera_unrecognized": 4,
+    "confidence": "medium",
+    "degraded_mode": false,
+    "enhanced_census": true,
+    "face_recognized_persons": [],
+    "frigate_count": 4,
+    "identified_count": 2,
+    "identified_persons": [
+     "ezinne",
+     "oji_udezue"
+    ],
+    "peak_age_minutes": 0,
+    "peak_held": false,
+    "source_agreement": "single_source",
+    "total_persons": 4,
+    "unidentified_count": 2,
+    "unifi_count": 0,
+    "wifi_guest_floor": 0
+   },
+   "inference_triggers": [],
+   "payload": {
+    "camera_input_dark": false,
+    "confidence": "medium",
+    "degraded_mode": false,
+    "face_lookup_missing_count": 8,
+    "face_recognized_count": 0,
+    "identified_count": 2,
+    "interior_count": 4,
+    "peak_age_seconds": 0,
+    "peak_held": false,
+    "peak_refresh_suppressed_count": 4,
+    "property_count": 0,
+    "source_agreement": "single_source",
+    "total_on_property": 4,
+    "unidentified_count": 2
+   },
+   "presence": {
+    "_census_camera_input_dark": false,
+    "_census_confidence": "medium",
+    "_census_count": 4,
+    "_face_recognized_count": 0,
+    "_unidentified_count": 2
+   },
+   "property": {
+    "total_persons": 0,
+    "unidentified_count": 0
+   },
+   "sensors": {
+    "identified": 2,
+    "persons_in_house": 4,
+    "total_on_property": 4,
+    "unidentified": 2
+   },
+   "tick": 4,
+   "veto_path": "none"
+  },
+  {
+   "away_verdict": "None",
+   "house": {
+    "active_platforms": [
+     "frigate"
+    ],
+    "ble_cancelled_count": 0,
+    "camera_unrecognized": 2,
+    "confidence": "medium",
+    "degraded_mode": false,
+    "enhanced_census": true,
+    "face_recognized_persons": [],
+    "frigate_count": 2,
+    "identified_count": 2,
+    "identified_persons": [
+     "ezinne",
+     "oji_udezue"
+    ],
+    "peak_age_minutes": 0,
+    "peak_held": true,
+    "source_agreement": "single_source",
+    "total_persons": 2,
+    "unidentified_count": 0,
+    "unifi_count": 0,
+    "wifi_guest_floor": 0
+   },
+   "inference_triggers": [
+    "census_update"
+   ],
+   "payload": {
+    "camera_input_dark": false,
+    "confidence": "medium",
+    "degraded_mode": false,
+    "face_lookup_missing_count": 8,
+    "face_recognized_count": 0,
+    "identified_count": 2,
+    "interior_count": 2,
+    "peak_age_seconds": 30,
+    "peak_held": true,
+    "peak_refresh_suppressed_count": 5,
+    "property_count": 0,
+    "source_agreement": "single_source",
+    "total_on_property": 2,
+    "unidentified_count": 0
+   },
+   "presence": {
+    "_census_camera_input_dark": false,
+    "_census_confidence": "medium",
+    "_census_count": 2,
+    "_face_recognized_count": 0,
+    "_unidentified_count": 0
+   },
+   "property": {
+    "total_persons": 0,
+    "unidentified_count": 0
+   },
+   "sensors": {
+    "identified": 2,
+    "persons_in_house": 2,
+    "total_on_property": 2,
+    "unidentified": 0
+   },
+   "tick": 5,
+   "veto_path": "none"
+  },
+  {
+   "away_verdict": "None",
+   "house": {
+    "active_platforms": [
+     "frigate"
+    ],
+    "ble_cancelled_count": 0,
+    "camera_unrecognized": 1,
+    "confidence": "medium",
+    "degraded_mode": false,
+    "enhanced_census": true,
+    "face_recognized_persons": [],
+    "frigate_count": 1,
+    "identified_count": 1,
+    "identified_persons": [
+     "oji_udezue"
+    ],
+    "peak_age_minutes": 1,
+    "peak_held": true,
+    "source_agreement": "single_source",
+    "total_persons": 1,
+    "unidentified_count": 0,
+    "unifi_count": 0,
+    "wifi_guest_floor": 0
+   },
+   "inference_triggers": [
+    "census_update"
+   ],
+   "payload": {
+    "camera_input_dark": false,
+    "confidence": "medium",
+    "degraded_mode": false,
+    "face_lookup_missing_count": 7,
+    "face_recognized_count": 0,
+    "identified_count": 1,
+    "interior_count": 1,
+    "peak_age_seconds": 60,
+    "peak_held": true,
+    "peak_refresh_suppressed_count": 6,
+    "property_count": 0,
+    "source_agreement": "single_source",
+    "total_on_property": 1,
+    "unidentified_count": 0
+   },
+   "presence": {
+    "_census_camera_input_dark": false,
+    "_census_confidence": "medium",
+    "_census_count": 1,
+    "_face_recognized_count": 0,
+    "_unidentified_count": 0
+   },
+   "property": {
+    "total_persons": 0,
+    "unidentified_count": 0
+   },
+   "sensors": {
+    "identified": 1,
+    "persons_in_house": 1,
+    "total_on_property": 1,
+    "unidentified": 0
+   },
+   "tick": 6,
+   "veto_path": "none"
+  },
+  {
+   "away_verdict": "None",
+   "house": {
+    "active_platforms": [
+     "frigate"
+    ],
+    "ble_cancelled_count": 0,
+    "camera_unrecognized": 1,
+    "confidence": "medium",
+    "degraded_mode": false,
+    "enhanced_census": true,
+    "face_recognized_persons": [],
+    "frigate_count": 1,
+    "identified_count": 1,
+    "identified_persons": [
+     "oji_udezue"
+    ],
+    "peak_age_minutes": 1,
+    "peak_held": true,
+    "source_agreement": "single_source",
+    "total_persons": 1,
+    "unidentified_count": 0,
+    "unifi_count": 0,
+    "wifi_guest_floor": 0
+   },
+   "inference_triggers": [],
+   "payload": {
+    "camera_input_dark": false,
+    "confidence": "medium",
+    "degraded_mode": false,
+    "face_lookup_missing_count": 7,
+    "face_recognized_count": 0,
+    "identified_count": 1,
+    "interior_count": 1,
+    "peak_age_seconds": 90,
+    "peak_held": true,
+    "peak_refresh_suppressed_count": 7,
+    "property_count": 0,
+    "source_agreement": "single_source",
+    "total_on_property": 1,
+    "unidentified_count": 0
+   },
+   "presence": {
+    "_census_camera_input_dark": false,
+    "_census_confidence": "medium",
+    "_census_count": 1,
+    "_face_recognized_count": 0,
+    "_unidentified_count": 0
+   },
+   "property": {
+    "total_persons": 0,
+    "unidentified_count": 0
+   },
+   "sensors": {
+    "identified": 1,
+    "persons_in_house": 1,
+    "total_on_property": 1,
+    "unidentified": 0
+   },
+   "tick": 7,
+   "veto_path": "none"
+  },
+  {
+   "away_verdict": "None",
+   "house": {
+    "active_platforms": [
+     "frigate"
+    ],
+    "ble_cancelled_count": 0,
+    "camera_unrecognized": 1,
+    "confidence": "medium",
+    "degraded_mode": false,
+    "enhanced_census": true,
+    "face_recognized_persons": [],
+    "frigate_count": 1,
+    "identified_count": 1,
+    "identified_persons": [
+     "oji_udezue"
+    ],
+    "peak_age_minutes": 2,
+    "peak_held": true,
+    "source_agreement": "single_source",
+    "total_persons": 1,
+    "unidentified_count": 0,
+    "unifi_count": 0,
+    "wifi_guest_floor": 0
+   },
+   "inference_triggers": [],
+   "payload": {
+    "camera_input_dark": false,
+    "confidence": "medium",
+    "degraded_mode": false,
+    "face_lookup_missing_count": 7,
+    "face_recognized_count": 0,
+    "identified_count": 1,
+    "interior_count": 1,
+    "peak_age_seconds": 120,
+    "peak_held": true,
+    "peak_refresh_suppressed_count": 8,
+    "property_count": 0,
+    "source_agreement": "single_source",
+    "total_on_property": 1,
+    "unidentified_count": 0
+   },
+   "presence": {
+    "_census_camera_input_dark": false,
+    "_census_confidence": "medium",
+    "_census_count": 1,
+    "_face_recognized_count": 0,
+    "_unidentified_count": 0
+   },
+   "property": {
+    "total_persons": 0,
+    "unidentified_count": 0
+   },
+   "sensors": {
+    "identified": 1,
+    "persons_in_house": 1,
+    "total_on_property": 1,
+    "unidentified": 0
+   },
+   "tick": 8,
+   "veto_path": "none"
+  },
+  {
+   "away_verdict": "away",
+   "house": {
+    "active_platforms": [
+     "frigate"
+    ],
+    "ble_cancelled_count": 0,
+    "camera_unrecognized": 0,
+    "confidence": "none",
+    "degraded_mode": false,
+    "enhanced_census": true,
+    "face_recognized_persons": [],
+    "frigate_count": 0,
+    "identified_count": 0,
+    "identified_persons": [],
+    "peak_age_minutes": 2,
+    "peak_held": true,
+    "source_agreement": "single_source",
+    "total_persons": 0,
+    "unidentified_count": 0,
+    "unifi_count": 0,
+    "wifi_guest_floor": 0
+   },
+   "inference_triggers": [
+    "census_update"
+   ],
+   "payload": {
+    "camera_input_dark": false,
+    "confidence": "none",
+    "degraded_mode": false,
+    "face_lookup_missing_count": 6,
+    "face_recognized_count": 0,
+    "identified_count": 0,
+    "interior_count": 0,
+    "peak_age_seconds": 150,
+    "peak_held": true,
+    "peak_refresh_suppressed_count": 9,
+    "property_count": 0,
+    "source_agreement": "single_source",
+    "total_on_property": 0,
+    "unidentified_count": 0
+   },
+   "presence": {
+    "_census_camera_input_dark": false,
+    "_census_confidence": "none",
+    "_census_count": 0,
+    "_face_recognized_count": 0,
+    "_unidentified_count": 0
+   },
+   "property": {
+    "total_persons": 0,
+    "unidentified_count": 0
+   },
+   "sensors": {
+    "identified": 0,
+    "persons_in_house": 0,
+    "total_on_property": 0,
+    "unidentified": 0
+   },
+   "tick": 9,
+   "veto_path": "nobody_home"
+  },
+  {
+   "away_verdict": "away",
+   "house": {
+    "active_platforms": [
+     "frigate"
+    ],
+    "ble_cancelled_count": 0,
+    "camera_unrecognized": 0,
+    "confidence": "none",
+    "degraded_mode": false,
+    "enhanced_census": true,
+    "face_recognized_persons": [],
+    "frigate_count": 0,
+    "identified_count": 0,
+    "identified_persons": [],
+    "peak_age_minutes": 0,
+    "peak_held": false,
+    "source_agreement": "single_source",
+    "total_persons": 0,
+    "unidentified_count": 0,
+    "unifi_count": 0,
+    "wifi_guest_floor": 0
+   },
+   "inference_triggers": [],
+   "payload": {
+    "camera_input_dark": false,
+    "confidence": "none",
+    "degraded_mode": false,
+    "face_lookup_missing_count": 6,
+    "face_recognized_count": 0,
+    "identified_count": 0,
+    "interior_count": 0,
+    "peak_age_seconds": 0,
+    "peak_held": false,
+    "peak_refresh_suppressed_count": 10,
+    "property_count": 0,
+    "source_agreement": "single_source",
+    "total_on_property": 0,
+    "unidentified_count": 0
+   },
+   "presence": {
+    "_census_camera_input_dark": false,
+    "_census_confidence": "none",
+    "_census_count": 0,
+    "_face_recognized_count": 0,
+    "_unidentified_count": 0
+   },
+   "property": {
+    "total_persons": 0,
+    "unidentified_count": 0
+   },
+   "sensors": {
+    "identified": 0,
+    "persons_in_house": 0,
+    "total_on_property": 0,
+    "unidentified": 0
+   },
+   "tick": 10,
+   "veto_path": "nobody_home"
+  },
+  {
+   "away_verdict": "away",
+   "house": {
+    "active_platforms": [
+     "frigate"
+    ],
+    "ble_cancelled_count": 0,
+    "camera_unrecognized": 0,
+    "confidence": "none",
+    "degraded_mode": false,
+    "enhanced_census": true,
+    "face_recognized_persons": [],
+    "frigate_count": 0,
+    "identified_count": 0,
+    "identified_persons": [],
+    "peak_age_minutes": 0,
+    "peak_held": false,
+    "source_agreement": "single_source",
+    "total_persons": 0,
+    "unidentified_count": 0,
+    "unifi_count": 0,
+    "wifi_guest_floor": 0
+   },
+   "inference_triggers": [],
+   "payload": {
+    "camera_input_dark": false,
+    "confidence": "none",
+    "degraded_mode": false,
+    "face_lookup_missing_count": 6,
+    "face_recognized_count": 0,
+    "identified_count": 0,
+    "interior_count": 0,
+    "peak_age_seconds": 0,
+    "peak_held": false,
+    "peak_refresh_suppressed_count": 12,
+    "property_count": 0,
+    "source_agreement": "single_source",
+    "total_on_property": 0,
+    "unidentified_count": 0
+   },
+   "presence": {
+    "_census_camera_input_dark": false,
+    "_census_confidence": "none",
+    "_census_count": 0,
+    "_face_recognized_count": 0,
+    "_unidentified_count": 0
+   },
+   "property": {
+    "total_persons": 0,
+    "unidentified_count": 0
+   },
+   "sensors": {
+    "identified": 0,
+    "persons_in_house": 0,
+    "total_on_property": 0,
+    "unidentified": 0
+   },
+   "tick": 11,
+   "veto_path": "nobody_home"
+  },
+  {
+   "away_verdict": "away",
+   "house": {
+    "active_platforms": [
+     "frigate"
+    ],
+    "ble_cancelled_count": 0,
+    "camera_unrecognized": 0,
+    "confidence": "none",
+    "degraded_mode": false,
+    "enhanced_census": true,
+    "face_recognized_persons": [],
+    "frigate_count": 0,
+    "identified_count": 0,
+    "identified_persons": [],
+    "peak_age_minutes": 0,
+    "peak_held": false,
+    "source_agreement": "single_source",
+    "total_persons": 0,
+    "unidentified_count": 0,
+    "unifi_count": 0,
+    "wifi_guest_floor": 0
+   },
+   "inference_triggers": [],
+   "payload": {
+    "camera_input_dark": false,
+    "confidence": "none",
+    "degraded_mode": false,
+    "face_lookup_missing_count": 6,
+    "face_recognized_count": 0,
+    "identified_count": 0,
+    "interior_count": 0,
+    "peak_age_seconds": 0,
+    "peak_held": false,
+    "peak_refresh_suppressed_count": 14,
+    "property_count": 0,
+    "source_agreement": "single_source",
+    "total_on_property": 0,
+    "unidentified_count": 0
+   },
+   "presence": {
+    "_census_camera_input_dark": false,
+    "_census_confidence": "none",
+    "_census_count": 0,
+    "_face_recognized_count": 0,
+    "_unidentified_count": 0
+   },
+   "property": {
+    "total_persons": 0,
+    "unidentified_count": 0
+   },
+   "sensors": {
+    "identified": 0,
+    "persons_in_house": 0,
+    "total_on_property": 0,
+    "unidentified": 0
+   },
+   "tick": 12,
+   "veto_path": "nobody_home"
+  },
+  {
+   "away_verdict": "away",
+   "house": {
+    "active_platforms": [],
+    "ble_cancelled_count": 0,
+    "camera_unrecognized": 0,
+    "confidence": "none",
+    "degraded_mode": true,
+    "enhanced_census": true,
+    "face_recognized_persons": [],
+    "frigate_count": 0,
+    "identified_count": 0,
+    "identified_persons": [],
+    "peak_age_minutes": 0,
+    "peak_held": false,
+    "source_agreement": "single_source",
+    "total_persons": 0,
+    "unidentified_count": 0,
+    "unifi_count": 0,
+    "wifi_guest_floor": 0
+   },
+   "inference_triggers": [
+    "census_update"
+   ],
+   "payload": {
+    "camera_input_dark": true,
+    "confidence": "none",
+    "degraded_mode": true,
+    "face_lookup_missing_count": 4,
+    "face_recognized_count": 0,
+    "identified_count": 0,
+    "interior_count": 0,
+    "peak_age_seconds": 0,
+    "peak_held": false,
+    "peak_refresh_suppressed_count": 16,
+    "property_count": 0,
+    "source_agreement": "single_source",
+    "total_on_property": 0,
+    "unidentified_count": 0
+   },
+   "presence": {
+    "_census_camera_input_dark": true,
+    "_census_confidence": "none",
+    "_census_count": 0,
+    "_face_recognized_count": 0,
+    "_unidentified_count": 0
+   },
+   "property": {
+    "total_persons": 0,
+    "unidentified_count": 0
+   },
+   "sensors": {
+    "identified": 0,
+    "persons_in_house": 0,
+    "total_on_property": 0,
+    "unidentified": 0
+   },
+   "tick": 13,
+   "veto_path": "nobody_home"
+  },
+  {
+   "away_verdict": "away",
+   "house": {
+    "active_platforms": [],
+    "ble_cancelled_count": 0,
+    "camera_unrecognized": 0,
+    "confidence": "none",
+    "degraded_mode": true,
+    "enhanced_census": true,
+    "face_recognized_persons": [],
+    "frigate_count": 0,
+    "identified_count": 0,
+    "identified_persons": [],
+    "peak_age_minutes": 0,
+    "peak_held": false,
+    "source_agreement": "single_source",
+    "total_persons": 0,
+    "unidentified_count": 0,
+    "unifi_count": 0,
+    "wifi_guest_floor": 0
+   },
+   "inference_triggers": [],
+   "payload": {
+    "camera_input_dark": true,
+    "confidence": "none",
+    "degraded_mode": true,
+    "face_lookup_missing_count": 4,
+    "face_recognized_count": 0,
+    "identified_count": 0,
+    "interior_count": 0,
+    "peak_age_seconds": 0,
+    "peak_held": false,
+    "peak_refresh_suppressed_count": 18,
+    "property_count": 0,
+    "source_agreement": "single_source",
+    "total_on_property": 0,
+    "unidentified_count": 0
+   },
+   "presence": {
+    "_census_camera_input_dark": true,
+    "_census_confidence": "none",
+    "_census_count": 0,
+    "_face_recognized_count": 0,
+    "_unidentified_count": 0
+   },
+   "property": {
+    "total_persons": 0,
+    "unidentified_count": 0
+   },
+   "sensors": {
+    "identified": 0,
+    "persons_in_house": 0,
+    "total_on_property": 0,
+    "unidentified": 0
+   },
+   "tick": 14,
+   "veto_path": "nobody_home"
+  },
+  {
+   "away_verdict": "away",
+   "house": {
+    "active_platforms": [],
+    "ble_cancelled_count": 0,
+    "camera_unrecognized": 0,
+    "confidence": "none",
+    "degraded_mode": true,
+    "enhanced_census": true,
+    "face_recognized_persons": [],
+    "frigate_count": 0,
+    "identified_count": 0,
+    "identified_persons": [],
+    "peak_age_minutes": 0,
+    "peak_held": false,
+    "source_agreement": "single_source",
+    "total_persons": 0,
+    "unidentified_count": 0,
+    "unifi_count": 0,
+    "wifi_guest_floor": 0
+   },
+   "inference_triggers": [],
+   "payload": {
+    "camera_input_dark": true,
+    "confidence": "none",
+    "degraded_mode": true,
+    "face_lookup_missing_count": 4,
+    "face_recognized_count": 0,
+    "identified_count": 0,
+    "interior_count": 0,
+    "peak_age_seconds": 0,
+    "peak_held": false,
+    "peak_refresh_suppressed_count": 20,
+    "property_count": 0,
+    "source_agreement": "single_source",
+    "total_on_property": 0,
+    "unidentified_count": 0
+   },
+   "presence": {
+    "_census_camera_input_dark": true,
+    "_census_confidence": "none",
+    "_census_count": 0,
+    "_face_recognized_count": 0,
+    "_unidentified_count": 0
+   },
+   "property": {
+    "total_persons": 0,
+    "unidentified_count": 0
+   },
+   "sensors": {
+    "identified": 0,
+    "persons_in_house": 0,
+    "total_on_property": 0,
+    "unidentified": 0
+   },
+   "tick": 15,
+   "veto_path": "nobody_home"
+  },
+  {
+   "away_verdict": "away",
+   "house": {
+    "active_platforms": [
+     "frigate"
+    ],
+    "ble_cancelled_count": 0,
+    "camera_unrecognized": 0,
+    "confidence": "none",
+    "degraded_mode": false,
+    "enhanced_census": true,
+    "face_recognized_persons": [],
+    "frigate_count": 0,
+    "identified_count": 0,
+    "identified_persons": [],
+    "peak_age_minutes": 0,
+    "peak_held": false,
+    "source_agreement": "single_source",
+    "total_persons": 0,
+    "unidentified_count": 0,
+    "unifi_count": 0,
+    "wifi_guest_floor": 0
+   },
+   "inference_triggers": [
+    "census_update"
+   ],
+   "payload": {
+    "camera_input_dark": false,
+    "confidence": "none",
+    "degraded_mode": false,
+    "face_lookup_missing_count": 6,
+    "face_recognized_count": 0,
+    "identified_count": 0,
+    "interior_count": 0,
+    "peak_age_seconds": 0,
+    "peak_held": false,
+    "peak_refresh_suppressed_count": 22,
+    "property_count": 0,
+    "source_agreement": "single_source",
+    "total_on_property": 0,
+    "unidentified_count": 0
+   },
+   "presence": {
+    "_census_camera_input_dark": false,
+    "_census_confidence": "none",
+    "_census_count": 0,
+    "_face_recognized_count": 0,
+    "_unidentified_count": 0
+   },
+   "property": {
+    "total_persons": 0,
+    "unidentified_count": 0
+   },
+   "sensors": {
+    "identified": 0,
+    "persons_in_house": 0,
+    "total_on_property": 0,
+    "unidentified": 0
+   },
+   "tick": 16,
+   "veto_path": "nobody_home"
+  },
+  {
+   "away_verdict": "None",
+   "house": {
+    "active_platforms": [
+     "frigate"
+    ],
+    "ble_cancelled_count": 0,
+    "camera_unrecognized": 1,
+    "confidence": "medium",
+    "degraded_mode": false,
+    "enhanced_census": true,
+    "face_recognized_persons": [],
+    "frigate_count": 1,
+    "identified_count": 0,
+    "identified_persons": [],
+    "peak_age_minutes": 0,
+    "peak_held": false,
+    "source_agreement": "single_source",
+    "total_persons": 1,
+    "unidentified_count": 1,
+    "unifi_count": 0,
+    "wifi_guest_floor": 0
+   },
+   "inference_triggers": [
+    "census_update"
+   ],
+   "payload": {
+    "camera_input_dark": false,
+    "confidence": "medium",
+    "degraded_mode": false,
+    "face_lookup_missing_count": 7,
+    "face_recognized_count": 0,
+    "identified_count": 0,
+    "interior_count": 1,
+    "peak_age_seconds": 0,
+    "peak_held": false,
+    "peak_refresh_suppressed_count": 23,
+    "property_count": 0,
+    "source_agreement": "single_source",
+    "total_on_property": 1,
+    "unidentified_count": 1
+   },
+   "presence": {
+    "_census_camera_input_dark": false,
+    "_census_confidence": "medium",
+    "_census_count": 1,
+    "_face_recognized_count": 0,
+    "_unidentified_count": 1
+   },
+   "property": {
+    "total_persons": 0,
+    "unidentified_count": 0
+   },
+   "sensors": {
+    "identified": 0,
+    "persons_in_house": 1,
+    "total_on_property": 1,
+    "unidentified": 1
+   },
+   "tick": 17,
+   "veto_path": "none"
+  },
+  {
+   "away_verdict": "None",
+   "house": {
+    "active_platforms": [
+     "frigate"
+    ],
+    "ble_cancelled_count": 0,
+    "camera_unrecognized": 1,
+    "confidence": "medium",
+    "degraded_mode": false,
+    "enhanced_census": true,
+    "face_recognized_persons": [],
+    "frigate_count": 1,
+    "identified_count": 1,
+    "identified_persons": [
+     "oji_udezue"
+    ],
+    "peak_age_minutes": 0,
+    "peak_held": false,
+    "source_agreement": "single_source",
+    "total_persons": 1,
+    "unidentified_count": 0,
+    "unifi_count": 0,
+    "wifi_guest_floor": 0
+   },
+   "inference_triggers": [
+    "census_update"
+   ],
+   "payload": {
+    "camera_input_dark": false,
+    "confidence": "medium",
+    "degraded_mode": false,
+    "face_lookup_missing_count": 7,
+    "face_recognized_count": 0,
+    "identified_count": 1,
+    "interior_count": 1,
+    "peak_age_seconds": 0,
+    "peak_held": false,
+    "peak_refresh_suppressed_count": 25,
+    "property_count": 0,
+    "source_agreement": "single_source",
+    "total_on_property": 1,
+    "unidentified_count": 0
+   },
+   "presence": {
+    "_census_camera_input_dark": false,
+    "_census_confidence": "medium",
+    "_census_count": 1,
+    "_face_recognized_count": 0,
+    "_unidentified_count": 0
+   },
+   "property": {
+    "total_persons": 0,
+    "unidentified_count": 0
+   },
+   "sensors": {
+    "identified": 1,
+    "persons_in_house": 1,
+    "total_on_property": 1,
+    "unidentified": 0
+   },
+   "tick": 18,
+   "veto_path": "none"
+  }
+ ]
+}

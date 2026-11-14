@@ -1,0 +1,97 @@
+"""INV-P2-AWAY-LATENCY + trust-view golden (census deconfliction CD1).
+
+Plan: docs/planning/PLANNING_census_deconfliction.md §4. Harness and golden
+provenance: ``_census_vision_harness.py``.
+
+Non-hollow configuration (#63): besides the dark default, every comparison
+also runs with ``CROSSING_VISION_AWARENESS_VISION_LEADS = True``, the class
+set {display, notification}, the downgrade switch ON and a ledger whose
+``guest_vis`` differs from the camera estimate (50), or is missing (None).
+"""
+from __future__ import annotations
+
+import os
+
+import pytest
+
+import _census_vision_harness as H
+from test_person_sighting import hass, mods  # noqa: F401 — fixture reuse
+
+SWITCH = "switch.ura_crossing_vision_census_authority"
+VARIANTS = ["dark_default", "absent", "vision50_lead", "visionNone_lead",
+            "vision50_unhealthy_lead"]
+
+
+def _install_variant(mods, hass, monkeypatch, variant):
+    c = mods.const
+    if variant == "dark_default":
+        hass.data[H.DOMAIN][c.CROSSING_VISION_HASS_KEY] = H.FakeVision(0)
+        return
+    if variant == "absent":
+        hass.data[H.DOMAIN].pop(c.CROSSING_VISION_HASS_KEY, None)
+        return
+    monkeypatch.setattr(c, "CROSSING_VISION_AWARENESS_VISION_LEADS", True,
+                        raising=False)
+    monkeypatch.setattr(c, "CROSSING_VISION_CONSUMER_CLASSES",
+                        frozenset({"display", "notification"}))
+    hass.states.async_set(SWITCH, "on")
+    fake = {
+        "vision50_lead": H.FakeVision(50),
+        "visionNone_lead": H.FakeVision(None, healthy=False, state="unknown"),
+        "vision50_unhealthy_lead": H.FakeVision(50, healthy=False),
+    }[variant]
+    hass.data[H.DOMAIN][c.CROSSING_VISION_HASS_KEY] = fake
+
+
+async def _run(mods, hass, monkeypatch, freezer, variant):  # noqa: F811
+    freezer.move_to(H.START)
+    w = await H.build(mods, hass, monkeypatch)
+    try:
+        _install_variant(mods, hass, monkeypatch, variant)
+        return await H.replay(w, freezer.tick)
+    finally:
+        await H.R.teardown(w.rig)
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.environ.get("URA_REGEN_CENSUS_GOLDEN") != "1",
+                    reason="golden generator (scripts/probes/gen_census_trust_golden.py)")
+async def test_regenerate_golden(mods, hass, monkeypatch, freezer):  # noqa: F811
+    records = await _run(mods, hass, monkeypatch, freezer, "absent")
+    H.write_golden(records, os.environ.get("URA_GOLDEN_BASE", "unknown"))
+
+
+def _strip(records, keys):
+    return [{k: r[k] for k in keys} for r in records]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("variant", VARIANTS)
+async def test_away_tick_identical_with_vision_payload(
+    mods, hass, monkeypatch, freezer, variant,  # noqa: F811
+):
+    """The AWAY inputs presence takes from the census, the inference
+    triggers the update schedules and the engine verdict per tick equal the
+    develop golden, for every vision variant (and therefore each other)."""
+    got = await _run(mods, hass, monkeypatch, freezer, variant)
+    keys = ("tick", "presence", "inference_triggers", "away_verdict", "veto_path")
+    assert _strip(got, keys) == _strip(H.load_golden(), keys)
+    # Self-check of the scenario: AWAY fires, and on the scripted tick.
+    verdicts = [r["away_verdict"] for r in got]
+    assert verdicts.index("away") == 9
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("variant", VARIANTS)
+async def test_census_existing_fields_golden_all_classes(
+    mods, hass, monkeypatch, freezer, variant,  # noqa: F811
+):
+    """Every pre-existing house field, the property zone, the full
+    dispatched payload (every key) and the four existing census sensors equal
+    the develop golden."""
+    got = await _run(mods, hass, monkeypatch, freezer, variant)
+    keys = ("tick", "house", "property", "payload", "sensors")
+    assert _strip(got, keys) == _strip(H.load_golden(), keys)
+    # Scenario self-check: guests appear and are held, the fleet goes dark.
+    assert max(r["house"]["unidentified_count"] for r in got) >= 1
+    assert any(r["payload"]["camera_input_dark"] for r in got)
