@@ -16,6 +16,11 @@ Written so the analysis survives compaction. Companion docs: `ARC_identity_visio
   how fast that comes back. What the later batch tells us and how fast that comes back and when the complete
   synthesis lands. We need to simulate this"; "egress only names people who are already home... Who made this rule?
   ... It should do both".
+- Added 2026-11-14 (drift caught): "we may need a consolidated boundary crossing and person awareness function etc. That all
+  consumers can [read] and producers can feed?" and "Unified functions or layers are powerful only if we get it right and
+  make sure there are no leaks." (Constraint: one person-awareness layer with one ingest point per fact and one read
+  surface; contract docs/planning/CONTRACT_person_awareness_layer.md; a code guard fails on any new leak; every plan in
+  the arc states how it feeds or reads through the layer.)
 - Added 2026-11-14: "vision will eventually be able to pull short clips of video to watch. Make sure no plan precludes
   that." (Constraint: every vision deliverable keeps a frame-source path that can take a short clip, e.g. llmvision
   `video_analyzer` on a Frigate clip, not only still frames; plan reviews check it.) Also: "Interior vision is meant to
