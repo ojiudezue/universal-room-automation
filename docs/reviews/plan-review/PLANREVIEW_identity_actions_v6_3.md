@@ -6,7 +6,7 @@ Read: plan rev 3 and rev 2 in full, charter `ARC_DRIFT_ANALYSIS_identity_vision_
 This plan touches presence (BLE room, occupancy) and HVAC only by exclusion. The state-of-play docs were not re-read end to end for this review.
 The findings below rest on code at the cited file:line, which wins over any doc.
 
-**Verdict: FIX-PLAN.** 3 HIGH, 6 MEDIUM, 7 LOW. No CRITICAL. Scope: FOCUSED. The goal fidelity is good: nothing the operator asked for is deferred.
+**Verdict: FIX-PLAN.** 3 HIGH, 7 MEDIUM, 8 LOW. No CRITICAL. Scope: FOCUSED. The goal fidelity is good: nothing the operator asked for is deferred.
 The two load-bearing mechanisms are mis-specified against the code, though. One is the arrival trigger site. The other is how the welcome scene "sticks".
 As written, a builder would ship an INV-V6-ARRIVAL-REACHES that fails in common cases, and a scene test that discriminates nothing.
 
