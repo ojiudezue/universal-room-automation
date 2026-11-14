@@ -11,7 +11,7 @@ Windows: "14 days" = 2026-10-31 06:00 UTC to 2026-11-14 06:00 UTC unless stated.
 | (i) residency fire check | **FIRES.** 3 resident edges since the v5.108.19 restart (11-13 11:44 CST) = 3 rows (2 `person_arrival`, 1 `person_departure`), 3/3 one-to-one | PASS. Bar b can use the producer. Oji's two-word name not yet exercised (Oji is in NZ) |
 | (ii) empty anchors 14 d | camera zero AND no room entry AND no door entry term: **170 / 48 / 9 anchors** at 1800 / 3600 / 7200 s (last 7 d: 85 / 22 / 3) | 3600 s (the operator default) clears bar a's >= 10 anchors per 7 d (22); 7200 s does not (3). Only 19 % of 3600 s anchors fall while the house is AWAY |
 | (iii) wrong-event rate at +-30 s | no ground truth exists; proxy: **22 / 97 = 22.7 %** of matched picks have an interval that does not cover E +-5 s (10.3 % at +-10 s); **>= 5 / 97 = 5.2 %** even counting only the 10 newly-matched | Does NOT clear `CROSSING_VISION_EVENT_MATCH_WRONG_MAX` 0.02. Keep `EVENT_MATCH_S` = 10 |
-| (iv) D0a on Luna | **NOT RUN: needs operator ok for 4 paid calls** (described below) | blocked on operator |
+| (iv) D0a on Luna | **RUN 2026-11-14 (operator ok "luna fine"): 4 / 4 calls HTTP 200, 4 / 4 `structured_response` parse, no `response_text` key; `people_total` = truth on 4 / 4** (#27 = 2 on both paths, single-person #10 = 1 on both). Latency image 3.5 / 2.3 s, video 7.1 / 5.2 s | PASS: the Luna entry accepts the production request on both service paths. P2-D1 provider override unblocked. 2 of the 6 calls remain |
 | (v) AWAY latency baseline (CD0) | 7-day recorder window only: **n = 22 AWAY rows; median 44 s, p90 8758 s** (all). Fresh departures n = 17: **median 39 s, p90 853 s**. Paths: `active` 55 % / `nobody_home` 45 % (14-day, n = 30: 16 / 14); `lost_admitted` 0 | baseline for INV-P2-AWAY-LATENCY. The 14-day span is not reachable (recorder keeps 7 d) |
 | (vi) timing simulation | F lands **p50 1.2 s / p90 7.9 s** after the camera edge E; B lands **p50 52.8 s / p90 60.6 s** after E (p50 7.8 / p90 15.6 s after t0). **F = B on 39/45 = 86.7 %** (Wilson 95 % low 76 %) | P2-D8 gate (F p90 <= 60 s AND F = B >= 85 %): both pass as measured; the share passes by 1.7 points with a wide interval |
 | (vii) | closed in the plan (grading path cited there) | not re-done |
@@ -67,9 +67,9 @@ Widening 10 -> 30 s: the pick **changes for 11 of the 87** already-matched cross
 
 Verdict: the plan's rule "-> 30 s if (iii) <= 0.02" is **not met** on either reading. Keep `CROSSING_VISION_EVENT_MATCH_S` = 10 (74.4 % coverage, 25.6 % `no_frigate_event`). A real rate would need the 97 picks graded (a clip frame check; operator time or ~97 paid calls, outside the 6-call budget).
 
-## (iv) D0a on the Luna entry: NEEDS OPERATOR OK FOR 4 PAID CALLS
+## (iv) D0a on the Luna entry (run 2026-11-14 after operator ok; results below)
 
-Not run. D0a = dry calls proving the second llmvision entry (`01M7B731T26P2HXVW77AQR62PP`, `gpt-6-luna`, temp 1.0 / top_p 1.0) accepts the production request on both service paths. D0-V showed the OLD default path 400s on `temperature` for gpt-6 models (`AUDIT_crossing_vision_d0_v_2026_11_13.md` table), which is why the new entry exists; no run on it is on record (`AUDIT_crossing_vision_d0_2026_11_13.md` "D0a skipped").
+Originally not run (needed operator ok). D0a = dry calls proving the second llmvision entry (`01M7B731T26P2HXVW77AQR62PP`, `gpt-6-luna`, temp 1.0 / top_p 1.0) accepts the production request on both service paths. D0-V showed the OLD default path 400s on `temperature` for gpt-6 models (`AUDIT_crossing_vision_d0_v_2026_11_13.md` table), which is why the new entry exists; no run on it is on record (`AUDIT_crossing_vision_d0_2026_11_13.md` "D0a skipped").
 
 Proposed calls (4 of the 6 allowed), all `return_response`, `store_in_timeline` false, `use_memory` false, `max_frames` 4, `target_width` 768, structured schema from the plan D1, no naming prompt, on two already-fixtured crossings (a single-person garage_a event and the 2-person set #27):
 1. `llmvision.image_analyzer`, provider = Luna entry, 3 frames of crossing #27 (2 people).
@@ -77,6 +77,33 @@ Proposed calls (4 of the 6 allowed), all `return_response`, `store_in_timeline` 
 3. `llmvision.video_analyzer`, same entry, `video_file` = instance-scoped `/api/frigate/frigate-f2/notifications/<event_id>/clip.mp4` of #27.
 4. `llmvision.video_analyzer`, same entry, same URL form for the single-person crossing.
 Records: HTTP status, latency, whether `structured_response` parses, `people_total` vs visual truth, no `response_text` key expected. Estimated cost under $0.01 total (D0-V estimate for Luna: input about $0.0003 per 3-frame call, output unknown). Needed for: P2-D1 (the Luna provider override) and for pricing levers L4 below. Two calls remain unspent for lever pricing.
+
+### D0a results 2026-11-14
+
+Operator approved the 4 calls ("luna fine", 2026-11-14). Exactly 4 service calls made, run about 00:19-00:20 CST, one per invocation, no retries; no other service called, no config changed, no key read.
+
+Request shape: mirrors production `perimeter_enrichment.analyze_crossing_frames` (`:410-429`) with the crossing-vision constants: `provider` 01M7B731T26P2HXVW77AQR62PP, `model` gpt-6-luna (`const.py:3549`), `max_frames` 4, `target_width` 768, `max_tokens` 1500, `include_filename` / `generate_title` / `store_in_timeline` / `use_memory` false, `expose_images` true (`CROSSING_VISION_KEEP_FRAMES`, as production), `response_format` json, `structure` = `RESPONSE_STRUCTURE` and `message` = `PROMPT` (both read from `crossing_vision.py:89-120` by AST, not retyped; no naming prompt). Image calls swap `video_file` for `image_file` (3 newline-separated paths).
+
+Inputs: crossing #27 = D0-V `sample.json` k 27 (garage_a exit 2026-11-11 07:21 CST, Frigate event `1794403233.473754-dkdgje` on `garage_a`, visual truth 2). Single-person = k 10 (garage_a entry 2026-11-12 13:39 CST, event `1794512313.855528-89fbg5` on `garage_a`, visual truth 1; both D0-V models counted 1). Image frames = the D0-V set-B (event-anchored) frames `scratchpad/v/frB/{27,10}/f0-2.jpg`, staged on the HA host at `/config/tmp_d0a/` via the Samba mount (the `ssh ha` user cannot write `/config`). Both clips were confirmed retained first (proxy GET 200, 10.1 MB / 10.4 MB `video/mp4`).
+
+| # | Service | Crossing (truth) | HTTP | Latency (s) | `structured_response` parses | `response_text` key | frames returned (people per frame) | `people_total` | `group` | Error |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | image_analyzer | #27 (2) | 200 | 3.53 | yes | absent | 3 (2, 2, 2) | **2 = truth** | false | none |
+| 2 | image_analyzer | #10 (1) | 200 | 2.25 | yes | absent | 3 (1, 1, 1) | **1 = truth** | false | none |
+| 3 | video_analyzer | #27 (2) | 200 | 7.10 | yes | absent | 3 (1, 2, 1) | **2 = truth** | false | none |
+| 4 | video_analyzer | #10 (1) | 200 | 5.16 | yes | absent | 2 (1, 1) | **1 = truth** | false | none |
+
+Descriptions (none names anyone): 1 "One person walks out through the doorway while another remains by the shelves."; 2 "One person walks past the parked vehicle toward the doorway and exits the frame."; 3 "One person remains by the shelves while another briefly passes outside the garage."; 4 "A person gets out of the car and moves around toward its front."
+
+Reading:
+- The Luna entry accepts the production request on both paths (the old default entry 400'd on `temperature` for gpt-6 models in D0-V). Response shape is `service_response.structured_response` + `key_frame`, no `response_text`, which is the shape `parse_vision_response` (`crossing_vision.py:146`) expects.
+- #27 on the video path: Luna counted 2 where D0b's gpt-4o-mini video call counted 1 (the only multi-person F != B disagreement in (vi)). n = 1, so this is not an accuracy result, only that the one known video-path miss does not repeat on Luna.
+- `group` = false on #27 on both paths: the model reads "crosses together" literally (one person stays by the shelves). The ledger must not treat `group` as `people_total >= 2`.
+- Video path returned fewer frames than `max_frames` 4 (3 and 2); llmvision samples by clip length, so `frames` length is not fixed.
+- Latency: video 5.2-7.1 s, inside the gpt-4o-mini video sample used in (vi) (p50 7.5 s), so the (vi) B timing holds for Luna on these two calls.
+- Side effects: `expose_images` true wrote 4 `key_frame` files to `/media/llmvision/snapshots/` (`d4e76a4c-0.jpg`, `e044bef4-0.jpg`, `e20ff3c0-2.jpg`, `21c8bf6e-2.jpg`), as production would. The staged frames in `/config/tmp_d0a/` were NOT deleted (the delete was refused by the session's permission check); remove `/config/tmp_d0a` by hand.
+- Cost: not read from the provider; under the $0.01 estimate above is unverified.
+- Raw results: scratchpad `d0a_run/res.jsonl`, script `d0a_run/run.py`.
 
 ## (v) AWAY latency baseline (CD0): last resident departure edge -> AWAY row
 
@@ -169,7 +196,7 @@ Repoint list for F-LEAD (if the operator keeps the plan): `ura_v8` Now headline 
 
 | Item | Status |
 |---|---|
-| (iv) D0a on Luna | blocked: needs operator ok for 4 paid calls (above) |
+| (iv) D0a on Luna | done 2026-11-14 (4 / 4 pass, see "D0a results"); accuracy on Luna beyond n = 2 crossings not measured; `/config/tmp_d0a` cleanup pending |
 | (iii) true wrong-event rate | proxy only; real grading needs frames (~97 calls) or operator time |
 | (v) 14-day latency | recorder retention 7 d; 22 of 29 AWAYs measured |
 | (vi) F on its real input (snapshot + latest frames) and on Luna | not measured; D0-V frames came from clips and gpt-4o-mini |
