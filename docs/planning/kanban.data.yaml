@@ -34849,6 +34849,7 @@ cards:
   rank: {value: 7, time_criticality: 4, effort: 3}
   reranked_2026_11_14: 'Lowered from 10/8: live harm today is small (no fan in the 10 miss rooms follows the thermostat; Jaya memory baseline learns 0 of 3 signals). Not on the identity arc critical path; it serves the operator registry rule and room learning that later feeds personalization.'
   plan_review_2026_11_14: 'PLANREVIEW_room_occupied_registry_resolve.md (45bd4194): FIX-PLAN, 0 CRIT/HIGH, 5 MED: invariant must cover every key read (camera_person_detected, switch keys), co2/tvoc have no room sensors (drop them, do not feed the miss counter), two Live checks do not discriminate, notification path keeps an uncounted name read (make it counted per the rule), pass entry_id wherever the caller holds the entry. Three build reviews incl. mutation.'
+  operator_2026_11_14_fallback: 'keep. (notification path name-built read stays as a logged, counted fallback; plan rev 2 67840210 is build-ready)'
 - id: BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1
   arc_cut_v5_108_21: "later step (registry sweep), investigating"
   title: Person BLE distance sensors found by name (oji_udezue) instead of the person's device_trackers; Oji matches 0 of his iphone_oji_* Bermuda sensors and gets the fixed 0.5 confidence
