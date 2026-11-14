@@ -403,6 +403,7 @@ async def async_setup_entry(
             # VISION-CROSSING-SHADOW-1: crossing-vision shadow master
             # switch (RestoreEntity, OFF at ship).
             CrossingVisionShadowSwitch(hass, entry),
+            CrossingVisionCensusAuthoritySwitch(hass, entry),
             # v4.1.1 B4 L2: Occupancy-weighted prediction toggle
             OccupancyWeightedPredictionSwitch(hass, entry),
             # v4.2.10: EC runtime toggles
@@ -1090,6 +1091,65 @@ class CrossingVisionShadowSwitch(SwitchEntity, RestoreEntity):
         await super().async_added_to_hass()
         last = await self.async_get_last_state()
         self._apply(last is not None and last.state == "on")
+        self.async_write_ha_state()
+
+
+class CrossingVisionCensusAuthoritySwitch(SwitchEntity, RestoreEntity):
+    """Census deconfliction CD3 (PLANNING_census_deconfliction.md §3.2) —
+    the DOWNGRADE switch for the census promotion ladder.
+
+    Entity: switch.ura_crossing_vision_census_authority (Coordinator Manager
+    device). Default ON. OFF = every consumer class reads the trust view
+    (``PresenceCoordinator.view_for_class`` treats the promoted set as empty);
+    it can only demote, never promote. ``view_for_class`` reads this
+    entity's STATE; a missing entity also means trust. Restore: only a last
+    state of exactly "off" restores OFF (a fresh install, or an
+    unavailable / unknown restore, comes up ON, the shipped default).
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:account-group"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_crossing_vision_census_authority"
+        self._attr_name = "Census Vision Awareness"
+        self.entity_id = "switch.ura_crossing_vision_census_authority"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "coordinator_manager")},
+            name="URA: Coordinator Manager",
+            manufacturer="Universal Room Automation",
+            model="Coordinator Manager",
+            sw_version=VERSION,
+        )
+
+    @property
+    def is_on(self) -> bool:
+        from .const import CROSSING_VISION_AUTHORITY_HASS_KEY
+        return bool(
+            self.hass.data.get(DOMAIN, {}).get(CROSSING_VISION_AUTHORITY_HASS_KEY, True)
+        )
+
+    def _apply(self, value: bool) -> None:
+        from .const import CROSSING_VISION_AUTHORITY_HASS_KEY
+        self.hass.data.setdefault(DOMAIN, {})[CROSSING_VISION_AUTHORITY_HASS_KEY] = bool(value)
+
+    async def async_turn_on(self, **kwargs) -> None:
+        self._apply(True)
+        _LOGGER.info("Census vision awareness ON (promoted classes read awareness)")
+        self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs) -> None:
+        self._apply(False)
+        _LOGGER.info("Census vision awareness OFF (every class reads trust)")
+        self.async_write_ha_state()
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last = await self.async_get_last_state()
+        self._apply(not (last is not None and last.state == "off"))
         self.async_write_ha_state()
 
 

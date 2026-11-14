@@ -303,6 +303,16 @@ class CrossingVisionShadow:
         self._ledger_was_enabled = False
         self._ledger_day: Any = None
         self._reconcile_timers: dict[str, Callable[[], None]] = {}
+        # CD3 trip-wires (RAM, a restart starts them empty).
+        # Per-crossing count disagreement (agreement case B / C on an `ok`
+        # row): (epoch, door group) samples, latched per group.
+        self._disagree: deque[tuple[float, str]] = deque(maxlen=4096)
+        self._disagree_latched: set[str] = set()
+        # F-LEAD regression inputs measurable from the ledger now: bar a
+        # (independent anchor residues) and bar e (known share of samples).
+        self._anchor_residues: deque[tuple[float, int]] = deque(maxlen=4096)
+        self._known_samples: deque[tuple[float, bool]] = deque(maxlen=40320)
+        self._flead_latched = False
         self._roll_day()
 
     # ---- gates ----------------------------------------------------------
@@ -945,6 +955,11 @@ class CrossingVisionShadow:
             "identity_provenance": crossing.get("identity_provenance"),
             "agreement_case": agreement_case(people, camera_peak),
         }
+        if outcome == OUTCOME_OK and attrs["agreement_case"] in (
+            CASE_VISION_HIGHER, CASE_CAMERA_HIGHER,
+        ):
+            group = crossing.get("door_group") or crossing["crossing_key"].split("@", 1)[0]
+            self._disagree.append((self._epoch(), str(group)))
         self._last = {
             "outcome": outcome,
             "people_count": people,
@@ -1124,7 +1139,12 @@ class CrossingVisionShadow:
             self._roll_ledger_day()
             if self._ledger_enabled_now():
                 now = self._epoch()
-                self._ledger_events.extend(self._ledger.evaluate(now))
+                evs = self._ledger.evaluate(now)
+                self._ledger_events.extend(evs)
+                for ev in evs:
+                    if ev.kind == _cl.KIND_ANCHOR and ev.independent and ev.residue is not None:
+                        self._anchor_residues.append((now, int(ev.residue)))
+                self._known_samples.append((now, self._ledger.state == _cl.STATE_KNOWN))
                 if self._ledger.stuck_due(now):
                     self._spawn(self._page_ledger_stuck())
                 if self._ledger.anchor_zero_due(now):
@@ -1286,6 +1306,103 @@ class CrossingVisionShadow:
                 f"refused or unparseable).",
                 remedy="See crossing_vision_last on Outside: Open Tracks.",
             )
+        await self._evaluate_disagree(now)
+        await self._evaluate_flead_regression(now)
+
+    async def _evaluate_disagree(self, now: float) -> None:
+        """CD3 ``crossing_vision_disagree``: vision and camera disagree on the
+        count (case B or C) at least DISAGREE_PERSIST_N times on one door
+        group in the window -> one page per group, re-armed when the group's
+        count falls back under the bar. PERSIST_N 0 = off."""
+        from .domain_coordinators._stuck_signal_nm import (  # noqa: PLC0415
+            fire_stuck_signal,
+        )
+
+        bar = int(_c.CROSSING_VISION_DISAGREE_PERSIST_N)
+        window = float(_c.CROSSING_VISION_DISAGREE_WINDOW_S)
+        while self._disagree and now - self._disagree[0][0] > window:
+            self._disagree.popleft()
+        if bar <= 0:
+            return
+        counts: dict[str, int] = {}
+        for _t, group in self._disagree:
+            counts[group] = counts.get(group, 0) + 1
+        for group in list(self._disagree_latched):
+            if counts.get(group, 0) < bar:
+                self._disagree_latched.discard(group)
+        for group, n in sorted(counts.items()):
+            if n < bar or group in self._disagree_latched:
+                continue
+            self._disagree_latched.add(group)
+            await fire_stuck_signal(
+                self.hass,
+                "crossing_vision_disagree",
+                (group,),
+                f"Crossing vision and the camera count disagreed on {n} "
+                f"crossings at door {group} in the last "
+                f"{int(window // 3600)} h.",
+                remedy=(
+                    "Check the door camera's person count and the Frigate "
+                    "event match; crossing_vision_last shows the latest case."
+                ),
+            )
+
+    def flead_regression(self, now: float) -> list[str]:
+        """CD3: the F-LEAD numbers measurable from the ledger in RAM that
+        are below their bar over CROSSING_VISION_GO_REGRESSION_DAYS: bar a
+        (drift, independent anchors) and bar e (known share). Bars b, d and
+        the graded numbers need the scorer / grading (P2-D6 / P2-D10)."""
+        window = float(_c.CROSSING_VISION_GO_REGRESSION_DAYS) * 86400.0
+        while self._anchor_residues and now - self._anchor_residues[0][0] > window:
+            self._anchor_residues.popleft()
+        while self._known_samples and now - self._known_samples[0][0] > window:
+            self._known_samples.popleft()
+        failing: list[str] = []
+        residues = [res for _t, res in self._anchor_residues]
+        if len(residues) >= int(_c.CROSSING_VISION_GO_MIN_ANCHORS):
+            zero_share = sum(1 for x in residues if x == 0) / len(residues)
+            if zero_share < float(_c.CROSSING_VISION_GO_DRIFT_ZERO_SHARE) or any(
+                abs(x) > int(_c.CROSSING_VISION_GO_DRIFT_MAX_ABS) for x in residues
+            ):
+                failing.append("a_drift")
+        span_needed = float(_c.CROSSING_VISION_GO_WINDOW_DAYS) * 86400.0
+        if self._known_samples and now - self._known_samples[0][0] >= span_needed:
+            known = sum(1 for _t, k in self._known_samples if k)
+            if known / len(self._known_samples) < float(_c.CROSSING_VISION_GO_KNOWN_SHARE_MIN):
+                failing.append("e_known")
+        return failing
+
+    async def _evaluate_flead_regression(self, now: float) -> None:
+        """After F-LEAD only: a regressed bar pages ONCE (HIGH, "revert
+        F-LEAD"); re-armed when every measurable bar holds again."""
+        if not bool(_c.CROSSING_VISION_AWARENESS_VISION_LEADS):
+            self._flead_latched = False
+            return
+        failing = self.flead_regression(now)
+        if not failing:
+            self._flead_latched = False
+            return
+        if self._flead_latched:
+            return
+        self._flead_latched = True
+        from .domain_coordinators._stuck_signal_nm import (  # noqa: PLC0415
+            fire_stuck_signal,
+        )
+
+        await fire_stuck_signal(
+            self.hass,
+            "crossing_vision_flead_regression",
+            ("house",),
+            "Vision now leads the census awareness count, and its ledger bars "
+            f"regressed ({', '.join(failing)}) over the last "
+            f"{int(_c.CROSSING_VISION_GO_REGRESSION_DAYS)} days.",
+            remedy=(
+                "Revert F-LEAD: turn off switch.ura_crossing_vision_census_"
+                "authority now (seconds), then set "
+                "CROSSING_VISION_AWARENESS_VISION_LEADS back to False."
+            ),
+            severity="HIGH",
+        )
 
     # ---- diagnostics ----------------------------------------------------
     def diag_status(self) -> dict[str, Any]:

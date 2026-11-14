@@ -203,6 +203,9 @@ async def async_setup_entry(
             URAUnidentifiedPersonsInHouseSensor(hass, entry),
             URAPersonsOnPropertySensor(hass, entry),
             URATotalPersonsOnPropertySensor(hass, entry),
+            # Census deconfliction CD2: awareness view (display class).
+            URACensusPeopleAroundSensor(hass, entry),
+            URACensusGuestsAroundSensor(hass, entry),
             # Disabled by default (diagnostics)
             URACensusConfidenceSensor(hass, entry),
             URACensusValidationAgeSensor(hass, entry),
@@ -4189,6 +4192,99 @@ class URAUnidentifiedPersonsInHouseSensor(_CensusBaseSensor):
         if result is None:
             return 0
         return result.house.unidentified_count
+
+
+class _CensusAwarenessSensor(_CensusBaseSensor):
+    """Census deconfliction CD2: the house census AWARENESS view (F2-A).
+
+    Reads ``PresenceCoordinator.get_house_census(view_for_class("display"))``
+    (read API): the awareness view while ``display`` is promoted and the
+    downgrade switch is ON, else the trust view. Display class: nothing in
+    URA reads these entities (INV-P2-AWARE-NO-TRUST; the existing census
+    entities stay on the trust view). The state is never unknown: with no
+    presence the census trust values are shown, with no census 0.
+    """
+
+    _attr_icon = "mdi:account-group-outline"
+    # Display metadata, changes per tick: kept out of the recorder.
+    _unrecorded_attributes = frozenset({
+        "count_provenance", "aware_agreement", "vision_status", "ledger_state",
+    })
+
+    def _view(self):
+        try:
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            presence = (
+                manager.coordinators.get("presence") if manager is not None else None
+            )
+            if presence is None:
+                return None
+            from .const import CONSUMER_CLASS_DISPLAY  # noqa: PLC0415
+
+            return presence.get_house_census(
+                presence.view_for_class(CONSUMER_CLASS_DISPLAY)
+            )
+        except Exception:  # noqa: BLE001 — display; fall back to trust
+            return None
+
+    def _value(self, view) -> int:
+        raise NotImplementedError
+
+    def _trust_value(self, house) -> int:
+        raise NotImplementedError
+
+    @property
+    def native_value(self) -> int:
+        view = self._view()
+        if view is not None:
+            return int(self._value(view))
+        result = self._get_census()
+        if result is None:
+            return 0
+        return int(self._trust_value(result.house))
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        view = self._view()
+        aware = view is not None and view.view == "awareness"
+        return {
+            "count_provenance": view.provenance if aware else "camera",
+            "aware_agreement": view.agreement if aware else None,
+            "vision_status": view.vision_status if aware else None,
+            "ledger_state": view.ledger_state if aware else None,
+        }
+
+
+class URACensusPeopleAroundSensor(_CensusAwarenessSensor):
+    """CD2: people around the house, best estimate (``aware_total``)."""
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_census_people_around"
+        self._attr_name = "People Around"
+        self.entity_id = "sensor.ura_census_people_around"
+
+    def _value(self, view) -> int:
+        return view.total
+
+    def _trust_value(self, house) -> int:
+        return house.total_persons
+
+
+class URACensusGuestsAroundSensor(_CensusAwarenessSensor):
+    """CD2: guests around the house, best estimate (``aware_guests``)."""
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_census_guests_around"
+        self._attr_name = "Guests Around"
+        self.entity_id = "sensor.ura_census_guests_around"
+
+    def _value(self, view) -> int:
+        return view.unidentified_or_guests
+
+    def _trust_value(self, house) -> int:
+        return house.unidentified_count
 
 
 class URAPersonsOnPropertySensor(_CensusBaseSensor):

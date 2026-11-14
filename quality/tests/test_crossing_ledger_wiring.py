@@ -455,3 +455,76 @@ async def test_anchor_zero_clock_restarts_on_enable(rig):
     rig.hass.data[rig.C.DOMAIN][rig.C.CROSSING_VISION_SWITCH_HASS_KEY] = True
     await flush(rig)
     assert [p for p in rig.pages if p["kind"] == "crossing_ledger_anchor_zero"] == []
+
+
+# ----------------------------------------------------- CD3 trip-wires
+@pytest.mark.asyncio
+@pytest.mark.parametrize("persist_n,expect", [(5, 1), (6, 0), (0, 0)])
+async def test_disagree_persist_pages(rig, persist_n, expect):
+    """Five `ok` crossings at the garage door where vision counts 2 and the
+    camera 1 (case B): PERSIST_N 5 pages once (and not again on the next
+    evaluation), 6 does not, 0 = off."""
+    rig.monkeypatch.setattr(rig.C, "CROSSING_VISION_DISAGREE_PERSIST_N", persist_n)
+    for i in range(5):
+        await ended_crossing(rig, f"ev-dis-{i}", offset_s=-70.0 * i, peak=1)
+    assert [r["agreement_case"] for r in rows(rig)] == ["B"] * 5
+    await rig.cv.async_evaluate_tripwires()
+    await rig.cv.async_evaluate_tripwires()
+    pages = [p for p in rig.pages if p["kind"] == "crossing_vision_disagree"]
+    assert len(pages) == expect
+    if expect:
+        assert pages[0]["key"] == ("garage_a",)
+
+
+@pytest.mark.asyncio
+async def test_bar_regression_pages_only_after_flip(rig):
+    """Drift bar a regressed (10 independent anchors, residue 2 each):
+    no page while F-LEAD is off; one HIGH "revert F-LEAD" page after the
+    flip, not repeated while it stays regressed."""
+    now = _now(rig).timestamp()
+    for i in range(10):
+        rig.cv._anchor_residues.append((now - 60 * i, 2))
+    await rig.cv.async_evaluate_tripwires()
+    assert [p for p in rig.pages if p["kind"] == "crossing_vision_flead_regression"] == []
+    rig.monkeypatch.setattr(rig.C, "CROSSING_VISION_AWARENESS_VISION_LEADS", True)
+    await rig.cv.async_evaluate_tripwires()
+    await rig.cv.async_evaluate_tripwires()
+    pages = [p for p in rig.pages if p["kind"] == "crossing_vision_flead_regression"]
+    assert len(pages) == 1 and pages[0]["severity"] == "HIGH"
+    assert rig.cv.flead_regression(now) == ["a_drift"]
+
+
+@pytest.mark.asyncio
+async def test_flead_regression_bars_hold_no_page(rig):
+    """Bars holding (residue 0 on 10 anchors, ledger known all week): no page
+    after the flip. Known share below 0.9 over a full week -> e_known."""
+    rig.monkeypatch.setattr(rig.C, "CROSSING_VISION_AWARENESS_VISION_LEADS", True)
+    now = _now(rig).timestamp()
+    for i in range(10):
+        rig.cv._anchor_residues.append((now - 60 * i, 0))
+    week = 7 * 86400
+    for i in range(100):
+        rig.cv._known_samples.append((now - week - 10 + i * (week / 100), True))
+    assert rig.cv.flead_regression(now) == []
+    await rig.cv.async_evaluate_tripwires()
+    assert [p for p in rig.pages if p["kind"] == "crossing_vision_flead_regression"] == []
+    rig.cv._known_samples.clear()
+    for i in range(100):
+        rig.cv._known_samples.append((now - week - 10 + i * (week / 100), i % 5 != 0))
+    assert rig.cv.flead_regression(now) == ["e_known"]
+
+
+@pytest.mark.asyncio
+async def test_eval_tick_records_independent_anchor_residues(rig):
+    """The bar-a input is fed by the real eval tick: an independent anchor
+    with a residue is recorded; a back-to-back one is not."""
+    await make_known(rig, R=0)
+    rig.cv._ledger.L = rig.cv._ledger.L_raw = 2
+    rig.cv._ledger._changed_since_anchor = True
+    rig.cv._ledger.empty_reset_s = 0
+    rig.cv.census_tick(resident_term=0, camera_bodies=0, camera_input_dark=False)
+    await flush(rig)
+    rig.cv.census_tick(resident_term=0, camera_bodies=0, camera_input_dark=False)
+    await flush(rig)
+    assert [res for _t, res in rig.cv._anchor_residues] == [2]
+    assert rig.cv._known_samples and rig.cv._known_samples[-1][1] is True
