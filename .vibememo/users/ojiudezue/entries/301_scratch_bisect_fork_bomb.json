@@ -1,0 +1,22 @@
+{
+  "format_version": "2.1",
+  "entry_id": "301",
+  "author": "ojiudezue",
+  "session_id": "claude_20261113_arc_identity_vision_census",
+  "timestamp": "2026-11-14T04:00:00Z",
+  "type": "counseling",
+  "weight": "notable",
+  "title": "A scratch script named bisect.py shadowed the stdlib and fork-bombed pytest, hitting the Mac process limit",
+  "summary": "Scratch helpers get distinctive prefixes and run with python -I; briefs now say so; a 30 s memory/swap/process watch guards the operator's terminal during long parallel runs.",
+  "why": "Python puts a script's directory first on sys.path; any pytest started from the scratchpad imported the helper, which launched pytest again (~2,350 processes). It killed two agents before a Review C agent found it.",
+  "implications": "Process spikes get a ps check for a recursive command line before blaming the suite.",
+  "alternatives_considered": [],
+  "confidence": "high",
+  "revisit_trigger": "Any new process-limit incident.",
+  "refs": {
+    "cards": [],
+    "docs": [
+      "memory/feedback_scratch_scripts_no_stdlib_names.md"
+    ]
+  }
+}

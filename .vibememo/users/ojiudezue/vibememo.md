@@ -47,6 +47,12 @@ Two lock and charging fixes were reshaped by measurement, not argument. The lock
 
 The EV rung-1 flip-flop came from crediting a grid-fed car's whole draw as redirectable solar; the fix caps that credit at fresh measured surplus instead of banning daytime charging during arbitrage, which would have cost ~17.5 h/week of overnight charging. → [287](entries/287_ev_rung1_cap_not_blanket_pause.json) An approved "faster BLE arrival" build was dropped when the inventory showed the geofence path already fires at the first scanner hearing. → [289](entries/289_ble_seen_arrival_already_exists.json)
 
+## 2026-11-13: names are not identity
+
+The identity arc kept tripping on the same root cause: code inferring what an entity is from its name. A `_2` suffix kept garage_a's Frigate camera from ever pairing with its Protect twin; a slug-built room id left the fan-off guard dead in 10 rooms; a person slug never matched `iphone_oji_*` BLE sensors. The operator made it a standing rule: resolve through the registries or it is a defect. → [298](entries/298_registry_not_name_guessing.json) The same day settled how two NVRs cooperate: share the raw evidence and a learned per-camera agreement record, keep each feature's policy its own, and analyse both clips on every crossing because the record is the point. → [299](entries/299_nvr_witness_evidence_central_policy_per_consumer.json)
+
+I recommended retiring the never-used AI rules and staging music following behind a shadow-and-approve ladder. The operator reversed that: these features were unused because they were never trustworthy, and staged rollouts are where features die. Both now ship on, with the actual bugs fixed (a schema every rule parse failed on, a confidence gate that measured dwell time) and observability plus room memory in place of approval prompts. → [300](entries/300_fix_not_retire_no_shadow_mode.json) A perimeter silence that looked like a fresh regression turned out to be an old global door-camera mute, now a security card. → [302](entries/302_perimeter_global_egress_mute.json)
+
 ## Open questions
 
 - OC agent: which fix types earn R1 first, and what promotion evidence lifts one to R2?

@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "302",
+  "author": "ojiudezue",
+  "session_id": "claude_20261113_arc_identity_vision_census",
+  "timestamp": "2026-11-14T04:00:00Z",
+  "type": "observation",
+  "weight": "significant",
+  "title": "Perimeter silence after v5.108.20 was a pre-existing global door-camera mute, a real security gap",
+  "summary": "Carded PERIMETER-GLOBAL-EGRESS-MUTE-1: suppress only for a recognised resident at a related door, scoped by camera adjacency, bounded in length, logged as a gate decision. v5.108.20's new paths still await their first live run.",
+  "why": "Zero alerts and zero gate rows after the restart looked like a regression. The trace showed any door-camera edge mutes ALL perimeter cameras for 120 s before any gate runs, and busy doors after an arrival kept renewing it (12 driveway detections dropped over 25 min). Not in the v5.108.20 diff.",
+  "implications": "A stranger on the driveway while a resident is at a door would never alert until this ships.",
+  "alternatives_considered": [],
+  "confidence": "high",
+  "revisit_trigger": "When the first perimeter_gate_decision row appears, close v5.108.20 live validation.",
+  "refs": {
+    "cards": [
+      "PERIMETER-GLOBAL-EGRESS-MUTE-1"
+    ],
+    "docs": [
+      "docs/planning/AUDIT_perimeter_silence_post_v5_108_20.md"
+    ]
+  }
+}

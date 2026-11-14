@@ -1,0 +1,34 @@
+{
+  "format_version": "2.1",
+  "entry_id": "299",
+  "author": "ojiudezue",
+  "session_id": "claude_20261113_arc_identity_vision_census",
+  "timestamp": "2026-11-14T04:00:00Z",
+  "type": "decision",
+  "weight": "significant",
+  "title": "Frigate vs Protect: one shared evidence layer with a per-camera agreement record; each feature keeps its own policy",
+  "summary": "Per-camera agreement history is a hard requirement ('Critical for learning'), stored in a dedicated DB table (operator yes) with perimeter's samples migrated in; crossing vision analyses BOTH NVR clips on every crossing (~$0.18/day) because that feeds the record fastest; fan veto trusts a lone live NVR and, on a split, the NVR with a strong measured record. W1 (registry-only pairing) re-paired seven cameras, all accepted.",
+  "why": "Operator exercises both NVRs on every camera to cross-check errors and favours consolidation to stop drift. Three incompatible comparison rules already existed (census counts, transit 10 s, perimeter learned agreement) plus a fourth in room fusion feeding the fan veto. The arguments against consolidating (blast radius, 'agree' meaning different things per feature) are answered by sharing raw evidence and history, not one averaged verdict.",
+  "implications": "Plan PLANNING_nvr_witness_layer.md went through three plan reviews; W2 core is Tier 3. Must dedup one physical crossing across NVR legs (garage_a now has a third egress trigger).",
+  "alternatives_considered": [
+    {
+      "option": "Analyse the second NVR clip only on disagreement",
+      "rejected_because": "cheap signal but starves the agreement record exactly where both agree; cost of all is pennies"
+    },
+    {
+      "option": "HA Store file for the history",
+      "rejected_because": "not queryable for learning or label joins; W2 already Tier 3 so no tier saving"
+    }
+  ],
+  "confidence": "medium",
+  "revisit_trigger": "If per-camera agreement rates stay too sparse to separate good from bad NVR legs after 30 days, revisit the fan-veto and perimeter policies that depend on them.",
+  "refs": {
+    "cards": [
+      "NVR-WITNESS-CONSOLIDATION-1"
+    ],
+    "docs": [
+      "docs/planning/PLANNING_nvr_witness_layer.md",
+      "docs/planning/AUDIT_protect_clip_witness_probe_2026_11_13.md"
+    ]
+  }
+}
