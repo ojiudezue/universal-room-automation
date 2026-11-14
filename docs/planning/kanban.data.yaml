@@ -34848,6 +34848,7 @@ cards:
   status_note: 'planned; plan reviews then build after crossing vision Phase 1 and stream health S1.'
   operator_2026_11_13_answers: '1 how would we know it disagree without analyzing. Is this about the initial fast read? 2 - yea 3- pro/con? We already use a ton of db stuff. Unless you''re wanting to keep the tier low on purpose 4- hell yes'
   decisions_2026_11_13: 'Q2 YES (one paid llmvision call on a Protect clip before W4). Q4 YES (ship W1 ahead). Q1: disagreement in the plan meant the cheap NVR detection signal (only one family fired), not a vision result; pending operator pick, recommended ALL (analyse both clips every crossing: ~14 crossings/day x ~$0.013 = ~$0.18/day extra, under the existing CROSSING_VISION_DAILY_CALLS cap; two independent counts on every crossing feed the agreement record the operator called critical for learning). Q3: recommend a DB table over HA Store (queryable by SQL/memory tools for learning and scoring, retention, joins with labels; W2 is already Tier 3 so no tier saving), pending operator ok.'
+  operator_2026_11_13_q1_q3: 'Yes to both. (Q1 = analyse both clips every crossing, mode all; Q3 = dedicated nvr_witness_records DB table, perimeter agreement samples migrated in)'
 - id: AUDIT-ROOM-AI-AUTOMATION-CHAINING-MUSIC-1
   title: Audit room AI automation, automation chaining and music following (old, rarely exercised) - correctness, HA currency, test coverage, observability/config
   status: investigating

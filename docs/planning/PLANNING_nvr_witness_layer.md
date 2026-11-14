@@ -24,7 +24,7 @@ deconfliction"; settings "help with accuracy (first)". Hard constraint: "I need 
 touches AWAY, house state or locks).
 
 Decisions: Q2 YES (one paid llmvision call on a Protect clip before W4). Q4 YES (W1 ships ahead, alone).
-PENDING operator yes: Q1 default `all`, Q3 default dedicated DB table (§12).
+DECIDED by the operator 2026-11-13 ("Yes to both"): Q1 `all`, Q3 dedicated DB table (§12).
 
 Goal: one evidence layer that (a) records every Frigate and Protect person fire per physical camera, (b) keeps a
 per-camera agreement record, learned once, persisted, read by every feature (first-class; the plan cannot ship without
@@ -225,7 +225,7 @@ in the sensor and scorer, excluded from W3. There is no pair window parameter: p
 alert-conditioned rate is a separate record kind (below), with its own `last_n` (`PERIMETER_SS_WINDOW_N`, 100) and
 `min_samples` (`PERIMETER_SS_MIN_SAMPLES`, 20).
 
-**Persistence (Q3 default, pending): table `nvr_witness_records`.** Created via `_create_table_safe`:
+**Persistence (Q3, operator yes 2026-11-13): table `nvr_witness_records`.** Created via `_create_table_safe`:
 `id INTEGER PK, record_kind TEXT NOT NULL ('episode' | 'alert_sample'), camera_key TEXT NOT NULL, device_ids_json TEXT,
 started_at TEXT, ended_at TEXT, families_json TEXT, per_family_json TEXT, families_subscribed_json TEXT,
 families_live_json TEXT, close_reason TEXT, alert_family TEXT, corroborated INTEGER, imported INTEGER NOT NULL DEFAULT 0,
@@ -305,7 +305,7 @@ Eligible camera, one family 0 fires in 24 h while the other has ≥ `NVR_WITNESS
 `/api/unifiprotect/video/<entry id>/<Protect camera entity>/<E − pre>/<E + post>` (recording `always`), after `post + settle`.
 Entry id from config entries; Protect camera entity and `event.*_smart_detection` resolved by DEVICE id from the fusion
 (live: `event.garage_a_garage_doorbell_lite_smart_detection` is on the Doorbell Lite device). (b) Dual witness per
-`CROSSING_VISION_DUAL_WITNESS_MODE` (pending default `all`). Rows record `frame_source` and, for dual calls, both counts
+`CROSSING_VISION_DUAL_WITNESS_MODE` (default `all`, operator yes 2026-11-13). Rows record `frame_source` and, for dual calls, both counts
 and the episode's `families`. Before build: the one approved paid dry call (Q2).
 - **Verify:** no-Frigate-event crossing → one Protect call, row `frame_source = protect_range`.
 - **Tests:** `test_protect_gap_fill_one_call`, `test_protect_range_in_door_group_only`, `test_dual_mode_per_setting`,
@@ -341,7 +341,7 @@ the window, count demote outcomes that change; non-zero → list to the operator
 | `NVR_WITNESS_SILENT_FAMILY_MIN_OTHER` | 1 | 20 / 24 h | 0 = trip-wire off |
 | `RESOLVER_FRIGATE_OBJECT_NAME_EVIDENCE` | 1 | True | False = W1 off (golden) |
 | `CROSSING_VISION_PROTECT_GAP_FILL` | 3 (switch, config-flow entry) | on | off = Frigate only |
-| `CROSSING_VISION_DUAL_WITNESS_MODE` | 3 (select) | `all` (pending Q1) | `off` / `disagreement` / `all` |
+| `CROSSING_VISION_DUAL_WITNESS_MODE` | 3 (select) | `all` (operator yes) | `off` / `disagreement` / `all` |
 | `CROSSING_VISION_PROTECT_PRE_S` / `_POST_S` | 1 | 5 / 15 | clip range |
 
 ## 10. Order, tier, reviews, non-goals
@@ -376,11 +376,11 @@ labelling, arc map M10); any AWAY, house-state, lock or HVAC change.
 
 ## 12. Open questions
 
-1. **PENDING operator yes, blocks W4:** dual-witness mode. Recommended default `all`: analyse both clips on every
+1. **DECIDED 2026-11-13 (operator: yes), W4 unblocked:** dual-witness mode. Recommended default `all`: analyse both clips on every
    crossing, about $0.18 a day extra under the existing `CROSSING_VISION_DAILY_CALLS` cap, and every crossing feeds the
    agreement record you called critical for learning.
 2. Q2 answered YES: one paid llmvision call on a Protect clip before W4.
-3. **PENDING operator yes:** persistence. Recommended default: the dedicated `nvr_witness_records` table (queryable for
+3. **DECIDED 2026-11-13 (operator: yes):** persistence. Recommended default: the dedicated `nvr_witness_records` table (queryable for
    scoring, joins with weekly labels, retention), with perimeter's `.storage` samples imported so there is one history.
 4. Q4 answered YES: W1 ships ahead, alone.
 
