@@ -34889,7 +34889,7 @@ cards:
 - id: BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1
   arc_cut_v5_108_21: "later step (registry sweep), investigating"
   title: Person BLE distance sensors found by name (oji_udezue) instead of the person's device_trackers; Oji matches 0 of his iphone_oji_* Bermuda sensors and gets the fixed 0.5 confidence
-  status: planned
+  status: in_progress
   tier: 2
   batch: person-sightings
   links: {parent: REGISTRY-NOT-NAMES-1, related: [PERSON-AWARENESS-READ-API-1]}
@@ -34903,6 +34903,7 @@ cards:
   updated: '2026-11-14 02:20'
   planned_2026_11_14_overnight: 'Plan 89ad7ee1 docs/planning/PLANNING_ble_person_sensor_registry_resolve.md (ura-planner): one registry resolver _bermuda_device_for_person (route a bermuda-platform tracker, route b private_ble identifier), D2 area sensor, D3 distance set with auto-enable deleted, D4 aggregation._find_bermuda_sensors DELETE (0 matches, duplicate listener). Invariant INV-BLE-REG. Tier 2 (not 2-DB). Out of scope: distance re-base / closest_distance / music gate (BERMUDA-DISTANCE-SENSORS-DEAD-1). Gate: validity STILL-REAL (audit 11-14); config-first none (no knob resolves by registry); prior-art REUSE pattern from the room-occupied resolver plan; parsimony BUILD; cost/benefit: operator ruled name guessing unacceptable, change moves no decision.'
   SEAM_CONFLICT_2026_11_14_overnight: 'Cross-plan conflict found overnight 11-14 (cross-work reconciliation). PLANNING_music_following_repair.md D1 (~:135-145, knob table ~:316) gates music following on the person BLE confidence (NEW CONF_MF_MIN_BLE_CONFIDENCE, default 0.5, carried in the person_coordinator.py ~:1059 event) and pushes the 8 ft distance gate live. Measured (AUDIT_ble_person_sensor_resolution_2026_11_14.md section 2): person BLE confidence is a CONSTANT 0.3 for Ezinne/Ziri/Jaya and 0.5 for Oji since 10-20, because Bermuda stopped creating the per-scanner distance sensors (BERMUDA-DISTANCE-SENSORS-DEAD-1); closest_distance is never stored (stale-dict bug). BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1 moves Oji 0.5 -> 0.3. So, as planned, music D1 would skip every move for everyone (0.3 < 0.5) once both ship, and its distance gate has no input. Resolution needed before the music build: either the confidence/distance producer is re-based on the live per-phone Bermuda sensors first (BERMUDA card pick A), or D1 must not gate on person confidence until it is real (D0 should measure it and find the constant). Recorded on MUSIC-FOLLOWING-TRANSFER-REPAIR-1, BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1 and BERMUDA-DISTANCE-SENSORS-DEAD-1.'
+  plan_review_2026_11_14_overnight: 'FIX-PLAN-FIRST (ura-reviewer): H1 music-plan seam, M1 route-b identifier slot (device_registry.py:660-700; full scan only), M2 keep method signatures (10 stub sites), M3 _get_area_scanners precondition, M4 exact unique_id filters. All applied in plan rev 2 (4b1d392b). Build dispatched to ura-builder in a worktree; overnight stops at review lane.'
 - id: LLMVISION-TIMEOUT-LEAK-UPSTREAM-1
   arc_cut_v5_108_21: "upstream draft for operator"
   title: llmvision keeps running (and billing) a call after the caller's timeout; raise upstream, keep URA's bounded teardown
