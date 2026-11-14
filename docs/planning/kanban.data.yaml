@@ -34817,6 +34817,17 @@ cards:
   why: 'From the archived estimator (docs/planning/archive/HISTORY_census_occupancy_estimator_round6.md). Not carried by PLANNING_census_deconfliction.md (see its "Not carried as build" note). (1) Attribution pipeline: leg-collapse, same-person, round-trip pairing, main-entry-door prior with reversal, P-AMB ambiguous policy, T_amb / B ESTIMATE band. Failed the 10-03 replay (G2 64% vs 95%, G5 30% vs 90%) because only 29-31% of door crossings carry a name and the +-120 s phone-edge fallback covered 19%. The crossing-vision ledger replaces the door tally T. (2) FLOOR -> total_persons (estimator D6): the promotion ladder house-state rung decides it once vision earns it.'
   revival_trigger: 'Either: (a) the crossing ledger misses its drift bars in PLANNING_census_deconfliction.md (bar a: residue 0 on < 80% of >= 10 empty anchors, or any |residue| > 1; bar a2: reconcile share of resident departures > 20%) over the 7-day window, and the misses trace to unattributed crossings; or (b) the house-state rung of the promotion ladder is reached and needs a count written into total_persons. Check at every crossing-vision ship and at the bar disposition (P2-D6).'
   next: 'Parked. Revisit at the bar disposition; stays linked to VISION-CROSSING-ANALYSIS-1 after the plan ships so the arc-close gate keeps seeing it.'
+- id: REGISTRY-NOT-NAMES-1
+  title: Replace every entity-name / suffix / slug guess (platform, NVR family, device, person, room) with registry lookups, house-wide
+  status: investigating
+  tier: 2
+  batch: person-sightings
+  links: {parent: VISION-CROSSING-ANALYSIS-1, related: [NVR-WITNESS-CONSOLIDATION-1, PERSON-AWARENESS-READ-API-1]}
+  origin: {date: '2026-11-13', gist: 'Operator on perimeter and census still guessing NVR family from names.'}
+  operator_2026_11_13: 'Yuck. We have to make this bulletproof everywhere. I thought we were using the entity db vs slugs and guessing. Unacceptable to do the latter anymore. It''s invalidated [whole] features in the past'
+  why: 'Rough grep 2026-11-13: ~99 sites match suffix tests ("_person_detected" in, endswith("_2")), slug building (replace(" ","_")) or f-string entity ids across ~15+ modules; some are legitimate (URA building its own entity ids). NVR family sites are migrated by NVR-WITNESS-CONSOLIDATION-1 (family_of); person ids by PERSON-AWARENESS-READ-API-1 (person_ids.py, ships 1-2). This card owns the rest and the guard. Rule now in CLAUDE.md (Registry, never name guessing).'
+  next: 'Me: read-only sweep: every site classified OWN-ENTITY (allowed) / MIGRATE (to registry, with the target lookup) / COVERED (by NVR witness or read API) with file:line; then one Tier 2 migration plan per cluster plus a CI guard test that fails on a new name guess outside an allowlist with reasons.'
+  rank: {value: 9, time_criticality: 6, effort: 6}
 - id: NVR-WITNESS-CONSOLIDATION-1
   title: One shared Frigate-vs-Protect witness layer (who saw it, agreement history) with policy kept per consumer; crossing vision gets Protect as a second witness
   status: planned

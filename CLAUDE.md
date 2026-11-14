@@ -114,6 +114,15 @@ When the operator says "we have X" — treat it as a verification task before re
 
 **Why this rule exists (2026-05-30 incident):** A 14-hour session shipped multiple cycles and during scoping the assistant repeatedly proposed new fields/sensors/helpers without verifying against prior art. The operator had to push back each time, surfacing existing infrastructure the assistant should have found (`CONF_SCANNER_AREAS` v3.2.4, `PersonPhoneLeftBehindSensor`, `_check_zone_occupancy_confidence`, `is_direct_ble_room`, tier-naming collision). Codifying the verification protocol made it durable across sessions.
 
+## Registry, never name guessing — MANDATORY (operator-coined 2026-11-13)
+
+Never infer an entity's platform, NVR family, device, person or room from its entity_id string, suffix (`_2`,
+`_person_detected`...) or a slug. Resolve through the entity registry (`platform`, `device_id`), the device registry
+(identifiers, connections), config entries, and the one person-id rule (`person_ids.py`). Operator: "Unacceptable to do
+the latter anymore. It's invalidated [whole] features in the past." A string test is allowed only on URA's own
+entities, or as a logged, counted last-resort fallback. A new name guess in a plan, build or review is a defect.
+Sweep and migration: card REGISTRY-NOT-NAMES-1.
+
 ## Data Source Verification — CRITICAL
 - **MCP `ura-sqlite`** reads the URA DB. Verify `--db-path` in `~/.claude.json` points to the **live** Samba-mounted path (`/Users/okosisi/ha-config/universal_room_automation/data/universal_room_automation.db`), NOT a stale cache (`~/.cache/ura/`).
 - Before acting on any "missing table" or schema diagnosis from MCP tools, cross-validate against the live HA instance (use `ha-mcp` or SSH).
