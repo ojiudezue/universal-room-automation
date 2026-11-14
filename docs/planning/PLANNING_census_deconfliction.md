@@ -85,7 +85,10 @@ trust fields are passed through unchanged.
 Terms in this plan's build:
 - `guest_cam` = the trust view's post-hold `unidentified_count` (the camera estimate always exists; a camera-dark
   tick yields the trust view's held value).
-- `guest_vis` = `max(0, L − R)` from the crossing ledger via `census_tick` (sibling plan), or None (case D).
+- `guest_vis` = `max(0, L − R)` from the crossing ledger via `census_tick` (sibling plan), or None (case D). `L` counts
+  each person once per arrival and departure (sibling INV-P2-ONCE: the resident floor is an arrival credit consumed by
+  the matching entry term, not a per-tick `max(L, R)`), and the empty anchor never fires while a Tier-1 input is held
+  (a still guest on a radar, or a dead input), so a sleeping guest is not anchored away (sibling P2-D2 steps 2 and 4).
 
 Cases (§15.7):
 | Case | Condition | `aware_guests` while vision does not lead | once F-LEAD | `aware_agreement` |
@@ -122,11 +125,11 @@ the scorer and the regression trip-wire.
 
 | Bar | Oracle | Pass | Knob |
 |---|---|---|---|
-| a drift | each independent empty anchor: residue = pre-anchor `L − R_last`; truth 0 | residue == 0 on ≥ 80 % of ≥ 10 anchors AND abs(residue) ≤ 1 on every anchor | `CROSSING_VISION_GO_DRIFT_ZERO_SHARE` 0.80, `_DRIFT_MAX_ABS` 1, `_MIN_ANCHORS` 10 |
+| a drift | each independent empty anchor: residue = pre-anchor `L − R_last`; truth 0 (with the held-input anchor 18 of 20 replayed anchors fall in AWAY, where truth 0 is independent of the ledger; the scorer reports the AWAY share beside the bar) | residue == 0 on ≥ 80 % of ≥ 10 anchors AND abs(residue) ≤ 1 on every anchor | `CROSSING_VISION_GO_DRIFT_ZERO_SHARE` 0.80, `_DRIFT_MAX_ABS` 1, `_MIN_ANCHORS` 10 |
 | a2 reconcile load (reported beside a) | share of resident departures needing reconcile | ≤ 20 % | `CROSSING_VISION_GO_RECONCILE_SHARE_MAX` 0.20 |
 | b resident arrivals | each counted residency arrival: a watched-door entry term in [edge − 300 s, edge + 60 s] with n ≥ 1 | ≥ 90 % matched; of matched ≥ 75 % `term_source = vision` | `CROSSING_VISION_GO_ARRIVAL_MATCH_MIN` 0.90, `_VISION_TERM_SHARE_MIN` 0.75, `_ARRIVAL_WINDOW_BEFORE_S` / `_AFTER_S` 300 / 60 |
 | c groups | ≥ 10 staged 2-3 person crossings, operator-labelled | vision exact ≥ 8/10; no undercount by ≥ 2 | `CROSSING_VISION_GO_GROUP_EXACT_MIN` 0.80, `_GROUP_MIN_N` 10 |
-| d false guest | evaluations with ≥ 1 resident home and no labelled guest | `guest_vis ≥ 1` on ≤ 2 % of time | `CROSSING_VISION_GO_FALSE_GUEST_MAX` 0.02 |
+| d false guest | evaluations with ≥ 1 resident home and no labelled guest | `guest_vis ≥ 1` on ≤ 2 % of time; the scorer also reports the share within `reconcile_delay_s` of a resident edge (the accepted edge/term ordering transient, sibling P2-D2 step 5) | `CROSSING_VISION_GO_FALSE_GUEST_MAX` 0.02 |
 | e known | ledger `known` share of time | ≥ 90 % | `CROSSING_VISION_GO_KNOWN_SHARE_MIN` 0.90 |
 
 Bar b needs the residency producer firing; if P2-D0 (i) finds it did not, bar b uses recorder `person.*` `not_home →
@@ -259,12 +262,16 @@ camera_input_dark=self._camera_input_dark_latched)` on `hass.data[DOMAIN]["cross
 healthy)` (missing object or any exception → `(None, False)`); then `deconflict_house`; set the awareness fields on the
 house result. `_last_house_camera_bodies` (NEW census scalar, None at construction) = the house raw path's `camera_total`
 (`camera_census.py:2140-2210`, every configured interior platform, before face subtraction and BLE cancel), None when
-that path is degraded with all platforms unavailable; NOT `_last_camera_total_pre_cancel` (`:6069`, Frigate only, minus
+that path is degraded with all platforms unavailable, None when no interior camera is configured (an absent source is
+missing, never 0: review A-MED-3; the trust view's `camera_total = 0` there is unchanged), and None on the
+cross-validation-off path when no configured entity was available (that path also sets `all_platforms_unavailable`,
+the ledger copy only); NOT `_last_camera_total_pre_cancel` (`:6069`, Frigate only, minus
 one body per fresh face). The latch passed is the previous run's (`_refresh_camera_input_dark_latch()` runs after the
 result, `:1860`): accepted one-interval lag. No change to `unidentified_raw`, the clamp ceiling, `active_platforms`, the
 payload dict or any existing field.
 - **Verify:** §4 tests; `test_camera_bodies_counts_face_labelled_person` (count 1 with a fresh face → bodies 1 while
-  `_last_camera_total_pre_cancel` = 0); `test_missing_vision_object_case_d`; `test_estimate_exception_case_d`;
+  `_last_camera_total_pre_cancel` = 0); `test_no_interior_cameras_bodies_none` (no configured interior camera →
+  bodies None, ledger stays unknown, case D); `test_xval_off_all_unavailable_bodies_none`; `test_missing_vision_object_case_d`; `test_estimate_exception_case_d`;
   `test_property_zone_unchanged`.
 - **Mutation:** read `_last_camera_total_pre_cancel` instead → the face-labelled test red.
 - **Live:** the house result carries non-null `aware_total` after the first census tick; existing census fields equal
@@ -280,10 +287,12 @@ payload dict or any existing field.
 ### CD3: class set, downgrade switch, trip-wires (Tier 3)
 `CROSSING_VISION_CONSUMER_CLASSES = frozenset({"display"})`, legal `{display, notification}`;
 `switch.ura_crossing_vision_census_authority`; trip-wires: `crossing_vision_disagree` (B or C persisting ≥
-`CROSSING_VISION_DISAGREE_PERSIST_N` per door in 24 h → AnomalyDetector → NM); after F-LEAD, any F-LEAD number below
+`CROSSING_VISION_DISAGREE_PERSIST_N` per door in 24 h → AnomalyDetector → NM at `severity="HIGH"`, since MEDIUM reaches
+no channel under the live NM config (`_stuck_signal_nm.py:178-182`; review B-M1)); after F-LEAD, any F-LEAD number below
 threshold over `CROSSING_VISION_GO_REGRESSION_DAYS` (14) → NM "revert F-LEAD"; per promoted rung, its bar regressing →
 NM recommending demotion.
-- **Tests:** `test_consumer_classes_rejects_illegal`, `test_switch_off_reads_trust`, `test_disagree_persist_pages`,
+- **Tests:** `test_consumer_classes_rejects_illegal`, `test_switch_off_reads_trust`, `test_disagree_persist_pages` (asserts
+  severity HIGH),
   `test_bar_regression_pages_only_after_flip`. Config extremes: class set `{display}` vs the full legal set; switch OFF
   with classes on; ledger `unknown`; `CROSSING_VISION_GRADE_DAILY_N = 0`.
 - **Live:** switch entity present, ON; no page on day one.
