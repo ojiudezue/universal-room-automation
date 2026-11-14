@@ -3547,11 +3547,14 @@ CROSSING_VISION_DAILY_CALLS_MAX: Final = 200
 # llmvision entry's data, llmvision __init__.py:101-102, not on the service
 # call, so URA sends neither).
 CROSSING_VISION_MODEL: Final = "gpt-6-luna"
-# Rung 1: llmvision config entry id sent as the `provider` service field,
-# used only when it is an llmvision entry on this install; empty or absent =
-# the perimeter's provider (CONF_PERIMETER_ENRICHMENT_PROVIDER_ID). An entry
-# id, not a credential. Plan P2-D1 moves this to a rung-2 options field.
-CROSSING_VISION_PROVIDER_ID: Final = "01M7B731T26P2HXVW77AQR62PP"
+# P2-D1 (rung 2, integration options, Perimeter Alerting -> Advanced): the
+# llmvision config entry id sent as the `provider` service field. Used only
+# when it is an llmvision entry on THIS install (portability: another house
+# has other entry ids); empty, absent or not an llmvision entry = the
+# perimeter's provider (CONF_PERIMETER_ENRICHMENT_PROVIDER_ID). An entry id,
+# not a credential. Read fresh at every call (no reload). The Phase 1
+# hard-coded rung-1 id is retired: the id is never in code.
+CONF_CROSSING_VISION_PROVIDER_ID: Final = "crossing_vision_provider_id"
 # Rung 1 (review A6): own max_tokens, so lowering the perimeter's
 # CONF_PERIMETER_ENRICHMENT_MAX_TOKENS for alerts cannot truncate this JSON.
 # 1500 = the perimeter default the D0 dry calls ran with.

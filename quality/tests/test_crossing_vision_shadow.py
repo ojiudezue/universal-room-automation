@@ -183,6 +183,8 @@ async def rig(mods, hass, tmp_path, monkeypatch):
     MockConfigEntry(domain=C.DOMAIN, entry_id="ura_integ", data={
         C.CONF_ENTRY_TYPE: C.ENTRY_TYPE_INTEGRATION,
         C.CONF_PERIMETER_ENRICHMENT_PROVIDER_ID: "prov_openai",
+        # P2-D1: the operator's crossing-vision provider option.
+        C.CONF_CROSSING_VISION_PROVIDER_ID: "01M7B731T26P2HXVW77AQR62PP",
     }).add_to_hass(hass)
     # Two Frigate config entries (one is a lingering retired entry): the
     # default-instance URL would be None (rev 2 F4).
@@ -1539,11 +1541,46 @@ async def test_call_arguments_timeout_provider_tokens(rig):
     assert call["max_tokens"] == 1500
 
 
+def _set_provider_option(rig, value):
+    for entry in rig.hass.config_entries.async_entries(rig.C.DOMAIN):
+        rig.hass.config_entries.async_update_entry(entry, options={
+            **entry.options, "crossing_vision_provider_id": value})
+
+
 @pytest.mark.asyncio
-async def test_empty_provider_const_falls_back_to_perimeter_provider(rig):
-    rig.monkeypatch.setattr(rig.C, "CROSSING_VISION_PROVIDER_ID", "")
+async def test_empty_override_falls_back(rig):
+    """P2-D1: the option saved empty (options override the entry data) ->
+    the perimeter provider."""
+    _set_provider_option(rig, "")
     await ended_crossing(rig, "ev-prov")
     assert rig.llm.calls[0]["provider"] == "prov_openai"
+
+
+@pytest.mark.asyncio
+async def test_provider_override_used(rig):
+    """P2-D1: the option names a second llmvision entry on this install ->
+    that id is sent, read fresh at call time (no reload)."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    MockConfigEntry(domain="llmvision", entry_id="01OTHERLLMVISIONENTRY00000",
+                    title="Another vision entry").add_to_hass(rig.hass)
+    _set_provider_option(rig, "01OTHERLLMVISIONENTRY00000")
+    await ended_crossing(rig, "ev-prov2")
+    assert rig.llm.calls[0]["provider"] == "01OTHERLLMVISIONENTRY00000"
+
+
+def test_provider_option_on_perimeter_advanced_form(mods):
+    """P2-D1 surface: the option is a field of the integration's Perimeter
+    Alerting -> Advanced section, labelled in strings.json, and its save is
+    reload-suppressed (read fresh per call)."""
+    import json as _json
+
+    root = Path(mods.const.__file__).parent
+    strings = _json.loads((root / "strings.json").read_text())
+    adv = strings["options"]["step"]["perimeter_alerting"]["sections"]["advanced"]
+    assert "crossing_vision_provider_id" in adv["data"]
+    assert "crossing_vision_provider_id" in adv["data_description"]
+    assert "crossing_vision_provider_id" in mods.init.INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS
 
 
 # --------------------------------------------- writer health (K03)
@@ -1589,9 +1626,8 @@ async def test_call_is_background_task(rig):
 
 @pytest.mark.asyncio
 async def test_provider_falls_back_when_entry_absent_on_install(rig):
-    """Portability: the const id is not an llmvision entry here (another
-    house) -> the perimeter provider is used."""
-    rig.monkeypatch.setattr(rig.C, "CROSSING_VISION_PROVIDER_ID",
-                            "01ZZZZZZZZZZZZZZZZZZZZZZZZ")
+    """Portability: the option names an id that is not an llmvision entry
+    here (another house) -> the perimeter provider is used."""
+    _set_provider_option(rig, "01ZZZZZZZZZZZZZZZZZZZZZZZZ")
     await ended_crossing(rig, "ev-port")
     assert rig.llm.calls[0]["provider"] == "prov_openai"
