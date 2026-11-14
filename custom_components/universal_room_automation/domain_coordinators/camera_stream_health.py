@@ -271,6 +271,25 @@ class CameraInputStreamHealth:
                 if (now - since).total_seconds() >= grace_s:
                     dead[eid] = (cam, since)
 
+        hold_s = float(
+            getattr(_const, "CAMERA_INPUT_STREAM_DEAD_HOLD_MAX_S", 0.0),
+        )
+        census_hold_s = float(
+            getattr(_const, "CAMERA_INPUT_STREAM_DEAD_CENSUS_HOLD_MAX_S", 0.0),
+        )
+        # hold 0 (no hold): every dead input is released at once.
+        self._hold_expired_now = frozenset(
+            eid for eid, (_cam, since) in dead.items()
+            if (now - since).total_seconds() >= hold_s
+        )
+        self._census_hold_expired_now = frozenset(
+            eid for eid, (_cam, since) in dead.items()
+            if (now - since).total_seconds() >= census_hold_s
+        )
+        # Hold-release pages first, so the S1 per-input page below can see
+        # which cameras already paged this outage (one HIGH page per outage).
+        self._evaluate_hold_pages(dead, hold_s, census_hold_s)
+
         to_page: list[tuple[str, str, datetime]] = []
         today = now.date().isoformat()
         if nm_after_s > 0:
@@ -278,6 +297,10 @@ class CameraInputStreamHealth:
                 if eid not in configured:
                     continue  # override sensor: excluded, never paged
                 if eid in self._paged_episode:
+                    continue
+                if cam in self._hold_paged:
+                    # This camera already sent the S2 hold-release page in
+                    # this outage: no second HIGH page for its inputs.
                     continue
                 if self._paged_day.get(eid) == today:
                     continue
@@ -301,25 +324,9 @@ class CameraInputStreamHealth:
         self._dead_now = dead
         self._state_getter = state_getter
         self._enabled = enabled
-        hold_s = float(
-            getattr(_const, "CAMERA_INPUT_STREAM_DEAD_HOLD_MAX_S", 0.0),
-        )
-        census_hold_s = float(
-            getattr(_const, "CAMERA_INPUT_STREAM_DEAD_CENSUS_HOLD_MAX_S", 0.0),
-        )
-        # hold 0 (no hold): every dead input is released at once.
-        self._hold_expired_now = frozenset(
-            eid for eid, (_cam, since) in dead.items()
-            if (now - since).total_seconds() >= hold_s
-        )
-        self._census_hold_expired_now = frozenset(
-            eid for eid, (_cam, since) in dead.items()
-            if (now - since).total_seconds() >= census_hold_s
-        )
         self._classify_unavailable_inputs(
             watched, resolution, camera_state, state_getter, enabled,
         )
-        self._evaluate_hold_pages(dead, hold_s, census_hold_s)
         return dict(dead), to_page, to_recover
 
     def _classify_unavailable_inputs(

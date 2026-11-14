@@ -1984,3 +1984,65 @@ def test_census_reads_the_census_cap_not_the_zone_cap(house, monkeypatch, route)
     room.tick(T0 + timedelta(seconds=300))
     assert _house_census(census).frigate_count == 0
     assert csh.input_stream_view(house.hass, PANEL) == csh.VIEW_HELD  # zone
+
+
+# --- one HIGH page per outage: S1 1800 s page suppressed after S2 page -----
+
+
+def _eval(tracker, states, now):
+    return tracker.evaluate(
+        now, [PANEL, ZV], lambda eid: states.get(eid), lambda: _registry(),
+    )
+
+
+def test_s1_page_suppressed_after_hold_release_page(monkeypatch):
+    """Caps 900 s < S1 page 1800 s (hardcoded literals). The S2 hold-release
+    page fires at 900 s; at 1800 s the S1 per-input page for the same
+    camera's input must NOT fire (one HIGH page per outage). A fresh outage
+    after recovery pages S2 again and still suppresses S1."""
+    monkeypatch.setattr(csh._const, "CAMERA_INPUT_STREAM_HEALTH_ENABLED", True)
+    monkeypatch.setattr(csh._const, "CAMERA_INPUT_STREAM_DEAD_GRACE_S", 120.0)
+    monkeypatch.setattr(csh._const, "CAMERA_INPUT_STREAM_DEAD_NM_AFTER_S", 1800.0)
+    monkeypatch.setattr(csh._const, "CAMERA_INPUT_STREAM_DEAD_HOLD_MAX_S", 900.0)
+    monkeypatch.setattr(
+        csh._const, "CAMERA_INPUT_STREAM_DEAD_CENSUS_HOLD_MAX_S", 900.0,
+    )
+    tr = CameraInputStreamHealth(ROOM)
+    states = {PANEL: _st("on"), PANEL_CAM: _st("unavailable"), ZV: _st("off")}
+    _eval(tr, states, T0)
+    _eval(tr, states, T0 + timedelta(seconds=900))
+    assert [p[0] for p in tr.hold_pages] == [PANEL_CAM]
+    for s in (1799, 1800, 1801, 5000):
+        dead, to_page, _rec = _eval(tr, states, T0 + timedelta(seconds=s))
+        assert PANEL in dead
+        assert to_page == []
+    # Recovery, then a second outage: S2 pages again, S1 still suppressed.
+    states[PANEL_CAM] = _st("streaming")
+    _eval(tr, states, T0 + timedelta(seconds=5030))
+    states[PANEL_CAM] = _st("unavailable")
+    t1 = T0 + timedelta(days=1)
+    _eval(tr, states, t1)
+    _eval(tr, states, t1 + timedelta(seconds=900))
+    assert [p[0] for p in tr.hold_pages] == [PANEL_CAM]
+    _d, to_page, _r = _eval(tr, states, t1 + timedelta(seconds=1800))
+    assert to_page == []
+
+
+def test_s1_page_still_fires_when_no_hold_page(monkeypatch):
+    """Both caps 0 (no hold, so no S2 page): the S1 1800 s page fires as
+    before (the suppression keys on the S2 page, not on the caps)."""
+    monkeypatch.setattr(csh._const, "CAMERA_INPUT_STREAM_HEALTH_ENABLED", True)
+    monkeypatch.setattr(csh._const, "CAMERA_INPUT_STREAM_DEAD_GRACE_S", 120.0)
+    monkeypatch.setattr(csh._const, "CAMERA_INPUT_STREAM_DEAD_NM_AFTER_S", 1800.0)
+    monkeypatch.setattr(csh._const, "CAMERA_INPUT_STREAM_DEAD_HOLD_MAX_S", 0.0)
+    monkeypatch.setattr(
+        csh._const, "CAMERA_INPUT_STREAM_DEAD_CENSUS_HOLD_MAX_S", 0.0,
+    )
+    tr = CameraInputStreamHealth(ROOM)
+    states = {PANEL: _st("on"), PANEL_CAM: _st("unavailable"), ZV: _st("off")}
+    _eval(tr, states, T0)
+    _d, to_page, _r = _eval(tr, states, T0 + timedelta(seconds=1799))
+    assert to_page == []
+    _d, to_page, _r = _eval(tr, states, T0 + timedelta(seconds=1800))
+    assert [(e, c) for e, c, _s in to_page] == [(PANEL, PANEL_CAM)]
+    assert tr.hold_pages == []

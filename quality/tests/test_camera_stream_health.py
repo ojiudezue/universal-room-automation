@@ -288,6 +288,17 @@ def _nm_state():
 
 
 @pytest.fixture
+def s1_only(monkeypatch):
+    """S1 page mechanics in isolation: S2 hold caps 0 (no hold, so no S2
+    hold-release page, which would otherwise suppress the S1 page: one HIGH
+    page per outage, batch-2)."""
+    monkeypatch.setattr(_csh._const, "CAMERA_INPUT_STREAM_DEAD_HOLD_MAX_S", 0.0)
+    monkeypatch.setattr(
+        _csh._const, "CAMERA_INPUT_STREAM_DEAD_CENSUS_HOLD_MAX_S", 0.0,
+    )
+
+
+@pytest.fixture
 def nm_calls(monkeypatch):
     """Record the stuck-signal NM calls the tick site schedules. The S1
     per-input page (kind camera_stream_dead) goes to page / recover; the S2
@@ -441,7 +452,7 @@ def test_live_stream_input_counts():
     }
 
 
-def test_nm_after_threshold_and_recovery(nm_calls):
+def test_nm_after_threshold_and_recovery(nm_calls, s1_only):
     """HIGH page once at 1800 s of exclusion (not 1799), LOW recovered once
     on release, and no second page the same local day."""
     r = _Room(_panel_registry())
@@ -486,7 +497,7 @@ def test_nm_after_threshold_and_recovery(nm_calls):
     assert len(nm_calls["page"]) == 2
 
 
-def test_nm_one_page_per_episode_across_midnight(nm_calls):
+def test_nm_one_page_per_episode_across_midnight(nm_calls, s1_only):
     """A continuous outage (the 39 h Up Hallway shape) pages once, not again
     at the next local day while the same episode lasts."""
     r = _Room(_panel_registry())
@@ -526,7 +537,7 @@ def test_kill_switch_off_byte_identical(monkeypatch, nm_calls):
     assert new.camera_input_stream_dead(PANEL) is False
 
 
-def test_kill_switch_flip_mid_episode_releases_and_recovers(monkeypatch, nm_calls):
+def test_kill_switch_flip_mid_episode_releases_and_recovers(monkeypatch, nm_calls, s1_only):
     r = _Room(_panel_registry())
     r.states = {PANEL: "on", PANEL_CAM: "unavailable", ZV: "off"}
     r.tick(T0)
@@ -1035,7 +1046,7 @@ def test_restored_unavailable_camera_is_no_opinion_no_page(nm_calls):
     assert d[STATE_PRESENCE_DETECTED] is False
 
 
-def test_input_removed_mid_episode_no_recovery_nm():
+def test_input_removed_mid_episode_no_recovery_nm(s1_only):
     """Review A LOW-3: a paged input removed from the room is dropped
     silently, no "counts again" message."""
     reg = _panel_registry()
