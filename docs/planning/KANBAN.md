@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-14T00:08:44-06:00_ - _Data commit: `a585a3a8f60b`_ - _last_reconciled: 2026-11-13_
+_Generated: 2026-11-14T00:09:12-06:00_ - _Data commit: `7e274c5c1285`_ - _last_reconciled: 2026-11-13_
 
 
 ## Columns
@@ -244,7 +244,7 @@ _created 2026-11-12 22:00_
 - **Origin:** 2026-11-12 - Operator: watch arrivals with AI vision; time-lapse; fast first frames; counting is easy, naming is hard; guests are the census problem; OpenAI models (GPT-6 Luna/Sol); deconflict with camera counts until trusted (100 crossi...
 - **Why:** Design in PLANNING_person_sighting_layer.md section 15. Gates: D0-FRAME (blank-frame experiment), D0-SIM (timing simulation), D0-V (model scoring incl. dry call per GPT-6 model for llmvision param compatibility). Then its own sibling plan.
 - **Next:** Me: revise plan section 15.9 frame guard to judge frames directly; resolve the llmvision temperature blocker for GPT-6 models (config-first); then the sibling vision plan.
-- **Forensic keys (22):**
+- **Forensic keys (23):**
   - `arc_cut_v5_108_21`: phase 1 ships here, phase 2 later
   - `operator_2026_11_13_plans_approved`: Plans approved (the four clean plans: census deconfliction, person awareness read API, camera input stream health, crossing vision producer). Merged to develop 2602929c; estimator plan archived.
   - `arc_cut_v5_108_19`: shadow build running
@@ -267,6 +267,7 @@ _created 2026-11-12 22:00_
   - `MATCH_COVERAGE_2026_11_13`: The plan's "Protect-only crossings (22%)" non-goal is mislabelled. All four door cameras run Frigate; those crossings simply have no Frigate person event within +-10 s (AUDIT_crossing_vision_d0_2026_11_13.md: 74% matched at +-10 s, 83% a...
   - `protect_alarm_webhook_2026_11_14`: Operator built Protect Alarm Manager rule "URA G6 Entry" (Cameras > Person > Known Face on Madrone G6 Entry, Custom Webhook POST, default content, no thumbnails) to temporary HA automation automation.ura_test_capture_protect_alarm_manage...
   - `P2_D0_2026_11_14`: AUDIT_crossing_vision_p2_d0_2026_11_14.md: (i) residency fire check PASS; (ii) empty anchors 3600 s gives 22/week (clears the 10 minimum), only 19% while AWAY; (iii) +-30 s wrong-event proxy 22.7% vs 10.3% at +-10 s -> keep EVENT_MATCH_S...
+  - `operator_2026_11_14_shadow_switch`: turn on. (Claude turns switch.ura_crossing_vision_shadow on after the v5.108.21 restart once live checks are clean, then confirms the first shadow row; off immediately on errors)
 
 ## 🧭 Pre-planning (14)
 _idea being decomposed_
