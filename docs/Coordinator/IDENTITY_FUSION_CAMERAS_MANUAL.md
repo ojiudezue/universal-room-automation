@@ -482,6 +482,23 @@ under `gate_decisions_by_camera`:
   window expiry, teardown, and any later dispatched alert on the same camera
   key (`perimeter_alert.py` `_arm_identity_followup` / `_followup_check`).
 
+**Gate evidence (PERIMETER-GATE-EVIDENCE Part A, branch `feature/perimeter-gate-evidence`,
+NOT deployed; plan `PLANNING_perimeter_gate_evidence_and_input_health.md`).**
+- **Daylight-only single-source demotes (D1/D1b).** D5 `single_source` and the D10.5
+  `egress_uncorroborated` branch demote only while `sun.sun` elevation ≥
+  `PERIMETER_SS_DAYLIGHT_MIN_ELEVATION_DEG` (0.0). Missing / unavailable / non-numeric sun
+  = night = no demote. D5 reasons `night` (no hold) and `night_after_settle` (sun set during
+  the 8 s settle); D10.5 reason `egress_uncorroborated_night` (read after both holds), which
+  also arms the "that was <name>" follow-up. `egress_known_person` is unchanged. Kill
+  switches `PERIMETER_SS_DAYLIGHT_ONLY` / `PERIMETER_EGRESS_UNCORROBORATED_DAYLIGHT_ONLY`.
+- **Persisted decisions (D2).** Every `_record_gate` call writes one `memory_episodes` row
+  (`perimeter_gate_decision`, node `perimeter_gate:<cam_key>`, `window_dedup=False`) with
+  sun state on every row. Writer-health checked. Reader: `scripts/probes/perimeter_gate_scorer_weekly.py`.
+- **VLM location (D3) ships DARK.** `PERIMETER_VLM_LOCATION_ASK` = False after the D0-B
+  replay no-go (street recall 8/26; `AUDIT_perimeter_d0_location_2026_11_13.md`). When on,
+  shadow asks LOCATION and records it only; enforce keeps `_VERDICT_PROMPT` unless
+  `PERIMETER_VLM_LOCATION_ASK_IN_ENFORCE`.
+
 **Frigate event ingress (v5.108.1, PERIMETER-FRIGATE-MQTT-DIRECT-1, branch
 `feature/frigate-mqtt-direct`, shipped v5.108.1; plan
 `PLANNING_frigate_mqtt_direct_2026_11.md` rev 2).** Before this build, perimeter

@@ -42,7 +42,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from typing import Any
+from typing import Any, NamedTuple
 
 from .const import (
     CONF_PERIMETER_ENRICHMENT_PERSON_SENSORS,
@@ -290,3 +290,52 @@ async def enrich_with_verdict(
     except Exception:  # noqa: BLE001
         return None, VERDICT_UNSURE
     return parse_vlm_verdict(raw)
+
+
+# PERIMETER-GATE-EVIDENCE D3: PERSON + LOCATION prompt. The LOCATION answer
+# is recorded only (gate row); no branch reads it.
+_VERDICT_LOCATION_PROMPT = (
+    "Line 1 exactly 'PERSON: YES', 'PERSON: NO' or 'PERSON: UNSURE': is a "
+    "real person visible? Line 2 exactly 'LOCATION: PROPERTY', "
+    "'LOCATION: STREET' or 'LOCATION: UNSURE': is that person on this "
+    "home's yard, driveway or patio, or on a public road or sidewalk? Then "
+    "describe what you see in one or two short sentences."
+)
+
+
+class VlmVerdicts(NamedTuple):
+    description: str | None
+    person: str
+    location: str
+
+
+async def enrich_with_verdicts(
+    hass: Any,
+    snapshot_path: str | None,
+    camera_entity_id: str,
+    ask_location: bool,
+) -> VlmVerdicts:
+    """D3: one llmvision call returning (description, person, location).
+
+    ``ask_location`` False sends today's ``_VERDICT_PROMPT`` byte-for-byte
+    and parses with ``parse_vlm_verdict`` (location UNSURE). Every failure
+    class gives (None, UNSURE, UNSURE). Never raises.
+    """
+    from .perimeter_fp_gates import (  # noqa: PLC0415
+        LOCATION_UNSURE,
+        VERDICT_UNSURE,
+        parse_vlm_verdict,
+        parse_vlm_verdicts,
+    )
+
+    prompt = _VERDICT_LOCATION_PROMPT if ask_location else _VERDICT_PROMPT
+    try:
+        raw = await enrich_dispatched_alert(
+            hass, snapshot_path, camera_entity_id, prompt=prompt,
+        )
+    except Exception:  # noqa: BLE001
+        return VlmVerdicts(None, VERDICT_UNSURE, LOCATION_UNSURE)
+    if ask_location:
+        return VlmVerdicts(*parse_vlm_verdicts(raw))
+    desc, person = parse_vlm_verdict(raw)
+    return VlmVerdicts(desc, person, LOCATION_UNSURE)

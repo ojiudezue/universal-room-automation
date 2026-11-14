@@ -65,7 +65,7 @@ import logging
 import os
 import re as _re
 import time as _time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from homeassistant.core import HomeAssistant, callback, Event
@@ -171,10 +171,19 @@ from .const import (
     DEFAULT_PERIMETER_IDENTITY_FOLLOWUP,
     PERIMETER_IDENTITY_FOLLOWUP_WINDOW_S,
     PERIMETER_IDENTITY_FOLLOWUP_POLL_S,
+    PERIMETER_SS_DAYLIGHT_ONLY,
+    PERIMETER_SS_DAYLIGHT_MIN_ELEVATION_DEG,
+    PERIMETER_EGRESS_UNCORROBORATED_DAYLIGHT_ONLY,
+    PERIMETER_GATE_LOG_PERSIST,
+    PERIMETER_GATE_EPISODE_TYPE,
+    PERIMETER_GATE_LOG_TEARDOWN_TIMEOUT_S,
+    PERIMETER_VLM_LOCATION_ASK,
+    PERIMETER_VLM_LOCATION_ASK_IN_ENFORCE,
 )
 from .domain_coordinators.base import Severity
 from .domain_coordinators._nm_cycle_a import is_life_safety_hazard  # CIRCLING-LABEL-1: I3 gate uses this
-from .perimeter_enrichment import enrich_dispatched_alert, enrich_with_verdict
+from .perimeter_enrichment import enrich_dispatched_alert, enrich_with_verdicts
+from .lighting.darkness import _read_sun_elevation
 from .arrival_edges import (
     area_slug_of_entity,
     live_arrival_slug,
@@ -182,7 +191,9 @@ from .arrival_edges import (
 )
 from .perimeter_fp_gates import (
     AgreementTracker,
+    LOCATION_UNSURE,
     VERDICT_NO,
+    is_daylight,
     nvr_family,
     zone_slug,
 )
@@ -481,6 +492,10 @@ class PerimeterAlertManager:
         # PERIMETER-IDENTITY-FOLLOWUP-1: at most one pending "that was <name>"
         # follow-up per camera key: {edge, entity_id, severity, elapsed, unsub}.
         self._pending_followups: dict[str, dict[str, Any]] = {}
+        # PERIMETER-GATE-EVIDENCE D2: tracked gate-row writer tasks + the
+        # teardown latch (set FIRST in async_teardown; no row after it).
+        self._gate_log_tasks: set[Any] = set()
+        self._gate_log_torn_down: bool = False
 
     async def async_setup(self) -> None:
         """Set up perimeter camera listeners.
@@ -1198,10 +1213,17 @@ class PerimeterAlertManager:
             )
 
         self._setup_time = dt_util.now()
+        # Review A LOW-3: re-arm the gate-row latch so a reused instance
+        # (setup after teardown) records rows again.
+        self._gate_log_torn_down = False
         self._active = True
 
     async def async_teardown(self) -> None:
         """Remove all state listeners."""
+        # PERIMETER-GATE-EVIDENCE D2: latch FIRST so no gate row is scheduled
+        # from here on (holds discharged below record `dropped_teardown` in
+        # memory only).
+        self._gate_log_torn_down = True
         for unsub in self._unsub_perimeter:
             unsub()
         self._unsub_perimeter.clear()
@@ -1314,6 +1336,21 @@ class PerimeterAlertManager:
             except Exception:  # noqa: BLE001
                 pass
         self._edge_captures.clear()
+
+        # PERIMETER-GATE-EVIDENCE D2: bounded wait for in-flight gate rows
+        # (precedent transit_validator EGRESS_OUTCOME_LOG teardown).
+        pending = [t for t in self._gate_log_tasks if not t.done()]
+        if pending:
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*pending, return_exceptions=True),
+                    timeout=float(PERIMETER_GATE_LOG_TEARDOWN_TIMEOUT_S),
+                )
+            except Exception:  # noqa: BLE001 — bounded; never block unload
+                for t in pending:
+                    if not t.done():
+                        t.cancel()
+        self._gate_log_tasks.clear()
 
         self._active = False
         _LOGGER.debug("PerimeterAlertManager: torn down")
@@ -1782,12 +1819,20 @@ class PerimeterAlertManager:
             # call). Off = the exact pre-cycle call (byte-identical).
             _vlm_mode = self._vlm_gate_mode()
             if _vlm_mode in (PERIMETER_VLM_GATE_SHADOW, PERIMETER_VLM_GATE_ENFORCE):
-                enriched, _verdict = await enrich_with_verdict(
-                    self.hass, snapshot_path, entity_id,
+                # PERIMETER-GATE-EVIDENCE D3: LOCATION is asked in shadow;
+                # enforce keeps today's prompt until D0-B PERSON parity.
+                _ask_loc = bool(PERIMETER_VLM_LOCATION_ASK) and (
+                    _vlm_mode == PERIMETER_VLM_GATE_SHADOW
+                    or bool(PERIMETER_VLM_LOCATION_ASK_IN_ENFORCE)
                 )
+                _v = await enrich_with_verdicts(
+                    self.hass, snapshot_path, entity_id, _ask_loc,
+                )
+                enriched, _verdict = _v.description, _v.person
                 severity = self._apply_vlm_gate(
                     cooldown_key, entity_id, severity, _verdict,
                     snapshot_path, exemption_active, _vlm_mode,
+                    location=_v.location,
                 )
             else:
                 enriched = await enrich_dispatched_alert(
@@ -4598,6 +4643,105 @@ class PerimeterAlertManager:
             ] = decision
         except Exception:  # noqa: BLE001
             pass
+        # PERIMETER-GATE-EVIDENCE D2 (INV-ROW): one memory_episodes row per
+        # call, AFTER the in-memory write. Fire-and-forget tracked task;
+        # never raises, never awaited, never changes severity.
+        try:
+            self._persist_gate_decision(cam_key, decision)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("PerimeterAlertManager: gate row schedule failed",
+                          exc_info=True)
+
+    def _sun_reading(self) -> tuple[float | None, bool]:
+        """D1: (sun elevation, is_day). Unreadable sun -> (None, False)."""
+        try:
+            elev = _read_sun_elevation(self.hass)
+        except Exception:  # noqa: BLE001
+            elev = None
+        return elev, is_daylight(elev, PERIMETER_SS_DAYLIGHT_MIN_ELEVATION_DEG)
+
+    @staticmethod
+    def _gate_row_utc(at: str) -> str:
+        """Gate-row timestamp in UTC; unparsable/naive-safe (falls back to now)."""
+        try:
+            parsed = datetime.fromisoformat(str(at))
+        except (TypeError, ValueError):
+            parsed = None
+        if parsed is None or parsed.tzinfo is None:
+            # Production stamps are aware (dt_util.now()); anything else is
+            # not trustworthy as a local time -> stamp now in UTC.
+            return datetime.now(timezone.utc).isoformat()
+        return parsed.astimezone(timezone.utc).isoformat()
+
+    def _persist_gate_decision(self, cam_key: str, d: dict[str, Any]) -> None:
+        if (
+            not PERIMETER_GATE_LOG_PERSIST
+            or self._gate_log_torn_down
+            or not self._active
+        ):
+            return
+        database = self.hass.data.get(DOMAIN, {}).get("database")
+        if database is None:
+            return
+        gate = str(d.get("gate", "?"))
+        at = str(d.get("at") or dt_util.now().isoformat())
+        if "is_day" in d:
+            elev, is_day = d.get("sun_elevation"), bool(d.get("is_day"))
+        else:
+            elev, is_day = self._sun_reading()
+        eid = d.get("entity_id")
+        snap = d.get("snapshot")
+        attrs: dict[str, Any] = {
+            "camera": cam_key,
+            "gate": gate,
+            "at": at,
+            "reason": d.get("reason"),
+            "would_demote": d.get("would_demote"),
+            "demoted": d.get("demoted"),
+            "enforce": d.get("enforce"),
+            "mode": d.get("mode"),
+            "severity_before": d.get("severity_before"),
+            "severity_after": d.get("severity_after"),
+            "entity_id": eid,
+            "nvr_family": nvr_family(self._sensor_engine.get(eid)) if eid else None,
+            "inputs": d.get("inputs"),
+            "sun_elevation": elev,
+            "is_day": is_day,
+        }
+        for k in ("would_demote_if_day", "verdict", "location", "tier",
+                  "identity", "source", "sent_after_s"):
+            if k in d:
+                attrs[k] = d[k]
+        if snap:
+            attrs["snapshot"] = os.path.basename(str(snap))
+        # Review A LOW-2: the row timestamp is UTC like the other episode
+        # writers (database.py log_memory_episode default) so the UTC
+        # writer-health window and cross-type joins line up. attrs["at"]
+        # keeps the local stamp the in-memory diagnostic shows.
+        at_utc = self._gate_row_utc(at)
+        ref = f"{cam_key}|{gate}|{at_utc}"
+
+        async def _write() -> None:
+            try:
+                await database.log_memory_episode(
+                    node_id=f"perimeter_gate:{cam_key}",
+                    episode_type=PERIMETER_GATE_EPISODE_TYPE,
+                    attrs=attrs,
+                    source_ref=ref,
+                    started_at=at_utc,
+                    ended_at=at_utc,
+                    dedup_source_ref=False,
+                    window_dedup=False,
+                )
+            except Exception:  # noqa: BLE001 — observational only
+                _LOGGER.debug("perimeter gate row write failed", exc_info=True)
+
+        task = self.hass.async_create_task(_write())
+        self._gate_log_tasks.add(task)
+        try:
+            task.add_done_callback(self._gate_log_tasks.discard)
+        except Exception:  # noqa: BLE001
+            pass
 
     def gate_decision_stats(self) -> dict[str, Any]:
         """Diagnostic sensor surface: last decision per gate per camera,
@@ -4819,10 +4963,21 @@ class PerimeterAlertManager:
             elif seen_back:
                 d["reason"] = "corroborated_lookback"
             else:
-                d["would_demote"] = True
-                if not enforce:
+                # PERIMETER-GATE-EVIDENCE D1 (INV-DAY): daylight-only demote.
+                # Sits AFTER _agreement_open so night alerts still sample.
+                # Night falls through to the common exit (_record_gate).
+                elev, is_day = self._sun_reading()
+                d["sun_elevation"] = elev
+                d["is_day"] = is_day
+                if PERIMETER_SS_DAYLIGHT_ONLY and not is_day:
+                    d["would_demote"] = False
+                    d["would_demote_if_day"] = True
+                    d["reason"] = "night"
+                elif not enforce:
+                    d["would_demote"] = True
                     d["reason"] = "shadow"
                 else:
+                    d["would_demote"] = True
                     # H1: in-flight BEFORE the await so the sibling engine's
                     # edge cannot start a parallel dispatch.
                     self._dispatch_in_flight.add(cam_key)
@@ -4838,10 +4993,19 @@ class PerimeterAlertManager:
                         d["would_demote"] = False
                         d["reason"] = "adjacent_activity"
                     else:
-                        new = self._demote(severity)
-                        d["demoted"] = new != severity
-                        d["reason"] = "single_source"
-                        severity = new
+                        # D1: the sun can set during the settle hold.
+                        elev, is_day = self._sun_reading()
+                        d["sun_elevation"] = elev
+                        d["is_day"] = is_day
+                        if PERIMETER_SS_DAYLIGHT_ONLY and not is_day:
+                            d["would_demote"] = False
+                            d["would_demote_if_day"] = True
+                            d["reason"] = "night_after_settle"
+                        else:
+                            new = self._demote(severity)
+                            d["demoted"] = new != severity
+                            d["reason"] = "single_source"
+                            severity = new
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001
@@ -4920,6 +5084,7 @@ class PerimeterAlertManager:
     def _apply_vlm_gate(
         self, cam_key: str, entity_id: str, severity: Severity, verdict: str,
         snapshot_path: str | None, exemption_active: bool, mode: str,
+        location: str = LOCATION_UNSURE,
     ) -> Severity:
         try:
             now = dt_util.now()
@@ -4932,6 +5097,9 @@ class PerimeterAlertManager:
             d: dict[str, Any] = {
                 "gate": "vlm", "at": now.isoformat(), "entity_id": entity_id,
                 "mode": mode, "verdict": verdict, "tier": tier,
+                # D3 (INV-LOC): recorded only; no branch below reads it.
+                "location": location,
+                "snapshot": os.path.basename(snapshot_path) if snapshot_path else None,
                 "would_demote": False, "demoted": False, "reason": "",
                 "severity_before": severity.name,
             }
@@ -5233,8 +5401,17 @@ class PerimeterAlertManager:
                 d["reason"] = "egress_unknown_corroborated"
                 new = severity
             else:
-                d["reason"] = "egress_uncorroborated"
-                new = self._demote(severity)
+                # PERIMETER-GATE-EVIDENCE D1b: daylight-only, read at the
+                # decision (after both D10.5 holds).
+                elev, is_day = self._sun_reading()
+                d["sun_elevation"] = elev
+                d["is_day"] = is_day
+                if PERIMETER_EGRESS_UNCORROBORATED_DAYLIGHT_ONLY and not is_day:
+                    d["reason"] = "egress_uncorroborated_night"
+                    new = severity
+                else:
+                    d["reason"] = "egress_uncorroborated"
+                    new = self._demote(severity)
             d["demoted"] = new != severity
             severity = new
         except asyncio.CancelledError:
@@ -5249,7 +5426,10 @@ class PerimeterAlertManager:
     # PERIMETER-IDENTITY-FOLLOWUP-1 (v5.107.5): "that was <name>"
     # ------------------------------------------------------------------
     _FOLLOWUP_UNKNOWN_REASONS = frozenset(
-        {"egress_unknown_corroborated", "xcorr_waived_single_nvr"}
+        {"egress_unknown_corroborated", "xcorr_waived_single_nvr",
+         # PERIMETER-GATE-EVIDENCE D1b: unknown person sent at full
+         # severity at night -> the follow-up applies.
+         "egress_uncorroborated_night"}
     )
     FOLLOWUP_TITLE = "Perimeter Alert — Identified"
 
