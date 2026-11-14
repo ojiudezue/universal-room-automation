@@ -349,6 +349,28 @@ the window, count demote outcomes that change; non-zero → list to the operator
   `test_room_fusion_optout_golden`, `test_room_fusion_two_legs_one_family_not_split`, `test_fan_veto_policy_unchanged`.
 - **Live:** gate rows carry `witness_rate`; census values equal develop; fused sensors carry `agreement_basis: family`.
 
+### W6: seam linking resilience (Tier 2-DB; operator added to scope 2026-11-14)
+
+Operator asked what seam operations do when a camera or a whole NVR fails, then: "yes" to adding all three. Today
+(`exterior_track_linker.py:756`, `TRACK_LINK_WINDOW_S` 180, `TRACK_CLOSE_IDLE_S` 300) the linker joins a hop only to the
+same camera or a direct seam neighbour, and it is fed ONLY by `frigate_events`. One dead camera fragments a walk into
+two tracks (louder, never silent); a dead Frigate means no tracks at all while Protect legs still alert one per edge.
+
+- **W6a, both NVRs feed the linker.** The linker takes person fires from the witness layer (W2 ring of raw fires,
+  both families, one physical camera key) instead of `frigate_events` alone. Dedup per physical camera within
+  `_OBSERVE_DEDUP_S` so a two-NVR camera still makes one hop. Labels: Protect gives person only; non-person labels stay
+  Frigate-fed. **Verify:** with Frigate silent, a walk across three adjacent Protect-covered cameras forms ONE track.
+  **Test:** `test_linker_tracks_from_protect_when_frigate_silent`; golden: with both NVRs live, track sets byte-identical
+  to Frigate-only on a recorded day (no double hops).
+- **W6b, a confirmed-dead camera is transparent.** When stream health reports a ring camera dead (camera-keyed getter,
+  stream health S2), the linker treats its two ring neighbours as adjacent for the duration. Only a CONFIRMED dead
+  stream counts (never `unknown`, never restored-unavailable); fenced pairs stay forbidden; ring and file unchanged.
+  **Verify:** Aerial -> (dead Sonoff) -> Utilities is one track; with Sonoff alive it is unchanged. **Test:**
+  `test_dead_camera_bridges_neighbours_only_when_confirmed`, `test_fenced_pair_never_bridged`. Depends on S2.
+- **W6c, Frigate bus silence pages.** The existing `PERIMETER_FRIGATE_BUS_SILENT_MIN_EDGES` warning becomes an NM
+  page (HIGH, once per outage, LOW on recovery) via the stuck-signal page helper. **Live:** none until a real outage;
+  in-suite only, stated in the README.
+
 ## 9. Knobs
 
 | Knob | Rung | Default | Why / kill |

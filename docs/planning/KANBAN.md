@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-13T22:41:33-06:00_ - _Data commit: `0ab5b8afde56`_ - _last_reconciled: 2026-11-13_
+_Generated: 2026-11-13T22:42:20-06:00_ - _Data commit: `90c93e5483a9`_ - _last_reconciled: 2026-11-13_
 
 
 ## Columns
@@ -809,7 +809,7 @@ status: **planned**
   - `operator_2026_11_14_sonoffwindow`: Sonoff windows cam. Only on Frigate. Will add to Protect when I get home. => camera.sonoffwindow is Frigate-only (identifier 01KM239Z8ZQWQTN1D9CV5JRA7V:sonoffwindow). For W1 auto-pairing the Protect device must be named SonoffWindow (slu...
   - `operator_2026_11_14_seam_failure_q`: What happens to seam operations if any one camera drops off or the entire string fails ie nvr dies
   - `seam_failure_analysis_2026_11_14`: Code (exterior_track_linker.py:756, TRACK_LINK_WINDOW_S 180, TRACK_CLOSE_IDLE_S 300): links only to the same or a direct seam neighbour within 180 s; fed ONLY by frigate_events. One camera dead -> walk fragments into two tracks (louder, ...
-  - `residual_cards_2026_11_14`: Add to this plan as deliverables (operator to confirm scope): (R1) feed the track linker from BOTH NVRs via the witness layer so Frigate is not a single point of failure; (R2) treat a camera confirmed dead by stream health as transparent...
+  - `residual_cards_2026_11_14`: ADDED to plan scope as W6a-c (operator yes 2026-11-14): (R1) feed the track linker from BOTH NVRs via the witness layer so Frigate is not a single point of failure; (R2) treat a camera confirmed dead by stream health as transparent in th...
 
 ### `URAV8-ZONE-ENERGY-DISPLAY-1` - ura-v8: show energy on the zone chips under Rooms, and a house zone-energy breakdown card (pie/bar) on the Energy tab — _#27 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **dashboard** - status: **planned**
