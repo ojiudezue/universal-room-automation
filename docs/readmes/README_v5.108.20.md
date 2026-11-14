@@ -1,6 +1,8 @@
-# Perimeter gate evidence (Part A) — DRAFT README
+# v5.108.20: Perimeter gate evidence (Part A)
 
-Version: TBD at deploy (PATCH). Branch `feature/perimeter-gate-evidence`.
+PATCH. Branch `feature/perimeter-gate-evidence`, merged to develop 2026-11-13.
+Reviews: A, B (SHIP), C mutation (SHIP), D cross-work reconciliation with crossing vision (no conflicts).
+Pre-merge gate: full mutation name-diff vs 528fb5d9 0 NEW; D7 hygiene 58 passed; isolated run 18 files 0 failing.
 Plan: `docs/planning/PLANNING_perimeter_gate_evidence_and_input_health.md` (Part A only; Part B / D4 is a
 separate cycle). Cards: PERIMETER-ZONE-AGREEMENT-FIX-OR-REMOVE-1 (daylight + vlm_location residuals),
 PERIMETER-GATE-DECISIONS-NOT-PERSISTED-1.
