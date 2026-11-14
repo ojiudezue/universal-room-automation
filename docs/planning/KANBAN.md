@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-14T00:09:12-06:00_ - _Data commit: `7e274c5c1285`_ - _last_reconciled: 2026-11-13_
+_Generated: 2026-11-14T00:09:51-06:00_ - _Data commit: `2221a1b01888`_ - _last_reconciled: 2026-11-13_
 
 
 ## Columns
@@ -10,7 +10,7 @@ _Generated: 2026-11-14T00:09:12-06:00_ - _Data commit: `7e274c5c1285`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 15 |
-| 🔬 Investigating | 6 |
+| 🔬 Investigating | 7 |
 | 🧭 Pre-planning | 14 |
 | 📝 Planned | 34 |
 | 🔨 In progress | 4 |
@@ -183,19 +183,28 @@ _created 2026-11-12 14:13 · initial_
 - **Forensic keys (1):**
   - `tier`: 1
 
-## 🔬 Investigating (6)
+## 🔬 Investigating (7)
 _measuring; truth not yet known_
 
-### `BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1` - Person BLE distance sensors found by name (oji_udezue) instead of the person's device_trackers; Oji matches 0 of his iphone_oji_* Bermuda sensors and gets the fixed 0.5 confidence — _#1 · WSJF 4.5 · v9 tc7 u2 /e4_
+### `BERMUDA-DISTANCE-SENSORS-DEAD-1` - All 356 per-scanner Bermuda distance_to sensors unavailable (restored) since 2026-10-20 for all four people; person BLE distance has no live input — _#1 · WSJF 4.7 · v7 tc5 u2 /e3_
+status: **investigating**
+- **Origin:** 2026-11-14 - Found by the BLE person sensor audit.
+- **Why:** AUDIT_ble_person_sensor_resolution_2026_11_14.md: *_distance_to_* sensors unavailable restored:true, no numeric recorder row in 8 days, last statistics hour 2026-10-20 07:00 UTC; the per-device sensor.<dev>_distance and _area are live. C...
+- **Next:** Me: find why Bermuda stopped publishing per-scanner distances on 10-20 (Bermuda options / HA update / entity disable), read-only first; then decide re-base vs repair. Coordinate with the music following plan before turning the distance g...
+- **Forensic keys (1):**
+  - `tier`: 2
+
+### `BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1` - Person BLE distance sensors found by name (oji_udezue) instead of the person's device_trackers; Oji matches 0 of his iphone_oji_* Bermuda sensors and gets the fixed 0.5 confidence — _#2 · WSJF 4.5 · v9 tc7 u2 /e4_
 status: **investigating**
 - **Origin:** 2026-11-13 - Found by the registry-not-names sweep; name mismatch verified live.
 - **Why:** person_coordinator.py:1838-1853 searches by person slug; live 2026-11-13: 14 sensor ids contain iphone_oji and distance, 1 contains oji_udezue and distance; aggregation.py:6179 finds 0 sensor.bermuda_* per person. .storage/person lists e...
 - **Next:** Me: trace consumers of person BLE confidence/closest_distance (fire check), then resolve via person -> device_trackers -> device -> Bermuda sensors in the registry; Tier 2 plan.
-- **Forensic keys (2):**
+- **Forensic keys (3):**
   - `arc_cut_v5_108_21`: later step (registry sweep), investigating
   - `tier`: 2
+  - `audit_2026_11_14`: AUDIT_ble_person_sensor_resolution_2026_11_14.md: registry path works for all four persons (person -> bermuda-platform device_tracker -> device -> area/distance sensors). Name match also causes cross-person contamination (Ezinne, Ziri, J...
 
-### `OC-AI-TASK-LEVERAGE-1` - Investigate whether better use of HA AI Task (model choice, structured output, context) would make the Optimization Coordinator succeed where it keeps failing — _#2 · WSJF 3.2 · v7 tc4 u2 /e4_
+### `OC-AI-TASK-LEVERAGE-1` - Investigate whether better use of HA AI Task (model choice, structured output, context) would make the Optimization Coordinator succeed where it keeps failing — _#3 · WSJF 3.2 · v7 tc4 u2 /e4_
 status: **investigating**
 - **Origin:** 2026-11-13 - Operator question during the room AI rules work.
 - **Why:** OC already calls ai_task.generate_data (v4.7.35 LLM tier-2, const.py:5422-5531; default entity ai_task.claude_ai_task, const.py:5459). That Claude AI Task subentry runs claude-haiku-4-5, max_tokens 4096, thinking_budget 1024 (live config...
@@ -204,7 +213,7 @@ status: **investigating**
   - `tier`: 2
   - `operator_2026_11_13`: Btw should we use Ai task to make the OC better? We keep failing? Card an investigation.
 
-### `REGISTRY-NOT-NAMES-1` - Replace every entity-name / suffix / slug guess (platform, NVR family, device, person, room) with registry lookups, house-wide — _#3 · WSJF 2.8 · v9 tc6 u2 /e6_
+### `REGISTRY-NOT-NAMES-1` - Replace every entity-name / suffix / slug guess (platform, NVR family, device, person, room) with registry lookups, house-wide — _#4 · WSJF 2.8 · v9 tc6 u2 /e6_
 status: **investigating**
 - **Origin:** 2026-11-13 - Operator on perimeter and census still guessing NVR family from names.
 - **Why:** Rough grep 2026-11-13: ~99 sites match suffix tests ("_person_detected" in, endswith("_2")), slug building (replace(" ","_")) or f-string entity ids across ~15+ modules; some are legitimate (URA building its own entity ids). NVR family s...
@@ -215,7 +224,7 @@ status: **investigating**
   - `operator_2026_11_13`: Yuck. We have to make this bulletproof everywhere. I thought we were using the entity db vs slugs and guessing. Unacceptable to do the latter anymore. It's invalidated [whole] features in the past
   - `sweep_2026_11_13`: AUDIT_registry_not_names_sweep_2026_11_13.md: 171 raw hits, 8 clusters, ~45 decision sites. Children: ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1, BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1. NVR gaps for the witness plan: perimeter_alert.py:2179 s...
 
-### `AUDIT-ROOM-AI-AUTOMATION-CHAINING-MUSIC-1` - Audit room AI automation, automation chaining and music following (old, rarely exercised) - correctness, HA currency, test coverage, observability/config — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `AUDIT-ROOM-AI-AUTOMATION-CHAINING-MUSIC-1` - Audit room AI automation, automation chaining and music following (old, rarely exercised) - correctness, HA currency, test coverage, observability/config — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 status: **investigating**
 - **Origin:** 2026-11-13 - Operator request, not urgent, use a free slot.
 - **Why:** Surfaces: automation.py, music_following.py, domain_coordinators music coordinator; tests test_ai_automation.py, test_automation_chaining.py, test_music_following*.py, test_v5100_music_following.py; prior docs PLANNING_v3.10.0_AI_AUTOMAT...
@@ -228,7 +237,7 @@ status: **investigating**
   - `operator_2026_11_13_decision`: We will fix the AI automation and the AI training and music following. We will not retire them. The reason they're not exercised is because I don't trust them yet, and the entire point is to build it so I can trust it. Also, music follow...
   - `operator_2026_11_13_reimagine`: Part of what we have to do is to figure if we can improve and simplify those three features. Not just audit them, but look for actual opportunities to improve them, build them in a way that is, find opportunities for reimagining what's p...
 
-### `PERIMETER-FP-GATES-DISPOSE-1` - Perimeter false-positive gates D3/D5 shipped shadow-first but D3 can never evaluate (zone sensors never configured) and no shadow counts are kept; no disposal date — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `PERIMETER-FP-GATES-DISPOSE-1` - Perimeter false-positive gates D3/D5 shipped shadow-first but D3 can never evaluate (zone sensors never configured) and no shadow counts are kept; no disposal date — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **perimeter** - status: **investigating**
 _created 2026-11-12 22:55_
 - **Origin:** 2026-11-12 - Operator asked why the gates are off. AUDIT_garage_hallway_lock_and_perimeter_gates_2026_11_12.md.
@@ -238,7 +247,7 @@ _created 2026-11-12 22:55_
   - `arc_cut_v5_108_17`: separate investigation, not notification code
   - `tier`: 2
 
-### `VISION-CROSSING-ANALYSIS-1` - AI vision of each crossing (fast 3-frame sample + batched time-lapse along the camera chain) as a counting and description input, fused with Frigate/Protect counts — _#6 · WSJF 1.9 · v9 tc4 u2 /e8_
+### `VISION-CROSSING-ANALYSIS-1` - AI vision of each crossing (fast 3-frame sample + batched time-lapse along the camera chain) as a counting and description input, fused with Frigate/Protect counts — _#7 · WSJF 1.9 · v9 tc4 u2 /e8_
 thread: **identity** - status: **investigating**
 _created 2026-11-12 22:00_
 - **Origin:** 2026-11-12 - Operator: watch arrivals with AI vision; time-lapse; fast first frames; counting is easy, naming is hard; guests are the census problem; OpenAI models (GPT-6 Luna/Sol); deconflict with camera counts until trusted (100 crossi...
@@ -576,7 +585,7 @@ status: **planned** - approval: **explicit**
 - **Origin:** 2026-11-13 - From the room AI/music audit.
 - **Why:** music_following.py:1505 media_player.join with entity_id=target (idle) and group_members=[source]: HA join makes entity_id the leader, so the idle player leads (verified in code; live effect unverified). :1553 music_assistant.transfer_qu...
 - **Next:** Me: Tier 2 build after the vision-arc builds free a builder slot: fix join direction and transfer_queue schema (MA-first), wire or remove the five knobs, listener removal, count skips, fix the test fixture and assert the transfer calls; ...
-- **Forensic keys (15):**
+- **Forensic keys (16):**
   - `design_2026_11_13`: DESIGN_reimagine_room_ai_chaining_music_2026_11_13.md steps 0, 1 and 5: probes first (one WiiM-to-WiiM walk while playing, read group_members on both; map each room player to its Music Assistant entity via the device registry); then MA-f...
   - `tier`: 2
   - `operator_2026_11_13_personalization`: Music following is key to personalization. (feeds PERSON-PROFILE-PREFERENCES-1)
@@ -592,6 +601,7 @@ status: **planned** - approval: **explicit**
   - `next_build`: Me or the overnight agent: one re-verify plan review of the rewrite (substantial fix round), then build in a worktree, three framing-disjoint reviews, validate to review. Off the arc critical path (operator: not P0).
   - `operator_2026_11_13_bounce_and_primary`: We have to make sure you bounce btw 2 rooms adjacent to each other fast that bad things don't happen. Also not every room has speakers. Some MA devices are puny like the wall tablets. So for example transfers into master should primarily...
   - `operator_2026_11_13_ai_task_paid`: Yes on paid Ai task
+  - `FINDING_2026_11_14_ble_inputs_dead`: BLE audit: person BLE confidence is constant (0.5 Oji, 0.3 others) and closest_distance is never live (lost each tick; per-scanner distance sensors dead since 10-20). The plan rewrite replaced the dwell gate with BLE confidence/distance ...
 
 ### `ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1` - Room occupied sensor looked up by a slug-built entity id; 11 of 47 rooms have a different real id, so the HVAC fan-off-while-occupied guard (and memory/NM readers) silently fail open there — _#11 · WSJF 4.3 · v7 tc4 u2 /e3_
 status: **planned**
