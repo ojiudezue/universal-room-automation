@@ -253,7 +253,7 @@ _created 2026-11-12 22:00_
 - **Origin:** 2026-11-12 - Operator: watch arrivals with AI vision; time-lapse; fast first frames; counting is easy, naming is hard; guests are the census problem; OpenAI models (GPT-6 Luna/Sol); deconflict with camera counts until trusted (100 crossi...
 - **Why:** Design in PLANNING_person_sighting_layer.md section 15. Gates: D0-FRAME (blank-frame experiment), D0-SIM (timing simulation), D0-V (model scoring incl. dry call per GPT-6 model for llmvision param compatibility). Then its own sibling plan.
 - **Next:** Me: revise plan section 15.9 frame guard to judge frames directly; resolve the llmvision temperature blocker for GPT-6 models (config-first); then the sibling vision plan.
-- **Forensic keys (23):**
+- **Forensic keys (24):**
   - `arc_cut_v5_108_21`: phase 1 ships here, phase 2 later
   - `operator_2026_11_13_plans_approved`: Plans approved (the four clean plans: census deconfliction, person awareness read API, camera input stream health, crossing vision producer). Merged to develop 2602929c; estimator plan archived.
   - `arc_cut_v5_108_19`: shadow build running
@@ -277,6 +277,7 @@ _created 2026-11-12 22:00_
   - `protect_alarm_webhook_2026_11_14`: Operator built Protect Alarm Manager rule "URA G6 Entry" (Cameras > Person > Known Face on Madrone G6 Entry, Custom Webhook POST, default content, no thumbnails) to temporary HA automation automation.ura_test_capture_protect_alarm_manage...
   - `P2_D0_2026_11_14`: AUDIT_crossing_vision_p2_d0_2026_11_14.md: (i) residency fire check PASS; (ii) empty anchors 3600 s gives 22/week (clears the 10 minimum), only 19% while AWAY; (iii) +-30 s wrong-event proxy 22.7% vs 10.3% at +-10 s -> keep EVENT_MATCH_S...
   - `operator_2026_11_14_shadow_switch`: turn on. (Claude turns switch.ura_crossing_vision_shadow on after the v5.108.21 restart once live checks are clean, then confirms the first shadow row; off immediately on errors)
+  - `operator_2026_11_14_p2d8_path`: Build P2-d8 as you recommended. it with interior vision but link the plans. And plan that VISION-INTERIOR-SIGHTINGS-1, now and then modify it if we learn something in teh interim. I Want this tight and not deferred. Make sure its useful....
 
 ## 🧭 Pre-planning (14)
 _idea being decomposed_
@@ -621,9 +622,10 @@ _created 2026-11-13 18:00_
 - **Origin:** 2026-11-13 - Operator: "We need this. Sequence is optional as long as you don't drop it. Add to arc." (on unnamed interior sightings after crossing vision).
 - **Why:** F4 today needs a name (face). Interior vision gives per-room people counts and unnamed presence in shared spaces/hallways (cameras only in shared spaces), the input census accuracy and personalization need. Must respect the F1-F5 model: ...
 - **Next:** Me: after crossing vision Phase 1 accuracy is measured, plan it (Tier 3, prior-art scan: sighting producer, CameraResolver, interior path map, census interior camera counts, CROSSING_VISION_INTERIOR_ENABLED parked name) with measure-firs...
-- **Forensic keys (2):**
+- **Forensic keys (3):**
   - `arc_cut_v5_108_21`: arc step 9
   - `tier`: 3
+  - `operator_2026_11_14_plan_now`: Build P2-d8 as you recommended. it with interior vision but link the plans. And plan that VISION-INTERIOR-SIGHTINGS-1, now and then modify it if we learn something in teh interim. I Want this tight and not deferred. Make sure its useful....
 
 ### `TEST-HARNESS-REAL-HA-DEFAULT-1` - Make the real-HA venv the default test harness — the blocker is ONE plugin fixture, not the "large infrastructure project" every review doc assumed — _#13 · WSJF 3.8 · v8 tc5 u6 /e5_
 thread: **quality** - status: **planned** - approval: **explicit**
