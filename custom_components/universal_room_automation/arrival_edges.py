@@ -26,6 +26,7 @@ from typing import Any, Callable, Mapping
 
 from .const import CAMERA_DERIVED_ARRIVAL_SOURCES, NON_CAMERA_ARRIVAL_SOURCES
 from .perimeter_fp_gates import zone_slug
+from .person_ids import entity_key_slug, slug_of
 
 SOURCE_PERSON_TRACKER = "person_tracker"
 SOURCE_BLE = "ble"
@@ -62,7 +63,7 @@ def live_arrival_slug(event_data: Mapping[str, Any]) -> str | None:
         return None
     if getattr(new, "state", None) != "home" or getattr(old, "state", None) != "not_home":
         return None
-    slug = str(event_data.get("entity_id", "")).replace("person.", "").lower()
+    slug = slug_of(event_data.get("entity_id", ""))  # RA9
     return slug or None
 
 
@@ -198,7 +199,7 @@ def bermuda_arrival_into(
 ) -> bool:
     """PersonCoordinator moved ``slug`` INTO one of ``areas`` in the window."""
     for name, rec in pc_data.items():
-        if str(name).lower().replace(" ", "_") != slug or not isinstance(rec, dict):
+        if entity_key_slug(str(name)) != slug or not isinstance(rec, dict):
             continue
         if rec.get("method") != "bermuda" or not areas:
             continue
@@ -236,7 +237,7 @@ def record_bermuda_moves(
         if not isinstance(lc, datetime):
             continue
         ts = lc.timestamp()
-        slug = str(name).lower().replace(" ", "_")
+        slug = entity_key_slug(str(name))
         ring = stamps.setdefault(slug, [])
         if any(t == ts for _a, t in ring):
             continue

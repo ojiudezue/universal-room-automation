@@ -39,6 +39,7 @@ from ..const import (
 from .base import BaseCoordinator, CoordinatorAction, Intent
 from .coordinator_diagnostics import AnomalyDetector
 from .signals import (
+    PersonArrivingPayload,
     SIGNAL_HOUSE_STATE_CHANGED,
     SIGNAL_PERSON_ARRIVING,
     SIGNAL_SAFETY_HAZARD,
@@ -556,16 +557,12 @@ class MusicFollowingCoordinator(BaseCoordinator):
             return
         if getattr(self, "observation_mode", False):
             return
-        if payload is None:
+        # RA10: one normalised F5 payload read (dict or attribute object).
+        arriving = PersonArrivingPayload.from_signal(payload)
+        if arriving is None:
             return
-        if isinstance(payload, dict):
-            person_entity = payload.get("person_entity", "")
-            zone = payload.get("zone", "")
-        elif hasattr(payload, "person_entity"):
-            person_entity = getattr(payload, "person_entity", "")
-            zone = getattr(payload, "zone", "")
-        else:
-            return
+        person_entity = arriving.person_entity
+        zone = arriving.zone
 
         if not person_entity:
             return

@@ -3922,6 +3922,111 @@ class PersonCensus:
         implementation."""
         return self._canonical_person_slug(name)
 
+    # ------------------------------------------------------------------
+    # PERSON-AWARENESS-READ-API-1 RA6: the public surface the identity
+    # producers (egress tracker, sighting producer, perimeter, setup) use
+    # instead of reaching into census privates. Each is a thin delegate:
+    # the private stays the implementation (and the patch seam the tests
+    # use), so behaviour is byte-identical.
+    # ------------------------------------------------------------------
+    def tracked_person_slugs(self) -> list[str]:
+        """Tracked residents as URA slugs (``_get_tracked_person_slugs``)."""
+        return self._get_tracked_person_slugs()
+
+    def face_suppressed_now(self) -> bool:
+        """The central face-emission checkpoint (``_face_suppressed_now``)."""
+        return self._face_suppressed_now()
+
+    def known_face_guests(self) -> list[str]:
+        """Operator-configured known face guests (``_get_known_face_guests``)."""
+        return self._get_known_face_guests()
+
+    def resolve_face_legs(self, base_name: str) -> list["FaceLeg"]:
+        """Live NAME-carrying face legs for a camera stem (``_resolve_face_legs``)."""
+        return self._resolve_face_legs(base_name)
+
+    def resolve_ble_legs(self, timestamp: datetime, direction: str) -> list:
+        """In-window BLE-transition legs (``_resolve_ble_legs``)."""
+        return self._resolve_ble_legs(timestamp, direction)
+
+    def consume_ble_arriving_legs(self, slug: str) -> int:
+        """Single-use removal after an attach (``_consume_ble_arriving_legs``)."""
+        return self._consume_ble_arriving_legs(slug)
+
+    def egress_identity_enabled(self) -> bool:
+        """EGRESS_IDENTITY_ENABLED kill switch (``_is_egress_identity_enabled``)."""
+        return self._is_egress_identity_enabled()
+
+    def egress_identity_failsafe_strict(self) -> bool:
+        """D4 provenance filter switch (``_is_egress_identity_failsafe_strict``)."""
+        return self._is_egress_identity_failsafe_strict()
+
+    def face_producer_live(self) -> bool:
+        """Read-time face-producer health (``_is_face_producer_live``)."""
+        return self._is_face_producer_live()
+
+    def note_egress_identity_outcome(self, outcome: str) -> None:
+        """Append one egress-identity outcome (``_note_egress_identity_outcome``)."""
+        self._note_egress_identity_outcome(outcome)
+
+    def register_ble_transition_listeners(self) -> list:
+        """Setup wiring (``_register_ble_transition_listeners``)."""
+        return self._register_ble_transition_listeners()
+
+    def refresh_ble_crossing_listeners(self) -> int:
+        """Boot-race re-register (``_refresh_ble_crossing_listeners``)."""
+        return self._refresh_ble_crossing_listeners()
+
+    def frigate_face_named_ring(self) -> Any:
+        """The Frigate named-face ring (``_frigate_face_named_ring``; None
+        when the bridge is off)."""
+        return getattr(self, "_frigate_face_named_ring", None)
+
+    def ble_tracker_slug_map(self) -> Any:
+        """bluetooth_le tracker -> slug map (``_ble_tracker_slug_map``)."""
+        return getattr(self, "_ble_tracker_slug_map", {})
+
+    def egress_identity_last_attach(self) -> Any:
+        """Last egress-identity attach record (``_egress_identity_last_attach``)."""
+        return getattr(self, "_egress_identity_last_attach", {})
+
+    def egress_identity_outcomes(self) -> Any:
+        """Rolling 24 h outcome deque (``_egress_identity_outcomes``)."""
+        return getattr(self, "_egress_identity_outcomes", None)
+
+    def egress_identity_boost_events(self) -> Any:
+        """BOOST event ledger (``_egress_identity_boost_events``)."""
+        return getattr(self, "_egress_identity_boost_events", None)
+
+    # Counter / record writers (the egress tracker owns these values; the
+    # census owns the storage and the diagnostics sensor reads it).
+    def note_ble_leg_abstained(self) -> None:
+        """One BLE-leg abstain (``_ble_legs_abstained_count``)."""
+        self._ble_legs_abstained_count += 1
+
+    def note_face_dropped_producer_down(self, n: int) -> None:
+        """Face legs dropped under STRICT + producer down, per LEG
+        (``_face_dropped_producer_down_leg_count``)."""
+        if not hasattr(self, "_face_dropped_producer_down_leg_count"):
+            self._face_dropped_producer_down_leg_count = 0
+        self._face_dropped_producer_down_leg_count += n
+
+    def note_face_dropped_stale(self) -> None:
+        """One stale face leg dropped (``_face_dropped_stale_count``)."""
+        self._face_dropped_stale_count += 1
+
+    def note_egress_identity_boost(self, ts: float) -> None:
+        """One BOOST event (``_egress_identity_boost_events``)."""
+        self._egress_identity_boost_events.append(ts)
+
+    def set_egress_identity_agreement_class(self, value: Any) -> None:
+        """Last agreement class (``_egress_identity_agreement_class_last``)."""
+        self._egress_identity_agreement_class_last = value
+
+    def set_egress_identity_last_attach(self, record: dict) -> None:
+        """Last attach record (``_egress_identity_last_attach``)."""
+        self._egress_identity_last_attach = record
+
     def _canonical_person_slug(self, name: Any) -> str:
         """Canonicalize a person identifier to the URA person-slug namespace
         (Review A-HIGH-1 / A-MED-1 / B-MED-1 / B-MED-2 fix).

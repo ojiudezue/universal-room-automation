@@ -6635,7 +6635,9 @@ class MFPersonFollowSwitch(SwitchEntity, RestoreEntity):
         # Default ON — matches the __init__.py:1913 auto-enable-for-all.
         self._is_on = True
         # entity_id-safe slug (lowercased with underscores).
-        slug = person_id.lower().replace(" ", "_")
+        from .person_ids import entity_key_slug  # noqa: PLC0415
+
+        slug = entity_key_slug(person_id)
         self._attr_unique_id = f"{DOMAIN}_mf_person_follow_{slug}"
         # v5.10.0 fix-up C-L1: with has_entity_name=True + the parent
         # device name ("URA: Music Following Coordinator"), HA prefixes

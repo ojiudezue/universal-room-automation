@@ -248,7 +248,7 @@ def migrate_consol1_perimeter_keys(
 # F1 (cycle-3 fix-up): single source of truth for person-family suffix
 # vocabulary — perimeter dedup MUST NOT drift from resolver discovery.
 from .camera_resolver import _PERSON_SUFFIXES as _RESOLVER_PERSON_SUFFIXES
-from .person_ids import slug_of
+from .person_ids import display_of, slug_of
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -1743,8 +1743,8 @@ class PerimeterAlertManager:
         try:
             census = self.hass.data.get(DOMAIN, {}).get("census")
             _name_stem = _linker_camera or self._camera_key_for_sensor(entity_id)
-            if census is not None and _name_stem and hasattr(census, "_resolve_face_legs"):
-                legs = census._resolve_face_legs(_name_stem) or []
+            if census is not None and _name_stem and hasattr(census, "resolve_face_legs"):
+                legs = census.resolve_face_legs(_name_stem) or []
                 # Highest-conf named leg. Frigate legs expose no numeric
                 # confidence (conf is None) and are admitted as engine-trusted
                 # (the resolver already floored them at FACE_MATCH_MIN_CONFIDENCE
@@ -1777,7 +1777,7 @@ class PerimeterAlertManager:
                         best_conf = rank
                         best_name = slug
                 if best_name:
-                    _pretty = best_name.replace("_", " ").title()
+                    _pretty = display_of(best_name)  # RA9
                     message = f"{message} Identified: {_pretty}."
                     _annotated_identity = best_name
                     _LOGGER.info(
@@ -5198,10 +5198,10 @@ class PerimeterAlertManager:
         known: set[str] = set()
         try:
             if census is not None:
-                known |= {s.lower() for s in census._get_tracked_person_slugs()}
-                for g in census._get_known_face_guests():
+                known |= {s.lower() for s in census.tracked_person_slugs()}
+                for g in census.known_face_guests():
                     try:
-                        known.add(census._canonical_person_slug(g) or str(g).lower())
+                        known.add(census.canonical_person_slug(g) or str(g).lower())
                     except Exception:  # noqa: BLE001
                         known.add(str(g).lower())
         except Exception:  # noqa: BLE001
@@ -5235,7 +5235,7 @@ class PerimeterAlertManager:
                     best = (slug, floor, f"egress_synthetic+{src}")
                     break
         try:
-            legs = census._resolve_face_legs(cam_key) if census is not None else []
+            legs = census.resolve_face_legs(cam_key) if census is not None else []
         except Exception:  # noqa: BLE001
             legs = []
         for leg in legs or []:
@@ -5560,7 +5560,7 @@ class PerimeterAlertManager:
                 return fn.strip()
         except Exception:  # noqa: BLE001
             pass
-        return slug.replace("_", " ").title()
+        return display_of(slug)  # RA9
 
     async def _async_send_identity_followup(
         self, state: dict[str, Any], slug: str,

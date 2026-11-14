@@ -4756,16 +4756,13 @@ class ZoneAnyoneBinarySensor(ZoneSensorBase, BinarySensorEntity):
 
             # PERSON-BLE-WINS-OVER-STALE-GPS-1 §6b: trust read routed through
             # the BLE-overrule-aware helper (raw state unless overruled).
-            from .person_coordinator import person_state_for_trust  # noqa: PLC0415
+            # RA8: the one F1 per-zone level read. Strict "home" only —
+            # unknown/unavailable intentionally not trusted.
+            from .person_coordinator import first_person_home_for_trust  # noqa: PLC0415
 
-            any_person_home = False
-            home_person_entity = ""
-            for person_entity in zone_persons:
-                # Strict "home" only — unknown/unavailable intentionally not trusted.
-                if person_state_for_trust(self.hass, person_entity) == "home":
-                    any_person_home = True
-                    home_person_entity = person_entity
-                    break
+            _first_home = first_person_home_for_trust(self.hass, zone_persons)
+            any_person_home = _first_home is not None
+            home_person_entity = _first_home if _first_home is not None else ""
             if not any_person_home:
                 return False
 
@@ -4893,14 +4890,13 @@ class ZoneAnyoneBinarySensor(ZoneSensorBase, BinarySensorEntity):
                 return False
 
             # PERSON-BLE-WINS-OVER-STALE-GPS-1 §6b: BLE-overrule-aware trust read.
-            from .person_coordinator import person_state_for_trust  # noqa: PLC0415
+            # RA8: the one F1 per-zone level read. Conservative: require
+            # literal "home" — unknown/unavailable not trusted.
+            from .person_coordinator import first_person_home_for_trust  # noqa: PLC0415
 
-            # Conservative: require literal "home" — unknown/unavailable not trusted.
-            any_person_home = False
-            for person_entity in zone_persons:
-                if person_state_for_trust(self.hass, person_entity) == "home":
-                    any_person_home = True
-                    break
+            any_person_home = (
+                first_person_home_for_trust(self.hass, zone_persons) is not None
+            )
             if not any_person_home:
                 return False
 
@@ -6737,19 +6733,20 @@ class ZoneGuestCountSensor(ZoneSensorBase, SensorEntity):
         census) is replaced by ``identified_count`` from the same ``house``
         record.
         """
-        census = self.hass.data.get(DOMAIN, {}).get("census")
+        # RA7: the one F2 read (trust view), one snapshot for all fields.
+        from .census_view import house_census_view  # noqa: PLC0415
 
         camera_total = 0
         identified_count = 0
         unidentified_count = 0
         confidence = "none"
 
-        if census and census.last_result:
-            house = census.last_result.house
-            camera_total = house.total_persons
-            identified_count = house.identified_count
-            unidentified_count = house.unidentified_count
-            confidence = house.confidence
+        view = house_census_view(self.hass, "trust")
+        if view is not None:
+            camera_total = view.total
+            identified_count = view.identified
+            unidentified_count = view.unidentified_or_guests
+            confidence = view.confidence
 
         return {
             "camera_total": camera_total,
@@ -6770,12 +6767,14 @@ class ZoneGuestCountSensor(ZoneSensorBase, SensorEntity):
         graceful-degradation sentinel when the census is unavailable.
         """
         try:
-            census = self.hass.data.get(DOMAIN, {}).get("census")
+            # RA7: the one F2 read (trust view).
+            from .census_view import house_census_view  # noqa: PLC0415
 
-            if not census or census.last_result is None:
+            view = house_census_view(self.hass, "trust")
+            if view is None:
                 return 0
 
-            return census.last_result.house.unidentified_count
+            return view.unidentified_or_guests
         except Exception as exc:
             _LOGGER.error(
                 "ZoneGuestCountSensor '%s': error calculating guest count: %s",

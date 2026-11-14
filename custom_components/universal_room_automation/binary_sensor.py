@@ -120,13 +120,11 @@ async def async_setup_entry(
         # by ``person.<slug>``; tracked_persons may hold display names, so the
         # id comes from the one normalising rule, never a hand-built string.
         from .person_coordinator import tracked_person_entity_id
+        from .person_ids import display_of
         merged_config = {**entry.data, **entry.options}
         tracked_person_entities = merged_config.get(CONF_TRACKED_PERSONS, [])
         for entity_id in tracked_person_entities:
-            if entity_id.startswith("person."):
-                person_name = entity_id.replace("person.", "").replace("_", " ").title()
-            else:
-                person_name = entity_id.replace("_", " ").title()
+            person_name = display_of(entity_id)  # RA9: one inverse rule
             census_binary.append(
                 PersonPhoneLeftBehindSensor(
                     hass, entry, person_name, tracked_person_entity_id(entity_id),
@@ -1949,13 +1947,16 @@ class URAUnexpectedPersonSensor(BinarySensorEntity):
         if not census or not person_coordinator:
             return False
 
-        result = census.last_result
-        if not result:
+        # RA7: the one F2 read (trust view).
+        from .census_view import house_census_view  # noqa: PLC0415
+
+        view = house_census_view(self.hass, "trust")
+        if view is None:
             self._camera_total = 0
             self._ble_total = 0
             return False
 
-        self._camera_total = result.house.total_persons
+        self._camera_total = view.total
 
         # Keep _ble_total populated for the diagnostic attributes / parity.
         ble_active: list[str] = []
@@ -1966,7 +1967,7 @@ class URAUnexpectedPersonSensor(BinarySensorEntity):
             ]
         self._ble_total = len(ble_active)
 
-        return result.house.unidentified_count > 0
+        return view.unidentified_or_guests > 0
 
     @property
     def extra_state_attributes(self) -> dict:
@@ -1994,9 +1995,13 @@ class URAUnexpectedPersonSensor(BinarySensorEntity):
         ble_total = 0
         guest_count = 0
 
-        if census and census.last_result:
-            camera_total = census.last_result.house.total_persons
-            guest_count = census.last_result.house.unidentified_count
+        # RA7: the one F2 read (trust view).
+        from .census_view import house_census_view  # noqa: PLC0415
+
+        _view = house_census_view(self.hass, "trust") if census else None
+        if _view is not None:
+            camera_total = _view.total
+            guest_count = _view.unidentified_or_guests
 
         if person_coordinator and person_coordinator.data:
             ble_total = len([
@@ -2146,7 +2151,9 @@ class PersonPhoneLeftBehindSensor(BinarySensorEntity):
         self.entry = entry
         self._person_id = person_id
         self._person_entity = person_entity
-        self._attr_unique_id = f"{DOMAIN}_person_{person_id.lower().replace(' ', '_')}_phone_left_behind"
+        from .person_ids import entity_key_slug  # noqa: PLC0415
+
+        self._attr_unique_id = f"{DOMAIN}_person_{entity_key_slug(person_id)}_phone_left_behind"
         self._attr_name = f"{person_id} Phone Left Behind"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, "integration")},
@@ -2207,11 +2214,12 @@ class PersonPhoneLeftBehindSensor(BinarySensorEntity):
 
         # 3. If camera census currently sees people, suppress —
         #    the phone holder is likely present (census is evidence of presence)
-        census = self.hass.data.get(DOMAIN, {}).get("census")
-        if census and census.last_result:
-            house = census.last_result.house
-            if house.total_persons > 0:
-                return False
+        # RA7: the one F2 read (trust view).
+        from .census_view import house_census_view  # noqa: PLC0415
+
+        _view = house_census_view(self.hass, "trust")
+        if _view is not None and _view.total > 0:
+            return False
 
         # 4. Camera leg: DISPLAY ONLY (operator ruling A, 2026-11-13,
         #    PHONE-LEFT-BEHIND-CAMERA-LEG-1). Person sightings are shown in
@@ -2256,9 +2264,12 @@ class PersonPhoneLeftBehindSensor(BinarySensorEntity):
         # source and veto flag). Display only; is_on never reads it.
         sighting_attrs = self._sighting_attributes(self._last_sighting())
 
-        census = self.hass.data.get(DOMAIN, {}).get("census")
-        if census and census.last_result:
-            census_persons = census.last_result.house.total_persons
+        # RA7: the one F2 read (trust view).
+        from .census_view import house_census_view  # noqa: PLC0415
+
+        _view = house_census_view(self.hass, "trust")
+        if _view is not None:
+            census_persons = _view.total
 
         # PATH-ALPHA D2c (2026-08-16): D9 room-corroboration outcome.
         # Recompute the same fail-OPEN check `is_on` uses so the attr

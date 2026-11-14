@@ -162,6 +162,33 @@ def person_state_for_trust(hass, person_entity_id: str) -> str | None:
     return st.state if st is not None else None
 
 
+def persons_home_for_trust(hass, persons) -> list[str]:
+    """F1 per-zone level read (PERSON-AWARENESS-READ-API-1 RA8).
+
+    The persons of ``persons`` (in order; ``None`` -> none) whose trust state
+    (``person_state_for_trust``) reads exactly ``home``; unknown / unavailable
+    / missing are not home. This is the "any of the zone's persons home" rule
+    the HVAC / aggregation zone loops each re-implemented. It does NOT apply
+    the phone-left-behind cut of ``PresenceCoordinator.get_residents_home()``
+    (a different question: global residents, not a zone's persons).
+    """
+    return list(_iter_persons_home_for_trust(hass, persons))
+
+
+def first_person_home_for_trust(hass, persons) -> str | None:
+    """First person of ``persons`` home under ``persons_home_for_trust``'s
+    rule, else ``None``. Short-circuits (stops reading at the first home
+    person), like the loops it replaces."""
+    return next(_iter_persons_home_for_trust(hass, persons), None)
+
+
+def _iter_persons_home_for_trust(hass, persons):
+    """The one rule behind both helpers above (lazy, in order)."""
+    for p in (persons or []):
+        if person_state_for_trust(hass, p) == "home":
+            yield p
+
+
 class PersonTrackingCoordinator(DataUpdateCoordinator):
     """Coordinator for person tracking across rooms."""
 
@@ -815,7 +842,9 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
             if not self._ble_leads_enabled():
                 return raw_state
             for name in overruled:
-                if f"person.{name.lower().replace(' ', '_')}" == person_entity_id:
+                # RA9: the one id rule (a ``person.*`` entry is kept, never
+                # ``person.person.*``).
+                if tracked_person_entity_id(name) == person_entity_id:
                     if self.get_person_location(name) == "away":
                         return "not_home"
                     break
@@ -987,7 +1016,7 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                 old_last_bermuda_update = old_data.get("last_bermuda_update")
                 
                 # Get person entity
-                person_entity_id = f"person.{person_name.lower().replace(' ', '_')}"
+                person_entity_id = tracked_person_entity_id(person_name)  # RA9
                 person_state = self.hass.states.get(person_entity_id)
                 
                 if not person_state:
@@ -1737,7 +1766,7 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
         Uses the same logic as _async_update_data (line 133 pattern).
         """
         # Try direct match (same pattern as person_entity_id construction)
-        candidate = f"person.{person_name.lower().replace(' ', '_')}"
+        candidate = tracked_person_entity_id(person_name)  # RA9
         if self.hass.states.get(candidate):
             return candidate
         # Try without transformation

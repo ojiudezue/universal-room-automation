@@ -290,30 +290,9 @@ class TransientSignal:
     count: int
 
 
-@dataclass(frozen=True)
-class HouseCensusView:
-    """F2 house census as one consumer class reads it
-    (PERSON-AWARENESS-READ-API-1 RA1). Built by
-    ``PresenceCoordinator.get_house_census``; values are copied from
-    ``census.last_result.house`` (never ``_census_count``).
-
-    view: ``trust`` or ``awareness``.
-    identified: house ``identified_count``.
-    unidentified_or_guests: house ``unidentified_count``.
-    total: house ``total_persons``.
-    provenance: where the count came from (``camera`` until the census
-        deconfliction plan adds vision).
-    agreement: house ``source_agreement``.
-    as_of: house ``timestamp``.
-    """
-
-    view: str
-    identified: int
-    unidentified_or_guests: int
-    total: int
-    provenance: str
-    agreement: str
-    as_of: Any
+# RA1 view type lives in the pure ``census_view`` module (RA7: display
+# readers use it without the presence coordinator); re-exported here.
+from ..census_view import HouseCensusView, house_census_view  # noqa: E402,F401
 
 
 @dataclass(frozen=True)
@@ -3241,20 +3220,10 @@ class PresenceCoordinator(BaseCoordinator):
 
             # v3.6.0-c2.3: Seed census count from existing data before first
             # inference. Without this, _census_count=0 → infers "away" even
-            # when people are home. Read from census manager if available,
-            # else fall back to the identified_persons sensor state.
+            # when people are home. Reads the identified_persons sensor state.
+            # RA7: the old first branch read hass.data key
+            # "camera_integration_manager", which nothing writes; deleted.
             try:
-                census_mgr = self.hass.data.get(DOMAIN, {}).get(
-                    "camera_integration_manager"
-                )
-                if census_mgr and hasattr(census_mgr, "last_result"):
-                    last = census_mgr.last_result
-                    if last is not None:
-                        self._census_count = last.house.total_persons
-                        _LOGGER.info(
-                            "Seeded census count from manager: %d",
-                            self._census_count,
-                        )
                 if self._census_count == 0:
                     # Fallback: read from sensor state
                     state = self.hass.states.get(
@@ -5404,7 +5373,9 @@ class PresenceCoordinator(BaseCoordinator):
         inside ``_run_inference`` is deliberately untouched (INV-MACHINE);
         a parity test pins the two on every non-raising input.
         """
-        person_slug = (person_name or "").lower().replace(" ", "_")
+        from ..person_ids import entity_key_slug  # noqa: PLC0415
+
+        person_slug = entity_key_slug(person_name or "")
         if not person_slug:
             return False
         try:
@@ -5432,11 +5403,27 @@ class PresenceCoordinator(BaseCoordinator):
             return False
         return state.state == "on"
 
-    def get_residents_home(self) -> frozenset:
+    def get_residents_home(self, zone_persons: Any = None) -> frozenset:
         """Residents at home (LEVEL, trust state): ``person_state_for_trust``
         reads ``home`` and the phone-left-behind sensor is not ``on``.
         Unresolved resident set -> empty (severity fails toward CRITICAL).
-        Synchronous, never raises, safe before setup."""
+        Synchronous, never raises, safe before setup.
+
+        RA8 (PERSON-AWARENESS-READ-API-1): with ``zone_persons`` (a list of
+        ``person.*`` ids) it answers the per-zone question instead: which of
+        those persons read ``home`` under the trust state, through
+        ``person_coordinator.persons_home_for_trust`` (the rule the HVAC /
+        aggregation zone loops call). No phone-left-behind cut on that form:
+        it is the zone level read those loops always made (concept split).
+        """
+        if zone_persons is not None:
+            try:
+                from ..person_coordinator import persons_home_for_trust  # noqa: PLC0415
+
+                return frozenset(persons_home_for_trust(self.hass, zone_persons))
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("Residency: zone persons home failed", exc_info=True)
+                return frozenset()
         try:
             residents = self._residency_residents()
             if not residents:
@@ -5952,34 +5939,14 @@ class PresenceCoordinator(BaseCoordinator):
     def get_house_census(self, view: str = "trust") -> HouseCensusView | None:
         """RA1: F2 house census for ``view`` (``trust`` / ``awareness``).
 
-        Reads ``census.last_result.house``. Sync, never raises; no census or
-        no result yet -> None. Until the census deconfliction plan adds the
-        awareness fields, the awareness view returns the trust values with
-        provenance ``camera``. Any view string other than ``awareness``
-        reads trust.
+        Reads ``census.last_result.house`` through ``census_view.house_census_view``
+        (the one F2 read; RA7 display readers call it too). Sync, never
+        raises; no census or no result yet -> None. Until the census
+        deconfliction plan adds the awareness fields, the awareness view
+        returns the trust values with provenance ``camera``. Any view string
+        other than ``awareness`` reads trust.
         """
-        try:
-            census = self.hass.data.get(DOMAIN, {}).get("census")
-            if census is None:
-                return None
-            last = census.last_result
-            if last is None:
-                return None
-            house = last.house
-            if house is None:
-                return None
-            return HouseCensusView(
-                view="awareness" if view == "awareness" else "trust",
-                identified=int(house.identified_count),
-                unidentified_or_guests=int(house.unidentified_count),
-                total=int(house.total_persons),
-                provenance="camera",
-                agreement=str(house.source_agreement),
-                as_of=house.timestamp,
-            )
-        except Exception:  # noqa: BLE001 - read API never raises
-            _LOGGER.debug("get_house_census failed", exc_info=True)
-            return None
+        return house_census_view(self.hass, view)
 
     def view_for_class(self, cls: Any) -> str:
         """RA2: the census view a consumer class reads (allow-list).

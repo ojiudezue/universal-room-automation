@@ -1130,6 +1130,20 @@ class _Census:
     def _resolve_face_legs(self, stem):
         return list(self.legs)
 
+    # RA6: the public PersonCensus surface the perimeter calls (delegates,
+    # same shape as camera_census.PersonCensus).
+    def tracked_person_slugs(self):
+        return self._get_tracked_person_slugs()
+
+    def known_face_guests(self):
+        return self._get_known_face_guests()
+
+    def canonical_person_slug(self, n):
+        return self._canonical_person_slug(n)
+
+    def resolve_face_legs(self, stem):
+        return self._resolve_face_legs(stem)
+
 
 def _leg(slug, conf, age_s=0):
     return SimpleNamespace(canonical_slug=slug, confidence=conf,

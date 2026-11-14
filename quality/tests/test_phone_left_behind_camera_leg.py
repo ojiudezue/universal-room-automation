@@ -113,7 +113,9 @@ def _firing_data(m, *, sightings=None, presence=True, tv=True):
             data={"Oji Udezue": {"location": "Office"}},
             _is_room_occupied=lambda room: False,
         ),
-        "census": SimpleNamespace(last_result=SimpleNamespace(house=SimpleNamespace(total_persons=0))),
+        "census": SimpleNamespace(last_result=SimpleNamespace(house=SimpleNamespace(
+            total_persons=0, identified_count=0, unidentified_count=0,
+            source_agreement="single_source", timestamp=None, confidence="none"))),
     }
     if tv:
         d["transit_validator"] = object()
@@ -173,8 +175,13 @@ def test_verdict_identity_cross_product(m, monkeypatch):
                 data={"Oji Udezue": pdata}, _is_room_occupied=lambda r, o=occupied: o,
             )
         if census is not None:
+            # RA7: is_on reads the census through census_view, which copies
+            # every CensusZoneResult field it exposes (real field set here).
             data["census"] = SimpleNamespace(
-                last_result=SimpleNamespace(house=SimpleNamespace(total_persons=census)))
+                last_result=SimpleNamespace(house=SimpleNamespace(
+                    total_persons=census, identified_count=0,
+                    unidentified_count=0, source_agreement="single_source",
+                    timestamp=None, confidence="none")))
         if tv:
             data["transit_validator"] = object()
         if presence:
@@ -295,6 +302,10 @@ async def test_key_matches_producer_emit(m, monkeypatch):
     )
     census._face_alias_target = types.MethodType(m.census.PersonCensus._face_alias_target, census)
     census._canonical_person_slug = types.MethodType(m.census.PersonCensus._canonical_person_slug, census)
+    # RA6: the public PersonCensus surface the sighting producer calls.
+    census.face_suppressed_now = census._face_suppressed_now
+    census.tracked_person_slugs = census._get_tracked_person_slugs
+    census.canonical_person_slug = types.MethodType(m.census.PersonCensus.canonical_person_slug, census)
 
     shared: dict = {}
     hass = SimpleNamespace(data={DOMAIN: shared}, states=SimpleNamespace(get=lambda eid: None),

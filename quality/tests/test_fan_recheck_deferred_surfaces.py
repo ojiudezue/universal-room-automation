@@ -115,6 +115,13 @@ def _load_fan_recheck_manager_module():
         mod = importlib.util.module_from_spec(spec)
         sys.modules[f"{coord_pkg_name}.signals"] = mod
         spec.loader.exec_module(mod)
+    if f"{pkg_name}.person_ids" not in sys.modules:
+        # RA9: _ble_corroboration reads its unique-id key from person_ids.
+        src = ROOT_DIR / ROOT_REL / "person_ids.py"
+        spec = importlib.util.spec_from_file_location(f"{pkg_name}.person_ids", str(src))
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[f"{pkg_name}.person_ids"] = mod
+        spec.loader.exec_module(mod)
     if f"{coord_pkg_name}._ble_corroboration" not in sys.modules:
         src = ROOT_DIR / ROOT_REL / "domain_coordinators" / "_ble_corroboration.py"
         spec = importlib.util.spec_from_file_location(
