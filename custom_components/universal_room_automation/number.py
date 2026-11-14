@@ -1,6 +1,6 @@
 """Number platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.108.20
+# Universal Room Automation vv5.108.21
 # Build: 2026-01-02
 # File: number.py
 #
@@ -151,6 +151,9 @@ async def async_setup_entry(
             # CONSOL-1 §D3 rung-3: operator-tunable llmvision enrichment
             # timeout (default 4.0s = 2× observed max from D0.2 probe).
             PerimeterEnrichmentTimeoutNumber(hass, entry),
+            # VISION-CROSSING-SHADOW-1 (plan §6, rung 3): daily llmvision
+            # call cap for the crossing-vision shadow producer.
+            CrossingVisionDailyCallsNumber(hass, entry),
             # HVAC-PRESET-FLAP-1 D4 (2026-08-11): rung-3 duty off-phase
             # offset knob on the HVAC Coordinator device.
             # S14 REMOVED 2026-09-16: the off-phase ceiling hold is gone, so
@@ -4293,6 +4296,83 @@ class PerimeterEnrichmentTimeoutNumber(NumberEntity):
             )
         self.async_write_ha_state()
         _LOGGER.info("Perimeter enrichment timeout set to %.1fs", float(value))
+
+
+class CrossingVisionDailyCallsNumber(NumberEntity):
+    """VISION-CROSSING-SHADOW-1 (PLANNING_crossing_vision.md rev 2 §6, rung 3)
+    — daily cap on crossing-vision shadow llmvision calls.
+
+    Persists via entry.options (`crossing_vision_daily_calls`, the
+    PerimeterEnrichmentTimeoutNumber pattern) and publishes the live value to
+    hass.data[DOMAIN][CROSSING_VISION_CAP_HASS_KEY], which the producer reads
+    at schedule and call time (no entity-id lookup). Default
+    `CROSSING_VISION_DAILY_CALLS` (40). 0 = no calls (INV-OFF). The counter
+    is RAM, reset at local midnight; a restart can allow up to one more cap
+    that day (plan rev 2 F7).
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:counter"
+    _attr_native_min_value = 0
+    _attr_native_step = 1
+    _attr_mode = NumberMode.BOX
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from .const import (
+            CONF_CROSSING_VISION_DAILY_CALLS,
+            CROSSING_VISION_DAILY_CALLS,
+            CROSSING_VISION_DAILY_CALLS_MAX,
+        )
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_crossing_vision_daily_calls"
+        self._attr_name = "Crossing Vision Daily Calls"
+        self._attr_native_max_value = CROSSING_VISION_DAILY_CALLS_MAX
+        from ._devices import _nm_device_info as _nm_di
+        self._attr_device_info = _nm_di()
+        config = {**entry.data, **entry.options}
+        try:
+            value = int(config.get(
+                CONF_CROSSING_VISION_DAILY_CALLS, CROSSING_VISION_DAILY_CALLS,
+            ))
+        except (TypeError, ValueError):
+            value = CROSSING_VISION_DAILY_CALLS
+        self._value = max(0, min(CROSSING_VISION_DAILY_CALLS_MAX, value))
+        self._publish()
+
+    def _publish(self) -> None:
+        from .const import CROSSING_VISION_CAP_HASS_KEY
+        self.hass.data.setdefault(DOMAIN, {})[CROSSING_VISION_CAP_HASS_KEY] = int(
+            self._value
+        )
+
+    @property
+    def native_value(self) -> float:
+        return float(self._value)
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    async def async_set_native_value(self, value: float) -> None:
+        from .const import CONF_CROSSING_VISION_DAILY_CALLS
+        self._value = int(value)
+        self._publish()
+        try:
+            self.hass.config_entries.async_update_entry(
+                self._entry,
+                options={
+                    **self._entry.options,
+                    CONF_CROSSING_VISION_DAILY_CALLS: int(value),
+                },
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "CrossingVisionDailyCalls options-writeback failed", exc_info=True,
+            )
+        self.async_write_ha_state()
+        _LOGGER.info("Crossing vision daily call cap set to %d", int(value))
 
 
 # ============================================================================

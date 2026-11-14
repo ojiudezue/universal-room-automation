@@ -53,6 +53,39 @@ from typing import Any, Callable, Iterable
 _LOGGER = logging.getLogger(__name__)
 
 
+def _device_name_slug(dev: Any | None) -> str | None:
+    """W1: HA ``slugify`` of a device's registry name (``name_by_user`` else
+    ``name``) -- the function that minted ``camera.<slug>`` from the device
+    name. None when the device or its name is missing, or HA is unavailable
+    (fail closed: no pairing)."""
+    if dev is None:
+        return None
+    name = getattr(dev, "name_by_user", None) or getattr(dev, "name", None)
+    if not isinstance(name, str) or not name.strip():
+        return None
+    try:
+        from homeassistant.util import slugify  # noqa: PLC0415
+    except Exception:  # noqa: BLE001
+        return None
+    return slugify(name) or None
+
+
+# W1 B-L1: accepted object-name pairings already logged in this process
+# (once per pairing per setup; the resolver is rebuilt often).
+_LOGGED_OBJECT_NAME_PAIRINGS: set[tuple[str, str, str | None]] = set()
+
+
+def _log_object_name_pairing(frigate_did: str, other_did: str, obj: str | None) -> None:
+    key = (frigate_did, other_did, obj)
+    if key in _LOGGED_OBJECT_NAME_PAIRINGS:
+        return
+    _LOGGED_OBJECT_NAME_PAIRINGS.add(key)
+    _LOGGER.info(
+        "CameraResolver: Frigate object-name pairing accepted: frigate_device=%s "
+        "protect_device=%s object_name=%s", frigate_did, other_did, obj,
+    )
+
+
 def _norm_mac(value: Any) -> str:
     """Normalize a MAC connection value. A-L1: prefer HA's format_mac (canonical
     lowercase colon-separated form), else fall back to a lowercased string so
@@ -101,6 +134,18 @@ CAMERA_AUTOENABLE_DRY_RUN: bool = True
 # — do NOT flip without that artifact.
 CENSUS_USE_NEW_RESOLVER: bool = True
 
+# NVR-WITNESS W1 (PLANNING_nvr_witness_layer.md §5): pair a Frigate camera
+# device with its non-Frigate sibling on REGISTRY evidence only -- the Frigate
+# object name from the Frigate device identifier ``(frigate, "<inst>:<obj>")``
+# equals HA's ``slugify`` of the candidate DEVICE's registry name
+# (``name_by_user`` else ``name``) -- under four uniqueness conditions
+# (``_frigate_object_name_sibling``). Fixes garage_a: Frigate
+# ``camera.garage_a_2`` never reached its Protect device (no MAC, no
+# identifier, so the A-MED-2 ``_N`` guard refused). Rung 1 (module const):
+# changing pairing evidence must be a reviewed change. False = W1 off,
+# byte-identical to the pre-W1 resolver.
+RESOLVER_FRIGATE_OBJECT_NAME_EVIDENCE: bool = True
+
 
 # ---------------------------------------------------------------------------
 # Data shapes
@@ -113,6 +158,8 @@ BASIS_IDENTIFIERS = "identifiers"
 BASIS_NETWORK_INVENTORY = "network_inventory"
 BASIS_NAME_STEM = "name_stem"
 BASIS_OPERATOR_DECLARED = "operator_declared"
+# W1: sibling accepted on Frigate object name == candidate device registry name.
+BASIS_FRIGATE_OBJECT_NAME = "frigate_object_name"
 
 # Face capability tri-state.
 FACE_ABSENT = "absent"
@@ -581,6 +628,10 @@ class CameraResolver:
         # device_id -> first `camera.*` entity_id on that device (latch key
         # fallback for a renamed face sensor).
         self._camera_entity_by_device: dict[str, str] = {}
+        # W1: slugified DEVICE registry name (name_by_user else name) ->
+        # device_ids of devices owning an enabled ``camera.*`` entity.
+        # Registry fields only; no entity_id string is parsed.
+        self._camera_device_name_slug_to_ids: dict[str, set[str]] = {}
         self._build_indices()
 
     # ---- Index construction ------------------------------------------------
@@ -694,6 +745,11 @@ class CameraResolver:
                     self._device_platform_hint[did] = plat
                 elif cur is None:
                     self._device_platform_hint[did] = plat
+        # W1 index: camera-owning devices keyed by slugified registry name.
+        for _cdid in self._camera_entity_by_device:
+            _slug = _device_name_slug(self._device(_cdid))
+            if _slug:
+                self._camera_device_name_slug_to_ids.setdefault(_slug, set()).add(_cdid)
         # D2 order: bare-named before `_N`, then lexical — reproduces the
         # legacy bare-then-`_2` candidate order.
         for _did, _lst in self._frigate_face_entities_by_device.items():
@@ -757,6 +813,70 @@ class CameraResolver:
         if not device_id:
             return None
         return self._camera_entity_by_device.get(device_id)
+
+    @staticmethod
+    def own_camera_entity_for_input(
+        entity_registry: Any, entity_id: str,
+    ) -> tuple[str | None, str, bool]:
+        """The camera entity that produces ``entity_id`` (camera input stream
+        health S1, PLANNING_camera_input_stream_health.md).
+
+        Same device, ENABLED ``camera.*`` entities only (the disabled skip of
+        ``_build_indices``), and EXACTLY one of them: zero or two-plus
+        (e.g. an NVR device hosting several cameras) is unresolved, because
+        then the device cannot say which stream feeds the input. A per-entity
+        registry read, not the full index walk of ``__init__``, because each
+        room resolves its own few inputs, and ``camera_entity_for_device``
+        keeps only the first camera so it cannot see a second one. Quiet on
+        a registry miss (no WARN): called per room per cache rebuild.
+
+        Returns ``(camera_entity_id | None, reason, camera_derived)``.
+        ``reason`` is ``resolved`` / ``no_registry_entry`` / ``no_device`` /
+        ``no_camera`` / ``multi_camera`` / ``registry_error``.
+        ``camera_derived`` is True when the input's platform is a known
+        camera integration or its device has at least one camera entity
+        (feeds the zero-resolved boot WARNING only).
+        """
+        try:
+            entry = entity_registry.async_get(entity_id)
+        except Exception:  # noqa: BLE001 — never raise into the room tick
+            return None, "registry_error", False
+        if entry is None:
+            return None, "no_registry_entry", False
+        platform = getattr(entry, "platform", None)
+        camera_platform = platform in (
+            PLATFORM_FRIGATE, PLATFORM_UNIFI, PLATFORM_REOLINK,
+            PLATFORM_AMCREST, PLATFORM_DAHUA,
+        )
+        device_id = getattr(entry, "device_id", None)
+        if not device_id:
+            return None, "no_device", camera_platform
+        try:
+            items = getattr(entity_registry, "entities", None)
+            by_device = getattr(items, "get_entries_for_device_id", None)
+            if callable(by_device):
+                # HA helpers/entity_registry.py EntityRegistryItems
+                # .get_entries_for_device_id (device index; disabled skipped
+                # by default).
+                device_entries = list(by_device(device_id))
+            else:
+                device_entries = [
+                    e for e in (items or {}).values()
+                    if getattr(e, "device_id", None) == device_id
+                ]
+        except Exception:  # noqa: BLE001
+            return None, "registry_error", camera_platform
+        cameras = sorted(
+            getattr(e, "entity_id", "") for e in device_entries
+            if getattr(e, "disabled_by", None) is None
+            and str(getattr(e, "entity_id", "")).startswith("camera.")
+        )
+        derived = camera_platform or bool(cameras)
+        if not cameras:
+            return None, "no_camera", derived
+        if len(cameras) != 1:
+            return None, "multi_camera", derived
+        return cameras[0], "resolved", derived
 
     def face_engine_tag(self, device_id: str | None, integration_hint: str) -> str:
         """D4: FaceLeg engine label from the face entity's DEVICE family,
@@ -1002,6 +1122,17 @@ class CameraResolver:
                         continue
                     if self._shares_evidence_with_inputs(sibling_did, device_ids):
                         expanded[sibling_did] = BASIS_NAME_STEM
+
+        # W1: Frigate object-name evidence with uniqueness (registry only).
+        if RESOLVER_FRIGATE_OBJECT_NAME_EVIDENCE:
+            for did in device_ids:
+                sibling_did = self._frigate_object_name_sibling(did)
+                if sibling_did and sibling_did not in expanded:
+                    expanded[sibling_did] = BASIS_FRIGATE_OBJECT_NAME
+                    _log_object_name_pairing(
+                        did, sibling_did,
+                        self._frigate_object_name_for_device(self._device(did)),
+                    )
 
         # ---- F2 collapse: pre-select the winning Frigate device per object-name
         # A-M3 fix — deterministic winner:
@@ -1515,6 +1646,43 @@ class CameraResolver:
             if cand_frigate and self._infer_integration(dev) == PLATFORM_FRIGATE:
                 return True
         return False
+
+    def _frigate_object_name_sibling(self, input_did: str) -> str | None:
+        """W1: the one non-Frigate camera device paired with Frigate device
+        ``input_did`` by registry evidence, or None.
+
+        Accept only when ALL hold (plan §5; HA names a Frigate camera ``X_2``
+        exactly because a ``camera.X`` exists, so a shared name alone is not
+        evidence):
+          (1) the input device is Frigate and its object name (from its
+              Frigate identifier) equals the slugified registry name of the
+              candidate device;
+          (2) exactly one non-Frigate camera device carries that slug;
+          (3) no other Frigate device has that object name;
+          (4) the candidate device has no Frigate identifier of its own.
+        """
+        dev = self._device(input_did)
+        if self._infer_integration(dev) != PLATFORM_FRIGATE:
+            return None
+        obj = self._frigate_object_name_for_device(dev)
+        if not obj:
+            return None
+        # (3) object name unique among Frigate devices.
+        if set(self._frigate_stem_to_device_ids.get(obj, ())) - {input_did}:
+            return None
+        # (1)+(2) exactly one non-Frigate camera device with that registry name.
+        candidates = [
+            c for c in self._camera_device_name_slug_to_ids.get(obj, ())
+            if c != input_did
+            and self._infer_integration(self._device(c)) != PLATFORM_FRIGATE
+        ]
+        if len(candidates) != 1:
+            return None
+        cand = candidates[0]
+        # (4) candidate carries no Frigate identifier.
+        if self._frigate_object_name_for_device(self._device(cand)) is not None:
+            return None
+        return cand
 
     def _frigate_object_name_for_device(self, dev: Any | None) -> str | None:
         if dev is None:

@@ -1,0 +1,36 @@
+{
+  "format_version": "2.1",
+  "entry_id": "298",
+  "author": "ojiudezue",
+  "session_id": "claude_20261113_arc_identity_vision_census",
+  "timestamp": "2026-11-14T04:00:00Z",
+  "type": "decision",
+  "weight": "critical",
+  "title": "Registry, never name guessing: resolve platform, NVR family, device, person and room from HA registries, not entity-id strings",
+  "summary": "The house-wide sweep found 171 raw hits, ~45 decision sites, and two live bugs the guesses were hiding: the HVAC fan-off-while-occupied guard silently off in 10 of 47 rooms (binary_sensor.foyer_occupied 404 vs foyer_foyer_occupied 200), and Oji's 14 iphone_oji_* Bermuda sensors never found because code searched oji_udezue. The garage_a _2 Frigate camera was never paired with its Protect twin, so its crossings never earned two-NVR confidence.",
+  "why": "Operator rule after learning perimeter and census still guessed Frigate vs Protect from entity-name suffixes: 'Unacceptable to do the latter anymore. It's invalidated [whole] features in the past.' Now in CLAUDE.md; a new name guess is a defect.",
+  "implications": "Every future plan, build and review must cite a registry lookup for identity; a CI guard (AST scan, shrinking allowlist with owner card) will fail new guesses. Frigate devices carry no MAC, so cross-NVR pairing needs one explicit resolver, not a pure registry fact.",
+  "alternatives_considered": [
+    {
+      "option": "Fix each guess when it bites",
+      "rejected_because": "it already invalidated whole features (music following person filter, AI rule person filter, garage_a pairing) before anyone noticed"
+    },
+    {
+      "option": "Ask the operator to rename entities to match conventions",
+      "rejected_because": "renames ripple through every list and do not help another install; names are not identity"
+    }
+  ],
+  "confidence": "high",
+  "revisit_trigger": "If a registry lookup proves impossible for a class of entity (e.g. Frigate pairing), the logged-and-counted fallback must stay at zero live hits; a non-zero counter reopens the design.",
+  "refs": {
+    "cards": [
+      "REGISTRY-NOT-NAMES-1",
+      "ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1",
+      "BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1"
+    ],
+    "docs": [
+      "CLAUDE.md",
+      "docs/planning/AUDIT_registry_not_names_sweep_2026_11_13.md"
+    ]
+  }
+}

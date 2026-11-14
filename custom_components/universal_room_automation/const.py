@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.108.20
+# Universal Room Automation vv5.108.21
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.108.20"
+VERSION: Final = "v5.108.21"
 
 # EC-LOADED-VS-INSTALLED-VERSION-1 — how often the on-disk manifest is re-read
 # to detect an installed-but-not-restarted deploy. Rung 1 (module constant):
@@ -3278,7 +3278,14 @@ SENSOR_ZONE_GUEST_COUNT: Final = "zone_guest_count"
 
 TRANSIT_CHECKPOINT_STALE_SECONDS: Final = 90
 TRANSIT_CHECKPOINT_WINDOW_SECONDS: Final = 120
-TRANSIT_PHONE_LEFT_BEHIND_HOURS: Final = 4.0
+# TRANSIT_PHONE_LEFT_BEHIND_HOURS (4.0) deleted by PHONE-LEFT-BEHIND-CAMERA-LEG-1:
+# it had no reader and contradicted the sensor's own window.
+
+# PHONE-LEFT-BEHIND-CAMERA-LEG-1 (display only, operator ruling A 2026-11-13).
+# Rung 1: display windows, rarely tuned.
+# NextRoom `camera_last_seen` shows the person's last sighting only while it is
+# younger than this (names the old implicit 4 h default). <= 0 = never shown.
+NEXT_ROOM_CAMERA_SIGHTING_MAX_AGE_S: Final = 14400
 
 # ---------------------------------------------------------------------------
 # PATH-ALPHA D9 (GAP-B, 2026-08-16): PersonPhoneLeftBehindSensor room-occupancy
@@ -3513,6 +3520,87 @@ EGRESS_OUTCOME_LOG_TEARDOWN_TIMEOUT_S: Final = 5.0
 # Auto-label windows the weekly labeller reports (seconds; offline only,
 # scripts/probes/egress_outcome_label_weekly.py).
 EGRESS_OUTCOME_LABEL_WINDOWS_S: Final = (120, 300, 600, 1800)
+
+# VISION-CROSSING-SHADOW-1 (PLANNING_crossing_vision.md rev 2, Phase 1, D1-D3):
+# shadow producer `crossing_vision.CrossingVisionShadow`. One llmvision
+# `video_analyzer` call per entry/exit crossing on the matched Frigate event,
+# one `memory_episodes` row (`crossing_vision_shadow`). Nothing decides on it
+# (INV-SHADOW). Knob ladder: plan §6. The master switch is
+# `switch.ura_crossing_vision_shadow` (rung 3, off at ship); the daily cap is
+# a rung-3 Number (CM entry option `crossing_vision_daily_calls`).
+CROSSING_VISION_EPISODE_TYPE: Final = "crossing_vision_shadow"
+# hass.data[DOMAIN] keys: the producer, the switch flag (written by the
+# switch, survives an integration reload) and the live daily cap (written by
+# the Number).
+CROSSING_VISION_HASS_KEY: Final = "crossing_vision"
+CROSSING_VISION_SWITCH_HASS_KEY: Final = "crossing_vision_shadow_on"
+CROSSING_VISION_CAP_HASS_KEY: Final = "crossing_vision_daily_calls"
+CONF_CROSSING_VISION_DAILY_CALLS: Final = "crossing_vision_daily_calls"
+# Rung 3 default (Number). §15.9.5: max measured day 30 + headroom; 0 = no
+# calls. The counter is RAM, reset at local midnight: each HA restart can
+# allow up to one more cap that day (≤ $0.50 on gpt-4o-mini; plan rev 2 F7).
+CROSSING_VISION_DAILY_CALLS: Final = 40
+CROSSING_VISION_DAILY_CALLS_MAX: Final = 200
+# Rung 1: model change needs a dry call first (D5 moves it). Operator
+# 2026-11-13: the producer uses its own llmvision entry "OpenAI Madrone
+# Vision" (model gpt-6-luna; temperature 1.0 and top_p 1.0 live on that
+# llmvision entry's data, llmvision __init__.py:101-102, not on the service
+# call, so URA sends neither).
+CROSSING_VISION_MODEL: Final = "gpt-6-luna"
+# Rung 1: llmvision config entry id sent as the `provider` service field,
+# used only when it is an llmvision entry on this install; empty or absent =
+# the perimeter's provider (CONF_PERIMETER_ENRICHMENT_PROVIDER_ID). An entry
+# id, not a credential. Plan P2-D1 moves this to a rung-2 options field.
+CROSSING_VISION_PROVIDER_ID: Final = "01M7B731T26P2HXVW77AQR62PP"
+# Rung 1 (review A6): own max_tokens, so lowering the perimeter's
+# CONF_PERIMETER_ENRICHMENT_MAX_TOKENS for alerts cannot truncate this JSON.
+# 1500 = the perimeter default the D0 dry calls ran with.
+CROSSING_VISION_MAX_TOKENS: Final = 1500
+# Rung 1: first (pre-roll) frame + 3. Keep >= 3: D0b found the first
+# frame empty in 53 % of responses.
+CROSSING_VISION_MAX_FRAMES: Final = 4
+# Rung 1: D0-V measured at 768 px.
+CROSSING_VISION_TARGET_WIDTH: Final = 768
+# Rung 1 (rev 2 F6): above llmvision's own request_timeout (default 60 s) plus
+# clip fetch + ffmpeg, because wait_for cancels llmvision's handler in place.
+# D0b measured p99 17.8 s, max 19.4 s: 90 kept.
+# Review B1 (known upstream leak, llmvision 1.7.1 media_handlers.py:662-845):
+# a cancel (this timeout, or the unload gather cancel) during clip fetch or
+# ffmpeg leaves one temp .mp4 (NamedTemporaryFile(delete=False), removed only
+# on the normal path, not in a finally) and the ffmpeg subprocess running
+# until its pipe closes. Rare at ~14 calls/day under 20 s. Upstream fix
+# (try/finally + process.kill()) is carded, not a URA change.
+CROSSING_VISION_TIMEOUT_S: Final = 90
+# Rung 1: Frigate event start must lie in [E - this, E + this]. D0c:
+# coverage 74 % at +-10 s, 88 % at +-60 s (scorer note; window unchanged).
+CROSSING_VISION_EVENT_MATCH_S: Final = 10
+# Rung 1: call when the matched event ends, or this long after the bus
+# event, whichever first (longest measured event 134 s).
+CROSSING_VISION_EVENT_END_WAIT_S: Final = 120
+# Rung 1: a crossing within this of another request's E on the same door
+# group shares that request (no second call; own `clustered` row).
+CROSSING_VISION_CLUSTER_S: Final = 60
+# Rung 1: requests waiting or calling at once (measured max 2, §15.9.4).
+CROSSING_VISION_MAX_CONCURRENT: Final = 2
+# Rung 1: Frigate person events kept per door-group camera.
+CROSSING_VISION_EVENT_RING: Final = 20
+# Rung 1: llmvision `expose_images` (frames kept under
+# /media/llmvision/snapshots, llmvision's retention). False = none kept.
+CROSSING_VISION_KEEP_FRAMES: Final = True
+# Rung 1 trip-wires (D3). Zero-ok: >= this many entry/exit crossings seen in
+# the window with the switch on and 0 `ok` rows pages HIGH.
+CROSSING_VISION_ZERO_MIN_CROSSINGS: Final = 5
+# Error trip-wire: (error + timeout + unparseable + refused) / calls above
+# this, with at least ERROR_MIN_CALLS calls in the window, pages MEDIUM.
+# A value > 1 turns it off.
+CROSSING_VISION_ERROR_RATE_MAX: Final = 0.25
+CROSSING_VISION_ERROR_MIN_CALLS: Final = 8
+CROSSING_VISION_TRIPWIRE_WINDOW_S: Final = 86400
+CROSSING_VISION_TRIPWIRE_EVAL_S: Final = 3600
+# Rung 1: cap on the stored `desc`.
+CROSSING_VISION_DESC_MAX_CHARS: Final = 200
+# Rung 1: bound on gathering in-flight tasks at unload.
+CROSSING_VISION_TEARDOWN_GATHER_S: Final = 5
 
 # EGRESS_IDENTITY_ENABLED: options-flow kill switch for the D1 egress-face
 # identity fuse (2026-08-18). DEFAULT False — feature ships dormant per
@@ -5870,6 +5958,30 @@ CHATTER_OBSERVATION_WINDOW_S: Final = 300.0
 #     Symmetric with STUCK-SENSOR-1 CORROBORATOR_DISAGREE_S = 900.
 CHATTER_RELEASE_QUIET_S: Final = 900.0
 
+# ---------------------------------------------------------------------------
+# Camera input stream health, S1 room tier (PANEL-KS-HEALTH-AS-INPUT-1;
+# docs/planning/PLANNING_camera_input_stream_health.md). A room input whose
+# own camera entity (same device, exactly one camera entity on it) has read
+# `unavailable` for the grace stops counting in room fusion (exclusion
+# client `camera_stream_dead`). Agnostic: keyed on the camera entity's
+# availability, never on a camera name or an NVR brand. Read as module
+# attributes at call time (domain_coordinators/camera_stream_health.py) so a
+# test or a hotfix flips them without a reload. All rung 1: a change alters
+# which evidence holds a room, so it should go through review.
+# ---------------------------------------------------------------------------
+# Kill switch. False = no exclusion, no NM: room fusion byte-identical to
+# the pre-S1 code.
+CAMERA_INPUT_STREAM_HEALTH_ENABLED: Final = True
+# Seconds the camera entity must read `unavailable` (first observed on a room
+# tick) before its inputs stop counting. Measured F2 / HA restart blips are
+# < 60 s (plan §5 measurement); larger = slower release of a frozen `on`.
+CAMERA_INPUT_STREAM_DEAD_GRACE_S: Final = 120.0
+# Seconds an exclusion must last before ONE HIGH stuck-signal NM pages (the
+# homelab watchdog did not fix it), once per (room, input) per local day; a
+# paired LOW recovered NM fires on release. 0 = no NM (the exclusion still
+# applies).
+CAMERA_INPUT_STREAM_DEAD_NM_AFTER_S: Final = 1800.0
+
 # --- Per-device-family T_floor blind-time defaults DEFAULT (probe-
 #     recalibrated 2026-08-19 -> UNIFIED 1.0s across all blind-time
 #     families). Table 2 in PROBE_mmwave_healthy_cadence.md:
@@ -6137,6 +6249,10 @@ MEMORY_EPISODE_TYPES: Final = frozenset({
     # decision (`PerimeterAlertManager._record_gate`). Observational; the
     # weekly scorer is the only reader.
     "perimeter_gate_decision",
+    # VISION-CROSSING-SHADOW-1 (2026-11-13): one row per entry/exit crossing
+    # seen while the shadow switch is on (crossing_vision.py). Shadow only;
+    # no decision reads it and Phase 1 adds no MEMORY_COMPACTION_RULES entry.
+    "crossing_vision_shadow",
 })
 
 # Set of episode types that have a LIVE writer. The weekly writer-health
@@ -6170,6 +6286,11 @@ MEMORY_WRITER_BACKED_EPISODE_TYPES: Final = frozenset({
     # alerts). If PERIMETER_GATE_LOG_PERSIST is ever set False, move it to
     # MEMORY_WRITER_HEALTH_EXEMPT_TYPES in the same commit.
     "perimeter_gate_decision",
+    # crossing_vision_shadow (VISION-CROSSING-SHADOW-1 D3): ~10-14 rows/day
+    # with the shadow switch on. The switch ships OFF, so this pages after 7
+    # days if the operator never turns it on; the documented discharge for a
+    # long-term OFF is adding the type to MEMORY_WRITER_HEALTH_EXEMPT_TYPES.
+    "crossing_vision_shadow",
     # sensor_dropout: writer exists and is correctly scheduled, but has
     # produced 0 rows in >2 months (per AUDIT_memory_writer_coverage.md,
     # 2026-10-11). KEEP in the checked set so the trip-wire surfaces this
@@ -6206,6 +6327,8 @@ MEMORY_WRITER_HEALTH_ABSENCE_EXEMPT_TYPES: Final = frozenset({
     # the window voids the absence proof and the check pages.
     "person_arrival",
     "person_departure",
+    # crossing_vision_shadow: one row per door crossing (same reason).
+    "crossing_vision_shadow",
 })
 MEMORY_WRITER_HEALTH_ABSENT_HOUSE_STATES: Final = frozenset({"away", "vacation"})
 
@@ -6360,4 +6483,66 @@ MEMORY_SEED_FACTS: Final = (
             "audit:AUDIT_memory_handbuild_study_a.md#F4;E1"
         ),
     },
+)
+
+
+# ============================================================================
+# PERSON-AWARENESS-READ-API-1 ship 1 (PLANNING_person_awareness_read_api.md)
+# ============================================================================
+# Consumer classes (identity model F1-F5; manual §5.5(b)). The class a reader
+# is in decides which census view it reads and the identity confidence it
+# needs before it may act on a name.
+CONSUMER_CLASS_SECURITY: Final = "security"
+CONSUMER_CLASS_NOTIFICATION: Final = "notification"
+CONSUMER_CLASS_DISPLAY: Final = "display"
+CONSUMER_CLASS_COMFORT: Final = "comfort"
+CONSUMER_CLASS_HOUSE_STATE: Final = "house_state"
+
+# RA3 (rung 1, module const: doctrine values, changing them requires review).
+# One table replacing scattered literals, values unchanged from develop:
+#   security     >= 0.9  de-escalate / annotate only (manual §5.5(a));
+#                        read by perimeter_alert._known_identity_for (floor).
+#   notification >= 0.75 name the person, anonymous below (manual §5.5(b));
+#                        read by EgressDirectionTracker._arrival_departure_notify.
+#   display      0       show name-or-"unidentified"; never a trust decision.
+# comfort and house_state read the trust view and add no identity threshold.
+# A read-only mapping so no caller can mutate the doctrine at runtime.
+from types import MappingProxyType as _MappingProxyType  # noqa: E402
+
+CONSUMER_CLASS_MIN_CONFIDENCE: Final = _MappingProxyType({
+    CONSUMER_CLASS_SECURITY: 0.9,
+    CONSUMER_CLASS_NOTIFICATION: 0.75,
+    CONSUMER_CLASS_DISPLAY: 0.0,
+})
+
+# RA2 promotion ladder inputs (owned by PLANNING_census_deconfliction.md
+# §3.2; defined here because view_for_class reads them and ship 1 lands
+# first). CROSSING_VISION_CONSUMER_CLASSES (rung 1) = classes promoted to the
+# awareness view; members must be in the LEGAL set (rungs whose consumer
+# wiring has been built and reviewed) or the module raises at import.
+# Promotion also needs the downgrade switch (rung 3, built by the census
+# plan) to read ON: a missing switch entity = every class reads trust.
+CROSSING_VISION_LEGAL_CONSUMER_CLASSES: Final = frozenset({
+    CONSUMER_CLASS_DISPLAY, CONSUMER_CLASS_NOTIFICATION,
+})
+CROSSING_VISION_CONSUMER_CLASSES: Final = frozenset({CONSUMER_CLASS_DISPLAY})
+CROSSING_VISION_CENSUS_AUTHORITY_SWITCH: Final = (
+    "switch.ura_crossing_vision_census_authority"
+)
+
+
+def validate_consumer_classes(active, legal) -> frozenset:
+    """Raise ValueError unless every active class is a legal member."""
+    active_set = frozenset(active)
+    illegal = active_set - frozenset(legal)
+    if illegal:
+        raise ValueError(
+            "CROSSING_VISION_CONSUMER_CLASSES has illegal members: "
+            f"{sorted(illegal)} (legal: {sorted(legal)})"
+        )
+    return active_set
+
+
+validate_consumer_classes(
+    CROSSING_VISION_CONSUMER_CLASSES, CROSSING_VISION_LEGAL_CONSUMER_CLASSES,
 )

@@ -1011,3 +1011,139 @@ def test_disambiguation_collapse_allowed_when_shared_mac():
     dids = {s.device_id for s in fusion.sources}
     # MAC rung + guarded dstem rung both admit dev_b.
     assert "dev_b" in dids
+
+
+# ============================================================================
+# own_camera_entity_for_input (camera input stream health S1; review C
+# MEDIUM-9 + LOW reason / camera_derived truth table). Two registry shapes:
+# the HA device index (`entities.get_entries_for_device_id`) and the
+# fallback walk over `entities.values()` (FakeEntityRegistry has no index).
+# ============================================================================
+
+
+class _IndexedEntities(dict):
+    """HA EntityRegistryItems shape: a mapping plus the device index, which
+    (like HA) skips disabled entries by default."""
+
+    def get_entries_for_device_id(self, device_id, include_disabled_entities=False):
+        return [
+            e for e in self.values()
+            if e.device_id == device_id
+            and (include_disabled_entities or e.disabled_by is None)
+        ]
+
+
+class _IndexedRegistry(FakeEntityRegistry):
+    def __init__(self, entities):
+        super().__init__(entities)
+        self.entities = _IndexedEntities(self.entities)
+
+
+_OWN = CameraResolver.own_camera_entity_for_input
+_PERSON = "binary_sensor.up_hallway_panel_person_occupancy"
+
+
+def _panel_entities(*extra):
+    return [
+        FakeEntity(_PERSON, device_id="dev_panel", platform=PLATFORM_FRIGATE),
+        FakeEntity("camera.up_hallway_panel", device_id="dev_panel",
+                   platform=PLATFORM_FRIGATE),
+        *extra,
+    ]
+
+
+@pytest.mark.parametrize("reg_cls", [FakeEntityRegistry, _IndexedRegistry])
+def test_own_camera_resolved_only_from_own_device(reg_cls):
+    """A camera on ANOTHER device never resolves for this input (fallback
+    path device filter)."""
+    reg = reg_cls(_panel_entities(
+        FakeEntity("camera.kitchen_panel", device_id="dev_kitchen",
+                   platform=PLATFORM_FRIGATE),
+    ))
+    assert _OWN(reg, _PERSON) == ("camera.up_hallway_panel", "resolved", True)
+
+
+@pytest.mark.parametrize("reg_cls", [FakeEntityRegistry, _IndexedRegistry])
+def test_own_camera_no_device_guard(reg_cls):
+    """An input with no device is `no_device`, even when device-less camera
+    entities exist (they must not match a None device id)."""
+    reg = reg_cls([
+        FakeEntity(_PERSON, device_id=None, platform=PLATFORM_FRIGATE),
+        FakeEntity("camera.orphan", device_id=None, platform=PLATFORM_FRIGATE),
+    ])
+    assert _OWN(reg, _PERSON) == (None, "no_device", True)
+
+
+@pytest.mark.parametrize("reg_cls", [FakeEntityRegistry, _IndexedRegistry])
+def test_own_camera_disabled_camera_skipped(reg_cls):
+    reg = reg_cls([
+        FakeEntity(_PERSON, device_id="dev_panel", platform=PLATFORM_FRIGATE),
+        FakeEntity("camera.up_hallway_panel", device_id="dev_panel",
+                   platform=PLATFORM_FRIGATE, disabled_by="integration"),
+    ])
+    assert _OWN(reg, _PERSON) == (None, "no_camera", True)
+
+
+@pytest.mark.parametrize("reg_cls", [FakeEntityRegistry, _IndexedRegistry])
+def test_own_camera_multi_camera_unresolved(reg_cls):
+    reg = reg_cls(_panel_entities(
+        FakeEntity("camera.up_hallway_panel_sub", device_id="dev_panel",
+                   platform=PLATFORM_FRIGATE),
+    ))
+    assert _OWN(reg, _PERSON) == (None, "multi_camera", True)
+
+
+def test_own_camera_reasons_and_derived_truth_table():
+    """`reason` strings and `camera_derived` (platform OR a camera on the
+    device)."""
+    # Not in the registry.
+    assert _OWN(FakeEntityRegistry([]), _PERSON) == (
+        None, "no_registry_entry", False,
+    )
+    # Non-camera platform, no camera on the device: not derived.
+    reg = FakeEntityRegistry([
+        FakeEntity("binary_sensor.zv", device_id="dev_zv", platform="mqtt"),
+    ])
+    assert _OWN(reg, "binary_sensor.zv") == (None, "no_camera", False)
+    # Camera platform, no camera on the device: derived by platform.
+    reg = FakeEntityRegistry([
+        FakeEntity(_PERSON, device_id="dev_panel", platform=PLATFORM_UNIFI),
+    ])
+    assert _OWN(reg, _PERSON) == (None, "no_camera", True)
+    # Non-camera platform, but its device carries a camera: derived by
+    # device, and resolved.
+    reg = FakeEntityRegistry([
+        FakeEntity("binary_sensor.esp_motion", device_id="dev_x",
+                   platform="esphome"),
+        FakeEntity("camera.x", device_id="dev_x", platform="esphome"),
+    ])
+    assert _OWN(reg, "binary_sensor.esp_motion") == ("camera.x", "resolved", True)
+    # Non-camera platform with no device: not derived.
+    reg = FakeEntityRegistry([
+        FakeEntity("binary_sensor.zv", device_id=None, platform="mqtt"),
+    ])
+    assert _OWN(reg, "binary_sensor.zv") == (None, "no_device", False)
+
+
+def test_own_camera_registry_errors_fail_open():
+    """Registry `async_get` raising, and the device lookup raising, both
+    return `registry_error` (never raise into the room tick)."""
+
+    class _GetRaises:
+        def async_get(self, entity_id):
+            raise RuntimeError("registry down")
+
+    assert _OWN(_GetRaises(), _PERSON) == (None, "registry_error", False)
+
+    class _LookupRaises(FakeEntityRegistry):
+        def __init__(self, entities):
+            super().__init__(entities)
+
+            class _Items(dict):
+                def get_entries_for_device_id(self, device_id):
+                    raise RuntimeError("index broken")
+
+            self.entities = _Items(self.entities)
+
+    reg = _LookupRaises(_panel_entities())
+    assert _OWN(reg, _PERSON) == (None, "registry_error", True)

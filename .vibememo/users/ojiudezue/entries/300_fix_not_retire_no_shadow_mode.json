@@ -1,0 +1,36 @@
+{
+  "format_version": "2.1",
+  "entry_id": "300",
+  "author": "ojiudezue",
+  "session_id": "claude_20261113_arc_identity_vision_census",
+  "timestamp": "2026-11-14T04:00:00Z",
+  "type": "pivot",
+  "weight": "significant",
+  "title": "Room AI rules, chaining and music following: fix and ship on, no shadow mode; observability and room memory instead of approve/undo",
+  "summary": "Root causes found: rule parsing always failed (HTTP 500, OpenAI rejects the object selector schema; fix is the proven JSON-text pattern); music following's confidence gate measured dwell time, so anyone who stayed >60 s scored 0.5 and was skipped; join leader inverted; MA transfer schema wrong. Plans rewritten for day-1 delivery with fast-bounce safety, primary vs bonus players (Sonos leads in master, tablets are a bonus), decision logs, reversal-based accuracy sensors and room memory episodes.",
+  "why": "My audit recommended retiring AI rules and a trust ladder (shadow, offer, undo). Operator reversed both: the features are unused because they were never trustworthy, 'the entire point is to build it so I can trust it', and staged rollouts are 'where our features die'. Music following is key to personalization.",
+  "implications": "Approve/undo card parked with a reversal-rate trigger; its useful parts (digest lines, implicit reversal detection as accuracy and preference signal) fold into the two plans. Overnight agent may build both to review; never deploys.",
+  "alternatives_considered": [
+    {
+      "option": "Retire AI rules (one rule, never parsed)",
+      "rejected_because": "operator: not exercised because not trusted, not because not wanted"
+    },
+    {
+      "option": "Trust ladder with shadow and offer stages",
+      "rejected_because": "delays and staged rollouts are where features die"
+    }
+  ],
+  "confidence": "high",
+  "revisit_trigger": "If the reversal-based accuracy sensor shows people correcting music following or a rule often (>10% within 2 min over 7 days), reopen the approve/undo card.",
+  "refs": {
+    "cards": [
+      "MUSIC-FOLLOWING-TRANSFER-REPAIR-1",
+      "AI-ROOM-RULES-TRUST-REPAIR-1",
+      "TRUST-APPROVE-UNDO-DIGEST-1"
+    ],
+    "docs": [
+      "docs/planning/PLANNING_music_following_repair.md",
+      "docs/planning/PLANNING_unified_room_rules.md"
+    ]
+  }
+}

@@ -25,6 +25,8 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     DOMAIN,
+    CONSUMER_CLASS_MIN_CONFIDENCE,
+    CONSUMER_CLASS_NOTIFICATION,
     CONF_CAMERA_PERSON_ENTITIES,
     CONF_EGRESS_CAMERAS,
     CONF_FACE_RECOGNITION_ENABLED,
@@ -658,20 +660,11 @@ class TransitValidator:
         window_start = ts - timedelta(seconds=self.CHECKPOINT_STALE_SECONDS)
         window_end = ts + timedelta(seconds=self.CHECKPOINT_WINDOW_SECONDS)
 
-        # Collect all "unidentified" or person-specific sightings in window
+        # Collect the sightings in window. PHONE-LEFT-BEHIND-CAMERA-LEG-1 D3:
+        # every sighting is stored as "unidentified" (no camera sets a name
+        # attribute; named sightings live in the person-sighting layer).
         relevant_sightings: list[dict[str, Any]] = []
 
-        # Check sightings for the specific person
-        person_sightings = self._camera_sightings.get(transition.person_id, [])
-        for sighting in person_sightings:
-            sighting_ts = sighting.get("timestamp")
-            if isinstance(sighting_ts, str):
-                sighting_ts = dt_util.parse_datetime(sighting_ts)
-            if sighting_ts and window_start <= sighting_ts <= window_end:
-                if sighting.get("camera_entity_id") in shared_cameras:
-                    relevant_sightings.append(sighting)
-
-        # Also check unidentified sightings (cameras can't always ID)
         unidentified_sightings = self._camera_sightings.get("unidentified", [])
         for sighting in unidentified_sightings:
             sighting_ts = sighting.get("timestamp")
@@ -708,26 +701,14 @@ class TransitValidator:
 
         checkpoint_rooms = list({s.get("room", "") for s in relevant_sightings if s.get("room")})
 
-        # Identity validation
+        # Identity validation: sightings here carry no identity (D3), so
+        # the status is "unidentified" when face recognition is on and a
+        # sighting was found, else "unavailable"; camera_person_id is None.
         identity_status = "unavailable"
         camera_person_id = None
 
         if self._face_recognition_enabled and relevant_sightings:
-            # Look for face-matched sightings
-            face_matched = [
-                s for s in relevant_sightings
-                if s.get("person_id") and s.get("person_id") != "unidentified"
-            ]
-            if face_matched:
-                best_match = face_matched[0]
-                cam_pid = best_match.get("person_id")
-                camera_person_id = cam_pid
-                if cam_pid == transition.person_id:
-                    identity_status = "confirmed"
-                else:
-                    identity_status = "mismatch"
-            else:
-                identity_status = "unidentified"
+            identity_status = "unidentified"
 
         return TransitValidationResult(
             path_validated=path_validated,
@@ -737,36 +718,6 @@ class TransitValidator:
             identity_status=identity_status,
             camera_person_id=camera_person_id,
         )
-
-    def get_last_camera_sighting(
-        self,
-        person_id: str,
-        max_age_hours: float = 4.0,
-    ) -> dict[str, Any] | None:
-        """Return the most recent camera sighting for a person.
-
-        Used by phone-left-behind detection. Returns None if no sighting
-        within max_age_hours or if person has never been seen by cameras.
-        """
-        sightings = self._camera_sightings.get(person_id, [])
-        if not sightings:
-            return None
-
-        cutoff = dt_util.now() - timedelta(hours=max_age_hours)
-        recent = []
-        for sighting in sightings:
-            ts = sighting.get("timestamp")
-            if isinstance(ts, str):
-                ts = dt_util.parse_datetime(ts)
-            if ts and ts >= cutoff:
-                recent.append((ts, sighting))
-
-        if not recent:
-            return None
-
-        # Return most recent
-        recent.sort(key=lambda x: x[0], reverse=True)
-        return recent[0][1]
 
     def _get_shared_space_cameras(self) -> list[str]:
         """Return all shared-space camera entity IDs (hallways, foyers, stairs).
@@ -829,7 +780,8 @@ class TransitValidator:
         """Assign camera sightings to transitions when multiple people transit simultaneously.
 
         Rules:
-        1. Face-matched sighting → assign to matching person's transition
+        1. (Retired by PHONE-LEFT-BEHIND-CAMERA-LEG-1 D3: face-matched
+           sighting -> matching person; sightings here carry no identity.)
         2. Unidentified sighting → assign to closest-timed transition
         3. If sightings < transitions, unmatched transitions get "no_camera_data" (not negative)
         4. If sightings >= transitions, all get "path_plausible"
@@ -844,18 +796,6 @@ class TransitValidator:
         if n_sightings >= n_transitions:
             # Enough sightings for all transitions
             return "path_plausible"
-
-        # Check if this transition has a face-matched sighting
-        ts = transition.timestamp
-        if isinstance(ts, str):
-            ts = dt_util.parse_datetime(ts) or dt_util.now()
-
-        for sighting in sightings:
-            # Rule 1: face-matched
-            if (sighting.get("person_id")
-                    and sighting.get("person_id") != "unidentified"
-                    and sighting.get("person_id") == transition.person_id):
-                return "path_plausible"
 
         # Rule 2: assign unidentified sighting to closest-timed transition
         if sightings:
@@ -932,14 +872,10 @@ class TransitValidator:
         except Exception:
             _LOGGER.debug("Could not resolve room for camera entity %s", entity_id)
 
-        # Determine person_id from face recognition data
+        # PHONE-LEFT-BEHIND-CAMERA-LEG-1 D3: no camera sets a name attribute
+        # (measured 7 days: 0 of 102 person entities), so every sighting is
+        # stored as "unidentified". Named sightings: person_sighting.py.
         person_id = "unidentified"
-        if self._face_recognition_enabled:
-            attrs = new_state.attributes
-            # Some integrations expose person/face data in attributes
-            face_id = attrs.get("person_id") or attrs.get("face_id") or attrs.get("label")
-            if face_id and str(face_id) != "unknown":
-                person_id = str(face_id)
 
         sighting = {
             "camera_entity_id": entity_id,
@@ -1002,6 +938,26 @@ class TransitValidator:
             pass
         self._face_recog_signal_unsub = None
         _LOGGER.debug("TransitValidator torn down")
+
+
+@dataclass(frozen=True)
+class CrossingRecord:
+    """One F3 door crossing as fired on ``ura_person_egress_event``
+    (PERSON-AWARENESS-READ-API-1 RA5).
+
+    ``confidence`` is the bus field (crossing / direction confidence);
+    ``identity_confidence`` is the identity attach confidence (None when no
+    identity). ``provenance`` is None when ``person_id`` is None.
+    ``source_ref`` = ``egress:<camera>:<iso ts>``."""
+
+    camera: str
+    direction: str
+    ts: datetime
+    person_id: str | None
+    provenance: str | None
+    confidence: float
+    identity_confidence: float | None
+    source_ref: str
 
 
 class EgressDirectionTracker:
@@ -1074,6 +1030,27 @@ class EgressDirectionTracker:
         # may be in flight; without the lock both install state after their
         # executor read and the last to finish wins.
         self._path_map_lock = asyncio.Lock()
+        # PERSON-AWARENESS-READ-API-1 RA5: last F3 crossing per egress camera
+        # (and overall), recorded at the bus fire. RAM only; read through
+        # get_last_crossing(). No decision reads it in ship 1.
+        self._last_crossing_by_camera: dict[str, CrossingRecord] = {}
+        self._last_crossing: CrossingRecord | None = None
+
+    def _record_crossing(self, record: "CrossingRecord") -> None:
+        """Store the last crossing (overall and per camera)."""
+        self._last_crossing = record
+        self._last_crossing_by_camera[record.camera] = record
+
+    def get_last_crossing(self, camera: str | None = None) -> "CrossingRecord | None":
+        """Last F3 door crossing (RA5): overall, or for one egress camera.
+
+        Sync, never raises; None until a crossing has been resolved."""
+        try:
+            if camera is None:
+                return self._last_crossing
+            return self._last_crossing_by_camera.get(camera)
+        except Exception:  # noqa: BLE001
+            return None
 
     async def async_init(self) -> None:
         """Subscribe to egress and near-door interior cameras.
@@ -1294,6 +1271,38 @@ class EgressDirectionTracker:
         if not stem:
             return None
         return self._door_group_by_stem.get(stem)
+
+    def door_group_members(self, stem: str | None) -> tuple[str | None, frozenset[str]]:
+        """Public read-only view of the configured door group of ``stem``
+        (VISION-CROSSING-SHADOW-1 D1, plan rev 2 F13).
+
+        Returns ``(group, member_stems)``. Same membership rule as
+        ``_sample_peak_person_count``: every stem configured to the stem's
+        group plus the stem itself; a stem with no group entry is a group of
+        one (``(None, {stem})``). ``(None, frozenset())`` for an empty stem.
+        Reads the live ``_door_group_by_stem`` map; mutates nothing.
+        """
+        if not stem:
+            return None, frozenset()
+        group = self._door_group_for_stem(stem)
+        if not group:
+            return None, frozenset({stem})
+        members = {s for s, g in self._door_group_by_stem.items() if g == group}
+        members.add(stem)
+        return group, frozenset(members)
+
+    def door_camera_stems(self) -> frozenset[str]:
+        """Public read-only set of door-camera stems: every configured
+        ``door_groups`` key plus the stem of every egress camera entity
+        (an egress stem with no group is its own group of one).
+        VISION-CROSSING-SHADOW-1 D1.1 uses it to drop non-door Frigate events
+        on arrival."""
+        stems = set(self._door_group_by_stem)
+        for entity_id in self._egress_entities:
+            s = self._extract_camera_stem(entity_id)
+            if s:
+                stems.add(s)
+        return frozenset(stems)
 
     def _sample_peak_person_count(
         self,
@@ -2187,6 +2196,21 @@ class EgressDirectionTracker:
         # resolution, every path). Observational; nothing below reads it.
         self._log_egress_outcome(resolution, egress_camera_id, egress_timestamp)
 
+        # VISION-CROSSING-SHADOW-1 D2 (INV-ADDITIVE): sample the camera peak
+        # count ONCE, before the bus fire, and hand the SAME local to the bus
+        # event and the DB row. Ambiguous crossings sample nothing (develop
+        # wrote no row and sampled nothing) and carry None on the bus.
+        # Sampler failure keeps today's behaviour: None, debug log.
+        peak: int | None = None
+        if direction != "ambiguous":
+            try:
+                peak = self._sample_peak_person_count(stem, egress_timestamp)
+            except Exception as e:  # noqa: BLE001
+                _LOGGER.debug(
+                    "peak_person_count sampler failed (non-fatal): %s", e,
+                )
+                peak = None
+
         # Fire event on HA bus (pre-cycle `confidence` semantics preserved).
         self.hass.bus.async_fire("ura_person_egress_event", {
             "direction": direction,
@@ -2209,7 +2233,33 @@ class EgressDirectionTracker:
             "identity_provenance": (
                 resolution.provenance if person_id is not None else None
             ),
+            # VISION-CROSSING-SHADOW-1 D2 (additive): the camera peak count
+            # this crossing's DB row carries (same local). None when
+            # ambiguous or no sample in the window.
+            "peak_person_count": peak,
         })
+
+        # RA5: record the crossing the bus event just carried (same values).
+        # Observational: a failure here must never break the debug log,
+        # the arrival notify, the census attach or the DB write below
+        # (reviews A-L2 / B-L1).
+        try:
+            self._record_crossing(CrossingRecord(
+                camera=egress_camera_id,
+                direction=direction,
+                ts=egress_timestamp,
+                person_id=person_id,
+                provenance=(
+                    resolution.provenance if person_id is not None else None
+                ),
+                confidence=confidence,
+                identity_confidence=identity_confidence,
+                source_ref=(
+                    f"egress:{egress_camera_id}:{egress_timestamp.isoformat()}"
+                ),
+            ))
+        except Exception:  # noqa: BLE001 - observational store
+            _LOGGER.debug("crossing record store failed (non-fatal)", exc_info=True)
 
         _LOGGER.debug(
             "Egress direction resolved: camera=%s, direction=%s, "
@@ -2291,18 +2341,9 @@ class EgressDirectionTracker:
         if direction != "ambiguous":
             database = self.hass.data.get(DOMAIN, {}).get("database")
             if database:
-                # Review LOW: sample BEFORE the DB-write try so a sampler
-                # exception can't lose the row. Sampler is best-effort and
-                # falls back to None (NULL in DB) on error.
-                try:
-                    peak = self._sample_peak_person_count(
-                        stem, egress_timestamp,
-                    )
-                except Exception as e:  # noqa: BLE001
-                    _LOGGER.debug(
-                        "peak_person_count sampler failed (non-fatal): %s", e,
-                    )
-                    peak = None
+                # D2: `peak` was sampled once above, before the bus fire
+                # (a sampler exception there already fell back to None, so
+                # it can't lose the row).
                 try:
                     await database.log_entry_exit_event(
                         person_id=person_id,
@@ -2598,7 +2639,10 @@ class EgressDirectionTracker:
             pass
 
     # ARRIVAL-DEPARTURE-NOTIFY-1 (Wave-1 consumer #1)
-    ARRIVAL_NAME_CONFIDENCE_THRESHOLD = 0.75
+    # RA3: the naming threshold is the consumer-class table entry for the
+    # notification class (0.75), read at the compare below. The former
+    # ARRIVAL_NAME_CONFIDENCE_THRESHOLD class attribute was a second, unread
+    # name for the same value (review A-L1, Bug Class #63) and is removed.
 
     def _arrival_departure_notify(
         self,
@@ -2610,7 +2654,7 @@ class EgressDirectionTracker:
 
         - Skips direction=='ambiguous' (only entry/exit notify).
         - Names the person iff person_id truthy AND identity_confidence
-          >= ARRIVAL_NAME_CONFIDENCE_THRESHOLD; else graceful-anonymous
+          >= CONSUMER_CLASS_MIN_CONFIDENCE[notification]; else graceful-anonymous
           ("Someone arrived/left") per card doctrine (notify > suppress).
         - Best-effort: NM absence or exception is swallowed by the caller.
         """
@@ -2622,7 +2666,8 @@ class EgressDirectionTracker:
         if (
             person_id
             and identity_confidence is not None
-            and identity_confidence >= self.ARRIVAL_NAME_CONFIDENCE_THRESHOLD
+            and identity_confidence
+            >= CONSUMER_CLASS_MIN_CONFIDENCE[CONSUMER_CLASS_NOTIFICATION]
         ):
             name = person_id.replace("_", " ").title()
         else:

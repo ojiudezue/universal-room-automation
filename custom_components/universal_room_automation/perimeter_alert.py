@@ -248,6 +248,7 @@ def migrate_consol1_perimeter_keys(
 # F1 (cycle-3 fix-up): single source of truth for person-family suffix
 # vocabulary — perimeter dedup MUST NOT drift from resolver discovery.
 from .camera_resolver import _PERSON_SUFFIXES as _RESOLVER_PERSON_SUFFIXES
+from .person_ids import slug_of
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -5184,7 +5185,14 @@ class PerimeterAlertManager:
         NOT fresh here (H4). Frigate legs carry no score -> 0.60 -> unknown."""
         if float(PERIMETER_EGRESS_KNOWN_MIN_CONF) > 1.0:
             return None  # documented kill: > 1 disables the known-person demote
-        floor = max(0.9, float(PERIMETER_EGRESS_KNOWN_MIN_CONF))
+        # RA3: doctrine floor by reference to the consumer-class table
+        # (security class, 0.9, unchanged).
+        floor = max(
+            float(_const_mod.CONSUMER_CLASS_MIN_CONFIDENCE[
+                _const_mod.CONSUMER_CLASS_SECURITY
+            ]),
+            float(PERIMETER_EGRESS_KNOWN_MIN_CONF),
+        )
         match_s = float(PERIMETER_EGRESS_IDENTITY_MATCH_S)
         census = self.hass.data.get(DOMAIN, {}).get("census")
         known: set[str] = set()
@@ -5285,7 +5293,8 @@ class PerimeterAlertManager:
     def _tracked_person_slugs(self) -> list[str]:
         try:
             raw = self._get_integration_config().get("tracked_persons", []) or []
-            return [str(p).replace("person.", "").strip().lower() for p in raw if p]
+            # RA4 Residual D: one id rule (display name or entity id).
+            return [slug_of(p) for p in raw if p]
         except Exception:  # noqa: BLE001
             return []
 

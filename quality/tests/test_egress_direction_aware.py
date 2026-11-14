@@ -155,7 +155,11 @@ def _assert_develop(out):
             "direction", "egress_camera", "timestamp", "person_id", "confidence",
             "identity_confidence", "agreement_class",
             "identity_synthetic_corroborated",
+            # VISION-CROSSING-SHADOW-1 D2: one additive key. No count
+            # sensor is buffered in this rig, so the sample is None.
+            "peak_person_count",
         }, name
+        assert bus["peak_person_count"] is None, name
         assert o["outcome"] == outcome, name
         assert o["title"] == title, name
         assert o["census"] == ([call] if call else []), name
