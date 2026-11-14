@@ -169,7 +169,12 @@ The coverage map is config (seam file), not a knob.
 3. (Build review A2, operator verbatim "(a) Re-alert late".) A non-qualifying crossing that lands after a
 covered camera's edge was muted inside its window sends that edge then, once, with gate reason
 `egress_mute_realert`, through the normal handler (cooldown applies). A qualifying crossing never re-sends.
-This closes the +45 s ordering residual the veto alone left open.
+This closes the +45 s ordering residual the veto alone left open. (Review D1: one handler run per camera
+per crossing, all eligible edges marked first, one gate row per edge.)
+4. (Review D2.) With `door_groups` (`CONF_DOOR_GROUPS`) configured, all doors in a group count as one door for
+the mute (qualify, veto, stamp, re-alert, zero-fire), because transit dedups a crossing per group|direction and
+emits it under any leg camera of the group. Records stay keyed per door; widening is at read time; no group or
+unset option = per-door keying, byte-identical.
 Optional tightening offered, not built: refuse the mute when P's person count exceeds known crossers in the window.
 
 ## 9. Tier

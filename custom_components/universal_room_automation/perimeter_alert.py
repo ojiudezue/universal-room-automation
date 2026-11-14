@@ -81,6 +81,7 @@ from . import const as _const_mod
 from .const import (
     DOMAIN,
     CONF_PERIMETER_CAMERAS,
+    CONF_DOOR_GROUPS,
     CONF_EGRESS_CAMERAS,
     CONF_PERIMETER_ALERT_NOTIFY_SERVICE,
     CONF_PERIMETER_ALERT_NOTIFY_TARGET,
@@ -532,6 +533,9 @@ class PerimeterAlertManager:
         # from the door-key map at wiring.
         self._egress_door_key_fallbacks: dict[str, int] = {}
         self._egress_unmapped_producer_legs: list[str] = []
+        # Review D2: door key -> door group (CONF_DOOR_GROUPS, the same
+        # option transit dedups crossings by). Empty = per-door keying.
+        self._mute_door_groups: dict[str, str] = {}
         # Review A5: perimeter-only camera keys (the only cameras the
         # scoped mute can act on); read by the seam validator via the linker.
         self.perimeter_only_camera_keys: set[str] = set()
@@ -828,6 +832,7 @@ class PerimeterAlertManager:
         # entity's name alone): every subscribed leg, the configured base,
         # the person-count sensor and the camera entity map to ONE key.
         self._build_egress_door_key_map(egress_infos, egress_sensors)
+        self._load_mute_door_groups()
         # Review A5: perimeter-only camera keys (dual-role cameras keep
         # INV-EGRESS-SELF and are never scoped-muted).
         self.perimeter_only_camera_keys = {
@@ -5344,6 +5349,32 @@ class PerimeterAlertManager:
                     "door-key map (name-key fallback applies): %s", missing,
                 )
 
+    def _load_mute_door_groups(self) -> None:
+        """Review D2: transit collapses one physical crossing per
+        door_group|direction for 30 s and emits it under whichever leg camera
+        resolves first, so the mute treats every door in a group as one door.
+        Read from the integration option CONF_DOOR_GROUPS (stem -> group)."""
+        self._mute_door_groups = {}
+        try:
+            raw = self._get_integration_config().get(CONF_DOOR_GROUPS) or {}
+            if isinstance(raw, dict):
+                for k, v in raw.items():
+                    if isinstance(k, str) and k and isinstance(v, str) and v:
+                        self._mute_door_groups[k.lower()] = v
+        except Exception:  # noqa: BLE001 — no groups = per-door keying
+            self._mute_door_groups = {}
+
+    def _door_members(self, door: str) -> list[str]:
+        """Review D2: every door key in ``door``'s group (itself first);
+        ``[door]`` when the door has no group (byte-identical when unset)."""
+        g = self._mute_door_groups.get(str(door).lower())
+        if not g:
+            return [door]
+        return [door] + sorted(
+            k for k, v in self._mute_door_groups.items()
+            if v == g and k != str(door).lower()
+        )
+
     def _mute_covers(self) -> dict[str, tuple[str, ...]]:
         """D2: door key -> covered perimeter camera keys, from the linker's
         validated `egress_mute_covers`. Missing linker / section = {}."""
@@ -5410,14 +5441,16 @@ class PerimeterAlertManager:
         """Review A2 (operator decision "(a) Re-alert late").
 
         A crossing just landed on ``door``. If it does NOT qualify, every
-        edge the scoped mute dropped on a camera that door covers, inside
-        the crossing's window (0 <= edge - crossing <= EGRESS_MUTE_WINDOW_S,
-        the same test that would have vetoed it), is sent now: one
-        ``egress_mute_realert`` gate row and one run of the normal handler
-        per muted edge (cooldown and the later gates apply as for a fresh
-        edge, so same-camera duplicates fold). Each muted edge is re-sent at
-        most once. A qualifying crossing never re-sends. Returns the number
-        of edges scheduled. Fail-open: errors only log."""
+        edge the scoped mute dropped on a camera that door (or any door in
+        its CONF_DOOR_GROUPS group, review D2) covers, inside the crossing's
+        window (0 <= edge - crossing <= EGRESS_MUTE_WINDOW_S, the same test
+        that would have vetoed it), is sent now: one ``egress_mute_realert``
+        gate row per muted edge and ONE run of the normal handler per camera
+        (review D1: all of a camera's eligible edges are marked before the
+        single task is scheduled; cooldown and the later gates apply as for a
+        fresh edge). Each muted edge is re-sent at most once. A qualifying
+        crossing never re-sends. Returns the number of handler runs
+        scheduled (cameras). Fail-open: errors only log."""
         try:
             if not self._active or self._gate_log_torn_down:
                 return 0
@@ -5429,11 +5462,21 @@ class PerimeterAlertManager:
             )
             if why is None:
                 return 0
-            cams = self._mute_covers().get(door) or ()
+            covers = self._mute_covers()
+            cams: list[str] = []
+            for m in self._door_members(door):  # review D2: door group
+                for c in covers.get(m) or ():
+                    if c not in cams:
+                        cams.append(c)
             now = dt_util.now()
             ts = entry[0]
             sent = 0
             for cam in cams:
+                # Review D1: mark every eligible muted edge on this camera
+                # BEFORE scheduling, and schedule ONE handler run per camera
+                # (the handler's in-flight guard is set after awaits, so N
+                # same-tick tasks would each pass it). One gate row per edge.
+                send_eid = ""
                 for edge in self._muted_edges.get(cam, []):
                     if edge["realerted"]:
                         continue
@@ -5464,21 +5507,23 @@ class PerimeterAlertManager:
                     })
                     self._note_egress_mute_row(
                         EGRESS_MUTE_REASON_REALERT, False, now)
-                    if not edge["entity_id"]:
-                        continue
-                    _LOGGER.info(
-                        "PerimeterAlertManager: %s re-alert — edge muted at "
-                        "%s, then a non-qualifying %s crossing (%s) landed",
-                        cam, edge["at"].isoformat(), door, why,
+                    if edge["entity_id"]:
+                        send_eid = edge["entity_id"]  # latest edge wins
+                if not send_eid:
+                    continue
+                _LOGGER.info(
+                    "PerimeterAlertManager: %s re-alert — edge(s) muted, then "
+                    "a non-qualifying %s crossing (%s) landed",
+                    cam, door, why,
+                )
+                task = self.hass.async_create_task(
+                    self._async_handle_perimeter_trigger(
+                        send_eid, egress_realert=True,
                     )
-                    task = self.hass.async_create_task(
-                        self._async_handle_perimeter_trigger(
-                            edge["entity_id"], egress_realert=True,
-                        )
-                    )
-                    self._gate_log_tasks.add(task)
-                    task.add_done_callback(self._gate_log_tasks.discard)
-                    sent += 1
+                )
+                self._gate_log_tasks.add(task)
+                task.add_done_callback(self._gate_log_tasks.discard)
+                sent += 1
             return sent
         except Exception:  # noqa: BLE001
             _LOGGER.debug("PerimeterAlertManager: egress re-alert failed",
@@ -5498,14 +5543,17 @@ class PerimeterAlertManager:
             return False
         floor = self._mute_floor()
         residents = self._mute_residents()
+        # Review D2: a crossing at ANY door in a covering door's group counts
+        # (transit emits a group's crossing under whichever leg won).
+        scan = sorted({m for d in doors for m in self._door_members(d)})
         crossings: list[tuple[str, tuple]] = []
-        for door in doors:
+        for door in scan:
             for entry in self._recent_egress_identity.get(door, []):
                 age = (now - entry[0]).total_seconds()
                 if 0.0 <= age <= window:
                     crossings.append((door, entry))
         stamped = [
-            d for d in doors
+            d for d in scan
             if d in self._last_egress_time_by_door
             and 0.0 <= (now - self._last_egress_time_by_door[d]).total_seconds() <= window
         ]
@@ -5780,7 +5828,8 @@ class PerimeterAlertManager:
             # D4 zero-fire input: one crossing noted — only at a door that
             # covers something (review A7 / B MEDIUM: an uncovered door can
             # never produce an egress_mute row, so it must not count).
-            if key in self._mute_covers():
+            _cov = self._mute_covers()
+            if any(m in _cov for m in self._door_members(key)):
                 now_ts = dt_util.now().timestamp()
                 cutoff = now_ts - float(EGRESS_MUTE_TRIPWIRE_WINDOW_S)
                 self._egress_crossing_times = [

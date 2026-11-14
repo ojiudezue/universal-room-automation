@@ -22,15 +22,26 @@ Now (operator decision A, "alert now, name it afterwards"; no hold anywhere):
   `demoted: false`, `reason` in `egress_mute_known_resident | _vetoed_unknown | _no_record |
   _below_floor | _synthetic | _ambiguous | _cap | _realert`, inputs (door, person_id, confidence,
   direction, crossing_ts, seconds_since, episode_age_s).
+- **Door groups (review D2).** When the integration option `door_groups` (`CONF_DOOR_GROUPS`) is set,
+  every door in a group is one door for the mute: transit collapses one physical crossing per
+  `group|direction` for 30 s and emits it under whichever leg camera resolves first, so a crossing
+  emitted under `doorbell_lite` counts for the `garage_a` cover (qualify, veto, on-edge stamp,
+  re-alert, zero-fire count), and one under `front_door_aerial` for the `madrone_g6_entry` cover. Read
+  from the config option at setup, never from names. A camera with no group keeps its own door key;
+  with `door_groups` unset the behaviour is byte-identical to per-door keying. Crossing records are
+  still stored per door key (D10.5 reads them per camera); the group widening happens at read time.
+  `egress_mute_covers` validation is unchanged: a cover key may be any configured egress camera.
 - **Late re-alert (review A2, operator decision "(a) Re-alert late").** A crossing record lands
   ~45 s after its door edge, so a stranger's own crossing can arrive AFTER a covered camera's edge
   was already muted by a resident's crossing. When a crossing that does NOT qualify (unknown,
   guest, below floor, synthetic, ambiguous) lands at a door covering camera P, every edge on P
   that the mute dropped inside that crossing's window (0 <= edge - crossing <= 120 s, the same
   test that would have vetoed it) is sent then: one `egress_mute_realert` row (inputs: door,
-  muted_by_door, veto_reason, the crossing, muted_at, late_by_s) and one run of the normal
-  perimeter handler with the mute step skipped. Cooldown, in-flight and every later gate apply as
-  for a fresh edge, so several muted edges on one camera fold to one page, and a camera that
+  muted_by_door, veto_reason, the crossing, muted_at, late_by_s) per muted edge, and ONE run of
+  the normal perimeter handler per camera with the mute step skipped (review D1: all of a camera's
+  eligible edges are marked before that single task is scheduled, because the handler's in-flight
+  guard is set only after awaits and would not fold same-tick siblings). Cooldown and every later
+  gate apply as for a fresh edge, so several muted edges on one camera give one page, and a camera that
   already paged inside the cooldown records a `cooldown` suppression instead. Each muted edge is
   re-sent at most once. A qualifying crossing never re-sends. Muted-edge memory is RAM only and is
   cleared by restart/reload (a restart between the mute and the late record loses the re-send).

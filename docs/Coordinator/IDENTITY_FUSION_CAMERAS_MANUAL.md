@@ -501,7 +501,11 @@ INV-EGRESS-SELF. Trip-wires (NM): mute ratio > `EGRESS_MUTE_RATIO_ALARM` over 24
 and zero mute rows in 24 h while crossings occurred at covering doors with a loaded map.
 Late re-alert (operator "(a) Re-alert late"): a non-qualifying crossing that lands
 after a covered camera's edge was muted inside its window sends that edge then, once
-(`egress_mute_realert`, normal handler, cooldown applies). The entity -> door map is
+(`egress_mute_realert`, one handler run per camera, cooldown applies). With the
+integration option `door_groups` set, every door in a group counts as one door for the
+mute (transit emits a group's deduped crossing under whichever leg camera resolved
+first): a `doorbell_lite` crossing counts for the `garage_a` cover, `front_door_aerial`
+for `madrone_g6_entry`. The entity -> door map is
 built from the egress producer's own legs (`census.get_transit_egress_entities_by_camera`);
 name-key fallbacks are counted on the diagnostic. Covered cameras must be perimeter-only;
 a rejected seam file clears the map (no mute) while the graph keeps its last good spec.

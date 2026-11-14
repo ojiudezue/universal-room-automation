@@ -81,9 +81,12 @@ def clock(monkeypatch):
     return c
 
 
-def _rig(monkeypatch, covers=COVERS, census=True, linker=True, census_obj=None):
+def _rig(monkeypatch, covers=COVERS, census=True, linker=True, census_obj=None,
+         door_groups=None):
     hass, nm = _build(
         perimeter=(G5_CAM, FS_CAM), egress=(GA_CAM, MG_CAM, DB_CAM), legs=LEGS,
+        extra_opts=({_const.CONF_DOOR_GROUPS: dict(door_groups)}
+                    if door_groups is not None else None),
     )
     cam_mgr = hass.data[_const.DOMAIN]["camera_manager"]
     real_resolve = cam_mgr.resolve_camera_entity
@@ -456,9 +459,11 @@ def test_mute_restart_clears_episodes(monkeypatch, clock):
     _mute_at(hass, mgr, clock, 0)
     clock.advance(90)
     _mute_at(hass, mgr, clock, 0)          # episode age 290
+    assert mgr._muted_edges                 # review D4: edges were remembered
     asyncio.run(mgr.async_teardown())
     asyncio.run(mgr.async_setup())
     mgr._setup_time = None
+    assert mgr._muted_edges == {}           # review D4: setup forgets them
     clock.advance(20)                       # 310 s after the old start
     _mute_at(hass, mgr, clock, 0)
     assert _row(mgr)["inputs"]["episode_age_s"] == 0.0
@@ -526,10 +531,20 @@ def _tw_titles(nm):
     return [c.kwargs.get("title") for c in nm.async_notify.await_args_list]
 
 
+class _FakeTask:
+    """Hashable stand-in (review D3: a SimpleNamespace is unhashable, so
+    `_gate_log_tasks.add` raised and the swallowed error hid fan-out)."""
+
+    def add_done_callback(self, cb):
+        self._cb = cb
+
+    def done(self):
+        return True
+
+
 def _with_tasks(hass):
     pending: list = []
-    hass.async_create_task = lambda coro, *a, **k: pending.append(coro) or SimpleNamespace(
-        add_done_callback=lambda cb: None, done=lambda: True)
+    hass.async_create_task = lambda coro, *a, **k: pending.append(coro) or _FakeTask()
     return pending
 
 
@@ -1336,3 +1351,169 @@ def test_census_egress_entities_by_camera_uses_producer_resolution():
     assert [ci.entity_id for ci in out["camera.garage_a_2"]] == [
         "binary_sensor.garage_a_2_person_detected"]
     assert out["camera.bad"] == []
+
+
+# =========================================================================
+# Fix-up round 2 (review D)
+# =========================================================================
+
+def _yielding_capture(mgr):
+    """Live `_await_edge_capture` awaits (wait_for / inline capture): make
+    the rig yield there too, so concurrent handler runs interleave."""
+    orig = mgr._await_edge_capture
+
+    async def _y(eid):
+        await asyncio.sleep(0)
+        return await orig(eid)
+    mgr._await_edge_capture = _y
+
+
+def test_mute_realert_two_muted_edges_one_camera_concurrent_one_alert(
+        monkeypatch, clock):
+    """Review D1 repro: Oji exits garage_a at t=0; g5_bullet edges at t=75
+    and t=95 are both muted; the stranger's unknown crossing (detected t=60)
+    lands at t=105. Tasks run CONCURRENTLY: exactly one notification, and a
+    realert gate row for each muted edge."""
+    hass, nm, mgr = _rig(monkeypatch)
+    _yielding_capture(mgr)
+    clock.advance(45)
+    _cross(hass, clock, ago_s=45)                       # Oji, ts = t0
+    clock.advance(30)                                   # t = 75
+    assert _alert(mgr) == 0
+    clock.advance(20)                                   # t = 95
+    assert _alert(mgr) == 0
+    assert len(mgr._muted_edges["g5_bullet"]) == 2
+    clock.advance(10)                                   # t = 105
+    before = _notified(nm)
+    state = {}
+
+    async def _go():
+        hass.async_create_task = lambda coro, *a, **k: asyncio.ensure_future(coro)
+        _cross(hass, clock, ago_s=45, pid=None, conf=None, direction="entry")
+        tasks = list(mgr._gate_log_tasks)
+        state["tasks"] = len(tasks)
+        await asyncio.gather(*tasks)
+
+    asyncio.run(_go())
+    assert _notified(nm) - before == 1
+    assert state["tasks"] == 1
+    assert mgr._egress_mute_counts.get("egress_mute_realert") == 2
+    assert all(e["realerted"] for e in mgr._muted_edges["g5_bullet"])
+
+
+def test_mute_realert_task_tracked_and_drained_at_teardown(monkeypatch, clock):
+    """Review D3: the late send is tracked in `_gate_log_tasks` and the set
+    is drained by teardown."""
+    hass, nm, mgr = _rig(monkeypatch)
+    _cross(hass, clock, ago_s=10)
+    assert _alert(mgr) == 0
+    clock.advance(20)
+    state = {}
+
+    async def _go():
+        hass.async_create_task = lambda coro, *a, **k: asyncio.ensure_future(coro)
+        _cross(hass, clock, ago_s=25, pid=None, conf=None)
+        state["tracked"] = len(mgr._gate_log_tasks)
+        await mgr.async_teardown()
+        state["after"] = len(mgr._gate_log_tasks)
+
+    asyncio.run(_go())
+    assert state == {"tracked": 1, "after": 0}
+
+
+LIVE_GROUPS = {"doorbell_lite": "garage_a", "front_door_aerial": "front",
+               "garage_a": "garage_a", "madrone_g6_entry": "front"}
+FDA_PR = "binary_sensor.front_door_aerial_person_detected"
+
+
+def test_door_group_unknown_crossing_on_sibling_leg_vetoes(monkeypatch, clock):
+    """Review D2: transit emitted the stranger's crossing under doorbell_lite
+    (same door group as garage_a); it must veto the garage_a cover."""
+    hass, _nm, mgr = _rig(monkeypatch, door_groups=LIVE_GROUPS)
+    _cross(hass, clock, ago_s=30)                       # Oji at garage_a
+    _cross(hass, clock, door=DB_PR, ago_s=10, pid=None, conf=None,
+           direction="entry")
+    assert _alert(mgr) == 1
+    assert _row(mgr)["reason"] == "egress_mute_vetoed_unknown"
+    assert _row(mgr)["inputs"]["door"] == "doorbell_lite"
+
+
+def test_door_group_realert_from_sibling_leg(monkeypatch, clock):
+    """Review D2 repro: muted g5_bullet edge; the stranger's unknown crossing
+    lands later under doorbell_lite -> the edge is re-sent."""
+    hass, nm, mgr = _rig(monkeypatch, door_groups=LIVE_GROUPS)
+    pending = _with_tasks(hass)
+    clock.advance(45)
+    _cross(hass, clock, ago_s=45)                       # Oji, ts = t0
+    clock.advance(30)
+    assert _alert(mgr) == 0                             # muted at t = 75
+    clock.advance(30)
+    before = _notified(nm)
+    _cross(hass, clock, door=DB_PR, ago_s=45, pid=None, conf=None,
+           direction="entry")
+    asyncio.run(_drain(pending))
+    assert _notified(nm) - before == 1
+    assert _row(mgr)["reason"] == "egress_mute_realert"
+    assert _row(mgr)["inputs"]["door"] == "doorbell_lite"
+
+
+def test_door_group_qualifying_crossing_on_sibling_leg_mutes(monkeypatch, clock):
+    hass, _nm, mgr = _rig(monkeypatch, door_groups=LIVE_GROUPS)
+    _cross(hass, clock, door=DB_PR, ago_s=10)           # Oji, under doorbell_lite
+    assert _alert(mgr) == 0
+    assert _row(mgr)["reason"] == "egress_mute_known_resident"
+    assert _row(mgr)["inputs"]["door"] == "doorbell_lite"
+    assert _row(mgr)["inputs"]["covering_doors"] == ["garage_a"]
+
+
+def test_door_group_front_group(monkeypatch, clock):
+    """front group: the madrone_g6_entry cover applies to a crossing emitted
+    under front_door_aerial (mute) and to an unknown one (veto)."""
+    hass, _nm, mgr = _rig(monkeypatch, door_groups=LIVE_GROUPS)
+    _cross(hass, clock, door=FDA_PR, ago_s=10)
+    assert _alert(mgr, FS_PR) == 0
+    assert _row(mgr, "front_side_ptz")["inputs"]["door"] == "front_door_aerial"
+    clock.advance(5)
+    _cross(hass, clock, door=FDA_PR, ago_s=3, pid=None, conf=None)
+    assert _alert(mgr, FS_PR) == 1
+    assert _row(mgr, "front_side_ptz")["reason"] == "egress_mute_vetoed_unknown"
+
+
+def test_door_group_ungrouped_camera_keeps_camera_key(monkeypatch, clock):
+    """doorbell_lite with no group: its crossing is its own door (covers
+    nothing), so it neither mutes nor vetoes g5_bullet."""
+    groups = {k: v for k, v in LIVE_GROUPS.items() if k != "doorbell_lite"}
+    hass, _nm, mgr = _rig(monkeypatch, door_groups=groups)
+    _cross(hass, clock, door=DB_PR, ago_s=10)
+    assert _alert(mgr) == 1
+    _cross(hass, clock, ago_s=10)                       # Oji at garage_a
+    _cross(hass, clock, door=DB_PR, ago_s=5, pid=None, conf=None)
+    assert _alert(mgr) == 0                             # no veto across doors
+
+
+@pytest.mark.parametrize("groups", [None, {}])
+def test_door_group_unset_is_per_door(monkeypatch, clock, groups):
+    hass, _nm, mgr = _rig(monkeypatch, door_groups=groups)
+    assert mgr._door_members("garage_a") == ["garage_a"]
+    _cross(hass, clock, door=DB_PR, ago_s=10)
+    assert _alert(mgr) == 1
+    _cross(hass, clock, ago_s=10)
+    _cross(hass, clock, door=DB_PR, ago_s=5, pid=None, conf=None)
+    assert _alert(mgr) == 0
+    assert _row(mgr)["inputs"]["covering_doors"] == ["garage_a"]
+
+
+def test_door_group_sibling_stamp_writes_no_record_row(monkeypatch, clock):
+    """Review D2: an on-edge at doorbell_lite (garage_a group) with no
+    crossing yet is a covering-door stamp: alert now, no_record row."""
+    hass, _nm, mgr = _rig(monkeypatch, door_groups=LIVE_GROUPS)
+    _stamp(mgr, DB_PR)
+    assert _alert(mgr) == 1
+    assert _row(mgr)["reason"] == "egress_mute_no_record"
+    assert _row(mgr)["inputs"]["door"] == "doorbell_lite"
+
+
+def test_door_group_sibling_crossing_counts_for_zero_fire(monkeypatch, clock):
+    hass, _nm, mgr = _rig(monkeypatch, door_groups=LIVE_GROUPS)
+    _cross(hass, clock, door=DB_PR, ago_s=10)
+    assert len(mgr._egress_crossing_times) == 1
