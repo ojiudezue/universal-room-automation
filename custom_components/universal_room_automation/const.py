@@ -2658,6 +2658,32 @@ PERIMETER_GATE_LOG_PERSIST: Final = True
 PERIMETER_GATE_EPISODE_TYPE: Final = "perimeter_gate_decision"
 # Bounded wait for in-flight gate-row writes at teardown. 0 = do not wait.
 PERIMETER_GATE_LOG_TEARDOWN_TIMEOUT_S: Final = 5.0
+# PERIMETER-GLOBAL-EGRESS-MUTE-1 (rung 1: these gate a SECURITY silence, so a
+# change needs review). Plan: PLANNING_perimeter_egress_mute_scoped.md §6.
+# A perimeter-only camera's edge is muted only by a QUALIFYING crossing
+# (entry/exit, tracked resident, identity >= floor, not synthetic) on a door
+# whose `egress_mute_covers` entry (exterior_seams.json) lists that camera.
+# Walk-out time after a crossing. Also the dual-role INV-EGRESS-SELF window
+# (replaces EGRESS_SUPPRESSION_WINDOW_SECONDS). 0 = never mute.
+EGRESS_MUTE_WINDOW_S: Final = 120
+# Security floor. Values below 0.9 clamp UP to 0.9; above 1.0 = kill (no
+# crossing qualifies, every decision is a below-floor decline row).
+EGRESS_MUTE_MIN_IDENTITY_CONF: Final = 0.9
+# Longest silence one camera's mute episode may last (no chaining). 0 = never.
+EGRESS_MUTE_MAX_EPISODE_S: Final = 300
+# Quiet gap (no mute on that camera) that ends an episode.
+EGRESS_MUTE_EPISODE_RESET_S: Final = 120
+# Trip-wire: suppressed / all egress_mute rows over the trip-wire window above
+# this ratio = blanket mute returning. > 1.0 disables. 0 = any mute alarms.
+EGRESS_MUTE_RATIO_ALARM: Final = 0.5
+# Minimum rows in the window before the ratio trip-wire may judge (one mute
+# out of one row is not a blanket mute).
+EGRESS_MUTE_RATIO_MIN_ROWS: Final = 10
+# Zero-fire trip-wire: this many crossings in the window with ZERO
+# egress_mute rows (and a loaded coverage map) = wiring broken. 0 disables.
+EGRESS_MUTE_ZERO_FIRE_MIN_CROSSINGS: Final = 5
+# Rolling window + re-alarm cooldown for both trip-wires.
+EGRESS_MUTE_TRIPWIRE_WINDOW_S: Final = 86400
 # D3 (rung 1): ask the VLM a second, LOCATION question (property / street)
 # alongside the PERSON verdict. Recorded only — no branch reads it. False =
 # today's verdict prompt byte-for-byte in every select mode.
