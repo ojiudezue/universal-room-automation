@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-14T01:10:55-06:00_ - _Data commit: `96fa9ad465f0`_ - _last_reconciled: 2026-11-13_
+_Generated: 2026-11-14T01:31:43-06:00_ - _Data commit: `9a1320e1d294`_ - _last_reconciled: 2026-11-13_
 
 
 ## Columns
@@ -258,7 +258,7 @@ _created 2026-11-12 22:00_
 - **Origin:** 2026-11-12 - Operator: watch arrivals with AI vision; time-lapse; fast first frames; counting is easy, naming is hard; guests are the census problem; OpenAI models (GPT-6 Luna/Sol); deconflict with camera counts until trusted (100 crossi...
 - **Why:** Design in PLANNING_person_sighting_layer.md section 15. Gates: D0-FRAME (blank-frame experiment), D0-SIM (timing simulation), D0-V (model scoring incl. dry call per GPT-6 model for llmvision param compatibility). Then its own sibling plan.
 - **Next:** Me: revise plan section 15.9 frame guard to judge frames directly; resolve the llmvision temperature blocker for GPT-6 models (config-first); then the sibling vision plan.
-- **Forensic keys (24):**
+- **Forensic keys (25):**
   - `arc_cut_v5_108_21`: phase 1 ships here, phase 2 later
   - `operator_2026_11_13_plans_approved`: Plans approved (the four clean plans: census deconfliction, person awareness read API, camera input stream health, crossing vision producer). Merged to develop 2602929c; estimator plan archived.
   - `arc_cut_v5_108_19`: shadow build running
@@ -283,6 +283,7 @@ _created 2026-11-12 22:00_
   - `P2_D0_2026_11_14`: AUDIT_crossing_vision_p2_d0_2026_11_14.md: (i) residency fire check PASS; (ii) empty anchors 3600 s gives 22/week (clears the 10 minimum), only 19% while AWAY; (iii) +-30 s wrong-event proxy 22.7% vs 10.3% at +-10 s -> keep EVENT_MATCH_S...
   - `operator_2026_11_14_shadow_switch`: turn on. (Claude turns switch.ura_crossing_vision_shadow on after the v5.108.21 restart once live checks are clean, then confirms the first shadow row; off immediately on errors)
   - `operator_2026_11_14_p2d8_path`: Build P2-d8 as you recommended. it with interior vision but link the plans. And plan that VISION-INTERIOR-SIGHTINGS-1, now and then modify it if we learn something in teh interim. I Want this tight and not deferred. Make sure its useful....
+  - `operator_2026_11_14_names_and_window`: Switch label: Vision Assisted Census (helper: Show people counts that include AI vision of door crossings. Off uses sensors only. Never affects Away, security or locks.). Checkpoint window: 15 mins (CROSSING_VISION_LEDGER_EMPTY_RESET_S =...
 
 ## 🧭 Pre-planning (14)
 _idea being decomposed_
