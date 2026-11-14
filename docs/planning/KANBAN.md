@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-13T19:16:26-06:00_ - _Data commit: `6e1003ba8aef`_ - _last_reconciled: 2026-11-13_
+_Generated: 2026-11-13T19:17:38-06:00_ - _Data commit: `5f1082238256`_ - _last_reconciled: 2026-11-13_
 
 
 ## Columns
@@ -667,7 +667,7 @@ status: **planned** - approval: **explicit**
 - **Origin:** 2026-11-13 - Operator: fix, do not retire; not exercised because not yet trusted.
 - **Why:** Audit AUDIT_room_ai_automation_chaining_music_2026_11_13.md: person filter compares person.* entity id to display names and never matches (coordinator.py:1183; reuse music_following._person_key); a rule saved with needs_parsing true and ...
 - **Next:** Me: plan (Tier 2, one plan review) then build when a builder slot frees.
-- **Forensic keys (10):**
+- **Forensic keys (13):**
   - `design_2026_11_13`: DESIGN_reimagine_room_ai_chaining_music_2026_11_13.md steps 2 and 4: merge AI rules and chaining at the contract (one rule record, one executor, one log row type, two ways to author); shared trust layer reused by music following; person-...
   - `tier`: 2
   - `operator_2026_11_13_decision`: We will fix the AI automation and the AI training and music following. We will not retire them. The reason they're not exercised is because I don't trust them yet, and the entire point is to build it so I can trust it.
@@ -678,6 +678,9 @@ status: **planned** - approval: **explicit**
   - `delivery_2026_11_13`: No shadow stage. Ships ON and working on day 1. Reviews at Tier 2-DB strength; real-path tests; live validation of a real rule.
   - `operator_2026_11_13_observability`: The thing to build into the 3 feature, now 2 is observability and logs that allow diagnostics and tuning. Maybe room memory entries as well to extend the memory feature
   - `amendment_pending`: Fold into the plan at the plan-review fix round: (1) observability + diagnostic/tuning logs (every decision with inputs, reason, outcome; per-knob effect visible; accuracy sensor from implicit reversal detection, e.g. music moved back or...
+  - `operator_2026_11_13_ui`: AI feature UI should be well considered. Smart and simple to approach. Sounds like there may be modification to the [flow] menu and the toggles? Key
+  - `plan_review_2026_11_13`: PLANREVIEW_unified_room_rules.md (900e51f9): FIX-PLAN, 0 CRIT / 5 HIGH. HIGH-1 AI switch does not gate all triggers alike (safety/security fire with it off, coordinator.py:1096/:1134; manual mode turns it off :3261). HIGH-2 room entity s...
+  - `fix_round_scope`: One clean rewrite covering: plan-review HIGH/MED; observability + room memory episodes (operator); a UI section (options-flow menu restructure for rules: describe / pick automation / list with honest status, preview built from validated ...
 
 ### `HVAC-COMFORT-DEVIATION-PRODUCER-1` - HVAC anomaly comfort_deviation_hours has no producer: build a daily per-zone emit so a long setpoint miss (e.g. zone 2 212 min +8F) becomes an anomaly trip-wire — _#20 · WSJF 2.7 · v4 tc2 u2 /e3_
 thread: **hvac** - status: **planned**
