@@ -35510,6 +35510,39 @@ cards:
   why: "hvac.py:1241 writes the person coordinator's pre-arrival flag from the HVAC pre-arrival switch (switch.py:4571). person_coordinator.py:1151 skips the BLE SIGNAL_PERSON_ARRIVING send while it is off. So an HVAC comfort choice silently switches off an F5 producer that security, the lock regime and music also consume. CLAUDE.md rule: a policy for one consumer gates that consumer, never the producer. The BLE arrival is mostly a later duplicate of the geofence arrival (PLANNING_ble_seen_at_home_arrival.md: 5 of 5 measured, +8 to +41 s), so the live loss is small. Ship 3 keeps behaviour identical: its G9 setter is a no-op swap."
   next: "PICK: A (recommended) the producer always sends, HVAC ignores BLE arrivals when its pre-arrival switch is off. Small, and lock/music get BLE arrivals back. Or B: keep as is and document it as intended. -> On A I plan it as a follow-up to ship 3 (behaviour change, Tier 2)."
   rank: {value: 4, time_criticality: 2, effort: 2}
+- id: G6-ONE-BLE-ROOM-READ-1
+  title: "One 'persons in this room' BLE read for every reader (room occupancy, fan recheck, census), with the phone-left-behind filter on room occupancy"
+  status: planned
+  tier: 2
+  batch: person-sightings
+  links: {parent: PERSON-AWARENESS-READ-API-1}
+  created: "2026-11-14 15:00"
+  origin: {date: '2026-11-14', gist: 'Split from layer ship 3 (plan rev 2 Q1) so ship 3 stays a provable no-op.'}
+  why: "Contract §2.4a G6: one BLE-in-room meaning. Today the readers (room occupancy coordinator.py:3315, 4440, 5003; fan recheck _area_id_to_room plus a slug fallback; phone_trustworthy twins) each derive it their own way, and there are two meanings (#63). Operator 2026-11-14 answered YES to applying the phone-left-behind filter to room occupancy, after the §2.4a probe (zero or near-zero changed rooms = ship). It changes room behaviour in ~40 rooms, so it ships separately from the no-op ship 3."
+  next: "Me: dispatch planning the moment ship 3 merges, in parallel with step 7. Run the §2.4a 7-day probe first."
+  rank: {value: 7, time_criticality: 4, effort: 4}
+- id: PERSON-ID-INLINE-SWEEP-1
+  title: "Nine inline f\"person.{slug}\" person-id builds (five inside identity vetoes that fail open) move to the one person-id rule"
+  status: planned
+  tier: 2
+  batch: person-sightings
+  links: {parent: REGISTRY-NOT-NAMES-1, related: [PERSON-AWARENESS-READ-API-1]}
+  created: "2026-11-14 15:00"
+  origin: {date: '2026-11-14', gist: 'Leaks audit P6 plus the ship 3 rev 2 re-grep (nine sites, not seven).'}
+  why: "Sites include camera_census.py:4760, 4817, 6630; person_sighting.py:605; transit_validator.py:2020; person_coordinator.py:1773; perimeter_alert.py:1118 (list re-verified in ship 3 rev 2 §3). Each builds the person entity id inline instead of person_ids.tracked_person_entity_id, so a person whose entity id is not person.<slug> fails open in the identity vetoes. Ship 3 allowlists them with this card as owner."
+  next: "Me: plan after ship 3 merges; the guard allowlist shrinks by one row per site moved."
+  rank: {value: 6, time_criticality: 3, effort: 2}
+- id: PRESENCE-BOOT-SEED-FROM-VIEW-1
+  title: "Presence boot seed reads a display entity's state as an input to the AWAY decision (presence.py:3283)"
+  status: planned
+  tier: 2
+  batch: person-sightings
+  links: {parent: PERSON-AWARENESS-READ-API-1}
+  created: "2026-11-14 15:00"
+  origin: {date: '2026-11-14', gist: 'Leaks audit H1, prober row 18 for layer ship 3.'}
+  why: "At boot, presence seeds an AWAY input from a display entity's restored state instead of the census owner's read. A display view feeding a house-state decision crosses the consumer-class line (display -> house_state). Ship 3 allowlists the read with this card as owner; the fix changes boot behaviour, so it ships separately."
+  next: "Me: plan after ship 3 (Tier 2-DB minimum: house-state change)."
+  rank: {value: 5, time_criticality: 3, effort: 2}
 - id: PERSON-AWARENESS-READ-API-1
   operator_2026_11_14_contract_rev2: "Qs: 1 - yes. 2- unwired. But is there a trigger. 3 - keep it. S1 - confirm. Dead camera - sure. I assume if even one nvr has the cam it doesn't count as dead. Did we execute that shared layer we discussed? Tell me"
   arc_cut_v5_108_21: "ship 1 here, ship 2 in batch 2"
