@@ -142,6 +142,11 @@ class FakeVision:
         self.calls.append(dict(kw))
         return self.guest_vis, self.healthy
 
+    def vision_status(self, healthy):
+        if self.ledger_state != "known":
+            return "unknown_ledger"
+        return "ok" if healthy else "dark"
+
 
 async def build(m, hass, monkeypatch):
     rig = await R.build(m, hass, monkeypatch, persons={OJI: "home", EZ: "home"})
@@ -246,6 +251,9 @@ async def replay(w, freezer_tick) -> list[dict]:
             "away_verdict": getattr(verdict, "value", str(verdict)),
             "veto_path": getattr(engine, "_veto_path", None),
             "sensors": {k: s.native_value for k, s in sensors.items()},
+            # Not in the golden (develop has no awareness field): the
+            # non-hollow check that a vision value WAS in the census result.
+            "aware": getattr(house, "aware_guests", None),
         })
     return out
 

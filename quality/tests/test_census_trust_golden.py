@@ -95,3 +95,12 @@ async def test_census_existing_fields_golden_all_classes(
     # Scenario self-check: guests appear and are held, the fleet goes dark.
     assert max(r["house"]["unidentified_count"] for r in got) >= 1
     assert any(r["payload"]["camera_input_dark"] for r in got)
+    # Non-hollow (#63): the vision value really reached the census result
+    # (awareness) on the lead variants while every trust field held.
+    aware = [r["aware"] for r in got]
+    if variant == "vision50_lead":
+        assert aware == [50] * len(got)
+    elif variant == "absent":
+        assert all(a == r["house"]["unidentified_count"] for a, r in zip(aware, got))
+    else:  # dark default, missing or unhealthy ledger: camera value
+        assert aware == [r["house"]["unidentified_count"] for r in got]

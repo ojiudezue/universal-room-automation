@@ -6584,3 +6584,46 @@ def validate_consumer_classes(active, legal) -> frozenset:
 validate_consumer_classes(
     CROSSING_VISION_CONSUMER_CLASSES, CROSSING_VISION_LEGAL_CONSUMER_CLASSES,
 )
+
+
+# ============================================================================
+# Census deconfliction (PLANNING_census_deconfliction.md §3.2-§3.4, §6)
+# ============================================================================
+# F-LEAD (rung 1, CD4 operator checkpoint): False = the awareness value equals
+# the trust value (aware_guests == guest_cam in every case; F2-A = F2-T plus
+# agreement metadata). True = vision may change the awareness value.
+CROSSING_VISION_AWARENESS_VISION_LEADS: Final = False
+# Agreement threshold: |guest_vis - guest_cam| below this = case A (agree);
+# at it = close; above = disagree.
+CROSSING_VISION_DISAGREE_FLAG_MIN: Final = 1
+# Disagreement page: per-crossing count disagreement (shadow agreement case B
+# or C) on one door group at least this many times in 24 h pages via NM.
+# 0 = off.
+CROSSING_VISION_DISAGREE_PERSIST_N: Final = 5
+CROSSING_VISION_DISAGREE_WINDOW_S: Final = 86400
+# Rung-2 (notification) bar (consumed by the CD4 F-NOTIFY checkpoint and the
+# P2-D6 scorer; no runtime reader in this build).
+CROSSING_VISION_NOTIFY_EXACT_MIN: Final = 0.90
+CROSSING_VISION_NOTIFY_MIN_GRADED: Final = 30
+CROSSING_VISION_NOTIFY_MIN_ATTACH: Final = 0.50
+# Bars a-e (§3.4), shared by the P2-D6 scorer and the F-LEAD regression
+# trip-wire. Window / regression window in days.
+CROSSING_VISION_GO_WINDOW_DAYS: Final = 7
+CROSSING_VISION_GO_REGRESSION_DAYS: Final = 14
+CROSSING_VISION_GO_DRIFT_ZERO_SHARE: Final = 0.80
+CROSSING_VISION_GO_DRIFT_MAX_ABS: Final = 1
+CROSSING_VISION_GO_MIN_ANCHORS: Final = 10
+CROSSING_VISION_GO_RECONCILE_SHARE_MAX: Final = 0.20
+CROSSING_VISION_GO_ARRIVAL_MATCH_MIN: Final = 0.90
+CROSSING_VISION_GO_VISION_TERM_SHARE_MIN: Final = 0.75
+CROSSING_VISION_GO_ARRIVAL_WINDOW_BEFORE_S: Final = 300
+CROSSING_VISION_GO_ARRIVAL_WINDOW_AFTER_S: Final = 60
+CROSSING_VISION_GO_GROUP_EXACT_MIN: Final = 0.80
+CROSSING_VISION_GO_GROUP_MIN_N: Final = 10
+CROSSING_VISION_GO_FALSE_GUEST_MAX: Final = 0.02
+CROSSING_VISION_GO_KNOWN_SHARE_MIN: Final = 0.90
+# Rung-3 (comfort) bar; NOT legal in this build (its own Tier-3 plan).
+CENSUS_LADDER_COMFORT_FALSE_GUEST_MAX: Final = 0.02
+# The downgrade switch (rung 3, default ON, RestoreEntity; OFF = every class
+# reads trust). hass.data flag key written by the switch.
+CROSSING_VISION_AUTHORITY_HASS_KEY: Final = "crossing_vision_census_authority_on"

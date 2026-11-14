@@ -302,10 +302,14 @@ class HouseCensusView:
     identified: house ``identified_count``.
     unidentified_or_guests: house ``unidentified_count``.
     total: house ``total_persons``.
-    provenance: where the count came from (``camera`` until the census
-        deconfliction plan adds vision).
-    agreement: house ``source_agreement``.
+    provenance: where the count came from. Trust: ``camera``. Awareness
+        (census deconfliction CD1): the house ``count_provenance``
+        (``camera`` / ``vision`` / ``agree``).
+    agreement: trust: house ``source_agreement``; awareness: the house
+        ``aware_agreement`` (camera vs ledger).
     as_of: house ``timestamp``.
+    vision_status / ledger_state: awareness only (display metadata), None on
+        the trust view.
     """
 
     view: str
@@ -315,6 +319,8 @@ class HouseCensusView:
     provenance: str
     agreement: str
     as_of: Any
+    vision_status: str | None = None
+    ledger_state: str | None = None
 
 
 @dataclass(frozen=True)
@@ -5958,8 +5964,8 @@ class PresenceCoordinator(BaseCoordinator):
         """RA1: F2 house census for ``view`` (``trust`` / ``awareness``).
 
         Reads ``census.last_result.house``. Sync, never raises; no census or
-        no result yet -> None. Until the census deconfliction plan adds the
-        awareness fields, the awareness view returns the trust values with
+        no result yet -> None. The awareness view reads the census
+        deconfliction fields (CD1) when present, else the trust values with
         provenance ``camera``. Any view string other than ``awareness``
         reads trust.
         """
@@ -5973,6 +5979,21 @@ class PresenceCoordinator(BaseCoordinator):
             house = last.house
             if house is None:
                 return None
+            # Census deconfliction CD1: the awareness view reads the
+            # awareness fields when the census produced them; otherwise
+            # (raw path, enhanced off) the trust values, provenance camera.
+            if view == "awareness" and getattr(house, "aware_guests", None) is not None:
+                return HouseCensusView(
+                    view="awareness",
+                    identified=int(house.identified_count),
+                    unidentified_or_guests=int(house.aware_guests),
+                    total=int(house.aware_total),
+                    provenance=str(house.count_provenance),
+                    agreement=str(house.aware_agreement),
+                    as_of=house.timestamp,
+                    vision_status=house.aware_vision_status,
+                    ledger_state=house.aware_ledger_state,
+                )
             return HouseCensusView(
                 view="awareness" if view == "awareness" else "trust",
                 identified=int(house.identified_count),
