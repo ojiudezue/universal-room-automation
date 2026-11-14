@@ -190,6 +190,7 @@ class _Room:
             "camera_stream_health_snapshot",
             "_subscribe_camera_stream_registry_updates",
             "_camera_override_person_sensors",
+            "_camera_override_live_person_sensors",
         ):
             fn = getattr(UniversalRoomCoordinator, name)
             setattr(self, name, fn.__get__(self, type(self)))
@@ -1051,6 +1052,22 @@ def test_camera_override_not_held_by_dead_stream_input():
     assert r.override(T0) == (True, "camera")  # before the grace: holds
     r.tick(T0 + timedelta(seconds=120))
     assert r.override(T0 + timedelta(seconds=120)) == (False, None)
+
+
+def test_camera_override_still_holds_with_p22_stuck_input_live_stream():
+    """Review D-M1 repro (Study A shape): the panel person sensor is a
+    presence input AND its camera is in the room's cameras. A person seated
+    >= 4 h keeps it `on`, so P22 excludes it from fusion; the camera stream
+    is healthy. The override must still hold the room, as on develop: only
+    the camera_stream_dead client narrows the override."""
+    r = _Room(_panel_registry(), override=(PANEL,))
+    r._p22_stuck_sensor_set = lambda now: {PANEL}
+    r._sensor_on_since = {PANEL: T0 - timedelta(hours=5)}
+    r.states = {PANEL: "on", PANEL_CAM: "streaming", ZV: "off"}
+    r.tick(T0)
+    r.tick(T0 + timedelta(seconds=150))
+    assert r._exclusion_set.clients_for(PANEL) == {"p22_continuous"}
+    assert r.override(T0 + timedelta(seconds=150)) == (True, "camera")
 
 
 def test_camera_override_sensor_outside_inputs_watched_not_paged(nm_calls):

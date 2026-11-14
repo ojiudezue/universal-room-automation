@@ -2656,6 +2656,17 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 ),
             ))
 
+    def _camera_override_live_person_sensors(self) -> list[str]:
+        """Override person sensors minus those whose own camera stream is
+        dead (S1 client ``camera_stream_dead`` only, review D-M1). P22 /
+        duty-cycle / chatter exclusions are deliberately NOT applied: the
+        v3.5.1 override reads those sensors raw, as on develop."""
+        return [
+            s for s in self._camera_override_person_sensors()
+            if CAMERA_STREAM_EXCLUSION_CLIENT
+            not in self._exclusion_set.clients_for(s)
+        ]
+
     def _camera_override_person_sensors(self) -> list[str]:
         """Person sensors the v3.5.1 camera override reads for this room's
         area (camera manager). One lookup for the override block and the
@@ -4252,14 +4263,13 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # If motion/mmWave have timed out but a camera in this room's area still
         # sees a person, override vacancy and keep the room occupied.
         # Fix #8: Skip camera override if failsafe just fired (prevents stuck camera defeating failsafe)
-        # Camera input stream health (review B-M1): the person sensors go
-        # through the same exclusion filter as the fusion legs, so a sensor
-        # whose camera stream is dead (or that is stuck / chattering) cannot
-        # hold the room through this path.
+        # Camera input stream health (review B-M1, narrowed by D-M1): a
+        # person sensor whose own camera stream is dead cannot hold the room
+        # through this path. Only the S1 client is honoured here; P22 /
+        # duty-cycle / chatter exclusions keep develop's override semantics
+        # (the override reads those sensors raw).
         if not data.get(STATE_OCCUPIED) and not self._failsafe_fired:
-            person_sensors = self._fusion_filter_active(
-                self._camera_override_person_sensors()
-            )
+            person_sensors = self._camera_override_live_person_sensors()
             for person_sensor in person_sensors:
                 state = self.hass.states.get(person_sensor)
                 if state and state.state == "on":

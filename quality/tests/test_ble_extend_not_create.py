@@ -145,7 +145,8 @@ class _FakeSelf:
         return UniversalRoomCoordinator._ble_absence_grace_applies(self, now)
 
     # The v3.5.1 camera block reads its person sensors through these two
-    # coordinator helpers since camera input stream health S1 (review B-M1):
+    # coordinator helpers since camera input stream health S1 (review B-M1,
+    # narrowed to the camera_stream_dead client by D-M1):
     # delegate to the REAL methods, with a real (empty) exclusion set.
     def _camera_override_person_sensors(self):
         from custom_components.universal_room_automation.coordinator import (  # noqa: PLC0415
@@ -153,7 +154,7 @@ class _FakeSelf:
         )
         return UniversalRoomCoordinator._camera_override_person_sensors(self)
 
-    def _fusion_filter_active(self, sensors):
+    def _camera_override_live_person_sensors(self):
         from custom_components.universal_room_automation.coordinator import (  # noqa: PLC0415
             UniversalRoomCoordinator,
         )
@@ -162,7 +163,7 @@ class _FakeSelf:
                 SensorExclusionSet,
             )
             self._exclusion_set = SensorExclusionSet(room_name="test")
-        return UniversalRoomCoordinator._fusion_filter_active(self, sensors)
+        return UniversalRoomCoordinator._camera_override_live_person_sensors(self)
 
     def _get_room_area(self):
         return None

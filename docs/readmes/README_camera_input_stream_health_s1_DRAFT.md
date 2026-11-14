@@ -14,9 +14,9 @@ lights, fans, HVAC).
   readings, the clock restarts. A camera reading `unavailable` with `restored: True` (its integration has not loaded it,
   e.g. Frigate in setup retry) is "no opinion": it excludes nothing and pages nothing.
 - The room's camera override (a camera in the room's area whose person sensor reads `on` keeps the room occupied after
-  the sensors time out) now reads its person sensors through the same exclusion filter as the sensor lists. A person
-  sensor whose own camera is dead (or that is stuck / chattering, if it is also a room input) can no longer hold the
-  room that way (review B-M1). An override person sensor that is not a room input is watched and excluded the same way,
+  the sensors time out) now skips a person sensor whose own camera is dead, so it can no longer hold the room that way
+  (review B-M1). Only the dead-stream exclusion applies here; stuck / chattering exclusions do not, as before (review
+  D-M1). An override person sensor that is not a room input is watched and excluded the same way,
   but it is not paged and not shown on the sensor.
 - If the exclusion lasts 30 min, one HIGH notification says which input stopped counting and which camera is down, once
   per room input per day. A LOW "counts again" notification follows when the camera returns.
