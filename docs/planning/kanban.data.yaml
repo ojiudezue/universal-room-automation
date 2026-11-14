@@ -629,6 +629,14 @@ cards:
   next: "DO (you): remove the old WhatsApp 2.x integration entry (still present 02:08 CST 11-09 as domain whatsapp, alongside wa_bridge) -> I re-run one NM WhatsApp test send to prove sends survive its removal, then close. The inbound-reply check is tracked on NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1. Dispose by 11-15."
   soak_check_2026_11_09_overnight: "CARD-WAS-WRONG on next (it still said Ship v5.106.1): shipped and validated 11-08 (README_v5.106.1 Validated, post-restart 11:00 CST: send arrives PASS, no send errors PASS, bridge accepts 3.x PASS). Open: sends after 2.x removal (PENDING, operator removes the entry) and inbound (NOT RUN; no whatsapp row in notification_inbound since 11-07 at 02:03 CST 11-09)."
 - id: TEST-SUITE-POLLUTION-AND-STALE-DRILLS-1
+  INSTANCE_2026_11_14_batch2: "Batch 2 gate fixes found more of this class. Fixed in release/batch-2:
+    - d30c1160: test_fan_incident_2026_08_01_replay.py and test_activity_logger.py restore what they stub;
+    - 75bd75e1: four collection-time leakers (test_fan_manual_off_cooldown_room_tier.py, test_fan_manual_on_hold_room_tier.py, test_fan_manual_on_hold_hvac_tier.py, test_hvac_vacancy_sweep_manual_on_guard.py) now use _d7_isolation.import_scope; their shared stub template had setattr'd MagicMock over entity_registry.async_get and DataUpdateCoordinator.
+    STILL OPEN:
+    (1) about 14 more files use the same unscoped template, e.g. test_v4623_humidity_fan_behavioral.py (which does poison real-HA files), test_v4622_guest_mode_hardening.py, test_v570_guest_detection_trust.py, test_resolver_legs.py; they need a scoping sweep;
+    (2) the shared hass fixture in test_lock_arrival_hold_real_ha.py runs HA without phcc hass_storage, so registries persist in the shared venv's pytest_homeassistant_custom_component/testing_config/.storage across runs and worktrees;
+    (3) stale drill: test_ble_extend_not_create.py::test_MUTATION_m2_seeding_hoisted_above_predicate_makes_order_test_red cannot find its anchor in coordinator.py on batch-2 or 4b1d392b;
+    (4) possible flake: lingering timer _cpr_backstop_fired in test_hvac_pull_energy_constraint_at_setup.py."
   title: "Test hygiene: fan_incident replay corrupts real homeassistant.core; two stale mutation drills"
   thread: quality
   status: "planned"
