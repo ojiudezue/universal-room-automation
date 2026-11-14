@@ -35018,6 +35018,18 @@ cards:
   revival_trigger: "Ship 3a merged (the guard's allowlist is pinned at 238 rows / total 266, so the sizing reads the real allowlist) AND an open planner slot after the arc's next ship, or the operator asks."
   next: "Parked. Dispatch ura-planner with the brief above when the trigger fires."
   rank: {value: 3, time_criticality: 1, effort: 2}
+- id: DUAL-LENS-PACKAGE-CHANNEL-MEMBERSHIP-1
+  title: "Dual-lens Protect doorbells: a live package-lens channel can make the device look alive while the main lens is dead"
+  status: parked
+  tier: 2
+  batch: person-sightings
+  links: {parent: NVR-WITNESS-CONSOLIDATION-1, related: [DEAD-CAMERA-TWIN-COVERAGE-1]}
+  created: "2026-11-14 18:20"
+  origin: {date: '2026-11-14', gist: 'Layer ship 3b rev 3.5 review DG MEDIUM-2; rev 3.6 carded it.'}
+  why: "Ship 3b judges a camera device live if any enabled camera entity on it reads live. On a dual-lens doorbell (camera.madrone_g6_entry_package_camera is the live example), the package-lens channel is a different lens, so a live package channel can mask a dead main lens. The person sensor's frozen reading would then keep counting. No registry field marks the package channel: translation_key is None and unique_id is <mac>_3. Excluding it by suffix would be a name rule, which the operator forbids. No live effect today, because no URA reader reads that device."
+  revival_trigger: "Any URA occupancy or census reader starts reading a dual-lens doorbell device, OR UniFi Protect / HA exposes a registry field (translation_key, entity category, device-class attribute) that identifies the package channel."
+  next: "Parked. When the trigger fires, exclude the package channel from device membership through that registry field and add a drill."
+  rank: {value: 1, time_criticality: 1, effort: 1}
 - id: DEAD-CAMERA-TWIN-COVERAGE-1
   title: "Per-reader twin coverage: drop a dead NVR's frozen reading at once when the other NVR's matching sensor covers the same reader (option B of layer ship 3b, parked)"
   status: parked
