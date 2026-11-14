@@ -34843,6 +34843,13 @@ cards:
   origin: {date: '2026-11-13', gist: 'From the reimagine design doc, step 3.'}
   why: 'DESIGN_reimagine_room_ai_chaining_music_2026_11_13.md step 3. Reuse the single mobile_app_notification_action handler (notification_manager.py, GRADE_URA_ prefix pattern used by crossing-vision grading). Climate excluded from undo.'
   next: 'Me: plan after the shared trust layer ships.'
+  rank: {value: 9, time_criticality: 5, effort: 5}
+  approval: explicit
+  approved_by: operator
+  approved_on: 2026-11-13
+  operator_2026_11_13_priority: 'Make high priority cards. When a lane opens we can plan it. And execute. Consider if the overnight agent can grab it.'
+  overnight_note: 'After AI-ROOM-RULES-TRUST-REPAIR-1 ships (it builds on the shared trust layer). Not overnight until then.'
+  after: [AI-ROOM-RULES-TRUST-REPAIR-1]
 - id: AI-ROOM-RULES-TRUST-REPAIR-1
   title: "Unified room rules (AI-described + chained) on one record and executor, plus a shared trust layer (shadow would-have-done log, decision rows, honest status)"
   design_2026_11_13: 'DESIGN_reimagine_room_ai_chaining_music_2026_11_13.md steps 2 and 4: merge AI rules and chaining at the contract (one rule record, one executor, one log row type, two ways to author); shared trust layer reused by music following; person-filter fix via _person_key; never store unparsed rules; one parser; real-path tests; structured ai_task compile only if step 0 shows parse quality is the limit. May elevate to Tier 2-DB for the new row type.'
@@ -34853,6 +34860,13 @@ cards:
   operator_2026_11_13_decision: 'We will fix the AI automation and the AI training and music following. We will not retire them. The reason they''re not exercised is because I don''t trust them yet, and the entire point is to build it so I can trust it.'
   why: 'Audit AUDIT_room_ai_automation_chaining_music_2026_11_13.md: person filter compares person.* entity id to display names and never matches (coordinator.py:1183; reuse music_following._person_key); a rule saved with needs_parsing true and actions [] has no re-parse path (config_flow.py:3120-3133) while its status says active; verify ai_task object/multiple structure; tests are inline replicas, only the executor guards have real-path tests. Chaining is sound but unused; automation.trigger skip_condition default needs a deliberate choice. Trust needs: honest status sensors, a dry-run / shadow mode showing what a rule WOULD do, real-path tests, decision log rows.'
   next: 'Me: plan (Tier 2, one plan review) then build when a builder slot frees.'
+  rank: {value: 10, time_criticality: 6, effort: 7}
+  approval: explicit
+  approved_by: operator
+  approved_on: 2026-11-13
+  operator_2026_11_13_priority: 'Make high priority cards. When a lane opens we can plan it. And execute. Consider if the overnight agent can grab it.'
+  overnight_note: 'Overnight may write the plan and run its one plan review, then build to review (no deploy). Do NOT make the paid ai_task test call unattended; it waits for the operator''s ok. If the shared trust layer adds a new DB row type, use Tier 2-DB reviews.'
+  autonomy: overnight-agentic
 - id: MUSIC-FOLLOWING-TRANSFER-REPAIR-1
   design_2026_11_13: 'DESIGN_reimagine_room_ai_chaining_music_2026_11_13.md steps 0, 1 and 5: probes first (one WiiM-to-WiiM walk while playing, read group_members on both; map each room player to its Music Assistant entity via the device registry); then MA-first transfer, success only when the target is actually playing; later per-person preferences from PERSON-PROFILE-PREFERENCES-1 (music following is its first consumer). Comfort-class consumer of person location (BLE room transitions, nearest F4); moves to the awareness read API when it has a per-person room view.'
   title: Music following transfers are wired wrong (join leader inverted, MA transfer_queue wrong keys) plus dead timing knobs, reload listener leak and uncounted skips
@@ -34863,6 +34877,13 @@ cards:
   why: 'music_following.py:1505 media_player.join with entity_id=target (idle) and group_members=[source]: HA join makes entity_id the leader, so the idle player leads (verified in code; live effect unverified). :1553 music_assistant.transfer_queue sent {source,target}; real schema is target entity + source_player/auto_play, so it raises and falls to play_media (188/352 players are MA; MA-first path is the modern route, Sendspin is an MA provider). Five CM knobs (cooldown, ping-pong window, verify delay, unjoin delay, position offset) are read and only logged (Bug Class #32); stale_transition_seconds has no field. Diagnostic listeners not removed on CM reload. No-player / source-not-playing skips not counted, BLE-distance rejects booked as low_confidence. test_v5100 FakeServices lacks target= kwarg. _stop_all_playback would stop all 352 players (off by default); music_on_arrival_start offered in the form but a no-op.'
   operator_2026_11_13_personalization: 'Music following is key to personalization. (feeds PERSON-PROFILE-PREFERENCES-1)'
   next: 'Me: Tier 2 build after the vision-arc builds free a builder slot: fix join direction and transfer_queue schema (MA-first), wire or remove the five knobs, listener removal, count skips, fix the test fixture and assert the transfer calls; validate with one live walk between two player rooms.'
+  rank: {value: 10, time_criticality: 7, effort: 4}
+  approval: explicit
+  approved_by: operator
+  approved_on: 2026-11-13
+  operator_2026_11_13_priority: 'Make high priority cards. When a lane opens we can plan it. And execute. Consider if the overnight agent can grab it.'
+  overnight_note: 'Overnight may plan, build, review and validate to review (no deploy). Code-side probe (MA entity mapping via device registry) is read-only and fine. The live WiiM walk and the deploy wait for the operator.'
+  autonomy: overnight-agentic
 - id: PHONE-LEFT-BEHIND-TRANSIENT-FLICKER-1
   arc_cut_v5_108_19: "with PLB build"
   arc_cut_v5_108_18: "with PLB build"
