@@ -123,11 +123,9 @@ CHANNEL_LITERALS: dict[str, tuple[str, str | None]] = {
     "ura_person_egress_event": ("transit_validator.py", "EgressDirectionTracker._resolve_direction"),
     "ura_person_location_change": ("person_coordinator.py", "PersonTrackingCoordinator._async_update_data"),
 }
-# TEMPORARY SHIM (plan rev 3.3 §16): verified value of the census-p2 channel
-# while the constant is not on the tree (feature/census-deconfliction-p2-ledger
-# @ 1f9e7981, signals.py:244). REMOVE when census-p2 lands on develop
-# (test_residency_shim_removed_once_census_p2_lands enforces it).
-CHANNEL_FALLBACK_VALUES = {"SIGNAL_RESIDENCY_EVENT": "ura_residency_event"}
+# The census-p2 residency-channel value shim (plan rev 3.3 §16) is removed:
+# SIGNAL_RESIDENCY_EVENT is on develop (v5.108.23, bc4f462b).
+CHANNEL_FALLBACK_VALUES: dict[str, str] = {}
 
 R13_CALLEES = frozenset({
     "dispatch_person_arriving", "attach_crossing_attribute", "amend_crossing",
@@ -257,7 +255,11 @@ def _r3_actor_identity(func) -> bool:
     return any(isinstance(c, ast.Constant) and c.value == "user_id" for c in ast.walk(func))
 
 
-R5_OWNER_DELEGATES = {"domain_coordinators/presence.py": ("PresenceCoordinator.get_house_census",)}
+R5_OWNER_DELEGATES = {
+    "domain_coordinators/presence.py": ("PresenceCoordinator.get_house_census",
+                                         "PresenceCoordinator.view_for_class"),
+    "census_view.py": ("house_census_view",),
+}
 
 
 def _r5_owner_delegate(rel: str, qual: str) -> bool:
@@ -1044,7 +1046,7 @@ def scan_module(rel: str, tree: ast.Module, h: Harvest) -> list[Hit]:
                 cls_args = [k.value for k in node.keywords if k.arg == "cls"]
                 if name in ("view_for_class", "min_confidence") and node.args:
                     cls_args.append(node.args[0])
-                for a in cls_args:
+                for a in ([] if _r5_owner_delegate(rel, qual) else cls_args):
                     s = _str_const(a)
                     if s is None or s not in h.consumer_classes:
                         add("R5", qual, f"{name}(cls)", node, "class_not_literal")

@@ -55,10 +55,11 @@ def test_guard_matches_provisional_allowlist():
     assert problems == [], "\n".join(problems)
 
 
-def test_allowlist_is_provisional_until_census_p2():
-    """Scaffolding marker: the FINAL allowlist and LAYER_ALLOWLIST_TOTAL are
-    produced on the post-census-p2 tree (plan §5 D7, §11). Flip with that run."""
-    assert A.PROVISIONAL is True
+def test_allowlist_is_final_post_census_p2():
+    """The final allowlist and LAYER_ALLOWLIST_TOTAL (plan §8, §17) come from
+    the run on the post-census-p2 tree (develop bc4f462b merged)."""
+    assert A.PROVISIONAL is False
+    assert A.LAYER_ALLOWLIST_TOTAL == 259 and len(A.ROWS) == 231
     assert A.LAYER_ALLOWLIST_TOTAL == sum(r["max"] for r in A.ROWS.values())
 
 
@@ -204,7 +205,8 @@ _MEMBERS = {
         "SIGNAL_PERSON_ARRIVING = 'ura_person_arriving'\n"
         "SIGNAL_EGRESS_RECORD_AMENDED = 'ura_egress_record_amended'\n"
         "SIGNAL_PERSON_SIGHTING = 'ura_person_sighting'\n"
-        "SIGNAL_CENSUS_UPDATED = 'ura_census_updated'\n"),
+        "SIGNAL_CENSUS_UPDATED = 'ura_census_updated'\n"
+        "SIGNAL_RESIDENCY_EVENT = 'ura_residency_event'\n"),
     "const.py": (
         "CONSUMER_CLASS_DISPLAY = 'display'\n"
         "CONSUMER_CLASS_SECURITY = 'security'\n"
@@ -506,6 +508,12 @@ REVERTS = {
     "census_view_kwonly": ("sensor.py",
                            "house_census_view(self.hass, \"trust\")",
                            "house_census_view(self.hass, view)"),
+    "d2_crossing_vision_raw_connect": ("crossing_vision.py",
+                                       "            subscribe_person_edges(self.hass, self._on_residency_event, kinds=EDGE_KINDS)",
+                                       "            async_dispatcher_connect(self.hass, \"ura_residency_event\", self._on_residency_event)"),
+    "d4_plb_cls": ("binary_sensor.py",
+                   "house_census_view(self.hass, cls=\"house_state\")",
+                   "house_census_view(self.hass, \"trust\")"),
     "missing_source": ("domain_coordinators/presence.py",
                        "                        person_entity=entity_id, source=\"geofence\",",
                        "                        person_entity=entity_id,"),

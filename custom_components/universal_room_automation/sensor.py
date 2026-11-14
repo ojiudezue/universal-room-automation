@@ -4219,11 +4219,9 @@ class _CensusAwarenessSensor(_CensusBaseSensor):
             )
             if presence is None:
                 return None
-            from .const import CONSUMER_CLASS_DISPLAY  # noqa: PLC0415
-
-            return presence.get_house_census(
-                presence.view_for_class(CONSUMER_CLASS_DISPLAY)
-            )
+            # Ship 3a D4: read by class (the one rule picks the view);
+            # identical to get_house_census(view_for_class("display")).
+            return presence.get_house_census(cls="display")
         except Exception:  # noqa: BLE001 — display; fall back to trust
             return None
 

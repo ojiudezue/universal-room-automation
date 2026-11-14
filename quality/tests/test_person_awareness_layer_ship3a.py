@@ -1002,3 +1002,301 @@ async def test_diagnostics_download_has_no_config_entry_data(mods, hass):
     for needle in ("api_key_fake", "sk-FAKE-123456", "access_token_fake",
                    "tok-FAKE-987654", "coordinator_manager", "entry_type"):
         assert needle not in text
+
+
+# ============================================== D2: F1 edges (G1, A1, A1b)
+T_SETUP = 1_000_000.0
+EZ_E = "person.ezinne_udezue"
+
+
+class _ResClock:
+    def __init__(self, t):
+        self.t = t
+
+    def __call__(self):
+        return self.t
+
+
+def _res_presence(mods, hass, *, seq=None):
+    hass.data.setdefault(DOMAIN, {})["person_coordinator"] = SimpleNamespace(
+        tracked_persons=["Oji Udezue", "Ezinne Udezue"])
+    coord = mods.presence.PresenceCoordinator(hass)
+    coord._residency_clock = _ResClock(T_SETUP)
+    coord._setup_residency()
+    coord._persist_residency_event = lambda rec: None
+    coord.handle_geofence_event = (
+        (lambda pid, zone: seq.append(("trigger", pid, zone))) if seq is not None
+        else (lambda pid, zone: None))
+    return coord
+
+
+def _edge(coord, pid, old, new, at):
+    coord._residency_clock.t = at
+    coord._handle_geofence_change(_geofence_event(pid, old, new))
+
+
+@pytest.mark.asyncio
+async def test_person_edges_delivered_synchronously(mods, hass):
+    """INV-AWAY-LATENCY: the G1 callback runs inline inside the producer,
+    before the direct house-state trigger."""
+    seq: list = []
+    coord = _res_presence(mods, hass, seq=seq)
+    res = importlib.import_module(f"{PKG}.domain_coordinators.residency")
+    unsub = res.subscribe_person_edges(
+        hass, lambda rec: seq.append(("edge", rec.kind, rec.person)))
+    _edge(coord, OJI_E, "home", "not_home", T_SETUP + 700)
+    assert seq == [("edge", "departure", OJI_E), ("trigger", OJI_E, "not_home")]
+    unsub()
+
+
+@pytest.mark.asyncio
+async def test_person_edges_callback_counted_flags(mods, hass):
+    res = importlib.import_module(f"{PKG}.domain_coordinators.residency")
+    coord = _res_presence(mods, hass)
+    got: list = []
+    unsub = res.subscribe_person_edges(hass, got.append)
+    arrivals: list = []
+    unsub_a = res.subscribe_person_edges(hass, arrivals.append, kinds={"arrival"})
+    ez_only: list = []
+    unsub_e = res.subscribe_person_edges(hass, ez_only.append, persons={EZ_E})
+    _edge(coord, OJI_E, "home", "not_home", T_SETUP + 700)
+    _edge(coord, OJI_E, "not_home", "home", T_SETUP + 700 + 1200)
+    unsub()
+    unsub_a()
+    unsub_e()
+    assert [r.kind for r in arrivals] == ["arrival"]
+    assert ez_only == []
+    assert [r.kind for r in got] == ["departure", "arrival"]
+    assert got == list(coord._residency.recent)          # the same records
+    arr = got[1]
+    assert (arr.counted, arr.in_boot_window, arr.resident_set_resolved) == (True, False, True)
+    assert isinstance(arr.source_stale, bool)
+
+
+@pytest.mark.asyncio
+async def test_person_edges_since_per_person_inclusive(mods, hass):
+    coord = _res_presence(mods, hass)
+    _edge(coord, OJI_E, "home", "not_home", T_SETUP + 700)
+    _edge(coord, EZ_E, "home", "not_home", T_SETUP + 800)
+    _edge(coord, OJI_E, "not_home", "home", T_SETUP + 2000)
+    got = coord.get_person_edges_since(T_SETUP + 800)
+    assert [(r.person, r.kind, r.edge_ts) for r in got] == [
+        (EZ_E, "departure", T_SETUP + 800), (OJI_E, "arrival", T_SETUP + 2000)]
+    assert [r.edge_ts for r in coord.get_person_edges_since(T_SETUP + 800.001)] == [T_SETUP + 2000]
+    assert [r.edge_ts for r in coord.get_person_edges_since(T_SETUP, persons={OJI_E})] == [
+        T_SETUP + 700, T_SETUP + 2000]
+    assert [r.edge_ts for r in coord.get_person_edges_since(
+        T_SETUP, persons={OJI_E}, kinds={"arrival"})] == [T_SETUP + 2000]
+
+
+@pytest.mark.asyncio
+async def test_person_edges_since_plain_tuple(mods, hass):
+    coord = _res_presence(mods, hass)
+    _edge(coord, OJI_E, "home", "not_home", T_SETUP + 700)
+    got = coord.get_person_edges_since(T_SETUP)
+    assert type(got) is tuple and len(got) == 1
+    bare = mods.presence.PresenceCoordinator(hass)
+    bare._residency = None
+    assert bare.get_person_edges_since(T_SETUP) == ()
+
+
+@pytest.mark.asyncio
+async def test_person_edges_truncated_since(mods, hass, monkeypatch):
+    monkeypatch.setattr(mods.const, "RESIDENCY_RECENT_EVENTS", 2)
+    coord = _res_presence(mods, hass)
+    sig = mods.signals
+    # t before the ledger's creation: True even when empty (RAM).
+    assert coord.person_edges_truncated_since(T_SETUP - 1) is True
+    assert coord.person_edges_truncated_since(T_SETUP) is False
+    _edge(coord, OJI_E, "home", "not_home", T_SETUP + 700)
+    assert coord.person_edges_truncated_since(T_SETUP + 10) is False      # not full
+    _edge(coord, EZ_E, "home", "not_home", T_SETUP + 800)
+    _edge(coord, OJI_E, "not_home", "home", T_SETUP + 2000)               # evicts 700
+    assert coord.person_edges_truncated_since(T_SETUP + 10) is True       # full, oldest 800 > t
+    assert coord.person_edges_truncated_since(T_SETUP + 800) is False     # oldest == t
+    assert sig.layer_counters(hass).edges_truncated == 2
+
+
+@pytest.mark.asyncio
+async def test_subscribe_rejects_coroutine_and_unknown_kind(mods, hass):
+    res = importlib.import_module(f"{PKG}.domain_coordinators.residency")
+
+    async def _coro(rec):
+        return None
+
+    with pytest.raises(ValueError):
+        res.subscribe_person_edges(hass, _coro)
+    with pytest.raises(ValueError):
+        res.subscribe_person_edges(hass, lambda r: None, kinds={"approach"})
+    with pytest.raises(ValueError):
+        res.subscribe_person_edges(hass, lambda r: None, kinds=set())
+    assert mods.signals.layer_counters(hass).g1_subscribers == 0
+    unsub = res.subscribe_person_edges(hass, lambda r: None)
+    assert mods.signals.layer_counters(hass).g1_subscribers == 1
+    unsub()
+    unsub()
+    assert mods.signals.layer_counters(hass).g1_subscribers == 0
+
+
+async def _geofence_sequence(mods, hass, with_subscriber):
+    seq: list = []
+    coord = _res_presence(mods, hass, seq=seq)
+    cap, unsub_f5 = _connect(mods, hass, mods.signals.SIGNAL_PERSON_ARRIVING)
+    res = importlib.import_module(f"{PKG}.domain_coordinators.residency")
+    unsub = res.subscribe_person_edges(hass, lambda r: None) if with_subscriber else None
+    _edge(coord, OJI_E, "home", "not_home", T_SETUP + 700)
+    _edge(coord, OJI_E, "not_home", "home", T_SETUP + 2000)
+    _edge(coord, OJI_E, "home", "unavailable", T_SETUP + 2100)
+    if unsub:
+        unsub()
+    unsub_f5()
+    return seq, cap.payloads
+
+
+@pytest.mark.asyncio
+async def test_geofence_triggers_unchanged(mods, hass):
+    """The direct AWAY / arrive triggers and the F5 send are the same with
+    and without a G1 subscriber (count, order, payload)."""
+    base = await _geofence_sequence(mods, hass, False)
+    hass.data[DOMAIN] = {}
+    withsub = await _geofence_sequence(mods, hass, True)
+    assert base == withsub
+    assert base[0] == [("trigger", OJI_E, "not_home"), ("trigger", OJI_E, "home")]
+
+
+@pytest.mark.asyncio
+async def test_g1_subscriber_raise_does_not_block_inference(mods, hass):
+    seq: list = []
+    coord = _res_presence(mods, hass, seq=seq)
+    res = importlib.import_module(f"{PKG}.domain_coordinators.residency")
+
+    def _boom(rec):
+        raise RuntimeError("subscriber bug")
+
+    unsub = res.subscribe_person_edges(hass, _boom)
+    cap, unsub_f5 = _connect(mods, hass, mods.signals.SIGNAL_PERSON_ARRIVING)
+    _edge(coord, OJI_E, "home", "not_home", T_SETUP + 700)
+    _edge(coord, OJI_E, "not_home", "home", T_SETUP + 2000)
+    unsub()
+    unsub_f5()
+    assert seq == [("trigger", OJI_E, "not_home"), ("trigger", OJI_E, "home")]
+    assert cap.payloads == [{"person_entity": OJI_E, "source": "geofence"}]
+    assert len(coord._residency.recent) == 2
+
+
+@pytest.mark.asyncio
+async def test_crossing_vision_residency_delivery_equal(mods, hass):
+    """Delivery equality of the migration: a subscription with crossing
+    vision's arguments (all kinds, all persons) receives exactly what the old
+    raw SIGNAL_RESIDENCY_EVENT connect received, same objects, same order,
+    synchronously (the wiring itself: test_crossing_ledger_wiring.py::
+    test_crossing_vision_residency_feed_is_g1_all_kinds)."""
+    res = importlib.import_module(f"{PKG}.domain_coordinators.residency")
+    coord = _res_presence(mods, hass)
+    raw = _Capture()
+    unsub_raw = mods.dispatcher.async_dispatcher_connect(
+        hass, mods.signals.SIGNAL_RESIDENCY_EVENT, raw)
+    g1: list = []
+    unsub_g1 = res.subscribe_person_edges(hass, g1.append, kinds=res.EDGE_KINDS)
+    _edge(coord, OJI_E, "home", "not_home", T_SETUP + 700)
+    _edge(coord, EZ_E, "home", "not_home", T_SETUP + 750)
+    _edge(coord, OJI_E, "not_home", "home", T_SETUP + 2000)
+    _edge(coord, OJI_E, "home", "home", T_SETUP + 2001)       # no record
+    unsub_raw()
+    unsub_g1()
+    assert len(raw.payloads) == 3
+    assert all(a is b for a, b in zip(g1, raw.payloads)) and len(g1) == 3
+
+
+# ======================================== D4 census view (post-census-p2)
+def _census_house(**over):
+    base = dict(identified_count=2, unidentified_count=1, total_persons=3,
+                source_agreement="both_agree", timestamp="t", confidence="high",
+                aware_guests=0, aware_total=2, count_provenance="vision",
+                aware_agreement="close", aware_vision_status="ok", aware_ledger_state="known")
+    base.update(over)
+    return SimpleNamespace(**base)
+
+
+def _install_census(hass, house):
+    hass.data.setdefault(DOMAIN, {})["census"] = SimpleNamespace(
+        last_result=SimpleNamespace(house=house))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("switch", ["on", "off", None])
+async def test_census_view_positional_and_cls_equal(mods, hass, switch):
+    cv = importlib.import_module(f"{PKG}.census_view")
+    _install_census(hass, _census_house())
+    if switch is not None:
+        hass.states.async_set(mods.const.CROSSING_VISION_CENSUS_AUTHORITY_SWITCH, switch)
+    p = _presence(mods, hass)
+    want_display = "awareness" if switch == "on" else "trust"
+    # display is promoted: cls="display" == the positional view the rule picks
+    assert cv.house_census_view(hass, cls="display") == cv.house_census_view(hass, want_display)
+    assert p.get_house_census(cls="display") == cv.house_census_view(hass, want_display)
+    # positional callers unchanged
+    assert cv.house_census_view(hass, "trust") == p.get_house_census("trust")
+    assert cv.house_census_view(hass).view == "trust"
+    # with cls, view is ignored
+    assert cv.house_census_view(hass, "awareness", cls="security") == cv.house_census_view(hass, "trust")
+    # presence's method IS the census_view rule
+    assert p.view_for_class("display") == cv.view_for_class(hass, "display") == want_display
+
+
+@pytest.mark.asyncio
+async def test_census_view_cls_house_state_is_trust(mods, hass):
+    """Golden: the phone-left-behind sensor's class (house_state) reads the
+    trust view whatever the authority switch says."""
+    cv = importlib.import_module(f"{PKG}.census_view")
+    _install_census(hass, _census_house())
+    hass.states.async_set(mods.const.CROSSING_VISION_CENSUS_AUTHORITY_SWITCH, "on")
+    golden = cv.house_census_view(hass, "trust")
+    assert golden == mods.presence.HouseCensusView(
+        view="trust", identified=2, unidentified_or_guests=1, total=3, provenance="camera",
+        agreement="both_agree", as_of="t", confidence="high")
+    assert cv.house_census_view(hass, cls="house_state") == golden
+    assert cv.house_census_view(hass, cls="display") != golden    # discriminator
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("switch", ["on", "off"])
+async def test_census_awareness_sensor_reads_display_class_golden(mods, hass, switch):
+    """Census-p2's awareness sensors now read get_house_census(cls="display"):
+    golden-equal to the old get_house_census(view_for_class("display"))."""
+    sensor = importlib.import_module(f"{PKG}.sensor")
+    cv = importlib.import_module(f"{PKG}.census_view")
+    _install_census(hass, _census_house())
+    hass.states.async_set(mods.const.CROSSING_VISION_CENSUS_AUTHORITY_SWITCH, switch)
+    p = _presence(mods, hass)
+    hass.data[DOMAIN]["coordinator_manager"] = SimpleNamespace(coordinators={"presence": p})
+    s = object.__new__(sensor._CensusAwarenessSensor)
+    s.hass = hass
+    old = p.get_house_census(p.view_for_class("display"))
+    assert s._view() == old
+    assert old == cv.house_census_view(hass, "awareness" if switch == "on" else "trust")
+
+
+@pytest.mark.asyncio
+async def test_phone_left_behind_reads_house_state_class(mods, hass, monkeypatch):
+    """Wire-in: the PLB sensor's census step passes cls="house_state" (both
+    sites), so promoting display to awareness never moves its verdict."""
+    bs = importlib.import_module(f"{PKG}.binary_sensor")
+    import homeassistant.util.dt as dt_util
+    noon = datetime(2026, 11, 13, 12, 0, tzinfo=dt_util.get_default_time_zone())
+    monkeypatch.setattr(dt_util, "now", lambda *_a, **_k: noon)
+    s = bs.PersonPhoneLeftBehindSensor(hass, SimpleNamespace(entry_id="e"),
+                                       "Oji Udezue", "person.oji_udezue")
+    hass.data.setdefault(DOMAIN, {}).update({
+        "person_coordinator": SimpleNamespace(
+            data={"Oji Udezue": {"location": "Office"}}, _is_room_occupied=lambda r: False),
+        "transit_validator": object(),
+    })
+    # Trust says nobody (total 0); awareness says 2 (vision). Display is the
+    # promoted class and the authority switch is on, so a display read would
+    # see 2 and suppress; the house_state class must keep reading trust.
+    _install_census(hass, _census_house(identified_count=0, unidentified_count=0,
+                                        total_persons=0, aware_total=2, aware_guests=2))
+    hass.states.async_set(mods.const.CROSSING_VISION_CENSUS_AUTHORITY_SWITCH, "on")
+    assert s.is_on is True
+    assert s.extra_state_attributes["census_persons_in_house"] == 0

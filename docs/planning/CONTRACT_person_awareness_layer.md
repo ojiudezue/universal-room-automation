@@ -275,8 +275,8 @@ counted allowlist (owner-display exemption), never for a decision.
 | Fact | Method | Exists |
 |---|---|---|
 | F1 level | `get_residents_home(zone_persons=None)`, `get_residents_home_count()`; push `PersonTrackingCoordinator.async_add_listener` (HA coordinator update; listed listeners only, §4.2) | yes |
-| F1 edges | `get_recent_resident_arrival`, `get_residency_snapshot`, NEW `subscribe_person_edges(cb, *, persons, kinds)` (push), NEW `get_person_edges_since(t, *, persons, kinds)` (pull over the same `ResidencyTracker.recent` ledger, no second store; plain tuple, `edge_ts >= t`, oldest first, `t` float epoch seconds) + `person_edges_truncated_since(t)`; every edge carries `counted` | G1 new (ship 3a D2, not built in phase 1) |
-| F2 | `get_house_census(view_for_class(cls))` | yes (literal-view callers to migrate) |
+| F1 edges | `get_recent_resident_arrival`, `get_residency_snapshot`, NEW `subscribe_person_edges(cb, *, persons, kinds)` (push), NEW `get_person_edges_since(t, *, persons, kinds)` (pull over the same `ResidencyTracker.recent` ledger, no second store; plain tuple, `edge_ts >= t`, oldest first, `t` float epoch seconds) + `person_edges_truncated_since(t)`; every edge carries `counted` | G1 BUILT ship 3a D2 (phase 2) |
+| F2 | `get_house_census(cls=...)` / `census_view.house_census_view(hass, cls=...)` (the view chosen by `census_view.view_for_class`) | BUILT ship 3a D4; six display callers stay on the literal trust view (Q3) |
 | F3 | `get_last_crossing(camera)`, `get_crossings_since(t, camera=None)` (plain tuple of `CrossingRecord`, `ts >= t`, oldest first, `t` a `datetime`; covers at most `EGRESS_CROSSING_RING_MAX_AGE_S` and 32 records per camera, only since the tracker's creation, so no truncation read), `get_crossing(source_ref)`, `get_last_arrival_record()`, `door_camera_device_ids()`, `door_entry_entities()` / `door_neighbours_for_stem(stem)` (G5: entities, not areas, because the lock and perimeter resolve areas with different functions) | BUILT ship 3a D3 (G2, A3, A9, G5) |
 | F4 | `get_last_person_sighting(s)`; BLE via `get_person_location(name)`, `get_person_previous_seen(name)` (`person_coordinator.py`), `persons_in_room(room, active_only=False)`, `persons_in_room_or_scanner_areas(room)`, `location_moves_since(t)` on `PersonTrackingCoordinator` (plain tuple of frozen `PersonMove(person_entity, from_room, to_room, ts, method)`, `ts >= t`, oldest first, `t` a `datetime`) + `location_moves_truncated_since(t)` (on truncation, re-read `get_person_location`); push `TransitionDetector.async_add_listener` (listed listeners only) | moves BUILT ship 3a D4; G6 rest on G6-ONE-BLE-ROOM-READ-1 |
 | F5 | push only: `signals.subscribe_person_arriving(hass, cb)` (sync `cb(PersonArrivingPayload)`, delivered inline) | BUILT ship 3a D1 |
@@ -311,7 +311,7 @@ Read shapes and time types (written the same way in every plan that consumes the
 
 | Read | Returns | `t` |
 |---|---|---|
-| `get_person_edges_since(t, *, persons, kinds)` (D2, pending census-p2) | plain tuple of `ResidencyEvent`, `edge_ts >= t`, oldest first; truncation via `person_edges_truncated_since(t)` | float epoch seconds |
+| `get_person_edges_since(t, *, persons, kinds)` (D2) | plain tuple of `ResidencyEvent`, `edge_ts >= t`, oldest first; truncation via `person_edges_truncated_since(t)` | float epoch seconds |
 | `location_moves_since(t)` | plain tuple of frozen `PersonMove(person_entity, from_room, to_room, ts, method)`, `ts >= t`, oldest first; truncation via `location_moves_truncated_since(t)` | `datetime` |
 | `get_crossings_since(t, camera=None)` | plain tuple of `CrossingRecord`, `ts >= t`, oldest first; no truncation read (ring bound, RAM since creation) | `datetime` |
 
@@ -332,9 +332,11 @@ Read shapes and time types (written the same way in every plan that consumes the
 - **Layer diagnostics:** `PresenceCoordinator.get_layer_diagnostics()`, read on demand by the config-entry diagnostics
   download (`diagnostics.py`, coordinator-manager entry, key `person_awareness_layer`); counters only, never config-entry
   data / options.
-- **Not built in phase 1:** D2 (G1, the crossing-vision migration onto G1), the class-taking census view, the guard's final
-  allowlist and `LAYER_ALLOWLIST_TOTAL` (the scaffolding runs on a PROVISIONAL allowlist,
-  `quality/tests/person_awareness_layer_allowlist_PROVISIONAL.py`).
+- **Phase 2 (built after census-p2 merged):** G1 `residency.subscribe_person_edges` (+ presence delegate; `@callback`
+  closure on `SIGNAL_RESIDENCY_EVENT`, coroutine / unknown kind rejected; crossing vision is its first subscriber),
+  `get_person_edges_since` / `person_edges_truncated_since`; the class-taking census view
+  (`census_view.view_for_class` is the one rule; `house_census_view(hass, view="trust", *, cls=None)`). The guard
+  allowlist is final: 231 rows, `LAYER_ALLOWLIST_TOTAL` 259 (file name kept).
 
 ## 5. Gaps the layer still needs (each a small public seam; none is a new fact)
 

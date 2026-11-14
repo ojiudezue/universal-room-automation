@@ -3,7 +3,7 @@
 NOT THE FINAL ALLOWLIST. Plan PLANNING_person_awareness_layer_ship3.md rev 3.2
 §5 D7 / §11: the final allowlist and LAYER_ALLOWLIST_TOTAL are produced by the
 first real run on the post-census-p2 tree. This file is the first run on
-develop + ship 3a phase 1 (builder HEAD 9d61a315), classified into plan §9
+develop + ship 3a phase 1 (builder HEAD 6d763d88), classified into plan §9
 groups. Rows with ``explained: False`` are NOT explained by the plan's sizing
 or §9: they are a STOP for the orchestrator (plan §5 D7: "never pasted in"),
 pinned here only so the scaffolding is exact; see
@@ -15,15 +15,16 @@ symbol = qualified function + ':' + accessed name / channel / callee).
 Generated; regenerate rather than hand-edit.
 """
 
-PROVISIONAL = True
-LAYER_ALLOWLIST_TOTAL_PROVISIONAL = 261
-# Plan rev 3.3 (4d337e44) §9 / §17 expects 238 rows / max-sum 266. The rule
-# text of §5 D7 applied exactly removes 5 more ruled rows (by-name
-# exclusions: _boot_settle_done x4, census get_stuck_cameras x1; accepted by
-# the coordinator), and the six named lifecycle callees are ruled exempt.
-# Pinned to what the rules produce: 233 rows.
-LAYER_ALLOWLIST_TOTAL = 261
-RULED = 'plan rev 3.3 §17 (4d337e44)'
+PROVISIONAL = False  # final run on the post-census-p2 tree (file name kept: plan does not rename it)
+LAYER_ALLOWLIST_TOTAL_PROVISIONAL = 259
+# FINAL (plan §8 / §17, post-census-p2): 266 per §17, minus 5 rows removed by
+# the by-name exclusions (accepted), the six named lifecycle callees ruled
+# exempt; then phase 2: the two phone-left-behind literal-view rows conform
+# (cls='house_state'), crossing vision's raw residency connect moved onto
+# G1 (listed inside subscribe_person_edges), census-p2's
+# _CensusAwarenessSensor reads cls='display'.
+LAYER_ALLOWLIST_TOTAL = 259
+RULED = 'plan rev 3.3 §17 (4d337e44) + coordinator lifecycle ruling; final run post-census-p2'
 
 # group -> (card, reason). '#N' = plan §9 row N; 'UNEXPLAINED' = STOP.
 GROUPS = {
@@ -51,7 +52,6 @@ GROUPS = {
     '#6': ('crossing-vision Phase 2 promotion', 'display census caller on a literal view'),
     '#7': ('PERSON-AWARENESS-READ-API-1', 'census privates read by census display sensors (owner_display)'),
     '#7o': ('PERSON-AWARENESS-READ-API-1', "census's own display sensors read the census store / diagnostics (contract §2.7 owner-display exemption)"),
-    'D4': ('PERSON-AWARENESS-READ-API-1 ship 3a D4 phase 2', 'census view literal until the cls= census view lands (phase 2)'),
     'OWN': ('PERSON-AWARENESS-READ-API-1', 'owner row named by the plan'),
     'R13': ('PERSON-AWARENESS-READ-API-1', 'pinned ingest feeder (plan §5 D7 R13)'),
     'R8': ('PERSON-AWARENESS-READ-API-1', 'class-threshold-equal confidence constant, seed (contract §9 Q3)'),
@@ -276,8 +276,6 @@ ROWS = {
     ('R4', 'domain_coordinators/camera_stream_health.py', '_room_coordinators:_camera_stream_health'): {'max': 1, 'group': 'OWN', 'reserved': False, 'explained': True},
     ('R5', 'aggregation.py', 'ZoneGuestCountSensor._get_guest_count:house_census_view(view:literal_view)'): {'max': 1, 'group': '#6', 'reserved': False, 'explained': True},
     ('R5', 'aggregation.py', 'ZoneGuestCountSensor.extra_state_attributes:house_census_view(view:literal_view)'): {'max': 1, 'group': '#6', 'reserved': False, 'explained': True},
-    ('R5', 'binary_sensor.py', 'PersonPhoneLeftBehindSensor.extra_state_attributes:house_census_view(view:literal_view)'): {'max': 1, 'group': 'D4', 'reserved': False, 'explained': True},
-    ('R5', 'binary_sensor.py', 'PersonPhoneLeftBehindSensor.is_on:house_census_view(view:literal_view)'): {'max': 1, 'group': 'D4', 'reserved': False, 'explained': True},
     ('R5', 'binary_sensor.py', 'URAUnexpectedPersonSensor.extra_state_attributes:house_census_view(view:literal_view)'): {'max': 1, 'group': '#6', 'reserved': False, 'explained': True},
     ('R5', 'binary_sensor.py', 'URAUnexpectedPersonSensor.is_on:house_census_view(view:literal_view)'): {'max': 1, 'group': '#6', 'reserved': False, 'explained': True},
     ('R5', 'sensor.py', 'UnidentifiedPersonsSensor.extra_state_attributes:house_census_view(view:literal_view)'): {'max': 1, 'group': '#6', 'reserved': False, 'explained': True},
@@ -309,6 +307,7 @@ LISTED = {
     ('R10', 'domain_coordinators/hvac.py', 'HVACCoordinator.async_setup:ura_person_arriving'): 1,
     ('R10', 'domain_coordinators/music_following.py', 'MusicFollowingCoordinator.async_setup:ura_person_arriving'): 1,
     ('R10', 'domain_coordinators/presence.py', 'PresenceCoordinator.async_setup:ura_census_updated'): 1,
+    ('R10', 'domain_coordinators/residency.py', 'subscribe_person_edges:ura_residency_event'): 1,
     ('R10', 'domain_coordinators/security.py', 'SecurityCoordinator.async_setup:ura_person_arriving'): 1,
     ('R10', 'domain_coordinators/signals.py', 'subscribe_person_arriving:ura_person_arriving'): 1,
     ('R10', 'music_following.py', '<step 8 §5.4 music listener>:async_add_listener[PC]'): 1,

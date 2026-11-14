@@ -6018,42 +6018,22 @@ class PresenceCoordinator(BaseCoordinator):
     # Readers pick a view by consumer class (view_for_class); the presence
     # inference path never calls these.
     # ------------------------------------------------------------------
-    def get_house_census(self, view: str = "trust") -> HouseCensusView | None:
-        """RA1: F2 house census for ``view`` (``trust`` / ``awareness``).
+    def get_house_census(self, view: str = "trust", *, cls: Any = None) -> HouseCensusView | None:
+        """RA1: F2 house census for ``view`` (``trust`` / ``awareness``), or for
+        consumer class ``cls`` (ship 3a D4: ``census_view.view_for_class``).
 
-        Reads ``census.last_result.house`` through ``census_view.house_census_view``
-        (the one F2 read; RA7 display readers call it too). Sync, never
-        raises; no census or no result yet -> None. The awareness view reads
-        the census deconfliction fields (CD1) when present, else the trust
-        values with provenance ``camera``. Any view string other than
-        ``awareness`` reads trust.
+        Delegates to ``census_view.house_census_view`` (the one F2 read; RA7
+        display readers call it too). Sync, never raises; no census or no
+        result yet -> None.
         """
-        return house_census_view(self.hass, view)
+        return house_census_view(self.hass, view, cls=cls)
 
     def view_for_class(self, cls: Any) -> str:
-        """RA2: the census view a consumer class reads (allow-list).
+        """RA2: the census view a consumer class reads. Ship 3a D4: delegates
+        to ``census_view.view_for_class`` (the one rule)."""
+        from ..census_view import view_for_class as _view_for_class  # noqa: PLC0415
 
-        ``awareness`` ONLY when ``cls`` is in the active promoted set
-        (``CROSSING_VISION_CONSUMER_CLASSES``) AND in the legal set AND the
-        downgrade switch reads ``on``. Every other input (class not
-        promoted, unknown / misspelt / non-string class, switch missing or
-        not on, any error) -> ``trust``.
-        """
-        try:
-            if not isinstance(cls, str):
-                return "trust"
-            if cls not in _ura_const.CROSSING_VISION_CONSUMER_CLASSES:
-                return "trust"
-            if cls not in _ura_const.CROSSING_VISION_LEGAL_CONSUMER_CLASSES:
-                return "trust"
-            st = self.hass.states.get(
-                _ura_const.CROSSING_VISION_CENSUS_AUTHORITY_SWITCH
-            )
-            if st is None or st.state != "on":
-                return "trust"
-            return "awareness"
-        except Exception:  # noqa: BLE001 - fail to trust
-            return "trust"
+        return _view_for_class(self.hass, cls)
 
     def get_last_crossing(self, camera: str | None = None):
         """RA5: last F3 door crossing (``CrossingRecord``) from the egress
@@ -6066,6 +6046,44 @@ class PresenceCoordinator(BaseCoordinator):
             return tracker.get_last_crossing(camera)
         except Exception:  # noqa: BLE001
             return None
+
+    # ---- ship 3a D2: F1 edges (G1 push, A1 pull, A1b truncation)
+    def subscribe_person_edges(self, cb, *, persons=None, kinds=None):
+        """G1 delegate of ``residency.subscribe_person_edges`` (same rules)."""
+        from .residency import EDGE_KINDS, subscribe_person_edges  # noqa: PLC0415
+
+        return subscribe_person_edges(
+            self.hass, cb, persons=persons, kinds=EDGE_KINDS if kinds is None else kinds,
+        )
+
+    def get_person_edges_since(self, t: float, *, persons=None, kinds=None) -> tuple:
+        """A1: residency records with ``edge_ts >= t`` (epoch seconds, float),
+        oldest first, plain tuple; ``()`` with no tracker or on any error."""
+        try:
+            from .residency import EDGE_KINDS, edges_since  # noqa: PLC0415
+
+            tracker = getattr(self, "_residency", None)
+            if tracker is None:
+                return ()
+            return edges_since(tracker, t, persons=persons,
+                               kinds=EDGE_KINDS if kinds is None else kinds)
+        except Exception:  # noqa: BLE001
+            return ()
+
+    def person_edges_truncated_since(self, t: float) -> bool:
+        """A1b: True when ``get_person_edges_since(t)`` may be incomplete (ring
+        full and its oldest record newer than ``t``, or ``t`` before the
+        tracker's creation; no tracker = True). Each True is counted."""
+        try:
+            from .residency import edges_truncated_since  # noqa: PLC0415
+
+            tracker = getattr(self, "_residency", None)
+            truncated = True if tracker is None else edges_truncated_since(tracker, t)
+        except Exception:  # noqa: BLE001
+            truncated = True
+        if truncated:
+            _layer_signals.count_layer_event(self.hass, "edges_truncated")
+        return truncated
 
     # ---- ship 3a D3: F3 reads (delegates to the egress tracker; never raise)
     def _egress_tracker(self):
