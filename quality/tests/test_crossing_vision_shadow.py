@@ -38,7 +38,7 @@ import pytest_asyncio
 import homeassistant as _real_ha_pkg
 
 from _d7_isolation import import_scope
-from _sighting_rig import purge_attr_tainted_ha
+from _sighting_rig import purge_attr_tainted_ha, restore_stubbed_registry_helpers
 
 _HA_DIR = Path(_real_ha_pkg.__file__).resolve().parent
 _PKG = "custom_components.universal_room_automation"
@@ -96,6 +96,9 @@ def mods():
         for _name in ("State", "Event", "HomeAssistant", "CoreState",
                       "ServiceCall", "SupportsResponse"):
             setattr(_core, _name, getattr(_phcc, _name))
+        # Order-proof the registry helpers (census-p2 full run); after the
+        # real core.callback is back, since a scratch re-import binds it.
+        restore_stubbed_registry_helpers()
         importlib.invalidate_caches()
         ns = types.SimpleNamespace(
             const=importlib.import_module(f"{_PKG}.const"),
