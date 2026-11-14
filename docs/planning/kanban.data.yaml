@@ -34873,6 +34873,7 @@ cards:
   rank: {value: 9, time_criticality: 7, effort: 3}
   operator_2026_11_14_decisions: 'A. Alert now, name it afterwards. Garage A - g5, doorbell lite, Rear PTZ. G6 and Front aerial - Sonoff Cam, Front ptz, Utilities PTZ'
   resolved_2026_11_14: 'Separate egress_mute_covers map (not the seam ring): garage_a -> g5_bullet, doorbell_lite, rear_ptz; madrone_g6_entry and front_door_aerial -> sonoffwindow (camera.sonoffwindow, Frigate, in perimeter_cameras), front_side_ptz, utilities_ptz. Plan review a36fc42d FIX-PLAN; rewrite in progress.'
+  operator_2026_11_14_seam_sonoff: 'Yes add sonoff cam. Seam ring with it is Front ptz - [G6 Entry, Aerial] - Sonoff cam - Utilities PTZ - pool equipment. => APPLIED 2026-11-14 04:40Z to the live exterior_seams.json (backup .claude/tmp/exterior_seams.json.bak-20261114): ring rev 3 inserts sonoffwindow between front_door_aerial and utilities_ptz (madroneptultra kept between utilities_ptz and pool_equipment); validated offline, reloaded via button.ura_reload_exterior_seams; linker reports 22 seams, sha bf62a7af, egress-adjacent now includes sonoffwindow. One warning: skip front_side_ptz<->utilities_ptz now spans 4 ring positions; operator to confirm it is a real line of sight.'
 - id: NVR-WITNESS-CONSOLIDATION-1
   title: One shared Frigate-vs-Protect witness layer (who saw it, agreement history) with policy kept per consumer; crossing vision gets Protect as a second witness
   status: planned
