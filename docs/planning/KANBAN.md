@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-13T19:18:02-06:00_ - _Data commit: `3e17310a5a4f`_ - _last_reconciled: 2026-11-13_
+_Generated: 2026-11-13T19:23:11-06:00_ - _Data commit: `376c127220c7`_ - _last_reconciled: 2026-11-13_
 
 
 ## Columns
@@ -539,7 +539,7 @@ status: **planned** - approval: **explicit**
 - **Origin:** 2026-11-13 - From the room AI/music audit.
 - **Why:** music_following.py:1505 media_player.join with entity_id=target (idle) and group_members=[source]: HA join makes entity_id the leader, so the idle player leads (verified in code; live effect unverified). :1553 music_assistant.transfer_qu...
 - **Next:** Me: Tier 2 build after the vision-arc builds free a builder slot: fix join direction and transfer_queue schema (MA-first), wire or remove the five knobs, listener removal, count skips, fix the test fixture and assert the transfer calls; ...
-- **Forensic keys (11):**
+- **Forensic keys (13):**
   - `design_2026_11_13`: DESIGN_reimagine_room_ai_chaining_music_2026_11_13.md steps 0, 1 and 5: probes first (one WiiM-to-WiiM walk while playing, read group_members on both; map each room player to its Music Assistant entity via the device registry); then MA-f...
   - `tier`: 2
   - `operator_2026_11_13_personalization`: Music following is key to personalization. (feeds PERSON-PROFILE-PREFERENCES-1)
@@ -551,6 +551,8 @@ status: **planned** - approval: **explicit**
   - `live_walk`: Operator: "let's do it Sat or Sunday" (WiiM-to-WiiM walk while playing, read group_members on both players). Also the day-1 live validation.
   - `operator_2026_11_13_observability`: The thing to build into the 3 feature, now 2 is observability and logs that allow diagnostics and tuning. Maybe room memory entries as well to extend the memory feature
   - `amendment_pending`: Fold into the plan at the plan-review fix round: (1) observability + diagnostic/tuning logs (every decision with inputs, reason, outcome; per-knob effect visible; accuracy sensor from implicit reversal detection, e.g. music moved back or...
+  - `plan_rewrite_2026_11_13`: PLANNING_music_following_repair.md rewritten 51bbba77 (dwell gate replaced by BLE confidence/distance; source = most recent room with a playing player; MA-first with native fallback; original fade-stop-restore as a knob; one outcome list...
+  - `next_build`: Me or the overnight agent: one re-verify plan review of the rewrite (substantial fix round), then build in a worktree, three framing-disjoint reviews, validate to review. Off the arc critical path (operator: not P0).
 
 ### `VISION-INTERIOR-SIGHTINGS-1` - Interior vision - unnamed sightings ("2 people in the family room") from interior cameras, fused with NVR faces — _#11 · WSJF 4.3 · v8 tc3 u2 /e3_
 thread: **identity** - status: **planned**
@@ -676,7 +678,7 @@ status: **planned** - approval: **explicit**
 - **Origin:** 2026-11-13 - Operator: fix, do not retire; not exercised because not yet trusted.
 - **Why:** Audit AUDIT_room_ai_automation_chaining_music_2026_11_13.md: person filter compares person.* entity id to display names and never matches (coordinator.py:1183; reuse music_following._person_key); a rule saved with needs_parsing true and ...
 - **Next:** Me: plan (Tier 2, one plan review) then build when a builder slot frees.
-- **Forensic keys (13):**
+- **Forensic keys (15):**
   - `design_2026_11_13`: DESIGN_reimagine_room_ai_chaining_music_2026_11_13.md steps 2 and 4: merge AI rules and chaining at the contract (one rule record, one executor, one log row type, two ways to author); shared trust layer reused by music following; person-...
   - `tier`: 2
   - `operator_2026_11_13_decision`: We will fix the AI automation and the AI training and music following. We will not retire them. The reason they're not exercised is because I don't trust them yet, and the entire point is to build it so I can trust it.
@@ -690,6 +692,8 @@ status: **planned** - approval: **explicit**
   - `operator_2026_11_13_ui`: AI feature UI should be well considered. Smart and simple to approach. Sounds like there may be modification to the [flow] menu and the toggles? Key
   - `plan_review_2026_11_13`: PLANREVIEW_unified_room_rules.md (900e51f9): FIX-PLAN, 0 CRIT / 5 HIGH. HIGH-1 AI switch does not gate all triggers alike (safety/security fire with it off, coordinator.py:1096/:1134; manual mode turns it off :3261). HIGH-2 room entity s...
   - `fix_round_scope`: One clean rewrite covering: plan-review HIGH/MED; observability + room memory episodes (operator); a UI section (options-flow menu restructure for rules: describe / pick automation / list with honest status, preview built from validated ...
+  - `plan_rewrite_2026_11_13`: PLANNING_unified_room_rules.md rewritten 51bbba77 (all 5 HIGH fixed; 3 conditions; code-built preview; person rules on room-change event; Room rules menu; parse entity a knob, recommend a separate Sonnet-class AI Task entry so OC stays o...
+  - `next_build`: Me or the overnight agent: one re-verify plan review of the rewrite (substantial fix round), then build in a worktree, three framing-disjoint reviews, validate to review. Off the arc critical path (operator: not P0).
 
 ### `HVAC-COMFORT-DEVIATION-PRODUCER-1` - HVAC anomaly comfort_deviation_hours has no producer: build a daily per-zone emit so a long setpoint miss (e.g. zone 2 212 min +8F) becomes an anomaly trip-wire — _#20 · WSJF 2.7 · v4 tc2 u2 /e3_
 thread: **hvac** - status: **planned**
