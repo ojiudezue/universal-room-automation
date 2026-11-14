@@ -21,6 +21,14 @@ Written so the analysis survives compaction. Companion docs: `ARC_identity_visio
   make sure there are no leaks." (Constraint: one person-awareness layer with one ingest point per fact and one read
   surface; contract docs/planning/CONTRACT_person_awareness_layer.md; a code guard fails on any new leak; every plan in
   the arc states how it feeds or reads through the layer.)
+  How Claude restated it at the time (2026-11-13, the drift's origin): "I'll bring you a reuse-first proposal, not a new
+  layer", then carded PERSON-AWARENESS-READ-API-1 as "public census accessors; one ID-normalization function; read views
+  on the presence coordinator, one per use class". That kept the consumers-read half and dropped the producers-feed half:
+  no single ingest point per fact was ever specified, so each producer (crossing vision -> ledger, NVR witness, sightings,
+  stream health) got its own "one X" entry. The plan consolidation (drift #13, arc map merge check) merged documents and
+  seams but never checked plans against this contract, so it could not catch it. Operator 2026-11-14: "This is why we
+  consolidated the plans." Correction: the contract names both halves; the merge check and every plan review now test
+  "feeds through the one ingest, reads through the one surface".
 - Added 2026-11-14: "vision will eventually be able to pull short clips of video to watch. Make sure no plan precludes
   that." (Constraint: every vision deliverable keeps a frame-source path that can take a short clip, e.g. llmvision
   `video_analyzer` on a Frigate clip, not only still frames; plan reviews check it.) Also: "Interior vision is meant to
