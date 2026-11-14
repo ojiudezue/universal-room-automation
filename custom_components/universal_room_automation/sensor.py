@@ -4470,6 +4470,8 @@ class ExteriorOpenTracksDiagnosticSensor(AggregationEntity, SensorEntity):
         "gate_decisions_by_camera", "agreement_by_camera",
         "agreement_store_loaded", "frigate_bus_by_camera", "zone_map",
         "dual_role_cameras",
+        # VISION-CROSSING-SHADOW-1 D1.10: display only, change per crossing.
+        "crossing_vision_today", "crossing_vision_last",
     })
     _attr_has_entity_name = True
     _attr_icon = "mdi:map-marker-path"
@@ -4540,6 +4542,15 @@ class ExteriorOpenTracksDiagnosticSensor(AggregationEntity, SensorEntity):
                 _et = self.hass.data.get(DOMAIN, {}).get("egress_tracker")
                 if _et is not None:
                     attrs.update(_et.path_map_status())
+            except Exception:  # noqa: BLE001
+                pass
+            # VISION-CROSSING-SHADOW-1 D1.10: shadow producer counters
+            # (display only; nothing reads them back).
+            try:
+                from .const import CROSSING_VISION_HASS_KEY as _CVK
+                _cv = self.hass.data.get(DOMAIN, {}).get(_CVK)
+                if _cv is not None:
+                    attrs.update(_cv.diag_status())
             except Exception:  # noqa: BLE001
                 pass
             # B-M3: per-camera unlinked-events counter (events that opened a

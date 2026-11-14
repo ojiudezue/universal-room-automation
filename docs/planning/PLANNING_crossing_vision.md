@@ -125,7 +125,7 @@ tasks bounded by `CROSSING_VISION_TEARDOWN_GATHER_S`).
    `refused`.
 9. Record: one `log_memory_episode(node_id=f"vision:{crossing_key}", episode_type="crossing_vision_shadow",
    source_ref=crossing_key, started_at=E, dedup_source_ref=False)`, tracked task. Attrs: `outcome`, `crossing_keys`,
-   `door_group`, `direction`, `vision_direction`, `people_count`, `frame_counts`, `group`, `desc`
+   `door_group`, `direction`, `people_count`, `frame_counts`, `group`, `desc`
    (≤ `CROSSING_VISION_DESC_MAX_CHARS`), `camera_peak_count`, `frigate_events_in_window` ([E − match, E +
    `EGRESS_ENTRY_WINDOW_SECONDS`]), `event_id`, `event_camera`, `model`, `frame_source`, `latency_s`, `person_id`,
    `identity_provenance`, `agreement_case` (A-D on counts), `stage`, `pipeline_version`.

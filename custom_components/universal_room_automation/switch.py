@@ -400,6 +400,9 @@ async def async_setup_entry(
             # face-producer fail-safe drill switch (RestoreEntity; boot-ON
             # raises a WARNING + repair issue).
             EgressIdentityFaceFailsafeDrillSwitch(hass, entry),
+            # VISION-CROSSING-SHADOW-1: crossing-vision shadow master
+            # switch (RestoreEntity, OFF at ship).
+            CrossingVisionShadowSwitch(hass, entry),
             # v4.1.1 B4 L2: Occupancy-weighted prediction toggle
             OccupancyWeightedPredictionSwitch(hass, entry),
             # v4.2.10: EC runtime toggles
@@ -1025,6 +1028,69 @@ class EgressIdentityFaceFailsafeDrillSwitch(SwitchEntity, RestoreEntity):
                     exc_info=True,
                 )
             self.async_write_ha_state()
+
+
+class CrossingVisionShadowSwitch(SwitchEntity, RestoreEntity):
+    """VISION-CROSSING-SHADOW-1 (PLANNING_crossing_vision.md rev 2 §6) —
+    master switch for the crossing-vision SHADOW producer.
+
+    Entity: switch.ura_crossing_vision_shadow (Coordinator Manager device).
+    Default OFF at ship; the operator turns it on after deploy.
+    OFF = INV-OFF: no llmvision call, no Frigate media request and no
+    `crossing_vision_shadow` row. The producer re-reads the flag when a
+    crossing is scheduled AND right before the call, so turning it off
+    stops a call already waiting for its Frigate event to end.
+
+    The flag lives in hass.data (`CROSSING_VISION_SWITCH_HASS_KEY`) so an
+    integration reload that rebuilds the producer keeps it. Restore: only
+    a last state of exactly "on" turns it on (unavailable / unknown /
+    missing restore OFF, Bug Class #52).
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:eye-outline"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_crossing_vision_shadow"
+        self._attr_name = "Crossing Vision (shadow)"
+        self.entity_id = "switch.ura_crossing_vision_shadow"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "coordinator_manager")},
+            name="URA: Coordinator Manager",
+            manufacturer="Universal Room Automation",
+            model="Coordinator Manager",
+            sw_version=VERSION,
+        )
+
+    @property
+    def is_on(self) -> bool:
+        from .const import CROSSING_VISION_SWITCH_HASS_KEY
+        return bool(
+            self.hass.data.get(DOMAIN, {}).get(CROSSING_VISION_SWITCH_HASS_KEY, False)
+        )
+
+    def _apply(self, value: bool) -> None:
+        from .const import CROSSING_VISION_SWITCH_HASS_KEY
+        self.hass.data.setdefault(DOMAIN, {})[CROSSING_VISION_SWITCH_HASS_KEY] = bool(value)
+
+    async def async_turn_on(self, **kwargs) -> None:
+        self._apply(True)
+        _LOGGER.info("Crossing vision shadow ON (one llmvision call per door crossing)")
+        self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs) -> None:
+        self._apply(False)
+        _LOGGER.info("Crossing vision shadow OFF")
+        self.async_write_ha_state()
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last = await self.async_get_last_state()
+        self._apply(last is not None and last.state == "on")
+        self.async_write_ha_state()
 
 
 class MemoryNMConditioningSwitch(SwitchEntity, RestoreEntity):

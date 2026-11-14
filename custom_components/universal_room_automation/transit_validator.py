@@ -1229,6 +1229,38 @@ class EgressDirectionTracker:
             return None
         return self._door_group_by_stem.get(stem)
 
+    def door_group_members(self, stem: str | None) -> tuple[str | None, frozenset[str]]:
+        """Public read-only view of the configured door group of ``stem``
+        (VISION-CROSSING-SHADOW-1 D1, plan rev 2 F13).
+
+        Returns ``(group, member_stems)``. Same membership rule as
+        ``_sample_peak_person_count``: every stem configured to the stem's
+        group plus the stem itself; a stem with no group entry is a group of
+        one (``(None, {stem})``). ``(None, frozenset())`` for an empty stem.
+        Reads the live ``_door_group_by_stem`` map; mutates nothing.
+        """
+        if not stem:
+            return None, frozenset()
+        group = self._door_group_for_stem(stem)
+        if not group:
+            return None, frozenset({stem})
+        members = {s for s, g in self._door_group_by_stem.items() if g == group}
+        members.add(stem)
+        return group, frozenset(members)
+
+    def door_camera_stems(self) -> frozenset[str]:
+        """Public read-only set of door-camera stems: every configured
+        ``door_groups`` key plus the stem of every egress camera entity
+        (an egress stem with no group is its own group of one).
+        VISION-CROSSING-SHADOW-1 D1.1 uses it to drop non-door Frigate events
+        on arrival."""
+        stems = set(self._door_group_by_stem)
+        for entity_id in self._egress_entities:
+            s = self._extract_camera_stem(entity_id)
+            if s:
+                stems.add(s)
+        return frozenset(stems)
+
     def _sample_peak_person_count(
         self,
         stem: str | None,
@@ -2121,6 +2153,21 @@ class EgressDirectionTracker:
         # resolution, every path). Observational; nothing below reads it.
         self._log_egress_outcome(resolution, egress_camera_id, egress_timestamp)
 
+        # VISION-CROSSING-SHADOW-1 D2 (INV-ADDITIVE): sample the camera peak
+        # count ONCE, before the bus fire, and hand the SAME local to the bus
+        # event and the DB row. Ambiguous crossings sample nothing (develop
+        # wrote no row and sampled nothing) and carry None on the bus.
+        # Sampler failure keeps today's behaviour: None, debug log.
+        peak: int | None = None
+        if direction != "ambiguous":
+            try:
+                peak = self._sample_peak_person_count(stem, egress_timestamp)
+            except Exception as e:  # noqa: BLE001
+                _LOGGER.debug(
+                    "peak_person_count sampler failed (non-fatal): %s", e,
+                )
+                peak = None
+
         # Fire event on HA bus (pre-cycle `confidence` semantics preserved).
         self.hass.bus.async_fire("ura_person_egress_event", {
             "direction": direction,
@@ -2143,6 +2190,10 @@ class EgressDirectionTracker:
             "identity_provenance": (
                 resolution.provenance if person_id is not None else None
             ),
+            # VISION-CROSSING-SHADOW-1 D2 (additive): the camera peak count
+            # this crossing's DB row carries (same local). None when
+            # ambiguous or no sample in the window.
+            "peak_person_count": peak,
         })
 
         _LOGGER.debug(
@@ -2225,18 +2276,9 @@ class EgressDirectionTracker:
         if direction != "ambiguous":
             database = self.hass.data.get(DOMAIN, {}).get("database")
             if database:
-                # Review LOW: sample BEFORE the DB-write try so a sampler
-                # exception can't lose the row. Sampler is best-effort and
-                # falls back to None (NULL in DB) on error.
-                try:
-                    peak = self._sample_peak_person_count(
-                        stem, egress_timestamp,
-                    )
-                except Exception as e:  # noqa: BLE001
-                    _LOGGER.debug(
-                        "peak_person_count sampler failed (non-fatal): %s", e,
-                    )
-                    peak = None
+                # D2: `peak` was sampled once above, before the bus fire
+                # (a sampler exception there already fell back to None, so
+                # it can't lose the row).
                 try:
                     await database.log_entry_exit_event(
                         person_id=person_id,

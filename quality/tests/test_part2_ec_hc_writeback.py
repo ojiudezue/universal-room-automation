@@ -252,6 +252,8 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     # LOCK-SUSPICIOUS-ARRIVAL-HOLD D5 (docs/planning/
     # PLANNING_lock_suspicious_arrival_hold.md): live Number knob -> 121.
     "garage_lockout_arrival_hold_s",
+    # VISION-CROSSING-SHADOW-1 D3: live Number knob (daily call cap) -> 122.
+    "crossing_vision_daily_calls",
 }
 
 
@@ -412,7 +414,8 @@ def test_options_reload_suppress_keys_count_matches_part2_scope():
     # +3 SC-LOCK-SWEEP-EXCLUDE-1 / SC-LOCK-REGIME-DOOR-LOCKS-1 live keys -> 120
     # +1 LOCK-SUSPICIOUS-ARRIVAL-HOLD D5 garage_lockout_arrival_hold_s -> 121
     #    (docs/planning/PLANNING_lock_suspicious_arrival_hold.md)
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 121
+    # +1 VISION-CROSSING-SHADOW-1 crossing_vision_daily_calls -> 122
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 122
 
 
 # ---------------------------------------------------------------------------
