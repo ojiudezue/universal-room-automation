@@ -9132,119 +9132,111 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         )
 
     async def async_step_coordinator_music_following(self, user_input=None):
-        """Configure Music Following Coordinator tuning parameters.
+        """Music Following settings (MUSIC-FOLLOWING-TRANSFER-REPAIR-1 §8).
 
-        v3.6.24: Cooldown, ping-pong window, verify delay, unjoin delay,
-        position offset, and minimum confidence.
+        Two everyday choices on top; the numbers sit in the collapsed
+        ``advanced`` section ("Fine tuning"). Every key applies in place
+        (``_MF_LIVE_KEYS`` in __init__.py), so a save never reloads the CM.
+        ``mf_min_confidence`` is retired (it gated on dwell arithmetic).
         """
         from .const import (
+            CONF_MF_BONUS_JOINS,
             CONF_MF_COOLDOWN_SECONDS,
+            CONF_MF_FOLLOW_MODE,
             CONF_MF_HIGH_CONFIDENCE_DISTANCE,
-            CONF_MF_PING_PONG_WINDOW,
-            CONF_MF_VERIFY_DELAY,
-            CONF_MF_UNJOIN_DELAY,
-            CONF_MF_POSITION_OFFSET,
-            CONF_MF_MIN_CONFIDENCE,
-            # v5.10.0 D2: sleep + night suppression
-            CONF_MF_SLEEP_SUPPRESS,
+            CONF_MF_MIN_BLE_CONFIDENCE,
             CONF_MF_NIGHT_SUPPRESS_MODE,
-            MF_NIGHT_MODES,
+            CONF_MF_PING_PONG_WINDOW,
+            CONF_MF_POSITION_OFFSET,
+            CONF_MF_RELEASE_DELAY,
+            CONF_MF_SLEEP_SUPPRESS,
+            CONF_MF_SOURCE_LOOKBACK_SECONDS,
+            CONF_MF_STALE_TRANSITION_SECONDS,
+            CONF_MF_VERIFY_DELAY,
+            DEFAULT_MF_BONUS_JOINS,
             DEFAULT_MF_COOLDOWN_SECONDS,
+            DEFAULT_MF_FOLLOW_MODE,
             DEFAULT_MF_HIGH_CONFIDENCE_DISTANCE,
-            DEFAULT_MF_PING_PONG_WINDOW,
-            DEFAULT_MF_VERIFY_DELAY,
-            DEFAULT_MF_UNJOIN_DELAY,
-            DEFAULT_MF_POSITION_OFFSET,
-            DEFAULT_MF_MIN_CONFIDENCE,
-            DEFAULT_MF_SLEEP_SUPPRESS,
+            DEFAULT_MF_MIN_BLE_CONFIDENCE,
             DEFAULT_MF_NIGHT_SUPPRESS_MODE,
+            DEFAULT_MF_PING_PONG_WINDOW,
+            DEFAULT_MF_POSITION_OFFSET,
+            DEFAULT_MF_SLEEP_SUPPRESS,
+            DEFAULT_MF_SOURCE_LOOKBACK_SECONDS,
+            DEFAULT_MF_STALE_TRANSITION_SECONDS,
+            DEFAULT_MF_UNJOIN_DELAY,
+            DEFAULT_MF_VERIFY_DELAY,
         )
 
         if user_input is not None:
+            flat, _present = _flatten_sections(user_input, (ADVANCED_SECTION,))
             return self.async_create_entry(
                 title="",
-                data={**self._config_entry.options, **user_input},
+                data={**self._config_entry.options, **flat},
             )
+
+        def _num(key, default, lo, hi, step, unit):
+            return {
+                vol.Optional(key, default=self._get_current(key, default)):
+                selector.NumberSelector(selector.NumberSelectorConfig(
+                    min=lo, max=hi, step=step, unit_of_measurement=unit,
+                    mode=selector.NumberSelectorMode.BOX,
+                ))
+            }
+
+        fine: dict = {}
+        fine.update(_num(CONF_MF_RELEASE_DELAY, DEFAULT_MF_UNJOIN_DELAY, 0, 30, 1, "s"))
+        fine.update(_num(CONF_MF_COOLDOWN_SECONDS, DEFAULT_MF_COOLDOWN_SECONDS, 0, 60, 1, "s"))
+        fine.update(_num(CONF_MF_PING_PONG_WINDOW, DEFAULT_MF_PING_PONG_WINDOW, 0, 300, 5, "s"))
+        fine.update(_num(CONF_MF_VERIFY_DELAY, DEFAULT_MF_VERIFY_DELAY, 0, 30, 1, "s"))
+        fine.update(_num(CONF_MF_SOURCE_LOOKBACK_SECONDS, DEFAULT_MF_SOURCE_LOOKBACK_SECONDS, 0, 600, 5, "s"))
+        fine.update(_num(CONF_MF_STALE_TRANSITION_SECONDS, DEFAULT_MF_STALE_TRANSITION_SECONDS, 5, 120, 1, "s"))
+        fine.update(_num(CONF_MF_HIGH_CONFIDENCE_DISTANCE, DEFAULT_MF_HIGH_CONFIDENCE_DISTANCE, 0, 30, 0.5, "ft"))
+        fine[vol.Optional(
+            CONF_MF_MIN_BLE_CONFIDENCE,
+            default=self._get_current(CONF_MF_MIN_BLE_CONFIDENCE, DEFAULT_MF_MIN_BLE_CONFIDENCE),
+        )] = selector.SelectSelector(selector.SelectSelectorConfig(
+            options=[
+                {"value": "any", "label": "Any"},
+                {"value": "normal", "label": "Normal (recommended)"},
+                {"value": "strict", "label": "Strict"},
+            ],
+            mode=selector.SelectSelectorMode.DROPDOWN,
+        ))
+        fine.update(_num(CONF_MF_POSITION_OFFSET, DEFAULT_MF_POSITION_OFFSET, 0, 10, 1, "s"))
+        fine[vol.Optional(
+            CONF_MF_BONUS_JOINS,
+            default=self._get_current(CONF_MF_BONUS_JOINS, DEFAULT_MF_BONUS_JOINS),
+        )] = selector.BooleanSelector()
 
         data_schema = vol.Schema({
             vol.Optional(
-                CONF_MF_COOLDOWN_SECONDS,
-                default=self._get_current(
-                    CONF_MF_COOLDOWN_SECONDS, DEFAULT_MF_COOLDOWN_SECONDS
-                ),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=1, max=30, step=1, unit_of_measurement="seconds",
-                    mode=selector.NumberSelectorMode.SLIDER,
-                )
-            ),
+                CONF_MF_FOLLOW_MODE,
+                default=self._get_current(CONF_MF_FOLLOW_MODE, DEFAULT_MF_FOLLOW_MODE),
+            ): selector.SelectSelector(selector.SelectSelectorConfig(
+                options=[
+                    {"value": "move", "label": "Move music (recommended)"},
+                    {"value": "extend", "label": "Play in both rooms"},
+                ],
+                mode=selector.SelectSelectorMode.LIST,
+            )),
             vol.Optional(
-                CONF_MF_PING_PONG_WINDOW,
-                default=self._get_current(
-                    CONF_MF_PING_PONG_WINDOW, DEFAULT_MF_PING_PONG_WINDOW
-                ),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=10, max=300, step=5, unit_of_measurement="seconds",
-                    mode=selector.NumberSelectorMode.SLIDER,
-                )
-            ),
+                CONF_MF_SLEEP_SUPPRESS,
+                default=self._get_current(CONF_MF_SLEEP_SUPPRESS, DEFAULT_MF_SLEEP_SUPPRESS),
+            ): selector.BooleanSelector(),
             vol.Optional(
-                CONF_MF_VERIFY_DELAY,
+                CONF_MF_NIGHT_SUPPRESS_MODE,
                 default=self._get_current(
-                    CONF_MF_VERIFY_DELAY, DEFAULT_MF_VERIFY_DELAY
+                    CONF_MF_NIGHT_SUPPRESS_MODE, DEFAULT_MF_NIGHT_SUPPRESS_MODE,
                 ),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=1, max=10, step=1, unit_of_measurement="seconds",
-                    mode=selector.NumberSelectorMode.SLIDER,
-                )
-            ),
-            vol.Optional(
-                CONF_MF_UNJOIN_DELAY,
-                default=self._get_current(
-                    CONF_MF_UNJOIN_DELAY, DEFAULT_MF_UNJOIN_DELAY
-                ),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=1, max=15, step=1, unit_of_measurement="seconds",
-                    mode=selector.NumberSelectorMode.SLIDER,
-                )
-            ),
-            vol.Optional(
-                CONF_MF_POSITION_OFFSET,
-                default=self._get_current(
-                    CONF_MF_POSITION_OFFSET, DEFAULT_MF_POSITION_OFFSET
-                ),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=0, max=10, step=1, unit_of_measurement="seconds",
-                    mode=selector.NumberSelectorMode.SLIDER,
-                )
-            ),
-            vol.Optional(
-                CONF_MF_MIN_CONFIDENCE,
-                default=self._get_current(
-                    CONF_MF_MIN_CONFIDENCE, DEFAULT_MF_MIN_CONFIDENCE
-                ),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=0.1, max=1.0, step=0.05,
-                    mode=selector.NumberSelectorMode.SLIDER,
-                )
-            ),
-            vol.Optional(
-                CONF_MF_HIGH_CONFIDENCE_DISTANCE,
-                default=self._get_current(
-                    CONF_MF_HIGH_CONFIDENCE_DISTANCE, DEFAULT_MF_HIGH_CONFIDENCE_DISTANCE
-                ),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=3.0, max=20.0, step=0.5, unit_of_measurement="ft",
-                    mode=selector.NumberSelectorMode.SLIDER,
-                )
-            ),
-            # v4.6.3 D10: Anomaly sensitivity
+            ): selector.SelectSelector(selector.SelectSelectorConfig(
+                options=[
+                    {"value": "off", "label": "Follow as normal"},
+                    {"value": "dwell_only", "label": "Only to your bedroom"},
+                    {"value": "block_all", "label": "Do not follow"},
+                ],
+                mode=selector.SelectSelectorMode.LIST,
+            )),
             vol.Optional(
                 CONF_MUSIC_ANOMALY_SENSITIVITY,
                 default=self._get_current(
@@ -9262,29 +9254,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     mode=selector.SelectSelectorMode.LIST,
                 )
             ),
-            # v5.10.0 D2: Sleep + night suppression. Defaults: ON /
-            # dwell_only (the conservative option per critique §4).
-            vol.Optional(
-                CONF_MF_SLEEP_SUPPRESS,
-                default=self._get_current(
-                    CONF_MF_SLEEP_SUPPRESS, DEFAULT_MF_SLEEP_SUPPRESS,
-                ),
-            ): selector.BooleanSelector(),
-            vol.Optional(
-                CONF_MF_NIGHT_SUPPRESS_MODE,
-                default=self._get_current(
-                    CONF_MF_NIGHT_SUPPRESS_MODE, DEFAULT_MF_NIGHT_SUPPRESS_MODE,
-                ),
-            ): selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=[
-                        {"value": "off", "label": "Off — follow music normally at night"},
-                        {"value": "dwell_only", "label": "Own bedroom only — currently unwired; behaves as 'block all' + logs a warning until per-person bedroom mapping ships"},
-                        {"value": "block_all", "label": "Block all — never transfer music at night"},
-                    ],
-                    mode=selector.SelectSelectorMode.LIST,
-                )
-            ),
+            vol.Optional(ADVANCED_SECTION): _advanced_section(fine),
         })
 
         return self.async_show_form(

@@ -3913,6 +3913,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         night_suppress_mode=str(cm_config.get(
                             CONF_MF_NIGHT_SUPPRESS_MODE, DEFAULT_MF_NIGHT_SUPPRESS_MODE,
                         )),
+                        # MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D7: every MF knob
+                        # (the new ones too) reaches the engine from options.
+                        options=dict(cm_config),
                     )
                     coordinator_manager.register_coordinator(mf_coordinator)
                 else:
@@ -7550,6 +7553,26 @@ _NO_LIVE_ATTR_KEYS: frozenset[str] = frozenset({
     "energy_utility_export_statistic_id",
 })
 
+# MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D7: every Music Following knob, applied
+# in place by MusicFollowing.apply_config. Literals == const CONF_MF_* values
+# (pinned by a test), so the AST-slice test loaders need no extra symbols.
+_MF_LIVE_KEYS: frozenset[str] = frozenset({
+    "mf_cooldown_seconds",
+    "mf_ping_pong_window",
+    "mf_verify_delay",
+    "mf_unjoin_delay",
+    "mf_position_offset",
+    "mf_high_confidence_distance",
+    "mf_sleep_suppress",
+    "mf_night_suppress_mode",
+    "mf_stale_transition_seconds",
+    "mf_follow_mode",
+    "mf_bonus_joins",
+    "mf_min_ble_confidence",
+    "mf_source_lookback_seconds",
+})
+
+
 OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     # v4.7.26 (Cycle 1) — HVAC presence timers + DPM dwell
     _CONF_HVAC_VACANCY_GRACE_MINUTES,
@@ -7664,6 +7687,13 @@ OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     # MusicFollowing.update_gate_config() without a CM reload.
     _CONF_MF_SLEEP_SUPPRESS,
     _CONF_MF_NIGHT_SUPPRESS_MODE,
+    # MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D7 — every MF knob applies in place
+    # through MusicFollowing.apply_config (see `_MF_LIVE_KEYS`).
+    *_MF_LIVE_KEYS,
+    # Arc step 8 amendment (PLANNING_identity_actions_v6.md rev 2, M1): the
+    # house-level arrival-music master switch. Handler is a no-op today;
+    # arc step 8 reads the option live, so a save must not reload the CM.
+    "music_on_arrival_start",
     # Session B1 — EVSE Drain-Precedence knob keys (Switch + 5 Numbers +
     # Select). Numbers + Select route through `_EC_SETTER_DISPATCH` above;
     # the Switch key is a NO_LIVE_ATTR no-op (entity is sole write path).
@@ -8408,72 +8438,29 @@ def _apply_in_place(
     except AttributeError:
         pass
 
-    # ----- v5.10.0 D2 — Music Following sleep + night suppression -----
-    # Live-attr push into the standalone MusicFollowing singleton via
-    # update_gate_config(). If the coordinator or singleton is missing
-    # (mid-teardown), leave the key OUT of `applied` so the next diff
-    # retries it — mirrors the HVAC pattern above.
-    _mf_keys = {_CONF_MF_SLEEP_SUPPRESS, _CONF_MF_NIGHT_SUPPRESS_MODE}
-    if changed_keys & _mf_keys:
-        mf_coord = None
-        try:
-            if manager is not None:
-                mf_coord = manager.coordinators.get("music_following")
-        except Exception:
-            mf_coord = None
-        mf = hass.data.get(DOMAIN, {}).get("music_following")
-        if mf is None:
+    # ----- MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D7 — every MF knob -----
+    # One push: MusicFollowing.apply_config(new_options restricted to the MF
+    # keys). It returns the keys it applied; a missing singleton (mid-reload)
+    # applies nothing, so the next diff retries. The arrival-music switch has
+    # no live consumer yet: options-only, marked applied.
+    if "music_on_arrival_start" in changed_keys:
+        applied.add("music_on_arrival_start")
+    _mf_live = changed_keys & _MF_LIVE_KEYS
+    if _mf_live:
+        _mf_single = hass.data.get(DOMAIN, {}).get("music_following")
+        if _mf_single is None:
             _LOGGER.info(
-                "CM in-place apply: MusicFollowing singleton not available "
-                "(likely mid-reload); values for %s are persisted in "
-                "entry.options and will be picked up on next MF setup",
-                sorted(changed_keys & _mf_keys),
+                "CM in-place apply: MusicFollowing singleton not available; "
+                "%s persisted in entry.options for the next MF setup",
+                sorted(_mf_live),
             )
         else:
-            if _CONF_MF_SLEEP_SUPPRESS in changed_keys:
-                try:
-                    mf.update_gate_config(
-                        sleep_suppress=bool(
-                            new_options[_CONF_MF_SLEEP_SUPPRESS],
-                        ),
-                    )
-                    applied.add(_CONF_MF_SLEEP_SUPPRESS)
-                    # v5.10.0 fix-up B-LOW-1: mirror-write into
-                    # ``mf_coord._sleep_suppress`` deleted. It was never
-                    # load-bearing — the coordinator re-reads from
-                    # entry.options on its next async_setup (see
-                    # domain_coordinators/music_following.py :__init__ +
-                    # async_setup pushing via update_gate_config()).
-                    # Options is the source of truth on the persisted
-                    # side; the singleton is the source of truth on the
-                    # live side. No third mirror is needed.
-                except (AttributeError, KeyError, ValueError, TypeError) as err:
-                    _LOGGER.warning(
-                        "CM in-place apply: MF live-attr push failed for "
-                        "key=%s value=%r: %s",
-                        _CONF_MF_SLEEP_SUPPRESS,
-                        new_options.get(_CONF_MF_SLEEP_SUPPRESS),
-                        err,
-                    )
-            if _CONF_MF_NIGHT_SUPPRESS_MODE in changed_keys:
-                try:
-                    mf.update_gate_config(
-                        night_suppress_mode=str(
-                            new_options[_CONF_MF_NIGHT_SUPPRESS_MODE],
-                        ),
-                    )
-                    applied.add(_CONF_MF_NIGHT_SUPPRESS_MODE)
-                    # v5.10.0 fix-up B-LOW-1: mirror-write into
-                    # ``mf_coord._night_suppress_mode`` deleted — same
-                    # rationale as _sleep_suppress above.
-                except (AttributeError, KeyError, ValueError, TypeError) as err:
-                    _LOGGER.warning(
-                        "CM in-place apply: MF live-attr push failed for "
-                        "key=%s value=%r: %s",
-                        _CONF_MF_NIGHT_SUPPRESS_MODE,
-                        new_options.get(_CONF_MF_NIGHT_SUPPRESS_MODE),
-                        err,
-                    )
+            try:
+                applied |= set(_mf_single.apply_config(
+                    {k: new_options[k] for k in _mf_live if k in new_options}
+                )) & _mf_live
+            except Exception as err:  # noqa: BLE001 — never block the save
+                _LOGGER.warning("CM in-place apply: MF apply_config failed: %s", err)
 
     # SAFETY-NM-REFIRE-UNWIRED-1 D7 (Review B-MED-2): the repeat interval is
     # computed when the repeat is scheduled, so re-arm the pending repeat of

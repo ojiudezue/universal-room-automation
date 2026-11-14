@@ -5686,6 +5686,11 @@ class NotificationManager:
                     )
             if no_route_line:
                 digest_message = digest_message.rstrip() + "\n\n" + no_route_line
+        # MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D5.4: one music-following line
+        # (empty when no room change had music and a speaker ahead).
+        mf_line = self._build_music_following_digest_section()
+        if mf_line:
+            digest_message = digest_message.rstrip() + "\n\n" + mf_line
 
         sent = await self._deliver_digest(person_id, person_cfg, digest_message)
 
@@ -5784,6 +5789,17 @@ class NotificationManager:
                 sent = True
 
         return sent
+
+    def _build_music_following_digest_section(self) -> str:
+        """The music-following line for the NM digest; "" on none / error."""
+        try:
+            mf = (self.hass.data.get(DOMAIN, {}) or {}).get("music_following")
+            if mf is None or not hasattr(mf, "digest_section"):
+                return ""
+            return mf.digest_section() or ""
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning("music following digest section failed", exc_info=True)
+            return ""
 
     def _build_optimizer_digest_section(self) -> str:
         """Render the optimizer's section for the NM person digest.

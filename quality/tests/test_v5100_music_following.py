@@ -228,8 +228,10 @@ class FakeServices:
     def __init__(self):
         self.calls: list[tuple[str, str, dict]] = []
 
-    async def async_call(self, domain, service, data, blocking=False):
-        self.calls.append((domain, service, dict(data)))
+    async def async_call(self, domain, service, data=None, blocking=False,
+                         target=None, context=None, **kw):
+        # D8: record every call; the URA context and target are accepted.
+        self.calls.append((domain, service, dict(data or {})))
 
 
 class _FakeCMEntry:
@@ -880,23 +882,6 @@ class TestFix1HouseStateSeed:
 # ===========================================================================
 
 
-class TestD7TargetPicker:
-    def test_picker_source_uses_platform_preference(self):
-        with open(
-            os.path.join(_ura_path, "music_following.py"), "r", encoding="utf-8"
-        ) as fh:
-            src = fh.read()
-        # v3.6.21 alphabetical sort is removed
-        assert "no platform preference" not in src
-        # New comment/impl marker present
-        assert "_prefers_multiroom" in src
-
-
-# ===========================================================================
-# D8 — skip-reason attribute surface
-# ===========================================================================
-
-
 class TestD8SkipReasonSurface:
     def test_get_diagnostic_data_includes_skip_fields(self):
         mf, _ = _make_mf()
@@ -994,37 +979,6 @@ class TestD11VolumeCalibration:
 # ===========================================================================
 
 
-class TestD12VerifyConditional:
-    @pytest.mark.asyncio
-    async def test_verify_skip_wait_bypasses_sleep(self):
-        mf, hass = _make_mf()
-        hass.states.set(
-            "media_player.bedroom", FakeState(STATE_PLAYING),
-        )
-        import time as _time
-        t0 = _time.monotonic()
-        ok = await mf._verify_transfer("media_player.bedroom", skip_wait=True)
-        elapsed = _time.monotonic() - t0
-        assert ok is True
-        # Should be much faster than TRANSFER_VERIFY_DELAY_SECONDS (2s).
-        assert elapsed < 0.5
-
-    def test_verify_signature_supports_skip_wait(self):
-        import inspect
-        sig = inspect.signature(MusicFollowing._verify_transfer)
-        assert "skip_wait" in sig.parameters
-
-
-# ===========================================================================
-# Config-flow form wiring — CM options step (D2) + room media step (D11)
-# ===========================================================================
-#
-# Verified via source inspection to avoid cross-test sys.modules pollution.
-# Sibling test files (test_cycle_b_config_flow.py, v475_d5) use their own
-# save/restore stub loader; a second loader in this file collides with
-# theirs under pytest full-suite ordering.
-
-
 _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 _COMPONENT_DIR = os.path.join(_REPO_ROOT, "custom_components", "universal_room_automation")
 
@@ -1112,21 +1066,6 @@ class TestConfigFlowFormFields:
         assert "DEFAULT_ROOM_MEDIA_VOLUME_SCALE" in body
         assert _const.DEFAULT_ROOM_MEDIA_VOLUME_SCALE == 1.0
 
-    def test_cm_options_user_input_merge_pattern_declared(self):
-        """CM options save merges user_input into existing options —
-        preserving unrelated keys. Verified via source pattern."""
-        with open(
-            os.path.join(_COMPONENT_DIR, "config_flow.py"), "r", encoding="utf-8"
-        ) as fh:
-            src = fh.read()
-        start = src.find("async def async_step_coordinator_music_following")
-        end = src.find("async def async_step_", start + 1)
-        body = src[start:end if end > 0 else start + 6000]
-        # The merge pattern preserves existing keys
-        assert "self._config_entry.options" in body
-        assert "**user_input" in body
-
-
 class TestReloadSuppressionAllowlist:
     """Verify the two D2 CM keys are in OPTIONS_RELOAD_SUPPRESS_KEYS so
     edits push through MusicFollowing.update_gate_config() WITHOUT a
@@ -1158,22 +1097,6 @@ class TestReloadSuppressionAllowlist:
             "so edits are pushed live via update_gate_config()"
         )
         assert "_CONF_MF_NIGHT_SUPPRESS_MODE" in allowlist_block
-
-    def test_apply_in_place_pushes_to_music_following(self):
-        with open(
-            os.path.join(_COMPONENT_DIR, "__init__.py"), "r", encoding="utf-8"
-        ) as fh:
-            src = fh.read()
-        # Verify _apply_in_place branch exists and calls update_gate_config
-        apply_start = src.find("def _apply_in_place")
-        assert apply_start > 0
-        apply_end = src.find("\ndef ", apply_start + 1)
-        block = src[apply_start:apply_end if apply_end > 0 else apply_start + 30000]
-        assert "update_gate_config" in block, (
-            "_apply_in_place must call MusicFollowing.update_gate_config for D2"
-        )
-        assert "_CONF_MF_SLEEP_SUPPRESS" in block
-        assert "_CONF_MF_NIGHT_SUPPRESS_MODE" in block
 
 
 # ===========================================================================
@@ -1227,8 +1150,9 @@ class TestEnabledPersonNameVsEntityIdMatch:
         """Enabled by entity_id, transition arrives with display name."""
         mf, _ = _make_mf()
         mf.enable_for_person("person.oji_udezue")
-        spy = AsyncMock()
-        mf._execute_transfer = spy
+        # MUSIC-FOLLOWING-TRANSFER-REPAIR-1: the post-gate seam is _pipeline.
+        spy = AsyncMock(return_value=("no_target_player", ""))
+        mf._pipeline = spy
         await mf._on_person_transition(
             _transition(person="Oji Udezue",
                         from_room="kitchen", to_room="bedroom",
@@ -1238,19 +1162,20 @@ class TestEnabledPersonNameVsEntityIdMatch:
             "Enabled check must accept the display-name form when the "
             "enabled set holds the entity_id form"
         )
-        # Positional: (person_id, from_room, to_room, ...)
+        # The record handed to the pipeline carries the transition.
         args, _kw = spy.await_args
-        assert args[0] == "Oji Udezue"
-        assert args[1] == "kitchen"
-        assert args[2] == "bedroom"
+        assert args[0].person_id == "Oji Udezue"
+        assert args[0].from_room == "kitchen"
+        assert args[0].to_room == "bedroom"
 
     @pytest.mark.asyncio
     async def test_not_enabled_person_still_blocked(self):
         """Different person not in enabled set is still dropped."""
         mf, _ = _make_mf()
         mf.enable_for_person("person.oji_udezue")
-        spy = AsyncMock()
-        mf._execute_transfer = spy
+        # MUSIC-FOLLOWING-TRANSFER-REPAIR-1: the post-gate seam is _pipeline.
+        spy = AsyncMock(return_value=("no_target_player", ""))
+        mf._pipeline = spy
         await mf._on_person_transition(
             _transition(person="Ziri Udezue",
                         from_room="kitchen", to_room="bedroom",
@@ -1263,8 +1188,9 @@ class TestEnabledPersonNameVsEntityIdMatch:
         """Existing behavior preserved: identical form matches."""
         mf, _ = _make_mf()
         mf.enable_for_person("Oji")
-        spy = AsyncMock()
-        mf._execute_transfer = spy
+        # MUSIC-FOLLOWING-TRANSFER-REPAIR-1: the post-gate seam is _pipeline.
+        spy = AsyncMock(return_value=("no_target_player", ""))
+        mf._pipeline = spy
         await mf._on_person_transition(
             _transition(person="Oji", confidence=0.75)
         )
@@ -1288,8 +1214,9 @@ class TestCoordinatorEnabledKillSwitch:
         mf, hass = _make_mf()
         mf.enable_for_person("person.oji_udezue")
         hass.config_entries.set_mf_coordinator_enabled(False)
-        spy = AsyncMock()
-        mf._execute_transfer = spy
+        # MUSIC-FOLLOWING-TRANSFER-REPAIR-1: the post-gate seam is _pipeline.
+        spy = AsyncMock(return_value=("no_target_player", ""))
+        mf._pipeline = spy
         await mf._on_person_transition(
             _transition(person="Oji Udezue", confidence=0.9)
         )
@@ -1299,8 +1226,9 @@ class TestCoordinatorEnabledKillSwitch:
     async def test_switch_on_allows_enabled_person_transition(self):
         mf, hass = _make_mf()
         mf.enable_for_person("person.oji_udezue")
-        spy = AsyncMock()
-        mf._execute_transfer = spy
+        # MUSIC-FOLLOWING-TRANSFER-REPAIR-1: the post-gate seam is _pipeline.
+        spy = AsyncMock(return_value=("no_target_player", ""))
+        mf._pipeline = spy
         await mf._on_person_transition(
             _transition(person="Oji Udezue", confidence=0.9)
         )
@@ -1325,8 +1253,9 @@ class TestEnabledSetDNDNormalization:
         mf, _ = _make_mf()
         mf.enable_for_person("person.oji_udezue")
         mf.disable_for_person("person.oji_udezue")
-        spy = AsyncMock()
-        mf._execute_transfer = spy
+        # MUSIC-FOLLOWING-TRANSFER-REPAIR-1: the post-gate seam is _pipeline.
+        spy = AsyncMock(return_value=("no_target_player", ""))
+        mf._pipeline = spy
         await mf._on_person_transition(
             _transition(person="Oji Udezue", confidence=0.9)
         )
@@ -1338,8 +1267,9 @@ class TestEnabledSetDNDNormalization:
         mf._enabled_persons = {"Oji Udezue", "person.oji_udezue"}
         mf.disable_for_person("person.oji_udezue")
         assert mf._enabled_persons == set()
-        spy = AsyncMock()
-        mf._execute_transfer = spy
+        # MUSIC-FOLLOWING-TRANSFER-REPAIR-1: the post-gate seam is _pipeline.
+        spy = AsyncMock(return_value=("no_target_player", ""))
+        mf._pipeline = spy
         await mf._on_person_transition(
             _transition(person="Oji Udezue", confidence=0.9)
         )

@@ -1579,30 +1579,47 @@
       },
       "coordinator_music_following": {
         "title": "🎵 Music Following",
-        "description": "Configure the Music Following Coordinator. Controls how music transfers when a person moves between rooms. Adjust timing parameters to tune transfer behavior for your speaker setup.",
+        "description": "When you walk from a room with music to a room with a speaker, the music comes with you.",
         "data": {
-          "mf_cooldown_seconds": "Transfer Cooldown (seconds)",
-          "mf_ping_pong_window": "Return-trip suppression window (seconds)",
-          "mf_verify_delay": "Post-transfer verification delay (seconds)",
-          "mf_unjoin_delay": "Source speaker release delay (seconds)",
-          "mf_position_offset": "Cross-platform seek offset (seconds)",
-          "mf_min_confidence": "Minimum transition confidence",
-          "mf_high_confidence_distance": "BLE proximity threshold (ft)",
-          "mf_sleep_suppress": "Do not transfer music while sleeping",
-          "mf_night_suppress_mode": "Night-mode transfer policy",
-          "music_anomaly_sensitivity": "Unusual-activity sensitivity"
+          "mf_follow_mode": "How music follows",
+          "mf_sleep_suppress": "Not while the house sleeps",
+          "mf_night_suppress_mode": "At night",
+          "music_anomaly_sensitivity": "Unusual-activity alerts"
         },
         "data_description": {
-          "mf_cooldown_seconds": "Minimum seconds between transfers to the same target room per person. Prevents rapid repeated transfers. Default: 8.",
-          "mf_ping_pong_window": "Suppress the return leg when someone briefly walks away and comes back within this many seconds. Default: 60.",
-          "mf_verify_delay": "Seconds to wait after transfer before verifying the target speaker is playing. Default: 2.",
-          "mf_unjoin_delay": "Seconds before releasing the source speaker from the group after a successful transfer. Default: 5.",
-          "mf_position_offset": "Compensates for network latency during cross-platform transfers by seeking this many seconds ahead. Default: 3.",
-          "mf_min_confidence": "Minimum transition confidence (0.1-1.0) required to trigger a music transfer. Lower values transfer more aggressively. Default: 0.6.",
-          "mf_high_confidence_distance": "Only transfer music when the person's closest BLE scanner is within this range (feet). Tighter than person tracking (10ft) to avoid BLE bleed-through from adjacent rooms. Default: 8.",
-          "mf_sleep_suppress": "When on, music does not follow anyone while the house is in SLEEP state. Default: on.",
-          "mf_night_suppress_mode": "Policy for HOME_NIGHT: off (default) = follow as normal; own bedroom only = only transfer to the person's dwell room (NOTE: per-person bedroom mapping is not yet wired — this currently behaves as 'block all' and logs a warning); block all = never transfer at night.",
-          "music_anomaly_sensitivity": "Same choice for music following."
+          "mf_follow_mode": "Move music: the music starts in the room you walk into; the old room fades, then stops once the new room is playing, and its volume is put back for next time. Play in both rooms: the old room keeps playing.",
+          "mf_sleep_suppress": "When on, music does not follow anyone while the house is asleep.",
+          "mf_night_suppress_mode": "Follow as normal, only into your own bedroom, or not at all at night. Only to your bedroom needs a bedroom per person, which does not exist yet, so today it acts like Do not follow.",
+          "music_anomaly_sensitivity": "How readily unusual music-following activity is flagged."
+        },
+        "sections": {
+          "advanced": {
+            "name": "Fine tuning",
+            "data": {
+              "mf_unjoin_delay": "Stop the old room after (s)",
+              "mf_cooldown_seconds": "Wait before moving again (s)",
+              "mf_ping_pong_window": "Ignore quick returns within (s)",
+              "mf_verify_delay": "Check the new room after (s)",
+              "mf_source_lookback_seconds": "Remember the last playing room for (s)",
+              "mf_stale_transition_seconds": "Ignore moves older than (s)",
+              "mf_high_confidence_distance": "Phone must be within (ft)",
+              "mf_min_ble_confidence": "Location certainty needed",
+              "mf_position_offset": "Seek ahead on cross-brand moves (s)",
+              "mf_bonus_joins": "Also play on the room's other speakers"
+            },
+            "data_description": {
+              "mf_unjoin_delay": "Seconds after the new room is playing before the old room stops. 0 stops it at once.",
+              "mf_cooldown_seconds": "A person's music does not move into the same room again within this time. 0 turns it off.",
+              "mf_ping_pong_window": "A walk straight back to the room you just left within this time is ignored. 0 turns it off.",
+              "mf_verify_delay": "How long to wait before checking that the new room is really playing.",
+              "mf_source_lookback_seconds": "If you walk through a room without a speaker, music still follows from the last room that was playing, for this long. 0 turns it off.",
+              "mf_stale_transition_seconds": "A room change that waited longer than this is dropped.",
+              "mf_high_confidence_distance": "Used only with Strict certainty: your phone must be this close to its nearest Bluetooth scanner. 0 turns the distance check off.",
+              "mf_min_ble_confidence": "Any: no Bluetooth check. Normal: your phone's Bluetooth room still matches when the music moves. Strict: Normal, and your phone is near its scanner. A missing Bluetooth reading never stops a move.",
+              "mf_position_offset": "When the two speakers are different brands, the new room starts this many seconds ahead to cover the delay.",
+              "mf_bonus_joins": "After the move works, other speakers in the room (not TVs) join in. They never decide whether the move worked."
+            }
+          }
         }
       },
       "coordinator_appliance": {
@@ -2379,13 +2396,13 @@
         "title": "🎵 Music Following",
         "description": "Configure how music follows you into this room.",
         "data": {
-          "music_following_enabled": "Enable Music Following",
-          "room_media_player": "Room Media Player",
-          "room_media_volume_scale": "Speaker loudness calibration (0.5-1.5)"
+          "music_following_enabled": "Music follows into this room",
+          "room_media_player": "Room speaker",
+          "room_media_volume_scale": "Speaker loudness"
         },
         "data_description": {
-          "music_following_enabled": "Automatically transfer music when you enter this room",
-          "room_media_player": "Primary media player for this room",
+          "music_following_enabled": "When on, music you are playing follows you into this room.",
+          "room_media_player": "The speaker that must be playing for a move into this room to count. Other speakers in the room can join in after.",
           "room_media_volume_scale": "Adjust if this room's speaker is noticeably louder/quieter than others at the same volume level. 1.0 = no scaling. Only applied on cross-platform generic transfers."
         }
       },
