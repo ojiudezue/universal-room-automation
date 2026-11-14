@@ -1038,7 +1038,14 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                     continue
                 
                 # Get Bermuda area sensor for room-level location
-                area_sensor = await self._find_bermuda_area_sensor(person_name)
+                # Review A-L3: resolve the Bermuda device ONCE per person per
+                # tick; both readers below consume it (no cross-tick cache).
+                bermuda_resolved = self._bermuda_device_for_person(
+                    tracked_person_entity_id(person_name),
+                )
+                area_sensor = await self._find_bermuda_area_sensor(
+                    person_name, bermuda_resolved,
+                )
                 
                 if area_sensor:
                     area_state = self.hass.states.get(area_sensor)
@@ -1048,7 +1055,10 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                         resolved_room = self._resolve_person_room(bermuda_area)
                         
                         # Calculate confidence based on Bermuda distance sensors
-                        confidence = await self._calculate_confidence(person_name, bermuda_area, resolved_room)
+                        confidence = await self._calculate_confidence(
+                            person_name, bermuda_area, resolved_room,
+                            bermuda_resolved,
+                        )
                         
                         # v3.2.8.3: Track location changes and previous_location_time
                         location_changed = (resolved_room != old_location)
@@ -1899,13 +1909,17 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
         self, device_id: str, uid: str | None,
     ) -> tuple[str | None, list[str]]:
         """(area sensor, per-scanner distance sensors) on one Bermuda device,
-        typed by registry unique_id: area ``<uid>``; distance
-        ``<uid>_*_range`` / ``<uid>_*_range_raw`` except ``<uid>_range``."""
+        typed by registry unique_id: area ``<uid>``; distance ONE sensor per
+        scanner ``<uid>_<mac>_range`` (filtered), falling back to
+        ``<uid>_<mac>_range_raw`` only when the filtered one is absent or
+        disabled (review A-L1: both counted the same scanner twice).
+        ``<uid>_range`` (nearest) is not a per-scanner sensor."""
         if not uid:
             return None, []
         ent_reg = er.async_get(self.hass)
         area: str | None = None
-        distance: list[str] = []
+        filtered: dict[str, str] = {}
+        raw: dict[str, str] = {}
         prefix = f"{uid}_"
         nearest = f"{uid}_range"
         for e in er.async_entries_for_device(
@@ -1916,20 +1930,25 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
             u = e.unique_id or ""
             if u == uid:
                 area = e.entity_id
-            elif (
-                u.startswith(prefix)
-                and (u.endswith("_range") or u.endswith("_range_raw"))
-                and u != nearest
-            ):
-                distance.append(e.entity_id)
-        return area, distance
+            elif u.startswith(prefix) and u != nearest:
+                mid = u[len(prefix):]
+                if mid.endswith("_range_raw") and mid[:-10]:
+                    raw[mid[:-10]] = e.entity_id
+                elif mid.endswith("_range") and mid[:-6]:
+                    filtered[mid[:-6]] = e.entity_id
+        return area, list({**raw, **filtered}.values())
 
-    async def _find_bermuda_area_sensor(self, person_name: str) -> str | None:
+    async def _find_bermuda_area_sensor(
+        self, person_name: str,
+        resolved: tuple[str | None, str, str | None] | None = None,
+    ) -> str | None:
         """Find the Bermuda area sensor for a person.
 
         BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1: config override first, then
         the area sensor on the person's Bermuda device resolved through the
         registries (``_bermuda_device_for_person``). No name matching.
+        ``resolved``: the tick's one resolver result (review A-L3); None =
+        resolve here. Never cached beyond the tick.
         """
         from .const import CONF_BERMUDA_AREA_SENSORS
 
@@ -1948,7 +1967,7 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
             _LOGGER.warning("Configured Bermuda sensor %s for %s not found in HA", override_sensor, person_name)
 
         # Registry: person -> Bermuda device -> area sensor (unique_id == uid)
-        device_id, route, uid = self._bermuda_device_for_person(
+        device_id, route, uid = resolved or self._bermuda_device_for_person(
             tracked_person_entity_id(person_name),
         )
         area: str | None = None
@@ -1972,7 +1991,10 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
     # v3.2.4: FIXED CONFIDENCE CALCULATION
     # ==========================================================================
 
-    async def _calculate_confidence(self, person_name: str, bermuda_area: str, resolved_room: str) -> float:
+    async def _calculate_confidence(
+        self, person_name: str, bermuda_area: str, resolved_room: str,
+        resolved: tuple[str | None, str, str | None] | None = None,
+    ) -> float:
         """
         Calculate confidence score for person location based on Bermuda distance sensors.
         
@@ -1989,7 +2011,7 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
             # BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1: the per-scanner distance
             # sensors on the person's own Bermuda device, by registry
             # unique_id. Never enables a disabled entity.
-            device_id, _route, uid = self._bermuda_device_for_person(
+            device_id, _route, uid = resolved or self._bermuda_device_for_person(
                 tracked_person_entity_id(person_name),
             )
             distance_sensors: list[str] = []

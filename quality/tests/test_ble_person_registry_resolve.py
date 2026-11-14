@@ -552,9 +552,9 @@ async def test_no_foreign_phone_sensors(hass):
     _pin_area_scanners(coord)
     dev = w.devices[f"berm:{JAYA_X}"]
     _area, dist = coord._bermuda_person_sensors(dev, JAYA_X)
+    # One sensor per scanner: the filtered one (review A-L1).
     assert sorted(dist) == sorted(
-        f"sensor.iphone_jaya_{k}distance_to_{n}"
-        for n in SCANNERS.values() for k in ("", "unfiltered_")
+        f"sensor.iphone_jaya_distance_to_{n}" for n in SCANNERS.values()
     )
     assert await coord._calculate_confidence(JAYA, "jaya_3", "jaya_bedroom") == 0.3
 
@@ -567,10 +567,7 @@ async def test_oji_resolves_own_device(hass):
     coord = _coord(hass)
     _pin_area_scanners(coord)
     _area, dist = coord._bermuda_person_sensors(w.devices[f"berm:{OJI_X}"], OJI_X)
-    assert sorted(dist) == [
-        "sensor.iphone_oji_distance_to_jaya_3",
-        "sensor.iphone_oji_unfiltered_distance_to_jaya_3",
-    ]
+    assert sorted(dist) == ["sensor.iphone_oji_distance_to_jaya_3"]
     # Old code: no 'oji_udezue' in any entity id -> 0.5. New: inputs all
     # unavailable -> 0.3.
     assert await coord._calculate_confidence(OJI, "jaya_3", "jaya_bedroom") == 0.3
@@ -635,7 +632,40 @@ async def test_nearest_range_sensor_excluded(hass):
     assert "sensor.iphone_oji_distance" not in dist
     assert "sensor.iphone_oji_area" not in dist
     assert "sensor.iphone_oji_nearest_scanner" not in dist
-    assert len(dist) == 6
+    assert len(dist) == 3   # 3 scanners, one sensor each
+
+
+@pytest.mark.asyncio
+async def test_scanner_counted_once_range_and_raw(hass):
+    """Review A-L1: one scanner with BOTH a filtered and a raw distance
+    sensor at 7 ft (close, not very close, at high=10) is ONE close scanner
+    -> 0.7. Counting both gave close_scanners == 2 -> 0.9."""
+    w = _World(hass)
+    _oji(w)   # only aa:01 (jaya_3) enabled: range + range_raw
+    _set_all(hass, w, "unavailable")
+    hass.states.async_set("sensor.iphone_oji_distance_to_jaya_3", "7.0")
+    hass.states.async_set("sensor.iphone_oji_unfiltered_distance_to_jaya_3", "7.0")
+    coord = _coord(hass)
+    coord.high_confidence_distance = 10
+    _pin_area_scanners(coord)
+    assert await coord._calculate_confidence(OJI, "jaya_3", "jaya_bedroom") == 0.7
+
+
+@pytest.mark.asyncio
+async def test_raw_used_only_when_filtered_absent(hass):
+    """Fallback: the filtered sensor disabled -> the raw one stands in for
+    that scanner; with the filtered one enabled the raw one is not read."""
+    w = _World(hass)
+    _oji(w)
+    dev = w.devices[f"berm:{OJI_X}"]
+    coord = _coord(hass)
+    _area, dist = coord._bermuda_person_sensors(dev, OJI_X)
+    assert dist == ["sensor.iphone_oji_distance_to_jaya_3"]
+    w.er.async_update_entity(
+        "sensor.iphone_oji_distance_to_jaya_3", disabled_by=w.Disabler.USER,
+    )
+    _area, dist = coord._bermuda_person_sensors(dev, OJI_X)
+    assert dist == ["sensor.iphone_oji_unfiltered_distance_to_jaya_3"]
 
 
 @pytest.mark.asyncio
@@ -676,6 +706,34 @@ async def test_tick_uses_registry_area_and_confidence(hass):
     data = await coord._async_update_data()
     assert data[OJI]["confidence"] == 0.9
     assert data[OJI]["method"] == "bermuda"
+
+
+@pytest.mark.asyncio
+async def test_tick_resolves_once_per_person(hass):
+    """Review A-L3: one tick = ONE resolver call per person, its result fed
+    to both the area lookup and the confidence calc; a second tick resolves
+    afresh (no cross-tick cache)."""
+    w = _World(hass)
+    _oji(w)
+    _set_all(hass, w, "unavailable")
+    hass.states.async_set("sensor.iphone_oji_area", "jaya_3")
+    hass.states.async_set("sensor.iphone_oji_distance_to_jaya_3", "2.0")
+    coord = _coord(hass)
+    coord.tracked_persons = [OJI]
+    _pin_area_scanners(coord)
+    calls = []
+    orig = coord._bermuda_device_for_person
+
+    def spy(pid):
+        calls.append(pid)
+        return orig(pid)
+
+    coord._bermuda_device_for_person = spy
+    data = await coord._async_update_data()
+    assert data[OJI]["confidence"] == 0.9
+    assert calls == ["person.oji_udezue"]
+    await coord._async_update_data()
+    assert calls == ["person.oji_udezue"] * 2
 
 
 # ---------------------------------------------------------------------------

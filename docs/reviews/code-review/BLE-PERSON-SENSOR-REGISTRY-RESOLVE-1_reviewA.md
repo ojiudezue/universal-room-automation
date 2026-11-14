@@ -78,3 +78,12 @@ Irrelevant to behaviour (route (a) wins for all four).
 
 No must-fix items. Recommended cards: A-L1 (range + range_raw double count, before any confidence reader above 0.3
 ships), A-L4 (scanner identity from the unique_id mac instead of the entity_id).
+
+## Disposition (fix-up pass, 2026-11-14)
+
+| # | Disposition | Evidence |
+|---|---|---|
+| A-L1 | **FIXED** (operator: fix before it goes live). `_bermuda_person_sensors` keeps one sensor per scanner MAC: filtered `_range`, raw `_range_raw` only when the filtered one is absent/disabled. Plan §3 described the set as parity with the old filter, not as a requirement to count a scanner twice; the raw sensor still serves as the fallback. | `test_scanner_counted_once_range_and_raw` (7 ft, high 10 → 0.7, was 0.9), `test_raw_used_only_when_filtered_absent`; both RED on their single-site drill |
+| A-L2 | **LEFT** (display only). Noted in the README draft residuals. | — |
+| A-L3 | **FIXED.** The tick resolves once per person and passes the tuple to both readers (optional `resolved` arg); no cross-tick cache (B-1 clearance preserved). | `test_tick_resolves_once_per_person` (1 call per tick, 2 over two ticks); RED on each of 4 drills (either call site not passing it, either helper ignoring it) |
+| A-L4 | **CARDED, not fixed.** Not a ≤30-line change: in the live device registry each scanner MAC is a `mac` connection on 2-3 devices, and 184 MACs map to devices with differing or no areas, so MAC → area needs a design rule. Site: `person_coordinator.py` `_calculate_confidence`, the `split("distance_to_")` line. Card: REGISTRY-NOT-NAMES-1 child. | read-only probe of `.storage/core.device_registry` (57/57 Oji scanner MACs resolve, each to multiple devices) |

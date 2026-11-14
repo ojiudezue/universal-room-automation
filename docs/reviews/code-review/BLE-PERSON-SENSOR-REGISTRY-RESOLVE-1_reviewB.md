@@ -26,3 +26,11 @@
 
 **SHIP.** No CRITICAL, HIGH or MEDIUM findings in the async, lifecycle, restart or consumer framing. One live check (B-6) belongs in the README's
 validation table.
+
+## Disposition (fix-up pass, 2026-11-14)
+
+- B-6: already in the README draft's prospective live-validation list (`bermuda_resolve` resolved > 0, unresolved 0).
+- B-8: **LEFT** (display only); recorded in the README draft residuals.
+- B-1 / B-2 interaction with review A-L3: the fix-up resolves once per person per tick and passes the result to both
+  readers. It adds no cache; every tick still reads the registries fresh, so B-1's runtime-change clearance holds and
+  B-2's cost halves (1 call per person per tick).

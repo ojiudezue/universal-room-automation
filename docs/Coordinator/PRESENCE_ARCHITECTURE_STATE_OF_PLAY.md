@@ -309,8 +309,10 @@ DEVICE: route (a) the one `bermuda`-platform tracker in `person.*` `device_track
 none, the one `private_ble_device` tracker → its device's `('private_ble_device', X)` identifier → the one OTHER
 device carrying X that owns a `bermuda` entity, by a full device-registry scan (the private_ble and Bermuda devices
 share X and the identifier index holds one device per identifier, so `async_get_device` can return the wrong one).
-Zero / two-plus candidates = unresolved. No cache (per tick). `_bermuda_person_sensors` (`:1898`) types the
-device's sensors by registry unique_id: area `<uid>`; distance = enabled `<uid>_*_range` / `_range_raw` minus the
+Zero / two-plus candidates = unresolved. No cache: `_async_update_data` resolves once per person per tick and passes
+the result to both readers (review A-L3 fix-up). `_bermuda_person_sensors` (`:1898`) types the
+device's sensors by registry unique_id: area `<uid>`; distance = ONE enabled sensor per scanner MAC, the filtered
+`<uid>_<mac>_range`, else `<uid>_<mac>_range_raw` (review A-L1 fix-up: the build counted both); never the
 nearest `<uid>_range`. `_find_bermuda_area_sensor` (`:1927`): config override → registry area sensor → None.
 `_calculate_confidence` (`:1975`) uses the same distance set and NEVER enables a disabled entity (the old auto-enable
 is deleted). Fire check: `get_bermuda_resolve_stats` (`:1879`) → unrecorded attribute `bermuda_resolve` on the
@@ -318,7 +320,9 @@ Person Tracking Status diagnostic; one WARN "No Bermuda area sensor for %s (rout
 reason) on the second consecutive miss. `aggregation.PersonLocationSensor._find_bermuda_sensors` (0 matches since
 v3.6, setup WARN only) is deleted. Effect: Ezinne / Ziri / Jaya lose 12 foreign-phone distance sensors each; Oji
 0.5 → 0.3 (all per-scanner inputs are ghosts since 2026-10-20); area sensors unchanged; no decision reads it
-(`< 0.3` filter only). Scanner-name matching inside the confidence loop and `_get_area_scanners` is unchanged.
+(`< 0.3` filter only). Scanner-name matching inside the confidence loop and `_get_area_scanners` is unchanged (registry-not-names residual
+A-L4, carded as a REGISTRY-NOT-NAMES-1 child: each scanner MAC is a connection on 2-3 devices with differing areas, so
+a MAC rule needs design).
 
 **Fleet liveness gate** — `BLE_FLEET_LIVENESS_WINDOW_S = 90` (`person_coordinator.py:67`,
 rung-1 module constant). If any tracked person had a Bermuda update within 90 s the fleet is

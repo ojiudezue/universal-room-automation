@@ -241,14 +241,14 @@ def _bermuda_branch(coord, hass):
     """Site 1: a Bermuda area sensor exists but resolves no room."""
     hass.set(AREA, "unknown")
 
-    async def _area(_name):
+    async def _area(_name, *_resolved):
         return AREA
     coord._find_bermuda_area_sensor = _area
 
 
 def _no_bermuda_branch(coord):
     """Site 2: no Bermuda area sensor at all."""
-    async def _none(_name):
+    async def _none(_name, *_resolved):
         return None
     coord._find_bermuda_area_sensor = _none
 
@@ -608,7 +608,7 @@ def test_overruled_set_assigned_once_after_loop(env):
     env.coord._gps_home_overruled = prev
     seen = []
 
-    async def _area(name):
+    async def _area(name, *_resolved):
         seen.append((name, env.coord._gps_home_overruled))
         await asyncio.sleep(0)
         return AREA
@@ -981,7 +981,7 @@ def test_fleet_armed_captured_once_per_tick(env):
     env.hass.set(AREA, "unknown")
     _arm(env, seconds=10_000)
 
-    async def _area(_name):
+    async def _area(_name, *_resolved):
         cb = env.track.subs[-1][1]
         cb(SimpleNamespace(data={"new_state": _St("0")}))
         await asyncio.sleep(0)

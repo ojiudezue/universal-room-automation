@@ -29,12 +29,18 @@ PersonCoordinator found each person's Bermuda sensors by entity_id substrings:
    private_ble device and the Bermuda device share X). Zero or two-plus candidates resolve to nothing. No cache: it
    runs per tick, so a late Bermuda load resolves on the next tick.
 2. `_bermuda_person_sensors(device_id, uid)` types the sensors on that device by registry unique_id (Bermuda builds
-   them from the device uid): area = `<uid>`; distance = enabled `<uid>_*_range` / `<uid>_*_range_raw`, excluding the
-   nearest-distance `<uid>_range`.
+   them from the device uid): area = `<uid>`; distance = ONE enabled sensor per scanner, the filtered
+   `<uid>_<mac>_range`, falling back to `<uid>_<mac>_range_raw` only when the filtered one is absent or disabled;
+   the nearest-distance `<uid>_range` is excluded. (Fix-up A-L1: the build counted both, so one close scanner read
+   as two and gave 0.9 instead of 0.7. Inert today, every per-scanner input is a ghost.)
 3. `_find_bermuda_area_sensor`: config override (unchanged) -> registry area sensor -> None. Strategies 2-4 deleted.
 4. `_calculate_confidence`: distance set from the person's own device. The auto-enable block is deleted; no code path
    writes `disabled_by`. Scanner-name matching inside the confidence loop is unchanged (non-goal).
-5. Fire check: `_bermuda_resolve_hits` / `_bermuda_resolve_misses[(person, reason)]`, `get_bermuda_resolve_stats()`,
+5. One resolve per person per tick (fix-up A-L3): `_async_update_data` calls `_bermuda_device_for_person` once and
+   passes the result to `_find_bermuda_area_sensor` and `_calculate_confidence` (optional `resolved` argument; a
+   direct call without it resolves itself). Nothing is cached across ticks, so runtime registry changes still take
+   effect on the next tick.
+6. Fire check: `_bermuda_resolve_hits` / `_bermuda_resolve_misses[(person, reason)]`, `get_bermuda_resolve_stats()`,
    surfaced as the unrecorded attribute `bermuda_resolve` on `sensor.*person_tracking_status` (Person Tracking
    Status diagnostic). Miss reasons: `no_person_state`, `no_bermuda_tracker`, `multiple_bermuda_trackers`,
    `tracker_no_device`, `private_ble_ambiguous`, `private_ble_no_twin`, `registry_error`, `no_area_sensor`. One
@@ -55,11 +61,27 @@ PersonLocationSensor keeps the person_coordinator listener and the decay timer.
 - No decision changes: the only trust reader of person confidence is the `< 0.3` filter, which 0.3 passes. The music
   8 ft gate was dropped on 2026-11-14, so the plan's music-plan seam is moot.
 
+## Known residuals (display only, left as is)
+
+- **A-L2:** the warn-once streak resets when the miss reason changes, so a person alternating between two miss
+  reasons every tick never WARNs. The `bermuda_resolve` counters still show every miss.
+- **B-8:** a person removed or renamed in `tracked_persons` keeps their `bermuda_resolve` counters until the person
+  coordinator is rebuilt (reload or restart). Bounded by the names ever configured.
+- **A-L4 (carded, not fixed):** the confidence loop still takes the scanner name from the entity_id
+  (`split("distance_to_")`, `person_coordinator.py` `_calculate_confidence`) and matches it to `_get_area_scanners`
+  names by substring. A registry fix by the unique_id MAC is not a 30-line change: in the live device registry each
+  scanner MAC is a connection on 2-3 devices (the integration device plus Bermuda's scanner device), and 184 MACs map
+  to devices in different areas or with no area, so a MAC-to-area rule needs a design decision. Card: a
+  REGISTRY-NOT-NAMES-1 child.
+
 ## Tests
 
-`quality/tests/test_ble_person_registry_resolve.py` (24 tests, real `hass` + real entity/device registries, Oji's
+`quality/tests/test_ble_person_registry_resolve.py` (27 tests after the fix-up, real `hass` + real entity/device registries, Oji's
 live 4-tracker shape and the shared-identifier twin). 30 single-site source mutations, each RED on a named test,
-including the three wire-in calls (area finder, confidence, tick) and the fire-check wiring.
+including the three wire-in calls (area finder, confidence, tick) and the fire-check wiring. Fix-up: six more
+drills, each RED (scanner dedup, filtered-over-raw preference, the two tick call sites passing the result, the two
+helpers consuming it). Single-argument `_find_bermuda_area_sensor` stubs in `test_census_ble_over_face.py`,
+`test_house_state_sleep_mask_ble_memory.py` and `test_person_gps_assistive.py` now take the extra argument.
 
 ## Live validation (prospective; replace with a `Validated <date>` table)
 
