@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-13T20:59:11-06:00_ - _Data commit: `867fe4bcd464`_ - _last_reconciled: 2026-11-13_
+_Generated: 2026-11-13T21:09:22-06:00_ - _Data commit: `ce226e252928`_ - _last_reconciled: 2026-11-13_
 
 
 ## Columns
@@ -470,9 +470,10 @@ _created 2026-11-13 14:30_
 - **Origin:** 2026-11-13 - Operator: "If the app is down Ura can't do what it needs to do and enabling new features like motion etc will be compromised." Evidence homelab 6b131ff: Up Hallway KS down ~39 h, no URA presence source; Study A down 47 min w...
 - **Why:** Panels are a sensor-fleet dependency. A headless KS leaves entities that look healthy (Study A) or go unavailable silently (Up Hallway); URA must stop trusting panel-sourced inputs while KS is unhealthy and say so, or every panel-fed fea...
 - **Next:** Me: prior-art scan (sensor.<room>_unavailable_entities, stuck-signal watchdog, SENSOR_FLEET_CLASSES), then a per-panel health getter (foreground_app == kiosk_satellite AND F2 camera fps > 0) that marks the panel inputs untrusted + NM tri...
-- **Forensic keys (2):**
+- **Forensic keys (3):**
   - `tier`: 2
   - `planner_2026_11_13`: Plan 70d72c8e Part B (D4): KS foreground_app is the WRONG signal (unavailable 18 h on Study A while streaming); Frigate camera.<panel> unavailable matched both outages exactly. D4 = generic rule: ignore a camera-derived input while its o...
+  - `homelab_2026_11_13`: KS app-health watchdog live (homelab 7b54953), see F2-PANEL-FFMPEG-CRASHLOOP-1. URA side is stream health S1 (feature/camera-input-stream-health-s1), in review.
 
 ### `ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1` - Room occupied sensor looked up by a slug-built entity id; 11 of 47 rooms have a different real id, so the HVAC fan-off-while-occupied guard (and memory/NM readers) silently fail open there — _#3 · WSJF 6.7 · v10 tc8 u2 /e3_
 status: **planned**
@@ -957,9 +958,11 @@ _created 2026-11-13 14:00_
 - **Origin:** 2026-11-13 - Homelab session found it during g5 mask v2; operator: "homelab should look at the crashes. Start with wall panel config and kiosk satellite."
 - **Why:** Log flood on F2 and two dead camera legs; pre-existing, not caused by mask v2. Homelab-side work (capture rule 5).
 - **Next:** Homelab building KS app-health watchdog (operator 2026-11-13: "Restarting the app is beyond frigate. It should just check on ks app health and restart it if something is wrong or maybe just periodically"): health-keyed cold restart, opti...
-- **Forensic keys (2):**
+- **Forensic keys (4):**
   - `tier`: 1
   - `fixed_2026_11_13`: Homelab 6b131ff: Kiosk Satellite 2026.11.11 Impeller GLES abort -> headless respawn, RTSP plugin never attaches, :8554 dead. Cold-started KS on both panels ~14:00 CST; F2 5 fps. Up Hallway down ~39 h (no URA presence source), Study A ~47...
+  - `homelab_2026_11_13_watchdog_live`: Peer session homelab-automation-15: ks-watchdog LIVE 2026-11-13 21:20 CST, homelab-automation commit 7b54953, on Beszel CT 107 (192.168.13.89), all 7 KS panels (master .116, study_b .113, kitchen .91, study_a .90, up_hallway .105, media_...
+  - `operator_decisions_pending`: PICK/DO: (1) KS Legacy renderer (Skia) toggle on all panels, likely avoids the abort, changes rendering; (2) update KS 2026.11.11 -> 2026.11.19 (needed before filing); (3) file the upstream bug from the operator GitHub. URA side: no sepa...
 
 ### `OC-CONTEXT-PACK-1` - OC agent context should feel like the orchestrator's: HA + URA ground-truth docs, live config snapshot, doctrine, goals - iterate it against live cases — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **optimization** - status: **in_progress**
