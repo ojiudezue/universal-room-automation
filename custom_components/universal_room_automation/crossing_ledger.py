@@ -512,6 +512,9 @@ class CrossingLedger:
         self.L_raw = int(self._R)
         self._R_prev = int(self._R)
         self._credits.clear()
+        # The anchor already paid every applied exit (L = R): a stored exit
+        # must not cancel a later departure's reconcile (planner ruling Q1).
+        self._exits.clear()
         self.state = STATE_KNOWN
         self.unknown_reason = None
         self.last_anchor_ts = now

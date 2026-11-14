@@ -3617,11 +3617,12 @@ CROSSING_VISION_TEARDOWN_GATHER_S: Final = 5
 CROSSING_VISION_LEDGER_EPISODE_TYPE: Final = "crossing_vision_ledger"
 # Anchor window: camera bodies 0, fleet lit, no held Tier-1 input, no
 # Tier-1 rising edge, no entry term, continuously this long -> L = R. 0 =
-# anchor on the first passing sample. 1800 (plan rev 2026-11-14 measured:
-# the held-input rule at 3600 gives 5 anchors / 7 d, below bar a's 10; at
-# 1800, 13). The operator originally chose 3600 under the edge-only rule;
-# 1800 awaits operator confirmation at the deploy checkpoint.
-CROSSING_VISION_LEDGER_EMPTY_RESET_S: Final = 1800
+# anchor on the first passing sample. 900 = 15 min (operator 2026-11-14,
+# card VISION-CROSSING-ANALYSIS-1; basis
+# docs/planning/AUDIT_ledger_checkpoint_window_sweep_2026_11_14.md: 15
+# checkpoints / 7 d, 4 empty episodes / wk, 0 unexplained resurfacings at
+# R = 60 min once arrival precursors are excluded).
+CROSSING_VISION_LEDGER_EMPTY_RESET_S: Final = 900
 # Held-input conjunct of the anchor predicate (P2-D2 step 2, review D-M1):
 # a Tier-1 input reading on, or dead (unavailable / unknown / missing, or
 # its camera stream dead) with a last known-good on or no known-good reading

@@ -8,7 +8,10 @@ promotion ladder, bars a-e, F-LEAD / F-NOTIFY) is `PLANNING_census_deconfliction
 `PLANNING_person_awareness_read_api.md`. Design origin: `PLANNING_person_sighting_layer.md` §15 (incl. §15.7, §15.9).
 Status: Phase 1 (D1-D3) built on `feature/crossing-vision-shadow` (18e3ba59; reviews A and B SHIP). Phase 2 P2-D1-D3
 built on `feature/census-deconfliction-p2-ledger`; the 2026-11-14 ruling (arrival credit, held-input anchor, review
-fix-ups) is built there (fix-up commit after a6567765); open builder questions are listed after P2-D3.
+fix-ups) is built there (fix-up commit after a6567765). Final Tier-3 fix-up 2026-11-14 (same branch) built the operator
+decisions (anchor window 900 s, switch "Vision Assisted Census" defaulting ON on a camera install), rulings Q1 (an
+anchor clears the applied-exit store) and Q2 (no Tier-1 map = anchor BLOCKED), the never-in-registry Tier-1 rule, and
+review C's test findings; open builder questions are listed after P2-D3.
 
 Read first (done by the planners of rev 1-7.1, completely): `PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md`,
 `SENSOR_FLEET_CLASSES.md`, `IDENTITY_FUSION_CAMERAS_MANUAL.md`.
@@ -221,6 +224,13 @@ guests are told apart only through `R`.
    has no known-good reading since setup. A dead input therefore blocks, never enables, the anchor. A stuck-on sensor
    also blocks (accepted: the anchor-zero page names it; this replaces the earlier "edges, not levels" rule).
    Kill switch `CROSSING_VISION_LEDGER_ANCHOR_NEEDS_NO_HOLD` (rung 1, True; False = the edge-only predicate).
+   **No Tier-1 map = blocked (ruling Q2, 2026-11-14):** no occupancy substrate, a torn-down one, or a failing
+   `tier1_entity_ids()` returns the pseudo-holder `tier1_map_unavailable` as held (and dead): unknown is not empty.
+   A live substrate with an empty map is an available map with nothing to hold. **Never-existed input (2026-11-14
+   window sweep finding):** a Tier-1 entity with no entity-registry entry AND no state (live example
+   `binary_sensor.mmwave_zigbee_gameroom_presence`, since reconfigured) is ignored for the held set, listed as
+   `tier1_not_in_registry` (+ `_count`) on the ledger diagnostics and logged once per entity (WARNING). A registered
+   entity with no state still holds; a registry read error ignores nothing.
    **Freshness:** a sample whose stored body value is older than `2 × max(eval_s, 1)` fails; `EVAL_S = 0` means a 1 s
    interval, not "never anchor" (review D-L2). While dark or the body total is None, `census_tick` returns
    `healthy = False`. A body seen only between samples is missed (accepted; bound carries + 1 interval).
@@ -229,8 +239,10 @@ guests are told apart only through `R`.
    `.claude/tmp/anchorprobe/replay.py`, not in the repo):** anchors 14 d / last 7 d / during AWAY: edge rule at 3600 s
    48 / 22 / 9 (reproduces P2-D0 (ii)); held rule at 3600 s 6 / 5 / 6; at 1800 s 20 / 13 / 18; at 900 s 55 / 31 / 48.
    The night anchors the edge rule fired (81 % outside AWAY) were exactly the D-M1 shape: held rooms (top holders
-   Jaya Bedroom, Garage B, Master Bedroom). Hence the default moves to 1800 s (bar a's ≥ 10 per 7 days holds: 13), and
-   18 of its 20 anchors fall in AWAY, where "zero guests" is independently true (resolves the P2-D0 (ii) independence
+   Jaya Bedroom, Garage B, Master Bedroom). The default was first moved to 1800 s, then set to **900 s by the operator
+   (2026-11-14, "15 mins")** on the actual-Tier-1 sweep `AUDIT_ledger_checkpoint_window_sweep_2026_11_14.md` (15
+   checkpoints / 7 d, 4 empty episodes / wk, 0 unexplained resurfacings at R = 60 min once arrival precursors are
+   excluded; all 7-d checkpoints in AWAY). At 1800 s, 18 of 20 proxy anchors fell in AWAY, where "zero guests" is independently true (resolves the P2-D0 (ii) independence
    caveat). No configured Tier-1 input read dead on 2026-11-14 (the five rooms with unavailable entities list only
    actuators and non-occupancy sensors), so the dead rule costs no anchors today.
 3. Term per outcome with validator direction. `n`: vision `people_count` when `ok` (`term_source = vision`; ≥ 1 by
@@ -258,7 +270,8 @@ guests are told apart only through `R`.
    EVENT_END_WAIT_S` (one tracked timer per pending departure, superseded per person, cancelled in teardown). Judging
    consumes one person from the earliest applied exit with E ∈ [`t_e − LEAD`, `t_e + LAG`] and `n_left ≥ 1` (cancel);
    else `L = max(0, L − 1)`, `L_raw −= 1`, counted. One exit term of `n` cancels at most `n` reconciles (review
-   A-MED-4). Only while `known`; an anchor at or after `t_e` voids it; restart drops pending. **Transient (accepted,
+   A-MED-4). Only while `known`; an anchor at or after `t_e` voids it; an anchor also clears the applied-exit store
+   (ruling Q1: it already paid them, so an exit before the anchor cannot cancel a later departure); restart drops pending. **Transient (accepted,
    measured by bar d):** when the departure edge lands before the exit term's outcome, `guest_vis` reads + 1 for up to
    `reconcile_delay_s` (≈ 210 s); when an entry term's outcome lands before the arrival edge, + 1 until the edge.
    Parked: "a pending departure counts as a provisional exit" (revival: bar d fails, or > half its false-guest time
@@ -442,7 +455,7 @@ if Companion actions are unavailable: a dashboard select per pending crossing. T
 | `CROSSING_VISION_ZERO_MIN_CROSSINGS` / `_ERROR_RATE_MAX` / `_ERROR_MIN_CALLS` | 5 / 0.25 / 8 | 1 | Trip-wires; rate > 1 = off |
 | `CROSSING_VISION_TRIPWIRE_WINDOW_S` / `_EVAL_S` | 86400 / 3600 | 1 | Trip-wire window / cadence |
 | `CROSSING_VISION_DESC_MAX_CHARS` / `_TEARDOWN_GATHER_S` | 200 / 5 | 1 | Row size / unload bound |
-| `CROSSING_VISION_LEDGER_EMPTY_RESET_S` | 1800 (was the operator's 3600 under the edge rule; held rule at 3600 gives 5 anchors / 7 d, below bar a's 10; operator confirms at the deploy checkpoint) | 1 | Anchor window; 0 = instant |
+| `CROSSING_VISION_LEDGER_EMPTY_RESET_S` | 900 (operator 2026-11-14 "15 mins"; basis `AUDIT_ledger_checkpoint_window_sweep_2026_11_14.md`) | 1 | Anchor window; 0 = instant |
 | `CROSSING_VISION_LEDGER_ANCHOR_NEEDS_NO_HOLD` | True | 1 | Held-input conjunct (P2-D2 step 2); False = edge-only predicate |
 | `CROSSING_VISION_LEDGER_EVAL_S` | 60 | 1 | Anchor cadence; 0 = 1 s (interval and freshness) |
 | `CROSSING_VISION_GO_ARRIVAL_WINDOW_BEFORE_S` / `_AFTER_S` (REUSED from the census plan bar b) | 300 / 60 | 1 | Arrival-credit match window (P2-D2 step 4); 0 / 0 = a lift is never consumed (old double count returns only for exact-time terms) |

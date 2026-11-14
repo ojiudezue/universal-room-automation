@@ -385,3 +385,70 @@ async def test_boot_seed_ignores_vision_sensors(mods, hass, monkeypatch):  # noq
         await rig.presence.async_teardown()
     finally:
         await H.R.teardown(rig)
+
+
+@pytest.mark.asyncio
+async def test_dark_latch_reaches_ledger(mods, hass, monkeypatch, freezer):  # noqa: F811
+    """Review C H1 (hop 1, CC07): once the REAL camera-dark hysteresis
+    latches on a blind fleet, the next census_tick hands the ledger
+    camera_input_dark=True (never a hard-coded False)."""
+    fake = H.FakeVision(0)
+    w = await _world(mods, hass, monkeypatch, freezer, fake=fake)
+    try:
+        await _tick(w, fam="0", mas="0")
+        assert fake.calls[-1]["camera_input_dark"] is False
+        for _ in range(12):
+            freezer.tick(30)
+            await _tick(w, fam="unavailable", mas="unavailable")
+            if w.census._camera_input_dark_latched:
+                break
+        assert w.census._camera_input_dark_latched is True
+        freezer.tick(30)
+        await _tick(w, fam="unavailable", mas="unavailable")
+        assert fake.calls[-1]["camera_input_dark"] is True
+    finally:
+        await H.R.teardown(w.rig)
+
+
+@pytest.mark.asyncio
+async def test_resident_term_identified_above_presence(mods, hass, monkeypatch,  # noqa: F811
+                                                       freezer):
+    """Review C M2 (CC03): presence says 0 residents home but the census
+    identifies one person (BLE): R = max(0, 1) = 1, so that identified
+    person is never counted as a ledger guest."""
+    fake = H.FakeVision(0)
+    w = await _world(mods, hass, monkeypatch, freezer, fake=fake)
+    try:
+        hass.data[H.DOMAIN]["coordinator_manager"] = SimpleNamespace(
+            coordinators={"presence": SimpleNamespace(get_residents_home_count=lambda: 0)})
+        house = await _tick(w, fam="1", ble={"oji_udezue": "living_room"})
+        assert house.identified_count == 1
+        assert fake.calls[-1]["resident_term"] == 1
+    finally:
+        await H.R.teardown(w.rig)
+
+
+@pytest.mark.asyncio
+async def test_boot_seed_from_manager_reads_trust_total(mods, hass, monkeypatch):  # noqa: F811
+    """Review C M3 (AW5): the boot seed from the census manager's
+    last_result reads trust total_persons (2), never aware_total (50)."""
+    rig = await H.R.build(mods, hass, monkeypatch, setup=False)
+    try:
+        hass.data[H.DOMAIN].pop("census", None)
+        hass.data[H.DOMAIN]["camera_integration_manager"] = SimpleNamespace(
+            last_result=SimpleNamespace(house=SimpleNamespace(
+                total_persons=2, aware_total=50, aware_guests=48)))
+        seen = []
+        real = rig.presence._run_inference
+
+        async def _spy(trigger):
+            seen.append((trigger, rig.presence._census_count))
+            await real(trigger)
+
+        rig.presence._run_inference = _spy
+        await rig.presence.async_setup()
+        assert seen[0] == ("startup", 2)
+        await rig.presence.async_teardown()
+    finally:
+        hass.data[H.DOMAIN].pop("camera_integration_manager", None)
+        await H.R.teardown(rig)

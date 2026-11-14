@@ -27,7 +27,10 @@ census accuracy..."; hard constraint "I need away to be fast acting").
   house result gains an awareness view; the trust view (every existing field, the census signal, the DB snapshot, every
   existing entity) is unchanged. F-LEAD is off: the awareness value equals the trust value.
 - **CD2.** Two display entities: `sensor.ura_census_people_around`, `sensor.ura_census_guests_around`.
-- **CD3.** `switch.ura_crossing_vision_census_authority` (default ON; OFF = every reader uses the trust view); pages
+- **CD3.** `switch.ura_crossing_vision_census_authority`, named **Vision Assisted Census** (description attribute:
+  "Show people counts that include AI vision of door crossings. Off uses sensors only. Never affects Away, security or
+  locks."). Default ON when the install has at least one enabled camera entity in the entity registry, OFF otherwise;
+  a stored on / off wins (OFF = every reader uses the trust view); pages
   `crossing_vision_disagree` (door group, 5 disagreements in 24 h) and, only after an F-LEAD flip, "revert F-LEAD".
 - Presence: each residency record is also dispatched on `SIGNAL_RESIDENCY_EVENT` (read only by the ledger).
 
@@ -41,9 +44,13 @@ production change, under five vision variants (ledger absent / 0 / 50 / None / u
 
 ## Operator checkpoint (decisions pending)
 
-- **`CROSSING_VISION_LEDGER_EMPTY_RESET_S` = 1800 s (FLAG).** The operator chose 3600 under the old edge-only anchor.
-  With the held-input anchor the read-only replay gave 5 anchors / 7 days at 3600 (below bar a's 10) and 13 at 1800;
-  18 of the 20 anchors at 1800 fall in AWAY. Shipped at 1800 pending confirmation; one named rung-1 knob.
+- **`CROSSING_VISION_LEDGER_EMPTY_RESET_S` = 900 s (15 min, operator 2026-11-14).** Basis: the actual-Tier-1 sweep
+  `docs/planning/AUDIT_ledger_checkpoint_window_sweep_2026_11_14.md`: 15 checkpoints / 7 days from 4 empty episodes,
+  all in AWAY; every resurfacing within 60 min was a real arrival's garage precursor (0 unexplained). One rung-1 knob.
+- **Anchor rules added in the final fix-up.** An anchor clears the applied-exit store (Q1). No occupancy substrate /
+  Tier-1 map = the anchor is BLOCKED (`tier1_map_unavailable` shown as the holder; Q2). A Tier-1 entity that is in no
+  entity-registry entry and has no state is ignored for the held set, listed on the ledger diagnostics
+  (`tier1_not_in_registry`, `_count`) and logged once.
 - **Switch label (review B-L6).** `switch.ura_crossing_vision_census_authority` friendly name is pending the operator;
   proposed "Vision Leads Counts".
 

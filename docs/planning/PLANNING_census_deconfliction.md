@@ -3,7 +3,9 @@
 Cards: VISION-CROSSING-ANALYSIS-1 (Phase 2, census side), CENSUS-OCCUPANCY-ESTIMATOR-1 (merged here),
 CENSUS-GUEST-FLOOR-1 (superseded here). Tier 3 plus the house-state rule. Status: clean consolidation 2026-11-13 of
 crossing-vision rev 7.1 §B3 / §B11.1-§B11.2 / P2-D4 / P2-D5 (`plan/crossing-vision` @ 1e76c98a) and the census
-occupancy estimator (round 6, 2026-10-04). History, not instructions: `docs/planning/archive/HISTORY_*`. Siblings:
+occupancy estimator (round 6, 2026-10-04). History, not instructions: `docs/planning/archive/HISTORY_*`. Build status 2026-11-14: CD1-CD3 built on
+`feature/census-deconfliction-p2-ledger` (NOT deployed, ships dark); final Tier-3 fix-up names the CD3 switch
+"Vision Assisted Census" and defaults it ON only on an install with a camera (operator 2026-11-14). Siblings:
 `PLANNING_crossing_vision.md` (the vision producer and ledger), `PLANNING_person_awareness_read_api.md` (the read
 surface), `PLANNING_camera_input_stream_health.md` (source health), `PLANNING_person_sighting_layer.md` (F1-F5 home).
 
@@ -55,7 +57,9 @@ Names come only from face and BLE (the identified union). Vision supplies counts
 
 `CROSSING_VISION_CONSUMER_CLASSES` (rung 1) is the set of classes promoted to read F2-A. `view_for_class(cls)`
 (read-API plan) returns `awareness` only when `cls` is in that set AND the downgrade switch
-`switch.ura_crossing_vision_census_authority` (rung 3, default ON, RestoreEntity, OFF = treat the set as empty) is ON;
+`switch.ura_crossing_vision_census_authority` ("Vision Assisted Census"; rung 3, RestoreEntity, OFF = treat the set
+as empty; default ON when the entity registry holds at least one enabled `camera.*` entity, OFF otherwise, and a
+stored `on` / `off` wins; operator 2026-11-14) is ON;
 every other input, including unknown or misspelt strings and a missing switch, returns `trust` (allow-list).
 **Legal members** are the rungs whose consumer wiring has been built and reviewed. Any other member raises at import
 (`test_consumer_classes_rejects_illegal`). Adding a rung to the legal set is a reviewed code change in that rung's

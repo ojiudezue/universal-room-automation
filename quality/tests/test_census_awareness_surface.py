@@ -184,17 +184,13 @@ async def test_ledger_unknown_awareness_is_camera(mods, hass, monkeypatch, freez
         await H.R.teardown(w.rig)
 
 
-@pytest.mark.asyncio
-async def test_authority_switch_default_on_restore_only_off(mods, hass):  # noqa: F811
-    sw_mod = importlib.import_module(f"{PKG}.switch")
-    C = mods.const
-
+async def _restore_cases(sw_mod, C, hass, cases):
     class _St:
         def __init__(self, s):
             self.state = s
 
-    for last, expect in (("on", True), ("off", False), ("unavailable", True),
-                         ("unknown", True), (None, True)):
+    sw = None
+    for last, expect in cases:
         sw = sw_mod.CrossingVisionCensusAuthoritySwitch(hass, MagicMock())
         sw.async_write_ha_state = lambda: None
 
@@ -206,6 +202,58 @@ async def test_authority_switch_default_on_restore_only_off(mods, hass):  # noqa
             not expect)
         await sw.async_added_to_hass()
         assert sw.is_on is expect, last
+    return sw
+
+
+@pytest.mark.asyncio
+async def test_authority_switch_no_camera_install_defaults_off(mods, hass):  # noqa: F811
+    """Operator 2026-11-14: no camera entity in the registry -> default OFF;
+    a stored on / off wins. A disabled camera does not count."""
+    from homeassistant.helpers import entity_registry as er
+
+    sw_mod = importlib.import_module(f"{PKG}.switch")
+    C = mods.const
+    reg = er.async_get(hass)
+    if not hasattr(reg, "entities"):  # bare test hass: load it
+        await reg.async_load()
+    # The module-scoped hass may carry cameras from earlier rigs: disable
+    # them for this test and restore them afterwards.
+    parked = [e.entity_id for e in list(reg.entities.values())
+              if e.domain == "camera" and e.disabled_by is None]
+    for eid in parked:
+        reg.async_update_entity(eid, disabled_by=er.RegistryEntryDisabler.USER)
+    try:
+        reg.async_get_or_create(
+            "camera", "test", "disabled_cam", suggested_object_id="disabled_cam",
+            disabled_by=er.RegistryEntryDisabler.USER)
+        sw = await _restore_cases(sw_mod, C, hass, (
+            ("on", True), ("off", False), ("unavailable", False),
+            ("unknown", False), (None, False)))
+    finally:
+        for eid in parked:
+            reg.async_update_entity(eid, disabled_by=None)
+    assert sw._attr_name == "Vision Assisted Census"
+    assert sw.extra_state_attributes == {"description": (
+        "Show people counts that include AI vision of door crossings. "
+        "Off uses sensors only. Never affects Away, security or locks.")}
+
+
+@pytest.mark.asyncio
+async def test_authority_switch_default_on_restore_only_off(mods, hass):  # noqa: F811
+    """Camera install (one enabled camera entity): default ON; a stored
+    on / off wins."""
+    from homeassistant.helpers import entity_registry as er
+
+    sw_mod = importlib.import_module(f"{PKG}.switch")
+    C = mods.const
+    reg = er.async_get(hass)
+    if not hasattr(reg, "entities"):  # bare test hass: load it
+        await reg.async_load()
+    reg.async_get_or_create(
+        "camera", "test", "front_cam", suggested_object_id="front_cam")
+    sw = await _restore_cases(sw_mod, C, hass, (
+        ("on", True), ("off", False), ("unavailable", True),
+        ("unknown", True), (None, True)))
     assert sw.entity_id == SWITCH
     await sw.async_turn_off()
     assert sw.is_on is False

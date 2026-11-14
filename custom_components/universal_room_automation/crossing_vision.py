@@ -56,6 +56,11 @@ from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
+# Pseudo-holder returned by ``_held_inputs`` while no Tier-1 map is
+# available (no substrate, torn down, or its getter failed): the empty-house
+# anchor is blocked, because unknown is not empty (ruling Q2).
+TIER1_MAP_UNAVAILABLE = "tier1_map_unavailable"
+
 EGRESS_EVENT = "ura_person_egress_event"
 FRIGATE_CONSUMER_NAME = "crossing_vision"
 
@@ -309,6 +314,11 @@ class CrossingVisionShadow:
         self._last_good: dict[str, str] = {}
         self._holder_counts: Counter[str] = Counter()
         self._holder_dead: set[str] = set()
+        # Tier-1 entities that never existed in HA (no registry entry, no
+        # state): ignored for the held set, shown on the diagnostics, one
+        # WARNING per entity per lifetime.
+        self._tier1_missing_now: tuple[str, ...] = ()
+        self._tier1_missing_logged: set[str] = set()
         self._ledger_was_enabled = False
         self._ledger_day: Any = None
         self._reconcile_timers: dict[str, Callable[[], None]] = {}
@@ -1098,13 +1108,36 @@ class CrossingVisionShadow:
         room getter ``camera_input_stream_dead``; any room answering True =
         dead. S2's house-level getters are on a separate branch and will
         replace this lookup when they land). Returns ``(held, dead_held)``.
-        No substrate -> no Tier-1 map -> nothing held."""
+
+        No substrate (or its getter fails) -> no Tier-1 map -> the anchor is
+        BLOCKED: unknown is not empty (planner ruling Q2). The pseudo-holder
+        ``TIER1_MAP_UNAVAILABLE`` is returned as held (and dead, so the
+        anchor-zero page names it first). A live substrate with an empty map
+        is an available map with nothing to hold.
+
+        A Tier-1 entity with no entity-registry entry AND no state never
+        existed in HA (e.g. a stale config entry left after a device rename):
+        it is ignored for the held set, listed on the diagnostics
+        (``tier1_not_in_registry``) and logged once per entity. A registry
+        read error ignores nothing."""
         data = self._domain_data()
         substrate = data.get("occupancy_substrate")
+        eids: Any = None
+        if substrate is not None and not getattr(substrate, "_is_torn_down", False):
+            try:
+                eids = frozenset(substrate.tier1_entity_ids())
+            except Exception:  # noqa: BLE001
+                eids = None
+        if eids is None:
+            self._tier1_missing_now = ()
+            return {TIER1_MAP_UNAVAILABLE}, {TIER1_MAP_UNAVAILABLE}
         try:
-            eids = substrate.tier1_entity_ids() if substrate is not None else ()
+            from homeassistant.helpers import entity_registry as er  # noqa: PLC0415
+
+            registry = er.async_get(self.hass)
         except Exception:  # noqa: BLE001
-            eids = ()
+            registry = None
+        missing: list[str] = []
         getters = []
         for value in list(data.values()):
             fn = getattr(value, "camera_input_stream_dead", None)
@@ -1116,6 +1149,22 @@ class CrossingVisionShadow:
                 st = self.hass.states.get(eid)
             except Exception:  # noqa: BLE001
                 st = None
+            if st is None and registry is not None:
+                try:
+                    never_existed = registry.async_get(eid) is None
+                except Exception:  # noqa: BLE001
+                    never_existed = False
+                if never_existed:
+                    missing.append(str(eid))
+                    if str(eid) not in self._tier1_missing_logged:
+                        self._tier1_missing_logged.add(str(eid))
+                        _LOGGER.warning(
+                            "crossing ledger: Tier-1 input %s is not in the "
+                            "entity registry and has no state; ignored for the "
+                            "empty-house anchor (fix the room's sensor list)",
+                            eid,
+                        )
+                    continue
             state = getattr(st, "state", None) if st is not None else None
             dead: Any = None
             for fn in getters:
@@ -1129,6 +1178,7 @@ class CrossingVisionShadow:
                 if answer is False:
                     dead = False
             readings[str(eid)] = (state, dead)
+        self._tier1_missing_now = tuple(sorted(missing))
         return _cl.classify_held(readings, self._last_good)
 
     def _holders_text(self) -> str:
@@ -1318,6 +1368,8 @@ class CrossingVisionShadow:
                 snap["last_anchor"] = dt_util.utc_from_timestamp(float(last)).isoformat()
             except (TypeError, ValueError):
                 snap["last_anchor"] = None
+        snap["tier1_not_in_registry"] = list(self._tier1_missing_now)
+        snap["tier1_not_in_registry_count"] = len(self._tier1_missing_now)
         return snap
 
     # ---- trip-wires (D3) ------------------------------------------------

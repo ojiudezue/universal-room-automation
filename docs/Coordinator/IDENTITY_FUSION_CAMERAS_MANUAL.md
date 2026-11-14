@@ -378,7 +378,8 @@ Plan `docs/planning/PLANNING_census_deconfliction.md`. F2 has two views, one wri
   `view_for_class("display")`, `sensor.ura_census_people_around` / `sensor.ura_census_guests_around` (Universal Room
   Automation device; recorded states, unrecorded attributes; never unknown). Promotion ladder §3.2 of the plan:
   `CROSSING_VISION_CONSUMER_CLASSES` = {display}, legal {display, notification}; the downgrade switch
-  `switch.ura_crossing_vision_census_authority` (CM device, default ON; OFF = every class reads trust).
+  `switch.ura_crossing_vision_census_authority` ("Vision Assisted Census", CM device; default ON on an install
+  with a camera entity, else OFF, a stored state wins; OFF = every class reads trust).
 - **Trip-wires (display / NM):** `crossing_vision_disagree` (per door group, case B or C on `ok` rows ≥
   `CROSSING_VISION_DISAGREE_PERSIST_N` (5) in 24 h, MEDIUM, 0 = off) and, only after F-LEAD, one HIGH "revert F-LEAD"
   page when ledger bar a (drift on independent anchors) or bar e (known share) regresses over 14 days (RAM; bars b, d
@@ -476,8 +477,9 @@ deployed; plan `PLANNING_crossing_vision.md` rev 2, Phase 1).**
   kill / cap 0 = ledger `unknown`. A camera term is `max(1, camera_peak_count)` (a resolved direction is at least
   one person). Anchor every `CROSSING_VISION_LEDGER_EVAL_S` (60 s; 0 = 1 s): camera bodies 0 (fresh within
   2 x max(eval, 1)), fleet not dark, no HELD Tier-1 input, no Tier-1 rising edge (`SIGNAL_SUBSTRATE_KIND_CHANGED`),
-  no entry term (applied, late or while unknown), for `CROSSING_VISION_LEDGER_EMPTY_RESET_S` (1800 s, operator
-  confirmation pending; was 3600) -> `L = R`, credits cleared (INV-P2-DISCHARGE; reads no house state or resident
+  no entry term (applied, late or while unknown), for `CROSSING_VISION_LEDGER_EMPTY_RESET_S` (900 s, operator
+  2026-11-14 on the window sweep) -> `L = R`, credits and applied exits cleared; no Tier-1 map = blocked; a Tier-1
+  entity in no registry entry with no state is ignored and flagged (INV-P2-DISCHARGE; reads no house state or resident
   set). Held (`crossing_ledger.classify_held`, built per eval by `CrossingVisionShadow._held_inputs` from the
   substrate's Tier-1 map `OccupancySubstrate.tier1_entity_ids()`, `hass.states`, a RAM last-known-good map and the S1
   room getter `camera_input_stream_dead`; S2's house getters replace that lookup when they land): reads `on`, or dead

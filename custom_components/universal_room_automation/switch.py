@@ -1099,23 +1099,35 @@ class CrossingVisionCensusAuthoritySwitch(SwitchEntity, RestoreEntity):
     the DOWNGRADE switch for the census promotion ladder.
 
     Entity: switch.ura_crossing_vision_census_authority (Coordinator Manager
-    device). Default ON. OFF = every consumer class reads the trust view
-    (``PresenceCoordinator.view_for_class`` treats the promoted set as empty);
-    it can only demote, never promote. ``view_for_class`` reads this
-    entity's STATE; a missing entity also means trust. Restore: only a last
-    state of exactly "off" restores OFF (a fresh install, or an
-    unavailable / unknown restore, comes up ON, the shipped default).
+    device), named "Vision Assisted Census". OFF = every consumer class reads
+    the trust view (``PresenceCoordinator.view_for_class`` treats the
+    promoted set as empty); it can only demote, never promote.
+    ``view_for_class`` reads this entity's STATE; a missing entity also
+    means trust. Never reaches Away, security, locks or HVAC.
+
+    Default (operator 2026-11-14): ON when the install has at least one
+    enabled ``camera.*`` entity in the entity registry
+    (``install_has_camera``), OFF otherwise. A stored state wins: a last
+    state of exactly "on" or "off" is restored; an unavailable / unknown /
+    missing restore takes the camera default.
     """
 
     _attr_has_entity_name = True
     _attr_icon = "mdi:account-group"
     _attr_entity_category = EntityCategory.CONFIG
+    # Operator wording (2026-11-14). HA switches have no description field,
+    # so it is published as the static `description` attribute.
+    HELPER_TEXT = (
+        "Show people counts that include AI vision of door crossings. "
+        "Off uses sensors only. Never affects Away, security or locks."
+    )
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         self.hass = hass
         self._entry = entry
         self._attr_unique_id = f"{DOMAIN}_crossing_vision_census_authority"
-        self._attr_name = "Census Vision Awareness"
+        self._attr_name = "Vision Assisted Census"
+        self._attr_extra_state_attributes = {"description": self.HELPER_TEXT}
         self.entity_id = "switch.ura_crossing_vision_census_authority"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, "coordinator_manager")},
@@ -1149,8 +1161,27 @@ class CrossingVisionCensusAuthoritySwitch(SwitchEntity, RestoreEntity):
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
         last = await self.async_get_last_state()
-        self._apply(not (last is not None and last.state == "off"))
+        stored = last.state if last is not None else None
+        if stored in ("on", "off"):
+            self._apply(stored == "on")
+        else:
+            self._apply(install_has_camera(self.hass))
         self.async_write_ha_state()
+
+
+def install_has_camera(hass: HomeAssistant) -> bool:
+    """True when the entity registry holds at least one enabled entity in the
+    ``camera`` domain (a camera integration's camera platform). Registry
+    error -> False (the switch then defaults OFF = trust, the safe side)."""
+    try:
+        from homeassistant.helpers import entity_registry as er  # noqa: PLC0415
+
+        for ent in er.async_get(hass).entities.values():
+            if ent.domain == "camera" and ent.disabled_by is None:
+                return True
+    except Exception:  # noqa: BLE001
+        _LOGGER.debug("install_has_camera: registry read failed", exc_info=True)
+    return False
 
 
 class MemoryNMConditioningSwitch(SwitchEntity, RestoreEntity):

@@ -51,9 +51,15 @@ def terms(rig):
     return [r for r in ledger_rows(rig) if r["kind"] == "term"]
 
 
+def ensure_substrate(rig):
+    rig.hass.data[rig.C.DOMAIN].setdefault("occupancy_substrate", _Substrate(()))
+
+
 async def make_known(rig, R=1):
     """Ledger known with L = R through the REAL census_tick + eval tick
-    (window 0 for the instant anchor)."""
+    (window 0 for the instant anchor). A substrate with an empty Tier-1 map
+    is installed when none is (no substrate blocks the anchor, ruling Q2)."""
+    ensure_substrate(rig)
     rig.cv._ledger.empty_reset_s = 0
     assert rig.cv.census_tick(resident_term=R, camera_bodies=0,
                               camera_input_dark=False) == (None, True)
@@ -267,6 +273,7 @@ async def test_substrate_rising_edge_blocks_anchor(rig, mods):
         signals,
     )
 
+    ensure_substrate(rig)
     rig.cv._ledger.empty_reset_s = 0
     rig.cv.census_tick(resident_term=1, camera_bodies=0, camera_input_dark=False)
     async_dispatcher_send(rig.hass, signals.SIGNAL_SUBSTRATE_KIND_CHANGED,
@@ -405,6 +412,7 @@ async def test_eval_interval_registered_and_runs(rig):
     from homeassistant.util import dt as dt_util
     from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
+    ensure_substrate(rig)
     rig.cv._ledger.empty_reset_s = 0
     rig.cv.census_tick(resident_term=1, camera_bodies=0, camera_input_dark=False)
     async_fire_time_changed(
@@ -443,6 +451,7 @@ async def test_anchor_zero_pages(rig):
 async def test_anchor_independent_of_house_state(rig):
     """Wiring twin of the pure test: the house reading AWAY or HOME makes no
     difference to the anchor (the predicate reads no house state)."""
+    ensure_substrate(rig)
     results = []
     for house in ("away", "home_day"):
         rig.hass.data[rig.C.DOMAIN]["coordinator_manager"] = SimpleNamespace(
@@ -584,6 +593,7 @@ PANEL = "binary_sensor.panel_person"
 
 
 def _eval_anchor_state(rig, R=1):
+    ensure_substrate(rig)
     rig.cv.census_tick(resident_term=R, camera_bodies=0, camera_input_dark=False)
     rig.cv._on_ledger_eval(None)
     return rig.cv.ledger_state
@@ -626,9 +636,79 @@ async def test_held_set_from_substrate_map_and_lkg(rig):
 
 
 @pytest.mark.asyncio
-async def test_no_substrate_nothing_held(rig):
+async def test_no_substrate_blocks_anchor(rig):
+    """Ruling Q2: no occupancy substrate = no Tier-1 map = unknown, not
+    empty: the anchor stays blocked and the pseudo-holder is shown. Once a
+    substrate (empty map) appears, the anchor fires."""
+    D = rig.C.DOMAIN
+    rig.hass.data[D].pop("occupancy_substrate", None)
     rig.cv._ledger.empty_reset_s = 0
+    for _ in range(3):
+        rig.cv.census_tick(resident_term=1, camera_bodies=0,
+                           camera_input_dark=False)
+        rig.cv._on_ledger_eval(None)
+    assert rig.cv.ledger_state == "unknown"
+    assert rig.cv.ledger_diag()["held"] == ["tier1_map_unavailable"]
+    rig.hass.data[D]["occupancy_substrate"] = _Substrate(())
     assert _eval_anchor_state(rig) == "known"
+
+
+class _BrokenSubstrate:
+    def tier1_entity_ids(self):
+        raise RuntimeError("map not built")
+
+
+@pytest.mark.asyncio
+async def test_substrate_getter_error_blocks_anchor(rig):
+    rig.hass.data[rig.C.DOMAIN]["occupancy_substrate"] = _BrokenSubstrate()
+    rig.cv._ledger.empty_reset_s = 0
+    assert _eval_anchor_state(rig) == "unknown"
+    assert rig.cv.ledger_diag()["held"] == ["tier1_map_unavailable"]
+
+
+@pytest.mark.asyncio
+async def test_torn_down_substrate_blocks_anchor(rig):
+    sub = _Substrate(())
+    sub._is_torn_down = True
+    rig.hass.data[rig.C.DOMAIN]["occupancy_substrate"] = sub
+    rig.cv._ledger.empty_reset_s = 0
+    assert _eval_anchor_state(rig) == "unknown"
+
+
+GHOST = "binary_sensor.mmwave_zigbee_gameroom_presence"
+
+
+@pytest.mark.asyncio
+async def test_tier1_entity_never_in_registry_ignored_and_flagged(rig, caplog):
+    """Sweep finding: a Tier-1 entity with no registry entry and no state
+    (the live Exercise Room ghost) is ignored for the held set (the anchor
+    fires), listed and counted on the diagnostics, and logged once. A
+    registered entity with no state (restored-missing) still holds."""
+    from homeassistant.helpers import entity_registry as er
+
+    D = rig.C.DOMAIN
+    reg = er.async_get(rig.hass)
+    if not hasattr(reg, "entities"):  # the bare test hass never loaded it
+        await reg.async_load()
+    kept = reg.async_get_or_create("binary_sensor", "test", "kept_radar_uid",
+                                   suggested_object_id="kept_radar")
+    rig.hass.data[D]["occupancy_substrate"] = _Substrate({GHOST})
+    rig.cv._ledger.empty_reset_s = 0
+    caplog.set_level("WARNING")
+    assert _eval_anchor_state(rig) == "known"
+    diag = rig.cv.ledger_diag()
+    assert (diag["held"], diag["tier1_not_in_registry"],
+            diag["tier1_not_in_registry_count"]) == ([], [GHOST], 1)
+    for _ in range(2):
+        _eval_anchor_state(rig)
+    assert sum(GHOST in r.getMessage() for r in caplog.records) == 1
+    # A registry entity with no state is NOT a ghost: held (no good reading).
+    rig.cv._ledger.set_unknown("test")
+    rig.hass.data[D]["occupancy_substrate"] = _Substrate({GHOST, kept.entity_id})
+    assert _eval_anchor_state(rig) == "unknown"
+    diag = rig.cv.ledger_diag()
+    assert diag["held"] == [kept.entity_id]
+    assert diag["tier1_not_in_registry"] == [GHOST]
 
 
 @pytest.mark.asyncio
@@ -728,3 +808,138 @@ async def test_resident_arrival_then_entry_term_counted_once_wired(rig):
                               camera_input_dark=False) == (0, True)
     [t] = [t for t in terms(rig) if t["applied"]]
     assert t["credit_consumed"] == 1
+
+
+# ------------------------------------------------ review C fix-up (H1-M5)
+@pytest.mark.asyncio
+async def test_dark_fleet_through_census_tick_blocks_anchor(rig):
+    """Review C H1 (hop 2, CV30): census_tick(camera_input_dark=True)
+    reports unhealthy and the anchor does not fire on a blind fleet
+    (bodies read 0); the same sample lit anchors."""
+    ensure_substrate(rig)
+    rig.cv._ledger.empty_reset_s = 0
+    for _ in range(3):
+        assert rig.cv.census_tick(resident_term=1, camera_bodies=0,
+                                  camera_input_dark=True) == (None, False)
+        rig.cv._on_ledger_eval(None)
+    assert rig.cv.ledger_state == "unknown"
+    assert rig.cv.vision_status(False) == "unknown_ledger"
+    assert rig.cv.census_tick(resident_term=1, camera_bodies=0,
+                              camera_input_dark=False) == (None, True)
+    rig.cv._on_ledger_eval(None)
+    assert rig.cv.ledger_state == "known"
+
+
+@pytest.mark.asyncio
+async def test_flush_writes_each_row_once(rig):
+    """Review C H2 (CV59): two consecutive flushes after one term write
+    exactly one term row; the buffer is empty after the first."""
+    await make_known(rig, R=0)
+    await cross(rig, GARAGE_EGRESS, _now(rig) - timedelta(seconds=45), peak=1)
+    await settle(rig)
+    await flush(rig)
+    assert rig.cv._ledger_events == []
+    await flush(rig)
+    await flush(rig)
+    assert len(terms(rig)) == 1
+    assert [r["kind"] for r in ledger_rows(rig)] == ["anchor", "term"]
+
+
+@pytest.mark.asyncio
+async def test_disagree_window_ages_out_samples(rig):
+    """Review C M4 (CV72): five disagreements older than the window
+    (3600 s here) never page."""
+    rig.monkeypatch.setattr(rig.C, "CROSSING_VISION_DISAGREE_WINDOW_S", 3600)
+    now = rig.cv._epoch()
+    for i in range(5):
+        rig.cv._disagree.append((now - 3700 - i, "garage_a"))
+    await rig.cv.async_evaluate_tripwires()
+    assert [p for p in rig.pages if p["kind"] == "crossing_vision_disagree"] == []
+    assert len(rig.cv._disagree) == 0
+
+
+@pytest.mark.asyncio
+async def test_disagree_rearms_after_falling_under_bar(rig):
+    """Review C M4 (CV70): a group pages, its samples age out (count under
+    the bar re-arms it), five new disagreements page again."""
+    rig.monkeypatch.setattr(rig.C, "CROSSING_VISION_DISAGREE_WINDOW_S", 3600)
+    now = rig.cv._epoch()
+    for i in range(5):
+        rig.cv._disagree.append((now - 10 - i, "garage_a"))
+    await rig.cv.async_evaluate_tripwires()
+    rig.cv._disagree.clear()
+    await rig.cv.async_evaluate_tripwires()  # under the bar: re-armed
+    for i in range(5):
+        rig.cv._disagree.append((now - i, "garage_a"))
+    await rig.cv.async_evaluate_tripwires()
+    pages = [p for p in rig.pages if p["kind"] == "crossing_vision_disagree"]
+    assert len(pages) == 2
+
+
+@pytest.mark.asyncio
+async def test_flead_regression_rearms_when_bars_hold(rig):
+    """Review C M4 (CV75): regressed -> one page; bars hold -> re-armed;
+    regressed again -> a second page."""
+    rig.monkeypatch.setattr(rig.C, "CROSSING_VISION_AWARENESS_VISION_LEADS", True)
+    now = rig.cv._epoch()
+
+    def _residues(v):
+        rig.cv._anchor_residues.clear()
+        for i in range(10):
+            rig.cv._anchor_residues.append((now - 60 * i, v))
+
+    _residues(2)
+    await rig.cv.async_evaluate_tripwires()
+    _residues(0)
+    await rig.cv.async_evaluate_tripwires()
+    _residues(2)
+    await rig.cv.async_evaluate_tripwires()
+    pages = [p for p in rig.pages if p["kind"] == "crossing_vision_flead_regression"]
+    assert len(pages) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("residues,expect", [
+    ([1] * 10, ["a_drift"]),          # zero share 0 alone (|x| <= 1)
+    ([0] * 9 + [2], ["a_drift"]),     # max-abs alone (zero share 0.9)
+    ([2] * 9, []),                      # under 10 anchors: not judged
+    ([0] * 8 + [1, -1], []),           # both bars hold (0.8, |x| <= 1)
+], ids=["zero_share_only", "max_abs_only", "min_anchors", "holds"])
+async def test_drift_bar_clauses_separately(rig, residues, expect):
+    """Review C M4 (CV76 / CV77 / CV79): each drift clause trips alone."""
+    now = rig.cv._epoch()
+    for i, v in enumerate(residues):
+        rig.cv._anchor_residues.append((now - 60 * i, v))
+    assert rig.cv.flead_regression(now) == expect
+
+
+@pytest.mark.asyncio
+async def test_clustered_member_primary_left_ring_gets_camera_term(rig):
+    """Review C M5 (CV02): the matched event was analysed by a primary
+    that has left the request ring: the new member is recorded clustered
+    and still gets its own camera term."""
+    await make_known(rig, R=0)
+    await ended_crossing(rig, "ev-gone", peak=1)
+    e1 = rig.cv._requests[0].e_ts
+    rig.cv._requests.clear()
+    k2 = await cross(rig, GARAGE_EGRESS, e1 + timedelta(seconds=1), peak=1)
+    await settle(rig)
+    await flush(rig)
+    assert [r["outcome"] for r in rows(rig)][-1] == "clustered"
+    mine = [t for t in terms(rig) if t["crossing_key"] == k2]
+    assert [(t["applied"], t["direction"], t["n"], t["term_source"])
+            for t in mine] == [(True, "entry", 1, "camera")]
+
+
+@pytest.mark.asyncio
+async def test_producer_anchor_window_is_15_minutes(rig):
+    """Operator 2026-11-14: the producer's ledger anchors after 15 min
+    (900 s) of passing samples, not 14 (the window the real producer was
+    built with; literal oracle, never the imported constant)."""
+    led = rig.cv._ledger
+    t0 = rig.cv._epoch()
+    for minute in range(15):
+        led.census_tick(t0 + 60 * minute, 1, 0, False)
+        assert led.evaluate(t0 + 60 * minute, ()) == [], minute
+    led.census_tick(t0 + 900, 1, 0, False)
+    assert [e.kind for e in led.evaluate(t0 + 900, ())] == ["anchor"]

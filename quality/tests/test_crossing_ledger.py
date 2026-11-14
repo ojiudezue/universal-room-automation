@@ -944,6 +944,25 @@ def test_late_exit_does_not_cancel_reconcile():
     assert _tick(led, due + 1, 0) == (0, True)
 
 
+def test_anchor_clears_applied_exits_departure_reconciles():
+    """Ruling Q1: L = R = 2; resident B exits at E (applied, L = 1); an
+    anchor at E + 100 while B's phone still reads home (R = 2) resets L = 2;
+    B's departure edge at E + 400 (exit inside its 900 s lead) must NOT be
+    cancelled by the already-paid exit: it reconciles L 2 -> 1, guest 0."""
+    led = _L()
+    _known(led, R=2)
+    e = B
+    ev = _exit(led, e, 1, e + 10)
+    assert (ev.applied, led.L) == (True, 1)
+    _anchor_now(led, e + 100, 2)
+    assert led.L == 2 and len(led._exits) == 0
+    due = led.note_departure("person.b", e + 400)
+    assert _tick(led, e + 400, 1) == (1, True)
+    rec = led.judge_reconcile("person.b", due)
+    assert (rec.applied, rec.reason, led.L) == (True, None, 1)
+    assert _tick(led, due + 1, 1) == (0, True)
+
+
 def test_unknown_exit_not_stored():
     led = _L()
     ev = _exit(led, B, 1, B + 10)
@@ -986,3 +1005,64 @@ def test_eval_zero_and_reset_zero_with_reconcile_off():
     assert led.evaluate(T0 + 5, ()) == []  # the entry failed this sample
     led.census_tick(T0 + 6, 2, 0, False)
     assert _anchors(led.evaluate(T0 + 6, ())) and led.guest_vis() == 0
+
+
+# ------------------------------------------------ review C fix-up (M4/M5)
+def test_stuck_timer_restarts_on_body_sample():
+    """CL40: guest_vis 2; 500 s of empty samples, one sample with a body,
+    then 200 s empty: the stuck clock restarted at the body sample, so a
+    600 s bound is NOT met (non-contiguous evidence never pages)."""
+    led = _L(stuck_s=600)
+    _known(led, R=0)
+    led.L = led.L_raw = 2
+    t = T0 + 60
+    for i in range(10):  # T0+60 .. T0+600, empty
+        tt = t + 60 * i
+        led.census_tick(tt, 0, 0, False)
+        led.evaluate(tt, ())
+    led.census_tick(T0 + 660, 0, 1, False)  # a body
+    led.evaluate(T0 + 660, ())
+    for tt in (T0 + 720, T0 + 780, T0 + 840, T0 + 900):
+        led.census_tick(tt, 0, 0, False)
+        led.evaluate(tt, ())
+    assert led.stuck_due(T0 + 900) is False
+    for tt in (T0 + 960, T0 + 1020, T0 + 1080, T0 + 1140, T0 + 1200, T0 + 1320):
+        led.census_tick(tt, 0, 0, False)
+        led.evaluate(tt, ())
+    assert led.stuck_due(T0 + 1320) is True  # 1320 - 720 = 600
+
+
+def test_exit_after_lag_does_not_cancel_reconcile():
+    """CL56: lag 60: an exit at t_e + 61 is outside [t_e - 900, t_e + 60]
+    and must not cancel the departure; at t_e + 60 it does."""
+    for offset, applied in ((61, True), (60, False)):
+        led = _L()
+        _known(led, R=1)
+        t_e = B + 1000
+        _exit(led, t_e + offset, 1, t_e + offset + 1)
+        due = led.note_departure("person.a", t_e)
+        rec = led.judge_reconcile("person.a", due)
+        assert rec.applied is applied, offset
+
+
+def test_reconcile_makes_next_anchor_independent():
+    """CL59: an applied reconcile is new evidence: the next anchor is
+    independent (back-to-back anchors with nothing between are not)."""
+    led = _L()
+    _known(led, R=1)
+    assert _anchor_now(led, B, 1).independent is False
+    due = led.note_departure("person.a", B + 100)
+    assert led.judge_reconcile("person.a", due).applied is True
+    assert _anchor_now(led, due + 10, 0).independent is True
+
+
+def test_rebase_rearms_anchor_zero_page():
+    """CL16: anchor-zero paged once; a rebase (re-enable) re-arms it, so a
+    second drought of 100 s pages again."""
+    led = _L(anchor_zero_s=100)
+    led.census_tick(T0, 1, 1, False)
+    assert led.anchor_zero_due(T0 + 150) is True
+    assert led.anchor_zero_due(T0 + 160) is False  # latched
+    led.rebase(T0 + 200)
+    assert led.anchor_zero_due(T0 + 250) is False
+    assert led.anchor_zero_due(T0 + 301) is True
