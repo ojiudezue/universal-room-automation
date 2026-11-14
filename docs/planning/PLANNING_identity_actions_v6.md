@@ -1,275 +1,294 @@
 # PLANNING: identity actions (arc step 8): named arrivals, arrival music, departure pause
 
-Cards: VISION-CROSSING-ANALYSIS-1 (P2-D9 arrival record and its count follow-up, built here as specified in
+Cards: VISION-CROSSING-ANALYSIS-1 (P2-D9 arrival record and its count follow-up, built as specified in
 `PLANNING_crossing_vision.md` §5), PERSON-PROFILE-PREFERENCES-1 (first slice), DEPARTURE-ACTIONS-1 (first consumer).
-Arc: identity / vision / census, step 8 of `ARC_identity_vision_census_map.md` §4. This is the release the operator
-named the identity-driven-autonomy milestone (2026-11-14: "the last ship of this arc should move to v6.x... it's going
-to lead to OC and personalization and Ai enhancements for rooms"; "step 8 is fine. You better get a move on").
-Tier 2-DB (argued in §11). Status: plan, not reviewed. Author ura-planner, 2026-11-14, develop @ fd893bbc.
+Arc: identity / vision / census, step 8 of `ARC_identity_vision_census_map.md` §4. The operator named this the
+identity-driven-autonomy release (2026-11-14: "the last ship of this arc should move to v6.x... it's going to lead to
+OC and personalization and Ai enhancements for rooms"; "step 8 is fine. You better get a move on").
+Status: rev 2, rewritten for plan review `docs/reviews/plan-review/PLANREVIEW_identity_actions_v6.md` (FIX-PLAN, 2 HIGH,
+6 MEDIUM, 5 LOW; all addressed, §15). Author ura-planner, 2026-11-14.
 
 Read first, completely (CLAUDE.md): `PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md`, `SENSOR_FLEET_CLASSES.md`,
-`IDENTITY_FUSION_CAMERAS_MANUAL.md`, and `HVAC_ARCHITECTURE_STATE_OF_PLAY.md` (to confirm this plan changes no HVAC
-input; per-person HVAC targeting already exists as `zone_persons`, `hvac.py:7198-7236`). No ledger claim re-asserted.
+`IDENTITY_FUSION_CAMERAS_MANUAL.md`, `HVAC_ARCHITECTURE_STATE_OF_PLAY.md` (to confirm no HVAC input changes; per-person
+HVAC targeting already exists as `zone_persons`, `hvac.py:7198-7236`). No ledger claim re-asserted.
 
 ## 1. What makes 6.0.0 true, and why this behaviour
 
-CLAUDE.md: 6.0.0 is "the census/identity arc reaching real actuation: guest gate consuming door-identity,
-arrival/departure keyed to `person_id`, egress identity". The smallest real behaviour that makes that true, after
-step 7 ships, is three things keyed to a recognised person:
+CLAUDE.md today defines 6.0.0 as "guest gate consuming door-identity, arrival/departure keyed to `person_id`, egress
+identity". The operator's 2026-11-14 decision ("step 8 is fine") sets the milestone to step 8, which delivers three
+things keyed to a recognised person (the guest-gate item stays parked, GUEST-GATE-DOOR-IDENTITY-1):
 
-1. **Named arrivals.** Step 7 already names confirmed arrivals ("That was Oji"). This plan adds the arrival record
-   (n people came in, k recognised) and its count follow-up through the same amend function.
-2. **Arrival music (the first personalization).** When a resident who opted in arrives, their own music starts in the
-   first of their rooms they walk into that has a speaker, at their volume, if nobody else is there and it is not
-   quiet hours.
-3. **Departure pause.** When that person leaves, the music URA started for them pauses if their room is now empty.
+1. **Named arrivals.** Step 7 names confirmed arrivals ("That was Oji"); this plan adds the arrival record (n came in,
+   k recognised) and its count follow-up through the same amend function.
+2. **Arrival music (first personalization).** A resident who opted in walks into the first of their rooms that has a
+   speaker; their music starts at their volume if nobody else is there and it is not quiet hours. Ships ON on day 1
+   for every resident who sets it in the People step (no trial stage; memory `feedback_no_shadow_mode_day1_correct`).
+3. **Departure pause.** When that person leaves, the music URA started for them pauses if the room is now empty.
 
-Why arrival music, by value and readiness (alternatives priced):
+The CLAUDE.md "Version-level cadence" text is updated in the D6 commit to this definition, quoting "step 8 is fine"
+(pending §12 Q2).
 
 | Candidate | Value | Readiness | Verdict |
 |---|---|---|---|
-| Arrival music | Operator asked for it twice (card `scope_add_2026_11_12_arrival_music`; "music following is key to personalization"); the only `SIGNAL_PERSON_ARRIVING` consumer that is a no-op today (`domain_coordinators/music_following.py:549-583`) | Needs a 4-field profile, a play call on an existing player, the repaired music-following player model | **Build** |
-| Per-person HVAC preference | Per-person setpoints PERMANENTLY CUT (ROADMAP_v11:39/266); per-person zone pre-arrival already live (`zone_persons`, 52 writes / 14 d) | Nothing new to deliver | No |
-| Welcome lighting scene | Lights already follow room occupancy; margin near zero | Scene per room per person, new UI | Park (trigger: operator asks for a scene) |
-| Guest gate on door identity | Stays parked (GUEST-GATE-DOOR-IDENTITY-1; house-state rung not legal) | Not legal on the ladder | No |
+| Arrival music | Operator asked twice (card `scope_add_2026_11_12_arrival_music`; "music following is key to personalization"); the arrival handler is a no-op today (`domain_coordinators/music_following.py:549-583`) | 4-field profile, a play call, the repaired player model | **Build** |
+| Per-person HVAC | Per-person setpoints CUT (ROADMAP_v11:39/266); per-person zone pre-arrival already live (52 writes / 14 d) | nothing new | No |
+| Welcome lighting scene | Lights already follow occupancy | new UI | Park (§12 Q3) |
+| Guest gate on door identity | House-state rung not legal on the ladder | not legal | No |
 
 Charter goals served, verbatim: "assist arrivals accuracy and personalization"; "it's going to lead to OC and
 personalization and Ai enhancements for rooms". Hard constraint "I need away to be fast acting": nothing here reads or
-writes house state (INV-V6-AWAY). Short-clip constraint: this plan consumes the vision outcome only and fixes no frame
-source. Drift check: zero drift; one tradeoff surfaced (§12 Q3, count follow-up stays dark until the F-NOTIFY bars).
+writes house state (INV-V6-AWAY). Short-clip constraint: this plan consumes the vision outcome only and fixes no
+frame source. Drift check: zero drift.
 
 ## 2. Institutional context verified
 
-Greps run 2026-11-14 on develop: `SIGNAL_PERSON_ARRIVING` (16 files), `music_on_arrival|play_media|quiet` in both
-music files, `person_profile|PERSON_PREF|per_person` in `const.py` / `config_flow.py` (0 hits), `CONF_ROOM_MEDIA_PLAYER`,
-`CONF_ROOM_MEDIA_VOLUME_SCALE`, `is_quiet_hours_active`, `get_room_occupants|get_persons_in_room`, `ura_ctx_kwargs`,
-`MEMORY_EPISODE_TYPES`, `get_last_arrival_record|get_last_crossing|view_for_class`.
+Greps run 2026-11-14 on develop: `SIGNAL_PERSON_ARRIVING`; `music_on_arrival|play_media|quiet|_enabled_persons|MIN_CONFIDENCE`
+in both music files; `person_profile|PERSON_PREF|per_person` in `const.py` / `config_flow.py` (0 hits);
+`OPTIONS_RELOAD_SUPPRESS_KEYS|_NO_LIVE_ATTR_KEYS` in `__init__.py`; `CONSUMER_CLASS_COMFORT`; `get_persons_in_room`;
+`ura_ctx_kwargs`; `MEMORY_EPISODE_TYPES`; `get_last_arrival_record|get_last_crossing|view_for_class`.
 
 | Piece | Verdict | Where |
 |---|---|---|
 | Arrival signal intake | REUSED (fill the no-op) | `MusicFollowingCoordinator._handle_person_arriving` `domain_coordinators/music_following.py:549`, subscribed `:281` |
-| Person room transitions | REUSED | `music_following.py:211` listener, `_on_person_transition(RoomTransition)` `:473` |
-| Room primary player | REUSED | `CONF_ROOM_MEDIA_PLAYER` `const.py:106`; primary-player rule INV-MF-6 (`PLANNING_music_following_repair.md`) |
-| Player to MA entity map, MA-first play, outcome registry, decision log, room memory pattern | REUSED from MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D0, D3, D4, D5, D6 | that plan §6 |
+| Person room transitions | REUSED, new hook at the TOP | `MusicFollowing._on_person_transition` `music_following.py:473` (enabled-persons return `:511-518`, confidence return `:521-527`, `MIN_CONFIDENCE` 0.6 `:115`) |
+| Room primary player; MA map; MA-first play; outcomes; decision log; episodes | REUSED from MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D0, D1, D3, D4, D5, D6, D7 | `PLANNING_music_following_repair.md` §6; `CONF_ROOM_MEDIA_PLAYER` `const.py:106` |
+| Preference hook | REUSED | repair D7 item 5 `set_preference_provider(callable)` (`PLANNING_music_following_repair.md:279`) |
 | Volume scale | REUSED | `CONF_ROOM_MEDIA_VOLUME_SCALE` `const.py:4250` (0.5-1.5) |
-| Quiet hours | REUSED | `NotificationManager.is_quiet_hours_active` `notification_manager.py:4772` |
-| Occupants in a room | REUSED | `PersonCoordinator.get_persons_in_room` `person_coordinator.py:2199` |
-| URA context stamp (reversal detection) | REUSED | `ura_context.ura_ctx_kwargs` `ura_context.py:80`, `is_ura_context` `:87` |
-| Person ids | REUSED | `person_ids.tracked_person_entity_id` `:25`, `slug_of` `:40`, `display_of` `:56` |
-| Arrival-start master toggle | REUSED (un-retire) | `CONF_MUSIC_ON_ARRIVAL_START` `const.py:4864` (music repair D7 item 3 planned to retire it; amended, §10) |
-| Crossing record / arrival record reads | REUSED | `PresenceCoordinator.get_last_crossing` `presence.py:6009`, `get_last_arrival_record` `:6021` |
-| Notification class threshold | REUSED | `CONSUMER_CLASS_MIN_CONFIDENCE` `const.py:6512` (notification 0.75) |
-| Promotion ladder gate | REUSED | `view_for_class` `presence.py:5984`; `CROSSING_VISION_CONSUMER_CLASSES` (census plan CD3) |
+| Quiet hours | REUSED | `NotificationManager.is_quiet_hours_active` `domain_coordinators/notification_manager.py:4772`, reached as `hass.data[DOMAIN]["notification_manager"]` (same lookup as `transit_validator.py:2679`) |
+| Room occupancy (any body) | REUSED | room coordinator `data[STATE_OCCUPIED]` (`coordinator.py:3613`), awareness count via `get_house_census(view_for_class("comfort"))` (`presence.py:5952`, `:5984`) |
+| Tracked occupants | REUSED | `PersonCoordinator.get_persons_in_room` `person_coordinator.py:2199` |
+| Comfort class | REUSED | `CONSUMER_CLASS_COMFORT` `const.py:6498` (no identity threshold, table `:6512`) |
+| URA context stamp | REUSED | `ura_context.ura_ctx_kwargs` `:80`, `is_ura_context` `:87` |
+| Person ids | REUSED | `person_ids.tracked_person_entity_id` `:25`, `display_of` `:56` |
+| Arrival master toggle | REUSED (un-retire) | `CONF_MUSIC_ON_ARRIVAL_START` `const.py:4864` |
+| CM options save without reload | REUSED mechanism | `OPTIONS_RELOAD_SUPPRESS_KEYS` `__init__.py:7553` (subset test `:8826`), `_NO_LIVE_ATTR_KEYS` `:7406` (snapshot advance `:8116`) |
+| Crossing / arrival record reads | REUSED | `get_last_crossing` `presence.py:6009`; `get_last_arrival_record` `:6021` (None today; D4 fills it) |
 | Amend function | REUSED (step 7) | `EgressDirectionTracker.notify_arrival_followup` (`PLANNING_egress_direction_aware_identity.md` §5.4) |
 | Episode registration | REUSED pattern | `MEMORY_EPISODE_TYPES` `const.py:6204`, `MEMORY_WRITER_BACKED_EPISODE_TYPES` `:6263` |
-| Room dwell / next-room learner for suggestions | REUSED | `PatternLearner.predict_next_room`; `person_visits` (presence state of play §9 PREDICT row) |
-| Person profile store `person_profiles` (CM options) + "People" options step | NEW | 0 hits; card adjacency sweep 2026-11-08 found none; NM per-person channels are delivery config, not preferences |
-| Arrival intent, start, departure pause logic | NEW, inside the music-following coordinator | no arrival-start code exists ("never implemented", `:573-583`) |
+| Suggestions | REUSED | `PatternLearner.predict_next_room` `pattern_learning.py:143`; `person_visits` `database.py:995` |
+| `person_profiles` store + "People" CM options step | NEW | 0 hits; only `async_step_person_tracking` `config_flow.py:4804` exists |
+| Arrival intent / start / departure pause | NEW in the `MusicFollowing` engine | no arrival-start code exists |
 
-Prior plans read: `PLANNING_crossing_vision.md` (§2-§8, P2-D9, INV-NOTIFY-LATENCY), `PLANNING_census_deconfliction.md`
-§3.2 (rung 2 bars), `PLANNING_person_awareness_read_api.md`, `PLANNING_person_sighting_layer.md` §2A / §2B.6 / §15
-headings, `PLANNING_nvr_witness_layer.md` (card body; NVR names feed `k` only through F3), `PLANNING_music_following_repair.md`
-(§1-§13 headings, D0-D9), `PLANNING_known_person_annotation.md` (header; annotate-only doctrine),
-`AUDIT_pre_arrival_inventory_and_precool_standdown.md` (218 arrival signals / 14 d; music handler no-op).
-Memory: `project_hyper_personalization_person_profile`, `reference_identity_model_f1_f5`, `feedback_fire_check_and_forward_trace`.
-Config-first: no setting starts music on arrival (the toggle is a no-op); no profile exists to configure.
+Prior plans read: crossing-vision (§2-§8, P2-D9, INV-NOTIFY-LATENCY), census deconfliction §3.2, read API, sighting
+plan §2A / §2B.6, NVR witness (card), music repair (all deliverables), known-person annotation (header),
+`AUDIT_pre_arrival_inventory_and_precool_standdown.md` (218 arrival signals / 14 d). Memory:
+`project_hyper_personalization_person_profile`, `reference_identity_model_f1_f5`, `feedback_fire_check_and_forward_trace`,
+`feedback_no_shadow_mode_day1_correct`, `feedback_parent_entry_reload_watchdog_hazard`. Config-first: no setting
+starts music on arrival; no profile exists.
 
 ## 3. Facts and consumer classes
 
-Consumes F5 (`SIGNAL_PERSON_ARRIVING`, any source: `geofence`, `ble`, and from step 7 `camera_egress`), F1 (raw
-`person.*` departure edge; BLE room per person), F3 (crossing record: named exits, `departure_candidate`), F3
-attribute (arrival record). Produces no F fact. Classes: arrival music and departure pause are **comfort** (reversible,
-not security, not house state; trust view; acts only on person-keyed phone or confirmed evidence, never on a face
-alone); the count follow-up is **notification** (rung 2; names >= 0.75); profile suggestions and the profile sensor are
-**display**. Access, security, house state: none.
+Consumes F5 (`SIGNAL_PERSON_ARRIVING`: `geofence`, `ble`, and from step 7 `camera_egress`, which step 7 dispatches
+only for GPS-led confirmations of the person's own phone), F1 (raw `person.*` departure edge; BLE room per person), F2
+awareness count (comfort class, through `view_for_class`; equals trust until F-LEAD), F3 (named exits), F3 attribute
+(arrival record). Produces no F fact. Arrival music and departure pause: **comfort**. Count follow-up:
+**notification** (rung 2; names >= 0.75). Profile sensor and suggestions: **display**. Access, security, house state:
+none.
 
 ## 4. Measure first (P8-0, read-only, one probe, before build)
 
-Over 14 days of recorder + URA DB (`person_visits`, activity log `pre_arrival` rows, media player history):
-(a) per resident, arrivals per day by source and the lag from the F5 signal to the first BLE room transition into a
-room with a configured primary player; share where that player was already playing, another person was in the room,
-or quiet hours were on. This sizes `ARRIVAL_MUSIC_WINDOW_S` and the expected starts per day.
-(b) departures per day per resident and how often the person's arrival room was empty within 5 min after.
-(c) After step 7 ships, the share of entry crossings named at the crossing or confirmed (the F-NOTIFY identity bar,
-target 0.50) from `egress_identity_outcome` rows.
-**Go/no-go:** arrival music builds if (a) shows at least 3 eligible starts per week house-wide for the residents the
-operator opts in. Below that the plan returns to the operator with the measured number (charter rule 3), it is not
-silently swapped for another behaviour.
+14 days of recorder + URA DB (`person_visits`, activity log `pre_arrival` rows, media player history), over ALL
+residents whose rooms have a primary player, reported per resident:
+(a) arrivals per day by source; lag from the F5 signal to the first BLE room transition into a primary-player room;
+the classified confidence of that first transition (expected 0.50, the H1 case); share where the native player or its
+MA entity was playing, the room was already occupied, or quiet hours were on; and how often the first player room
+reached was not in a plausible `rooms` set within 900 s (sizes `ARRIVAL_MUSIC_WINDOW_S`, L5).
+(b) departures per day per resident; how often the arrival room was empty within 5 min after.
+(c) after step 7 ships, the share of entries named at the crossing or confirmed (F-NOTIFY identity bar 0.50).
+**Go/no-go:** build if (a) shows >= 3 eligible starts per week house-wide; below that the plan returns to the operator
+with the number (charter rule 3), never a silent swap.
 
 ## 5. Design
 
-### 5.1 Person profile, first slice (PERSON-PROFILE-PREFERENCES-1)
+### 5.1 Person profile, first slice
 
 CM entry options key `person_profiles`: `{ "person.<slug>": {arrival_music, arrival_media, arrival_volume, rooms} }`,
-keyed through `tracked_person_entity_id` (one id rule). Fields, nothing else in this slice (no dead knobs):
-`arrival_music` (bool, default off: "Play my music when I get home"); `arrival_media` (text: a Music Assistant item,
-playlist or radio URI, the same string MA `play_media` takes); `arrival_volume` (0.05-1.0, default 0.30); `rooms`
-(room multi-select: "My rooms", e.g. bedroom, bathroom, study; empty = any room with a speaker). Edited in a new CM
-options step "People" (pick a tracked person, then the form). The form description shows suggested rooms from that
-person's `person_visits` top dwell rooms (display only; the operator confirms; predictions never fill a field). A
-display sensor `sensor.ura_person_profile_<slug>` exposes the stored fields and `last_arrival_music` (attributes
-unrecorded). Shared owners (the master bedroom) fall out of two profiles listing the same room.
+keyed through `tracked_person_entity_id`. Fields: `arrival_music` (bool, "Play my music when I get home"), `arrival_media`
+(the string MA `play_media` takes), `arrival_volume` (0.05-1.0, default 0.30), `rooms` ("My rooms"; empty = any room
+with a speaker). Edited in a new CM options step "People" (pick a tracked person, then the form). The form shows
+suggested rooms from that person's `person_visits` dwell (display only; never written). Display sensor
+`sensor.ura_person_profile_<slug>` (fields and `last_arrival_music`, attributes unrecorded; visible to every HA user,
+accepted for this household, L4).
+**No reload (H2):** `person_profiles` and `music_on_arrival_start` join `OPTIONS_RELOAD_SUPPRESS_KEYS` and
+`_NO_LIVE_ATTR_KEYS` in the same commit, so a People save applies in place and advances the snapshot; the consumer
+fresh-reads `person_profiles` from the CM entry options when it opens an intent (no cached copy to discharge). Profiles
+reach music following through the repair's `set_preference_provider` (M1), not a second path.
 
-### 5.2 Arrival music (comfort consumer)
+### 5.2 Arrival music
 
-- **Intent.** `_handle_person_arriving` opens one arrival intent per person for `ARRIVAL_MUSIC_WINDOW_S` (900, P8-0
-  sets) when: master `CONF_MUSIC_ON_ARRIVAL_START` on; profile `arrival_music` on with media set; the person is a
-  tracked resident; music following enabled and not in observation mode. A second signal inside the window refreshes
-  nothing (first source wins; source recorded). Any source opens it; `camera_egress` exists only after phone-free
-  confirmation (step 7 D2), so a face alone never opens an intent (consumer policy, not a producer switch).
-- **Start.** On the person's next room transitions inside the window (`_on_person_transition`), the first room that
-  is in `rooms` (or any room when `rooms` is empty) and has a primary player becomes the target. Gates, each a counted
-  outcome: quiet hours (`is_quiet_hours_active`) or house state `sleep` / `waking`; room paused
-  (`room_automation_paused`); primary player unavailable; player already playing (never interrupt); another tracked
-  person in the room (`get_persons_in_room`) unless `ARRIVAL_MUSIC_ALLOW_SHARED_ROOM`; one start per person per
-  `ARRIVAL_MUSIC_MIN_GAP_S` (3600). Action with `ura_ctx_kwargs`: volume = `arrival_volume` x the room's volume scale,
-  clamped 0..1, then MA `play_media` on the mapped MA entity (repair D0 map), native `media_player.play_media` when the
-  player has no MA entity. Bonus players never join an arrival start.
-- **Verify on ground truth.** The primary reads `playing` within `ARRIVAL_MUSIC_VERIFY_S` (20) -> outcome `started`,
-  stamp `{person, player, media_content_id, started_at}`; else `start_failed`. Outcomes: `started`, `start_failed`,
-  `skipped_quiet`, `skipped_sleep`, `skipped_paused`, `skipped_playing`, `skipped_shared`, `skipped_no_player`,
-  `skipped_gap`, `window_expired`; one decision log line and one `arrival_music` room-memory episode each.
-- **Reversal (accuracy signal).** A non-URA pause, stop or volume-to-0 on that player within
-  `ARRIVAL_MUSIC_REVERSAL_S` (120) of a start counts `reversed` on the episode and the counter.
+- **Intent.** `_handle_person_arriving` opens one intent per person in the `MusicFollowing` engine (one owner;
+  `_arrival_intents: dict[person_entity, Intent]`, RAM, cleared at teardown) for `ARRIVAL_MUSIC_WINDOW_S` when: master
+  on; profile `arrival_music` on with media set; tracked resident; music following enabled and not in observation mode.
+  First source wins and is recorded. Any F5 source may open it; `camera_egress` exists only after a GPS-led
+  confirmation of the person's own phone (step 7 §5.5), so a face or vision input alone never opens one (M2).
+- **Where the check runs (H1).** At the TOP of `_on_person_transition`, before the `_enabled_persons` return
+  (`:511-518`) and the confidence return (`:521-527`), the engine calls `_arrival_music_check(transition)`. That check
+  has its own gates and never reads the transfer confidence, because the first transition after hours away is
+  classified `separate` / no history at 0.50 (`transitions.py:275-381`), below `MIN_CONFIDENCE` 0.6. Its room input is
+  the BLE room the transition reports, under the BLE/path gate that repair D1 installs in place of the dwell gate
+  (prerequisite, §10); the arrival check applies that gate's room test only, not its transfer confidence. Transfers
+  continue below unchanged.
+- **Start gates**, each a counted outcome: target = first room in `rooms` (or any room when empty) with a primary
+  player; quiet hours or house `sleep` / `waking`; room paused (`room_automation_paused`); primary unavailable; **playing
+  check (M3):** skip if the native primary OR its mapped MA entity reads `playing`, or either is a member of a playing
+  group; **occupied check (M4):** skip if, before this person's entry, the room coordinator read occupied, any other
+  tracked person is in it, or a camera person body is in the room with no tracked occupant (comfort-class awareness
+  view), unless `ARRIVAL_MUSIC_ALLOW_SHARED_ROOM`; one start per person per `ARRIVAL_MUSIC_MIN_GAP_S`.
+- **Action** with `ura_ctx_kwargs`: volume = `arrival_volume` x room scale, clamped 0..1, then MA `play_media` on the
+  MA entity, native `media_player.play_media` when the player has none. No bonus joins.
+- **Verify on ground truth:** the entity played reads `playing` within `ARRIVAL_MUSIC_VERIFY_S` -> `started`, stamp
+  `{person, native_player, ma_entity, media_content_id (of the entity played), started_at}`; else `start_failed`.
+  Outcomes: `started`, `start_failed`, `skipped_quiet`, `skipped_sleep`, `skipped_paused`, `skipped_playing`,
+  `skipped_occupied`, `skipped_shared`, `skipped_no_player`, `skipped_gap`, `window_expired`; one decision-log line, one
+  `arrival_music` episode each; outcomes in the NM digest (L5).
+- **Reversal:** a non-URA pause, stop or volume 0 on either entity within `ARRIVAL_MUSIC_REVERSAL_S` counts `reversed`.
 
-### 5.3 Departure pause (DEPARTURE-ACTIONS-1, first consumer)
+### 5.3 Departure pause
 
-For a person with a live `started` stamp, the first of: a named exit crossing for them at >= 0.75 (`attached` exit
-or step 7's `departure_candidate`, read through `get_last_crossing` on `ura_person_egress_event`), or their raw
-`person.*` `home -> not_home | zone` edge. Pause (`media_player.media_pause`, URA context) only when the stamped player
-still plays the stamped `media_content_id`, the room coordinator reads not occupied (room data, not an entity name),
-and no other tracked person is in the room. Else counted `departure_kept_*`. The stamp then clears. Other departure
-consumers, decomposed and NOT built: last-resident arming (LAST-RESIDENT-EGRESS-ARM-1 stays parked: arming from
-identity is escalation, forbidden by manual §5.5(a)); HVAC setback (AWAY already does it; departure must never feed
-house state); lights off (room vacancy already does it).
+For a person with a live stamp, the first of: a named exit at >= 0.75 (step 7 `departure_candidate` or `attached` exit,
+via `get_last_crossing`) or their raw `person.*` `home -> not_home | zone` edge. Pause the stamped entity
+(`media_player.media_pause`, URA context) only when it still plays the stamped `media_content_id` (read on that same
+entity; the other entity of the pair must not be playing something else), the room coordinator reads not occupied,
+and no tracked person is in the room. Else counted `departure_kept_*`. The stamp is RAM: a restart loses it, counted
+`departure_stamp_lost_restart` at setup from the last `started` episode with no pause (L2). Not built (decomposed):
+last-resident arming (stays parked, identity arming is escalation, manual §5.5(a)); HVAC setback (AWAY does it);
+lights off (vacancy does it).
 
-### 5.4 Named arrivals and the count follow-up (P2-D9, crossing-vision plan)
+### 5.4 Named arrivals and the count follow-up (P2-D9)
 
-Build P2-D9 as written in `PLANNING_crossing_vision.md` §5 with three step-8 rules: (1) its follow-up calls
-`notify_arrival_followup(crossing_ref, kind="count", names=..., guests=n - k)`, never `async_notify` directly; the old
-test `test_r7_and_perimeter_followup_same_crossing` now asserts arrival sends <= 3 (original + 2 amends) and the
-perimeter sends unchanged; (2) a name is rendered only when its evidence reaches the notification class (F3 attach
->= 0.75 or a step-7 confirmation); NVR face-entity names in the window count toward `k` for display but render as
-"not recognised" in text (a single face leg is 0.6 on the egress ladder); (3) the count follow-up sends only while
-`notification` is in the active `CROSSING_VISION_CONSUMER_CLASSES` (F-NOTIFY, census plan CD4 checkpoint after bars a,
-b, c, d, e and exact >= 0.90 on 30 graded). Until that flip the record is written and shown (display), and only
-step 7's name follow-ups go out. INV-NOTIFY-LATENCY holds: the first message is never delayed.
+Built as in `PLANNING_crossing_vision.md` §5, under that plan's own review bar, with three rules: (1) the follow-up
+calls `notify_arrival_followup(crossing_ref, kind="count", names=..., guests=n - k)`; `test_r7_and_perimeter_followup_same_crossing`
+asserts arrival sends <= 3 (original + 2 amends), perimeter unchanged; (2) a name renders only at the notification
+class (F3 attach >= 0.75 or a step-7 confirmation); window NVR face names count toward `k` but render "not
+recognised"; (3) the count follow-up sends only while `notification` is in the active `CROSSING_VISION_CONSUMER_CLASSES`
+(census CD4 flip on measured bars). Until then the record is written and displayed and step 7's name follow-ups go out.
 
 ## 6. Falsifiable invariants
 
-- **INV-V6-NO-FACE-ALONE.** No arrival music start is caused by a face or vision input alone: every `started`
-  outcome traces to a `geofence` / `ble` signal or a step-7 confirmation. Break it with a sighting or an unconfirmed
-  candidate that opens an intent.
-- **INV-V6-NEVER-INTERRUPT.** URA never starts arrival music on a player that reads `playing`, and never pauses
-  playback it did not start (stamp + `media_content_id` match). Break it with any legal sequence (two people arriving,
-  person changes the track, restart) that pauses someone else's music.
-- **INV-V6-QUIET.** No start while quiet hours are active or the house reads `sleep` / `waking`.
-- **INV-V6-AWAY.** No step-8 code path reads or writes any input of `infer()`, the census trust view, or HVAC. Break
-  it by any change to AWAY entry time on a replay with arrival music on vs off.
-- **INV-V6-ONE-AMEND.** Every arrival follow-up goes through `notify_arrival_followup` (inherits step 7 INV-AMEND-ONE).
-- **INV-V6-NAME-BAR.** No notification text names a person below the notification threshold.
+- **INV-V6-NO-FACE-ALONE.** Every `started` traces to a `geofence` / `ble` signal or a step-7 GPS-led confirmation.
+- **INV-V6-ARRIVAL-REACHES.** For any arrival (any source) followed within the window by a BLE transition into an
+  eligible empty room with an idle player outside quiet hours, the outcome is `started`, whatever that transition's
+  classified confidence or the person's transfer enablement. Break it with the 4-hours-away first-room case.
+- **INV-V6-NEVER-INTERRUPT.** URA never starts on a room whose native player or MA entity is playing, and never pauses
+  playback it did not start.
+- **INV-V6-OCCUPIED.** No start into a room that was occupied (room sensors, tracked person, or camera body) before
+  the person's entry, with the shared-room knob off.
+- **INV-V6-QUIET.** No start in quiet hours or house `sleep` / `waking`.
+- **INV-V6-NO-RELOAD.** A People save never reloads the CM entry.
+- **INV-V6-AWAY.** No step-8 path reads or writes an `infer()` input, the census trust view, or HVAC.
+- **INV-V6-ONE-AMEND / NAME-BAR.** Arrival follow-ups go only through the amend function; no text names below 0.75.
 
-## 7. Producer and consumer checks; emission sites
+## 7. Producer and consumer checks; sites
 
-Producers read: F5 dispatch sites `presence.py` geofence (`:5575` handler), `person_coordinator.py` ble, D2
-`camera_egress` (step 7); fire check: 218 arrival signals / 14 d measured (audit), so the intake is live; the music
-handler has fired its DEBUG no-op on every one. Forward trace: signal -> intent -> transition -> start -> verify ->
-episode -> departure -> pause. New producers get trip-wires: `arrival_music_zero` (HIGH NM when >= 10 intents with a
-qualifying transition in 7 days and 0 `started`), `arrival_music_failing` (HIGH NM on >= 3 `start_failed` in 24 h).
-Sites to enumerate at review: every `media_player.*` / `music_assistant.*` call in both music files (the new start and
-pause sites plus the repair's sites must all carry `ura_ctx_kwargs`); the one amend function; the CM options save
-path (re-read profiles live, no reload, INV-MF-4 style).
+Producers: geofence `presence.py:5575`, `person_coordinator.py` ble, step-7 D2 `camera_egress`; fire check: 218 arrival
+signals / 14 d. Forward trace: signal -> intent -> transition (top-of-function hook) -> start -> verify -> episode ->
+departure -> pause. Trip-wires: `arrival_music_zero` (HIGH NM: >= 10 intents with a qualifying transition in 7 days and
+0 `started`), `arrival_music_failing` (HIGH NM: >= 3 `start_failed` in 24 h). Review enumerates every `media_player.*` /
+`music_assistant.*` call in both music files (all carry `ura_ctx_kwargs`), the amend function, and the options-save
+path.
 
 ## 8. Deliverables
 
-**D0 probe (P8-0).** Verify: report with (a)-(c) committed; go/no-go stated. Live: none.
+**D0 probe (P8-0).** Report committed with (a)-(c); go/no-go stated.
 
-**D1 profile store, People step, profile sensor.** Verify: saving a profile changes the next intent without reload;
-a display-name `tracked_persons` entry keys the same profile as the entity-id form; suggested rooms render and are
-never written. Tests: `test_person_profile.py::test_profile_keyed_by_one_id_rule`, `::test_profile_save_live_no_reload`,
-`::test_suggestions_never_stored`, `::test_unknown_person_profile_ignored`. Live: `sensor.ura_person_profile_<slug>`
-shows the operator's saved fields.
+**D1 profile store, People step, profile sensor, no-reload admission.** Verify: a save takes effect on the next intent
+with zero CM reloads (today a new CM key reloads the entry: discriminates); display-name and entity-id
+`tracked_persons` key the same profile; suggestions never stored. Tests: `test_person_profile.py::test_profile_keyed_by_one_id_rule`,
+`::test_people_save_in_reload_suppress_allowlist` (asserts both keys in `OPTIONS_RELOAD_SUPPRESS_KEYS` and
+`_NO_LIVE_ATTR_KEYS`), `::test_people_save_no_reload_real_options_update` (drives the CM update listener; asserts no
+`async_reload`), `::test_suggestions_never_stored`. Live: profile sensor shows saved fields; no reload in the log on save.
 
-**D2 arrival music.** Verify: geofence arrival, person walks into their bedroom with an idle Sonos -> volume set, MA
-play, `playing` within 20 s, outcome `started` (today: DEBUG log only, nothing plays: discriminates). Same walk with the
-player already playing -> `skipped_playing`, no call. At 23:30 (quiet) -> `skipped_quiet`. A sighting with no phone
--> no intent. Restart mid-window -> intent dropped, counted. Tests: `test_arrival_music.py::test_geofence_then_room_starts`,
-`::test_never_interrupts_playing`, `::test_quiet_and_sleep_skip`, `::test_shared_room_skip`, `::test_face_alone_opens_no_intent`,
-`::test_camera_egress_confirmed_opens_intent`, `::test_verify_on_player_state`, `::test_ma_first_native_fallback`
-(asserts the exact service payloads), `::test_reversal_counted`, `::test_zero_fire_tripwire`. Config extremes: window 0,
-volume 0.05 and 1.0 with scale 1.5 (clamped), `rooms` empty vs one room without a player. Live: one `started` episode
-on the operator's first arrival after opting in, music audible, or a counted skip reason.
+**D2 arrival music.** Verify: Oji not_home 4 h, geofence arrival, BLE `away -> master_bedroom` classified 0.50,
+idle Sonos -> `started` (with the hook after the gates: `low_confidence`, nothing plays: discriminates). Native idle but
+MA entity playing -> `skipped_playing`. Room occupied by an untracked guest body -> `skipped_occupied`. 23:30 ->
+`skipped_quiet`. Sighting with no phone -> no intent. Tests: `test_arrival_music.py::test_first_room_after_hours_away_starts`,
+`::test_check_runs_before_enabled_and_confidence_gates`, `::test_never_interrupts_native_or_ma_playing`,
+`::test_untracked_occupant_skips`, `::test_quiet_and_sleep_skip`, `::test_face_alone_opens_no_intent`,
+`::test_gps_confirmed_camera_egress_opens_intent`, `::test_verify_on_player_state`, `::test_ma_first_native_fallback`
+(exact payloads), `::test_reversal_counted`, `::test_zero_fire_tripwire`. Config extremes: window 0; volume 0.05 / 1.0
+with scale 1.5; `rooms` empty vs a room with no player. Live: first resident arrival after opt-in gives `started`
+(music audible) or a named skip.
 
-**D3 departure pause.** Verify: named exit at 0.9 with the stamp live and the room empty -> pause; another person in
-the room -> `departure_kept_shared`; the person changed the track -> `departure_kept_not_ours`. Tests:
-`test_arrival_music.py::test_departure_pauses_own_playback`, `::test_departure_never_pauses_others`,
-`::test_departure_on_tracker_edge_without_crossing`. Live: first departure after a `started` gives a pause or a kept
-reason.
+**D3 departure pause.** Verify: named exit at 0.9, stamp live, room empty -> pause; another person -> kept_shared;
+track changed -> kept_not_ours; restart in between -> `departure_stamp_lost_restart`. Tests:
+`::test_departure_pauses_own_playback`, `::test_departure_never_pauses_others`, `::test_departure_on_tracker_edge`,
+`::test_stamp_lost_restart_counted`. Live: first departure after a start gives a pause or a kept reason.
 
-**D4 arrival record + count follow-up (P2-D9).** Verify and tests as in the crossing-vision plan plus
-`::test_count_followup_via_amend_function`, `::test_low_confidence_names_render_unrecognised`,
-`::test_count_followup_dark_until_f_notify`. Live: one `crossing_vision_arrival` row with n, k, `guests_unnamed`.
+**D4 arrival record + count follow-up (P2-D9).** Crossing-vision tests plus `::test_count_followup_via_amend_function`,
+`::test_low_confidence_names_render_unrecognised`, `::test_count_followup_dark_until_f_notify`. Live: one
+`crossing_vision_arrival` row with n, k, `guests_unnamed`; `get_last_arrival_record` returns it.
 
-**D5 episodes, docs.** `arrival_music` in `MEMORY_EPISODE_TYPES` and `MEMORY_WRITER_BACKED_EPISODE_TYPES` (or exempt
-with reason when the master is off); `docs/Coordinator/MUSIC_FOLLOWING.md` arrival section; manual §5.5 consumer table
-gains the comfort row; presence state of play §1 `SIGNAL_PERSON_ARRIVING` consumers row (music no longer a no-op).
+**D5 episodes.** `arrival_music` in `MEMORY_EPISODE_TYPES` and `MEMORY_WRITER_BACKED_EPISODE_TYPES` (exempt with reason
+when the master is off).
 
-Mutation drills (RED then restore): skip the `playing` gate; drop the quiet gate; let a sighting open an intent;
-pause without the `media_content_id` match; bypass the amend function in P2-D9; render a 0.6 name.
+**D6 docs, same commit.** `MUSIC_FOLLOWING.md` arrival section; manual §5.5 comfort row; presence state of play §1
+`SIGNAL_PERSON_ARRIVING` consumers (music no longer a no-op); CLAUDE.md 6.0.0 definition (on §12 Q2 yes); repair plan
+D7 item 3 amendment (§10).
+
+Mutation drills (RED then restore): move the hook below the confidence return; drop the MA-entity playing check; drop
+the occupied check; remove `person_profiles` from the allowlist; let a sighting open an intent; pause without the
+`media_content_id` match; bypass the amend function; render a 0.6 name.
 
 ## 9. Knobs
 
 | Knob | Default | Rung | Why / kill |
 |---|---|---|---|
-| `CONF_MUSIC_ON_ARRIVAL_START` (REUSED key) | on at ship | 2 + switch `switch.ura_music_arrival_start` (3) | House master; off = no intents |
-| profile `arrival_music` / `arrival_media` / `arrival_volume` / `rooms` | off / empty / 0.30 / empty | 2 (People step) | Per-person opt-in is the real gate |
+| `CONF_MUSIC_ON_ARRIVAL_START` (REUSED) + `switch.ura_music_arrival_start` | on | 2 + 3 | House master; off = no intents |
+| profile `arrival_music` / `arrival_media` / `arrival_volume` / `rooms` | off / empty / 0.30 / empty | 2 (People) | Per-person opt-in; ON for anyone who sets it |
 | `ARRIVAL_MUSIC_WINDOW_S` | 900 (P8-0 sets) | 1 | 0 = never start |
 | `ARRIVAL_MUSIC_MIN_GAP_S` | 3600 | 1 | No re-start on a door bounce |
 | `ARRIVAL_MUSIC_VERIFY_S` / `_REVERSAL_S` | 20 / 120 | 1 | Ground-truth windows |
-| `ARRIVAL_MUSIC_ALLOW_SHARED_ROOM` | False | 1 | Never blast music on someone already in the room |
+| `ARRIVAL_MUSIC_ALLOW_SHARED_ROOM` | False | 1 | Never start on someone already there |
 | `ARRIVAL_MUSIC_DEPARTURE_PAUSE` | True | 1 | False = no departure action |
-| Trip-wire thresholds (10 intents / 7 d; 3 failures / 24 h) | as stated | 1 | 0 = off |
+| Trip-wire thresholds | 10 / 7 d; 3 / 24 h | 1 | 0 = off |
 
 ## 10. Dependencies, seams, sequence
 
-Must ship first: step 6 census deconfliction (CD1-CD3: legal class set incl. `notification`, ledger term `n` for
-P2-D9); step 7 (`notify_arrival_followup`, confirmed names, `camera_egress`, `departure_candidate`); read API ship 1
-(shipped v5.108.21); MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D0, D3, D4, D5, D6 (player map, MA play path, outcomes,
-episodes; its D1 BLE-confidence gate is not needed here and stays blocked on BERMUDA-DISTANCE-SENSORS-DEAD-1).
-**F-NOTIFY dependency:** step 7 shipping meets its identity half; the count follow-up stays dark until the operator's
-CD4 flip on measured bars. v6.0.0 does not wait for that flip (§12 Q3).
-Seams (arc rule 6): music repair D7 item 3 ("`music_on_arrival_start` leaves the form") is amended: the key stays as
-the house master, relabelled; the repair's `set_preference_provider` hook is where D1 profiles plug in (no second
-preference path). AI-ROOM-RULES-TRUST-REPAIR-1 shares the observability pattern only; no shared write. Arc map row
-M11 updated at plan approval.
+Must ship first: step 6 census deconfliction (legal class set; ledger term `n`); step 7 (amend function, confirmed
+names, `camera_egress`, `departure_candidate`); read API ship 1 (shipped v5.108.21); MUSIC-FOLLOWING-TRANSFER-REPAIR-1
+D0, **D1** (BLE/path gate replacing the dwell gate; itself blocked on BERMUDA-DISTANCE-SENSORS-DEAD-1, so the
+re-based gate there must use live inputs), D3, D4, D5, D6, **D7** (`set_preference_provider`). **Repair-plan amendment
+(arc rule 6, applied to `PLANNING_music_following_repair.md` before the repair ships):** D7 item 3 keeps
+`music_on_arrival_start` as the arrival master in the form, relabelled, instead of retiring it.
+**F-NOTIFY:** step 7 meets the identity half; the count follow-up stays dark until the CD4 flip; v6.0.0 does not wait
+for it (§12 Q4). AI-ROOM-RULES-TRUST-REPAIR-1 shares the observability pattern only. Arc map M11 updated at approval.
 
-## 11. Tier
+## 11. Tier (operator question, §12 Q1)
 
-Tier 2-DB: new actuation keyed on identity across presence and music, a new episode type, a config-flow step; comfort
-class, reversible, no house-state, security or energy reach. The arc map pencilled Tier 3 for the profile; pushback:
-nothing here can lose money or safety through one missed path, and the operator asked for speed. Three framing-disjoint
-code reviews (A local correctness of gates and payloads; B integration, restart, options-save, listener lifecycle; C
-per-site mutation) plus a goal-fidelity framing G on the plan; one adversarial plan review (Tier 2 rule) plus G.
-Release: v6.0.0 at deploy (operator-named milestone; not assigned in this plan's title).
+Recommended Tier 2-DB: new actuation keyed on identity across presence and music, a new episode type, a config-flow
+step; comfort class, reversible, no house-state, security or energy reach. The arc map pencilled the profile at Tier 3;
+P2-D9 keeps the crossing-vision plan's own review bar. Reviews: one adversarial plan re-review plus framing G; three
+framing-disjoint code reviews (A gates and payloads; B integration, restart, options save, listener lifecycle; C
+per-site mutation). Release v6.0.0 at deploy.
 
 ## 12. Open operator questions (recommended defaults)
 
-1. Who opts in and with what media? Default: Oji only first (media from his MA library), others after one week of
-   episodes.
-2. Arrival music in shared rooms (the master with Ezinne there)? Default off.
-3. Ship v6.0.0 before the F-NOTIFY flip? Default yes: named follow-ups (step 7) and arrival music make the milestone;
-   the count follow-up flips at its own checkpoint.
-4. Departure pause on? Default on, pause not stop.
+1. Tier for step 8? Default Tier 2-DB (§11); P2-D9 at its own plan's bar.
+2. Redefine 6.0.0 in CLAUDE.md as step 8 (named arrivals + arrival music + departure pause), quoting "step 8 is fine"?
+   Default yes, in the D6 commit; the guest-gate item stays parked.
+3. Park the profile extras (bathroom, welcome scene, "automate my entries" beyond music, per-room / time-of-day
+   playlists) with trigger "two weeks of `arrival_music` episodes with reversal < 10 percent, or an operator ask"?
+   Default yes (charter rule 4 needs the yes).
+4. Ship v6.0.0 before the F-NOTIFY flip? Default yes.
+5. Shared rooms (e.g. the master with Ezinne there)? Default skip.
+6. Departure pause on? Default on, pause not stop.
 
 ## 13. Non-goals
 
-Per-person temperature (cut); welcome scenes; guest-gate door identity; predictions filling profile fields; arrival
-music for guests or untracked people; transfers (music repair owns them); any security, lock, HVAC or house-state
-consumer; Protect names; interior vision (step 9).
+Per-person temperature (cut); welcome scenes; guest-gate door identity; predictions filling profile fields; music for
+guests or untracked people; transfers (music repair owns them); any security, lock, HVAC or house-state consumer;
+Protect names; interior vision (step 9); a trial or shadow stage.
 
 ## 14. Plan completion tracking
 
-PERSON-PROFILE-PREFERENCES-1 fields not in this slice, carded with triggers at approval: bathroom, welcome scene,
-"automate my entries" beyond music, playlists per room or time of day (trigger: two weeks of `arrival_music` episodes
-with a reversal rate under 10 percent, or an operator ask). DEPARTURE-ACTIONS-1 decomposition above; only the pause is
-built. Arrival count follow-up flip is CD4, not this plan.
+Built here: profile slice, arrival music, departure pause, P2-D9 wiring, episodes, docs. Pending operator yes (§12 Q3):
+the profile extras, carded with the trigger above. DEPARTURE-ACTIONS-1: only the pause; the rest decomposed in §5.3.
+Count follow-up flip is census CD4.
+
+## 15. Review disposition (`PLANREVIEW_identity_actions_v6.md`)
+
+H1 -> §5.2 top-of-function check, repair D1 prerequisite, INV-V6-ARRIVAL-REACHES, D2 first-room test. H2 -> §5.1
+allowlist + fresh read, INV-V6-NO-RELOAD, D1 tests. M1 -> §10 D7 prerequisite and repair amendment. M2 -> §3, §5.2 GPS-led
+wording. M3 -> §5.2 / §5.3 both entities. M4 -> §5.2 occupied check (room, tracked, camera body), INV-V6-OCCUPIED. M5 ->
+§11, §12 Q1. M6 -> §1, §12 Q2, D6. L1 -> §2 rows. L2 -> §5.3 counter. L3 -> §4 all residents. L4 -> §5.1 privacy note.
+L5 -> §4 (a), digest outcome. Framing G: trial stage dropped (§1, §13); extras to §12 Q3.
