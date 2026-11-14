@@ -35501,14 +35501,15 @@ cards:
   operator_2026_11_14_dynamic_sampling: 'It can be dynamic. Especially close to entires and not so much in steady state. => D2 sampling rule: dense sampling in a near-entry window after a door crossing / room entry while counts are changing, sparse in steady state; window and steady-state rate are knobs; amend plan cbf25751 at its plan review.'
 - id: BLE-ARRIVAL-PRODUCER-HVAC-GATED-1
   title: "Turning off HVAC pre-arrival also stops the BLE arrival producer, so the lock regime and music lose BLE arrivals (policy lives in the producer, not the consumer)"
-  status: waiting_operator
+  status: planned
   tier: 2
   batch: person-sightings
   links: {parent: PERSON-AWARENESS-READ-API-1, related: [STALE-SOURCE-ARRIVAL-CONSUMERS-1]}
   created: "2026-11-14 14:40"
   origin: {date: '2026-11-14', gist: 'Producer/consumer sweep for layer ship 3 (prober row 16, audit §8).'}
   why: "hvac.py:1241 writes the person coordinator's pre-arrival flag from the HVAC pre-arrival switch (switch.py:4571). person_coordinator.py:1151 skips the BLE SIGNAL_PERSON_ARRIVING send while it is off. So an HVAC comfort choice silently switches off an F5 producer that security, the lock regime and music also consume. CLAUDE.md rule: a policy for one consumer gates that consumer, never the producer. The BLE arrival is mostly a later duplicate of the geofence arrival (PLANNING_ble_seen_at_home_arrival.md: 5 of 5 measured, +8 to +41 s), so the live loss is small. Ship 3 keeps behaviour identical: its G9 setter is a no-op swap."
-  next: "PICK: A (recommended) the producer always sends, HVAC ignores BLE arrivals when its pre-arrival switch is off. Small, and lock/music get BLE arrivals back. Or B: keep as is and document it as intended. -> On A I plan it as a follow-up to ship 3 (behaviour change, Tier 2)."
+  operator_2026_11_14_pick: "Ble arrivals for hvac - A"
+  next: "Me: A approved. The producer always sends, and HVAC ignores BLE arrivals while its pre-arrival switch is off. Plan right after layer ship 3 (it builds on dispatch_person_arriving and the G9 setter), and land it before v6.0.0 so step 8 arrival music keeps BLE arrivals (ship 3 rev 2 review DG MEDIUM-5). Behaviour change, Tier 2."
   rank: {value: 4, time_criticality: 2, effort: 2}
 - id: BLE-CONFIDENCE-SCANNER-NAME-PARSE-1
   title: "Person BLE confidence reads the scanner name from the distance sensor's entity_id (split 'distance_to_') instead of the registry"
