@@ -1065,6 +1065,16 @@ fan-susceptibility measurement running 2026-10-11 (verdict to be recorded in
    and the match auto-enabled what it found. Replaced by device-membership resolution (§3,
    BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1); the exhaustion signal is now the counted `bermuda_resolve` attribute plus a
    warn-once.
+41. **"Camera input stream health covers the Protect case: a Protect device dropping off Wi-Fi holds the room input
+   (review D-M1, `test_repro_protect_disconnect_sleep_guest_no_away`)"** (DEAD INPUT HOLDS header, S2 2026-11-14).
+   NOT TRUE ON THIS HOUSE (2026-11-14, ship 3b plan review A, 44b962fb, read-only registry probe). Every live UniFi
+   Protect device has 2-4 enabled camera entities (high, low, medium and package channels).
+   `CameraResolver.own_camera_entity_for_input` (`camera_resolver.py:818-879`) requires exactly one enabled camera
+   entity on the input's device, so all 19 Protect person sensors resolve `multi_camera`. S1 and S2 then give them
+   no opinion: a dead Protect camera's frozen reading counts as before. The pinned test passes because its fixture
+   gives the Protect device one camera entity. Only Frigate inputs (one `camera.*_2` per device) get the hold rule
+   live. Fix planned in layer ship 3b rev 3.5: liveness judged per registry DEVICE (live if any enabled camera entity
+   is live), with an operator question on extending the hold to Protect inputs.
 
 ## 11. Read before you touch — agent checklist
 
