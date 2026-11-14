@@ -2,14 +2,14 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-13T20:02:30-06:00_ - _Data commit: `45e2d54df0dd`_ - _last_reconciled: 2026-11-13_
+_Generated: 2026-11-13T20:09:23-06:00_ - _Data commit: `ee67c5f1bb64`_ - _last_reconciled: 2026-11-13_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 14 |
+| 📥 Inbox | 15 |
 | 🔬 Investigating | 6 |
 | 🧭 Pre-planning | 14 |
 | 📝 Planned | 35 |
@@ -21,7 +21,7 @@ _Generated: 2026-11-13T20:02:30-06:00_ - _Data commit: `45e2d54df0dd`_ - _last_r
 | 🅿️ Parked | 126 |
 | ✅ Done | 432 |
 
-## 📥 Inbox (14)
+## 📥 Inbox (15)
 _raw capture_
 
 ### `NM-DIGEST-MARK-RACE-1` - mark_digest_delivered marks every undelivered row, including rows queued while the digest was sending, so they never appear in any digest — _#1 · WSJF 9.0 · v4 tc3 u2 /e1_
@@ -156,7 +156,15 @@ _created 2026-11-12 22:00_
   - `arc_cut_v5_108_16`: needs phase 2 departures
   - `tier`: 2
 
-### `EC-ATTAIN-RATE-DUP-SAMPLE-1` - The battery charge-rate window can record the same reading twice in one tick, shortening its 15-minute window — _#14 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `LLMVISION-TIMEOUT-LEAK-UPSTREAM-1` - llmvision keeps running (and billing) a call after the caller's timeout; raise upstream, keep URA's bounded teardown — _#14 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+status: **inbox**
+- **Origin:** 2026-11-13 - Crossing vision Review B item B1, noted by the fix-up builder.
+- **Why:** Crossing vision fix-up (a10cd299/9407eaef) documented the leak at CROSSING_VISION_TIMEOUT_S and in the IDENTITY manual; the call is now a background task so HA stop does not wait. Upstream issue or PR to llmvision is outward-facing: draf...
+- **Next:** Me: draft the upstream issue text with a minimal repro for the operator to post.
+- **Forensic keys (1):**
+  - `tier`: 1
+
+### `EC-ATTAIN-RATE-DUP-SAMPLE-1` - The battery charge-rate window can record the same reading twice in one tick, shortening its 15-minute window — _#15 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **inbox** - approval: **unreviewed**
 _created 2026-11-12 14:13 · initial_
 - **Problem / Solution:**
@@ -765,7 +773,7 @@ status: **planned**
 - **Origin:** 2026-11-13 - Operator question on the crossing vision plan.
 - **Why:** Crossing vision plan fetches clips from Frigate only; Protect enters only as the late face name. Three separate Frigate-vs-Protect rules exist: camera_census.py:2330 _cross_validate_platforms (counts; Frigate number wins when both see; l...
 - **Next:** Me: plan amendment to the operator after perimeter Part A and crossing vision Phase 1 ship. Open unknowns: garage_a Protect leg; llmvision on a Protect clip (one paid dry call needs operator ok); NVR disagreement ground truth (use the we...
-- **Forensic keys (13):**
+- **Forensic keys (14):**
   - `tier`: 3
   - `operator_2026_11_13_both_nvrs`: For all camera work I like to exercise both nvr platforms simultaneously, then cross compare to reduce errors. Did you base this plan on only frigate? How can protect be a separate witness? And we can maybe centralize the rules to deconf...
   - `operator_2026_11_13_consolidate`: Yes, centralize the evidence and keep the policy with each feature... I generally favor consolidation so there's no drift and there is one place to make better but there can be arguement against it. Critique this conclusion and be sure.....
@@ -779,6 +787,7 @@ status: **planned**
   - `operator_2026_11_13_answers`: 1 how would we know it disagree without analyzing. Is this about the initial fast read? 2 - yea 3- pro/con? We already use a ton of db stuff. Unless you're wanting to keep the tier low on purpose 4- hell yes
   - `decisions_2026_11_13`: Q2 YES (one paid llmvision call on a Protect clip before W4). Q4 YES (ship W1 ahead). Q1: disagreement in the plan meant the cheap NVR detection signal (only one family fired), not a vision result; pending operator pick, recommended ALL ...
   - `operator_2026_11_13_q1_q3`: Yes to both. (Q1 = analyse both clips every crossing, mode all; Q3 = dedicated nvr_witness_records DB table, perimeter agreement samples migrated in)
+  - `W1_built_2026_11_13`: d450c382 on feature/nvr-witness-w1-pairing: registry-only pairing with the four uniqueness conditions; 19 tests, every condition mutation-anchored. On the live registry it re-pairs SEVEN cameras, not one: garage_a_2 (intended, transit), ...
 
 ### `URAV8-ZONE-ENERGY-DISPLAY-1` - ura-v8: show energy on the zone chips under Rooms, and a house zone-energy breakdown card (pie/bar) on the Energy tab — _#26 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **dashboard** - status: **planned**

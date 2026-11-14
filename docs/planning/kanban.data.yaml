@@ -34849,6 +34849,15 @@ cards:
   why: 'person_coordinator.py:1838-1853 searches by person slug; live 2026-11-13: 14 sensor ids contain iphone_oji and distance, 1 contains oji_udezue and distance; aggregation.py:6179 finds 0 sensor.bermuda_* per person. .storage/person lists each person''s device_trackers; person_coordinator.py:1782-1790 ignores them. Downstream impact of Oji''s fixed 0.5 confidence not yet traced (music following now gates on BLE confidence, so it matters).'
   next: 'Me: trace consumers of person BLE confidence/closest_distance (fire check), then resolve via person -> device_trackers -> device -> Bermuda sensors in the registry; Tier 2 plan.'
   rank: {value: 9, time_criticality: 7, effort: 4}
+- id: LLMVISION-TIMEOUT-LEAK-UPSTREAM-1
+  title: llmvision keeps running (and billing) a call after the caller's timeout; raise upstream, keep URA's bounded teardown
+  status: inbox
+  tier: 1
+  batch: person-sightings
+  links: {related: [VISION-CROSSING-ANALYSIS-1]}
+  origin: {date: '2026-11-13', gist: 'Crossing vision Review B item B1, noted by the fix-up builder.'}
+  why: 'Crossing vision fix-up (a10cd299/9407eaef) documented the leak at CROSSING_VISION_TIMEOUT_S and in the IDENTITY manual; the call is now a background task so HA stop does not wait. Upstream issue or PR to llmvision is outward-facing: draft only, operator posts or approves.'
+  next: 'Me: draft the upstream issue text with a minimal repro for the operator to post.'
 - id: NVR-WITNESS-CONSOLIDATION-1
   title: One shared Frigate-vs-Protect witness layer (who saw it, agreement history) with policy kept per consumer; crossing vision gets Protect as a second witness
   status: planned
@@ -34870,6 +34879,7 @@ cards:
   operator_2026_11_13_answers: '1 how would we know it disagree without analyzing. Is this about the initial fast read? 2 - yea 3- pro/con? We already use a ton of db stuff. Unless you''re wanting to keep the tier low on purpose 4- hell yes'
   decisions_2026_11_13: 'Q2 YES (one paid llmvision call on a Protect clip before W4). Q4 YES (ship W1 ahead). Q1: disagreement in the plan meant the cheap NVR detection signal (only one family fired), not a vision result; pending operator pick, recommended ALL (analyse both clips every crossing: ~14 crossings/day x ~$0.013 = ~$0.18/day extra, under the existing CROSSING_VISION_DAILY_CALLS cap; two independent counts on every crossing feed the agreement record the operator called critical for learning). Q3: recommend a DB table over HA Store (queryable by SQL/memory tools for learning and scoring, retention, joins with labels; W2 is already Tier 3 so no tier saving), pending operator ok.'
   operator_2026_11_13_q1_q3: 'Yes to both. (Q1 = analyse both clips every crossing, mode all; Q3 = dedicated nvr_witness_records DB table, perimeter agreement samples migrated in)'
+  W1_built_2026_11_13: 'd450c382 on feature/nvr-witness-w1-pairing: registry-only pairing with the four uniqueness conditions; 19 tests, every condition mutation-anchored. On the live registry it re-pairs SEVEN cameras, not one: garage_a_2 (intended, transit), upstairs_hall_2 (camera key changes; Upstairs Hallway fused room sensor and fan veto; person-sighting pick), stairs_top_2 (key changes; sighting pick), foyer_fisheye (sighting pick), rear_ptz_2 (key changes; no live consumer change), utilities_ptz_2, garage_b_2 (none). Perimeter Part A legs are unchanged (resolve_detection_legs already reached garage_a Protect via its own stem lookup, itself a name guess for REGISTRY-NOT-NAMES-1). PICK pending: accept all seven (recommended) or replan.'
 - id: AUDIT-ROOM-AI-AUTOMATION-CHAINING-MUSIC-1
   title: Audit room AI automation, automation chaining and music following (old, rarely exercised) - correctness, HA currency, test coverage, observability/config
   status: investigating
