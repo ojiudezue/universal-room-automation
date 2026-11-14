@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-14T00:18:08-06:00_ - _Data commit: `6d8fe70d9430`_ - _last_reconciled: 2026-11-13_
+_Generated: 2026-11-14T00:18:56-06:00_ - _Data commit: `8e17b31a0791`_ - _last_reconciled: 2026-11-13_
 
 
 ## Columns
@@ -624,10 +624,11 @@ _created 2026-11-13 18:00_
 - **Origin:** 2026-11-13 - Operator: "We need this. Sequence is optional as long as you don't drop it. Add to arc." (on unnamed interior sightings after crossing vision).
 - **Why:** F4 today needs a name (face). Interior vision gives per-room people counts and unnamed presence in shared spaces/hallways (cameras only in shared spaces), the input census accuracy and personalization need. Must respect the F1-F5 model: ...
 - **Next:** Me: after crossing vision Phase 1 accuracy is measured, plan it (Tier 3, prior-art scan: sighting producer, CameraResolver, interior path map, census interior camera counts, CROSSING_VISION_INTERIOR_ENABLED parked name) with measure-firs...
-- **Forensic keys (3):**
+- **Forensic keys (4):**
   - `arc_cut_v5_108_21`: arc step 9
   - `tier`: 3
   - `operator_2026_11_14_plan_now`: Build P2-d8 as you recommended. it with interior vision but link the plans. And plan that VISION-INTERIOR-SIGHTINGS-1, now and then modify it if we learn something in teh interim. I Want this tight and not deferred. Make sure its useful....
+  - `operator_2026_11_14_timing`: When I said plan now. I mean when it makes sense in the arc but soon so it doesn't get lost. => plan written now (no build slot used) so it cannot be lost; BUILD stays in arc order after census deconfliction (CD1-CD3) and once crossing v...
 
 ### `TEST-HARNESS-REAL-HA-DEFAULT-1` - Make the real-HA venv the default test harness — the blocker is ONE plugin fixture, not the "large infrastructure project" every review doc assumed — _#13 · WSJF 3.8 · v8 tc5 u6 /e5_
 thread: **quality** - status: **planned** - approval: **explicit**

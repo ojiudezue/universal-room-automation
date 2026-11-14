@@ -35430,6 +35430,7 @@ cards:
   next: 'Me: after crossing vision Phase 1 accuracy is measured, plan it (Tier 3, prior-art scan: sighting producer, CameraResolver, interior path map, census interior camera counts, CROSSING_VISION_INTERIOR_ENABLED parked name) with measure-first probe on interior frames; decide F4 unnamed-sighting shape vs a per-room count signal.'
   rank: {value: 8, time_criticality: 3, effort: 3}
   operator_2026_11_14_plan_now: 'Build P2-d8 as you recommended. it with interior vision but link the plans. And plan that VISION-INTERIOR-SIGHTINGS-1, now and then modify it if we learn something in teh interim. I Want this tight and not deferred. Make sure its useful. Plans arent just because I said so but because they add value to our ultimate goal => plan NOW, includes the path time-lapse along the camera chain from crossing vision, every deliverable justified against the charter goals, revise when shadow data teaches something.'
+  operator_2026_11_14_timing: 'When I said plan now. I mean when it makes sense in the arc but soon so it doesn''t get lost. => plan written now (no build slot used) so it cannot be lost; BUILD stays in arc order after census deconfliction (CD1-CD3) and once crossing vision shadow data exists; revise the plan from that data before build.'
 - id: PERSON-AWARENESS-READ-API-1
   arc_cut_v5_108_21: "ship 1 here, ship 2 in batch 2"
   title: One public person-awareness read API on PresenceCoordinator (F1-F5), replacing ~40 private PersonCensus reads and 14+ inline id-normalisation copies
