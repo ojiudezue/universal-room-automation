@@ -109,6 +109,50 @@ def _flatten_sections(user_input, schema) -> tuple[dict, frozenset]:
     return flat, frozenset(present)
 
 
+_VISIBLE_MARKER_CACHE: list = []  # [marker class or None], resolved once
+
+
+def _visible_marker():
+    """HA 2026.11 ``data_entry_flow.Optional`` when it takes ``visible``.
+
+    Checked once with ``inspect.signature`` and cached. None on older HA
+    (the 2026.2.3 test venv has no such marker), in which case ``_cond``
+    falls back to a plain ``vol.Optional`` and every field shows.
+    """
+    if not _VISIBLE_MARKER_CACHE:
+        marker = None
+        try:
+            import inspect
+            from homeassistant import data_entry_flow as _def
+            cand = getattr(_def, "Optional", None)
+            if cand is not None and "visible" in inspect.signature(cand.__init__).parameters:
+                marker = cand
+        except Exception:  # noqa: BLE001 — feature detect only
+            marker = None
+        _VISIBLE_MARKER_CACHE.append(marker)
+    return _VISIBLE_MARKER_CACHE[0]
+
+
+def _cond(key: str, cond, default=vol.UNDEFINED, description=None):
+    """An optional field shown only while ``cond`` holds (arc step 8 §5.2).
+
+    ``cond`` is a FieldCondition dict or a list of them (ANDed), each naming
+    a field in the same section. On HA with the ``visible`` marker the field
+    is hidden (and HA drops its value) when the condition fails; otherwise
+    it is a plain ``vol.Optional`` and the step description says "used when
+    X is on". Readers apply toggle-off semantics either way.
+    """
+    kwargs: dict = {}
+    if default is not vol.UNDEFINED:
+        kwargs["default"] = default
+    if description is not None:
+        kwargs["description"] = description
+    marker = _visible_marker()
+    if marker is not None:
+        return marker(key, visible=cond, **kwargs)
+    return vol.Optional(key, **kwargs)
+
+
 def _absent_field_defaults(schema, user_input) -> dict:
     """Create-flow backfill (FORM-CONDITIONAL-FIELDS-1 §3, release 1 = case a).
 
@@ -4375,7 +4419,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             menu.extend(_COORDINATOR_MENU_STEPS[cid])
         if added:
             menu.append("remove_coordinator")
-        menu.extend(["signal_responses", "coordinator_optimization"])
+        menu.extend(["people", "signal_responses", "coordinator_optimization"])
         return menu
 
     async def async_step_add_coordinator(self, user_input=None):
@@ -10344,6 +10388,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_MUSIC_ON_HAZARD_STOP,
             CONF_MUSIC_ON_ARRIVAL_START,
             CONF_MUSIC_ON_SECURITY_STOP,
+            DEFAULT_MUSIC_ON_ARRIVAL_START,
         )
 
         if user_input is not None:
@@ -10381,7 +10426,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ): selector.BooleanSelector(),
             vol.Optional(
                 CONF_MUSIC_ON_ARRIVAL_START,
-                default=self._get_current(CONF_MUSIC_ON_ARRIVAL_START, False),
+                default=self._get_current(
+                    CONF_MUSIC_ON_ARRIVAL_START, DEFAULT_MUSIC_ON_ARRIVAL_START,
+                ),
             ): selector.BooleanSelector(),
             vol.Optional(
                 CONF_MUSIC_ON_SECURITY_STOP,
@@ -10392,6 +10439,260 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id="signal_responses",
             data_schema=data_schema,
+        )
+
+    # =========================================================================
+    # Arc step 8 D1: People step (PLANNING_identity_actions_v6.md §5.1-§5.2)
+    # =========================================================================
+
+    _PEOPLE_ROOMS_SECTION = "my_rooms"
+    _PEOPLE_AUTOMATE_SECTION = "automate"
+
+    def _people_tracked(self) -> list[tuple[str, str]]:
+        """[(person.* id, display label)] for every tracked person."""
+        from .person_ids import display_of, tracked_person_entity_id
+        pc = (self.hass.data.get(DOMAIN) or {}).get("person_coordinator")
+        names = list(getattr(pc, "tracked_persons", None) or [])
+        if not names:
+            for ce in self.hass.config_entries.async_entries(DOMAIN):
+                if ce.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
+                    names = list(ce.data.get(CONF_TRACKED_PERSONS) or [])
+                    break
+        out: list[tuple[str, str]] = []
+        seen: set[str] = set()
+        for name in names:
+            eid = tracked_person_entity_id(name)
+            if eid in seen:
+                continue
+            seen.add(eid)
+            st = self.hass.states.get(eid)
+            label = (st.attributes.get("friendly_name") if st is not None else None)
+            out.append((eid, str(label or display_of(eid))))
+        return out
+
+    def _people_rooms(self) -> list[dict]:
+        """URA room entries: entry_id, name, type, has a primary player."""
+        from .const import CONF_ROOM_MEDIA_PLAYER
+        rooms = []
+        for ce in self.hass.config_entries.async_entries(DOMAIN):
+            if ce.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+                continue
+            merged = {**ce.data, **ce.options}
+            rooms.append({
+                "entry_id": ce.entry_id,
+                "name": str(merged.get(CONF_ROOM_NAME) or ce.title),
+                "type": merged.get(CONF_ROOM_TYPE),
+                "player": merged.get(CONF_ROOM_MEDIA_PLAYER),
+            })
+        return sorted(rooms, key=lambda r: r["name"].lower())
+
+    def _people_stored(self) -> dict:
+        from .person_profiles import get_person_profile
+        return dict(get_person_profile(self._config_entry.options,
+                                       getattr(self, "_people_person", None)) or {})
+
+    def _people_save(self, profile: dict):
+        from .const import CONF_PERSON_PROFILES
+        from .person_profiles import profiles_from_options
+        profiles = profiles_from_options(self._config_entry.options)
+        profiles[self._people_person] = profile
+        return self.async_create_entry(
+            title="",
+            data={**self._config_entry.options, CONF_PERSON_PROFILES: profiles},
+        )
+
+    async def _people_suggestions(self) -> str:
+        """Display-only room suggestions from person_visits (never stored)."""
+        from datetime import datetime as _dt
+        from .const import (
+            PEOPLE_SUGGEST_LOOKBACK_DAYS, PEOPLE_SUGGEST_MAX_VISITS,
+            PEOPLE_SUGGEST_TOP_N,
+        )
+        from .person_profiles import suggest_rooms, suggestion_window
+        db = (self.hass.data.get(DOMAIN) or {}).get("database")
+        if db is None or not hasattr(db, "get_closed_person_visits"):
+            return ""
+        since, until = suggestion_window(_dt.now(), PEOPLE_SUGGEST_LOOKBACK_DAYS)
+        try:
+            rows = await db.get_closed_person_visits(since, until, PEOPLE_SUGGEST_MAX_VISITS)
+        except Exception:  # noqa: BLE001 — display only
+            return ""
+        ranked = suggest_rooms(rows, self._people_person, PEOPLE_SUGGEST_TOP_N)
+        if not ranked:
+            return ""
+        return "Suggested rooms from the last {} days: {}.".format(
+            PEOPLE_SUGGEST_LOOKBACK_DAYS,
+            ", ".join(f"{name} ({pct}%)" for name, pct in ranked),
+        )
+
+    async def async_step_people(self, user_input=None):
+        """Pick a tracked person to edit."""
+        persons = self._people_tracked()
+        if not persons:
+            return self.async_abort(reason="people_no_persons")
+        if user_input is not None:
+            self._people_person = str(user_input.get("person"))
+            return await self.async_step_people_profile()
+        return self.async_show_form(
+            step_id="people",
+            data_schema=vol.Schema({
+                vol.Required("person", default=persons[0][0]): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[{"value": v, "label": lbl} for v, lbl in persons],
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+            }),
+        )
+
+    def _people_profile_schema(self, stored: dict) -> vol.Schema:
+        from .const import (
+            PEOPLE_MUSIC_URI_FALLBACK_ENABLED, PROFILE_AUTO_MUSIC, PROFILE_AUTO_SCENE,
+            PROFILE_MUSIC_DAY, PROFILE_MUSIC_DEFAULT, PROFILE_MUSIC_EVENING,
+            PROFILE_MUSIC_VARY_ROOM, PROFILE_MUSIC_VARY_TIME, PROFILE_MUSIC_VOLUME,
+            PROFILE_MUSIC_VOLUME_MAX, PROFILE_MUSIC_VOLUME_MIN, PROFILE_ROOMS_BATHROOM,
+            PROFILE_ROOMS_BEDROOM, PROFILE_WELCOME_SCENE,
+        )
+        from .person_profiles import music_volume
+        rooms = self._people_rooms()
+        all_rooms = [{"value": r["entry_id"], "label": r["name"]} for r in rooms]
+        baths = [{"value": r["entry_id"], "label": r["name"]}
+                 for r in rooms if r["type"] == ROOM_TYPE_BATHROOM]
+        music_on = {"field": PROFILE_AUTO_MUSIC, "value": True}
+        time_on = [music_on, {"field": PROFILE_MUSIC_VARY_TIME, "value": True}]
+        scene_on = {"field": PROFILE_AUTO_SCENE, "value": True}
+
+        def _media(key, cond):
+            cur = stored.get(key)
+            fields = {
+                _cond(key, cond, description=(
+                    {"suggested_value": cur} if cur else None
+                )): selector.MediaSelector(selector.MediaSelectorConfig()),
+            }
+            if PEOPLE_MUSIC_URI_FALLBACK_ENABLED:
+                fields[_cond(f"{key}_uri", cond)] = selector.TextSelector()
+            return fields
+
+        def _multi(options):
+            return selector.SelectSelector(selector.SelectSelectorConfig(
+                options=options, multiple=True,
+                mode=selector.SelectSelectorMode.DROPDOWN,
+            ))
+
+        rooms_fields = {
+            vol.Optional(PROFILE_ROOMS_BEDROOM,
+                         default=list(stored.get(PROFILE_ROOMS_BEDROOM) or [])): _multi(all_rooms),
+            vol.Optional(PROFILE_ROOMS_BATHROOM,
+                         default=list(stored.get(PROFILE_ROOMS_BATHROOM) or [])): _multi(baths),
+        }
+        auto = {
+            vol.Optional(PROFILE_AUTO_MUSIC,
+                         default=bool(stored.get(PROFILE_AUTO_MUSIC))): selector.BooleanSelector(),
+            **_media(PROFILE_MUSIC_DEFAULT, music_on),
+            _cond(PROFILE_MUSIC_VOLUME, music_on, default=music_volume(stored)):
+                selector.NumberSelector(selector.NumberSelectorConfig(
+                    min=PROFILE_MUSIC_VOLUME_MIN, max=PROFILE_MUSIC_VOLUME_MAX, step=0.05,
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )),
+            _cond(PROFILE_MUSIC_VARY_TIME, music_on,
+                  default=bool(stored.get(PROFILE_MUSIC_VARY_TIME))): selector.BooleanSelector(),
+            **_media(PROFILE_MUSIC_DAY, time_on),
+            **_media(PROFILE_MUSIC_EVENING, time_on),
+            _cond(PROFILE_MUSIC_VARY_ROOM, music_on,
+                  default=bool(stored.get(PROFILE_MUSIC_VARY_ROOM))): selector.BooleanSelector(),
+            vol.Optional(PROFILE_AUTO_SCENE,
+                         default=bool(stored.get(PROFILE_AUTO_SCENE))): selector.BooleanSelector(),
+            _cond(PROFILE_WELCOME_SCENE, scene_on, description=(
+                {"suggested_value": stored[PROFILE_WELCOME_SCENE]}
+                if stored.get(PROFILE_WELCOME_SCENE) else None
+            )): selector.EntitySelector(selector.EntitySelectorConfig(domain="scene")),
+        }
+        return vol.Schema({
+            vol.Optional(self._PEOPLE_ROOMS_SECTION): _ha_section(
+                vol.Schema(rooms_fields), {"collapsed": False}),
+            vol.Optional(self._PEOPLE_AUTOMATE_SECTION): _ha_section(
+                vol.Schema(auto), {"collapsed": False}),
+        })
+
+    def _people_apply_uri_fallback(self, flat: dict) -> dict:
+        from .const import PEOPLE_MUSIC_URI_CONTENT_TYPE, PEOPLE_MUSIC_URI_FALLBACK_ENABLED
+        from .person_profiles import MEDIA_PICK_KEYS
+        out = dict(flat)
+        for key in MEDIA_PICK_KEYS:
+            uri = out.pop(f"{key}_uri", None)
+            if PEOPLE_MUSIC_URI_FALLBACK_ENABLED and isinstance(uri, str) and uri.strip():
+                out[key] = {"media_content_id": uri.strip(),
+                            "media_content_type": PEOPLE_MUSIC_URI_CONTENT_TYPE}
+        return out
+
+    async def async_step_people_profile(self, user_input=None):
+        """One person's rooms and entry actions (sections, conditional fields)."""
+        from .const import PROFILE_AUTO_MUSIC, PROFILE_MUSIC_VARY_ROOM
+        from .person_profiles import (
+            automated_action_count, merge_profile_save, own_rooms, validate_profile,
+        )
+        stored = self._people_stored()
+        errors: dict = {}
+        if user_input is not None:
+            flat, _present = _flatten_sections(
+                user_input, (self._PEOPLE_ROOMS_SECTION, self._PEOPLE_AUTOMATE_SECTION),
+            )
+            merged = merge_profile_save(stored, self._people_apply_uri_fallback(flat))
+            err = validate_profile(merged)
+            if err:
+                errors["base"] = err
+                stored = merged
+            else:
+                rooms_with_player = [
+                    r for r in self._people_rooms()
+                    if r["entry_id"] in own_rooms(merged) and r["player"]
+                ]
+                if (merged.get(PROFILE_AUTO_MUSIC) and merged.get(PROFILE_MUSIC_VARY_ROOM)
+                        and rooms_with_player):
+                    self._people_pending = merged
+                    return await self.async_step_people_rooms_music()
+                return self._people_save(merged)
+        rooms_note = ""
+        if automated_action_count(stored) and not own_rooms(stored):
+            rooms_note = "Pick at least one room: entry actions run only in your rooms."
+        label = dict(self._people_tracked()).get(self._people_person, self._people_person)
+        return self.async_show_form(
+            step_id="people_profile",
+            data_schema=self._people_profile_schema(stored),
+            errors=errors or None,
+            description_placeholders={
+                "person": label,
+                "suggestions": await self._people_suggestions(),
+                "rooms_note": rooms_note,
+            },
+        )
+
+    async def async_step_people_rooms_music(self, user_input=None):
+        """One optional music pick per own room that has a speaker."""
+        from .const import PROFILE_MUSIC_BY_ROOM
+        from .person_profiles import merge_profile_save, own_rooms
+        pending = dict(getattr(self, "_people_pending", None) or {})
+        mine = [r for r in self._people_rooms() if r["entry_id"] in own_rooms(pending)]
+        with_player = [r for r in mine if r["player"]]
+        if user_input is not None:
+            picks = {r["entry_id"]: user_input.get(r["entry_id"]) for r in with_player}
+            return self._people_save(
+                merge_profile_save(pending, {PROFILE_MUSIC_BY_ROOM: picks}),
+            )
+        cur = pending.get(PROFILE_MUSIC_BY_ROOM) or {}
+        fields = {}
+        for r in with_player:
+            val = cur.get(r["entry_id"])
+            fields[vol.Optional(r["entry_id"], description=(
+                {"suggested_value": val} if val else None
+            ))] = selector.MediaSelector(selector.MediaSelectorConfig())
+        no_speaker = [r["name"] for r in mine if not r["player"]]
+        return self.async_show_form(
+            step_id="people_rooms_music",
+            data_schema=vol.Schema(fields),
+            description_placeholders={
+                "no_speaker": (", ".join(no_speaker) + " has no speaker.") if no_speaker else "",
+            },
         )
 
     # =========================================================================

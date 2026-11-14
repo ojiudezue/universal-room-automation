@@ -7562,6 +7562,11 @@ _NO_LIVE_ATTR_KEYS: frozenset[str] = frozenset({
     # Also in OPTIONS_RELOAD_SUPPRESS_KEYS below (a save never reloads).
     "energy_utility_import_statistic_id",
     "energy_utility_export_statistic_id",
+    # Arc step 8 D1 (== const.CONF_PERSON_PROFILES): the People step store.
+    # Every reader (person_profiles.get_person_profile, the profile sensor,
+    # the arrival engine at intent open) reads CM options fresh, so there is
+    # no live-attr push. Also in OPTIONS_RELOAD_SUPPRESS_KEYS (INV-V6-NO-RELOAD).
+    "person_profiles",
 })
 
 # MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D7: every Music Following knob, applied
@@ -7704,6 +7709,8 @@ OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     # house-level arrival-music master switch. Handler is a no-op today;
     # arc step 8 reads the option live, so a save must not reload the CM.
     "music_on_arrival_start",
+    # Arc step 8 D1: People step saves (see _NO_LIVE_ATTR_KEYS above).
+    "person_profiles",
     # Session B1 — EVSE Drain-Precedence knob keys (Switch + 5 Numbers +
     # Select). Numbers + Select route through `_EC_SETTER_DISPATCH` above;
     # the Switch key is a NO_LIVE_ATTR no-op (entity is sole write path).

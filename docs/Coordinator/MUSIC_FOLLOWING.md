@@ -124,3 +124,9 @@ Hazard / security stop: only the configured room and zone players (`configured_p
 media_player in the house. `set_preference_provider(callable)`: `provider(person_key, ctx) -> {follow_mode,
 target_volume}` or None (default None = unchanged behaviour); arrival music and PERSON-PROFILE-PREFERENCES-1 build
 on it. Diagnostic listeners return an unsubscribe; the coordinator and the five sensors remove theirs.
+
+Arc step 8 seam (branch `feature/step8-identity-actions`, NOT deployed): `arrival_scene_for(room_entry_id)`
+is the decision call the room entry path (`automation._maybe_activate_slot_scene`, day / evening caller)
+makes before the slot scene, and `note_arrival_scene_result(room_entry_id, applied)` is its report back.
+Both are stubs (None / no-op) until D3. Person profiles live in the CM option `person_profiles`
+(`person_profiles.py`: `get_person_profile`, `pick_media`, `arrival_master_on`, default ON).

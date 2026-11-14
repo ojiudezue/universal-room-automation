@@ -1582,7 +1582,7 @@ class RoomAutomation:
         # of computing per-light brightness/colour.
         from .lighting.resolver import resolve_slot
         slot = resolve_slot(is_sleep_hours=False, is_dark=is_dark)
-        if await self._maybe_activate_slot_scene(slot, entry_set):
+        if await self._maybe_activate_slot_scene(slot, entry_set, arrival_override=True):
             self.coordinator.set_last_action(
                 "turn_on",
                 f"Activated {slot} scene",
@@ -1738,7 +1738,7 @@ class RoomAutomation:
     # === v3.2.2.5: NIGHT LIGHT HELPER METHODS ===
     
     async def _maybe_activate_slot_scene(
-        self, slot: str, entry_set: list[str],
+        self, slot: str, entry_set: list[str], *, arrival_override: bool = False,
     ) -> bool:
         """Slice E D6: if the current slot has a scene, activate it.
 
@@ -1756,9 +1756,60 @@ class RoomAutomation:
         try:
             from .lighting.resolver import slot_scene
 
-            scene_id = slot_scene(self.config, slot)
+            # Arc step 8 (§5.5): the day / evening caller asks the music
+            # engine for a per-person welcome scene first; None (no engine,
+            # no eligible owner, or D3 not built) = the slot scene as before.
+            welcome = self._arrival_scene_override() if arrival_override else None
+            scene_id = welcome or slot_scene(self.config, slot)
             if not scene_id:
                 return False
+            applied = await self._activate_scene_checked(slot, scene_id, entry_set)
+            if welcome:
+                self._note_arrival_scene_result(applied)
+            return applied
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception(
+                "Slice E scene branch failed for slot=%s; falling back to per-light path",
+                slot,
+            )
+            return False
+
+    def _arrival_engine(self):
+        try:
+            return self.hass.data.get(DOMAIN, {}).get("music_following")
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _arrival_scene_override(self) -> str | None:
+        """Arc step 8: the engine's welcome scene for this room, or None.
+
+        Room key = this room's config entry_id. Any failure reads None so
+        the slot scene path is never blocked by the override.
+        """
+        engine = self._arrival_engine()
+        if engine is None:
+            return None
+        try:
+            scene = engine.arrival_scene_for(self._config_entry.entry_id)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("arrival_scene_for failed", exc_info=True)
+            return None
+        return scene if isinstance(scene, str) and scene.startswith("scene.") else None
+
+    def _note_arrival_scene_result(self, applied: bool) -> None:
+        engine = self._arrival_engine()
+        if engine is None:
+            return
+        try:
+            engine.note_arrival_scene_result(self._config_entry.entry_id, applied)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("note_arrival_scene_result failed", exc_info=True)
+
+    async def _activate_scene_checked(
+        self, slot: str, scene_id: str, entry_set: list[str],
+    ) -> bool:
+        """Hold check, state guard, one URA-context scene.turn_on."""
+        try:
             # Review D HIGH (INV-2): a scene must not override a person's
             # manual hold/cooldown on any of the room's entry lights. If any
             # is held, fall back to the per-light path, which respects holds.
