@@ -143,6 +143,34 @@ _dt_mock = _mock_module(
     parse_datetime=_parse_dt,
 )
 
+# Attributes this file overwrites on ALREADY-IMPORTED (usually real HA)
+# modules: (module, attr, had_attr, old_value). They are put back right after
+# the URA modules below are loaded, and re-applied only while this file's own
+# tests run (``_restore_module_state_after_file``). Left in place, the
+# overwrite leaked to every later file: e.g. the real
+# ``update_coordinator.DataUpdateCoordinator`` stayed ``MagicMock`` for the
+# rest of a full run, so any coordinator imported afterwards subclassed
+# MagicMock and plain attribute writes raised ``AttributeError:
+# _mock_methods``.
+_ha_attr_overrides: list = []
+
+
+def _apply_ha_attr_overrides() -> None:
+    for _mod, _k, _had, _old, _new in _ha_attr_overrides:
+        setattr(_mod, _k, _new)
+
+
+def _undo_ha_attr_overrides() -> None:
+    for _mod, _k, _had, _old, _new in reversed(_ha_attr_overrides):
+        if _had:
+            setattr(_mod, _k, _old)
+        else:
+            try:
+                delattr(_mod, _k)
+            except AttributeError:
+                pass
+
+
 for _name, _attrs in _ha_mods.items():
     if isinstance(_attrs, dict):
         _existing = sys.modules.get(_name)
@@ -150,6 +178,10 @@ for _name, _attrs in _ha_mods.items():
             sys.modules[_name] = _mock_module(_name, **_attrs)
         else:
             for _k, _v in _attrs.items():
+                _ha_attr_overrides.append(
+                    (_existing, _k, hasattr(_existing, _k),
+                     getattr(_existing, _k, None), _v)
+                )
                 setattr(_existing, _k, _v)
     else:
         sys.modules.setdefault(_name, _attrs)
@@ -261,6 +293,10 @@ if _hvac_zones_stubbed:
         getattr(_dc_mod, "hvac_zones", None), types.ModuleType
     ) and not getattr(_dc_mod.hvac_zones, "__file__", None):
         delattr(_dc_mod, "hvac_zones")
+
+# The URA modules above are bound to the stubs; put the real HA attributes
+# back so later-collected files import against the real classes.
+_undo_ha_attr_overrides()
 
 import custom_components.universal_room_automation.automation as _automation_mod  # noqa: E402
 from custom_components.universal_room_automation.automation import RoomAutomation  # noqa: E402
@@ -866,4 +902,8 @@ class TestMutationDrillAnchors:
 def _restore_module_state_after_file():
     from _d7_isolation import file_scope
 
-    yield from file_scope()
+    _apply_ha_attr_overrides()
+    try:
+        yield from file_scope()
+    finally:
+        _undo_ha_attr_overrides()
