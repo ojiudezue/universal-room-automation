@@ -892,6 +892,11 @@ an alert is safe; acting because a name appeared is not.
 | **Notification naming** | **≥0.75** | name the person in the message; anonymous below |
 | **Display** | **none** | show name-or-"unidentified"; never a trust decision |
 
+In code (PERSON-AWARENESS-READ-API-1 ship 1, branch `feature/person-awareness-read-api-ship1`, NOT deployed) the
+table is one rung-1 constant, `const.CONSUMER_CLASS_MIN_CONFIDENCE` (security 0.9, notification 0.75, display 0),
+read by `EgressDirectionTracker._arrival_departure_notify` (notification) and `PerimeterAlertManager._known_identity_for`
+(security floor; `PERIMETER_EGRESS_KNOWN_MIN_CONF` is still clamped up to it). Values unchanged.
+
 **(c) MEASURE-BEFORE-BUILD gate.** Before building ANY new consumer,
 re-measure the REAL production rate of `person_id` on the live
 producer (garage / family-room entry path, per the signed-lag probe),

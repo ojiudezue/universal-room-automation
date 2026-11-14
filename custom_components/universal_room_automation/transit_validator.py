@@ -25,6 +25,8 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     DOMAIN,
+    CONSUMER_CLASS_MIN_CONFIDENCE,
+    CONSUMER_CLASS_NOTIFICATION,
     CONF_CAMERA_PERSON_ENTITIES,
     CONF_EGRESS_CAMERAS,
     CONF_FACE_RECOGNITION_ENABLED,
@@ -1004,6 +1006,26 @@ class TransitValidator:
         _LOGGER.debug("TransitValidator torn down")
 
 
+@dataclass(frozen=True)
+class CrossingRecord:
+    """One F3 door crossing as fired on ``ura_person_egress_event``
+    (PERSON-AWARENESS-READ-API-1 RA5).
+
+    ``confidence`` is the bus field (crossing / direction confidence);
+    ``identity_confidence`` is the identity attach confidence (None when no
+    identity). ``provenance`` is None when ``person_id`` is None.
+    ``source_ref`` = ``egress:<camera>:<iso ts>``."""
+
+    camera: str
+    direction: str
+    ts: datetime
+    person_id: str | None
+    provenance: str | None
+    confidence: float
+    identity_confidence: float | None
+    source_ref: str
+
+
 class EgressDirectionTracker:
     """Correlate egress camera events with interior cameras to determine direction.
 
@@ -1074,6 +1096,27 @@ class EgressDirectionTracker:
         # may be in flight; without the lock both install state after their
         # executor read and the last to finish wins.
         self._path_map_lock = asyncio.Lock()
+        # PERSON-AWARENESS-READ-API-1 RA5: last F3 crossing per egress camera
+        # (and overall), recorded at the bus fire. RAM only; read through
+        # get_last_crossing(). No decision reads it in ship 1.
+        self._last_crossing_by_camera: dict[str, CrossingRecord] = {}
+        self._last_crossing: CrossingRecord | None = None
+
+    def _record_crossing(self, record: "CrossingRecord") -> None:
+        """Store the last crossing (overall and per camera)."""
+        self._last_crossing = record
+        self._last_crossing_by_camera[record.camera] = record
+
+    def get_last_crossing(self, camera: str | None = None) -> "CrossingRecord | None":
+        """Last F3 door crossing (RA5): overall, or for one egress camera.
+
+        Sync, never raises; None until a crossing has been resolved."""
+        try:
+            if camera is None:
+                return self._last_crossing
+            return self._last_crossing_by_camera.get(camera)
+        except Exception:  # noqa: BLE001
+            return None
 
     async def async_init(self) -> None:
         """Subscribe to egress and near-door interior cameras.
@@ -2211,6 +2254,20 @@ class EgressDirectionTracker:
             ),
         })
 
+        # RA5: record the crossing the bus event just carried (same values).
+        self._record_crossing(CrossingRecord(
+            camera=egress_camera_id,
+            direction=direction,
+            ts=egress_timestamp,
+            person_id=person_id,
+            provenance=(
+                resolution.provenance if person_id is not None else None
+            ),
+            confidence=confidence,
+            identity_confidence=identity_confidence,
+            source_ref=f"egress:{egress_camera_id}:{egress_timestamp.isoformat()}",
+        ))
+
         _LOGGER.debug(
             "Egress direction resolved: camera=%s, direction=%s, "
             "confidence=%.2f, person_id=%s",
@@ -2598,7 +2655,11 @@ class EgressDirectionTracker:
             pass
 
     # ARRIVAL-DEPARTURE-NOTIFY-1 (Wave-1 consumer #1)
-    ARRIVAL_NAME_CONFIDENCE_THRESHOLD = 0.75
+    # RA3: by reference to the consumer-class table (notification class),
+    # value unchanged (0.75). Kept as a class attribute for existing readers.
+    ARRIVAL_NAME_CONFIDENCE_THRESHOLD = CONSUMER_CLASS_MIN_CONFIDENCE[
+        CONSUMER_CLASS_NOTIFICATION
+    ]
 
     def _arrival_departure_notify(
         self,
@@ -2622,7 +2683,8 @@ class EgressDirectionTracker:
         if (
             person_id
             and identity_confidence is not None
-            and identity_confidence >= self.ARRIVAL_NAME_CONFIDENCE_THRESHOLD
+            and identity_confidence
+            >= CONSUMER_CLASS_MIN_CONFIDENCE[CONSUMER_CLASS_NOTIFICATION]
         ):
             name = person_id.replace("_", " ").title()
         else:
