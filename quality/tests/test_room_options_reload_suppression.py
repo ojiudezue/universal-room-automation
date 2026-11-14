@@ -257,6 +257,9 @@ def _load_ns() -> dict:
         "CONF_PERIMETER_ENRICHMENT_MODEL": "perimeter_enrichment_model",
         "CONF_PERIMETER_ENRICHMENT_MAX_TOKENS": "perimeter_enrichment_max_tokens",
         "CONF_PERIMETER_ENRICHMENT_PROVIDER_ID": "perimeter_enrichment_provider_id",
+        # Crossing vision P2-D1: fresh-read per llmvision call
+        # (CrossingVisionShadow._provider_id), suppress-listed.
+        "CONF_CROSSING_VISION_PROVIDER_ID": "crossing_vision_provider_id",
         # PERIMETER-FP (v5.107.0) gate keys.
         "CONF_PERIMETER_ZONE_AGREEMENT_DEMOTE": "perimeter_zone_agreement_demote",
         "CONF_PERIMETER_SINGLE_SOURCE_DEMOTE": "perimeter_single_source_demote",

@@ -138,6 +138,25 @@ from custom_components.universal_room_automation.domain_coordinators.energy_cons
 )
 
 
+@pytest.fixture(autouse=True)
+def _stub_verify_timer(monkeypatch):
+    """Scoped stub for the verify timer.
+
+    `_schedule_verify` imports `async_call_later` from
+    `homeassistant.helpers.event` at CALL time. The `_mods` setdefault shim above
+    is a no-op when real HA is already imported (it always is under
+    pytest-homeassistant-custom-component), so without this the real helper runs
+    against MockHass (no `.loop`). These tests passed in the full suite only
+    because another file leaked a stub module into sys.modules; this makes the
+    file self-sufficient and restores the real attribute after each test.
+    """
+    _ev = sys.modules["homeassistant.helpers.event"]
+    monkeypatch.setattr(
+        _ev, "async_call_later", lambda hass, delay, cb: (lambda: None),
+        raising=False,
+    )
+
+
 PRIMARY = "sensor.mains_test_primary"
 FALLBACK = "sensor.envoy_test_fallback"
 LIMIT_A = "number.garage_a_evse_emporia_wifi_garagea_current_limit"

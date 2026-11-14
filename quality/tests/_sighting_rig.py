@@ -146,6 +146,46 @@ def purge_attr_tainted_ha() -> list[str]:
     return popped
 
 
+_REGISTRY_HELPERS = (
+    "homeassistant.helpers.entity_registry",
+    "homeassistant.helpers.device_registry",
+    "homeassistant.helpers.area_registry",
+)
+
+
+def restore_stubbed_registry_helpers() -> list[str]:
+    """Bind the genuine value back onto any REAL registry-helper attribute a
+    donor replaced in place at collection time (``er.async_get = MagicMock()``
+    or a test-module lambda; census-p2 full run, 2026-11-14: victims
+    test_census_awareness_surface / test_crossing_ledger_wiring). The module
+    object everyone holds is kept (popping it splits class identity); only
+    the stubbed attributes are re-bound, from a scratch fresh import whose
+    ``sys.modules`` slot is put straight back. Call inside an
+    ``import_scope(..., attrs=True)`` so the donor's values return on exit
+    (same approach as test_ble_person_registry_resolve, 75bd75e1). Returns
+    ``module.attr`` names re-bound."""
+    fixed = []
+    for name in _REGISTRY_HELPERS:
+        held = sys.modules.get(name)
+        if held is None or not _is_real_ha(held):
+            continue
+        bad = [a for a, v in list(vars(held).items())
+               if not a.startswith("__") and _is_foreign_stub(v)]
+        if not bad:
+            continue
+        sys.modules.pop(name, None)
+        try:
+            fresh = importlib.import_module(name)
+        finally:
+            sys.modules[name] = held
+        for a in bad:
+            real = vars(fresh).get(a)
+            if real is not None and not _is_foreign_stub(real):
+                setattr(held, a, real)
+                fixed.append(f"{name}.{a}")
+    return fixed
+
+
 def import_real_modules(*, purge_tainted: bool = False):
     """Context manager yielding a namespace of freshly imported REAL modules.
 
@@ -164,6 +204,16 @@ def import_real_modules(*, purge_tainted: bool = False):
                     sys.modules.pop(name, None)
             for name in ("homeassistant.helpers.dispatcher", "homeassistant.helpers.event"):
                 sys.modules.pop(name, None)
+            # Order-proof the clock (census-p2 full run, 2026-11-14): several
+            # donors pop ``homeassistant.util.dt`` and re-import it, minting a
+            # second REAL copy without phcc's ``patch_time`` ``utcnow`` hook.
+            # Modules imported below would bind that copy and ignore the
+            # ``freezer`` fixture (census peak age stuck at 0). Pin the
+            # phcc-patched module; import_scope(attrs=True) restores it.
+            from pytest_homeassistant_custom_component import patch_time as _pt
+            import homeassistant.util as _ha_util
+            sys.modules["homeassistant.util.dt"] = _pt.dt_util
+            _ha_util.dt = _pt.dt_util
             if purge_tainted:
                 purge_attr_tainted_ha()
             _core = sys.modules["homeassistant.core"]
@@ -181,6 +231,8 @@ def import_real_modules(*, purge_tainted: bool = False):
             for _name in ("State", "Event", "HomeAssistant", "CoreState",
                           "ServiceCall", "SupportsResponse"):
                 setattr(_core, _name, getattr(_phcc, _name))
+            # After the real core.callback is back: a scratch re-import binds it.
+            restore_stubbed_registry_helpers()
             importlib.invalidate_caches()
             ns = SimpleNamespace(
                 presence=importlib.import_module(f"{_PKG}.domain_coordinators.presence"),

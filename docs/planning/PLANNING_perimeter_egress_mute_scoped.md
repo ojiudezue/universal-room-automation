@@ -93,9 +93,13 @@ listener and `_fp_setup_ts` in that block stay dual-role only. `_known_identity_
   `test_d10_5_ignores_unknown_entries`, `test_egress_listener_registers_without_dual_role`.
 
 ### D2: `egress_mute_covers` section
-New top-level key in `exterior_seams.json`: `{"garage_a": ["g5_bullet","doorbell_lite","rear_ptz"],
+New top-level key in `exterior_seams.json`: `{"garage_a": ["g5_bullet","rear_ptz"],
 "madrone_g6_entry": ["sonoffwindow","front_side_ptz","utilities_ptz"], "front_door_aerial": ["sonoffwindow",
 "front_side_ptz","utilities_ptz"]}`. Doors not listed (doorbell_lite as a door, garage_b) mute nothing.
+(Build fix-up, review A5: `doorbell_lite` was first listed under `garage_a`, but it is an egress camera,
+so its edges never take the scoped mute; covered cameras must be perimeter-only and the validator
+rejects any other.) A rejected file switches the mute off (covers cleared) while the graph keeps the
+last good spec (review A1).
 Validation in `validate_seam_spec`: object of door -> non-empty list; each door must be a configured egress camera
 and each covered camera a configured perimeter camera (`known_cameras`, resolved from config/registry, never from
 entity names); any error rejects the whole file and keeps the previous good spec. Absent section = no mute. The
@@ -162,6 +166,15 @@ The coverage map is config (seam file), not a knob.
 
 ## 8. Operator decisions recorded
 1. Alert now, name afterwards (decision A). 2. Coverage map as given, in `egress_mute_covers`, registry-resolved.
+3. (Build review A2, operator verbatim "(a) Re-alert late".) A non-qualifying crossing that lands after a
+covered camera's edge was muted inside its window sends that edge then, once, with gate reason
+`egress_mute_realert`, through the normal handler (cooldown applies). A qualifying crossing never re-sends.
+This closes the +45 s ordering residual the veto alone left open. (Review D1: one handler run per camera
+per crossing, all eligible edges marked first, one gate row per edge.)
+4. (Review D2.) With `door_groups` (`CONF_DOOR_GROUPS`) configured, all doors in a group count as one door for
+the mute (qualify, veto, stamp, re-alert, zero-fire), because transit dedups a crossing per group|direction and
+emits it under any leg camera of the group. Records stay keyed per door; widening is at read time; no group or
+unset option = per-door keying, byte-identical.
 Optional tightening offered, not built: refuse the mute when P's person count exceeds known crossers in the window.
 
 ## 9. Tier

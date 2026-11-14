@@ -9,7 +9,49 @@ PATCH. Five reviewed branches merged on `release/batch-1` (identity / vision / c
 - Reviews: each branch had three framing-disjoint reviews (A/B/C) plus fix-ups and re-verifies; review docs under docs/reviews/code-review/.
 
 ## Live validation
-Prospective criteria are in each section below; the post-restart `Validated <date>` table replaces them after the restart. HA restart held while the house is in sleep (operator rule).
+
+### Validated 2026-11-14
+
+Restart 12:47 CST (18:47 UTC), house state `guest` at boot. `switch.ura_crossing_vision_shadow` on at 12:48 CST. Read live 12:49 to about 13:07 CST. Signals: HA entity states and attributes, the URA DB (`memory_episodes`, `person_entry_exit_events`, `ura_activity_log`, `census_snapshots`), the recorder `states` table, and the HA system log (all since the 18:47 UTC boot). The `universal_room_automation` logger is at WARNING (`ha_get_logs source=logger`), so INFO lines are not readable live.
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| **Phone-left-behind L1**: Jaya flag attributes after a family-room face | PENDING | `binary_sensor.universal_room_automation_jaya_phone_left_behind` has `camera_leg: display_only`, `last_camera_sighting_at` null. House-state sensor `sensor.ura_presence_coordinator_presence_house_state`: `face_sightings_today=0`, `face_sighting_last=None` since restart. Proven by a recognised Jaya face on a sighting camera. |
+| **L2**: verdict ignores sightings | PENDING | All four flags `off` (ezinne, jaya, oji_udezue, ziri). No sighting since restart, so no `on` row can be checked against a recent sighting. In-suite: `test_fresh_sighting_does_not_change_verdict`. |
+| **L3**: no recorder churn from the camera-leg flags | PASS for the four camera flags; churn from other attributes noted | Recorder `states` rows 18:48 to 18:58 UTC. `last_camera_sighting_at`, `last_sighting_source/_camera/_room/_census_veto` stayed null on every row. Row counts: ezinne 13, jaya 8, oji_udezue 4, ziri 4. The extra rows follow `ble_location` and `room_corroboration_*` changing as BLE rooms flap (for example ezinne Breakfast Nook to Patio to Foyer, every 30 to 60 s). Those attributes were already recorded, not added here. Separate triage item, not this cycle. |
+| **L4**: transit path validation unchanged | NOT EVALUABLE as written; no regression seen | `ura_activity_log` `path_method` on 2026-11-13 (94 rows) and 2026-11-14 (202 rows): 100% `path_implausible` both days. `path_confirmed` appears on 0 rows on every day from 2026-11-01 to 2026-11-14, so the criterion's key does not exist in this log. The all-`path_implausible` mix is a separate observation (see below). |
+| **L5**: no URA ERROR at boot or on poll | PASS | `ha_get_logs source=system level=ERROR`: 13 entries since boot, 0 from URA. 3 tracebacks, all non-URA (assist_satellite setup, esphome manager, elkm1_lib decode). Boot-only WARNINGs dismissed: `Setup of sensor platform universal_room_automation is taking over 10 seconds` (18:47 UTC). |
+| **Crossing vision: first shadow row within 4 daytime hours** (`outcome = ok`, `people_count`, `camera_peak_count` non-null) | PENDING | `memory_episodes` `episode_type='crossing_vision_shadow'`: 0 rows. Switch on 12:48 CST; 0 egress rows since restart (newest `person_entry_exit_events` id 9045, 17:39 UTC, pre-restart). Proven by the first door crossing after 12:48 CST. |
+| **Crossing vision: `source_ref` matches `egress_identity_outcome`** | PENDING | No shadow rows yet. |
+| **Crossing vision: `crossing_vision_today.calls` at most today's crossings** | PENDING | No crossing since switch-on. Daily cap `number.ura_notification_manager_crossing_vision_daily_calls` = 40.0 (config present). Diagnostic not read (Outside: Open Tracks, not recorded). |
+| **Crossing vision: one new `person_entry_exit_events` row has the same `peak_person_count` as `camera_peak_count`** | PENDING | Rows since restart: none. Note: `peak_person_count` is already populated (value 2) on rows 9040 to 9045 written before the 18:47 UTC restart, so a populated column is not evidence for this build. |
+| **Crossing vision: no `crossing_vision` ERROR, no trip-wire page** | PASS so far | No crossing_vision log line (system or error_log) since boot. No `crossing_vision_zero` / `crossing_vision_errors` page. Re-check after the first daytime crossings. |
+| **Read API: no entity or attribute change after restart** | PASS (no new WARN/ERROR); entity values not diffed against a pre-restart read | `sensor.universal_room_automation_identified_persons_in_house` = 2, attributes `person_list` ["ezinne","jaya"]. Boot-only WARNING `Census: all camera platforms unavailable` (2 occurrences, 18:48:09 to 18:48:21 UTC), not recurred. No URA WARN/ERROR from `transit_validator`, `perimeter_alert` or `person_ids` in the system log. |
+| **Read API: census identified slugs keep the `oji_udezue` form** | PASS on format; presence delta noted | Pre-restart `census_snapshots` row 842166 (18:46:21 UTC) lists ["ezinne","jaya","oji_udezue"]. Post-restart sensor lists ["ezinne","jaya"] only. Oji's absence is a presence/BLE difference at boot, not a format change. Recheck when BLE settles. |
+| **Read API: next garage crossing NM text unchanged** ("<Name> arrived" at >= 0.75, else "Someone") | PENDING | Needs a garage crossing. |
+| **Read API: `get_house_census` / `view_for_class` / `get_last_crossing` / `get_last_arrival_record` callers** | PASS | `grep -rn` over `custom_components/` returns definitions and docstrings only: `presence.py:5952, 5984, 6009, 6021`, `transit_validator.py:1044` (plus comment lines). No caller. |
+| **S1: Study A and Kitchen `camera_stream_inputs_resolved = 1`, `camera_stream_dead_inputs` empty** | PASS | `sensor.studya_room_device_unavailable_entities`: resolved 1, dead {}. `sensor.kitchen_unavailable_entities`: resolved 1, dead {}, 0 unavailable sensors (12:50 CST). |
+| **S1: Upstairs Hallway `camera_stream_inputs_resolved = 1`** | CANNOT READ (operator action) | The Upstairs Hallway unavailable-entities sensor is not in the state machine (disabled by integration, as the README notes). Not enabled, because this validation does not change HA state. Operator: enable the sensor, then read `camera_stream_inputs_resolved` and `camera_stream_dead_inputs`. |
+| **S1: no `camera-derived input(s) ... no single camera entity` WARNING for the three rooms** | PASS | No such WARNING in the system log since boot. |
+| **S1 organic: a panel outage lists the panel input in `camera_stream_dead_inputs` within about 2.5 min; the room drops occupied** | PENDING | Kitchen panel person input `binary_sensor.kitchen_panel_person_occupancy` was unavailable 18:48:21 to 18:49:04 UTC (43 s, under the 120 s grace). No exclusion and no listing, which is correct, but not a discriminating test. Proven by a panel outage over 120 s. |
+| **S1 organic: a 30-min outage pages one HIGH `Camera stream dead: <room>`, then one LOW on recovery** | PENDING | Needs a 30-min camera outage. |
+| **W1: a garage_a crossing with `confidence = 0.9` (Frigate and Protect both fired) within a day** | PENDING | No egress since restart. Pre-W1 baseline: 0 of 71 garage_a crossings at 0.9 in 14 days. |
+| **W1: `binary_sensor.upstairs_hallway_camera_person_detected` lists two sources, one `correlation_basis: frigate_object_name`** | PASS | Sources: `unifiprotect` `binary_sensor.upstairs_hall_person_detected` (`correlation_basis: frigate_object_name`, state off); `frigate` `binary_sensor.upstairs_hall_person_occupancy_2` (`same_device`, unavailable). `resolved_physical_cameras: 1`, `agreement: unanimous_off`. |
+| **W1: other camera pairings unchanged (Living Room, Game Room, Study A fused sources)** | PENDING (no pre-change baseline) | Only one fused sensor in HA carries a `frigate_object_name` source (Upstairs Hallway, above). The other six table rows are not visible as fused sources. `binary_sensor.garage_a_camera_person_detected` has `sources: []`, `resolved_camera_devices: []` (`room_cameras_empty`). Needs a pre-change snapshot to diff. |
+| **W1: one INFO `Frigate object-name pairing accepted` per pairing (seven expected)** | CANNOT VERIFY live | The URA logger is at WARNING, so INFO lines are not emitted. Same for the crossing-vision setup pairing lines. In-suite: `test_nvr_witness_w1_resolver.py`. Enable INFO on the logger to check (an operator action). |
+| **W1: no WARNING/ERROR from `camera_resolver` or `camera_census` cutover** | PASS | No `camera_resolver` line in the system log. Only the boot-only `camera_census` WARNING above. |
+| **Restart: `sensor.kitchen_unavailable_entities` `unavailable` reading after boot** | Observation | `sensor.kitchen_unavailable_entities` lists `binary_sensor.mmwave_lux_temp_humidity_zigbee_kitchen_presence`, temperature, humidity and illuminance as `entity_missing`. Not caused by this release (no registry change in this cycle). Carded for triage. |
+
+**Dismissed boot-only transients** (all within 18:47 to 18:50 UTC unless noted): `coordinator` "All N sensors unavailable, holding occupancy state for 60s" (26 entries across several rooms, last 18:49:28 UTC; no later occurrence); `HVAC boot-settle: released via TIMEOUT after 60s` (18:48:46 UTC; one occurrence); `camera_census` "all camera platforms unavailable" (18:48:09 to 18:48:21 UTC); `weather_manager` divergence 5.0 F (18:48:16 UTC); `Waiting for integrations to complete setup: idasen_desk` (bootstrap, not URA); `Setup of sensor platform universal_room_automation is taking over 10 seconds` (18:47 UTC).
+
+**Non-boot URA WARNINGs (not in any criterion, carded for triage):**
+- `Room Living Room: Sensor binary_sensor.screek_human_sensor_l13_2412s_presence duty-cycle stuck`, NOTIFY-ONLY (not excluded). Logged twice: 18:48:55 and 18:53:13 UTC.
+- `Reset-day accrual on import capped: raw=48.218 cap=6.142` (`energy_billing_counters.py:192`, 18:52:44 UTC). A restart-time billing accrual cap, not a presence item.
+- `External URL https://madronehaos.phalanxmadrone.com is not reachable (TimeoutError); notification image links will be broken` (18:49:34 UTC). Outside this release.
+- `SOC stream tier trust -> trusted` (18:53:04 UTC). Informational, not an error.
+- Deprecation WARNINGs from URA code, HA 2027.8 / 2027.9 deadlines: `__init__.py:5212` (`device_registry.devices.values()`), `__init__.py:5290` (`async_get_device`), `_devices.py:627`. Not failures now; carded for HA-deprecation cleanup.
+
+**Log totals since boot:** ERROR 13 (0 URA). URA-logger WARNINGs are the entries listed above; their counts are the system-log `count` fields.
 
 ## Phone-left-behind camera leg (PHONE-LEFT-BEHIND-CAMERA-LEG-1)
 
@@ -41,15 +83,9 @@ camera leg is DISPLAY ONLY.
 |---|---|---|---|
 | `NEXT_ROOM_CAMERA_SIGHTING_MAX_AGE_S` | 14400 | 1 (const.py) | `<= 0` = never shown |
 
-### Live validation (prospective; replace with a `Validated <date>` table after restart)
+### Live validation: Validated 2026-11-14
 
-| # | Check | Pass looks like | Different failure looks like |
-|---|---|---|---|
-| L1 | Jaya flag attributes after a family-room face | `last_camera_sighting_at` set, `last_sighting_camera` set, `camera_leg: display_only` on `binary_sensor.universal_room_automation_jaya_phone_left_behind` | null while `sensor.ura_presence_house_state` `face_sighting_last` names Jaya = key or wiring miss |
-| L2 | Verdict ignores sightings | at least one `on` row (arrival or restart tick) whose `last_camera_sighting_at` is under 1 h old; if none occurs, in-suite only (`test_fresh_sighting_does_not_change_verdict`) | every `on` row lacks a recent sighting while that person has recent sightings = sightings leaking into the verdict |
-| L3 | No recorder churn | between sightings and verdict changes the four flags write no new state rows | a row every 15 min or every ~30 s = a moving attribute is back |
-| L4 | Transit path validation unchanged | activity-log `path_method` mix similar to the day before, `path_confirmed` present | `path_confirmed` gone = D3 broke unidentified reads |
-| L5 | No URA ERROR at boot or on poll | system_log clean of `binary_sensor` / `transit_validator` / `sensor` errors | |
+Results for L1 to L5 are in the consolidated table under `## Live validation` at the top of this file.
 
 ### Not done / deviations from the plan
 
@@ -106,17 +142,10 @@ crossings better than Frigate does before anything feeds the census (Phase 2).
   `crossing_vision_errors` (MEDIUM: more than 25 % of 8+ calls failed). The weekly memory-writer check pages
   if no row is written for 7 days, including a switch left off for a week.
 
-### Live acceptance (to run after deploy with the switch on)
+### Live acceptance: Validated 2026-11-14 (PENDING, see the top table)
 
-- Within 4 daytime hours: at least one row with `outcome = ok`, non-null `people_count` and
-  `camera_peak_count` (sentinel-only rows mean the payload is broken).
-- Every row's `source_ref` matches an `egress_identity_outcome` row's `source_ref`.
-- `crossing_vision_today.calls` is at most today's crossings.
-- One new `person_entry_exit_events` row has the same `peak_person_count` as the matching row's
-  `camera_peak_count`.
-- No `crossing_vision` ERROR in the HA log; no trip-wire page on the first day.
-
-Validation results are written back here after the restart.
+Five criteria are PENDING: no crossing has happened since the switch went on at 12:48 CST. The first
+daytime door crossing proves them. Results are in the consolidated table under `## Live validation`.
 
 
 ## Person-awareness read API, ship 1 (PERSON-AWARENESS-READ-API-1)
@@ -173,8 +202,11 @@ Behaviour is byte-identical under the live config. No entity, attribute or log l
 `test_view_for_class_display_follows_class_set`, `test_get_house_census_trust_equals_last_result`,
 `test_get_house_census_missing_census_none`, `test_get_last_crossing_matches_bus_event`.
 
-### Live validation (prospective)
+### Live validation: Validated 2026-11-14
 
+Results are in the consolidated table under `## Live validation`. Three PASS, one PENDING (garage NM text).
+
+<!-- prospective criteria (superseded by the table above) -->
 - **Live:** no entity or log change after restart: `sensor.universal_room_automation_persons_in_house` /
   identified sensors read the same as before; no new WARN/ERROR from `camera_census`, `transit_validator`,
   `perimeter_alert`, `person_ids`.
@@ -227,23 +259,12 @@ lights, fans, HVAC).
   stuck-sensor rule.
 - Kiosk app health (`foreground_app`) and kiosk restarts (homelab watchdog), per plan §8 non-goals.
 
-### Acceptance (prospective; replace with a `Validated <date>` table after restart)
+### Acceptance: Validated 2026-11-14
 
-- **Live:** `sensor.study_a_unavailable_entities`, `sensor.kitchen_unavailable_entities` and
-  `sensor.upstairs_hallway_unavailable_entities` each show `camera_stream_inputs_resolved = 1` and an empty
-  `camera_stream_dead_inputs` while the panels stream. The sensor is disabled by default
-  (`_attr_entity_registry_enabled_default = False`); on Upstairs Hallway it is `disabled_by: integration` today, so
-  enable it before reading (review B-L4).
-- **Live:** no `camera-derived input(s) ... have no single camera entity` WARNING in the log for those three rooms after
-  restart (a WARNING there means the panel's device did not resolve to one camera).
-- **Organic:** the next panel outage lists the panel person input under `camera_stream_dead_inputs` within about 2.5 min
-  (120 s grace + one 30 s room poll), and the room is not held occupied by it. Discriminator: under the fix the room's
-  `binary_sensor.<room>_occupied` drops one room-timeout after the input is listed; under the old behaviour it stays `on`
-  until the 4 h stuck-sensor rule.
-- **Organic:** if that outage lasts 30 min, exactly one HIGH `Camera stream dead: <room>` notification, and one LOW
-  recovered notification when the camera returns.
-- **In-suite only:** the byte-identical cases (unresolved camera, kill switch off) and the grace / NM boundaries are
-  proven in `quality/tests/test_camera_stream_health.py`; they cannot be forced live without breaking a camera.
+Results are in the consolidated table under `## Live validation`. Study A and Kitchen pass; Upstairs Hallway
+cannot be read (its sensor is disabled and this validation does not change HA state); the two organic
+outage criteria are PENDING. In-suite only: the byte-identical cases and the grace / NM boundaries are proven in
+`quality/tests/test_camera_stream_health.py`.
 
 
 ## NVR witness W1: registry-only Frigate/Protect pairing (NVR-WITNESS-CONSOLIDATION-1 W1)
@@ -315,8 +336,11 @@ AgreementTracker samples on this house. (That stem bridge is itself a name guess
 knob, the call site, the slug function, the `name_by_user` precedence and the camera-device gate are mutation-anchored.
 Fix-up: the once-per-pairing INFO log (B-L1) and slugify-import fail-closed (C-1) each have a RED-on-mutation test.
 
-### Live validation (prospective)
+### Live validation: Validated 2026-11-14
 
+Results are in the consolidated table under `## Live validation`. Still PENDING: the garage_a 0.9 row (no egress since restart), the other-camera pairing diff (no pre-change baseline), and the INFO lines (logger at WARNING). The Upstairs Hallway two-source check PASSES.
+
+<!-- prospective criteria (superseded by the table above) -->
 - **Live:** within a day, a `person_entry_exit_events` row with `egress_camera = binary_sensor.garage_a_person_detected`,
   or a garage_a crossing with `confidence = 0.9` (Frigate and Protect both fired). Before W1 garage_a scored 0.9 on
   0 of 71 crossings in 14 days. A subscription fault would pass the resolver tests and show no such row, so this

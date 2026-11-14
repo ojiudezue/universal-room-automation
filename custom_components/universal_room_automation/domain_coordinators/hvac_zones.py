@@ -2723,12 +2723,10 @@ class ZoneManager:
             return False
         # PERSON-BLE-WINS-OVER-STALE-GPS-1 §6b: BLE-overrule-aware trust read
         # (raw HA state unless the person's GPS "home" was overruled).
-        from ..person_coordinator import person_state_for_trust  # noqa: PLC0415
+        # RA8: the one F1 per-zone level read.
+        from ..person_coordinator import first_person_home_for_trust  # noqa: PLC0415
 
-        for person_entity in persons:
-            if person_state_for_trust(hass, person_entity) == "home":
-                return True
-        return False
+        return first_person_home_for_trust(hass, persons) is not None
 
     def hvac_occupied_diag(self, room_name: str) -> dict[str, Any]:
         """Return a diagnostic snapshot for a room's D1 state (used by D2)."""

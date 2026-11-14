@@ -76,3 +76,5 @@
 - 2026-11-13 11:41 **v5.108.19** — v5.108.19 — House-state step 1a: one arrival rule, residents-home producer, ARRIVING severity (cards: HOUSE-STATE-FIRST-PRINCIPLES-1)
 - 2026-11-13 18:48 **v5.108.20** — v5.108.20: Perimeter gate evidence (Part A) (cards: PERIMETER-ZONE-AGREEMENT-FIX-OR-REMOVE-1,PERIMETER-GATE-DECISIONS-NOT-PERSISTED-1)
 - 2026-11-13 23:56 **v5.108.21** — v5.108.21: identity arc batch 1 (cards: PHONE-LEFT-BEHIND-CAMERA-LEG-1,PANEL-KS-HEALTH-AS-INPUT-1)
+- 2026-11-14 14:36 **v5.108.22** — v5.108.22: release batch 2 (read API ship 2, scoped egress mute, perimeter labels, stream health S2, BLE person registry) (cards: PERSON-AWARENESS-READ-API-1,PERIMETER-GLOBAL-EGRESS-MUTE-1,PERIMETER-SWITCH-LABELS-AND-FLOW-PARITY-1,CAMERA-STREAM-DEAD-ZONE-AND-CENSUS-1,BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1)
+- 2026-11-14 16:03 **v5.108.23** — v5.108.23: census deconfliction + crossing ledger (ships dark) (cards: CENSUS-DECONFLICTION-LEDGER-1)

@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv5.108.21
+# Universal Room Automation vv5.108.23
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -11502,9 +11502,11 @@ class UniversalRoomDatabase:
         a single WARNING log line. Never raises.
         """
         from .const import (  # noqa: PLC0415
+            DOMAIN,
             MEMORY_WRITER_BACKED_EPISODE_TYPES,
             MEMORY_WRITER_HEALTH_ABSENCE_EXEMPT_TYPES,
             MEMORY_WRITER_HEALTH_EXEMPT_TYPES,
+            MEMORY_WRITER_HEALTH_SWITCH_GATED_TYPES,
         )
         try:
             now = datetime.now(timezone.utc)
@@ -11540,9 +11542,20 @@ class UniversalRoomDatabase:
             since_iso = (
                 now - timedelta(days=cadence_days)
             ).isoformat()
+            # Review B-L4 (crossing vision P2-D3): a switch-gated writer is
+            # not checked while its switch reads off (it cannot write).
+            try:
+                _dd = self.hass.data.get(DOMAIN, {})
+            except Exception:  # noqa: BLE001
+                _dd = {}
+            switch_off_types = {
+                t for t, key in MEMORY_WRITER_HEALTH_SWITCH_GATED_TYPES.items()
+                if not bool(_dd.get(key, False))
+            }
             checked = [
                 t for t in MEMORY_WRITER_BACKED_EPISODE_TYPES
                 if t not in MEMORY_WRITER_HEALTH_EXEMPT_TYPES
+                and t not in switch_off_types
             ]
             counts: dict[str, int] = {}
             try:
@@ -11661,6 +11674,7 @@ class UniversalRoomDatabase:
                 "zero_row_types": zero_types,
                 "exempt_types": sorted(MEMORY_WRITER_HEALTH_EXEMPT_TYPES),
                 "absence_suppressed_types": absence_suppressed,
+                "switch_off_types": sorted(switch_off_types),
                 "counts": counts,
             }
         except Exception as e:  # noqa: BLE001 — observational, never raises

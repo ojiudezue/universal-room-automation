@@ -601,6 +601,7 @@
           "manage_zones": "🗂️ Manage Zones",
           "camera_census": "📷 Camera Census",
           "perimeter_alerting": "🚨 Perimeter Alerting",
+          "perimeter_alert_filters": "🧹 Perimeter Alert Filters",
           "domain_coordinators": "🤖 Domain Coordinators",
           "coordinator_presence": "👥 Presence Settings",
           "coordinator_safety": "🛡️ Safety Monitoring",
@@ -916,6 +917,24 @@
           }
         }
       },
+      "perimeter_alert_filters": {
+        "title": "🧹 Perimeter Alert Filters",
+        "description": "Choose which outdoor alerts get lowered or named. The same settings are switches on the Universal Room Automation device.",
+        "data": {
+          "perimeter_zone_agreement_demote": "Lower road alerts",
+          "perimeter_single_source_demote": "Lower single-sourced alerts",
+          "perimeter_egress_known_xcorr_gate": "Unknown person door alert",
+          "perimeter_identity_followup": "Add names to alerts",
+          "perimeter_vlm_gate": "AI person check"
+        },
+        "data_description": {
+          "perimeter_zone_agreement_demote": "People seen only off your property (street, sidewalk) go to the digest as low priority instead of alerting.",
+          "perimeter_single_source_demote": "In daylight, a first alert seen by only one camera system (Frigate or Protect) goes out as low priority unless the other confirms within 8 seconds. Never after sunset.",
+          "perimeter_egress_known_xcorr_gate": "Door cameras send a full alert only for a person who is not recognised and is seen by both camera systems. Others go out as low priority.",
+          "perimeter_identity_followup": "When a door alert person is recognised a little later, send a short follow-up with their name.",
+          "perimeter_vlm_gate": "An AI looks at the snapshot to confirm a real person before alerting. Watch only records its answer without changing alerts; On lowers alerts it says have no person."
+        }
+      },
       "perimeter_alerting": {
         "title": "🚨 Perimeter Alerting",
         "description": "Get alerts about vehicles on your outdoor cameras during these hours. Optional AI descriptions add detail.",
@@ -938,6 +957,7 @@
               "perimeter_enrichment_model": "AI model",
               "perimeter_enrichment_max_tokens": "Max reply length",
               "perimeter_enrichment_provider_id": "AI provider ID",
+              "crossing_vision_provider_id": "Door count AI provider ID",
               "exterior_snapshot_offset_s": "Snapshot delay (s)"
             },
             "data_description": {
@@ -946,6 +966,7 @@
               "perimeter_enrichment_model": "AI model name the service should use.",
               "perimeter_enrichment_max_tokens": "Longest description the AI may write. Some models reply with nothing if this is too low.",
               "perimeter_enrichment_provider_id": "Optional. Which llmvision provider to use. Leave empty for its default.",
+              "crossing_vision_provider_id": "Optional. llmvision provider for counting people at door crossings. Leave empty to use the AI provider ID above.",
               "exterior_snapshot_offset_s": "Wait this many seconds before sending, so the snapshot is closer to the moment. 0 means no wait."
             }
           }
@@ -2634,6 +2655,14 @@
   },
   "entity": {
     "select": {
+      "perimeter_vlm_gate": {
+        "name": "AI Person Check",
+        "state": {
+          "off": "Off",
+          "shadow": "Watch only",
+          "enforce": "On"
+        }
+      },
       "room_fan_mode": {
         "name": "Fan Mode",
         "state": {
@@ -2666,19 +2695,19 @@
         "description": "Use face-recognition results to identify the person during transit/path validation and presence trust. When ON, camera face events are considered by the transit validator and the presence coordinator; when OFF, the same events are still processed but not attributed to a specific person. Toggling this switch takes effect within seconds — no integration reload."
       },
       "perimeter_zone_agreement_demote": {
-        "name": "Quiet Off-Property Alerts",
-        "description": "Lower a perimeter alert to low when Frigate saw the person but never inside the property zone. Off: the decision is only recorded."
+        "name": "Lower Road Alerts",
+        "description": "People seen only off your property (street, sidewalk) go to the digest as low priority instead of alerting. Off: the decision is only recorded."
       },
       "perimeter_single_source_demote": {
-        "name": "Quiet Single-Camera-System Alerts",
-        "description": "Lower a camera's first alert to low when only one camera system saw the person, on cameras where both systems usually agree. Off: the decision is only recorded."
+        "name": "Lower Single-Sourced Alerts",
+        "description": "In daylight, a first alert seen by only one camera system (Frigate or Protect) goes out as low priority unless the other confirms within 8 seconds. Never after sunset. Only shown when a camera is watched by both systems."
       },
       "perimeter_egress_known_xcorr_gate": {
-        "name": "Door Alerts Only for Strangers",
+        "name": "Unknown Person Door Alert",
         "description": "Door cameras that also alert as outdoor cameras send a full alert only for an unknown person that both camera systems saw. Known people and single-system sightings are lowered to low."
       },
       "perimeter_identity_followup": {
-        "name": "Door Alert Name Follow-Up",
+        "name": "Add Names to Alerts",
         "description": "After a door camera alert for an unknown person, send one quiet follow-up such as 'Front door: that was Jaya' if face recognition names the person within 90 seconds."
       },
       "name_people_at_doors": {
@@ -2762,6 +2791,13 @@
     }
   },
   "selector": {
+    "perimeter_vlm_gate": {
+      "options": {
+        "off": "Off",
+        "shadow": "Watch only",
+        "enforce": "On"
+      }
+    },
     "nm_life_safety_repeat_schedule": {
       "options": {
         "standard": "Standard (recommended) — every 5 min for the first hour, then every 30 min, then daily",

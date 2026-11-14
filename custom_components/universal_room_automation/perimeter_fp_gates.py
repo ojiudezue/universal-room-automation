@@ -28,6 +28,26 @@ def nvr_family(engine: str | None) -> str:
     return e
 
 
+def dual_nvr_present(hass: Any) -> bool:
+    """PERIMETER-SWITCH-LABELS-AND-FLOW-PARITY-1: does this install have at
+    least one camera seen by both Frigate and Protect? Gates whether the
+    "Lower Single-Sourced Alerts" switch and flow field exist. Registry
+    based via CameraResolver; False on any error (setting treated as off).
+    HA imports are local so the module stays importable without HA."""
+    try:
+        from homeassistant.helpers import (  # noqa: PLC0415
+            device_registry as dr,
+            entity_registry as er,
+        )
+        from .camera_resolver import CameraResolver  # noqa: PLC0415
+
+        return CameraResolver(
+            er.async_get(hass), dr.async_get(hass),
+        ).has_frigate_and_protect_camera()
+    except Exception:  # noqa: BLE001
+        return False
+
+
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 
 

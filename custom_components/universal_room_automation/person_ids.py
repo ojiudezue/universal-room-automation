@@ -61,3 +61,17 @@ def display_of(slug: Any) -> str:
     """
     s = slug_of(slug)
     return s.replace("_", " ").title()
+
+
+def entity_key_slug(name: str) -> str:
+    """Frozen key rule for URA-OWNED unique ids and storage keys
+    (PERSON-AWARENESS-READ-API-1 RA9).
+
+    ``name.lower().replace(' ', '_')`` exactly: no strip, no ``person.``
+    handling, raises on ``None`` like the inline copies it replaces. This is
+    a different concept from ``slug_of`` (identity matching): changing it
+    would change existing unique ids (``{DOMAIN}_person_<key>_...``) and
+    orphan registry entries, so it must never be "improved". Callers keep
+    their own ``None`` / ``str()`` guards.
+    """
+    return name.lower().replace(" ", "_")
