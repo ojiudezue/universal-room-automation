@@ -157,6 +157,7 @@ from .domain_coordinators.camera_stream_health import (
     CameraInputStreamHealth,
     EXCLUSION_CLIENT as CAMERA_STREAM_EXCLUSION_CLIENT,
     NM_KIND as CAMERA_STREAM_NM_KIND,
+    NM_KIND_HOLD_RELEASED as CAMERA_STREAM_NM_KIND_HOLD_RELEASED,
 )
 from .domain_coordinators.sensor_capability import capability_routing_enabled
 from ._humidity_gate import humidity_venting_enabled
@@ -2641,14 +2642,20 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # a held input turns RELEASED with no event either.
         _dead_set = frozenset(dead)
         _expired_set = self._camera_stream_health.hold_expired_now
+        # Review D-M1: an input held from t0 (unavailable with its camera)
+        # that this tick confirms as an ordinary sensor outage (camera live)
+        # turns off with no event either. (Its other exits need no flip: a
+        # recovery is a state event, a dead camera is a dead flip.)
         _flipped = (
             (_dead_set ^ self._camera_stream_prev_dead)
             | (_expired_set ^ self._camera_stream_prev_expired)
+            | self._camera_stream_health.newly_plain_now
         )
         self._camera_stream_prev_dead = _dead_set
         self._camera_stream_prev_expired = _expired_set
         if _flipped:
             self._notify_substrate_stream_flips(_flipped)
+        self._fire_camera_hold_pages(now, room_name)
         if not (to_page or to_recover):
             return
         from .domain_coordinators._stuck_signal_nm import (  # noqa: PLC0415
@@ -2680,6 +2687,65 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                     f"(camera {_cam or 'stream'} back)"
                 ),
             ))
+
+    def _fire_camera_hold_pages(self, now, room_name: str) -> None:
+        """S2 hold-release page (operator 2026-11-14): once a dead camera
+        passes the first positive hold cap its inputs are released, and a
+        camera dead that long is a hardware or host failure, not a normal
+        outage (audit: ordinary outages end within 6.3 min). ONE HIGH page
+        per camera per outage (key = camera, shared by every room; the
+        per-day latch is cleared by the LOW recovery), LOW when it streams
+        again."""
+        pages = list(self._camera_stream_health.hold_pages)
+        recoveries = list(self._camera_stream_health.hold_recoveries)
+        if not (pages or recoveries):
+            return
+        from .domain_coordinators._stuck_signal_nm import (  # noqa: PLC0415
+            fire_stuck_signal,
+            fire_stuck_signal_recovered,
+        )
+        for _cam, _since, _cap in pages:
+            _mins = int((now - _since).total_seconds() // 60)
+            self.hass.async_create_task(fire_stuck_signal(  # noqa: untracked-ok
+                self.hass,
+                kind=CAMERA_STREAM_NM_KIND_HOLD_RELEASED,
+                key=(_cam,),
+                diagnosis=(
+                    f"camera {_cam} has been dead for {_mins} min (unavailable "
+                    f"since {_since.isoformat()}): hardware or host failure, "
+                    f"not a normal outage. Its inputs no longer hold occupancy "
+                    f"or the census (hold cap {int(_cap)} s; seen by room "
+                    f"{room_name})."
+                ),
+                remedy=(
+                    "check the camera's power / network and its NVR or "
+                    "kiosk host"
+                ),
+                title_override=f"Camera dead {_mins} min: {_cam}",
+                exclusion_engaged=True,
+                severity="HIGH",
+            ))
+        for _cam in recoveries:
+            self.hass.async_create_task(fire_stuck_signal_recovered(  # noqa: untracked-ok
+                self.hass,
+                kind=CAMERA_STREAM_NM_KIND_HOLD_RELEASED,
+                key=(_cam,),
+                message=f"camera {_cam} streams again; its inputs count again",
+            ))
+
+    def camera_input_stream_unavailable_held(self, input_eid: str) -> bool | None:
+        """Review D-M1 getter: None = not this room's resolved input; True =
+        the input reads ``unavailable`` and no tick has seen its camera live
+        in this episode (held from t0, not off)."""
+        return self._camera_stream_health.is_unavailable_held(input_eid)
+
+    def camera_input_room_quarantined(self, input_eid: str) -> bool | None:
+        """Review D-L2 getter: True iff this room's exclusion set currently
+        quarantines the input (any client); None otherwise (no opinion)."""
+        try:
+            return True if self._exclusion_set.is_excluded(input_eid) else None
+        except Exception:  # noqa: BLE001
+            return None
 
     def _camera_override_live_person_sensors(self) -> list[str]:
         """Override person sensors minus those whose own camera stream is
@@ -2727,15 +2793,20 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         """
         return self._camera_stream_health.is_dead(input_eid)
 
-    def camera_input_stream_hold_expired(self, input_eid: str) -> bool | None:
+    def camera_input_stream_hold_expired(
+        self, input_eid: str, census: bool = False,
+    ) -> bool | None:
         """S2 hold getter: None = not this room's resolved input; True =
-        dead AND its zone hold (CAMERA_INPUT_STREAM_DEAD_HOLD_MAX_S) is
-        over this tick; False otherwise."""
-        return self._camera_stream_health.is_hold_expired(input_eid)
+        dead AND its hold is over this tick (zone cap
+        CAMERA_INPUT_STREAM_DEAD_HOLD_MAX_S, or with ``census`` the census
+        cap CAMERA_INPUT_STREAM_DEAD_CENSUS_HOLD_MAX_S); False otherwise."""
+        return self._camera_stream_health.is_hold_expired(input_eid, census)
 
-    def camera_stream_hold_expired(self, camera_eid: str) -> bool | None:
+    def camera_stream_hold_expired(
+        self, camera_eid: str, census: bool = False,
+    ) -> bool | None:
         """Camera-keyed form of ``camera_input_stream_hold_expired``."""
-        return self._camera_stream_health.camera_hold_expired(camera_eid)
+        return self._camera_stream_health.camera_hold_expired(camera_eid, census)
 
     def camera_stream_dead(self, camera_eid: str) -> bool | None:
         """Camera-keyed form of the getter above (same tick evaluation):

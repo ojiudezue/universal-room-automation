@@ -939,7 +939,17 @@ class OccupancySubstrate:
             or getattr(new_state, "state", None) != "off"
         ):
             return False
-        return self._stream_view(entity_id) is None
+        if self._stream_view(entity_id) is not None:
+            return False
+        # Review D-L2: a sensor its room quarantines (chatter, stuck, ...)
+        # is not working equipment either; its on -> off ends no hold.
+        try:
+            from .camera_stream_health import (  # noqa: PLC0415
+                input_room_quarantined,
+            )
+            return not input_room_quarantined(self.hass, entity_id)
+        except Exception:  # noqa: BLE001 — develop: a live input ends it
+            return True
 
     def _dispatch(self, room_name: str, kind: str, new_state: bool) -> None:
         """Dispatch the per-kind edge to subscribers + the HA dispatcher.

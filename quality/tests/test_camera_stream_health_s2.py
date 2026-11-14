@@ -166,6 +166,8 @@ class _RoomCoord:
             "camera_input_stream_dead", "camera_stream_dead",
             "camera_input_stream_hold_expired", "camera_stream_hold_expired",
             "_camera_override_person_sensors", "_substrate_edge_wants_refresh",
+            "_fire_camera_hold_pages", "camera_input_stream_unavailable_held",
+            "camera_input_room_quarantined",
         ):
             fn = getattr(UniversalRoomCoordinator, name)
             setattr(self, name, fn.__get__(self, type(self)))
@@ -238,11 +240,12 @@ def _outage(house, room):
 # releasing. A dead camera is not a presence or absence of signal. Its faulty
 # equipment." A dead input is UNKNOWN at the zone tier: it neither creates
 # nor ends occupancy; the level holds until a LIVE input of the room goes
-# on -> off, the camera streams again, or 4 h (14400 s, literal below) pass
+# on -> off, the camera streams again, or 15 min (900 s, literal below) pass
 # from the camera's first `unavailable` reading.
 # ---------------------------------------------------------------------------
 
-HOLD_END = 14400  # seconds from T0 (the first `unavailable` tick); literal
+HOLD_END = 900  # zone cap, seconds from T0 (the first `unavailable` tick)
+CENSUS_HOLD_END = 900  # census cap (operator: both 15 min), same origin; literal
 
 
 def _ev(eid, new, old=None):
@@ -383,10 +386,10 @@ def test_zone_live_end_without_dead_input_touches_no_other_kind(house):
     assert edges == [(ROOM, "motion", False)]
 
 
-def test_zone_hold_failsafe_releases_at_4h(house):
-    """The hold ends 14400 s after the camera's first `unavailable` tick:
-    held at 14399 s, released (off edge, via the room tick's discharge) at
-    14400 s."""
+def test_zone_hold_failsafe_releases_at_cap(house):
+    """The hold ends 900 s after the camera's first `unavailable` tick:
+    held at 899 s, released (off edge, via the room tick's discharge) at
+    900 s."""
     room = _RoomCoord(house, _registry())
     _seed_states(house)
     sub, edges = _substrate(house)
@@ -438,7 +441,7 @@ def test_zone_seed_honours_hold(house):
 def test_zone_switch_off_paths_hold(house, switch_off):
     """ZONE_OCCUPANCY_PER_ENTITY_ENABLED False (last-writer): the discharge
     and the dead input's own events hold; a live ZV on -> off releases; the
-    4 h end releases."""
+    cap end releases."""
     room = _RoomCoord(house, _registry())
     _seed_states(house)
     sub, edges = _substrate(house)
@@ -514,7 +517,7 @@ def test_restart_blip_not_dead_at_zone(house):
 def test_restart_rebuilds_from_first_tick(house):
     """After an HA restart the tracker is fresh (RAM only): the zone counts
     the frozen input, holds it once the new tick has seen the camera dead,
-    and the 4 h clock restarts from the new first `unavailable` tick."""
+    and the cap clock restarts from the new first `unavailable` tick."""
     house.set(**{PANEL: "on", PANEL_CAM: "unavailable", ZV: "off"})
     sub, edges = _substrate(house)
     room = _RoomCoord(house, _registry())  # fresh process
@@ -573,18 +576,18 @@ class _CountingRoom:
         self.calls += 1
         return None
 
-    def camera_input_stream_hold_expired(self, eid):
+    def camera_input_stream_hold_expired(self, eid, census=False):
         self.calls += 1
         return None
 
-    def camera_stream_hold_expired(self, cam):
+    def camera_stream_hold_expired(self, cam, census=False):
         self.calls += 1
         return None
 
 
 def test_zone_camera_tier_holds_dead_stream(house):
     """Zone camera tier (Tier 2): a frozen detection of a dead-stream camera
-    keeps holding (unknown) until 4 h, then counts as off."""
+    keeps holding (unknown) until the 900 s cap, then counts as off."""
     room = _RoomCoord(house, _registry())
     tracker = ZonePresenceTracker(
         hass=house.hass, zone_name="Upstairs", room_names=[ROOM],
@@ -701,7 +704,7 @@ def test_zone_camera_tier_camera_entity_key(house):
 
 def test_night_raw_switch_off_limb_holds_dead_input(house, switch_off):
     """_zone_night_raw (switch-off live limb): a dead-stream input reading
-    `on` keeps a SLEEP zone 'really occupied' while held, not after 4 h."""
+    `on` keeps a SLEEP zone 'really occupied' while held, not after the cap."""
     room = _RoomCoord(house, _registry())
     tracker = ZonePresenceTracker(
         hass=house.hass, zone_name="Upstairs", room_names=[ROOM],
@@ -785,9 +788,9 @@ def test_repro_sleep_guest_camera_dies_no_away(house):
     assert proposed == HouseState.AWAY
 
 
-def test_repro_sleep_guest_failsafe_releases_at_4h(house):
+def test_repro_sleep_guest_failsafe_releases_at_cap(house):
     """Same repro, no live input ever ends it: AWAY only once the hold ends
-    (4 h after the camera's first `unavailable` tick), not at 4 h - 1 s."""
+    (900 s after the camera's first `unavailable` tick), not at the cap - 1 s."""
     room = _RoomCoord(house, _registry())
     house.set(**{PANEL: "on", PANEL_CAM: "unavailable", ZV: "off"})
     sub, tracker = _zone_stack(house)
@@ -1138,7 +1141,7 @@ def test_census_dead_stream_holds_then_is_missing_not_zero(house):
     """Frozen panel count 1 + a live Protect camera seeing nobody. Live
     stream: Frigate counts 1 (both platforms). Dead stream, hold not over:
     unknown, the frozen count keeps counting (operator ruling: a camera
-    dying cannot drop the census by itself). Hold over (14400 s): the panel
+    dying cannot drop the census by itself). Hold over (900 s): the panel
     is a MISSING term: Frigate is not available at all (degraded, single
     source, Protect is the source), which a zero count would not produce
     (a zero would read frigate_count 0, degraded False)."""
@@ -1154,9 +1157,9 @@ def test_census_dead_stream_holds_then_is_missing_not_zero(house):
     held = _house_census(census)
     assert held.frigate_count == 1
     assert held.degraded_mode is False
-    room.tick(T0 + timedelta(seconds=HOLD_END - 1))
+    room.tick(T0 + timedelta(seconds=CENSUS_HOLD_END - 1))
     assert _house_census(census).frigate_count == 1
-    room.tick(T0 + timedelta(seconds=HOLD_END))
+    room.tick(T0 + timedelta(seconds=CENSUS_HOLD_END))
     dead = _house_census(census)
     assert dead.frigate_count == 0
     assert dead.degraded_mode is True
@@ -1177,7 +1180,7 @@ def test_census_cross_validation_off_skips_dead_stream(house, monkeypatch):
     assert _house_census(census).frigate_count == 1
     room.tick(T0 + timedelta(seconds=120))
     assert _house_census(census).frigate_count == 1
-    room.tick(T0 + timedelta(seconds=HOLD_END))
+    room.tick(T0 + timedelta(seconds=CENSUS_HOLD_END))
     assert _house_census(census).frigate_count == 0
 
 
@@ -1192,7 +1195,7 @@ def test_census_unrecognized_count_skips_dead_stream(house):
     assert census._get_unrecognized_camera_count() == 1
     room.tick(T0 + timedelta(seconds=120))
     assert census._get_unrecognized_camera_count() == 1
-    room.tick(T0 + timedelta(seconds=HOLD_END))
+    room.tick(T0 + timedelta(seconds=CENSUS_HOLD_END))
     assert census._get_unrecognized_camera_count() == 0
 
 
@@ -1265,10 +1268,10 @@ class _ForcedRoom:
     def camera_stream_dead(self, cam):
         return self._answer if cam == PANEL_CAM else None
 
-    def camera_input_stream_hold_expired(self, eid):
+    def camera_input_stream_hold_expired(self, eid, census=False):
         return (self._answer and self._expired) if eid == PANEL else None
 
-    def camera_stream_hold_expired(self, cam):
+    def camera_stream_hold_expired(self, cam, census=False):
         return (self._answer and self._expired) if cam == PANEL_CAM else None
 
 
@@ -1402,10 +1405,10 @@ class _SplitRoom:
     def camera_stream_dead(self, cam):
         return self._c if cam == PANEL_CAM else None
 
-    def camera_input_stream_hold_expired(self, eid):
+    def camera_input_stream_hold_expired(self, eid, census=False):
         return False if eid == PANEL and self._i is not None else None
 
-    def camera_stream_hold_expired(self, cam):
+    def camera_stream_hold_expired(self, cam, census=False):
         return False if cam == PANEL_CAM and self._c is not None else None
 
 
@@ -1580,3 +1583,404 @@ def test_recheck_survives_a_raising_state_read(house, switch_off):
     sub.recheck_entities([PANEL, ZV])
     assert edges == [(ROOM, "motion", True)]
     del room
+
+
+# ---------------------------------------------------------------------------
+# Fix-up round 2 (operator 2026-11-14): measured caps (zone 900 s, census
+# 900 s, two constants), the hold-release page, review D-M1 (an input that
+# goes unavailable together with its camera is held from t0), D-L2 (a
+# quarantined sensor is no live end), D-L3 (frozen census body: AWAY delay
+# bounded by the census cap). Boundaries are literals.
+# ---------------------------------------------------------------------------
+
+
+def test_caps_are_independent_constants(house, monkeypatch):
+    """Census cap 300 / zone cap 900: at 300 s the census view is released
+    while the zone view is still held; at 900 s both are released."""
+    monkeypatch.setattr(csh._const, "CAMERA_INPUT_STREAM_DEAD_CENSUS_HOLD_MAX_S", 300.0)
+    room = _RoomCoord(house, _registry())
+    _seed_states(house)
+    room.tick(T0)
+    room.tick(T0 + timedelta(seconds=299))
+    assert csh.input_stream_view(house.hass, PANEL, census=True) == csh.VIEW_HELD
+    room.tick(T0 + timedelta(seconds=300))
+    assert csh.input_stream_view(house.hass, PANEL, census=True) == csh.VIEW_RELEASED
+    assert csh.input_stream_view(house.hass, PANEL) == csh.VIEW_HELD
+    room.tick(T0 + timedelta(seconds=899))
+    assert csh.input_stream_view(house.hass, PANEL) == csh.VIEW_HELD
+    room.tick(T0 + timedelta(seconds=900))
+    assert csh.input_stream_view(house.hass, PANEL) == csh.VIEW_RELEASED
+
+
+@pytest.mark.parametrize("which", ["zone", "census"])
+@pytest.mark.parametrize(
+    ("cap", "held_at", "released_at"),
+    [
+        (0.0, None, 120),          # 0 = no hold: released at the grace
+        (60.0, None, 120),         # below the grace: released at the grace
+        (1e9, 10 * 86400, None),   # very large: still held after 10 days
+    ],
+)
+def test_cap_config_extremes(house, monkeypatch, which, cap, held_at, released_at):
+    name = (
+        "CAMERA_INPUT_STREAM_DEAD_HOLD_MAX_S" if which == "zone"
+        else "CAMERA_INPUT_STREAM_DEAD_CENSUS_HOLD_MAX_S"
+    )
+    monkeypatch.setattr(csh._const, name, cap)
+    room = _RoomCoord(house, _registry())
+    _seed_states(house)
+    room.tick(T0)
+    room.tick(T0 + timedelta(seconds=119))
+    assert csh.input_stream_view(house.hass, PANEL, census=(which == "census")) is None
+    t = released_at if released_at is not None else held_at
+    room.tick(T0 + timedelta(seconds=t))
+    want = csh.VIEW_RELEASED if released_at is not None else csh.VIEW_HELD
+    assert csh.input_stream_view(
+        house.hass, PANEL, census=(which == "census"),
+    ) == want
+
+
+def _hold_nm(monkeypatch):
+    from custom_components.universal_room_automation.domain_coordinators import (
+        _stuck_signal_nm,
+    )
+    got = {"page": [], "recover": []}
+
+    async def _page(hass, **kw):
+        if kw["kind"] == "camera_stream_hold_released":
+            got["page"].append(kw)
+
+    async def _rec(hass, **kw):
+        if kw["kind"] == "camera_stream_hold_released":
+            got["recover"].append(kw)
+
+    monkeypatch.setattr(_stuck_signal_nm, "fire_stuck_signal", _page)
+    monkeypatch.setattr(_stuck_signal_nm, "fire_stuck_signal_recovered", _rec)
+    return got
+
+
+def _drain(house):
+    for c in house.tasks:
+        _run(c)
+    house.tasks.clear()
+
+
+def test_hold_release_pages_once_per_outage(house, monkeypatch):
+    """Past the cap: ONE HIGH page naming the camera and how long it has been
+    dead ("hardware or host failure, not a normal outage"); none at 899 s,
+    none again on later ticks; LOW recovery when it streams; a second
+    outage pages again."""
+    got = _hold_nm(monkeypatch)
+    room = _RoomCoord(house, _registry())
+    _seed_states(house)
+    room.tick(T0)
+    room.tick(T0 + timedelta(seconds=899))
+    _drain(house)
+    assert got["page"] == []
+    room.tick(T0 + timedelta(seconds=900))
+    room.tick(T0 + timedelta(seconds=930))
+    room.tick(T0 + timedelta(seconds=5000))
+    _drain(house)
+    assert len(got["page"]) == 1
+    p = got["page"][0]
+    assert p["severity"] == "HIGH"
+    assert p["key"] == (PANEL_CAM,)
+    assert PANEL_CAM in p["diagnosis"]
+    assert "dead for 15 min" in p["diagnosis"]
+    assert "hardware or host failure, not a normal outage" in p["diagnosis"]
+    house.set(**{PANEL_CAM: "streaming"})
+    room.tick(T0 + timedelta(seconds=5030))
+    _drain(house)
+    assert [r["key"] for r in got["recover"]] == [(PANEL_CAM,)]
+    house.set(**{PANEL_CAM: "unavailable"})
+    t1 = T0 + timedelta(seconds=6000)
+    room.tick(t1)
+    room.tick(t1 + timedelta(seconds=900))
+    _drain(house)
+    assert len(got["page"]) == 2
+
+
+def test_hold_release_page_at_first_cap_and_none_when_both_zero(house, monkeypatch):
+    """Census cap 300 < zone 900: the page fires at 300 s (first release),
+    once. Both caps 0 (no hold): no hold page at all."""
+    got = _hold_nm(monkeypatch)
+    monkeypatch.setattr(csh._const, "CAMERA_INPUT_STREAM_DEAD_CENSUS_HOLD_MAX_S", 300.0)
+    room = _RoomCoord(house, _registry())
+    _seed_states(house)
+    room.tick(T0)
+    room.tick(T0 + timedelta(seconds=299))
+    _drain(house)
+    assert got["page"] == []
+    room.tick(T0 + timedelta(seconds=300))
+    room.tick(T0 + timedelta(seconds=900))
+    _drain(house)
+    assert len(got["page"]) == 1
+    house2 = _House()
+    try:
+        got2 = _hold_nm(monkeypatch)
+        monkeypatch.setattr(csh._const, "CAMERA_INPUT_STREAM_DEAD_HOLD_MAX_S", 0.0)
+        monkeypatch.setattr(csh._const, "CAMERA_INPUT_STREAM_DEAD_CENSUS_HOLD_MAX_S", 0.0)
+        room2 = _RoomCoord(house2, _registry())
+        house2.set(**{PANEL: "on", PANEL_CAM: "unavailable", ZV: "off"})
+        for s in (0, 120, 3600):
+            room2.tick(T0 + timedelta(seconds=s))
+        _drain(house2)
+        assert got2["page"] == []
+    finally:
+        house2.close()
+
+
+# --- review D-M1: Protect device disconnect --------------------------------
+
+P_IN = "binary_sensor.guest_room_g4_person_detected"
+P_CAM = "camera.guest_room_g4_medium"
+
+
+def _protect_registry():
+    reg = _registry()
+    reg._by_id[P_IN] = _entry(P_IN, "dev_g4", platform="unifiprotect")
+    reg._by_id[P_CAM] = _entry(P_CAM, "dev_g4", platform="unifiprotect")
+    return reg
+
+
+@pytest.mark.parametrize("camera_first", [False, True])
+def test_repro_protect_disconnect_sleep_guest_no_away(house, camera_first):
+    """Reviewer D-M1 repro: SLEEP, a phone-less guest seen only by a Protect
+    camera whose person sensor is the room input, the device drops off
+    Wi-Fi: input AND camera go `unavailable` in one update (either write
+    order). The kind is held from t0 (no off edge), nobody-home does not
+    fire within the 900 s cap, and fires at the cap."""
+    room = _RoomCoord(house, _protect_registry(), motion=(ZV,), presence=(P_IN,))
+    house.set(**{P_IN: "on", P_CAM: "streaming", ZV: "off"})
+    sub, tracker = _zone_stack(house, presence=(P_IN,))
+    tracker.set_sleep(True)
+    room.tick(T0)
+    if camera_first:
+        house.set(**{P_CAM: "unavailable", P_IN: "unavailable"})
+    else:
+        house.set(**{P_IN: "unavailable"})  # input written before the camera
+    sub._handle_state_change(_ev(P_IN, "unavailable", old="on"))
+    house.set(**{P_CAM: "unavailable"})
+    assert sub.is_kind_active(ROOM, "mmwave") is True
+    proposed, HouseState = _sleep_infer(house, tracker)
+    assert proposed != HouseState.AWAY
+    t = T0 + timedelta(seconds=10)
+    for s in (30, 150, 899):
+        room.tick(t + timedelta(seconds=s - 10))
+        proposed, HouseState = _sleep_infer(house, tracker)
+        assert proposed != HouseState.AWAY, s
+    # cap clock starts at the first tick that saw the camera unavailable
+    # (T0 + 30 s): released at T0 + 930 s
+    room.tick(T0 + timedelta(seconds=929))
+    proposed, HouseState = _sleep_infer(house, tracker)
+    assert proposed != HouseState.AWAY
+    room.tick(T0 + timedelta(seconds=930))
+    proposed, HouseState = _sleep_infer(house, tracker)
+    assert proposed == HouseState.AWAY
+
+
+def test_unavailable_input_with_live_camera_turns_off_on_next_tick(house):
+    """An ordinary sensor outage (camera still live): held until the next
+    room tick has seen the camera live, then the kind goes off (one edge)
+    through the tick's flip discharge."""
+    room = _RoomCoord(house, _protect_registry(), presence=(P_IN,))
+    house.set(**{P_IN: "on", P_CAM: "streaming", ZV: "off"})
+    sub, edges = _substrate(house, presence=(P_IN,))
+    room.tick(T0)
+    house.set(**{P_IN: "unavailable"})
+    sub._handle_state_change(_ev(P_IN, "unavailable", old="on"))
+    assert sub.is_kind_active(ROOM, "mmwave") is True
+    assert edges == []
+    room.tick(T0 + timedelta(seconds=30))
+    assert sub.is_kind_active(ROOM, "mmwave") is False
+    assert edges == [(ROOM, "mmwave", False)]
+
+
+def test_unavailable_hold_kill_switch_off_is_develop(house, monkeypatch):
+    """Kill switch False: an unavailable input counts as off at t0."""
+    monkeypatch.setattr(csh._const, "CAMERA_INPUT_STREAM_HEALTH_ENABLED", False)
+    room = _RoomCoord(house, _protect_registry(), presence=(P_IN,))
+    house.set(**{P_IN: "on", P_CAM: "streaming", ZV: "off"})
+    sub, _edges = _substrate(house, presence=(P_IN,))
+    room.tick(T0)
+    house.set(**{P_IN: "unavailable", P_CAM: "unavailable"})
+    sub._handle_state_change(_ev(P_IN, "unavailable", old="on"))
+    assert sub.is_kind_active(ROOM, "mmwave") is False
+
+
+def test_census_protect_disconnect_holds_last_reading(house):
+    """Census: the Protect sensor read `on` (a body), then goes unavailable
+    with its camera. Held: it keeps counting 1 (not a missing term) until
+    the census cap (900 s from the camera's first unavailable tick)."""
+    cams = {P_IN: CameraInfo(
+        entity_id=P_IN, platform="unifiprotect", area_id="guest_room",
+        person_binary_sensor=P_IN,
+    )}
+    room = _RoomCoord(house, _protect_registry(), presence=(P_IN,))
+    house.set(**{P_IN: "on", P_CAM: "streaming", ZV: "off"})
+    census = _census(house, cams)
+    room.tick(T0)
+    assert _house_census(census).unifi_count == 1
+    house.set(**{P_IN: "unavailable", P_CAM: "unavailable"})
+    assert _house_census(census).unifi_count == 1  # t0, before any tick
+    room.tick(T0 + timedelta(seconds=30))
+    room.tick(T0 + timedelta(seconds=30 + 899))
+    assert _house_census(census).unifi_count == 1
+    room.tick(T0 + timedelta(seconds=30 + 900))
+    assert _house_census(census).unifi_count == 0
+
+
+def test_census_unavailable_with_live_camera_is_missing(house):
+    """Census: an unavailable sensor whose camera a tick has seen live is a
+    missing term (develop)."""
+    cams = {P_IN: CameraInfo(
+        entity_id=P_IN, platform="unifiprotect", area_id="guest_room",
+        person_binary_sensor=P_IN,
+    )}
+    room = _RoomCoord(house, _protect_registry(), presence=(P_IN,))
+    house.set(**{P_IN: "on", P_CAM: "streaming", ZV: "off"})
+    census = _census(house, cams)
+    room.tick(T0)
+    assert _house_census(census).unifi_count == 1
+    house.set(**{P_IN: "unavailable"})
+    room.tick(T0 + timedelta(seconds=30))
+    assert _house_census(census).unifi_count == 0
+
+
+def test_census_frigate_count_held_when_unavailable_with_camera(house):
+    """Frigate-wide loss shape (audit: sensors go unavailable ~78 s after
+    the camera): the count sensor unavailable while held keeps its last
+    reading in the house census and the guest count."""
+    room = _RoomCoord(house, _registry())
+    house.set(**{PANEL: "on", PANEL_COUNT: "1", PANEL_CAM: "streaming",
+                 PROTECT: "off", ZV: "off"})
+    census = _census(house, _panel_cameras())
+    room.tick(T0)
+    assert _house_census(census).frigate_count == 1
+    house.set(**{PANEL_CAM: "unavailable"})
+    room.tick(T0 + timedelta(seconds=30))
+    room.tick(T0 + timedelta(seconds=150))
+    house.set(**{PANEL: "unavailable", PANEL_COUNT: "unavailable"})
+    assert _house_census(census).frigate_count == 1
+    assert census._get_unrecognized_camera_count() == 1
+
+
+# --- review D-L2 / D-L3 ------------------------------------------------------
+
+
+def test_quarantined_live_sensor_does_not_end_hold(house):
+    """D-L2: the live ZV is chatter-quarantined by its room; its on -> off
+    does not release the dead panel's hold. Unquarantined, it does."""
+    room = _RoomCoord(house, _registry())
+    _seed_states(house)
+    sub, _edges = _substrate(house)
+    _outage(house, room)
+    room._exclusion_set.promote("chatter", ZV, reason="physics_violation")
+    house.set(**{ZV: "on"})
+    sub._handle_state_change(_ev(ZV, "on", old="off"))
+    house.set(**{ZV: "off"})
+    sub._handle_state_change(_ev(ZV, "off", old="on"))
+    assert sub.is_kind_active(ROOM, "mmwave") is True
+    room._exclusion_set.release("chatter", ZV)
+    house.set(**{ZV: "on"})
+    sub._handle_state_change(_ev(ZV, "on", old="off"))
+    house.set(**{ZV: "off"})
+    sub._handle_state_change(_ev(ZV, "off", old="on"))
+    assert sub.is_kind_active(ROOM, "mmwave") is False
+
+
+def test_departure_with_frozen_census_body_bounded_by_census_cap(house):
+    """D-L3: everyone leaves just after the panel camera dies with a frozen
+    body count of 1. The census keeps the body while held (alpha blocked:
+    unidentified 1) and drops it at the 900 s census cap, so path alpha
+    proposes AWAY on that run: the extra delay is bounded by the cap."""
+    from custom_components.universal_room_automation.domain_coordinators.house_state import (  # noqa: E501
+        HouseState,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.presence import (  # noqa: E501
+        StateInferenceEngine,
+    )
+    room = _RoomCoord(house, _registry())
+    house.set(**{PANEL: "on", PANEL_COUNT: "1", PANEL_CAM: "unavailable",
+                 ZV: "off"})
+    # Frigate panel only (single source: no cross-platform downgrade)
+    census = _census(house, {PANEL: _panel_cameras()[PANEL]})
+    noon = datetime(2026, 11, 12, 12, 0, 0)
+
+    def _alpha():
+        res = _house_census(census)
+        return StateInferenceEngine().infer(
+            census_count=res.total_persons, current_state=HouseState.HOME_DAY,
+            any_zone_occupied=False, now=noon,
+            # enhanced census (default ON): unidentified = the guest count
+            unidentified_count=census._get_unrecognized_camera_count(),
+            all_tracked_persons_away=True, face_recognized_count=0,
+        )
+
+    room.tick(T0)
+    room.tick(T0 + timedelta(seconds=120))
+    assert _alpha() != HouseState.AWAY
+    room.tick(T0 + timedelta(seconds=899))
+    assert _alpha() != HouseState.AWAY
+    room.tick(T0 + timedelta(seconds=900))
+    assert _alpha() == HouseState.AWAY
+
+
+def test_census_cross_validation_off_holds_unavailable_with_camera(house, monkeypatch):
+    """D-M1, cross-validation-off path: the Protect sensor going unavailable
+    with its camera keeps its last reading (1) until the census cap."""
+    cams = {P_IN: CameraInfo(
+        entity_id=P_IN, platform="unifiprotect", area_id="guest_room",
+        person_binary_sensor=P_IN,
+    )}
+    reg = _protect_registry()
+    room = _RoomCoord(house, reg, presence=(P_IN,))
+    house.set(**{P_IN: "on", P_CAM: "streaming", ZV: "off"})
+    census = _census(house, cams)
+    monkeypatch.setattr(census, "_is_cross_validation_enabled", lambda: False)
+    import homeassistant.helpers.entity_registry as er_mod
+    monkeypatch.setattr(er_mod, "async_get", lambda hass: reg, raising=False)
+    room.tick(T0)
+    assert _house_census(census).frigate_count == 1
+    house.set(**{P_IN: "unavailable", P_CAM: "unavailable"})
+    assert _house_census(census).frigate_count == 1
+    room.tick(T0 + timedelta(seconds=30))
+    room.tick(T0 + timedelta(seconds=929))
+    assert _house_census(census).frigate_count == 1
+    room.tick(T0 + timedelta(seconds=930))
+    assert _house_census(census).frigate_count == 0
+
+
+@pytest.mark.parametrize("route", ["input", "own_camera"])
+def test_census_reads_the_census_cap_not_the_zone_cap(house, monkeypatch, route):
+    """The two caps are equal today (operator: both 15 min), which would
+    hide a census reader on the zone cap (Bug Class #63). With census 300 /
+    zone 900 the census drops the dead camera's body at 300 s, through the
+    input route (a room input) and through the own-camera route (a census
+    sensor that is no room input)."""
+    monkeypatch.setattr(csh._const, "CAMERA_INPUT_STREAM_DEAD_CENSUS_HOLD_MAX_S", 300.0)
+    reg = _registry()
+    cams = _panel_cameras()
+    if route == "own_camera":
+        other = "binary_sensor.up_hallway_panel_person_occupancy_2"
+        reg._by_id[other] = _entry(other, "dev_panel")
+        cams = {other: CameraInfo(
+            entity_id=other, platform=ura_const.CAMERA_PLATFORM_FRIGATE,
+            area_id="upstairs_hallway", person_binary_sensor=other,
+            person_count_sensor=PANEL_COUNT,
+        )}
+        house.set(**{other: "on"})
+    else:
+        cams = {PANEL: cams[PANEL]}
+    import homeassistant.helpers.entity_registry as er_mod
+    monkeypatch.setattr(er_mod, "async_get", lambda hass: reg, raising=False)
+    room = _RoomCoord(house, reg)
+    house.set(**{PANEL: "on", PANEL_COUNT: "1", PANEL_CAM: "unavailable",
+                 ZV: "off"})
+    census = _census(house, cams)
+    room.tick(T0)
+    room.tick(T0 + timedelta(seconds=299))
+    assert _house_census(census).frigate_count == 1
+    room.tick(T0 + timedelta(seconds=300))
+    assert _house_census(census).frigate_count == 0
+    assert csh.input_stream_view(house.hass, PANEL) == csh.VIEW_HELD  # zone
