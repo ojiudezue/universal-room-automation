@@ -2032,8 +2032,7 @@ async def test_mf_hazard_stop_reaches_area_resolved_primary(hass, mods):
              ("Laundry", None, "utility")]
     r = await _make_rig(hass, mods, rooms=rooms)
     try:
-        r.mf.apply_config({"mf_follow_mode": "extend"})
-        r.world.play("garage_b")
+        r.world.play("garage_b")                 # move mode: generic play_media
         r.world.play("tv", content="netflix")
         set_area(r, "Laundry")
         assert await move(r, "Garage B", "Laundry") == "success"
@@ -2145,6 +2144,23 @@ async def test_mf_restart_replay_leaves_hand_set_volume(rig, mods):
         assert await mf2.async_replay_saved_volumes() == 0
         assert rig.world.volume("garage_b") == 0.7
         assert mf2._saved_volumes == {}
+    finally:
+        await mf2.async_teardown()
+
+
+@pytest.mark.asyncio
+async def test_mf_init_replays_saved_volumes(rig, mods):
+    """B3 wire-in: async_init (the start path) puts a persisted volume back."""
+    await rig.mf._volumes_store().async_save({"volumes": {"media_player.garage_b_3": 0.45}})
+    rig.world.speakers["garage_b"].volume = 0.1
+    rig.world.push(rig.world.speakers["garage_b"])
+    td2 = mods.trans.TransitionDetector(rig.hass, MagicMock(), MagicMock())
+    mf2 = mods.mf.MusicFollowing(rig.hass, {}, td2)
+    try:
+        await mf2.async_init()
+        for _ in range(5):
+            await asyncio.sleep(0)
+        assert rig.world.volume("garage_b") == 0.45
     finally:
         await mf2.async_teardown()
 
