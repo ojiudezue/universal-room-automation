@@ -9,6 +9,7 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {"fid": "PERIMETER-FP-GATES-DISPOSE-1@2026-11-14T02:08:00", "card_id": "PERIMETER-FP-GATES-DISPOSE-1", "at": "2026-11-14T02:08:00", "outcome": "escalated", "headline": "Perimeter false-alarm gates: the 'single camera' gate is already ON (not shadow) but only acts on one camera; the zone gate has never run because it needs a setting only you can fill (4 sensor ids, listed on the card). Also your pick: should that gate wait 0 s (never delays alerts, recommended per your latency rule) or 12 s.", "acknowledged": false}
   - {"fid": "BERMUDA-DISTANCE-SENSORS-DEAD-1@2026-11-14T02:07:00", "card_id": "BERMUDA-DISTANCE-SENSORS-DEAD-1", "at": "2026-11-14T02:07:00", "outcome": "escalated", "headline": "Found why Bermuda's per-room phone distances died on 10-20: the 7 wall panels became Bluetooth scanners that morning, and their addresses don't match how Bermuda expects. When even one scanner looks like that, Bermuda creates none of those sensors for anyone. Your pick on the card: URA switches to the live per-phone distance (recommended) and I report the bug to Bermuda; separately yes/no on letting that distance switch on the 8 ft music-following check.", "acknowledged": false}
   - {"fid": "WALLPANEL-TOUCH-WITNESS-1@2026-11-14T02:07:00", "card_id": "WALLPANEL-TOUCH-WITNESS-1", "at": "2026-11-14T02:07:00", "outcome": "measured", "headline": "Your 'are the wall panels Bluetooth scanners?' question is already answered: all 7 are active Bermuda scanners with their rooms set. Nothing to change; moved off your queue. I still owe a room-accuracy re-check.", "acknowledged": false}
   - {"fid": "CAMERA-SILENT-PRODUCER-TRIPWIRE-1@2026-11-14T02:07:00", "card_id": "CAMERA-SILENT-PRODUCER-TRIPWIRE-1", "at": "2026-11-14T02:07:00", "outcome": "done", "headline": "Closed: the 'cameras went dark' alarm proved itself on a real outage (11-07, Frigate2 down 7 h, you were paged). No staged test needed.", "acknowledged": false}
@@ -34694,14 +34695,16 @@ cards:
   arc_cut_v5_108_17: "separate investigation, not notification code"
   title: Perimeter false-positive gates D3/D5 shipped shadow-first but D3 can never evaluate (zone sensors never configured) and no shadow counts are kept; no disposal date
   thread: perimeter
-  status: investigating
+  status: waiting_operator
   batch: broken-promises-2026-11
   created: '2026-11-12 22:55'
-  updated: '2026-11-12 22:55'
+  updated: '2026-11-14 02:12'
   tier: 2
   origin: {date: '2026-11-12', gist: 'Operator asked why the gates are off. AUDIT_garage_hallway_lock_and_perimeter_gates_2026_11_12.md.'}
   why: 'Off by design as shadow-first (README v5.107.0, PLANNING_perimeter_fp_build_2026_11.md), but gate_decisions_by_camera {} and zone_map {} live; D5 learning (g5_bullet clears bar); D5 settle 8 s shorter than most camera lag. 2,295 CRITICAL + 1,754 HIGH exterior_person alerts in ~30 days.'
-  next: 'Me: persist shadow would_demote counts, list the D1 zone sensors needed (operator config), retune D5 settle, then dispose by a fixed date.'
+  next: 'DO: in URA options -> Perimeter, set perimeter_zone_sensors to the four Frigate property-zone person-occupancy sensors for g5_bullet, rear_ptz, utilities_ptz and front_side_ptz (ids in the audit, resolved by registry), and confirm Frigate''s ''property'' zone leaves the road out. PICK the D5 wait: A (recommended, your ''alert latency over precision, waits ship at 0'' rule) set PERIMETER_SS_SETTLE_S 8 -> 0 so D5 judges on lookback only and never delays an alert; or B raise it to 12 s (covers ~p90 g5_bullet lag of 10.2 s, delays single-source alerts up to 12 s). -> I make the A/B constant change (Tier 1, reviewed), then count perimeter_gate_decision rows; dispose each gate at its first 30 rows or 2026-11-28, whichever first (D3 with no rows by then parks).'
+  measured_2026_11_14_overnight: 'AUDIT_perimeter_fp_gates_disposal_2026_11_14.md (ura-prober, read-only; my independent re-check of the config entry + const.py). CARD-WAS-WRONG on D5: perimeter_single_source_demote is True in the live options, so D5 is ENFORCING, not shadow; it acts only on g5_bullet (agreement 0.66 over 47 samples vs bar 0.6/20); 2 likely demotes on 11-13. D3 has never run: perimeter_zone_sensors is absent from options (perimeter_alert.py ~4455/4871 early return). Shadow counts are ALREADY persisted since v5.108.20 (memory_episodes type perimeter_gate_decision, perimeter_alert.py ~4646/4688-4740): 0 rows so far (writer sits behind the 120 s egress mute) - no new code needed, so the card''s ''persist shadow counts'' step is ALREADY-DONE. Lag (30 d recorder): g5_bullet p50 1.1 s / p90 10.2 s, utilities_ptz p90 20.4 s, pool_equipment 52 s. Settle PERIMETER_SS_SETTLE_S = 8 (const.py:2636) is a real hold before the alert (perimeter_alert.py:4986 _async_hold). Zone coverage gaps: hot_tub, pool_equipment, back_yard, garage_b have no property-zone entity. Volume: 1,983 CRITICAL + 1,682 HIGH exterior_person 10-15..11-14; D5 is not the volume lever, the zone config is.'
+  status_change_2026_11_14: 'investigating -> waiting_operator: the D3 step is an operator config entry and the D5 wait trades alert latency against precision (your call).'
 - id: EGRESS-CONFIG-PATIO-STUDYB-1
   title: The patio sliding door (patio camera, covers 1-5) and the Study B outside door (Reolink porch camera) are real egresses with no egress config; Garage B must be marked detached
   thread: identity
