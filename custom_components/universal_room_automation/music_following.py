@@ -115,7 +115,6 @@ MF_OUTCOMES = (
     "person_not_enabled",
     "same_room",
     "ble_low_confidence",
-    "ble_too_far",
     "stale_transition",
     "cooldown_blocked",
     "ping_pong_suppressed",
@@ -145,7 +144,7 @@ MF_SKIP_OUTCOMES = frozenset(o for o in MF_OUTCOMES if o not in _NOT_SKIPS)
 # Fields of the one-line decision log (D5.1), in order.
 MF_DECISION_FIELDS = (
     "person", "from", "to", "source_room", "source_player", "target_player",
-    "path", "outcome", "reason", "ble_confidence", "closest_ft", "dwell_s",
+    "path", "outcome", "reason", "ble_confidence", "dwell_s",
     "path_type", "follow_mode", "call_ms", "verify_ms", "target_state",
     "knob",
 )
@@ -256,7 +255,6 @@ class MusicFollowing:
         self._follow_mode: str = _c.DEFAULT_MF_FOLLOW_MODE
         self._bonus_joins: bool = _c.DEFAULT_MF_BONUS_JOINS
         self._ble_certainty: str = _c.DEFAULT_MF_MIN_BLE_CONFIDENCE
-        self._distance_ft: float = float(_c.DEFAULT_MF_HIGH_CONFIDENCE_DISTANCE)
         self._lookback_s: float = float(_c.DEFAULT_MF_SOURCE_LOOKBACK_SECONDS)
         self._ping_pong_s: float = float(_c.DEFAULT_MF_PING_PONG_WINDOW)
         self._knobs_applied_at: str = ""
@@ -466,7 +464,6 @@ class MusicFollowing:
         _num(_c.CONF_MF_RELEASE_DELAY, "_release_delay_s")
         _num(_c.CONF_MF_POSITION_OFFSET, "_position_offset_s")
         _num(_c.CONF_MF_STALE_TRANSITION_SECONDS, "_stale_transition_seconds")
-        _num(_c.CONF_MF_HIGH_CONFIDENCE_DISTANCE, "_distance_ft")
         _num(_c.CONF_MF_SOURCE_LOOKBACK_SECONDS, "_lookback_s")
         if _c.CONF_MF_SLEEP_SUPPRESS in opts:
             self._sleep_suppress = bool(opts[_c.CONF_MF_SLEEP_SUPPRESS])
@@ -486,6 +483,9 @@ class MusicFollowing:
             applied.add(_c.CONF_MF_BONUS_JOINS)
         if _c.CONF_MF_MIN_BLE_CONFIDENCE in opts:
             val = str(opts[_c.CONF_MF_MIN_BLE_CONFIDENCE])
+            if val == _c.MF_BLE_CERTAINTY_STRICT_RETIRED:
+                # Distance gate dropped 2026-11-14: a saved "strict" is normal.
+                val = _c.MF_BLE_CERTAINTY_NORMAL
             if val in _c.MF_BLE_CERTAINTIES:
                 self._ble_certainty = val
                 applied.add(_c.CONF_MF_MIN_BLE_CONFIDENCE)
@@ -511,7 +511,6 @@ class MusicFollowing:
             "release_delay_s": self._release_delay_s,
             "bonus_joins": self._bonus_joins,
             "location_certainty": self._ble_certainty,
-            "distance_ft": self._distance_ft,
             "lookback_s": self._lookback_s,
             "cooldown_s": self._cooldown_s,
             "ping_pong_s": self._ping_pong_s,
@@ -1043,9 +1042,9 @@ class MusicFollowing:
         """Is the person still where the change said, per the layer?
 
         "normal": the layer's resolved room for the person is still
-        ``to_room``. "strict": also the event's ``closest_distance_ft`` is
-        within the distance knob. A missing input fails open and is counted
-        ONCE per room change (``ble_input_missing``, review A-L1).
+        ``to_room``. (The "strict" distance gate was dropped 2026-11-14.)
+        A missing input fails open and is counted ONCE per room change
+        (``ble_input_missing``, review A-L1).
         """
         d = rec.decision
         t = rec.transition
@@ -1058,20 +1057,12 @@ class MusicFollowing:
             missing.append("no_event_ble")
         loc = self._layer_location(rec.person_id)
         d["ble_location"] = loc or ""
-        dist = getattr(t, "ble_closest_ft", None) if t is not None else None
-        d["closest_ft"] = round(dist, 1) if isinstance(dist, (int, float)) else ""
         try:
             if loc is None:
                 missing.append("no_location")
             elif _slug(loc) != _slug(rec.to_room):
                 d["knob"] = f"certainty={mode}"
                 return "ble_low_confidence", f"location_moved to={rec.to_room} now={loc}"
-            if mode == _c.MF_BLE_CERTAINTY_STRICT and self._distance_ft > 0:
-                if not isinstance(dist, (int, float)):
-                    missing.append("no_distance")
-                elif dist > self._distance_ft:
-                    d["knob"] = f"distance_ft={self._distance_ft:g}"
-                    return "ble_too_far", f"closest_ft={dist:.1f}"
             return None
         finally:
             if missing:

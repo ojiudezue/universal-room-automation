@@ -452,13 +452,12 @@ async def _make_rig(hass, mods, *, rooms=None, cm_options=None, db=None):
 
 
 def T(rig, frm, to, *, person=PERSON, area="Kitchen", dwell=5, conf=0.95, path="direct",
-      closest=None, method="bermuda"):
+      method="bermuda"):
     from homeassistant.util import dt as dt_util
     return rig.mods.trans.RoomTransition(
         person_id=person, from_room=frm, to_room=to, timestamp=dt_util.now(),
         duration_seconds=dwell, path_type=path, confidence=conf,
         ble_area=area, ble_area_sensor=None, ble_method=method,
-        ble_closest_ft=closest,
     )
 
 
@@ -564,54 +563,14 @@ async def test_mf_ble_low_confidence_skips(rig):
 
 
 @pytest.mark.asyncio
-async def test_mf_ble_too_far_booked_as_ble_too_far(rig):
-    """Strict: the event's producer-measured distance (12.5 ft) > 8 ft."""
-    rig.mf.apply_config({"mf_min_ble_confidence": "strict", "mf_high_confidence_distance": 8})
-    rig.world.play("kitchen")
-    set_area(rig, "Study A")
-    out = await move(rig, "Kitchen", "Study A", closest=12.5)
-    assert out == "ble_too_far"
-    assert rig.mf._transfer_stats["ble_too_far"] == 1
-    assert rig.world.calls == []
-
-
-@pytest.mark.asyncio
-async def test_mf_strict_distance_within_threshold_transfers(rig):
-    rig.mf.apply_config({"mf_min_ble_confidence": "strict", "mf_high_confidence_distance": 8})
-    rig.world.play("kitchen")
-    set_area(rig, "Study A")
-    assert await move(rig, "Kitchen", "Study A", closest=7.5) == "success"
-
-
-@pytest.mark.asyncio
-async def test_mf_distance_not_gated_in_normal_mode(rig):
-    """Default certainty is normal: a far nearest-scanner distance (the
-    audit's 11-38 % of transitions read > 8 ft) never blocks a move."""
-    rig.world.play("kitchen")
-    set_area(rig, "Study A")
-    assert await move(rig, "Kitchen", "Study A", closest=30.0) == "success"
-
-
-@pytest.mark.asyncio
 async def test_mf_ble_no_location_fails_open_counted_once(rig):
     """The layer has no location for the person: fail open, counted once
-    (strict + no distance too: still ONE count per room change, A-L1)."""
-    rig.mf.apply_config({"mf_min_ble_confidence": "strict"})
+    per room change (A-L1)."""
     rig.world.play("kitchen")
     layer(rig).locations.pop(PERSON, None)
     assert await move(rig, "Kitchen", "Study A") == "success"
     assert rig.mf._transfer_stats["ble_input_missing"] == 1
-    assert rig.mf._last_decision["ble_input"] == "no_location,no_distance"
-
-
-@pytest.mark.asyncio
-async def test_mf_ble_dead_distance_fails_open_in_strict(rig):
-    rig.mf.apply_config({"mf_min_ble_confidence": "strict"})
-    rig.world.play("kitchen")
-    set_area(rig, "Study A")
-    assert await move(rig, "Kitchen", "Study A", closest=None) == "success"
-    assert rig.mf._transfer_stats["ble_input_missing"] == 1
-    assert rig.mf._last_decision["ble_input"] == "no_distance"
+    assert rig.mf._last_decision["ble_input"] == "no_location"
 
 
 @pytest.mark.asyncio
@@ -633,24 +592,6 @@ async def test_mf_ble_any_mode_skips_check(rig):
     rig.world.play("kitchen")
     set_area(rig, "Garage B")
     assert await move(rig, "Kitchen", "Study A", area="Study A") == "success"
-
-
-@pytest.mark.asyncio
-async def test_mf_event_closest_distance_reaches_transition(rig, mods):
-    """The producer's ``closest_distance_ft`` rides the event onto the
-    RoomTransition the gate reads (A-H1 step 2)."""
-    seen = []
-    td = mods.trans.TransitionDetector(rig.hass, MagicMock(), MagicMock())
-    td._log_transition = MagicMock(side_effect=lambda *a, **k: asyncio.sleep(0))
-    td.async_add_listener(lambda t: seen.append(t))
-    from homeassistant.util import dt as dt_util
-    ev = types.SimpleNamespace(data={
-        "person_id": PERSON, "previous_location": "Kitchen", "current_location": "Study A",
-        "timestamp": dt_util.now(), "method": "bermuda", "bermuda_area": "Study A",
-        "area_sensor": "sensor.iphone_oji_area", "closest_distance_ft": 6.25})
-    td._update_history(PERSON, "Kitchen", dt_util.now())
-    await td._on_location_change(ev)
-    assert seen and seen[0].ble_closest_ft == 6.25
 
 
 # ===========================================================================
@@ -1259,10 +1200,6 @@ async def test_mf_every_transition_has_exactly_one_outcome(hass, mods):
         r.mf._last_transfer_time[mods.mf._person_key(PERSON)] = dt_util.now()
         r.mf._last_transfer_target[mods.mf._person_key(PERSON)] = "Study A"
 
-    async def strict_far(r):
-        r.world.play("kitchen")
-        r.mf.apply_config({"mf_min_ble_confidence": "strict"})
-
     async def no_content(r):
         sp = r.world.speakers["garage_b"]
         sp.state = "playing"
@@ -1276,7 +1213,6 @@ async def test_mf_every_transition_has_exactly_one_outcome(hass, mods):
         await run("success", play_k, "Kitchen", "Study A")
         await run("same_room", nothing, "Kitchen", "Kitchen")
         await run("ble_low_confidence", play_k, "Kitchen", "Study A", live_area="Garage B")
-        await run("ble_too_far", strict_far, "Kitchen", "Study A", closest=20.0)
         await run("cooldown_blocked", cooldown, "Kitchen", "Study A")
         await run("no_source_player", nothing, "Hall", "Study A")
         await run("source_not_playing", nothing, "Kitchen", "Study A")
@@ -1629,7 +1565,7 @@ async def test_mf_knobs_live_after_options_update(rig, mods):
     pkg, c = mods.pkg, mods.const
     keys = {c.CONF_MF_COOLDOWN_SECONDS, c.CONF_MF_PING_PONG_WINDOW, c.CONF_MF_VERIFY_DELAY,
             c.CONF_MF_RELEASE_DELAY, c.CONF_MF_POSITION_OFFSET,
-            c.CONF_MF_HIGH_CONFIDENCE_DISTANCE, c.CONF_MF_SLEEP_SUPPRESS,
+            c.CONF_MF_SLEEP_SUPPRESS,
             c.CONF_MF_NIGHT_SUPPRESS_MODE, c.CONF_MF_STALE_TRANSITION_SECONDS,
             c.CONF_MF_FOLLOW_MODE, c.CONF_MF_BONUS_JOINS, c.CONF_MF_MIN_BLE_CONFIDENCE,
             c.CONF_MF_SOURCE_LOOKBACK_SECONDS}
@@ -1638,7 +1574,7 @@ async def test_mf_knobs_live_after_options_update(rig, mods):
     assert "music_on_arrival_start" in pkg.OPTIONS_RELOAD_SUPPRESS_KEYS
     new = {c.CONF_MF_COOLDOWN_SECONDS: 0, c.CONF_MF_PING_PONG_WINDOW: 0,
            c.CONF_MF_VERIFY_DELAY: 30, c.CONF_MF_RELEASE_DELAY: 11,
-           c.CONF_MF_POSITION_OFFSET: 9, c.CONF_MF_HIGH_CONFIDENCE_DISTANCE: 4.5,
+           c.CONF_MF_POSITION_OFFSET: 9,
            c.CONF_MF_SLEEP_SUPPRESS: False, c.CONF_MF_NIGHT_SUPPRESS_MODE: "block_all",
            c.CONF_MF_STALE_TRANSITION_SECONDS: 40, c.CONF_MF_FOLLOW_MODE: "extend",
            c.CONF_MF_BONUS_JOINS: False, c.CONF_MF_MIN_BLE_CONFIDENCE: "strict",
@@ -1647,7 +1583,7 @@ async def test_mf_knobs_live_after_options_update(rig, mods):
     assert applied == set(new)
     assert rig.mf.knobs() == {
         "follow_mode": "extend", "release_delay_s": 11.0, "bonus_joins": False,
-        "location_certainty": "strict", "distance_ft": 4.5, "lookback_s": 0.0,
+        "location_certainty": "normal", "lookback_s": 0.0,
         "cooldown_s": 0.0, "ping_pong_s": 0.0, "verify_delay_s": 30.0,
         "position_offset_s": 9.0, "stale_transition_s": 40.0, "sleep_suppress": False,
         "night_suppress_mode": "block_all"}
@@ -1832,6 +1768,10 @@ async def test_mf_cm_form_round_trip_flattens_fine_tuning(rig, mods):
     flow = cf.UniversalRoomAutomationOptionsFlow(rig.cm)
     flow.hass = rig.hass
     form = await flow.async_step_coordinator_music_following(None)
+    adv0 = form["data_schema"].schema[next(k for k in form["data_schema"].schema
+                                          if str(getattr(k, "schema", k)) == "advanced")]
+    cert = next(k for k in adv0.schema.schema if str(k) == "mf_min_ble_confidence")
+    assert [o["value"] for o in adv0.schema.schema[cert].config["options"]] == ["any", "normal"]
     top = {str(getattr(k, "schema", k)) for k in form["data_schema"].schema}
     assert {"mf_follow_mode", "mf_sleep_suppress", "mf_night_suppress_mode",
             "music_anomaly_sensitivity", "advanced"} == top
@@ -1841,7 +1781,7 @@ async def test_mf_cm_form_round_trip_flattens_fine_tuning(rig, mods):
     inner = {str(getattr(k, "schema", k)) for k in adv.schema.schema}
     assert inner == {"mf_unjoin_delay", "mf_cooldown_seconds", "mf_ping_pong_window",
                      "mf_verify_delay", "mf_source_lookback_seconds",
-                     "mf_stale_transition_seconds", "mf_high_confidence_distance",
+                     "mf_stale_transition_seconds",
                      "mf_min_ble_confidence", "mf_position_offset", "mf_bonus_joins"}
     res = await flow.async_step_coordinator_music_following({
         "mf_follow_mode": "extend", "mf_sleep_suppress": True,
@@ -2267,3 +2207,27 @@ async def test_mf_parent_unload_tears_music_following_down(rig, mods, monkeypatc
     await mods.pkg.async_unload_entry(rig.hass, entry)
     assert calls == [True]
     assert "music_following" not in rig.hass.data[DOMAIN]
+
+
+@pytest.mark.asyncio
+async def test_mf_saved_strict_and_distance_are_safe(rig, mods):
+    """The distance gate was dropped 2026-11-14. An install that saved
+    certainty "strict" and a distance gets Normal (the room check still
+    runs), no crash; the form shows the saved "strict" as Normal."""
+    applied = rig.mf.apply_config({"mf_min_ble_confidence": "strict",
+                                   "mf_high_confidence_distance": 1})
+    assert rig.mf.knobs()["location_certainty"] == "normal"
+    assert "mf_high_confidence_distance" not in applied
+    rig.world.play("kitchen")
+    set_area(rig, "Garage B")
+    assert await move(rig, "Kitchen", "Study A", area="Study A") == "ble_low_confidence"
+    cf = importlib.import_module(f"{_PKG}.config_flow")
+    rig.hass.config_entries.async_update_entry(
+        rig.cm, options={"mf_min_ble_confidence": "strict", "mf_high_confidence_distance": 1})
+    flow = cf.UniversalRoomAutomationOptionsFlow(rig.cm)
+    flow.hass = rig.hass
+    form = await flow.async_step_coordinator_music_following(None)
+    adv = form["data_schema"].schema[next(k for k in form["data_schema"].schema
+                                         if str(getattr(k, "schema", k)) == "advanced")]
+    cert = next(k for k in adv.schema.schema if str(k) == "mf_min_ble_confidence")
+    assert cert.default() == "normal"

@@ -20,7 +20,7 @@ cycle: `method` (`"bermuda"`), `bermuda_area` (the area state that produced the 
 
 1. `coordinator_disabled` (CM switch), 2. `person_not_enabled`, 3. `same_room` — in `_on_person_transition`.
 Then, inside the per-transfer task under the house lock:
-4. BLE certainty `ble_low_confidence` / `ble_too_far` (below), 5. `stale_transition`, 6. `sleep_suppressed` /
+4. BLE certainty `ble_low_confidence` (below), 5. `stale_transition`, 6. `sleep_suppressed` /
 `night_suppressed`, 7. `cooldown_blocked`, 8. `returned_in_flight` (bounce back to the room a superseded move
 came from, music already there), 9. source: `no_source_player` / `source_not_playing`, 10. `no_target_player`
 (incl. reason `room_opted_out` when the room's "Music follows into this room" is off), 11. `target_unavailable`,
@@ -36,8 +36,10 @@ The person BLE confidence is a constant and `closest_distance` is never stored
 REGISTRY: `person.<slug>` -> `device_trackers` -> the one tracker with platform `bermuda` -> its unique_id U ->
 on that device the bermuda sensors with unique_id `U` (area) and `U_range` (nearest distance). Never by name;
 never enables a disabled entity. `CONF_MF_MIN_BLE_CONFIDENCE` buckets: `any` (no check), `normal` (default: the
-live area still reads the event's `bermuda_area` at decision time, i.e. after any lock wait), `strict` (normal +
-live distance <= `CONF_MF_HIGH_CONFIDENCE_DISTANCE`, metres converted). A missing / dead / unresolved input
+person-awareness layer's room, `get_person_location`, is still the target room at decision time). The `strict`
+distance gate (8 ft, `CONF_MF_HIGH_CONFIDENCE_DISTANCE`, outcome `ble_too_far`) was DROPPED by the operator
+2026-11-14; a saved `strict` reads as `normal`. Parked until wrong-room moves are measured and a distance input
+exists (BERMUDA-DISTANCE-SENSORS-DEAD-1 option A). A missing / dead / unresolved input
 fails OPEN and increments `ble_input_missing`. Duplicate of the registry walk in
 `BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1` (person_coordinator `_bermuda_device_for_person`, branch in progress):
 consolidate when that lands.

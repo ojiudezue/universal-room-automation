@@ -4196,7 +4196,7 @@ CONF_MF_VERIFY_DELAY: Final = "mf_verify_delay"
 CONF_MF_UNJOIN_DELAY: Final = "mf_unjoin_delay"
 CONF_MF_POSITION_OFFSET: Final = "mf_position_offset"
 CONF_MF_MIN_CONFIDENCE: Final = "mf_min_confidence"
-CONF_MF_HIGH_CONFIDENCE_DISTANCE: Final = "mf_high_confidence_distance"
+CONF_MF_HIGH_CONFIDENCE_DISTANCE: Final = "mf_high_confidence_distance"  # RETIRED 2026-11-14, ignored
 
 DEFAULT_MF_COOLDOWN_SECONDS: Final = 8
 DEFAULT_MF_PING_PONG_WINDOW: Final = 60
@@ -4204,7 +4204,6 @@ DEFAULT_MF_VERIFY_DELAY: Final = 2
 DEFAULT_MF_UNJOIN_DELAY: Final = 5
 DEFAULT_MF_POSITION_OFFSET: Final = 3
 DEFAULT_MF_MIN_CONFIDENCE: Final = 0.6
-DEFAULT_MF_HIGH_CONFIDENCE_DISTANCE: Final = 8.0  # feet — tighter than person tracking (10ft)
 
 # ============================================================================
 # v5.10.0 D2 Music Following — sleep + night suppression
@@ -4277,19 +4276,20 @@ DEFAULT_MF_BONUS_JOINS: Final = True
 #   "normal" = at decision time the person's resolved room from the layer
 #              (PersonTrackingCoordinator.get_person_location) is still the
 #              room the change went to;
-#   "strict" = normal + the nearest in-area scanner distance carried on the
-#              room-change event (``closest_distance_ft``, measured by the
-#              producer at fire time) is within CONF_MF_HIGH_CONFIDENCE_DISTANCE.
-# A missing input (no location, location unknown, event without BLE keys or
-# without a distance) never blocks a move: it is counted once per room
+# "strict" (normal + a phone-to-scanner distance limit, 8 ft) was DROPPED by
+# the operator 2026-11-14: a stored "strict" is read as "normal", and
+# CONF_MF_HIGH_CONFIDENCE_DISTANCE is retired (ignored, no form field; the
+# constant stays so old options and imports stay valid). Revisit only if
+# wrong-room moves are measured and a distance input exists
+# (BERMUDA-DISTANCE-SENSORS-DEAD-1 option A).
+# A missing input (no location, location unknown, event without BLE keys)
+# never blocks a move: it is counted once per room
 # change (``ble_input_missing``) and the check passes.
 CONF_MF_MIN_BLE_CONFIDENCE: Final = "mf_min_ble_confidence"
 MF_BLE_CERTAINTY_ANY: Final = "any"
 MF_BLE_CERTAINTY_NORMAL: Final = "normal"
-MF_BLE_CERTAINTY_STRICT: Final = "strict"
-MF_BLE_CERTAINTIES: Final = (
-    MF_BLE_CERTAINTY_ANY, MF_BLE_CERTAINTY_NORMAL, MF_BLE_CERTAINTY_STRICT,
-)
+MF_BLE_CERTAINTY_STRICT_RETIRED: Final = "strict"  # read as normal
+MF_BLE_CERTAINTIES: Final = (MF_BLE_CERTAINTY_ANY, MF_BLE_CERTAINTY_NORMAL)
 DEFAULT_MF_MIN_BLE_CONFIDENCE: Final = MF_BLE_CERTAINTY_NORMAL
 # Hallway walk-through: if the room the person left has no playing speaker,
 # use the last room they left with a playing speaker within this many

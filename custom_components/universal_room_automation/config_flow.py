@@ -9143,7 +9143,6 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_MF_BONUS_JOINS,
             CONF_MF_COOLDOWN_SECONDS,
             CONF_MF_FOLLOW_MODE,
-            CONF_MF_HIGH_CONFIDENCE_DISTANCE,
             CONF_MF_MIN_BLE_CONFIDENCE,
             CONF_MF_NIGHT_SUPPRESS_MODE,
             CONF_MF_PING_PONG_WINDOW,
@@ -9156,8 +9155,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             DEFAULT_MF_BONUS_JOINS,
             DEFAULT_MF_COOLDOWN_SECONDS,
             DEFAULT_MF_FOLLOW_MODE,
-            DEFAULT_MF_HIGH_CONFIDENCE_DISTANCE,
             DEFAULT_MF_MIN_BLE_CONFIDENCE,
+            MF_BLE_CERTAINTIES,
             DEFAULT_MF_NIGHT_SUPPRESS_MODE,
             DEFAULT_MF_PING_PONG_WINDOW,
             DEFAULT_MF_POSITION_OFFSET,
@@ -9191,15 +9190,15 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         fine.update(_num(CONF_MF_VERIFY_DELAY, DEFAULT_MF_VERIFY_DELAY, 0, 30, 1, "s"))
         fine.update(_num(CONF_MF_SOURCE_LOOKBACK_SECONDS, DEFAULT_MF_SOURCE_LOOKBACK_SECONDS, 0, 600, 5, "s"))
         fine.update(_num(CONF_MF_STALE_TRANSITION_SECONDS, DEFAULT_MF_STALE_TRANSITION_SECONDS, 5, 120, 1, "s"))
-        fine.update(_num(CONF_MF_HIGH_CONFIDENCE_DISTANCE, DEFAULT_MF_HIGH_CONFIDENCE_DISTANCE, 0, 30, 0.5, "ft"))
-        fine[vol.Optional(
-            CONF_MF_MIN_BLE_CONFIDENCE,
-            default=self._get_current(CONF_MF_MIN_BLE_CONFIDENCE, DEFAULT_MF_MIN_BLE_CONFIDENCE),
-        )] = selector.SelectSelector(selector.SelectSelectorConfig(
+        # The distance gate ("strict" + mf_high_confidence_distance) was
+        # dropped by the operator 2026-11-14. A saved "strict" shows as Normal.
+        _cert = self._get_current(CONF_MF_MIN_BLE_CONFIDENCE, DEFAULT_MF_MIN_BLE_CONFIDENCE)
+        if _cert not in MF_BLE_CERTAINTIES:
+            _cert = DEFAULT_MF_MIN_BLE_CONFIDENCE
+        fine[vol.Optional(CONF_MF_MIN_BLE_CONFIDENCE, default=_cert)] = selector.SelectSelector(selector.SelectSelectorConfig(
             options=[
                 {"value": "any", "label": "Any"},
                 {"value": "normal", "label": "Normal (recommended)"},
-                {"value": "strict", "label": "Strict"},
             ],
             mode=selector.SelectSelectorMode.DROPDOWN,
         ))

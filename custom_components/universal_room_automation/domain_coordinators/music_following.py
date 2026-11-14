@@ -25,7 +25,6 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from ..const import (
     DEFAULT_MF_COOLDOWN_SECONDS,
-    DEFAULT_MF_HIGH_CONFIDENCE_DISTANCE,
     DEFAULT_MF_MIN_CONFIDENCE,
     DEFAULT_MF_NIGHT_SUPPRESS_MODE,
     DEFAULT_MF_PING_PONG_WINDOW,
@@ -96,7 +95,6 @@ class MusicFollowingCoordinator(BaseCoordinator):
         unjoin_delay: int = DEFAULT_MF_UNJOIN_DELAY,
         position_offset: int = DEFAULT_MF_POSITION_OFFSET,
         min_confidence: float = DEFAULT_MF_MIN_CONFIDENCE,
-        high_confidence_distance: float = DEFAULT_MF_HIGH_CONFIDENCE_DISTANCE,
         sleep_suppress: bool = DEFAULT_MF_SLEEP_SUPPRESS,
         night_suppress_mode: str = DEFAULT_MF_NIGHT_SUPPRESS_MODE,
         stale_transition_seconds: float = DEFAULT_MF_STALE_TRANSITION_SECONDS,
@@ -127,7 +125,6 @@ class MusicFollowingCoordinator(BaseCoordinator):
         # baseline slowly moving over weeks (visible only in the per-coord
         # anomaly sensor's metrics dict).
         self._first_emit_logged: set[str] = set()
-        self._high_confidence_distance = high_confidence_distance
         self._music_following = None
         self._pending_tasks: set[asyncio.Task] = set()
         # MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D7: the raw CM options (every
@@ -139,7 +136,6 @@ class MusicFollowingCoordinator(BaseCoordinator):
         """Every MF knob: the constructor kwargs, overlaid by raw options."""
         from ..const import (  # noqa: PLC0415
             CONF_MF_COOLDOWN_SECONDS,
-            CONF_MF_HIGH_CONFIDENCE_DISTANCE,
             CONF_MF_NIGHT_SUPPRESS_MODE,
             CONF_MF_PING_PONG_WINDOW,
             CONF_MF_POSITION_OFFSET,
@@ -154,7 +150,6 @@ class MusicFollowingCoordinator(BaseCoordinator):
             CONF_MF_VERIFY_DELAY: self._verify_delay,
             CONF_MF_RELEASE_DELAY: self._unjoin_delay,
             CONF_MF_POSITION_OFFSET: self._position_offset,
-            CONF_MF_HIGH_CONFIDENCE_DISTANCE: self._high_confidence_distance,
             CONF_MF_SLEEP_SUPPRESS: self._sleep_suppress,
             CONF_MF_NIGHT_SUPPRESS_MODE: self._night_suppress_mode,
             CONF_MF_STALE_TRANSITION_SECONDS: self._stale_transition_seconds,

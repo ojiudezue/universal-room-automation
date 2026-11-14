@@ -15,7 +15,8 @@ Music Assistant `transfer_queue` was called with keys it does not accept).
 The plan gated on person BLE confidence / `closest_distance`; both are dead (constant 0.3 / 0.5; distance never
 stored; per-scanner sensors gone since 10-20). The gate is re-based on LIVE inputs: the person's Bermuda area and
 nearest-distance sensors resolved by registry, compared at decision time. Default certainty "normal" checks the
-area only; the distance check runs only under "strict" (the audit measured 11-38 % of transitions over 8 ft). A
+room only. The "strict" 8 ft distance check was dropped by the operator 2026-11-14 (a saved "strict" reads as
+"normal"). A
 dead or unresolved input never blocks a move; it is counted (`ble_input_missing`).
 
 ## D0 player inventory (read-only, `scripts/probes/mf_player_inventory.py`, live .storage 2026-11-14)
@@ -46,8 +47,8 @@ default stays 90 s unmeasured. (c) volume estimate stays the audit's ~75/day.
 
 Top: How music follows (Move / Play in both rooms), Not while the house sleeps, At night, Unusual-activity alerts.
 Fine tuning: Stop the old room after (5 s), Wait before moving again (8), Ignore quick returns within (60), Check
-the new room after (2), Remember the last playing room for (90), Ignore moves older than (15), Phone must be
-within (8 ft, strict only), Location certainty (Normal), Seek ahead on cross-brand moves (3), Also play on the
+the new room after (2), Remember the last playing room for (90), Ignore moves older than (15), Location
+certainty (Normal), Seek ahead on cross-brand moves (3), Also play on the
 room's other speakers (on). All apply without a reload. Rung 1: `MF_FADE_TARGET_VOLUME` 0.1,
 `MF_NUDGE_SETTLE_S` 1, `MF_REVERSAL_WINDOW_S` 120, `MF_ZERO_TRANSFER_MIN_CANDIDATES` 3, `MF_EPISODE_LOG_PERSIST`,
 `MF_MA_FIRST_ENABLED`, `MF_JOIN_LEADER_RELEASE_SAFE_PLATFORMS` (empty).

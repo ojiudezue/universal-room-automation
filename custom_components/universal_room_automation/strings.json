@@ -1602,7 +1602,6 @@
               "mf_verify_delay": "Check the new room after (s)",
               "mf_source_lookback_seconds": "Remember the last playing room for (s)",
               "mf_stale_transition_seconds": "Ignore moves older than (s)",
-              "mf_high_confidence_distance": "Phone must be within (ft)",
               "mf_min_ble_confidence": "Location certainty needed",
               "mf_position_offset": "Seek ahead on cross-brand moves (s)",
               "mf_bonus_joins": "Also play on the room's other speakers"
@@ -1614,8 +1613,7 @@
               "mf_verify_delay": "How long to wait before checking that the new room is really playing.",
               "mf_source_lookback_seconds": "If you walk through a room without a speaker, music still follows from the last room that was playing, for this long. 0 turns it off.",
               "mf_stale_transition_seconds": "A room change that waited longer than this is dropped.",
-              "mf_high_confidence_distance": "Used only with Strict certainty: your phone must be this close to its nearest Bluetooth scanner. 0 turns the distance check off.",
-              "mf_min_ble_confidence": "Any: no Bluetooth check. Normal: your phone's Bluetooth room still matches when the music moves. Strict: Normal, and your phone is near its scanner. A missing Bluetooth reading never stops a move.",
+              "mf_min_ble_confidence": "Any: no Bluetooth check. Normal: your phone's Bluetooth room still matches when the music moves. A missing Bluetooth reading never stops a move.",
               "mf_position_offset": "When the two speakers are different brands, the new room starts this many seconds ahead to cover the delay.",
               "mf_bonus_joins": "After the move works, other speakers in the room (not TVs) join in. They never decide whether the move worked."
             }

@@ -256,13 +256,13 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     "crossing_vision_daily_calls",
     # MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D7: every MF knob applies in place
     # through MusicFollowing.apply_config (11 new keys) -> 133, plus the
-    # arc step 8 arrival-music master switch (options-only) -> 134.
+    # arc step 8 arrival-music master switch (options-only) -> 134;
+    # -1 mf_high_confidence_distance (distance gate dropped 2026-11-14) -> 133.
     "mf_cooldown_seconds",
     "mf_ping_pong_window",
     "mf_verify_delay",
     "mf_unjoin_delay",
     "mf_position_offset",
-    "mf_high_confidence_distance",
     "mf_stale_transition_seconds",
     "mf_follow_mode",
     "mf_bonus_joins",
@@ -432,7 +432,8 @@ def test_options_reload_suppress_keys_count_matches_part2_scope():
     # +1 VISION-CROSSING-SHADOW-1 crossing_vision_daily_calls -> 122
     # +12 MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D7 (11 MF knobs + the arrival
     # music switch) -> 134
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 134
+    # -1 mf_high_confidence_distance (distance gate dropped 2026-11-14) -> 133
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 133
 
 
 # ---------------------------------------------------------------------------

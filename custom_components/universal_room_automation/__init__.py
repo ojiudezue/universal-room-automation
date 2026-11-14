@@ -3864,7 +3864,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     )
                     from .const import (
                         CONF_MF_COOLDOWN_SECONDS,
-                        CONF_MF_HIGH_CONFIDENCE_DISTANCE,
                         CONF_MF_PING_PONG_WINDOW,
                         CONF_MF_VERIFY_DELAY,
                         CONF_MF_UNJOIN_DELAY,
@@ -3874,7 +3873,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         CONF_MF_SLEEP_SUPPRESS,
                         CONF_MF_NIGHT_SUPPRESS_MODE,
                         DEFAULT_MF_COOLDOWN_SECONDS,
-                        DEFAULT_MF_HIGH_CONFIDENCE_DISTANCE,
                         DEFAULT_MF_PING_PONG_WINDOW,
                         DEFAULT_MF_VERIFY_DELAY,
                         DEFAULT_MF_UNJOIN_DELAY,
@@ -3902,9 +3900,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         )),
                         min_confidence=float(cm_config.get(
                             CONF_MF_MIN_CONFIDENCE, DEFAULT_MF_MIN_CONFIDENCE
-                        )),
-                        high_confidence_distance=float(cm_config.get(
-                            CONF_MF_HIGH_CONFIDENCE_DISTANCE, DEFAULT_MF_HIGH_CONFIDENCE_DISTANCE
                         )),
                         # v5.10.0 D2: seed sleep + night gate from CM options.
                         sleep_suppress=bool(cm_config.get(
@@ -7578,7 +7573,6 @@ _MF_LIVE_KEYS: frozenset[str] = frozenset({
     "mf_verify_delay",
     "mf_unjoin_delay",
     "mf_position_offset",
-    "mf_high_confidence_distance",
     "mf_sleep_suppress",
     "mf_night_suppress_mode",
     "mf_stale_transition_seconds",
