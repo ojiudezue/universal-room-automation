@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-13T20:57:40-06:00_ - _Data commit: `ea81d531f238`_ - _last_reconciled: 2026-11-13_
+_Generated: 2026-11-13T20:59:11-06:00_ - _Data commit: `867fe4bcd464`_ - _last_reconciled: 2026-11-13_
 
 
 ## Columns
@@ -781,7 +781,7 @@ status: **planned**
 - **Origin:** 2026-11-13 - Operator question on the crossing vision plan.
 - **Why:** Crossing vision plan fetches clips from Frigate only; Protect enters only as the late face name. Three separate Frigate-vs-Protect rules exist: camera_census.py:2330 _cross_validate_platforms (counts; Frigate number wins when both see; l...
 - **Next:** Me: plan amendment to the operator after perimeter Part A and crossing vision Phase 1 ship. Open unknowns: garage_a Protect leg; llmvision on a Protect clip (one paid dry call needs operator ok); NVR disagreement ground truth (use the we...
-- **Forensic keys (14):**
+- **Forensic keys (16):**
   - `tier`: 3
   - `operator_2026_11_13_both_nvrs`: For all camera work I like to exercise both nvr platforms simultaneously, then cross compare to reduce errors. Did you base this plan on only frigate? How can protect be a separate witness? And we can maybe centralize the rules to deconf...
   - `operator_2026_11_13_consolidate`: Yes, centralize the evidence and keep the policy with each feature... I generally favor consolidation so there's no drift and there is one place to make better but there can be arguement against it. Critique this conclusion and be sure.....
@@ -796,6 +796,8 @@ status: **planned**
   - `decisions_2026_11_13`: Q2 YES (one paid llmvision call on a Protect clip before W4). Q4 YES (ship W1 ahead). Q1: disagreement in the plan meant the cheap NVR detection signal (only one family fired), not a vision result; pending operator pick, recommended ALL ...
   - `operator_2026_11_13_q1_q3`: Yes to both. (Q1 = analyse both clips every crossing, mode all; Q3 = dedicated nvr_witness_records DB table, perimeter agreement samples migrated in)
   - `W1_built_2026_11_13`: d450c382 on feature/nvr-witness-w1-pairing: registry-only pairing with the four uniqueness conditions; 19 tests, every condition mutation-anchored. On the live registry it re-pairs SEVEN cameras, not one: garage_a_2 (intended, transit), ...
+  - `operator_2026_11_14_w1_scope`: Let me know if part of the solution is re-naming the cameras which is a 1 time cost for me. I didn't name them as well as other sensor because I accepted protect and frigate defaults. Else I accept all 7. One oddity. What happens if an N...
+  - `decisions_2026_11_14`: W1 scope: all seven pairings ACCEPTED. No rename needed (all seven pair today; pairing reads device registry names, never entity ids); if a camera ever fails to pair, rename its Protect DEVICE (display name) to match the Frigate camera n...
 
 ### `URAV8-ZONE-ENERGY-DISPLAY-1` - ura-v8: show energy on the zone chips under Rooms, and a house zone-energy breakdown card (pie/bar) on the Energy tab — _#27 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **dashboard** - status: **planned**
