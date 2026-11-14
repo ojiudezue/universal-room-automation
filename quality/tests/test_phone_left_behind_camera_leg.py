@@ -41,7 +41,7 @@ NOW_TS = NOW_UTC.timestamp()
 
 @pytest.fixture
 def m():
-    with rig.import_real_modules() as ns:
+    with rig.import_real_modules(purge_tainted=True) as ns:
         ns.bs = importlib.import_module(f"{PKG}.binary_sensor")
         ns.sensor = importlib.import_module(f"{PKG}.sensor")
         ns.pc = importlib.import_module(f"{PKG}.person_coordinator")

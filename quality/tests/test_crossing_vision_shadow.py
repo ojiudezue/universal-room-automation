@@ -38,6 +38,7 @@ import pytest_asyncio
 import homeassistant as _real_ha_pkg
 
 from _d7_isolation import import_scope
+from _sighting_rig import purge_attr_tainted_ha
 
 _HA_DIR = Path(_real_ha_pkg.__file__).resolve().parent
 _PKG = "custom_components.universal_room_automation"
@@ -75,6 +76,11 @@ def mods():
                 sys.modules.pop(name, None)
         for name in _FRESH_HELPERS:
             sys.modules.pop(name, None)
+        # A donor file can mutate a REAL HA module in place (e.g. the
+        # fan-incident replay sets homeassistant.components.switch.
+        # SwitchEntity to a stub at collection time); the file-path check
+        # above keeps such a module, so drop it too (restored on exit).
+        purge_attr_tainted_ha()
         _core = sys.modules["homeassistant.core"]
 
         def _real_callback(func):
