@@ -2023,9 +2023,9 @@ class PersonCensus:
             _stream_dead = self._stream_dead_interior(configured_interior)
             for entity_id in configured_interior:
                 if entity_id in _stream_dead:
-                    # Camera input stream health S2: a dead stream is a
-                    # MISSING term (as if the camera were unavailable),
-                    # never a zero count and never a frozen one.
+                    # Camera input stream health S2: a dead stream whose
+                    # hold is over is a MISSING term (as if the camera were
+                    # unavailable), never a zero count.
                     continue
                 platform = self._camera_manager.get_platform_for_camera(entity_id)
                 camera_info = self._camera_manager._camera_by_entity.get(entity_id)
@@ -2189,8 +2189,6 @@ class PersonCensus:
             single_source_total = 0
             _stream_dead = self._stream_dead_interior(configured_interior)
             for entity_id in configured_interior:
-                if entity_id in _stream_dead:
-                    continue  # S2: dead stream = missing term
                 entry = ent_reg.async_get(entity_id)
                 device_id = entry.device_id if entry else None
 
@@ -2199,6 +2197,10 @@ class PersonCensus:
                         continue
                     seen_device_ids.add(device_id)
 
+                # S2: released dead stream = missing term, skipped AFTER the device
+                # dedup exactly like an unavailable entity (review A-L1).
+                if entity_id in _stream_dead:
+                    continue
                 if not self._is_entity_available(entity_id):
                     continue
 
@@ -2664,22 +2666,30 @@ class PersonCensus:
     # ------------------------------------------------------------------
 
     def _stream_dead_interior(self, entity_ids: list[str]) -> frozenset[str]:
-        """Camera input stream health S2: the interior camera entities whose
-        camera stream the room tier reports dead (ONE getter, via
-        ``camera_stream_health.entity_stream_dead``: the person sensor as a
-        room input, else its own camera). Census plan dedup rule 5: such a
-        camera is a missing term. Unresolved / kill switch off / error =
-        empty set (byte-identical)."""
+        """Camera input stream health S2: the interior camera entities the
+        census treats as a MISSING term (census plan dedup rule 5): their
+        camera stream is dead AND its hold is over (ONE getter, via
+        ``camera_stream_health.entity_stream_view`` == released: the person
+        sensor as a room input, else its own camera).
+
+        Operator ruling 2026-11-14 ("a dead input holds"): while the hold
+        lasts (CAMERA_INPUT_STREAM_DEAD_HOLD_MAX_S from the camera's first
+        `unavailable` reading) a dead camera is unknown, not absent, so its
+        frozen reading keeps counting as before; a camera dying cannot by
+        itself drop the census to 0 (nobody-home) or the unidentified count
+        (path alpha). Unresolved / live / kill switch off / error = empty
+        set (byte-identical)."""
         try:
             from .domain_coordinators.camera_stream_health import (  # noqa: PLC0415
-                entity_stream_dead,
+                VIEW_RELEASED,
+                entity_stream_view,
             )
         except Exception:  # noqa: BLE001
             return frozenset()
         out = set()
         for eid in entity_ids or ():
             try:
-                if entity_stream_dead(self.hass, eid) is True:
+                if entity_stream_view(self.hass, eid) == VIEW_RELEASED:
                     out.add(eid)
             except Exception:  # noqa: BLE001 — fail open
                 continue
@@ -6023,7 +6033,7 @@ class PersonCensus:
 
         for entity_id in configured_interior:
             if entity_id in _stream_dead:
-                continue  # S2: dead stream = missing term (no guest count)
+                continue  # S2: released dead stream = missing term (no guest count)
             platform = self._camera_manager.get_platform_for_camera(entity_id)
             if platform != CAMERA_PLATFORM_FRIGATE:
                 continue

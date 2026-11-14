@@ -5981,6 +5981,17 @@ CAMERA_INPUT_STREAM_DEAD_GRACE_S: Final = 120.0
 # paired LOW recovered NM fires on release. 0 = no NM (the exclusion still
 # applies).
 CAMERA_INPUT_STREAM_DEAD_NM_AFTER_S: Final = 1800.0
+# S2 "a dead input holds" (operator 2026-11-14: "A dead camera is not a
+# presence or absence of signal. Its faulty equipment."). Outside the room
+# (zone substrate, zone camera tier, switch-off night limb) a dead-stream
+# input is UNKNOWN: it can neither create occupancy nor end it, so the zone
+# keeps its prior level until a live input of the room ends it, the camera
+# streams again, or this many seconds pass from the camera's first
+# `unavailable` reading (same 4 h as the room-tier stuck-sensor rule and the
+# live HVAC stale-occupancy failsafe; HVAC code default is 8 h). After that
+# the input counts as off.
+# 0 = no hold (the input counts as off as soon as it is dead).
+CAMERA_INPUT_STREAM_DEAD_HOLD_MAX_S: Final = 14400.0
 
 # --- Per-device-family T_floor blind-time defaults DEFAULT (probe-
 #     recalibrated 2026-08-19 -> UNIFIED 1.0s across all blind-time

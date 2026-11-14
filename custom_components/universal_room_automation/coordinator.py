@@ -725,8 +725,14 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         self._camera_stream_health: CameraInputStreamHealth = (
             CameraInputStreamHealth(self.entry.data.get("room_name", "unknown"))
         )
-        # S2: inputs dead on the previous tick (flip detection -> substrate).
+        # S2: inputs dead on the previous tick, and dead inputs whose zone
+        # hold was over (flip detection -> substrate recheck).
         self._camera_stream_prev_dead: frozenset[str] = frozenset()
+        self._camera_stream_prev_expired: frozenset[str] = frozenset()
+        # S2 review B-L1: True while this room's own tick runs the substrate
+        # recheck, so the room's substrate-edge handler does not spawn a
+        # second refresh of the room in the middle of this one.
+        self._camera_stream_rechecking: bool = False
         # STEP D2/D3 — physics-based chatter detector (first NEW client
         # of the shared primitive). Constructor is side-effect free;
         # listener is armed in _update_signal_subscriptions (idempotent,
@@ -1668,6 +1674,8 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 """
                 if payload_room_name != room_name:
                     return
+                if not self._substrate_edge_wants_refresh():
+                    return  # S2 B-L1: own tick's stream recheck
                 _LOGGER.info(
                     "Room %s: substrate kind=%s edge -> %s",
                     room_name, payload_kind, payload_new_state,
@@ -2629,9 +2637,16 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # S2 discharge: the zone tier (occupancy substrate) is event-driven
         # and a frozen input sends no event, so tell it which inputs flipped
         # dead / live this tick; it re-reads those kinds through the getter.
+        # The hold end (CAMERA_INPUT_STREAM_DEAD_HOLD_MAX_S) is a flip too:
+        # a held input turns RELEASED with no event either.
         _dead_set = frozenset(dead)
-        _flipped = _dead_set ^ self._camera_stream_prev_dead
+        _expired_set = self._camera_stream_health.hold_expired_now
+        _flipped = (
+            (_dead_set ^ self._camera_stream_prev_dead)
+            | (_expired_set ^ self._camera_stream_prev_expired)
+        )
         self._camera_stream_prev_dead = _dead_set
+        self._camera_stream_prev_expired = _expired_set
         if _flipped:
             self._notify_substrate_stream_flips(_flipped)
         if not (to_page or to_recover):
@@ -2712,6 +2727,16 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         """
         return self._camera_stream_health.is_dead(input_eid)
 
+    def camera_input_stream_hold_expired(self, input_eid: str) -> bool | None:
+        """S2 hold getter: None = not this room's resolved input; True =
+        dead AND its zone hold (CAMERA_INPUT_STREAM_DEAD_HOLD_MAX_S) is
+        over this tick; False otherwise."""
+        return self._camera_stream_health.is_hold_expired(input_eid)
+
+    def camera_stream_hold_expired(self, camera_eid: str) -> bool | None:
+        """Camera-keyed form of ``camera_input_stream_hold_expired``."""
+        return self._camera_stream_health.camera_hold_expired(camera_eid)
+
     def camera_stream_dead(self, camera_eid: str) -> bool | None:
         """Camera-keyed form of the getter above (same tick evaluation):
         None = this room does not watch that camera; True = an input of it
@@ -2725,12 +2750,21 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             substrate = self.hass.data.get(DOMAIN, {}).get("occupancy_substrate")
             if substrate is None:
                 return
+            self._camera_stream_rechecking = True
             substrate.recheck_entities(sorted(flipped))
         except Exception:  # noqa: BLE001 — never break the room tick
             _LOGGER.debug(
                 "camera stream health substrate recheck raised (swallowed)",
                 exc_info=True,
             )
+        finally:
+            self._camera_stream_rechecking = False
+
+    def _substrate_edge_wants_refresh(self) -> bool:
+        """S2 review B-L1: an edge the substrate dispatched while THIS
+        room's tick runs its stream recheck needs no extra refresh (the
+        room tier already decided this tick through S1)."""
+        return not self._camera_stream_rechecking
 
     def camera_stream_health_snapshot(self) -> dict[str, Any]:
         """Display attributes for sensor.<room>_unavailable_entities."""

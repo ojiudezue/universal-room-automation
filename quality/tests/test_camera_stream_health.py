@@ -180,6 +180,8 @@ class _Room:
         self._exclusion_set = SensorExclusionSet(room_name=ROOM)
         self._camera_stream_health = CameraInputStreamHealth(ROOM)
         self._camera_stream_prev_dead = frozenset()
+        self._camera_stream_prev_expired = frozenset()
+        self._camera_stream_rechecking = False
         self._stuck_sensor_kinds = {}
         self._dutycycle_excluded_last_tick = set()
         self._dutycycle_excluded_now = {}

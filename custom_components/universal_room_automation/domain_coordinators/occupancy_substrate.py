@@ -78,6 +78,11 @@ _LOGGER = logging.getLogger(__name__)
 # byte-for-byte.
 _UNAVAILABLE_STATES = frozenset({"unavailable", "unknown"})
 
+# Camera input stream health S2 views (mirrors camera_stream_health.VIEW_*;
+# literal copies so this module does not import it at load time).
+_VIEW_HELD = "held"
+_VIEW_RELEASED = "released"
+
 # Declared precedence order — when the SAME entity_id is (defensively)
 # listed in multiple CONF lists for the SAME room, the first match in this
 # tuple wins. Plan D1 spec: motion → mmwave → occupancy.
@@ -281,6 +286,8 @@ class OccupancySubstrate:
         *,
         event_entity: Optional[str] = None,
         event_state: Any = None,
+        prior: bool = False,
+        release: bool = False,
     ) -> bool:
         """Sleep-mask Rev 3 D4a: is ANY entity mapped to (room, kind) on?
 
@@ -293,70 +300,134 @@ class OccupancySubstrate:
         ``hass.states``. With no siblings ``hass.states`` is never read, so
         a single-sensor kind is byte-identical to last-writer by
         construction. unavailable / unknown / missing count as off.
+
+        Camera input stream health S2, "a dead input holds" (operator
+        2026-11-14): an input whose own camera stream is dead and whose
+        hold is not over (``VIEW_HELD``) is UNKNOWN, whatever it reads. It
+        cannot make the kind on, and it cannot make it off: when no live
+        input is on and an unknown one is mapped here, the kind keeps
+        ``prior`` (its value before this read). ``release`` = a live input
+        of this room just went on -> off, which ends the hold. A dead input
+        whose hold is over (``VIEW_RELEASED``) counts as off. With no dead
+        input the result is the plain OR, byte-identical.
         """
+        unknown = False
         if event_entity is not None:
-            if (
-                event_state is not None
-                and getattr(event_state, "state", None) == "on"
-                and not self._stream_dead(event_entity)
-            ):
-                return True
+            view = self._stream_view(event_entity)
+            if view is None:
+                if (
+                    event_state is not None
+                    and getattr(event_state, "state", None) == "on"
+                ):
+                    return True
+            elif view == _VIEW_HELD:
+                unknown = True
         for entity_id, mapping in entity_to_room_kind.items():
             if entity_id == event_entity:
                 continue
             if mapping[0] != room_name or mapping[1] != kind:
                 continue
+            view = self._stream_view(entity_id)
+            if view == _VIEW_HELD:
+                unknown = True
+                continue
+            if view is not None:
+                continue  # released: counts as off
             try:
                 state = self.hass.states.get(entity_id)
             except Exception:  # pragma: no cover — defensive
                 state = None
-            if (
-                state is not None
-                and state.state == "on"
-                and not self._stream_dead(entity_id)
-            ):
+            if state is not None and state.state == "on":
                 return True
+        if unknown and not release:
+            return bool(prior)
         return False
 
-    def _stream_dead(self, entity_id: str) -> bool:
-        """Camera input stream health S2 (INV-STREAM-ZONE): an `on` from an
-        input whose own camera stream is dead (room getter
-        ``camera_input_stream_dead`` True) counts as off. None / False / any
-        error = counts as before, so unresolved inputs and the kill switch
-        False are byte-identical."""
+    def _stream_view(self, entity_id: str) -> Optional[str]:
+        """Camera input stream health S2 (INV-STREAM-ZONE): this input's
+        view from the ONE room getter (``camera_stream_health.
+        input_stream_view``): None = live or no opinion (count its state),
+        ``held`` = dead, hold not over (unknown), ``released`` = dead, hold
+        over (off). Any error = None, so unresolved inputs and the kill
+        switch False are byte-identical."""
         try:
-            from .camera_stream_health import input_stream_dead  # noqa: PLC0415
-            return input_stream_dead(self.hass, entity_id) is True
+            from .camera_stream_health import input_stream_view  # noqa: PLC0415
+            view = input_stream_view(self.hass, entity_id)
         except Exception:  # noqa: BLE001 — fail open (count the input)
+            return None
+        return view if view in (_VIEW_HELD, _VIEW_RELEASED) else None
+
+    def _entity_alone_on(self, entity_id: str, prior: bool) -> bool:
+        """Switch-off (last-writer) reading of ONE entity under the S2 hold:
+        held = keep ``prior``, released = off, live = its state."""
+        view = self._stream_view(entity_id)
+        if view == _VIEW_HELD:
+            return bool(prior)
+        if view is not None:
             return False
+        st = self.hass.states.get(entity_id)
+        return bool(st is not None and st.state == "on")
+
+    def _release_room_holds(
+        self, room_name: str, skip_kind: str, cause_entity: str,
+    ) -> None:
+        """S2: a live input of ``room_name`` went on -> off, which ends the
+        hold of every OTHER kind of the room that a held (dead, unknown)
+        input keeps on. Kinds with no held input are not touched, so this
+        is a no-op whenever no camera stream is dead."""
+        bucket = self._raw_state.setdefault(room_name, {})
+        for kind in TIER1_KINDS:
+            if kind == skip_kind or not bucket.get(kind, False):
+                continue
+            mapped = [
+                e for e, m in self._entity_to_room_kind.items()
+                if m[0] == room_name and m[1] == kind
+            ]
+            if not any(self._stream_view(e) == _VIEW_HELD for e in mapped):
+                continue
+            occupied = self._kind_on_now(
+                room_name, kind, self._entity_to_room_kind,
+                prior=True, release=True,
+            )
+            if occupied:
+                continue
+            bucket[kind] = False
+            if not self._boot_settle_done:
+                continue
+            self._last_edge_entity[room_name] = cause_entity
+            _LOGGER.debug(
+                "OccupancySubstrate stream-health hold released by a live "
+                "input: room=%s kind=%s", room_name, kind,
+            )
+            self._dispatch(room_name, kind, False)
 
     def recheck_entities(self, entity_ids) -> None:
         """S2 discharge, called by a room tick whose dead-stream answer
-        flipped for ``entity_ids``: a frozen input sends no state event, so
-        re-read each tracked entity's (room, kind) through the one rule and
-        dispatch any edge, exactly as a state change would. Unknown entities
-        are ignored. Never raises."""
+        flipped for ``entity_ids`` (live -> dead, dead -> live, or the
+        hold ended): a frozen input sends no state event, so re-read each
+        tracked entity's (room, kind) through the one rule and dispatch any
+        edge, exactly as a state change would. Unknown entities are
+        ignored. Never raises."""
+        if self._is_torn_down:
+            return
         per_entity = bool(_ura_const.ZONE_OCCUPANCY_PER_ENTITY_ENABLED)
         for entity_id in entity_ids or ():
             mapping = self._entity_to_room_kind.get(entity_id)
             if mapping is None:
                 continue
             room_name, kind = mapping
+            bucket = self._raw_state.setdefault(room_name, {})
+            prior = bool(bucket.get(kind, False))
             try:
                 if per_entity:
                     occupied = self._kind_on_now(
                         room_name, kind, self._entity_to_room_kind,
+                        prior=prior,
                     )
                 else:
-                    st = self.hass.states.get(entity_id)
-                    occupied = bool(
-                        st is not None and st.state == "on"
-                        and not self._stream_dead(entity_id)
-                    )
+                    occupied = self._entity_alone_on(entity_id, prior)
             except Exception:  # noqa: BLE001 — defensive
                 continue
-            bucket = self._raw_state.setdefault(room_name, {})
-            prior = bool(bucket.get(kind, False))
             bucket[kind] = occupied
             if prior == occupied or not self._boot_settle_done:
                 continue
@@ -406,6 +477,7 @@ class OccupancySubstrate:
         for k in TIER1_KINDS:
             bucket[k] = self._kind_on_now(
                 room_name, k, desired_entity_to_room_kind,
+                prior=pre_reset[k],  # S2: a held dead input keeps the level
             )
         return pre_reset
 
@@ -800,6 +872,11 @@ class OccupancySubstrate:
             return  # Unsolicited event for an entity we no longer track.
         room_name, kind = mapping
 
+        bucket = self._raw_state.setdefault(room_name, {})
+        prior = bool(bucket.get(kind, False))
+        # S2 "a dead input holds": a LIVE input going on -> off is what ends
+        # a hold kept by a dead (unknown) input of this room.
+        live_end = self._is_live_end(entity_id, event)
         if per_entity:
             # Sleep-mask Rev 3 D4a + D4c.1: the kind is on while ANY entity
             # mapped to (room, kind) is on (event entity from the payload;
@@ -808,17 +885,19 @@ class OccupancySubstrate:
             occupied = self._kind_on_now(
                 room_name, kind, self._entity_to_room_kind,
                 event_entity=entity_id, event_state=new_state,
+                prior=prior, release=live_end,
             )
+        elif self._stream_view(entity_id) is not None:
+            # S2: an event from a dead input never moves the kind.
+            occupied = self._entity_alone_on(entity_id, prior)
         elif new_state.state in _UNAVAILABLE_STATES:
             occupied = False
         else:
-            occupied = (
-                new_state.state == "on" and not self._stream_dead(entity_id)
-            )
+            occupied = new_state.state == "on"
 
-        bucket = self._raw_state.setdefault(room_name, {})
-        prior = bool(bucket.get(kind, False))
         bucket[kind] = occupied
+        if live_end:
+            self._release_room_holds(room_name, kind, entity_id)
 
         # Only dispatch on true edges to avoid spurious re-fires from
         # state-change events that don't move the per-kind bool (e.g.,
@@ -844,6 +923,23 @@ class OccupancySubstrate:
             room_name, kind, entity_id, occupied, prior,
         )
         self._dispatch(room_name, kind, occupied)
+
+    def _is_live_end(self, entity_id: str, event: Any) -> bool:
+        """S2: True iff this event is a LIVE input going ``on`` -> ``off``
+        (an ending observed by working equipment). Cheap gate first: the
+        getter is asked only for a real on -> off transition."""
+        try:
+            old_state = event.data.get("old_state")
+            new_state = event.data.get("new_state")
+        except Exception:  # noqa: BLE001
+            return False
+        if (
+            old_state is None or new_state is None
+            or getattr(old_state, "state", None) != "on"
+            or getattr(new_state, "state", None) != "off"
+        ):
+            return False
+        return self._stream_view(entity_id) is None
 
     def _dispatch(self, room_name: str, kind: str, new_state: bool) -> None:
         """Dispatch the per-kind edge to subscribers + the HA dispatcher.

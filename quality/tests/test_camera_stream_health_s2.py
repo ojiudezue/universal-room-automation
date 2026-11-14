@@ -22,6 +22,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from homeassistant.util import dt as dt_util
 
 import _provenance_harness  # noqa: F401 — bootstrap homeassistant mocks
 from _provenance_harness import fake_room_entry, make_hass
@@ -158,10 +159,13 @@ class _RoomCoord:
         self._exclusion_set = SensorExclusionSet(room_name=ROOM)
         self._camera_stream_health = CameraInputStreamHealth(ROOM)
         self._camera_stream_prev_dead = frozenset()
+        self._camera_stream_prev_expired = frozenset()
+        self._camera_stream_rechecking = False
         for name in (
             "_apply_camera_stream_health_tick", "_notify_substrate_stream_flips",
             "camera_input_stream_dead", "camera_stream_dead",
-            "_camera_override_person_sensors",
+            "camera_input_stream_hold_expired", "camera_stream_hold_expired",
+            "_camera_override_person_sensors", "_substrate_edge_wants_refresh",
         ):
             fn = getattr(UniversalRoomCoordinator, name)
             setattr(self, name, fn.__get__(self, type(self)))
@@ -229,103 +233,247 @@ def _outage(house, room):
 
 
 # ---------------------------------------------------------------------------
-# Zone tier: substrate (seed, live event, discharge) and the zone tracker
+# Zone tier: substrate (seed, live event, discharge) and the zone tracker.
+# Operator ruling 2026-11-14 (review B-M2): "A dead input holds instead of
+# releasing. A dead camera is not a presence or absence of signal. Its faulty
+# equipment." A dead input is UNKNOWN at the zone tier: it neither creates
+# nor ends occupancy; the level holds until a LIVE input of the room goes
+# on -> off, the camera streams again, or 4 h (14400 s, literal below) pass
+# from the camera's first `unavailable` reading.
 # ---------------------------------------------------------------------------
 
+HOLD_END = 14400  # seconds from T0 (the first `unavailable` tick); literal
 
-def test_zone_not_held_by_dead_stream_input(house):
-    """Up Hallway shape at zone tier: the substrate's mmwave kind (the
-    zone's Tier-1 view) drops at the first room tick past the grace, via
-    the room tick's discharge, and returns when the camera streams again."""
+
+def _ev(eid, new, old=None):
+    """A state_changed event payload (old state optional)."""
+    data = {"entity_id": eid, "new_state": _st(new) if new is not None else None}
+    if old is not None:
+        data["old_state"] = _st(old)
+    return SimpleNamespace(data=data)
+
+
+def test_zone_dead_input_holds_prior_level(house):
+    """Up Hallway shape: the panel's frozen `on` held the mmwave kind before
+    the outage; once dead (grace 120 s) it is unknown and the kind KEEPS its
+    level: no edge at the flip. Camera back: still on, still no edge."""
     room = _RoomCoord(house, _registry())
     house.set(**{PANEL: "on", PANEL_CAM: "unavailable", ZV: "off"})
     sub, edges = _substrate(house)
     assert sub.is_kind_active(ROOM, "mmwave") is True
     room.tick(T0)
-    room.tick(T0 + timedelta(seconds=119))
-    assert sub.is_kind_active(ROOM, "mmwave") is True
-    assert edges == []
     room.tick(T0 + timedelta(seconds=120))
     assert room.camera_input_stream_dead(PANEL) is True
-    assert sub.is_kind_active(ROOM, "mmwave") is False
-    assert edges == [(ROOM, "mmwave", False)]
-    # Camera back: the next tick re-reads the kind -> on edge.
+    assert sub.is_kind_active(ROOM, "mmwave") is True
+    assert edges == []
     house.set(**{PANEL_CAM: "streaming"})
     room.tick(T0 + timedelta(seconds=150))
+    assert room.camera_input_stream_dead(PANEL) is False
     assert sub.is_kind_active(ROOM, "mmwave") is True
-    assert edges[-1] == (ROOM, "mmwave", True)
+    assert edges == []
 
 
-def test_zone_live_event_does_not_revive_dead_input(house):
-    """A state event for the dead input (attribute-only on -> on) is read
-    through the getter: the kind stays off (event branch of _kind_on_now)."""
+def test_zone_dead_input_does_not_create(house):
+    """The kind was off when the panel died: a dead input's `on` event (or
+    the discharge) cannot turn it on (event branch of _kind_on_now)."""
+    room = _RoomCoord(house, _registry())
+    house.set(**{PANEL: "off", PANEL_CAM: "unavailable", ZV: "off"})
+    sub, edges = _substrate(house)
+    room.tick(T0)
+    room.tick(T0 + timedelta(seconds=120))
+    assert room.camera_input_stream_dead(PANEL) is True
+    house.set(**{PANEL: "on"})
+    sub._handle_state_change(_ev(PANEL, "on", old="off"))
+    assert sub.is_kind_active(ROOM, "mmwave") is False
+    sub.recheck_entities([PANEL])
+    assert sub.is_kind_active(ROOM, "mmwave") is False
+    assert edges == []
+
+
+def test_zone_dead_input_event_does_not_end(house):
+    """A dead input's own off event does not end the hold (no absence
+    signal from faulty equipment)."""
     room = _RoomCoord(house, _registry())
     _seed_states(house)
     sub, edges = _substrate(house)
-    assert sub.is_kind_active(ROOM, "mmwave") is True
     _outage(house, room)
-    assert sub.is_kind_active(ROOM, "mmwave") is False
-    sub._handle_state_change(SimpleNamespace(data={
-        "entity_id": PANEL, "new_state": _st("on"),
-    }))
+    house.set(**{PANEL: "off"})
+    sub._handle_state_change(_ev(PANEL, "off", old="on"))
+    assert sub.is_kind_active(ROOM, "mmwave") is True
+    assert edges == []
+
+
+@pytest.mark.per_entity_on_only
+def test_zone_sibling_dead_input_holds_until_live_end(house):
+    """Two presence inputs (same kind): the dead panel and a live radar.
+    The radar going on -> off is a live end: the hold releases. A dead
+    sibling alone keeps the kind (sibling branch of _kind_on_now)."""
+    radar = "binary_sensor.upstairs_hallway_zk_presence"
+    room = _RoomCoord(house, _registry(), presence=(PANEL, radar))
+    _seed_states(house)
+    house.set(**{radar: "off"})
+    sub, edges = _substrate(house, presence=(PANEL, radar))
+    _outage(house, room)
+    # an unrelated attribute-only event of the live radar (off -> off)
+    sub._handle_state_change(_ev(radar, "off", old="off"))
+    assert sub.is_kind_active(ROOM, "mmwave") is True
+    # a live radar unavailable is not an end either
+    sub._handle_state_change(_ev(radar, "unavailable", old="off"))
+    assert sub.is_kind_active(ROOM, "mmwave") is True
+    house.set(**{radar: "on"})
+    sub._handle_state_change(_ev(radar, "on", old="unavailable"))
+    assert sub.is_kind_active(ROOM, "mmwave") is True
+    # on -> unavailable (a live radar losing its signal) is not an end
+    house.set(**{radar: "unavailable"})
+    sub._handle_state_change(_ev(radar, "unavailable", old="on"))
+    assert sub.is_kind_active(ROOM, "mmwave") is True
+    assert edges == []
+    sub._handle_state_change(_ev(radar, "on", old="unavailable"))
+    house.set(**{radar: "off"})
+    sub._handle_state_change(_ev(radar, "off", old="on"))
     assert sub.is_kind_active(ROOM, "mmwave") is False
     assert edges == [(ROOM, "mmwave", False)]
 
 
-def test_zone_sibling_dead_input_does_not_hold_kind(house):
-    """Two presence inputs: the dead panel and a live radar that turns off.
-    The off event of the radar must not leave the kind held by the frozen
-    panel (sibling branch of _kind_on_now)."""
-    radar = "binary_sensor.upstairs_hallway_zk_presence"
-    room = _RoomCoord(house, _registry(), presence=(PANEL, radar))
+def test_zone_live_end_of_other_kind_releases_hold(house):
+    """The panel (mmwave kind) is held; the live ZV (motion kind) going
+    on -> off is a live end in the room and releases the mmwave hold."""
+    room = _RoomCoord(house, _registry())
     _seed_states(house)
-    house.set(**{radar: "on"})
-    sub, _edges = _substrate(house, presence=(PANEL, radar))
+    sub, edges = _substrate(house)
     _outage(house, room)
-    assert sub.is_kind_active(ROOM, "mmwave") is True  # radar holds it
-    house.set(**{radar: "off"})
-    sub._handle_state_change(SimpleNamespace(data={
-        "entity_id": radar, "new_state": _st("off"),
-    }))
+    house.set(**{ZV: "on"})
+    sub._handle_state_change(_ev(ZV, "on", old="off"))
+    assert edges == [(ROOM, "motion", True)]
+    house.set(**{ZV: "off"})
+    sub._handle_state_change(_ev(ZV, "off", old="on"))
+    assert sub.is_kind_active(ROOM, "mmwave") is False
+    assert sorted(edges[1:]) == [(ROOM, "mmwave", False), (ROOM, "motion", False)]
+    assert sub.last_edge_entity_for(ROOM) == ZV
+
+
+@pytest.mark.per_entity_on_only
+def test_zone_live_end_release_names_its_cause(house):
+    """The release edge names the live input that ended the hold, also when
+    that input's own kind does not move (a second motion sensor holds it)."""
+    m2 = "binary_sensor.upstairs_hallway_pir"
+    room = _RoomCoord(house, _registry(), motion=(ZV, m2))
+    _seed_states(house)
+    house.set(**{m2: "on", ZV: "on"})
+    sub, edges = _substrate(house, motion=(ZV, m2))
+    _outage(house, room)
+    house.set(**{ZV: "off"})
+    sub._handle_state_change(_ev(ZV, "off", old="on"))
+    assert edges == [(ROOM, "mmwave", False)]
+    assert sub.is_kind_active(ROOM, "motion") is True
+    assert sub.last_edge_entity_for(ROOM) == ZV
+
+
+def test_zone_live_end_without_dead_input_touches_no_other_kind(house):
+    """No camera dead: a ZV on -> off moves only its own kind (the release
+    walk is a no-op; byte-identical)."""
+    room = _RoomCoord(house, _registry())
+    house.set(**{PANEL: "on", PANEL_CAM: "streaming", ZV: "on"})
+    sub, edges = _substrate(house)
+    room.tick(T0)
+    room.tick(T0 + timedelta(seconds=600))
+    house.set(**{ZV: "off"})
+    sub._handle_state_change(_ev(ZV, "off", old="on"))
+    assert sub.is_kind_active(ROOM, "mmwave") is True
+    assert edges == [(ROOM, "motion", False)]
+
+
+def test_zone_hold_failsafe_releases_at_4h(house):
+    """The hold ends 14400 s after the camera's first `unavailable` tick:
+    held at 14399 s, released (off edge, via the room tick's discharge) at
+    14400 s."""
+    room = _RoomCoord(house, _registry())
+    _seed_states(house)
+    sub, edges = _substrate(house)
+    _outage(house, room)
+    room.tick(T0 + timedelta(seconds=HOLD_END - 1))
+    assert room.camera_input_stream_hold_expired(PANEL) is False
+    assert sub.is_kind_active(ROOM, "mmwave") is True
+    assert edges == []
+    room.tick(T0 + timedelta(seconds=HOLD_END))
+    assert room.camera_input_stream_hold_expired(PANEL) is True
+    assert sub.is_kind_active(ROOM, "mmwave") is False
+    assert edges == [(ROOM, "mmwave", False)]
+    # released: the frozen `on` no longer counts on a later read either
+    sub._handle_state_change(_ev(PANEL, "on", old="on"))
     assert sub.is_kind_active(ROOM, "mmwave") is False
 
 
-def test_zone_seed_honours_dead_stream(house):
-    """A substrate refresh / re-seed after the input went dead seeds the
-    kind off (seed path shares _kind_on_now)."""
+def test_zone_hold_knob_zero_releases_at_once(house, monkeypatch):
+    """CAMERA_INPUT_STREAM_DEAD_HOLD_MAX_S = 0: no hold, the dead input
+    counts as off from the grace (the pre-ruling S2 behaviour)."""
+    monkeypatch.setattr(csh._const, "CAMERA_INPUT_STREAM_DEAD_HOLD_MAX_S", 0.0)
+    room = _RoomCoord(house, _registry())
+    _seed_states(house)
+    sub, edges = _substrate(house)
+    _outage(house, room)
+    assert sub.is_kind_active(ROOM, "mmwave") is False
+    assert edges == [(ROOM, "mmwave", False)]
+
+
+def test_zone_seed_honours_hold(house):
+    """A substrate re-seed keeps a held kind's level (prior) and never
+    creates it; after the hold ends the seed reads it off."""
     room = _RoomCoord(house, _registry())
     _seed_states(house)
     sub, _edges = _substrate(house)
     _outage(house, room)
+    sub._reset_and_seed_room_bucket(ROOM, {}, sub._entity_to_room_kind)
+    assert sub.is_kind_active(ROOM, "mmwave") is True
+    sub._raw_state[ROOM]["mmwave"] = False
+    sub._reset_and_seed_room_bucket(ROOM, {}, sub._entity_to_room_kind)
+    assert sub.is_kind_active(ROOM, "mmwave") is False
+    sub._raw_state[ROOM]["mmwave"] = True
+    room.tick(T0 + timedelta(seconds=HOLD_END))
     sub._raw_state[ROOM]["mmwave"] = True  # isolate the seed from the discharge
     sub._reset_and_seed_room_bucket(ROOM, {}, sub._entity_to_room_kind)
     assert sub.is_kind_active(ROOM, "mmwave") is False
-    house.set(**{PANEL_CAM: "streaming"})
-    room.tick(T0 + timedelta(seconds=150))
-    sub._reset_and_seed_room_bucket(ROOM, {}, sub._entity_to_room_kind)
-    assert sub.is_kind_active(ROOM, "mmwave") is True
 
 
-def test_zone_switch_off_paths_honour_dead_stream(house, switch_off):
+def test_zone_switch_off_paths_hold(house, switch_off):
     """ZONE_OCCUPANCY_PER_ENTITY_ENABLED False (last-writer): the discharge
-    and the live event both read the getter."""
+    and the dead input's own events hold; a live ZV on -> off releases; the
+    4 h end releases."""
     room = _RoomCoord(house, _registry())
-    house.set(**{PANEL: "on", PANEL_CAM: "unavailable", ZV: "off"})
+    _seed_states(house)
     sub, edges = _substrate(house)
-    room.tick(T0)
-    room.tick(T0 + timedelta(seconds=120))
+    _outage(house, room)
+    assert sub.is_kind_active(ROOM, "mmwave") is True
+    sub._handle_state_change(_ev(PANEL, "off", old="on"))
+    assert sub.is_kind_active(ROOM, "mmwave") is True
+    house.set(**{PANEL: "on"})
+    room.tick(T0 + timedelta(seconds=HOLD_END - 1))
+    sub.recheck_entities([PANEL])
+    assert sub.is_kind_active(ROOM, "mmwave") is True
+    assert edges == []
+    room.tick(T0 + timedelta(seconds=HOLD_END))
     assert sub.is_kind_active(ROOM, "mmwave") is False
     assert edges == [(ROOM, "mmwave", False)]
-    sub._handle_state_change(SimpleNamespace(data={
-        "entity_id": PANEL, "new_state": _st("on"),
-    }))
+
+
+def test_zone_switch_off_live_end_releases(house, switch_off):
+    """Switch off: the live ZV going on -> off releases the panel's hold."""
+    room = _RoomCoord(house, _registry())
+    _seed_states(house)
+    sub, edges = _substrate(house)
+    _outage(house, room)
+    house.set(**{ZV: "on"})
+    sub._handle_state_change(_ev(ZV, "on", old="off"))
+    house.set(**{ZV: "off"})
+    sub._handle_state_change(_ev(ZV, "off", old="on"))
     assert sub.is_kind_active(ROOM, "mmwave") is False
+    assert (ROOM, "mmwave", False) in edges
 
 
 def test_room_tick_notifies_substrate_on_flip_only(house):
     """Wire-in anchor for the discharge call inside
     _apply_camera_stream_health_tick: once when the input turns dead, never
-    on a steady dead tick, once when it comes back."""
+    on a steady dead tick, once when its hold ends, once when it comes back."""
     calls: list = []
     house.hass.data[DOMAIN]["occupancy_substrate"] = SimpleNamespace(
         recheck_entities=lambda eids: calls.append(list(eids)),
@@ -337,11 +485,15 @@ def test_room_tick_notifies_substrate_on_flip_only(house):
     assert calls == []
     room.tick(T0 + timedelta(seconds=120))
     assert calls == [[PANEL]]
-    room.tick(T0 + timedelta(seconds=150))
+    room.tick(T0 + timedelta(seconds=HOLD_END - 1))
     assert calls == [[PANEL]]
-    house.set(**{PANEL_CAM: "streaming"})
-    room.tick(T0 + timedelta(seconds=180))
+    room.tick(T0 + timedelta(seconds=HOLD_END))
     assert calls == [[PANEL], [PANEL]]
+    room.tick(T0 + timedelta(seconds=HOLD_END + 30))
+    assert calls == [[PANEL], [PANEL]]
+    house.set(**{PANEL_CAM: "streaming"})
+    room.tick(T0 + timedelta(seconds=HOLD_END + 60))
+    assert calls == [[PANEL], [PANEL], [PANEL]]
 
 
 def test_restart_blip_not_dead_at_zone(house):
@@ -361,17 +513,22 @@ def test_restart_blip_not_dead_at_zone(house):
 
 def test_restart_rebuilds_from_first_tick(house):
     """After an HA restart the tracker is fresh (RAM only): the zone counts
-    the frozen input until the new room tick has seen the camera
-    unavailable for the grace, then drops it (grace counted again)."""
+    the frozen input, holds it once the new tick has seen the camera dead,
+    and the 4 h clock restarts from the new first `unavailable` tick."""
     house.set(**{PANEL: "on", PANEL_CAM: "unavailable", ZV: "off"})
-    sub, _edges = _substrate(house)
+    sub, edges = _substrate(house)
     room = _RoomCoord(house, _registry())  # fresh process
     assert room.camera_input_stream_dead(PANEL) is None
+    t1 = T0 + timedelta(hours=5)
+    room.tick(t1)
+    room.tick(t1 + timedelta(seconds=120))
+    assert room.camera_input_stream_dead(PANEL) is True
     assert sub.is_kind_active(ROOM, "mmwave") is True
-    room.tick(T0 + timedelta(hours=5))
+    room.tick(t1 + timedelta(seconds=HOLD_END - 1))
     assert sub.is_kind_active(ROOM, "mmwave") is True
-    room.tick(T0 + timedelta(hours=5, seconds=120))
+    room.tick(t1 + timedelta(seconds=HOLD_END))
     assert sub.is_kind_active(ROOM, "mmwave") is False
+    assert edges == [(ROOM, "mmwave", False)]
 
 
 def test_unresolved_and_kill_switch_byte_identical_at_zone(house, monkeypatch):
@@ -380,7 +537,7 @@ def test_unresolved_and_kill_switch_byte_identical_at_zone(house, monkeypatch):
     room = _RoomCoord(house, _registry(panel_has_camera=False))
     house.set(**{PANEL: "on", ZV: "off"})
     sub, edges = _substrate(house)
-    for s in (0, 120, 3600):
+    for s in (0, 120, 3600, HOLD_END + 60):
         room.tick(T0 + timedelta(seconds=s))
     assert room.camera_input_stream_dead(PANEL) is None
     assert sub.is_kind_active(ROOM, "mmwave") is True
@@ -392,7 +549,7 @@ def test_unresolved_and_kill_switch_byte_identical_at_zone(house, monkeypatch):
         room2 = _RoomCoord(house2, _registry())
         house2.set(**{PANEL: "on", PANEL_CAM: "unavailable", ZV: "off"})
         sub2, edges2 = _substrate(house2)
-        for s in (0, 120, 3600):
+        for s in (0, 120, 3600, HOLD_END + 60):
             room2.tick(T0 + timedelta(seconds=s))
         assert room2.camera_input_stream_dead(PANEL) is False
         assert sub2.is_kind_active(ROOM, "mmwave") is True
@@ -401,9 +558,33 @@ def test_unresolved_and_kill_switch_byte_identical_at_zone(house, monkeypatch):
         house2.close()
 
 
-def test_zone_camera_tier_ignores_dead_stream(house):
-    """Zone camera tier (Tier 2): a frozen detection of a dead-stream
-    camera entity does not hold the zone."""
+class _CountingRoom:
+    """A room whose getters count their calls (B-L3 ordering)."""
+
+    def __init__(self):
+        self._camera_stream_health = object()
+        self.calls = 0
+
+    def camera_input_stream_dead(self, eid):
+        self.calls += 1
+        return None
+
+    def camera_stream_dead(self, cam):
+        self.calls += 1
+        return None
+
+    def camera_input_stream_hold_expired(self, eid):
+        self.calls += 1
+        return None
+
+    def camera_stream_hold_expired(self, cam):
+        self.calls += 1
+        return None
+
+
+def test_zone_camera_tier_holds_dead_stream(house):
+    """Zone camera tier (Tier 2): a frozen detection of a dead-stream camera
+    keeps holding (unknown) until 4 h, then counts as off."""
     room = _RoomCoord(house, _registry())
     tracker = ZonePresenceTracker(
         hass=house.hass, zone_name="Upstairs", room_names=[ROOM],
@@ -413,12 +594,114 @@ def test_zone_camera_tier_ignores_dead_stream(house):
     tracker.update_camera_detection(PANEL, True)
     assert tracker._any_camera_occupied() is True
     room.tick(T0 + timedelta(seconds=120))
+    assert tracker._any_camera_occupied() is True
+    room.tick(T0 + timedelta(seconds=HOLD_END - 1))
+    assert tracker._any_camera_occupied() is True
+    room.tick(T0 + timedelta(seconds=HOLD_END))
     assert tracker._any_camera_occupied() is False
 
 
-def test_night_raw_switch_off_limb_ignores_dead_input(house, switch_off):
+def test_zone_camera_tier_dead_camera_does_not_create(house):
+    """A camera that was NOT holding when first seen dead cannot start
+    holding while dead (a detection arriving while dead is ignored); once
+    it streams again its reading counts."""
+    room = _RoomCoord(house, _registry())
+    tracker = ZonePresenceTracker(
+        hass=house.hass, zone_name="Upstairs", room_names=[ROOM],
+    )
+    house.set(**{PANEL: "off", PANEL_CAM: "unavailable", ZV: "off"})
+    tracker.update_camera_detection(PANEL, False)
+    tracker._camera_last_seen[PANEL] = dt_util.utcnow() - timedelta(days=1)
+    room.tick(T0)
+    room.tick(T0 + timedelta(seconds=120))
+    assert tracker._any_camera_occupied() is False  # first seen dead: idle
+    house.set(**{PANEL: "on"})  # its sensor turns on while the stream is dead
+    tracker.update_camera_detection(PANEL, True)
+    assert tracker._any_camera_occupied() is False
+    house.set(**{PANEL_CAM: "streaming"})
+    room.tick(T0 + timedelta(seconds=150))
+    assert tracker._any_camera_occupied() is True
+    assert PANEL not in tracker._camera_stream_ignored
+
+
+def test_zone_camera_tier_ignored_without_prior_detection_resyncs(house):
+    """A camera never seen detecting gets an `on` while its stream is dead
+    (ignored); when it streams again with the sensor still `on`, the read
+    resyncs it from its live state."""
+    room = _RoomCoord(house, _registry())
+    tracker = ZonePresenceTracker(
+        hass=house.hass, zone_name="Upstairs", room_names=[ROOM],
+    )
+    house.set(**{PANEL: "off", PANEL_CAM: "unavailable", ZV: "off"})
+    room.tick(T0)
+    room.tick(T0 + timedelta(seconds=120))
+    house.set(**{PANEL: "on"})
+    tracker.update_camera_detection(PANEL, True)
+    assert tracker._any_camera_occupied() is False
+    house.set(**{PANEL_CAM: "streaming"})
+    room.tick(T0 + timedelta(seconds=150))
+    assert tracker._any_camera_occupied() is True
+
+
+def test_zone_camera_tier_dead_camera_does_not_end(house):
+    """A frozen detection's own `off` update while the stream is dead is
+    ignored (no absence signal); after recovery the live reading decides."""
+    room = _RoomCoord(house, _registry())
+    tracker = ZonePresenceTracker(
+        hass=house.hass, zone_name="Upstairs", room_names=[ROOM],
+    )
+    house.set(**{PANEL: "on", PANEL_CAM: "unavailable", ZV: "off"})
+    tracker.update_camera_detection(PANEL, True)
+    tracker._camera_last_seen[PANEL] = dt_util.utcnow() - timedelta(days=1)
+    room.tick(T0)
+    room.tick(T0 + timedelta(seconds=120))
+    house.set(**{PANEL: "off"})
+    tracker.update_camera_detection(PANEL, False)
+    assert tracker._any_camera_occupied() is True
+    house.set(**{PANEL_CAM: "streaming"})
+    room.tick(T0 + timedelta(seconds=150))
+    assert tracker._any_camera_occupied() is False
+
+
+def test_zone_camera_tier_asks_getter_only_for_a_holder(house):
+    """Review B-L3: a camera that would not hold (idle, past its timeout)
+    costs no getter call; a holding one does."""
+    counting = _CountingRoom()
+    house.hass.data[DOMAIN]["entry_count"] = counting
+    tracker = ZonePresenceTracker(
+        hass=house.hass, zone_name="Upstairs", room_names=[ROOM],
+    )
+    tracker.update_camera_detection(PANEL, False)
+    tracker._camera_last_seen[PANEL] = dt_util.utcnow() - timedelta(days=1)
+    assert tracker._any_camera_occupied() is False
+    assert counting.calls == 0
+    tracker.update_camera_detection(PANEL, True)
+    assert tracker._any_camera_occupied() is True
+    assert counting.calls > 0
+
+
+def test_zone_camera_tier_camera_entity_key(house):
+    """Review C-3: a zone camera key that IS a `camera.*` entity id routes
+    through the camera-keyed getter (end to end)."""
+    room = _RoomCoord(house, _registry())
+    tracker = ZonePresenceTracker(
+        hass=house.hass, zone_name="Upstairs", room_names=[ROOM],
+    )
+    house.set(**{PANEL: "on", PANEL_CAM: "unavailable", ZV: "off"})
+    room.tick(T0)
+    tracker.update_camera_detection(PANEL_CAM, True)
+    room.tick(T0 + timedelta(seconds=120))
+    assert csh.entity_stream_dead(house.hass, PANEL_CAM) is True
+    assert csh.entity_stream_view(house.hass, PANEL_CAM) == csh.VIEW_HELD
+    assert tracker._any_camera_occupied() is True
+    room.tick(T0 + timedelta(seconds=HOLD_END))
+    assert csh.entity_stream_view(house.hass, PANEL_CAM) == csh.VIEW_RELEASED
+    assert tracker._any_camera_occupied() is False
+
+
+def test_night_raw_switch_off_limb_holds_dead_input(house, switch_off):
     """_zone_night_raw (switch-off live limb): a dead-stream input reading
-    `on` does not make a SLEEP zone 'really occupied'."""
+    `on` keeps a SLEEP zone 'really occupied' while held, not after 4 h."""
     room = _RoomCoord(house, _registry())
     tracker = ZonePresenceTracker(
         hass=house.hass, zone_name="Upstairs", room_names=[ROOM],
@@ -430,7 +713,298 @@ def test_night_raw_switch_off_limb_ignores_dead_input(house, switch_off):
     room.tick(T0)
     assert PresenceCoordinator._zone_night_rooms(fake, tracker) == [ROOM]
     room.tick(T0 + timedelta(seconds=120))
+    assert PresenceCoordinator._zone_night_rooms(fake, tracker) == [ROOM]
+    room.tick(T0 + timedelta(seconds=HOLD_END))
     assert PresenceCoordinator._zone_night_rooms(fake, tracker) == []
+
+
+# ---------------------------------------------------------------------------
+# Reviewer B-M2 repro, end to end: house asleep, a phone-less guest, the
+# camera input the only `on` input of its zone, the camera dies.
+# ---------------------------------------------------------------------------
+
+
+def _zone_stack(house, *, motion=(ZV,), presence=(PANEL,)):
+    """REAL substrate feeding a REAL zone tracker (subscribed before the
+    boot-settle release, as presence wires it)."""
+    entry = fake_room_entry(
+        ROOM, **{CONF_MOTION_SENSORS: list(motion),
+                 CONF_MMWAVE_SENSORS: list(presence)},
+    )
+    house.hass.config_entries.async_entries.return_value = [entry]
+    sub = OccupancySubstrate(house.hass)
+    _run(sub.async_setup())
+    tracker = ZonePresenceTracker(
+        hass=house.hass, zone_name="Upstairs", room_names=[ROOM],
+    )
+    tracker._has_sensors = True
+    sub.subscribe(lambda r, k, v: tracker.update_room_occupancy(r, v, kind=k))
+    sub.release_boot_settle()
+    house.hass.data[DOMAIN]["occupancy_substrate"] = sub
+    return sub, tracker
+
+
+def _sleep_infer(house, tracker):
+    from custom_components.universal_room_automation.domain_coordinators.house_state import (  # noqa: E501
+        HouseState,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.presence import (  # noqa: E501
+        StateInferenceEngine,
+    )
+    fake = SimpleNamespace(hass=house.hass)
+    night_raw = bool(PresenceCoordinator._zone_night_rooms(fake, tracker))
+    engine = StateInferenceEngine(sleep_start_hour=22, sleep_end_hour=6)
+    return engine.infer(
+        census_count=0,  # phone-less guest: no BLE, not on a census camera
+        current_state=HouseState.SLEEP,
+        any_zone_occupied=False,  # SLEEP-pinned zone (mask)
+        now=datetime(2026, 11, 12, 2, 0, 0),
+        any_zone_occupied_for_empty=night_raw,
+    ), HouseState
+
+
+def test_repro_sleep_guest_camera_dies_no_away(house):
+    """Camera dies: the zone stays held, nobody-home does not fire. A live
+    input (ZV) going on -> off then releases it and nobody-home fires."""
+    room = _RoomCoord(house, _registry())
+    house.set(**{PANEL: "on", PANEL_CAM: "streaming", ZV: "off"})
+    sub, tracker = _zone_stack(house)
+    tracker.set_sleep(True)
+    room.tick(T0)
+    house.set(**{PANEL_CAM: "unavailable"})
+    room.tick(T0 + timedelta(seconds=30))
+    room.tick(T0 + timedelta(seconds=150))
+    assert room.camera_input_stream_dead(PANEL) is True
+    proposed, HouseState = _sleep_infer(house, tracker)
+    assert proposed != HouseState.AWAY
+    house.set(**{ZV: "on"})
+    sub._handle_state_change(_ev(ZV, "on", old="off"))
+    house.set(**{ZV: "off"})
+    sub._handle_state_change(_ev(ZV, "off", old="on"))
+    proposed, HouseState = _sleep_infer(house, tracker)
+    assert proposed == HouseState.AWAY
+
+
+def test_repro_sleep_guest_failsafe_releases_at_4h(house):
+    """Same repro, no live input ever ends it: AWAY only once the hold ends
+    (4 h after the camera's first `unavailable` tick), not at 4 h - 1 s."""
+    room = _RoomCoord(house, _registry())
+    house.set(**{PANEL: "on", PANEL_CAM: "unavailable", ZV: "off"})
+    sub, tracker = _zone_stack(house)
+    tracker.set_sleep(True)
+    room.tick(T0)
+    room.tick(T0 + timedelta(seconds=120))
+    room.tick(T0 + timedelta(seconds=HOLD_END - 1))
+    proposed, HouseState = _sleep_infer(house, tracker)
+    assert proposed != HouseState.AWAY
+    room.tick(T0 + timedelta(seconds=HOLD_END))
+    proposed, HouseState = _sleep_infer(house, tracker)
+    assert proposed == HouseState.AWAY
+
+
+def test_real_departure_away_not_slowed_by_hold(house):
+    """A real departure (every tracked resident away, no unidentified body,
+    no face) goes AWAY through path alpha on the SAME tick whether or not a
+    dead camera holds the zone: alpha never reads zone occupancy."""
+    from custom_components.universal_room_automation.domain_coordinators.house_state import (  # noqa: E501
+        HouseState,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.presence import (  # noqa: E501
+        StateInferenceEngine,
+    )
+    room = _RoomCoord(house, _registry())
+    house.set(**{PANEL: "on", PANEL_CAM: "unavailable", ZV: "off"})
+    sub, tracker = _zone_stack(house)
+    room.tick(T0)
+    room.tick(T0 + timedelta(seconds=120))
+    assert tracker.mode == "occupied"  # held by the dead panel
+    noon = datetime(2026, 11, 12, 12, 0, 0)
+    out = {}
+    for held in (True, False):
+        engine = StateInferenceEngine()
+        out[held] = (engine.infer(
+            census_count=0, current_state=HouseState.HOME_DAY,
+            any_zone_occupied=held, now=noon, unidentified_count=0,
+            all_tracked_persons_away=True, face_recognized_count=0,
+        ), engine._veto_path)
+    assert out[True][0] == HouseState.AWAY
+    assert out[False][0] == HouseState.AWAY
+    assert out[True][1] == "active"
+
+
+# ---------------------------------------------------------------------------
+# recheck_entities guards (review C-4, B-L4) and the room tick discharge
+# ---------------------------------------------------------------------------
+
+
+def test_recheck_guards(house):
+    """Unmapped entities are skipped (the rest of the batch still runs); an
+    unchanged kind is not re-dispatched; the edge names its entity; before
+    the boot-settle release nothing is dispatched; after teardown it is a
+    no-op."""
+    room = _RoomCoord(house, _registry())
+    _seed_states(house)
+    sub, edges = _substrate(house)
+    _outage(house, room)
+    room.tick(T0 + timedelta(seconds=HOLD_END))
+    assert edges == [(ROOM, "mmwave", False)]
+    house.set(**{PANEL_CAM: "streaming"})
+    room._camera_stream_health.evaluate(
+        T0 + timedelta(seconds=HOLD_END + 30), [ZV, PANEL],
+        house.hass.states.get, lambda: room.registry,
+    )
+    sub.recheck_entities(["binary_sensor.not_mapped", PANEL])
+    assert edges[-1] == (ROOM, "mmwave", True)
+    assert sub.last_edge_entity_for(ROOM) == PANEL
+    sub.recheck_entities([PANEL])
+    assert edges == [(ROOM, "mmwave", False), (ROOM, "mmwave", True)]
+    # boot-settle gate: a fresh, unreleased substrate updates silently
+    sub2 = OccupancySubstrate(house.hass)
+    _run(sub2.async_setup())
+    edges2: list = []
+    sub2.subscribe(lambda r, k, v: edges2.append((r, k, v)))
+    sub2._raw_state[ROOM]["mmwave"] = False
+    sub2.recheck_entities([PANEL])
+    assert sub2.is_kind_active(ROOM, "mmwave") is True
+    assert edges2 == []
+    # torn down: no-op
+    _run(sub.async_teardown())
+    sub._raw_state[ROOM]["mmwave"] = False
+    sub.recheck_entities([PANEL])
+    assert sub._raw_state[ROOM]["mmwave"] is False
+
+
+def test_stream_recheck_marks_own_room_edges(house):
+    """Review B-L1: while the room tick runs its substrate recheck, the
+    room's own substrate edges ask for no second refresh; outside it they
+    do; the flag is cleared even when the recheck raises."""
+    room = _RoomCoord(house, _registry())
+    _seed_states(house)
+    sub, _edges = _substrate(house)
+    seen: list = []
+    sub.subscribe(lambda r, k, v: seen.append(room._substrate_edge_wants_refresh()))
+    _outage(house, room)
+    room.tick(T0 + timedelta(seconds=HOLD_END))
+    assert seen == [False]
+    assert room._substrate_edge_wants_refresh() is True
+
+    def _boom(_eids):
+        raise RuntimeError("substrate broke")
+
+    house.hass.data[DOMAIN]["occupancy_substrate"] = SimpleNamespace(
+        recheck_entities=_boom,
+    )
+    house.set(**{PANEL_CAM: "streaming"})
+    room.tick(T0 + timedelta(seconds=HOLD_END + 30))  # must not raise
+    assert room._substrate_edge_wants_refresh() is True
+
+
+def test_room_substrate_handler_skips_own_recheck_edges(monkeypatch):
+    """Wire-in anchor for the B-L1 guard inside the REAL first-refresh
+    closure ``_on_substrate_kind_changed``: an own-room edge during the
+    room's stream recheck spawns no refresh; outside it, it does."""
+    from unittest.mock import AsyncMock, patch
+
+    import homeassistant.helpers.frame as _frame
+
+    from custom_components.universal_room_automation import coordinator as cmod
+    from custom_components.universal_room_automation.domain_coordinators.signals import (  # noqa: E501
+        SIGNAL_SUBSTRATE_KIND_CHANGED,
+    )
+
+    handlers: dict = {}
+
+    def _connect(hass, signal, cb):
+        handlers[signal] = cb
+        return MagicMock()
+
+    monkeypatch.setattr(cmod, "async_dispatcher_connect", _connect)
+    hass = MagicMock()
+    hass.data = {DOMAIN: {}}
+    entry = MagicMock()
+    entry.data = {"room_name": ROOM, CONF_ROOM_NAME: ROOM}
+    entry.options = {}
+    entry.entry_id = "E1"
+    with patch.object(_frame, "report_usage", lambda *a, **k: None):
+        c = UniversalRoomCoordinator(hass, entry)
+    base = UniversalRoomCoordinator.__mro__[1]
+    monkeypatch.setattr(base, "async_config_entry_first_refresh",
+                        AsyncMock(return_value=None), raising=False)
+    c._async_load_stuck_state = AsyncMock(return_value=None)
+    c._update_signal_subscriptions = MagicMock()
+    conf = {CONF_MOTION_SENSORS: [ZV], CONF_MMWAVE_SENSORS: [PANEL],
+            CONF_ROOM_NAME: ROOM}
+    c._get_config = lambda key, default=None: conf.get(key, default)
+    _run(c.async_config_entry_first_refresh())
+    handler = handlers[SIGNAL_SUBSTRATE_KIND_CHANGED]
+    c.async_refresh = MagicMock(return_value=None)
+    c._last_event_refresh = 0.0
+    entry.async_create_background_task.reset_mock()
+    c._camera_stream_rechecking = True
+    handler(ROOM, "mmwave", False)
+    assert entry.async_create_background_task.call_count == 0
+    c._camera_stream_rechecking = False
+    handler(ROOM, "mmwave", False)
+    assert entry.async_create_background_task.call_count == 1
+
+
+def test_source3_dead_zone_camera_confirms_nothing(house, monkeypatch):
+    """Reviews A-M1 / B-M1: check_zone_occupancy_confidence Source 3 (HVAC
+    D6 stale-occupancy failsafe input). A zone camera person sensor that is
+    NOT a room input, frozen `on` with its camera dead, confirms nothing
+    (own-camera route of the one getter), so D6 can release."""
+    zone_cam = "binary_sensor.up_hallway_panel_person_occupancy_2"
+    reg = _registry()
+    reg._by_id[zone_cam] = _entry(zone_cam, "dev_panel")
+    import homeassistant.helpers.entity_registry as er_mod
+    monkeypatch.setattr(er_mod, "async_get", lambda hass: reg, raising=False)
+    room = _RoomCoord(house, reg)
+    house.set(**{PANEL: "on", PANEL_CAM: "unavailable", ZV: "off",
+                 zone_cam: "on"})
+    house.hass.config_entries.async_entries.return_value = []
+    fake = SimpleNamespace(hass=house.hass)
+    zone = SimpleNamespace(rooms=[], zone_cameras=[zone_cam], room_conditions=[])
+    room.tick(T0)
+    assert PresenceCoordinator.check_zone_occupancy_confidence(fake, zone) == (1, 2)
+    room.tick(T0 + timedelta(seconds=120))
+    assert PresenceCoordinator.check_zone_occupancy_confidence(fake, zone) == (0, 2)
+
+
+@pytest.mark.per_entity_on_only
+def test_zone_hold_diagnosis_names_dead_holder(house, monkeypatch):
+    """Review A-L2: the D4d `zone_hold_all_away` page names a dead-stream
+    holder as such (display)."""
+    from custom_components.universal_room_automation.domain_coordinators import (
+        _stuck_signal_nm,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.house_state import (  # noqa: E501
+        HouseState,
+    )
+    got: dict = {}
+
+    async def _fire(hass, **kw):
+        got.update(kw)
+
+    monkeypatch.setattr(_stuck_signal_nm, "fire_stuck_signal", _fire)
+    room = _RoomCoord(house, _registry())
+    house.set(**{PANEL: "on", PANEL_CAM: "unavailable", ZV: "off"})
+    sub, tracker = _zone_stack(house)
+    room.tick(T0)
+    room.tick(T0 + timedelta(seconds=120))
+    fake = SimpleNamespace(
+        hass=house.hass, _zone_trackers={"Upstairs": tracker},
+        _census_count=0, _substrate=sub,
+        _zone_hold_all_away_since=dt_util.utcnow() - timedelta(days=1),
+        _zone_hold_all_away_fired=False,
+    )
+    fake._zone_night_rooms = lambda t: PresenceCoordinator._zone_night_rooms(fake, t)
+    PresenceCoordinator._check_zone_hold_all_away(
+        fake, HouseState.HOME_DAY, True, 2, True,
+    )
+    for c in house.tasks:
+        _run(c)
+    house.tasks.clear()
+    assert f"{PANEL} (camera stream dead, held)" in got["diagnosis"]
 
 
 # ---------------------------------------------------------------------------
@@ -560,11 +1134,13 @@ def _panel_cameras():
     }
 
 
-def test_census_dead_stream_is_missing_not_zero(house):
+def test_census_dead_stream_holds_then_is_missing_not_zero(house):
     """Frozen panel count 1 + a live Protect camera seeing nobody. Live
-    stream: Frigate counts 1 (both platforms). Dead stream: the panel is a
-    MISSING term: Frigate is not available at all (degraded, single source,
-    Protect is the source), which a zero count would not produce
+    stream: Frigate counts 1 (both platforms). Dead stream, hold not over:
+    unknown, the frozen count keeps counting (operator ruling: a camera
+    dying cannot drop the census by itself). Hold over (14400 s): the panel
+    is a MISSING term: Frigate is not available at all (degraded, single
+    source, Protect is the source), which a zero count would not produce
     (a zero would read frigate_count 0, degraded False)."""
     room = _RoomCoord(house, _registry())
     house.set(**{PANEL: "on", PANEL_COUNT: "1", PANEL_CAM: "unavailable",
@@ -575,6 +1151,12 @@ def test_census_dead_stream_is_missing_not_zero(house):
     assert live.frigate_count == 1
     assert live.degraded_mode is False
     room.tick(T0 + timedelta(seconds=120))
+    held = _house_census(census)
+    assert held.frigate_count == 1
+    assert held.degraded_mode is False
+    room.tick(T0 + timedelta(seconds=HOLD_END - 1))
+    assert _house_census(census).frigate_count == 1
+    room.tick(T0 + timedelta(seconds=HOLD_END))
     dead = _house_census(census)
     assert dead.frigate_count == 0
     assert dead.degraded_mode is True
@@ -582,7 +1164,8 @@ def test_census_dead_stream_is_missing_not_zero(house):
 
 
 def test_census_cross_validation_off_skips_dead_stream(house, monkeypatch):
-    """Cross-validation disabled path: the dead panel adds nothing."""
+    """Cross-validation disabled path: the dead panel counts while held and
+    adds nothing once its hold is over."""
     room = _RoomCoord(house, _registry())
     house.set(**{PANEL: "on", PANEL_COUNT: "1", PANEL_CAM: "unavailable",
                  PROTECT: "off", ZV: "off"})
@@ -593,12 +1176,14 @@ def test_census_cross_validation_off_skips_dead_stream(house, monkeypatch):
     room.tick(T0)
     assert _house_census(census).frigate_count == 1
     room.tick(T0 + timedelta(seconds=120))
+    assert _house_census(census).frigate_count == 1
+    room.tick(T0 + timedelta(seconds=HOLD_END))
     assert _house_census(census).frigate_count == 0
 
 
 def test_census_unrecognized_count_skips_dead_stream(house):
     """Guest path (_get_unrecognized_camera_count): a frozen unrecognised
-    body on a dead-stream camera is not counted."""
+    body on a dead-stream camera counts while held, not after the hold."""
     room = _RoomCoord(house, _registry())
     house.set(**{PANEL: "on", PANEL_COUNT: "1", PANEL_CAM: "unavailable",
                  PROTECT: "off", ZV: "off"})
@@ -606,6 +1191,8 @@ def test_census_unrecognized_count_skips_dead_stream(house):
     room.tick(T0)
     assert census._get_unrecognized_camera_count() == 1
     room.tick(T0 + timedelta(seconds=120))
+    assert census._get_unrecognized_camera_count() == 1
+    room.tick(T0 + timedelta(seconds=HOLD_END))
     assert census._get_unrecognized_camera_count() == 0
 
 
@@ -664,11 +1251,13 @@ def test_house_fold_any_true_wins():
 
 
 class _ForcedRoom:
-    """A room whose ONE getter answers ``answer`` regardless of states."""
+    """A room whose ONE getter answers ``answer`` (and its hold getter
+    ``expired``) regardless of states."""
 
-    def __init__(self, answer):
+    def __init__(self, answer, expired=False):
         self._camera_stream_health = object()
         self._answer = answer
+        self._expired = expired
 
     def camera_input_stream_dead(self, eid):
         return self._answer if eid == PANEL else None
@@ -676,37 +1265,318 @@ class _ForcedRoom:
     def camera_stream_dead(self, cam):
         return self._answer if cam == PANEL_CAM else None
 
+    def camera_input_stream_hold_expired(self, eid):
+        return (self._answer and self._expired) if eid == PANEL else None
 
-@pytest.mark.parametrize("forced", [True, False])
-def test_stream_dead_single_getter(house, forced):
+    def camera_stream_hold_expired(self, cam):
+        return (self._answer and self._expired) if cam == PANEL_CAM else None
+
+
+@pytest.mark.parametrize(
+    ("dead", "expired", "zone_seed", "camera_tier", "elsewhere", "census"),
+    [
+        # released (dead, hold over): every reader drops the panel
+        (True, True, False, False, False, False),
+        # held (dead, hold not over): unknown at the zone tier (a fresh
+        # seed cannot create; a detection arriving while dead is ignored);
+        # the census keeps its frozen count; the fan readers drop it
+        (True, False, False, False, False, True),
+        # live: every reader counts it
+        (False, False, True, True, True, True),
+    ],
+)
+def test_stream_dead_single_getter(
+    house, dead, expired, zone_seed, camera_tier, elsewhere, census,
+):
     """INV-STREAM-ONE-GETTER, behavioural: every S2 reader follows the room
-    getter and nothing else. Forced True with the camera STREAMING -> all
-    readers drop the panel; forced False with the camera UNAVAILABLE for an
-    hour -> all readers count it (no second liveness rule anywhere)."""
-    house.hass.data[DOMAIN]["entry_room"] = _ForcedRoom(forced)
-    cam_state = "streaming" if forced else "unavailable"
+    getters and nothing else. Forced dead with the camera STREAMING, or
+    forced live with the camera UNAVAILABLE for an hour: the readers follow
+    the getters (no second liveness rule anywhere)."""
+    house.hass.data[DOMAIN]["entry_room"] = _ForcedRoom(dead, expired)
+    cam_state = "streaming" if dead else "unavailable"
     house.set(**{PANEL: "on", PANEL_COUNT: "1", PANEL_CAM: cam_state,
                  PROTECT: "off", ZV: "off"})
-    counts = not forced
-    # zone substrate
+    # zone substrate (fresh seed: prior False)
     sub, _e = _substrate(house)
-    assert sub.is_kind_active(ROOM, "mmwave") is counts
+    assert sub.is_kind_active(ROOM, "mmwave") is zone_seed
     # zone camera tier
     tracker = ZonePresenceTracker(
         hass=house.hass, zone_name="Upstairs", room_names=[ROOM],
     )
     tracker.update_camera_detection(PANEL, True)
-    assert tracker._any_camera_occupied() is counts
+    assert tracker._any_camera_occupied() is camera_tier
     # presence fan-interference gate
     house.hass.config_entries.async_entries.return_value = [fake_room_entry(
         ROOM, **{CONF_MOTION_SENSORS: [ZV], CONF_MMWAVE_SENSORS: [PANEL]},
     )]
     fake = SimpleNamespace(hass=house.hass)
-    assert PresenceCoordinator._room_radar_sole_capable(fake, ROOM) is counts
+    assert PresenceCoordinator._room_radar_sole_capable(fake, ROOM) is elsewhere
     # fan veto camera leg
     assert fan_veto._has_camera_person(
         house.hass, "Study A", {CONF_CAMERA_PERSON_ENTITIES: [PANEL]},
-    ) is counts
+    ) is elsewhere
+    # census
+    cen = _census(house, _panel_cameras())
+    assert (_house_census(cen).frigate_count == 1) is census
+
+
+# ---------------------------------------------------------------------------
+# Review C findings 1, 2, 5, 6
+# ---------------------------------------------------------------------------
+
+
+def test_census_unresolved_camera_counts(house):
+    """C-1: a camera no room watches (getter None) is counted as before by
+    every census site (None is no opinion, never dead)."""
+    house.set(**{PANEL: "on", PANEL_COUNT: "1", PANEL_CAM: "unavailable",
+                 PROTECT: "off", ZV: "off"})
+    census = _census(house, _panel_cameras())
+    assert csh.entity_stream_dead(house.hass, PANEL) is None
+    assert _house_census(census).frigate_count == 1
+    assert census._get_unrecognized_camera_count() == 1
+
+
+def test_census_cross_validation_off_dead_after_device_dedup(house, monkeypatch):
+    """Review A-L1: with cross-validation off, the dead skip runs AFTER the
+    device dedup, exactly like an unavailable entity: a second entity on
+    the same device is not counted in place of the dead first one."""
+    second = "binary_sensor.up_hallway_panel_motion"
+    reg = _registry()
+    reg._by_id[second] = _entry(second, "dev_panel")
+    cams = _panel_cameras()
+    cams[second] = CameraInfo(
+        entity_id=second, platform="unifiprotect", area_id="upstairs_hallway",
+        person_binary_sensor=second,
+    )
+    room = _RoomCoord(house, reg)
+    house.set(**{PANEL: "on", PANEL_COUNT: "1", PANEL_CAM: "unavailable",
+                 PROTECT: "off", ZV: "off", second: "on"})
+    census = _census(house, cams)
+    monkeypatch.setattr(census, "_is_cross_validation_enabled", lambda: False)
+    import homeassistant.helpers.entity_registry as er_mod
+    monkeypatch.setattr(er_mod, "async_get", lambda hass: reg, raising=False)
+    monkeypatch.setattr(
+        census, "_stream_dead_interior",
+        lambda ids: frozenset({PANEL}) if PANEL in ids else frozenset(),
+    )
+    room.tick(T0)
+    assert _house_census(census).frigate_count == 0
+
+
+def test_camera_is_dead_is_keyed_by_camera(house):
+    """C-2: one room watches two cameras; one dies. The other camera reads
+    live (no cross-camera bleed), for the dead and the hold getters."""
+    kitchen_in = "binary_sensor.kitchen_panel_person_occupancy"
+    reg = _registry()
+    reg._by_id[kitchen_in] = _entry(kitchen_in, "dev_kitchen")
+    room = _RoomCoord(house, reg, presence=(PANEL, kitchen_in))
+    house.set(**{PANEL: "on", PANEL_CAM: "unavailable", ZV: "off",
+                 kitchen_in: "on", OTHER_CAM: "streaming"})
+    room.tick(T0)
+    room.tick(T0 + timedelta(seconds=HOLD_END))
+    assert csh.camera_stream_dead(house.hass, PANEL_CAM) is True
+    assert csh.camera_stream_dead(house.hass, OTHER_CAM) is False
+    assert room.camera_stream_hold_expired(PANEL_CAM) is True
+    assert room.camera_stream_hold_expired(OTHER_CAM) is False
+
+
+def test_camera_is_dead_before_first_tick_is_none():
+    """C-6: a fresh tracker (no resolution yet) has no opinion."""
+    h = CameraInputStreamHealth(ROOM)
+    assert h.camera_is_dead(PANEL_CAM) is None
+    assert h.camera_hold_expired(PANEL_CAM) is None
+    assert h.is_hold_expired(PANEL) is None
+
+
+class _SplitRoom:
+    """Room A answers the INPUT live; room B says its camera is dead."""
+
+    def __init__(self, input_answer, camera_answer):
+        self._camera_stream_health = object()
+        self._i = input_answer
+        self._c = camera_answer
+
+    def camera_input_stream_dead(self, eid):
+        return self._i if eid == PANEL else None
+
+    def camera_stream_dead(self, cam):
+        return self._c if cam == PANEL_CAM else None
+
+    def camera_input_stream_hold_expired(self, eid):
+        return False if eid == PANEL and self._i is not None else None
+
+    def camera_stream_hold_expired(self, cam):
+        return False if cam == PANEL_CAM and self._c is not None else None
+
+
+def test_entity_stream_dead_direct_false_wins(house, monkeypatch):
+    """C-6: a room that resolves the entity as its input and reads it live
+    is the answer; the own-camera route is only the fallback."""
+    import homeassistant.helpers.entity_registry as er_mod
+    monkeypatch.setattr(er_mod, "async_get", lambda hass: _registry(), raising=False)
+    house.hass.data[DOMAIN]["room_a"] = _SplitRoom(False, None)
+    house.hass.data[DOMAIN]["room_b"] = _SplitRoom(None, True)
+    assert csh.entity_stream_dead(house.hass, PANEL) is False
+    assert csh.entity_stream_view(house.hass, PANEL) is None
+
+
+class _RaisingRoom:
+    """A room whose every stream getter raises."""
+
+    _camera_stream_health = object()
+
+    def _boom(self, *_a):
+        raise RuntimeError("getter broke")
+
+    camera_input_stream_dead = _boom
+    camera_stream_dead = _boom
+    camera_input_stream_hold_expired = _boom
+    camera_stream_hold_expired = _boom
+
+
+def _boom_fn(*_a, **_k):
+    raise RuntimeError("house getter broke")
+
+
+class _HoldRaisingRoom(_RaisingRoom):
+    """Dead per the getter; its hold getter raises."""
+
+    def camera_input_stream_dead(self, eid):
+        return True if eid == PANEL else None
+
+
+def test_hold_getter_raises_reads_held(house):
+    """C-5 (hold getter): a raising hold getter is no opinion, so a dead
+    input reads HELD (unknown, keeps the level), never a crash."""
+    house.hass.data[DOMAIN]["entry_room"] = _HoldRaisingRoom()
+    assert csh.input_stream_view(house.hass, PANEL) == csh.VIEW_HELD
+
+
+@pytest.mark.parametrize("where", ["room_getters", "house_functions"])
+def test_getter_raises_input_still_counts(house, monkeypatch, where):
+    """C-5: fail-open contract. A getter that raises (in a room, or the
+    house-level function itself) never drops real presence and never
+    crashes a reader: every reader counts the panel as before."""
+    if where == "room_getters":
+        house.hass.data[DOMAIN]["entry_room"] = _RaisingRoom()
+    else:
+        for name in ("input_stream_dead", "camera_stream_dead",
+                     "entity_stream_dead", "input_stream_view",
+                     "entity_stream_view"):
+            monkeypatch.setattr(csh, name, _boom_fn)
+    zone_cam = "binary_sensor.up_hallway_panel_person_occupancy_2"
+    house.set(**{PANEL: "on", PANEL_COUNT: "1", PANEL_CAM: "unavailable",
+                 PROTECT: "off", ZV: "off", zone_cam: "on"})
+    if where == "room_getters":
+        assert csh.input_stream_dead(house.hass, PANEL) is None
+        assert csh.camera_stream_dead(house.hass, PANEL_CAM) is None
+        assert csh.input_stream_view(house.hass, PANEL) is None
+    # substrate (seed + discharge)
+    sub, edges = _substrate(house)
+    assert sub.is_kind_active(ROOM, "mmwave") is True
+    sub.recheck_entities([PANEL])
+    sub._handle_state_change(_ev(PANEL, "on", old="on"))
+    assert sub.is_kind_active(ROOM, "mmwave") is True
+    # zone camera tier
+    tracker = ZonePresenceTracker(
+        hass=house.hass, zone_name="Upstairs", room_names=[ROOM],
+    )
+    tracker.update_camera_detection(PANEL, True)
+    assert tracker._any_camera_occupied() is True
+    fake = SimpleNamespace(hass=house.hass)
+    # Source 3
+    zone = SimpleNamespace(rooms=[], zone_cameras=[zone_cam], room_conditions=[])
+    house.hass.config_entries.async_entries.return_value = []
+    assert PresenceCoordinator.check_zone_occupancy_confidence(fake, zone)[0] == 1
+    # radar-sole gate
+    house.hass.config_entries.async_entries.return_value = [fake_room_entry(
+        ROOM, **{CONF_MOTION_SENSORS: [ZV], CONF_MMWAVE_SENSORS: [PANEL]},
+    )]
+    assert PresenceCoordinator._room_radar_sole_capable(fake, ROOM) is True
+    # fan veto, both legs
+    assert fan_veto._has_camera_person(
+        house.hass, "Study A", {CONF_CAMERA_PERSON_ENTITIES: [PANEL]},
+    ) is True
+    assert fan_veto._has_recent_motion(
+        house.hass, {CONF_MOTION_SENSORS: [PANEL], CONF_ROOM_NAME: ROOM},
+    ) is True
     # census
     census = _census(house, _panel_cameras())
-    assert (_house_census(census).frigate_count == 1) is counts
+    assert _house_census(census).frigate_count == 1
+    assert census._get_unrecognized_camera_count() == 1
+
+
+def test_night_limb_getter_raises_counts(house, switch_off, monkeypatch):
+    """C-5 (switch-off night limb): a raising view function counts the
+    input as before."""
+    monkeypatch.setattr(csh, "input_stream_view", _boom_fn)
+    tracker = ZonePresenceTracker(
+        hass=house.hass, zone_name="Upstairs", room_names=[ROOM],
+    )
+    tracker._has_sensors = True
+    tracker._entity_to_room[PANEL] = ROOM
+    house.set(**{PANEL: "on"})
+    fake = SimpleNamespace(hass=house.hass)
+    assert PresenceCoordinator._zone_night_rooms(fake, tracker) == [ROOM]
+
+
+def test_real_coordinator_first_tick_no_spurious_flip(monkeypatch):
+    """C-6: the REAL constructor's flip state starts empty, so the first
+    tick of a live room sends the substrate no recheck."""
+    from unittest.mock import patch
+
+    import homeassistant.helpers.frame as _frame
+
+    hass = MagicMock()
+    calls: list = []
+    hass.data = {DOMAIN: {"occupancy_substrate": SimpleNamespace(
+        recheck_entities=lambda eids: calls.append(list(eids)),
+    )}}
+    states = {PANEL: _st("on"), PANEL_CAM: _st("streaming"), ZV: _st("off")}
+    hass.states.get = states.get
+    entry = MagicMock()
+    entry.data = {"room_name": ROOM, CONF_ROOM_NAME: ROOM}
+    entry.options = {}
+    entry.entry_id = "E1"
+    with patch.object(_frame, "report_usage", lambda *a, **k: None):
+        c = UniversalRoomCoordinator(hass, entry)
+    assert c._camera_stream_rechecking is False
+    c._camera_stream_registry = lambda: _registry()
+    c._camera_override_person_sensors = lambda: []
+    c._apply_camera_stream_health_tick(T0, ROOM, [ZV], [PANEL], [])
+    assert c.camera_input_stream_dead(PANEL) is False
+    assert calls == []
+
+
+def test_zone_switch_off_recheck_is_last_writer(house, switch_off):
+    """Switch off, the discharge keeps the last-writer shape (one entity's
+    own reading): the released panel writes its kind off even while a live
+    same-kind radar reads on (byte-identical to the switch-off path)."""
+    radar = "binary_sensor.upstairs_hallway_zk_presence"
+    room = _RoomCoord(house, _registry(), presence=(PANEL, radar))
+    _seed_states(house)
+    house.set(**{radar: "on"})
+    sub, _edges = _substrate(house, presence=(PANEL, radar))
+    _outage(house, room)
+    room.tick(T0 + timedelta(seconds=HOLD_END))
+    assert sub.is_kind_active(ROOM, "mmwave") is False
+
+
+def test_recheck_survives_a_raising_state_read(house, switch_off):
+    """recheck_entities never raises: a state read that raises for one
+    entity skips it and the rest of the batch still runs."""
+    room = _RoomCoord(house, _registry())
+    _seed_states(house)
+    sub, edges = _substrate(house)
+    house.set(**{ZV: "on"})
+    real_get = house.hass.states.get
+
+    def _get(eid):
+        if eid == PANEL:
+            raise RuntimeError("state machine broke")
+        return real_get(eid)
+
+    house.hass.states.get = _get
+    sub.recheck_entities([PANEL, ZV])
+    assert edges == [(ROOM, "motion", True)]
+    del room

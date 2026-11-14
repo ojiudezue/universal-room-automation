@@ -47,7 +47,14 @@ panel `on` holding the zone and counting a census body until the stuck rule fire
   a camera-derived input whose camera entity has been `unavailable` longer than the grace plus one tick.
 - **INV-STREAM-ONE-GETTER (S2).** Zone tier, fan recheck and census read the dead-stream state only through the S1
   getter; no second derivation. Grep test.
-- **INV-STREAM-ZONE (S2).** Same statement as INV-STREAM for zone occupancy and the census camera term (missing, not 0).
+- **INV-STREAM-ZONE (S2, revised by the operator ruling 2026-11-14 on review B-M2: "A dead input holds instead of
+  releasing. A dead camera is not a presence or absence of signal. Its faulty equipment.").** Outside the room a
+  dead-stream input is UNKNOWN: it can neither create nor end zone occupancy, the census count, or night_raw. The level
+  holds until a live input of the same room goes `on -> off`, the camera streams again, or
+  `CAMERA_INPUT_STREAM_DEAD_HOLD_MAX_S` (4 h from the camera's first `unavailable` reading) passes; after that the input
+  counts as off at the zone and as a missing term (not 0) in the census. Falsified by a zone emptied, or nobody-home
+  firing, at the moment a camera's input turns dead with no live input ending it, or by a hold that outlives the
+  bound by more than one room tick.
 
 ## 5. Deliverables
 
@@ -122,8 +129,11 @@ says otherwise, so S2 changes only which camera inputs the census treats as pres
 - **Tests:** `test_zone_not_held_by_dead_stream_input`, `test_fan_recheck_ignores_dead_stream_input`,
   `test_census_dead_stream_is_missing_not_zero`, `test_stream_dead_single_getter` (grep). Mutation: bypass the getter at
   the zone site → the zone test red.
-- **Live:** on the next outage the zone of the panel room is not held by the panel input; census `aware_agreement` shows
-  `single_source` for that camera, not a 0 count.
+- **Live (rewritten after review A-M2 and the B-M2 ruling):** panel outage, judged at the ZONE (panels are room
+  presence inputs, not census cameras): the panel room's zone does not drop when the camera goes `unavailable`; it
+  releases at a live sensor's `on -> off` in that room or 4 h after the first `unavailable`. Census, judged only on an
+  outage of an INTERIOR census camera: its frozen count stays in `area_contributions` for 4 h, then the camera is
+  absent (missing term) while `camera_input_dark` is unchanged.
 
 ## 6. Knobs
 
@@ -132,6 +142,7 @@ says otherwise, so S2 changes only which camera inputs the census treats as pres
 | `CAMERA_INPUT_STREAM_HEALTH_ENABLED` | 1 | True | False = develop |
 | `CAMERA_INPUT_STREAM_DEAD_GRACE_S` | 1 | 120 | larger = slower; restart blips measured < 60 s |
 | `CAMERA_INPUT_STREAM_DEAD_NM_AFTER_S` | 1 | 1800 | 0 = no NM (exclusion still applies) |
+| `CAMERA_INPUT_STREAM_DEAD_HOLD_MAX_S` (S2 fix-up) | 1 | 14400 | 0 = no hold (a dead input is off at once outside the room) |
 
 ## 7. Dependencies and sequence
 

@@ -86,6 +86,10 @@ class CameraInputStreamHealth:
         self._gap_seen: set[str] = set()
         # input_eid -> (camera_eid, since): dead THIS tick.
         self._dead_now: dict[str, tuple[str, datetime]] = {}
+        # S2 hold: dead inputs whose camera has read `unavailable` for at
+        # least CAMERA_INPUT_STREAM_DEAD_HOLD_MAX_S (the hold is over: the
+        # input counts as off outside the room). Subset of _dead_now.
+        self._hold_expired_now: frozenset[str] = frozenset()
         # NM bookkeeping: inputs whose current episode paged; per-day latch.
         self._paged_episode: set[str] = set()
         self._paged_day: dict[str, str] = {}
@@ -274,7 +278,20 @@ class CameraInputStreamHealth:
                 self._paged_episode.discard(eid)
 
         self._dead_now = dead
+        hold_s = float(
+            getattr(_const, "CAMERA_INPUT_STREAM_DEAD_HOLD_MAX_S", 0.0),
+        )
+        self._hold_expired_now = frozenset(
+            eid for eid, (_cam, since) in dead.items()
+            # hold_s 0 (no hold): every dead input is released at once.
+            if (now - since).total_seconds() >= hold_s
+        )
         return dict(dead), to_page, to_recover
+
+    @property
+    def hold_expired_now(self) -> frozenset[str]:
+        """Dead inputs whose S2 hold is over this tick (see evaluate)."""
+        return self._hold_expired_now
 
     # ------------------------------------------------------------------
     # Readers
@@ -300,6 +317,23 @@ class CameraInputStreamHealth:
         if not any(cam == camera_eid for cam, _r, _d in self._resolution.values()):
             return None
         return any(cam == camera_eid for cam, _s in self._dead_now.values())
+
+    def is_hold_expired(self, input_eid: str) -> bool | None:
+        """S2 hold reader. None = unresolved / not this room's input; True
+        iff the input is dead AND its hold is over this tick."""
+        if self.is_dead(input_eid) is None:
+            return None
+        return input_eid in self._hold_expired_now
+
+    def camera_hold_expired(self, camera_eid: str) -> bool | None:
+        """Camera-keyed form of ``is_hold_expired``: None = not watched;
+        True iff an input of that camera is dead with its hold over."""
+        if self.camera_is_dead(camera_eid) is None:
+            return None
+        return any(
+            cam == camera_eid and eid in self._hold_expired_now
+            for eid, (cam, _s) in self._dead_now.items()
+        )
 
     def snapshot(self) -> dict[str, Any]:
         """Display surface for ``sensor.<room>_unavailable_entities``."""
@@ -406,6 +440,56 @@ def entity_stream_dead(hass: Any, entity_id: str) -> bool | None:
     if not cam:
         return None
     return camera_stream_dead(hass, cam)
+
+
+# S2 "a dead input holds" (operator ruling 2026-11-14). The VIEW of an input
+# outside the room: None = live or unknown to every room (count its state as
+# before); HELD = dead, hold not over (UNKNOWN: it neither creates nor ends
+# occupancy, the reader keeps its prior level); RELEASED = dead and the hold
+# is over (CAMERA_INPUT_STREAM_DEAD_HOLD_MAX_S): count it as off.
+VIEW_HELD = "held"
+VIEW_RELEASED = "released"
+
+
+def _ask(hass: Any, method: str, key: str) -> bool | None:
+    answers = []
+    for coord in _room_coordinators(hass):
+        try:
+            answers.append(getattr(coord, method)(key))
+        except Exception:  # noqa: BLE001 — no opinion
+            continue
+    return _fold(answers)
+
+
+def input_stream_view(hass: Any, input_eid: str) -> str | None:
+    """Zone-tier view of a room input (substrate, switch-off night limb)."""
+    if input_stream_dead(hass, input_eid) is not True:
+        return None
+    expired = _ask(hass, "camera_input_stream_hold_expired", input_eid)
+    return VIEW_RELEASED if expired is True else VIEW_HELD
+
+
+def entity_stream_view(hass: Any, entity_id: str) -> str | None:
+    """Same view for any camera-derived entity (zone camera tier): the
+    input route first, else its own camera (as ``entity_stream_dead``)."""
+    if not entity_id:
+        return None
+    if str(entity_id).startswith("camera."):
+        if camera_stream_dead(hass, entity_id) is not True:
+            return None
+        expired = _ask(hass, "camera_stream_hold_expired", entity_id)
+        return VIEW_RELEASED if expired is True else VIEW_HELD
+    if input_stream_dead(hass, entity_id) is not None:
+        return input_stream_view(hass, entity_id)
+    try:
+        from homeassistant.helpers import entity_registry as er  # noqa: PLC0415
+        registry = er.async_get(hass)
+        cam = CameraResolver.own_camera_entity_for_input(registry, entity_id)[0]
+    except Exception:  # noqa: BLE001
+        return None
+    if not cam:
+        return None
+    return entity_stream_view(hass, cam)
 
 
 def _is_restored(state: Any) -> bool:
