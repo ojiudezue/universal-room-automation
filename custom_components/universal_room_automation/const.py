@@ -5958,6 +5958,30 @@ CHATTER_OBSERVATION_WINDOW_S: Final = 300.0
 #     Symmetric with STUCK-SENSOR-1 CORROBORATOR_DISAGREE_S = 900.
 CHATTER_RELEASE_QUIET_S: Final = 900.0
 
+# ---------------------------------------------------------------------------
+# Camera input stream health, S1 room tier (PANEL-KS-HEALTH-AS-INPUT-1;
+# docs/planning/PLANNING_camera_input_stream_health.md). A room input whose
+# own camera entity (same device, exactly one camera entity on it) has read
+# `unavailable` for the grace stops counting in room fusion (exclusion
+# client `camera_stream_dead`). Agnostic: keyed on the camera entity's
+# availability, never on a camera name or an NVR brand. Read as module
+# attributes at call time (domain_coordinators/camera_stream_health.py) so a
+# test or a hotfix flips them without a reload. All rung 1: a change alters
+# which evidence holds a room, so it should go through review.
+# ---------------------------------------------------------------------------
+# Kill switch. False = no exclusion, no NM: room fusion byte-identical to
+# the pre-S1 code.
+CAMERA_INPUT_STREAM_HEALTH_ENABLED: Final = True
+# Seconds the camera entity must read `unavailable` (first observed on a room
+# tick) before its inputs stop counting. Measured F2 / HA restart blips are
+# < 60 s (plan §5 measurement); larger = slower release of a frozen `on`.
+CAMERA_INPUT_STREAM_DEAD_GRACE_S: Final = 120.0
+# Seconds an exclusion must last before ONE HIGH stuck-signal NM pages (the
+# homelab watchdog did not fix it), once per (room, input) per local day; a
+# paired LOW recovered NM fires on release. 0 = no NM (the exclusion still
+# applies).
+CAMERA_INPUT_STREAM_DEAD_NM_AFTER_S: Final = 1800.0
+
 # --- Per-device-family T_floor blind-time defaults DEFAULT (probe-
 #     recalibrated 2026-08-19 -> UNIFIED 1.0s across all blind-time
 #     families). Table 2 in PROBE_mmwave_healthy_cadence.md:
