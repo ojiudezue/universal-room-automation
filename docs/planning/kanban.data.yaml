@@ -35403,6 +35403,8 @@ cards:
   why: 'D4 alone leaves the zone and census holding a dead camera input; residual of the panel-health fix.'
   next: 'Me: fold into the D4 cycle plan (Part B of PLANNING_perimeter_gate_evidence_and_input_health.md) or sequence right after; enumerate zone/census/fan readers of camera inputs.'
   rank: {value: 5, time_criticality: 3, effort: 2}
+  operator_2026_11_14_dead_hold: '(a) A dead input holds instead of releasing. A dead camera is not a presence or absence of signal. Its faulty equipment.'
+  s2_reviews_2026_11_14: 'A FIX (A-M1 presence.py check_zone_occupancy_confidence Source 3 reads zone cameras raw, feeds HVAC 4 h failsafe; A-M2 live criteria do not discriminate; lows), B SHIP (B-M1 same site; B-M2 dead camera can trigger Sleep->Away -> operator chose hold; B-L3 zone camera tier asks the getter for every camera every read: reorder), C FIX tests only (census is True check, camera_is_dead key bleed, camera.* route, recheck_entities guards, fail-open handling).'
 - id: MEMORY-EPISODES-PERIMETER-GATE-RETENTION-1
   title: memory_episodes has no retention; perimeter gate rows add ~30-90 MB/yr unbounded
   thread: infra

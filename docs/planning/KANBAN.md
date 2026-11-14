@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-14T00:22:33-06:00_ - _Data commit: `28f7b590470d`_ - _last_reconciled: 2026-11-13_
+_Generated: 2026-11-14T00:44:22-06:00_ - _Data commit: `842719624363`_ - _last_reconciled: 2026-11-13_
 
 
 ## Columns
@@ -93,8 +93,10 @@ _created 2026-11-13 15:30_
 - **Origin:** 2026-11-13 - Planner (plan/perimeter-batch 70d72c8e, Part B D4): up_hallway_panel_person_occupancy froze on 14 h during the KS outage and held Upstairs Hallway 4 h; D4 excludes the dead input at room level, but zone/census/fan recheck do...
 - **Why:** D4 alone leaves the zone and census holding a dead camera input; residual of the panel-health fix.
 - **Next:** Me: fold into the D4 cycle plan (Part B of PLANNING_perimeter_gate_evidence_and_input_health.md) or sequence right after; enumerate zone/census/fan readers of camera inputs.
-- **Forensic keys (1):**
+- **Forensic keys (3):**
   - `tier`: 2
+  - `operator_2026_11_14_dead_hold`: (a) A dead input holds instead of releasing. A dead camera is not a presence or absence of signal. Its faulty equipment.
+  - `s2_reviews_2026_11_14`: A FIX (A-M1 presence.py check_zone_occupancy_confidence Source 3 reads zone cameras raw, feeds HVAC 4 h failsafe; A-M2 live criteria do not discriminate; lows), B SHIP (B-M1 same site; B-M2 dead camera can trigger Sleep->Away -> operator...
 
 ### `MEMORY-EPISODES-PERIMETER-GATE-RETENTION-1` - memory_episodes has no retention; perimeter gate rows add ~30-90 MB/yr unbounded — _#8 · WSJF 5.0 · v2 tc1 u2 /e1_
 thread: **infra** - status: **inbox**
