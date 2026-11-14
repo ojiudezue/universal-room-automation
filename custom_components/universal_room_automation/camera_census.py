@@ -1699,6 +1699,20 @@ class PersonCensus:
             return []
         return self._camera_manager.resolve_cross_platform_sensors(raw_cameras)
 
+    def get_transit_egress_entities_by_camera(self) -> dict[str, list[CameraInfo]]:
+        """Per configured egress camera, the SAME cross-platform legs
+        ``get_transit_egress_entities`` resolves (the egress producer's own
+        leg set), keeping the camera -> legs grouping the flat list loses.
+        Read by PerimeterAlertManager's egress-mute door-key map."""
+        out: dict[str, list[CameraInfo]] = {}
+        for cam in self._get_raw_camera_list(CONF_EGRESS_CAMERAS) or []:
+            try:
+                out[cam] = self._camera_manager.resolve_cross_platform_sensors([cam])
+            except Exception:  # noqa: BLE001 — one camera must not hide the rest
+                _LOGGER.debug("egress legs for %s failed", cam, exc_info=True)
+                out[cam] = []
+        return out
+
     def get_transit_interior_entities(self) -> list[CameraInfo]:
         """Return cross-platform CameraInfo for configured interior cameras."""
         raw_cameras = self._get_raw_camera_list(CONF_CAMERA_PERSON_ENTITIES)

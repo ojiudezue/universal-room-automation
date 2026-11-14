@@ -498,7 +498,13 @@ alert and are named by the follow-up (operator decision A). Every mute and every
 decline near door activity writes a `perimeter_gate_decision` row with
 `gate: egress_mute` and `suppressed: true|false`. Dual-role cameras keep
 INV-EGRESS-SELF. Trip-wires (NM): mute ratio > `EGRESS_MUTE_RATIO_ALARM` over 24 h,
-and zero mute rows in 24 h while crossings occurred with a loaded map.
+and zero mute rows in 24 h while crossings occurred at covering doors with a loaded map.
+Late re-alert (operator "(a) Re-alert late"): a non-qualifying crossing that lands
+after a covered camera's edge was muted inside its window sends that edge then, once
+(`egress_mute_realert`, normal handler, cooldown applies). The entity -> door map is
+built from the egress producer's own legs (`census.get_transit_egress_entities_by_camera`);
+name-key fallbacks are counted on the diagnostic. Covered cameras must be perimeter-only;
+a rejected seam file clears the map (no mute) while the graph keeps its last good spec.
 
 **Gate evidence (PERIMETER-GATE-EVIDENCE Part A, branch `feature/perimeter-gate-evidence`,
 NOT deployed; plan `PLANNING_perimeter_gate_evidence_and_input_health.md`).**

@@ -318,6 +318,12 @@ EGRESS_MUTE_REASON_BELOW_FLOOR = "egress_mute_below_floor"
 EGRESS_MUTE_REASON_SYNTHETIC = "egress_mute_synthetic"
 EGRESS_MUTE_REASON_AMBIGUOUS = "egress_mute_ambiguous"
 EGRESS_MUTE_REASON_CAP = "egress_mute_cap"
+# Review A2 (operator decision "(a) Re-alert late"): a non-qualifying crossing
+# landed (+45 s) after a covered camera's edge was muted inside its window;
+# the muted edge is sent then, once.
+EGRESS_MUTE_REASON_REALERT = "egress_mute_realert"
+# Muted edges kept per camera for the late re-alert (bounded: RAM only).
+_EGRESS_MUTED_EDGES_KEEP = 32
 
 # Frigate HA-bus event name — community convention (published by an operator
 # MQTT-to-event automation OR the mqtt-fires-event bridge). Not fired by the
@@ -518,6 +524,17 @@ class PerimeterAlertManager:
         self._egress_crossing_times: list[float] = []
         self._egress_mute_tw_since: float | None = None
         self._egress_mute_tw_last: dict[str, float] = {}
+        # Review A2: edges the scoped mute dropped, per camera key:
+        # {"at", "entity_id", "door", "realerted"} (late re-alert input).
+        self._muted_edges: dict[str, list[dict[str, Any]]] = {}
+        # Review A3: name-key fallback hits per egress entity (diagnostic)
+        # and producer legs (census.get_transit_egress_entities) missing
+        # from the door-key map at wiring.
+        self._egress_door_key_fallbacks: dict[str, int] = {}
+        self._egress_unmapped_producer_legs: list[str] = []
+        # Review A5: perimeter-only camera keys (the only cameras the
+        # scoped mute can act on); read by the seam validator via the linker.
+        self.perimeter_only_camera_keys: set[str] = set()
         # D10.5 (review B-MED-2): real not_home -> home edges per person slug
         # (epoch seconds), recorded by a live listener; boot replays and
         # transitions inside the post-setup exclusion are ignored.
@@ -810,29 +827,15 @@ class PerimeterAlertManager:
         # camera, from the configured legs (never from the triggering
         # entity's name alone): every subscribed leg, the configured base,
         # the person-count sensor and the camera entity map to ONE key.
-        self._egress_door_key_by_entity = {}
-        for cam_entity_id, info in egress_infos:
-            try:
-                _legs = [s for s in egress_sensors
-                         if self._sensor_to_camera.get(s) == cam_entity_id]
-                _base = getattr(info, "person_binary_sensor", None) or ""
-                _door = ""
-                for _s in ([_base] if _base else []) + _legs:
-                    _door = self._camera_key_for_sensor(_s) or ""
-                    if _door:
-                        break
-                if not _door:
-                    _door = self._egress_key(cam_entity_id)
-                if not _door:
-                    continue
-                _pcs = getattr(info, "person_count_sensor", None)
-                for _e in [cam_entity_id, _base, *_legs,
-                           _pcs if isinstance(_pcs, str) else ""]:
-                    if _e:
-                        self._egress_door_key_by_entity.setdefault(_e, _door)
-            except Exception:  # noqa: BLE001 — unmapped = fallback key
-                _LOGGER.debug("PerimeterAlertManager: egress door key map "
-                              "failed for %s", cam_entity_id, exc_info=True)
+        self._build_egress_door_key_map(egress_infos, egress_sensors)
+        # Review A5: perimeter-only camera keys (dual-role cameras keep
+        # INV-EGRESS-SELF and are never scoped-muted).
+        self.perimeter_only_camera_keys = {
+            k for k in (
+                self._camera_key_for_sensor(s) for s in perimeter_sensors
+                if self._sensor_to_camera.get(s, "") not in self._dual_role_cameras
+            ) if k
+        }
 
         # Hotfix 2026-08-06 (operator-reported interior leak): install the
         # exterior camera allowlist on the linker so the frigate_events bus
@@ -1082,7 +1085,16 @@ class PerimeterAlertManager:
         # episodes, so nothing is muted until a fresh crossing lands.
         self._recent_egress_identity = {}
         self._mute_episodes = {}
+        self._muted_edges = {}
         self._egress_mute_tw_since = dt_util.now().timestamp()
+        # Review B LOW: a setup without a teardown must not stack a second
+        # listener (duplicate entries, doubled zero-fire count).
+        if self._unsub_egress_identity is not None:
+            try:
+                self._unsub_egress_identity()
+            except Exception:  # noqa: BLE001
+                pass
+            self._unsub_egress_identity = None
         if self._dual_role_cameras or egress_infos:
             @callback
             def _on_egress_identity(event: Event) -> None:
@@ -1425,8 +1437,16 @@ class PerimeterAlertManager:
         self._active = False
         _LOGGER.debug("PerimeterAlertManager: torn down")
 
-    async def _async_handle_perimeter_trigger(self, entity_id: str) -> None:
-        """Evaluate a perimeter person detection and escalate if warranted."""
+    async def _async_handle_perimeter_trigger(
+        self, entity_id: str, egress_realert: bool = False,
+    ) -> None:
+        """Evaluate a perimeter person detection and escalate if warranted.
+
+        ``egress_realert`` (review A2): this is the late send of an edge the
+        scoped mute dropped, after a non-qualifying crossing landed inside
+        its window. The mute was already decided against, so step 2 is
+        skipped; cooldown and every later gate apply as for a fresh edge.
+        """
         now = dt_util.now()
 
         # --- 1. (CONSOL-1 §D2) Alert-hours existence gate REMOVED for the
@@ -1440,11 +1460,16 @@ class PerimeterAlertManager:
         # camera is muted ONLY by the scoped mute (PERIMETER-GLOBAL-EGRESS-
         # MUTE-1, INV-MUTE-KNOWN): no hold, alert now unless a qualifying
         # crossing is already stored.
-        if self._is_dual_role_sensor(entity_id):
+        if egress_realert:
+            pass  # A2: the late send; the mute already declined this edge
+        elif self._is_dual_role_sensor(entity_id):
             _egress_ts = self._egress_stamp_for(entity_id)
             if _egress_ts is not None:
                 seconds_since_egress = (now - _egress_ts).total_seconds()
-                if seconds_since_egress <= float(EGRESS_MUTE_WINDOW_S):
+                # Review A6: window 0 = never mute (also at age 0.0).
+                if float(EGRESS_MUTE_WINDOW_S) > 0 and (
+                    seconds_since_egress <= float(EGRESS_MUTE_WINDOW_S)
+                ):
                     _LOGGER.debug(
                         "PerimeterAlertManager: alert suppressed — egress "
                         "crossing %.0fs ago (within %ds window)",
@@ -5216,11 +5241,108 @@ class PerimeterAlertManager:
             self._last_egress_time_by_door[door] = ts
 
     def _door_key_for(self, egress_camera: str) -> str:
-        """D1: configured map first; `_egress_key` only when unmapped."""
+        """D1: configured map first; `_egress_key` only when unmapped.
+
+        Review A3: a fallback hit is counted per entity (diagnostic
+        `egress_mute_door_key_fallbacks`) and logged once at INFO, so a leg
+        the map does not know is visible instead of silently splitting the
+        door (an unknown crossing under a split key cannot veto)."""
         if not egress_camera:
             return ""
-        return (self._egress_door_key_by_entity.get(egress_camera)
-                or self._egress_key(egress_camera))
+        mapped = self._egress_door_key_by_entity.get(egress_camera)
+        if mapped:
+            return mapped
+        key = self._egress_key(egress_camera)
+        try:
+            n = self._egress_door_key_fallbacks.get(egress_camera, 0)
+            if n == 0:
+                _LOGGER.info(
+                    "PerimeterAlertManager: egress entity %s is not in the "
+                    "door-key map; using name key %r (egress mute may not "
+                    "see this crossing as its door)", egress_camera, key,
+                )
+            if n == 0 and len(self._egress_door_key_fallbacks) >= 64:
+                return key  # bounded diagnostic
+            self._egress_door_key_fallbacks[egress_camera] = n + 1
+        except Exception:  # noqa: BLE001
+            pass
+        return key
+
+    def _build_egress_door_key_map(
+        self, egress_infos: list, egress_sensors: list[str],
+    ) -> None:
+        """D1 + review A3: entity -> door key for every configured egress
+        camera. The leg set comes from the egress PRODUCER's own resolution
+        (census.get_transit_egress_entities_by_camera, the per-camera form
+        of get_transit_egress_entities, registry-resolved), plus this
+        manager's subscribed legs, the configured base, the count sensor and
+        the camera entity. The door key is the camera key of the configured
+        legs (the key every perimeter consumer uses). Producer legs still
+        missing afterwards are listed on the diagnostic and logged."""
+        self._egress_door_key_by_entity = {}
+        self._egress_unmapped_producer_legs = []
+        self._egress_door_key_fallbacks = {}
+        census =self.hass.data.get(DOMAIN, {}).get("census")
+        by_cam: dict = {}
+        if census is not None:
+            try:
+                fn = getattr(census, "get_transit_egress_entities_by_camera", None)
+                by_cam = (fn() if callable(fn) else None) or {}
+                if not isinstance(by_cam, dict):
+                    by_cam = {}
+            except Exception:  # noqa: BLE001 — fall back to configured legs
+                _LOGGER.debug("PerimeterAlertManager: producer egress legs "
+                              "unavailable", exc_info=True)
+                by_cam = {}
+
+        def _leg_ids(ci: Any) -> list[str]:
+            out = []
+            for attr in ("person_binary_sensor", "entity_id", "person_count_sensor"):
+                v = getattr(ci, attr, None)
+                if isinstance(v, str) and v:
+                    out.append(v)
+            return out
+
+        for cam_entity_id, info in egress_infos:
+            try:
+                _legs = [s for s in egress_sensors
+                         if self._sensor_to_camera.get(s) == cam_entity_id]
+                _base = getattr(info, "person_binary_sensor", None) or ""
+                _door = ""
+                for _s in ([_base] if _base else []) + _legs:
+                    _door = self._camera_key_for_sensor(_s) or ""
+                    if _door:
+                        break
+                if not _door:
+                    _door = self._egress_key(cam_entity_id)
+                if not _door:
+                    continue
+                _pcs = getattr(info, "person_count_sensor", None)
+                _producer = [e for ci in (by_cam.get(cam_entity_id) or [])
+                             for e in _leg_ids(ci)]
+                for _e in [cam_entity_id, _base, *_legs,
+                           _pcs if isinstance(_pcs, str) else "", *_producer]:
+                    if _e:
+                        self._egress_door_key_by_entity.setdefault(_e, _door)
+            except Exception:  # noqa: BLE001 — unmapped = fallback key
+                _LOGGER.debug("PerimeterAlertManager: egress door key map "
+                              "failed for %s", cam_entity_id, exc_info=True)
+
+        if census is not None:
+            try:
+                union = census.get_transit_egress_entities() or []
+            except Exception:  # noqa: BLE001
+                union = []
+            missing = sorted({
+                e for ci in union for e in _leg_ids(ci)
+                if e not in self._egress_door_key_by_entity
+            })
+            self._egress_unmapped_producer_legs = missing
+            if missing:
+                _LOGGER.info(
+                    "PerimeterAlertManager: egress producer legs not in the "
+                    "door-key map (name-key fallback applies): %s", missing,
+                )
 
     def _mute_covers(self) -> dict[str, tuple[str, ...]]:
         """D2: door key -> covered perimeter camera keys, from the linker's
@@ -5251,6 +5373,118 @@ class PerimeterAlertManager:
                           "(fail-open, alerting)", exc_info=True)
             return False
 
+    @staticmethod
+    def _mute_floor() -> float:
+        # Floor: below 0.9 clamps UP (security consumer class); > 1 = kill.
+        return max(0.9, float(EGRESS_MUTE_MIN_IDENTITY_CONF))
+
+    def _mute_residents(self) -> set[str]:
+        census = self.hass.data.get(DOMAIN, {}).get("census")
+        if census is None:
+            return set()
+        try:
+            return {str(s).lower() for s in census._get_tracked_person_slugs()}
+        except Exception:  # noqa: BLE001 — no census = nobody qualifies
+            return set()
+
+    @staticmethod
+    def _crossing_fail_reason(
+        entry: tuple, residents: set[str], floor: float,
+    ) -> str | None:
+        """None = the crossing QUALIFIES (may mute); else the veto reason."""
+        pid = str(entry[1] or "").lower()
+        conf = float(entry[2] or 0.0)
+        synthetic = len(entry) > 3 and entry[3] is True
+        direction = str((entry[4] if len(entry) > 4 else None) or "").lower()
+        if direction not in ("entry", "exit"):
+            return EGRESS_MUTE_REASON_AMBIGUOUS
+        if not pid or pid not in residents:
+            return EGRESS_MUTE_REASON_VETO  # unknown, guest, no census
+        if conf < floor:
+            return EGRESS_MUTE_REASON_BELOW_FLOOR
+        if synthetic:
+            return EGRESS_MUTE_REASON_SYNTHETIC
+        return None
+
+    def _realert_muted_edges(self, door: str, entry: tuple) -> int:
+        """Review A2 (operator decision "(a) Re-alert late").
+
+        A crossing just landed on ``door``. If it does NOT qualify, every
+        edge the scoped mute dropped on a camera that door covers, inside
+        the crossing's window (0 <= edge - crossing <= EGRESS_MUTE_WINDOW_S,
+        the same test that would have vetoed it), is sent now: one
+        ``egress_mute_realert`` gate row and one run of the normal handler
+        per muted edge (cooldown and the later gates apply as for a fresh
+        edge, so same-camera duplicates fold). Each muted edge is re-sent at
+        most once. A qualifying crossing never re-sends. Returns the number
+        of edges scheduled. Fail-open: errors only log."""
+        try:
+            if not self._active or self._gate_log_torn_down:
+                return 0
+            window = float(EGRESS_MUTE_WINDOW_S)
+            if window <= 0 or not self._muted_edges:
+                return 0
+            why = self._crossing_fail_reason(
+                entry, self._mute_residents(), self._mute_floor(),
+            )
+            if why is None:
+                return 0
+            cams = self._mute_covers().get(door) or ()
+            now = dt_util.now()
+            ts = entry[0]
+            sent = 0
+            for cam in cams:
+                for edge in self._muted_edges.get(cam, []):
+                    if edge["realerted"]:
+                        continue
+                    lag = (edge["at"] - ts).total_seconds()
+                    if not 0.0 <= lag <= window:
+                        continue
+                    edge["realerted"] = True
+                    self._record_gate(cam, {
+                        "gate": "egress_mute",
+                        "at": now.isoformat(),
+                        "entity_id": edge["entity_id"] or None,
+                        "reason": EGRESS_MUTE_REASON_REALERT,
+                        "suppressed": False,
+                        "demoted": False,
+                        "would_demote": False,
+                        "inputs": {
+                            "door": door,
+                            "muted_by_door": edge["door"],
+                            "veto_reason": why,
+                            "person_id": entry[1] or None,
+                            "confidence": float(entry[2] or 0.0),
+                            "direction": entry[4] if len(entry) > 4 else None,
+                            "crossing_ts": ts.isoformat(),
+                            "muted_at": edge["at"].isoformat(),
+                            "late_by_s": round(
+                                (now - edge["at"]).total_seconds(), 1),
+                        },
+                    })
+                    self._note_egress_mute_row(
+                        EGRESS_MUTE_REASON_REALERT, False, now)
+                    if not edge["entity_id"]:
+                        continue
+                    _LOGGER.info(
+                        "PerimeterAlertManager: %s re-alert — edge muted at "
+                        "%s, then a non-qualifying %s crossing (%s) landed",
+                        cam, edge["at"].isoformat(), door, why,
+                    )
+                    task = self.hass.async_create_task(
+                        self._async_handle_perimeter_trigger(
+                            edge["entity_id"], egress_realert=True,
+                        )
+                    )
+                    self._gate_log_tasks.add(task)
+                    task.add_done_callback(self._gate_log_tasks.discard)
+                    sent += 1
+            return sent
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("PerimeterAlertManager: egress re-alert failed",
+                          exc_info=True)
+            return 0
+
     def _egress_mute_decide(  # noqa: C901
         self, cam_key: str, now: datetime, entity_id: str,
     ) -> bool:
@@ -5262,17 +5496,8 @@ class PerimeterAlertManager:
         )
         if not doors:  # (a)
             return False
-        # Floor: below 0.9 clamps UP (security consumer class); > 1 = kill.
-        floor = max(0.9, float(EGRESS_MUTE_MIN_IDENTITY_CONF))
-        residents: set[str] = set()
-        census = self.hass.data.get(DOMAIN, {}).get("census")
-        if census is not None:
-            try:
-                residents = {
-                    str(s).lower() for s in census._get_tracked_person_slugs()
-                }
-            except Exception:  # noqa: BLE001 — no census = nobody qualifies
-                residents = set()
+        floor = self._mute_floor()
+        residents = self._mute_residents()
         crossings: list[tuple[str, tuple]] = []
         for door in doors:
             for entry in self._recent_egress_identity.get(door, []):
@@ -5286,19 +5511,7 @@ class PerimeterAlertManager:
         ]
 
         def _fail_reason(entry: tuple) -> str | None:
-            pid = str(entry[1] or "").lower()
-            conf = float(entry[2] or 0.0)
-            synthetic = len(entry) > 3 and entry[3] is True
-            direction = str((entry[4] if len(entry) > 4 else None) or "").lower()
-            if direction not in ("entry", "exit"):
-                return EGRESS_MUTE_REASON_AMBIGUOUS
-            if not pid or pid not in residents:
-                return EGRESS_MUTE_REASON_VETO  # unknown, guest, no census
-            if conf < floor:
-                return EGRESS_MUTE_REASON_BELOW_FLOOR
-            if synthetic:
-                return EGRESS_MUTE_REASON_SYNTHETIC
-            return None
+            return self._crossing_fail_reason(entry, residents, floor)
 
         qualifying = [(d, e) for d, e in crossings if _fail_reason(e) is None]
         failing = [(d, e, _fail_reason(e)) for d, e in crossings
@@ -5365,6 +5578,15 @@ class PerimeterAlertManager:
         else:
             ep["last"] = now
         _row(EGRESS_MUTE_REASON_KNOWN, True, ref, door)
+        # Review A2: remember the dropped edge so a non-qualifying crossing
+        # that lands later (+45 s) inside the window can send it late.
+        self._muted_edges[cam_key] = [
+            e for e in self._muted_edges.get(cam_key, [])
+            if 0.0 <= (now - e["at"]).total_seconds() <= 2 * window
+        ][-(_EGRESS_MUTED_EDGES_KEEP - 1):] + [{
+            "at": now, "entity_id": entity_id, "door": door,
+            "realerted": False,
+        }]
         self._record_suppression(
             cam_key, "egress_mute",
             door=door, person_id=ref[1],
@@ -5440,7 +5662,8 @@ class PerimeterAlertManager:
             return
         self._egress_mute_tw_last[kind] = ts
         _LOGGER.warning("PerimeterAlertManager: %s — %s", title, message)
-        if not self._active:
+        # Review B LOW: nothing may be scheduled after teardown latched.
+        if not self._active or self._gate_log_torn_down:
             return
 
         async def _go() -> None:
@@ -5498,6 +5721,10 @@ class PerimeterAlertManager:
                 k: {"start": v["start"].isoformat(), "last": v["last"].isoformat()}
                 for k, v in self._mute_episodes.items()
             },
+            # Review A3: name-key fallback hits + producer legs not mapped.
+            "egress_mute_door_key_fallbacks": dict(self._egress_door_key_fallbacks),
+            "egress_mute_unmapped_producer_legs": list(
+                self._egress_unmapped_producer_legs),
         }
 
     def _is_dual_role_sensor(self, entity_id: str) -> bool:
@@ -5547,13 +5774,19 @@ class PerimeterAlertManager:
                         data.get("identity_synthetic_corroborated") is True,
                         str(data.get("direction") or "")))
             self._recent_egress_identity[key] = lst[-16:]
-            # D4 zero-fire input: one crossing noted.
-            now_ts = dt_util.now().timestamp()
-            cutoff = now_ts - float(EGRESS_MUTE_TRIPWIRE_WINDOW_S)
-            self._egress_crossing_times = [
-                t for t in self._egress_crossing_times if t >= cutoff
-            ][-4096:] + [now_ts]
-            self._check_mute_zero_fire_tripwire(now_ts)
+            # Review A2: a non-qualifying crossing sends the edges it would
+            # have vetoed had it landed before them.
+            self._realert_muted_edges(key, lst[-1])
+            # D4 zero-fire input: one crossing noted — only at a door that
+            # covers something (review A7 / B MEDIUM: an uncovered door can
+            # never produce an egress_mute row, so it must not count).
+            if key in self._mute_covers():
+                now_ts = dt_util.now().timestamp()
+                cutoff = now_ts - float(EGRESS_MUTE_TRIPWIRE_WINDOW_S)
+                self._egress_crossing_times = [
+                    t for t in self._egress_crossing_times if t >= cutoff
+                ][-4096:] + [now_ts]
+                self._check_mute_zero_fire_tripwire(now_ts)
         except Exception:  # noqa: BLE001
             _LOGGER.debug("PerimeterAlertManager: egress identity cache failed",
                           exc_info=True)

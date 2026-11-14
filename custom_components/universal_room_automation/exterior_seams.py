@@ -144,6 +144,7 @@ def _symmetrized(edges: set[tuple[str, str]]) -> dict[str, set[str]]:
 
 def validate_seam_spec(
     spec: Any, known_cameras: set[str] | None = None,
+    perimeter_cameras: set[str] | None = None,
 ) -> tuple[list[str], list[str]]:
     """Validate a parsed seam spec.
 
@@ -154,6 +155,10 @@ def validate_seam_spec(
     + egress). When supplied, every name in the spec is checked against it —
     this is the rule that catches an operator naming a camera the integration
     does not actually watch.
+
+    ``perimeter_cameras`` (optional) is the set of configured PERIMETER-ONLY
+    camera keys; when supplied, every ``egress_mute_covers`` camera must be
+    in it (RULE 7).
     """
     errors: list[str] = []
     warnings: list[str] = []
@@ -272,7 +277,9 @@ def validate_seam_spec(
 
     # RULE 7 — egress_mute_covers (PERIMETER-GLOBAL-EGRESS-MUTE-1 D2). Read
     # ONLY by the perimeter egress mute; never part of the graph above.
-    errors.extend(_mute_covers_errors(spec, set(egress), known_cameras))
+    errors.extend(_mute_covers_errors(
+        spec, set(egress), known_cameras, perimeter_cameras,
+    ))
 
     # RULE 6 — implausible skip span. WARN: the operator is the oracle.
     pos = {c: i for i, c in enumerate(ring)}
@@ -295,12 +302,16 @@ MUTE_COVERS_KEY = "egress_mute_covers"
 
 def _mute_covers_errors(
     spec: dict, egress: set[str], known_cameras: set[str] | None,
+    perimeter_cameras: set[str] | None = None,
 ) -> list[str]:
     """Validate the optional ``egress_mute_covers`` section.
 
     Shape: ``{door: [covered perimeter camera, ...]}``. Each door must be a
     declared egress camera (``egress_cameras``, exterior or interior) and,
     when the configured camera set is known, every name must be configured.
+    Each covered camera must be a perimeter camera (review A5): never a
+    declared egress camera (an egress edge never takes the scoped mute) and,
+    when the perimeter-only set is known, a member of it.
     Absent = no mute (not an error). Any error rejects the whole file.
     """
     raw = spec.get(MUTE_COVERS_KEY)
@@ -327,6 +338,17 @@ def _mute_covers_errors(
             continue
         if door in cams:
             errs.append(f"'{MUTE_COVERS_KEY}'['{door}'] covers itself")
+        not_perimeter = sorted(
+            {c for c in cams if c != door and c in egress}
+            | ({c for c in cams if c not in perimeter_cameras}
+               if perimeter_cameras else set())
+        )
+        if not_perimeter:
+            errs.append(
+                f"'{MUTE_COVERS_KEY}'['{door}'] covers camera(s) that are not "
+                f"perimeter-only cameras (egress or dual-role edges are never "
+                f"muted by it): {not_perimeter}"
+            )
         if known_cameras:
             unknown = sorted({door, *cams} - known_cameras)
             if unknown:

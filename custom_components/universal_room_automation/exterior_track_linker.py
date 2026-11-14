@@ -506,11 +506,15 @@ class ExteriorTrackLinker:
         except Exception as exc:  # noqa: BLE001 — same as a failed read
             self.seam_file_sha256 = None
             self.seam_validation = f"rejected: load failed: {exc}"
+            self._clear_mute_covers_rejected()
             return self.seam_validation
         known = self._seam_known_cameras()
+        perimeter_only = self._seam_perimeter_only_cameras()
 
         def _validate(spec_: Any):
-            errs, warns = validate_seam_spec(spec_, known)
+            errs, warns = validate_seam_spec(
+                spec_, known, perimeter_cameras=perimeter_only,
+            )
             if errs:
                 raise ValueError(errs[0])
             return spec_, warns
@@ -532,6 +536,10 @@ class ExteriorTrackLinker:
             return self.seam_validation
         if outcome.status != STATUS_LOADED:
             self.seam_validation = f"rejected: {outcome.error}"
+            # Review A1 (INV-MUTE-FAILOPEN): the GRAPH keeps the last good
+            # spec, but a rejected file means NO egress mute — the old map
+            # must not keep muting after an edit the validator refused.
+            self._clear_mute_covers_rejected()
             _LOGGER.warning(
                 "ExteriorTrackLinker: seam file %s REJECTED (first error: %s) "
                 "— keeping %s (%d seams)",
@@ -573,6 +581,26 @@ class ExteriorTrackLinker:
             list(self._egress_adjacent),
         )
         return self.seam_validation
+
+    def _clear_mute_covers_rejected(self) -> None:
+        self.egress_mute_covers = {}
+        self.mute_covers_source = "rejected (no egress mute)"
+
+    def _seam_perimeter_only_cameras(self) -> set[str] | None:
+        """Review A5: perimeter-only camera keys staged by the
+        PerimeterAlertManager (the only cameras the scoped mute acts on).
+        None = unknown, the covered-camera perimeter check is skipped."""
+        try:
+            from .const import DOMAIN  # noqa: PLC0415
+            pam = (getattr(self.hass, "data", None) or {}).get(DOMAIN, {}).get(
+                "perimeter_alert_manager"
+            )
+            keys = getattr(pam, "perimeter_only_camera_keys", None)
+            if keys:
+                return {self.normalize_camera(c) for c in keys}
+        except Exception:  # noqa: BLE001
+            pass
+        return None
 
     def seam_status(self) -> dict[str, Any]:
         """D5 provenance attrs for the exterior diagnostic sensor."""

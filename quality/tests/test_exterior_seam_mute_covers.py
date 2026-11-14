@@ -25,6 +25,9 @@ from test_exterior_seam_loader import (  # noqa: E402
 seams = importlib.import_module(
     "custom_components.universal_room_automation.exterior_seams"
 )
+_etl_mod = importlib.import_module(
+    "custom_components.universal_room_automation.exterior_track_linker"
+)
 
 _COVERS = {
     "garage_a": ["g5_bullet", "back_yard"],
@@ -59,8 +62,101 @@ def test_mute_covers_unknown_camera_rejects_file(tmp_path, monkeypatch):
     _write(tmp_path, _spec({"garage_a": ["g5_bullet", "not_a_camera"]}))
     out = asyncio.run(lk.async_load_seam_file())
     assert out.startswith("rejected:") and "not_a_camera" in out
-    assert lk.egress_mute_covers == good  # previous good spec kept
+    assert good  # the valid file DID load a map first
+    # Review A1 (INV-MUTE-FAILOPEN): a rejected file means no egress mute,
+    # while the GRAPH keeps the last good spec.
+    assert lk.egress_mute_covers == {}
+    assert lk.mute_covers_source == "rejected (no egress mute)"
+    assert lk.seam_status()["mute_covers_source"] == "rejected (no egress mute)"
     assert {k: set(v) for k, v in lk._adjacency.items()} == good_adj
+
+
+def test_mute_covers_valid_then_invalid_reload_stops_muting(tmp_path, monkeypatch):
+    """A1 repro end to end: valid map mutes g5_bullet; a typo edit + reload
+    is rejected; the old map must no longer be what the mute reads."""
+    _hass, lk = _linker(tmp_path, monkeypatch, _spec())
+    asyncio.run(lk.async_setup())
+    assert "g5_bullet" in lk.egress_mute_covers["garage_a"]
+    _write(tmp_path, _spec({"garage_a": ["g5_bulet"]}))
+    asyncio.run(lk.async_load_seam_file())
+    assert lk.seam_validation.startswith("rejected:")
+    assert lk.egress_mute_covers == {}
+
+
+def test_mute_covers_path_failure_clears_covers(tmp_path, monkeypatch):
+    _hass, lk = _linker(tmp_path, monkeypatch, _spec())
+    asyncio.run(lk.async_setup())
+    assert lk.egress_mute_covers
+
+    def _boom():
+        raise OSError("no config dir")
+    monkeypatch.setattr(lk, "_seam_file_path", _boom)
+    out = asyncio.run(lk.async_load_seam_file())
+    assert out.startswith("rejected: load failed")
+    assert lk.egress_mute_covers == {}
+    assert lk.mute_covers_source == "rejected (no egress mute)"
+
+
+def test_mute_covers_file_deleted_after_valid_clears_covers(tmp_path, monkeypatch):
+    """Review C F5: deleting the file after a valid load must drop the map."""
+    _hass, lk = _linker(tmp_path, monkeypatch, _spec())
+    asyncio.run(lk.async_setup())
+    assert lk.egress_mute_covers
+    path = pathlib.Path(lk._seam_file_path())
+    path.unlink()
+    out = asyncio.run(lk.async_load_seam_file())
+    assert out == "file absent"
+    assert lk.egress_mute_covers == {}
+    assert lk.mute_covers_source == "file absent"
+
+
+def test_mute_covers_rejects_covered_egress_camera():
+    """Review A5: a covered camera that is a declared egress camera is never
+    scoped-muted, so naming it is a config error."""
+    errs, _w = seams.validate_seam_spec(
+        _spec({"garage_a": ["g5_bullet", "madrone_g6_entry"]}), _KNOWN)
+    assert any("not perimeter-only" in e and "madrone_g6_entry" in e for e in errs)
+
+
+def test_mute_covers_rejects_camera_outside_perimeter_set():
+    errs, _w = seams.validate_seam_spec(
+        _spec(), _KNOWN, perimeter_cameras={"g5_bullet", "front_side_ptz"})
+    assert any("not perimeter-only" in e and "back_yard" in e for e in errs)
+    errs_ok, _w = seams.validate_seam_spec(
+        _spec(), _KNOWN,
+        perimeter_cameras={"g5_bullet", "front_side_ptz", "back_yard"})
+    assert errs_ok == []
+
+
+def test_mute_covers_linker_passes_perimeter_only_set(tmp_path, monkeypatch):
+    """The linker reads the PerimeterAlertManager's perimeter-only keys and
+    rejects a file covering a camera outside them."""
+    from types import SimpleNamespace
+    hass, lk = _linker(tmp_path, monkeypatch, _spec())
+    hass.data.setdefault("universal_room_automation", {})[
+        "perimeter_alert_manager"] = SimpleNamespace(
+            perimeter_only_camera_keys={"G5_Bullet", "front_side_ptz"},
+            _perimeter_allowlist=set(_KNOWN))
+    asyncio.run(lk.async_setup())
+    assert lk.seam_validation.startswith("rejected:")
+    assert "back_yard" in lk.seam_validation
+    assert lk.egress_mute_covers == {}
+
+
+def test_mute_covers_names_normalised(tmp_path, monkeypatch):
+    """Review C F14: covers are normalised like every other camera key."""
+    _hass, lk = _linker(tmp_path, monkeypatch, _spec(
+        {"garage_a": ["g5_bullet"], "madrone_g6_entry": ["front_side_ptz"]}))
+    monkeypatch.setattr(_etl_mod, "mute_covers_from_spec",
+                        lambda _s: {"Garage_A": ("G5_Bullet ",)})
+    asyncio.run(lk.async_setup())
+    assert lk.egress_mute_covers == {"garage_a": ("g5_bullet",)}
+
+
+def test_mute_covers_empty_camera_name_rejects():
+    """Review C F16: an empty-string camera name is a shape error."""
+    errs, _w = seams.validate_seam_spec(_spec({"garage_a": ["g5_bullet", ""]}), _KNOWN)
+    assert any("non-empty list of camera names" in e for e in errs)
 
 
 def test_mute_covers_door_not_egress_rejects_file(tmp_path, monkeypatch):
@@ -135,6 +231,6 @@ def test_shipped_example_covers_validate_with_live_cameras():
     assert errors == []
     assert seams.mute_covers_from_spec(spec) == {
         "front_door_aerial": ("front_side_ptz", "sonoffwindow", "utilities_ptz"),
-        "garage_a": ("doorbell_lite", "g5_bullet", "rear_ptz"),
+        "garage_a": ("g5_bullet", "rear_ptz"),
         "madrone_g6_entry": ("front_side_ptz", "sonoffwindow", "utilities_ptz"),
     }
