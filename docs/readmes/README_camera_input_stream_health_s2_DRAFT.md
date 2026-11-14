@@ -75,8 +75,10 @@ held by a dead camera as corroboration and keeps the higher of two divergent pla
   them until they are watched.
 - D-M1 for a census sensor that is NOT a room input: before its camera's grace it reads as unavailable (missing term);
   after the grace its camera is dead and it is held with its last reading. Cameras no room watches get no hold page.
-- The S1 per-input page (`camera_stream_dead`, after 1800 s) still fires as well, so a long outage sends that page after
-  the hold-release page.
+- (Fixed in release/batch-2.) The S1 per-input page (`camera_stream_dead`, after 1800 s) no longer fires for an input
+  whose camera already sent the hold-release page in the same outage: one HIGH page per outage. With both caps 0 (no hold
+  page) the S1 page fires as before. If the caps are ever raised above 1800 s the S1 page comes first and the hold page
+  still follows (not de-duplicated in that order).
 
 Named residuals: the zone camera tier and the census have no live-input release (cap and recovery only); with
 `ZONE_OCCUPANCY_PER_ENTITY_ENABLED` False the night live limb holds until the cap or recovery even after a live end, and
