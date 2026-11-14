@@ -758,6 +758,70 @@ class CameraResolver:
             return None
         return self._camera_entity_by_device.get(device_id)
 
+    @staticmethod
+    def own_camera_entity_for_input(
+        entity_registry: Any, entity_id: str,
+    ) -> tuple[str | None, str, bool]:
+        """The camera entity that produces ``entity_id`` (camera input stream
+        health S1, PLANNING_camera_input_stream_health.md).
+
+        Same device, ENABLED ``camera.*`` entities only (the disabled skip of
+        ``_build_indices``), and EXACTLY one of them: zero or two-plus
+        (e.g. an NVR device hosting several cameras) is unresolved, because
+        then the device cannot say which stream feeds the input. A per-entity
+        registry read, not the full index walk of ``__init__``, because each
+        room resolves its own few inputs, and ``camera_entity_for_device``
+        keeps only the first camera so it cannot see a second one. Quiet on
+        a registry miss (no WARN): called per room per cache rebuild.
+
+        Returns ``(camera_entity_id | None, reason, camera_derived)``.
+        ``reason`` is ``resolved`` / ``no_registry_entry`` / ``no_device`` /
+        ``no_camera`` / ``multi_camera`` / ``registry_error``.
+        ``camera_derived`` is True when the input's platform is a known
+        camera integration or its device has at least one camera entity
+        (feeds the zero-resolved boot WARNING only).
+        """
+        try:
+            entry = entity_registry.async_get(entity_id)
+        except Exception:  # noqa: BLE001 — never raise into the room tick
+            return None, "registry_error", False
+        if entry is None:
+            return None, "no_registry_entry", False
+        platform = getattr(entry, "platform", None)
+        camera_platform = platform in (
+            PLATFORM_FRIGATE, PLATFORM_UNIFI, PLATFORM_REOLINK,
+            PLATFORM_AMCREST, PLATFORM_DAHUA,
+        )
+        device_id = getattr(entry, "device_id", None)
+        if not device_id:
+            return None, "no_device", camera_platform
+        try:
+            items = getattr(entity_registry, "entities", None)
+            by_device = getattr(items, "get_entries_for_device_id", None)
+            if callable(by_device):
+                # HA helpers/entity_registry.py EntityRegistryItems
+                # .get_entries_for_device_id (device index; disabled skipped
+                # by default).
+                device_entries = list(by_device(device_id))
+            else:
+                device_entries = [
+                    e for e in (items or {}).values()
+                    if getattr(e, "device_id", None) == device_id
+                ]
+        except Exception:  # noqa: BLE001
+            return None, "registry_error", camera_platform
+        cameras = sorted(
+            getattr(e, "entity_id", "") for e in device_entries
+            if getattr(e, "disabled_by", None) is None
+            and str(getattr(e, "entity_id", "")).startswith("camera.")
+        )
+        derived = camera_platform or bool(cameras)
+        if not cameras:
+            return None, "no_camera", derived
+        if len(cameras) != 1:
+            return None, "multi_camera", derived
+        return cameras[0], "resolved", derived
+
     def face_engine_tag(self, device_id: str | None, integration_hint: str) -> str:
         """D4: FaceLeg engine label from the face entity's DEVICE family,
         no `_N` suffix parsing. Returns ``integration_hint`` on any miss

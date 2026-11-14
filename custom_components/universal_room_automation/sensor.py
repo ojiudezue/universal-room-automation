@@ -1813,6 +1813,10 @@ class UnavailableEntitiesSensor(UniversalRoomEntity, SensorEntity):
     _attr_icon = ICON_ANOMALY
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_entity_registry_enabled_default = False
+    # Camera input stream health S1: display-only, kept out of the recorder.
+    _unrecorded_attributes = frozenset({
+        "camera_stream_dead_inputs", "camera_stream_inputs_resolved",
+    })
 
     def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
         """Initialize the sensor."""
@@ -2108,6 +2112,23 @@ class UnavailableEntitiesSensor(UniversalRoomEntity, SensorEntity):
             _LOGGER.debug(
                 "UnavailableEntitiesSensor: dutycycle_stuck_notify raise "
                 "swallowed", exc_info=True,
+            )
+        # Camera input stream health S1 (display): inputs excluded because
+        # their own camera entity is unavailable, and how many inputs
+        # resolved to exactly one camera entity.
+        try:
+            snap = self.coordinator.camera_stream_health_snapshot()
+            if isinstance(snap, dict):
+                attrs["camera_stream_dead_inputs"] = snap[
+                    "camera_stream_dead_inputs"
+                ]
+                attrs["camera_stream_inputs_resolved"] = snap[
+                    "camera_stream_inputs_resolved"
+                ]
+        except Exception:  # noqa: BLE001 — diagnostics must degrade
+            _LOGGER.debug(
+                "UnavailableEntitiesSensor: camera stream snapshot swallowed",
+                exc_info=True,
             )
         # Reconcile-on-Return (v5.8.0, D2.4): reconcile diagnostics. None-safe —
         # a room with no lights/fans has no reconciler, so we degrade to zeros.
