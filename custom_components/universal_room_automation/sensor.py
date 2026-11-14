@@ -4960,12 +4960,14 @@ class PersonsExitedTodaySensor(AggregationEntity, SensorEntity):
         # backfills an exit crossing's person_id (~10 min after the fact),
         # re-read today's exits from DB so the display reflects the newly
         # named person instead of the stale "unidentified".
+        # Ship 3a D3: the notice now travels on SIGNAL_EGRESS_RECORD_AMENDED
+        # (G3); this reader acts on role == "exit_backfilled" only.
         from homeassistant.helpers.dispatcher import async_dispatcher_connect
-        from .domain_coordinators.signals import SIGNAL_EGRESS_EXIT_BACKFILLED
+        from .domain_coordinators.signals import SIGNAL_EGRESS_RECORD_AMENDED
         self.async_on_remove(
             async_dispatcher_connect(
                 self.hass,
-                SIGNAL_EGRESS_EXIT_BACKFILLED,
+                SIGNAL_EGRESS_RECORD_AMENDED,
                 self._handle_exit_backfilled,
             )
         )
@@ -4991,6 +4993,8 @@ class PersonsExitedTodaySensor(AggregationEntity, SensorEntity):
     @callback
     def _handle_exit_backfilled(self, payload) -> None:
         """Re-read today's exits from DB after a backfill named a row."""
+        if not isinstance(payload, dict) or payload.get("role") != "exit_backfilled":
+            return
         self.hass.async_create_task(self._async_reread_exits())
 
     async def _async_reread_exits(self) -> None:
@@ -5114,12 +5118,13 @@ class LastPersonExitSensor(AggregationEntity, SensorEntity):
         # names an exit row ~5-11 min after the crossing. Re-read the
         # newest exit row so this display follows the name. Display only:
         # no re-notify, no census change.
+        # Ship 3a D3: SIGNAL_EGRESS_RECORD_AMENDED, role "exit_backfilled".
         from homeassistant.helpers.dispatcher import async_dispatcher_connect
-        from .domain_coordinators.signals import SIGNAL_EGRESS_EXIT_BACKFILLED
+        from .domain_coordinators.signals import SIGNAL_EGRESS_RECORD_AMENDED
         self.async_on_remove(
             async_dispatcher_connect(
                 self.hass,
-                SIGNAL_EGRESS_EXIT_BACKFILLED,
+                SIGNAL_EGRESS_RECORD_AMENDED,
                 self._handle_exit_backfilled,
             )
         )
@@ -5127,6 +5132,8 @@ class LastPersonExitSensor(AggregationEntity, SensorEntity):
     @callback
     def _handle_exit_backfilled(self, payload) -> None:
         """A backfill named an exit row — re-read the newest exit row."""
+        if not isinstance(payload, dict) or payload.get("role") != "exit_backfilled":
+            return
         self.hass.async_create_task(self._async_reread_last_exit())
 
     async def _async_reread_last_exit(self) -> None:

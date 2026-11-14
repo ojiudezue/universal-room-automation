@@ -328,14 +328,15 @@ def door_entry_areas(egress_tracker: Any, area_of: Callable[[str], str]) -> set[
     neighbours (CONF_DOOR_INTERIOR_NEIGHBOURS). ``egress_tracker`` is the
     EgressDirectionTracker (hass.data[DOMAIN]["egress_tracker"]), NOT the
     TransitValidator (LOCK-ENTRY-AREAS-WRONG-OBJECT-1). No tracker or no
-    egress config -> empty set (the Bermuda leg then never corroborates)."""
+    egress config -> empty set (the Bermuda leg then never corroborates).
+    Ship 3a D3 (G5): reads the tracker's public ``door_entry_entities()``
+    (egress entities, then every configured neighbour, same order as the
+    private reads it replaces); a tracker without it -> empty set."""
     out: set[str] = set()
     if egress_tracker is None:
         return out
-    ents = list(getattr(egress_tracker, "_egress_entities", None) or [])
-    nb = getattr(egress_tracker, "_interior_neighbours_by_group", None) or {}
-    for cams in nb.values():
-        ents.extend(cams or [])
+    reader = getattr(egress_tracker, "door_entry_entities", None)
+    ents = list(reader() or ()) if callable(reader) else []
     for e in ents:
         a = area_of(str(e))
         if a:

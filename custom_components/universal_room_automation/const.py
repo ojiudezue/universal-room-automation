@@ -6598,3 +6598,19 @@ def validate_consumer_classes(active, legal) -> frozenset:
 validate_consumer_classes(
     CROSSING_VISION_CONSUMER_CLASSES, CROSSING_VISION_LEGAL_CONSUMER_CLASSES,
 )
+
+# ============================================================================
+# Person-awareness layer ship 3a (PLANNING_person_awareness_layer_ship3.md §8)
+# ============================================================================
+# F3 crossing ring (D3, contract G2; rung 1, module consts: retention bounds
+# of an observational RAM store, changed only by review). Per egress camera
+# entity: the last N crossings, none older than the age. 32 = ~3.5x the
+# measured peak of 9 crossings per camera in 30 min (step 7 D8a). The age must
+# cover the step 7 confirm window (900 s) + pair window (120 s) + the longest
+# follow-up caller delay (<= 600 s each); a test asserts >= 1620.
+EGRESS_CROSSING_RING_PER_CAMERA: Final = 32
+EGRESS_CROSSING_RING_MAX_AGE_S: Final = 1800
+# F4 BLE move log (D4, contract G6 pull; rung 1, house-wide). Sized before the
+# D0 (a2) probe; D0 (a2) x 4 replaces 256 if larger. Age matches the ring.
+PERSON_LOCATION_MOVES_MAX: Final = 256
+PERSON_LOCATION_MOVES_MAX_AGE_S: Final = 1800

@@ -164,6 +164,11 @@ async def test_records_written_in_observation_mode(monkeypatch):
     _hass, coord, _st = _coord(db=db)
     sent: list = []
     monkeypatch.setattr(PR, "async_dispatcher_send", lambda *a: sent.append(a))
+    # Ship 3a D1: the geofence F5 send goes through
+    # signals.dispatch_person_arriving, which calls the HA dispatcher module.
+    import importlib as _il
+    monkeypatch.setattr(_il.import_module("homeassistant.helpers.dispatcher"),
+                        "async_dispatcher_send", lambda *a: sent.append(a))
     coord.observation_mode = True
     _feed(coord, OJI, "not_home", "home", T_SETUP + 2000)
     await asyncio.sleep(0)

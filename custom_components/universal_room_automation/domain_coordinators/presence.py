@@ -95,6 +95,9 @@ from homeassistant.helpers.dispatcher import (
     async_dispatcher_connect,
     async_dispatcher_send,
 )
+# Ship 3a D1: the F5 ingest (dispatch_person_arriving) is read through the
+# module at call time, so a partial signals stub never breaks this import.
+from . import signals as _layer_signals
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -663,6 +666,13 @@ class ZonePresenceTracker:
         self._last_face_recognized: str = ""
         self._last_face_time: Optional[datetime] = None
         self._face_arrivals_today: int = 0
+
+    def note_face(self, slug: str, when: Optional[datetime]) -> None:
+        """Ship 3a D4: the zone's last-face display fields, written by the
+        person-sighting producer (the same two assignments it made to the
+        privates before)."""
+        self._last_face_recognized = slug
+        self._last_face_time = when
 
     @property
     def mode(self) -> str:
@@ -5670,13 +5680,13 @@ class PresenceCoordinator(BaseCoordinator):
                     entity_id,
                 )
             else:
-                # B-H1 fix-up: async_dispatcher_send is imported at module
-                # top — use it directly. Eliminates the Bug Class #34
-                # latent function-local import.
-                async_dispatcher_send(
+                # Ship 3a D1 (G4): the one F5 ingest; same dict as before
+                # ({"person_entity", "source"}).
+                _layer_signals.dispatch_person_arriving(
                     self.hass,
-                    SIGNAL_PERSON_ARRIVING,
-                    {"person_entity": entity_id, "source": "geofence"},
+                    _layer_signals.PersonArrivingPayload(
+                        person_entity=entity_id, source="geofence",
+                    ),
                 )
         elif new_zone == "not_home" and old_zone == "home":
             self.handle_geofence_event(entity_id, "not_home")
@@ -5932,15 +5942,15 @@ class PresenceCoordinator(BaseCoordinator):
         self._bump_hvac_face_counter(sighting)
         if producer is not None:
             producer.note_arrival(sighting.ts)
-        async_dispatcher_send(
+        # Ship 3a D1 (G4): the one F5 ingest; same four-key dict as before.
+        _layer_signals.dispatch_person_arriving(
             self.hass,
-            SIGNAL_PERSON_ARRIVING,
-            {
-                "person_entity": sighting.person_entity,
-                "source": "camera_face",
-                "sighting": sighting,
-                "zone": sighting.house_zones[0] if sighting.house_zones else "",
-            },
+            _layer_signals.PersonArrivingPayload(
+                person_entity=sighting.person_entity,
+                source="camera_face",
+                sighting=sighting,
+                zone=sighting.house_zones[0] if sighting.house_zones else "",
+            ),
         )
         _LOGGER.info(
             "Camera face arrival: %s seen at %s before the phone arrived",
@@ -6051,6 +6061,96 @@ class PresenceCoordinator(BaseCoordinator):
             return tracker.get_last_crossing(camera)
         except Exception:  # noqa: BLE001
             return None
+
+    # ---- ship 3a D3: F3 reads (delegates to the egress tracker; never raise)
+    def _egress_tracker(self):
+        return self.hass.data.get(DOMAIN, {}).get("egress_tracker")
+
+    def get_crossings_since(self, t: datetime, camera: str | None = None) -> tuple:
+        """G2: ring records with ``ts >= t`` (a ``datetime``), oldest first;
+        ``()`` with no tracker or on any error."""
+        try:
+            tracker = self._egress_tracker()
+            return tuple(tracker.get_crossings_since(t, camera)) if tracker is not None else ()
+        except Exception:  # noqa: BLE001
+            return ()
+
+    def get_crossing(self, source_ref: str):
+        """A3: one ring record by ``source_ref``, or None."""
+        try:
+            tracker = self._egress_tracker()
+            return tracker.get_crossing(source_ref) if tracker is not None else None
+        except Exception:  # noqa: BLE001
+            return None
+
+    def door_camera_device_ids(self) -> frozenset:
+        """A9: registry device ids of the egress entities (empty on error)."""
+        try:
+            tracker = self._egress_tracker()
+            return frozenset(tracker.door_camera_device_ids()) if tracker is not None else frozenset()
+        except Exception:  # noqa: BLE001
+            return frozenset()
+
+    def door_entry_entities(self) -> tuple:
+        """G5: egress entities then configured door neighbours (``()`` on error)."""
+        try:
+            tracker = self._egress_tracker()
+            return tuple(tracker.door_entry_entities()) if tracker is not None else ()
+        except Exception:  # noqa: BLE001
+            return ()
+
+    def door_neighbours_for_stem(self, stem: str | None) -> tuple:
+        """G5: the configured neighbours of ``stem``'s door group (``()``)."""
+        try:
+            tracker = self._egress_tracker()
+            return tuple(tracker.door_neighbours_for_stem(stem)) if tracker is not None else ()
+        except Exception:  # noqa: BLE001
+            return ()
+
+    # ---- ship 3a D4: class confidence read
+    def min_confidence(self, cls: Any) -> float | None:
+        """The identity-confidence bar of consumer class ``cls``
+        (``const.CONSUMER_CLASS_MIN_CONFIDENCE``), or None for a class with
+        no bar (comfort, house_state), an unknown or a non-string class."""
+        if not isinstance(cls, str):
+            return None
+        return _ura_const.CONSUMER_CLASS_MIN_CONFIDENCE.get(cls)
+
+    # ---- ship 3a D5: layer diagnostics (on demand; no entity carries them)
+    def get_layer_diagnostics(self) -> dict:
+        """The person-awareness layer counters (ship 3a D5): F5 sends by
+        source, G3 calls by role, aged-out amends, store failures, ring and
+        move-log sizes, unresolved moves, G1 subscribers, truncation answers.
+        Counters only: no config entry data, no entity states, no person
+        ``.data``. Read by ``diagnostics.async_get_config_entry_diagnostics``."""
+        out: dict[str, Any] = {}
+        try:
+            c = _layer_signals.layer_counters(self.hass)
+            out = {
+                "f5_sent": dict(sorted(c.f5_sent.items())),
+                "g3_calls": dict(sorted(c.g3_calls.items())),
+                "crossing_record_aged_out": int(c.crossing_record_aged_out),
+                "crossing_store_failed": int(c.crossing_store_failed),
+                "move_unresolved_person": int(c.move_unresolved_person),
+                "g1_subscribers": int(c.g1_subscribers),
+                "edges_truncated": int(c.edges_truncated),
+                "moves_truncated": int(c.moves_truncated),
+            }
+        except Exception:  # noqa: BLE001
+            out = {}
+        try:
+            tracker = self._egress_tracker()
+            sizes_fn = getattr(tracker, "crossing_ring_sizes", None) if tracker is not None else None
+            out["ring_sizes"] = dict(sizes_fn()) if callable(sizes_fn) else {}
+        except Exception:  # noqa: BLE001
+            out["ring_sizes"] = {}
+        try:
+            pc = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+            size_fn = getattr(pc, "location_moves_size", None) if pc is not None else None
+            out["move_log_size"] = int(size_fn()) if callable(size_fn) else 0
+        except Exception:  # noqa: BLE001
+            out["move_log_size"] = 0
+        return out
 
     def get_last_arrival_record(self):
         """RA5: last crossing-vision arrival record (F3 attribute).
