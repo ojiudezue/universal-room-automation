@@ -121,15 +121,17 @@ and no camera key. So the F2 ingest is a PAIR, and rev 2 names both halves.
 | | |
 |---|---|
 | Producers allowed | door camera person legs (via `CameraResolver`), NVR witness corroboration (W2, planned), egress identity join (face / BLE legs from the census evidence API), crossing vision (F3 ATTRIBUTES only: `people_count`, provisional arrival record) |
-| ONE ingest point | `EgressDirectionTracker._resolve_direction` → `_record_crossing(CrossingRecord)` + bus fire `ura_person_egress_event` (`transit_validator.py:2214`) + DB `person_entry_exit_events`. Attributes: NEW `EgressDirectionTracker.attach_crossing_attribute(source_ref, key, value, provenance)` (G3); until it exists the vision row store in `crossing_vision` keyed by the crossing `source_ref` is the attribute store, read only through `get_last_arrival_record()` |
-| Store | `CrossingRecord` ring (tracker), DB rows, crossing-vision rows (single owner: §5 G8) |
-| Provenance / confidence | `identity_provenance`, `identity_confidence`, `agreement_class`, `confidence`, `platforms_fired` (→ NVR families after W2) |
-| Read surface | Pull: `get_last_crossing(camera)` (`presence.py:6043`), NEW `get_crossings_since(t, camera=None)` (G2), `get_last_arrival_record()`. Push: `ura_person_egress_event` (listeners allowed) |
+| ONE ingest point | `EgressDirectionTracker._resolve_direction` → `_record_crossing(CrossingRecord)` + bus fire `ura_person_egress_event` (`transit_validator.py:2214`) + DB `person_entry_exit_events`. Amendments and attributes: NEW `EgressDirectionTracker.attach_crossing_attribute(source_ref, changes, provenance, *, camera, role, row_id=None, payload_extra={})` (G3), the ONE owner-side amend primitive for any field of a stored record (identity confirmation, exit backfill, pair resolution, vision attributes; `(source_ref, key, value, provenance)` = `changes={key: value}`); its sole push is `SIGNAL_EGRESS_RECORD_AMENDED` (§4.2). Until it exists the vision row store in `crossing_vision` keyed by the crossing `source_ref` is the attribute store, read only through `get_last_arrival_record()` |
+| Store | `CrossingRecord` ring (tracker; one ring per egress camera, `EGRESS_CROSSING_RING_PER_CAMERA` records / `EGRESS_CROSSING_RING_MAX_AGE_S`, amended in place by `source_ref`, the "last crossing" pointers move only if the amended record is still the newest), DB rows, crossing-vision rows (single owner: §5 G8). Additive record fields (written only through G3): `identity_role`, `nameable`, `pair_state` (`none`/`pending`/`clear`/`conflict`), `pair_partner`, `identity_synthetic_corroborated` |
+| Provenance / confidence | `identity_provenance` (values in `IDENTITY_PROVENANCE_VALUES`, adding `face+residency`, `face+ble_move`, `face+gps` for step 7), `identity_confidence`, `agreement_class`, `confidence`, `platforms_fired` (→ NVR families after W2) |
+| Read surface | Pull on presence, delegating to the tracker: `get_last_crossing(camera)` (`presence.py:6043`), NEW `get_crossings_since(t, camera=None)` (G2, served from the ring, oldest first), NEW `get_crossing(source_ref)`, NEW `door_camera_device_ids()` (registry `device_id` of each egress entity), `get_last_arrival_record()`. Push: `ura_person_egress_event`, `SIGNAL_EGRESS_RECORD_AMENDED` (listeners allowed) |
+| Class rule | An EGRESS-DERIVED identity whose record `pair_state` is `pending` or `conflict` does not qualify for the security class (perimeter's own face-leg evidence is outside this rule; named residual in the step 7 plan §12) |
 | Forbidden | a consumer keeping its own crossing cache from the bus (perimeter `_note_egress_identity`); reading `hass.data["egress_tracker"]` attributes (`_egress_entities`, `_interior_neighbours_by_group`) outside the tracker; F3 provenance stored on the census object (`set_egress_identity_last_attach`) |
 
 The one arrival/departure notification `_arrival_departure_notify` lives inside the producer today (a consumer of
-class `notification` hosted in the F3 owner). It is an allowlisted exception until D8 moves the amend function out
-(§7).
+class `notification` hosted in the F3 owner). It is an allowlisted exception until step 7 (EGRESS-DIRECTION-AWARE-IDENTITY-1)
+moves it to `ArrivalNotifier` (`domain_coordinators/arrival_notify.py`, class notification), which becomes the
+notification consumer and the single door-naming send site, perimeter's door-camera identity send included (§7).
 
 ### 2.4 F4 — P seen at X at T (camera sighting, BLE room, unnamed body sighting)
 
@@ -183,7 +185,7 @@ zone tier, lock regime, perimeter, music, presence inference.
 | Producer enable | BLE pre-arrival is gated by `PersonTrackingCoordinator._pre_arrival_enabled`; HVAC writes that private today (`hvac.py:1241`). It becomes a public setter `set_pre_arrival_enabled(value)` on the owner (G9) |
 | Store | none (event); edge corroboration via residency (F1) |
 | Provenance | `source` ∈ {geofence, ble, camera_face, camera_egress}; camera-derived sources need corroboration (`arrival_edges.arrival_source_needs_corroboration`) |
-| Read surface | `SIGNAL_PERSON_ARRIVING` read through `PersonArrivingPayload.from_signal` (`signals.py:28-64`) |
+| Read surface | `SIGNAL_PERSON_ARRIVING` read through `PersonArrivingPayload.from_signal` (`signals.py:28-64` on release/batch-2; the class is not on develop until batch 2 merges). Step 7 extends it only with additive `ts=None` and `to_signal()` (today's dict keys exactly), used by G4 |
 | Forbidden | any consumer deriving its own arrival from `person.*` (security `_handle_person_state_change`, `security.py:2255`); camera-derived arrival acting alone on access |
 
 ### 2.6 Evidence services (not facts; feed facts through their ingest points)
@@ -192,7 +194,7 @@ zone tier, lock regime, perimeter, music, presence inference.
 |---|---|---|---|
 | Camera input stream health | `camera_stream_health.input_stream_dead / camera_stream_dead / entity_stream_dead / input_stream_view / entity_stream_view / input_room_quarantined` (`:529-668`) | room fusion, zone tier, fan recheck, census (as "missing"), crossing ledger held-input check (dead/view, never released-as-off, §3 INV-MISSING-NOT-ZERO), NVR witness | scanning `hass.data[DOMAIN]` for an object with a matching attribute outside `camera_stream_health._room_coordinators` (its owner row); re-deriving availability |
 | NVR witness (W2, planned) | `nvr_witness.family_of`, `corroborated(cam, t, window)`, `families_on_now`, `platform_for` | the 4 comparison sites (census `_cross_validate_platforms`, transit `_count_platforms_fired` `transit_validator.py:2733`, perimeter `_apply_single_source_gate` `perimeter_alert.py:5038`, room fusion agreement `binary_sensor.py:1837-1868`) | entity-name suffix family tests; per-site classifiers |
-| Identity evidence (census) | public `PersonCensus` methods: `resolve_face_legs`, `resolve_ble_legs`, `tracked_person_slugs`, `canonical_person_slug`, `known_face_guests`, `face_person_would_be_vetoed`, `face_suppressed_now` | layer producers only: egress tracker (F3), sighting producer (F4), perimeter D10.5 (until it reads F3/F4 instead) | any consumer outside the producer list deciding on raw legs |
+| Identity evidence (census) | public `PersonCensus` methods: `resolve_face_legs`, `resolve_ble_legs`, `tracked_person_slugs` (batch-2 `camera_census.py:4061`), `egress_identity_enabled` (`:4085`), `canonical_person_slug`, `known_face_guests`, `face_person_would_be_vetoed`, `face_suppressed_now` | layer producers only: egress tracker (F3), sighting producer (F4), perimeter D10.5 (until it reads F3/F4 instead) | any consumer outside the producer list deciding on raw legs |
 | Person id rule | `person_ids.tracked_person_entity_id / slug_of / display_of / entity_key_slug` | everyone | inline `f"person.{slug.lower()}"`, `lower().replace(" ", "_")`, `.title()` inverses |
 | Phone left behind | `phone_trustworthy(person)` (registry-resolved by unique id, fail-open; §2.4a) | the one BLE-in-room read; presence inference twin (allowlisted) | reading `binary_sensor.*_phone_left_behind` state anywhere else |
 
@@ -220,7 +222,7 @@ counted allowlist (owner-display exemption), never for a decision.
   non-owner Store / setattr / Subscript store / record-type construction on a `CensusZoneResult` count field,
   `census.last_result`, `PersonTrackingCoordinator.data`, `_last_sightings`, a `CrossingRecord`, or any member
   private (today: `hvac.py:1241` writes `pc._pre_arrival_enabled`); a `SIGNAL_PERSON_ARRIVING` send outside
-  `dispatch_person_arriving`; any of the five push channels (§4.2) sent outside its owner; a second `person.*`
+  `dispatch_person_arriving`; any of the six push channels (§4.2) sent outside its owner; a second `person.*`
   listener that produces an edge or arrival (today: 3, audit S1, S2, S7).
 - **INV-LAYER-READ.** No module outside §2.7 reads, for a person-awareness decision or display: a store, a producer
   private (`_x` on a member object, however the object was obtained: hass.data, coordinator manager, a function
@@ -273,22 +275,23 @@ counted allowlist (owner-display exemption), never for a decision.
 | Fact | Method | Exists |
 |---|---|---|
 | F1 level | `get_residents_home(zone_persons=None)`, `get_residents_home_count()` | yes |
-| F1 edges | `get_recent_resident_arrival`, `get_residency_snapshot`, NEW `subscribe_person_edges(cb, *, persons, kinds)` | G1 new |
+| F1 edges | `get_recent_resident_arrival`, `get_residency_snapshot`, NEW `subscribe_person_edges(cb, *, persons, kinds)` (push), NEW `get_person_edges_since(t, *, persons, kinds)` (pull over the same `ResidencyTracker.recent` ledger, no second store); every edge carries `counted` | G1 new |
 | F2 | `get_house_census(view_for_class(cls))` | yes (literal-view callers to migrate) |
-| F3 | `get_last_crossing(camera)`, NEW `get_crossings_since(t, camera=None)`, `get_last_arrival_record()`, NEW `entry_areas(camera=None)` | G2, G5 new |
-| F4 | `get_last_person_sighting(s)`; BLE via `get_person_location(name)`, `persons_in_room(room, active_only=False)`, `persons_in_room_or_scanner_areas(room)`, `location_moves_since(t)` (wrapped) | G6 new |
+| F3 | `get_last_crossing(camera)`, NEW `get_crossings_since(t, camera=None)`, NEW `get_crossing(source_ref)`, `get_last_arrival_record()`, NEW `entry_areas(camera=None)`, NEW `door_camera_device_ids()` | G2, G5 new |
+| F4 | `get_last_person_sighting(s)`; BLE via `get_person_location(name)`, `persons_in_room(room, active_only=False)`, `persons_in_room_or_scanner_areas(room)`, `location_moves_since(t)` (wrapped; a pull returning frozen `(person_entity, from_room, to_room, ts, method)` tuples, oldest first) | G6 new |
 | F5 | (push only) | |
 | class | `view_for_class(cls)`, `min_confidence(cls)` (wraps `CONSUMER_CLASS_MIN_CONFIDENCE`) | `min_confidence` new |
 
 Change to make INV-LAYER-CLASS enforceable: `house_census_view(hass, cls=...)` takes a CLASS, not a view, and calls
 `view_for_class` itself (the boot-window reason display entities call the module function stays valid).
 
-### 4.2 Push channels (five; one owner each; the only listeners allowed)
+### 4.2 Push channels (six; one owner each; the only listeners allowed)
 
 | Channel | Fact | Owner (only sender) |
 |---|---|---|
 | `SIGNAL_CENSUS_UPDATED` | F2-T counts | `camera_census.py` |
 | `ura_person_egress_event` | F3 | `EgressDirectionTracker._resolve_direction` |
+| `SIGNAL_EGRESS_RECORD_AMENDED` | F3 record amended (`role` ∈ `arrival_confirmed`, `exit_backfilled`, `pair_resolved`, crossing-vision attribute roles; payload `{role, source_ref, row_id, person_id, egress_camera, ...}`) | G3 `attach_crossing_attribute` only. Replaces `SIGNAL_EGRESS_EXIT_BACKFILLED` (`signals.py:83` batch-2), whose sender `_backfill_exit_identity` moves onto G3. Listeners: the four egress display sensors, the two exit-backfill display readers, the sighting producer |
 | `SIGNAL_PERSON_SIGHTING` | F4 camera | `PersonSightingProducer._emit` |
 | `ura_person_location_change` | F4 BLE | `PersonTrackingCoordinator` |
 | `SIGNAL_PERSON_ARRIVING` (`PersonArrivingPayload`) | F5 | `signals.dispatch_person_arriving` |
@@ -302,13 +305,25 @@ is a contract change.
 |---|---|---|---|
 | G1 | `subscribe_person_edges(cb, *, persons, kinds)` on presence, fed by `ResidencyTracker` (one ledger). Must deliver what today's listeners get: `persons` = residents OR every `person.*` (security watches guests too, `security.py:2235`); `kinds` include `arrival` (`-> home`), `departure` (`home ->`) and `approach` (`not_home -> named zone`, security's 30-min window, `security.py:2280-2288`); each edge carries `source_stale` and `in_boot_window`. Residency today records only resident `-> home` / `home ->` edges (`residency.py:10-11`), so G1 extends it (approach kind, all-person scope) rather than narrowing consumers. G1 never gates presence's own direct geofence trigger (INV-AWAY-LATENCY) | lock regime and perimeter `person.*` listeners + their ledgers; security geofence expected-arrival (S1) | LOCK restart plan (M8) + STALE-SOURCE-ARRIVAL-CONSUMERS-1 |
 | G2 | `get_crossings_since(t, camera)` | perimeter `_note_egress_identity` 600 s cache | PERSON-AWARENESS-READ-API-1 ship 3 |
-| G3 | `attach_crossing_attribute(source_ref, ...)` on the tracker | vision attribute store read sideways | crossing vision Phase 2 |
+| G3 | `attach_crossing_attribute(source_ref, changes, provenance, *, camera, role, row_id=None, payload_extra={})` on the tracker: the one amend primitive (§2.3), sole sender of `SIGNAL_EGRESS_RECORD_AMENDED`; an AST guard test asserts it is the only `CrossingRecord` writer after creation | vision attribute store read sideways; private amend helpers; `SIGNAL_EGRESS_EXIT_BACKFILLED` | crossing vision Phase 2 or step 7, whichever builds first (the other extends it) |
 | G4 | `dispatch_person_arriving(hass, payload)` | 3 raw dict sends | read API ship 3 |
 | G5 | `EgressDirectionTracker.entry_areas()` public | `arrival_edges.door_entry_areas` reading tracker privates | read API ship 3 |
 | G6 | the ONE BLE-in-room read (§2.4a): `persons_in_room(room, *, active_only)`, `persons_in_room_or_scanner_areas(room)`, `room_for_area(area_id)`, `location_moves_since(t)`, frozen `snapshot()` | room occupancy `coordinator.py:1385, 3315, 4440, 5003`; fan recheck `_l1_persons`; fan_veto / lock / perimeter / music / house_status `.data` reads; `_ble_corroboration` twins | read API ship 3 (room-occupancy filter behind §9 Q1) |
 | G7 | named stream-health read for the ledger anchor: per Tier-1 input, `input_stream_view(hass, eid)` (and `entity_stream_view` for camera-derived inputs); any non-None view (HELD or RELEASED) = held; RELEASED is never "off" for the anchor; no substrate = blocked (unchanged) | `crossing_vision._held_inputs` hass.data scan (census-p2 `crossing_vision.py:1141-1145`) | census-p2 fix-up, after rebasing on batch-2 (S2 getters are not on census-p2) |
 | G8 | single owner of the crossing-vision row store + `_ledger_terms` (shared seam census-p2 ↔ crossing-vision-fast-stage) | two branches extending `crossing_vision.py` with no named owner (review D12) | owner: census-p2 (`PLANNING_census_deconfliction.md`); fast-stage rebases on it after census-p2 merges, writes provisional rows only (no `apply_term`, `people_count` None on blank); merge gate test: ledger terms come from stage-B rows only, a provisional row never applies a term |
 | G9 | `PersonTrackingCoordinator.set_pre_arrival_enabled(value)` | HVAC writes `pc._pre_arrival_enabled` (`hvac.py:1241`) | read API ship 3 (Tier 1, byte-identical) |
+
+**Step 7 allowlist rows (EGRESS-DIRECTION-AWARE-IDENTITY-1, 2026-11-14; each max 1 site, owner that card):**
+- Perimeter `_note_egress_identity` cache read, on the master-off path and as the master-on store-failure fallback
+  only (INV-NOOP, INV-STORE-FAILURE in the plan). Retires when the master switch is removed.
+- R3 producer read: `transit_validator.freshest_gps_fix` reads the `device_trackers` attribute of the `person.<slug>`
+  state and each listed tracker's `source_type` / position attributes; GPS means `source_type == "gps"`, never a name
+  test. Layer-internal, same class as the egress veto's `person.<slug>` read.
+
+Contract additions A1-A13 from the step 7 plan (rev 3.1, `PLANNING_egress_direction_aware_identity.md` §14, reviewed in
+`PLANREVIEW_egress_direction_aware_identity_3.md`) are applied above: A1/A1b §4.1 F1, A2 §4.1 F4, A3/A9 §2.3 + §4.1 F3,
+A4 merged into G3, A5 §4.2, A6 §2.3, A7 §2.5, A8 §2.6 (reused, no new names), A10 §2.3 note, A11 §2.3 class rule,
+A12/A13 the allowlist rows here.
 
 ## 6. The conformance check (run at every plan review AND the arc-map merge step)
 
