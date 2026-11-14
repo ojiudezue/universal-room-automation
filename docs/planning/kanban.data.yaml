@@ -34806,14 +34806,16 @@ cards:
   next: 'Parked. Revisit at the bar disposition; stays linked to VISION-CROSSING-ANALYSIS-1 after the plan ships so the arc-close gate keeps seeing it.'
 - id: NVR-WITNESS-CONSOLIDATION-1
   title: One shared Frigate-vs-Protect witness layer (who saw it, agreement history) with policy kept per consumer; crossing vision gets Protect as a second witness
-  status: inbox
+  status: planned
   batch: person-sightings
   tier: 3
   links: {parent: VISION-CROSSING-ANALYSIS-1, related: [CENSUS-DOOR-TALLY-ATTRIBUTION-PARKED-1]}
   origin: {date: '2026-11-13', gist: 'Operator question on the crossing vision plan.'}
   operator_2026_11_13_both_nvrs: 'For all camera work I like to exercise both nvr platforms simultaneously, then cross compare to reduce errors. Did you base this plan on only frigate? How can protect be a separate witness? And we can maybe centralize the rules to deconflict to increase confidence. We have that in more than 1 place? We could centralize it depending on the application or problem?'
   why: 'Crossing vision plan fetches clips from Frigate only; Protect enters only as the late face name. Three separate Frigate-vs-Protect rules exist: camera_census.py:2330 _cross_validate_platforms (counts; Frigate number wins when both see; lone reading dropped to 0 unless corroborated); transit_validator.py:2689 _count_platforms_fired (crossing confidence 0.9 vs 0.8; platform guessed from entity-name suffix); perimeter_alert.py:4780 _apply_single_source_gate + perimeter_fp_gates.py:16 nvr_family (learned per-camera agreement rate, demotes a lone first alert). Earlier operator mandate (board line ~18084): cross-correlate BOTH NVRs for face ID. Merge candidate with PLANNING_census_deconfliction.md (deconflict_house consumes it) and the camera input stream health plan (which NVR leg is alive).'
-  next: 'Me: probe first (read-only): can HA fetch a UniFi Protect event clip for a door crossing, and does llmvision analyse it; Protect vs Frigate per-camera agreement on door crossings from existing history. Then seam check against the arc map and a plan amendment after perimeter Part A ships.'
+  operator_2026_11_13_consolidate: 'Yes, centralize the evidence and keep the policy with each feature... I generally favor consolidation so there''s no drift and there is one place to make better but there can be arguement against it. Critique this conclusion and be sure... Card and queue. Bring me a plan amendment but it''s not necessary to disturb what''s in flight. We can schedule a follow up. But check to see if the protect mechanics will allow easy implementation'
+  queue: 'After perimeter Part A ships and crossing vision Phase 1 ships (do not disturb in-flight branches). Order: Protect mechanics probe (now, read-only) -> plan amendment to the operator -> follow-up cycle.'
+  next: 'Me: Protect mechanics probe running (AUDIT_protect_clip_witness_probe_2026_11_13.md); then the plan amendment.'
 - id: PHONE-LEFT-BEHIND-TRANSIENT-FLICKER-1
   arc_cut_v5_108_19: "with PLB build"
   arc_cut_v5_108_18: "with PLB build"
