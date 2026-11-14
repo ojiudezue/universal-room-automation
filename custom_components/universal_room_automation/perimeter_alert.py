@@ -5415,7 +5415,8 @@ class PerimeterAlertManager:
         if census is None:
             return set()
         try:
-            return {str(s).lower() for s in census._get_tracked_person_slugs()}
+            # RA6: the public PersonCensus surface, never the private.
+            return {str(s).lower() for s in census.tracked_person_slugs()}
         except Exception:  # noqa: BLE001 — no census = nobody qualifies
             return set()
 
