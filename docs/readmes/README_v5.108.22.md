@@ -1,6 +1,6 @@
-# v5.108.22: release batch 2 (read API ship 2, scoped egress mute, perimeter labels, stream health S2)
+# v5.108.22: release batch 2 (read API ship 2, scoped egress mute, perimeter labels, stream health S2, BLE person registry)
 
-Branch `release/batch-2`, from develop 4b1d392b. Four reviewed branches merged with `--no-ff`, plus small
+Branch `release/batch-2`, from develop 4b1d392b. Five reviewed branches merged with `--no-ff`, plus small
 fixes on top. Each section below is condensed from its draft README (kept in `docs/readmes/*_DRAFT.md` for
 the full record: change tables, byte-identity evidence, mutation drills, not-done lists).
 
@@ -10,6 +10,7 @@ the full record: change tables, byte-identity evidence, mutation drills, not-don
 | 2. Scoped egress mute for perimeter alerts | PERIMETER-GLOBAL-EGRESS-MUTE-1 | 2-DB | A / B / C / D, fix-ups through a04b7110 |
 | 3. Perimeter switch names + options-flow parity | PERIMETER-SWITCH-LABELS-AND-FLOW-PARITY-1 | 1 | A |
 | 4. Camera input stream health S2 | CAMERA-STREAM-DEAD-ZONE-AND-CENSUS-1 | 2-DB | A / B / C + D re-verify, through d8f4b473 |
+| 5. BLE person sensors resolved through the registry | BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1 | 2 | A / B SHIP, LOW fix-up 477c8dbf |
 
 Fixes added in the batch:
 
@@ -114,6 +115,44 @@ Live (prospective):
 - Interior census camera outage only: the dead camera keeps its count in `area_contributions` for 900 s,
   then is absent (missing term).
 - HVAC D6: proven in-suite (`test_source3_dead_zone_camera_confirms_nothing`).
+
+## 5. BLE person sensors resolved through the registry
+
+Operator 2026-11-14: "That Bermuda registry fix is clutch. Approved." Full record:
+`docs/readmes/drafts/BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1.md`; plan `PLANNING_ble_person_sensor_registry_resolve.md`
+rev 2; audit `AUDIT_ble_person_sensor_resolution_2026_11_14.md`.
+
+**What was wrong.** PersonCoordinator found each person's Bermuda sensors by entity_id substrings. Scanners named
+after a person (`jaya_3`, `...ezinnemakeup`) matched too, so Ezinne, Ziri and Jaya each picked up 12 distance
+sensors on other people's phones and Oji matched none (fixed 0.5). The match also enabled disabled sensors, which
+reloads Bermuda. `aggregation._find_bermuda_sensors` had matched nothing since v3.6.
+
+**What changed.**
+- `_bermuda_device_for_person` resolves the person's Bermuda device through the registries only: (a) the one
+  `bermuda`-platform tracker in the person's `device_trackers`; (b) only when (a) finds none, the one
+  `private_ble_device` tracker's identifier, then the one other device carrying it that owns a Bermuda entity.
+  Zero or two-plus candidates resolve to nothing. No cache across ticks; one resolve per person per tick.
+- Sensors are typed by registry unique_id on that device: the area sensor, and one distance sensor per scanner
+  (filtered `_range`, raw only as fallback). Names are never parsed. No code writes `disabled_by`.
+- `aggregation._find_bermuda_sensors` and its state listener are deleted.
+- Fire check: unrecorded attribute `bermuda_resolve` on the Person Tracking Status diagnostic sensor (per person:
+  resolved, misses by reason, last route); one WARN per (person, reason) on the second consecutive miss, one INFO on
+  recovery.
+
+**Expected effect.** Oji's BLE confidence 0.5 -> 0.3; Ezinne, Ziri, Jaya stay 0.3 and each lose the 12 foreign
+sensors. Area sensors unchanged. No decision changes: the only trust reader is the `< 0.3` filter in
+`get_room_occupants`, which 0.3 passes (review B traced room occupancy, fan veto, transitions, census, music).
+
+**Residuals (carded or display-only).** Scanner name still read from the entity_id inside the confidence loop
+(BLE-CONFIDENCE-SCANNER-NAME-PARSE-1; inert until the per-scanner sensors return); warn-once streak resets on an
+alternating miss reason (counters still show it); removed persons keep counters until reload.
+
+**Live acceptance.**
+- `bermuda_resolve`: each home resident `last_route: a`, `resolved` rising, `unresolved: 0`.
+- Boot log: zero `No Bermuda area sensor` WARNs, zero `Auto-enabled Bermuda distance sensor` INFOs, zero
+  `No Bermuda sensors found` WARNs, no Bermuda config-entry reload in the boot window.
+- Enabled `bermuda` entity count identical before and after restart.
+- `sensor.<person>_location` for home residents matches their `sensor.*_area`.
 
 ## Operator steps (after deploy; done by the orchestrator)
 
