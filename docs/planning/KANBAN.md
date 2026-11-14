@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-13T21:31:46-06:00_ - _Data commit: `a8e207d52346`_ - _last_reconciled: 2026-11-13_
+_Generated: 2026-11-13T21:32:17-06:00_ - _Data commit: `1c0924dd12ef`_ - _last_reconciled: 2026-11-13_
 
 
 ## Columns
@@ -234,7 +234,7 @@ _created 2026-11-12 22:00_
 - **Origin:** 2026-11-12 - Operator: watch arrivals with AI vision; time-lapse; fast first frames; counting is easy, naming is hard; guests are the census problem; OpenAI models (GPT-6 Luna/Sol); deconflict with camera counts until trusted (100 crossi...
 - **Why:** Design in PLANNING_person_sighting_layer.md section 15. Gates: D0-FRAME (blank-frame experiment), D0-SIM (timing simulation), D0-V (model scoring incl. dry call per GPT-6 model for llmvision param compatibility). Then its own sibling plan.
 - **Next:** Me: revise plan section 15.9 frame guard to judge frames directly; resolve the llmvision temperature blocker for GPT-6 models (config-first); then the sibling vision plan.
-- **Forensic keys (19):**
+- **Forensic keys (20):**
   - `operator_2026_11_13_plans_approved`: Plans approved (the four clean plans: census deconfliction, person awareness read API, camera input stream health, crossing vision producer). Merged to develop 2602929c; estimator plan archived.
   - `arc_cut_v5_108_19`: shadow build running
   - `arc_cut_v5_108_18`: separate plan
@@ -254,6 +254,7 @@ _created 2026-11-12 22:00_
   - `FINDING_face_name_interfaces_2026_11_13`: AUDIT_protect_face_name_interfaces_2026_11_13.md: URA has NO live Protect face-name path (no poller; D1-PROTECT-FACE-BRIDGE-ADDON-1 parked, camera_resolver.py:247-250). Protect face recognition is set up on only 2 cameras (Family Room, G...
   - `MEASURED_frigate_name_latency_2026_11_13`: AUDIT_frigate_face_name_latency_2026_11_13.md: Frigate names ~22% of door person events (100/447, 8 days). Event start to first name, strict join (61 events): p50 2-8 s, p99 17-50 s, max 55.5 s by camera. Loose join shows 12 names after ...
   - `MATCH_COVERAGE_2026_11_13`: The plan's "Protect-only crossings (22%)" non-goal is mislabelled. All four door cameras run Frigate; those crossings simply have no Frigate person event within +-10 s (AUDIT_crossing_vision_d0_2026_11_13.md: 74% matched at +-10 s, 83% a...
+  - `protect_alarm_webhook_2026_11_14`: Operator built Protect Alarm Manager rule "URA G6 Entry" (Cameras > Person > Known Face on Madrone G6 Entry, Custom Webhook POST, default content, no thumbnails) to temporary HA automation automation.ura_test_capture_protect_alarm_manage...
 
 ## 🧭 Pre-planning (14)
 _idea being decomposed_
