@@ -41,7 +41,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections import OrderedDict, deque
+from collections import Counter, OrderedDict, deque
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -295,11 +295,20 @@ class CrossingVisionShadow:
             reconcile_lag_s=float(_c.CROSSING_VISION_LEDGER_RECONCILE_LAG_S),
             reconcile_delay_s=float(_c.CROSSING_VISION_TIMEOUT_S)
             + float(_c.CROSSING_VISION_EVENT_END_WAIT_S),
+            arrival_before_s=float(_c.CROSSING_VISION_GO_ARRIVAL_WINDOW_BEFORE_S),
+            arrival_after_s=float(_c.CROSSING_VISION_GO_ARRIVAL_WINDOW_AFTER_S),
             stuck_s=float(_c.CROSSING_VISION_LEDGER_STUCK_S),
             anchor_zero_s=float(_c.CROSSING_VISION_LEDGER_ANCHOR_ZERO_S),
             setup_ts=self._epoch(),
+            anchor_needs_no_hold=bool(_c.CROSSING_VISION_LEDGER_ANCHOR_NEEDS_NO_HOLD),
         )
         self._ledger_events: list[_cl.LedgerEvent] = []
+        # P2-D3 held inputs: RAM last-known-good map (entity -> "on"/"off",
+        # never persisted) and the holders seen since the last anchor (for
+        # the anchor-zero page; dead ones named first).
+        self._last_good: dict[str, str] = {}
+        self._holder_counts: Counter[str] = Counter()
+        self._holder_dead: set[str] = set()
         self._ledger_was_enabled = False
         self._ledger_day: Any = None
         self._reconcile_timers: dict[str, Callable[[], None]] = {}
@@ -776,11 +785,13 @@ class CrossingVisionShadow:
         self._spawn(self._run(req), background=True)
 
     def _provider_id(self) -> str | None:
-        """The llmvision entry id to send as ``provider``: the rung-2 option
-        ``CONF_CROSSING_VISION_PROVIDER_ID`` (P2-D1, read fresh) only when
-        that id is an llmvision config entry on THIS install (portability:
-        another house has other entry ids); otherwise None, and the adapter
-        falls back to the perimeter's provider."""
+        """The llmvision entry id to send as ``provider`` (P2-D1, read
+        fresh): the rung-2 option ``CONF_CROSSING_VISION_PROVIDER_ID`` when
+        set; when empty, the rung-1 install default
+        ``CROSSING_VISION_PROVIDER_ID`` (review A-HIGH-3). Either id is used
+        only when it is an llmvision config entry on THIS install
+        (portability: another house has other entry ids); otherwise None,
+        and the adapter falls back to the perimeter's provider."""
         from .perimeter_enrichment import _get_integration_config  # noqa: PLC0415
 
         try:
@@ -789,7 +800,7 @@ class CrossingVisionShadow:
             )
         except Exception:  # noqa: BLE001
             raw = None
-        pid = str(raw or "").strip()
+        pid = str(raw or "").strip() or str(_c.CROSSING_VISION_PROVIDER_ID or "").strip()
         if not pid:
             return None
         try:
@@ -1019,6 +1030,8 @@ class CrossingVisionShadow:
         if not self._ledger_was_enabled:
             self._ledger_was_enabled = True
             self._ledger.rebase(self._epoch())
+            self._holder_counts.clear()
+            self._holder_dead.clear()
         return True
 
     @staticmethod
@@ -1056,9 +1069,13 @@ class CrossingVisionShadow:
         ``(None, False)`` (case D at the census)."""
         if self._torn_down or not self._ledger_enabled_now():
             return None, False
-        return self._ledger.census_tick(
+        result = self._ledger.census_tick(
             self._epoch(), resident_term, camera_bodies, camera_input_dark,
         )
+        # Arrival-floor lifts (P2-D2 step 4): one ledger row each, written
+        # with the next eval tick's batch.
+        self._ledger_events.extend(self._ledger.drain_events())
+        return result
 
     @property
     def ledger_state(self) -> str:
@@ -1074,10 +1091,65 @@ class CrossingVisionShadow:
             return "dark"
         return "ok"
 
+    def _held_inputs(self) -> tuple[set[str], set[str]]:
+        """The held Tier-1 inputs this sample (P2-D2 step 2): every entity
+        in the substrate's Tier-1 map, its ``hass.states`` reading, the RAM
+        last-known-good map, and the camera input stream health getter (S1
+        room getter ``camera_input_stream_dead``; any room answering True =
+        dead. S2's house-level getters are on a separate branch and will
+        replace this lookup when they land). Returns ``(held, dead_held)``.
+        No substrate -> no Tier-1 map -> nothing held."""
+        data = self._domain_data()
+        substrate = data.get("occupancy_substrate")
+        try:
+            eids = substrate.tier1_entity_ids() if substrate is not None else ()
+        except Exception:  # noqa: BLE001
+            eids = ()
+        getters = []
+        for value in list(data.values()):
+            fn = getattr(value, "camera_input_stream_dead", None)
+            if callable(fn):
+                getters.append(fn)
+        readings: dict[str, tuple[Any, Any]] = {}
+        for eid in eids:
+            try:
+                st = self.hass.states.get(eid)
+            except Exception:  # noqa: BLE001
+                st = None
+            state = getattr(st, "state", None) if st is not None else None
+            dead: Any = None
+            for fn in getters:
+                try:
+                    answer = fn(eid)
+                except Exception:  # noqa: BLE001
+                    answer = None
+                if answer is True:
+                    dead = True
+                    break
+                if answer is False:
+                    dead = False
+            readings[str(eid)] = (state, dead)
+        return _cl.classify_held(readings, self._last_good)
+
+    def _holders_text(self) -> str:
+        """The holders seen most since the last anchor, dead ones first."""
+        if not self._holder_counts:
+            return ""
+        ranked = sorted(
+            self._holder_counts.items(),
+            key=lambda kv: (kv[0] not in self._holder_dead, -kv[1], kv[0]),
+        )
+        names = [
+            f"{eid} (dead)" if eid in self._holder_dead else eid
+            for eid, _n in ranked[:5]
+        ]
+        return ", ".join(names)
+
     @callback
     def _on_substrate_edge(self, room_name: Any, kind: Any, new_state: Any) -> None:
         """Tier-1 room rising edge (OccupancySubstrate single-writer
-        dispatch). Edges only: a stuck-on sensor sends none."""
+        dispatch): catches a pulse shorter than the eval interval. Levels
+        reach the anchor as the held set (``_held_inputs``)."""
         del room_name, kind
         if self._torn_down or new_state is not True:
             return
@@ -1139,9 +1211,15 @@ class CrossingVisionShadow:
             self._roll_ledger_day()
             if self._ledger_enabled_now():
                 now = self._epoch()
-                evs = self._ledger.evaluate(now)
+                held, dead_held = self._held_inputs()
+                self._holder_counts.update(held)
+                self._holder_dead |= dead_held
+                evs = self._ledger.evaluate(now, held)
                 self._ledger_events.extend(evs)
                 for ev in evs:
+                    if ev.kind == _cl.KIND_ANCHOR:
+                        self._holder_counts.clear()
+                        self._holder_dead.clear()
                     if ev.kind == _cl.KIND_ANCHOR and ev.independent and ev.residue is not None:
                         self._anchor_residues.append((now, int(ev.residue)))
                 self._known_samples.append((now, self._ledger.state == _cl.STATE_KNOWN))
@@ -1214,15 +1292,20 @@ class CrossingVisionShadow:
         )
 
         hours = int(float(_c.CROSSING_VISION_LEDGER_ANCHOR_ZERO_S) // 3600)
+        holders = self._holders_text()
+        held_txt = (
+            f" Inputs holding it: {holders}." if holders else ""
+        )
         await fire_stuck_signal(
             self.hass,
             "crossing_ledger_anchor_zero",
             ("house",),
             f"Crossing ledger: no empty-house anchor in {hours} h, so its "
-            f"count can drift.",
+            f"count can drift.{held_txt}",
             remedy=(
-                "Normal while someone is always home; otherwise check the "
-                "interior camera counts and room sensors."
+                "Normal while someone is always home. A dead input is faulty "
+                "equipment: fix it first. Otherwise check the interior "
+                "camera counts and the room sensors named."
             ),
             severity="LOW",
         )
@@ -1345,6 +1428,9 @@ class CrossingVisionShadow:
                     "Check the door camera's person count and the Frigate "
                     "event match; crossing_vision_last shows the latest case."
                 ),
+                # MEDIUM reaches no channel under the live NM config
+                # (_stuck_signal_nm.py:178-182; review B-M1).
+                severity="HIGH",
             )
 
     def flead_regression(self, now: float) -> list[str]:

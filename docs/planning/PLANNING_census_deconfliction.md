@@ -273,7 +273,9 @@ payload dict or any existing field.
   `_last_camera_total_pre_cancel` = 0); `test_no_interior_cameras_bodies_none` (no configured interior camera →
   bodies None, ledger stays unknown, case D); `test_xval_off_all_unavailable_bodies_none`; `test_missing_vision_object_case_d`; `test_estimate_exception_case_d`;
   `test_property_zone_unchanged`.
-- **Mutation:** read `_last_camera_total_pre_cancel` instead → the face-labelled test red.
+- **Mutation:** read `_last_camera_total_pre_cancel` instead → the face-labelled test red. Built 2026-11-14 (fix-up):
+  bodies None with no interior camera and on the cross-validation-off all-unavailable path; `crossing_vision_disagree`
+  pages HIGH.
 - **Live:** the house result carries non-null `aware_total` after the first census tick; existing census fields equal
   their pre-deploy values on a replayed hour.
 

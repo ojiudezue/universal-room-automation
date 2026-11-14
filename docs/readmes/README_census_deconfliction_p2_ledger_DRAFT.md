@@ -10,14 +10,19 @@ census accuracy..."; hard constraint "I need away to be fast acting").
 ## What ships
 
 - **P2-D1.** The crossing-vision llmvision provider is an option: Integration -> Perimeter Alerting -> Advanced ->
-  "Door count AI provider ID" (`crossing_vision_provider_id`). Empty = the perimeter provider. Used only when it names
-  an llmvision entry on this install. The hard-coded Phase 1 id is gone.
+  "Door count AI provider ID" (`crossing_vision_provider_id`). Empty = the install default (the Luna entry
+  `01M7B731T26P2HXVW77AQR62PP`) when that llmvision entry exists on this install, else the perimeter provider. A set
+  option is used only when it names an llmvision entry on this install.
 - **P2-D2 / P2-D3.** A house crossing ledger (RAM) inside the crossing-vision producer: one term per door crossing
-  (vision count when `ok`, else the camera count, else 1), an empty-house anchor (cameras see nobody, the fleet is lit,
-  no room sensor rising edge, no entry term, for 1 h -> the ledger resets to the residents home), a resident floor, a
-  resident-departure reconcile, rows `crossing_vision_ledger`, pages `crossing_ledger_stuck` (HIGH) and
-  `crossing_ledger_anchor_zero` (LOW), and the `crossing_ledger` attribute on Outside: Open Tracks. Off with the
-  shadow switch.
+  (vision count when `ok`, else max(1, camera count)), an empty-house anchor (cameras see nobody, the fleet is lit, no
+  room sensor held on or dead-holding, no rising edge, no entry term, for 30 min -> the ledger resets to the residents
+  home), a resident floor that is an arrival credit (lifted only when the resident count rises; the arriving
+  resident's own entry term consumes it, so each person counts once), a resident-departure reconcile that consumes one
+  person per applied exit, rows `crossing_vision_ledger` (terms, anchors, reconciles, lifts), pages
+  `crossing_ledger_stuck` (HIGH) and `crossing_ledger_anchor_zero` (LOW, names the holding inputs, dead ones first;
+  silent while enhanced census is off), and the `crossing_ledger` attribute on Outside: Open Tracks. Off with the
+  shadow switch. `crossing_vision_disagree` pages HIGH (MEDIUM reaches no channel). The ledger row type is not
+  checked by the weekly writer-health trip-wire while the shadow switch is off.
 - **CD1.** One dedup function, `census_deconflict.deconflict_house`, called once per census evaluation. The census
   house result gains an awareness view; the trust view (every existing field, the census signal, the DB snapshot, every
   existing entity) is unchanged. F-LEAD is off: the awareness value equals the trust value.
@@ -34,10 +39,17 @@ production change, under five vision variants (ledger absent / 0 / 50 / None / u
 {display, notification}, switch ON) — `quality/tests/test_census_trust_golden.py`,
 `test_census_awareness_surface.py::test_excluded_consumers_never_read_vision`.
 
+## Operator checkpoint (decisions pending)
+
+- **`CROSSING_VISION_LEDGER_EMPTY_RESET_S` = 1800 s (FLAG).** The operator chose 3600 under the old edge-only anchor.
+  With the held-input anchor the read-only replay gave 5 anchors / 7 days at 3600 (below bar a's 10) and 13 at 1800;
+  18 of the 20 anchors at 1800 fall in AWAY. Shipped at 1800 pending confirmation; one named rung-1 knob.
+- **Switch label (review B-L6).** `switch.ura_crossing_vision_census_authority` friendly name is pending the operator;
+  proposed "Vision Leads Counts".
+
 ## Operator actions at deploy
 
-1. Set "Door count AI provider ID" to the OpenAI Madrone Vision llmvision entry id (`01M7B731T26P2HXVW77AQR62PP` on
-   this house). Until then the perimeter provider (gpt-4o-mini entry) is used with model gpt-6-luna.
+1. Optional: set "Door count AI provider ID". Empty uses the Luna entry on this house already.
 2. Leave `switch.ura_crossing_vision_census_authority` ON (shipped default).
 3. Optional (plan §3.6): repoint headline "people" cards to the awareness entities; keep the trust entities on a
    diagnostics card. No house-visible change until F-LEAD.
@@ -55,6 +67,12 @@ production change, under five vision variants (ledger absent / 0 / 50 / None / u
 | L7 | At least one `ok` shadow row with `model = gpt-6-luna` after setting the provider option | `crossing_vision_shadow` rows |
 | L8 | No `crossing_vision` / `census_deconflict` ERROR in the log; no page on day one | journald, NM log |
 | L9 | No `automations.yaml` reference to the two new entities (P2-F1 checkpoint) | grep the HA config |
+
+## Degraded configurations
+
+- Enhanced census off: `census_tick` never runs, the ledger stays `unknown` (awareness = trust); the anchor-zero page
+  is suppressed and the diagnostics say `anchor_zero_suppressed: no_census_tick` (review B-L5).
+- No interior camera configured: the ledger is handed no body total (missing, never 0) and stays `unknown`.
 
 ## Not in this build
 

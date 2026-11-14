@@ -6,7 +6,9 @@ instructions: `docs/planning/archive/HISTORY_crossing_vision_rev3_to_7_1.md`,
 `HISTORY_crossing_vision_partB_record_rev3_to_5.md`. The census side (two views, deconfliction, entities, the
 promotion ladder, bars a-e, F-LEAD / F-NOTIFY) is `PLANNING_census_deconfliction.md`; the read surface is
 `PLANNING_person_awareness_read_api.md`. Design origin: `PLANNING_person_sighting_layer.md` §15 (incl. §15.7, §15.9).
-Status: Phase 1 (D1-D3) built on `feature/crossing-vision-shadow` (18e3ba59; reviews A and B SHIP). Phase 2 planned.
+Status: Phase 1 (D1-D3) built on `feature/crossing-vision-shadow` (18e3ba59; reviews A and B SHIP). Phase 2 P2-D1-D3
+built on `feature/census-deconfliction-p2-ledger`; the 2026-11-14 ruling (arrival credit, held-input anchor, review
+fix-ups) is built there (fix-up commit after a6567765); open builder questions are listed after P2-D3.
 
 Read first (done by the planners of rev 1-7.1, completely): `PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md`,
 `SENSOR_FLEET_CLASSES.md`, `IDENTITY_FUSION_CAMERAS_MANUAL.md`.
@@ -346,6 +348,17 @@ diagnostics, while no `census_tick` has ever arrived, e.g. enhanced census off: 
   LKG lookup → `test_held_set_from_substrate_map_and_lkg`.
 - **Live:** ≥ 1 `crossing_vision_ledger` term row with non-null `L_after`; `crossing_ledger.state` reads `known` after
   the first anchor. Phase 1 merged to develop is a precondition.
+- **Build notes (fix-up 2026-11-14).** Held is computed by a pure `crossing_ledger.classify_held(readings, lkg)`
+  (so the dead-input tests are pure) called from `CrossingVisionShadow._held_inputs`; the Tier-1 map comes from a new
+  read-only `OccupancySubstrate.tier1_entity_ids()` (hass.data `occupancy_substrate`); dead-stream = any room
+  coordinator's S1 `camera_input_stream_dead(eid)` True (S2's house getters replace this lookup). Lifts are a row kind
+  `lift`; terms carry `credit_consumed`. The B-L4 writer-health exemption is a rung-1 map
+  `MEMORY_WRITER_HEALTH_SWITCH_GATED_TYPES` (type -> hass.data switch key): the ledger type is not checked while the
+  shadow switch is off. **Open questions (not built, for the planner):** (Q1) applied exits with E before an anchor
+  stay in the exit store, so an exit at E, an anchor at E + Δ (resident's phone still home) and the departure edge
+  after it cancel that reconcile: phantom + 1 until the next anchor (≤ one window; D-L1's shape for an applied exit);
+  fix would clear the exit store at the anchor. (Q2) no `occupancy_substrate` in hass.data (presence not set up) =
+  an empty Tier-1 map = nothing held; the plan does not say whether a missing map should hold.
 
 **P2-D6 scorer extension + disposition (read-only).** Dark-ledger replay through `crossing_ledger` from shadow rows (bars
 compute before Phase 2 deploys); bars a-e (census plan §3.4); per-crossing §15.7a numbers; reports per door / direction /

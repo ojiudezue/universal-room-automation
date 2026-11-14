@@ -132,6 +132,13 @@ class _FakeURADatabase:
         # Fix-up #7: minimal energy_state key/value surface so the
         # production code's persist/restore round-trip can execute.
         self._energy_state: dict[str, str] = {}
+        # Review B-L4 (crossing vision P2-D3): the check reads switch-gated
+        # writers' switches from hass.data; every gating switch reads ON
+        # here, so every writer-backed type is checked (as before the gate).
+        c = _const()
+        self.hass = type("H", (), {"data": {c.DOMAIN: {
+            key: True for key in c.MEMORY_WRITER_HEALTH_SWITCH_GATED_TYPES.values()
+        }}})()
 
     @asynccontextmanager
     async def _db(self):
@@ -323,3 +330,17 @@ async def test_bl4_absence_never_suppresses_other_writers(real_schema_db):
     stats = await run(db, cadence_days=7, triggered_by="nightly")
     assert stats["zero_row_types"] == ["house_state_transition"]
     assert stats["absence_suppressed_types"] == [_EGRESS]
+
+
+@pytest.mark.asyncio
+async def test_switch_gated_type_skipped_while_switch_off():
+    """Review B-L4: a switch-gated writer (crossing_vision_ledger) is not
+    checked while its switch reads off; every other type still is."""
+    run = _bind_method()
+    counts = {t: 0 for t in _const().MEMORY_WRITER_BACKED_EPISODE_TYPES}
+    db = _FakeURADatabase(counts)
+    db.hass.data[_const().DOMAIN]["crossing_vision_shadow_on"] = False
+    stats = await run(db, cadence_days=7, triggered_by="nightly")
+    assert "crossing_vision_ledger" not in stats["zero_row_types"]
+    assert stats["switch_off_types"] == ["crossing_vision_ledger"]
+    assert "crossing_vision_shadow" in stats["zero_row_types"]

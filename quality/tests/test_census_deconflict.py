@@ -191,6 +191,46 @@ async def test_camera_bodies_none_when_all_platforms_unavailable(  # noqa: F811
 
 
 @pytest.mark.asyncio
+async def test_no_interior_cameras_bodies_none(mods, hass, monkeypatch,  # noqa: F811
+                                               freezer):
+    """Review A-MED-3: no configured interior camera -> the ledger is
+    handed bodies None (absent source = missing, never 0); the trust
+    view's camera_total stays 0 as on develop."""
+    fake = H.FakeVision(0)
+    w = await _world(mods, hass, monkeypatch, freezer, fake=fake)
+    try:
+        monkeypatch.setattr(w.census, "_get_interior_camera_entities", lambda: [])
+        house = await _tick(w, fam="2", mas="1")
+        assert fake.calls[-1]["camera_bodies"] is None
+        assert house.unidentified_count == 0
+    finally:
+        await H.R.teardown(w.rig)
+
+
+@pytest.mark.asyncio
+async def test_xval_off_all_unavailable_bodies_none(mods, hass, monkeypatch,  # noqa: F811
+                                                    freezer):
+    """Review A-MED-3: cross-validation off and no configured entity
+    available -> bodies None (that path now flags every platform
+    unavailable for the ledger copy); one available -> its count."""
+    fake = H.FakeVision(0)
+    w = await _world(mods, hass, monkeypatch, freezer, fake=fake)
+    try:
+        monkeypatch.setattr(w.census, "_is_cross_validation_enabled", lambda: False)
+        # The harness hass has no loaded entity registry; this path only
+        # reads device ids from it (none = no per-device dedup).
+        cc_mod = sys.modules[type(w.census).__module__]
+        monkeypatch.setattr(cc_mod, "er", SimpleNamespace(
+            async_get=lambda _h: SimpleNamespace(async_get=lambda _e: None)))
+        await _tick(w, fam="2", mas="0")
+        assert fake.calls[-1]["camera_bodies"] == 2
+        await _tick(w, fam="unavailable", mas="unavailable")
+        assert fake.calls[-1]["camera_bodies"] is None
+    finally:
+        await H.R.teardown(w.rig)
+
+
+@pytest.mark.asyncio
 async def test_resident_term_reads_presence_residents(mods, hass, monkeypatch,  # noqa: F811
                                                       freezer):
     """R = max(presence residents home, identified_count): a resident home

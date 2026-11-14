@@ -857,6 +857,12 @@ class OccupancySubstrate:
         stored = self._raw_state.get(room_name, {})
         return {k: bool(stored.get(k, False)) for k in TIER1_KINDS}
 
+    def tier1_entity_ids(self) -> frozenset:
+        """Every Tier-1 entity in the current map (the set ``_kind_on_now``
+        ORs over). Read-only copy; the crossing ledger builds its held-input
+        set from it (crossing vision P2-D3)."""
+        return frozenset(self._entity_to_room_kind)
+
     def get_all_room_kinds(self) -> Dict[str, Dict[str, bool]]:
         """Return per-room per-kind view for every known room."""
         return {

@@ -1548,12 +1548,28 @@ def _set_provider_option(rig, value):
 
 
 @pytest.mark.asyncio
-async def test_empty_override_falls_back(rig):
-    """P2-D1: the option saved empty (options override the entry data) ->
-    the perimeter provider."""
+@pytest.mark.parametrize("default_id", [
+    "01NOTONTHISINSTALL00000000",  # default id absent on this install
+    "f2",                          # present, but a frigate entry
+])
+async def test_empty_override_falls_back(rig, default_id):
+    """P2-D1: the option saved empty and the rung-1 install default is not
+    an llmvision entry here (absent, or another domain) -> the perimeter
+    provider."""
+    rig.monkeypatch.setattr(rig.C, "CROSSING_VISION_PROVIDER_ID", default_id)
     _set_provider_option(rig, "")
     await ended_crossing(rig, "ev-prov")
     assert rig.llm.calls[0]["provider"] == "prov_openai"
+
+
+@pytest.mark.asyncio
+async def test_empty_option_uses_install_present_default(rig):
+    """P2-D1 (review A-HIGH-3): the option empty (nobody opened the form)
+    and the Luna llmvision entry 01M7...PP present on this install -> that
+    id is sent, so the Luna model goes to the Luna entry."""
+    _set_provider_option(rig, "")
+    await ended_crossing(rig, "ev-prov-default")
+    assert rig.llm.calls[0]["provider"] == "01M7B731T26P2HXVW77AQR62PP"
 
 
 @pytest.mark.asyncio
@@ -1603,6 +1619,25 @@ async def test_writer_health_absence_exempt_during_vacation(rig):
         conn.close()
     stats = await rig.db.run_memory_writer_health_check(triggered_by="manual")
     assert "crossing_vision_shadow" in stats["absence_suppressed_types"]
+
+
+@pytest.mark.asyncio
+async def test_writer_health_ledger_type_not_checked_while_switch_off(rig):
+    """Review B-L4: with the shadow switch off the ledger writer cannot
+    run, so its type is not checked (no page); with the switch on, zero
+    rows is paged like any writer-backed type."""
+    rig.db.hass.data = rig.hass.data  # the real DB holds the real hass
+    rig.hass.data[rig.C.DOMAIN][rig.C.CROSSING_VISION_SWITCH_HASS_KEY] = False
+    stats = await rig.db.run_memory_writer_health_check(triggered_by="manual")
+    assert "crossing_vision_ledger" not in stats["counts"]
+    assert "crossing_vision_ledger" not in stats["zero_row_types"]
+    assert stats["switch_off_types"] == ["crossing_vision_ledger"]
+    assert "crossing_vision_shadow" in stats["counts"]  # Phase 1 unchanged
+    rig.hass.data[rig.C.DOMAIN][rig.C.CROSSING_VISION_SWITCH_HASS_KEY] = True
+    stats = await rig.db.run_memory_writer_health_check(triggered_by="manual")
+    assert stats["counts"]["crossing_vision_ledger"] == 0
+    assert "crossing_vision_ledger" in stats["zero_row_types"]
+    assert stats["switch_off_types"] == []
 
 
 @pytest.mark.asyncio

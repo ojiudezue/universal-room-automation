@@ -163,12 +163,13 @@ async def test_records_written_in_observation_mode(monkeypatch):
     db = _FakeDB()
     _hass, coord, _st = _coord(db=db)
     sent: list = []
-    # Only SIGNAL_PERSON_ARRIVING is the subject here; the residency record
-    # dispatch (SIGNAL_RESIDENCY_EVENT, crossing vision P2-D3) is
-    # observational and fires in observation mode too.
+    # Every dispatch is recorded except the residency record dispatch
+    # (SIGNAL_RESIDENCY_EVENT, crossing vision P2-D3), which is
+    # observational and fires in observation mode too (review B-L1: an
+    # allow-list here would hide any other new dispatch).
     monkeypatch.setattr(
         PR, "async_dispatcher_send",
-        lambda *a: sent.append(a) if a[1] == PR.SIGNAL_PERSON_ARRIVING else None,
+        lambda *a: sent.append(a) if a[1] != PR.SIGNAL_RESIDENCY_EVENT else None,
     )
     coord.observation_mode = True
     _feed(coord, OJI, "not_home", "home", T_SETUP + 2000)

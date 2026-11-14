@@ -3552,9 +3552,13 @@ CROSSING_VISION_MODEL: Final = "gpt-6-luna"
 # when it is an llmvision entry on THIS install (portability: another house
 # has other entry ids); empty, absent or not an llmvision entry = the
 # perimeter's provider (CONF_PERIMETER_ENRICHMENT_PROVIDER_ID). An entry id,
-# not a credential. Read fresh at every call (no reload). The Phase 1
-# hard-coded rung-1 id is retired: the id is never in code.
+# not a credential. Read fresh at every call (no reload).
 CONF_CROSSING_VISION_PROVIDER_ID: Final = "crossing_vision_provider_id"
+# Rung 1 install default (P2-D1, review A-HIGH-3): used only when the option
+# above is empty AND an llmvision config entry with this id exists on THIS
+# install (the Luna entry "OpenAI Madrone Vision"). Another house never has
+# this id, so it falls through to its perimeter provider.
+CROSSING_VISION_PROVIDER_ID: Final = "01M7B731T26P2HXVW77AQR62PP"
 # Rung 1 (review A6): own max_tokens, so lowering the perimeter's
 # CONF_PERIMETER_ENRICHMENT_MAX_TOKENS for alerts cannot truncate this JSON.
 # 1500 = the perimeter default the D0 dry calls ran with.
@@ -3611,12 +3615,21 @@ CROSSING_VISION_TEARDOWN_GATHER_S: Final = 5
 # the INV-P2-DISCHARGE contract.
 # ---------------------------------------------------------------------------
 CROSSING_VISION_LEDGER_EPISODE_TYPE: Final = "crossing_vision_ledger"
-# Anchor window (operator): camera bodies 0, fleet lit, no Tier-1 rising
-# edge, no applied entry term, continuously this long -> L = R. 0 = anchor
-# on the first passing sample.
-CROSSING_VISION_LEDGER_EMPTY_RESET_S: Final = 3600
+# Anchor window: camera bodies 0, fleet lit, no held Tier-1 input, no
+# Tier-1 rising edge, no entry term, continuously this long -> L = R. 0 =
+# anchor on the first passing sample. 1800 (plan rev 2026-11-14 measured:
+# the held-input rule at 3600 gives 5 anchors / 7 d, below bar a's 10; at
+# 1800, 13). The operator originally chose 3600 under the edge-only rule;
+# 1800 awaits operator confirmation at the deploy checkpoint.
+CROSSING_VISION_LEDGER_EMPTY_RESET_S: Final = 1800
+# Held-input conjunct of the anchor predicate (P2-D2 step 2, review D-M1):
+# a Tier-1 input reading on, or dead (unavailable / unknown / missing, or
+# its camera stream dead) with a last known-good on or no known-good reading
+# since setup, blocks the anchor. False = the edge-only predicate (kill
+# switch; a still guest on a radar is then anchored away).
+CROSSING_VISION_LEDGER_ANCHOR_NEEDS_NO_HOLD: Final = True
 # Anchor sample cadence (tracked interval). A stored body value older than
-# 2 x this fails the sample.
+# 2 x max(this, 1) fails the sample. 0 = a 1 s interval (not "never").
 CROSSING_VISION_LEDGER_EVAL_S: Final = 60
 # Departure reconcile: a resident departure edge at t_e is judged at
 # t_e + LAG + CROSSING_VISION_TIMEOUT_S + CROSSING_VISION_EVENT_END_WAIT_S;
@@ -6327,7 +6340,8 @@ MEMORY_WRITER_BACKED_EPISODE_TYPES: Final = frozenset({
     # long-term OFF is adding the type to MEMORY_WRITER_HEALTH_EXEMPT_TYPES.
     "crossing_vision_shadow",
     # crossing_vision_ledger (P2-D3): one term row per crossing while the
-    # shadow switch is on, plus anchors; same switch-off discharge as above.
+    # shadow switch is on, plus anchors. Not checked while the shadow switch
+    # is off (MEMORY_WRITER_HEALTH_SWITCH_GATED_TYPES, review B-L4).
     "crossing_vision_ledger",
     # sensor_dropout: writer exists and is correctly scheduled, but has
     # produced 0 rows in >2 months (per AUDIT_memory_writer_coverage.md,
@@ -6369,6 +6383,14 @@ MEMORY_WRITER_HEALTH_ABSENCE_EXEMPT_TYPES: Final = frozenset({
     "crossing_vision_shadow",
 })
 MEMORY_WRITER_HEALTH_ABSENT_HOUSE_STATES: Final = frozenset({"away", "vacation"})
+# Writer-backed types whose writer is gated by a switch (review B-L4,
+# crossing vision P2-D3): type -> the hass.data[DOMAIN] key holding the
+# switch. The type is not checked while that key reads False (the switch
+# off: the writer cannot run). Rung 1. A switch turned on mid-window is
+# checked on the next run that finds it on.
+MEMORY_WRITER_HEALTH_SWITCH_GATED_TYPES: Final = {
+    "crossing_vision_ledger": CROSSING_VISION_SWITCH_HASS_KEY,
+}
 
 MEMORY_FACT_TOPICS: Final = frozenset({
     "occupancy_reliability",

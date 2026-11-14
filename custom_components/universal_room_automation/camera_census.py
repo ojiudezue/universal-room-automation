@@ -2207,6 +2207,7 @@ class PersonCensus:
             degraded = False
 
             single_source_total = 0
+            any_xval_off_available = False
             for entity_id in configured_interior:
                 entry = ent_reg.async_get(entity_id)
                 device_id = entry.device_id if entry else None
@@ -2218,6 +2219,7 @@ class PersonCensus:
 
                 if not self._is_entity_available(entity_id):
                     continue
+                any_xval_off_available = True
 
                 platform = self._camera_manager.get_platform_for_camera(entity_id)
                 if platform == CAMERA_PLATFORM_FRIGATE:
@@ -2245,11 +2247,18 @@ class PersonCensus:
             # values from a prior enabled run don't leak into attributes.
             self._last_area_contributions = {}
             self._last_raw_pre_dedup_sum = single_source_total
+            # CD1 (review A-MED-3): no configured entity available on this
+            # path = every platform unavailable. The ledger copy only.
+            if configured_interior and not any_xval_off_available:
+                all_platforms_unavailable = True
 
-        # CD1: the body total the crossing ledger samples (missing, never 0,
-        # when every platform is unavailable).
+        # CD1: the body total the crossing ledger samples. Missing, never 0,
+        # when every platform is unavailable or no interior camera is
+        # configured (an absent source is missing: review A-MED-3; the trust
+        # view's camera_total = 0 there is unchanged).
         self._last_house_camera_bodies = (
-            None if all_platforms_unavailable else int(camera_total)
+            None if (all_platforms_unavailable or not configured_interior)
+            else int(camera_total)
         )
 
         # Cross-correlate with BLE

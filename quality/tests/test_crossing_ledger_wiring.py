@@ -371,6 +371,32 @@ async def test_teardown_unsubscribes_ledger_feeds(rig, mods):
     await rig.hass.async_block_till_done()
     assert rig.cv._ledger._edge_since_sample is False
     assert rig.cv._ledger.pending_people() == ["person.oji_udezue"]
+    # Review B-L2: the real dispatcher holds no listener of this instance
+    # for either feed (the early `_torn_down` returns above cannot tell).
+    from homeassistant.helpers.dispatcher import DATA_DISPATCHER
+
+    table = rig.hass.data.get(DATA_DISPATCHER, {})
+    for sig in (signals.SIGNAL_SUBSTRATE_KIND_CHANGED,
+                signals.SIGNAL_RESIDENCY_EVENT):
+        owners = [getattr(t, "__self__", None) for t in table.get(sig, {})]
+        assert rig.cv not in owners, sig
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_feeds_registered_before_teardown(rig, mods):
+    """Positive control for the B-L2 oracle: while set up, both feeds are
+    in the dispatcher table with this instance as owner."""
+    from homeassistant.helpers.dispatcher import DATA_DISPATCHER
+
+    from custom_components.universal_room_automation.domain_coordinators import (
+        signals,
+    )
+
+    table = rig.hass.data.get(DATA_DISPATCHER, {})
+    for sig in (signals.SIGNAL_SUBSTRATE_KIND_CHANGED,
+                signals.SIGNAL_RESIDENCY_EVENT):
+        owners = [getattr(t, "__self__", None) for t in table.get(sig, {})]
+        assert rig.cv in owners, sig
 
 
 @pytest.mark.asyncio
@@ -404,6 +430,7 @@ async def test_stuck_ledger_pages_once(rig):
 @pytest.mark.asyncio
 async def test_anchor_zero_pages(rig):
     rig.cv._ledger.anchor_zero_s = 1e-6
+    rig.cv.census_tick(resident_term=1, camera_bodies=1, camera_input_dark=False)
     rig.cv._on_ledger_eval(None)  # enable edge: rebase
     await asyncio.sleep(0.001)
     for _ in range(3):
@@ -474,6 +501,8 @@ async def test_disagree_persist_pages(rig, persist_n, expect):
     assert len(pages) == expect
     if expect:
         assert pages[0]["key"] == ("garage_a",)
+        # Review B-M1: MEDIUM reaches no channel; the page is HIGH.
+        assert pages[0]["severity"] == "HIGH"
 
 
 @pytest.mark.asyncio
@@ -528,3 +557,174 @@ async def test_eval_tick_records_independent_anchor_residues(rig):
     await flush(rig)
     assert [res for _t, res in rig.cv._anchor_residues] == [2]
     assert rig.cv._known_samples and rig.cv._known_samples[-1][1] is True
+
+
+# --------------------------------------------- held inputs (P2-D2 step 2)
+class _Substrate:
+    def __init__(self, eids):
+        self.eids = frozenset(eids)
+
+    def tier1_entity_ids(self):
+        return self.eids
+
+
+class _Room:
+    """A room coordinator stand-in exposing only the S1 getter."""
+
+    def __init__(self, dead):
+        self.dead = dict(dead)
+
+    def camera_input_stream_dead(self, eid):
+        return self.dead.get(eid)
+
+
+RADAR = "binary_sensor.radar_gb1"
+PIR = "binary_sensor.pir_hall"
+PANEL = "binary_sensor.panel_person"
+
+
+def _eval_anchor_state(rig, R=1):
+    rig.cv.census_tick(resident_term=R, camera_bodies=0, camera_input_dark=False)
+    rig.cv._on_ledger_eval(None)
+    return rig.cv.ledger_state
+
+
+@pytest.mark.asyncio
+async def test_held_set_from_substrate_map_and_lkg(rig):
+    """The REAL eval tick builds `held` from the substrate's Tier-1 map,
+    hass.states and the RAM last-known-good map: a radar on holds; the same
+    radar unavailable still holds (last good on); a PIR off then unavailable
+    does not; a panel whose camera stream reads dead (S1 getter) holds with
+    no good reading. Only when every holder releases does the anchor fire."""
+    from custom_components.universal_room_automation.domain_coordinators import (
+        occupancy_substrate as osub,
+    )
+
+    D = rig.C.DOMAIN
+    # The REAL substrate's getter over its (room, kind) map.
+    sub = osub.OccupancySubstrate(rig.hass)
+    sub._entity_to_room_kind = {RADAR: ("Guest Bedroom 1", "mmwave"),
+                                PIR: ("Hall", "motion"),
+                                PANEL: ("Kitchen", "occupancy")}
+    rig.hass.data[D]["occupancy_substrate"] = sub
+    room = _Room({PANEL: True})
+    rig.hass.data[D]["room_entry_x"] = room
+    rig.cv._ledger.empty_reset_s = 0
+    rig.hass.states.async_set(RADAR, "on")
+    rig.hass.states.async_set(PIR, "off")
+    rig.hass.states.async_set(PANEL, "off")
+    assert _eval_anchor_state(rig) == "unknown"
+    assert set(rig.cv.ledger_diag()["held"]) == {RADAR, PANEL}
+    rig.hass.states.async_set(RADAR, "unavailable")
+    rig.hass.states.async_set(PIR, "unavailable")
+    room.dead[PANEL] = False  # stream back; panel reads off (good)
+    assert _eval_anchor_state(rig) == "unknown"
+    assert rig.cv.ledger_diag()["held"] == [RADAR]  # dead, last good on
+    rig.hass.states.async_set(RADAR, "off")
+    assert _eval_anchor_state(rig) == "known"
+    assert rig.cv.ledger_diag()["held"] == []
+
+
+@pytest.mark.asyncio
+async def test_no_substrate_nothing_held(rig):
+    rig.cv._ledger.empty_reset_s = 0
+    assert _eval_anchor_state(rig) == "known"
+
+
+@pytest.mark.asyncio
+async def test_stuck_not_paged_while_held(rig):
+    D = rig.C.DOMAIN
+    await make_known(rig, R=0)
+    rig.cv._ledger.L = rig.cv._ledger.L_raw = 2
+    rig.cv._ledger.stuck_s = 1e-6
+    rig.hass.data[D]["occupancy_substrate"] = _Substrate({RADAR})
+    rig.hass.states.async_set(RADAR, "on")
+    for _ in range(5):
+        rig.cv.census_tick(resident_term=0, camera_bodies=0, camera_input_dark=False)
+        await flush(rig)
+        await asyncio.sleep(0.001)
+    assert [p for p in rig.pages if p["kind"] == "crossing_ledger_stuck"] == []
+
+
+def _capture_text(rig):
+    texts = []
+
+    async def _fire(hass_, kind, key, diagnosis, remedy="", now=None,
+                    title_override=None, exclusion_engaged=False,
+                    severity=None):
+        texts.append({"kind": kind, "diagnosis": diagnosis,
+                      "severity": severity})
+        return True
+
+    rig.monkeypatch.setattr(rig.mods.stuck, "fire_stuck_signal", _fire)
+    return texts
+
+
+@pytest.mark.asyncio
+async def test_anchor_zero_names_dead_holder(rig):
+    """The anchor-zero page names the holders seen since the last anchor,
+    dead ones first ("a dead input is faulty equipment")."""
+    D = rig.C.DOMAIN
+    dead_eid = "binary_sensor.z_dead_motion"  # sorts after the radar
+    texts = _capture_text(rig)
+    sub = _Substrate({RADAR})
+    rig.hass.data[D]["occupancy_substrate"] = sub
+    rig.hass.states.async_set(RADAR, "on")
+    rig.hass.states.async_set(dead_eid, "unavailable")  # never good: held
+    rig.cv._ledger.anchor_zero_s = 3600.0
+    for i in range(3):
+        if i == 1:  # the dead input joins the map: seen fewer times
+            sub.eids = frozenset({RADAR, dead_eid})
+        rig.cv.census_tick(resident_term=1, camera_bodies=0, camera_input_dark=False)
+        await flush(rig)
+    assert rig.cv._holder_counts == {RADAR: 3, dead_eid: 2}
+    rig.cv._ledger.anchor_zero_s = 1e-6
+    await asyncio.sleep(0.001)
+    rig.cv.census_tick(resident_term=1, camera_bodies=0, camera_input_dark=False)
+    await flush(rig)
+    [page] = [t for t in texts if t["kind"] == "crossing_ledger_anchor_zero"]
+    assert page["severity"] == "LOW"
+    text = page["diagnosis"]
+    assert f"{dead_eid} (dead)" in text and RADAR in text
+    assert text.index(dead_eid) < text.index(RADAR)  # dead first
+
+
+@pytest.mark.asyncio
+async def test_anchor_zero_silent_without_census_tick(rig):
+    """Enhanced census off: no census_tick ever -> no anchor-zero page; the
+    cause is named in the diagnostics."""
+    rig.cv._ledger.anchor_zero_s = 1e-6
+    for _ in range(3):
+        await flush(rig)
+        await asyncio.sleep(0.001)
+    assert [p for p in rig.pages if p["kind"] == "crossing_ledger_anchor_zero"] == []
+    assert rig.cv.ledger_diag()["anchor_zero_suppressed"] == "no_census_tick"
+
+
+@pytest.mark.asyncio
+async def test_lift_row_written_from_census_tick(rig):
+    """The arrival-floor lift produced inside census_tick reaches a
+    `crossing_vision_ledger` row (kind lift) with the next batch."""
+    await make_known(rig, R=1)
+    rig.cv.census_tick(resident_term=2, camera_bodies=1, camera_input_dark=False)
+    assert rig.cv._ledger.L == 2
+    await flush(rig)
+    [lift] = [r for r in ledger_rows(rig) if r["kind"] == "lift"]
+    assert (lift["n"], lift["l_before"], lift["l_after"]) == (1, 1, 2)
+    assert rig.cv.ledger_diag()["open_credits"][0][1] == 1
+
+
+@pytest.mark.asyncio
+async def test_resident_arrival_then_entry_term_counted_once_wired(rig):
+    """W1 through the real producer: B's arrival (R 1 -> 2) before B's own
+    garage entry term: L = 2, guest_vis 0."""
+    await make_known(rig, R=1)
+    rig.cv.census_tick(resident_term=2, camera_bodies=1, camera_input_dark=False)
+    rig.llm.reply = _ok_reply(frames=(1, 1, 0, 0), total=1)
+    await ended_crossing(rig, "ev-b", peak=1)
+    await flush(rig)
+    assert rig.cv._ledger.L == 2
+    assert rig.cv.census_tick(resident_term=2, camera_bodies=1,
+                              camera_input_dark=False) == (0, True)
+    [t] = [t for t in terms(rig) if t["applied"]]
+    assert t["credit_consumed"] == 1
