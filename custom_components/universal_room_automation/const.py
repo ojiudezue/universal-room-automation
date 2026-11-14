@@ -3605,6 +3605,34 @@ CROSSING_VISION_DESC_MAX_CHARS: Final = 200
 # Rung 1: bound on gathering in-flight tasks at unload.
 CROSSING_VISION_TEARDOWN_GATHER_S: Final = 5
 
+# ---------------------------------------------------------------------------
+# Crossing ledger (PLANNING_crossing_vision.md P2-D2 / P2-D3; RAM, boot =
+# unknown). All rung 1 (reviewed change): the anchor and reconcile rules are
+# the INV-P2-DISCHARGE contract.
+# ---------------------------------------------------------------------------
+CROSSING_VISION_LEDGER_EPISODE_TYPE: Final = "crossing_vision_ledger"
+# Anchor window (operator): camera bodies 0, fleet lit, no Tier-1 rising
+# edge, no applied entry term, continuously this long -> L = R. 0 = anchor
+# on the first passing sample.
+CROSSING_VISION_LEDGER_EMPTY_RESET_S: Final = 3600
+# Anchor sample cadence (tracked interval). A stored body value older than
+# 2 x this fails the sample.
+CROSSING_VISION_LEDGER_EVAL_S: Final = 60
+# Departure reconcile: a resident departure edge at t_e is judged at
+# t_e + LAG + CROSSING_VISION_TIMEOUT_S + CROSSING_VISION_EVENT_END_WAIT_S;
+# an exit term with E in [t_e - LEAD, t_e + LAG] cancels it, else L - 1.
+# LEAD 0 and LAG 0 = reconcile off.
+CROSSING_VISION_LEDGER_RECONCILE_LEAD_S: Final = 900
+CROSSING_VISION_LEDGER_RECONCILE_LAG_S: Final = 60
+# Term count when vision has no `ok` count: "camera" (camera_peak_count,
+# else 1) or "skip" (vision-only terms).
+CROSSING_VISION_LEDGER_FALLBACK: Final = "camera"
+# Trip-wires: stuck (HIGH; guest_vis >= 1 with every sample zero bodies and
+# no rising edge for this long) and anchor-zero (LOW; no anchor for this
+# long). 0 = off.
+CROSSING_VISION_LEDGER_STUCK_S: Final = 7200
+CROSSING_VISION_LEDGER_ANCHOR_ZERO_S: Final = 172800
+
 # EGRESS_IDENTITY_ENABLED: options-flow kill switch for the D1 egress-face
 # identity fuse (2026-08-18). DEFAULT False — feature ships dormant per
 # operator (mirrors D2 PROTECT_CORROBORATION_ENABLED). Kill-switch semantics:
@@ -6256,6 +6284,10 @@ MEMORY_EPISODE_TYPES: Final = frozenset({
     # seen while the shadow switch is on (crossing_vision.py). Shadow only;
     # no decision reads it and Phase 1 adds no MEMORY_COMPACTION_RULES entry.
     "crossing_vision_shadow",
+    # Crossing vision P2-D3: one row per ledger term / anchor / reconcile
+    # (crossing_vision.py ledger wiring). Display / scorer only; no
+    # MEMORY_COMPACTION_RULES entry.
+    "crossing_vision_ledger",
 })
 
 # Set of episode types that have a LIVE writer. The weekly writer-health
@@ -6294,6 +6326,9 @@ MEMORY_WRITER_BACKED_EPISODE_TYPES: Final = frozenset({
     # days if the operator never turns it on; the documented discharge for a
     # long-term OFF is adding the type to MEMORY_WRITER_HEALTH_EXEMPT_TYPES.
     "crossing_vision_shadow",
+    # crossing_vision_ledger (P2-D3): one term row per crossing while the
+    # shadow switch is on, plus anchors; same switch-off discharge as above.
+    "crossing_vision_ledger",
     # sensor_dropout: writer exists and is correctly scheduled, but has
     # produced 0 rows in >2 months (per AUDIT_memory_writer_coverage.md,
     # 2026-10-11). KEEP in the checked set so the trip-wire surfaces this
