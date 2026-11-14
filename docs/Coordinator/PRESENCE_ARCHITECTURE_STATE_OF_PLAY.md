@@ -303,10 +303,32 @@ room via a **three-tier scanner ladder** (`person_coordinator.py:10-14`):
    via area_id is "Tier 1"; otherwise Tier 0 (`person_coordinator.py:1650-1700`).
 3. **Tier 3 — occupancy disambiguation** when multiple rooms share a scanner.
 
-**Bermuda-area-sensor resolution** (strategies in order, `person_coordinator.py:1180-1238`):
-config → `private_ble_device` → name-pattern → entity-registry fallback → **WARN "No Bermuda
-area sensor found for %s (tried: config, private_ble, patterns, registry)"**
-(`person_coordinator.py:1237`). That warning is the canonical fallback-exhaustion signal.
+**Bermuda-area-sensor resolution** (HISTORICAL, superseded by BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1 below; the
+citation was also stale, the code sat at `:1753-1816` on develop c317a6c7): config → `private_ble_device` →
+name-pattern → entity-registry fallback → WARN "No Bermuda area sensor found for %s (tried: config, private_ble,
+patterns, registry)" every tick.
+
+**Person Bermuda sensors by registry (BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1, branch
+`fix/ble-person-registry-resolve`, NOT deployed; plan `docs/planning/PLANNING_ble_person_sensor_registry_resolve.md`
+rev 2, INV-BLE-REG):** `_bermuda_device_for_person` (`person_coordinator.py:1764`) resolves the person's Bermuda
+DEVICE: route (a) the one `bermuda`-platform tracker in `person.*` `device_trackers`; route (b), only when (a) finds
+none, the one `private_ble_device` tracker → its device's `('private_ble_device', X)` identifier → the one OTHER
+device carrying X that owns a `bermuda` entity, by a full device-registry scan (the private_ble and Bermuda devices
+share X and the identifier index holds one device per identifier, so `async_get_device` can return the wrong one).
+Zero / two-plus candidates = unresolved. No cache: `_async_update_data` resolves once per person per tick and passes
+the result to both readers (review A-L3 fix-up). `_bermuda_person_sensors` (`:1898`) types the
+device's sensors by registry unique_id: area `<uid>`; distance = ONE enabled sensor per scanner MAC, the filtered
+`<uid>_<mac>_range`, else `<uid>_<mac>_range_raw` (review A-L1 fix-up: the build counted both); never the
+nearest `<uid>_range`. `_find_bermuda_area_sensor` (`:1927`): config override → registry area sensor → None.
+`_calculate_confidence` (`:1975`) uses the same distance set and NEVER enables a disabled entity (the old auto-enable
+is deleted). Fire check: `get_bermuda_resolve_stats` (`:1879`) → unrecorded attribute `bermuda_resolve` on the
+Person Tracking Status diagnostic; one WARN "No Bermuda area sensor for %s (route=%s, reason=%s)" per (person,
+reason) on the second consecutive miss. `aggregation.PersonLocationSensor._find_bermuda_sensors` (0 matches since
+v3.6, setup WARN only) is deleted. Effect: Ezinne / Ziri / Jaya lose 12 foreign-phone distance sensors each; Oji
+0.5 → 0.3 (all per-scanner inputs are ghosts since 2026-10-20); area sensors unchanged; no decision reads it
+(`< 0.3` filter only). Scanner-name matching inside the confidence loop and `_get_area_scanners` is unchanged (registry-not-names residual
+A-L4, carded as a REGISTRY-NOT-NAMES-1 child: each scanner MAC is a connection on 2-3 devices with differing areas, so
+a MAC rule needs design).
 
 **Fleet liveness gate** — `BLE_FLEET_LIVENESS_WINDOW_S = 90` (`person_coordinator.py:67`,
 rung-1 module constant). If any tracked person had a Bermuda update within 90 s the fleet is
@@ -1034,6 +1056,13 @@ fan-susceptibility measurement running 2026-10-11 (verdict to be recorded in
    `AUDIT_camera_outage_durations_2026_11_14.md`) with a hold-release page; and the invariant "a camera death alone
    cannot empty a zone or fire AWAY" was FALSE for an input that goes `unavailable` together with its camera (review
    D-M1, Protect device disconnect: the input read off before the grace) until the round-2 held-from-t0 rule.
+40. **"Each person's Bermuda distance sensors are the ones whose entity_id contains the person's name; the
+   area-sensor fallback WARN is the canonical exhaustion signal"** (§3, from v3.6.17 / v3.6.19). WRONG (2026-11-14,
+   `AUDIT_ble_person_sensor_resolution_2026_11_14.md`): the substring also matched SCANNER names (`jaya_3`,
+   `...ezinnemakeup`), giving Ezinne / Ziri / Jaya 12 sensors on other people's phones each and Oji none (fixed 0.5),
+   and the match auto-enabled what it found. Replaced by device-membership resolution (§3,
+   BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1); the exhaustion signal is now the counted `bermuda_resolve` attribute plus a
+   warn-once.
 
 ## 11. Read before you touch — agent checklist
 

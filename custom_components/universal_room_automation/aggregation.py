@@ -49,7 +49,6 @@ from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import (
     async_track_time_interval,
-    async_track_state_change_event,
 )
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util import dt as dt_util
@@ -2276,7 +2275,10 @@ class PersonTrackingDiagnosticSensor(AggregationEntity, SensorEntity):
     
     _attr_icon = "mdi:account-search"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
-    
+    # BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1 fire check: counters move every
+    # tick, so keep them out of the recorder.
+    _unrecorded_attributes = frozenset({"bermuda_resolve"})
+
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize."""
         super().__init__(hass, entry)
@@ -2334,6 +2336,9 @@ class PersonTrackingDiagnosticSensor(AggregationEntity, SensorEntity):
             "room_coordinators_count": diag.get("room_coordinators_count", 0),
         }
         
+        if "bermuda_resolve" in diag:
+            attrs["bermuda_resolve"] = diag["bermuda_resolve"]
+
         # Add person details
         if diag.get("persons_data"):
             attrs["persons"] = diag["persons_data"]
@@ -6118,29 +6123,11 @@ class PersonLocationSensor(AggregationEntity, SensorEntity):
             person_coordinator.async_add_listener(self._handle_coordinator_update)
         )
         
-        # Find Bermuda sensors for this person
-        bermuda_sensors = self._find_bermuda_sensors()
-        
-        if bermuda_sensors:
-            _LOGGER.info(
-                "PersonLocationSensor %s: Setting up listeners for %d Bermuda sensors",
-                self.person_id, len(bermuda_sensors)
-            )
-            
-            # Subscribe to state changes on Bermuda sensors
-            for sensor_id in bermuda_sensors:
-                unsub = async_track_state_change_event(
-                    self.hass,
-                    [sensor_id],
-                    self._handle_bermuda_state_change,
-                )
-                self._unsub_state_listeners.append(unsub)
-        else:
-            _LOGGER.warning(
-                "PersonLocationSensor %s: No Bermuda sensors found, falling back to polling",
-                self.person_id
-            )
-        
+        # BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1 D4: the per-person Bermuda
+        # name scan (0 matches since v3.6 naming; only logged a WARNING) is
+        # gone. Bermuda freshness arrives through the person_coordinator
+        # listener above (_update_from_coordinator stamps the update time).
+
         # Set up decay timer (runs every 30 seconds to check staleness)
         self._unsub_decay_timer = async_track_time_interval(
             self.hass,
@@ -6163,34 +6150,6 @@ class PersonLocationSensor(AggregationEntity, SensorEntity):
             self._unsub_decay_timer()
             self._unsub_decay_timer = None
     
-    def _find_bermuda_sensors(self) -> list[str]:
-        """Find Bermuda distance sensors for this person.
-        
-        v3.2.8: Searches for sensor.bermuda_{person}_* patterns.
-        """
-        bermuda_sensors = []
-        
-        # Search patterns - Bermuda uses first name only
-        # e.g., person.oji_udezue -> sensor.bermuda_oji_*
-        person_first_name = self.person_id.split('_')[0].lower()
-        
-        # Find all Bermuda sensors for this person
-        for state in self.hass.states.async_all():
-            entity_id = state.entity_id
-            
-            # Match Bermuda distance sensors
-            if entity_id.startswith(f"sensor.bermuda_{person_first_name}_"):
-                # Distance sensors typically end with area names
-                if "_distance" not in entity_id.lower():
-                    bermuda_sensors.append(entity_id)
-        
-        _LOGGER.debug(
-            "Found %d Bermuda sensors for person %s: %s",
-            len(bermuda_sensors), self.person_id, bermuda_sensors[:5]  # Log first 5
-        )
-        
-        return bermuda_sensors
-    
     @callback
     def _handle_coordinator_update(self) -> None:
         """Handle person_coordinator data update - instant update.
@@ -6211,30 +6170,6 @@ class PersonLocationSensor(AggregationEntity, SensorEntity):
                 self.person_id, e
             )
 
-    @callback
-    def _handle_bermuda_state_change(self, event: Event) -> None:
-        """Handle Bermuda sensor state change - instant update.
-        
-        v3.2.8: Called immediately when any Bermuda sensor updates.
-        This provides sub-second response time.
-        """
-        try:
-            # Update timestamp
-            self._last_bermuda_update = dt_util.now()
-            self._tracking_status = TRACKING_STATUS_ACTIVE
-            
-            # Schedule coordinator update (non-blocking)
-            self.hass.async_create_task(self._update_from_coordinator())
-            
-            # Trigger HA state update
-            self.async_schedule_update_ha_state()
-
-        except Exception as e:
-            _LOGGER.error(
-                "Error handling Bermuda state change for %s: %s",
-                self.person_id, e
-            )
-    
     async def _update_from_coordinator(self) -> None:
         """Update cached values from person coordinator."""
         try:

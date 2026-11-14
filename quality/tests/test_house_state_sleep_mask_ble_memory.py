@@ -1174,7 +1174,7 @@ class _PersonHarness:
         async def _noop(*a, **k):
             return None
 
-        async def _area(name):
+        async def _area(name, *_resolved):
             return f"sensor.{name}_area" if bermuda else None
 
         async def _conf(*a, **k):
