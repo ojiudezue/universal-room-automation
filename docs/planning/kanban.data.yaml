@@ -34858,6 +34858,16 @@ cards:
   origin: {date: '2026-11-13', gist: 'Crossing vision Review B item B1, noted by the fix-up builder.'}
   why: 'Crossing vision fix-up (a10cd299/9407eaef) documented the leak at CROSSING_VISION_TIMEOUT_S and in the IDENTITY manual; the call is now a background task so HA stop does not wait. Upstream issue or PR to llmvision is outward-facing: draft only, operator posts or approves.'
   next: 'Me: draft the upstream issue text with a minimal repro for the operator to post.'
+- id: PERIMETER-GLOBAL-EGRESS-MUTE-1
+  title: One global egress stamp from any door camera mutes ALL perimeter cameras for 120 s, chaining for as long as door cameras keep firing (driveway camera muted ~25 min on 11-14), with no known-resident check
+  status: planned
+  tier: 2
+  batch: person-sightings
+  links: {related: [PERIMETER-ZONE-AGREEMENT-FIX-OR-REMOVE-1, NVR-WITNESS-CONSOLIDATION-1, PERSON-AWARENESS-READ-API-1]}
+  origin: {date: '2026-11-14', gist: 'Found while checking why v5.108.20 wrote no gate rows after restart.'}
+  why: 'AUDIT_perimeter_silence_post_v5_108_20.md: perimeter_alert.py:1370-1387 drops any perimeter person edge within 120 s (window :301) of ANY egress-camera on-edge (egress cameras madrone_g6_entry, doorbell_lite, front_door_aerial, garage_a_2; stamp :938-951), before cooldown, gates and dispatch, so no notification and no gate row. 2026-11-14 01:20-01:45Z doorbell_lite / garage_a fired continuously after a 01:19Z arrival and every one of 12 g5_bullet edges was suppressed. Pre-existing (not in the v5.108.20 diff). Security: a stranger on the driveway while a resident is at a door is never alerted. Reconcile with egress identity (F3) and the read API: suppress only for a known resident crossing at a related door, scoped by camera adjacency, bounded in total length, and log the suppression as a gate decision.'
+  next: 'Me: plan (Tier 2, reconciliation with egress validation per operator rule), after the v5.108.20 gate rows are live-validated.'
+  rank: {value: 9, time_criticality: 7, effort: 3}
 - id: NVR-WITNESS-CONSOLIDATION-1
   title: One shared Frigate-vs-Protect witness layer (who saw it, agreement history) with policy kept per consumer; crossing vision gets Protect as a second witness
   status: planned
