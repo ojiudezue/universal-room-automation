@@ -162,9 +162,16 @@ carries for the three other door cameras, so W1 adds no new class of risk.
 
 Callers (every path through `resolve_capabilities`): `__init__.py:647`, `binary_sensor.py:1596` (→ fan veto),
 `camera_census.py:857` (→ transit `:547, :1093, :1180`), `transit_validator.py:2407`, `person_sighting.py:334, :503`,
-`camera_resolver.py:829/833/863`, `perimeter_alert.py:2341` → `resolve_detection_legs` (`:1171`). W1 changes shipped
-perimeter Part A input for garage_a (its egress wiring gains the Protect leg; `families_live` and tracker samples change).
-`canonical_camera_key` for garage_a stays the Frigate id (`7c45...` < `f843...`).
+`camera_resolver.py:829/833/863`, `perimeter_alert.py:2341` → `resolve_detection_legs` (`:1171`). As built (d450c382,
+reviews A/B/C SHIP 2026-11-14): perimeter Part A legs do NOT change, because `resolve_detection_legs` already reached
+garage_a's Protect leg through its own stem lookup (itself a name guess, on REGISTRY-NOT-NAMES-1). On the live registry
+W1 re-pairs SEVEN Frigate cameras, not one (garage_a_2, upstairs_hall_2, stairs_top_2, foyer_fisheye, rear_ptz_2,
+utilities_ptz_2, garage_b_2); the operator accepted all seven on 2026-11-14. Keys change for upstairs_hall_2,
+stairs_top_2 and rear_ptz_2 only in in-memory state rebuilt at setup; nothing persisted uses them.
+`canonical_camera_key` for garage_a stays the Frigate id (`7c45...` < `f843...`). Known side effect for W2 to absorb:
+garage_a gains a third egress trigger; a 7-day replay predicts ~12/week Protect-only directed crossings and ~2/week
+opposite-direction pairs (extra row + arrived/left notification), the same split already seen on two-leg doors (28 pairs
+in 14 days). W2's shared corroboration must dedup one physical crossing across NVR legs.
 
 ## 6. Invariants (falsifiable)
 
