@@ -4,9 +4,9 @@ Cards: PERSON-PROFILE-PREFERENCES-1 (whole card, no longer a first slice), VISIO
 record and count follow-up, built as specified in `PLANNING_crossing_vision.md` §5), DEPARTURE-ACTIONS-1 (first
 consumer). Arc: identity / vision / census, step 8 of `ARC_identity_vision_census_map.md` §4. Charter:
 `ARC_DRIFT_ANALYSIS_identity_vision_census_2026_11_13.md` (goals section, 2026-11-14 additions, drift #17).
-Status: rev 3.3, 2026-11-14. Rev 3.2 (`9d142590`) was re-checked in
-`docs/reviews/plan-review/PLANREVIEW_identity_actions_v6_3_2.md` (`67374ce8`; FIX-PLAN: 3 HIGH, 4 MEDIUM, 3 LOW); this
-rev fixes every finding in place and leaves the §10.1 parallel set's design unchanged (it is being built on
+Status: rev 3.4, 2026-11-14. Rev 3.3 (`02b213db`) was re-checked in
+`docs/reviews/plan-review/PLANREVIEW_identity_actions_v6_3_3.md` (`94eb10c3`; FIX-PLAN small: 2 MEDIUM, 5 LOW), and
+rev 3.2 (`9d142590`) in `PLANREVIEW_identity_actions_v6_3_2.md` (`67374ce8`); this rev fixes every finding in place and leaves the §10.1 parallel set's design unchanged (it is being built on
 `feature/step8-identity-actions`). Rev 3.1 was re-reviewed in `PLANREVIEW_identity_actions_v6_3_1.md`, rev 3 in
 `PLANREVIEW_identity_actions_v6_3.md`. Rev 2 is archived at `docs/planning/archive/PLANNING_identity_actions_v6_rev2.md`,
 NOT A BUILD SPEC; rev 3 is commit `6282c9c9`, rev 3.1 is `72e4befd`, rev 3.2 is `9d142590`. §15 lists every change
@@ -115,7 +115,7 @@ filter in `test_person_awareness_layer_guard.py:46`, the total assertion `:62-63
 |---|---|---|
 | F5 intake | REUSED via layer ship 3a D1 | `signals.subscribe_person_arriving(hass, cb)` (sync `@callback`, `cb(PersonArrivingPayload)`; ship 3 §5 D1). D2 replaces today's raw connect `MusicFollowingCoordinator.async_setup` `domain_coordinators/music_following.py:296` (`SIGNAL_PERSON_ARRIVING`) with it; handler body today is the no-op `_handle_person_arriving` (`:565`) |
 | Counted return (H1) | REUSED via ship 3a D2 | `PresenceCoordinator.get_person_edges_since(t: float, *, persons, kinds)` -> plain tuple of `ResidencyEvent`, `edge_ts >= t`, epoch float, oldest first; truncation via `person_edges_truncated_since(t)` (ship 3 §5 D2, §12). `ResidencyEvent` already carries `counted`, `source_stale`, `in_boot_window`, `resident_set_resolved` (`domain_coordinators/residency.py:39-51` develop); `counted` is the lock regime's `arrival_edges.counted_return` (raw away >= 15 min). `geofence` reads arrival edges; `camera_egress` and `ble` read departure edges (§5.4, rev 3.3) |
-| Return bar for `camera_egress` / `ble` (re-check H1, H2) | REUSED | `const.RESIDENT_RETURN_MIN_AWAY_MIN` (15, `const.py:4109` develop; read at `presence.py:5290` as the residency counted-return bar). No new knob |
+| Return bar for `camera_egress` / `ble` (re-check H1, H2; rev 3.4 M1) | REUSED | `const.RESIDENT_RETURN_MIN_AWAY_MIN` (15, `const.py:4109` develop; read at `presence.py:5290` as the residency counted-return bar), applied to `get_residency_snapshot()` `left_at` / `arrived_at` (in `READ_LIST["PRESENCE"]`, ship 3a). Boot window `RESIDENT_RETURN_BOOT_WINDOW_S` (600, `const.py:4110`). No new knob |
 | Step 7 `camera_egress` send condition | REUSED (seam) | `PLANNING_egress_direction_aware_identity.md:591-598`: the D2 egress branch skips raw `home`, and the dispatch fires only for a GPS-led confirmation "whose raw `person.*` is still not `home` at confirm time". So no residency arrival edge exists when that F5 lands |
 | Departure edge (M7) | REUSED via ship 3a D2 | `residency.subscribe_person_edges(hass, cb, *, persons, kinds={"departure"})` (sync, O(1), schedules work; guard R14) |
 | Person's current room | REUSED | `PersonCoordinator.get_person_location(name)` `person_coordinator.py:1998` (returns the resolved room name or `"unknown"`); contract G6 read |
@@ -198,7 +198,8 @@ master has never been saved, so the consumer's default decides its day-1 value (
 Consumes F5 through `dispatch_person_arriving` (sources `geofence`, `ble`, and from step 7 `camera_egress`, dispatched
 only for GPS-led confirmations of the person's own phone); F4 BLE room per person through the person reads in §5.4;
 F1 residency arrival edges (the `geofence` counted-return gate, the departure wait's return check) and departure edges
-(the `camera_egress` / `ble` recent-departure rule, the departure arm), through ship 3a D2; F3 named exits and the arrival-record attribute. Produces no fact. Arrival music,
+(the departure arm) and the residency snapshot's `left_at` / `arrived_at` (the `camera_egress` / `ble` absence rule),
+through ship 3a D2; F3 named exits and the arrival-record attribute. Produces no fact. Arrival music,
 welcome scene, departure pause: **comfort**. Count follow-up: **notification** (names >= 0.75). Profile sensor and room
 suggestions: **display**. Access, security, house state: none. The comfort-class awareness count (F2,
 `view_for_class`) equals trust until F-LEAD; rev 3.1 no longer reads it (the occupied gate is room-level, §5.5).
@@ -213,10 +214,12 @@ share where that room's native player or MA entity was playing, the room was alr
 how often the first such room within 900 s was a plausible own room (`person_visits` dwell). Sizes `ARRIVAL_WINDOW_S`.
 Also, by source, the share of F5 signals the §5.4 gate 5 rule would admit: for `geofence`, a counted, non-stale,
 out-of-boot-window residency arrival for the same person within `ARRIVAL_COUNTED_EDGE_LOOKBACK_S` before the signal
-(`memory_episodes` `person_arrival` rows) and the lag between the two; for `camera_egress` and `ble`, no residency
-departure of the person within `RESIDENT_RETURN_MIN_AWAY_MIN` before the signal (`person_departure` rows), and the
-distribution of "F5 minus last departure". Sizes the geofence lookback; tells how many geofence F5s are flaps the gate
-drops and how many BLE F5s are short trips the S3 arm let through.
+(`memory_episodes` `person_arrival` rows) and the lag between the two; for `camera_egress` and `ble`, a last
+residency departure (`person_departure` rows) at least `RESIDENT_RETURN_MIN_AWAY_MIN` before the signal with no later
+arrival, and the distribution of "F5 minus last departure". BLE F5s are also split by "raw `person.*` read `home` for
+the whole prior 15 minutes" (the LOST-at-home case the rule now rejects, and the overrule-only case it gives up).
+Sizes the geofence lookback; tells how many geofence F5s are flaps the gate drops, how many BLE F5s are short trips
+the S3 arm let through, and how many were never away.
 (a2) per own room: the distribution of room occupancy onset minus the person's BLE room entry (both signs), and the
 person coordinator's update cadence. Sizes `ARRIVAL_OCCUPIED_LEAD_S` (default = p95 of "own motion before BLE" plus
 margin) and `ARRIVAL_SCENE_CONFIRM_S`. Also, at each own-room onset during an arrival window, where BLE placed the
@@ -226,6 +229,8 @@ check passes under each of three near rules:
   - (ii) adjacency plus the approach hall (the hall or staircase the person was placed in just before, added
     hypothetically; nothing is written to config);
   - (iii) same house zone (`get_room_zone`, the §5.5 default).
+  Also the holder's placed room at each bedroom onset (so a miss from the Staircase, which sits in Back Hallway and
+  no zone rule can pass for an upstairs bedroom, is visible), and the BLE-after-body lag itself.
   The three shares go to the operator with §12 Q4; the rule is not widened or narrowed silently.
 (b) departures per day per resident; how often the arrival room was empty within 5 min after, and the distribution of
 departure edge to the room's next occupied-to-vacant edge, split by arming source (named exit at the door vs residency
@@ -376,26 +381,41 @@ A `skipif` HA < 2026.11 render test stays as an extra, not the only coverage.
        is written inside the same `_handle_geofence_change` call before the F5 send (`presence.py:5644` feed,
        `:5681-5685` send), so it is present when the callback runs, and 120 s is ample. Otherwise
        `skipped_not_counted_return`.
-     - `camera_egress` and `ble` (departure side): these F5s land BEFORE the person's raw `person.*` reads `home`
-       (step 7 sends `camera_egress` only while raw `person.*` is still not `home`,
-       `PLANNING_egress_direction_aware_identity.md:591-598`; a BLE F5 can precede GPS), so no arrival edge exists yet
-       and an arrival-edge test would never pass. The engine instead reads `get_person_edges_since(t_f.timestamp() -
-       RESIDENT_RETURN_MIN_AWAY_MIN * 60, persons={person_entity}, kinds={"departure"})`. Any departure of that person in
-       the result means they left less than 15 minutes ago: `skipped_not_counted_return`. Empty passes.
-       - Why this holds for `ble`: the BLE producer's `_person_was_away` guard is NOT the same bar on every path. The
-         LOST branch (`person_coordinator.py:1216-1218` develop) and the BLE overrule (`:810-812`) wait 15 minutes, but
-         the S3 away arm sets it on the first tick with no time test (`:802-804`; repair base `c5685b5f:766-768`;
-         reached when Bermuda resolves no room past `decay_timeout` and `person.state` reads `not_home` or a named zone,
-         `:1343-1349`, twin `:1424-1428`). S3 needs `person.state` away, so an S3 absence always has a residency
-         departure edge and a short trip is caught here. A BLE-overrule-only absence (GPS stuck `home`) writes no
-         departure edge; it keeps the overrule's own 15-minute guard, which does hold the bar. The rule lives in the
-         engine, not in the producer (no producer change in step 8).
-       - Why this holds for `camera_egress`: step 7's GPS prior-fix test stays the producer's guard; this rule adds the
-         consumer's 15-minute bar on top.
-     - **Truncation (all three sources).** If `person_edges_truncated_since(<the read's t>)` is True: for `geofence`,
-       when no qualifying arrival is found; for `camera_egress` / `ble`, always when the departure read is empty (an
-       empty truncated log cannot prove "no recent departure"). The intent is not opened (fail closed: no music on
-       doubt), counted `skipped_edges_truncated`.
+     - `camera_egress` and `ble` (positive evidence of an absence; rev 3.4 re-check M1): these F5s land BEFORE the
+       person's raw `person.*` reads `home` (step 7 sends `camera_egress` only while raw `person.*` is still not
+       `home`, `PLANNING_egress_direction_aware_identity.md:591-598`; a BLE F5 can precede GPS), so no arrival edge
+       exists yet. The engine reads `get_residency_snapshot()["persons"][<person key>]` (the key form ship 3a uses; the builder re-reads it; already in `READ_LIST["PRESENCE"]`;
+       not limited by the 32-record ring) and passes only when `left_at` is set, is at least
+       `RESIDENT_RETURN_MIN_AWAY_MIN` before `t_f`, and `arrived_at` is absent or older than `left_at` (the most recent
+       residency edge is that departure). An empty or missing entry, or no `left_at`, NEVER passes:
+       `skipped_not_counted_return`, subtype `no_departure_seen`. A departure newer than the bar, or an arrival after
+       it: `skipped_not_counted_return`, subtype `recent_departure`. (A counted geofence arrival in the lookback would
+       also prove it, but the duplicate gate catches that case first.)
+       - Why positive evidence: "no departure edge" also means "never left". The LOST branch sets `_person_was_away`
+         after 15 minutes with no `person.state` test (`person_coordinator.py:1204-1218` develop), so 20 minutes on the
+         patio or in a garage out of scanner range, GPS `home` throughout, gives a BLE F5 with no departure edge.
+         Residency writes a departure only from `old == "home"` to a real value (`residency.py:127-128`), so
+         `home -> unknown -> not_home` writes none either. Both now open no intent. The S3 arm sets
+         `_person_was_away` with no time test (`:802-804`; repair base `c5685b5f:766-768`), but S3 needs `person.state`
+         away, so its absence has a `left_at` and a short trip fails the 15-minute test. The rule lives in the engine,
+         not the producer.
+       - **Cost, stated:** an absence seen only by the BLE overrule (GPS stuck `home` while really away) no longer opens
+         through `ble`. That needs a second GPS device or a frozen app (one GPS tracker per person since 11-11); the
+         geofence F5 still opens the intent once GPS catches up.
+       - `camera_egress`: step 7's GPS prior-fix test stays the producer's guard; this rule adds the consumer's bar.
+     - **Truncation (`geofence`).** If `person_edges_truncated_since(<the read's t>)` is True and no qualifying arrival
+       is found, the intent is not opened (fail closed), counted `skipped_edges_truncated`. Subtype `boot` when the
+       read's `t` predates the residency tracker's `created_ts` (restart or presence reload), else `ring`.
+     - **Post-restart dead window (re-check M2), fails closed.** The residency tracker is RAM and starts empty at
+       presence setup. After a restart or presence reload no intent opens:
+       - `ble` / `camera_egress`: for `RESIDENT_RETURN_MIN_AWAY_MIN` (15 min). The snapshot has no `left_at` from
+         before setup, so the rule reads `no_departure_seen`; counted as `skipped_edges_truncated` subtype `boot` while
+         `t_f - 15 min` predates `created_ts`;
+       - `geofence`: for `RESIDENT_RETURN_BOOT_WINDOW_S` (600 s, `const.py:4110`): every arrival edge carries
+         `in_boot_window = True`;
+       - the departure pause is unaffected (§5.6: any armed wait belongs to music started after setup).
+       Bound: one window per restart, about 1 % of arrivals at today's restart rate. The `boot` subtype is counted in
+       the NM digest, so the window is visible without a log line per F5.
 - **Intent.** An intent that passes is stored per person (`_arrival_intents`, RAM, owned by the `MusicFollowing`
   engine, cleared at teardown) for `ARRIVAL_WINDOW_S`, with its source, `t_f`, a cursor (below) and its music and
   scene outcome slots. The engine writes an `intent_opened` episode (`arrival_music`, `outcome: intent_opened`,
@@ -514,13 +534,18 @@ call, no new lighting writer, no manual hold.
      `scene_skipped_ambiguous`);
   2. toggles re-read now (re-review M5): master, `_coordinator_enabled()`, that owner's fresh `auto_scene` and
      `welcome_scene` set; any off -> None, `scene_skipped_toggled_off`;
-  3. **near check (re-review H2; rev 3.3 re-check H3).** The room's vacant-to-occupied edge comes from a body sensor,
-     and BLE trails it by seconds to tens of seconds (presence state of play §4.6), so "nobody else placed here" alone
-     is blind at this moment: a co-owner or a guest walking in first would get the holder's scene. So the holder's own
+  3. **near check (re-review H2; rev 3.3 re-check H3).** The room's vacant-to-occupied edge comes from a body sensor
+     (BLE extends occupancy but never creates it, presence state of play §4.6), so BLE usually has not placed the
+     person in the room yet at that moment (the lag is measured by D0 a2), and "nobody else placed here" alone is
+     blind: a co-owner or a guest walking in first would get the holder's scene. So the holder's own
      layer room R, read now (`get_person_location`), must be near this room:
      - **Default rule (until §12 Q4 is answered): same house zone.** R is this room, or `presence.get_room_zone(R)` is
        not None and equals `presence.get_room_zone(this_room_name)` (`presence.py:3477`; membership only, the NM panel
-       targeting precedent, no side effects, no other consumer touched).
+       targeting precedent, no side effects, no other consumer touched). `this_room_name` is the room entry's
+       `data[CONF_ROOM_NAME]`, the key `_room_to_zone` uses (`presence.py:3627`), not the title or options; R is the
+       person coordinator's room name, which uses the same names (`person_coordinator.py:1614-1616`). A room renamed
+       through options keeps its old name in the zone map (presence §9, ZONE-ROOM-NAME-DRIFT-1), so the lookup returns
+       None and reads `scene_skipped_not_near`: fails safe.
      - Not the default: adjacency (`get_adjacent_rooms`, both directions). Live `CONF_ADJACENT_ROOMS` is too sparse to
        carry the scene (table below): only the master has its hallway mapped, so under adjacency Ziri's scene runs only
        when BLE beats the radar into the room and Jaya's only when she comes in through her bathroom.
@@ -539,6 +564,20 @@ call, no new lighting writer, no manual hold.
      | Ziri Bedroom (Bedroom 5) | none |
      | Guest Bedroom 1, Guest Bedroom 2 | none |
      | every hall, staircase and other room | none |
+
+     Live house zones (Zone Manager `options.zones`, read by the 3.3 re-check), bedroom rows and their approaches:
+
+     | House zone | Bedrooms | Halls / approach in the zone | Approach NOT in the zone |
+     |---|---|---|---|
+     | Master Suite (11 rooms, incl. Study A, Study B) | Master Bedroom | Master Hallway | none |
+     | Upstairs (14 rooms, incl. Game Room, Media, Exercise Room) | Jaya Bedroom, Ziri Bedroom, Guest Bedroom 2 | Upstairs Hallway, Guest Bedroom 2 Hallway | Staircase, Kitchen / Garage Hallway (Back Hallway) |
+     | Back Hallway (16, incl. Kitchen) | Guest Bedroom 1 | Staircase, Garage Hallway, Kitchen Hallways | none |
+     | (no zone) | none | Garage A, Garage B | — |
+
+     Zone-rule cost by zone: in the Master Suite, a co-owner entering first while the holder is in a study gets the
+     holder's scene (the shape "Shares spaces, likely same" accepts); in Upstairs, a sibling or guest entering Jaya's
+     or Ziri's empty bedroom first while she is in the Game Room gets her scene (`scene_unconfirmed` unless she walks in
+     within `ARRIVAL_SCENE_CONFIRM_S`). Guest rooms get no welcome scene (guests have no profile).
 
      Why adding adjacency config is not the default fix: `CONF_ADJACENT_ROOMS` has three other readers, and adding a
      hall to a bedroom changes each. The fan recheck L2 veto (a trusted phone in an adjacent room vetoes the bedroom's
@@ -576,7 +615,7 @@ outcome, and outcomes in the NM digest:
 | Path | Outcomes |
 |---|---|
 | Intent (episode + line) | `intent_opened` (source, `music_on`, `scene_on`), `intent_lost_restart`, `scene_lost_restart` |
-| Intent (counter only, no line) | `skipped_master_off`, `skipped_source`, `skipped_no_rooms`, `skipped_not_counted_return`, `skipped_edges_truncated`, `skipped_no_presence`, `intent_duplicate_source` (second source recorded) |
+| Intent (counter only, no line) | `skipped_master_off`, `skipped_source`, `skipped_no_rooms`, `skipped_not_counted_return` (subtypes `no_departure_seen` / `recent_departure` / `not_counted`), `skipped_edges_truncated` (subtypes `boot` / `ring`; `boot` in the NM digest), `skipped_no_presence`, `intent_duplicate_source` (second source recorded) |
 | Music | `started`, `start_failed`, `reversed`, `skipped_toggled_off`, `skipped_quiet`, `skipped_sleep`, `skipped_paused`, `skipped_occupied`, `skipped_gap`, `skipped_no_media`, `skipped_no_player`, `skipped_playing`, `window_expired`, `window_expired_truncated`, `entry_missed` (subtype `logged` / `unrecorded`) |
 | Scene | `scene_applied`, `scene_confirmed`, `scene_unconfirmed`, `scene_skipped_hold`, `scene_skipped_unavailable`, `scene_skipped_ambiguous`, `scene_skipped_toggled_off`, `scene_skipped_not_near`, `scene_skipped_quiet`, `scene_skipped_sleep`, `scene_skipped_occupied`, `scene_skipped_gap`, `scene_window_expired`, `scene_window_expired_truncated`, `scene_entry_missed` |
 | Departure | `departure_paused`, `departure_kept_returned`, `departure_kept_shared`, `departure_kept_occupied`, `departure_kept_not_ours`, `departure_kept_other_playing`, `departure_kept_toggled_off`, `departure_stamp_lost_restart` |
@@ -587,7 +626,9 @@ engine reads `arrival_music` and `welcome_scene` episodes from the last `ARRIVAL
 - with `music_on` and no later terminal music outcome -> `intent_lost_restart` (`arrival_music` episode and line);
 - with `scene_on` and no later terminal scene outcome -> `scene_lost_restart` (`welcome_scene` episode and line;
   re-check M4).
-Each is written once (the `departure_stamp_lost_restart` pattern). A restart therefore never leaves an opened intent without an outcome; the
+Each is written once (the `departure_stamp_lost_restart` pattern). After setup, new F5s face the dead window in §5.4
+gate 5 (15 min `ble` / `camera_egress`, 10 min `geofence`; fails closed, `skipped_edges_truncated` subtype `boot` in
+the NM digest); departure pauses are unaffected. A restart therefore never leaves an opened intent without an outcome; the
 action itself is not resumed (no music after a restart on a pre-restart F5).
 
 **Every intent ends counted.** Exits and their outcomes: gates fire (§5.5 list); the window timer (§5.4 window end);
@@ -608,7 +649,8 @@ of length = the stamped room's own `occupancy_timeout` (its room config, read at
 `ARRIVAL_DEPARTURE_VACANCY_WAIT_S` (the margin; re-check M2). Vacancy is roughly last body signal + room timeout, so a
 fixed wait would be thin in the 500 s rooms (Jaya Bedroom, Ziri Bedroom: an LD2410 clear of up to 132 s p90 plus
 500 s ≈ 10.5 min after she walks out, while a named exit at the garage arms 1-3 minutes after she leaves the bedroom).
-The departure time recorded on the wait is the arming edge's `ts`. A second edge for the same stamp while armed is
+The departure time recorded on the wait, `departure_ts`, is epoch seconds: the residency edge's `edge_ts` as is, or
+the named exit's crossing time (a `datetime`) as `.timestamp()`, since step 0 passes it to `get_person_edges_since`. A second edge for the same stamp while armed is
 ignored.
 
 **Why a wait.** At the exit edge the room almost always still reads occupied: the bedroom's occupancy timeout, the BLE
@@ -664,7 +706,9 @@ displayed before the flip.
 - **INV-V6-NO-FACE-ALONE.** Every `started` / `scene_applied` traces to a `geofence` / `ble` F5 or a step-7 GPS-led
   confirmation.
 - **INV-V6-ARRIVAL-REACHES.** For any arrival whose window contains the person's layer room being one of their rooms
-  (whether they were already there at intent open, moved in after, came from `"unknown"` after a restart, or returned
+  (whether they were already there at intent open, moved in after, came from `"unknown"` after a restart for an F5
+  outside the §5.4 post-restart dead window (at least 15 minutes after setup for `ble` / `camera_egress`, 10 for
+  `geofence`), or returned
   on a ping-pong leg), with no other body there earlier than the lead, an idle player and no quiet hours, the music
   outcome is `started`, whatever the transition's classified confidence, the person's transfer enablement, any BLE
   distance, or whether the transfer detector notified. Break it with: the 4-hours-away first room, already-in-room at
@@ -672,12 +716,14 @@ displayed before the flip.
   room just before the F5, a BLE F5 whose move carries the same tick's `now`, and a 20 ft distance.
   **Dual (re-review H1; rev 3.3):** no `started` and no `scene_applied` for an F5 whose person was away less than
   `RESIDENT_RETURN_MIN_AWAY_MIN`: for `geofence`, no counted, non-stale, out-of-boot-window residency arrival within
-  `ARRIVAL_COUNTED_EDGE_LOOKBACK_S` before it; for `camera_egress` and `ble`, a residency departure of the person within
-  `RESIDENT_RETURN_MIN_AWAY_MIN` before it; for any source, a truncated edge log that cannot prove the bar. Break it
-  with: Oji in the master an hour, GPS `home -> not_home -> home` in 40 s, geofence F5, idle speaker; and Oji walks
-  the dog 6 minutes, GPS `not_home`, Bermuda loses him > 300 s (S3 sets `_person_was_away`), BLE F5 on return.
-  **`camera_egress` reachability (rev 3.3):** a GPS-led step-7 confirmation for a person whose last departure is older
-  than 15 minutes opens an intent, although no arrival edge exists yet.
+  `ARRIVAL_COUNTED_EDGE_LOOKBACK_S` before it; for `camera_egress` and `ble`, no residency `left_at` at least
+  `RESIDENT_RETURN_MIN_AWAY_MIN` before it with no later arrival (no departure seen at all included); for any source, a
+  truncated edge log or the post-restart window. Break it with: Oji in the master an hour, GPS `home -> not_home ->
+  home` in 40 s, geofence F5, idle speaker; Oji walks the dog 6 minutes, GPS `not_home`, Bermuda loses him > 300 s (S3
+  sets `_person_was_away`), BLE F5 on return; Oji 20 minutes on the patio, BLE LOST, GPS `home` throughout, BLE F5 on
+  coming in; a 6-minute walk whose person state goes `home -> unknown -> not_home`.
+  **`camera_egress` reachability (rev 3.3):** a GPS-led step-7 confirmation for a person whose `left_at` is older than
+  15 minutes, with no later arrival, opens an intent, although no arrival edge exists yet.
 - **INV-V6-COUNTED.** Every F5 that passes the master is counted, and every opened intent ends in exactly one terminal
   music outcome and one terminal scene outcome (when the action is on) from §5.5, including across a restart or reload
   mid-window (`intent_lost_restart`, `scene_lost_restart`), a second F5 (`intent_duplicate_source`) and a toggle turned off mid-window
@@ -700,7 +746,7 @@ displayed before the flip.
 - **INV-V6-NO-RELOAD.** A People save never reloads the CM entry.
 - **INV-V6-AWAY.** No step-8 path reads or writes an `infer()` input, the census trust view, or HVAC.
 - **INV-V6-LAYER.** Step 8 reads F5 only via `subscribe_person_arriving`; F1 edges only via `get_person_edges_since`,
-  `person_edges_truncated_since` and `subscribe_person_edges`; person rooms only via `get_person_location`,
+  `person_edges_truncated_since`, `subscribe_person_edges` and `get_residency_snapshot`; person rooms only via `get_person_location`,
   `get_person_previous_location_time`, `get_person_previous_seen`, `location_moves_since` and
   `location_moves_truncated_since`, plus the reserved `async_add_listener`; room nearness only via `get_room_zone`
   (and `get_adjacent_rooms` if §12 Q4 picks adjacency). No
@@ -744,7 +790,7 @@ room rules (read-only, through the sensor or `get_person_profile(person)`; no se
    the same listener (§5.6). `_on_person_transition` (`music_following.py`) is NOT a site: no arrival code goes there
    (mutation drill below).
 2a. The `subscribe_person_edges` departure callback (§5.6); the `get_person_edges_since` reads: arrival kinds for
-    `geofence` and departure kinds for `camera_egress` / `ble` (§5.4 gate 5), arrival kinds for the departure wait's
+    `geofence` (§5.4 gate 5), the `get_residency_snapshot` `left_at` / `arrived_at` read for `camera_egress` / `ble`, arrival kinds for the departure wait's
     return check (§5.6 step 0); `person_edges_truncated_since` beside each.
 2b. `arrival_scene_for`'s near check and its `get_room_zone` reads (§5.5; `get_adjacent_rooms` only if §12 Q4 picks
     adjacency).
@@ -798,8 +844,11 @@ the master -> `skipped_occupied`. 23:30 -> `skipped_quiet`. Hall then master -> 
 Step-7 `camera_egress` F5, raw `person.*` still `not_home`, last departure 2 h ago, no arrival edge yet -> intent opens
 and music starts in the master (an arrival-edge test: `skipped_not_counted_return` on every egress F5: discriminates).
 Oji walks the dog 6 min, S3 sets `_person_was_away`, BLE F5 on return -> `skipped_not_counted_return` (trusting the
-producer guard: `started`: discriminates). GPS stuck `home`, BLE overrule held 20 min, BLE F5 -> no departure edge,
-intent opens. Geofence F5 arrives while a `camera_egress` intent is open -> `intent_duplicate_source` (gate order
+producer guard: `started`: discriminates). Oji 20 min on the patio, BLE LOST, GPS `home` throughout, BLE F5 on coming
+in -> `skipped_not_counted_return` subtype `no_departure_seen`, nothing plays (empty read passes: `started` on a
+person who never left: discriminates). `home -> unknown -> not_home` walk, BLE F5 -> same. GPS stuck `home`, BLE
+overrule held 20 min, BLE F5 -> no intent (accepted cost); the later geofence F5 opens it. BLE F5 10 min after a
+restart -> `skipped_edges_truncated` subtype `boot`. Geofence F5 arrives while a `camera_egress` intent is open -> `intent_duplicate_source` (gate order
 reversed: `skipped_not_counted_return`: discriminates). Resident `unavailable` while out, guest in their room 30 min,
 BLE places them there -> `skipped_occupied` (unclamped entry time: `started`: discriminates). Geofence F5 whose move
 into the master landed 20 s before `t_f` -> one music outcome (no "only while undecided": a second `skipped_gap` /
@@ -820,8 +869,10 @@ geofence) -> `intent_duplicate_source`, one intent. `auto_music` turned off afte
 `::test_camera_egress_departure_older_than_bar_opens_intent` (replaces the rev 3.2
 `::test_counted_return_required_for_geofence_and_camera_egress`, which could not pass against step 7 semantics),
 `::test_counted_return_required_for_geofence`, `::test_camera_egress_recent_departure_skipped`,
-`::test_short_walk_ble_f5_opens_no_intent`, `::test_ble_overrule_only_absence_no_edge_opens_intent`,
-`::test_departure_read_truncated_empty_fails_closed`, `::test_duplicate_checked_before_counted_return`,
+`::test_short_walk_ble_f5_opens_no_intent`, `::test_ble_lost_at_home_no_departure_opens_no_intent`,
+`::test_departure_via_unknown_opens_no_intent`, `::test_ble_overrule_only_absence_opens_no_intent_accepted`,
+`::test_ble_f5_within_15min_of_setup_fails_closed`, `::test_geofence_within_boot_window_fails_closed`,
+`::test_edges_truncated_boot_subtype_in_digest`, `::test_duplicate_checked_before_counted_return`,
 `::test_unknown_to_room_mid_window_prior_occupant_blocks`, `::test_music_check_runs_once_per_intent`,
 `::test_scene_lost_restart_counted`,
 `::test_stale_resident_blocks_accepted`, `::test_subscribe_person_arriving_only_no_raw_connect`,
@@ -873,6 +924,7 @@ downstairs, master vacant -> `departure_kept_returned`, nothing paused (no retur
 at home: discriminates). Edge log truncated and empty at the return check -> `departure_kept_returned` subtype
 `truncated`. Tests: `::test_departure_named_exit_arm_room_timeout_500`, `::test_flap_departure_then_return_does_not_pause`,
 `::test_departure_return_check_truncated_fails_closed`, `::test_departure_wait_is_room_timeout_plus_margin`,
+`::test_named_exit_arm_return_check_uses_epoch`, `::test_departure_pause_after_restart_not_blocked_by_truncation`,
 `::test_departure_pauses_when_room_empties_after_exit`, `::test_departing_person_stale_ble_excluded`,
 `::test_departure_wait_ends_kept_occupied`, `::test_departure_pauses_own_playback`,
 `::test_departure_never_pauses_others`, `::test_departure_on_residency_edge_via_subscribe`,
@@ -906,7 +958,9 @@ person here" check. Added in rev 3.3: test arrival edges (not departure edges) f
 producer's guard (skip the departure read for `ble`); pass on a truncated empty departure read; move the duplicate
 check after the counted-return gate; drop the entry-time clamp on the re-read; let the listener run the music check
 when the slot is decided; drop `scene_lost_restart` from the sweep; use a fixed wait without the room timeout; drop
-the departure return check; compare zones with `None == None` passing (room without zone). The rev 3.2 drill "read
+the departure return check; compare zones with `None == None` passing (room without zone). Added in rev 3.4: pass
+on an empty departure read / missing `left_at` (the patio LOST case must go RED); ignore `arrived_at` newer than
+`left_at`; drop the `boot` subtype; pass the named exit's `datetime` to the edge read. The rev 3.2 drill "read
 adjacency in one direction only" is retired with the default (it returns if §12 Q4 picks adjacency).
 
 ## 9. Knobs
@@ -920,7 +974,8 @@ adjacency in one direction only" is retired with the default (it returns if §12
 | `ARRIVAL_SCENE_CONFIRM_S` | 120 (D0 a2 sizes) | 1 | Wait for the layer to place the person after a scene; counting only |
 | `ARRIVAL_MIN_GAP_S` | 3600 | 1 | No repeat on a door bounce; per person per action |
 | `ARRIVAL_COUNTED_EDGE_LOOKBACK_S` | 120 (D0 a sizes) | 1 | How far before a `geofence` F5 a counted residency arrival may sit (the edge is written in the same call). Review-only: too large lets an old return vouch for a later flap. 0 = no geofence intent ever opens (`camera_egress` and `ble` unaffected; they use the departure-side bar) |
-| `RESIDENT_RETURN_MIN_AWAY_MIN` (REUSED, `const.py:4109`) | 15 | 1 | The `camera_egress` / `ble` bar: a departure newer than this rejects the F5. Shared with residency and the lock; not re-tuned here |
+| `RESIDENT_RETURN_MIN_AWAY_MIN` (REUSED, `const.py:4109`) | 15 | 1 | The `camera_egress` / `ble` bar: `left_at` must be at least this old, no later arrival; also the post-restart dead window for those sources. Shared with residency and the lock; not re-tuned here |
+| `RESIDENT_RETURN_BOOT_WINDOW_S` (REUSED, `const.py:4110`) | 600 | 1 | Post-restart `geofence` dead window (arrivals carry `in_boot_window`). Shared; not re-tuned here |
 | `ARRIVAL_DEPARTURE_VACANCY_WAIT_S` | 300 (D0 b sizes, per arming source) | 1 | Margin added to the stamped room's own `occupancy_timeout`: wait = timeout + margin. 0 = wait exactly the room timeout. The pause's kill switch stays `ARRIVAL_MUSIC_DEPARTURE_PAUSE`. Default 300 gives 800 s in the 500 s rooms and 600 s in the 300 s rooms (rev 3.2's flat 600 in those) |
 | `ARRIVAL_VERIFY_S` / `ARRIVAL_REVERSAL_S` | 20 / 120 | 1 | Ground-truth windows |
 | `ARRIVAL_MUSIC_DEPARTURE_PAUSE` | True | 1 | False = no departure action |
@@ -958,11 +1013,12 @@ keys that `_listed()` filters out (`test_person_awareness_layer_guard.py:46`). B
   defines them (R10 / R14);
 - `get_person_edges_since`, `person_edges_truncated_since` and `subscribe_person_edges` are already in
   `READ_LIST["PRESENCE"]` (`quality/tests/_layer_guard_engine.py:84-94`). `get_room_zone` (the §5.5 default) and
-  `get_adjacent_rooms` (only if §12 Q4 picks it) are NOT. They are proposed for the contract §4 PRESENCE read list
-  (`CONTRACT_person_awareness_layer.md`) as membership reads with the NM panel targeting precedent, and added to
-  `READ_LIST["PRESENCE"]` by whoever owns the contract (ship 3a or its follow-up), not as a new `ROWS` row: a new row
-  would raise a total that may only fall. If the read list is not extended before the D2 wiring lands, the build stops
-  (ship 3 §17 rule: an unexplained new hit stops the build).
+  `get_adjacent_rooms` (only if §12 Q4 picks it) are NOT; ship 3a phase 2 landed its final allowlist without them
+  (`0b7d5061`). **Owner: step 8's D2 commit** adds `get_room_zone` to `READ_LIST["PRESENCE"]` in
+  `quality/tests/_layer_guard_engine.py` (not the PROVISIONAL allowlist file §10.1 forbids) and to the contract §4
+  PRESENCE read list (`CONTRACT_person_awareness_layer.md`) together, as a membership read with the NM panel targeting
+  precedent; `get_adjacent_rooms` the same way only if Q4 picks adjacency. Not a new `ROWS` row: a new row would raise
+  a total that may only fall. `get_residency_snapshot` is already listed.
 **Repair-plan seam (arc rule 6).** (1) D7 item 3 keeps `music_on_arrival_start` as the arrival master, relabelled
 (amendment to `PLANNING_music_following_repair.md`, applied by this plan's D7). (2) The 8 ft gate is owned by the
 repair: commit `706f7230` on `feature/music-following-repair` removed `ble_too_far`, the distance knob's form field,
@@ -1017,8 +1073,10 @@ deploy.
 4. **How near must the scene's holder be when their bedroom lights up?** (rev 3.3, re-check H3.) Under today's sparse
    `CONF_ADJACENT_ROOMS` (§5.5 table), "this room or an adjacent room" gives Ziri and Jaya almost no welcome scenes.
    Options:
-   - (a) **same house zone** (`get_room_zone`): reuses a getter, touches no other consumer; cost: a co-owner or guest
-     entering first while the holder is elsewhere in the same zone can get the holder's scene;
+   - (a) **same house zone** (`get_room_zone`): reuses a getter, touches no other consumer. It trades against Q5 ("don't
+     do it when someone is already in that room") for the scene: in the Master Suite a co-owner, in Upstairs a sibling
+     or guest, entering first while the holder is elsewhere in the zone can get the holder's scene (§5.5 zone table).
+     It still misses when BLE has an upstairs resident on the Staircase (Back Hallway);
    - (b) **add adjacency** (map each bedroom's approach hall in the room options): tighter, but `CONF_ADJACENT_ROOMS`
      also drives the fan recheck L2 veto (a phone in the hall would veto the bedroom's fan probe), the presence
      fan-interference gate and NM wall-panel targeting, so all three change too;
@@ -1139,3 +1197,18 @@ the temperature cut, form field hiding, and §12 Q1-Q3 defaults. New §12 Q4 (de
 | LOW-1 double music check | "Only while undecided" on the re-read only | One rule for every path; test `::test_music_check_runs_once_per_intent` |
 | LOW-2 gate order | Duplicate check after counted return | Duplicate check is gate 4, counted return gate 5; test `::test_duplicate_checked_before_counted_return` |
 | LOW-3 guard wording | `ROWS` entry with `reserved: False`; retiring lowers the total; adjacency row | `LISTED` key rename + `LISTED_RESERVED` removal; retiring changes no total (`ROWS` only); `get_room_zone` / `get_adjacent_rooms` proposed for the contract §4 PRESENCE read list, no new row (§10) |
+
+### 15.5 Changes from rev 3.3 (re-check `PLANREVIEW_identity_actions_v6_3_3.md`, `94eb10c3`)
+
+The §10.1 parallel set is unchanged (D0 gains rows only). Every confirmed operator ruling holds; §12 Q4 now states its
+trade against Q5.
+
+| Finding | Rev 3.3 | Rev 3.4 |
+|---|---|---|
+| M1 empty departure read passes | `ble` / `camera_egress` passed when no departure edge in the last 15 min | Positive evidence: `get_residency_snapshot` `left_at` ≥ 15 min before `t_f`, no later `arrived_at`; empty never passes (`no_departure_seen`); cost stated (overrule-only GPS-stuck-home absence no longer opens via `ble`; geofence covers it); D0 (a) split; tests `::test_ble_lost_at_home_no_departure_opens_no_intent`, `::test_departure_via_unknown_opens_no_intent`; drill |
+| M2 post-restart dead window | Unstated; INV break case contradicted it | §5.4 gate 5 and §5.5 restart: 15 min `ble` / `camera_egress`, 10 min `geofence` (`RESIDENT_RETURN_BOOT_WINDOW_S`), pauses unaffected, fails closed; INV-V6-ARRIVAL-REACHES case qualified; `skipped_edges_truncated` subtype `boot` in the NM digest; tests |
+| LOW-1 named-exit ts | "the arming edge's `ts`" | `departure_ts` epoch; named exit `.timestamp()`; test |
+| LOW-2 zone lookup name | Unnamed | `data[CONF_ROOM_NAME]` (`presence.py:3627`); renamed room fails safe to `scene_skipped_not_near` |
+| LOW-3 live zones | Not shown | Zone table in §5.5; Q4 (a) tied to Q5 by zone; D0 (a2) reports holder's room at onset |
+| LOW-4 read-list owner | "whoever owns the contract" | Step 8's D2 commit adds `get_room_zone` to `READ_LIST["PRESENCE"]` (`_layer_guard_engine.py`) and contract §4 |
+| LOW-5 §4.6 cite | Cited for the lag figure | Cited for "BLE never creates occupancy"; lag left to D0 (a2) |
