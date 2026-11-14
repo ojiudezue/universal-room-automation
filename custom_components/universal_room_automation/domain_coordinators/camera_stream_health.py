@@ -37,8 +37,12 @@ are excluded the same way but never paged or shown, because they are not
 configured inputs.
 
 One public reader for the room and its siblings:
-``UniversalRoomCoordinator.camera_input_stream_dead(input_eid)`` (S2 zone /
-fan recheck / census and a future NVR-witness layer read only that).
+``UniversalRoomCoordinator.camera_input_stream_dead(input_eid)`` and its
+camera-keyed form ``camera_stream_dead(camera_eid)``. S2 readers outside the
+room (zone substrate / zone tracker, presence fan-interference gate, comfort
+fan veto, census, a future NVR-witness layer) go through the house-level
+functions at the bottom of this module, which only fold those room answers:
+``input_stream_dead``, ``camera_stream_dead`` and ``entity_stream_dead``.
 """
 
 from __future__ import annotations
@@ -286,6 +290,17 @@ class CameraInputStreamHealth:
             return None
         return input_eid in self._dead_now
 
+    def camera_is_dead(self, camera_eid: str) -> bool | None:
+        """Camera-keyed form of the same evaluation (S2). None = this room
+        does not watch that camera (not the own camera of any input it
+        resolved); True iff an input of that camera is dead this tick;
+        False otherwise (always False with the kill switch off)."""
+        if self._resolution is None or not camera_eid:
+            return None
+        if not any(cam == camera_eid for cam, _r, _d in self._resolution.values()):
+            return None
+        return any(cam == camera_eid for cam, _s in self._dead_now.values())
+
     def snapshot(self) -> dict[str, Any]:
         """Display surface for ``sensor.<room>_unavailable_entities``."""
         resolution = self._resolution or {}
@@ -301,6 +316,96 @@ class CameraInputStreamHealth:
                 if cam and eid in configured
             ),
         }
+
+
+# ----------------------------------------------------------------------
+# House-level readers (S2). They aggregate the room coordinators' ONE getter
+# (``camera_input_stream_dead`` / ``camera_stream_dead``); they never look at
+# a camera's state themselves (INV-STREAM-ONE-GETTER). Zone tier, fan veto,
+# presence fan-interference gate, census and any later NVR-witness layer read
+# only these.
+# ----------------------------------------------------------------------
+
+
+def _room_coordinators(hass: Any) -> list[Any]:
+    try:
+        from ..const import DOMAIN  # noqa: PLC0415
+        values = list((hass.data.get(DOMAIN) or {}).values())
+    except Exception:  # noqa: BLE001
+        return []
+    return [v for v in values if getattr(v, "_camera_stream_health", None) is not None]
+
+
+def _fold(answers: Iterable[Any]) -> bool | None:
+    """True if any room says True; False if any says False; else None.
+    Only real bools count (a stub's non-bool answer is no opinion)."""
+    seen_false = False
+    for a in answers:
+        if a is True:
+            return True
+        if a is False:
+            seen_false = True
+    return False if seen_false else None
+
+
+def input_stream_dead(hass: Any, input_eid: str) -> bool | None:
+    """Is this room input dead because its own camera's stream is? Asks
+    every room coordinator's ``camera_input_stream_dead``. None = no room
+    resolves it (no opinion: callers count the input as before)."""
+    if not input_eid:
+        return None
+    answers = []
+    for coord in _room_coordinators(hass):
+        try:
+            answers.append(coord.camera_input_stream_dead(input_eid))
+        except Exception:  # noqa: BLE001 — no opinion
+            continue
+    return _fold(answers)
+
+
+def camera_stream_dead(hass: Any, camera_entity: str) -> bool | None:
+    """THE camera-keyed dead-stream getter (S2; NVR witness W2 / W6b).
+
+    ``camera_entity`` is a ``camera.*`` entity id. True = confirmed dead (the
+    room tier excludes an input of that camera this tick: unavailable past
+    ``CAMERA_INPUT_STREAM_DEAD_GRACE_S``, never ``unknown`` and never a
+    restored placeholder); False = watched and live (or the kill switch is
+    off); None = no room watches that camera (it is not the own camera of
+    any room input or camera-override sensor), i.e. unknown. A camera key
+    other than an entity id is not supported (None).
+    """
+    if not camera_entity or not str(camera_entity).startswith("camera."):
+        return None
+    answers = []
+    for coord in _room_coordinators(hass):
+        try:
+            answers.append(coord.camera_stream_dead(camera_entity))
+        except Exception:  # noqa: BLE001
+            continue
+    return _fold(answers)
+
+
+def entity_stream_dead(hass: Any, entity_id: str) -> bool | None:
+    """Census / zone camera reader: a camera-derived entity counts as dead
+    when a room reports it dead as an input, or else when its own camera
+    (same device, exactly one enabled camera entity; the S1 resolver) is
+    reported dead by ``camera_stream_dead``. None = no opinion."""
+    if not entity_id:
+        return None
+    if str(entity_id).startswith("camera."):
+        return camera_stream_dead(hass, entity_id)
+    direct = input_stream_dead(hass, entity_id)
+    if direct is not None:
+        return direct
+    try:
+        from homeassistant.helpers import entity_registry as er  # noqa: PLC0415
+        registry = er.async_get(hass)
+        cam = CameraResolver.own_camera_entity_for_input(registry, entity_id)[0]
+    except Exception:  # noqa: BLE001
+        return None
+    if not cam:
+        return None
+    return camera_stream_dead(hass, cam)
 
 
 def _is_restored(state: Any) -> bool:

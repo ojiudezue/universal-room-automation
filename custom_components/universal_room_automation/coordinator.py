@@ -725,6 +725,8 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         self._camera_stream_health: CameraInputStreamHealth = (
             CameraInputStreamHealth(self.entry.data.get("room_name", "unknown"))
         )
+        # S2: inputs dead on the previous tick (flip detection -> substrate).
+        self._camera_stream_prev_dead: frozenset[str] = frozenset()
         # STEP D2/D3 — physics-based chatter detector (first NEW client
         # of the shared primitive). Constructor is side-effect free;
         # listener is armed in _update_signal_subscriptions (idempotent,
@@ -2624,6 +2626,14 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 CAMERA_STREAM_EXCLUSION_CLIENT, _eid,
                 reason=f"{_cam} unavailable since {_since.isoformat()}",
             )
+        # S2 discharge: the zone tier (occupancy substrate) is event-driven
+        # and a frozen input sends no event, so tell it which inputs flipped
+        # dead / live this tick; it re-reads those kinds through the getter.
+        _dead_set = frozenset(dead)
+        _flipped = _dead_set ^ self._camera_stream_prev_dead
+        self._camera_stream_prev_dead = _dead_set
+        if _flipped:
+            self._notify_substrate_stream_flips(_flipped)
         if not (to_page or to_recover):
             return
         from .domain_coordinators._stuck_signal_nm import (  # noqa: PLC0415
@@ -2701,6 +2711,26 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         while CAMERA_INPUT_STREAM_HEALTH_ENABLED is False).
         """
         return self._camera_stream_health.is_dead(input_eid)
+
+    def camera_stream_dead(self, camera_eid: str) -> bool | None:
+        """Camera-keyed form of the getter above (same tick evaluation):
+        None = this room does not watch that camera; True = an input of it
+        is excluded this tick; False = watched and live."""
+        return self._camera_stream_health.camera_is_dead(camera_eid)
+
+    def _notify_substrate_stream_flips(self, flipped) -> None:
+        """Ask the occupancy substrate to re-read the kinds of inputs whose
+        dead-stream answer changed (S2 discharge). Never raises."""
+        try:
+            substrate = self.hass.data.get(DOMAIN, {}).get("occupancy_substrate")
+            if substrate is None:
+                return
+            substrate.recheck_entities(sorted(flipped))
+        except Exception:  # noqa: BLE001 — never break the room tick
+            _LOGGER.debug(
+                "camera stream health substrate recheck raised (swallowed)",
+                exc_info=True,
+            )
 
     def camera_stream_health_snapshot(self) -> dict[str, Any]:
         """Display attributes for sensor.<room>_unavailable_entities."""

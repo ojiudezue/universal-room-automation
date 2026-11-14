@@ -2020,7 +2020,13 @@ class PersonCensus:
             raw_frigate_sum = 0
             raw_binary_sum = 0
 
+            _stream_dead = self._stream_dead_interior(configured_interior)
             for entity_id in configured_interior:
+                if entity_id in _stream_dead:
+                    # Camera input stream health S2: a dead stream is a
+                    # MISSING term (as if the camera were unavailable),
+                    # never a zero count and never a frozen one.
+                    continue
                 platform = self._camera_manager.get_platform_for_camera(entity_id)
                 camera_info = self._camera_manager._camera_by_entity.get(entity_id)
                 area_id = camera_info.area_id if camera_info else None
@@ -2181,7 +2187,10 @@ class PersonCensus:
             degraded = False
 
             single_source_total = 0
+            _stream_dead = self._stream_dead_interior(configured_interior)
             for entity_id in configured_interior:
+                if entity_id in _stream_dead:
+                    continue  # S2: dead stream = missing term
                 entry = ent_reg.async_get(entity_id)
                 device_id = entry.device_id if entry else None
 
@@ -2653,6 +2662,28 @@ class PersonCensus:
     # ------------------------------------------------------------------
     # Helper: read HA state
     # ------------------------------------------------------------------
+
+    def _stream_dead_interior(self, entity_ids: list[str]) -> frozenset[str]:
+        """Camera input stream health S2: the interior camera entities whose
+        camera stream the room tier reports dead (ONE getter, via
+        ``camera_stream_health.entity_stream_dead``: the person sensor as a
+        room input, else its own camera). Census plan dedup rule 5: such a
+        camera is a missing term. Unresolved / kill switch off / error =
+        empty set (byte-identical)."""
+        try:
+            from .domain_coordinators.camera_stream_health import (  # noqa: PLC0415
+                entity_stream_dead,
+            )
+        except Exception:  # noqa: BLE001
+            return frozenset()
+        out = set()
+        for eid in entity_ids or ():
+            try:
+                if entity_stream_dead(self.hass, eid) is True:
+                    out.add(eid)
+            except Exception:  # noqa: BLE001 — fail open
+                continue
+        return frozenset(out)
 
     def _is_entity_available(self, entity_id: str) -> bool:
         """Return True if an entity exists and is not unavailable/unknown."""
@@ -5988,8 +6019,11 @@ class PersonCensus:
         # cameras contribute individually and are never cancelled.
         ble_by_area = self._ble_home_by_area()
         raw_contributions: list[tuple[str | None, int]] = []
+        _stream_dead = self._stream_dead_interior(configured_interior)
 
         for entity_id in configured_interior:
+            if entity_id in _stream_dead:
+                continue  # S2: dead stream = missing term (no guest count)
             platform = self._camera_manager.get_platform_for_camera(entity_id)
             if platform != CAMERA_PLATFORM_FRIGATE:
                 continue

@@ -829,6 +829,10 @@ class ZonePresenceTracker:
         timeout = timedelta(seconds=_CAMERA_OCCUPANCY_TIMEOUT_SECONDS)
 
         for entity_id, last_seen in self._camera_last_seen.items():
+            # Camera input stream health S2: a camera whose stream is dead
+            # (room getter, via entity_stream_dead) is a missing tier input.
+            if _camera_entity_stream_dead(self.hass, entity_id):
+                continue
             # Currently detecting OR within timeout window
             if self._camera_occupied.get(entity_id, False):
                 return True
@@ -4298,7 +4302,10 @@ class PresenceCoordinator(BaseCoordinator):
                         if not eid or eid in on_set:
                             continue
                         st = self.hass.states.get(eid)
-                        if st is not None and st.state == "on":
+                        if (
+                            st is not None and st.state == "on"
+                            and not _input_stream_dead(self.hass, eid)
+                        ):
                             on_set.append(eid)
                 return bool(radar_sole_on_set(self.hass, merged, on_set))
         except Exception:  # noqa: BLE001 — fail-closed
@@ -4339,7 +4346,10 @@ class PresenceCoordinator(BaseCoordinator):
                     if room_name in rooms or room_name not in tracker.room_names:
                         continue
                     state = self.hass.states.get(entity_id)
-                    if state is not None and state.state == "on":
+                    if (
+                        state is not None and state.state == "on"
+                        and not _input_stream_dead(self.hass, entity_id)
+                    ):
                         rooms.add(room_name)
             except Exception:  # noqa: BLE001 — fail toward holding
                 return ["<error>"]
@@ -9894,6 +9904,25 @@ def _fan_decay_unsubs_map(owner: Any) -> Dict[str, Any]:
         m = {}
         owner._fan_decay_unsubs = m
     return m
+
+def _input_stream_dead(hass: Any, entity_id: str) -> bool:
+    """Camera input stream health S2: True iff a room's ONE getter reports
+    this input dead-stream. None / False / error = counts as before."""
+    try:
+        from .camera_stream_health import input_stream_dead  # noqa: PLC0415
+        return input_stream_dead(hass, entity_id) is True
+    except Exception:  # noqa: BLE001 — fail open
+        return False
+
+
+def _camera_entity_stream_dead(hass: Any, entity_id: str) -> bool:
+    """Zone camera tier: input route, else the entity's own camera."""
+    try:
+        from .camera_stream_health import entity_stream_dead  # noqa: PLC0415
+        return entity_stream_dead(hass, entity_id) is True
+    except Exception:  # noqa: BLE001 — fail open
+        return False
+
 
 def _cancel_fan_belief_decay(owner: Any, entity_id: Optional[str] = None) -> None:
     """Cancel one (or every) pending held-belief decay timer."""

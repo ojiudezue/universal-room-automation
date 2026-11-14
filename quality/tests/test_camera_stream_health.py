@@ -179,6 +179,7 @@ class _Room:
         self.entry.data = {"room_name": ROOM}
         self._exclusion_set = SensorExclusionSet(room_name=ROOM)
         self._camera_stream_health = CameraInputStreamHealth(ROOM)
+        self._camera_stream_prev_dead = frozenset()
         self._stuck_sensor_kinds = {}
         self._dutycycle_excluded_last_tick = set()
         self._dutycycle_excluded_now = {}
@@ -191,6 +192,7 @@ class _Room:
             "_subscribe_camera_stream_registry_updates",
             "_camera_override_person_sensors",
             "_camera_override_live_person_sensors",
+            "_notify_substrate_stream_flips", "camera_stream_dead",
         ):
             fn = getattr(UniversalRoomCoordinator, name)
             setattr(self, name, fn.__get__(self, type(self)))

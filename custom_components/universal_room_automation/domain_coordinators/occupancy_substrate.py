@@ -295,7 +295,11 @@ class OccupancySubstrate:
         construction. unavailable / unknown / missing count as off.
         """
         if event_entity is not None:
-            if event_state is not None and getattr(event_state, "state", None) == "on":
+            if (
+                event_state is not None
+                and getattr(event_state, "state", None) == "on"
+                and not self._stream_dead(event_entity)
+            ):
                 return True
         for entity_id, mapping in entity_to_room_kind.items():
             if entity_id == event_entity:
@@ -306,9 +310,62 @@ class OccupancySubstrate:
                 state = self.hass.states.get(entity_id)
             except Exception:  # pragma: no cover — defensive
                 state = None
-            if state is not None and state.state == "on":
+            if (
+                state is not None
+                and state.state == "on"
+                and not self._stream_dead(entity_id)
+            ):
                 return True
         return False
+
+    def _stream_dead(self, entity_id: str) -> bool:
+        """Camera input stream health S2 (INV-STREAM-ZONE): an `on` from an
+        input whose own camera stream is dead (room getter
+        ``camera_input_stream_dead`` True) counts as off. None / False / any
+        error = counts as before, so unresolved inputs and the kill switch
+        False are byte-identical."""
+        try:
+            from .camera_stream_health import input_stream_dead  # noqa: PLC0415
+            return input_stream_dead(self.hass, entity_id) is True
+        except Exception:  # noqa: BLE001 — fail open (count the input)
+            return False
+
+    def recheck_entities(self, entity_ids) -> None:
+        """S2 discharge, called by a room tick whose dead-stream answer
+        flipped for ``entity_ids``: a frozen input sends no state event, so
+        re-read each tracked entity's (room, kind) through the one rule and
+        dispatch any edge, exactly as a state change would. Unknown entities
+        are ignored. Never raises."""
+        per_entity = bool(_ura_const.ZONE_OCCUPANCY_PER_ENTITY_ENABLED)
+        for entity_id in entity_ids or ():
+            mapping = self._entity_to_room_kind.get(entity_id)
+            if mapping is None:
+                continue
+            room_name, kind = mapping
+            try:
+                if per_entity:
+                    occupied = self._kind_on_now(
+                        room_name, kind, self._entity_to_room_kind,
+                    )
+                else:
+                    st = self.hass.states.get(entity_id)
+                    occupied = bool(
+                        st is not None and st.state == "on"
+                        and not self._stream_dead(entity_id)
+                    )
+            except Exception:  # noqa: BLE001 — defensive
+                continue
+            bucket = self._raw_state.setdefault(room_name, {})
+            prior = bool(bucket.get(kind, False))
+            bucket[kind] = occupied
+            if prior == occupied or not self._boot_settle_done:
+                continue
+            self._last_edge_entity[room_name] = entity_id
+            _LOGGER.debug(
+                "OccupancySubstrate stream-health recheck: room=%s kind=%s "
+                "entity=%s new=%s", room_name, kind, entity_id, occupied,
+            )
+            self._dispatch(room_name, kind, occupied)
 
     def _reset_and_seed_room_bucket(
         self,
@@ -755,7 +812,9 @@ class OccupancySubstrate:
         elif new_state.state in _UNAVAILABLE_STATES:
             occupied = False
         else:
-            occupied = new_state.state == "on"
+            occupied = (
+                new_state.state == "on" and not self._stream_dead(entity_id)
+            )
 
         bucket = self._raw_state.setdefault(room_name, {})
         prior = bool(bucket.get(kind, False))
