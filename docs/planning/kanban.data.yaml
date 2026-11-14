@@ -35405,6 +35405,7 @@ cards:
   rank: {value: 5, time_criticality: 3, effort: 2}
   operator_2026_11_14_dead_hold: '(a) A dead input holds instead of releasing. A dead camera is not a presence or absence of signal. Its faulty equipment.'
   s2_reviews_2026_11_14: 'A FIX (A-M1 presence.py check_zone_occupancy_confidence Source 3 reads zone cameras raw, feeds HVAC 4 h failsafe; A-M2 live criteria do not discriminate; lows), B SHIP (B-M1 same site; B-M2 dead camera can trigger Sleep->Away -> operator chose hold; B-L3 zone camera tier asks the getter for every camera every read: reorder), C FIX tests only (census is True check, camera_is_dead key bleed, camera.* route, recheck_entities guards, fail-open handling).'
+  operator_2026_11_14_census_hold: 'b. I don''t think the 4 hour has a real basis. => census hold short (stand-in ~30 min) then the dead camera is a missing term; both caps (census hold and the zone CAMERA_INPUT_STREAM_DEAD_HOLD_MAX_S, currently 14400 s borrowed from P22 and HVAC D6) to be set from a measured camera outage-duration distribution (recorder camera.* unavailable spans, p50/p90/p99, panels vs NVR cameras, before/after the homelab KS watchdog). Pending probe; fix-up after re-verify review.'
 - id: MEMORY-EPISODES-PERIMETER-GATE-RETENTION-1
   title: memory_episodes has no retention; perimeter gate rows add ~30-90 MB/yr unbounded
   thread: infra
