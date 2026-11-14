@@ -565,11 +565,11 @@ async def test_mf_ble_low_confidence_skips(rig):
 
 @pytest.mark.asyncio
 async def test_mf_ble_too_far_booked_as_ble_too_far(rig):
+    """Strict: the event's producer-measured distance (12.5 ft) > 8 ft."""
     rig.mf.apply_config({"mf_min_ble_confidence": "strict", "mf_high_confidence_distance": 8})
     rig.world.play("kitchen")
     set_area(rig, "Study A")
-    rig.hass.states.async_set("sensor.iphone_oji_distance", "12.5", {"unit_of_measurement": "ft"})
-    out = await move(rig, "Kitchen", "Study A")
+    out = await move(rig, "Kitchen", "Study A", closest=12.5)
     assert out == "ble_too_far"
     assert rig.mf._transfer_stats["ble_too_far"] == 1
     assert rig.world.calls == []
@@ -580,18 +580,7 @@ async def test_mf_strict_distance_within_threshold_transfers(rig):
     rig.mf.apply_config({"mf_min_ble_confidence": "strict", "mf_high_confidence_distance": 8})
     rig.world.play("kitchen")
     set_area(rig, "Study A")
-    rig.hass.states.async_set("sensor.iphone_oji_distance", "7.5", {"unit_of_measurement": "ft"})
-    assert await move(rig, "Kitchen", "Study A") == "success"
-
-
-@pytest.mark.asyncio
-async def test_mf_ble_distance_meters_converted(rig):
-    """2.5 m = 8.2 ft > 8 ft: blocked in strict mode."""
-    rig.mf.apply_config({"mf_min_ble_confidence": "strict", "mf_high_confidence_distance": 8})
-    rig.world.play("kitchen")
-    set_area(rig, "Study A")
-    rig.hass.states.async_set("sensor.iphone_oji_distance", "2.5", {"unit_of_measurement": "m"})
-    assert await move(rig, "Kitchen", "Study A") == "ble_too_far"
+    assert await move(rig, "Kitchen", "Study A", closest=7.5) == "success"
 
 
 @pytest.mark.asyncio
@@ -600,17 +589,19 @@ async def test_mf_distance_not_gated_in_normal_mode(rig):
     audit's 11-38 % of transitions read > 8 ft) never blocks a move."""
     rig.world.play("kitchen")
     set_area(rig, "Study A")
-    rig.hass.states.async_set("sensor.iphone_oji_distance", "30", {"unit_of_measurement": "ft"})
-    assert await move(rig, "Kitchen", "Study A") == "success"
+    assert await move(rig, "Kitchen", "Study A", closest=30.0) == "success"
 
 
 @pytest.mark.asyncio
-async def test_mf_ble_dead_area_input_fails_open_counted(rig):
+async def test_mf_ble_no_location_fails_open_counted_once(rig):
+    """The layer has no location for the person: fail open, counted once
+    (strict + no distance too: still ONE count per room change, A-L1)."""
+    rig.mf.apply_config({"mf_min_ble_confidence": "strict"})
     rig.world.play("kitchen")
-    rig.hass.states.async_set("sensor.iphone_oji_area", "unavailable", {})
+    layer(rig).locations.pop(PERSON, None)
     assert await move(rig, "Kitchen", "Study A") == "success"
     assert rig.mf._transfer_stats["ble_input_missing"] == 1
-    assert rig.mf._last_decision["ble_input"] == "area_dead"
+    assert rig.mf._last_decision["ble_input"] == "no_location,no_distance"
 
 
 @pytest.mark.asyncio
@@ -618,33 +609,22 @@ async def test_mf_ble_dead_distance_fails_open_in_strict(rig):
     rig.mf.apply_config({"mf_min_ble_confidence": "strict"})
     rig.world.play("kitchen")
     set_area(rig, "Study A")
-    rig.hass.states.async_set("sensor.iphone_oji_distance", "unavailable", {})
-    assert await move(rig, "Kitchen", "Study A") == "success"
+    assert await move(rig, "Kitchen", "Study A", closest=None) == "success"
     assert rig.mf._transfer_stats["ble_input_missing"] == 1
+    assert rig.mf._last_decision["ble_input"] == "no_distance"
 
 
 @pytest.mark.asyncio
-async def test_mf_ble_unresolved_fails_open_counted(rig):
-    """No bermuda-platform tracker on the person: unresolved, counted, open."""
-    rig.hass.states.async_set(PERSON_EID, "home", {"device_trackers": ["device_tracker.phone_app"]})
+async def test_mf_ble_gate_reads_the_layer_not_bermuda(rig):
+    """A-H1: the gate asks the layer (get_person_location) and never reads a
+    Bermuda entity. A Bermuda area sensor that disagrees is ignored; the
+    layer's room decides both ways."""
+    rig.hass.states.async_set("sensor.iphone_oji_area", "Garage B", {})
     rig.world.play("kitchen")
-    set_area(rig, "Garage B")   # would block if it were read
+    set_area(rig, "Study A")
     assert await move(rig, "Kitchen", "Study A") == "success"
-    assert rig.mf._last_decision["ble_input"] == "unresolved:no_bermuda_tracker"
-    assert rig.mf._transfer_stats["ble_input_missing"] == 1
-
-
-@pytest.mark.asyncio
-async def test_mf_bermuda_sensors_resolved_by_registry_not_name(rig):
-    """The area sensor is found through tracker -> device -> unique_id. A
-    name-shaped decoy that disagrees is ignored; renaming the real sensor's
-    entity_id does not lose it."""
-    rig.er.async_update_entity("sensor.iphone_oji_area", new_entity_id="sensor.weird_name_xyz")
-    rig.hass.states.async_set("sensor.weird_name_xyz", "Study A", {})
-    rig.hass.states.async_set("sensor.iphone_oji_area", "Garage B", {})  # decoy by name
-    rig.world.play("kitchen")
-    assert await move(rig, "Kitchen", "Study A") == "success"
-    assert rig.mf._last_decision["ble_area_sensor"] == "sensor.weird_name_xyz"
+    assert PERSON in layer(rig).reads
+    assert rig.mf._last_decision["ble_location"] == "Study A"
 
 
 @pytest.mark.asyncio
@@ -656,12 +636,21 @@ async def test_mf_ble_any_mode_skips_check(rig):
 
 
 @pytest.mark.asyncio
-async def test_mf_bermuda_resolver_never_enables_entities(rig):
-    """A disabled area sensor stays disabled (enabling reloads Bermuda)."""
-    rig.er.async_update_entity("sensor.iphone_oji_area", disabled_by=rig.mods.er.RegistryEntryDisabler.USER)
-    rig.world.play("kitchen")
-    await move(rig, "Kitchen", "Study A")
-    assert rig.er.async_get("sensor.iphone_oji_area").disabled_by is not None
+async def test_mf_event_closest_distance_reaches_transition(rig, mods):
+    """The producer's ``closest_distance_ft`` rides the event onto the
+    RoomTransition the gate reads (A-H1 step 2)."""
+    seen = []
+    td = mods.trans.TransitionDetector(rig.hass, MagicMock(), MagicMock())
+    td._log_transition = MagicMock(side_effect=lambda *a, **k: asyncio.sleep(0))
+    td.async_add_listener(lambda t: seen.append(t))
+    from homeassistant.util import dt as dt_util
+    ev = types.SimpleNamespace(data={
+        "person_id": PERSON, "previous_location": "Kitchen", "current_location": "Study A",
+        "timestamp": dt_util.now(), "method": "bermuda", "bermuda_area": "Study A",
+        "area_sensor": "sensor.iphone_oji_area", "closest_distance_ft": 6.25})
+    td._update_history(PERSON, "Kitchen", dt_util.now())
+    await td._on_location_change(ev)
+    assert seen and seen[0].ble_closest_ft == 6.25
 
 
 # ===========================================================================
@@ -721,8 +710,7 @@ async def test_mf_lookback_source_with_others_skips(rig):
     rig.world.play("kitchen")
     set_area(rig, "Hall")
     await move(rig, "Kitchen", "Hall")
-    pc = types.SimpleNamespace(data={PERSON2: {"location": "Kitchen"}})
-    rig.hass.data[DOMAIN]["person_coordinator"] = pc
+    set_area(rig, "Kitchen", person="jaya")     # through the layer, A-H1
     set_area(rig, "Study A")
     assert await move(rig, "Hall", "Study A") == "source_has_others"
     assert rig.world.state("kitchen") == "playing"
@@ -848,6 +836,24 @@ async def test_mf_extend_mode_never_quiets_source(rig):
 
 
 @pytest.mark.asyncio
+async def test_mf_extend_mode_on_ma_pair_keeps_source_playing(rig):
+    """A-H2: "Play in both rooms" on an MA-covered pair never calls
+    transfer_queue (it moves the queue and stops the source); the MA target
+    joins the playing MA source instead and the Kitchen keeps playing."""
+    rig.mf.apply_config({"mf_follow_mode": "extend"})
+    rig.world.play("kitchen", volume=0.6)
+    set_area(rig, "Study A")
+    assert await move(rig, "Kitchen", "Study A") == "success"
+    assert rig.world.services("music_assistant", "transfer_queue") == []
+    (_, _, data, _), = rig.world.services("media_player", "join")
+    assert data == {"entity_id": ["media_player.kitchen_5"],
+                    "group_members": ["media_player.study_a_5"]}
+    assert rig.world.state("kitchen") == "playing"
+    assert rig.world.state("study_a") == "playing"
+    assert rig.world.volume("kitchen") == 0.6
+
+
+@pytest.mark.asyncio
 async def test_mf_fade_undone_when_target_not_playing(rig):
     rig.world.play("garage_b", volume=0.4)
     rig.world.speakers["utility"].never_plays = True
@@ -896,12 +902,13 @@ async def test_mf_saved_volumes_empty_after_restore(rig):
 
 @pytest.mark.asyncio
 async def test_mf_path_order_ma_then_native_then_generic(rig, monkeypatch):
-    rig.mf.apply_config({"mf_follow_mode": "extend", "mf_cooldown_seconds": 0})
+    rig.mf.apply_config({"mf_follow_mode": "move", "mf_cooldown_seconds": 0})
     rig.world.play("kitchen")
     set_area(rig, "Study A")
     await move(rig, "Kitchen", "Study A")
     assert rig.mf._last_decision["path"] == "ma"
-    # MA off -> both WiiMs group -> native join.
+    # MA off -> both WiiMs group -> native join (extend: the source leads).
+    rig.mf.apply_config({"mf_follow_mode": "extend"})
     monkeypatch.setattr(rig.mods.const, "MF_MA_FIRST_ENABLED", False)
     rig.world.speakers["study_a"].state = "idle"
     rig.world.push(rig.world.speakers["study_a"])
@@ -1152,14 +1159,11 @@ async def test_mf_two_people_bounce_same_rooms(rig):
     second sees the first's new room as having another occupant."""
     _bounce_knobs(rig)
     rig.world.play("garage_b")
-    pc = types.SimpleNamespace(data={PERSON: {"location": "Laundry"},
-                                     PERSON2: {"location": "Garage B"}})
-    rig.hass.data[DOMAIN]["person_coordinator"] = pc
     set_area(rig, "Laundry")
-    set_area(rig, "Laundry", person="jaya")
+    set_area(rig, "Garage B", person="jaya")
     a = await move(rig, "Garage B", "Laundry")
     assert a == "source_has_others"       # Jaya is still in Garage B
-    pc.data[PERSON2]["location"] = "Laundry"
+    set_area(rig, "Laundry", person="jaya")
     b = await move(rig, "Garage B", "Laundry", person=PERSON2)
     assert b == "success"
     assert _one_room_playing(rig, ["garage_b", "utility"]) == ["utility"]
@@ -1247,8 +1251,7 @@ async def test_mf_every_transition_has_exactly_one_outcome(hass, mods):
 
     async def others(r):
         r.world.play("kitchen")
-        r.hass.data[DOMAIN]["person_coordinator"] = types.SimpleNamespace(
-            data={PERSON2: {"location": "Kitchen"}})
+        set_area(r, "Kitchen", person="jaya")
 
     async def cooldown(r):
         r.world.play("kitchen")
@@ -1259,7 +1262,6 @@ async def test_mf_every_transition_has_exactly_one_outcome(hass, mods):
     async def strict_far(r):
         r.world.play("kitchen")
         r.mf.apply_config({"mf_min_ble_confidence": "strict"})
-        r.hass.states.async_set("sensor.iphone_oji_distance", "20", {"unit_of_measurement": "ft"})
 
     async def no_content(r):
         sp = r.world.speakers["garage_b"]
@@ -1274,7 +1276,7 @@ async def test_mf_every_transition_has_exactly_one_outcome(hass, mods):
         await run("success", play_k, "Kitchen", "Study A")
         await run("same_room", nothing, "Kitchen", "Kitchen")
         await run("ble_low_confidence", play_k, "Kitchen", "Study A", live_area="Garage B")
-        await run("ble_too_far", strict_far, "Kitchen", "Study A")
+        await run("ble_too_far", strict_far, "Kitchen", "Study A", closest=20.0)
         await run("cooldown_blocked", cooldown, "Kitchen", "Study A")
         await run("no_source_player", nothing, "Hall", "Study A")
         await run("source_not_playing", nothing, "Kitchen", "Study A")
@@ -1955,3 +1957,297 @@ async def test_mf_silent_tripwire_quiet_with_one_success(rig, monkeypatch):
         await move(rig, "Garage B", "Laundry")
     res = await rig.mf.async_nightly_health_check()
     assert res["candidates"] == 3 and res["successes"] == 1 and fired == []
+
+
+# ===========================================================================
+# Review fix-up (v_music_following_repair_A.md / _B.md)
+# ===========================================================================
+
+
+def _stall_after(rig, service, entity):
+    """Wrap MusicFollowing._call: the named call LANDS (the speaker acts),
+    then the await stays open until the returned event is set. Models a
+    cancel delivered while a blocking service call is still in flight."""
+    gate = asyncio.Event()
+    entered = asyncio.Event()
+    real = rig.mf._call
+
+    async def _call(domain, svc, data=None, **kw):
+        ms = await real(domain, svc, data, **kw)
+        eid = (data or {}).get("entity_id")
+        if svc == service and eid == entity and not gate.is_set():
+            entered.set()
+            await gate.wait()
+        return ms
+
+    rig.mf._call = _call
+    return gate, entered
+
+
+@pytest.mark.asyncio
+async def test_mf_source_room_opted_out_never_moves_music_out(hass, mods):
+    """A-L2: the per-room switch covers both sides; music is not moved out
+    of a room whose Music Following is off."""
+    rooms = [("Garage B", "media_player.garage_b_3", "garage_b"),
+             ("Laundry", "media_player.utility_3", "utility")]
+    r = await _make_rig(hass, mods, rooms=rooms)
+    try:
+        for e in hass.config_entries.async_entries(DOMAIN):
+            if e.data.get("room_name") == "Garage B":
+                hass.config_entries.async_update_entry(
+                    e, data={**e.data, "music_following_enabled": False})
+        r.world.play("garage_b")
+        set_area(r, "Laundry")
+        assert await move(r, "Garage B", "Laundry") == "no_source_player"
+        assert r.mf._last_decision["reason"] == "source_room_opted_out"
+        assert r.world.calls == []
+    finally:
+        await r.mf.async_teardown()
+
+
+@pytest.mark.asyncio
+async def test_mf_room_player_by_area_id_not_name(rig):
+    """A-M2: the room's primary is found through the room entry's area_id
+    (device area), and ``media_player.<room>`` is never guessed."""
+    dev = rig.dr.async_get_or_create(
+        config_entry_id=rig.hass.config_entries.async_entries("wiim")[0].entry_id,
+        connections={("mac", "aa:bb:cc:dd:ee:77")})
+    rig.dr.async_update_device(dev.id, area_id="hall")
+    rig.er.async_get_or_create("media_player", "wiim", "u-odd", suggested_object_id="zz_odd_name",
+                               device_id=dev.id)
+    rig.world.speaker("hallspk", "media_player.zz_odd_name")
+    rig.world.speaker("decoy", "media_player.hall")            # name-shaped, no area
+    rig.world.play("kitchen")
+    set_area(rig, "Hall")
+    await move(rig, "Kitchen", "Hall")
+    assert rig.mf._last_decision["target_player"] == "media_player.zz_odd_name"
+    assert rig.world.state("decoy") == "idle"
+
+
+@pytest.mark.asyncio
+async def test_mf_hazard_stop_reaches_area_resolved_primary(hass, mods):
+    """A-M1: a room with no configured player whose speaker MF found by
+    area and started is stopped by a hazard; a TV is not."""
+    rooms = [("Garage B", "media_player.garage_b_3", "garage_b"),
+             ("Laundry", None, "utility")]
+    r = await _make_rig(hass, mods, rooms=rooms)
+    try:
+        r.mf.apply_config({"mf_follow_mode": "extend"})
+        r.world.play("garage_b")
+        r.world.play("tv", content="netflix")
+        set_area(r, "Laundry")
+        assert await move(r, "Garage B", "Laundry") == "success"
+        assert r.world.state("utility") == "playing"
+        assert "media_player.utility_3" not in r.mf.configured_players()
+        coord = mods.dc.MusicFollowingCoordinator(hass)
+        coord._music_following = r.mf
+        await coord._stop_all_playback()
+        await hass.async_block_till_done()
+        stopped = {c[2]["entity_id"][0] for c in r.world.services("media_player", "media_stop")}
+        assert "media_player.utility_3" in stopped
+        assert r.world.state("utility") == "idle"
+        assert r.world.state("tv") == "playing"
+    finally:
+        await r.mf.async_teardown()
+
+
+@pytest.mark.asyncio
+async def test_mf_hazard_cancels_inflight_and_blocks_new_moves(rig, mods):
+    """B2: a hazard while a move waits on verify cancels it (target taken
+    back, booked hazard_blocked), stops with the URA context, and refuses
+    the next room change."""
+    rig.world.play("garage_b", volume=0.45)
+    set_area(rig, "Laundry")
+    rig.clock.hold = True
+    fut = asyncio.ensure_future(
+        rig.mf._on_person_transition(T(rig, "Garage B", "Laundry", area="Laundry")))
+    assert await until(lambda: rig.clock.waiters)
+    assert rig.world.state("utility") == "playing"
+    coord = mods.dc.MusicFollowingCoordinator(rig.hass)
+    coord._music_following = rig.mf
+    await coord._stop_all_playback()
+    await fut
+    await rig.hass.async_block_till_done()
+    rig.clock.hold = False
+    rig.clock.release()
+    assert rig.mf._transfer_stats["hazard_blocked"] == 1
+    assert rig.world.state("utility") == "idle"
+    assert rig.world.state("garage_b") == "idle"
+    assert rig.world.volume("garage_b") == 0.45
+    assert all(_ura(rig, c) for c in rig.world.services("media_player", "media_stop"))
+    n_calls = len(rig.world.calls)
+    rig.world.play("garage_b")
+    assert await move(rig, "Garage B", "Laundry") == "hazard_blocked"
+    assert len(rig.world.calls) == n_calls
+
+
+@pytest.mark.asyncio
+async def test_mf_lock_released_before_verify_wait(rig):
+    """B1: person A's move waiting on verify does not hold the house lock;
+    person B's move reaches its own verify wait meanwhile."""
+    rig.world.play("garage_b")
+    rig.world.play("kitchen")
+    set_area(rig, "Laundry")
+    set_area(rig, "Study A", person="jaya")
+    rig.clock.hold = True
+    a = asyncio.ensure_future(
+        rig.mf._on_person_transition(T(rig, "Garage B", "Laundry", area="Laundry")))
+    assert await until(lambda: len(rig.clock.waiters) == 1)
+    b = asyncio.ensure_future(rig.mf._on_person_transition(
+        T(rig, "Kitchen", "Study A", person=PERSON2, area="Study A")))
+    assert await until(lambda: len(rig.clock.waiters) == 2)
+    rig.clock.hold = False
+    for _ in range(10):
+        rig.clock.release()
+        await asyncio.sleep(0)
+    await asyncio.gather(a, b)
+    await rig.mf.async_wait_idle()
+    assert rig.mf._transfer_stats["success"] == 2
+
+
+@pytest.mark.asyncio
+async def test_mf_saved_volume_survives_restart(rig, mods):
+    """B3: the pre-fade volume is persisted; a new MusicFollowing (the
+    process after a crash) puts it back on a speaker still at the fade
+    level, and leaves one turned up by hand alone."""
+    rig.world.play("garage_b", volume=0.45)
+    set_area(rig, "Laundry")
+    rig.clock.hold = True
+    fut = asyncio.ensure_future(
+        rig.mf._on_person_transition(T(rig, "Garage B", "Laundry", area="Laundry")))
+    assert await until(lambda: rig.clock.waiters)
+    assert rig.world.volume("garage_b") == 0.1
+    for _ in range(20):
+        await asyncio.sleep(0.01)
+    td2 = mods.trans.TransitionDetector(rig.hass, MagicMock(), MagicMock())
+    mf2 = mods.mf.MusicFollowing(rig.hass, {}, td2)
+    try:
+        assert await mf2.async_replay_saved_volumes() == 1
+        for _ in range(5):
+            await asyncio.sleep(0)
+        assert rig.world.volume("garage_b") == 0.45
+    finally:
+        await mf2.async_teardown()
+        rig.clock.hold = False
+        rig.clock.release()
+        await fut
+
+
+@pytest.mark.asyncio
+async def test_mf_restart_replay_leaves_hand_set_volume(rig, mods):
+    store = rig.mf._volumes_store()
+    await store.async_save({"volumes": {"media_player.garage_b_3": 0.45}})
+    rig.world.speakers["garage_b"].volume = 0.7
+    rig.world.push(rig.world.speakers["garage_b"])
+    td2 = mods.trans.TransitionDetector(rig.hass, MagicMock(), MagicMock())
+    mf2 = mods.mf.MusicFollowing(rig.hass, {}, td2)
+    try:
+        assert await mf2.async_replay_saved_volumes() == 0
+        assert rig.world.volume("garage_b") == 0.7
+        assert mf2._saved_volumes == {}
+    finally:
+        await mf2.async_teardown()
+
+
+@pytest.mark.asyncio
+async def test_mf_teardown_restores_orphan_saved_volume(rig):
+    """B4: a volume still saved with no live record (its cleanup was cut
+    short by a second cancel) is put back by teardown."""
+    rig.world.speakers["garage_b"].volume = 0.1
+    rig.world.push(rig.world.speakers["garage_b"])
+    rig.mf._saved_volumes["media_player.garage_b_3"] = 0.45
+    await rig.mf.async_teardown()
+    await rig.hass.async_block_till_done()
+    assert rig.world.volume("garage_b") == 0.45
+
+
+@pytest.mark.asyncio
+async def test_mf_bounce_during_source_stop_keeps_one_room_playing(rig):
+    """B5: the bounce back lands while the source stop is in flight (it
+    already took effect). The target is kept, and the next move brings the
+    music back: exactly one room plays, the person's."""
+    _bounce_knobs(rig)
+    rig.mf.apply_config({"mf_verify_delay": 0, "mf_release_delay": 0})
+    gate, entered = _stall_after(rig, "media_stop", "media_player.garage_b_3")
+    rig.world.play("garage_b", volume=0.5)
+    set_area(rig, "Laundry")
+    await rig.mf._on_person_transition(T(rig, "Garage B", "Laundry", area="Laundry"))
+    await asyncio.wait_for(entered.wait(), 2)
+    assert rig.world.state("garage_b") == "idle"
+    set_area(rig, "Garage B")
+    await rig.mf._on_person_transition(T(rig, "Laundry", "Garage B", area="Garage B"))
+    await rig.mf.async_wait_idle()
+    await rig.hass.async_block_till_done()
+    assert _one_room_playing(rig, ["garage_b", "utility"]) == ["garage_b"]
+
+
+@pytest.mark.asyncio
+async def test_mf_cancel_during_start_call_undoes_target(rig):
+    """B6: a bounce cancels the move while play_media is still awaited (it
+    already took effect): cleanup takes the target back."""
+    _bounce_knobs(rig)
+    gate, entered = _stall_after(rig, "play_media", "media_player.utility_3")
+    rig.world.play("garage_b", volume=0.5)
+    set_area(rig, "Laundry")
+    first = asyncio.ensure_future(
+        rig.mf._on_person_transition(T(rig, "Garage B", "Laundry", area="Laundry")))
+    await asyncio.wait_for(entered.wait(), 2)
+    assert rig.world.state("utility") == "playing"
+    set_area(rig, "Garage B")
+    second = asyncio.ensure_future(
+        rig.mf._on_person_transition(T(rig, "Laundry", "Garage B", area="Garage B")))
+    await asyncio.gather(first, second)
+    await rig.mf.async_wait_idle()
+    await rig.hass.async_block_till_done()
+    assert _one_room_playing(rig, ["garage_b", "utility"]) == ["garage_b"]
+
+
+@pytest.mark.asyncio
+async def test_mf_tripwire_counts_persisted_decisions_after_restart(dbrig, monkeypatch):
+    """B7: three failed candidates, then a restart empties the in-memory
+    window; the trip-wire still counts the persisted rows and fires."""
+    r = dbrig
+    fired = []
+
+    async def _fire(hass, kind, key, diagnosis, remedy="", **kw):
+        fired.append(kind)
+        return True
+
+    monkeypatch.setattr(r.mods.stuck, "fire_stuck_signal", _fire)
+    r.mf.apply_config({"mf_cooldown_seconds": 0})
+    for _ in range(3):
+        r.world.play("garage_b")
+        r.world.speakers["utility"].never_plays = True
+        set_area(r, "Laundry")
+        r.clock.t += 100
+        await move(r, "Garage B", "Laundry")
+    await _flush(r)
+    r.mf._recent_decisions.clear()                # the restart
+    res = await r.mf.async_nightly_health_check(r.db)
+    assert res["window_source"] == "db"
+    assert res["candidates"] == 3 and res["successes"] == 0
+    assert fired == ["music_follow_silent"]
+
+
+@pytest.mark.asyncio
+async def test_mf_parent_unload_tears_music_following_down(rig, mods, monkeypatch):
+    """B8: unloading the integration entry tears the MusicFollowing
+    singleton down before dropping it."""
+    calls = []
+    real = rig.mf.async_teardown
+
+    async def _spy():
+        calls.append(rig.hass.data[DOMAIN].get("music_following") is rig.mf)
+        await real()
+
+    rig.mf.async_teardown = _spy
+    entry = mods.MockConfigEntry(domain=DOMAIN, data={"entry_type": "integration"})
+    entry.add_to_hass(rig.hass)
+
+    async def _unload_platforms(*_a, **_k):
+        return True
+
+    monkeypatch.setattr(rig.hass.config_entries, "async_unload_platforms", _unload_platforms)
+    await mods.pkg.async_unload_entry(rig.hass, entry)
+    assert calls == [True]
+    assert "music_following" not in rig.hass.data[DOMAIN]
