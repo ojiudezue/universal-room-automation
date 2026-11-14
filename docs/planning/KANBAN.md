@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-13T19:17:38-06:00_ - _Data commit: `5f1082238256`_ - _last_reconciled: 2026-11-13_
+_Generated: 2026-11-13T19:18:02-06:00_ - _Data commit: `3e17310a5a4f`_ - _last_reconciled: 2026-11-13_
 
 
 ## Columns
@@ -10,7 +10,7 @@ _Generated: 2026-11-13T19:17:38-06:00_ - _Data commit: `5f1082238256`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 15 |
-| 🔬 Investigating | 3 |
+| 🔬 Investigating | 4 |
 | 🧭 Pre-planning | 14 |
 | 📝 Planned | 33 |
 | 🔨 In progress | 4 |
@@ -176,10 +176,19 @@ _created 2026-11-12 14:13 · initial_
 - **Forensic keys (1):**
   - `tier`: 1
 
-## 🔬 Investigating (3)
+## 🔬 Investigating (4)
 _measuring; truth not yet known_
 
-### `AUDIT-ROOM-AI-AUTOMATION-CHAINING-MUSIC-1` - Audit room AI automation, automation chaining and music following (old, rarely exercised) - correctness, HA currency, test coverage, observability/config — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `OC-AI-TASK-LEVERAGE-1` - Investigate whether better use of HA AI Task (model choice, structured output, context) would make the Optimization Coordinator succeed where it keeps failing — _#1 · WSJF 3.2 · v7 tc4 u2 /e4_
+status: **investigating**
+- **Origin:** 2026-11-13 - Operator question during the room AI rules work.
+- **Why:** OC already calls ai_task.generate_data (v4.7.35 LLM tier-2, const.py:5422-5531; default entity ai_task.claude_ai_task, const.py:5459). That Claude AI Task subentry runs claude-haiku-4-5, max_tokens 4096, thinking_budget 1024 (live config...
+- **Next:** Me: read-only investigation: list where OC fails (findings noise, eval transcripts, LLM call errors and cost from logs/DB), which failures are model-limited vs input/context-limited vs design-limited; compare Haiku 4.5 vs a current Sonne...
+- **Forensic keys (2):**
+  - `tier`: 2
+  - `operator_2026_11_13`: Btw should we use Ai task to make the OC better? We keep failing? Card an investigation.
+
+### `AUDIT-ROOM-AI-AUTOMATION-CHAINING-MUSIC-1` - Audit room AI automation, automation chaining and music following (old, rarely exercised) - correctness, HA currency, test coverage, observability/config — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 status: **investigating**
 - **Origin:** 2026-11-13 - Operator request, not urgent, use a free slot.
 - **Why:** Surfaces: automation.py, music_following.py, domain_coordinators music coordinator; tests test_ai_automation.py, test_automation_chaining.py, test_music_following*.py, test_v5100_music_following.py; prior docs PLANNING_v3.10.0_AI_AUTOMAT...
@@ -192,7 +201,7 @@ status: **investigating**
   - `operator_2026_11_13_decision`: We will fix the AI automation and the AI training and music following. We will not retire them. The reason they're not exercised is because I don't trust them yet, and the entire point is to build it so I can trust it. Also, music follow...
   - `operator_2026_11_13_reimagine`: Part of what we have to do is to figure if we can improve and simplify those three features. Not just audit them, but look for actual opportunities to improve them, build them in a way that is, find opportunities for reimagining what's p...
 
-### `PERIMETER-FP-GATES-DISPOSE-1` - Perimeter false-positive gates D3/D5 shipped shadow-first but D3 can never evaluate (zone sensors never configured) and no shadow counts are kept; no disposal date — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `PERIMETER-FP-GATES-DISPOSE-1` - Perimeter false-positive gates D3/D5 shipped shadow-first but D3 can never evaluate (zone sensors never configured) and no shadow counts are kept; no disposal date — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **perimeter** - status: **investigating**
 _created 2026-11-12 22:55_
 - **Origin:** 2026-11-12 - Operator asked why the gates are off. AUDIT_garage_hallway_lock_and_perimeter_gates_2026_11_12.md.
@@ -202,7 +211,7 @@ _created 2026-11-12 22:55_
   - `arc_cut_v5_108_17`: separate investigation, not notification code
   - `tier`: 2
 
-### `VISION-CROSSING-ANALYSIS-1` - AI vision of each crossing (fast 3-frame sample + batched time-lapse along the camera chain) as a counting and description input, fused with Frigate/Protect counts — _#3 · WSJF 1.9 · v9 tc4 u2 /e8_
+### `VISION-CROSSING-ANALYSIS-1` - AI vision of each crossing (fast 3-frame sample + batched time-lapse along the camera chain) as a counting and description input, fused with Frigate/Protect counts — _#4 · WSJF 1.9 · v9 tc4 u2 /e8_
 thread: **identity** - status: **investigating**
 _created 2026-11-12 22:00_
 - **Origin:** 2026-11-12 - Operator: watch arrivals with AI vision; time-lapse; fast first frames; counting is easy, naming is hard; guests are the census problem; OpenAI models (GPT-6 Luna/Sol); deconflict with camera counts until trusted (100 crossi...
