@@ -1,5 +1,8 @@
 # DESIGN: reimagine room AI rules, automation chaining and music following
 
+> SUPERSEDED for delivery by the two PLANNING docs (operator 2026-11-13: no shadow mode); kept as design history,
+> NOT A BUILD SPEC. See `PLANNING_music_following_repair.md` and `PLANNING_unified_room_rules.md`.
+
 Design exploration, not a build plan. Cards: AI-ROOM-RULES-TRUST-REPAIR-1, MUSIC-FOLLOWING-TRANSFER-REPAIR-1,
 PERSON-PROFILE-PREFERENCES-1, parent AUDIT-ROOM-AI-AUTOMATION-CHAINING-MUSIC-1. Written 2026-11-13 by ura-planner.
 Source of facts: `AUDIT_room_ai_automation_chaining_music_2026_11_13.md` (the audit). Findings H1-H5, M1-M6, L1-L6
