@@ -39,7 +39,7 @@ def _scan(sources):
 
 
 def _problems(sources):
-    return E.compare(_scan(sources), A.ROWS, _listed(), A.LAYER_ALLOWLIST_TOTAL_PROVISIONAL)
+    return E.compare(_scan(sources), A.ROWS, _listed(), A.LAYER_ALLOWLIST_TOTAL)
 
 
 def _listed():
@@ -59,16 +59,87 @@ def test_allowlist_is_provisional_until_census_p2():
     """Scaffolding marker: the FINAL allowlist and LAYER_ALLOWLIST_TOTAL are
     produced on the post-census-p2 tree (plan §5 D7, §11). Flip with that run."""
     assert A.PROVISIONAL is True
-    assert A.LAYER_ALLOWLIST_TOTAL_PROVISIONAL == sum(r["max"] for r in A.ROWS.values())
+    assert A.LAYER_ALLOWLIST_TOTAL == sum(r["max"] for r in A.ROWS.values())
 
 
 @pytest.mark.xfail(strict=True, reason=(
-    "STOP for the orchestrator: rows the plan's sizing and §9 do not explain "
-    "(group UNEXPLAINED in the provisional allowlist). Plan §5 D7: never pasted "
-    "in. Flips to XPASS (strict -> red) once every row is ruled on."))
+    "STOP for the orchestrator: after the plan rev 3.3 §17 rulings, 6 R2 rows "
+    "remain unruled (lifecycle callees outside §5 D7's named list: "
+    "register_ble_transition_listeners, async_register_frigate_face_listener, "
+    "async_load_fleet_memory, async_cancel_pending_backfill_tasks, "
+    "async_teardown_ble_transition_listeners, async_teardown_frigate_face_listener). "
+    "Flips to XPASS (strict -> red) once they are ruled."))
 def test_provisional_rows_all_explained():
     unexplained = sorted(k for k, r in A.ROWS.items() if not r["explained"])
     assert unexplained == []
+
+
+def test_residency_shim_removed_once_census_p2_lands():
+    """Plan rev 3.3 §16: the residency channel value shim goes when census-p2
+    puts SIGNAL_RESIDENCY_EVENT on the tree."""
+    _hits, h = E.scan_tree(_real_tree())
+    if "SIGNAL_RESIDENCY_EVENT" in h.consts:
+        assert E.CHANNEL_FALLBACK_VALUES == {}, "remove the census-p2 residency shim"
+    else:
+        assert E.CHANNEL_FALLBACK_VALUES == {"SIGNAL_RESIDENCY_EVENT": "ura_residency_event"}
+
+
+# ---------------------------------- rev 3.3 tightenings: negative + positive
+_P = ("def f(manager):\n    presence = manager.coordinators['presence']\n")
+_PRES_EXTRA = {"domain_coordinators/presence.py": (
+    "class PresenceCoordinator:\n"
+    "    def __init__(self):\n"
+    "        self._census_count = 0\n"
+    "        self._boot_settle_done = False\n"
+    "    def tracker_for_room(self, r): return None\n"
+    "    def get_ble_occupants(self, r): return []\n"
+    "    def get_house_census(self, view='trust'):\n"
+    "        return house_census_view(self.hass, view)\n")}
+
+TIGHTEN = [
+    # (name, negative snippet (no hit), positive snippet (same shape, person fact), rule)
+    ("non_person_private",
+     _P + "    return presence._boot_settle_done\n",
+     _P + "    return presence._census_count\n", "R1"),
+    ("non_person_public",
+     _P + "    return presence.tracker_for_room('r')\n",
+     _P + "    return presence.get_ble_occupants('r')\n", "R2"),
+    ("non_member_receiver",
+     "def f(hass):\n    cm = hass.data['d'].get('camera_manager')\n    return cm._census_count\n",
+     "def f(hass):\n    cm = hass.data['d'].get('person_coordinator')\n    return cm._census_count\n", "R1"),
+    ("r3_membership_only",
+     "def f(hass, p):\n    known = {s.entity_id for s in hass.states.async_all('person')}\n"
+     "    return p in known\n",
+     "def f(hass, p):\n    known = [s for s in hass.states.async_all('person')]\n"
+     "    return known[0].state\n", "R3"),
+    ("r3_actor_identity",
+     "def f(hass, uid):\n    for s in hass.states.async_all('person'):\n"
+     "        if s.attributes.get('user_id') == uid:\n            return s.entity_id\n",
+     "def f(hass, uid):\n    for s in hass.states.async_all('person'):\n"
+     "        if s.attributes.get('source') == uid:\n            return s.entity_id\n", "R3"),
+    ("fleet_health_listener",
+     "def f(hass, cb):\n    async_track_state_change_event(hass, ['sensor.bermuda_global_total_device_count'], cb)\n",
+     "def f(hass, cb):\n    async_track_state_change_event(hass, ['sensor.bermuda_oji_area'], cb)\n", "R9"),
+    ("lifecycle_callee",
+     "def async_setup_entry(hass):\n    pc = hass.data['d']['person_coordinator']\n    pc.async_setup()\n",
+     "def async_setup_entry(hass):\n    pc = hass.data['d']['person_coordinator']\n"
+     "    return pc.get_persons_in_room('k')\n", "R2"),
+]
+
+
+@pytest.mark.parametrize("name, neg, pos, rule", TIGHTEN, ids=[t[0] for t in TIGHTEN])
+def test_tightening_negative_and_positive(name, neg, pos, rule):
+    assert rule not in _rules(neg, extra=_PRES_EXTRA), (name, _snippet_hits(neg, extra=_PRES_EXTRA))
+    assert rule in _rules(pos, extra=_PRES_EXTRA), (name, _snippet_hits(pos, extra=_PRES_EXTRA))
+
+
+def test_r5_owner_delegate_exempt_but_other_presence_method_hits():
+    rel = "domain_coordinators/presence.py"
+    src = _PRES_EXTRA[rel]
+    assert not [h for h in _snippet_hits(src, rel=rel) if h[0] == "R5"]
+    bad = src + "    def other(self, view):\n        return house_census_view(self.hass, view)\n"
+    assert ("R5", "PresenceCoordinator.other:house_census_view(view:view_not_trust)",
+            "view_not_trust") in _snippet_hits(bad, rel=rel)
 
 
 @pytest.mark.parametrize("rule, floor", [
@@ -114,7 +185,8 @@ _MEMBERS = {
         "    def get_person_location(self, name): return None\n"
         "    def get_persons_in_room(self, room): return []\n"
         "    def set_pre_arrival_enabled(self, v): self._pre_arrival_enabled = v\n"
-        "    def async_add_listener(self, cb): return lambda: None\n"),
+        "    def async_add_listener(self, cb): return lambda: None\n"
+        "    def async_setup(self): return None\n"),
     "domain_coordinators/presence.py": (
         "class PresenceCoordinator:\n"
         "    def __init__(self):\n"
@@ -347,13 +419,13 @@ def test_ratchet_removed_hit_without_lowering_total_is_red():
     needle = 'person_entity = f"person.{mapped}"'
     assert src.count(needle) == 1
     tree[rel] = src.replace(needle, "person_entity = tracked_person_entity_id(mapped)")
-    probs = E.compare(_scan(tree), A.ROWS, _listed(), A.LAYER_ALLOWLIST_TOTAL_PROVISIONAL)
+    probs = E.compare(_scan(tree), A.ROWS, _listed(), A.LAYER_ALLOWLIST_TOTAL)
     assert any(p.startswith("stale row ('R12', 'person_sighting.py'") for p in probs), probs
     rows = {k: v for k, v in A.ROWS.items()
             if k != ("R12", "person_sighting.py", "PersonSightingProducer._emit:fstring")}
-    probs2 = E.compare(_scan(tree), rows, _listed(), A.LAYER_ALLOWLIST_TOTAL_PROVISIONAL)
+    probs2 = E.compare(_scan(tree), rows, _listed(), A.LAYER_ALLOWLIST_TOTAL)
     assert any("!= LAYER_ALLOWLIST_TOTAL" in p for p in probs2), probs2
-    probs3 = E.compare(_scan(tree), rows, _listed(), A.LAYER_ALLOWLIST_TOTAL_PROVISIONAL - 1)
+    probs3 = E.compare(_scan(tree), rows, _listed(), A.LAYER_ALLOWLIST_TOTAL - 1)
     assert probs3 == [], probs3
 
 
@@ -365,7 +437,7 @@ def test_injected_leak_on_copied_clean_module_is_red():
         "\n\ndef _leak(hass):\n"
         "    pc = hass.data['universal_room_automation']['person_coordinator']\n"
         "    return pc._is_room_occupied('x')\n")
-    probs = E.compare(_scan(tree), A.ROWS, _listed(), A.LAYER_ALLOWLIST_TOTAL_PROVISIONAL)
+    probs = E.compare(_scan(tree), A.ROWS, _listed(), A.LAYER_ALLOWLIST_TOTAL)
     assert any(p.startswith("unlisted ('R1', 'census_view.py', '_leak:_is_room_occupied')")
                for p in probs), probs
 
@@ -451,5 +523,5 @@ def test_guard_red_on_reverted_site(case):
     count = src.count(new)
     assert count >= 1, (case, "anchor not found")
     tree[rel] = src.replace(new, old, 1)
-    probs = E.compare(_scan(tree), A.ROWS, _listed(), A.LAYER_ALLOWLIST_TOTAL_PROVISIONAL)
+    probs = E.compare(_scan(tree), A.ROWS, _listed(), A.LAYER_ALLOWLIST_TOTAL)
     assert probs, case

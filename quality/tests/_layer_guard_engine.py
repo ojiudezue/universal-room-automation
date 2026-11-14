@@ -76,6 +76,10 @@ READ_LIST: dict[str, frozenset[str]] = {
         "persons_in_room_or_scanner_areas", "location_moves_since",
         "location_moves_truncated_since", "async_add_listener", "get_zone_occupants",
         "get_bermuda_resolve_stats",
+        # Plan rev 3.3 §12 / §17 (b): public reads ruled legitimate.
+        "get_person_confidence", "get_persons_in_zone", "get_tracked_person_count",
+        "get_person_previous_location", "get_person_previous_location_time",
+        "get_diagnostic_data", "should_veto_due_to_reliable_signals",
     }),
     "PRESENCE": frozenset({
         "get_residents_home", "get_residents_home_count", "get_recent_resident_arrival",
@@ -85,6 +89,8 @@ READ_LIST: dict[str, frozenset[str]] = {
         "get_last_arrival_record", "door_camera_device_ids", "door_entry_entities",
         "door_neighbours_for_stem", "get_last_person_sighting", "get_last_person_sightings",
         "get_layer_diagnostics",
+        # Plan rev 3.3 §12 / §17 (b).
+        "should_veto_due_to_reliable_signals", "check_zone_occupancy_confidence",
     }),
     "EGRESS": frozenset({
         "get_last_crossing", "get_crossings_since", "get_crossing",
@@ -117,8 +123,10 @@ CHANNEL_LITERALS: dict[str, tuple[str, str | None]] = {
     "ura_person_egress_event": ("transit_validator.py", "EgressDirectionTracker._resolve_direction"),
     "ura_person_location_change": ("person_coordinator.py", "PersonTrackingCoordinator._async_update_data"),
 }
-# Verified value of the census-p2 channel when the constant is not on the tree
-# yet (feature/census-deconfliction-p2-ledger @ 1f9e7981, signals.py:244).
+# TEMPORARY SHIM (plan rev 3.3 §16): verified value of the census-p2 channel
+# while the constant is not on the tree (feature/census-deconfliction-p2-ledger
+# @ 1f9e7981, signals.py:244). REMOVE when census-p2 lands on develop
+# (test_residency_shim_removed_once_census_p2_lands enforces it).
 CHANNEL_FALLBACK_VALUES = {"SIGNAL_RESIDENCY_EVENT": "ura_residency_event"}
 
 R13_CALLEES = frozenset({
@@ -155,13 +163,26 @@ R2_STORE_OWNERS: dict[str, tuple[str, ...]] = {
     "_camera_sightings": ("transit_validator.py",),
 }
 R2_PRIVATE_STORES = frozenset({"_last_sightings", "_camera_sightings"})
-# Integration lifecycle wiring is not a person-awareness read (interpretation,
-# recorded in the builder report): setup / init / teardown / listener
-# (un)registration / persisted-memory load calls on a member are exempt.
-R2_LIFECYCLE_PREFIXES = (
-    "async_setup", "async_init", "async_teardown", "async_register", "register_",
-    "async_load", "async_cancel", "async_start", "async_unload",
-)
+# Plan rev 3.3 §5 D7 (ruled 4d337e44): lifecycle callees only, by name; a
+# person-fact read during setup still counts.
+R2_LIFECYCLE_EXACT = frozenset({"async_init", "async_teardown", "async_shutdown", "rebind"})
+R2_LIFECYCLE_PREFIXES = ("async_setup", "async_unload")
+
+
+def _is_lifecycle(name: str) -> bool:
+    return name in R2_LIFECYCLE_EXACT or name.startswith(R2_LIFECYCLE_PREFIXES)
+
+
+# Plan rev 3.3 §5 D7: member names that answer no F1-F5 fact.
+LAYER_NON_PERSON_PRIVATES = frozenset({"_boot_settle_done"})
+LAYER_NON_PERSON_PUBLIC = frozenset({
+    "tracker_for_room", "get_fan_last_transition", "is_room_mmwave_fan_demoted",
+    "set_fan_interference_hold_s", "set_house_state_override", "get_house_state_override",
+    "get_house_occupancy", "get_next_state_prediction", "is_room_direct_ble", "get_ble_tier",
+    "path_map_status", "get_stuck_cameras",
+})
+# R3 (iii) / R9: Bermuda fleet-health entities are not per-person.
+FLEET_HEALTH_PREFIX = "sensor.bermuda_global"
 # R9: the ONE person.* listener (presence geofence edges) and the ledger.
 R9_OWNERS = {
     "domain_coordinators/presence.py": ("PresenceCoordinator._subscribe_geofence",
@@ -169,6 +190,71 @@ R9_OWNERS = {
                                          "PresenceCoordinator._handle_person_added"),
     "domain_coordinators/residency.py": ("ResidencyTracker",),
 }
+
+
+def _nonmember_source(e) -> bool:
+    """``hass.data[...]["k"]`` / ``.get("k")`` with a key that is not a layer
+    member key (``camera_manager`` ...)."""
+    k = None
+    if isinstance(e, ast.Subscript):
+        k = _str_const(e.slice)
+    elif isinstance(e, ast.Call) and isinstance(e.func, ast.Attribute) and e.func.attr == "get" and e.args:
+        k = _str_const(e.args[0])
+    elif isinstance(e, ast.BoolOp):
+        return any(_nonmember_source(v) for v in e.values)
+    if k is None or k in HDATA_KEYS or k == PRESENCE_KEY:
+        return False
+    return "data" in _receiver_text(e.value if isinstance(e, ast.Subscript) else e.func.value)
+
+
+def _r3_membership_only(call, func) -> bool:
+    """R3 (i): the person read yields ids only (``async_entity_ids``, or a
+    comprehension whose element is ``x.entity_id``) and the result is used only
+    for ``in`` / ``not in`` membership or returned (a picker)."""
+    if func is None:
+        return False
+    target = None
+    for st in ast.walk(func):
+        if isinstance(st, ast.Assign) and any(c is call for c in ast.walk(st.value)):
+            v = st.value
+            ids_only = (v is call and _call_name(call) == "async_entity_ids") or (
+                isinstance(v, (ast.SetComp, ast.ListComp)) and isinstance(v.elt, ast.Attribute)
+                and v.elt.attr == "entity_id" and any(g.iter is call for g in v.generators))
+            if ids_only and len(st.targets) == 1 and isinstance(st.targets[0], ast.Name):
+                target = st.targets[0].id
+            break
+        if isinstance(st, ast.Return) and st.value is not None and any(c is call for c in ast.walk(st.value)):
+            return _call_name(call) == "async_entity_ids" or (
+                isinstance(st.value, (ast.SetComp, ast.ListComp)) and isinstance(st.value.elt, ast.Attribute)
+                and st.value.elt.attr == "entity_id")
+    if target is None:
+        return False
+    for n in ast.walk(func):
+        if isinstance(n, ast.Name) and n.id == target and isinstance(n.ctx, ast.Load):
+            parent_ok = False
+            for c in ast.walk(func):
+                if isinstance(c, ast.Compare) and any(isinstance(op, (ast.In, ast.NotIn)) for op in c.ops) \
+                        and any(x is n for x in c.comparators):
+                    parent_ok = True
+                if isinstance(c, ast.Return) and c.value is n:
+                    parent_ok = True
+            if not parent_ok:
+                return False
+    return True
+
+
+def _r3_actor_identity(func) -> bool:
+    """R3 (ii): the function filters person states on ``attributes["user_id"]``."""
+    if func is None:
+        return False
+    return any(isinstance(c, ast.Constant) and c.value == "user_id" for c in ast.walk(func))
+
+
+R5_OWNER_DELEGATES = {"domain_coordinators/presence.py": ("PresenceCoordinator.get_house_census",)}
+
+
+def _r5_owner_delegate(rel: str, qual: str) -> bool:
+    return qual in R5_OWNER_DELEGATES.get(rel, ())
 
 
 def _is_values_iter(e) -> bool:
@@ -356,7 +442,7 @@ def harvest(trees: dict[str, ast.Module]) -> Harvest:
                 continue
             private, public = _class_names(n)
             if MEMBER_CLASSES.get(n.name) == rel:
-                h.private_by_class[n.name] = private
+                h.private_by_class[n.name] = private - LAYER_NON_PERSON_PRIVATES
                 kind = KIND_OF_CLASS.get(n.name)
                 if kind:
                     h.public_by_kind.setdefault(kind, set()).update(public)
@@ -420,7 +506,16 @@ class Binder:
     def __init__(self, tree: ast.Module):
         self.local: dict[int, dict[str, str]] = {}
         self.self_attrs: dict[str, str] = {}
+        self.nonmember_local: dict[int, set[str]] = {}
+        self.nonmember_attrs: set[str] = set()
         for node, _q, func in iter_scoped(tree):
+            if isinstance(node, ast.Assign) and _nonmember_source(node.value):
+                for t in node.targets:
+                    if isinstance(t, ast.Name):
+                        self.nonmember_local.setdefault(id(func), set()).add(t.id)
+                    elif isinstance(t, ast.Attribute) and isinstance(t.value, ast.Name) \
+                            and t.value.id == "self":
+                        self.nonmember_attrs.add(t.attr)
             if isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
                 targets = node.targets if isinstance(node, ast.Assign) else [node.target]
                 value = node.value
@@ -437,6 +532,16 @@ class Binder:
                     elif isinstance(t, ast.Attribute) and isinstance(t.value, ast.Name) \
                             and t.value.id == "self":
                         self.self_attrs[t.attr] = kind
+
+    def nonmember(self, expr, func) -> bool:
+        """The receiver is bound (by value, one hop) to a NON-member object
+        from hass.data (e.g. ``camera_manager``): R1 does not count it."""
+        if isinstance(expr, ast.Name):
+            return expr.id in self.nonmember_local.get(id(func), set())
+        if isinstance(expr, ast.Attribute) and isinstance(expr.value, ast.Name) \
+                and expr.value.id == "self":
+            return expr.attr in self.nonmember_attrs
+        return _nonmember_source(expr)
 
     def kind(self, expr, func) -> str | None:
         k = _hdata_key_kind(expr)
@@ -537,6 +642,8 @@ class Taint:
                 break
 
     def const(self, s: str) -> bool:
+        if s.startswith(FLEET_HEALTH_PREFIX):
+            return False  # R3 (iii): fleet health, not a person
         return s.startswith(PERSON_PREFIXES) or "states.person" in s \
             or "is_state('person." in s or 'is_state("person.' in s
 
@@ -813,7 +920,8 @@ def scan_module(rel: str, tree: ast.Module, h: Harvest) -> list[Hit]:
         if isinstance(node, ast.Attribute) and node.attr in foreign_private and id(node) not in r7_nodes \
                 and node.attr not in R2_PRIVATE_STORES:
             recv = node.value
-            if not (isinstance(recv, ast.Name) and recv.id in ("self", "cls")):
+            if not (isinstance(recv, ast.Name) and recv.id in ("self", "cls")) \
+                    and not binder.nonmember(recv, func):
                 add("R1", qual, node.attr, node, r1_kind(node.attr, recv, func))
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) \
                 and node.func.id in ("getattr", "hasattr", "setattr", "delattr") \
@@ -821,7 +929,8 @@ def scan_module(rel: str, tree: ast.Module, h: Harvest) -> list[Hit]:
             s = _str_const(node.args[1])
             if s in foreign_private:
                 recv = node.args[0]
-                if not (isinstance(recv, ast.Name) and recv.id in ("self", "cls")):
+                if not (isinstance(recv, ast.Name) and recv.id in ("self", "cls")) \
+                        and not binder.nonmember(recv, func):
                     add("R1", qual, s, node, r1_kind(s, recv, func))
         if not member:
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "vars" \
@@ -856,7 +965,7 @@ def scan_module(rel: str, tree: ast.Module, h: Harvest) -> list[Hit]:
                         and name in h.public_by_kind[kind] \
                         and name not in READ_LIST.get(kind, frozenset()) \
                         and name not in R13_CALLEES and name != "async_add_listener" \
-                        and not name.startswith(R2_LIFECYCLE_PREFIXES):
+                        and name not in LAYER_NON_PERSON_PUBLIC and not _is_lifecycle(name):
                     add("R2", qual, name, node)
 
         # ---------------- R3 raw person-entity reads: every taint source in a
@@ -874,7 +983,8 @@ def scan_module(rel: str, tree: ast.Module, h: Harvest) -> list[Hit]:
                         or _is_ura_uid_call(a0)):
                     add("R3", qual, "states.get(ura_entity)", node, "ura_entity")
             elif not member and name in ("async_all", "async_entity_ids") and node.args \
-                    and _str_const(node.args[0]) == "person":
+                    and _str_const(node.args[0]) == "person" \
+                    and not _r3_membership_only(node, func) and not _r3_actor_identity(func):
                 add("R3", qual, name, node)
             elif not member and name in ("Template", "async_track_template_result") and node.args \
                     and any(taint.expr(a, func) for a in node.args[:2]):
@@ -936,7 +1046,7 @@ def scan_module(rel: str, tree: ast.Module, h: Harvest) -> list[Hit]:
                     view_pos = node.args[1]
                 elif name == "get_house_census" and node.args:
                     view_pos = node.args[0]
-                if view_pos is not None:
+                if view_pos is not None and not _r5_owner_delegate(rel, qual):
                     s = _str_const(view_pos)
                     vkind = "literal_view" if s == "trust" else "view_not_trust"
                     add("R5", qual, f"{name}(view:{vkind})", node, vkind)
