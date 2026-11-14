@@ -1,0 +1,457 @@
+"""Crossing ledger wiring (PLANNING_crossing_vision.md P2-D3).
+
+Same REAL rig as test_crossing_vision_shadow (real HA core, real bus /
+dispatcher / timers, real UniversalRoomDatabase, llmvision stubbed at the
+service boundary). Ledger rows are read back from memory_episodes. Each
+test drives the producer method that CONTAINS the wiring (egress listener,
+_run, the eval tick, the dispatcher listeners), never a helper alone.
+"""
+from __future__ import annotations
+
+import asyncio
+import json
+import sqlite3
+from datetime import timedelta
+from types import SimpleNamespace
+
+import pytest
+
+from test_crossing_vision_shadow import (  # noqa: F401 — fixture + helper reuse
+    FRONT_EGRESS,
+    GARAGE_EGRESS,
+    _ok_reply,
+    _now,
+    cross,
+    ended_crossing,
+    frigate,
+    hass,
+    mods,
+    rig,
+    rows,
+    settle,
+)
+
+
+def ledger_rows(rig):
+    conn = sqlite3.connect(rig.db.db_file)
+    try:
+        return [
+            {"node": n, "src": s, **json.loads(a)}
+            for n, a, s in conn.execute(
+                "SELECT node_id, attrs_json, source_ref FROM memory_episodes "
+                "WHERE episode_type = ? ORDER BY id",
+                ("crossing_vision_ledger",),
+            )
+        ]
+    finally:
+        conn.close()
+
+
+def terms(rig):
+    return [r for r in ledger_rows(rig) if r["kind"] == "term"]
+
+
+async def make_known(rig, R=1):
+    """Ledger known with L = R through the REAL census_tick + eval tick
+    (window 0 for the instant anchor)."""
+    rig.cv._ledger.empty_reset_s = 0
+    assert rig.cv.census_tick(resident_term=R, camera_bodies=0,
+                              camera_input_dark=False) == (None, True)
+    rig.cv._on_ledger_eval(None)
+    await settle(rig)
+    rig.cv._ledger.empty_reset_s = 10 ** 9  # no further anchor in the test
+    # The anchor is dated an hour back so the test crossings (E = now -
+    # 45 s .. -300 s) are not "late" terms.
+    rig.cv._ledger.last_anchor_ts -= 3600
+    assert rig.cv.ledger_state == "known" and rig.cv._ledger.L == R
+
+
+async def flush(rig):
+    rig.cv._on_ledger_eval(None)
+    await settle(rig)
+
+
+def _applied(rig):
+    return [(t["direction"], t["n"], t["term_source"]) for t in terms(rig)
+            if t["applied"]]
+
+
+# ------------------------------------------------- every outcome -> a term
+OUTCOME_CASES = {
+    "ok": ("reply", _ok_reply(frames=(1, 3, 1, 0), total=3), ("entry", 3, "vision")),
+    "blank": ("reply", _ok_reply(frames=(0, 0, 0, 0), total=0), ("entry", 2, "camera")),
+    "unparseable": ("reply", {"response_text": "not json"}, ("entry", 2, "camera")),
+    "refused": ("reply", {"structured_response": {}}, ("entry", 2, "camera")),
+    "error": ("reply", RuntimeError("provider down"), ("entry", 2, "camera")),
+    "no_frigate_event": ("no_event", None, ("entry", 2, "camera")),
+    "skipped_cap": ("cap", None, ("entry", 2, "camera")),
+    "no_clip_url": ("no_clip", None, ("entry", 2, "camera")),
+}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case", sorted(OUTCOME_CASES))
+async def test_every_outcome_yields_one_term_or_documented_none(rig, case):
+    kind, reply, expected = OUTCOME_CASES[case]
+    await make_known(rig, R=1)
+    if kind == "reply":
+        rig.llm.reply = reply
+        await ended_crossing(rig, f"ev-{case}", peak=2)
+    elif kind == "no_event":
+        await cross(rig, GARAGE_EGRESS, _now(rig) - timedelta(seconds=45), peak=2)
+        await settle(rig)
+    elif kind == "cap":
+        rig.hass.data[rig.C.DOMAIN][rig.C.CROSSING_VISION_CAP_HASS_KEY] = 1
+        rig.cv._calls_today = 1
+        await ended_crossing(rig, "ev-cap", peak=2)
+    else:  # no_clip: an unsafe event id -> no clip reference
+        await ended_crossing(rig, "ev/../bad", peak=2)
+    await flush(rig)
+    assert [r["outcome"] for r in rows(rig)] == [case]
+    assert _applied(rig) == [expected]
+    assert rig.cv._ledger.L == 1 + expected[1]
+
+
+@pytest.mark.asyncio
+async def test_skipped_busy_yields_camera_term(rig):
+    rig.monkeypatch.setattr(rig.C, "CROSSING_VISION_MAX_CONCURRENT", 1)
+    await make_known(rig, R=0)
+    e = _now(rig) - timedelta(seconds=45)
+    frigate(rig, "ev-open", "garage_a", e.timestamp() + 1)
+    await cross(rig, GARAGE_EGRESS, e, peak=1)
+    frigate(rig, "ev-front", "front_door_aerial", e.timestamp() + 2, typ="end",
+            end=e.timestamp() + 9)
+    await cross(rig, FRONT_EGRESS, e + timedelta(seconds=1), direction="exit", peak=3)
+    await settle(rig)
+    await flush(rig)
+    assert [r["outcome"] for r in rows(rig)] == ["skipped_busy"]
+    assert _applied(rig) == [("exit", 3, "camera")]
+
+
+@pytest.mark.asyncio
+async def test_cluster_folds_into_primary_term(rig):
+    """Two same-direction crossings sharing one call: ONE term with the
+    vision count; the clustered member adds none."""
+    await make_known(rig, R=0)
+    e = _now(rig) - timedelta(seconds=45)
+    s = e.timestamp() + 1
+    rig.llm.reply = _ok_reply(frames=(1, 2, 2, 0), total=2)
+    frigate(rig, "ev-cl", "garage_a", s)
+    k1 = await cross(rig, GARAGE_EGRESS, e, peak=1)
+    await cross(rig, "binary_sensor.doorbell_lite_person_occupancy",
+                e + timedelta(seconds=20), peak=1)
+    frigate(rig, "ev-cl", "garage_a", s, typ="end", end=s + 30)
+    await settle(rig)
+    await flush(rig)
+    [t] = [t for t in terms(rig) if t["applied"]]
+    assert (t["crossing_key"], t["n"], t["term_source"]) == (k1, 2, "vision")
+    assert rig.cv._ledger.L == 2
+
+
+@pytest.mark.asyncio
+async def test_cluster_mixed_direction_per_member_camera_terms(rig):
+    await make_known(rig, R=0)
+    e = _now(rig) - timedelta(seconds=45)
+    s = e.timestamp() + 1
+    frigate(rig, "ev-mix", "garage_a", s)
+    await cross(rig, GARAGE_EGRESS, e, peak=2)
+    await cross(rig, "binary_sensor.doorbell_lite_person_occupancy",
+                e + timedelta(seconds=20), direction="exit", peak=1)
+    frigate(rig, "ev-mix", "garage_a", s, typ="end", end=s + 30)
+    await settle(rig)
+    await flush(rig)
+    assert sorted(_applied(rig)) == [("entry", 2, "camera"), ("exit", 1, "camera")]
+    assert rig.cv._ledger.L == 1
+
+
+@pytest.mark.asyncio
+async def test_late_joiner_other_direction_gets_own_term(rig):
+    await make_known(rig, R=0)
+    k1 = await ended_crossing(rig, "ev-done", peak=1)
+    e1 = rig.cv._requests[0].e_ts
+    await cross(rig, "binary_sensor.doorbell_lite_person_occupancy",
+                e1 + timedelta(seconds=30), direction="exit", peak=1)
+    await cross(rig, "binary_sensor.doorbell_lite_person_occupancy",
+                e1 + timedelta(seconds=40), direction="entry", peak=1)
+    await settle(rig)
+    await flush(rig)
+    assert _applied(rig) == [("entry", 2, "vision"), ("exit", 1, "camera")]
+    assert k1 in [t["crossing_key"] for t in terms(rig)]
+
+
+@pytest.mark.asyncio
+async def test_run_exception_still_applies_camera_term(rig):
+    await make_known(rig, R=0)
+    rig.monkeypatch.setattr(rig.mods.cv, "parse_vision_response",
+                            lambda *a, **k: 1 / 0)
+    await ended_crossing(rig, "ev-boom", peak=3)
+    await flush(rig)
+    assert _applied(rig) == [("entry", 3, "camera")]
+
+
+@pytest.mark.asyncio
+async def test_switch_off_sets_unknown(rig):
+    await make_known(rig, R=1)
+    rig.hass.data[rig.C.DOMAIN][rig.C.CROSSING_VISION_SWITCH_HASS_KEY] = False
+    await ended_crossing(rig, "ev-off", peak=2)
+    # The crossing itself (before any eval or census tick) sets unknown.
+    assert rig.cv.ledger_state == "unknown"
+    await flush(rig)
+    assert rig.cv.ledger_state == "unknown"
+    assert rig.cv._ledger.unknown_reason == "switch_off"
+    assert terms(rig) == [] and rows(rig) == []
+    assert rig.cv.census_tick(resident_term=1, camera_bodies=0,
+                              camera_input_dark=False) == (None, False)
+    assert rig.cv.vision_status(True) == "switch_off"
+    assert rig.cv.diag_status()["crossing_ledger"]["state"] == "unknown"
+
+
+@pytest.mark.asyncio
+async def test_switch_off_eval_tick_sets_unknown(rig):
+    """The eval tick re-reads the switch: off -> unknown, no anchor."""
+    await make_known(rig, R=1)
+    rig.hass.data[rig.C.DOMAIN][rig.C.CROSSING_VISION_SWITCH_HASS_KEY] = False
+    rig.cv._ledger.empty_reset_s = 0
+    await flush(rig)
+    assert rig.cv.ledger_state == "unknown"
+
+
+@pytest.mark.asyncio
+async def test_kill_and_cap_zero_set_unknown(rig):
+    await make_known(rig, R=1)
+    rig.monkeypatch.setattr(rig.C, "LLMVISION_ENRICHMENT_KILL", True)
+    await flush(rig)
+    assert (rig.cv.ledger_state, rig.cv._ledger.unknown_reason) == ("unknown", "kill")
+    rig.monkeypatch.setattr(rig.C, "LLMVISION_ENRICHMENT_KILL", False)
+    await make_known(rig, R=1)
+    rig.hass.data[rig.C.DOMAIN][rig.C.CROSSING_VISION_CAP_HASS_KEY] = 0
+    await flush(rig)
+    assert (rig.cv.ledger_state, rig.cv._ledger.unknown_reason) == ("unknown", "cap_zero")
+
+
+# ---------------------------------------------------------- batched rows
+@pytest.mark.asyncio
+async def test_ledger_episode_per_term_batched(rig):
+    await make_known(rig, R=0)
+    assert [r["kind"] for r in ledger_rows(rig)] == ["anchor"]
+    spawned = []
+    real_spawn = rig.cv._spawn
+
+    def _spy(coro, **kw):
+        spawned.append(getattr(coro, "__qualname__", ""))
+        return real_spawn(coro, **kw)
+
+    rig.monkeypatch.setattr(rig.cv, "_spawn", _spy)
+    await cross(rig, GARAGE_EGRESS, _now(rig) - timedelta(seconds=45), peak=1)
+    await cross(rig, FRONT_EGRESS, _now(rig) - timedelta(seconds=300),
+                direction="exit", peak=1)
+    await settle(rig)
+    assert [r["kind"] for r in ledger_rows(rig)] == ["anchor"]  # buffered
+    writes_before = [s for s in spawned if "_flush_ledger_events" in s]
+    await flush(rig)
+    writes = [s for s in spawned if "_flush_ledger_events" in s]
+    assert len(writes) - len(writes_before) == 1  # ONE write task per tick
+    rows_ = terms(rig)
+    assert [(r["direction"], r["l_before"], r["l_after"]) for r in rows_] == [
+        ("entry", 0, 1), ("exit", 1, 0)]
+    assert all(r["src"] == r["crossing_key"] for r in rows_)
+    assert rows_[0]["node"].startswith("ledger:term:")
+
+
+# ------------------------------------------------------- feed listeners
+@pytest.mark.asyncio
+async def test_substrate_rising_edge_blocks_anchor(rig, mods):
+    from homeassistant.helpers.dispatcher import async_dispatcher_send
+
+    from custom_components.universal_room_automation.domain_coordinators import (
+        signals,
+    )
+
+    rig.cv._ledger.empty_reset_s = 0
+    rig.cv.census_tick(resident_term=1, camera_bodies=0, camera_input_dark=False)
+    async_dispatcher_send(rig.hass, signals.SIGNAL_SUBSTRATE_KIND_CHANGED,
+                          "Study B", "motion", True)
+    await rig.hass.async_block_till_done()
+    rig.cv._on_ledger_eval(None)
+    assert rig.cv.ledger_state == "unknown"  # the edge failed the sample
+    # A falling edge is not a rising edge: the next sample anchors.
+    async_dispatcher_send(rig.hass, signals.SIGNAL_SUBSTRATE_KIND_CHANGED,
+                          "Study B", "motion", False)
+    await rig.hass.async_block_till_done()
+    rig.cv.census_tick(resident_term=1, camera_bodies=0, camera_input_dark=False)
+    rig.cv._on_ledger_eval(None)
+    assert rig.cv.ledger_state == "known"
+
+
+def _departure(person, edge_ts):
+    return SimpleNamespace(kind="departure", person=person, edge_ts=edge_ts)
+
+
+@pytest.mark.asyncio
+async def test_residency_departure_reconciles(rig, mods):
+    from homeassistant.helpers.dispatcher import async_dispatcher_send
+    from custom_components.universal_room_automation.domain_coordinators import (
+        signals,
+    )
+
+    await make_known(rig, R=0)
+    rig.cv._ledger.L = rig.cv._ledger.L_raw = 2
+    rig.cv._ledger.reconcile_delay_s = 0.0
+    rig.cv._ledger.reconcile_lag_s = 0.01
+    t_e = _now(rig).timestamp()
+    async_dispatcher_send(rig.hass, signals.SIGNAL_RESIDENCY_EVENT,
+                          _departure("person.oji_udezue", t_e))
+    # An arrival record is ignored.
+    async_dispatcher_send(rig.hass, signals.SIGNAL_RESIDENCY_EVENT,
+                          SimpleNamespace(kind="arrival", person="person.ezinne",
+                                          edge_ts=t_e))
+    await asyncio.sleep(0.1)
+    await settle(rig)
+    assert rig.cv._ledger.L == 1
+    await flush(rig)
+    [rec] = [r for r in ledger_rows(rig) if r["kind"] == "reconcile"]
+    assert (rec["applied"], rec["person"], rec["l_before"], rec["l_after"]) == (
+        True, "person.oji_udezue", 2, 1)
+
+
+@pytest.mark.asyncio
+async def test_superseded_departure_cancels_old_timer(rig, mods):
+    """Two departures of one person: only the newer is judged, at ITS due
+    time. The older timer (due first) must not judge the newer departure
+    before its exit outcome lands."""
+    from homeassistant.helpers.dispatcher import async_dispatcher_send
+    from custom_components.universal_room_automation.domain_coordinators import (
+        signals,
+    )
+
+    await make_known(rig, R=0)
+    rig.cv._ledger.L = rig.cv._ledger.L_raw = 3
+    rig.cv._ledger.reconcile_delay_s = 0.3
+    rig.cv._ledger.reconcile_lag_s = 0.0
+    now = _now(rig).timestamp()
+    async_dispatcher_send(rig.hass, signals.SIGNAL_RESIDENCY_EVENT,
+                          _departure("person.oji_udezue", now - 0.25))
+    async_dispatcher_send(rig.hass, signals.SIGNAL_RESIDENCY_EVENT,
+                          _departure("person.oji_udezue", now))
+    await asyncio.sleep(0.15)
+    # The exit crossing's term lands between the two due times.
+    await cross(rig, FRONT_EGRESS, _now(rig) - timedelta(seconds=1),
+                direction="exit", peak=1)
+    assert rig.cv._ledger.L == 2
+    await asyncio.sleep(0.3)
+    await settle(rig)
+    assert rig.cv._ledger.L == 2  # the exit cancelled the reconcile
+
+
+@pytest.mark.asyncio
+async def test_teardown_unsubscribes_ledger_feeds(rig, mods):
+    from homeassistant.helpers.dispatcher import async_dispatcher_send
+    from custom_components.universal_room_automation.domain_coordinators import (
+        signals,
+    )
+
+    await make_known(rig, R=0)
+    rig.cv._ledger.L = rig.cv._ledger.L_raw = 2
+    rig.cv._ledger.reconcile_delay_s = 0.2
+    rig.cv._ledger.reconcile_lag_s = 0.01
+    async_dispatcher_send(rig.hass, signals.SIGNAL_RESIDENCY_EVENT,
+                          _departure("person.oji_udezue", _now(rig).timestamp()))
+    await rig.hass.async_block_till_done()
+    assert list(rig.cv._reconcile_timers) == ["person.oji_udezue"]
+    await rig.cv.async_teardown()
+    assert rig.cv._reconcile_timers == {}
+    await asyncio.sleep(0.4)
+    await rig.hass.async_block_till_done()
+    assert rig.cv._ledger.L == 2  # the cancelled timer never judged
+    # Feeds unsubscribed: an edge and a departure after teardown do nothing.
+    async_dispatcher_send(rig.hass, signals.SIGNAL_SUBSTRATE_KIND_CHANGED,
+                          "Study B", "motion", True)
+    async_dispatcher_send(rig.hass, signals.SIGNAL_RESIDENCY_EVENT,
+                          _departure("person.ezinne", _now(rig).timestamp()))
+    await rig.hass.async_block_till_done()
+    assert rig.cv._ledger._edge_since_sample is False
+    assert rig.cv._ledger.pending_people() == ["person.oji_udezue"]
+
+
+@pytest.mark.asyncio
+async def test_eval_interval_registered_and_runs(rig):
+    """The tracked anchor interval is real: firing time forward runs it."""
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+
+    rig.cv._ledger.empty_reset_s = 0
+    rig.cv.census_tick(resident_term=1, camera_bodies=0, camera_input_dark=False)
+    async_fire_time_changed(
+        rig.hass, dt_util.utcnow() + timedelta(seconds=61))
+    await rig.hass.async_block_till_done()
+    assert rig.cv.ledger_state == "known"
+
+
+# ---------------------------------------------------------- trip-wires
+@pytest.mark.asyncio
+async def test_stuck_ledger_pages_once(rig):
+    await make_known(rig, R=0)
+    rig.cv._ledger.L = rig.cv._ledger.L_raw = 2
+    rig.cv._ledger.stuck_s = 1e-6
+    for _ in range(5):
+        rig.cv.census_tick(resident_term=0, camera_bodies=0, camera_input_dark=False)
+        await flush(rig)
+        await asyncio.sleep(0.001)
+    stuck = [p for p in rig.pages if p["kind"] == "crossing_ledger_stuck"]
+    assert len(stuck) == 1 and stuck[0]["severity"] == "HIGH"
+
+
+@pytest.mark.asyncio
+async def test_anchor_zero_pages(rig):
+    rig.cv._ledger.anchor_zero_s = 1e-6
+    rig.cv._on_ledger_eval(None)  # enable edge: rebase
+    await asyncio.sleep(0.001)
+    for _ in range(3):
+        await flush(rig)
+    pages = [p for p in rig.pages if p["kind"] == "crossing_ledger_anchor_zero"]
+    assert len(pages) == 1 and pages[0]["severity"] == "LOW"
+
+
+@pytest.mark.asyncio
+async def test_anchor_independent_of_house_state(rig):
+    """Wiring twin of the pure test: the house reading AWAY or HOME makes no
+    difference to the anchor (the predicate reads no house state)."""
+    results = []
+    for house in ("away", "home_day"):
+        rig.hass.data[rig.C.DOMAIN]["coordinator_manager"] = SimpleNamespace(
+            house_state=house, coordinators={})
+        rig.hass.states.async_set("sensor.ura_presence_house_state", house)
+        rig.cv._ledger.set_unknown("test")
+        rig.cv._ledger.empty_reset_s = 0
+        rig.cv.census_tick(resident_term=1, camera_bodies=0, camera_input_dark=False)
+        rig.cv._on_ledger_eval(None)
+        results.append((rig.cv.ledger_state, rig.cv._ledger.L))
+    assert results == [("known", 1), ("known", 1)]
+
+
+@pytest.mark.asyncio
+async def test_open_tracks_sensor_carries_ledger_diag_unrecorded(rig):
+    """The diagnostic attribute reaches the Outside: Open Tracks sensor and
+    is kept out of the recorder."""
+    sensor = rig.mods.sensor
+    cls = next(c for c in vars(sensor).values()
+               if isinstance(c, type) and "crossing_vision_today"
+               in getattr(c, "_unrecorded_attributes", ()))
+    assert "crossing_ledger" in cls._unrecorded_attributes
+    diag = rig.cv.diag_status()["crossing_ledger"]
+    assert set(diag) >= {"state", "L", "L_raw", "last_anchor", "residue_last",
+                         "terms_today", "reconciled_today"}
+
+
+@pytest.mark.asyncio
+async def test_anchor_zero_clock_restarts_on_enable(rig):
+    """A long switch-off is not an anchor drought: the enable edge restarts
+    the anchor-zero clock (no page at the first tick after turning on)."""
+    rig.cv._on_ledger_eval(None)
+    rig.hass.data[rig.C.DOMAIN][rig.C.CROSSING_VISION_SWITCH_HASS_KEY] = False
+    await flush(rig)
+    rig.cv._ledger.anchor_zero_s = 86400
+    rig.cv._ledger.setup_ts -= 10 * 86400  # off for ten days
+    rig.hass.data[rig.C.DOMAIN][rig.C.CROSSING_VISION_SWITCH_HASS_KEY] = True
+    await flush(rig)
+    assert [p for p in rig.pages if p["kind"] == "crossing_ledger_anchor_zero"] == []

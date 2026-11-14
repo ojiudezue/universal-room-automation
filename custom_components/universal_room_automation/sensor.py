@@ -4493,6 +4493,8 @@ class ExteriorOpenTracksDiagnosticSensor(AggregationEntity, SensorEntity):
         "dual_role_cameras",
         # VISION-CROSSING-SHADOW-1 D1.10: display only, change per crossing.
         "crossing_vision_today", "crossing_vision_last",
+        # P2-D3: ledger diagnostics (display only).
+        "crossing_ledger",
     })
     _attr_has_entity_name = True
     _attr_icon = "mdi:map-marker-path"

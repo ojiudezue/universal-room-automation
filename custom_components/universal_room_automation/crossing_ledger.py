@@ -242,6 +242,12 @@ class CrossingLedger:
         self._stuck_since = None
         self._changed_since_anchor = True
 
+    def rebase(self, now: float) -> None:
+        """The producer was (re-)enabled at ``now``: the anchor-zero clock
+        restarts there (a long switch-off is not an anchor drought)."""
+        self.setup_ts = float(now)
+        self._anchor_zero_latched = False
+
     def census_tick(
         self,
         now: float,
@@ -430,7 +436,7 @@ class CrossingLedger:
         the last anchor). Re-armed by an anchor. 0 = off."""
         if self.anchor_zero_s <= 0 or self._anchor_zero_latched:
             return False
-        since = self.last_anchor_ts if self.last_anchor_ts is not None else self.setup_ts
+        since = max(self.setup_ts, self.last_anchor_ts or self.setup_ts)
         if float(now) - since < self.anchor_zero_s:
             return False
         self._anchor_zero_latched = True

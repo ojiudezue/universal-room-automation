@@ -82,6 +82,7 @@ from .house_state import HouseState, HouseStateMachine
 from .sensor_capability import capability_routing_enabled
 from .signals import (
     SIGNAL_CENSUS_UPDATED,
+    SIGNAL_RESIDENCY_EVENT,
     SIGNAL_FAN_INTERFERENCE_GATE_FIRED,
     SIGNAL_HOUSE_STATE_CHANGED,
     SIGNAL_OPTIMIZER_INTENT,
@@ -5318,6 +5319,10 @@ class PresenceCoordinator(BaseCoordinator):
             )
             if record is not None:
                 self._persist_residency_event(record)
+                # P2-D3: hand the record to its observational subscribers
+                # (the crossing ledger's departure reconcile). Sync
+                # dispatch; no reader changes house state.
+                async_dispatcher_send(self.hass, SIGNAL_RESIDENCY_EVENT, record)
         except Exception:  # noqa: BLE001 — observational producer
             _LOGGER.debug("Residency: event for %s not recorded", entity_id, exc_info=True)
 
