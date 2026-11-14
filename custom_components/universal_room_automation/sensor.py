@@ -4450,6 +4450,9 @@ class ExteriorOpenTracksDiagnosticSensor(AggregationEntity, SensorEntity):
         "gate_decisions_by_camera", "agreement_by_camera",
         "agreement_store_loaded", "frigate_bus_by_camera", "zone_map",
         "dual_role_cameras",
+        # PERIMETER-GLOBAL-EGRESS-MUTE-1 D4: change on every mute decision.
+        "egress_mute_counts_by_reason", "egress_mute_covers",
+        "egress_mute_episodes",
     })
     _attr_has_entity_name = True
     _attr_icon = "mdi:map-marker-path"

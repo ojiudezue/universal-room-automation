@@ -482,6 +482,24 @@ under `gate_decisions_by_camera`:
   window expiry, teardown, and any later dispatched alert on the same camera
   key (`perimeter_alert.py` `_arm_identity_followup` / `_followup_check`).
 
+**Scoped egress mute (PERIMETER-GLOBAL-EGRESS-MUTE-1, branch
+`feature/perimeter-egress-mute-scoped`, NOT deployed; plan
+`PLANNING_perimeter_egress_mute_scoped.md`).** Consumes F3 only, security consumer
+class. Replaces the old rule "any egress on-edge mutes EVERY perimeter-only camera
+for 120 s" (which dropped ~40% of perimeter edges with no row). Now a perimeter-only
+edge on camera P is dropped only when a door listing P in `egress_mute_covers`
+(`exterior_seams.json`, linker attr `egress_mute_covers`, never part of the seam
+graph) has a stored crossing within `EGRESS_MUTE_WINDOW_S` (120) that is entry/exit,
+a tracked resident (guests never), identity ≥ `EGRESS_MUTE_MIN_IDENTITY_CONF` (0.9,
+clamped up) and not synthetic, and no non-qualifying crossing at a covering door in
+the window; one camera's episode is capped at `EGRESS_MUTE_MAX_EPISODE_S` (300).
+No hold: crossings land at +45 s (`EGRESS_ENTRY_WINDOW_SECONDS`), so most walk-outs
+alert and are named by the follow-up (operator decision A). Every mute and every
+decline near door activity writes a `perimeter_gate_decision` row with
+`gate: egress_mute` and `suppressed: true|false`. Dual-role cameras keep
+INV-EGRESS-SELF. Trip-wires (NM): mute ratio > `EGRESS_MUTE_RATIO_ALARM` over 24 h,
+and zero mute rows in 24 h while crossings occurred with a loaded map.
+
 **Gate evidence (PERIMETER-GATE-EVIDENCE Part A, branch `feature/perimeter-gate-evidence`,
 NOT deployed; plan `PLANNING_perimeter_gate_evidence_and_input_health.md`).**
 - **Daylight-only single-source demotes (D1/D1b).** D5 `single_source` and the D10.5

@@ -51,6 +51,7 @@ from .exterior_seams import (  # noqa: E402
     DEFAULT_EXTERIOR_SEAM_FILE,
     derive_egress_adjacent,
     graph_from_spec,
+    mute_covers_from_spec,
     split_egress,
     validate_seam_spec,
 )
@@ -244,6 +245,12 @@ class ExteriorTrackLinker:
         self.seam_count: int = self._edge_count()
         self.seam_validation: str = "not loaded"
         self.seam_file_sha256: str | None = None
+        # PERIMETER-GLOBAL-EGRESS-MUTE-1 D2: door key -> covered perimeter
+        # camera keys, from the seam file's `egress_mute_covers`. Read ONLY by
+        # PerimeterAlertManager's egress mute; the adjacency graph, track
+        # linking, burst-demote and circling never read it. {} = no mute.
+        self.egress_mute_covers: dict[str, tuple[str, ...]] = {}
+        self.mute_covers_source: str = "not loaded"
         self._id_gen = itertools.count(1)
         # In-flight episode-write tasks (B-H2). done_callback discards on
         # completion; teardown gathers with bounded wait.
@@ -516,6 +523,8 @@ class ExteriorTrackLinker:
         if outcome.status == STATUS_ABSENT:
             self._install_const_seams()
             self.seam_validation = "file absent"
+            self.egress_mute_covers = {}
+            self.mute_covers_source = "file absent"
             _LOGGER.info(
                 "ExteriorTrackLinker: no seam file at %s — using built-in "
                 "EXTERIOR_ADJACENCY_GRAPH (%d seams)", path, self.seam_count,
@@ -541,6 +550,16 @@ class ExteriorTrackLinker:
             # rather than silently disabling `approach` classification.
             self._egress_adjacent = tuple(EXTERIOR_TRACK_EGRESS_ADJACENT_CAMERAS)
         self.seam_count = self._edge_count()
+        self.egress_mute_covers = {
+            self.normalize_camera(d): tuple(sorted(
+                {self.normalize_camera(c) for c in cams}
+            ))
+            for d, cams in mute_covers_from_spec(spec).items()
+        }
+        self.mute_covers_source = (
+            f"loaded ({len(self.egress_mute_covers)} door(s))"
+            if self.egress_mute_covers else "absent (no egress mute)"
+        )
         self.seam_source = (
             f"exterior_seams.json (schema {spec.get('schema_version')}, "
             f"{self.seam_count} seams)"
@@ -563,6 +582,7 @@ class ExteriorTrackLinker:
             "seam_validation": self.seam_validation,
             "seam_file_sha256": self.seam_file_sha256,
             "seam_egress_adjacent": list(self._egress_adjacent),
+            "mute_covers_source": self.mute_covers_source,
         }
 
     @property

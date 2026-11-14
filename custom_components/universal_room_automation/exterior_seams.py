@@ -270,6 +270,10 @@ def validate_seam_spec(
             f"fenced (physically impossible) seam(s) present in ring/skips: {live_fenced}"
         )
 
+    # RULE 7 — egress_mute_covers (PERIMETER-GLOBAL-EGRESS-MUTE-1 D2). Read
+    # ONLY by the perimeter egress mute; never part of the graph above.
+    errors.extend(_mute_covers_errors(spec, set(egress), known_cameras))
+
     # RULE 6 — implausible skip span. WARN: the operator is the oracle.
     pos = {c: i for i, c in enumerate(ring)}
     n = len(ring)
@@ -284,6 +288,61 @@ def validate_seam_spec(
                 )
 
     return errors, warnings
+
+
+MUTE_COVERS_KEY = "egress_mute_covers"
+
+
+def _mute_covers_errors(
+    spec: dict, egress: set[str], known_cameras: set[str] | None,
+) -> list[str]:
+    """Validate the optional ``egress_mute_covers`` section.
+
+    Shape: ``{door: [covered perimeter camera, ...]}``. Each door must be a
+    declared egress camera (``egress_cameras``, exterior or interior) and,
+    when the configured camera set is known, every name must be configured.
+    Absent = no mute (not an error). Any error rejects the whole file.
+    """
+    raw = spec.get(MUTE_COVERS_KEY)
+    if raw is None:
+        return []
+    if not isinstance(raw, dict):
+        return [f"'{MUTE_COVERS_KEY}' must be an object of door -> [cameras]"]
+    errs: list[str] = []
+    for door, cams in raw.items():
+        if not isinstance(door, str) or not door:
+            errs.append(f"'{MUTE_COVERS_KEY}' keys must be camera names")
+            continue
+        if door not in egress:
+            errs.append(
+                f"'{MUTE_COVERS_KEY}' door '{door}' is not a declared egress camera"
+            )
+        if (
+            not isinstance(cams, list) or not cams
+            or not all(isinstance(c, str) and c for c in cams)
+        ):
+            errs.append(
+                f"'{MUTE_COVERS_KEY}'['{door}'] must be a non-empty list of camera names"
+            )
+            continue
+        if door in cams:
+            errs.append(f"'{MUTE_COVERS_KEY}'['{door}'] covers itself")
+        if known_cameras:
+            unknown = sorted({door, *cams} - known_cameras)
+            if unknown:
+                errs.append(
+                    f"'{MUTE_COVERS_KEY}'['{door}'] names unknown camera(s) not in "
+                    f"the configured camera list: {unknown}"
+                )
+    return errs
+
+
+def mute_covers_from_spec(spec: dict) -> dict[str, tuple[str, ...]]:
+    """The validated section as door -> sorted covered cameras ({} if absent)."""
+    raw = spec.get(MUTE_COVERS_KEY) if isinstance(spec, dict) else None
+    if not isinstance(raw, dict):
+        return {}
+    return {d: tuple(sorted(set(c))) for d, c in sorted(raw.items())}
 
 
 def graph_from_spec(spec: dict) -> dict[str, tuple[str, ...]]:

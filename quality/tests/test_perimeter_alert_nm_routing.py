@@ -356,14 +356,15 @@ def test_perimeter_cooldown_bounds_phone_rate():
     assert nm.async_notify.await_count == 1
 
 
-def test_egress_suppression_preserved():
+def test_global_egress_stamp_no_longer_mutes():
+    """PERIMETER-GLOBAL-EGRESS-MUTE-1: the global egress stamp is no longer
+    read by the perimeter-only path (was: any stamp muted every camera)."""
     hass, nm = _make_hass(house_state="away")
     mgr = _run(_setup_mgr(hass))
-    # Simulate a recent egress crossing
     _dt = _perimeter.dt_util  # clock-derive from the production binding (pinned above)
     mgr._last_egress_time = _dt.now()
     _run(mgr._async_handle_perimeter_trigger("binary_sensor.front_yard_person_occupancy"))
-    assert nm.async_notify.await_count == 0
+    assert nm.async_notify.await_count == 1
 
 
 # --- CONSOL-1 §D1: legacy notify leg RETIRED. Tests below replace the

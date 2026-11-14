@@ -64,5 +64,11 @@
     "exterior": ["madrone_g6_entry", "doorbell_lite", "front_door_aerial"],
     "interior": ["garage_a", "garage_b"]
   },
-  "_egress_note": "NOT every egress camera is exterior. The garage cameras watch a way INTO the house but sit inside the garage and do not normally see external people — they must NOT appear in the ring. The egress-ADJACENT set is DERIVED from the EXTERIOR list only; never hand-maintain it."
+  "_egress_note": "NOT every egress camera is exterior. The garage cameras watch a way INTO the house but sit inside the garage and do not normally see external people — they must NOT appear in the ring. The egress-ADJACENT set is DERIVED from the EXTERIOR list only; never hand-maintain it.",
+  "egress_mute_covers": {
+    "garage_a": ["g5_bullet", "doorbell_lite", "rear_ptz"],
+    "madrone_g6_entry": ["sonoffwindow", "front_side_ptz", "utilities_ptz"],
+    "front_door_aerial": ["sonoffwindow", "front_side_ptz", "utilities_ptz"]
+  },
+  "_egress_mute_covers_note": "PERIMETER-GLOBAL-EGRESS-MUTE-1: door -> perimeter cameras that a tracked resident's crossing at that door (identity >= 0.9, entry/exit, not synthetic) may mute for 120 s, episode cap 300 s. Any unknown crossing at a covering door vetoes the mute. Read ONLY by the perimeter egress mute: it is NOT a seam and never changes the ring, linking, burst-demote or circling. Doors not listed (doorbell_lite, garage_b) mute nothing. Delete this section to switch the mute off."
 }

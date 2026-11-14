@@ -1079,22 +1079,27 @@ def test_egress_only_stamp_suppresses_dual_role(monkeypatch):
     assert mgr._last_suppression[DB_KEY]["reason"] == "egress_suppression"
 
 
-def test_egress_other_still_suppresses(monkeypatch):
-    """Perimeter-only camera: any egress stamp suppresses (today)."""
+def test_egress_other_stamp_no_longer_mutes(monkeypatch):
+    """PERIMETER-GLOBAL-EGRESS-MUTE-1: a bare egress stamp no longer mutes a
+    perimeter-only camera (was: any stamp suppressed for 120 s). The scoped
+    mute needs a qualifying stored crossing on a covering door
+    (test_perimeter_egress_mute_scoped.py)."""
     _h, nm, mgr, subs = _d10(monkeypatch)
     _egress_cb(subs, DB_PR)(_edge(DB_PR))
     _run(mgr._async_handle_perimeter_trigger(FS_PR))
-    assert nm.async_notify.await_count == 0
+    assert nm.async_notify.await_count == 1
 
 
 def test_egress_perimeter_only_byte_identical(monkeypatch):
     hass, nm = _build(perimeter=(FS_CAM,), egress=(GA_CAM,))
     mgr, subs = _setup(hass, monkeypatch)
     assert mgr._dual_role_cameras == set()
-    assert mgr._unsub_egress_identity is None
+    # PERIMETER-GLOBAL-EGRESS-MUTE-1 D1: the crossing listener now registers
+    # whenever egress cameras exist (feeds the scoped mute).
+    assert mgr._unsub_egress_identity is not None
     _egress_cb(subs, GA_PR)(_edge(GA_PR))
     _run(mgr._async_handle_perimeter_trigger(FS_PR))
-    assert nm.async_notify.await_count == 0
+    assert nm.async_notify.await_count == 1  # stamp alone never mutes now
 
 
 def test_dual_role_vehicle_leg_skipped(monkeypatch):
