@@ -29,7 +29,7 @@ included), with an exact allowlist + counts that fails on stale entries, and ant
 
 - The reader goldens in `quality/tests/test_person_awareness_read_api_ship2.py` (RA7 sensors, RA9
   display/name/key sites, RA10 handlers, `zone_has_home_person`, `arrival_edges`) were run unchanged on
-  the base tree ca133c9d and PASS there (35/35 of the tests that only call pre-existing APIs). The 27
+  the base tree ca133c9d and PASS there: of the file's 71 tests, 44 pass on base (every test that only calls pre-existing APIs). The 27
   that fail on base call new APIs, or pin the two intended `person.*`-entry fixes (overrule match,
   `_find_person_entity`), or a fake census hook that never existed.
 - Targeted name-diff, 216 test files (every file touching a changed module), candidate vs base: no new
