@@ -2766,9 +2766,9 @@ class PersonCensus:
         sensor as a room input, else its own camera).
 
         Operator ruling 2026-11-14 ("a dead input holds"): while the census
-        hold lasts (CAMERA_INPUT_STREAM_DEAD_CENSUS_HOLD_MAX_S, 600 s, from
-        the camera's first `unavailable` room tick; its own cap, shorter than
-        the zone's) a dead camera is unknown, not absent, so its frozen
+        hold lasts (CAMERA_INPUT_STREAM_DEAD_CENSUS_HOLD_MAX_S, 900 s, from
+        the camera's first `unavailable` room tick; its own constant, equal
+        to the zone's today and allowed to diverge) a dead camera is unknown, not absent, so its frozen
         reading keeps counting as before; a camera dying cannot by itself
         drop the census to 0 (nobody-home) or the unidentified count (path
         alpha). Unresolved / live / kill switch off / error = empty set

@@ -111,23 +111,30 @@ def classify_held(
     """The held Tier-1 inputs for one anchor sample (plan P2-D2 step 2).
 
     ``readings``: entity id -> (state string or None when missing, stream
-    dead: the camera input stream health getter's answer, True / False /
-    None). ``last_good`` (the wiring's RAM map) is updated in place from
-    every good ``on`` / ``off`` reading.
+    dead: True when the camera input stream health view is HELD or
+    RELEASED, else False / None). ``last_good`` (the wiring's RAM map) is
+    updated in place from every good ``on`` / ``off`` reading.
 
-    An input is DEAD when its state is missing, ``unavailable``,
-    ``unknown`` or any other non on/off value, or the stream getter reads
-    True ("a dead camera is not a presence or absence of signal": its
-    frozen reading is not a good reading). A live input is held when it
-    reads ``on``. A dead input is held when its last known-good reading was
-    ``on`` or it has no known-good reading since setup; a dead input whose
-    last good reading was ``off`` is not held. A dead input therefore
-    blocks, never enables, the anchor. Returns ``(held, dead_held)``.
+    A STREAM-DEAD input (stream True: "a dead camera is not a presence or
+    absence of signal", its frozen reading is not a good reading) is held
+    whatever its last good reading was: the anchor stays blocked while a
+    Tier-1 input's stream view is held or released (contract G7,
+    INV-MISSING-NOT-ZERO). Otherwise an input is DEAD when its state is
+    missing, ``unavailable``, ``unknown`` or any other non on/off value. A
+    live input is held when it reads ``on``. A dead input is held when its
+    last known-good reading was ``on`` or it has no known-good reading
+    since setup; a dead input whose last good reading was ``off`` is not
+    held. A dead input therefore blocks, never enables, the anchor.
+    Returns ``(held, dead_held)``.
     """
     held: set[str] = set()
     dead_held: set[str] = set()
     for eid, (state, stream_dead) in readings.items():
-        dead = stream_dead is True or state not in (_ON, _OFF)
+        if stream_dead is True:
+            held.add(eid)
+            dead_held.add(eid)
+            continue
+        dead = state not in (_ON, _OFF)
         if not dead:
             last_good[eid] = state
             if state == _ON:

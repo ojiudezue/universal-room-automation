@@ -663,6 +663,10 @@ def test_stream_dead_input_frozen_reading_is_not_good():
     # Stream back (False) and reading off: released, last good off.
     held, _ = _held({"binary_sensor.panel_person": ("off", False)}, lkg)
     assert held == set() and lkg["binary_sensor.panel_person"] == "off"
+    # G7: stream dead (view HELD / RELEASED) with last good OFF still holds.
+    held, dead = _held({"binary_sensor.panel_person": ("off", True)}, lkg)
+    assert held == dead == {"binary_sensor.panel_person"}
+    assert lkg["binary_sensor.panel_person"] == "off"
 
 
 def test_stuck_not_paged_while_held():

@@ -481,9 +481,11 @@ deployed; plan `PLANNING_crossing_vision.md` rev 2, Phase 1).**
   2026-11-14 on the window sweep) -> `L = R`, credits and applied exits cleared; no Tier-1 map = blocked; a Tier-1
   entity in no registry entry with no state is ignored and flagged (INV-P2-DISCHARGE; reads no house state or resident
   set). Held (`crossing_ledger.classify_held`, built per eval by `CrossingVisionShadow._held_inputs` from the
-  substrate's Tier-1 map `OccupancySubstrate.tier1_entity_ids()`, `hass.states`, a RAM last-known-good map and the S1
-  room getter `camera_input_stream_dead`; S2's house getters replace that lookup when they land): reads `on`, or dead
-  (missing / unavailable / unknown / stream dead) with last good `on` or no good reading since setup. A dead input
+  substrate's Tier-1 map `OccupancySubstrate.tier1_entity_ids()`, `hass.states`, a RAM last-known-good map and, per
+  input, the S2 view `camera_stream_health.entity_stream_view` (contract G7, built 2026-11-14 after the batch-2 merge;
+  its input route is `input_stream_view`, its fallback the input's own camera)): reads `on`; or its stream view is
+  HELD or RELEASED, whatever its last good reading (RELEASED is never "off" for the anchor, INV-MISSING-NOT-ZERO); or
+  dead by state (missing / unavailable / unknown) with last good `on` or no good reading since setup. A dead input
   holds, never releases (operator 2026-11-14: "A dead camera is not a presence or absence of signal. Its faulty
   equipment."). Kill switch `CROSSING_VISION_LEDGER_ANCHOR_NEEDS_NO_HOLD` (True). Resident floor = arrival credit
   (INV-P2-ONCE): only when `R` rises above its previous tick value and `L < R`, lift `k = R − L` and open a credit

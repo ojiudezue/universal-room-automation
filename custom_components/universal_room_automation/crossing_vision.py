@@ -53,6 +53,7 @@ from homeassistant.util import dt as dt_util
 from . import const as _c
 from . import crossing_ledger as _cl
 from .const import DOMAIN
+from .domain_coordinators import camera_stream_health as _csh
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -1104,10 +1105,12 @@ class CrossingVisionShadow:
     def _held_inputs(self) -> tuple[set[str], set[str]]:
         """The held Tier-1 inputs this sample (P2-D2 step 2): every entity
         in the substrate's Tier-1 map, its ``hass.states`` reading, the RAM
-        last-known-good map, and the camera input stream health getter (S1
-        room getter ``camera_input_stream_dead``; any room answering True =
-        dead. S2's house-level getters are on a separate branch and will
-        replace this lookup when they land). Returns ``(held, dead_held)``.
+        last-known-good map, and the camera input stream health view
+        (contract G7: ``camera_stream_health.entity_stream_view``, whose input
+        route is ``input_stream_view`` and whose fallback is the input's own
+        camera). Any non-None view (HELD or RELEASED) marks the input
+        stream-dead; RELEASED is never "off" for the anchor
+        (INV-MISSING-NOT-ZERO). Returns ``(held, dead_held)``.
 
         No substrate (or its getter fails) -> no Tier-1 map -> the anchor is
         BLOCKED: unknown is not empty (planner ruling Q2). The pseudo-holder
@@ -1138,11 +1141,6 @@ class CrossingVisionShadow:
         except Exception:  # noqa: BLE001
             registry = None
         missing: list[str] = []
-        getters = []
-        for value in list(data.values()):
-            fn = getattr(value, "camera_input_stream_dead", None)
-            if callable(fn):
-                getters.append(fn)
         readings: dict[str, tuple[Any, Any]] = {}
         for eid in eids:
             try:
@@ -1166,18 +1164,11 @@ class CrossingVisionShadow:
                         )
                     continue
             state = getattr(st, "state", None) if st is not None else None
-            dead: Any = None
-            for fn in getters:
-                try:
-                    answer = fn(eid)
-                except Exception:  # noqa: BLE001
-                    answer = None
-                if answer is True:
-                    dead = True
-                    break
-                if answer is False:
-                    dead = False
-            readings[str(eid)] = (state, dead)
+            try:
+                view = _csh.entity_stream_view(self.hass, str(eid))
+            except Exception:  # noqa: BLE001 - no opinion
+                view = None
+            readings[str(eid)] = (state, True if view is not None else None)
         self._tier1_missing_now = tuple(sorted(missing))
         return _cl.classify_held(readings, self._last_good)
 

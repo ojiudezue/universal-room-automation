@@ -15,7 +15,7 @@ census accuracy..."; hard constraint "I need away to be fast acting").
   option is used only when it names an llmvision entry on this install.
 - **P2-D2 / P2-D3.** A house crossing ledger (RAM) inside the crossing-vision producer: one term per door crossing
   (vision count when `ok`, else max(1, camera count)), an empty-house anchor (cameras see nobody, the fleet is lit, no
-  room sensor held on or dead-holding, no rising edge, no entry term, for 30 min -> the ledger resets to the residents
+  room sensor held on or dead-holding, no rising edge, no entry term, for 15 min -> the ledger resets to the residents
   home), a resident floor that is an arrival credit (lifted only when the resident count rises; the arriving
   resident's own entry term consumes it, so each person counts once), a resident-departure reconcile that consumes one
   person per applied exit, rows `crossing_vision_ledger` (terms, anchors, reconciles, lifts), pages
@@ -33,6 +33,16 @@ census accuracy..."; hard constraint "I need away to be fast acting").
   a stored on / off wins (OFF = every reader uses the trust view); pages
   `crossing_vision_disagree` (door group, 5 disagreements in 24 h) and, only after an F-LEAD flip, "revert F-LEAD".
 - Presence: each residency record is also dispatched on `SIGNAL_RESIDENCY_EVENT` (read only by the ledger).
+- **Merged with develop v5.108.22 (batch 2), 2026-11-14.** One F2 read: the awareness branch lives in
+  `census_view.house_census_view` (vision_status / ledger_state fields on `HouseCensusView`);
+  `PresenceCoordinator.get_house_census` delegates to it. RA6 private-census-read guard green with no new allowlist
+  row. The cross-validation-off census path keeps both the ledger availability flag and the S2 held / released sets.
+- **G7 (contract `CONTRACT_person_awareness_layer.md` §5).** The ledger anchor's held-input check reads the S2 view
+  `camera_stream_health.entity_stream_view` per Tier-1 input instead of scanning `hass.data` for room coordinators.
+  A Tier-1 input whose stream view is HELD or RELEASED blocks the anchor whatever its last good reading; RELEASED is
+  never "off" for the anchor. Inputs dead by state (unavailable / unknown / missing) keep the last-good rule. Behaviour
+  change vs the pre-merge branch: a stream-dead input whose last good reading was `off`, and an input that went
+  `unavailable` together with its camera (held from t0), now hold.
 
 ## What does not change (byte-identical, proven in-suite)
 
@@ -51,8 +61,15 @@ production change, under five vision variants (ledger absent / 0 / 50 / None / u
   Tier-1 map = the anchor is BLOCKED (`tier1_map_unavailable` shown as the holder; Q2). A Tier-1 entity that is in no
   entity-registry entry and has no state is ignored for the held set, listed on the ledger diagnostics
   (`tier1_not_in_registry`, `_count`) and logged once.
-- **Switch label (review B-L6).** `switch.ura_crossing_vision_census_authority` friendly name is pending the operator;
-  proposed "Vision Leads Counts".
+- **Switch label (review B-L6).** Resolved: "Vision Assisted Census" (operator 2026-11-14).
+- **G7 mutation drills (2026-11-14, per-site, restored, `git status` clean).** View read detached ->
+  `test_held_set_from_substrate_map_and_lkg` + four `test_g7_*`; RELEASED dropped ->
+  `test_g7_released_view_still_blocks_anchor`; input route only -> `test_g7_own_camera_route_for_unresolved_input`;
+  `classify_held` stream branch removed / reverted to the last-good rule ->
+  `test_stream_dead_input_frozen_reading_is_not_good` + `test_g7_held_view_blocks_even_with_last_good_off`. The
+  review C fix-up drills (CC07, CV30, CV59, CV46, CV47, CC03, CV70, CV72, CL40, CL56), the four AWAY drills and five
+  merge-site drills (census_view awareness branch, presence delegate, xval-off availability flag) all RED after the
+  merge. AW5 (manager boot seed) has no site any more: develop RA7 deleted that branch.
 
 ## Operator actions at deploy
 

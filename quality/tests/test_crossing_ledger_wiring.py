@@ -578,13 +578,35 @@ class _Substrate:
 
 
 class _Room:
-    """A room coordinator stand-in exposing only the S1 getter."""
+    """A room coordinator stand-in exposing the S1/S2 room getters that the
+    REAL ``camera_stream_health`` house functions fold (contract G7: the
+    ledger reads ``entity_stream_view``, never this object directly).
+    ``dead``: input -> S1 answer; ``expired``: input -> hold over;
+    ``unavail_held``: input -> held from t0 (review D-M1); ``cam_dead``:
+    camera entity -> camera-keyed answer."""
 
-    def __init__(self, dead):
+    _camera_stream_health = object()  # marks a room coordinator for S2
+
+    def __init__(self, dead, expired=None, unavail_held=None, cam_dead=None):
         self.dead = dict(dead)
+        self.expired = dict(expired or {})
+        self.unavail_held = dict(unavail_held or {})
+        self.cam_dead = dict(cam_dead or {})
 
     def camera_input_stream_dead(self, eid):
         return self.dead.get(eid)
+
+    def camera_input_stream_hold_expired(self, eid, census=False):
+        return self.expired.get(eid, False) if eid in self.dead else None
+
+    def camera_input_stream_unavailable_held(self, eid):
+        return self.unavail_held.get(eid)
+
+    def camera_stream_dead(self, cam):
+        return self.cam_dead.get(cam)
+
+    def camera_stream_hold_expired(self, cam, census=False):
+        return False if cam in self.cam_dead else None
 
 
 RADAR = "binary_sensor.radar_gb1"
@@ -633,6 +655,94 @@ async def test_held_set_from_substrate_map_and_lkg(rig):
     rig.hass.states.async_set(RADAR, "off")
     assert _eval_anchor_state(rig) == "known"
     assert rig.cv.ledger_diag()["held"] == []
+
+
+def _g7_rig(rig, room, eids):
+    D = rig.C.DOMAIN
+    rig.hass.data[D]["occupancy_substrate"] = _Substrate(set(eids))
+    rig.hass.data[D]["room_entry_x"] = room
+    rig.cv._ledger.empty_reset_s = 0
+
+
+@pytest.mark.asyncio
+async def test_g7_held_view_blocks_even_with_last_good_off(rig):
+    """G7: the input's last good reading was `off`; its camera stream then
+    dies and its frozen reading is `off`. The S2 view is HELD, so it holds
+    and the anchor stays blocked (before G7 a stream-dead input whose last
+    good was off did not hold). Stream back: released, anchor fires."""
+    room = _Room({PANEL: False})
+    _g7_rig(rig, room, {PANEL})
+    rig.hass.states.async_set(PANEL, "off")
+    assert _eval_anchor_state(rig) == "known"  # live off: last good off
+    rig.cv._ledger.set_unknown("test")
+    room.dead[PANEL] = True  # stream dead, hold not over -> HELD
+    assert _eval_anchor_state(rig) == "unknown"
+    assert rig.cv.ledger_diag()["held"] == [PANEL]
+    room.dead[PANEL] = False
+    assert _eval_anchor_state(rig) == "known"
+
+
+@pytest.mark.asyncio
+async def test_g7_released_view_still_blocks_anchor(rig):
+    """INV-MISSING-NOT-ZERO exception: RELEASED (hold over) counts off for
+    zone and census, but never for the anchor: still held."""
+    room = _Room({PANEL: True}, expired={PANEL: True})
+    _g7_rig(rig, room, {PANEL})
+    rig.hass.states.async_set(PANEL, "off")
+    rig.cv._last_good[PANEL] = "off"
+    for _ in range(3):
+        assert _eval_anchor_state(rig) == "unknown"
+    assert rig.cv.ledger_diag()["held"] == [PANEL]
+
+
+@pytest.mark.asyncio
+async def test_g7_unavailable_with_camera_held_from_t0(rig):
+    """Review D-M1 shape: the input goes `unavailable` together with its
+    camera; S1 reads False (inside the grace) but the S2 view is HELD from
+    t0. Last good was `off`, so only the view holds it."""
+    room = _Room({PANEL: False}, unavail_held={PANEL: True})
+    _g7_rig(rig, room, {PANEL})
+    rig.cv._last_good[PANEL] = "off"
+    rig.hass.states.async_set(PANEL, "unavailable")
+    assert _eval_anchor_state(rig) == "unknown"
+    assert rig.cv.ledger_diag()["held"] == [PANEL]
+    room.unavail_held[PANEL] = None  # a tick saw the camera live
+    assert _eval_anchor_state(rig) == "known"
+
+
+@pytest.mark.asyncio
+async def test_g7_own_camera_route_for_unresolved_input(rig):
+    """A Tier-1 input no room resolves as an input, whose device has one
+    enabled camera that a room reports dead: entity_stream_view's own-camera
+    route makes it HELD (input_stream_view alone would answer None)."""
+    from homeassistant.helpers import device_registry as dr, entity_registry as er
+
+    reg = er.async_get(rig.hass)
+    if not hasattr(reg, "entities"):
+        await reg.async_load()
+    dreg = dr.async_get(rig.hass)
+    if not hasattr(dreg, "devices"):
+        await dreg.async_load()
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    entry = MockConfigEntry(domain="test_cam")
+    entry.add_to_hass(rig.hass)
+    dev = dreg.async_get_or_create(
+        config_entry_id=entry.entry_id, identifiers={("test_cam", "panel1")})
+    inp = reg.async_get_or_create(
+        "binary_sensor", "test_cam", "panel1_person", device_id=dev.id,
+        suggested_object_id="g7_panel_person")
+    cam = reg.async_get_or_create(
+        "camera", "test_cam", "panel1_cam", device_id=dev.id,
+        suggested_object_id="g7_panel")
+    room = _Room({}, cam_dead={cam.entity_id: True})
+    _g7_rig(rig, room, {inp.entity_id})
+    rig.cv._last_good[inp.entity_id] = "off"
+    rig.hass.states.async_set(inp.entity_id, "off")
+    assert _eval_anchor_state(rig) == "unknown"
+    assert rig.cv.ledger_diag()["held"] == [inp.entity_id]
+    room.cam_dead[cam.entity_id] = False
+    assert _eval_anchor_state(rig) == "known"
 
 
 @pytest.mark.asyncio
