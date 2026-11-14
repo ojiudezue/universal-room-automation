@@ -3356,7 +3356,6 @@ class PersonLikelyNextRoomSensor(AggregationEntity, SensorEntity):
         self._attr_unique_id = f"{DOMAIN}_person_{person_id.lower()}_likely_next_room"
         self._attr_name = f"{person_id} Likely Next Room"
         self._cached_prediction: dict | None = None
-        self._last_camera_sighting: dict | None = None
         self._prediction_source: str = "none"
 
     async def async_update(self) -> None:
@@ -3554,17 +3553,31 @@ class PersonLikelyNextRoomSensor(AggregationEntity, SensorEntity):
                     self._person_id, e,
                 )
 
-        # v3.5.2: Fetch camera sighting for transit validation attribute
-        try:
-            transit_validator = self.hass.data.get(DOMAIN, {}).get("transit_validator")
-            if transit_validator and self._cached_prediction:
-                self._last_camera_sighting = transit_validator.get_last_camera_sighting(
-                    self._person_id
-                )
-            else:
-                self._last_camera_sighting = None
-        except Exception:
-            self._last_camera_sighting = None
+    def _recent_person_sighting(self) -> dict | None:
+        """The person's last sighting younger than
+        NEXT_ROOM_CAMERA_SIGHTING_MAX_AGE_S, as {timestamp, room}, or None."""
+        from .const import NEXT_ROOM_CAMERA_SIGHTING_MAX_AGE_S
+        from .person_coordinator import tracked_person_entity_id
+
+        max_age = float(NEXT_ROOM_CAMERA_SIGHTING_MAX_AGE_S)
+        if max_age <= 0:
+            return None
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        presence = manager.coordinators.get("presence") if manager is not None else None
+        if presence is None:
+            return None
+        sighting = presence.get_last_person_sighting(
+            tracked_person_entity_id(self._person_id)
+        )
+        if sighting is None:
+            return None
+        age = dt_util.utcnow().timestamp() - float(sighting.ts)
+        if age > max_age:
+            return None
+        return {
+            "timestamp": dt_util.utc_from_timestamp(float(sighting.ts)),
+            "room": sighting.room,
+        }
 
     @property
     def native_value(self) -> str | None:
@@ -3581,7 +3594,14 @@ class PersonLikelyNextRoomSensor(AggregationEntity, SensorEntity):
         }
         if not self._cached_prediction:
             return attrs
-        sighting = self._last_camera_sighting
+        # PHONE-LEFT-BEHIND-CAMERA-LEG-1 D2 (review B2): the camera attributes
+        # are read from the person-sighting store here, at attribute-read
+        # time (one dict get), so the age window is applied now, not only at
+        # the last update. Display only; fetched only with a prediction.
+        try:
+            sighting = self._recent_person_sighting()
+        except Exception:  # noqa: BLE001 — display only
+            sighting = None
         ts = sighting.get("timestamp") if sighting else None
         if ts and hasattr(ts, "isoformat"):
             ts = ts.isoformat()

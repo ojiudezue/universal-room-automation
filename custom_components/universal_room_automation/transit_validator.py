@@ -658,20 +658,11 @@ class TransitValidator:
         window_start = ts - timedelta(seconds=self.CHECKPOINT_STALE_SECONDS)
         window_end = ts + timedelta(seconds=self.CHECKPOINT_WINDOW_SECONDS)
 
-        # Collect all "unidentified" or person-specific sightings in window
+        # Collect the sightings in window. PHONE-LEFT-BEHIND-CAMERA-LEG-1 D3:
+        # every sighting is stored as "unidentified" (no camera sets a name
+        # attribute; named sightings live in the person-sighting layer).
         relevant_sightings: list[dict[str, Any]] = []
 
-        # Check sightings for the specific person
-        person_sightings = self._camera_sightings.get(transition.person_id, [])
-        for sighting in person_sightings:
-            sighting_ts = sighting.get("timestamp")
-            if isinstance(sighting_ts, str):
-                sighting_ts = dt_util.parse_datetime(sighting_ts)
-            if sighting_ts and window_start <= sighting_ts <= window_end:
-                if sighting.get("camera_entity_id") in shared_cameras:
-                    relevant_sightings.append(sighting)
-
-        # Also check unidentified sightings (cameras can't always ID)
         unidentified_sightings = self._camera_sightings.get("unidentified", [])
         for sighting in unidentified_sightings:
             sighting_ts = sighting.get("timestamp")
@@ -708,26 +699,14 @@ class TransitValidator:
 
         checkpoint_rooms = list({s.get("room", "") for s in relevant_sightings if s.get("room")})
 
-        # Identity validation
+        # Identity validation: sightings here carry no identity (D3), so
+        # the status is "unidentified" when face recognition is on and a
+        # sighting was found, else "unavailable"; camera_person_id is None.
         identity_status = "unavailable"
         camera_person_id = None
 
         if self._face_recognition_enabled and relevant_sightings:
-            # Look for face-matched sightings
-            face_matched = [
-                s for s in relevant_sightings
-                if s.get("person_id") and s.get("person_id") != "unidentified"
-            ]
-            if face_matched:
-                best_match = face_matched[0]
-                cam_pid = best_match.get("person_id")
-                camera_person_id = cam_pid
-                if cam_pid == transition.person_id:
-                    identity_status = "confirmed"
-                else:
-                    identity_status = "mismatch"
-            else:
-                identity_status = "unidentified"
+            identity_status = "unidentified"
 
         return TransitValidationResult(
             path_validated=path_validated,
@@ -737,36 +716,6 @@ class TransitValidator:
             identity_status=identity_status,
             camera_person_id=camera_person_id,
         )
-
-    def get_last_camera_sighting(
-        self,
-        person_id: str,
-        max_age_hours: float = 4.0,
-    ) -> dict[str, Any] | None:
-        """Return the most recent camera sighting for a person.
-
-        Used by phone-left-behind detection. Returns None if no sighting
-        within max_age_hours or if person has never been seen by cameras.
-        """
-        sightings = self._camera_sightings.get(person_id, [])
-        if not sightings:
-            return None
-
-        cutoff = dt_util.now() - timedelta(hours=max_age_hours)
-        recent = []
-        for sighting in sightings:
-            ts = sighting.get("timestamp")
-            if isinstance(ts, str):
-                ts = dt_util.parse_datetime(ts)
-            if ts and ts >= cutoff:
-                recent.append((ts, sighting))
-
-        if not recent:
-            return None
-
-        # Return most recent
-        recent.sort(key=lambda x: x[0], reverse=True)
-        return recent[0][1]
 
     def _get_shared_space_cameras(self) -> list[str]:
         """Return all shared-space camera entity IDs (hallways, foyers, stairs).
@@ -829,7 +778,8 @@ class TransitValidator:
         """Assign camera sightings to transitions when multiple people transit simultaneously.
 
         Rules:
-        1. Face-matched sighting → assign to matching person's transition
+        1. (Retired by PHONE-LEFT-BEHIND-CAMERA-LEG-1 D3: face-matched
+           sighting -> matching person; sightings here carry no identity.)
         2. Unidentified sighting → assign to closest-timed transition
         3. If sightings < transitions, unmatched transitions get "no_camera_data" (not negative)
         4. If sightings >= transitions, all get "path_plausible"
@@ -844,18 +794,6 @@ class TransitValidator:
         if n_sightings >= n_transitions:
             # Enough sightings for all transitions
             return "path_plausible"
-
-        # Check if this transition has a face-matched sighting
-        ts = transition.timestamp
-        if isinstance(ts, str):
-            ts = dt_util.parse_datetime(ts) or dt_util.now()
-
-        for sighting in sightings:
-            # Rule 1: face-matched
-            if (sighting.get("person_id")
-                    and sighting.get("person_id") != "unidentified"
-                    and sighting.get("person_id") == transition.person_id):
-                return "path_plausible"
 
         # Rule 2: assign unidentified sighting to closest-timed transition
         if sightings:
@@ -932,14 +870,10 @@ class TransitValidator:
         except Exception:
             _LOGGER.debug("Could not resolve room for camera entity %s", entity_id)
 
-        # Determine person_id from face recognition data
+        # PHONE-LEFT-BEHIND-CAMERA-LEG-1 D3: no camera sets a name attribute
+        # (measured 7 days: 0 of 102 person entities), so every sighting is
+        # stored as "unidentified". Named sightings: person_sighting.py.
         person_id = "unidentified"
-        if self._face_recognition_enabled:
-            attrs = new_state.attributes
-            # Some integrations expose person/face data in attributes
-            face_id = attrs.get("person_id") or attrs.get("face_id") or attrs.get("label")
-            if face_id and str(face_id) != "unknown":
-                person_id = str(face_id)
 
         sighting = {
             "camera_entity_id": entity_id,

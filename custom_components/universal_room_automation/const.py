@@ -3278,7 +3278,14 @@ SENSOR_ZONE_GUEST_COUNT: Final = "zone_guest_count"
 
 TRANSIT_CHECKPOINT_STALE_SECONDS: Final = 90
 TRANSIT_CHECKPOINT_WINDOW_SECONDS: Final = 120
-TRANSIT_PHONE_LEFT_BEHIND_HOURS: Final = 4.0
+# TRANSIT_PHONE_LEFT_BEHIND_HOURS (4.0) deleted by PHONE-LEFT-BEHIND-CAMERA-LEG-1:
+# it had no reader and contradicted the sensor's own window.
+
+# PHONE-LEFT-BEHIND-CAMERA-LEG-1 (display only, operator ruling A 2026-11-13).
+# Rung 1: display windows, rarely tuned.
+# NextRoom `camera_last_seen` shows the person's last sighting only while it is
+# younger than this (names the old implicit 4 h default). <= 0 = never shown.
+NEXT_ROOM_CAMERA_SIGHTING_MAX_AGE_S: Final = 14400
 
 # ---------------------------------------------------------------------------
 # PATH-ALPHA D9 (GAP-B, 2026-08-16): PersonPhoneLeftBehindSensor room-occupancy
