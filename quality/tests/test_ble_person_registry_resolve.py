@@ -19,6 +19,7 @@ from __future__ import annotations
 import importlib
 import itertools
 import logging
+import os
 import sys
 
 import pytest
@@ -72,6 +73,123 @@ _REAL_MODULES = (
 )
 
 
+# Real-HA attributes the resolver and coordinator depend on. A legacy donor
+# that ``setattr``s stubs onto the REAL module (e.g.
+# ``update_coordinator.DataUpdateCoordinator = MagicMock``,
+# ``entity_registry.async_get = MagicMock()``) poisons them for every later
+# file; the real value of each is defined in its own module.
+# Not homeassistant.core: the shared ``_real_ha_attrs`` fixture restores its
+# classes from phcc (a fresh core import would mint new class identities).
+_HA_HELPER_MODULES = (
+    "homeassistant.helpers.entity_registry",
+    "homeassistant.helpers.device_registry",
+    "homeassistant.helpers.area_registry",
+    "homeassistant.helpers.update_coordinator",
+    "homeassistant.helpers.entity",
+    "homeassistant.helpers.entity_platform",
+    "homeassistant.helpers.event",
+    "homeassistant.helpers.dispatcher",
+    "homeassistant.components.sensor",
+    "homeassistant.components.binary_sensor",
+)
+
+
+def _looks_stubbed(value) -> bool:
+    """A donor's stand-in: a Mock (instance or class), ``dict`` / ``Exception``
+    in place of a TypedDict / exception class, or a callable defined in a test
+    module (``callback = lambda fn: fn``)."""
+    from unittest.mock import NonCallableMock
+
+    if isinstance(value, NonCallableMock):
+        return True
+    if isinstance(value, type) and issubclass(value, NonCallableMock):
+        return True
+    if value is dict or value is Exception:
+        return True
+    mod = getattr(value, "__module__", None)
+    return isinstance(mod, str) and mod.split(".")[-1].startswith(("test_", "conftest"))
+
+
+@pytest.fixture(autouse=True)
+def _in_memory_storage(hass_storage):
+    """Registries in memory, never on disk. The shared ``hass`` fixture
+    (async_test_home_assistant without phcc's ``hass_storage``) otherwise
+    loads and saves ``.storage/core.entity_registry`` under phcc's
+    ``testing_config`` in the venv, so entities from an earlier test or an
+    earlier RUN (any worktree) reappear in a fresh hass. Autouse, so it is
+    active before ``hass`` starts."""
+    yield hass_storage
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _real_ha_helpers(_real_ha_attrs):  # noqa: F811 - real core.callback first
+    """Self-sufficiency guard (runs before the shared ``hass`` fixture).
+
+    Legacy donor files ``setattr`` stubs onto REAL HA helper modules at
+    collection time (``update_coordinator.DataUpdateCoordinator = MagicMock``,
+    ``entity_registry.async_get = MagicMock()``, ...). For every attribute of
+    ``_HA_HELPER_MODULES`` that looks stubbed, bind the genuine value from a
+    fresh import onto the module object everyone already holds. The prior
+    values go back when this file ends (``import_scope(attrs=True)``), so
+    the guard changes nothing outside this file.
+    """
+    from _d7_isolation import import_scope
+
+    with import_scope(("homeassistant",), attrs=True):
+        # Stub MODULES (no __file__ / __path__, e.g. a fake
+        # homeassistant.util.dt) out first, so the fresh imports bind real ones.
+        for name in [k for k, m in sys.modules.items()
+                     if k.startswith("homeassistant.")
+                     and not getattr(m, "__file__", None)
+                     and not getattr(m, "__path__", None)]:
+            sys.modules.pop(name, None)
+        for name in _HA_HELPER_MODULES:
+            held = importlib.import_module(name)
+            bad = [a for a, v in list(vars(held).items())
+                   if not a.startswith("__") and _looks_stubbed(v)]
+            if not bad:
+                continue
+            # Prefer the ORIGINAL object, still bound in a real module that
+            # imported it before the donor ran: a fresh import mints a new
+            # class (MockConfigEntry subclasses the original ConfigEntry).
+            fresh = None
+            for a in bad:
+                real = _original_from_importers(name, a, held)
+                if real is None:
+                    if fresh is None:
+                        sys.modules.pop(name, None)
+                        try:
+                            fresh = importlib.import_module(name)
+                        finally:
+                            sys.modules[name] = held
+                    real = vars(fresh).get(a)
+                if real is not None and not _looks_stubbed(real):
+                    setattr(held, a, real)
+        yield
+
+
+def _original_from_importers(modname, attr, held):
+    for other_name, other in list(sys.modules.items()):
+        if other is held or not other_name.startswith(("homeassistant", "pytest_homeassistant")):
+            continue
+        if not getattr(other, "__file__", None):
+            continue
+        try:
+            val = vars(other).get(attr)
+        except TypeError:
+            continue
+        if (val is not None and not _looks_stubbed(val)
+                and getattr(val, "__module__", None) == modname
+                and getattr(val, "__qualname__", None) == attr):
+            return val
+    return None
+
+
+_REAL_CC_DIR = os.path.realpath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "custom_components")
+)
+
+
 def _is_real(mod, suffix, attr):
     from unittest.mock import Mock
     if mod is None or isinstance(mod, Mock):
@@ -79,7 +197,24 @@ def _is_real(mod, suffix, attr):
     f = getattr(mod, "__file__", None)
     if not (isinstance(f, str) and f.replace("\\", "/").endswith(suffix)):
         return False
-    return attr is None or attr in vars(mod)
+    if attr is not None and attr not in vars(mod):
+        return False
+    # An on-disk module imported while a donor had the HA helpers stubbed
+    # keeps those stubs bound (e.g. PersonTrackingCoordinator subclassing
+    # MagicMock): not usable, re-import it.
+    from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+    cls = vars(mod).get(attr) if attr else None
+    if isinstance(cls, type) and cls.__name__.endswith("Coordinator"):
+        if not issubclass(cls, DataUpdateCoordinator):
+            return False
+    if isinstance(cls, type) and any(_looks_stubbed(b) for b in cls.__mro__[1:]):
+        return False  # e.g. PersonLocationSensor built on a stub SensorEntity
+    for alias, modname in (("er", "homeassistant.helpers.entity_registry"),
+                           ("dr", "homeassistant.helpers.device_registry")):
+        bound = vars(mod).get(alias)
+        if bound is not None and bound is not sys.modules.get(modname):
+            return False
+    return True
 
 
 @pytest.fixture(autouse=True)
@@ -92,6 +227,14 @@ def _real_modules():
             continue
         replaced[name] = cur if cur is not None else _missing
         sys.modules.pop(name, None)
+    # The ``custom_components`` namespace package itself: a donor's stub
+    # (``__path__ = []``) hides the real URA package from the imports below.
+    cc = sys.modules.get("custom_components")
+    if replaced and cc is not None and _REAL_CC_DIR not in [
+        os.path.realpath(p) for p in (getattr(cc, "__path__", None) or [])
+    ]:
+        replaced["custom_components"] = cc
+        sys.modules.pop("custom_components", None)
     before = set(sys.modules)
     try:
         if replaced:
@@ -101,7 +244,7 @@ def _real_modules():
     finally:
         if replaced:
             for name in set(sys.modules) - before:
-                if name.startswith(PKG):
+                if name.startswith(PKG) or name == "custom_components":
                     sys.modules.pop(name, None)
             for name, prev in replaced.items():
                 if prev is _missing:
@@ -128,8 +271,13 @@ class _World:
         self.hass = hass
         self.dr = dr.async_get(hass)
         self.er = er.async_get(hass)
-        # The enum of the module that built THIS registry instance.
-        self.Disabler = sys.modules[type(self.er).__module__].RegistryEntryDisabler
+        # The enum of the module that built THIS registry instance: read from
+        # the class's own globals, not sys.modules (a repaired ``async_get``
+        # can come from a fresh import of entity_registry, whose enum is a
+        # different class from the one in sys.modules).
+        self.Disabler = type(self.er).async_get_or_create.__globals__[
+            "RegistryEntryDisabler"
+        ]
         self.berm = MockConfigEntry(domain="bermuda", entry_id="berm")
         self.berm.add_to_hass(hass)
         self.pble = MockConfigEntry(domain=PBLE, entry_id="pble")
