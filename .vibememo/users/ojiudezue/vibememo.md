@@ -53,6 +53,10 @@ The identity arc kept tripping on the same root cause: code inferring what an en
 
 I recommended retiring the never-used AI rules and staging music following behind a shadow-and-approve ladder. The operator reversed that: these features were unused because they were never trustworthy, and staged rollouts are where features die. Both now ship on, with the actual bugs fixed (a schema every rule parse failed on, a confidence gate that measured dwell time) and observability plus room memory in place of approval prompts. → [300](entries/300_fix_not_retire_no_shadow_mode.json) A perimeter silence that looked like a fresh regression turned out to be an old global door-camera mute, now a security card. → [302](entries/302_perimeter_global_egress_mute.json) Measured over 14 days it had dropped 40% of perimeter detections; the fix scopes it to recognised residents. → [303](entries/303_perimeter_global_mute_40pct.json)
 
+## 2026-11-14: the dead input under two plans
+
+An overnight probe found why every per-room Bluetooth distance died on 10-20. The wall-panel proxies added that morning have no Wi-Fi MAC that Bermuda can match, and Bermuda then creates none of those sensors for anyone. The operator wanted the panels as scanners, so URA should stop depending on the dead sensors rather than remove them. → [305](entries/305_bermuda_per_scanner_dead_panel_proxies.json) That finding exposed a seam: the music-following repair planned to gate on a BLE confidence that has been a constant 0.3 since then. As written, music would have followed nobody. → [306](entries/306_music_gate_on_dead_ble_confidence.json) The probe itself froze HA for 20 s at a time by pulling Bermuda's 13 MB diagnostics, so read-only now also means light on the event loop. → [307](entries/307_probe_stalled_ha_bermuda_diagnostics.json)
+
 ## Open questions
 
 - OC agent: which fix types earn R1 first, and what promotion evidence lifts one to R2?

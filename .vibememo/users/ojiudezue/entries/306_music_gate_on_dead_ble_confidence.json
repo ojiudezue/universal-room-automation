@@ -1,0 +1,32 @@
+{
+  "format_version": "2.1",
+  "author": "ojiudezue",
+  "session_id": "claude_20261114_overnight_pass",
+  "entry_id": "306",
+  "type": "pivot",
+  "weight": "significant",
+  "timestamp": "2026-11-14T08:20:00Z",
+  "title": "Music-following repair would gate on a BLE confidence that is a constant 0.3 for everyone",
+  "summary": "PLANNING_music_following_repair.md D1 adds CONF_MF_MIN_BLE_CONFIDENCE (default 0.5) on person BLE confidence. Measured, that value is 0.3 for three residents and 0.5 for Oji, and the BLE registry fix moves Oji to 0.3. Shipped as planned, music would follow nobody.",
+  "why": "Two plans written a day apart each held locally. The conflict only appears when the producer's measured value meets the consumer's threshold: the producer/consumer seam check.",
+  "implications": "Recorded on three cards. The music D1 gate is blocked until the confidence producer is re-based (Bermuda card) or the gate default is at most 0.3 with strict '<'. The BLE plan now carries the cross-plan constraint, and its escalation trigger is any reader above 0.3.",
+  "alternatives_considered": [
+    {
+      "option": "Let music D0 pick the default from 7 days of data",
+      "rejected_because": "the data is a constant from a dead producer, so D0 would tune to an artefact"
+    }
+  ],
+  "confidence": "high",
+  "revisit_trigger": "When the BLE confidence producer is re-based on live sensors.",
+  "refs": {
+    "cards": [
+      "MUSIC-FOLLOWING-TRANSFER-REPAIR-1",
+      "BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1",
+      "BERMUDA-DISTANCE-SENSORS-DEAD-1"
+    ],
+    "docs": [
+      "docs/planning/PLANNING_music_following_repair.md",
+      "docs/planning/PLANNING_ble_person_sensor_registry_resolve.md"
+    ]
+  }
+}

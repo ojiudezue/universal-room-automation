@@ -32,6 +32,10 @@ The HVAC reset (09-25/26) traced Zone 1's strands to real Carrier manual holds c
 - **Halo wall panels:** a separate opt-in integration with a typed service API, live on 7 panels. Bridge 1.7.0 fixed colour reporting, because HA had been dropping the colour without the colour mode.
 - **OC goes agent-first (critical):** static detectors were ~90% noise, while a manual reason-fix-verify loop found real faults. The OC becomes a nightly URA agent acting within risk tiers: R0 observe, R1 silent reversible fixes, R2 visible fixes only when promoted and never during sleep, R3 never alone. It uses each coordinator's existing paths; a unified request API was rejected on cost. → [234](users/ojiudezue/entries/234_oc_agent_first_risk_tiered.json)
 
+## 2026-11-13/14: names are not identity; dead inputs under live plans
+
+The identity arc made the registry rule standing: no inferring platform, device, person or room from an entity name. → [298](users/ojiudezue/entries/298_registry_not_name_guessing.json) Unused AI rules and music following get fixed and ship on, with no shadow ladder. → [300](users/ojiudezue/entries/300_fix_not_retire_no_shadow_mode.json) Overnight 11-14 found why every per-room Bluetooth distance died on 10-20: the wall-panel proxies trip an all-or-nothing early return in Bermuda. → [305](users/ojiudezue/entries/305_bermuda_per_scanner_dead_panel_proxies.json) That dead input sat under the music repair's planned confidence gate, which as written would have followed no one. → [306](users/ojiudezue/entries/306_music_gate_on_dead_ble_confidence.json)
+
 ## Open questions
 
 - OC: which fix types earn R1 first, and the promotion evidence for R2.
