@@ -32,17 +32,19 @@ Ping-pong suppression runs before MF in `TransitionDetector` (`ping_pong_suppres
 ### BLE certainty on live inputs (re-based 2026-11-14)
 
 The person BLE confidence is a constant and `closest_distance` is never stored
-(`AUDIT_ble_person_sensor_resolution_2026_11_14.md`), so MF reads the person's own Bermuda sensors, resolved by
-REGISTRY: `person.<slug>` -> `device_trackers` -> the one tracker with platform `bermuda` -> its unique_id U ->
-on that device the bermuda sensors with unique_id `U` (area) and `U_range` (nearest distance). Never by name;
-never enables a disabled entity. `CONF_MF_MIN_BLE_CONFIDENCE` buckets: `any` (no check), `normal` (default: the
-person-awareness layer's room, `get_person_location`, is still the target room at decision time). The `strict`
+(`AUDIT_ble_person_sensor_resolution_2026_11_14.md`). MF does NOT read Bermuda sensors, person entities or the
+layer's `data` store (review A-H1, INV-LAYER-READ). It reads only the person-awareness layer's public methods on
+`hass.data[DOMAIN]["person_coordinator"]` (`_person_layer`, music_following.py:1016):
+`get_person_location` via `_layer_location` (music_following.py:1028; "unknown"/"unavailable" = no location), and
+`tracked_persons` for the source-room-others check (`_source_has_other_occupants`, music_following.py:1807: another
+tracked person whose layer room is `from_room` suppresses as `source_has_others`; secondary = substrate `occupancy`
+kind). `CONF_MF_MIN_BLE_CONFIDENCE` buckets (`_ble_gate`, music_following.py:1041): `any` (no check), `normal`
+(default: the layer's room for the person is still the target room at decision time). The `strict`
 distance gate (8 ft, `CONF_MF_HIGH_CONFIDENCE_DISTANCE`, outcome `ble_too_far`) was DROPPED by the operator
 2026-11-14; a saved `strict` reads as `normal`. Parked until wrong-room moves are measured and a distance input
 exists (BERMUDA-DISTANCE-SENSORS-DEAD-1 option A). A missing / dead / unresolved input
-fails OPEN and increments `ble_input_missing`. Duplicate of the registry walk in
-`BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1` (person_coordinator `_bermuda_device_for_person`, branch in progress):
-consolidate when that lands.
+fails OPEN and increments `ble_input_missing`. Per-person Bermuda sensor resolution belongs to the layer
+(`BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1`), not to MF.
 
 ## Source
 

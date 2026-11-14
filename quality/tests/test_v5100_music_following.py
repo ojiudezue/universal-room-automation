@@ -492,8 +492,20 @@ class TestD3GuestGuard:
     """
 
     class _FakePersonCoord:
+        """Models the public layer read PersonTrackingCoordinator exposes
+        (``tracked_persons`` person_coordinator.py:177,
+        ``get_person_location`` :1998). Since bf960874 (review A-H1,
+        INV-LAYER-READ) music following reads ONLY these, never ``data``.
+        """
+
         def __init__(self, data):
             self.data = data
+            self.tracked_persons = list(data)
+
+        def get_person_location(self, person_name):
+            if person_name not in self.data:
+                return "unknown"
+            return self.data[person_name]["location"]
 
     def test_presence_writer_exists_in_production_source(self):
         """v5.10.0 fix-up FIX-2 (A-CRIT-1) writer-existence proof.
