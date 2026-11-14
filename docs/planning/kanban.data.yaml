@@ -35033,6 +35033,7 @@ cards:
   rank: {value: 2, time_criticality: 1, effort: 4}
 - id: NVR-WITNESS-CONSOLIDATION-1
   arc_cut_v5_108_23: "layer ship 3b and W2-W6"
+  operator_2026_11_14_q12: "This symmetrical with frigate right? If so, yes (Protect inputs get the device-level stream-health hold; ship 3 plan rev 3.5 Q12 = yes, conditional on symmetry with Frigate)."
   operator_2026_11_14_q11: "Dead camera - option A (ship 3b = pages + house-level camera health; coverage parked as DEAD-CAMERA-TWIN-COVERAGE-1)."
   arc_cut_v5_108_22: "W2-W6 later, dead-camera rule in layer ship 3b"
   operator_2026_11_14_dead_camera_design: "'Smart. Do it' to: a stale NVR reading never counts (a dead NVR's input is neither held nor counted; if the twin NVR feeds the same room or zone its input carries it, else the dead input is held as today); 'camera dead' = every NVR has lost it, and only that drives the camera-down page, the hold-released alarm and the empty-house anchor block. Supersedes the per-entity-fold design in ship 3 D6 rev 1 (plan review C1: it re-admitted the S1 frozen-on Frigate sensor). Built in layer ship 3."
