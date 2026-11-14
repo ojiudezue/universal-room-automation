@@ -34871,6 +34871,8 @@ cards:
   why: 'AUDIT_perimeter_silence_post_v5_108_20.md: perimeter_alert.py:1370-1387 drops any perimeter person edge within 120 s (window :301) of ANY egress-camera on-edge (egress cameras madrone_g6_entry, doorbell_lite, front_door_aerial, garage_a_2; stamp :938-951), before cooldown, gates and dispatch, so no notification and no gate row. 2026-11-14 01:20-01:45Z doorbell_lite / garage_a fired continuously after a 01:19Z arrival and every one of 12 g5_bullet edges was suppressed. Pre-existing (not in the v5.108.20 diff). Security: a stranger on the driveway while a resident is at a door is never alerted. Reconcile with egress identity (F3) and the read API: suppress only for a known resident crossing at a related door, scoped by camera adjacency, bounded in total length, and log the suppression as a gate decision.'
   next: 'Me: plan (Tier 2, reconciliation with egress validation per operator rule), after the v5.108.20 gate rows are live-validated.'
   rank: {value: 9, time_criticality: 7, effort: 3}
+  operator_2026_11_14_decisions: 'A. Alert now, name it afterwards. Garage A - g5, doorbell lite, Rear PTZ. G6 and Front aerial - Sonoff Cam, Front ptz, Utilities PTZ'
+  resolved_2026_11_14: 'Separate egress_mute_covers map (not the seam ring): garage_a -> g5_bullet, doorbell_lite, rear_ptz; madrone_g6_entry and front_door_aerial -> sonoffwindow (camera.sonoffwindow, Frigate, in perimeter_cameras), front_side_ptz, utilities_ptz. Plan review a36fc42d FIX-PLAN; rewrite in progress.'
 - id: NVR-WITNESS-CONSOLIDATION-1
   title: One shared Frigate-vs-Protect witness layer (who saw it, agreement history) with policy kept per consumer; crossing vision gets Protect as a second witness
   status: planned

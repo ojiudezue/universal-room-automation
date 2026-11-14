@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-13T21:32:17-06:00_ - _Data commit: `1c0924dd12ef`_ - _last_reconciled: 2026-11-13_
+_Generated: 2026-11-13T21:53:07-06:00_ - _Data commit: `2315aef3f23a`_ - _last_reconciled: 2026-11-13_
 
 
 ## Columns
@@ -481,8 +481,10 @@ status: **planned**
 - **Origin:** 2026-11-14 - Found while checking why v5.108.20 wrote no gate rows after restart.
 - **Why:** AUDIT_perimeter_silence_post_v5_108_20.md: perimeter_alert.py:1370-1387 drops any perimeter person edge within 120 s (window :301) of ANY egress-camera on-edge (egress cameras madrone_g6_entry, doorbell_lite, front_door_aerial, garage_a_...
 - **Next:** Me: plan (Tier 2, reconciliation with egress validation per operator rule), after the v5.108.20 gate rows are live-validated.
-- **Forensic keys (1):**
+- **Forensic keys (3):**
   - `tier`: 2
+  - `operator_2026_11_14_decisions`: A. Alert now, name it afterwards. Garage A - g5, doorbell lite, Rear PTZ. G6 and Front aerial - Sonoff Cam, Front ptz, Utilities PTZ
+  - `resolved_2026_11_14`: Separate egress_mute_covers map (not the seam ring): garage_a -> g5_bullet, doorbell_lite, rear_ptz; madrone_g6_entry and front_door_aerial -> sonoffwindow (camera.sonoffwindow, Frigate, in perimeter_cameras), front_side_ptz, utilities_p...
 
 ### `EGRESS-BLE-ARRIVAL-LATENCY-1` - BLE arrival fires ~20-120 s after geofence despite scanners at each egress: measure where the delay is — _#4 · WSJF 6.0 · v3 tc1 u2 /e1_
 thread: **presence** - status: **planned** - approval: **explicit**
