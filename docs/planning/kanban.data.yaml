@@ -563,6 +563,7 @@ cards:
   why: "Breaks builder rule 8 (no permanent sys.modules surgery); any in-body import after it can flake in the full suite, producing false NEW names in name-diffs."
   next: "Make the fixture restore what it evicted (snapshot+restore sys.modules entries), then a full name-diff to confirm the failure set only shrinks."
 - id: PERSON-PROFILE-PREFERENCES-1
+  operator_2026_11_14_step8: "Agree with q1 and 2 and 4. Summarize the profiles plan. Don't don't want to defer too much. Music is rarely exercised so it's not a good trigger. It's a really cool novelty. Demos well. When needed it's beautiful. Shares rooms is an interesting problem. But seems simple - don't do it when someone is already in that room including in your own room. Shares spaces, likely same. Departure pause is [message cut off]"
   title: "Per-person profile for identified household members: their bedroom(s)/bathroom, room ownership (incl. shared owners e.g. master), playlist, opt-in/out of automated arrival actions, welcome scene"
   thread: identity
   status: pre_planning
@@ -34779,6 +34780,7 @@ cards:
   next: 'Me: build as plan D7 after rev-8 fixes; resolve names via CameraResolver; measure hop lags; diff learned vs operator map.'
   rank: {value: 8, time_criticality: 5, effort: 5}
 - id: EGRESS-DIRECTION-AWARE-IDENTITY-1
+  operator_2026_11_14_step7: "Q1/Q2 (after explanation): 'Inclined to agree'. Step 7 section (Q1-Q7, QA, QB, perimeter face-leg pair residual): 'Agree with both'. Recorded as: Q1-Q7 yes, QA no hold + quiet follow-up, QB candidate only if D0 (i) shows 0 wrong AWAYs, card the residual."
   arc_cut_v5_108_21: "arc step 7, after crossing vision live"
   arc_cut_v5_108_19: "planned next"
   arc_cut_v5_108_18: "planned next"
@@ -34887,6 +34889,7 @@ cards:
   plan_review_2026_11_14: 'PLANREVIEW_room_occupied_registry_resolve.md (45bd4194): FIX-PLAN, 0 CRIT/HIGH, 5 MED: invariant must cover every key read (camera_person_detected, switch keys), co2/tvoc have no room sensors (drop them, do not feed the miss counter), two Live checks do not discriminate, notification path keeps an uncounted name read (make it counted per the rule), pass entry_id wherever the caller holds the entry. Three build reviews incl. mutation.'
   operator_2026_11_14_fallback: 'keep. (notification path name-built read stays as a logged, counted fallback; plan rev 2 67840210 is build-ready)'
 - id: BERMUDA-DISTANCE-SENSORS-DEAD-1
+  operator_2026_11_14_pick: "Bermuda: A if the phone distance sensor mean distance to room ie ble sensor in a room. Music: yeah off. Does the distance gate even have merit? Should it be dropped entirely?"
   title: All 356 per-scanner Bermuda distance_to sensors unavailable (restored) since 2026-10-20 for all four people; person BLE distance has no live input
   status: waiting_operator
   updated: '2026-11-14 02:25'
@@ -35044,6 +35047,8 @@ cards:
   verified_2026_11_14_overnight: 'CARD-WAS-WRONG on next (''plan then build''): the plan exists and was reviewed on 11-13 (PLANNING_unified_room_rules.md, PLANREVIEW_unified_room_rules.md). Not built overnight: the vision-arc session is sequencing builder slots and this is not part of tonight''s queue.'
   updated: '2026-11-14 02:27'
 - id: MUSIC-FOLLOWING-TRANSFER-REPAIR-1
+  operator_2026_11_14_distance_gate: "Music: yeah off. Does the distance gate even have merit? Should it be dropped entirely?"
+  fixup_2026_11_14: "Review A+B fix-up done on feature/music-following-repair: bf960874 (WIP source fixes), 7f7b7f8d (tests), c70b9316 (anchors); 25 of 26 drills RED; 219 music tests pass. Gaps: producer-side distance in person_coordinator._calculate_confidence untested; bedroom read not drilled; MF_HAZARD_BLOCK_S 1800 needs a planner check. Strict mode (closest_distance_ft 8 ft gate) is the only distance use."
   design_2026_11_13: 'DESIGN_reimagine_room_ai_chaining_music_2026_11_13.md steps 0, 1 and 5: probes first (one WiiM-to-WiiM walk while playing, read group_members on both; map each room player to its Music Assistant entity via the device registry); then MA-first transfer, success only when the target is actually playing; later per-person preferences from PERSON-PROFILE-PREFERENCES-1 (music following is its first consumer). Comfort-class consumer of person location (BLE room transitions, nearest F4); moves to the awareness read API when it has a per-person room view.'
   title: Music following transfers are wired wrong (join leader inverted, MA transfer_queue wrong keys) plus dead timing knobs, reload listener leak and uncounted skips
   status: planned
@@ -35491,6 +35496,7 @@ cards:
   decisions_2026_11_14: 'Answer: NVR body-count error never measured vs truth; only door evidence (hand-label 22/30 = 73%). Plan rewrite: D0 measures interior NVR count error vs graded truth; D2 = sampling + correction budget sized by error (not only on disagreement); new describe-what-is-happening deliverable; cloud Luna accepted now with a move-to-local trigger (homelab hardware, not Mac Ollama); every park is an operator question.'
   operator_2026_11_14_dynamic_sampling: 'It can be dynamic. Especially close to entires and not so much in steady state. => D2 sampling rule: dense sampling in a near-entry window after a door crossing / room entry while counts are changing, sparse in steady state; window and steady-state rate are knobs; amend plan cbf25751 at its plan review.'
 - id: PERSON-AWARENESS-READ-API-1
+  operator_2026_11_14_contract_rev2: "Qs: 1 - yes. 2- unwired. But is there a trigger. 3 - keep it. S1 - confirm. Dead camera - sure. I assume if even one nvr has the cam it doesn't count as dead. Did we execute that shared layer we discussed? Tell me"
   arc_cut_v5_108_21: "ship 1 here, ship 2 in batch 2"
   title: One public person-awareness read API on PresenceCoordinator (F1-F5), replacing ~40 private PersonCensus reads and 14+ inline id-normalisation copies
   thread: identity

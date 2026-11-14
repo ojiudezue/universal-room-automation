@@ -42,6 +42,24 @@ Written so the analysis survives compaction. Companion docs: `ARC_identity_visio
   config flow entry"; "Name of switch. not good yet."
 - Process: "We should do the hard parts sooner and learn faster"; "We need completion"; "Always forward for this
   arc"; plans "clean and streamlined... not Frankenstein"; "I didn't want artificial seams that will sink us later."
+- Added 2026-11-14 (drift check: operator goals missing from this charter until now):
+  - Dual NVR: "For all camera work I like to exercise both nvr platforms simultaneously, then cross compare to reduce
+    errors"; "centralize the evidence and keep the policy with each feature"; the per-camera agreement record is
+    "Critical for learning. Has to be baked into the design." Dead camera: "I assume if even one nvr has the cam it
+    doesn't count as dead" (NOT true in code yet: stream health judges per camera entity; see drift #15).
+  - Registry: "Unacceptable to do the latter anymore" (never infer device, platform, person or room from names).
+  - Alerts: "A. Alert now, name it afterwards" (latency over precision; late identity is a follow-up).
+  - Windows: "15 mins" / "make both 15 mins" (checkpoint and dead-input hold). Switch name: "Vision Assisted Census".
+  - Music following and room rules are in the arc: "No shadow mode... Treat the reformulations as full blown mission
+    critical feature that must work on day 1... This is where our features die and are not switched on"; "observability
+    and logs that allow diagnostics and tuning"; bounce safety between adjacent rooms; Sonos leads in the master; MA
+    first with native backup.
+  - v6.0.0: "step 8 is fine. You better get a move on"; "we don't need to be so conservative on shipping this live as
+    soon as the arc matures and comes together."
+  - Personalization: "Don't want to defer too much. Music is rarely exercised so it's not a good trigger. It's a really
+    cool novelty. Demos well. When needed it's beautiful." Shared rooms: "don't do it when someone is already in that
+    room including in your own room. Shares spaces, likely same."
+  - Phase 2 evidence: "They need about 10 weeks. Foul. Why that long?" (gates sized to real error rates, not calendar).
 
 ## Drift found, and the correction
 
@@ -61,6 +79,11 @@ Written so the analysis survives compaction. Companion docs: `ARC_identity_visio
 | 12 | "Census and sightings never feed each other" | Rule outlived its purpose (face double counting) and blocked interior vision | Retired; replaced by one dedup-by-evidence function |
 | 13 | Clean plans, no seams | Crossing-vision plan stacked rev 3-7 with override sections; several plans changed the same seams | Arc map merge analysis; clean rewrite + equivalence review before approval (pending) |
 | 14 | Facts in plans | Planner asserted the residency producer was dead and the lock fix undeployed | Orchestrator verified and corrected before review |
+| 15 | "if even one nvr has the cam it doesn't count as dead"; "exercise both nvr platforms" | Stream health (S1 develop, S2 batch-2) judges dead per camera ENTITY; the W1 Frigate-to-sibling pairing in camera_resolver.py is never consulted, so a dead Frigate entity with a live Protect twin is held / released and can block the ledger anchor | Card: fold liveness across the W1 pair (2026-11-14 drift check, open) |
+| 16 | "consumers can read and producers can feed"; "no leaks" | Read half built (ship 1 develop, ship 2 batch-2); the ingest half (dispatch_person_arriving, G1-G6, G9, attach_crossing_attribute), the layer guard test and the push registry exist only in the contract, while step 7 and step 8 plans add producers | Recommend ship 3 (ingest + guard) before the step 7 build (2026-11-14, operator asked) |
+| 17 | "Don't want to defer too much... not a good trigger" | Step 8 parked the profile extras behind two weeks of arrival-music episodes, which rarely fire | Pull bedroom/bathroom/owners, per-room and time-of-day playlists, per-action opt-in and welcome scene into step 8 (proposed 2026-11-14) |
+| 18 | Charter completeness | Music/room rules, v6.0.0, dual NVR, registry, alert latency, windows and naming lived only on cards and in CLAUDE.md | Recorded above (2026-11-14) |
+| 19 | Questions answered | Six operator questions from 11-13/11-14 went unanswered (perimeter gates off by design, AI person check and config-flow parity, dynamic masks, fan veto on NVR pairing and NVR-down, stream-health purpose and snapshot count) | Prober answering (2026-11-14) |
 
 ## Root causes
 
