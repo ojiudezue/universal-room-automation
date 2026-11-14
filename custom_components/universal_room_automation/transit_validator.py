@@ -2255,18 +2255,26 @@ class EgressDirectionTracker:
         })
 
         # RA5: record the crossing the bus event just carried (same values).
-        self._record_crossing(CrossingRecord(
-            camera=egress_camera_id,
-            direction=direction,
-            ts=egress_timestamp,
-            person_id=person_id,
-            provenance=(
-                resolution.provenance if person_id is not None else None
-            ),
-            confidence=confidence,
-            identity_confidence=identity_confidence,
-            source_ref=f"egress:{egress_camera_id}:{egress_timestamp.isoformat()}",
-        ))
+        # Observational: a failure here must never break the debug log,
+        # the arrival notify, the census attach or the DB write below
+        # (reviews A-L2 / B-L1).
+        try:
+            self._record_crossing(CrossingRecord(
+                camera=egress_camera_id,
+                direction=direction,
+                ts=egress_timestamp,
+                person_id=person_id,
+                provenance=(
+                    resolution.provenance if person_id is not None else None
+                ),
+                confidence=confidence,
+                identity_confidence=identity_confidence,
+                source_ref=(
+                    f"egress:{egress_camera_id}:{egress_timestamp.isoformat()}"
+                ),
+            ))
+        except Exception:  # noqa: BLE001 - observational store
+            _LOGGER.debug("crossing record store failed (non-fatal)", exc_info=True)
 
         _LOGGER.debug(
             "Egress direction resolved: camera=%s, direction=%s, "
@@ -2655,11 +2663,10 @@ class EgressDirectionTracker:
             pass
 
     # ARRIVAL-DEPARTURE-NOTIFY-1 (Wave-1 consumer #1)
-    # RA3: by reference to the consumer-class table (notification class),
-    # value unchanged (0.75). Kept as a class attribute for existing readers.
-    ARRIVAL_NAME_CONFIDENCE_THRESHOLD = CONSUMER_CLASS_MIN_CONFIDENCE[
-        CONSUMER_CLASS_NOTIFICATION
-    ]
+    # RA3: the naming threshold is the consumer-class table entry for the
+    # notification class (0.75), read at the compare below. The former
+    # ARRIVAL_NAME_CONFIDENCE_THRESHOLD class attribute was a second, unread
+    # name for the same value (review A-L1, Bug Class #63) and is removed.
 
     def _arrival_departure_notify(
         self,
@@ -2671,7 +2678,7 @@ class EgressDirectionTracker:
 
         - Skips direction=='ambiguous' (only entry/exit notify).
         - Names the person iff person_id truthy AND identity_confidence
-          >= ARRIVAL_NAME_CONFIDENCE_THRESHOLD; else graceful-anonymous
+          >= CONSUMER_CLASS_MIN_CONFIDENCE[notification]; else graceful-anonymous
           ("Someone arrived/left") per card doctrine (notify > suppress).
         - Best-effort: NM absence or exception is swallowed by the caller.
         """

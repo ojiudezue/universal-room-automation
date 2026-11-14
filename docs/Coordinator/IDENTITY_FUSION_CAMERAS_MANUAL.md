@@ -868,7 +868,7 @@ back to `"unidentified"` when it is NULL:
 **CORRECTED (FACE-ARRIVAL-REBUILD-1 D5, code wins): `identity_confidence` HAS a live reader.**
 `EgressDirectionTracker._arrival_departure_notify` (`transit_validator.py:2603`; the class is `EgressDirectionTracker` at `:1007`, not `TransitValidator`, corrected 2026-11-13; called from
 `_resolve_direction`) names the person in "X arrived / left" only at `identity_confidence >=
-ARRIVAL_NAME_CONFIDENCE_THRESHOLD` (0.75), else "Someone" (notification-naming class, (b) below).
+ARRIVAL_NAME_CONFIDENCE_THRESHOLD` (0.75; since read API ship 1 the compare reads `const.CONSUMER_CLASS_MIN_CONFIDENCE["notification"]` directly and the class attribute is removed), else "Someone" (notification-naming class, (b) below).
 It is the ONE arrival/departure notification site. Since D1 the person-sighting producer (§4.5a)
 also reads the bus `identity_confidence` / `identity_provenance` (display-class: it copies them
 into an egress sighting). `agreement_class` still has no decision reader. Egress identity feeds no

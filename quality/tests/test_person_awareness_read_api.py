@@ -313,3 +313,162 @@ async def test_get_last_crossing_matches_bus_event(tr, hass, mods):  # noqa: F81
     assert p.get_last_crossing() is rec
     assert p.get_last_crossing(cam) is rec
     assert p.get_last_arrival_record() is None
+
+
+# ---------------------------------------------------------------- fix-up (reviews A/B/C)
+def _identity_resolution(mods, direction="entry"):
+    """A resolved identity: Oji at 0.8 by BLE+face (hand-written oracle)."""
+    res = mods.transit.EgressResolution(
+        outcome="attached", direction=direction, agreement="agree",
+        slug="oji_udezue", identity_confidence=0.8, provenance="ble+face",
+    )
+    return ("oji_udezue", 0.8, "agree", res)
+
+
+async def _cross_with_identity(tr, hass, mods, monkeypatch):  # noqa: F811
+    from homeassistant.util import dt as dt_util
+    cam = "binary_sensor.garage_a_person_occupancy_2"
+    tr._interior_neighbours_by_group = {"garage_a": ["binary_sensor.staircase_person_occupancy"]}
+    tr._interior_entities = ["binary_sensor.staircase_person_occupancy"]
+    monkeypatch.setattr(tr, "_resolve_egress_face_identity_ex",
+                        lambda *a, **k: _identity_resolution(mods))
+    t = dt_util.utcnow()
+    tr._recent_interior_events = {"binary_sensor.staircase_person_occupancy": [t + timedelta(seconds=5)]}
+    fired = []
+    unsub = hass.bus.async_listen("ura_person_egress_event", lambda e: fired.append(dict(e.data)))
+    await tr._resolve_direction(cam, t)
+    await hass.async_block_till_done()
+    unsub()
+    return cam, t, fired
+
+
+@pytest.mark.asyncio
+async def test_crossing_record_with_identity_equals_bus_event(tr, hass, mods, monkeypatch):  # noqa: F811
+    """Review C must-fix 1: the identity half of the CrossingRecord."""
+    cam, t, fired = await _cross_with_identity(tr, hass, mods, monkeypatch)
+    assert len(fired) == 1
+    ev = fired[0]
+    rec = tr.get_last_crossing(cam)
+    # Hand oracle first, then equality with the bus event.
+    assert (rec.person_id, rec.identity_confidence, rec.provenance, rec.direction) == (
+        "oji_udezue", 0.8, "ble+face", "entry")
+    assert (rec.person_id, rec.identity_confidence, rec.provenance) == (
+        ev["person_id"], ev["identity_confidence"], ev["identity_provenance"])
+    assert rec.source_ref == f"egress:{cam}:{t.isoformat()}"
+
+
+@pytest.mark.asyncio
+async def test_record_crossing_failure_does_not_break_notify(tr, hass, mods, monkeypatch):  # noqa: F811
+    """Reviews A-L2 / B-L1: the observational store cannot break the emit."""
+    nm = MagicMock()
+    nm.async_notify = AsyncMock()
+    hass.data[DOMAIN]["notification_manager"] = nm
+
+    def _boom(_rec):
+        raise RuntimeError("store failed")
+    monkeypatch.setattr(tr, "_record_crossing", _boom)
+    _cam, _t, fired = await _cross_with_identity(tr, hass, mods, monkeypatch)
+    assert len(fired) == 1
+    assert nm.async_notify.await_args.kwargs["title"] == "Oji Udezue arrived"
+
+
+class _FakeTracker:
+    def __init__(self, result=None, exc=None):
+        self.calls, self._result, self._exc = [], result, exc
+
+    def get_last_crossing(self, camera=None):
+        self.calls.append(camera)
+        if self._exc is not None:
+            raise self._exc
+        return self._result
+
+
+@pytest.mark.asyncio
+async def test_presence_get_last_crossing_wrapper(mods, hass):
+    """Review C must-fix 2: PresenceCoordinator.get_last_crossing."""
+    p = mods.presence.PresenceCoordinator(hass)
+    hass.data.pop(DOMAIN, None)
+    assert p.get_last_crossing() is None  # no DOMAIN data
+    hass.data[DOMAIN] = {}
+    assert p.get_last_crossing("binary_sensor.x") is None  # no tracker
+    sentinel = object()
+    fake = _FakeTracker(result=sentinel)
+    hass.data[DOMAIN]["egress_tracker"] = fake
+    assert p.get_last_crossing("binary_sensor.garage_a_person_occupancy_2") is sentinel
+    assert p.get_last_crossing() is sentinel
+    assert fake.calls == ["binary_sensor.garage_a_person_occupancy_2", None]
+    hass.data[DOMAIN]["egress_tracker"] = _FakeTracker(exc=RuntimeError("boom"))
+    assert p.get_last_crossing("binary_sensor.x") is None  # never raises
+
+
+@pytest.mark.asyncio
+async def test_get_house_census_view_normalisation(mods, hass, monkeypatch):
+    R.install_entries(hass, monkeypatch, [_integ(mods, *CONFIGS["live_entity"])])
+    census = _census(mods, hass)
+    prop = _house(mods, zone="property", identified_count=0, identified_persons=[],
+                  unidentified_count=1, total_persons=1)
+    census._last_result = mods.census.FullCensusResult(
+        house=_house(mods), property_exterior=prop, total_on_property=4,
+        ble_persons=list(SLUGS), face_persons=[], persons_outside=1,
+    )
+    p = mods.presence.PresenceCoordinator(hass)
+    assert p.get_house_census("awareness").view == "awareness"
+    for bad in ("AWARENESS", "aware", "bogus", "", None):
+        v = p.get_house_census(bad)
+        assert (v.view, v.identified, v.unidentified_or_guests, v.total) == (
+            "trust", 2, 1, 3), bad
+
+
+@pytest.mark.asyncio
+async def test_view_for_class_error_reads_trust(mods, hass, monkeypatch):
+    monkeypatch.setattr(mods.const, "CROSSING_VISION_CONSUMER_CLASSES", frozenset({"display"}))
+    hass.states.async_set(SWITCH, "on")
+    p = mods.presence.PresenceCoordinator(hass)
+    assert p.view_for_class("display") == "awareness"  # precondition: promoted
+
+    class _States:
+        def get(self, _eid):
+            raise RuntimeError("state machine down")
+    p.hass = SimpleNamespace(states=_States(), data=hass.data)
+    assert p.view_for_class("display") == "trust"
+
+
+def test_const_import_time_class_validation_runs(mods):
+    """The module-level validate_consumer_classes(...) call: load a fresh,
+    unregistered copy of const with an illegal class promoted; the load
+    must raise. (Shadows the module's `frozenset` name for this copy only.)"""
+    import importlib.util
+    import sys
+    real = frozenset
+
+    class _promote_security(real):  # subscriptable like frozenset[str]
+        def __new__(cls, *args):
+            s = real(*args)
+            return real(s | {"security"}) if s == real({"display"}) else s
+
+    name = "_ura_const_validation_probe"
+    spec = importlib.util.spec_from_file_location(name, mods.const.__file__)
+    probe = importlib.util.module_from_spec(spec)
+    probe.__dict__["frozenset"] = _promote_security
+    try:
+        with pytest.raises(ValueError, match="security"):
+            spec.loader.exec_module(probe)
+    finally:
+        sys.modules.pop(name, None)
+
+
+def test_slug_of_entity_id_capitals_and_spaces(mods):
+    ids = _ids()
+    assert ids.slug_of("person.Oji_Udezue") == "oji_udezue"
+    assert ids.slug_of(" person.oji ") == "oji"
+    assert ids.slug_of("person. oji") == "oji"
+
+
+@pytest.mark.asyncio
+async def test_canonical_person_slug_public(mods, hass, monkeypatch):
+    """Plan RA4 makes the face first-name mapper public (ship 2 consumers)."""
+    R.install_entries(hass, monkeypatch, [_integ(mods, *CONFIGS["live_entity"])])
+    census = _census(mods, hass)
+    assert census.canonical_person_slug("Oji") == "oji_udezue"
+    assert census.canonical_person_slug("Oji Udezue") == "oji_udezue"
+    assert census.canonical_person_slug(None) == ""
