@@ -1135,3 +1135,53 @@ def test_fail_open_ble_leads_lookup_error_is_on(env):
             raise RuntimeError("boom")
     env.hass.data[DOMAIN]["coordinator_manager"] = _Mgr()
     assert env.coord._ble_leads_enabled() is True
+
+
+# ---------------------------------------------------------------------------
+# PERSON-AWARENESS-READ-API-1 ship 2, review C findings C1 / C2
+# ---------------------------------------------------------------------------
+
+
+def test_update_loop_person_entity_tracked_entry_resolves(env):
+    """C1: a ``person.*`` tracked entry (the options-flow form) must look up
+    ``person.oji_udezue``, not ``person.person.oji_udezue``. The old
+    ``f"person.{name.lower().replace(' ', '_')}"`` builder in the main
+    ``_async_update_data`` loop would miss the entity and record the
+    ``entity_missing`` row (location unknown, LOST)."""
+    env.coord.tracked_persons = [OJI_ENTITY]
+    _tuple_1024(env.hass, irk="home", berm="home")
+    _no_bermuda_branch(env.coord)
+    result = _tick(env.coord)
+    row = result[OJI_ENTITY]
+    assert row["tracking_reason"] != "entity_missing"
+    assert row["tracking_status"] != "lost"
+    assert OJI_ENTITY not in env.coord._entity_missing_noted
+
+
+def test_update_loop_display_name_entry_still_resolves(env):
+    """C1 companion: the live display-name form keeps resolving."""
+    _tuple_1024(env.hass, irk="home", berm="home")
+    _no_bermuda_branch(env.coord)
+    row = _row(_tick(env.coord))
+    assert row["tracking_reason"] != "entity_missing"
+
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        (None, ""),
+        ("", ""),
+        ("   ", ""),
+        ("\t\n", ""),
+        ("  Oji Udezue  ", "oji_udezue"),
+        ("  person.oji_udezue ", "oji_udezue"),
+        ("person.oji_udezue", "oji_udezue"),
+        ("Oji Udezue", "oji_udezue"),
+    ],
+)
+def test_slug_of_blank_and_whitespace(raw, expected):
+    """C2: direct pin of ``person_ids.slug_of`` docstring rows (blank -> '',
+    surrounding whitespace ignored). Without the strip, ``'   '`` would give
+    ``'___'`` and ``'  Oji Udezue  '`` would give ``'__oji_udezue__'``."""
+    ids = importlib.import_module(f"{PKG}.person_ids")
+    assert ids.slug_of(raw) == expected
