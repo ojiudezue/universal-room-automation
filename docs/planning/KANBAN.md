@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-13T21:22:56-06:00_ - _Data commit: `c5cd29c03ff7`_ - _last_reconciled: 2026-11-13_
+_Generated: 2026-11-13T21:31:46-06:00_ - _Data commit: `a8e207d52346`_ - _last_reconciled: 2026-11-13_
 
 
 ## Columns
@@ -961,11 +961,12 @@ _created 2026-11-13 14:00_
 - **Origin:** 2026-11-13 - Homelab session found it during g5 mask v2; operator: "homelab should look at the crashes. Start with wall panel config and kiosk satellite."
 - **Why:** Log flood on F2 and two dead camera legs; pre-existing, not caused by mask v2. Homelab-side work (capture rule 5).
 - **Next:** Homelab building KS app-health watchdog (operator 2026-11-13: "Restarting the app is beyond frigate. It should just check on ks app health and restart it if something is wrong or maybe just periodically"): health-keyed cold restart, opti...
-- **Forensic keys (4):**
+- **Forensic keys (5):**
   - `tier`: 1
   - `fixed_2026_11_13`: Homelab 6b131ff: Kiosk Satellite 2026.11.11 Impeller GLES abort -> headless respawn, RTSP plugin never attaches, :8554 dead. Cold-started KS on both panels ~14:00 CST; F2 5 fps. Up Hallway down ~39 h (no URA presence source), Study A ~47...
   - `homelab_2026_11_13_watchdog_live`: Peer session homelab-automation-15: ks-watchdog LIVE 2026-11-13 21:20 CST, homelab-automation commit 7b54953, on Beszel CT 107 (192.168.13.89), all 7 KS panels (master .116, study_b .113, kitchen .91, study_a .90, up_hallway .105, media_...
   - `operator_decisions_pending`: PICK/DO: (1) KS Legacy renderer (Skia) toggle on all panels, likely avoids the abort, changes rendering; (2) update KS 2026.11.11 -> 2026.11.19 (needed before filing); (3) file the upstream bug from the operator GitHub. URA side: no sepa...
+  - `operator_2026_11_14_routing`: panel decision directly to the homelab agent session. => renderer toggle, KS update and upstream filing are decided between the operator and the homelab session; URA does not track or ask about them.
 
 ### `OC-CONTEXT-PACK-1` - OC agent context should feel like the orchestrator's: HA + URA ground-truth docs, live config snapshot, doctrine, goals - iterate it against live cases — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **optimization** - status: **in_progress**
