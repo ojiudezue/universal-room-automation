@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-14T00:11:47-06:00_ - _Data commit: `72bfddddd6df`_ - _last_reconciled: 2026-11-13_
+_Generated: 2026-11-14T00:17:34-06:00_ - _Data commit: `4b03d1fa8b54`_ - _last_reconciled: 2026-11-13_
 
 
 ## Columns
@@ -199,10 +199,11 @@ status: **investigating**
 - **Origin:** 2026-11-13 - Found by the registry-not-names sweep; name mismatch verified live.
 - **Why:** person_coordinator.py:1838-1853 searches by person slug; live 2026-11-13: 14 sensor ids contain iphone_oji and distance, 1 contains oji_udezue and distance; aggregation.py:6179 finds 0 sensor.bermuda_* per person. .storage/person lists e...
 - **Next:** Me: trace consumers of person BLE confidence/closest_distance (fire check), then resolve via person -> device_trackers -> device -> Bermuda sensors in the registry; Tier 2 plan.
-- **Forensic keys (3):**
+- **Forensic keys (4):**
   - `arc_cut_v5_108_21`: later step (registry sweep), investigating
   - `tier`: 2
   - `audit_2026_11_14`: AUDIT_ble_person_sensor_resolution_2026_11_14.md: registry path works for all four persons (person -> bermuda-platform device_tracker -> device -> area/distance sensors). Name match also causes cross-person contamination (Ezinne, Ziri, J...
+  - `operator_2026_11_14_bermuda_naming`: Yes bermuda basically uses BLE inderneath and names its sensors after that irk name. We have to understand the prefix from the integration to disambiguate. => Disambiguate by DEVICE membership, not the name prefix: person -> its bermuda-...
 
 ### `OC-AI-TASK-LEVERAGE-1` - Investigate whether better use of HA AI Task (model choice, structured output, context) would make the Optimization Coordinator succeed where it keeps failing — _#3 · WSJF 3.2 · v7 tc4 u2 /e4_
 status: **investigating**
