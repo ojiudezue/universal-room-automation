@@ -1,202 +1,329 @@
-# PLANNING: unified room rules (AI-described and chained)
+# PLANNING: unified room rules (described and chained)
 
 Card: AI-ROOM-RULES-TRUST-REPAIR-1. Parent: AUDIT-ROOM-AI-AUTOMATION-CHAINING-MUSIC-1.
-Related: MUSIC-FOLLOWING-TRANSFER-REPAIR-1, TRUST-APPROVE-UNDO-DIGEST-1, PERSON-PROFILE-PREFERENCES-1.
-Written 2026-11-13 by ura-planner. One clean build spec. Design history (not a spec):
-`DESIGN_reimagine_room_ai_chaining_music_2026_11_13.md`.
+Related: MUSIC-FOLLOWING-TRANSFER-REPAIR-1 (same observability pattern), PERSON-PROFILE-PREFERENCES-1.
+Plan review: `docs/reviews/plan-review/PLANREVIEW_unified_room_rules.md`.
 
 ## 0. Charter (operator 2026-11-13, verbatim)
 
 - "No shadow mode... Treat the reformulations as full blown mission critical feature that must work on day 1. My
   trust just means get it right and make sure it's tested well. No delays. This is where our features die and are not
   switched on."
-- "We will fix the AI automation and the AI [chaining] and music following. We will not retire them."
-- "Part of what we have to do is to figure if we can improve and simplify those three features."
+- "The thing to build into the 3 feature, now 2 is observability and logs that allow diagnostics and tuning. Maybe
+  room memory entries as well to extend the memory feature."
+- "AI feature UI should be well considered. Smart and simple to approach. Sounds like there may be modification to
+  the [options flow] menu and the toggles? Key"
+- Paid `ai_task` call for live validation: approved on `ai_task.claude_ai_task`. "Make sure we're using the right
+  model and cost that will achieve results."
 
-Consequences: no shadow, offer or probation mode. A parsed, enabled rule runs. Trust = correct parse, one executor
-with every guard, real-path tests, a live rule. Decision rows are observability only.
+What that means: a room rule is one record however it was authored (described in words, or "run this automation
+when X"). It is saved only when it compiled to valid actions, the person sees a preview written by code from those
+actions, and once saved and switched on it runs. Every evaluation is logged with its reason.
 
 ## 1. Institutional context verified
 
-Read in full: CLAUDE.md, the design doc, the audit, the board cards (incl. `FINDING_ai_task_schema_2026_11_13`),
-`PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md` and `SENSOR_FLEET_CLASSES.md` (complete; person-in-room comes from the BLE
-resolver they describe; no §10 claim re-asserted). HVAC state-of-play not required: the climate block is kept
-unchanged and no HVAC code is touched. Prior plans: `PLANNING_v3.10.0_AI_AUTOMATION.md` (design still matches code).
-Memory: F1-F5 model, extend-don't-rebuild, hollow test anchors, numbers get knobs, wire-in anchors.
-
-Prior-art scan (re-grepped on develop 00f678b9), REUSE or NEW per piece:
+Read completely: `PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md` (incl. §10; no ledger claim re-asserted) and
+`SENSOR_FLEET_CLASSES.md`; person enter/exit now consumes `ura_person_location_change`. HVAC code is not touched
+(the climate block stays). Also read: the plan review, the board card (all `operator_*` fields,
+`FINDING_ai_task_schema_2026_11_13`, `amendment_pending`, `fix_round_scope`), `ARCHITECTURE_hierarchical_memory.md`
+§4, §8, `AUDIT_room_memory_and_coordinator_request_apis_2026_10_21.md`, `PLANNING_v3.10.0_AI_AUTOMATION.md`, memories
+on labels, configurability clarity, F1-F5, hollow anchors, wire-in anchors. Code on develop 3e17310a.
 
 | Piece | Verdict | Where |
 |---|---|---|
-| AI rule store | REUSE | `CONF_AI_RULES` (room options; read `coordinator.py:1166`) |
-| Chain store | REUSE | `CONF_AUTOMATION_CHAINS` dict trigger -> automation id (`coordinator.py:871`) |
-| Trigger fan-out | REUSE | `coordinator.py:5462-5466` (room triggers), `:1014-1146` (house_state, energy, safety, security), subscriptions `:1786-1823` |
-| Executor guards | REUSE (move, not rewrite) | `_execute_rule_action` `coordinator.py:1215`: allowlist `_AI_RULE_ALLOWED_DOMAINS` `:1208`, climate block, security-owned cover block (`cover_ownership.is_security_owned_cover`), LightPolicyOracle manual hold, `ura_ctx_kwargs` stamp |
-| Chain executor | FOLD IN | `_fire_chained_automations` `coordinator.py:865` (state check, activity log `chain_trigger` `:905-915`) |
-| Person in room | REUSE | `_get_identified_persons_in_room` `coordinator.py:1354` -> `person_coordinator.get_persons_in_room` `person_coordinator.py:2202` (alias of `get_room_occupants` `:2131`, display names) |
-| Person matching | REUSE | `music_following._person_key` `music_following.py:44` |
-| LLM structure pattern | REUSE | `OPTIMIZER_LLM_STRUCTURE` `const.py:5534` (text field holding a JSON array) and its parser `_extract_findings_list` `domain_coordinators/optimization_llm.py:976` (nested-vs-flat precedence, `json.loads`) |
-| Rule prompt | REUSE + EDIT | `AI_RULE_PARSING_PROMPT` `const.py:4532` |
-| Parsers (two copies) | MERGE | `config_flow.py:3184` `_parse_rule_with_ai_init` + `:3309` validator; `config_flow.py:15246` `_parse_rule_with_ai` + `:15368` validator |
-| ai_task entity choice | REUSE | `_discover_ai_task_entities` `config_flow.py:10680` |
-| Status sensor | REUSE + FIX | `AIAutomationStatusSensor` `sensor.py:2884` |
-| Room AI switch | REUSE | `switch.<room>_ai_automation` (`switch.py:5723-5753`) |
-| Decision log | REUSE | `activity_logger.log(...)` (as used at `coordinator.py:905-915`); no new table |
-| Rule record shape, compiler module | NEW | grep `RoomRule`, `rule_compiler` in package = 0; a module holding the merged parser, validator and record adapter |
+| Rule store | REUSE | `CONF_AI_RULES` (read `coordinator.py:1166`; options then data fallback `config_flow.py:15064-15068`) |
+| Chain store | REUSE as legacy input | `CONF_AUTOMATION_CHAINS` (`coordinator.py:871`); 0 rooms use it live |
+| Executors | MERGE | `_fire_chained_automations` `coordinator.py:865` (unguarded `automation.trigger` `:897`), `_execute_ai_rules` `:1160` |
+| Guards | REUSE (move) | `_execute_rule_action` `:1215`: allowlist `:1208/:1234`, climate `:1259`, security cover `:1279`, light hold `:1295-1300`, URA context stamp |
+| Switch gate | REUSE, made explicit | `_is_ai_automation_enabled` `:3253` (manual mode wins `:3261`); gated callers `:1017, :1058, :5455`; safety `:1096` and security `:1134` bypass it |
+| Room switch | REUSE, relabel | `switch.<room>_ai_automation` `switch.py:5720-5755` (RestoreEntity, default on) |
+| Person in room | REUSE | `get_persons_in_room` `person_coordinator.py:2202`; person event `:1059-1068` |
+| Person key | REUSE | `music_following._person_key` `music_following.py:44` |
+| Darkness | REUSE | `automation.is_dark` `automation.py:1325` (falls back to `lighting/darkness.is_dark_fallback` `:128`) |
+| LLM structure | REUSE pattern | `OPTIMIZER_LLM_STRUCTURE` `const.py:5534`, parser `_extract_findings_list` `optimization_llm.py:976` |
+| Parsers (two) | MERGE | init `config_flow.py:3184` + `:3309`; options `:15246` + `:15368`; prompt list `:3263-3287` |
+| Prompt | REUSE + EDIT | `AI_RULE_PARSING_PROMPT` `const.py:4532` |
+| ai_task entity | NEW knob | today the call passes no entity (`config_flow.py:3238`), so HA's default AI Task entity is used |
+| Status sensor | REUSE + FIX | `AIAutomationStatusSensor` `sensor.py:2884`; conflict binary sensor `binary_sensor.py:1503` |
+| Manual change detector | REUSE | `ActuatorReconciler._note_manual_light_change` `actuator_reconciler.py:500` (non-URA on/off edge of a room light while occupied) |
+| Memory writer, digest, page, nightly | REUSE | `database.log_memory_episode` `database.py:10686`; `MEMORY_EPISODE_TYPES` `const.py:6092`; `_build_optimizer_digest_section` `notification_manager.py:5788` (called `:5640`); `fire_stuck_signal` `_stuck_signal_nm.py:165`; `nightly_maintenance.py` op list |
+| Menus | RESTRUCTURE | `async_step_automation_chaining` `config_flow.py:14919`, `async_step_ai_rules` `:15018`, `_STEP_EXTRA_OWNED_KEYS` / `_MENU_ONLY_ROOM_STEPS` `:3845-3855`, strings `strings.json:629-633, 2154-2232` |
+| Rule compiler module, preview renderer, condition set | NEW | grep `rule_compiler`, `render_rule_preview`, `RULE_CONDITION` in package = 0 |
 
-Verified fact: the current `object` + `multiple` structure is rejected live (HTTP 500 "OpenAI output schema requires
-explicitly defined object fields at $.properties.actions.items"); same class as the v5.2.1 Anthropic 400 recorded at
-`const.py:5523-5531`. So every rule parse has failed, which is why the one live rule (Exercise Room `6a932dd2`) is
-stored `needs_parsing: true`, `actions: []`.
-
-Config-first: the AI toggle is off in Exercise Room, but turning it on cannot help: the rule has no actions. Code is
-needed.
+Config-first: the Exercise Room rule has no actions (every parse failed on the rejected `object` selector), so no
+switch or setting makes it run. Code is needed.
 
 ## 2. Identity model and consumer class
 
-A person-scoped rule consumes per-person room presence from dense BLE (PersonCoordinator room resolution; F4 shaped
-from BLE, plus F1 for the tracked set). Consumer class: comfort/convenience for most domains. Rules may target
-`lock` and `cover`; those stay behind the existing guards (security-owned covers blocked). This plan does not widen
-what a rule may act on. It does not read F2, F3 or F5.
+Person-scoped rules consume F4-shaped per-person room location from dense BLE (the PersonCoordinator room-change
+event) plus F1. No F2, F3 or F5. Consumer class: comfort and convenience. Rules may target `lock` and `cover`
+behind the existing guards; this plan does not widen what a rule may act on.
 
 ## 3. Falsifiable invariants
 
-- **INV-R1 (one gate).** Every service call issued because of a room rule, whichever way it was authored, passes
-  through one function that applies the allowlist, the climate block, the security-owned cover block and the light
-  manual-hold oracle, in that order. Break it by finding any reachable call site that issues a rule-derived
-  `hass.services.async_call` outside that function.
-- **INV-R2 (no unparsed active rule).** No rule with zero valid actions is ever counted active or executed; the
-  status sensor never reads `active` while any enabled rule is unparsed.
-- **INV-R3 (person filter matches).** A rule scoped to `person.x` fires when person x is in the room per
-  `get_persons_in_room`, in either id form, and never fires when only someone else is.
+- **INV-R1 (one gate).** Every service call issued because of a rule passes through `_execute_rule_action`, which
+  applies the allowlist, the climate block, the security-owned cover block, and the light manual-hold oracle for
+  `light`/`switch` on/off (the compiler rejects `toggle` for those domains). Break it with any rule-derived
+  `async_call` outside that function.
+- **INV-R2 (no unparsed rule).** A rule with zero valid actions is never saved, executed or counted active.
+- **INV-R3 (switch semantics).** A rule on a room trigger, house state or energy trigger never runs while the room's
+  Room Rules switch is off or Manual Mode is on. A rule on a safety-hazard or security-event trigger runs regardless.
+- **INV-R4 (honest preview).** The confirmation text and each rule's list label are a pure function of the stored
+  validated trigger, person, conditions and actions. LLM text never appears as the description of what a rule does.
+- **INV-R5 (person rules fire on the person).** A person-scoped enter or exit rule fires on that person's room
+  change event for this room, and never for another person.
+- **INV-R6 (one decision each).** Every rule matched by a trigger produces exactly one decision (fire or a named
+  skip) in the log, the stats and room memory.
 
 ## 4. Producer and consumer checks
 
-**Producer: parsed actions.** Fire check: zero successful parses ever on this HA (schema rejected). After D1 the
-parse is measured on the live call in D7. **Producer: person in room.** `person_coordinator.get_room_occupants`
-returns display names from the BLE resolver (healthy; same source as music following, 8,126 transitions in 14 d).
-**Producer: triggers.** Room enter/exit fire through `coordinator.py:5462-5466`; signal triggers subscribe only
-when a rule or chain needs them (`:1786-1823`), so D3's adapter must feed the same subscription check.
-**Fire check, executor:** 0 chain fires and 0 AI fires in 30 days (audit). Chains configured in 0 rooms.
-**Consumers:** executor actions reach real devices (trust); status sensor and activity rows are display. Forward
-trace: trigger -> rule match -> person filter -> gate -> service call -> activity row. Every link is in scope.
+**Producer: compiled actions.** Fire check: zero successful parses ever (schema rejected live, HTTP 500).
+**Producer: person room.** Healthy (8,126 transitions in 14 days); emits on change, display names.
+**Producer: triggers.** Occupancy enter/exit `coordinator.py:5444-5448`; signal triggers subscribe only when a rule
+needs them (`:1786-1823`). **Executor fire check:** 0 chain fires, 0 rule fires in 30 days; chains in 0 rooms.
+**Consumers:** actions reach devices (trust); status sensor, conflict sensor, activity rows, episodes, digest
+(display). Forward trace: trigger -> match -> switch gate -> person -> conditions -> gate -> call -> decision record ->
+reversal watch -> digest and trip-wire.
 
-## 5. Emission-site enumeration
+## 5. Emission and decision sites
 
-Rule-derived service calls today: `coordinator.py:898` (`automation.trigger`, chain path, no guards) and the call
-inside `_execute_rule_action` (`coordinator.py:1215` onward, guarded). Callers: `:1026-1027`, `:1068-1069`,
-`:1107-1108`, `:1145-1146`, `:5462-5466`. After the build, `:898` is gone and all callers call one entry
-`_run_room_rules(trigger)`. Builder re-greps `async_call` in `coordinator.py` and lists every site in the README.
+Rule-derived calls: `coordinator.py:897` (chain) and `:1346` (inside `_execute_rule_action`). Callers: `:1026-1027`,
+`:1068-1069`, `:1107-1108`, `:1145-1146`, `:5462/:5466` (review re-enumeration confirmed complete). Rule readers:
+`coordinator.py:1015, 1056, 1094, 1132, 1166, 1787`, `sensor.py:2903-2918`, `binary_sensor.py:1503-1508`. Writers:
+`config_flow.py:3006-3015, 3115-3132, 14965-14978, 15064-15079`, `ai_rule_delete`. After the build, `:897` is gone and
+every caller calls `_run_room_rules(triggers, event=None)`. The builder re-greps and pastes the lists in the README.
 
 ## 6. Deliverables
 
-### D1: one rule compiler, provider-portable structure
-New module `rule_compiler.py` holds the single parser and validator used by both the init flow and the options flow
-(the two copies are deleted). Structure follows `OPTIMIZER_LLM_STRUCTURE`: one field `actions_json` (text, multiline)
-holding a JSON array, plus `summary` (text, one plain sentence of what the rule does). Parse with the
-`_extract_findings_list` precedence (nested `data` first, then flat), `json.loads`, then strict validation: each item
-has string `domain` and `service`, `target.entity_id` string or list of existing entities in this room's entity set,
-`data` an object, domain in the allowlist and not `climate`, keys limited to the existing data-key allowlist next to
-`OPTIMIZER_LLM_STRUCTURE` (`const.py` ~5495-5517) where applicable. The ai_task entity is the existing configured one.
-- **Verify:** both flows import the same function (grep shows one definition).
-- **Test:** `test_rule_compiler_parses_text_json_array`, `test_rule_compiler_rejects_climate_and_unknown_entity`,
-  `test_rule_compiler_nested_and_flat_response`, `test_rule_compiler_structure_has_no_object_selector` (asserts the
-  `structure` sent to `ai_task.generate_data` contains only `text` selectors).
-- **Discriminates:** the old structure fails the last test; a valid parse with a foreign room entity fails validation.
+### D1: one compiler, provider-portable structure
+`rule_compiler.py` holds the single parser, validator and preview renderer, used by the options flow (the two old
+copies go). Structure: text fields `actions_json` (JSON array), `conditions_json` (JSON array, may be empty),
+`unsupported` (plain text naming anything the description asked for that the rule cannot express), `summary`
+(stored as secondary text only). Parse with the `_extract_findings_list` precedence, `json.loads`, then strict checks:
+- **Room entity set**, defined once by `room_entity_set(entry)` = the room's configured devices + its climate entity
+  + every entity in its HA area (the prompt list at `config_flow.py:3263-3287`). The same set feeds the prompt and
+  validation. Exemption: `automation.*` and `scene.*` targets may be any existing entity of that domain.
+- **Allowlist:** `_AI_RULE_ALLOWED_DOMAINS`, minus `climate`. `toggle` rejected for `light` and `switch`.
+- **Data keys:** `ROOM_RULE_DATA_KEYS` (rung 1), per domain: light `brightness_pct`, `color_temp_kelvin`,
+  `rgb_color`, `color_name`, `transition`; fan `percentage`, `preset_mode`, `oscillating`, `direction`;
+  media_player `volume_level`, `media_content_id`, `media_content_type`, `source`; cover `position`, `tilt_position`;
+  automation `skip_condition`; input_*/number/select `value`, `option`. An unknown key rejects the rule (no silent
+  drop) with the key named.
+- **Timeout:** the call is wrapped in `asyncio.timeout(RULE_PARSE_TIMEOUT_S)`.
+- **Entity:** `CONF_ROOM_RULES_AI_TASK_ENTITY` (§8).
+- **Test:** `test_rule_compiler_structure_has_only_text_fields`, `test_rule_compiler_parses_nested_and_flat`,
+  `test_rule_compiler_rejects_entity_outside_room_set`, `test_rule_compiler_allows_any_automation_target`,
+  `test_rule_compiler_volume_level_and_fan_percentage_kept` (one case per domain key list),
+  `test_rule_compiler_rejects_unknown_key_by_name`, `test_rule_compiler_rejects_light_toggle`,
+  `test_rule_compiler_timeout_returns_parse_failed`.
+- **Discriminates:** the old `object` structure fails the first test; a fan rule at 50 percent keeps `percentage`.
 
-### D2: never store an unparsed rule
-Save is refused when the parse fails or validates to zero actions: the form shows `ai_parse_failed` with the reason
-and keeps the typed text. The init-flow fallback that stored `needs_parsing` (`config_flow.py:3120-3133`) is deleted.
-Before save the form shows the compiled `summary` and the action list in plain words for confirmation.
-- **Test:** `test_rule_form_refuses_unparsed`, `test_rule_form_keeps_text_on_failure`, `test_rule_preview_lists_actions`.
+### D2: conditions (fixes HIGH-5)
+A small set, checked in `_run_room_rules` before actions, each from data the room already has:
+`after_dark` (`automation.is_dark`), `time_window` (local start/end, may cross midnight), `house_state_in` (list of
+house states). A description needing anything else (weather, another room, a sensor value) comes back in
+`unsupported`, and the form refuses to save and names it. Why three: they cover the common phrasing ("after dark",
+"between 7 and 9", "when we're home / asleep") and each reads one existing value; a general condition language would
+repeat HA automations, which the "run an automation" path already reaches.
+- **Test:** `test_rule_condition_after_dark_false_skips`, `test_rule_condition_time_window_crosses_midnight`,
+  `test_rule_condition_house_state`, `test_rule_form_refuses_unsupported_and_names_it`.
 
-### D3: one rule record and one executor
-Record (read-time adapter, stored config not rewritten): `{rule_id, source: "ai"|"chain", trigger, person, enabled,
-summary, actions[]}`. A chain entry `trigger -> automation.x` maps to source `chain`, action
-`{domain: automation, service: trigger, target: {entity_id}, data: {skip_condition: <knob>}}`. One entry point
-`_run_room_rules(triggers)` replaces both `_fire_chained_automations` and `_execute_ai_rules`; it keeps the chain's
-order guarantee (chain-sourced rules first), the chain's "automation off or missing" skip, conflict detection
-(`_last_conflicts` bounded to the last 20), and runs every action through `_execute_rule_action`.
-Honest limit kept in the docstring: an automation or script triggered by a rule runs its own actions outside URA's
-gates (the existing D2-LOW-1 note); the climate block covers direct calls only.
-- **Verify:** INV-R1 grep: no `async_call` for rule actions outside `_execute_rule_action`.
-- **Test:** `test_rules_chain_goes_through_gate`, `test_rules_chain_off_automation_skipped`,
-  `test_rules_signal_subscription_from_adapter`, `test_rules_ai_light_respects_manual_hold`,
-  `test_rules_cover_security_owned_blocked`, `test_rules_climate_blocked` (all drive the real coordinator methods
-  with a recording services fake asserting domain, service, data, target and the context kwarg).
-- **Test (Review C):** mutate each guard and the chain routing one at a time; each turns a named test red.
+### D3: never store an unparsed rule; honest preview (fixes HIGH-3, MEDIUM-5)
+Save is refused on a parse failure, zero actions or a non-empty `unsupported`; the typed text is kept. The preview is
+`render_rule_preview(rule, hass)`: trigger, person, conditions and each action with entity friendly names and data in
+plain words, e.g. "When Oji enters Exercise Room, after dark: turn on Exercise Lamp at 40 percent." If the room's
+Room Rules switch is off, the preview step shows "Room rules are off in this room" with a checkbox "Turn them on"
+(default on); saving with it checked calls `switch.turn_on` on the switch resolved by unique id
+`{entry_id}_ai_automation`.
+- **Test:** `test_rule_preview_renders_from_actions_not_summary` (LLM summary says "after dark", actions have no
+  condition: preview omits "after dark"), `test_rule_form_refuses_unparsed`, `test_rule_save_turns_switch_on_when_checked`.
 
-### D4: person filter fixed
-Compare `_person_key(rule.person)` to `_person_key(p)` for each `get_persons_in_room` result. One shared helper
-(import from `music_following`; when the person-awareness read API ships its one-id rule, both move together).
-- **Test:** `test_rule_person_entity_id_matches_display_name`, `test_rule_person_other_occupant_no_fire`,
-  `test_rule_person_empty_room_no_fire`.
-- **Discriminates:** old code compares `person.oji_udezue` to `Oji Udezue` and fails the first test.
+### D4: one record, one executor, explicit gates (fixes HIGH-1, MEDIUM-1, MEDIUM-2, LOW-1, LOW-2, LOW-3)
+Read-time adapter (stored config not rewritten): `{rule_id, source: "described"|"automation", trigger (stored key
+`trigger_type`), person, conditions, enabled, actions}`. A legacy chain entry becomes source `automation`, action
+`automation.trigger` with `skip_condition` from the rule (default False: the automation's own conditions apply; HA's
+default is True, so this is a behaviour change, repeated in the README). `_run_room_rules(triggers, event=None)`
+replaces both executors and decides in this order: match, switch gate, person, conditions, then every action through
+`_execute_rule_action`. Switch gate: triggers in `ROOM_RULE_SWITCH_EXEMPT_TRIGGERS` = {safety hazard, security event}
+skip it; all others need the switch on and Manual Mode off (skip reasons `switch_off`, `manual_mode`). Automation
+rules run first (old chain order); calls stay non-blocking as today. `_last_conflicts` keeps reset-per-evaluation
+semantics, so the conflict binary sensor clears on the next clean evaluation. No reader filters on the old
+`chain_trigger` activity action (grep 0); it becomes `rule_fire`. Honest limit in the docstring: an automation, script
+or scene a rule triggers runs its own actions outside URA's gates.
+- **Test:** `test_rules_automation_goes_through_gate`, `test_rules_automation_off_skipped`,
+  `test_rules_safety_fires_with_switch_off`, `test_rules_security_fires_with_manual_mode`,
+  `test_rules_enter_skipped_with_switch_off`, `test_rules_enter_skipped_with_manual_mode`,
+  `test_rules_conflict_sensor_clears_on_clean_evaluation`, `test_rules_light_respects_manual_hold`,
+  `test_rules_cover_security_owned_blocked`, `test_rules_climate_blocked`, `test_rules_kill_switch_default_is_unified`.
+  All drive the real coordinator with a recording services fake (domain, service, data, target, context).
+- **Test (Review C):** mutate each guard, the switch gate, the exempt set and the automation routing one at a time.
 
-### D5: honest status and decision rows
-`AIAutomationStatusSensor` states: `active` (at least one enabled, parsed rule and the room switch on), `off` (switch
-off), `needs_parse` (any enabled rule has no actions), `none`. Attributes: `rules_total`, `rules_unparsed`,
-`fires_7d`, `last_fire`, `last_fire_rule`, `last_skip_reason`. One activity-log row per matched rule evaluation:
-`action="rule_fire"` or `action="rule_skip"` with reason (`switch_off`, `person_absent`, `gate_blocked:<guard>`,
-`automation_off`). Rows go through the existing activity logger (batched queue), no new table.
-- **Test:** `test_status_needs_parse_never_active`, `test_rule_fire_writes_activity_row`, `test_rule_skip_reason_row`.
+### D5: person rules (fixes HIGH-4)
+Person-scoped `enter`/`exit` rules trigger on `ura_person_location_change` (one bus listener per room, added only
+when the room has such a rule): `enter` when `current_location` is this room, `exit` when `previous_location` is,
+person matched with `_person_key` on both sides; the person comes from the event, not a lookup. Rules with no person
+keep the occupancy edge. Person-scoped rules on other triggers keep the `get_persons_in_room` check.
+- **Test:** `test_rule_person_enter_fires_on_person_event`, `test_rule_person_exit_fires_on_person_event`,
+  `test_rule_person_other_person_no_fire`, `test_rule_person_enter_not_fired_by_occupancy_edge`.
+- **Discriminates:** under the old code, the enter rule at the occupancy instant with BLE not yet in the room skips.
 
-### D6: migration of stored rules
-On room setup, the adapter reads both keys. The Exercise Room rule (`needs_parsing`, empty actions) surfaces as
-`needs_parse`, is never executed, and the options flow offers "Re-parse rule" using its stored description through
-D1. The `needs_parsing` key is ignored after that (treated as unparsed if actions are empty). Chains: none stored
-live; adapter covers the shape.
-- **Test:** `test_migration_needs_parsing_rule_is_inert_and_flagged`, `test_migration_reparse_replaces_actions`,
-  `test_migration_chain_dict_becomes_chain_rules` (fixtures copied from the live stored shape).
+### D6: observability (operator requirement)
+1. **Decision log.** One INFO line per matched rule, prefix `Room rule decision`: room, rule_id, source, trigger,
+   person (from event or lookup), outcome (`fired` or skip reason), guard that blocked, conditions evaluated with
+   values (e.g. `after_dark=false lux=180`), actions issued, ms.
+2. **Stats.** `AIAutomationStatusSensor` (renamed "Room Rules", three words or fewer) states `active`, `off`,
+   `manual_mode`, `needs_parse`, `none`. Attribute `rules`: per rule `preview`, `status` (`active` / `off` /
+   `needs_parse` / `disabled`), `fires`, `skips_by_reason` (every skip name: `switch_off`, `manual_mode`,
+   `person_absent`, `condition_false`, `gate_blocked:<guard>`, `automation_off`), `last_fire`, `last_skip_reason`,
+   `reversals`, counted since start, plus `knobs`.
+3. **Accuracy from implicit reversal.** For `RULE_REVERSAL_WINDOW_S` after a rule action: for room lights, a person's
+   opposite change booked by `_note_manual_light_change` (`actuator_reconciler.py:500`) is a reversal (one added call
+   from that site to `coordinator.note_rule_reversal_candidate`); for other domains, a one-shot state listener on the
+   targets with the same `is_ura_context` test. New sensor `sensor.ura_room_rules_accuracy` ("Room Rules Accuracy",
+   CM device): percent of fires not reversed over 7 days, nightly from room memory; attributes per rule.
+4. **Digest.** `_build_room_rules_digest_section` beside `:5788`, called at `:5640`, e.g. "Room rules, last 24 h: 9
+   ran, 2 skipped (person_absent), 1 undone by hand (Exercise lamp). 1 rule needs a re-parse."
+5. **Zero-fire trip-wire.** Nightly op `run_room_ai_health_check` (shared with music following; whichever ships second
+   adds its half): an enabled, parsed rule older than `RULE_ZERO_FIRE_DAYS` with at least one evaluation and zero
+   fires pages `fire_stuck_signal` kind `room_rule_silent` naming the rule and its top skip reason. Safety and security
+   rules and rules never evaluated do not page.
+- **Test:** `test_rule_decision_log_line_fields`, `test_rule_reversal_light_turned_off_by_person`,
+  `test_rule_own_action_not_reversal`, `test_rules_digest_section`, `test_rule_silent_tripwire_pages_after_skips`,
+  `test_rule_silent_tripwire_quiet_for_safety_and_unevaluated`.
 
-### D7: live validation
-With the operator's ok for the paid call: re-parse the Exercise Room rule (or a new simple rule, e.g. "when I enter
-after dark, turn on the lamp"), turn on the room AI switch, walk in.
-- **Live:** parse returns actions (no 500); status `active`; light changes; one `rule_fire` activity row with the rule
-  id; a person-scoped rule fires for that person and not for another; a chain to a test automation fires once and
-  writes a row.
-- **Discriminates:** a rule that ran through a bypass path writes no `rule_fire` row; an unparsed rule shows
-  `needs_parse`, not `active`.
+### D7: room memory episodes (Tier 2-DB trigger: new persisted record shape)
+- `room_rule_decision`: one row per matched rule evaluation; node `room:<slug>`; attrs = the D6 decision fields;
+  `source_ref` `rule:<rule_id>:<ts>`; `window_dedup=False`, `dedup_source_ref=True`. Volume: rules are new; at about
+  10 rules firing a few times a day, under 100 rows a day (`ROOM_RULE_EPISODE_LOG_PERSIST`, rung 1, is the off switch).
+- `room_rule_reversal`: one row per reversal.
+- Both added to `MEMORY_EPISODE_TYPES`. `room_rule_decision` goes into `MEMORY_WRITER_BACKED_EPISODE_TYPES` and into
+  `MEMORY_WRITER_HEALTH_EXEMPT_TYPES` with the reason "a house with no enabled rules writes none; the per-rule
+  trip-wire (D6.5) is the zero-fire health check at the right granularity". This is a deliberate partial decline of
+  the house-wide writer check.
+- Query: `memory_query` `episodes` / `narrative` on `room:<slug>`.
+- **Compactor:** parked. A `room_rule_reliability` fact per rule (fires, reversals, top skip, 30 days). Revival:
+  PERSON-PROFILE-PREFERENCES-1 build, or a rule with a reversal rate above 10 percent over 7 days.
+- **Test:** `test_rule_episode_per_decision`, `test_rule_episode_types_registered`,
+  `test_rule_episode_two_fires_in_ten_seconds_both_written`. Fixtures use production DDL.
 
-### D8: tests replace replicas, docs
-Delete the inline replicas in `test_ai_automation.py` and `test_automation_chaining.py` (keep any case worth keeping as
-a real-path test). Keep the existing real-path anchors (`test_room_covers_garage_guard.py`,
-`test_hvac_w1a_site_migration.py`, `test_lighting_slice_c_manual_hold.py`). Update `PLANNING_v3.10.0_AI_AUTOMATION.md`
-pointer and the coordinator doc for room rules.
+### D8: migration and lifecycle (fixes MEDIUM-3, MEDIUM-4)
+Rules are read from options, then data (the existing fallback). Every write (add, re-parse, edit, delete) goes to
+options with the full list; a rule found only in `entry.data` (the Exercise Room rule `6a932dd2`) is copied into the
+options list on its first edit, and the data copy is then ignored. It shows `needs_parse` and never runs until
+re-parsed. Rule authoring leaves the initial room-creation flow (it wrote into `entry.data`); rules are added from the
+room's options. Saving rules reloads the room entry (the existing options listener), which re-runs the signal
+subscription builder (`:1786-1823`) and the D5 person listener.
+- **Test:** `test_migration_data_only_rule_is_inert_and_flagged`, `test_reparse_writes_options_not_data`,
+  `test_new_energy_rule_subscribed_after_options_save` (no restart), `test_legacy_chain_dict_becomes_automation_rules`.
 
-## 7. Numbers get knobs
+### D9: tests and docs
+Delete inline replicas in `test_ai_automation.py` and `test_automation_chaining.py`; keep real-path anchors
+(`test_room_covers_garage_guard.py`, `test_hvac_w1a_site_migration.py`, `test_lighting_slice_c_manual_hold.py`).
+Update the coordinator doc for room rules, `PLANNING_v3.10.0_AI_AUTOMATION.md` pointer, strings and translations.
+
+### D10: live validation (approved paid call on `ai_task.claude_ai_task`)
+Re-parse the Exercise Room rule, and add "when Oji enters after dark, turn on the lamp".
+- **Live:** parse returns actions (no 500); preview names the lamp and "after dark"; status `active`; on Oji's
+  entry after dark the lamp turns on and one `room_rule_decision` row with `fired` appears; by day a row with
+  `condition_false`; another person's entry writes no fire; turning the lamp off by hand within 2 minutes writes a
+  `room_rule_reversal` row; the digest shows the line next morning.
+- **Discriminates:** a bypass path writes no decision row; an unparsed rule shows `needs_parse`.
+
+## 7. UI (room options)
+
+Before: two room menu entries, "Automation Chaining" (four submenus of automation pickers by trigger group) and "AI
+Rules" (Add, View); rules can also be added during room creation; the room switch is called "AI Automation".
+
+After: one entry, one switch name, three plain actions.
+```
+Room menu
+  ...
+  Room rules                                   (replaces "Automation Chaining" and "AI Rules")
+    Describe a rule
+        "What should happen?" (text)  e.g. "When Oji walks in after dark, turn on the lamp at 40%"
+        "Only for" (person, optional)
+        -> Check your rule (preview written from what will actually run)
+           "When Oji enters Exercise Room, after dark: turn on Exercise Lamp at 40%."
+           [ ] Turn on room rules in this room      (shown only when they are off; default checked)
+           Save / Change the wording
+    Run an automation
+        "When" (enter, exit, dark, bright, house state, energy, safety, security)
+        "Only for" (person, optional)
+        "Automation" (picker)
+        "Use the automation's own conditions" (on)
+        -> Check your rule -> Save
+    Your rules
+        list, one line each: "<preview> - Active, ran 2 h ago" / "Off" / "Needs re-check" / "Never ran: <top skip>"
+        pick one -> Turn off or on / Re-check from its wording / Change the wording / Delete
+```
+Room switch: display name "Room Rules" (entity id unchanged). Helper sentence: "On: this room's rules run. Off:
+they pause, except rules for smoke, leaks and security, which always run. Manual mode pauses them too." Labels follow
+the style guide: short phrases, plain words, no "AI", "parse", "trigger" or "chain" in labels; "Re-check" replaces
+"re-parse". The CM gets one field, "Rule writing model" (AI Task entity picker, §8), in the Coordinator settings.
+
+## 8. Model choice for rule writing
+
+Today the call names no entity, so HA's default AI Task entity answers. `ai_task.claude_ai_task` is configured with
+`claude-haiku-4-5` (max_tokens 4096, thinking budget 1024) and is also the Optimization Coordinator default
+(`DEFAULT_OPTIMIZER_LLM_TASK_ENTITY` `const.py:5459`), so changing that entity's model changes OC cost.
+Estimate per parse: about 3-5k input tokens (prompt + room entity list) and up to about 2k output (JSON + thinking).
+List prices (Anthropic API): Haiku 4.5 $1 / $5 per million in / out, so about 1-1.5 cents a parse; Sonnet 5.5 $2 / $10,
+about 2-3 cents. Parses happen once per save or re-check, a handful a month, so cost does not decide it; correctness of
+the JSON against the room entity list does. Recommendation: a dedicated AI Task subentry for URA rules on a current
+Sonnet-class model (the operator adds it in HA; I do not change HA config), selected through the new knob
+`CONF_ROOM_RULES_AI_TASK_ENTITY` (rung 2, CM options; empty = HA default entity). This keeps OC on Haiku and its cost
+unchanged. Day-1 default if the subentry does not exist yet: `ai_task.claude_ai_task`, with the D10 parse as the check;
+if Haiku produces a wrong or rejected parse there, switch the knob.
+
+## 9. Numbers get knobs
 
 | Knob | Rung | Default | Why / kill semantics |
 |---|---|---|---|
-| `skip_condition` per chain rule | 2 (room options) | False | honour the automation's own conditions; True = old bypass |
-| `RULE_CONFLICTS_KEEP` | 1 | 20 | memory bound for `_last_conflicts` |
-| `RULE_STATUS_FIRES_WINDOW_DAYS` | 1 | 7 | window for `fires_7d` |
-| `RULE_PARSE_TIMEOUT_S` | 1 | 30 | form never hangs on a slow provider |
-| `ROOM_RULES_UNIFIED_EXECUTOR` | 1 | True | kill switch to the pre-change two-path behaviour, review-gated |
+| `CONF_ROOM_RULES_AI_TASK_ENTITY` | 2 NEW | `ai_task.claude_ai_task` | which model writes rules; empty = HA default |
+| `skip_condition` per automation rule | 2 (rule field) | False | automation's own conditions apply |
+| `ROOM_RULE_SWITCH_EXEMPT_TRIGGERS` | 1 | safety, security | rules that run with the switch off; review-gated |
+| `ROOM_RULE_DATA_KEYS` | 1 | per D1 | which data each domain may carry |
+| `RULE_PARSE_TIMEOUT_S` | 1 | 30 | form never hangs |
+| `RULE_REVERSAL_WINDOW_S` | 1 | 120 | accuracy window; 0 = off |
+| `RULE_ZERO_FIRE_DAYS` | 1 | 7 | trip-wire age; 0 = off |
+| `ROOM_RULE_EPISODE_LOG_PERSIST` | 1 | True | room memory writes |
+| `ROOM_RULES_UNIFIED_EXECUTOR` | 1 | True | back to two paths if needed; a test pins True |
 
-## 8. Non-goals
+`RULE_CONFLICTS_KEEP` and `RULE_STATUS_FIRES_WINDOW_DAYS` from the earlier draft are dropped: conflicts keep their
+reset semantics (no bound needed) and counts are since start, with 7-day numbers coming from room memory.
 
-Shadow or would-have-done mode, approve/undo, weekly digest (TRUST-APPROVE-UNDO-DIGEST-1). Writing HA automations.
-Rule suggestions from behaviour. Widening the domain allowlist. Routing chained automations' inner climate calls
-through HVAC funnels (parked upgrade). New DB tables. Rewriting stored options in place.
+## 10. Non-goals
 
-## 9. Tier
+Shadow or would-have-done mode, approve/undo. Writing HA automations. Rule suggestions from behaviour. Widening the
+domain allowlist. Routing a triggered automation's inner calls through URA gates. New DB tables. Conditions beyond
+the three in D2. Rewriting stored options in place outside the edit path.
 
-Tier 2-DB strength by operator ruling: three framing-disjoint reviews, A = parse, validation and person match
-correctness, B = executor integration, trigger subscriptions, options-update and reload lifecycle, migration of stored
-shapes, C = per-site source mutation on every guard and the chain route. INV-R1 has the one-missed-site shape, so
-add a Tier 3 element: a framing D adversarial completeness pass that re-enumerates every rule-derived call site,
-including pre-existing code. Framing G (goal fidelity) is mandatory. Live validation and README write-back required.
-Full Tier 3 not warranted: no cost or HVAC control path changes, and the guards are moved, not rewritten.
+## 11. Tier
 
-## 10. Plan completion tracking
+Tier 2-DB: new persisted episode shapes and a new person-event subscription, plus operator ruling. Reviews: A =
+compiler, validation, conditions, person match; B = executor integration, switch gate per trigger class,
+subscriptions, options save and reload, migration; C = per-site mutation; plus framing D (INV-R1 has the
+one-missed-site shape: re-enumerate every rule-derived call, pre-existing code included) and framing G (works day 1,
+UI simple, no shadow). Not full Tier 3: no cost or HVAC control path; guards move unchanged. Live validation (D10) and
+README write-back required.
 
-The build README lists D1-D8 as done, deferred (reason, card) or dropped. Known carry-outs: approve/undo and digest
-(TRUST-APPROVE-UNDO-DIGEST-1); per-person rule preferences (PERSON-PROFILE-PREFERENCES-1); chained climate routing
-(parked).
+## 12. Plan-review findings disposition
 
-## 11. Open questions for the operator
+Fixed: HIGH-1 (D4, INV-R3), HIGH-2 (D1), HIGH-3 (D3, INV-R4), HIGH-4 (D5), HIGH-5 (D2); MEDIUM-1, MEDIUM-2 (D4, D1),
+MEDIUM-3, MEDIUM-4 (D8), MEDIUM-5 (D3 turn-on checkbox); LOW-1, LOW-2, LOW-3, LOW-5 (D4); LOW-4 (card title) is a board
+edit outside this plan's scope and is left to the coordinator. Opportunity 1 (one authoring form) taken in §7;
+opportunity 2 (zero-fire) taken in D6. Declined: none.
 
-1. OK to make the paid `ai_task` call for D7, and on which entity (default `ai_task.claude_ai_task`)?
-2. Chains: default `skip_condition: False` (automation's own conditions apply). Agree?
-3. The room AI switch is off in 31 of 47 rooms. Leave as is, or turn it on house-wide once rules work? Plan leaves it.
+## 13. Plan completion tracking
+
+The build README lists D1-D10 as done, deferred (reason, card) or dropped. Carry-outs: compactor fact (D7 parked);
+per-person preferences (PERSON-PROFILE-PREFERENCES-1); routing triggered automations through gates (parked).
+
+## 14. Open questions for the operator
+
+1. Add a dedicated Sonnet-class AI Task subentry for rule writing? Recommended: yes; until then rules use
+   `ai_task.claude_ai_task`.
+2. Automation rules honour the automation's own conditions by default (HA default skips them). Recommended: honour.
+3. Remove rule authoring from new-room setup (rules are added from the room's options). Recommended: yes.
+4. Leave the Room Rules switch as is in rooms without rules (off in 31 of 47); the save step offers to turn it on.
+   Recommended: yes.
