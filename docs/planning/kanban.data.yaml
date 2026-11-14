@@ -707,6 +707,21 @@ cards:
   next: "Residual only: URA House Avg Temp/Humidity sensors (closets+outdoor excluded) -> repoint card, delete the two indoor template helpers."
   kept_2026_11_07: "Operator KEEP. Study A (.90) A/B, screen awake on Now, 20 samples each: animate on 42% busy vs off 40% (noise); load = mic/wake-word ~35% core, kiosk app ~30%, camera/RTSP ~18%. weather_hero hidden via never-matching screen visibility (kept in config). Card: wind_direction_sensor_entity=sensor.phalanxmadrone_wind_bearing, all show_* true, note_entity=sensor.weather_extras (template helper 01M6V418A41HYMGAX0CB9S23PX: cloud/gust/dew/visibility; carries old card's Cloud stat), note_max_age 0. No moon sensor (Moon integration not installed)."
   adjacency: "Swept DASH-V8-* + dashboarding workstream: NEW."
+- id: DASH-V8-ANI-WEATHER-FORECAST-1
+  title: "ura-v8 Now tab: upgrade Animated Weather Card to v1.3.0 and turn on its forecast"
+  thread: dashboard
+  status: shipped_organic
+  tier: 1
+  created: "2026-11-14 10:55"
+  updated: "2026-11-14 12:40"
+  done_2026_11_14: "Backup docs/dashboard-prototypes/ura-v8-backups/20261114T_pre_ani_weather_forecast.json (copy of .storage/lovelace.ura_v8). update.animated_weather_card_update installed v1.2.0 -> v1.3.0 (installed_version now v1.3.0). Now-tab card views[1].sections[0].cards[7]: show_forecast true, tap_action more-info -> forecast (the old explicit more-info would have overridden the new tap view). Mobile screenshot confirms high/low beside the condition, the hourly row (Now..5 PM) and the Temp/Feels like/Rain chance/Rain amount chips. No HA restart needed."
+  discriminator: "Panel CPU unchanged: adb top on the Study A or Media Room panel, renderer CPU with the Now tab open, compared with the 11-07 A/B. Not yet measured; needs the panel's adb path (HomeLab). Dispose at the next HomeLab touch: done if within noise, else set show_forecast false (one-line revert)."
+  rank: {value: 3, time_criticality: 2, effort: 1}
+  origin: "Operator 2026-11-14: 'Also found this updated with forecasts. Ura v8 now tab. Card an update and find a quick slot for it today if possible. Don't get distracted though.' https://github.com/alexsto1an/ha-ani-weather-card/releases/tag/v1.3.0"
+  why: "v1.3.0 adds show_forecast (today high/low, change note, hourly row), forecast_metric, a tap-to-open hourly + 7-day view, drag-to-hour, and a separate custom:animated-forecast-card (compact strip). Behaviour changes to handle: with show_forecast on, tap opens the forecast view instead of more-info; many icons move to the forecast icon set; times follow the HA profile time zone; new sixth file animated-weather-card-forecast.js (HACS/Marketplace installs pull it automatically). Release notes say the Marketplace replaced HACS in HA 2026.11; check which one manages it here before upgrading."
+  next: "Quick slot today (no HA restart, frontend only): back up ura-v8 to docs/dashboard-prototypes/ura-v8-backups/, upgrade the card through whichever store manages it, set show_forecast: true on the Now-tab card (keep weather.phalanxmadrone, keep tap opening the forecast view), hard-refresh check on the Study A panel, record CPU spot check like the 11-07 A/B."
+  links: {"sibling_of": ["DASH-V8-ANI-WEATHER-TRIAL-1"], "context": "Same card on the same Now tab; the trial card's indoor-sensor residual stays on the parent."}
+  adjacency: "Swept DASH-V8-*, dashboarding workstream, BACKLOG: ADJACENT to DASH-V8-ANI-WEATHER-TRIAL-1 (same card, new version and feature); new card because the operator asked for one and it has its own acceptance (forecast visible, tap view works, panel CPU unchanged)."
 - id: DASH-V8-ROOM-STATUS-CHIPS-1
   groom_2026_10_28: "Overnight groom: the old next (inventory chip sources, add detail controls, then chips) described work that was already built on 10-22 (built_2026_10_22); rewritten as the operator REVIEW it is actually waiting on. Not re-verified live tonight (dashboard check needs a browser)."
   updated: "2026-10-28 02:03"
