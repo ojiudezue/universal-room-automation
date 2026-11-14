@@ -15,6 +15,7 @@ from __future__ import annotations
 import ast
 import importlib
 import pathlib
+import re
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -475,6 +476,13 @@ def test_public_census_note_outcome_and_counters(mods):
     rec = {"person": "oji_udezue"}
     c.set_egress_identity_last_attach(rec)
     assert c.egress_identity_last_attach() is rec
+    ring = deque([(1.0, "cam", ("front_door",), "Oji", False)])
+    c._frigate_face_named_ring = ring
+    assert c.frigate_face_named_ring() is ring
+    c._ble_tracker_slug_map = {"device_tracker.oji_ble": "oji_udezue"}
+    assert c.ble_tracker_slug_map() is c._ble_tracker_slug_map
+    c._egress_identity_outcomes = deque([(1.0, "attached")])
+    assert c.egress_identity_outcomes() is c._egress_identity_outcomes
     # readers on an object missing the store keep the old getattr defaults
     bare = PC.__new__(PC)
     assert bare.egress_identity_last_attach() == {}
@@ -506,9 +514,16 @@ _ALLOWED_DISPLAY_READS = {
         "_ble_exit_identity_disabled_skip_count", "_frigate_face_latch",
         "_frigate_face_msg_seen_count", "_frigate_face_msg_face_count",
         "_frigate_face_msg_dropped_count", "_frigate_face_msg_retained_count",
-        "_ble_tracker_slug_map",
+        "_ble_tracker_slug_map", "_last_identified_guests_count",
+        "_face_producer_health_reason",
     )
 }
+# CameraInputDegradedBinarySensor (display mirror of the census dark latch /
+# face-producer health reason).
+_ALLOWED_DISPLAY_READS.update({
+    ("binary_sensor.py", "_camera_input_dark_latched"): 1,
+    ("binary_sensor.py", "_face_producer_health_reason"): 1,
+})
 
 
 def _census_private_names(src: str) -> set[str]:
@@ -526,20 +541,27 @@ def _census_private_names(src: str) -> set[str]:
     return names
 
 
+_CENSUS_RECEIVER = re.compile(r"(^|[._])cens")
+
+
+def _names_a_census(node) -> bool:
+    return bool(_CENSUS_RECEIVER.search(ast.unparse(node).lower()))
+
+
 def _private_census_reads(module_src: str, private: set[str]) -> list[tuple[int, str]]:
     """(line, name) of every PRIVATE PersonCensus member reached through a
     receiver whose source text names a census (``census``, ``census_ref``,
-    ``self._census`` ...): attribute access, and getattr / hasattr / setattr
-    with a constant name."""
+    ``_cens``, ``self._census`` ...): attribute access, and getattr / hasattr
+    / setattr with a constant name. Limit (stated): a census held under a
+    name without ``cens`` is not seen."""
     hits: list[tuple[int, str]] = []
     for n in ast.walk(ast.parse(module_src)):
-        if isinstance(n, ast.Attribute) and n.attr in private \
-                and "census" in ast.unparse(n.value).lower():
+        if isinstance(n, ast.Attribute) and n.attr in private and _names_a_census(n.value):
             hits.append((n.lineno, n.attr))
         if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) \
                 and n.func.id in ("getattr", "hasattr", "setattr") and len(n.args) >= 2 \
                 and isinstance(n.args[1], ast.Constant) and n.args[1].value in private \
-                and "census" in ast.unparse(n.args[0]).lower():
+                and _names_a_census(n.args[0]):
             hits.append((n.lineno, n.args[1].value))
     return hits
 
@@ -570,6 +592,8 @@ def test_no_private_census_reads_outside_module():
     ("h = hasattr(self._census, '_resolve_face_legs')", [(1, "_resolve_face_legs")]),
     ("x = census.tracked_person_slugs()", []),
     ("x = other._get_tracked_person_slugs()", []),
+    ("x = getattr(_cens, '_resolve_face_legs', 0)", [(1, "_resolve_face_legs")]),
+    ("x = license._resolve_face_legs", []),
 ])
 def test_private_census_detector_controls(snippet, want):
     """Anti-hollow: the detector flags known-bad shapes and not good ones."""
@@ -610,3 +634,37 @@ def test_music_arrival_handler_reads_the_normalised_payload(mods, caplog, payloa
         assert msgs == []
     else:
         assert len(msgs) == 1 and want in msgs[0]
+
+
+# ----------------------------------------------- RA6 census sensor readers
+def test_persons_in_house_sensor_egress_identity_attrs_read_public_api(mods):
+    """The census sensor's egress-identity attributes read the census
+    through ``egress_identity_outcomes()`` / ``_boost_events()`` /
+    ``_last_attach()`` (same objects as before)."""
+    import time
+    from collections import deque
+    sensor_mod = _m("sensor")
+    PC = mods.census.PersonCensus
+    census = PC.__new__(PC)
+    house = _zone_result(mods, total=2, identified=2, unidentified=0)
+    ext = _zone_result(mods, total=0, identified=0, unidentified=0)
+    census._last_result = mods.census.FullCensusResult(
+        house=house, property_exterior=ext, total_on_property=2,
+        ble_persons=[], face_persons=[], persons_outside=0,
+    )
+    now = time.time()
+    census._egress_identity_outcomes = deque([(now, "attached"), (now, "abstain"),
+                                              (now, "disabled"), (now - 90000, "attached")])
+    census._egress_identity_boost_events = deque([now, now - 90000])
+    census._egress_identity_last_attach = {"person": "oji_udezue", "provenance": "face"}
+    # Unrelated public readers earlier in the same attribute block need
+    # census state this bare object does not carry.
+    census.get_pending_peak_info = lambda *_a: None
+    census.get_stuck_cameras = lambda: []
+    s = sensor_mod.URAPersonsInHouseSensor.__new__(sensor_mod.URAPersonsInHouseSensor)
+    s.hass = _hass(data={"census": census})
+    attrs = s.extra_state_attributes
+    assert attrs["egress_identity_attach_rate_24h"] == 0.5
+    assert attrs["egress_identity_abstain_rate_24h"] == 0.5
+    assert attrs["egress_identity_correlated_boost_count_24h"] == 1
+    assert attrs["egress_identity_last_attach"] == {"person": "oji_udezue", "provenance": "face"}

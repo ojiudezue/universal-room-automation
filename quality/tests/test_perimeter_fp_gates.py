@@ -1953,3 +1953,33 @@ def test_parse_vlm_verdict_unchanged():
     assert _gates.parse_vlm_verdict("PERSON: YES\nLOCATION: STREET\nA man") == (
         "LOCATION: STREET\nA man", "YES")
     assert _gates.parse_vlm_verdict("PERSON: NO\nA dog") == ("A dog", "NO")
+
+
+class _GuestCensus(_Census):
+    """Census whose operator-configured known face guest ``Ojini`` maps to
+    the ``guest:ojini`` slug (camera_census._canonical_person_slug D3)."""
+
+    def _get_known_face_guests(self):
+        return ["Ojini"]
+
+    def _canonical_person_slug(self, n):
+        return "guest:ojini" if str(n) == "Ojini" else str(n).lower()
+
+
+@pytest.mark.parametrize("guests, want_known", [(True, True), (False, False)])
+def test_egress_gate_known_face_guest_counts_as_known(monkeypatch, guests, want_known):
+    """PERSON-AWARENESS-READ-API-1 RA6 anchor: the D10.5 known set includes
+    the known face guests through ``census.known_face_guests()`` mapped by
+    ``census.canonical_person_slug()``; an egress identity naming the guest
+    slug at 0.9 demotes, the same event with no configured guest does not."""
+    hass, nm, mgr = _d105(monkeypatch)
+    if guests:
+        hass.data[_const.DOMAIN]["census"] = _GuestCensus()
+    cb = [c.args[1] for c in hass.bus.async_listen.call_args_list
+          if c.args[0] == "ura_person_egress_event"][0]
+    monkeypatch.setattr(_perimeter.dt_util, "parse_datetime",
+                        lambda s: _now() - timedelta(seconds=3), raising=False)
+    cb(SimpleNamespace(data={"egress_camera": DB_PR, "timestamp": "x",
+                             "person_id": "guest:ojini", "identity_confidence": 0.9}))
+    _run(mgr._async_handle_perimeter_trigger(DB_PR))
+    assert (_reason(mgr) == "egress_known_person") is want_known
