@@ -196,6 +196,10 @@ async def rig(mods, hass, tmp_path, monkeypatch):
         C.CROSSING_VISION_SWITCH_HASS_KEY: True,
     })
 
+    # The operator's "OpenAI Madrone Vision" llmvision entry (the producer
+    # sends its id only when it exists on this install).
+    MockConfigEntry(domain="llmvision", entry_id="01M7B731T26P2HXVW77AQR62PP",
+                    title="OpenAI Madrone Vision").add_to_hass(hass)
     llm = _LLM()
     llm.reply = _ok_reply()
     hass.services.async_register(
@@ -1266,6 +1270,10 @@ async def test_cluster_join_writes_exactly_one_row(rig):
     srcs = [r["src"] for r in rows(rig)]
     assert sorted(srcs) == sorted([k1, k2])
     assert len(srcs) == 2
+    # The DB dedups a second row on the same node_id, so the counters are
+    # the discriminator: exactly one clustered outcome, no fall-through.
+    today = rig.cv.diag_status()["crossing_vision_today"]
+    assert today["clustered"] == 1 and today["no_event"] == 0
 
 
 @pytest.mark.asyncio
@@ -1460,7 +1468,7 @@ async def test_teardown_cancels_in_flight_call(rig):
     """M118 / M115: the in-flight llmvision call is a tracked task, and
     teardown gathers then cancels it (bounded); no row afterwards."""
     rig.monkeypatch.setattr(rig.C, "CROSSING_VISION_TEARDOWN_GATHER_S", 0.05)
-    rig.llm.reply = ("sleep", 30)
+    rig.llm.reply = ("sleep", 3)
     e = _now(rig) - timedelta(seconds=45)
     s = e.timestamp() + 1
     frigate(rig, "ev-fly", "garage_a", s, typ="end", end=s + 3)
@@ -1483,10 +1491,8 @@ async def test_row_write_is_tracked_and_cancelled_at_teardown(rig):
     """M81: the row write is a tracked task, so an unload with a write
     still in flight cancels it instead of leaking it."""
     rig.monkeypatch.setattr(rig.C, "CROSSING_VISION_TEARDOWN_GATHER_S", 0.05)
-    gate = asyncio.Event()
-
     async def _slow_write(**_kw):
-        await gate.wait()
+        await asyncio.sleep(3)
 
     rig.monkeypatch.setattr(rig.db, "log_memory_episode", _slow_write)
     fire_cross_nowait(rig, GARAGE_EGRESS, _now(rig) - timedelta(seconds=45))
@@ -1563,7 +1569,7 @@ async def test_call_is_background_task(rig):
     an in-flight call. hass.async_block_till_done() without background
     tasks returns while the call is still in flight."""
     rig.monkeypatch.setattr(rig.C, "CROSSING_VISION_TEARDOWN_GATHER_S", 0.05)
-    rig.llm.reply = ("sleep", 30)
+    rig.llm.reply = ("sleep", 3)
     e = _now(rig) - timedelta(seconds=45)
     s = e.timestamp() + 1
     frigate(rig, "ev-bg", "garage_a", s, typ="end", end=s + 3)
@@ -1573,3 +1579,13 @@ async def test_call_is_background_task(rig):
     await asyncio.wait_for(rig.hass.async_block_till_done(), timeout=2)
     assert rows(rig) == []
     await rig.cv.async_teardown()
+
+
+@pytest.mark.asyncio
+async def test_provider_falls_back_when_entry_absent_on_install(rig):
+    """Portability: the const id is not an llmvision entry here (another
+    house) -> the perimeter provider is used."""
+    rig.monkeypatch.setattr(rig.C, "CROSSING_VISION_PROVIDER_ID",
+                            "01ZZZZZZZZZZZZZZZZZZZZZZZZ")
+    await ended_crossing(rig, "ev-port")
+    assert rig.llm.calls[0]["provider"] == "prov_openai"

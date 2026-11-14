@@ -678,6 +678,23 @@ class CrossingVisionShadow:
         req.status = "calling"
         self._spawn(self._run(req), background=True)
 
+    def _provider_id(self) -> str | None:
+        """The llmvision entry id to send as ``provider``: the rung-1
+        ``CROSSING_VISION_PROVIDER_ID`` only when that id is an llmvision
+        config entry on THIS install (portability: another house has other
+        entry ids); otherwise None, and the adapter falls back to the
+        perimeter's provider."""
+        pid = str(_c.CROSSING_VISION_PROVIDER_ID or "").strip()
+        if not pid:
+            return None
+        try:
+            entry = self.hass.config_entries.async_get_entry(pid)
+        except Exception:  # noqa: BLE001
+            return None
+        if entry is None or getattr(entry, "domain", None) != "llmvision":
+            return None
+        return pid
+
     def _clip_reference(self, ev: Mapping[str, Any]) -> tuple[str | None, str | None]:
         """Return (video_file, event_id) per plan rev 2 F4; (None, None) when
         no safe reference exists."""
@@ -741,7 +758,7 @@ class CrossingVisionShadow:
                 structure=RESPONSE_STRUCTURE,
                 prompt=PROMPT,
                 expose_images=bool(_c.CROSSING_VISION_KEEP_FRAMES),
-                provider=str(_c.CROSSING_VISION_PROVIDER_ID) or None,
+                provider=self._provider_id(),
                 max_tokens=int(_c.CROSSING_VISION_MAX_TOKENS),
             )
             latency = round(self._epoch() - started, 2)

@@ -422,6 +422,14 @@ deployed; plan `PLANNING_crossing_vision.md` rev 2, Phase 1).**
   `LLMVISION_ENRICHMENT_KILL`, Number `crossing_vision_daily_calls` > 0) are read at schedule AND at
   call time. Trip-wires: `crossing_vision_zero` (HIGH) and `crossing_vision_errors` (MEDIUM).
   Diagnostics `crossing_vision_today` / `_last` on Outside: Open Tracks (unrecorded).
+- **Model (fix-up 2026-11-13):** `provider` = `CROSSING_VISION_PROVIDER_ID` (the "OpenAI Madrone
+  Vision" llmvision entry, `gpt-6-luna`, temperature / top_p 1.0 set on that entry) when that entry
+  exists on the install, else the perimeter provider; own `CROSSING_VISION_MAX_TOKENS` (1500). The
+  llmvision call is a background task (HA stop does not wait on it).
+- **Known upstream leak (review B1):** cancelling a call (timeout or unload) during llmvision 1.7.1's
+  clip fetch / ffmpeg (`media_handlers.py:662-845`) leaves one temp `.mp4` and the ffmpeg process
+  running until its pipe closes (cleanup not in a `finally`, no `process.kill()`). Rare; fix belongs
+  upstream in llmvision.
 
 Direction gating on the census union feed
 (`transit_validator.py:1298-1310`):
