@@ -1430,6 +1430,28 @@ class CameraResolver:
         results.sort(key=lambda c: c.primary_entity)
         return results
 
+    def has_frigate_and_protect_camera(self) -> bool:
+        """True when >=1 physical camera has BOTH a Frigate and a Protect
+        person leg (PERIMETER-SWITCH-LABELS-AND-FLOW-PARITY-1).
+
+        Registry-based: enumerates Protect person cameras, then reads the
+        ``integration`` of each fused detection leg (the correlation ladder),
+        never entity-name guessing across integrations. Never raises.
+        """
+        try:
+            for cam in self.enumerate_platform_cameras(PLATFORM_UNIFI, "person"):
+                # The row's primary is a Protect leg by construction, so
+                # one fused Frigate leg makes it a two-system camera.
+                legs = self.resolve_detection_legs(cam.primary_entity, "person")
+                if any(l.integration == PLATFORM_FRIGATE for l in legs):
+                    return True
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "CameraResolver.has_frigate_and_protect_camera failed",
+                exc_info=True,
+            )
+        return False
+
     def _engine_tag(self, integration: str, entity_name: str, device_id: str | None) -> str:
         """Map (integration, entity_name, device_id) -> engine label.
 

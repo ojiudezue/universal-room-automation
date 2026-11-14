@@ -1859,7 +1859,13 @@ def _platform_entities(module_name, opts=None):
     added: list = []
     hass = MagicMock()
     hass.data = {_const.DOMAIN: {}}
-    asyncio.run(mod.async_setup_entry(hass, _integration_entry(opts), lambda ents, *a, **k: added.extend(ents)))
+    # PERIMETER-SWITCH-LABELS-AND-FLOW-PARITY-1: the single-sourced switch
+    # needs a dual-NVR camera; model the two-NVR install (scoped patch).
+    from unittest.mock import patch as _patch
+    gates_mod = importlib.import_module(
+        "custom_components.universal_room_automation.perimeter_fp_gates")
+    with _patch.object(gates_mod, "dual_nvr_present", lambda hass: True):
+        asyncio.run(mod.async_setup_entry(hass, _integration_entry(opts), lambda ents, *a, **k: added.extend(ents)))
     return {getattr(e, "entity_id", ""): e for e in added}
 
 
