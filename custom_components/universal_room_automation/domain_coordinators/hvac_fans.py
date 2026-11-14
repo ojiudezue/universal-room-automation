@@ -1526,17 +1526,20 @@ class FanController:
                     zone = self._zone_manager.zones.get(room_fan.zone_id)
                     if zone is not None:
                         # PERSON-BLE-WINS-OVER-STALE-GPS-1 §6b: overrule-aware read.
-                        from ..person_coordinator import person_state_for_trust  # noqa: PLC0415
-                        for person_entity in (zone.zone_persons or []):
-                            if person_state_for_trust(self.hass, person_entity) == "home":
-                                _LOGGER.debug(
-                                    "HVAC Fans: %s vacancy hold extended during "
-                                    "%s (person %s home)",
-                                    room_fan.room_name,
-                                    self._house_state,
-                                    person_entity,
-                                )
-                                return True, room_fan.trigger, room_fan.speed_pct
+                        # RA8: the one F1 per-zone level read.
+                        from ..person_coordinator import first_person_home_for_trust  # noqa: PLC0415
+                        person_entity = first_person_home_for_trust(
+                            self.hass, zone.zone_persons,
+                        )
+                        if person_entity is not None:
+                            _LOGGER.debug(
+                                "HVAC Fans: %s vacancy hold extended during "
+                                "%s (person %s home)",
+                                room_fan.room_name,
+                                self._house_state,
+                                person_entity,
+                            )
+                            return True, room_fan.trigger, room_fan.speed_pct
                 except Exception as exc:  # noqa: BLE001
                     _LOGGER.debug(
                         "HVAC Fans: %s night-trust person check errored: %s",

@@ -124,6 +124,16 @@ _dt_mock = _mock_module(
     parse_datetime=_parse_dt,
 )
 
+# Scoped: unscoped, the setattr branch below wrote MagicMock / dict onto the
+# REAL HA modules at collection time (e.g. DataUpdateCoordinator = MagicMock)
+# and never restored them (victim: test_ble_person_registry_resolve).
+# Exited after hvac.py loads.
+import pytest as _d7_pytest_scope  # noqa: E402
+from _d7_isolation import import_scope as _d7_import_scope, reinstall as _d7_reinstall  # noqa: E402
+
+_D7_SCOPE = _d7_import_scope(attrs=True)
+_D7_INSTALLED = _D7_SCOPE.__enter__()
+
 for _name, _attrs in _ha_mods.items():
     if isinstance(_attrs, dict):
         _existing = sys.modules.get(_name)
@@ -306,6 +316,14 @@ else:
     sys.modules["homeassistant.util.dt"] = _HA_DT_ORIG
 
 _hvac_dt_util = _hvac_mod.dt_util
+
+_D7_SCOPE.__exit__(None, None, None)
+
+
+@_d7_pytest_scope.fixture(scope="module", autouse=True)
+def _d7_module_stubs():
+    """Re-install the stubs for this file's tests only, then restore."""
+    yield from _d7_reinstall(_D7_INSTALLED)
 
 
 import pytest as _d7_pytest  # noqa: E402

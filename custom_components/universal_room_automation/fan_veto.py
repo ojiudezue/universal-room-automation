@@ -260,6 +260,10 @@ def _has_recent_motion(hass: HomeAssistant, config: dict[str, Any]) -> bool:
             continue
         if state is None:
             continue
+        if _stream_dead(hass, entity_id):
+            # Camera input stream health S2: a camera-derived motion input
+            # whose stream is dead is no evidence (neither on nor recent).
+            continue
         if state.state == STATE_ON:
             return True
         # A-L1 fix + B-L2 boot-transient guard: a "recent transition" only
@@ -453,9 +457,25 @@ def _has_camera_person(
                 "(fail-open)", entity_id, exc,
             )
             continue
-        if state is not None and state.state == STATE_ON:
+        if (
+            state is not None and state.state == STATE_ON
+            and not _stream_dead(hass, entity_id)
+        ):
             return True
     return False
+
+
+def _stream_dead(hass: HomeAssistant, entity_id: str) -> bool:
+    """Camera input stream health S2: True iff the room tier's ONE getter
+    (via ``camera_stream_health.entity_stream_dead``) reports this entity's
+    camera stream dead. None / False / error = counts as before."""
+    try:
+        from .domain_coordinators.camera_stream_health import (  # noqa: PLC0415
+            entity_stream_dead,
+        )
+        return entity_stream_dead(hass, entity_id) is True
+    except Exception:  # noqa: BLE001 — fail open (pre-S2 behaviour)
+        return False
 
 
 def _room_has_trusted_presence(

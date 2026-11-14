@@ -1199,5 +1199,8 @@ class PerimeterVlmGateSelect(ChatterModeSelect):
         self._default = DEFAULT_PERIMETER_VLM_GATE
         self._attr_options = list(PERIMETER_VLM_GATE_OPTIONS)
         self._attr_unique_id = f"{DOMAIN}_perimeter_vlm_gate"
-        self._attr_name = "Perimeter AI Person Check"
+        # PERIMETER-SWITCH-LABELS-AND-FLOW-PARITY-1: translation_key carries
+        # the option labels (Off / Watch only / On); values are unchanged.
+        self._attr_translation_key = "perimeter_vlm_gate"
+        self._attr_name = "AI Person Check"
         self.entity_id = "select.ura_perimeter_vlm_gate"

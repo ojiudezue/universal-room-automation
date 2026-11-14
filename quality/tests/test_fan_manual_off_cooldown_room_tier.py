@@ -119,6 +119,19 @@ _dt_mock = _mock_module(
     parse_datetime=_parse_dt,
 )
 
+# Scoped (import_scope attrs=True + module-scoped reinstall below). Unscoped,
+# the setattr branch wrote MagicMock / dict onto the REAL HA modules at
+# collection time (entity_registry.async_get, DataUpdateCoordinator,
+# HomeAssistant, callback, ...) and never took them back: every later
+# real-HA file inherited them (victim: test_ble_person_registry_resolve,
+# 22/25 red in the full run).
+from _d7_isolation import import_scope as _d7_import_scope, reinstall as _d7_reinstall  # noqa: E402
+
+_D7_SCOPE = _d7_import_scope(attrs=True)
+# Entered here, exited right after automation.py is loaded (below), so the
+# stub install + production import run inside the scope.
+_D7_INSTALLED = _D7_SCOPE.__enter__()
+
 for _name, _attrs in _ha_mods.items():
     if isinstance(_attrs, dict):
         _existing = sys.modules.get(_name)
@@ -183,6 +196,14 @@ _automation_mod.SERVICE_TURN_ON = "turn_on"
 _automation_mod.SERVICE_TURN_OFF = "turn_off"
 _automation_mod.STATE_ON = "on"
 _automation_mod.STATE_OFF = "off"
+
+_D7_SCOPE.__exit__(None, None, None)
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _d7_module_stubs():
+    """Re-install the stubs for this file's tests only, then restore."""
+    yield from _d7_reinstall(_D7_INSTALLED)
 
 
 # ---------------------------------------------------------------------------

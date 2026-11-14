@@ -162,6 +162,33 @@ def person_state_for_trust(hass, person_entity_id: str) -> str | None:
     return st.state if st is not None else None
 
 
+def persons_home_for_trust(hass, persons) -> list[str]:
+    """F1 per-zone level read (PERSON-AWARENESS-READ-API-1 RA8).
+
+    The persons of ``persons`` (in order; ``None`` -> none) whose trust state
+    (``person_state_for_trust``) reads exactly ``home``; unknown / unavailable
+    / missing are not home. This is the "any of the zone's persons home" rule
+    the HVAC / aggregation zone loops each re-implemented. It does NOT apply
+    the phone-left-behind cut of ``PresenceCoordinator.get_residents_home()``
+    (a different question: global residents, not a zone's persons).
+    """
+    return list(_iter_persons_home_for_trust(hass, persons))
+
+
+def first_person_home_for_trust(hass, persons) -> str | None:
+    """First person of ``persons`` home under ``persons_home_for_trust``'s
+    rule, else ``None``. Short-circuits (stops reading at the first home
+    person), like the loops it replaces."""
+    return next(_iter_persons_home_for_trust(hass, persons), None)
+
+
+def _iter_persons_home_for_trust(hass, persons):
+    """The one rule behind both helpers above (lazy, in order)."""
+    for p in (persons or []):
+        if person_state_for_trust(hass, p) == "home":
+            yield p
+
+
 class PersonTrackingCoordinator(DataUpdateCoordinator):
     """Coordinator for person tracking across rooms."""
 
@@ -186,6 +213,15 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
             DEFAULT_MEDIUM_CONFIDENCE_DISTANCE
         )
         
+        # BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1: per-(person, reason) miss
+        # counter for the registry person -> Bermuda device resolver, plus
+        # the consecutive-miss streak that drives warn-once-on-second-miss.
+        self._bermuda_resolve_misses: dict[tuple[str, str], int] = {}
+        self._bermuda_resolve_hits: dict[str, int] = {}
+        self._bermuda_resolve_last: dict[str, tuple[str, str | None]] = {}
+        self._bermuda_resolve_streak: dict[str, tuple[str, int]] = {}
+        self._bermuda_resolve_warned: set[tuple[str, str]] = set()
+
         # v3.2.4: Scanner-to-rooms mapping for three-tier resolution
         self._scanner_to_rooms: dict[str, list[str]] = {}
         self._area_id_to_room: dict[str, str] = {}  # area_id -> room_name (direct match)
@@ -815,7 +851,9 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
             if not self._ble_leads_enabled():
                 return raw_state
             for name in overruled:
-                if f"person.{name.lower().replace(' ', '_')}" == person_entity_id:
+                # RA9: the one id rule (a ``person.*`` entry is kept, never
+                # ``person.person.*``).
+                if tracked_person_entity_id(name) == person_entity_id:
                     if self.get_person_location(name) == "away":
                         return "not_home"
                     break
@@ -987,7 +1025,7 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                 old_last_bermuda_update = old_data.get("last_bermuda_update")
                 
                 # Get person entity
-                person_entity_id = f"person.{person_name.lower().replace(' ', '_')}"
+                person_entity_id = tracked_person_entity_id(person_name)  # RA9
                 person_state = self.hass.states.get(person_entity_id)
                 
                 if not person_state:
@@ -1029,7 +1067,14 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                     continue
                 
                 # Get Bermuda area sensor for room-level location
-                area_sensor = await self._find_bermuda_area_sensor(person_name)
+                # Review A-L3: resolve the Bermuda device ONCE per person per
+                # tick; both readers below consume it (no cross-tick cache).
+                bermuda_resolved = self._bermuda_device_for_person(
+                    tracked_person_entity_id(person_name),
+                )
+                area_sensor = await self._find_bermuda_area_sensor(
+                    person_name, bermuda_resolved,
+                )
                 
                 if area_sensor:
                     area_state = self.hass.states.get(area_sensor)
@@ -1039,7 +1084,10 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                         resolved_room = self._resolve_person_room(bermuda_area)
                         
                         # Calculate confidence based on Bermuda distance sensors
-                        confidence = await self._calculate_confidence(person_name, bermuda_area, resolved_room)
+                        confidence = await self._calculate_confidence(
+                            person_name, bermuda_area, resolved_room,
+                            bermuda_resolved,
+                        )
                         
                         # v3.2.8.3: Track location changes and previous_location_time
                         location_changed = (resolved_room != old_location)
@@ -1737,7 +1785,7 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
         Uses the same logic as _async_update_data (line 133 pattern).
         """
         # Try direct match (same pattern as person_entity_id construction)
-        candidate = f"person.{person_name.lower().replace(' ', '_')}"
+        candidate = tracked_person_entity_id(person_name)  # RA9
         if self.hass.states.get(candidate):
             return candidate
         # Try without transformation
@@ -1750,19 +1798,190 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
     # BERMUDA SENSOR DISCOVERY
     # ==========================================================================
 
-    async def _find_bermuda_area_sensor(self, person_name: str) -> str | None:
+    # --- BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1: registry resolver ---------
+
+    def _bermuda_device_for_person(
+        self, person_entity_id: str,
+    ) -> tuple[str | None, str, str | None]:
+        """The person's Bermuda device, via the registries only.
+
+        Returns ``(device_id, route, uid)``. On success ``route`` is ``"a"``
+        or ``"b"`` and ``uid`` is the Bermuda device uid (the unique_id stem
+        of its sensors). On failure ``device_id`` and ``uid`` are None and
+        ``route`` is the reason. No entity_id / name matching, no cache.
+
+        Route (a): the one ``device_tracker`` in the person's
+        ``device_trackers`` whose registry platform is ``bermuda``.
+        Route (b), only when (a) finds none: the one ``private_ble_device``
+        tracker; its device's ``('private_ble_device', X)`` identifier; the
+        one OTHER device carrying that identifier that owns a ``bermuda``
+        entity. The twin is found by a full scan of ``dev_reg.devices``:
+        the registry's identifier index holds one device per identifier, so
+        an identifier lookup can return the private_ble device instead.
+        """
+        try:
+            state = self.hass.states.get(person_entity_id)
+            if state is None:
+                return None, "no_person_state", None
+            trackers = state.attributes.get("device_trackers") or []
+            ent_reg = er.async_get(self.hass)
+            entries = [ent_reg.async_get(t) for t in trackers if isinstance(t, str)]
+            entries = [e for e in entries if e is not None and e.domain == "device_tracker"]
+
+            bermuda = [e for e in entries if e.platform == "bermuda"]
+            if len(bermuda) > 1:
+                return None, "multiple_bermuda_trackers", None
+            if len(bermuda) == 1:
+                trk = bermuda[0]
+                if not trk.device_id:
+                    return None, "tracker_no_device", None
+                return trk.device_id, "a", trk.unique_id
+
+            pble = [e for e in entries if e.platform == "private_ble_device"]
+            if not pble:
+                return None, "no_bermuda_tracker", None
+            if len(pble) > 1:
+                return None, "private_ble_ambiguous", None
+            trk = pble[0]
+            if not trk.device_id:
+                return None, "tracker_no_device", None
+            dev_reg = dr.async_get(self.hass)
+            own = dev_reg.devices.get(trk.device_id)
+            if own is None:
+                return None, "tracker_no_device", None
+            idents = {i for i in own.identifiers if i[0] == "private_ble_device"}
+            if not idents:
+                return None, "private_ble_no_twin", None
+            candidates = []
+            for dev in dev_reg.devices.values():
+                if dev.id == own.id or not (idents & set(dev.identifiers)):
+                    continue
+                if any(
+                    e.platform == "bermuda"
+                    for e in er.async_entries_for_device(
+                        ent_reg, dev.id, include_disabled_entities=True,
+                    )
+                ):
+                    candidates.append(dev)
+            if not candidates:
+                return None, "private_ble_no_twin", None
+            if len(candidates) > 1:
+                return None, "private_ble_ambiguous", None
+            twin = candidates[0]
+            uid = next(
+                (i[1] for i in twin.identifiers if i in idents), None,
+            )
+            return twin.id, "b", uid
+        except Exception:  # noqa: BLE001 - registry absent / stubbed
+            return None, "registry_error", None
+
+    def _note_bermuda_resolve(
+        self, person_name: str, route: str, reason: str | None,
+    ) -> None:
+        """Fire check for the registry area-sensor resolution.
+
+        ``reason`` None = resolved (counted in ``_bermuda_resolve_hits``);
+        otherwise a miss counted in ``_bermuda_resolve_misses[(person,
+        reason)]``. WARN once per (person, reason) on the second consecutive
+        miss with that reason (absorbs the boot race); INFO once when a
+        warned person resolves again.
+        """
+        misses = self.__dict__.setdefault("_bermuda_resolve_misses", {})
+        hits = self.__dict__.setdefault("_bermuda_resolve_hits", {})
+        last = self.__dict__.setdefault("_bermuda_resolve_last", {})
+        streak = self.__dict__.setdefault("_bermuda_resolve_streak", {})
+        warned = self.__dict__.setdefault("_bermuda_resolve_warned", set())
+        last[person_name] = (route, reason)
+        if reason is None:
+            hits[person_name] = hits.get(person_name, 0) + 1
+            streak.pop(person_name, None)
+            mine = {k for k in warned if k[0] == person_name}
+            if mine:
+                warned.difference_update(mine)
+                _LOGGER.info(
+                    "Bermuda area sensor for %s resolved again (route=%s)",
+                    person_name, route,
+                )
+            return
+        key = (person_name, reason)
+        misses[key] = misses.get(key, 0) + 1
+        prev_reason, n = streak.get(person_name, (None, 0))
+        n = n + 1 if prev_reason == reason else 1
+        streak[person_name] = (reason, n)
+        if n >= 2 and key not in warned:
+            warned.add(key)
+            _LOGGER.warning(
+                "No Bermuda area sensor for %s (route=%s, reason=%s)",
+                person_name, route, reason,
+            )
+
+    def get_bermuda_resolve_stats(self) -> dict[str, dict[str, Any]]:
+        """Per-person fire check of the registry resolver (display only):
+        resolutions, misses by reason, and the last route / reason."""
+        misses = self.__dict__.get("_bermuda_resolve_misses", {})
+        hits = self.__dict__.get("_bermuda_resolve_hits", {})
+        last = self.__dict__.get("_bermuda_resolve_last", {})
+        out: dict[str, dict[str, Any]] = {}
+        for person in sorted(set(hits) | set(last) | {k[0] for k in misses}):
+            route, reason = last.get(person, (None, None))
+            by_reason = {r: n for (p, r), n in misses.items() if p == person}
+            out[person] = {
+                "resolved": hits.get(person, 0),
+                "unresolved": sum(by_reason.values()),
+                "misses": by_reason,
+                "last_route": route,
+                "last_reason": reason,
+            }
+        return out
+
+    def _bermuda_person_sensors(
+        self, device_id: str, uid: str | None,
+    ) -> tuple[str | None, list[str]]:
+        """(area sensor, per-scanner distance sensors) on one Bermuda device,
+        typed by registry unique_id: area ``<uid>``; distance ONE sensor per
+        scanner ``<uid>_<mac>_range`` (filtered), falling back to
+        ``<uid>_<mac>_range_raw`` only when the filtered one is absent or
+        disabled (review A-L1: both counted the same scanner twice).
+        ``<uid>_range`` (nearest) is not a per-scanner sensor."""
+        if not uid:
+            return None, []
+        ent_reg = er.async_get(self.hass)
+        area: str | None = None
+        filtered: dict[str, str] = {}
+        raw: dict[str, str] = {}
+        prefix = f"{uid}_"
+        nearest = f"{uid}_range"
+        for e in er.async_entries_for_device(
+            ent_reg, device_id, include_disabled_entities=False,
+        ):
+            if e.domain != "sensor" or e.platform != "bermuda":
+                continue
+            u = e.unique_id or ""
+            if u == uid:
+                area = e.entity_id
+            elif u.startswith(prefix) and u != nearest:
+                mid = u[len(prefix):]
+                if mid.endswith("_range_raw") and mid[:-10]:
+                    raw[mid[:-10]] = e.entity_id
+                elif mid.endswith("_range") and mid[:-6]:
+                    filtered[mid[:-6]] = e.entity_id
+        return area, list({**raw, **filtered}.values())
+
+    async def _find_bermuda_area_sensor(
+        self, person_name: str,
+        resolved: tuple[str | None, str, str | None] | None = None,
+    ) -> str | None:
         """Find the Bermuda area sensor for a person.
 
-        v3.6.19: Replaced 8 hardcoded iPhone patterns with smarter discovery:
-        1. Config override (CONF_BERMUDA_AREA_SENSORS per person)
-        2. Private BLE derivation (device_tracker.* → sensor.*_area)
-        3. Minimal fallback (2 common patterns)
-        4. Registry fallback (Bermuda platform entities, last resort)
+        BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1: config override first, then
+        the area sensor on the person's Bermuda device resolved through the
+        registries (``_bermuda_device_for_person``). No name matching.
+        ``resolved``: the tick's one resolver result (review A-L3); None =
+        resolve here. Never cached beyond the tick.
         """
         from .const import CONF_BERMUDA_AREA_SENSORS
 
         normalized_name = person_name.lower().replace(" ", "_")
-        first_name = person_name.split()[0].lower() if person_name else ""
 
         # Strategy 1: Config override — explicit sensor per person
         bermuda_overrides = self.integration_entry.options.get(
@@ -1776,46 +1995,35 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                 return override_sensor
             _LOGGER.warning("Configured Bermuda sensor %s for %s not found in HA", override_sensor, person_name)
 
-        # Strategy 2: Private BLE derivation — find device_tracker from private_ble_device
-        ent_reg = er.async_get(self.hass)
-        for entity_entry in ent_reg.entities.values():
-            if (entity_entry.platform == "private_ble_device"
-                and entity_entry.domain == "device_tracker"
-                and (first_name in entity_entry.entity_id or normalized_name in entity_entry.entity_id)):
-                # Derive area sensor: sensor.{object_id}_area
-                object_id = entity_entry.entity_id.split(".", 1)[1]
-                area_sensor = f"sensor.{object_id}_area"
-                if self.hass.states.get(area_sensor):
-                    _LOGGER.debug("Found Bermuda area sensor for %s via private_ble: %s", person_name, area_sensor)
-                    return area_sensor
-
-        # Strategy 3: Minimal fallback — two common patterns
-        patterns = [
-            f"sensor.{first_name}_iphone_area",
-            f"sensor.{normalized_name}_area",
-        ]
-        for pattern in patterns:
-            if self.hass.states.get(pattern):
-                _LOGGER.debug("Found Bermuda area sensor for %s: %s", person_name, pattern)
-                return pattern
-
-        # Strategy 4: Registry fallback — search Bermuda platform entities
-        for entity_id, entity_entry in ent_reg.entities.items():
-            if (entity_id.startswith("sensor.")
-                and entity_id.endswith("_area")
-                and "bermuda" in (entity_entry.platform or "")
-                and (first_name in entity_id or normalized_name in entity_id)):
-                _LOGGER.debug("Found Bermuda area sensor via registry for %s: %s", person_name, entity_id)
-                return entity_id
-
-        _LOGGER.warning("No Bermuda area sensor found for %s (tried: config, private_ble, patterns, registry)", person_name)
+        # Registry: person -> Bermuda device -> area sensor (unique_id == uid)
+        device_id, route, uid = resolved or self._bermuda_device_for_person(
+            tracked_person_entity_id(person_name),
+        )
+        area: str | None = None
+        if device_id:
+            try:
+                area, _ = self._bermuda_person_sensors(device_id, uid)
+            except Exception:  # noqa: BLE001 - registry absent / stubbed
+                area = None
+            # Device resolved but no enabled area sensor on it.
+            reason = None if area else "no_area_sensor"
+        else:
+            reason, route = route, "none"
+        self._note_bermuda_resolve(person_name, route, reason)
+        if area:
+            _LOGGER.debug("Found Bermuda area sensor for %s via registry route %s: %s", person_name, route, area)
+            return area
+        _LOGGER.debug("No Bermuda area sensor for %s (route=%s, reason=%s)", person_name, route, reason)
         return None
 
     # ==========================================================================
     # v3.2.4: FIXED CONFIDENCE CALCULATION
     # ==========================================================================
 
-    async def _calculate_confidence(self, person_name: str, bermuda_area: str, resolved_room: str) -> float:
+    async def _calculate_confidence(
+        self, person_name: str, bermuda_area: str, resolved_room: str,
+        resolved: tuple[str | None, str, str | None] | None = None,
+    ) -> float:
         """
         Calculate confidence score for person location based on Bermuda distance sensors.
         
@@ -1829,27 +2037,15 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
         4. Return tiered confidence based on scanner agreement
         """
         try:
-            # Get Bermuda distance sensors for this person
-            # v3.6.17: Only scan Bermuda entities instead of ALL entities
-            ent_reg = er.async_get(self.hass)
-            normalized_person = person_name.lower().replace(" ", "_")
-            person_no_sep = person_name.lower().replace(" ", "")
-            distance_sensors = []
-
-            bermuda_entries = self.hass.config_entries.async_entries("bermuda")
-            for be in bermuda_entries:
-                for entity_entry in er.async_entries_for_config_entry(
-                    ent_reg, be.entry_id
-                ):
-                    eid = entity_entry.entity_id
-                    if (eid.startswith("sensor.") and
-                        "distance_to_" in eid and
-                        (normalized_person in eid or person_no_sep in eid)):
-                        distance_sensors.append(eid)
-                        # Auto-enable disabled sensors inline
-                        if entity_entry.disabled:
-                            ent_reg.async_update_entity(eid, disabled_by=None)
-                            _LOGGER.info("Auto-enabled Bermuda distance sensor: %s", eid)
+            # BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1: the per-scanner distance
+            # sensors on the person's own Bermuda device, by registry
+            # unique_id. Never enables a disabled entity.
+            device_id, _route, uid = resolved or self._bermuda_device_for_person(
+                tracked_person_entity_id(person_name),
+            )
+            distance_sensors: list[str] = []
+            if device_id:
+                _area, distance_sensors = self._bermuda_person_sensors(device_id, uid)
 
             if not distance_sensors:
                 _LOGGER.debug("No Bermuda distance sensors found for %s", person_name)
@@ -2318,6 +2514,7 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
             "scanner_mappings_count": len(self._scanner_to_rooms),
             "room_coordinators_count": len(self._room_coordinators),
             "confidence_threshold": 0.3,
+            "bermuda_resolve": self.get_bermuda_resolve_stats(),
             "persons_data": {
                 name: {
                     "location": info.get("location", "unknown"),

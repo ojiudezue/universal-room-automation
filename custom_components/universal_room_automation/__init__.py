@@ -2955,7 +2955,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             # down any prior handles before re-registering. Teardown is
             # hooked from `async_unload_entry` alongside `unsub_census`.
             try:
-                census._register_ble_transition_listeners()
+                census.register_ble_transition_listeners()
             except Exception:  # noqa: BLE001
                 _LOGGER.debug(
                     "BLE-transition listener registration failed at setup",
@@ -3025,7 +3025,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             @callback
             def _on_ha_started_ble_refresh(_evt):
                 try:
-                    census._refresh_ble_crossing_listeners()
+                    census.refresh_ble_crossing_listeners()
                 except Exception:  # noqa: BLE001
                     _LOGGER.debug(
                         "rev5 BLE HA-started refresh raised (non-fatal)",
@@ -3142,15 +3142,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 # Convert entity IDs to person names
                 # Config flow returns ["person.oji", "person.ezinne"]
                 # Coordinator expects ["Oji", "Ezinne"]
-                tracked_persons = []
-                for entity_id in tracked_person_entities:
-                    if entity_id.startswith("person."):
-                        # Extract name from entity_id (person.oji -> Oji)
-                        person_name = entity_id.replace("person.", "").replace("_", " ").title()
-                        tracked_persons.append(person_name)
-                    else:
-                        # Already a name, just title case it
-                        tracked_persons.append(entity_id.replace("_", " ").title())
+                # RA9: one inverse rule (person.oji -> Oji; a name is
+                # title-cased), person_ids.display_of.
+                from .person_ids import display_of  # noqa: PLC0415
+
+                tracked_persons = [
+                    display_of(entity_id) for entity_id in tracked_person_entities
+                ]
 
                 _LOGGER.warning(
                     "PERSON INIT DIAGNOSTIC: converted %s -> %s",

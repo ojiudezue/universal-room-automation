@@ -37,7 +37,9 @@ def phone_trustworthy(hass: HomeAssistant, person_name: str) -> bool:
     Fail-OPEN: missing sensor / entity_registry failure / unknown / unavailable
     all return True. Mirrors presence.py:2787-2808 verbatim.
     """
-    person_slug = (person_name or "").lower().replace(" ", "_")
+    from ..person_ids import entity_key_slug  # noqa: PLC0415
+
+    person_slug = entity_key_slug(person_name or "")
     if not person_slug:
         return True
     unique_id = f"{DOMAIN}_person_{person_slug}_phone_left_behind"
