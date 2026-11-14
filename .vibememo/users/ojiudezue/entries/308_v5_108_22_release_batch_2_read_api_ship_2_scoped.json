@@ -1,0 +1,27 @@
+{
+  "format_version": "2.1",
+  "entry_id": "308",
+  "author": "ojiudezue",
+  "session_id": "claude_20261114_203616_ship_v5_108_22",
+  "timestamp": "2026-11-14T20:36:16Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.108.22 shipped: Release batch 2: read API ship 2, scoped egress mute, perimeter labels, stream health S2, BLE person registry resolve",
+  "summary": "Release batch 2: read API ship 2, scoped egress mute, perimeter labels, stream health S2, BLE person registry resolve",
+  "why": "Batch 2 bundles five reviewed cycles so the house takes one restart. The global egress mute silenced every perimeter camera for 120 s after any door event (40% of edges dropped, no rows), so it is scoped per door with a cover map and recorded as gate decisions. Stream health S2 applies the operator rule that a dead camera is faulty equipment: a dead input holds instead of reading off, capped at a measured 900 s, so a camera death alone cannot empty a zone or fire AWAY. The read API ship 2 gives consumers one public census read and a guard against private reads, the read half of the person-awareness layer. The BLE registry fix ends name matching that gave three people twelve sensors on other phones. All passed the full name-diff against 4b1d392b with zero new failures plus the D7 and mutation gates.",
+  "implications": "Shipped PERSON-AWARENESS-READ-API-1, PERIMETER-GLOBAL-EGRESS-MUTE-1, PERIMETER-SWITCH-LABELS-AND-FLOW-PARITY-1, CAMERA-STREAM-DEAD-ZONE-AND-CENSUS-1, BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1 at v5.108.22; card(s) sit shipped_organic pending validation. Acceptance in README_v5.108.22.md (Live criteria).",
+  "revisit_trigger": "Live: egress_mute_covers loaded (3 doors) and perimeter_gate_decision rows appear; bermuda_resolve shows unresolved 0 for home residents; no camera_stream_hold_released page without a real outage; layer ship 3a builds next.",
+  "refs": {
+    "cards": [
+      "PERSON-AWARENESS-READ-API-1",
+      "PERIMETER-GLOBAL-EGRESS-MUTE-1",
+      "PERIMETER-SWITCH-LABELS-AND-FLOW-PARITY-1",
+      "CAMERA-STREAM-DEAD-ZONE-AND-CENSUS-1",
+      "BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.108.22.md"
+    ],
+    "release_notes": "- Person-awareness read API ship 2 (census views, arrival payload, public census reads, private-read guard)\n- Perimeter egress mute scoped per door with gate rows and trip-wires (replaces the global 120 s mute)\n- Perimeter switch labels and options-flow parity (Perimeter alert filters step)\n- Camera input stream health S2: zone, fan and census honour one dead-input getter; dead input holds up to 900 s then pages HIGH\n- BLE person sensors resolved through the registry (no name matching, no auto-enable); fire-check attribute bermuda_resolve\n- Test isolation fixes (stub leakers restore real HA modules)"
+  }
+}
