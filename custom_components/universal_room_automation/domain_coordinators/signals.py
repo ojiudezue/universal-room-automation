@@ -23,6 +23,50 @@ SIGNAL_SECURITY_ENTITIES_UPDATE: Final = "ura_security_entities_update"
 SIGNAL_NM_ENTITIES_UPDATE: Final = "ura_nm_entities_update"
 SIGNAL_NM_ALERT_STATE_CHANGED: Final = "ura_nm_alert_state_changed"
 SIGNAL_PERSON_ARRIVING: Final = "ura_person_arriving"
+
+
+@dataclass(frozen=True)
+class PersonArrivingPayload:
+    """F5 ``SIGNAL_PERSON_ARRIVING`` payload, normalised for readers
+    (PERSON-AWARENESS-READ-API-1 RA10).
+
+    Producers send a dict (geofence / ble: ``person_entity``, ``source``;
+    camera_face adds ``sighting`` and ``zone``). Readers call
+    :meth:`from_signal` instead of each re-implementing the dict-or-attribute
+    read. Field values are copied verbatim (no coercion), so each reader keeps
+    its own ``str()`` / truthiness checks.
+    """
+
+    person_entity: Any
+    source: Any = None
+    sighting: Any = None
+    zone: Any = ""
+
+    @classmethod
+    def from_signal(cls, payload: Any) -> "PersonArrivingPayload | None":
+        """``None`` / an object without ``person_entity`` -> ``None``.
+
+        A dict reads ``person_entity`` (default ``""``), ``source`` /
+        ``sighting`` (default ``None``), ``zone`` (default ``""``); any other
+        object reads the same names as attributes with the same defaults.
+        """
+        if payload is None:
+            return None
+        if isinstance(payload, dict):
+            return cls(
+                person_entity=payload.get("person_entity", ""),
+                source=payload.get("source"),
+                sighting=payload.get("sighting"),
+                zone=payload.get("zone", ""),
+            )
+        if not hasattr(payload, "person_entity"):
+            return None
+        return cls(
+            person_entity=getattr(payload, "person_entity", ""),
+            source=getattr(payload, "source", None),
+            sighting=getattr(payload, "sighting", None),
+            zone=getattr(payload, "zone", ""),
+        )
 # FACE-ARRIVAL-REBUILD-1 D1 (plan rev 11 §3.1): "person P was seen at place X
 # at T" (payload: frozen ``person_sighting.PersonSighting``). ONE producer
 # (``PersonSightingProducer._emit``, presence). Display / diagnostics / the D2

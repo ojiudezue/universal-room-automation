@@ -23,6 +23,7 @@ from homeassistant.helpers import area_registry as ar_helper, entity_registry as
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dt_util
 
+from .person_ids import display_of
 from .const import (
     DOMAIN,
     CONSUMER_CLASS_MIN_CONFIDENCE,
@@ -1559,14 +1560,14 @@ class EgressDirectionTracker:
         if census is None:
             return _ret(None, None, CENSUS_AGREEMENT_DISABLED, "census_unavailable")
         try:
-            if not census._is_egress_identity_enabled():
-                _note = getattr(census, "_note_egress_identity_outcome", None)
+            if not census.egress_identity_enabled():
+                _note = getattr(census, "note_egress_identity_outcome", None)
                 if _note is not None:
                     try:
                         _note("disabled")
                     except Exception:  # noqa: BLE001
                         pass
-                census._egress_identity_agreement_class_last = (
+                census.set_egress_identity_agreement_class(
                     CENSUS_AGREEMENT_DISABLED
                 )
                 return _ret(None, None, CENSUS_AGREEMENT_DISABLED, "disabled")
@@ -1576,13 +1577,13 @@ class EgressDirectionTracker:
         def _record(outcome: str, agreement_class: str) -> None:
             """Single write path for D3 outcome + agreement class."""
             try:
-                census._note_egress_identity_outcome(outcome)
+                census.note_egress_identity_outcome(outcome)
             except Exception:  # noqa: BLE001
                 _LOGGER.debug(
                     "egress-identity: _note outcome=%s failed",
                     outcome, exc_info=True,
                 )
-            census._egress_identity_agreement_class_last = agreement_class
+            census.set_egress_identity_agreement_class(agreement_class)
 
         # MED-4 (2026-08-28): direction-ambiguous crossings have their
         # OWN outcome label so they never inflate the identity-rate
@@ -1622,7 +1623,7 @@ class EgressDirectionTracker:
         all_legs: list = []
         for stem in stems:
             try:
-                legs = census._resolve_face_legs(stem)
+                legs = census.resolve_face_legs(stem)
             except Exception:  # noqa: BLE001 — defensive; accessor is fail-CLOSED
                 _LOGGER.debug(
                     "egress-identity: _resolve_face_legs raised for stem=%s",
@@ -1640,8 +1641,8 @@ class EgressDirectionTracker:
         # BLE legs (collected below) are untouched — they keep naming
         # the crossing. Read-time only; no timers.
         try:
-            strict = census._is_egress_identity_failsafe_strict()
-            face_live = census._is_face_producer_live()
+            strict = census.egress_identity_failsafe_strict()
+            face_live = census.face_producer_live()
         except Exception:  # noqa: BLE001
             strict = True
             face_live = True
@@ -1650,9 +1651,7 @@ class EgressDirectionTracker:
                 try:
                     # Review OB-1: per-LEG counter distinct from the
                     # census per-TICK counter to keep unit consistent.
-                    if not hasattr(census, "_face_dropped_producer_down_leg_count"):
-                        census._face_dropped_producer_down_leg_count = 0
-                    census._face_dropped_producer_down_leg_count += len(all_legs)
+                    census.note_face_dropped_producer_down(len(all_legs))
                 except Exception:  # noqa: BLE001
                     pass
             all_legs = []
@@ -1704,7 +1703,7 @@ class EgressDirectionTracker:
                 continue
             if age_s > FACE_PRODUCER_STALE_TTL_S:
                 try:
-                    census._face_dropped_stale_count += 1
+                    census.note_face_dropped_stale()
                 except Exception:  # noqa: BLE001
                     pass
                 continue
@@ -1716,7 +1715,7 @@ class EgressDirectionTracker:
         # provenance-guarded cache. Empty when no in-window BLE
         # transition exists for a tracked slug.
         try:
-            ble_legs = census._resolve_ble_legs(timestamp, direction) or []
+            ble_legs = census.resolve_ble_legs(timestamp, direction) or []
         except Exception:  # noqa: BLE001
             _LOGGER.debug(
                 "egress-identity: _resolve_ble_legs raised", exc_info=True,
@@ -1768,7 +1767,7 @@ class EgressDirectionTracker:
                 # simultaneously): defer to face-style DISAGREE.
                 if len(ble_slugs) >= 2:
                     try:
-                        census._ble_legs_abstained_count += 1
+                        census.note_ble_leg_abstained()
                     except Exception:  # noqa: BLE001
                         pass
                     _record("abstain", CENSUS_AGREEMENT_DISAGREE)
@@ -1777,12 +1776,12 @@ class EgressDirectionTracker:
                 # D-5: INV-EGRESS-ID — a leg produced before a slug
                 # was untracked must not attach after.
                 try:
-                    _tracked_all = set(census._get_tracked_person_slugs())
+                    _tracked_all = set(census.tracked_person_slugs())
                 except Exception:  # noqa: BLE001
                     _tracked_all = set()
                 if slug not in _tracked_all:
                     try:
-                        census._ble_legs_abstained_count += 1
+                        census.note_ble_leg_abstained()
                     except Exception:  # noqa: BLE001
                         pass
                     _record("abstain", CENSUS_AGREEMENT_DISAGREE)
@@ -1797,7 +1796,7 @@ class EgressDirectionTracker:
                 # THEIR crossing produced no leg and this leg belongs
                 # to someone else. Abstain (fail closed).
                 try:
-                    _slug_map = dict(getattr(census, "_ble_tracker_slug_map", {}) or {})
+                    _slug_map = dict(census.ble_tracker_slug_map() or {})
                 except Exception:  # noqa: BLE001
                     _slug_map = {}
                 _slugs_with_ble = set(_slug_map.values())
@@ -1811,7 +1810,7 @@ class EgressDirectionTracker:
                         sorted(_invisible), slug,
                     )
                     try:
-                        census._ble_legs_abstained_count += 1
+                        census.note_ble_leg_abstained()
                     except Exception:  # noqa: BLE001
                         pass
                     _record("abstain_ble_ambiguous", CENSUS_AGREEMENT_DISAGREE)
@@ -1821,7 +1820,7 @@ class EgressDirectionTracker:
                     )
                 _leg = next(l for l in ble_legs if l.person_slug == slug)
                 try:
-                    census._egress_identity_last_attach = {
+                    census.set_egress_identity_last_attach({
                         "person": slug,
                         "camera": egress_camera_id,
                         "identity_confidence": float(BLE_TRANSITION_ONLY_CONFIDENCE),
@@ -1833,13 +1832,13 @@ class EgressDirectionTracker:
                         "agreement_class": CENSUS_AGREEMENT_SINGLE,
                         "contributor_engines": ["ble"],
                         "provenance": IDENTITY_PROVENANCE_BLE,
-                    }
+                    })
                 except Exception:  # noqa: BLE001
                     pass
                 _record("attached_ble", CENSUS_AGREEMENT_SINGLE)
                 # rev5 D2 single-use: consume ONLY on the attach branch.
                 try:
-                    census._consume_ble_arriving_legs(slug)
+                    census.consume_ble_arriving_legs(slug)
                 except Exception:  # noqa: BLE001
                     pass
                 return _ret(
@@ -1862,7 +1861,7 @@ class EgressDirectionTracker:
                     # the corroboration event is visible in the same
                     # 24h rate the multi-face path uses.
                     try:
-                        census._egress_identity_boost_events.append(
+                        census.note_egress_identity_boost(
                             dt_util.utcnow().timestamp()
                         )
                     except Exception:  # noqa: BLE001
@@ -1872,7 +1871,7 @@ class EgressDirectionTracker:
                         CENSUS_AGREEMENT_TWO_ENGINES,
                     )
                     try:
-                        census._egress_identity_last_attach = {
+                        census.set_egress_identity_last_attach({
                             "person": b_slug,
                             "camera": egress_camera_id,
                             "identity_confidence": float(
@@ -1884,12 +1883,12 @@ class EgressDirectionTracker:
                                 {l.engine for l, _ in in_window} | {"ble"}
                             ),
                             "provenance": IDENTITY_PROVENANCE_BLE_FACE,
-                        }
+                        })
                     except Exception:  # noqa: BLE001
                         pass
                     # rev5 D2 single-use: attach branch only.
                     try:
-                        census._consume_ble_arriving_legs(b_slug)
+                        census.consume_ble_arriving_legs(b_slug)
                     except Exception:  # noqa: BLE001
                         pass
                     return _ret(
@@ -1911,7 +1910,7 @@ class EgressDirectionTracker:
                 # attribute her crossing to Oji. Now: any face slug
                 # that isn't a tracked resident forces ABSTAIN.
                 try:
-                    _tracked = set(census._get_tracked_person_slugs())
+                    _tracked = set(census.tracked_person_slugs())
                 except Exception:  # noqa: BLE001
                     _tracked = set()
                 if f_slug not in _tracked:
@@ -1921,7 +1920,7 @@ class EgressDirectionTracker:
                         b_slug, f_slug, "yes" if b_slug in _tracked else "no",
                     )
                     try:
-                        census._ble_legs_abstained_count += 1
+                        census.note_ble_leg_abstained()
                     except Exception:  # noqa: BLE001
                         pass
                     _record(
@@ -1942,7 +1941,7 @@ class EgressDirectionTracker:
                     CENSUS_AGREEMENT_SINGLE,
                 )
                 try:
-                    census._egress_identity_last_attach = {
+                    census.set_egress_identity_last_attach({
                         "person": b_slug,
                         "camera": egress_camera_id,
                         "identity_confidence": float(BLE_TRANSITION_ONLY_CONFIDENCE),
@@ -1951,12 +1950,12 @@ class EgressDirectionTracker:
                         "agreement_class": CENSUS_AGREEMENT_SINGLE,
                         "contributor_engines": ["ble"],
                         "provenance": IDENTITY_PROVENANCE_BLE,
-                    }
+                    })
                 except Exception:  # noqa: BLE001
                     pass
                 # rev5 D2 single-use: attach branch only (BLE-wins).
                 try:
-                    census._consume_ble_arriving_legs(b_slug)
+                    census.consume_ble_arriving_legs(b_slug)
                 except Exception:  # noqa: BLE001
                     pass
                 return _ret(
@@ -1972,7 +1971,7 @@ class EgressDirectionTracker:
             # RETAINED per H2 precedence rule).
             if len(ble_slugs | face_slugs) >= 2:
                 try:
-                    census._ble_legs_abstained_count += 1
+                    census.note_ble_leg_abstained()
                 except Exception:  # noqa: BLE001
                     pass
                 _record("abstain", CENSUS_AGREEMENT_DISAGREE)
@@ -2060,7 +2059,7 @@ class EgressDirectionTracker:
             agreement_class = CENSUS_AGREEMENT_BOTH
             # BOOST event ledger (24h-filtered at the reader; MED-1).
             try:
-                census._egress_identity_boost_events.append(
+                census.note_egress_identity_boost(
                     dt_util.utcnow().timestamp()
                 )
             except Exception:  # noqa: BLE001
@@ -2078,7 +2077,7 @@ class EgressDirectionTracker:
             if newest_delta is None or d > newest_delta:
                 newest_delta = d
         try:
-            census._egress_identity_last_attach = {
+            census.set_egress_identity_last_attach({
                 "person": slug,
                 "camera": egress_camera_id,
                 "identity_confidence": identity_confidence,
@@ -2089,7 +2088,7 @@ class EgressDirectionTracker:
                 # FACE-ARRIVAL-REBUILD-1 (plan rev 4 H1): explicit, the value
                 # every reader already defaulted to for this path.
                 "provenance": IDENTITY_PROVENANCE_FACE,
-            }
+            })
         except Exception:  # noqa: BLE001
             _LOGGER.debug(
                 "egress-identity: last_attach populate failed",
@@ -2314,7 +2313,7 @@ class EgressDirectionTracker:
                         # survives; guest:* goes to a separate bucket).
                         try:
                             _prov = str(
-                                (getattr(census_ref, "_egress_identity_last_attach", {}) or {})
+                                (census_ref.egress_identity_last_attach() or {})
                                 .get("provenance", IDENTITY_PROVENANCE_FACE)
                             )
                         except Exception:  # noqa: BLE001
@@ -2669,7 +2668,7 @@ class EgressDirectionTracker:
             and identity_confidence
             >= CONSUMER_CLASS_MIN_CONFIDENCE[CONSUMER_CLASS_NOTIFICATION]
         ):
-            name = person_id.replace("_", " ").title()
+            name = display_of(person_id)  # RA9
         else:
             name = "Someone"
 

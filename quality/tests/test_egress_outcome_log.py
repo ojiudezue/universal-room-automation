@@ -235,7 +235,8 @@ async def test_every_resolution_persists_one_row_switch_off(rig):
     # 6. census whose kill-switch read raises -> resolver_error
     t6 = NOW + timedelta(minutes=25)
     broken = MagicMock()
-    broken._is_egress_identity_enabled.side_effect = RuntimeError("boom")
+    # RA6: the resolver reads the public kill-switch reader.
+    broken.egress_identity_enabled.side_effect = RuntimeError("boom")
     rig.hass.data[ura_const.DOMAIN]["census"] = broken
     await _cross(rig, "binary_sensor.front_door_person_occupancy", at=t6)
     rig.hass.data[ura_const.DOMAIN]["census"] = census

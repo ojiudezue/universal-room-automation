@@ -4763,7 +4763,9 @@ class NotificationManager:
         state = self.hass.states.get(person_id)
         if state and state.attributes.get("friendly_name"):
             return state.attributes["friendly_name"]
-        return person_id.replace("person.", "").replace("_", " ").title()
+        from ..person_ids import display_of  # noqa: PLC0415
+
+        return display_of(person_id)  # RA9
 
     # =========================================================================
     # Quiet hours

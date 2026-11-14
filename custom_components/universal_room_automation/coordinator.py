@@ -1367,18 +1367,10 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         """Get identified persons from census or BLE fallback."""
         room_name = self.entry.data.get(CONF_ROOM_NAME, "")
 
-        # Census (cameras + BLE fusion)
-        census = self.hass.data.get(DOMAIN, {}).get("census")
-        if census is not None:
-            # KEEP + DOCUMENT (CENSUS-BLE-OVER-FACE-1 §5.3): PersonCensus has no
-            # get_room_identified_persons, so this branch is dead and room identity
-            # always falls back to person_coordinator (BLE). Hook kept for a future
-            # per-room census identity.
-            result = getattr(census, "get_room_identified_persons", lambda r: None)(room_name)
-            if result is not None:
-                return result
-
-        # BLE-only fallback
+        # RA7 (PERSON-AWARENESS-READ-API-1): the dead census hook
+        # (``get_room_identified_persons``, which PersonCensus never had) is
+        # deleted; room identity is the person coordinator's BLE room, as it
+        # always was in practice.
         person_coord = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
         if person_coord is not None:
             return getattr(person_coord, "get_persons_in_room", lambda r: [])(room_name)

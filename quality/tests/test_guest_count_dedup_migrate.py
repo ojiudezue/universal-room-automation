@@ -503,25 +503,26 @@ def test_shape_invariant_no_naive_camera_minus_ble_count() -> None:
 def test_migrated_body_calls_house_unidentified_count_sensor() -> None:
     """Mutation anchor (site #3): UnidentifiedPersonsSensor.native_value must
     read the deduped house.unidentified_count field, not recompute the naive
-    subtraction. This anchor catches a future refactor that reintroduces the
-    naive form on the site Review B fingered."""
-    # Read just the native_value method body of UnidentifiedPersonsSensor,
-    # not the class docstring (which legitimately references the retired
-    # naive form).
-    src = _SEN_PATH.read_text()
-    cls_idx = src.index("class UnidentifiedPersonsSensor(")
-    next_cls = src.index("\nclass ", cls_idx + 1)
-    cls_src = src[cls_idx:next_cls]
-    # Blank out triple-quoted docstrings so the shape check only sees code.
-    def _blank(m: re.Match) -> str:
-        return "\n" * m.group(0).count("\n")
-    cls_code = _TRIPLE_STR_RE.sub(_blank, cls_src)
-    assert "house.unidentified_count" in cls_code, (
-        "regression: UnidentifiedPersonsSensor no longer reads "
-        "house.unidentified_count"
-    )
-    assert "camera_total - ble_identified" not in cls_code
-    assert "max(0, camera_total" not in cls_code
+    subtraction. Behavioural (PERSON-AWARENESS-READ-API-1 RA7 converted the
+    old source-text check, rule 7): the value follows unidentified_count
+    alone while camera_total and BLE stay fixed, and the naive
+    ``camera_total - ble`` (5 - 1 = 4) is never the answer."""
+    for unid in (0, 2, 3):
+        house = CensusZoneResult(
+            zone="house",
+            identified_count=5 - unid,
+            identified_persons=[],
+            unidentified_count=unid,
+            total_persons=5,
+            confidence=ura_const.CENSUS_CONFIDENCE_MEDIUM,
+            source_agreement=ura_const.CENSUS_AGREEMENT_SINGLE,
+            frigate_count=5,
+            unifi_count=0,
+        )
+        hass = _make_hass_with(house, ble_active=1)
+        sensor = _make_unidentified_sensor(hass)
+        assert sensor.native_value == unid
+        assert sensor.native_value != 4
 
 
 def _extract_method_source(path: pathlib.Path, method_name: str) -> str:
