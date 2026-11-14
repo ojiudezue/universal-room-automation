@@ -37,8 +37,12 @@ are excluded the same way but never paged or shown, because they are not
 configured inputs.
 
 One public reader for the room and its siblings:
-``UniversalRoomCoordinator.camera_input_stream_dead(input_eid)`` (S2 zone /
-fan recheck / census and a future NVR-witness layer read only that).
+``UniversalRoomCoordinator.camera_input_stream_dead(input_eid)`` and its
+camera-keyed form ``camera_stream_dead(camera_eid)``. S2 readers outside the
+room (zone substrate / zone tracker, presence fan-interference gate, comfort
+fan veto, census, a future NVR-witness layer) go through the house-level
+functions at the bottom of this module, which only fold those room answers:
+``input_stream_dead``, ``camera_stream_dead`` and ``entity_stream_dead``.
 """
 
 from __future__ import annotations
@@ -55,6 +59,11 @@ _LOGGER = logging.getLogger(__name__)
 # SensorExclusionSet client name and stuck-signal NM kind (one vocabulary).
 EXCLUSION_CLIENT = "camera_stream_dead"
 NM_KIND = "camera_stream_dead"
+# S2: one HIGH page per outage once a hold cap is passed (the camera's
+# inputs are released): a camera dead this long is a hardware or host
+# failure, not a normal outage. Key = (camera,), so rooms sharing a camera
+# share one latch.
+NM_KIND_HOLD_RELEASED = "camera_stream_hold_released"
 
 _UNAVAILABLE = "unavailable"
 _UNKNOWN = "unknown"
@@ -82,6 +91,26 @@ class CameraInputStreamHealth:
         self._gap_seen: set[str] = set()
         # input_eid -> (camera_eid, since): dead THIS tick.
         self._dead_now: dict[str, tuple[str, datetime]] = {}
+        # S2 hold: dead inputs whose camera has read `unavailable` for at
+        # least CAMERA_INPUT_STREAM_DEAD_HOLD_MAX_S (the hold is over: the
+        # input counts as off outside the room). Subset of _dead_now.
+        self._hold_expired_now: frozenset[str] = frozenset()
+        # Same for the census hold (CAMERA_INPUT_STREAM_DEAD_CENSUS_HOLD_MAX_S).
+        self._census_hold_expired_now: frozenset[str] = frozenset()
+        # Review D-M1 (unavailable together with its camera, e.g. a Protect
+        # device disconnect marks every entity unavailable at once): an
+        # input reading `unavailable` is held from t0 until a room tick has
+        # seen its camera LIVE during that same unavailable episode (then it
+        # is an ordinary sensor outage and counts as off). Keyed input ->
+        # the input state's `last_changed` of the confirmed episode.
+        self._plain_unavailable: dict[str, Any] = {}
+        self._state_getter: Callable[[str], Any] | None = None
+        self._enabled = False
+        # Hold-release page: cameras paged this outage; this tick's pages
+        # (camera, since, cap_s) and recoveries (camera).
+        self._hold_paged: set[str] = set()
+        self.hold_pages: list[tuple[str, datetime, float]] = []
+        self.hold_recoveries: list[str] = []
         # NM bookkeeping: inputs whose current episode paged; per-day latch.
         self._paged_episode: set[str] = set()
         self._paged_day: dict[str, str] = {}
@@ -270,7 +299,105 @@ class CameraInputStreamHealth:
                 self._paged_episode.discard(eid)
 
         self._dead_now = dead
+        self._state_getter = state_getter
+        self._enabled = enabled
+        hold_s = float(
+            getattr(_const, "CAMERA_INPUT_STREAM_DEAD_HOLD_MAX_S", 0.0),
+        )
+        census_hold_s = float(
+            getattr(_const, "CAMERA_INPUT_STREAM_DEAD_CENSUS_HOLD_MAX_S", 0.0),
+        )
+        # hold 0 (no hold): every dead input is released at once.
+        self._hold_expired_now = frozenset(
+            eid for eid, (_cam, since) in dead.items()
+            if (now - since).total_seconds() >= hold_s
+        )
+        self._census_hold_expired_now = frozenset(
+            eid for eid, (_cam, since) in dead.items()
+            if (now - since).total_seconds() >= census_hold_s
+        )
+        self._classify_unavailable_inputs(
+            watched, resolution, camera_state, state_getter, enabled,
+        )
+        self._evaluate_hold_pages(dead, hold_s, census_hold_s)
         return dict(dead), to_page, to_recover
+
+    def _classify_unavailable_inputs(
+        self, watched, resolution, camera_state, state_getter, enabled,
+    ) -> None:
+        """Review D-M1: for each resolved input reading ``unavailable``, a
+        tick that sees its camera LIVE confirms an ordinary sensor outage
+        for that episode (the input then counts as off); otherwise (camera
+        unavailable, or not seen yet) it stays held from t0."""
+        newly_plain: set[str] = set()
+        for eid in watched:
+            cam = resolution.get(eid, (None, "", False))[0]
+            st = _safe_state(state_getter, eid)
+            if (
+                not enabled or not cam or st is None
+                or getattr(st, "state", None) != _UNAVAILABLE or _is_restored(st)
+            ):
+                self._plain_unavailable.pop(eid, None)
+                continue
+            episode = getattr(st, "last_changed", None)
+            if camera_state.get(cam) != _UNAVAILABLE:
+                # Camera live, or no opinion (unknown / restored / missing):
+                # an ordinary sensor outage. Only a camera that reads
+                # `unavailable` keeps it held, and that camera turns dead at
+                # the grace, so the hold is bounded by the caps.
+                if self._plain_unavailable.get(eid, _MISSING) != episode:
+                    # Held at its event until now: the substrate must
+                    # re-read it (no event will come).
+                    newly_plain.add(eid)
+                self._plain_unavailable[eid] = episode
+                continue
+            if self._plain_unavailable.get(eid, _MISSING) == episode:
+                continue  # confirmed plain earlier this episode
+            self._plain_unavailable.pop(eid, None)
+        self._newly_plain_now = frozenset(newly_plain)
+
+    @property
+    def newly_plain_now(self) -> frozenset[str]:
+        """Inputs confirmed an ordinary sensor outage at this tick (they were
+        held from their unavailable event; flip set for the substrate)."""
+        return getattr(self, "_newly_plain_now", frozenset())
+
+    def _evaluate_hold_pages(
+        self, dead: dict[str, tuple[str, datetime]], hold_s: float,
+        census_hold_s: float,
+    ) -> None:
+        """One HIGH page per camera per outage once the first positive hold
+        cap is passed (its inputs are released somewhere); a LOW recovery
+        when the camera has no dead input any more. Caps 0 = no hold = no
+        page (a 2-min blip must not page)."""
+        self.hold_pages = []
+        self.hold_recoveries = []
+        caps = [c for c in (hold_s, census_hold_s) if c > 0]
+        dead_cams: dict[str, datetime] = {}
+        for _eid, (cam, since) in dead.items():
+            if cam not in dead_cams or since < dead_cams[cam]:
+                dead_cams[cam] = since
+        if caps:
+            cap = min(caps)
+            for cam, since in sorted(dead_cams.items()):
+                if cam in self._hold_paged:
+                    continue
+                if any(
+                    eid in self._hold_expired_now
+                    or eid in self._census_hold_expired_now
+                    for eid, (c, _s) in dead.items() if c == cam
+                ):
+                    self._hold_paged.add(cam)
+                    self.hold_pages.append((cam, since, cap))
+        for cam in sorted(self._hold_paged):
+            if cam not in dead_cams:
+                self._hold_paged.discard(cam)
+                self.hold_recoveries.append(cam)
+
+    @property
+    def hold_expired_now(self) -> frozenset[str]:
+        """Dead inputs whose S2 hold is over this tick (see evaluate)."""
+        return self._hold_expired_now
 
     # ------------------------------------------------------------------
     # Readers
@@ -285,6 +412,65 @@ class CameraInputStreamHealth:
         if res is None or not res[0]:
             return None
         return input_eid in self._dead_now
+
+    def camera_is_dead(self, camera_eid: str) -> bool | None:
+        """Camera-keyed form of the same evaluation (S2). None = this room
+        does not watch that camera (not the own camera of any input it
+        resolved); True iff an input of that camera is dead this tick;
+        False otherwise (always False with the kill switch off)."""
+        if self._resolution is None or not camera_eid:
+            return None
+        if not any(cam == camera_eid for cam, _r, _d in self._resolution.values()):
+            return None
+        return any(cam == camera_eid for cam, _s in self._dead_now.values())
+
+    def is_hold_expired(
+        self, input_eid: str, census: bool = False,
+    ) -> bool | None:
+        """S2 hold reader. None = unresolved / not this room's input; True
+        iff the input is dead AND its hold (the zone cap, or the census cap
+        with ``census``) is over this tick."""
+        if self.is_dead(input_eid) is None:
+            return None
+        expired = (
+            self._census_hold_expired_now if census else self._hold_expired_now
+        )
+        return input_eid in expired
+
+    def camera_hold_expired(
+        self, camera_eid: str, census: bool = False,
+    ) -> bool | None:
+        """Camera-keyed form of ``is_hold_expired``: None = not watched;
+        True iff an input of that camera is dead with its hold over."""
+        if self.camera_is_dead(camera_eid) is None:
+            return None
+        expired = (
+            self._census_hold_expired_now if census else self._hold_expired_now
+        )
+        return any(
+            cam == camera_eid and eid in expired
+            for eid, (cam, _s) in self._dead_now.items()
+        )
+
+    def is_unavailable_held(self, input_eid: str) -> bool | None:
+        """Review D-M1, read at call time (event time). None = unresolved /
+        not this room's input. True iff the input reads ``unavailable``
+        now (not a restored placeholder) and no room tick has seen its
+        camera live during this unavailable episode: an input that went
+        unavailable together with its camera is held from t0, never read
+        as off during the grace. Always False with the kill switch off."""
+        if self.is_dead(input_eid) is None:
+            return None
+        if not self._enabled or self._state_getter is None:
+            return False
+        st = _safe_state(self._state_getter, input_eid)
+        if (
+            st is None or getattr(st, "state", None) != _UNAVAILABLE
+            or _is_restored(st)
+        ):
+            return False
+        confirmed = self._plain_unavailable.get(input_eid, _MISSING)
+        return confirmed != getattr(st, "last_changed", None)
 
     def snapshot(self) -> dict[str, Any]:
         """Display surface for ``sensor.<room>_unavailable_entities``."""
@@ -301,6 +487,188 @@ class CameraInputStreamHealth:
                 if cam and eid in configured
             ),
         }
+
+
+# ----------------------------------------------------------------------
+# House-level readers (S2). They aggregate the room coordinators' ONE getter
+# (``camera_input_stream_dead`` / ``camera_stream_dead``); they never look at
+# a camera's state themselves (INV-STREAM-ONE-GETTER). Zone tier, fan veto,
+# presence fan-interference gate, census and any later NVR-witness layer read
+# only these.
+# ----------------------------------------------------------------------
+
+
+def _room_coordinators(hass: Any) -> list[Any]:
+    try:
+        from ..const import DOMAIN  # noqa: PLC0415
+        values = list((hass.data.get(DOMAIN) or {}).values())
+    except Exception:  # noqa: BLE001
+        return []
+    return [v for v in values if getattr(v, "_camera_stream_health", None) is not None]
+
+
+def _fold(answers: Iterable[Any]) -> bool | None:
+    """True if any room says True; False if any says False; else None.
+    Only real bools count (a stub's non-bool answer is no opinion)."""
+    seen_false = False
+    for a in answers:
+        if a is True:
+            return True
+        if a is False:
+            seen_false = True
+    return False if seen_false else None
+
+
+def input_stream_dead(hass: Any, input_eid: str) -> bool | None:
+    """Is this room input dead because its own camera's stream is? Asks
+    every room coordinator's ``camera_input_stream_dead``. None = no room
+    resolves it (no opinion: callers count the input as before)."""
+    if not input_eid:
+        return None
+    answers = []
+    for coord in _room_coordinators(hass):
+        try:
+            answers.append(coord.camera_input_stream_dead(input_eid))
+        except Exception:  # noqa: BLE001 — no opinion
+            continue
+    return _fold(answers)
+
+
+def camera_stream_dead(hass: Any, camera_entity: str) -> bool | None:
+    """THE camera-keyed dead-stream getter (S2; NVR witness W2 / W6b).
+
+    ``camera_entity`` is a ``camera.*`` entity id. True = confirmed dead (the
+    room tier excludes an input of that camera this tick: unavailable past
+    ``CAMERA_INPUT_STREAM_DEAD_GRACE_S``, never ``unknown`` and never a
+    restored placeholder); False = watched and live (or the kill switch is
+    off); None = no room watches that camera (it is not the own camera of
+    any room input or camera-override sensor), i.e. unknown. A camera key
+    other than an entity id is not supported (None).
+    """
+    if not camera_entity or not str(camera_entity).startswith("camera."):
+        return None
+    answers = []
+    for coord in _room_coordinators(hass):
+        try:
+            answers.append(coord.camera_stream_dead(camera_entity))
+        except Exception:  # noqa: BLE001
+            continue
+    return _fold(answers)
+
+
+def entity_stream_dead(hass: Any, entity_id: str) -> bool | None:
+    """Census / zone camera reader: a camera-derived entity counts as dead
+    when a room reports it dead as an input, or else when its own camera
+    (same device, exactly one enabled camera entity; the S1 resolver) is
+    reported dead by ``camera_stream_dead``. None = no opinion."""
+    if not entity_id:
+        return None
+    if str(entity_id).startswith("camera."):
+        return camera_stream_dead(hass, entity_id)
+    direct = input_stream_dead(hass, entity_id)
+    if direct is not None:
+        return direct
+    try:
+        from homeassistant.helpers import entity_registry as er  # noqa: PLC0415
+        registry = er.async_get(hass)
+        cam = CameraResolver.own_camera_entity_for_input(registry, entity_id)[0]
+    except Exception:  # noqa: BLE001
+        return None
+    if not cam:
+        return None
+    return camera_stream_dead(hass, cam)
+
+
+# S2 "a dead input holds" (operator ruling 2026-11-14). The VIEW of an input
+# outside the room: None = live or unknown to every room (count its state as
+# before); HELD = dead, hold not over (UNKNOWN: it neither creates nor ends
+# occupancy, the reader keeps its prior level); RELEASED = dead and the hold
+# is over (CAMERA_INPUT_STREAM_DEAD_HOLD_MAX_S): count it as off.
+VIEW_HELD = "held"
+VIEW_RELEASED = "released"
+
+
+def _ask(hass: Any, method: str, key: str, *args: Any) -> bool | None:
+    answers = []
+    for coord in _room_coordinators(hass):
+        try:
+            answers.append(getattr(coord, method)(key, *args))
+        except Exception:  # noqa: BLE001 — no opinion
+            continue
+    return _fold(answers)
+
+
+def input_stream_view(
+    hass: Any, input_eid: str, census: bool = False,
+) -> str | None:
+    """View of a room input outside the room: the zone tier (substrate,
+    switch-off night limb, zone camera tier) or, with ``census``, the census
+    (its own, shorter cap CAMERA_INPUT_STREAM_DEAD_CENSUS_HOLD_MAX_S).
+
+    HELD also covers review D-M1: an input reading ``unavailable`` that no
+    room tick has yet seen with a LIVE camera (it went unavailable together
+    with its camera, e.g. a Protect device disconnect) is held from t0
+    instead of counting as off during the grace."""
+    dead = input_stream_dead(hass, input_eid)
+    if dead is not True:
+        if dead is False and _ask(
+            hass, "camera_input_stream_unavailable_held", input_eid,
+        ) is True:
+            return VIEW_HELD
+        return None
+    expired = _ask(
+        hass, "camera_input_stream_hold_expired", input_eid,
+        *((True,) if census else ()),
+    )
+    return VIEW_RELEASED if expired is True else VIEW_HELD
+
+
+def entity_stream_view(
+    hass: Any, entity_id: str, census: bool = False,
+) -> str | None:
+    """Same view for any camera-derived entity (zone camera tier, census):
+    the input route first, else its own camera (as ``entity_stream_dead``)."""
+    if not entity_id:
+        return None
+    if str(entity_id).startswith("camera."):
+        if camera_stream_dead(hass, entity_id) is not True:
+            return None
+        expired = _ask(
+            hass, "camera_stream_hold_expired", entity_id,
+            *((True,) if census else ()),
+        )
+        return VIEW_RELEASED if expired is True else VIEW_HELD
+    if input_stream_dead(hass, entity_id) is not None:
+        return input_stream_view(hass, entity_id, census)
+    try:
+        from homeassistant.helpers import entity_registry as er  # noqa: PLC0415
+        registry = er.async_get(hass)
+        cam = CameraResolver.own_camera_entity_for_input(registry, entity_id)[0]
+    except Exception:  # noqa: BLE001
+        return None
+    if not cam:
+        return None
+    return entity_stream_view(hass, cam, census)
+
+
+def input_room_quarantined(hass: Any, input_eid: str) -> bool:
+    """Review D-L2: True iff a room currently quarantines this input
+    (chatter / stuck / duty-cycle / P22, any client of its
+    ``SensorExclusionSet``). Such a sensor is not working equipment, so its
+    ``on -> off`` cannot end a dead-camera hold. Error = False (develop)."""
+    if not input_eid:
+        return False
+    return _ask(hass, "camera_input_room_quarantined", input_eid) is True
+
+
+_MISSING = object()
+
+
+def _safe_state(state_getter: Callable[[str], Any], entity_id: str) -> Any:
+    try:
+        return state_getter(entity_id)
+    except Exception:  # noqa: BLE001 — no opinion
+        return None
 
 
 def _is_restored(state: Any) -> bool:

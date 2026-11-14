@@ -6007,6 +6007,32 @@ CAMERA_INPUT_STREAM_DEAD_GRACE_S: Final = 120.0
 # paired LOW recovered NM fires on release. 0 = no NM (the exclusion still
 # applies).
 CAMERA_INPUT_STREAM_DEAD_NM_AFTER_S: Final = 1800.0
+# S2 "a dead input holds" (operator 2026-11-14: "A dead camera is not a
+# presence or absence of signal. Its faulty equipment."). Outside the room
+# (zone substrate, zone camera tier, switch-off night limb) a dead-stream
+# input is UNKNOWN: it can neither create occupancy nor end it, so the zone
+# keeps its prior level until a live input of the room ends it, the camera
+# streams again, or this many seconds pass from the camera's first
+# `unavailable` room tick. After that the input counts as off and ONE HIGH
+# page names the camera (hardware or host failure, not a normal outage).
+# Measured basis (docs/planning/AUDIT_camera_outage_durations_2026_11_14.md,
+# 7.9 days, restarts excluded): every ordinary outage, fleet-wide or one
+# stream, ended within 6.3 min; nothing lasted 6.3-39 min; the long ones
+# (438 min Frigate/MQTT down, 39 h panel stream, a dead Protect device) were
+# real failures. 15 min covers every ordinary outage with 2x margin; every
+# extra minute is a minute of phantom occupancy from a frozen `on`. (The
+# earlier 4 h had no measured basis, operator 2026-11-14.)
+# 0 = no hold (the input counts as off as soon as it is dead, no page).
+CAMERA_INPUT_STREAM_DEAD_HOLD_MAX_S: Final = 900.0
+# The same hold for the census (camera_census: a dead camera's frozen body
+# count keeps counting while held, then is a MISSING term). Operator
+# 2026-11-14: "make both 15 mins" (equal to the zone cap today; a separate
+# constant because they may diverge). Audit basis as above: ordinary outages
+# end within 6.3 min. A held census body blocks every AWAY path (nobody-home,
+# alpha, beta), so this bounds the extra AWAY delay of a real departure while
+# a camera is dead to <= this + one room poll + one census run.
+# 0 = no census hold (a dead camera is a missing term at the grace).
+CAMERA_INPUT_STREAM_DEAD_CENSUS_HOLD_MAX_S: Final = 900.0
 
 # --- Per-device-family T_floor blind-time defaults DEFAULT (probe-
 #     recalibrated 2026-08-19 -> UNIFIED 1.0s across all blind-time

@@ -628,6 +628,12 @@ class ZonePresenceTracker:
         self._fan_off_at: Dict[str, tuple["datetime", "datetime"]] = {}
         self._camera_occupied: Dict[str, bool] = {}  # entity_id -> detection active
         self._camera_last_seen: Dict[str, datetime] = {}  # entity_id -> last detection time
+        # Camera input stream health S2 "a dead input holds": detection
+        # updates from a camera whose stream is dead are IGNORED (a dead
+        # camera neither creates nor ends zone occupancy); the cameras whose
+        # updates were ignored are listed here and re-read from their live
+        # state once they stream again. RAM only.
+        self._camera_stream_ignored: Set[str] = set()
         # Fan-noise mitigation D1 (Layer-1 silent gate): per-room hold
         # expiry. Set ONLY by `_compute_fan_interference_rooms` when the
         # room is fan-interference-suspect AND the BLE corroboration
@@ -807,12 +813,36 @@ class ZonePresenceTracker:
         now = dt_util.utcnow()
         timeout = timedelta(seconds=_CAMERA_OCCUPANCY_TIMEOUT_SECONDS)
 
-        for entity_id, last_seen in self._camera_last_seen.items():
+        for entity_id, last_seen in list(self._camera_last_seen.items()):
             # Currently detecting OR within timeout window
-            if self._camera_occupied.get(entity_id, False):
-                return True
-            if (now - last_seen) < timeout:
-                return True
+            holds = bool(
+                self._camera_occupied.get(entity_id, False)
+                or (now - last_seen) < timeout
+            )
+            # Camera input stream health S2 (review B-L3): the room getter
+            # is asked only for a camera that would hold, or one whose
+            # updates were ignored while dead (to resync it).
+            if not holds and entity_id not in self._camera_stream_ignored:
+                continue
+            view = _camera_entity_stream_view(self.hass, entity_id)
+            if view is None:
+                if entity_id in self._camera_stream_ignored:
+                    # Streams again: take its live reading (the updates we
+                    # ignored while it was dead are gone).
+                    self._camera_stream_ignored.discard(entity_id)
+                    st = self.hass.states.get(entity_id)
+                    live_on = bool(st is not None and st.state == "on")
+                    self._camera_occupied[entity_id] = live_on
+                    if live_on:
+                        self._camera_last_seen[entity_id] = now
+                    holds = live_on or (now - last_seen) < timeout
+                if holds:
+                    return True
+                continue
+            if view != _VIEW_HELD:
+                continue  # dead past CAMERA_INPUT_STREAM_DEAD_HOLD_MAX_S: off
+            if holds:
+                return True  # dead, hold not over: unknown, keeps its level
 
         return False
 
@@ -940,9 +970,25 @@ class ZonePresenceTracker:
         When detected=False, the timeout keeps the zone occupied for
         _CAMERA_OCCUPANCY_TIMEOUT_SECONDS before reverting to away.
         """
-        self._camera_occupied[entity_id] = detected
         self._has_sensors = True
         self._has_camera_sensors = True
+        # Camera input stream health S2 "a dead input holds": an update from
+        # a camera whose stream is dead is not evidence either way (getter
+        # asked only on a change, so a steady frozen sensor costs nothing).
+        if (
+            bool(self._camera_occupied.get(entity_id, False)) != bool(detected)
+            and _camera_entity_stream_view(self.hass, entity_id) is not None
+        ):
+            self._camera_stream_ignored.add(entity_id)
+            # Keep it in the timeout map (idle) so the read loop resyncs it
+            # once it streams again.
+            self._camera_last_seen.setdefault(
+                entity_id,
+                dt_util.utcnow()
+                - timedelta(seconds=_CAMERA_OCCUPANCY_TIMEOUT_SECONDS),
+            )
+            return
+        self._camera_occupied[entity_id] = detected
         if detected:
             self._camera_last_seen[entity_id] = dt_util.utcnow()
             self._last_activity = dt_util.utcnow()
@@ -2412,7 +2458,14 @@ class PresenceCoordinator(BaseCoordinator):
             possible += 1
             for camera_entity in zone_cameras:
                 state = self.hass.states.get(camera_entity)
-                if state and state.state == "on":
+                # Camera input stream health S2 (reviews A-M1 / B-M1): a
+                # camera whose stream is dead confirms nothing, so its
+                # frozen `on` cannot keep resetting the HVAC D6
+                # stale-occupancy failsafe (the release of a dead hold).
+                if (
+                    state and state.state == "on"
+                    and not _camera_entity_stream_dead(self.hass, camera_entity)
+                ):
                     confirmed += 1
                     break  # One camera confirmation is enough
 
@@ -4267,7 +4320,10 @@ class PresenceCoordinator(BaseCoordinator):
                         if not eid or eid in on_set:
                             continue
                         st = self.hass.states.get(eid)
-                        if st is not None and st.state == "on":
+                        if (
+                            st is not None and st.state == "on"
+                            and not _input_stream_dead(self.hass, eid)
+                        ):
                             on_set.append(eid)
                 return bool(radar_sole_on_set(self.hass, merged, on_set))
         except Exception:  # noqa: BLE001 — fail-closed
@@ -4308,7 +4364,13 @@ class PresenceCoordinator(BaseCoordinator):
                     if room_name in rooms or room_name not in tracker.room_names:
                         continue
                     state = self.hass.states.get(entity_id)
-                    if state is not None and state.state == "on":
+                    # S2 "a dead input holds": a dead input reading `on`
+                    # was `on` when its stream died (it is frozen), so it
+                    # keeps counting until its hold is over.
+                    if (
+                        state is not None and state.state == "on"
+                        and not _input_stream_released(self.hass, entity_id)
+                    ):
                         rooms.add(room_name)
             except Exception:  # noqa: BLE001 — fail toward holding
                 return ["<error>"]
@@ -4477,7 +4539,12 @@ class PresenceCoordinator(BaseCoordinator):
                     continue
                 st = self.hass.states.get(entity_id)
                 if st is not None and st.state == "on":
-                    on_by_room.setdefault(mapping[0], []).append(entity_id)
+                    # S2 review A-L2: name a dead-stream holder as such.
+                    on_by_room.setdefault(mapping[0], []).append(
+                        f"{entity_id} (camera stream dead, held)"
+                        if _input_stream_dead(self.hass, entity_id)
+                        else entity_id
+                    )
         except Exception:  # noqa: BLE001 — diagnosis only
             on_by_room = {}
         labels: List[str] = []
@@ -9861,6 +9928,49 @@ def _fan_decay_unsubs_map(owner: Any) -> Dict[str, Any]:
         m = {}
         owner._fan_decay_unsubs = m
     return m
+
+def _input_stream_dead(hass: Any, entity_id: str) -> bool:
+    """Camera input stream health S2: True iff a room's ONE getter reports
+    this input dead-stream. None / False / error = counts as before."""
+    try:
+        from .camera_stream_health import input_stream_dead  # noqa: PLC0415
+        return input_stream_dead(hass, entity_id) is True
+    except Exception:  # noqa: BLE001 — fail open
+        return False
+
+
+def _camera_entity_stream_dead(hass: Any, entity_id: str) -> bool:
+    """Zone camera reader: input route, else the entity's own camera."""
+    try:
+        from .camera_stream_health import entity_stream_dead  # noqa: PLC0415
+        return entity_stream_dead(hass, entity_id) is True
+    except Exception:  # noqa: BLE001 — fail open
+        return False
+
+
+_VIEW_HELD = "held"  # camera_stream_health.VIEW_HELD
+_VIEW_RELEASED = "released"  # camera_stream_health.VIEW_RELEASED
+
+
+def _input_stream_released(hass: Any, entity_id: str) -> bool:
+    """S2 hold: True iff the input is dead AND its hold is over (it counts
+    as off). Held / live / error = counts as before."""
+    try:
+        from .camera_stream_health import input_stream_view  # noqa: PLC0415
+        return input_stream_view(hass, entity_id) == _VIEW_RELEASED
+    except Exception:  # noqa: BLE001 — fail open
+        return False
+
+
+def _camera_entity_stream_view(hass: Any, entity_id: str) -> Optional[str]:
+    """Zone camera tier view (S2 hold): None / held / released."""
+    try:
+        from .camera_stream_health import entity_stream_view  # noqa: PLC0415
+        view = entity_stream_view(hass, entity_id)
+    except Exception:  # noqa: BLE001 — fail open
+        return None
+    return view if view in (_VIEW_HELD, _VIEW_RELEASED) else None
+
 
 def _cancel_fan_belief_decay(owner: Any, entity_id: Optional[str] = None) -> None:
     """Cancel one (or every) pending held-belief decay timer."""
