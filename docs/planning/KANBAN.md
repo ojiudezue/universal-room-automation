@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-13T19:48:40-06:00_ - _Data commit: `da6420a05e98`_ - _last_reconciled: 2026-11-13_
+_Generated: 2026-11-13T19:54:44-06:00_ - _Data commit: `ae254684f1ea`_ - _last_reconciled: 2026-11-13_
 
 
 ## Columns
@@ -739,7 +739,7 @@ status: **planned**
 - **Origin:** 2026-11-13 - Operator question on the crossing vision plan.
 - **Why:** Crossing vision plan fetches clips from Frigate only; Protect enters only as the late face name. Three separate Frigate-vs-Protect rules exist: camera_census.py:2330 _cross_validate_platforms (counts; Frigate number wins when both see; l...
 - **Next:** Me: plan amendment to the operator after perimeter Part A and crossing vision Phase 1 ship. Open unknowns: garage_a Protect leg; llmvision on a Protect clip (one paid dry call needs operator ok); NVR disagreement ground truth (use the we...
-- **Forensic keys (10):**
+- **Forensic keys (12):**
   - `tier`: 3
   - `operator_2026_11_13_both_nvrs`: For all camera work I like to exercise both nvr platforms simultaneously, then cross compare to reduce errors. Did you base this plan on only frigate? How can protect be a separate witness? And we can maybe centralize the rules to deconf...
   - `operator_2026_11_13_consolidate`: Yes, centralize the evidence and keep the policy with each feature... I generally favor consolidation so there's no drift and there is one place to make better but there can be arguement against it. Critique this conclusion and be sure.....
@@ -750,6 +750,8 @@ status: **planned**
   - `plan_2026_11_13`: PLANNING_nvr_witness_layer.md (fd5e5be3): nvr_witness.py records every Frigate/Protect person fire per physical camera, episodes, persisted per-camera agreement history (INV-W-ONE-EPISODE), shared corroborated(cam, t, window_s); family v...
   - `open_questions_2026_11_13`: Q1 analyse both NVR clips every crossing or only on disagreement (rec: disagreement, knob to all); Q2 one paid llmvision call on a Protect clip before W4 (rec yes); Q3 agreement history in HA storage not a DB table (rec storage); Q4 ship...
   - `status_note`: planned; plan reviews then build after crossing vision Phase 1 and stream health S1.
+  - `operator_2026_11_13_answers`: 1 how would we know it disagree without analyzing. Is this about the initial fast read? 2 - yea 3- pro/con? We already use a ton of db stuff. Unless you're wanting to keep the tier low on purpose 4- hell yes
+  - `decisions_2026_11_13`: Q2 YES (one paid llmvision call on a Protect clip before W4). Q4 YES (ship W1 ahead). Q1: disagreement in the plan meant the cheap NVR detection signal (only one family fired), not a vision result; pending operator pick, recommended ALL ...
 
 ### `URAV8-ZONE-ENERGY-DISPLAY-1` - ura-v8: show energy on the zone chips under Rooms, and a house zone-energy breakdown card (pie/bar) on the Energy tab — _#25 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **dashboard** - status: **planned**
