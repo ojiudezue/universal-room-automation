@@ -80,6 +80,12 @@ MOVED = {
 }
 assert sum(len(v) for v in MOVED.values()) == 62  # 48 A rows + 14 B rows (§13)
 
+# Advanced fields ADDED after Forms Release 1 (not moved; new knobs whose
+# home is the Advanced section). Crossing vision P2-D1 (rung 2).
+ADDED_ADVANCED = {
+    ("options", "perimeter_alerting"): ["crossing_vision_provider_id"],
+}
+
 FAMILY = {
     "global_sensors": "integration", "energy_sensors": "integration",
     "person_tracking": "integration", "camera_census": "integration",
@@ -311,7 +317,7 @@ def test_moved_fields_live_in_advanced_section(flow_step):
         res = _render(f, step)
     walked = h.walk(res["data_schema"])
     in_adv = {k for k, s in walked.items() if s == "advanced"}
-    assert in_adv == set(MOVED[flow_step])
+    assert in_adv == set(MOVED[flow_step]) | set(ADDED_ADVANCED.get(flow_step, ()))
 
 
 def test_no_advanced_markers_schema_walk():

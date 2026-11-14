@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "310",
+  "author": "ojiudezue",
+  "session_id": "claude_20261114_220302_ship_v5_108_23",
+  "timestamp": "2026-11-14T22:03:02Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.108.23 shipped: Census deconfliction + crossing ledger (ships dark; trust view unchanged)",
+  "summary": "Census deconfliction + crossing ledger (ships dark; trust view unchanged)",
+  "why": "The census counted residents and guests from several sources that each deduplicated on their own, and a dead camera's frozen reading could hold a count. This ships the single dedup function and a door-crossing ledger that re-anchors to the residents home after 15 empty minutes, as the awareness view vision will later improve. It ships dark: the trust view that drives AWAY, security and locks is byte-identical (golden tests under five vision variants), honouring the hard constraint that AWAY stays fast. The anchor now asks the shared stream-health view, so a dead camera blocks it rather than letting the house be declared empty over an unread input, per the operator's dead-camera ruling. Four reviews, a clean full-suite name-diff and an orchestrator mutation check passed.",
+  "implications": "Shipped CENSUS-DECONFLICTION-LEDGER-1 at v5.108.23; card(s) sit shipped_organic pending validation. Acceptance in README_v5.108.23.md (Live criteria).",
+  "revisit_trigger": "Live L1-L9: awareness entities equal trust entities; switch on; ledger known after first anchor; ledger term rows; aware_total non-null; AWAY latency unchanged; no ERROR or page day one.",
+  "refs": {
+    "cards": [
+      "CENSUS-DECONFLICTION-LEDGER-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.108.23.md"
+    ],
+    "release_notes": "- One census dedup function (deconflict_house); an awareness view beside the unchanged trust view\n- Crossing ledger in the crossing-vision producer: one term per door crossing, empty-house anchor (15 min), resident arrival credit, departure reconcile; rows crossing_vision_ledger; pages crossing_ledger_stuck / crossing_ledger_anchor_zero\n- Anchor reads the S2 camera stream view: a held or released Tier-1 input blocks it (contract G7)\n- New entities: sensor.ura_census_people_around, sensor.ura_census_guests_around, switch.ura_crossing_vision_census_authority (Vision Assisted Census, default on with cameras)\n- Door count AI provider option; residency records also dispatched on SIGNAL_RESIDENCY_EVENT\n- AWAY, the census signal and every existing census entity unchanged (golden-pinned)"
+  }
+}

@@ -178,6 +178,51 @@ alternating miss reason (counters still show it); removed persons keep counters 
 - Stream-health page de-duplication covers only the S2-then-S1 order (caps 900 s < 1800 s). If the caps are
   raised above 1800 s, the S1 page fires first and the hold page still follows.
 
-## Validated
+## Validated 2026-11-14
 
-Pending deploy.
+Observed restart: HA core booted 2026-11-14 20:38-20:39 UTC (14:38-14:39 CST; the briefed "about 14:50" is 11 min
+later than the entity and DB-directory timestamps). Reads taken 21:37-21:43 UTC (15:37-15:43 CST), so most
+post-boot evidence is roughly 1 hour old. Log windows: the `system_log` WARNING and ERROR buffers hold everything
+since boot. The raw `error_log` window starts about 14:42 CST, so the first ~4 minutes of boot are not in it.
+`ha core logs` returns 401 from the SSH path; logs were read with `ha_get_logs`.
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| S1 census sensors read the same values | PARTIAL | Slug format unchanged. House census snapshot 21:40:39 UTC: identified 3 `["ezinne","jaya","ziri"]`, unidentified 0. Last pre-restart snapshot 20:37:20 UTC: identified 2 `["ezinne","jaya"]`, unidentified 1. Ziri is a current arrival (BLE Jaya Bedroom), not a slug change. No pre-deploy sensor-value baseline was recorded, so value equality cannot be proven. |
+| S1 NM arrival text names the same people; HVAC night-trust and fan holds fire as before | PENDING | Next resident arrival or night hold. Last `presence` "Someone arrived" (LOW) at 21:12:59 UTC carries generic text. |
+| S1 no new WARN/ERROR from camera_census, transit_validator, perimeter_alert, person_sighting, person_coordinator; no `person.person.*` | PASS | None of those modules in the system_log WARNING (30 entries since boot) or ERROR (20 entries) buffers. Raw `error_log` search `person.person` returns 0 lines. |
+| S2 Perimeter diagnostic: `mute_covers_source` = `loaded (3 door(s))` | PASS | `sensor.ura_security_coordinator_outside_open_tracks_diagnostic` attributes (21:37 UTC publish): `mute_covers_source = loaded (3 door(s))`. |
+| S2 `seam_validation` ok; seam counts unchanged | PARTIAL | `seam_validation = ok`, `seam_count = 21`, `seam_egress_adjacent` 6 cameras. `seam_file_sha256` 44f5cb55... matches the live `exterior_seams.json` on disk. Pre-restart seam counts were not recorded, so "unchanged" cannot be proven. |
+| S2 `perimeter_gate_decision` rows appear after restart | PASS | 11 rows since 20:38 UTC in `memory_episodes` (8 `gate: egress_mute` declines, 3 `single_source`). 7 earlier rows are from 14:06-19:40 UTC, before this restart. |
+| S2 mute share below 40% over first day | PENDING | Day one not complete. Post-boot egress-mute decisions: 8, of which 0 muted (6 `egress_mute_vetoed_unknown`, 2 `egress_mute_no_record`). Closes at the first 24 h after 20:38 UTC. |
+| S2 every `suppressed=true` egress_mute row has a resident, conf >= 0.9, entry/exit, matching crossing within 120 s | PENDING | 0 suppressed rows so far (the criterion holds vacuously). Pending the first covered-door mute. |
+| S2 driveway edge with no qualifying crossing alerts, with a decline row | PASS | Perimeter alerts sent: 21:23:14, 21:30:55 and 21:30:56 UTC (`notification_log`, perimeter_alert MEDIUM). Decline rows in the same window: `egress_mute_vetoed_unknown` 21:24:13 and 21:25:51 UTC. |
+| S2 no `perimeter.egress_mute_ratio` / `zero_fire` anomaly on day one | PASS so far | `anomaly_log` rows with `anomaly_type` LIKE `perimeter%` since 20:38 UTC: 0. The 24 h window is still open. |
+| S2 `egress_mute_unmapped_producer_legs` = `[]`, `egress_mute_door_key_fallbacks` = `{}` after a day | PENDING | Currently `[]` and `{}`. Closes at 24 h. |
+| S3 five perimeter entities show new names, unchanged ids | PASS | `switch.ura_perimeter_zone_agreement_demote` "Lower Road Alerts"; `switch.ura_perimeter_single_source_demote` "Lower Single-Sourced Alerts"; `switch.ura_perimeter_egress_known_xcorr_gate` "Unknown Person Door Alert"; `switch.ura_perimeter_identity_followup` "Add Names to Alerts"; `select.ura_perimeter_vlm_gate` "AI Person Check" (options off/shadow/enforce). |
+| S3 options step "Perimeter Alert Filters" exists (strings and translations only) | PASS | `translations/en.json` and `strings.json` each contain `perimeter_alert_filters`. `select` labels: shadow = "Watch only", enforce = "On". |
+| S3 options step shows 5 fields with current values; saving does not reload | PENDING | Requires opening and saving the flow. Not opened per the brief. |
+| S4 no `camera_stream_hold_released` / `camera_stream_dead` page without a real outage | PASS | `notification_log` since 20:38 UTC: 21 rows, none stream-kind (security, energy, presence, perimeter_alert, stuck_signal shadow-only). |
+| S4 S2 attributes present on room unavailable-entities sensors | PASS | All 21 `sensor.*_unavailable_entities` carry `camera_stream_dead_inputs` and `camera_stream_inputs_resolved`. No dead inputs now. |
+| S4 hold then release, one HIGH page, on a real panel outage | PENDING | Next organic panel or camera outage. |
+| S5 `bermuda_resolve`: each home resident `last_route: a`, `resolved` rising, `unresolved: 0` | PASS | `sensor.universal_room_automation_person_tracking_status` attribute: Ezinne, Jaya, Ziri `last_route a`, `unresolved 0`, `resolved` 122 at 21:41:39 UTC and 124 at 21:42:01 UTC. Oji Udezue also `a`, unresolved 0 (location Away). |
+| S5 boot log: zero "No Bermuda area sensor" WARNs | PASS | Zero in the system_log WARNING buffer and in the raw `error_log` window (from 14:42 CST). |
+| S5 boot log: zero "Auto-enabled Bermuda distance sensor" INFOs | PASS, caveat | Zero in the raw `error_log` window from 14:42 CST. INFO is not in the system_log buffer. The first ~4 min of boot are outside the window. |
+| S5 boot log: zero "No Bermuda sensors found" WARNs | PASS | Zero in both windows (as above). |
+| S5 no Bermuda config-entry reload in the boot window | PASS, caveat | No Bermuda reload line in the raw window. No Bermuda entity has a `disabled_by` change since boot. |
+| S5 enabled `bermuda` entity count identical before/after | PARTIAL | Now 391 enabled / 105 disabled (496 total) in `core.entity_registry`. Pre-restart count was not recorded. Four Bermuda rows were stamped at 20:39:23 UTC (`sensor.ezinne_iphone_area`, `..._last_seen`, `sensor.iphone_jaya_area`, `..._last_seen`); all four enabled. |
+| S5 `sensor.<person>_location` matches `sensor.*_area` for home residents | PASS | Ezinne "Master Bathroom" = `sensor.ezinne_iphone_area` "Master Bathroom". Jaya "Jaya Bedroom" = `sensor.iphone_jaya_area` "Jaya Bedroom". Ziri "Jaya Bedroom" = `sensor.iphone_ziri_area` "Jaya Bedroom". Oji "Away" with area `unknown` (not home). |
+| Operator step 1: `egress_mute_covers` in live `exterior_seams.json` | PASS | Live file has `egress_mute_covers` with the three doors (garage_a; madrone_g6_entry and front_door_aerial). File sha256 matches the diagnostic. |
+| Operator step 2: reload or restart | PASS | Restart 20:38-20:39 UTC (see header). |
+| Operator step 3: diagnostic check | PASS | See the S2 rows above. |
+
+**Section 2 of the log scan (since boot, 20:38 UTC).** `system_log` WARNING: 30 entries; ERROR: 20 entries.
+
+- URA-origin WARNING groups (occurrences): `energy_circuits` Span Right Double Oven anomaly (2); `coordinator` Media Room Closet energy sensor unavailable (1); `optimization_llm` Anthropic quota 400, "regain access 2026-12-01" (4); `energy_battery` SOC divergence (1), SOC stream-tier trust (1), SOC cloud fallback stale (1), SOC primary+LKG unavailable (1); `energy` battery capacity fallback 40 kWh (1); `helpers.entity` slow state update for `zone_upstairs_presence_status` (0.48 s) and `appliance_census` (0.54 s) (2); `helpers.frame` deprecations for `entity.py:86` and `_devices.py:627` (count shared with other integrations).
+- URA-origin ERROR: 0. URA tracebacks: 0.
+- New in the v5.108.22 modules (`camera_census`, `transit_validator`, `perimeter_alert`, `person_sighting`, `person_coordinator`): 0 WARN, 0 ERROR.
+- Non-URA ERRORs (not this release): WhatsApp bridge 401 (733 repeats); Anthropic quota (4); tuya_local network errors (506); Shelly fetch errors; WiiM unreachable; ESPHome BLE; elkm1 decode; icloud3 KeyError (1).
+- Boot-only transients dismissed: the `assist_satellite` duplicate-setup ERRORs for five ESPHome panels (20:38 UTC, `config_entries`); Bermuda's own "Unexpectedly got 4 device registry matches" WARNs for two Shelly devices (Bermuda, not URA); recorder attribute-size WARNs (`zone.home`, a Zigbee network map, `frigate_events`).
+- Not verifiable here: whether the URA WARN groups above are new relative to v5.108.1. No pre-restart log snapshot was kept. `zone_upstairs_presence_status` is in `aggregation.py`, which this batch touched, so it should be watched.
+
+**Open items to close.** Day-one rows (S2 mute ratio, unmapped legs, door fallbacks, anomaly window), the first covered-door mute (suppressed-row criterion), the first organic stream outage (S4 hold, release and one page), the first resident arrival or night hold (census and NM text), and the options-flow save (S3 field values and no reload). The Bermuda registry before/after count stays PARTIAL until a pre-restart count is available.

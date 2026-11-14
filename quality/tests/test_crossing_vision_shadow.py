@@ -38,7 +38,7 @@ import pytest_asyncio
 import homeassistant as _real_ha_pkg
 
 from _d7_isolation import import_scope
-from _sighting_rig import purge_attr_tainted_ha
+from _sighting_rig import purge_attr_tainted_ha, restore_stubbed_registry_helpers
 
 _HA_DIR = Path(_real_ha_pkg.__file__).resolve().parent
 _PKG = "custom_components.universal_room_automation"
@@ -96,6 +96,9 @@ def mods():
         for _name in ("State", "Event", "HomeAssistant", "CoreState",
                       "ServiceCall", "SupportsResponse"):
             setattr(_core, _name, getattr(_phcc, _name))
+        # Order-proof the registry helpers (census-p2 full run); after the
+        # real core.callback is back, since a scratch re-import binds it.
+        restore_stubbed_registry_helpers()
         importlib.invalidate_caches()
         ns = types.SimpleNamespace(
             const=importlib.import_module(f"{_PKG}.const"),
@@ -183,6 +186,8 @@ async def rig(mods, hass, tmp_path, monkeypatch):
     MockConfigEntry(domain=C.DOMAIN, entry_id="ura_integ", data={
         C.CONF_ENTRY_TYPE: C.ENTRY_TYPE_INTEGRATION,
         C.CONF_PERIMETER_ENRICHMENT_PROVIDER_ID: "prov_openai",
+        # P2-D1: the operator's crossing-vision provider option.
+        C.CONF_CROSSING_VISION_PROVIDER_ID: "01M7B731T26P2HXVW77AQR62PP",
     }).add_to_hass(hass)
     # Two Frigate config entries (one is a lingering retired entry): the
     # default-instance URL would be None (rev 2 F4).
@@ -1539,11 +1544,62 @@ async def test_call_arguments_timeout_provider_tokens(rig):
     assert call["max_tokens"] == 1500
 
 
+def _set_provider_option(rig, value):
+    for entry in rig.hass.config_entries.async_entries(rig.C.DOMAIN):
+        rig.hass.config_entries.async_update_entry(entry, options={
+            **entry.options, "crossing_vision_provider_id": value})
+
+
 @pytest.mark.asyncio
-async def test_empty_provider_const_falls_back_to_perimeter_provider(rig):
-    rig.monkeypatch.setattr(rig.C, "CROSSING_VISION_PROVIDER_ID", "")
+@pytest.mark.parametrize("default_id", [
+    "01NOTONTHISINSTALL00000000",  # default id absent on this install
+    "f2",                          # present, but a frigate entry
+])
+async def test_empty_override_falls_back(rig, default_id):
+    """P2-D1: the option saved empty and the rung-1 install default is not
+    an llmvision entry here (absent, or another domain) -> the perimeter
+    provider."""
+    rig.monkeypatch.setattr(rig.C, "CROSSING_VISION_PROVIDER_ID", default_id)
+    _set_provider_option(rig, "")
     await ended_crossing(rig, "ev-prov")
     assert rig.llm.calls[0]["provider"] == "prov_openai"
+
+
+@pytest.mark.asyncio
+async def test_empty_option_uses_install_present_default(rig):
+    """P2-D1 (review A-HIGH-3): the option empty (nobody opened the form)
+    and the Luna llmvision entry 01M7...PP present on this install -> that
+    id is sent, so the Luna model goes to the Luna entry."""
+    _set_provider_option(rig, "")
+    await ended_crossing(rig, "ev-prov-default")
+    assert rig.llm.calls[0]["provider"] == "01M7B731T26P2HXVW77AQR62PP"
+
+
+@pytest.mark.asyncio
+async def test_provider_override_used(rig):
+    """P2-D1: the option names a second llmvision entry on this install ->
+    that id is sent, read fresh at call time (no reload)."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    MockConfigEntry(domain="llmvision", entry_id="01OTHERLLMVISIONENTRY00000",
+                    title="Another vision entry").add_to_hass(rig.hass)
+    _set_provider_option(rig, "01OTHERLLMVISIONENTRY00000")
+    await ended_crossing(rig, "ev-prov2")
+    assert rig.llm.calls[0]["provider"] == "01OTHERLLMVISIONENTRY00000"
+
+
+def test_provider_option_on_perimeter_advanced_form(mods):
+    """P2-D1 surface: the option is a field of the integration's Perimeter
+    Alerting -> Advanced section, labelled in strings.json, and its save is
+    reload-suppressed (read fresh per call)."""
+    import json as _json
+
+    root = Path(mods.const.__file__).parent
+    strings = _json.loads((root / "strings.json").read_text())
+    adv = strings["options"]["step"]["perimeter_alerting"]["sections"]["advanced"]
+    assert "crossing_vision_provider_id" in adv["data"]
+    assert "crossing_vision_provider_id" in adv["data_description"]
+    assert "crossing_vision_provider_id" in mods.init.INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS
 
 
 # --------------------------------------------- writer health (K03)
@@ -1569,6 +1625,25 @@ async def test_writer_health_absence_exempt_during_vacation(rig):
 
 
 @pytest.mark.asyncio
+async def test_writer_health_ledger_type_not_checked_while_switch_off(rig):
+    """Review B-L4: with the shadow switch off the ledger writer cannot
+    run, so its type is not checked (no page); with the switch on, zero
+    rows is paged like any writer-backed type."""
+    rig.db.hass.data = rig.hass.data  # the real DB holds the real hass
+    rig.hass.data[rig.C.DOMAIN][rig.C.CROSSING_VISION_SWITCH_HASS_KEY] = False
+    stats = await rig.db.run_memory_writer_health_check(triggered_by="manual")
+    assert "crossing_vision_ledger" not in stats["counts"]
+    assert "crossing_vision_ledger" not in stats["zero_row_types"]
+    assert stats["switch_off_types"] == ["crossing_vision_ledger"]
+    assert "crossing_vision_shadow" in stats["counts"]  # Phase 1 unchanged
+    rig.hass.data[rig.C.DOMAIN][rig.C.CROSSING_VISION_SWITCH_HASS_KEY] = True
+    stats = await rig.db.run_memory_writer_health_check(triggered_by="manual")
+    assert stats["counts"]["crossing_vision_ledger"] == 0
+    assert "crossing_vision_ledger" in stats["zero_row_types"]
+    assert stats["switch_off_types"] == []
+
+
+@pytest.mark.asyncio
 async def test_call_is_background_task(rig):
     """Review B2: the llmvision call runs as a background task, so an HA
     stop (which waits on ordinary tasks) is not held for up to TIMEOUT_S by
@@ -1589,9 +1664,8 @@ async def test_call_is_background_task(rig):
 
 @pytest.mark.asyncio
 async def test_provider_falls_back_when_entry_absent_on_install(rig):
-    """Portability: the const id is not an llmvision entry here (another
-    house) -> the perimeter provider is used."""
-    rig.monkeypatch.setattr(rig.C, "CROSSING_VISION_PROVIDER_ID",
-                            "01ZZZZZZZZZZZZZZZZZZZZZZZZ")
+    """Portability: the option names an id that is not an llmvision entry
+    here (another house) -> the perimeter provider is used."""
+    _set_provider_option(rig, "01ZZZZZZZZZZZZZZZZZZZZZZZZ")
     await ended_crossing(rig, "ev-port")
     assert rig.llm.calls[0]["provider"] == "prov_openai"
