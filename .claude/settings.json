@@ -87,7 +87,7 @@
           },
           {
             "type": "command",
-            "command": "jq -r '.tool_input.command // \"\"' | grep -q 'git commit' && printf '{\"systemMessage\":\"VibeMemo: Before committing, check for uncaptured decisions. Run /vibememo-eval (Part 1 capture + narrative update). Also synthesize user narratives into project narrative \u2014 commits are a consistency checkpoint.\"}' || printf '{}'",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/vibememo_gate.sh commit",
             "statusMessage": "VibeMemo: checking..."
           }
         ]
@@ -108,7 +108,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "printf '{\"systemMessage\":\"VibeMemo session-end: Run /vibememo-eval (Part 1 + Part 2) before closing. Capture uncaptured decisions, score all 9 eval dimensions, and synthesize user narratives into project narrative.\"}'",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/vibememo_gate.sh stop",
             "statusMessage": "VibeMemo: session-end eval..."
           }
         ]
