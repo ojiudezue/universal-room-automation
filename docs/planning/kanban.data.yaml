@@ -35116,7 +35116,8 @@ cards:
 - id: PERIMETER-ZONE-AGREEMENT-FIX-OR-REMOVE-1
   title: The off-property zone-agreement demote does nothing (no property zones mapped) and cannot see Protect-only alerts; fix it soon or remove it
   thread: security
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.108.20
   created: '2026-11-13 12:30'
   updated: '2026-11-13 12:30'
   tier: 2
@@ -35157,7 +35158,8 @@ cards:
 - id: PERIMETER-GATE-DECISIONS-NOT-PERSISTED-1
   title: Perimeter demote gates keep only their last decision per camera in memory, so shadow mode leaves no record to judge them by
   thread: security
-  status: inbox
+  status: shipped_organic
+  shipped_version: v5.108.20
   created: '2026-11-13 13:00'
   updated: '2026-11-13 13:00'
   tier: 2
