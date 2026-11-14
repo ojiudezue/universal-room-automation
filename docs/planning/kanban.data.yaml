@@ -35510,6 +35510,17 @@ cards:
   why: "hvac.py:1241 writes the person coordinator's pre-arrival flag from the HVAC pre-arrival switch (switch.py:4571). person_coordinator.py:1151 skips the BLE SIGNAL_PERSON_ARRIVING send while it is off. So an HVAC comfort choice silently switches off an F5 producer that security, the lock regime and music also consume. CLAUDE.md rule: a policy for one consumer gates that consumer, never the producer. The BLE arrival is mostly a later duplicate of the geofence arrival (PLANNING_ble_seen_at_home_arrival.md: 5 of 5 measured, +8 to +41 s), so the live loss is small. Ship 3 keeps behaviour identical: its G9 setter is a no-op swap."
   next: "PICK: A (recommended) the producer always sends, HVAC ignores BLE arrivals when its pre-arrival switch is off. Small, and lock/music get BLE arrivals back. Or B: keep as is and document it as intended. -> On A I plan it as a follow-up to ship 3 (behaviour change, Tier 2)."
   rank: {value: 4, time_criticality: 2, effort: 2}
+- id: BLE-CONFIDENCE-SCANNER-NAME-PARSE-1
+  title: "Person BLE confidence reads the scanner name from the distance sensor's entity_id (split 'distance_to_') instead of the registry"
+  status: planned
+  tier: 2
+  batch: person-sightings
+  links: {parent: REGISTRY-NOT-NAMES-1, related: [BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1]}
+  created: "2026-11-14 15:30"
+  origin: {date: '2026-11-14', gist: 'Registry fix review A, finding A-L4.'}
+  why: "person_coordinator.py ~2050 (fix/ble-person-registry-resolve 477c8dbf): _calculate_confidence splits the entity_id on 'distance_to_' to name the scanner. The unique_id already carries the scanner MAC. A live registry read shows all 57 of Oji's scanner MACs resolve, but each MAC is a connection on 2-3 devices (the integration's device plus Bermuda's scanner device), and 184 MACs are shared by devices whose areas differ or are missing. So MAC -> area needs a decided rule: prefer Bermuda's own preference, the bluetooth device area, then the mac device. Inert today: the per-scanner sensors are dead until the Kiosk Satellite fix (BERMUDA-DISTANCE-SENSORS-DEAD-1)."
+  next: "Me: plan when BERMUDA-DISTANCE-SENSORS-DEAD-1 revives (the per-scanner sensors return); reuse Bermuda's area-resolution order (bermuda_device.py:370-377)."
+  rank: {value: 3, time_criticality: 1, effort: 2}
 - id: G6-ONE-BLE-ROOM-READ-1
   title: "One 'persons in this room' BLE read for every reader (room occupancy, fan recheck, census), with the phone-left-behind filter on room occupancy"
   status: planned
