@@ -408,6 +408,13 @@ labelling, arc map M10); any AWAY, house-state, lock or HVAC change.
    scoring, joins with weekly labels, retention), with perimeter's `.storage` samples imported so there is one history.
 4. Q4 answered YES: W1 ships ahead, alone.
 
+### Decision 2026-11-14: fan-veto rebuttal policy (W5c)
+
+Operator: "trust a camera with a good record (recommended). When only one system is live, trust it." The fan veto keeps its own
+policy (policy in the consumer). One live NVR on the room camera: trust it (today's behaviour, pinned by a test). Both live and
+`split`: grant the rebuttal when the NVR that says person has a strong per-camera agreement record from the layer
+(`agreement(cam, ...)` with `min_samples`), else deny as today. Thresholds are named rung-1 knobs set in W5c from W2 data.
+
 ## 13. Plan completion tracking
 
 Filled at each ship: delivered, deferred (reason and card); supersession audit of perimeter's `AgreementTracker` and
