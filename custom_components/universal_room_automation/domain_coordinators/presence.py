@@ -6085,6 +6085,26 @@ class PresenceCoordinator(BaseCoordinator):
             _layer_signals.count_layer_event(self.hass, "edges_truncated")
         return truncated
 
+    # ---- ship 3a D4 (review A-L1): F4 BLE move-log delegates (never raise)
+    def location_moves_since(self, t: datetime) -> tuple:
+        """A2: the person coordinator's ``location_moves_since(t)`` (plain
+        tuple of ``PersonMove``, ``ts >= t``, oldest first); ``()`` with no
+        person coordinator or on any error."""
+        try:
+            pc = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+            return tuple(pc.location_moves_since(t)) if pc is not None else ()
+        except Exception:  # noqa: BLE001
+            return ()
+
+    def location_moves_truncated_since(self, t: datetime) -> bool:
+        """A2 truncation read of the person coordinator; True (incomplete)
+        with no person coordinator or on any error."""
+        try:
+            pc = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+            return bool(pc.location_moves_truncated_since(t)) if pc is not None else True
+        except Exception:  # noqa: BLE001
+            return True
+
     # ---- ship 3a D3: F3 reads (delegates to the egress tracker; never raise)
     def _egress_tracker(self):
         return self.hass.data.get(DOMAIN, {}).get("egress_tracker")

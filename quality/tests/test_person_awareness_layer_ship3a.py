@@ -905,6 +905,77 @@ async def test_location_moves_age_pruned(mods, pc_env):
 
 
 @pytest.mark.asyncio
+async def test_location_moves_truncated_when_t_older_than_age_bound(mods, pc_env):
+    """Review A-L2: one move 2400 s ago, t = now - 3600: the move was pruned
+    by age (1800 s), so the read is () and truncated must be True."""
+    env = pc_env
+    c = env.coord
+    c._moves_created_at = T0 - timedelta(hours=5)
+    env.hass.set("person.oji_udezue", "home")
+    c._log_location_move(OJI, "a", "b", T0 - timedelta(seconds=2400))
+    env.clock.t = T0
+    t = T0 - timedelta(seconds=3600)
+    assert c.location_moves_since(t) == ()
+    assert c.location_moves_truncated_since(t) is True
+    # Control: a t inside the age bound with a complete log is not truncated.
+    assert c.location_moves_truncated_since(T0 - timedelta(seconds=1799)) is False
+
+
+@pytest.mark.asyncio
+async def test_presence_location_moves_since_delegate(mods, hass, pc_env):
+    """Review A-L1: presence delegates to the person coordinator, never raises."""
+    env = pc_env
+    env.coord._moves_created_at = T0 - timedelta(hours=1)
+    env.hass.set("person.oji_udezue", "home")
+    env.coord._log_location_move(OJI, "a", "b", T0)
+    p = _presence(mods, hass)
+    hass.data.setdefault(DOMAIN, {})["person_coordinator"] = env.coord
+    got = p.location_moves_since(T0 - timedelta(seconds=1))
+    assert got == env.coord.location_moves_since(T0 - timedelta(seconds=1)) and len(got) == 1
+    hass.data[DOMAIN]["person_coordinator"] = _Boom()
+    assert p.location_moves_since(T0) == ()
+    del hass.data[DOMAIN]["person_coordinator"]
+    assert p.location_moves_since(T0) == ()
+
+
+@pytest.mark.asyncio
+async def test_presence_location_moves_truncated_since_delegate(mods, hass, pc_env):
+    env = pc_env
+    env.coord._moves_created_at = T0 - timedelta(hours=1)
+    p = _presence(mods, hass)
+    hass.data.setdefault(DOMAIN, {})["person_coordinator"] = env.coord
+    assert p.location_moves_truncated_since(T0 - timedelta(hours=2)) is True     # before creation
+    assert p.location_moves_truncated_since(T0 - timedelta(seconds=10)) is False
+    hass.data[DOMAIN]["person_coordinator"] = _Boom()
+    assert p.location_moves_truncated_since(T0) is True
+    del hass.data[DOMAIN]["person_coordinator"]
+    assert p.location_moves_truncated_since(T0) is True
+
+
+@pytest.mark.asyncio
+async def test_crossing_record_serialises_and_nameable_via_g3(mods, hass):
+    """Review B-L1: asdict / deepcopy / pickle work; nameable stays immutable
+    and is written only through G3 (a mapping is normalised to sorted pairs)."""
+    import copy
+    import dataclasses
+    import pickle
+    t = _tracker(mods, hass)
+    r = _rec(mods, GARAGE, NOW)
+    t._record_crossing(r)
+    assert dataclasses.asdict(r)["nameable"] == ()
+    assert copy.deepcopy(r) == r and pickle.loads(pickle.dumps(r)) == r
+    hash(r)
+    t.attach_crossing_attribute(r.source_ref, {"nameable": {"oji_udezue": 0.75, "jaya": 0.6}},
+                                None, camera=GARAGE, role="arrival_confirmed")
+    new = t.get_crossing(r.source_ref)
+    assert new.nameable == (("jaya", 0.6), ("oji_udezue", 0.75))
+    assert dict(new.nameable) == {"jaya": 0.6, "oji_udezue": 0.75}
+    assert dataclasses.asdict(new)["nameable"] == (("jaya", 0.6), ("oji_udezue", 0.75))
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        new.nameable = ()
+
+
+@pytest.mark.asyncio
 async def test_location_moves_mirror_bus_event(mods, pc_env):
     env = pc_env
     env.coord._moves_created_at = T0 - timedelta(hours=1)

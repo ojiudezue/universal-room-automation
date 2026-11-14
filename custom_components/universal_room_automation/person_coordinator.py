@@ -2313,12 +2313,18 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
     def location_moves_truncated_since(self, t: datetime) -> bool:
         """True when ``location_moves_since(t)`` may be missing moves: the log
         is full and its oldest move is newer than ``t``, OR ``t`` is older
-        than the log's creation (RAM: a restart or reload empties it). Each
-        True answer is counted (``moves_truncated``)."""
+        than the log's creation (RAM: a restart or reload empties it), OR ``t``
+        is older than the age bound (pruned). Each True is counted
+        (``moves_truncated``)."""
         self._prune_location_moves()
         moves = self._location_moves
         full = len(moves) >= max(1, int(_ura_const.PERSON_LOCATION_MOVES_MAX))
-        truncated = (full and bool(moves) and moves[0].ts > t) or t < self._moves_created_at
+        # Review A-L2: moves older than the age bound were pruned, so a t
+        # before now - PERSON_LOCATION_MOVES_MAX_AGE_S is truncated too.
+        age_floor = dt_util.now() - timedelta(
+            seconds=float(_ura_const.PERSON_LOCATION_MOVES_MAX_AGE_S))
+        truncated = ((full and bool(moves) and moves[0].ts > t)
+                     or t < self._moves_created_at or t < age_floor)
         if truncated:
             from .domain_coordinators.signals import count_layer_event  # noqa: PLC0415
 

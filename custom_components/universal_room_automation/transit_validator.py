@@ -16,7 +16,6 @@ import logging
 from collections import deque
 from dataclasses import dataclass, field, replace as _dc_replace
 from datetime import datetime, timedelta
-from types import MappingProxyType
 from typing import Any, Callable, Mapping
 
 from homeassistant.core import HomeAssistant, Event, callback
@@ -964,9 +963,10 @@ class CrossingRecord:
     # Ship 3a D3 (contract §2.3): additive, defaulted, written only through
     # G3 ``attach_crossing_attribute`` (no writer in ship 3a).
     identity_role: str | None = None
-    nameable: Mapping[str, float] = field(
-        default_factory=lambda: MappingProxyType({}), hash=False,
-    )
+    # Review B-L1: a frozen, sorted tuple of (slug, confidence) pairs (not a
+    # mapping proxy), so asdict / deepcopy / pickle work and the record stays
+    # immutable; G3 normalises a mapping into this shape. ``dict(nameable)``.
+    nameable: tuple[tuple[str, float], ...] = ()
     pair_state: str | None = None
     pair_partner: str | None = None
     identity_synthetic_corroborated: bool = False
@@ -996,6 +996,13 @@ def _count_layer_event(hass: Any, name: str, key: Any = None) -> None:
         _layer_signals().count_layer_event(hass, name, key)
     except Exception:  # noqa: BLE001 - observational
         pass
+
+
+def _nameable_tuple(value: Any) -> tuple[tuple[str, float], ...]:
+    """G3 normalisation of ``nameable``: a mapping or pairs -> a sorted tuple
+    of ``(slug, confidence)`` pairs (immutable, serialisable)."""
+    items = value.items() if isinstance(value, Mapping) else (value or ())
+    return tuple(sorted((str(k), float(v)) for k, v in items))
 
 
 def _send_record_amended(hass: HomeAssistant, payload: dict[str, Any]) -> None:
@@ -1260,6 +1267,8 @@ class EgressDirectionTracker:
                     if rec.source_ref != source_ref:
                         continue
                     kw = dict(changes or {})
+                    if "nameable" in kw:
+                        kw["nameable"] = _nameable_tuple(kw["nameable"])
                     if provenance is not None:
                         kw["provenance"] = provenance
                     new = _dc_replace(rec, **kw)

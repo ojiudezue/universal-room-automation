@@ -219,8 +219,8 @@ def _r3_membership_only(call, func) -> bool:
     if func is None:
         return False
     target = None
-    for st in ast.walk(func):
-        if isinstance(st, ast.Assign) and any(c is call for c in ast.walk(st.value)):
+    for st in _walk(func):
+        if isinstance(st, ast.Assign) and any(c is call for c in _walk(st.value)):
             v = st.value
             ids_only = (v is call and _call_name(call) == "async_entity_ids") or (
                 isinstance(v, (ast.SetComp, ast.ListComp)) and isinstance(v.elt, ast.Attribute)
@@ -228,16 +228,16 @@ def _r3_membership_only(call, func) -> bool:
             if ids_only and len(st.targets) == 1 and isinstance(st.targets[0], ast.Name):
                 target = st.targets[0].id
             break
-        if isinstance(st, ast.Return) and st.value is not None and any(c is call for c in ast.walk(st.value)):
+        if isinstance(st, ast.Return) and st.value is not None and any(c is call for c in _walk(st.value)):
             return _call_name(call) == "async_entity_ids" or (
                 isinstance(st.value, (ast.SetComp, ast.ListComp)) and isinstance(st.value.elt, ast.Attribute)
                 and st.value.elt.attr == "entity_id")
     if target is None:
         return False
-    for n in ast.walk(func):
+    for n in _walk(func):
         if isinstance(n, ast.Name) and n.id == target and isinstance(n.ctx, ast.Load):
             parent_ok = False
-            for c in ast.walk(func):
+            for c in _walk(func):
                 if isinstance(c, ast.Compare) and any(isinstance(op, (ast.In, ast.NotIn)) for op in c.ops) \
                         and any(x is n for x in c.comparators):
                     parent_ok = True
@@ -252,7 +252,7 @@ def _r3_actor_identity(func) -> bool:
     """R3 (ii): the function filters person states on ``attributes["user_id"]``."""
     if func is None:
         return False
-    return any(isinstance(c, ast.Constant) and c.value == "user_id" for c in ast.walk(func))
+    return any(isinstance(c, ast.Constant) and c.value == "user_id" for c in _walk(func))
 
 
 R5_OWNER_DELEGATES = {
@@ -315,7 +315,7 @@ class Hit:
 # ------------------------------------------------------------ AST helpers
 def _docstring_ids(tree: ast.AST) -> set[int]:
     out: set[int] = set()
-    for n in ast.walk(tree):
+    for n in _walk(tree):
         if isinstance(n, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
             body = getattr(n, "body", None) or []
             if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant) \
@@ -325,6 +325,20 @@ def _docstring_ids(tree: ast.AST) -> set[int]:
 
 
 _SCOPED_CACHE: dict[int, list] = {}
+_WALK_CACHE: dict[int, tuple] = {}
+
+
+def _walk(node):
+    """``ast.walk`` memoised per node (same nodes, same order); the parsed
+    trees are cached for the process, so node ids are stable. Review B-L2."""
+    hit = _WALK_CACHE.get(id(node))
+    if hit is not None and hit[0] is node:
+        return hit[1]
+    out = list(ast.walk(node))
+    _WALK_CACHE[id(node)] = (node, out)
+    return out
+
+
 
 
 def iter_scoped(tree: ast.AST) -> list:
@@ -407,7 +421,7 @@ def _module_num_consts(tree: ast.Module) -> list[tuple[str, float, int]]:
 def _import_aliases(tree: ast.Module) -> dict[str, str]:
     """local name -> imported name (``from x import A as B`` -> B: A)."""
     out: dict[str, str] = {}
-    for n in ast.walk(tree):
+    for n in _walk(tree):
         if isinstance(n, ast.ImportFrom):
             for a in n.names:
                 out[a.asname or a.name] = a.name
@@ -433,7 +447,7 @@ def _class_names(cls: ast.ClassDef) -> tuple[set[str], set[str]]:
             if n.name.startswith("__"):
                 continue
             (private if n.name.startswith("_") else public).add(n.name)
-    for n in ast.walk(cls):
+    for n in _walk(cls):
         if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id == "self" \
                 and isinstance(n.ctx, ast.Store) and n.attr.startswith("_") \
                 and not n.attr.startswith("__"):
@@ -446,7 +460,7 @@ def harvest(trees: dict[str, ast.Module]) -> Harvest:
     all_member_names: set[str] = set()
     nonmember_all: set[str] = set()
     for rel, tree in trees.items():
-        for n in ast.walk(tree):
+        for n in _walk(tree):
             if not isinstance(n, ast.ClassDef):
                 continue
             private, public = _class_names(n)
@@ -625,7 +639,7 @@ class Taint:
                     targets = node.targets if isinstance(node, ast.Assign) else [node.target]
                     if self.expr(node.value, func):
                         for t in targets:
-                            for nm in ast.walk(t):
+                            for nm in _walk(t):
                                 if isinstance(nm, ast.Name):
                                     s = self.names.setdefault(id(func), set())
                                     if nm.id not in s:
@@ -636,7 +650,7 @@ class Taint:
                                     self.self_attrs.add(nm.attr)
                                     changed = True
                 elif isinstance(node, (ast.For, ast.AsyncFor)) and self.expr(node.iter, func):
-                    for nm in ast.walk(node.target):
+                    for nm in _walk(node.target):
                         if isinstance(nm, ast.Name):
                             s = self.names.setdefault(id(func), set())
                             if nm.id not in s:
@@ -735,7 +749,7 @@ class Taint:
                 if self.expr(g.iter, func):
                     return True
                 for cond in g.ifs:
-                    for c in ast.walk(cond):
+                    for c in _walk(cond):
                         if isinstance(c, ast.Call) and _call_name(c) == "startswith" and c.args \
                                 and self.expr(c.args[0], func):
                             return True
@@ -857,7 +871,7 @@ def scan_module(rel: str, tree: ast.Module, h: Harvest) -> list[Hit]:
     for cls in tree.body:
         if not isinstance(cls, ast.ClassDef):
             continue
-        for c in ast.walk(cls):
+        for c in _walk(cls):
             if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute) \
                     and c.func.attr == "__init__" and isinstance(c.func.value, ast.Call) \
                     and _call_name(c.func.value) == "super" and c.args:
@@ -1002,7 +1016,7 @@ def scan_module(rel: str, tree: ast.Module, h: Harvest) -> list[Hit]:
             for g in node.generators:
                 if isinstance(g.iter, ast.Call) and _call_name(g.iter) == "async_all":
                     for cond in g.ifs:
-                        for c in ast.walk(cond):
+                        for c in _walk(cond):
                             if isinstance(c, ast.Call) and _call_name(c) == "startswith" and c.args \
                                     and taint.expr(c.args[0], func):
                                 add("R3", qual, "async_all_filter", node)
@@ -1013,13 +1027,13 @@ def scan_module(rel: str, tree: ast.Module, h: Harvest) -> list[Hit]:
             it = node.iter
             if _is_values_iter(it) or (isinstance(it, ast.Name)
                                        and it.id in values_names.get(id(func), set())):
-                targets = {n.id for n in ast.walk(node.target) if isinstance(n, ast.Name)}
+                targets = {n.id for n in _walk(node.target) if isinstance(n, ast.Name)}
                 body = node.body if isinstance(node, (ast.For, ast.AsyncFor)) else []
                 scope_nodes = []
                 for b in body:
-                    scope_nodes.extend(ast.walk(b))
+                    scope_nodes.extend(_walk(b))
                 if isinstance(node, ast.comprehension):
-                    scope_nodes = list(ast.walk(_COMP_PARENT.get(id(node), node)))
+                    scope_nodes = list(_walk(_COMP_PARENT.get(id(node), node)))
                 for c in scope_nodes:
                     nm = None
                     if isinstance(c, ast.Call) and isinstance(c.func, ast.Name) \
@@ -1114,10 +1128,10 @@ def scan_module(rel: str, tree: ast.Module, h: Harvest) -> list[Hit]:
                     or (isinstance(node.args[0], ast.Name) and node.args[0].id == "EVENT_STATE_CHANGED")):
                 cb = node.args[1] if len(node.args) > 1 else None
                 cb_name = cb.attr if isinstance(cb, ast.Attribute) else getattr(cb, "id", None)
-                for fn in ast.walk(tree):
+                for fn in _walk(tree):
                     if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)) and fn.name == cb_name:
                         if any(isinstance(c, ast.Call) and _call_name(c) == "startswith" and c.args
-                               and _str_const(c.args[0]) in ("person.",) for c in ast.walk(fn)):
+                               and _str_const(c.args[0]) in ("person.",) for c in _walk(fn)):
                             add("R9", qual, "state_changed_person", node)
         if not member and isinstance(node, ast.Assign) and id(func) in tainted_read_funcs:
             for t in node.targets:
@@ -1173,11 +1187,11 @@ def scan_module(rel: str, tree: ast.Module, h: Harvest) -> list[Hit]:
         if isinstance(node, ast.Call) and _call_name(node) == "subscribe_person_edges" and len(node.args) >= 2:
             cb = node.args[1]
             cb_name = cb.attr if isinstance(cb, ast.Attribute) else getattr(cb, "id", None)
-            for fn in ast.walk(tree):
+            for fn in _walk(tree):
                 if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)) and fn.name == cb_name:
                     bad = isinstance(fn, ast.AsyncFunctionDef) or any(
-                        isinstance(c, ast.Await) for c in ast.walk(fn))
-                    for c in ast.walk(fn):
+                        isinstance(c, ast.Await) for c in _walk(fn))
+                    for c in _walk(fn):
                         if isinstance(c, (ast.For, ast.AsyncFor)) and "states" in _receiver_text(c.iter):
                             bad = True
                         if isinstance(c, ast.Call) and R14_FORBIDDEN_CALL_RE.search(_receiver_text(c.func)):
@@ -1210,7 +1224,7 @@ _COMP_PARENT: dict[int, ast.AST] = {}
 
 
 def _index_comprehensions(tree: ast.AST) -> None:
-    for n in ast.walk(tree):
+    for n in _walk(tree):
         if isinstance(n, (ast.ListComp, ast.SetComp, ast.GeneratorExp, ast.DictComp)):
             for g in n.generators:
                 _COMP_PARENT[id(g)] = n
