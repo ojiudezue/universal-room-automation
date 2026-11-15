@@ -51,6 +51,14 @@ observational with no consumer yet (operator 2026-11-15: "Emotion yes as prep fo
 enrolled is a non-goal (operator 2026-11-15: "Not expecting new names. Names come from people I enrolled. This is few and
 far between. Non goal").
 
+## 1a. Decisions pending (operator); the build uses the recommended default unless the operator overrides
+
+| # | Question | Default the build uses | Alternative | Where it lands |
+|---|---|---|---|---|
+| Q1 | Can interior move `aware_guests` on its own bar, or only after the crossing ledger is promoted to lead (one shared flag)? | **Interior gets its own leads argument on `deconflict_house`** (`interior_leads`, driven by `INTERIOR_VISION_TERM_LEADS`), so interior moves `aware_guests` once it passes ITS OWN bar (§9.D4), independent of the ledger's promotion. Reason: charter "tight and not deferred", "do the hard parts sooner"; the crossing ledger has never been known live, so coupling would park interior behind an unproven producer. **Tier 3 impact:** a signature change to `deconflict_house` (`census_deconflict.py:90-131`) and a second awareness-only rung; it amends census deconfliction plan §3.3 (function and rule 3) and §3.2 (ladder: interior gets its own leads rung). Owned by ship 5 (already Tier 3); the census plan text is edited by the orchestrator (§14). Trust view, AWAY inputs and `unidentified_count` are untouched either way | Share the one `CROSSING_VISION_AWARENESS_VISION_LEADS` flag (draft-3 rule: interior moves `aware_guests` only once the ledger leads) | §9.D4, §13, §14 |
+| Q2 | Who may ask URA to `describe` a room or a person? | **Operator only.** Select `select.ura_interior_describe_access` (rung 3, CM device) with options `operator` (default), `operator_affect`, `residents`, `any_resolved`. "Operator" = the NM persons on `CONF_NM_SECURITY_ACK_PERSONS`, else the first `CONF_NM_PERSONS` entry (the same resolution as `_is_authorized_to_ack`, `notification_manager.py:3447`). The NM reply NEVER includes affect unless the Select is `operator_affect` (operator requester only); `residents` / `any_resolved` never get affect | No gate (any resolved NM person, draft 3) | §9.D3, §12 |
+| Q3 | Does interior D0 grading wait for, or share, the door-crossing labelling run? | **Door first.** Operator: "Is Vision working as designed is the central question. Starting with the door crossing version." Door-crossing labelling runs first; interior D0(b)/(c)/(g) grading starts once the door evaluation set is done, using the same grading tool (private labelling Artifact) and the same weekly budget, door rows always ahead of interior rows. D1 and the D5 no-model leg (no grading needed) build meanwhile | Share the run from the start, interleaved | §8c, §9.D0, §9.D7 |
+
 ## 2. What we know about count error today (honest)
 
 NVR interior body counts have NEVER been measured against ground truth. The only truth on record is at doors: the operator
@@ -112,9 +120,11 @@ only this plan, its reviews, the contract (§2.4 / §7 name `_emit_unnamed` as t
 |---|---|---|
 | F4 producer, store owner, emit pattern | REUSE `PersonSightingProducer` (`person_sighting.py:102`), its `_emit` (`:569`) as the pattern; NEW `_emit_unnamed` on the same class (contract §2.4) | `person_sighting.py` |
 | Area to room | REUSE producer `_room_for_area` (`person_sighting.py:272`, reads presence `_room_area_ids` from room config entries, `presence.py:1785, 3396`) | |
-| Per-area NVR bodies by platform | REUSE census `_last_area_contributions` (`camera_census.py:1410`, written `:2172`: per area `max_count` (Frigate) and `binary_seen` (Protect)) and `_last_house_camera_bodies` through NEW public `PersonCensus.area_evidence()` (copies, no arithmetic change) | `camera_census.py` |
+| Per-member NVR bodies | NEW public `PersonCensus.area_evidence()` (copies, no arithmetic change) returning `{"by_entity": {eid: last_reading}}` from `_stream_last_reading` plus `_last_area_contributions` (`camera_census.py:1410`, written `:2140-2172`) and `_last_house_camera_bodies` for display only. The per-area contributions are NOT the record source: they are per AREA, merge held readings (`_held_value`), skip watchdog-discounted cameras and write a binary-only area as `{"max_count": n, "platform": "binary"}` (closure N3) | `camera_census.py` |
 | Interior camera list | REUSE `PersonCensus.interior_camera_entities()` (`camera_census.py:2706`, ship 3b, on guard READ_LIST CENSUS) | |
 | Camera device, members, own camera, twin group | REUSE `camera_device_for_entity` (`camera_stream_health.py:731`), `device_camera_members` (`:719`), `own_camera_entity_for_device` (`:744`), `twin_pair_for_device` (`:865`) | ship 3b §6.1 |
+| Still-source member of a group | REUSE `frigate_member` (`camera_stream_health.py:880`, ship 3b) plus `own_camera_entity_for_device` (`:744`); §8's rule is that pair, not a second implementation | ship 3b |
+| Per-member platform reading | REUSE census `_stream_last_reading` (`camera_census.py:1516`, written `:2804`, read `:2825`), copied per entity by `area_evidence()` (§7) | |
 | Per-member liveness | REUSE `camera_stream_health.entity_stream_view(hass, eid, census=True)` (`:1201`); "every NVR lost it" REUSE `camera_twin_health.physical_camera_dead` (`camera_twin_health.py:1165`) | ship 3b §6.5 (this plan adds a display reader, §14) |
 | Physical camera key | REUSE `camera_resolver.canonical_camera_key` (`camera_resolver.py:507`, min device id of a fusion's source set); interior key = min device id of the 3b twin group (equality checked in D0(a), §7) | |
 | BLE residents in a room | REUSE contract G6 `PersonTrackingCoordinator.persons_in_room(room, *, active_only)` (on guard READ_LIST PC already; NOT built: card G6-ONE-BLE-ROOM-READ-1, planned). Its filter REUSES `_ble_corroboration.phone_trustworthy` (`_ble_corroboration.py:34`) / `trustworthy_persons_in_room` (`:69`) over `get_persons_in_room` (`person_coordinator.py:2498`). Seam in §14 | |
@@ -122,7 +132,8 @@ only this plan, its reviews, the contract (§2.4 / §7 name `_emit_unnamed` as t
 | Crossings | REUSE `get_crossings_since` (`presence.py:6142`, tracker `transit_validator.py:1197`), `get_crossing` (`presence.py:6151`), `get_last_arrival_record` (`presence.py:6228`) | contract §4.1 F3 |
 | Path map | REUSE `interior_paths.PathMap` / `PathEdge(from_key, to_key, kind, window_s, ...)` (`interior_paths.py`), loaded on the tracker (`transit_validator.py:1135`); NEW public `EgressDirectionTracker.inward_path_edges(door)` (non-person, beside `path_map_status` `:2836`) | |
 | Census term pull | REUSE `deconflict_house(..., extra_guest_terms=...)` (`census_deconflict.py:90-131`) and the `_ledger_tick` pull shape (`camera_census.py` `_ledger_tick` / `_compute_awareness`, call site `:6940`); NEW `PersonCensus._interior_tick()` | |
-| Leads flag | REUSE the one `CROSSING_VISION_AWARENESS_VISION_LEADS` (`const.py:6720`); no second flag | |
+| Leads flag | REUSE `CROSSING_VISION_AWARENESS_VISION_LEADS` (`const.py:6720`) for the ledger; NEW `INTERIOR_VISION_TERM_LEADS` + `interior_leads` argument per Q1 default (§1a; 0 hits for the name) | |
+| Describe authorization | REUSE the operator resolution of `_is_authorized_to_ack` (`notification_manager.py:3447`: `CONF_NM_SECURITY_ACK_PERSONS`, else first `CONF_NM_PERSONS`); NEW `select.ura_interior_describe_access` (Q2) | |
 | Model calls | REUSE `perimeter_enrichment.analyze_crossing_frames` (`perimeter_enrichment.py:360`, llmvision `video_analyzer`, clip route) and P2-D8's `analyze_crossing_images` (llmvision `image_analyzer` with `image_entities`; on `feature/crossing-vision-fast-stage` 921c9c47, not on develop; seam §14) | |
 | Provider, model, kill | REUSE `CROSSING_VISION_PROVIDER_ID` (`const.py:3587`), `CROSSING_VISION_MODEL` (`:3575`), `LLMVISION_ENRICHMENT_KILL` (`:2509`) | |
 | Frigate clip events | REUSE `frigate_ingress.register_frigate_consumer` (`frigate_ingress.py:582`) | |
@@ -169,7 +180,7 @@ descriptions today; nothing to turn.
 | 2 | Ingest | F4 unnamed: `PersonSightingProducer._emit_unnamed` (contract §2.4 / §7). F2 term: pulled at the one call site `_compute_awareness` by `PersonCensus._interior_tick()` from `PresenceCoordinator.interior_census_tick()` → `PersonSightingProducer.interior_census_tick()`; nothing pushes a count into the census. New stores are owned by a member (producer): no direct write by anyone else. |
 | 3 | Read | `persons_in_room` (PC read list), `get_last_person_sightings`, `get_crossings_since`, `get_crossing`, `get_last_arrival_record` (PRESENCE read list), `interior_camera_entities` (CENSUS read list), `area_evidence` (member-to-member), `entity_stream_view`, `physical_camera_dead` (evidence services), `inward_path_edges` (non-person). Classes: §4. No raw `person.*`, no store, no private of another member, no hass.data scan. The producer's state listener on interior Frigate / Protect person sensors is a layer-internal producer read in a member module (guard R3 (iv)), the same kind as its existing face-sensor listener. |
 | 4 | Separation | F4 reaches F2 only inside `deconflict_house` (term provider). Nothing reaches access, security, house_state or comfort. |
-| 5 | Delivery | No existing consumer's delivery changes. D4 changes what `aware_guests` shows only after the admission flip AND the existing leads flag (truth table §9.D4), each an operator checkpoint. The vision switch ON at ship is an operator decision (§1). |
+| 5 | Delivery | No existing consumer's delivery changes. D4 changes what `aware_guests` shows only after admission AND `INTERIOR_VISION_TERM_LEADS` (Q1 default; truth table §9.D4), each an operator checkpoint, and only upward (lower-bound rule). The vision switch ON at ship is an operator decision (§1). |
 | 6 | Guard delta | §6.3. Allowlist rows added: 0. `LAYER_ALLOWLIST_TOTAL` stays 259. Listed listeners added: 0. |
 | 7 | Seams | G6 (`persons_in_room`), P2-D8 (`analyze_crossing_images`), P2-D10 (grading branch), census §3.3 (interior term), NVR witness W2 (provenance; D4 flip), ship 3b (`physical_camera_dead` readers). Owners and rules in §14. |
 | 8 | Clip path | §8: a frame-source interface with a still route and a clip route; D3 and D5 can take a clip. |
@@ -185,11 +196,12 @@ descriptions today; nothing to turn.
 | `READ_LIST["PRESENCE"]` | add `get_room_sightings`, `get_last_path_records` (ship 1), `get_room_description`, `request_room_description` (ship 2) | 1 / 2 |
 | `READ_LIST["CENSUS"]` | none (`area_evidence` is read only by a member); contract §2.6 lists it | 1 |
 | `LAYER_NON_PERSON_PUBLIC` | add `inward_path_edges` | 1 |
-| NEW `PINNED_READERS` (not in the total, like `LISTED`) | a call of a pinned method anywhere outside its pins is a hit: `get_room_sightings` / `get_last_path_records` → `sensor.py` `InteriorAwarenessSensor`; `request_room_description` → `notification_manager.py` `NotificationManager._handle_describe_command`; `get_room_description` → `sensor.py` and the reserved personalization pin; `interior_census_tick` → `camera_census.py` `PersonCensus._interior_tick` and the presence delegate; reserved pin for PERSON-PROFILE-PREFERENCES-1 | 1 |
+| NEW `PINNED_READERS` (not in the total, like `LISTED`) | every pin is a `(module, qualname)` pair; a call of a pinned method anywhere outside its pins is a hit. `get_room_sightings` / `get_last_path_records` → (`sensor.py`, `InteriorAwarenessSensor.*`) and their presence delegates (`presence.py`, `PresenceCoordinator.get_room_sightings` / `PresenceCoordinator.get_last_path_records`); `request_room_description` → (`notification_manager.py`, `NotificationManager._handle_describe_command`) and (`presence.py`, `PresenceCoordinator.request_room_description`); `get_room_description` → (`sensor.py`, `InteriorAwarenessSensor.*`), (`presence.py`, `PresenceCoordinator.get_room_description`) and the reserved personalization pin; `interior_census_tick` → (`camera_census.py`, `PersonCensus._interior_tick`) and (`presence.py`, `PresenceCoordinator.interior_census_tick`); reserved pin for PERSON-PROFILE-PREFERENCES-1. Without the delegate pins the delegates themselves trip the guard (closure L-6) | 1 |
+| NEW `FORBIDDEN_ATTR_READS` (closure N7) | an attribute read of `.affect` (or `["affect"]` on a description dict) in any module other than `person_sighting.py` and `interior_vision.py` is a hit. The reply formatter that may include affect (Q2 `operator_affect`) lives in `interior_vision.py` | 2 |
 | `LISTED` (R10) | none: no new channel listener; D5 pulls crossings | n/a |
 | R6 / `CHANNEL_CONSTS` | none: `_emit_unnamed` sends nothing on `SIGNAL_PERSON_SIGHTING` (its listeners stay none, operator Q5) | n/a |
 | `LAYER_ALLOWLIST_TOTAL` | unchanged, 259 | all |
-| Drills | `test_guard_red_on_reverted_site[iv_trust_reader]` (a `get_room_sightings()` call injected into a copied `security.py`), `[iv_census_feed]` (an `interior_census_tick()` call injected into a copied presence inference function), `[iv_direct_store_write]` (a `_room_sightings[...] =` write from `interior_vision.py`), `[iv_unnamed_on_sighting_signal]` (an `async_dispatcher_send(SIGNAL_PERSON_SIGHTING, ...)` inside `_emit_unnamed`) each go red | 1 |
+| Drills | `test_guard_red_on_reverted_site[iv_trust_reader]` (a `get_room_sightings()` call injected into a copied `security.py`), `[iv_census_feed]` (an `interior_census_tick()` call injected into a copied presence inference function), `[iv_direct_store_write]` (a write with a NON-`self` receiver, `producer._room_sightings[...] = ...`, from `interior_vision.py`; the R7 check skips `self.` writes, `_layer_guard_engine.py:922-925`, so a `self._room_sightings` sibling store inside the sampler would stay GREEN and is not a valid drill; closure L-5), `[iv_unnamed_on_sighting_signal]` (an `async_dispatcher_send(SIGNAL_PERSON_SIGHTING, ...)` inside `_emit_unnamed`), and ship 2's `[iv_affect_reader]` (a `desc.affect` read injected into a copied `notification_manager.py` function) each go red | 1 / 2 |
 
 ## 7. Camera model (built on ship 3b; W2 not needed before the D4 flip)
 
@@ -207,8 +219,12 @@ descriptions today; nothing to turn.
   `unavailable` / `unknown` / missing. Ship 3b's device-level rule gives the Protect multi-channel devices a view (state of
   play §10 #41 was the gap).
 - **Record rule (operator: "if even one nvr has the cam it doesn't count as dead"; "a dead camera is faulty equipment").**
-  `bodies_nvr` = the max over LIVE members of that member's platform reading in `area_evidence()` (Frigate `max_count`,
-  Protect `binary_seen`). A held member's frozen reading is never used on the record, even though the census still counts
+  `bodies_nvr` = the max over LIVE members of that member's own last reading, `area_evidence()["by_entity"][eid]` (copied
+  from the census's per-entity `_stream_last_reading`; a Frigate person-count sensor gives a count, a Protect binary gives
+  0/1). The platform of a member comes from the entity registry, never from the reading's shape or the per-area
+  `"platform"` tag (closure N3). The per-area `_last_area_contributions` is never read for a record. D0(a) also asserts
+  one interior group per area on the live registry (7 distinct device areas on 2026-11-15); two groups in one area stop
+  the build and go to the orchestrator. A held member's frozen reading is never used on the record, even though the census still counts
   it while held (census rule, unchanged). No LIVE member → status `missing`, `bodies` None, `liveness` = `lost` when
   `physical_camera_dead` is True, else `held` / `released` / `no_reading`. Never 0 from absence (INV-IV-MISSING).
 - **W2.** Nothing in ships 1-4 needs NVR witness W2: liveness comes from ship 3b, twin dedup from the group max, and NVR
@@ -227,7 +243,18 @@ descriptions today; nothing to turn.
   enabled camera entity, 29 of 29 in ship 3b D0(f)). A group with no such device has no still source: it is counted
   (`no_still_source`) and D0(a) reports it with a recommended registry rule for the operator. Protect devices carry 2-4
   enabled channels and the registry marks no channel role (ship 3b §6.0, dual-lens finding), so this plan does not pick a
-  Protect channel.
+  Protect channel. The rule is REUSE: `frigate_member` (`camera_stream_health.py:880`) picks the member and
+  `own_camera_entity_for_device` (`:744`) gives its camera entity; no second implementation.
+- **The still source must be LIVE (closure N1, HIGH).** A still call (any deliverable: D2, D3, D5) is made only when the
+  still-source member is LIVE by §7 at call time. Otherwise the call is skipped and counted with reason
+  `still_source_not_live`, even when a LIVE Protect member carries the record. A dead Frigate leg's `entity_picture` is
+  stale or frozen ("a dead camera is ... faulty equipment"), so it never produces a vision count; the record stays on the
+  LIVE member's NVR reading. D3 replies "camera not available" with no call. Test `test_no_sample_from_non_live_still_source`
+  (D2) and `test_describe_non_live_still_source_no_call` (D3).
+- **One still per call (recorded decision, closure L-8).** Draft 2's 1-3 frames per call (`INTERIOR_VISION_MAX_FRAMES`)
+  is dropped: the still route fetches one `entity_picture` per entity, so more frames means repeated fetches seconds
+  apart, which the clip route does better. Multi-frame evidence is the clip route. D0(c) compares one still against the
+  clip on the same moments; if the clip wins clearly, the clip knobs turn, not a frame count.
 - **Clip route.** The Frigate event id for a group comes from `register_frigate_consumer` events on the group's Frigate
   camera. D3 uses a clip when `INTERIOR_DESCRIBE_USE_CLIP` is True and an event ended within
   `INTERIOR_CLIP_MAX_AGE_S`; D5 uses a clip per hop when `INTERIOR_TIMELAPSE_USE_CLIP` is True. Both default False until
@@ -246,7 +273,7 @@ descriptions today; nothing to turn.
 |---|---|---|---|---|
 | `bodies_nvr` per group | census `area_evidence()` per platform, LIVE members only (§7). Health: NVR count error never measured (§2); Protect `binary_seen` is 0/1, so it undercounts groups | interior NVR on-time per group per day | room record (display) | record → sensor, personalization |
 | `named` per room | `persons_in_room(room, active_only=True)` (BLE, phone-left-behind filter, ACTIVE only) ∪ fresh interior face sightings (`room` match, age ≤ `INTERIOR_ROOM_FACE_FRESH_S`, `census_would_veto` False), one union by canonical slug (`person_ids.slug_of`). Health: BLE fleet live (state of play §3); interior face sightings have their own zero-fire trip-wire (`face_sighting_zero`, manual §4.5a) | interior face sightings per day; BLE-placed residents in covered rooms per day | record | record → status |
-| vision count per group | one model call, schema `{people}`; valid only while `INTERIOR_VISION_TERM_MAX_AGE_S` has not passed AND no interior group's `bodies_nvr` changed since the call (static-scene rule) | calls per day by trigger (D7 trip-wire) | record `bodies` | record → sensor; term |
+| vision count per group | one model call on a LIVE still source (§8), schema `{people}`; valid only while `INTERIOR_VISION_TERM_MAX_AGE_S` has not passed AND the static-scene rule holds (§8b) | calls per day by trigger (D7 trip-wire) | record `bodies` | record → sensor; term |
 | interior house term | §9.D4 formula | computed every interior tick into diagnostics, admitted or not | census `_compute_awareness` (awareness) | `aware_guests` → display sensors (`sensor.ura_census_guests_around`) and `view_for_class` readers in the legal set (display only today). No action today, by the ladder |
 | description | one call, schema §9.D3, name scrub | requests per day | NM reply (notification), personalization (reserved) | reply text |
 | path record | entry crossing + hop on-edges (+ vision) | entries per day on mapped doors; hop coverage | sensor attribute (display), personalization (reserved) | display |
@@ -256,6 +283,17 @@ readers by the guard pins (§6.3), not by withholding values.
 
 ## 8b. Invariants (falsifiable; reviewer D breaks these)
 
+**Static-scene rule (the one definition, used by §8a, D2, D4; closure N4).** A vision count for group g, taken at `t_call`,
+expires at the first moment after `t_call` when ANY interior group's debounced `bodies_nvr` differs from its value at
+`t_call`, or when `INTERIOR_VISION_TERM_MAX_AGE_S` passes, whichever is first. "Debounced": a group's `bodies_nvr` counts as
+changed only when the new value has held for `INTERIOR_VISION_STATIC_DEBOUNCE_S` (rung 1, default 10 s; 0 = raw changes). A
+Protect 0/1 flicker shorter than the debounce is not a change; a held, released or no-reading member is not a reading and
+cannot cause a change (its group's `bodies_nvr` is the LIVE members' max or None; LIVE → None is a change). ANY, not "that
+group's", because the walk-through case needs it (`test_walk_through_counts_once`). D0 measures the median and p25 time
+between debounced interior changes across all groups (D0(i)); if the median is below `INTERIOR_VISION_SAMPLE_INTERVAL_S /
+10` the vision correction lives too briefly to matter, and that is an operator question with the number (§15), not a
+silent tune.
+
 - **INV-IV-AWAY.** With every switch, cap and admission value, `_run_inference` call count, triggers and timing, and the AWAY
   inputs presence takes from the census equal develop. Choke points: no code is added to `_run_inference`,
   `_handle_census_update`, `_periodic_inference`, `_handle_geofence_change`, the census payload or the trust fields; the
@@ -263,7 +301,11 @@ readers by the guard pins (§6.3), not by withholding values.
   only when `INTERIOR_VISION_TERM_ADMITTED` is True and is sync, O(groups), never raises. Test: extend
   `test_census_trust_golden.py` VARIANTS with `interior_admitted_5_lead` (term 5, leads True) and `interior_records_on`
   (records and sampler running, caps > 0): `test_away_tick_identical_with_vision_payload` and
-  `test_census_existing_fields_golden_all_classes` stay equal to the develop golden.
+  `test_census_existing_fields_golden_all_classes` stay equal to the develop golden. The golden test's self-check `else`
+  branch (`test_census_trust_golden.py:104-105`) asserts `aware == unidentified_count`, which `interior_admitted_5_lead`
+  breaks by design; the variant gets its own branch, `elif variant == "interior_admitted_5_lead": assert aware ==
+  [max(r["house"]["unidentified_count"], 5) for r in got]` (Q1 default: interior leads on its own argument and only raises,
+  §9.D4). `interior_records_on` stays on the `else` branch (not admitted). Closure L-6.
 - **INV-IV-NO-TRUST.** No module outside the §6.3 pins calls `get_room_sightings`, `get_last_path_records`,
   `get_room_description`, `request_room_description` or `interior_census_tick`, or constructs or writes a `RoomSighting`,
   `RoomDescription` or `PathRecord`. Enforced by the layer guard, drilled red (§6.3).
@@ -272,10 +314,11 @@ readers by the guard pins (§6.3), not by withholding values.
   Break it with a model response naming a resident.
 - **INV-IV-DEDUP.** One body counts once: Frigate and Protect legs of one physical camera by max within the group; a vision
   count replaces, never adds to, the NVR count of its group; overlapping groups (`CONF_INTERIOR_CAMERA_OVERLAP_GROUPS`) by max
-  of bodies with one union of named; one resident by slug across BLE and face; a guest walking between groups is not
+  of bodies with one union of named; one resident by slug across BLE and face, placed in exactly one room (§9.D4 (e)); a guest walking between groups is not
   carried by a stale vision correction (static-scene rule). Break it with the walk-through case in §9.D4.
 - **INV-IV-MISSING.** A group with no LIVE member is `missing` (bodies None), never 0, on the record and in the term; all
-  groups missing → term None (case D).
+  groups missing → term None (case D). No vision count is ever taken from a still-source member that is not LIVE (§8,
+  closure N1). Break it with a held Frigate member and a LIVE Protect member reading 1.
 - **INV-IV-OFF.** Switch off, `LLMVISION_ENRICHMENT_KILL` True, either daily cap 0, or the cost cap reached: zero model calls
   and zero frame fetches from this plan's code. D1 calls no model and has its own constant kill.
 - **INV-IV-SCOPE.** Frames come only from interior groups (§7) or inward path-edge groups of the crossing's door, and never
@@ -290,9 +333,12 @@ readers by the guard pins (§6.3), not by withholding values.
 2. **Ship 2:** D3 describe on demand, switch ON, capped. Gate: the D0(g) 20-frame description pilot (one labelling run).
 3. **Ship 3:** D2 sampling and correction, sized from D0(b)/(c).
 4. **Ship 4:** D5 vision leg.
-5. **Ship 5:** D4 census term, built and pulled only after admission; the flip is gated by a bar counted from D0 plus D7
+5. **Ship 5:** D4 census term: computed into diagnostics from ship 5 on, pulled into `deconflict_house` only after
+   admission (closure L-8 wording); the flip is gated by a bar counted from D0 plus D7
    grades and sized by interval width (§9.D4), plus W2 for provenance.
-D6 when its trigger fires. D7 ships with each producer. Each ship updates the presence state of play and manual §4.5a in the
+D6 when its trigger fires. D7 ships with each producer. Labelling (Q3 default): the door-crossing evaluation set is
+labelled first; interior D0 grading (and so the ship-2 gate and the D2 weights) starts when the door set is done, on the
+same tool and weekly budget, door rows first. Ship 1 does not wait on labelling. Each ship updates the presence state of play and manual §4.5a in the
 same commit. No gate parks a deliverable by itself: a failed D0 gate is an operator question with numbers and a
 recommendation (charter rule 4).
 
@@ -314,7 +360,13 @@ moments that have a clip): per-group vision error with intervals; measured cost 
 vs `ble_by_area`: agreement shares and disagreement durations (secondary). (e) Path map doors and inward edges; group entries
 per day; hop coverage (share of entries reaching an inward camera; earlier measured 55-67 %). (f) Privacy: snapshot folder
 before / after; call latency p50 / p90. (g) Description pilot: 20 frames, operator rates useful / wrong / empty. (h) Fire
-checks of §8a table.
+checks of §8a table. (i) Static-scene lifetime (closure N4): from recorder history of the interior person sensors, the
+median and p25 time between debounced (`INTERIOR_VISION_STATIC_DEBOUNCE_S`) `bodies_nvr` changes across ALL interior
+groups, by hour of day; this is the expected life of a vision correction. Grading order (closure L-3): D0(b) is stratified
+by moment as listed, so its pooled exact rate is not biased toward disagreements; D7's "disagreements first" queue IS
+biased low (conservative for the lower-bound bars) and the scorer reports D0 and D7 rates separately, and pools them only
+with per-stratum weights from D0's moment shares. Sequencing (Q3 default): D0(b)/(c)/(g) grading starts after the door
+evaluation set is labelled; D0(a)/(d)/(e)/(f)/(h)/(i) are read-only and run at once.
 
 - **Gates (each failure = an operator question with the numbers and a recommended answer, never an automatic park):**
   D0-P1 (D2 value): NVR exact Wilson LB ≥ `INTERIOR_D0_P1_NVR_EXACT_LB` (0.97) on every group AND vision not better on any
@@ -358,8 +410,11 @@ census inputs are already recorded on the census sensor).
 ### 9.D3 Describe what is happening, on demand (ship 2, Tier 2-DB)
 
 `PresenceCoordinator.request_room_description(room, *, requester, reason)` and `describe_person(slug)` (room from
-`get_person_location`, named in the reply only when the person's BLE confidence ≥ `min_confidence("notification")`, else
-"can't place <person>"). One call on the room's group (`call_model`, still by default, clip per §8), schema `{people,
+`get_person_location`, named in the reply only when the person's BLE confidence ≥ `min_confidence("notification")`; if BLE
+cannot place them, the room of their newest named interior face sighting within `INTERIOR_ROOM_FACE_FRESH_S` (draft-2
+fallback restored, closure L-8), reply worded "last seen in <room> <n> min ago"; else "can't place <person>").
+**Who may ask (Q2 default):** the requester must pass `select.ura_interior_describe_access` (default `operator`, resolved
+as in `_is_authorized_to_ack`); anyone else gets "Not available" with no call and a counted `describe_denied`. One call on the room's group (`call_model`, still by default, clip per §8), schema `{people,
 activities: [{what, where_in_room}], context, confidence}` plus, only when `INTERIOR_DESCRIBE_AFFECT_ENABLED` is True,
 `affect: [{mood, energy}]` per
 person. Affect is a deliverable (operator 2026-11-15: "Emotion yes as prep for the future"): ON by default, recorded on the
@@ -371,19 +426,32 @@ counts `description_name_scrubbed`. Result through `_emit_unnamed("description",
 text channels: a branch in `_process_inbound_reply` after the echo rail and the messaging kill, before the
 `RESPONSE_COMMANDS` lookup; `<room>` matches a URA room entry's `CONF_ROOM_NAME` case-insensitively (URA's own config);
 requester = the channel's resolved NM person (None → no description); the method returns "" at once and the answer goes to
-that person only through `_send_reply` when ready; (2) a personalization read through `get_room_description(room,
+that person only through `_send_reply` when ready. The background call runs as a tracked task
+(`hass.async_create_background_task`, held in the sampler's task set) and is cancelled in `async_teardown`, as D2's are
+(closure L-8). The reply text is built by `interior_vision.format_description_reply(desc, include_affect)` with
+`include_affect` True only when the Select is `operator_affect` and the requester is the operator; otherwise the reply
+never contains affect (closure N7). NM `describe` has its own per-requester cooldown `INTERIOR_DESCRIBE_NM_COOLDOWN_S`
+(closure L-4); (2) a personalization read through `get_room_description(room,
 max_age_s)` (reserved pin), rate-limited per room by `INTERIOR_DESCRIBE_ROOM_COOLDOWN_S`. Every call counts against the
-switch, the call cap and the cost cap.
+switch, the call cap and the cost cap. `INTERIOR_DESCRIBE_RESERVED_CALLS` of the daily call cap (and the same share of the
+cost cap) are reserved for describe: D2 and D5 sampling skip with reason `reserved_for_describe` once `calls_today ≥ cap −
+reserved` (closure N9).
 
 - **Verify:** `describe family room` returns one structured description to the requester within D0(f) p90 +
   `INTERIOR_DESCRIBE_REPLY_SLACK_S`; a room without a camera replies "no camera there" with no call; switch off replies
   "Interior vision is off" with no call; cap reached replies "Interior vision limit reached today" with no call; a model
-  text naming a resident is scrubbed.
+  text naming a resident is scrubbed; a non-operator requester gets "Not available" with no call under the default; with
+  D2 having used `cap − reserved` calls, an operator `describe` still gets a description.
 - **Tests:** `test_describe_schema_no_names`, `test_describe_scrubs_resident_names`, `test_describe_room_without_camera_no_call`,
   `test_describe_rate_limited`, `test_describe_counts_against_caps`, `test_describe_switch_off_no_call`,
-  `test_describe_reply_to_requester_only`, `test_describe_affect_recorded_when_on`, `test_describe_affect_absent_when_off`, `test_affect_has_no_reader` (guard pin:
-no module reads the affect field), `test_describe_never_feeds_census`
-  (drive descriptions with admission off and on; assert the `deconflict_house` arguments are unchanged).
+  `test_describe_reply_to_requester_only`, `test_describe_affect_recorded_when_on`, `test_describe_affect_absent_when_off`,
+  `test_describe_reply_excludes_affect` (affect ON and recorded; reply text for `operator`, `residents`, `any_resolved`
+  contains no affect value; only `operator_affect` + operator requester includes it), `test_affect_has_no_reader` (the
+  `FORBIDDEN_ATTR_READS` guard; drill `[iv_affect_reader]` red), `test_describe_access_default_operator_only`,
+  `test_describe_nm_cooldown`, `test_describe_person_face_fallback`, `test_describe_non_live_still_source_no_call`,
+  `test_describe_task_cancelled_on_teardown`, `test_sampling_leaves_describe_reserve` (D2 at cap − reserved skips; describe
+  still calls), `test_describe_never_feeds_census` (drive descriptions with admission off and on; assert the
+  `deconflict_house` arguments are unchanged).
 - **Live:** one operator-requested description delivered; one `interior_description` row; `calls_today` ≤ cap.
 
 ### 9.D2 Sampling and correction budget (ship 3, Tier 2-DB)
@@ -403,14 +471,17 @@ bounded by the call cap) with room, `bodies_nvr`, named count, vision people, tr
 `pipeline_version`. Results go to the producer (`_vision_counts`) and from there into the next record build.
 
 - **Verify (discriminating):** ghost (NVR 1, truth 0, vision 0) → record `empty`, provenance `vision`, census unchanged;
-  merged group (NVR 1, vision 3) → unnamed 3 on the record only; the guest leaves (that group's NVR changes) → the record
-  reverts to NVR at once; weights: n = 100 at 99 % exact → `err_ub` 0.054, `w` 0.27, steady interval about 13 200 s; n = 100
+  merged group (NVR 1, vision 3) → unnamed 3 on the record only; any interior group's debounced NVR changes (static-scene
+  rule, §8b) → the record reverts to NVR at once, while a sub-debounce Protect flicker does not expire it; Frigate member
+  held and Protect member LIVE reading 1 → no call, skip `still_source_not_live`, record stays NVR 1; weights: n = 100 at 99 % exact → `err_ub` 0.054, `w` 0.27, steady interval about 13 200 s; n = 100
   at 80 % → `w` 1, 3 600 s; no grades → `w` 1.
 - **Tests:** `test_disagreement_needs_persistence`, `test_entry_window_dense_then_sparse`, `test_weight_from_wilson_upper_bound`
   (the three numeric cases above), `test_cost_cap_and_call_cap_skip`, `test_switch_off_no_call`, `test_kill_no_call`,
-  `test_blank_frames_not_zero`, `test_no_name_reaches_named`, `test_privacy_flags_set`, `test_static_scene_rule_expires_vision`,
-  `test_teardown_cancels_calls`, `test_scope_interior_groups_only`. Mutations: drop the call-time switch re-read; drop the
-  weight; drop the static-scene rule.
+  `test_blank_frames_not_zero`, `test_no_name_reaches_named`, `test_privacy_flags_set`, `test_static_scene_rule_expires_vision`
+  (any group, debounced), `test_static_scene_flicker_below_debounce_keeps_vision`, `test_no_sample_from_non_live_still_source`
+  (closure N1), `test_sampling_leaves_describe_reserve`, `test_teardown_cancels_calls`, `test_scope_interior_groups_only`.
+  Mutations: drop the call-time switch re-read; drop the weight; drop the static-scene rule; drop the still-source LIVE
+  check (→ `test_no_sample_from_non_live_still_source` red); drop the describe reserve.
 - **Live:** ≥ 1 `interior_vision` row per trigger type that occurred within a day; calls ≤ cap; 0 new files under the
   snapshot folder.
 
@@ -418,18 +489,28 @@ bounded by the call cap) with room, `bodies_nvr`, named count, vision people, tr
 
 Each interior tick pulls `get_crossings_since(last_seen)`; an entry on a door with inward edges
 (`EgressDirectionTracker.inward_path_edges(door)`, `PathEdge.window_s` = measured `lag_p90_s` or the map default) opens a
-path window. No-model leg: the first on-edge of each inward-edge group inside `E + window_s` (from the D1 on-edge ring) →
-`PathRecord(source_ref, door, ts, n, n_source, hops: (group_key, room, first_on_ts, bodies_nvr_at_first_on,
-bodies_vision))`, closed at the largest window + `INTERIOR_TIMELAPSE_CLOSE_PAD_S`, written through `_emit_unnamed("path",
+path window. **Windows are cumulative along the chain (closure N6).** The path map is a graph from the door
+(live `interior_paths.json` for garage_a: garage_a → staircase 63 s → stairs_top 72 s → playroom 67 s / upstairs_hall
+84 s; staircase → family_room 85 s). The window of a node v reached over edge (u → v) opens at `t_u` and closes at `t_u +
+window_s(u → v)`, where `t_u` = u's first on-edge in its own window (for the door, `t_door` = E). If u was never seen, `t_u`
+= the cumulative bound `E + Σ window_s` along the shortest chain to u, so the chain continues past a camera that missed
+the entrant. Chains are followed to depth `INTERIOR_TIMELAPSE_MAX_HOPS`. No-model leg: the first on-edge of each reached
+group inside its window (from the D1 on-edge ring) → `PathRecord(source_ref, door, ts, n, n_source, hops: (group_key,
+room, first_on_ts, bodies_nvr_at_first_on, bodies_vision))`, closed at the cumulative max over reached nodes of their
+window close + `INTERIOR_TIMELAPSE_CLOSE_PAD_S`, written through `_emit_unnamed("path",
 ...)` (ring `INTERIOR_TIMELAPSE_RING`). The hop rooms' records carry `entered_via` (door, crossing ts) for
 `INTERIOR_TIMELAPSE_SEED_TTL_S` (display). `n`: crossing vision's `people_count` from `get_crossing(source_ref)` once the fast
 stage writes it as a G3 attribute; until then from `get_last_arrival_record()` when its `source_ref` matches; else the max
 `bodies_nvr` on the first hop (`n_source` names which). Never the crossing-vision row store (contract G8). Vision leg: when
-`n ≥ INTERIOR_TIMELAPSE_VISION_MIN_N`, one still call per hop group at its first on-edge, at most
+`n ≥ INTERIOR_TIMELAPSE_VISION_MIN_N`, or a hop room's record shows unnamed ≥ 1 at its first on-edge (draft-2 "or
+guests_unnamed ≥ 1" restored on the interior record, closure L-8), one still call per hop group at its first on-edge, at most
 `INTERIOR_TIMELAPSE_MAX_CALLS` per crossing, inside the caps; the result fills `bodies_vision`. One `interior_path` row per
 record. Coverage ceiling is stated (D0(e)), not tuned.
 
-- **Tests:** `test_path_window_from_edge_window_s`, `test_single_entrant_no_call`, `test_group_entry_calls_hops_capped`,
+- **Tests:** `test_path_window_from_edge_window_s`, `test_path_windows_cumulative_on_live_chain` (the garage_a chain above:
+  an entrant seen at staircase E+60, stairs_top E+130, playroom E+195 → three hops; the old per-hop `E + window_s` rule
+  would drop playroom), `test_path_chain_continues_past_missed_camera`, `test_unnamed_hop_triggers_vision_leg`,
+  `test_single_entrant_no_call`, `test_group_entry_calls_hops_capped`,
   `test_no_inward_edges_no_record`, `test_entered_via_ttl`, `test_n_source_order`, `test_no_egress_listener_added` (guard).
   Mutation: count approach edges as inward.
 - **Live:** ship 1: ≥ 1 `interior_path` row after an entry on a mapped door; ship 4: ≥ 1 row with `bodies_vision` after a
@@ -443,34 +524,49 @@ valid, else NVR); `N_O` = |union by slug of `named` over the rooms of `O`|; `U_O
 `interior = Σ_O U_O` over partitions with at least one LIVE group; None when no partition has one (case D). Computed by
 `interior_vision.interior_guest_term(...)` (pure), served by `PersonSightingProducer.interior_census_tick()` from the last
 records, pulled by `PersonCensus._interior_tick()` inside `_compute_awareness` and passed as `extra_guest_terms={"interior":
-term}`. `deconflict_house` takes the max of the ledger and interior terms (rule 3, never a sum), so the ledger and the
-interior term never add.
+term}`. `deconflict_house` combines it with the develop result by max only (rule 3, never a sum; the lower-bound rule
+below), so the ledger and the interior term never add.
 
 **One guest seen by several cameras counts once:** (a) the Frigate and Protect legs of one camera are one group, max;
 (b) overlapping cameras are one partition, max of bodies with one union of named; (c) a vision count replaces its group's
 NVR count; (d) moving between groups: the NVR legs are instantaneous readings, and a vision correction expires when any
 interior group's NVR count changes (static-scene rule), so a walking guest is never carried in two groups by a stale
-correction; (e) residents are subtracted once, each slug in the one partition that places them. Residual (stated, same as
+correction; (e) residents are subtracted once: before the per-room `named` union, each slug gets ONE placement, BLE ACTIVE
+room if any, else the room of its newest fresh interior face sighting (closure N5). The same placement feeds D1's `named`
+per room, so a slug never appears in two rooms' `named` in one build. Repro it closes: Ezinne BLE ACTIVE in the family
+room, her face on the staircase 200 s ago, one guest on the staircase → staircase named {} , unnamed 1 (not 0). Residual (stated, same as
 the census area sum today): during a hand-off both NVR legs can read on for a few seconds. D0 measures it; the term reads
 the last record (`INTERIOR_ROOM_RECORD_INTERVAL_S` cadence).
 
-**Admission and leads (one flag, `deconflict_house` as built).** `INTERIOR_VISION_TERM_ADMITTED` (rung 1, False) is the D4
-flip. False: `_interior_tick` is not called; awareness and trust are byte-identical to develop. True: the term is passed;
-`vision_leads` stays the one `CROSSING_VISION_AWARENESS_VISION_LEADS`:
+**Admission and leads (Q1 default: interior leads on its own argument).** `INTERIOR_VISION_TERM_ADMITTED` (rung 1, False)
+admits the term: False → `_interior_tick` is not called and awareness and trust are byte-identical to develop; True → the
+term is pulled into `deconflict_house` (case, agreement, provenance). `INTERIOR_VISION_TERM_LEADS` (rung 1, False) is the
+D4 flip, set when interior meets ITS OWN bar (below), and is passed as the new `interior_leads` argument. The ledger keeps
+`CROSSING_VISION_AWARENESS_VISION_LEADS` (L). Signature change: `deconflict_house(..., extra_guest_terms=...,
+interior_leads=False)`; with the default, every existing caller and every existing test is unchanged.
 
-| Admitted | Leads | `aware_guests` | Interior effect |
-|---|---|---|---|
-| False | any | as develop | none |
-| True | False | `guest_cam` (as develop) | case, agreement and provenance only (display) |
-| True | True | `max(ledger, interior)` | moves the awareness count |
+**The interior term is a lower bound, never a whole-house estimate (closure N2).** It covers only the shared spaces with a
+camera, so it may only RAISE awareness: `base` = what develop computes (`ledger` when L and the ledger term is present,
+else `guest_cam`); `aware_guests = max(base, interior)` when admitted, interior leads and interior is not None; else
+`base`. The interior term is excluded from develop's `vis = max(present terms)` (it never stands in for a missing ledger
+term) and only enters through this max.
 
-So interior moves `aware_guests` only once the census ladder has also set the leads flag (census §3.2). If the operator
-wants interior to lead before the ledger does, that needs a second leads argument on `deconflict_house` (a signature
-change owned by the census plan, Tier 3): an operator question, not taken here.
+| Admitted | Ledger leads (L) | Interior leads | Ledger term | `aware_guests` | Interior effect |
+|---|---|---|---|---|---|
+| False | any | any | any | as develop | none |
+| True | any | False | any | as develop | case, agreement, provenance (display) |
+| True | False | True | any | `max(guest_cam, interior)` | raises awareness only |
+| True | True | True | present | `max(ledger, interior)` | raises awareness only |
+| True | True | True | None (unhealthy) | `max(guest_cam, interior)` | N2 repro: `guest_cam` 2, interior 0 → 2, as develop |
+| True | any | True | any, interior None (case D) | as develop | none |
+
+Alternative (if the operator overrides Q1): no `interior_leads`; interior moves awareness only when L is True, with the
+same `max(base, interior)` lower-bound rule.
 
 **Bar for the flip (counted from D0 plus D7 grades; no calendar floor).** Per group, the Wilson 95 % lower bound of vision
 exact ≥ `INTERIOR_TERM_BAR_EXACT_LB` (0.85; about 57 of 60 graded rows clears it); pooled over resident-only graded rows,
-the upper bound of the false-guest rate ≤ `INTERIOR_TERM_BAR_FALSE_GUEST_UB` (0.03; 0 of about 120 clears it); pooled over
+the upper bound of the false-guest rate ≤ `INTERIOR_TERM_BAR_FALSE_GUEST_UB` (0.03; Wilson UB for 0 of n is z²/(n + z²),
+0.0310 at n = 120, so 0 of ≥ 125 resident-only rows is needed; closure L-2); pooled over
 graded NVR disagreements, the lower bound of "vision right" ≥ `INTERIOR_TERM_BAR_DISAGREE_LB` (0.70); ≥
 `INTERIOR_TERM_BAR_MIN_NONRESIDENT` (10) graded rows with a non-resident present; NVR witness W2 live (record provenance).
 D0 supplies ≥ 210 rows; `number.ura_interior_vision_grades_per_day` (default 20 while the bar is open) supplies the rest, so
@@ -480,8 +576,12 @@ pages the operator when it is met (Tier-3 checkpoint).
 - **Tests:** `test_interior_term_formula` (two guests in two rooms → 2), `test_walk_through_counts_once` (vision 1 in family
   room with NVR 0, the guest then appears on the staircase NVR → term 1, not 2), `test_overlap_partition_max_with_union_named`,
   `test_term_none_when_all_missing`, `test_held_member_never_zero`, `test_admitted_false_no_pull`, `test_truth_table`
-  (the three rows), `test_trust_view_byte_identical_admitted_on`, golden variant `interior_admitted_5_lead`. Mutations: sum
-  NVR and vision in a group; sum over overlap partitions; pass the term into `unidentified_count`.
+  (all six rows), `test_interior_never_lowers_awareness` (the N2 repro: ledger None, `guest_cam` 2, interior 0 → 2),
+  `test_one_placement_per_slug` (the N5 repro), `test_interior_leads_default_false_existing_callers_unchanged`,
+  `test_false_guest_bar_needs_125` (0/120 fails, 0/125 passes), `test_trust_view_byte_identical_admitted_on`, golden
+  variant `interior_admitted_5_lead` with its own self-check branch (§8b). Mutations: sum NVR and vision in a group; sum
+  over overlap partitions; pass the term into `unidentified_count`; let interior replace `base` instead of max (→ N2 test
+  red); drop the one-placement step (→ N5 test red).
 - **Live:** with admission False (ship) the census sensors equal develop and diagnostics show the computed term; after the
   flip, `aware_agreement` reflects interior and trust fields are unchanged.
 
@@ -504,10 +604,11 @@ Trip-wires (`fire_stuck_signal`): `interior_room_records_zero` (HIGH: interior `
 vision producer: switch on, caps > 0, ≥ `INTERIOR_VISION_ZERO_MIN_TRIGGERS` triggers in 24 h, 0 calls);
 `interior_path_zero` (LOW: ≥ `INTERIOR_TIMELAPSE_ZERO_MIN_ENTRIES` entries on mapped doors in 24 h, 0 path records);
 `interior_vision_errors` (MEDIUM: error rate > `INTERIOR_VISION_ERROR_RATE_MAX`); `interior_frames_left` (HIGH: any file
-INV-IV-NO-STORE finds). Counters (`calls_today` by trigger, skips by reason, `cost_today_est`, latency p90, per-group `w`,
+INV-IV-NO-STORE finds; off when `INTERIOR_FRAMES_LEFT_CHECK_ENABLED` is False, closure L-4). Counters (`calls_today` by trigger, skips by reason, `cost_today_est`, latency p90, per-group `w`,
 `err_ub`, exact rate, records built, groups by liveness, the computed term, `description_name_scrubbed`, `frames_deleted`)
 go in `get_layer_diagnostics()["interior_vision"]`, not on entity attributes. Grading: up to
-`number.ura_interior_vision_grades_per_day` rows a day (disagreements first) are queued with their frame for the weekly
+`number.ura_interior_vision_grades_per_day` rows a day (disagreements first; biased low, reported separately from D0, see
+D0 grading order) are queued, behind the door-crossing rows in the same weekly run (Q3), with their frame for the weekly
 labelling run; once P2-D10's Companion grading branch is on develop, interior rows use it with an interior discriminator in
 the same `GRADE_URA_` handler (one handler). Weekly scorer: the crossing-vision scorer script, extended.
 
@@ -530,7 +631,14 @@ the same `GRADE_URA_` handler (one handler). Weekly scorer: the crossing-vision 
 | `INTERIOR_VISION_DISAGREE_PERSIST_S` | 120 | 1 | Ignores walk-through blips |
 | `INTERIOR_VISION_CAMERA_COOLDOWN_S` | 120 | 1 | Calls per group bound |
 | `INTERIOR_VISION_TERM_MAX_AGE_S` | 600 | 1 | Vision validity cap (also the static-scene rule) |
-| `INTERIOR_VISION_TERM_ADMITTED` | False | 1 | D4 flip; reviewed const edit, Tier-3 checkpoint |
+| `INTERIOR_VISION_TERM_ADMITTED` | False | 1 | D4 admission (term pulled, display effects); reviewed const edit |
+| `INTERIOR_VISION_TERM_LEADS` | False | 1 | D4 flip (Q1 default: interior's own leads argument); set when interior's own bar is met; Tier-3 checkpoint; False = interior never moves `aware_guests` |
+| `INTERIOR_VISION_STATIC_DEBOUNCE_S` | 10 | 1 | Static-scene rule debounce (§8b); 0 = raw changes |
+| `INTERIOR_DESCRIBE_RESERVED_CALLS` | 10 | 1 | Daily calls (and cost share) kept for describe; sampling skips above `cap − reserved`; 0 = no reserve |
+| `select.ura_interior_describe_access` | `operator` | 3 | Q2: who may ask (`operator` / `operator_affect` / `residents` / `any_resolved`); affect in the reply only for `operator_affect` |
+| `INTERIOR_DESCRIBE_NM_COOLDOWN_S` | 60 | 1 | Per-requester NM describe cooldown; 0 = none (the call caps still bound it) |
+| `INTERIOR_TIMELAPSE_MAX_HOPS` | 4 | 1 | Chain depth for cumulative path windows (D5); 1 = first hop only |
+| `INTERIOR_FRAMES_LEFT_CHECK_ENABLED` | True | 1 | `interior_frames_left` trip-wire; False = off |
 | `CONF_INTERIOR_CAMERA_OVERLAP_GROUPS` | [] (operator sets the measured pair) | 2 | Overlap partitions by camera device; built by D4 (census §3.3 rule 2) |
 | `INTERIOR_DESCRIBE_ROOM_COOLDOWN_S` | 300 | 1 | Personalization reads |
 | `INTERIOR_DESCRIBE_REPLY_SLACK_S` | 5 | 1 | Reply acceptance window |
@@ -554,14 +662,25 @@ the same `GRADE_URA_` handler (one handler). Weekly scorer: the crossing-vision 
 - No change to the trust view (F2-T), its fields or its payload; no change to AWAY triggers or timing.
 - No new camera-liveness model and no per-NVR deadness: liveness is ship 3b's; W2 adds agreement later.
 - No frames from bedrooms or bathrooms; no frame kept beyond grading.
-- No second leads flag or `deconflict_house` signature change.
+- No `deconflict_house` change beyond the one `interior_leads` argument of the Q1 default (none at all if the operator
+  takes the alternative). No change to the ledger's leads flag.
+- **Periodic fixed-interval head count (draft 2 §10, sighting plan §15.8; closure E1). Decision: non-goal, with a revival
+  trigger.** D2's steady-state trigger (4) already samples every occupied covered room at least once per
+  `INTERIOR_VISION_SAMPLE_INTERVAL_S / w`, which is the useful part of a head count; a fixed whole-house sweep of empty
+  rooms adds calls and no guest signal. Revival: the crossing ledger's bar (a) fails twice, or D0(i) shows vision
+  corrections expire too fast to cover occupied rooms. Carded on the board (§14) with that trigger.
+- Security use of interior vision: census ladder rung 5, plus D2 call latency p90 ≤ 15 s (draft-2 trigger restored, closure
+  L-8; measured by D0(f) and D7).
+- Multi-frame still calls (draft 2's 1-3 frames, `INTERIOR_VISION_MAX_FRAMES`): replaced by one still or the clip route
+  (§8, closure L-8).
 - No new push channel; no new listener on `ura_person_egress_event`, `SIGNAL_EGRESS_RECORD_AMENDED` or
   `SIGNAL_CENSUS_UPDATED`.
 - No migration of existing BLE-in-room readers (that is G6).
 - Naming people who are not enrolled (operator 2026-11-15: "Not expecting new names. Names come from people I enrolled.
   This is few and far between. Non goal"). Interior vision never tries to name, cluster or enroll an unknown person; named
   people come only from enrolled faces and BLE residents.
-- Any consumer of affect (it is recorded only); security use of interior vision (census ladder rung 5).
+- Any consumer of affect (it is recorded only), except the operator's own describe reply when the operator sets
+  `operator_affect` (Q2).
 
 ## 14. Edits other plans need (not made here) and seams
 
@@ -572,19 +691,28 @@ the same `GRADE_URA_` handler (one handler). Weekly scorer: the crossing-vision 
   no channel; §2.2 term providers: crossing vision and the sighting producer (`interior_census_tick`); §2.6 adds
   `PersonCensus.area_evidence()` (members only) and the two ship-3b reads used here; §2.7 adds `InteriorVisionSampler`; §4.1
   F4 row adds the four presence reads; guard `PINNED_READERS` (§6.3) described in §6 item 6.
-- **Census deconfliction §3.3:** "Future terms" interior row = §9.D4 formula, admission, truth table; the bar lives here.
+- **Census deconfliction §3.3:** "Future terms" interior row = §9.D4 formula, admission, lower-bound rule, truth table;
+  the bar lives here. Under the Q1 default, §3.3 (function signature, rule 3) gains `interior_leads` and the interior
+  term's exclusion from `vis`, and §3.2 (ladder) gains an interior leads rung independent of the ledger's; Tier 3, ship 5.
+  Census §3.6 gets the interior term's diagnostics line (draft-2 edit restored, closure L-8).
+- **Sighting layer plan:** §15.8 (periodic head count) records the §13 non-goal and its revival trigger; §15.9.4 points
+  its interior unnamed records at this plan's `_emit_unnamed` (draft-2 edits restored, closure L-8).
 - **Crossing vision:** B-stage chains → this plan D5; P2-D8 `analyze_crossing_images` is shared (whichever merges first owns
   it; the other rebases, same signature as 921c9c47); P2-D10 grading gains the interior discriminator.
 - **G6-ONE-BLE-ROOM-READ-1:** owner of `persons_in_room`. If G6 has not merged when ship 1 builds, ship 1 adds
   `PersonTrackingCoordinator.persons_in_room(room, *, active_only=False)` exactly per contract §2.4a (phone filter inside,
   `phone_trustworthy` moved into `person_coordinator.py` with `_ble_corroboration` re-exporting it) and migrates no existing
-  reader; G6 keeps the reader migration and its §2.4a probe.
+  reader; G6 keeps the reader migration and its §2.4a probe. Contract §2.4a defines neither the return type nor
+  `active_only`, so this plan pins both (closure L-7): returns a `tuple[str, ...]` of person names (the same names
+  `get_persons_in_room` returns, `person_coordinator.py:2498`), and `active_only=True` keeps only persons whose
+  `tracking_status == TRACKING_STATUS_ACTIVE` (`const.py:206`). The contract edit adds both lines.
 - **Ship 3 plan §6.5 / state of play:** `physical_camera_dead` gains one display reader (the record `liveness` field).
 - **NVR witness W2:** lists D1 records (provenance) and the D4 flip as readers.
 - **State of play:** existing stale "NOT deployed" markers (read API ship 1, S1, person sightings, crossing-vision shadow,
   census-p2) are deployed; corrected in the ship-1 commit. Each ship adds its entry.
 - **Manual §4.5a:** unnamed records beside named sightings (ship 1).
 - **Board:** record the operator's affect and non-naming answers on the card (`operator_2026_11_15_*`); link P2-D8, P2-D10, G6.
+  Card the periodic head count (§13) with its revival trigger; record Q1-Q3 as pending decisions with their defaults (§1a).
 
 ## 15. Revise when we learn
 
@@ -596,6 +724,8 @@ the same `GRADE_URA_` handler (one handler). Weekly scorer: the crossing-vision 
 | D0(e) entries and hop coverage | D5 vision-leg question |
 | D0(f) snapshot folder | whether the delete step runs |
 | D0(g) description ratings | D3 schema, D0-P3 question |
+| D0(i) median time between debounced interior count changes | whether vision corrections live long enough for D2 / D4 to matter; `INTERIOR_VISION_STATIC_DEBOUNCE_S`; an operator question if median < `SAMPLE_INTERVAL_S / 10`; head-count revival trigger |
+| Operator answers to Q1-Q3 | Q1: D4 signature and truth table; Q2: describe access default; Q3: grading order |
 | D7 grades over time | weights, the D4 bar, the D6 trigger |
 | W2 agreement | record provenance; D4 flip gate |
 | Local equivalence | D6 switch |
@@ -603,7 +733,7 @@ the same `GRADE_URA_` handler (one handler). Weekly scorer: the crossing-vision 
 ## 16. Tier, reviews, sequence
 
 Plan: Tier 3; two plan reviews (completeness; build prediction) plus framing G, done 2026-11-15; this rewrite closes them
-(§18) and needs an equivalence check by a reviewer before approval (arc rule 5). Ships 1-4 and D6: Tier 2-DB (A correctness
+(§19) and the closure re-review's fixes are in §19; it needs an equivalence check by a reviewer before approval (arc rule 5). Ships 1-4 and D6: Tier 2-DB (A correctness
 and edge cases; B async, lifecycle and write path; C test authority by per-site mutation, including the guard drills) plus
 framing G. Ship 5 (D4): Tier 3 (A, B, C mutation, D completeness on INV-IV-AWAY and INV-IV-DEDUP including pre-existing
 census readers; orchestrator re-grep and mutation; operator checkpoint before deploy; the flip itself is a second
@@ -652,7 +782,7 @@ Reviews: completeness (C, H, M, L) and build prediction + goal fidelity (B, G), 
 | B2 per-camera to house formula | Partition sum of `max(0, B_O − N_O)`, static-scene rule, walk-through test | §9.D4 |
 | B3 weight arithmetic; pre-D0 weight | Wilson-UB weight with `REF_ERR`; numbers in Verify recomputed; no grades → w 1 | §9.D2 |
 | B4 None rule and per-NVR deadness | Member liveness classes and the record rule; one live NVR carries it | §7 |
-| B5 two leads flags | One flag; admission constant; truth table; bar recorded in census §3.3 | §9.D4, §14 |
+| B5 two leads flags | One ledger flag plus, under the Q1 default, interior's own `interior_leads` argument (an operator decision, not a second ledger flag); admission constant; truth table; bar recorded in census §3.3 | §1a, §9.D4, §14 |
 | B6 overlap groups name-keyed | `CONF_INTERIOR_CAMERA_OVERLAP_GROUPS` by camera device id, built by D4 | §9.D4, §12 |
 | B7 `area_to_room` source | Registry area → producer `_room_for_area` (room config entry area ids) | §7 |
 | B8 build placement | Producer timer and listener; test that the build is not on the census-update stack | §9.D1 |
@@ -669,3 +799,27 @@ Reviews: completeness (C, H, M, L) and build prediction + goal fidelity (B, G), 
 | G5 counts never move the census | Formula fixed (B2), bar fixed (G3); truth table states when interior moves `aware_guests` | §9.D4 |
 | G6 D6 14-day hold | Interval-based trigger, no day count | §9.D6 |
 | G7, G8 no drift | Acknowledged; W2 relaxed to the D4 flip, arc map edit proposed | §7, §14 |
+
+Closure re-review (`plan_review_vision_interior_closure_2026_11_15.md`, PLAN-FIX-REQUIRED: 1 HIGH, 9 MEDIUM, 8 LOW):
+
+| Finding | Resolution | Plan section |
+|---|---|---|
+| N1 (HIGH) still from a non-live Frigate member | Still call only when the still-source member is LIVE; skip `still_source_not_live`; INV-IV-MISSING extended; tests `test_no_sample_from_non_live_still_source`, `test_describe_non_live_still_source_no_call`, mutation | §8, §8b, §9.D2, §9.D3 |
+| N2 interior term defeats case-D fallback | Lower-bound rule: interior only raises (`max(base, interior)`), excluded from `vis`; truth-table row for ledger None; `test_interior_never_lowers_awareness` | §9.D4 |
+| N3 `area_evidence()` is per area | Per-entity readings from `_stream_last_reading`; platform from the registry; one group per area asserted in D0(a) | §5, §7 |
+| N4 static-scene scope and lifetime | One definition (ANY group, debounced, knob); D0(i) measures lifetime; §15 row | §8b, §9.D0, §9.D2, §12, §15 |
+| N5 slug in two partitions | One placement per slug (BLE ACTIVE, else newest face) before the union; repro test | §8b, §9.D4 |
+| N6 hop windows not cumulative | Cumulative chain windows, close at cumulative max + pad, max hops knob; live-chain test | §9.D5, §12 |
+| N7 affect consumer and hollow test | Reply excludes affect except `operator_affect`; `FORBIDDEN_ATTR_READS` guard on `.affect`, drill `[iv_affect_reader]` | §6.3, §9.D3 |
+| N8 describe authorization | Operator question Q2, default operator-only Select | §1a, §9.D3, §12 |
+| N9 sampling starves describe | `INTERIOR_DESCRIBE_RESERVED_CALLS`; sampling skips `reserved_for_describe`; test | §9.D3, §9.D2, §12 |
+| E1 head count dropped silently | Explicit non-goal with revival trigger; carded; sighting plan §15.8 edit | §13, §14 |
+| L-1 `frigate_member` reuse | Marked REUSE | §5, §8 |
+| L-2 false-guest arithmetic | 0 of ≥ 125 needed; test | §9.D4 |
+| L-3 disagreement-first bias | D0 stratified; D7 rates reported separately, pooled with stratum weights | §9.D0, §9.D7 |
+| L-4 describe cooldown; frames-left off value | `INTERIOR_DESCRIBE_NM_COOLDOWN_S`; `INTERIOR_FRAMES_LEFT_CHECK_ENABLED` | §9.D3, §9.D7, §12 |
+| L-5 drill receiver | Non-`self` receiver stated, with the R7 reason | §6.3 |
+| L-6 golden branch; pins | Own branch for `interior_admitted_5_lead`; pins are (module, qualname) including the presence delegates | §8b, §6.3 |
+| L-7 `persons_in_room` contract gap | Return type and `active_only` pinned; contract edit listed | §14 |
+| L-8 unrecorded drops | 1-3 frames: non-goal (one still or clip); D5 unnamed trigger: restored; `describe_person` face fallback: restored; security p90 ≤ 15 s: restored in non-goals; sighting §15.8 / §15.9.4 and census §3.6 edits: restored; §8c reworded; D3 task tracked and cancelled | §8, §8c, §9.D3, §9.D5, §13, §14 |
+| Q1 / Q2 / labelling budget | Decisions pending with defaults | §1a |
