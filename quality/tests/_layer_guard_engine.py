@@ -111,6 +111,8 @@ READ_LIST: dict[str, frozenset[str]] = {
         "get_layer_diagnostics",
         # Plan rev 3.3 §12 / §17 (b).
         "should_veto_due_to_reliable_signals", "check_zone_occupancy_confidence",
+        # Contract §4.1 evidence row (ship 3b): the camera twin owner's U.
+        "zone_camera_entities",
     }),
     "EGRESS": frozenset({
         "get_last_crossing", "get_crossings_since", "get_crossing",
@@ -120,6 +122,8 @@ READ_LIST: dict[str, frozenset[str]] = {
         "resolve_face_legs", "resolve_ble_legs", "tracked_person_slugs",
         "egress_identity_enabled", "canonical_person_slug", "known_face_guests",
         "face_person_would_be_vetoed", "face_suppressed_now",
+        # Contract §4.1 evidence row (ship 3b): the camera twin owner's U.
+        "interior_camera_entities",
     }),
     "TRANSIT": frozenset(),
 }

@@ -193,6 +193,7 @@ zone tier, lock regime, perimeter, music, presence inference.
 | Service | One read | Consumers allowed | Forbidden |
 |---|---|---|---|
 | Camera input stream health | `camera_stream_health.input_stream_dead / camera_stream_dead / entity_stream_dead / input_stream_view / entity_stream_view / input_room_quarantined` (`:529-668`) | room fusion, zone tier, fan recheck, census (as "missing"), crossing ledger held-input check (dead/view, never released-as-off, §3 INV-MISSING-NOT-ZERO), NVR witness | scanning `hass.data[DOMAIN]` for an object with a matching attribute outside `camera_stream_health._room_coordinators` (its owner row); re-deriving availability |
+| Camera twin rule (ship 3b) | `camera_twin_health.physical_camera_dead(hass, entity_or_device)` (every paired NVR device lost; pages and diagnostics only); the one room-input list `camera_stream_health.room_stream_input_entities(hass, entry)` (room config entry lists plus the camera manager's area lookup); the one stuck-signal PAGE key `camera_stream_health.page_camera_key(er, dr, device)` (pure: the Frigate camera of a W1-paired device, else the device's own camera) | the camera stream-health pages (room trackers, the twin owner), diagnostics | a reader substituting a twin's reading (option A); a page key built from the owner's map or from an entity-id string; a hold, view or anchor reading `physical_camera_dead` |
 | NVR witness (W2, planned) | `nvr_witness.family_of`, `corroborated(cam, t, window)`, `families_on_now`, `platform_for` | the 4 comparison sites (census `_cross_validate_platforms`, transit `_count_platforms_fired` `transit_validator.py:2733`, perimeter `_apply_single_source_gate` `perimeter_alert.py:5038`, room fusion agreement `binary_sensor.py:1837-1868`) | entity-name suffix family tests; per-site classifiers |
 | Identity evidence (census) | public `PersonCensus` methods: `resolve_face_legs`, `resolve_ble_legs`, `tracked_person_slugs` (batch-2 `camera_census.py:4061`), `egress_identity_enabled` (`:4085`), `canonical_person_slug`, `known_face_guests`, `face_person_would_be_vetoed`, `face_suppressed_now` | layer producers only: egress tracker (F3), sighting producer (F4), perimeter D10.5 (until it reads F3/F4 instead) | any consumer outside the producer list deciding on raw legs |
 | Person id rule | `person_ids.tracked_person_entity_id / slug_of / display_of / entity_key_slug` | everyone | inline `f"person.{slug.lower()}"`, `lower().replace(" ", "_")`, `.title()` inverses |
@@ -267,6 +268,19 @@ counted allowlist (owner-display exemption), never for a decision.
   (the anchor is not time-critical; a sleeping guest in front of a dead camera must not let it fire). Falsified by a
   dead input read as 0 / off before its cap, a release without the HIGH page, or the anchor firing while any Tier-1
   input's view is HELD or RELEASED.
+  **Ship 3b (built 2026-11-14, `feature/layer-ship3b`; plan `PLANNING_person_awareness_layer_ship3.md` §6):**
+  (a) *Device liveness.* A camera-derived input's "own camera" is its registry camera DEVICE
+  (`CAMERA_STREAM_DEVICE_LEVEL_INPUTS`, decided Q12): live if any enabled `camera.*` entity on it reads live; dead on a
+  tick only if no member is live, one reads `unavailable` (not restored) and its stamp (keyed by device id) passed the
+  grace. So the 10 multi-channel Protect / Reolink person sensors that reach readers get the same hold, cap and
+  release as Frigate inputs. (b) *Unwatched cameras.* The census interior and zone camera entities no room watches
+  (the unwatched set U, live: the foyer group) are stamped and held by ONE house tracker owned by
+  `camera_twin_health.CameraTwinHealth` (`CAMERA_STREAM_UNWATCHED_STAMPS_ENABLED`); the house readers ask it only when
+  no room has an opinion and only for an entity in U ∪ sticky. (c) *Pages, rule 2.* A camera is reported dead (HIGH)
+  only when EVERY paired NVR device has lost it (`physical_camera_dead`, W1 pairs with an NVR-platform check); one NVR
+  down with the other covering sends ONE MEDIUM `camera_stream_nvr_down_twin_covering` notice per member episode
+  (`CAMERA_STREAM_TWIN_COVERING_NOTICE_ENABLED`), never a HIGH. No reader takes a twin's reading (option A; per-reader
+  coverage parked as DEAD-CAMERA-TWIN-COVERAGE-1).
 
 ## 4. The read surface (one place, by class)
 
@@ -282,6 +296,7 @@ counted allowlist (owner-display exemption), never for a decision.
 | F5 | push only: `signals.subscribe_person_arriving(hass, cb)` (sync `cb(PersonArrivingPayload)`, delivered inline) | BUILT ship 3a D1 |
 | class | `view_for_class(cls)`, `min_confidence(cls)` (wraps `CONSUMER_CLASS_MIN_CONFIDENCE`; None for a class with no bar) | `min_confidence` BUILT ship 3a D4 |
 | F4 / F1 public reads ruled legitimate at the guard's first run (plan rev 3.3 §12, §17 (b)) | person coordinator `get_person_confidence`, `get_persons_in_zone`, `get_tracked_person_count`, `get_person_previous_location`, `get_person_previous_location_time`, `get_diagnostic_data` (display class); presence `should_veto_due_to_reliable_signals` (comfort / house_state, zone fallback) and `check_zone_occupancy_confidence` (comfort, HVAC D6 confirmation) | existing methods, on the read list since ship 3a (guard R2 does not flag them) |
+| evidence (ship 3b) | `PersonCensus.interior_camera_entities()` (the resolved census interior person sensors), `PresenceCoordinator.zone_camera_entities()` (zone camera tier cameras plus the Zone Manager `zone_cameras` picks, the HVAC D6 Source 3 list): read by the camera twin owner for its unwatched set U | ship 3b |
 
 Change to make INV-LAYER-CLASS enforceable: `house_census_view(hass, cls=...)` takes a CLASS, not a view, and calls
 `view_for_class` itself (the boot-window reason display entities call the module function stays valid).

@@ -2650,13 +2650,36 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         self._fire_camera_hold_pages(now, room_name)
         if not (to_page or to_recover):
             return
-        from .domain_coordinators._stuck_signal_nm import (  # noqa: PLC0415
-            fire_stuck_signal,
-            fire_stuck_signal_recovered,
+        from .domain_coordinators import (  # noqa: PLC0415
+            camera_stream_health as _csh,
         )
+        from .domain_coordinators._stuck_signal_nm import (  # noqa: PLC0415
+            fire_stuck_signal_recovered,
+            stuck_signal_dispatch_ready,
+            stuck_signal_notified,
+        )
+        tracker = self._camera_stream_health
+        today = now.date().isoformat()
         for _eid, _cam, _since in to_page:
-            self.hass.async_create_task(fire_stuck_signal(  # noqa: untracked-ok
-                self.hass,
+            # Ship 3b §6.6: a device in the twin owner's map is paged by the
+            # owner; while the owner is not map-ready the page is deferred
+            # (no latch is set, the candidate comes back next tick).
+            if self._camera_stream_page_policy(_cam, now) != _csh.POLICY_PAGE:
+                continue
+            # Review D-L2 (caps 0): the owner already sent this device's
+            # group S1 page (it paged before a CM reload, or the device was
+            # in U): adopt it as this input's HIGH; no second one.
+            _gkey = self._camera_stream_page_key(_cam)
+            if stuck_signal_notified(
+                CAMERA_STREAM_NM_KIND, (_csh.GROUP_S1_KEY, _gkey),
+            ):
+                tracker.adopt_group_s1(_eid, today, _gkey)
+                continue
+            if not stuck_signal_dispatch_ready(self.hass):
+                continue  # review B-L6: NM off: no task; re-offered next tick
+            tracker.begin_send(CAMERA_STREAM_NM_KIND, _eid)
+            self.hass.async_create_task(_csh.send_page_and_mark(  # noqa: untracked-ok
+                self.hass, tracker, _eid, today,
                 kind=CAMERA_STREAM_NM_KIND,
                 key=(room_name, _eid),
                 diagnosis=(
@@ -2670,15 +2693,31 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 severity="HIGH",
             ))
         for _eid, _cam in to_recover:
+            _gkey = tracker.pop_adopted_group_s1(_eid)
+            if (
+                _cam
+                and self._camera_stream_page_policy(_cam, now)
+                == _csh.POLICY_SUPPRESS
+            ):
+                continue  # in the owner's map: the owner sends the LOW
+            _msg = (
+                f"room {room_name}: input {_eid} counts again "
+                f"(camera {_cam or 'stream'} back)"
+            )
             self.hass.async_create_task(fire_stuck_signal_recovered(  # noqa: untracked-ok
                 self.hass,
                 kind=CAMERA_STREAM_NM_KIND,
                 key=(room_name, _eid),
-                message=(
-                    f"room {room_name}: input {_eid} counts again "
-                    f"(camera {_cam or 'stream'} back)"
-                ),
+                message=_msg,
             ))
+            if _gkey:
+                # Review D-L2: this room owns the adopted group page's end.
+                self.hass.async_create_task(fire_stuck_signal_recovered(  # noqa: untracked-ok
+                    self.hass,
+                    kind=CAMERA_STREAM_NM_KIND,
+                    key=(_csh.GROUP_S1_KEY, _gkey),
+                    message=_msg,
+                ))
 
     def _fire_camera_hold_pages(self, now, room_name: str) -> None:
         """S2 hold-release page (operator 2026-11-14): once a dead camera
@@ -2692,14 +2731,29 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         recoveries = list(self._camera_stream_health.hold_recoveries)
         if not (pages or recoveries):
             return
-        from .domain_coordinators._stuck_signal_nm import (  # noqa: PLC0415
-            fire_stuck_signal,
-            fire_stuck_signal_recovered,
+        from .domain_coordinators import (  # noqa: PLC0415
+            camera_stream_health as _csh,
         )
-        for _cam, _since, _cap in pages:
+        from .domain_coordinators._stuck_signal_nm import (  # noqa: PLC0415
+            fire_stuck_signal_recovered,
+            stuck_signal_dispatch_ready,
+        )
+        tracker = self._camera_stream_health
+        today = now.date().isoformat()
+        for _own_cam, _since, _cap in pages:
+            # Ship 3b §6.6: owner-mapped devices page through the owner; a
+            # deferred page sets no latch. The page key is the PURE
+            # page_camera_key (the Frigate camera of a W1-paired device),
+            # so a room page and an owner page of one camera share a key.
+            if self._camera_stream_page_policy(_own_cam, now) != _csh.POLICY_PAGE:
+                continue
+            if not stuck_signal_dispatch_ready(self.hass):
+                continue  # review B-L6: NM off: no task; re-offered next tick
+            _cam = self._camera_stream_page_key(_own_cam)
             _mins = int((now - _since).total_seconds() // 60)
-            self.hass.async_create_task(fire_stuck_signal(  # noqa: untracked-ok
-                self.hass,
+            tracker.begin_send(CAMERA_STREAM_NM_KIND_HOLD_RELEASED, _own_cam)
+            self.hass.async_create_task(_csh.send_page_and_mark(  # noqa: untracked-ok
+                self.hass, tracker, _own_cam, today, page_key=_cam,
                 kind=CAMERA_STREAM_NM_KIND_HOLD_RELEASED,
                 key=(_cam,),
                 diagnosis=(
@@ -2718,6 +2772,8 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 severity="HIGH",
             ))
         for _cam in recoveries:
+            if self._camera_stream_page_policy(_cam, now) == _csh.POLICY_SUPPRESS:
+                continue  # in the owner's map: the owner sends the LOW
             self.hass.async_create_task(fire_stuck_signal_recovered(  # noqa: untracked-ok
                 self.hass,
                 kind=CAMERA_STREAM_NM_KIND_HOLD_RELEASED,
@@ -2750,18 +2806,55 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             not in self._exclusion_set.clients_for(s)
         ]
 
+    def _camera_stream_device_registry(self):
+        """Device registry for the ship 3b page key (HA seam)."""
+        from homeassistant.helpers import device_registry as dr  # noqa: PLC0415
+        return dr.async_get(self.hass)
+
+    def _camera_stream_page_policy(self, camera_eid: str, now) -> str:
+        """Ship 3b §6.6: may this room page / recover for the camera's own
+        device (the twin owner's map decides; never the pure pairing)?
+        Never raises (no answer = page, as before 3b)."""
+        from .domain_coordinators import (  # noqa: PLC0415
+            camera_stream_health as _csh,
+        )
+        try:
+            device = _csh.camera_device_for_entity(
+                self._camera_stream_registry(), camera_eid,
+            )
+            return _csh.room_page_policy(self.hass, device, now)
+        except Exception:  # noqa: BLE001
+            return _csh.POLICY_PAGE
+
+    def _camera_stream_page_key(self, own_camera: str) -> str:
+        """The pure ``page_camera_key`` of the camera's own device (falls
+        back to the own camera: no device registry / unresolved)."""
+        from .domain_coordinators import (  # noqa: PLC0415
+            camera_stream_health as _csh,
+        )
+        try:
+            registry = self._camera_stream_registry()
+            getter = getattr(self, "_camera_stream_device_registry", None)
+            try:
+                dreg = getter() if callable(getter) else None
+            except Exception:  # noqa: BLE001
+                dreg = None
+            device = _csh.camera_device_for_entity(registry, own_camera)
+            return _csh.page_camera_key(registry, dreg, device) or own_camera
+        except Exception:  # noqa: BLE001
+            return own_camera
+
     def _camera_override_person_sensors(self) -> list[str]:
         """Person sensors the v3.5.1 camera override reads for this room's
         area (camera manager). One lookup for the override block and the
-        camera stream health tick. Never raises; [] on any miss."""
+        camera stream health tick (shared with the ship 3b owner's watched
+        set: ``camera_stream_health.camera_override_person_sensors``). Never
+        raises; [] on any miss."""
         try:
-            camera_manager = self.hass.data.get(DOMAIN, {}).get("camera_manager")
-            if not camera_manager:
-                return []
-            room_area = self._get_room_area()
-            if not room_area:
-                return []
-            return list(camera_manager.get_person_sensor_for_area(room_area) or [])
+            from .domain_coordinators.camera_stream_health import (  # noqa: PLC0415
+                camera_override_person_sensors,
+            )
+            return camera_override_person_sensors(self.hass, self._get_room_area())
         except Exception:  # noqa: BLE001 — never break the room tick
             _LOGGER.debug(
                 "camera override person sensor lookup raised (swallowed)",

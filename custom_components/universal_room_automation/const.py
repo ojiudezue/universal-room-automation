@@ -6078,6 +6078,41 @@ CAMERA_INPUT_STREAM_DEAD_HOLD_MAX_S: Final = 900.0
 # a camera is dead to <= this + one room poll + one census run.
 # 0 = no census hold (a dead camera is a missing term at the grace).
 CAMERA_INPUT_STREAM_DEAD_CENSUS_HOLD_MAX_S: Final = 900.0
+# --- Person-awareness layer ship 3b: the device-level dead-camera rule
+# (PLANNING_person_awareness_layer_ship3.md §6, §8; option A, decided Q11;
+# device level, decided Q12). All rung 1: each changes which evidence holds
+# a room / zone / census or who pages, so a change goes through review.
+# Operator rule 2 ("I assume if even one nvr has the cam it doesn't count as
+# dead"): a camera device paired with an NVR twin by W1 registry evidence is
+# reported dead only when EVERY paired NVR device has lost it. False = no twin
+# map and no owner group pages; rooms page every watched device.
+CAMERA_STREAM_DEAD_TWIN_RULE: Final = True
+# Operator rule 1 for cameras no room watches (the census interior and zone
+# camera entities outside every room's watch, live: the foyer group): one
+# house tracker stamps and holds them like a room would. False = they answer
+# None (no opinion) as before 3b.
+CAMERA_STREAM_UNWATCHED_STAMPS_ENABLED: Final = True
+# The MEDIUM "one NVR down, the other covering" notice (decided Q7). False =
+# no notice (HIGH pages unchanged).
+CAMERA_STREAM_TWIN_COVERING_NOTICE_ENABLED: Final = True
+# Seconds between the owner's ticks (house tracker, U recompute, pages); one
+# room poll.
+CAMERA_TWIN_HEALTH_TICK_S: Final = 30.0
+# Room trackers and the house camera route resolve a camera-derived input to
+# its registry CAMERA DEVICE (live if any enabled camera entity on it is
+# live), so a sensor on a multi-channel Protect / Reolink device is watched
+# like a Frigate one (decided Q12, "symmetrical with Frigate"). False = per
+# camera entity exactly as before 3b (a multi-camera device is unresolved);
+# device liveness is then used only by the owner for pages.
+CAMERA_STREAM_DEVICE_LEVEL_INPUTS: Final = True
+# A member device that has read no opinion (unknown / restored / missing)
+# since the owner's setup counts toward "lost" only after this many seconds
+# from setup, so both NVRs stuck in setup retry still page, but a boot does
+# not page before the integrations had a chance to load.
+CAMERA_TWIN_BOOT_SETTLE_S: Final = 600.0
+# Debounce for twin-map rebuilds on registry events: bounds the boot
+# registry-event storm to one build.
+CAMERA_TWIN_MAP_REBUILD_DEBOUNCE_S: Final = 10.0
 
 # --- Per-device-family T_floor blind-time defaults DEFAULT (probe-
 #     recalibrated 2026-08-19 -> UNIFIED 1.0s across all blind-time
