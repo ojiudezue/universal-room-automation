@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-14T19:19:48-06:00_ - _Data commit: `d85fde36fa42`_ - _last_reconciled: 2026-11-14_
+_Generated: 2026-11-14T20:30:23-06:00_ - _Data commit: `01ba0737c960`_ - _last_reconciled: 2026-11-14_
 
 
 ## Columns
@@ -839,7 +839,8 @@ status: **planned**
 - **Origin:** 2026-11-13 - Operator question on the crossing vision plan.
 - **Why:** Crossing vision plan fetches clips from Frigate only; Protect enters only as the late face name. Three separate Frigate-vs-Protect rules exist: camera_census.py:2330 _cross_validate_platforms (counts; Frigate number wins when both see; l...
 - **Next:** Me: plan amendment to the operator after perimeter Part A and crossing vision Phase 1 ship. Open unknowns: garage_a Protect leg; llmvision on a Protect clip (one paid dry call needs operator ok); NVR disagreement ground truth (use the we...
-- **Forensic keys (28):**
+- **Forensic keys (29):**
+  - `operator_2026_11_14_one_physical_camera`: A recommended is fine. But we do have to eventually figure how to not deal with 2 camera system in this idiosyncratic way as it they are watching diff cameras instead of the same (Direction for W2-W6: model each physical camera ONCE with...
   - `arc_cut_v5_108_23`: layer ship 3b and W2-W6
   - `operator_2026_11_14_q12`: This symmetrical with frigate right? If so, yes (Protect inputs get the device-level stream-health hold; ship 3 plan rev 3.5 Q12 = yes, conditional on symmetry with Frigate).
   - `operator_2026_11_14_q11`: Dead camera - option A (ship 3b = pages + house-level camera health; coverage parked as DEAD-CAMERA-TWIN-COVERAGE-1).
@@ -3926,10 +3927,11 @@ _created 2026-11-14 16:30_
 - **Origin:** 2026-11-14 - Layer ship 3 plan Q11. The operator chose option A for ship 3b and asked for B to be carded and linked.
 - **Why:** Ship 3b (option A) makes 'camera dead = every NVR lost it' drive the pages, and gives every census and zone camera a hold-then-release of up to 15 minutes. During a one-NVR outage, the dead NVR's frozen reading still holds in zones and t...
 - **Next:** Parked. Revisit at ship 3b close with the D0 (d) numbers.
-- **Forensic keys (3):**
+- **Forensic keys (4):**
+  - `operator_2026_11_14_anchor`: A recommended is fine. But we do have to eventually figure how to not deal with 2 camera system in this idiosyncratic way as it they are watching diff cameras instead of the same (Anchor choice A: the census-p2 empty-house anchor keeps b...
   - `tier`: 3
   - `operator_2026_11_14`: Dead camera - option A. Card B and why we would uncork it later. Link it
-  - `revival_trigger`: Uncork when the ship 3 D0 (d) probe, or a later one-shot history probe, shows BOTH of these: (1) for at least one paired camera, the twin input sits in the same reader set (Tier-1 room map, zone camera list or census set); AND (2) one-NV...
+  - `revival_trigger`: Also uncork when the empty-house anchor (census-p2 ledger) shows a delayed reset caused by a one-NVR hold that changed a displayed count, or when NVR-WITNESS-CONSOLIDATION-1 W2 builds the one-physical-camera model (do it there). Uncork w...
 
 ### `STUCK-SENSOR-1` - Flapping mmWave evades stuck-exclusion; fix via corroboration-gated exclusion at the ROOM tier — _#121 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **presence** - status: **parked** - approval: **explicit**
