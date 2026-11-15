@@ -2,26 +2,26 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-15T02:13:40-06:00_ - _Data commit: `92bb1cc44cdb`_ - _last_reconciled: 2026-11-15_
+_Generated: 2026-11-15T02:15:01-06:00_ - _Data commit: `a3d5c6dc57d6`_ - _last_reconciled: 2026-11-15_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 15 |
+| 📥 Inbox | 14 |
 | 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 38 |
 | 🔨 In progress | 6 |
 | 🔍 Review | 2 |
-| ⏸️ Waiting on operator | 38 |
+| ⏸️ Waiting on operator | 39 |
 | ⏳ Waiting on me (Claude) | 4 |
 | 🚀 Shipped (organic open) | 35 |
 | 🅿️ Parked | 131 |
 | ✅ Done | 436 |
 
-## 📥 Inbox (15)
+## 📥 Inbox (14)
 _raw capture_
 
 ### `PERSON-ID-NORMALISE-ONE-RULE-1` - Name-to-person-entity-id normalisation is copied at person_coordinator.py 807/979/1729; point them at tracked_person_entity_id() — _#1 · WSJF 8.0 · v4 tc2 u2 /e1_
@@ -187,18 +187,7 @@ status: **inbox**
   - `arc_cut_v5_108_21`: upstream draft for operator
   - `tier`: 1
 
-### `EC-ATTAIN-RATE-DUP-SAMPLE-1` - The battery charge-rate window can record the same reading twice in one tick, shortening its 15-minute window — _#14 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **energy** - status: **inbox** - approval: **unreviewed**
-_created 2026-11-12 14:13 · initial_
-- **Problem / Solution:**
-  - Problem: the observed battery charge rate is measured over a window of recent samples, but the sampler is called from two places in the same tick (energy_battery.py ~:4174 and ~:6008), so one tick can append the same time and SOC twice a...
-- **Origin:** 2026-11-12 - Found by the planner writing PLANNING_ev_rung1_redirect_cap.md (Q4); operator agreed to card it separately.
-- **Why:** Fix D's hold compares timestamps so it is unaffected, but every other reader of the rate window sees a shorter window than intended.
-- **Next:** Me: verify the double append (test on the real sampler) and list the window readers; then Tier-1 fix.
-- **Forensic keys (1):**
-  - `tier`: 1
-
-### `CENSUS-FACE-READS-STREAM-HEALTH-1` - Census face reads and the stuck-camera watchdog do not honour camera stream health — _#15 · WSJF 2.0 · v1 tc1 u2 /e2_
+### `CENSUS-FACE-READS-STREAM-HEALTH-1` - Census face reads and the stuck-camera watchdog do not honour camera stream health — _#14 · WSJF 2.0 · v1 tc1 u2 /e2_
 thread: **identity** - status: **inbox**
 _created 2026-11-14 12:00_
 - **Origin:** 2026-11-14 - S2 builder not-done list + review A G-2: face legs are windowed (CENSUS_FACE_RECOGNITION_WINDOW_SECONDS 1800 s), so a dead camera's last face ages out; the watchdog already discounts downward only.
@@ -1115,7 +1104,7 @@ _created 2026-11-12 22:30 · updated 2026-11-13 02:04_
   - `verified_2026_11_13_overnight`: CONFIRMED superseded (git grep on develop 22c0023f): zone_has_home_person (hvac_zones.py:2708) has zero production callers; the D7/row-1 path decides through HVACCoordinator._zone_conditioning_retreat_ok (hvac.py:7103, callers :2951 and ...
   - `built_2026_11_13_overnight`: Branch fix/zone-has-home-person-docstring (e8a38bb9, pushed): docstring-only change marking it RETIRED with the superseding path and the pinning test. No behavior change. Validation: test_zzz_hvac_conditioning_demand.py + test_person_gps...
 
-## ⏸️ Waiting on operator (38)
+## ⏸️ Waiting on operator (39)
 _needs a human call — groomed first_
 
 ### `EGRESS-OUTCOME-WEEKLY-LABEL-1` - Weekly labelling of egress identity outcomes (recurring) so Phase 2 of person sightings becomes decidable — _#1 · WSJF 13.0 · v5 tc6 u2 /e1_
@@ -1683,7 +1672,19 @@ _created 2026-11-12 22:55 · updated 2026-11-15 02:10_
   - `measured_2026_11_14_overnight`: AUDIT_perimeter_fp_gates_disposal_2026_11_14.md (ura-prober, read-only; my independent re-check of the config entry + const.py). CARD-WAS-WRONG on D5: perimeter_single_source_demote is True in the live options, so D5 is ENFORCING, not sh...
   - `status_change_2026_11_14`: investigating -> waiting_operator: the D3 step is an operator config entry and the D5 wait trades alert latency against precision (your call).
 
-### `SAFEWORD-WINDOW-1` - Safe-word ack window — one "duke" covers perimeter alerts for a bounded period (operator-proposed) — _#33 · WSJF 1.8 · v4 tc3 u2 /e5_
+### `EC-ATTAIN-RATE-DUP-SAMPLE-1` - The battery charge-rate window can record the same reading twice in one tick, shortening its 15-minute window — _#33 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **energy** - status: **waiting_operator** - approval: **unreviewed**
+_created 2026-11-12 14:13 · updated 2026-11-15 02:15 · initial_
+- **Problem / Solution:**
+  - Problem: the observed battery charge rate is measured over a window of recent samples, but the sampler is called from two places in the same tick (energy_battery.py ~:4174 and ~:6008), so one tick can append the same time and SOC twice a...
+- **Origin:** 2026-11-12 - Found by the planner writing PLANNING_ev_rung1_redirect_cap.md (Q4); operator agreed to card it separately.
+- **Why:** Fix D's hold compares timestamps so it is unaffected, but every other reader of the rate window sees a shorter window than intended.
+- **Next:** APPROVE (recommended, attended session): make _record_attain_sample idempotent per tick (skip the append when the last sample has the same timestamp), as a Tier 2-DB energy cycle (3 reviews; energy invariants skill; show the window and r...
+- **Forensic keys (2):**
+  - `verified_2026_11_15_overnight`: STILL-REAL (code read on develop): energy_battery.py:4189 (_classify_attain_rung, every tick) and :6049 (_run_attain_branch) both call _record_attain_sample (:5055), which appends (now, soc) with no same-timestamp check; the call-site co...
+  - `tier`: 2-DB
+
+### `SAFEWORD-WINDOW-1` - Safe-word ack window — one "duke" covers perimeter alerts for a bounded period (operator-proposed) — _#34 · WSJF 1.8 · v4 tc3 u2 /e5_
 thread: **notifications** - status: **waiting_operator** - approval: **operator_proposed**
 _updated 2026-09-29 01:05_
 - **Origin:** 2026-08-14 - operator: "safe word covers all alerts within 1-3 hours so no need for safe words for a while no matter the notification? The underlying goal is still to tune the classification of events and make sure they are good."
@@ -1699,7 +1700,7 @@ _updated 2026-09-29 01:05_
   - `safety_note`: Blanket-mute is a stopgap while classification precision improves (the operator-stated underlying goal); scope-limiting to perimeter class keeps the failure mode bounded.
   - `organic_evidence`: 2026-08-23 watch-pass: README_v5.75.2 L4=ORGANIC (open) — first real "duke Nh" reply not yet observed. Awaiting real perimeter CRITICAL + operator safeword reply. H1 PENDING.
 
-### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab — _#34 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab — _#35 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **dashboarding** - status: **waiting_operator** - approval: **explicit**
 _updated 2026-09-29 01:05_
 - **Origin:** 2026-08-09 - "add an EV charging detail card to the Ura v8 energy tab. Style well. Detail cards are a bit sensor words vomit. Best judgement because of space though."
@@ -1719,7 +1720,7 @@ _updated 2026-09-29 01:05_
   - `DEDUPE_2026_08_09`: Sweep: dashboarding thread has the PWA + KHOST-1 (kanban board, different surface); EV drain-precedence card is queued BACKLOG work about behaviour not display. No existing card covers a v8 energy-tab EV surface. NEW.
   - `status_correction_2026_08_16`: Was stale in INBOX — the card was BUILT and applied live to ura-v8 Energy tab 2026-08-09; correct state = waiting_operator (refinement review, operator: "I'll review and we can refine").
 
-### `CENSUS-ATHOME-RESIDENT-CORROBORATOR-1` - A resident at home wandering out a side door (porch, garage) cannot be told apart from a visitor — _#35 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `CENSUS-ATHOME-RESIDENT-CORROBORATOR-1` - A resident at home wandering out a side door (porch, garage) cannot be told apart from a visitor — _#36 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **census** - status: **waiting_operator** - approval: **explicit**
 _created 2026-10-05 02:22 · updated 2026-10-14 03:05 · refined_
 - **Problem / Solution:**
@@ -1742,7 +1743,7 @@ _created 2026-10-05 02:22 · updated 2026-10-14 03:05 · refined_
   - `groomed_2026_10_05_overnight`: Inbox -> pre_planning (REAL per the plan's measured Path-beta budget of ~3-4 episodes/day). Sequenced AFTER the parent's D1 stem fix: some of today's unattributable crossings are _2-camera crossings that never reach identity at all (EGRE...
   - `sweep_2026_10_05`: Board census/egress cards swept; GAP-A-CENSUS-HOLE-1 ADJACENT. NEW.
 
-### `SAFETY-RATE-DETECTOR-DEAD-WINDOW-1` - The safety "rapid change" detector almost never runs, because its 30-minute window check can only pass at an exact instant — _#36 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `SAFETY-RATE-DETECTOR-DEAD-WINDOW-1` - The safety "rapid change" detector almost never runs, because its 30-minute window check can only pass at an exact instant — _#37 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **safety** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-09-27 02:40 · updated 2026-10-19 02:03 · refined_
 - **Problem / Solution:**
@@ -1762,7 +1763,7 @@ _created 2026-09-27 02:40 · updated 2026-10-19 02:03 · refined_
   - `contradiction_2026_10_19_overnight`: CARD-WAS-WRONG on its own next: update_2026_10_15 records YOUR answer ('rapid change isn't that a heat thing for fire? If so it's a fix') and verified temperature_rise_extreme maps to OVERHEAT (safety.py:670, :859) -> disposition FIX (B)...
   - `paged_2026_10_19_overnight`: Paged 02:42 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody).
 
-### `WALLPANEL-TOUCH-WITNESS-1` - Wall-panel sensors as URA inputs (touch witness, BLE proxy scanners, ambient noise; temp/lux low value) — _#37 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `WALLPANEL-TOUCH-WITNESS-1` - Wall-panel sensors as URA inputs (touch witness, BLE proxy scanners, ambient noise; temp/lux low value) — _#38 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **presence** - status: **waiting_operator**
 _created 2026-10-20 08:30 · updated 2026-11-15 02:13 · refined ×1_
 - **Origin:** 2026-10-20 - HomeLab accepted idea 3 (ffa7d06).
@@ -1778,7 +1779,7 @@ _created 2026-10-20 08:30 · updated 2026-11-15 02:13 · refined ×1_
   - `verified_2026_11_14_overnight`: ALREADY-DONE for the APPROVE ask (read-only, core.device_registry + Bermuda config entry): all 7 panel proxies are active Bermuda scanners with rooms already set on their Bluetooth devices (master_bedroom, study_a, study_b, media_room, u...
   - `status_change_2026_11_14`: waiting_operator -> waiting_me: the operator input is no longer needed; what remains is my room-accuracy re-measure.
 
-### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#38 · WSJF 1.1 · v5 tc2 u2 /e8_
+### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#39 · WSJF 1.1 · v5 tc2 u2 /e8_
 thread: **presence** - status: **waiting_operator**
 _created 2026-09-20 · updated 2026-09-29 01:05_
 - **Problem / Solution:**

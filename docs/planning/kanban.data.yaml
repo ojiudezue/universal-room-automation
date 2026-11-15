@@ -9,6 +9,7 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {"fid": "EC-ATTAIN-RATE-DUP-SAMPLE-1@2026-11-15T02:15:00", "card_id": "EC-ATTAIN-RATE-DUP-SAMPLE-1", "at": "2026-11-15T02:15:00", "outcome": "escalated", "headline": "Battery charge-rate double sample confirmed in code. Fixing it changes the rate the cheap-rate charging decisions use, so it's an energy strategy change (3 reviews), not the Tier 1 the card said. Your call: approve it for an attended session (recommended) or park it, since the effect is only a noisier rate.", "acknowledged": false}
   - {"fid": "MEMORY-EPISODES-PERIMETER-GATE-RETENTION-1@2026-11-15T02:14:00", "card_id": "MEMORY-EPISODES-PERIMETER-GATE-RETENTION-1", "at": "2026-11-15T02:14:00", "outcome": "parked", "headline": "Memory-episodes table measured: about 18 MB (1% of the DB), growing roughly 100 MB a year, mostly exterior tracks rather than perimeter gate rows. Nothing ever deletes old rows. Parked because deleting history can't be undone; it comes back if the table passes 100 MB or 5% of the DB.", "acknowledged": false}
   - {"fid": "WALLPANEL-TOUCH-WITNESS-1@2026-11-15T02:13:00", "card_id": "WALLPANEL-TOUCH-WITNESS-1", "at": "2026-11-15T02:13:00", "outcome": "measured", "headline": "Wall-panel BLE room accuracy: Study B is right 96% of the time when it says Study B, but catches only 38% of the time someone is there; it often says Master Bedroom instead. Foyer and Media Room have too little single-person data to judge. Optional ask: a 10-minute solo walk-in in each when you're back.", "acknowledged": false}
   - {"fid": "HVAC-GUEST-EVIDENCE-RULE-1@2026-11-15T02:12:00", "card_id": "HVAC-GUEST-EVIDENCE-RULE-1", "at": "2026-11-15T02:12:00", "outcome": "done", "headline": "HVAC guest-state shadow verdict, measured during the current guest stay: the newer evidence rule would let zones go too early in GUEST (11 of 20 eligible episodes, mostly Jaya Bedroom; 35% vs a 3% bar). So GUEST stays on the old timer and phase 2 is not built. Sleep reads the same (NOT SAFE). Closed.", "acknowledged": false}
@@ -34490,13 +34491,14 @@ cards:
   operator_decision_2026_11_12: "Operator: raise fill priority toward the 95% latch -> DONE 13:5x CST: number.ura_energy_coordinator_fill_priority_soc 80 -> 90 (max 95, step 5; prior value 80 is the rollback). Operator disputes 'sun = grid in value': with sunk costs, sun into the car is $0. My note: its cash cost is the export credit forgone (4.35c/kWh at off-peak), so the gap vs grid is 0 only while export is credited at the import rate; recorded as a disagreement for the operator to weigh, not resolved. Shapes 2-4 parked with the stated triggers."
   refinement_2026_11_12: "Operator: we rarely export; most sun goes to house/car, so my export-credit framing assumed a case that seldom happens -> conceded. Sharpened: sun is $0 only when it is genuine surplus (house and battery already covered); when there is no surplus, sun sent to the car is taken from the house or battery, which then buys that energy back from the grid later (often at a higher evening rate). So solar-led means 'car gets the surplus first', which today's fill priority (now 90) + excess-solar at 95 already approximates."
 - id: EC-ATTAIN-RATE-DUP-SAMPLE-1
+  verified_2026_11_15_overnight: 'STILL-REAL (code read on develop): energy_battery.py:4189 (_classify_attain_rung, every tick) and :6049 (_run_attain_branch) both call _record_attain_sample (:5055), which appends (now, soc) with no same-timestamp check; the call-site comment at :4180-4188 already names this card. The window is ATTAIN_RATE_WINDOW_TICKS = 3 (energy_battery.py:266) -> K+1 = 4 samples; on rung_0/rung_1 ticks two of them share a timestamp, so _observed_net_charge_rate_per_hour (:5075) spans ~2 ticks. TIER CORRECTED 1 -> 2db: the fix changes the observed charge rate that the attain entry gate and the rung classifier act on (cost-impacting strategy logic, standing Tier 2-DB policy; attain machinery has a multi-fix-up history). Not built overnight; escalated.'
   title: The battery charge-rate window can record the same reading twice in one tick, shortening its 15-minute window
   thread: energy
-  status: inbox
+  status: waiting_operator
   created: '2026-11-12 14:13'
-  updated: '2026-11-12 14:13'
+  updated: '2026-11-15 02:15'
   refinement_status: initial
-  tier: 1
+  tier: 2-DB
   approval: unreviewed
   problem_solution:
   - 'Problem: the observed battery charge rate is measured over a window of recent samples, but the sampler is called from two places in the same tick (energy_battery.py ~:4174 and ~:6008), so one tick can append the same time and SOC twice and the window covers less time than documented. Solution: confirm with a test or recorder read, then sample once per tick.'
@@ -34507,7 +34509,7 @@ cards:
   links:
     related: [EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1]
     context: 'Surfaced while planning the rung-1 redirect cap; independent of it.'
-  next: 'Me: verify the double append (test on the real sampler) and list the window readers; then Tier-1 fix.'
+  next: 'APPROVE (recommended, attended session): make _record_attain_sample idempotent per tick (skip the append when the last sample has the same timestamp), as a Tier 2-DB energy cycle (3 reviews; energy invariants skill; show the window and rate before/after on a replay) -> I plan and build it to review. Or PICK park: leave it, since the effect is a 3-tick window that covers about 2 ticks on rung_0/rung_1 ticks only, i.e. a noisier rate, not a wrong sign.'
 - id: STALE-SOURCE-ARRIVAL-CONSUMERS-1
   title: Other features still treat a stale tracker-fallback 'home' blip as a real arrival (security expected-arrival window first)
   thread: security
