@@ -2796,20 +2796,50 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             return None
 
     def camera_input_room_stuck_excluded(self, input_eid: str) -> bool | None:
-        """P3-D8 getter (crossing ledger anchor): True iff this room's
+        """P3-D8 getter (crossing ledger anchor). True iff this room's
         exclusion set currently excludes the input under one of the stuck
         clients ``CROSSING_VISION_ANCHOR_STUCK_CLIENTS`` (P22 continuous-on,
         chatter promoted in act mode, duty-cycle promoted). Never the
         camera-stream client, never the label map (``get_stuck_sensor_kinds``
         labels a sleeper's duty cycle and shadow chatter without excluding
-        them). None otherwise (no opinion)."""
+        them). Review D-M1: ``p22_continuous`` does not count while the house
+        state is in ``CROSSING_VISION_ANCHOR_P22_HOLD_STATES`` (a still
+        sleeper on a radar), read as ``_d2_house_state_allows`` reads it.
+        False = this room lists the input (motion / presence / occupancy)
+        and does not stuck-exclude it, or the read failed; None = not this
+        room's input (no opinion). The house wrapper releases only when every
+        room with an opinion says True (review D-L1)."""
         try:
             from . import const as _const  # noqa: PLC0415
 
-            clients = self._exclusion_set.clients_for(input_eid)
-            if clients & set(_const.CROSSING_VISION_ANCHOR_STUCK_CLIENTS):
+            clients = self._exclusion_set.clients_for(input_eid) & set(
+                _const.CROSSING_VISION_ANCHOR_STUCK_CLIENTS
+            )
+            if "p22_continuous" in clients and self._house_state_value() in set(
+                _const.CROSSING_VISION_ANCHOR_P22_HOLD_STATES
+            ):
+                clients.discard("p22_continuous")
+            if clients:
                 return True
-            return None
+            listed = set()
+            for key in (CONF_MOTION_SENSORS, CONF_MMWAVE_SENSORS, CONF_OCCUPANCY_SENSORS):
+                listed.update(self._get_config(key, []) or [])
+            return False if input_eid in listed else None
+        except Exception:  # noqa: BLE001 - fails toward holding
+            return False
+
+    def _house_state_value(self) -> str | None:
+        """House state string, read exactly as ``_d2_house_state_allows``
+        reads it (coordinator manager -> presence ``house_state``); None
+        when there is no manager / presence or the read fails."""
+        try:
+            mgr = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            if mgr is None:
+                return None
+            presence = getattr(mgr, "coordinators", {}).get("presence")
+            if presence is None:
+                return None
+            return getattr(presence, "house_state", "") or None
         except Exception:  # noqa: BLE001
             return None
 

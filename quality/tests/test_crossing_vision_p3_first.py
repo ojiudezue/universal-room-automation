@@ -384,7 +384,7 @@ async def test_teardown_cancels_pending_rehydrate(rig):
 RADAR = "binary_sensor.media_matter_occupancy"
 
 
-def _stuck_room(mods, *, dead=None, stuck_kinds=None):
+def _stuck_room(mods, *, dead=None, stuck_kinds=None, listed=()):
     """A room stand-in carrying the REAL room getter (bound from
     UniversalRoomCoordinator) over a REAL SensorExclusionSet, plus the S1/S2
     getters of test_crossing_ledger_wiring._Room (stream view None unless
@@ -398,8 +398,14 @@ def _stuck_room(mods, *, dead=None, stuck_kinds=None):
         camera_input_room_quarantined = (
             coord.UniversalRoomCoordinator.camera_input_room_quarantined)
         get_stuck_sensor_kinds = coord.UniversalRoomCoordinator.get_stuck_sensor_kinds
+        _house_state_value = coord.UniversalRoomCoordinator._house_state_value
+
+        def _get_config(self, key, default=None):
+            return self.cfg.get(key, default)
 
     room = _StuckRoom(dead or {})
+    room.cfg = {mods.const.CONF_MMWAVE_SENSORS: list(listed)}
+    room.hass = None  # set by _install / the caller
     room._exclusion_set = sx.SensorExclusionSet("Media")
     room._stuck_sensor_kinds = dict(stuck_kinds or {})
     return room
@@ -409,6 +415,7 @@ def _install(rig, room, eids):
     D = rig.C.DOMAIN
     rig.hass.data[D]["occupancy_substrate"] = _Substrate(set(eids))
     rig.hass.data[D]["room_entry_media"] = room
+    room.hass = rig.hass
     rig.cv._ledger.empty_reset_s = 0
 
 
@@ -604,11 +611,124 @@ async def test_house_wrapper_folds_rooms(rig):
     no room answering = False."""
     csh = importlib.import_module(f"{_PKG}.domain_coordinators.camera_stream_health")
     assert csh.input_room_stuck_excluded(rig.hass, RADAR) is False
-    room_a = _stuck_room(rig.mods)
+    room_a = _stuck_room(rig.mods)  # does not list it: no opinion
     room_b = _stuck_room(rig.mods)
+    room_a.hass = room_b.hass = rig.hass
     room_b._exclusion_set.promote("stuck_dutycycle", RADAR, "dutycycle_stuck")
     rig.hass.data[rig.C.DOMAIN]["room_a"] = room_a
     assert csh.input_room_stuck_excluded(rig.hass, RADAR) is False
     rig.hass.data[rig.C.DOMAIN]["room_b"] = room_b
     assert csh.input_room_stuck_excluded(rig.hass, RADAR) is True
     assert csh.input_room_stuck_excluded(rig.hass, "") is False
+
+
+# ------------------------------------------------ review fix-ups (D-M1, D-L1)
+class _Presence:
+    def __init__(self, hs):
+        self.house_state = hs
+
+
+def _set_house_state(rig, hs):
+    from types import SimpleNamespace
+
+    rig.hass.data[rig.C.DOMAIN]["coordinator_manager"] = SimpleNamespace(
+        coordinators={"presence": _Presence(hs)})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("hs", ["sleep", "waking", "home_night"])
+async def test_p22_still_occupant_holds_while_asleep(rig, hs):
+    """D-M1: a still sleeper's radar P22-excluded at 4 h keeps holding in
+    SLEEP / WAKING / HOME_NIGHT."""
+    _set_house_state(rig, hs)
+    room = _stuck_room(rig.mods, listed=[RADAR])
+    room._exclusion_set.promote("p22_continuous", RADAR, "continuous_on")
+    _install(rig, room, {RADAR})
+    rig.hass.states.async_set(RADAR, "on")
+    assert _state(rig) == "unknown"
+    assert rig.cv.ledger_diag()["held"] == [RADAR]
+
+
+@pytest.mark.asyncio
+async def test_p22_same_input_releases_while_away(rig):
+    _set_house_state(rig, "away")
+    room = _stuck_room(rig.mods, listed=[RADAR])
+    room._exclusion_set.promote("p22_continuous", RADAR, "continuous_on")
+    _install(rig, room, {RADAR})
+    rig.hass.states.async_set(RADAR, "on")
+    assert _state(rig) == "known"
+    assert rig.cv.ledger_diag()["held_ignored_stuck"] == [RADAR]
+
+
+@pytest.mark.asyncio
+async def test_dutycycle_promoted_still_releases_while_asleep(rig):
+    """The sleep gate is on the P22 client only."""
+    _set_house_state(rig, "sleep")
+    room = _stuck_room(rig.mods, listed=[RADAR])
+    room._exclusion_set.promote("stuck_dutycycle", RADAR, "dutycycle_stuck")
+    # Also P22-excluded: only the P22 client is dropped in SLEEP.
+    room._exclusion_set.promote("p22_continuous", RADAR, "continuous_on")
+    _install(rig, room, {RADAR})
+    rig.hass.states.async_set(RADAR, "on")
+    assert _state(rig) == "known"
+
+
+@pytest.mark.asyncio
+async def test_p22_hold_states_knob_empty_releases_in_sleep(rig):
+    rig.monkeypatch.setattr(rig.C, "CROSSING_VISION_ANCHOR_P22_HOLD_STATES",
+                            frozenset())
+    _set_house_state(rig, "sleep")
+    room = _stuck_room(rig.mods, listed=[RADAR])
+    room._exclusion_set.promote("p22_continuous", RADAR, "continuous_on")
+    _install(rig, room, {RADAR})
+    rig.hass.states.async_set(RADAR, "on")
+    assert _state(rig) == "known"
+
+
+@pytest.mark.asyncio
+async def test_two_room_input_needs_every_room_to_exclude(rig):
+    """D-L1: the input is listed in rooms A and B; A P22-excludes it, B
+    counts it live -> it holds. Once B excludes it too, it releases."""
+    room_a = _stuck_room(rig.mods, listed=[RADAR])
+    room_b = _stuck_room(rig.mods, listed=[RADAR])
+    room_a._exclusion_set.promote("p22_continuous", RADAR, "continuous_on")
+    _install(rig, room_a, {RADAR})
+    rig.hass.data[rig.C.DOMAIN]["room_entry_b"] = room_b
+    room_b.hass = rig.hass
+    rig.hass.states.async_set(RADAR, "on")
+    assert _state(rig) == "unknown"
+    assert rig.cv.ledger_diag()["held"] == [RADAR]
+    room_b._exclusion_set.promote("chatter", RADAR, "physics_violation")
+    assert _state(rig) == "known"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("raw,secret", [
+    ("Request failed: 400 for url https://gen.example/v1/x?key=AIzaSyABC123&alt=json",
+     "AIzaSyABC123"),
+    ("Incorrect API key provided: sk-proj-AbC_123-xyz. See docs", "AbC_123-xyz"),
+    ("401 Unauthorized, header Authorization: Bearer eyJhbGciOi.payload.sig",
+     "eyJhbGciOi.payload.sig"),
+])
+async def test_error_text_scrubbed(rig, raw, secret):
+    rig.llm.reply = RuntimeError(raw)
+    await ended_crossing(rig, "ev-scrub")
+    [row] = rows(rig)
+    assert secret not in row["error"]
+    assert "[redacted]" in row["error"]
+
+
+@pytest.mark.asyncio
+async def test_call_time_gate_reads_hold(rig):
+    """A1 (defence in depth): a request scheduled before a hold is set is
+    skipped at call time while the hold is on (no call)."""
+    e = _now(rig) - timedelta(seconds=45)
+    s = e.timestamp() + 2
+    frigate(rig, "ev-ct", "garage_a", s)  # event still open: request waits
+    await cross(rig, GARAGE_EGRESS, e)
+    assert rig.llm.calls == [] and rows(rig) == []
+    rig.cv._cap_hold = True
+    frigate(rig, "ev-ct", "garage_a", s, typ="end", end=s + 8)
+    await settle(rig)
+    assert rig.llm.calls == []
+    assert [r["outcome"] for r in rows(rig)] == ["skipped_cap"]

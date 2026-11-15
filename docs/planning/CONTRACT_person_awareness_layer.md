@@ -273,7 +273,9 @@ counted allowlist (owner-display exemption), never for a decision.
   = `p22_continuous`, `chatter` (act mode), `stuck_dutycycle` (promoted); read through
   `camera_stream_health.input_room_stuck_excluded`) no longer holds the anchor (listed `held_ignored_stuck`). This is not
   a dead input: a dead input (non on/off state, or any stream view) still holds even when also stuck-excluded, and the
-  camera-stream client never releases. Kill switch `CROSSING_VISION_LEDGER_ANCHOR_IGNORES_STUCK`.
+  camera-stream client never releases. Kill switch `CROSSING_VISION_LEDGER_ANCHOR_IGNORES_STUCK`. `p22_continuous` does not
+  release in `CROSSING_VISION_ANCHOR_P22_HOLD_STATES` (sleep / waking / home_night); an input listed in several rooms
+  releases only when every listing room stuck-excludes it.
   **Ship 3b (built 2026-11-14, `feature/layer-ship3b`; plan `PLANNING_person_awareness_layer_ship3.md` §6):**
   (a) *Device liveness.* A camera-derived input's "own camera" is its registry camera DEVICE
   (`CAMERA_STREAM_DEVICE_LEVEL_INPUTS`, decided Q12): live if any enabled `camera.*` entity on it reads live; dead on a

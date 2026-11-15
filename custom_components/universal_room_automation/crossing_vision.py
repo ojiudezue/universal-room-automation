@@ -41,6 +41,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from collections import Counter, OrderedDict, deque
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -137,6 +138,22 @@ PROMPT = (
 # ---------------------------------------------------------------------------
 # Pure helpers (no HA)
 # ---------------------------------------------------------------------------
+# Review D-L3: secrets an llmvision error text can carry (a request URL's
+# `key=` query value, an `sk-` style API key, a bearer token).
+_SECRET_PATTERNS = (
+    (re.compile(r"(key=)[^&\s]*", re.IGNORECASE), r"\1[redacted]"),
+    (re.compile(r"\bsk-[A-Za-z0-9_\-]+"), "sk-[redacted]"),
+    (re.compile(r"(Bearer\s+)\S+", re.IGNORECASE), r"\1[redacted]"),
+)
+
+
+def scrub_error_text(text: str) -> str:
+    """Redact secrets from an error text before it is stored (P3-D1)."""
+    for pattern, repl in _SECRET_PATTERNS:
+        text = pattern.sub(repl, text)
+    return text
+
+
 def agreement_case(vision: int | None, camera: int | None) -> str:
     """§15.7 case on counts: A agree, B vision higher, C camera higher, D one
     side missing."""
@@ -919,7 +936,7 @@ class CrossingVisionShadow:
                 if not self._torn_down:
                     self._ledger_disabled()
                 return
-            if self._calls_today >= self.daily_cap():
+            if self._calls_counted() >= self.daily_cap():
                 self._record(req.crossing, OUTCOME_SKIPPED_CAP, event=req.event,
                              crossing_keys=req.crossing_keys)
                 self._request_terms(req, OUTCOME_SKIPPED_CAP, None)
@@ -1102,7 +1119,9 @@ class CrossingVisionShadow:
             # P3-D1: error rows only (no key on any other row).
             err = vision.get("error")
             attrs["error"] = (
-                str(err)[: max(0, int(_c.CROSSING_VISION_ERROR_TEXT_MAX_CHARS))]
+                scrub_error_text(str(err))[
+                    : max(0, int(_c.CROSSING_VISION_ERROR_TEXT_MAX_CHARS))
+                ]
                 if err is not None else None
             )
         if outcome == OUTCOME_OK and attrs["agreement_case"] in (

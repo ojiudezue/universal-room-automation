@@ -1248,10 +1248,20 @@ def input_room_stuck_excluded(hass: Any, input_eid: str) -> bool:
     chatter in act mode, promoted duty cycle), through each room's
     ``camera_input_room_stuck_excluded``. Narrower than
     ``input_room_quarantined`` (any client, incl. the camera-stream client).
-    No room answers / error = False (the input keeps its pre-P3-D8 role)."""
+    No room answers = False (the input keeps its pre-P3-D8 role)."""
     if not input_eid:
         return False
-    return _ask(hass, "camera_input_room_stuck_excluded", input_eid) is True
+    # Review D-L1: an input listed in two rooms is released only when EVERY
+    # room with an opinion (True / False) says True; any False holds.
+    answers = []
+    for coord in _room_coordinators(hass):
+        try:
+            a = coord.camera_input_room_stuck_excluded(input_eid)
+        except Exception:  # noqa: BLE001 - fails toward holding
+            a = False
+        if isinstance(a, bool):
+            answers.append(a)
+    return bool(answers) and all(answers)
 
 
 _MISSING = object()

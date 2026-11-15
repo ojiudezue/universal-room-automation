@@ -3676,6 +3676,13 @@ CROSSING_VISION_LEDGER_ANCHOR_NEEDS_NO_HOLD: Final = True
 CROSSING_VISION_ANCHOR_STUCK_CLIENTS: Final = frozenset(
     {"p22_continuous", "chatter", "stuck_dutycycle"}
 )
+# Review D-M1 (orchestrator conservative default 2026-11-15; operator may
+# override): in these house states a `p22_continuous` exclusion does NOT
+# release the anchor (P22 has no house-state gate; a still sleeper on a
+# radar reaches it at 4 h). Empty = P22 releases in every state.
+CROSSING_VISION_ANCHOR_P22_HOLD_STATES: Final = frozenset(
+    {"sleep", "waking", "home_night"}
+)
 # Kill switch: False = a stuck-excluded live `on` input still holds (the
 # pre-P3-D8 rule).
 CROSSING_VISION_LEDGER_ANCHOR_IGNORES_STUCK: Final = True

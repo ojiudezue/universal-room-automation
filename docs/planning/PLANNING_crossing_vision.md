@@ -833,7 +833,10 @@ writer).**
    counted `cap_rehydrate_failed` and paged LOW. Teardown cancels the task. Why rehydrate: the restart-storm history
    (memory `project_reload_storm_refuted_restart_storm_live`) turns a RAM cap into no cap.
 4. Residual: rows still in the write queue at a restart and calls in flight are not counted; bound ≤
-   `MAX_CONCURRENT` + the queue's unflushed crossing rows per restart.
+   `MAX_CONCURRENT` + the queue's unflushed crossing rows per restart. Also not counted (build reviews A2, D-L2):
+   call rows whose `log_memory_episode` write failed (swallowed, WARNING only), a call that returned but raised in
+   `_run` before `_record`, and calls in flight at stop that the teardown gather cancels (billed, no row; ≤
+   `MAX_CONCURRENT` per restart).
 - **Tests:** `test_cap_counter_rehydrated_from_today_rows`, `test_rehydrate_counts_by_ended_at_not_started_at`,
   `test_rehydrate_ignores_yesterday_and_non_call_rows`, `test_rehydrate_slow_db_no_calls_until_done`,
   `test_rehydrate_error_retries_once_then_cap`, `test_dao_reports_error_distinct_from_empty`,
