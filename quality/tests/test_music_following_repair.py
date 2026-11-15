@@ -3053,3 +3053,634 @@ async def test_mf_ma_move_never_fades_source(rig):
              if c[2]["volume_level"] == 0.1]
     assert fades == []
     assert rig.world.volume("kitchen") == 0.4
+
+
+# ===========================================================================
+# Review C second pass: the lower-severity GREEN rows
+# ===========================================================================
+
+
+def _idle(rig, *names):
+    for n in names:
+        sp = rig.world.speakers[n]
+        sp.state = "idle"
+        rig.world.push(sp)
+
+
+@pytest.mark.asyncio
+async def test_mf_second_remember_keeps_pre_fade_volume(rig):
+    """V11: a second move out of a speaker another move already faded keeps
+    the PRE-fade volume, so the room ends at 0.45, not at the fade level."""
+    _bounce_knobs(rig)
+    rig.world.play("garage_b", volume=0.45)
+    set_area(rig, "Laundry")
+    set_area(rig, "Living Room", person="jaya")
+    rig.clock.hold = True
+    a = asyncio.ensure_future(
+        rig.mf._on_person_transition(T(rig, "Garage B", "Laundry", area="Laundry")))
+    try:
+        assert await until(lambda: len(rig.clock.waiters) == 1)
+        assert rig.world.volume("garage_b") == 0.1
+        b = asyncio.ensure_future(rig.mf._on_person_transition(
+            T(rig, "Garage B", "Living Room", person=PERSON2, area="Living Room")))
+        assert await until(lambda: len(rig.clock.waiters) == 2)
+    finally:
+        rig.clock.hold = False
+        for _ in range(10):
+            rig.clock.release()
+            await asyncio.sleep(0)
+    await asyncio.wait_for(asyncio.gather(a, b), 5)
+    await rig.mf.async_wait_idle()
+    await rig.hass.async_block_till_done()
+    assert rig.world.volume("garage_b") == 0.45
+
+
+def _ma_pair_device(rig, room, area, mac_hex, *, playing_kind=None):
+    """A WiiM with TWO MA twins: one on its own device (same_device) and one
+    MA device carrying its MAC (mac_in_ma_id). Same physical speaker."""
+    mac = ":".join(mac_hex[i:i + 2] for i in range(0, 12, 2))
+    dev = _speaker_device(rig, "wiim", f"{room}_3", area=area, mac=mac)
+    _speaker_device(rig, "music_assistant", f"{room}_sd", area=None, dev=dev)
+    _speaker_device(rig, "music_assistant", f"{room}_mac", area=None,
+                    ident=("music_assistant", f"up{mac_hex}"))
+    return dev
+
+
+@pytest.mark.asyncio
+async def test_mf_ma_target_twin_same_kind_as_source(rig):
+    """MA6: with two MA twins on the target, the one resolved the same way
+    as the source's (Kitchen: mac_in_ma_id) is addressed."""
+    _ma_pair_device(rig, "office", "office", "deadbeef1001")
+    rig.world.speaker("office", "media_player.office_3", "media_player.office_sd",
+                      "media_player.office_mac")
+    _add_room(rig, "Office", "media_player.office_3", "office")
+    rig.world.play("kitchen")
+    set_area(rig, "Office")
+    assert await move(rig, "Kitchen", "Office") == "success"
+    (_, _, data, _), = rig.world.services("music_assistant", "transfer_queue")
+    assert data["entity_id"] == ["media_player.office_mac"]
+
+
+@pytest.mark.asyncio
+async def test_mf_ma_source_is_the_playing_twin(rig):
+    """MA7: of the source's two MA twins, the PLAYING one is the queue that
+    moves (the other twin is idle)."""
+    _ma_pair_device(rig, "den", "den", "deadbeef1002")
+    rig.world.speaker("den", "media_player.den_3", "media_player.den_mac")
+    rig.world.speaker("den_idle_twin", "media_player.den_sd")
+    _add_room(rig, "Den", "media_player.den_3", "den")
+    rig.world.play("den")
+    set_area(rig, "Study A")
+    assert await move(rig, "Den", "Study A") == "success"
+    (_, _, data, _), = rig.world.services("music_assistant", "transfer_queue")
+    assert data["source_player"] == "media_player.den_mac"
+
+
+@pytest.mark.asyncio
+async def test_mf_join_leader_from_group_members_attr(rig):
+    """J3: the source follows a group it did not form (group_members[0] is
+    another speaker): the join goes to that leader."""
+    _speaker_device(rig, "wiim", "den_3", area="den", mac="aa:bb:cc:dd:ee:71", name="den")
+    rig.mf.apply_config({"mf_follow_mode": "extend"})
+    rig.world.play("den")
+    rig.world.play("garage_b")
+    rig.world.speakers["garage_b"].group = ["media_player.den_3", "media_player.garage_b_3"]
+    rig.world.push(rig.world.speakers["garage_b"])
+    set_area(rig, "Laundry")
+    assert await move(rig, "Garage B", "Laundry") == "success"
+    (_, _, data, _), = rig.world.services("media_player", "join")
+    assert data["entity_id"] == ["media_player.den_3"]
+    assert "leader_from_attr" in rig.mf._last_decision["path_reason"]
+
+
+@pytest.mark.parametrize("side", ["source", "target"])
+@pytest.mark.asyncio
+async def test_mf_join_needs_grouping_on_both_sides(rig, side):
+    """J5: same-platform WiiMs, extend mode, but one side lacks GROUPING:
+    no join, the generic path is used."""
+    _speaker_device(rig, "wiim", "pantry_3", area="pantry", mac="aa:bb:cc:dd:ee:72",
+                    name="pantry", features=GP if side == "source" else 512)
+    _add_room(rig, "Pantry", "media_player.pantry_3", "pantry")
+    if side == "source":
+        rig.world.features["media_player.garage_b_3"] = 512
+    rig.mf.apply_config({"mf_follow_mode": "extend"})
+    rig.world.play("garage_b")
+    set_area(rig, "Pantry")
+    assert await move(rig, "Garage B", "Pantry") == "success"
+    assert rig.world.services("media_player", "join") == []
+    assert rig.mf._last_decision["path"] == "generic"
+
+
+@pytest.mark.asyncio
+async def test_mf_join_needs_same_platform(rig):
+    """J6: WiiM source, Sonos target, both GROUPING: never a cross-brand join."""
+    _speaker_device(rig, "sonos", "nook_sonos", area="nook", mac="aa:bb:cc:dd:ee:73",
+                    name="nook")
+    _add_room(rig, "Nook", "media_player.nook_sonos", "nook")
+    rig.mf.apply_config({"mf_follow_mode": "extend"})
+    rig.world.play("garage_b")
+    set_area(rig, "Nook")
+    assert await move(rig, "Garage B", "Nook") == "success"
+    assert rig.world.services("media_player", "join") == []
+    assert rig.mf._last_decision["path"] == "generic"
+
+
+@pytest.mark.asyncio
+async def test_mf_target_volume_join_vs_scaled(hass, mods):
+    """J7 + Y22: Laundry's loudness scale 0.5. A join keeps the group at the
+    source volume (0.6); a generic move scales it (0.3)."""
+    r = await _make_rig(hass, mods, rooms=[
+        ("Garage B", "media_player.garage_b_3", "garage_b"),
+        ("Laundry", "media_player.utility_3", "utility")])
+    try:
+        for e in hass.config_entries.async_entries(DOMAIN):
+            if e.data.get("room_name") == "Laundry":
+                hass.config_entries.async_update_entry(
+                    e, data={**e.data, "room_media_volume_scale": 0.5})
+        r.mf.apply_config({"mf_cooldown_seconds": 0})
+        for mode, want in (("move", 0.3), ("extend", 0.6)):
+            r.mf.apply_config({"mf_follow_mode": mode})
+            _idle(r, "utility")
+            r.world.play("garage_b", volume=0.6)
+            set_area(r, "Laundry")
+            r.clock.t += 100
+            assert await move(r, "Garage B", "Laundry") == "success"
+            assert r.mf._last_decision["path"] == ("generic" if mode == "move" else "join")
+            assert r.world.volume("utility") == want, mode
+    finally:
+        await r.mf.async_teardown()
+
+
+@pytest.mark.asyncio
+async def test_mf_new_move_waits_for_old_cleanup(rig):
+    """X8: the bounce back waits until the superseded move's cleanup has
+    taken the target back, then books returned_in_flight (music stays in
+    the person's room only)."""
+    _bounce_knobs(rig)
+    rig.world.play("garage_b", volume=0.45)
+    set_area(rig, "Laundry")
+    rig.clock.hold = True
+    first = asyncio.ensure_future(
+        rig.mf._on_person_transition(T(rig, "Garage B", "Laundry", area="Laundry")))
+    assert await until(lambda: rig.clock.waiters)
+    gate, entered = _stall(rig, "media_stop", "media_player.utility_3", before=True)
+    set_area(rig, "Garage B")
+    second = asyncio.ensure_future(
+        rig.mf._on_person_transition(T(rig, "Laundry", "Garage B", area="Garage B")))
+    await asyncio.wait_for(entered.wait(), 2)
+    for _ in range(30):
+        await asyncio.sleep(0)
+    gate.set()
+    rig.clock.hold = False
+    rig.clock.release()
+    await asyncio.wait_for(asyncio.gather(first, second), 5)
+    await rig.mf.async_wait_idle()
+    await rig.hass.async_block_till_done()
+    assert rig.mf._last_decision["outcome"] == "returned_in_flight"
+    assert _one_room_playing(rig, ["garage_b", "utility"]) == ["garage_b"]
+
+
+@pytest.mark.asyncio
+async def test_mf_return_match_expires(rig):
+    """X9: a superseded record older than 120 s no longer makes a walk into
+    its source room a returned_in_flight."""
+    _bounce_knobs(rig)
+    rig.world.play("garage_b")
+    set_area(rig, "Laundry")
+    rig.clock.hold = True
+    first = asyncio.ensure_future(
+        rig.mf._on_person_transition(T(rig, "Garage B", "Laundry", area="Laundry")))
+    assert await until(lambda: rig.clock.waiters)
+    set_area(rig, "Hall")
+    second = asyncio.ensure_future(
+        rig.mf._on_person_transition(T(rig, "Laundry", "Hall", area="Hall")))
+    rig.clock.hold = False
+    rig.clock.release()
+    await asyncio.wait_for(asyncio.gather(first, second), 5)
+    await rig.mf.async_wait_idle()
+    assert rig.mf._last_superseded
+    rig.clock.t += 121
+    rig.world.play("garage_b")
+    set_area(rig, "Garage B")
+    out = await move(rig, "Hall", "Garage B")
+    assert out != "returned_in_flight"
+
+
+@pytest.mark.asyncio
+async def test_mf_tripwire_db_candidate_needs_source_playing(dbrig, monkeypatch):
+    """W5: decision rows whose source was NOT playing (source_has_others) are
+    not candidates: three of them do not page."""
+    r = dbrig
+    fired = []
+
+    async def _fire(*a, **kw):
+        fired.append(a)
+        return True
+
+    monkeypatch.setattr(r.mods.stuck, "fire_stuck_signal", _fire)
+    r.mf.apply_config({"mf_cooldown_seconds": 0})
+    for _ in range(3):
+        r.world.play("garage_b")
+        set_area(r, "Laundry")
+        set_area(r, "Garage B", person="jaya")
+        r.clock.t += 100
+        assert await move(r, "Garage B", "Laundry") == "source_has_others"
+    await _flush(r)
+    assert len(await r.db.read_memory_episodes_by_type("music_follow_decision")) == 3
+    res = await r.mf.async_nightly_health_check(r.db)
+    assert res["window_source"] == "db" and res["candidates"] == 0
+    assert fired == []
+
+
+@pytest.mark.asyncio
+async def test_mf_tripwire_db_window_bounds_rows(dbrig, monkeypatch):
+    """W6: the DB read is bounded by the trip-wire window (here 1 s): rows
+    older than the window are not counted."""
+    r = dbrig
+    fired = []
+
+    async def _fire(*a, **kw):
+        fired.append(a)
+        return True
+
+    monkeypatch.setattr(r.mods.stuck, "fire_stuck_signal", _fire)
+    r.mf.apply_config({"mf_cooldown_seconds": 0})
+    for _ in range(3):
+        r.world.play("garage_b")
+        r.world.speakers["utility"].never_plays = True
+        set_area(r, "Laundry")
+        r.clock.t += 100
+        await move(r, "Garage B", "Laundry")
+    await _flush(r)
+    monkeypatch.setattr(r.mods.const, "MF_TRIPWIRE_WINDOW_S", 1)
+    await asyncio.sleep(1.3)
+    r.clock.t += 10
+    res = await r.mf.async_nightly_health_check(r.db)
+    assert res["candidates"] == 0 and fired == []
+
+
+@pytest.mark.asyncio
+async def test_mf_tripwire_memory_wins_over_short_db(rig, monkeypatch):
+    """W7: a database that returns fewer candidates than memory (a failing
+    writer) is not trusted: memory is used and the trip-wire fires."""
+    fired = []
+
+    async def _fire(hass, kind, *a, **kw):
+        fired.append(kind)
+        return True
+
+    monkeypatch.setattr(rig.mods.stuck, "fire_stuck_signal", _fire)
+
+    class _EmptyDB:
+        async def read_memory_episodes_by_type(self, *_a, **_k):
+            return []
+
+    for _ in range(3):
+        rig.world.play("garage_b")
+        rig.world.speakers["utility"].never_plays = True
+        set_area(rig, "Laundry")
+        rig.clock.t += 100
+        await move(rig, "Garage B", "Laundry")
+    res = await rig.mf.async_nightly_health_check(_EmptyDB())
+    assert res["window_source"] == "memory" and res["candidates"] == 3
+    assert fired == ["music_follow_silent"]
+
+
+@pytest.mark.asyncio
+async def test_mf_area_player_prefers_multiroom_over_tv(rig):
+    """R4: a room with no configured speaker and a TV + a WiiM in its area
+    picks the WiiM (the TV sorts first by name)."""
+    _speaker_device(rig, "samsungtv", "aaa_hall_tv", area="hall", features=512, name="halltv")
+    _speaker_device(rig, "wiim", "zz_hall_3", area="hall", mac="aa:bb:cc:dd:ee:81", name="hallspk2")
+    rig.world.play("kitchen")
+    set_area(rig, "Hall")
+    await move(rig, "Kitchen", "Hall")
+    assert rig.mf._last_decision["target_player"] == "media_player.zz_hall_3"
+
+
+@pytest.mark.asyncio
+async def test_mf_area_player_skips_disabled_entity(rig):
+    """R7: a disabled speaker entity in the area is never the room's player."""
+    dev = _speaker_device(rig, "wiim", "aaa_hall_off", area="hall", mac="aa:bb:cc:dd:ee:82",
+                          name="halloff")
+    ent = rig.er.async_get("media_player.aaa_hall_off")
+    Disabler = type(rig.er).async_get_or_create.__globals__["RegistryEntryDisabler"]
+    rig.er.async_update_entity(ent.entity_id, disabled_by=Disabler.USER)
+    _speaker_device(rig, "wiim", "zz_hall_on", area="hall", mac="aa:bb:cc:dd:ee:83", name="hallon")
+    assert dev is not None
+    rig.world.play("kitchen")
+    set_area(rig, "Hall")
+    await move(rig, "Kitchen", "Hall")
+    assert rig.mf._last_decision["target_player"] == "media_player.zz_hall_on"
+
+
+@pytest.mark.asyncio
+async def test_mf_room_without_speaker_uses_zone_player(rig):
+    """R6: a room with no configured speaker in a zone with a zone player
+    moves the music to the zone player (before any area guess)."""
+    rig.mods.MockConfigEntry(domain=DOMAIN, data={
+        "entry_type": "zone_manager",
+        "zones": {"Back": {"zone_player_entity": "media_player.zone_spk"}},
+    }).add_to_hass(rig.hass)
+    _add_room(rig, "Den", None, "hall", zone="Back")
+    _speaker_device(rig, "wiim", "den_area_3", area="hall", mac="aa:bb:cc:dd:ee:84", name="denarea")
+    rig.world.speaker("zone", "media_player.zone_spk")
+    rig.world.play("kitchen")
+    set_area(rig, "Den")
+    await move(rig, "Kitchen", "Den")
+    assert rig.mf._last_decision["target_player"] == "media_player.zone_spk"
+
+
+@pytest.mark.asyncio
+async def test_mf_ble_room_compare_is_slug_normalised(rig):
+    """B6: the layer's room "study_a" is the target "Study A"."""
+    rig.world.play("kitchen")
+    set_area(rig, "study_a")
+    assert await move(rig, "Kitchen", "Study A") == "success"
+
+
+@pytest.mark.asyncio
+async def test_mf_ble_missing_event_method_counted(rig):
+    """B9: a transition without the producer's BLE method is counted as a
+    missing input (fail open: the move still happens)."""
+    rig.world.play("kitchen")
+    set_area(rig, "Study A")
+    assert await move(rig, "Kitchen", "Study A", method=None) == "success"
+    assert rig.mf._last_decision["ble_input"] == "no_event_ble"
+    assert rig.mf._transfer_stats["ble_input_missing"] == 1
+
+
+@pytest.mark.asyncio
+async def test_mf_any_mode_still_stamps_certainty(rig):
+    """B11: the decision records the certainty mode even when it is "any"."""
+    rig.mf.apply_config({"mf_min_ble_confidence": "any"})
+    rig.world.play("kitchen")
+    set_area(rig, "Study A")
+    assert await move(rig, "Kitchen", "Study A") == "success"
+    assert rig.mf._last_decision["ble_confidence"] == "any"
+
+
+@pytest.mark.asyncio
+async def test_mf_failed_counts_as_attempt(rig):
+    """C12 + Y15: a move with no content to play is "failed" (reason
+    generic:no_content, no play_media call) and counts as an attempt."""
+    sp = rig.world.speakers["garage_b"]
+    sp.state = "playing"
+    rig.world.push(sp)
+    set_area(rig, "Laundry")
+    assert await move(rig, "Garage B", "Laundry") == "failed"
+    assert rig.mf._last_decision["reason"] == "generic:no_content"
+    assert rig.world.services("media_player", "play_media") == []
+    assert rig.mf.transfer_attempts() == 1
+    assert rig.mf.get_diagnostic_data()["transfer_failures_today"] == 1
+
+
+@pytest.mark.asyncio
+async def test_mf_path_error_is_failed_not_verify_failed(rig):
+    """C18: the start call raising books "failed" with the path and error."""
+    real = rig.mf._call
+
+    async def _boom(domain, svc, data=None, **kw):
+        if svc == "play_media":
+            raise RuntimeError("speaker refused")
+        return await real(domain, svc, data, **kw)
+
+    rig.mf._call = _boom
+    rig.world.play("garage_b")
+    set_area(rig, "Laundry")
+    assert await move(rig, "Garage B", "Laundry") == "failed"
+    assert rig.mf._last_decision["reason"] == "generic:RuntimeError"
+    assert rig.world.state("garage_b") == "playing"
+
+
+@pytest.mark.asyncio
+async def test_mf_episode_dedups_by_source_ref(dbrig):
+    """D3: the same source_ref written twice is one row."""
+    r = dbrig
+    for _ in range(2):
+        r.mf._write_episode("music_follow_decision", "room:x", {"outcome": "success"},
+                            source_ref="mf:dup:1")
+    await _flush(r)
+    rows = await r.db.read_memory_episodes("room:x", "music_follow_decision")
+    assert len(rows) == 1
+
+
+@pytest.mark.asyncio
+async def test_mf_episode_kill_switch(dbrig, monkeypatch):
+    """D5: MF_EPISODE_LOG_PERSIST False writes no room-memory row."""
+    r = dbrig
+    monkeypatch.setattr(r.mods.const, "MF_EPISODE_LOG_PERSIST", False)
+    r.world.play("kitchen")
+    set_area(r, "Study A")
+    assert await move(r, "Kitchen", "Study A") == "success"
+    await _flush(r)
+    assert await r.db.read_memory_episodes_by_type("music_follow_decision") == []
+
+
+@pytest.mark.asyncio
+async def test_mf_teardown_waits_for_episode_writes(rig):
+    """D11 + T4: teardown waits for a room-memory write still in flight."""
+    written = []
+
+    class _SlowDB:
+        async def log_memory_episode(self, **kw):
+            await asyncio.sleep(0.05)
+            written.append(kw["episode_type"])
+
+    rig.hass.data[DOMAIN]["database"] = _SlowDB()
+    rig.world.play("kitchen")
+    set_area(rig, "Study A")
+    await rig.mf._on_person_transition(T(rig, "Kitchen", "Study A", area="Study A"))
+    await rig.mf.async_wait_idle()
+    await rig.mf.async_teardown()
+    assert written == ["music_follow_decision"]
+
+
+@pytest.mark.asyncio
+async def test_mf_teardown_clears_lookback_stamp(rig):
+    """T6: after a teardown (reload) the old hallway stamp is not used."""
+    rig.world.play("kitchen")
+    set_area(rig, "Hall")
+    await move(rig, "Kitchen", "Hall")
+    await rig.mf.async_teardown()
+    set_area(rig, "Study A")
+    assert await move(rig, "Hall", "Study A") == "no_source_player"
+
+
+@pytest.mark.asyncio
+async def test_mf_ma_move_remembers_and_restores_source_volume(rig):
+    """Y14: on the MA path the source volume is kept and put back after the
+    release (MA may leave the old speaker at any level)."""
+    rig.world.play("kitchen", volume=0.4)
+    set_area(rig, "Study A")
+    assert await move(rig, "Kitchen", "Study A") == "success"
+    vols = [c[2] for c in rig.world.services("media_player", "volume_set")
+            if c[2]["entity_id"] == ["media_player.kitchen_3"]]
+    assert vols == [{"entity_id": ["media_player.kitchen_3"], "volume_level": 0.4}]
+
+
+@pytest.mark.asyncio
+async def test_mf_reversal_watch_ends_at_next_move(rig):
+    """Y21: once the person moves on, a hand stop of the earlier target is
+    not booked against the earlier move (even when the new move fails)."""
+    rig.mf.apply_config({"mf_cooldown_seconds": 0})
+    rig.world.play("garage_b")
+    set_area(rig, "Laundry")
+    assert await move(rig, "Garage B", "Laundry") == "success"
+    rig.world.speakers["living"].never_plays = True
+    set_area(rig, "Living Room")
+    rig.clock.t += 10
+    assert await move(rig, "Laundry", "Living Room") == "verify_failed"
+    rig.hass.states.async_set("media_player.utility_3", "paused", {"supported_features": GP})
+    await rig.hass.async_block_till_done()
+    assert rig.mf.accuracy()["reversals"] == 0
+
+
+@pytest.mark.asyncio
+async def test_mf_same_speaker_two_rooms_blocked(rig):
+    """Y23: two rooms sharing one speaker: no move, reason same_speaker."""
+    _add_room(rig, "Nook", "media_player.kitchen_3", "nook")
+    rig.world.play("kitchen")
+    set_area(rig, "Nook")
+    assert await move(rig, "Kitchen", "Nook") == "active_playback_blocked"
+    assert rig.mf._last_decision["reason"] == "same_speaker"
+
+
+@pytest.mark.asyncio
+async def test_mf_lookback_never_targets_its_own_room(rig):
+    """Y42: walking back into the stamped room is not a lookback move."""
+    rig.world.play("kitchen")
+    set_area(rig, "Hall")
+    await move(rig, "Kitchen", "Hall")
+    set_area(rig, "Kitchen")
+    assert await move(rig, "Hall", "Kitchen") == "no_source_player"
+
+
+@pytest.mark.asyncio
+async def test_mf_lookback_stamp_must_still_play(rig):
+    """Y43: the stamped room stopped meanwhile: no source."""
+    rig.world.play("kitchen")
+    set_area(rig, "Hall")
+    await move(rig, "Kitchen", "Hall")
+    _idle(rig, "kitchen")
+    set_area(rig, "Study A")
+    assert await move(rig, "Hall", "Study A") == "no_source_player"
+
+
+@pytest.mark.asyncio
+async def test_mf_idle_from_room_falls_back_to_lookback(rig):
+    """Y44: the room left has a speaker that does not play; the lookback
+    room that still plays is the source."""
+    rig.world.play("kitchen")
+    rig.hass.states.async_set("media_player.garage_b_3", "unavailable", {})
+    set_area(rig, "Garage B")
+    assert await move(rig, "Kitchen", "Garage B") == "target_unavailable"
+    rig.clock.t += 10
+    set_area(rig, "Study A")
+    assert await move(rig, "Garage B", "Study A") == "success"
+    assert rig.mf._last_decision["source_room"] == "Kitchen"
+
+
+@pytest.mark.asyncio
+async def test_mf_reversal_source_resumed_by_hand(rig):
+    """Q3: the old room started again by hand is a reversal."""
+    rig.world.play("garage_b")
+    set_area(rig, "Laundry")
+    assert await move(rig, "Garage B", "Laundry") == "success"
+    rig.hass.states.async_set("media_player.garage_b_3", "playing", {"supported_features": GP})
+    await rig.hass.async_block_till_done()
+    assert rig.mf.accuracy()["by_kind"] == {"source_resumed_by_hand": 1}
+
+
+@pytest.mark.asyncio
+async def test_mf_reversal_window_expires(rig):
+    """Q5: a hand pause 121 s after the move is not a reversal."""
+    from datetime import timedelta
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+    rig.world.play("garage_b")
+    set_area(rig, "Laundry")
+    assert await move(rig, "Garage B", "Laundry") == "success"
+    async_fire_time_changed(rig.hass, dt_util.utcnow() + timedelta(seconds=121))
+    await rig.hass.async_block_till_done()
+    rig.hass.states.async_set("media_player.utility_3", "paused", {"supported_features": GP})
+    await rig.hass.async_block_till_done()
+    assert rig.mf.accuracy()["reversals"] == 0
+
+
+@pytest.mark.asyncio
+async def test_mf_digest_names_most_common_skip(rig):
+    """Q11: the digest names the most frequent skip."""
+    rig.mf.apply_config({"mf_cooldown_seconds": 0})
+    rig.world.play("garage_b")
+    set_area(rig, "Laundry")
+    assert await move(rig, "Garage B", "Laundry") == "success"
+    set_area(rig, "Hall")
+    for _ in range(2):
+        rig.clock.t += 10
+        await move(rig, "Garage B", "Hall")          # nothing playing there now
+    set_area(rig, "Study A")
+    rig.clock.t += 10
+    assert await move(rig, "Hall", "Study A") == "no_source_player"
+    line = rig.mf.digest_section()
+    assert line.endswith("Most common skip: source_not_playing (2)."), line
+
+
+@pytest.mark.asyncio
+async def test_mf_exception_after_fade_restores_volume(rig):
+    """A8: a crash after the source was faded puts its volume back."""
+    real_sleep = rig.clock.sleep
+
+    async def _crash(s):
+        raise RuntimeError("verify crashed")
+
+    rig.mf._sleep = _crash
+    rig.world.play("garage_b", volume=0.45)
+    set_area(rig, "Laundry")
+    assert await move(rig, "Garage B", "Laundry") == "exception"
+    assert rig.world.volume("garage_b") == 0.45
+    rig.mf._sleep = real_sleep
+
+
+@pytest.mark.asyncio
+async def test_mf_invalid_follow_mode_ignored(rig):
+    """A10: an invalid follow mode is ignored; moves stay "move"."""
+    assert "mf_follow_mode" not in rig.mf.apply_config({"mf_follow_mode": "bogus"})
+    rig.world.play("garage_b")
+    set_area(rig, "Laundry")
+    assert await move(rig, "Garage B", "Laundry") == "success"
+    assert rig.world.state("garage_b") == "idle"
+
+
+@pytest.mark.asyncio
+async def test_mf_negative_knob_clamped_to_zero(rig):
+    """A11: a negative seek lead is clamped to 0 (seek at the live position)."""
+    rig.mf.apply_config({"mf_position_offset": -5})
+    rig.world.play("garage_b")
+    set_area(rig, "Living Room")
+    await move(rig, "Garage B", "Living Room")
+    (_, _, data, _), = rig.world.services("media_player", "media_seek")
+    assert data["seek_position"] == 42.0
+
+
+@pytest.mark.asyncio
+async def test_mf_invalid_certainty_ignored(rig):
+    """A12: an invalid certainty value is ignored (the shown knob stays
+    "normal"; the gate itself treats any non-"any" value as normal)."""
+    assert "mf_min_ble_confidence" not in rig.mf.apply_config({"mf_min_ble_confidence": "bogus"})
+    assert rig.mf.get_diagnostic_data()["knobs"]["location_certainty"] == "normal"
+
+
+@pytest.mark.asyncio
+async def test_mf_device_less_ma_player_is_addressed_directly(rig):
+    """MA11 by behaviour: a room speaker that IS a Music Assistant entity with
+    no HA device still takes the MA path (no same-device fallback exists)."""
+    cfg = rig.hass.config_entries.async_entries("music_assistant")[0]
+    rig.er.async_get_or_create("media_player", "music_assistant", "u-loft",
+                               suggested_object_id="loft_ma", config_entry=cfg)
+    rig.world.speaker("loft", "media_player.loft_ma")
+    _add_room(rig, "Loft", "media_player.loft_ma", "loft")
+    rig.world.play("kitchen")
+    set_area(rig, "Loft")
+    assert await move(rig, "Kitchen", "Loft") == "success"
+    assert rig.mf._last_decision["path"] == "ma"
