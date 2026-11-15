@@ -359,3 +359,26 @@ source mutation of the INV-DIR-GATE site, operator checkpoint before deploy.
    interior ship 5 owns that).
 
 
+
+## 2026-11-15 (plan-review fix-up of bca9fb65)
+
+Review: `docs/reviews/code-review/plan_review_crossing_vision_bca9fb65_2026_11_15.md` (PLAN-FIX-REQUIRED, 3 HIGH,
+9 MEDIUM, 6 LOW). All 18 fixed in place. What changed against bca9fb65:
+- P3-D3 rewritten: ambiguous requests never adopt later resolved members (finding 3, recommended rule taken, so no
+  residual share needed); `term_direction` late-joiner rule moved in from P3-D4 step 4 without the pass clause, with
+  the `prim_dir` mutation (1); direction fields optional, never move `outcome` (5); both amend sites through
+  `_amend_vision_direction` (14); repeat call on its own budget (`REPEAT_DAILY_MAX` 15, replaced `REPEAT_CAP_RESERVE`),
+  never a primary's slot, sha1 selection, tracked task, `node_id vision-repeat:`, `call_kind` instead of `stage`, named
+  readers (2, 4); guard notes restored (13c); `member_inherited` relaxation recorded (13a).
+- INV-DIR-GATE gained the repeat clause and invalid / missing values; the source is now the rung-2 per-door-group
+  option `CONF_CROSSING_VISION_LEDGER_DIRECTION_SOURCE` (was a rung-1 constant), missing key = tracker, ungrouped
+  `stem:<stem>`, substitution at `crossing_vision.py:658-661` (7). INV-SCOPE names the repeat budget.
+- P3-D2 fire time on the window route (6); group-count reasoning on both legs (8).
+- P3-D0b I1 path truncated at E+45 s (10), coverage gated on own decisions at 0.50 (was 0.80 with fallback) plus bias
+  controls (17); P3-D0d K2 two shares and the P3-D9c / fixes-table twin-pass claims narrowed to 30 s / 60 s (9).
+- P3-D6: PARK on the Wilson upper bound, 150 kept as hard stop (11); per pass once a key exists, day / night, n per
+  cell, signed net count error (13b, 8); front-door-dominated reps and realistic stability n (15, 16); the 15:12:14
+  change re-described as across a `max_tokens` difference, not an identical repeat (15).
+- P2-D2 step 3 and P3-D4 step 5 made consistent on the `vision` branch (13d). P3-D8 marked APPROVED (18).
+- New decision 13: absolute vs relative direction bar, recommended relative for the ledger flip, absolute for F-LEAD.
+- Census plan F-LEAD row (`PLANNING_census_deconfliction.md` rung 0) made per door group, P3-D9c added to the bumps (12).
