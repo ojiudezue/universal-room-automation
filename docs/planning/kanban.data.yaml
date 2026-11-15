@@ -9,6 +9,7 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {"fid": "MEMORY-EPISODES-PERIMETER-GATE-RETENTION-1@2026-11-15T02:14:00", "card_id": "MEMORY-EPISODES-PERIMETER-GATE-RETENTION-1", "at": "2026-11-15T02:14:00", "outcome": "parked", "headline": "Memory-episodes table measured: about 18 MB (1% of the DB), growing roughly 100 MB a year, mostly exterior tracks rather than perimeter gate rows. Nothing ever deletes old rows. Parked because deleting history can't be undone; it comes back if the table passes 100 MB or 5% of the DB.", "acknowledged": false}
   - {"fid": "WALLPANEL-TOUCH-WITNESS-1@2026-11-15T02:13:00", "card_id": "WALLPANEL-TOUCH-WITNESS-1", "at": "2026-11-15T02:13:00", "outcome": "measured", "headline": "Wall-panel BLE room accuracy: Study B is right 96% of the time when it says Study B, but catches only 38% of the time someone is there; it often says Master Bedroom instead. Foyer and Media Room have too little single-person data to judge. Optional ask: a 10-minute solo walk-in in each when you're back.", "acknowledged": false}
   - {"fid": "HVAC-GUEST-EVIDENCE-RULE-1@2026-11-15T02:12:00", "card_id": "HVAC-GUEST-EVIDENCE-RULE-1", "at": "2026-11-15T02:12:00", "outcome": "done", "headline": "HVAC guest-state shadow verdict, measured during the current guest stay: the newer evidence rule would let zones go too early in GUEST (11 of 20 eligible episodes, mostly Jaya Bedroom; 35% vs a 3% bar). So GUEST stays on the old timer and phase 2 is not built. Sleep reads the same (NOT SAFE). Closed.", "acknowledged": false}
   - {"fid": "PERIMETER-IDENTITY-FOLLOWUP-1@2026-11-15T02:12:00", "card_id": "PERIMETER-IDENTITY-FOLLOWUP-1", "at": "2026-11-15T02:12:00", "outcome": "measured", "headline": "The 'that was Jaya' follow-up has never fired: 440 perimeter alerts since 11-10, zero follow-ups. Most alerts come from rear and side cameras, not doors, so this may just mean no eligible event yet. Next I count eligible events, then close it or reopen it as a defect.", "acknowledged": false}
@@ -34646,11 +34647,12 @@ cards:
   next: 'Me: move the patch into a scoped fixture (monkeypatch.setitem on sys.modules) and confirm the minimal ordering still passes.'
   rank: {value: 3, time_criticality: 2, effort: 1}
 - id: NM-DIGEST-MARK-RACE-1
+  verified_2026_11_15_overnight: 'STILL-REAL: notification_manager.py ~5650-5705 reads pending, awaits _deliver_digest, then database.mark_digest_delivered (database.py:4937) UPDATEs every delivered=0 LOW/MEDIUM row for the person, so a row inserted during the send is marked delivered=2 without ever appearing in a body. Gate: config-first N/A; prior art REUSE both functions (add an id high-water mark); parsimony BUILD; cost/benefit BUILD (Tier 1, one review). Builder dispatched to worktree overnight-nm-digest-race, branch fix/nm-digest-mark-race; to review lane only, no deploy.'
   title: mark_digest_delivered marks every undelivered row, including rows queued while the digest was sending, so they never appear in any digest
   thread: notifications
-  status: inbox
+  status: in_progress
   created: '2026-11-13 03:30'
-  updated: '2026-11-13 03:30'
+  updated: '2026-11-15 02:14'
   tier: 1
   links: {related: [NM-NO-CHANNEL-FIRED-1]}
   origin: {date: '2026-11-13', gist: 'Review B B3 of fix/nm-no-route (database.py:4958); pre-existing, made more frequent by the digest fallback (~43 rows/day).'}
@@ -35621,16 +35623,19 @@ cards:
   s2_reviews_2026_11_14: 'A FIX (A-M1 presence.py check_zone_occupancy_confidence Source 3 reads zone cameras raw, feeds HVAC 4 h failsafe; A-M2 live criteria do not discriminate; lows), B SHIP (B-M1 same site; B-M2 dead camera can trigger Sleep->Away -> operator chose hold; B-L3 zone camera tier asks the getter for every camera every read: reorder), C FIX tests only (census is True check, camera_is_dead key bleed, camera.* route, recheck_entities guards, fail-open handling).'
   operator_2026_11_14_census_hold: 'b. I don''t think the 4 hour has a real basis. => census hold short (stand-in ~30 min) then the dead camera is a missing term; both caps (census hold and the zone CAMERA_INPUT_STREAM_DEAD_HOLD_MAX_S, currently 14400 s borrowed from P22 and HVAC D6) to be set from a measured camera outage-duration distribution (recorder camera.* unavailable spans, p50/p90/p99, panels vs NVR cameras, before/after the homelab KS watchdog). Pending probe; fix-up after re-verify review.'
 - id: MEMORY-EPISODES-PERIMETER-GATE-RETENTION-1
+  measured_2026_11_15_overnight: 'URA DB read-only: memory_episodes holds 18,786 rows, about 18 MB, against a 1.51 GB DB (~1%). No prune or retention exists anywhere (grep of custom_components for DELETE FROM memory_episodes / prune: none). Biggest type is NOT perimeter_gate_decision: exterior_track 10,670 rows / 15.5 MB since 08-06 (~57 MB/yr, 685 rows in the last 7 d); actuation_conflict 1.1 MB; perimeter_gate_decision 110 rows / 0.08 MB in its first ~16 h (~165/day, ~44 MB/yr if the rate holds, inside the card''s 30-90 estimate). Whole table ~100 MB/yr, ~6% of today''s DB per year.'
+  parsimony: {problem: 'memory_episodes grows without bound (~100 MB/yr, led by exterior_track)', verdict: PARK, why: 'about 1% of the DB today; retention deletes adjudication/learning history (irreversible), so the per-type windows are an operator call, and the cost of waiting is small'}
+  revival_trigger: 'memory_episodes passes 100 MB or 5% of the DB, or the operator wants a retention policy; then PICK per-type windows (e.g. exterior_track 90 d, perimeter_gate_decision 90 d, keep adjudicated rows) and build a Tier 1 nightly prune.'
   title: memory_episodes has no retention; perimeter gate rows add ~30-90 MB/yr unbounded
   thread: infra
-  status: inbox
+  status: parked
   created: '2026-11-13 17:00'
-  updated: '2026-11-13 17:00'
+  updated: '2026-11-15 02:14'
   tier: 1
   links: {related: [PERIMETER-GATE-DECISIONS-NOT-PERSISTED-1]}
   origin: {date: '2026-11-13', gist: 'Perimeter gate evidence review A-L1: ~100-300 rows/day at ~800 B; nothing deletes memory_episodes rows.'}
   why: 'Unbounded growth on a shared table; the scorer only needs ~30-90 days.'
-  next: 'Me: measure memory_episodes size per type, propose per-type retention (e.g. perimeter_gate_decision 90 d) in the nightly maintenance; Tier 1 after measure.'
+  next: 'Parked (see revival_trigger). Measured 11-15: ~18 MB, exterior_track is the driver.'
   rank: {value: 2, time_criticality: 1, effort: 1}
 - id: VISION-INTERIOR-SIGHTINGS-1
   arc_cut_v5_108_24: "arc step 9, after NVR witness"
