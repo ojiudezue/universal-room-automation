@@ -133,6 +133,12 @@ the gap length. (c) Count transitions per day where both rooms resolve a player 
 - **Discriminates:** if MA mirrors sit on their own devices, "same device" resolution finds none; the table shows it.
 
 ### D1: replace the dwell gate with BLE gates (fixes G-1)
+> **8 ft distance gate DROPPED by the operator, 2026-11-14** ("The music distance gate: drop it"). The
+> "strict" certainty, `CONF_MF_HIGH_CONFIDENCE_DISTANCE` (retired, ignored, no form field), the outcome
+> `ble_too_far`, and the `closest_distance_ft` event key were removed; a saved "strict" reads as "normal".
+> The room check (layer `get_person_location` vs the target room) stays. **Parked:** revisit only if
+> wrong-room moves are measured AND a distance input exists (BERMUDA-DISTANCE-SENSORS-DEAD-1 option A).
+
 Delete the `transition.confidence < MIN_CONFIDENCE` gate. The transition's `confidence`, `path_type` and
 `duration_seconds` are logged as inputs only. Gates on BLE facts: `ble_confidence` from the event payload against
 `CONF_MF_MIN_BLE_CONFIDENCE` (outcome `ble_low_confidence`), and the existing distance gate (outcome `ble_too_far`,
@@ -313,7 +319,7 @@ one room plays at its own volume and the log shows `superseded`/`returned_in_fli
 | `CONF_MF_RELEASE_DELAY` | 2 (existing `CONF_MF_UNJOIN_DELAY` key, now wired) | 5 | seconds after the target plays before the source is removed; 0 = at once |
 | `CONF_MF_BONUS_JOINS` | 2 NEW | on | join other players in the target room after success; off = primary only |
 | `CONF_MF_MIN_BLE_CONFIDENCE` | 2 NEW | 0.5 (D0 sets) | BLE room confidence floor; 0 = off |
-| `CONF_MF_HIGH_CONFIDENCE_DISTANCE` | 2 existing | 8 ft | BLE bleed guard; 0 = off; now pushed live |
+| ~~`CONF_MF_HIGH_CONFIDENCE_DISTANCE`~~ | retired | - | DROPPED 2026-11-14 (operator); parked, see D1 |
 | `CONF_MF_SOURCE_LOOKBACK_SECONDS` | 2 NEW | 90 (D0 sets) | hallway walk-through; 0 = off |
 | `CONF_MF_COOLDOWN_SECONDS` | 2 existing | 8 | per-person re-move guard; 0 = off |
 | `CONF_MF_PING_PONG_WINDOW` | 2 existing | 60 | quick-return suppression; 0 = off |
@@ -349,8 +355,7 @@ Music Following
       Check the new room after (s)           2
       Remember the last playing room for (s) 90
       Ignore moves older than (s)            15
-      Phone must be within (ft)              8
-      Location certainty needed              [Any | Normal (recommended) | Strict]   (0 / 0.5 / 0.7)
+      Location certainty needed              [Any | Normal (recommended)]   (distance field + Strict dropped 2026-11-14)
       Seek ahead on cross-brand moves (s)    3
 ```
 Per-room form (room options, "Music following"): labels become "Music follows into this room", "Room speaker",

@@ -23,7 +23,9 @@ LAYER_ALLOWLIST_TOTAL_PROVISIONAL = 259
 # (cls='house_state'), crossing vision's raw residency connect moved onto
 # G1 (listed inside subscribe_person_edges), census-p2's
 # _CensusAwarenessSensor reads cls='display'.
-LAYER_ALLOWLIST_TOTAL = 259
+# music-following repair merge: -3, the three #23 R2 person_coordinator.data reads
+# in music_following.py now go through the public get_person_location API.
+LAYER_ALLOWLIST_TOTAL = 256
 RULED = 'plan rev 3.3 §17 (4d337e44) + coordinator lifecycle ruling; final run post-census-p2'
 
 # group -> (card, reason). '#N' = plan §9 row N; 'UNEXPLAINED' = STOP.
@@ -246,9 +248,6 @@ ROWS = {
     ('R2', 'fan_veto.py', '_has_ble_present:data'): {'max': 1, 'group': '#22', 'reserved': False, 'explained': True},
     ('R2', 'fan_veto.py', '_has_ble_present:get_persons_in_room'): {'max': 1, 'group': '#22', 'reserved': False, 'explained': True},
     ('R2', 'house_status.py', 'who:data'): {'max': 1, 'group': '#26', 'reserved': False, 'explained': True},
-    ('R2', 'music_following.py', 'MusicFollowing._dwell_room_for_person:data'): {'max': 1, 'group': '#23', 'reserved': False, 'explained': True},
-    ('R2', 'music_following.py', 'MusicFollowing._on_person_transition:data'): {'max': 1, 'group': '#23', 'reserved': False, 'explained': True},
-    ('R2', 'music_following.py', 'MusicFollowing._source_has_other_occupants:data'): {'max': 1, 'group': '#23', 'reserved': False, 'explained': True},
     ('R2', 'perimeter_alert.py', 'PerimeterAlertManager._build_egress_door_key_map:get_transit_egress_entities'): {'max': 1, 'group': '#19', 'reserved': False, 'explained': True},
     ('R2', 'perimeter_alert.py', 'PerimeterAlertManager._nonface_agrees:data'): {'max': 1, 'group': '#3', 'reserved': False, 'explained': True},
     ('R2', 'sensor.py', 'CurrentOccupantsSensor.extra_state_attributes:get_persons_in_room'): {'max': 1, 'group': '#26', 'reserved': False, 'explained': True},

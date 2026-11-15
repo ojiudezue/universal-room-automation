@@ -4267,7 +4267,7 @@ CONF_MF_VERIFY_DELAY: Final = "mf_verify_delay"
 CONF_MF_UNJOIN_DELAY: Final = "mf_unjoin_delay"
 CONF_MF_POSITION_OFFSET: Final = "mf_position_offset"
 CONF_MF_MIN_CONFIDENCE: Final = "mf_min_confidence"
-CONF_MF_HIGH_CONFIDENCE_DISTANCE: Final = "mf_high_confidence_distance"
+CONF_MF_HIGH_CONFIDENCE_DISTANCE: Final = "mf_high_confidence_distance"  # RETIRED 2026-11-14, ignored
 
 DEFAULT_MF_COOLDOWN_SECONDS: Final = 8
 DEFAULT_MF_PING_PONG_WINDOW: Final = 60
@@ -4275,7 +4275,6 @@ DEFAULT_MF_VERIFY_DELAY: Final = 2
 DEFAULT_MF_UNJOIN_DELAY: Final = 5
 DEFAULT_MF_POSITION_OFFSET: Final = 3
 DEFAULT_MF_MIN_CONFIDENCE: Final = 0.6
-DEFAULT_MF_HIGH_CONFIDENCE_DISTANCE: Final = 8.0  # feet — tighter than person tracking (10ft)
 
 # ============================================================================
 # v5.10.0 D2 Music Following — sleep + night suppression
@@ -4313,6 +4312,94 @@ DEFAULT_MF_NIGHT_SUPPRESS_MODE: Final = MF_NIGHT_MODE_OFF
 # (measured at lock-acquire time) are skipped instead of executed on
 # now-outdated context.
 DEFAULT_MF_STALE_TRANSITION_SECONDS: Final = 15
+
+# ============================================================================
+# MUSIC-FOLLOWING-TRANSFER-REPAIR-1 (PLANNING_music_following_repair.md §7)
+# ============================================================================
+# CONF_MF_MIN_CONFIDENCE is RETIRED: it gated on the transition's dwell
+# arithmetic (transitions.py _calculate_confidence: >60 s in the first room
+# gives 0.50), so a person who sat 5 minutes with music never had it follow.
+# The key is ignored and its form field is gone; the constant is kept so old
+# options and imports stay valid.
+#
+# Rung 2 (CM options, live through MusicFollowing.apply_config):
+CONF_MF_STALE_TRANSITION_SECONDS: Final = "mf_stale_transition_seconds"
+# How music follows: "move" = fade the old room to MF_FADE_TARGET_VOLUME,
+# confirm the new room plays, stop the old room after the release delay and
+# put its volume back; "extend" = play in both rooms (never fades or stops).
+CONF_MF_FOLLOW_MODE: Final = "mf_follow_mode"
+MF_FOLLOW_MODE_MOVE: Final = "move"
+MF_FOLLOW_MODE_EXTEND: Final = "extend"
+MF_FOLLOW_MODES: Final = (MF_FOLLOW_MODE_MOVE, MF_FOLLOW_MODE_EXTEND)
+DEFAULT_MF_FOLLOW_MODE: Final = MF_FOLLOW_MODE_MOVE
+# Seconds after the new room is confirmed playing before the old room is
+# removed. Same stored key as the old (dead) unjoin delay, now wired.
+CONF_MF_RELEASE_DELAY: Final = CONF_MF_UNJOIN_DELAY
+# Join the other speakers in the new room (e.g. a Sonos Move next to the room
+# speaker) after the move has succeeded. Off = the room speaker only. A bonus
+# speaker can never lead, delay or fail a move (INV-MF-6).
+CONF_MF_BONUS_JOINS: Final = "mf_bonus_joins"
+DEFAULT_MF_BONUS_JOINS: Final = True
+# Location certainty, a named bucket. Music following is consumer class
+# "comfort" and reads the person-awareness layer only (review A-H1,
+# CONTRACT_person_awareness_layer.md §4.1 / §7), never a Bermuda entity:
+#   "any"    = no BLE check;
+#   "normal" = at decision time the person's resolved room from the layer
+#              (PersonTrackingCoordinator.get_person_location) is still the
+#              room the change went to;
+# "strict" (normal + a phone-to-scanner distance limit, 8 ft) was DROPPED by
+# the operator 2026-11-14: a stored "strict" is read as "normal", and
+# CONF_MF_HIGH_CONFIDENCE_DISTANCE is retired (ignored, no form field; the
+# constant stays so old options and imports stay valid). Revisit only if
+# wrong-room moves are measured and a distance input exists
+# (BERMUDA-DISTANCE-SENSORS-DEAD-1 option A).
+# A missing input (no location, location unknown, event without BLE keys)
+# never blocks a move: it is counted once per room
+# change (``ble_input_missing``) and the check passes.
+CONF_MF_MIN_BLE_CONFIDENCE: Final = "mf_min_ble_confidence"
+MF_BLE_CERTAINTY_ANY: Final = "any"
+MF_BLE_CERTAINTY_NORMAL: Final = "normal"
+MF_BLE_CERTAINTY_STRICT_RETIRED: Final = "strict"  # read as normal
+MF_BLE_CERTAINTIES: Final = (MF_BLE_CERTAINTY_ANY, MF_BLE_CERTAINTY_NORMAL)
+DEFAULT_MF_MIN_BLE_CONFIDENCE: Final = MF_BLE_CERTAINTY_NORMAL
+# Hallway walk-through: if the room the person left has no playing speaker,
+# use the last room they left with a playing speaker within this many
+# seconds. 0 = off.
+CONF_MF_SOURCE_LOOKBACK_SECONDS: Final = "mf_source_lookback_seconds"
+DEFAULT_MF_SOURCE_LOOKBACK_SECONDS: Final = 90
+
+# Rung 1 (module constants, reviewed change only):
+MF_FADE_TARGET_VOLUME: Final = 0.1          # original design: old room to 10 %
+MF_NUDGE_SETTLE_S: Final = 1.0              # wait after the generic-path nudge
+MF_REVERSAL_WINDOW_S: Final = 120           # accuracy window; 0 = no tracking
+MF_ZERO_TRANSFER_MIN_CANDIDATES: Final = 3  # trip-wire floor; 0 = trip-wire off
+MF_EPISODE_LOG_PERSIST: Final = True        # room-memory rows; False = off
+MF_MA_FIRST_ENABLED: Final = True           # False = never use Music Assistant
+# Seconds a superseded move's source room counts as "the room the bounce came
+# back to" for the returned_in_flight outcome.
+MF_RETURN_MATCH_WINDOW_S: Final = 120
+# Platforms whose native group leader can be released (unjoined) without
+# stopping the followers. Empty until the weekend walk confirms one: in
+# "move" mode a native join whose leader is the old room is skipped for
+# these unknown platforms and the move uses Music Assistant or play_media.
+MF_JOIN_LEADER_RELEASE_SAFE_PLATFORMS: Final = frozenset()
+# Memory episode types (registered in MEMORY_EPISODE_TYPES).
+MF_DECISION_EPISODE_TYPE: Final = "music_follow_decision"
+MF_REVERSAL_EPISODE_TYPE: Final = "music_follow_reversal"
+# Rolling decision window for the nightly trip-wire (seconds). Counted from
+# the persisted decision rows when the database is up (survives a restart,
+# review B7); the in-memory list is the fallback.
+MF_TRIPWIRE_WINDOW_S: Final = 86400
+# Seconds new music moves are refused after a critical safety / security
+# stop (review B2). Each stop re-arms it; there is no "hazard cleared"
+# signal, so this window IS the hazard's duration for music following.
+# 0 = no block (in-flight moves are still cancelled). Rung 1: safety bound.
+MF_HAZARD_BLOCK_S: Final = 1800
+# Restart safety for the move-mode fade (review B3): pre-fade volumes are
+# persisted and put back at the next start, but only on a speaker that still
+# reads within this distance of MF_FADE_TARGET_VOLUME (someone who turned it
+# up by hand keeps their volume). Rung 1.
+MF_RESTORE_FADE_TOLERANCE: Final = 0.02
 
 # v5.10.0 D11: per-room speaker loudness calibration (form field only —
 # NOT a Number entity). Applied on cross-platform generic transfers to
@@ -6385,6 +6472,13 @@ MEMORY_EPISODE_TYPES: Final = frozenset({
     # seen while the shadow switch is on (crossing_vision.py). Shadow only;
     # no decision reads it and Phase 1 adds no MEMORY_COMPACTION_RULES entry.
     "crossing_vision_shadow",
+    # MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D6 (2026-11-14): one row per music
+    # following decision where a source speaker and a target speaker both
+    # exist, and one row per implicit reversal (the person undid a move by
+    # hand within MF_REVERSAL_WINDOW_S). Observational; the nightly accuracy
+    # roll-up is the only reader.
+    "music_follow_decision",
+    "music_follow_reversal",
     # Crossing vision P2-D3: one row per ledger term / anchor / reconcile
     # (crossing_vision.py ledger wiring). Display / scorer only; no
     # MEMORY_COMPACTION_RULES entry.
@@ -6427,6 +6521,13 @@ MEMORY_WRITER_BACKED_EPISODE_TYPES: Final = frozenset({
     # days if the operator never turns it on; the documented discharge for a
     # long-term OFF is adding the type to MEMORY_WRITER_HEALTH_EXEMPT_TYPES.
     "crossing_vision_shadow",
+    # music_follow_decision (MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D6): ~75 rows a
+    # day (audit: 1,039 player-to-player transitions in 14 days), so 0 in 7
+    # days is a dead writer. music_follow_reversal is NOT here: zero reversals
+    # is the good case. If MF_EPISODE_LOG_PERSIST is ever set False, move
+    # music_follow_decision to MEMORY_WRITER_HEALTH_EXEMPT_TYPES in the same
+    # commit.
+    "music_follow_decision",
     # crossing_vision_ledger (P2-D3): one term row per crossing while the
     # shadow switch is on, plus anchors. Not checked while the shadow switch
     # is off (MEMORY_WRITER_HEALTH_SWITCH_GATED_TYPES, review B-L4).
@@ -6469,6 +6570,9 @@ MEMORY_WRITER_HEALTH_ABSENCE_EXEMPT_TYPES: Final = frozenset({
     "person_departure",
     # crossing_vision_shadow: one row per door crossing (same reason).
     "crossing_vision_shadow",
+    # music_follow_decision: rows come only from people walking between
+    # rooms with speakers; a week away has none.
+    "music_follow_decision",
 })
 MEMORY_WRITER_HEALTH_ABSENT_HOUSE_STATES: Final = frozenset({"away", "vacation"})
 # Writer-backed types whose writer is gated by a switch (review B-L4,

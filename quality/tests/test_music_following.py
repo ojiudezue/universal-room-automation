@@ -282,37 +282,11 @@ class TestCooldownLogic:
 # WINNER RULES TESTS
 # ============================================================================
 
-class TestWinnerRulesLogic:
-    """Test winner rules logic (inline)."""
-
-    def test_playing_target_blocks_transfer(self):
-        """If target is already playing, transfer should be blocked."""
-        assert ("playing" == "playing") is True
-
-    def test_idle_target_allows_transfer(self):
-        """If target is idle/off, transfer should proceed."""
-        for state in ("idle", "off", "paused", "standby"):
-            assert (state == "playing") is False, f"State '{state}' should not block"
-
-
-# ============================================================================
-# MEDIA POSITION OFFSET TESTS
-# ============================================================================
-
-class TestMediaPositionOffset:
-    """Test media position offset for transfer delay (P2-16)."""
-
-    def test_position_offset_applied(self):
-        """Position should be offset by 3 seconds for generic transfers."""
-        original_position = 120
-        offset = 3
-        assert original_position + offset == 123
-
-    def test_zero_position_not_seeked(self):
-        """Position 0 or None should not trigger seek."""
-        for position in (None, 0, -1):
-            should_seek = position and position > 0
-            assert not should_seek
+# MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D8: TestWinnerRulesLogic and
+# TestMediaPositionOffset were tautologies (they asserted literals, not
+# production code). Replaced by test_music_following_repair.py
+# (test_mf_active_playback_blocked_when_target_playing,
+# test_mf_generic_seek_uses_position_offset_knob).
 
 
 # ============================================================================
