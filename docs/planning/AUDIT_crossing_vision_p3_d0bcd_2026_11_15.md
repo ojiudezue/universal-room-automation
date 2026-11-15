@@ -368,12 +368,12 @@ V, I1 v2, K, C are copied from the "Ensemble check" matrix above (not re-run); I
 | 21:03:34 | front | out | out | out | out | in X | out | . (none) | . | |
 | 21:12:33 | front | out | out | out | out | out | out | . (none) | . | |
 | 21:20:42 | front | in | in | in | in | in | in | . (none) | . | |
-| 21:28:01 | front | out | out | out | out | in X not | out | . (none) | . | |
+| 21:28:01 | front | out | out | out | out | out | out | . (none) | . | |
 | 21:42:22 | front | in | out X | out X | . | in | out X | out X | out X | W |
 | right of 17 | | | 11 | 13 | 10 | 13 | 13 | **5** | **4** | |
 | right of the 6 W | | | 0 | 3 | 3 | 4 | 4 | **1** | **0** | |
 
-(Correction to the row for 21:28:01: K (I4 v1) is `out` and right on that clip, as in the Ensemble matrix; the stray "in X not" typed above is a typo, the table has the same K column as the Ensemble check: K misses only 17:59:51, 18:43:18, 19:42:11 and 21:03:34.) Outside events behind each I6 decision: 14:17:23 g5_bullet +37 s and doorbell_lite +29 s; 18:27:00 rear_ptz +9 s and g5_bullet +2 s; 18:43:18 front_door_aerial +15 s; 19:42:11 front_door_aerial +3 s; 20:57:38 madrone_g6_entry +9 s and +3 s; 21:42:22 madrone_g6_entry +17 s and +44 s.
+Outside events behind each I6 decision: 14:17:23 g5_bullet +37 s and doorbell_lite +29 s; 18:27:00 rear_ptz +9 s and g5_bullet +2 s; 18:43:18 front_door_aerial +15 s; 19:42:11 front_door_aerial +3 s; 20:57:38 madrone_g6_entry +9 s and +3 s; 21:42:22 madrone_g6_entry +17 s and +44 s.
 
 ### Independence: are I6's errors independent of the others?
 
