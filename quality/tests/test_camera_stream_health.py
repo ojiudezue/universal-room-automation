@@ -320,6 +320,8 @@ def nm_calls(monkeypatch):
         return True
 
     monkeypatch.setattr(_stuck_signal_nm, "fire_stuck_signal", _page)
+    # Ship 3b review B-L6: the page sites schedule only while NM is ready.
+    monkeypatch.setattr(_stuck_signal_nm, "stuck_signal_dispatch_ready", lambda hass: True)
     monkeypatch.setattr(_stuck_signal_nm, "fire_stuck_signal_recovered", _recover)
     return calls
 

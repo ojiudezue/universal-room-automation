@@ -244,6 +244,8 @@ class World:
         }
         entry.options = {}
         entry.entry_id = f"entry_{name}"
+        entry.disabled_by = None  # a live ConfigEntry attribute (review D-M2)
+        entry.state = SimpleNamespace(value="loaded")
         self.entries.append(entry)
         return entry
 
@@ -384,6 +386,10 @@ def rec(monkeypatch):
 
     monkeypatch.setattr(nm, "fire_stuck_signal", _fire)
     monkeypatch.setattr(nm, "fire_stuck_signal_recovered", _recovered)
+    # NM present for the page sites' readiness gate (review B-L6); a test
+    # sets ``r.ready = False`` for NM off.
+    r.ready = True
+    monkeypatch.setattr(nm, "stuck_signal_dispatch_ready", lambda hass: r.ready)
     return r
 
 
@@ -1681,6 +1687,9 @@ def test_room_then_owner_same_device_one_dispatch(world, real_nm, caps):
     protect_down(world)
     run(world, None, [room], (0, 900, 930))
     assert len(_high_titles(real_nm)) == 1
+    # The room keyed it by the PURE page key (the Frigate camera), not by
+    # the Protect device's own channel.
+    assert _high_titles(real_nm) == ["Camera dead 15 min: camera.playroom"]
     owner = world.owner()
     run(world, owner, [room], (960, 1200, 2000))
     assert len(_high_titles(real_nm)) == 1
@@ -2334,3 +2343,571 @@ def test_grace_extremes_device_rule(world, monkeypatch, grace):
         assert room.camera_input_stream_dead(P_PLAY) is False
         room.tick(at(600))
         assert room.camera_input_stream_dead(P_PLAY) is True
+
+
+# ===========================================================================
+# 9. Review fix-up round (reviews A, B, D: v_layer_ship3b_review_*.md)
+# ===========================================================================
+
+
+def _highs(fake):
+    """HIGH dispatches (S2 "Camera dead ..." and S1 "Camera stream dead ...")."""
+    return len([
+        c for c in fake.calls
+        if str(c.get("title", "")).startswith(("Camera dead", "Camera stream dead"))
+    ])
+
+
+def _lows(fake):
+    return len([
+        c for c in fake.calls
+        if str(c.get("title", "")).startswith("Stuck signal recovered")
+    ])
+
+
+def _policy(world, device, seconds):
+    return csh.room_page_policy(world.hass, device, at(seconds))
+
+
+def configured_pair_scene(world):
+    """The Playroom pair read by a room through CONFIGURED inputs (no
+    camera-manager area lookup needed): rooms keep watching while the
+    camera manager is absent."""
+    playroom_pair(world)
+    world.camera_manager()
+    room = RoomCoord(world, "Playroom", "playroom", presence=[F_PLAY, P_PLAY])
+    owner = world.owner(setup_at=at(0))
+    live_pair(world)
+    world.set(**{F_PLAY: "on", P_PLAY: "on"})
+    return room, owner
+
+
+# --- A-M1 / B-M1 / D-M3: SUPPRESS only when the owner pages the group ------
+
+
+def test_am1_no_camera_manager_rooms_page_after_settle(world, real_nm, caps):
+    """CameraIntegrationManager discovery raised: no camera manager for the
+    process life. The owner has a map but never pages; rooms DEFER for the
+    600 s settle from the owner's setup, then PAGE (one HIGH, shared key)."""
+    caps()
+    room, owner = configured_pair_scene(world)
+    world.hass.data[DOMAIN].pop("camera_manager")
+    frigate_down(world)
+    protect_down(world)
+    run(world, owner, [room], (0, 120, 599))
+    assert _policy(world, "p_play", 599) == csh.POLICY_DEFER
+    assert _policy(world, "p_play", 600) == csh.POLICY_PAGE
+    run(world, owner, [room], (600, 899))
+    assert _highs(real_nm) == 0
+    run(world, owner, [room], (900, 930, 1800, 1830, 2400))
+    assert _highs(real_nm) == 1
+    assert _high_titles(real_nm) == ["Camera dead 15 min: camera.playroom"]
+
+
+def test_am1_integration_reload_window_policy(world, rec, caps):
+    """The integration entry reloads (camera manager popped) while the owner
+    stays: DEFER at once (before the owner's next tick), bounded by 600 s
+    from the owner tick that saw it gone, PAGE after; SUPPRESS again once
+    the camera manager is back and the owner has ticked."""
+    caps()
+    room, owner = pair_scene(world)
+    run(world, owner, [room], (0,))
+    assert _policy(world, "p_play", 0) == csh.POLICY_SUPPRESS
+    world.hass.data[DOMAIN].pop("camera_manager")
+    assert _policy(world, "p_play", 10) == csh.POLICY_DEFER
+    owner.tick(at(30))
+    assert _policy(world, "p_play", 629) == csh.POLICY_DEFER
+    assert _policy(world, "p_play", 630) == csh.POLICY_PAGE
+    world.camera_manager()
+    owner.tick(at(700))
+    assert _policy(world, "p_play", 700) == csh.POLICY_SUPPRESS
+
+
+def test_am1_cm_entry_before_integration_entry(world, real_nm, caps):
+    """The CM entry (owner) sets up before the integration entry (camera
+    manager). Rooms defer meanwhile; once the camera manager exists the
+    owner pages the group: ONE HIGH, at the owner's own clock (stamps from
+    its first ready tick: 300 + 900), none from the room."""
+    caps()
+    room, owner = configured_pair_scene(world)
+    world.hass.data[DOMAIN].pop("camera_manager")
+    frigate_down(world)
+    protect_down(world)
+    run(world, owner, [room], (0, 120, 299))
+    assert _policy(world, "p_play", 299) == csh.POLICY_DEFER
+    world.camera_manager()
+    run(world, owner, [room], (300, 600, 900, 1199))
+    assert _policy(world, "p_play", 900) == csh.POLICY_SUPPRESS
+    assert _highs(real_nm) == 0
+    run(world, owner, [room], (1200, 1800, 1830, 2400))
+    assert _highs(real_nm) == 1
+    assert _high_titles(real_nm) == ["Camera dead 15 min: camera.playroom"]
+
+
+def test_am1_owner_without_registry_rooms_defer_then_page(world, real_nm, caps):
+    """The owner's entity-registry read fails (its tick returns early): the
+    sets turn not ready, rooms DEFER for 600 s from that tick, then PAGE."""
+    caps()
+    room, owner = pair_scene(world)
+    run(world, owner, [room], (0,))
+    owner._er_getter = lambda: None
+    frigate_down(world)
+    protect_down(world)
+    run(world, owner, [room], (30, 150, 629))
+    assert _policy(world, "p_play", 629) == csh.POLICY_DEFER
+    assert _highs(real_nm) == 0
+    assert _policy(world, "p_play", 630) == csh.POLICY_PAGE
+    run(world, owner, [room], (630, 930, 960))
+    assert _highs(real_nm) == 1
+
+
+def test_am1_in_map_group_out_of_scope_room_pages(world, rec, caps):
+    """A room coordinator watches an in-map device the owner does not scope
+    (no room entry lists it: Wr misses it): the owner will not page it, so
+    the room does (PAGE, not SUPPRESS)."""
+    caps()
+    playroom_pair(world)
+    world.camera_manager()
+    world.area_sensors["playroom"] = [F_PLAY, P_PLAY]
+    room = RoomCoord(world, "Playroom", "playroom", entry=False)
+    owner = world.owner()
+    live_pair(world)
+    world.set(**{F_PLAY: "on", P_PLAY: "on"})
+    frigate_down(world)
+    protect_down(world)
+    run(world, owner, [room], (0, 120, 900, 930))
+    assert owner.in_map("p_play")
+    assert _policy(world, "p_play", 930) == csh.POLICY_PAGE
+    assert {p["key"] for p in rec.of(S2)} == {(F_PLAY_CAM,)}
+
+
+def test_am1_reload_window_owner_adopts_room_page_and_sends_low(world, real_nm, caps):
+    """The owner is ready (adoption sweep consumed); the integration entry
+    reloads mid-outage; past the 600 s bound the room pages the HIGH under
+    the shared key. The camera manager comes back as the Protect twin
+    recovers: the re-armed adoption sweep takes the room's page, the owner
+    sends its ONE LOW, and a later outage pages again (no stuck latch, no
+    second HIGH)."""
+    caps()
+    room, owner = configured_pair_scene(world)
+    frigate_down(world)
+    protect_down(world)
+    run(world, owner, [room], (0, 60))
+    world.hass.data[DOMAIN].pop("camera_manager")
+    run(world, owner, [room], (100, 699))
+    assert _highs(real_nm) == 0
+    run(world, owner, [room], (700, 900, 930))
+    assert _highs(real_nm) == 1
+    protect_up(world)
+    world.camera_manager()
+    world.now = at(1000)
+    owner.tick(world.now)  # the owner ticks first: ready, sweep re-armed
+    room.tick(world.now)
+    world.drain()
+    run(world, owner, [room], (1060, 1119))
+    assert _lows(real_nm) == 0
+    run(world, owner, [room], (1120, 1150))
+    assert _lows(real_nm) == 1
+    assert _highs(real_nm) == 1
+    protect_down(world)
+    run(world, owner, [room], (2000, 2120, 2899, 2900, 2930))
+    assert _highs(real_nm) == 2
+
+
+def test_bl2_ready_again_restamps_loss(world, rec, caps):
+    """Loss stamps are not updated while the sets are not ready. A pair dead
+    at 0, live while the camera manager was gone, dead again at 1000: when
+    the owner is ready again (1100) it stamps afresh and pages at 1100 +
+    900, never at once from the stale 0 stamp (owner path only)."""
+    caps()
+    room, owner = configured_pair_scene(world)
+    frigate_down(world)
+    protect_down(world)
+    run(world, owner, [room], (0, 30))
+    world.hass.data[DOMAIN].pop("camera_manager")
+    owner.tick(at(60))
+    live_pair(world)  # live while unobserved
+    frigate_down(world)
+    protect_down(world)  # dead again (unobserved)
+    world.camera_manager()
+    run(world, owner, [], (1100, 1220, 1999))
+    assert rec.of(S2) == []
+    run(world, owner, [], (2000,))
+    assert [p["key"] for p in rec.of(S2)] == [(F_PLAY_CAM,)]
+
+
+# --- D-M1: no S1 HIGH beside a due S2 HIGH ----------------------------------
+
+
+def test_dm1_owner_absent_reload_room_s1_skipped(world, real_nm, caps):
+    """Owner S2 HIGH at 900; the CM entry reloads at 1900 (owner gone, rooms
+    PAGE). The room's first tick has an S2 candidate (ALREADY_SENT, same
+    pure key) AND an S1 candidate (1900 >= NM_AFTER 1800): the S1 is
+    skipped, so ONE HIGH for the outage."""
+    caps()
+    playroom_pair(world)
+    room = playroom_room(world, presence=[F_PLAY])
+    owner = world.owner()
+    live_pair(world)
+    world.set(**{F_PLAY: "on", P_PLAY: "on"})
+    frigate_down(world)
+    protect_down(world)
+    run(world, owner, [room], (0, 300, 600, 900, 1200, 1500, 1800))
+    assert _highs(real_nm) == 1
+    owner.async_teardown()
+    run(world, None, [room], (1900, 1930, 1960))
+    assert _highs(real_nm) == 1
+
+
+def test_dm1_singleton_s2_not_sent_no_s1(world, rec, caps):
+    """A one-camera device: its S2 send returns NOT_SENT from 900 s through
+    NM_AFTER (1800 s). The S1 is never offered beside the due S2; when NM
+    answers, the S2 goes once and the S1 stays silent."""
+    caps()
+    cam, person = world.frigate("f_k", "kitchen_panel", "Kitchen Panel")
+    room = RoomCoord(world, "Kitchen", "kitchen", presence=[person])
+    world.set(**{person: "on", cam: "unavailable"})
+    rec.result = False
+    run(world, None, [room], (0, 900, 1200, 1800, 1830))
+    assert rec.of(S1) == []
+    assert len(rec.of(S2)) == 4
+    rec.result = True
+    run(world, None, [room], (1860, 1890, 1920))
+    assert rec.of(S1) == []
+    assert len(rec.of(S2)) == 5
+
+
+# --- D-M2: disabled / terminally failed room entries -------------------------
+
+
+def _entry_states():
+    out = [
+        ("disabled", None, True), ("setup_error", "setup_error", True),
+        ("migration_error", "migration_error", True),
+        ("setup_retry", "setup_retry", False), ("not_loaded", "not_loaded", False),
+        ("loaded", "loaded", False),
+    ]
+    return out
+
+
+@pytest.mark.parametrize("variant,state,in_u", _entry_states(),
+                         ids=[v for v, _s, _u in _entry_states()])
+def test_dm2_room_entry_state_and_unwatched(world, variant, state, in_u):
+    """A camera whose ONLY room entry is disabled (or in setup_error /
+    migration_error: no coordinator, no auto-recovery) is in U and
+    house-stamped. A transient state (setup retry, not loaded: a reload
+    window) keeps it in Wr, as before (no flap)."""
+    world.frigate("f_play", "playroom", "Playroom")
+    world.camera_manager()
+    world.census()
+    world.presence()
+    world.census_entities = [F_PLAY]
+    entry = world.room_entry("Playroom", "playroom", presence=[F_PLAY])
+    if variant == "disabled":
+        entry.disabled_by = "user"
+    else:
+        entry.state = SimpleNamespace(value=state)
+    owner = world.owner()
+    world.set(**{F_PLAY_CAM: "unavailable", F_PLAY: "on"})
+    run(world, owner, [], (0, 60, 130))
+    assert (F_PLAY in owner.get_diagnostics()["unwatched"]) is in_u
+    assert csh.entity_stream_dead(world.hass, F_PLAY) is (True if in_u else None)
+
+
+def test_dm2_real_config_entry_state_values():
+    """The owner compares ``state.value``; HA's ConfigEntryState values for
+    the two terminal states are exactly these strings (when the real enum
+    is importable here)."""
+    from homeassistant import config_entries as ce
+    real = getattr(ce, "ConfigEntryState", None)
+    err = getattr(real, "SETUP_ERROR", None)
+    if not isinstance(getattr(err, "value", None), str):
+        pytest.skip("homeassistant.config_entries is stubbed in this run")
+    assert real.SETUP_ERROR.value == "setup_error"
+    assert real.MIGRATION_ERROR.value == "migration_error"
+    assert cth._DEAD_ENTRY_STATES == frozenset({"setup_error", "migration_error"})
+
+
+# --- LOWs ---------------------------------------------------------------------
+
+
+def test_bl1_house_tracker_rereads_members_on_entity_event(world, later):
+    """The foyer Protect device (in U): its only LIVE channel is disabled
+    in the entity registry. On the entity-registry event the house tracker
+    re-reads the device's member set (the remaining channel reads
+    unavailable): the census entry is held dead after one grace."""
+    foyer_house(world)
+    owner, bus = _setup_owner(world, later)
+    world.put({P_FOY_HI: "streaming", P_FOY_MED: "unavailable"})
+    owner.tick(at(0))
+    owner.tick(at(130))
+    assert csh.entity_stream_dead(world.hass, P_FOY) is False
+    world.er.entities[P_FOY_HI].disabled_by = "user"
+    bus.fire(ENT_EV, {"action": "update", "entity_id": P_FOY_HI})
+    world.now = at(160)
+    owner.tick(at(160))
+    owner.tick(at(290))
+    world.now = at(290)
+    assert csh.entity_stream_dead(world.hass, P_FOY) is True
+
+
+def test_bl2_device_reenters_scope_fresh_clock(world, rec, caps):
+    """The foyer pair leaves U (out of scope, before any episode) while dead,
+    is live while unobserved, dead again, then re-enters U: a fresh grace
+    and cap (HIGH at re-entry + 900), never at once from the old stamp."""
+    caps()
+    foyer_house(world)
+    owner = world.owner()
+    down = {F_FOY_CAM: "unavailable", P_FOY_HI: "unavailable", P_FOY_MED: "unavailable"}
+    up = {F_FOY_CAM: "streaming", P_FOY_HI: "streaming", P_FOY_MED: "streaming"}
+    world.put(down)
+    run(world, owner, [], (0, 60))
+    world.census_entities = []
+    world.zone_entities = []
+    run(world, owner, [], (90,))
+    world.put(up)
+    run(world, owner, [], (500,))
+    world.put(down)
+    run(world, owner, [], (1000,))
+    world.census_entities = [F_FOY, P_FOY]
+    world.zone_entities = [F_FOY]
+    run(world, owner, [], (1100, 1220, 1999))
+    assert rec.of(S2) == []
+    run(world, owner, [], (2000,))
+    assert [p["key"] for p in rec.of(S2)] == [(F_FOY_CAM,)]
+
+
+def test_bl3_flapping_twin_does_not_end_episode_early(world, rec, caps):
+    """After the HIGH the Protect twin comes back at 1000, drops at 1060
+    (not lost: under the grace) and is back at 1090: the live stretch
+    restarts at 1090, so the LOW goes at 1210, not at 1120."""
+    caps()
+    room, owner = pair_scene(world)
+    frigate_down(world)
+    protect_down(world)
+    run(world, owner, [room], (0, 900, 930))
+    assert len(rec.of(S2)) == 1
+    protect_up(world)
+    run(world, owner, [room], (1000,))
+    protect_down(world)
+    run(world, owner, [room], (1060,))
+    protect_up(world)
+    run(world, owner, [room], (1090, 1120, 1150, 1209))
+    assert rec.rec_of(S2) == []
+    run(world, owner, [room], (1210,))
+    assert [r["key"] for r in rec.rec_of(S2)] == [(F_PLAY_CAM,)]
+    assert len(rec.of(S2)) == 1
+
+
+def test_bl4_concurrent_same_key_one_dispatch(world, real_nm):
+    """Two senders of one (kind, key) inside one NM await: ONE dispatch; the
+    second gets NOT_SENT (no latch) and its retry reads ALREADY_SENT."""
+    async def _slow(**kw):
+        real_nm.calls.append(kw)
+        await asyncio.sleep(0)
+
+    real_nm.async_notify = _slow
+
+    def _one():
+        return nm.fire_stuck_signal_ex(
+            world.hass, kind=S2, key=(F_PLAY_CAM,), diagnosis="d",
+            severity="HIGH",
+        )
+
+    async def _both():
+        return await asyncio.gather(_one(), _one())
+
+    results = _run(_both())
+    assert sorted(results) == sorted([nm.SENT, nm.NOT_SENT])
+    assert len(real_nm.calls) == 1
+    assert _run(_one()) == nm.ALREADY_SENT
+    assert len(real_nm.calls) == 1
+
+
+def test_bl5_pure_pairing_built_once_per_tick(world, monkeypatch):
+    """The owner's page keys for every scope group in one tick (adoption
+    sweep over the watched Playroom pair and the unwatched foyer pair) come
+    from ONE pure pairing build; it is dropped at the tick end, so a
+    registry change is seen by the next key read."""
+    foyer_house(world)
+    playroom_pair(world)
+    playroom_room(world)
+    owner = world.owner()
+    live_pair(world)
+    calls = []
+    real = csh.build_twin_map
+
+    def _counting(er, dr):
+        calls.append(1)
+        return real(er, dr)
+
+    monkeypatch.setattr(csh, "build_twin_map", _counting)
+    owner.tick(at(0))
+    assert len(owner._scope_groups()) == 2
+    assert len(calls) == 1
+    world.dr.devices["p_play"].name_by_user = "Toy Room"
+    assert owner._group_page_key(frozenset({"p_play"}), world.er, world.dr) == P_PLAY_HI
+
+
+@pytest.mark.parametrize("site", ["room_s1", "room_s2", "owner"])
+def test_bl6_nm_off_schedules_no_send(world, rec, caps, site):
+    """NM off (kill switch / no NotificationManager): no page send is even
+    scheduled at the room S1, room S2 or owner site; the first tick after NM
+    is back sends the ONE HIGH."""
+    if site == "room_s1":
+        caps(zone=0.0, census=0.0)
+    else:
+        caps()
+    if site == "owner":
+        room, owner = pair_scene(world)
+        frigate_down(world)
+        protect_down(world)
+    else:
+        cam, person = world.frigate("f_k", "kitchen_panel", "Kitchen Panel")
+        room = RoomCoord(world, "Kitchen", "kitchen", presence=[person])
+        owner = None
+        world.set(**{person: "on", cam: "unavailable"})
+    rec.ready = False
+    run(world, owner, [room], (0, 900, 1800, 1830, 1860))
+    assert rec.pages == []
+    rec.ready = True
+    run(world, owner, [room], (1890, 1920))
+    assert len(rec.pages) == 1
+    assert rec.pages[0]["kind"] == (S1 if site == "room_s1" else S2)
+
+
+def test_al2_medium_needs_a_live_twin(world, rec, caps):
+    """Frigate lost at 0, Protect at 850: at 900 the Frigate cap has passed
+    but Protect is not live (not yet lost either): no "still sees it"
+    MEDIUM. The HIGH follows at 850 + 900."""
+    caps()
+    room, owner = pair_scene(world)
+    frigate_down(world)
+    run(world, owner, [room], (0, 600, 840))
+    protect_down(world)
+    run(world, owner, [room], (850, 900, 930, 960, 1749))
+    assert rec.of(MEDIUM) == [] and rec.of(S2) == []
+    run(world, owner, [room], (1750,))
+    assert [p["key"] for p in rec.of(S2)] == [(F_PLAY_CAM,)]
+    assert rec.of(MEDIUM) == []
+
+
+def test_al3_latch_key_frozen_at_begin_send(world, caps):
+    """A channel is disabled while the S2 send is in flight (the resolution
+    rebuilds and the own camera leaves the member set): the latch still
+    lands on the DEVICE key, so the next tick has no spurious recovery and
+    no fresh candidate."""
+    caps()
+    playroom_pair(world)
+    tr = CameraInputStreamHealth("Playroom")
+    world.set(**{P_PLAY: "on"})
+    protect_down(world)
+
+    def reg():
+        return world.er
+
+    for s in (0, 120, 900):
+        tr.evaluate(at(s), [P_PLAY], world.states.get, reg)
+    assert [c for c, _s, _cap in tr.hold_pages] == [P_PLAY_HI]
+    tr.begin_send(S2, P_PLAY_HI)
+    world.er.entities[P_PLAY_HI].disabled_by = "user"
+    tr.invalidate()
+    tr.evaluate(at(930), [P_PLAY], world.states.get, reg)
+    tr.mark_paged(S2, P_PLAY_HI, world.today, page_key=F_PLAY_CAM)
+    tr.evaluate(at(960), [P_PLAY], world.states.get, reg)
+    assert tr.hold_recoveries == []
+    assert tr.hold_pages == []
+
+
+@pytest.mark.parametrize("variant", ["dead_at_takeover", "alive_at_takeover"])
+def test_al4_room_own_key_page_adopted(world, real_nm, caps, variant):
+    """A room that cannot read the device registry keys its S2 by the
+    Protect member's OWN camera (owner absent). The owner arrives: that
+    unrecovered page is the episode's HIGH (no second HIGH under the
+    Frigate key), and the owner's LOW recovers it (one LOW)."""
+    caps()
+    playroom_pair(world)
+    world.camera_manager()
+    room = RoomCoord(world, "Playroom", "playroom", presence=[P_PLAY])
+
+    def _boom():
+        raise RuntimeError("device registry boom")
+
+    room._camera_stream_device_registry = _boom
+    live_pair(world)
+    world.set(**{P_PLAY: "on"})
+    frigate_down(world)
+    protect_down(world)
+    run(world, None, [room], (0, 900, 930))
+    assert _highs(real_nm) == 1
+    owner = world.owner(setup_at=at(960))
+    if variant == "alive_at_takeover":
+        protect_up(world)
+        world.now = at(960)
+        owner.tick(world.now)
+        room.tick(world.now)
+        world.drain()
+        run(world, owner, [room], (1020, 1080, 1090))
+    else:
+        run(world, owner, [room], (960, 1100, 1860, 1890))
+        assert _highs(real_nm) == 1
+        protect_up(world)
+        run(world, owner, [room], (2000, 2130))
+    assert _highs(real_nm) == 1
+    assert _lows(real_nm) == 1
+
+
+def test_dl2_caps0_room_adopts_owner_group_s1(world, real_nm, caps):
+    """Caps both 0: the owner sends the group S1; the CM entry reloads (owner
+    gone). The room's own S1 candidate adopts the owner's page (no second
+    HIGH); at the end the room sends that group LOW; a later outage pages
+    again."""
+    caps(zone=0.0, census=0.0)
+    playroom_pair(world)
+    room = playroom_room(world, presence=[F_PLAY])
+    owner = world.owner()
+    live_pair(world)
+    world.set(**{F_PLAY: "on", P_PLAY: "on"})
+    frigate_down(world)
+    protect_down(world)
+    run(world, owner, [room], (0, 900, 1800, 1830))
+    assert _highs(real_nm) == 1
+    owner.async_teardown()
+    run(world, None, [room], (1900, 1930))
+    assert _highs(real_nm) == 1
+    world.set(**{F_PLAY_CAM: "streaming"})
+    protect_up(world)
+    run(world, None, [room], (2000, 2030))
+    assert _lows(real_nm) == 1
+    frigate_down(world)
+    protect_down(world)
+    day = 86400  # next local day (the room S1 is once per input per day)
+    world.today = (T0 + timedelta(days=1)).date().isoformat()
+    run(world, None, [room], (day, day + 1800, day + 1830))
+    assert _highs(real_nm) == 2
+
+
+@pytest.mark.parametrize("variant", ["ready", "no_nm", "kill_off"])
+def test_bl6_dispatch_ready_reads_nm_and_kill_switch(world, monkeypatch, variant):
+    """The REAL readiness read: True only with the stuck-signal kill switch
+    on AND a NotificationManager present."""
+    monkeypatch.setattr(nm, "_kill_switch_on", lambda hass: variant != "kill_off")
+    if variant != "no_nm":
+        world.hass.data[DOMAIN]["notification_manager"] = _FakeNM()
+    assert nm.stuck_signal_dispatch_ready(world.hass) is (variant == "ready")
+
+
+def test_s1_page_silent_while_twin_live_caps_0(world, rec, caps):
+    """Caps both 0 (no S2 to mask it): a room's CONFIGURED Protect input of
+    an owner-paged pair, Protect dead past NM_AFTER, the Frigate twin live:
+    the room never sends S1 (SUPPRESS) and the owner neither (group alive)."""
+    caps(zone=0.0, census=0.0)
+    playroom_pair(world)
+    world.camera_manager()
+    room = RoomCoord(world, "Playroom", "playroom", presence=[P_PLAY])
+    owner = world.owner()
+    live_pair(world)
+    world.set(**{P_PLAY: "on"})
+    protect_down(world)
+    run(world, owner, [room], (0, 120, 900, 1800, 1830, 3600))
+    assert rec.of(S1) == [] and rec.of(S2) == []

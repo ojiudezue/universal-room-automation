@@ -149,6 +149,16 @@ class CameraInputStreamHealth:
         # Sends scheduled and not yet answered: (kind, ident) (no second
         # send while one is in flight; cleared by mark_paged / mark_not_sent).
         self._inflight: set[tuple[str, str]] = set()
+        # Review A-L3: the latch key of each scheduled send, frozen at
+        # begin_send ((kind, ident) -> pid), so a resolution rebuild inside
+        # the send window cannot move the latch off the device key.
+        self._send_pid: dict[tuple[str, str], str] = {}
+        # Review D-M1: keys whose S2 hold page is due this tick (hold over,
+        # not yet latched; in flight or not). The S1 loop skips them.
+        self._hold_due_keys: frozenset[str] = frozenset()
+        # Review D-L2: input -> the owner's group S1 page key this input's
+        # S1 episode adopted (caps 0); its LOW recovers that key too.
+        self._adopted_group_s1: dict[str, str] = {}
         self._warned_unresolved = False
 
     # ------------------------------------------------------------------
@@ -388,6 +398,11 @@ class CameraInputStreamHealth:
                     # This camera already sent the S2 hold-release page in
                     # this outage: no second HIGH page for its inputs.
                     continue
+                if dead_key.get(eid) in self._hold_due_keys:
+                    # Review D-M1: its S2 page is due THIS tick (or in
+                    # flight / not yet confirmed): that is the outage's one
+                    # HIGH; the latch-after-send S2 latch is not set yet.
+                    continue
                 if self._paged_day.get(eid) == today:
                     continue
                 if (NM_KIND, eid) in self._inflight:
@@ -401,6 +416,7 @@ class CameraInputStreamHealth:
                 # Input removed from the room mid-episode: drop silently
                 # (no "counts again" for an input that no longer exists).
                 self._paged_episode.discard(eid)
+                self._adopted_group_s1.pop(eid, None)
                 continue
             if eid not in dead:
                 prev = self._dead_now.get(eid)
@@ -470,6 +486,7 @@ class CameraInputStreamHealth:
         self.hold_pages = []
         self.hold_recoveries = []
         caps = [c for c in (hold_s, census_hold_s) if c > 0]
+        due: set[str] = set()
         dead_keys: dict[str, tuple[str, datetime]] = {}
         for eid, (cam, since) in dead.items():
             key = self._dead_key.get(eid, cam)
@@ -480,14 +497,17 @@ class CameraInputStreamHealth:
             for key, (cam, since) in sorted(dead_keys.items()):
                 if key in self._hold_paged:
                     continue
-                if (NM_KIND_HOLD_RELEASED, key) in self._inflight:
-                    continue
-                if any(
+                if not any(
                     eid in self._hold_expired_now
                     or eid in self._census_hold_expired_now
                     for eid, k in self._dead_key.items() if k == key
                 ):
-                    self.hold_pages.append((cam, since, cap))
+                    continue
+                due.add(key)
+                if (NM_KIND_HOLD_RELEASED, key) in self._inflight:
+                    continue
+                self.hold_pages.append((cam, since, cap))
+        self._hold_due_keys = frozenset(due)
         for key in sorted(self._hold_paged):
             if key not in dead_keys:
                 _cam, page_key = self._hold_paged.pop(key)
@@ -505,8 +525,15 @@ class CameraInputStreamHealth:
         return ident
 
     def begin_send(self, kind: str, ident: str) -> None:
-        """A send for this candidate is scheduled (no second one meanwhile)."""
-        self._inflight.add((kind, self._page_ident(kind, ident)))
+        """A send for this candidate is scheduled (no second one meanwhile).
+        The latch key is frozen here (review A-L3)."""
+        pid = self._page_ident(kind, ident)
+        self._send_pid[(kind, ident)] = pid
+        self._inflight.add((kind, pid))
+
+    def _frozen_pid(self, kind: str, ident: str) -> str:
+        pid = self._send_pid.pop((kind, ident), None)
+        return pid if pid is not None else self._page_ident(kind, ident)
 
     def mark_paged(
         self, kind: str, ident: str, today: str, page_key: str | None = None,
@@ -515,7 +542,7 @@ class CameraInputStreamHealth:
         (``NM_KIND``): the input's episode + per-day latch. S2
         (``NM_KIND_HOLD_RELEASED``): the key's hold-page latch, remembering
         the page key the send used (its LOW uses the same key)."""
-        pid = self._page_ident(kind, ident)
+        pid = self._frozen_pid(kind, ident)
         self._inflight.discard((kind, pid))
         if kind == NM_KIND_HOLD_RELEASED:
             self._hold_paged[pid] = (ident, page_key or ident)
@@ -526,7 +553,20 @@ class CameraInputStreamHealth:
     def mark_not_sent(self, kind: str, ident: str) -> None:
         """The send returned NOT_SENT: no latch; the candidate comes back on
         the next tick."""
-        self._inflight.discard((kind, self._page_ident(kind, ident)))
+        self._inflight.discard((kind, self._frozen_pid(kind, ident)))
+
+    def adopt_group_s1(self, input_eid: str, today: str, group_key: str) -> None:
+        """Review D-L2 (caps 0): the owner already sent the group S1 page
+        ``(GROUP_S1_KEY, group_key)`` for this input's device: latch the
+        input's S1 episode (no second HIGH) and remember the key, so this
+        room sends that LOW if it owns the outage at its end."""
+        self._paged_episode.add(input_eid)
+        self._paged_day[input_eid] = today
+        self._adopted_group_s1[input_eid] = group_key
+
+    def pop_adopted_group_s1(self, input_eid: str) -> str | None:
+        """The group S1 key the input's ended episode adopted, if any."""
+        return self._adopted_group_s1.pop(input_eid, None)
 
     @property
     def hold_expired_now(self) -> frozenset[str]:
@@ -806,20 +846,34 @@ def build_twin_map(
     return groups, admitted, rejected
 
 
-def twin_pair_for_device(
-    entity_registry: Any, device_registry: Any, device_id: str,
-) -> frozenset[str]:
-    """The device's group by the PURE pairing rule (the same function the
-    map build calls): the device plus its admitted W1 twin, or the device
-    alone. Computable with the owner absent. {device} on any error."""
-    if not device_id:
-        return frozenset()
+def pure_twin_groups(
+    entity_registry: Any, device_registry: Any,
+) -> dict[str, frozenset[str]]:
+    """The PURE pairing (``build_twin_map`` groups) for this registry
+    state; {} with no device registry or on any error. Callers that need
+    many page keys in one pass compute it once and pass it as ``groups``
+    (review B-L5); it is never the owner's map."""
     if device_registry is None:
-        return frozenset({device_id})
+        return {}
     try:
         groups, _a, _r = build_twin_map(entity_registry, device_registry)
     except Exception:  # noqa: BLE001
-        return frozenset({device_id})
+        return {}
+    return groups
+
+
+def twin_pair_for_device(
+    entity_registry: Any, device_registry: Any, device_id: str,
+    *, groups: dict[str, frozenset[str]] | None = None,
+) -> frozenset[str]:
+    """The device's group by the PURE pairing rule (the same function the
+    map build calls): the device plus its admitted W1 twin, or the device
+    alone. Computable with the owner absent. {device} on any error.
+    ``groups``: a ``pure_twin_groups`` result for the same registry state."""
+    if not device_id:
+        return frozenset()
+    if groups is None:
+        groups = pure_twin_groups(entity_registry, device_registry)
     return groups.get(device_id, frozenset({device_id}))
 
 
@@ -836,6 +890,7 @@ def frigate_member(entity_registry: Any, group: Iterable[str]) -> str | None:
 
 def page_camera_key(
     entity_registry: Any, device_registry: Any, device_id: str | None,
+    *, groups: dict[str, frozenset[str]] | None = None,
 ) -> str | None:
     """THE stuck-signal PAGE key (§6.1), used only where a page is sent or
     recovered: the Frigate device's camera for a device that
@@ -843,7 +898,9 @@ def page_camera_key(
     Pure, so rooms and the owner agree, owner present or not."""
     if not device_id:
         return None
-    group = twin_pair_for_device(entity_registry, device_registry, device_id)
+    group = twin_pair_for_device(
+        entity_registry, device_registry, device_id, groups=groups,
+    )
     if len(group) > 1:
         frig = frigate_member(entity_registry, group)
         if frig:
@@ -908,6 +965,8 @@ def room_stream_input_entities(
 POLICY_PAGE = "page"
 POLICY_DEFER = "defer"
 POLICY_SUPPRESS = "suppress"
+# The owner's group S1 page key prefix: (GROUP_S1_KEY, page_camera_key).
+GROUP_S1_KEY = "<group>"
 
 
 def twin_owner(hass: Any) -> Any:
@@ -924,12 +983,15 @@ def twin_owner(hass: Any) -> Any:
 def room_page_policy(hass: Any, device_id: str | None, now: datetime) -> str:
     """May a ROOM tracker send (or recover) a page for this camera device?
 
-    PAGE: no owner, the twin rule off, a device not in the owner's map, or
-    the owner not map-ready past ``CAMERA_TWIN_BOOT_SETTLE_S``. DEFER: the
-    owner is present and not map-ready inside that bound (no latch is set,
-    the candidate comes back). SUPPRESS: the device is in the OWNER'S map
-    (never the pure function: an empty or failed map makes rooms page); the
-    owner pages the group."""
+    PAGE: no owner, the twin rule off, a device not in the owner's map, the
+    owner not map-ready past ``CAMERA_TWIN_BOOT_SETTLE_S``, an in-map
+    device whose group is outside the owner's scope, or an owner whose sets
+    stayed not ready (no camera manager / no entity registry) past that
+    bound (review A-M1: no silent outage). DEFER: the owner is present and
+    not map-ready, or cannot page yet (sets not ready), inside that bound
+    (no latch is set, the candidate comes back). SUPPRESS: only when the
+    owner pages the device's group (``pages_device``); never the pure
+    function, so an empty or failed map makes rooms page."""
     if not device_id:
         return POLICY_PAGE
     if not bool(getattr(_const, "CAMERA_STREAM_DEAD_TWIN_RULE", False)):
@@ -940,7 +1002,11 @@ def room_page_policy(hass: Any, device_id: str | None, now: datetime) -> str:
     try:
         if not owner.map_ready:
             return POLICY_DEFER if owner.deferral_active(now) else POLICY_PAGE
-        return POLICY_SUPPRESS if owner.in_map(device_id) else POLICY_PAGE
+        if not owner.in_map(device_id):
+            return POLICY_PAGE
+        if owner.pages_device(device_id):
+            return POLICY_SUPPRESS
+        return POLICY_DEFER if owner.not_ready_defer(now) else POLICY_PAGE
     except Exception:  # noqa: BLE001
         return POLICY_PAGE
 

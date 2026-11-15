@@ -58,6 +58,14 @@ _STUCK_SIGNAL_NOTIFIED: set[Tuple[str, Tuple[Any, ...]]] = set()
 # Shape: { kind: {"last_fired": ISO_str, "fires_today": int, "date": ISO_date} }
 _EMIT_STATS: dict[str, dict[str, Any]] = {}
 
+# Ship 3b review B-L4: (kind, key) of fire_stuck_signal_ex sends awaiting
+# their dispatch. A second sender of the same key inside that window gets
+# NOT_SENT (no latch; it retries next tick and then reads ALREADY_SENT).
+# Pre-existing and NOT closed here: a task cancelled inside
+# ``nm.async_notify`` (owner teardown) can deliver the NM without setting
+# the latch, because ``fire_stuck_signal`` latches after its await.
+_SEND_INFLIGHT: set[Tuple[str, Tuple[Any, ...]]] = set()
+
 
 def _kill_switch_on(hass: HomeAssistant) -> bool:
     """Return True when NM emits are ENABLED (default True).
@@ -290,6 +298,20 @@ def stuck_signal_notified(kind: str, key: Tuple[Any, ...]) -> bool:
         return False
 
 
+def stuck_signal_dispatch_ready(hass: HomeAssistant) -> bool:
+    """Ship 3b review B-L6: a stuck-signal NM can dispatch now (the kill
+    switch is on and the NotificationManager is present). Callers that
+    re-offer a page every tick skip scheduling a send while this is False
+    (no task churn while NM is off); the next tick after NM comes up sends.
+    Never raises (False on error)."""
+    try:
+        if not _kill_switch_on(hass):
+            return False
+        return hass.data.get(DOMAIN, {}).get("notification_manager") is not None
+    except Exception:  # noqa: BLE001
+        return False
+
+
 async def fire_stuck_signal_ex(
     hass: HomeAssistant,
     kind: str,
@@ -314,11 +336,18 @@ async def fire_stuck_signal_ex(
     try:
         if stuck_signal_notified(kind, key):
             return ALREADY_SENT
-        ok = await fire_stuck_signal(
-            hass, kind=kind, key=key, diagnosis=diagnosis, remedy=remedy,
-            now=now, title_override=title_override,
-            exclusion_engaged=exclusion_engaged, severity=severity,
-        )
+        flight = (kind, tuple(key))
+        if flight in _SEND_INFLIGHT:
+            return NOT_SENT  # review B-L4: the same key is being sent
+        _SEND_INFLIGHT.add(flight)
+        try:
+            ok = await fire_stuck_signal(
+                hass, kind=kind, key=key, diagnosis=diagnosis, remedy=remedy,
+                now=now, title_override=title_override,
+                exclusion_engaged=exclusion_engaged, severity=severity,
+            )
+        finally:
+            _SEND_INFLIGHT.discard(flight)
     except Exception:  # noqa: BLE001
         return NOT_SENT
     return SENT if ok is True else NOT_SENT
@@ -384,6 +413,7 @@ def reset_latches_for_tests() -> None:
     _LATCHES.clear()
     _STUCK_SIGNAL_NOTIFIED.clear()
     _EMIT_STATS.clear()
+    _SEND_INFLIGHT.clear()
 
 
 def get_emit_stats() -> dict[str, dict[str, Any]]:

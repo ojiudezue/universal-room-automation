@@ -45,7 +45,13 @@ NM_KIND_S1 = _csh.NM_KIND
 NM_KIND_S2 = _csh.NM_KIND_HOLD_RELEASED
 NM_KIND_TWIN_COVERING = "camera_stream_nvr_down_twin_covering"
 # The owner's S1 key prefix: ("<group>", page_camera_key).
-GROUP_S1_KEY = "<group>"
+GROUP_S1_KEY = _csh.GROUP_S1_KEY
+
+# Config-entry states with no room coordinator and no automatic recovery
+# (operator action or a restart needed): such a room watches nothing, so its
+# inputs' devices are not in Wr (review D-M2). Transient states (setup
+# retry, not loaded, setup / unload in progress: a reload window) stay in Wr.
+_DEAD_ENTRY_STATES = frozenset({"setup_error", "migration_error"})
 
 _NVR_NAMES = {
     "frigate": "Frigate",
@@ -111,6 +117,10 @@ class CameraTwinHealth:
         self._pending_events: list[tuple[str, dict]] = []
         # Watched / unwatched sets (§6.3).
         self._sets_ready = False
+        # Start of the latest not-ready stretch that followed a ready one
+        # (None: never ready yet = since setup; read only while not ready).
+        # Bounds the room DEFER (review A-M1).
+        self._not_ready_since: datetime | None = None
         self._wr_devices: frozenset[str] = frozenset()
         self._room_inputs: list[tuple[str, str, str]] = []  # (room, input, device)
         self._unwatched: frozenset[str] = frozenset()
@@ -132,6 +142,9 @@ class CameraTwinHealth:
         # MEDIUM per member device episode.
         self._member_medium: dict[str, dict[str, Any]] = {}
         self._adoption_sweep_due = True
+        # Review B-L5: the PURE pairing for this tick (page keys), built at
+        # most once per tick, dropped at the tick end.
+        self._pure_groups_cache: dict[str, frozenset[str]] | None = None
         # Sends in flight (ident) and tracked tasks.
         self._inflight: set[str] = set()
         self._tasks: set[Any] = set()
@@ -250,6 +263,10 @@ class CameraTwinHealth:
 
     @callback
     def _on_entity_registry_event(self, event: Any) -> None:
+        # Review A-L1 / B-L1: the house tracker re-reads its member sets on
+        # every entity-registry event, exactly like the room trackers
+        # (coordinator ``_on_registry_updated``).
+        self._unwatched_tracker.invalidate()
         self._queue_event("entity", event)
 
     def _queue_event(self, source: str, event: Any) -> None:
@@ -364,6 +381,39 @@ class CameraTwinHealth:
             bool(device_id) and _twin_rule() and device_id in self._groups
         )
 
+    def pages_device(self, device_id: str | None) -> bool:
+        """The owner pages this device's group NOW (review A-M1): the device
+        is in the owner's map, the sets are ready (camera manager present,
+        entity registry readable), the camera manager is still there (an
+        integration-entry reload pops it before the next owner tick), and
+        the group is in scope. Rooms SUPPRESS only then; otherwise they page."""
+        if self.torn_down or not self._sets_ready or not self.in_map(device_id):
+            return False
+        if self._domain_data().get("camera_manager") is None:
+            return False
+        return self.group_for(device_id) in self._scope_groups()
+
+    def not_ready_defer(self, now: datetime) -> bool:
+        """Rooms DEFER an in-map device the owner cannot page yet (review
+        A-M1), bounded by CAMERA_TWIN_BOOT_SETTLE_S from the start of the
+        not-ready stretch (owner setup, or the tick the sets went not
+        ready); past the bound they PAGE (no silent outage). Sets ready but
+        the camera manager already gone (integration reload, before the next
+        owner tick): defer; that tick starts the bound."""
+        if self._sets_ready:
+            return self._domain_data().get("camera_manager") is None
+        since = self._not_ready_since or self._setup_at
+        try:
+            elapsed = (now - since).total_seconds()
+        except Exception:  # noqa: BLE001
+            return False
+        return elapsed < float(_knob("CAMERA_TWIN_BOOT_SETTLE_S", 600.0))
+
+    def _mark_not_ready(self, now: datetime) -> None:
+        if self._sets_ready:
+            self._not_ready_since = now
+        self._sets_ready = False
+
     def is_map_candidate(self, device_id: str | None) -> bool:
         """The device has a W1 sibling in the last build (admitted or not)."""
         return bool(device_id) and device_id in self._candidates
@@ -397,10 +447,12 @@ class CameraTwinHealth:
         if not bool(_knob("CAMERA_INPUT_STREAM_HEALTH_ENABLED", False)):
             # Kill switch: no exclusion, no hold, no page (house fallback
             # None, as before 3b).
-            self._sets_ready = False
+            self._mark_not_ready(now)
             return
         er, dr = self._registries()
         if er is None:
+            # Review A-M1: no registry, no sets: rooms defer, then page.
+            self._mark_not_ready(now)
             return
         self._compute_sets(now, er)
         if self._sets_ready:
@@ -413,7 +465,10 @@ class CameraTwinHealth:
                 now, inputs, self._state_get, lambda: er,
             )
         if self._sets_ready:
-            self._evaluate_groups(now, er, dr)
+            try:
+                self._evaluate_groups(now, er, dr)
+            finally:
+                self._pure_groups_cache = None
 
     def _state_get(self, entity_id: str) -> Any:
         return self.hass.states.get(entity_id)
@@ -423,8 +478,18 @@ class CameraTwinHealth:
         no watched device), only once the camera manager is present."""
         data = self._domain_data()
         if data.get("camera_manager") is None:
-            self._sets_ready = False
+            self._mark_not_ready(now)
             return
+        if not self._sets_ready:
+            # Review A-M1: (re)ready after a not-ready window (camera
+            # manager absent, integration reload, no registry). Rooms paged
+            # meanwhile: re-run the adoption sweep so the owner takes their
+            # unrecovered pages (and their LOW). Review B-L2: the loss
+            # stamps were not updated in the window; drop them (the devices
+            # re-stamp from this tick, as after a restart).
+            self._adoption_sweep_due = True
+            self._notlive_since.clear()
+            self._live_since.clear()
         room_inputs: list[tuple[str, str, str]] = []
         wr: set[str] = set()
         try:
@@ -434,6 +499,11 @@ class CameraTwinHealth:
         for entry in entries:
             if not _csh.is_room_entry(entry):
                 continue
+            if getattr(entry, "disabled_by", None) is not None:
+                continue  # review D-M2: a disabled room watches nothing
+            state = getattr(entry, "state", None)
+            if getattr(state, "value", state) in _DEAD_ENTRY_STATES:
+                continue  # review D-M2: no coordinator, no auto-recovery
             room, configured, extras = _csh.room_stream_input_entities(
                 self.hass, entry,
             )
@@ -608,12 +678,37 @@ class CameraTwinHealth:
             (room, eid) for room, eid, dev in self._room_inputs if dev in group
         })
 
+    def _pure_groups(self, er: Any, dr: Any) -> dict[str, frozenset[str]]:
+        """The PURE pairing for this tick (review B-L5): built once per
+        tick from the registries (never the owner's map), dropped at the
+        tick end so a registry change is seen on the next tick."""
+        if self._pure_groups_cache is None:
+            self._pure_groups_cache = _csh.pure_twin_groups(er, dr)
+        return self._pure_groups_cache
+
     def _group_page_key(self, group: frozenset[str], er: Any, dr: Any) -> str | None:
         """The PURE page key of the group (never the map): the Frigate
         member's page_camera_key, else the device's own."""
         frig = _csh.frigate_member(er, group)
         dev = frig or (sorted(group)[0] if group else None)
-        return _csh.page_camera_key(er, dr, dev)
+        return _csh.page_camera_key(er, dr, dev, groups=self._pure_groups(er, dr))
+
+    def _member_own_keys(self, group: frozenset[str], er: Any) -> list[str]:
+        """Each member device's own camera: the S2 key a room used if it
+        could not read the device registry (review A-L4)."""
+        out: list[str] = []
+        for dev in sorted(group):
+            own = _csh.own_camera_entity_for_device(er, dev)
+            if own:
+                out.append(own)
+        return out
+
+    def _member_own_s2_latched(self, group: frozenset[str], er: Any, key: str | None) -> bool:
+        from ._stuck_signal_nm import stuck_signal_notified  # noqa: PLC0415
+        return any(
+            stuck_signal_notified(NM_KIND_S2, (own,))
+            for own in self._member_own_keys(group, er) if own != key
+        )
 
     def _room_s1_latched(self, group: frozenset[str]) -> bool:
         """A member device's room S1 page ``(room, input)`` is sent and not
@@ -624,14 +719,17 @@ class CameraTwinHealth:
             for room, eid in self._member_room_keys(group)
         )
 
-    def _any_latched(self, key: str | None, group: frozenset[str]) -> bool:
-        """Any page of the group still unrecovered: its S2 / owner S1 key or
-        a member room S1 key (the LOW duty of a takeover)."""
+    def _any_latched(self, key: str | None, group: frozenset[str], er: Any = None) -> bool:
+        """Any page of the group still unrecovered: its S2 / owner S1 key, a
+        member room S1 key, or a member's own-camera S2 key (the LOW duty of
+        a takeover)."""
         from ._stuck_signal_nm import stuck_signal_notified  # noqa: PLC0415
         if key and (
             stuck_signal_notified(NM_KIND_S2, (key,))
             or stuck_signal_notified(NM_KIND_S1, (GROUP_S1_KEY, key))
         ):
+            return True
+        if er is not None and self._member_own_s2_latched(group, er, key):
             return True
         return self._room_s1_latched(group)
 
@@ -648,8 +746,12 @@ class CameraTwinHealth:
         # (room, input) still unrecovered is THIS episode's HIGH (no second
         # HIGH under the different owner S1 key); its LOW is sent at the
         # episode end. A room-sent S2 under the same pure key needs no
-        # adoption: the owner's send reads ALREADY_SENT.
-        if self._room_s1_latched(group):
+        # adoption: the owner's send reads ALREADY_SENT. Review A-L4: a
+        # room that could not read the device registry keyed its S2 by the
+        # member's OWN camera; that unrecovered page is this episode's HIGH.
+        if self._room_s1_latched(group) or self._member_own_s2_latched(
+            group, er, key,
+        ):
             self._group_high_sent[group] = True
         self._episodes[group] = ep
         return ep
@@ -666,6 +768,13 @@ class CameraTwinHealth:
             if current != group:
                 self._end_episode(group, ep, now, er, dissolve=True)
         groups = scope | set(self._episodes)
+        observed = {dev for group in groups for dev in group}
+        # Review B-L2: a device that left scope (and every episode) is not
+        # observed; drop its loss / live stamps, so re-entering scope starts
+        # a fresh grace and cap instead of reading a stale stamp.
+        for stamps in (self._notlive_since, self._live_since):
+            for dev in [d for d in stamps if d not in observed]:
+                stamps.pop(dev, None)
         for group in groups:
             for dev in group:
                 self._update_loss(dev, now, er)
@@ -673,7 +782,7 @@ class CameraTwinHealth:
             self._adoption_sweep_due = False
             for group in scope:
                 if group not in self._episodes and self._any_latched(
-                    self._group_page_key(group, er, dr), group,
+                    self._group_page_key(group, er, dr), group, er,
                 ):
                     ep = self._start_episode(group, now, er, dr, adopted=True)
                     if self._group_alive(group):
@@ -694,6 +803,11 @@ class CameraTwinHealth:
                     ep["false_since"] = now
                 if (now - ep["false_since"]).total_seconds() >= grace:
                     self._end_episode(group, ep, now, er)
+            elif ep is not None:
+                # Review B-L3: neither dead nor alive (a twin flapped
+                # not-live under the grace): the live stretch is broken, so
+                # the "alive for one grace" clock restarts.
+                ep["false_since"] = None
             if group not in scope:
                 continue  # no reader: never pages
             if cap is not None:
@@ -701,7 +815,7 @@ class CameraTwinHealth:
             else:
                 self._maybe_send_s1(group, now, nm_after, today, er, dr)
             if len(group) > 1:
-                self._member_notices(group, dead, now, cap, grace, er, today)
+                self._member_notices(group, dead, now, cap, grace, er, dr, today)
 
     def _ensure_episode(
         self, group: frozenset[str], now: datetime, er: Any, dr: Any,
@@ -782,7 +896,7 @@ class CameraTwinHealth:
 
     def _member_notices(
         self, group: frozenset[str], dead: bool, now: datetime,
-        cap: float | None, grace: float, er: Any, today: str,
+        cap: float | None, grace: float, er: Any, dr: Any, today: str,
     ) -> None:
         """MEDIUM once per member device episode: the member's LOSS stamp +
         min(positive caps) passed while the group is not physically dead
@@ -810,13 +924,16 @@ class CameraTwinHealth:
                 dead or cap is None or st.get("sent")
                 or not bool(_knob("CAMERA_STREAM_TWIN_COVERING_NOTICE_ENABLED", False))
                 or not self._lost(dev, now)
+                # Review A-L2: "still sees it" only while another member
+                # is LIVE (this member is not live here).
+                or not self._group_alive(group)
             ):
                 continue
             since = self._notlive_since.get(dev, now)
             if (now - since).total_seconds() < cap:
                 continue
             own = _csh.own_camera_entity_for_device(er, dev) or dev
-            camera = key or self._group_page_key(group, er, self._registries()[1]) or own
+            camera = key or self._group_page_key(group, er, dr) or own
             others = [d for d in sorted(group) if d != dev]
             ident = f"medium:{own}"
             if ident in self._inflight:
@@ -864,6 +981,11 @@ class CameraTwinHealth:
         if key:
             self._recover(NM_KIND_S2, (key,), message)
             self._recover(NM_KIND_S1, (GROUP_S1_KEY, key), message)
+        from ._stuck_signal_nm import stuck_signal_notified  # noqa: PLC0415
+        for own in self._member_own_keys(group, er):
+            # Review A-L4: a member own-camera S2 page this episode adopted.
+            if own != key and stuck_signal_notified(NM_KIND_S2, (own,)):
+                self._recover(NM_KIND_S2, (own,), message)
         for room, eid in self._member_room_keys(group):
             self._recover(NM_KIND_S1, (room, eid), message)
 
@@ -874,6 +996,9 @@ class CameraTwinHealth:
     def _send(self, ident: str, on_sent: Callable[[], None], **kwargs: Any) -> None:
         if self.torn_down or ident in self._inflight:
             return
+        from ._stuck_signal_nm import stuck_signal_dispatch_ready  # noqa: PLC0415
+        if not stuck_signal_dispatch_ready(self.hass):
+            return  # review B-L6: NM off: no task; next tick re-offers
         self._inflight.add(ident)
         self._track(self._send_task(ident, on_sent, kwargs))
 

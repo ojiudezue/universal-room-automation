@@ -990,6 +990,7 @@ def test_zone_hold_diagnosis_names_dead_holder(house, monkeypatch):
         got.update(kw)
 
     monkeypatch.setattr(_stuck_signal_nm, "fire_stuck_signal", _fire)
+    monkeypatch.setattr(_stuck_signal_nm, "stuck_signal_dispatch_ready", lambda hass: True)
     room = _RoomCoord(house, _registry())
     house.set(**{PANEL: "on", PANEL_CAM: "unavailable", ZV: "off"})
     sub, tracker = _zone_stack(house)
@@ -1657,6 +1658,7 @@ def _hold_nm(monkeypatch):
             got["recover"].append(kw)
 
     monkeypatch.setattr(_stuck_signal_nm, "fire_stuck_signal", _page)
+    monkeypatch.setattr(_stuck_signal_nm, "stuck_signal_dispatch_ready", lambda hass: True)
     monkeypatch.setattr(_stuck_signal_nm, "fire_stuck_signal_recovered", _rec)
     return got
 

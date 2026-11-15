@@ -2655,6 +2655,8 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         )
         from .domain_coordinators._stuck_signal_nm import (  # noqa: PLC0415
             fire_stuck_signal_recovered,
+            stuck_signal_dispatch_ready,
+            stuck_signal_notified,
         )
         tracker = self._camera_stream_health
         today = now.date().isoformat()
@@ -2664,6 +2666,17 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             # (no latch is set, the candidate comes back next tick).
             if self._camera_stream_page_policy(_cam, now) != _csh.POLICY_PAGE:
                 continue
+            # Review D-L2 (caps 0): the owner already sent this device's
+            # group S1 page (it paged before a CM reload, or the device was
+            # in U): adopt it as this input's HIGH; no second one.
+            _gkey = self._camera_stream_page_key(_cam)
+            if stuck_signal_notified(
+                CAMERA_STREAM_NM_KIND, (_csh.GROUP_S1_KEY, _gkey),
+            ):
+                tracker.adopt_group_s1(_eid, today, _gkey)
+                continue
+            if not stuck_signal_dispatch_ready(self.hass):
+                continue  # review B-L6: NM off: no task; re-offered next tick
             tracker.begin_send(CAMERA_STREAM_NM_KIND, _eid)
             self.hass.async_create_task(_csh.send_page_and_mark(  # noqa: untracked-ok
                 self.hass, tracker, _eid, today,
@@ -2680,21 +2693,31 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 severity="HIGH",
             ))
         for _eid, _cam in to_recover:
+            _gkey = tracker.pop_adopted_group_s1(_eid)
             if (
                 _cam
                 and self._camera_stream_page_policy(_cam, now)
                 == _csh.POLICY_SUPPRESS
             ):
                 continue  # in the owner's map: the owner sends the LOW
+            _msg = (
+                f"room {room_name}: input {_eid} counts again "
+                f"(camera {_cam or 'stream'} back)"
+            )
             self.hass.async_create_task(fire_stuck_signal_recovered(  # noqa: untracked-ok
                 self.hass,
                 kind=CAMERA_STREAM_NM_KIND,
                 key=(room_name, _eid),
-                message=(
-                    f"room {room_name}: input {_eid} counts again "
-                    f"(camera {_cam or 'stream'} back)"
-                ),
+                message=_msg,
             ))
+            if _gkey:
+                # Review D-L2: this room owns the adopted group page's end.
+                self.hass.async_create_task(fire_stuck_signal_recovered(  # noqa: untracked-ok
+                    self.hass,
+                    kind=CAMERA_STREAM_NM_KIND,
+                    key=(_csh.GROUP_S1_KEY, _gkey),
+                    message=_msg,
+                ))
 
     def _fire_camera_hold_pages(self, now, room_name: str) -> None:
         """S2 hold-release page (operator 2026-11-14): once a dead camera
@@ -2713,6 +2736,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         )
         from .domain_coordinators._stuck_signal_nm import (  # noqa: PLC0415
             fire_stuck_signal_recovered,
+            stuck_signal_dispatch_ready,
         )
         tracker = self._camera_stream_health
         today = now.date().isoformat()
@@ -2723,6 +2747,8 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             # so a room page and an owner page of one camera share a key.
             if self._camera_stream_page_policy(_own_cam, now) != _csh.POLICY_PAGE:
                 continue
+            if not stuck_signal_dispatch_ready(self.hass):
+                continue  # review B-L6: NM off: no task; re-offered next tick
             _cam = self._camera_stream_page_key(_own_cam)
             _mins = int((now - _since).total_seconds() // 60)
             tracker.begin_send(CAMERA_STREAM_NM_KIND_HOLD_RELEASED, _own_cam)
