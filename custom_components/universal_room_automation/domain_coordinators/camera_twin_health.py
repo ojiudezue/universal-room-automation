@@ -1164,8 +1164,9 @@ def _nvr_name(er: Any, device_id: str) -> str:
 
 def physical_camera_dead(hass: Any, entity_or_device: str) -> bool | None:
     """True iff EVERY paired NVR device has LOST the camera (§6.5). None =
-    no owner. Read by the pages and the diagnostics only (no hold, view or
-    anchor reads it)."""
+    no owner. Read by the pages, the diagnostics and one display field (the
+    interior room record's ``liveness`` = ``lost``, VISION-INTERIOR-SIGHTINGS-1
+    D1); no hold, view or anchor reads it."""
     owner = _csh.twin_owner(hass)
     if owner is None:
         return None

@@ -870,6 +870,7 @@
           "face_recognition_enabled": "Face recognition",
           "guest_vlan_ssid": "Guest Wi-Fi name",
           "egress_identity_enabled": "Name people at doors",
+          "interior_vision_enabled": "Interior vision",
           "known_face_guests": "Known guests"
         },
         "data_description": {
@@ -879,6 +880,7 @@
           "face_recognition_enabled": "Use face matches from your cameras to confirm who someone is. Needs a camera system with face recognition. You can also turn this off from its switch on the House device.",
           "guest_vlan_ssid": "SSID of your guest WiFi network (e.g., 'Revel'). Phones connected to this SSID are counted as guests. Leave blank to disable WiFi guest detection.",
           "egress_identity_enabled": "Name people who walk through door cameras, using face recognition, so the house count knows who is home. You can also turn this off from its switch on the House device.",
+          "interior_vision_enabled": "Let AI vision look at indoor shared-room cameras (never bedrooms or bathrooms) to count and describe people. You can also turn this off from its switch on the Coordinator Manager device.",
           "known_face_guests": "Names from your face library that belong to regular guests, not residents. Leave empty if none."
         },
         "sections": {

@@ -546,7 +546,84 @@ REVERTS = {
     "missing_source": ("domain_coordinators/presence.py",
                        "                        person_entity=entity_id, source=\"geofence\",",
                        "                        person_entity=entity_id,"),
+    # VISION-INTERIOR-SIGHTINGS-1 §6.3 drills (injected leaks; IV_RULES pins
+    # the rule each must trip).
+    "iv_trust_reader": ("domain_coordinators/security.py",
+                        "        \"\"\"Evaluate an entry event against census data.\"\"\"\n",
+                        "        \"\"\"Evaluate an entry event against census data.\"\"\"\n"
+                        "        _p = self.hass.data['d']['coordinator_manager'].coordinators['presence']\n"
+                        "        _leak = _p.get_room_sightings()\n"),
+    "iv_census_feed": ("domain_coordinators/presence.py",
+                       "        v3.6.0.11: Schedules deferred retry when hysteresis blocks.\n"
+                       "        \"\"\"\n",
+                       "        v3.6.0.11: Schedules deferred retry when hysteresis blocks.\n"
+                       "        \"\"\"\n"
+                       "        _term = self._person_sightings.interior_census_tick()\n"),
+    "iv_direct_store_write": ("interior_vision.py",
+                              "class OnEdgeRing:",
+                              "def _leak(producer, recs):\n"
+                              "    producer._room_sightings[0] = recs\n\n\n"
+                              "class OnEdgeRing:"),
+    "iv_unnamed_on_sighting_signal": ("person_sighting.py",
+                                      "        raise ValueError(f\"unknown unnamed kind {kind!r}\")",
+                                      "        async_dispatcher_send(self.hass, SIGNAL_PERSON_SIGHTING, None)\n"
+                                      "        raise ValueError(f\"unknown unnamed kind {kind!r}\")"),
+    "iv_record_built_outside_owner": ("interior_vision.py",
+                                      "class OnEdgeRing:",
+                                      "def _leak(**f):\n    return RoomSighting(**f)\n\n\n"
+                                      "class OnEdgeRing:"),
 }
+
+# The rule each interior-vision drill must trip (not only "some problem").
+IV_RULES = {
+    "iv_trust_reader": ("R15", "domain_coordinators/security.py",
+                        "SanctionChecker.check_entry:get_room_sightings"),
+    "iv_census_feed": ("R15", "domain_coordinators/presence.py",
+                       "PresenceCoordinator._run_inference:interior_census_tick"),
+    "iv_direct_store_write": ("R7", "interior_vision.py", "_leak:_room_sightings"),
+    "iv_unnamed_on_sighting_signal": ("R6", "person_sighting.py",
+                                      "PersonSightingProducer._emit_unnamed:ura_person_sighting"),
+    "iv_record_built_outside_owner": ("R7", "interior_vision.py", "_leak:RoomSighting"),
+}
+
+
+@pytest.mark.parametrize("case", sorted(IV_RULES))
+def test_iv_drill_trips_its_rule(case):
+    """Each §6.3 interior drill is caught by the rule that owns it."""
+    rel, new, old = REVERTS[case]
+    tree = _real_tree()
+    assert tree[rel].count(new) == 1, case
+    tree[rel] = tree[rel].replace(new, old, 1)
+    keys = {x.key for x in _scan(tree)}
+    assert IV_RULES[case] in keys, (case, sorted(k for k in keys if k[1] == rel))
+
+
+def test_iv_pinned_readers_clean_on_real_tree_and_pins_are_real():
+    """No R15 hit on the real tree, and every non-reserved ship-1 pin names a
+    real (module, qualname) that calls the pinned method (no dead pin)."""
+    hits = _scan(_real_tree())
+    assert [h for h in hits if h.rule == "R15"] == []
+    import ast
+    tree = _real_tree()
+    for name in ("get_room_sightings", "get_last_path_records"):
+        for mod, q in E.PINNED_READERS[name]:
+            if mod.startswith("<reserved"):
+                continue
+            calls = [
+                qual for node, qual, _f in E.iter_scoped(ast.parse(tree[mod]))
+                if isinstance(node, ast.Call) and E._call_name(node) == name
+            ]
+            assert any(E.pinned_ok(name, mod, c) for c in calls), (name, mod, q, calls)
+
+
+@pytest.mark.parametrize("snippet, rule", [
+    ("def f(p):\n    return getattr(p, 'get_room_sightings')()\n", "R15"),
+    ("def f(p):\n    return p.get_last_path_records()\n", "R15"),
+    ("def f(x):\n    return PathRecord('a', 'd', 0.0, None, None, ())\n", "R7"),
+    ("def f(prod):\n    prod._path_records.append(1)\n    return prod._vision_counts\n", "R2"),
+])
+def test_iv_engine_shapes(snippet, rule):
+    assert rule in _rules(snippet), _snippet_hits(snippet)
 
 
 @pytest.mark.parametrize("case", sorted(REVERTS))

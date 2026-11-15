@@ -2843,6 +2843,23 @@ class EgressDirectionTracker:
             "path_map_doors": sorted(pmap.doors) if pmap is not None else [],
         }
 
+    def inward_path_edges(self, door: str) -> tuple:
+        """VISION-INTERIOR-SIGHTINGS-1 D5 (non-person read): the installed
+        path map's ``inward`` edges of ``door`` (``interior_paths.PathEdge``;
+        nodes are physical camera keys, ``window_s`` = measured ``lag_p90_s``
+        or the map default). Approach edges are never returned. ``()`` with
+        no map, an unknown door or on any error."""
+        try:
+            pmap = self.path_map
+            dm = pmap.doors.get(door) if pmap is not None else None
+            if dm is None:
+                return ()
+            from .interior_paths import KIND_INWARD  # noqa: PLC0415
+
+            return tuple(e for e in dm.edges if e.kind == KIND_INWARD)
+        except Exception:  # noqa: BLE001
+            return ()
+
     def _log_egress_outcome(
         self,
         resolution: EgressResolution,

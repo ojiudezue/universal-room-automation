@@ -6043,6 +6043,25 @@ class PresenceCoordinator(BaseCoordinator):
         producer = self._person_sightings
         return producer.diagnostics() if producer is not None else {}
 
+    # ---- VISION-INTERIOR-SIGHTINGS-1 ship 1: F4 unnamed reads (display
+    # class only; pinned readers in the layer guard). Never raise.
+    def get_room_sightings(self) -> tuple:
+        """The interior room records of the last build (``RoomSighting``),
+        ``()`` with no producer or on any error."""
+        try:
+            producer = self._person_sightings
+            return tuple(producer.get_room_sightings()) if producer is not None else ()
+        except Exception:  # noqa: BLE001
+            return ()
+
+    def get_last_path_records(self) -> tuple:
+        """Closed interior path records (``PathRecord``), oldest first."""
+        try:
+            producer = self._person_sightings
+            return tuple(producer.get_last_path_records()) if producer is not None else ()
+        except Exception:  # noqa: BLE001
+            return ()
+
     # ------------------------------------------------------------------
     # PERSON-AWARENESS-READ-API-1 ship 1: the person-awareness read API.
     # Readers pick a view by consumer class (view_for_class); the presence
@@ -6223,6 +6242,12 @@ class PresenceCoordinator(BaseCoordinator):
             out["move_log_size"] = int(size_fn()) if callable(size_fn) else 0
         except Exception:  # noqa: BLE001
             out["move_log_size"] = 0
+        try:
+            producer = self._person_sightings
+            out["interior_vision"] = (
+                producer.interior_diagnostics() if producer is not None else {})
+        except Exception:  # noqa: BLE001
+            out["interior_vision"] = {}
         return out
 
     def get_last_arrival_record(self):

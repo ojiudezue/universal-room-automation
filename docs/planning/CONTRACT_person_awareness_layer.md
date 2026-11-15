@@ -139,7 +139,7 @@ notification consumer and the single door-naming send site, perimeter's door-cam
 |---|---|
 | Producers allowed | census MQTT face bridge, zone-camera face picks, egress projection (camera); Bermuda/IRK room (BLE); interior vision (unnamed body records, planned) |
 | ONE ingest point | Camera / egress / interior: `PersonSightingProducer._emit` (`person_sighting.py:565`); interior vision adds `_emit_unnamed` ON THE SAME PRODUCER, not a sibling store. BLE room: `PersonTrackingCoordinator._async_update_data` (writes `location`, `previous_location`, fires `ura_person_location_change`) |
-| Store | sighting store (`_last_sightings`), `PersonTrackingCoordinator.data[...]["location"]` |
+| Store | sighting store (`_last_sightings`), `PersonTrackingCoordinator.data[...]["location"]`; interior unnamed stores (VISION-INTERIOR-SIGHTINGS-1 ship 1, owner `person_sighting.py`): `_room_sightings`, `_path_records`, `_vision_counts` (and `_room_descriptions` from ship 2), written only by `_emit_unnamed(kind, payload)`, which sends no channel |
 | Provenance / confidence | sighting `source`, `camera`, `zone`, `census_veto`, `confidence`; BLE `method`, `confidence`, `tracking_status`, `bermuda_area` |
 | Read surface | Camera: `get_last_person_sighting(s)` (`presence.py:5987-5993`). BLE: the ONE BLE-in-room read (§2.4a), `get_person_location(name)`, `get_zone_occupants`; push `SIGNAL_PERSON_SIGHTING`, `ura_person_location_change` |
 | Deliberate separation | **seen (F4) vs counted (F2).** F4 meets F2 only as a term inside `deconflict_house` (§2.2 (2)). No F4 store is read by the census elsewhere, and no F4 value reaches a house_state or access decision except through F2 or an access corroboration predicate (`face_input_corroborated`) |
@@ -159,6 +159,11 @@ whose phone-left-behind sensor reads `on` (fail-open: missing / unknown / unavai
 registry-resolved `phone_trustworthy` predicate (moved from `_ble_corroboration.py:34-66`, which becomes a re-export).
 All readers use it: room occupancy (`coordinator.py:3315, 4440, 5003, 1385`, class comfort), fan recheck, fan veto,
 zone tier, lock regime, perimeter, music, presence inference.
+**Built (VISION-INTERIOR-SIGHTINGS-1 ship 1, plan §14 seam; no reader migrated, that stays G6):** returns a
+`tuple[str, ...]` of person names (the names `get_persons_in_room` returns); `active_only=True` keeps only persons whose
+`tracking_status == TRACKING_STATUS_ACTIVE`. The filter is `_ble_corroboration.phone_trustworthy` called from
+`person_coordinator.py` (not moved: three test files load `_ble_corroboration.py` standalone, so a module-level import
+of `person_coordinator` there would break them; one predicate either way).
 
 - **Behaviour change for room occupancy (needs an operator yes, §9 Q1).** A person whose phone-left-behind sensor
   reads `on` stops extending room occupancy (BLE hold, `:4440`), stops clearing the radar latch as `ble_person`
@@ -198,6 +203,7 @@ zone tier, lock regime, perimeter, music, presence inference.
 | Identity evidence (census) | public `PersonCensus` methods: `resolve_face_legs`, `resolve_ble_legs`, `tracked_person_slugs` (batch-2 `camera_census.py:4061`), `egress_identity_enabled` (`:4085`), `canonical_person_slug`, `known_face_guests`, `face_person_would_be_vetoed`, `face_suppressed_now` | layer producers only: egress tracker (F3), sighting producer (F4), perimeter D10.5 (until it reads F3/F4 instead) | any consumer outside the producer list deciding on raw legs |
 | Person id rule | `person_ids.tracked_person_entity_id / slug_of / display_of / entity_key_slug` | everyone | inline `f"person.{slug.lower()}"`, `lower().replace(" ", "_")`, `.title()` inverses |
 | Phone left behind | `phone_trustworthy(person)` (registry-resolved by unique id, fail-open; §2.4a) | the one BLE-in-room read; presence inference twin (allowlisted) | reading `binary_sensor.*_phone_left_behind` state anywhere else |
+| Interior camera evidence (VISION-INTERIOR-SIGHTINGS-1 ship 1) | `PersonCensus.area_evidence()` (copies: per-entity last reading `by_entity`, display-only area contributions / house bodies, `as_of`); ship 3b `camera_stream_health.entity_stream_view(hass, eid, census=True)` and `camera_twin_health.physical_camera_dead` (display field `liveness`) | layer members only (the sighting producer) | a record source other than `by_entity`; the per-area contributions as a record source |
 
 **Cameras outside rooms (review §3).** Stream health answers only for cameras that are some room input's own camera
 (`_fold` returns None otherwise, `camera_stream_health.py:517-526`), so a door or garage camera that is no room's
@@ -212,7 +218,8 @@ Owners: `person_coordinator.py` (F1 level, F4-BLE, phone-left-behind predicate),
 `transit_validator.EgressDirectionTracker` (F3), `crossing_vision.py` + `crossing_ledger.py` (F3 attributes, F2 term
 provider), `person_sighting.py` (F4), `presence.py` read API block and `_derive_face_arrival` (read surface, F5),
 `signals.py`, `census_view.py`, `person_ids.py`, `arrival_edges.py` (pure rules), `camera_stream_health.py`,
-`nvr_witness.py` (planned). A member may read another member's PUBLIC methods; it may read its OWN store. An owner's
+`nvr_witness.py` (planned), `interior_vision.py` (`InteriorVisionSampler`, VISION-INTERIOR-SIGHTINGS-1; ship 1 ships
+the pure core only, the sampler class arrives with the vision ships). A member may read another member's PUBLIC methods; it may read its OWN store. An owner's
 own display entities (census sensors in `sensor.py`, person location sensors) may read the owner's store under a
 counted allowlist (owner-display exemption), never for a decision.
 
@@ -292,7 +299,7 @@ counted allowlist (owner-display exemption), never for a decision.
 | F1 edges | `get_recent_resident_arrival`, `get_residency_snapshot`, NEW `subscribe_person_edges(cb, *, persons, kinds)` (push), NEW `get_person_edges_since(t, *, persons, kinds)` (pull over the same `ResidencyTracker.recent` ledger, no second store; plain tuple, `edge_ts >= t`, oldest first, `t` float epoch seconds) + `person_edges_truncated_since(t)`; every edge carries `counted` | G1 BUILT ship 3a D2 (phase 2) |
 | F2 | `get_house_census(cls=...)` / `census_view.house_census_view(hass, cls=...)` (the view chosen by `census_view.view_for_class`) | BUILT ship 3a D4; six display callers stay on the literal trust view (Q3) |
 | F3 | `get_last_crossing(camera)`, `get_crossings_since(t, camera=None)` (plain tuple of `CrossingRecord`, `ts >= t`, oldest first, `t` a `datetime`; covers at most `EGRESS_CROSSING_RING_MAX_AGE_S` and 32 records per camera, only since the tracker's creation, so no truncation read), `get_crossing(source_ref)`, `get_last_arrival_record()`, `door_camera_device_ids()`, `door_entry_entities()` / `door_neighbours_for_stem(stem)` (G5: entities, not areas, because the lock and perimeter resolve areas with different functions) | BUILT ship 3a D3 (G2, A3, A9, G5) |
-| F4 | `get_last_person_sighting(s)`; BLE via `get_person_location(name)`, `get_person_previous_seen(name)` (`person_coordinator.py`), `persons_in_room(room, active_only=False)`, `persons_in_room_or_scanner_areas(room)`, `location_moves_since(t)` on `PersonTrackingCoordinator`, with presence delegates `location_moves_since` / `location_moves_truncated_since` that never raise (plain tuple of frozen `PersonMove(person_entity, from_room, to_room, ts, method)`, `ts >= t`, oldest first, `t` a `datetime`) + `location_moves_truncated_since(t)` (True also when `t` is before the log's creation or older than `PERSON_LOCATION_MOVES_MAX_AGE_S`; on truncation, re-read `get_person_location`); push `TransitionDetector.async_add_listener` (listed listeners only) | moves BUILT ship 3a D4; G6 rest on G6-ONE-BLE-ROOM-READ-1 |
+| F4 | `get_last_person_sighting(s)`; unnamed interior records `get_room_sightings()` / `get_last_path_records()` (VISION-INTERIOR-SIGHTINGS-1 ship 1; display class, pinned readers); BLE via `get_person_location(name)`, `get_person_previous_seen(name)` (`person_coordinator.py`), `persons_in_room(room, active_only=False)`, `persons_in_room_or_scanner_areas(room)`, `location_moves_since(t)` on `PersonTrackingCoordinator`, with presence delegates `location_moves_since` / `location_moves_truncated_since` that never raise (plain tuple of frozen `PersonMove(person_entity, from_room, to_room, ts, method)`, `ts >= t`, oldest first, `t` a `datetime`) + `location_moves_truncated_since(t)` (True also when `t` is before the log's creation or older than `PERSON_LOCATION_MOVES_MAX_AGE_S`; on truncation, re-read `get_person_location`); push `TransitionDetector.async_add_listener` (listed listeners only) | moves BUILT ship 3a D4; G6 rest on G6-ONE-BLE-ROOM-READ-1 |
 | F5 | push only: `signals.subscribe_person_arriving(hass, cb)` (sync `cb(PersonArrivingPayload)`, delivered inline) | BUILT ship 3a D1 |
 | class | `view_for_class(cls)`, `min_confidence(cls)` (wraps `CONSUMER_CLASS_MIN_CONFIDENCE`; None for a class with no bar) | `min_confidence` BUILT ship 3a D4 |
 | F4 / F1 public reads ruled legitimate at the guard's first run (plan rev 3.3 §12, §17 (b)) | person coordinator `get_person_confidence`, `get_persons_in_zone`, `get_tracked_person_count`, `get_person_previous_location`, `get_person_previous_location_time`, `get_diagnostic_data` (display class); presence `should_veto_due_to_reliable_signals` (comfort / house_state, zone fallback) and `check_zone_occupancy_confidence` (comfort, HVAC D6 confirmation) | existing methods, on the read list since ship 3a (guard R2 does not flag them) |
@@ -394,7 +401,10 @@ against it, and a plan that cannot fill a row is sent back.
    on F4 alone? Yes = fail.
 5. **Delivery.** Does any fix change what a consumer delivers (a window, a scope, a class of person, a trigger)? Then
    it is named and goes to the operator (charter anti-drift rule 3); the planner never picks it.
-6. **Guard delta.** Allowlist rows added (must be zero for a new consumer) and removed.
+6. **Guard delta.** Allowlist rows added (must be zero for a new consumer) and removed. Pinned readers
+   (`PINNED_READERS`, rule R15, VISION-INTERIOR-SIGHTINGS-1): a method that may be CALLED only from named
+   `(module, qualname)` pins (the F4 unnamed reads and the interior census term); a call anywhere else is a
+   never-allowlistable hit. Not part of `LAYER_ALLOWLIST_TOTAL` (like `LISTED`).
 7. **Seam check (arc map).** Does any other plan feed or read the same ingest point or add a method to the same read
    surface? Then the two plans name the shared contract and its single owner (M1-M12 style, e.g. G8), or merge.
 8. **Clip path.** For vision deliverables: a frame source that can take a short clip (charter 2026-11-14).

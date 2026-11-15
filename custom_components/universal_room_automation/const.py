@@ -3499,6 +3499,50 @@ INTERIOR_PATH_MAP_FALLBACK: Final[dict | None] = None
 # for readers outside transit_validator / __init__ (the path-map reload button).
 DIRECTION_TRACKER_DATA_KEY: Final = "egress_tracker"
 
+# VISION-INTERIOR-SIGHTINGS-1 ship 1 (plan
+# docs/planning/PLANNING_vision_interior_sightings.md §12): interior room
+# records (D1, F4 unnamed, display only) and the no-model path time-lapse (D5).
+# All rung 1 (reviewed code change). Nothing here is read on an inference,
+# house-state, security, access or comfort path.
+# D1 kill switch. False = no records, no path records, no on-edge listener.
+INTERIOR_ROOM_RECORDS_ENABLED: Final = True
+# Record build cadence (the producer's own interval timer), seconds.
+INTERIOR_ROOM_RECORD_INTERVAL_S: Final = 10
+# A named interior face sighting counts toward a room's `named` while younger
+# than this, seconds.
+INTERIOR_ROOM_FACE_FRESH_S: Final = 300
+# Privacy scope (INV-IV-SCOPE): a camera group whose URA room has one of these
+# room types gets no record (and, in later ships, no frame). Review to change.
+INTERIOR_VISION_EXCLUDED_ROOM_TYPES: Final = frozenset({"bedroom", "bathroom"})
+# Bound on the D1 on-edge ring (person-sensor off -> on stamps, read by D5).
+# Not named in the plan; sized for ~12 interior person sensors x the longest
+# path window. Builder addition, reported.
+INTERIOR_ONEDGE_RING_MAX: Final = 512
+# D5 (no-model leg): chain depth followed from the door (1 = first hop only).
+INTERIOR_TIMELAPSE_MAX_HOPS: Final = 4
+# A path record closes at the latest reached window close plus this, seconds.
+INTERIOR_TIMELAPSE_CLOSE_PAD_S: Final = 15
+# Closed path records kept in RAM (`get_last_path_records`).
+INTERIOR_TIMELAPSE_RING: Final = 20
+# A hop room's record carries `entered_via` (door, crossing ts) this long
+# after the hop's first on-edge, seconds (display).
+INTERIOR_TIMELAPSE_SEED_TTL_S: Final = 600
+# D7 trip-wires. `interior_room_records_zero` (HIGH): interior bodies_nvr > 0
+# on >= MIN_TICKS record ticks in the window and no record written.
+# `interior_path_zero` (LOW): >= MIN_ENTRIES entries on mapped doors in the
+# window and no path record. 0 = off. The window is not named in the plan
+# (it says "24 h"); builder addition, reported.
+INTERIOR_ZERO_MIN_TICKS: Final = 20
+INTERIOR_TIMELAPSE_ZERO_MIN_ENTRIES: Final = 3
+INTERIOR_ZERO_WINDOW_H: Final = 24
+# Master switch of interior vision model calls (D2 / D3 / D5 vision leg;
+# ship 1 makes no call). Options-flow default of `switch.ura_interior_vision`
+# (rung 2 + 3); a stored switch state wins.
+CONF_INTERIOR_VISION_ENABLED: Final = "interior_vision_enabled"
+DEFAULT_INTERIOR_VISION_ENABLED: Final = True
+# hass.data[DOMAIN] key the switch writes (True = on). Missing = default.
+INTERIOR_VISION_SWITCH_HASS_KEY: Final = "interior_vision_switch_on"
+
 # FACE-ARRIVAL-REBUILD-1 D3 (plan rev 11 §2 INV-ACCESS): the ONE set of
 # camera-derived `SIGNAL_PERSON_ARRIVING` sources. Both access gates (the SC
 # lock regime and the security expected-arrival gate) classify a source with
@@ -6389,6 +6433,9 @@ MEMORY_EPISODE_TYPES: Final = frozenset({
     # (crossing_vision.py ledger wiring). Display / scorer only; no
     # MEMORY_COMPACTION_RULES entry.
     "crossing_vision_ledger",
+    # VISION-INTERIOR-SIGHTINGS-1 D5: one row per closed path record (an
+    # entry on a mapped door). Display / scorer only; no decision reads it.
+    "interior_path",
 })
 
 # Set of episode types that have a LIVE writer. The weekly writer-health
@@ -6431,6 +6478,10 @@ MEMORY_WRITER_BACKED_EPISODE_TYPES: Final = frozenset({
     # shadow switch is on, plus anchors. Not checked while the shadow switch
     # is off (MEMORY_WRITER_HEALTH_SWITCH_GATED_TYPES, review B-L4).
     "crossing_vision_ledger",
+    # interior_path (VISION-INTERIOR-SIGHTINGS-1 D5): one row per entry on a
+    # door the interior path map covers (garage_a: several a day), so 0 in 7
+    # days is a dead writer (also paged sooner by `interior_path_zero`).
+    "interior_path",
     # sensor_dropout: writer exists and is correctly scheduled, but has
     # produced 0 rows in >2 months (per AUDIT_memory_writer_coverage.md,
     # 2026-10-11). KEEP in the checked set so the trip-wire surfaces this
@@ -6469,6 +6520,8 @@ MEMORY_WRITER_HEALTH_ABSENCE_EXEMPT_TYPES: Final = frozenset({
     "person_departure",
     # crossing_vision_shadow: one row per door crossing (same reason).
     "crossing_vision_shadow",
+    # interior_path: one row per entry on a mapped door (same reason).
+    "interior_path",
 })
 MEMORY_WRITER_HEALTH_ABSENT_HOUSE_STATES: Final = frozenset({"away", "vacation"})
 # Writer-backed types whose writer is gated by a switch (review B-L4,

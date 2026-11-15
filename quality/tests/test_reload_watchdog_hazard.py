@@ -219,6 +219,8 @@ def _load_ns(*, kill_switch: bool = True,
         # CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1 (2026-08-18):
         "CONF_FACE_RECOGNITION_ENABLED": "face_recognition_enabled",
         "CONF_EGRESS_IDENTITY_ENABLED": "egress_identity_enabled",
+        # VISION-INTERIOR-SIGHTINGS-1: the interior vision switch default.
+        "CONF_INTERIOR_VISION_ENABLED": "interior_vision_enabled",
         "SIGNAL_URA_FACE_RECOGNITION_CHANGED": "ura_face_recognition_changed",
         # CM/HVAC/EC CONF aliases (referenced by module-level frozensets;
         # values don't matter for these tests — string identity only).
@@ -616,6 +618,9 @@ def test_egress_perimeter_keys_not_in_allowlist_v1():
         "perimeter_vlm_gate",
         "perimeter_egress_known_xcorr_gate",
         "perimeter_identity_followup",
+        # VISION-INTERIOR-SIGHTINGS-1: default of switch.ura_interior_vision,
+        # read only at the switch's RestoreEntity add (no cached consumer).
+        "interior_vision_enabled",
     }
     # D1 zone sensors change subscriptions: structural, stays on reload.
     assert "perimeter_zone_sensors" not in allow

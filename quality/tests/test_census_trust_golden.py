@@ -19,7 +19,27 @@ from test_person_sighting import hass, mods  # noqa: F401 — fixture reuse
 
 SWITCH = "switch.ura_crossing_vision_census_authority"
 VARIANTS = ["dark_default", "absent", "vision50_lead", "visionNone_lead",
-            "vision50_unhealthy_lead"]
+            "vision50_unhealthy_lead", "interior_records_on"]
+
+
+def _install_interior(mods, hass, monkeypatch, w):
+    """VISION-INTERIOR-SIGHTINGS-1 INV-IV-AWAY variant ``interior_records_on``:
+    the interior room records run (real producer, real twin groups over the
+    rig registry, its on-edge listener bound) on every tick, between census
+    updates, as the timer would. Ship 1 has no sampler and no census term,
+    so this is the whole interior runtime."""
+    c = mods.const
+    hass.data[H.DOMAIN][c.CROSSING_VISION_HASS_KEY] = H.FakeVision(0)
+    producer = w.presence._person_sightings
+    producer._interior_registries = lambda: (w.rig.er, w.rig.dr)
+    w.interior_bodies = []
+
+    def _tick():
+        recs = producer.interior_tick()
+        w.interior_bodies.append(max((r.bodies or 0) for r in recs) if recs else None)
+
+    w.after_census_tick = _tick
+    w.interior_producer = producer
 
 
 def _install_variant(mods, hass, monkeypatch, variant):
@@ -47,8 +67,20 @@ async def _run(mods, hass, monkeypatch, freezer, variant):  # noqa: F811
     freezer.move_to(H.START)
     w = await H.build(mods, hass, monkeypatch)
     try:
-        _install_variant(mods, hass, monkeypatch, variant)
-        return await H.replay(w, freezer.tick)
+        if variant == "interior_records_on":
+            _install_interior(mods, hass, monkeypatch, w)
+        else:
+            _install_variant(mods, hass, monkeypatch, variant)
+        records = await H.replay(w, freezer.tick)
+        if variant == "interior_records_on":
+            # Non-hollow (#63): the records really ran, and saw bodies.
+            p = w.interior_producer
+            assert p.interior_counters["record_builds"] >= len(records)  # + timer
+            assert p.interior_counters.get("tick_errors", 0) == 0
+            assert len(p._interior_groups) == 2
+            # Script: the family room Frigate count reads 3 on ticks 3-4.
+            assert max(b for b in w.interior_bodies if b is not None) == 3
+        return records
     finally:
         await H.R.teardown(w.rig)
 
