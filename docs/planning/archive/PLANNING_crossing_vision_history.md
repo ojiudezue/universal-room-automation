@@ -382,3 +382,18 @@ Review: `docs/reviews/code-review/plan_review_crossing_vision_bca9fb65_2026_11_1
 - P2-D2 step 3 and P3-D4 step 5 made consistent on the `vision` branch (13d). P3-D8 marked APPROVED (18).
 - New decision 13: absolute vs relative direction bar, recommended relative for the ledger flip, absolute for F-LEAD.
 - Census plan F-LEAD row (`PLANNING_census_deconfliction.md` rung 0) made per door group, P3-D9c added to the bumps (12).
+
+## 2026-11-15: P3-D10 / P3-D11 operator direction designs added
+
+Why: operator, 2026-11-15, verbatim: "Arriving: when we detect a door crossing we can go back in history and get clips
+of the approach inside and outside the house. Alternatively we can treat motion near an egress door as an anticipatory
+crossing and collect clips from/frames to check if it was a crossing. If it a crossing we look to determine direction
+and if not discard". Every direction instrument had scored 13-14 of 17 on an agent-made answer key with at least two
+doubtful labels (`AUDIT_crossing_vision_p3_d0bcd_2026_11_15.md`), so new instruments are scored only on operator labels
+(CROSSING-GRADING-PAGE-1 → `crossing_operator_grades.json`).
+
+Added in place (no text removed): P3-D0e probe → P3-D10 retroactive approach clips (INV-APPROACH-DARK); P3-D0f probe →
+P3-D11 anticipatory crossing (INV-ONE-F3); P3-D2b named (no-frigate-event recovery on the recording route); decisions
+14-16; §4 invariant pointer and an INV-SCOPE widening for P3-D10 only; §6 knob rows; §7 step 6.8; §8 non-goal
+exceptions; tier line. Correction to the brief recorded in the plan: the 26 % `no_frigate_event` are tracker-resolved
+crossings with no matched Frigate event (`crossing_vision.py:675-679`), not crossings the tracker missed.
