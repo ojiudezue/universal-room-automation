@@ -60,6 +60,13 @@ Written so the analysis survives compaction. Companion docs: `ARC_identity_visio
     cool novelty. Demos well. When needed it's beautiful." Shared rooms: "don't do it when someone is already in that
     room including in your own room. Shares spaces, likely same."
   - Phase 2 evidence: "They need about 10 weeks. Foul. Why that long?" (gates sized to real error rates, not calendar).
+- Added 2026-11-15:
+  - Central question: "Is Vision working as designed is the central question. Starting with the door crossing version ie
+    is it counting well?"
+  - Coverage: "Vision on crossing with no clear direction - of course. No brainer" (VISION-AMBIGUOUS-CROSSINGS-1, step 2b).
+  - Non-goal: naming unenrolled people. "Not expecting new names. Names come from people I enrolled. This is few and far
+    between. Non goal."
+  - Emotion: "Emotion yes as prep for the future" (interior vision affect field, recorded, no consumer yet).
 
 ## Drift found, and the correction
 
