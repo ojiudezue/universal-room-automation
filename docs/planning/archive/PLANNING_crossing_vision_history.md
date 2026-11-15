@@ -1,0 +1,43 @@
+# PLANNING_crossing_vision history: NOT A BUILD SPEC
+
+History only. The build spec is `docs/planning/PLANNING_crossing_vision.md`. Older history:
+`HISTORY_crossing_vision_rev3_to_7_1.md`, `HISTORY_crossing_vision_partB_record_rev3_to_5.md`.
+
+## 2026-11-15: Phase 3 amendment (VISION-AMBIGUOUS-CROSSINGS-1 + DOOR-VISION-GROUP-UNDERCOUNT-1)
+
+Why: the ground-truth evaluation `AUDIT_door_vision_accuracy_2026_11_14.md` (46 clips counted by hand) found direction
+wrong on 6 of 17 readable clips, 21 opposite-direction cluster pairs that are mostly one physical pass, every group of
+3+ undercounted, one false blank, 4 errors with no recorded cause, and 46 calls against a cap of 40. Operator rule
+2026-11-15: "The things we see not working have to be reasoned through and fed back into our new plans ie the direction
+issue". The plan was rewritten in place (§0, §2, §3, §4, D1 step 8, P2-D2 step 3, new Phase 3, §6, §7, §8).
+
+Text replaced (verbatim, from develop 92e93c54):
+
+- INV-SCOPE: "Every frame sent belongs to a Frigate event on a camera in the crossing's own door group (live
+  `door_groups`; no entry = a group of one); never an ambiguous crossing. Calls per local day ≤
+  `CROSSING_VISION_DAILY_CALLS`, in flight ≤ `CROSSING_VISION_MAX_CONCURRENT`, nothing queued beyond (counted skip).
+  Accepted residual: the cap counter is RAM, so each restart can allow up to one more cap that day."
+  Replaced because: watching ambiguous crossings is an operator decision ("of course. No brainer"); a recording window
+  is a second legal frame source; the RAM residual let 46 calls through a cap of 40 on a day with two restarts.
+- INV-ADDITIVE ambiguous clause: "Ambiguous: bus key None, no row, no sample." Kept in substance (no DB row, no sample);
+  the vision row now exists for ambiguous crossings.
+- D1 step 8: "schema `{frames: [{index, people}], people_total, direction, group, desc}`". Was already wrong against
+  the build (`crossing_vision.py:96-118` has no direction); corrected.
+- P2-D2 step 3 ledger rule: "Term per outcome with validator direction. ... Cluster: one term with the primary's count
+  if all members share a direction, else per-member camera terms. Vision direction never used. ... `ambiguous` no term."
+  Replaced because the per-member rule gives +n and −n for one physical pass, and the direction source becomes a gated
+  knob (INV-DIR-GATE).
+- Knob row: "`CROSSING_VISION_DAILY_CALLS` | 40 | 3 (Number) | 0 = no calls; RAM counter, local midnight".
+- §8 non-goal "vision direction" (one of the listed non-goals). It was a scope cut in this plan, not an operator
+  decision; the D0 basis (51 % agreement, `AUDIT_crossing_vision_d0_2026_11_13.md:71`) compared vision with the
+  validator, which the 11-14 hand count shows is itself wrong on about a third of readable clips.
+
+Options considered and not taken:
+- Make `direction` an amendable G3 key so vision fixes the tracker for every reader: rejected, readers act at resolution
+  (notify, census union, DB, perimeter) 10-200 s before vision lands; a retro change is a different product and Tier 3
+  on its own. Carded as EGRESS-TRACKER-DIRECTION-1 (filed by P3-D7).
+- Collapse opposite pairs by time window only: rejected, it would also merge real round trips; the plan keys a pass on
+  the shared Frigate event id, gated by the P3-D0 (d) measurement.
+- A second "crowd" model call when the peak is 3+: rejected for more frames in the same call (no cap cost, no second
+  model per crossing, a standing non-goal).
+- Accept the RAM cap residual: rejected for rehydration, because of the restart-storm history.
