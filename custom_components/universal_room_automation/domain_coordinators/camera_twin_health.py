@@ -1111,6 +1111,36 @@ class CameraTwinHealth:
         }
 
 
+    def get_diagnostic_counters(self) -> dict[str, Any]:
+        """Counters only, for the config-entry diagnostics download (ship 3a
+        D5 rule: no config, no entity / device ids, no states). Derived from
+        ``get_diagnostics``; ids, stamps and keys are reduced to counts."""
+        d = self.get_diagnostics()
+        results: dict[str, int] = {}
+        for value in d["last_send_results"].values():
+            results[str(value)] = results.get(str(value), 0) + 1
+        episodes = d["group_episodes"]
+        return {
+            "map_ready": bool(d["map_ready"]),
+            "map_stale": d["map_stale_since"] is not None,
+            "builds": int(d["builds"]),
+            "build_failures": int(d["build_failures"]),
+            "pairs_admitted": len(d["pairs_admitted"]),
+            "pairs_rejected": len(d["pairs_rejected"]),
+            "watched_devices": int(d["watched_devices"]),
+            "unwatched": len(d["unwatched"]),
+            "sticky": len(d["sticky"]),
+            "house_tracker_stamps": len(d["house_tracker_stamps"]),
+            "loss_stamps": len(d["loss_stamps"]),
+            "group_episodes": len(episodes),
+            "group_episodes_high_sent": sum(1 for e in episodes if e["high_sent"]),
+            "group_episodes_adopted": sum(1 for e in episodes if e["adopted"]),
+            "member_notices_sent": sum(1 for v in d["member_notices"].values() if v),
+            "page_counts": {str(k): int(v) for k, v in d["page_counts"].items()},
+            "send_results": results,
+        }
+
+
 def _camera_devices(er: Any) -> frozenset[str]:
     """Every device that owns a camera entity (``had a camera``, rebuild
     filters)."""

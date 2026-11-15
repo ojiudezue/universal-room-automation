@@ -385,7 +385,11 @@ async def test_teardown_unsubscribes_ledger_feeds(rig, mods):
     table = rig.hass.data.get(DATA_DISPATCHER, {})
     for sig in (signals.SIGNAL_SUBSTRATE_KIND_CHANGED,
                 signals.SIGNAL_RESIDENCY_EVENT):
-        owners = [getattr(t, "__self__", None) for t in table.get(sig, {})]
+        # Ship 3a D2: the residency feed is a subscribe_person_edges closure;
+        # its owner is the callback it wraps (``layer_target``).
+        owners = [getattr(t, "__self__", None)
+                  or getattr(getattr(t, "layer_target", None), "__self__", None)
+                  for t in table.get(sig, {})]
         assert rig.cv not in owners, sig
 
 
@@ -402,7 +406,11 @@ async def test_dispatcher_feeds_registered_before_teardown(rig, mods):
     table = rig.hass.data.get(DATA_DISPATCHER, {})
     for sig in (signals.SIGNAL_SUBSTRATE_KIND_CHANGED,
                 signals.SIGNAL_RESIDENCY_EVENT):
-        owners = [getattr(t, "__self__", None) for t in table.get(sig, {})]
+        # Ship 3a D2: the residency feed is a subscribe_person_edges closure;
+        # its owner is the callback it wraps (``layer_target``).
+        owners = [getattr(t, "__self__", None)
+                  or getattr(getattr(t, "layer_target", None), "__self__", None)
+                  for t in table.get(sig, {})]
         assert rig.cv in owners, sig
 
 
@@ -1053,3 +1061,23 @@ async def test_producer_anchor_window_is_15_minutes(rig):
         assert led.evaluate(t0 + 60 * minute, ()) == [], minute
     led.census_tick(t0 + 900, 1, 0, False)
     assert [e.kind for e in led.evaluate(t0 + 900, ())] == ["anchor"]
+
+
+@pytest.mark.asyncio
+async def test_crossing_vision_residency_feed_is_g1_all_kinds(rig, mods):
+    """Ship 3a D2 wire-in: crossing vision's residency feed is the G1
+    subscription (all kinds, all persons) on its own handler."""
+    from homeassistant.helpers.dispatcher import DATA_DISPATCHER
+
+    from custom_components.universal_room_automation.domain_coordinators import (
+        signals,
+    )
+
+    table = rig.hass.data.get(DATA_DISPATCHER, {})
+    mine = [t for t in table.get(signals.SIGNAL_RESIDENCY_EVENT, {})
+            if getattr(getattr(t, "layer_target", None), "__self__", None) is rig.cv]
+    assert len(mine) == 1
+    (t,) = mine
+    assert t.layer_target == rig.cv._on_residency_event
+    assert t.layer_kinds == frozenset({"arrival", "departure"})
+    assert t.layer_persons is None

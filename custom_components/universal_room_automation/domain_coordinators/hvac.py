@@ -1235,10 +1235,11 @@ class HVACCoordinator(BaseCoordinator):
         """
         self._pre_arrival_enabled = value
         _LOGGER.info("HVAC pre-arrival: %s", "enabled" if value else "disabled")
-        # Sync to person_coordinator
+        # Sync to person_coordinator (ship 3a D4, G9: the owner's public
+        # setter; byte-identical to the old private write).
         pc = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
         if pc:
-            pc._pre_arrival_enabled = value
+            pc.set_pre_arrival_enabled(value)
 
     @property
     def vacancy_sweeps_today(self) -> int:

@@ -2933,3 +2933,38 @@ def test_d2_low1_short_not_ready_blip_keeps_owner_clock(world, rec, caps):
     assert rec.of(S2) == []
     run(world, owner, [room], (900, 930))
     assert [p["key"] for p in rec.of(S2)] == [(F_PLAY_CAM,)]
+
+
+def test_diagnostics_download_carries_twin_counters_only(world, rec, caps):
+    """Ship 3b x 3a D5: the CM entry's diagnostics download carries the twin
+    owner's COUNTERS under ``camera_twin_health`` (pinned values), and no
+    config-entry data, entity / device id or state; absent once torn down."""
+    import importlib
+    import json
+    diag = importlib.import_module(
+        "custom_components.universal_room_automation.diagnostics",
+    )
+    caps()
+    room, owner = pair_scene(world)
+    frigate_down(world)
+    protect_down(world)
+    run(world, owner, [room], (0, 120, 900, 930))
+    entry = SimpleNamespace(entry_id="cm", data={
+        CONF_ENTRY_TYPE: ura_const.ENTRY_TYPE_COORDINATOR_MANAGER,
+        "api_key_fake": "sk-FAKE-123456",
+    }, options={"access_token_fake": "tok-FAKE-987654"})
+    out = _run(diag.async_get_config_entry_diagnostics(world.hass, entry))
+    c = out["camera_twin_health"]
+    assert c["map_ready"] is True and c["map_stale"] is False
+    assert c["pairs_admitted"] == 1 and c["pairs_rejected"] == 0
+    assert c["group_episodes"] == 1 and c["group_episodes_high_sent"] == 1
+    assert c["page_counts"] == {S2: 1}
+    assert c["send_results"] == {nm.SENT: 1}
+    text = json.dumps(out, default=str)
+    for needle in ("api_key_fake", "sk-FAKE-123456", "access_token_fake",
+                   "tok-FAKE-987654", "camera.", "binary_sensor.", "f_play",
+                   "p_play", "streaming", "unavailable", "Playroom", "high:"):
+        assert needle not in text, needle
+    owner.async_teardown()
+    out = _run(diag.async_get_config_entry_diagnostics(world.hass, entry))
+    assert "camera_twin_health" not in out

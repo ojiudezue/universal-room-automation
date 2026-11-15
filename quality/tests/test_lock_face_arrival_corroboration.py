@@ -660,8 +660,9 @@ async def test_boot_floor_boundary_with_zero_perimeter_exclusion(areas, monkeypa
 
 
 def test_door_entry_areas_egress_and_neighbours():
-    tv = SimpleNamespace(_egress_entities=["e1"],
-                         _interior_neighbours_by_group={"g": ["n1"], "h": ["n2"]})
+    # Ship 3a D3 (G5): door_entry_areas reads the tracker's public
+    # door_entry_entities() (egress entities, then neighbours, in order).
+    tv = SimpleNamespace(door_entry_entities=lambda: ("e1", "n1", "n2"))
     got = AE.door_entry_areas(tv, {"e1": "garage", "n1": "foyer", "n2": ""}.get)
     assert got == {"garage", "foyer"}
 

@@ -85,7 +85,7 @@ async def test_a1_denominator_boundary_literal(mods, hass, monkeypatch):
     rig = await R.build(mods, hass, monkeypatch)
     pages = _pages_fixture(mods, monkeypatch)
     try:
-        hass.data[R.DOMAIN]["face_latch_callbacks"].clear()
+        rig.producer._bridge_unsub()  # ship 3a D1: the typed unregister
         p = rig.producer
         S = time.time() - 650
         p._setup_ts = S

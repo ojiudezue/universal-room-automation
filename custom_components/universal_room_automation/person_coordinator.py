@@ -1,6 +1,6 @@
 """Person tracking coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv5.108.23
+# Universal Room Automation vv5.108.24
 # Build: 2026-01-03
 # File: person_coordinator.py
 # v3.2.9: No changes (zone fixes in aggregation.py, fan fixes in automation.py)
@@ -21,8 +21,9 @@ from __future__ import annotations
 
 import logging
 import math
+from collections import deque
 from datetime import date, datetime, timedelta
-from typing import Any
+from typing import Any, NamedTuple
 
 from homeassistant.components.person import DOMAIN as PERSON_DOMAIN
 from homeassistant.core import HomeAssistant, State, callback
@@ -30,6 +31,8 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers import entity_registry as er, device_registry as dr, area_registry as ar
 from homeassistant.util import dt as dt_util
+
+from . import const as _ura_const
 
 from .const import (
     DOMAIN,
@@ -189,6 +192,19 @@ def _iter_persons_home_for_trust(hass, persons):
             yield p
 
 
+class PersonMove(NamedTuple):
+    """One BLE room move (ship 3a D4, contract G6 pull): logged at the one
+    move site, same condition as the ``ura_person_location_change`` fire.
+    ``person_entity`` is the ``person.*`` id the BLE F5 send uses
+    (``_find_person_entity``); ``ts`` is that tick's ``dt_util.now()``."""
+
+    person_entity: str
+    from_room: str
+    to_room: str
+    ts: datetime
+    method: str = "bermuda"
+
+
 class PersonTrackingCoordinator(DataUpdateCoordinator):
     """Coordinator for person tracking across rooms."""
 
@@ -255,6 +271,9 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
         self._lost_away_since: dict[str, datetime] = {}
         self._pre_arrival_enabled: bool = True
         self._min_away_minutes: int = 15  # Minimum LOST time before BLE re-detection triggers pre-arrival
+        # Ship 3a D4: the BLE move log (RAM; bounded by count and age).
+        self._location_moves: deque[PersonMove] = deque()
+        self._moves_created_at: datetime = dt_util.now()
 
         _LOGGER.info(
             "Person tracking coordinator initialized for %d persons: %s (decay timeout: %ds)",
@@ -1115,6 +1134,10 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                                 "Fired ura_person_location_change event: %s",
                                 event_data
                             )
+                            # Ship 3a D4: the move log, same condition.
+                            self._log_location_move(
+                                person_name, old_location, resolved_room, now,
+                            )
 
                             # D6: Log person exit (old room) and entry (new room) to database
                             self.hass.async_create_task(
@@ -1182,14 +1205,17 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                                         person_name,
                                     )
                                 else:
-                                    from homeassistant.helpers.dispatcher import async_dispatcher_send
-                                    from .domain_coordinators.signals import SIGNAL_PERSON_ARRIVING
+                                    # Ship 3a D1 (G4): the one F5 ingest;
+                                    # same two-key dict as before.
+                                    from .domain_coordinators import signals as _layer_signals
                                     person_entity = self._find_person_entity(person_name)
                                     if person_entity:
-                                        async_dispatcher_send(
+                                        _layer_signals.dispatch_person_arriving(
                                             self.hass,
-                                            SIGNAL_PERSON_ARRIVING,
-                                            {"person_entity": person_entity, "source": "ble"},
+                                            _layer_signals.PersonArrivingPayload(
+                                                person_entity=person_entity,
+                                                source="ble",
+                                            ),
                                         )
                                     _LOGGER.info(
                                         "BLE pre-arrival: %s detected in %s (was away >%dm)",
@@ -2231,6 +2257,83 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
         
         # Trim to max length
         return new_path[:MAX_RECENT_PATH_LENGTH]
+
+    # ==========================================================================
+    # Person-awareness layer ship 3a D4: owner setter + BLE move log
+    # ==========================================================================
+
+    def set_pre_arrival_enabled(self, value: bool) -> None:
+        """G9: the BLE pre-arrival producer enable (written by the HVAC
+        pre-arrival switch's setter). Same assignment the HVAC coordinator
+        made to the private before; a reloaded coordinator still starts True
+        (BLE-ARRIVAL-PRODUCER-HVAC-GATED-1)."""
+        self._pre_arrival_enabled = value
+
+    def _log_location_move(
+        self, person_name: str, from_room: str, to_room: str, now: datetime,
+    ) -> None:
+        """Append one ``PersonMove`` (never raises; the tick must not break)."""
+        try:
+            person_entity = self._find_person_entity(person_name)
+            if not person_entity:
+                from .domain_coordinators.signals import (  # noqa: PLC0415
+                    count_layer_event,
+                )
+
+                count_layer_event(self.hass, "move_unresolved_person")
+                return
+            self._location_moves.append(PersonMove(
+                person_entity=person_entity, from_room=from_room,
+                to_room=to_room, ts=now, method="bermuda",
+            ))
+            self._prune_location_moves()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("move log append failed (non-fatal)", exc_info=True)
+
+    def _prune_location_moves(self) -> None:
+        keep = max(1, int(_ura_const.PERSON_LOCATION_MOVES_MAX))
+        moves = self._location_moves
+        while len(moves) > keep:
+            moves.popleft()
+        try:
+            cutoff = dt_util.now() - timedelta(
+                seconds=float(_ura_const.PERSON_LOCATION_MOVES_MAX_AGE_S))
+            while moves and moves[0].ts < cutoff:
+                moves.popleft()
+        except TypeError:  # naive vs aware: the count bound still holds
+            pass
+
+    def location_moves_since(self, t: datetime) -> tuple[PersonMove, ...]:
+        """F4 BLE pull (contract A2): moves with ``ts >= t`` (a ``datetime``,
+        the move site's ``dt_util.now()``), oldest first, as a plain tuple.
+        Truncation is a separate read: ``location_moves_truncated_since``."""
+        self._prune_location_moves()
+        return tuple(m for m in self._location_moves if m.ts >= t)
+
+    def location_moves_truncated_since(self, t: datetime) -> bool:
+        """True when ``location_moves_since(t)`` may be missing moves: the log
+        is full and its oldest move is newer than ``t``, OR ``t`` is older
+        than the log's creation (RAM: a restart or reload empties it), OR ``t``
+        is older than the age bound (pruned). Each True is counted
+        (``moves_truncated``)."""
+        self._prune_location_moves()
+        moves = self._location_moves
+        full = len(moves) >= max(1, int(_ura_const.PERSON_LOCATION_MOVES_MAX))
+        # Review A-L2: moves older than the age bound were pruned, so a t
+        # before now - PERSON_LOCATION_MOVES_MAX_AGE_S is truncated too.
+        age_floor = dt_util.now() - timedelta(
+            seconds=float(_ura_const.PERSON_LOCATION_MOVES_MAX_AGE_S))
+        truncated = ((full and bool(moves) and moves[0].ts > t)
+                     or t < self._moves_created_at or t < age_floor)
+        if truncated:
+            from .domain_coordinators.signals import count_layer_event  # noqa: PLC0415
+
+            count_layer_event(self.hass, "moves_truncated")
+        return bool(truncated)
+
+    def location_moves_size(self) -> int:
+        """Layer diagnostics: moves held now."""
+        return len(self._location_moves)
 
     def get_person_previous_seen(self, person_name: str) -> datetime | None:
         """Get when person was last seen (last_changed timestamp)."""

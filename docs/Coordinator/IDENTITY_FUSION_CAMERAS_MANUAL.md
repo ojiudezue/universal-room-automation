@@ -537,8 +537,11 @@ names the nearest NULL exit row in the 600 s before the edge
   `ble_exit_identity_disabled_skip_count` on the census sensor.
 - **Displays:** `PersonsExitedTodaySensor` re-reads today's exits and
   `LastPersonExitSensor` (R1) re-reads the newest exit row on
-  `SIGNAL_EGRESS_EXIT_BACKFILLED`. The last-exit display only takes the name
-  if the newest row is the one named.
+  `SIGNAL_EGRESS_RECORD_AMENDED` with `role == "exit_backfilled"` (person-awareness
+  layer ship 3a D3, branch `feature/layer-ship3a`, NOT deployed: the backfill sends
+  through G3 `transit_validator.amend_crossing`, crossing ring untouched; the retired
+  `SIGNAL_EGRESS_EXIT_BACKFILLED` carried `{row_id, person_id}`, the new payload is a
+  superset). The last-exit display only takes the name if the newest row is the one named.
 - **Never:** re-notify (backfill confidence 0.72 is below the 0.75 naming bar
   anyway), census recount/evict, or any actuation.
 - Any future trust consumer of exit `person_id` must read after the backfill
