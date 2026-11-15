@@ -541,8 +541,9 @@ class MusicFollowing:
         """Welcome scene to use for this room's entry, or None (D3 stub)."""
         return None
 
-    def note_arrival_scene_result(self, room_entry_id: str, applied: bool) -> None:
-        """Entry path reports whether the returned scene ran (D3 stub)."""
+    def note_arrival_scene_result(self, room_entry_id: str, result: str) -> None:
+        """Entry path reports how the returned scene ended (D3 stub):
+        ``const.ARRIVAL_SCENE_RESULT_*`` (applied / hold / unavailable / error)."""
         return None
 
     def _preferences_for(self, rec: _Transfer) -> dict:

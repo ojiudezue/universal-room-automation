@@ -46,8 +46,8 @@ class FakeEngine:
             raise RuntimeError("boom")
         return self.scene
 
-    def note_arrival_scene_result(self, room_entry_id, applied):
-        self.notes.append((room_entry_id, applied))
+    def note_arrival_scene_result(self, room_entry_id, result):
+        self.notes.append((room_entry_id, result))
 
 
 def _room(slot_scene=None, sleep=False, night_lights=None, sleep_scene=None,
@@ -90,7 +90,7 @@ def test_entry_override_replaces_slot_scene():
     _run(room.auto._control_lights_entry({}))
     assert _scene_calls(room) == ["scene.welcome"]          # one call, the welcome
     assert eng.asked == ["room_master"]                     # room key = entry_id
-    assert eng.notes == [("room_master", True)]
+    assert eng.notes == [("room_master", "applied")]
 
 
 def test_welcome_without_slot_scene():
@@ -138,22 +138,22 @@ def test_non_scene_value_ignored():
     assert _scene_calls(room) == ["scene.day_scene"]
 
 
-def test_manual_hold_blocks_welcome_and_notes_false():
+def test_manual_hold_blocks_welcome_and_notes_hold():
     room = _room(slot_scene="scene.day_scene")
     eng = _engine(room, FakeEngine(scene="scene.welcome"))
     room.auto.light_hold_allowed = lambda ents, direction: []   # every light held
     _run(room.auto._control_lights_entry({}))
     assert _scene_calls(room) == []
-    assert eng.notes == [("room_master", False)]
+    assert eng.notes == [("room_master", "hold")]
 
 
-def test_unavailable_welcome_scene_notes_false_and_falls_back():
+def test_unavailable_welcome_scene_notes_unavailable_and_falls_back():
     room = _room(slot_scene="scene.day_scene")
     room.hass.set_state("scene.welcome", "unavailable")
     eng = _engine(room, FakeEngine(scene="scene.welcome"))
     _run(room.auto._control_lights_entry({}))
     assert _scene_calls(room) == []
-    assert eng.notes == [("room_master", False)]
+    assert eng.notes == [("room_master", "unavailable")]
 
 
 def test_sleep_caller_never_reads_override():
@@ -169,8 +169,31 @@ def test_real_engine_stub_returns_none_until_d3():
     from unittest.mock import MagicMock
     engine = mf.MusicFollowing(MagicMock(), {}, MagicMock())
     assert engine.arrival_scene_for("room_master") is None
-    assert engine.note_arrival_scene_result("room_master", True) is None
+    assert engine.note_arrival_scene_result("room_master", "applied") is None
     room = _room(slot_scene="scene.day_scene")
     _engine(room, engine)
     _run(room.auto._control_lights_entry({}))
     assert _scene_calls(room) == ["scene.day_scene"]
+
+
+def test_missing_welcome_scene_entity_notes_unavailable():
+    room = _room(slot_scene="scene.day_scene")
+    eng = _engine(room, FakeEngine(scene="scene.not_created"))
+    _run(room.auto._control_lights_entry({}))
+    assert _scene_calls(room) == []
+    assert eng.notes == [("room_master", "unavailable")]
+
+
+def test_hold_and_unavailable_reasons_differ_same_room():
+    """§5.5: the engine must tell scene_skipped_hold from
+    scene_skipped_unavailable; both fall back to the per-light path."""
+    held = _room(slot_scene="scene.day_scene")
+    e1 = _engine(held, FakeEngine(scene="scene.welcome"))
+    held.auto.light_hold_allowed = lambda ents, direction: []
+    _run(held.auto._control_lights_entry({}))
+    gone = _room(slot_scene="scene.day_scene")
+    gone.hass.set_state("scene.welcome", "unknown")
+    e2 = _engine(gone, FakeEngine(scene="scene.welcome"))
+    _run(gone.auto._control_lights_entry({}))
+    assert e1.notes == [("room_master", "hold")]
+    assert e2.notes == [("room_master", "unavailable")]

@@ -5081,6 +5081,15 @@ PEOPLE_SUGGEST_TOP_N: Final = 3
 ARRIVAL_MUSIC_EPISODE_TYPE: Final = "arrival_music"
 WELCOME_SCENE_EPISODE_TYPE: Final = "welcome_scene"
 
+# How the room entry path's welcome-scene attempt ended (§5.5). Passed to
+# MusicFollowing.note_arrival_scene_result so the engine records
+# scene_applied / scene_skipped_hold / scene_skipped_unavailable. "error" =
+# the scene branch raised (per-light path ran).
+ARRIVAL_SCENE_RESULT_APPLIED: Final = "applied"
+ARRIVAL_SCENE_RESULT_HOLD: Final = "hold"
+ARRIVAL_SCENE_RESULT_UNAVAILABLE: Final = "unavailable"
+ARRIVAL_SCENE_RESULT_ERROR: Final = "error"
+
 # ============================================================================
 # Cold-boot away-actuation storm mitigation — module-level constants only.
 # NO CONF_* / NO Number entity. Tunables are intentionally compile-time so
