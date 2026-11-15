@@ -1,0 +1,25 @@
+{
+  "format_version": "2.1",
+  "entry_id": "312",
+  "author": "ojiudezue",
+  "timestamp": "2026-11-15T04:20:00Z",
+  "type": "decision",
+  "weight": "significant",
+  "category": "architecture",
+  "title": "3b keeps the empty-house anchor on per-NVR holds (A); direction set: one physical camera, two NVR witnesses",
+  "summary": "Ship 3b makes camera-down pages fire only when every NVR has lost a camera, but the census-p2 empty-house anchor still blocks on each NVR's own hold. The operator took option A (keep it, fold the anchor into DEAD-CAMERA-TWIN-COVERAGE-1) and set the longer direction: model each physical camera once with Frigate and Protect as two witnesses, so every reader asks about the camera, not a per-NVR entity. 3b's fix-up also chose a bounded DEFER (rooms wait up to the 600 s boot settle for the camera-twin owner, then page) over a plain PAGE.",
+  "why": "Option B (anchor follows 'every NVR lost it') only works if the twin NVR's sensor covers the same room; without that check the anchor can reset the ledger to residents-only while a guest sits in a room only the dead Frigate input watched. That check is the coverage design whose four plan rounds each found a HIGH path to a wrong answer. A's cost is at most 15 extra minutes before the count resets during a one-NVR outage, and the hold errs toward 'not empty'. The bounded DEFER exists because a plain PAGE sent a false HIGH after every CM reload while a Protect twin still saw the camera; review D2 measured the worst-case room page delay at about 660 s and found no silent path.",
+  "alternatives_considered": [
+    "B: move the anchor to physical-camera-dead in 3b (reopens Tier 3 reviews and needs the coverage rules)",
+    "Plain PAGE when the owner is not ready (false HIGH after each CM reload)"
+  ],
+  "implications": "Every camera reader (room inputs, holds, census, zones, ledger anchor, perimeter single-source gate, transit platform counts) still treats Frigate and Protect entities as separate cameras until NVR-WITNESS-CONSOLIDATION-1 W2 builds the one-camera model; W2 must extend 3b's CameraTwinHealth rather than add a second liveness model, and it absorbs card B. Interior vision (arc step 9) should wait for it.",
+  "confidence": "high",
+  "revisit_trigger": "A one-NVR hold visibly delays a displayed census count reset, or W2 planning starts.",
+  "operator_quote": "A recommended is fine. But we do have to eventually figure how to not deal with 2 camera system in this idiosyncratic way as it they are watching diff cameras instead of the same",
+  "refs": {
+    "cards": ["NVR-WITNESS-CONSOLIDATION-1", "DEAD-CAMERA-TWIN-COVERAGE-1"],
+    "files": ["docs/planning/ARC_identity_vision_census_map.md", "docs/reviews/code-review/v_layer_ship3b_review_D2.md"],
+    "entries": ["309"]
+  }
+}

@@ -562,3 +562,21 @@ def test_guard_red_on_reverted_site(case):
     tree[rel] = src.replace(new, old, 1)
     probs = E.compare(_scan(tree), A.ROWS, _listed(), A.LAYER_ALLOWLIST_TOTAL)
     assert probs, case
+
+
+# ------------------------------------------------ ship 3b evidence reads (§4.1)
+@pytest.mark.parametrize("snippet, listed", [
+    ("def f(hass):\n    c = hass.data['d']['census']\n    return c.interior_camera_entities()\n", True),
+    ("def f(manager):\n    p = manager.coordinators['presence']\n    return p.zone_camera_entities()\n", True),
+    ("def f(hass):\n    c = hass.data['d']['census']\n    return c.egress_identity_outcomes()\n", False),
+])
+def test_ship3b_evidence_reads_on_read_list(snippet, listed):
+    """Contract §4.1 evidence row: a non-member may call
+    ``PersonCensus.interior_camera_entities`` and
+    ``PresenceCoordinator.zone_camera_entities`` (no R2 against the REAL
+    tree's public methods); an unlisted public read on the same receiver is
+    still R2 (control)."""
+    sources = _real_tree()
+    sources["probe.py"] = snippet
+    rules = {x.rule for x in _scan(sources) if x.file == "probe.py"}
+    assert ("R2" in rules) is (not listed), rules

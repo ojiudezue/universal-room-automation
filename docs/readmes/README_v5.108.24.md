@@ -44,6 +44,20 @@ payload, dispatch order and reader answer is byte-identical (the INV-3A-NOOP inv
 - Ship 3b (device-level dead-camera rule) ships separately, Tier 3, after this.
 - G6 rest -> G6-ONE-BLE-ROOM-READ-1; leak groups -> LAYER-LEAK-CLEANUP-1 (plan §9).
 
+## Validated 2026-11-14 (post-restart 22:02 CT, house state guest)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| D5 download has the layer key and no config data | PASS | `GET /api/diagnostics/config_entry/<CM entry>` -> `data` keys = [`person_awareness_layer`] only; no api_key/token/password/secret strings. First call right after boot returned 404 (diagnostics platform not yet registered), 200 a minute later |
+| D2 crossing vision is the G1 subscriber | PASS (counter) | `g1_subscribers` = 1. The departure-reconcile row waits on the next resident departure: PENDING |
+| D4 move log live | PASS (counter) | `move_log_size` = 1 within minutes of boot (a real BLE move) |
+| D1 F5 via dispatch_person_arriving | PENDING | `f5_sent` = {} at boot; needs the next real geofence / BLE arrival (HVAC `pre_arrival` row with that source) |
+| D3 exit backfill through G3 | PENDING | `g3_calls` = {}; needs the next BLE departure with a null-person exit row |
+| D4 HVAC pre-arrival toggle reaches the person coordinator | PENDING | needs a switch off/on and a BLE arrival; in-suite `test_hvac_toggle_reaches_person_coordinator` |
+| Boot: no URA ERROR or traceback | PASS | error_log filtered to universal_room_automation at ERROR: 0 records. Boot WARNINGs are the usual transients (rooms holding while sensors come up, census cameras not yet available) |
+
+Counters at boot: crossing_record_aged_out 0, crossing_store_failed 0, move_unresolved_person 0, edges_truncated 0, moves_truncated 0, ring_sizes {}.
+
 ## Live validation (prospective)
 
 - **D1:** the next real geofence or BLE arrival writes the HVAC `pre_arrival` activity row with that source; the
