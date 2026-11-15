@@ -605,7 +605,7 @@ See the must-fix, should-fix and lower lists above; each row id appears in the t
 
 Each listed GREEN mutation was re-applied to production source (one at a time: `__pycache__` purged,
 `PYTHONDONTWRITEBYTECODE=1`, restored in a `finally`, tracked tree clean after the run; script
-`.claude/tmp/b3c_drills.py`) and the named new test went RED. All 50 RED. The earlier drill sets
+`.claude/tmp/b3c_drills.py`) and the named new test went RED. All 51 RED (Z5 added after the first pass). The earlier drill sets
 (`b3b_drills.py`, `b3fx_drills.py`) were re-run on the same tree: all RED.
 
 | mutation | gap | test | RED |
@@ -660,12 +660,11 @@ Each listed GREEN mutation was re-applied to production source (one at a time: `
 | T10 | LOW | `test_low_nvr_twin_platform_membership[generic-False]` | RED |
 | X151 | LOW | `test_low_diagnostic_counters_notice_and_sticky` | RED |
 | X155 | LOW | `test_low_diagnostic_counters_notice_and_sticky` | RED |
+| Z5 | TG-3 | `test_tg3_z5_caps0_protect_input_adopts_owner_group_s1` | RED |
 
 Not closed by a test (documented):
 - X14: masked by the B-L3 reset (a dead tick is always preceded by a not-alive, not-dead tick that already
   clears `false_since`, since a member becomes lost only one grace after an observed not-live tick); equivalent today.
-- Z5 (coordinator S1 group key = pure page key): the D-L2 test uses the Frigate input, whose own camera is the
-  page key; a Protect-input caps-0 adoption fixture is a follow-up.
 - Remaining LOW rows (X4, X6, X20, W42, W76, W85, Y6, Z29, Z44b, Q26, W64/W65, K10/K13/K15/K17, P3, P9, P10, L13,
   U4/U6/U7, R11, R12, X93, X11, X12, X16, X53, X67, X8/X9/X139, T1/T2/T4/T5, Z47, Z50): unchanged, as listed in
   the LOW section above (defence in depth, diagnostics-only fields, or behaviour that no reachable config exercises).

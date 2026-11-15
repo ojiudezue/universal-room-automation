@@ -3476,3 +3476,35 @@ def test_low_diagnostic_counters_notice_and_sticky(world, rec, caps):
     world.zone_entities = []
     run(world, owner, [], (960,))
     assert owner.get_diagnostic_counters()["sticky"] == 1
+
+
+def test_tg3_z5_caps0_protect_input_adopts_owner_group_s1(world, real_nm, caps):
+    """Z5: caps 0, the room's CONFIGURED input is the PROTECT member of the W1
+    pair (own camera = a Protect channel; page key = the Frigate camera).
+    The owner sends the group S1; the CM entry reloads; the room's S1
+    candidate adopts the owner's page through the PURE page key (no second
+    HIGH), and its LOW clears that key, so the next day's outage pages."""
+    caps(zone=0.0, census=0.0)
+    playroom_pair(world)
+    world.camera_manager()
+    room = RoomCoord(world, "Playroom", "playroom", presence=[P_PLAY])
+    owner = world.owner()
+    live_pair(world)
+    world.set(**{P_PLAY: "on"})
+    frigate_down(world)
+    protect_down(world)
+    run(world, owner, [room], (0, 900, 1800, 1830))
+    assert _highs(real_nm) == 1
+    owner.async_teardown()
+    run(world, None, [room], (1900, 1930))
+    assert _highs(real_nm) == 1
+    live_pair(world)
+    world.set(**{P_PLAY: "on"})
+    run(world, None, [room], (2000, 2030))
+    assert _lows(real_nm) == 1
+    world.today = (T0 + timedelta(days=1)).date().isoformat()
+    frigate_down(world)
+    protect_down(world)
+    day = 86400
+    run(world, None, [room], (day, day + 1800, day + 1830))
+    assert _highs(real_nm) == 2
