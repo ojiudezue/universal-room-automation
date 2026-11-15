@@ -2795,6 +2795,24 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         except Exception:  # noqa: BLE001
             return None
 
+    def camera_input_room_stuck_excluded(self, input_eid: str) -> bool | None:
+        """P3-D8 getter (crossing ledger anchor): True iff this room's
+        exclusion set currently excludes the input under one of the stuck
+        clients ``CROSSING_VISION_ANCHOR_STUCK_CLIENTS`` (P22 continuous-on,
+        chatter promoted in act mode, duty-cycle promoted). Never the
+        camera-stream client, never the label map (``get_stuck_sensor_kinds``
+        labels a sleeper's duty cycle and shadow chatter without excluding
+        them). None otherwise (no opinion)."""
+        try:
+            from . import const as _const  # noqa: PLC0415
+
+            clients = self._exclusion_set.clients_for(input_eid)
+            if clients & set(_const.CROSSING_VISION_ANCHOR_STUCK_CLIENTS):
+                return True
+            return None
+        except Exception:  # noqa: BLE001
+            return None
+
     def _camera_override_live_person_sensors(self) -> list[str]:
         """Override person sensors minus those whose own camera stream is
         dead (S1 client ``camera_stream_dead`` only, review D-M1). P22 /

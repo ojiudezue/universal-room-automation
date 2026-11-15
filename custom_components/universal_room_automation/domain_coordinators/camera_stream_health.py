@@ -1242,6 +1242,18 @@ def input_room_quarantined(hass: Any, input_eid: str) -> bool:
     return _ask(hass, "camera_input_room_quarantined", input_eid) is True
 
 
+def input_room_stuck_excluded(hass: Any, input_eid: str) -> bool:
+    """P3-D8: True iff a room currently excludes this input under a STUCK
+    client (``CROSSING_VISION_ANCHOR_STUCK_CLIENTS``: P22 continuous-on,
+    chatter in act mode, promoted duty cycle), through each room's
+    ``camera_input_room_stuck_excluded``. Narrower than
+    ``input_room_quarantined`` (any client, incl. the camera-stream client).
+    No room answers / error = False (the input keeps its pre-P3-D8 role)."""
+    if not input_eid:
+        return False
+    return _ask(hass, "camera_input_room_stuck_excluded", input_eid) is True
+
+
 _MISSING = object()
 
 

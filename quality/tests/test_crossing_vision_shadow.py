@@ -229,6 +229,11 @@ async def rig(mods, hass, tmp_path, monkeypatch):
 
     cv = mods.cv.CrossingVisionShadow(hass)
     await cv.async_setup()
+    # P3-D5: a settled boot. The counter is at the cap until today's call
+    # rows are counted (real DAO, empty DB -> 0), so wait for that read.
+    if cv._cap_rehydrate_task is not None:
+        await cv._cap_rehydrate_task
+    assert cv._cap_hold is False
     ns = types.SimpleNamespace(
         hass=hass, db=db, cv=cv, llm=llm, ingress=ingress, tracker=tracker,
         pages=pages, C=C, mods=mods, monkeypatch=monkeypatch,
@@ -237,6 +242,8 @@ async def rig(mods, hass, tmp_path, monkeypatch):
         yield ns
     finally:
         await cv.async_teardown()
+        if ns.cv is not cv:  # a test replaced the producer (P3-D5 restart)
+            await ns.cv.async_teardown()
         await db.stop_write_worker()
 
 

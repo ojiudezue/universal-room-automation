@@ -83,6 +83,13 @@ FAILED_CALL_OUTCOMES = frozenset({
     OUTCOME_ERROR, OUTCOME_TIMEOUT, OUTCOME_UNPARSEABLE, OUTCOME_REFUSED,
 })
 
+# P3-D5: the outcomes of a MADE llmvision call (one row each, ``ended_at`` =
+# call time). The restart rehydration counts exactly these.
+CALL_OUTCOMES = (
+    OUTCOME_OK, OUTCOME_BLANK, OUTCOME_ERROR, OUTCOME_TIMEOUT,
+    OUTCOME_UNPARSEABLE, OUTCOME_REFUSED,
+)
+
 # §15.7 agreement cases, computed on counts (never on guests).
 CASE_AGREE = "A"
 CASE_VISION_HIGHER = "B"
@@ -282,9 +289,16 @@ class CrossingVisionShadow:
         self._waiting_by_event: dict[str, _Request] = {}
         self._requests: deque[_Request] = deque()
         self._stem_cache: dict[str, str | None] = {}
-        # Daily cap (RAM, reset at local midnight; plan rev 2 F7).
+        # Daily cap (reset at local midnight; plan rev 2 F7). P3-D5: from
+        # setup until today's call rows are counted, the counter sits AT the
+        # cap (``_cap_hold``); a failed rehydration keeps it there until the
+        # next local midnight (``_roll_day`` clears it).
         self._day: Any = None
         self._calls_today = 0
+        self._cap_hold = False
+        self._cap_rehydrate_task: asyncio.Task | None = None
+        self._cap_rehydrate_state = "not_started"
+        self._cap_rehydrate_failed = 0
         self._today: dict[str, int] = {}
         self._last: dict[str, Any] | None = None
         # Trip-wire windows: (epoch_s, kind) samples, pruned to the window.
@@ -320,6 +334,9 @@ class CrossingVisionShadow:
         # WARNING per entity per lifetime.
         self._tier1_missing_now: tuple[str, ...] = ()
         self._tier1_missing_logged: set[str] = set()
+        # P3-D8: live `on` inputs that did not hold the last sample because
+        # their room excludes them as stuck (diagnostics + anchor-zero page).
+        self._held_ignored_stuck: tuple[str, ...] = ()
         self._ledger_was_enabled = False
         self._ledger_day: Any = None
         self._reconcile_timers: dict[str, Callable[[], None]] = {}
@@ -361,6 +378,14 @@ class CrossingVisionShadow:
             and not bool(_c.LLMVISION_ENRICHMENT_KILL)
             and self.daily_cap() > 0
         )
+
+    def _calls_counted(self) -> int:
+        """Calls counted against today's cap. While the setup rehydration
+        has not landed (or failed twice today) the counter reads the cap
+        (P3-D5): no call is made, crossings are recorded ``skipped_cap``."""
+        if self._cap_hold:
+            return max(self._calls_today, self.daily_cap())
+        return self._calls_today
 
     def _pending(self) -> int:
         return sum(1 for r in self._requests if r.status in ("waiting", "calling"))
@@ -425,6 +450,22 @@ class CrossingVisionShadow:
         self._unsubs.append(
             subscribe_person_edges(self.hass, self._on_residency_event, kinds=EDGE_KINDS)
         )
+        # P3-D5: the bus listener above is live NOW with the counter at the
+        # cap; today's call rows are counted in a tracked background task.
+        self._cap_hold = True
+        self._cap_rehydrate_state = "pending"
+        try:
+            task = self.hass.async_create_background_task(
+                self._rehydrate_cap(), "crossing_vision_cap_rehydrate",
+            )
+        except Exception:  # noqa: BLE001 - counter stays at the cap today
+            _LOGGER.debug("crossing_vision: rehydrate task failed", exc_info=True)
+            self._cap_rehydrate_state = "failed"
+            self._cap_rehydrate_failed += 1
+        else:
+            self._cap_rehydrate_task = task
+            self._tasks.add(task)
+            task.add_done_callback(self._tasks.discard)
 
     async def async_teardown(self) -> None:
         """Latch first, then unsubscribe, cancel timers, gather in-flight
@@ -433,6 +474,9 @@ class CrossingVisionShadow:
         bounded gather covers them."""
         self._flush_ledger_events()
         self._torn_down = True
+        task = self._cap_rehydrate_task
+        if task is not None and not task.done():
+            task.cancel()
         for unsub in list(self._reconcile_timers.values()):
             try:
                 unsub()
@@ -493,6 +537,11 @@ class CrossingVisionShadow:
         if day != self._day:
             self._day = day
             self._calls_today = 0
+            # P3-D5: a new local day ends any cap hold. This process has run
+            # since before midnight, so no earlier process made a call today;
+            # a rehydration still pending for the OLD day is discarded (it
+            # applies only to the day it counted).
+            self._cap_hold = False
             self._today = {
                 "calls": 0, "ok": 0, "blank": 0, "no_event": 0, "errors": 0,
                 "skipped_cap": 0, "skipped_busy": 0, "clustered": 0,
@@ -693,7 +742,7 @@ class CrossingVisionShadow:
         # 3. Schedule-time gates (cap, concurrency). Off was handled above.
         #    A `calling` request is already in _calls_today, so only the
         #    `waiting` ones are added (reviews A1/B4: no double count).
-        if self._calls_today + self._waiting() >= self.daily_cap():
+        if self._calls_counted() + self._waiting() >= self.daily_cap():
             self._record(crossing, OUTCOME_SKIPPED_CAP, event=match)
             self._ledger_terms([member], OUTCOME_SKIPPED_CAP, None)
             return
@@ -914,7 +963,8 @@ class CrossingVisionShadow:
             elif status == CROSSING_CALL_TIMEOUT:
                 parsed = {"outcome": OUTCOME_TIMEOUT}
             else:
-                parsed = {"outcome": OUTCOME_ERROR}
+                # P3-D1: keep llmvision's error text for the row.
+                parsed = {"outcome": OUTCOME_ERROR, "error": reply.get("error")}
             outcome = parsed["outcome"]
             self._calls.append((self._epoch(), outcome))
             if outcome == OUTCOME_OK:
@@ -937,6 +987,72 @@ class CrossingVisionShadow:
                     self._request_terms(req, OUTCOME_ERROR, None)
                 except Exception:  # noqa: BLE001
                     req.term_done = True
+
+    # ---- cap rehydration (P3-D5) -----------------------------------------
+    async def _count_today_calls(self, day: Any) -> tuple[int, bool]:
+        """Today's call rows (by ``ended_at`` = call time) over the local
+        day ``day`` as UTC bounds rendered like the writer's ``ended_at``."""
+        database = self._domain_data().get("database")
+        if database is None:
+            return 0, False
+        start = dt_util.as_utc(dt_util.start_of_local_day(day))
+        end = dt_util.as_utc(dt_util.start_of_local_day(day + timedelta(days=1)))
+        return await database.count_memory_episodes_by_type_ended_between(
+            _c.CROSSING_VISION_EPISODE_TYPE, start.isoformat(), end.isoformat(),
+            CALL_OUTCOMES,
+        )
+
+    async def _rehydrate_cap(self) -> None:
+        """Set the counter from today's call rows: one try bounded by
+        ``CAP_REHYDRATE_TIMEOUT_S``, one retry after ``_RETRY_S``. Both
+        failing: the counter stays at the cap until local midnight, counted
+        and paged LOW. Cancelled by teardown."""
+        timeout = float(_c.CROSSING_VISION_CAP_REHYDRATE_TIMEOUT_S)
+        for attempt in range(2):
+            if attempt:
+                await asyncio.sleep(float(_c.CROSSING_VISION_CAP_REHYDRATE_RETRY_S))
+            if self._torn_down:
+                return
+            self._roll_day()
+            day = self._day
+            try:
+                count, ok = await asyncio.wait_for(
+                    self._count_today_calls(day), timeout=timeout,
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 - timeout or read error
+                count, ok = 0, False
+            if self._torn_down:
+                return
+            if ok:
+                self._roll_day()
+                if self._day == day:
+                    self._calls_today = max(self._calls_today, int(count))
+                    self._today["calls"] = max(
+                        self._today.get("calls", 0), int(count),
+                    )
+                    self._cap_hold = False
+                self._cap_rehydrate_state = "ok"
+                return
+        self._cap_rehydrate_state = "failed"
+        self._cap_rehydrate_failed += 1
+        from .domain_coordinators._stuck_signal_nm import (  # noqa: PLC0415
+            fire_stuck_signal,
+        )
+
+        await fire_stuck_signal(
+            self.hass,
+            "crossing_vision_cap_rehydrate_failed",
+            ("house",),
+            "Crossing vision could not count today's calls after a restart "
+            "(two tries); no vision calls until local midnight.",
+            remedy=(
+                "Check the URA database (memory_episodes reads). Crossings are "
+                "still recorded as skipped_cap; the cap resets at midnight."
+            ),
+            severity="LOW",
+        )
 
     # ---- record ---------------------------------------------------------
     def _record(
@@ -982,6 +1098,13 @@ class CrossingVisionShadow:
             "identity_provenance": crossing.get("identity_provenance"),
             "agreement_case": agreement_case(people, camera_peak),
         }
+        if outcome == OUTCOME_ERROR:
+            # P3-D1: error rows only (no key on any other row).
+            err = vision.get("error")
+            attrs["error"] = (
+                str(err)[: max(0, int(_c.CROSSING_VISION_ERROR_TEXT_MAX_CHARS))]
+                if err is not None else None
+            )
         if outcome == OUTCOME_OK and attrs["agreement_case"] in (
             CASE_VISION_HIGHER, CASE_CAMERA_HIGHER,
         ):
@@ -1138,6 +1261,7 @@ class CrossingVisionShadow:
                 eids = None
         if eids is None:
             self._tier1_missing_now = ()
+            self._held_ignored_stuck = ()
             return {TIER1_MAP_UNAVAILABLE}, {TIER1_MAP_UNAVAILABLE}
         try:
             from homeassistant.helpers import entity_registry as er  # noqa: PLC0415
@@ -1147,6 +1271,8 @@ class CrossingVisionShadow:
             registry = None
         missing: list[str] = []
         readings: dict[str, tuple[Any, Any]] = {}
+        ignore_stuck = bool(_c.CROSSING_VISION_LEDGER_ANCHOR_IGNORES_STUCK)
+        stuck_ignored: set[str] = set()
         for eid in eids:
             try:
                 st = self.hass.states.get(eid)
@@ -1174,8 +1300,21 @@ class CrossingVisionShadow:
             except Exception:  # noqa: BLE001 - no opinion
                 view = None
             readings[str(eid)] = (state, True if view is not None else None)
+            # P3-D8: a LIVE `on` input (no stream view) that its room
+            # excludes as stuck does not hold. A dead input (non on/off state
+            # or any stream view) is never released here: it holds.
+            if ignore_stuck and state == "on" and view is None:
+                try:
+                    if _csh.input_room_stuck_excluded(self.hass, str(eid)):
+                        stuck_ignored.add(str(eid))
+                except Exception:  # noqa: BLE001 - no opinion: it holds
+                    pass
         self._tier1_missing_now = tuple(sorted(missing))
-        return _cl.classify_held(readings, self._last_good)
+        self._held_ignored_stuck = tuple(sorted(stuck_ignored))
+        # classify_held still sees the ignored inputs, so their `on` stays
+        # the last known-good reading (if they later go dead, they hold).
+        held, dead_held = _cl.classify_held(readings, self._last_good)
+        return held - stuck_ignored, dead_held - stuck_ignored
 
     def _holders_text(self) -> str:
         """The holders seen most since the last anchor, dead ones first."""
@@ -1342,6 +1481,11 @@ class CrossingVisionShadow:
         held_txt = (
             f" Inputs holding it: {holders}." if holders else ""
         )
+        if self._held_ignored_stuck:
+            held_txt += (
+                " Ignored as stuck (room-excluded): "
+                f"{', '.join(self._held_ignored_stuck[:5])}."
+            )
         await fire_stuck_signal(
             self.hass,
             "crossing_ledger_anchor_zero",
@@ -1366,6 +1510,8 @@ class CrossingVisionShadow:
                 snap["last_anchor"] = None
         snap["tier1_not_in_registry"] = list(self._tier1_missing_now)
         snap["tier1_not_in_registry_count"] = len(self._tier1_missing_now)
+        snap["held_ignored_stuck"] = list(self._held_ignored_stuck)
+        snap["held_ignored_stuck_count"] = len(self._held_ignored_stuck)
         return snap
 
     # ---- trip-wires (D3) ------------------------------------------------
@@ -1554,6 +1700,11 @@ class CrossingVisionShadow:
         return {
             "crossing_vision_today": dict(self._today),
             "crossing_vision_last": last,
+            "crossing_vision_cap_rehydrate": {
+                "state": self._cap_rehydrate_state,
+                "cap_hold": self._cap_hold,
+                "cap_rehydrate_failed": self._cap_rehydrate_failed,
+            },
             "crossing_ledger": self.ledger_diag(),
         }
 

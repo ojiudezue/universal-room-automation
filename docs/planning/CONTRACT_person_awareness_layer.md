@@ -192,7 +192,7 @@ zone tier, lock regime, perimeter, music, presence inference.
 
 | Service | One read | Consumers allowed | Forbidden |
 |---|---|---|---|
-| Camera input stream health | `camera_stream_health.input_stream_dead / camera_stream_dead / entity_stream_dead / input_stream_view / entity_stream_view / input_room_quarantined` (`:529-668`) | room fusion, zone tier, fan recheck, census (as "missing"), crossing ledger held-input check (dead/view, never released-as-off, §3 INV-MISSING-NOT-ZERO), NVR witness | scanning `hass.data[DOMAIN]` for an object with a matching attribute outside `camera_stream_health._room_coordinators` (its owner row); re-deriving availability |
+| Camera input stream health | `camera_stream_health.input_stream_dead / camera_stream_dead / entity_stream_dead / input_stream_view / entity_stream_view / input_room_quarantined / input_room_stuck_excluded` (`:529-668`; the last added by crossing vision P3-D8, room getter `camera_input_room_stuck_excluded`, stuck clients only) | room fusion, zone tier, fan recheck, census (as "missing"), crossing ledger held-input check (dead/view, never released-as-off, §3 INV-MISSING-NOT-ZERO), NVR witness | scanning `hass.data[DOMAIN]` for an object with a matching attribute outside `camera_stream_health._room_coordinators` (its owner row); re-deriving availability |
 | Camera twin rule (ship 3b) | `camera_twin_health.physical_camera_dead(hass, entity_or_device)` (every paired NVR device lost; pages and diagnostics only); the one room-input list `camera_stream_health.room_stream_input_entities(hass, entry)` (room config entry lists plus the camera manager's area lookup); the one stuck-signal PAGE key `camera_stream_health.page_camera_key(er, dr, device)` (pure: the Frigate camera of a W1-paired device, else the device's own camera) | the camera stream-health pages (room trackers, the twin owner), diagnostics | a reader substituting a twin's reading (option A); a page key built from the owner's map or from an entity-id string; a hold, view or anchor reading `physical_camera_dead` |
 | NVR witness (W2, planned) | `nvr_witness.family_of`, `corroborated(cam, t, window)`, `families_on_now`, `platform_for` | the 4 comparison sites (census `_cross_validate_platforms`, transit `_count_platforms_fired` `transit_validator.py:2733`, perimeter `_apply_single_source_gate` `perimeter_alert.py:5038`, room fusion agreement `binary_sensor.py:1837-1868`) | entity-name suffix family tests; per-site classifiers |
 | Identity evidence (census) | public `PersonCensus` methods: `resolve_face_legs`, `resolve_ble_legs`, `tracked_person_slugs` (batch-2 `camera_census.py:4061`), `egress_identity_enabled` (`:4085`), `canonical_person_slug`, `known_face_guests`, `face_person_would_be_vetoed`, `face_suppressed_now` | layer producers only: egress tracker (F3), sighting producer (F4), perimeter D10.5 (until it reads F3/F4 instead) | any consumer outside the producer list deciding on raw legs |
@@ -268,6 +268,12 @@ counted allowlist (owner-display exemption), never for a decision.
   (the anchor is not time-critical; a sleeping guest in front of a dead camera must not let it fire). Falsified by a
   dead input read as 0 / off before its cap, a release without the HIGH page, or the anchor firing while any Tier-1
   input's view is HELD or RELEASED.
+  **Crossing vision P3-D8 (built 2026-11-15, `feature/crossing-p3-first`, operator yes 2026-11-15):** a LIVE Tier-1
+  input (reads `on`, no stream view) that its room excludes under a STUCK client (`CROSSING_VISION_ANCHOR_STUCK_CLIENTS`
+  = `p22_continuous`, `chatter` (act mode), `stuck_dutycycle` (promoted); read through
+  `camera_stream_health.input_room_stuck_excluded`) no longer holds the anchor (listed `held_ignored_stuck`). This is not
+  a dead input: a dead input (non on/off state, or any stream view) still holds even when also stuck-excluded, and the
+  camera-stream client never releases. Kill switch `CROSSING_VISION_LEDGER_ANCHOR_IGNORES_STUCK`.
   **Ship 3b (built 2026-11-14, `feature/layer-ship3b`; plan `PLANNING_person_awareness_layer_ship3.md` §6):**
   (a) *Device liveness.* A camera-derived input's "own camera" is its registry camera DEVICE
   (`CAMERA_STREAM_DEVICE_LEVEL_INPUTS`, decided Q12): live if any enabled `camera.*` entity on it reads live; dead on a
