@@ -1215,6 +1215,14 @@ def entity_stream_view(
         return VIEW_RELEASED if expired is True else VIEW_HELD
     if input_stream_dead(hass, entity_id) is not None:
         return input_stream_view(hass, entity_id, census)
+    # Review D-L1 / D2 (latent, documented, not fixed): a NON-input entity
+    # (census / zone) on a device a room watches through ANOTHER entity is
+    # routed by its device's camera, which is HELD only once that camera is
+    # dead past the grace. The t0 unavailable-held classifier is per room
+    # INPUT, and U excludes every entity on a watched device, so such an
+    # entity reads plain `unavailable` (missing) for 0-120 s after a device
+    # disconnect. No live shape found (needs e.g. a Protect `_motion` filed
+    # in a room of another area). PRESENCE state of play, ship 3b entry.
     try:
         cam = _own_camera_route(hass, entity_id)
     except Exception:  # noqa: BLE001

@@ -49,9 +49,12 @@ GROUP_S1_KEY = _csh.GROUP_S1_KEY
 
 # Config-entry states with no room coordinator and no automatic recovery
 # (operator action or a restart needed): such a room watches nothing, so its
-# inputs' devices are not in Wr (review D-M2). Transient states (setup
-# retry, not loaded, setup / unload in progress: a reload window) stay in Wr.
-_DEAD_ENTRY_STATES = frozenset({"setup_error", "migration_error"})
+# inputs' devices are not in Wr (review D-M2, D2 LOW-3). Transient states (not loaded, setup / unload in progress: a reload window)
+# stay in Wr. setup_retry (review D2 LOW-3) is set only when setup raises
+# ConfigEntryNotReady (HA config_entries.py async_setup); a reload goes
+# not_loaded -> setup_in_progress -> loaded and never passes it, so excluding
+# it costs no flap (sticky U covers the recovery).
+_DEAD_ENTRY_STATES = frozenset({"setup_error", "migration_error", "setup_retry"})
 
 _NVR_NAMES = {
     "frigate": "Frigate",
@@ -486,10 +489,17 @@ class CameraTwinHealth:
             # meanwhile: re-run the adoption sweep so the owner takes their
             # unrecovered pages (and their LOW). Review B-L2: the loss
             # stamps were not updated in the window; drop them (the devices
-            # re-stamp from this tick, as after a restart).
+            # re-stamp from this tick, as after a restart), but only after a
+            # stretch longer than the grace (review D2 LOW-1): a short blip
+            # (a parent reload spanning one tick) keeps the clock running,
+            # or repeated blips would restart it forever while rooms
+            # suppress.
             self._adoption_sweep_due = True
-            self._notlive_since.clear()
-            self._live_since.clear()
+            since = self._not_ready_since or self._setup_at
+            grace = float(_knob("CAMERA_INPUT_STREAM_DEAD_GRACE_S", 120.0))
+            if (now - since).total_seconds() > grace:
+                self._notlive_since.clear()
+                self._live_since.clear()
         room_inputs: list[tuple[str, str, str]] = []
         wr: set[str] = set()
         try:

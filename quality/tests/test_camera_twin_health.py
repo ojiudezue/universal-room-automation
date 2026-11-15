@@ -2584,7 +2584,7 @@ def _entry_states():
     out = [
         ("disabled", None, True), ("setup_error", "setup_error", True),
         ("migration_error", "migration_error", True),
-        ("setup_retry", "setup_retry", False), ("not_loaded", "not_loaded", False),
+        ("setup_retry", "setup_retry", True), ("not_loaded", "not_loaded", False),
         ("loaded", "loaded", False),
     ]
     return out
@@ -2594,9 +2594,9 @@ def _entry_states():
                          ids=[v for v, _s, _u in _entry_states()])
 def test_dm2_room_entry_state_and_unwatched(world, variant, state, in_u):
     """A camera whose ONLY room entry is disabled (or in setup_error /
-    migration_error: no coordinator, no auto-recovery) is in U and
-    house-stamped. A transient state (setup retry, not loaded: a reload
-    window) keeps it in Wr, as before (no flap)."""
+    migration_error / setup_retry: no coordinator) is in U and
+    house-stamped. A reload-window state (not loaded) keeps it in Wr, as
+    before (no flap)."""
     world.frigate("f_play", "playroom", "Playroom")
     world.camera_manager()
     world.census()
@@ -2625,7 +2625,10 @@ def test_dm2_real_config_entry_state_values():
         pytest.skip("homeassistant.config_entries is stubbed in this run")
     assert real.SETUP_ERROR.value == "setup_error"
     assert real.MIGRATION_ERROR.value == "migration_error"
-    assert cth._DEAD_ENTRY_STATES == frozenset({"setup_error", "migration_error"})
+    assert real.SETUP_RETRY.value == "setup_retry"
+    assert cth._DEAD_ENTRY_STATES == frozenset(
+        {"setup_error", "migration_error", "setup_retry"},
+    )
 
 
 # --- LOWs ---------------------------------------------------------------------
@@ -2911,3 +2914,22 @@ def test_s1_page_silent_while_twin_live_caps_0(world, rec, caps):
     protect_down(world)
     run(world, owner, [room], (0, 120, 900, 1800, 1830, 3600))
     assert rec.of(S1) == [] and rec.of(S2) == []
+
+
+def test_d2_low1_short_not_ready_blip_keeps_owner_clock(world, rec, caps):
+    """Review D2 LOW-1: both NVRs lost at 0; a parent reload pops the camera
+    manager across ONE owner tick at 600 (back by 630). The blip is shorter
+    than the grace, so the owner keeps its loss stamps: the HIGH goes at
+    900 (rooms are suppressed), not at 630 + 930 = 1560."""
+    caps()
+    room, owner = pair_scene(world)
+    frigate_down(world)
+    protect_down(world)
+    run(world, owner, [room], (0, 120, 300, 570))
+    world.hass.data[DOMAIN].pop("camera_manager")
+    owner.tick(at(600))
+    world.camera_manager()
+    run(world, owner, [room], (630, 899))
+    assert rec.of(S2) == []
+    run(world, owner, [room], (900, 930))
+    assert [p["key"] for p in rec.of(S2)] == [(F_PLAY_CAM,)]
