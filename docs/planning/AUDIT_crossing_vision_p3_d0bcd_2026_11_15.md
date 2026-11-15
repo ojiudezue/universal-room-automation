@@ -398,3 +398,104 @@ Viewed `.claude/tmp/door_snap_madrone_g6_entry.jpg` (the Frigate `camera.madrone
 3. The test is positional (start in/end in), so it discards the strongest cue this camera has: horizontal displacement along the approach. From the point lists already in the I1 v2 section (not re-scored here): 15:12:14 moves (0.63,0.99) -> (0.89,0.98) and 19:45:29 (0.67,0.88) -> (0.91,0.96), both rightward toward the door (human `in`); 19:42:11 moves (0.12,0.78) -> (0.02,0.71), away from the door to the left (human `out`); 18:43:18 has two points near (0.05, 0.81), too short to read.
 
 **Proposed better door-crossing line (NOT scored, NOT frozen as v3; a proposal for the operator or the next cycle):** (a) door strip: a thin polygon on the door opening only, about [(0.82,0.74),(1.0,0.74),(1.0,1.0),(0.88,1.0)], without the mat and without the upper glass (the lower panel where the mat ends at the frame); (b) a directed rule instead of start/end membership: a track whose x moves at least 0.15 toward the strip and ends inside or within 0.05 of it = arrival, one that starts inside the strip and ends at least 0.15 further left = departure, anything shorter = unclear; (c) ignore points with y < 0.74 for the decision (interior glass). Hazards named in advance: a person lingering on the mat gives displacement under 0.15 (unclear, as today), and a person stepping out and back (15:12:14) would still be read as `in` by their last move. If adopted, it needs a v3 fixture committed before any scoring, the same 17/6 gates and a coverage count, and the pad-sweep caveat from the I1 v2 section; I1 stays NO-GO until then. The downward package lens is a separate entity and was not used.
+
+
+## P3-D0e step 0: retention and download (run 2026-11-15 17:34-18:00 CST)
+
+Frozen sets: `quality/tests/fixtures/crossing_approach_camera_sets.json` (commit 0f251b1c, made before any download and before
+any label was read; the plan names the file `crossing_approach_cameras.json`, the brief's name was used). Resolved by
+registry: `door_groups` stems -> Frigate-platform `camera.*` entity -> device identifier `<entry>:<cam>`; neighbours from
+`EXTERIOR_ADJACENCY_GRAPH` (`const.py:3026-3079`, symmetrised) UNION the live seam file `exterior_seams.json` rev4 (the
+linker's PRIMARY graph; const is only its fallback, `exterior_track_linker.py:225-240`), each camera carrying
+`in_const_graph` / `in_seam_file`. The two graphs differ: const-only `armcrest`, `utilities_ptz`; seam-only `sonoffwindow`.
+Inside camera = first `CONF_DOOR_INTERIOR_NEIGHBOURS` entry that resolves to a Frigate-platform device (first entries
+`foyer_foyer_camera_person_detected` is URA-platform and `camera_protect_garagehallway_person_detected` is
+unifiprotect-platform, neither has a Frigate recording route, so they were skipped and logged in the fixture):
+front = `foyer_fisheye`, garage_a = `staircase`.
+Sets: front = front_door_aerial, madrone_g6_entry, front_side_ptz, utilities_ptz, sonoffwindow, foyer_fisheye;
+garage_a (doorbell_lite and garage_a both map to it) = doorbell_lite, garage_a, armcrest, g5_bullet, rear_ptz, staircase.
+
+**Retention (source: HA config-entry diagnostics `/api/diagnostics/config_entry/<frigate entry>` `data.frigate_config`,
+Frigate 0.18-0; `/api/frigate/<inst>/config` is NOT proxied, views.py has no config route).** All 12 cameras are identical
+(per-camera `record` equals the global block): `record.enabled` true, **`continuous.days` 5.0, `motion.days` 0.0**,
+`alerts.retain` 14 d mode `motion`, `detections.retain` 14 d mode `motion`, pre/post capture 5 s. Meaning: **full
+continuous footage exists for only 5 days**; between day 5 and day 14 only motion segments inside alert/detection review
+items (event +/- 5 s) survive, so an E +/- 30 s window is NOT guaranteed after day 5 and no camera records "events only"
+inside the 5 days. The plan's "~13 days" figure applies to events, not to the +/-30 s approach windows.
+
+| camera | clips | MB | duration s min / median | windows <55 s |
+|---|---|---|---|---|
+| front_door_aerial | 29 | 1557 | 28.8 / 60.1 | 2 |
+| madrone_g6_entry | 29 | 1816 | 46.1 / 61.6 | 2 |
+| front_side_ptz | 29 | 1616 | 31.6 / 61.0 | 2 |
+| utilities_ptz | 29 | 1396 | 32.5 / 61.0 | 2 |
+| sonoffwindow | 29 | 250 | 30.3 / 61.5 | 2 |
+| foyer_fisheye | 29 | 1104 | 32.8 / 61.4 | 2 |
+| doorbell_lite | 17 | 684 | 59.1 / 61.1 | 0 |
+| garage_a | 17 | 856 | 57.9 / 61.4 | 0 |
+| armcrest | 17 | 209 | 60.0 / 61.0 | 0 |
+| g5_bullet | 17 | 710 | 58.4 / 61.4 | 0 |
+| rear_ptz | 17 | 766 | 58.1 / 61.3 | 0 |
+| staircase | 17 | 680 | 59.2 / 62.0 | 0 |
+
+**Expiry.** For the 11-14 crossings (12:59:22 .. 21:54:39 CST) continuous footage expires **2026-11-19 12:59 .. 21:54 CST
+(E+5 d, identical for every camera)**; event-only segments to 2026-11-28 (E+14 d). The local copies are now the only full
+windows. (Config-driven expiry; actual disk pressure could expire earlier, not checked.)
+
+**Download.** 46 crossings x set = 276 windows [E-30 s, E+30 s] through `/api/frigate/frigate-f2/recording/<cam>/start/<s>/end/<e>`,
+**276/276 HTTP 200, 0 missing, 0 HTTP 400, 0 skipped** (no exact-name window was already in `grade_cache`). Total
+11645 MB (10.8 GiB). Stored FLAT as `.claude/tmp/appr_<cam>_<start>_<end>.mp4` (the `approach_cache/`
+directory did not exist and was not created); results in `.claude/tmp/appr_download_results.json` (not committed; note
+`.claude/tmp/` is NOT gitignored on develop despite the plan, never `git add` it; local only, family footage).
+`armcrest` and `sonoffwindow` were fetched under the registry lowercase name and succeeded (Frigate config names are
+`ArmCrest` / `SonoffWindow`). One gap, cause unknown: the two crossings below returned short clips (28.8-52.6 s) on ALL six front cameras
+simultaneously, so the shortfall is common to the NVR (not per-camera retention); every other window is 57.9-65.3 s.
+
+| E (CST, 11-14) | group | event_id | cameras downloaded | note |
+|---|---|---|---|---|
+| 12:59:22 | front | 1794682768.544066-w8xxn7 | 6/6 | - |
+| 13:01:06 | front | 1794682865.883446-gbxrji | 6/6 | - |
+| 13:40:36 | garage_a | 1794685236.1325-gaulbn | 6/6 | - |
+| 14:17:23 | garage_a | 1794687442.07258-vmhpbz | 6/6 | - |
+| 14:18:39 | garage_a | 1794687519.560354-05yz7o | 6/6 | - |
+| 14:26:25 | garage_a | 1794687982.085913-ojb1j5 | 6/6 | - |
+| 14:27:51 | garage_a | 1794688069.526721-60p083 | 6/6 | - |
+| 15:12:14 | front | 1794690734.705725-axkjnv | 6/6 | - |
+| 15:23:04 | garage_a | 1794691378.926703-85xyb2 | 6/6 | - |
+| 15:24:28 | garage_a | 1794691473.264944-l67l4w | 6/6 | - |
+| 15:25:50 | garage_a | 1794691558.326502-zhrjcj | 6/6 | - |
+| 15:31:04 | front | 1794691863.717606-yiltz2 | 6/6 | - |
+| 15:52:52 | front | 1794693171.910322-6jo5oi | 6/6 | - |
+| 16:08:03 | front | 1794694085.344639-i2ad3h | 6/6 | - |
+| 16:14:56 | front | 1794694494.734821-viz1al | 6/6 | - |
+| 16:16:11 | front | 1794694570.042298-y1n9wc | 6/6 | short (<55 s) on: front_door_aerial, madrone_g6_entry, front_side_ptz, utilities_ptz, sonoffwindow, foyer_fisheye |
+| 16:19:36 | front | 1794694776.294267-zct276 | 6/6 | - |
+| 16:20:48 | front | 1794694848.105528-sashv7 | 6/6 | - |
+| 16:23:52 | front | 1794695031.383861-1f7gwc | 6/6 | short (<55 s) on: front_door_aerial, madrone_g6_entry, front_side_ptz, utilities_ptz, sonoffwindow, foyer_fisheye |
+| 16:30:44 | garage_a | 1794695443.151364-098bma | 6/6 | - |
+| 16:39:28 | front | 1794695967.862046-0li063 | 6/6 | - |
+| 16:41:01 | garage_a | 1794696054.512734-cilzh1 | 6/6 | - |
+| 17:11:19 | front | 1794697876.456198-oyevzp | 6/6 | - |
+| 17:30:13 | garage_a | 1794699012.679326-9w8h0o | 6/6 | - |
+| 17:31:26 | garage_a | 1794699094.409876-j4tiak | 6/6 | - |
+| 17:59:51 | front | 1794700790.372035-83pwjk | 6/6 | - |
+| 18:27:00 | garage_a | 1794702420.82614-9i1y1u | 6/6 | - |
+| 18:43:18 | front | 1794703408.034723-2x9czy | 6/6 | - |
+| 18:52:54 | garage_a | 1794703973.882669-fq57xc | 6/6 | - |
+| 18:59:36 | front | 1794704373.565593-0fwf5m | 6/6 | - |
+| 19:42:11 | front | 1794706937.566812-gqzcd7 | 6/6 | - |
+| 19:45:29 | front | 1794707129.471712-xc8gg6 | 6/6 | - |
+| 20:34:47 | front | 1794710086.711486-q3ch46 | 6/6 | - |
+| 20:44:20 | front | 1794710661.300758-g1awim | 6/6 | - |
+| 20:57:38 | front | 1794711460.317108-lfj4k4 | 6/6 | - |
+| 21:03:34 | front | 1794711814.05329-cok1ct | 6/6 | - |
+| 21:12:33 | front | 1794712353.359221-cz3rsw | 6/6 | - |
+| 21:15:44 | front | 1794712542.534603-vniu64 | 6/6 | - |
+| 21:20:42 | front | 1794712842.140436-pz5h15 | 6/6 | - |
+| 21:24:08 | front | 1794713053.718042-m500gi | 6/6 | - |
+| 21:28:01 | front | 1794713281.548273-lukhsh | 6/6 | - |
+| 21:42:22 | front | 1794714143.73626-99jqst | 6/6 | - |
+| 21:43:40 | front | 1794714219.706662-cw5yh8 | 6/6 | - |
+| 21:50:21 | garage_a | 1794714621.224394-7oogzq | 6/6 | - |
+| 21:51:42 | garage_a | 1794714700.892945-oiujsq | 6/6 | - |
+| 21:54:39 | garage_a | 1794714886.34353-q06ngj | 6/6 | - |
