@@ -1,6 +1,8 @@
 # PLANNING: camera area map falls back to the device area (ZONE-CAMERA-DISCOVERY-DEVICE-AREA-1)
 
-Date 2026-11-15. Author ura-planner. Status: plan, unreviewed. Card ZONE-CAMERA-DISCOVERY-DEVICE-AREA-1.
+Date 2026-11-15. Author ura-planner. Status: plan rev 2 (applies plan review
+`docs/reviews/code-review/plan_review_camera_area_map_2026_11_15.md`, PLAN-FIX-REQUIRED; finding map in §10).
+Card ZONE-CAMERA-DISCOVERY-DEVICE-AREA-1.
 Operator decision 2026-11-15 (verbatim on the card): "Yes (option A: fix the lookup to fall back to the device area;
 zone camera tier on; room camera-hold off by default except rooms the operator lists)."
 Tier: **2-DB minimum with the house-state rule** (operator + `feedback_tier2db_minimum_arc`), plus framing G (arc).
@@ -137,7 +139,7 @@ $ grep -n "CAMERA_AREA" const.py                                       -> no mat
 | Ingest | F2 stays at `_apply_enhanced_house_census` / `_cross_validate_platforms`; no new store. |
 | Read | Room hold reads its own room's camera sensors (comfort class, existing allowlisted path). Zone tier: existing tracker. |
 | Separation | No F4 reaches F2. No access consumer reads anything new. |
-| Delivery | YES, named for the operator (§7): zone tier slows nobody-home AWAY by up to 300 s after a camera person; census guest count goes down (D4); 3b pages move partly from the owner to rooms. |
+| Delivery | YES, named for the operator (§7): census guest count goes down (D4-CORRECT); 3b pages move partly from the owner to rooms; WAKING may come earlier (D0 (e) sizes it). AWAY and ARRIVING-while-AWAY timing do NOT change (INV-AWAY-UNCHANGED, D3c). |
 | Guard delta | 0 allowlist rows. |
 | Seam | 3b `CameraTwinHealth`, interior vision D4, NVR W5b fixture, crossing P3-D8 (§D5). |
 
@@ -146,9 +148,19 @@ $ grep -n "CAMERA_AREA" const.py                                       -> no mat
 ## 2. Falsifiable invariants
 
 - **INV-MAP.** For every configured camera person entity E: `CameraInfo(E).area_id == resolve_area_id_for_entity(E)`
-  (entity area when set, else device area, else None) on every discovery path that builds a CameraInfo for the area map
-  or the census (`:680`, `:994`, `:1011`, `:1163`, `:1191`). With `CAMERA_AREA_DEVICE_FALLBACK_ENABLED = False` every
-  CameraInfo is byte-identical to develop. *Broken by:* any path still writing entity-only area with the knob on.
+  (entity area when set, else device area, else None) at all SIX `CameraInfo(` construction sites in `camera_census.py`:
+  `:677` (area at `:680`), `:919` (ALREADY compliant via `:918`; not touched, not behind the kill switch), `:991`
+  (`:994`), `:1008` (`:1011`), `:1160` (`:1163`), `:1188` (`:1191`). With `CAMERA_AREA_DEVICE_FALLBACK_ENABLED = False`
+  the five changed sites are byte-identical to develop and `:919` is unchanged in both states. *Broken by:* any site
+  writing entity-only area with the knob on, or `:919` changing with the knob off.
+- **INV-AWAY-UNCHANGED (charter hard constraint, "I need away to be fast acting").** For the same evidence sequence, the
+  time and branch (`veto_path`) of every AWAY edge (nobody-home, α, β) and of every ARRIVING edge raised while the house is
+  AWAY are byte-identical with D3 on and with D3 off (= develop, where no zone has a camera). *Broken by:* any evidence
+  sequence where a zone camera `on`, in its 300 s timeout, or in its stream-dead hold (up to 900 s more) moves one of
+  those edges.
+- **INV-NO-SELF-CORROBORATION.** A camera's own detection never corroborates that camera's divergent count: census
+  divergence corroboration (`camera_census._any_zone_occupied_snapshot` `:2522`, read at `:2206-2221`) reads the
+  camera-free zone view, so with D3 on its answer equals develop's. *Broken by:* the review repro (§D3c) keeping 1.
 - **INV-HOLD-OPT-IN (the load-bearing one).** In a room with `CONF_ROOM_CAMERA_HOLD` False (the default) OR
   `CONF_DISABLE_CAMERA_PRESENCE` True, no camera person sensor ever sets that room's `STATE_OCCUPIED`,
   `occupancy_source = "camera"`, `_last_motion_time`, `_became_occupied_time` or the HVAC evidence stamp, in any
@@ -158,7 +170,7 @@ $ grep -n "CAMERA_AREA" const.py                                       -> no mat
 - **INV-ZONE-PERSON.** A zone tracker registers only person-detection entities: never an entity whose registry
   `original_device_class` is `motion`; and HVAC D6 Source 3 never counts one. *Broken by:* a `device_class: motion`
   entity in `_camera_entity_ids` or incrementing `confirmed`.
-- **INV-CENSUS-DOWN (only if D4 ships the corrected logic).** For any evidence state S, `unidentified_count_after(S) <=
+- **INV-CENSUS-DOWN (only if D4 ships the corrected logic; holds WITH D3 on because of INV-NO-SELF-CORROBORATION).** For any evidence state S, `unidentified_count_after(S) <=
   unidentified_count_before(S)` and `camera_total_after(S) <= camera_total_before(S)` on the census paths
   (`_calculate_house_census`, `_get_unrecognized_camera_count`); and with `CENSUS_STUCK_CAMERA_DISCOUNT_ENABLED` False
   no camera is discounted. *Broken by:* any S where a per-area value exceeds the null-area sum.
@@ -188,7 +200,7 @@ $ grep -n "CAMERA_AREA" const.py                                       -> no mat
 | C2 | Room camera stream tick extras (exclusion + S1/S2 pages) | `coordinator.py:2619-2623`, `room_stream_input_entities` `camera_stream_health.py:934-969` | evidence service | only the 3 configured panels | rooms watch their area's cameras (Wr grows, U shrinks) |
 | C3 | 3b twin owner Wr/U | `camera_twin_health.py:569-584` | evidence service, pages | Wr 3 / U 14 | recomputed (D0 gives numbers) |
 | C4 | Room `has_camera` | `sensor.py:2811-2842` | display | always False | true for camera rooms |
-| C5 | Zone camera tier (`_discover_zone_cameras` → `register_camera` → `_any_camera_occupied` → `_derived_mode`) | `presence.py:5192-5300`, `:819-860` | house_state (nobody-home, path β indoor guard, ARRIVING, SLEEP night_raw, WAKING), display | never (`signal_tiers.camera_sensors=false`, all 5 zones, card verify 11-13) | on (D3) |
+| C5 | Zone camera tier (`_discover_zone_cameras` → `register_camera` → `_any_camera_occupied` → `_derived_mode`) | `presence.py:5192-5300`, `:819-860` | house_state readers: nobody-home (`any_zone_occupied_for_empty`, `:7731-7741`), path β (`any_indoor_zone_occupied`, `:7704-7708`), ARRIVING while AWAY (`has_people`, `:1411-1432`), census divergence corroboration (`camera_census.py:2522`), WAKING (`any_zone_raw_occupied`, `:7719`), SLEEP night signal (`_zone_night_raw`); display | never (`signal_tiers.camera_sensors=false`, all 5 zones, card verify 11-13) | on for display, WAKING and the night signal outside the AWAY input; camera-free for AWAY, ARRIVING-while-AWAY and corroboration (D3c) |
 | C6 | `_run_inference("camera_detection")` trigger | `presence.py:5303-5320` | house_state push | never (no camera registered) | fires on every camera person edge |
 | C7 | Census `_calculate_house_census` `_dedup_by_area` | `camera_census.py:2060-2144` | F2 trust (census_count) | sum (null areas) | per-area max (D4) |
 | C8 | Census `_get_unrecognized_camera_count` (per-area max, BLE cancel) | `camera_census.py:6235-6420` | F2 trust (`unidentified_count`, AWAY α, guest_reason, visitors_present path A) | sum, BLE cancel never applies | per-area max − BLE (D4) |
@@ -222,7 +234,7 @@ Sections (each a table):
   live state, `CONF_DISABLE_CAMERA_PRESENCE`. Plus the full-scan and legacy paths' outputs for completeness. Cross-check:
   reproduce today's Wr = 3 / U = 14 with the entity-only rule before computing the new values (the repro proves the
   probe matches code).
-- **(b) Zones gaining cameras.** Per zone: cameras registered after D1, with each camera's device area and mount note.
+- **(b) Zones gaining cameras.** Per zone: cameras registered after D1, with each camera's device area, mount note and ROLE (interior / egress / perimeter, from the configured lists matched by registry device), and which ones D3a' admits.
 - **(c) Room hold replay, 7 days** (recorder retention). Per room with cameras: from the room's
   `binary_sensor.<room>_occupied` history and its camera person sensors' history, minutes where a camera person sensor
   read `on` while the room read vacant (would-create minutes, count of would-create episodes) and the extra hold
@@ -234,12 +246,28 @@ Sections (each a table):
   equality rate is the probe's self-check), (ii) device areas, per-area max, (iii) (ii) + BLE cancel from
   `sensor.<person>_room` history mapped through room `CONF_AREA_ID`, (iv) (iii) + stuck discount. Report per day: minutes
   with a different `unidentified_count`, distribution of the delta, minutes where it crosses 0 (that is the AWAY α and
-  `guest_reason`/`visitors_present` reach), and **11-14 (the party) hour by hour**. Note every minute where (ii)-(iv) drop
-  to 0 while (i) was > 0 and say who was home (BLE / person state) at that minute.
-- **(e) Zone tier house-state replay.** Using the house-state history and the zone cameras from (b): minutes where a zone
-  would have read occupied ONLY because of a camera within its 300 s timeout (`_CAMERA_OCCUPANCY_TIMEOUT_SECONDS`,
-  `presence.py:150`); each nobody-home AWAY edge that would have been delayed (and by how long); each AWAY interval in
-  which a zone camera read `on` (would-be ARRIVING edges); `camera_detection` inference trigger count per day.
+  `guest_reason`/`visitors_present` reach), and **11-14 (the party) hour by hour**.
+  - **Contradicted-zero table (the D4 gate input).** Every minute where (ii) or (iii) reads 0 while (i) read > 0, with the
+    oracle verdict "a person not accounted for was home": (1) any `person.*` whose trust state (`person_state_for_trust`
+    rule, replayed from person + Bermuda history) is `home` with no BLE room in the camera's area and no fresh face, OR
+    (2) a door-crossing entry (`person_entry_exit_events`, direction `entry`) in the prior 2 h with no matching exit, OR
+    (3) a Tier-1 sensor `on` in the camera's area with no BLE person there, OR (4) for 11-14 only, the operator's party
+    head counts by hour (§8 Q6). A minute is CONTRADICTED if any of (1)-(4) says someone uncounted was there.
+  - **Hidden-second-person table.** Per area with ≥ 2 interior physical cameras (by registry device, after the W1 twin
+    collapse, so two NVRs on one camera count once): minutes where two DIFFERENT physical cameras each read ≥ 1 and the
+    area max is below their sum, cameras named. That is where per-area max can hide a second person.
+- **(e) Zone tier house-state replay.** Using the house-state history and the zone cameras from (b), camera-INCLUSIVE
+  counterfactual (what develop + D1 without D3c would do), to prove D3c is needed and size what stays camera-inclusive:
+  - minutes a zone reads occupied ONLY because of a camera (live, within its 300 s timeout
+    `_CAMERA_OCCUPANCY_TIMEOUT_SECONDS` `presence.py:150`, or in a stream-dead hold up to 900 s more,
+    `CAMERA_INPUT_STREAM_DEAD_HOLD_MAX_S`);
+  - every AWAY edge split by `veto_path` (`nobody_home` / `active` α / `lost_admitted*` β) with the delay each would have
+    had (α must show 0);
+  - would-be ARRIVING edges while AWAY;
+  - **WAKING edges moved earlier** (sustained gate reads `any_zone_raw_occupied`, `presence.py:7719`, which keeps the
+    camera tier), by how much, per zone and camera, and whether a person was up (BLE move / Tier-1 in that minute);
+  - **SLEEP held by `_zone_night_raw`** through a camera limb: minutes and nights;
+  - `camera_detection` inference trigger count per day.
 - **(f) Family room through glass** (CENSUS-PATIO-THROUGH-GLASS-1). For the family-room camera person sensors and count
   sensors: minutes `on` / count > 0 while the family room's own motion/presence sensors were quiet AND no BLE person was
   in that room, split by house state; same minutes with the house AWAY; and the subset during sun-up vs dark. That is
@@ -322,7 +350,9 @@ Replace the entity-only area at every CameraInfo construction that feeds the are
   not an empty lookup). A test with an empty lookup would pass under both the fix and the old bug; it does not count.
 - **Test:** `test_room_camera_hold_opt_in.py::test_default_room_never_holds_on_camera`,
   `::test_opted_in_room_holds_like_v351`, `::test_disable_camera_presence_wins`,
-  `::test_hold_gate_does_not_shrink_stream_extras`, `::test_options_flow_round_trip_camera_hold`. Mutation: delete the
+  `::test_hold_gate_does_not_shrink_stream_extras`, `::test_options_flow_round_trip_camera_hold`,
+  `::test_default_room_dead_extra_camera_stays_vacant` (a default room whose extra camera is stream-dead, view HELD,
+  last reading `on`: room stays vacant; the dead-input-holds rule never reaches a default room). Mutation: delete the
   gate → `test_default_room_never_holds_on_camera` RED.
 - **Live:** for each default room with a D0 camera, `binary_sensor.<room>_occupied` shows no `occupancy_source: camera`
   over the first day (recorder query); for each opted-in room, at least one `camera` source row on a day its camera saw a
@@ -339,6 +369,41 @@ Replace the entity-only area at every CameraInfo construction that feeds the are
   (ingestion warning in `hvac_zones`) and D3 (config-flow selector) stay parked there.
   Note the configured-mode area map already holds only person-suffix entities; the guard bites in full-scan mode
   (`_discover_full_scan` files any `platform == frigate` binary sensor) and on operator `zone_cameras` picks.
+- **D3a' (camera roles admitted to the zone tier).** Rule: the zone tier registers a camera only when its configured
+  `camera.*` entity is on the integration's INTERIOR list (`CONF_CAMERA_PERSON_ENTITIES`) and on neither
+  `CONF_EGRESS_CAMERAS` nor `CONF_PERIMETER_CAMERAS`. The role comes from those configured lists, matched by registry
+  DEVICE (`entity.device_id` of each configured `camera.*` entity), never from a name; a person sensor inherits the role of
+  its device. A device on both an interior and an egress/perimeter list is excluded (door cameras see every departure).
+  Implementation: `CameraIntegrationManager` records the role set per device while building the map
+  (`_discover_from_configured_cameras` already holds the three lists, `camera_census.py:1107`); a new getter
+  `get_interior_cameras_for_area(area_id)` returns only interior-role infos; `_discover_zone_cameras` calls it. The room
+  hold (D2), has_camera and the stream extras keep the full map. Full-scan mode (no configured lists) admits nothing to
+  the zone tier (no role is known; fails closed). Test `::test_zone_tier_excludes_egress_and_perimeter_roles`,
+  `::test_zone_tier_full_scan_admits_nothing`.
+- **D3c (camera-free AWAY decision view, review HIGH 1 + HIGH 2).** One new `ZonePresenceTracker` property
+  `occupied_excluding_camera` = the tracker's mode computed with the Tier-2 camera term removed: True iff the mode
+  machinery (overrides, SLEEP pin) yields OCCUPIED from BLE or Tier-1 alone (implementation: `_derived_mode` gains a
+  keyword `include_camera=True`; `mode_excluding_camera` mirrors `mode` with `include_camera=False`). Also
+  `_zone_night_raw(t, include_camera=False)` for the night limb inside the AWAY input. Readers moved to it:
+  - `any_zone_occupied_for_empty` (`presence.py:7731-7741`): OCCUPIED limb and the SLEEP night-raw limb both camera-free;
+  - `any_indoor_zone_occupied` (path β, `:7704-7708`) and its SLEEP night-signal fallback (`:7759-7765`);
+  - the `any_zone_occupied` term of `has_people` (`:1411-1432`) whenever `current_state` is AWAY (ARRIVING trigger);
+    outside AWAY it keeps the camera-inclusive view (it decides HOME_* vs AWAY nowhere else; verify at build, and if any
+    other non-AWAY state reads it as an AWAY input, move that read too);
+  - `camera_census._any_zone_occupied_snapshot` (`:2522`, read at `:2206-2221`): `mode_excluding_camera == "occupied"`.
+  Kept camera-inclusive: zone display / `sensor.zone_<z>_presence_status`, `raw_occupied` for the WAKING sustained gate
+  (`:7719`, sized by D0 (e), §8 Q5), the night signal for SLEEP hold outside the AWAY input, D6. Note on develop parity:
+  develop registers no zone camera, so the camera-free view equals today's mode on every input; that is what makes
+  INV-AWAY-UNCHANGED testable as a golden.
+  Tests: `test_zone_camera_away_unchanged.py::test_nobody_home_edge_identical_d3_on_off`,
+  `::test_beta_edge_identical_d3_on_off` (LOST tracker, camera `on` then off, then 300 s tail and a stream-dead hold:
+  same β edge time), `::test_alpha_untouched`, `::test_arriving_while_away_identical_d3_on_off` (perimeter-free interior
+  camera `on` while AWAY with α off: no new ARRIVING), `::test_away_golden_replay` (recorded evidence fixture incl. 11-14,
+  edge list equal with D3 on/off), and
+  `test_census_no_self_corroboration.py::test_frigate_ghost_not_corroborated_by_own_zone` (review repro: Frigate count 1,
+  Protect 0, no face, no BLE, Tier-1 quiet, the Frigate person sensor `on` registered in its zone tier → census 0, as
+  develop; `DEFAULT_CENSUS_DIVERGENCE_DOWNGRADE` True). Mutation: point any one of the five reads back at `mode` → its
+  named test RED.
 - **Trip-wire:** zone camera tier silence. Per zone with registered cameras, `camera_detections_today` (unrecorded
   attribute on `sensor.zone_<z>_presence_status`); one LOW stuck-signal NM `kind=zone_camera_tier_silent` when a zone with
   ≥ 1 registered camera has 0 detections in `ZONE_CAMERA_TIER_SILENT_NM_HOURS` (rung 1, 72; 0 = off) while its cameras'
@@ -361,17 +426,19 @@ The arithmetic (from code, §1.3 #1): today every interior camera contributes in
 same or fewer people. The house-state reach is therefore DOWNWARD: fewer `unidentified_count` minutes > 0 means path α
 AWAY can fire where it was blocked, `guest_reason` `unidentified_persistent` and `visitors_present` path A fire less. GUEST
 itself follows the night-stay latch over the DB (presence doc §2 step 3) and does not read `unidentified_count`.
-(iv) One indirect UPWARD path: census divergence corroboration `_any_zone_occupied_snapshot` (presence doc §1, D-L1) keeps
-the higher of two platform counts when any zone is occupied; D3 makes zones read occupied more often. D0 (d)/(e) measures it.
+(iv) The one UPWARD path, census divergence corroboration through `_any_zone_occupied_snapshot`, would let a camera
+corroborate itself once D3 registers it (review HIGH 2). It is closed by construction: the snapshot reads the camera-free
+view (D3c, INV-NO-SELF-CORROBORATION), so INV-CENSUS-DOWN holds with D3 on.
 
-Branches (D0 picks one; both ship behind `CENSUS_CAMERA_AREA_FROM_DEVICE`, rung 1):
-- **D4-KEEP (default if D0 shows any minute where the corrected count reaches 0 while a phoneless person was home, or
-  the operator wants it):** `CENSUS_CAMERA_AREA_FROM_DEVICE = False`. The census reads area None for every CameraInfo
+Branches (D0 picks one by a HARD gate; both ship behind `CENSUS_CAMERA_AREA_FROM_DEVICE`, rung 1):
+- **Gate:** D4-CORRECT only if the D0 (d) contradicted-zero table has **zero** contradicted minutes over the 7 days
+  (oracle (1)-(4) named in D0 (d); threshold 0, no tolerance) AND the operator accepts the hidden-second-person table.
+  One contradicted minute = D4-KEEP.
+- **D4-KEEP (gate fails, or the operator prefers it):** `CENSUS_CAMERA_AREA_FROM_DEVICE = False`. The census reads area None for every CameraInfo
   through ONE helper `_census_camera_area(info)` at the three sites (`:2078`, `:3072`, `:6302`), so the census is
   bit-for-bit today's while rooms and zones get D1. Test: a develop golden of `_calculate_house_census` +
   `_get_unrecognized_camera_count` + the watchdog over a recorded fixture (incl. 11-14 samples), equal after D1.
-- **D4-CORRECT (if D0 shows the delta is the designed dedup and BLE cancel, with no 0-crossing that a person at home
-  contradicts):** `CENSUS_CAMERA_AREA_FROM_DEVICE = True`, so per-area max and BLE cancel apply as their own plans
+- **D4-CORRECT (gate passes):** `CENSUS_CAMERA_AREA_FROM_DEVICE = True`, so per-area max and BLE cancel apply as their own plans
   designed (v5.9.0 D-A; census BLE cancel I1-I3).
 - **Both branches:** `CENSUS_STUCK_CAMERA_DISCOUNT_ENABLED` (rung 1, **False**) keeps the stuck watchdog notify-only
   (today's behaviour, `notify_only_reason` becomes `discount_disabled`). Why off: a still guest (sleeping, reading) in a
@@ -435,10 +502,11 @@ Branches (D0 picks one; both ship behind `CENSUS_CAMERA_AREA_FROM_DEVICE`, rung 
 
 ## 7. Delivery changes to name for the operator (charter rule 3)
 
-1. The zone camera tier holds a zone occupied up to 300 s after its last camera person: nobody-home AWAY can be delayed
-   by up to 300 s (path α is unaffected: it reads no zone). D0 (e) gives the count.
-2. A camera person in a zone while the house is AWAY can raise ARRIVING (body evidence; lock regime already ignores
-   ARRIVING). D0 (e) gives the count.
+1. AWAY is NOT slowed and no new ARRIVING is raised while AWAY (INV-AWAY-UNCHANGED). Without D3c the zone tier would
+   have delayed nobody-home AND path β by the 300 s camera timeout plus up to 900 s of stream-dead hold (α reads no zone);
+   D3c removes the camera tier from every AWAY input, so there is nothing to accept.
+2. WAKING can come earlier when an interior zone camera sees someone at the end of the sleep window, and a camera in its
+   timeout can hold the SLEEP night signal (outside the AWAY input). D0 (e) sizes both; §8 Q5.
 3. Census (D4-CORRECT only): fewer unidentified-person minutes; AWAY α can fire in moments it was blocked by a summed
    count; `visitors_present` cam leg fires less.
 4. 3b: some dead-camera pages come from rooms instead of the house owner (same keys, same dedup).
@@ -451,10 +519,11 @@ Branches (D0 picks one; both ship behind `CENSUS_CAMERA_AREA_FROM_DEVICE`, rung 
 | # | Question | Recommended default |
 |---|---|---|
 | Q1 | Which rooms get "Cameras hold occupancy" on ship day? | None until D0 (c)/(f) is shown; then only rooms whose cameras watch only that room (no glass, no doorway into another area) and where D0 shows held minutes that match real presence |
-| Q2 | Census: keep today's summed count behind the knob (D4-KEEP) or ship per-area max + BLE cancel (D4-CORRECT)? | Decide on D0 (d). D4-CORRECT if no corrected-to-0 minute contradicts a person at home; else D4-KEEP |
+| Q2 | Census: keep today's summed count behind the knob (D4-KEEP) or ship per-area max + BLE cancel (D4-CORRECT)? | The hard gate decides (D4): CORRECT only with zero contradicted minutes; you confirm the hidden-second-person table |
 | Q3 | Keep the stuck-camera census discount off? | Yes (still-guest risk) |
 | Q4 | Apply the family-room Frigate mask + Protect zone (CENSUS-PATIO-THROUGH-GLASS-1) before the zone tier ships? | Yes; it is config only and D0 (f) sizes it |
-| Q5 | Accept up to 300 s slower nobody-home AWAY from the zone camera tier? | Yes if D0 (e) shows few delayed AWAY edges; else set `CONF_DISABLE_CAMERA_PRESENCE` on the rooms D0 names |
+| Q5 | Should the zone camera tier feed WAKING (earlier wake on an interior camera) and the SLEEP night signal? (AWAY is not a question: it stays camera-free.) | Yes if D0 (e) shows WAKING moves only on real wakes; if any moved WAKING edge was a camera with nobody up, make WAKING camera-free too (same property, one more read) |
+| Q6 | Party head count on 11-14 by hour (oracle (4) for the D4 gate) | Please supply rough counts; without them oracle (4) is skipped and (1)-(3) decide |
 
 ---
 
@@ -474,3 +543,17 @@ Branches (D0 picks one; both ship behind `CENSUS_CAMERA_AREA_FROM_DEVICE`, rung 
   ledger entry for "census computes a house-wide max under ''" and the face-arrival consumer claim), identity manual §4.2
   (census area semantics), contract §3 INV-MISSING-NOT-ZERO (b) U numbers, HVAC doc §3.1 one line (camera hold is opt-in
   per room), card consumer map corrected.
+
+---
+
+## 10. Plan review rev 2 finding map
+
+| Finding (review 2026-11-15) | Fixed in |
+|---|---|
+| HIGH 1: zone tier slows nobody-home and β; bound 300 s + 900 s; Q5 accept-by-default; D0 (e) not split | §2 INV-AWAY-UNCHANGED; §3.2 C5; D3c (camera-free view, five reads, tests); D0 (e) veto_path split; §1.6; §7 item 1; §8 Q5 replaced |
+| HIGH 2: self-corroboration via `_any_zone_occupied_snapshot` | §2 INV-NO-SELF-CORROBORATION, INV-CENSUS-DOWN restated; D3c (snapshot read + repro test); D4 (iv) |
+| MEDIUM 3: egress / perimeter cameras join the zone tier | D3a' (interior roles only, by registry device against configured lists; full scan admits nothing) |
+| MEDIUM 4: WAKING / SLEEP not measured | D0 (e) WAKING-moved and SLEEP night-raw rows; §7 item 2; §8 Q5 |
+| MEDIUM 5: unsized gates | D0 (d) contradicted-zero oracle (1)-(4) + hidden-second-person table; D4 hard gate (threshold 0); §8 Q2, Q6 |
+| LOW 6: six `CameraInfo(` sites | §2 INV-MAP lists all six, `:919` already compliant |
+| LOW 7: dead extra camera in a default room | D2 test `test_default_room_dead_extra_camera_stays_vacant` |
