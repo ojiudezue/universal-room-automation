@@ -158,3 +158,67 @@ Beside it, the failed rule (ii) on the same set: 5 of 25 = 0.20 on one-pass pair
 * 42 pairs unviewed (tool request limit, not a choice); they are `not_viewed` in the fixture and not counted.
 * I did not run an independent pass over the polygons; see the disclosure under step 0.
 * Luna calls: 14 of the 14 P3-D0c budget. The 120-call P3-D0 budget was not touched.
+
+## I1 v2 (polygons drawn from viewed snapshots)
+
+Run Sun 2026-11-15 16:51-17:1x CST by the read-only prober. Redo of P3-D0b I1 because run 1 drew its polygons without seeing the snapshots (disclosure 1 above). Freeze rule kept: new polygons committed (6d683d62, `quality/tests/fixtures/crossing_door_reference_frigate_v2.json`) BEFORE any v2 scoring; scoring code is the run-1 script with only the fixture path swapped (`.claude/tmp/p3d0b2_score.py`, `p3d0b2_cov.py`, `p3d0b2_sweep.py`, `p3d0b2_elk.py`, not committed). Zero model calls, no HA state change.
+
+**Snapshots.** Fetched 2026-11-15 16:51:18 (camera overlay clock 04:51:18 PM, overcast daylight, nobody in frame) via HA `camera_proxy`, entity from the registry (platform frigate, client `frigate-f2`, unique_id suffix = the Frigate camera in the fixture events): `camera.madrone_g6_entry`, `camera.front_door_aerial` (both Front Porch), `camera.garage_a_2`, `camera.doorbell_lite` (both Garage A). Each viewed one image per Read call. What was seen is recorded per camera in the fixture (door position, inside side, occlusion). Summary: G6 Entry has the glass door down the whole right edge with the mat abutting it; Front Door Aerial is overhead with the threshold along the bottom edge below the mat; Garage A is an interior overhead with the glass garage door across the top; doorbell_lite is the garage door face down the right side. The v2 polygons are close to v1's (v1's notes had been consistent with later contact sheets), with the G6 Entry polygon extended up the glass door and slightly wider.
+
+### Result against the gates (E+45 truncation, pad 0.05, plan coverage rule: share of the 101 crossings of 11-14 decided in/out by I1 itself)
+
+| | Right of 17 (gate 15) | Tracker-wrong right of 6 (gate 5) | Decided of 17 | Wrong direction | Coverage on 101 (gate 0.50) |
+|---|---|---|---|---|---|
+| I1 run 1 (blind polygons) | 10 | 3 | 11 | 1 | 0.47 |
+| **I1 v2 (viewed polygons)** | **10** | **3** | 11 | 1 | **0.47** (47: 28 in, 19 out; front 26 of 52, garage_a 21 of 49; 48 unclear, 4 short, 2 no matched event) |
+
+**Verdict: I1 FAILS all three gates again (10/17, 3/6, 0.47), same numbers as run 1.** The unverified-input worry did not change the outcome; run 1's number was not an artifact of the polygons. Per-clip decisions are identical to run 1 (right on 15:31:04, 16:14:56, 17:59:51, 18:59:36, 20:44:20, 20:57:38, 21:03:34, 21:12:33, 21:20:42, 21:28:01; wrong on 14:17:23; `unclear` on 15:12:14, 18:27:00, 18:43:18, 19:42:11, 19:45:29, 21:42:22). Determinism: I1 identical on two runs over all 101 crossings.
+
+Why it stays at 11 decided (read from the path points, v2 polygons): on G6 Entry the tracks start and end entirely inside or entirely outside the door polygon. 15:12:14 (human in): first (0.63, 0.99), last (0.89, 0.98) both in the polygon; 19:45:29 (in): (0.67, 0.88) to (0.91, 0.96) both in; 18:43:18 (out): two points near (0.05, 0.81), both outside; 19:42:11 (out): two points (0.12, 0.78) to (0.02, 0.71), outside. So G6 Entry sees people on the mat only, or only at the far left, so start-vs-end against the door cannot separate in from out; this is a camera-geometry limit, not a polygon-drawing one. Open at E+45: 16 of 99 matched events (16 %), unchanged.
+
+### Pad sweep (v2 polygons; right of 17 / tracker-wrong right of 6 / decided of 17)
+
+| Pad | E+45 cut | No cut |
+|---|---|---|
+| 0.05 (plan value) | 10 / 3 / 11 | 10 / 3 / 11 |
+| 0.10 | 9 / 2 / 10 | 9 / 2 / 10 |
+| 0.15 | 9 / 2 / 10 | 9 / 2 / 10 |
+| 0.20 | 8 / 2 / 9 | 8 / 2 / 9 |
+
+(Run 1 sweep: 10 / 10 / 9 / 9 of 17.) Larger pads only lose decisions; no pad reaches 15 or 5. Truncation at E+45 changes nothing on these 17 (no cut gives the same numbers).
+
+Other instruments are unchanged by the polygon redraw (they do not use polygons): I4 v1 13 / 4 (best), I5 (I1, else I3, else tracker) 13 / 3 with own-decision coverage 0.51 (52 of 101; fallback 0.49).
+
+## Front-door contact facts (read-only, registry and integration data; the I3 front sensitivity)
+
+Sources: entity and device registry and area registry (`config/entity_registry/list`, `device_registry/list`, `area_registry/list`) and current state attributes, 2026-11-15; recorder row counts by `ssh ha sqlite3 -readonly`. No config-entry data read, no name inference: identity below comes from `platform`, `unique_id`, device `identifiers`/`manufacturer`/`model` and state attributes.
+
+| | `binary_sensor.elkm1_front_door` | `binary_sensor.door_1467` |
+|---|---|---|
+| Integration (entity platform) | `elkm1` | `unifi_access` |
+| unique_id | `elkm1_zone_017` | `a2476bae-2905-4ee2-8989-e718f755aa92-access_door_dps` (door position sensor) |
+| Device | "ElkM1", Elk Products M1, identifiers `(elkm1, _system)`, one hub device carrying 45 entities (8 alarm areas, zone sensors); device area AV Closet; entity `area_id` None | "Door 1467", manufacturer Ubiquiti, identifiers `(unifi_access, <same uuid>)`; device area **Front Porch**; entity `area_id` None; siblings: unlock button, doorbell event, access event, thumbnail, lock-rule select and sensors |
+| Attributes | `index` 17 (zone 17 of the panel), Elk `area` 0, `device_class` door, `definition` 1, `logical_status` 0, `physical_status` 2, `triggered_alarm` false, no HA location | `device_class` door |
+| Position | none in registry: the AV Closet area belongs to the hub (the Elk panel is in the closet), not to the zone. The label "Front Door" is the panel's zone name, a human label, not registry geometry | Front Porch by device area |
+| Recorder 11-08 to 11-15 | 128 rows (78 off, 50 on) | 31 rows: 29 off, 2 unavailable, **never on** (device class door, so never open) |
+| Same device | These are two different devices on different integrations | |
+
+Findings: (1) `door_1467` is the UniFi Access hub's door position sensor on the Front Porch device. Never reporting open for 7 days means either the door never opened as seen by that DPS, or the sensor is not wired or paired (the registry cannot tell which; the same device's access event entity has 31 rows and the doorbell event 41 rows over the same window, so the device is alive). Unknown which; checking the Access app for the DPS wiring is an operator question. (2) `elkm1_front_door` is Elk panel zone 17 with `device_class: door`; nothing in the registry ties it to the Front Porch (the hub's area is AV Closet). Whether zone 17 is the front door contact is a name-level claim and stays unconfirmed by registry data; only the operator or the panel's zone programming can confirm it. (3) Neither is in the door-group mapping by registry area except `door_1467`, which is mapped and never opens.
+
+### I3 for the front group under each candidate (sensitivity check, NOT a gate input; the Elk mapping is by name)
+
+Front group readable clips: 15 (2 garage clips excluded). Scoring on the 17 readable and 6 tracker-wrong:
+
+| Candidate contact | Right of 17 | Tracker-wrong right of 6 | Decided of 17 | Wrong direction |
+|---|---|---|---|---|
+| `binary_sensor.door_1467` (registry-mapped, Front Porch) | not scorable: never on, I3 decides 0 front clips | | 0 front | |
+| `binary_sensor.elkm1_front_door` (sensitivity only) | 12 | 4 | 15 (all 15 front clips) | 3 (decided `out` on 15:12:14, 19:45:29, 21:42:22, human `in`) |
+| garage cover only, for reference (garage group) | 1 | 0 | 2 | 1 |
+| Elk plus cover as the I3 | 13 | 4 | 17 | 4 |
+| I5 chain I1, else I3 (cover), else I3 (Elk), else tracker | 13 | 4 | 17 | 4 |
+
+Verdict for the sensitivity: even granting the Elk zone as the front contact, the best combination is 13/17 and 4/6, still below 15 and 5 (the Elk contact reads `out` on the three `in` clips where the G6 Entry event starts at the door; the three wrong ones are exactly the G6 Entry crossings I1 could not decide). Elk coverage on 11-14: 39 of 101 crossings decided (name-based, sensitivity). Run 1's statement (12 right of 15 front clips decided) is consistent: here 12 of 17 right with 15 decided.
+
+## I1 v2 verdict
+
+NO-GO unchanged for I1: 10/17 (gate 15), 3/6 (gate 5), coverage 0.47 (gate 0.50), with polygons now drawn from viewed snapshots. P3-D0b stays NO-GO; the front-contact route does not rescue it on the sensitivity numbers. The remaining levers are unchanged: an I2 Frigate threshold zone, or a front camera that sees the approach (G6 Entry sees only the mat).
