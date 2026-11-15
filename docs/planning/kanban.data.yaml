@@ -9,6 +9,10 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {"fid": "HVAC-GUEST-EVIDENCE-RULE-1@2026-11-15T02:12:00", "card_id": "HVAC-GUEST-EVIDENCE-RULE-1", "at": "2026-11-15T02:12:00", "outcome": "done", "headline": "HVAC guest-state shadow verdict, measured during the current guest stay: the newer evidence rule would let zones go too early in GUEST (11 of 20 eligible episodes, mostly Jaya Bedroom; 35% vs a 3% bar). So GUEST stays on the old timer and phase 2 is not built. Sleep reads the same (NOT SAFE). Closed.", "acknowledged": false}
+  - {"fid": "PERIMETER-IDENTITY-FOLLOWUP-1@2026-11-15T02:12:00", "card_id": "PERIMETER-IDENTITY-FOLLOWUP-1", "at": "2026-11-15T02:12:00", "outcome": "measured", "headline": "The 'that was Jaya' follow-up has never fired: 440 perimeter alerts since 11-10, zero follow-ups. Most alerts come from rear and side cameras, not doors, so this may just mean no eligible event yet. Next I count eligible events, then close it or reopen it as a defect.", "acknowledged": false}
+  - {"fid": "FRIGATE-DOOR-FACE-TUNING-1@2026-11-15T02:10:00", "card_id": "FRIGATE-DOOR-FACE-TUNING-1", "at": "2026-11-15T02:10:00", "outcome": "measured", "headline": "Moved off your queue: the next step is my hand-off of the door-face audit to the homelab session, and homelab hasn't applied it yet.", "acknowledged": false}
+  - {"fid": "EGRESS-OUTCOME-WEEKLY-LABEL-1@2026-11-15T02:10:00", "card_id": "EGRESS-OUTCOME-WEEKLY-LABEL-1", "at": "2026-11-15T02:10:00", "outcome": "escalated", "headline": "Moved to your queue: it needs your answer on who carried phones on 11-11 (Jaya, Ojini, Ziri) before I can finish the labels.", "acknowledged": false}
   - {"fid": "OC-AI-TASK-LEVERAGE-1@2026-11-14T02:15:00", "card_id": "OC-AI-TASK-LEVERAGE-1", "at": "2026-11-14T02:15:00", "outcome": "escalated", "headline": "Your question 'would better AI make the optimizer work?': no. Only 5% of its findings come from the AI, those parse fine, and they fail because the AI isn't given the house's state and the rule-based checks repeat themselves hundreds of times. The fixes belong to the redesign and context cards. Your pick: close this (recommended) or approve a small paid model comparison later.", "acknowledged": false}
   - {"fid": "MUSIC-FOLLOWING-TRANSFER-REPAIR-1@2026-11-14T02:12:00", "card_id": "MUSIC-FOLLOWING-TRANSFER-REPAIR-1", "at": "2026-11-14T02:12:00", "outcome": "measured", "headline": "Caught a clash between two plans: the music-following repair would only move music when a person's Bluetooth confidence is at least 0.5, but that number is stuck at 0.3 for everyone (its sensors died on 10-20). Shipped as written, music would never follow anyone. Recorded on the cards. The fix order: repair the Bluetooth distance input first, or drop that one gate until it is real.", "acknowledged": false}
   - {"fid": "AUDIT-ROOM-AI-AUTOMATION-CHAINING-MUSIC-1@2026-11-14T02:12:00", "card_id": "AUDIT-ROOM-AI-AUTOMATION-CHAINING-MUSIC-1", "at": "2026-11-14T02:12:00", "outcome": "done", "headline": "Closed: the room-AI / chaining / music audit already produced its design doc and both build plans on 11-13; the card had just been left open.", "acknowledged": false}
@@ -442,19 +446,20 @@ cards:
   links: {related: [PERIMETER-FP-STREET-NOISE-1, RELOAD-WATCHDOG-HAZARD]}
   adjacency_2026_11_09: "Swept: RELOAD-WATCHDOG-HAZARD (done, fixed camera_person_entities only), EGRESS-CAMERA-LIST-STALE-5-NOT-3-1 (different: stale count), the reload-classification audit (parked #1). NEW card for the parked item."
 - id: PERIMETER-IDENTITY-FOLLOWUP-1
+  fire_check_2026_11_15_overnight: 'SOAK EXIT, discriminator not met in window: notification_log since 11-10 holds 440 perimeter alerts (436 Person Detected, 4 Vehicle deep-night) and ZERO Perimeter Alert - Identified rows (FOLLOWUP_TITLE perimeter_alert.py:6110) and none whose message has a follow-up phrase. The alerts come mostly from rear_ptz, g5_bullet, sonoffwindow, utilities_ptz; no door camera is in the top 8, so the zero may be lack of eligible events, not a dead producer. Not yet decided -> waiting_me with the eligibility count. (person_id on those rows is the recipient, not the identity.)'
   live_validation_2026_11_10: "Validated 2026-11-10 ~02:15 CST (README_v5.107.5): 0 PASS, 0 FAIL, 3 not-yet-observable. Zero 'Perimeter Alert - Identified' rows, all time, so the two negative checks are vacuous and were NOT marked PASS. Log gap: URA's logger runs at WARNING and the README's log markers are _LOGGER.info, so 'no log line' proves nothing either way; prove these via DB rows / entity attributes instead."
   title: "Door alert sent as unknown, identity resolves within ~90 s -> one quiet follow-up ('Front door: that was Jaya')"
   thread: security
-  status: shipped_organic
+  status: waiting_me
   shipped_version: v5.107.6
   tier: 1
   batch: perimeter-identity-arc-2026-11
   created: "2026-11-09 00:30"
-  updated: "2026-11-10 02:16"
+  updated: '2026-11-15 02:12'
   rank: {value: 4, time_criticality: 2, effort: 2}
   origin: "Operator 2026-11-08: 'What was Jaya doesn't need to be an edit. It can be a follow up.' Uncorks the v5.107.0 D10.5(2) park."
   why: "Time-sensitive alerts go out immediately (feedback_alert_latency_over_precision); Protect names back-fill 40-80 s later, so identity arrives after the page."
-  next: "Wait for organic proof (no action from you): the first identified perimeter alert (notification_log 'Perimeter Alert - Identified'); I read it and close or reopen."
+  next: 'Me (read-only): count ELIGIBLE events: perimeter alerts since 11-10 whose camera had a resident face name (Protect or Frigate, registry-resolved) within 90 s after the page. If eligible = 0, zero follow-ups is expected: close done and leave the zero-fire trip-wire question to the follow-up producer. If eligible > 0 with 0 follow-ups, reopen to review as a defect.'
   links: {related: [PERIMETER-FP-STREET-NOISE-1]}
   reconcile_2026_11_09: "Overnight reconcile: board still showed this as planned/investigating/in_progress but v5.107.5 was merged to develop at e7ead0e4 by the 11-08/09 attended session (not yet deployed; develop was 87 commits ahead of origin). Moved to review."
 - id: LOCK-ENTRY-AREAS-WRONG-OBJECT-1
@@ -497,17 +502,18 @@ cards:
   links: {related: [FACE-SOURCE-REGISTRY-DISCOVERY-1, CENSUS-GUEST-FLOOR-1, GUEST-GATE-DOOR-IDENTITY-1, GUEST-FP-RESIDUALS-1]}
   adjacency_2026_11_09: "ADJACENT (same decision surface): CENSUS-GUEST-FLOOR-1 (pre_planning, WiFi guest floor) and GUEST-GATE-DOOR-IDENTITY-1 (parked, door identity into the gate) become inputs; F-5 residual on FACE-SOURCE-REGISTRY-DISCOVERY-1 folds into this card. NEW card for the two-tier split itself."
 - id: HVAC-GUEST-EVIDENCE-RULE-1
+  organic_evidence_2026_11_15: 'DISPOSED done (soak exit). Ran scripts/probes/hvac_evidence_shadow_verdict.py read-only on HA (--since 2026-11-11 --grace 300) during the guest stay that began 11-14 12:03Z. GUEST: 31.1 occupied zone-hours, 20 eligible, 11 premature, rate 0.354 vs bar 0.031 (ref home_day 0.021) -> NOT SAFE. Most premature episodes are zone_2 Jaya Bedroom (5 of 14 resumed, 150-1500 s). SLEEP also NOT SAFE (0.61, 73 zone-h); home_night INSUFFICIENT (7.5 h); away INSUFFICIENT (3.1 h). Phase 1 recorder fired in every state (fire check passed). Verdict: keep GUEST on the legacy tail; the evidence rule releases zones too early outside home_day/home_evening. Stay still open at measurement, but 11/20 cannot fall under 0.031. Residual for the attended session: copy this verdict into HVAC_ARCHITECTURE_STATE_OF_PLAY.md §4.3 (not edited overnight).'
   title: "Daytime GUEST should condition like HOME_DAY: add guest to HVAC_EVIDENCE_RULE_STATES"
   thread: hvac
-  status: shipped_organic
+  status: done
   shipped_version: v5.108.5
   tier: 2-DB
   created: "2026-11-09 14:30"
-  updated: "2026-11-09 14:30"
+  updated: '2026-11-15 02:12'
   rank: {value: 6, time_criticality: 3, effort: 2}
   origin: "Review E (v5.108.0 guest split) E-M1. Operator 2026-11-09: 'conditioning shouldn't change yes? I didn't realize we kept older code around for HVAC?' OK'd doing this as its own card right after v5.108.0."
   why: "hvac_const.py:1097 HVAC_EVIDENCE_RULE_STATES = (home_day, home_evening). guest/arriving/away were left on the pre-v5.103.20 shadow tail pending measurement. v5.108.0 makes GUEST a multi-day DAYTIME state, so a stay day now runs the house on the legacy occupancy path. Consumers: hvac.py:5871, :6108; hvac_zones.py:932, :1483."
-  next: "Read HVAC_ARCHITECTURE_STATE_OF_PLAY.md completely. The const comment requires a probe for adding a state: measure or argue daytime GUEST is equivalent to HOME_DAY. Then make a one-line change plus tests. Three reviews (it changes what HVAC does in a house state)."
+  next: 'None. Phase 2 (promote GUEST to the evidence rule) is NOT warranted on the measured verdict; revisit only if the evidence rule itself changes (holds for still bodies) and a new shadow verdict reads SAFE.'
   refs: [docs/reviews/code-review/v5.108.0_guest_split_E_consumers.md, docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md]
   links: {related: [GUEST-MODE-SPLIT-VISITORS-1]}
 - id: GUEST-SELF-AUTHENTICATION-1
