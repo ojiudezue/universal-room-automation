@@ -1894,7 +1894,9 @@ def test_owner_after_midnight_reload_no_second_high(world, real_nm, caps):
     assert len(_high_titles(real_nm)) == 1
     world.today = "2026-11-15"
     owner = world.owner(setup_at=at(base + 1020))
-    run(world, owner, [room], (base + 1020, base + 1050, base + 1200))
+    # The owner stamps from its first tick: its own S2 is due at +900.
+    run(world, owner, [room], (base + 1020, base + 1200, base + 1920, base + 1950))
+    assert owner.last_results.get(f"high:{F_PLAY_CAM}") == nm.ALREADY_SENT
     assert len(_high_titles(real_nm)) == 1
 
 
@@ -1997,18 +1999,24 @@ def test_deferred_page_not_marked_hold_paged(world, rec, caps, kind):
     assert len(rec.of(want_kind)) == 1
 
 
-def test_takeover_mid_outage_no_spurious_low(world, real_nm, caps):
+@pytest.mark.parametrize("twin", ["unavailable", "unknown"])
+def test_takeover_mid_outage_no_spurious_low(world, real_nm, caps, twin):
     """Regression (build finding): the owner takes over mid-outage after a
-    room-sent HIGH while both NVRs are still dead. Its own loss stamps need
-    one grace to mature; that unknown stretch must neither end the adopted
-    episode (a false "visible again" LOW) nor lead to a second HIGH."""
+    room-sent HIGH while the camera is still unobservable. Its own loss
+    stamps need time to mature (one grace; a member that has read no opinion
+    since the owner's setup, e.g. `unknown`, only after the 600 s settle);
+    that stretch must neither end the adopted episode (a false "visible
+    again" LOW) nor lead to a second HIGH."""
     caps()
     playroom_pair(world)
     room = playroom_room(world)
     live_pair(world)
     world.set(**{F_PLAY: "on", P_PLAY: "on"})
     frigate_down(world)
-    protect_down(world)
+    if twin == "unavailable":
+        protect_down(world)
+    else:
+        world.put({P_PLAY_HI: "unknown", P_PLAY_MED: "unknown"})
     run(world, None, [room], (0, 900, 930))
     assert len(_high_titles(real_nm)) == 1
     owner = world.owner()
@@ -2270,3 +2278,59 @@ def test_real_presence_zone_camera_entities(world):
     world.entries.append(zm)
     fake = SimpleNamespace(hass=world.hass, _zone_trackers={"Upstairs": tracker})
     assert PresenceCoordinator.zone_camera_entities(fake) == sorted([P_PLAY, F_FOY])
+
+
+# ===========================================================================
+# 9. Config extremes of the new knobs (0 / very large)
+# ===========================================================================
+
+
+@pytest.mark.parametrize("settle", [0.0, 1e9])
+def test_boot_settle_extremes(world, monkeypatch, settle):
+    """CAMERA_TWIN_BOOT_SETTLE_S 0: a member no-opinion since setup counts
+    as lost at the grace; very large: never (only a real reading arms it)."""
+    knob(monkeypatch, "CAMERA_TWIN_BOOT_SETTLE_S", settle)
+    playroom_pair(world)
+    playroom_room(world)
+    owner = world.owner()
+    world.put({F_PLAY_CAM: restored(), P_PLAY_HI: "streaming",
+               P_PLAY_MED: "streaming"})
+    owner.tick(at(0))
+    owner.tick(at(120))
+    assert owner._lost("f_play", at(120)) is (settle == 0.0)
+    world.set(**{F_PLAY_CAM: "unavailable"})  # a real DEAD-READ reading
+    owner.tick(at(130))
+    assert owner._lost("f_play", at(130)) is True  # stamp kept from 0
+
+
+def test_rebuild_debounce_zero_still_one_build_per_fire(world, later, monkeypatch):
+    """CAMERA_TWIN_MAP_REBUILD_DEBOUNCE_S 0: events still coalesce into the
+    one scheduled callback (one build per fire)."""
+    knob(monkeypatch, "CAMERA_TWIN_MAP_REBUILD_DEBOUNCE_S", 0.0)
+    playroom_pair(world)
+    owner, bus = _setup_owner(world, later)
+    for i in range(5):
+        bus.fire(DEV_EV, {"action": "create", "device_id": f"d{i}"})
+    assert [d for d, _cb in later.calls] == [0.0]
+    later.fire_all()
+    assert owner._build_count == 2
+
+
+@pytest.mark.parametrize("grace", [0.0, 600.0])
+def test_grace_extremes_device_rule(world, monkeypatch, grace):
+    """CAMERA_INPUT_STREAM_DEAD_GRACE_S at 0 and 600: the device rule keys on
+    the same knob (dead at the first DEAD-READ tick with 0; at 600 s, not
+    599 s, with 600)."""
+    knob(monkeypatch, "CAMERA_INPUT_STREAM_DEAD_GRACE_S", grace)
+    playroom_pair(world)
+    room = playroom_room(world)
+    live_pair(world)
+    world.set(**{P_PLAY: "on"})
+    protect_down(world)
+    room.tick(at(0))
+    assert room.camera_input_stream_dead(P_PLAY) is (grace == 0.0)
+    if grace:
+        room.tick(at(599))
+        assert room.camera_input_stream_dead(P_PLAY) is False
+        room.tick(at(600))
+        assert room.camera_input_stream_dead(P_PLAY) is True
