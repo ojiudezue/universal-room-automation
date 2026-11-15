@@ -328,3 +328,73 @@ Run Sun 2026-11-15 (started 17:2x CST) by the read-only prober. Zero model calls
 **Truth and gates:** the fixture human labels; 17 readable clips, 6 tracker-wrong. Gate on the current labels: 15 of 17, 5 of 6, coverage >= 0.50 on the 101 crossings of 11-14 (share decided in/out by the instrument itself). Also reported with 21:42:22 and 15:12:14 set aside (15 clips; the 6 tracker-wrong become 5), labelled as such and not the gate. Independence: per-clip miss overlap with vision run 2 (V), I4 v1 (K), Elk/cover (C), I1 v2, using the matrix in "Ensemble check" above.
 
 **Falsifier named in advance:** I6 is worth keeping only if it reaches the gates on its own AND its misses are on different clips from V, C, I1. If coverage on the 101 crossings is below 0.50 the instrument is dead on coverage regardless of accuracy.
+
+### I6 results (rules above, unchanged, scored once)
+
+Scored Sun 2026-11-15 17:5x CST. Window knobs as frozen (60 s / 60 s, start-based, 2 s co-present guard). Determinism: pure function of the stored Frigate events and the crossing time; the scoring script reads the 280 events from one fetch.
+
+| Instrument | Right of 17 (gate 15) | Tracker-wrong right of 6 (gate 5) | Decided of 17 | Wrong direction | Coverage on the 101 crossings of 11-14 (gate 0.50) |
+|---|---|---|---|---|---|
+| **I6** (perimeter + sibling) | **5** | **1** | 6 | 1 (21:42:22) | **0.39** (39 of 101: front 19 of 52, garage_a 20 of 49; 38 none, 24 both) |
+| I6x (perimeter cameras only) | 3 | 1 | 3 | 0 | 0.30 (30 of 101) |
+| **I6b strict bracket** (I6 agrees with interior side) | **4** | **0** | 5 | 1 (21:42:22) | **0.17** (17 of 101) |
+| I6f (I6, else tracker; reported only) | 12 | 1 | 17 | 5 | not an instrument (fallback 61 %) |
+| tracker | 11 | 0 | 17 | 6 | |
+
+Set aside 21:42:22 and 15:12:14 (labelled; the gate stays on the current labels): I6 5 of 15, tracker-wrong 1 of 5, wrong direction 0; I6b 4 of 15, 0 of 5; I6f 11 of 15; tracker 10 of 15.
+
+**Verdict: I6 FAILS all three gates (5/17, 1/6, coverage 0.39). I6b FAILS (4/17, 0/6, 0.17). Even with the two labels set aside, 5 of 15 and 1 of 5.** Accuracy where it decides is high (5 of 6 under current labels, 5 of 5 with 21:42:22 set aside) but it decides on a third of the clips. Reasons, read from the per-clip rows below: 8 of the 17 clips have no outside-camera event at all in the 60 s windows (the perimeter cameras adjacent to the front are sparse: front_side_ptz 21 events and utilities_ptz 7 across the 28 h window; ArmCrest none), and 3 have outside events on BOTH sides (a busy porch: 15:31:04, 16:14:56, 18:59:36). The sibling door camera (aerial for a G6 crossing and the reverse) carried the front hits (18:43:18, 19:42:11, 20:57:38); without siblings (I6x) 3 right of 17.
+
+**Recorder cross-check (same rules, person-occupancy sensors from the recorder, Frigate occupancy legs plus the two unifiprotect person-detected sensors for rear_ptz and utilities_ptz, resolved by entity registry device).** 175 on/off intervals in the window; I6 on them: 7 right of 17, 10 decided, 3 wrong (15:12:14, 19:45:29, 21:42:22, all human `in`, all called `out`), coverage 41 of 101 = 0.41. Same conclusion; the recorder source decides more clips but gets all three `in` clips wrong (an occupancy sensor holds on after the person left, so a post-E "event" is often the tail of the crossing person).
+
+### Per-clip matrix next to the other instruments (current labels; W = tracker-wrong; `.` = abstain; X = wrong)
+
+V, I1 v2, K, C are copied from the "Ensemble check" matrix above (not re-run); I6 and I6b from this section; I6b = I6 where it equals the interior side, else `.`.
+
+| Clip 11-14 | Grp | Human | T | V (run 2) | I1 v2 | K (I4 v1) | C (Elk / cover) | **I6** | **I6b** | W |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 14:17:23 | garage | out | out | out | in X | out | in X | out | out | |
+| 15:12:14 | front | in | in | out X | . | in | out X | . | . | |
+| 15:31:04 | front | in | in | in | in | in | in | . (both) | . | |
+| 16:14:56 | front | in | out X | . | in | in | in | . (both) | . | W |
+| 17:59:51 | front | out | in X | out | out | in X | out | . (none) | . | W |
+| 18:27:00 | garage | out | out | out | . | out | out | out | out | |
+| 18:43:18 | front | out | out | out | . | in X | out | out | out | |
+| 18:59:36 | front | in | out X | in | in | in | in | . (both) | . | W |
+| 19:42:11 | front | out | in X | out | . | in X | out | out | . (interior says in) | W |
+| 19:45:29 | front | in | out X | out X | . | in | out X | . (none) | . | W |
+| 20:44:20 | front | out | out | out | out | out | out | . (none) | . | |
+| 20:57:38 | front | out | out | out | out | out | out | out | out | |
+| 21:03:34 | front | out | out | out | out | in X | out | . (none) | . | |
+| 21:12:33 | front | out | out | out | out | out | out | . (none) | . | |
+| 21:20:42 | front | in | in | in | in | in | in | . (none) | . | |
+| 21:28:01 | front | out | out | out | out | in X not | out | . (none) | . | |
+| 21:42:22 | front | in | out X | out X | . | in | out X | out X | out X | W |
+| right of 17 | | | 11 | 13 | 10 | 13 | 13 | **5** | **4** | |
+| right of the 6 W | | | 0 | 3 | 3 | 4 | 4 | **1** | **0** | |
+
+(Correction to the row for 21:28:01: K (I4 v1) is `out` and right on that clip, as in the Ensemble matrix; the stray "in X not" typed above is a typo, the table has the same K column as the Ensemble check: K misses only 17:59:51, 18:43:18, 19:42:11 and 21:03:34.) Outside events behind each I6 decision: 14:17:23 g5_bullet +37 s and doorbell_lite +29 s; 18:27:00 rear_ptz +9 s and g5_bullet +2 s; 18:43:18 front_door_aerial +15 s; 19:42:11 front_door_aerial +3 s; 20:57:38 madrone_g6_entry +9 s and +3 s; 21:42:22 madrone_g6_entry +17 s and +44 s.
+
+### Independence: are I6's errors independent of the others?
+
+* **I6's only wrong direction is 21:42:22**, the same clip V, C, T and I1 (abstains) miss, and that label is the one flagged above as probably wrong (the clip shows a departure). If the label is `out`, I6 has no wrong direction under the corrected label and is right on it; if it is `in`, I6 shares the miss with V and C. Either way this is not independent evidence about a hard clip.
+* **I6's five rights are clips V already gets right** (14:17:23, 18:27:00, 18:43:18, 19:42:11, 20:57:38; also right in C except 14:17:23 and right in I1 except where I1 abstains). It fixes none of V's, C's and I1's shared misses (15:12:14, 19:45:29, 21:42:22): it abstains on the first two (no outside event) and is wrong on the third. It adds one clip where C and I1 are both wrong (14:17:23: cover and I1 say `in`, I6 says `out`), which is not enough to matter.
+* So the errors are not shared because I6 mostly abstains where the others fail, not because it reads a different fact correctly on those clips. On the clips that discriminate (the six tracker-wrong clips) it decides one (19:42:11) and is wrong on one (21:42:22).
+* Agreement with the tracker over all 101 crossings: where both decide (29 crossings), I6 agrees with the tracker's entry/exit on 17 (in/in 8, out/out 9) and disagrees on 12; the tracker is 35 % wrong on the readable clips, so this is not an accuracy number.
+
+### I6 verdict and what changes
+
+**NO-GO for I6 and I6b on the gates.** Direction stays the tracker's; P3-D9c is not planned on I6. The operator's premise (outside cameras clear things up) holds where an outside camera sees the person within 60 s (5 of 6 right) but that happens on 39 % of crossings at the front and the back combined, and the cheap alternatives are exhausted: widening W to 120 s was NOT run (the windows were frozen; doing it now would be tuning after seeing the sparsity). A larger W would add decisions but also raise the "both" share (3 of 17 now), and any change needs a new pre-registration. Revival trigger: a front approach camera whose Frigate events cover the driveway and walkway (today front_side_ptz and utilities_ptz are sparse and ArmCrest has no events in the window), re-scored on a larger labelled set than 17. A second label pass on 21:42:22 and 15:12:14 is the cheaper lever, as in the Ensemble check.
+
+## G6 Entry I1 polygon re-check (the "sees only the mat" claim)
+
+Viewed `.claude/tmp/door_snap_madrone_g6_entry.jpg` (the Frigate `camera.madrone_g6_entry` snapshot of 2026-11-15 16:51:18, 720x960 portrait fisheye, one image per Read call) and read the fixture `quality/tests/fixtures/crossing_door_reference_frigate_v2.json` polygon for `madrone_g6_entry`.
+
+**The earlier note "G6 sees only the mat" (Front-door contact facts / I1 v2 verdict above: "a front camera that sees the approach (G6 Entry sees only the mat)") is wrong and is withdrawn.** What the image shows: the left half is the approach, with lawn, gravel bed, stepping stones climbing from the lower left (x 0-0.28, y 0.65-0.85) and porch paving along the bottom; the middle is a white limestone pier (x 0.30-0.62, y 0.15-0.72); the glass door and sidelights run down the right edge (black frame from about x 0.83 at y 0.3 to x 0.80-0.88 at the bottom, leaning with the fisheye); the doormat is at the bottom right (x 0.45-0.87, y 0.78-1.0) and abuts the lower glass. The upper left is blown out (white sky), so a person at x < 0.3, y < 0.5 is not detectable.
+
+**Does the v2 polygon cover the door correctly?** Position: yes. [(0.82,0.25),(1.0,0.25),(1.0,1.0),(0.55,1.0),(0.55,0.78),(0.82,0.74)] covers the glass strip and the mat in front of it. What it gets wrong as a crossing test:
+1. It includes the whole mat out to x = 0.55. A person standing on the mat is not yet at the door; arrival tracks (15:12:14 first point (0.63, 0.99); 19:45:29 first point (0.67, 0.88), both from the I1 v2 notes) start inside the polygon, so "start outside, end inside" cannot fire. The test only separates tracks that begin on the stepping stones, which this camera often misses (the blown-out upper left, and late detection).
+2. The upper glass (y 0.25-0.72, x > 0.83) shows the house interior through the sidelights; a person inside walking past is "in the polygon" without any door crossing. The real door opening is the lower panel where the mat meets the frame, bottom right.
+3. The test is positional (start in/end in), so it discards the strongest cue this camera has: horizontal displacement along the approach. From the point lists already in the I1 v2 section (not re-scored here): 15:12:14 moves (0.63,0.99) -> (0.89,0.98) and 19:45:29 (0.67,0.88) -> (0.91,0.96), both rightward toward the door (human `in`); 19:42:11 moves (0.12,0.78) -> (0.02,0.71), away from the door to the left (human `out`); 18:43:18 has two points near (0.05, 0.81), too short to read.
+
+**Proposed better door-crossing line (NOT scored, NOT frozen as v3; a proposal for the operator or the next cycle):** (a) door strip: a thin polygon on the door opening only, about [(0.82,0.74),(1.0,0.74),(1.0,1.0),(0.88,1.0)], without the mat and without the upper glass (the lower panel where the mat ends at the frame); (b) a directed rule instead of start/end membership: a track whose x moves at least 0.15 toward the strip and ends inside or within 0.05 of it = arrival, one that starts inside the strip and ends at least 0.15 further left = departure, anything shorter = unclear; (c) ignore points with y < 0.74 for the decision (interior glass). Hazards named in advance: a person lingering on the mat gives displacement under 0.15 (unclear, as today), and a person stepping out and back (15:12:14) would still be read as `in` by their last move. If adopted, it needs a v3 fixture committed before any scoring, the same 17/6 gates and a coverage count, and the pad-sweep caveat from the I1 v2 section; I1 stays NO-GO until then. The downward package lens is a separate entity and was not used.
