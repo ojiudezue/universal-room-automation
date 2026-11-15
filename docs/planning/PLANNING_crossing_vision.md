@@ -919,6 +919,21 @@ at 4 h; the flapping Meross bit), so bars a and e, F-LEAD and every census use o
   other holder remains; any duty-cycle-labelled bedroom sensor stays in `held`. Discriminates: the label-map bug would
   also drop sleeping-bedroom sensors from `held`.
 
+**P3-D8 prerequisites (review D/G of 48d4bc94: G-1, G-2, D-M1; plan `PLANNING_stuck_sensor_truth.md` S1-S3).** P3-D8
+alone would not have produced an anchor on 11-15 for either live case. Three prerequisites, sequenced before P3-D3:
+- **S1 (K2, Tier 2-DB, operator approved):** a P22 off pulse shorter than `STUCK_P22_OFF_GAP_TOLERANCE_S` (10 s) does not
+  restart the 4 h clock (motion-class inputs), so the upguest ZV stays P22-excluded (G-1).
+- **P3-D8b = S2 (EDGE, Tier 2, built on this branch, reviewed with P3-D8):** `_on_substrate_edge` drops a (room, kind)
+  rising edge when every `on` input of that kind is a live input its room stuck-excludes (same client set, dead inputs
+  still count). The substrate keeps ignoring room exclusions (STEP-EXCLUDE-4); policy lives in this consumer (G-2).
+  D-M1 default taken: a `p22_continuous`-only exclusion is not honoured, for levels or edges, in SLEEP, WAKING or
+  HOME_NIGHT (one rule in the room getter `camera_input_room_stuck_excluded`, `_d2_house_state_allows`; knob
+  `CROSSING_VISION_ANCHOR_P22_SLEEP_GATE`).
+- **S3 (MEDIA, Tier 1 + config):** Meross bit chattering excluded via `select.ura_chatter_mode` = act (reads act live
+  since 2026-11-15 15:47; stored option to verify), and the registry model `ms600-un` resolves to the radar family.
+Invariants, knobs, tests and Live criteria: that plan. Seam: S1 changes `_sensor_on_since`, which P3-D8 consumes through
+the `p22_continuous` client (seam, not merge).
+
 **P3-D9 EGRESS-TRACKER-DIRECTION-1: the pass key at the source, then pass-level dedup (Tier 3, own plan; carded,
 planned; harmonization C5, review G1).** The F3 owner owns the one pass key; P3-D4, P3-D3, P3-D6, interior D5 and NVR
 W2 consume it. Two steps:
@@ -1025,7 +1040,8 @@ source mutation of the INV-DIR-GATE site, operator checkpoint before deploy.
 | `CROSSING_VISION_TRACKER_FRIGATE_RING` | 20 per Frigate camera, 1800 s | 1 | P3-D9a tracker event ring bound (count and age, same as the crossing ring age) |
 | `CROSSING_VISION_DAILY_CALLS_MAX` (existing, `const.py:3569`) | 200 | 1 | Upper bound of the cap Number |
 | `CROSSING_VISION_CAP_REHYDRATE_INDEX_ROWS` | 200 000 | probe rule (plan number) | P3-D5: above it the build adds `idx_episodes_type_ended` |
-| `CROSSING_VISION_LEDGER_ANCHOR_IGNORES_STUCK` | True after operator yes (P3-D8) | 1 | False = a stuck-excluded live `on` input still holds |
+| `CROSSING_VISION_LEDGER_ANCHOR_IGNORES_STUCK` | True after operator yes (P3-D8) | 1 | False = a stuck-excluded live `on` input still holds and its edges count (P3-D8b) |
+| `CROSSING_VISION_ANCHOR_P22_SLEEP_GATE` | True | 1 | P3-D8 / P3-D8b: a `p22_continuous`-only exclusion is not honoured in SLEEP / WAKING / HOME_NIGHT (D-M1); False = honoured always |
 | `CROSSING_VISION_TERM_HOLD_S` | 110 (cluster 60 + entry window 45 + 5) | 1 | P3-D4 hold; must be ≤ 2 × `CLUSTER_S` (asserted at setup); 0 = build terms at the vision outcome (pre-Phase-3) |
 | `CROSSING_VISION_LEDGER_DIRECTION_SOURCE` | `tracker` | 1 (reviewed flip, P3-D7) | INV-DIR-GATE; `vision` only after FLIP-READY |
 | `CROSSING_VISION_DIRECTION_ACC_LB_MIN` / `_SCORED_MIN_N` | 0.90 / 30 | 1 | Wilson 95 % lower bound on oracle-scored crossings; sized from the measured 35 % tracker error, not days |
@@ -1044,8 +1060,9 @@ Census-side knobs (class set, F-LEAD, notify bars, bars a-e) live in the census 
 4. P2-D8 only after P2-D0 (vi) passes.
 5. P2-D6 disposition after ≥ 7 days and bar minimums; flips per the census plan's ladder.
 6. Phase 3, in order: P3-D0 probe (retention check and fixture first; gates the P3-D2 route, the P3-D3 direction part,
-   P3-D4 and P3-D9b). P3-D8 (anchor honours stuck exclusion, operator yes pending) before P3-D3, because without an
-   anchor no ledger use of Phase 3 can be measured. P3-D1 + P3-D5 any time. P3-D3 (direction first: it dominates the
+   P3-D4 and P3-D9b). P3-D8 (anchor honours stuck exclusion, operator yes pending) with its prerequisites S1, S2 (= P3-D8b) and S3
+   (`PLANNING_stuck_sensor_truth.md`) before P3-D3, because without an anchor no ledger use of Phase 3 can be measured;
+   S1 ships before P3-D8 is relied on. P3-D1 + P3-D5 any time. P3-D3 (direction first: it dominates the
    net, audit §3c) with P3-D2. **P3-D9a (tracker pass key) before P3-D4**, so the ledger consumes the one F3-owned key
    and never computes its own. P3-D4. **P3-D9b (tracker pass dedup) right after P3-D4**, gated on P3-D0 (d) incl. the
    round-trip merge bound. P3-D6 with the scorer build (P2-D10 grading built there, harmonization C10). P3-D7 only after
