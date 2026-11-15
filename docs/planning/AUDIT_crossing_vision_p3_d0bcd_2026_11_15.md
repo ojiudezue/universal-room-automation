@@ -217,7 +217,7 @@ Front group readable clips: 15 (2 garage clips excluded). Scoring on the 17 read
 | Elk plus cover as the I3 | 13 | 4 | 17 | 4 |
 | I5 chain I1, else I3 (cover), else I3 (Elk), else tracker | 13 | 4 | 17 | 4 |
 
-Verdict for the sensitivity: even granting the Elk zone as the front contact, the best combination is 13/17 and 4/6, still below 15 and 5 (the Elk contact reads `out` on the three `in` clips where the G6 Entry event starts at the door; the three wrong ones are exactly the G6 Entry crossings I1 could not decide). Elk coverage on 11-14: 39 of 101 crossings decided (name-based, sensitivity). Run 1's statement (12 right of 15 front clips decided) is consistent: here 12 of 17 right with 15 decided.
+Verdict for the sensitivity: even granting the Elk zone as the front contact, the best combination is 13/17 and 4/6, still below 15 and 5 (the three Elk-wrong clips, 15:12:14, 19:45:29 and 21:42:22, are all clips I1 also left `unclear`; the cause of the Elk `out` reading on those three `in` clips was not investigated). Elk coverage on 11-14: 39 of 101 crossings decided (name-based, sensitivity). Run 1's statement (12 right of 15 front clips decided) is consistent: here 12 of 17 right with 15 decided.
 
 ## I1 v2 verdict
 
