@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "313",
+  "author": "ojiudezue",
+  "session_id": "claude_20261115_201612_ship_v5_108_25",
+  "timestamp": "2026-11-15T20:16:12Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.108.25 shipped: Layer ship 3b: device-level dead-camera rule",
+  "summary": "Layer ship 3b: device-level dead-camera rule",
+  "why": "Before 3b a dead Frigate entity with a live Protect twin paged HIGH and was held and released as dead, and multi-camera Protect and Reolink person sensors resolved to no camera, so S1/S2 never watched them. Operator rule: if even one NVR has the camera it is not dead. Tier 3 with reviews A, B, C, D, D2, G and an operator go.",
+  "implications": "Shipped DEAD-CAMERA-DEVICE-RULE-1 at v5.108.25; card(s) sit shipped_organic pending validation. Acceptance in README_v5.108.25.md (Live criteria).",
+  "revisit_trigger": "If a one-NVR outage visibly delays a census reset, or NVR witness W2 planning starts (DEAD-CAMERA-TWIN-COVERAGE-1).",
+  "refs": {
+    "cards": [
+      "DEAD-CAMERA-DEVICE-RULE-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.108.25.md"
+    ],
+    "release_notes": "A camera is a registry device; the camera-down page fires only when every paired NVR device has lost it (CameraTwinHealth owner on the CM entry). Device-level input holds, house tracker for unwatched cameras, SENT/ALREADY_SENT/NOT_SENT send result with latch-after-send, bounded room DEFER, camera_twin_health diagnostics counters."
+  }
+}
