@@ -1056,6 +1056,14 @@ The layer guard test lands with ship 3a. No raw
 signal path is added as a fallback (that would recreate drift #16). If ship 3 slips, v6.0.0 slips with it, and the
 orchestrator tells the operator with the date rather than shipping a raw-signal variant.
 
+**Decided deviations in the §10.1 build (2026-11-15, `feature/step8-identity-actions`):**
+
+| Piece | Plan text | As built | Reason | Anchor |
+|---|---|---|---|---|
+| Stored music pick (§5.3) | "URA stores `media_content_id` + `media_content_type` and drops `entity_id`" | The stored pick KEEPS the browse player's `entity_id`; playback strips it (`person_profiles.play_pick`, used by `pick_media`) | HA's `MediaSelector` without `accept` rejects a value with no `entity_id` (`helpers/selector.py` `MediaSelector.__call__`, HA 2026.2.3), so an unchanged re-save of the People form would fail if the stored value dropped it. Playback never reads it, so "never group-join / play on the room's own player" (§5.3) is unchanged | `test_person_profile.py::test_pick_media_drops_browse_entity_id`, `::test_stored_pick_keeps_browse_player_for_redisplay` (drill: `play_pick` returning the stored dict goes RED) |
+| `note_arrival_scene_result` (§5.5) | `note_arrival_scene_result(room, applied: bool)` | `note_arrival_scene_result(room, result: str)`, `result` one of `const.ARRIVAL_SCENE_RESULT_*` (`applied` / `hold` / `unavailable` / `error`) | A bool cannot separate `scene_skipped_hold` from `scene_skipped_unavailable` | `test_arrival_scene_entry_hook.py::test_hold_and_unavailable_reasons_differ_same_room` |
+| `occupied_since()` (§2 row "Room occupancy onset") | "NEW read-only accessor" | Built as a delegate of the existing `UniversalRoomCoordinator.get_became_occupied_time()` (v3.2.4, same value); one source | Prior art the §2 scan missed | `test_occupied_since.py` |
+
 ## 11. Tier
 
 Tier 2-DB (operator yes): three framing-disjoint code reviews (A gates, payloads, pick precedence, outcome contract;
