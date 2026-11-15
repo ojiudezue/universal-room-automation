@@ -70,11 +70,17 @@ Full-suite name-diff: see the validation table below.
 - Documented residuals: D-L1, LOW-2, LOW-4 (state-of-play doc); D-L3 skipped as pre-existing; review C X14 is an
   equivalent mutant today.
 
-## Live validation (prospective)
+## Validated 2026-11-15 (restart 14:19 CST)
 
-- **Boot:** no URA ERROR or traceback after restart.
-- **Owner:** the coordinator-manager diagnostics download contains `camera_twin_health` with the map built
-  (admitted pairs about 17, rejected about 3) and no entity ids.
-- **No false HIGH:** no `camera_stream_dead` / `camera_stream_hold_released` HIGH for an in-map camera while its twin
-  reads live, over the restart window.
-- **Room input exclusions:** sensors on a live device show no new exclusion in `sensor.<room>_unavailable_entities`.
+| Criterion | Result | Evidence |
+|---|---|---|
+| Boot clean | PASS | `system_log` for URA: no ERROR or traceback; only deprecation WARNINGs, one of them new from 3b (`camera_stream_health.py:832` uses `device_registry.devices` as a mapping; stops working in HA 2027.9, carded) |
+| Owner present, map built | PASS | CM diagnostics `camera_twin_health` at 14:20, 14:20:21, 14:24:27: `map_ready` true, `map_stale` false, `pairs_admitted` 17, `pairs_rejected` 3, `build_failures` 0 |
+| Diagnostics are counters only | PASS | no `binary_sensor.`, `camera.` or `device_id` strings in the section |
+| No false HIGH | PASS so far | `page_counts` and `send_results` empty; no pages since restart |
+| Watched / unwatched sets | AS-BUILT, plan count wrong | `watched_devices` 3, `unwatched` 14 (plan expected U = the foyer group only). Cause is pre-existing: the camera manager's area map reads the entity's own area and every camera entity has area null (all areas are on devices), so room camera-override extras are empty in every room. All 14 census and zone cameras are covered by the owner's house tracker, so INV-DEAD-INPUT / INV-DEAD-CAMERA still hold; nothing is watched by nobody. Fix carded on ZONE-CAMERA-DISCOVERY-DEVICE-AREA-1 (operator decision pending). `AUDIT_v5_108_25_watched_set_2026_11_15.md` |
+| Room input exclusions | PASS by construction | rooms watch only the three configured panel inputs, unchanged one-camera devices |
+
+Not observable yet: an actual one-NVR outage (MEDIUM notice) and an all-NVR outage (HIGH); both are proven in-suite
+(review C drills, 51 RED). The foyer fisheye device-area move made the same day (HA-FOYER-CAMERA-AREA-ALIGN-1) has no
+URA effect until the area-map fix ships.
