@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-15T02:12:40-06:00_ - _Data commit: `d6efb3a76195`_ - _last_reconciled: 2026-11-15_
+_Generated: 2026-11-15T02:13:20-06:00_ - _Data commit: `dc73ca2d1ab7`_ - _last_reconciled: 2026-11-15_
 
 
 ## Columns
@@ -1772,7 +1772,7 @@ _created 2026-09-27 02:40 · updated 2026-10-19 02:03 · refined_
 
 ### `WALLPANEL-TOUCH-WITNESS-1` - Wall-panel sensors as URA inputs (touch witness, BLE proxy scanners, ambient noise; temp/lux low value) — _#37 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **presence** - status: **waiting_operator**
-_created 2026-10-20 08:30 · updated 2026-11-15 02:16 · refined ×1_
+_created 2026-10-20 08:30 · updated 2026-11-15 02:13 · refined ×1_
 - **Origin:** 2026-10-20 - HomeLab accepted idea 3 (ffa7d06).
 - **Why:** A touch within <=120 s may veto a 'vacated' verdict (fan recheck) or 'nobody home'; never infer absence from no touch; ignore last_interaction changes within ~2 min of sensor.<p>_app_uptime changing (republish on reconnect). Needs presen...
 - **Next:** DO (optional, when back): one solo walk-in test with your phone, about 10 min each standing in Foyer and in Media Room with no one else in those rooms, and say when -> I read the area sensor against the room sensors for those windows and...
