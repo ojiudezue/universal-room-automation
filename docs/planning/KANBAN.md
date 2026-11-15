@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-14T20:30:23-06:00_ - _Data commit: `01ba0737c960`_ - _last_reconciled: 2026-11-14_
+_Generated: 2026-11-14T20:36:48-06:00_ - _Data commit: `9568e83bc501`_ - _last_reconciled: 2026-11-14_
 
 
 ## Columns
@@ -839,7 +839,8 @@ status: **planned**
 - **Origin:** 2026-11-13 - Operator question on the crossing vision plan.
 - **Why:** Crossing vision plan fetches clips from Frigate only; Protect enters only as the late face name. Three separate Frigate-vs-Protect rules exist: camera_census.py:2330 _cross_validate_platforms (counts; Frigate number wins when both see; l...
 - **Next:** Me: plan amendment to the operator after perimeter Part A and crossing vision Phase 1 ship. Open unknowns: garage_a Protect leg; llmvision on a Protect clip (one paid dry call needs operator ok); NVR disagreement ground truth (use the we...
-- **Forensic keys (29):**
+- **Forensic keys (30):**
+  - `arc`: identity / vision / census (charter docs/planning/ARC_DRIFT_ANALYSIS_identity_vision_census_2026_11_13.md; arc map docs/planning/ARC_identity_vision_census_map.md §1 row + §4 step 9a, added 2026-11-14)
   - `operator_2026_11_14_one_physical_camera`: A recommended is fine. But we do have to eventually figure how to not deal with 2 camera system in this idiosyncratic way as it they are watching diff cameras instead of the same (Direction for W2-W6: model each physical camera ONCE with...
   - `arc_cut_v5_108_23`: layer ship 3b and W2-W6
   - `operator_2026_11_14_q12`: This symmetrical with frigate right? If so, yes (Protect inputs get the device-level stream-health hold; ship 3 plan rev 3.5 Q12 = yes, conditional on symmetry with Frigate).

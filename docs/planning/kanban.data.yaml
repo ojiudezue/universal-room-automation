@@ -35045,6 +35045,7 @@ cards:
   next: "Parked. Revisit at ship 3b close with the D0 (d) numbers."
   rank: {value: 2, time_criticality: 1, effort: 4}
 - id: NVR-WITNESS-CONSOLIDATION-1
+  arc: "identity / vision / census (charter docs/planning/ARC_DRIFT_ANALYSIS_identity_vision_census_2026_11_13.md; arc map docs/planning/ARC_identity_vision_census_map.md §1 row + §4 step 9a, added 2026-11-14)"
   operator_2026_11_14_one_physical_camera: "A recommended is fine. But we do have to eventually figure how to not deal with 2 camera system in this idiosyncratic way as it they are watching diff cameras instead of the same (Direction for W2-W6: model each physical camera ONCE with Frigate and Protect as two witnesses of it, so inputs, holds, pages, census, zones and the ledger anchor reason about the camera, not per-NVR entities. Today readers see two NVR inputs as if they were different cameras; 3b only fixed the pages.)"
   arc_cut_v5_108_23: "layer ship 3b and W2-W6"
   operator_2026_11_14_q12: "This symmetrical with frigate right? If so, yes (Protect inputs get the device-level stream-health hold; ship 3 plan rev 3.5 Q12 = yes, conditional on symmetry with Frigate)."

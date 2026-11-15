@@ -67,6 +67,7 @@ plans use: hs (house-state trust) and acc (access actuation: locks, alarm). Stat
 | EXTERIOR-PERSONS-HOME-ALWAYS-ZERO-1, EXTERIOR-PERSON-SEVERITY-ARRIVING-BODY-ONLY-1 | C: F1 | sec (NM severity) | `perimeter_alert.py` | folded into 1a | inbox (should close with 1a validation) | validate |
 | EXTERIOR-SEAM-FILE-LOADER-1 | none | n/a | seam loader (shared with path map D7) | D7 | open | dispose with D7 |
 | EXTERIOR-GUEST-FACE-FASTFOLLOW-1, EXTERIOR-GUEST-EGRESS-1, EXTERIOR-DWELL-LOITER-1 | C: F3 | sec / hs | perimeter / egress | parked with triggers | parked | keep parked |
+| **NVR-WITNESS-CONSOLIDATION-1** (`PLANNING_nvr_witness_layer.md`; W1 live v5.108.21, W2-W6 planned) — added 2026-11-14 | P: per-physical-camera witness record (which NVR saw a person, agreement history), camera liveness. C: Frigate + Protect person/occupancy entities, W1 registry pairing | sec (perimeter single-source gate), hs (room/zone/census camera inputs, dead-camera hold), disp | `camera_resolver.py` W1 pairing, `camera_twin_health.py` + `camera_stream_health.py` (layer ship 3b), `camera_census._cross_validate_platforms`, `transit_validator._count_platforms_fired`, `perimeter_alert._apply_single_source_gate`, census-p2 ledger anchor | layer ship 3b (pages: camera dead = every NVR lost it) | planned | 9a |
 
 ---
 
@@ -151,6 +152,7 @@ input), estimator (terms + rules), WiFi (corroborator), stream health (missing m
 | 9 | VISION-INTERIOR-SIGHTINGS-1 (probe first, then producer feeding §3) | 3 | |
 | 10 | 1b vacation overlay (+ LOCK-VACATION-PHANTOM); lock restart plan when lockout ON; PLB flicker; STALE-SOURCE-ARRIVAL | 3 / 2 | |
 | 11 | Read API ship 2 (migration) | 2 | parallel any time after 3 |
+| 9a | NVR witness W2-W6: one physical camera with Frigate and Protect as two witnesses (operator 2026-11-14: "we do have to eventually figure how to not deal with 2 camera system in this idiosyncratic way as it they are watching diff cameras instead of the same"). Every reader (room inputs, holds, pages, census, zones, ledger anchor, perimeter, transit counts) asks about the camera, not a per-NVR entity. Absorbs DEAD-CAMERA-TWIN-COVERAGE-1 (coverage + anchor) and the three platform rules | 3 | after layer ship 3b; before VISION-INTERIOR-SIGHTINGS-1 (step 9 reads cameras); seam with 3b's `CameraTwinHealth` = extend, never a second camera-liveness model |
 
 Docs to consolidate:
 
