@@ -7,7 +7,7 @@ Test set per run: test_crossing_vision_p3_first, _shadow, test_crossing_ledger, 
 test_person_awareness_layer_guard, test_census_trust_golden, test_camera_stream_health, _s2 (baseline 521 passed, 1 skipped).
 Scratch driver: .claude/tmp/p3c_mutdrill.py (untracked, not committed).
 
-Result: 117 mutations, 92 RED (a specific named test fails), 25 + 3 GREEN-class rows listed below (6 extra X2 rows: 2 RED, 4 GREEN).
+Result: 117 mutations, 88 RED (a specific named test fails), 29 GREEN (rows below; indices 0-110 first batch, 111-116 second batch). Of the GREEN rows, 7 are equivalent mutants (#9, #20, #40, #41, #53, #70, #109, #112, #114 incl. duplicates) and the rest are test gaps.
 All REDs name the intended test (error text, scrub x3 patterns, truncate, empty-reply never 0, DAO bounds/outcome set/error-vs-empty,
 cap hold, call-time gate, rehydrate timeout/retry/page/teardown/midnight/old-day, P3-D8 three conditions, kill switch,
 stuck-client set, P22 hold states + fail-closed unknown manager, multi-room all-fold, last-good kept on death, cap 93, max_tokens 4000).
@@ -51,4 +51,4 @@ stuck-client set, P22 hold states + fail-closed unknown manager, multi-room all-
 ## Verdict: FIX-REQUIRED (test-only, small)
 
 Add the #100 test (MEDIUM) and fold the LOW tests into the same fix-up where cheap (#101, #35, #105, #96/97, #115, #45/58 with a fake clock, #4). No source change required. Re-run the named rows after the tests land.
-Counts: 117 mutations; RED 92; GREEN 25 (11 test gaps worth fixing, 14 LOW/EQUIVALENT as classified); tree clean.
+Counts: 117 mutations; RED 88; GREEN 29 (1 MEDIUM + 15 LOW test gaps, rest equivalent mutants); tree clean.
