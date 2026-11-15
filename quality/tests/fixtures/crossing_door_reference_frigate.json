@@ -1,0 +1,19 @@
+{
+  "description": "P3-D0b step 0 hand-built door references. Polygons drawn by eye on one live snapshot per Frigate camera (HA camera_proxy of the registry-resolved Frigate camera entity, platform frigate, client_id frigate-f2), normalised x,y in [0,1] from top-left, FROZEN before any human label was scored against an instrument. in = track ends at the door polygon (padded) and did not start there; out = starts there and does not end there.",
+  "snapshot_time_cst": "2026-11-15T16:36:36-06:00",
+  "polygons": {
+    "madrone_g6_entry":  {"entity": "camera.madrone_g6_entry", "area": "Front Porch", "polygon": [[0.62,0.80],[1.00,0.72],[1.00,1.00],[0.62,1.00]], "note": "glass front door at right edge, mat at bottom right"},
+    "front_door_aerial": {"entity": "camera.front_door_aerial", "area": "Front Porch", "polygon": [[0.22,0.88],[0.64,0.88],[0.64,1.00],[0.22,1.00]], "note": "overhead view, door threshold along the bottom edge below the mat"},
+    "garage_a":          {"entity": "camera.garage_a_2", "area": "Garage A", "polygon": [[0.20,0.00],[0.85,0.00],[0.85,0.28],[0.20,0.28]], "note": "interior overhead view, the garage door across the top"},
+    "doorbell_lite":     {"entity": "camera.doorbell_lite", "area": "Garage A", "polygon": [[0.70,0.30],[1.00,0.30],[1.00,1.00],[0.70,1.00]], "note": "exterior view, garage door face down the right side"}
+  },
+  "door_contacts": {
+    "_rule": "Mapped by registry area: the contact or cover whose area equals the door group's cameras' area (entity registry area_id, else device area_id) and device_class door/garage/opening.",
+    "front":    {"area": "Front Porch", "entity_id": "binary_sensor.door_1467", "platform": "unifi_access", "recorder_history_since": "2026-11-08", "states_seen": ["off","unavailable"], "scorable": false, "why": "never reported on (open) in the recorder window"},
+    "garage_a": {"area": "Garage A", "entity_id": "cover.konnected_f0f5bd523b00_garage_door", "platform": "esphome", "device_class": "garage", "recorder_history_since": "2026-11-08", "states_seen": ["opening","open","closing","closed","unavailable"], "scorable": true}
+  },
+  "not_mapped_by_registry": {
+    "binary_sensor.elkm1_front_door": "platform elkm1, 128 on/off rows, but registry area is AV Closet (hub device), so it cannot be tied to the Front Porch by registry; reported as an operator question only",
+    "binary_sensor.doorlock_kwikset_zwave_frontentry_current_status_of_the_door": "area Entry Way; only state on in the window"
+  }
+}

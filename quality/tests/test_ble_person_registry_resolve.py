@@ -884,6 +884,41 @@ async def test_tick_resolves_once_per_person(hass):
     assert calls == ["person.oji_udezue"] * 2
 
 
+@pytest.mark.asyncio
+async def test_tick_room_change_event_carries_ble_facts(hass):
+    """MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D1, review C-8 (G1-G3): the PRODUCER
+    puts ``method``, ``bermuda_area`` and ``area_sensor`` on the
+    ``ura_person_location_change`` event it fires when a tick moves the
+    person (the detector only copies them)."""
+    w = _World(hass)
+    _oji(w)
+    _set_all(hass, w, "unavailable")
+    hass.states.async_set("sensor.iphone_oji_area", "jaya_3")
+    coord = _coord(hass)
+    coord.tracked_persons = [OJI]
+    _pin_area_scanners(coord)
+    events = []
+    unsub = hass.bus.async_listen(
+        "ura_person_location_change", lambda e: events.append(dict(e.data)))
+    try:
+        coord.data = await coord._async_update_data()   # first fix: no move
+        await hass.async_block_till_done()
+        assert events == []
+        first_room = coord.data[OJI]["location"]
+        hass.states.async_set("sensor.iphone_oji_area", "kitchen")
+        coord.data = await coord._async_update_data()
+        await hass.async_block_till_done()
+    finally:
+        unsub()
+    assert len(events) == 1, (first_room, events)
+    assert events[0]["previous_location"] == first_room
+    ev = events[0]
+    assert ev["method"] == "bermuda"
+    assert ev["bermuda_area"] == "kitchen"
+    assert ev["area_sensor"] == "sensor.iphone_oji_area"
+    assert ev["previous_location"] != ev["current_location"]
+
+
 # ---------------------------------------------------------------------------
 # D4 PersonLocationSensor: no Bermuda name scan, coordinator listener only
 # ---------------------------------------------------------------------------

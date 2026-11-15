@@ -1,0 +1,145 @@
+{
+ "description": "P3-D0b step 0, version 2. Polygons drawn by eye from snapshots I actually viewed (Read tool, one image per call), normalised x,y in [0,1] from top-left, FROZEN before any v2 scoring. Supersedes crossing_door_reference_frigate.json (v1 was drawn without seeing the images). Cameras resolved via entity registry (platform frigate, client frigate-f2, unique_id suffix = Frigate camera name) and the fixture events' after.camera; door groups from the integration's configured egress map as used in run 1.",
+ "snapshot_time_cst": "2026-11-15T16:51:18-06:00",
+ "snapshot_overlay_clock": "2026-11-15 04:51:18 PM, overcast daylight, no people in frame",
+ "polygons": {
+  "madrone_g6_entry": {
+   "entity": "camera.madrone_g6_entry",
+   "area": "Front Porch",
+   "image_px": "720x960 fisheye, portrait",
+   "polygon": [
+    [
+     0.82,
+     0.25
+    ],
+    [
+     1.0,
+     0.25
+    ],
+    [
+     1.0,
+     1.0
+    ],
+    [
+     0.55,
+     1.0
+    ],
+    [
+     0.55,
+     0.78
+    ],
+    [
+     0.82,
+     0.74
+    ]
+   ],
+   "seen": "Black-framed glass door/wall runs down the whole right edge (x>~0.82). Doormat at bottom right (x 0.45-0.87, y 0.78-1.0) abuts the glass. Inside = to the right (behind the glass); outside = left (lawn, stepping stones, walkway). Polygon = glass door face plus the mat in front of it. Occlusion: stone pier in the middle hides nothing relevant but a person walking along the wall at x 0.4-0.8, y<0.7 is on stone, not at a door. Strong overexposure upper left."
+  },
+  "front_door_aerial": {
+   "entity": "camera.front_door_aerial",
+   "area": "Front Porch",
+   "image_px": "1280x720 overhead",
+   "polygon": [
+    [
+     0.25,
+     0.84
+    ],
+    [
+     0.6,
+     0.84
+    ],
+    [
+     0.6,
+     1.0
+    ],
+    [
+     0.25,
+     1.0
+    ]
+   ],
+   "seen": "Overhead view down a walled entry: stepping-stone path from top, paved porch, black mat with doormat at x 0.32-0.52, y 0.75-0.97, black door frame/threshold along the bottom edge (y ~0.96-1.0, x 0.25-0.62). Inside = below the bottom edge (off frame); outside = up the path. Occlusion: the door itself and anything inside is below the frame; walls left and right are solid stone."
+  },
+  "garage_a": {
+   "entity": "camera.garage_a_2",
+   "area": "Garage A",
+   "image_px": "1280x720 overhead interior",
+   "polygon": [
+    [
+     0.19,
+     0.0
+    ],
+    [
+     0.86,
+     0.0
+    ],
+    [
+     0.86,
+     0.31
+    ],
+    [
+     0.19,
+     0.31
+    ]
+   ],
+   "seen": "Interior view from above: the glass sectional garage door spans the top (x 0.20-0.85, to y ~0.28). Inside = the floor below; outside = above the top edge (off frame). Sofa right, boxes and batteries left, shoe rack bottom left. A person crossing outside<->inside passes through the top strip. Other doors (left wall) are not the door group's threshold."
+  },
+  "doorbell_lite": {
+   "entity": "camera.doorbell_lite",
+   "area": "Garage A",
+   "image_px": "1920x2560 fisheye, portrait",
+   "polygon": [
+    [
+     0.7,
+     0.45
+    ],
+    [
+     1.0,
+     0.3
+    ],
+    [
+     1.0,
+     1.0
+    ],
+    [
+     0.7,
+     1.0
+    ]
+   ],
+   "seen": "Exterior view along the garage face: glass garage door fills the right edge from about y 0.40 down (door face left edge x ~0.72), paver driveway apron centre-left, lawn and road beyond. Outside = driveway (left); inside = behind the glass (right). Polygon = the garage door face. Occlusion: eave and pier at top right; fisheye distortion bends the door edge."
+  }
+ },
+ "door_contacts": {
+  "_rule": "Mapped by registry area: the contact or cover whose area equals the door group's cameras' area (entity registry area_id, else device area_id) and device_class door/garage/opening.",
+  "front": {
+   "area": "Front Porch",
+   "entity_id": "binary_sensor.door_1467",
+   "platform": "unifi_access",
+   "recorder_history_since": "2026-11-08",
+   "states_seen": [
+    "off",
+    "unavailable"
+   ],
+   "scorable": false,
+   "why": "never reported on (open) in the recorder window"
+  },
+  "garage_a": {
+   "area": "Garage A",
+   "entity_id": "cover.konnected_f0f5bd523b00_garage_door",
+   "platform": "esphome",
+   "device_class": "garage",
+   "recorder_history_since": "2026-11-08",
+   "states_seen": [
+    "opening",
+    "open",
+    "closing",
+    "closed",
+    "unavailable"
+   ],
+   "scorable": true
+  }
+ },
+ "not_mapped_by_registry": {
+  "binary_sensor.elkm1_front_door": "platform elkm1, 128 on/off rows, but registry area is AV Closet (hub device), so it cannot be tied to the Front Porch by registry; reported as an operator question only",
+  "binary_sensor.doorlock_kwikset_zwave_frontentry_current_status_of_the_door": "area Entry Way; only state on in the window"
+ }
+}

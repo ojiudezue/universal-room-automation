@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv5.108.25
+# Universal Room Automation vv5.108.26
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -11077,6 +11077,60 @@ class UniversalRoomDatabase:
         except Exception as e:  # noqa: BLE001
             self._mem_dao_warn("read_memory_episodes", e)
             return []
+
+    async def read_memory_episodes_by_type(
+        self,
+        episode_type: str,
+        since_iso: str | None = None,
+    ) -> list[dict]:
+        """Read every episode of one type across nodes (MUSIC-FOLLOWING-
+        TRANSFER-REPAIR-1 D5.3 nightly accuracy roll-up). Read-only."""
+        import json as _json  # noqa: PLC0415
+        try:
+            clauses = ["episode_type = ?"]
+            params: list = [episode_type]
+            if since_iso is not None:
+                clauses.append("started_at >= ?")
+                params.append(since_iso)
+            where = " AND ".join(clauses)
+            async with self._db_read() as db:
+                cursor = await db.execute(
+                    f"""SELECT id, node_id, episode_type, started_at, attrs_json,
+                              source_ref
+                       FROM memory_episodes
+                       WHERE {where}
+                       ORDER BY started_at ASC""",
+                    tuple(params),
+                )
+                rows = await cursor.fetchall()
+                out = []
+                for r in rows:
+                    try:
+                        attrs = _json.loads(r[4]) if r[4] else {}
+                    except Exception:  # noqa: BLE001
+                        attrs = {}
+                    out.append({
+                        "id": int(r[0]), "node_id": r[1], "episode_type": r[2],
+                        "started_at": r[3], "attrs": attrs, "source_ref": r[5],
+                    })
+                return out
+        except Exception as e:  # noqa: BLE001
+            self._mem_dao_warn("read_memory_episodes_by_type", e)
+            return []
+
+    async def run_music_following_health_check(self) -> dict | None:
+        """Nightly op (MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D5.5): delegates to
+        the MusicFollowing singleton (zero-success trip-wire + 7-day accuracy
+        roll-up). None when music following is not set up. Never raises."""
+        try:
+            from .const import DOMAIN as _DOMAIN  # noqa: PLC0415
+            mf = self.hass.data.get(_DOMAIN, {}).get("music_following")
+            if mf is None or not hasattr(mf, "async_nightly_health_check"):
+                return None
+            return await mf.async_nightly_health_check(self)
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.warning("music following health check failed: %s", e)
+            return None
 
     async def read_memory_facts(
         self,

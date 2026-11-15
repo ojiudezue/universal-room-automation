@@ -254,6 +254,21 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     "garage_lockout_arrival_hold_s",
     # VISION-CROSSING-SHADOW-1 D3: live Number knob (daily call cap) -> 122.
     "crossing_vision_daily_calls",
+    # MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D7: every MF knob applies in place
+    # through MusicFollowing.apply_config (11 new keys) -> 133, plus the
+    # arc step 8 arrival-music master switch (options-only) -> 134;
+    # -1 mf_high_confidence_distance (distance gate dropped 2026-11-14) -> 133.
+    "mf_cooldown_seconds",
+    "mf_ping_pong_window",
+    "mf_verify_delay",
+    "mf_unjoin_delay",
+    "mf_position_offset",
+    "mf_stale_transition_seconds",
+    "mf_follow_mode",
+    "mf_bonus_joins",
+    "mf_min_ble_confidence",
+    "mf_source_lookback_seconds",
+    "music_on_arrival_start",
 }
 
 
@@ -415,7 +430,10 @@ def test_options_reload_suppress_keys_count_matches_part2_scope():
     # +1 LOCK-SUSPICIOUS-ARRIVAL-HOLD D5 garage_lockout_arrival_hold_s -> 121
     #    (docs/planning/PLANNING_lock_suspicious_arrival_hold.md)
     # +1 VISION-CROSSING-SHADOW-1 crossing_vision_daily_calls -> 122
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 122
+    # +12 MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D7 (11 MF knobs + the arrival
+    # music switch) -> 134
+    # -1 mf_high_confidence_distance (distance gate dropped 2026-11-14) -> 133
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 133
 
 
 # ---------------------------------------------------------------------------
@@ -445,6 +463,9 @@ def _load_init_dispatch_namespace() -> dict:
         # coordinator setter that owns each tunable. _hvac_tunable_apply
         # reads it, so slicing that helper requires this dict too.
         "_HVAC_TUNABLE_SETTER_METHOD",
+        # MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D7: MF knob bundle spliced into
+        # OPTIONS_RELOAD_SUPPRESS_KEYS and read by _apply_in_place.
+        "_MF_LIVE_KEYS",
     }
     keep_funcs = {
         "_seed_cm_last_applied_options",
@@ -738,6 +759,10 @@ def test_apply_in_place_dispatch_coverage():
         "mf_sleep_suppress",
         "mf_night_suppress_mode",
     })
+    # MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D7: one branch pushes every MF knob
+    # through MusicFollowing.apply_config; arrival-music is options-only.
+    covered.update(ns["_MF_LIVE_KEYS"])
+    covered.add("music_on_arrival_start")
     # No-live-attr keys (Routine + Bayesian + DPM dwell + DPM hyst)
     covered.update(ns["_NO_LIVE_ATTR_KEYS"])
     missing = allowlist - covered

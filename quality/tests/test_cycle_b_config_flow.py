@@ -871,50 +871,12 @@ class TestV5100CmMusicStepRoundTrip:
     collide with the other tests in this file.
     """
 
-    def test_cm_music_step_has_new_keys_and_merge_pattern_in_source(self):
-        cf_path = os.path.join(_COMPONENT_DIR, "config_flow.py")
-        with open(cf_path, "r", encoding="utf-8") as fh:
-            src = fh.read()
-        start = src.find("async def async_step_coordinator_music_following")
-        assert start > 0
-        end = src.find("async def async_step_", start + 1)
-        body = src[start:end if end > 0 else start + 8000]
-        # Three-key presence — check by CONF-name, not stringified value
-        # (source uses ``CONF_MF_SLEEP_SUPPRESS`` etc. as identifiers).
-        assert "CONF_MF_SLEEP_SUPPRESS" in body
-        assert "CONF_MF_NIGHT_SUPPRESS_MODE" in body
-        # Merge pattern preserves pre-existing options.
-        assert "self._config_entry.options" in body
-        assert "**user_input" in body
-        # All three MF_NIGHT_MODES options are wired into the SelectSelector.
-        for opt in ("off", "dwell_only", "block_all"):
-            assert f'"value": "{opt}"' in body, (
-                f"Night-mode SelectSelector missing option {opt!r}"
-            )
-
-    @pytest.mark.asyncio
-    async def test_cm_music_step_round_trip_block_all_shape(self):
-        """Prove the merge shape produces the expected data payload.
-
-        Replicates the exact statement inside the step:
-        ``async_create_entry(title="", data={**self._config_entry.options,
-        **user_input})``. This is what C's test gap actually needs
-        verified — the payload the CM entry receives after the user
-        picks 'block_all'.
-        """
-        from const import (  # noqa: PLC0415
-            CONF_MF_SLEEP_SUPPRESS,
-            CONF_MF_NIGHT_SUPPRESS_MODE,
-        )
-        options = {"pre_existing_key": "must_preserve"}
-        user_input = {
-            CONF_MF_NIGHT_SUPPRESS_MODE: "block_all",
-            CONF_MF_SLEEP_SUPPRESS: True,
-        }
-        merged = {**options, **user_input}
-        assert merged[CONF_MF_NIGHT_SUPPRESS_MODE] == "block_all"
-        assert merged[CONF_MF_SLEEP_SUPPRESS] is True
-        assert merged["pre_existing_key"] == "must_preserve"
+    # MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D8: this source-grep test was
+    # converted to a behavioural round-trip on the REAL options flow:
+    # test_music_following_repair.py::test_mf_cm_form_round_trip_flattens_fine_tuning.
+    # The companion "round trip" replica asserted a dict literal it built
+    # itself (a tautology) and is removed with it.
+    pass
 
 
 # ---------------------------------------------------------------------------
