@@ -33,17 +33,17 @@ Greps re-run on develop 8e1f0e27 (`custom_components/` + `docs/planning/*.md`):
 | Proposed piece | Verdict | Evidence |
 |---|---|---|
 | Vision direction field on the vision call | REUSED schema slot, re-measured | The D0 schema had `direction in/out/unsure` (`AUDIT_crossing_vision_d0_2026_11_13.md:40`); D0 scored it against the VALIDATOR's direction (51 %, :71), not against truth, and the build dropped it (`crossing_vision.py:102-103`, "no direction field: D0 found no usable direction signal"). The 11-14 hand count shows the validator itself wrong on 6 of 17 readable clips, so D0's comparison does not measure vision. P3-D0 (b) measures it against human truth |
-| Corrected direction as an F3 attribute | REUSED G3 | `amend_crossing` `transit_validator.py:1036`, `attach_crossing_attribute` `:1232`; `direction` is a FORBIDDEN key (`_CROSSING_FORBIDDEN_KEYS` `:977-979`), so the tracker's own `direction` is never rewritten. NEW additive fields `vision_direction`, `vision_people_count`, `direction_agreement`, `pass_key` on `CrossingRecord` (`:946-971`) + `_CROSSING_AMENDABLE_KEYS` (`:980-983`): 0 hits for `vision_direction` / `direction_agreement` in code or plans |
+| Corrected direction as an F3 attribute | REUSED G3 | `amend_crossing` `transit_validator.py:1036`, `attach_crossing_attribute` `:1232`; `direction` is a FORBIDDEN key (`_CROSSING_FORBIDDEN_KEYS` `:977-979`), so the tracker's own `direction` is never rewritten. NEW additive amendable fields `vision_direction`, `vision_people_count`, `direction_agreement` on `CrossingRecord`, and a creation-time `pass_key` set by the tracker (P3-D9a) (`:946-971`) + `_CROSSING_AMENDABLE_KEYS` (`:980-983`): 0 hits for `vision_direction` / `direction_agreement` in code or plans |
 | Ring lookup of an ambiguous crossing | REUSED | Ambiguous crossings ARE stored in the ring (`_record_crossing` is unconditional, `transit_validator.py:2514-2530`); `source_ref = egress:<camera>:<iso>` (`:2525-2527`), derivable from the vision `crossing_key = <camera>@<iso>` (`crossing_vision.py:632`) |
 | Watching ambiguous crossings | CHANGE of an existing skip | `crossing_vision.py:616-618` |
-| Opposite-pass collapse | EXTEND `cluster_terms`; pass key NEW (the Pass rule, not `_match_event`'s group-wide pick `crossing_vision.py:761-778`) | `crossing_ledger.py:172-203` (mixed directions today give one camera term per member); `_join_cluster` late-joiner branch `crossing_vision.py:740-749`; cluster loop `:664-672`. 0 hits for `PAIR_COLLAPSE` / `TERM_HOLD` |
+| Opposite-pass collapse | EXTEND `cluster_terms`; pass key NEW, ONE function owned by the tracker (P3-D9a, harmonization C5), not `_match_event`'s group-wide pick `crossing_vision.py:761-778` | `crossing_ledger.py:172-203` (mixed directions today give one camera term per member); `_join_cluster` late-joiner branch `crossing_vision.py:740-749`; cluster loop `:664-672`. 0 hits for `PAIR_COLLAPSE` / `TERM_HOLD` |
 | Event-centred frames | REUSED proxy route | HA Frigate `RecordingProxyView` `/api/frigate/<instance>/recording/<camera>/start/<s>/end/<e>` (`/config/custom_components/frigate/views.py:245-266`, read on the live mount) proxies Frigate `api/<camera>/start/<s>/end/<e>/clip.mp4`. Whether llmvision's `video_file` can fetch it (it is an authenticated view; the notifications view we use today is not) is UNVERIFIED: P3-D0 (c) |
 | More frames for groups | REUSED knob path | `analyze_crossing_frames(max_frames=...)` `perimeter_enrichment.py:410-427`; `CROSSING_VISION_MAX_FRAMES` `const.py:3594` |
 | Error text on error rows | REUSED value already returned | `analyze_crossing_frames` returns `{"status": error, "error": str(exc)[:200]}` (`perimeter_enrichment.py:452-457`); `_run` drops it (`crossing_vision.py:917-918`, `parsed = {"outcome": OUTCOME_ERROR}`) |
 | Restart-durable cap counter | NEW DAO (Tier 2-DB) | The P2-D10 rehydration is planned, not built (0 code hits); the memory DAOs are node-keyed or open-row-only and swallow errors (`database.py:10859`, `:11032-11050`, `:11143-11156`), so P3-D5 adds one error-reporting count DAO; counter today is RAM (`crossing_vision.py:287`, `:495`, `:884`); cap Number `number.py:4309`, max `CROSSING_VISION_DAILY_CALLS_MAX` 200 (`const.py:3569`) |
 | Direction scoring | EXTEND D4 / P2-D6 scorer + P2-D10 grading | NOT BUILT: no `scripts/probes/crossing_vision_score_weekly.py`, 0 hits for `GRADE_URA` in code. Phase 3 scoring therefore lands in the scorer build, not as a new tool |
 | `pipeline_version` on rows | FINDING | Plan §5 D1.9 and P2-D8 say rows carry it; 0 hits in code. P3-D3 adds it (needed to separate pre/post-Phase-3 rows in every bar) |
-| Card overlap | sweep | Board: VISION-AMBIGUOUS-CROSSINGS-1, DOOR-VISION-GROUP-UNDERCOUNT-1 (this plan); EGRESS-DIRECTION-AWARE-IDENTITY-1 changes identity attach on the same `_resolve_direction`, not direction (arc map M3); CENSUS-DECONFLICTION-LEDGER-1 consumes the terms. No card fixed the tracker's direction itself: EGRESS-TRACKER-DIRECTION-1 is now carded (planned, Tier 3) and sequenced as P3-D8 |
+| Card overlap | sweep | Board: VISION-AMBIGUOUS-CROSSINGS-1, DOOR-VISION-GROUP-UNDERCOUNT-1 (this plan); EGRESS-DIRECTION-AWARE-IDENTITY-1 changes identity attach on the same `_resolve_direction`, not direction (arc map M3); CENSUS-DECONFLICTION-LEDGER-1 consumes the terms. No card fixed the tracker's direction itself: EGRESS-TRACKER-DIRECTION-1 is now carded (planned, Tier 3) and sequenced as P3-D9 |
 
 Prior-art scan, plans and analysis: `AUDIT_door_vision_accuracy_2026_11_14.md` (ground truth, 46 clips),
 `AUDIT_crossing_vision_day_2026_11_14.md` (§2a sign, §6 skipped ambiguous), `AUDIT_crossing_pipeline_after_v5_108_24.md`
@@ -71,7 +71,7 @@ term, fixes group frames and the cap. It fixes direction for the LEDGER only, an
 (about 1-2 weeks of scored crossings at 97 % accuracy, 2-4 weeks at 95 %; the oracle never scores groups or guests).
 The census egress-face union, the arrival notification, the entered / exited counts and DB rows, perimeter and
 sightings keep the tracker's direction (wrong on about a third of readable crossings) until EGRESS-TRACKER-DIRECTION-1
-(P3-D8) ships its pass-level dedup, and even then only the one-pass-two-labels error is fixed for them.
+(P3-D9b) ships its pass-level dedup, and even then only the one-pass-two-labels error is fixed for them.
 
 ## 2. F1-F5: produced and consumed
 
@@ -79,7 +79,7 @@ sightings keep the tracker's direction (wrong on about a third of readable cross
 |---|---|
 | F1 | consumed: residency departures (ledger reconcile), `R` handed in by the census |
 | F2 | none written here. The ledger hands `guest_vis` to the census through `census_tick`; the census owns F2 |
-| F3 (owner `EgressDirectionTracker`, `transit_validator.py:1079`) | consumed: `ura_person_egress_event` (entry, exit AND, from Phase 3, ambiguous) and the crossing ring. PRODUCED as attributes of the crossing, written only through G3 `amend_crossing` (role `vision_direction`): `vision_direction`, `vision_people_count`, `direction_agreement`, `pass_key`; plus the vision count, `term_source`, the arrival record `n` / `k` / `guests_unnamed`. The tracker's `direction` is never rewritten (forbidden G3 key). No second crossing record, no second identity attach |
+| F3 (owner `EgressDirectionTracker`, `transit_validator.py:1079`) | consumed: `ura_person_egress_event` (entry, exit AND, from Phase 3, ambiguous) and the crossing ring. PRODUCED as attributes of the crossing, written only through G3 `amend_crossing` (role `vision_direction`): `vision_direction`, `vision_people_count`, `direction_agreement`; `pass_key` is set by the tracker itself at creation (P3-D9a); plus the vision count, `term_source`, the arrival record `n` / `k` / `guests_unnamed`. The tracker's `direction` is never rewritten (forbidden G3 key). No second crossing record, no second identity attach |
 | F4 | none: vision names no one and emits no sighting |
 | F5 | none produced; the one D2 site may annotate an arrival tied to a crossing with `n` / `guests_unnamed` |
 
@@ -89,7 +89,7 @@ sightings keep the tracker's direction (wrong on about a third of readable cross
 |---|---|---|
 | `crossing_vision_shadow` rows, counters, `crossing_vision_today` / `_last` attributes | weekly scorer, trip-wires, diagnostic attribute; generic pre-existing readers `URAMemoryStatusSensor` (`get_memory_status_counts`, `database.py:11152`), `memory_query` (node-keyed), writer-health check (`database.py:11491`) | display |
 | Ledger (`guest_vis`, healthy) | the census only, through `census_tick` | F2 input (census plan) |
-| F3 attributes `vision_direction` / `direction_agreement` / `pass_key` (G3) | read API `get_crossing` / `get_crossings_since` (`presence.py:6142-6155`), `crossing_vision_last`; the ledger reads its own copy, used for a term only when `CROSSING_VISION_LEDGER_DIRECTION_SOURCE = vision` (INV-DIR-GATE). `SIGNAL_EGRESS_RECORD_AMENDED` readers ignore the role (`sensor.py:5092`, `:5231` act on `exit_backfilled` only) | display (ledger after the gate) |
+| F3 attributes `vision_direction` / `vision_people_count` / `direction_agreement` (G3) and `pass_key` (creation) | read API `get_crossing` / `get_crossings_since` (`presence.py:6142-6155`), `crossing_vision_last`; the ledger reads its own copy, used for a term only when `CROSSING_VISION_LEDGER_DIRECTION_SOURCE = vision` (INV-DIR-GATE). `SIGNAL_EGRESS_RECORD_AMENDED` readers ignore the role (`sensor.py:5092`, `:5231` act on `exit_backfilled` only) | display (ledger after the gate) |
 | `crossing_vision_ledger` rows, `crossing_ledger` attribute | scorer, diagnostics | display |
 | Arrival record (`crossing_vision_arrival` rows, `get_last_arrival_record`) | `crossing_vision_last`, personalization suggestions | display |
 | Arrival count follow-up | the operator | notification (ladder rung 2) |
@@ -517,12 +517,12 @@ amended with this plan).
 
 | Finding (`AUDIT_door_vision_accuracy_2026_11_14.md`) | Ledger + awareness view | Every other reader (notify, census egress-face union, entered/exited + DB rows, perimeter, sightings) |
 |---|---|---|
-| Direction wrong on 6 of 17 readable clips (35 %) | Measured now (P3-D3, P3-D6); fixed only after the INV-DIR-GATE bar passes (P3-D7) | NOT fixed by this plan. Fixed for one-pass-two-labels only by EGRESS-TRACKER-DIRECTION-1 (P3-D8, sequenced right after P3-D4) |
-| One pass emits exit + entry (21 of 25 clustered members) | Fixed by P3-D4 (one pass, one term or none) | Fixed by P3-D8 (pass-level dedup at the source); until it ships these readers see both labels |
+| Direction wrong on 6 of 17 readable clips (35 %) | Measured now (P3-D3, P3-D6); fixed only after the INV-DIR-GATE bar passes (P3-D7) | NOT fixed by this plan. Fixed for one-pass-two-labels only by EGRESS-TRACKER-DIRECTION-1 (P3-D9, sequenced right after P3-D4) |
+| One pass emits exit + entry (21 of 25 clustered members) | Fixed by P3-D4 (one pass, one term or none) | Fixed by P3-D9b (pass-level dedup at the source); until it ships these readers see both labels |
 | Groups of 3+ undercounted; false blank | Fixed if P3-D0 (b) and P3-D2 pass | Not a reader of vision counts |
 | 20-53 % of crossings never watched | Watched (P3-D3); a term only through vision direction after the bar | Unchanged (ambiguous stays ambiguous for them) |
 
-Until P3-D8 ships, the census egress-face union (`register_egress_face` / `evict_egress_face`), the arrival
+Until P3-D9b ships, the census egress-face union (`register_egress_face` / `evict_egress_face`), the arrival
 notification, the entered / exited counts and `person_entry_exit_events`, and perimeter keep the tracker's direction,
 wrong on about a third of readable crossings: an arrival labelled exit evicts the arriving face from the union.
 
@@ -530,9 +530,9 @@ wrong on about a third of readable crossings: an arrival labelled exit evicts th
 
 | Finding | Mechanism (code) | Phase 3 answer |
 |---|---|---|
-| Direction 35 % wrong; 4 arrivals as exits (~12 people) vs 2 exits as entries (3) | Interior-camera timing only (`transit_validator.py:2401-2423`); vision supplies none (`crossing_vision.py:102-103`) | P3-D3 vision direction, P3-D6 scoring, P3-D7 gated use; P3-D8 tracker pass dedup |
+| Direction 35 % wrong; 4 arrivals as exits (~12 people) vs 2 exits as entries (3) | Interior-camera timing only (`transit_validator.py:2401-2423`); vision supplies none (`crossing_vision.py:102-103`) | P3-D3 vision direction, P3-D6 scoring, P3-D7 gated use; P3-D9 tracker pass dedup |
 | 20 of 101 (11-14), 42 of 79 (11-13) ambiguous, never watched | Skip `crossing_vision.py:616-618` | P3-D3 |
-| 21 of 25 clustered members opposite-direction | Direction-keyed dedup (`transit_validator.py:2425-2438`); direction-blind clustering (`crossing_vision.py:664-672`, `:740-749`); `cluster_terms` +n / −n (`crossing_ledger.py:194-203`) | P3-D4 (ledger), P3-D8 (source) |
+| 21 of 25 clustered members opposite-direction | Direction-keyed dedup (`transit_validator.py:2425-2438`); direction-blind clustering (`crossing_vision.py:664-672`, `:740-749`); `cluster_terms` +n / −n (`crossing_ledger.py:194-203`) | P3-D4 (ledger), P3-D9 (source) |
 | Every 3+ group undercounted; 1 false blank; 24 of 41 calls had an empty sampled frame | 4 frames evenly over a 5-466 s event (`CROSSING_VISION_MAX_FRAMES`, `perimeter_enrichment.py:410-427`) | P3-D2 |
 | 4 errors, cause unknown | Error string dropped (`crossing_vision.py:917-918`) | P3-D1 |
 | 46 calls vs cap 40 | RAM counter reset by two restarts | P3-D5 |
@@ -561,19 +561,33 @@ second. **Consumer check:** tables above; forward trace `vision_direction` → G
 after P3-D7 → `guest_vis` → awareness (F-LEAD, which now also requires P3-D6 FLIP-READY) → F-NOTIFY. No path to house
 state, access, security or HVAC. New producers get zero-fire trip-wires (P3-D3 step 6).
 
-**Pass (used by P3-D0 (d), P3-D3, P3-D4, P3-D6; review H1).** `_match_event` (`crossing_vision.py:761-778`) picks the
-best event across the whole door group, so it cannot tell one pass from a round trip; it is not the pass key. Rule:
-- A member's **pass event** is a Frigate person event on a camera of the member's door group whose
-  [`start` − `CROSSING_VISION_PASS_EVENT_PAD_S`, `end` + pad] contains the member's E. Preference: an event on the
-  member's own camera (the Frigate camera whose stem equals the member's stem, through the existing door-group stem map;
-  no new name inference), else the door-group event with the latest `start` ≤ E. No such event: `pass_key = None`.
-- `pass_key` = the pass event's id. Two members are **one pass** iff same door group AND same non-None `pass_key`.
-  `None` never equals `None`. A pass may hold k ≥ 2 members (exit, entry, exit on one event = one pass) and ambiguous
-  members (they contribute no tracker direction).
-- Cross-camera pairs (G6 Entry vs Front Door Aerial) collapse only when one camera's single event spans both crossings;
-  expected collapse share before measurement: the 11 same-camera pairs (8 same device + 3 W1 twins) plus those
-  cross-camera pairs an event spans, not all 21.
-- A pass split across two clusters (members > `CLUSTER_S` apart) is not collapsed (counted `pass_split`).
+**Pass (one pass key, owned by the F3 owner; harmonization C5; review H1).** `_match_event`
+(`crossing_vision.py:761-778`) picks the best event across the whole door group, so it cannot tell one pass from a
+round trip; it is not the pass key. ONE function, `pass_identity(...)`, pure, in `transit_validator.py`, computed by
+`EgressDirectionTracker` at resolution (P3-D9a) and stamped on the `CrossingRecord` (creation-time field `pass_key`,
+not a G3 amend) and on the bus event (additive key `pass_key`). P3-D4, P3-D3, P3-D6, interior D5 and NVR W2 consume it;
+none computes its own. Rule:
+- A crossing's **pass event** is a Frigate person event on a camera of its door group whose [`start` −
+  `CROSSING_VISION_PASS_EVENT_PAD_S`, `end` + pad] contains the crossing's E, read from the tracker's own Frigate
+  person-event ring (`register_frigate_consumer`, the same ingress crossing vision uses). **`end is None`** (event still
+  running at resolution, which is E + up to 45 s): the window is [`start` − pad, resolution time], i.e. an open event
+  spans E if it started before E + pad. Preference: an event on the crossing's own camera (the Frigate camera paired to
+  the egress camera by the W1 device pairing, `camera_resolver.py:895`; no name inference), else the door-group event
+  with the latest `start` ≤ E. No such event: `pass_key = None`.
+- `pass_key` = the pass event's id. Two crossings are **one pass** iff same door group AND same non-None `pass_key`.
+  `None` never equals `None`. A pass may hold k ≥ 2 crossings (exit, entry, exit on one event = one pass) and ambiguous
+  ones (they contribute no tracker direction).
+- Cross-camera pairs (G6 Entry vs Front Door Aerial) are one pass only when one camera's single event spans both;
+  expected share before measurement: the 11 same-camera pairs (8 same device + 3 W1 twins) plus those cross-camera
+  pairs an event spans, not all 21.
+- A pass split across two clusters (crossings > `CLUSTER_S` apart) is not collapsed (counted `pass_split`).
+- **Named residual, the one-event round trip:** a resident who steps out and back in while staying in one Frigate event
+  (events run 5-466 s) is one pass by this rule, though the tracker comment calls exit → entry inside 30 s a real round
+  trip (`transit_validator.py:2425-2427`). Effect per consumer: P3-D4 under `tracker` no term (`L` unchanged, the same
+  net as today's +1 −1, but no credit consumed and no exit stored); P3-D4 under `vision` (after P3-D7) one term in
+  vision's direction, so `L` off by one until the anchor; P3-D9b would suppress the re-entry for every reader, so the
+  census egress-face union evicts on the exit and never re-registers, and the arrival notice for the return is lost.
+  P3-D0 (d) bounds its rate; P3-D9b may not ship unless the bound holds.
 
 **P3-D0 probe (go/no-go "worth building" gate; read-only plus ≤ `CROSSING_VISION_P3_PROBE_CALLS` (120) Luna calls, decided
 in the Phase 3 decisions below).** It is evidence that building is worth it, NOT evidence the runtime bar will pass: at
@@ -585,7 +599,8 @@ in the Phase 3 decisions below).** It is evidence that building is worth it, NOT
    `unknown` per pair) BEFORE any replay. Missing clips are listed and excluded, not replaced.
 (a) **Volume:** 14 days of `egress_identity_outcome` per day: crossings, ambiguous, simulated calls with ambiguous
    included and clustering applied, crossings with camera peak ≥ 3, HA restarts per day, and the `memory_episodes` row
-   count (for the P3-D5 index decision). Output: the cap (P3-D5 rule).
+   count (for the P3-D5 index decision), and the busy-collision rate (crossings that would have found
+   `MAX_CONCURRENT` calls in flight; review L4). Output: the cap (P3-D5 rule).
 (b) **Direction + count replay** on the retained clips with the P3-D3 prompt, both routes (event clip at 4 and 8 frames;
    recording window if (c) passes). Gates: direction right on ≥ `CROSSING_VISION_P3_DIR_GATE_OK` (15) of the 17
    readable clips AND on ≥ `CROSSING_VISION_P3_DIR_GATE_TRACKER_WRONG_OK` (5) of the 6 tracker-wrong ones; else the
@@ -596,12 +611,17 @@ in the Phase 3 decisions below).** It is evidence that building is worth it, NOT
    pinned to one integer, is reported but excluded from pass/fail. Plus no new over-count on the 33 exact clips.
 (c) **Route check:** one call with `video_file` = the recording proxy path; record whether llmvision fetches it (status,
    frames returned) and the recording segment lag (time from E + AFTER until the window plays).
-(d) **Pass mechanism:** for the 21 opposite pairs and the 4 same-direction pairs, the share sharing a pass event under
-   BOTH rules: (i) `_match_event`'s group-wide pick, (ii) the pass rule above. Negative set: every fixture pair labelled
-   `round_trip` (from the clips; plus synthetic negatives = real crossings on one door group with distinct own-camera
-   events within ± 10 s). Gate for P3-D4 and P3-D8: under rule (ii) ≥ `CROSSING_VISION_PAIR_SAME_EVENT_MIN` (0.80) of
-   `one_pass` pairs share a `pass_key` AND 0 `round_trip` pairs do. Report rule (i) beside it to show the selector bias.
-   Also the interior near-door events around 14:17:23 / 14:17:54 (the audit's open falsifier).
+(d) **Pass mechanism:** for the 21 opposite pairs and the 4 same-direction pairs of 11-14, the share sharing a pass
+   event under BOTH rules: (i) `_match_event`'s group-wide pick, (ii) the Pass rule. **Negative set (review HIGH-1):**
+   mine 14 days of `egress_identity_outcome` for opposite-direction crossings on one door group within `CLUSTER_S` whose
+   Es are BOTH inside one Frigate event's [start, end]; hand-label each from its clip as `one_pass` or `round_trip`
+   (committed in the fixture). Gate for P3-D4 and P3-D9b: at least `CROSSING_VISION_PASS_ROUND_TRIP_MIN_N` (5) real
+   round trips labelled across the 11-14 pairs and the mined set (fewer = **HOLD**: the gate cannot be evaluated; mine
+   further days or stage round trips with the operator); under rule (ii) ≥ `CROSSING_VISION_PASS_SAME_EVENT_MIN` (0.80)
+   of `one_pass` pairs share a `pass_key`; and the share of labelled round trips that rule (ii) merges (the one-event
+   residual) ≤ `CROSSING_VISION_PASS_ROUND_TRIP_MERGE_MAX` (0.10). Report rule (i) beside it to show the selector bias,
+   and the `end is None` share at resolution time. Also the interior near-door events around 14:17:23 / 14:17:54 (the
+   audit's open falsifier).
 (e) Re-run the 4 error clips once and record llmvision's error text.
 - **Acceptance:** `AUDIT_crossing_vision_p3_d0_<date>.md`, one row per item with numbers and every gate verdict; the
   fixture committed first. Discriminates: a model that copies the tracker's bias scores ≤ 11/17 and 0/6; a selector
@@ -647,24 +667,30 @@ writer).**
 2. Schema and prompt add `direction` ∈ {`in`, `out`, `passing`, `unclear`} from each person's first and last position
    against the door (prompt fixed by P3-D0 (b); `in` = goes into the building). Anything else = `unclear`.
 3. **Per-member attributes (review M3).** The vision result describes the analysed event. Each crossing key in the
-   request gets: `pass_key` (its own, Pass rule); `vision_direction` and `vision_people_count` = the result's values
+   request carries its `pass_key` from the bus event / record (P3-D9a; None before P3-D9a ships); `vision_direction` and `vision_people_count` = the result's values
    only if its `pass_key` equals the analysed event's id, else None; `direction_agreement` against the member's OWN
    tracker direction: `agree`, `disagree`, `vision_only` (tracker ambiguous), `unclear` (vision unclear / passing), or
    `not_analysed` (different pass). A real round-trip member never carries the primary's direction.
 4. **G3 write.** At the release site (P3-D4 step 2; with collapse off, at the vision outcome), ONE
-   `amend_crossing(hass, source_ref, {vision_direction, vision_people_count, direction_agreement, pass_key}, None,
+   `amend_crossing(hass, source_ref, {vision_direction, vision_people_count, direction_agreement}, None,
    camera=<egress camera>, role="vision_direction")` per crossing key; `source_ref` is built from the bus event's
    `egress_camera` and `timestamp` exactly as `transit_validator.py:2525-2527` builds it (`egress:<camera>:<iso>`), not
    parsed from `crossing_key`. A member that joins after its request's release is amended at join time with
    `not_analysed`. Wrapped in try/except, failures counted `vision_amend_failed`. Ring retention (1800 s / 32 per camera,
    `const.py:6707-6708`) exceeds the worst release time (E + 110 s hold, or outcome ≤ E + 45 + 120 + 90 s), so
    `crossing_record_aged_out` is not expected; it is counted, never retried.
-5. **Contract and guard (reviews M4, B9, B10).** The build adds `vision_direction`, `vision_people_count`,
-   `direction_agreement`, `pass_key` (default None) to `CrossingRecord` (`transit_validator.py:946-971`) and to
-   `_CROSSING_AMENDABLE_KEYS` (`:980-983`); updates contract §2.3 (additive fields) and §4.2 (role `vision_direction`);
-   adds a NEW layer-guard row `('R13', 'crossing_vision.py', 'CrossingVisionShadow.<release method>:amend_crossing')`
-   (max 1) in `quality/tests/person_awareness_layer_allowlist_PROVISIONAL.py` beside the existing reserved fast-stage
-   row (`:212`, unchanged); `LAYER_ALLOWLIST_TOTAL` goes 259 → 260. The amended signal payload carries the record's
+5. **Contract and guard (reviews M4, B9, B10; closure MEDIUM-3; harmonization C7).** The build adds
+   `vision_direction`, `vision_people_count`, `direction_agreement` (default None) to `CrossingRecord`
+   (`transit_validator.py:946-971`) and to `_CROSSING_AMENDABLE_KEYS` (`:980-983`); `pass_key` is a creation-time
+   `CrossingRecord` field added by P3-D9a and is NOT amendable. The contract §2.3 field list and §4.2 role list are
+   amended once by the orchestrator for all Phase 3 and step-7 fields and roles (harmonization C7), so neither build
+   edits the contract. NEW layer-guard row `('R13', 'crossing_vision.py',
+   'CrossingVisionShadow._release_terms:amend_crossing')` (max 1; `amend_crossing` is already in `R13_CALLEES`,
+   `_layer_guard_engine.py:154-157`) in `quality/tests/person_awareness_layer_allowlist_PROVISIONAL.py` beside the
+   reserved fast-stage row (`:212`, unchanged). Guard constants: `len(A.ROWS)` 231 → 232, `LAYER_ALLOWLIST_TOTAL` 259 →
+   260, `LAYER_ALLOWLIST_TOTAL_PROVISIONAL` 259 → 260, and the assertion in `test_person_awareness_layer_guard.py:62`
+   updated to match; the `("R13", 8)` floor (`:147`) stays valid. Merge rule with the interior branch: the interior
+   branch's 259 means no change; whichever merges second takes 260 if P3-D3 landed first. The amended signal payload carries the record's
    `person_id` (`transit_validator.py:1281-1290`); today's readers (`sensor.py:5092`, `:5231`) act on
    `exit_backfilled` only; perimeter and sightings do not subscribe.
 6. `pipeline_version` (rung-1 `CROSSING_VISION_PIPELINE_VERSION`) on every row; P3-D2 and P3-D3 each bump it.
@@ -693,10 +719,13 @@ writer).**
   `person_entry_exit_events.direction` of a disagreeing crossing; this one moves neither.
 
 **P3-D4 one physical pass = one term or none (Tier 3; only if P3-D0 (d) passed).**
-1. Every crossing computes its own pass event and `pass_key` (Pass rule) from the RAM ring before the cluster loop; the
-   member dict keeps `pass_key`. `CROSSING_VISION_LEDGER_PAIR_COLLAPSE` is True after the gate.
-2. **One release site (reviews B3, M2 f).** `_release_terms(req)` is the only caller of the term builder and the only
-   place `req.term_done` is set. It fires at max(the request's outcome, E_primary + `CROSSING_VISION_TERM_HOLD_S`). Every
+1. Every member takes `pass_key` from the bus event (stamped by P3-D9a, which ships first); crossing vision computes
+   none. `CROSSING_VISION_LEDGER_PASS_COLLAPSE` is True after the P3-D0 (d) gate.
+2. **One release site (reviews B3, M2 f; closure MEDIUM-1, -2).** `_release_terms(req)` is the only setter of
+   `req.term_done` and the only builder of REQUEST terms; it replaces `_request_terms` (`crossing_vision.py:1073-1078`,
+   today's setter at `:1077`), which is removed. The no-request paths (step 7) and the late joiner (step 4) still call
+   `_ledger_terms` directly. It keeps today's set-before-apply order: `term_done = True` first, then the terms, so an
+   exception in apply still counts as released. It fires at max(the request's outcome, E_primary + `CROSSING_VISION_TERM_HOLD_S`). Every
    path that sets `term_done` today (disabled at call time `:869-871`, cap `:873-876`, no clip `:878-882`, outcome
    `:928`, kill `:906`, the `finally` `:935-939`) records its outcome on the request and calls `_release_terms`, which
    applies the terms at once if the hold has elapsed, else leaves them for the hold timer. Members that join before
@@ -706,23 +735,32 @@ writer).**
    `term_hold_dropped_teardown`. At release the gates are re-read: switch off / kill → no term, `_ledger_disabled()`
    (INV-OFF); ledger `unknown` → the term is recorded and not applied to `L`, as for any term while unknown (it is
    dropped from the ledger value, not deferred). `_prune_requests` (`:780-787`) never drops a request whose terms are
-   unreleased, and `TERM_HOLD_S ≤ 2 × CLUSTER_S` is asserted at setup (110 ≤ 120).
+   unreleased, and `TERM_HOLD_S ≤ 2 × CLUSTER_S` is asserted at setup (110 ≤ 120). If the hold timer is lost (its
+   callback raises, scheduling fails), the next `_prune_requests` or eval tick past the request's deadline (step 6)
+   calls `_release_terms` itself, counted `term_hold_deadline_release`.
 4. **Late joiner (review B1).** The request stores `term_direction` = the direction of the term actually built (None
    when no term was built, e.g. every folded member ambiguous or a collapsed pass). A member joining after release: if
    it is ambiguous → no term; if its `pass_key` equals a member's of the request → no term (same pass, counted
    `late_member_same_pass`); else if `term_direction` is None or differs from the member's direction → its own camera
    term; else no term. The key of a term built when the primary is ambiguous is the first entry/exit member's key (as
    `cluster_terms` does today).
+4b. **Named residual:** a one-event round trip (Pass block) is one pass here: no term under `tracker`, one term in
+   vision's direction under `vision` (P3-D7).
 5. **Pass step in `cluster_terms`.** Group members by `pass_key` (None = its own pass). Per pass: under `tracker`, if
    its entry/exit members all share one direction → that direction; if mixed → no term (`pair_collapsed`, both
    directions and `n` recorded); under `vision` → vision's direction if the pass is the analysed one and vision says
    in/out, else the tracker rule. Then the existing rule over passes: one term with the primary's count if all
    resulting directions agree, else per-pass camera terms.
 6. **Held terms block the anchor (review B2).** While any request has unreleased terms, the anchor predicate fails as if
-   an entry term had arrived at E_primary (restarts `t_start`); so an anchor can never fire between E and release and no
-   held term becomes "late" through the hold.
+   an entry term had arrived at E_primary (restarts `t_start`); so an anchor cannot fire between the bus event and
+   release, and no held term becomes "late" through the hold (an anchor in the 10-200 s between E and the bus event can
+   still make a term late, as today). The block is bounded by a deadline E_primary + `TERM_HOLD_S` + the worst outcome
+   bound (`EVENT_END_WAIT_S` 120 + `TIMEOUT_S` 90 = 320 s); past it the block lapses and the request is force-released,
+   counted `anchor_block_deadline_expired`. Held terms do NOT block the stuck-ledger sample (`entry_blocks=False`,
+   `crossing_ledger.py:491`): `crossing_ledger_stuck` judges released terms only, so a hold never suppresses that page.
 7. **No-request paths (review M2 b).** These apply terms immediately, outside the hold, and never collapse; each is
-   counted `collapse_skipped_<path>`: `no_frigate_event` (`:676-679`, `pass_key` None anyway), primary left the ring
+   counted `collapse_skipped_<path>` (both cap / busy members of one pass keep camera terms +n_entry −n_exit, which need
+   not net 0 when their camera peaks differ; P3-D0 (a) measures the busy-collision rate): `no_frigate_event` (`:676-679`, `pass_key` None anyway), primary left the ring
    (`:681-690`, a late member), `skipped_cap` / `skipped_busy` (`:693-703`), disabled (`:620-622`, no term at all).
    Accepted residual: a pass whose members both hit cap or busy keeps two terms; the cap is sized so this is rare
    (P3-D5) and the counter shows it.
@@ -733,7 +771,8 @@ writer).**
      departure edge R 2 → 1, the reconcile consumes the stored exit (cancel): `L = 2`, `guest_vis 1` until the anchor.
      Collapsed: no terms (`L = 2`); the reconcile finds no applied exit and lowers `L` to 1: `guest_vis 0`. Change: the
      phantom guest goes; one more reconcile is counted (bar a2 load rises).
-   - **W10 resident C arrives, the pass emits entry + exit:** today edge R 2 → 3 lifts `L = 3` with a credit; the entry
+   - **W10 resident C arrives, the pass emits entry + exit (ordering: the R edge lands before the terms; with terms
+     first, today also ends `L = 3`):** today edge R 2 → 3 lifts `L = 3` with a credit; the entry
      consumes it, the exit −1 → `L = 2`: `guest_vis 0` but `L` one low, so the next guest is absorbed until the anchor.
      Collapsed: lift `L = 3`, the credit expires, the lift stays: `guest_vis 0`, `L` right.
    - **W11 guest arrives, pass emits entry + exit:** today +1 −1 = 0; collapsed: no term = 0. Same value (guest missed,
@@ -767,12 +806,20 @@ writer).**
    `CROSSING_VISION_CAP_HEADROOM` (1.5)), ≤ `CROSSING_VISION_DAILY_CALLS_MAX` (200); expected ≈ 100. Cost on Luna is
    trivial, so the cap is a runaway guard. An operator-set Number value wins over the new default.
 2. NEW DAO `count_memory_episodes_by_type_ended_between(episode_type, start_utc_iso, end_utc_iso, attr_outcomes)` →
-   `(count, ok)`: counts rows whose `attrs.outcome` is a call outcome (`ok`, `blank`, `error`, `timeout`,
-   `unparseable`, `refused`) by `ended_at`, which is written at the outcome (`crossing_vision.py:1012`), i.e. by call
-   time, not by crossing time `started_at`. Bounds are the local day of `_roll_day` (`:495`) converted to UTC ISO.
-   Unlike the existing memory DAOs (which swallow errors and return `[]`), it returns `ok = False` on any error.
-   Index: `(node_id, episode_type, started_at)` does not cover it; if P3-D0 (a) shows `memory_episodes` > 200 000 rows,
-   the build adds an index `(episode_type, ended_at)` through a migration; below that a once-per-setup scan is accepted.
+   `(count, ok)`: `SELECT COUNT(*) FROM memory_episodes WHERE episode_type = ? AND ended_at >= ? AND ended_at < ? AND
+   json_extract(attrs_json, '$.outcome') IN (?, ?, ?, ?, ?, ?)` (column `attrs_json` TEXT, `database.py:2010`;
+   `json_extract` precedent `:8438`) over the call outcomes `ok`, `blank`, `error`, `timeout`, `unparseable`, `refused`,
+   by `ended_at`, which is written at the outcome (`crossing_vision.py:1012`), i.e. by call time, not crossing time
+   `started_at`. Bounds: the local day of `_roll_day` (`:491-500`) converted to UTC and rendered with
+   `datetime.isoformat()` on an aware UTC datetime with microseconds, the same shape the writer produces
+   (`dt_util.utcnow().isoformat()`, `+00:00` suffix), so the lexical compare is exact. Read path: a read connection
+   like the other memory readers, never the `_write_queue`. Unlike the existing memory DAOs (which swallow errors via
+   `_mem_dao_warn`, `database.py:11077`, and return `[]`), it returns `ok = False` on any error. Index:
+   `idx_episodes_node_type (node_id, episode_type, started_at)` (`:2013-2014`) does not cover it; if P3-D0 (a) shows
+   `memory_episodes` > `CROSSING_VISION_CAP_REHYDRATE_INDEX_ROWS` (200 000) rows, the build adds
+   `CREATE INDEX IF NOT EXISTS idx_episodes_type_ended ON memory_episodes(episode_type, ended_at)` to the same
+   `_create_table_safe` statement list as the existing index (idempotent at every setup, no versioned migration);
+   below that a once-per-setup scan is accepted.
 3. **Setup order (review B7).** The bus listener registers immediately with the counter at the cap sentinel (no calls,
    crossings still recorded as `skipped_cap`). A tracked background task runs the DAO with a timeout
    `CROSSING_VISION_CAP_REHYDRATE_TIMEOUT_S` (30) and one retry after `CROSSING_VISION_CAP_REHYDRATE_RETRY_S` (60); on
@@ -799,8 +846,13 @@ timing is the tracker's own input and never an oracle. **The oracle never scores
 names one resident; grades are capped per day): the bar measures single-resident crossings, and group direction
 stays unmeasured until graded group crossings exist. Reports per door / day-night: vision accuracy with Wilson bounds,
 tracker accuracy on the same passes, disagreement win rate, ambiguous coverage, the INV-DIR-GATE verdict, scored
-passes per day. Disposition `AUDIT_crossing_vision_direction_disposition_<date>.md`: FLIP-READY / HOLD (bar named,
-passes still needed at the measured rate) / PARK (bound below 0.90 at ≥ `CROSSING_VISION_DIRECTION_PARK_N` (150) scored).
+passes per day. Disposition `AUDIT_crossing_vision_direction_disposition_<date>.md`, one verdict per direction source:
+- **vision:** FLIP-READY (INV-DIR-GATE bar met) / HOLD (bar named, passes still needed at the measured rate) / PARK
+  (bound below 0.90 at ≥ `CROSSING_VISION_DIRECTION_PARK_N` (150) scored).
+- **tracker (closure MEDIUM-4):** TRACKER-READY when the tracker's own direction accuracy on scored passes has a Wilson
+  95 % lower bound ≥ `CROSSING_VISION_DIRECTION_ACC_LB_MIN` (0.90) over ≥ `_SCORED_MIN_N`; else TRACKER-BELOW-BAR. The
+  census F-LEAD needs FLIP-READY for vision or TRACKER-READY for the tracker, whichever source the ledger uses. With
+  the tracker measured at 11/17 (65 %), TRACKER-READY is not expected, so in practice F-LEAD waits for P3-D7.
 **Expected gate time (review G3):** about 5-12 scored passes a day (≤ 5 grades plus named resident edges at ≈ 44 %
 attach): 30 scored in 3-6 days; ≥ 15 disagreements at the tracker's 35 % error needs ≈ 43 scored, 4-9 days; the 0.90
 lower bound needs ≈ 60 scored at 97 % accuracy (about 1-2 weeks) or ≈ 150 at 95 % (about 2-4 weeks); below ≈ 92 % it
@@ -810,22 +862,57 @@ never passes. Sized by error rates; no calendar minimum.
 
 **P3-D7 vision direction leads the ledger (Tier 3, gated; operator checkpoint).** A reviewed change of
 `CROSSING_VISION_LEDGER_DIRECTION_SOURCE` to `vision` after FLIP-READY; bumps `pipeline_version`; post-flip trip-wire:
-the rolling `GO_REGRESSION_DAYS` (14) direction bar below threshold → NM "revert vision direction".
+the rolling `GO_REGRESSION_DAYS` (14) direction bar below threshold → NM "revert vision direction". Named residual: a
+one-event round trip (Pass block) becomes one term in vision's direction, `L` off by one until the anchor; its rate is
+the P3-D0 (d) merge share.
 - **Tests:** `test_direction_source_vision_uses_vision_direction`, `test_vision_unclear_falls_back_to_tracker`,
   `test_ambiguous_with_vision_in_gets_entry_term`, `test_direction_regression_pages_revert`.
 - **Live:** after the flip, ≥ 1 term row with `direction_source = vision` on a `direction_agreement = disagree` pass
   whose term sign follows vision.
 
-**P3-D8 EGRESS-TRACKER-DIRECTION-1: pass-level dedup at the source (Tier 3, own plan; carded, status planned; sequenced
-right after P3-D4, gated on the same P3-D0 (d) pass result; review G1).** Sketch, not a build spec: in
-`_resolve_direction`, the direction-keyed dedup (`transit_validator.py:2425-2438`) gains a pass check: a crossing whose
-pass event (the Pass rule, using the tracker's own Frigate/Protect legs) equals that of a crossing already resolved on
-the same door group inside `DOOR_STEM_DEDUP_S` is the same pass and is not emitted again, whatever its direction. That
-fixes "one pass emits both" for every reader (notify, census egress-face union, entered / exited, DB, perimeter,
-sightings, crossing vision). It does not choose which of the two labels is right; that stays the interior-timing rule
-until vision's scored direction (P3-D6) shows a better source. Baseline: the P3-D0 (d) shares and the P3-D6 tracker
-accuracy. Its own Tier-3 plan reads `PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md` completely and names every synchronous
-reader's change.
+**P3-D8 the anchor honours the room's stuck exclusion (Tier 2; harmonization C1; OPERATOR DECISION PENDING,
+recommended yes; sequenced before P3-D3).** Why: the ledger has never been `known` since boot; the held set on an AWAY
+house is mostly inputs the rooms have already excluded as stuck (media room Matter radar on 18 h, excluded by the room
+at 4 h; the flapping Meross bit), so bars a and e, F-LEAD and every census use of P3-D3 / P3-D4 cannot fire.
+`_held_inputs` (`crossing_vision.py:1110-1177`) reads raw `hass.states` and ignores the room's exclusion.
+1. A Tier-1 input that its room coordinator reports as stuck-excluded (`get_stuck_sensor_kinds()`,
+   `coordinator.py:1942`, the same public getter `sensor.ura_stuck_signal_watchdog` reads at `sensor.py:5728`; no
+   hass.data scan, contract G7) does not hold the anchor while it reads `on`. Listed on the ledger diagnostics as
+   `held_ignored_stuck` (+ count).
+2. **The distinction, explicit.** Stuck-excluded = the entity reports a live value the room has judged physically
+   implausible (stuck-continuous or chatter). Dead = `unavailable` / `unknown` / missing / stream-dead. The operator rule
+   "a dead camera/sensor is faulty equipment ... hold, never release" covers dead inputs, and P3-D8 does not change it:
+   a dead input still holds (last known-good `on`, or no known-good reading), whether or not it is also stuck-excluded.
+   Only a live-but-excluded `on` stops holding. Kill switch `CROSSING_VISION_LEDGER_ANCHOR_IGNORES_STUCK` (rung 1,
+   True after the operator's yes; False = today's rule).
+3. The `crossing_ledger_anchor_zero` page keeps naming holders and now also lists `held_ignored_stuck`.
+- **Tests:** `test_stuck_excluded_on_input_does_not_hold`, `test_dead_input_still_holds_even_if_stuck_excluded`,
+  `test_stuck_getter_failure_keeps_holding`, `test_ignores_stuck_kill_switch_restores_rule`,
+  `test_held_ignored_stuck_listed`.
+- **Mutation:** ignore the exclusion → `test_stuck_excluded_on_input_does_not_hold`; let dead+excluded release →
+  `test_dead_input_still_holds_even_if_stuck_excluded`.
+- **Live:** with the media room radar stuck-excluded and the house AWAY, `crossing_ledger.held` no longer lists it,
+  `held_ignored_stuck` does, and the first anchor fires within `LEDGER_EMPTY_RESET_S` + one eval once no other holder
+  remains. Discriminates: a build that dropped dead inputs too would also empty `held` of `unavailable` entities.
+
+**P3-D9 EGRESS-TRACKER-DIRECTION-1: the pass key at the source, then pass-level dedup (Tier 3, own plan; carded,
+planned; harmonization C5, review G1).** The F3 owner owns the one pass key; P3-D4, P3-D3, P3-D6, interior D5 and NVR
+W2 consume it. Two steps:
+- **P3-D9a pass-key producer (before P3-D4; additive, byte-identical for every existing reader).** At resolution
+  `_resolve_direction` computes `pass_identity(...)` (the Pass rule) from a tracker-owned Frigate person-event ring
+  (`register_frigate_consumer`) and stamps `pass_key` on the new `CrossingRecord` (creation-time field) and as an
+  additive bus key, beside `peak_person_count`. Golden test: every pre-existing bus key and DB column unchanged.
+  Gated only on P3-D0 (d)'s rule (ii) measurement being reported (not on its pass verdict): the key is a value, not
+  a behaviour.
+- **P3-D9b pass-level dedup (after P3-D4; gated on P3-D0 (d) PASS including the round-trip merge bound).** The
+  direction-keyed dedup (`transit_validator.py:2425-2438`) gains a pass check: a crossing whose `pass_key` equals that
+  of a crossing already resolved on the same door group inside `DOOR_STEM_DEDUP_S` is not emitted again, whatever its
+  direction. That fixes "one pass emits both" for every reader (notify, census egress-face union, entered / exited,
+  DB, perimeter, sightings, crossing vision). It does not choose which label is right; that stays the interior-timing
+  rule until vision's scored direction shows a better source. Named residual: the one-event round trip (Pass block)
+  loses its re-entry for every reader. Baseline: the P3-D0 (a)/(d) numbers and the P3-D6 tracker verdict.
+Its own Tier-3 plan reads `PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md` completely and names every synchronous reader's
+change. Until P3-D9a ships, `pass_key` is None everywhere and P3-D4 collapses nothing.
 
 **Phase 3 decisions (taken by the orchestrator 2026-11-15 on the recommended defaults; the operator may override).**
 1. P3-D0 may spend up to 120 Luna calls on the replay.
@@ -833,9 +920,14 @@ reader's change.
 3. The 110 s term hold applies only to the ledger and awareness path; the arrival notification, the census trust view
    and AWAY are untouched.
 4. The cap default is sized from the P3-D0 (a) volume probe.
-5. EGRESS-TRACKER-DIRECTION-1 is filed now and slotted after P3-D4 (P3-D8), not parked.
+5. EGRESS-TRACKER-DIRECTION-1 is filed now and sequenced (P3-D9a before P3-D4, P3-D9b after it), not parked.
+6. **Operator-visible tradeoff (closure MEDIUM-4):** census F-LEAD now needs a direction verdict (P3-D6). The tracker is
+   measured at 65 %, so in practice F-LEAD waits for P3-D7 (vision FLIP-READY, about 1-4 weeks of scored crossings
+   after P3-D3). The operator may instead accept the tracker's signs for F-LEAD.
+7. **Pending operator decision:** P3-D8, a stuck-excluded live input stops holding the anchor while a dead input still
+   holds (recommended yes).
 
-Tier: P3-D0 probe; P3-D1 Tier 1; P3-D2, P3-D6 Tier 2; P3-D5 Tier 2-DB; P3-D3, P3-D4, P3-D7, P3-D8 Tier 3 (ledger input
+Tier: P3-D0 probe; P3-D1 Tier 1; P3-D2, P3-D6, P3-D8 Tier 2; P3-D5 Tier 2-DB; P3-D3, P3-D4, P3-D7, P3-D9 Tier 3 (ledger input
 surface, a production G3 writer, the F3 source): two plan reviews incl. framing G, four code reviews, orchestrator
 re-grep of every term-construction site (`cluster_terms`, `_release_terms`, `_ledger_terms`, `_join_cluster` late
 branch, the no-request paths `:620-622`, `:676-707`, the call-time paths `:869-882`, `:906`, `:928`, `:935-939`) and a real
@@ -891,8 +983,13 @@ source mutation of the INV-DIR-GATE site, operator checkpoint before deploy.
 | `CROSSING_VISION_WATCH_AMBIGUOUS` | True | 1 | P3-D3; False = the pre-Phase-3 skip |
 | `CROSSING_VISION_PIPELINE_VERSION` | bumped per Phase 3 ship | 1 | Separates rows in every bar |
 | `CROSSING_VISION_DIRECTION_ZERO_MIN_OK` | 10 | 1 | `crossing_vision_direction_zero` trip-wire; 0 = off |
-| `CROSSING_VISION_LEDGER_PAIR_COLLAPSE` | False until P3-D0 (d) passes, then True | 1 | P3-D4; False = per-member terms as before |
-| `CROSSING_VISION_PAIR_SAME_EVENT_MIN` | 0.80 | probe gate (plan number, not runtime) | P3-D0 (d) |
+| `CROSSING_VISION_LEDGER_PASS_COLLAPSE` | False until P3-D0 (d) passes, then True | 1 | P3-D4; False = per-member terms as before |
+| `CROSSING_VISION_PASS_SAME_EVENT_MIN` | 0.80 | probe gate (plan number, not runtime) | P3-D0 (d) |
+| `CROSSING_VISION_PASS_ROUND_TRIP_MIN_N` | 5 | probe gate | P3-D0 (d): fewer labelled real round trips = HOLD |
+| `CROSSING_VISION_PASS_ROUND_TRIP_MERGE_MAX` | 0.10 | probe gate | P3-D0 (d): one-event round-trip merge share; above it P3-D4 and P3-D9b do not ship |
+| `CROSSING_VISION_DAILY_CALLS_MAX` (existing, `const.py:3569`) | 200 | 1 | Upper bound of the cap Number |
+| `CROSSING_VISION_CAP_REHYDRATE_INDEX_ROWS` | 200 000 | probe rule (plan number) | P3-D5: above it the build adds `idx_episodes_type_ended` |
+| `CROSSING_VISION_LEDGER_ANCHOR_IGNORES_STUCK` | True after operator yes (P3-D8) | 1 | False = a stuck-excluded live `on` input still holds |
 | `CROSSING_VISION_TERM_HOLD_S` | 110 (cluster 60 + entry window 45 + 5) | 1 | P3-D4 hold; must be ≤ 2 × `CLUSTER_S` (asserted at setup); 0 = build terms at the vision outcome (pre-Phase-3) |
 | `CROSSING_VISION_LEDGER_DIRECTION_SOURCE` | `tracker` | 1 (reviewed flip, P3-D7) | INV-DIR-GATE; `vision` only after FLIP-READY |
 | `CROSSING_VISION_DIRECTION_ACC_LB_MIN` / `_SCORED_MIN_N` | 0.90 / 30 | 1 | Wilson 95 % lower bound on oracle-scored crossings; sized from the measured 35 % tracker error, not days |
@@ -910,14 +1007,16 @@ Census-side knobs (class set, F-LEAD, notify bars, bars a-e) live in the census 
 3. Read-API ship 1; then P2-D2 / P2-D3 (with the census plan's CD1), P2-D9, P2-D10 in parallel with collection; ship dark.
 4. P2-D8 only after P2-D0 (vi) passes.
 5. P2-D6 disposition after ≥ 7 days and bar minimums; flips per the census plan's ladder.
-6. Phase 3: P3-D0 probe first, retention check and fixture first within it (gates P3-D2 route, the P3-D3 direction
-   part, P3-D4, P3-D8). Then P3-D1 + P3-D5 (small, any time); P3-D3 (direction first: it dominates the net, audit §3c)
-   with P3-D2; P3-D4; **P3-D8 EGRESS-TRACKER-DIRECTION-1 right after P3-D4** (own Tier-3 plan, gated on P3-D0 (d), the
-   P3-D0 numbers as its baseline); P3-D6 with the scorer build; P3-D7 only after FLIP-READY. The census plan's F-LEAD
-   cannot promote before P3-D6 FLIP-READY (census plan §3.2, amended with this plan); the `pipeline_version` bumps in
-   P3-D2, P3-D3 and P3-D7 each restart the census bars a-e and the F-LEAD windows.
-Tier: Phase 1 Tier 2-DB; ledger, wiring and the rung-2 follow-up Tier 3 (two plan reviews incl. goal fidelity, four code
-reviews, orchestrator re-grep and mutation, operator checkpoint).
+6. Phase 3, in order: P3-D0 probe (retention check and fixture first; gates the P3-D2 route, the P3-D3 direction part,
+   P3-D4 and P3-D9b). P3-D8 (anchor honours stuck exclusion, operator yes pending) before P3-D3, because without an
+   anchor no ledger use of Phase 3 can be measured. P3-D1 + P3-D5 any time. P3-D3 (direction first: it dominates the
+   net, audit §3c) with P3-D2. **P3-D9a (tracker pass key) before P3-D4**, so the ledger consumes the one F3-owned key
+   and never computes its own. P3-D4. **P3-D9b (tracker pass dedup) right after P3-D4**, gated on P3-D0 (d) incl. the
+   round-trip merge bound. P3-D6 with the scorer build (P2-D10 grading built there, harmonization C10). P3-D7 only after
+   FLIP-READY. The census plan's F-LEAD cannot promote before a P3-D6 direction verdict for the source in use (census
+   plan §3.2, amended with this plan); the `pipeline_version` bumps in P3-D2, P3-D3 and P3-D7 each restart the census
+   bars a-e and the F-LEAD windows. Phase 3 builds never change the `deconflict_house` signature (harmonization C2;
+   interior ship 5 owns that).
 
 ## 8. Non-goals
 

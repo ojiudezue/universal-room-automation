@@ -181,7 +181,7 @@ descriptions today; nothing to turn.
 | 3 | Read | `persons_in_room` (PC read list), `get_last_person_sightings`, `get_crossings_since`, `get_crossing`, `get_last_arrival_record` (PRESENCE read list), `interior_camera_entities` (CENSUS read list), `area_evidence` (member-to-member), `entity_stream_view`, `physical_camera_dead` (evidence services), `inward_path_edges` (non-person). Classes: §4. No raw `person.*`, no store, no private of another member, no hass.data scan. The producer's state listener on interior Frigate / Protect person sensors is a layer-internal producer read in a member module (guard R3 (iv)), the same kind as its existing face-sensor listener. |
 | 4 | Separation | F4 reaches F2 only inside `deconflict_house` (term provider). Nothing reaches access, security, house_state or comfort. |
 | 5 | Delivery | No existing consumer's delivery changes. D4 changes what `aware_guests` shows only after admission AND `INTERIOR_VISION_TERM_LEADS` (Q1 default; truth table §9.D4), each an operator checkpoint, and only upward (lower-bound rule). The vision switch ON at ship is an operator decision (§1). |
-| 6 | Guard delta | §6.3. Allowlist rows added: 0. `LAYER_ALLOWLIST_TOTAL` stays 259. Listed listeners added: 0. |
+| 6 | Guard delta | §6.3. Allowlist rows added: 0. `LAYER_ALLOWLIST_TOTAL` stays 259. Listed listeners added: 0. The interior branch's 259 means no change; whichever merges second takes 260 if P3-D3 landed first (crossing-vision Phase 3 adds one R13 row). |
 | 7 | Seams | G6 (`persons_in_room`), P2-D8 (`analyze_crossing_images`), P2-D10 (grading branch), census §3.3 (interior term), NVR witness W2 (provenance; D4 flip), ship 3b (`physical_camera_dead` readers). Owners and rules in §14. |
 | 8 | Clip path | §8: a frame-source interface with a still route and a clip route; D3 and D5 can take a clip. |
 
@@ -499,8 +499,9 @@ group inside its window (from the D1 on-edge ring) → `PathRecord(source_ref, d
 room, first_on_ts, bodies_nvr_at_first_on, bodies_vision))`, closed at the cumulative max over reached nodes of their
 window close + `INTERIOR_TIMELAPSE_CLOSE_PAD_S`, written through `_emit_unnamed("path",
 ...)` (ring `INTERIOR_TIMELAPSE_RING`). The hop rooms' records carry `entered_via` (door, crossing ts) for
-`INTERIOR_TIMELAPSE_SEED_TTL_S` (display). `n`: crossing vision's `people_count` from `get_crossing(source_ref)` once the fast
-stage writes it as a G3 attribute; until then from `get_last_arrival_record()` when its `source_ref` matches; else the max
+`INTERIOR_TIMELAPSE_SEED_TTL_S` (display). `n`: the crossing's `vision_people_count` F3 attribute from `get_crossing(source_ref)`, written by crossing-vision
+Phase 3 P3-D3 through G3 (not by the fast stage, which writes no G3 attribute; harmonization C3); until P3-D3 ships
+that source is absent and `n_source` says so; until then from `get_last_arrival_record()` when its `source_ref` matches; else the max
 `bodies_nvr` on the first hop (`n_source` names which). Never the crossing-vision row store (contract G8). Vision leg: when
 `n ≥ INTERIOR_TIMELAPSE_VISION_MIN_N`, or a hop room's record shows unnamed ≥ 1 at its first on-edge (draft-2 "or
 guests_unnamed ≥ 1" restored on the interior record, closure L-8), one still call per hop group at its first on-edge, at most

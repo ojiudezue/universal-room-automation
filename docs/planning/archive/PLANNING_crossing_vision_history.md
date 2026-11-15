@@ -71,3 +71,30 @@ Superseded text (810075a3), in substance:
   P3-D0 (d); §1 now states which readers keep the wrong direction until it ships.
 - Census plan: "vision direction" was a blanket non-goal and F-LEAD had no direction bar. Now F-LEAD needs P3-D6
   FLIP-READY for the direction source in use, and every Phase 3 `pipeline_version` bump restarts bars a-e.
+
+## 2026-11-15 (closure): Phase 3 closure review + harmonization fold-in
+
+Inputs: `docs/reviews/code-review/plan_review_crossing_vision_p3_closure_2026_11_15.md` (HIGH-1, MEDIUM-1..5, L1-L5) on
+25b30764, and `HARMONIZATION_identity_vision_census_2026_11_15.md` conflicts C1, C3, C5, C7, C8 (with C2 naming).
+
+Superseded text (25b30764), in substance:
+- P3-D0 (d) negative set = fixture `round_trip` pairs plus synthetic distinct-event pairs: vacuous (the 11-14 audit
+  labels no round trips; the synthetic set cannot fail). Replaced by mined one-event opposite pairs over 14 days,
+  hand-labelled, a minimum count (HOLD below it) and a merge-share bound; `end is None` rule stated; the one-event
+  round trip named as a residual in P3-D4, P3-D7 and P3-D9b.
+- Crossing vision computed `pass_key` itself and wrote it through G3. Replaced (C5): the tracker owns one pass key,
+  stamped at creation (P3-D9a, before P3-D4); G3 now writes three fields, not four.
+- "`_release_terms` is the only caller of the term builder". Replaced: the only setter of `term_done` and the only
+  builder of request terms; `_request_terms` removed; set-before-apply kept; anchor block bounded by a deadline.
+- Guard bump named only `LAYER_ALLOWLIST_TOTAL`. Now also `len(A.ROWS)` 231 → 232 and the PROVISIONAL constant, plus the
+  merge rule with the interior branch (written in both plans).
+- F-LEAD "FLIP-READY for the tracker" was undefined. P3-D6 now defines TRACKER-READY; the census row says F-LEAD in
+  practice waits for P3-D7; recorded as an operator-visible tradeoff.
+- P3-D5 DAO named `attrs.outcome`; now `json_extract(attrs_json, '$.outcome')`, ISO-shape bounds, read path, index via
+  the `_create_table_safe` list.
+- The tracker step was labelled P3-D8. Renumbered P3-D9 (a/b) so P3-D8 is the harmonization's "anchor honours stuck
+  exclusion" deliverable (C1, operator decision pending).
+- Knobs `..._PAIR_COLLAPSE` / `PAIR_SAME_EVENT_MIN` renamed `..._PASS_...` (C7: "pair" means the confusable-resident
+  pair only).
+- Interior plan D5 pointed at a fast-stage G3 write that never exists; now reads P3-D3's `vision_people_count` (C3).
+- Census plan §3.3 now names the code parameter `vision_leads` (C2).
