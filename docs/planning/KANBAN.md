@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-15T02:10:36-06:00_ - _Data commit: `0af32331019e`_ - _last_reconciled: 2026-11-15_
+_Generated: 2026-11-15T02:12:40-06:00_ - _Data commit: `d6efb3a76195`_ - _last_reconciled: 2026-11-15_
 
 
 ## Columns
@@ -15,8 +15,8 @@ _Generated: 2026-11-15T02:10:36-06:00_ - _Data commit: `0af32331019e`_ - _last_r
 | 📝 Planned | 38 |
 | 🔨 In progress | 5 |
 | 🔍 Review | 2 |
-| ⏸️ Waiting on operator | 37 |
-| ⏳ Waiting on me (Claude) | 5 |
+| ⏸️ Waiting on operator | 38 |
+| ⏳ Waiting on me (Claude) | 4 |
 | 🚀 Shipped (organic open) | 35 |
 | 🅿️ Parked | 130 |
 | ✅ Done | 436 |
@@ -1123,7 +1123,7 @@ _created 2026-11-12 22:30 · updated 2026-11-13 02:04_
   - `verified_2026_11_13_overnight`: CONFIRMED superseded (git grep on develop 22c0023f): zone_has_home_person (hvac_zones.py:2708) has zero production callers; the D7/row-1 path decides through HVACCoordinator._zone_conditioning_retreat_ok (hvac.py:7103, callers :2951 and ...
   - `built_2026_11_13_overnight`: Branch fix/zone-has-home-person-docstring (e8a38bb9, pushed): docstring-only change marking it RETIRED with the superseding path and the pinning test. No behavior change. Validation: test_zzz_hvac_conditioning_demand.py + test_person_gps...
 
-## ⏸️ Waiting on operator (37)
+## ⏸️ Waiting on operator (38)
 _needs a human call — groomed first_
 
 ### `EGRESS-OUTCOME-WEEKLY-LABEL-1` - Weekly labelling of egress identity outcomes (recurring) so Phase 2 of person sightings becomes decidable — _#1 · WSJF 13.0 · v5 tc6 u2 /e1_
@@ -1770,7 +1770,23 @@ _created 2026-09-27 02:40 · updated 2026-10-19 02:03 · refined_
   - `contradiction_2026_10_19_overnight`: CARD-WAS-WRONG on its own next: update_2026_10_15 records YOUR answer ('rapid change isn't that a heat thing for fire? If so it's a fix') and verified temperature_rise_extreme maps to OVERHEAT (safety.py:670, :859) -> disposition FIX (B)...
   - `paged_2026_10_19_overnight`: Paged 02:42 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody).
 
-### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#37 · WSJF 1.1 · v5 tc2 u2 /e8_
+### `WALLPANEL-TOUCH-WITNESS-1` - Wall-panel sensors as URA inputs (touch witness, BLE proxy scanners, ambient noise; temp/lux low value) — _#37 · WSJF 1.6 · v4 tc2 u2 /e5_
+thread: **presence** - status: **waiting_operator**
+_created 2026-10-20 08:30 · updated 2026-11-15 02:16 · refined ×1_
+- **Origin:** 2026-10-20 - HomeLab accepted idea 3 (ffa7d06).
+- **Why:** A touch within <=120 s may veto a 'vacated' verdict (fan recheck) or 'nobody home'; never infer absence from no touch; ignore last_interaction changes within ~2 min of sensor.<p>_app_uptime changing (republish on reconnect). Needs presen...
+- **Next:** DO (optional, when back): one solo walk-in test with your phone, about 10 min each standing in Foyer and in Media Room with no one else in those rooms, and say when -> I read the area sensor against the room sensors for those windows and...
+- **Forensic keys (8):**
+  - `measured_2026_11_15_overnight`: docs/planning/AUDIT_panel_scanner_room_ble_accuracy_2026_11_15.md (ura-prober, recorder read-only, 8 days only: recorder keeps 7; registry-resolved). Truth = room presence radar with exactly one resident home; only Ezinne has enough sing...
+  - `measured_2026_10_23_overnight`: Measurement run (ura-prober, recorder read-only; panel entities only exist from ~10-19/20, so 3-4 days). TOUCH: about 2 real touches a day per panel (max 4/day; media_room 0), after excluding 50-106 reconnect republishes per panel (rows ...
+  - `links_added_2026_10_21`: related+WALLPANEL-URA-NOTIFY-1,TABLET-FLEET-1: Same Halo panel fleet; touch/BLE inputs follow the S1b/S2 output work.
+  - `rerank_2026_10_21`: unscored -> v4 t2 e5: follows Halo S1b/S2; useful presence witness but not urgent
+  - `tier`: 2
+  - `panel_sensor_facts_2026_10_20`: HomeLab withdrew the not-presence framing (operator asked). Temp +3.6-3.8F high vs room sensors, varies with brightness/CPU; humidity within 1-3 pts; lux screen-biased; ambient_noise dBFS ~1/min (activity); last_interaction touch; motion...
+  - `verified_2026_11_14_overnight`: ALREADY-DONE for the APPROVE ask (read-only, core.device_registry + Bermuda config entry): all 7 panel proxies are active Bermuda scanners with rooms already set on their Bluetooth devices (master_bedroom, study_a, study_b, media_room, u...
+  - `status_change_2026_11_14`: waiting_operator -> waiting_me: the operator input is no longer needed; what remains is my room-accuracy re-measure.
+
+### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#38 · WSJF 1.1 · v5 tc2 u2 /e8_
 thread: **presence** - status: **waiting_operator**
 _created 2026-09-20 · updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -1785,7 +1801,7 @@ _created 2026-09-20 · updated 2026-09-29 01:05_
   - `FINDINGS_2026_09_20`: Spike RAN (docs/planning/jev_spike/, 58-case eval, LOO). CODE baseline = works 100% / fails 0%% / overall 84.5%% / ECE 0.155 (structurally blind to the all-away-single-sensor phantom + badly calibrated). Logistic-floor arms scored 100%%/...
   - `next_prev1`: PICK/DO (operator): provide INDEPENDENT ground-truth labels for ~20-40 ambiguous occupancy cases (spot-confirm a batch of all-away-single-sensor / still-body episodes as empty-or-occupied), OR approve me sourcing a disjoint truth signal ...
 
-## ⏳ Waiting on me (Claude) (5)
+## ⏳ Waiting on me (Claude) (4)
 _I owe something_
 
 ### `HA-GC-GEN2-PAUSES-1` - Home Assistant freezes for about 2 seconds once a minute while Python cleans up memory (full garbage collection on a very large heap) — _#1 · WSJF 6.5 · v7 tc4 u2 /e2_
@@ -1854,21 +1870,6 @@ _created 2026-11-12 18:30 · updated 2026-11-15 02:10 · refined_
   - `FINDING_2026-11-13`: AUDIT_frigate_door_face_2026_11_13.md: misses are distance/angle, not threshold. Doorbell 26% named (53% when person fills >45% of frame), garage A 29% (overhead), G6 entry 10% (71% tiny street boxes), aerial 14% (top-down). Scores 0.82-...
   - `DONE_2026-11-13_frigate_yml`: Operator: file is stale (likely from the Frigate config integration); HA is reachable only through the auth-protected tunnel, so no one has seen it. Moved /config/www/frigate.yml to /config/www_moved_2026-11-13/frigate.yml; /local/frigat...
   - `measured_2026_11_13_overnight`: Partial, read-only (ura-prober, HA recorder 11-05 10:00 to 11-13 02:00 CST + homelab config snapshot). Frigate2 API at 192.168.13.18:8971 returned 401; no read-only API credential exists in the homelab repo, port 5000 is container-only, ...
-
-### `WALLPANEL-TOUCH-WITNESS-1` - Wall-panel sensors as URA inputs (touch witness, BLE proxy scanners, ambient noise; temp/lux low value) — _#5 · WSJF 1.6 · v4 tc2 u2 /e5_
-thread: **presence** - status: **waiting_me**
-_created 2026-10-20 08:30 · updated 2026-11-14 02:28 · refined ×1_
-- **Origin:** 2026-10-20 - HomeLab accepted idea 3 (ffa7d06).
-- **Why:** A touch within <=120 s may veto a 'vacated' verdict (fan recheck) or 'nobody home'; never infer absence from no touch; ignore last_interaction changes within ~2 min of sensor.<p>_app_uptime changing (republish on reconnect). Needs presen...
-- **Next:** Me: re-measure room-level BLE accuracy for Foyer / Study B / Media Room now that the panel scanners are live (compare sensor.<phone>_area against a disjoint truth: room radar occupancy with one person home). Touch-witness and noise legs ...
-- **Forensic keys (7):**
-  - `measured_2026_10_23_overnight`: Measurement run (ura-prober, recorder read-only; panel entities only exist from ~10-19/20, so 3-4 days). TOUCH: about 2 real touches a day per panel (max 4/day; media_room 0), after excluding 50-106 reconnect republishes per panel (rows ...
-  - `links_added_2026_10_21`: related+WALLPANEL-URA-NOTIFY-1,TABLET-FLEET-1: Same Halo panel fleet; touch/BLE inputs follow the S1b/S2 output work.
-  - `rerank_2026_10_21`: unscored -> v4 t2 e5: follows Halo S1b/S2; useful presence witness but not urgent
-  - `tier`: 2
-  - `panel_sensor_facts_2026_10_20`: HomeLab withdrew the not-presence framing (operator asked). Temp +3.6-3.8F high vs room sensors, varies with brightness/CPU; humidity within 1-3 pts; lux screen-biased; ambient_noise dBFS ~1/min (activity); last_interaction touch; motion...
-  - `verified_2026_11_14_overnight`: ALREADY-DONE for the APPROVE ask (read-only, core.device_registry + Bermuda config entry): all 7 panel proxies are active Bermuda scanners with rooms already set on their Bluetooth devices (master_bedroom, study_a, study_b, media_room, u...
-  - `status_change_2026_11_14`: waiting_operator -> waiting_me: the operator input is no longer needed; what remains is my room-accuracy re-measure.
 
 ## 🚀 Shipped (organic open) (35)
 _live, awaiting proof_
