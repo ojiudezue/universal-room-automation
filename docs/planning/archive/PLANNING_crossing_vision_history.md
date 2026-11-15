@@ -411,3 +411,13 @@ in `_resolve_direction`; one owner, one bus event, one dedup; per-reader changes
 R-b: person detector approved, delivered through an install-agnostic HA/Frigate route (Frigate detections first, else
 an optional operator-configured `image_processing` entity, `CONF_CROSSING_DETECTOR_ENTITY`); offline laptop runs for
 measurement only. Knob `CROSSING_ANTICIPATORY_DAILY_CALLS` dropped (no LLM in the tracker).
+
+## 2026-11-15: latency invariant and approach count added
+
+Operator, verbatim: "The thing to be wary of in crossing logic is speed. Because naming and vision are on top of this,
+we need to make sure the expansion doesn't slow it too much." Added INV-TRACKER-LATENCY to P3-D11 (camera-triggered
+crossings fire at E + 45 s; slower evidence attaches as G3 amendments, late correction = `late_direction` attribute
+only; contact-only bound 90 s; p95 trip-wire; timing tests for notify, census faces, identity attach), decision 17,
+knobs `EGRESS_CANDIDATE_RESOLVE_MAX_S`, `EGRESS_RESOLUTION_P95_MAX_S`. Operator: counting accuracy from "the before and
+after clips/frames": P3-D10 gains `approach_people_count` with a gated combination rule (max only for groups of 3+ or
+long events), decision 18. No text removed.

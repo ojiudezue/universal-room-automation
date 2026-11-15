@@ -1311,6 +1311,24 @@ pull the frozen camera set's windows (or Frigate records for R-a) and compute `a
   `CONF_CROSSING_VISION_LEDGER_DIRECTION_SOURCE` (new value `approach`) after its own P3-D6 FLIP-READY at a checkpoint
   (P3-D7), and every reader only through P3-D9c (the tracker adopts it as its instrument), which is preferred: one fix
   for every reader.
+- **Approach COUNT (operator 2026-11-15: where the vision extension of counting accuracy fits, "i.e. the before and
+  after clips/frames").** The same windows also yield `approach_people_count`: for an entry, distinct people on the
+  outside approach cameras before E plus the inside camera after E; for an exit, the inside camera before E plus the
+  outside approach after E. Target: P3-D2's named residual, a group arriving over more than 20 s is undercounted by
+  the [E − 5, E + 15] door window (P3-D0c: 16:23:52, a 48.7 s event, frames `[0,0,1,1,1,1,1]`; 18:59:36 still
+  arriving). Same handling as direction: a G3 attribute attached after resolution (INV-TRACKER-LATENCY), scored in
+  P3-D0e against the operator's graded counts, and reaching a ledger term only through the existing vision-count rule
+  after its own P3-D6 scoring.
+  **Combination rule against the door-window count (a hypothesis P3-D0e scores, frozen before scoring):** the term
+  `n` = the door-window vision count, EXCEPT when the door count is ≥ `CROSSING_VISION_GROUP_PEAK_MIN` (3) or the
+  matched door event is longer than the 20 s window: then `n` = max(door count, approach count). Why not a plain max:
+  P3-D2 step 7 measured that max(vision, camera peak) fixes one clip and creates three over-counts (16:30:44 3 vs 2,
+  16:20:48 3 vs 2, 16:23:52 4 vs 3), and vision's undercounts roughly cancel over a visit while over-counts do not.
+  The gate restricts the max to the regime where the measured undercount lives (groups of 3+ and long events; 1-2
+  people were exact on the door window), which excludes two of the three over-counts (both 2-person clips). Named
+  risk: 16:23:52 is a long 3-person event and stays inside the gate, so P3-D0e must show the approach count is not
+  over there. Gate: on graded 3+ crossings the rule's exact rate beats the door count alone, and it adds no
+  over-count on graded 1-2 person crossings; else the approach count stays recorded only.
 - **Producer check:** inputs are recordings of cameras whose Frigate events were sparse (front_side_ptz 21 events,
   utilities_ptz 7, ArmCrest none in 28 h, P3-D0bcd I6); recording coverage is what P3-D0e step 0 measures. Arithmetic:
   first-presence order and the displacement rule only.
@@ -1404,6 +1422,36 @@ owner with one bus event and one dedup. INV-ONE-F3 then holds by construction.
 - **Cost per day:** 0 model calls for triggers and confirmation on R-a; proxy reads ≤ one window per candidate
   (≤ `CROSSING_ANTICIPATORY_MAX_PER_DAY` per group). A confirm through an HA-side detector entity is one
   `image_processing.scan` per candidate, local to that install. No LLM in the tracker.
+- **INV-TRACKER-LATENCY (P3-D11, falsifiable; operator 2026-11-15: "The thing to be wary of in crossing logic is
+  speed. Because naming and vision are on top of this, we need to make sure the expansion doesn't slow it too much.").**
+  For every crossing whose trigger includes a door-camera person-on or count 0→N, `_resolve_direction` runs at
+  E + `EGRESS_ENTRY_WINDOW_SECONDS` (45 s, today's time) and fires `ura_person_egress_event` in that same call, with no
+  new `await` on I/O before the fire. `combine_direction` reads only evidence already in the tracker's memory at that
+  moment (contact edges, outside-camera Frigate presence already received, candidate source edges, interior timing).
+  Slower evidence never delays the bus event: the recording-window confirmation (~25 s recording lag + ~11 s fetch),
+  the P3-D10 approach direction and count, and any `image_processing.scan` arrive afterwards as G3 amendments
+  (`direction_source`, `approach_direction`, `approach_people_count`). The late-correction path: if late evidence
+  disagrees with the fired direction, the tracker writes G3 attributes `late_direction` and `late_direction_source`
+  only (role `direction_late_evidence`); the record's `direction`, the bus event, the DB `direction` column, the
+  census face choice and the notification are never rewritten (`direction` stays a FORBIDDEN G3 key); the P3-D6 scorer
+  reads `late_direction`, and only a later reviewed change could let it act. A candidate with no camera trigger
+  (contact or motion only) resolves at most `EGRESS_CANDIDATE_RESOLVE_MAX_S` (90 s, rung 1) after its first edge,
+  or is discarded at that bound. Arrival notify, census `register_egress_face` / `evict_egress_face` and identity
+  attach (naming) see, for camera-triggered crossings, the same call time relative to E as today. Break it with any
+  camera-triggered crossing whose bus fire, notify, face register/evict or identity attach happens later than today's
+  for the same event sequence, or a contact-only candidate that resolves after its bound.
+  - Worst-case added latency: camera-triggered 0 s (by construction; evidence not in hand is ignored at the
+    deadline); camera trigger joined by an earlier contact or motion edge: 0 s after the camera's E + 45 s (E is the
+    earliest confirmed evidence only for contact-only candidates; when a camera trigger exists the resolution timer
+    stays the camera's, so the join can never push it later); contact or motion only: ≤ 90 s after the first edge
+    (recording lag 25 s + fetch ~11 s + detector call + margin), against today's infinite (never resolved).
+  - Trip-wire `egress_resolution_latency_p95`: p95 of (bus fire time − E) over 24 h of camera-triggered crossings
+    above `EGRESS_RESOLUTION_P95_MAX_S` (50 s, rung 1; 0 = off) pages NM; contact-only p95 reported beside it against
+    the 90 s bound.
+  - Tests: `test_camera_crossing_bus_fires_at_e_plus_45`, `test_notify_timing_unchanged`,
+    `test_census_face_register_evict_timing_unchanged`, `test_identity_attach_timing_unchanged`,
+    `test_late_evidence_is_amend_never_rewrite`, `test_contact_only_candidate_resolves_within_bound`,
+    `test_resolution_latency_tripwire`.
 - **Invariant INV-ONE-F3 (falsifiable):** every `CrossingRecord`, `ura_person_egress_event` and
   `person_entry_exit_events` row is created by `_resolve_direction` → `_record_crossing`, and any physical pass
   produces at most one per door group within `DOOR_STEM_DEDUP_S` whatever mix of contact, motion and camera triggers
@@ -1477,6 +1525,12 @@ owner with one bus event and one dedup. INV-ONE-F3 then holds by construction.
     no matched Frigate event; on the recording route the door camera's window can be pulled without an event.
     Recommended: build P3-D2b after P3-D2 if P3-D0e step 4 shows a person in most of those windows.
 
+17. **Operator constraint 2026-11-15, verbatim: "The thing to be wary of in crossing logic is speed. Because naming and
+    vision are on top of this, we need to make sure the expansion doesn't slow it too much."** INV-TRACKER-LATENCY:
+    camera-triggered crossings fire at today's E + 45 s; slower evidence is a G3 amendment; contact-only candidates
+    bounded at 90 s; p95 trip-wire.
+18. **Operator 2026-11-15: counting accuracy from "the before and after clips/frames".** P3-D10 also yields
+    `approach_people_count`, combined with the door count only for groups of 3+ or long events, scored first.
 Tier: P3-D0 / P3-D0b / P3-D0c / P3-D0d probes (read-only; P3-D0c spends ≤ 14 model calls); P3-D1 Tier 1 (built); P3-D2,
 P3-D6, P3-D8, P3-D2b Tier 2; P3-D10 Tier 2 to record (G3 writer, display only), Tier 3 when adopted by P3-D9c; P3-D11 (= P3-D9c, the extended tracker) Tier 3 with a Tier 2-DB rider (`direction_source` column); P3-D0e / P3-D0f probes; P3-D5 Tier 2-DB (built); P3-D3, P3-D4, P3-D7 and P3-D9 (a / b / c) Tier 3 (P3-D3: a production G3
 writer and an INV-SCOPE change) (ledger input surface, the F3 source): two plan reviews incl. framing G,
@@ -1567,6 +1621,8 @@ checkpoint before deploy.
 | `CROSSING_DIRECTION_APPROACH_ENABLED` | False until P3-D0e PASS | 1 | P3-D10 kill switch: False = no pulls, no amend |
 | `CROSSING_ANTICIPATORY_WINDOW_S` / `_MATCH_S` | 60 / 30 | probe gate, then 1 | P3-D0f / P3-D11 candidate lifetime; match to a tracker E |
 | `CROSSING_ANTICIPATORY_MISS_MIN_PER_WEEK` / `_MAX_PER_DAY` | 3 / 150 per door group | probe gate | P3-D0f build gate (miss rate worth it; trigger not noise) |
+| `EGRESS_CANDIDATE_RESOLVE_MAX_S` | 90 | 1 | INV-TRACKER-LATENCY bound for contact / motion-only candidates; 0 = such candidates never resolve (camera triggers only) |
+| `EGRESS_RESOLUTION_P95_MAX_S` | 50 | 1 | `egress_resolution_latency_p95` trip-wire over 24 h of camera-triggered crossings; 0 = off |
 | `CONF_CROSSING_DETECTOR_ENTITY` | empty | 2 (options flow) | Optional HA `image_processing` entity for R-b confirm / approach; empty = Frigate records only |
 | `CROSSING_ANTICIPATORY_ENABLED` | False until P3-D0f PASS | 1 | P3-D11 kill switch |
 
