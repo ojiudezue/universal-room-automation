@@ -60,13 +60,14 @@ meta:
   - {"fid": "SAFETY-SENSOR-FLEET-HEALTH-1@2026-11-08T02:05:00", "card_id": "SAFETY-SENSOR-FLEET-HEALTH-1", "at": "2026-11-08T02:05:00", "outcome": "measured", "headline": "Re-checked the cards waiting on you: kitchen smoke sensor and BLE proxy BP1_B are still offline. Nothing else changed.", "acknowledged": false}
 cards:
 - id: NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1
+  verified_2026_11_15_overnight: 'STILL-WAITING: notification_inbound since 11-10 has only channel=imessage (75 rows, last 08:04Z 11-15); no whatsapp or companion row, so the DO is still needed.'
   recheck_2026_11_10_overnight: "02:01 CST URA DB: notification_inbound since 11-09 = 3 rows, all imessage (last 11-10 04:13Z). No whatsapp/companion row. Ask stands."
   title: Prove the text 'diag' menu answers on WhatsApp and the HA app (only iMessage is proven live)
   thread: notifications
   status: waiting_operator
   tier: 1
   created: 2026-11-08 02:05
-  updated: "2026-11-11 02:18"
+  updated: '2026-11-15 02:10'
   refinement_status: initial
   rank:
     value: 3
@@ -866,11 +867,12 @@ cards:
   check_2026_10_22_switchover: "PASS: energy_daily 2026-10-21 solar NULL, consumption NULL, no prediction/adjustment learning. Side finding: that row's import_kwh = 0.99 (billing_source counter_gap) vs 87.95 on 10-20, so restart-day import looks under-counted; check on 10-23 whether the 10-22 row's import is normal before deciding if it needs its own card."
   due_checks_2026_10_21: "SHIPPED v5.103.82 10-21. DONE 10-22 (PASS). DUE 10-22 07:15: energy_daily 2026-10-21 row solar+consumption NULL (switch-over day). DUE 10-23 07:15: 2026-10-22 row solar = CT stat 5654 daily delta +-1%, consumption non-null -> close."
 - id: WALLPANEL-URA-NOTIFY-1
+  verified_2026_11_15_overnight: 'STILL-WAITING: switch.ura_nm_panel_channel is off (last changed 11-14 22:02, the restart), so no panel test leak has run.'
   recheck_2026_11_10_overnight: "02:01 CST: switch.ura_nm_panel_channel still off. Ask stands."
   recheck_2026_11_07_overnight: "Re-check 02:03 CST: switch.ura_nm_panel_channel still off. Ask stands."
   verify_2026_10_28: "Overnight re-check 02:02 CDT: switch.ura_nm_panel_channel still off (since the 10-26 10:06 restart), so the test-leak DO is still open."
   residual_2026_10_21_wake_adjacency: 'Operator 2026-10-21: "are the tablets able to wake from adjacent room occupancy? Just like the notifications are sent to tablets when it concerns adjacent rooms". VERIFIED NO: wake is HomeLab automation wallpanel_fleet_wake (automations.yaml:6596) with a hand-written map, each panel wakes on its own room only, plus two hand-coded extras (Kitchen panel <- breakfast_nook_occupied; Entry panel <- entry Hobeian + foyer_fisheye camera). URA CONF_ADJACENT_ROOMS (const.py:720) is not read. Fold into the "move wallpanel_fleet_* into Halo" follow-up: Halo derives each panel''s wake set from its room + that room''s adjacent_rooms (no hand map), likely dimmer for adjacent. Sleep-after-grace must use the same set.'
-  updated: "2026-11-10 02:12"
+  updated: '2026-11-15 02:10'
   reverified_2026_10_29_overnight: "Unchanged 02:01 CDT: switch.ura_nm_panel_channel = off (since 10-26 10:06). The test-leak DO is still yours."
   links_added_2026_10_21: "related+DASH-V8-ROOM-STATUS-CHIPS-1,TABLET-FLEET-1: Halo panels and the v8 room chips both surface per-room status; TABLET-FLEET-1 is the older wall-tablet idea Halo largely supersedes."
   links: {"related": ["WALLPANEL-TOUCH-WITNESS-1", "DASH-V8-ROOM-STATUS-CHIPS-1", "TABLET-FLEET-1"], "context": "Halo panels and the v8 room chips both surface per-room status; TABLET-FLEET-1 is the older wall-tablet idea Halo largely supersedes."}
@@ -33201,6 +33203,7 @@ cards:
     context: 'The 10-03 replay re-run against this fixture is the estimator gate. Re-pointed 2026-10-11 from CENSUS-INPUTS-FIRST-1 (closed done on its own discriminator - the 10-08/09 window) to CENSUS-OCCUPANCY-ESTIMATOR-1, which is where the 10-03 replay now lives.'
   sweep_2026_10_05: 'No fixture/CSV card on the board. NEW.'
 - id: ROOM-ENERGY-SENSOR-MISPICKS-1
+  verified_2026_11_15_overnight: 'STILL-WAITING: Guest Bedroom 2 Bathroom energy_sensor is still ..._overhead_energy_returned (core.config_entries).'
   lane_fix_2026_10_14: "Moved in_progress -> waiting_operator: no work is running; the next step is your DO/PICK in the room options."
   operator_instruction_2026_10_13: "Can you execute this yourself and present the results for ratification"
   reply_2026_10_14: 'Approved to execute (config-only room-options edits), queued as the next piece of work this session should do in an attended HA session, then present the before/after config-entry values + the cleared system_log warning for ratification. Not executed as part of this board-reconciliation pass (that pass is read-only/record-only) — flagged in_progress so it is picked up next.'
@@ -33210,7 +33213,7 @@ cards:
   thread: energy
   status: "waiting_operator"
   created: "2026-10-11 02:30"
-  updated: "2026-10-14 03:05"
+  updated: '2026-11-15 02:10'
   refinement_status: initial
   tags: [config-only, institutional-context, no-fabrication-verify]
   rank: {value: 3, time_criticality: 2, effort: 1}
@@ -34718,13 +34721,14 @@ cards:
   verified_2026_11_13_overnight: "CONFIRMED superseded (git grep on develop 22c0023f): zone_has_home_person (hvac_zones.py:2708) has zero production callers; the D7/row-1 path decides through HVACCoordinator._zone_conditioning_retreat_ok (hvac.py:7103, callers :2951 and :3410), and test_zzz_hvac_conditioning_demand.py ~:927 pins that the shared helper must NOT consult it. test_person_gps_assistive.py:857 already notes 'no production caller'. Three-bucket triage: KEEP+DOCUMENT, not DELETE (a working BLE-overrule-aware person-trust read; not a footgun once the docstring stops claiming use; dead != delete)."
   built_2026_11_13_overnight: "Branch fix/zone-has-home-person-docstring (e8a38bb9, pushed): docstring-only change marking it RETIRED with the superseding path and the pinning test. No behavior change. Validation: test_zzz_hvac_conditioning_demand.py + test_person_gps_assistive.py 94 passed. Review: self-review of a 10-line docstring diff (no code path touched), so no reviewer dispatch."
 - id: PERIMETER-FP-GATES-DISPOSE-1
+  verified_2026_11_15_overnight: 'STILL-WAITING: no URA config entry carries perimeter_zone_sensors in data or options (core.config_entries via the Samba mount).'
   arc_cut_v5_108_17: "separate investigation, not notification code"
   title: Perimeter false-positive gates D3/D5 shipped shadow-first but D3 can never evaluate (zone sensors never configured) and no shadow counts are kept; no disposal date
   thread: perimeter
   status: waiting_operator
   batch: broken-promises-2026-11
   created: '2026-11-12 22:55'
-  updated: '2026-11-14 02:12'
+  updated: '2026-11-15 02:10'
   tier: 2
   origin: {date: '2026-11-12', gist: 'Operator asked why the gates are off. AUDIT_garage_hallway_lock_and_perimeter_gates_2026_11_12.md.'}
   why: 'Off by design as shadow-first (README v5.107.0, PLANNING_perimeter_fp_build_2026_11.md), but gate_decisions_by_camera {} and zone_map {} live; D5 learning (g5_bullet clears bar); D5 settle 8 s shorter than most camera lag. 2,295 CRITICAL + 1,754 HIGH exterior_person alerts in ~30 days.'
@@ -34749,6 +34753,7 @@ cards:
   DONE_2026-11-13: 'Operator: "Do it now... Monitor". Applied 00:13 CST via options flow camera_census: only egress_cameras, perimeter_cameras, door_groups changed (diff vs backup). 20 min watch: house stayed sleep throughout, URA unavailable entities 5 -> 3 (fewer), no lock/alarm/cover/climate logbook changes.'
   next: 'None. Patio/Study B not added (operator ~99% garage+front); revisit only if weekly labels show patio crossings matter.'
 - id: EGRESS-OUTCOME-WEEKLY-LABEL-1
+  status_change_2026_11_15: 'waiting_me -> waiting_operator: next opens with ANSWER (phones carried by Jaya / Ojini / Ziri on 11-11); the ball is with the operator.'
   arc_cut_v5_108_24: "recurring labelling, independent"
   arc_cut_v5_108_23: "recurring labelling"
   arc_cut_v5_108_22: "recurring labelling, not a build"
@@ -34758,10 +34763,10 @@ cards:
   arc_cut_v5_108_16: "recurring, starts with this ship"
   title: Weekly labelling of egress identity outcomes (recurring) so Phase 2 of person sightings becomes decidable
   thread: identity
-  status: waiting_me
+  status: waiting_operator
   batch: person-sightings
   created: '2026-11-12 23:30'
-  updated: '2026-11-12 23:30'
+  updated: '2026-11-15 02:10'
   tier: 1
   links: {parent: FACE-ARRIVAL-REBUILD-1}
   origin: {date: '2026-11-12', gist: 'Plan rev 11 M6/M7: recorder keeps 7 days; Phase 2 needs >= 10 operator-reviewed confirmations (~10 weeks).'}
@@ -35411,11 +35416,12 @@ cards:
   next: 'Me: measure how many exterior-person alerts were downgraded under a false ARRIVING; decide severity keying on resident arrival evidence.'
   rank: {value: 5, time_criticality: 3, effort: 2}
 - id: FRIGATE-DOOR-FACE-TUNING-1
+  status_change_2026_11_15: 'waiting_operator -> waiting_me: the next is my hand-off to the homelab session, not an operator action. Homelab commits since 11-12 touch perimeter masks and status panels, none apply the door-face audit, so the hand-off has not landed.'
   title: Door and exterior cameras recognize few faces (garage 36, doorbell 33, entry 16, aerial 7 since 11-05; 9 cameras zero), capping egress identity near 40%
   thread: identity
-  status: waiting_operator
+  status: waiting_me
   created: '2026-11-12 18:30'
-  updated: '2026-11-13 02:12'
+  updated: '2026-11-15 02:10'
   refinement_status: "refined"
   tier: 2
   approval: unreviewed
