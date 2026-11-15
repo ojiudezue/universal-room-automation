@@ -1750,6 +1750,46 @@ for h in sorted(hr):
 table(["hour (CST)", "samples", "recorded unid max", "recorded unid>0 samples", "replay (i) max", "(ii) max", "(ii) >0 samples",
        "(iii) max", "(iii) >0 samples", "(iv) max", "identified (recorded) max", "camera total today max", "camera total (iii) max"], rows)
 
+# oracle (4): operator head count for 11-14 (Q6 answered: high-water 14-15, no time given; census peak 10 at 16:26/16:43; busy 16:00-19:00)
+d14 = datetime.strptime("2026-11-14", "%Y-%m-%d").replace(tzinfo=LOC).timestamp()
+pk = {}
+for i, sn in enumerate(SNAP):
+    if not (d14 <= sn[0] < d14 + 86400) or i not in SAMP:
+        continue
+    cand = {"recorded": (sn[3], sn[0])}
+    for k in ("V0", "V1", "V2", "V3"):
+        cand[k] = (SAMP[i]["ident"] + SAMP[i][k]["unid"], sn[0])
+    for k2 in ("V0", "V1", "V2", "V3"):
+        cand["cam_" + k2] = (SAMP[i][k2]["ct"], sn[0])
+    for k2, v2 in cand.items():
+        if k2 not in pk or v2[0] > pk[k2][0]:
+            pk[k2] = v2
+lowered = lowered_busy = busy_n = 0
+for i, sn in enumerate(SNAP):
+    if not (d14 + 16 * 3600 <= sn[0] < d14 + 19 * 3600) or i not in SAMP:
+        continue
+    busy_n += 1
+    t0_ = SAMP[i]["ident"] + SAMP[i]["V0"]["unid"]
+    t2_ = SAMP[i]["ident"] + SAMP[i]["V2"]["unid"]
+    if t2_ < t0_:
+        lowered_busy += 1
+P("### Oracle (4): 11-14 head count (Q6 answered by the operator)")
+P()
+P("Ground truth: party high-water mark **14 to 15 people**, no time given; recorded census peak 10 at 16:26 and 16:43; busy window about "
+  "16:00 to 19:00. Peak of each quantity over the whole of 11-14 (CST), person total = identified + unidentified:")
+P()
+lab = {"recorded": "recorded `total_persons`", "V0": "(i) today, replayed", "V1": "(ii) device areas, per-area max",
+       "V2": "(iii) + BLE cancel (CORRECT)", "V3": "(iv) + stuck discount",
+       "cam_V0": "raw camera body total (i)", "cam_V1": "raw camera body total (ii)", "cam_V2": "raw camera body total (iii)",
+       "cam_V3": "raw camera body total (iv)"}
+table(["semantics", "11-14 peak", "at (CST)", "short of 14", "short of 15"],
+      [(lab[k], pk[k][0], fmt(pk[k][1], True), 14 - pk[k][0], 15 - pk[k][0]) for k in lab if k in pk])
+P("Within 16:00-19:00 (%d samples) CORRECT (iii) reads a lower person total than today on %d samples." % (busy_n, lowered_busy))
+P()
+P("Reading: today's summing census already sits 4-5 below the operator's count at the peak; any semantics that can only lower the "
+  "count (per-area max, BLE cancel) cannot close that gap. Whether CORRECT's removed double counts outweigh a lost real person is read "
+  "from the table above: compare the (iii) peak with today's.")
+P()
 # contradicted-zero table ----------------------------------------------------------------------
 log("contradicted")
 P("### Contradicted-zero table (the D4 gate input)")

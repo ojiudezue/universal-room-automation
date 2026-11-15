@@ -22,8 +22,7 @@ not read and nothing here asserts HVAC behaviour beyond those tables.
   These agree with the recorder-derived picture (the camera tier and the census per-area terms are inert today).
 - Window: the last 7 days, 11-08 16:49 to 11-15 16:49 CST (the recorder starts 11-08 04:12 CST). Census samples = the 7,514
   `census_snapshots` rows (`zone='house'`) in the window, one every ~80 s on average, so one sample is about 1.3 minutes.
-- Q6 (party head counts for 11-14) is **PENDING, not supplied**. Oracle (4) of the contradicted-zero table is not evaluated; the
-  gate is evaluated on oracles (1)-(3) as instructed.
+- Q6 was answered after the first commit: 11-14 high-water mark **14 to 15 people**, no time; census peak 10 at 16:26 and 16:43; busy about 16:00-19:00. It is evaluated as oracle (4) in (d) ("Oracle (4)" table).
 
 ## Verdicts (the answer first)
 
@@ -31,6 +30,7 @@ not read and nothing here asserts HVAC behaviour beyond those tables.
 |---|---|---|
 | Probe matches the code? | **YES**. Old rule reproduces **Wr 3 / U 14** exactly; today's `unidentified_count` replays equal to the recorded rows on **7,495 / 7,514 samples = 99.75%** (gate >= 99%) | (a) self-check; (d) self-check. On the 787 samples where either side is > 0 the match is 768 / 787 = 97.6%; the raw Frigate / binary dedup totals match the recorded `frigate_count` / `unifi_count` on 99.99% / 100.00% |
 | KEEP/CORRECT census gate (zero contradicted minutes on sources 1-3) | **FAILS, narrowly: 1 contradicted sample (11-12 09:54:26 CST, about 1.3 min) of the 6 samples where D4-CORRECT would read 0 while today reads > 0; (ii) per-area max contributes 0 crossings, 0 contradicted.** The plan's rule is threshold 0, no tolerance, so the plan outcome is **D4-KEEP** | (d) contradicted-zero table. The one contradicted sample is flagged only by oracle (2) because **Ezinne's own door entry** sat in the prior 2 h; she is the resident BLE-located in the Living Room whose body the cancel removed. Under a refinement (an entry explained by the resident who is BLE-located in the camera area does not count) contradicted = 0, but that refinement is not the plan's rule and is reported separately, not used for the verdict |
+| Q6 / 11-14 party peak under every semantics (truth 14-15) | **Every semantics peaks at 10: recorded 10, today replayed 10, (ii) 10, (iii) CORRECT 10, (iv) 10, raw camera total 10 in all four. Each is 4 below 14 and 5 below 15.** Today already undercounts by 4-5; CORRECT does not widen the gap at the peak (peak equal), and lowers the person total on only 1 of 151 samples in 16:00-19:00 | (d) Oracle (4) table. So the feared extra loss on a real crowd is not observed, and neither is any gain from removing double counts on that day. Gate with oracle (4): the sole contradicted sample on sources 1-3 stands, no new contradiction from the crowd; verdict stays **D4-KEEP** |
 | Is D4-CORRECT worth taking even if the gate passed? | **No (marginal-benefit decomposition).** Per-area max changes nothing on this house; BLE cancel changes `unidentified_count` on 9 of 7,514 samples in 7 days (8 lower, 1 higher through hold/decay path dependence), 6 of them crossing to 0, all Living Room / Ezinne | (d) variant table. The camera body total never changes (delta 0 on all 7,514 samples) |
 | INV-CENSUS-DOWN (plan D0 discriminating criterion) | **Holds as stated over an evidence state: 0 violations in 155,980 evaluation instants for (ii) and (iii), for both `camera_unrecognized` and the raw camera total.** The plan's literal criterion "ANY sample with after > before" **is tripped by 1 sample** through the stateful hold/decay machine: 11-12 10:31:26, variant (iii) reads 2 where today reads 1 | (d). Mechanism: today's raw reading rose to 3 and reset the 15 s sustain timer, so `_apply_hold_decay` kept the lower peak (1); the variant's smaller reading (2) sustained and promoted sooner. The variant counts fewer bodies (2 vs 3) at that instant; the output is higher only through the hold path. Under the literal criterion this says "stop and re-plan D4", which is consistent with the KEEP outcome |
 | Per-room hold recommendation under Q1 | **No room qualifies on ship day: recommended ON = none** | (c) Q1 table. Every camera room has 53% to 100% of its would-be-created minutes unsupported (no BLE person in the room and no Tier-1 sensor on within +-120 s), or created < 30 min, or an exterior-role camera, or is muted. The rule's thresholds are the probe's (stated in the report) because the plan gives none |
@@ -91,7 +91,7 @@ not read and nothing here asserts HVAC behaviour beyond those tables.
 
 ## (a) The rebuilt map
 
-Window: 11-08 16:49 to 11-15 16:49 CST (7 days; recorder holds 11-08 04:12 onward). Probe run 11-15 16:49:04. Rule: `old` = `bs_entity.area_id or camera_entry.area_id` (`camera_census.py:680`); `new` = `resolve_area_id_for_entity(bs) or resolve_area_id_for_entity(camera)` (`camera_resolver.py:474`, entity area else device area).
+Window: 11-08 16:51 to 11-15 16:51 CST (7 days; recorder holds 11-08 04:12 onward). Probe run 11-15 16:51:41. Rule: `old` = `bs_entity.area_id or camera_entry.area_id` (`camera_census.py:680`); `new` = `resolve_area_id_for_entity(bs) or resolve_area_id_for_entity(camera)` (`camera_resolver.py:474`, entity area else device area).
 
 Configured lists (integration entry): interior `camera_person_entities` = 12, `egress_cameras` = 4, `perimeter_cameras` = 12 camera.* entities. Roles below are resolved per registry DEVICE of each configured camera.* entity; no name is used.
 
@@ -255,18 +255,18 @@ First mismatches (CST, recorded unid, replay unid, replay camera_unrecognized, r
 
 | day | samples | unid>0 today | (ii) differs | (iii) differs | (iv) differs | (ii) crosses to 0 | (iii) crosses to 0 |
 |---|---|---|---|---|---|---|---|
-| 11-08 | 328 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 11-08 | 326 | 0 | 0 | 0 | 0 | 0 | 0 |
 | 11-09 | 1058 | 60 | 0 | 0 | 0 | 0 | 0 |
 | 11-10 | 1050 | 60 | 0 | 0 | 0 | 0 | 0 |
 | 11-11 | 1061 | 220 | 0 | 6 | 6 | 0 | 5 |
 | 11-12 | 1052 | 243 | 0 | 2 | 2 | 0 | 1 |
 | 11-13 | 1089 | 112 | 0 | 0 | 0 | 0 | 0 |
 | 11-14 | 1119 | 89 | 0 | 1 | 1 | 0 | 0 |
-| 11-15 | 757 | 3 | 0 | 0 | 0 | 0 | 0 |
+| 11-15 | 759 | 3 | 0 | 0 | 0 | 0 | 0 |
 
 Delta distribution (variant minus today, over all samples): (ii): {0: 7514}; (iii): {-1: 8, 0: 7505, 1: 1}; (iv): {-1: 8, 0: 7505, 1: 1}
 
-**INV-CENSUS-DOWN check (plan D0 discriminating criterion).** The invariant is stated over an evidence STATE S (before the stateful hold/decay machine), so it is tested two ways. (A) Stateless: at each of the 155980 evaluation instants (every input change + 5 s grid), variant (ii)/(iii) `camera_unrecognized`/pre-cancel vs today's: violations (ii) 0, (iii) 0; raw camera body total violations (ii) 0, (iii) 0. (B) Through the hold/decay machine, per census sample: samples where the variant's `unidentified_count` exceeds today's: (ii) 0, (iii) 1, (iv) 1; camera total exceeds: (ii) 0, (iii) 0, (iv) 0.
+**INV-CENSUS-DOWN check (plan D0 discriminating criterion).** The invariant is stated over an evidence STATE S (before the stateful hold/decay machine), so it is tested two ways. (A) Stateless: at each of the 155976 evaluation instants (every input change + 5 s grid), variant (ii)/(iii) `camera_unrecognized`/pre-cancel vs today's: violations (ii) 0, (iii) 0; raw camera body total violations (ii) 0, (iii) 0. (B) Through the hold/decay machine, per census sample: samples where the variant's `unidentified_count` exceeds today's: (ii) 0, (iii) 1, (iv) 1; camera total exceeds: (ii) 0, (iii) 0, (iv) 0.
 
 **Stateless INV-CENSUS-DOWN holds on this window (0 violations): per-area max and BLE cancel never raised the evidence-state count or the body total.**
 
@@ -307,6 +307,26 @@ Camera body total (raw census, `_cross_validate_platforms`) delta (iii) minus to
 | 21:00 | 51 | 2 | 5 | 2 | 2 | 5 | 2 | 5 | 2 | 3 | 5 | 5 |
 | 22:00 | 41 | 1 | 24 | 1 | 1 | 24 | 1 | 24 | 1 | 3 | 2 | 2 |
 | 23:00 | 45 | 1 | 7 | 1 | 1 | 8 | 1 | 8 | 1 | 1 | 2 | 2 |
+
+### Oracle (4): 11-14 head count (Q6 answered by the operator)
+
+Ground truth: party high-water mark **14 to 15 people**, no time given; recorded census peak 10 at 16:26 and 16:43; busy window about 16:00 to 19:00. Peak of each quantity over the whole of 11-14 (CST), person total = identified + unidentified:
+
+| semantics | 11-14 peak | at (CST) | short of 14 | short of 15 |
+|---|---|---|---|---|
+| recorded `total_persons` | 10 | 11-14 16:43:35 | 4 | 5 |
+| (i) today, replayed | 10 | 11-14 16:15:30 | 4 | 5 |
+| (ii) device areas, per-area max | 10 | 11-14 16:15:30 | 4 | 5 |
+| (iii) + BLE cancel (CORRECT) | 10 | 11-14 16:15:30 | 4 | 5 |
+| (iv) + stuck discount | 10 | 11-14 16:15:30 | 4 | 5 |
+| raw camera body total (i) | 10 | 11-14 16:15:30 | 4 | 5 |
+| raw camera body total (ii) | 10 | 11-14 16:15:30 | 4 | 5 |
+| raw camera body total (iii) | 10 | 11-14 16:15:30 | 4 | 5 |
+| raw camera body total (iv) | 10 | 11-14 16:15:30 | 4 | 5 |
+
+Within 16:00-19:00 (151 samples) CORRECT (iii) reads a lower person total than today on 1 samples.
+
+Reading: today's summing census already sits 4-5 below the operator's count at the peak; any semantics that can only lower the count (per-area max, BLE cancel) cannot close that gap. Whether CORRECT's removed double counts outweigh a lost real person is read from the table above: compare the (iii) peak with today's.
 
 ### Contradicted-zero table (the D4 gate input)
 
@@ -350,9 +370,9 @@ Calibration of the non-camera zone model against the recorded `sensor.zone_<z>_p
 
 | zone | recorded occupied min | model non-camera min | overlap min | recorded covered by model |
 |---|---|---|---|---|
-| Back Hallway | 2317.4 | 2757.1 | 2220.6 | 96% |
-| Entertainment | 2307.1 | 3359.7 | 2248.1 | 97% |
-| Master Suite | 3700.6 | 4218.5 | 3661.2 | 99% |
+| Back Hallway | 2314.7 | 2754.4 | 2218.0 | 96% |
+| Entertainment | 2306.4 | 3357.0 | 2247.4 | 97% |
+| Master Suite | 3698.9 | 4215.9 | 3659.5 | 99% |
 | Upstairs | 2332.5 | 2238.8 | 1988.8 | 85% |
 
 ### Minutes a zone reads occupied ONLY because of a camera (timeout 300 s + dead-hold included)
@@ -555,7 +575,6 @@ Probe self-checks: Wr/U old = 3/14 (PASS); (d)(i) unidentified match = 99.75% (P
 
 ## Plan Completion Tracking (D0 scope)
 
-- Done: (a)-(h), self-checks, gate verdicts on sources 1-3.
-- Not done: oracle (4) of the contradicted-zero table (Q6 party head counts not supplied by the operator, marked PENDING). Evaluate it when the counts arrive: the 11-14 hour-by-hour table above is the comparand.
-- Not done: exact `frigate_object_name_pairs` twin collapse (not importable on the host); approximated and disclosed. It does not change any verdict.
-- Tracking: plan D0 acceptance rows are answered in the Verdicts table; D2 default room list = none; D3 go/no-go and D4 branch (KEEP) are the plan owner's edits.
+- Done: (a)-(h), self-checks, gate verdicts incl. oracle (4) after Q6 was answered.
+- Not done: exact `frigate_object_name_pairs` twin collapse (not importable on the host); approximated and disclosed; no verdict depends on it.
+- Caveat on oracle (4): the operator gave a peak without a time, so only peaks are comparable, not an hourly head count.
