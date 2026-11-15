@@ -35189,6 +35189,18 @@ cards:
   sweep_2026_11_15: "NEW. EGRESS-DIRECTION-AWARE-IDENTITY-1 is identity attach by direction (who), not direction correctness. No card covers the tracker's direction source (interior-camera timing windows, transit_validator.py:2408-2423) or its direction-keyed dedup (:2425-2438)."
   why: "AUDIT_door_vision_accuracy_2026_11_14.md: 6 of 17 readable clips mislabelled (arrivals labelled exit at the 18:59 party, 19:45, 16:14, 21:42), and 21 of 25 clustered pairs were one pass emitting both directions. Vision lands 10-200 s late and cannot correct synchronous readers: the census egress-face union (transit_validator.py:2575-2600, an F2 trust input) evicts an arriving face on a mislabelled exit; arrival notifications say the wrong thing. Review G: a pass-level dedup in _resolve_direction fixes 'one pass emits both' at the source for every reader."
   next: "Me: slot in PLANNING_crossing_vision.md §7 right after P3-D4, gated on P3-D0 (d) (opposite pairs share a Frigate event id); P3-D0 numbers are its baseline; plan + Tier 3 reviews before build."
+- id: CROSSING-GRADING-PAGE-1
+  title: "LAN-only grading page for door crossings (urakanban /grade/) so the operator's grades become the direction/count answer key"
+  thread: identity
+  status: in_progress
+  batch: person-sightings
+  tier: 1
+  created: '2026-11-15 18:00'
+  updated: '2026-11-15 18:00'
+  links: {parent: VISION-CROSSING-ANALYSIS-1, related: [VISION-AMBIGUOUS-CROSSINGS-1, EGRESS-TRACKER-DIRECTION-1]}
+  origin: {date: '2026-11-15', gist: 'Operator: "An actual page published with homelab? Best so it is out of band with chat." / "I can grade what you send me to accomplish the goal. No real limit."'}
+  why: "Every direction instrument scored 13-14/17 against an agent-made answer key with at least two doubtful labels (21:42:22 likely out; 15:12:14 ambiguous). The operator's grades replace it. Built: homelab-automation cbf5597 (server.js /api/grade + grades.jsonl, protected from rsync --delete), URA 67eab598 (scripts/grading/make_grade_batch.py, pull_grades.py -> quality/tests/fixtures/crossing_operator_grades.json). Family footage stays on the LAN site only."
+  next: "Me: batch 2 leads with all 46 answer-key clips, then pairs and recent; after grading, pull_grades.py and re-score every instrument (vision, I4, Elk/cover, I1 v3 directed rule, aerial/G6 motion rules) against operator labels."
 - id: DOOR-VISION-GROUP-UNDERCOUNT-1
   title: "Door vision undercounts every group of 3+ and returns false blanks: frames are 4 evenly spaced samples of the whole Frigate event (5-466 s), not centred on the crossing"
   thread: identity
