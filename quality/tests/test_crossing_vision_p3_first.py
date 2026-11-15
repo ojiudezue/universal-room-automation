@@ -691,14 +691,19 @@ async def test_p22_hold_states_knob_empty_releases_in_sleep(rig):
 
 
 @pytest.mark.asyncio
-async def test_two_room_input_needs_every_room_to_exclude(rig):
+@pytest.mark.parametrize("a_first", [True, False])
+async def test_two_room_input_needs_every_room_to_exclude(rig, a_first):
     """D-L1: the input is listed in rooms A and B; A P22-excludes it, B
-    counts it live -> it holds. Once B excludes it too, it releases."""
+    counts it live -> it holds. Once B excludes it too, it releases. Both
+    room orders (review C #105)."""
     room_a = _stuck_room(rig.mods, listed=[RADAR])
     room_b = _stuck_room(rig.mods, listed=[RADAR])
     room_a._exclusion_set.promote("p22_continuous", RADAR, "continuous_on")
+    if not a_first:
+        rig.hass.data[rig.C.DOMAIN]["room_entry_0b"] = room_b
     _install(rig, room_a, {RADAR})
-    rig.hass.data[rig.C.DOMAIN]["room_entry_b"] = room_b
+    if a_first:
+        rig.hass.data[rig.C.DOMAIN]["room_entry_b"] = room_b
     room_b.hass = rig.hass
     rig.hass.states.async_set(RADAR, "on")
     assert _state(rig) == "unknown"
@@ -714,6 +719,8 @@ async def test_two_room_input_needs_every_room_to_exclude(rig):
     ("Incorrect API key provided: sk-proj-AbC_123-xyz. See docs", "AbC_123-xyz"),
     ("401 Unauthorized, header Authorization: Bearer eyJhbGciOi.payload.sig",
      "eyJhbGciOi.payload.sig"),
+    ("400 for url https://gen.example/v1/x?Key=AIzaMixedCase1&a=b", "AIzaMixedCase1"),
+    ("400 for url https://gen.example/v1/x?KEY=AIzaUpperCase2", "AIzaUpperCase2"),
 ])
 async def test_error_text_scrubbed(rig, raw, secret):
     rig.llm.reply = RuntimeError(raw)
@@ -786,3 +793,206 @@ async def test_call_sends_max_tokens_4000(rig):
 async def test_default_daily_cap_93(rig):
     rig.hass.data[rig.C.DOMAIN].pop(rig.C.CROSSING_VISION_CAP_HASS_KEY, None)
     assert rig.cv.daily_cap() == 93
+
+
+
+# ------------------------------------------------ review C test gaps
+class _RaisingPresence:
+    @property
+    def house_state(self):
+        raise RuntimeError("presence not ready")
+
+
+def _p22_room(rig):
+    room = _stuck_room(rig.mods, listed=[RADAR])
+    room._exclusion_set.promote("p22_continuous", RADAR, "continuous_on")
+    return room
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("hs", ["", None])
+async def test_p22_holds_when_presence_state_empty(rig, hs):
+    """#100: presence exists but its house_state is empty / None -> P22
+    holds (unknown fails closed)."""
+    _set_house_state(rig, hs)
+    _install(rig, _p22_room(rig), {RADAR})
+    rig.hass.states.async_set(RADAR, "on")
+    assert _state(rig) == "unknown"
+    assert rig.cv.ledger_diag()["held"] == [RADAR]
+
+
+@pytest.mark.asyncio
+async def test_p22_holds_when_house_state_read_raises(rig):
+    """#101: the house-state read raising -> unknown -> P22 holds."""
+    from types import SimpleNamespace
+
+    rig.hass.data[rig.C.DOMAIN]["coordinator_manager"] = SimpleNamespace(
+        coordinators={"presence": _RaisingPresence()})
+    _install(rig, _p22_room(rig), {RADAR})
+    rig.hass.states.async_set(RADAR, "on")
+    assert _state(rig) == "unknown"
+
+
+@pytest.mark.asyncio
+async def test_wrapper_exception_keeps_holding(rig):
+    """#72: input_room_stuck_excluded raising -> the input holds."""
+    csh = importlib.import_module(f"{_PKG}.domain_coordinators.camera_stream_health")
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("room sweep failed")
+
+    _install(rig, _p22_room(rig), {RADAR})
+    rig.monkeypatch.setattr(csh, "input_room_stuck_excluded", _boom)
+    rig.hass.states.async_set(RADAR, "on")
+    assert _state(rig) == "unknown"
+    assert rig.cv.ledger_diag()["held"] == [RADAR]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("key", ["motion_sensors", "presence_sensors",
+                                 "occupancy_sensors"])
+async def test_listed_under_each_list_key_counts_as_live(rig, key):
+    """#96/#97: a room that lists the input under ANY of its three Tier-1
+    lists and does not exclude it answers False, which holds even though
+    another room excludes it."""
+    C = rig.C
+    conf = {"motion_sensors": C.CONF_MOTION_SENSORS,
+            "presence_sensors": C.CONF_MMWAVE_SENSORS,
+            "occupancy_sensors": C.CONF_OCCUPANCY_SENSORS}[key]
+    excl = _p22_room(rig)
+    live = _stuck_room(rig.mods)
+    live.cfg = {conf: [RADAR]}
+    _install(rig, excl, {RADAR})
+    rig.hass.data[C.DOMAIN]["room_entry_live"] = live
+    live.hass = rig.hass
+    rig.hass.states.async_set(RADAR, "on")
+    assert live.camera_input_room_stuck_excluded(RADAR) is False
+    assert _state(rig) == "unknown"
+
+
+@pytest.mark.asyncio
+async def test_held_ignored_stuck_cleared_when_map_unavailable(rig):
+    """#78: once the Tier-1 map is unavailable the ignored list empties."""
+    _install(rig, _p22_room(rig), {RADAR})
+    rig.hass.states.async_set(RADAR, "on")
+    assert _state(rig) == "known"
+    assert rig.cv.ledger_diag()["held_ignored_stuck"] == [RADAR]
+    rig.hass.data[rig.C.DOMAIN].pop("occupancy_substrate")
+    _state(rig)
+    assert rig.cv.ledger_diag()["held_ignored_stuck"] == []
+
+
+@pytest.mark.asyncio
+async def test_error_row_without_text_stores_none(rig):
+    """#4: an error reply with no error text stores None, not "None"."""
+    async def _no_text(*_a, **_k):
+        return {"status": rig.mods.pe.CROSSING_CALL_ERROR}
+
+    rig.monkeypatch.setattr(rig.mods.pe, "analyze_crossing_frames", _no_text)
+    await ended_crossing(rig, "ev-notext")
+    [row] = rows(rig)
+    assert row["outcome"] == "error"
+    assert row["error"] is None
+
+
+@pytest.mark.asyncio
+async def test_schedule_gate_skips_during_hold_without_request(rig):
+    """#35: a crossing during the hold is skipped_cap at schedule time; no
+    request is created (its event is still open, so a request would wait)."""
+    rig.cv._cap_hold = True
+    e = _now(rig) - timedelta(seconds=45)
+    s = e.timestamp() + 2
+    frigate(rig, "ev-sg", "garage_a", s)  # open event
+    await cross(rig, GARAGE_EGRESS, e)
+    assert [r["outcome"] for r in rows(rig)] == ["skipped_cap"]
+    assert list(rig.cv._requests) == []
+
+
+def test_rehydrate_knob_defaults_pinned(mods):
+    """#57/#58/#59: the shipped defaults."""
+    assert mods.const.CROSSING_VISION_CAP_REHYDRATE_TIMEOUT_S == 30
+    assert mods.const.CROSSING_VISION_CAP_REHYDRATE_RETRY_S == 60
+
+
+@pytest.mark.asyncio
+async def test_rehydrate_retry_waits_retry_s(rig):
+    """#45: the second attempt starts no sooner than RETRY_S after the
+    first (and not far later)."""
+    rig.monkeypatch.setattr(rig.C, "CROSSING_VISION_CAP_REHYDRATE_RETRY_S", 0.3)
+    loop = asyncio.get_running_loop()
+    stamps = []
+
+    async def _fail(*a, **k):
+        stamps.append(loop.time())
+        return 0, False
+
+    rig.monkeypatch.setattr(rig.db, "count_memory_episodes_by_type_ended_between",
+                            _fail)
+    await _restart(rig)
+    assert len(stamps) == 2
+    assert 0.3 <= stamps[1] - stamps[0] < 3.0
+
+
+@pytest.mark.asyncio
+async def test_setup_task_create_failure_keeps_hold(rig):
+    """#55/#115: the rehydrate task cannot be created -> state failed,
+    counted, and the counter stays at the cap."""
+    await rig.cv.async_teardown()
+    real = rig.hass.async_create_background_task
+
+    def _boom(coro, name=None, *a, **k):
+        if name == "crossing_vision_cap_rehydrate":
+            coro.close()
+            raise RuntimeError("no task")
+        return real(coro, name, *a, **k)
+
+    rig.monkeypatch.setattr(rig.hass, "async_create_background_task", _boom)
+    cv2 = rig.mods.cv.CrossingVisionShadow(rig.hass)
+    rig.cv = cv2
+    await cv2.async_setup()
+    assert cv2._cap_rehydrate_task is None
+    assert cv2.diag_status()["crossing_vision_cap_rehydrate"] == {
+        "state": "failed", "cap_hold": True, "cap_rehydrate_failed": 1}
+
+
+@pytest.mark.asyncio
+async def test_rehydrate_failed_page_scope_house(rig):
+    """#116: the LOW page is keyed on ("house",)."""
+    rig.monkeypatch.setattr(rig.C, "CROSSING_VISION_CAP_REHYDRATE_RETRY_S", 0.01)
+
+    async def _fail(*a, **k):
+        return 0, False
+
+    rig.monkeypatch.setattr(rig.db, "count_memory_episodes_by_type_ended_between",
+                            _fail)
+    await _restart(rig)
+    [page] = [p for p in rig.pages
+              if p["kind"] == "crossing_vision_cap_rehydrate_failed"]
+    assert page["key"] == ("house",)
+
+
+@pytest.mark.asyncio
+async def test_rehydrate_row_straddling_midnight(rig):
+    """#23: a call started before local midnight that ended after it counts
+    for the new day; one started today but ending after the NEXT midnight
+    does not."""
+    from homeassistant.util import dt as dt_util
+
+    mid = dt_util.as_utc(dt_util.start_of_local_day())
+    nxt = dt_util.as_utc(dt_util.start_of_local_day(
+        dt_util.now().date() + timedelta(days=1)))
+    await _seed(rig, "s1", started_at=(mid - timedelta(seconds=5)).isoformat(),
+                ended_at=(mid + timedelta(seconds=5)).isoformat())
+    await _seed(rig, "s2", started_at=(nxt - timedelta(seconds=5)).isoformat(),
+                ended_at=(nxt + timedelta(seconds=5)).isoformat())
+    cv = await _restart(rig)
+    assert cv._calls_today == 1
+
+
+@pytest.mark.asyncio
+async def test_no_database_keeps_hold(rig):
+    """#32: no database -> both reads fail -> hold stays."""
+    rig.monkeypatch.setattr(rig.C, "CROSSING_VISION_CAP_REHYDRATE_RETRY_S", 0.01)
+    rig.hass.data[rig.C.DOMAIN].pop("database")
+    cv = await _restart(rig)
+    assert cv._cap_hold is True and cv._cap_rehydrate_state == "failed"
