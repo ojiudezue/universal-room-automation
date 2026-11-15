@@ -2815,10 +2815,14 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             clients = self._exclusion_set.clients_for(input_eid) & set(
                 _const.CROSSING_VISION_ANCHOR_STUCK_CLIENTS
             )
-            if "p22_continuous" in clients and self._house_state_value() in set(
-                _const.CROSSING_VISION_ANCHOR_P22_HOLD_STATES
-            ):
-                clients.discard("p22_continuous")
+            if "p22_continuous" in clients:
+                hs = self._house_state_value()
+                # Unknown house state (no manager / presence, e.g. at boot)
+                # fails CLOSED: P22 keeps holding (orchestrator 2026-11-15).
+                if hs is None or hs in set(
+                    _const.CROSSING_VISION_ANCHOR_P22_HOLD_STATES
+                ):
+                    clients.discard("p22_continuous")
             if clients:
                 return True
             listed = set()

@@ -413,6 +413,10 @@ def _stuck_room(mods, *, dead=None, stuck_kinds=None, listed=()):
 
 def _install(rig, room, eids):
     D = rig.C.DOMAIN
+    # A known, non-sleep house state unless the test sets one (an unknown
+    # state keeps P22 holding, fail closed).
+    if "coordinator_manager" not in rig.hass.data[D]:
+        _set_house_state(rig, "away")
     rig.hass.data[D]["occupancy_substrate"] = _Substrate(set(eids))
     rig.hass.data[D]["room_entry_media"] = room
     room.hass = rig.hass
@@ -611,6 +615,7 @@ async def test_house_wrapper_folds_rooms(rig):
     no room answering = False."""
     csh = importlib.import_module(f"{_PKG}.domain_coordinators.camera_stream_health")
     assert csh.input_room_stuck_excluded(rig.hass, RADAR) is False
+    _set_house_state(rig, "away")
     room_a = _stuck_room(rig.mods)  # does not list it: no opinion
     room_b = _stuck_room(rig.mods)
     room_a.hass = room_b.hass = rig.hass
@@ -732,3 +737,21 @@ async def test_call_time_gate_reads_hold(rig):
     await settle(rig)
     assert rig.llm.calls == []
     assert [r["outcome"] for r in rows(rig)] == ["skipped_cap"]
+
+
+@pytest.mark.asyncio
+async def test_p22_holds_when_house_state_unknown(rig):
+    """No coordinator manager / presence (boot): P22 fails CLOSED."""
+    room = _stuck_room(rig.mods, listed=[RADAR])
+    room._exclusion_set.promote("p22_continuous", RADAR, "continuous_on")
+    D = rig.C.DOMAIN
+    rig.hass.data[D]["occupancy_substrate"] = _Substrate({RADAR})
+    rig.hass.data[D]["room_entry_media"] = room
+    room.hass = rig.hass
+    rig.cv._ledger.empty_reset_s = 0
+    rig.hass.data[D].pop("coordinator_manager", None)
+    rig.hass.states.async_set(RADAR, "on")
+    assert _state(rig) == "unknown"
+    assert rig.cv.ledger_diag()["held"] == [RADAR]
+    _set_house_state(rig, None)  # presence present, state not set
+    assert _state(rig) == "unknown"
