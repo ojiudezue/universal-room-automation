@@ -3565,9 +3565,10 @@ CONF_CROSSING_VISION_DAILY_CALLS: Final = "crossing_vision_daily_calls"
 # Rung 3 default (Number). §15.9.5: max measured day 30 + headroom; 0 = no
 # calls. The counter resets at local midnight and is rehydrated at setup from
 # today's call rows (P3-D5), so a restart no longer grants a fresh cap. The
-# default is re-sized from the P3-D0 (a) volume probe (ceil(max simulated
-# daily calls x 1.5), <= MAX); until that probe reports it stays 40.
-CROSSING_VISION_DAILY_CALLS: Final = 40
+# default is sized from the P3-D0 (a) volume probe: ceil(max simulated daily
+# calls x 1.5) = ceil(62 x 1.5) = 93 (AUDIT_crossing_vision_p3_d0_2026_11_15.md),
+# <= MAX. An operator-set Number value wins.
+CROSSING_VISION_DAILY_CALLS: Final = 93
 CROSSING_VISION_DAILY_CALLS_MAX: Final = 200
 # Rung 1: model change needs a dry call first (D5 moves it). Operator
 # 2026-11-13: the producer uses its own llmvision entry "OpenAI Madrone
@@ -3589,8 +3590,13 @@ CONF_CROSSING_VISION_PROVIDER_ID: Final = "crossing_vision_provider_id"
 CROSSING_VISION_PROVIDER_ID: Final = "01M7B731T26P2HXVW77AQR62PP"
 # Rung 1 (review A6): own max_tokens, so lowering the perimeter's
 # CONF_PERIMETER_ENRICHMENT_MAX_TOKENS for alerts cannot truncate this JSON.
-# 1500 = the perimeter default the D0 dry calls ran with.
-CROSSING_VISION_MAX_TOKENS: Final = 1500
+# 4000 (P3-D0, AUDIT_crossing_vision_p3_d0_2026_11_15.md): at 1500 llmvision
+# returned EMPTY text on all 6 calls for the 18:43 / 18:59 large-group clips
+# (recorded `refused`, no count); at 4000 they returned 5 and 8 people with the
+# right direction. Likely cause of group undercounts / failed rows. Cost: more
+# output tokens on large groups only; P3-D0 measured p50 ~25-30 s on 8 frames
+# (the live path sends 4), inside CROSSING_VISION_TIMEOUT_S 90.
+CROSSING_VISION_MAX_TOKENS: Final = 4000
 # Rung 1: first (pre-roll) frame + 3. Keep >= 3: D0b found the first
 # frame empty in 53 % of responses.
 CROSSING_VISION_MAX_FRAMES: Final = 4

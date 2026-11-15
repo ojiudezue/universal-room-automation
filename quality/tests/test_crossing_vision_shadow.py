@@ -324,7 +324,7 @@ async def test_one_call_one_row_per_crossing(rig):
     assert "event_id" not in call
     assert call["model"] == "gpt-6-luna"
     assert call["provider"] == "01M7B731T26P2HXVW77AQR62PP"
-    assert call["max_tokens"] == 1500
+    assert call["max_tokens"] == 4000
     assert call["max_frames"] == 4 and call["target_width"] == 768
     assert call["response_format"] == "json"
     assert json.loads(call["structure"])["required"] == [
@@ -1063,7 +1063,7 @@ async def test_daily_cap_number_publishes_and_persists(mods, hass):
     fresh = MockConfigEntry(domain=C.DOMAIN, entry_id="cm2", data={
         C.CONF_ENTRY_TYPE: C.ENTRY_TYPE_COORDINATOR_MANAGER})
     n2 = num_mod.CrossingVisionDailyCallsNumber(hass, fresh)
-    assert n2.native_value == 40.0
+    assert n2.native_value == 93.0
 
 
 @pytest.mark.asyncio
@@ -1205,7 +1205,7 @@ async def test_number_platform_registers_daily_calls_number(mods, hass):
             if type(e).__name__ == "CrossingVisionDailyCallsNumber"]
     assert len(hits) == 1
     assert hass.data[mods.const.DOMAIN][
-        mods.const.CROSSING_VISION_CAP_HASS_KEY] == 40
+        mods.const.CROSSING_VISION_CAP_HASS_KEY] == 93
 
 
 # ------------------------------------------------------ INV-OFF (M04)
@@ -1528,7 +1528,7 @@ async def test_call_arguments_timeout_provider_tokens(rig):
     """M68 / K14: timeout_s handed to the adapter is 90 s (plan F6: above
     llmvision's own 60 s request timeout). Model wiring: provider is the
     operator's "OpenAI Madrone Vision" entry and model gpt-6-luna. A6: the
-    crossing max_tokens (1500) does not follow the perimeter option."""
+    crossing max_tokens (4000, P3-D0) does not follow the perimeter option."""
     seen: list = []
     real = rig.mods.pe.analyze_crossing_frames
 
@@ -1548,7 +1548,7 @@ async def test_call_arguments_timeout_provider_tokens(rig):
     assert kw["model"] == "gpt-6-luna"
     call = rig.llm.calls[0]
     assert call["provider"] == "01M7B731T26P2HXVW77AQR62PP"
-    assert call["max_tokens"] == 1500
+    assert call["max_tokens"] == 4000
 
 
 def _set_provider_option(rig, value):

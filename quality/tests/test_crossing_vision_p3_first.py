@@ -755,3 +755,34 @@ async def test_p22_holds_when_house_state_unknown(rig):
     assert rig.cv.ledger_diag()["held"] == [RADAR]
     _set_house_state(rig, None)  # presence present, state not set
     assert _state(rig) == "unknown"
+
+
+# ------------------------------------------------ P3-D0 follow-ups
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reply", [
+    {"response_text": ""},
+    {"response_text": "   "},
+    {"structured_response": {}},
+    {},
+])
+async def test_empty_reply_never_a_zero_count(rig, reply):
+    """An EMPTY llmvision reply (the max_tokens failure on big groups) is
+    `refused` with no count, never `blank`/`ok` and never 0 people."""
+    rig.llm.reply = reply
+    await ended_crossing(rig, "ev-empty", peak=3)
+    [row] = rows(rig)
+    assert row["outcome"] == "refused"
+    assert row["people_count"] is None
+    assert row["frame_counts"] is None
+
+
+@pytest.mark.asyncio
+async def test_call_sends_max_tokens_4000(rig):
+    await ended_crossing(rig, "ev-mt")
+    assert rig.llm.calls[0]["max_tokens"] == 4000
+
+
+@pytest.mark.asyncio
+async def test_default_daily_cap_93(rig):
+    rig.hass.data[rig.C.DOMAIN].pop(rig.C.CROSSING_VISION_CAP_HASS_KEY, None)
+    assert rig.cv.daily_cap() == 93
