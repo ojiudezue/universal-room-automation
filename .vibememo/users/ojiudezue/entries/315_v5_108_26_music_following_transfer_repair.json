@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "315",
+  "author": "ojiudezue",
+  "session_id": "claude_20261115_214407_ship_v5_108_26",
+  "timestamp": "2026-11-15T21:44:07Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.108.26 shipped: Music following transfer repair",
+  "summary": "Music following transfer repair",
+  "why": "Music following was audited as broken in November: transfers fired on stale presence, did not verify the target actually played, and bounced between adjacent rooms. The operator ruled it mission critical with no shadow mode: features die when they are not switched on, so it must work on day 1.",
+  "implications": "Shipped MUSIC-FOLLOWING-TRANSFER-REPAIR-1 at v5.108.26; card(s) sit shipped_organic pending validation. Acceptance in README_v5.108.26.md (Live criteria).",
+  "revisit_trigger": "If the live walk (D10) shows a missed or wrong transfer, or the outcome registry shows a failure rate above the plan's bar.",
+  "refs": {
+    "cards": [
+      "MUSIC-FOLLOWING-TRANSFER-REPAIR-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.108.26.md"
+    ],
+    "release_notes": "Music following transfers on live BLE presence, Music Assistant first with native backup, verifies on ground truth, bounce-safe between adjacent rooms, records every transfer outcome, live knobs. Ships on, day 1."
+  }
+}

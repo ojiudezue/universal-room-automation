@@ -71,6 +71,9 @@ def nightly_cleanup_ops() -> list[tuple[str, str, dict[str, Any]]]:
         ("memory_compactor", "run_memory_compactor", {}),
         # MEMORY-WRITERS-SILENT-DROP-1 D3: weekly writer-health trip-wire.
         ("memory_writer_health", "run_memory_writer_health_check", {}),
+        # MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D5.5: zero-success trip-wire +
+        # 7-day accuracy roll-up (delegates to the MusicFollowing singleton).
+        ("music_following_health", "run_music_following_health_check", {}),
     ]
 
 

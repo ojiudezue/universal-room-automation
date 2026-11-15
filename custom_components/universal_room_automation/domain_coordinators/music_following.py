@@ -25,7 +25,6 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from ..const import (
     DEFAULT_MF_COOLDOWN_SECONDS,
-    DEFAULT_MF_HIGH_CONFIDENCE_DISTANCE,
     DEFAULT_MF_MIN_CONFIDENCE,
     DEFAULT_MF_NIGHT_SUPPRESS_MODE,
     DEFAULT_MF_PING_PONG_WINDOW,
@@ -97,10 +96,10 @@ class MusicFollowingCoordinator(BaseCoordinator):
         unjoin_delay: int = DEFAULT_MF_UNJOIN_DELAY,
         position_offset: int = DEFAULT_MF_POSITION_OFFSET,
         min_confidence: float = DEFAULT_MF_MIN_CONFIDENCE,
-        high_confidence_distance: float = DEFAULT_MF_HIGH_CONFIDENCE_DISTANCE,
         sleep_suppress: bool = DEFAULT_MF_SLEEP_SUPPRESS,
         night_suppress_mode: str = DEFAULT_MF_NIGHT_SUPPRESS_MODE,
         stale_transition_seconds: float = DEFAULT_MF_STALE_TRANSITION_SECONDS,
+        options: dict | None = None,
     ) -> None:
         """Initialize the Music Following Coordinator."""
         super().__init__(
@@ -127,9 +126,37 @@ class MusicFollowingCoordinator(BaseCoordinator):
         # baseline slowly moving over weeks (visible only in the per-coord
         # anomaly sensor's metrics dict).
         self._first_emit_logged: set[str] = set()
-        self._high_confidence_distance = high_confidence_distance
         self._music_following = None
         self._pending_tasks: set[asyncio.Task] = set()
+        # MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D7: the raw CM options (every
+        # MF knob, incl. the new ones) and the diagnostic-listener unsub.
+        self._options: dict = dict(options or {})
+        self._unsub_diag = None
+
+    def _mf_config(self) -> dict:
+        """Every MF knob: the constructor kwargs, overlaid by raw options."""
+        from ..const import (  # noqa: PLC0415
+            CONF_MF_COOLDOWN_SECONDS,
+            CONF_MF_NIGHT_SUPPRESS_MODE,
+            CONF_MF_PING_PONG_WINDOW,
+            CONF_MF_POSITION_OFFSET,
+            CONF_MF_RELEASE_DELAY,
+            CONF_MF_SLEEP_SUPPRESS,
+            CONF_MF_STALE_TRANSITION_SECONDS,
+            CONF_MF_VERIFY_DELAY,
+        )
+        cfg = {
+            CONF_MF_COOLDOWN_SECONDS: self._cooldown_seconds,
+            CONF_MF_PING_PONG_WINDOW: self._ping_pong_window,
+            CONF_MF_VERIFY_DELAY: self._verify_delay,
+            CONF_MF_RELEASE_DELAY: self._unjoin_delay,
+            CONF_MF_POSITION_OFFSET: self._position_offset,
+            CONF_MF_SLEEP_SUPPRESS: self._sleep_suppress,
+            CONF_MF_NIGHT_SUPPRESS_MODE: self._night_suppress_mode,
+            CONF_MF_STALE_TRANSITION_SECONDS: self._stale_transition_seconds,
+        }
+        cfg.update(self._options)
+        return cfg
 
     async def async_setup(self) -> None:
         """Set up the coordinator.
@@ -142,16 +169,11 @@ class MusicFollowingCoordinator(BaseCoordinator):
         mf = self.hass.data.get(DOMAIN, {}).get("music_following")
         if mf is not None:
             self._music_following = mf
-            # Apply configurable tuning parameters
-            mf.MIN_CONFIDENCE = self._min_confidence
-            mf._mf_high_confidence_distance = self._high_confidence_distance
-            # v5.10.0 D2/D6: push gate config into the singleton
+            # MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D7: every knob reaches the
+            # engine through ONE call (the same one the in-place options
+            # apply uses), replacing the dead monkey-assigns.
             try:
-                mf.update_gate_config(
-                    sleep_suppress=self._sleep_suppress,
-                    night_suppress_mode=self._night_suppress_mode,
-                    stale_transition_seconds=self._stale_transition_seconds,
-                )
+                mf.apply_config(self._mf_config())
                 # v5.10.0 fix-up FIX-1 (C-CRIT-1): seed the initial house state
                 # via the REAL access path so the gate is armed on setup /
                 # reload / restart-into-SLEEP without waiting for the first
@@ -209,15 +231,8 @@ class MusicFollowingCoordinator(BaseCoordinator):
                 )
             _LOGGER.info(
                 "MusicFollowingCoordinator setup: wrapping existing MusicFollowing "
-                "(cooldown=%ds, ping_pong=%ds, verify=%ds, unjoin=%ds, "
-                "position_offset=%d, min_confidence=%.2f, high_conf_dist=%.1fft)",
-                self._cooldown_seconds,
-                self._ping_pong_window,
-                self._verify_delay,
-                self._unjoin_delay,
-                self._position_offset,
-                self._min_confidence,
-                self._high_confidence_distance,
+                "(knobs=%s)",
+                mf.knobs() if hasattr(mf, "knobs") else {},
             )
         else:
             _LOGGER.warning(
@@ -262,7 +277,7 @@ class MusicFollowingCoordinator(BaseCoordinator):
 
         # Wire diagnostic listener so transfer outcomes feed anomaly detector
         if self._music_following is not None:
-            self._music_following.add_diagnostic_listener(
+            self._unsub_diag = self._music_following.add_diagnostic_listener(
                 self._on_transfer_outcome
             )
 
@@ -341,16 +356,14 @@ class MusicFollowingCoordinator(BaseCoordinator):
 
         try:
             stats = self._music_following._transfer_stats
-            # v4.6.5.2 Fix 1: use _TRANSFER_KEYS as denominator for success_rate
-            # so pre-music rejections (low_confidence, ping_pong_suppressed)
-            # don't dominate. Cooldown is a special case — handled separately
-            # below with its own denominator.
-            from ..music_following import MusicFollowing as _MF
-            music_attempts = sum(stats.get(k, 0) for k in _MF._TRANSFER_KEYS)
+            # MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D4: numerator and denominator
+            # come from the ONE outcome registry (success + success_nudged
+            # over MF_TRANSFER_KEYS).
+            music_attempts = self._music_following.transfer_attempts()
 
             if music_attempts > 0:
                 # transfer_success_rate: of music-involved attempts, fraction succeeded
-                success_rate = stats.get("success", 0) / music_attempts
+                success_rate = self._music_following.success_count() / music_attempts
                 # v4.6.5.3 M4: one-shot info-log so operators can spot when
                 # the v4.6.5.2 Fix 1 denominator change starts feeding the
                 # baseline. Logged on the FIRST post-deploy emit only.
@@ -650,24 +663,24 @@ class MusicFollowingCoordinator(BaseCoordinator):
             )
 
     async def _stop_all_playback(self) -> None:
-        """Stop all active media players (safety/security response).
+        """Critical safety / security stop of the speakers URA drives.
 
-        Iterates all media_player entities in the playing state and
-        sends media_stop. Best-effort: failures logged but do not propagate.
+        MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D7.4 + review fix-up (A-M1, B2):
+        scoped to the speakers URA drives (configured room / zone players
+        AND every speaker music following started itself), not every
+        media_player in the house (352 live, incl. TVs, phones and Macs).
+        Delegated to ``MusicFollowing.async_hazard_stop``, which also
+        cancels in-flight moves, blocks new ones for MF_HAZARD_BLOCK_S and
+        stops with the URA context. Best-effort: never raises.
         """
-        stopped = 0
-        for state in self.hass.states.async_all("media_player"):
-            if state.state in ("playing", "paused"):
-                try:
-                    await self.hass.services.async_call(
-                        "media_player", "media_stop",
-                        {"entity_id": state.entity_id}, blocking=False,
-                    )
-                    stopped += 1
-                except Exception:  # noqa: BLE001
-                    _LOGGER.warning(
-                        "MusicFollowing: Failed to stop %s", state.entity_id
-                    )
+        mf = self._music_following or self.hass.data.get(DOMAIN, {}).get("music_following")
+        if mf is None:
+            return
+        try:
+            stopped = await mf.async_hazard_stop()
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning("MusicFollowing: hazard stop failed", exc_info=True)
+            return
         if stopped > 0:
             _LOGGER.info("MusicFollowing: Stopped %d media player(s)", stopped)
 
@@ -678,6 +691,14 @@ class MusicFollowingCoordinator(BaseCoordinator):
             task.cancel()
         self._pending_tasks.clear()
         self._cancel_listeners()
+        # MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D7.2: drop the diagnostic listener
+        # this coordinator registered (it used to accumulate on every reload).
+        if self._unsub_diag is not None:
+            try:
+                self._unsub_diag()
+            except Exception:  # noqa: BLE001
+                pass
+            self._unsub_diag = None
         # v5.10.0 D6 (addresses C4): tell the standalone MusicFollowing to
         # clear its own in-flight cleanup tasks + volatile state. The
         # singleton is preserved across CM reload; without this call

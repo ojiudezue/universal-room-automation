@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.108.25
+# Universal Room Automation vv5.108.26
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -312,6 +312,8 @@ async def async_setup_entry(
             MusicFollowingTransfersTodaySensor(hass, entry),
             MusicFollowingActiveRoomsSensor(hass, entry),
             MusicFollowingLastTransferSensor(hass, entry),
+            # MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D5.3: implicit-reversal accuracy
+            MusicFollowingAccuracySensor(hass, entry),
             # v3.6.29: Notification Manager sensors
             NMLastNotificationSensor(hass, entry),
             NMNotificationsTodaySensor(hass, entry),
@@ -8309,7 +8311,11 @@ class MusicFollowingHealthSensor(AggregationEntity, SensorEntity):
         mf = self.hass.data.get(DOMAIN, {}).get("music_following")
         if mf:
             self._music_following = mf
-            mf.add_diagnostic_listener(self._on_diagnostic_update)
+            # MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D7.2: unsubscribe on removal
+            # (the listener used to outlive every CM reload).
+            _unsub = mf.add_diagnostic_listener(self._on_diagnostic_update)
+            if callable(_unsub):
+                self.async_on_remove(_unsub)
 
     @callback
     def _on_diagnostic_update(self) -> None:
@@ -8511,23 +8517,28 @@ class MusicFollowingTransfersTodaySensor(AggregationEntity, SensorEntity):
         mf = self.hass.data.get(DOMAIN, {}).get("music_following")
         if mf:
             self._music_following = mf
-            mf.add_diagnostic_listener(self._on_diagnostic_update)
+            # MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D7.2: unsubscribe on removal
+            # (the listener used to outlive every CM reload).
+            _unsub = mf.add_diagnostic_listener(self._on_diagnostic_update)
+            if callable(_unsub):
+                self.async_on_remove(_unsub)
 
     @callback
     def _on_diagnostic_update(self) -> None:
         """Handle push update from MusicFollowing."""
         self.async_schedule_update_ha_state()
 
-    # Stats that indicate actual music-involved transfer attempts
-    _TRANSFER_STATS = ("success", "failed", "unverified", "active_playback_blocked")
-
     @property
     def native_value(self) -> int:
-        """Return count of actual transfer attempts today (music-involved only)."""
+        """Return count of actual transfer attempts today (music-involved only).
+
+        MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D4: the attempt keys come from the
+        one outcome registry (``music_following.MF_TRANSFER_KEYS``).
+        """
         mf = self._music_following or self.hass.data.get(DOMAIN, {}).get("music_following")
         if mf is None:
             return 0
-        return sum(mf._transfer_stats.get(k, 0) for k in self._TRANSFER_STATS)
+        return mf.transfer_attempts()
 
     @property
     def icon(self) -> str:
@@ -8544,18 +8555,14 @@ class MusicFollowingTransfersTodaySensor(AggregationEntity, SensorEntity):
         if mf is None:
             return {}
         stats = mf._transfer_stats
-        total = sum(stats.values())
-        successes = stats.get("success", 0)
-        return {
-            "success": successes,
-            "failed": stats.get("failed", 0),
-            "unverified": stats.get("unverified", 0),
-            "cooldown_blocked": stats.get("cooldown_blocked", 0),
-            "active_playback_blocked": stats.get("active_playback_blocked", 0),
-            "low_confidence": stats.get("low_confidence", 0),
-            "ping_pong_suppressed": stats.get("ping_pong_suppressed", 0),
-            "success_rate": round(successes / total * 100, 1) if total > 0 else 0.0,
-        }
+        attempts = mf.transfer_attempts()
+        successes = mf.success_count()
+        from .music_following import MF_OUTCOMES  # noqa: PLC0415
+        out = {k: stats.get(k, 0) for k in MF_OUTCOMES}
+        out["success_rate"] = (
+            round(successes / attempts * 100, 1) if attempts > 0 else 0.0
+        )
+        return out
 
 
 class MusicFollowingActiveRoomsSensor(AggregationEntity, SensorEntity):
@@ -8582,7 +8589,11 @@ class MusicFollowingActiveRoomsSensor(AggregationEntity, SensorEntity):
         mf = self.hass.data.get(DOMAIN, {}).get("music_following")
         if mf:
             self._music_following = mf
-            mf.add_diagnostic_listener(self._on_diagnostic_update)
+            # MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D7.2: unsubscribe on removal
+            # (the listener used to outlive every CM reload).
+            _unsub = mf.add_diagnostic_listener(self._on_diagnostic_update)
+            if callable(_unsub):
+                self.async_on_remove(_unsub)
 
     @callback
     def _on_diagnostic_update(self) -> None:
@@ -8637,6 +8648,63 @@ class MusicFollowingActiveRoomsSensor(AggregationEntity, SensorEntity):
         return rooms
 
 
+class MusicFollowingAccuracySensor(AggregationEntity, SensorEntity):
+    """Share of music moves the person did not undo by hand.
+
+    MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D5.3. A success counts as reversed when,
+    within MF_REVERSAL_WINDOW_S, the new room is paused/stopped or the old
+    room resumes by a non-URA context (a person's hand). State = percent not
+    reversed over 7 days (nightly roll-up from room memory), or since start
+    until the first roll-up; None with no successes. Display only.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:bullseye-arrow"
+    _attr_native_unit_of_measurement = "%"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_music_following_accuracy"
+        self._attr_name = "Music Follow Accuracy"
+        self._attr_device_info = _music_following_device_info()
+        self._music_following = None
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        mf = self.hass.data.get(DOMAIN, {}).get("music_following")
+        if mf:
+            self._music_following = mf
+            _unsub = mf.add_diagnostic_listener(self._on_diagnostic_update)
+            if callable(_unsub):
+                self.async_on_remove(_unsub)
+
+    @callback
+    def _on_diagnostic_update(self) -> None:
+        self.async_schedule_update_ha_state()
+
+    def _acc(self) -> dict:
+        mf = self._music_following or self.hass.data.get(DOMAIN, {}).get("music_following")
+        if mf is None or not hasattr(mf, "accuracy"):
+            return {}
+        return mf.accuracy()
+
+    @property
+    def native_value(self):
+        return self._acc().get("pct")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        acc = self._acc()
+        return {
+            "successes": acc.get("successes", 0),
+            "reversals": acc.get("reversals", 0),
+            "by_kind": acc.get("by_kind", {}),
+            "by_room_pair": acc.get("by_pair", {}),
+            "window": acc.get("window", ""),
+        }
+
+
 class MusicFollowingLastTransferSensor(AggregationEntity, SensorEntity):
     """Last music transfer result with event details.
 
@@ -8662,7 +8730,11 @@ class MusicFollowingLastTransferSensor(AggregationEntity, SensorEntity):
         mf = self.hass.data.get(DOMAIN, {}).get("music_following")
         if mf:
             self._music_following = mf
-            mf.add_diagnostic_listener(self._on_diagnostic_update)
+            # MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D7.2: unsubscribe on removal
+            # (the listener used to outlive every CM reload).
+            _unsub = mf.add_diagnostic_listener(self._on_diagnostic_update)
+            if callable(_unsub):
+                self.async_on_remove(_unsub)
 
     @callback
     def _on_diagnostic_update(self) -> None:
