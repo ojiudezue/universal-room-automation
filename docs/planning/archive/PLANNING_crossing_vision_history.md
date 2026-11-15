@@ -41,3 +41,33 @@ Options considered and not taken:
 - A second "crowd" model call when the peak is 3+: rejected for more frames in the same call (no cap cost, no second
   model per crossing, a standing non-goal).
 - Accept the RAM cap residual: rejected for rehydration, because of the restart-storm history.
+
+## 2026-11-15 (later): Phase 3 plan-review fix-up
+
+Reviews: `docs/reviews/code-review/plan_review_crossing_vision_p3_completeness_2026_11_15.md` (H1, H2, M1-M6, L1-L6) and
+`plan_review_crossing_vision_p3_buildpred_G_2026_11_15.md` (B1-B12, G1-G3), both PLAN-FIX-REQUIRED on 810075a3. The
+Phase 3 section was rewritten in place; the census plan's F-LEAD row and §8 non-goal were amended in the same commit.
+
+Superseded text (810075a3), in substance:
+- `pass_key` = "the member's OWN matched Frigate event", computed with `_match_event`. Wrong: `_match_event` picks the
+  best event across the whole door group (`crossing_vision.py:761-778`), so the P3-D0 (d) gate measured the selector.
+  Replaced by the Pass rule (E inside one event's [start, end] ± pad, own camera preferred, None never matches) and a
+  round-trip negative set reported under both rules.
+- "the primary's vision values" written onto every cluster member. Replaced by per-member attributes; a round-trip
+  member never carries the primary's direction.
+- Term hold "max(vision outcome, E_primary + 110)" with no release site, no anchor rule, no gate re-read, no prune
+  coupling, and no statement for the no-request paths. Replaced by one release site, held terms blocking the anchor,
+  teardown drop (counted), gates re-read at release, prune exemption with `TERM_HOLD_S ≤ 2 × CLUSTER_S`, and per-path
+  counted residuals.
+- Late joiner keyed on `members[0].direction` (an ambiguous primary would double count). Replaced by `term_direction`.
+- Collapse described as if term-neutral. Replaced by W9-W11 naming the reconcile / credit changes.
+- Cap rehydrate "one query before the listener, DB error = cap" on a DAO that does not exist. Replaced by a new
+  error-reporting DAO (P3-D5 now Tier 2-DB), listener first at the cap sentinel, background rehydrate with timeout and
+  one retry, counting by `ended_at` (call time).
+- Recording-route fallback "in the same request" after an llmvision fetch failure (not buildable without a second
+  call). Replaced: pre-call failures fall back; a fetch failure is an `error` row.
+- A new `tracker_direction` row key. Replaced by reusing the existing `direction` key.
+- EGRESS-TRACKER-DIRECTION-1 "filed by P3-D7" (weeks out, no slot). Replaced by P3-D8 right after P3-D4, gated on
+  P3-D0 (d); §1 now states which readers keep the wrong direction until it ships.
+- Census plan: "vision direction" was a blanket non-goal and F-LEAD had no direction bar. Now F-LEAD needs P3-D6
+  FLIP-READY for the direction source in use, and every Phase 3 `pipeline_version` bump restarts bars a-e.

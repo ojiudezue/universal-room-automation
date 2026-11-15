@@ -71,7 +71,7 @@ agreement metadata.
 
 | Rung | Class | Consumers | Bar to promote (all measured; then operator Tier-3 checkpoint) | Status |
 |---|---|---|---|---|
-| 0 | (value flip) F-LEAD | changes the awareness value | Bars a, b, d, e (§3.4) AND every §15.7a number: ≥ 100 graded crossings over ≥ 7 days incl. ≥ 10 with a non-resident; exact ≥ 95 % overall and ≥ 90 % at night, per door; vision wins ≥ 80 % of B/C disagreements; false guest ≤ 2 %; healthy ≥ 95 %. After the flip the same numbers over a rolling 14 days are a trip-wire (AnomalyDetector → NM, "revert F-LEAD") | gated |
+| 0 | (value flip) F-LEAD | changes the awareness value | Bars a, b, d, e (§3.4) AND every §15.7a number: ≥ 100 graded crossings over ≥ 7 days incl. ≥ 10 with a non-resident; exact ≥ 95 % overall and ≥ 90 % at night, per door; vision wins ≥ 80 % of B/C disagreements; false guest ≤ 2 %; healthy ≥ 95 %. After the flip the same numbers over a rolling 14 days are a trip-wire (AnomalyDetector → NM, "revert F-LEAD") AND direction: the crossing plan's P3-D6 disposition reads FLIP-READY for the ledger's direction source in use (tracker sign accuracy or vision under INV-DIR-GATE, same 0.90 Wilson lower bound), because term signs, not only counts, decide `L`. Every `pipeline_version` bump (crossing plan P3-D2, P3-D3, P3-D7) restarts bars a-e and these windows | gated |
 | 1 | `display` | the two awareness entities, `crossing_vision_last`, personalization suggestions (suggestion = display) | none: legal and active at deploy (`frozenset({"display"})`), because F2-A equals F2-T until F-LEAD | ships active |
 | 2 | `notification` (F-NOTIFY) | the arrival count follow-up (sibling plan) | bars a, b, d, e + bar c (groups) + exact-count ≥ `CROSSING_VISION_NOTIFY_EXACT_MIN` (0.90) on ≥ `CROSSING_VISION_NOTIFY_MIN_GRADED` (30) graded crossings, AND EGRESS-DIRECTION-AWARE-IDENTITY-1 shipped or measured entry attach ≥ `CROSSING_VISION_NOTIFY_MIN_ATTACH` (0.50). Names stay ≥ 0.75 from F3 | legal now, inactive |
 | 3 | `comfort` | HVAC guest mode, pre-arrival conditioning (operator 2026-11-13: "HVAC is comfort basically so since it's not security I'd say it can once it's earned") | F-LEAD live ≥ 30 days with the rolling F-LEAD numbers held, false guest ≤ `CENSUS_LADDER_COMFORT_FALSE_GUEST_MAX` (0.02) on comfort-relevant hours, and a rung plan that reads `HVAC_ARCHITECTURE_STATE_OF_PLAY.md` completely and names the HVAC input it changes. Which HVAC input drives guest mode today is not verified here | NOT legal; needs its own Tier-3 plan |
@@ -343,7 +343,8 @@ re-runs INV-P2-AWAY-LATENCY, and meets the §3.2 bar. Card per rung at promotion
 
 ## 8. Non-goals
 
-Changing any trust-view field or the census payload; vision supplying a name; vision direction; promoting comfort,
+Changing any trust-view field or the census payload; vision supplying a name; vision direction in a ledger term before
+the crossing plan's INV-DIR-GATE bar (`PLANNING_crossing_vision.md` Phase 3; lifted from a blanket non-goal 2026-11-15); promoting comfort,
 house_state or security in this plan; per-zone awareness (VISION-INTERIOR-SIGHTINGS-1); building the `M_cam`, `U_gr`,
 WiFi or interior-vision terms (their own plans, through §3.3); the estimator's door-tally attribution pipeline (§9);
 `HouseState.GUEST` migration (superseded by GUEST-MODE-SPLIT-VISITORS-1, v5.108.0); exterior or property census.
