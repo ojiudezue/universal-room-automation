@@ -193,6 +193,7 @@ zone tier, lock regime, perimeter, music, presence inference.
 | Service | One read | Consumers allowed | Forbidden |
 |---|---|---|---|
 | Camera input stream health | `camera_stream_health.input_stream_dead / camera_stream_dead / entity_stream_dead / input_stream_view / entity_stream_view / input_room_quarantined` (`:529-668`) | room fusion, zone tier, fan recheck, census (as "missing"), crossing ledger held-input check (dead/view, never released-as-off, §3 INV-MISSING-NOT-ZERO), NVR witness | scanning `hass.data[DOMAIN]` for an object with a matching attribute outside `camera_stream_health._room_coordinators` (its owner row); re-deriving availability |
+| Camera twin rule (ship 3b) | `camera_twin_health.physical_camera_dead(hass, entity_or_device)` (every paired NVR device lost; pages and diagnostics only); the one room-input list `camera_stream_health.room_stream_input_entities(hass, entry)` (room config entry lists plus the camera manager's area lookup); the one stuck-signal PAGE key `camera_stream_health.page_camera_key(er, dr, device)` (pure: the Frigate camera of a W1-paired device, else the device's own camera) | the camera stream-health pages (room trackers, the twin owner), diagnostics | a reader substituting a twin's reading (option A); a page key built from the owner's map or from an entity-id string; a hold, view or anchor reading `physical_camera_dead` |
 | NVR witness (W2, planned) | `nvr_witness.family_of`, `corroborated(cam, t, window)`, `families_on_now`, `platform_for` | the 4 comparison sites (census `_cross_validate_platforms`, transit `_count_platforms_fired` `transit_validator.py:2733`, perimeter `_apply_single_source_gate` `perimeter_alert.py:5038`, room fusion agreement `binary_sensor.py:1837-1868`) | entity-name suffix family tests; per-site classifiers |
 | Identity evidence (census) | public `PersonCensus` methods: `resolve_face_legs`, `resolve_ble_legs`, `tracked_person_slugs` (batch-2 `camera_census.py:4061`), `egress_identity_enabled` (`:4085`), `canonical_person_slug`, `known_face_guests`, `face_person_would_be_vetoed`, `face_suppressed_now` | layer producers only: egress tracker (F3), sighting producer (F4), perimeter D10.5 (until it reads F3/F4 instead) | any consumer outside the producer list deciding on raw legs |
 | Person id rule | `person_ids.tracked_person_entity_id / slug_of / display_of / entity_key_slug` | everyone | inline `f"person.{slug.lower()}"`, `lower().replace(" ", "_")`, `.title()` inverses |
@@ -267,6 +268,19 @@ counted allowlist (owner-display exemption), never for a decision.
   (the anchor is not time-critical; a sleeping guest in front of a dead camera must not let it fire). Falsified by a
   dead input read as 0 / off before its cap, a release without the HIGH page, or the anchor firing while any Tier-1
   input's view is HELD or RELEASED.
+  **Ship 3b (built 2026-11-14, `feature/layer-ship3b`; plan `PLANNING_person_awareness_layer_ship3.md` §6):**
+  (a) *Device liveness.* A camera-derived input's "own camera" is its registry camera DEVICE
+  (`CAMERA_STREAM_DEVICE_LEVEL_INPUTS`, decided Q12): live if any enabled `camera.*` entity on it reads live; dead on a
+  tick only if no member is live, one reads `unavailable` (not restored) and its stamp (keyed by device id) passed the
+  grace. So the 10 multi-channel Protect / Reolink person sensors that reach readers get the same hold, cap and
+  release as Frigate inputs. (b) *Unwatched cameras.* The census interior and zone camera entities no room watches
+  (the unwatched set U, live: the foyer group) are stamped and held by ONE house tracker owned by
+  `camera_twin_health.CameraTwinHealth` (`CAMERA_STREAM_UNWATCHED_STAMPS_ENABLED`); the house readers ask it only when
+  no room has an opinion and only for an entity in U ∪ sticky. (c) *Pages, rule 2.* A camera is reported dead (HIGH)
+  only when EVERY paired NVR device has lost it (`physical_camera_dead`, W1 pairs with an NVR-platform check); one NVR
+  down with the other covering sends ONE MEDIUM `camera_stream_nvr_down_twin_covering` notice per member episode
+  (`CAMERA_STREAM_TWIN_COVERING_NOTICE_ENABLED`), never a HIGH. No reader takes a twin's reading (option A; per-reader
+  coverage parked as DEAD-CAMERA-TWIN-COVERAGE-1).
 
 ## 4. The read surface (one place, by class)
 
@@ -274,30 +288,70 @@ counted allowlist (owner-display exemption), never for a decision.
 
 | Fact | Method | Exists |
 |---|---|---|
-| F1 level | `get_residents_home(zone_persons=None)`, `get_residents_home_count()` | yes |
-| F1 edges | `get_recent_resident_arrival`, `get_residency_snapshot`, NEW `subscribe_person_edges(cb, *, persons, kinds)` (push), NEW `get_person_edges_since(t, *, persons, kinds)` (pull over the same `ResidencyTracker.recent` ledger, no second store); every edge carries `counted` | G1 new |
-| F2 | `get_house_census(view_for_class(cls))` | yes (literal-view callers to migrate) |
-| F3 | `get_last_crossing(camera)`, NEW `get_crossings_since(t, camera=None)`, NEW `get_crossing(source_ref)`, `get_last_arrival_record()`, NEW `entry_areas(camera=None)`, NEW `door_camera_device_ids()` | G2, G5 new |
-| F4 | `get_last_person_sighting(s)`; BLE via `get_person_location(name)`, `persons_in_room(room, active_only=False)`, `persons_in_room_or_scanner_areas(room)`, `location_moves_since(t)` (wrapped; a pull returning frozen `(person_entity, from_room, to_room, ts, method)` tuples, oldest first) | G6 new |
-| F5 | (push only) | |
-| class | `view_for_class(cls)`, `min_confidence(cls)` (wraps `CONSUMER_CLASS_MIN_CONFIDENCE`) | `min_confidence` new |
+| F1 level | `get_residents_home(zone_persons=None)`, `get_residents_home_count()`; push `PersonTrackingCoordinator.async_add_listener` (HA coordinator update; listed listeners only, §4.2) | yes |
+| F1 edges | `get_recent_resident_arrival`, `get_residency_snapshot`, NEW `subscribe_person_edges(cb, *, persons, kinds)` (push), NEW `get_person_edges_since(t, *, persons, kinds)` (pull over the same `ResidencyTracker.recent` ledger, no second store; plain tuple, `edge_ts >= t`, oldest first, `t` float epoch seconds) + `person_edges_truncated_since(t)`; every edge carries `counted` | G1 BUILT ship 3a D2 (phase 2) |
+| F2 | `get_house_census(cls=...)` / `census_view.house_census_view(hass, cls=...)` (the view chosen by `census_view.view_for_class`) | BUILT ship 3a D4; six display callers stay on the literal trust view (Q3) |
+| F3 | `get_last_crossing(camera)`, `get_crossings_since(t, camera=None)` (plain tuple of `CrossingRecord`, `ts >= t`, oldest first, `t` a `datetime`; covers at most `EGRESS_CROSSING_RING_MAX_AGE_S` and 32 records per camera, only since the tracker's creation, so no truncation read), `get_crossing(source_ref)`, `get_last_arrival_record()`, `door_camera_device_ids()`, `door_entry_entities()` / `door_neighbours_for_stem(stem)` (G5: entities, not areas, because the lock and perimeter resolve areas with different functions) | BUILT ship 3a D3 (G2, A3, A9, G5) |
+| F4 | `get_last_person_sighting(s)`; BLE via `get_person_location(name)`, `get_person_previous_seen(name)` (`person_coordinator.py`), `persons_in_room(room, active_only=False)`, `persons_in_room_or_scanner_areas(room)`, `location_moves_since(t)` on `PersonTrackingCoordinator`, with presence delegates `location_moves_since` / `location_moves_truncated_since` that never raise (plain tuple of frozen `PersonMove(person_entity, from_room, to_room, ts, method)`, `ts >= t`, oldest first, `t` a `datetime`) + `location_moves_truncated_since(t)` (True also when `t` is before the log's creation or older than `PERSON_LOCATION_MOVES_MAX_AGE_S`; on truncation, re-read `get_person_location`); push `TransitionDetector.async_add_listener` (listed listeners only) | moves BUILT ship 3a D4; G6 rest on G6-ONE-BLE-ROOM-READ-1 |
+| F5 | push only: `signals.subscribe_person_arriving(hass, cb)` (sync `cb(PersonArrivingPayload)`, delivered inline) | BUILT ship 3a D1 |
+| class | `view_for_class(cls)`, `min_confidence(cls)` (wraps `CONSUMER_CLASS_MIN_CONFIDENCE`; None for a class with no bar) | `min_confidence` BUILT ship 3a D4 |
+| F4 / F1 public reads ruled legitimate at the guard's first run (plan rev 3.3 §12, §17 (b)) | person coordinator `get_person_confidence`, `get_persons_in_zone`, `get_tracked_person_count`, `get_person_previous_location`, `get_person_previous_location_time`, `get_diagnostic_data` (display class); presence `should_veto_due_to_reliable_signals` (comfort / house_state, zone fallback) and `check_zone_occupancy_confidence` (comfort, HVAC D6 confirmation) | existing methods, on the read list since ship 3a (guard R2 does not flag them) |
+| evidence (ship 3b) | `PersonCensus.interior_camera_entities()` (the resolved census interior person sensors), `PresenceCoordinator.zone_camera_entities()` (zone camera tier cameras plus the Zone Manager `zone_cameras` picks, the HVAC D6 Source 3 list): read by the camera twin owner for its unwatched set U | ship 3b |
 
 Change to make INV-LAYER-CLASS enforceable: `house_census_view(hass, cls=...)` takes a CLASS, not a view, and calls
 `view_for_class` itself (the boot-window reason display entities call the module function stays valid).
 
-### 4.2 Push channels (six; one owner each; the only listeners allowed)
+### 4.2 Push channels (one owner each; the only listeners allowed)
 
-| Channel | Fact | Owner (only sender) |
+| Channel | Fact | Owner (only sender) | Listed listeners |
+|---|---|---|---|
+| `SIGNAL_CENSUS_UPDATED` | F2-T counts | `camera_census.py` | presence (house_state), `binary_sensor.py`, `sensor.py` (display) |
+| `ura_person_egress_event` (also through the module-local `EGRESS_EVENT` constants of `person_sighting.py` and `crossing_vision.py`) | F3 | `EgressDirectionTracker._resolve_direction` | the four egress display sensors (`sensor.py`), the sighting producer, crossing vision; perimeter's 600 s cache is an allowlist row (S6) |
+| `SIGNAL_EGRESS_RECORD_AMENDED` | F3 record amended (`role` ∈ `arrival_confirmed`, `exit_backfilled`, `pair_resolved`, crossing-vision attribute roles; payload `{role, source_ref, row_id, person_id, egress_camera, **payload_extra}`, `payload_extra` wins on a clash) | `transit_validator._send_record_amended`, reached only through G3 `EgressDirectionTracker.attach_crossing_attribute` / `transit_validator.amend_crossing` (BUILT ship 3a D3). Replaced `SIGNAL_EGRESS_EXIT_BACKFILLED` (deleted); its sender `_backfill_exit_identity` sends `role="exit_backfilled"` | the two exit-backfill display readers (Persons Exited Today, Last Person Exit; act on `role == "exit_backfilled"`); pre-listed for step 7 A5: the four egress display sensors and the sighting producer |
+| `SIGNAL_PERSON_SIGHTING` | F4 camera | `PersonSightingProducer._emit` | none (operator Q5) |
+| `ura_person_location_change` | F4 BLE | `PersonTrackingCoordinator` (the one move site) | `transitions.py` (learning, display) |
+| `SIGNAL_PERSON_ARRIVING` (`PersonArrivingPayload`) | F5 | `signals.dispatch_person_arriving` (BUILT ship 3a D1; the three producers send through it) | hvac (comfort), `domain_coordinators/music_following.py` (comfort), security (access), the connect inside `subscribe_person_arriving` |
+| `SIGNAL_RESIDENCY_EVENT` (census-p2) | F1 edges | `presence._feed_residency` | only the connect inside `subscribe_person_edges` (G1) |
+| `PersonTrackingCoordinator.async_add_listener` | F1 level / F4 BLE | HA coordinator update | the nine display sites (`aggregation.py`, `sensor.py`); reserved: step 8 music following; lock `record_bermuda_moves` is an allowlist row (S3) |
+| `TransitionDetector.async_add_listener` | F4 BLE re-publish | HA coordinator update | root `music_following.py` (comfort), `__init__.py` Bayesian (display) |
+
+Plus the F1 edge subscription (G1, a callback API, not a dispatcher channel; callback budget: sync, O(1), no await, no
+loop over `hass.states`, no service / executor / database / recorder call, real work scheduled; it runs inside
+`_feed_residency` before inference is scheduled, INV-AWAY-LATENCY). Payloads are additive-only; a key removal is a
+contract change.
+
+### 4.3 Ship 3a, phase 1: what is built (2026-11-14, `feature/layer-ship3a`, NOT deployed)
+
+Read shapes and time types (written the same way in every plan that consumes them):
+
+| Read | Returns | `t` |
 |---|---|---|
-| `SIGNAL_CENSUS_UPDATED` | F2-T counts | `camera_census.py` |
-| `ura_person_egress_event` | F3 | `EgressDirectionTracker._resolve_direction` |
-| `SIGNAL_EGRESS_RECORD_AMENDED` | F3 record amended (`role` ∈ `arrival_confirmed`, `exit_backfilled`, `pair_resolved`, crossing-vision attribute roles; payload `{role, source_ref, row_id, person_id, egress_camera, ...}`) | G3 `attach_crossing_attribute` only. Replaces `SIGNAL_EGRESS_EXIT_BACKFILLED` (`signals.py:83` batch-2), whose sender `_backfill_exit_identity` moves onto G3. Listeners: the four egress display sensors, the two exit-backfill display readers, the sighting producer |
-| `SIGNAL_PERSON_SIGHTING` | F4 camera | `PersonSightingProducer._emit` |
-| `ura_person_location_change` | F4 BLE | `PersonTrackingCoordinator` |
-| `SIGNAL_PERSON_ARRIVING` (`PersonArrivingPayload`) | F5 | `signals.dispatch_person_arriving` |
+| `get_person_edges_since(t, *, persons, kinds)` (D2) | plain tuple of `ResidencyEvent`, `edge_ts >= t`, oldest first; truncation via `person_edges_truncated_since(t)` | float epoch seconds |
+| `location_moves_since(t)` | plain tuple of frozen `PersonMove(person_entity, from_room, to_room, ts, method)`, `ts >= t`, oldest first; truncation via `location_moves_truncated_since(t)` | `datetime` |
+| `get_crossings_since(t, camera=None)` | plain tuple of `CrossingRecord`, `ts >= t`, oldest first; no truncation read (ring bound, RAM since creation) | `datetime` |
 
-Plus the F1 edge subscription (G1, a callback API, not a dispatcher channel). Payloads are additive-only; a key removal
-is a contract change.
+- **F5 ingest (G4):** `signals.dispatch_person_arriving(hass, payload)` rejects a missing / empty `source` (`ValueError`)
+  and sends `payload.to_signal()`: `person_entity`, `source`; `sighting` and `zone` iff `sighting is not None`; `ts` iff
+  set (plain dict literal). Each producer keeps its observation-mode suppression.
+- **F4 camera ingest:** typed latch `signals.register_face_latch_callback(hass, cb) -> unsub` and
+  `signals.face_latch_callbacks(hass) -> tuple` over the census face bridge's list (setup order unchanged); the key
+  string lives only in `signals.py`.
+- **F4 zone display write:** `ZonePresenceTracker.note_face(slug, when)` (the sighting producer's two assignments).
+- **G3 sender:** `transit_validator._send_record_amended(hass, payload)` (sole sender); entries `attach_crossing_attribute`
+  (owner side) and `transit_validator.amend_crossing(hass, ...)` (tracker → its G3; no tracker → the notice only).
+  Forbidden keys `camera`, `direction`, `ts`, `source_ref`, `confidence` (and any non-amendable key) raise.
+- **G5:** `door_entry_entities()` / `door_neighbours_for_stem(stem)`; `arrival_edges.door_entry_areas(tracker, area_of)`
+  keeps its signature and reads `tracker.door_entry_entities()`; the lock still passes
+  `hass.data[DOMAIN]["egress_tracker"]` (allowlist row, max 1), so the access path has no presence dependency.
+- **G9:** `PersonTrackingCoordinator.set_pre_arrival_enabled(value)`; `hvac.py` calls it.
+- **Layer diagnostics:** `PresenceCoordinator.get_layer_diagnostics()`, read on demand by the config-entry diagnostics
+  download (`diagnostics.py`, coordinator-manager entry, key `person_awareness_layer`); counters only, never config-entry
+  data / options.
+- **Phase 2 (built after census-p2 merged):** G1 `residency.subscribe_person_edges` (+ presence delegate; `@callback`
+  closure on `SIGNAL_RESIDENCY_EVENT`, coroutine / unknown kind rejected; crossing vision is its first subscriber),
+  `get_person_edges_since` / `person_edges_truncated_since`; the class-taking census view
+  (`census_view.view_for_class` is the one rule; `house_census_view(hass, view="trust", *, cls=None)`). The guard
+  allowlist is final: 231 rows, `LAYER_ALLOWLIST_TOTAL` 259 (file name kept).
 
 ## 5. Gaps the layer still needs (each a small public seam; none is a new fact)
 
@@ -307,7 +361,7 @@ is a contract change.
 | G2 | `get_crossings_since(t, camera)` | perimeter `_note_egress_identity` 600 s cache | PERSON-AWARENESS-READ-API-1 ship 3 |
 | G3 | `attach_crossing_attribute(source_ref, changes, provenance, *, camera, role, row_id=None, payload_extra={})` on the tracker: the one amend primitive (§2.3), sole sender of `SIGNAL_EGRESS_RECORD_AMENDED`; an AST guard test asserts it is the only `CrossingRecord` writer after creation | vision attribute store read sideways; private amend helpers; `SIGNAL_EGRESS_EXIT_BACKFILLED` | crossing vision Phase 2 or step 7, whichever builds first (the other extends it) |
 | G4 | `dispatch_person_arriving(hass, payload)` | 3 raw dict sends | read API ship 3 |
-| G5 | `EgressDirectionTracker.entry_areas()` public | `arrival_edges.door_entry_areas` reading tracker privates | read API ship 3 |
+| G5 | `EgressDirectionTracker.door_entry_entities()` / `door_neighbours_for_stem(stem)` public (entities, not areas; BUILT ship 3a D3) | `arrival_edges.door_entry_areas` and perimeter `_near_areas` reading tracker privates | read API ship 3 |
 | G6 | the ONE BLE-in-room read (§2.4a): `persons_in_room(room, *, active_only)`, `persons_in_room_or_scanner_areas(room)`, `room_for_area(area_id)`, `location_moves_since(t)`, frozen `snapshot()` | room occupancy `coordinator.py:1385, 3315, 4440, 5003`; fan recheck `_l1_persons`; fan_veto / lock / perimeter / music / house_status `.data` reads; `_ble_corroboration` twins | read API ship 3 (room-occupancy filter behind §9 Q1) |
 | G7 | named stream-health read for the ledger anchor: per Tier-1 input, `input_stream_view(hass, eid)` (and `entity_stream_view` for camera-derived inputs); any non-None view (HELD or RELEASED) = held; RELEASED is never "off" for the anchor; no substrate = blocked (unchanged) | `crossing_vision._held_inputs` hass.data scan (census-p2 `crossing_vision.py:1141-1145`) | census-p2 fix-up, after rebasing on batch-2 (S2 getters are not on census-p2) |
 | G8 | single owner of the crossing-vision row store + `_ledger_terms` (shared seam census-p2 ↔ crossing-vision-fast-stage) | two branches extending `crossing_vision.py` with no named owner (review D12) | owner: census-p2 (`PLANNING_census_deconfliction.md`); fast-stage rebases on it after census-p2 merges, writes provisional rows only (no `apply_term`, `people_count` None on blank); merge gate test: ledger terms come from stage-B rows only, a provisional row never applies a term |

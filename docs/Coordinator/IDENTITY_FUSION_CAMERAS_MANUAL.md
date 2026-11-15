@@ -49,6 +49,18 @@ Suffix vocabularies live in
 `camera_resolver.py:122-127` (`PLATFORM_FRIGATE`, `PLATFORM_UNIFI`,
 `PLATFORM_REOLINK`, `PLATFORM_AMCREST`, `PLATFORM_DAHUA`).
 
+**W1 consumer: the dead-camera twin rule (person-awareness ship 3b, built 2026-11-14, `feature/layer-ship3b`, NOT
+deployed; plan `PLANNING_person_awareness_layer_ship3.md` §6).** Camera stream health reads the NVR-WITNESS W1 pairing
+(`CameraResolver.frigate_object_name_pairs`, §4.1) to build a device twin map: a Frigate device and its W1 sibling are
+twins only when every enabled camera entity on the Frigate device has registry platform `frigate` and every one on the
+sibling is `unifiprotect` / `reolink` / `amcrest` / `dahua`, at least one on each side (live: 17 admitted Frigate ↔
+Protect, 3 Frigate ↔ ESPHome kiosk panel rejected). A camera is reported dead (HIGH page) only when EVERY twin device
+has lost it; one NVR down with the other covering sends a MEDIUM notice. No reader takes a twin's reading (option A).
+Liveness is per registry DEVICE: a Protect device with 2-4 channels (high / medium / low / package) is live when any
+channel is live; the dual-lens package channel is a member (no registry field marks it; card
+DUAL-LENS-PACKAGE-CHANNEL-MEMBERSHIP-1). Non-W1 pairs (pool-overhead's four integrations) stay per device until NVR
+witness W2. Details: `PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md` header (ship 3b entry).
+
 ### 1.1 The `_2` suffix — permanent and camera-group-dependent
 
 Frigate-1 was decommissioned 2026-08-13. Its entities are **fully
@@ -525,8 +537,11 @@ names the nearest NULL exit row in the 600 s before the edge
   `ble_exit_identity_disabled_skip_count` on the census sensor.
 - **Displays:** `PersonsExitedTodaySensor` re-reads today's exits and
   `LastPersonExitSensor` (R1) re-reads the newest exit row on
-  `SIGNAL_EGRESS_EXIT_BACKFILLED`. The last-exit display only takes the name
-  if the newest row is the one named.
+  `SIGNAL_EGRESS_RECORD_AMENDED` with `role == "exit_backfilled"` (person-awareness
+  layer ship 3a D3, branch `feature/layer-ship3a`, NOT deployed: the backfill sends
+  through G3 `transit_validator.amend_crossing`, crossing ring untouched; the retired
+  `SIGNAL_EGRESS_EXIT_BACKFILLED` carried `{row_id, person_id}`, the new payload is a
+  superset). The last-exit display only takes the name if the newest row is the one named.
 - **Never:** re-notify (backfill confidence 0.72 is below the 0.75 naming bar
   anyway), census recount/evict, or any actuation.
 - Any future trust consumer of exit `person_id` must read after the backfill

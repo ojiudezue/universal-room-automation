@@ -1,0 +1,26 @@
+{
+  "format_version": "2.1",
+  "entry_id": "314",
+  "author": "ojiudezue",
+  "timestamp": "2026-11-15T20:45:00Z",
+  "type": "pivot",
+  "weight": "significant",
+  "category": "architecture",
+  "title": "Door vision counts singles well; direction is the failure, so vision becomes a gated second opinion on direction",
+  "summary": "A hand-counted ground-truth check of 46 Frigate clips from the 11-14 party found vision exact on 33 of 41 counts but undercounting every group of 3+, and the door tracker mislabelling direction on 6 of 17 readable clips, often emitting both an exit and an entry for one pass. Every door instrument netted more exits than entries. The crossing-vision plan was amended (810075a3): vision now watches ambiguous crossings too, records its own direction as an F3 attribute through G3, collapses one physical pass to one term, and frames move to the crossing moment; vision direction only changes ledger terms after a Wilson-bound accuracy gate. Interior vision was approved the same day with its census term raise-only.",
+  "why": "The operator asked whether vision works as designed and ruled that live failures must feed the plans. The data showed head count is mostly fine and direction is what drives the impossible net-negative day, so effort moved to direction. Vision direction cannot overwrite the tracker's F3 direction because readers act on it 10-200 s before vision lands and the layer contract gives F3 one owner, so the correction is an additive attribute behind a gate sized from error rates, not calendar time.",
+  "alternatives_considered": [
+    "Let vision direction feed the ledger at once (option B): rejected, no measured accuracy yet",
+    "Fix the tracker's direction for every consumer in this amendment: split to EGRESS-TRACKER-DIRECTION-1, under review",
+    "Keep skipping ambiguous crossings (the original non-goal): reversed by the operator ('of course. No brainer')"
+  ],
+  "implications": "Arrival notify, entered/exited sensors and perimeter still read the tracker's direction until the tracker card ships. The census ledger cannot learn anything until its empty-house anchor stops being blocked by held fan-noise mmWave inputs, which the media room and upstairs guest incidents showed are common.",
+  "confidence": "medium",
+  "revisit_trigger": "P3-D0 replay fails its go thresholds, or the direction gate never passes at the real crossing rate.",
+  "operator_quote": "Is Vision working as designed is the central question. Starting with the door crossing version ie is it counting well?",
+  "refs": {
+    "cards": ["VISION-AMBIGUOUS-CROSSINGS-1", "DOOR-VISION-GROUP-UNDERCOUNT-1", "VISION-INTERIOR-SIGHTINGS-1", "CENSUS-DECONFLICTION-LEDGER-1"],
+    "files": ["docs/planning/AUDIT_door_vision_accuracy_2026_11_14.md", "docs/planning/PLANNING_crossing_vision.md", "docs/planning/PLANNING_vision_interior_sightings.md"],
+    "entries": ["312", "313"]
+  }
+}

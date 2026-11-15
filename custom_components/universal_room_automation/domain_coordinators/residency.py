@@ -79,6 +79,8 @@ class ResidencyTracker:
     ) -> None:
         self._residents_fn = residents_fn
         self._setup_ts = float(setup_ts)
+        # Ship 3a D2: the ledger's creation (A1b truncation read).
+        self.created_ts = float(setup_ts)
         self._boot_window_s = float(boot_window_s)
         self._min_away_s = float(min_away_s)
         # person -> (state, since_ts, restored); the shared ledger shape.
@@ -220,3 +222,105 @@ class ResidencyTracker:
 
 def _ev_dict(ev: ResidencyEvent | None) -> dict[str, Any] | None:
     return None if ev is None else ev.as_dict()
+
+
+# ============================================================================
+# Ship 3a D2 (contract G1, A1, A1b): the F1 edge push and pull.
+# ============================================================================
+EDGE_KINDS = frozenset({KIND_ARRIVAL, KIND_DEPARTURE})
+
+
+def subscribe_person_edges(
+    hass: Any,
+    cb: Callable[[ResidencyEvent], None],
+    *,
+    persons: Any = None,
+    kinds: Any = EDGE_KINDS,
+) -> Callable[[], None]:
+    """G1: deliver every residency record (``ResidencyEvent``) whose ``person``
+    is in ``persons`` (person entity ids; None = all) and whose ``kind`` is in
+    ``kinds`` to ``cb``, synchronously, inside the presence producer's
+    ``_feed_residency`` (before the house-state inference is scheduled).
+
+    Budget (INV-AWAY-LATENCY, guard R14): ``cb`` must be sync, O(1), no I/O, no
+    loop over states; schedule any real work. A coroutine function or an
+    unknown kind raises ``ValueError`` here. The connected target is a
+    ``@callback`` closure (HA runs a non-callback dispatcher target in the
+    executor) and HA logs, never propagates, an exception it raises. Returns
+    the unsubscribe."""
+    import inspect  # noqa: PLC0415
+
+    if inspect.iscoroutinefunction(cb):
+        raise ValueError("subscribe_person_edges: cb must be sync")
+    kind_set = frozenset(kinds)
+    unknown = kind_set - EDGE_KINDS
+    if unknown or not kind_set:
+        raise ValueError(f"subscribe_person_edges: unknown kinds {sorted(unknown)}")
+    person_set = None if persons is None else frozenset(persons)
+
+    import importlib  # noqa: PLC0415
+
+    from homeassistant.core import callback as _ha_callback  # noqa: PLC0415
+
+    from . import signals as _signals  # noqa: PLC0415
+
+    dispatcher = importlib.import_module("homeassistant.helpers.dispatcher")
+
+    @_ha_callback
+    def _deliver(record: Any) -> None:
+        if getattr(record, "kind", None) not in kind_set:
+            return
+        if person_set is not None and getattr(record, "person", None) not in person_set:
+            return
+        cb(record)
+
+    # Introspection for tests / the guard: which callback, which filters.
+    _deliver.layer_target = cb
+    _deliver.layer_kinds = kind_set
+    _deliver.layer_persons = person_set
+    unsub = dispatcher.async_dispatcher_connect(hass, _signals.SIGNAL_RESIDENCY_EVENT, _deliver)
+    _bump_subscribers(hass, +1)
+    done = False
+
+    def _unsub() -> None:
+        nonlocal done
+        if done:
+            return
+        done = True
+        unsub()
+        _bump_subscribers(hass, -1)
+
+    return _unsub
+
+
+def _bump_subscribers(hass: Any, delta: int) -> None:
+    try:
+        from . import signals as _signals  # noqa: PLC0415
+
+        c = _signals.layer_counters(hass)
+        c.g1_subscribers = max(0, int(c.g1_subscribers) + delta)
+    except Exception:  # noqa: BLE001 - observational
+        pass
+
+
+def edges_since(
+    tracker: ResidencyTracker, t: float, *, persons: Any = None, kinds: Any = EDGE_KINDS,
+) -> tuple[ResidencyEvent, ...]:
+    """A1: records with ``edge_ts >= t`` (epoch seconds), oldest first, as a
+    plain tuple, from the one ledger (``tracker.recent``)."""
+    kind_set = frozenset(kinds)
+    person_set = None if persons is None else frozenset(persons)
+    return tuple(
+        ev for ev in tracker.recent
+        if ev.edge_ts >= t and ev.kind in kind_set
+        and (person_set is None or ev.person in person_set)
+    )
+
+
+def edges_truncated_since(tracker: ResidencyTracker, t: float) -> bool:
+    """True when ``edges_since(t)`` may be missing records: the ring is full
+    and its oldest record is newer than ``t``, OR ``t`` is older than the
+    tracker's creation (RAM: a restart / reload empties it)."""
+    recent = tracker.recent
+    full = recent.maxlen is not None and len(recent) >= recent.maxlen
+    return bool((full and recent and recent[0].edge_ts > t) or t < tracker.created_ts)

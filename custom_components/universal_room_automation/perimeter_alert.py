@@ -6002,13 +6002,11 @@ class PerimeterAlertManager:
         try:
             tracker = self.hass.data.get(DOMAIN, {}).get("egress_tracker")
             if tracker is not None:
-                group = tracker._door_group_for_stem(cam_key)
-                nb = getattr(tracker, "_interior_neighbours_by_group", {}) or {}
-                if group is not None and group in nb:
-                    for n in nb[group]:
-                        a = self._area_of_entity(n)
-                        if a:
-                            out.add(a)
+                # Ship 3a D3 (G5): the tracker's public neighbour read.
+                for n in tracker.door_neighbours_for_stem(cam_key):
+                    a = self._area_of_entity(n)
+                    if a:
+                        out.add(a)
         except Exception:  # noqa: BLE001
             pass
         out.discard("")

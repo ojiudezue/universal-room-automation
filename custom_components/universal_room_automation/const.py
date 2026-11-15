@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.108.23
+# Universal Room Automation vv5.108.25
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.108.23"
+VERSION: Final = "v5.108.25"
 
 # EC-LOADED-VS-INSTALLED-VERSION-1 — how often the on-disk manifest is re-read
 # to detect an installed-but-not-restarted deploy. Rung 1 (module constant):
@@ -6165,6 +6165,41 @@ CAMERA_INPUT_STREAM_DEAD_HOLD_MAX_S: Final = 900.0
 # a camera is dead to <= this + one room poll + one census run.
 # 0 = no census hold (a dead camera is a missing term at the grace).
 CAMERA_INPUT_STREAM_DEAD_CENSUS_HOLD_MAX_S: Final = 900.0
+# --- Person-awareness layer ship 3b: the device-level dead-camera rule
+# (PLANNING_person_awareness_layer_ship3.md §6, §8; option A, decided Q11;
+# device level, decided Q12). All rung 1: each changes which evidence holds
+# a room / zone / census or who pages, so a change goes through review.
+# Operator rule 2 ("I assume if even one nvr has the cam it doesn't count as
+# dead"): a camera device paired with an NVR twin by W1 registry evidence is
+# reported dead only when EVERY paired NVR device has lost it. False = no twin
+# map and no owner group pages; rooms page every watched device.
+CAMERA_STREAM_DEAD_TWIN_RULE: Final = True
+# Operator rule 1 for cameras no room watches (the census interior and zone
+# camera entities outside every room's watch, live: the foyer group): one
+# house tracker stamps and holds them like a room would. False = they answer
+# None (no opinion) as before 3b.
+CAMERA_STREAM_UNWATCHED_STAMPS_ENABLED: Final = True
+# The MEDIUM "one NVR down, the other covering" notice (decided Q7). False =
+# no notice (HIGH pages unchanged).
+CAMERA_STREAM_TWIN_COVERING_NOTICE_ENABLED: Final = True
+# Seconds between the owner's ticks (house tracker, U recompute, pages); one
+# room poll.
+CAMERA_TWIN_HEALTH_TICK_S: Final = 30.0
+# Room trackers and the house camera route resolve a camera-derived input to
+# its registry CAMERA DEVICE (live if any enabled camera entity on it is
+# live), so a sensor on a multi-channel Protect / Reolink device is watched
+# like a Frigate one (decided Q12, "symmetrical with Frigate"). False = per
+# camera entity exactly as before 3b (a multi-camera device is unresolved);
+# device liveness is then used only by the owner for pages.
+CAMERA_STREAM_DEVICE_LEVEL_INPUTS: Final = True
+# A member device that has read no opinion (unknown / restored / missing)
+# since the owner's setup counts toward "lost" only after this many seconds
+# from setup, so both NVRs stuck in setup retry still page, but a boot does
+# not page before the integrations had a chance to load.
+CAMERA_TWIN_BOOT_SETTLE_S: Final = 600.0
+# Debounce for twin-map rebuilds on registry events: bounds the boot
+# registry-event storm to one build.
+CAMERA_TWIN_MAP_REBUILD_DEBOUNCE_S: Final = 10.0
 
 # --- Per-device-family T_floor blind-time defaults DEFAULT (probe-
 #     recalibrated 2026-08-19 -> UNIFIED 1.0s across all blind-time
@@ -6764,6 +6799,21 @@ validate_consumer_classes(
     CROSSING_VISION_CONSUMER_CLASSES, CROSSING_VISION_LEGAL_CONSUMER_CLASSES,
 )
 
+# ============================================================================
+# Person-awareness layer ship 3a (PLANNING_person_awareness_layer_ship3.md §8)
+# ============================================================================
+# F3 crossing ring (D3, contract G2; rung 1, module consts: retention bounds
+# of an observational RAM store, changed only by review). Per egress camera
+# entity: the last N crossings, none older than the age. 32 = ~3.5x the
+# measured peak of 9 crossings per camera in 30 min (step 7 D8a). The age must
+# cover the step 7 confirm window (900 s) + pair window (120 s) + the longest
+# follow-up caller delay (<= 600 s each); a test asserts >= 1620.
+EGRESS_CROSSING_RING_PER_CAMERA: Final = 32
+EGRESS_CROSSING_RING_MAX_AGE_S: Final = 1800
+# F4 BLE move log (D4, contract G6 pull; rung 1, house-wide). Sized before the
+# D0 (a2) probe; D0 (a2) x 4 replaces 256 if larger. Age matches the ring.
+PERSON_LOCATION_MOVES_MAX: Final = 256
+PERSON_LOCATION_MOVES_MAX_AGE_S: Final = 1800
 
 # ============================================================================
 # Census deconfliction (PLANNING_census_deconfliction.md §3.2-§3.4, §6)
