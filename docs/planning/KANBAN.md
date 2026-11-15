@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-14T20:36:48-06:00_ - _Data commit: `9568e83bc501`_ - _last_reconciled: 2026-11-14_
+_Generated: 2026-11-14T21:58:46-06:00_ - _Data commit: `28978d2a3a58`_ - _last_reconciled: 2026-11-14_
 
 
 ## Columns
@@ -39,7 +39,8 @@ _created 2026-11-13 12:00_
 - **Origin:** 2026-11-13 - Step 1a fix-up: the residency producer was dead live because it skipped this rule; one rule prevents the next copy drifting.
 - **Why:** Three hand copies of one rule; the 1a HIGH was a fourth site that got it wrong. Reviewer D re-check is sweeping other tracked_persons readers.
 - **Next:** Me: after 1a ships, route the copies through the helper; also the four latent readers below.
-- **Forensic keys (5):**
+- **Forensic keys (6):**
+  - `arc_cut_v5_108_24`: folded into PERSON-ID-INLINE-SWEEP-1, after layer ship 3
   - `arc_cut_v5_108_23`: folds into PERSON-ID-INLINE-SWEEP-1
   - `arc_cut_v5_108_22`: folds into PERSON-ID-INLINE-SWEEP-1
   - `arc_cut_v5_108_21`: closed by read API ship 2 (batch 2)
@@ -61,7 +62,8 @@ _created 2026-11-13 05:30_
 - **Origin:** 2026-11-13 - House-state step-1 plan review (build-prediction C1): perimeter_alert.py:2013-2032; only a test fake sets the attribute (test_house_state_sleep_mask_ble_memory.py:310), so the test is hollow. Also security entry verdict read...
 - **Why:** Severity keyed on residents home has never worked; safe direction today (over-alerts) but any fix changes paging and must not lower it while the house is empty.
 - **Next:** Me: folded into the house-state step-1 plan (getters defined with real producers); fix together with exterior severity.
-- **Forensic keys (6):**
+- **Forensic keys (7):**
+  - `arc_cut_v5_108_24`: perimeter residual, independent of layer
   - `arc_cut_v5_108_23`: perimeter follow-up
   - `arc_cut_v5_108_22`: inbox, perimeter follow-up after this ship
   - `arc_cut_v5_108_21`: separate card, not in this batch
@@ -75,7 +77,8 @@ _created 2026-11-13 03:00_
 - **Origin:** 2026-11-13 - Lock-release plan completeness review M6 (const.py:2799); scoped out of the lock-release plan rev 2.
 - **Why:** AUDIT_arriving_on_body_evidence: only 6.4% of AWAY->ARRIVING edges are real arrivals; ARRIVING mostly comes from zone sensors. Alert severity keyed on ARRIVING inherits that noise.
 - **Next:** Me: measure how many exterior-person alerts were downgraded under a false ARRIVING; decide severity keying on resident arrival evidence.
-- **Forensic keys (6):**
+- **Forensic keys (7):**
+  - `arc_cut_v5_108_24`: perimeter residual, independent of layer
   - `arc_cut_v5_108_23`: perimeter follow-up
   - `arc_cut_v5_108_22`: inbox, perimeter follow-up after this ship
   - `arc_cut_v5_108_21`: separate perimeter card, not in this batch
@@ -89,7 +92,8 @@ _created 2026-11-13 12:00_
 - **Origin:** 2026-11-13 - Review C-4 of house-state step 1a; no behaviour change.
 - **Why:** Dead arm invites drift; INFO log noise on every exterior alert.
 - **Next:** Me: delete or pin the arm; compute evidence only in ARRIVING.
-- **Forensic keys (4):**
+- **Forensic keys (5):**
+  - `arc_cut_v5_108_24`: lock cleanup, independent
   - `arc_cut_v5_108_23`: lock follow-up
   - `arc_cut_v5_108_22`: inbox, lock follow-up
   - `arc_cut_v5_108_21`: arc step 4 cleanup, next
@@ -110,7 +114,8 @@ _created 2026-11-13 12:00_
 - **Origin:** 2026-11-13 - Review A-L1 of house-state step 1a; pre-existing (persons_home always 0 live).
 - **Why:** Circling escalation may be deduped away. Re-measure once the persons-home-from-residency switch is decided.
 - **Next:** Me: check NM dedup keys for hop 1 vs hop 3 with both HIGH; fix or close.
-- **Forensic keys (4):**
+- **Forensic keys (5):**
+  - `arc_cut_v5_108_24`: perimeter residual, independent
   - `arc_cut_v5_108_23`: perimeter follow-up
   - `arc_cut_v5_108_22`: inbox, perimeter follow-up
   - `arc_cut_v5_108_21`: separate perimeter card
@@ -122,7 +127,8 @@ _created 2026-11-13 04:30_
 - **Origin:** 2026-11-13 - Measured by the phone-left-behind plan: 10 arrival ticks (house still AWAY while BLE places person in a room), 6 first-tick-after-restart before census ready, 1 other.
 - **Why:** House-state trust input; transient true flags can briefly change the AWAY veto denominator.
 - **Next:** Me: plan after the camera-leg swap; likely a dwell or census-ready gate.
-- **Forensic keys (6):**
+- **Forensic keys (7):**
+  - `arc_cut_v5_108_24`: arc step 10
   - `arc_cut_v5_108_23`: presence fix
   - `arc_cut_v5_108_22`: inbox, separate presence fix
   - `arc_cut_v5_108_21`: arc step 10
@@ -177,7 +183,8 @@ _created 2026-11-12 22:00_
 - **Origin:** 2026-11-12 - Plan rev 8 section 2B: no departure signal this cycle.
 - **Why:** Candidate consumers: last-resident-out arming (LAST-RESIDENT-EGRESS-ARM-1), HVAC setback, personalization.
 - **Next:** Me: after D8 ships, decompose consumers with the operator.
-- **Forensic keys (7):**
+- **Forensic keys (8):**
+  - `arc_cut_v5_108_24`: step 8 consumer, after layer
   - `arc_cut_v5_108_23`: step 8 departure pause
   - `arc_cut_v5_108_22`: step 8 departure pause (plan rev 3.1)
   - `arc_cut_v5_108_21`: arc step 8, after census deconfliction
@@ -191,7 +198,8 @@ status: **inbox**
 - **Origin:** 2026-11-13 - Crossing vision Review B item B1, noted by the fix-up builder.
 - **Why:** Crossing vision fix-up (a10cd299/9407eaef) documented the leak at CROSSING_VISION_TIMEOUT_S and in the IDENTITY manual; the call is now a background task so HA stop does not wait. Upstream issue or PR to llmvision is outward-facing: draf...
 - **Next:** Me: draft the upstream issue text with a minimal repro for the operator to post.
-- **Forensic keys (4):**
+- **Forensic keys (5):**
+  - `arc_cut_v5_108_24`: upstream issue, independent
   - `arc_cut_v5_108_23`: upstream draft
   - `arc_cut_v5_108_22`: upstream draft for the operator
   - `arc_cut_v5_108_21`: upstream draft for operator
@@ -225,7 +233,8 @@ status: **investigating**
 - **Origin:** 2026-11-13 - Operator on perimeter and census still guessing NVR family from names.
 - **Why:** Rough grep 2026-11-13: ~99 sites match suffix tests ("_person_detected" in, endswith("_2")), slug building (replace(" ","_")) or f-string entity ids across ~15+ modules; some are legitimate (URA building its own entity ids). NVR family s...
 - **Next:** Me: read-only sweep: every site classified OWN-ENTITY (allowed) / MIGRATE (to registry, with the target lookup) / COVERED (by NVR witness or read API) with file:line; then one Tier 2 migration plan per cluster plus a CI guard test that f...
-- **Forensic keys (6):**
+- **Forensic keys (7):**
+  - `arc_cut_v5_108_24`: house-wide sweep, investigating
   - `arc_cut_v5_108_23`: umbrella
   - `arc_cut_v5_108_22`: umbrella sweep, children carded
   - `arc_cut_v5_108_21`: house-wide sweep, clusters in progress
@@ -239,7 +248,8 @@ _created 2026-11-12 22:00_
 - **Origin:** 2026-11-12 - Operator: watch arrivals with AI vision; time-lapse; fast first frames; counting is easy, naming is hard; guests are the census problem; OpenAI models (GPT-6 Luna/Sol); deconflict with camera counts until trusted (100 crossi...
 - **Why:** Design in PLANNING_person_sighting_layer.md section 15. Gates: D0-FRAME (blank-frame experiment), D0-SIM (timing simulation), D0-V (model scoring incl. dry call per GPT-6 model for llmvision param compatibility). Then its own sibling plan.
 - **Next:** Me: revise plan section 15.9 frame guard to judge frames directly; resolve the llmvision temperature blocker for GPT-6 models (config-first); then the sibling vision plan.
-- **Forensic keys (29):**
+- **Forensic keys (31):**
+  - `arc_cut_v5_108_24`: census-p2 shipped v5.108.23, later phases follow
   - `arc_cut_v5_108_23`: parent
   - `arc_cut_v5_108_22`: census-p2 ships next
   - `arc_cut_v5_108_21`: phase 1 ships here, phase 2 later
@@ -263,6 +273,7 @@ _created 2026-11-12 22:00_
   - `MEASURED_frigate_name_latency_2026_11_13`: AUDIT_frigate_face_name_latency_2026_11_13.md: Frigate names ~22% of door person events (100/447, 8 days). Event start to first name, strict join (61 events): p50 2-8 s, p99 17-50 s, max 55.5 s by camera. Loose join shows 12 names after ...
   - `MATCH_COVERAGE_2026_11_13`: The plan's "Protect-only crossings (22%)" non-goal is mislabelled. All four door cameras run Frigate; those crossings simply have no Frigate person event within +-10 s (AUDIT_crossing_vision_d0_2026_11_13.md: 74% matched at +-10 s, 83% a...
   - `protect_alarm_webhook_2026_11_14`: Operator built Protect Alarm Manager rule "URA G6 Entry" (Cameras > Person > Known Face on Madrone G6 Entry, Custom Webhook POST, default content, no thumbnails) to temporary HA automation automation.ura_test_capture_protect_alarm_manage...
+  - `protect_alarm_webhook_watch_2026_11_14`: A 24 h watch on automation.ura_test_capture_protect_alarm_manager_face_webhook last_triggered ended NONE_24H: no real known-face webhook arrived from the URA G6 Entry rule. Unproven, not refuted: no known face may have reached the G6 Ent...
   - `P2_D0_2026_11_14`: AUDIT_crossing_vision_p2_d0_2026_11_14.md: (i) residency fire check PASS; (ii) empty anchors 3600 s gives 22/week (clears the 10 minimum), only 19% while AWAY; (iii) +-30 s wrong-event proxy 22.7% vs 10.3% at +-10 s -> keep EVENT_MATCH_S...
   - `operator_2026_11_14_shadow_switch`: turn on. (Claude turns switch.ura_crossing_vision_shadow on after the v5.108.21 restart once live checks are clean, then confirms the first shadow row; off immediately on errors)
   - `operator_2026_11_14_p2d8_path`: Build P2-d8 as you recommended. it with interior vision but link the plans. And plan that VISION-INTERIOR-SIGHTINGS-1, now and then modify it if we learn something in teh interim. I Want this tight and not deferred. Make sure its useful....
@@ -496,7 +507,8 @@ _created 2026-11-14 15:00_
 - **Origin:** 2026-11-14 - Leaks audit P6 plus the ship 3 rev 2 re-grep (nine sites, not seven).
 - **Why:** Sites include camera_census.py:4760, 4817, 6630; person_sighting.py:605; transit_validator.py:2020; person_coordinator.py:1773; perimeter_alert.py:1118 (list re-verified in ship 3 rev 2 §3). Each builds the person entity id inline instea...
 - **Next:** Me: plan after ship 3 merges; the guard allowlist shrinks by one row per site moved.
-- **Forensic keys (3):**
+- **Forensic keys (4):**
+  - `arc_cut_v5_108_24`: after layer ship 3
   - `arc_cut_v5_108_23`: after layer ship 3a
   - `arc_cut_v5_108_22`: after layer ship 3a
   - `tier`: 2
@@ -507,7 +519,8 @@ _created 2026-11-14 15:00_
 - **Origin:** 2026-11-14 - Leaks audit H1, prober row 18 for layer ship 3.
 - **Why:** At boot, presence seeds an AWAY input from a display entity's restored state instead of the census owner's read. A display view feeding a house-state decision crosses the consumer-class line (display -> house_state). Ship 3 allowlists th...
 - **Next:** Me: plan after ship 3 (Tier 2-DB minimum: house-state change).
-- **Forensic keys (3):**
+- **Forensic keys (4):**
+  - `arc_cut_v5_108_24`: separate house-state ship after layer ship 3
   - `arc_cut_v5_108_23`: after layer ship 3a
   - `arc_cut_v5_108_22`: after layer ship 3a
   - `tier`: 2
@@ -603,7 +616,8 @@ status: **planned**
 - **Origin:** 2026-11-13 - Found by the registry-not-names sweep; verified live.
 - **Why:** hvac_fans.py:1714-1729 _read_room_occupied_state builds binary_sensor.<slug>_occupied; live: binary_sensor.foyer_occupied 404 vs binary_sensor.foyer_foyer_occupied 200; jaya_bedroom_occupied 404 vs jaya_bedroom_bedroom_4_occupied 200 (20...
 - **Next:** Me: one resolver (room config entry -> its occupied binary_sensor via entity registry unique_id) used by every reader; Tier 2-DB reviews; live check all 47 rooms resolve.
-- **Forensic keys (7):**
+- **Forensic keys (8):**
+  - `arc_cut_v5_108_24`: registry sweep, independent of layer
   - `arc_cut_v5_108_23`: next registry child
   - `arc_cut_v5_108_22`: planned, next registry child
   - `arc_cut_v5_108_21`: planned, plan fix pending
@@ -618,7 +632,8 @@ _created 2026-11-13 18:00_
 - **Origin:** 2026-11-13 - Operator: "We need this. Sequence is optional as long as you don't drop it. Add to arc." (on unnamed interior sightings after crossing vision).
 - **Why:** F4 today needs a name (face). Interior vision gives per-room people counts and unnamed presence in shared spaces/hallways (cameras only in shared spaces), the input census accuracy and personalization need. Must respect the F1-F5 model: ...
 - **Next:** Me: after crossing vision Phase 1 accuracy is measured, plan it (Tier 3, prior-art scan: sighting producer, CameraResolver, interior path map, census interior camera counts, CROSSING_VISION_INTERIOR_ENABLED parked name) with measure-firs...
-- **Forensic keys (9):**
+- **Forensic keys (10):**
+  - `arc_cut_v5_108_24`: arc step 9, after NVR witness
   - `arc_cut_v5_108_23`: arc step 9
   - `arc_cut_v5_108_22`: arc step 9, planned
   - `arc_cut_v5_108_21`: arc step 9
@@ -635,7 +650,8 @@ _created 2026-11-14 14:40_
 - **Origin:** 2026-11-14 - Producer/consumer sweep for layer ship 3 (prober row 16, audit §8).
 - **Why:** hvac.py:1241 writes the person coordinator's pre-arrival flag from the HVAC pre-arrival switch (switch.py:4571). person_coordinator.py:1151 skips the BLE SIGNAL_PERSON_ARRIVING send while it is off. So an HVAC comfort choice silently swi...
 - **Next:** Me: A approved. The producer always sends, and HVAC ignores BLE arrivals while its pre-arrival switch is off. Plan right after layer ship 3 (it builds on dispatch_person_arriving and the G9 setter), and land it before v6.0.0 so step 8 ar...
-- **Forensic keys (4):**
+- **Forensic keys (5):**
+  - `arc_cut_v5_108_24`: option A, next after 3a before v6
   - `arc_cut_v5_108_23`: after layer ship 3a, before v6.0.0
   - `arc_cut_v5_108_22`: operator pick A, planned after layer ship 3a, before v6.0.0
   - `tier`: 2
@@ -706,7 +722,8 @@ _created 2026-11-14 15:00_
 - **Origin:** 2026-11-14 - Split from layer ship 3 (plan rev 2 Q1) so ship 3 stays a provable no-op.
 - **Why:** Contract §2.4a G6: one BLE-in-room meaning. Today the readers (room occupancy coordinator.py:3315, 4440, 5003; fan recheck _area_id_to_room plus a slug fallback; phone_trustworthy twins) each derive it their own way, and there are two me...
 - **Next:** Me: dispatch planning the moment ship 3 merges, in parallel with step 7. Run the §2.4a 7-day probe first.
-- **Forensic keys (3):**
+- **Forensic keys (4):**
+  - `arc_cut_v5_108_24`: after 3a per ship 3 Q-defaults
   - `arc_cut_v5_108_23`: after layer ship 3a
   - `arc_cut_v5_108_22`: dispatched when layer ship 3a merges
   - `tier`: 2
@@ -717,7 +734,8 @@ _created 2026-11-14 15:30_
 - **Origin:** 2026-11-14 - Registry fix review A, finding A-L4.
 - **Why:** person_coordinator.py ~2050 (fix/ble-person-registry-resolve 477c8dbf): _calculate_confidence splits the entity_id on 'distance_to_' to name the scanner. The unique_id already carries the scanner MAC. A live registry read shows all 57 of...
 - **Next:** Me: plan when BERMUDA-DISTANCE-SENSORS-DEAD-1 revives (the per-scanner sensors return); reuse Bermuda's area-resolution order (bermuda_device.py:370-377).
-- **Forensic keys (3):**
+- **Forensic keys (4):**
+  - `arc_cut_v5_108_24`: registry sweep after layer ship 3
   - `arc_cut_v5_108_23`: inert until per-scanner sensors return
   - `arc_cut_v5_108_22`: inert until per-scanner sensors return
   - `tier`: 2
@@ -754,7 +772,8 @@ _created 2026-11-12 22:00_
 - **Origin:** 2026-11-12 - Operator: "Who made this rule? I didn't... It should do both especially since we have a direction detector."
 - **Why:** not_home veto at transit_validator.py:1840-1854 copied from the census veto in Aug 2026 without direction. Plan rev 8 section 2B: entry+away = arrival candidate, exit+home = departure candidate, guards (face conf, path, GPS), census keep...
 - **Next:** Me: build as plan D8 after rev-8 fixes.
-- **Forensic keys (8):**
+- **Forensic keys (9):**
+  - `arc_cut_v5_108_24`: step 7, builds on 3a (unblocked by this ship)
   - `arc_cut_v5_108_23`: step 7 after layer ship 3a
   - `arc_cut_v5_108_22`: step 7, builds on layer ship 3a
   - `operator_2026_11_14_step7`: Q1/Q2 (after explanation): 'Inclined to agree'. Step 7 section (Q1-Q7, QA, QB, perimeter face-leg pair residual): 'Agree with both'. Recorded as: Q1-Q7 yes, QA no hold + quiet follow-up, QB candidate only if D0 (i) shows 0 wrong AWAYs, c...
@@ -839,7 +858,8 @@ status: **planned**
 - **Origin:** 2026-11-13 - Operator question on the crossing vision plan.
 - **Why:** Crossing vision plan fetches clips from Frigate only; Protect enters only as the late face name. Three separate Frigate-vs-Protect rules exist: camera_census.py:2330 _cross_validate_platforms (counts; Frigate number wins when both see; l...
 - **Next:** Me: plan amendment to the operator after perimeter Part A and crossing vision Phase 1 ship. Open unknowns: garage_a Protect leg; llmvision on a Protect clip (one paid dry call needs operator ok); NVR disagreement ground truth (use the we...
-- **Forensic keys (30):**
+- **Forensic keys (31):**
+  - `arc_cut_v5_108_24`: layer ship 3b next, then W2-W6 (arc map step 9a)
   - `arc`: identity / vision / census (charter docs/planning/ARC_DRIFT_ANALYSIS_identity_vision_census_2026_11_13.md; arc map docs/planning/ARC_identity_vision_census_map.md §1 row + §4 step 9a, added 2026-11-14)
   - `operator_2026_11_14_one_physical_camera`: A recommended is fine. But we do have to eventually figure how to not deal with 2 camera system in this idiosyncratic way as it they are watching diff cameras instead of the same (Direction for W2-W6: model each physical camera ONCE with...
   - `arc_cut_v5_108_23`: layer ship 3b and W2-W6
@@ -999,7 +1019,8 @@ _created 2026-11-14 16:45_
 - **Origin:** 2026-11-14 - Layer ship 3 Q10.
 - **Why:** Ship 3a's guard pins every remaining bypass of the person-awareness layer: 238 allowlist rows, total 266, in 34 groups (ship 3 plan §9, §17). The groups are display reads of internals, private edge ledgers in the lock and perimeter, raw ...
 - **Next:** Me: after LAYER-LEAK-CLEANUP-PLAN-1 delivers the sized plan, mint its 4-6 grouped cleanup cards and fold the small split-out cards into them. Behind the arc: only the HVAC-gated BLE arrival fix is on the v6.0.0 path.
-- **Forensic keys (4):**
+- **Forensic keys (5):**
+  - `arc_cut_v5_108_24`: after 3a/3b, sized plan owed (LAYER-LEAK-CLEANUP-PLAN-1)
   - `arc_cut_v5_108_23`: behind the arc
   - `tier`: 2
   - `operator_2026_11_14`: Leak groups accepted but I'm going to need a size on cleaning that up. And a plan. / Maybe 1 card? 34 is a lot / Or a smaller grouping of cards / Card the plan and then get back to the arc. The layer was just a prereq
@@ -1353,7 +1374,8 @@ _updated 2026-11-14 02:25 · refined_
 - **Origin:** 2026-11-14 - Found by the BLE person sensor audit.
 - **Why:** AUDIT_ble_person_sensor_resolution_2026_11_14.md: *_distance_to_* sensors unavailable restored:true, no numeric recorder row in 8 days, last statistics hour 2026-10-20 07:00 UTC; the per-device sensor.<dev>_distance and _area are live. C...
 - **Next:** PICK: A (recommended) URA stops reading the per-scanner sensors and uses the live per-phone sensor.<phone>_distance, resolved through the registry (folds into BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1, Tier 2, no HA-side change), plus APPROVE...
-- **Forensic keys (10):**
+- **Forensic keys (11):**
+  - `arc_cut_v5_108_24`: upstream KS/bermuda fix, not layer work
   - `arc_cut_v5_108_23`: waits on Kiosk Satellite upstream fix
   - `arc_cut_v5_108_22`: waits on Kiosk Satellite upstream fix (KS 1442, bermuda 896)
   - `homelab_2026_11_14`: HomeLab (homelab-automation-15): Kiosk Satellite can't do it today. Its API mac_address is SHA-256(ANDROID_ID+'api') and its bluetooth_mac_address is SHA-256(ANDROID_ID+'bt'). Spoof-Wi-Fi-MAC was rejected because it would create new HA d...
@@ -1750,7 +1772,8 @@ _created 2026-11-12 23:30_
 - **Origin:** 2026-11-12 - Plan rev 11 M6/M7: recorder keeps 7 days; Phase 2 needs >= 10 operator-reviewed confirmations (~10 weeks).
 - **Why:** Run the weekly labeller after D8a ships; it snapshots raw path-edge times and GPS fixes; operator reviews a sample of labels.
 - **Next:** ANSWER: was Jaya's phone with her all day 11-11; do Ojini and Ziri carry phones with trackers? (resolves ~20 of 30 REVIEW rows) -> I finish labels and compute the misrecognition rate; ship D8a soon to stop losing vetoed names.
-- **Forensic keys (9):**
+- **Forensic keys (10):**
+  - `arc_cut_v5_108_24`: recurring labelling, independent
   - `arc_cut_v5_108_23`: recurring labelling
   - `arc_cut_v5_108_22`: recurring labelling, not a build
   - `arc_cut_v5_108_21`: labelling run, independent
