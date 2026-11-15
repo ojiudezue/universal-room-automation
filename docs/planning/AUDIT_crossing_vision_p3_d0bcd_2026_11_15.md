@@ -301,3 +301,30 @@ Sensitivity (post-hoc relabelling after seeing the results, NOT a gate): if 21:4
 ### Verdict
 
 Combining the current instruments is **not worth building**. Pre-registered best (R1) is 14/17 and 4/6: under the gate on both counts; the gain over a single instrument is one clip; the errors are correlated across the instruments that are genuinely independent of the tracker (V, C, I1 all fail on the same front `in` clips), and the one instrument that gets those clips right does so through an `in` bias that fails on 4 of 10 `out` clips and moves every round trip to one direction (P3-D0d K2 table). Two cheaper levers move the number more than an ensemble: (1) a second label pass on 21:42:22 and 15:12:14 (a mislabel changes the gates by up to 2 clips of 17); (2) the unchanged operator questions: a threshold zone per door camera (I2) and a front contact that is registry-mapped. Direction stays the tracker's; P3-D9c is not planned on an ensemble. Revival trigger: a new independent signal (I2 zone order or a registry-mapped front contact) whose errors do not overlap V's and C's on the front group, re-scored on a larger labelled set than 17.
+
+## I6 adjacent outside cameras
+
+Run Sun 2026-11-15 (started 17:2x CST) by the read-only prober. Zero model calls, no HA state change, no Bermuda diagnostics. Scripts `.claude/tmp/i6probe_*.py` (not committed). Frigate data only through the HA websocket `frigate/events/get` (instance `frigate-f2`, person label, 2026-11-13 22:00 to 2026-11-15 02:00 CST, 280 events; per-camera counts: madrone_g6_entry 64, garage_a 48, front_door_aerial 47, doorbell_lite 30, g5_bullet 26, SonoffWindow 24, front_side_ptz 21, rear_ptz 11, utilities_ptz 7, back_yard 1, garage_b 1; ArmCrest, hot_tub, pool_equipment, MadronePTUltra, ReolinkStudyBPorchPTZ none).
+
+### Pre-registration (frozen in this commit, written before any I6 number was computed)
+
+**Mapping used (no name guessing).**
+* Door group per egress camera: integration config `door_groups` = madrone_g6_entry -> front, front_door_aerial -> front, doorbell_lite -> garage_a, garage_a -> garage_a (read from the config entry on the HA host; `egress_cameras` = the same four).
+* Adjacent perimeter cameras: the operator-ratified `EXTERIOR_ADJACENCY_GRAPH` and its derived `EXTERIOR_TRACK_EGRESS_ADJACENT_CAMERAS` (`const.py` 3026-3079): adjacent to madrone_g6_entry and front_door_aerial = front_side_ptz, utilities_ptz; adjacent to doorbell_lite = armcrest, g5_bullet, rear_ptz. garage_a has no edge in the graph (it is not a ring camera). Camera identity (Frigate camera name) from the entity registry: unique_id suffix; front_side_ptz, g5_bullet, rear_ptz, utilities_ptz all have Frigate events in the window (rear_ptz and utilities_ptz also exist as unifiprotect cameras; here the Frigate legs are used).
+* Door-group sibling egress cameras (registry device area): Front Porch = madrone_g6_entry + front_door_aerial (both outward-facing, viewed 2026-11-15 snapshots); Garage A = garage_a (interior overhead, seen in the I1 v2 snapshots) + doorbell_lite (garage door face, outward).
+
+**Outside set O per crossing (own camera always excluded):**
+* front crossing: front_side_ptz, utilities_ptz, plus the OTHER front egress camera (sibling).
+* garage_a crossing on garage_a: armcrest, g5_bullet, rear_ptz, plus doorbell_lite (sibling, outward).
+* garage_a crossing on doorbell_lite: armcrest, g5_bullet, rear_ptz only. The sibling garage_a is an interior camera, so it is not an outside source (it is reported as a side note, not scored).
+* **I6x** variant: the perimeter cameras only (no sibling).
+
+**Knobs (written down now):** W_pre = 60 s, W_post = 60 s, event-start based, E = the fixture / `egress_identity_outcome` crossing time, co-present guard 2 s (a sibling event with start <= E+2 and end >= E-2 is discarded as co-present, because two cameras at one door both see the person at the door), person label only.
+
+**I6 rule:** Pre = some O event with start in [E-60, E). Post = some O event with start in (E, E+60]. `in` if Pre and not Post; `out` if Post and not Pre; both or neither = no decision. No other branch, no tuning.
+
+**I6b rule (strict bracket):** the interior side is the tracker's own, I4 v0 (`transit_validator.py` 2408-2423: interior event in [0, ENTRY] after E = entry/in, in [-EXIT, 0) before E = exit/out; equal to the fixture `tracker_direction` on the clips). I6b decides only when I6 and the interior side are both decided and AGREE; otherwise no decision. **I6f** (reported, not the bracket): I6 if decided, else the tracker.
+
+**Truth and gates:** the fixture human labels; 17 readable clips, 6 tracker-wrong. Gate on the current labels: 15 of 17, 5 of 6, coverage >= 0.50 on the 101 crossings of 11-14 (share decided in/out by the instrument itself). Also reported with 21:42:22 and 15:12:14 set aside (15 clips; the 6 tracker-wrong become 5), labelled as such and not the gate. Independence: per-clip miss overlap with vision run 2 (V), I4 v1 (K), Elk/cover (C), I1 v2, using the matrix in "Ensemble check" above.
+
+**Falsifier named in advance:** I6 is worth keeping only if it reaches the gates on its own AND its misses are on different clips from V, C, I1. If coverage on the 101 crossings is below 0.50 the instrument is dead on coverage regardless of accuracy.
