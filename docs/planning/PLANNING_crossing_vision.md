@@ -615,11 +615,14 @@ in the Phase 3 decisions below).** It is evidence that building is worth it, NOT
    event under BOTH rules: (i) `_match_event`'s group-wide pick, (ii) the Pass rule. **Negative set (review HIGH-1):**
    mine 14 days of `egress_identity_outcome` for opposite-direction crossings on one door group within `CLUSTER_S` whose
    Es are BOTH inside one Frigate event's [start, end]; hand-label each from its clip as `one_pass` or `round_trip`
-   (committed in the fixture). Gate for P3-D4 and P3-D9b: at least `CROSSING_VISION_PASS_ROUND_TRIP_MIN_N` (5) real
-   round trips labelled across the 11-14 pairs and the mined set (fewer = **HOLD**: the gate cannot be evaluated; mine
-   further days or stage round trips with the operator); under rule (ii) ≥ `CROSSING_VISION_PASS_SAME_EVENT_MIN` (0.80)
-   of `one_pass` pairs share a `pass_key`; and the share of labelled round trips that rule (ii) merges (the one-event
-   residual) ≤ `CROSSING_VISION_PASS_ROUND_TRIP_MERGE_MAX` (0.10). Report rule (i) beside it to show the selector bias,
+   (committed in the fixture), mining back up to `CROSSING_VISION_PASS_MINE_MAX_DAYS` (30) days until enough are found.
+   Gate for P3-D4 collapse and P3-D9b: at least `CROSSING_VISION_PASS_ROUND_TRIP_MIN_N` (20) hand-labelled one-event
+   round trips; under rule (ii) ≥ `CROSSING_VISION_PASS_SAME_EVENT_MIN` (0.80) of `one_pass` pairs share a `pass_key`;
+   and the Wilson 95 % UPPER bound of the share of labelled round trips that rule (ii) merges (the one-event residual)
+   ≤ `CROSSING_VISION_PASS_ROUND_TRIP_MERGE_UB_MAX` (0.15). Why not 5: at n = 5 even 0 merges has an upper bound of
+   ≈ 0.43, so 5 cannot show any ceiling near 0.10. Fewer than 20 = **HOLD**: P3-D4 ships with
+   `CROSSING_VISION_LEDGER_PASS_COLLAPSE` False (the kill path; terms as today) and P3-D9b waits; the rest of Phase 3
+   is not blocked. Report rule (i) beside it to show the selector bias,
    and the `end is None` share at resolution time. Also the interior near-door events around 14:17:23 / 14:17:54 (the
    audit's open falsifier).
 (e) Re-run the 4 error clips once and record llmvision's error text.
@@ -687,10 +690,12 @@ writer).**
    edits the contract. NEW layer-guard row `('R13', 'crossing_vision.py',
    'CrossingVisionShadow._release_terms:amend_crossing')` (max 1; `amend_crossing` is already in `R13_CALLEES`,
    `_layer_guard_engine.py:154-157`) in `quality/tests/person_awareness_layer_allowlist_PROVISIONAL.py` beside the
-   reserved fast-stage row (`:212`, unchanged). Guard constants: `len(A.ROWS)` 231 → 232, `LAYER_ALLOWLIST_TOTAL` 259 →
-   260, `LAYER_ALLOWLIST_TOTAL_PROVISIONAL` 259 → 260, and the assertion in `test_person_awareness_layer_guard.py:62`
-   updated to match; the `("R13", 8)` floor (`:147`) stays valid. Merge rule with the interior branch: the interior
-   branch's 259 means no change; whichever merges second takes 260 if P3-D3 landed first. The amended signal payload carries the record's
+   reserved fast-stage row (`:212`, unchanged). Guard change, as a DELTA against develop at merge time (never an absolute number; other ships move the
+   totals, e.g. the music repair merge lowers them by 3): P3-D3 = +1 R13 row, `len(A.ROWS)` +1, `LAYER_ALLOWLIST_TOTAL`
+   +1, `LAYER_ALLOWLIST_TOTAL_PROVISIONAL` +1, and the assertion in `test_person_awareness_layer_guard.py:62` set to the
+   re-read values; the `("R13", 8)` floor (`:147`) stays valid. Each builder re-reads the current totals on develop
+   when it merges. Only P3-D3 changes the totals in this plan (P3-D8, P3-D9a: 0 rows expected); the interior branch's
+   delta is 0, so a merge after P3-D3 keeps P3-D3's +1 and never undoes it. The amended signal payload carries the record's
    `person_id` (`transit_validator.py:1281-1290`); today's readers (`sensor.py:5092`, `:5231`) act on
    `exit_backfilled` only; perimeter and sightings do not subscribe.
 6. `pipeline_version` (rung-1 `CROSSING_VISION_PIPELINE_VERSION`) on every row; P3-D2 and P3-D3 each bump it.
@@ -754,8 +759,9 @@ writer).**
 6. **Held terms block the anchor (review B2).** While any request has unreleased terms, the anchor predicate fails as if
    an entry term had arrived at E_primary (restarts `t_start`); so an anchor cannot fire between the bus event and
    release, and no held term becomes "late" through the hold (an anchor in the 10-200 s between E and the bus event can
-   still make a term late, as today). The block is bounded by a deadline E_primary + `TERM_HOLD_S` + the worst outcome
-   bound (`EVENT_END_WAIT_S` 120 + `TIMEOUT_S` 90 = 320 s); past it the block lapses and the request is force-released,
+   still make a term late, as today). The block is bounded by a deadline `E_primary + TERM_HOLD_S (110) +
+   EVENT_END_WAIT_S (120) + TIMEOUT_S (90) = E + 320 s`; setup asserts it is ≥ the worst outcome bound
+   `EGRESS_ENTRY_WINDOW_SECONDS (45) + EVENT_END_WAIT_S (120) + TIMEOUT_S (90) = E + 255 s`; past it the block lapses and the request is force-released,
    counted `anchor_block_deadline_expired`. Held terms do NOT block the stuck-ledger sample (`entry_blocks=False`,
    `crossing_ledger.py:491`): `crossing_ledger_stuck` judges released terms only, so a hold never suppresses that page.
 7. **No-request paths (review M2 b).** These apply terms immediately, outside the hold, and never collapse; each is
@@ -875,25 +881,43 @@ recommended yes; sequenced before P3-D3).** Why: the ledger has never been `know
 house is mostly inputs the rooms have already excluded as stuck (media room Matter radar on 18 h, excluded by the room
 at 4 h; the flapping Meross bit), so bars a and e, F-LEAD and every census use of P3-D3 / P3-D4 cannot fire.
 `_held_inputs` (`crossing_vision.py:1110-1177`) reads raw `hass.states` and ignores the room's exclusion.
-1. A Tier-1 input that its room coordinator reports as stuck-excluded (`get_stuck_sensor_kinds()`,
-   `coordinator.py:1942`, the same public getter `sensor.ura_stuck_signal_watchdog` reads at `sensor.py:5728`; no
-   hass.data scan, contract G7) does not hold the anchor while it reads `on`. Listed on the ledger diagnostics as
-   `held_ignored_stuck` (+ count).
-2. **The distinction, explicit.** Stuck-excluded = the entity reports a live value the room has judged physically
-   implausible (stuck-continuous or chatter). Dead = `unavailable` / `unknown` / missing / stream-dead. The operator rule
-   "a dead camera/sensor is faulty equipment ... hold, never release" covers dead inputs, and P3-D8 does not change it:
-   a dead input still holds (last known-good `on`, or no known-good reading), whether or not it is also stuck-excluded.
-   Only a live-but-excluded `on` stops holding. Kill switch `CROSSING_VISION_LEDGER_ANCHOR_IGNORES_STUCK` (rung 1,
-   True after the operator's yes; False = today's rule).
-3. The `crossing_ledger_anchor_zero` page keeps naming holders and now also lists `held_ignored_stuck`.
-- **Tests:** `test_stuck_excluded_on_input_does_not_hold`, `test_dead_input_still_holds_even_if_stuck_excluded`,
+1. **Source: the room's real exclusion set, not the label map (final review H1).** `get_stuck_sensor_kinds()`
+   (`coordinator.py:1942`) is a LABEL map: a duty-cycle hit is labelled but deliberately NOT excluded, because a
+   sleeping person reads ~100 % mmWave duty cycle (`coordinator.py:3801-3808`; exclusion only after
+   `_promote_dutycycle_to_exclusion`, `:3813`), and chatter is labelled in shadow mode without promotion (`:3073-3084`).
+   P3-D8 never reads it. It reads the room's `SensorExclusionSet` narrowed to the stuck clients
+   `CROSSING_VISION_ANCHOR_STUCK_CLIENTS` = {`p22_continuous` (`:3762`), `chatter` (promoted only in act mode, `:3076`),
+   `stuck_dutycycle` (promoted, `:3830`)}; never `CAMERA_STREAM_EXCLUSION_CLIENT` (`:2626`, a dead stream) or any other
+   client. Build: a NEW room getter `camera_input_room_stuck_excluded(input_eid)` beside
+   `camera_input_room_quarantined` (`coordinator.py:2790-2796`), returning True iff
+   `self._exclusion_set.clients_for(input_eid)` (`domain_coordinators/sensor_exclusion.py:145`) intersects the stuck
+   clients, else None; and a module wrapper `input_room_stuck_excluded(hass, eid)` beside `input_room_quarantined`
+   (`camera_stream_health.py:1235-1242`) using the existing `_ask` room sweep (`:1091-1103`, over
+   `_room_coordinators`, the same coordinator set `aggregation._get_room_coordinators` gives `sensor.py:5724`).
+   `crossing_vision` calls the wrapper through its existing `_csh` import; no new access path. Guard delta: 0 rows
+   expected (the guard has no `crossing_vision` → room-coordinator rule; the build confirms).
+2. **Dead vs stuck-excluded, explicit.** `_held_inputs` already has each input's state and stream view
+   (`crossing_vision.py:1170-1176`). P3-D8 applies only when `state == "on"` AND the stream view is None AND
+   `input_room_stuck_excluded` is True: that input does not hold. Dead = `unavailable` / `unknown` / missing / a non-None
+   stream view; the operator rule "a dead camera/sensor is faulty equipment ... hold, never release" covers it and P3-D8
+   does not change it: a dead input holds (last known-good `on`, or no known-good reading) even when it is also
+   stuck-excluded. A duty-cycle-labelled but unpromoted sensor (a sleeper) and a shadow-chatter sensor still hold. Kill
+   switch `CROSSING_VISION_LEDGER_ANCHOR_IGNORES_STUCK` (rung 1, True after the operator's yes; False = today's rule).
+   Ignored inputs are listed on the ledger diagnostics as `held_ignored_stuck` (+ count).
+3. The `crossing_ledger_anchor_zero` page keeps naming holders and also lists `held_ignored_stuck`.
+- **Tests:** `test_stuck_excluded_on_input_does_not_hold` (p22 client), `test_act_chatter_excluded_does_not_hold`,
+  `test_dutycycle_label_without_exclusion_still_holds`, `test_shadow_chatter_still_holds`,
+  `test_dead_input_still_holds_even_if_stuck_excluded`, `test_camera_stream_client_only_still_holds`,
   `test_stuck_getter_failure_keeps_holding`, `test_ignores_stuck_kill_switch_restores_rule`,
   `test_held_ignored_stuck_listed`.
-- **Mutation:** ignore the exclusion → `test_stuck_excluded_on_input_does_not_hold`; let dead+excluded release →
-  `test_dead_input_still_holds_even_if_stuck_excluded`.
-- **Live:** with the media room radar stuck-excluded and the house AWAY, `crossing_ledger.held` no longer lists it,
-  `held_ignored_stuck` does, and the first anchor fires within `LEDGER_EMPTY_RESET_S` + one eval once no other holder
-  remains. Discriminates: a build that dropped dead inputs too would also empty `held` of `unavailable` entities.
+- **Mutation:** read `get_stuck_sensor_kinds()` instead of the exclusion set → `test_dutycycle_label_without_exclusion_still_holds`
+  and `test_shadow_chatter_still_holds` RED; drop the dead check (let dead + excluded release) →
+  `test_dead_input_still_holds_even_if_stuck_excluded` RED; widen to any client (`camera_input_room_quarantined`) →
+  `test_camera_stream_client_only_still_holds` RED; drop the exclusion read → `test_stuck_excluded_on_input_does_not_hold` RED.
+- **Live:** with the media room radar promoted `p22_continuous` and the house AWAY, `crossing_ledger.held` no longer
+  lists it, `held_ignored_stuck` does, and the first anchor fires within `LEDGER_EMPTY_RESET_S` + one eval once no
+  other holder remains; any duty-cycle-labelled bedroom sensor stays in `held`. Discriminates: the label-map bug would
+  also drop sleeping-bedroom sensors from `held`.
 
 **P3-D9 EGRESS-TRACKER-DIRECTION-1: the pass key at the source, then pass-level dedup (Tier 3, own plan; carded,
 planned; harmonization C5, review G1).** The F3 owner owns the one pass key; P3-D4, P3-D3, P3-D6, interior D5 and NVR
@@ -902,10 +926,16 @@ W2 consume it. Two steps:
   `_resolve_direction` computes `pass_identity(...)` (the Pass rule) from a tracker-owned Frigate person-event ring
   (`register_frigate_consumer`) and stamps `pass_key` on the new `CrossingRecord` (creation-time field) and as an
   additive bus key, beside `peak_person_count`. Golden test: every pre-existing bus key and DB column unchanged.
+  Lifecycle: the tracker's `register_frigate_consumer` (`frigate_ingress.py:582`; its first Frigate consumer) is
+  unsubscribed in the tracker's teardown; the ring keeps `CROSSING_VISION_TRACKER_FRIGATE_RING` events per Frigate
+  camera, pruned by count and age on every append. Tests `test_tracker_frigate_consumer_unsubscribed_on_teardown`,
+  `test_tracker_frigate_ring_bounded`, `test_pass_key_on_bus_and_record`. Guard delta: 0 rows expected (a consumer
+  registration inside the F3 owner; the build confirms).
   Gated only on P3-D0 (d)'s rule (ii) measurement being reported (not on its pass verdict): the key is a value, not
   a behaviour.
 - **P3-D9b pass-level dedup (after P3-D4; gated on P3-D0 (d) PASS including the round-trip merge bound).** The
-  direction-keyed dedup (`transit_validator.py:2425-2438`) gains a pass check: a crossing whose `pass_key` equals that
+  direction-keyed dedup (`transit_validator.py:2425-2438`) gains a pass check, with `pass_identity` computed BEFORE the
+  dedup block (the dedup `return` is at `:2428-2434`; P3-D9a's stamp at record creation `:2515` is too late for it): a crossing whose `pass_key` equals that
   of a crossing already resolved on the same door group inside `DOOR_STEM_DEDUP_S` is not emitted again, whatever its
   direction. That fixes "one pass emits both" for every reader (notify, census egress-face union, entered / exited,
   DB, perimeter, sightings, crossing vision). It does not choose which label is right; that stays the interior-timing
@@ -926,6 +956,9 @@ change. Until P3-D9a ships, `pass_key` is None everywhere and P3-D4 collapses no
    after P3-D3). The operator may instead accept the tracker's signs for F-LEAD.
 7. **Pending operator decision:** P3-D8, a stuck-excluded live input stops holding the anchor while a dead input still
    holds (recommended yes).
+8. **M2 (taken by the orchestrator, operator may override):** the one-event round-trip gate needs ≥ 20 hand-labelled
+   round trips (mined from up to 30 days) and a Wilson upper bound ≤ 0.15; below 20 the verdict is HOLD and P3-D4
+   ships with collapse off rather than blocking Phase 3.
 
 Tier: P3-D0 probe; P3-D1 Tier 1; P3-D2, P3-D6, P3-D8 Tier 2; P3-D5 Tier 2-DB; P3-D3, P3-D4, P3-D7, P3-D9 Tier 3 (ledger input
 surface, a production G3 writer, the F3 source): two plan reviews incl. framing G, four code reviews, orchestrator
@@ -985,8 +1018,11 @@ source mutation of the INV-DIR-GATE site, operator checkpoint before deploy.
 | `CROSSING_VISION_DIRECTION_ZERO_MIN_OK` | 10 | 1 | `crossing_vision_direction_zero` trip-wire; 0 = off |
 | `CROSSING_VISION_LEDGER_PASS_COLLAPSE` | False until P3-D0 (d) passes, then True | 1 | P3-D4; False = per-member terms as before |
 | `CROSSING_VISION_PASS_SAME_EVENT_MIN` | 0.80 | probe gate (plan number, not runtime) | P3-D0 (d) |
-| `CROSSING_VISION_PASS_ROUND_TRIP_MIN_N` | 5 | probe gate | P3-D0 (d): fewer labelled real round trips = HOLD |
-| `CROSSING_VISION_PASS_ROUND_TRIP_MERGE_MAX` | 0.10 | probe gate | P3-D0 (d): one-event round-trip merge share; above it P3-D4 and P3-D9b do not ship |
+| `CROSSING_VISION_PASS_ROUND_TRIP_MIN_N` | 20 | probe gate | P3-D0 (d): fewer hand-labelled one-event round trips = HOLD (collapse off, P3-D9b waits) |
+| `CROSSING_VISION_PASS_ROUND_TRIP_MERGE_UB_MAX` | 0.15 (Wilson 95 % upper bound) | probe gate | P3-D0 (d): one-event round-trip merge share; above it collapse stays off and P3-D9b does not ship |
+| `CROSSING_VISION_PASS_MINE_MAX_DAYS` | 30 | probe gate | P3-D0 (d) mining horizon |
+| `CROSSING_VISION_ANCHOR_STUCK_CLIENTS` | {`p22_continuous`, `chatter`, `stuck_dutycycle`} | 1 | P3-D8: exclusion clients that stop an `on` input holding; never the camera-stream client |
+| `CROSSING_VISION_TRACKER_FRIGATE_RING` | 20 per Frigate camera, 1800 s | 1 | P3-D9a tracker event ring bound (count and age, same as the crossing ring age) |
 | `CROSSING_VISION_DAILY_CALLS_MAX` (existing, `const.py:3569`) | 200 | 1 | Upper bound of the cap Number |
 | `CROSSING_VISION_CAP_REHYDRATE_INDEX_ROWS` | 200 000 | probe rule (plan number) | P3-D5: above it the build adds `idx_episodes_type_ended` |
 | `CROSSING_VISION_LEDGER_ANCHOR_IGNORES_STUCK` | True after operator yes (P3-D8) | 1 | False = a stuck-excluded live `on` input still holds |

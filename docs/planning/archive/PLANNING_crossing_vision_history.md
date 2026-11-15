@@ -98,3 +98,24 @@ Superseded text (25b30764), in substance:
   pair only).
 - Interior plan D5 pointed at a fast-stage G3 write that never exists; now reads P3-D3's `vision_people_count` (C3).
 - Census plan §3.3 now names the code parameter `vision_leads` (C2).
+
+## 2026-11-15 (final): Phase 3 final spot-check fix-up
+
+Input: `docs/reviews/code-review/plan_review_crossing_vision_p3_final_2026_11_15.md` (H1, M1-M3, L1-L4), plus the
+coordinator's note that the music repair merge lowers the guard totals by 3.
+
+Superseded text (5f602cd3), in substance:
+- P3-D8 read `get_stuck_sensor_kinds()` as "stuck-excluded". Wrong: it is a label map; duty-cycle hits (sleepers) are
+  labelled but not excluded and shadow chatter is labelled but not promoted, so the anchor would have fired on a
+  sleeping house. Replaced by the room's `SensorExclusionSet` narrowed to the stuck clients, through a new room getter
+  and a `camera_stream_health` wrapper over the existing `_ask` sweep; dead inputs still hold.
+- Deadline "`EVENT_END_WAIT_S` 120 + `TIMEOUT_S` 90 = 320 s" (arithmetic wrong). Now E + 110 + 120 + 90 = E + 320 s,
+  asserted ≥ E + 255 s.
+- Round-trip gate MIN_N 5 with a 0.10 point-estimate ceiling (5 cannot show a ceiling: 0/5 has an upper bound ≈ 0.43).
+  Now ≥ 20 labelled one-event round trips from up to 30 days and a Wilson upper bound ≤ 0.15; below 20 = HOLD with
+  collapse off (orchestrator decision, recorded).
+- Interior D5 was claimed as a `pass_key` consumer with no text in its plan; the interior plan now merges D5 windows by
+  `pass_key`.
+- Guard counts written as absolute numbers (231 → 232, 259 → 260). Now deltas against develop at merge time (P3-D3 +1),
+  re-read by each builder, in both plans.
+- P3-D9a lifecycle and guard delta, and P3-D9b's compute-before-dedup ordering, added.
