@@ -2217,7 +2217,7 @@ class PersonPhoneLeftBehindSensor(BinarySensorEntity):
         # RA7: the one F2 read (trust view).
         from .census_view import house_census_view  # noqa: PLC0415
 
-        _view = house_census_view(self.hass, "trust")
+        _view = house_census_view(self.hass, cls="house_state")  # ship 3a D4
         if _view is not None and _view.total > 0:
             return False
 
@@ -2267,7 +2267,7 @@ class PersonPhoneLeftBehindSensor(BinarySensorEntity):
         # RA7: the one F2 read (trust view).
         from .census_view import house_census_view  # noqa: PLC0415
 
-        _view = house_census_view(self.hass, "trust")
+        _view = house_census_view(self.hass, cls="house_state")  # ship 3a D4
         if _view is not None:
             census_persons = _view.total
 

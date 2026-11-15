@@ -55,8 +55,38 @@ class HouseCensusView:
     ledger_state: str | None = None
 
 
-def house_census_view(hass: Any, view: str = "trust") -> HouseCensusView | None:
-    """F2 house census for ``view`` (``trust`` / ``awareness``).
+def view_for_class(hass: Any, cls: Any) -> str:
+    """RA2 (ship 3a D4: the ONE rule; ``PresenceCoordinator.view_for_class``
+    delegates here): the census view a consumer class reads.
+
+    ``awareness`` ONLY when ``cls`` is in the active promoted set
+    (``CROSSING_VISION_CONSUMER_CLASSES``) AND in the legal set AND the
+    downgrade switch reads ``on``. Every other input (class not promoted,
+    unknown / misspelt / non-string class, switch missing or not on, any
+    error) -> ``trust``."""
+    try:
+        from . import const as _c  # noqa: PLC0415 - pure const module
+
+        if not isinstance(cls, str):
+            return "trust"
+        if cls not in _c.CROSSING_VISION_CONSUMER_CLASSES:
+            return "trust"
+        if cls not in _c.CROSSING_VISION_LEGAL_CONSUMER_CLASSES:
+            return "trust"
+        st = hass.states.get(_c.CROSSING_VISION_CENSUS_AUTHORITY_SWITCH)
+        if st is None or st.state != "on":
+            return "trust"
+        return "awareness"
+    except Exception:  # noqa: BLE001 - fail to trust
+        return "trust"
+
+
+def house_census_view(
+    hass: Any, view: str = "trust", *, cls: Any = None,
+) -> HouseCensusView | None:
+    """F2 house census for ``view`` (``trust`` / ``awareness``), or, with
+    ``cls`` (ship 3a D4), for the view ``view_for_class(hass, cls)`` picks
+    (``view`` is then ignored). With neither, trust.
 
     Sync, never raises; no census, no result yet, no house, or any error ->
     None. The awareness view reads the census deconfliction fields (CD1)
@@ -64,6 +94,8 @@ def house_census_view(hass: Any, view: str = "trust") -> HouseCensusView | None:
     trust values with provenance ``camera``. Any view string other than
     ``awareness`` reads trust.
     """
+    if cls is not None:
+        view = view_for_class(hass, cls)
     try:
         census = hass.data.get(_DOMAIN, {}).get("census")
         if census is None:

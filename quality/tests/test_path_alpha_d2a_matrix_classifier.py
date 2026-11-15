@@ -162,8 +162,13 @@ def _load_pc_module():
     dc_pkg.__path__ = []
     sys.modules[f"{pkg_name}.domain_coordinators"] = dc_pkg
     sig_mod = types.ModuleType(f"{pkg_name}.domain_coordinators.signals")
-    sig_mod.SIGNAL_PERSON_ARRIVING = "signal_person_arriving"
+    # Ship 3a D1: the BLE producer now sends through
+    # signals.dispatch_person_arriving, so the stub runs the REAL signals.py
+    # (pure: dataclasses + typing only) instead of a one-name stand-in.
+    # (Registered before exec: @dataclass resolves its module in sys.modules.)
     sys.modules[f"{pkg_name}.domain_coordinators.signals"] = sig_mod
+    _sig_path = PKG / "domain_coordinators" / "signals.py"
+    exec(compile(_sig_path.read_text(), str(_sig_path), "exec"), sig_mod.__dict__)
     # person_coordinator.
     pc_spec = importlib.util.spec_from_file_location(
         f"{pkg_name}.person_coordinator", str(PC_PATH)

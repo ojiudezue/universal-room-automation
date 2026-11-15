@@ -5298,17 +5298,18 @@ class PersonCensus:
                     )
                     # EGRESS-EXIT-DISPLAY-REREAD-1: notify display
                     # sensors so PersonsExitedToday re-reads DB.
+                    # Ship 3a D3: through G3 (the one F3 amend primitive);
+                    # no source_ref, so the crossing ring is untouched and
+                    # only SIGNAL_EGRESS_RECORD_AMENDED is sent (role
+                    # exit_backfilled, superset of {row_id, person_id}).
                     try:
-                        from homeassistant.helpers.dispatcher import (
-                            async_dispatcher_send,
-                        )
-                        from .domain_coordinators.signals import (
-                            SIGNAL_EGRESS_EXIT_BACKFILLED,
-                        )
-                        async_dispatcher_send(
-                            self.hass,
-                            SIGNAL_EGRESS_EXIT_BACKFILLED,
-                            {"row_id": row_id, "person_id": slug},
+                        from .transit_validator import amend_crossing
+
+                        amend_crossing(
+                            self.hass, None, {}, provenance=None,
+                            camera=None, role="exit_backfilled",
+                            row_id=row_id,
+                            payload_extra={"person_id": slug},
                         )
                     except Exception:  # noqa: BLE001
                         _LOGGER.debug(
@@ -5901,9 +5902,10 @@ class PersonCensus:
     ) -> None:
         """FACE-ARRIVAL-REBUILD-1: append the D4 ring entry (with the
         suppression verdict at append time) and call every registered person
-        sighting callback ONCE for this message. Callbacks live in
-        ``hass.data[DOMAIN]["face_latch_callbacks"]`` (read per message, so a
-        census rebuild keeps the registration); a raising callback is logged,
+        sighting callback ONCE for this message. Callbacks are registered
+        through ``signals.register_face_latch_callback`` and read per message
+        (``signals.face_latch_callbacks``), so a census rebuild keeps the
+        registration; a raising callback is logged,
         never raised into the bridge."""
         ring = self._frigate_face_named_ring
         if ring is not None:
@@ -5912,12 +5914,10 @@ class PersonCensus:
             except Exception:  # noqa: BLE001
                 suppressed = False
             ring.append((now.timestamp(), camname, stems, name, suppressed))
-        try:
-            callbacks = list(
-                self.hass.data.get(DOMAIN, {}).get("face_latch_callbacks") or ()
-            )
-        except Exception:  # noqa: BLE001
-            callbacks = []
+        # Ship 3a D1: the typed F4 camera ingest read (a snapshot, as before).
+        from .domain_coordinators.signals import face_latch_callbacks  # noqa: PLC0415
+
+        callbacks = face_latch_callbacks(self.hass)
         for cb in callbacks:
             try:
                 cb(camname, stems, name, now)

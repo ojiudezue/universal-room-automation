@@ -281,11 +281,12 @@ async def test_ambiguous_egress_silent(rig):
 
 @pytest.mark.asyncio
 async def test_backfill_not_a_sighting(rig):
-    """Exit backfill dispatches SIGNAL_EGRESS_EXIT_BACKFILLED, never the egress
-    bus event, so it can never become a sighting."""
-    from homeassistant.helpers.dispatcher import async_dispatcher_send
-    async_dispatcher_send(rig.hass, rig.m.signals.SIGNAL_EGRESS_EXIT_BACKFILLED,
-                          {"row_id": 1, "person_id": "oji_udezue"})
+    """Exit backfill sends SIGNAL_EGRESS_RECORD_AMENDED through G3 (ship 3a D3;
+    was SIGNAL_EGRESS_EXIT_BACKFILLED), never the egress bus event, so it can
+    never become a sighting."""
+    rig.m.transit.amend_crossing(
+        rig.hass, None, {}, provenance=None, camera=None, role="exit_backfilled",
+        row_id=1, payload_extra={"person_id": "oji_udezue"})
     await rig.hass.async_block_till_done()
     assert rig.sightings == []
 
@@ -451,9 +452,9 @@ async def test_tracker_face_fields_updated(rig):
 @pytest.mark.asyncio
 async def test_teardown_unsubscribes_all(rig):
     p = rig.producer
-    assert p._bridge_cb in rig.hass.data[R.DOMAIN]["face_latch_callbacks"]
+    assert p._bridge_cb in rig.m.signals.face_latch_callbacks(rig.hass)
     p.async_teardown()
-    assert rig.hass.data[R.DOMAIN]["face_latch_callbacks"] == []
+    assert rig.m.signals.face_latch_callbacks(rig.hass) == ()
     await R.face(rig, "family_room", "Oji")
     await R.egress(rig)
     R.bridge(rig, "family_room", "Oji")
@@ -469,7 +470,7 @@ async def test_kill_switch_noop(mods, hass, monkeypatch):
     rig = await R.build(mods, hass, monkeypatch)
     try:
         assert rig.census._frigate_face_named_ring is None
-        assert rig.hass.data[R.DOMAIN].get("face_latch_callbacks", []) == []
+        assert rig.m.signals.face_latch_callbacks(rig.hass) == ()
         R.bridge(rig, "family_room", "Oji")
         await R.face(rig, "family_room", "Oji")
         await R.egress(rig)
@@ -501,7 +502,7 @@ async def test_presence_async_setup_builds_producer(mods, hass, monkeypatch):
         assert len(rig.sightings) == 1
         await rig.presence.async_teardown()
         assert rig.presence._person_sightings is None
-        assert hass.data[R.DOMAIN]["face_latch_callbacks"] == []
+        assert rig.m.signals.face_latch_callbacks(hass) == ()
         await R.face(rig, "family_room", "Jaya")
         assert len(rig.sightings) == 1
     finally:

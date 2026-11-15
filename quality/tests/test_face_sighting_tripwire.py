@@ -31,7 +31,7 @@ async def rig(mods, hass, monkeypatch):
 def _kill_hook(rig):
     """The v3.19 signature: faces flow through the census bridge but the
     producer hears nothing (its callback is gone)."""
-    rig.hass.data[R.DOMAIN]["face_latch_callbacks"].clear()
+    rig.producer._bridge_unsub()  # ship 3a D1: the typed unregister
 
 
 async def _faces(rig, n, name="Oji", camera="family_room"):
@@ -112,12 +112,13 @@ async def test_suppressed_faces_silent(mods, hass, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_rearm_after_recovery(rig):
-    cbs = list(rig.hass.data[R.DOMAIN]["face_latch_callbacks"])
+    cbs = list(rig.m.signals.face_latch_callbacks(rig.hass))
     _kill_hook(rig)
     await _faces(rig, 10)
     await _tick(rig)
     assert len(rig.pages) == 1
-    rig.hass.data[R.DOMAIN]["face_latch_callbacks"].extend(cbs)  # recovered
+    for cb in cbs:  # recovered (ship 3a D1: the typed register)
+        rig.m.signals.register_face_latch_callback(rig.hass, cb)
     await _faces(rig, 1)
     await _tick(rig)
     assert rig.producer._zero_latched is False
