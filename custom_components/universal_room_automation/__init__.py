@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.108.21
+# Universal Room Automation vv5.108.26
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -111,6 +111,7 @@ from .const import (
     CONF_PERIMETER_ENRICHMENT_MAX_TOKENS,
     CONF_PERIMETER_ENRICHMENT_PROVIDER_ID,
     CONF_EXTERIOR_SNAPSHOT_OFFSET_S,
+    CONF_CROSSING_VISION_PROVIDER_ID,
 )
 from .const import VERSION
 # ROOM-CREATE-AREA-PREFILL-DETRITUS-1 (D4): hoisted top-level so the
@@ -2955,7 +2956,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             # down any prior handles before re-registering. Teardown is
             # hooked from `async_unload_entry` alongside `unsub_census`.
             try:
-                census._register_ble_transition_listeners()
+                census.register_ble_transition_listeners()
             except Exception:  # noqa: BLE001
                 _LOGGER.debug(
                     "BLE-transition listener registration failed at setup",
@@ -3025,7 +3026,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             @callback
             def _on_ha_started_ble_refresh(_evt):
                 try:
-                    census._refresh_ble_crossing_listeners()
+                    census.refresh_ble_crossing_listeners()
                 except Exception:  # noqa: BLE001
                     _LOGGER.debug(
                         "rev5 BLE HA-started refresh raised (non-fatal)",
@@ -3142,15 +3143,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 # Convert entity IDs to person names
                 # Config flow returns ["person.oji", "person.ezinne"]
                 # Coordinator expects ["Oji", "Ezinne"]
-                tracked_persons = []
-                for entity_id in tracked_person_entities:
-                    if entity_id.startswith("person."):
-                        # Extract name from entity_id (person.oji -> Oji)
-                        person_name = entity_id.replace("person.", "").replace("_", " ").title()
-                        tracked_persons.append(person_name)
-                    else:
-                        # Already a name, just title case it
-                        tracked_persons.append(entity_id.replace("_", " ").title())
+                # RA9: one inverse rule (person.oji -> Oji; a name is
+                # title-cased), person_ids.display_of.
+                from .person_ids import display_of  # noqa: PLC0415
+
+                tracked_persons = [
+                    display_of(entity_id) for entity_id in tracked_person_entities
+                ]
 
                 _LOGGER.warning(
                     "PERSON INIT DIAGNOSTIC: converted %s -> %s",
@@ -5446,6 +5445,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # future path ever fires the listener with an empty snapshot, the diff
         # degrades to "all keys look new" -> suppress branch if all-new keys are
         # allowlisted, otherwise reload. Either outcome is safe.
+        # Person-awareness ship 3b (PLANNING_person_awareness_layer_ship3.md
+        # §6.4): the one camera twin owner (twin map, house tracker for
+        # unwatched cameras, group pages). Torn down in the CM unload.
+        try:
+            from .domain_coordinators.camera_twin_health import (  # noqa: PLC0415
+                async_setup_camera_twin_health,
+            )
+            await async_setup_camera_twin_health(hass)
+        except Exception:  # noqa: BLE001 — rooms page as before 3b
+            _LOGGER.warning(
+                "camera twin health setup failed (rooms page every device)",
+                exc_info=True,
+            )
+
         _seed_cm_last_applied_options(hass, entry)
         entry.async_on_unload(entry.add_update_listener(_async_update_listener))
         _LOGGER.info("Coordinator Manager entry setup complete")
@@ -6070,6 +6083,15 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 "v5.94.1 B3: D-NEST sweep teardown at CM unload raised (non-fatal)",
                 exc_info=True,
             )
+        # Person-awareness ship 3b: tear down the camera twin owner (rooms
+        # page every device while it is absent).
+        try:
+            from .domain_coordinators.camera_twin_health import (  # noqa: PLC0415
+                async_teardown_camera_twin_health,
+            )
+            async_teardown_camera_twin_health(hass)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("camera twin health teardown raised", exc_info=True)
         unload_ok = await hass.config_entries.async_unload_platforms(entry, cm_platforms)
         return unload_ok
 
@@ -7880,6 +7902,9 @@ INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     CONF_PERIMETER_ENRICHMENT_MAX_TOKENS,
     CONF_PERIMETER_ENRICHMENT_PROVIDER_ID,
     CONF_EXTERIOR_SNAPSHOT_OFFSET_S,
+    # Crossing vision P2-D1: read fresh per llmvision call
+    # (CrossingVisionShadow._provider_id); no cached consumer.
+    CONF_CROSSING_VISION_PROVIDER_ID,
     # PERIMETER-FP (v5.107.0): gate switches/select, path-(a) fresh-read via
     # PerimeterAlertManager._options_flag() on every alert. No cached
     # consumer, no signal. CONF_PERIMETER_ZONE_SENSORS is DELIBERATELY

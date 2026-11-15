@@ -347,7 +347,7 @@ def test_census_face_dropped_via_real_overrule_tick(world, monkeypatch):
     async def _noop(*_a, **_k):
         return None
 
-    async def _area(_name):
+    async def _area(_name, *_resolved):
         return AREA
 
     coord._build_scanner_room_map = _noop

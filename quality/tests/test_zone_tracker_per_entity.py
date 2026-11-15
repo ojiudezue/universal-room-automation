@@ -472,6 +472,23 @@ def test_room_delete_via_config_entries_async_remove_releases_kinds(request):
         from homeassistant.helpers.dispatcher import async_dispatcher_connect  # noqa: PLC0415
     except Exception as exc:  # noqa: BLE001
         pytest.skip(f"phcc unavailable: {exc}")
+    # A real hass can still be constructed while an earlier module has left
+    # the HA dispatcher replaced by a stub: then the "removed" lifecycle
+    # signal (URA imports async_dispatcher_send at CALL time) is never
+    # delivered and this test fails on a harness artefact. Treat that as the
+    # same in-process poison: skip here, run in the clean interpreter.
+    import homeassistant.helpers.dispatcher as _ha_disp  # noqa: PLC0415
+    _stubbed = [
+        a for a in ("async_dispatcher_connect", "async_dispatcher_send")
+        if getattr(getattr(_ha_disp, a, None), "__module__", None)
+        != "homeassistant.helpers.dispatcher"
+    ]
+    if _stubbed:
+        if os.environ.get(_CLEAN_ENV):
+            raise AssertionError(f"stubbed HA dispatcher in clean interpreter: {_stubbed}")
+        _POISON_SKIPS.append(request.node.nodeid)
+        pytest.skip(f"R3-REAL-HA-POISONED (dispatcher stubbed: {_stubbed}); "
+                    "executed by test_zz_real_ha_clean_interpreter")
     init = _load_ura_init()
     sig = importlib.import_module(f"{SM._PKG}.domain_coordinators.signals")
 

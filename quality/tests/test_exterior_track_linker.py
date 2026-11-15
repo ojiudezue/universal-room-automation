@@ -602,22 +602,11 @@ def test_allowlist_gated_on_state_change_ingress_path(linker):
     assert linker._ignored_offlist_events.get("upstairs_hall") == 1
 
 
-def test_perimeter_setup_installs_allowlist_anchor():
-    src = open(
-        __file__.replace(
-            "quality/tests/test_exterior_track_linker.py",
-            "custom_components/universal_room_automation/perimeter_alert.py",
-        )
-    ).read()
-    # 2026-08-06 protect-person-legs fix-up: the perimeter/egress
-    # subscription block was further refactored into a shared
-    # `_wire_camera` helper — anchor moved to the egress-loop dispatch
-    # site which sits directly before the allowlist install.
-    anchor = 'for cam_entity_id, info in egress_infos:'
-    blk = src[src.index(anchor):]
-    assert "set_allowed_cameras" in blk[:3000], (
-        "perimeter setup must install the linker camera allowlist"
-    )
+# test_perimeter_setup_installs_allowlist_anchor (a source-text grep, Bug
+# Class #62) was converted to a behavioural test by PERIMETER-GLOBAL-EGRESS-
+# MUTE-1: test_perimeter_egress_mute_scoped.py::
+# test_perimeter_setup_installs_linker_allowlist drives the real
+# PerimeterAlertManager.async_setup against a present linker.
 
 
 # ---------------------------------------------------------------------------

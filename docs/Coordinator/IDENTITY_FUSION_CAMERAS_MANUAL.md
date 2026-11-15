@@ -49,6 +49,18 @@ Suffix vocabularies live in
 `camera_resolver.py:122-127` (`PLATFORM_FRIGATE`, `PLATFORM_UNIFI`,
 `PLATFORM_REOLINK`, `PLATFORM_AMCREST`, `PLATFORM_DAHUA`).
 
+**W1 consumer: the dead-camera twin rule (person-awareness ship 3b, built 2026-11-14, `feature/layer-ship3b`, NOT
+deployed; plan `PLANNING_person_awareness_layer_ship3.md` §6).** Camera stream health reads the NVR-WITNESS W1 pairing
+(`CameraResolver.frigate_object_name_pairs`, §4.1) to build a device twin map: a Frigate device and its W1 sibling are
+twins only when every enabled camera entity on the Frigate device has registry platform `frigate` and every one on the
+sibling is `unifiprotect` / `reolink` / `amcrest` / `dahua`, at least one on each side (live: 17 admitted Frigate ↔
+Protect, 3 Frigate ↔ ESPHome kiosk panel rejected). A camera is reported dead (HIGH page) only when EVERY twin device
+has lost it; one NVR down with the other covering sends a MEDIUM notice. No reader takes a twin's reading (option A).
+Liveness is per registry DEVICE: a Protect device with 2-4 channels (high / medium / low / package) is live when any
+channel is live; the dual-lens package channel is a member (no registry field marks it; card
+DUAL-LENS-PACKAGE-CHANNEL-MEMBERSHIP-1). Non-W1 pairs (pool-overhead's four integrations) stay per device until NVR
+witness W2. Details: `PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md` header (ship 3b entry).
+
 ### 1.1 The `_2` suffix — permanent and camera-group-dependent
 
 Frigate-1 was decommissioned 2026-08-13. Its entities are **fully
@@ -359,6 +371,32 @@ reverts ONLY the census merge path; the D3 per-room fused sensor,
 D5 fan_veto camera leg, and D4 dry-run scan remain on the new
 resolver.
 
+### 4.2a Census awareness view and the one dedup function (census deconfliction CD1-CD3, branch `feature/census-deconfliction-p2-ledger`, NOT deployed, ships dark)
+
+Plan `docs/planning/PLANNING_census_deconfliction.md`. F2 has two views, one writer (`PersonCensus`), one site
+(`_apply_enhanced_house_census`, which calls `census_deconflict.deconflict_house` once per evaluation, sync).
+- **Trust view (F2-T):** the existing fields, payload and entities, byte-identical (develop golden, every vision
+  variant). Every AWAY / house-state / security / lock / HVAC reader keeps reading it.
+- **Awareness view (F2-A):** new house fields `aware_guests`, `aware_total = identified_count + aware_guests`,
+  `aware_identified` (= `identified_persons`, no second identity path), `count_provenance` (`camera` / `vision` /
+  `agree`), `aware_agreement` (`CENSUS_AGREEMENT_*`), plus display `aware_vision_status` (`switch_off` /
+  `unknown_ledger` / `dark` / `ok`) and `aware_ledger_state`. Not on `SIGNAL_CENSUS_UPDATED`, not in the DB snapshot.
+- **Terms:** `guest_cam` = the trust post-hold `unidentified_count`; `guest_vis` = the crossing ledger's
+  `max(0, L - R)` from `census_tick` (§4.3), None when unknown or unhealthy (an unhealthy source is missing, never 0).
+  Cases A (|diff| < `CROSSING_VISION_DISAGREE_FLAG_MIN`), B (vision higher), C (camera higher), D (vision missing).
+  Guest-side terms combine by max (`guest_terms_max`); residents are subtracted once (`R`).
+- **F-LEAD** `CROSSING_VISION_AWARENESS_VISION_LEADS` (rung 1, False): while False `aware_guests == guest_cam`.
+- **Readers:** `PresenceCoordinator.get_house_census("awareness")` (read API) and, through
+  `view_for_class("display")`, `sensor.ura_census_people_around` / `sensor.ura_census_guests_around` (Universal Room
+  Automation device; recorded states, unrecorded attributes; never unknown). Promotion ladder §3.2 of the plan:
+  `CROSSING_VISION_CONSUMER_CLASSES` = {display}, legal {display, notification}; the downgrade switch
+  `switch.ura_crossing_vision_census_authority` ("Vision Assisted Census", CM device; default ON on an install
+  with a camera entity, else OFF, a stored state wins; OFF = every class reads trust).
+- **Trip-wires (display / NM):** `crossing_vision_disagree` (per door group, case B or C on `ok` rows ≥
+  `CROSSING_VISION_DISAGREE_PERSIST_N` (5) in 24 h, MEDIUM, 0 = off) and, only after F-LEAD, one HIGH "revert F-LEAD"
+  page when ledger bar a (drift on independent anchors) or bar e (known share) regresses over 14 days (RAM; bars b, d
+  and the graded numbers need the scorer / grading, P2-D6 / P2-D10).
+
 ### 4.3 `TransitValidator` (`transit_validator.py`) — egress crossings
 
 Consumes egress-camera person events, dedups by camera stem (5s
@@ -438,6 +476,41 @@ deployed; plan `PLANNING_crossing_vision.md` rev 2, Phase 1).**
   Vision" llmvision entry, `gpt-6-luna`, temperature / top_p 1.0 set on that entry) when that entry
   exists on the install, else the perimeter provider; own `CROSSING_VISION_MAX_TOKENS` (1500). The
   llmvision call is a background task (HA stop does not wait on it).
+- **Provider (P2-D1, branch `feature/census-deconfliction-p2-ledger`, NOT deployed):** the integration option
+  `crossing_vision_provider_id` (Perimeter Alerting -> Advanced, rung 2, read fresh per call, reload-suppressed); when
+  it is empty, the rung-1 install default `CROSSING_VISION_PROVIDER_ID` (the Luna entry, kept: review A-HIGH-3). Either
+  id is used only when it is an llmvision config entry on this install, else the perimeter provider (another house
+  never has the default id).
+- **Crossing ledger (P2-D2 / P2-D3, same branch, NOT deployed):** `crossing_ledger.CrossingLedger` (pure; RAM; boot
+  `unknown`, a restart never restores `known`) owned by the shadow producer. Terms from every outcome: vision
+  `people_count` on `ok` (`term_source = vision`), else `camera_peak_count`, else 1 (`camera`; policy
+  `CROSSING_VISION_LEDGER_FALLBACK`); a cluster gets one term (primary count) or per-member camera terms when
+  directions are mixed; a `finally` backstop gives a crashed call its camera term; ambiguous = no term. Switch off /
+  kill / cap 0 = ledger `unknown`. A camera term is `max(1, camera_peak_count)` (a resolved direction is at least
+  one person). Anchor every `CROSSING_VISION_LEDGER_EVAL_S` (60 s; 0 = 1 s): camera bodies 0 (fresh within
+  2 x max(eval, 1)), fleet not dark, no HELD Tier-1 input, no Tier-1 rising edge (`SIGNAL_SUBSTRATE_KIND_CHANGED`),
+  no entry term (applied, late or while unknown), for `CROSSING_VISION_LEDGER_EMPTY_RESET_S` (900 s, operator
+  2026-11-14 on the window sweep) -> `L = R`, credits and applied exits cleared; no Tier-1 map = blocked; a Tier-1
+  entity in no registry entry with no state is ignored and flagged (INV-P2-DISCHARGE; reads no house state or resident
+  set). Held (`crossing_ledger.classify_held`, built per eval by `CrossingVisionShadow._held_inputs` from the
+  substrate's Tier-1 map `OccupancySubstrate.tier1_entity_ids()`, `hass.states`, a RAM last-known-good map and, per
+  input, the S2 view `camera_stream_health.entity_stream_view` (contract G7, built 2026-11-14 after the batch-2 merge;
+  its input route is `input_stream_view`, its fallback the input's own camera)): reads `on`; or its stream view is
+  HELD or RELEASED, whatever its last good reading (RELEASED is never "off" for the anchor, INV-MISSING-NOT-ZERO); or
+  dead by state (missing / unavailable / unknown) with last good `on` or no good reading since setup. A dead input
+  holds, never releases (operator 2026-11-14: "A dead camera is not a presence or absence of signal. Its faulty
+  equipment."). Kill switch `CROSSING_VISION_LEDGER_ANCHOR_NEEDS_NO_HOLD` (True). Resident floor = arrival credit
+  (INV-P2-ONCE): only when `R` rises above its previous tick value and `L < R`, lift `k = R − L` and open a credit
+  `(t, k)`; an entry term with E in [t − 300, t + 60] consumes it oldest first (`L += n − m`); a credit expires at
+  t + 60 + 210 s and its lift stays. Resident departures (`SIGNAL_RESIDENCY_EVENT`) are judged at `t_e + LAG +
+  timeout + end wait`: one person is consumed from the earliest APPLIED exit with E in [t_e − 900, t_e + 60] and
+  persons left (cancel), else `L − 1`; late / unknown exits are not stored. F2 hand-off ONLY via `census_tick`
+  (§4.2a). Rows: `crossing_vision_ledger` (one per term / anchor / reconcile / lift; terms carry `credit_consumed`),
+  one batched write per tick, writer-health backed but not checked while the shadow switch is off
+  (`MEMORY_WRITER_HEALTH_SWITCH_GATED_TYPES`). Pages: `crossing_ledger_stuck` (HIGH, 7200 s; held inputs block it)
+  and `crossing_ledger_anchor_zero` (LOW, 48 h; names the holders seen since the last anchor, dead ones first; silent
+  while no `census_tick` has ever arrived; clock restarts when the switch turns on). Diagnostics: `crossing_ledger` on
+  Outside: Open Tracks (unrecorded; adds `open_credits`, `held` (first 5), `anchor_zero_suppressed`).
 - **Known upstream leak (review B1):** cancelling a call (timeout or unload) during llmvision 1.7.1's
   clip fetch / ffmpeg (`media_handlers.py:662-845`) leaves one temp `.mp4` and the ffmpeg process
   running until its pipe closes (cleanup not in a `finally`, no `process.kill()`). Rare; fix belongs
@@ -464,8 +537,11 @@ names the nearest NULL exit row in the 600 s before the edge
   `ble_exit_identity_disabled_skip_count` on the census sensor.
 - **Displays:** `PersonsExitedTodaySensor` re-reads today's exits and
   `LastPersonExitSensor` (R1) re-reads the newest exit row on
-  `SIGNAL_EGRESS_EXIT_BACKFILLED`. The last-exit display only takes the name
-  if the newest row is the one named.
+  `SIGNAL_EGRESS_RECORD_AMENDED` with `role == "exit_backfilled"` (person-awareness
+  layer ship 3a D3, branch `feature/layer-ship3a`, NOT deployed: the backfill sends
+  through G3 `transit_validator.amend_crossing`, crossing ring untouched; the retired
+  `SIGNAL_EGRESS_EXIT_BACKFILLED` carried `{row_id, person_id}`, the new payload is a
+  superset). The last-exit display only takes the name if the newest row is the one named.
 - **Never:** re-notify (backfill confidence 0.72 is below the 0.75 naming bar
   anyway), census recount/evict, or any actuation.
 - Any future trust consumer of exit `person_id` must read after the backfill
@@ -528,6 +604,34 @@ under `gate_decisions_by_camera`:
   §5.5(a): it never changes the original alert's severity. Discharged on
   window expiry, teardown, and any later dispatched alert on the same camera
   key (`perimeter_alert.py` `_arm_identity_followup` / `_followup_check`).
+
+**Scoped egress mute (PERIMETER-GLOBAL-EGRESS-MUTE-1, branch
+`feature/perimeter-egress-mute-scoped`, NOT deployed; plan
+`PLANNING_perimeter_egress_mute_scoped.md`).** Consumes F3 only, security consumer
+class. Replaces the old rule "any egress on-edge mutes EVERY perimeter-only camera
+for 120 s" (which dropped ~40% of perimeter edges with no row). Now a perimeter-only
+edge on camera P is dropped only when a door listing P in `egress_mute_covers`
+(`exterior_seams.json`, linker attr `egress_mute_covers`, never part of the seam
+graph) has a stored crossing within `EGRESS_MUTE_WINDOW_S` (120) that is entry/exit,
+a tracked resident (guests never), identity ≥ `EGRESS_MUTE_MIN_IDENTITY_CONF` (0.9,
+clamped up) and not synthetic, and no non-qualifying crossing at a covering door in
+the window; one camera's episode is capped at `EGRESS_MUTE_MAX_EPISODE_S` (300).
+No hold: crossings land at +45 s (`EGRESS_ENTRY_WINDOW_SECONDS`), so most walk-outs
+alert and are named by the follow-up (operator decision A). Every mute and every
+decline near door activity writes a `perimeter_gate_decision` row with
+`gate: egress_mute` and `suppressed: true|false`. Dual-role cameras keep
+INV-EGRESS-SELF. Trip-wires (NM): mute ratio > `EGRESS_MUTE_RATIO_ALARM` over 24 h,
+and zero mute rows in 24 h while crossings occurred at covering doors with a loaded map.
+Late re-alert (operator "(a) Re-alert late"): a non-qualifying crossing that lands
+after a covered camera's edge was muted inside its window sends that edge then, once
+(`egress_mute_realert`, one handler run per camera, cooldown applies). With the
+integration option `door_groups` set, every door in a group counts as one door for the
+mute (transit emits a group's deduped crossing under whichever leg camera resolved
+first): a `doorbell_lite` crossing counts for the `garage_a` cover, `front_door_aerial`
+for `madrone_g6_entry`. The entity -> door map is
+built from the egress producer's own legs (`census.get_transit_egress_entities_by_camera`);
+name-key fallbacks are counted on the diagnostic. Covered cameras must be perimeter-only;
+a rejected seam file clears the map (no mute) while the graph keeps its last good spec.
 
 **Gate evidence (PERIMETER-GATE-EVIDENCE Part A, branch `feature/perimeter-gate-evidence`,
 NOT deployed; plan `PLANNING_perimeter_gate_evidence_and_input_health.md`).**

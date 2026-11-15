@@ -29,10 +29,23 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+# Scoped (census-p2 full run, 2026-11-14): unscoped, the module-level
+# ``_install_stub_entity_registry()`` below wrote ``async_get`` onto the REAL
+# ``homeassistant.helpers.entity_registry`` at collection time and never
+# restored it, so every later real-hass test saw this file's fake registry
+# (victims: test_census_awareness_surface authority-switch default,
+# test_crossing_ledger_wiring registry tests). Same fix as 75bd75e1: enter an
+# attrs-restoring import scope for the import-time stubs, exit it after
+# cover_ownership loads, and re-install them for this file's tests only.
+from _d7_isolation import import_scope as _d7_import_scope, reinstall as _d7_reinstall  # noqa: E402
+
+_D7_SCOPE = _d7_import_scope(attrs=True)
+_D7_INSTALLED = _D7_SCOPE.__enter__()
+
 # Reuse the module-level HA-shim scaffolding from test_cover_verify.
 # Importing it registers the stub modules in sys.modules and loads the
 # real ``automation`` + ``const`` under ``custom_components.universal_room_automation``.
-import test_cover_verify as _cv  # noqa: F401  (side effects)
+import test_cover_verify as _cv  # noqa: F401,E402  (side effects)
 
 _automation = sys.modules["custom_components.universal_room_automation.automation"]
 RoomAutomation = _automation.RoomAutomation
@@ -104,6 +117,15 @@ if "custom_components.universal_room_automation.cover_ownership" in sys.modules:
     )
 else:
     _cv._load("cover_ownership")
+
+_D7_SCOPE.__exit__(None, None, None)
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _d7_module_stubs():
+    """Re-install this file's import-time stubs for its tests only, then
+    restore (TEST-SUITE-POLLUTION-AND-STALE-DRILLS-1 pattern)."""
+    yield from _d7_reinstall(_D7_INSTALLED)
 
 
 @pytest.fixture(autouse=True)

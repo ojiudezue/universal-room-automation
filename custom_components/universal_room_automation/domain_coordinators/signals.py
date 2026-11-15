@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Final
+from typing import Any, Callable, Final
 
 # ============================================================================
 # Dispatcher signal constants
@@ -23,6 +23,208 @@ SIGNAL_SECURITY_ENTITIES_UPDATE: Final = "ura_security_entities_update"
 SIGNAL_NM_ENTITIES_UPDATE: Final = "ura_nm_entities_update"
 SIGNAL_NM_ALERT_STATE_CHANGED: Final = "ura_nm_alert_state_changed"
 SIGNAL_PERSON_ARRIVING: Final = "ura_person_arriving"
+
+
+@dataclass(frozen=True)
+class PersonArrivingPayload:
+    """F5 ``SIGNAL_PERSON_ARRIVING`` payload, normalised for readers
+    (PERSON-AWARENESS-READ-API-1 RA10).
+
+    Producers send a dict (geofence / ble: ``person_entity``, ``source``;
+    camera_face adds ``sighting`` and ``zone``). Readers call
+    :meth:`from_signal` instead of each re-implementing the dict-or-attribute
+    read. Field values are copied verbatim (no coercion), so each reader keeps
+    its own ``str()`` / truthiness checks.
+    """
+
+    person_entity: Any
+    source: Any = None
+    sighting: Any = None
+    zone: Any = ""
+    # Ship 3a D1 (contract A7): additive, never sent unless set.
+    ts: Any = None
+
+    def to_signal(self) -> dict[str, Any]:
+        """The dict producers send (ship 3a D1, contract A7): exactly today's
+        keys. ``person_entity`` and ``source`` always; ``sighting`` and
+        ``zone`` only when ``sighting is not None`` (camera_face); ``ts``
+        only when set. A plain dict literal, never ``dataclasses.asdict``
+        (which would deep-copy the sighting)."""
+        out: dict[str, Any] = {
+            "person_entity": self.person_entity,
+            "source": self.source,
+        }
+        if self.sighting is not None:
+            out["sighting"] = self.sighting
+            out["zone"] = self.zone
+        if self.ts is not None:
+            out["ts"] = self.ts
+        return out
+
+    @classmethod
+    def from_signal(cls, payload: Any) -> "PersonArrivingPayload | None":
+        """``None`` / an object without ``person_entity`` -> ``None``.
+
+        A dict reads ``person_entity`` (default ``""``), ``source`` /
+        ``sighting`` (default ``None``), ``zone`` (default ``""``); any other
+        object reads the same names as attributes with the same defaults.
+        """
+        if payload is None:
+            return None
+        if isinstance(payload, dict):
+            return cls(
+                person_entity=payload.get("person_entity", ""),
+                source=payload.get("source"),
+                sighting=payload.get("sighting"),
+                zone=payload.get("zone", ""),
+                ts=payload.get("ts"),
+            )
+        if not hasattr(payload, "person_entity"):
+            return None
+        return cls(
+            person_entity=getattr(payload, "person_entity", ""),
+            source=getattr(payload, "source", None),
+            sighting=getattr(payload, "sighting", None),
+            zone=getattr(payload, "zone", ""),
+            ts=getattr(payload, "ts", None),
+        )
+
+
+# ============================================================================
+# Person-awareness layer ship 3a (PLANNING_person_awareness_layer_ship3.md
+# §5 D1, D5; contract §2.5 G4, §4.2). The ONE F5 ingest point, its typed
+# read, the typed F4 camera ingest (face latch) and the layer counters.
+# HA helpers are imported at call time (module attribute lookup), so this
+# module stays importable without Home Assistant and a patched
+# ``homeassistant.helpers.dispatcher.async_dispatcher_send`` is honoured.
+# ============================================================================
+
+_LAYER_DOMAIN: Final = "universal_room_automation"  # == const.DOMAIN
+_FACE_LATCH_KEY: Final = "face_latch_callbacks"
+_LAYER_COUNTERS_KEY: Final = "person_awareness_layer_counters"
+
+
+@dataclass
+class LayerCounters:
+    """Person-awareness layer counters (ship 3a D5). RAM only, observational:
+    read on demand by ``PresenceCoordinator.get_layer_diagnostics``; no
+    decision and no entity reads them."""
+
+    f5_sent: dict[str, int] = field(default_factory=dict)
+    g3_calls: dict[str, int] = field(default_factory=dict)
+    crossing_record_aged_out: int = 0
+    crossing_store_failed: int = 0
+    move_unresolved_person: int = 0
+    moves_truncated: int = 0
+    edges_truncated: int = 0
+    g1_subscribers: int = 0
+
+
+def layer_counters(hass: Any) -> LayerCounters:
+    """The install's one ``LayerCounters`` (created on first use)."""
+    dom = hass.data.setdefault(_LAYER_DOMAIN, {})
+    counters = dom.get(_LAYER_COUNTERS_KEY)
+    if not isinstance(counters, LayerCounters):
+        counters = LayerCounters()
+        dom[_LAYER_COUNTERS_KEY] = counters
+    return counters
+
+
+def _bump(table: dict[str, int], key: Any) -> None:
+    k = str(key)
+    table[k] = table.get(k, 0) + 1
+
+
+def count_layer_event(hass: Any, name: str, key: Any = None) -> None:
+    """Bump one layer counter; never raises (observational)."""
+    try:
+        counters = layer_counters(hass)
+        if key is not None:
+            _bump(getattr(counters, name), key)
+        else:
+            setattr(counters, name, int(getattr(counters, name)) + 1)
+    except Exception:  # noqa: BLE001 - counters must never break a send
+        pass
+
+
+def _dispatcher_module() -> Any:
+    """``homeassistant.helpers.dispatcher`` as ``sys.modules`` serves it now
+    (call-time lookup; see the block comment above)."""
+    import importlib  # noqa: PLC0415
+
+    return importlib.import_module("homeassistant.helpers.dispatcher")
+
+
+def dispatch_person_arriving(hass: Any, payload: PersonArrivingPayload) -> None:
+    """G4: the ONE F5 send. Rejects a payload with no ``source`` (None or
+    empty) with ``ValueError`` before anything is sent; otherwise sends
+    ``payload.to_signal()`` on ``SIGNAL_PERSON_ARRIVING`` exactly as the three
+    raw producer sends did. Each producer keeps its own observation-mode
+    suppression (this function never suppresses)."""
+    if payload.source is None or payload.source == "":
+        raise ValueError("dispatch_person_arriving: payload.source is required")
+    _ha_dispatcher = _dispatcher_module()
+    _ha_dispatcher.async_dispatcher_send(
+        hass, SIGNAL_PERSON_ARRIVING, payload.to_signal(),
+    )
+    count_layer_event(hass, "f5_sent", payload.source)
+
+
+def subscribe_person_arriving(
+    hass: Any, cb: Callable[[PersonArrivingPayload], None],
+) -> Callable[[], None]:
+    """F5 typed read (ship 3a D1): ``cb(PersonArrivingPayload)`` for every
+    ``SIGNAL_PERSON_ARRIVING``. The connected target is a ``@callback``
+    closure, so ``cb`` runs on the loop, inline; ``cb`` must be sync (a
+    coroutine function raises ``ValueError``). Returns the unsubscribe."""
+    import inspect  # noqa: PLC0415
+
+    if inspect.iscoroutinefunction(cb):
+        raise ValueError("subscribe_person_arriving: cb must be sync")
+    from homeassistant.core import callback as _ha_callback  # noqa: PLC0415
+
+    _ha_dispatcher = _dispatcher_module()
+
+    @_ha_callback
+    def _deliver(raw: Any) -> None:
+        payload = PersonArrivingPayload.from_signal(raw)
+        if payload is not None:
+            cb(payload)
+
+    return _ha_dispatcher.async_dispatcher_connect(
+        hass, SIGNAL_PERSON_ARRIVING, _deliver,
+    )
+
+
+def register_face_latch_callback(
+    hass: Any, cb: Callable[..., None],
+) -> Callable[[], None]:
+    """Typed F4 camera ingest (ship 3a D1): append ``cb`` to the census face
+    bridge's callback list (the same list, so setup order is unchanged).
+    Returns an unsubscribe that removes exactly this registration."""
+    lst = hass.data.setdefault(_LAYER_DOMAIN, {}).setdefault(_FACE_LATCH_KEY, [])
+    lst.append(cb)
+
+    def _unsub() -> None:
+        try:
+            cur = hass.data.get(_LAYER_DOMAIN, {}).get(_FACE_LATCH_KEY)
+            if cur is not None and cb in cur:
+                cur.remove(cb)
+        except Exception:  # noqa: BLE001
+            pass
+
+    return _unsub
+
+
+def face_latch_callbacks(hass: Any) -> tuple:
+    """Snapshot of the registered face-latch callbacks, in setup order (the
+    census bridge reads it once per message)."""
+    try:
+        return tuple(hass.data.get(_LAYER_DOMAIN, {}).get(_FACE_LATCH_KEY) or ())
+    except Exception:  # noqa: BLE001
+        return ()
+
+
 # FACE-ARRIVAL-REBUILD-1 D1 (plan rev 11 §3.1): "person P was seen at place X
 # at T" (payload: frozen ``person_sighting.PersonSighting``). ONE producer
 # (``PersonSightingProducer._emit``, presence). Display / diagnostics / the D2
@@ -31,12 +233,18 @@ SIGNAL_PERSON_ARRIVING: Final = "ura_person_arriving"
 SIGNAL_PERSON_SIGHTING: Final = "ura_person_sighting"
 SIGNAL_ENERGY_ENTITIES_UPDATE: Final = "ura_energy_entities_update"
 SIGNAL_ACTIVITY_LOGGED: Final = "ura_activity_logged"
-# EGRESS-EXIT-DISPLAY-REREAD-1 (2026-09-05): dispatched by camera_census
-# after a successful exit-identity backfill (a null-person_id exit row is
-# retroactively named). Consumed by PersonsExitedToday to refresh its
-# in-memory _entries list so the display reflects the newly-named person
-# without waiting for a restart. Payload: {"row_id": int, "person_id": str}.
-SIGNAL_EGRESS_EXIT_BACKFILLED: Final = "ura_egress_exit_backfilled"
+# Person-awareness layer ship 3a D3 (contract §4.2, A5): an F3 crossing record
+# was amended. ONE sender, ``transit_validator._send_record_amended``, reached
+# only through G3 (``EgressDirectionTracker.attach_crossing_attribute`` /
+# ``transit_validator.amend_crossing``); every G3 call sends exactly once,
+# found or not. Payload dict: ``role``, ``source_ref``, ``row_id``,
+# ``person_id``, ``egress_camera`` then the caller's ``payload_extra`` (which
+# wins on a key clash). Roles today: ``exit_backfilled`` (the census exit
+# backfill named a null-person exit row; replaces the retired
+# ``SIGNAL_EGRESS_EXIT_BACKFILLED``, payload superset of its
+# ``{row_id, person_id}``). Listeners: PersonsExitedToday and LastPersonExit
+# (display, act on ``role == "exit_backfilled"``).
+SIGNAL_EGRESS_RECORD_AMENDED: Final = "ura_egress_record_amended"
 # v4.6.5.3 M2: dispatched once from __init__.py when the URA database is
 # first added to hass.data[DOMAIN]["database"]. Sensors that need the DB on
 # startup (e.g. URARecentAnomaliesSensor) subscribe to this instead of
@@ -190,6 +398,14 @@ SIGNAL_FAN_RECHECK_FINISHED: Final = "ura_fan_recheck_finished"
 # existing room or zone tiers; both tiers continue to apply their own
 # legitimate temporal smoothing on top of this common substrate.
 SIGNAL_SUBSTRATE_KIND_CHANGED: Final = "ura_substrate_kind_changed"
+
+# Crossing vision P2-D3 (PLANNING_crossing_vision.md): one residency record
+# (``residency.ResidencyEvent``, a resident arrival / departure edge on RAW
+# ``person.*`` state) per call, dispatched by
+# ``PresenceCoordinator._feed_residency`` right after the record is made.
+# Payload: the frozen record. Reader: the crossing ledger's departure
+# reconcile (display / F2-awareness input only, never house state).
+SIGNAL_RESIDENCY_EVENT: Final = "ura_residency_event"
 
 # Substrate re-subscribe on room add/remove/edit (post-v5.11.0 fix cycle).
 # Dispatched from ROOM entry lifecycle sites in __init__.py:

@@ -6,7 +6,7 @@ provenance V, with confidence C". This module owns the ONE producer and its
 ONE emit function. Three sources funnel into it:
 
   (a) the census Frigate MQTT face bridge (one callback per message, after the
-      latch write; registered in ``hass.data[DOMAIN]["face_latch_callbacks"]``);
+      latch write; registered through ``signals.register_face_latch_callback``);
   (b) face-NAME sensor state changes on the cameras the operator picked per
       house zone (``zone_cameras`` on the Zone Manager entry), resolved
       pick -> physical camera -> every integration's face sensor through
@@ -46,7 +46,10 @@ from . import const as _c
 from .camera_resolver import canonical_camera_key
 from .domain_coordinators._stuck_signal_nm import fire_stuck_signal
 from .domain_coordinators.hvac_const import CONF_ZONE_CAMERAS
-from .domain_coordinators.signals import SIGNAL_PERSON_SIGHTING
+from .domain_coordinators.signals import (
+    SIGNAL_PERSON_SIGHTING,
+    register_face_latch_callback,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -116,6 +119,7 @@ class PersonSightingProducer:
         self._face_unsub: Callable[[], None] | None = None
         self._started_unsub: Callable[[], None] | None = None
         self._bridge_cb: Callable | None = None
+        self._bridge_unsub: Callable[[], None] | None = None
         self._bound_resolver: Any = None
         self._bound_picks: dict[str, tuple[str, ...]] = {}
         self._views: dict[str, _PhysicalView] = {}
@@ -143,9 +147,9 @@ class PersonSightingProducer:
         self._setup_ts = self._now()
         if not self.enabled:
             return
-        dom = self.hass.data.setdefault(_c.DOMAIN, {})
         self._bridge_cb = self._on_bridge
-        dom.setdefault("face_latch_callbacks", []).append(self._bridge_cb)
+        # Ship 3a D1: the typed F4 camera ingest (same list, same order).
+        self._bridge_unsub = register_face_latch_callback(self.hass, self._bridge_cb)
         try:
             self._unsubs.append(
                 self.hass.bus.async_listen(EGRESS_EVENT, self._on_egress_event)
@@ -194,12 +198,12 @@ class PersonSightingProducer:
             except Exception:  # noqa: BLE001
                 pass
             self._started_unsub = None
-        try:
-            lst = self.hass.data.get(_c.DOMAIN, {}).get("face_latch_callbacks")
-            if lst is not None and self._bridge_cb in lst:
-                lst.remove(self._bridge_cb)
-        except Exception:  # noqa: BLE001
-            pass
+        if self._bridge_unsub is not None:
+            try:
+                self._bridge_unsub()
+            except Exception:  # noqa: BLE001
+                pass
+            self._bridge_unsub = None
         self._bridge_cb = None
         self._views.clear()
         self._face_to_physical.clear()
@@ -574,7 +578,7 @@ class PersonSightingProducer:
         # Face suppression (central checkpoint, camera_census
         # `_face_suppressed_now`: every face-emission site gates on it).
         try:
-            if census is not None and census._face_suppressed_now():
+            if census is not None and census.face_suppressed_now():
                 self.counters["suppressed"] += 1
                 return None
         except Exception:  # noqa: BLE001
@@ -592,8 +596,8 @@ class PersonSightingProducer:
             self.counters["unmapped_names"] += 1
             return None
         try:
-            mapped = slug if name_is_slug else census._canonical_person_slug(slug)
-            tracked = set(census._get_tracked_person_slugs())
+            mapped = slug if name_is_slug else census.canonical_person_slug(slug)
+            tracked = set(census.tracked_person_slugs())
         except Exception:  # noqa: BLE001
             mapped, tracked = "", set()
         if isinstance(mapped, str) and mapped.startswith("guest:"):
@@ -663,8 +667,7 @@ class PersonSightingProducer:
             tracker = trackers.get(zone)
             if tracker is None:
                 continue
-            tracker._last_face_recognized = sighting.slug
-            tracker._last_face_time = when
+            tracker.note_face(sighting.slug, when)  # ship 3a D4
 
     # --------------------------------------------------------------- readers
     def get_last(self, person_entity: str) -> PersonSighting | None:
@@ -706,11 +709,15 @@ class PersonSightingProducer:
     # ------------------------------------------------------------ trip-wires
     def _denominator(self, now: float, window_s: float) -> int:
         census = self._census()
-        ring = getattr(census, "_frigate_face_named_ring", None) if census is not None else None
+        _ring_fn = (
+            getattr(census, "frigate_face_named_ring", None)
+            if census is not None else None
+        )
+        ring = _ring_fn() if _ring_fn is not None else None
         if not ring:
             return 0
         try:
-            tracked = set(census._get_tracked_person_slugs())
+            tracked = set(census.tracked_person_slugs())
         except Exception:  # noqa: BLE001
             return 0
         resolver = self._bound_resolver
@@ -727,7 +734,7 @@ class PersonSightingProducer:
             if t < cutoff or suppressed:
                 continue
             try:
-                slug = census._canonical_person_slug(name)
+                slug = census.canonical_person_slug(name)
             except Exception:  # noqa: BLE001
                 continue
             if slug not in tracked:

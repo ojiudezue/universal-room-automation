@@ -1248,16 +1248,16 @@ class LockRegimeController:
         """P2, fed from SC above its enabled/observation returns."""
         if self._torn_down or payload is None:
             return
-        if isinstance(payload, dict):
-            person = str(payload.get("person_entity", "") or "")
-        else:
-            person = str(getattr(payload, "person_entity", "") or "")
+        # RA10: one normalised F5 payload read (dict or attribute object).
+        from .signals import PersonArrivingPayload  # noqa: PLC0415
+
+        arriving = PersonArrivingPayload.from_signal(payload)
+        if arriving is None:
+            return
+        person = str(arriving.person_entity or "")
         if not person:
             return
-        if isinstance(payload, dict):
-            source = payload.get("source")
-        else:
-            source = getattr(payload, "source", None)
+        source = arriving.source
         # LOCK-REGIME-FACE-ARRIVAL-CORROBORATION-1 (operator 2026-11-08): a
         # camera_face arrival can name a resident who IS away (10-24: Frigate
         # labelled Jaya as Oji while Oji was abroad), which passes the

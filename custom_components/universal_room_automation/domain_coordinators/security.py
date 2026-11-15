@@ -74,6 +74,7 @@ from .base import (
 )
 from .coordinator_diagnostics import DailyCounter
 from .signals import (
+    PersonArrivingPayload,
     SIGNAL_HOUSE_STATE_CHANGED,
     SIGNAL_OPTIMIZER_INTENT,
     SIGNAL_OPTIMIZER_INTENT_VETO,
@@ -2398,14 +2399,11 @@ class SecurityCoordinator(BaseCoordinator):
             _LOGGER.debug("Security: Person arriving received — suppressed by observation mode")
             return
 
-        if payload is None:
+        # RA10: one normalised F5 payload read (dict or attribute object).
+        arriving = PersonArrivingPayload.from_signal(payload)
+        if arriving is None:
             return
-        if isinstance(payload, dict):
-            person_entity = payload.get("person_entity", "")
-        elif hasattr(payload, "person_entity"):
-            person_entity = getattr(payload, "person_entity", "")
-        else:
-            return
+        person_entity = arriving.person_entity
 
         if not person_entity:
             return
@@ -2420,12 +2418,8 @@ class SecurityCoordinator(BaseCoordinator):
             # No lock regime -> reject (fail closed). No held re-check: a face
             # whose edge comes later is rejected for good; that later edge
             # produces its own geofence/ble arrival.
-            if isinstance(payload, dict):
-                source = payload.get("source")
-                sighting = payload.get("sighting")
-            else:
-                source = getattr(payload, "source", None)
-                sighting = getattr(payload, "sighting", None)
+            source = arriving.source
+            sighting = arriving.sighting
             if arrival_source_needs_corroboration(source):
                 # The face's own recognition time when the payload carries a
                 # sighting; else None = "now" on the lock regime's OWN clock

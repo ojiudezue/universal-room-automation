@@ -29,8 +29,14 @@ def _load():
 
 
 def _house(total_persons, unidentified_count):
+    # RA7: is_on reads the census through census_view.house_census_view,
+    # which copies every CensusZoneResult field it exposes; the fake carries
+    # the real field set (values irrelevant to these tests).
     return types.SimpleNamespace(total_persons=total_persons,
-                                 unidentified_count=unidentified_count)
+                                 unidentified_count=unidentified_count,
+                                 identified_count=total_persons - unidentified_count,
+                                 source_agreement="single_source",
+                                 timestamp=None, confidence="medium")
 
 
 def _census(house):

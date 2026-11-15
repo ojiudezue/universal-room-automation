@@ -689,6 +689,7 @@ from .const import (
     CONF_PERIMETER_ENRICHMENT_MODEL,
     CONF_PERIMETER_ENRICHMENT_MAX_TOKENS,
     CONF_PERIMETER_ENRICHMENT_PROVIDER_ID,
+    CONF_CROSSING_VISION_PROVIDER_ID,
     DEFAULT_PERIMETER_ENRICHMENT_ENABLED,
     DEFAULT_PERIMETER_ENRICHMENT_PROVIDER,
     DEFAULT_PERIMETER_ENRICHMENT_PERSON_SENSORS,
@@ -4323,6 +4324,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     "default_notifications",
                     "camera_census",  # v3.5.0
                     "perimeter_alerting",  # v3.5.1
+                    "perimeter_alert_filters",  # PERIMETER-SWITCH-LABELS-AND-FLOW-PARITY-1
                     # v3.6.0-c2.4: domain_coordinators toggle moved to switch entity
                 ],
                 description_placeholders={"menu_hint": ""},
@@ -5239,6 +5241,89 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             data_schema=data_schema,
         )
 
+    async def async_step_perimeter_alert_filters(self, user_input=None):
+        """Perimeter alert filters (PERIMETER-SWITCH-LABELS-AND-FLOW-PARITY-1).
+
+        Flow parity for the PERIMETER-FP device switches + the AI person
+        check select. Saves with the merge pattern so values written by the
+        device switches survive. Every key is in
+        INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS (fresh-read per alert), so a
+        save does not reload the parent entry. The single-sourced field is
+        shown only when a camera has both a Frigate and a Protect leg.
+        """
+        from .const import (  # noqa: PLC0415
+            CONF_PERIMETER_EGRESS_KNOWN_XCORR_GATE,
+            CONF_PERIMETER_IDENTITY_FOLLOWUP,
+            CONF_PERIMETER_SINGLE_SOURCE_DEMOTE,
+            CONF_PERIMETER_VLM_GATE,
+            CONF_PERIMETER_ZONE_AGREEMENT_DEMOTE,
+            DEFAULT_PERIMETER_EGRESS_KNOWN_XCORR_GATE,
+            DEFAULT_PERIMETER_IDENTITY_FOLLOWUP,
+            DEFAULT_PERIMETER_SINGLE_SOURCE_DEMOTE,
+            DEFAULT_PERIMETER_VLM_GATE,
+            DEFAULT_PERIMETER_ZONE_AGREEMENT_DEMOTE,
+            PERIMETER_VLM_GATE_OPTIONS,
+        )
+        from .perimeter_fp_gates import dual_nvr_present  # noqa: PLC0415
+
+        dual_nvr = dual_nvr_present(self.hass)
+        if user_input is not None:
+            cleaned = dict(user_input)
+            if not dual_nvr:
+                cleaned.pop(CONF_PERIMETER_SINGLE_SOURCE_DEMOTE, None)
+            return self.async_create_entry(
+                title="",
+                data={**self._config_entry.options, **cleaned},
+            )
+
+        fields: dict = {
+            vol.Optional(
+                CONF_PERIMETER_ZONE_AGREEMENT_DEMOTE,
+                default=bool(self._get_current(
+                    CONF_PERIMETER_ZONE_AGREEMENT_DEMOTE,
+                    DEFAULT_PERIMETER_ZONE_AGREEMENT_DEMOTE,
+                )),
+            ): selector.BooleanSelector(),
+        }
+        if dual_nvr:
+            fields[vol.Optional(
+                CONF_PERIMETER_SINGLE_SOURCE_DEMOTE,
+                default=bool(self._get_current(
+                    CONF_PERIMETER_SINGLE_SOURCE_DEMOTE,
+                    DEFAULT_PERIMETER_SINGLE_SOURCE_DEMOTE,
+                )),
+            )] = selector.BooleanSelector()
+        fields[vol.Optional(
+            CONF_PERIMETER_EGRESS_KNOWN_XCORR_GATE,
+            default=bool(self._get_current(
+                CONF_PERIMETER_EGRESS_KNOWN_XCORR_GATE,
+                DEFAULT_PERIMETER_EGRESS_KNOWN_XCORR_GATE,
+            )),
+        )] = selector.BooleanSelector()
+        fields[vol.Optional(
+            CONF_PERIMETER_IDENTITY_FOLLOWUP,
+            default=bool(self._get_current(
+                CONF_PERIMETER_IDENTITY_FOLLOWUP,
+                DEFAULT_PERIMETER_IDENTITY_FOLLOWUP,
+            )),
+        )] = selector.BooleanSelector()
+        _vlm = self._get_current(CONF_PERIMETER_VLM_GATE, DEFAULT_PERIMETER_VLM_GATE)
+        if _vlm not in PERIMETER_VLM_GATE_OPTIONS:
+            _vlm = DEFAULT_PERIMETER_VLM_GATE
+        fields[vol.Optional(CONF_PERIMETER_VLM_GATE, default=_vlm)] = (
+            selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=list(PERIMETER_VLM_GATE_OPTIONS),
+                    translation_key="perimeter_vlm_gate",
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            )
+        )
+        return self.async_show_form(
+            step_id="perimeter_alert_filters",
+            data_schema=vol.Schema(fields),
+        )
+
     async def async_step_perimeter_alerting(self, user_input=None):
         """Configure Perimeter Alerting (integration level) — Option C.
 
@@ -5352,6 +5437,16 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     CONF_PERIMETER_ENRICHMENT_PROVIDER_ID,
                     default=self._get_current(
                         CONF_PERIMETER_ENRICHMENT_PROVIDER_ID, "",
+                    ),
+                ): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
+                ),
+                # Crossing vision P2-D1 (rung 2): the llmvision entry the
+                # door-crossing count uses; empty = the provider above.
+                vol.Optional(
+                    CONF_CROSSING_VISION_PROVIDER_ID,
+                    default=self._get_current(
+                        CONF_CROSSING_VISION_PROVIDER_ID, "",
                     ),
                 ): selector.TextSelector(
                     selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
@@ -10458,17 +10553,14 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 if ce.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
                     names = list(ce.data.get(CONF_TRACKED_PERSONS) or [])
                     break
-        out: list[tuple[str, str]] = []
-        seen: set[str] = set()
+        # Label from the one id rule (display_of), never the raw person.*
+        # state: a friendly_name read is a raw person-entity read (layer
+        # guard R3). Dedup through a dict, keyed by the id rule.
+        labels: dict[str, str] = {}
         for name in names:
             eid = tracked_person_entity_id(name)
-            if eid in seen:
-                continue
-            seen.add(eid)
-            st = self.hass.states.get(eid)
-            label = (st.attributes.get("friendly_name") if st is not None else None)
-            out.append((eid, str(label or display_of(eid))))
-        return out
+            labels.setdefault(eid, display_of(eid))
+        return list(labels.items())
 
     def _people_rooms(self) -> list[dict]:
         """URA room entries: entry_id, name, type, has a primary player."""

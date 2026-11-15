@@ -1,6 +1,6 @@
 """Camera integration and person census for Universal Room Automation v3.5.0."""
 #
-# Universal Room Automation vv5.108.21
+# Universal Room Automation vv5.108.26
 # Build: 2026-02-23
 # File: camera_census.py
 # Cycle 3: Camera Integration & Census Core
@@ -335,6 +335,20 @@ class CensusZoneResult:
     # ``PersonCensus._last_ble_cancelled_count``. Zero on the raw path and
     # whenever no cancellation occurred.
     ble_cancelled_count: int = 0
+    # Census deconfliction CD1: the AWARENESS view (F2-A), house zone only,
+    # written ONLY by ``_apply_enhanced_house_census`` through
+    # ``census_deconflict.deconflict_house``. None on the raw path, the
+    # property zone and with enhanced census off (readers then fall back to
+    # the trust fields). No existing reader, payload key, DB column or entity
+    # reads these (INV-P2-AWARE-NO-TRUST): awareness readers use
+    # ``PresenceCoordinator.get_house_census("awareness")``.
+    aware_guests: int | None = None
+    aware_total: int | None = None
+    aware_identified: list[str] | None = None
+    count_provenance: str | None = None
+    aware_agreement: str | None = None
+    aware_vision_status: str | None = None
+    aware_ledger_state: str | None = None
 
 
 @dataclass
@@ -1403,6 +1417,14 @@ class PersonCensus:
         # four *_pre_cancel/_ble_* attributes let observability discriminate
         # "BLE-cancel ran and cancelled zero" from "BLE-cancel never ran".
         self._last_camera_total_pre_cancel: int = 0
+        # Census deconfliction CD1: the house raw path's camera body total
+        # (every configured interior platform, before face subtraction and
+        # BLE cancel), None when every platform is unavailable or before the
+        # first run. Reset at the top of each `_calculate_house_census`. Read
+        # only by the crossing-ledger hand-off (`census_tick`). NOT
+        # `_last_camera_total_pre_cancel` (Frigate only, minus one body per
+        # fresh face).
+        self._last_house_camera_bodies: int | None = None
         self._last_area_raw_max_pre_cancel: dict[str, int] = {}
         self._last_ble_by_area: dict[str, int] = {}
         self._last_ble_cancel_enabled: bool = False
@@ -1486,6 +1508,12 @@ class PersonCensus:
         # census this tick. Consumed by `_calculate_house_census` — populated
         # by `_watchdog_stuck_cameras` after the corroboration check.
         self._watchdog_discounted_cameras: set[str] = set()
+        # Camera input stream health S2, review D-M1: last available body
+        # reading per interior entity (Frigate count, or 1/0 binary), used
+        # only while the entity reads unavailable AND is held (it went
+        # unavailable together with its camera). RAM: after a restart there
+        # is no reading to hold, so it is a missing term as before.
+        self._stream_last_reading: dict[str, int] = {}
         # FIX 5 (A-HIGH-2) 2026-07-28: one-time WARN dedup for null-area
         # cameras. Grows bounded by camera count; entries persist for the
         # process lifetime (deliberate — one WARN per problem camera).
@@ -1700,6 +1728,20 @@ class PersonCensus:
         if not raw_cameras:
             return []
         return self._camera_manager.resolve_cross_platform_sensors(raw_cameras)
+
+    def get_transit_egress_entities_by_camera(self) -> dict[str, list[CameraInfo]]:
+        """Per configured egress camera, the SAME cross-platform legs
+        ``get_transit_egress_entities`` resolves (the egress producer's own
+        leg set), keeping the camera -> legs grouping the flat list loses.
+        Read by PerimeterAlertManager's egress-mute door-key map."""
+        out: dict[str, list[CameraInfo]] = {}
+        for cam in self._get_raw_camera_list(CONF_EGRESS_CAMERAS) or []:
+            try:
+                out[cam] = self._camera_manager.resolve_cross_platform_sensors([cam])
+            except Exception:  # noqa: BLE001 — one camera must not hide the rest
+                _LOGGER.debug("egress legs for %s failed", cam, exc_info=True)
+                out[cam] = []
+        return out
 
     def get_transit_interior_entities(self) -> list[CameraInfo]:
         """Return cross-platform CameraInfo for configured interior cameras."""
@@ -1987,6 +2029,9 @@ class PersonCensus:
           All cameras down:       BLE only, LOW confidence
           No cameras configured:  BLE only, confidence NONE
         """
+        # CD1 entry-reset: no stale body total survives a failed run.
+        self._last_house_camera_bodies = None
+        all_platforms_unavailable = False
         cross_validation_enabled = self._is_cross_validation_enabled()
         configured_interior = self._get_interior_camera_entities()
 
@@ -2020,17 +2065,38 @@ class PersonCensus:
             raw_frigate_sum = 0
             raw_binary_sum = 0
 
+            _stream_dead = self._stream_dead_interior(configured_interior)
+            _stream_held = self._stream_held_interior(configured_interior)
             for entity_id in configured_interior:
+                if entity_id in _stream_dead:
+                    # Camera input stream health S2: a dead stream whose
+                    # hold is over is a MISSING term (as if the camera were
+                    # unavailable), never a zero count.
+                    continue
                 platform = self._camera_manager.get_platform_for_camera(entity_id)
                 camera_info = self._camera_manager._camera_by_entity.get(entity_id)
                 area_id = camera_info.area_id if camera_info else None
+                # Review D-M1: held + unavailable = its last reading.
+                _held_value = (
+                    self._held_reading(entity_id)
+                    if entity_id in _stream_held else None
+                )
 
                 if platform == CAMERA_PLATFORM_FRIGATE:
                     if camera_info and camera_info.person_count_sensor:
                         state = self.hass.states.get(camera_info.person_count_sensor)
-                        if state and state.state not in ("unavailable", "unknown"):
+                        _live = bool(
+                            state and state.state not in ("unavailable", "unknown")
+                        )
+                        if _live or _held_value is not None:
                             frigate_available = True
-                            count = self._get_sensor_int(camera_info.person_count_sensor)
+                            if _live:
+                                count = self._get_sensor_int(
+                                    camera_info.person_count_sensor,
+                                )
+                                self._remember_reading(entity_id, count)
+                            else:
+                                count = _held_value
                             # Stuck-Signal D1 discount (truth-preserving
                             # DOWNWARD only — never raises a count, never
                             # fires when interior corroboration is present;
@@ -2055,19 +2121,21 @@ class PersonCensus:
                         # If unavailable, skip — falls through to degraded mode
                     else:
                         # Binary-only Frigate sensor
-                        if self._is_entity_available(entity_id):
+                        _on = self._binary_reading(entity_id, _held_value)
+                        if _on is not None:
                             frigate_available = True
-                            if self._is_entity_on(entity_id):
+                            if _on:
                                 raw_frigate_sum += 1
                                 frigate_contributions.append((area_id, 1))
 
                 else:
                     # Non-Frigate platforms (UniFi, Reolink, Dahua): binary.
-                    if self._is_entity_available(entity_id):
+                    _on = self._binary_reading(entity_id, _held_value)
+                    if _on is not None:
                         binary_platforms_available = True
                         if platform and platform not in active_platforms:
                             active_platforms.append(platform)
-                        if self._is_entity_on(entity_id):
+                        if _on:
                             raw_binary_sum += 1
                             binary_contributions.append((area_id, 1))
 
@@ -2172,6 +2240,7 @@ class PersonCensus:
                 camera_total = 0
                 agreement = CENSUS_AGREEMENT_SINGLE
                 degraded = True
+                all_platforms_unavailable = True
                 _LOGGER.warning("Census: all camera platforms unavailable")
 
         else:
@@ -2181,6 +2250,9 @@ class PersonCensus:
             degraded = False
 
             single_source_total = 0
+            any_xval_off_available = False
+            _stream_dead = self._stream_dead_interior(configured_interior)
+            _stream_held = self._stream_held_interior(configured_interior)
             for entity_id in configured_interior:
                 entry = ent_reg.async_get(entity_id)
                 device_id = entry.device_id if entry else None
@@ -2190,21 +2262,40 @@ class PersonCensus:
                         continue
                     seen_device_ids.add(device_id)
 
-                if not self._is_entity_available(entity_id):
+                # S2: released dead stream = missing term, skipped AFTER the device
+                # dedup exactly like an unavailable entity (review A-L1).
+                if entity_id in _stream_dead:
                     continue
-
                 platform = self._camera_manager.get_platform_for_camera(entity_id)
+                if not self._is_entity_available(entity_id):
+                    # Review D-M1: held (unavailable together with its
+                    # camera) = its last reading; else a missing term.
+                    _held_value = (
+                        self._held_reading(entity_id)
+                        if entity_id in _stream_held else None
+                    )
+                    if _held_value is None:
+                        continue
+                    single_source_total += _held_value
+                    if platform and platform not in active_platforms:
+                        active_platforms.append(platform)
+                    continue
+                any_xval_off_available = True
+
                 if platform == CAMERA_PLATFORM_FRIGATE:
                     camera_info = self._camera_manager._camera_by_entity.get(entity_id)
                     if camera_info and camera_info.person_count_sensor:
                         count = self._get_sensor_int(camera_info.person_count_sensor)
                         single_source_total += count
+                        self._remember_reading(entity_id, count)
                     else:
-                        if self._is_entity_on(entity_id):
-                            single_source_total += 1
+                        _on = 1 if self._is_entity_on(entity_id) else 0
+                        single_source_total += _on
+                        self._remember_reading(entity_id, _on)
                 else:
-                    if self._is_entity_on(entity_id):
-                        single_source_total += 1
+                    _on = 1 if self._is_entity_on(entity_id) else 0
+                    single_source_total += _on
+                    self._remember_reading(entity_id, _on)
 
                 if platform and platform not in active_platforms:
                     active_platforms.append(platform)
@@ -2219,6 +2310,19 @@ class PersonCensus:
             # values from a prior enabled run don't leak into attributes.
             self._last_area_contributions = {}
             self._last_raw_pre_dedup_sum = single_source_total
+            # CD1 (review A-MED-3): no configured entity available on this
+            # path = every platform unavailable. The ledger copy only.
+            if configured_interior and not any_xval_off_available:
+                all_platforms_unavailable = True
+
+        # CD1: the body total the crossing ledger samples. Missing, never 0,
+        # when every platform is unavailable or no interior camera is
+        # configured (an absent source is missing: review A-MED-3; the trust
+        # view's camera_total = 0 there is unchanged).
+        self._last_house_camera_bodies = (
+            None if (all_platforms_unavailable or not configured_interior)
+            else int(camera_total)
+        )
 
         # Cross-correlate with BLE
         ble_id_set = set(ble_persons)
@@ -2599,6 +2703,17 @@ class PersonCensus:
                 return bool(merged.get(CONF_CENSUS_CROSS_VALIDATION, True))
         return True
 
+    def interior_camera_entities(self) -> list[str]:
+        """Public read (contract §4.1, person-awareness ship 3b): the
+        resolved interior camera person-sensor entity ids the census reads
+        (the same list ``_get_interior_camera_entities`` returns, never the
+        stored ``camera.*`` config ids). Read by the camera twin owner for
+        its unwatched set U. [] on any error."""
+        try:
+            return list(self._get_interior_camera_entities() or [])
+        except Exception:  # noqa: BLE001
+            return []
+
     def _get_interior_camera_entities(self) -> list[str]:
         """Return resolved person detection binary_sensor entity IDs for interior cameras.
 
@@ -2653,6 +2768,72 @@ class PersonCensus:
     # ------------------------------------------------------------------
     # Helper: read HA state
     # ------------------------------------------------------------------
+
+    def _stream_dead_interior(self, entity_ids: list[str]) -> frozenset[str]:
+        """Camera input stream health S2: the interior camera entities the
+        census treats as a MISSING term (census plan dedup rule 5): their
+        camera stream is dead AND its hold is over (ONE getter, via
+        ``camera_stream_health.entity_stream_view`` == released: the person
+        sensor as a room input, else its own camera).
+
+        Operator ruling 2026-11-14 ("a dead input holds"): while the census
+        hold lasts (CAMERA_INPUT_STREAM_DEAD_CENSUS_HOLD_MAX_S, 900 s, from
+        the camera's first `unavailable` room tick; its own constant, equal
+        to the zone's today and allowed to diverge) a dead camera is unknown, not absent, so its frozen
+        reading keeps counting as before; a camera dying cannot by itself
+        drop the census to 0 (nobody-home) or the unidentified count (path
+        alpha). Unresolved / live / kill switch off / error = empty set
+        (byte-identical)."""
+        return self._stream_view_set(entity_ids, "released")
+
+    def _stream_held_interior(self, entity_ids: list[str]) -> frozenset[str]:
+        """Review D-M1: interior entities whose census view is HELD (dead
+        or unavailable together with their camera, cap not passed). A held
+        entity that reads unavailable counts its last available reading
+        (``_held_reading``), not a missing term."""
+        return self._stream_view_set(entity_ids, "held")
+
+    def _stream_view_set(self, entity_ids, wanted: str) -> frozenset[str]:
+        try:
+            from .domain_coordinators.camera_stream_health import (  # noqa: PLC0415
+                entity_stream_view,
+            )
+        except Exception:  # noqa: BLE001
+            return frozenset()
+        out = set()
+        for eid in entity_ids or ():
+            try:
+                if entity_stream_view(self.hass, eid, census=True) == wanted:
+                    out.add(eid)
+            except Exception:  # noqa: BLE001 — fail open
+                continue
+        return frozenset(out)
+
+    def _remember_reading(self, entity_id: str, value: int) -> None:
+        """Last available body reading (D-M1 hold source)."""
+        try:
+            self._stream_last_reading[entity_id] = int(value)
+        except AttributeError:  # constructed without __init__ (tests)
+            self._stream_last_reading = {entity_id: int(value)}
+
+    def _binary_reading(
+        self, entity_id: str, held_value: int | None,
+    ) -> bool | None:
+        """A binary camera person sensor's reading for the census: its live
+        on/off (remembered), else the held last reading (D-M1), else None
+        (missing term: unavailable, as before)."""
+        if self._is_entity_available(entity_id):
+            on = bool(self._is_entity_on(entity_id))
+            self._remember_reading(entity_id, 1 if on else 0)
+            return on
+        if held_value is not None:
+            return held_value > 0
+        return None
+
+    def _held_reading(self, entity_id: str) -> int | None:
+        """The remembered reading of a held unavailable entity, or None
+        (nothing remembered: a missing term, as before)."""
+        return getattr(self, "_stream_last_reading", {}).get(entity_id)
 
     def _is_entity_available(self, entity_id: str) -> bool:
         """Return True if an entity exists and is not unavailable/unknown."""
@@ -3922,6 +4103,111 @@ class PersonCensus:
         implementation."""
         return self._canonical_person_slug(name)
 
+    # ------------------------------------------------------------------
+    # PERSON-AWARENESS-READ-API-1 RA6: the public surface the identity
+    # producers (egress tracker, sighting producer, perimeter, setup) use
+    # instead of reaching into census privates. Each is a thin delegate:
+    # the private stays the implementation (and the patch seam the tests
+    # use), so behaviour is byte-identical.
+    # ------------------------------------------------------------------
+    def tracked_person_slugs(self) -> list[str]:
+        """Tracked residents as URA slugs (``_get_tracked_person_slugs``)."""
+        return self._get_tracked_person_slugs()
+
+    def face_suppressed_now(self) -> bool:
+        """The central face-emission checkpoint (``_face_suppressed_now``)."""
+        return self._face_suppressed_now()
+
+    def known_face_guests(self) -> list[str]:
+        """Operator-configured known face guests (``_get_known_face_guests``)."""
+        return self._get_known_face_guests()
+
+    def resolve_face_legs(self, base_name: str) -> list["FaceLeg"]:
+        """Live NAME-carrying face legs for a camera stem (``_resolve_face_legs``)."""
+        return self._resolve_face_legs(base_name)
+
+    def resolve_ble_legs(self, timestamp: datetime, direction: str) -> list:
+        """In-window BLE-transition legs (``_resolve_ble_legs``)."""
+        return self._resolve_ble_legs(timestamp, direction)
+
+    def consume_ble_arriving_legs(self, slug: str) -> int:
+        """Single-use removal after an attach (``_consume_ble_arriving_legs``)."""
+        return self._consume_ble_arriving_legs(slug)
+
+    def egress_identity_enabled(self) -> bool:
+        """EGRESS_IDENTITY_ENABLED kill switch (``_is_egress_identity_enabled``)."""
+        return self._is_egress_identity_enabled()
+
+    def egress_identity_failsafe_strict(self) -> bool:
+        """D4 provenance filter switch (``_is_egress_identity_failsafe_strict``)."""
+        return self._is_egress_identity_failsafe_strict()
+
+    def face_producer_live(self) -> bool:
+        """Read-time face-producer health (``_is_face_producer_live``)."""
+        return self._is_face_producer_live()
+
+    def note_egress_identity_outcome(self, outcome: str) -> None:
+        """Append one egress-identity outcome (``_note_egress_identity_outcome``)."""
+        self._note_egress_identity_outcome(outcome)
+
+    def register_ble_transition_listeners(self) -> list:
+        """Setup wiring (``_register_ble_transition_listeners``)."""
+        return self._register_ble_transition_listeners()
+
+    def refresh_ble_crossing_listeners(self) -> int:
+        """Boot-race re-register (``_refresh_ble_crossing_listeners``)."""
+        return self._refresh_ble_crossing_listeners()
+
+    def frigate_face_named_ring(self) -> Any:
+        """The Frigate named-face ring (``_frigate_face_named_ring``; None
+        when the bridge is off)."""
+        return getattr(self, "_frigate_face_named_ring", None)
+
+    def ble_tracker_slug_map(self) -> Any:
+        """bluetooth_le tracker -> slug map (``_ble_tracker_slug_map``)."""
+        return getattr(self, "_ble_tracker_slug_map", {})
+
+    def egress_identity_last_attach(self) -> Any:
+        """Last egress-identity attach record (``_egress_identity_last_attach``)."""
+        return getattr(self, "_egress_identity_last_attach", {})
+
+    def egress_identity_outcomes(self) -> Any:
+        """Rolling 24 h outcome deque (``_egress_identity_outcomes``)."""
+        return getattr(self, "_egress_identity_outcomes", None)
+
+    def egress_identity_boost_events(self) -> Any:
+        """BOOST event ledger (``_egress_identity_boost_events``)."""
+        return getattr(self, "_egress_identity_boost_events", None)
+
+    # Counter / record writers (the egress tracker owns these values; the
+    # census owns the storage and the diagnostics sensor reads it).
+    def note_ble_leg_abstained(self) -> None:
+        """One BLE-leg abstain (``_ble_legs_abstained_count``)."""
+        self._ble_legs_abstained_count += 1
+
+    def note_face_dropped_producer_down(self, n: int) -> None:
+        """Face legs dropped under STRICT + producer down, per LEG
+        (``_face_dropped_producer_down_leg_count``)."""
+        if not hasattr(self, "_face_dropped_producer_down_leg_count"):
+            self._face_dropped_producer_down_leg_count = 0
+        self._face_dropped_producer_down_leg_count += n
+
+    def note_face_dropped_stale(self) -> None:
+        """One stale face leg dropped (``_face_dropped_stale_count``)."""
+        self._face_dropped_stale_count += 1
+
+    def note_egress_identity_boost(self, ts: float) -> None:
+        """One BOOST event (``_egress_identity_boost_events``)."""
+        self._egress_identity_boost_events.append(ts)
+
+    def set_egress_identity_agreement_class(self, value: Any) -> None:
+        """Last agreement class (``_egress_identity_agreement_class_last``)."""
+        self._egress_identity_agreement_class_last = value
+
+    def set_egress_identity_last_attach(self, record: dict) -> None:
+        """Last attach record (``_egress_identity_last_attach``)."""
+        self._egress_identity_last_attach = record
+
     def _canonical_person_slug(self, name: Any) -> str:
         """Canonicalize a person identifier to the URA person-slug namespace
         (Review A-HIGH-1 / A-MED-1 / B-MED-1 / B-MED-2 fix).
@@ -5023,17 +5309,18 @@ class PersonCensus:
                     )
                     # EGRESS-EXIT-DISPLAY-REREAD-1: notify display
                     # sensors so PersonsExitedToday re-reads DB.
+                    # Ship 3a D3: through G3 (the one F3 amend primitive);
+                    # no source_ref, so the crossing ring is untouched and
+                    # only SIGNAL_EGRESS_RECORD_AMENDED is sent (role
+                    # exit_backfilled, superset of {row_id, person_id}).
                     try:
-                        from homeassistant.helpers.dispatcher import (
-                            async_dispatcher_send,
-                        )
-                        from .domain_coordinators.signals import (
-                            SIGNAL_EGRESS_EXIT_BACKFILLED,
-                        )
-                        async_dispatcher_send(
-                            self.hass,
-                            SIGNAL_EGRESS_EXIT_BACKFILLED,
-                            {"row_id": row_id, "person_id": slug},
+                        from .transit_validator import amend_crossing
+
+                        amend_crossing(
+                            self.hass, None, {}, provenance=None,
+                            camera=None, role="exit_backfilled",
+                            row_id=row_id,
+                            payload_extra={"person_id": slug},
                         )
                     except Exception:  # noqa: BLE001
                         _LOGGER.debug(
@@ -5626,9 +5913,10 @@ class PersonCensus:
     ) -> None:
         """FACE-ARRIVAL-REBUILD-1: append the D4 ring entry (with the
         suppression verdict at append time) and call every registered person
-        sighting callback ONCE for this message. Callbacks live in
-        ``hass.data[DOMAIN]["face_latch_callbacks"]`` (read per message, so a
-        census rebuild keeps the registration); a raising callback is logged,
+        sighting callback ONCE for this message. Callbacks are registered
+        through ``signals.register_face_latch_callback`` and read per message
+        (``signals.face_latch_callbacks``), so a census rebuild keeps the
+        registration; a raising callback is logged,
         never raised into the bridge."""
         ring = self._frigate_face_named_ring
         if ring is not None:
@@ -5637,12 +5925,10 @@ class PersonCensus:
             except Exception:  # noqa: BLE001
                 suppressed = False
             ring.append((now.timestamp(), camname, stems, name, suppressed))
-        try:
-            callbacks = list(
-                self.hass.data.get(DOMAIN, {}).get("face_latch_callbacks") or ()
-            )
-        except Exception:  # noqa: BLE001
-            callbacks = []
+        # Ship 3a D1: the typed F4 camera ingest read (a snapshot, as before).
+        from .domain_coordinators.signals import face_latch_callbacks  # noqa: PLC0415
+
+        callbacks = face_latch_callbacks(self.hass)
         for cb in callbacks:
             try:
                 cb(camname, stems, name, now)
@@ -5988,8 +6274,12 @@ class PersonCensus:
         # cameras contribute individually and are never cancelled.
         ble_by_area = self._ble_home_by_area()
         raw_contributions: list[tuple[str | None, int]] = []
+        _stream_dead = self._stream_dead_interior(configured_interior)
+        _stream_held = self._stream_held_interior(configured_interior)
 
         for entity_id in configured_interior:
+            if entity_id in _stream_dead:
+                continue  # S2: released dead stream = missing term (no guest count)
             platform = self._camera_manager.get_platform_for_camera(entity_id)
             if platform != CAMERA_PLATFORM_FRIGATE:
                 continue
@@ -6000,6 +6290,12 @@ class PersonCensus:
 
             # Check if this camera currently sees a person
             count = self._get_sensor_int(camera_info.person_count_sensor)
+            if entity_id in _stream_held:
+                # Review D-M1: a held count sensor that reads unavailable
+                # (it went with its camera) keeps its last reading.
+                _cs = self.hass.states.get(camera_info.person_count_sensor)
+                if _cs is None or _cs.state in ("unavailable", "unknown"):
+                    count = self._held_reading(entity_id) or 0
             if count <= 0:
                 continue
 
@@ -6538,6 +6834,13 @@ class PersonCensus:
 
         total = clamped_total
 
+        # Census deconfliction CD1: the awareness view, from the ONE dedup
+        # function. Sync, no await; reads the trust values computed above and
+        # never writes them (INV-P2-AWAY-LATENCY choke point 3).
+        awareness = self._compute_awareness(
+            identified_count, sorted(recognized_set), clamped_unidentified, total,
+        )
+
         return CensusZoneResult(
             zone=raw_result.zone,
             identified_count=identified_count,
@@ -6564,7 +6867,94 @@ class PersonCensus:
             # always defined (seeded 0 in __init__), so no getattr
             # dance required.
             ble_cancelled_count=self._last_ble_cancelled_count,
+            **awareness,
         )
+
+    # ------------------------------------------------------------------
+    # Census deconfliction CD1 (PLANNING_census_deconfliction.md §3.3)
+    # ------------------------------------------------------------------
+    def _resident_term(self, identified_count: int) -> int:
+        """R = max(presence residents home, identified_count). Presence via
+        the coordinator manager; missing presence or any error ->
+        identified_count."""
+        try:
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            presence = (
+                manager.coordinators.get("presence") if manager is not None else None
+            )
+            if presence is None:
+                return int(identified_count)
+            return max(int(presence.get_residents_home_count()), int(identified_count))
+        except Exception:  # noqa: BLE001
+            return int(identified_count)
+
+    def _ledger_tick(self, resident_term: int) -> tuple[Any, bool, Any]:
+        """The ONE crossing-ledger hand-off per evaluation:
+        ``(guest_vis | None, healthy, producer | None)``. Missing producer or
+        any exception -> ``(None, False, ...)`` (case D)."""
+        cv = self.hass.data.get(DOMAIN, {}).get(_ura_const.CROSSING_VISION_HASS_KEY)
+        if cv is None:
+            return None, False, None
+        try:
+            guest_vis, healthy = cv.census_tick(
+                resident_term=resident_term,
+                camera_bodies=self._last_house_camera_bodies,
+                # The previous run's latch (refreshed after the result):
+                # accepted one-interval lag.
+                camera_input_dark=bool(self._camera_input_dark_latched),
+            )
+            return guest_vis, bool(healthy), cv
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("crossing ledger census_tick failed", exc_info=True)
+            return None, False, cv
+
+    def _compute_awareness(
+        self,
+        identified_count: int,
+        identified_persons: list[str],
+        guest_cam: int,
+        total: int,
+    ) -> dict[str, Any]:
+        """Awareness fields for the house result (never raises; any error ->
+        case D, awareness = trust)."""
+        from .census_deconflict import TrustFields, deconflict_house  # noqa: PLC0415
+
+        trust = TrustFields(
+            identified_count=int(identified_count),
+            identified_persons=tuple(identified_persons),
+            unidentified_count=int(guest_cam),
+            total_persons=int(total),
+        )
+        status, ledger_state = "switch_off", "unknown"
+        try:
+            r_term = self._resident_term(identified_count)
+            guest_vis, healthy, cv = self._ledger_tick(r_term)
+            if cv is not None:
+                try:
+                    status = str(cv.vision_status(healthy))
+                    ledger_state = str(cv.ledger_state)
+                except Exception:  # noqa: BLE001
+                    status = "unknown_ledger"
+            # Rule 5: an unhealthy source is missing (case D), never zero.
+            vis = guest_vis if healthy else None
+            _t, aw = deconflict_house(
+                trust,
+                guest_vis=vis,
+                vision_leads=bool(_ura_const.CROSSING_VISION_AWARENESS_VISION_LEADS),
+                flag_min=int(_ura_const.CROSSING_VISION_DISAGREE_FLAG_MIN),
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("census awareness compute failed", exc_info=True)
+            _t, aw = deconflict_house(trust, guest_vis=None, vision_leads=False, flag_min=1)
+        return {
+            "aware_guests": aw.aware_guests,
+            "aware_total": aw.aware_total,
+            "aware_identified": list(aw.aware_identified),
+            "count_provenance": aw.count_provenance,
+            "aware_agreement": aw.aware_agreement,
+            "aware_vision_status": status,
+            "aware_ledger_state": ledger_state,
+        }
 
     def _apply_enhanced_property_census(
         self,

@@ -1,0 +1,26 @@
+{
+  "format_version": "2.1",
+  "entry_id": "316",
+  "author": "ojiudezue",
+  "timestamp": "2026-11-16T00:15:00Z",
+  "type": "pivot",
+  "weight": "significant",
+  "category": "process",
+  "title": "Door direction: fix the answer key before tuning instruments; room camera hold dropped as a non-goal",
+  "summary": "Six direction instruments (vision, tracker variants, Frigate path, Elk/cover contact, adjacent outside cameras, a pre-registered vote) all scored 13-14 of 17 against an agent-labelled answer key, and the ensemble check found at least two of those labels doubtful (21:42:22 is an exit, 15:12:14 ambiguous). Work moved to a LAN-only grading page on the homelab (urakanban /grade/, batch of 88 cards with all 46 answer-key clips first) so the operator's grades become the key, and every instrument gets re-scored once against it. Separately, a 7-day replay showed the room camera hold would create mostly unsupported occupancy (53-91% per room, Living Room sees the patio through glass), and the operator ruled it a non-goal; the camera-area fix itself delivers little and is recommended for parking.",
+  "why": "Tuning instruments against a shaky n=17 key was producing the same 13-14 ceiling round after round, and one relabel moves the combined score from 14 to 15, so the key was the binding constraint, not the instruments. The operator asked for an out-of-band page; homelab hosting keeps family footage on the LAN and reuses the board's server and deploy path, so no new infrastructure. The camera hold decision rests on measured unsupported minutes and the operator's judgement that other sensor fusion is enough.",
+  "alternatives_considered": [
+    "Keep adding direction instruments against the agent labels (rejected: same ceiling, selection inflation on n=17)",
+    "Grading in chat or a claude.ai Artifact (rejected: operator wanted out-of-band; family footage should stay on the LAN)",
+    "Per-room opt-in camera hold (rejected by the operator after the replay)"
+  ],
+  "implications": "No direction instrument flips the door ledger until it clears the relative bar against operator labels. Frigate threshold zones, the aerial and G6 directed-motion rules, and staged out-and-back walks are approved levers, scored only against operator grades. The census peak gap (10 shown vs 14-15 real on 11-14) is not addressed by the area map; interior vision and door counts carry it.",
+  "confidence": "medium",
+  "revisit_trigger": "Operator grades land (pull_grades.py), or a room is proposed for a camera hold again.",
+  "operator_quote": "Turn off camera hold. Too inaccurate in every room. We have enough with the other sensor fusion.",
+  "refs": {
+    "cards": ["CROSSING-GRADING-PAGE-1", "VISION-AMBIGUOUS-CROSSINGS-1", "EGRESS-TRACKER-DIRECTION-1", "ZONE-CAMERA-DISCOVERY-DEVICE-AREA-1"],
+    "files": ["docs/planning/AUDIT_crossing_vision_p3_d0bcd_2026_11_15.md", "docs/planning/AUDIT_camera_area_map_replay_2026_11.md", "docs/planning/PLANNING_camera_area_map_device_fallback.md"],
+    "entries": ["314"]
+  }
+}

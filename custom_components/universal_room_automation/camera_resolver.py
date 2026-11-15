@@ -852,31 +852,68 @@ class CameraResolver:
         if not device_id:
             return None, "no_device", camera_platform
         try:
-            items = getattr(entity_registry, "entities", None)
-            by_device = getattr(items, "get_entries_for_device_id", None)
-            if callable(by_device):
-                # HA helpers/entity_registry.py EntityRegistryItems
-                # .get_entries_for_device_id (device index; disabled skipped
-                # by default).
-                device_entries = list(by_device(device_id))
-            else:
-                device_entries = [
-                    e for e in (items or {}).values()
-                    if getattr(e, "device_id", None) == device_id
-                ]
+            cameras = list(CameraResolver.enabled_camera_entities_for_device(
+                entity_registry, device_id,
+            ))
         except Exception:  # noqa: BLE001
             return None, "registry_error", camera_platform
-        cameras = sorted(
-            getattr(e, "entity_id", "") for e in device_entries
-            if getattr(e, "disabled_by", None) is None
-            and str(getattr(e, "entity_id", "")).startswith("camera.")
-        )
         derived = camera_platform or bool(cameras)
         if not cameras:
             return None, "no_camera", derived
         if len(cameras) != 1:
             return None, "multi_camera", derived
         return cameras[0], "resolved", derived
+
+    @staticmethod
+    def enabled_camera_entities_for_device(
+        entity_registry: Any, device_id: str,
+    ) -> tuple[str, ...]:
+        """The device's ENABLED ``camera.*`` entities, sorted (registry only).
+
+        The one member-set read shared by ``own_camera_entity_for_input``
+        (exactly-one rule) and the person-awareness ship 3b device liveness
+        (``camera_stream_health.device_camera_members``). Raises on a
+        registry error (callers decide what an error means)."""
+        items = getattr(entity_registry, "entities", None)
+        by_device = getattr(items, "get_entries_for_device_id", None)
+        if callable(by_device):
+            # HA helpers/entity_registry.py EntityRegistryItems
+            # .get_entries_for_device_id (device index; disabled skipped
+            # by default).
+            device_entries = list(by_device(device_id))
+        else:
+            device_entries = [
+                e for e in (items or {}).values()
+                if getattr(e, "device_id", None) == device_id
+            ]
+        return tuple(sorted(
+            getattr(e, "entity_id", "") for e in device_entries
+            if getattr(e, "disabled_by", None) is None
+            and str(getattr(e, "entity_id", "")).startswith("camera.")
+        ))
+
+    def frigate_object_name_pairs(self) -> dict[str, str]:
+        """W1 pairing over every Frigate device of this resolver's registry
+        snapshot: Frigate device_id -> its one non-Frigate sibling device_id
+        (``_frigate_object_name_sibling``). Empty when
+        ``RESOLVER_FRIGATE_OBJECT_NAME_EVIDENCE`` is False. Read-only; the
+        person-awareness ship 3b twin map builds on it."""
+        if not RESOLVER_FRIGATE_OBJECT_NAME_EVIDENCE:
+            return {}
+        out: dict[str, str] = {}
+        seen: set[str] = set()
+        for dids in self._frigate_stem_to_device_ids.values():
+            for did in dids:
+                if did in seen:
+                    continue
+                seen.add(did)
+                try:
+                    sib = self._frigate_object_name_sibling(did)
+                except Exception:  # noqa: BLE001 — one device never breaks the rest
+                    sib = None
+                if sib:
+                    out[did] = sib
+        return out
 
     def face_engine_tag(self, device_id: str | None, integration_hint: str) -> str:
         """D4: FaceLeg engine label from the face entity's DEVICE family,
@@ -1560,6 +1597,28 @@ class CameraResolver:
 
         results.sort(key=lambda c: c.primary_entity)
         return results
+
+    def has_frigate_and_protect_camera(self) -> bool:
+        """True when >=1 physical camera has BOTH a Frigate and a Protect
+        person leg (PERIMETER-SWITCH-LABELS-AND-FLOW-PARITY-1).
+
+        Registry-based: enumerates Protect person cameras, then reads the
+        ``integration`` of each fused detection leg (the correlation ladder),
+        never entity-name guessing across integrations. Never raises.
+        """
+        try:
+            for cam in self.enumerate_platform_cameras(PLATFORM_UNIFI, "person"):
+                # The row's primary is a Protect leg by construction, so
+                # one fused Frigate leg makes it a two-system camera.
+                legs = self.resolve_detection_legs(cam.primary_entity, "person")
+                if any(l.integration == PLATFORM_FRIGATE for l in legs):
+                    return True
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "CameraResolver.has_frigate_and_protect_camera failed",
+                exc_info=True,
+            )
+        return False
 
     def _engine_tag(self, integration: str, entity_name: str, device_id: str | None) -> str:
         """Map (integration, entity_name, device_id) -> engine label.

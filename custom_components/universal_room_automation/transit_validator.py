@@ -14,15 +14,17 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace as _dc_replace
 from datetime import datetime, timedelta
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from homeassistant.core import HomeAssistant, Event, callback
 from homeassistant.helpers import area_registry as ar_helper, entity_registry as er_helper
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dt_util
 
+from .person_ids import display_of
+from . import const as _ura_const
 from .const import (
     DOMAIN,
     CONSUMER_CLASS_MIN_CONFIDENCE,
@@ -958,6 +960,120 @@ class CrossingRecord:
     confidence: float
     identity_confidence: float | None
     source_ref: str
+    # Ship 3a D3 (contract §2.3): additive, defaulted, written only through
+    # G3 ``attach_crossing_attribute`` (no writer in ship 3a).
+    identity_role: str | None = None
+    # Review B-L1: a frozen, sorted tuple of (slug, confidence) pairs (not a
+    # mapping proxy), so asdict / deepcopy / pickle work and the record stays
+    # immutable; G3 normalises a mapping into this shape. ``dict(nameable)``.
+    nameable: tuple[tuple[str, float], ...] = ()
+    pair_state: str | None = None
+    pair_partner: str | None = None
+    identity_synthetic_corroborated: bool = False
+
+
+# G3 (ship 3a D3, step 7 §6.4): fields an amend may never change, and the
+# fields it may change (the additive fields + the identity fields).
+_CROSSING_FORBIDDEN_KEYS: frozenset[str] = frozenset({
+    "camera", "direction", "ts", "source_ref", "confidence",
+})
+_CROSSING_AMENDABLE_KEYS: frozenset[str] = frozenset({
+    "person_id", "provenance", "identity_confidence", "identity_role",
+    "nameable", "pair_state", "pair_partner", "identity_synthetic_corroborated",
+})
+
+
+def _layer_signals():
+    """The signals module, imported at call time (this module is loaded by
+    many test harnesses whose package stubs have no domain_coordinators)."""
+    from .domain_coordinators import signals  # noqa: PLC0415
+
+    return signals
+
+
+def _count_layer_event(hass: Any, name: str, key: Any = None) -> None:
+    try:
+        _layer_signals().count_layer_event(hass, name, key)
+    except Exception:  # noqa: BLE001 - observational
+        pass
+
+
+def _nameable_tuple(value: Any) -> tuple[tuple[str, float], ...]:
+    """G3 normalisation of ``nameable``: a mapping or pairs -> a sorted tuple
+    of ``(slug, confidence)`` pairs (immutable, serialisable)."""
+    items = value.items() if isinstance(value, Mapping) else (value or ())
+    return tuple(sorted((str(k), float(v)) for k, v in items))
+
+
+def _send_record_amended(hass: HomeAssistant, payload: dict[str, Any]) -> None:
+    """The ONE sender of ``SIGNAL_EGRESS_RECORD_AMENDED`` (contract §4.2),
+    reached only through G3. Counts the call by role (layer diagnostics)."""
+    from homeassistant.helpers.dispatcher import (  # noqa: PLC0415
+        async_dispatcher_send,
+    )
+
+    async_dispatcher_send(hass, _layer_signals().SIGNAL_EGRESS_RECORD_AMENDED, payload)
+    _count_layer_event(hass, "g3_calls", payload.get("role"))
+
+
+def _amend_payload(
+    role: str, source_ref: str | None, row_id: int | None, person_id: Any,
+    camera: str | None, payload_extra: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Base keys first, then ``payload_extra`` (which wins on a clash)."""
+    payload: dict[str, Any] = {
+        "role": role,
+        "source_ref": source_ref,
+        "row_id": row_id,
+        "person_id": person_id,
+        "egress_camera": camera,
+    }
+    if payload_extra:
+        payload.update(payload_extra)
+    return payload
+
+
+def amend_crossing(
+    hass: HomeAssistant,
+    source_ref: str | None,
+    changes: Mapping[str, Any],
+    provenance: str | None,
+    *,
+    camera: str | None,
+    role: str,
+    row_id: int | None = None,
+    payload_extra: Mapping[str, Any] | None = None,
+) -> bool:
+    """G3 entry for callers holding only ``hass`` (contract A4/A5). The egress
+    tracker in ``hass.data[DOMAIN]`` -> its ``attach_crossing_attribute``; no
+    tracker -> the amendment notice only (``_send_record_amended``), so a
+    display still re-reads. No presence object needed."""
+    tracker = None
+    try:
+        tracker = hass.data.get(DOMAIN, {}).get("egress_tracker")
+    except Exception:  # noqa: BLE001
+        tracker = None
+    if tracker is not None and hasattr(tracker, "attach_crossing_attribute"):
+        return tracker.attach_crossing_attribute(
+            source_ref, changes, provenance, camera=camera, role=role,
+            row_id=row_id, payload_extra=payload_extra,
+        )
+    _check_crossing_changes(changes)
+    _send_record_amended(hass, _amend_payload(
+        role, source_ref, row_id, (changes or {}).get("person_id"), camera,
+        payload_extra,
+    ))
+    return False
+
+
+def _check_crossing_changes(changes: Mapping[str, Any] | None) -> None:
+    keys = set(changes or {})
+    bad = keys & _CROSSING_FORBIDDEN_KEYS
+    if bad:
+        raise ValueError(f"attach_crossing_attribute: forbidden keys {sorted(bad)}")
+    unknown = keys - _CROSSING_AMENDABLE_KEYS
+    if unknown:
+        raise ValueError(f"attach_crossing_attribute: unknown keys {sorted(unknown)}")
 
 
 class EgressDirectionTracker:
@@ -1035,11 +1151,37 @@ class EgressDirectionTracker:
         # get_last_crossing(). No decision reads it in ship 1.
         self._last_crossing_by_camera: dict[str, CrossingRecord] = {}
         self._last_crossing: CrossingRecord | None = None
+        # Ship 3a D3 (contract G2, step 7 §6.4): the crossing ring, one deque
+        # per egress camera entity (the `_last_crossing_by_camera` key),
+        # pruned by count and age on every append and read. RAM only.
+        self._crossing_ring: dict[str, deque[CrossingRecord]] = {}
+        self._ring_clock: Callable[[], datetime] = dt_util.now
 
     def _record_crossing(self, record: "CrossingRecord") -> None:
-        """Store the last crossing (overall and per camera)."""
+        """Store the last crossing (overall and per camera) and append it to
+        the crossing ring (ship 3a D3)."""
         self._last_crossing = record
         self._last_crossing_by_camera[record.camera] = record
+        ring = self._crossing_ring.get(record.camera)
+        if ring is None:
+            ring = deque()
+            self._crossing_ring[record.camera] = ring
+        ring.append(record)
+        self._prune_ring(ring)
+
+    def _prune_ring(self, ring: "deque[CrossingRecord]") -> None:
+        """Drop the oldest records past ``EGRESS_CROSSING_RING_PER_CAMERA`` and
+        any older than ``EGRESS_CROSSING_RING_MAX_AGE_S`` (knobs read now)."""
+        keep = max(1, int(_ura_const.EGRESS_CROSSING_RING_PER_CAMERA))
+        while len(ring) > keep:
+            ring.popleft()
+        try:
+            cutoff = self._ring_clock() - timedelta(
+                seconds=float(_ura_const.EGRESS_CROSSING_RING_MAX_AGE_S))
+            while ring and ring[0].ts < cutoff:
+                ring.popleft()
+        except TypeError:  # naive vs aware timestamp: keep (count bound holds)
+            pass
 
     def get_last_crossing(self, camera: str | None = None) -> "CrossingRecord | None":
         """Last F3 door crossing (RA5): overall, or for one egress camera.
@@ -1051,6 +1193,134 @@ class EgressDirectionTracker:
             return self._last_crossing_by_camera.get(camera)
         except Exception:  # noqa: BLE001
             return None
+
+    def get_crossings_since(
+        self, t: datetime, camera: str | None = None,
+    ) -> "tuple[CrossingRecord, ...]":
+        """G2 (step 7's signature): ring records with ``ts >= t``, oldest
+        first; one camera, or merged across cameras when ``camera`` is None.
+        ``t`` is a ``datetime`` (the type of ``CrossingRecord.ts``). Covers
+        at most ``EGRESS_CROSSING_RING_MAX_AGE_S`` and the per-camera count,
+        and only since this tracker was created (RAM)."""
+        rings = (
+            [self._crossing_ring.get(camera)] if camera is not None
+            else list(self._crossing_ring.values())
+        )
+        out: list[CrossingRecord] = []
+        for ring in rings:
+            if not ring:
+                continue
+            self._prune_ring(ring)
+            out.extend(r for r in ring if r.ts >= t)
+        out.sort(key=lambda r: r.ts)
+        return tuple(out)
+
+    def crossing_ring_sizes(self) -> dict[str, int]:
+        """Layer diagnostics (ship 3a D5): records held per camera (no prune;
+        a read-only count of the RAM store)."""
+        return {str(k): len(v) for k, v in sorted(self._crossing_ring.items())}
+
+    def get_crossing(self, source_ref: str) -> "CrossingRecord | None":
+        """A3: the ring record with exactly this ``source_ref``, or None."""
+        for ring in self._crossing_ring.values():
+            self._prune_ring(ring)
+            for rec in ring:
+                if rec.source_ref == source_ref:
+                    return rec
+        return None
+
+    def attach_crossing_attribute(
+        self,
+        source_ref: str | None,
+        changes: Mapping[str, Any],
+        provenance: str | None,
+        *,
+        camera: str | None,
+        role: str,
+        row_id: int | None = None,
+        payload_extra: Mapping[str, Any] | None = None,
+    ) -> bool:
+        """G3 (contract A4, step 7 §6.4): the ONE owner-side amend primitive
+        and the only ``CrossingRecord`` writer after creation.
+
+        ``changes`` may set the identity fields and the additive fields; a
+        key in {camera, direction, ts, source_ref, confidence} (or any other
+        key) raises ``ValueError`` before anything happens. With a
+        ``source_ref``: the record with that exact ``source_ref`` in the
+        ``camera`` deque is replaced IN PLACE (same index) by
+        ``dataclasses.replace(record, **changes)``; the last-crossing pointers
+        move only if they hold that same record; not found -> False, counted
+        ``crossing_record_aged_out``. ``provenance`` (when not None) is the
+        record's identity provenance, applied with the changes. With no
+        ``source_ref`` the ring is untouched. Every call sends the amendment
+        notice exactly once (found or not) through ``_send_record_amended``,
+        payload ``{role, source_ref, row_id, person_id, egress_camera,
+        **payload_extra}``. Returns True only when a record was amended."""
+        _check_crossing_changes(changes)
+        found = False
+        person_id = (changes or {}).get("person_id")
+        if source_ref is not None:
+            ring = self._crossing_ring.get(camera) if camera is not None else None
+            if ring is not None:
+                self._prune_ring(ring)
+                for idx, rec in enumerate(ring):
+                    if rec.source_ref != source_ref:
+                        continue
+                    kw = dict(changes or {})
+                    if "nameable" in kw:
+                        kw["nameable"] = _nameable_tuple(kw["nameable"])
+                    if provenance is not None:
+                        kw["provenance"] = provenance
+                    new = _dc_replace(rec, **kw)
+                    ring[idx] = new
+                    last_cam = self._last_crossing_by_camera.get(camera)
+                    if last_cam is not None and last_cam.source_ref == source_ref:
+                        self._last_crossing_by_camera[camera] = new
+                    if (self._last_crossing is not None
+                            and self._last_crossing.source_ref == source_ref):
+                        self._last_crossing = new
+                    person_id = new.person_id
+                    found = True
+                    break
+            if not found:
+                _count_layer_event(self.hass, "crossing_record_aged_out")
+        _send_record_amended(self.hass, _amend_payload(
+            role, source_ref, row_id, person_id, camera, payload_extra,
+        ))
+        return found
+
+    def door_camera_device_ids(self) -> frozenset[str]:
+        """A9: the entity-registry ``device_id`` of each egress entity
+        (registry only; an entity with no registry entry or no device adds
+        nothing)."""
+        out: set[str] = set()
+        try:
+            reg = er_helper.async_get(self.hass)
+        except Exception:  # noqa: BLE001
+            return frozenset()
+        for eid in self._egress_entities:
+            ent = reg.async_get(eid)
+            dev = getattr(ent, "device_id", None) if ent is not None else None
+            if dev:
+                out.add(dev)
+        return frozenset(out)
+
+    def door_entry_entities(self) -> tuple[str, ...]:
+        """G5: the egress entities, then every configured door-interior
+        neighbour (``CONF_DOOR_INTERIOR_NEIGHBOURS``), in today's order (the
+        order ``arrival_edges.door_entry_areas`` read the privates in)."""
+        ents = list(self._egress_entities or [])
+        for cams in (self._interior_neighbours_by_group or {}).values():
+            ents.extend(cams or [])
+        return tuple(ents)
+
+    def door_neighbours_for_stem(self, stem: str | None) -> tuple[str, ...]:
+        """G5: the configured door-interior neighbours of ``stem``'s door
+        group (empty when the stem has no group or the group has none)."""
+        group = self._door_group_for_stem(stem)
+        if group is None:
+            return ()
+        return tuple((self._interior_neighbours_by_group or {}).get(group) or ())
 
     async def async_init(self) -> None:
         """Subscribe to egress and near-door interior cameras.
@@ -1559,14 +1829,14 @@ class EgressDirectionTracker:
         if census is None:
             return _ret(None, None, CENSUS_AGREEMENT_DISABLED, "census_unavailable")
         try:
-            if not census._is_egress_identity_enabled():
-                _note = getattr(census, "_note_egress_identity_outcome", None)
+            if not census.egress_identity_enabled():
+                _note = getattr(census, "note_egress_identity_outcome", None)
                 if _note is not None:
                     try:
                         _note("disabled")
                     except Exception:  # noqa: BLE001
                         pass
-                census._egress_identity_agreement_class_last = (
+                census.set_egress_identity_agreement_class(
                     CENSUS_AGREEMENT_DISABLED
                 )
                 return _ret(None, None, CENSUS_AGREEMENT_DISABLED, "disabled")
@@ -1576,13 +1846,13 @@ class EgressDirectionTracker:
         def _record(outcome: str, agreement_class: str) -> None:
             """Single write path for D3 outcome + agreement class."""
             try:
-                census._note_egress_identity_outcome(outcome)
+                census.note_egress_identity_outcome(outcome)
             except Exception:  # noqa: BLE001
                 _LOGGER.debug(
                     "egress-identity: _note outcome=%s failed",
                     outcome, exc_info=True,
                 )
-            census._egress_identity_agreement_class_last = agreement_class
+            census.set_egress_identity_agreement_class(agreement_class)
 
         # MED-4 (2026-08-28): direction-ambiguous crossings have their
         # OWN outcome label so they never inflate the identity-rate
@@ -1622,7 +1892,7 @@ class EgressDirectionTracker:
         all_legs: list = []
         for stem in stems:
             try:
-                legs = census._resolve_face_legs(stem)
+                legs = census.resolve_face_legs(stem)
             except Exception:  # noqa: BLE001 — defensive; accessor is fail-CLOSED
                 _LOGGER.debug(
                     "egress-identity: _resolve_face_legs raised for stem=%s",
@@ -1640,8 +1910,8 @@ class EgressDirectionTracker:
         # BLE legs (collected below) are untouched — they keep naming
         # the crossing. Read-time only; no timers.
         try:
-            strict = census._is_egress_identity_failsafe_strict()
-            face_live = census._is_face_producer_live()
+            strict = census.egress_identity_failsafe_strict()
+            face_live = census.face_producer_live()
         except Exception:  # noqa: BLE001
             strict = True
             face_live = True
@@ -1650,9 +1920,7 @@ class EgressDirectionTracker:
                 try:
                     # Review OB-1: per-LEG counter distinct from the
                     # census per-TICK counter to keep unit consistent.
-                    if not hasattr(census, "_face_dropped_producer_down_leg_count"):
-                        census._face_dropped_producer_down_leg_count = 0
-                    census._face_dropped_producer_down_leg_count += len(all_legs)
+                    census.note_face_dropped_producer_down(len(all_legs))
                 except Exception:  # noqa: BLE001
                     pass
             all_legs = []
@@ -1704,7 +1972,7 @@ class EgressDirectionTracker:
                 continue
             if age_s > FACE_PRODUCER_STALE_TTL_S:
                 try:
-                    census._face_dropped_stale_count += 1
+                    census.note_face_dropped_stale()
                 except Exception:  # noqa: BLE001
                     pass
                 continue
@@ -1716,7 +1984,7 @@ class EgressDirectionTracker:
         # provenance-guarded cache. Empty when no in-window BLE
         # transition exists for a tracked slug.
         try:
-            ble_legs = census._resolve_ble_legs(timestamp, direction) or []
+            ble_legs = census.resolve_ble_legs(timestamp, direction) or []
         except Exception:  # noqa: BLE001
             _LOGGER.debug(
                 "egress-identity: _resolve_ble_legs raised", exc_info=True,
@@ -1768,7 +2036,7 @@ class EgressDirectionTracker:
                 # simultaneously): defer to face-style DISAGREE.
                 if len(ble_slugs) >= 2:
                     try:
-                        census._ble_legs_abstained_count += 1
+                        census.note_ble_leg_abstained()
                     except Exception:  # noqa: BLE001
                         pass
                     _record("abstain", CENSUS_AGREEMENT_DISAGREE)
@@ -1777,12 +2045,12 @@ class EgressDirectionTracker:
                 # D-5: INV-EGRESS-ID — a leg produced before a slug
                 # was untracked must not attach after.
                 try:
-                    _tracked_all = set(census._get_tracked_person_slugs())
+                    _tracked_all = set(census.tracked_person_slugs())
                 except Exception:  # noqa: BLE001
                     _tracked_all = set()
                 if slug not in _tracked_all:
                     try:
-                        census._ble_legs_abstained_count += 1
+                        census.note_ble_leg_abstained()
                     except Exception:  # noqa: BLE001
                         pass
                     _record("abstain", CENSUS_AGREEMENT_DISAGREE)
@@ -1797,7 +2065,7 @@ class EgressDirectionTracker:
                 # THEIR crossing produced no leg and this leg belongs
                 # to someone else. Abstain (fail closed).
                 try:
-                    _slug_map = dict(getattr(census, "_ble_tracker_slug_map", {}) or {})
+                    _slug_map = dict(census.ble_tracker_slug_map() or {})
                 except Exception:  # noqa: BLE001
                     _slug_map = {}
                 _slugs_with_ble = set(_slug_map.values())
@@ -1811,7 +2079,7 @@ class EgressDirectionTracker:
                         sorted(_invisible), slug,
                     )
                     try:
-                        census._ble_legs_abstained_count += 1
+                        census.note_ble_leg_abstained()
                     except Exception:  # noqa: BLE001
                         pass
                     _record("abstain_ble_ambiguous", CENSUS_AGREEMENT_DISAGREE)
@@ -1821,7 +2089,7 @@ class EgressDirectionTracker:
                     )
                 _leg = next(l for l in ble_legs if l.person_slug == slug)
                 try:
-                    census._egress_identity_last_attach = {
+                    census.set_egress_identity_last_attach({
                         "person": slug,
                         "camera": egress_camera_id,
                         "identity_confidence": float(BLE_TRANSITION_ONLY_CONFIDENCE),
@@ -1833,13 +2101,13 @@ class EgressDirectionTracker:
                         "agreement_class": CENSUS_AGREEMENT_SINGLE,
                         "contributor_engines": ["ble"],
                         "provenance": IDENTITY_PROVENANCE_BLE,
-                    }
+                    })
                 except Exception:  # noqa: BLE001
                     pass
                 _record("attached_ble", CENSUS_AGREEMENT_SINGLE)
                 # rev5 D2 single-use: consume ONLY on the attach branch.
                 try:
-                    census._consume_ble_arriving_legs(slug)
+                    census.consume_ble_arriving_legs(slug)
                 except Exception:  # noqa: BLE001
                     pass
                 return _ret(
@@ -1862,7 +2130,7 @@ class EgressDirectionTracker:
                     # the corroboration event is visible in the same
                     # 24h rate the multi-face path uses.
                     try:
-                        census._egress_identity_boost_events.append(
+                        census.note_egress_identity_boost(
                             dt_util.utcnow().timestamp()
                         )
                     except Exception:  # noqa: BLE001
@@ -1872,7 +2140,7 @@ class EgressDirectionTracker:
                         CENSUS_AGREEMENT_TWO_ENGINES,
                     )
                     try:
-                        census._egress_identity_last_attach = {
+                        census.set_egress_identity_last_attach({
                             "person": b_slug,
                             "camera": egress_camera_id,
                             "identity_confidence": float(
@@ -1884,12 +2152,12 @@ class EgressDirectionTracker:
                                 {l.engine for l, _ in in_window} | {"ble"}
                             ),
                             "provenance": IDENTITY_PROVENANCE_BLE_FACE,
-                        }
+                        })
                     except Exception:  # noqa: BLE001
                         pass
                     # rev5 D2 single-use: attach branch only.
                     try:
-                        census._consume_ble_arriving_legs(b_slug)
+                        census.consume_ble_arriving_legs(b_slug)
                     except Exception:  # noqa: BLE001
                         pass
                     return _ret(
@@ -1911,7 +2179,7 @@ class EgressDirectionTracker:
                 # attribute her crossing to Oji. Now: any face slug
                 # that isn't a tracked resident forces ABSTAIN.
                 try:
-                    _tracked = set(census._get_tracked_person_slugs())
+                    _tracked = set(census.tracked_person_slugs())
                 except Exception:  # noqa: BLE001
                     _tracked = set()
                 if f_slug not in _tracked:
@@ -1921,7 +2189,7 @@ class EgressDirectionTracker:
                         b_slug, f_slug, "yes" if b_slug in _tracked else "no",
                     )
                     try:
-                        census._ble_legs_abstained_count += 1
+                        census.note_ble_leg_abstained()
                     except Exception:  # noqa: BLE001
                         pass
                     _record(
@@ -1942,7 +2210,7 @@ class EgressDirectionTracker:
                     CENSUS_AGREEMENT_SINGLE,
                 )
                 try:
-                    census._egress_identity_last_attach = {
+                    census.set_egress_identity_last_attach({
                         "person": b_slug,
                         "camera": egress_camera_id,
                         "identity_confidence": float(BLE_TRANSITION_ONLY_CONFIDENCE),
@@ -1951,12 +2219,12 @@ class EgressDirectionTracker:
                         "agreement_class": CENSUS_AGREEMENT_SINGLE,
                         "contributor_engines": ["ble"],
                         "provenance": IDENTITY_PROVENANCE_BLE,
-                    }
+                    })
                 except Exception:  # noqa: BLE001
                     pass
                 # rev5 D2 single-use: attach branch only (BLE-wins).
                 try:
-                    census._consume_ble_arriving_legs(b_slug)
+                    census.consume_ble_arriving_legs(b_slug)
                 except Exception:  # noqa: BLE001
                     pass
                 return _ret(
@@ -1972,7 +2240,7 @@ class EgressDirectionTracker:
             # RETAINED per H2 precedence rule).
             if len(ble_slugs | face_slugs) >= 2:
                 try:
-                    census._ble_legs_abstained_count += 1
+                    census.note_ble_leg_abstained()
                 except Exception:  # noqa: BLE001
                     pass
                 _record("abstain", CENSUS_AGREEMENT_DISAGREE)
@@ -2060,7 +2328,7 @@ class EgressDirectionTracker:
             agreement_class = CENSUS_AGREEMENT_BOTH
             # BOOST event ledger (24h-filtered at the reader; MED-1).
             try:
-                census._egress_identity_boost_events.append(
+                census.note_egress_identity_boost(
                     dt_util.utcnow().timestamp()
                 )
             except Exception:  # noqa: BLE001
@@ -2078,7 +2346,7 @@ class EgressDirectionTracker:
             if newest_delta is None or d > newest_delta:
                 newest_delta = d
         try:
-            census._egress_identity_last_attach = {
+            census.set_egress_identity_last_attach({
                 "person": slug,
                 "camera": egress_camera_id,
                 "identity_confidence": identity_confidence,
@@ -2089,7 +2357,7 @@ class EgressDirectionTracker:
                 # FACE-ARRIVAL-REBUILD-1 (plan rev 4 H1): explicit, the value
                 # every reader already defaulted to for this path.
                 "provenance": IDENTITY_PROVENANCE_FACE,
-            }
+            })
         except Exception:  # noqa: BLE001
             _LOGGER.debug(
                 "egress-identity: last_attach populate failed",
@@ -2260,6 +2528,8 @@ class EgressDirectionTracker:
             ))
         except Exception:  # noqa: BLE001 - observational store
             _LOGGER.debug("crossing record store failed (non-fatal)", exc_info=True)
+            # Ship 3a D5: counted (bus already fired; order kept).
+            _count_layer_event(self.hass, "crossing_store_failed")
 
         _LOGGER.debug(
             "Egress direction resolved: camera=%s, direction=%s, "
@@ -2314,7 +2584,7 @@ class EgressDirectionTracker:
                         # survives; guest:* goes to a separate bucket).
                         try:
                             _prov = str(
-                                (getattr(census_ref, "_egress_identity_last_attach", {}) or {})
+                                (census_ref.egress_identity_last_attach() or {})
                                 .get("provenance", IDENTITY_PROVENANCE_FACE)
                             )
                         except Exception:  # noqa: BLE001
@@ -2669,7 +2939,7 @@ class EgressDirectionTracker:
             and identity_confidence
             >= CONSUMER_CLASS_MIN_CONFIDENCE[CONSUMER_CLASS_NOTIFICATION]
         ):
-            name = person_id.replace("_", " ").title()
+            name = display_of(person_id)  # RA9
         else:
             name = "Someone"
 

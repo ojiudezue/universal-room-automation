@@ -3,7 +3,9 @@
 Cards: VISION-CROSSING-ANALYSIS-1 (Phase 2, census side), CENSUS-OCCUPANCY-ESTIMATOR-1 (merged here),
 CENSUS-GUEST-FLOOR-1 (superseded here). Tier 3 plus the house-state rule. Status: clean consolidation 2026-11-13 of
 crossing-vision rev 7.1 §B3 / §B11.1-§B11.2 / P2-D4 / P2-D5 (`plan/crossing-vision` @ 1e76c98a) and the census
-occupancy estimator (round 6, 2026-10-04). History, not instructions: `docs/planning/archive/HISTORY_*`. Siblings:
+occupancy estimator (round 6, 2026-10-04). History, not instructions: `docs/planning/archive/HISTORY_*`. Build status 2026-11-14: CD1-CD3 built on
+`feature/census-deconfliction-p2-ledger` (NOT deployed, ships dark); final Tier-3 fix-up names the CD3 switch
+"Vision Assisted Census" and defaults it ON only on an install with a camera (operator 2026-11-14). Siblings:
 `PLANNING_crossing_vision.md` (the vision producer and ledger), `PLANNING_person_awareness_read_api.md` (the read
 surface), `PLANNING_camera_input_stream_health.md` (source health), `PLANNING_person_sighting_layer.md` (F1-F5 home).
 
@@ -55,7 +57,9 @@ Names come only from face and BLE (the identified union). Vision supplies counts
 
 `CROSSING_VISION_CONSUMER_CLASSES` (rung 1) is the set of classes promoted to read F2-A. `view_for_class(cls)`
 (read-API plan) returns `awareness` only when `cls` is in that set AND the downgrade switch
-`switch.ura_crossing_vision_census_authority` (rung 3, default ON, RestoreEntity, OFF = treat the set as empty) is ON;
+`switch.ura_crossing_vision_census_authority` ("Vision Assisted Census"; rung 3, RestoreEntity, OFF = treat the set
+as empty; default ON when the entity registry holds at least one enabled `camera.*` entity, OFF otherwise, and a
+stored `on` / `off` wins; operator 2026-11-14) is ON;
 every other input, including unknown or misspelt strings and a missing switch, returns `trust` (allow-list).
 **Legal members** are the rungs whose consumer wiring has been built and reviewed. Any other member raises at import
 (`test_consumer_classes_rejects_illegal`). Adding a rung to the legal set is a reviewed code change in that rung's
@@ -67,7 +71,7 @@ agreement metadata.
 
 | Rung | Class | Consumers | Bar to promote (all measured; then operator Tier-3 checkpoint) | Status |
 |---|---|---|---|---|
-| 0 | (value flip) F-LEAD | changes the awareness value | Bars a, b, d, e (§3.4) AND every §15.7a number: ≥ 100 graded crossings over ≥ 7 days incl. ≥ 10 with a non-resident; exact ≥ 95 % overall and ≥ 90 % at night, per door; vision wins ≥ 80 % of B/C disagreements; false guest ≤ 2 %; healthy ≥ 95 %. After the flip the same numbers over a rolling 14 days are a trip-wire (AnomalyDetector → NM, "revert F-LEAD") | gated |
+| 0 | (value flip) F-LEAD | changes the awareness value | Bars a, b, d, e (§3.4) AND every §15.7a number: ≥ 100 graded crossings over ≥ 7 days incl. ≥ 10 with a non-resident; exact ≥ 95 % overall and ≥ 90 % at night, per door; vision wins ≥ 80 % of B/C disagreements; false guest ≤ 2 %; healthy ≥ 95 %. After the flip the same numbers over a rolling 14 days are a trip-wire (AnomalyDetector → NM, "revert F-LEAD") AND direction, PER DOOR GROUP: for every door group (crossing plan `CONF_DOOR_GROUPS` key, else `stem:<stem>`) the crossing plan's P3-D6 disposition reads FLIP-READY (that group's source `vision`, INV-DIR-GATE) or TRACKER-READY (that group's source `tracker`, incl. a P3-D9c tracker), 0.90 Wilson lower bound, because term signs, not only counts, decide `L`; a door group without a verdict blocks F-LEAD for the house. Plainly: the tracker is measured at 65 % (11/17), so F-LEAD in practice waits for crossing-plan P3-D7 or P3-D9c (operator-visible tradeoff, crossing plan Phase 3 decisions items 6 and 13). Every `pipeline_version` bump (crossing plan P3-D2, P3-D3, P3-D7, P3-D9c) restarts bars a-e and these windows | gated |
 | 1 | `display` | the two awareness entities, `crossing_vision_last`, personalization suggestions (suggestion = display) | none: legal and active at deploy (`frozenset({"display"})`), because F2-A equals F2-T until F-LEAD | ships active |
 | 2 | `notification` (F-NOTIFY) | the arrival count follow-up (sibling plan) | bars a, b, d, e + bar c (groups) + exact-count ≥ `CROSSING_VISION_NOTIFY_EXACT_MIN` (0.90) on ≥ `CROSSING_VISION_NOTIFY_MIN_GRADED` (30) graded crossings, AND EGRESS-DIRECTION-AWARE-IDENTITY-1 shipped or measured entry attach ≥ `CROSSING_VISION_NOTIFY_MIN_ATTACH` (0.50). Names stay ≥ 0.75 from F3 | legal now, inactive |
 | 3 | `comfort` | HVAC guest mode, pre-arrival conditioning (operator 2026-11-13: "HVAC is comfort basically so since it's not security I'd say it can once it's earned") | F-LEAD live ≥ 30 days with the rolling F-LEAD numbers held, false guest ≤ `CENSUS_LADDER_COMFORT_FALSE_GUEST_MAX` (0.02) on comfort-relevant hours, and a rung plan that reads `HVAC_ARCHITECTURE_STATE_OF_PLAY.md` completely and names the HVAC input it changes. Which HVAC input drives guest mode today is not verified here | NOT legal; needs its own Tier-3 plan |
@@ -81,6 +85,8 @@ A class not promoted reads F2-T (byte-identical behaviour).
 NEW pure module `census_deconflict.py` (no HA import, no clock read). Called once per census evaluation from
 `_apply_enhanced_house_census`, after `identified_count`, sync, no await. Returns `(trust_fields, awareness_fields)`;
 trust fields are passed through unchanged.
+
+The leads flag is the code parameter `vision_leads` (`census_deconflict.py:90-97`), fed by `CROSSING_VISION_AWARENESS_VISION_LEADS`; plan text uses `vision_leads` for the parameter. A `pipeline_version` bump on the ledger resets the ledger's bars only; the interior term's bar counts interior grades only (harmonization C2).
 
 Terms in this plan's build:
 - `guest_cam` = the trust view's post-hold `unidentified_count` (the camera estimate always exists; a camera-dark
@@ -273,7 +279,9 @@ payload dict or any existing field.
   `_last_camera_total_pre_cancel` = 0); `test_no_interior_cameras_bodies_none` (no configured interior camera →
   bodies None, ledger stays unknown, case D); `test_xval_off_all_unavailable_bodies_none`; `test_missing_vision_object_case_d`; `test_estimate_exception_case_d`;
   `test_property_zone_unchanged`.
-- **Mutation:** read `_last_camera_total_pre_cancel` instead → the face-labelled test red.
+- **Mutation:** read `_last_camera_total_pre_cancel` instead → the face-labelled test red. Built 2026-11-14 (fix-up):
+  bodies None with no interior camera and on the cross-validation-off all-unavailable path; `crossing_vision_disagree`
+  pages HIGH.
 - **Live:** the house result carries non-null `aware_total` after the first census tick; existing census fields equal
   their pre-deploy values on a replayed hour.
 
@@ -337,7 +345,8 @@ re-runs INV-P2-AWAY-LATENCY, and meets the §3.2 bar. Card per rung at promotion
 
 ## 8. Non-goals
 
-Changing any trust-view field or the census payload; vision supplying a name; vision direction; promoting comfort,
+Changing any trust-view field or the census payload; vision supplying a name; vision direction in a ledger term before
+the crossing plan's INV-DIR-GATE bar (`PLANNING_crossing_vision.md` Phase 3; lifted from a blanket non-goal 2026-11-15); promoting comfort,
 house_state or security in this plan; per-zone awareness (VISION-INTERIOR-SIGHTINGS-1); building the `M_cam`, `U_gr`,
 WiFi or interior-vision terms (their own plans, through §3.3); the estimator's door-tally attribution pipeline (§9);
 `HouseState.GUEST` migration (superseded by GUEST-MODE-SPLIT-VISITORS-1, v5.108.0); exterior or property census.

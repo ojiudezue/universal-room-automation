@@ -1,7 +1,8 @@
 """BLE mop-up (2026-09-05) — two low-severity fixes from v5.96.1 reviews.
 
 - EGRESS-EXIT-DISPLAY-REREAD-1: after a successful exit-identity backfill
-  in camera_census, SIGNAL_EGRESS_EXIT_BACKFILLED fires and
+  in camera_census, SIGNAL_EGRESS_RECORD_AMENDED (role exit_backfilled;
+  was SIGNAL_EGRESS_EXIT_BACKFILLED before ship 3a D3) fires and
   PersonsExitedTodaySensor re-reads its display list from DB so the
   backfilled person_id appears without waiting for a restart.
 
@@ -63,8 +64,10 @@ from custom_components.universal_room_automation import sensor as sensor_mod
 from custom_components.universal_room_automation.sensor import (
     PersonsExitedTodaySensor,
 )
+# Ship 3a D3: the exit-backfill notice moved onto SIGNAL_EGRESS_RECORD_AMENDED
+# (G3, role "exit_backfilled"); SIGNAL_EGRESS_EXIT_BACKFILLED is deleted.
 from custom_components.universal_room_automation.domain_coordinators.signals import (
-    SIGNAL_EGRESS_EXIT_BACKFILLED,
+    SIGNAL_EGRESS_RECORD_AMENDED,
 )
 
 
@@ -246,7 +249,7 @@ def test_persons_exited_today_reread_reflects_backfilled_person_id():
 
 # ---------------------------------------------------------------------------
 # T3 — Fix 1 (producer side): after a successful backfill in camera_census,
-# SIGNAL_EGRESS_EXIT_BACKFILLED fires with the row_id + person_id.
+# SIGNAL_EGRESS_RECORD_AMENDED fires with the row_id + person_id.
 # ---------------------------------------------------------------------------
 
 class _StubCameraManager:
@@ -320,15 +323,22 @@ def test_backfill_success_dispatches_signal():
         if orig_send is not None:
             _hd_mod.async_dispatcher_send = orig_send
 
-    matches = [s for s in sent if s[0] == SIGNAL_EGRESS_EXIT_BACKFILLED]
-    assert matches, (
-        f"SIGNAL_EGRESS_EXIT_BACKFILLED not dispatched; sent={sent}. "
+    matches = [s for s in sent if s[0] == SIGNAL_EGRESS_RECORD_AMENDED]
+    assert len(matches) == 1, (
+        f"SIGNAL_EGRESS_RECORD_AMENDED not dispatched once; sent={sent}. "
         f"RED means the display-reread dispatcher call is gone."
     )
     payload = matches[-1][1][0]
-    assert payload == {"row_id": 7, "person_id": "person.oji_udezue"}, (
+    # The retired payload's two keys, unchanged ...
+    assert {k: payload[k] for k in ("row_id", "person_id")} == {
+        "row_id": 7, "person_id": "person.oji_udezue"}, (
         f"payload mismatch: {payload}"
     )
+    # ... inside the G3 superset (no tracker in hass.data: ring untouched).
+    assert payload == {
+        "role": "exit_backfilled", "source_ref": None, "row_id": 7,
+        "person_id": "person.oji_udezue", "egress_camera": None,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -508,10 +518,27 @@ def _fire_backfill(captured, hass, payload):
     loop = _asyncio.get_event_loop()
     tasks: list = []
     hass.async_create_task = lambda coro: tasks.append(loop.create_task(coro)) or tasks[-1]
-    assert SIGNAL_EGRESS_EXIT_BACKFILLED in captured, (
-        "LastPersonExitSensor did not subscribe to SIGNAL_EGRESS_EXIT_BACKFILLED"
+    assert SIGNAL_EGRESS_RECORD_AMENDED in captured, (
+        "LastPersonExitSensor did not subscribe to SIGNAL_EGRESS_RECORD_AMENDED"
     )
-    captured[SIGNAL_EGRESS_EXIT_BACKFILLED](payload)
+    # Ship 3a D3: the notice is produced by the REAL G3 entry
+    # (transit_validator.amend_crossing, no tracker), exactly as the census
+    # exit backfill now sends it; the captured payload is fed to the handler.
+    from homeassistant.helpers import dispatcher as _hd_mod
+    from custom_components.universal_room_automation import transit_validator as _tv
+    notices: list = []
+    orig_send = _hd_mod.async_dispatcher_send
+    _hd_mod.async_dispatcher_send = lambda _h, sig, p: notices.append((sig, p))
+    try:
+        _tv.amend_crossing(
+            hass, None, {}, provenance=None, camera=None, role="exit_backfilled",
+            row_id=payload["row_id"], payload_extra={"person_id": payload["person_id"]},
+        )
+    finally:
+        _hd_mod.async_dispatcher_send = orig_send
+    (sig, real_payload), = notices
+    assert sig == SIGNAL_EGRESS_RECORD_AMENDED
+    captured[SIGNAL_EGRESS_RECORD_AMENDED](real_payload)
 
     async def _drain():
         for t in tasks:

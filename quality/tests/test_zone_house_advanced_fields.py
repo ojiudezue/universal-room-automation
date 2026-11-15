@@ -142,6 +142,7 @@ HOUSE_ADVANCED = [
     ("perimeter_alerting", CONF_PERIMETER_ENRICHMENT_MODEL, "other-model"),
     ("perimeter_alerting", CONF_PERIMETER_ENRICHMENT_MAX_TOKENS, 900),
     ("perimeter_alerting", CONF_PERIMETER_ENRICHMENT_PROVIDER_ID, "prov-1"),
+    ("perimeter_alerting", "crossing_vision_provider_id", "prov-2"),
     ("perimeter_alerting", CONF_PERIMETER_ENRICHMENT_PERSON_SENSORS, ["binary_sensor.p"]),
     ("perimeter_alerting", CONF_EXTERIOR_SNAPSHOT_OFFSET_S, 9),
 ]
@@ -179,6 +180,7 @@ HOUSE_DEFAULTS = {
     CONF_PERIMETER_ENRICHMENT_MODEL: cf.DEFAULT_PERIMETER_ENRICHMENT_MODEL,
     CONF_PERIMETER_ENRICHMENT_MAX_TOKENS: cf.DEFAULT_PERIMETER_ENRICHMENT_MAX_TOKENS,
     CONF_PERIMETER_ENRICHMENT_PROVIDER_ID: "",
+    "crossing_vision_provider_id": "",
     CONF_EXTERIOR_SNAPSHOT_OFFSET_S: cf.DEFAULT_EXTERIOR_SNAPSHOT_OFFSET_S,
 }
 

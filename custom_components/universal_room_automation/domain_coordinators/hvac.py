@@ -1235,10 +1235,11 @@ class HVACCoordinator(BaseCoordinator):
         """
         self._pre_arrival_enabled = value
         _LOGGER.info("HVAC pre-arrival: %s", "enabled" if value else "disabled")
-        # Sync to person_coordinator
+        # Sync to person_coordinator (ship 3a D4, G9: the owner's public
+        # setter; byte-identical to the old private write).
         pc = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
         if pc:
-            pc._pre_arrival_enabled = value
+            pc.set_pre_arrival_enabled(value)
 
     @property
     def vacancy_sweeps_today(self) -> int:
@@ -3412,10 +3413,9 @@ class HVACCoordinator(BaseCoordinator):
                 home_persons = []
                 try:
                     # PERSON-BLE-WINS-OVER-STALE-GPS-1 §6b: overrule-aware read.
-                    from ..person_coordinator import person_state_for_trust  # noqa: PLC0415
-                    for person_entity in (zone.zone_persons or []):
-                        if person_state_for_trust(self.hass, person_entity) == "home":
-                            home_persons.append(person_entity)
+                    # RA8: the one F1 per-zone level read.
+                    from ..person_coordinator import persons_home_for_trust  # noqa: PLC0415
+                    home_persons = persons_home_for_trust(self.hass, zone.zone_persons)
                 except Exception as exc:  # noqa: BLE001
                     _LOGGER.debug(
                         "HVAC: night-trust person check errored for zone %s: %s",
@@ -3990,10 +3990,11 @@ class HVACCoordinator(BaseCoordinator):
                     try:
                         # PERSON-BLE-WINS-OVER-STALE-GPS-1 §6b (display): match
                         # the night-trust decision's overrule-aware read.
-                        from ..person_coordinator import person_state_for_trust  # noqa: PLC0415
-                        for _p in (zone.zone_persons or []):
-                            if person_state_for_trust(self.hass, _p) == "home":
-                                main_row_home_persons.append(_p)
+                        # RA8: the one F1 per-zone level read.
+                        from ..person_coordinator import persons_home_for_trust  # noqa: PLC0415
+                        main_row_home_persons = persons_home_for_trust(
+                            self.hass, zone.zone_persons,
+                        )
                     except Exception:  # noqa: BLE001
                         main_row_home_persons = []
                     self.hass.async_create_task(

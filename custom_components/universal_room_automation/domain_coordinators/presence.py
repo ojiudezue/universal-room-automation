@@ -82,6 +82,7 @@ from .house_state import HouseState, HouseStateMachine
 from .sensor_capability import capability_routing_enabled
 from .signals import (
     SIGNAL_CENSUS_UPDATED,
+    SIGNAL_RESIDENCY_EVENT,
     SIGNAL_FAN_INTERFERENCE_GATE_FIRED,
     SIGNAL_HOUSE_STATE_CHANGED,
     SIGNAL_OPTIMIZER_INTENT,
@@ -95,6 +96,9 @@ from homeassistant.helpers.dispatcher import (
     async_dispatcher_connect,
     async_dispatcher_send,
 )
+# Ship 3a D1: the F5 ingest (dispatch_person_arriving) is read through the
+# module at call time, so a partial signals stub never breaks this import.
+from . import signals as _layer_signals
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -290,30 +294,9 @@ class TransientSignal:
     count: int
 
 
-@dataclass(frozen=True)
-class HouseCensusView:
-    """F2 house census as one consumer class reads it
-    (PERSON-AWARENESS-READ-API-1 RA1). Built by
-    ``PresenceCoordinator.get_house_census``; values are copied from
-    ``census.last_result.house`` (never ``_census_count``).
-
-    view: ``trust`` or ``awareness``.
-    identified: house ``identified_count``.
-    unidentified_or_guests: house ``unidentified_count``.
-    total: house ``total_persons``.
-    provenance: where the count came from (``camera`` until the census
-        deconfliction plan adds vision).
-    agreement: house ``source_agreement``.
-    as_of: house ``timestamp``.
-    """
-
-    view: str
-    identified: int
-    unidentified_or_guests: int
-    total: int
-    provenance: str
-    agreement: str
-    as_of: Any
+# RA1 view type lives in the pure ``census_view`` module (RA7: display
+# readers use it without the presence coordinator); re-exported here.
+from ..census_view import HouseCensusView, house_census_view  # noqa: E402,F401
 
 
 @dataclass(frozen=True)
@@ -649,6 +632,12 @@ class ZonePresenceTracker:
         self._fan_off_at: Dict[str, tuple["datetime", "datetime"]] = {}
         self._camera_occupied: Dict[str, bool] = {}  # entity_id -> detection active
         self._camera_last_seen: Dict[str, datetime] = {}  # entity_id -> last detection time
+        # Camera input stream health S2 "a dead input holds": detection
+        # updates from a camera whose stream is dead are IGNORED (a dead
+        # camera neither creates nor ends zone occupancy); the cameras whose
+        # updates were ignored are listed here and re-read from their live
+        # state once they stream again. RAM only.
+        self._camera_stream_ignored: Set[str] = set()
         # Fan-noise mitigation D1 (Layer-1 silent gate): per-room hold
         # expiry. Set ONLY by `_compute_fan_interference_rooms` when the
         # room is fan-interference-suspect AND the BLE corroboration
@@ -678,6 +667,13 @@ class ZonePresenceTracker:
         self._last_face_recognized: str = ""
         self._last_face_time: Optional[datetime] = None
         self._face_arrivals_today: int = 0
+
+    def note_face(self, slug: str, when: Optional[datetime]) -> None:
+        """Ship 3a D4: the zone's last-face display fields, written by the
+        person-sighting producer (the same two assignments it made to the
+        privates before)."""
+        self._last_face_recognized = slug
+        self._last_face_time = when
 
     @property
     def mode(self) -> str:
@@ -828,12 +824,36 @@ class ZonePresenceTracker:
         now = dt_util.utcnow()
         timeout = timedelta(seconds=_CAMERA_OCCUPANCY_TIMEOUT_SECONDS)
 
-        for entity_id, last_seen in self._camera_last_seen.items():
+        for entity_id, last_seen in list(self._camera_last_seen.items()):
             # Currently detecting OR within timeout window
-            if self._camera_occupied.get(entity_id, False):
-                return True
-            if (now - last_seen) < timeout:
-                return True
+            holds = bool(
+                self._camera_occupied.get(entity_id, False)
+                or (now - last_seen) < timeout
+            )
+            # Camera input stream health S2 (review B-L3): the room getter
+            # is asked only for a camera that would hold, or one whose
+            # updates were ignored while dead (to resync it).
+            if not holds and entity_id not in self._camera_stream_ignored:
+                continue
+            view = _camera_entity_stream_view(self.hass, entity_id)
+            if view is None:
+                if entity_id in self._camera_stream_ignored:
+                    # Streams again: take its live reading (the updates we
+                    # ignored while it was dead are gone).
+                    self._camera_stream_ignored.discard(entity_id)
+                    st = self.hass.states.get(entity_id)
+                    live_on = bool(st is not None and st.state == "on")
+                    self._camera_occupied[entity_id] = live_on
+                    if live_on:
+                        self._camera_last_seen[entity_id] = now
+                    holds = live_on or (now - last_seen) < timeout
+                if holds:
+                    return True
+                continue
+            if view != _VIEW_HELD:
+                continue  # dead past CAMERA_INPUT_STREAM_DEAD_HOLD_MAX_S: off
+            if holds:
+                return True  # dead, hold not over: unknown, keeps its level
 
         return False
 
@@ -961,9 +981,25 @@ class ZonePresenceTracker:
         When detected=False, the timeout keeps the zone occupied for
         _CAMERA_OCCUPANCY_TIMEOUT_SECONDS before reverting to away.
         """
-        self._camera_occupied[entity_id] = detected
         self._has_sensors = True
         self._has_camera_sensors = True
+        # Camera input stream health S2 "a dead input holds": an update from
+        # a camera whose stream is dead is not evidence either way (getter
+        # asked only on a change, so a steady frozen sensor costs nothing).
+        if (
+            bool(self._camera_occupied.get(entity_id, False)) != bool(detected)
+            and _camera_entity_stream_view(self.hass, entity_id) is not None
+        ):
+            self._camera_stream_ignored.add(entity_id)
+            # Keep it in the timeout map (idle) so the read loop resyncs it
+            # once it streams again.
+            self._camera_last_seen.setdefault(
+                entity_id,
+                dt_util.utcnow()
+                - timedelta(seconds=_CAMERA_OCCUPANCY_TIMEOUT_SECONDS),
+            )
+            return
+        self._camera_occupied[entity_id] = detected
         if detected:
             self._camera_last_seen[entity_id] = dt_util.utcnow()
             self._last_activity = dt_util.utcnow()
@@ -2433,7 +2469,14 @@ class PresenceCoordinator(BaseCoordinator):
             possible += 1
             for camera_entity in zone_cameras:
                 state = self.hass.states.get(camera_entity)
-                if state and state.state == "on":
+                # Camera input stream health S2 (reviews A-M1 / B-M1): a
+                # camera whose stream is dead confirms nothing, so its
+                # frozen `on` cannot keep resetting the HVAC D6
+                # stale-occupancy failsafe (the release of a dead hold).
+                if (
+                    state and state.state == "on"
+                    and not _camera_entity_stream_dead(self.hass, camera_entity)
+                ):
                     confirmed += 1
                     break  # One camera confirmation is enough
 
@@ -3241,20 +3284,10 @@ class PresenceCoordinator(BaseCoordinator):
 
             # v3.6.0-c2.3: Seed census count from existing data before first
             # inference. Without this, _census_count=0 → infers "away" even
-            # when people are home. Read from census manager if available,
-            # else fall back to the identified_persons sensor state.
+            # when people are home. Reads the identified_persons sensor state.
+            # RA7: the old first branch read hass.data key
+            # "camera_integration_manager", which nothing writes; deleted.
             try:
-                census_mgr = self.hass.data.get(DOMAIN, {}).get(
-                    "camera_integration_manager"
-                )
-                if census_mgr and hasattr(census_mgr, "last_result"):
-                    last = census_mgr.last_result
-                    if last is not None:
-                        self._census_count = last.house.total_persons
-                        _LOGGER.info(
-                            "Seeded census count from manager: %d",
-                            self._census_count,
-                        )
                 if self._census_count == 0:
                     # Fallback: read from sensor state
                     state = self.hass.states.get(
@@ -4298,7 +4331,10 @@ class PresenceCoordinator(BaseCoordinator):
                         if not eid or eid in on_set:
                             continue
                         st = self.hass.states.get(eid)
-                        if st is not None and st.state == "on":
+                        if (
+                            st is not None and st.state == "on"
+                            and not _input_stream_dead(self.hass, eid)
+                        ):
                             on_set.append(eid)
                 return bool(radar_sole_on_set(self.hass, merged, on_set))
         except Exception:  # noqa: BLE001 — fail-closed
@@ -4339,7 +4375,13 @@ class PresenceCoordinator(BaseCoordinator):
                     if room_name in rooms or room_name not in tracker.room_names:
                         continue
                     state = self.hass.states.get(entity_id)
-                    if state is not None and state.state == "on":
+                    # S2 "a dead input holds": a dead input reading `on`
+                    # was `on` when its stream died (it is frozen), so it
+                    # keeps counting until its hold is over.
+                    if (
+                        state is not None and state.state == "on"
+                        and not _input_stream_released(self.hass, entity_id)
+                    ):
                         rooms.add(room_name)
             except Exception:  # noqa: BLE001 — fail toward holding
                 return ["<error>"]
@@ -4508,7 +4550,12 @@ class PresenceCoordinator(BaseCoordinator):
                     continue
                 st = self.hass.states.get(entity_id)
                 if st is not None and st.state == "on":
-                    on_by_room.setdefault(mapping[0], []).append(entity_id)
+                    # S2 review A-L2: name a dead-stream holder as such.
+                    on_by_room.setdefault(mapping[0], []).append(
+                        f"{entity_id} (camera stream dead, held)"
+                        if _input_stream_dead(self.hass, entity_id)
+                        else entity_id
+                    )
         except Exception:  # noqa: BLE001 — diagnosis only
             on_by_room = {}
         labels: List[str] = []
@@ -5112,6 +5159,36 @@ class PresenceCoordinator(BaseCoordinator):
                 newest = stamp
         return newest
 
+    def zone_camera_entities(self) -> list[str]:
+        """Public read (contract §4.1, person-awareness ship 3b): every
+        camera person-sensor entity a zone reads: the zone camera tier's
+        registered cameras (``_discover_zone_cameras``) and the Zone Manager
+        zones' ``zone_cameras`` picks (the HVAC D6 Source 3 list,
+        ``check_zone_occupancy_confidence``). Sorted, deduplicated. Read by
+        the camera twin owner for its unwatched set U. [] on any error."""
+        out: Set[str] = set()
+        try:
+            for tracker in self._zone_trackers.values():
+                out.update(e for e in tracker._camera_entity_ids if e)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            from ..const import ENTRY_TYPE_ZONE_MANAGER  # noqa: PLC0415
+            from .hvac_const import CONF_ZONE_CAMERAS  # noqa: PLC0415
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                data = getattr(entry, "data", {}) or {}
+                if data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ZONE_MANAGER:
+                    continue
+                opts = getattr(entry, "options", {}) or {}
+                zones = opts.get("zones") or data.get("zones") or {}
+                for zcfg in zones.values():
+                    for pick in (zcfg or {}).get(CONF_ZONE_CAMERAS) or []:
+                        if isinstance(pick, str) and pick:
+                            out.add(pick)
+        except Exception:  # noqa: BLE001
+            pass
+        return sorted(out)
+
     def _discover_zone_cameras(self) -> None:
         """Discover cameras in each zone using CameraIntegrationManager.
 
@@ -5318,6 +5395,10 @@ class PresenceCoordinator(BaseCoordinator):
             )
             if record is not None:
                 self._persist_residency_event(record)
+                # P2-D3: hand the record to its observational subscribers
+                # (the crossing ledger's departure reconcile). Sync
+                # dispatch; no reader changes house state.
+                async_dispatcher_send(self.hass, SIGNAL_RESIDENCY_EVENT, record)
         except Exception:  # noqa: BLE001 — observational producer
             _LOGGER.debug("Residency: event for %s not recorded", entity_id, exc_info=True)
 
@@ -5404,7 +5485,9 @@ class PresenceCoordinator(BaseCoordinator):
         inside ``_run_inference`` is deliberately untouched (INV-MACHINE);
         a parity test pins the two on every non-raising input.
         """
-        person_slug = (person_name or "").lower().replace(" ", "_")
+        from ..person_ids import entity_key_slug  # noqa: PLC0415
+
+        person_slug = entity_key_slug(person_name or "")
         if not person_slug:
             return False
         try:
@@ -5432,11 +5515,27 @@ class PresenceCoordinator(BaseCoordinator):
             return False
         return state.state == "on"
 
-    def get_residents_home(self) -> frozenset:
+    def get_residents_home(self, zone_persons: Any = None) -> frozenset:
         """Residents at home (LEVEL, trust state): ``person_state_for_trust``
         reads ``home`` and the phone-left-behind sensor is not ``on``.
         Unresolved resident set -> empty (severity fails toward CRITICAL).
-        Synchronous, never raises, safe before setup."""
+        Synchronous, never raises, safe before setup.
+
+        RA8 (PERSON-AWARENESS-READ-API-1): with ``zone_persons`` (a list of
+        ``person.*`` ids) it answers the per-zone question instead: which of
+        those persons read ``home`` under the trust state, through
+        ``person_coordinator.persons_home_for_trust`` (the rule the HVAC /
+        aggregation zone loops call). No phone-left-behind cut on that form:
+        it is the zone level read those loops always made (concept split).
+        """
+        if zone_persons is not None:
+            try:
+                from ..person_coordinator import persons_home_for_trust  # noqa: PLC0415
+
+                return frozenset(persons_home_for_trust(self.hass, zone_persons))
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("Residency: zone persons home failed", exc_info=True)
+                return frozenset()
         try:
             residents = self._residency_residents()
             if not residents:
@@ -5616,13 +5715,13 @@ class PresenceCoordinator(BaseCoordinator):
                     entity_id,
                 )
             else:
-                # B-H1 fix-up: async_dispatcher_send is imported at module
-                # top — use it directly. Eliminates the Bug Class #34
-                # latent function-local import.
-                async_dispatcher_send(
+                # Ship 3a D1 (G4): the one F5 ingest; same dict as before
+                # ({"person_entity", "source"}).
+                _layer_signals.dispatch_person_arriving(
                     self.hass,
-                    SIGNAL_PERSON_ARRIVING,
-                    {"person_entity": entity_id, "source": "geofence"},
+                    _layer_signals.PersonArrivingPayload(
+                        person_entity=entity_id, source="geofence",
+                    ),
                 )
         elif new_zone == "not_home" and old_zone == "home":
             self.handle_geofence_event(entity_id, "not_home")
@@ -5878,15 +5977,15 @@ class PresenceCoordinator(BaseCoordinator):
         self._bump_hvac_face_counter(sighting)
         if producer is not None:
             producer.note_arrival(sighting.ts)
-        async_dispatcher_send(
+        # Ship 3a D1 (G4): the one F5 ingest; same four-key dict as before.
+        _layer_signals.dispatch_person_arriving(
             self.hass,
-            SIGNAL_PERSON_ARRIVING,
-            {
-                "person_entity": sighting.person_entity,
-                "source": "camera_face",
-                "sighting": sighting,
-                "zone": sighting.house_zones[0] if sighting.house_zones else "",
-            },
+            _layer_signals.PersonArrivingPayload(
+                person_entity=sighting.person_entity,
+                source="camera_face",
+                sighting=sighting,
+                zone=sighting.house_zones[0] if sighting.house_zones else "",
+            ),
         )
         _LOGGER.info(
             "Camera face arrival: %s seen at %s before the phone arrived",
@@ -5949,62 +6048,22 @@ class PresenceCoordinator(BaseCoordinator):
     # Readers pick a view by consumer class (view_for_class); the presence
     # inference path never calls these.
     # ------------------------------------------------------------------
-    def get_house_census(self, view: str = "trust") -> HouseCensusView | None:
-        """RA1: F2 house census for ``view`` (``trust`` / ``awareness``).
+    def get_house_census(self, view: str = "trust", *, cls: Any = None) -> HouseCensusView | None:
+        """RA1: F2 house census for ``view`` (``trust`` / ``awareness``), or for
+        consumer class ``cls`` (ship 3a D4: ``census_view.view_for_class``).
 
-        Reads ``census.last_result.house``. Sync, never raises; no census or
-        no result yet -> None. Until the census deconfliction plan adds the
-        awareness fields, the awareness view returns the trust values with
-        provenance ``camera``. Any view string other than ``awareness``
-        reads trust.
+        Delegates to ``census_view.house_census_view`` (the one F2 read; RA7
+        display readers call it too). Sync, never raises; no census or no
+        result yet -> None.
         """
-        try:
-            census = self.hass.data.get(DOMAIN, {}).get("census")
-            if census is None:
-                return None
-            last = census.last_result
-            if last is None:
-                return None
-            house = last.house
-            if house is None:
-                return None
-            return HouseCensusView(
-                view="awareness" if view == "awareness" else "trust",
-                identified=int(house.identified_count),
-                unidentified_or_guests=int(house.unidentified_count),
-                total=int(house.total_persons),
-                provenance="camera",
-                agreement=str(house.source_agreement),
-                as_of=house.timestamp,
-            )
-        except Exception:  # noqa: BLE001 - read API never raises
-            _LOGGER.debug("get_house_census failed", exc_info=True)
-            return None
+        return house_census_view(self.hass, view, cls=cls)
 
     def view_for_class(self, cls: Any) -> str:
-        """RA2: the census view a consumer class reads (allow-list).
+        """RA2: the census view a consumer class reads. Ship 3a D4: delegates
+        to ``census_view.view_for_class`` (the one rule)."""
+        from ..census_view import view_for_class as _view_for_class  # noqa: PLC0415
 
-        ``awareness`` ONLY when ``cls`` is in the active promoted set
-        (``CROSSING_VISION_CONSUMER_CLASSES``) AND in the legal set AND the
-        downgrade switch reads ``on``. Every other input (class not
-        promoted, unknown / misspelt / non-string class, switch missing or
-        not on, any error) -> ``trust``.
-        """
-        try:
-            if not isinstance(cls, str):
-                return "trust"
-            if cls not in _ura_const.CROSSING_VISION_CONSUMER_CLASSES:
-                return "trust"
-            if cls not in _ura_const.CROSSING_VISION_LEGAL_CONSUMER_CLASSES:
-                return "trust"
-            st = self.hass.states.get(
-                _ura_const.CROSSING_VISION_CENSUS_AUTHORITY_SWITCH
-            )
-            if st is None or st.state != "on":
-                return "trust"
-            return "awareness"
-        except Exception:  # noqa: BLE001 - fail to trust
-            return "trust"
+        return _view_for_class(self.hass, cls)
 
     def get_last_crossing(self, camera: str | None = None):
         """RA5: last F3 door crossing (``CrossingRecord``) from the egress
@@ -6017,6 +6076,154 @@ class PresenceCoordinator(BaseCoordinator):
             return tracker.get_last_crossing(camera)
         except Exception:  # noqa: BLE001
             return None
+
+    # ---- ship 3a D2: F1 edges (G1 push, A1 pull, A1b truncation)
+    def subscribe_person_edges(self, cb, *, persons=None, kinds=None):
+        """G1 delegate of ``residency.subscribe_person_edges`` (same rules)."""
+        from .residency import EDGE_KINDS, subscribe_person_edges  # noqa: PLC0415
+
+        return subscribe_person_edges(
+            self.hass, cb, persons=persons, kinds=EDGE_KINDS if kinds is None else kinds,
+        )
+
+    def get_person_edges_since(self, t: float, *, persons=None, kinds=None) -> tuple:
+        """A1: residency records with ``edge_ts >= t`` (epoch seconds, float),
+        oldest first, plain tuple; ``()`` with no tracker or on any error."""
+        try:
+            from .residency import EDGE_KINDS, edges_since  # noqa: PLC0415
+
+            tracker = getattr(self, "_residency", None)
+            if tracker is None:
+                return ()
+            return edges_since(tracker, t, persons=persons,
+                               kinds=EDGE_KINDS if kinds is None else kinds)
+        except Exception:  # noqa: BLE001
+            return ()
+
+    def person_edges_truncated_since(self, t: float) -> bool:
+        """A1b: True when ``get_person_edges_since(t)`` may be incomplete (ring
+        full and its oldest record newer than ``t``, or ``t`` before the
+        tracker's creation; no tracker = True). Each True is counted."""
+        try:
+            from .residency import edges_truncated_since  # noqa: PLC0415
+
+            tracker = getattr(self, "_residency", None)
+            truncated = True if tracker is None else edges_truncated_since(tracker, t)
+        except Exception:  # noqa: BLE001
+            truncated = True
+        if truncated:
+            _layer_signals.count_layer_event(self.hass, "edges_truncated")
+        return truncated
+
+    # ---- ship 3a D4 (review A-L1): F4 BLE move-log delegates (never raise)
+    def location_moves_since(self, t: datetime) -> tuple:
+        """A2: the person coordinator's ``location_moves_since(t)`` (plain
+        tuple of ``PersonMove``, ``ts >= t``, oldest first); ``()`` with no
+        person coordinator or on any error."""
+        try:
+            pc = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+            return tuple(pc.location_moves_since(t)) if pc is not None else ()
+        except Exception:  # noqa: BLE001
+            return ()
+
+    def location_moves_truncated_since(self, t: datetime) -> bool:
+        """A2 truncation read of the person coordinator; True (incomplete)
+        with no person coordinator or on any error."""
+        try:
+            pc = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+            return bool(pc.location_moves_truncated_since(t)) if pc is not None else True
+        except Exception:  # noqa: BLE001
+            return True
+
+    # ---- ship 3a D3: F3 reads (delegates to the egress tracker; never raise)
+    def _egress_tracker(self):
+        return self.hass.data.get(DOMAIN, {}).get("egress_tracker")
+
+    def get_crossings_since(self, t: datetime, camera: str | None = None) -> tuple:
+        """G2: ring records with ``ts >= t`` (a ``datetime``), oldest first;
+        ``()`` with no tracker or on any error."""
+        try:
+            tracker = self._egress_tracker()
+            return tuple(tracker.get_crossings_since(t, camera)) if tracker is not None else ()
+        except Exception:  # noqa: BLE001
+            return ()
+
+    def get_crossing(self, source_ref: str):
+        """A3: one ring record by ``source_ref``, or None."""
+        try:
+            tracker = self._egress_tracker()
+            return tracker.get_crossing(source_ref) if tracker is not None else None
+        except Exception:  # noqa: BLE001
+            return None
+
+    def door_camera_device_ids(self) -> frozenset:
+        """A9: registry device ids of the egress entities (empty on error)."""
+        try:
+            tracker = self._egress_tracker()
+            return frozenset(tracker.door_camera_device_ids()) if tracker is not None else frozenset()
+        except Exception:  # noqa: BLE001
+            return frozenset()
+
+    def door_entry_entities(self) -> tuple:
+        """G5: egress entities then configured door neighbours (``()`` on error)."""
+        try:
+            tracker = self._egress_tracker()
+            return tuple(tracker.door_entry_entities()) if tracker is not None else ()
+        except Exception:  # noqa: BLE001
+            return ()
+
+    def door_neighbours_for_stem(self, stem: str | None) -> tuple:
+        """G5: the configured neighbours of ``stem``'s door group (``()``)."""
+        try:
+            tracker = self._egress_tracker()
+            return tuple(tracker.door_neighbours_for_stem(stem)) if tracker is not None else ()
+        except Exception:  # noqa: BLE001
+            return ()
+
+    # ---- ship 3a D4: class confidence read
+    def min_confidence(self, cls: Any) -> float | None:
+        """The identity-confidence bar of consumer class ``cls``
+        (``const.CONSUMER_CLASS_MIN_CONFIDENCE``), or None for a class with
+        no bar (comfort, house_state), an unknown or a non-string class."""
+        if not isinstance(cls, str):
+            return None
+        return _ura_const.CONSUMER_CLASS_MIN_CONFIDENCE.get(cls)
+
+    # ---- ship 3a D5: layer diagnostics (on demand; no entity carries them)
+    def get_layer_diagnostics(self) -> dict:
+        """The person-awareness layer counters (ship 3a D5): F5 sends by
+        source, G3 calls by role, aged-out amends, store failures, ring and
+        move-log sizes, unresolved moves, G1 subscribers, truncation answers.
+        Counters only: no config entry data, no entity states, no person
+        ``.data``. Read by ``diagnostics.async_get_config_entry_diagnostics``."""
+        out: dict[str, Any] = {}
+        try:
+            c = _layer_signals.layer_counters(self.hass)
+            out = {
+                "f5_sent": dict(sorted(c.f5_sent.items())),
+                "g3_calls": dict(sorted(c.g3_calls.items())),
+                "crossing_record_aged_out": int(c.crossing_record_aged_out),
+                "crossing_store_failed": int(c.crossing_store_failed),
+                "move_unresolved_person": int(c.move_unresolved_person),
+                "g1_subscribers": int(c.g1_subscribers),
+                "edges_truncated": int(c.edges_truncated),
+                "moves_truncated": int(c.moves_truncated),
+            }
+        except Exception:  # noqa: BLE001
+            out = {}
+        try:
+            tracker = self._egress_tracker()
+            sizes_fn = getattr(tracker, "crossing_ring_sizes", None) if tracker is not None else None
+            out["ring_sizes"] = dict(sizes_fn()) if callable(sizes_fn) else {}
+        except Exception:  # noqa: BLE001
+            out["ring_sizes"] = {}
+        try:
+            pc = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+            size_fn = getattr(pc, "location_moves_size", None) if pc is not None else None
+            out["move_log_size"] = int(size_fn()) if callable(size_fn) else 0
+        except Exception:  # noqa: BLE001
+            out["move_log_size"] = 0
+        return out
 
     def get_last_arrival_record(self):
         """RA5: last crossing-vision arrival record (F3 attribute).
@@ -9894,6 +10101,49 @@ def _fan_decay_unsubs_map(owner: Any) -> Dict[str, Any]:
         m = {}
         owner._fan_decay_unsubs = m
     return m
+
+def _input_stream_dead(hass: Any, entity_id: str) -> bool:
+    """Camera input stream health S2: True iff a room's ONE getter reports
+    this input dead-stream. None / False / error = counts as before."""
+    try:
+        from .camera_stream_health import input_stream_dead  # noqa: PLC0415
+        return input_stream_dead(hass, entity_id) is True
+    except Exception:  # noqa: BLE001 — fail open
+        return False
+
+
+def _camera_entity_stream_dead(hass: Any, entity_id: str) -> bool:
+    """Zone camera reader: input route, else the entity's own camera."""
+    try:
+        from .camera_stream_health import entity_stream_dead  # noqa: PLC0415
+        return entity_stream_dead(hass, entity_id) is True
+    except Exception:  # noqa: BLE001 — fail open
+        return False
+
+
+_VIEW_HELD = "held"  # camera_stream_health.VIEW_HELD
+_VIEW_RELEASED = "released"  # camera_stream_health.VIEW_RELEASED
+
+
+def _input_stream_released(hass: Any, entity_id: str) -> bool:
+    """S2 hold: True iff the input is dead AND its hold is over (it counts
+    as off). Held / live / error = counts as before."""
+    try:
+        from .camera_stream_health import input_stream_view  # noqa: PLC0415
+        return input_stream_view(hass, entity_id) == _VIEW_RELEASED
+    except Exception:  # noqa: BLE001 — fail open
+        return False
+
+
+def _camera_entity_stream_view(hass: Any, entity_id: str) -> Optional[str]:
+    """Zone camera tier view (S2 hold): None / held / released."""
+    try:
+        from .camera_stream_health import entity_stream_view  # noqa: PLC0415
+        view = entity_stream_view(hass, entity_id)
+    except Exception:  # noqa: BLE001 — fail open
+        return None
+    return view if view in (_VIEW_HELD, _VIEW_RELEASED) else None
+
 
 def _cancel_fan_belief_decay(owner: Any, entity_id: Optional[str] = None) -> None:
     """Cancel one (or every) pending held-belief decay timer."""

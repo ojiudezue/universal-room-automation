@@ -179,6 +179,9 @@ class _Room:
         self.entry.data = {"room_name": ROOM}
         self._exclusion_set = SensorExclusionSet(room_name=ROOM)
         self._camera_stream_health = CameraInputStreamHealth(ROOM)
+        self._camera_stream_prev_dead = frozenset()
+        self._camera_stream_prev_expired = frozenset()
+        self._camera_stream_rechecking = False
         self._stuck_sensor_kinds = {}
         self._dutycycle_excluded_last_tick = set()
         self._dutycycle_excluded_now = {}
@@ -191,6 +194,9 @@ class _Room:
             "_subscribe_camera_stream_registry_updates",
             "_camera_override_person_sensors",
             "_camera_override_live_person_sensors",
+            "_notify_substrate_stream_flips", "camera_stream_dead",
+            "_fire_camera_hold_pages", "_camera_stream_page_policy",
+            "_camera_stream_page_key",
         ):
             fn = getattr(UniversalRoomCoordinator, name)
             setattr(self, name, fn.__get__(self, type(self)))
@@ -283,19 +289,39 @@ def _nm_state():
 
 
 @pytest.fixture
+def s1_only(monkeypatch):
+    """S1 page mechanics in isolation: S2 hold caps 0 (no hold, so no S2
+    hold-release page, which would otherwise suppress the S1 page: one HIGH
+    page per outage, batch-2)."""
+    monkeypatch.setattr(_csh._const, "CAMERA_INPUT_STREAM_DEAD_HOLD_MAX_S", 0.0)
+    monkeypatch.setattr(
+        _csh._const, "CAMERA_INPUT_STREAM_DEAD_CENSUS_HOLD_MAX_S", 0.0,
+    )
+
+
+@pytest.fixture
 def nm_calls(monkeypatch):
-    """Record the stuck-signal NM calls the tick site schedules."""
-    calls = {"page": [], "recover": []}
+    """Record the stuck-signal NM calls the tick site schedules. The S1
+    per-input page (kind camera_stream_dead) goes to page / recover; the S2
+    per-camera hold-release page goes to hold_page / hold_recover."""
+    calls = {"page": [], "recover": [], "hold_page": [], "hold_recover": []}
 
     async def _page(hass, **kw):
-        calls["page"].append(kw)
+        key = "hold_page" if kw.get("kind") == "camera_stream_hold_released" else "page"
+        calls[key].append(kw)
         return True
 
     async def _recover(hass, **kw):
-        calls["recover"].append(kw)
+        key = (
+            "hold_recover"
+            if kw.get("kind") == "camera_stream_hold_released" else "recover"
+        )
+        calls[key].append(kw)
         return True
 
     monkeypatch.setattr(_stuck_signal_nm, "fire_stuck_signal", _page)
+    # Ship 3b review B-L6: the page sites schedule only while NM is ready.
+    monkeypatch.setattr(_stuck_signal_nm, "stuck_signal_dispatch_ready", lambda hass: True)
     monkeypatch.setattr(_stuck_signal_nm, "fire_stuck_signal_recovered", _recover)
     return calls
 
@@ -399,9 +425,18 @@ def test_unresolved_camera_byte_identical(variant):
     assert new.tasks == []
 
 
-def test_multi_camera_device_unresolved():
+@pytest.fixture
+def device_level_off(monkeypatch):
+    """Ship 3b fallback knob: CAMERA_STREAM_DEVICE_LEVEL_INPUTS False = the
+    pre-3b per-camera-entity rule (a multi-camera device is unresolved)."""
+    monkeypatch.setattr(_csh._const, "CAMERA_STREAM_DEVICE_LEVEL_INPUTS", False)
+
+
+def test_multi_camera_device_unresolved(device_level_off):
     """A device hosting two camera entities (an NVR) cannot say which stream
-    feeds the input: unresolved, never excluded, getter None."""
+    feeds the input: unresolved, never excluded, getter None. (Ship 3b: true
+    with CAMERA_STREAM_DEVICE_LEVEL_INPUTS False; with it True the device
+    resolves, see test_camera_twin_health.py.)"""
     reg = _panel_registry(extra=(_entry("camera.up_hallway_panel_sub",
                                         "dev_panel"),))
     r = _Room(reg)
@@ -429,7 +464,7 @@ def test_live_stream_input_counts():
     }
 
 
-def test_nm_after_threshold_and_recovery(nm_calls):
+def test_nm_after_threshold_and_recovery(nm_calls, s1_only):
     """HIGH page once at 1800 s of exclusion (not 1799), LOW recovered once
     on release, and no second page the same local day."""
     r = _Room(_panel_registry())
@@ -474,7 +509,7 @@ def test_nm_after_threshold_and_recovery(nm_calls):
     assert len(nm_calls["page"]) == 2
 
 
-def test_nm_one_page_per_episode_across_midnight(nm_calls):
+def test_nm_one_page_per_episode_across_midnight(nm_calls, s1_only):
     """A continuous outage (the 39 h Up Hallway shape) pages once, not again
     at the next local day while the same episode lasts."""
     r = _Room(_panel_registry())
@@ -510,11 +545,11 @@ def test_kill_switch_off_byte_identical(monkeypatch, nm_calls):
         assert new.tick(now) == old.tick(now)
         assert new._exclusion_set.excluded() == old._exclusion_set.excluded()
     _drain(new)
-    assert nm_calls == {"page": [], "recover": []}
+    assert nm_calls == {"page": [], "recover": [], "hold_page": [], "hold_recover": []}
     assert new.camera_input_stream_dead(PANEL) is False
 
 
-def test_kill_switch_flip_mid_episode_releases_and_recovers(monkeypatch, nm_calls):
+def test_kill_switch_flip_mid_episode_releases_and_recovers(monkeypatch, nm_calls, s1_only):
     r = _Room(_panel_registry())
     r.states = {PANEL: "on", PANEL_CAM: "unavailable", ZV: "off"}
     r.tick(T0)
@@ -683,7 +718,7 @@ def test_first_refresh_subscribes_registry_listener(monkeypatch):
     assert calls == ["subscribed"]
 
 
-def test_unresolved_camera_derived_input_warns_once(caplog):
+def test_unresolved_camera_derived_input_warns_once(caplog, device_level_off):
     """Silence check: a camera-derived input that never resolves (two
     cameras) logs one WARNING per coordinator lifetime."""
     reg = _panel_registry(extra=(_entry("camera.up_hallway_panel_sub",
@@ -1014,7 +1049,7 @@ def test_restored_unavailable_camera_is_no_opinion_no_page(nm_calls):
         d = r.tick(T0 + timedelta(seconds=s))
         assert d[STATE_PRESENCE_DETECTED] is True
     _drain(r)
-    assert nm_calls == {"page": [], "recover": []}
+    assert nm_calls == {"page": [], "recover": [], "hold_page": [], "hold_recover": []}
     assert r.camera_input_stream_dead(PANEL) is False
     # Once loaded and really unavailable, the grace starts then.
     r.states[PANEL_CAM] = "unavailable"
@@ -1023,7 +1058,7 @@ def test_restored_unavailable_camera_is_no_opinion_no_page(nm_calls):
     assert d[STATE_PRESENCE_DETECTED] is False
 
 
-def test_input_removed_mid_episode_no_recovery_nm():
+def test_input_removed_mid_episode_no_recovery_nm(s1_only):
     """Review A LOW-3: a paged input removed from the room is dropped
     silently, no "counts again" message."""
     reg = _panel_registry()
