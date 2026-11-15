@@ -48,6 +48,9 @@ framing G). This skill is the operating loop that uses them.
    charter); the facts already measured, so the agent does not re-derive them; the deliverable file path; the rules
    (one command per Bash call, no mkdir, helpers in `.claude/tmp` with non-stdlib names, token never printed, no
    Bermuda diagnostics, no HA state changes unless the brief says so); and the return shape (verdict + evidence).
+   **Secrets in config reads:** twice on 2026-11-15 a probe printed credentials while reading `core.config_entries` /
+   an integration's config (Tuya + MQTT, then Frigate). Every brief that touches config entries says: select the
+   needed keys inside the script and print only those; never print `data` / `options` / diagnostics wholesale.
 3. **Never trust a hand-back.** Before relaying, verify the load-bearing claim yourself with one cheap check: a
    history read, a grep, a state read, the actual test name. 2026-11-15 examples: the guest peak (re-read history),
    the 20+ paused rooms (live switch search), the validator's "CLEAN" (its extra-mode report never arrived; the
