@@ -222,3 +222,82 @@ Verdict for the sensitivity: even granting the Elk zone as the front contact, th
 ## I1 v2 verdict
 
 NO-GO unchanged for I1: 10/17 (gate 15), 3/6 (gate 5), coverage 0.47 (gate 0.50), with polygons now drawn from viewed snapshots. P3-D0b stays NO-GO; the front-contact route does not rescue it on the sensitivity numbers. The remaining levers are unchanged: an I2 Frigate threshold zone, or a front camera that sees the approach (G6 Entry sees only the mat).
+
+## Ensemble check
+
+Run Sun 2026-11-15 by the read-only prober, zero model calls, zero HA calls. Question: do the instruments' errors fall on different clips, so that a vote or disagreement rule could clear 15/17 and 5/6?
+
+### Pre-registration (written before any combination was scored)
+
+Voters per clip (all read from stored per-clip outputs, not re-run): **V** = vision run 2 (`max_tokens` 4000; `unclear` = abstain; source `.claude/tmp/p3d0_calls.jsonl` via `p3d0_score2.py`); **K** = I4 v1 (`p3d0b2_rows.json` field `I4v1`, always decides); **C** = contact: Elk zone 17 for the front group, garage cover for garage_a (`p3d0b2_elk.py` "I3 elk+cover"; None = abstain; the Elk mapping is by name, sensitivity only, as disclosed above); **I1** = Frigate path v2 (None = abstain); **T** = tracker. Truth = fixture human labels. Rules, fixed now:
+
+* **R1** majority of {V, K, C}: a direction with at least 2 of the 3 votes; otherwise no decision (counts as not right).
+* **R2** majority of {V, K, C, I1}: direction with strictly more votes than the other; tie or all abstain = no decision.
+* **R3** contact decides, else vision, else tracker: C if decided; else V if decided; else T.
+* **R4** vision-override: V if V decided, V differs from T, and C agrees with V; otherwise T.
+
+Scored on the 17 readable clips and the 6 tracker-wrong clips; coverage = clips with a decision of 17 (R3 and R4 always decide via the tracker fallback).
+
+Selection-inflation risk, stated plainly: n = 17 with 6 tracker-wrong clips; 4 rules, chosen after the per-clip errors of all four instruments were already known from the sections above, so any rule that "works" here has been picked with knowledge of the answer; a single clip is 6 points of accuracy; the single-instrument 13/17 numbers are themselves best-of-several (I4 best of about six variants). A pass on 17 clips is a hypothesis, not a measurement; a fail is informative.
+
+### Per-clip matrix (17 readable clips; W = one of the 6 tracker-wrong clips; `.` = abstain)
+
+Sources: V `p3d0_calls.jsonl` label `b:mt4000:8:<event_id>` (reproduces 13/17, 3/6 via `p3d0_score2.py`); K and I1 `p3d0b2_rows.json`; C `p3d0b2_elk.py`; T = fixture tracker. Combination script `.claude/scratchpad` (not committed).
+
+| Clip 11-14 | Grp | Human | T | V (run 2) | I1 v2 | K (I4 v1) | C (Elk / cover) | W |
+|---|---|---|---|---|---|---|---|---|
+| 14:17:23 | garage | out | out | out | in X | out | in X (cover) | |
+| 15:12:14 | front | in | in | out X | . | in | out X | |
+| 15:31:04 | front | in | in | in | in | in | in | |
+| 16:14:56 | front | in | out X | . X | in | in | in | W |
+| 17:59:51 | front | out | in X | out | out | in X | out | W |
+| 18:27:00 | garage | out | out | out | . | out | out | |
+| 18:43:18 | front | out | out | out | . | in X | out | |
+| 18:59:36 | front | in | out X | in | in | in | in | W |
+| 19:42:11 | front | out | in X | out | . | in X | out | W |
+| 19:45:29 | front | in | out X | out X | . | in | out X | W |
+| 20:44:20 | front | out | out | out | out | out | out | |
+| 20:57:38 | front | out | out | out | out | out | out | |
+| 21:03:34 | front | out | out | out | out | in X | out | |
+| 21:12:33 | front | out | out | out | out | out | out | |
+| 21:20:42 | front | in | in | in | in | in | in | |
+| 21:28:01 | front | out | out | out | out | out | out | |
+| 21:42:22 | front | in | out X | out X | . | in | out X | W |
+| right of 17 | | | 11 | 13 | 10 | 13 | 13 | |
+| right of the 6 W | | | 0 | 3 | 3 | 4 | 4 | |
+
+(I1's cell on 14:17:23 is `in` against human `out`; the other I1 blanks are `unclear`.)
+
+### Scores (pre-registered rules, unchanged)
+
+| Rule | Right of 17 (gate 15) | Decided of 17 (coverage) | Wrong directions | Right of the 6 W (gate 5) |
+|---|---|---|---|---|
+| R1 majority {V, K, C} | **14** | 17 | 3 | **4** |
+| R2 majority {V, K, C, I1} | 13 | 16 (14:17:23 ties 2-2) | 3 | 4 |
+| R3 contact, else vision, else tracker | 13 | 17 | 4 | 4 |
+| R4 vision override (V and C agree against T) | 13 | 17 | 4 | 3 |
+| best single (K or C or V) | 13 | 17 | 4 | 4 (V 3) |
+
+Best pre-registered rule: **R1, 14/17 and 4/6, below both gates (15, 5)**. One clip better than any single instrument. Coverage on the 101 crossings of 11-14 is not computable: V ran on 31 clips only, so no ensemble coverage number is claimed.
+
+Selection inflation, applied: R1 was the best of four rules chosen after the errors were known; its +1 over the singles is one clip on n = 17 and does not survive the plan's bias control. The honest reading is "13-14 of 17 whichever way it is combined".
+
+### Are the errors on different clips? Mostly not
+
+Per-clip misses by instrument (V, K, C, I1):
+
+* **Shared by V, C and I1: 15:12:14, 19:45:29, 21:42:22**, all human `in`, all three instruments say `out` (I1 is `unclear` on all three, so V and C are the shared pair). These three are exactly R1's 3 misses. K gets them right only because K is the `in`-skewed variant: K is `in` on 11 of 17 clips and right on all 7 human-`in` clips and wrong on 4 of the 10 human-`out` clips (17:59:51, 18:43:18, 19:42:11, 21:03:34), so K's votes on these three are not independent evidence, they are its prior. No clip is missed by V, K and C all together (any of V, K, C is right on all 17), but the ensemble only gains where K's prior happens to be right.
+* The errors that are NOT shared: K misses 4 `out` clips that V and C get right; V misses 16:14:56 (`unclear`); C misses 14:17:23 (garage cover, open within seconds of the event start). V and C complement K, not each other.
+* So the diversity is K (a tracker-timing variant, skewed `in`) versus {V, C, I1} (correlated: all three read "person at the door at the end, or near the door" and call it `out` on these front clips). Majority over three votes where two are correlated cannot fix the clips where the correlated pair is wrong.
+
+### Shared-miss clips: is the human label in question? (viewed one sheet per Read call, `.claude/tmp/vision_eval_media_<event_id>.sheet.jpg`)
+
+* **21:42:22 (front_door_aerial, event 1794714143.73626-99jqst): the label is probably wrong.** Eight frames 21:42:23-21:42:31, overhead view with the mat at the bottom and the path across the top. Frame 1: a person leaning at the mat on the left (bottom-left); frames 2-4: they walk up the stepping stones toward the top of the frame, away from the door; frames 5-8 empty. That reads as a departure (`out`), the direction V and C both give. The earlier audit's description was "person walks from the path to the door" and is not what this sheet shows in time order. If the label is `out`, the tracker was right on this clip (not a tracker-wrong clip), and V, C and R1 are right on it.
+* **15:12:14 (madrone_g6_entry, event 1794690734.705725-axkjnv): ambiguous, label in question.** Frames 15:12:14-15:12:29: a woman stands at the glass door on the mat (frame 1), walks left away from it and back, on her phone (frames 2-3), returns to the door (frame 5), and the door opens with her at its threshold at 15:12:27 (frame 7). One person with both a departure-looking start and an entry-looking end; "first and last position against the door" does not discriminate, which is why V flipped between its two runs (in, then out) and I1 and C are not informative. `in` is a defensible end-state reading; I would not treat it as a solid truth label.
+* **19:45:29 (madrone_g6_entry, event 1794707129.471712-xc8gg6): the label `in` is solid.** A man walks from the path to the mat, the door opens as he reaches it (frames 15:45:30-15:45:36), the mat is empty afterwards. V, C and I1-adjacent logic all say `out`; this one is a true instrument failure (V described it as leaving, and the Elk zone reported `out`, cause not investigated, as noted in the I3 section).
+
+Sensitivity (post-hoc relabelling after seeing the results, NOT a gate): if 21:42:22 were `out`, R1 is 15 of 17 (the gate number) with the 6 tracker-wrong clips becoming 5 and R1 right on 4 of them; with 15:12:14 also dropped, 15 of 16. A gate cleared only by relabelling the clips the rule missed is exactly the selection inflation named above; it says the label set needs a second review pass, not that the rule works.
+
+### Verdict
+
+Combining the current instruments is **not worth building**. Pre-registered best (R1) is 14/17 and 4/6: under the gate on both counts; the gain over a single instrument is one clip; the errors are correlated across the instruments that are genuinely independent of the tracker (V, C, I1 all fail on the same front `in` clips), and the one instrument that gets those clips right does so through an `in` bias that fails on 4 of 10 `out` clips and moves every round trip to one direction (P3-D0d K2 table). Two cheaper levers move the number more than an ensemble: (1) a second label pass on 21:42:22 and 15:12:14 (a mislabel changes the gates by up to 2 clips of 17); (2) the unchanged operator questions: a threshold zone per door camera (I2) and a front contact that is registry-mapped. Direction stays the tracker's; P3-D9c is not planned on an ensemble. Revival trigger: a new independent signal (I2 zone order or a registry-mapped front contact) whose errors do not overlap V's and C's on the front group, re-scored on a larger labelled set than 17.
