@@ -399,7 +399,6 @@ class CrossingVisionShadow:
         )
 
         from .domain_coordinators.signals import (  # noqa: PLC0415
-            SIGNAL_RESIDENCY_EVENT,
             SIGNAL_SUBSTRATE_KIND_CHANGED,
         )
 
@@ -415,10 +414,16 @@ class CrossingVisionShadow:
                 self.hass, SIGNAL_SUBSTRATE_KIND_CHANGED, self._on_substrate_edge,
             )
         )
+        # Ship 3a D2: the F1 edge subscription (G1), all kinds, so every
+        # residency record is delivered at the same time and in the same order
+        # as the former raw SIGNAL_RESIDENCY_EVENT connect.
+        from .domain_coordinators.residency import (  # noqa: PLC0415
+            EDGE_KINDS,
+            subscribe_person_edges,
+        )
+
         self._unsubs.append(
-            async_dispatcher_connect(
-                self.hass, SIGNAL_RESIDENCY_EVENT, self._on_residency_event,
-            )
+            subscribe_person_edges(self.hass, self._on_residency_event, kinds=EDGE_KINDS)
         )
 
     async def async_teardown(self) -> None:

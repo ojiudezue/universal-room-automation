@@ -83,7 +83,43 @@ production change, under five vision variants (ledger absent / 0 / 50 / None / u
 3. Optional (plan §3.6): repoint headline "people" cards to the awareness entities; keep the trust entities on a
    diagnostics card. No house-visible change until F-LEAD.
 
-## Live acceptance (prospective; write the observed results back after the restart)
+## Live acceptance
+
+### Validated 2026-11-14
+
+Restart at about 22:06 UTC (16:06 CST), house state GUEST. Validated 22:07–22:09 UTC, first ~3 minutes after boot.
+Clock note: DB timestamps are naive UTC (the `census_snapshots` rows match the UTC clock); the `crossing_ledger`
+`last_changed` values are Chicago local. Read-only throughout: no HA state change, no Bermuda diagnostics.
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| L1 | Awareness entities equal the trust entities (F-LEAD off) | PASS (3 reads); hour-long resample PENDING | `sensor.ura_census_people_around` = 3 and `sensor.universal_room_automation_persons_in_house` = 3; `sensor.ura_census_guests_around` = 0 and `sensor.universal_room_automation_unidentified_persons_in_house` = 0. Equal at reads 22:07, 22:08 and 22:08:36 UTC. The awareness sensors last changed 22:07:00 (state unchanged since), so this is a state-equality check, not a per-tick trace. PENDING: the hour-long resample, due about 23:10 UTC. |
+| L2 | `switch.ura_crossing_vision_census_authority` present and on | PASS | State `on`, `last_changed` 2026-11-14T22:06:48Z. |
+| L3 | Outside: Open Tracks `crossing_ledger.state` is `unknown` after restart | PASS for `unknown`; `known` half PENDING | `sensor.ura_security_coordinator_outside_open_tracks_diagnostic`, attribute `crossing_ledger`: `state` unknown, `unknown_reason` boot, `L` null, `last_anchor` null, `held` lists 5 Tier-1 inputs. `switch.ura_crossing_vision_shadow` on since 22:06:48Z. PENDING `known`: event is the first anchor (cameras see nobody for 15 min, fleet lit, no room input held), which writes the anchor row. |
+| L4 | `crossing_vision_ledger` term row with non-null `l_after` | PENDING | `memory_episodes` has zero rows with `episode_type` like `%ledger%`, at any time. Expected while the ledger is unknown. PENDING event: the first door crossing after the ledger becomes known. |
+| L5 | `aware_total` non-null after the first census tick | PENDING (no REST read surface) | Neither awareness entity exposes `aware_total`; the attribute list is `count_provenance`, `aware_agreement`, `vision_status`, `ledger_state`. PENDING event: a diagnostics read of `get_house_census("awareness")` on the running instance returning non-null `aware_total`. |
+| L6 | Existing census fields and AWAY latency unchanged | PENDING | Trust sensors unchanged since restart: `persons_in_house` = 3 and `unidentified` = 0, with the existing attribute set. AWAY latency cannot be measured yet: no AWAY transition since restart; last `house_state_log` row 2026-11-14T17:34:59 (guest, UTC); last `census_snapshots` row 22:03:48 UTC, pre-restart. PENDING event: post-restart AWAY transitions accumulate, then the median and p90 are compared against the P2-D0 (v) baseline. |
+| L7 | `ok` shadow row with model `gpt-6-luna` | PASS (pre-restart rows); post-restart row PENDING | `memory_episodes` `crossing_vision_shadow`: 13 rows `outcome` ok, `model` gpt-6-luna, last 2026-11-14T15:52:52-06:00 (21:52 UTC); also 10 `clustered` and 1 `no_frigate_event`. All predate this restart, so they show the Luna shadow path ran before the restart, not that this build wrote one. PENDING event: an `ok` gpt-6-luna row with `started_at` after 22:06 UTC, from the next door crossing with the shadow switch on. |
+| L8 | No `crossing_vision` / `census_deconflict` ERROR; no page on day one | PASS | `system_log` ERROR since boot: 14 entries, none from the crossing-vision or census-deconflict modules. `ha_get_logs` error_log at ERROR, search `crossing_vision` and `census_deconflict`: 0 records. `notification_log` since 22:00 UTC: no `crossing_ledger_stuck`, `crossing_ledger_anchor_zero` or `crossing_vision_disagree` row. The only post-restart page is a normal `perimeter_alert` MEDIUM at 22:07:42 UTC (exterior person, not a ledger page). |
+| L9 | No `automations.yaml` reference to the two new entities | PASS | `grep` for `people_around`, `guests_around`, `crossing_vision_census_authority`, `crossing_vision_shadow` in `/Users/okosisi/ha-config/automations.yaml`: no matches (exit 1). File readable. Scope is that file only, as specified. |
+
+**Log scan since restart vs the v5.108.22 boot scan.** Boot 22:06 UTC (v5.108.22 booted 20:38 UTC). URA-origin ERROR: 0 (v5.108.22: 0). URA tracebacks: 0. Non-URA ERRORs (WhatsApp bridge 401, Amcrest connect timeout, lepro_led login, proxmox, thinq, aioamazondevices refresh, esphome `assist_satellite` duplicate-setup at boot, a Kiosk websocket backlog) are the same families as v5.108.22.
+
+New URA-origin WARNINGs versus v5.108.22, all in the boot window (22:06:22–22:07:42 UTC):
+
+- `camera_census`: "Census: all camera platforms unavailable", x2, first 22:06:59. NEW. The v5.108.22 S1 bar was zero camera_census WARNs. Boot transient: no recurrence in the buffer after 22:07:07. Confirm on day one.
+- `coordinator`: "All 1 sensors unavailable — holding occupancy state for 60s", x12, first 22:07:03. NEW. Five rooms (Kitchen Hallway, Study A Closet, AV Closet, Dining Room, Guest Bedroom 1 Closet) had their only sensor unavailable at boot. Confirm those sensors come back; this is a sensor-availability question, not a census one.
+- `domain_coordinators.hvac`: "boot-settle released via TIMEOUT after 60s", x1. NEW. Boot-settle waited on the `idasen_desk` integration. Boot only.
+- `weather_manager`: divergence 5.0°F, x1. NEW. Informational.
+- `database`: "DB write queue peak: 28 items", x1. NEW. Single boot burst.
+- `homeassistant.components.sensor`: universal_room_automation sensor platform setup over 10 s, x1. NEW. Boot timing.
+- `helpers.frame` (URA-origin deprecations): `custom_components/universal_room_automation/__init__.py` line 5211 (`dev_reg2.devices.values()`) and line 5289 (`device_registry.async_get_device`). NEW in this scan. Removal is announced for HA 2027.8.0 and 2027.9.0. Follow-up for the operator, not a census issue.
+
+Not this release, noted for the operator: the Envoy `reserve_soc` CRITICAL pages ("Envoy write reverted", commanded 90, hardware 30) were sent at 22:00 UTC, before the restart. The core was still in bootstrap at 22:07:30 UTC (`/api/config` state `NOT_RUNNING`, `idasen_desk` still pending at 22:07:42); the states read after that were live.
+
+**Verdict:** PASS L1 (partial), L2, L7 (pre-restart), L8, L9; L3 PASS for `unknown` with `known` pending; L4, L5, L6 PENDING. The cycle is not closed until the PENDING rows are written back.
+
+### Prospective criteria (superseded by the validated table above)
 
 | # | Criterion | Evidence to read |
 |---|---|---|

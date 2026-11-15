@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "311",
+  "author": "ojiudezue",
+  "session_id": "claude_20261115_035845_ship_v5_108_24",
+  "timestamp": "2026-11-15T03:58:45Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.108.24 shipped: Person-awareness layer ship 3a: producer side + leak guard",
+  "summary": "Person-awareness layer ship 3a: producer side + leak guard",
+  "why": "Ship 3a routes every F1-F5 producer and reader through one public person-awareness layer so steps 7 and 8 (direction-aware egress identity, v6 identity actions) consume one API instead of private census reads; a static leak guard with a ratcheted allowlist stops new private reads. Byte-identical payloads; Tier 2-DB reviews A/B/C, full, source-mutation and isolated name-diffs all clean.",
+  "implications": "Shipped PERSON-AWARENESS-READ-API-1 at v5.108.24; card(s) sit shipped_organic pending validation. Acceptance in README_v5.108.24.md (Live criteria).",
+  "revisit_trigger": "If a layer counter in the CM diagnostics download stays 0 after real arrivals/departures (f5_sent, g1_subscribers, g3_calls.exit_backfilled), trace that producer.",
+  "refs": {
+    "cards": [
+      "PERSON-AWARENESS-READ-API-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.108.24.md"
+    ],
+    "release_notes": "F5 dispatch/subscribe, F1 edge channel, F3 crossing ring + G3 amend + door roster, owner setters + move log, class-taking census view, layer diagnostics download, R1-R14 leak guard. No behaviour change (byte-identical payloads). README docs/readmes/README_v5.108.24.md"
+  }
+}

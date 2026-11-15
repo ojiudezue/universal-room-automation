@@ -167,10 +167,13 @@ async def test_records_written_in_observation_mode(monkeypatch):
     # (SIGNAL_RESIDENCY_EVENT, crossing vision P2-D3), which is
     # observational and fires in observation mode too (review B-L1: an
     # allow-list here would hide any other new dispatch).
-    monkeypatch.setattr(
-        PR, "async_dispatcher_send",
-        lambda *a: sent.append(a) if a[1] != PR.SIGNAL_RESIDENCY_EVENT else None,
-    )
+    _rec = lambda *a: sent.append(a) if a[1] != PR.SIGNAL_RESIDENCY_EVENT else None  # noqa: E731
+    monkeypatch.setattr(PR, "async_dispatcher_send", _rec)
+    # Ship 3a D1: the geofence F5 send goes through
+    # signals.dispatch_person_arriving, which calls the HA dispatcher module.
+    import importlib as _il
+    monkeypatch.setattr(_il.import_module("homeassistant.helpers.dispatcher"),
+                        "async_dispatcher_send", _rec)
     coord.observation_mode = True
     _feed(coord, OJI, "not_home", "home", T_SETUP + 2000)
     await asyncio.sleep(0)
