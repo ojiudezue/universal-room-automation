@@ -1371,3 +1371,310 @@ async def test_phone_left_behind_reads_house_state_class(mods, hass, monkeypatch
     hass.states.async_set(mods.const.CROSSING_VISION_CENSUS_AUTHORITY_SWITCH, "on")
     assert s.is_on is True
     assert s.extra_state_attributes["census_persons_in_house"] == 0
+
+
+# ================================ review C (framing C) gaps: C1-C20 anchors
+@pytest.mark.asyncio
+async def test_c1_legal_unpromoted_class_reads_trust(mods, hass):
+    """C1: `notification` is legal but not promoted; with the switch on it
+    must still read trust (only promoted classes downgrade)."""
+    cv = importlib.import_module(f"{PKG}.census_view")
+    hass.states.async_set(mods.const.CROSSING_VISION_CENSUS_AUTHORITY_SWITCH, "on")
+    assert cv.view_for_class(hass, "display") == "awareness"        # control
+    assert cv.view_for_class(hass, "notification") == "trust"
+    _install_census(hass, _census_house())
+    assert cv.house_census_view(hass, cls="notification") == cv.house_census_view(hass, "trust")
+
+
+def test_c2_view_for_class_fails_closed_to_trust(mods):
+    """C2: any error in the rule (here the state read) reads trust."""
+    cv = importlib.import_module(f"{PKG}.census_view")
+
+    def _raise(_eid):
+        raise RuntimeError("states down")
+
+    bad = SimpleNamespace(states=SimpleNamespace(get=_raise))
+    assert cv.view_for_class(bad, "display") == "trust"
+    good = SimpleNamespace(states=SimpleNamespace(get=lambda _e: SimpleNamespace(state="on")))
+    assert cv.view_for_class(good, "display") == "awareness"         # control
+
+
+@pytest.mark.asyncio
+async def test_c3_last_person_exit_ignores_other_roles(mods, hass, monkeypatch):
+    """C3: LastPersonExitSensor acts on role exit_backfilled only (the
+    second of the two exit readers)."""
+    from homeassistant.util import dt as dt_util
+    cross = dt_util.utcnow().replace(microsecond=0)
+    db = _ExitDB(cross.replace(tzinfo=None).isoformat())
+    hass.data[DOMAIN] = {"database": db}
+    exited, last, unsubs = await _exit_displays(mods, hass, monkeypatch)
+    last._handle_egress_event(SimpleNamespace(data={
+        "direction": "exit", "timestamp": cross.isoformat(), "person_id": None,
+        "egress_camera": "garage_a"}))
+    assert last.extra_state_attributes["person_id"] == "unidentified"
+    db.row["person_id"] = "oji_udezue"      # named, but no exit_backfilled notice
+    mods.transit.amend_crossing(hass, None, {}, None, camera=None, role="pair_resolved")
+    await hass.async_block_till_done()
+    assert last.extra_state_attributes["person_id"] == "unidentified"
+    mods.transit.amend_crossing(hass, None, {}, None, camera=None, role="exit_backfilled",
+                                row_id=7, payload_extra={"person_id": "oji_udezue"})
+    await hass.async_block_till_done()
+    for u in unsubs:
+        u()
+    assert last.extra_state_attributes["person_id"] == "oji_udezue"
+
+
+@pytest.mark.asyncio
+async def test_c4_diagnostics_has_no_entity_states_or_person_data(mods, hass):
+    import json
+    diag = importlib.import_module(f"{PKG}.diagnostics")
+    p = _presence(mods, hass)
+    hass.states.async_set("person.oji_udezue", "home", {"probe_attr": "STATE-NEEDLE-1"})
+    hass.states.async_set("sensor.ura_probe", "STATE-NEEDLE-2")
+    hass.data.setdefault(DOMAIN, {}).update({
+        "coordinator_manager": SimpleNamespace(coordinators={"presence": p}),
+        "person_coordinator": SimpleNamespace(
+            data={"Oji Udezue": {"location": "PC-NEEDLE-ROOM"}},
+            location_moves_size=lambda: 0),
+    })
+    out = await diag.async_get_config_entry_diagnostics(hass, _cm_entry(mods))
+    text = json.dumps(out, default=str)
+    for needle in ("STATE-NEEDLE-1", "STATE-NEEDLE-2", "person.oji_udezue",
+                   "sensor.ura_probe", "PC-NEEDLE-ROOM", "Oji Udezue"):
+        assert needle not in text, needle
+    assert list(out) == ["person_awareness_layer"]
+
+
+@pytest.mark.asyncio
+async def test_c5_presence_subscribe_delegate_forwards_filters(mods, hass):
+    """C5: the presence delegate forwards persons= and kinds=."""
+    coord = _res_presence(mods, hass)
+    ez_only: list = []
+    arrivals: list = []
+    everything: list = []
+    u1 = coord.subscribe_person_edges(ez_only.append, persons={EZ_E})
+    u2 = coord.subscribe_person_edges(arrivals.append, kinds={"arrival"})
+    u3 = coord.subscribe_person_edges(everything.append)
+    _edge(coord, OJI_E, "home", "not_home", T_SETUP + 700)
+    _edge(coord, OJI_E, "not_home", "home", T_SETUP + 1900)
+    for u in (u1, u2, u3):
+        u()
+    assert ez_only == []
+    assert [r.kind for r in arrivals] == ["arrival"]
+    assert [r.kind for r in everything] == ["departure", "arrival"]
+
+
+@pytest.mark.asyncio
+async def test_c6_presence_get_crossings_since_forwards_camera(mods, hass):
+    p = _presence(mods, hass)
+    t = _tracker(mods, hass)
+    g = _rec(mods, GARAGE, NOW - timedelta(seconds=20))
+    d = _rec(mods, DOORBELL, NOW - timedelta(seconds=10))
+    t._record_crossing(g)
+    t._record_crossing(d)
+    hass.data[DOMAIN] = {"egress_tracker": t}
+    assert p.get_crossings_since(NOW - timedelta(minutes=5), GARAGE) == (g,)
+    assert p.get_crossings_since(NOW - timedelta(minutes=5), DOORBELL) == (d,)
+    assert p.get_crossings_since(NOW - timedelta(minutes=5)) == (g, d)
+
+
+@pytest.mark.asyncio
+async def test_c7_amend_crossing_routes_to_tracker(mods, hass):
+    """C7: amend_crossing with a tracker in hass.data amends the ring."""
+    t = _tracker(mods, hass)
+    r = _rec(mods, GARAGE, NOW)
+    t._record_crossing(r)
+    hass.data[DOMAIN] = {"egress_tracker": t}
+    cap, unsub = _amended(mods, hass)
+    assert mods.transit.amend_crossing(
+        hass, r.source_ref, {"person_id": "oji_udezue"}, "face",
+        camera=GARAGE, role="arrival_confirmed") is True
+    unsub()
+    new = t.get_crossing(r.source_ref)
+    assert (new.person_id, new.provenance) == ("oji_udezue", "face")
+    assert t.get_last_crossing() is new
+    assert len(cap.payloads) == 1
+
+
+@pytest.mark.asyncio
+async def test_c8_provenance_none_keeps_existing(mods, hass):
+    t = _tracker(mods, hass)
+    r = mods.transit.CrossingRecord(
+        camera=GARAGE, direction="entry", ts=NOW, person_id=None, provenance="face",
+        confidence=0.8, identity_confidence=None, source_ref="egress:g:prov")
+    t._record_crossing(r)
+    assert t.attach_crossing_attribute(
+        r.source_ref, {"person_id": "oji_udezue"}, None,
+        camera=GARAGE, role="arrival_confirmed") is True
+    new = t.get_crossing(r.source_ref)
+    assert (new.person_id, new.provenance) == ("oji_udezue", "face")
+
+
+class _BadRes:
+    """A residency tracker whose every read raises."""
+
+    @property
+    def recent(self):
+        raise RuntimeError("ledger broken")
+
+    @property
+    def created_ts(self):
+        raise RuntimeError("ledger broken")
+
+
+@pytest.mark.asyncio
+async def test_c9_c10_edges_reads_fail_toward_incomplete(mods, hass):
+    """C9: no tracker or a raising tracker -> truncated True (counted).
+    C10: a raising tracker -> () from get_person_edges_since."""
+    p = _presence(mods, hass)
+    p._residency = None
+    assert p.person_edges_truncated_since(T_SETUP) is True
+    p._residency = _BadRes()
+    assert p.person_edges_truncated_since(T_SETUP) is True
+    assert p.get_person_edges_since(T_SETUP) == ()
+    assert mods.signals.layer_counters(hass).edges_truncated == 2
+
+
+@pytest.mark.asyncio
+async def test_c11_moves_truncated_by_creation_inside_age_bound(mods, pc_env):
+    """C11: log created 600 s ago, t = now - 900 s (inside the 1800 s age
+    bound, before creation): truncated only by the creation leg."""
+    env = pc_env
+    c = env.coord
+    env.clock.t = T0
+    c._moves_created_at = T0 - timedelta(seconds=600)
+    assert c.location_moves_truncated_since(T0 - timedelta(seconds=900)) is True
+    assert c.location_moves_truncated_since(T0 - timedelta(seconds=599)) is False   # control
+
+
+@pytest.mark.asyncio
+async def test_c12_moves_read_prunes_aged_move(mods, pc_env):
+    """C12: a move appended fresh and then aged past 1800 s (no append in
+    between) is absent from location_moves_since."""
+    env = pc_env
+    c = env.coord
+    c._moves_created_at = T0 - timedelta(hours=1)
+    env.hass.set("person.oji_udezue", "home")
+    env.clock.t = T0
+    c._log_location_move(OJI, "a", "b", T0)
+    assert len(c.location_moves_since(T0 - timedelta(hours=1))) == 1
+    env.clock.t = T0 + timedelta(seconds=1801)
+    assert c.location_moves_since(T0 - timedelta(hours=1)) == ()
+
+
+@pytest.mark.asyncio
+async def test_c13_ring_prunes_on_append_and_get_crossing(mods, hass):
+    t = _tracker(mods, hass)
+    # Prune on append: an aged record never sits in the ring (size read is
+    # a no-prune count).
+    t._record_crossing(_rec(mods, GARAGE, NOW - timedelta(seconds=1801)))
+    assert t.crossing_ring_sizes() == {GARAGE: 0}
+    # get_crossing prunes: a record that ages out is no longer returned.
+    r = _rec(mods, DOORBELL, NOW)
+    t._record_crossing(r)
+    assert t.get_crossing(r.source_ref) is r
+    t._ring_clock = lambda: NOW + timedelta(seconds=1801)
+    assert t.get_crossing(r.source_ref) is None
+
+
+@pytest.mark.asyncio
+async def test_c14_double_unsub_keeps_subscriber_count(mods, hass):
+    res = importlib.import_module(f"{PKG}.domain_coordinators.residency")
+    ua = res.subscribe_person_edges(hass, lambda r: None)
+    ub = res.subscribe_person_edges(hass, lambda r: None)
+    assert mods.signals.layer_counters(hass).g1_subscribers == 2
+    ua()
+    ua()
+    assert mods.signals.layer_counters(hass).g1_subscribers == 1
+    ub()
+    assert mods.signals.layer_counters(hass).g1_subscribers == 0
+
+
+@pytest.mark.asyncio
+async def test_c15_malformed_arriving_payload_not_delivered(mods, hass):
+    sig = mods.signals
+    got: list = []
+    unsub = sig.subscribe_person_arriving(hass, got.append)
+    mods.dispatcher.async_dispatcher_send(hass, sig.SIGNAL_PERSON_ARRIVING, object())
+    mods.dispatcher.async_dispatcher_send(hass, sig.SIGNAL_PERSON_ARRIVING, "junk")
+    await hass.async_block_till_done()
+    unsub()
+    assert got == []
+
+
+def test_c16_from_signal_object_branch_reads_ts(mods):
+    P = mods.signals.PersonArrivingPayload
+    obj = SimpleNamespace(person_entity="person.a", source="ble", ts=7.5)
+    assert P.from_signal(obj).ts == 7.5
+    assert P.from_signal(SimpleNamespace(person_entity="person.a", source="ble")).ts is None
+
+
+@pytest.mark.asyncio
+async def test_c17_amend_crossing_no_tracker_and_payload_person(mods, hass):
+    hass.data[DOMAIN] = {}
+    cap, unsub = _amended(mods, hass)
+    assert mods.transit.amend_crossing(
+        hass, "egress:x", {"person_id": "oji_udezue"}, None,
+        camera=GARAGE, role="arrival_confirmed") is False
+    unsub()
+    assert cap.payloads[-1]["person_id"] == "oji_udezue"
+    # payload person_id comes from the AMENDED record (changes had none).
+    t = _tracker(mods, hass)
+    r = mods.transit.CrossingRecord(
+        camera=GARAGE, direction="entry", ts=NOW, person_id="jaya_udezue", provenance=None,
+        confidence=0.8, identity_confidence=None, source_ref="egress:g:pid")
+    t._record_crossing(r)
+    cap2, unsub2 = _amended(mods, hass)
+    assert t.attach_crossing_attribute(
+        r.source_ref, {"identity_confidence": 0.8}, None,
+        camera=GARAGE, role="arrival_confirmed") is True
+    unsub2()
+    assert cap2.payloads == [{"role": "arrival_confirmed", "source_ref": "egress:g:pid",
+                              "row_id": None, "person_id": "jaya_udezue",
+                              "egress_camera": GARAGE}]
+
+
+@pytest.mark.asyncio
+async def test_c18_move_log_size_in_diagnostics_and_const_pin(mods, hass, pc_env):
+    env = pc_env
+    env.coord._moves_created_at = T0 - timedelta(hours=1)
+    env.hass.set("person.oji_udezue", "home")
+    env.coord._log_location_move(OJI, "a", "b", T0)
+    env.coord._log_location_move(OJI, "b", "c", T0 + timedelta(seconds=1))
+    p = _presence(mods, hass)
+    hass.data.setdefault(DOMAIN, {})["person_coordinator"] = env.coord
+    assert p.get_layer_diagnostics()["move_log_size"] == 2
+    assert mods.const.PERSON_LOCATION_MOVES_MAX == 256
+
+
+class _RaisingData(dict):
+    def get(self, *a, **k):
+        raise RuntimeError("hass.data broken")
+
+
+class _RaisingEntryData:
+    @property
+    def data(self):
+        raise RuntimeError("entry broken")
+
+
+@pytest.mark.asyncio
+async def test_c20_diagnostics_and_counters_never_raise(mods, hass):
+    diag = importlib.import_module(f"{PKG}.diagnostics")
+    assert await diag.async_get_config_entry_diagnostics(hass, _RaisingEntryData()) == {}
+    bad_hass = SimpleNamespace(data=_RaisingData())
+    assert await diag.async_get_config_entry_diagnostics(bad_hass, _cm_entry(mods)) == {
+        "person_awareness_layer": {}}
+    boom_presence = SimpleNamespace(get_layer_diagnostics=lambda: (_ for _ in ()).throw(
+        RuntimeError("diag broken")))
+    hass.data.setdefault(DOMAIN, {})["coordinator_manager"] = SimpleNamespace(
+        coordinators={"presence": boom_presence})
+    assert await diag.async_get_config_entry_diagnostics(hass, _cm_entry(mods)) == {
+        "person_awareness_layer": {}}
+    # count_layer_event never raises (signals.py observational counter).
+    mods.signals.count_layer_event(SimpleNamespace(data=_RaisingSetdefault()), "f5_sent", "x")
+
+
+class _RaisingSetdefault(dict):
+    def setdefault(self, *a, **k):
+        raise RuntimeError("counters broken")

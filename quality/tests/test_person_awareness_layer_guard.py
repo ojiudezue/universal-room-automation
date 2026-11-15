@@ -444,6 +444,35 @@ def test_injected_leak_on_copied_clean_module_is_red():
                for p in probs), probs
 
 
+
+# Review C (ship 3a) guard caveat: census_view.py and arrival_edges.py were
+# exempt from the member-only rules wholesale. They are now members for no
+# rule (``E.MEMBER_MODULE_RULES``), so each leak below injected into either
+# file is caught with its rule named.
+_HELPER_LEAKS = {
+    "R2": ("def _leak(hass):\n"
+           "    pc = hass.data['universal_room_automation']['person_coordinator']\n"
+           "    return pc.get_room_occupants('x')\n"),
+    "R3": "def _leak(hass):\n    return hass.states.async_all('person')\n",
+    "R4": ("def _leak(hass):\n"
+           "    for c in hass.data['universal_room_automation'].values():\n"
+           "        if hasattr(c, 'camera_input_stream_dead'):\n            return c\n"),
+    "R7": ("def _leak(hass):\n"
+           "    pc = hass.data['universal_room_automation']['person_coordinator']\n"
+           "    pc.__dict__.update({})\n"),
+}
+
+
+@pytest.mark.parametrize("rule", sorted(_HELPER_LEAKS))
+@pytest.mark.parametrize("rel", ["census_view.py", "arrival_edges.py"])
+def test_helper_module_leak_is_caught(rel, rule):
+    tree = _real_tree()
+    assert not [x for x in _scan(tree) if x.file == rel]  # clean module
+    tree[rel] = tree[rel] + "\n\n" + _HELPER_LEAKS[rule]
+    got = {x.rule for x in _scan(tree) if x.file == rel}
+    assert rule in got, (rel, rule, got)
+
+
 # ------------------------------------------------ reverted 3a sites (red)
 REVERTS = {
     "p1_geofence": ("domain_coordinators/presence.py",

@@ -56,6 +56,26 @@ MEMBER_MODULES: frozenset[str] = frozenset(set(MEMBER_CLASSES.values()) | {
     "arrival_edges.py", "domain_coordinators/camera_stream_health.py",
     "census_deconflict.py", "crossing_ledger.py", "nvr_witness.py",
 })
+# Review C (ship 3a) guard caveat: the two pure helper modules are layer
+# members ONLY for the rules each one legitimately needs; for every other
+# rule they are scanned as non-member modules (a leak injected there is
+# caught). Empty set = no member exemption at all. census_view.py reads
+# ``census.last_result`` (R2 store owner list, independent of membership) and
+# the authority switch (not a person entity); arrival_edges.py calls the
+# egress tracker's public read list only.
+MEMBER_MODULE_RULES: dict[str, frozenset[str]] = {
+    "census_view.py": frozenset(),
+    "arrival_edges.py": frozenset(),
+}
+
+
+def module_is_member(rel: str, rule: str) -> bool:
+    """``rel`` counts as a layer member for ``rule``."""
+    if rel in MEMBER_MODULE_RULES:
+        return rule in MEMBER_MODULE_RULES[rel]
+    return rel in MEMBER_MODULES
+
+
 # Kind of object a receiver is bound to (one hop, by value).
 KIND_OF_CLASS = {
     "PersonTrackingCoordinator": "PC", "PersonCensus": "CENSUS",
@@ -806,7 +826,8 @@ def _receiver_text(node) -> str:
 
 def scan_module(rel: str, tree: ast.Module, h: Harvest) -> list[Hit]:
     hits: list[Hit] = []
-    member = rel in MEMBER_MODULES
+    def mem(rule: str) -> bool:
+        return module_is_member(rel, rule)
     binder = Binder(tree)
     taint = Taint(tree, h)
     local_consts = _module_str_consts(tree)
@@ -880,7 +901,7 @@ def scan_module(rel: str, tree: ast.Module, h: Harvest) -> list[Hit]:
                     pc_entity_classes.add(cls.name)
     # Functions that read a tainted person state (R9 polling-ledger anchor).
     tainted_read_funcs: set[int] = set()
-    if not member:
+    if not mem("R9"):
         for c, _q, f in scoped:
             if isinstance(c, ast.Call) and _call_name(c) == "get" and isinstance(c.func, ast.Attribute) \
                     and isinstance(c.func.value, ast.Attribute) and c.func.value.attr == "states" \
@@ -935,7 +956,7 @@ def scan_module(rel: str, tree: ast.Module, h: Harvest) -> list[Hit]:
                     add("R7", qual, "replace", node)
             if name == "update" and isinstance(node.func, ast.Attribute) \
                     and isinstance(node.func.value, ast.Attribute) \
-                    and node.func.value.attr == "__dict__" and not member:
+                    and node.func.value.attr == "__dict__" and not mem("R7"):
                 add("R7", qual, "__dict__.update", node)
 
     for node, qual, func in scoped:
@@ -955,7 +976,7 @@ def scan_module(rel: str, tree: ast.Module, h: Harvest) -> list[Hit]:
                 if not (isinstance(recv, ast.Name) and recv.id in ("self", "cls")) \
                         and not binder.nonmember(recv, func):
                     add("R1", qual, s, node, r1_kind(s, recv, func))
-        if not member:
+        if not mem("R1"):
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "vars" \
                     and node.args and member_receiver(node.args[0], func):
                 add("R1", qual, "vars", node, "vars")
@@ -982,7 +1003,7 @@ def scan_module(rel: str, tree: ast.Module, h: Harvest) -> list[Hit]:
             if name == "getattr" and len(node.args) >= 2 and _str_const(node.args[1]) == "data" \
                     and rel != "person_coordinator.py" and binder.kind(node.args[0], func) == "PC":
                 add("R2", qual, "data", node)
-            if not member and isinstance(node.func, ast.Attribute):
+            if not mem("R2") and isinstance(node.func, ast.Attribute):
                 kind = binder.kind(node.func.value, func)
                 if kind and kind != "TD" and kind in h.public_by_kind \
                         and name in h.public_by_kind[kind] \
@@ -999,20 +1020,20 @@ def scan_module(rel: str, tree: ast.Module, h: Harvest) -> list[Hit]:
             if name == "get" and isinstance(f, ast.Attribute) and isinstance(f.value, ast.Attribute) \
                     and f.value.attr == "states" and node.args:
                 a0 = node.args[0]
-                if not member and taint.expr(a0, func):
+                if not mem("R3") and taint.expr(a0, func):
                     add("R3", qual, "states.get", node)
-                elif member and (
+                elif mem("R3") and (
                         (isinstance(a0, ast.Name) and a0.id in ura_uid_names.get(id(func), set()))
                         or _is_ura_uid_call(a0)):
                     add("R3", qual, "states.get(ura_entity)", node, "ura_entity")
-            elif not member and name in ("async_all", "async_entity_ids") and node.args \
+            elif not mem("R3") and name in ("async_all", "async_entity_ids") and node.args \
                     and _str_const(node.args[0]) == "person" \
                     and not _r3_membership_only(node, func) and not _r3_actor_identity(func):
                 add("R3", qual, name, node)
-            elif not member and name in ("Template", "async_track_template_result") and node.args \
+            elif not mem("R3") and name in ("Template", "async_track_template_result") and node.args \
                     and any(taint.expr(a, func) for a in node.args[:2]):
                 add("R3", qual, name, node)
-        if not member and isinstance(node, (ast.ListComp, ast.SetComp, ast.GeneratorExp)):
+        if not mem("R3") and isinstance(node, (ast.ListComp, ast.SetComp, ast.GeneratorExp)):
             for g in node.generators:
                 if isinstance(g.iter, ast.Call) and _call_name(g.iter) == "async_all":
                     for cond in g.ifs:
@@ -1022,7 +1043,7 @@ def scan_module(rel: str, tree: ast.Module, h: Harvest) -> list[Hit]:
                                 add("R3", qual, "async_all_filter", node)
 
         # ---------------- R4 hass.data scans (non-member modules + the owner)
-        if (not member or rel == "domain_coordinators/camera_stream_health.py") \
+        if (not mem("R4") or rel == "domain_coordinators/camera_stream_health.py") \
                 and isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)):
             it = node.iter
             if _is_values_iter(it) or (isinstance(it, ast.Name)
@@ -1133,7 +1154,7 @@ def scan_module(rel: str, tree: ast.Module, h: Harvest) -> list[Hit]:
                         if any(isinstance(c, ast.Call) and _call_name(c) == "startswith" and c.args
                                and _str_const(c.args[0]) in ("person.",) for c in _walk(fn)):
                             add("R9", qual, "state_changed_person", node)
-        if not member and isinstance(node, ast.Assign) and id(func) in tainted_read_funcs:
+        if not mem("R9") and isinstance(node, ast.Assign) and id(func) in tainted_read_funcs:
             for t in node.targets:
                 if isinstance(t, ast.Subscript) and isinstance(t.value, ast.Attribute) \
                         and isinstance(t.value.value, ast.Name) and t.value.value.id == "self" \
