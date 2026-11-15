@@ -315,6 +315,12 @@ Replace the entity-only area at every CameraInfo construction that feeds the are
 
 ### D2. Room camera hold: per-room opt-in, default off
 
+> **Operator decision 2026-11-15, supersedes the opt-in below:** "Turn off camera hold. Too inaccurate in every room. We
+> have enough with the other sensor fusion." D0 (c) measured 53-91% unsupported created minutes in every candidate room.
+> The room camera hold is a non-goal: no per-room opt-in field ships; if D1 ever ships, the hold block
+> (`coordinator.py:4491`) is disabled outright, with a test that no camera person sensor ever sets room occupancy. The
+> text below is kept only as the record of the design that was rejected.
+
 - **Knob home: room options field (rung 2), NEW `CONF_ROOM_CAMERA_HOLD = "room_camera_hold"`, boolean, default False**,
   in the room `sensors` step next to `CONF_DISABLE_CAMERA_PRESENCE` and `CONF_ROOM_CAMERAS` (`config_flow.py:2568` /
   `:12724` steps; fields at `:2626` / `:13480`). Label (style guide): "Cameras hold occupancy". Helper: "When on, a camera
@@ -488,6 +494,9 @@ Branches (D0 picks one by a HARD gate; both ship behind `CENSUS_CAMERA_AREA_FROM
 ---
 
 ## 6. Non-goals
+
+- Room camera hold in any room (operator 2026-11-15: "Too inaccurate in every room. We have enough with the other sensor
+  fusion.").
 
 - No change to the hold's semantics (create + extend stays as v3.5.1) other than the opt-in gate.
 - No switch of the hold source to `CONF_ROOM_CAMERAS` (operator-declared fusion); the approved design is the area map.
