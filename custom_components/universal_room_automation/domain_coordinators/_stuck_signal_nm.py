@@ -273,6 +273,57 @@ async def fire_stuck_signal(
         return False
 
 
+# Person-awareness ship 3b (§6.6 "Send result"): a send result that tells
+# "already sent and not recovered" from "not sent". ``fire_stuck_signal``
+# keeps its bool for every existing caller.
+SENT = "sent"
+ALREADY_SENT = "already_sent"
+NOT_SENT = "not_sent"
+
+
+def stuck_signal_notified(kind: str, key: Tuple[Any, ...]) -> bool:
+    """True iff ``(kind, key)`` was sent and not yet recovered (any date).
+    Pure read of the notified set (the owner's adoption of a room page)."""
+    try:
+        return (kind, tuple(key)) in _STUCK_SIGNAL_NOTIFIED
+    except Exception:  # noqa: BLE001
+        return False
+
+
+async def fire_stuck_signal_ex(
+    hass: HomeAssistant,
+    kind: str,
+    key: Tuple[Any, ...],
+    diagnosis: str,
+    remedy: str = "",
+    now: datetime | None = None,
+    title_override: str | None = None,
+    exclusion_engaged: bool = False,
+    severity: str | None = None,
+) -> str:
+    """``fire_stuck_signal`` with a three-way result.
+
+    ``ALREADY_SENT`` whenever ``(kind, key)`` is in the notified set, i.e.
+    sent and not yet recovered, WHATEVER the date: the per-day ``_LATCHES``
+    test alone would let a room page at 23:59 and an owner tick at 00:01
+    both send. ``SENT`` when this call dispatched; ``NOT_SENT`` otherwise
+    (NM missing, kill switch off, exception): retry next tick. The
+    recovery (``fire_stuck_signal_recovered``) clears the notified set, so
+    a later outage pages again. Never raises.
+    """
+    try:
+        if stuck_signal_notified(kind, key):
+            return ALREADY_SENT
+        ok = await fire_stuck_signal(
+            hass, kind=kind, key=key, diagnosis=diagnosis, remedy=remedy,
+            now=now, title_override=title_override,
+            exclusion_engaged=exclusion_engaged, severity=severity,
+        )
+    except Exception:  # noqa: BLE001
+        return NOT_SENT
+    return SENT if ok is True else NOT_SENT
+
+
 async def fire_stuck_signal_recovered(
     hass: HomeAssistant,
     kind: str,

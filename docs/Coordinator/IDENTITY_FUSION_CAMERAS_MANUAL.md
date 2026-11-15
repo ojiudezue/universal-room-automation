@@ -49,6 +49,18 @@ Suffix vocabularies live in
 `camera_resolver.py:122-127` (`PLATFORM_FRIGATE`, `PLATFORM_UNIFI`,
 `PLATFORM_REOLINK`, `PLATFORM_AMCREST`, `PLATFORM_DAHUA`).
 
+**W1 consumer: the dead-camera twin rule (person-awareness ship 3b, built 2026-11-14, `feature/layer-ship3b`, NOT
+deployed; plan `PLANNING_person_awareness_layer_ship3.md` §6).** Camera stream health reads the NVR-WITNESS W1 pairing
+(`CameraResolver.frigate_object_name_pairs`, §4.1) to build a device twin map: a Frigate device and its W1 sibling are
+twins only when every enabled camera entity on the Frigate device has registry platform `frigate` and every one on the
+sibling is `unifiprotect` / `reolink` / `amcrest` / `dahua`, at least one on each side (live: 17 admitted Frigate ↔
+Protect, 3 Frigate ↔ ESPHome kiosk panel rejected). A camera is reported dead (HIGH page) only when EVERY twin device
+has lost it; one NVR down with the other covering sends a MEDIUM notice. No reader takes a twin's reading (option A).
+Liveness is per registry DEVICE: a Protect device with 2-4 channels (high / medium / low / package) is live when any
+channel is live; the dual-lens package channel is a member (no registry field marks it; card
+DUAL-LENS-PACKAGE-CHANNEL-MEMBERSHIP-1). Non-W1 pairs (pool-overhead's four integrations) stay per device until NVR
+witness W2. Details: `PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md` header (ship 3b entry).
+
 ### 1.1 The `_2` suffix — permanent and camera-group-dependent
 
 Frigate-1 was decommissioned 2026-08-13. Its entities are **fully

@@ -5447,6 +5447,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # future path ever fires the listener with an empty snapshot, the diff
         # degrades to "all keys look new" -> suppress branch if all-new keys are
         # allowlisted, otherwise reload. Either outcome is safe.
+        # Person-awareness ship 3b (PLANNING_person_awareness_layer_ship3.md
+        # §6.4): the one camera twin owner (twin map, house tracker for
+        # unwatched cameras, group pages). Torn down in the CM unload.
+        try:
+            from .domain_coordinators.camera_twin_health import (  # noqa: PLC0415
+                async_setup_camera_twin_health,
+            )
+            await async_setup_camera_twin_health(hass)
+        except Exception:  # noqa: BLE001 — rooms page as before 3b
+            _LOGGER.warning(
+                "camera twin health setup failed (rooms page every device)",
+                exc_info=True,
+            )
+
         _seed_cm_last_applied_options(hass, entry)
         entry.async_on_unload(entry.add_update_listener(_async_update_listener))
         _LOGGER.info("Coordinator Manager entry setup complete")
@@ -6055,6 +6069,15 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 "v5.94.1 B3: D-NEST sweep teardown at CM unload raised (non-fatal)",
                 exc_info=True,
             )
+        # Person-awareness ship 3b: tear down the camera twin owner (rooms
+        # page every device while it is absent).
+        try:
+            from .domain_coordinators.camera_twin_health import (  # noqa: PLC0415
+                async_teardown_camera_twin_health,
+            )
+            async_teardown_camera_twin_health(hass)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("camera twin health teardown raised", exc_info=True)
         unload_ok = await hass.config_entries.async_unload_platforms(entry, cm_platforms)
         return unload_ok
 

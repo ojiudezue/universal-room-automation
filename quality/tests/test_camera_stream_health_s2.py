@@ -167,7 +167,8 @@ class _RoomCoord:
             "camera_input_stream_hold_expired", "camera_stream_hold_expired",
             "_camera_override_person_sensors", "_substrate_edge_wants_refresh",
             "_fire_camera_hold_pages", "camera_input_stream_unavailable_held",
-            "camera_input_room_quarantined",
+            "camera_input_room_quarantined", "_camera_stream_page_policy",
+            "_camera_stream_page_key",
         ):
             fn = getattr(UniversalRoomCoordinator, name)
             setattr(self, name, fn.__get__(self, type(self)))
@@ -1649,6 +1650,7 @@ def _hold_nm(monkeypatch):
     async def _page(hass, **kw):
         if kw["kind"] == "camera_stream_hold_released":
             got["page"].append(kw)
+        return True  # the real fire_stuck_signal returns True on dispatch
 
     async def _rec(hass, **kw):
         if kw["kind"] == "camera_stream_hold_released":
@@ -2012,6 +2014,9 @@ def test_s1_page_suppressed_after_hold_release_page(monkeypatch):
     _eval(tr, states, T0)
     _eval(tr, states, T0 + timedelta(seconds=900))
     assert [p[0] for p in tr.hold_pages] == [PANEL_CAM]
+    # Ship 3b latch after send: the S2 page is latched once its send is
+    # confirmed (the room tick site calls mark_paged on SENT/ALREADY_SENT).
+    tr.mark_paged(csh.NM_KIND_HOLD_RELEASED, PANEL_CAM, T0.date().isoformat())
     for s in (1799, 1800, 1801, 5000):
         dead, to_page, _rec = _eval(tr, states, T0 + timedelta(seconds=s))
         assert PANEL in dead
@@ -2024,6 +2029,7 @@ def test_s1_page_suppressed_after_hold_release_page(monkeypatch):
     _eval(tr, states, t1)
     _eval(tr, states, t1 + timedelta(seconds=900))
     assert [p[0] for p in tr.hold_pages] == [PANEL_CAM]
+    tr.mark_paged(csh.NM_KIND_HOLD_RELEASED, PANEL_CAM, t1.date().isoformat())
     _d, to_page, _r = _eval(tr, states, t1 + timedelta(seconds=1800))
     assert to_page == []
 

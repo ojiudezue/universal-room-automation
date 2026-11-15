@@ -2703,6 +2703,17 @@ class PersonCensus:
                 return bool(merged.get(CONF_CENSUS_CROSS_VALIDATION, True))
         return True
 
+    def interior_camera_entities(self) -> list[str]:
+        """Public read (contract §4.1, person-awareness ship 3b): the
+        resolved interior camera person-sensor entity ids the census reads
+        (the same list ``_get_interior_camera_entities`` returns, never the
+        stored ``camera.*`` config ids). Read by the camera twin owner for
+        its unwatched set U. [] on any error."""
+        try:
+            return list(self._get_interior_camera_entities() or [])
+        except Exception:  # noqa: BLE001
+            return []
+
     def _get_interior_camera_entities(self) -> list[str]:
         """Return resolved person detection binary_sensor entity IDs for interior cameras.
 

@@ -5149,6 +5149,36 @@ class PresenceCoordinator(BaseCoordinator):
                 newest = stamp
         return newest
 
+    def zone_camera_entities(self) -> list[str]:
+        """Public read (contract §4.1, person-awareness ship 3b): every
+        camera person-sensor entity a zone reads: the zone camera tier's
+        registered cameras (``_discover_zone_cameras``) and the Zone Manager
+        zones' ``zone_cameras`` picks (the HVAC D6 Source 3 list,
+        ``check_zone_occupancy_confidence``). Sorted, deduplicated. Read by
+        the camera twin owner for its unwatched set U. [] on any error."""
+        out: Set[str] = set()
+        try:
+            for tracker in self._zone_trackers.values():
+                out.update(e for e in tracker._camera_entity_ids if e)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            from ..const import ENTRY_TYPE_ZONE_MANAGER  # noqa: PLC0415
+            from .hvac_const import CONF_ZONE_CAMERAS  # noqa: PLC0415
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                data = getattr(entry, "data", {}) or {}
+                if data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ZONE_MANAGER:
+                    continue
+                opts = getattr(entry, "options", {}) or {}
+                zones = opts.get("zones") or data.get("zones") or {}
+                for zcfg in zones.values():
+                    for pick in (zcfg or {}).get(CONF_ZONE_CAMERAS) or []:
+                        if isinstance(pick, str) and pick:
+                            out.add(pick)
+        except Exception:  # noqa: BLE001
+            pass
+        return sorted(out)
+
     def _discover_zone_cameras(self) -> None:
         """Discover cameras in each zone using CameraIntegrationManager.
 

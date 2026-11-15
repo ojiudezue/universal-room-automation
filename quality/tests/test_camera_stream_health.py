@@ -195,7 +195,8 @@ class _Room:
             "_camera_override_person_sensors",
             "_camera_override_live_person_sensors",
             "_notify_substrate_stream_flips", "camera_stream_dead",
-            "_fire_camera_hold_pages",
+            "_fire_camera_hold_pages", "_camera_stream_page_policy",
+            "_camera_stream_page_key",
         ):
             fn = getattr(UniversalRoomCoordinator, name)
             setattr(self, name, fn.__get__(self, type(self)))
@@ -422,9 +423,18 @@ def test_unresolved_camera_byte_identical(variant):
     assert new.tasks == []
 
 
-def test_multi_camera_device_unresolved():
+@pytest.fixture
+def device_level_off(monkeypatch):
+    """Ship 3b fallback knob: CAMERA_STREAM_DEVICE_LEVEL_INPUTS False = the
+    pre-3b per-camera-entity rule (a multi-camera device is unresolved)."""
+    monkeypatch.setattr(_csh._const, "CAMERA_STREAM_DEVICE_LEVEL_INPUTS", False)
+
+
+def test_multi_camera_device_unresolved(device_level_off):
     """A device hosting two camera entities (an NVR) cannot say which stream
-    feeds the input: unresolved, never excluded, getter None."""
+    feeds the input: unresolved, never excluded, getter None. (Ship 3b: true
+    with CAMERA_STREAM_DEVICE_LEVEL_INPUTS False; with it True the device
+    resolves, see test_camera_twin_health.py.)"""
     reg = _panel_registry(extra=(_entry("camera.up_hallway_panel_sub",
                                         "dev_panel"),))
     r = _Room(reg)
@@ -706,7 +716,7 @@ def test_first_refresh_subscribes_registry_listener(monkeypatch):
     assert calls == ["subscribed"]
 
 
-def test_unresolved_camera_derived_input_warns_once(caplog):
+def test_unresolved_camera_derived_input_warns_once(caplog, device_level_off):
     """Silence check: a camera-derived input that never resolves (two
     cameras) logs one WARNING per coordinator lifetime."""
     reg = _panel_registry(extra=(_entry("camera.up_hallway_panel_sub",
