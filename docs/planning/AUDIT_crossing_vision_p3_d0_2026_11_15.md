@@ -3,7 +3,7 @@
 Run Sun 2026-11-15 15:36-16:50 CST by the read-only prober. Spec: `PLANNING_crossing_vision.md` at 50bffd62, P3-D0 and step 0 (read completely, with `AUDIT_door_vision_accuracy_2026_11_14.md`, `crossing_vision.py`, `perimeter_enrichment.py:360-470`). Presence/HVAC state-of-play docs not needed (no presence or HVAC logic touched).
 
 Fixture (committed with this audit): `quality/tests/fixtures/crossing_vision_door_eval_2026_11_14.json`.
-**Luna model calls used: 91 of the 120 cap** (log `.claude/tmp/p3d0_calls.jsonl`, one JSON line per call): 1 route probe (c) + 4 error re-runs (e) + 46 replay R1 + 19 R2 + 19 R3 + 2 diagnostic. HA state changed only by the llmvision `video_analyzer` service calls (provider "OpenAI Madrone Vision" = `CROSSING_VISION_PROVIDER_ID` `const.py:3587`, model `gpt-6-luna` `const.py:3575`, 768 px, `max_tokens` 1500, same call shape as `analyze_crossing_frames`, `perimeter_enrichment.py:410-431`).
+**Luna model calls used: 120 of the 120 cap** (log `.claude/tmp/p3d0_calls.jsonl`, one JSON line per call): run 1 = 91 (1 route probe (c) + 4 error re-runs (e) + 46 replay R1 + 19 R2 + 19 R3 + 2 max_tokens diagnostics); run 2 = 29 more (retest at `max_tokens` 4000, requested by the coordinator after run 1; section "Run 2" below). Run 1 text is unchanged. HA state changed only by the llmvision `video_analyzer` service calls (provider "OpenAI Madrone Vision" = `CROSSING_VISION_PROVIDER_ID` `const.py:3587`, model `gpt-6-luna` `const.py:3575`, 768 px, `max_tokens` 1500, same call shape as `analyze_crossing_frames`, `perimeter_enrichment.py:410-431`).
 
 ## Verdicts
 
@@ -11,8 +11,8 @@ Fixture (committed with this audit): `quality/tests/fixtures/crossing_vision_doo
 |---|---|---|
 | Step 0 retention + fixture | DONE | 46/46 event clips retrievable (HTTP 200) through the HA Frigate proxy; fixture written before any replay |
 | (a) volume / cap | **GO** | max simulated daily calls 62 (11-14, ambiguous included) -> cap `ceil(62 x 1.5)` = **93**; busy collisions 0 of 137 (1 of 137 at a pessimistic 90 s call); `memory_episodes` 18,855 rows < 200,000 so no new index |
-| (b) direction | **NO-GO** (park the direction part of P3-D3/D6/D7) | best config right on 14/17 readable (gate 15) and 3/6 tracker-wrong clips (gate 5) |
-| (b) group count | **NO-GO on the strict plan numbers; one named fix to retest** | 18:43 party under-counted by 2 in every config (gate <= 1); one new over-count on the 8-frame event-clip route; root cause of both empty large-group replies found (`max_tokens`) |
+| (b) direction | **NO-GO** (park the direction part of P3-D3/D6/D7) | run 1 best 14/17 and 3/6; **run 2 (`max_tokens` 4000, the decision run) 13/17 and 3/6** (gates 15 and 5) |
+| (b) group count | **NO-GO** (run 2) | `max_tokens` fix removes all empty replies (0/31) but 18:43 (5 vs 7) and 21:24 (2 vs 4) are still under by 2 (gate <= 1); no new over-count on previously-exact clips |
 | (c) recording-proxy route | **GO** | llmvision fetched `/api/frigate/frigate-f2/recording/<cam>/start/<s>/end/<e>`: status 200, 7 frames returned; recording complete about 5 s after window end |
 | (d) round trips / pass mechanism | **HOLD** | at most 19 hand-labelled round trips are possible (4 found + 15 unviewed) < 20, and pass rule (ii) shares a pass key on only 4 of 21 opposite pairs |
 | (e) error text | informational, not reproduced | 0 of 4 re-runs errored; no error text exists to capture; the 4 on 11-14 were transient |
@@ -21,7 +21,7 @@ Fixture (committed with this audit): `quality/tests/fixtures/crossing_vision_doo
 
 * Events listed over the HA Frigate websocket (`frigate/events/get`, instance `frigate-f2` = the `client_id` attribute of the Frigate camera entities; not the config-entry id): 834 person events on the 4 door cameras, earliest 2026-11-02 (about 13 days of Frigate event retention). So the plan's 30-day mining horizon is impossible on the Frigate side regardless of DB retention.
 * All 46 11-14 event ids: in the event list, `has_clip` true, clip route `/api/frigate/frigate-f2/notifications/<id>/clip.mp4` HTTP 200 (first pass 33, remaining 13 re-checked after a restart blip). Local copies also exist from the previous audit.
-* Disturbance to disclose: a bulk download burst (the proxy ignores `Range`, so each probe pulled a whole clip, about 1.4 GB total) ran 15:43-15:45 CST; HA stopped at 15:45:48 and started 15:48:14 (recorder `homeassistant_stop` / `_start`). The commit log shows v5.108.26 was deployed 15:43-15:48 (`893fe07e`, `b33dd68a`), so the restart is that deploy's, not the probe's (not proven; no journal on the ssh host). Clip probes during 15:45-15:49 saw 000/404, re-checked fine afterwards. Later probes used early-closed reads.
+* Disturbance to disclose: a bulk download burst (the proxy ignores `Range`, so each probe pulled a whole clip, about 1.4 GB total) ran 15:43-15:45 CST; HA stopped at 15:45:48 and started 15:48:14 (recorder `homeassistant_stop` / `_start`). **Confirmed by the coordinator: that was their v5.108.26 restart, not the probe's downloads** (consistent with the commit log, `893fe07e`, `b33dd68a`). The 000/404 blip was the restart. Early-closed reads were kept anyway. Clip probes during 15:45-15:49 saw 000/404, re-checked fine afterwards. Later probes used early-closed reads.
 * Fixture: 46 events (event id, camera, door group, crossing key, tracker direction, human count + confidence flag, human direction or `unreadable`, tracker-wrong flag, production outcome/count, camera peak, group-gate flag), 25 pairs with relation (opposite/same) and a `one_pass` / `round_trip` / `unknown` label plus label basis, and 43 `mined_pairs`. Human counts and 17 readable directions are transcribed from the 11-14 audit tables (section 2, 3b), not re-judged, except 18:59:36.
 * **18:59:36 pin:** frame by frame (contact sheets of the clip, 06:59:40-06:59:48 PM overlay) one frame shows 8-9 distinct people and the party keeps arriving; I could not pin one integer (range 8-10). Per the plan it is reported and **excluded from group pass/fail**; `human_count` is null in the fixture.
 
@@ -66,6 +66,37 @@ Discrimination: a model copying the tracker's bias scores <= 11/17 and 0/6; visi
 * **Verdict (b) group: NO-GO on the strict numbers.** The single-variable retest that would change it: R1/R2 with `max_tokens` 4000 on the 4 group clips + the exact clips (29 calls of budget left, unspent because the plan says "decide on this run").
 * Frame observation (R3): the [E-10, E+15] window is dominated by empty leading frames (frame counts like `[0,0,0,2,3,4,4]`), so BEFORE should be nearer 5 s than 10 s.
 
+## Run 2 (max_tokens 4000), beside run 1
+
+Requested by the coordinator because the 1500-token truncation is a defect in how URA calls the model, not a property of vision. Config: event clip, 8 frames, new prompt, `max_tokens` 4000, the other call parameters as run 1. 29 new calls plus the 2 diagnostic 4000 calls already made (18:43:18, 18:59:36) = 31 clips, **31 of 31 HTTP 200, 0 empty replies** (run 1 at 1500: 2 of the 46 R1 calls, and 6 of 6 on the two big parties across configs, were empty). Clips: all 17 readable-direction clips, the 6 tracker-wrong clips (inside the 17), the group clips (18:43, 18:59, 21:24, 21:28, 16:30:44, 16:19:36 false blank, 16:16:11 and 16:23:52 the two 3-person error clips) and 9 exact-count regression clips. Latency median 12.7 s, max 86.6 s (13:40:36, a 289 MB event clip; this sits at the 90 s `CROSSING_VISION_TIMEOUT_S`, so large clips can time out on the event-clip route; the recording-window route avoids that).
+
+**Direction (17 readable clips), run 1 vs run 2**
+
+| | run 1 as run (1500) | run 1 + the 2 re-runs | **run 2 (4000)** | gate |
+|---|---|---|---|---|
+| direction right | 12/17 | 14/17 | **13/17** | 15 |
+| tracker-wrong clips right | 2/6 | 3/6 | **3/6** | 5 |
+| tracker-right clips right | 10/11 | 10/11 | 10/11 | n/a |
+
+Run 2 per clip: right on 13 (18:43 out and 18:59 in now answered; 17:59:51, 19:42:11 right as before). Wrong: 15:12:14 (human `in`, vision `out`; this clip was `in` in run 1, same config, so identical input flipped), 16:14:56 (`unclear`), 19:45:29 (`out`, human `in`), 21:42:22 (`out`, human `in`). Same three tracker-wrong misses as run 1. **Verdict (b) direction under run 2: NO-GO** (13 < 15, 3 < 5). It is not close on the tracker-wrong gate, and the 15:12:14 flip shows direction is unstable between two calls on the same clip, an extra reason not to build on it.
+
+**Group and count, run 1 (R1, as run) vs run 2**
+
+| clip | human | production 11-14 | run 1 R1 (1500) | **run 2 (4000)** |
+|---|---|---|---|---|
+| 18:43:18 | 7 | 6 | empty reply | 5 (under 2) |
+| 18:59:36 | 8-10, unpinned | 4 | empty reply | 8 (excluded from pass/fail) |
+| 21:24:08 | 4 | 2 | 2 | 2 (under 2) |
+| 21:28:01 | 3 | 2 | 2 | 2 (under 1) |
+| 16:19:36 false blank | 4 | blank | 4 | 4 |
+| 16:30:44 | 2 | 2 | 3 (new over-count) | 2 (no over-count) |
+| 16:16:11 (error on 11-14) | 3 | error | n/a | 2 (under 1) |
+| 16:23:52 (error on 11-14) | 3 | error | n/a | 4 (over 1) |
+
+Counts on the 30 run-2 clips with a human count: exact 25, over 1 (16:23:52), under 4 (18:43, 21:24, 21:28, 16:16). Regression check on the 9 exact-count clips chosen plus the readable singles: no new over-count on any previously-exact clip (all 1- and 2-person clips return the same count as production). **Verdict (b) group under run 2: NO-GO** on the strict bar: 18:43 and 21:24 are each under by 2 (gate <= 1). It is better than run 1 in two ways (no empty replies; the 16:30:44 over-count vanished, so that was noise, not a systematic 8-frame over-count) and still has two clips short by 2.
+
+**Which run the decision rests on: run 2.** Run 1 was measured through a defect (1500 tokens truncating every large-group reply to empty text, which production would record as `refused`), so its group numbers on the biggest parties are not evidence about vision. Run 2 is the production call with the defect removed, so it is the one that answers "can vision do this". The two runs agree on the verdicts (direction NO-GO, group NO-GO), so the decision does not depend on the choice, but anything cited going forward should cite run 2. Separate from the verdict: the defect is real for P3-D2 regardless (raise `CROSSING_VISION_MAX_TOKENS` to 4000 on the 8-frame path, mind the 90 s timeout on big clips).
+
 ## (c) Route check (recording proxy)
 
 * One llmvision call, `video_file = /api/frigate/frigate-f2/recording/front_door_aerial/start/<E-10>/end/<E+15>` (E = 2026-11-14 20:44:20): HTTP 200 in 10.9 s, 7 structured frames returned (8 requested), `direction: out`. Authenticated view works because llmvision signs the HA path (the instance-scoped form with the `client_id` works). **GO: `CROSSING_VISION_FRAME_ROUTE = recording_window` is usable.** R3 then ran 19 calls on the route, all 200.
@@ -96,7 +127,7 @@ Re-ran the 4 clips with the production prompt/schema/4 frames (16:16:11, 16:20:4
 
 ## What is unchanged / not done
 
-* 29 calls unspent; no config sweep beyond the three plan configs and the 2 token diagnostics.
+* 0 calls unspent (120 of 120); no config sweep beyond the three plan configs, the token fix and run 2.
 * Not viewed: 15 mined pairs (their labels are `unknown`, basis `not_viewed`); same-direction pairs are not labelled.
 * No HA config, helper, or entity state was changed; clips only through the HA Frigate proxy; no Bermuda diagnostics; the HA token was only read into process memory (it is visible in the local process list of the curl probes while they ran, never printed or written).
 * Scripts: `.claude/tmp/p3d0_*.py` (not committed).
