@@ -45,7 +45,7 @@ holds (privacy).
 Decisions recorded for this plan (orchestrator, 2026-11-15, relaying the operator): tight and not deferred; ship order is
 review G's minimum path (§8c); the vision switch ships ON under call and cost caps with a name that does not say "shadow";
 nothing before the D4 flip waits on NVR witness W2; every camera read is built on ship 3b; the F4 producer is
-`PersonSightingProducer._emit_unnamed`; D4 is a pulled `extra_guest_terms["interior"]` house scalar; `named` comes from
+`PersonSightingProducer._emit_unnamed`; D4 is a pulled house scalar passed on its own `deconflict_house` keyword `interior_term=`, never inside `extra_guest_terms` (every entry there feeds `vis`, `census_deconflict.py:105`); `named` comes from
 `persons_in_room` with the phone-left-behind filter; the affect field ships ON behind a module constant, recorded and
 observational with no consumer yet (operator 2026-11-15: "Emotion yes as prep for the future"); naming people who are not
 enrolled is a non-goal (operator 2026-11-15: "Not expecting new names. Names come from people I enrolled. This is few and
@@ -56,7 +56,7 @@ far between. Non goal").
 | # | Question | Default the build uses | Alternative | Where it lands |
 |---|---|---|---|---|
 | Q1 | Can interior move `aware_guests` on its own bar, or only after the crossing ledger is promoted to lead (one shared flag)? | **Interior gets its own leads argument on `deconflict_house`** (`interior_leads`, driven by `INTERIOR_VISION_TERM_LEADS`), so interior moves `aware_guests` once it passes ITS OWN bar (§9.D4), independent of the ledger's promotion. Reason: charter "tight and not deferred", "do the hard parts sooner"; the crossing ledger has never been known live, so coupling would park interior behind an unproven producer. **Tier 3 impact:** a signature change to `deconflict_house` (`census_deconflict.py:90-131`) and a second awareness-only rung; it amends census deconfliction plan §3.3 (function and rule 3) and §3.2 (ladder: interior gets its own leads rung). Owned by ship 5 (already Tier 3); the census plan text is edited by the orchestrator (§14). Trust view, AWAY inputs and `unidentified_count` are untouched either way | Share the one `CROSSING_VISION_AWARENESS_VISION_LEADS` flag (draft-3 rule: interior moves `aware_guests` only once the ledger leads) | §9.D4, §13, §14 |
-| Q2 | Who may ask URA to `describe` a room or a person? | **Operator only.** Select `select.ura_interior_describe_access` (rung 3, CM device) with options `operator` (default), `operator_affect`, `residents`, `any_resolved`. "Operator" = the NM persons on `CONF_NM_SECURITY_ACK_PERSONS`, else the first `CONF_NM_PERSONS` entry (the same resolution as `_is_authorized_to_ack`, `notification_manager.py:3447`). The NM reply NEVER includes affect unless the Select is `operator_affect` (operator requester only); `residents` / `any_resolved` never get affect | No gate (any resolved NM person, draft 3) | §9.D3, §12 |
+| Q2 | Who may ask URA to `describe` a room or a person? | **Operator only.** Select `select.ura_interior_describe_access` (rung 3, CM device) with options `operator` (default), `operator_affect`, `residents`, `any_resolved`. "Operator" = the NM persons on `CONF_NM_SECURITY_ACK_PERSONS`, else the first `CONF_NM_PERSONS` entry's `CONF_NM_PERSON_ENTITY`. Build note (spot-check L-b): factor the resolution at `notification_manager.py:3460-3466` into a helper (`_operator_person_entities()`) used by both; do NOT call `_is_authorized_to_ack`, which returns `(True, "any")` for non-security hazards; compare the requester as a `CONF_NM_PERSON_ENTITY` value. `residents` = any person in `CONF_NM_PERSONS` (the configured household NM persons); `any_resolved` = any requester the channel resolves to a person. The NM reply NEVER includes affect unless the Select is `operator_affect` (operator requester only); `residents` / `any_resolved` never get affect | No gate (any resolved NM person, draft 3) | §9.D3, §12 |
 | Q3 | Does interior D0 grading wait for, or share, the door-crossing labelling run? | **Door first.** Operator: "Is Vision working as designed is the central question. Starting with the door crossing version." Door-crossing labelling runs first; interior D0(b)/(c)/(g) grading starts once the door evaluation set is done, using the same grading tool (private labelling Artifact) and the same weekly budget, door rows always ahead of interior rows. D1 and the D5 no-model leg (no grading needed) build meanwhile | Share the run from the start, interleaved | §8c, §9.D0, §9.D7 |
 
 ## 2. What we know about count error today (honest)
@@ -131,7 +131,7 @@ only this plan, its reviews, the contract (§2.4 / §7 name `_emit_unnamed` as t
 | Named interior faces | REUSE `get_last_person_sightings()` (`presence.py:6038`), records with `sighting_source` interior, `room`, `census_would_veto` | |
 | Crossings | REUSE `get_crossings_since` (`presence.py:6142`, tracker `transit_validator.py:1197`), `get_crossing` (`presence.py:6151`), `get_last_arrival_record` (`presence.py:6228`) | contract §4.1 F3 |
 | Path map | REUSE `interior_paths.PathMap` / `PathEdge(from_key, to_key, kind, window_s, ...)` (`interior_paths.py`), loaded on the tracker (`transit_validator.py:1135`); NEW public `EgressDirectionTracker.inward_path_edges(door)` (non-person, beside `path_map_status` `:2836`) | |
-| Census term pull | REUSE `deconflict_house(..., extra_guest_terms=...)` (`census_deconflict.py:90-131`) and the `_ledger_tick` pull shape (`camera_census.py` `_ledger_tick` / `_compute_awareness`, call site `:6940`); NEW `PersonCensus._interior_tick()` | |
+| Census term pull | EXTEND `deconflict_house` (`census_deconflict.py:90-131`) with NEW keywords `interior_term=None, interior_leads=False` (never `extra_guest_terms`, whose entries all feed `vis` at `:105` and so `aware` at `:117`); REUSE the `_ledger_tick` pull shape (`camera_census.py` `_ledger_tick` / `_compute_awareness`, call site `:6940`); NEW `PersonCensus._interior_tick()` | |
 | Leads flag | REUSE `CROSSING_VISION_AWARENESS_VISION_LEADS` (`const.py:6720`) for the ledger; NEW `INTERIOR_VISION_TERM_LEADS` + `interior_leads` argument per Q1 default (§1a; 0 hits for the name) | |
 | Describe authorization | REUSE the operator resolution of `_is_authorized_to_ack` (`notification_manager.py:3447`: `CONF_NM_SECURITY_ACK_PERSONS`, else first `CONF_NM_PERSONS`); NEW `select.ura_interior_describe_access` (Q2) | |
 | Model calls | REUSE `perimeter_enrichment.analyze_crossing_frames` (`perimeter_enrichment.py:360`, llmvision `video_analyzer`, clip route) and P2-D8's `analyze_crossing_images` (llmvision `image_analyzer` with `image_entities`; on `feature/crossing-vision-fast-stage` 921c9c47, not on develop; seam §14) | |
@@ -197,7 +197,7 @@ descriptions today; nothing to turn.
 | `READ_LIST["CENSUS"]` | none (`area_evidence` is read only by a member); contract §2.6 lists it | 1 |
 | `LAYER_NON_PERSON_PUBLIC` | add `inward_path_edges` | 1 |
 | NEW `PINNED_READERS` (not in the total, like `LISTED`) | every pin is a `(module, qualname)` pair; a call of a pinned method anywhere outside its pins is a hit. `get_room_sightings` / `get_last_path_records` → (`sensor.py`, `InteriorAwarenessSensor.*`) and their presence delegates (`presence.py`, `PresenceCoordinator.get_room_sightings` / `PresenceCoordinator.get_last_path_records`); `request_room_description` → (`notification_manager.py`, `NotificationManager._handle_describe_command`) and (`presence.py`, `PresenceCoordinator.request_room_description`); `get_room_description` → (`sensor.py`, `InteriorAwarenessSensor.*`), (`presence.py`, `PresenceCoordinator.get_room_description`) and the reserved personalization pin; `interior_census_tick` → (`camera_census.py`, `PersonCensus._interior_tick`) and (`presence.py`, `PresenceCoordinator.interior_census_tick`); reserved pin for PERSON-PROFILE-PREFERENCES-1. Without the delegate pins the delegates themselves trip the guard (closure L-6) | 1 |
-| NEW `FORBIDDEN_ATTR_READS` (closure N7) | an attribute read of `.affect` (or `["affect"]` on a description dict) in any module other than `person_sighting.py` and `interior_vision.py` is a hit. The reply formatter that may include affect (Q2 `operator_affect`) lives in `interior_vision.py` | 2 |
+| NEW `FORBIDDEN_ATTR_READS` (closure N7) | an attribute read of `.affect` (or `["affect"]` on a description dict) in any module other than `person_sighting.py` and `interior_vision.py` is a hit; the check also flags `getattr(x, "affect")` with a literal name, and `dataclasses.asdict(...)` / `vars(...)` on a `RoomDescription` (spot-check L-a; same AST walk as R7). Accepted gap, stated: a dynamic `getattr` with a computed name is not caught; no module builds attribute names at runtime today, and the drill set covers the literal forms. The reply formatter that may include affect (Q2 `operator_affect`) lives in `interior_vision.py` | 2 |
 | `LISTED` (R10) | none: no new channel listener; D5 pulls crossings | n/a |
 | R6 / `CHANNEL_CONSTS` | none: `_emit_unnamed` sends nothing on `SIGNAL_PERSON_SIGHTING` (its listeners stay none, operator Q5) | n/a |
 | `LAYER_ALLOWLIST_TOTAL` | unchanged, 259 | all |
@@ -523,8 +523,8 @@ listed set are singletons). For each partition `O`: `B_O` = max of `bodies` over
 valid, else NVR); `N_O` = |union by slug of `named` over the rooms of `O`|; `U_O = max(0, B_O − N_O)`. The term:
 `interior = Σ_O U_O` over partitions with at least one LIVE group; None when no partition has one (case D). Computed by
 `interior_vision.interior_guest_term(...)` (pure), served by `PersonSightingProducer.interior_census_tick()` from the last
-records, pulled by `PersonCensus._interior_tick()` inside `_compute_awareness` and passed as `extra_guest_terms={"interior":
-term}`. `deconflict_house` combines it with the develop result by max only (rule 3, never a sum; the lower-bound rule
+records, pulled by `PersonCensus._interior_tick()` inside `_compute_awareness` and passed as its own keyword `interior_term=term`, never inside
+`extra_guest_terms` (spot-check M-1). `deconflict_house` combines it with the develop result by max only (rule 3, never a sum; the lower-bound rule
 below), so the ledger and the interior term never add.
 
 **One guest seen by several cameras counts once:** (a) the Frigate and Protect legs of one camera are one group, max;
@@ -540,10 +540,10 @@ the last record (`INTERIOR_ROOM_RECORD_INTERVAL_S` cadence).
 
 **Admission and leads (Q1 default: interior leads on its own argument).** `INTERIOR_VISION_TERM_ADMITTED` (rung 1, False)
 admits the term: False → `_interior_tick` is not called and awareness and trust are byte-identical to develop; True → the
-term is pulled into `deconflict_house` (case, agreement, provenance). `INTERIOR_VISION_TERM_LEADS` (rung 1, False) is the
+term is pulled into `deconflict_house` as `interior_term` and only recorded in diagnostics. `INTERIOR_VISION_TERM_LEADS` (rung 1, False) is the
 D4 flip, set when interior meets ITS OWN bar (below), and is passed as the new `interior_leads` argument. The ledger keeps
 `CROSSING_VISION_AWARENESS_VISION_LEADS` (L). Signature change: `deconflict_house(..., extra_guest_terms=...,
-interior_leads=False)`; with the default, every existing caller and every existing test is unchanged.
+interior_term=None, interior_leads=False)`; with the default, every existing caller and every existing test is unchanged.
 
 **The interior term is a lower bound, never a whole-house estimate (closure N2).** It covers only the shared spaces with a
 camera, so it may only RAISE awareness: `base` = what develop computes (`ledger` when L and the ledger term is present,
@@ -551,10 +551,15 @@ else `guest_cam`); `aware_guests = max(base, interior)` when admitted, interior 
 `base`. The interior term is excluded from develop's `vis = max(present terms)` (it never stands in for a missing ledger
 term) and only enters through this max.
 
+**Display fields (spot-check M-1).** `case`, `aware_agreement` and `count_provenance` stay byte-identical to develop in
+every row, including when interior raises `aware_guests`: they are computed from `vis` (ledger and existing extra terms)
+vs `guest_cam` exactly as today. Interior's own agreement (interior vs `guest_cam`, interior vs ledger) and an
+`interior_raised` flag go to `get_layer_diagnostics()["interior_vision"]` only.
+
 | Admitted | Ledger leads (L) | Interior leads | Ledger term | `aware_guests` | Interior effect |
 |---|---|---|---|---|---|
 | False | any | any | any | as develop | none |
-| True | any | False | any | as develop | case, agreement, provenance (display) |
+| True | any | False | any | as develop | diagnostics only (display fields as develop) |
 | True | False | True | any | `max(guest_cam, interior)` | raises awareness only |
 | True | True | True | present | `max(ledger, interior)` | raises awareness only |
 | True | True | True | None (unhealthy) | `max(guest_cam, interior)` | N2 repro: `guest_cam` 2, interior 0 → 2, as develop |
@@ -576,14 +581,17 @@ pages the operator when it is met (Tier-3 checkpoint).
 - **Tests:** `test_interior_term_formula` (two guests in two rooms → 2), `test_walk_through_counts_once` (vision 1 in family
   room with NVR 0, the guest then appears on the staircase NVR → term 1, not 2), `test_overlap_partition_max_with_union_named`,
   `test_term_none_when_all_missing`, `test_held_member_never_zero`, `test_admitted_false_no_pull`, `test_truth_table`
-  (all six rows), `test_interior_never_lowers_awareness` (the N2 repro: ledger None, `guest_cam` 2, interior 0 → 2),
+  (all six rows), `test_truth_table_row2_ledger_none` (admitted, interior leads False, L True, ledger None, `guest_cam` 2,
+  interior 0 → 2), `test_display_fields_identical_when_interior_raises`, `test_interior_never_lowers_awareness` (the N2 repro: ledger None, `guest_cam` 2, interior 0 → 2),
   `test_one_placement_per_slug` (the N5 repro), `test_interior_leads_default_false_existing_callers_unchanged`,
   `test_false_guest_bar_needs_125` (0/120 fails, 0/125 passes), `test_trust_view_byte_identical_admitted_on`, golden
   variant `interior_admitted_5_lead` with its own self-check branch (§8b). Mutations: sum NVR and vision in a group; sum
-  over overlap partitions; pass the term into `unidentified_count`; let interior replace `base` instead of max (→ N2 test
+  over overlap partitions; pass the term into `unidentified_count`; route interior through
+  `extra_guest_terms` (→ row-2 test red); let interior replace `base` instead of max (→ N2 test
   red); drop the one-placement step (→ N5 test red).
 - **Live:** with admission False (ship) the census sensors equal develop and diagnostics show the computed term; after the
-  flip, `aware_agreement` reflects interior and trust fields are unchanged.
+  flip, `aware_guests` ≥ develop's value, `case` / `aware_agreement` / `count_provenance` and trust fields equal develop,
+  and diagnostics carry interior's agreement.
 
 ### 9.D6 Local inference (Tier 2-DB; operator checkpoint to switch)
 
@@ -763,7 +771,7 @@ Reviews: completeness (C, H, M, L) and build prediction + goal fidelity (B, G), 
 | Finding | Resolution | Plan section |
 |---|---|---|
 | C1 no conformance table; F4 producer contradicts contract | Table added; unnamed records, descriptions and paths through `PersonSightingProducer._emit_unnamed`, stores owned by the producer | §6.1, §6.2 |
-| H1 D4 does not fit `deconflict_house` | Pulled `extra_guest_terms["interior"]` house scalar, formula stated; one leads flag; truth table | §9.D4 |
+| H1 D4 does not fit `deconflict_house` | Pulled house scalar on its own keyword `interior_term=` (never `extra_guest_terms`, spot-check M-1), formula stated; leads per Q1; truth table | §9.D4 |
 | H2 guard / read-surface delta missing | Host modules named; every guard change listed; D5 pulls crossings, no listener; total 259 unchanged | §6.1, §6.3, §9.D5 |
 | H3 room getter answers None for the foyer | `entity_stream_view` per member + `physical_camera_dead`; list from `interior_camera_entities()` | §7 |
 | H4 BLE source returns counts | `persons_in_room(room, active_only=True)` with the phone filter; ACTIVE vs STALE split named; G6 seam | §8a table, §9.D1, §14 |
