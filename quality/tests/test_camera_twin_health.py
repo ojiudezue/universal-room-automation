@@ -2968,3 +2968,511 @@ def test_diagnostics_download_carries_twin_counters_only(world, rec, caps):
     owner.async_teardown()
     out = _run(diag.async_get_config_entry_diagnostics(world.hass, entry))
     assert "camera_twin_health" not in out
+
+
+# ===========================================================================
+# 10. Review C fix-up (v_layer_ship3b_C.md TG-1 .. TG-12 and cheap LOWs)
+# ===========================================================================
+
+
+class _TaskRec:
+    """A tracked-task stand-in: counts cancels, runs done callbacks."""
+
+    def __init__(self):
+        self.cancels = 0
+        self.callbacks = []
+
+    def cancel(self):
+        self.cancels += 1
+
+    def add_done_callback(self, cb):
+        self.callbacks.append(cb)
+
+    def finish(self):
+        for cb in list(self.callbacks):
+            cb(self)
+
+
+def _patch_default_registries(world, monkeypatch):
+    monkeypatch.setattr(cth.CameraTwinHealth, "_default_er", lambda self: world.er)
+    monkeypatch.setattr(cth.CameraTwinHealth, "_default_dr", lambda self: world.dr)
+
+
+def _kitchen_singleton(world):
+    cam, person = world.frigate("f_k", "kitchen_panel", "Kitchen Panel")
+    room = RoomCoord(world, "Kitchen", "kitchen", presence=[person])
+    world.set(**{person: "on", cam: "unavailable"})
+    return room, cam, person
+
+
+# --- TG-1 (HIGH): the owner's tick is scheduled by the real setup path -----
+
+
+def test_tg1_setup_schedules_owner_tick_every_30s(world, monkeypatch):
+    """``async_setup_camera_twin_health`` (the CM-entry setup path) registers
+    ONE interval of 30 s (literal) whose callback runs the owner's tick; the
+    test never calls ``tick`` itself."""
+    import homeassistant.helpers.event as ev
+    _patch_default_registries(world, monkeypatch)
+    world.hass.bus = _Bus()
+    intervals = []
+
+    def _interval(hass, cb, delta):
+        intervals.append((cb, delta))
+        return lambda: None
+
+    monkeypatch.setattr(ev, "async_track_time_interval", _interval, raising=False)
+    ticks = []
+    real_tick = cth.CameraTwinHealth.tick
+
+    def _spy(self, now=None):
+        ticks.append(now)
+        return real_tick(self, now)
+
+    monkeypatch.setattr(cth.CameraTwinHealth, "tick", _spy)
+    owner = _run(cth.async_setup_camera_twin_health(world.hass))
+    assert [d for _cb, d in intervals] == [timedelta(seconds=30)]
+    assert ticks == []
+    intervals[0][0](None)
+    assert len(ticks) == 1
+    owner.async_teardown()
+
+
+# --- TG-2 (HIGH): an ALREADY_SENT result is latched (room and owner) -------
+
+
+def test_tg2_room_reload_already_sent_latched_then_low(world, real_nm, caps):
+    """A room's S1 page is sent; the room reloads (fresh tracker, the NM
+    notified set survives). The new tracker's send reads ALREADY_SENT: it is
+    LATCHED (no re-offer), so the recovery sends the LOW and the next
+    outage pages again."""
+    caps(zone=0.0, census=0.0)
+    room, cam, person = _kitchen_singleton(world)
+    run(world, None, [room], (0, 120, 1800, 1830))
+    assert _highs(real_nm) == 1
+    room._camera_stream_health = CameraInputStreamHealth("Kitchen")  # reload
+    room._camera_stream_prev_dead = frozenset()
+    room._camera_stream_prev_expired = frozenset()
+    run(world, None, [room], (1860, 1980, 3660, 3690, 3720))
+    assert _highs(real_nm) == 1
+    world.set(**{cam: "streaming"})
+    run(world, None, [room], (3800, 3830))
+    assert _lows(real_nm) == 1
+    world.today = (T0 + timedelta(days=1)).date().isoformat()
+    world.set(**{cam: "unavailable"})
+    day = 86400
+    run(world, None, [room], (day, day + 120, day + 1800, day + 1830))
+    assert _highs(real_nm) == 2
+
+
+def test_tg2_owner_already_sent_latched(world, real_nm, caps):
+    """A room sent the group's HIGH under the shared key (owner absent); the
+    owner's own send reads ALREADY_SENT and LATCHES its episode HIGH (not a
+    dispatch: page_counts stays empty)."""
+    caps()
+    playroom_pair(world)
+    room = playroom_room(world)
+    live_pair(world)
+    world.set(**{F_PLAY: "on", P_PLAY: "on"})
+    frigate_down(world)
+    protect_down(world)
+    run(world, None, [room], (0, 900, 930))
+    owner = world.owner(setup_at=at(960))
+    run(world, owner, [room], (960, 1100, 1860, 1890))
+    c = owner.get_diagnostic_counters()
+    assert c["group_episodes_high_sent"] == 1
+    assert c["page_counts"] == {}
+    assert c["send_results"] == {nm.ALREADY_SENT: 1}
+
+
+# --- TG-3: the S2 LOW goes to the page key the HIGH used --------------------
+
+
+def test_tg3_room_paged_protect_low_on_page_key(world, real_nm, caps):
+    """Owner absent: a room watching only the Protect member of a W1 pair
+    pages under the PURE page key (the Frigate camera). Its LOW is sent on
+    that same key, so the latch clears and the next outage pages again."""
+    caps()
+    playroom_pair(world)
+    world.camera_manager()
+    room = RoomCoord(world, "Playroom", "playroom", presence=[P_PLAY])
+    live_pair(world)
+    world.set(**{P_PLAY: "on"})
+    protect_down(world)
+    run(world, None, [room], (0, 120, 900, 930))
+    assert _high_titles(real_nm) == ["Camera dead 15 min: camera.playroom"]
+    protect_up(world)
+    run(world, None, [room], (1000, 1030))
+    assert _lows(real_nm) == 1
+    protect_down(world)
+    run(world, None, [room], (2000, 2120, 2900, 2930))
+    assert len(_high_titles(real_nm)) == 2
+
+
+# --- TG-4: the one room-input list; zone picks ------------------------------
+
+
+def test_tg4_room_input_list_options_over_data_all_lists(world):
+    """``room_stream_input_entities``: options override data, and the motion,
+    mmWave and occupancy lists are all inputs (in that order)."""
+    entry = MagicMock()
+    entry.data = {
+        CONF_ROOM_NAME: "R", CONF_MOTION_SENSORS: ["binary_sensor.old_motion"],
+        CONF_MMWAVE_SENSORS: ["binary_sensor.mm"],
+        ura_const.CONF_OCCUPANCY_SENSORS: ["binary_sensor.occ"],
+    }
+    entry.options = {CONF_MOTION_SENSORS: ["binary_sensor.new_motion"]}
+    room, configured, extras = csh.room_stream_input_entities(world.hass, entry)
+    assert room == "R"
+    assert configured == (
+        "binary_sensor.new_motion", "binary_sensor.mm", "binary_sensor.occ",
+    )
+    assert extras == ()
+
+
+def test_tg4_zone_picks_options_over_data(world):
+    """``zone_camera_entities``: the Zone Manager's options zones override
+    its data zones."""
+    zm = MagicMock()
+    zm.data = {CONF_ENTRY_TYPE: ura_const.ENTRY_TYPE_ZONE_MANAGER,
+               "zones": {"A": {"zone_cameras": ["binary_sensor.old_pick"]}}}
+    zm.options = {"zones": {"A": {"zone_cameras": ["binary_sensor.new_pick"]}}}
+    world.entries.append(zm)
+    fake = SimpleNamespace(hass=world.hass, _zone_trackers={})
+    assert PresenceCoordinator.zone_camera_entities(fake) == ["binary_sensor.new_pick"]
+
+
+# --- TG-5: a restored placeholder input is not held ---------------------------
+
+
+def test_tg5_restored_input_not_held(world):
+    """A Frigate input in setup retry (restored `unavailable` placeholder,
+    camera restored too): never held from t0 (no hold without an end) and
+    never flipped as a newly-plain outage."""
+    cam, person = world.frigate("f_k", "kitchen_panel", "Kitchen Panel")
+    room = RoomCoord(world, "Kitchen", "kitchen", presence=[person])
+    world.put({person: restored(), cam: restored()})
+    for s in (0, 30, 130):
+        room.tick(at(s))
+        assert room._camera_stream_health.newly_plain_now == frozenset()
+    assert room.camera_input_stream_unavailable_held(person) is False
+
+
+# --- TG-6: cross-group isolation of room keys ---------------------------------
+
+
+def test_tg6_other_groups_room_s1_not_adopted_or_recovered(world, real_nm, caps):
+    """Caps 0. The Kitchen room's S1 page is latched (its own device). The
+    unrelated foyer group dies later: the owner sends ITS S1 (it does not
+    adopt Kitchen's page) and its LOW recovers only its own key (Kitchen's
+    page stays latched while the panel is still dead)."""
+    caps(zone=0.0, census=0.0)
+    room = foyer_house(world)
+    world.set(**{K_CAM: "unavailable"})
+    run(world, None, [room], (0, 120, 1800, 1830))
+    assert _highs(real_nm) == 1
+    owner = world.owner(setup_at=at(1830))
+    down = {F_FOY_CAM: "unavailable", P_FOY_HI: "unavailable", P_FOY_MED: "unavailable"}
+    world.put(down)
+    run(world, owner, [room], (1860, 1980, 3659))
+    assert _highs(real_nm) == 1
+    run(world, owner, [room], (3660, 3690))
+    assert _highs(real_nm) == 2
+    world.put({F_FOY_CAM: "streaming", P_FOY_HI: "streaming", P_FOY_MED: "streaming"})
+    run(world, owner, [room], (3700, 3830, 3860))
+    assert _lows(real_nm) == 1
+    assert nm.stuck_signal_notified(S1, ("Kitchen", K_PERSON))
+
+
+# --- TG-7: the debounce re-arms, resets its events and filters ---------------
+
+
+def test_tg7_debounce_rearms_and_filters(world, later):
+    """Three event cycles: a relevant one rebuilds, an irrelevant one does
+    not (its events are only its own), a relevant one rebuilds again; each
+    cycle schedules ONE call 10 s later (literal)."""
+    playroom_pair(world)
+    owner, bus = _setup_owner(world, later)
+    assert owner._build_count == 1
+    bus.fire(DEV_EV, {"action": "create", "device_id": "x"})
+    assert [d for d, _cb in later.calls] == [10.0]
+    later.fire_all()
+    assert owner._build_count == 2
+    bus.fire(ENT_EV, {"action": "update", "entity_id": "sensor.unrelated"})
+    assert [d for d, _cb in later.calls] == [10.0]
+    later.fire_all()
+    assert owner._build_count == 2
+    bus.fire(DEV_EV, {"action": "create", "device_id": "y"})
+    later.fire_all()
+    assert owner._build_count == 3
+
+
+# --- TG-8: teardown releases everything (not only the torn_down guard) ------
+
+
+def test_tg8_teardown_cancels_tracked_tasks_debounce_listeners(world, later, monkeypatch):
+    """Teardown cancels the in-flight tracked task (a finished one is no
+    longer tracked), the pending debounce, the interval and the bus
+    listeners, and clears the house tracker's state getter; a second
+    teardown cancels nothing twice."""
+    import homeassistant.helpers.event as ev
+    playroom_pair(world)
+    world.camera_manager()
+    unsubs = []
+
+    def _interval(hass, cb, delta):
+        return lambda: unsubs.append(1)
+
+    monkeypatch.setattr(ev, "async_track_time_interval", _interval, raising=False)
+    owner, bus = _setup_owner(world, later)
+    owner.tick(at(0))
+    assert owner._unwatched_tracker._state_getter is not None
+    tasks = []
+
+    def _create(coro, *a, **kw):
+        coro.close()
+        t = _TaskRec()
+        tasks.append(t)
+        return t
+
+    world.hass.async_create_task = _create
+    owner._recover(S2, ("camera.k1",), "m")
+    owner._recover(S2, ("camera.k2",), "m")
+    tasks[0].finish()
+    bus.fire(DEV_EV, {"action": "create", "device_id": "x"})
+    assert later.calls
+    owner.async_teardown()
+    assert [t.cancels for t in tasks] == [0, 1]
+    assert later.calls == []
+    assert unsubs == [1]
+    assert bus.listeners[DEV_EV] == [] and bus.listeners[ENT_EV] == []
+    assert owner._unwatched_tracker._state_getter is None
+    owner.async_teardown()
+    assert [t.cancels for t in tasks] == [0, 1]
+    assert unsubs == [1]
+
+
+def test_tg8_resetup_tears_old_owner_and_pop_only_self(world, monkeypatch):
+    """A second CM setup tears the old owner down (its listeners released)
+    and installs the new one; a late teardown of the old owner never pops
+    the new owner's data key."""
+    _patch_default_registries(world, monkeypatch)
+    bus = _Bus()
+    world.hass.bus = bus
+    import homeassistant.helpers.event as ev
+    monkeypatch.setattr(ev, "async_track_time_interval",
+                        lambda *a, **k: (lambda: None), raising=False)
+    old = _run(cth.async_setup_camera_twin_health(world.hass))
+    new = _run(cth.async_setup_camera_twin_health(world.hass))
+    assert old.torn_down is True and new.torn_down is False
+    assert world.hass.data[DOMAIN][csh.TWIN_HEALTH_DATA_KEY] is new
+    assert len(bus.listeners[DEV_EV]) == 1 and len(bus.listeners[ENT_EV]) == 1
+    old.async_teardown()
+    assert world.hass.data[DOMAIN][csh.TWIN_HEALTH_DATA_KEY] is new
+    new.async_teardown()
+
+
+# --- TG-9: LOW recoveries for caps-0 pages ------------------------------------
+
+
+def test_tg9_owner_group_s1_low_caps0(world, real_nm, caps):
+    """Caps 0: the owner's group S1 HIGH is recovered (its LOW) when the
+    camera is back."""
+    caps(zone=0.0, census=0.0)
+    room, owner = pair_scene(world)
+    frigate_down(world)
+    protect_down(world)
+    run(world, owner, [room], (0, 900, 1800, 1830))
+    assert _highs(real_nm) == 1
+    live_pair(world)
+    run(world, owner, [room], (1900, 2019))
+    assert _lows(real_nm) == 0
+    run(world, owner, [room], (2020, 2050))
+    assert _lows(real_nm) == 1
+
+
+def _caps0_room_s1_then_owner(world, real_nm, caps):
+    caps(zone=0.0, census=0.0)
+    playroom_pair(world)
+    room = playroom_room(world, presence=[F_PLAY])
+    live_pair(world)
+    world.set(**{F_PLAY: "on", P_PLAY: "on"})
+    frigate_down(world)
+    protect_down(world)
+    run(world, None, [room], (0, 120, 1800, 1830))
+    assert _highs(real_nm) == 1
+    return room
+
+
+def test_tg9_owner_recovers_member_room_s1_at_episode_end(world, real_nm, caps):
+    """Caps 0: a room's S1 page (owner absent) is adopted by the owner; at
+    the episode end the owner recovers that room key (one LOW)."""
+    room = _caps0_room_s1_then_owner(world, real_nm, caps)
+    owner = world.owner(setup_at=at(1830))
+    run(world, owner, [room], (1860, 1990, 3700))
+    assert _highs(real_nm) == 1
+    live_pair(world)
+    run(world, owner, [room], (3800, 3930, 3960))
+    assert _lows(real_nm) == 1
+
+
+def test_tg9_sweep_adopts_room_s1_when_alive(world, real_nm, caps):
+    """Caps 0: the owner arrives as the camera comes back (it ticks first):
+    the adoption sweep takes the room's unrecovered S1 page through the room
+    clause and sends its LOW."""
+    room = _caps0_room_s1_then_owner(world, real_nm, caps)
+    owner = world.owner(setup_at=at(1860))
+    live_pair(world)
+    world.now = at(1860)
+    owner.tick(world.now)
+    room.tick(world.now)
+    world.drain()
+    run(world, owner, [room], (1950, 1980, 2010))
+    assert _lows(real_nm) == 1
+
+
+def test_tg9_sweep_adopts_old_owner_group_s1(world, real_nm, caps):
+    """Caps 0: the old owner sent the group S1 and was torn down (CM
+    reload); the new owner's first tick sees the camera back: the sweep
+    adopts the group S1 key and sends its LOW."""
+    caps(zone=0.0, census=0.0)
+    room, owner = pair_scene(world)
+    frigate_down(world)
+    protect_down(world)
+    run(world, owner, [room], (0, 900, 1800, 1830))
+    assert _highs(real_nm) == 1
+    owner.async_teardown()
+    owner2 = world.owner(setup_at=at(1860))
+    live_pair(world)
+    world.now = at(1860)
+    owner2.tick(world.now)
+    room.tick(world.now)
+    world.drain()
+    run(world, owner2, [room], (1950, 1980, 2010))
+    assert _lows(real_nm) == 1
+
+
+# --- TG-10: different zone / census caps (bug class #63) --------------------
+
+
+@pytest.mark.parametrize("zone,census", [(600.0, 900.0), (900.0, 600.0)],
+                         ids=["zone_lower", "census_lower"])
+def test_tg10_room_s2_at_the_lower_cap(world, rec, caps, zone, census):
+    """Room S2: due at the LOWER of the two caps (whichever it is), and its
+    text names that cap."""
+    caps(zone=zone, census=census)
+    room, cam, person = _kitchen_singleton(world)
+    run(world, None, [room], (0, 120, 599))
+    assert rec.of(S2) == []
+    run(world, None, [room], (600,))
+    assert len(rec.of(S2)) == 1
+    assert "hold cap 600 s" in rec.of(S2)[0]["diagnosis"]
+
+
+@pytest.mark.parametrize("zone,census", [(600.0, 900.0), (900.0, 600.0)],
+                         ids=["zone_lower", "census_lower"])
+def test_tg10_owner_s2_at_the_lower_cap(world, rec, caps, zone, census):
+    """Owner S2: the latest loss + the LOWER positive cap."""
+    caps(zone=zone, census=census)
+    room, owner = pair_scene(world)
+    frigate_down(world)
+    protect_down(world)
+    run(world, owner, [room], (0, 120, 599))
+    assert rec.of(S2) == []
+    run(world, owner, [room], (600,))
+    assert [p["key"] for p in rec.of(S2)] == [(F_PLAY_CAM,)]
+
+
+# --- TG-11: NM_AFTER 0 disables the S1 page (caps 0: no S2 to mask it) -------
+
+
+def test_tg11_nm_after_zero_no_s1_with_caps_zero(world, rec, caps):
+    caps(zone=0.0, census=0.0, nm_after=0.0)
+    room, cam, person = _kitchen_singleton(world)
+    run(world, None, [room], (0, 120, 1800, 3600))
+    assert rec.pages == []
+    assert room.camera_input_stream_dead(person) is True
+
+
+# --- TG-12: error paths fail toward "no opinion" / "page" -------------------
+
+
+def test_tg12_house_tracker_error_is_no_opinion(world, monkeypatch):
+    foyer_house(world)
+    owner = world.owner()
+    world.set(**{F_FOY_CAM: "unavailable"})
+    run(world, owner, [], (0, 130))
+    assert csh.entity_stream_dead(world.hass, F_FOY) is True
+
+    def _boom(key):
+        raise RuntimeError("house tracker boom")
+
+    monkeypatch.setattr(owner, "house_tracker_for", _boom)
+    assert csh.entity_stream_dead(world.hass, F_FOY) is None
+
+
+def test_tg12_policy_error_pages(world, monkeypatch):
+    room, owner = pair_scene(world)
+    run(world, owner, [room], (0,))
+    assert _policy(world, "p_play", 0) == csh.POLICY_SUPPRESS
+
+    def _boom(device_id):
+        raise RuntimeError("policy boom")
+
+    monkeypatch.setattr(owner, "in_map", _boom)
+    assert _policy(world, "p_play", 0) == csh.POLICY_PAGE
+
+
+def test_tg12_room_policy_and_page_key_errors(world):
+    room, owner = pair_scene(world)
+    run(world, owner, [room], (0,))
+    assert room._camera_stream_page_policy(P_PLAY_HI, at(0)) == csh.POLICY_SUPPRESS
+    assert room._camera_stream_page_key(P_PLAY_HI) == F_PLAY_CAM
+    assert room._camera_stream_page_key("camera.ghost") == "camera.ghost"
+
+    def _boom():
+        raise RuntimeError("registry boom")
+
+    room._camera_stream_registry = _boom
+    assert room._camera_stream_page_policy(P_PLAY_HI, at(0)) == csh.POLICY_PAGE
+    assert room._camera_stream_page_key(P_PLAY_HI) == P_PLAY_HI
+
+
+def test_tg12_pure_groups_registry_error_is_empty(world):
+    playroom_pair(world)
+    assert csh.pure_twin_groups(world.er, world.dr) != {}
+    bad = _DR()
+    bad.devices = _RaisingDevices(world.dr.devices)
+    assert csh.pure_twin_groups(world.er, bad) == {}
+
+
+# --- cheap LOWs ----------------------------------------------------------------
+
+
+@pytest.mark.parametrize("platform,admit", [
+    ("reolink", True), ("amcrest", True), ("dahua", True), ("generic", False),
+])
+def test_low_nvr_twin_platform_membership(world, platform, admit):
+    """T7-T10: a W1 sibling on reolink / amcrest / dahua is admitted; one on
+    a generic camera platform is not."""
+    world.frigate("f_g", "garage_cam", "Garage Cam")
+    world.dr.devices["s_g"] = _dev("s_g", "Garage Cam", idents=[(platform, "s_g")])
+    world.er.add(_ent("camera.garage_cam_main", "s_g", platform))
+    owner = world.owner()
+    assert owner.in_map("s_g") is admit
+    assert owner.is_map_candidate("s_g")
+
+
+def test_low_diagnostic_counters_notice_and_sticky(world, rec, caps):
+    """X151 / X155: the member-notice and sticky counters."""
+    caps()
+    foyer_house(world)
+    owner = world.owner()
+    world.set(**{F_FOY_CAM: "unavailable"})
+    run(world, owner, [], (0, 120, 900, 930))
+    c = owner.get_diagnostic_counters()
+    assert c["member_notices_sent"] == 1 and c["sticky"] == 0
+    world.census_entities = [P_FOY]
+    world.zone_entities = []
+    run(world, owner, [], (960,))
+    assert owner.get_diagnostic_counters()["sticky"] == 1

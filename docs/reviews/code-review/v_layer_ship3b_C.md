@@ -600,3 +600,72 @@ See the must-fix, should-fix and lower lists above; each row id appears in the t
 | camera_resolver.py:863 | Z51b_cr_own_multi | test_device_level_off_is_today | RED |
 | dc/camera_stream_health.py:307 | A1_eval_extras_ignored | test_device_live_if_any_channel_live | RED |
 | dc/camera_stream_health.py:308 | A2_eval_extras_dup | - | GREEN |
+
+## 5. Fix-up drill (builder, tests only; no production change)
+
+Each listed GREEN mutation was re-applied to production source (one at a time: `__pycache__` purged,
+`PYTHONDONTWRITEBYTECODE=1`, restored in a `finally`, tracked tree clean after the run; script
+`.claude/tmp/b3c_drills.py`) and the named new test went RED. All 50 RED. The earlier drill sets
+(`b3b_drills.py`, `b3fx_drills.py`) were re-run on the same tree: all RED.
+
+| mutation | gap | test | RED |
+|---|---|---|---|
+| X118 | TG-1 | `test_tg1_setup_schedules_owner_tick_every_30s` | RED |
+| F8 | TG-1 | `test_tg1_setup_schedules_owner_tick_every_30s` | RED |
+| S1 | TG-2 | `test_tg2_room_reload_already_sent_latched_then_low` | RED |
+| X91 | TG-2 | `test_tg2_owner_already_sent_latched` | RED |
+| L6 | TG-3 | `test_tg3_room_paged_protect_low_on_page_key` | RED |
+| H11 | TG-3 | `test_tg3_room_paged_protect_low_on_page_key` | RED |
+| S5 | TG-3 | `test_tg3_room_paged_protect_low_on_page_key` | RED |
+| Z20 | TG-3 | `test_tg3_room_paged_protect_low_on_page_key` | RED |
+| I1 | TG-4 | `test_tg4_room_input_list_options_over_data_all_lists` | RED |
+| I2 | TG-4 | `test_tg4_room_input_list_options_over_data_all_lists` | RED |
+| I4 | TG-4 | `test_tg4_room_input_list_options_over_data_all_lists` | RED |
+| Z41 | TG-4 | `test_tg4_zone_picks_options_over_data` | RED |
+| U10 | TG-5 | `test_tg5_restored_input_not_held` | RED |
+| U3 | TG-5 | `test_tg5_restored_input_not_held` | RED |
+| W102 | TG-6 | `test_tg6_other_groups_room_s1_not_adopted_or_recovered` | RED |
+| X123 | TG-7 | `test_tg7_debounce_rearms_and_filters` | RED |
+| X125 | TG-7 | `test_tg7_debounce_rearms_and_filters` | RED |
+| X126 | TG-7 | `test_tg7_debounce_rearms_and_filters` | RED |
+| F7 | LOW (TG-7 test) | `test_tg7_debounce_rearms_and_filters` | RED |
+| X100 | TG-8 | `test_tg8_teardown_cancels_tracked_tasks_debounce_listeners` | RED |
+| X101 | TG-8 | `test_tg8_teardown_cancels_tracked_tasks_debounce_listeners` | RED |
+| X105 | TG-8 | `test_tg8_resetup_tears_old_owner_and_pop_only_self` | RED |
+| X107 | TG-8 | `test_tg8_teardown_cancels_tracked_tasks_debounce_listeners` | RED |
+| X108 | TG-8 | `test_tg8_teardown_cancels_tracked_tasks_debounce_listeners` | RED |
+| X109 | TG-8 | `test_tg8_teardown_cancels_tracked_tasks_debounce_listeners` | RED |
+| X110 | TG-8 | `test_tg8_teardown_cancels_tracked_tasks_debounce_listeners` | RED |
+| X111 | TG-8 | `test_tg8_teardown_cancels_tracked_tasks_debounce_listeners` | RED |
+| X146 | TG-8 | `test_tg8_resetup_tears_old_owner_and_pop_only_self` | RED |
+| X78 | TG-9 | `test_tg9_owner_group_s1_low_caps0` | RED |
+| X81 | TG-9 | `test_tg9_owner_recovers_member_room_s1_at_episode_end` | RED |
+| W113 | TG-9 | `test_tg9_sweep_adopts_room_s1_when_alive` | RED |
+| W111 | TG-9 | `test_tg9_sweep_adopts_old_owner_group_s1` | RED |
+| H2 | TG-10 | `test_tg10_room_s2_at_the_lower_cap[zone_lower]` | RED |
+| H5 | TG-10 | `test_tg10_room_s2_at_the_lower_cap[census_lower]` | RED |
+| X25 | TG-10 | `test_tg10_owner_s2_at_the_lower_cap[zone_lower]` | RED |
+| X27 | TG-10 | `test_tg10_owner_s2_at_the_lower_cap[zone_lower]` | RED |
+| X28 | TG-10 | `test_tg10_owner_s2_at_the_lower_cap[census_lower]` | RED |
+| P1 | TG-11 | `test_tg11_nm_after_zero_no_s1_with_caps_zero` | RED |
+| Q9 | TG-12 | `test_tg12_house_tracker_error_is_no_opinion` | RED |
+| Y11 | TG-12 | `test_tg12_policy_error_pages` | RED |
+| Z23 | TG-12 | `test_tg12_room_policy_and_page_key_errors` | RED |
+| Z25 | TG-12 | `test_tg12_room_policy_and_page_key_errors` | RED |
+| Z27 | TG-12 | `test_tg12_room_policy_and_page_key_errors` | RED |
+| T20 | TG-12 | `test_tg12_pure_groups_registry_error_is_empty` | RED |
+| T7 | LOW | `test_low_nvr_twin_platform_membership[reolink-True]` | RED |
+| T8 | LOW | `test_low_nvr_twin_platform_membership[amcrest-True]` | RED |
+| T9 | LOW | `test_low_nvr_twin_platform_membership[dahua-True]` | RED |
+| T10 | LOW | `test_low_nvr_twin_platform_membership[generic-False]` | RED |
+| X151 | LOW | `test_low_diagnostic_counters_notice_and_sticky` | RED |
+| X155 | LOW | `test_low_diagnostic_counters_notice_and_sticky` | RED |
+
+Not closed by a test (documented):
+- X14: masked by the B-L3 reset (a dead tick is always preceded by a not-alive, not-dead tick that already
+  clears `false_since`, since a member becomes lost only one grace after an observed not-live tick); equivalent today.
+- Z5 (coordinator S1 group key = pure page key): the D-L2 test uses the Frigate input, whose own camera is the
+  page key; a Protect-input caps-0 adoption fixture is a follow-up.
+- Remaining LOW rows (X4, X6, X20, W42, W76, W85, Y6, Z29, Z44b, Q26, W64/W65, K10/K13/K15/K17, P3, P9, P10, L13,
+  U4/U6/U7, R11, R12, X93, X11, X12, X16, X53, X67, X8/X9/X139, T1/T2/T4/T5, Z47, Z50): unchanged, as listed in
+  the LOW section above (defence in depth, diagnostics-only fields, or behaviour that no reachable config exercises).
