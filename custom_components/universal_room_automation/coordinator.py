@@ -6393,6 +6393,16 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         """
         return self._became_occupied_time
 
+    def occupied_since(self) -> datetime | None:
+        """Arc step 8 (PLANNING_identity_actions_v6.md §5.5): the room's
+        current occupancy onset, for the arrival "occupied before this
+        person" gate. Read-only; the same value as
+        ``get_became_occupied_time`` (REUSED, one source: delegates to it).
+        Set at the vacant-to-occupied edge and by the camera override;
+        None while the room is not occupied.
+        """
+        return self.get_became_occupied_time()
+
     def _stamp_hvac_evidence(
         self,
         data: dict[str, Any],
