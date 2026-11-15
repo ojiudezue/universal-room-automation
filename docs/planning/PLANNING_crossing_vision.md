@@ -153,8 +153,9 @@ No access, house-state, security or HVAC reader. No `MEMORY_COMPACTION_RULES` en
   `register_egress_face` / `evict_egress_face` choice or `_arrival_departure_notify` from vision. Every reader of the
   tracker's direction is byte-identical with Phase 3 on or off. (P3-D9c changes the tracker's own rule inside the F3
   owner, under its own Tier-3 plan.)
-- **INV-APPROACH-DARK and INV-ONE-F3 (P3-D10, P3-D11; stated in full there).** Approach and anticipatory directions
-  are G3 attributes that move nothing until a gate flips; no candidate ever creates, suppresses or fires a crossing.
+- **INV-APPROACH-DARK and INV-ONE-F3 (P3-D10, P3-D11; stated in full there).** Approach direction is a G3 attribute that
+  moves nothing until a gate flips or the tracker adopts it; every crossing record still comes only from the extended
+  tracker's `_resolve_direction`, one per pass per door group.
   INV-SCOPE's frame set is widened for P3-D10 only to the frozen, registry-resolved approach set of the crossing's
   door group (door-group cameras, their `EXTERIOR_ADJACENCY_GRAPH` neighbours, one inside camera).
 - **INV-BLANK.** All-zero (or absent) per-frame counts → `outcome = blank`, `people_count = None`, never 0, never in the
@@ -1166,10 +1167,10 @@ alone would not have produced an anchor on 11-15 for either live case. Three pre
 Invariants, knobs, tests and Live criteria: that plan (rev 2). Seam: S1 changes `_sensor_on_since`, which P3-D8 consumes through
 the `p22_continuous` client (seam, not merge).
 
-**P3-D9 EGRESS-TRACKER-DIRECTION-1: direction and the pass key at the source (Tier 3, own plan; carded, planned;
+**P3-D9 EGRESS-TRACKER-DIRECTION-1: direction and the pass key at the source (Tier 3; P3-D9c is now P3-D11, below;
 harmonization C5, review G1).** After P3-D0 this card carries the direction fix itself, not only the pass dedup: the
 F3 owner is the only place a direction fix reaches every reader in time. Three steps, each gated by a probe:
-- **P3-D9c better direction at resolution (NEW 2026-11-15; gated on P3-D0b PASS; first of the three).** `_resolve_direction`
+- **P3-D9c better direction at resolution (MERGED 2026-11-15 into P3-D11, the extended tracker: the text below is its direction input list; P3-D11 is the build spec).** `_resolve_direction`
   decides with the P3-D0b instrument that passed (I1 track vs door, I3 contact order, an I4 interior-timing variant,
   or the I5 combination), falling back to today's interior-timing rule when the instrument abstains. Inputs come from
   a tracker-owned Frigate person-event ring (`register_frigate_consumer`, `frigate_ingress.py:582`; the same ring
@@ -1265,14 +1266,21 @@ failure), give the right direction? Steps:
      list with `has_clip` false, plus recording segments present / absent), not only event STARTS within 60 s as
      I6 did. Rule (frozen): first outside presence before the first inside presence = `in`, the reverse = `out`,
      overlap within `_ORDER_TIE_S` (3) = unclear.
-   - **R-b a local person detector on the downloaded frames, 0 model calls, offline on the laptop only** (a stock
-     COCO person model at 2 fps, and a frame-difference motion mask as a weaker baseline). Same order rule, plus the
-     G6 main-lens motion rule from the I1 v2 review: a thin door strip [(0.82,0.74),(1.0,0.74),(1.0,1.0),(0.88,1.0)],
+   - **R-b a person detector on the window frames, 0 model calls.** Measurement may run offline on the laptop (a
+     stock COCO person model at 2 fps; frame differencing as a weaker baseline). At runtime it uses only what any URA
+     install can have: (i) Frigate's own tracked objects and stored detections (R-a; Frigate is required for camera
+     features anyway); (ii) an OPTIONAL operator-configured HA-side detector selected in config
+     (`CONF_CROSSING_DETECTOR_ENTITY`, an `image_processing` entity, rung 2; empty = R-a only), called with
+     `image_processing.scan`, never hard-wired and never this house's homelab. Verified in HA core 2026.2.3 (the
+     `.venv-ha` package): the `image_processing` domain exists; its core object-detection platforms are `doods`
+     (needs a DOODS server the operator runs) and `sighthound` (cloud); `microsoft_face_*`, `openalpr_cloud`,
+     `seven_segments` are not person detectors. No local in-process person detector ships in core that I could
+     verify; an add-on endpoint would be reached through such an entity. Same rules on its output: the order rule and
+     the G6 main-lens motion rule from the I1 v2 review, a thin door strip [(0.82,0.74),(1.0,0.74),(1.0,1.0),(0.88,1.0)],
      points with y < 0.74 ignored, x moving ≥ `_X_DISPLACEMENT` (0.15) toward the strip and ending inside or within
-     0.05 = `in`, starting in the strip and ending ≥ 0.15 further left = `out`, else unclear; the equivalent on
-     front_door_aerial is "toward / away from the mat centre" with a polygon frozen from a viewed snapshot in step 1.
-     The two hazards the review named stand: a person lingering on the mat reads unclear; a step-out-and-back reads
-     by its last move.
+     0.05 = `in`, starting in the strip and ending ≥ 0.15 further left = `out`, else unclear; on front_door_aerial
+     "toward / away from the mat centre" with a polygon frozen from a viewed snapshot in step 1. Hazards: lingering on
+     the mat reads unclear; a step-out-and-back reads by its last move.
    - **R-c an LLM on a montage, one Luna call per clip:** 2 frames per camera in the set in time order on one sheet,
      asking only "first seen outside or inside, moving toward or away from the door"; ≤ 46 primaries plus ≤ 14 true
      repeats for stability.
@@ -1284,9 +1292,9 @@ failure), give the right direction? Steps:
    lesson).
 - **Gate:** the shares above on operator labels, deterministic (R-a, R-b; R-c reports repeat agreement against the
   P3-D6 stability bar), and errors not concentrated on V's misses. **Recommendation: build the cheapest tier that
-  passes, in the order R-a, R-c, R-b.** R-b is cheapest per call but has no runtime home in URA: frame extraction
-  inside URA is a non-goal (§8) and HA is not the place to run a detector, so a passing R-b becomes a question for the
-  operator (a homelab service, out of this repo), not a URA build. R-c rides the existing P3-D3 primary call (approach
+  passes, in the order R-a, R-b (through the configured HA detector entity; installs without one keep R-a), R-c.**
+  Operator 2026-11-15: a person detector is approved, delivered through an install-agnostic HA/Frigate route
+  ("Why in homelab and not ha. That's not agnostic of operator."); URA itself still extracts no frames. R-c rides the existing P3-D3 primary call (approach
   frames added to the same request), so it costs no extra call; if it needs its own call, it gets its own budget.
 - **Acceptance:** `AUDIT_crossing_approach_clips_<date>.md`: per tier right / tracker-wrong-right / coverage /
   determinism / overlap, the retention table, the P3-D2b share, the frozen fixture committed before scoring.
@@ -1347,40 +1355,67 @@ near an egress door happen, how often is it a crossing, and how many crossings d
 - **Acceptance:** `AUDIT_crossing_anticipatory_<date>.md` with per door group candidates/day, crossing share,
   graded misses, lead time, direction score and the frozen source fixture.
 
-**P3-D11 anticipatory crossing (Tier 3 for anything that reaches the tracker; BUILD WAITS on P3-D0f).** A candidate
-opens on motion near an egress door (the frozen registry sources), collects the door-group recording window, and
-closes as `crossing` (a tracker crossing landed inside it), `confirmed_missed` (no tracker crossing, but the evidence
-says a person crossed), or `discarded` (no crossing: dropped, only a counter moves).
-- **Relation to the tracker:** the tracker opens on the egress camera's person state and decides at E + 45 s from
-  interior timing in [E − 30, E + 45] (`transit_validator.py:2401-2423`). A candidate that matches a crossing carries
-  the same moment plus evidence from before E (contact, interior motion); that evidence is a direction INPUT for the
-  tracker (the P3-D9c route, `direction_source = anticipatory`), or until then a G3 attribute `anticipatory_direction`
-  scored by P3-D6. It never resolves direction itself and never fires the bus.
-- **Relation to the fast stage (P2-D8):** same trigger moment class (before or at the event start) and the same
-  provisional-row rule (G8): P3-D11 rows are provisional, never a term. If P2-D8 is built first, P3-D11's camera
-  trigger is P2-D8's trigger, and P3-D11 adds only the non-camera sources and the discard path.
-- **What a confirmed candidate produces (F1-F5):** F3 has ONE owner and one ingest (`_resolve_direction`,
-  `CONTRACT_person_awareness_layer.md:124`). So: `crossing` → G3 attribute on the tracker's record (F3 attribute);
-  `confirmed_missed` → a diagnostic row of this module and a count (display class), NOT a crossing record, NOT a bus
-  event, NOT a ledger term. Turning a `confirmed_missed` into an F3 record needs the tracker to accept a second
-  trigger kind into its own ingest (`_resolve_direction` started by a candidate), which is a change to the F3 owner
-  and goes into the EGRESS-TRACKER-DIRECTION-1 plan beside P3-D9c, with its own Tier-3 review. No F1, F2 (except
-  through a tracker record), F4 or F5 output. A sighting is not a crossing: nothing here touches the sighting layer.
-- **Producer / fire check:** each source's fire count per day comes from P3-D0f; a source silent for 24 h while the
-  tracker resolves crossings on that door group pages (`crossing_anticipatory_source_zero`).
-- **Consumer check:** P3-D6 scorer and awareness display; the tracker only via the owner change named above.
-- **Cost per day:** 0 model calls for the trigger and the confirm on `crossing` (the tracker already said so).
-  `confirmed_missed` confirmation, if it needs a model, uses `CROSSING_ANTICIPATORY_DAILY_CALLS` (default 10, own
-  budget, never the primary cap of 93, never a repeat slot); at the P3-D0f gate floor (3 misses a week a group) that is
-  ≤ 2 calls/day. Proxy reads: one window per `unmatched` candidate.
-- **Invariant INV-ONE-F3 (falsifiable):** for any candidate sequence and any outcome, the set of `CrossingRecord`s,
-  `ura_person_egress_event`s and `person_entry_exit_events` rows is identical with P3-D11 on or off, and a `discarded`
-  candidate leaves no G3 amend and no term. Break it with any candidate that creates or suppresses a crossing record,
-  fires the bus, or leaves an amend after a discard.
-- **Tests:** `test_candidate_never_creates_crossing_record`, `test_discarded_candidate_leaves_no_amend`,
-  `test_candidate_sources_registry_resolved`, `test_inv_one_f3_metamorphic`, `test_anticipatory_budget_separate_from_cap`.
-- **Live:** in the first day, candidates counted per door group within the P3-D0f band; the egress event count for the
-  day equals the tracker's own count (no extra crossing); ≥ 1 `discarded` candidate with no amend.
+**P3-D11 = P3-D9c: the egress tracker extended (Tier 3; card EGRESS-TRACKER-DIRECTION-1, folded in; BUILD WAITS on
+P3-D0f, and its direction part on P3-D0e or P3-D0b).** Operator ruling 2026-11-15, verbatim: "Maybe we need to extend
+it instead of thinking about it like a second trigger." So there is no separate candidate producer.
+`EgressDirectionTracker` (`transit_validator.py:1079`) is extended in its two existing steps, and stays the one F3
+owner with one bus event and one dedup. INV-ONE-F3 then holds by construction.
+- **Today:** the tracker triggers only on a door-camera person sensor turning on, or its person count going 0→N
+  (`_on_egress_state_change` `:1628`, `_on_egress_count_change` `:1672`, both scheduling resolution after
+  `EGRESS_ENTRY_WINDOW_SECONDS` 45 s, `:1648-1667`, `:1718`; `const.py:3381`). `_resolve_direction` (`:2373`) decides from
+  interior-camera events only: within +45 s = entry, within −30 s (`EGRESS_EXIT_WINDOW_SECONDS`) = exit, else
+  ambiguous (`:2401-2423`), then the direction-keyed 30 s dedup (`:2425-2438`) and `_record_crossing` + bus fire.
+- **(a) Trigger evidence, widened.** Besides the door camera, a door-group contact or cover opening (registry device
+  class `door` / `garage_door` / cover, mapped to the door group by registry area and device, never by name) and
+  motion near the door from egress-area sensors classed by capability (`SENSOR_FLEET_CLASSES.md`) open a PENDING
+  candidate inside the tracker. A candidate becomes a tracker trigger (the same resolution timer, the same E) only
+  when it is confirmed: the door-group camera's recording window shows a person (R-a Frigate records, else the
+  configured detector route of P3-D10), or a camera trigger joins it inside `CROSSING_ANTICIPATORY_MATCH_S`. An
+  unconfirmed candidate is discarded after `CROSSING_ANTICIPATORY_WINDOW_S` (a counter only, no record). A candidate
+  that a camera trigger joins is ONE trigger, E = the earliest confirmed evidence time (one crossing, not two). The
+  "confirmed but no camera trigger" case is simply a tracker trigger now: a crossing the tracker used to miss.
+- **(b) Direction evidence, widened, one rule.** `_resolve_direction` combines, in one function
+  `combine_direction(evidence) -> (direction, direction_source)`: interior timing (today's rule, unchanged as one
+  input), door contact order (I3), outside-approach presence and motion (P3-D10 `approach_direction`), and the
+  candidate's pre-E source order. The rule itself (priority order, or agreement-required) is chosen by P3-D0b / P3-D0e
+  / P3-D0f on operator labels and frozen before build; abstaining inputs fall back to today's rule. A resolution that
+  waits for P3-D10's window (E + 30 s + lag) still fits inside today's 45 s only if `_WINDOW_AFTER_S` ≤ 45 − lag; the
+  build chooses the window from P3-D0e, never lengthens the 45 s silently (it is a knob, and lengthening it delays
+  every reader below).
+- **Dedup / double-count guard:** the existing dedup runs AFTER the combined direction, so a candidate and a camera
+  trigger on one door group within `DOOR_STEM_DEDUP_S` give one record; candidate-to-trigger joining happens before
+  resolution is scheduled (one pending entry per door group, keyed like `dedup_base`), so a contact-open plus a
+  person-sensor-on can never schedule two resolutions. Test `test_candidate_and_camera_trigger_one_record`.
+- **What changes for each reader** (all read the tracker's record or bus event; additive key `direction_source`;
+  shapes unchanged):
+  - arrival notify `_arrival_departure_notify` (`:2548`, def `:2917`): fires on more crossings (recovered misses) and
+    with the combined direction; still synchronous at resolution (INV-NOTIFY-LATENCY);
+  - census egress faces `register_egress_face` / `evict_egress_face`: the entry/exit choice follows the combined
+    direction; a recovered crossing with no face attaches nothing (no identity is invented);
+  - entered / exited sensors and the exit backfill: counts change by the recovered crossings and corrected signs;
+  - DB `person_entry_exit_events`: more rows, `direction` from the combined rule, new nullable `direction_source`
+    column (Tier 2-DB rider: migration, written through the existing write queue, batched);
+  - perimeter (`perimeter_alert.py`) and sightings: receive the same bus event; a recovered crossing is a new event for
+    them; the perimeter D3 zone gate is unchanged;
+  - crossing vision / ledger: watches the recovered crossings like any other (P3-D3), counts against the 93 cap.
+  Each reader gets a named before/after test; scored before and after by `pipeline_version` (P3-D6 TRACKER-READY).
+- **Fire check / trip-wires:** per source fire counts from P3-D0f; `egress_trigger_source_zero` (a source silent 24 h
+  while that door group has crossings) and `egress_direction_combined_zero` (instrument decides none) page NM.
+- **Cost per day:** 0 model calls for triggers and confirmation on R-a; proxy reads ≤ one window per candidate
+  (≤ `CROSSING_ANTICIPATORY_MAX_PER_DAY` per group). A confirm through an HA-side detector entity is one
+  `image_processing.scan` per candidate, local to that install. No LLM in the tracker.
+- **Invariant INV-ONE-F3 (falsifiable):** every `CrossingRecord`, `ura_person_egress_event` and
+  `person_entry_exit_events` row is created by `_resolve_direction` → `_record_crossing`, and any physical pass
+  produces at most one per door group within `DOOR_STEM_DEDUP_S` whatever mix of contact, motion and camera triggers
+  fired; a discarded candidate creates nothing. Break it with a trigger mix (contact then person-on, count 0→N then
+  contact, motion with no person) that yields two records, or one record from an unconfirmed candidate.
+- **Tests:** `test_candidate_and_camera_trigger_one_record`, `test_unconfirmed_candidate_discarded_no_record`,
+  `test_trigger_sources_registry_resolved_not_name`, `test_combine_direction_fallback_is_todays_rule`,
+  `test_reader_<each>_before_after`, `test_direction_source_on_bus_and_db`, `test_inv_one_f3_metamorphic`.
+- **Live:** a day's crossing count = camera triggers + confirmed candidates, no door group with two records inside
+  30 s; `direction_source` present on every new bus event and row; trip-wires quiet.
+- Reads `PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md` completely at plan time (its own Tier-3 plan, two plan reviews incl.
+  framing G, four code reviews).
 
 **Phase 3 decisions (taken by the orchestrator 2026-11-15 on the recommended defaults; the operator may override).**
 1. P3-D0 spent its 120 Luna calls (done). P3-D0c may spend up to 14 more (operator yes asked; Luna cost is trivial).
@@ -1428,20 +1463,22 @@ says a person crossed), or `discarded` (no crossing: dropped, only a counter mov
 12. **P3-D3 watches ambiguous crossings** for count and recorded direction (operator: "of course. No brainer").
 14. **Operator design 2026-11-15, verbatim: "Arriving: when we detect a door crossing we can go back in history and
     get clips of the approach inside and outside the house."** Planned as P3-D0e → P3-D10, scored only on operator
-    labels; cheapest passing tier (R-a Frigate records, R-c LLM in the primary call, R-b local detector only as a
-    homelab question). OPEN: operator yes for ≤ 60 Luna calls on the R-c leg (recommended: yes).
+    labels; cheapest passing tier (R-a Frigate records, R-b a person detector APPROVED, delivered through an install-agnostic
+    HA/Frigate route: Frigate detections, else an operator-configured `image_processing` entity; operator: "Why in
+    homelab and not ha. That's not agnostic of operator."; R-c LLM in the primary call). OPEN: operator yes for ≤ 60 Luna calls on the R-c leg (recommended: yes).
 15. **Operator design 2026-11-15, verbatim: "Alternatively we can treat motion near an egress door as an anticipatory
     crossing and collect clips from/frames to check if it was a crossing. If it a crossing we look to determine
-    direction and if not discard".** Planned as P3-D0f → P3-D11; a confirmed candidate is an F3 attribute or a counted
-    `confirmed_missed`, never a second crossing record (INV-ONE-F3). OPEN: (a) grade a sample of unmatched candidates
-    (recommended: yes, ~20 on the grading page); (b) if misses are real, put a candidate trigger into the tracker in the
-    EGRESS-TRACKER-DIRECTION-1 plan (recommended: decide after P3-D0f, not now).
+    direction and if not discard"; ruling, verbatim: "Maybe we need to extend it instead of thinking about it like a
+    second trigger."** Planned as P3-D0f → P3-D11 = the extended `EgressDirectionTracker` (P3-D9c merged in, card
+    EGRESS-TRACKER-DIRECTION-1): widened trigger evidence and one combined direction rule inside the one F3 owner; a
+    confirmed candidate IS a tracker trigger (INV-ONE-F3 by construction). OPEN: grade ~20 unmatched candidates on the
+    grading page (recommended: yes).
 16. **No-frigate-event recovery is a P3-D2 change (P3-D2b), not P3-D11:** the 26 % are tracker-resolved crossings with
     no matched Frigate event; on the recording route the door camera's window can be pulled without an event.
     Recommended: build P3-D2b after P3-D2 if P3-D0e step 4 shows a person in most of those windows.
 
 Tier: P3-D0 / P3-D0b / P3-D0c / P3-D0d probes (read-only; P3-D0c spends ≤ 14 model calls); P3-D1 Tier 1 (built); P3-D2,
-P3-D6, P3-D8, P3-D2b Tier 2; P3-D10 Tier 2 to record (G3 writer, display only), Tier 3 when adopted by P3-D9c; P3-D11 Tier 2 to record, Tier 3 for the tracker-trigger part (F3 owner change, in the EGRESS-TRACKER-DIRECTION-1 plan); P3-D0e / P3-D0f probes; P3-D5 Tier 2-DB (built); P3-D3, P3-D4, P3-D7 and P3-D9 (a / b / c) Tier 3 (P3-D3: a production G3
+P3-D6, P3-D8, P3-D2b Tier 2; P3-D10 Tier 2 to record (G3 writer, display only), Tier 3 when adopted by P3-D9c; P3-D11 (= P3-D9c, the extended tracker) Tier 3 with a Tier 2-DB rider (`direction_source` column); P3-D0e / P3-D0f probes; P3-D5 Tier 2-DB (built); P3-D3, P3-D4, P3-D7 and P3-D9 (a / b / c) Tier 3 (P3-D3: a production G3
 writer and an INV-SCOPE change) (ledger input surface, the F3 source): two plan reviews incl. framing G,
 four code reviews, orchestrator re-grep of every term-construction site (`cluster_terms`, `_release_terms`,
 `_ledger_terms`, `_join_cluster` late branch, the no-request paths `:620-622`, `:676-707`, the call-time paths
@@ -1530,7 +1567,7 @@ checkpoint before deploy.
 | `CROSSING_DIRECTION_APPROACH_ENABLED` | False until P3-D0e PASS | 1 | P3-D10 kill switch: False = no pulls, no amend |
 | `CROSSING_ANTICIPATORY_WINDOW_S` / `_MATCH_S` | 60 / 30 | probe gate, then 1 | P3-D0f / P3-D11 candidate lifetime; match to a tracker E |
 | `CROSSING_ANTICIPATORY_MISS_MIN_PER_WEEK` / `_MAX_PER_DAY` | 3 / 150 per door group | probe gate | P3-D0f build gate (miss rate worth it; trigger not noise) |
-| `CROSSING_ANTICIPATORY_DAILY_CALLS` | 10 | 3 (Number) | P3-D11 `confirmed_missed` confirm calls; own budget; 0 = no model confirm |
+| `CONF_CROSSING_DETECTOR_ENTITY` | empty | 2 (options flow) | Optional HA `image_processing` entity for R-b confirm / approach; empty = Frigate records only |
 | `CROSSING_ANTICIPATORY_ENABLED` | False until P3-D0f PASS | 1 | P3-D11 kill switch |
 
 Census-side knobs (class set, F-LEAD, notify bars, bars a-e) live in the census plan.
@@ -1562,7 +1599,7 @@ Census-side knobs (class set, F-LEAD, notify bars, bars a-e) live in the census 
    8. **After the operator's grades land** (`crossing_operator_grades.json` pulled): first re-score every existing
       instrument (V, I1 v2, I6, ensemble, tracker) on operator labels; then P3-D0e step 0 at once (retention) and
       P3-D0e / P3-D0f in parallel (read-only; P3-D0e R-c needs the call budget yes). Then P3-D2b if its share holds;
-      P3-D10 (record) on P3-D0e PASS, scored by P3-D6, into the tracker through P3-D9c; P3-D11 on P3-D0f PASS, the
+      P3-D10 (record) on P3-D0e PASS, scored by P3-D6, into the tracker through P3-D9c; P3-D11 (the extended tracker, P3-D9c merged) on P3-D0f PASS (direction part on P3-D0e / P3-D0b), the
       tracker-trigger part only inside the EGRESS-TRACKER-DIRECTION-1 plan.
    The census plan's F-LEAD cannot promote before a P3-D6 TRACKER-READY verdict (census plan §3.2, amended with this
    plan) unless the operator accepts the tracker's signs; the `pipeline_version` bumps in P3-D2, P3-D3 and P3-D9c each
@@ -1577,7 +1614,7 @@ EGRESS-TRACKER-DIRECTION-1, P3-D9c); vision direction in a term or reader before
 voting over repeated model calls to stabilise direction (the sampled repeat measures stability, it never decides); maxing
 the vision count with the camera peak (P3-D2 step 7); URA editing Frigate config (threshold zones are the operator's
 homelab change); cross-camera re-identification (Frigate events carry no cross-camera id); a second model call per
-crossing, except the sampled stability repeat (P3-D3 step 8; group frames and P3-D10 approach frames ride the same call) and the P3-D11 `confirmed_missed` confirm on its own budget; a local person detector or frame differencing running inside URA (P3-D0e R-b is offline measurement only); an anticipatory candidate creating a crossing record (INV-ONE-F3); naming unenrolled people (charter 11-15); B-stage chains across cameras and
+crossing, except the sampled stability repeat (P3-D3 step 8; group frames and P3-D10 approach frames ride the same call); frame extraction or a detector running inside URA (detection comes from Frigate or an operator-configured HA `image_processing` entity); any dependency on this house's homelab; a second crossing producer beside the tracker (INV-ONE-F3); naming unenrolled people (charter 11-15); B-stage chains across cameras and
 interior head counts (VISION-INTERIOR-SIGHTINGS-1); crossings with no matched Frigate event (all four door cameras run Frigate; 26 % unmatched at ±10 s, 17 % at ±30 s,
 12 % at ±60 s per `AUDIT_crossing_vision_d0_2026_11_13.md`; recorded `no_frigate_event`; first lever is widening
 `CROSSING_VISION_EVENT_MATCH_S`, then a probe of Protect event clips; revival: `no_frigate_event` > 25 % of a door

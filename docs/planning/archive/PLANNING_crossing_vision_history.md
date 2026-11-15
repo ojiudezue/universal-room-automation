@@ -397,3 +397,17 @@ P3-D11 anticipatory crossing (INV-ONE-F3); P3-D2b named (no-frigate-event recove
 14-16; §4 invariant pointer and an INV-SCOPE widening for P3-D10 only; §6 knob rows; §7 step 6.8; §8 non-goal
 exceptions; tier line. Correction to the brief recorded in the plan: the 26 % `no_frigate_event` are tracker-resolved
 crossings with no matched Frigate event (`crossing_vision.py:675-679`), not crossings the tracker missed.
+
+## 2026-11-15: operator rulings on P3-D10 / P3-D11
+
+Rulings, verbatim: (1) "Maybe we need to extend it instead of thinking about it like a second trigger." (2) "Why in
+homelab and not ha. That's not agnostic of operator."
+
+Replaced (from e7d3a3e2): P3-D11 as a separate candidate producer whose `confirmed_missed` was a diagnostic row and whose
+tracker-trigger part was deferred to another plan; R-b as "offline only, a passing R-b becomes a homelab service
+question". Now: P3-D11 = P3-D9c merged, one deliverable extending `EgressDirectionTracker` (widened trigger evidence:
+contact / cover / egress-area motion confirmed into a tracker trigger; widened direction evidence combined by one rule
+in `_resolve_direction`; one owner, one bus event, one dedup; per-reader changes named; card EGRESS-TRACKER-DIRECTION-1).
+R-b: person detector approved, delivered through an install-agnostic HA/Frigate route (Frigate detections first, else
+an optional operator-configured `image_processing` entity, `CONF_CROSSING_DETECTOR_ENTITY`); offline laptop runs for
+measurement only. Knob `CROSSING_ANTICIPATORY_DAILY_CALLS` dropped (no LLM in the tracker).
