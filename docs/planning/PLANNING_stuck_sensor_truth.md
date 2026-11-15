@@ -1,473 +1,517 @@
-# PLANNING: stuck-sensor truth and its consumers (anchor prerequisites for crossing-vision P3-D8, the stuck-triggered fan check, assumed-state fans)
+# PLANNING: stuck-sensor truth and its consumers (crossing P3-D8 anchor prerequisites, the stuck-triggered fan check, assumed-state fans)
 
-Cards: MEDIAROOM-FAN-LEFT-ON-STUCK-SENSORS-1 (incl. INSTANCE_2026_11_15_upguest), CENSUS-DECONFLICTION-LEDGER-1
-(INSTANCE_2026_11_15_ledger_unknown_since_boot), VISION-CROSSING-ANALYSIS-1 (P3-D8 review D/G: G-1, G-2, D-M1).
+Rev 2, 2026-11-15 (one clean document; the change record is §9 at the end). Rev 1 = 82b013db.
+Cards: MEDIAROOM-FAN-LEFT-ON-STUCK-SENSORS-1 (incl. INSTANCE_2026_11_15_upguest), CHATTER-MODE-SELECT-NOT-WIRED-1,
+CENSUS-DECONFLICTION-LEDGER-1 (INSTANCE_2026_11_15_ledger_unknown_since_boot), VISION-CROSSING-ANALYSIS-1 (P3-D8 review
+D/G: G-1, G-2, D-M1). Related: HA-ROOM-AUTOMATION-UNPAUSE-1 (re-enabling most paused rooms, so the paused-room exception
+in S5 reaches fewer rooms; S5's design does not depend on it).
 Arc: identity / vision / census (charter `docs/planning/ARC_DRIFT_ANALYSIS_identity_vision_census_2026_11_13.md`).
 Charter goal served by S1-S3: "make census almost bullet proof at entry... You could even essentially base census
 entirely on this". Door vision cannot reach the census (bars a / e, F-LEAD) without an empty-house anchor, and the anchor
-has not fired once since the ledger went live (2026-11-14 16:06). S4-S6 serve the fan card (operator 2026-11-15).
-Written 2026-11-15 by ura-planner on develop b33dd68a. The P3-D8 code is read from `feature/crossing-p3-first` @ 48d4bc94
-(built, reviewed SHIP, NOT merged).
+has not fired once since the ledger went live (2026-11-14 16:06). S4-S6 serve the fan card (operator 2026-11-15:
+"if we see stuck sensors we can quiet fans").
+Code: develop b33dd68a; the P3-D8 code from `feature/crossing-p3-first` @ 48d4bc94 (built, reviewed SHIP, NOT merged).
 
-Read first, completely: `docs/Coordinator/PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md` (1149 lines incl. §10 ledger),
-`docs/architecture/SENSOR_FLEET_CLASSES.md`, `docs/reviews/code-review/v_crossing_p3_first_review_D_G.md`, both 11-15
-audits (`AUDIT_upguest_fan_held_occupancy_2026_11_15.md`, `AUDIT_mediaroom_fan_left_on_stuck_sensors_2026_11_15.md`),
-the card and its INSTANCE field, `.claude/skills/ura-arc/SKILL.md`, crossing plan P3-D8 / §6 / §7. No §10 claim is
-re-asserted. HVAC: S4 and S5 touch HVAC fan surfaces (`hvac_fans.FanController`); the HVAC STATE_OF_PLAY doc was NOT read
-completely by this planner (disclosed gap). The S4/S5 build brief MUST require the builder and every reviewer to read it
-completely first, and the plan reviewer to check S4/S5 against its §10 ledger before approval.
+**Read completely by this planner (rev 2):** `docs/Coordinator/PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md` (incl. §10),
+`docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md` (all 750 lines incl. §4.2b, §4.2c, §9.3, §10 C1-C39),
+`docs/architecture/SENSOR_FLEET_CLASSES.md`, `v_crossing_p3_first_review_D_G.md`, both 11-15 audits, both rev-1 plan
+reviews (`plan_review_stuck_sensor_truth_completeness_2026_11_15.md`, `plan_review_stuck_sensor_truth_buildpred_G_2026_11_15.md`),
+the card and its INSTANCE field, `.claude/skills/ura-arc/SKILL.md`. No §10 claim of either STATE_OF_PLAY is re-asserted.
+HVAC C27 (the 4 h rule removed Jaya's fan-tracking radar) is consistent with S1 keeping radars at tolerance 0 and with S5
+refusing P22-radar triggers outside AWAY. HVAC §4.2b's "a probe must not turn a person's fan off" (review B-M1,
+2026-10-19) is superseded for the stuck route only by D-OP3 / D-OP4 below; S5 schedules the doc update (§7).
 
 ---
 
 ## 0. Why a separate plan (ura-arc rules 5 and 6)
 
-- **One clean document per scope (rule 5).** The crossing plan's scope is the vision PRODUCER (counts, ledger, arrival
-  record). Five of the six deliverables here change room-tier and fan code (the P22 primitive, the chatter knob, the
-  model safety net, the recheck state machine, Bond fans). Layering them into the crossing plan would mix a room-tier
-  shared primitive and fan actuation into a vision spec and force every vision reviewer to own fan safety. The one
-  deliverable that edits crossing-vision code (S2, the edge filter) is a P3-D8 sibling and is ALSO written into the
-  crossing plan as a short P3-D8b pointer, so the crossing plan stays complete for its own reader.
-- **Seam / merge check (rule 6).** Seams, decided:
-  - S1 (K2) changes `_sensor_on_since`, which P3-D8 consumes through the `p22_continuous` client. Different function,
-    same value: SEAM, not merge. Recorded in both docs; S1 ships before P3-D8 is relied on (crossing §7).
-  - S2 edits `crossing_vision._on_substrate_edge`, the same file as P3-D8 and the same branch family: built ON
-    `feature/crossing-p3-first` (or after its merge) so P3-D8 and S2 share one getter and one review.
-  - S4/S5 change `presence_fan_recheck` and `hvac_fans` (fan cards FAN-RECHECK-*, FAN-MANUAL-1, FAN-LAYER-2). No other
-    in-flight plan edits those functions (grep of `docs/planning/PLANNING_*` for `pause_for_recheck` /
-    `_evaluate_eligibility`: only the shipped fan-noise Rev 2 and paused-rooms plans). No merge needed.
-  - Interior plan (`PLANNING_vision_interior_sightings.md`): no shared function; its ship 5 owns the `deconflict_house`
-    signature, untouched here. Census plan (`PLANNING_census_deconfliction.md`): consumes the anchor only through the
-    ledger; untouched. NVR witness W2: camera-stream client stays out of every stuck set here.
-- Arc map: add one row "stuck-sensor truth (S1-S3) -> unblocks crossing P3-D8 anchor" before step 2b.
+- **One clean document per scope (rule 5).** The crossing plan's scope is the vision PRODUCER. Five of six deliverables
+  here change room-tier and fan code (the P22 primitive, the chatter wiring, the family resolver, the recheck state
+  machine, Bond fans). S2 edits crossing-vision code, so it is ALSO written into the crossing plan as P3-D8b (a pointer
+  block) and is built on the P3-D8 branch and reviewed with it.
+- **Seam / merge check (rule 6), decided.**
+  - S1 changes `_sensor_on_since`, which P3-D8 reads through the `p22_continuous` client: SEAM (different function, same
+    value). S1 ships before P3-D8 is relied on.
+  - S2 and P3-D8 share one room getter: same branch, one review set.
+  - S3a fixes the chatter knob's two-entry split (CHATTER-MODE-SELECT-NOT-WIRED-1); no other plan edits `_chatter_mode`.
+  - S5 / S6 change `presence_fan_recheck`, `hvac_fans._set_fan_state` / `pause_for_recheck` / `restore_after_recheck`,
+    and `fan_policy_oracle._compute_off_verdict` (fan cards FAN-RECHECK-*, FAN-MANUAL-1, FAN-LAYER-2). No open plan edits
+    those functions (grep of `docs/planning/PLANNING_*` for `pause_for_recheck` / `_evaluate_eligibility` /
+    `_compute_off_verdict`: only shipped plans). No merge.
+  - Interior plan, census plan, NVR W2: no shared function; the camera-stream client stays out of every stuck set here.
+- Arc map: one row "stuck-sensor truth (S1-S3) -> unblocks crossing P3-D8 anchor", before step 2b.
 
-## 1. Institutional context verified
-
-Greps re-run on develop b33dd68a unless marked (branch = `feature/crossing-p3-first` @ 48d4bc94).
+## 1. Institutional context verified (greps re-run on develop b33dd68a; branch = `feature/crossing-p3-first`)
 
 | Proposed piece | Verdict | Evidence |
 |---|---|---|
-| P22 continuous-on timer | REUSED, changed | `_sensor_on_since` `coordinator.py:400`; hours literal `_stuck_sensor_hours = 4.0` `:401` (not a knob today); stamp/pop loop `:3713-3727` (pop at `:3727` on ANY observed off); set builder `_p22_stuck_sensor_set` `:2375-2400`; promote `p22_continuous` `:3757-3762`; persisted `_async_load_stuck_state` `:2437-2470`, snapshot `:2495-2507`, payload `:2558-2570` |
-| Off-gap tolerance constant | NEW `STUCK_P22_OFF_GAP_TOLERANCE_S` | 0 hits for `OFF_GAP` / `off_gap` / `P22_` in `const.py`, `coordinator.py`, `config_flow.py`, `options_flow.py`, plans. The audit's name `P22_OFF_GAP_TOLERANCE_S` is renamed to the STUCK_ family prefix |
-| P22 hours knob | NEW `STUCK_P22_HOURS` (rung 1, value 4.0) | replaces the literal at `:401` (Numbers Get Knobs); no CONF_ equivalent (`CONF_STUCK_SENSOR_*` are duty-cycle only, `const.py:5980-5989`) |
-| Readers of `_sensor_on_since` | enumerated §3.1 | `coordinator.py` only + `sensor.py:2526`, `:2597` (display attrs) |
-| Room stuck getter | REUSED from branch | `camera_input_room_stuck_excluded` (branch) beside `camera_input_room_quarantined` `coordinator.py:2790-2796`; wrapper `input_room_stuck_excluded` branch `camera_stream_health.py:1245-1254` over `_ask` `:1091-1103` |
+| P22 continuous-on timer | REUSED, changed | `_sensor_on_since` `coordinator.py:400`; literal `_stuck_sensor_hours = 4.0` `:401`; stamp loop `:3713-3727` (stamps tick `now` at `:3720`, pops on ANY not-on reading at `:3727`, incl. `unavailable`); set builder `_p22_stuck_sensor_set` `:2375-2400`; promote `p22_continuous` `:3757-3762`; persistence `_async_load_stuck_state` `:2437-2470`, snapshot `:2495-2507`, payload `:2558-2570`. P22 has no class gate: it fires on presence radars (media Matter radar excluded 11-14 23:41, `anomaly_log` 352219; HVAC C27, Jaya) |
+| Off-gap tolerance / P22 hours knobs | NEW `STUCK_P22_OFF_GAP_TOLERANCE_S`, `STUCK_P22_HOURS` | 0 hits for `OFF_GAP` / `off_gap` / `P22_` in `const.py`, `coordinator.py`, `config_flow.py`, `options_flow.py`, plans; `CONF_STUCK_SENSOR_*` (`const.py:5980-5989`) are duty-cycle only |
+| Still-person-holder predicate | NEW `sensor_capability.is_still_holder` (pure) | `is_fan_immune_witness` (`sensor_capability.py:359-370`) is the WRONG predicate: it is True for `bed` / `camera_presence` / `ble_presence`, which hold a still person (SENSOR_FLEET_CLASSES rule 3 names the two properties separately). `RADAR_SENSOR_FAMILIES` `:408`; `is_radar_capability` `:484-492` reused |
+| Readers of `_sensor_on_since` and of the exclusion set | enumerated §3 S1 | `coordinator.py` + `sensor.py:2526`, `:2597`; `_fusion_filter_active` `:2586-2597` call sites incl. `:2317`, `:4016-4058`, `_live_on_set` `:6158-6166` (caller `:4074`); `camera_input_room_quarantined` `:2790-2796` |
+| Room stuck getter | REUSED from branch, changed | `camera_input_room_stuck_excluded` (branch) beside `camera_input_room_quarantined`; wrapper `input_room_stuck_excluded` branch `camera_stream_health.py:1245-1254` over `_ask` `:1091-1103` (any-True fold) |
 | Anchor edge hook | REUSED, changed | `_on_substrate_edge` branch `crossing_vision.py:1334-1341` -> `note_rising_edge` `crossing_ledger.py:398-401` -> `_edge_since_sample` blocks the sample `:480`, resets `_t_start` `:498-499` |
-| Per-(room, kind) entity list | NEW read-only getter `OccupancySubstrate.entities_for(room, kind)` | substrate holds `_entity_to_room_kind` (`occupancy_substrate.py` ctor); public getters today: `tier1_entity_ids` `:1025`, `last_edge_entity_for` `:1004` (set before `_dispatch`, `:920` region, but NOT on the `recheck_entities` path, so it cannot be the filter's source) |
-| House-state gate for D-M1 | REUSED `_d2_house_state_allows` `coordinator.py:2334` | same predicate the duty-cycle promotion uses (`:3339`) |
-| Chatter act/shadow | REUSED knob, CONFIG | ONE global Select `select.ura_chatter_mode` (`select.py:973-1007`, CM entry, `CONF_CHATTER_MODE` `const.py:6247`, default shadow `:6256`); NO per-sensor knob (grep `chatter` in `config_flow.py` / `options_flow.py` / room options: none per entity). **Live read 2026-11-15 ~16:00 CST: `select.ura_chatter_mode` = `act`, last_changed 15:47:51 (no user context; a restart restores it).** The 11-14 / 11-15 media NMs said "WOULD quarantine (shadow)", so the mode changed after them. Whether the STORED option is `act` is unverified (S3 step 0) |
-| MS600 model safety net | REUSED table, changed | `FAMILY_BY_MODEL_ID` `sensor_capability.py:385` (`"ms600 9.0.0"` `:400`), `FAMILY_BY_MODEL_TOKEN` `:429-430` (`"ms600"`), `family_for_model` `:436-450` splits on whitespace, so `ms600-un` -> `ms600-un` -> unknown; `fan_veto.resolve_sensor_family` `fan_veto.py:81-110`; unknown falls back to the name regex `fan_veto.py:124-127` (the REGISTRY-NOT-NAMES residual) |
-| AWAY-while-held page | NEW producer, REUSED sender `fire_stuck_signal` (`_stuck_signal_nm`) | opposite-direction sibling `zone_hold_all_away` `presence.py:4478-4570`, `ZONE_HOLD_ALL_AWAY_NM_BOUND_S` `const.py:855`; 0 hits for `away_room_held` / `AWAY_ROOM_HELD` |
-| Stuck-triggered fan check | EXTEND `presence_fan_recheck` (vetoes `:542-727`, pause `:810-880`, verdict `:889-912`, restore `:915+`) and `hvac_fans.pause_for_recheck` `:2148-2205` / `restore_after_recheck` `:2207+` | 0 hits for `stuck` / `exclusion` / `chatter` in `presence_fan_recheck.py` (audit §5.1, re-run) |
-| Fan-state trust | NEW, REUSED HA flag | URA reads `assumed_state` nowhere (grep 0); HA core `bond/entity.py:62` `_attr_assumed_state = is_bridge and not trust_state`; live: the four bond-platform twins read `assumed_state: true` (`fan.media_room_ceiling_fan`, `fan.game_room_ceiling_fan`, `fan.guest_room_down_ceiling_fan`, `fan.ceilingfan_fanimaton_rf_masterbedroom`, read 2026-11-15) |
-| Bond belief service | REUSED HA | HA `bond/services.yaml`: `set_fan_speed_tracked_state`, `set_switch_power_tracked_state`; `fan.py:132-140` `async_set_power_belief` -> `Action.set_power_state_belief`; `async_turn_off` `fan.py:192-196` always sends `Action.turn_off()` (`TurnOff`) whatever the device supports (fetched from github `home-assistant/core` dev, 2026-11-15; the HA install's own copy could not be read over `ssh ha`: the SSH add-on has no docker socket. Version drift is a named risk for S6 step 0) |
+| Per-(room, kind) entity list | EXTRACT, not new logic | inline comprehension `occupancy_substrate.py:382-385` becomes `OccupancySubstrate.entities_for(room, kind)`; `last_edge_entity_for` `:1004` is not usable (not set on the `recheck_entities` path) |
+| House-state gate | REUSED with a fail-closed wrapper | `_d2_house_state_allows` `coordinator.py:2334` fails OPEN (True on missing presence / error); the anchor needs fail-closed |
+| Chatter act/shadow | REUSED knob, WIRING BUG | `ChatterModeSelect` lives on the INTEGRATION entry (`select.py:50-60`) and writes that entry's options (`select.py:1030-1036`). The room resolver `_chatter_mode` (`coordinator.py:3216-3260`) reads `nm_cycle_a_knob` (`domain_coordinators/_nm_cycle_a.py:65-90`), which reads only the COORDINATOR_MANAGER entry. Live `.storage`: integration entry `chatter_mode=act`, CM entry absent -> rooms run `DEFAULT_CHATTER_MODE` = shadow (`const.py:6256`). Every chatter NM through 11-15 reads "WOULD quarantine (shadow)", Garage B 21:49Z included. Chatter has never acted. The select's state `act` (last_changed 15:47:51) is the integration option, not the room behaviour. Migration `__init__.py:5045-5066` also writes `CONF_CHATTER_MODE`: the build reads which entry it targets |
+| MS600 family resolver | REUSED table, changed | `FAMILY_BY_MODEL_ID` `sensor_capability.py:385` (`"ms600 9.0.0"` `:400`), `FAMILY_BY_MODEL_TOKEN` `:429-430`, `family_for_model` `:436-450` (exact key, then first whitespace token). The media / GB bit's device has `model` = `ms600-un`, `model_id` None (verified in `core.device_registry` by the completeness review). Each room has TWO Meross device records (`ms600-un` and `ms600 9.0.0`, same meross_lan identifier). Unknown falls back to the name regex `fan_veto.py:124-127` (REGISTRY-NOT-NAMES residual) |
+| Radar classification consumer | REUSED | `is_radar` `coordinator.py:6146-6156` -> `fan_veto.is_radar_entity`; `_radar_sole_on_set` `:6168-6175` -> recheck eligibility ring |
+| AWAY-while-held page | NEW producer, REUSED sender `fire_stuck_signal` (`_stuck_signal_nm`) | opposite-direction sibling `zone_hold_all_away` `presence.py:4478-4570`; 0 hits for `away_room_held` |
+| Stuck fan check | EXTEND | `presence_fan_recheck`: vetoes `_evaluate_eligibility` `:536-727`, arm twin `_still_armed_eligible` `:1218-1276`, cancels `_evaluate_cancellation_during_tick` `:1108-1190`, `_cancel_and_restore_async` `:1192-1216`, pause `_enter_paused` `:810-880`, verdict `_on_pause_window_done` `:889-912`, `_restore` `:915+`, `force_restore` `:396-407`, persist `_persist` `:1689-1721` (`snapshot_json`), rehydrate `_restore_row` `:1723-1880` (PAUSED -> `_restore(OCCUPIED_CONFIRMED)` `:1793-1796`). `hvac_fans`: `_set_fan_state` owner gate `:1840-1853`, exemption set `:1862-1864`, manual-ON hold `:1876-1889`, occupied harm-stop `:1890-1899`; `pause_for_recheck` `:2148-2205`; `restore_after_recheck` / body `:2207-2300` (Fan Mode Off skip, C1a manual-ON override to ON). Oracle `fan_policy_oracle._compute_off_verdict` (`:543-544` recheck ALLOW). 0 hits for stuck / exclusion / chatter in `presence_fan_recheck.py` |
+| `phantom_retro` | REUSED, tagged | writer `memory_writers.write_phantom_retro` `memory_writers.py:138` (rev 1 cited `const.py:6292-6296`, wrong: those are chatter provenance lines) |
+| Fan-state trust | NEW, REUSED HA flag | URA reads `assumed_state` nowhere (grep 0). HA `bond/entity.py:62` `_attr_assumed_state = is_bridge and not trust_state`; live: the four Bond-platform twins read `assumed_state: true` (`fan.media_room_ceiling_fan`, `fan.game_room_ceiling_fan`, `fan.guest_room_down_ceiling_fan`, `fan.ceilingfan_fanimaton_rf_masterbedroom`, read 2026-11-15). The configured fans are HomeKit twins (`homekit_controller`) on separate devices; no registry link joins them |
+| Bond command | REUSED HA | HA `bond/fan.py` at tag **2026.11.1** (the installed version, `/Users/okosisi/ha-config/.HA_VERSION`; file identical to `dev`): `async_turn_off` `:192-196` sends `Action.turn_off()` (Bond `TurnOff`) whatever the template supports. The HA install's own copy is not readable over `ssh ha` (no docker socket in the SSH add-on) |
 
-Prior plans consulted: `PLANNING_crossing_vision.md` (P3-D8, §6, §7), `PLANNING_stuck_signal_watchdog.md` (D2), the
-STUCK-SENSOR-1 plan (shipped v5.75.0, card stale), `PLANNING_fan_noise_running_rejection.md` (Rev 2 C1a/C2/C3/C4),
-the paused-rooms plan (ROOM-OVERRIDE-SWITCH-FORGOTTEN-1), `PLANNING_mmwave_corroboration_tier3.md` D6 (parked,
-observability only). Memory: `feedback_dead_sensor_is_faulty_equipment`, `reference_sensor_fleet_classes`,
-`feedback_marginal_benefit_pushback`, `feedback_suppression_needs_discharge`, `feedback_registry_not_name_guessing`.
+Prior plans: crossing plan (P3-D8, §6, §7), `PLANNING_stuck_signal_watchdog.md`, STUCK-SENSOR-1 (shipped v5.75.0),
+`PLANNING_fan_noise_running_rejection.md` Rev 2, `PLANNING_paused_room_occupancy_lights_fans.md`, FAN-MANUAL-1 /
+FAN-LAYER-2. Memory: `feedback_dead_sensor_is_faulty_equipment`, `reference_sensor_fleet_classes`,
+`feedback_marginal_benefit_pushback`, `feedback_suppression_needs_discharge`, `feedback_registry_not_name_guessing`,
+`feedback_tier2db_minimum_arc`.
 
-## 2. The facts this plan stands on (from the evidence, checked)
+## 2. Facts and operator decisions
 
-1. Upguest: ZG-204ZV (motion-class, registry `model_id`) held the AWAY house's room; P22 fired 12:51:52, a 1.8 s off
-   pulse seen at 13:51:48 popped `_sensor_on_since` (`coordinator.py:3727`) and re-armed 4 h. Fan-off test 14:37:30:
-   the ZV went off within ~30 s and stayed off 6.5 min; the room vacated ~5 min later. One trial; the fan drove it.
-2. Media: Matter radar (presence class) P22-excluded at 4 h (23:41); the Meross `..._sensor_presence_motion` bit
-   (radar-derived, filed `motion_sensors`) flapped 1,435 times in 18.2 h (longest quiet 10.5 min) and kept the room;
-   each flap is a substrate rising edge that resets the anchor window (900 s).
-3. **P22 fires on presence radars today.** The stamp loop iterates `motion_sensors + mmwave_sensors + occupancy_sensors`
-   with no class gate (`coordinator.py:3713`); the media Matter radar (`presence_sensors`) was P22-excluded 11-14 23:41
-   (`anomaly_log` 352219). So "P22 excluded" means "still person OR stuck" for a radar, and "stuck" only for a
-   motion-class sensor.
-4. `select.ura_chatter_mode` reads `act` live (above).
+**Facts.**
+1. Upguest: ZG-204ZV (motion class, registry `model_id`) held the AWAY house's room; P22 fired 12:51:52; a 1.8 s off
+   pulse seen at 13:51:48 popped `_sensor_on_since` and re-armed 4 h. Fan-off test 14:37:30: the ZV went off within
+   ~30 s and stayed off 6.5 min; the room vacated ~5 min later. One trial; the fan drove it. Fan: Tuya WiFi (trusted state).
+2. Media: Matter radar (presence class) P22-excluded at 4 h (23:41); the Meross bit (radar-derived, `motion_sensors`)
+   flapped 1,435 times in 18.2 h and held the room; AWAY from 13:43:29, both cleared 13:53:10 after the fan command.
+   Fan: Bond via HomeKit (HA never saw it on).
+3. P22 fires on presence radars (§1 row 1).
+4. Chatter has never acted (§1 chatter row).
 
-## 2a. Operator decisions recorded (2026-11-15)
-
-- **D-OP1 (S1 approved).** "Yup" to "a short off-pulse shouldn't restart the 4-hour stuck clock".
-- **D-OP2 (motion-class sensors admitted to the stuck fan check).** "Yup. Little harm. Or define radio based motion sensors.
-  But better to admit motion sensors. Fans are motion although pir resists better". All motion-class inputs trigger
-  (PIR, ZV mmWave-motion, radar-derived motion bits). Technology is classified through the registry model and
-  SENSOR_FLEET_CLASSES (`sensor_capability` kind + `fan_veto.resolve_sensor_family`), never names. A PIR stuck under a
-  running fan is weaker evidence that the fan is the cause; the recheck does NOTHING different for PIR (same trigger,
-  same verdict), but every outcome row records `trigger_technology` (`pir` / `mmwave_motion` / `radar_bit` / `unknown`)
-  so per-technology accuracy (`vacated` vs `stuck_not_fan`) can be compared later.
-- **D-OP3 (paused rooms: yes).** A stuck-sensor fan check is allowed in a paused room: fault repair, not room automation.
-  It is the ONLY exception to pause; pause keeps every other promise (no lights, no covers, no other fan automation).
-  Own kill switch `FAN_STUCK_CHECK_ALLOW_PAUSED`.
-- **D-OP4 (Fan Mode Off).** "This should be fine for turning off. What we don't want is turning on and active control."
-  In a Fan Mode Off room the stuck check may turn the fan OFF; it never turns a fan on, never restores on, never sets
-  speed. A not-cleared verdict leaves the fan off and records `not_restored_fan_mode_off`. For a person-owned fan
-  (FAN-MANUAL-1) or a fan in a room found occupied, a not-cleared verdict is an NM, not an automatic turn-on.
-  - **D-OP5 (untrusted-state fans).** "Makes sense. Assume on. Turn off." See S6.
-  Q1, Q5, Q6, Q8 (design) below are therefore DECIDED.
+**Operator decisions (2026-11-15), recorded as decided.**
+- **D-OP1 (S1):** "Yup" to "a short off-pulse shouldn't restart the 4-hour stuck clock". Defaults taken: tolerance for
+  motion-class only; unknown family -> tolerance 0.
+- **D-OP2 (motion-class sensors trigger the fan check):** "Yup. Little harm. Or define radio based motion sensors. But
+  better to admit motion sensors. Fans are motion although pir resists better". All motion-class inputs trigger (PIR, ZV
+  mmWave-motion, radar-derived motion bits in AWAY per D-OP6). Technology by registry model + SENSOR_FLEET_CLASSES,
+  never names. PIR gets the same trigger and verdict; every outcome row records `trigger_technology` (`pir` /
+  `mmwave_motion` / `radar` / `radar_bit` / `unknown`) so accuracy per technology can be compared.
+- **D-OP3 (paused rooms):** "Yes". Fault repair, not room automation. The stuck fan check's OFF is the ONLY exception to
+  pause; pause keeps every other promise. Own kill switch.
+- **D-OP4 (Fan Mode Off):** "This should be fine for turning off. What we don't want is turning on and active control."
+  OFF only: never on, never restore on, never speed.
+- **D-OP5 (untrusted-state fans):** "Makes sense. Assume on. Turn off." Plain `turn_off`, never on-then-off;
+  `off_unverified` until the bench passes; toggle-only fans excluded.
+- **D-OP6 (Q4, the "someone might be here" vetoes):** "reasonable. Agree." Default taken by the orchestrator: review G's
+  refinement. Keep BLE L1/L2, the sleep-state veto, `still_holder_on` and the radar refusal in HOME_*, SLEEP, WAKING and
+  GUEST. In AWAY, with no resident trust-home and no BLE person in the room, admit a P22-excluded radar and the MS600 bit
+  as triggers and drop `still_holder_on`. Reason: without it the media case (the card's namesake) is not delivered, and
+  rev 1's claim to the operator that the vetoes blocked neither case was wrong (they blocked media).
+- **D-OP7 (Q7, S4):** "it should page longer like 2 hours. Time enough to self resolve". 7200 s, page only, widened per
+  §3 S4.
+- **D-OP8 (Q8):** the Bond bench test waits for the operator; until then Bond fans run `off_unverified`.
 
 ## 3. Deliverables
 
-### S1 (K2): P22 off-pulse tolerance
+### S3a: chatter mode wiring (CHATTER-MODE-SELECT-NOT-WIRED-1). Tier 2.
 
-**What.** An `off` shorter than `STUCK_P22_OFF_GAP_TOLERANCE_S` (10 s) does not end a continuous-on run.
-At the stamp loop (`coordinator.py:3713-3727`):
-- sensor read `on`: if `_p22_off_since[s]` is set, the gap = (this `on` state's `last_changed`) − `_p22_off_since[s]`;
-  gap < tolerance -> keep `_sensor_on_since[s]`; gap ≥ tolerance -> `_sensor_on_since[s] = on.last_changed` (the run
-  restarts at the real rising edge, not the tick). Clear `_p22_off_since[s]`. No stamp yet -> stamp as today.
-- sensor read not-on: `_p22_off_since.setdefault(s, off_state.last_changed)`; pop `_sensor_on_since[s]` only when
-  `now − _p22_off_since[s] ≥ tolerance`.
-- Timestamps come from the HA state's `last_changed`, never the tick time, so the 30 s poll cannot stretch a 2 s pulse
-  into a 30 s gap. Several transitions between ticks make the measured gap longer (conservative: it resets).
-- `unavailable` / `unknown` are NOT `off`: they neither end nor extend the run (dead sensor = faulty equipment; the
-  current code treats them as not-on and pops, a latent reset: fixed here, named in tests).
-- `_p22_off_since` is RAM only (a restart with the sensor off pops on the first post-settle tick, as today).
-- Tolerance 0 = byte-identical to today.
+**What.** One owner for `CONF_CHATTER_MODE`: the INTEGRATION entry, where the operator-facing select lives. The room
+resolver `_chatter_mode` reads the integration entry's option (one helper `chatter_mode_option(hass)`), falling back to
+the CM entry's option, then `DEFAULT_CHATTER_MODE`. The module kill const `CHATTER_QUARANTINE_ENABLED` keeps its
+short-circuit. Cache invalidation: the select's `async_select_option` and the integration entry's update listener
+flush the helper's cache (the `nm_cycle_a` cache flushes only on CM updates, so it is not reused for this key). The
+`__init__.py:5045-5066` migration is read in the build and pointed at the same owner.
+**Why Tier 2, not 1:** the code is one resolver, but its first live effect is house-wide (act has never run): Garage A/B
+ratgdo and the Master Bathroom InvisOutlet (43 of 45 chatter NMs in 14 d) start being quarantined while they chatter.
+**Operator decision Q-A (open):** **A (recommended):** act takes effect house-wide as the select already reads (Garage
+A/B and Master Bathroom first). **B:** the build sets the select to shadow, the operator turns act on later.
+**Invariant.** INV-S3a: the value `_chatter_mode()` returns in every room equals the select's current option (or `off`
+when the module kill const is False).
+**Acceptance.** Tests `test_chatter_select_write_is_room_mode`, `test_chatter_mode_cm_fallback`,
+`test_chatter_cache_flushed_on_select`. Mutation: revert the resolver to `nm_cycle_a_knob` -> first test RED. Live: the
+next chatter NM reads "quarantined" (not "WOULD quarantine (shadow)") and the room's `automation_health.excluded_sensors`
+lists the input under client `chatter`.
 
-**Impact, stated plainly (house behaviour change).** A sensor that holds `on` with short blips (the upguest ZV, the
-Hobeian fading blip) is now excluded by its room 4 h after the run started, and stays excluded across the blips. While
-excluded it creates no room occupancy, so the room can vacate (timeout), the zone can empty, HVAC zone vacancy can run,
-and NM pages once (`stuck_signal continuous`). A REAL occupant who keeps a motion-class sensor busy for 4 h with
-every off gap under 10 s would be excluded; a ZV drops in 30-70 s on a still person (SENSOR_FLEET_CLASSES), and a moving
-person produces off gaps above 10 s at `fading_time` 30 s, so this needs continuous motion for 4 h with no gap ≥ 10 s.
-For a PRESENCE radar (ZK / ZX / Matter) the same change makes a still sleeper or film-watcher whose radar blips briefly
-reach the 4 h exclusion SOONER than today (today a blip re-arms the 4 h). That is the D-M1 class; S1 widens it. Two
-gates contain it:
-- S1 applies tolerance only to sensors whose capability is NOT a still-person holder
-  (`sensor_capability.is_fan_immune_witness` false-family check reused: radar kind / radar family -> tolerance 0, today's
-  rule). Knob `STUCK_P22_OFF_GAP_CLASSES` = {motion-class} (rung 1). **Recommended**; operator Q1.
-- Downstream, S2 / P3-D8 never release a P22 radar in SLEEP / WAKING / HOME_NIGHT (D-M1 default).
+### S3b: MS600 family by registry model. Tier 2.
 
-**Producer check.** The value is `_sensor_on_since[s]` (one writer, the loop above; restore writer
-`_async_load_stuck_state`). Dependencies: HA `last_changed` (healthy; Z2M `fading_time_2` 30 s), the room tick
-(30 s poll + event refresh). Fire check, 14 d: P22 `continuous` NMs = 4 (media x2, GB1, GB2; media audit §4). With S1,
-replaying 11-15 upguest: run from 08:51:21 stays continuous across 13:19 / 13:51 / 14:14 / 14:31 / 14:32 pulses ->
-excluded from 12:51:52 onward with no re-arm (prediction; S1 step 0 replays it).
+**What.** `family_for_model` splits the first token on `[\s\-_]` (so `ms600-un` -> `ms600`) and `FAMILY_BY_MODEL_ID`
+gains `"ms600-un"`. The resolver reads the registry `model` field (where `ms600-un` lives; `model_id` is None). The name
+regex fallback stops being what keeps the bit out of the witness list. The bit's filing stays `motion_sensors` (settled).
+**Behaviour change, per room (rev 1 wrongly said "none").** After S3b a tick where only the MS600 bit is on becomes
+radar-sole, so the RADAR recheck route becomes reachable where it was not; the recheck window family factor becomes 1.5.
+
+| Room | Fan Mode | Paused today | Radar-route recheck after S3b |
+|---|---|---|---|
+| Guest Bedroom 1 | room_temperature (URA-owned) | yes (Automation off) | eligible once unpaused (HA-ROOM-AUTOMATION-UNPAUSE-1): the recheck may pause GB1's Bond fan by day. New behaviour, intended |
+| Guest Bedroom 2 | off | yes | still vetoed `fan_control_off` (the radar route is unchanged) |
+| Media | off | yes | still vetoed `fan_control_off` |
+
+D2 witness: unchanged in effect (the regex already excluded the bit). P24 freshness: unchanged (reads `motion_detected`).
+**Invariant.** INV-S3b: every MS600 device record resolves to the radar family by registry `model`, and no other live
+(model_id, model) pair changes family (golden over every live device; the fixture names which device record owns each
+MS600 entity, since each room has two).
+**Acceptance.** Tests `test_family_ms600_hyphen_model_is_radar`, `test_family_golden_live_models`,
+`test_gb1_radar_route_eligible_after_s3b`, `test_media_bit_tick_is_radar_sole`. Mutation: revert the split -> first
+test RED. Live: `binary_sensor.media_room_occupied` radar-sole tick attribute true when only the bit is on.
+
+### S1 (K2): P22 off-pulse tolerance. Tier 2-DB. Approved (D-OP1). After S3b.
+
+**What.** In the stamp loop (`coordinator.py:3713-3727`), for an input whose class is motion (below):
+- **New run:** stamp `_sensor_on_since[s] = on_state.last_changed` (rev 1 left tick `now` vs `last_changed` open; one rule
+  now: always `last_changed`; this starts the clock up to one poll earlier than today, stated).
+- **Observed off:** `_p22_off_since[s] = off_state.last_changed` (OVERWRITE with the CURRENT off, never setdefault, so two
+  polls inside two different short gaps never add up). Pop the run when `now − _p22_off_since[s] ≥ tolerance`.
+- **Observed on with an open off:** gap = `on.last_changed − _p22_off_since[s]`; gap < tolerance keeps the run, else the
+  run restarts at `on.last_changed`. Clear `_p22_off_since[s]`.
+- **Off no tick saw (sub-tick):** on a tick that reads `on` with `on.last_changed` newer than the previous tick that read
+  it `on`, the off happened between them and lasted at most `on.last_changed − _p22_last_on_tick[s]`; below tolerance
+  the run continues, else it restarts at `on.last_changed`. (`_p22_last_on_tick` RAM.)
+- **Unavailable / unknown:** does not run the 4 h clock. A dead stretch ≥ tolerance ends the run (the next `on` starts a
+  fresh run at its `last_changed`); a shorter one is treated like an off pulse. So a sensor dead for 4 h that returns `on`
+  is never excluded at once.
+- Radar class and unknown family: tolerance 0, i.e. exactly develop (pop on any observed not-on).
+- `_p22_off_since` / `_p22_last_on_tick` are RAM (a restart with the sensor off pops after the boot guards, as today).
+- Tolerance 0 = develop byte-identical.
+
+**Class gate (SENSOR_FLEET_CLASSES, not `is_fan_immune_witness`).** NEW pure `sensor_capability.is_still_holder(cap)`:
+True for CONF kind `mmwave` (the `presence_sensors` list), a radar family (`RADAR_SENSOR_FAMILIES`, incl. MS600 after
+S3b), kinds `bed`, `camera_presence`, `ble_presence`, and a `CONF_SENSOR_CAPABILITIES` override saying so. Motion class =
+not a still holder AND a known non-radar family (ZG-204ZV, PIR families) or kind `motion`/`pir`/`pir_split` with a known
+family. Unknown family (ESPHome boards, PRESENCE §10 #9) = tolerance 0.
+
+**Impact, stated plainly (corrected).** A motion-class sensor that holds `on` with short blips is excluded by its room
+4 h after the run started and stays excluded across the blips. Affected: room `STATE_OCCUPIED` (the room can time out
+and vacate), and through it `hvac_occupied`, the HVAC zone rollup, HVAC retreat (row-1, D6) and the HVAC zone vacancy
+sweep (lighting denomination). NOT affected: the presence zone tier, nobody-home, path β, the census and house state,
+which read the substrate raw and ignore room exclusions (STEP-EXCLUDE-4); the only presence-side reader that changes is
+the crossing anchor (S2 / P3-D8). A real occupant is excluded only if every off gap in 4 h is under 10 s; a ZV drops in
+30-70 s on a still person; whether a fidgety person produces sub-10 s gaps for 4 h is measured by step 0, not argued.
 
 **Consumers (every reader of the P22 verdict).**
 
 | Consumer | file:line | Trust / display | Effect of S1 |
 |---|---|---|---|
-| Room fusion (6 legs) via `_fusion_filter_active` | `coordinator.py:2586-2597` | trust (room `STATE_OCCUPIED`) | excluded longer; room vacates |
-| Fan-immune witness for D2 / P24 freshness (`_fan_immune_motion_witness_on` iterates the filtered list) | fan-noise Rev 2 note, `coordinator.py` PIR stamp branch | trust (D2 demotion) | an excluded ZV is no witness: D2 may demote a radar-sole hold in that room (intended: a stuck witness is no witness) |
-| S2 `_is_live_end` quarantine (`camera_input_room_quarantined`) | `coordinator.py:2790-2796`, `occupancy_substrate._is_live_end` `:927` | trust (dead-camera hold end) | a stuck sensor's `on->off` cannot end a camera hold for longer (correct) |
-| Crossing anchor P3-D8 (`input_room_stuck_excluded`) | branch `crossing_vision.py:1305-1311` | trust (anchor, shadow today) | the upguest ZV stops holding the anchor (the point) |
-| Duty-cycle detector | `coordinator.py:3791+` | trust (promotion) | none: it reads its own ring, not `_sensor_on_since` (re-verify in build) |
-| Stuck NM `_emit_p22_stuck_sensor_for_tick` | `coordinator.py:2404-2430` | display | one page per (room, sensor, day), unchanged; `on_hours` now counts across blips |
-| Persistence snapshot / Store | `:2495-2507`, `:2558-2570` | restore | unchanged shape; `_p22_off_since` not persisted |
-| Room sensors `sensor.<room>_*` attrs | `sensor.py:2526`, `:2597` | display | `on_since` stable across blips |
-| `sensor.ura_stuck_signal_watchdog` (label map) | `sensor.py:5728-5730` | display | lists the sensor for longer |
-| Zone tier / substrate / census / fan recheck | STEP-EXCLUDE-4 | none | NOT honoured (unchanged); S2 and S4 add narrow honouring |
+| Room fusion legs via `_fusion_filter_active` | `coordinator.py:2586-2597`; call sites `:2317`, `:4016-4058` | trust (room occupied) | excluded longer; room vacates |
+| Trigger-source attribution loops | `coordinator.py:4040-4060` | display (occupancy_source / provenance) | the excluded input stops being named as the source |
+| `STATE_MOTION_DETECTED` -> `_last_motion_bit_time` (P24 failsafe freshness) and recheck mid-flight motion cancel | `coordinator.py` motion block; `presence_fan_recheck.py:1147` | trust | an excluded ZV stops refreshing P24 (P24 can now fire where the ZV was the only fresh bit) and stops cancelling a recheck |
+| Live on-set / radar-sole ring | `_live_on_set` `:6158-6166`, `_radar_sole_on_set` `:6168-6175`, caller `:4074` | trust (recheck eligibility, D1b ring feeding D2) | a room with a P22-excluded ZV and an on radar becomes radar-sole: the radar recheck route and D2 demotion become reachable there |
+| Fan-immune witness (D2) | `_fan_immune_motion_witness_on` over the filtered list | trust (D2) | an excluded ZV is no witness (intended) |
+| `_is_live_end` quarantine | `coordinator.py:2790-2796`; `occupancy_substrate._is_live_end` `:927` | trust (dead-camera hold end) | a stuck input cannot end a camera hold for longer (correct) |
+| Crossing anchor P3-D8 / S2 | branch `crossing_vision.py:1305-1311` | trust (anchor, shadow today) | the upguest ZV stops holding the anchor (the goal) |
+| Duty-cycle detector | `coordinator.py:3791+` | trust | none (reads its own ring; confirmed by the completeness review) |
+| Stuck NM | `_emit_p22_stuck_sensor_for_tick` `:2404-2430` | display | one page per (room, sensor, day); `on_hours` counts across blips |
+| Persistence | `:2437-2570` | restore | unchanged shape (`_sensor_on_since` only) |
+| Room sensor attrs | `sensor.py:2526`, `:2597` | display | stable `on_since` |
+| `sensor.ura_stuck_signal_watchdog` | `sensor.py:5728-5730` | display | lists it for longer |
+| S5 stuck fan check | §3 S5 | trust (actuation) | new consumer |
 
-**House-state rule.** S1 changes no house-state code. It can change house state indirectly: a room it vacates can let a
-zone empty, and zone occupancy feeds nobody-home and path β. **Tier 2-DB minimum** (memory
-`feedback_tier2db_minimum_arc`: house-state-affecting changes get 3 reviews; plus a shared primitive across every room).
-Not Tier 3: one site, kill switch, no cost path. Reviews: A correctness + timestamps; B lifecycle (restore, reload,
-unavailable, two rooms listing one sensor, D-L1); C per-site mutation.
-
-**Invariant (falsifiable).** INV-S1: with tolerance > 0, a motion-class input whose every `off` is shorter than the
-tolerance is P22-excluded at `run_start + STUCK_P22_HOURS` whatever the poll phase; an `off` ≥ tolerance, any radar-class
-input, and tolerance 0 behave exactly as develop; `unavailable` / `unknown` never restart a run.
-
-**Knobs.** `STUCK_P22_OFF_GAP_TOLERANCE_S` 10 (rung 1; 0 = develop; why: Hobeian pulses 1.3-4 s measured, ZV still-drop
-30-70 s); `STUCK_P22_OFF_GAP_CLASSES` {motion} (rung 1); `STUCK_P22_HOURS` 4.0 (rung 1, replaces the literal).
-
+**Producer / fire check.** One writer (the loop) plus the restore writer. P22 `continuous` NMs: 4 in 14 d. Replay of
+11-15 upguest predicts exclusion from 12:51:52 with no re-arm at 13:51 / 14:14 / 14:31 / 14:32 (step 0 confirms).
+**Tier 2-DB:** shared primitive in every room; indirect house-side reach is through HVAC and the anchor only, but the
+house-state minimum (`feedback_tier2db_minimum_arc`) and the per-room blast radius justify three reviews (A correctness +
+timestamps; B lifecycle: restart, reload, unavailable, two rooms listing one sensor; C per-site mutation).
+**Invariant.** INV-S1: with tolerance > 0, a motion-class input whose every off and every dead stretch is shorter than
+the tolerance is P22-excluded at run start (`last_changed` of its rising edge) + `STUCK_P22_HOURS`, whatever the poll
+phase; an off or dead stretch ≥ tolerance restarts the run; a still holder, an unknown family and tolerance 0 behave
+exactly as develop.
+**Knobs.** `STUCK_P22_OFF_GAP_TOLERANCE_S` 10 (rung 1; 0 = develop; Hobeian pulses 1.3-4 s measured);
+`STUCK_P22_HOURS` 4.0 (rung 1, replaces the literal; HVAC §9.3 notes it had no knob).
 **Acceptance.**
-- **Test:** `test_p22_short_off_pulse_keeps_run`, `test_p22_long_off_resets_run`, `test_p22_pulse_between_ticks_uses_last_changed`,
-  `test_p22_unavailable_does_not_reset`, `test_p22_tolerance_zero_is_develop` (golden over the 11-15 upguest sequence),
-  `test_p22_radar_class_gets_no_tolerance`, `test_p22_restart_with_open_gap`.
-- **Mutation:** use tick time not `last_changed` -> `..._between_ticks_...` RED; drop the class gate ->
-  `..._radar_class_...` RED; pop on unavailable -> `..._unavailable_...` RED.
-- **Step 0 (measure first):** one read-only recorder replay over 7 days of every motion-class input: off-gap histogram
-  (how many runs ≥ 4 h would S1 create, per room, against BLE / radar ground truth). Go/no-go: zero runs that overlap a
-  BLE-confirmed person in the room for > 30 min. Discriminates: a real-occupant false exclusion shows up as overlap; a
-  fan-latched ZV shows none.
-- **Live:** the next time a motion-class input holds ≥ 4 h with sub-10 s blips, `automation_health` keeps
-  `stuck_sensors` listing it across the blips (today it drops to `normal` at the first observed blip); `notification_log`
-  has one `continuous` row, not two the same day.
+- **Step 0 (go/no-go):** one read-only recorder replay, 7 days, every motion-class input: runs ≥ 4 h S1 would create, per
+  room, against BLE / radar ground truth. GO = zero runs overlapping a BLE-confirmed person in the room for > 30 min.
+- **Tests:** `test_p22_short_off_pulse_keeps_run`, `test_p22_long_off_resets_run`, `test_p22_two_polls_in_different_short_gaps_keeps_run`,
+  `test_p22_subtick_off_bounded_by_last_on_tick`, `test_p22_new_run_stamped_at_last_changed`,
+  `test_p22_unavailable_long_restarts_run`, `test_p22_unavailable_short_is_a_pulse`, `test_p22_tolerance_zero_is_develop`
+  (golden over the 11-15 upguest sequence), `test_p22_still_holder_no_tolerance` (radar, bed, camera_presence),
+  `test_p22_unknown_family_no_tolerance`, `test_p22_restart_with_open_gap`.
+- **Mutation:** setdefault instead of overwrite -> `..._two_polls_...` RED; tick time instead of `last_changed` ->
+  `..._subtick_...` RED; use `is_fan_immune_witness` as the gate -> `..._still_holder_...` (bed case) RED; let unavailable
+  run the clock -> `..._unavailable_long_...` RED.
+- **Live:** the next motion-class input holding ≥ 4 h with sub-10 s blips stays in `automation_health.stuck_sensors`
+  across the blips (today it drops to `normal` at the first observed blip); one `continuous` NM that day, not two.
 
-### S2 (EDGE): the anchor's stuck-aware edge filter (crossing P3-D8b)
+### S2 (EDGE = crossing P3-D8b): the anchor's stuck-aware edge and level rule. Tier 2. With P3-D8.
 
-**What.** In `_on_substrate_edge` (branch `crossing_vision.py:1334`), before `note_rising_edge`: read
-`substrate.entities_for(room, kind)` (NEW read-only getter); for each entity read `hass.states` and the stream view
-(`_csh.entity_stream_view`, same as `_held_inputs`); DROP the edge iff every entity reading `on` is live (view None) and
-`_csh.input_room_stuck_excluded` True, AND at least one entity reads `on`. Any dead entity (non on/off state or any
-view), any `on` entity not excluded, any read error, or no entity list -> the edge counts (today's rule). Counter
+**What.** One room getter decides "this input's `on` is stuck, not a person", used for levels (P3-D8 `_held_inputs`) and
+edges (`_on_substrate_edge`). `camera_input_room_stuck_excluded(eid)` returns True only when ALL hold:
+1. the exclusion set has a client in `CROSSING_VISION_ANCHOR_STUCK_CLIENTS` for `eid`;
+2. **same run (G7):** for `p22_continuous` / `stuck_dutycycle`, the input's current `on` state `last_changed` ≤ the run
+   start the exclusion was computed from (`_sensor_on_since[eid]`); a rising edge after an off that the room has not yet
+   re-evaluated is a NEW run and counts as a person. For `chatter` the exclusion is honoured while the client is engaged
+   (chatter releases after `CHATTER_RELEASE_QUIET_S` of quiet; each flap is the chatter, not a new run);
+3. **sleep gate (D-M1 default):** an exclusion held ONLY by `p22_continuous` on a still-holder input is not honoured in
+   SLEEP, WAKING or HOME_NIGHT; on a motion-class input it is honoured in any state (Q2 default taken: motion class cannot
+   be a still sleeper). The house-state read is a fail-CLOSED wrapper around `_d2_house_state_allows` (missing presence
+   or error = treat as a sleep state).
+The house wrapper `input_room_stuck_excluded` folds with ALL rooms that list the input agreeing (review D-L1, F12b): an
+input listed by two rooms is stuck only if every room that lists it says so. Dead inputs always hold / count (P3-D8 rule
+kept: a non on/off state or any stream view).
+Edge rule: before `note_rising_edge`, read `substrate.entities_for(room, kind)` (extracted from
+`occupancy_substrate.py:382-385`); DROP the edge iff at least one entity reads `on` and every entity reading `on` is live
+(view None) and `input_room_stuck_excluded`. Errors, no list, any dead entity -> the edge counts. Counter
 `edges_ignored_stuck` on the ledger diagnostics.
+**Why the substrate keeps ignoring room exclusions (STEP-EXCLUDE-4).** The substrate is the one raw per-kind truth the
+zone tier, night limb, nobody-home and census read; room exclusions are a room-tier trust policy kept out of the zone tier
+on purpose (PICK R3-2): a radar P22-excluded at 4 h is often a still sleeper, and the night limb must keep seeing it.
+Policy lives in the consumer.
+**Producer / fire check.** Single writer of `SIGNAL_SUBSTRATE_KIND_CHANGED`: `OccupancySubstrate._dispatch` (`:954-998`).
+Media 11-14/15: 1,435 flaps; they drop only once S3a makes chatter act.
+**Invariant.** INV-S2: an anchor sample or window is never released by an input unless every room listing it excludes
+it under a stuck client for the SAME run, the input is live, and (for a P22-only still holder) the house is not in a sleep
+state; a dead input, a new run and any read error always hold / reset.
+**Knobs.** Reused `CROSSING_VISION_LEDGER_ANCHOR_IGNORES_STUCK` (False = no level release, no edge filter),
+`CROSSING_VISION_ANCHOR_STUCK_CLIENTS`; NEW `CROSSING_VISION_ANCHOR_P22_SLEEP_GATE` True (rung 1; False = honoured in any
+state).
+**Acceptance.** Tests `test_edge_stuck_excluded_only_on_input_ignored`, `test_edge_one_live_unexcluded_on_counts`,
+`test_edge_dead_input_counts`, `test_edge_new_run_after_long_off_counts` (G7), `test_level_new_run_holds`,
+`test_p22_still_holder_in_sleep_holds_and_counts`, `test_p22_motion_class_in_sleep_released`,
+`test_chatter_in_sleep_ignored`, `test_two_room_input_needs_both`, `test_house_state_error_fails_closed`,
+`test_edge_kill_switch_restores`. Mutation: drop the same-run check -> `..._new_run_...` RED; any-True fold ->
+`test_two_room_input_needs_both` RED; fail-open wrapper -> `..._fails_closed` RED.
+**Live (discriminating):** on the next AWAY afternoon with a stuck room, `edges_ignored_stuck` > 0, `held_ignored_stuck`
+names the input, and `crossing_ledger_anchor` fires within `LEDGER_EMPTY_RESET_S` + one eval; with another live holder,
+`held` names it and `edges_ignored_stuck` stays 0.
 
-**Why the substrate ignores room exclusions (STEP-EXCLUDE-4) and why the filter lives in the anchor.** The substrate is the
-one per-kind raw truth that the zone tier, night limb, nobody-home and the census read; the room's exclusion set is a
-room-tier trust policy (P22 / chatter / duty-cycle) that was deliberately kept out of the zone tier (PICK R3-2): a radar
-P22-excluded at 4 h is often a still sleeper, and the zone's night limb must keep seeing it. Moving exclusions into the
-substrate would change the zone, night, AWAY and census paths at once. Policy lives in the consumer: the anchor alone
-decides that a stuck-excluded input's edge is not evidence of a person.
+### S4 (K1): AWAY room / fan page. Tier 2. Approved at 7200 s (D-OP7).
 
-**Rules kept identical to P3-D8 and D-M1.** Same stuck client set (`CROSSING_VISION_ANCHOR_STUCK_CLIENTS`; the
-camera-stream client is never in it); dead input = holds / counts; and the D-M1 default: in SLEEP, WAKING or HOME_NIGHT
-an input excluded ONLY by `p22_continuous` is not ignored (neither its level in `_held_inputs` nor its edge), because a
-P22 radar there may be a still sleeper. Built once as the room getter rule: `camera_input_room_stuck_excluded` returns
-True for a `p22_continuous`-only exclusion only when `_d2_house_state_allows()` (`coordinator.py:2334`) is True. One
-getter, two consumers (levels and edges): no second rule. Operator Q2 offers the class-aware refinement.
+**What.** Page only, never an entity write. Each presence tick while the house is AWAY (not VACATION, not override), for
+each room, a CONDITION holds for ≥ `AWAY_ROOM_HELD_NM_AFTER_S` (7200 s) continuously within the AWAY episode:
+- (a) the room reads `STATE_OCCUPIED` with empty `ble_persons` and no room camera person (F4 display fact: the room's fused
+  `binary_sensor.<room>_camera_person_detected`; consumer class `notification`, no identity read), and no resident reads
+  trust-home; OR
+- (b) a configured fan of the room reads `on` (trusted fan), or is untrusted (S6) AND the room had a stuck exclusion
+  engaged during this AWAY episode.
+Then one HIGH `fire_stuck_signal(kind="away_room_held", key=(room, away_episode_id))` naming the room, condition (a)/(b),
+holding inputs + exclusion clients, lights, fans with trust ("fan state assumed: HA may not know it is on"), pause and Fan
+Mode. `away_episode_id` = the AWAY entry timestamp, so an episode crossing midnight pages once (the stuck-signal latch is
+per (kind, key, day)). LOW recovered when the condition clears. The global stuck-signal kill switch also gates S4 (stated).
+**Fire check.** Would have paged media (fan untrusted + P22 / chatter exclusion) at 15:43 and upguest at 15:43 had nothing
+cleared; both were cleared by hand inside 2 h, which is the operator's "time enough to self resolve".
+**Invariant.** INV-S4: the page never writes an entity, pages at most once per (room, AWAY episode), and never while a
+resident reads trust-home.
+**Knob.** `AWAY_ROOM_HELD_NM_AFTER_S` 7200 (rung 1; 0 = off).
+**Acceptance.** Tests `test_away_room_held_pages_once_across_midnight`, `test_away_room_vacated_fan_on_pages`,
+`test_untrusted_fan_pages_only_with_stuck_exclusion`, `test_no_page_with_resident_home`, `test_no_page_with_ble_person`,
+`test_recovery_low`, `test_zero_is_off`. Live: first `notification_log` row `kind=away_room_held` naming room and fan.
 
-**Producer check.** Edges: `OccupancySubstrate._dispatch` (`:954-998`) is the single writer of
-`SIGNAL_SUBSTRATE_KIND_CHANGED`; sources are live state changes and `recheck_entities` (stream discharge). Fire check:
-media 11-14/15: 1,435 Meross flaps in 18.2 h (each a kind edge when the kind toggles). After S3 the Meross bit is
-chatter-excluded (act), so its edges drop.
+### S5: a stuck sensor triggers a fan check. Tier 3.
 
-**Consumers.** `_on_substrate_edge` is the only crossing reader (one connect, branch `crossing_vision.py:439`); other
-subscribers of the signal (zone tracker, room edge handler) are untouched (filter is local to the callback).
+**Trigger (class-correct, D-OP2 / D-OP6).** Eligibility on the stuck route does NOT require the room to read occupied
+(G1: once S1 / S3a exclude the input, the room vacates, and the fan must still be checked). It arms when, for N ticks
+(`CONF_FAN_RECHECK_MMWAVE_HISTORY_TICKS`, reused), an input of the room carries a live trigger-eligible exclusion AND a
+configured fan reads `on` (trusted) or is untrusted (S6). Trigger-eligible:
+- any house state: `p22_continuous` on a motion-class input (S1 class); `chatter` (engaged, act); `stuck_dutycycle`
+  (promoted; already off in SLEEP / WAKING / HOME_NIGHT);
+- additionally in AWAY with no resident trust-home and no BLE person in the room (D-OP6): `p22_continuous` on a still
+  holder (radar, Matter, MS600 bit after S3b).
+Outside AWAY a P22-excluded still holder is not a trigger (a 4 h radar `on` is a sleeper's signature; HVAC C27). The radar
+route is unchanged; the stuck route is a second arm route, reason `stuck_trigger`, ladder layer `LAYER_STUCK`.
+The arm-time trigger set is captured and PERSISTED (below); during the window eligibility reads the persisted set, not the
+live exclusion (S1 pops a P22 exclusion once the input is off ≥ 10 s, which is the expected effect of the fan going off and
+must not cancel or re-arm anything).
 
-**Invariant.** INV-S2: a rising edge resets the anchor window unless every `on` input of that (room, kind) is a live input
-its room excludes under a stuck client honoured by the D-M1 gate; a dead input's edge, a non-excluded input's edge, and
-every edge in SLEEP / WAKING / HOME_NIGHT from a P22-only radar always reset it.
+**Verdict.** VACATED iff every trigger input read `off` for ≥ `FAN_STUCK_CHECK_CLEAR_S` during the window and no
+NON-trigger Tier-1 input went `on` (in AWAY: no input other than the triggers). Window = effective window (family factor)
+floored at `FAN_STUCK_CHECK_MIN_WINDOW_S`. VACATED -> fan left off (C1a `leave_off`), `apply_fan_recheck_release`.
+Not cleared -> `restore_allowed` decides (below): True -> restore ON, outcome `stuck_not_fan`; False -> fan stays off,
+outcome `not_restored_fan_mode_off` (Fan Mode Off) or `stuck_not_fan_notified` (paused / person-owned / untrusted), plus
+one NM.
 
-**Knobs.** Reuses `CROSSING_VISION_LEDGER_ANCHOR_IGNORES_STUCK` (False = no level release and no edge filter) and
-`CROSSING_VISION_ANCHOR_STUCK_CLIENTS`. NEW `CROSSING_VISION_ANCHOR_P22_SLEEP_GATE` True (rung 1; False = D-M1 option (a),
-release in any state).
+**`restore_allowed` (computed at arm, persisted).** True only when ALL: `fan_owner` is `hvac` or `room`; room not paused;
+fan trusted (S6); snapshot read the fan `on`; and URA was the last ON writer per the fan oracle ledger (a person-switched
+fan under FAN-MANUAL-1 is person-owned). Otherwise False.
 
-**Tier.** Tier 2 (anchor is shadow / display until F-LEAD; one consumer; P3-D8 sibling). Reviewed WITH P3-D8 (one
-review set covers both; the D-M1 gate changes P3-D8's getter).
+**Persistence and every exit path (F8, G5).** `_persist` writes in `snapshot_json` (existing column, no schema change):
+`route` (`radar` / `stuck`), `trigger_inputs`, `trigger_technology`, `restore_allowed`, `untrusted`, `written_entities`.
+`_restore` honours `restore_allowed` on EVERY path:
+- verdict (`_on_pause_window_done`);
+- rehydrate PAUSED (`_restore_row` `:1793-1796`, today `_restore(OCCUPIED_CONFIRMED)` = ON);
+- every mid-flight cancel (`_evaluate_cancellation_during_tick` `:1108-1190`: sleep state, motion, L1);
+- the C1a manual-ON override inside `_restore_after_recheck_body` (leave_off -> ON when a hold is live): on the stuck route
+  with `restore_allowed` False the override does not fire; an NM names the live hold instead;
+- the Fan Mode Off skip there already writes nothing (kept).
+**One exception: `force_restore`** (`:396-407`, the operator's button) still restores ON for a radar-route check and, on the
+stuck route, restores ON only when `restore_allowed`; otherwise it ends the check with no write and logs `forced_no_on`.
+INV-S5-OFF-ONLY therefore has no exception for Fan Mode Off / paused rooms.
+**Cancels on the stuck route:** motion from a TRIGGER input never cancels; motion from a non-trigger input or a BLE L1
+person cancels (then `restore_allowed` decides); entering a sleep state cancels only a P22 trigger in a bedroom / media
+room.
 
+**The three `_set_fan_state` gates (F3, G4).** New trigger `FAN_TRIGGER_STUCK_CHECK_OFF`:
+1. **Owner gate** (`hvac_fans.py:1840-1853`): allowed for any owner incl. None (Fan Mode Off) and for paused rooms, for
+   `on=False` only; `on=True` with this trigger returns False at the gate (enforces INV-S5-OFF-ONLY at the chokepoint).
+2. **Exemption set** (`:1862-1864`): the occupied harm-stop guard (`:1890-1899`) is bypassed for this trigger (the room
+   reads occupied BECAUSE of the stuck input); the manual-ON hold guard (`:1876-1889`) is NOT bypassed (a person's hold
+   wins; the arm-time `manual_on_hold_live` veto covers the usual case).
+3. **Oracle** (`fan_policy_oracle._compute_off_verdict`): ALLOW for this trigger, beside the recheck-pause ALLOW
+   (`:543-544`), under the room lock.
+Restore ON on the stuck route uses the existing `FAN_TRIGGER_RECHECK_RESTORE` and only when `restore_allowed`.
+**Ephemeral snapshot (G11).** For every Fan Mode Off or paused room, registered in `_room_fans` or not, the stuck route
+builds a snapshot from HA state and never touches the `_room_fans` row (`fan_recheck_suppress_until`,
+`manual_on_hold_paused_at` stay as they are); no tracking, reconciler or sweep state changes. The build verifies
+`actuator_reconciler._resolve_fan` (`:1001-1030`) stays silent for a paused Room-temperature room during the window.
+**One check per fan entity (G10).** A busy registry keyed by fan entity id; a second room sharing the fan (Kitchen /
+Breakfast Nook) skips with `fan_busy`.
+**`phantom_retro` (G9, F12e).** The writer (`memory_writers.py:138`) is a learning signal for "fan caused the hold"; stuck
+route OFFs are TAGGED (`source=stuck_check`), not excluded, matched by (room, window from pause to verdict + spindown),
+not by context (a Bond-twin write changes the HomeKit twin under another integration's context).
+
+**Veto table (`_evaluate_eligibility` / `_still_armed_eligible`).** "Stuck route" = a `stuck_trigger` arm only; the radar
+route keeps every veto exactly.
+
+| Veto | Stuck route | Affects |
+|---|---|---|
+| `master_off` `:542`, `room_disabled` `:546` | KEPT | — |
+| `fan_control_off` `:551` | RELAXED to OFF-only (D-OP4) | HVAC §4.2b "Off -> fan recheck never" (doc update, §7) |
+| `room_paused` `:556` | RELAXED, the ONLY exception to pause (D-OP3), own kill switch | pause keeps: no lights, no covers, no other fan automation (zone sweep, comfort, sleep-onset, pre-arrival all still skip). D2 backstop: `is_recheck_eligible` keeps reading the RADAR route only, so a paused room's D2 demotion is unchanged (test) |
+| `sleep_state` `:575-579` | KEPT for P22 triggers in bedroom / media; not applied to chatter / duty-cycle triggers | v4.7.13 keep-on contract |
+| `not_occupied` `:583` | REPLACED by the stuck trigger condition (G1) | — |
+| `override_occupied` `:605` | KEPT | operator intent |
+| `capability_bootstrap` / `not_radar_sole` `:616-618`; legacy `mmwave_history_short` / `not_mmwave_sole` `:622-626` | REPLACED by the stuck trigger (both routings) | radar-sole ring unchanged |
+| `no_fan_configured` `:634` | KEPT | — |
+| `no_fan_on` `:636` | KEPT for trusted fans; skipped for untrusted (S6) | — |
+| `boot_settle` `:640` | KEPT | — |
+| `manual_off_cooldown` `:646`, `manual_on_hold_live` `:652` | KEPT where the fan has a `_room_fans` row | FAN-MANUAL-1 |
+| `fan_quarantined` `:656` | KEPT | reconciler flap counter |
+| `rate_cap` `:669` | KEPT, plus `FAN_STUCK_CHECK_MAX_PER_EPISODE` per (fan, exclusion episode) | — |
+| `no_person_coord` `:674`, `ble_l1` `:683` | KEPT | — |
+| `ble_l2` / tier ladder `:690-719` | KEPT outside AWAY; in AWAY the D-OP6 condition already requires no BLE person in the room, and L2 adjacency is kept | — |
+| `trust_sensors_off` `:727` | KEPT: a room with `fan_recheck_trust_sensors_ok` False gets no stuck route (stated, not silent; default True `const.py:903`) | — |
+| NEW `still_holder_on` | veto outside AWAY: a NON-excluded still-holder input reads `on` | D-OP6 |
+
+**Zero-fire trip-wire (G8).** Computed from the DB, not RAM counters: a daily job compares 14 days of `anomaly_log` stuck
+rows that engaged an exclusion (`continuous`, `chatter` act, `dutycycle` promoted) in rooms with a configured fan against
+`memory_episodes fan_recheck_outcome` rows with `route=stuck`; engaged ≥ 1 and stuck outcomes 0 -> one LOW NM
+`fan_stuck_check_zero`.
+**Forward trace.** trigger -> arm -> OFF -> verdict -> room release -> HVAC zone vacancy; each link pinned by a test.
+**Invariants.**
+- **INV-S5-OFF-ONLY:** in a Fan Mode Off or paused room, URA issues only `fan.turn_off` to that room's fans, on every path
+  (arm, pause, verdict, cancel, rehydrate, C1a, force).
+- **INV-S5:** the stuck route writes OFF only when a trigger-eligible exclusion (per house state, D-OP6) is live on an input
+  of the room, no veto in the table holds, and the fan has no other live check; it writes ON only when `restore_allowed`.
+**Knobs (rung 1).** `FAN_STUCK_CHECK_ENABLED` (kill switch; ships ON once Tier 3 passes, "no shadow mode");
+`FAN_STUCK_CHECK_ALLOW_PAUSED` True (D-OP3 kill switch); `FAN_STUCK_CHECK_ALLOW_FAN_MODE_OFF` True;
+`FAN_STUCK_CHECK_AWAY_ADMITS_RADAR` True (D-OP6; False = radar refusal in every state); `FAN_STUCK_CHECK_CLEAR_S` 30
+(upguest ZV cleared within ~30 s); `FAN_STUCK_CHECK_MIN_WINDOW_S` 180 (MS600 90 s × 2); `FAN_STUCK_CHECK_MAX_PER_EPISODE`
+1; `FAN_STUCK_CHECK_ZERO_DAYS` 14 (0 = off).
+**Tier 3.** New writer into the shared 5-state machine, person-owned fans in paused rooms, a contract change, HVAC
+handshakes. Two plan reviews incl. framing G; four code reviews; orchestrator re-grep of every fan writer and the three
+gates; operator checkpoint before deploy.
 **Acceptance.**
-- **Test:** `test_edge_from_stuck_excluded_only_on_input_ignored`, `test_edge_with_one_live_unexcluded_on_counts`,
-  `test_edge_from_dead_input_counts`, `test_edge_p22_radar_in_sleep_counts`, `test_edge_chatter_in_sleep_ignored`
-  (chatter is not a sleeper), `test_edge_getter_error_counts`, `test_edge_kill_switch_restores`,
-  `test_held_p22_radar_in_home_night_still_holds` (P3-D8 level path under the new gate).
-- **Mutation:** drop the all-`on` check (any-excluded) -> `..._one_live_unexcluded_...` RED; drop the view check ->
-  `..._dead_input_counts` RED; drop the house-state gate -> `..._p22_radar_in_sleep_counts` RED.
-- **Live (discriminating):** with S1-S3 live, on the next AWAY afternoon with a stuck room, ledger diagnostics show
-  `edges_ignored_stuck` > 0 and `held_ignored_stuck` naming the input, and `crossing_ledger_anchor` fires within
-  `LEDGER_EMPTY_RESET_S` + one eval. Under the plausible other failure (some other live holder), `held` names it and
-  `edges_ignored_stuck` stays 0: distinguishable.
+- **Tests:** `test_stuck_route_arms_after_room_vacated` (G1), `test_stuck_route_arms_on_p22_motion_class`,
+  `test_p22_radar_not_trigger_outside_away`, `test_away_admits_p22_radar_and_ms600_bit`, `test_chatter_triggers_any_class`,
+  `test_still_holder_on_vetoes_outside_away`, `test_ble_l1_vetoes`, `test_sleep_bedroom_p22_vetoed`,
+  `test_fan_mode_off_writes_off_only` (fails on ANY turn_on / set_percentage / set_preset_mode / toggle to the fan in a
+  Fan Mode Off or paused room, across arm, pause, verdict, cancel, rehydrate, C1a and force),
+  `test_rehydrate_paused_stuck_no_on`, `test_trigger_input_motion_does_not_cancel`, `test_s1_pop_during_window_no_cancel`,
+  `test_c1a_hold_no_on_when_restore_disallowed`, `test_force_restore_stuck_no_on_when_disallowed`,
+  `test_stuck_off_not_suppressed_by_occupied_guard`, `test_stuck_off_passes_owner_gate_fan_mode_off`,
+  `test_stuck_on_refused_at_owner_gate`, `test_stuck_off_allowed_by_oracle`, `test_paused_room_d2_backstop_unchanged`,
+  `test_ephemeral_snapshot_leaves_room_fans_row`, `test_one_check_per_fan_entity`, `test_phantom_retro_tagged`,
+  `test_outcome_records_trigger_technology`, `test_not_cleared_fan_mode_off_stays_off`, `test_zero_fire_from_db`.
+- **Mutation:** drop the owner-gate branch -> `..._owner_gate_fan_mode_off` RED; drop the occupied exemption ->
+  `..._occupied_guard` RED; drop `restore_allowed` from rehydrate -> `test_rehydrate_paused_stuck_no_on` RED; let a trigger
+  input cancel -> RED; drop the AWAY condition -> `test_p22_radar_not_trigger_outside_away` RED.
+- **Replay fixtures (discriminating):** upguest 11-15 (ZV P22, AWAY, Fan Mode Off, paused, trusted Tuya fan): one
+  `fan.turn_off`, ZV clears ≤ 30 s, VACATED, fan left off. Media 11-15 (Matter P22 + Meross chatter, AWAY, Fan Mode Off,
+  paused, untrusted Bond fan): one `fan.turn_off` on the Bond twin, `off_unverified`, both clear, VACATED. Other failure
+  (sensor stuck for a non-fan reason): `stuck_not_fan_notified`, fan off, NM.
+- **Live:** the first `fan_recheck_outcome` row with `route=stuck` names the trigger and its technology.
 
-### S3 (MEDIA): the Meross MS600 radar bit
+### S6: assumed-state fans (Bond). Tier 3 with S5.
 
-**Config-first decision.**
-0. Step 0 (read-only): read the CM entry's stored `chatter_mode` option and the select's history since 11-14. If the
-   stored value is `act` (operator or a prior session set it today), the media chatter half is ALREADY a knob turn: no
-   code. Verify the Meross bit was promoted `chatter` after 15:47 (room `automation_health.excluded_sensors`).
-1. If it is not stored `act`: the knob is GLOBAL only (`select.ura_chatter_mode`; no per-sensor knob exists). Global
-   `act` also excludes the other chatterers: 43 of 45 chatter NMs in 14 d are Garage A/B (ratgdo) and Master Bathroom.
-   Act there means those rooms stop counting the chattering input while it chatters (it auto-releases after
-   `CHATTER_RELEASE_QUIET_S`). That is the designed behaviour of act, but it is a house-wide behaviour change: operator Q3,
-   recommended **global act** (the detector is physics-based: an impossibility burst is not a person, in any room).
-2. **Reclassify through the registry model, NOT the sensor class of the bit.** The bit is radar-derived (SENSOR_FLEET_CLASSES
-   MS600 section, settled): leave its filing in `motion_sensors` (do not re-litigate); fix the family resolver so the
-   registry model `ms600-un` resolves to the generic radar family. Code: `family_for_model` token split on `[\s\-_]`
-   (so `ms600-un` -> `ms600`), plus an exact `FAMILY_BY_MODEL_ID["ms600-un"]` row. Effect: the name-regex fallback
-   (`fan_veto.py:124-127`) is no longer what keeps the bit out of the witness list; the media bit becomes registry-classified
-   radar (no behaviour change today, a rename can no longer flip it).
-3. Not chosen: a per-sensor chatter knob (new config surface for one sensor; the global detector is correct by physics);
-   moving the bit to `presence_sensors` (settled doc says no).
-
-**Producer / consumer.** `family_for_model` readers: `fan_veto.resolve_sensor_family` -> `is_fan_immune_motion_witness`
-(D2 witness, P24 freshness gate, comfort-fan AWAY veto motion leg), recheck window family factor
-(`presence_fan_recheck._family_factor` `:1488`), capability radar-sole producer (`fan_veto.is_radar_entity`). For `ms600-un`
-the answer moves unknown -> generic radar: witness False (unchanged in effect: the regex already excluded it);
-radar-sole ring now counts the media bit as radar-bearing (media ticks driven by the bit become radar-sole, which makes
-media recheck-eligible on that condition: intended, and S4 depends on it); recheck window factor 1.5 (MS600 generic).
-Fire check: the token path has matched 0 live devices with a hyphen; GB1 / GB2 / Media device records to be read in the
-build (registry probe) and every MS600 model string listed in the README.
-
-**Invariant.** INV-S3: every MS600 device resolves to the radar family by registry model, whatever its entity_id; no
-non-MS600 model changes family (golden over every live device's (model_id, model) pair).
-
-**Knobs.** none new (`select.ura_chatter_mode` reused, rung 3).
-
-**Tier.** Tier 1 for the resolver fix (one table, golden test) with one review; the chatter knob is a config action.
-
-**Acceptance.**
-- **Test:** `test_family_ms600_hyphen_model_is_radar`, `test_family_golden_live_models` (fixture from the registry probe),
-  `test_media_bit_radar_sole_tick`.
-- **Mutation:** revert the split -> `..._hyphen_...` RED.
-- **Live:** `binary_sensor.media_room_occupied` shows the bit classified radar (radar-sole tick attr true when only it is
-  on); with chatter act, the next media flap burst lists the bit in `automation_health.excluded_sensors` (client
-  `chatter`), and the NM says "quarantined" not "WOULD quarantine".
-
-### S4 (K1): "room held while the house is AWAY with nobody corroborated" trip-wire (recommended default; operator approval pending)
-
-**What.** NM page only; no actuation. Each presence tick: house AWAY (not VACATION, not override) for ≥
-`AWAY_ROOM_HELD_NM_AFTER_S`, a room `STATE_OCCUPIED` True, the room's `ble_persons` empty, no camera person, and no
-resident's trust state `home` -> one HIGH `fire_stuck_signal(kind="away_room_held", key=(room,))` naming the room, its
-holding inputs (`tier1_provenance` + exclusion clients), its lights and fans with a fan-state-trust note ("fan state
-assumed: HA may not know it is on" for an S6 untrusted fan), and the room's pause / Fan Mode. Once per episode and per
-(room, day); LOW recovered on release. Reuses `fire_stuck_signal` (latching, per-day dedup).
-**Producer/consumer.** Producer: presence coordinator tick, reading room coordinators' `data` (display trust only). Consumer:
-NM only. Fire check after ship: zero-fire is expected on quiet weeks; trip-wire on the trip-wire is NOT added (its fire
-rate is the measurement). Would have fired 11-15 for upguest (~14:07 with N = 900 s) and media (~13:58, it vacated at
-13:58:33, so only with N < 870 s).
-**Invariant.** INV-S4: the page never writes an entity; it fires at most once per (room, AWAY episode) and never when any
-resident reads home.
-**Knob.** `AWAY_ROOM_HELD_NM_AFTER_S` 900 (rung 1; 0 = off). Tier 2 (new producer, NM only).
-**Acceptance.** Tests `test_away_room_held_pages_once`, `test_no_page_with_resident_home`, `test_no_page_with_ble_person`,
-`test_recovery_low_on_vacate`, `test_zero_is_off`. Live: first page names room, input, fans; `notification_log` row
-`kind=away_room_held`.
-
-### S5: stuck triggers a fan check (operator 2026-11-15: a real deliverable)
-
-Operator, verbatim: "We could relax these constraints? That would be trivial after checking every impact?"; on turning off
-a fan someone is using: "No it doesn't. If it does then stuck sensor means nothing"; on Bond: "Assume state is wrong and
-proceed accordingly. Ie toggle on and then off?"
-
-**Planner pushback, stated before the spec (marginal-benefit duty).** "Stuck means stuck" is right for the SENSOR and
-wrong for the ROOM when the fan caused the stuck. A fan-latched ZV (the upguest evidence) reads `on` because of the fan,
-so it says nothing about whether a person is ALSO there. A guest asleep under a running fan in GB2 is exactly the shape
-that latches the ZV and reaches P22 at 4 h. So the trigger is class-correct for the sensor, but the ACTION still needs an
-independent "nobody here" test. The plan keeps that test small (a non-excluded still-person holder reading `on`, a BLE
-L1 person, or a sleep-state bedroom vetoes) and drops every veto that only existed because the recheck was radar-sole.
-Operator Q4 decides whether to keep it; recommended keep.
-
-**Trigger (class-correct, SENSOR_FLEET_CLASSES).** A fan check arms when, for N ticks
-(`CONF_FAN_RECHECK_MMWAVE_HISTORY_TICKS`, reused), the room is occupied and EVERY Tier-1 input reading `on` is excluded
-by the room under one of:
-- `p22_continuous` on a motion-class input (capability not a still-person holder; ZV / PIR / MS600 bit after S3 is radar,
-  see next bullet): 4 h continuous on cannot be a still person -> stuck means stuck;
-- `chatter` (act): an impossibility burst is not a person, any class;
-- `stuck_dutycycle` (promoted; already gated off in SLEEP / WAKING / HOME_NIGHT and needs a disagreeing corroborator).
-NOT a trigger: `p22_continuous` on a still-person holder (ZK / ZX / Matter / LD2410 / MS600 radar family). P22 does fire on
-those (§2 fact 3), and a 4 h `on` radar is normal for a sleeper; making P22 itself class-aware would change room fusion
-house-wide, so the recheck simply refuses those exclusions (policy in the consumer). The existing radar-sole trigger is
-unchanged; the stuck trigger is a second arm route with reason `stuck_trigger`.
-
-**Verdict (cannot reuse the radar verdict).** `_on_pause_window_done` (`:889-912`) decides VACATED iff no radar-bearing
-input is on; for a motion-class trigger that would read VACATED instantly. Stuck route: VACATED iff every TRIGGER input
-read `off` for ≥ `FAN_STUCK_CHECK_CLEAR_S` (30 s; the upguest ZV cleared within ~30 s, the MS600 in 90 s) during the
-window and no non-excluded Tier-1 input went `on`. Window = existing effective window (family factor) with a floor of
-`FAN_STUCK_CHECK_MIN_WINDOW_S` (180 s). VACATED -> leave the fan off (C1a `leave_off=True`) and `apply_fan_recheck_release`;
-not cleared -> in a Fan Mode Off room or for a person-owned / occupied-room fan: leave the fan OFF, NM, record `not_restored_fan_mode_off` (Fan Mode Off) or `stuck_not_fan_notified`; only in a URA-owned (Follow / Room temperature), unpaused room is a trusted fan it observed `on` restored ON (record `stuck_not_fan`) (the sensor is stuck for
-another reason: no further fan checks for that sensor until its exclusion ends).
-
-**Gate relaxation, veto by veto (`presence_fan_recheck._evaluate_eligibility` `:542-727`, twin `_still_armed_eligible`
-`:1218-1276`).** "Stuck route" below = only for a stuck-trigger arm; the radar-sole route keeps every veto as today.
-
-| Veto | Today | Stuck route | What it affects (consumers) |
-|---|---|---|---|
-| `master_off` `:542`, `room_disabled` `:546` | kill switches | KEPT | — |
-| `fan_control_off` `:551` (Fan Mode Off = person-owned, URA writes nothing, `const.fan_owner` `:1453`) | veto | RELAXED to OFF-only (DECIDED D-OP4): URA may call `fan.turn_off` on that fan through the stuck route and nothing else; no restore, no ON, no speed | Changes the FAN-MANUAL-1 / HVAC Batch D contract "Fan Mode Off = URA writes nothing" (HVAC STATE_OF_PLAY §4.2b, B-M1 ruling "a probe must not turn a person's fan off"). `hvac_fans.pause_for_recheck` returns None for an unmanaged room (`snapshot_room_fan`, `:2158-2160`) and `_restore_after_recheck_body` skips Fan Mode Off (`:2265-2275`): both need a stuck-route branch with an EPHEMERAL snapshot built from HA state (no `_room_fans` row is created, so comfort control, the reconciler (`actuator_reconciler.py:1001-1030`) and the zone sweep still see no owner). Writes go through `_set_fan_state` with a NEW trigger `FAN_TRIGGER_STUCK_CHECK` that the oracle ALLOWs like `FAN_TRIGGER_RECHECK_PAUSE` (`fan_policy_oracle.py` `_compute_off_verdict` `:543-544`) |
-| `room_paused` `:556` (Automation off / Manual Mode) | veto | RELAXED, DECIDED D-OP3, the ONLY exception to pause: pause today promises no room-tier lights / switches / covers on occupancy, no HVAC sweep / comfort fans / pre-arrival fans, no recheck arm (§4.5); it does NOT promise "URA never writes a fan" (smoke/CO stop and `turn_off_all_managed` still write). A stuck fan check in a paused room writes OFF only, through the stuck route; the NM says the room is paused | 20 of 47 rooms read paused all week (intent unknown). D2 backstop (`is_recheck_eligible`, `test_paused_room_d2_backstop_not_deferred`) must keep reading the RADAR route only: the stuck route must not make paused rooms "recheck-eligible" for the D2 defer (else D2 stops demoting them). Pinned by a new test |
-| `sleep_state` `:575-579` (bedroom / media in FAN_TRUST_STATES) | veto | KEPT for P22 triggers; relaxed for chatter / duty-cycle triggers only (not a sleeper by physics). Operator said a stuck sensor means nobody; the planner keeps this one because the fan that latched the sensor may be cooling a sleeper (pushback above); Q4 | HVAC v4.7.13 keep-fans-on-through-sleep (bedroom) |
-| `not_occupied` `:583` | veto | KEPT | — |
-| `override_occupied` `:605` | veto | KEPT (operator intent) | — |
-| `capability_bootstrap` / `not_radar_sole` `:616-618` | veto | REPLACED on the stuck route by the stuck trigger above | radar-sole ring readers unchanged |
-| `no_fan_configured` `:634` | veto | KEPT | — |
-| `no_fan_on` `:636` | veto | RELAXED for untrusted-state fans (S6): HA `off` on an assumed-state fan is not evidence it is off; kept for trusted fans (a trusted `off` fan cannot be the cause) | phantom writers (`occupancy_phantom`, `phantom_retro`, `const.py:6292-6296`) key on HA fan edges; they will see the stuck check's writes as edges: stuck-route writes are tagged and excluded from `phantom_retro` (it would otherwise log the check's own OFF as a fan-release phantom) |
-| `boot_settle` `:640` | veto | KEPT | — |
-| `manual_off_cooldown` `:646`, `manual_on_hold_live` `:652` | veto | KEPT for managed fans (unmanaged fans have no hold row) | FAN-MANUAL-1 time-bounded hold |
-| `fan_quarantined` `:656` | veto | KEPT (a flapping actuator is unreliable) | reconciler flap counter |
-| `rate_cap` `:669` | veto | KEPT (shared per-room attempts) plus `FAN_STUCK_CHECK_MAX_PER_EPISODE` 1 per (room, exclusion episode) | — |
-| `no_person_coord` `:674`, `ble_l1` `:683` | veto | KEPT: a BLE person in the room vetoes | — |
-| `ble_l2` / tier ladder `:690-719` | veto | KEPT unchanged | — |
-| `trust_sensors_off` `:727` | veto | KEPT | — |
-| NEW `still_holder_on` | — | veto on the stuck route: any NON-excluded still-person-holder input of the room (radar family) reads `on` | the planner's independent "nobody here" test |
-
-Other consumers: comfort-fan AWAY veto (`fan_veto.py:496-507`) blocks ON only, unaffected; HVAC zone sweep and
-`turn_off_all_managed` unaffected (no ownership change); `SIGNAL_FAN_RECHECK_FINISHED` listeners receive outcome
-`vacated` / `occupied_confirmed` plus `route="stuck"` (additive key: the build greps every listener and confirms tolerance);
-`memory_episodes fan_recheck_outcome` gains `route`; `fan_recheck_state` sensor attrs gain the route.
-
-**Producer / fire check.** Trigger producers: P22 (4 NMs / 14 d), chatter (45 / 14 d, mostly garage / master bath, which
-have no fans in Follow / Off cohorts to check: the build lists every chatter room with a configured fan), duty-cycle (11).
-New producer trip-wire: `fan_stuck_check_zero` LOW page when the stuck route has armed 0 times in 14 d while ≥ 1 stuck
-exclusion lasted ≥ 30 min in a fan room (silence noticed in code). Forward trace: trigger -> arm -> pause OFF -> verdict
--> release room occupancy -> zone / HVAC vacancy; every link pinned by a test.
-
-**Invariant.** INV-S5-OFF-ONLY: in a Fan Mode Off room (and in a paused room) URA issues only `fan.turn_off` service calls to that room's fans; never `turn_on`, `set_percentage`, `set_preset_mode`, `set_direction` or `toggle`. INV-S5: the stuck route writes a fan only when every `on` Tier-1 input of the room is excluded under a
-trigger-eligible client, no non-excluded still-person holder reads `on`, no BLE L1 / L2 veto holds, and (for a P22 trigger)
-the house is not in FAN_TRUST_STATES for a bedroom / media room; it writes OFF at most once per (room, exclusion episode)
-and writes ON only to restore a trusted fan it observed `on`, or per S6 for an untrusted one.
-
-**Knobs.** `FAN_STUCK_CHECK_ENABLED` False until operator Q4 (rung 1 kill switch; operator mandate "no shadow mode" means
-it ships ON once approved); `FAN_STUCK_CHECK_CLEAR_S` 30 (rung 1, measured upguest); `FAN_STUCK_CHECK_MIN_WINDOW_S` 180
-(rung 1, MS600 90 s × 2); `FAN_STUCK_CHECK_MAX_PER_EPISODE` 1 (rung 1); `FAN_STUCK_CHECK_ALLOW_PAUSED` True (rung 1, Q5);
-`FAN_STUCK_CHECK_ALLOW_FAN_MODE_OFF` True (rung 1, Q6).
-
-**Tier.** **Tier 3**: a new writer into the shared 5-state recheck machine, actuation of person-owned fans in paused rooms,
-a contract change (Fan Mode Off), HVAC handshakes. Two plan reviews (completeness + adversarial build-prediction) plus
-framing G; four code reviews; orchestrator re-grep of every fan writer; operator checkpoint before deploy.
-
-**Acceptance.**
-- **Test:** `test_stuck_route_arms_on_p22_motion_class`, `test_p22_radar_never_triggers`, `test_chatter_triggers_any_class`,
-  `test_still_holder_on_vetoes`, `test_ble_l1_vetoes_stuck_route`, `test_sleep_bedroom_p22_vetoed`,
-  `test_fan_mode_off_writes_off_only` (fails on ANY turn_on / set_percentage / toggle call to the fan in a Fan Mode Off or paused room, across arm, pause, verdict, cancel and restart-restore paths), `test_not_cleared_fan_mode_off_stays_off_records_not_restored`, `test_outcome_row_records_trigger_technology`, `test_paused_room_off_only_and_d2_backstop_unchanged`,
-  `test_verdict_uses_trigger_inputs_not_radar`, `test_not_cleared_restores_trusted_fan`,
-  `test_once_per_exclusion_episode`, `test_phantom_retro_ignores_stuck_writes`, `test_zero_fire_tripwire`.
-- **Mutation:** drop `still_holder_on` -> its test RED; let a P22 radar trigger -> `test_p22_radar_never_triggers` RED;
-  use the radar verdict -> `..._verdict_uses_trigger_inputs...` RED; drop the paused D2-backstop split -> RED.
-- **Live (discriminating):** replay of 11-15 upguest as a fixture: P22 at 12:51:52 (S1) -> stuck route arms (paused room,
-  Fan Mode Off, AWAY, Matter radar off, no BLE) -> OFF -> ZV clears ≤ 30 s -> VACATED, fan left off. Organic: first
-  `fan_recheck_outcome` row with `route=stuck` and the trigger input named; under the other failure (sensor stuck for a
-  non-fan reason) the row reads `occupied_confirmed` / `stuck_not_fan` and the fan is restored.
-
-### S6: assumed-state fans (Bond)
-
-**Trust classification (registry, never names).** A configured fan is UNTRUSTED iff it, or a fan entity on the SAME
-physical device, reports `assumed_state: true`. Same physical device = shared device-registry identifier or connection,
-or `via_device` to the same bridge device AND equal device name, resolved through the registry; if no registry link
-exists (likely: the URA-configured entities are the HomeKit twins on separate devices; the media audit did not show a
-shared identifier), the operator declares the twin per fan in the bench table (§ below). Live fact: all four Bond-platform
-twins read `assumed_state: true`; the four HomeKit twins URA uses carry no flag.
-
-**Command semantics (what the code shows).** HA's Bond fan `async_turn_off` always sends Bond `TurnOff` (`fan.py:192-196`);
-HA does not check whether the device template has `TurnOff` or only `TogglePower`. Whether each fan has discrete
-TurnOff / TurnOn is a Bond device property (its action list) that HA does not expose as an attribute. **Step 0
-(read-only):** read each device's action list (Bond config-entry diagnostics download, small, or the bridge's local
-`GET /v2/devices/{id}`), record `TurnOn`, `TurnOff`, `TogglePower` per fan.
-
-**Design (DECIDED D-OP5, operator 2026-11-15: "Makes sense. Assume on. Turn off.").** For an untrusted fan the stuck
-check assumes the fan is ON and sends one plain `fan.turn_off` to the Bond-platform twin (never the HomeKit twin). It never
-sends on-then-off and never sets a belief first: the operator's earlier "toggle on then off" idea is replaced. This relies
-on a discrete Bond `TurnOff`, which makes the call idempotent whatever the real state. Until a fan's bench row says
-`discrete`, the check still sends `turn_off` and records `off_unverified` on the outcome row. A fan the bench finds
-toggle-only is EXCLUDED from the check (NM only) until the operator decides otherwise. Untrusted fans are never restored
-ON. The `no_fan_on` veto is skipped for untrusted fans (S5 table).
-
-**Bench test (one-time, operator witnesses physically, per fan: Media, Game Room, Guest Bedroom 1, Master Bedroom).**
-1. Fan physically OFF, HA belief OFF: call `fan.turn_off` on the Bond twin. Expect: stays off (discrete) / STARTS (toggle).
-2. Fan physically ON via the RF remote (HA belief stays OFF): call `fan.turn_off`. Expect: stops (discrete) / stops only if
-   Bond sends a toggle despite belief OFF (Bond may suppress TurnOff when belief is already off: record what happens).
-3. Toggle-only fans only: is there any single command that stops a running fan and never starts a stopped one (a discrete
-   OFF among the remote's learned codes)? If yes, record it for an operator decision; if no, the fan stays excluded.
-   (Step 1 is the only moment a stopped fan may start; the operator is present.)
-Record per fan: `off_command` = {discrete, toggle, suppressed_when_belief_off} (the third = a running fan with belief OFF
-did not stop in step 2: treated like toggle, excluded, operator decides). Stored in rung-1 table
-`FAN_ASSUMED_STATE_COMMAND_BY_DEVICE` keyed by Bond device identifier (registry), plus the HomeKit-to-Bond twin map.
-A fan with no recorded row gets `turn_off` with `off_unverified`; a `toggle` row excludes it (NM only).
-
-**Invariant.** INV-S6: to an untrusted fan URA sends only `fan.turn_off` (never on, toggle, belief or speed); a fan recorded toggle-only receives nothing; trust is classified only by the registry flag or the recorded table, never by entity_id.
-
-**Knobs.** `FAN_ASSUMED_STATE_COMMAND_BY_DEVICE` (rung 1, filled from the bench); `FAN_ASSUMED_STATE_TRUST_ENABLED` True
-(rung 1; False = treat every fan as trusted, today's behaviour). **Tier.** Tier 3 together with S5 (same writer).
-
-**Acceptance.** Tests `test_untrusted_by_registry_twin_flag`, `test_untrusted_without_table_row_sends_off_records_off_unverified`, `test_toggle_only_row_excluded`,
-`test_discrete_off_once`, `test_untrusted_never_on_off_sequence`,
-`test_untrusted_never_restored_on`. Live: bench table committed; the next media stuck episode yields one `turn_off` on
-`fan.media_room_ceiling_fan` and a VACATED row.
+**Trust classification (registry only, F11).** A configured fan is UNTRUSTED iff it reports `assumed_state: true`, or the
+operator-declared twin map (`FAN_ASSUMED_STATE_TWINS`, rung 1, keyed by entity-registry id of the configured fan -> registry
+id of its Bond-platform twin) names a twin that reports `assumed_state: true`. No name or device-name fallback; a fan with
+no declaration is classified by its own flag only.
+**Command (D-OP5).** Assume on; send one `fan.turn_off` to the Bond twin; never on-then-off, belief, speed or toggle.
+Outcome rows carry `off_unverified` until the bench row says `discrete`; a `toggle` or `suppressed_when_belief_off` row
+excludes the fan (NM only, D-OP5). Untrusted fans are never restored ON.
+**Write path (F11).** The stuck route's ephemeral snapshot sets `entities = [bond_twin]`, so the write goes through
+`_set_fan_state(..., room_name, trigger_path=FAN_TRIGGER_STUCK_CHECK_OFF)` with the three gates and the oracle room lock;
+the `fan_off` activity row names both the configured fan and the written twin (`written_entities`).
+**Bench test (operator witnesses physically; Media, Game Room, Guest Bedroom 1, Master Bedroom; D-OP8: pending).**
+1. Fan physically OFF, HA belief OFF: `fan.turn_off` on the Bond twin. Expect stays off (discrete) / starts (toggle).
+2. Fan physically ON via the RF remote (belief OFF): `fan.turn_off`. Expect stops (discrete) / does not stop
+   (`suppressed_when_belief_off`).
+3. Toggle-only fans: is there a single command that stops a running fan and never starts a stopped one? Record for an
+   operator decision; until then excluded.
+Recorded per fan in `FAN_ASSUMED_STATE_COMMAND_BY_DEVICE` (rung 1, keyed by Bond device registry identifier).
+**Invariant.** INV-S6: an untrusted fan receives only `fan.turn_off` from URA; a fan recorded toggle-only or suppressed
+receives nothing; trust is classified only by the registry flag or the declared registry-keyed map.
+**Knobs.** `FAN_ASSUMED_STATE_TWINS`, `FAN_ASSUMED_STATE_COMMAND_BY_DEVICE` (rung 1); `FAN_ASSUMED_STATE_TRUST_ENABLED`
+True (rung 1; False = every fan trusted, develop).
+**Acceptance.** Tests `test_untrusted_by_own_flag`, `test_untrusted_by_declared_twin`, `test_no_name_fallback`,
+`test_untrusted_off_unverified_without_bench_row`, `test_toggle_row_excluded`, `test_untrusted_write_hits_bond_twin_through_chokepoint`,
+`test_untrusted_never_on`. Live: bench table committed; the next media stuck episode writes one `turn_off` on
+`fan.media_room_ceiling_fan`.
 
 ## 4. Non-goals
 
-Moving room exclusions into the substrate / zone / census (STEP-EXCLUDE-4 stays); a per-sensor chatter knob; refiling the
-MS600 bit; making P22 itself class-aware for room fusion; an AWAY blind fan-off independent of a stuck trigger (needs its
-own ruling); fan speed / preset / direction writes from the stuck route; the Tuya duplicate integration and GB2 Fan Mode
-(config items C3/C4, operator); FAN-ZV-POWERON-TRANSIENT-GATE-1; the P24 failsafe freshness stamp.
+Moving room exclusions into the substrate / zone / census; a per-sensor chatter knob; refiling the MS600 bit; making P22
+itself class-aware for room fusion; an AWAY blind fan-off without a stuck trigger; speed / preset / direction writes from
+the stuck route; the Tuya duplicate integration and GB2 Fan Mode (operator config items); FAN-ZV-POWERON-TRANSIENT-GATE-1;
+moving P24 onto the witness stamp.
 
 ## 5. Config-first items (operator, no code)
 
-C1 lower the upguest ZV sensitivity 16 -> 8-12; C2 decide the 20 paused rooms; C3 GB2 Fan Mode and the 1 %-step cloud
-entity; C4 drop the duplicate Tuya integration; C5 confirm `select.ura_chatter_mode` = act is intended (S3 step 0).
+C1 lower the upguest ZV sensitivity 16 -> 8-12; C2 paused rooms (HA-ROOM-AUTOMATION-UNPAUSE-1 in progress); C3 GB2 Fan
+Mode and the 1 %-step cloud entity; C4 drop the duplicate Tuya integration.
 
 ## 6. Sequence and tiers
 
-1. S3 step 0 (read the stored chatter option; 5 min) and S1 step 0 (off-gap replay) and S6 step 0 (Bond action lists).
-2. S3 resolver fix (Tier 1) and S1 (Tier 2-DB) in parallel.
-3. S2 on the P3-D8 branch, reviewed with P3-D8 (Tier 2); P3-D8 + S2 ship after S1.
-4. S4 trip-wire (Tier 2) once the operator approves.
-5. S6 bench test (operator), then S5 + S6 (Tier 3, operator checkpoint).
-Crossing plan §7: S1, S2, S3 precede P3-D3 (they are the anchor prerequisites). S4-S6 do not gate the crossing arc.
+1. Step 0s (read-only): S1 off-gap replay; S6 Bond action lists (bench preparation).
+2. S3a chatter wiring (Tier 2) after operator Q-A; S3b MS600 family (Tier 2).
+3. S1 (Tier 2-DB), after S3b (the class gate needs the MS600 family).
+4. S2 on the P3-D8 branch, reviewed with P3-D8 (Tier 2); P3-D8 + S2 ship after S1.
+5. S4 (Tier 2).
+6. S5 + S6 (Tier 3, operator checkpoint); Bond fans run `off_unverified` until the bench (D-OP8).
+Crossing plan §7: S1, S2, S3a, S3b precede P3-D3. S4-S6 do not gate the crossing arc.
 
-## 7. Operator questions (recommended defaults)
+## 7. Doc updates scheduled in the same commit as each ship (F10)
 
-- Q1 DECIDED (D-OP1); open sub-question: tolerance for motion-class only, radars keep today's reset. Recommended yes.
-- Q2 Class-aware anchor gate: release a P22-excluded MOTION-class input in SLEEP / WAKING / HOME_NIGHT too (it cannot be a
-  still sleeper); keep the gate for radars. Recommended yes (the D-M1 default stays for radars).
-- Q3 `select.ura_chatter_mode` global act (it reads act now; confirm intended; affects Garage A/B and Master Bathroom).
-  Recommended keep act.
-- Q4 Stuck fan check keeps the independent "nobody here" vetoes (non-excluded still holder on, BLE L1/L2, P22 in a sleep-state
-  bedroom). Recommended keep; the fan that latched the sensor may be cooling a person.
-- Q5 DECIDED yes (D-OP3). Q6 DECIDED OFF-only (D-OP4).
-- Q7 S4 AWAY-while-held page approval, N = 900 s. Recommended yes.
-- Q8 DECIDED Assume on, turn off (D-OP5). Bench test still to schedule the operator's witness for the four fans before S5 builds. Required.
+- S3a: PRESENCE §4.3 (chatter mode owner; act live).
+- S3b: SENSOR_FLEET_CLASSES MS600 section (registry `model` `ms600-un` resolves radar; regex no longer load-bearing).
+- S1: PRESENCE §4.4 / §6 item 3 (P22 tolerance, class gate, `STUCK_P22_HOURS`); HVAC §9.3 (the literal is now a knob).
+- S2: PRESENCE header crossing-ledger entry (edge filter, same-run, sleep gate).
+- S4: PRESENCE §9 trip-wires.
+- S5: HVAC §4.2b Fan Mode table ("Off -> fan recheck: stuck route OFF only") and the paused-rooms bullet (the B-M1
+  accepted consequence is superseded for the stuck route by D-OP3 / D-OP4; pause's other promises unchanged); PRESENCE §6
+  item 3 (stuck route) and gold-patterns row.
+- S6: HVAC §4.2b (untrusted fans, Bond twin writes).
+
+## 8. Operator questions (remaining; recommended defaults)
+
+- **Q-A chatter act:** A (recommended) act house-wide as the select reads (Garage A/B, Master Bathroom first); B shadow
+  first, act on the operator's word.
+- **Q-B GB1 radar-route recheck after S3b:** accept that GB1's URA-owned Bond fan becomes recheck-eligible by day once the
+  room is unpaused. Recommended accept (that is the recheck's purpose).
+- **Q-C S4 widening:** page an untrusted fan only when the room had a stuck exclusion in the AWAY episode (else every Bond
+  room pages every AWAY). Recommended yes.
+- **Bench test (D-OP8):** schedule when home.
+Decided: Q1, Q2 (defaults taken), Q4 (D-OP6), Q5 (D-OP3), Q6 (D-OP4), Q7 (D-OP7), Q8 design (D-OP5).
+
+## 9. Change record (history, NOT a build spec)
+
+- **Rev 1 (82b013db):** S1-S6 first draft; D-OP1-D-OP5 recorded mid-draft.
+- **Rev 2 (this):** fixes from the two Tier-3 plan reviews.
+
+| Finding | Severity | Where fixed |
+|---|---|---|
+| Completeness F1 / build-pred 3: chatter never acted (two entries) | HIGH | §1 chatter row; §2 fact 4; S3a (new); §8 Q-A; crossing block corrected |
+| F2: S3 changes fan eligibility in GB1/GB2/Media; `model` not `model_id`; two devices per room | HIGH | S3b per-room table, Tier 2, golden names the device |
+| F3 / G4: three `_set_fan_state` gates | HIGH | S5 "three gates" + tests per gate |
+| G1: stuck route required occupancy | HIGH | S5 trigger (no `not_occupied`), `test_stuck_route_arms_after_room_vacated` |
+| G2: media case not delivered | HIGH | D-OP6; S5 AWAY admission; media replay fixture |
+| G5 / F8 / G14: restart, cancel, C1a and force paths write ON; route not persisted; S1 pop loop | HIGH / MED / LOW | S5 persistence + every exit path; `force_restore` the one named rule; trigger-input motion does not cancel |
+| F4: missing consumers (radar-sole ring, attribution, P24) | MED | S1 consumer table |
+| F5: house-impact conflated zones | MED | S1 impact (corrected) |
+| F6: wrong class predicate; S3 before S1 | MED | `is_still_holder`; §6 order |
+| F7 / G6: S1 spec gaps (sub-tick, stamp, unavailable, setdefault) | MED | S1 "What" |
+| F9: veto table incomplete | MED | S5 veto table (legacy routing, `trust_sensors_off`, ladder) |
+| F10: doc updates not scheduled | MED | §7 |
+| F11: S6 name test; write path | MED | S6 registry-only twin map; write path |
+| G7: edge-filter race | MED | S2 same-run rule + tests |
+| G8: zero-fire window had no store | MED | S5 DB trip-wire |
+| G9: phantom tagging by context | MED | S5 tag by (room, window) |
+| G10: shared fan two checks | MED | S5 one check per fan entity |
+| F12a extract comprehension; F12b two-room input; F12c fail-open gate | LOW | S2 |
+| F12d S4 midnight, F2/F4 fact, kill switch | LOW | S4 |
+| F12e phantom cite; tag not exclude | LOW | §1, S5 |
+| F12f trip-wire producer | LOW | S5 (anomaly_log rows) |
+| F12g formatting | LOW | §2 rewritten |
+| G11 ephemeral snapshot for every Off / paused room | LOW | S5 |
+| G12 Bond source at 2026.11.1 | LOW | §1 Bond row |
+| G13 S4 misses vacated-with-fan-on | LOW | S4 condition (b), D-OP7 |
