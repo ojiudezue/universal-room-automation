@@ -1687,15 +1687,21 @@ def test_room_then_owner_same_device_one_dispatch(world, real_nm, caps):
 
 
 def test_pair_dissolves_mid_outage_no_spurious_low(world, rec, caps):
-    """The owner sent the HIGH under the episode-FROZEN group key; the pair
-    dissolves mid-outage: exactly one LOW, for that frozen key, with the
-    dissolve text; never a LOW under another key while the old one stays
-    latched."""
+    """The owner sent the HIGH under the episode-FROZEN group key. Mid-outage
+    the Frigate camera entity is renamed (the pure key moves) and the pair
+    dissolves: exactly one LOW, for the FROZEN key (the one latched), with
+    the dissolve text; never a LOW under another key while the old one
+    stays latched."""
     caps()
     room, owner = pair_scene(world)
     frigate_down(world)
     protect_down(world)
     run(world, owner, [room], (0, 900, 1000))
+    assert [p["key"] for p in rec.of(S2)] == [(F_PLAY_CAM,)]
+    renamed = "camera.playroom_frigate"
+    world.er.entities.pop(F_PLAY_CAM)
+    world.er.add(_ent(renamed, "f_play", "frigate"))
+    world.set(**{renamed: "unavailable"})
     world.dr.devices["p_play"].name_by_user = "Toy Room"
     owner._rebuild()
     run(world, owner, [room], (1030,))
@@ -2227,3 +2233,40 @@ def test_dead_inputs_held_as_today(world, monkeypatch, reader):
             {person: ("on", True if view is not None else None)}, {},
         )
         assert person in held and person in dead_held
+
+
+
+# ===========================================================================
+# 8. Wire-in anchors: the two public reads driven for real (the CM setup /
+#    unload call sites: test_camera_twin_health_setup_wirein.py)
+# ===========================================================================
+
+
+def test_real_census_interior_camera_entities(world):
+    """PersonCensus.interior_camera_entities() returns the RESOLVED person
+    sensors of the configured interior cameras (not the stored camera ids)."""
+    person = "binary_sensor.family_room_person_detected"
+    census = _real_census(world, {
+        "camera.family_room_high_resolution_channel": CameraInfo(
+            entity_id="camera.family_room_high_resolution_channel",
+            platform="unifiprotect", area_id="family_room",
+            person_binary_sensor=person,
+        ),
+    })
+    assert census.interior_camera_entities() == [person]
+
+
+def test_real_presence_zone_camera_entities(world):
+    """PresenceCoordinator.zone_camera_entities() = the zone camera tier's
+    registered cameras ∪ the Zone Manager zones' zone_cameras picks."""
+    tracker = ZonePresenceTracker(
+        hass=world.hass, zone_name="Upstairs", room_names=["Playroom"],
+    )
+    tracker.register_camera(P_PLAY)
+    zm = MagicMock()
+    zm.data = {CONF_ENTRY_TYPE: ura_const.ENTRY_TYPE_ZONE_MANAGER}
+    zm.options = {"zones": {"Entertainment": {"zone_cameras": [F_FOY]},
+                            "Upstairs": {"zone_cameras": []}}}
+    world.entries.append(zm)
+    fake = SimpleNamespace(hass=world.hass, _zone_trackers={"Upstairs": tracker})
+    assert PresenceCoordinator.zone_camera_entities(fake) == sorted([P_PLAY, F_FOY])

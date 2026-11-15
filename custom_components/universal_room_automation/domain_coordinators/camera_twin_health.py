@@ -560,6 +560,12 @@ class CameraTwinHealth:
         settle = float(_knob("CAMERA_TWIN_BOOT_SETTLE_S", 600.0))
         return (now - self._setup_at).total_seconds() >= settle
 
+    def _latest_loss(self, group: frozenset[str]) -> datetime | None:
+        """The group clock: the LATEST member's not-live-since stamp (the
+        group became fully lost then), over the members that carry one."""
+        stamps = [self._notlive_since[d] for d in group if d in self._notlive_since]
+        return max(stamps) if stamps else None
+
     def _group_alive(self, group: frozenset[str]) -> bool:
         """Some member device reads LIVE (its live stretch is running)."""
         return any(d in self._live_since for d in group)
@@ -716,8 +722,8 @@ class CameraTwinHealth:
             return
         if not self._group_dead(group, now):
             return
-        latest = max(self._notlive_since.get(d, now) for d in group)
-        if (now - latest).total_seconds() < cap:
+        latest = self._latest_loss(group)
+        if latest is None or (now - latest).total_seconds() < cap:
             return
         ep = self._ensure_episode(group, now, er, dr)
         key = ep["page_key"]
@@ -750,8 +756,8 @@ class CameraTwinHealth:
             return
         if not self._group_dead(group, now):
             return
-        latest = max(self._notlive_since.get(d, now) for d in group)
-        if (now - latest).total_seconds() < nm_after:
+        latest = self._latest_loss(group)
+        if latest is None or (now - latest).total_seconds() < nm_after:
             return
         ep = self._ensure_episode(group, now, er, dr)
         key = ep["page_key"]
