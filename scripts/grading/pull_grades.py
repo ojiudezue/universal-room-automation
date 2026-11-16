@@ -11,7 +11,8 @@ Labels file (read by the P3-D6 scorer and the P3-D0 gates):
      {"crossing_key", "direction", "count", "at", "batch", "kind", "door_group", "e_ts",
       "direction_tracker_vocab", "pair_index", "e2_ts", "pair_label"}, ...]}
   * one row per crossing_key; a later grade of the same key replaces the earlier one (regrade).
-  * direction: in | out | both | unclear | unknown (operator vocabulary);
+  * direction: in | out | both | no_cross | unclear | unknown (operator vocabulary;
+    no_cross = someone came to the door but did not go through, added 2026-11-15);
     direction_tracker_vocab maps in -> entry, out -> exit, else null.
   * count: int people who crossed, or "unknown".
   * kind "pair" rows carry pair_index into crossing_pass_key_pairs_2026_11_15.json and pair_label in that
@@ -38,11 +39,11 @@ SITE = "http://192.168.13.137:3010"
 LOCAL_MANIFEST = Path.home() / "Code/homelab-automation/sites/urakanban/grade/manifest.json"
 TRACKER_VOCAB = {"in": "entry", "out": "exit"}
 PAIR_LABEL = {"both": "round_trip", "in": "one_pass", "out": "one_pass",
-              "unclear": "unknown", "unknown": "unknown"}
+              "no_cross": "no_pass", "unclear": "unknown", "unknown": "unknown"}
 DESCRIPTION = (
     "Operator crossing grades from the urakanban /grade/ page (scripts/grading/pull_grades.py). Human truth "
     "for crossing vision P3-D6 direction and count scoring and the P3-D0 gates. One row per crossing_key, "
-    "latest grade wins. direction in|out|both|unclear|unknown (unclear = seen, cannot tell; unknown = no "
+    "latest grade wins. direction in|out|both|no_cross|unclear|unknown (no_cross = came to the door, did not go through; unclear = seen, cannot tell; unknown = no "
     "door traversal visible); count = people who crossed or 'unknown'. kind=pair rows index "
     "crossing_pass_key_pairs_2026_11_15.json (pair_label in its rubric)."
 )
