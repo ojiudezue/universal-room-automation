@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "319",
+  "author": "ojiudezue",
+  "session_id": "claude_20261116_003729_ship_v5_108_27",
+  "timestamp": "2026-11-16T00:37:29Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.108.27 shipped: Crossing vision P3 first set: error text, restart-safe cap 93, 4000 tokens, stuck-excluded inputs release the anchor",
+  "summary": "Crossing vision P3 first set: error text, restart-safe cap 93, 4000 tokens, stuck-excluded inputs release the anchor",
+  "why": "Crossing vision's error rows carried no reason, a restart reset the daily call cap to zero, the 4000-token budget and 93-call cap came from the P3-D0 volume probe, and a stuck sensor that its own room already excludes kept the empty-house anchor from ever firing. All four are prerequisites for measuring door vision honestly once operator grades land.",
+  "implications": "Shipped VISION-P3-FIRST-SET-1 at v5.108.27; card(s) sit shipped_organic pending validation. Acceptance in README_v5.108.27.md (Live criteria).",
+  "revisit_trigger": "If the anchor fires while a sleeper's radar is the only on input, or the cap rehydrate page fires, revisit P3-D8 / P3-D5.",
+  "refs": {
+    "cards": [
+      "VISION-P3-FIRST-SET-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.108.27.md"
+    ],
+    "release_notes": "P3-D1 error text on error rows (secrets scrubbed); P3-D5 restart-safe daily cap rehydrated from memory_episodes, default 93; max_tokens 4000; P3-D8 inputs a room stuck-excludes (P22 outside sleep, act-mode chatter, promoted duty cycle) no longer hold the empty-house anchor. Shadow/display only."
+  }
+}

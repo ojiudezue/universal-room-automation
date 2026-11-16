@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.108.26
+# Universal Room Automation vv5.108.27
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -4589,6 +4589,8 @@ class ExteriorOpenTracksDiagnosticSensor(AggregationEntity, SensorEntity):
         "dual_role_cameras",
         # VISION-CROSSING-SHADOW-1 D1.10: display only, change per crossing.
         "crossing_vision_today", "crossing_vision_last",
+        # P3-D5: cap-counter rehydration status (display only).
+        "crossing_vision_cap_rehydrate",
         # P2-D3: ledger diagnostics (display only).
         "crossing_ledger",
         # PERIMETER-GLOBAL-EGRESS-MUTE-1 D4: change on every mute decision.

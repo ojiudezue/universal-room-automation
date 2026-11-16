@@ -1,0 +1,218 @@
+{
+ "description": "P3-D0e step 0 frozen camera sets, resolved by registry before any label was read (written by .claude/tmp/appr_freeze_sets.py). Frigate camera names are the lowercase device-identifier names of the Frigate config entry; Frigate config name casing may differ (see retention in AUDIT).",
+ "frigate_config_entry_id": "01KM239Z8ZQWQTN1D9CV5JRA7V",
+ "door_groups_config": {
+  "doorbell_lite": "garage_a",
+  "front_door_aerial": "front",
+  "garage_a": "garage_a",
+  "madrone_g6_entry": "front"
+ },
+ "groups": {
+  "garage_a": {
+   "door_group_members": [
+    {
+     "stem": "doorbell_lite",
+     "frigate_camera": "doorbell_lite",
+     "resolved_via_entity": "camera.doorbell_lite",
+     "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:camera:doorbell_lite"
+    },
+    {
+     "stem": "garage_a",
+     "frigate_camera": "garage_a",
+     "resolved_via_entity": "camera.garage_a_2",
+     "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:camera:garage_a"
+    }
+   ],
+   "outside_cameras": {
+    "doorbell_lite": {
+     "role": "door_group",
+     "sources": [],
+     "in_const_graph": true,
+     "in_seam_file": true,
+     "frigate_name_verified_in_registry": true
+    },
+    "garage_a": {
+     "role": "door_group",
+     "sources": [],
+     "in_const_graph": true,
+     "in_seam_file": true,
+     "frigate_name_verified_in_registry": true
+    },
+    "armcrest": {
+     "role": "neighbour",
+     "sources": [
+      "const_graph:doorbell_lite"
+     ],
+     "in_const_graph": true,
+     "in_seam_file": false,
+     "frigate_name_verified_in_registry": true
+    },
+    "g5_bullet": {
+     "role": "neighbour",
+     "sources": [
+      "const_graph:doorbell_lite",
+      "seam_file_rev:doorbell_lite"
+     ],
+     "in_const_graph": true,
+     "in_seam_file": true,
+     "frigate_name_verified_in_registry": true
+    },
+    "rear_ptz": {
+     "role": "neighbour",
+     "sources": [
+      "const_graph:doorbell_lite",
+      "seam_file_rev:doorbell_lite"
+     ],
+     "in_const_graph": true,
+     "in_seam_file": true,
+     "frigate_name_verified_in_registry": true
+    }
+   },
+   "inside_camera": {
+    "frigate_camera": "staircase",
+    "rule": "first CONF_DOOR_INTERIOR_NEIGHBOURS entry (config order) that resolves to a Frigate-platform device; entries that are URA-platform or unifiprotect-platform have no Frigate recording route and are skipped (logged)",
+    "resolution_trail": [
+     {
+      "entity": "binary_sensor.camera_protect_garagehallway_person_detected",
+      "platform": "unifiprotect",
+      "frigate_camera": null,
+      "note": "platform=unifiprotect (no frigate device)"
+     },
+     {
+      "entity": "binary_sensor.staircase_person_occupancy",
+      "platform": "frigate",
+      "frigate_camera": "staircase",
+      "note": "platform=frigate device identifier"
+     },
+     {
+      "entity": "binary_sensor.garage_hallway_camera_person_detected",
+      "platform": "universal_room_automation",
+      "frigate_camera": null,
+      "note": "platform=universal_room_automation (no frigate device)"
+     },
+     {
+      "entity": "binary_sensor.stairs_top_person_occupancy",
+      "platform": "frigate",
+      "frigate_camera": "stairs_top",
+      "note": "platform=frigate device identifier"
+     }
+    ]
+   },
+   "all_cameras_ordered": [
+    "doorbell_lite",
+    "garage_a",
+    "armcrest",
+    "g5_bullet",
+    "rear_ptz",
+    "staircase"
+   ]
+  },
+  "front": {
+   "door_group_members": [
+    {
+     "stem": "front_door_aerial",
+     "frigate_camera": "front_door_aerial",
+     "resolved_via_entity": "camera.front_door_aerial",
+     "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:camera:front_door_aerial"
+    },
+    {
+     "stem": "madrone_g6_entry",
+     "frigate_camera": "madrone_g6_entry",
+     "resolved_via_entity": "camera.madrone_g6_entry",
+     "unique_id": "01KM239Z8ZQWQTN1D9CV5JRA7V:camera:madrone_g6_entry"
+    }
+   ],
+   "outside_cameras": {
+    "front_door_aerial": {
+     "role": "door_group",
+     "sources": [],
+     "in_const_graph": true,
+     "in_seam_file": true,
+     "frigate_name_verified_in_registry": true
+    },
+    "madrone_g6_entry": {
+     "role": "door_group",
+     "sources": [],
+     "in_const_graph": true,
+     "in_seam_file": true,
+     "frigate_name_verified_in_registry": true
+    },
+    "front_side_ptz": {
+     "role": "neighbour",
+     "sources": [
+      "const_graph:front_door_aerial",
+      "const_graph:madrone_g6_entry",
+      "seam_file_rev:madrone_g6_entry"
+     ],
+     "in_const_graph": true,
+     "in_seam_file": true,
+     "frigate_name_verified_in_registry": true
+    },
+    "utilities_ptz": {
+     "role": "neighbour",
+     "sources": [
+      "const_graph:front_door_aerial",
+      "const_graph:madrone_g6_entry"
+     ],
+     "in_const_graph": true,
+     "in_seam_file": false,
+     "frigate_name_verified_in_registry": true
+    },
+    "sonoffwindow": {
+     "role": "neighbour",
+     "sources": [
+      "seam_file_rev:front_door_aerial"
+     ],
+     "in_const_graph": false,
+     "in_seam_file": true,
+     "frigate_name_verified_in_registry": true
+    }
+   },
+   "inside_camera": {
+    "frigate_camera": "foyer_fisheye",
+    "rule": "first CONF_DOOR_INTERIOR_NEIGHBOURS entry (config order) that resolves to a Frigate-platform device; entries that are URA-platform or unifiprotect-platform have no Frigate recording route and are skipped (logged)",
+    "resolution_trail": [
+     {
+      "entity": "binary_sensor.foyer_foyer_camera_person_detected",
+      "platform": "universal_room_automation",
+      "frigate_camera": null,
+      "note": "platform=universal_room_automation (no frigate device)"
+     },
+     {
+      "entity": "binary_sensor.foyer_fisheye_person_occupancy",
+      "platform": "frigate",
+      "frigate_camera": "foyer_fisheye",
+      "note": "platform=frigate device identifier"
+     },
+     {
+      "entity": "binary_sensor.foyer_fisheye_person_detected",
+      "platform": "unifiprotect",
+      "frigate_camera": null,
+      "note": "platform=unifiprotect (no frigate device)"
+     },
+     {
+      "entity": "binary_sensor.family_room_person_occupancy",
+      "platform": "frigate",
+      "frigate_camera": "family_room",
+      "note": "platform=frigate device identifier"
+     },
+     {
+      "entity": "binary_sensor.family_room_person_detected",
+      "platform": "unifiprotect",
+      "frigate_camera": null,
+      "note": "platform=unifiprotect (no frigate device)"
+     }
+    ]
+   },
+   "all_cameras_ordered": [
+    "front_door_aerial",
+    "madrone_g6_entry",
+    "front_side_ptz",
+    "utilities_ptz",
+    "sonoffwindow",
+    "foyer_fisheye"
+   ]
+  }
+ },
+ "const_graph_symmetrised_note": "const.py EXTERIOR_ADJACENCY_GRAPH:3026-3079 symmetrised as ExteriorTrackLinker does; the live linker uses exterior_seams.json as PRIMARY (rev4), const as fallback; sets are the UNION so either graph is covered; each camera carries in_const_graph / in_seam_file."
+}

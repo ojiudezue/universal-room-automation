@@ -78,6 +78,16 @@ person_coordinator.data reads now go through the public `get_person_location` AP
 - Native join in move mode stays disabled for unverified platforms until the live WiiM walk (`MF_JOIN_LEADER_RELEASE_SAFE_PLATFORMS` empty).
 - D10 live walk: operator.
 
+## Validated 2026-11-15 (restart 15:47 CST)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Installed and booted | PASS | manifest v5.108.26 (66 files) at 15:45:37; `update.universal_room_automation_update` installed_version v5.108.26 at 15:47:21 |
+| No URA errors | PASS | `system_log` ERROR filter for universal_room_automation: 0 entries after restart |
+| Health sensor carries the new outcome registry and knobs | PASS | `sensor.universal_room_automation_music_following_health` (the README below says `sensor.ura_music_following_health`; the real id is this one): `outcomes_today` has all 23 outcome keys, `counters_today` present, `knobs` (follow_mode move, lookback 90 s, cooldown 8 s, ping_pong 60 s, verify 2 s, position_offset 3 s) applied at 15:47:37 |
+| Followers enabled | PASS | `switch.ura_music_following_enabled` on; per-person switches on for all four |
+| Transfers | PENDING | house AWAY at restart; the walk below (D10) needs the operator |
+
 ## Live acceptance (prospective; walk with the operator)
 
 - **Live:** music in Kitchen for 5+ minutes, walk to Study A: `MF decision ... outcome=success path=ma` in the log;
