@@ -390,8 +390,10 @@ async def test_budget_reset_by_away_signal(monkeypatch):
     )
     rig = _Rig(monkeypatch, "home_day")
     await _use_budget(rig)
+    # the real presence payload (presence.py:9916-9925) is a dict
     rig.nm._on_house_state_for_repeat_budget(
-        HouseStateChange("home_day", "away", 1.0, "test"),
+        {"old_state": "home_day", "new_state": "away",
+         "trigger": "test", "confidence": 1.0},
     )
     rig.now[0] = T0 + timedelta(seconds=4800)
     await _page(rig, location="side_yard")  # back home (cm still home_day)
@@ -400,15 +402,17 @@ async def test_budget_reset_by_away_signal(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_budget_reset_when_page_arrives_while_away(monkeypatch):
+async def test_page_while_away_gets_full_ladder_budget_kept(monkeypatch):
     rig = _Rig(monkeypatch, "home_day")
     await _use_budget(rig)
     cm = rig.hass.data[DOMAIN]["coordinator_manager"]
     cm.house_state = "away"
     rig.now[0] = T0 + timedelta(seconds=4800)
     await _page(rig, location="side_yard")
-    assert rig.nm.alert_state == AlertState.REPEATING
-    assert rig.nm._repeat_home_budget == {}
+    assert rig.nm.alert_state == AlertState.REPEATING  # full ladder while away
+    assert rig.delays[-1] == 300
+    # decision-time away does NOT clear (boot-default AWAY would wipe it)
+    assert "exterior_person" in rig.nm._repeat_home_budget
 
 
 @pytest.mark.asyncio
@@ -516,8 +520,182 @@ async def test_setup_subscribes_house_state_and_teardown_unsubs(monkeypatch):
     await _use_budget(rig)
     assert rig.nm._repeat_home_budget
     connected[SIGNAL_HOUSE_STATE_CHANGED](
-        HouseStateChange("home_day", "vacation", 1.0, "test"),
+        {"old_state": "home_day", "new_state": "vacation",
+         "trigger": "test", "confidence": 1.0},
     )
     assert rig.nm._repeat_home_budget == {}
     await rig.nm.async_teardown()
     unsubs[SIGNAL_HOUSE_STATE_CHANGED].assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_dataclass_payload_also_clears(monkeypatch):
+    from custom_components.universal_room_automation.domain_coordinators.signals import (
+        HouseStateChange,
+    )
+    rig = _Rig(monkeypatch, "home_day")
+    await _use_budget(rig)
+    rig.nm._on_house_state_for_repeat_budget(
+        HouseStateChange("home_day", "away", 1.0, "test"),
+    )
+    assert rig.nm._repeat_home_budget == {}
+
+
+@pytest.mark.parametrize("payload", [
+    {"old_state": None, "new_state": "away"},
+    {"old_state": "away", "new_state": "away"},
+    {"old_state": "away", "new_state": "home_day"},
+])
+@pytest.mark.asyncio
+async def test_non_transition_into_away_does_not_clear(monkeypatch, payload):
+    rig = _Rig(monkeypatch, "home_day")
+    await _use_budget(rig)
+    rig.nm._on_house_state_for_repeat_budget(payload)
+    assert "exterior_person" in rig.nm._repeat_home_budget
+    assert rig.nm._repeat_home_budget_cleared_at is None
+
+
+@pytest.mark.asyncio
+async def test_slot_taken_by_smoke_during_cap_is_left_alone(monkeypatch):
+    rig = _Rig(monkeypatch, "home_day")
+    await rig.arm()
+    real_ack = rig.db.acknowledge_notification
+    fired = []
+
+    async def _ack_with_newcomer(**kw):
+        if not fired:
+            fired.append(1)
+            await rig.nm.async_notify(
+                "safety", Severity.CRITICAL, "Smoke", "Smoke in kitchen",
+                hazard_type="smoke", location="kitchen",
+            )
+        return await real_ack(**kw)
+
+    rig.db.acknowledge_notification = _ack_with_newcomer
+    rig.now[0] = T0 + timedelta(seconds=3600)
+    await rig.nm._repeat_alert()  # perimeter cap; smoke arrives mid-cap
+    assert fired
+    assert rig.nm.alert_state == AlertState.REPEATING
+    assert rig.nm._active_alert_data["hazard_type"] == "smoke"
+    before = rig.nm._send_pushover.await_count
+    rig.now[0] = rig.now[0] + timedelta(seconds=rig.delays[-1])
+    await rig.nm._repeat_alert()
+    assert rig.nm._send_pushover.await_count == before + 1
+    assert rig.nm.alert_state == AlertState.REPEATING
+
+
+@pytest.mark.asyncio
+async def test_concurrent_ack_during_cap_single_cooldown(monkeypatch):
+    rig = _Rig(monkeypatch, "home_day")
+    await rig.arm()
+    real_ack = rig.db.acknowledge_notification
+    fired = []
+
+    async def _ack_then_human_ack(**kw):
+        if not fired:
+            fired.append(1)
+            await rig.nm.async_acknowledge(safe_word_verified=True)
+        return await real_ack(**kw)
+
+    rig.db.acknowledge_notification = _ack_then_human_ack
+    rig.now[0] = T0 + timedelta(seconds=3600)
+    n = len(rig.delays)
+    await rig.nm._repeat_alert()
+    assert rig.nm.alert_state == AlertState.COOLDOWN
+    assert rig.delays[n:].count(600) == 1  # one cooldown timer, not two
+
+
+@pytest.mark.asyncio
+async def test_start_cooldown_cancels_prior_timer(monkeypatch):
+    rig = _Rig(monkeypatch, "away")
+    await rig.arm()
+    await rig.nm._start_cooldown()
+    first = rig.handles[-1]
+    rig.nm._alert_state = AlertState.REPEATING
+    await rig.nm._start_cooldown()
+    first.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_sensor_restores_budget_while_nm_in_cooldown(monkeypatch):
+    """B-MED-1: restart inside the cap's cooldown keeps the budget. Drives
+    NMDiagnosticsSensor.async_added_to_hass (the real restore site)."""
+    import custom_components.universal_room_automation.sensor as sensor_mod
+    rig = _Rig(monkeypatch, "home_day")
+    await _use_budget(rig)
+    persisted = rig.nm.get_persistence_state()
+    nm2 = NotificationManager(rig.hass, _cfg())
+    nm2._alert_state = AlertState.COOLDOWN  # DB recovery resumed the cooldown
+    rig.hass.data[DOMAIN]["notification_manager"] = nm2
+    ent = object.__new__(sensor_mod.NMDiagnosticsSensor)
+    ent.hass = rig.hass
+    ent.async_on_remove = MagicMock()
+    last = MagicMock()
+    last.attributes = {"nm_persistence_state": persisted}
+    ent.async_get_last_state = AsyncMock(return_value=last)
+
+    async def _noop(self):
+        return None
+
+    for klass in sensor_mod.NMDiagnosticsSensor.__mro__[1:]:
+        if "async_added_to_hass" in vars(klass):
+            monkeypatch.setattr(klass, "async_added_to_hass", _noop)
+    import homeassistant.helpers.dispatcher as disp
+    monkeypatch.setattr(disp, "async_dispatcher_connect", lambda *a: MagicMock())
+    await ent.async_added_to_hass()
+    assert "exterior_person" in nm2._repeat_home_budget
+    assert nm2.alert_state == AlertState.COOLDOWN  # IDLE gate still honoured
+
+
+@pytest.mark.asyncio
+async def test_restart_with_boot_default_away_keeps_budget(monkeypatch):
+    rig = _Rig(monkeypatch, "home_day")
+    await _use_budget(rig)
+    persisted = rig.nm.get_persistence_state()
+    cm = rig.hass.data[DOMAIN]["coordinator_manager"]
+    cm.house_state = "away"  # boot default before the state machine restores
+    nm2 = NotificationManager(rig.hass, _cfg())
+    for ch in ("pushover", "companion", "whatsapp", "imessage", "tts"):
+        setattr(nm2, f"_send_{ch}", AsyncMock())
+    nm2.restore_repeat_home_budget(persisted)
+    rig.nm = nm2
+    rig.now[0] = T0 + timedelta(seconds=4000)
+    await _page(rig, location="side_yard")  # page during boot-away
+    assert nm2.alert_state == AlertState.REPEATING
+    cm.house_state = "home_day"
+    rig.now[0] = T0 + timedelta(seconds=4800)
+    await _page(rig, location="back_yard")
+    assert nm2.alert_state == AlertState.COOLDOWN
+    assert len(rig.rows("repeat_skipped_home_budget")) == 1
+
+
+@pytest.mark.asyncio
+async def test_restore_after_real_away_cannot_resurrect(monkeypatch):
+    """Ordering: listener can fire before the RestoreEntity push. A real
+    away transition seen this boot drops older restored entries."""
+    rig = _Rig(monkeypatch, "home_day")
+    await _use_budget(rig)
+    persisted = rig.nm.get_persistence_state()
+    nm2 = NotificationManager(rig.hass, _cfg())
+    rig.now[0] = T0 + timedelta(seconds=4000)
+    nm2._on_house_state_for_repeat_budget(
+        {"old_state": "home_day", "new_state": "away"},
+    )
+    nm2.restore_repeat_home_budget(persisted)
+    assert nm2._repeat_home_budget == {}
+
+
+def test_restore_keeps_entries_set_this_boot():
+    hass = _make_hass()
+    nm = NotificationManager(hass, _cfg())
+    live = {"used_at": "2026-11-16T05:00:00+00:00",
+            "last_page_at": "2026-11-16T04:00:00+00:00"}
+    nm._repeat_home_budget["exterior_person"] = dict(live)
+    nm.restore_repeat_home_budget({"repeat_home_budget": {
+        "exterior_person": {"used_at": "2026-11-15T20:00:00+00:00",
+                            "last_page_at": "2026-11-15T19:00:00+00:00"},
+        "other": {"used_at": "2026-11-15T20:00:00+00:00",
+                  "last_page_at": "2026-11-15T19:00:00+00:00"},
+    }})
+    assert nm._repeat_home_budget["exterior_person"] == live
+    assert "other" in nm._repeat_home_budget

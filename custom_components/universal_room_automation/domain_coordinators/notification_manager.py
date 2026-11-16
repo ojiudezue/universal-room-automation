@@ -539,6 +539,7 @@ class NotificationManager:
         # via get/restore_persistence_state (NM diagnostics RestoreEntity).
         self._repeat_home_budget: dict[str, dict[str, str]] = {}
         self._house_state_unsub: CALLBACK_TYPE | None = None
+        self._repeat_home_budget_cleared_at: str | None = None
         self._regime_digest_unsub: CALLBACK_TYPE | None = None
 
         # C4b: Inbound handling
@@ -1139,6 +1140,31 @@ class NotificationManager:
             ),
         }
 
+    def restore_repeat_home_budget(self, state: dict[str, Any] | None) -> None:
+        """Restore the home repeat budget. Called by the NM diagnostics
+        sensor UNCONDITIONALLY (not behind its IDLE gate — the cap's own
+        cooldown is the likeliest restart state). Entries used at or before
+        a real away transition already seen this boot are dropped."""
+        budget = (state or {}).get("repeat_home_budget")
+        if not isinstance(budget, dict):
+            return
+        cleared = self._repeat_home_budget_cleared_at or ""
+        restored = {
+            str(k): {
+                "used_at": str(v.get("used_at", "")),
+                "last_page_at": str(v.get("last_page_at", "")),
+            }
+            for k, v in budget.items() if isinstance(v, dict)
+        }
+        if cleared:
+            restored = {
+                k: v for k, v in restored.items()
+                if v["last_page_at"] > cleared
+            }
+        # Live entries (set this boot) win over restored ones.
+        restored.update(self._repeat_home_budget)
+        self._repeat_home_budget = restored
+
     def restore_persistence_state(self, state: dict[str, Any]) -> None:
         """Restore alert/cooldown/dedup state from persisted attributes.
 
@@ -1184,15 +1210,7 @@ class NotificationManager:
             self._cooldown_remaining = state.get("cooldown_remaining", 0)
             self._cooldown_hazard_type = state.get("cooldown_hazard_type")
             self._cooldown_location = state.get("cooldown_location")
-        budget = state.get("repeat_home_budget")
-        if isinstance(budget, dict):
-            self._repeat_home_budget = {
-                str(k): {
-                    "used_at": str(v.get("used_at", "")),
-                    "last_page_at": str(v.get("last_page_at", "")),
-                }
-                for k, v in budget.items() if isinstance(v, dict)
-            }
+        self.restore_repeat_home_budget(state)
         dedup = state.get("dedup_cache")
         if isinstance(dedup, dict):
             self._dedup_cache = {k: float(v) for k, v in dedup.items() if isinstance(v, (int, float))}
@@ -3212,9 +3230,8 @@ class NotificationManager:
         cap = int(NM_REPEAT_HOME_CAP_S)
         if cap <= 0 or not self._active_alert_data:
             return False
-        if is_life_safety_hazard(
-            self.hass, self._active_alert_data.get("hazard_type")
-        ):
+        _hz = self._active_alert_data.get("hazard_type")
+        if is_life_safety_hazard(self.hass, _hz):
             return False
         if self._unacked_critical_age_s() < cap:
             return False
@@ -3234,9 +3251,26 @@ class NotificationManager:
 
     @callback
     def _on_house_state_for_repeat_budget(self, payload: Any) -> None:
-        """Away/vacation ends the home session: reset every budget."""
-        new_state = str(getattr(payload, "new_state", "") or "").lower()
-        if new_state in NM_REPEAT_CAP_AWAY_STATES and self._repeat_home_budget:
+        """A real transition INTO away/vacation ends the home session: reset
+        every budget. Accepts the dict presence dispatches
+        (presence.py:9916-9925) and the HouseStateChange dataclass (pattern:
+        routine_forecaster.py:398-403). A payload without a distinct old
+        state is not a transition and is ignored. The clear time is recorded
+        so a later RestoreEntity push cannot resurrect a cleared budget."""
+        if isinstance(payload, dict):
+            old = payload.get("old_state") or payload.get("previous_state")
+            new = payload.get("new_state")
+        else:
+            old = getattr(payload, "previous_state", None) or getattr(
+                payload, "old_state", None
+            )
+            new = getattr(payload, "new_state", None)
+        old_s = str(old or "").lower()
+        new_s = str(new or "").lower()
+        if not old_s or old_s == new_s or new_s not in NM_REPEAT_CAP_AWAY_STATES:
+            return
+        self._repeat_home_budget_cleared_at = dt_util.utcnow().isoformat()
+        if self._repeat_home_budget:
             self._repeat_home_budget.clear()
             async_dispatcher_send(self.hass, SIGNAL_NM_ENTITIES_UPDATE)
 
@@ -3253,7 +3287,9 @@ class NotificationManager:
             return False
         home = self._house_known_home()
         if home is False:
-            self._repeat_home_budget.clear()
+            # Away at page time: full ladder, but do NOT clear — the boot
+            # default (house_state.py:153 initial AWAY) would wipe the budget
+            # on every restart. Only a real transition clears (listener).
             return False
         if home is None:
             return False
@@ -3287,6 +3323,9 @@ class NotificationManager:
         what distinguishes a cap from a human ack) and one digest line per
         recipient. No ack registry entry, no ack TTS, no bulk sweep."""
         data = dict(self._active_alert_data or {})
+        # HIGH-2: the slot identity this cap acts on. A newcomer (e.g. smoke)
+        # can take the slot during the awaits below; it must not be cooled.
+        episode = data.get("episode_id")
         state = self._panel_house_state()
         if reason == "repeat_capped_home":
             # Option A: mark this hazard's home repeat budget used.
@@ -3349,7 +3388,7 @@ class NotificationManager:
                     )
                 except Exception:  # noqa: BLE001
                     _LOGGER.debug("NM cap digest row failed", exc_info=True)
-            # Same DB step as async_acknowledge (slot rows only).
+            # Same DB step as async_acknowledge (this episode's rows only).
             acked_id = await database.acknowledge_notification(
                 coordinator_id=data.get("coordinator_id"),
                 hazard_type=data.get("hazard_type"),
@@ -3359,9 +3398,18 @@ class NotificationManager:
                 data.get("hazard_type"),
                 data.get("location"),
             )
-            self._last_acked_row_id = (
-                acked_id if isinstance(acked_id, int) else None
-            )
+        else:
+            acked_id = None
+        # HIGH-2 / LOW-1: only cool the slot if it still holds THIS episode
+        # and nothing (a concurrent ack) has already moved it on.
+        if (
+            not self._active_alert_data
+            or self._active_alert_data.get("episode_id") != episode
+            or self._alert_state not in (AlertState.ALERTING, AlertState.REPEATING)
+        ):
+            _LOGGER.debug("NM cap: slot changed during cap; leaving it alone")
+            return
+        self._last_acked_row_id = acked_id if isinstance(acked_id, int) else None
         await self._start_cooldown()
 
     def _unacked_critical_age_s(self) -> int:
@@ -3934,7 +3982,10 @@ class NotificationManager:
         async_dispatcher_send(self.hass, SIGNAL_NM_ALERT_STATE_CHANGED)
         async_dispatcher_send(self.hass, SIGNAL_NM_ENTITIES_UPDATE)
 
-        # Schedule cooldown expiry
+        # Schedule cooldown expiry. NM-PERIMETER-REPEAT-STORM-1 (B-LOW-1):
+        # cancel any timer a concurrent cap/ack already armed so none orphans.
+        if self._cooldown_unsub:
+            self._cooldown_unsub()
         self._cooldown_unsub = async_call_later(
             self.hass, cooldown_secs, self._cooldown_expired
         )
