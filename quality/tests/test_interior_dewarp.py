@@ -84,3 +84,32 @@ def test_dewarp_jpeg_rejects_garbage(dw):
     with pytest.raises(Exception):
         dw.dewarp_jpeg(b"not a jpeg", [(0, 0, 0)], in_fov_deg=180.0, out_fov_deg=110.0,
                        out_px=32, quality=80)
+
+
+@pytest.mark.parametrize("view", F.NONSQ_VIEWS)
+def test_dewarp_nonsquare_still_matches_ffmpeg_through_dewarp_jpeg(dw, view):
+    """Review C H6: a NON-square fisheye (320 x 240) and an output field of
+    view of 90 degrees, through the production entry ``dewarp_jpeg`` (PNG
+    in, so no input JPEG noise), against ffmpeg v360 with the same
+    arguments. Swapped width / height or a wrong output FOV is far off."""
+    src = F.synthetic_fisheye(F.NONSQ_W, F.NONSQ_H)
+    assert src.shape == (F.NONSQ_H, F.NONSQ_W, 3)
+    buf = io.BytesIO()
+    Image.fromarray(src).save(buf, format="PNG")
+    (out,) = dw.dewarp_jpeg(buf.getvalue(), [view], in_fov_deg=F.IN_FOV,
+                            out_fov_deg=F.NONSQ_OUT_FOV, out_px=F.OUT_PX, quality=100)
+    mine = np.asarray(Image.open(io.BytesIO(out)).convert("RGB"))
+    ref = np.asarray(Image.open(F.FIXTURE_DIR / F.nonsq_ref_name(view)).convert("RGB"))
+    grid = dw.remap_grid(F.NONSQ_W, F.NONSQ_H, F.OUT_PX, F.OUT_PX, F.IN_FOV,
+                         F.NONSQ_OUT_FOV, F.NONSQ_OUT_FOV, *view)
+    vis = grid[2]
+    assert vis.mean() > 0.5
+    # Through the JPEG round trip (chroma subsampling blurs the pattern's
+    # colour edges): the mean stays within 3 levels; swapped width / height
+    # measured ~64-80.
+    diff = np.abs(ref.astype(int) - mine.astype(int))[vis]
+    assert diff.mean() < 3.0, diff.mean()
+    # The geometry itself, no JPEG: as tight as the square fixture.
+    raw = dw.dewarp_array(src, grid)
+    d2 = np.abs(ref.astype(int) - raw.astype(int))[vis]
+    assert d2.mean() < 2.0 and np.percentile(d2, 99) <= 10, (d2.mean(), np.percentile(d2, 99))

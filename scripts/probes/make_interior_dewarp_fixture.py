@@ -38,6 +38,18 @@ def main() -> int:
             subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(src), "-vf", vf,
                             "-frames:v", "1", str(out)], check=True)
             print(out.relative_to(REPO))
+        # Review C H6: non-square source, out FOV 90.
+        src2 = Path(tmp) / "synthetic_fisheye_nonsq.png"
+        Image.fromarray(F.synthetic_fisheye(F.NONSQ_W, F.NONSQ_H)).save(src2)
+        for view in F.NONSQ_VIEWS:
+            yaw, pitch, roll = view
+            vf = (f"v360=input=fisheye:ih_fov={F.IN_FOV:g}:iv_fov={F.IN_FOV:g}:output=flat:"
+                  f"h_fov={F.NONSQ_OUT_FOV:g}:v_fov={F.NONSQ_OUT_FOV:g}:yaw={yaw:g}:"
+                  f"pitch={pitch:g}:roll={roll:g}:w={F.OUT_PX}:h={F.OUT_PX}")
+            out = F.FIXTURE_DIR / F.nonsq_ref_name(view)
+            subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(src2), "-vf", vf,
+                            "-frames:v", "1", str(out)], check=True)
+            print(out.relative_to(REPO))
     return 0
 
 

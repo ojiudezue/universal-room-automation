@@ -61,7 +61,8 @@ def test_describe_access_default_operator_only():
         assert _in(nm, OP, "Describe Family Room") == ""
     assert [(c["target"], c["requester"], c["include_affect"]) for c in pres.calls] == [
         ("Family Room", OP, False)]
-    assert nm._describe_counts == {"describe_denied": 1, "describe_scheduled": 1}
+    by = nm.inbound_by_command
+    assert (by.get("describe_denied"), by.get("describe_scheduled")) == (1, 1)
 
 
 @pytest.mark.parametrize("mode, who, allowed, affect", [
@@ -125,7 +126,7 @@ def test_describe_nm_cooldown():
         _in(nm, OP, "describe family room")
         assert len(pres.calls) == 1
         nm._send_reply.assert_awaited_once_with(
-            OP, "imessage", "Please wait a minute before asking again.")
+            OP, "imessage", "Please wait 60 s before asking again.")
         clock.now = H.T0 + timedelta(seconds=61)
         _in(nm, OP, "describe family room")
     assert len(pres.calls) == 2
@@ -164,3 +165,50 @@ def test_operator_helper_shared_with_security_ack():
     assert nm._operator_person_entities() == [KID]
     assert nm._is_authorized_to_ack(KID, "intruder") == (True, "authorized_security")
     assert nm._is_authorized_to_ack(OP, "intruder") == (False, "unauthorized_security")
+
+
+def test_describe_reply_dropped_when_messaging_killed_meanwhile():
+    """Review A-L4: the kill flipped while the call runs stops the reply."""
+    nm, pres = _nm()
+    with H.fixed_clock(H.Clock()):
+        _in(nm, OP, "describe family room")
+    nm._messaging_suppressed = True
+    H.run(pres.calls[0]["reply"]("Family Room: 1 person."))
+    assert nm._send_reply.await_count == 0
+    assert nm.inbound_by_command.get("describe_reply_suppressed") == 1
+
+
+def test_describe_cooldown_is_per_requester():
+    nm, pres = _nm("residents")
+    with H.fixed_clock(H.Clock()):
+        _in(nm, OP, "describe family room")
+        _in(nm, KID, "describe family room")
+    assert [c["requester"] for c in pres.calls] == [OP, KID]
+
+
+def test_describe_without_presence_coordinator_replies_not_running():
+    nm, pres = _nm()
+    nm.hass.data[C.DOMAIN].pop("coordinator_manager")
+    with H.fixed_clock(H.Clock()):
+        _in(nm, OP, "describe family room")
+    nm._send_reply.assert_awaited_once_with(OP, "imessage", "Interior vision is not running.")
+
+
+@pytest.mark.parametrize("text", ["describe", "describes family room", "please describe x"])
+def test_describe_needs_the_exact_prefix(text):
+    nm, pres = _nm()
+    with H.fixed_clock(H.Clock()):
+        _in(nm, OP, text)
+    assert pres.calls == []
+
+
+def test_scheduled_describe_logs_inbound_and_sends_nothing_yet():
+    """Accepted: one inbound row `describe` / `(describing)`, no reply until
+    the answer, and the command table never runs (no second reply)."""
+    nm, pres = _nm()
+    with H.fixed_clock(H.Clock()):
+        _in(nm, OP, "describe family room")
+    assert nm._send_reply.await_count == 0
+    args = nm._test_db.log_inbound.await_args_list[-1].args
+    assert (args[0], args[3], args[4]) == (OP, "describe", "(describing)")
+    assert nm.inbound_by_command.get("help", 0) == 0

@@ -422,8 +422,16 @@ def test_fix5_authority_gate_behavior():
     import textwrap
     exec(textwrap.dedent(fn_src), ns)
     fn = ns["_is_authorized_to_ack"]
+    # VISION-INTERIOR-SIGHTINGS-1 ship 2 factored the operator list into
+    # `_operator_person_entities` (shared with the describe access rule);
+    # exec the real helper too, so the gate is still the production text.
+    helper_src = _load_fn(NM_SRC, "_operator_person_entities")
+    assert helper_src is not None
+    exec(textwrap.dedent(helper_src), ns)
 
     class _Fake:
+        _operator_person_entities = ns["_operator_person_entities"]
+
         def __init__(self, config):
             self._config = config
 

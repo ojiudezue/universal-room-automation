@@ -136,3 +136,46 @@ def test_description_episode_type_registered_not_writer_backed(mods):  # noqa: F
     C = mods.const
     assert "interior_description" in C.MEMORY_EPISODE_TYPES
     assert "interior_description" not in C.MEMORY_WRITER_BACKED_EPISODE_TYPES
+
+
+@pytest.mark.asyncio
+async def test_cap_number_identity_device_and_clamps(mods, hass, monkeypatch):  # noqa: F811
+    num_mod = importlib.import_module(f"{PKG}.number")
+    C = mods.const
+    monkeypatch.setattr(hass.config_entries, "async_update_entry", lambda e, **kw: True)
+    n = num_mod.InteriorVisionDailyCallsNumber(hass, SimpleNamespace(entry_id="cm", data={},
+                                                                     options={}))
+    n.async_write_ha_state = lambda: None
+    assert n.unique_id == "universal_room_automation_interior_vision_daily_calls"
+    assert n.entity_id == "number.ura_interior_vision_daily_calls"
+    assert n.device_info["identifiers"] == {(C.DOMAIN, "coordinator_manager")}
+    await n.async_set_native_value(-4)
+    assert hass.data[C.DOMAIN][C.INTERIOR_VISION_CAP_HASS_KEY] == 0
+    await n.async_set_native_value(3.7)
+    assert hass.data[C.DOMAIN][C.INTERIOR_VISION_CAP_HASS_KEY] == 3
+
+
+def _bare_sampler(C, data, options):
+    entry = SimpleNamespace(data={C.CONF_ENTRY_TYPE: C.ENTRY_TYPE_INTEGRATION}, options=options)
+    other = SimpleNamespace(data={C.CONF_ENTRY_TYPE: C.ENTRY_TYPE_ROOM},
+                            options={C.CONF_INTERIOR_VISION_ENABLED: True})
+    hass_ = SimpleNamespace(data={C.DOMAIN: data},
+                            config_entries=SimpleNamespace(async_entries=lambda d: [other, entry]))
+    return _iv().InteriorVisionSampler(
+        hass_, now_fn=lambda: 0.0, emit=lambda f: None, log_row=lambda *a: None,
+        fire=lambda *a: None, names_fn=list, provider_fn=lambda: None)
+
+
+def test_sampler_switch_default_and_bad_cap_fallbacks(mods):  # noqa: F811
+    """Before the switch entity loads, the integration entry's option is
+    the default (a room entry's key is ignored); an unreadable cap falls
+    back to the rung-3 defaults."""
+    C = mods.const
+    s = _bare_sampler(C, {}, {C.CONF_INTERIOR_VISION_ENABLED: False})
+    assert s.switch_on() is False
+    assert _bare_sampler(C, {}, {}).switch_on() is True
+    assert _bare_sampler(C, {C.INTERIOR_VISION_SWITCH_HASS_KEY: True},
+                         {C.CONF_INTERIOR_VISION_ENABLED: False}).switch_on() is True
+    bad = _bare_sampler(C, {C.INTERIOR_VISION_CAP_HASS_KEY: "x",
+                            C.INTERIOR_VISION_COST_HASS_KEY: "y"}, {})
+    assert (bad.daily_cap(), bad.cost_cap()) == (60, 0.5)

@@ -53,10 +53,18 @@ async def _done(rig):
 class _DB:
     def __init__(self):
         self.rows = []
+        self.count_result = (0, True)
+        self.count_calls = []
 
     async def log_memory_episode(self, **kw):
         self.rows.append(kw)
         return len(self.rows)
+
+    async def count_memory_episodes_by_type_ended_between(self, etype, start, end, outcomes):
+        self.count_calls.append((etype, start, end, tuple(outcomes)))
+        if isinstance(self.count_result, Exception):
+            raise self.count_result
+        return self.count_result
 
 
 @pytest_asyncio.fixture
@@ -112,6 +120,12 @@ async def drig(rig, monkeypatch, tmp_path):
          {FAM_F: "on", FAM_P: "on", MAS_F: "off", MAS_P: "off",
           "camera.family_room": "idle", "camera.master_hallway": "idle"})
     rig.producer.interior_tick()
+    # The rig's setup rehydrate ran with no database and is sleeping before
+    # its retry: cancel it, then count today's rows with the fake DB.
+    for task in list(rig.producer._iv_sampler.tasks):
+        task.cancel()
+    await hass.async_block_till_done()
+    await rig.producer._iv_sampler.async_rehydrate(retry=False)
     rig.replies = []
     yield rig
 
@@ -174,7 +188,7 @@ async def test_describe_affect_recorded_when_on(drig):
     assert "mood and energy" in d["message"]
     rec = drig.presence.get_room_description("Family Room")
     assert rec.affect == (("calm", "low"),)
-    assert drig.db.rows[0]["attrs"]["affect"] == [{"mood": "calm", "energy": "low"}]
+    assert "affect" not in drig.db.rows[0]["attrs"]   # RAM only (review B-L3)
     assert drig.replies[0].endswith("Mood: calm/low.")
 
 
@@ -187,7 +201,7 @@ async def test_describe_reply_excludes_affect(drig):
     assert "affect" in json.loads(drig.calls[0]["data"]["structure"])["properties"]
     rec = drig.presence.get_room_description("Family Room")
     assert rec.affect == (("calm", "low"),)
-    assert drig.db.rows[0]["attrs"]["affect"] == [{"mood": "calm", "energy": "low"}]
+    assert "affect" not in drig.db.rows[0]["attrs"]
     assert "calm" not in drig.replies[0] and "Mood" not in drig.replies[0]
 
 
@@ -349,17 +363,39 @@ async def test_describe_person_ble_placement(drig):
 @pytest.mark.asyncio
 async def test_describe_person_face_fallback(drig):
     """BLE cannot place her; her newest fresh named interior face sighting
-    can: "last seen in <room> <n> min ago"."""
+    at >= the notification bar, not census-vetoed, can: "last seen in
+    <room> <n> min ago"."""
     ps = drig.m.sighting if hasattr(drig, "m") else _mod("person_sighting")
     now = drig.producer._now()
     s = SimpleNamespace(slug="ezinne", sighting_source=ps.SIGHTING_SOURCE_INTERIOR,
-                        room="Family Room", ts=now - 125.0)
+                        room="Family Room", ts=now - 125.0, census_would_veto=False,
+                        confidence=0.8)
     drig.producer._last_sightings["person.ezinne"] = s
     assert _ask(drig, "ezinne") == ""
     await _done(drig)
     assert drig.replies[0].startswith("Ezinne was last seen in Family Room 2 min ago.")
     s.ts = now - 301.0   # older than INTERIOR_ROOM_FACE_FRESH_S (300)
     assert _ask(drig, "ezinne") == "Can't place Ezinne right now."
+
+
+@pytest.mark.asyncio
+async def test_describe_person_vetoed_face_does_not_place(drig):
+    """Review A-M1: a fresh face the census vetoes (e.g. a mislabelled face
+    of a resident who is away) never places the person; neither does one
+    below the notification bar (0.75)."""
+    ps = drig.m.sighting if hasattr(drig, "m") else _mod("person_sighting")
+    now = drig.producer._now()
+    s = SimpleNamespace(slug="oji_udezue", sighting_source=ps.SIGHTING_SOURCE_INTERIOR,
+                        room="Family Room", ts=now - 60.0, census_would_veto=True,
+                        confidence=0.95)
+    drig.producer._last_sightings["person.oji_udezue"] = s
+    assert _ask(drig, "oji") == "Can't place Oji Udezue right now."
+    s.census_would_veto, s.confidence = False, 0.74
+    assert _ask(drig, "oji") == "Can't place Oji Udezue right now."
+    s.confidence = 0.75
+    assert _ask(drig, "oji") == ""
+    await _done(drig)
+    assert len(drig.calls) == 1
 
 
 # ---------------------------------------------------------------- dewarp

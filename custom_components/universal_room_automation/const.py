@@ -3575,6 +3575,18 @@ INTERIOR_DESCRIBE_AFFECT_ENABLED: Final = True
 INTERIOR_VISION_CALL_TIMEOUT_S: Final = 60
 # Rung 1, builder addition: snapshot fetch timeout (camera.async_get_image).
 INTERIOR_VISION_STILL_TIMEOUT_S: Final = 10
+# Rung 1 (review A-L7): latency samples kept for the diagnostics p90.
+INTERIOR_VISION_LATENCY_RING: Final = 50
+# Rung 1 (reviews A-L2 / B-L2): restart-durable budget, the crossing-vision
+# P3-D5 pattern. Today's call rows are counted at setup (one try bounded by
+# the timeout, one retry after the delay); describe refuses until then.
+INTERIOR_VISION_CAP_REHYDRATE_TIMEOUT_S: Final = 30
+INTERIOR_VISION_CAP_REHYDRATE_RETRY_S: Final = 60
+# Rung 1 (review A-L1): the shortest part of a resident's display name that
+# the description scrub removes on its own (slug and full display name are
+# always scrubbed). 2 = "Al" is scrubbed; raising it trades privacy for fewer
+# false hits on common short words.
+INTERIOR_DESCRIBE_SCRUB_MIN_NAME_LEN: Final = 2
 # Episode type of the one memory row per description (no frame). On-demand,
 # so legitimately rare: NOT writer-backed (a quiet week is normal); its
 # zero-fire wire is `interior_vision_zero_calls`.

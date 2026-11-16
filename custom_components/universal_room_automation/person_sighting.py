@@ -1064,7 +1064,12 @@ class PersonSightingProducer:
             break
         best = None
         for s in self._last_sightings.values():
+            # Review A-M1: the reply names the person (notification class),
+            # so the face must clear the notification bar and must not be a
+            # face the census vetoes (ship-1 named rule parity).
             if (s.slug == slug and s.sighting_source == SIGHTING_SOURCE_INTERIOR and s.room
+                    and not s.census_would_veto
+                    and float(getattr(s, "confidence", 0.0) or 0.0) >= bar
                     and 0.0 <= now - s.ts <= float(_c.INTERIOR_ROOM_FACE_FRESH_S)
                     and (best is None or s.ts > best.ts)):
                 best = s
@@ -1088,7 +1093,8 @@ class PersonSightingProducer:
         out: list[str] = []
         for s in self._tracked_slugs():
             disp = display_of(s)
-            out += [s, disp] + [w for w in disp.split(" ") if len(w) >= 3]
+            out += [s, disp] + [w for w in disp.split(" ")
+                                if len(w) >= int(_c.INTERIOR_DESCRIBE_SCRUB_MIN_NAME_LEN)]
         return out
 
     def _still_source_live(self, group: dict[str, Any]) -> bool:
@@ -1143,25 +1149,34 @@ class PersonSightingProducer:
 
         return vision_provider_id(self.hass)
 
-    def _log_description_row(self, record: RoomDescription) -> None:
-        """One ``interior_description`` row per description (no frame)."""
+    def _log_description_row(self, record: RoomDescription | None,
+                             base: dict[str, Any]) -> None:
+        """One ``interior_description`` row per model call, every outcome (no
+        frame): the restart rehydrate counts them (reviews A-L2 / B-L2). A
+        description's text fields are added; affect is NOT written to the
+        durable row (review B-L3: R16 guards Python reads, not SQL readers),
+        it stays on the RAM record only."""
+        from homeassistant.util import dt as dt_util_  # noqa: PLC0415
+
         database = self.hass.data.get(_c.DOMAIN, {}).get("database")
         if database is None or self._interior_torn_down:
             return
-        ref = f"idesc:{record.group_key}:{int(record.ts * 1000)}"
-        attrs = {
-            "room": record.room, "people": record.people,
-            "activities": [{"what": w, "where": p} for w, p in record.activities],
-            "context": record.context, "confidence": record.confidence,
-            "affect": [{"mood": m, "energy": e} for m, e in record.affect],
-            "reason": record.reason, "views": record.views, "dewarped": record.dewarped,
-            "names_scrubbed": record.names_scrubbed, "latency_s": record.latency_s,
-            "model": record.model,
-        }
+        ts = record.ts if record is not None else self._now()
+        ref = f"idesc:{base.get('group_key')}:{int(ts * 1000)}"
+        attrs = dict(base)
+        if record is not None:
+            attrs.update({
+                "people": record.people,
+                "activities": [{"what": w, "where": p} for w, p in record.activities],
+                "context": record.context, "confidence": record.confidence,
+                "names_scrubbed": record.names_scrubbed,
+            })
+        ended = dt_util_.utcnow().isoformat()
         try:
             task = self.hass.async_create_task(database.log_memory_episode(
                 node_id=ref, episode_type=_c.INTERIOR_DESCRIPTION_EPISODE_TYPE,
-                attrs=attrs, source_ref=ref, dedup_source_ref=False, window_dedup=False,
+                attrs=attrs, source_ref=ref, ended_at=ended,
+                dedup_source_ref=False, window_dedup=False,
             ))
         except Exception:  # noqa: BLE001
             _LOGGER.debug("interior vision: description row failed", exc_info=True)
@@ -1182,14 +1197,20 @@ class PersonSightingProducer:
         self._iv_sampler.torn_down = False
         # Ship 2: a still staged by a call a restart cut short is deleted
         # (INV-IV-NO-STORE discharge; tracked, cancelled at teardown).
-        sweep = self._iv_sampler.async_sweep_stage()
-        try:
-            task = self.hass.async_create_task(sweep)
-            self._interior_tasks.add(task)
-            task.add_done_callback(self._interior_tasks.discard)
-        except Exception:  # noqa: BLE001
-            sweep.close()
-            _LOGGER.debug("interior vision: stage sweep not scheduled", exc_info=True)
+        # Restart-durable budget (reviews A-L2 / B-L2): today's call rows are
+        # counted before describe may call (the crossing-vision P3-D5
+        # `_rehydrate_cap` pattern). Both tracked, cancelled at teardown.
+        # The sweep is a producer task; the rehydrate (which may sleep before
+        # its retry) is the sampler's own task, cancelled by its teardown.
+        for coro, owner in ((self._iv_sampler.async_sweep_stage(), self._interior_tasks),
+                            (self._iv_sampler.async_rehydrate(), self._iv_sampler.tasks)):
+            try:
+                task = self.hass.async_create_background_task(coro, "ura_interior_vision_setup")
+                owner.add(task)
+                task.add_done_callback(owner.discard)
+            except Exception:  # noqa: BLE001
+                coro.close()
+                _LOGGER.debug("interior vision: setup task not scheduled", exc_info=True)
         if not _c.INTERIOR_ROOM_RECORDS_ENABLED:
             return
         try:

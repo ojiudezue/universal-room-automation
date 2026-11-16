@@ -287,6 +287,11 @@ SKIP_KILL = "kill"
 SKIP_CAP = "cap_reached"
 SKIP_COST_CAP = "cost_cap_reached"
 SKIP_RESERVED = "reserved_for_describe"
+SKIP_REHYDRATING = "rehydrating"
+# Every model-call outcome writes one row; the restart rehydrate counts them.
+CALL_OUTCOMES = (DESCRIBE_OK, DESCRIBE_ERROR, DESCRIBE_TIMEOUT, DESCRIBE_UNPARSED)
+# Every staged still starts with this (the setup sweep deletes only these).
+STAGE_PREFIX = "iv_"
 PURPOSE_DESCRIBE = "describe"
 PURPOSE_SAMPLING = "sampling"
 
@@ -543,13 +548,18 @@ class InteriorVisionSampler:
     and cost counters, the call tasks and the trip-wire state; hands each
     finished description to the producer through ``emit`` (the producer's
     one unnamed ingest). Every call re-reads the switch, the kill constant
-    and both caps at call time (INV-IV-OFF)."""
+    and both caps at call time (INV-IV-OFF). The counters are rehydrated at
+    setup from today's ``interior_description`` rows (``async_rehydrate``,
+    the crossing-vision P3-D5 pattern, ``CrossingVisionShadow._rehydrate_cap``),
+    so a restart does not reset the daily budget."""
 
     def __init__(self, hass: Any, *, now_fn: Callable[[], float],
-                 emit: Callable[[dict], Any], log_row: Callable[[Any], None],
+                 emit: Callable[[dict], Any], log_row: Callable[..., None],
                  fire: Callable[[str, str, str, str], None],
                  names_fn: Callable[[], list[str]],
                  provider_fn: Callable[[], str | None]) -> None:
+        from . import const as _c  # noqa: PLC0415
+
         self.hass = hass
         self._now = now_fn
         self._emit = emit
@@ -564,10 +574,14 @@ class InteriorVisionSampler:
         self.skips: Counter = Counter()
         self.tasks: set = set()
         self.torn_down = False
+        # Restart-durable budget: True from setup until today's rows are
+        # counted (P3-D5 pattern); describe refuses meanwhile.
+        self.cap_hold = False
+        self.rehydrate_state = "not_started"
         self._triggers: deque = deque()
         self._calls: deque = deque()
         self._errors: deque = deque()
-        self._latencies: deque = deque(maxlen=50)
+        self._latencies: deque = deque(maxlen=max(1, int(_c.INTERIOR_VISION_LATENCY_RING)))
         self._zero_latched = False
         self._errors_latched = False
         self._frames_left_latched = False
@@ -619,11 +633,17 @@ class InteriorVisionSampler:
         except (TypeError, ValueError):
             return max(0.0, float(c.INTERIOR_VISION_DAILY_COST_USD))
 
-    def _roll_day(self, now: float) -> None:
+    def _local_day(self, now: float) -> Any:
         from homeassistant.util import dt as dt_util  # noqa: PLC0415
 
-        day = dt_util.as_local(dt_util.utc_from_timestamp(float(now))).date()
+        return dt_util.as_local(dt_util.utc_from_timestamp(float(now))).date()
+
+    def _roll_day(self, now: float) -> None:
+        day = self._local_day(now)
         if day != self._day:
+            if self._day is not None and self.rehydrate_state == "failed":
+                # A failed rehydrate holds the budget until local midnight.
+                self.cap_hold = False
             self._day = day
             self.calls_today = 0
             self.cost_today = 0.0
@@ -631,12 +651,70 @@ class InteriorVisionSampler:
     def budget_skip(self, purpose: str, now: float | None = None) -> str | None:
         c = self._const()
         self._roll_day(self._now() if now is None else now)
+        if self.cap_hold:
+            return SKIP_REHYDRATING
         return budget_skip(
             switch_on=self.switch_on(), kill=bool(c.LLMVISION_ENRICHMENT_KILL),
             cap=self.daily_cap(), cost_cap=self.cost_cap(), calls_today=self.calls_today,
             cost_today=self.cost_today, est_cost=float(c.INTERIOR_VISION_EST_COST_PER_CALL),
             reserved=int(c.INTERIOR_DESCRIBE_RESERVED_CALLS), purpose=purpose,
         )
+
+    # ---------------------------------------------------- rehydrate (P3-D5)
+    async def async_rehydrate(self, *, retry: bool = True) -> None:
+        """Set today's counters from today's ``interior_description`` rows
+        (one per model call, every outcome). One try bounded by
+        ``INTERIOR_VISION_CAP_REHYDRATE_TIMEOUT_S``, one retry after
+        ``_RETRY_S``; both failing holds the budget until local midnight and
+        pages LOW ``interior_vision_cap_rehydrate_failed``. Reuses
+        ``Database.count_memory_episodes_by_type_ended_between`` (P3-D5)."""
+        import asyncio  # noqa: PLC0415
+        from datetime import timedelta  # noqa: PLC0415
+
+        from homeassistant.util import dt as dt_util  # noqa: PLC0415
+
+        c = self._const()
+        self.cap_hold = True
+        self.rehydrate_state = "pending"
+        for attempt in range(2 if retry else 1):
+            if attempt:
+                await asyncio.sleep(float(c.INTERIOR_VISION_CAP_REHYDRATE_RETRY_S))
+            if self.torn_down:
+                return
+            self._roll_day(self._now())
+            day = self._day
+            database = self._data().get("database")
+            try:
+                if database is None:
+                    raise RuntimeError("no database")
+                start = dt_util.as_utc(dt_util.start_of_local_day(day))
+                end = dt_util.as_utc(dt_util.start_of_local_day(day + timedelta(days=1)))
+                count, ok = await asyncio.wait_for(
+                    database.count_memory_episodes_by_type_ended_between(
+                        c.INTERIOR_DESCRIPTION_EPISODE_TYPE, start.isoformat(),
+                        end.isoformat(), CALL_OUTCOMES),
+                    timeout=float(c.INTERIOR_VISION_CAP_REHYDRATE_TIMEOUT_S))
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001
+                count, ok = 0, False
+            if self.torn_down:
+                return
+            if ok:
+                self._roll_day(self._now())
+                if self._day == day:
+                    self.calls_today = max(self.calls_today, int(count))
+                    self.cost_today = max(
+                        self.cost_today, int(count) * float(c.INTERIOR_VISION_EST_COST_PER_CALL))
+                self.cap_hold = False
+                self.rehydrate_state = "ok"
+                return
+        self.rehydrate_state = "failed"
+        self.counters["rehydrate_failed"] += 1
+        self._fire("interior_vision_cap_rehydrate_failed",
+                   "Interior vision could not count today's calls after a restart (two "
+                   "tries); describe is off until local midnight.",
+                   "Check the URA database (memory_episodes reads).", "LOW")
 
     # ---------------------------------------------------------- describe
     def describe(self, group: Mapping[str, Any], *, room: str, still_live: bool,
@@ -665,12 +743,16 @@ class InteriorVisionSampler:
                   reply_affect,
                   requester, reason, header, reply, c) -> str:
         if self.torn_down:
-            return ""
+            # Never "" (= scheduled) on a dead sampler (review B-L5).
+            self.skips["torn_down"] += 1
+            return "Interior vision is not running."
         skip = self.budget_skip(PURPOSE_DESCRIBE, now)
         if skip is not None:
             self.skips[skip] += 1
             if skip in (SKIP_SWITCH_OFF, SKIP_KILL):
                 return "Interior vision is off."
+            if skip == SKIP_REHYDRATING:
+                return "Interior vision is starting up; try again in a minute."
             return "Interior vision limit reached today."
         still = group.get("still_source")
         if not still:
@@ -704,6 +786,7 @@ class InteriorVisionSampler:
                    requester,
                    reason, header, reply, t0) -> None:
         import asyncio  # noqa: PLC0415
+        import uuid  # noqa: PLC0415
 
         c = self._const()
         files: list[str] = []
@@ -712,11 +795,16 @@ class InteriorVisionSampler:
         scrubbed = 0
         dewarped = False
         n_views = 1
+        # Staged-file prefix chosen BEFORE any await (reviews A-L3 / B-L1,
+        # A-L5): unique per call, and on any exit (cancel included) every
+        # file with it is deleted after the write job has finished.
+        prefix = f"{STAGE_PREFIX}{uuid.uuid4().hex}"
+        writes: list = []
         try:
             entities: tuple[str, ...] = (still,)
             if dewarp_views:
                 try:
-                    files = await self._stage_dewarped(still, dewarp_views)
+                    files = await self._stage_dewarped(still, dewarp_views, prefix, writes)
                 except asyncio.CancelledError:
                     raise
                 except Exception:  # noqa: BLE001
@@ -752,8 +840,12 @@ class InteriorVisionSampler:
             status = DESCRIBE_ERROR
             _LOGGER.debug("interior vision: describe failed", exc_info=True)
         finally:
-            if files:
-                await self._unstage(files)
+            if dewarp_views:
+                if writes:
+                    # A cancel can land while the write job runs in the
+                    # executor: wait for it, then delete by prefix.
+                    await asyncio.wait(writes)
+                await self._unstage(prefix)
         now = self._now()
         latency = max(0.0, now - float(t0))
         self._latencies.append(latency)
@@ -768,11 +860,16 @@ class InteriorVisionSampler:
                           dewarped=dewarped, names_scrubbed=scrubbed,
                           latency_s=round(latency, 2), model=str(c.CROSSING_VISION_MODEL))
             record = self._emit(fields)
-            if record is not None:
-                try:
-                    self._log_row(record)
-                except Exception:  # noqa: BLE001
-                    _LOGGER.debug("interior vision: description row failed", exc_info=True)
+        try:
+            # One row per model call, every outcome: the restart rehydrate
+            # counts these (review B-L2).
+            self._log_row(record, {
+                "outcome": status, "room": room, "group_key": str(group.get("group_key")),
+                "reason": reason, "views": n_views, "dewarped": dewarped,
+                "latency_s": round(latency, 2), "model": str(c.CROSSING_VISION_MODEL),
+            })
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("interior vision: description row failed", exc_info=True)
         self.check_tripwires(now)
         if reply is None:
             return
@@ -793,9 +890,12 @@ class InteriorVisionSampler:
 
         return os.path.join(self.hass.config.config_dir, self._const().INTERIOR_STAGE_SUBDIR)
 
-    async def _stage_dewarped(self, still: str, views: Sequence[Sequence[float]]) -> list[str]:
+    async def _stage_dewarped(self, still: str, views: Sequence[Sequence[float]],
+                              prefix: str, writes: list) -> list[str]:
         """Fetch the still through HA's camera component, cut the flat views
-        in the executor and stage them as local files for llmvision."""
+        in the executor and stage them as local files for llmvision, named
+        ``<prefix>_<i>.jpg``. The write job is appended to ``writes`` before
+        it is awaited so the caller can wait for it after a cancel."""
         from homeassistant.components import camera as _cam  # noqa: PLC0415
 
         from . import interior_dewarp as _dw  # noqa: PLC0415
@@ -809,15 +909,21 @@ class InteriorVisionSampler:
                 out_fov_deg=float(c.INTERIOR_DEWARP_OUT_FOV_DEG),
                 out_px=int(c.INTERIOR_DEWARP_OUT_PX),
                 quality=int(c.INTERIOR_DEWARP_JPEG_QUALITY)))
-        stamp = f"{self._now():.3f}".replace(".", "_")
-        return await self.hass.async_add_executor_job(
-            _write_stage, self.stage_dir(), stamp, list(jpegs))
+        fut = self.hass.async_add_executor_job(
+            _write_stage, self.stage_dir(), prefix, list(jpegs))
+        writes.append(fut)
+        # Shielded: a task cancel must not cancel this future (the thread
+        # keeps writing either way); the caller waits for it, then deletes.
+        import asyncio  # noqa: PLC0415
 
-    async def _unstage(self, files: Sequence[str]) -> None:
+        return await asyncio.shield(fut)
+
+    async def _unstage(self, prefix: str) -> None:
         try:
-            left = await self.hass.async_add_executor_job(_remove_files, list(files))
+            left = await self.hass.async_add_executor_job(
+                _remove_prefix, self.stage_dir(), prefix)
         except Exception:  # noqa: BLE001
-            left = list(files)
+            left = [prefix]
         if left:
             self.counters["frames_left"] += len(left)
             self._page_frames_left(left)
@@ -892,21 +998,21 @@ class InteriorVisionSampler:
         return {
             "switch_on": self.switch_on(), "calls_today": self.calls_today,
             "cost_today_est": round(self.cost_today, 4), "daily_cap": self.daily_cap(),
-            "cost_cap": self.cost_cap(),
+            "cost_cap": self.cost_cap(), "rehydrate": self.rehydrate_state,
             "skips_by_reason": dict(sorted(self.skips.items())),
             "counters": dict(sorted(self.counters.items())),
             "latency_p90_s": p90, "tasks": len(self.tasks),
         }
 
 
-def _write_stage(folder: str, stamp: str, jpegs: list[bytes]) -> list[str]:
+def _write_stage(folder: str, prefix: str, jpegs: list[bytes]) -> list[str]:
     import os  # noqa: PLC0415
 
     os.makedirs(folder, exist_ok=True)
     out = []
     try:
         for i, data in enumerate(jpegs):
-            path = os.path.join(folder, f"iv_{stamp}_{i}.jpg")
+            path = os.path.join(folder, f"{prefix}_{i}.jpg")
             with open(path, "wb") as fh:
                 fh.write(data)
             out.append(path)
@@ -931,11 +1037,22 @@ def _remove_files(paths: Sequence[str]) -> list[str]:
     return left
 
 
+def _remove_prefix(folder: str, prefix: str) -> list[str]:
+    """Delete every staged file of one call (``<prefix>_*``); return the
+    ones still present."""
+    import os  # noqa: PLC0415
+
+    if not os.path.isdir(folder):
+        return []
+    return _remove_files([os.path.join(folder, n) for n in os.listdir(folder)
+                          if n.startswith(prefix + "_")])
+
+
 def _sweep_dir(folder: str) -> tuple[int, list[str]]:
     import os  # noqa: PLC0415
 
     if not os.path.isdir(folder):
         return 0, []
-    paths = [os.path.join(folder, n) for n in os.listdir(folder) if n.startswith("iv_")]
+    paths = [os.path.join(folder, n) for n in os.listdir(folder) if n.startswith(STAGE_PREFIX)]
     left = _remove_files(paths)
     return len(paths) - len(left), left

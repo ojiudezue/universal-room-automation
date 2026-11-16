@@ -587,9 +587,9 @@ class NotificationManager:
         self._echo_suppressed_count: int = 0
         self._last_reply_at: dict[tuple[str, str], datetime] = {}
         # VISION-INTERIOR-SIGHTINGS-1 D3: per-requester describe cooldown
-        # stamps (RAM) and describe outcome counts.
+        # stamps (RAM). Outcome counts go to `_inbound_by_command`
+        # (surfaced as the inbound sensor's `by_command`; review B-L4).
         self._describe_last: dict[str, datetime] = {}
-        self._describe_counts: dict[str, int] = {}
         # NM-INBOUND-HOUSE-QUERIES-1: diag menu windows, RAM only (a restart
         # closes every window). (person_id, channel) -> (opened_at, epoch
         # captured at inbound entry). The send rail bumps the epoch at the
@@ -4766,7 +4766,7 @@ class NotificationManager:
         from ..interior_vision import describe_access  # noqa: PLC0415
 
         def _count(key: str) -> None:
-            self._describe_counts[key] = self._describe_counts.get(key, 0) + 1
+            self._inbound_by_command[key] = self._inbound_by_command.get(key, 0) + 1
 
         if person_id is None:
             _count("describe_unresolved_requester")
@@ -4794,7 +4794,8 @@ class NotificationManager:
             _count("describe_cooldown")
             await self._log_and_reply(
                 database, person_id, channel, raw_text, "describe_cooldown",
-                "Please wait a minute before asking again.", success=False, rail2=False,
+                f"Please wait {int(cooldown)} s before asking again.",
+                success=False, rail2=False,
             )
             return
         presence = None
@@ -4812,6 +4813,10 @@ class NotificationManager:
             return
 
         async def _reply(text: str) -> None:
+            # Review A-L4: the messaging kill can flip during the call.
+            if self._messaging_suppressed:
+                _count("describe_reply_suppressed")
+                return
             await self._send_reply(person_id, channel, text)
 
         immediate = presence.request_room_description(
