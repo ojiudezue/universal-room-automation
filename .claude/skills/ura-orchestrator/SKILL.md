@@ -70,6 +70,11 @@ framing G). This skill is the operating loop that uses them.
 
 ## C. Consistency and drift correction
 
+0. **The in-flight list decides.** `docs/planning/ARC_identity_vision_census_map.md` §4a is the single ordered list of
+   what runs. Nothing new gets an agent unless it is the next open row there or the operator asks. Update its status
+   column at every hand-back and before every dispatch; a side finding gets a card and waits. Operator 2026-11-15:
+   "I don't want it not to matter."
+
 1. **Live findings feed plans the same cycle** (memory `feedback_live_findings_feed_plans`). A live failure gets a
    mechanism, then an amendment to every plan that assumed otherwise, then a review. A card alone is not enough.
 2. **Plans are hypotheses about the house.** Before a plan's numbers are relied on, check them live. 2026-11-15:
