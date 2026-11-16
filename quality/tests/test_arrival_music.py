@@ -531,12 +531,14 @@ async def test_window_end_stops_when_never_reached(r, ours_t):
 
 
 @pytest.mark.asyncio
-async def test_window_end_neither_branch_withholds_stop(r):
-    await _started(r)                             # ARRIVAL_OURS_ATTR None (shipped)
+async def test_window_end_context_rule_stops_without_ours_attr(r):
+    """Fix pass (G-1): ARRIVAL_OURS_ATTR None no longer withholds the stop;
+    the context ownership rule decides (no foreign write -> stop)."""
+    await _started(r)
     await A.window_end(r)
     rows = [(a["outcome"], a["subtype"]) for a in await A.outcomes(r)]
-    assert ("wait_kept_unverified", "no_ours_attr") in rows
-    assert not A.ura_calls(r, "media_stop")
+    assert ("wait_expired_stopped", "media_stop") in rows
+    assert len(A.ura_calls(r, "media_stop")) == 1
 
 
 @pytest.mark.asyncio
@@ -833,12 +835,11 @@ async def test_departure_return_check_truncated_fails_closed(r, ours_t):
 @pytest.mark.asyncio
 async def test_departure_grouped_player_kept_group(r, ours_t):
     await _handed_off(r)
-    sp = r.world.speakers["master"]
-    sp.group = ["media_player.master_bedroom_sonos_2", "media_player.kitchen_3"]
-    r.world.push(sp, r.mf_ctx if hasattr(r, "mf_ctx") else None)
-    import importlib
-    ctx = importlib.import_module("custom_components.universal_room_automation.ura_context")
-    r.world.push(sp, ctx.ura_write_context())
+    # The group is formed by music following's own call (its context is
+    # recorded), so ownership holds and the group check decides.
+    await r.mf._call("media_player", "join", {
+        "entity_id": "media_player.master_bedroom_sonos_2",
+        "group_members": ["media_player.kitchen_3"]})
     await A.drain(r)
     await A.depart(r, OJI_EID, r.wall.t + H)
     assert "departure_kept_group" in await A.names(r)
@@ -878,11 +879,12 @@ async def test_departure_pause_knob_false(r, ours_t, monkeypatch, mods):  # noqa
 
 
 @pytest.mark.asyncio
-async def test_departure_neither_branch_withholds_pause(r):
+async def test_departure_context_rule_pauses_without_ours_attr(r):
+    """Fix pass (G-1): the departure pause is active under the context rule."""
     await _handed_off(r)
     await A.depart(r, OJI_EID, r.wall.t + H)
-    assert "departure_kept_unverified" in await A.names(r)
-    assert not A.ura_calls(r, "media_pause")
+    assert "departure_paused" in await A.names(r)
+    assert len(A.ura_calls(r, "media_pause")) == 1
 
 
 @pytest.mark.asyncio

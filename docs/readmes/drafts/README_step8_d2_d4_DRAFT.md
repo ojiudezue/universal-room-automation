@@ -22,26 +22,56 @@ person's last departure is >= 900 s before the arrival (tracker `left_at`, else 
 closed `departure_missing`); one intent per person.
 Start: toggles; quiet / sleep / waking; room paused; another tracked person in the room; guests (house
 `guest` OR >= 2 unidentified in the comfort census; a None census starts and is counted); the 480 s
-backstop (skipped when the layer already places the person there); 1 h gap; a pick and a player; never
-interrupt a playing player or group.
+backstop (skipped when the layer already places the person there); 1 h gap; the room's own sleep clock
+(`skipped_sleep:room`); a pick and an AVAILABLE player (an unavailable bedroom player falls back to the next own
+room); never interrupt a playing player or group; never start a grouped player (`skipped_grouped`); not inside the
+music-following hazard block (`skipped_hazard`, re-checked after `play_media` and after the verify wait); one start
+per room and per player at a time (`skipped_playing:inflight`). The tracked-person, backstop and (at window end /
+departure) occupancy and co-owner checks cover the owners' SUITE (every own room of every owner of the target room:
+for the master, the master bedroom and the master bath), plus a zone fallback player's own room.
+
+## Ownership (fix pass 2026-11-15, orchestrator default, pending operator confirmation)
+
+Music is "ours" from a successful start until any write to the played entity whose HA context music following did
+not create (the context ids of its own calls: the start, stop, pause and every transfer call). Position-only writes
+are ignored. A pause / stop / off / volume 0 from another context ends the wait as `reversed`; any other foreign write
+as `wait_ended_not_ours` (after the hand-off: `stamp_cleared_reversed` / `stamp_cleared_not_ours`). With ownership
+intact the window-end stop and the departure pause ACT (the old "neither" branch, `wait_kept_unverified` /
+`departure_kept_unverified`, is gone). `ARRIVAL_OURS_ATTR` is an optional extra check (both must hold), default None.
+**Expected live effect:** HA gives a device update that lands more than 5 s after a call a fresh context, so the
+player's own next track change also ends ownership. With a multi-track pick the 15-minute stop will mostly not fire
+and the departure pause will rarely fire; both fail toward leaving the music alone.
 
 ## Knobs (all rung 1, `const.py`)
 
 `ARRIVAL_WINDOW_S` 900, `ARRIVAL_MIN_AWAY_S` 900, `ARRIVAL_OCCUPIED_BACKSTOP_S` 480,
 `ARRIVAL_GUEST_UNIDENTIFIED_MIN` 2 (D0b), `ARRIVAL_MIN_GAP_S` 3600, `ARRIVAL_VERIFY_S` 20,
 `ARRIVAL_REVERSAL_S` 120, `ARRIVAL_SCENE_CONFIRM_S` 120, `ARRIVAL_DEPARTURE_DB_LOOKBACK_S` 30 d,
-`ARRIVAL_DEPARTURE_VACANCY_WAIT_S` 300, `ARRIVAL_MUSIC_DEPARTURE_PAUSE` True, `ARRIVAL_OURS_ATTR` None,
-`ARRIVAL_RESTART_SWEEP_EXTRA_S` 3600, trip-wire thresholds (§7).
+`ARRIVAL_DEPARTURE_VACANCY_WAIT_S` 300, `ARRIVAL_MUSIC_DEPARTURE_PAUSE` True, `ARRIVAL_OURS_ATTR` None (optional
+extra ownership check), `ARRIVAL_OWNERSHIP_IGNORED_ATTRS` {media_position, media_position_updated_at},
+`MF_URA_CONTEXT_IDS_MAX` 256, `ARRIVAL_PC_INTERVAL_FALLBACK_S` 30, `ARRIVAL_EPISODE_LOG_PERSIST` True (the arrival
+rows' own switch, split from `MF_EPISODE_LOG_PERSIST`), `ARRIVAL_RESTART_SWEEP_EXTRA_S` 3600, trip-wire thresholds
+(§7). `ARRIVAL_MIN_AWAY_S` 0 admits every GPS flap (and turns off the restore-edge rule). A window not longer than
+`ARRIVAL_VERIFY_S` is logged at start-up; the window end then waits for the start to resolve.
+
+## Music following: the WiiM MA twin (MF-MA-TWIN-WIIM-UUID-1)
+
+`_ma_candidates` now also matches the WiiM provider's MA players (`wiim_uuid:<UUID>`, UUID without dashes starting
+with the native device's `wiim` identifier) and orders candidates live first. The `_5` MAC twins read unavailable
+all week, so before this the MA path never ran in a WiiM room. Expect `path=ma` decisions between WiiM rooms.
+
+## Writer health
+
+`arrival_music` / `welcome_scene` are checked only while the arrival master is on and at least one profile has
+`auto_music` or `auto_scene` (switch-gated, `hass.data[DOMAIN]["arrival_actions_opted_in"]`).
 
 ## Live checks after install (operator present)
 
 1. **D2 B0, MA play on another player:** play a stored MA pick on a different MA player, on
    `media_player.jayas_room_3` and on the master Sonos. Record whether the id plays and the value shape.
-2. **D2 B0, the `ours` check:** for a playlist pick and an album / station pick, read `media_content_id`
-   and every queue / source attribute of the native and MA entity right after the start and after a track
-   skip. Record the values here. Then set `ARRIVAL_OURS_ATTR`: `"media_content_id"` (branch T) or the
-   stable attribute (branch Q). **Until it is set (branch "neither", as shipped) the window-end stop and
-   the departure pause do not act**; they record `wait_kept_unverified` / `departure_kept_unverified`.
+2. **Ownership check:** after an engine start, let one track change happen and read the next `Arrival decision`
+   line: expect `wait_ended_not_ours` (the device's own update carries a fresh context). Record whether the played
+   entity writes between tracks; that decides how often the stop / pause can act (operator question).
 3. First opted-in arrival: `Arrival decision ... outcome=started` (or a named skip), then `arrived`,
    `wait_kept_*` or `wait_expired_stopped`; zero `stopped_then_arrived`; any GPS flap that day counted
    `skipped_not_counted_return:short_absence` with no `started`.
@@ -50,6 +80,15 @@ interrupt a playing player or group.
 5. First departure after a start: `departure_paused` or a kept reason with `room_occupied` in the line.
 
 ## Validated (to be written back after install)
+
+## Not done (accounted)
+
+- Follow-me (D2b): not built (plan allows; ships off).
+- Review D11 (a BLE-only resident's long silence at home then a `home` edge counts as an arrival): card to mint,
+  measured none in D0b (12 of 12 real); not fixed by ruling.
+- Writes to other members of the played entity's group are not watched (a grouped player is never stopped or
+  paused, so no decision depends on them).
+- A foreign write inside the 20 s verify wait (before the ownership listener starts) is not seen.
 
 | Criterion | Result | Evidence |
 |---|---|---|

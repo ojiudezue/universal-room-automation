@@ -5205,7 +5205,10 @@ ARRIVAL_MIN_GAP_S: Final = 3600
 ARRIVAL_VERIFY_S: Final = 20
 ARRIVAL_REVERSAL_S: Final = 120
 # Step 8's own flap filter (§5.4 gate 3b): P's last departure must be at
-# least this long before the arrival. 0 = flags only (every GPS flap passes).
+# least this long before the arrival. 0 = flags only: every GPS flap
+# (home -> not_home -> home inside a minute, counted=True) then starts music,
+# and the D6 restore rule (no departure seen, unknown/unavailable -> home)
+# is off too.
 ARRIVAL_MIN_AWAY_S: Final = 900
 # How far back gate 3b reads persisted person_departure / person_arrival rows
 # after a restart (30 d). 0 = no DB fallback.
@@ -5214,13 +5217,33 @@ ARRIVAL_DEPARTURE_DB_LOOKBACK_S: Final = 2592000
 ARRIVAL_DEPARTURE_VACANCY_WAIT_S: Final = 300
 # False = no departure pause.
 ARRIVAL_MUSIC_DEPARTURE_PAUSE: Final = True
-# Which player attribute identifies "our" music (D2 B0, plan HIGH-2):
-# branch T = "media_content_id" (stamped from what the player reports right
-# after the start), branch Q = the stable queue / source attribute B0 names.
-# None = branch "neither" (not yet settled live): the window-end stop and the
-# departure pause are WITHHELD (wait_kept_unverified /
-# departure_kept_unverified, the reason recorded). Set by the live B0 check.
+# Ownership (orchestrator default 2026-11-15, replacing B0 branch "neither",
+# pending operator confirmation): music is "ours" from a successful start
+# until any write to the played entity whose HA context music following did
+# not create (MusicFollowing._ura_ctx_ids: the start, stop, pause and every
+# transfer call). A write from any other context (phone, Spotify, MA UI,
+# button, a user service call, AND the device's own later updates, e.g. a
+# track change, which HA stamps with a fresh context 5 s after a call) ends
+# it. Optional extra check: the attribute named here (e.g.
+# "media_content_id") must also still equal its value at the start; both
+# conditions must hold. None = the context rule alone.
 ARRIVAL_OURS_ATTR: Final = None
+# Attribute-only writes that change nothing but these keys do not end
+# ownership (a position tick is not a change of what plays). Rung 1.
+ARRIVAL_OWNERSHIP_IGNORED_ATTRS: Final = frozenset({"media_position", "media_position_updated_at"})
+# Bound on the remembered music-following context ids (oldest out). A device
+# echo arrives within HA's 5 s context window, so a few hundred is ample.
+MF_URA_CONTEXT_IDS_MAX: Final = 256
+# The window-end move-log read starts this long before the arrival when the
+# person coordinator has no update_interval (its live interval is 30 s).
+ARRIVAL_PC_INTERVAL_FALLBACK_S: Final = 30
+# Review B-L6: the arrival episode writer's own switch (rows feed the restart
+# sweep, the trip-wires and writer health). False = no arrival rows.
+ARRIVAL_EPISODE_LOG_PERSIST: Final = True
+# Review B-M2: hass.data[DOMAIN] key read by writer health
+# (MEMORY_WRITER_HEALTH_SWITCH_GATED_TYPES); truthy only while the arrival
+# master is on and at least one profile has auto_music or auto_scene.
+ARRIVAL_ACTIONS_OPTED_IN_HASS_KEY: Final = "arrival_actions_opted_in"
 # How far past the window the restart sweep looks for unended intents.
 ARRIVAL_RESTART_SWEEP_EXTRA_S: Final = 3600
 # Trip-wire thresholds (§7). 0 = that trip-wire off.
@@ -6821,6 +6844,10 @@ MEMORY_WRITER_HEALTH_ABSENT_HOUSE_STATES: Final = frozenset({"away", "vacation"}
 # checked on the next run that finds it on.
 MEMORY_WRITER_HEALTH_SWITCH_GATED_TYPES: Final = {
     "crossing_vision_ledger": CROSSING_VISION_SWITCH_HASS_KEY,
+    # Arc step 8 (review B-M2): arrival rows exist only while the master is
+    # on and a resident opted in (People step).
+    "arrival_music": ARRIVAL_ACTIONS_OPTED_IN_HASS_KEY,
+    "welcome_scene": ARRIVAL_ACTIONS_OPTED_IN_HASS_KEY,
 }
 
 MEMORY_FACT_TOPICS: Final = frozenset({
