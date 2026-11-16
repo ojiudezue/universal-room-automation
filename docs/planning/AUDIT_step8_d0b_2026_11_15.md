@@ -173,3 +173,49 @@ Jaya's and Ziri's proxy rooms also overlap (Jaya Bedroom).
 - 11-12 17:29 ezinne (away 0 s) is a flap that the census flagged; included in the counts above only where noted (all-80 tables), not in
   the passing-only tables.
 - Raw output kept at `.claude/tmp/d0b_out_final.txt`; probe at `.claude/tmp/d0b_arrival_probe.py`.
+
+## Addendum (coordinator follow-up, 2026-11-15 22:0x CDT): does the stale-source rule separate the phantoms?
+
+Probe: same file, new `CLS` lines (`.claude/tmp/d0b_arrival_probe.py`, output `.claude/tmp/d0b_out2.txt`). Classes: **phantom** = pass
+(>= 900 s away) with no room visit in 900 s and not in the census at +180 s (section 1, 29 arrivals, all Oji); **real** = pass with a
+visit or census presence (32 arrivals: Oji 4, others 28); **flap** = under 900 s (19). For each arrival edge: (1) the `source`
+attribute of `person.*` at the edge (recorder `state_attributes`), classified through the entity registry (`platform`; device model
+through the device registry); (2) the source tracker's `last_changed` (recorder `last_changed_ts`, falling back to `last_updated_ts`
+where NULL) in the latest row at or before the edge, versus the edge time; (3) the residency `source_stale` from `memory_episodes`
+`attrs_json` (rows since 11-13). The rule is `arrival_edges.stale_source_arrival` (`arrival_edges.py:73-107`): stale iff
+`person.last_changed - source.last_changed > LOCK_ARRIVAL_STALE_SOURCE_S` (10 s, `const.py:4168`); residency calls it at
+`presence.py:5383-5389`.
+
+### 1 and 2. Source tracker and whether it changed at the edge
+
+| Group | n | Source tracker (registry platform) | Source `last_changed` lag before the edge |
+|---|---|---|---|
+| Oji phantom | 29 | `device_tracker.okosisipadmini6_2` x29 (platform `mobile_app`, device registry: Apple iPad14,2 "OkosisiPadMini6 (481)") | 168 s to 73,631 s (median about 11,169 s); never under 10 s |
+| Oji flap (<900 s) | 18 | same iPad tracker x18 | 4,462 s to 51,046 s |
+| Oji real | 4 | `phalanxiphone15promaxcflare` (mobile_app phone) x2, `private_ble_device_8ce182` (private_ble_device) x2 | 0.0 s in all 4 |
+| Other residents real | 28 | ezinne: `zinny_s_iphone_15` (mobile_app) x13, `ezinne_iphone` (private_ble_device) x3; jaya: `private_ble_device_249050` x8, `iphone_jaya_bermuda_tracker` (bermuda) x1; ziri: `iphone_ziri_bermuda_tracker` (bermuda) x2, `ziri_iphone` (icloud3) x1 | 0.0 s in all 28 |
+| Ezinne flap | 1 | `zinny_s_iphone_15` (mobile_app) | 0.0 s (not stale; the rule does not catch this one) |
+
+All 47 of Oji's phantom and flap arrivals (29 + 18) come from the iPad tracker; none of his 4 real returns do. The iPad tracker did not
+change at those edges (its state was already as it was for minutes to 20 hours), so the person flip came from the composed state
+with a source attribute naming a tracker that had not just moved. The mechanism behind the flips (why `person.oji_udezue` flips while
+the iPad is unchanged) I did not trace; the observation is the stale source, not the cause.
+
+### 3. Residency `source_stale` (rows since 11-13)
+
+Phantoms with a row: 4, all `source_stale` True. Real with a row: 12 (oji 3, ezinne 4, jaya 3, ziri 2), all False. Oji flaps with a row: 2,
+both True. The probe's own recomputation from the recorder (lag over 10 s) agrees with the stored flag on all 18 rows that have one.
+
+### Verdict: 2x2 (phantom vs real by stale vs not stale; stale = source lag over 10 s, same as the stored flag where rows exist)
+
+| | Stale | Not stale |
+|---|---|---|
+| Phantom (29) | **29** | 0 |
+| Real (32) | 0 | **32** |
+
+The existing stale-source rule separates the 29 phantoms from the real arrivals with no overlap in this window: the smallest phantom lag
+(168 s) is 16x the 10 s threshold and every real arrival has lag 0.0 s. Limits: 7 days, one tracker (the iPad) behind every phantom, and
+the real class is defined by body evidence, so a real return whose source went stale would show as a phantom or a miss; there are none
+in this window. Implication for gate 3b: it can reuse the residency record's `source_stale` flag (no new rule) to reject the iPad-driven arrivals.
+It would also reject the 18 iPad flaps (already caught by the 900 s clock), and would not catch Ezinne's one flap (not stale). Whether to
+reject stale arrivals outright, or only for music and the welcome scene, is the operator's call (the lock regime already uses the rule).
