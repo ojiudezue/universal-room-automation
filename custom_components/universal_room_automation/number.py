@@ -1,6 +1,6 @@
 """Number platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.108.26
+# Universal Room Automation vv5.108.27
 # Build: 2026-01-02
 # File: number.py
 #
@@ -4306,9 +4306,9 @@ class CrossingVisionDailyCallsNumber(NumberEntity):
     PerimeterEnrichmentTimeoutNumber pattern) and publishes the live value to
     hass.data[DOMAIN][CROSSING_VISION_CAP_HASS_KEY], which the producer reads
     at schedule and call time (no entity-id lookup). Default
-    `CROSSING_VISION_DAILY_CALLS` (40). 0 = no calls (INV-OFF). The counter
-    is RAM, reset at local midnight; a restart can allow up to one more cap
-    that day (plan rev 2 F7).
+    `CROSSING_VISION_DAILY_CALLS` (93, P3-D0). 0 = no calls (INV-OFF). The
+    counter resets at local midnight and is rehydrated from today's call rows
+    at setup (P3-D5).
     """
 
     _attr_has_entity_name = True
