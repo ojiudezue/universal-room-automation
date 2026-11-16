@@ -3291,7 +3291,6 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 CHATTER_QUARANTINE_ENABLED,
                 CHATTER_MODE_OFF,
                 CHATTER_MODES,
-                CONF_CHATTER_MODE,
                 DEFAULT_CHATTER_MODE,
             )
         except Exception:  # noqa: BLE001
@@ -3299,12 +3298,14 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         if not CHATTER_QUARANTINE_ENABLED:
             return CHATTER_MODE_OFF
         try:
+            # S3a (CHATTER-MODE-SELECT-NOT-WIRED-1): the operator's select
+            # lives on the INTEGRATION entry; read it there first (CM entry
+            # and the default are the fallbacks). `nm_cycle_a_knob` read the
+            # CM entry only, so the select never reached the rooms.
             from .domain_coordinators._nm_cycle_a import (  # noqa: PLC0415
-                nm_cycle_a_knob,
+                chatter_mode_option,
             )
-            mode = nm_cycle_a_knob(
-                self.hass, CONF_CHATTER_MODE, DEFAULT_CHATTER_MODE,
-            )
+            mode = chatter_mode_option(self.hass)
             if isinstance(mode, str) and mode in CHATTER_MODES:
                 return mode
             return DEFAULT_CHATTER_MODE

@@ -521,6 +521,19 @@ on suppression (HIGH-B1 fix, `coordinator.py:3628-3634`).
 `CHATTER_RELEASE_QUIET_S` of zero transitions. Owned by
 `coordinator._chatter_detector` (`coordinator.py:696`), listeners registered
 `coordinator.py:1708-1709`.
+**Mode owner (S3a, CHATTER-MODE-SELECT-NOT-WIRED-1, built 2026-11-15 on `feature/stuck-sensor-s1-s3`, NOT deployed;
+plan `PLANNING_stuck_sensor_truth.md` rev 2):** `select.ura_chatter_mode` lives on the INTEGRATION entry and writes its
+options. Until this build the room resolver `_chatter_mode` read `nm_cycle_a_knob`, i.e. the CM entry only, so the
+select never reached the rooms: live the integration held `act`, the CM entry had no key, rooms ran the default
+`shadow`, and chatter had never acted (every chatter NM read "WOULD quarantine (shadow)"). Now one resolver
+`domain_coordinators/_nm_cycle_a.chatter_mode_option(hass)` returns the integration option, else the CM option (the
+pre-D7 migrate target in `__init__.py`), else `DEFAULT_CHATTER_MODE`; an invalid value is skipped. The room resolver and
+the select's `current_option` both read it (INV-S3a: rooms run what the select shows; the module kill const
+`CHATTER_QUARANTINE_ENABLED` False still forces `off`). Cache flushed by the select write, at the top of the
+integration branch of `_async_update_listener`, and by `invalidate_knob_cache()` (CM updates); a failed lookup is not
+cached. `chatter_mode` joined `INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS`, so flipping the select no longer reloads the
+parent entry. Operator decision: act (Q-A option A). Live effect at deploy: chattering inputs (Garage A/B ratgdo, the
+Master Bathroom InvisOutlet, the media MS600 bit) are excluded from room fusion while they chatter.
 
 ### 4.4 Duty-cycle stuck
 

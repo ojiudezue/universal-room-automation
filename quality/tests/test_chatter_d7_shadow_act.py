@@ -150,6 +150,7 @@ def _extract():
     sys.modules[f"{pkg_name}.domain_coordinators._stuck_signal_nm"] = nm
     nma = types.ModuleType(f"{pkg_name}.domain_coordinators._nm_cycle_a")
     nma.nm_cycle_a_knob = lambda h, k, d: d
+    nma.chatter_mode_option = lambda h: "shadow"  # S3a resolver
     sys.modules[f"{pkg_name}.domain_coordinators._nm_cycle_a"] = nma
     ns["__package__"] = pkg_name
     ns["__name__"] = f"{pkg_name}._extracted"
@@ -188,6 +189,7 @@ def chatter_mod():
         sys.modules[f"{pkg}.domain_coordinators.sensor_capability"] = cap
         nma = types.ModuleType(f"{pkg}.domain_coordinators._nm_cycle_a")
         nma.nm_cycle_a_knob = lambda h, k, d: d
+        nma.chatter_mode_option = lambda h: "shadow"  # S3a resolver
         sys.modules[f"{pkg}.domain_coordinators._nm_cycle_a"] = nma
     return _spec_load(
         f"{pkg}.domain_coordinators.chatter_detector",
