@@ -17,6 +17,9 @@ Labels file (read by the P3-D6 scorer and the P3-D0 gates):
   * count: int people who crossed, or "unknown".
   * kind "pair" rows carry pair_index into crossing_pass_key_pairs_2026_11_15.json and pair_label in that
     fixture's rubric: both -> round_trip, in / out -> one_pass, unclear / unknown -> unknown.
+Interior description pilot grades (kind "interior_desc", /grade/?batch=interior, interior vision D0(g)) go to
+quality/tests/fixtures/interior_desc_operator_grades.json instead: one row per frame_key, latest grade wins,
+{frame_key, people_count, description, note, at, batch, room, camera, frame_at, nvr_bodies, control}.
 No images, no vision text, no identities are written: only keys, times and the operator's answers.
 
 Usage:
@@ -37,6 +40,16 @@ REPO = Path(__file__).resolve().parents[2]
 LABELS_FILE = REPO / "quality/tests/fixtures/crossing_operator_grades.json"
 SITE = "http://192.168.13.137:3010"
 LOCAL_MANIFEST = Path.home() / "Code/homelab-automation/sites/urakanban/grade/manifest.json"
+INTERIOR_LABELS_FILE = REPO / "quality/tests/fixtures/interior_desc_operator_grades.json"
+LOCAL_INTERIOR_MANIFEST = Path.home() / "Code/homelab-automation/sites/urakanban/grade/manifest_interior.json"
+INTERIOR_KIND = "interior_desc"
+INTERIOR_DESCRIPTION = (
+    "Operator grades of the interior-vision D0(g) description pilot (urakanban /grade/?batch=interior, "
+    "scripts/grading/make_interior_pilot.py + pull_grades.py). One row per frame_key, latest grade wins. "
+    "people_count = people the operator sees in the frame (0-8 or 'unknown'); description = "
+    "accurate|minor_errors|wrong|made_up for the model's description; nvr_bodies = Frigate person count at "
+    "frame time; control = an empty-room control frame. Gate D0-P3 (PLANNING_vision_interior_sightings.md)."
+)
 TRACKER_VOCAB = {"in": "entry", "out": "exit"}
 PAIR_LABEL = {"both": "round_trip", "in": "one_pass", "out": "one_pass",
               "no_cross": "no_pass", "unclear": "unknown", "unknown": "unknown"}
@@ -60,14 +73,49 @@ def http_post(url: str) -> None:
         resp.read()
 
 
-def load_manifest(site: str) -> dict:
+def load_manifest(site: str, name: str = "manifest.json", local: Path = LOCAL_MANIFEST) -> dict:
     try:
-        return json.loads(http_get(f"{site}/grade/manifest.json"))
+        return json.loads(http_get(f"{site}/grade/{name}"))
     except Exception:  # noqa: BLE001 - fall back to the local copy
         try:
-            return json.loads(LOCAL_MANIFEST.read_text())
+            return json.loads(local.read_text())
         except (FileNotFoundError, ValueError):
             return {"cards": []}
+
+
+def merge_interior(incoming: list[dict], site: str, path: Path) -> tuple[int, list[dict]]:
+    """Merge interior_desc grades into the interior fixture rows (latest grade per frame_key wins)."""
+    cards = {c["frame_key"]: c for c in load_manifest(site, "manifest_interior.json",
+                                                       LOCAL_INTERIOR_MANIFEST).get("cards", [])}
+    try:
+        existing = json.loads(path.read_text()).get("grades", [])
+    except (FileNotFoundError, ValueError):
+        existing = []
+    by_key = {g["frame_key"]: g for g in existing}
+    added = 0
+    for g in sorted(incoming, key=lambda r: r.get("at", "")):
+        key = g.get("frame_key")
+        if not key:
+            continue
+        old = by_key.get(key) or {}
+        if old and old.get("at", "") >= g.get("at", ""):
+            continue
+        card = cards.get(key, {})
+        by_key[key] = {
+            "frame_key": key,
+            "people_count": g.get("people_count"),
+            "description": g.get("description"),
+            "note": g.get("note"),
+            "at": g.get("at"),
+            "batch": g.get("batch"),
+            "room": card.get("room") or old.get("room"),
+            "camera": card.get("camera") or old.get("camera"),
+            "frame_at": card.get("at") or old.get("frame_at"),
+            "nvr_bodies": (card.get("hidden") or {}).get("nvr_bodies", old.get("nvr_bodies")),
+            "control": card.get("control", old.get("control")),
+        }
+        added += 1
+    return added, sorted(by_key.values(), key=lambda r: (r.get("frame_at") or "", r["frame_key"]))
 
 
 def main() -> int:
@@ -76,6 +124,7 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--site", default=SITE, help="grading site base URL (default the urakanban webhost)")
     ap.add_argument("--labels", type=Path, default=LABELS_FILE)
+    ap.add_argument("--interior-labels", type=Path, default=INTERIOR_LABELS_FILE)
     args = ap.parse_args()
     site = args.site.rstrip("/")
 
@@ -92,6 +141,8 @@ def main() -> int:
     if not incoming:
         print("no queued grades")
         return 0
+    interior = [g for g in incoming if g.get("kind") == INTERIOR_KIND]
+    incoming = [g for g in incoming if g.get("kind") != INTERIOR_KIND]
 
     cards = {c["crossing_key"]: c for c in load_manifest(site).get("cards", [])}
     try:
@@ -130,11 +181,21 @@ def main() -> int:
 
     grades = sorted(by_key.values(), key=lambda r: (r.get("e_ts") or "", r["crossing_key"]))
     print(f"{len(incoming)} queued, {added} new or regraded, {len(grades)} total in {args.labels}")
+    i_added, i_grades = merge_interior(interior, site, args.interior_labels) if interior else (0, [])
+    if interior:
+        print(f"{len(interior)} interior queued, {i_added} new or regraded, {len(i_grades)} total in "
+              f"{args.interior_labels}")
     if args.dry_run:
         for r in grades:
             print(r["crossing_key"], r["direction"], r["count"])
+        for r in i_grades:
+            print(r["frame_key"], r["people_count"], r["description"])
         return 0
-    args.labels.write_text(json.dumps({"description": DESCRIPTION, "grades": grades}, indent=1) + "\n")
+    if incoming:
+        args.labels.write_text(json.dumps({"description": DESCRIPTION, "grades": grades}, indent=1) + "\n")
+    if interior:
+        args.interior_labels.write_text(
+            json.dumps({"description": INTERIOR_DESCRIPTION, "grades": i_grades}, indent=1) + "\n")
     if not args.no_clear:
         http_post(f"{site}/api/grades/clear")
         print("cleared server queue")

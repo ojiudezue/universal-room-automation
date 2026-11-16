@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.108.30
+# Universal Room Automation vv5.108.31
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -9538,6 +9538,10 @@ class NMDiagnosticsSensor(AggregationEntity, SensorEntity, RestoreEntity):
             persist_data = attrs.get("nm_persistence_state")
             if isinstance(persist_data, dict):
                 nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+                # NM-PERIMETER-REPEAT-STORM-1 (B-MED-1): the home repeat
+                # budget is restored regardless of the IDLE gate below.
+                if nm is not None and hasattr(nm, "restore_repeat_home_budget"):
+                    nm.restore_repeat_home_budget(persist_data)
                 if nm is not None and nm._alert_state.value == "idle":
                     nm.restore_persistence_state(persist_data)
                     _LOGGER.debug(

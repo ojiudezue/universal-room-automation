@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.108.30
+# Universal Room Automation vv5.108.31
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.108.30"
+VERSION: Final = "v5.108.31"
 
 # EC-LOADED-VS-INSTALLED-VERSION-1 — how often the on-disk manifest is re-read
 # to detect an installed-but-not-restarted deploy. Rung 1 (module constant):
@@ -4677,6 +4677,27 @@ NM_REPEAT_PHASE1_S: Final = 300
 NM_REPEAT_PHASE1_WINDOW_S: Final = 3600
 NM_REPEAT_PHASE2_S: Final = 1800
 NM_REPEAT_DAILY_AFTER_S: Final = 86400
+
+# NM-PERIMETER-REPEAT-STORM-1 (operator 2026-11-16: "Paging - first hour if
+# home. More if away"). Once a non-life-safety CRITICAL page is older than
+# NM_REPEAT_HOME_CAP_S and the house state is KNOWN and NOT in
+# NM_REPEAT_CAP_AWAY_STATES, repeats stop (outcome `repeat_capped_home`,
+# one digest line). Away/vacation keep the ladder above. An unknown house
+# state keeps repeating (fails toward paging). Life-safety never capped.
+# Rung 1 (module const): a paging-safety bound whose change should be
+# reviewed. Kill: 0 disables the cap (legacy ladder for every state).
+NM_REPEAT_HOME_CAP_S: Final = 3600
+# Own constant (not an alias of MEMORY_WRITER_HEALTH_ABSENT_HOUSE_STATES):
+# equal today by coincidence, different concept (Bug Class #63).
+NM_REPEAT_CAP_AWAY_STATES: Final = frozenset({"away", "vacation"})
+# Operator option A (2026-11-16): the hour of repeats is a budget per home
+# session per hazard, not per page. After a page of hazard H is capped at
+# home, a NEW page of H still sends its first notification but starts no
+# repeat chain (outcome `repeat_skipped_home_budget`). The budget resets
+# when the house goes away/vacation, or after this many seconds with no
+# page of H. Rung 1 (paging-safety bound). Kill: 0 disables the budget
+# (per-page cap only).
+NM_REPEAT_HOME_BUDGET_RESET_S: Final = 21600
 
 # SAFETY-NM-REFIRE-UNWIRED-1 D7 (plan Rev 4.2 + orchestrator ruling): the
 # "Smoke, CO and flood repeat schedule". Rung 2 (options-flow select, CM "Quiet

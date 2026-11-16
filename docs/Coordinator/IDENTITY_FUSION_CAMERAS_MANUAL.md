@@ -557,6 +557,8 @@ Presence details in `PRESENCE_COORDINATOR.md` and
 
 ### 4.5 Perimeter surfaces
 
+> Arrival timing cross-link (2026-11-16): F5 'P is arriving' from BLE fires at t0 as `SIGNAL_PERSON_ARRIVING(source=geofence)` through `person.*`; `source=ble` is a later poll duplicate. See PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md §1 'Arrival sources' and ledger item 43.
+
 `perimeter_enrichment.py` / `perimeter_alert.py` — alert routing off
 the DetectionLeg output of `CameraResolver.resolve_detection_legs`
 (replaced three generations of hand-rolled slug helpers per the

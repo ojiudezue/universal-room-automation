@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "327",
+  "author": "ojiudezue",
+  "session_id": "claude_20261116_084358_ship_v5_108_31",
+  "timestamp": "2026-11-16T08:43:58Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.108.31 shipped: Perimeter pages: one hour of repeats per evening at home, full ladder when away; every resend logged",
+  "summary": "Perimeter pages: one hour of repeats per evening at home, full ladder when away; every resend logged",
+  "why": "An unacknowledged perimeter page from 18:00 resent on four channels for about seven hours until a 01:13 safe-word ack. The operator chose one hour of repeats per evening at home and the full ladder only when away, so a busy evening stops paging while every new person outside still notifies once.",
+  "implications": "Shipped NM-PERIMETER-REPEAT-STORM-1 at v5.108.31; card(s) sit shipped_organic pending validation. Acceptance in README_v5.108.31.md (Live criteria).",
+  "revisit_trigger": "If a real intruder page is missed because the budget was spent, or the per-evening reset feels wrong, revisit the 6 h reset or the hazard scope.",
+  "refs": {
+    "cards": [
+      "NM-PERIMETER-REPEAT-STORM-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.108.31.md"
+    ],
+    "release_notes": "An unacknowledged non-life-safety CRITICAL page (perimeter person) repeats for its first hour while anyone is home, then stops into the digest with an ack-equivalent cooldown; after that hour, new same-hazard pages send once without repeats until the house goes away or 6 h pass. Away/vacation keep the existing ladder; life-safety unchanged; unknown house state keeps paging. Each resend writes one audit row."
+  }
+}
