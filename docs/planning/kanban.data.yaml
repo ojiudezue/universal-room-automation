@@ -35251,6 +35251,7 @@ cards:
   next: "Me (morning, house awake): (1) dewarp per the feasibility audit; (2) overlap: draw a foyer-floor-only Frigate zone on the Foyer camera, show the operator the outline on a still before saving, Frigate restart while awake; switch URA interior record and ledger-floor overlap to the zone count."
 - id: FRIGATE2-SWAP-FULL-1
   title: "Frigate 2 host swap is full (2047/2048 MB) with 4.4 GB RAM available: early warning for the known OOM/hang failure"
+  finding_2026_11_16_homelab: "homelab-automation-15: frigate.embeddings_manager RSS 13.5 GB of the 25.5 GB container, climbing since the 11-13 restart (3.4 GB then; past month 2-6 GB, growing between restarts); swap filled ~11-15 06:00 UTC; enrichment config unchanged since 10-23 -> slow leak in face/semantic/LPR embeddings. The planned Frigate restart (with the Foyer zone, operator yes + awake) reclaims it; next lever if it recurs: face model large -> small. Audio detection to be turned off globally in the same restart (operator-approved there); URA has no dependency on Frigate audio sensors (code grep + config-entry regex, 0 hits)."
   thread: identity
   status: inbox
   tier: 1
@@ -35259,7 +35260,7 @@ cards:
   links: {related: [FOYER-FISHEYE-DEWARP-1]}
   origin: {date: '2026-11-16', gist: 'Seen by the Foyer dewarp feasibility probe (AUDIT_foyer_dewarp_feasibility_2026_11_16.md, c8264dbe).'}
   why: "homelab vibememo 073/091/099 record Frigate 2 OOM and hangs; full swap means the next spike has nowhere to go. Read-only measurement 2026-11-16 01:29 CDT."
-  next: "Me: one-shot read of top memory consumers on 192.168.13.18 and swap trend; recommend (swappiness, a process cap, or more RAM) before any new Frigate load."
+  next: "Homelab session restarts Frigate 2 (awake, with the Foyer zone); I re-check embeddings RSS a day later; if it climbs again, propose face model small."
 - id: VISION-INTERIOR-SHIP1-1
   title: "Interior vision ship 1: unnamed room records per shared camera room, entry-path rows, trip-wires; no AI calls, nothing reaches census or presence"
   discriminator_2026_11_15: "Done when >=1 interior_path row with >=1 hop exists after a mapped-door entry AND interior_records_zero / interior_path_zero never fired in the window."
