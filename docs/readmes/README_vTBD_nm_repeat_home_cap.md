@@ -5,7 +5,7 @@ Card: NM-PERIMETER-REPEAT-STORM-1 (Tier 2). Operator 2026-11-16: "Paging - first
 ## What changed
 
 - An unacknowledged non-life-safety CRITICAL page (for example a perimeter "person detected" page) still repeats every 5 minutes for the first hour.
-- Past one hour, each repeat tick reads the house state first. If the house is home (any known state other than away or vacation), repeats stop: the timer is cancelled, the alert slot goes idle, its panel lease is released, one `notification_log` outcome row is written (`route_reason = bucket_outcome = repeat_capped_home`, pre-acked), and each recipient gets one digest line ("Repeats stopped: <title>").
+- Past one hour, each repeat tick reads the house state first. If the house is home (any known state other than away or vacation), repeats stop and NM ends in the same state an ack reaches: the slot's rows are marked acknowledged in `notification_log`, and `_start_cooldown` runs (COOLDOWN with the hazard's cooldown minutes, `cooldown_expires` stamped on the row). A cap differs from a human ack in three ways: it writes a pre-acked outcome row (`route_reason = bucket_outcome = repeat_capped_home`), each recipient gets one digest line ("Repeats stopped: <title>"), and there is no ack-registry entry, ack TTS or bulk backlog sweep.
 - Away or vacation: the existing ladder continues (30 min until 24 h, then daily).
 - Unknown house state (no coordinator manager, empty, or not a `HouseState` value): repeats continue. This fails toward paging.
 - Life-safety hazards (base set plus operator extras, including smoke/CO/flood on the "standard" ladder) are never capped.
@@ -23,12 +23,12 @@ House state is read with the existing `NotificationManager._panel_house_state()`
 
 ## Known limits
 
-- The page's own DB row stays unacknowledged, because nobody acked it. After a restart it is recovered, and it is capped again at its first tick (30 min later) with no send. That writes one more outcome row and one more digest line per restart.
+- A cap behaves like an ack, so it inherits the ack's existing cooldown rule: COOLDOWN does not block a new CRITICAL. `_enter_alerting` cancels the cooldown ("Cancel any existing cooldown/countdown from a previous alert") and starts a new page with a fresh hour. Only the 60 s CRITICAL dedup (`NM_DEDUP_CRITICAL`) applies. When the cooldown expires, `_re_evaluate_hazard` re-fires if the source coordinator reports the hazard still active. Today both apply equally after a human ack.
 - The repeat number restarts at 1 after a restart.
 
 ## Acceptance
 
-- Test: `quality/tests/test_nm_repeat_home_cap.py` (14 tests: home cap, 3599 s versus 3600 s boundary, away/vacation at 1800 s, unknown state, life-safety intruder and smoke, knob 0, numbered resend rows, ack, restart home and away).
+- Test: `quality/tests/test_nm_repeat_home_cap.py` (16 tests: home cap into COOLDOWN, restart after cap, new CRITICAL in cooldown, 3599 s versus 3600 s boundary, away/vacation at 1800 s, unknown state, life-safety intruder and smoke, knob 0, numbered resend rows, ack, restart home and away).
 - Live: after the next unacked perimeter page with the house home, `notification_log` shows 11 `route_reason='repeat'` rows and one `repeat_capped_home` row, and no resends after one hour.
 
 ## Live validation

@@ -3191,10 +3191,14 @@ class NotificationManager:
         return state in known
 
     async def _cap_repeat_home(self) -> None:
-        """Stop the repeat chain cleanly: no further resends, outcome row
-        ``repeat_capped_home``, one digest line per recipient. The page row
-        stays unacked (it was never acknowledged); a restart that restores
-        it caps again at its first repeat tick, before any send."""
+        """Stop the repeat chain cleanly, ending in the SAME state an ack
+        reaches: the slot's rows are marked acknowledged (as
+        ``async_acknowledge`` does, so restart recovery via
+        ``get_active_critical`` cannot resurrect it) and ``_start_cooldown``
+        runs (COOLDOWN with the hazard's minutes, ``set_cooldown`` stamped on
+        the row). Also writes the ``repeat_capped_home`` outcome row (which is
+        what distinguishes a cap from a human ack) and one digest line per
+        recipient. No ack registry entry, no ack TTS, no bulk sweep."""
         data = dict(self._active_alert_data or {})
         state = self._panel_house_state()
         _LOGGER.info(
@@ -3209,14 +3213,10 @@ class NotificationManager:
             self._light_pattern_task.cancel()
             self._light_pattern_task = None
             await self._restore_alert_lights()
-        self._alert_state = AlertState.IDLE
-        self._active_alert_data = None
-        self._active_episode_id = None
         self._panel_release_id(self._panel_lease_id(
             data.get("coordinator_id"), data.get("hazard_type"),
             data.get("location"),
         ))
-        async_dispatcher_send(self.hass, SIGNAL_NM_ALERT_STATE_CHANGED)
         await self._emit_audit_row(
             coordinator_id=data.get("coordinator_id", "unknown"),
             severity=Severity.CRITICAL,
@@ -3235,25 +3235,38 @@ class NotificationManager:
             routing_hole=False,
         )
         database = self.hass.data.get(DOMAIN, {}).get("database")
-        if database is None:
-            return
-        for person_cfg in self._config.get(CONF_NM_PERSONS, []) or []:
-            person_id = person_cfg.get(CONF_NM_PERSON_ENTITY, "")
-            if not person_id:
-                continue
-            try:
-                await database.log_notification(
-                    data.get("coordinator_id", "unknown"), "MEDIUM",
-                    f"Repeats stopped: {data.get('title', '')}",
-                    (
-                        "Unacknowledged CRITICAL page repeated for the first "
-                        f"hour; repeats stopped because the house is {state}."
-                    ),
-                    data.get("hazard_type"), data.get("location"), person_id,
-                    NM_DIGEST_FALLBACK_CHANNEL, 0,
-                )
-            except Exception:  # noqa: BLE001
-                _LOGGER.debug("NM cap digest row failed", exc_info=True)
+        if database is not None:
+            for person_cfg in self._config.get(CONF_NM_PERSONS, []) or []:
+                person_id = person_cfg.get(CONF_NM_PERSON_ENTITY, "")
+                if not person_id:
+                    continue
+                try:
+                    await database.log_notification(
+                        data.get("coordinator_id", "unknown"), "MEDIUM",
+                        f"Repeats stopped: {data.get('title', '')}",
+                        (
+                            "Unacknowledged CRITICAL page repeated for the first "
+                            f"hour; repeats stopped because the house is {state}."
+                        ),
+                        data.get("hazard_type"), data.get("location"), person_id,
+                        NM_DIGEST_FALLBACK_CHANNEL, 0,
+                    )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug("NM cap digest row failed", exc_info=True)
+            # Same DB step as async_acknowledge (slot rows only).
+            acked_id = await database.acknowledge_notification(
+                coordinator_id=data.get("coordinator_id"),
+                hazard_type=data.get("hazard_type"),
+            )
+            await database.acknowledge_matching_notifications(
+                data.get("coordinator_id"),
+                data.get("hazard_type"),
+                data.get("location"),
+            )
+            self._last_acked_row_id = (
+                acked_id if isinstance(acked_id, int) else None
+            )
+        await self._start_cooldown()
 
     def _unacked_critical_age_s(self) -> int:
         """Return the age (seconds) of the active CRITICAL alert.

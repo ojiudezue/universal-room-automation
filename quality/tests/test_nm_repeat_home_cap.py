@@ -42,6 +42,8 @@ class _FakeDB:
 
     def __init__(self, active_row=None):
         self.rows: list[dict] = []
+        self.cooldowns: list[tuple] = []
+        self.acked = False
         self._active = active_row
 
     async def log_notification(self, *args, **kwargs):
@@ -50,10 +52,33 @@ class _FakeDB:
         row = dict(zip(names, args))
         row.update(kwargs)
         self.rows.append(row)
+        if (row.get("severity") == "CRITICAL" and row.get("message") != "[audit]"
+                and not row.get("acknowledged")):
+            # an unacked page row, as get_active_critical would return it
+            self._active = dict(row, id=len(self.rows),
+                                timestamp=nm_mod.dt_util.utcnow().isoformat())
         return len(self.rows)
 
     async def get_active_critical(self):
         return self._active
+
+    async def acknowledge_notification(self, **_kw):
+        # Real DB: acks only the newest slot row; sibling per-channel rows
+        # stay unacked until acknowledge_matching_notifications.
+        self.acked = True
+        return 7
+
+    async def acknowledge_matching_notifications(self, *_a):
+        self._active = None
+
+    async def set_cooldown(self, row_id, expires):
+        self.cooldowns.append((row_id, expires))
+
+    async def get_active_cooldown(self):
+        if not self.cooldowns:
+            return None
+        return {"id": self.cooldowns[-1][0], "cooldown_expires": self.cooldowns[-1][1],
+                "hazard_type": "exterior_person", "location": "front_yard"}
 
     async def get_notifications_today(self):
         return []
@@ -133,15 +158,17 @@ async def test_home_stops_after_first_hour(monkeypatch):
     assert rig.nm.alert_state == AlertState.REPEATING
     await rig.tick()  # t = 3600 s -> cap
     assert rig.resends() == 11
-    assert rig.nm.alert_state == AlertState.IDLE
-    assert rig.nm._active_alert_data is None
+    # same end state as an ack: COOLDOWN, exterior_person default 10 min
+    assert rig.nm.alert_state == AlertState.COOLDOWN
+    assert rig.nm._cooldown_remaining == 600
+    assert rig.delays[-1] == 600  # cooldown expiry timer, not a repeat
+    assert rig.db.acked is True
+    assert rig.db.cooldowns == [(7, (T0 + timedelta(seconds=4200)).isoformat())]
     # the pending repeat handle is cancelled (no timer left armed)
-    rig.handles[-1].assert_called_once_with()
+    rig.handles[-2].assert_called_once_with()
     assert rig.nm._repeat_unsub is None
-    n_delays = len(rig.delays)
-    # nothing re-armed: a stray tick is a no-op
+    # a stray repeat tick is a no-op (state is not REPEATING)
     await rig.nm._repeat_alert()
-    assert len(rig.delays) == n_delays
     assert rig.resends() == 11
     capped = rig.rows("repeat_capped_home")
     assert len(capped) == 1
@@ -166,7 +193,7 @@ async def test_home_boundary_3599_sends_3600_caps(monkeypatch):
     rig.now[0] = T0 + timedelta(seconds=3600)
     await rig.nm._repeat_alert()
     assert rig.resends() == 1
-    assert rig.nm.alert_state == AlertState.IDLE
+    assert rig.nm.alert_state == AlertState.COOLDOWN
 
 
 @pytest.mark.parametrize("state", ["away", "vacation"])
@@ -255,6 +282,7 @@ async def test_ack_still_ends_repeat(monkeypatch):
 @pytest.mark.asyncio
 async def test_restored_page_follows_same_rule(monkeypatch, state, capped):
     row = {
+        "id": 7,
         "coordinator_id": "perimeter_alert", "title": "Perimeter Alert",
         "message": "Person on porch", "hazard_type": "exterior_person",
         "location": "front_yard", "timestamp": T0.isoformat(),
@@ -266,8 +294,44 @@ async def test_restored_page_follows_same_rule(monkeypatch, state, capped):
     await rig.tick()
     if capped:
         assert rig.resends() == 0
-        assert rig.nm.alert_state == AlertState.IDLE
+        assert rig.nm.alert_state == AlertState.COOLDOWN
         assert len(rig.rows("repeat_capped_home")) == 1
     else:
         assert rig.resends() == 1
         assert rig.nm.alert_state == AlertState.REPEATING
+
+
+@pytest.mark.asyncio
+async def test_restart_after_cap_does_not_recap_or_resend(monkeypatch):
+    rig = _Rig(monkeypatch, "home_day")
+    await rig.arm()
+    rig.now[0] = T0 + timedelta(seconds=3600)
+    await rig.nm._repeat_alert()
+    assert rig.nm.alert_state == AlertState.COOLDOWN
+    # restart: fresh NM on the same DB, 5 min into the cooldown
+    rig.now[0] = T0 + timedelta(seconds=3900)
+    nm2 = NotificationManager(rig.hass, _cfg())
+    nm2._send_pushover = AsyncMock()
+    await nm2._recover_state_from_db()
+    assert nm2.alert_state == AlertState.COOLDOWN
+    await nm2._repeat_alert()
+    assert nm2._send_pushover.await_count == 0
+    assert len(rig.rows("repeat_capped_home")) == 1
+
+
+@pytest.mark.asyncio
+async def test_new_critical_in_cooldown_follows_existing_rule(monkeypatch):
+    """Existing rule (notification_manager.py _enter_alerting, "Cancel any
+    existing cooldown/countdown from a previous alert"): COOLDOWN does not
+    block a new CRITICAL; it cancels the cooldown and starts a new chain.
+    The cap inherits exactly what an ack does today."""
+    rig = _Rig(monkeypatch, "home_day")
+    await rig.arm()
+    rig.now[0] = T0 + timedelta(seconds=3600)
+    await rig.nm._repeat_alert()
+    assert rig.nm.alert_state == AlertState.COOLDOWN
+    rig.now[0] = T0 + timedelta(seconds=3700)  # past the 60 s CRITICAL dedup
+    await rig.arm()
+    assert rig.nm.alert_state == AlertState.REPEATING
+    assert rig.nm._cooldown_remaining == 0
+    assert rig.delays[-1] == 300
