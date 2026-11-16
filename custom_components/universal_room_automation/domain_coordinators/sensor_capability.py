@@ -27,6 +27,7 @@ against a capability, per query.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import Callable, Dict, Mapping, Optional
 
@@ -398,6 +399,11 @@ FAMILY_BY_MODEL_ID: Dict[str, str] = {
     # carries the firmware). Exact string — a firmware bump changes the
     # key; re-run scripts/fan_noise/audit_motion_sensors_models.py.
     "ms600 9.0.0": SENSOR_FAMILY_GENERIC_RADAR,
+    # S3b (2026-11-15): the meross_lan device record that OWNS the
+    # `..._sensor_presence_motion` bit carries model "ms600-un" (model_id
+    # None); each room also has an "ms600 9.0.0" record (same meross_lan
+    # identifier). Verified in the live core.device_registry.
+    "ms600-un": SENSOR_FAMILY_GENERIC_RADAR,
     "16897": SENSOR_FAMILY_GENERIC_RADAR,  # Meross Smart Presence (Matter)
     "ZG-204ZV": SENSOR_FAMILY_ZIGBEE_ZV,
     "ZG-204Z": SENSOR_FAMILY_PIR,
@@ -441,11 +447,25 @@ def family_for_model(
         if key and key in FAMILY_BY_MODEL_ID:
             return FAMILY_BY_MODEL_ID[key]
     for key in (model_id, model):
-        if key and isinstance(key, str) and key.split():
-            fam = FAMILY_BY_MODEL_TOKEN.get(key.split()[0].lower())
+        token = _first_model_token(key)
+        if token:
+            fam = FAMILY_BY_MODEL_TOKEN.get(token)
             if fam is not None:
                 return fam
     return SENSOR_FAMILY_UNKNOWN
+
+
+# S3b (2026-11-15): first token split on whitespace, hyphen or underscore,
+# so a regional / firmware suffix ("ms600-un", "ms600_eu", "ms600 9.0.0")
+# resolves the same family as the bare model.
+_MODEL_TOKEN_SPLIT = re.compile(r"[\s\-_]+")
+
+
+def _first_model_token(key: object) -> str:
+    if not isinstance(key, str):
+        return ""
+    parts = [p for p in _MODEL_TOKEN_SPLIT.split(key.strip()) if p]
+    return parts[0].lower() if parts else ""
 
 
 # ----------------------------------------------------------------------
