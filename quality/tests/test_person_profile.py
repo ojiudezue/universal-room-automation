@@ -480,9 +480,9 @@ def test_room_step_one_field_per_player_room():
         automate={"auto_music": True, "music_default": MEDIA_A, "music_vary_room": True},
     )
     assert res["type"] == "form" and res["step_id"] == "people_rooms_music"
-    assert [str(k) for k in res["data_schema"].schema] == ["r_master"]
+    assert [str(k) for k in res["data_schema"].schema] == ["Master Bedroom"]
     assert res["description_placeholders"]["no_speaker"] == "Master Bath has no speaker."
-    done = run(flow.async_step_people_rooms_music({"r_master": MEDIA_R}))
+    done = run(flow.async_step_people_rooms_music({"Master Bedroom": MEDIA_R}))
     prof = _saved_profiles(done)["person.ezinne"]
     assert prof["music_by_room"] == {"r_master": MEDIA_R}
     assert prof["music_vary_room"] is True
@@ -572,3 +572,312 @@ def test_episode_types_registered():
     assert {"arrival_music", "welcome_scene"} <= c.MEMORY_EPISODE_TYPES
     # No writer yet (D2/D3): not in the writer-health set, or it would page.
     assert not ({"arrival_music", "welcome_scene"} & c.MEMORY_WRITER_BACKED_EPISODE_TYPES)
+
+
+# ---------------------------------------------------------------------------
+# §10.1 fix list (reviews A / B / C)
+# ---------------------------------------------------------------------------
+
+def _unchanged_submission(form):
+    """What the frontend sends for an untouched form: each field's default
+    or suggested value, run through the section's own schema (so a value the
+    selector rejects raises here, as it would in HA)."""
+    out = {}
+    for sec in ("my_rooms", "automate"):
+        sch = _section_schema(form, sec)
+        vals = {}
+        for k in sch.schema:
+            desc = getattr(k, "description", None) or {}
+            if "suggested_value" in desc:
+                vals[str(k)] = desc["suggested_value"]
+            elif k.default is not vol.UNDEFINED:
+                vals[str(k)] = k.default()
+        out[sec] = sch(vals)
+    return out
+
+
+def _two_bedroom_hass(names=("Master Bedroom", "Jaya Bedroom")):
+    hass = _hass()
+    integ = hass.config_entries.async_entries()[0]
+    rooms = [
+        StubEntry({CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM, CONF_ROOM_NAME: n,
+                   CONF_ROOM_TYPE: ROOM_TYPE_BEDROOM, CONF_ROOM_MEDIA_PLAYER: f"media_player.p{i}"},
+                  entry_id=f"r_{i}")
+        for i, n in enumerate(names)
+    ]
+    hass.config_entries.async_entries = lambda domain=None: [integ, *rooms]
+    return hass
+
+
+def test_room_music_step_fields_named_by_room():
+    """A1: the user sees room names, and a save maps each back to its entry_id."""
+    flow = _flow(hass=_two_bedroom_hass())
+    _open_person(flow, "person.ezinne")
+    res = _submit_profile(
+        flow, rooms={"rooms_bedroom": ["r_0", "r_1"]},
+        automate={"auto_music": True, "music_default": MEDIA_A, "music_vary_room": True},
+    )
+    assert [str(k) for k in res["data_schema"].schema] == ["Jaya Bedroom", "Master Bedroom"]
+    done = run(flow.async_step_people_rooms_music({"Master Bedroom": MEDIA_R, "Jaya Bedroom": MEDIA_D}))
+    assert _saved_profiles(done)["person.ezinne"]["music_by_room"] == {"r_0": MEDIA_R, "r_1": MEDIA_D}
+
+
+def test_room_music_step_same_name_rooms_get_distinct_labels():
+    flow = _flow(hass=_two_bedroom_hass(names=("Den", "Den")))
+    _open_person(flow, "person.ezinne")
+    res = _submit_profile(
+        flow, rooms={"rooms_bedroom": ["r_0", "r_1"]},
+        automate={"auto_music": True, "music_default": MEDIA_A, "music_vary_room": True},
+    )
+    assert [str(k) for k in res["data_schema"].schema] == ["Den", "Den (2)"]
+    done = run(flow.async_step_people_rooms_music({"Den": MEDIA_R, "Den (2)": MEDIA_D}))
+    assert _saved_profiles(done)["person.ezinne"]["music_by_room"] == {"r_0": MEDIA_R, "r_1": MEDIA_D}
+
+
+def test_room_music_step_redisplays_stored_pick_by_name():
+    stored = {"auto_music": True, "music_default": MEDIA_A, "music_vary_room": True,
+              "rooms_bedroom": ["r_master"], "music_by_room": {"r_master": MEDIA_A}}
+    flow = _flow(options={CONF_PERSON_PROFILES: {"person.ezinne": stored}})
+    _open_person(flow, "person.ezinne")
+    res = _submit_profile(flow, rooms={"rooms_bedroom": ["r_master"]},
+                          automate={"auto_music": True, "music_default": MEDIA_A,
+                                    "music_vary_room": True})
+    key = next(iter(res["data_schema"].schema))
+    assert str(key) == "Master Bedroom" and key.description == {"suggested_value": MEDIA_A}
+
+
+def test_deleted_room_default_does_not_block_submit():
+    """B1: a deleted room in the stored profile neither blocks the untouched
+    Submit nor survives the save."""
+    stored = {"rooms_bedroom": ["r_master", "r_gone"], "rooms_bathroom": ["r_bath", "r_gone"]}
+    flow = _flow(options={CONF_PERSON_PROFILES: {"person.ezinne": stored}})
+    form = _open_person(flow, "person.ezinne")
+    sub = _unchanged_submission(form)          # raises if a default is not an option
+    assert sub["my_rooms"] == {"rooms_bedroom": ["r_master"], "rooms_bathroom": ["r_bath"]}
+    prof = _saved_profiles(run(flow.async_step_people_profile(sub)))["person.ezinne"]
+    assert prof["rooms_bedroom"] == ["r_master"] and prof["rooms_bathroom"] == ["r_bath"]
+
+
+def test_retyped_bathroom_dropped_on_save():
+    """B1: r_master is a bedroom; stored as a bathroom (it was retyped), it is
+    dropped from the bathroom default and from the save, kept as a bedroom."""
+    stored = {"rooms_bedroom": ["r_master"], "rooms_bathroom": ["r_master"]}
+    flow = _flow(options={CONF_PERSON_PROFILES: {"person.ezinne": stored}})
+    form = _open_person(flow, "person.ezinne")
+    sub = _unchanged_submission(form)
+    assert sub["my_rooms"]["rooms_bathroom"] == []
+    prof = _saved_profiles(run(flow.async_step_people_profile(sub)))["person.ezinne"]
+    assert prof["rooms_bathroom"] == [] and prof["rooms_bedroom"] == ["r_master"]
+
+
+def test_dangling_room_dropped_when_rooms_section_absent():
+    """B1 save half: even with no rooms section submitted, a dangling id goes."""
+    stored = {"rooms_bedroom": ["r_master", "r_gone"]}
+    flow = _flow(options={CONF_PERSON_PROFILES: {"person.ezinne": stored}})
+    _open_person(flow, "person.ezinne")
+    prof = _saved_profiles(_submit_profile(flow, automate={"auto_music": False}))["person.ezinne"]
+    assert prof["rooms_bedroom"] == ["r_master"]
+
+
+def test_retyped_bathroom_dropped_when_rooms_section_absent():
+    """B1 save half, bathroom list: a retyped room goes even unseen by the form."""
+    stored = {"rooms_bedroom": ["r_master"], "rooms_bathroom": ["r_bath", "r_master"]}
+    flow = _flow(options={CONF_PERSON_PROFILES: {"person.ezinne": stored}})
+    _open_person(flow, "person.ezinne")
+    prof = _saved_profiles(_submit_profile(flow, automate={"auto_music": False}))["person.ezinne"]
+    assert prof["rooms_bathroom"] == ["r_bath"] and prof["rooms_bedroom"] == ["r_master"]
+
+
+def test_uri_pick_redisplay_saves_unchanged(monkeypatch):
+    """A5: a pasted-URI pick (no entity_id) redisplays in the URI field, not
+    the MediaSelector, so an untouched Submit validates and keeps it."""
+    import importlib
+    # The module the flow's call-time ``from .const import`` resolves.
+    c = importlib.import_module(cf.__package__ + ".const")
+    monkeypatch.setattr(c, "PEOPLE_MUSIC_URI_FALLBACK_ENABLED", True)
+    uri = {"media_content_id": "spotify://playlist/x", "media_content_type": c.PEOPLE_MUSIC_URI_CONTENT_TYPE}
+    stored = {"auto_music": True, "music_default": uri, "rooms_bedroom": ["r_master"]}
+    flow = _flow(options={CONF_PERSON_PROFILES: {"person.ezinne": stored}})
+    form = _open_person(flow, "person.ezinne")
+    sub = _unchanged_submission(form)          # raises vol.Invalid if the pick sits in the selector
+    assert "music_default" not in sub["automate"]
+    assert sub["automate"]["music_default_uri"] == "spotify://playlist/x"
+    prof = _saved_profiles(run(flow.async_step_people_profile(sub)))["person.ezinne"]
+    assert prof["music_default"] == uri
+
+
+def test_uri_pick_kept_when_uri_field_off():
+    """A5/A3: with the URI field off the URI pick is not on screen, so its
+    absence from the submission is not a clear."""
+    uri = {"media_content_id": "spotify://playlist/x", "media_content_type": "music"}
+    stored = {"auto_music": True, "music_default": uri, "rooms_bedroom": ["r_master"]}
+    flow = _flow(options={CONF_PERSON_PROFILES: {"person.ezinne": stored}})
+    form = _open_person(flow, "person.ezinne")
+    sub = _unchanged_submission(form)
+    prof = _saved_profiles(run(flow.async_step_people_profile(sub)))["person.ezinne"]
+    assert prof["music_default"] == uri
+
+
+# Picks made through the MediaSelector carry the browse player.
+MEDIA_D_SEL = {**MEDIA_D, "entity_id": "media_player.ma_kitchen"}
+MEDIA_E_SEL = {**MEDIA_E, "entity_id": "media_player.ma_kitchen"}
+STORED_TIME = {"auto_music": True, "music_default": MEDIA_A, "music_vary_time": True,
+               "music_day": MEDIA_D_SEL, "music_evening": MEDIA_E_SEL, "rooms_bedroom": ["r_master"],
+               "auto_scene": False, "welcome_scene": "scene.welcome"}
+
+
+def _save_time(automate, rooms=None):
+    flow = _flow(options={CONF_PERSON_PROFILES: {"person.ezinne": dict(STORED_TIME)}})
+    _open_person(flow, "person.ezinne")
+    return _saved_profiles(_submit_profile(flow, rooms=rooms, automate=automate))["person.ezinne"]
+
+
+def test_cleared_pick_clears_when_section_present():
+    """A3: the section came back, the field was on screen, its key is absent:
+    the user cleared it."""
+    prof = _save_time({"auto_music": True, "music_default": MEDIA_A, "music_vary_time": True,
+                       "music_evening": MEDIA_E_SEL})
+    assert "music_day" not in prof and prof["music_evening"] == MEDIA_E_SEL
+
+
+def test_hidden_pick_kept_when_its_toggle_is_off():
+    """A3: vary_time off hides Day/Evening; their absence keeps them."""
+    prof = _save_time({"auto_music": True, "music_default": MEDIA_A, "music_vary_time": False})
+    assert prof["music_day"] == MEDIA_D_SEL and prof["music_evening"] == MEDIA_E_SEL
+    # Welcome scene hidden (auto_scene off) is kept too.
+    assert prof["welcome_scene"] == "scene.welcome"
+
+
+def test_hidden_pick_kept_when_master_toggle_off():
+    """A3, the first conjunct: vary_time on but auto_music off still hides it."""
+    prof = _save_time({"auto_music": False, "music_vary_time": True})
+    assert prof["music_day"] == MEDIA_D_SEL and prof["music_default"] == MEDIA_A
+
+
+def test_pick_kept_when_section_not_submitted():
+    """A3: no automate section in the submit = nothing on screen to clear."""
+    prof = _save_time(None, rooms={"rooms_bedroom": ["r_master"]})
+    assert prof["music_day"] == MEDIA_D_SEL and prof["music_default"] == MEDIA_A
+
+
+def test_cleared_welcome_scene_refused_when_scene_on():
+    flow = _flow(options={CONF_PERSON_PROFILES: {"person.ezinne": {
+        **STORED_TIME, "auto_scene": True}}})
+    _open_person(flow, "person.ezinne")
+    res = _submit_profile(flow, automate={"auto_music": False, "auto_scene": True})
+    assert res["errors"] == {"base": "people_scene_needs_pick"}
+
+
+def test_toggle_read_from_stored_when_not_submitted():
+    """A3: a toggle absent from the submission reads its stored value."""
+    got = pp.cleared_pick_keys(STORED_TIME, {"music_default": MEDIA_A}, section_present=True)
+    assert got == frozenset({"music_day", "music_evening"})
+
+
+# Review C M2-M6: save-time normalization through the real People step.
+
+def test_blank_media_pick_clears():                                      # M2
+    stored = {"music_default": MEDIA_A, "rooms_bedroom": ["r_master"]}
+    flow = _flow(options={CONF_PERSON_PROFILES: {"person.ezinne": stored}})
+    _open_person(flow, "person.ezinne")
+    prof = _saved_profiles(_submit_profile(
+        flow, automate={"auto_music": False, "music_default": {}}))["person.ezinne"]
+    assert "music_default" not in prof
+
+
+def test_welcome_scene_needs_scene_prefix_and_blank_clears():           # M3
+    stored = {"welcome_scene": "scene.welcome", "rooms_bedroom": ["r_master"]}
+    for value in ("light.kitchen", ""):
+        flow = _flow(options={CONF_PERSON_PROFILES: {"person.ezinne": dict(stored)}})
+        _open_person(flow, "person.ezinne")
+        prof = _saved_profiles(_submit_profile(
+            flow, automate={"auto_scene": False, "welcome_scene": value}))["person.ezinne"]
+        assert "welcome_scene" not in prof, value
+    flow = _flow()
+    _open_person(flow, "person.ezinne")
+    prof = _saved_profiles(_submit_profile(
+        flow, automate={"auto_scene": True, "welcome_scene": "scene.evening"}))["person.ezinne"]
+    assert prof["welcome_scene"] == "scene.evening"
+
+
+def test_toggles_coerced_to_bool():                                      # M4
+    flow = _flow()
+    _open_person(flow, "person.ezinne")
+    prof = _saved_profiles(_submit_profile(
+        flow, rooms={"rooms_bedroom": ["r_master"]},
+        automate={"auto_music": "yes", "music_default": MEDIA_A, "music_vary_time": 1,
+                  "auto_scene": 0}))["person.ezinne"]
+    assert prof["auto_music"] is True and prof["music_vary_time"] is True
+    assert prof["auto_scene"] is False
+
+
+def test_by_room_normalized_and_filtered():                              # M5
+    got = pp.merge_profile_save({}, {"music_by_room": {
+        "r_a": {**MEDIA_R, "media_content_id": "  library://playlist/room  ", "extra": 1},
+        "r_b": {"media_content_id": "", "media_content_type": "playlist"},
+        "r_c": None,
+    }})["music_by_room"]
+    assert got == {"r_a": MEDIA_R}
+    assert pp.merge_profile_save({"music_by_room": {"r_a": MEDIA_R}},
+                                 {"music_by_room": ["r_a"]})["music_by_room"] == {}
+    # Through the real room step: a blank room pick is not stored.
+    flow = _flow()
+    _open_person(flow, "person.ezinne")
+    _submit_profile(flow, rooms={"rooms_bedroom": ["r_master"]},
+                    automate={"auto_music": True, "music_default": MEDIA_A, "music_vary_room": True})
+    done = run(flow.async_step_people_rooms_music({"Master Bedroom": {}}))
+    assert _saved_profiles(done)["person.ezinne"]["music_by_room"] == {}
+
+
+def test_rooms_saved_sorted_and_unique():                                # M6
+    flow = _flow()
+    _open_person(flow, "person.ezinne")
+    prof = _saved_profiles(_submit_profile(
+        flow, rooms={"rooms_bedroom": ["r_master", "r_kitchen", "r_master"]},
+        automate={"auto_music": False}))["person.ezinne"]
+    assert prof["rooms_bedroom"] == ["r_kitchen", "r_master"]
+
+
+def test_profile_sensors_distinct_unique_ids():                          # M7 + L1
+    from custom_components.universal_room_automation import sensor as s
+    cm = StubEntry({CONF_ENTRY_TYPE: ENTRY_TYPE_COORDINATOR_MANAGER}, entry_id="cm")
+    a, b = s._person_profile_sensors(_hass(), cm)
+    assert a.unique_id == "universal_room_automation_person_profile_oji_udezue"
+    assert b.unique_id == "universal_room_automation_person_profile_ezinne"
+    assert b.name == "Person Profile Ezinne"                            # L1: sensor label
+
+
+def test_people_picker_label_from_id_rule():                             # L1
+    form = run(_flow().async_step_people())
+    sel = form["data_schema"].schema[next(iter(form["data_schema"].schema))]
+    assert [o["label"] for o in sel.config["options"]] == ["Oji Udezue", "Ezinne"]
+
+
+def test_profile_sensor_drops_deleted_room():                  # B3 + L2
+    from custom_components.universal_room_automation import sensor as s
+    cm = StubEntry({CONF_ENTRY_TYPE: ENTRY_TYPE_COORDINATOR_MANAGER}, options={
+        CONF_PERSON_PROFILES: {"person.ezinne": {"rooms_bedroom": ["r_master", "r_gone"],
+                                                 "rooms_bathroom": ["r_bath"]}}}, entry_id="cm")
+    ez = s._person_profile_sensors(_hass(), cm)[1]
+    attrs = ez.extra_state_attributes
+    assert attrs["rooms"] == ["Master Bath", "Master Bedroom"]
+    assert attrs["shared_room_owners"] == {}
+
+
+def test_profile_sensors_dedupe_name_and_entity_forms():                 # L3
+    from custom_components.universal_room_automation import sensor as s
+    cm = StubEntry({CONF_ENTRY_TYPE: ENTRY_TYPE_COORDINATOR_MANAGER}, entry_id="cm")
+    got = s._person_profile_sensors(_hass(tracked=("Ezinne", "person.ezinne")), cm)
+    assert [x.entity_id for x in got] == ["sensor.ura_person_profile_ezinne"]
+
+
+def test_room_named_home_never_matches():                                # L4
+    m = {"Home": "r_home", "Den": "r_den"}
+    assert pp.room_entry_id_for_name(m, " Home ") is None
+    assert pp.room_entry_id_for_name(m, "away") is None
+    assert pp.room_entry_id_for_name(m, " Den ") == "r_den"
+
+
+def test_volume_bad_value_falls_back():                                  # L6
+    assert pp.music_volume({"music_volume": "loud"}) == 0.30
+    assert pp.music_volume({"music_volume": None}) == 0.30

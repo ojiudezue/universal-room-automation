@@ -8404,7 +8404,9 @@ class PersonProfileSensor(AggregationEntity, SensorEntity):
             if ce.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ROOM:
                 merged = {**ce.data, **ce.options}
                 names[ce.entry_id] = str(merged.get(CONF_ROOM_NAME) or ce.title)
-        mine = sorted(own_rooms(prof))
+        # Review B3 (paired with B1): a deleted room's id is dropped, never
+        # shown raw.
+        mine = sorted(r for r in own_rooms(prof) if r in names)
         profiles = profiles_from_options(self.entry.options)
         shared = {}
         for rid in mine:

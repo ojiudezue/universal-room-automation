@@ -11,6 +11,8 @@ only while its toggle is on. On HA 2026.11 a hidden form field is dropped
 from the submission; on older HA it is submitted. Either way the save merges
 into the stored profile (``merge_profile_save``), so a stale value under an
 off toggle is kept, is harmless, and comes back when the toggle is turned on.
+A pick that was ON SCREEN and comes back absent was cleared by the user
+(``cleared_pick_keys``) and is removed.
 
 Pure module: no Home Assistant imports. Callers pass the CM options dict.
 """
@@ -221,14 +223,81 @@ def music_volume(profile: Mapping[str, Any] | None) -> float:
 # Save path (People step)
 # ---------------------------------------------------------------------------
 
-def merge_profile_save(stored: Mapping[str, Any] | None, submitted: Mapping[str, Any]) -> dict:
+# A pick field and the toggles that make it visible (§5.2 ``visible``).
+CLEARABLE_PICK_CONDITIONS: dict[str, tuple[str, ...]] = {
+    PROFILE_MUSIC_DEFAULT: (PROFILE_AUTO_MUSIC,),
+    PROFILE_MUSIC_DAY: (PROFILE_AUTO_MUSIC, PROFILE_MUSIC_VARY_TIME),
+    PROFILE_MUSIC_EVENING: (PROFILE_AUTO_MUSIC, PROFILE_MUSIC_VARY_TIME),
+    PROFILE_WELCOME_SCENE: (PROFILE_AUTO_SCENE,),
+}
+
+
+def cleared_pick_keys(
+    stored: Mapping[str, Any] | None,
+    submitted: Mapping[str, Any] | None,
+    *,
+    section_present: bool,
+    not_shown: Iterable[str] = (),
+) -> frozenset[str]:
+    """Pick keys the user CLEARED (review A3).
+
+    The frontend may leave a cleared optional field out of the submission,
+    as it leaves out a hidden one. A pick key counts as cleared only when
+    its section was submitted, the key is absent, the field was on screen
+    (every toggle in ``CLEARABLE_PICK_CONDITIONS`` on, read from the
+    submission, else the stored value) and the form showed it at all
+    (``not_shown``: e.g. a pasted-URI pick with the URI field off). Any
+    other absent key is a hidden field and keeps its stored value.
+    """
+    if not section_present:
+        return frozenset()
+    sub = submitted or {}
+    st = stored or {}
+    skip = set(not_shown)
+
+    def _on(key: str) -> bool:
+        return bool(sub[key]) if key in sub else bool(st.get(key))
+
+    return frozenset(
+        key for key, conds in CLEARABLE_PICK_CONDITIONS.items()
+        if key not in sub and key not in skip and all(_on(c) for c in conds)
+    )
+
+
+def drop_unknown_rooms(
+    profile: Mapping[str, Any], bedroom_ids: Iterable[str], bathroom_ids: Iterable[str],
+) -> dict:
+    """Drop stored room ids that are no longer options (review B1).
+
+    A deleted room, or a room whose type changed away from bathroom, would
+    otherwise sit in the form default and block Submit (``SelectSelector``
+    is ``vol.In(options)`` per item).
+    """
+    out = dict(profile)
+    allowed = {PROFILE_ROOMS_BEDROOM: set(bedroom_ids),
+               PROFILE_ROOMS_BATHROOM: set(bathroom_ids)}
+    for key, ids in allowed.items():
+        if key in out:
+            out[key] = [r for r in _str_list(out[key]) if r in ids]
+    return out
+
+
+def merge_profile_save(
+    stored: Mapping[str, Any] | None,
+    submitted: Mapping[str, Any],
+    cleared: Iterable[str] = (),
+) -> dict:
     """Merge one form submission into the stored profile.
 
     Keys absent from ``submitted`` (a field HA 2026.11 hid and dropped) keep
-    their stored value. Media picks are normalized; a blank pick clears it.
+    their stored value, except the ``cleared`` keys (``cleared_pick_keys``),
+    which are removed. Media picks are normalized; a blank pick clears it.
     Unknown keys are ignored.
     """
     out = dict(stored or {})
+    for key in cleared:
+        if key not in (submitted or {}):
+            out.pop(key, None)
     for key, value in (submitted or {}).items():
         if key not in PROFILE_KEYS:
             continue

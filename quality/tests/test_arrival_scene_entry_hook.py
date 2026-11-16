@@ -197,3 +197,22 @@ def test_hold_and_unavailable_reasons_differ_same_room():
     _run(gone.auto._control_lights_entry({}))
     assert e1.notes == [("room_master", "hold")]
     assert e2.notes == [("room_master", "unavailable")]
+
+
+def test_scene_call_raising_notes_error_and_runs_per_light_path():
+    """Review C M1: the fourth reason. scene.turn_on raising with a welcome
+    scene set reports ``error`` and returns False, so the per-light path runs."""
+    room = _room(slot_scene="scene.day_scene")
+    eng = _engine(room, FakeEngine(scene="scene.welcome"))
+    real = room.auto._safe_service_call
+
+    async def _boom(domain, service, data, *a, **k):
+        if domain == "scene":
+            raise RuntimeError("scene service down")
+        return await real(domain, service, data, *a, **k)
+
+    room.auto._safe_service_call = _boom
+    _run(room.auto._control_lights_entry({}))
+    assert eng.notes == [("room_master", "error")]
+    assert [c.data.get("entity_id") for c in room.hass.services.calls
+            if c.domain == "light" and c.service == "turn_on"] != []

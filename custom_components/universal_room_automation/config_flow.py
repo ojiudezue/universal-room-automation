@@ -10656,13 +10656,19 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
 
         def _media(key, cond):
             cur = stored.get(key)
+            # Review A5: a pasted-URI pick has no browse player, and the
+            # MediaSelector (no ``accept``) rejects a value without
+            # ``entity_id``. Redisplay it in the URI field, never here.
+            uri_pick = isinstance(cur, dict) and "entity_id" not in cur
             fields = {
                 _cond(key, cond, description=(
-                    {"suggested_value": cur} if cur else None
+                    {"suggested_value": cur} if cur and not uri_pick else None
                 )): selector.MediaSelector(selector.MediaSelectorConfig()),
             }
             if PEOPLE_MUSIC_URI_FALLBACK_ENABLED:
-                fields[_cond(f"{key}_uri", cond)] = selector.TextSelector()
+                fields[_cond(f"{key}_uri", cond, description=(
+                    {"suggested_value": cur.get("media_content_id")} if uri_pick else None
+                ))] = selector.TextSelector()
             return fields
 
         def _multi(options):
@@ -10671,11 +10677,17 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 mode=selector.SelectSelectorMode.DROPDOWN,
             ))
 
+        # Review B1: a stored id that is no longer an option (room deleted,
+        # bathroom retyped) must not sit in the default and block Submit.
+        def _current(key, options):
+            ids = {o["value"] for o in options}
+            return [r for r in (stored.get(key) or []) if r in ids]
+
         rooms_fields = {
             vol.Optional(PROFILE_ROOMS_BEDROOM,
-                         default=list(stored.get(PROFILE_ROOMS_BEDROOM) or [])): _multi(all_rooms),
+                         default=_current(PROFILE_ROOMS_BEDROOM, all_rooms)): _multi(all_rooms),
             vol.Optional(PROFILE_ROOMS_BATHROOM,
-                         default=list(stored.get(PROFILE_ROOMS_BATHROOM) or [])): _multi(baths),
+                         default=_current(PROFILE_ROOMS_BATHROOM, baths)): _multi(baths),
         }
         auto = {
             vol.Optional(PROFILE_AUTO_MUSIC,
@@ -10720,8 +10732,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
     async def async_step_people_profile(self, user_input=None):
         """One person's rooms and entry actions (sections, conditional fields)."""
         from .const import PROFILE_AUTO_MUSIC, PROFILE_MUSIC_VARY_ROOM
+        from .const import PEOPLE_MUSIC_URI_FALLBACK_ENABLED
         from .person_profiles import (
-            automated_action_count, merge_profile_save, own_rooms, validate_profile,
+            MEDIA_PICK_KEYS, automated_action_count, cleared_pick_keys,
+            drop_unknown_rooms, merge_profile_save, own_rooms, validate_profile,
         )
         stored = self._people_stored()
         errors: dict = {}
@@ -10729,7 +10743,24 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             flat, _present = _flatten_sections(
                 user_input, (self._PEOPLE_ROOMS_SECTION, self._PEOPLE_AUTOMATE_SECTION),
             )
-            merged = merge_profile_save(stored, self._people_apply_uri_fallback(flat))
+            submitted = self._people_apply_uri_fallback(flat)
+            # Review A3: an on-screen pick that comes back absent was cleared.
+            # A pasted-URI pick is not on screen while the URI field is off.
+            not_shown = () if PEOPLE_MUSIC_URI_FALLBACK_ENABLED else tuple(
+                k for k in MEDIA_PICK_KEYS
+                if isinstance(stored.get(k), dict) and "entity_id" not in stored[k]
+            )
+            cleared = cleared_pick_keys(
+                stored, submitted,
+                section_present=self._PEOPLE_AUTOMATE_SECTION in _present,
+                not_shown=not_shown,
+            )
+            rooms_now = self._people_rooms()
+            merged = drop_unknown_rooms(
+                merge_profile_save(stored, submitted, cleared),
+                [r["entry_id"] for r in rooms_now],
+                [r["entry_id"] for r in rooms_now if r["type"] == ROOM_TYPE_BATHROOM],
+            )
             err = validate_profile(merged)
             if err:
                 errors["base"] = err
@@ -10766,16 +10797,26 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         pending = dict(getattr(self, "_people_pending", None) or {})
         mine = [r for r in self._people_rooms() if r["entry_id"] in own_rooms(pending)]
         with_player = [r for r in mine if r["player"]]
+        # Review A1: HA cannot translate a dynamic key and shows the raw key
+        # as the label, so each field is keyed by the room's own name (URA's
+        # own config); a repeated name gets " (2)", " (3)". Mapped back to
+        # the entry_id on save.
+        by_label: dict[str, str] = {}
+        for r in with_player:
+            label, n = r["name"], 2
+            while label in by_label:
+                label, n = f"{r['name']} ({n})", n + 1
+            by_label[label] = r["entry_id"]
         if user_input is not None:
-            picks = {r["entry_id"]: user_input.get(r["entry_id"]) for r in with_player}
+            picks = {rid: user_input.get(label) for label, rid in by_label.items()}
             return self._people_save(
                 merge_profile_save(pending, {PROFILE_MUSIC_BY_ROOM: picks}),
             )
         cur = pending.get(PROFILE_MUSIC_BY_ROOM) or {}
         fields = {}
-        for r in with_player:
-            val = cur.get(r["entry_id"])
-            fields[vol.Optional(r["entry_id"], description=(
+        for label, rid in by_label.items():
+            val = cur.get(rid)
+            fields[vol.Optional(label, description=(
                 {"suggested_value": val} if val else None
             ))] = selector.MediaSelector(selector.MediaSelectorConfig())
         no_speaker = [r["name"] for r in mine if not r["player"]]
