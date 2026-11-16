@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.108.31
+# Universal Room Automation vv5.108.32
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -7467,6 +7467,11 @@ _NO_LIVE_ATTR_KEYS: frozenset[str] = frozenset({
     # VISION-CROSSING-SHADOW-1: the crossing-vision daily cap Number
     # publishes its value to hass.data; the producer reads it live.
     "crossing_vision_daily_calls",
+    # VISION-INTERIOR-SIGHTINGS-1 D3: the interior vision cap Numbers and
+    # the describe-access Select publish to hass.data; read per call.
+    "interior_vision_daily_calls",
+    "interior_vision_daily_cost_usd",
+    "interior_describe_access",
     _CONF_DYNAMIC_PRESET_DWELL_MINUTES,
     _CONF_DYNAMIC_PRESET_HYSTERESIS_F,
     _CONF_ROUTINE_EVENT_COOLDOWN_DAYS,
@@ -7810,6 +7815,10 @@ OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     "garage_lockout_arrival_hold_s",
     # VISION-CROSSING-SHADOW-1: read live from hass.data (no CM reload).
     "crossing_vision_daily_calls",
+    # VISION-INTERIOR-SIGHTINGS-1 D3: read live from hass.data (no CM reload).
+    "interior_vision_daily_calls",
+    "interior_vision_daily_cost_usd",
+    "interior_describe_access",
 })
 
 

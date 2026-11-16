@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "328",
+  "author": "ojiudezue",
+  "session_id": "claude_20261116_123341_ship_v5_108_32",
+  "timestamp": "2026-11-16T12:33:41Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.108.32 shipped: Interior vision ship 2: describe a room or person on demand by text, with a Foyer fisheye dewarp",
+  "summary": "Interior vision ship 2: describe a room or person on demand by text, with a Foyer fisheye dewarp",
+  "why": "Operator asked for interior vision for census and the ledger (never presence) and for describe-on-demand as ship 2 after the 20-frame description pilot was graded. Reviews A, B and C found one MEDIUM (face fallback trusting vetoed low-confidence faces) and test gaps H1-H10; the fix pass closed all with 62 RED mutation drills, the orchestrator re-ran the veto-gate mutation RED, and the full suite on merged develop is 23239 passed, 0 failed.",
+  "implications": "Shipped VISION-INTERIOR-SIGHTINGS-1, FOYER-FISHEYE-DEWARP-1 at v5.108.32; card(s) sit shipped_organic pending validation. Acceptance in README_v5.108.32.md (Live criteria).",
+  "revisit_trigger": "Raise or calibrate interior face sighting confidence (0.6) against the 0.75 naming bar so describe <person> can place by face; switch the Foyer record to the foyer_floor Frigate zone sensor once the homelab session lands it.",
+  "refs": {
+    "cards": [
+      "VISION-INTERIOR-SIGHTINGS-1",
+      "FOYER-FISHEYE-DEWARP-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.108.32.md"
+    ],
+    "release_notes": "Text 'describe <room>' or 'describe <person>' on iMessage/WhatsApp; URA takes one still from that shared room's camera, asks the vision model, and replies only to the asker (operator by default, select.ura_interior_describe_access). Never names people from the image; scrubs resident names. Daily call and cost budget survive restarts (rehydrated from interior_description rows). Foyer's 360 lens is unwarped into two flat views before the call. Person placement uses BLE; the face fallback needs confidence 0.75 and interior faces emit 0.6 today, so it is BLE-only for now."
+  }
+}

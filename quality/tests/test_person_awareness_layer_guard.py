@@ -574,6 +574,21 @@ REVERTS = {
                                       "class OnEdgeRing:",
                                       "def _leak(**f):\n    return RoomSighting(**f)\n\n\n"
                                       "class OnEdgeRing:"),
+    # Ship 2 (§6.3, closure N7): an affect read injected into a copied NM
+    # function (R16), and a describe request from a trust module (R15).
+    "iv_affect_reader": ("domain_coordinators/notification_manager.py",
+                         "        \"\"\"Send a text response back via the originating channel.\"\"\"\n",
+                         "        \"\"\"Send a text response back via the originating channel.\"\"\"\n"
+                         "        _leak = message.affect\n"),
+    "iv_describe_from_trust_module": ("domain_coordinators/security.py",
+                                      "        \"\"\"Evaluate an entry event against census data.\"\"\"\n",
+                                      "        \"\"\"Evaluate an entry event against census data.\"\"\"\n"
+                                      "        _p = self.hass.data['d']['coordinator_manager'].coordinators['presence']\n"
+                                      "        _leak = _p.request_room_description('foyer', requester=None, reason='x')\n"),
+    "iv_description_built_outside_owner": ("interior_vision.py",
+                                           "class OnEdgeRing:",
+                                           "def _leak(**f):\n    return RoomDescription(**f)\n\n\n"
+                                           "class OnEdgeRing:"),
 }
 
 # The rule each interior-vision drill must trip (not only "some problem").
@@ -586,6 +601,12 @@ IV_RULES = {
     "iv_unnamed_on_sighting_signal": ("R6", "person_sighting.py",
                                       "PersonSightingProducer._emit_unnamed:ura_person_sighting"),
     "iv_record_built_outside_owner": ("R7", "interior_vision.py", "_leak:RoomSighting"),
+    "iv_affect_reader": ("R16", "domain_coordinators/notification_manager.py",
+                         "NotificationManager._send_reply:affect"),
+    "iv_describe_from_trust_module": ("R15", "domain_coordinators/security.py",
+                                      "SanctionChecker.check_entry:request_room_description"),
+    "iv_description_built_outside_owner": ("R7", "interior_vision.py",
+                                           "_leak:RoomDescription"),
 }
 
 
@@ -607,7 +628,7 @@ def test_iv_pinned_readers_clean_on_real_tree_and_pins_are_real():
     assert [h for h in hits if h.rule == "R15"] == []
     import ast
     tree = _real_tree()
-    for name in ("get_room_sightings", "get_last_path_records"):
+    for name in ("get_room_sightings", "get_last_path_records", "request_room_description"):
         for mod, q in E.PINNED_READERS[name]:
             if mod.startswith("<reserved"):
                 continue
@@ -623,9 +644,33 @@ def test_iv_pinned_readers_clean_on_real_tree_and_pins_are_real():
     ("def f(p):\n    return p.get_last_path_records()\n", "R15"),
     ("def f(x):\n    return PathRecord('a', 'd', 0.0, None, None, ())\n", "R7"),
     ("def f(prod):\n    prod._path_records.append(1)\n    return prod._vision_counts\n", "R2"),
+    # Ship 2 R16 (FORBIDDEN_ATTR_READS) forms and the new store.
+    ("def f(d):\n    return d.affect\n", "R16"),
+    ("def f(d):\n    return d['affect']\n", "R16"),
+    ("def f(d):\n    return d.get('affect')\n", "R16"),
+    ("def f(d):\n    return getattr(d, 'affect', None)\n", "R16"),
+    ("from dataclasses import asdict\ndef f(desc):\n    return asdict(desc)\n", "R16"),
+    ("def f(p):\n    return vars(p.get_room_description('x'))\n", "R16"),
+    ("def f(prod):\n    return prod._room_descriptions\n", "R2"),
 ])
 def test_iv_engine_shapes(snippet, rule):
     assert rule in _rules(snippet), _snippet_hits(snippet)
+
+
+@pytest.mark.parametrize("snippet", [
+    "def f(d):\n    return d['affects']\n",
+    "def f(d):\n    d.affect = 1\n",
+    "from dataclasses import asdict\ndef f(row):\n    return asdict(row)\n",
+])
+def test_r16_ignores_non_reads(snippet):
+    assert "R16" not in _rules(snippet), _snippet_hits(snippet)
+
+
+def test_r16_owner_modules_may_read_affect():
+    """The owner and the reply formatter are the only readers (closure N7)."""
+    src = "def f(d):\n    return d.affect\n"
+    for rel in ("person_sighting.py", "interior_vision.py"):
+        assert "R16" not in _rules(src, rel=rel), rel
 
 
 @pytest.mark.parametrize("case", sorted(REVERTS))

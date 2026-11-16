@@ -1023,6 +1023,19 @@ checkpoint). Ship 1 can build as soon as ship 3b is on develop. The ledger floor
 Filled at each ship: delivered, operator answers to any D0 gate question, deferrals with card
 and reason, and the supersession check of the census per-area attributes once D1 reads them through `area_evidence()`.
 
+**Ship 2 (built 2026-11-16, `feature/interior-vision-ship2`):** delivered D3 (NM `describe <room|person>`, Q2 Select default
+operator, caps, describe reserve rule, name scrub, affect recorded / replied only under `operator_affect`, `RoomDescription`
+store + `interior_description` row, trip-wires `interior_vision_zero_calls` / `_errors` / `_frames_left`, guard R16
+`FORBIDDEN_ATTR_READS`) plus the per-still fisheye dewarp (card FOYER-FISHEYE-DEWARP-1, registry `lens_type` = `360`,
+pure numpy remap checked against ffmpeg v360). Deviations, each with its reason: `interior_description` is not
+writer-backed (on demand; a quiet week is normal; its zero-fire is `interior_vision_zero_calls`); no delete step under
+`/media/llmvision/snapshots` (D0(f) via the pilot: 17 calls with `expose_images` False wrote 0 files), URA deletes only its
+own staged stills. Deferred: the describe clip trigger (`INTERIOR_DESCRIBE_USE_CLIP`, `INTERIOR_CLIP_MAX_AGE_S`; `call_model`
+already routes `clip`, default False until D0(c)); personalization-triggered calls (`INTERIOR_DESCRIBE_ROOM_COOLDOWN_S`;
+no consumer exists, reserved pin only); `INTERIOR_DESCRIBE_REPLY_SLACK_S` (an acceptance number, not a runtime knob);
+D7 grading of descriptions (grading volume Number is ship 3's, with D2 counts); a daytime person-present check of the
+default foyer views (operator, README).
+
 ## 19. Review finding closure
 
 Reviews: completeness (C, H, M, L) and build prediction + goal fidelity (B, G), both 2026-11-15.

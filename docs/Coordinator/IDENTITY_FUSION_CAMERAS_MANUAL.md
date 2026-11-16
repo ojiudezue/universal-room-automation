@@ -879,6 +879,12 @@ sighting that the census would not veto; one placement per slug) and how many ar
 time-lapse after a door entry. Display class only (`sensor.ura_interior_awareness`); never a name from vision, never a
 census input (the census term is ship 5), never a trust reader (layer guard `PINNED_READERS`). Details: presence state
 of play, interior vision ship 1 entry.
+**Descriptions on demand (ship 2, branch `feature/interior-vision-ship2`, not deployed):** the same producer writes a
+`RoomDescription` per covered room when an allowed NM requester sends `describe <room|person>` (Q2 Select, default the
+operator): one llmvision still call, names scrubbed, affect recorded but replied only under `operator_affect`, a 360-lens
+camera (registry Protect `lens_type` = `360`) dewarped into flat views first. Notification class for the reply (names
+only the person asked about, placed by BLE at >= the notification bar or by a fresh named face); never a census input.
+Details: presence state of play, interior vision ship 2 entry.
 
 ### 4.6 DB tables (from `database.py`)
 
