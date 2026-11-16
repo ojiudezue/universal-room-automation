@@ -290,6 +290,9 @@ archived round-6 estimator's held-max FLOOR (`archive/HISTORY_census_occupancy_e
 
 Config-first: no existing knob or setting yields a floor; the ledger has no interior input today.
 
+
+**Operator 2026-11-16 on Q4 (floor strategy):** "Maybe we can test diff strategies using s drop down with a default. I agree with your reco. We can cleanup after we arrive at the best. Test in parallel. Unless you're sure." Decision: the floor strategy is a Select knob `select.ura_interior_floor_strategy` (rung 3, live-tunable) with options `sustained_min` (DEFAULT, 60 s) and `window_max`. Both strategies are computed every tick and written side by side to diagnostics and the `interior_floor` rows (`floor_min`, `floor_max`, `strategy_applied`); only the selected one may lift L. F-D0 replays 14 days under BOTH strategies and reports phantom rate, overlap double-count and fire rate per strategy. Cleanup: once one strategy wins on F-D0 plus live rows, remove the loser and the Select (card it at ship).
+
 ## 1a. Decisions pending (operator); the build uses the recommended default unless the operator overrides
 
 | # | Question | Default the build uses | Alternative | Where it lands |
