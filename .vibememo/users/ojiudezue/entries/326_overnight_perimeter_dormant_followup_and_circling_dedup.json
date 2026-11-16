@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "326",
+  "author": "ojiudezue",
+  "session_id": "claude_20261116_overnight_pass",
+  "timestamp": "2026-11-16T08:38:11Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "Overnight 11-16: two perimeter promises measured, one dormant by construction, one silently broken",
+  "summary": "The 'that was Jaya' follow-up can never arm (no camera is both perimeter and door), and the circling escalation is always swallowed by NM dedup because severity was never in the dedup key.",
+  "why": "Both were checked by tracing the producer forward to the action, not by waiting for an event. The follow-up gates on D10.5, which runs only for dual-role cameras; dual_role_cameras is [] on this house, so zero follow-ups was zero eligible events, not a defect. The circling exemption was designed on the belief that NM dedups on (coordinator, title, location, severity); the key is coordinator:title:location, the perimeter title is constant and location is the camera sensor, so an escalation hop on the same camera within the window is dropped. Live gate rows since 11-14: 8 of 8 exemption hops with a same-camera page in the prior 5 min left no notification row, one CRITICAL; 3 of 5 without a prior row were delivered. The pin test asserted severities on a mocked notify and never ran the dedup, so it passed on a false premise.",
+  "implications": "PERIMETER-IDENTITY-FOLLOWUP-1 closed; its dormancy folded as a PICK into PERIMETER-FP-GATES-DISPOSE-1 (make a door camera dual-role or not). PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1 escalated: recommended fix is a perimeter-local title for escalation dispatches, tested against the real NM dedup, rather than touching the shared dedup key.",
+  "revisit_trigger": "A door camera is added to perimeter_cameras (follow-up and D10.5 become live), or the circling fix ships (re-run the exemption-row vs notification_log join).",
+  "refs": {
+    "cards": [
+      "PERIMETER-IDENTITY-FOLLOWUP-1",
+      "PERIMETER-FP-GATES-DISPOSE-1",
+      "PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1",
+      "LOCK-ENTRY-AREAS-WRONG-OBJECT-1"
+    ],
+    "docs": []
+  }
+}
