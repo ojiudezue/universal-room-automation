@@ -190,7 +190,8 @@ async def fire_stuck_signal(
     note), so a trip-wire meant to page passes "HIGH".
 
     Returns True iff the NM was actually dispatched this call. False on
-    kill-switch off, latch already fired today, missing NM, or exception.
+    kill-switch off, latch already fired today, missing NM, NM dropped it
+    before delivery (no latch is set then), or exception.
 
     Never raises.
     """
@@ -232,7 +233,7 @@ async def fire_stuck_signal(
             message = f"{message}\n[exclusion_engaged: true]"
         if remedy:
             message = f"{message}\n\nSuggested remedy: {remedy}"
-        await nm.async_notify(
+        delivered = await nm.async_notify(
             coordinator_id=STUCK_SIGNAL_NM_COORDINATOR_ID,
             severity=(
                 getattr(Severity, severity) if severity else Severity.MEDIUM
@@ -242,6 +243,16 @@ async def fire_stuck_signal(
             hazard_type=STUCK_SIGNAL_NM_HAZARD_TYPE,
             location=str(kind),
         )
+        # STUCK-SENSOR-S3B-S1-1: NM dropped it before delivery (boot-settle,
+        # dedup, quiet hours, silence, kill switch) -> no day latch, so the
+        # next tick re-offers it (the discharge). ``is False`` keeps any NM
+        # stand-in that returns None on the old latch-on-call behaviour.
+        if delivered is False:
+            _LOGGER.debug(
+                "stuck_signal: NM dropped %s/%s before delivery; not latched",
+                kind, key,
+            )
+            return False
         _LATCHES[latch_key] = today
         _STUCK_SIGNAL_NOTIFIED.add(latch_key)
         _prune_stale_latches(today)

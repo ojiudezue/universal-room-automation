@@ -35184,7 +35184,7 @@ cards:
   title: "Stuck-sensor truth S3b (MS600 bit resolves radar by registry model) + S1 (P22 off-pulse tolerance for motion-class inputs; one not-on stretch)"
   thread: presence
   status: shipped_organic
-  shipped_version: v5.108.33
+  shipped_version: v5.108.34
   tier: 2
   created: '2026-11-15 23:40'
   updated: '2026-11-15 23:40'
@@ -35395,6 +35395,7 @@ cards:
   plan_ready_2026_11_15: "Phase 3 plan (PLANNING_crossing_vision.md at 50bffd62; census + interior plans amended alongside) passed four review rounds: completeness + build-prediction/G (810075a3), closure (25b30764), final (5f602cd3); orchestrator re-grep of 50bffd62 confirmed the H1 getter fix (new camera_input_room_stuck_excluded over clients p22_continuous / chatter / stuck_dutycycle, all real at coordinator.py:3763, 3077, 3831), guard changes written as deltas only, PASS_ROUND_TRIP_MIN_N 20, deadline E + 320 s."
   next: "WAIT on operator grades (urakanban /grade/, 6 of 88 done): pull_grades -> score every direction instrument once -> build P3-D2 recording route / P3-D3 direction / P3-D10-D11 tracker extension from what passes."
 - id: MEDIAROOM-FAN-LEFT-ON-STUCK-SENSORS-1
+  arc_cut_v5_108_34: "keeps S4-S6 secondary fan work, separate scope after the census reset prerequisites"
   arc_cut_v5_108_33: "keeps S4-S6 secondary fan work, separate scope after the census reset prerequisites"
   arc_cut_v5_108_30: "parent keeps S4-S6 secondary fan work (operator: fan is a secondary goal)"
   title: "Media room fan left running with stuck occupancy sensors and no failsafe turned it off; operator idea: a stuck sensor triggers the fan recheck (quiet the fan), and RF fans with unreliable on/off state"

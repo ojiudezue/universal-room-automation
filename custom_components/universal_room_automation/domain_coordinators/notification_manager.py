@@ -104,6 +104,7 @@ from ..const import (
     CONF_NM_BUCKET_REFILL_PER_MIN,
     CONF_NM_DRY_RUN,
     DEFAULT_NM_DRY_RUN,
+    NM_BOOT_SETTLE_LOCATION_KEYED_HAZARDS,
     NM_BOOT_SETTLE_S,
     NM_BUCKET_CAPACITY_DEFAULT,
     NM_BUCKET_REFILL_PER_MIN_DEFAULT,
@@ -661,7 +662,7 @@ class NotificationManager:
         # B4: boot-settle window — collapse per-(coord, hazard) to one emit
         # in the first NM_BOOT_SETTLE_S seconds after `async_setup` returns.
         self._boot_settle_until: float = 0.0  # set in async_setup
-        self._boot_settle_seen: set[tuple[str, str]] = set()
+        self._boot_settle_seen: set[tuple[str, ...]] = set()
 
         # =====================================================================
         # NM Cycle C (2026-07-20): routing matrix + DND-bypass + mute registry.
@@ -846,12 +847,20 @@ class NotificationManager:
 
     def _boot_settle_should_suppress(
         self, coordinator_id: str, hazard_type: str | None,
+        location: str | None = None,
     ) -> bool:
-        """Collapse repeat (coord, hazard) emits within boot-settle window."""
+        """Collapse repeat (coord, hazard) emits within boot-settle window.
+
+        Hazards in NM_BOOT_SETTLE_LOCATION_KEYED_HAZARDS key on
+        (coord, hazard, location) instead: their location carries a
+        sub-kind, so a different location is not a duplicate.
+        """
         now = dt_util.utcnow().timestamp()
         if now >= self._boot_settle_until:
             return False
-        key = (coordinator_id, str(hazard_type or ""))
+        key: tuple[str, ...] = (coordinator_id, str(hazard_type or ""))
+        if hazard_type in NM_BOOT_SETTLE_LOCATION_KEYED_HAZARDS:
+            key = key + (str(location or ""),)
         if key in self._boot_settle_seen:
             return True
         self._boot_settle_seen.add(key)
@@ -1599,8 +1608,13 @@ class NotificationManager:
         route_reason: str | None = None,
         *,
         quiet: bool = False,
-    ) -> None:
+    ) -> bool:
         """Main notification entry point — called by coordinators.
+
+        Returns True when the notification went through the delivery path,
+        False when it was dropped before it (disabled, kill switch, quiet
+        hours, silence, perimeter window, dedup, boot-settle). Callers that
+        latch on a send (``fire_stuck_signal``) use it; others ignore it.
 
         ``quiet`` (PERIMETER-IDENTITY-FOLLOWUP-1, v5.107.5): a non-interrupting
         follow-up. Same severity (so it clears the same per-channel severity
@@ -1627,12 +1641,12 @@ class NotificationManager:
                 before the D4 circuit row is written) leave this as None.
         """
         if not self.enabled:
-            return
+            return False
 
         # v3.15.3: Messaging kill switch — block all outbound
         if self._messaging_suppressed:
             _LOGGER.debug("Notification suppressed by messaging kill switch: %s", title)
-            return
+            return False
 
         # v3.15.3: Live severity re-check — re-read config from config entry
         # so OptionsFlow changes take effect without restart
@@ -1725,7 +1739,7 @@ class NotificationManager:
             ):
                 _LOGGER.debug("Notification suppressed during quiet hours: %s", title)
                 self._quiet_suppressions += 1
-                return
+                return False
 
         # C4b: Silence check — suppress non-CRITICAL when silenced
         if (
@@ -1734,7 +1748,7 @@ class NotificationManager:
             and dt_util.utcnow() < self._silence_until
         ):
             _LOGGER.debug("Notification suppressed by silence: %s", title)
-            return
+            return False
 
         # SAFEWORD-WINDOW-1 D2: perimeter-scoped silence window opened by
         # "duke Nh". Scope invariants (see PLANNING_safeword_window.md):
@@ -1782,13 +1796,13 @@ class NotificationManager:
                 "title": title,
                 "location": location,
             })
-            return
+            return False
 
         # Dedup check
         if self._is_deduplicated(coordinator_id, title, location, severity):
             _LOGGER.debug("Notification deduplicated: %s", title)
             self._dedup_suppressions += 1
-            return
+            return False
 
         # NM Cycle B B4: boot-settle collapse (per (coord, hazard)) for the
         # first NM_BOOT_SETTLE_S after async_setup. Life-safety CRITICAL
@@ -1796,13 +1810,21 @@ class NotificationManager:
         # NM Cycle C-2 D2: union helper — base frozenset ∪ operator extras.
         life_safety_hazard = is_life_safety_hazard(self.hass, hazard_type)
         if not life_safety_hazard and self._boot_settle_should_suppress(
-            coordinator_id, hazard_type,
+            coordinator_id, hazard_type, location,
         ):
             _LOGGER.info(
                 "NM: boot-settle suppress duplicate %s/%s within %ds window",
                 coordinator_id, hazard_type, NM_BOOT_SETTLE_S,
             )
-            return
+            # STUCK-SENSOR-S3B-S1-1: _is_deduplicated stamped this key as
+            # sent above, but it was not sent. For latch-on-delivery callers
+            # (stuck_signal) un-stamp it, or their next-tick retry would be
+            # deduped for the full dedup window (900 s at MEDIUM).
+            if hazard_type in NM_BOOT_SETTLE_LOCATION_KEYED_HAZARDS:
+                self._dedup_cache.pop(
+                    f"{coordinator_id}:{title}:{location or ''}", None,
+                )
+            return False
 
         # Hierarchical memory MVP (Stage 1) — NM severity conditioning
         # (deliverable 5a). Demote LOW hazard severity one notch when
@@ -2376,6 +2398,7 @@ class NotificationManager:
                 snapshot_url=snapshot_url,
                 snapshot_path=snapshot_path,
             )
+        return True
 
     async def _maybe_fire_no_route_tripwire(self) -> None:
         """NM-NO-CHANNEL-FIRED-1 (4): zero-route trip-wire.

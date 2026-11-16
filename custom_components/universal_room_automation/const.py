@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.108.33
+# Universal Room Automation vv5.108.34
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.108.33"
+VERSION: Final = "v5.108.34"
 
 # EC-LOADED-VS-INSTALLED-VERSION-1 — how often the on-disk manifest is re-read
 # to detect an installed-but-not-restarted deploy. Rung 1 (module constant):
@@ -6446,6 +6446,15 @@ DEFAULT_STUCK_SIGNAL_NM_ENABLED: Final = True
 # unreachable given HA restart cadence; see const.py comment above.)
 STUCK_SIGNAL_NM_HAZARD_TYPE: Final = "stuck_signal"
 STUCK_SIGNAL_NM_COORDINATOR_ID: Final = "stuck_signal"
+# STUCK-SENSOR-S3B-S1-1 (2026-11-16): hazards whose NM boot-settle collapse
+# key includes ``location``. Every stuck-signal kind shares one hazard_type
+# with location=kind, so a (coord, hazard) key collapsed a chatter page 9 s
+# after a dutycycle page. Scoped (module constant, review-gated): other
+# callers pass per-room/per-entity locations through the same window and
+# the boot collapse exists to quiet exactly that storm.
+NM_BOOT_SETTLE_LOCATION_KEYED_HAZARDS: Final = frozenset(
+    {STUCK_SIGNAL_NM_HAZARD_TYPE}
+)
 
 
 # =========================================================================

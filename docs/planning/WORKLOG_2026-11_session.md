@@ -88,3 +88,4 @@
 - 2026-11-16 02:43 **v5.108.31** — URA v5.108.31: unacked perimeter pages repeat for one hour per evening at home (cards: NM-PERIMETER-REPEAT-STORM-1)
 - 2026-11-16 06:33 **v5.108.32** — v5.108.32: Interior vision ship 2, describe on demand with a fisheye dewarp (cards: VISION-INTERIOR-SIGHTINGS-1,FOYER-FISHEYE-DEWARP-1)
 - 2026-11-16 15:18 **v5.108.33** — URA v5.108.33: arrival music, welcome scene, departure pause (arc step 8 D2-D4) + WiiM MA twin fix (cards: ARRIVAL-ENGINE-S8-1,MF-MA-TWIN-WIIM-UUID-1,STUCK-SENSOR-S3B-S1-1)
+- 2026-11-16 15:30 **v5.108.34** — URA v5.108.34: stuck-sensor pages survive NM boot-settle (cards: STUCK-SENSOR-S3B-S1-1)
