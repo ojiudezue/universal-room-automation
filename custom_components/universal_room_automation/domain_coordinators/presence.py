@@ -6062,6 +6062,33 @@ class PresenceCoordinator(BaseCoordinator):
         except Exception:  # noqa: BLE001
             return ()
 
+    def request_room_description(self, target: str, *, requester: str | None,
+                                 reason: str, include_affect: bool = False,
+                                 reply=None) -> str:
+        """VISION-INTERIOR-SIGHTINGS-1 D3: describe a covered room (or the
+        room of a tracked person) on demand. Returns the immediate reply ("" =
+        scheduled, the answer goes to ``reply``). Pinned reader (guard R15):
+        the NM describe command only. Never raises."""
+        try:
+            producer = self._person_sightings
+            if producer is None:
+                return "Interior vision is not running."
+            return producer.request_room_description(
+                target, requester=requester, reason=reason,
+                include_affect=include_affect, reply=reply)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("describe request failed", exc_info=True)
+            return "Couldn't describe that right now."
+
+    def get_room_description(self, room: str, max_age_s: float | None = None):
+        """The room's newest description (``RoomDescription``) or None.
+        Pinned reader (guard R15); a pure read, never a call."""
+        try:
+            producer = self._person_sightings
+            return producer.get_room_description(room, max_age_s) if producer is not None else None
+        except Exception:  # noqa: BLE001
+            return None
+
     # ------------------------------------------------------------------
     # PERSON-AWARENESS-READ-API-1 ship 1: the person-awareness read API.
     # Readers pick a view by consumer class (view_for_class); the presence

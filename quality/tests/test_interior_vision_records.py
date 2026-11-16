@@ -345,7 +345,8 @@ async def test_emit_unnamed_sends_no_sighting_signal(rig):
     assert rig.sightings == []
     assert len(rig.producer.get_room_sightings()) == 2
     with pytest.raises(ValueError):
-        rig.producer._emit_unnamed("description", {})
+        # Ship 2 made "description" a real kind (D3); any other kind raises.
+        rig.producer._emit_unnamed("bogus", {})
 
 
 @pytest.mark.asyncio

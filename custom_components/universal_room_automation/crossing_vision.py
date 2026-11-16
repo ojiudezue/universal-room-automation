@@ -293,6 +293,32 @@ class _Request:
     term_done: bool = False
 
 
+def vision_provider_id(hass: Any) -> str | None:
+    """The llmvision entry id to send as ``provider`` (P2-D1, read fresh;
+    also used by interior vision, VISION-INTERIOR-SIGHTINGS-1 ship 2): the
+    rung-2 option ``CONF_CROSSING_VISION_PROVIDER_ID`` when set; when empty,
+    the rung-1 install default ``CROSSING_VISION_PROVIDER_ID`` (review
+    A-HIGH-3). Either id is used only when it is an llmvision config entry
+    on THIS install (portability); otherwise None, and the adapter falls
+    back to the perimeter's provider."""
+    from .perimeter_enrichment import _get_integration_config  # noqa: PLC0415
+
+    try:
+        raw = _get_integration_config(hass).get(_c.CONF_CROSSING_VISION_PROVIDER_ID)
+    except Exception:  # noqa: BLE001
+        raw = None
+    pid = str(raw or "").strip() or str(_c.CROSSING_VISION_PROVIDER_ID or "").strip()
+    if not pid:
+        return None
+    try:
+        entry = hass.config_entries.async_get_entry(pid)
+    except Exception:  # noqa: BLE001
+        return None
+    if entry is None or getattr(entry, "domain", None) != "llmvision":
+        return None
+    return pid
+
+
 class CrossingVisionShadow:
     """Shadow producer. One instance per integration entry."""
 
@@ -874,24 +900,7 @@ class CrossingVisionShadow:
         only when it is an llmvision config entry on THIS install
         (portability: another house has other entry ids); otherwise None,
         and the adapter falls back to the perimeter's provider."""
-        from .perimeter_enrichment import _get_integration_config  # noqa: PLC0415
-
-        try:
-            raw = _get_integration_config(self.hass).get(
-                _c.CONF_CROSSING_VISION_PROVIDER_ID
-            )
-        except Exception:  # noqa: BLE001
-            raw = None
-        pid = str(raw or "").strip() or str(_c.CROSSING_VISION_PROVIDER_ID or "").strip()
-        if not pid:
-            return None
-        try:
-            entry = self.hass.config_entries.async_get_entry(pid)
-        except Exception:  # noqa: BLE001
-            return None
-        if entry is None or getattr(entry, "domain", None) != "llmvision":
-            return None
-        return pid
+        return vision_provider_id(self.hass)
 
     def _clip_reference(self, ev: Mapping[str, Any]) -> tuple[str | None, str | None]:
         """Return (video_file, event_id) per plan rev 2 F4; (None, None) when

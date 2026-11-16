@@ -84,6 +84,9 @@ async def async_setup_entry(
             # boot; operator flips to `live` after 24h of shadow
             # divergence rows. `legacy` is the kill-switch.
             HVACGate4PredicateModeSelect(hass, entry),
+            # VISION-INTERIOR-SIGHTINGS-1 D3 (Q2, rung 3): who may ask for
+            # an interior description (default operator only).
+            InteriorDescribeAccessSelect(hass, entry),
         ]
         async_add_entities(entities)
         return
@@ -1219,3 +1222,60 @@ class PerimeterVlmGateSelect(ChatterModeSelect):
         self._attr_translation_key = "perimeter_vlm_gate"
         self._attr_name = "AI Person Check"
         self.entity_id = "select.ura_perimeter_vlm_gate"
+
+
+class InteriorDescribeAccessSelect(SelectEntity):
+    """``select.ura_interior_describe_access`` (plan §1a Q2, rung 3, CM
+    device): who may ask URA to describe a room. ``operator`` (default):
+    the NM security-ack persons, else the first NM person;
+    ``operator_affect``: the same, and the operator's reply may carry
+    mood / energy; ``residents``: any configured NM person; ``any_resolved``:
+    anyone the channel resolves to a person. Only ``operator_affect`` with the
+    operator asking ever puts affect in a reply. Persisted to CM entry
+    options; publishes the live value to hass.data (read per request)."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:account-lock"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from .const import (
+            CONF_INTERIOR_DESCRIBE_ACCESS, DEFAULT_INTERIOR_DESCRIBE_ACCESS,
+            INTERIOR_DESCRIBE_ACCESS_OPTIONS, VERSION,
+        )
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_interior_describe_access"
+        self._attr_name = "Interior Describe Access"
+        self.entity_id = "select.ura_interior_describe_access"
+        self._attr_options = list(INTERIOR_DESCRIBE_ACCESS_OPTIONS)
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "coordinator_manager")},
+            name="URA: Coordinator Manager",
+            manufacturer="Universal Room Automation",
+            model="Coordinator Manager",
+            sw_version=VERSION,
+        )
+        merged = {**entry.data, **entry.options}
+        cur = merged.get(CONF_INTERIOR_DESCRIBE_ACCESS, DEFAULT_INTERIOR_DESCRIBE_ACCESS)
+        self._current = cur if cur in self._attr_options else DEFAULT_INTERIOR_DESCRIBE_ACCESS
+        self._publish()
+
+    def _publish(self) -> None:
+        from .const import INTERIOR_DESCRIBE_ACCESS_HASS_KEY
+        self.hass.data.setdefault(DOMAIN, {})[INTERIOR_DESCRIBE_ACCESS_HASS_KEY] = self._current
+
+    @property
+    def current_option(self) -> str:
+        return self._current
+
+    async def async_select_option(self, option: str) -> None:
+        from .const import CONF_INTERIOR_DESCRIBE_ACCESS
+        if option not in self._attr_options:
+            return
+        self._current = option
+        self._publish()
+        self.hass.config_entries.async_update_entry(
+            self._entry, options={**self._entry.options, CONF_INTERIOR_DESCRIBE_ACCESS: option})
+        self.async_write_ha_state()
+        _LOGGER.info("Interior describe access set to: %s", option)

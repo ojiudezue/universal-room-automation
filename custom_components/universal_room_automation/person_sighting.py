@@ -127,6 +127,30 @@ class PathRecord:
     hops: tuple[tuple[str, str | None, float, int | None, int | None], ...]
 
 
+@dataclass(frozen=True)
+class RoomDescription:
+    """F4 UNNAMED description of one covered room, made on demand (plan
+    §9.D3, ship 2): what is happening, no names (scrubbed), and the
+    observational ``affect`` (mood, energy per person; no consumer, guard
+    ``FORBIDDEN_ATTR_READS``). Constructed only by ``_emit_unnamed``."""
+
+    room: str
+    group_key: str
+    ts: float
+    people: int | None
+    activities: tuple[tuple[str, str], ...]
+    context: str
+    confidence: float | None
+    affect: tuple[tuple[str, str], ...]
+    requested_by: str | None
+    reason: str
+    views: int
+    dewarped: bool
+    names_scrubbed: int
+    latency_s: float
+    model: str
+
+
 @dataclass
 class _PhysicalView:
     """Everything one resolved physical camera contributes."""
@@ -185,6 +209,16 @@ class PersonSightingProducer:
         self._room_sightings: tuple[RoomSighting, ...] = ()
         self._path_records: deque = deque(maxlen=max(1, int(_c.INTERIOR_TIMELAPSE_RING)))
         self._vision_counts: dict[str, int] = {}   # filled by the vision ships
+        # Ship 2 (D3): newest description per room (written only through
+        # `_emit_unnamed("description", ...)`) and the call-making member.
+        self._room_descriptions: dict[str, RoomDescription] = {}
+        self._lens_last: dict[str, str] = {}
+        self._iv_sampler = _iv.InteriorVisionSampler(
+            hass, now_fn=now_fn,
+            emit=lambda fields: self._emit_unnamed("description", fields),
+            log_row=self._log_description_row, fire=self._fire,
+            names_fn=self._describe_scrub_names, provider_fn=self._vision_provider_id,
+        )
         self._interior_registries: Callable[[], tuple[Any, Any]] | None = None
         self._interior_groups: list[dict[str, Any]] = []
         self._interior_key_by_entity: dict[str, str] = {}
@@ -923,6 +957,13 @@ class PersonSightingProducer:
             else:
                 self.interior_counters["paths_zero_hop"] += 1
             return record
+        if kind == "description":
+            # Ship 2 (D3): one on-demand description; replaces the room's
+            # previous one. Unknown fields raise (TypeError) like the others.
+            record = RoomDescription(**payload)
+            self._room_descriptions[record.room] = record
+            self.interior_counters["descriptions"] += 1
+            return record
         raise ValueError(f"unknown unnamed kind {kind!r}")
 
     def get_room_sightings(self) -> tuple[RoomSighting, ...]:
@@ -933,6 +974,204 @@ class PersonSightingProducer:
         """Closed path records, oldest first (RAM ring)."""
         return tuple(self._path_records)
 
+    # ------------------------------------------------- D3 describe on demand
+    def get_room_description(self, room: str, max_age_s: float | None = None
+                             ) -> RoomDescription | None:
+        """The room's newest description (RAM), None when there is none or
+        it is older than ``max_age_s``. A pure read: it never starts a call."""
+        rec = self._room_descriptions.get(room)
+        if rec is None:
+            return None
+        if max_age_s is not None and self._now() - rec.ts > float(max_age_s):
+            return None
+        return rec
+
+    def request_room_description(
+        self, target: str, *, requester: str | None, reason: str,
+        include_affect: bool = False, reply: Callable[[str], Any] | None = None,
+    ) -> str:
+        """Describe a covered room, or the room a tracked person is in (plan
+        §9.D3). Returns the immediate reply ("" = a call was scheduled and the
+        answer goes to ``reply``). No model call and no frame fetch on any
+        refusal: unknown target, a room without a covered camera (bedrooms and
+        bathrooms are never covered, INV-IV-SCOPE), no LIVE still source
+        (closure N1), switch off, kill, caps (INV-IV-OFF)."""
+        now = self._now()
+        self.interior_counters["describe_requests"] += 1
+        room, header, refusal = self._describe_target(str(target or ""), now)
+        if refusal is not None:
+            self.interior_counters["describe_unresolved"] += 1
+            return refusal
+        try:
+            self._ensure_interior_groups()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("interior vision: group build failed", exc_info=True)
+        group = next((g for g in self._interior_groups if g.get("room") == room), None)
+        if group is None:
+            self.interior_counters["describe_no_camera"] += 1
+            return f"No camera in {room}."
+        # Affect (plan §9.D3): recorded whenever the knob is on, whoever
+        # asked; the reply carries it only for `include_affect` (closure N7).
+        record_affect = bool(_c.INTERIOR_DESCRIBE_AFFECT_ENABLED)
+        return self._iv_sampler.describe(
+            group, room=room, still_live=self._still_source_live(group),
+            dewarp_views=self._dewarp_views(group), record_affect=record_affect,
+            reply_affect=bool(include_affect and record_affect),
+            requester=requester, reason=reason, header=header, reply=reply,
+        )
+
+    def _describe_target(self, target: str, now: float) -> tuple[str | None, str, str | None]:
+        """(room, reply header, refusal). A URA room name (case-insensitive)
+        wins; else a tracked resident (slug, display name or a unique first
+        name), placed by BLE when its confidence clears the notification
+        bar, else by the newest fresh named interior face sighting."""
+        from .person_ids import display_of, slug_of  # noqa: PLC0415
+
+        want = " ".join(target.split()).casefold()
+        if not want:
+            return None, "", "Describe what? Send 'describe <room>' or 'describe <person>'."
+        for name in self._room_entries():
+            if name.casefold() == want:
+                return name, "", None
+        slugs = self._tracked_slugs()
+        firsts: dict[str, list[str]] = {}
+        for s in slugs:
+            firsts.setdefault(display_of(s).split(" ")[0].casefold(), []).append(s)
+        slug = next((s for s in slugs if want in (s, s.replace("_", " "),
+                                                  display_of(s).casefold())), None)
+        if slug is None and len(firsts.get(want, ())) == 1:
+            slug = firsts[want][0]
+        if slug is None:
+            return None, "", f"I don't know a room or person called '{target.strip()}'."
+        who = display_of(slug)
+        pc = self.hass.data.get(_c.DOMAIN, {}).get("person_coordinator")
+        rooms = self._room_entries()
+        bar = float(_c.CONSUMER_CLASS_MIN_CONFIDENCE["notification"])
+        names = list(getattr(pc, "tracked_persons", None) or ()) if pc is not None else []
+        for name in names:
+            if slug_of(name) != slug:
+                continue
+            try:
+                loc = pc.get_person_location(name)
+                conf = float(pc.get_person_confidence(name))
+            except Exception:  # noqa: BLE001
+                break
+            # Same room match as PersonTrackingCoordinator.get_room_occupants.
+            norm = str(loc or "").lower().replace(" ", "_")
+            room = next((r for r in rooms if r.lower().replace(" ", "_") == norm), None)
+            if room is not None and conf >= bar:
+                return room, f"{who} is in {room}.", None
+            break
+        best = None
+        for s in self._last_sightings.values():
+            if (s.slug == slug and s.sighting_source == SIGHTING_SOURCE_INTERIOR and s.room
+                    and 0.0 <= now - s.ts <= float(_c.INTERIOR_ROOM_FACE_FRESH_S)
+                    and (best is None or s.ts > best.ts)):
+                best = s
+        if best is not None:
+            mins = int((now - best.ts) // 60)
+            return best.room, f"{who} was last seen in {best.room} {mins} min ago.", None
+        return None, "", f"Can't place {who} right now."
+
+    def _tracked_slugs(self) -> list[str]:
+        census = self._census()
+        try:
+            return [s for s in (census.tracked_person_slugs() if census is not None else ()) if s]
+        except Exception:  # noqa: BLE001
+            return []
+
+    def _describe_scrub_names(self) -> list[str]:
+        """Every tracked resident's slug, display name and first name: the
+        words a description may never carry (INV-IV-NO-NAME)."""
+        from .person_ids import display_of  # noqa: PLC0415
+
+        out: list[str] = []
+        for s in self._tracked_slugs():
+            disp = display_of(s)
+            out += [s, disp] + [w for w in disp.split(" ") if len(w) >= 3]
+        return out
+
+    def _still_source_live(self, group: dict[str, Any]) -> bool:
+        """Closure N1: the still-source camera reads a real state AND one of
+        its device's interior person sensors is LIVE by §7 now."""
+        from .domain_coordinators import camera_stream_health as _csh  # noqa: PLC0415
+
+        still = group.get("still_source")
+        if not still:
+            return False
+        st = self.hass.states.get(still)
+        if st is None or st.state in _UNREADY:
+            return False
+        census = self._census()
+        try:
+            evidence = census.area_evidence() if census is not None else {}
+        except Exception:  # noqa: BLE001
+            evidence = {}
+        discounted = frozenset((evidence or {}).get("discounted") or ())
+        for eid in group.get("still_members") or ():
+            try:
+                view = _csh.entity_stream_view(self.hass, eid, census=True)
+            except Exception:  # noqa: BLE001
+                view = None
+            mst = self.hass.states.get(eid)
+            if _iv.member_liveness(view, getattr(mst, "state", None) if mst is not None
+                                   else None, stuck=eid in discounted) == _iv.LIVE:
+                return True
+        return False
+
+    def _dewarp_views(self, group: dict[str, Any]) -> tuple | None:
+        """The flat views to cut when the group's camera has a 360 lens by
+        its registry lens sensor (last real reading kept through an
+        unavailable spell); None = send the raw still."""
+        lens = group.get("lens_entity")
+        if not _c.INTERIOR_DEWARP_ENABLED or not lens:
+            return None
+        st = self.hass.states.get(lens)
+        val = getattr(st, "state", None) if st is not None else None
+        if val is not None and val not in _UNREADY:
+            self._lens_last[lens] = str(val)
+        if self._lens_last.get(lens) != str(_c.INTERIOR_DEWARP_LENS_360_VALUE):
+            return None
+        for dev in group.get("devices") or ():
+            views = _c.INTERIOR_DEWARP_VIEWS_BY_DEVICE.get(dev)
+            if views:
+                return tuple(tuple(float(x) for x in v) for v in views)
+        return tuple(tuple(float(x) for x in v) for v in _c.INTERIOR_DEWARP_VIEWS)
+
+    def _vision_provider_id(self) -> str | None:
+        from .crossing_vision import vision_provider_id  # noqa: PLC0415
+
+        return vision_provider_id(self.hass)
+
+    def _log_description_row(self, record: RoomDescription) -> None:
+        """One ``interior_description`` row per description (no frame)."""
+        database = self.hass.data.get(_c.DOMAIN, {}).get("database")
+        if database is None or self._interior_torn_down:
+            return
+        ref = f"idesc:{record.group_key}:{int(record.ts * 1000)}"
+        attrs = {
+            "room": record.room, "people": record.people,
+            "activities": [{"what": w, "where": p} for w, p in record.activities],
+            "context": record.context, "confidence": record.confidence,
+            "affect": [{"mood": m, "energy": e} for m, e in record.affect],
+            "reason": record.reason, "views": record.views, "dewarped": record.dewarped,
+            "names_scrubbed": record.names_scrubbed, "latency_s": record.latency_s,
+            "model": record.model,
+        }
+        try:
+            task = self.hass.async_create_task(database.log_memory_episode(
+                node_id=ref, episode_type=_c.INTERIOR_DESCRIPTION_EPISODE_TYPE,
+                attrs=attrs, source_ref=ref, dedup_source_ref=False, window_dedup=False,
+            ))
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("interior vision: description row failed", exc_info=True)
+            return
+        self._interior_tasks.add(task)
+        try:
+            task.add_done_callback(self._interior_tasks.discard)
+        except Exception:  # noqa: BLE001
+            pass
+
     # ------------------------------------------------------------- lifecycle
     def _setup_interior(self) -> None:
         """Register the record timer (``INTERIOR_ROOM_RECORD_INTERVAL_S``).
@@ -940,6 +1179,17 @@ class PersonSightingProducer:
         registered. The on-edge listener is (re)bound when the groups are
         built on the first tick."""
         self._interior_torn_down = False
+        self._iv_sampler.torn_down = False
+        # Ship 2: a still staged by a call a restart cut short is deleted
+        # (INV-IV-NO-STORE discharge; tracked, cancelled at teardown).
+        sweep = self._iv_sampler.async_sweep_stage()
+        try:
+            task = self.hass.async_create_task(sweep)
+            self._interior_tasks.add(task)
+            task.add_done_callback(self._interior_tasks.discard)
+        except Exception:  # noqa: BLE001
+            sweep.close()
+            _LOGGER.debug("interior vision: stage sweep not scheduled", exc_info=True)
         if not _c.INTERIOR_ROOM_RECORDS_ENABLED:
             return
         try:
@@ -976,6 +1226,7 @@ class PersonSightingProducer:
                 pass
         self._interior_tasks.clear()
         self._open_paths.clear()
+        self._iv_sampler.teardown()
 
     @callback
     def _on_interior_interval(self, _now: Any = None) -> None:
@@ -1042,11 +1293,13 @@ class PersonSightingProducer:
         pure = _csh.pure_twin_groups(er_, dr_)
         by_key: dict[str, dict[str, Any]] = {}
         excluded: Counter = Counter()
+        dev_of: dict[str, str] = {}
         for eid in interior:
             dev = _csh.camera_device_for_entity(er_, eid)
             if dev is None:
                 excluded["no_camera_device"] += 1
                 continue
+            dev_of[eid] = dev
             group = _csh.twin_pair_for_device(er_, dr_, dev, groups=pure)
             key = min(group)
             g = by_key.setdefault(key, {"group_key": key, "devices": tuple(sorted(group)),
@@ -1087,7 +1340,12 @@ class PersonSightingProducer:
             if still is None:
                 excluded["no_still_source"] += 1  # counted, still recorded
             g.update(members=tuple(sorted(g["members"])), area_id=area, room=room,
-                     room_type=room_type, still_source=still)
+                     room_type=room_type, still_source=still,
+                     # Ship 2: the still device's own person sensors (closure
+                     # N1 liveness) and the registry lens sensor (dewarp).
+                     still_members=tuple(sorted(
+                         e for e in g["members"] if frig and dev_of.get(e) == frig)),
+                     lens_entity=self._lens_entity(er_, g["devices"]))
             groups.append(g)
             for eid in g["members"]:
                 key_by_entity[eid] = key
@@ -1116,6 +1374,32 @@ class PersonSightingProducer:
         self.interior_excluded = excluded
         self._interior_sig = sig
         self._bind_onedge_listener()
+
+    @staticmethod
+    def _lens_entity(er_: Any, devices: Any) -> str | None:
+        """The group's camera lens sensor by REGISTRY (never a name): an
+        enabled ``sensor`` entity of platform ``INTERIOR_DEWARP_LENS_PLATFORM``
+        on a device of the group whose translation key is
+        ``INTERIOR_DEWARP_LENS_TRANSLATION_KEY`` (the integration's own
+        ``<mac>_lens_type`` unique id when the registry entry predates
+        translation keys)."""
+        key = str(_c.INTERIOR_DEWARP_LENS_TRANSLATION_KEY)
+        devs = set(devices or ())
+        found = []
+        try:
+            ents = list(getattr(er_, "entities", {}).values())
+        except Exception:  # noqa: BLE001
+            return None
+        for e in ents:
+            if (getattr(e, "device_id", None) not in devs or getattr(e, "disabled_by", None)
+                    or getattr(e, "domain", None) != "sensor"
+                    or getattr(e, "platform", None) != _c.INTERIOR_DEWARP_LENS_PLATFORM):
+                continue
+            tk = getattr(e, "translation_key", None)
+            uid = str(getattr(e, "unique_id", None) or "")
+            if tk == key or (tk is None and uid.endswith(f"_{key}")):
+                found.append(e.entity_id)
+        return sorted(found)[0] if found else None
 
     def _bind_onedge_listener(self) -> None:
         if self._interior_state_unsub is not None:
@@ -1505,4 +1789,13 @@ class PersonSightingProducer:
             "onedge_entities": len(self._onedge_key_by_entity),
             "onedge_ring": len(self._onedge_ring),
             "tick_errors": int(self.interior_counters.get("tick_errors", 0)),
+            # Ship 2 (D3): describe on demand. Never affect (closure N7).
+            "descriptions": int(self.interior_counters.get("descriptions", 0)),
+            "describe_requests": int(self.interior_counters.get("describe_requests", 0)),
+            "describe_unresolved": int(self.interior_counters.get("describe_unresolved", 0)),
+            "describe_no_camera": int(self.interior_counters.get("describe_no_camera", 0)),
+            "description_rooms": sorted(self._room_descriptions),
+            "groups_dewarp_capable": sorted(
+                g["room"] for g in self._interior_groups if g.get("lens_entity")),
+            "vision": self._iv_sampler.diagnostics(),
         }

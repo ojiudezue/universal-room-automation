@@ -218,8 +218,8 @@ Owners: `person_coordinator.py` (F1 level, F4-BLE, phone-left-behind predicate),
 `transit_validator.EgressDirectionTracker` (F3), `crossing_vision.py` + `crossing_ledger.py` (F3 attributes, F2 term
 provider), `person_sighting.py` (F4), `presence.py` read API block and `_derive_face_arrival` (read surface, F5),
 `signals.py`, `census_view.py`, `person_ids.py`, `arrival_edges.py` (pure rules), `camera_stream_health.py`,
-`nvr_witness.py` (planned), `interior_vision.py` (`InteriorVisionSampler`, VISION-INTERIOR-SIGHTINGS-1; ship 1 ships
-the pure core only, the sampler class arrives with the vision ships). A member may read another member's PUBLIC methods; it may read its OWN store. An owner's
+`nvr_witness.py` (planned), `interior_vision.py` (`InteriorVisionSampler`, VISION-INTERIOR-SIGHTINGS-1; ship 1 shipped
+the pure core; ship 2 (describe on demand) builds the sampler, owned by the sighting producer, owning no store). A member may read another member's PUBLIC methods; it may read its OWN store. An owner's
 own display entities (census sensors in `sensor.py`, person location sensors) may read the owner's store under a
 counted allowlist (owner-display exemption), never for a decision.
 

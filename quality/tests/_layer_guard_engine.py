@@ -119,6 +119,8 @@ READ_LIST: dict[str, frozenset[str]] = {
         # VISION-INTERIOR-SIGHTINGS-1 §6.3 (ship 1): F4 unnamed reads, also
         # pinned to their only readers (PINNED_READERS).
         "get_room_sightings", "get_last_path_records",
+        # Ship 2 (§6.3): describe on demand, pinned too.
+        "get_room_description", "request_room_description",
     }),
     "EGRESS": frozenset({
         "get_last_crossing", "get_crossings_since", "get_crossing",
@@ -172,9 +174,10 @@ STORE_ATTRS_OWNER = {
     "_crossing_ring": "transit_validator.py",
     "_last_crossing": "transit_validator.py",
     "_last_crossing_by_camera": "transit_validator.py",
-    # VISION-INTERIOR-SIGHTINGS-1 §6.3 (ship 1): the F4 unnamed stores
-    # (`_room_descriptions` arrives with ship 2).
+    # VISION-INTERIOR-SIGHTINGS-1 §6.3: the F4 unnamed stores
+    # (`_room_descriptions` since ship 2).
     "_room_sightings": "person_sighting.py",
+    "_room_descriptions": "person_sighting.py",
     "_path_records": "person_sighting.py",
     "_vision_counts": "person_sighting.py",
 }
@@ -189,6 +192,7 @@ RECORD_OWNERS = {
     "PersonSighting": ("person_sighting.py",),
     "RoomSighting": ("person_sighting.py",),
     "PathRecord": ("person_sighting.py",),
+    "RoomDescription": ("person_sighting.py",),
 }
 CLASS_THRESHOLDS = (0.75, 0.9)
 # R2 store reads: attribute -> the modules allowed to read it.
@@ -199,9 +203,10 @@ R2_STORE_OWNERS: dict[str, tuple[str, ...]] = {
     "_room_sightings": ("person_sighting.py",),
     "_path_records": ("person_sighting.py",),
     "_vision_counts": ("person_sighting.py",),
+    "_room_descriptions": ("person_sighting.py",),
 }
 R2_PRIVATE_STORES = frozenset({"_last_sightings", "_camera_sightings", "_room_sightings",
-                               "_path_records", "_vision_counts"})
+                               "_path_records", "_vision_counts", "_room_descriptions"})
 # Plan rev 3.3 §5 D7 (ruled 4d337e44): lifecycle callees only, by name; a
 # person-fact read during setup still counts.
 R2_LIFECYCLE_EXACT = frozenset({
@@ -248,7 +253,8 @@ PINNED_READERS: dict[str, tuple[tuple[str, str], ...]] = {
         _RESERVED_PERSONALIZATION,
     ),
     "request_room_description": (
-        ("notification_manager.py", "NotificationManager._handle_describe_command"),
+        ("domain_coordinators/notification_manager.py",
+         "NotificationManager._handle_describe_command"),
         ("domain_coordinators/presence.py", "PresenceCoordinator.request_room_description"),
     ),
     "get_room_description": (
@@ -267,6 +273,18 @@ PINNED_READERS: dict[str, tuple[tuple[str, str], ...]] = {
     "_emit_unnamed": (("person_sighting.py", "PersonSightingProducer.*"),),
     "area_evidence": (("person_sighting.py", "PersonSightingProducer.*"),),
 }
+# Ship 2 (plan §6.3, closure N7): FORBIDDEN_ATTR_READS (rule R16, never
+# allowlisted, not in the total). The affect field has NO reader outside its
+# owner and the reply formatter: a `.affect` load, a literal
+# `["affect"]` / `.get("affect")` / `getattr(x, "affect")`, or
+# `asdict(...)` / `vars(...)` of a description (an argument that calls
+# `get_room_description` or names a `*desc*` value) anywhere else is a hit.
+# Stated limit: a computed attribute name (`getattr(x, k)`) is not seen.
+FORBIDDEN_ATTR_READS: dict[str, tuple[str, ...]] = {
+    "affect": ("person_sighting.py", "interior_vision.py"),
+}
+
+
 # Stated static limits of R15 (review B MEDIUM-2; plan §6.3, contract §6):
 # a bound-method alias (``g = p.get_room_sightings; g()``) and a read of the
 # display entity's state / attributes (``hass.states.get("sensor.ura_interior_
@@ -1273,6 +1291,30 @@ def scan_module(rel: str, tree: ast.Module, h: Harvest) -> list[Hit]:
             if name in PINNED_READERS and not pinned_ok(name, rel, qual):
                 add("R15", qual, name, node, "unpinned_reader")
 
+        # ---------------- R16 forbidden attribute reads (never allowlisted)
+        if rel not in FORBIDDEN_ATTR_READS["affect"]:
+            bad = None
+            if isinstance(node, ast.Attribute) and node.attr in FORBIDDEN_ATTR_READS \
+                    and isinstance(node.ctx, ast.Load):
+                bad = node.attr
+            elif isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Load) \
+                    and _str_const(node.slice) in FORBIDDEN_ATTR_READS:
+                bad = _str_const(node.slice)
+            elif isinstance(node, ast.Call):
+                cname = _call_name(node)
+                if cname in ("getattr", "get") and node.args and _str_const(
+                        node.args[1] if cname == "getattr" and len(node.args) >= 2
+                        else node.args[0]) in FORBIDDEN_ATTR_READS:
+                    bad = "affect"
+                elif cname in ("asdict", "vars") and node.args:
+                    arg = node.args[0]
+                    txt = _receiver_text(arg).lower()
+                    if (isinstance(arg, ast.Call) and _call_name(arg) == "get_room_description") \
+                            or "desc" in txt:
+                        bad = "affect"
+            if bad is not None:
+                add("R16", qual, bad, node, "forbidden_attr_read")
+
         # ---------------- R13 ingest feeders (+ missing_source)
         if isinstance(node, ast.Call):
             name = _call_name(node)
@@ -1416,6 +1458,8 @@ def compare(hits: list[Hit], allowlist: dict, listed: dict, total: int | None) -
             problems.append(f"missing source {x.key} line {x.line}")
         if x.kind == "unpinned_reader":
             problems.append(f"unpinned reader {x.key} line {x.line}")
+        if x.kind == "forbidden_attr_read":
+            problems.append(f"forbidden attribute read {x.key} line {x.line}")
     if total is not None:
         s = sum(int(r["max"]) for r in allowlist.values())
         if s != total:
