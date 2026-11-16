@@ -148,9 +148,9 @@ Side findings get a card and wait; they do not get an agent unless they block a 
 
 | # | Work (charter goal) | Status | Next action | Blocks |
 |---|---|---|---|---|
-| 1 | v5.108.27 crossing first set: error text, restart-safe cap 93, 4000 tokens, P3-D8 stuck rule (census accuracy) | operator GO; full suite running | suite name-diff -> orchestrator mutation -> deploy -> live validate | 4 |
+| 1 | v5.108.27 crossing first set: error text, restart-safe cap 93, 4000 tokens, P3-D8 stuck rule (census accuracy) | SHIPPED + validated 2026-11-15 (README table, fd925256) | — | — |
 | 2 | Interior vision ship 1: unnamed room records (census accuracy; interior counts for census + ledger floor, never presence) | fix pass running (A/B/C/D findings) | fix-up hash -> full suite -> operator go -> deploy | 6 |
-| 3 | Step 8 identity actions -> v6.0.0 (arrivals + personalization) | branch at develop; §10.1 gaps closed; D0 run (geofence F5 9/15 pass; BLE F5 0/9) | §10.1 Tier 2-DB reviews -> D2 music engine -> D3 welcome scene -> D4 departure pause; B0 needs the branch on live HA; operator Qs Q4 near rule + ARRIVAL_OCCUPIED_LEAD_S | v6.0.0 |
+| 3 | Step 8 identity actions -> v6.0.0 (arrivals + personalization) | §10.1 reviews A/B back (fix list), C running; operator decided arrival design 2026-11-15; plan rev 3.5 f96ccf7c (play in own room and wait, hand-off to music following, one person.* edge, BLE card off the gate) | §10.1 fix pass -> ship People screen alone + B0 live check -> rev 3.5 plan review -> D0b probe -> MA live test (operator home) -> D2/D3/D4 build | v6.0.0 |
 | 4 | Stuck-sensor S1-S3 (blip fix, MS600 resolver, chatter wiring) = the census reset prerequisites (`PLANNING_stuck_sensor_truth.md`) | planned, reviewed (rev 2 d43633b5) | build after rows 1-2 ship (builder slot) | door ledger, row 6 |
 | 5 | Step 7 egress direction-aware identity rev 3.2 (arrivals naming) | not started | plan revision against the measured direction accuracy, after row 3 reviews | step 8 D5 |
 | 6 | Door direction + counts (P3-D2 recording route, P3-D3 direction recorded, P3-D10/D11 tracker extension) | WAITING on operator grades (88 cards live on urakanban /grade/) | pull grades -> score every instrument once -> build what passes | census F-LEAD |
