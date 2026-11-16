@@ -112,6 +112,9 @@ from ..const import (
     NM_REPEAT_PHASE1_WINDOW_S,
     NM_REPEAT_PHASE2_S,
     NM_REPEAT_DAILY_AFTER_S,
+    NM_REPEAT_HOME_CAP_S,
+    NM_REPEAT_CAP_AWAY_STATES,
+    NM_REPEAT_HOME_BUDGET_RESET_S,
     NM_SECURITY_ACK_HAZARDS,
     # NM-IMAGE-1 (2026-08-11): security-image force-immediate.
     NM_HAZARD_EXTERIOR_PERSON,
@@ -531,6 +534,12 @@ class NotificationManager:
 
         # v4.6.2 D6: routine-shift notification state
         self._regime_event_unsub: CALLBACK_TYPE | None = None
+        # NM-PERIMETER-REPEAT-STORM-1 option A: per-hazard home repeat
+        # budget {hazard: {"used_at": iso, "last_page_at": iso}}. Persisted
+        # via get/restore_persistence_state (NM diagnostics RestoreEntity).
+        self._repeat_home_budget: dict[str, dict[str, str]] = {}
+        self._house_state_unsub: CALLBACK_TYPE | None = None
+        self._repeat_home_budget_cleared_at: str | None = None
         self._regime_digest_unsub: CALLBACK_TYPE | None = None
 
         # C4b: Inbound handling
@@ -1094,6 +1103,9 @@ class NotificationManager:
             # NM Cycle B B2 — restart-safe ack registry
             "ack_registry": {k: dict(v) for k, v in self._ack_registry.items()},
             "active_episode_id": self._active_episode_id,
+            "repeat_home_budget": {
+                k: dict(v) for k, v in self._repeat_home_budget.items()
+            },
             # NM Cycle C C4 — restart-safe per-(person, channel) mutes.
             # Keys serialised as "person_id::channel" (colon-tuple avoided
             # so JSON round-trip is clean). Expiry values as ISO strings.
@@ -1127,6 +1139,31 @@ class NotificationManager:
                 if self._active_alert_data else None
             ),
         }
+
+    def restore_repeat_home_budget(self, state: dict[str, Any] | None) -> None:
+        """Restore the home repeat budget. Called by the NM diagnostics
+        sensor UNCONDITIONALLY (not behind its IDLE gate — the cap's own
+        cooldown is the likeliest restart state). Entries used at or before
+        a real away transition already seen this boot are dropped."""
+        budget = (state or {}).get("repeat_home_budget")
+        if not isinstance(budget, dict):
+            return
+        cleared = self._repeat_home_budget_cleared_at or ""
+        restored = {
+            str(k): {
+                "used_at": str(v.get("used_at", "")),
+                "last_page_at": str(v.get("last_page_at", "")),
+            }
+            for k, v in budget.items() if isinstance(v, dict)
+        }
+        if cleared:
+            restored = {
+                k: v for k, v in restored.items()
+                if v["last_page_at"] > cleared
+            }
+        # Live entries (set this boot) win over restored ones.
+        restored.update(self._repeat_home_budget)
+        self._repeat_home_budget = restored
 
     def restore_persistence_state(self, state: dict[str, Any]) -> None:
         """Restore alert/cooldown/dedup state from persisted attributes.
@@ -1173,6 +1210,7 @@ class NotificationManager:
             self._cooldown_remaining = state.get("cooldown_remaining", 0)
             self._cooldown_hazard_type = state.get("cooldown_hazard_type")
             self._cooldown_location = state.get("cooldown_location")
+        self.restore_repeat_home_budget(state)
         dedup = state.get("dedup_cache")
         if isinstance(dedup, dict):
             self._dedup_cache = {k: float(v) for k, v in dedup.items() if isinstance(v, (int, float))}
@@ -1407,6 +1445,14 @@ class NotificationManager:
             SIGNAL_REGIME_EVENT_EMITTED,
             self._handle_regime_event,
         )
+        # NM-PERIMETER-REPEAT-STORM-1 option A: away/vacation resets the
+        # home repeat budget.
+        from .signals import SIGNAL_HOUSE_STATE_CHANGED
+        self._house_state_unsub = async_dispatcher_connect(
+            self.hass,
+            SIGNAL_HOUSE_STATE_CHANGED,
+            self._on_house_state_for_repeat_budget,
+        )
 
         # Weekly digest flush: Sunday (weekday=6) at 09:00 local time.
         self._regime_digest_unsub = async_track_time_change(
@@ -1469,6 +1515,9 @@ class NotificationManager:
         if self._regime_event_unsub:
             self._regime_event_unsub()
             self._regime_event_unsub = None
+        if self._house_state_unsub:
+            self._house_state_unsub()
+            self._house_state_unsub = None
         if self._regime_digest_unsub:
             self._regime_digest_unsub()
             self._regime_digest_unsub = None
@@ -3084,6 +3133,15 @@ class NotificationManager:
 
         async_dispatcher_send(self.hass, SIGNAL_NM_ALERT_STATE_CHANGED)
 
+        # NM-PERIMETER-REPEAT-STORM-1 option A: the first notification has
+        # already gone out (async_notify sends before calling here). If this
+        # hazard's home repeat budget is used, start no repeat chain.
+        if self._repeat_home_budget_blocks(hazard_type):
+            await self._cap_repeat_home(
+                reason="repeat_skipped_home_budget", digest=False,
+            )
+            return
+
         # Start repeat timer
         self._alert_state = AlertState.REPEATING
         self._schedule_repeat()
@@ -3158,6 +3216,201 @@ class NotificationManager:
         if age < int(NM_REPEAT_DAILY_AFTER_S):
             return int(NM_REPEAT_PHASE2_S)
         return 86400
+
+    def _repeat_home_cap_reached(self) -> bool:
+        """NM-PERIMETER-REPEAT-STORM-1: stop repeating a non-life-safety
+        CRITICAL past the first hour while the house is home.
+
+        False (keep repeating) when: the cap knob is 0; the hazard is
+        life-safety (base set + extras, incl. smoke/CO/flood on the
+        "standard" ladder); the page is younger than the cap; the house
+        state is away/vacation; or the house state is unknown (fails
+        toward paging). House state read via ``_panel_house_state``.
+        """
+        cap = int(NM_REPEAT_HOME_CAP_S)
+        if cap <= 0 or not self._active_alert_data:
+            return False
+        _hz = self._active_alert_data.get("hazard_type")
+        if is_life_safety_hazard(self.hass, _hz):
+            return False
+        if self._unacked_critical_age_s() < cap:
+            return False
+        return self._house_known_home() is True
+
+    def _house_known_home(self) -> bool | None:
+        """True = known home state, False = away/vacation, None = unknown."""
+        state = self._panel_house_state()
+        if state in NM_REPEAT_CAP_AWAY_STATES:
+            return False
+        try:
+            from .house_state import HouseState
+            known = {str(s.value) for s in HouseState}
+        except Exception:  # noqa: BLE001 — unknown => keep paging
+            return None
+        return True if state in known else None
+
+    @callback
+    def _on_house_state_for_repeat_budget(self, payload: Any) -> None:
+        """A real transition INTO away/vacation ends the home session: reset
+        every budget. Accepts the dict presence dispatches
+        (presence.py:9916-9925) and the HouseStateChange dataclass (pattern:
+        routine_forecaster.py:398-403). A payload without a distinct old
+        state is not a transition and is ignored. The clear time is recorded
+        so a later RestoreEntity push cannot resurrect a cleared budget."""
+        if isinstance(payload, dict):
+            old = payload.get("old_state") or payload.get("previous_state")
+            new = payload.get("new_state")
+        else:
+            old = getattr(payload, "previous_state", None) or getattr(
+                payload, "old_state", None
+            )
+            new = getattr(payload, "new_state", None)
+        old_s = str(old or "").lower()
+        new_s = str(new or "").lower()
+        if not old_s or old_s == new_s or new_s not in NM_REPEAT_CAP_AWAY_STATES:
+            return
+        self._repeat_home_budget_cleared_at = dt_util.utcnow().isoformat()
+        if self._repeat_home_budget:
+            self._repeat_home_budget.clear()
+            async_dispatcher_send(self.hass, SIGNAL_NM_ENTITIES_UPDATE)
+
+    def _repeat_home_budget_blocks(self, hazard_type: str | None) -> bool:
+        """True when a NEW page of ``hazard_type`` must start no repeat chain:
+        cap + budget knobs on, not life-safety, house known home, and this
+        hazard's budget was used with a page of it within
+        NM_REPEAT_HOME_BUDGET_RESET_S. Refreshes last_page_at when blocking.
+        Away/vacation clears all budgets; unknown keeps paging."""
+        reset_s = int(NM_REPEAT_HOME_BUDGET_RESET_S)
+        if int(NM_REPEAT_HOME_CAP_S) <= 0 or reset_s <= 0:
+            return False
+        if is_life_safety_hazard(self.hass, hazard_type):
+            return False
+        home = self._house_known_home()
+        if home is False:
+            # Away at page time: full ladder, but do NOT clear — the boot
+            # default (house_state.py:153 initial AWAY) would wipe the budget
+            # on every restart. Only a real transition clears (listener).
+            return False
+        if home is None:
+            return False
+        key = str(hazard_type or "")
+        entry = self._repeat_home_budget.get(key)
+        if not entry:
+            return False
+        now = dt_util.utcnow()
+        try:
+            last = datetime.fromisoformat(str(entry.get("last_page_at")))
+            if last.tzinfo is None:
+                last = last.replace(tzinfo=timezone.utc)
+            quiet = (now - last).total_seconds()
+        except (TypeError, ValueError):
+            quiet = float(reset_s)
+        if quiet >= reset_s:
+            self._repeat_home_budget.pop(key, None)
+            return False
+        entry["last_page_at"] = now.isoformat()
+        return True
+
+    async def _cap_repeat_home(
+        self, reason: str = "repeat_capped_home", digest: bool = True,
+    ) -> None:
+        """Stop the repeat chain cleanly, ending in the SAME state an ack
+        reaches: the slot's rows are marked acknowledged (as
+        ``async_acknowledge`` does, so restart recovery via
+        ``get_active_critical`` cannot resurrect it) and ``_start_cooldown``
+        runs (COOLDOWN with the hazard's minutes, ``set_cooldown`` stamped on
+        the row). Also writes the ``repeat_capped_home`` outcome row (which is
+        what distinguishes a cap from a human ack) and one digest line per
+        recipient. No ack registry entry, no ack TTS, no bulk sweep."""
+        data = dict(self._active_alert_data or {})
+        # HIGH-2: the slot identity this cap acts on. A newcomer (e.g. smoke)
+        # can take the slot during the awaits below; it must not be cooled.
+        episode = data.get("episode_id")
+        state = self._panel_house_state()
+        if reason == "repeat_capped_home":
+            # Option A: mark this hazard's home repeat budget used.
+            _page_at = str(data.get("created_at") or dt_util.utcnow().isoformat())
+            self._repeat_home_budget[str(data.get("hazard_type") or "")] = {
+                "used_at": dt_util.utcnow().isoformat(),
+                "last_page_at": _page_at,
+            }
+        _LOGGER.info(
+            "NM: repeat " + reason + " (house=%s, age=%ss, repeats=%s): %s",
+            state, self._unacked_critical_age_s(),
+            data.get("repeat_count", 0), data.get("title"),
+        )
+        if self._repeat_unsub:
+            self._repeat_unsub()
+            self._repeat_unsub = None
+        if self._light_pattern_task and not self._light_pattern_task.done():
+            self._light_pattern_task.cancel()
+            self._light_pattern_task = None
+            await self._restore_alert_lights()
+        self._panel_release_id(self._panel_lease_id(
+            data.get("coordinator_id"), data.get("hazard_type"),
+            data.get("location"),
+        ))
+        await self._emit_audit_row(
+            coordinator_id=data.get("coordinator_id", "unknown"),
+            severity=Severity.CRITICAL,
+            title=data.get("title", ""),
+            hazard_type=data.get("hazard_type"),
+            location=data.get("location"),
+            recipient_id=None,
+            channel=None,
+            route_reason=reason,
+            dnd_bypass_applied=False,
+            bucket_outcome=reason,
+            matrix_branch=f"repeat_{int(data.get('repeat_count') or 0)}",
+            delivered=0,
+            dry_run=1 if self._dry_run_active else 0,
+            acknowledged=1,
+            routing_hole=False,
+        )
+        database = self.hass.data.get(DOMAIN, {}).get("database")
+        if database is not None:
+            for person_cfg in (
+                (self._config.get(CONF_NM_PERSONS, []) or []) if digest else []
+            ):
+                person_id = person_cfg.get(CONF_NM_PERSON_ENTITY, "")
+                if not person_id:
+                    continue
+                try:
+                    await database.log_notification(
+                        data.get("coordinator_id", "unknown"), "MEDIUM",
+                        f"Repeats stopped: {data.get('title', '')}",
+                        (
+                            "Unacknowledged CRITICAL page repeated for the first "
+                            f"hour; repeats stopped because the house is {state}."
+                        ),
+                        data.get("hazard_type"), data.get("location"), person_id,
+                        NM_DIGEST_FALLBACK_CHANNEL, 0,
+                    )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug("NM cap digest row failed", exc_info=True)
+            # Same DB step as async_acknowledge (this episode's rows only).
+            acked_id = await database.acknowledge_notification(
+                coordinator_id=data.get("coordinator_id"),
+                hazard_type=data.get("hazard_type"),
+            )
+            await database.acknowledge_matching_notifications(
+                data.get("coordinator_id"),
+                data.get("hazard_type"),
+                data.get("location"),
+            )
+        else:
+            acked_id = None
+        # HIGH-2 / LOW-1: only cool the slot if it still holds THIS episode
+        # and nothing (a concurrent ack) has already moved it on.
+        if (
+            not self._active_alert_data
+            or self._active_alert_data.get("episode_id") != episode
+            or self._alert_state not in (AlertState.ALERTING, AlertState.REPEATING)
+        ):
+            _LOGGER.debug("NM cap: slot changed during cap; leaving it alone")
+            return
+        self._last_acked_row_id = acked_id if isinstance(acked_id, int) else None
+        await self._start_cooldown()
 
     def _unacked_critical_age_s(self) -> int:
         """Return the age (seconds) of the active CRITICAL alert.
@@ -3270,7 +3523,15 @@ class NotificationManager:
         self._refresh_config()
 
         data = self._active_alert_data
+        # NM-PERIMETER-REPEAT-STORM-1: home cap — decided BEFORE any send so
+        # a restored (post-restart) page follows the same rule.
+        if self._repeat_home_cap_reached():
+            await self._cap_repeat_home()
+            return
         _LOGGER.info("Repeating CRITICAL alert: %s", data.get("title"))
+        _repeat_n = int(data.get("repeat_count") or 0) + 1
+        data["repeat_count"] = _repeat_n
+        _repeat_fired: list[str] = []
 
         # Halo S1b (H1): repeats bypass async_notify, so this is the renewal
         # (and retarget) site for an unacked episode's panel lease. No DB row
@@ -3349,6 +3610,7 @@ class NotificationManager:
                 key = person_cfg.get(CONF_NM_PERSON_PUSHOVER_KEY, "")
                 device = person_cfg.get(CONF_NM_PERSON_PUSHOVER_DEVICE, "")
                 if key:
+                    _repeat_fired.append("pushover")
                     await self._send_pushover(
                         data["title"], data["message"], Severity.CRITICAL, key, device,
                         snapshot_url=_snap_url, snapshot_path=_snap_path,
@@ -3356,6 +3618,7 @@ class NotificationManager:
             if _channel_gate.get("companion", False) and "companion" in _router_allowed:
                 svc = person_cfg.get(CONF_NM_PERSON_COMPANION_SERVICE, "")
                 if svc:
+                    _repeat_fired.append("companion")
                     await self._send_companion(
                         data["title"], data["message"], Severity.CRITICAL, svc,
                         is_critical=True,
@@ -3364,6 +3627,7 @@ class NotificationManager:
             if _channel_gate.get("whatsapp", False) and "whatsapp" in _router_allowed:
                 phone = person_cfg.get(CONF_NM_PERSON_WHATSAPP_PHONE, "")
                 if phone:
+                    _repeat_fired.append("whatsapp")
                     await self._send_whatsapp(
                         data["title"], data["message"], phone,
                         snapshot_url=_snap_url, snapshot_path=_snap_path,
@@ -3371,6 +3635,7 @@ class NotificationManager:
             if _channel_gate.get("imessage", False) and "imessage" in _router_allowed:
                 handle = person_cfg.get(CONF_NM_PERSON_IMESSAGE_HANDLE, "")
                 if handle:
+                    _repeat_fired.append("imessage")
                     await self._send_imessage(
                         data["title"], data["message"], handle,
                         snapshot_url=_snap_url, snapshot_path=_snap_path,
@@ -3395,8 +3660,30 @@ class NotificationManager:
             else self._channel_ready("tts", Severity.CRITICAL, _hz)
         )
         if _global_dnd_ok_repeat and _tts_gate_repeat:
+            _repeat_fired.append("tts")
             await self._send_tts(data["title"], data["message"])
         # (data.get was assigned to `_hz` above; local scope only.)
+
+        # NM-PERIMETER-REPEAT-STORM-1: one audit row per resend (not per
+        # channel) so resends can be counted. Pre-acked + "[audit]" message,
+        # so get_active_critical can never resurrect it.
+        await self._emit_audit_row(
+            coordinator_id=_coord_id,
+            severity=Severity.CRITICAL,
+            title=data.get("title", ""),
+            hazard_type=_hz,
+            location=data.get("location"),
+            recipient_id=None,
+            channel=",".join(sorted(set(_repeat_fired))) or None,
+            route_reason="repeat",
+            dnd_bypass_applied=False,
+            bucket_outcome="repeat",
+            matrix_branch=f"repeat_{_repeat_n}",
+            delivered=1 if _repeat_fired else 0,
+            dry_run=1 if self._dry_run_active else 0,
+            acknowledged=1,
+            routing_hole=False,
+        )
 
         # Re-check suppression — kill switch may have been toggled between awaits
         if self._messaging_suppressed or self._alert_state != AlertState.REPEATING:
@@ -3695,7 +3982,10 @@ class NotificationManager:
         async_dispatcher_send(self.hass, SIGNAL_NM_ALERT_STATE_CHANGED)
         async_dispatcher_send(self.hass, SIGNAL_NM_ENTITIES_UPDATE)
 
-        # Schedule cooldown expiry
+        # Schedule cooldown expiry. NM-PERIMETER-REPEAT-STORM-1 (B-LOW-1):
+        # cancel any timer a concurrent cap/ack already armed so none orphans.
+        if self._cooldown_unsub:
+            self._cooldown_unsub()
         self._cooldown_unsub = async_call_later(
             self.hass, cooldown_secs, self._cooldown_expired
         )

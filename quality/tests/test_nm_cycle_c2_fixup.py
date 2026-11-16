@@ -394,14 +394,20 @@ def test_helper_call_count_at_all_eight_sites():
     frozenset). Behaviourally anchored by
     test_nm_panel_channel.py::test_night_gate_safety_only (intruder passes at
     night, lock_check does not).
+
+    NM-PERIMETER-REPEAT-STORM-1 option A (2026-11-16): 14→15 for the home
+    repeat budget exclusion in ``_repeat_home_budget_blocks``. Behaviourally
+    anchored by test_nm_repeat_home_cap.py::test_budget_never_applies_to_life_safety.
+    15→16: the first-hour cap exclusion in ``_repeat_home_cap_reached`` now
+    on one line (anchored by test_life_safety_never_capped_at_home).
     """
     import pathlib
     src = (pathlib.Path(__file__).resolve().parents[2]
            / "custom_components/universal_room_automation/domain_coordinators"
            / "notification_manager.py").read_text()
     calls = src.count("is_life_safety_hazard(self.hass,")
-    assert calls == 14, (
-        f"Expected 14 helper call sites, found {calls}. A grep-evading "
+    assert calls == 16, (
+        f"Expected 16 helper call sites, found {calls}. A grep-evading "
         "inline-literal bypass has likely been introduced at one of the "
         "sites (I-C2-LS invariant regression)."
     )
