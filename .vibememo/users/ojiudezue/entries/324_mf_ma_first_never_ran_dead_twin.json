@@ -1,0 +1,25 @@
+{
+  "format_version": "2.1",
+  "entry_id": "324",
+  "author": "ojiudezue",
+  "timestamp": "2026-11-16T04:40:00Z",
+  "type": "counseling",
+  "weight": "significant",
+  "category": "architecture",
+  "title": "Music following's MA-first path has never run in a WiiM room: it matches a dead Music Assistant twin",
+  "summary": "A read-only probe for step 8 found that in all 10 WiiM rooms music following's _ma_candidates picks the _5 Music Assistant twin, which is unavailable in every recorder row for 7 days, while the _7 twin that actually plays (identifier wiim_uuid:<uuid>) never matches any rule. Every transfer falls back to native WiiM join, so music still follows, but the v5.108.26 MA-first repair has never executed there. The same probe found no MA queue started in a week, so the arrival engine's 'is this our music' marker cannot be learned from history; the engine ships nothing until that is settled live or by a context-based ownership rule.",
+  "why": "The v5.108.26 D0 inventory matched twins by MAC-in-identifier and stopped at 'a twin exists'; it never checked the twin's state or which entity was actually playing. A fire check (has the MA path ever run?) would have caught it at ship. The fallback hid the failure because the user-visible behaviour still worked.",
+  "alternatives_considered": [
+    "Delete the stale _5 players in Music Assistant (operator-side; leaves URA matching fragile for the next provider change)",
+    "Leave native join as the only path (gives up MA queue transfer, which the arrival engine needs)"
+  ],
+  "implications": "Twin resolution must prefer an available entity and match the wiim_uuid identifier from the registry. Any feature with a fallback path needs a fire check on the primary path, or the fallback silently becomes the product.",
+  "confidence": "high",
+  "revisit_trigger": "Music Assistant provider changes, or MF digest shows ma_source_not_playing after the fix.",
+  "operator_quote": "",
+  "refs": {
+    "cards": ["MF-MA-TWIN-WIIM-UUID-1", "MUSIC-FOLLOWING-TRANSFER-REPAIR-1", "PERSON-PROFILE-PREFERENCES-1"],
+    "files": ["custom_components/universal_room_automation/music_following.py", "docs/planning/AUDIT_step8_b0_ours_attr_2026_11_15.md"],
+    "entries": ["315", "323"]
+  }
+}

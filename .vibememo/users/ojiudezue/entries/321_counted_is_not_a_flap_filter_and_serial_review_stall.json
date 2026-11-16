@@ -1,0 +1,26 @@
+{
+  "format_version": "2.1",
+  "entry_id": "321",
+  "author": "ojiudezue",
+  "timestamp": "2026-11-16T02:45:00Z",
+  "type": "counseling",
+  "weight": "significant",
+  "category": "process",
+  "title": "Step 8: 'counted' arrivals are not a flap filter; and serial gating stalled the arc",
+  "summary": "Two plan reviews of step 8 rev 3.5 found that the residency 'counted' flag passes every not_home->home edge (arrival_edges.py:141-156), so a 40 s GPS flap while sitting in the bedroom would have started arrival music; about 19 of 80 arrivals a week are such flaps. Rev 3.6.1 adds an engine-only absence gate (away >= 900 s) read from the tracker's per-person left_at and, after a restart, the persisted residency rows, without touching counted_return (the lock regime shares it). The operator then confirmed any counted arrival edge starts music, BLE-led included (Jaya and Ziri have no GPS), and kept the departure pause. Separately the operator asked 'Did you stop the arc? Come on!': the orchestrator had held the stuck-sensor and arrival-engine builders while two releases sat in review and awaited a go, instead of running them in parallel under the agent caps.",
+  "why": "A flag's name was taken as its meaning twice in one day (geofence = GPS, counted = really away). Both were caught only by reviewers re-reading the producer, which is the producer-check rule doing its job. The stall came from treating 'waiting for review or operator go' as a reason to stop dispatching, when the in-flight list had independent rows ready.",
+  "alternatives_considered": [
+    "Change counted_return to require 15 minutes away (rejected: the lock regime depends on its current meaning)",
+    "Read the 32-record residency ring for the departure (rejected: RAM-only, ~1.4 days, would deny music after any trip or restart)",
+    "Strict reading of operator B: GPS confirmation required (rejected by operator; Jaya and Ziri would never get arrival music)"
+  ],
+  "implications": "Every arrival consumer must state which absence test it applies rather than trusting counted. The orchestrator keeps builders busy on the next independent §4a rows while releases are in review; a pending operator go blocks only that release.",
+  "confidence": "high",
+  "revisit_trigger": "D0b shows the 900 s gate rejecting real arrivals, or an arrival consumer is found relying on counted as an absence test.",
+  "operator_quote": "Did you stop the arc? Come on!",
+  "refs": {
+    "cards": ["PERSON-PROFILE-PREFERENCES-1", "PEOPLE-SCREEN-1", "VISION-INTERIOR-SHIP1-1"],
+    "files": ["custom_components/universal_room_automation/arrival_edges.py", "custom_components/universal_room_automation/domain_coordinators/residency.py", "docs/planning/PLANNING_identity_actions_v6.md"],
+    "entries": ["317", "318"]
+  }
+}

@@ -51,6 +51,19 @@ observational with no consumer yet (operator 2026-11-15: "Emotion yes as prep fo
 enrolled is a non-goal (operator 2026-11-15: "Not expecting new names. Names come from people I enrolled. This is few and
 far between. Non goal").
 
+## 1b. Decided 2026-11-15: interior counts feed the crossing ledger as a FLOOR only
+
+Operator, verbatim: "At quiet moments... This didn't make sense" (on the checkpoint-anchor idea) and "Yes. I don't want to
+worry and derail from low probability concerns." Card VISION-INTERIOR-SIGHTINGS-1 `operator_2026_11_15_ledger_floor_only`.
+
+- **Rule:** the crossing ledger's level L is never below the visible interior count. Interior counts never raise L above
+  what the ledger holds otherwise, and never set it.
+- **Dropped, not planned:** the checkpoint anchor (resetting L from interior counts at quiet moments). It needs every
+  camera-less room provably empty, which is rare here and fragile.
+- **When:** a later plan amendment, scheduled as arc map §4a row 7 (after ship 2). Ship 1 (live v5.108.28) does not
+  touch the ledger; nothing in §9 changes until that amendment is written and reviewed. This is not the §9.D4
+  `deconflict_house` interior term, which stays as written.
+
 ## 1a. Decisions pending (operator); the build uses the recommended default unless the operator overrides
 
 | # | Question | Default the build uses | Alternative | Where it lands |

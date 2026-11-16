@@ -10,8 +10,8 @@ egress-identity JOIN and the 6.0.0 gate that depends on it.
 **Frigate MQTT (shipped v5.108.1):** URA reads Frigate events and
 face names straight from MQTT on the runtime topic prefix (§1.3, §4.5).
 **Current through:** URA v5.91.3 (`camera_census.py:3`); the egress-identity
-PRODUCER is **built on `feature/egress-identity-producer`, shipped pending
-deploy as v5.91.4** (orchestrator confirms the final version at deploy).
+PRODUCER is **BUILT and deployed (v5.91.4)**; see the per-ship paragraphs for v5.108.x
+(crossing vision, interior vision and step 8 status: PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md per-ship paragraphs).
 **Ground truth verified:** 2026-08-28 (code + memory bodies + post-ship
 consumer-gap audit).
 
@@ -328,7 +328,7 @@ ladder (rungs, `camera_resolver.py:11-36`):
 6. **operator-declared** — `CONF_ROOM_CAMERAS` multi-select is
    ground truth.
 
-**Frigate object-name rung (NVR-WITNESS W1, branch `feature/nvr-witness-w1-pairing`, NOT deployed).**
+**Frigate object-name rung (NVR-WITNESS W1, branch `feature/nvr-witness-w1-pairing`, deployed (in v5.108.21, live 2026-11-15)).**
 In rung 5, a Frigate input device also pairs with the one non-Frigate camera device whose registry name
 (`name_by_user`, else `name`, through HA `slugify`) equals the Frigate object name from the Frigate device
 identifier. All of: input is Frigate; exactly one non-Frigate device owning an enabled `camera.*` has that slug; no
@@ -481,7 +481,7 @@ deployed; plan `PLANNING_crossing_vision.md` rev 2, Phase 1).**
   it is empty, the rung-1 install default `CROSSING_VISION_PROVIDER_ID` (the Luna entry, kept: review A-HIGH-3). Either
   id is used only when it is an llmvision config entry on this install, else the perimeter provider (another house
   never has the default id).
-- **Crossing ledger (P2-D2 / P2-D3, same branch, NOT deployed):** `crossing_ledger.CrossingLedger` (pure; RAM; boot
+- **Crossing ledger (P2-D2 / P2-D3, same branch, deployed (in v5.108.23, live 2026-11-15)):** `crossing_ledger.CrossingLedger` (pure; RAM; boot
   `unknown`, a restart never restores `known`) owned by the shadow producer. Terms from every outcome: vision
   `people_count` on `ok` (`term_source = vision`), else `camera_peak_count`, else 1 (`camera`; policy
   `CROSSING_VISION_LEDGER_FALLBACK`); a cluster gets one term (primary count) or per-member camera terms when
@@ -606,7 +606,7 @@ under `gate_decisions_by_camera`:
   key (`perimeter_alert.py` `_arm_identity_followup` / `_followup_check`).
 
 **Scoped egress mute (PERIMETER-GLOBAL-EGRESS-MUTE-1, branch
-`feature/perimeter-egress-mute-scoped`, NOT deployed; plan
+`feature/perimeter-egress-mute-scoped`, deployed (in v5.108.22, live 2026-11-15); plan
 `PLANNING_perimeter_egress_mute_scoped.md`).** Consumes F3 only, security consumer
 class. Replaces the old rule "any egress on-edge mutes EVERY perimeter-only camera
 for 120 s" (which dropped ~40% of perimeter edges with no row). Now a perimeter-only
@@ -634,7 +634,7 @@ name-key fallbacks are counted on the diagnostic. Covered cameras must be perime
 a rejected seam file clears the map (no mute) while the graph keeps its last good spec.
 
 **Gate evidence (PERIMETER-GATE-EVIDENCE Part A, branch `feature/perimeter-gate-evidence`,
-NOT deployed; plan `PLANNING_perimeter_gate_evidence_and_input_health.md`).**
+deployed (in v5.108.20, live 2026-11-15); plan `PLANNING_perimeter_gate_evidence_and_input_health.md`).**
 - **Daylight-only single-source demotes (D1/D1b).** D5 `single_source` and the D10.5
   `egress_uncorroborated` branch demote only while `sun.sun` elevation ≥
   `PERIMETER_SS_DAYLIGHT_MIN_ELEVATION_DEG` (0.0). Missing / unavailable / non-numeric sun
@@ -735,7 +735,7 @@ alone), so it is body evidence, the same class as an unnamed camera body. The ga
 releases on it, nor on a HOME_* edge in an episode that saw it: access needs a resident's own arrival edge (a
 `person.*` -> home edge counted by `_arrival_counts`, an approach-zone / proximity crossing, or a corroborated
 `SIGNAL_PERSON_ARRIVING`). Same doctrine as §5.5(a) and the face rule above: an inference with no identity never
-unlocks. HOUSE-STATE step 1a D4 (branch `feature/house-state-step1a`, NOT deployed) completes it: no HOME_* / ARRIVING
+unlocks. HOUSE-STATE step 1a D4 (branch `feature/house-state-step1a`, deployed (in v5.108.19, live 2026-11-15)) completes it: no HOME_* / ARRIVING
 house edge releases an open episode unless its trigger is an operator override (`override_set` / `override_clear`).
 **Residency records use no identity (step 1a D2):** the presence residency producer's `person_arrival` /
 `person_departure` records and `residents_home` read only `person.*` state (raw edges; trust level via
@@ -847,7 +847,7 @@ confidence `CONFIDENCE_MEDIUM` (0.6); egress copies the producer's tier. Each si
 `_get_face_recognized_person_names` unchanged): a face of an away resident IS a sighting but not a
 census identity (named concept split). Readers: `PresenceCoordinator.get_last_person_sighting(s)`
 (RAM; display consumers since PHONE-LEFT-BEHIND-CAMERA-LEG-1, branch `feature/phone-left-behind-camera`,
-NOT deployed: the `*_phone_left_behind` attributes `last_camera_sighting_at` / `last_sighting_*` and the
+deployed (in v5.108.21, live 2026-11-15): the `*_phone_left_behind` attributes `last_camera_sighting_at` / `last_sighting_*` and the
 `*_likely_next_room` `camera_last_seen` / `camera_last_room` attributes; neither verdict nor prediction
 reads them), the tracker display fields `_last_face_recognized` (now the slug) / `_last_face_time`, and the
 D4 diagnostics on `sensor.ura_presence_house_state` (all unrecorded): `face_sightings_today`,
@@ -868,7 +868,7 @@ when sightings resume; silent while the Face Recognition switch is OFF). `face_a
 switch for the whole producer: `FACE_SIGHTING_ENABLED` (rung 1). Live (D0, 2026-11-12): 7 of 8 picks
 resolve; Garage A's fused pick is `room_cameras_empty` until the operator sets its room cameras.
 
-**Unnamed interior records (VISION-INTERIOR-SIGHTINGS-1 ship 1, branch `feature/interior-vision-d1`, NOT deployed):**
+**Unnamed interior records (VISION-INTERIOR-SIGHTINGS-1 ship 1, branch `feature/interior-vision-d1`, deployed (in v5.108.28, live 2026-11-15)):**
 beside the named sightings, the same producer writes F4 UNNAMED room records through its one unnamed ingest
 `_emit_unnamed` (no channel send): per covered shared room, the NVR bodies of the room's camera (Frigate and Protect
 legs of one physical camera are one twin group, max over LIVE members; a held or released leg's frozen reading is never
@@ -915,7 +915,7 @@ egress-identity JOIN work (§5), no schema change required.
 `v6.0.0 IDENTITY-DRIVEN AUTONOMY` (the census/identity arc reaching
 real actuation — guest gate consuming door-identity, arrival/departure
 keyed to `person_id`, egress identity) is anchored on this JOIN
-working. The PRODUCER is now BUILT (§5.2, v5.91.4 pending deploy);
+working. The PRODUCER is BUILT and deployed (§5.2, v5.91.4; see the per-ship paragraphs for v5.108.x);
 consumer wiring stays coverage-gated on the measured post-deploy yield
 (§5.5).
 
@@ -946,11 +946,10 @@ Two producer facts explain it:
    since ~2026-08-21 (see §2.2). Person detections stayed healthy —
    this is a face-subsystem fault, not storage/ingest.
 
-### 5.2 The producer redesign — BUILT (v5.91.4, pending deploy)
+### 5.2 The producer redesign — BUILT and deployed (v5.91.4; see the per-ship paragraphs for v5.108.x)
 
 Same-stem + 60s was too tight. The producer is now built on
-`feature/egress-identity-producer` (ships as v5.91.4, "shipped pending
-deploy" — orchestrator confirms the version). It stamps `person_id`
+`feature/egress-identity-producer` (shipped in v5.91.4, `README_v5.91.4.md`). It stamps `person_id`
 (canonical URA slug via `_canonical_person_slug`) **plus an advisory
 identity confidence** on both `person_entry_exit_events` (the DB row,
 reusing the existing `confidence REAL` column — no migration) and the

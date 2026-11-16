@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "322",
+  "author": "ojiudezue",
+  "session_id": "claude_20261116_034326_ship_v5_108_29",
+  "timestamp": "2026-11-16T03:43:26Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.108.29 shipped: People settings screen: per-person profiles (rooms, arrival music picks, welcome scene); configuration only",
+  "summary": "People settings screen: per-person profiles (rooms, arrival music picks, welcome scene); configuration only",
+  "why": "The operator asked to ship the People screen first so profiles can be filled in while the arrival engine is built. It stores each person's rooms, music picks and welcome scene behind one person-id key, saves without reloading the integration, and changes no behaviour until the engine reads it, so the screen can be checked live early.",
+  "implications": "Shipped PEOPLE-SCREEN-1 at v5.108.29; card(s) sit shipped_organic pending validation. Acceptance in README_v5.108.29.md (Live criteria).",
+  "revisit_trigger": "If the B0 live form check fails to render or save, or a cleared field does not clear, roll back this release.",
+  "refs": {
+    "cards": [
+      "PEOPLE-SCREEN-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.108.29.md"
+    ],
+    "release_notes": "Step 8 \u00a710.1: People options step and per-person profile store (keyed by the one person-id rule), profile sensor per person, no-reload save. Nothing acts on profiles yet; lighting is byte-identical. Arrival music, welcome scene and departure pause follow in later releases."
+  }
+}
