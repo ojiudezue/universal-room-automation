@@ -67,6 +67,13 @@ Written so the analysis survives compaction. Companion docs: `ARC_identity_visio
   - Non-goal: naming unenrolled people. "Not expecting new names. Names come from people I enrolled. This is few and far
     between. Non goal."
   - Emotion: "Emotion yes as prep for the future" (interior vision affect field, recorded, no consumer yet).
+  - Step 8 arrival default: "The simplest thing is play in your room and just wait for you to arrive".
+  - Hand-off to music following after the room: "If music following is on, yes. That way we don't have too much state to
+    track".
+  - Scope: "Long run. Let's nail the room first".
+  - G1 (any arrival edge counts, Bluetooth-led included): YES. Keeping the departure pause: YES.
+  - Camera hold dropped: "Turn of camera hold. Too inaccurate in every room." (ZONE-CAMERA-DISCOVERY-DEVICE-AREA-1;
+    camera area map parked the same day: "Yes park the camera area").
 
 ## Drift found, and the correction
 
@@ -95,6 +102,7 @@ Written so the analysis survives compaction. Companion docs: `ARC_identity_visio
 | 22 | Unplanned test-hygiene work | Order-dependent test leaks blocked batch 2 and census-p2 twice (about 3 h) | Fixed at the source each time, with the remainder carded on TEST-SUITE-POLLUTION-AND-STALE-DRILLS-1. No arc scope changed |
 | 23 | "Are your priorities still ok. Watch drift." (2026-11-15) | Third repeat of #20: step 8 (v6.0.0) untouched all day while the session went deep on door-direction measurement against a shaky 17-clip agent-labelled key, fan/stuck-sensor planning (secondary) and room/config side quests. Layer (3a/3b) is done; music shipped. | Order reset: v5.108.27 (P3 first set) -> interior ship 1 -> step 8 (branch brought up to develop now, then review/build) -> stuck-sensor S1-S3 (census reset prerequisites) -> step 7 rev 3.2 -> door direction resumes only after operator grades. Camera-area plan recommended parked. |
 | 19 | Questions answered | Six operator questions from 11-13/11-14 went unanswered (perimeter gates off by design, AI person check and config-flow parity, dynamic masks, fan veto on NVR pairing and NVR-down, stream-health purpose and snapshot count) | Prober answering (2026-11-14) |
+| 24 | "Treat the reformulations as full blown mission critical feature that must work on day 1"; "MA first with native backup" | Step 8 plan reuses MA-first music following as "shipped"; it has never played in any WiiM room (dead `_5` twin chosen, `_7` twin unmatched), so arrival music (MA first) would target a dead entity | MF-MA-TWIN-WIIM-UUID-1 goes into the engine fix pass; plan :139 and :969 corrected; D2 B0 plays on the `_7` twin (AUDIT_arc_consistency_2026_11_15_post_ships §5) | Open: card exists, plan not yet corrected |
 
 ## Root causes
 
