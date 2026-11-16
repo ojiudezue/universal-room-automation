@@ -85,6 +85,21 @@ Discrimination: a working build shows a row AND a reply; a broken still source s
 and, after 5 such requests, the `interior_vision_zero_calls` page; a broken provider shows "Couldn't describe" replies
 and the `interior_vision_errors` page.
 
+### Validated 2026-11-16 (restart ~06:37 CST)
+Source: Coordinator Manager diagnostics `person_awareness_layer.interior_vision`, REST states, `ssh ha sqlite3`. No URA
+ERROR/CRITICAL in the system log; all 50 URA entries `loaded`.
+
+| # | Result | Evidence |
+|---|---|---|
+| Boot | PASS | `tick_errors` 0, `records` 7 (all live), `rehydrate` `ok`, `describe_requests` 0 |
+| Budget rehydrate | PASS (trivial) | `calls_today` 0, `cost_today_est` 0.0; 0 `interior_description` rows in `memory_episodes`, consistent |
+| Knobs | PASS | `select.ura_interior_describe_access` = `operator`; `switch.ura_interior_vision` on; `number.ura_interior_vision_daily_calls` 60; `number.ura_interior_vision_daily_cost_usd` 0.5 |
+| 1, 2, 7 | Pending event | Needs an operator `describe` text and a non-operator one |
+| 3 | Partial PASS | `groups_dewarp_capable` = `["Foyer","Living Room"]`: Living Room's camera also reports a 360 lens, so its stills are dewarped too (not stated above; check its views with the Foyer). `dewarped_calls` pending a describe. `groups_excluded_by_reason` `{no_still_source: 1}` |
+| 4 | PASS | `interior_stage/` never created; `/media/llmvision/snapshots` empty, last mtime before the restart |
+| 5 | PASS | 0 <= 60 |
+| 6 | PASS at baseline | `sensor.ura_census_guests_around` 0, `sensor.ura_interior_awareness` 0; recheck after a describe |
+
 ## Evidence the dewarp works in HA
 
 - The remap is pure numpy + Pillow (both pinned by HA core in `package_constraints.txt`; HA 2026.11.1 live loads `stream`
