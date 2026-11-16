@@ -1,6 +1,6 @@
-# URA vTBD — Stuck-sensor truth S3a, S3b, S1 (DRAFT; version assigned at deploy)
+# URA v5.108.30 — Stuck-sensor truth S3a, S3b, S1
 
-Cards: CHATTER-MODE-SELECT-NOT-WIRED-1 (S3a), MEDIAROOM-FAN-LEFT-ON-STUCK-SENSORS-1 (S3b, S1 prerequisites),
+Cards: CHATTER-MODE-SELECT-NOT-WIRED-1 (S3a), STUCK-SENSOR-S3B-S1-1 (S3b, S1; child of MEDIAROOM-FAN-LEFT-ON-STUCK-SENSORS-1, which keeps S4-S6),
 census-reset prerequisites (arc map §4a row 4). Plan: `docs/planning/PLANNING_stuck_sensor_truth.md` rev 2 (d43633b5),
 §3 S3a / S3b / S1 only. S2 shipped as P3-D8 (v5.108.27). S4-S6 not in this release.
 Branch `feature/stuck-sensor-s1-s3` (from develop c67b8a78).
