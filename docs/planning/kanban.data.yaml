@@ -35233,6 +35233,17 @@ cards:
   operator_2026_11_16: "BTW i thought there was a throttle on unacked pages from perimeter. Its just keeps going"
   why: "Non-life-safety CRITICAL cadence (notification_manager.py:3140-3160, const.py:4676-4679): 300 s for the first hour, then 1800 s until 24 h, then daily; no repeat cap. The 18:00 CST page (created_at 2026-11-16T00:00:18Z) stayed unacked until 01:13 CST: ~12 + ~13 resends x 4 channels (pushover, companion, whatsapp, imessage). Resends are not logged per send in notification_log (only the ack row), so the count is inferred from the code."
   next: "PICK: A (recommended) stop exterior_person repeats after the first hour, then digest; B silence repeats while house is sleeping or someone is home awake; C exterior_person is a one-shot HIGH unless the house is away -> I plan + build (Tier 2, NM repeat path) and log each resend."
+- id: FOYER-FISHEYE-DEWARP-1
+  title: "Dewarp the Foyer fisheye still before any interior vision read; the Foyer camera also sees the Living Room (cross-room overlap)"
+  thread: identity
+  status: inbox
+  tier: 2
+  created: '2026-11-16 01:50'
+  updated: '2026-11-16 01:50'
+  links: {related: [VISION-INTERIOR-SIGHTINGS-1]}
+  origin: {date: '2026-11-16', gist: 'Interior D0(g) pilot (AUDIT_vision_interior_d0g_pilot_2026_11_16.md): both Foyer frames graded wrong.'}
+  operator_2026_11_16: "2 people in the foyer. Fisheye messing up the recogniction. We need a dewarp / foyer is empty but living room has 2 people"
+  next: "Me: measure options (Frigate dewarp / a dewarped stream on the camera / local undistort before the model) and the overlap rule; plan before ship 2 reads the Foyer."
 - id: VISION-INTERIOR-SHIP1-1
   title: "Interior vision ship 1: unnamed room records per shared camera room, entry-path rows, trip-wires; no AI calls, nothing reaches census or presence"
   discriminator_2026_11_15: "Done when >=1 interior_path row with >=1 hop exists after a mapped-door entry AND interior_records_zero / interior_path_zero never fired in the window."
