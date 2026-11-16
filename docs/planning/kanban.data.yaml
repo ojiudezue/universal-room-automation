@@ -35096,6 +35096,31 @@ cards:
   operator_2026_11_15_scope: "Long run. Let's nail the room first."
   revisit_trigger: "v6.0.0 own-room welcome scene live-validated and the operator asks for scenes along the arrival path."
   next: "Parked until the own-room welcome scene ships and is validated."
+- id: DASH-V8-VEHICLE-STATUS-CARD-1
+  title: "Add ngocjohn/vehicle-status-card for the CX-90 PHEV to the Now tab of the URA v8 dashboard"
+  thread: dashboard
+  status: inbox
+  tier: 1
+  created: '2026-11-15 20:40'
+  updated: '2026-11-15 20:40'
+  links: {related: [EV-VEHICLE-SOC-MAZDA-1]}
+  origin: {date: '2026-11-15', gist: 'Operator aside after the v5.108.28/29 go.'}
+  operator_2026_11_15: "Maybe we can add https://github.com/ngocjohn/vehicle-status-card to the Now tab of the ura v8 dashboard. The Mazda integration is back."
+  facts_2026_11_15: "mazda_cs entry loaded (01M7H3M7KAAT61GFEEHMFVA518), device garage_a_2025_cx_90_phev_preferred: doors/trunk/lock, plugged_in, charging switch, charge_level, remaining_charging_time_ac, fuel %, ranges, tire pressures + warnings, climate, device_tracker, refresh button. HACS frontend card install = new third-party frontend code; check the release version age (>=2 weeks) and HACS install with operator yes."
+  next: "Inventory the v8 dashboard Now tab config, propose card YAML bound to the CX-90 entities, install the card via HACS with operator yes."
+- id: EV-VEHICLE-SOC-MAZDA-1
+  title: "Use the CX-90 PHEV's own state (charge level, plugged in, remaining charge time) in EC charging"
+  thread: energy
+  status: inbox
+  tier: 2
+  created: '2026-11-15 20:40'
+  updated: '2026-11-15 20:40'
+  links: {related: [DASH-V8-VEHICLE-STATUS-CARD-1]}
+  origin: {date: '2026-11-15', gist: 'Operator: "We could use it in some way with our charging code in EC as well? Open to suggestions."'}
+  operator_2026_11_15: "The Mazda integration is back. We could use it in some way with our charging code in EC as well? Open to suggestions."
+  adjacency_2026_11_15: "ADJACENT to EXPLORE_ec_ev_daytime_solar_led.md (11-12): its shape 2 'solar-only by day unless needed' was blocked on 'needs car SOC/departure'; charge_level now exists. Also EV drain-precedence (v5.20-v5.24) and the EVSE plug state. Measure first: freshness of charge_level / plugged_in (cloud poll cadence, staleness while the car sleeps; the CX-90 'blipping climate' finding in this board says the car sleeps)."
+  ideas_2026_11_15: "(1) Skip / stop charging when the car reports full (charge_level 100 or remaining time 0) instead of inferring from EVSE amps. (2) Shape 2 unblocked: solar-only daytime unless charge_level is below a needed-by-departure floor. (3) Plug-in corroboration: car plugged_in vs EVSE state, flag a disagreement. (4) Display only: car charge level on the energy dashboard. Measure-before-build on freshness first."
+  next: "Probe (read-only): 7-day recorder cadence and staleness of charge_level / plugged_in / charging vs the EVSE session data; then recommend which idea pays."
 - id: VISION-INTERIOR-SHIP1-1
   title: "Interior vision ship 1: unnamed room records per shared camera room, entry-path rows, trip-wires; no AI calls, nothing reaches census or presence"
   thread: identity
