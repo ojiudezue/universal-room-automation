@@ -9,6 +9,7 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {"fid": "LOCK-ENTRY-AREAS-WRONG-OBJECT-1@2026-11-16T02:07:00", "card_id": "LOCK-ENTRY-AREAS-WRONG-OBJECT-1", "at": "2026-11-16T02:07:00", "outcome": "done", "headline": "Closed the 'door room list was empty' fix without waiting for an arrival: worked the list out from your settings and HA's room assignments, and it always contains 6 rooms (front porch, garage A, foyer, living room, garage hallway, stairs). Dropped the follow-up card that would have logged it to the database, since it can't change. Odd detail: the doorbell camera is assigned to Garage A in HA.", "acknowledged": false}
   - {"fid": "FRIGATE-DOOR-FACE-TUNING-1@2026-11-16T02:05:00", "card_id": "FRIGATE-DOOR-FACE-TUNING-1", "at": "2026-11-16T02:05:00", "outcome": "parked", "headline": "Handed the door face-recognition findings to the homelab board (its face re-tune card): add door-angle photos for Ezinne, Jaya and Ziri, rebuild Ojini's set, don't lower the threshold. Parked here until homelab acts; then I re-measure.", "acknowledged": false}
   - {"fid": "GARAGE-HALLWAY-LOCK-NONCONVERGE-1@2026-11-16T02:04:00", "card_id": "GARAGE-HALLWAY-LOCK-NONCONVERGE-1", "at": "2026-11-16T02:04:00", "outcome": "done", "headline": "Garage hallway lock fixed by the battery change on 11-14 around 5 pm: the low-battery flag cleared and every lock since has held (before, each one bounced back to unlocked within 7 s). Closed.", "acknowledged": false}
   - {"fid": "PERIMETER-IDENTITY-FOLLOWUP-1@2026-11-16T02:04:00", "card_id": "PERIMETER-IDENTITY-FOLLOWUP-1", "at": "2026-11-16T02:04:00", "outcome": "done", "headline": "Closed the 'that was Jaya' follow-up check. It can never fire in this house today, because it only applies to a camera that is both a perimeter camera and a door camera, and none is. The code is fine. Whether to make the front-door camera do both is now one more pick on the perimeter false-alarm card (recommended: leave it).", "acknowledged": false}
@@ -469,12 +470,12 @@ cards:
   title: "Lock regime and perimeter alerts looked up door groups on the wrong object, so a Bluetooth move never confirmed a face arrival -> read them from the egress tracker"
   soak_exit_2026_11_16: "UNEVALUABLE per AUDIT_soak_exit_sweep_2026_11_16.md (ba41b088): entry_areas is not persisted and no egress_identity gate row exists; parked. Revival: first egress_identity perimeter_gate_decision row, or garage lockout turned ON. Fire check carded as LOCK-ENTRY-AREAS-FIRE-CHECK-1."
   thread: security
-  status: parked
+  status: "done"
   shipped_version: v5.107.6
   tier: 1
   batch: perimeter-identity-arc-2026-11
   created: "2026-11-09 02:01"
-  updated: "2026-11-10 02:16"
+  updated: "2026-11-16 02:07"
   refinement_status: initial
   rank: {value: 6, time_criticality: 3, effort: 2}
   problem_solution:
@@ -482,10 +483,11 @@ cards:
   approval: implied
   origin: {date: "2026-11-09", gist: "Found by the attended session while building v5.107.4/5; fixed and merged as v5.107.6 (b70e3a2f, merge 6b97e434) but never carded. Carded by the overnight reconcile (capture miss)."}
   why: "Without it the v5.107.4 face+BLE unlock rule can only release via the person.* not_home->home edge."
-  next: "Wait for organic proof (no action from you): the next garage/doorbell arrival with a Bermuda edge; I check entry areas are non-empty in the decision and close."
+  next: "Closed 2026-11-16."
   refs: [docs/readmes/README_v5.107.6.md]
   links: {related: [LOCK-REGIME-FACE-ARRIVAL-CORROBORATION-1, PERIMETER-FP-STREET-NOISE-1], context: "Fixes the BLE-corroboration lookup that v5.107.4 (LOCK-REGIME-FACE-ARRIVAL-CORROBORATION-1) and v5.107.0 D10.5 (PERIMETER-FP-STREET-NOISE-1) depend on."}
   review_2026_11_09: "Overnight Tier-1 review (ura-reviewer, framing A) = SHIP; record docs/reviews/code-review/v5.107.6_entry_areas_egress_tracker.md. 205 passed on both touched test files; mutation: key reverted in security_lock_regime.py:999 -> 15 RED, in perimeter_alert.py:5065 -> 1 RED, restored clean. Orchestrator spot-check: __init__.py:3461 stores EgressDirectionTracker under egress_tracker; both consumers read it. Residual LOW A1 (pre-existing, fails safe): perimeter_alert.py:5067 cam_key strips the _2 suffix while door-group keys are operator-typed stems; on mismatch _near_areas narrows to the camera area. Check against live config during the post-deploy validation."
+  disposed_2026_11_16_overnight: "DONE by deterministic derivation (read-only, ~02:10 CST). The fix's only failure mode was an EMPTY entry-area set. entry_areas = area of every egress entity + every configured door-interior neighbour (arrival_edges.py:325-345 via EgressDirectionTracker.door_entry_entities, transit_validator.py:1308-1315; lock regime reads hass.data egress_tracker at security_lock_regime.py:1811). Resolved from the live entity + device registries over SSH: egress cameras -> front_porch (madrone_g6_entry, front_door_aerial), garage_a (doorbell_lite, garage_a_2); door_interior_neighbours front -> foyer x3, living_room x2; garage_a -> garage_hallway x3, stairs. So the set is non-empty ({front_porch, garage_a, foyer, living_room, garage_hallway, stairs} before slugging) on every decision, independent of any event. The perimeter_alert.py half only runs for dual-role cameras and there are none (see PERIMETER-FP-GATES-DISPOSE-1 residual_2026_11_16), so it is dormant, not broken. Side observation: camera.doorbell_lite sits in area garage_a in the registry; check that is the intended placement."
 - id: GUEST-MODE-SPLIT-VISITORS-1
   title: "Split 'visitors present' (low bar: any non-resident seen, incl. a known-guest face) from GUEST mode (high bar: corroborated by sustained guest-room occupancy and/or sustained new guest-WiFi presence)"
   soak_exit_2026_11_16: "DONE + RESIDUAL per AUDIT_soak_exit_sweep_2026_11_16.md (ba41b088); residual carded as VISITORS-PRESENT-EPISODE-RATE-1."
@@ -35218,13 +35220,14 @@ cards:
 - id: LOCK-ENTRY-AREAS-FIRE-CHECK-1
   title: "Persist entry_areas in the perimeter gate row and lock-regime record, with a zero-fire trip-wire"
   thread: security
-  status: inbox
+  status: "done"
   tier: 1
   created: '2026-11-16 00:20'
-  updated: '2026-11-16 00:20'
+  updated: "2026-11-16 02:07"
   links: {related: [LOCK-ENTRY-AREAS-WRONG-OBJECT-1]}
   origin: {date: '2026-11-16', gist: 'Soak-exit: the shipped fix cannot be evaluated because entry_areas is not persisted.'}
-  next: "Me: add entry_areas to perimeter_gate_decision rows and the lock-regime _record; trip-wire to NM when it stays empty."
+  next: "Closed 2026-11-16 (MOOT)."
+  gate_2026_11_16_overnight: "MOOT (four-step gate, validity step). This card existed to make entry_areas evaluable. It was evaluated directly from config + registry instead (see LOCK-ENTRY-AREAS-WRONG-OBJECT-1 disposed_2026_11_16_overnight: 6 areas, never empty). The zero-egress_identity-row half is explained by construction: dual_role_cameras = [] so D10.5 never runs; a trip-wire on its silence would fire forever and mean nothing. Parsimony: persisting a value that is a pure function of config adds DB rows and buys no evidence. Nothing to build; closed. Whether a Bermuda move ever corroborates a face arrival is the face-arrival consumer's own fire check, not this card's."
 - id: NM-PERIMETER-REPEAT-STORM-1
   title: "An unacknowledged CRITICAL perimeter 'person detected' page repeats on all four channels every 30 min until 24 h (the 18:00 page ran ~7 h until the 01:13 safe-word ack)"
   operator_2026_11_16_pick_a: "A (the first hour is per evening at home: once exterior-person pages have repeated for an hour while anyone is home, further perimeter pages still arrive but once each with no repeats, until the house goes away or 6 h pass with no perimeter page)"
