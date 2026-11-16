@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-16T02:25:27-06:00_ - _Data commit: `bdcbf19b827d`_ - _last_reconciled: 2026-11-15_
+_Generated: 2026-11-16T02:26:48-06:00_ - _Data commit: `7dd14a799c9e`_ - _last_reconciled: 2026-11-15_
 
 
 ## Columns
@@ -1715,7 +1715,7 @@ _created 2026-11-13 12:00 · updated 2026-11-16 02:26 · refined_
   - `arc_cut_v5_108_22`: inbox, perimeter follow-up
   - `arc_cut_v5_108_21`: separate perimeter card
   - `tier`: 2
-  - `measured_2026_11_16_overnight`: CONFIRMED, and wider than the card said (read-only, ~02:40 CST). (1) Code: NM dedup key is f'{coordinator_id}:{title}:{location}' (notification_manager.py:4809-4825); severity only picks the window (DEDUP_WINDOWS: CRITICAL 60 s, HIGH 300...
+  - `measured_2026_11_16_overnight`: CONFIRMED, and wider than the card said (read-only, ~02:25 CST). (1) Code: NM dedup key is f'{coordinator_id}:{title}:{location}' (notification_manager.py:4809-4825); severity only picks the window (DEDUP_WINDOWS: CRITICAL 60 s, HIGH 300...
 
 ### `WALLPANEL-URA-NOTIFY-1` - URA drives the wall-panel bezel LEDs and room-targeted announcements (NM surface) — _#27 · WSJF 2.8 · v6 tc6 u2 /e5_
 thread: **notifications** - status: **waiting_operator** - approval: **pending**
