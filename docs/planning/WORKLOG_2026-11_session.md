@@ -85,3 +85,4 @@
 - 2026-11-15 21:32 **v5.108.28** — v5.108.28: interior vision ship 1 (room records, entry paths, no AI calls) (cards: VISION-INTERIOR-SHIP1-1)
 - 2026-11-15 21:43 **v5.108.29** — v5.108.29: People settings screen (step 8 §10.1, nothing acts yet) (cards: PEOPLE-SCREEN-1)
 - 2026-11-15 23:12 **v5.108.30** — URA v5.108.30 — Stuck-sensor truth S3a, S3b, S1 (cards: CHATTER-MODE-SELECT-NOT-WIRED-1,STUCK-SENSOR-S3B-S1-1)
+- 2026-11-16 02:43 **v5.108.31** — URA v5.108.31: unacked perimeter pages repeat for one hour per evening at home (cards: NM-PERIMETER-REPEAT-STORM-1)

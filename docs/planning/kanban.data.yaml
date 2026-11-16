@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-11-15'
+  last_reconciled: '2026-11-16'
   history_file: docs/planning/kanban.history.yaml
   # BOARD-AUTONOMY-PROGRESS-1: append one entry each time a card is concluded
   # autonomously (built / parked / waiting_operator / shipped / done). The
@@ -35245,7 +35245,8 @@ cards:
   operator_2026_11_16_pick_a: "A (the first hour is per evening at home: once exterior-person pages have repeated for an hour while anyone is home, further perimeter pages still arrive but once each with no repeats, until the house goes away or 6 h pass with no perimeter page)"
   operator_2026_11_16_pick: "Paging - first hour if home. More if away"
   thread: notifications
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.108.31
   tier: 2
   created: '2026-11-16 01:30'
   updated: '2026-11-16 01:30'
