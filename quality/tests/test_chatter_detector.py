@@ -744,6 +744,7 @@ def _install_nm_cycle_a_stub():
         return
     m = types.ModuleType(name)
     m.nm_cycle_a_knob = lambda hass, key, default: default
+    m.chatter_mode_option = lambda hass: "shadow"  # S3a resolver
     sys.modules[name] = m
 
 

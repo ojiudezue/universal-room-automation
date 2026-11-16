@@ -6124,6 +6124,25 @@ CONF_STUCK_CAMERA_INTERIOR_TIERS_REQUIRED: Final = (
 )
 DEFAULT_STUCK_CAMERA_INTERIOR_TIERS_REQUIRED: Final = 1
 
+# S1 (stuck-sensor truth, 2026-11-15) — Fix #9 / P22 continuous-on rule.
+# STUCK_P22_HOURS (rung 1): hours a room input may read `on` in one run
+# before the room excludes it (`p22_continuous`); replaces the literal 4.0
+# (HVAC state of play §9.3 noted it had no knob). Review-only: it moves an
+# exclusion that empties rooms.
+STUCK_P22_HOURS: Final = 4.0
+# STUCK_P22_OFF_GAP_TOLERANCE_S (rung 1): for a MOTION-class input only
+# (sensor_capability.is_p22_motion_class: not a still holder AND a ZV / PIR
+# device family), an off or dead stretch shorter than this does not end the
+# run (operator 2026-11-15: "a short off-pulse shouldn't restart the 4-hour
+# stuck clock"; Hobeian pulses 1.3-4 s measured). Still holders (radar,
+# bed, camera, BLE) and unknown families keep tolerance 0 = develop
+# behaviour (pop on any observed not-on). 0 = develop for every input.
+# Keep it BELOW the ZV still-person drop time (~30 s p50, SENSOR_FLEET_CLASSES):
+# while an off is shorter than this, an excluded input stays excluded, so a
+# larger value would let a real seated person's drop-and-retrigger be ignored
+# (review B-3). Off / unavailable / unknown in any mix count as ONE stretch.
+STUCK_P22_OFF_GAP_TOLERANCE_S: Final = 10.0
+
 # D2 — Fix #9 duty-cycle variant. On-ratio over a rolling window catches
 # flapping stuck sensors that Fix #9's continuous-on check evades.
 CONF_STUCK_SENSOR_DUTYCYCLE_WINDOW_MIN: Final = (

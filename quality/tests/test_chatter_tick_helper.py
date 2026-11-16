@@ -210,6 +210,7 @@ def _extract_and_compile_helpers():
         "_ura_tick_helper_pkg.domain_coordinators._nm_cycle_a",
     )
     _stub_nma.nm_cycle_a_knob = lambda hass, key, default: default
+    _stub_nma.chatter_mode_option = lambda hass: "shadow"  # S3a resolver
     sys.modules[
         "_ura_tick_helper_pkg.domain_coordinators._nm_cycle_a"
     ] = _stub_nma

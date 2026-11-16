@@ -1019,6 +1019,15 @@ class ChatterModeSelect(SelectEntity):
 
     @property
     def current_option(self) -> str:
+        from .const import CONF_CHATTER_MODE  # noqa: PLC0415
+        if self._conf_key == CONF_CHATTER_MODE and getattr(self, "hass", None):
+            # S3a: show the value the rooms run (integration option, else
+            # the CM entry's pre-D7 migrate value, else the default) --
+            # one resolver, so the select can never disagree with rooms.
+            from .domain_coordinators._nm_cycle_a import (  # noqa: PLC0415
+                chatter_mode_option,
+            )
+            return chatter_mode_option(self.hass)
         merged = {**self._entry.data, **self._entry.options}
         val = merged.get(self._conf_key, self._default)
         if isinstance(val, str) and val in self._attr_options:
@@ -1034,6 +1043,12 @@ class ChatterModeSelect(SelectEntity):
             self._entry,
             options={**self._entry.options, self._conf_key: option},
         )
+        # S3a: flush the resolver cache so the next room tick reads the
+        # new mode (the integration update listener flushes it too).
+        from .domain_coordinators._nm_cycle_a import (  # noqa: PLC0415
+            invalidate_chatter_mode_cache,
+        )
+        invalidate_chatter_mode_cache()
         self.async_write_ha_state()
         _LOGGER.info(
             "ChatterModeSelect: %s -> %s (entry=%s)",

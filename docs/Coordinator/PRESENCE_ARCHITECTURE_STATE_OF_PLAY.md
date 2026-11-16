@@ -523,6 +523,60 @@ on suppression (HIGH-B1 fix, `coordinator.py:3628-3634`).
 `CHATTER_RELEASE_QUIET_S` of zero transitions. Owned by
 `coordinator._chatter_detector` (`coordinator.py:696`), listeners registered
 `coordinator.py:1708-1709`.
+**Mode owner (S3a, CHATTER-MODE-SELECT-NOT-WIRED-1, built 2026-11-15 on `feature/stuck-sensor-s1-s3`, NOT deployed;
+plan `PLANNING_stuck_sensor_truth.md` rev 2):** `select.ura_chatter_mode` lives on the INTEGRATION entry and writes its
+options. Until this build the room resolver `_chatter_mode` read `nm_cycle_a_knob`, i.e. the CM entry only, so the
+select never reached the rooms: live the integration held `act`, the CM entry had no key, rooms ran the default
+`shadow`, and chatter had never acted (every chatter NM read "WOULD quarantine (shadow)"). Now one resolver
+`domain_coordinators/_nm_cycle_a.chatter_mode_option(hass)` returns the integration option, else the CM option (the
+pre-D7 migrate target in `__init__.py`), else `DEFAULT_CHATTER_MODE`; an invalid value is skipped. The room resolver and
+the select's `current_option` both read it (INV-S3a: rooms run what the select shows; the module kill const
+`CHATTER_QUARANTINE_ENABLED` False still forces `off`). Cache flushed by the select write, at the top of the
+integration branch of `_async_update_listener`, and by `invalidate_knob_cache()` (CM updates); a failed lookup is not
+cached. `chatter_mode` joined `INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS`, so flipping the select no longer reloads the
+parent entry. Operator decision: act (Q-A option A). Live effect at deploy: chattering inputs (Garage A/B ratgdo, the
+Master Bathroom InvisOutlet, the media MS600 bit) are excluded from room fusion while they chatter.
+
+### 4.3b P22 continuous-on stuck rule (Fix #9) — off-pulse tolerance (S1)
+
+**Built 2026-11-15 on `feature/stuck-sensor-s1-s3`, NOT deployed; plan `PLANNING_stuck_sensor_truth.md` rev 2 S1 (operator
+D-OP1 "a short off-pulse shouldn't restart the 4-hour stuck clock").** The room tick's run bookkeeping is
+`coordinator._p22_stamp_tick` (called where the old inline Fix #9 loop was, before `reset_tick`); the exclusion set is
+still `_p22_stuck_sensor_set` (run start + `_stuck_sensor_hours`, MED-1 boot guards unchanged), promoted under
+`p22_continuous`.
+- **Knobs (rung 1):** `const.STUCK_P22_HOURS` 4.0 (was the literal in `__init__`); `const.STUCK_P22_OFF_GAP_TOLERANCE_S`
+  10 s (0 = the old rule for every input).
+- **Class gate:** `_p22_off_gap_tolerance_s` = the tolerance iff `sensor_capability.is_p22_motion_class(cap, family)`:
+  capability from the room config / `CONF_SENSOR_CAPABILITIES` override (`derive_capability`), device family from the
+  registry (`fan_veto.resolve_sensor_family`), never the entity name. Motion class = NOT a still holder AND family in
+  `P22_MOTION_CLASS_FAMILIES` (ZG-204ZV, PIR). NEW pure `sensor_capability.is_still_holder` (override decides both ways;
+  else kind mmwave / bed / camera_presence / ble_presence, or a radar family incl. the MS600 bit after S3b). It is NOT
+  `is_fan_immune_witness` (that is True for bed / camera / BLE, SENSOR_FLEET_CLASSES rule 3). Still holders and unknown
+  families (ESPHome LD2410 boards, §10 #9) get tolerance 0.
+- **Tolerance 0:** byte-identical to before (run stamped at the tick `now`, any observed not-on pops it).
+- **Tolerance > 0 (motion class):** a new run starts at the `on` state's `last_changed`; a not-on stretch is ONE
+  stretch whatever its mix of off / unavailable / unknown / missing, measured from the moment the input stopped reading
+  `on` (fix pass 2026-11-15, reviews A-1 / B-2 and the step-0 replay's 14:20:04-14:20:17 unavailable 6.1 s + unknown
+  6.6 s case, which the first build read as 6.6 s). `_p22_off_since` is set only when the previous observation was `on`
+  (or none), or when an `off` is read again as `off` with a new `last_changed` (an unseen state, possibly an `on`, sat
+  between: plan `two_polls`, so two ticks inside two different short offs never add up); a dead state read twice with a
+  new `last_changed` stays one stretch. `_p22_off_state` holds the last not-on (state, `last_changed`). Known residual:
+  off → unavailable that no tick saw → off reads exactly like `two_polls` and is measured from the second off (nothing
+  observed the dead stretch; pinned by `test_p22_off_unseen_dead_off_is_the_two_polls_residual`). A missing state counts
+  from the first tick that saw it missing. The stretch pops the run once it has lasted ≥ the tolerance; an `on` after an open off keeps the run iff `on.last_changed − off` < tolerance,
+  else restarts it at `on.last_changed`; an `on` whose `last_changed` moved since the last on-tick had an off no tick saw,
+  bounded by `on.last_changed − last on-tick` (same rule). RAM only (`_p22_off_since`, `_p22_off_state`,
+  `_p22_last_on_tick`, `_p22_on_lc`); the knob must stay below the ZV still-person drop time (~30 s, review B-3);
+  a restart with the input off pops on the first tick (as before); a restored run with the input on is kept.
+- **Reach:** room `STATE_OCCUPIED` and its consumers (lights, `hvac_occupied` / HVAC zone rollup / retreat / D6 / sweep,
+  trigger-source attribution, `_last_motion_bit_time` P24 freshness and the recheck mid-flight motion cancel, the
+  radar-sole ring, the D2 witness, `_is_live_end`), the stuck NM (one per (room, sensor, day); `on_hours` counts across
+  blips), `automation_health.stuck_sensors` and the stuck watchdog, and the crossing ledger anchor (P3-D8 reads the
+  exclusion set). The zone tier, nobody-home, path β, census and house state still read the substrate raw
+  (STEP-EXCLUDE-4). Step-0 7-day replay: GO (`docs/planning/AUDIT_stuck_s1_step0_replay_2026_11_15.md`; only the guest
+  bedroom ZVs and patio right ever hold a run ≥ 4 h, no BLE-confirmed person overlap). The per-input capability lookup
+  is not cached (review A-2, deferred: a registry miss at boot returns `unknown` uncached on purpose, so a cache would
+  need the same miss rule plus an options-change flush; the lookup is cheap).
 
 ### 4.4 Duty-cycle stuck
 

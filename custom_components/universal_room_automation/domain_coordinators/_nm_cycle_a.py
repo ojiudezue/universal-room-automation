@@ -58,8 +58,72 @@ def invalidate_knob_cache(conf_key: str | None = None) -> None:
     """
     if conf_key is None:
         _KNOB_CACHE.clear()
+        # S3a: the chatter-mode resolver falls back to the CM entry, so a
+        # CM options update must flush it too.
+        _CHATTER_MODE_CACHE.clear()
     else:
         _KNOB_CACHE.pop(conf_key, None)
+
+
+# ---------------------------------------------------------------------------
+# S3a (CHATTER-MODE-SELECT-NOT-WIRED-1, 2026-11-15): one owner for the
+# chatter mode. The operator-facing `select.ura_chatter_mode` lives on the
+# INTEGRATION entry and writes that entry's options; the room resolver used
+# to read only the CM entry (via `nm_cycle_a_knob`), so the select never
+# reached the rooms. Resolution order: integration entry option, then the
+# CM entry option (pre-D7 migrate target), then `DEFAULT_CHATTER_MODE`.
+# Cache flushed by the select's write, the integration entry's update
+# listener, and `invalidate_knob_cache()` (CM updates).
+# ---------------------------------------------------------------------------
+_CHATTER_MODE_CACHE: dict[str, str] = {}
+
+
+def invalidate_chatter_mode_cache() -> None:
+    """Flush the cached chatter mode (select write / integration update)."""
+    _CHATTER_MODE_CACHE.clear()
+
+
+def chatter_mode_option(hass: HomeAssistant) -> str:
+    """Return the chatter mode the operator set (integration > CM > default).
+
+    Never raises. An entry whose value is not one of ``CHATTER_MODES`` is
+    skipped (the next source decides). The module kill const
+    ``CHATTER_QUARANTINE_ENABLED`` is NOT applied here (the room resolver
+    keeps that short-circuit).
+    """
+    from ..const import (  # noqa: PLC0415
+        CHATTER_MODES,
+        CONF_CHATTER_MODE,
+        DEFAULT_CHATTER_MODE,
+        ENTRY_TYPE_INTEGRATION,
+    )
+    cached = _CHATTER_MODE_CACHE.get("mode")
+    if cached is not None:
+        return cached
+    value = DEFAULT_CHATTER_MODE
+    try:
+        integration_val = None
+        cm_val = None
+        for entry in hass.config_entries.async_entries(DOMAIN):
+            etype = entry.data.get(CONF_ENTRY_TYPE)
+            if etype not in (ENTRY_TYPE_INTEGRATION, ENTRY_TYPE_COORDINATOR_MANAGER):
+                continue
+            raw = {**entry.data, **entry.options}.get(CONF_CHATTER_MODE)
+            if not (isinstance(raw, str) and raw in CHATTER_MODES):
+                continue
+            if etype == ENTRY_TYPE_INTEGRATION and integration_val is None:
+                integration_val = raw
+            elif etype == ENTRY_TYPE_COORDINATOR_MANAGER and cm_val is None:
+                cm_val = raw
+        if integration_val is not None:
+            value = integration_val
+        elif cm_val is not None:
+            value = cm_val
+    except Exception:  # noqa: BLE001
+        _LOGGER.debug("chatter_mode_option: lookup failed", exc_info=True)
+        return DEFAULT_CHATTER_MODE  # not cached: the next call retries
+    _CHATTER_MODE_CACHE["mode"] = value
+    return value
 
 
 def nm_cycle_a_knob(hass: HomeAssistant, conf_key: str, default: T) -> T:
