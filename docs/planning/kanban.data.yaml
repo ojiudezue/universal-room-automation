@@ -468,8 +468,9 @@ cards:
 - id: LOCK-ENTRY-AREAS-WRONG-OBJECT-1
   live_validation_2026_11_10: "Validated 2026-11-10 ~02:15 CST (README_v5.107.6): 0 PASS, 0 FAIL, 2 not-yet-observable. Code fix confirmed deployed: security_lock_regime.py:1013 and perimeter_alert.py:5109 read egress_tracker. Behavioural checks need a garage or doorbell event. Log gap: URA's logger runs at WARNING and the README's log markers are _LOGGER.info, so 'no log line' proves nothing either way; prove these via DB rows / entity attributes instead."
   title: "Lock regime and perimeter alerts looked up door groups on the wrong object, so a Bluetooth move never confirmed a face arrival -> read them from the egress tracker"
+  soak_exit_2026_11_16: "UNEVALUABLE per AUDIT_soak_exit_sweep_2026_11_16.md (ba41b088): entry_areas is not persisted and no egress_identity gate row exists; parked. Revival: first egress_identity perimeter_gate_decision row, or garage lockout turned ON. Fire check carded as LOCK-ENTRY-AREAS-FIRE-CHECK-1."
   thread: security
-  status: shipped_organic
+  status: parked
   shipped_version: v5.107.6
   tier: 1
   batch: perimeter-identity-arc-2026-11
@@ -488,8 +489,9 @@ cards:
   review_2026_11_09: "Overnight Tier-1 review (ura-reviewer, framing A) = SHIP; record docs/reviews/code-review/v5.107.6_entry_areas_egress_tracker.md. 205 passed on both touched test files; mutation: key reverted in security_lock_regime.py:999 -> 15 RED, in perimeter_alert.py:5065 -> 1 RED, restored clean. Orchestrator spot-check: __init__.py:3461 stores EgressDirectionTracker under egress_tracker; both consumers read it. Residual LOW A1 (pre-existing, fails safe): perimeter_alert.py:5067 cam_key strips the _2 suffix while door-group keys are operator-typed stems; on mismatch _near_areas narrows to the camera area. Check against live config during the post-deploy validation."
 - id: GUEST-MODE-SPLIT-VISITORS-1
   title: "Split 'visitors present' (low bar: any non-resident seen, incl. a known-guest face) from GUEST mode (high bar: corroborated by sustained guest-room occupancy and/or sustained new guest-WiFi presence)"
+  soak_exit_2026_11_16: "DONE + RESIDUAL per AUDIT_soak_exit_sweep_2026_11_16.md (ba41b088); residual carded as VISITORS-PRESENT-EPISODE-RATE-1."
   thread: presence
-  status: shipped_organic
+  status: done
   shipped_version: v5.108.0
   tier: 2-DB
   created: "2026-11-09 01:00"
@@ -637,8 +639,9 @@ cards:
   links: {blocked_by: [FACE-SOURCE-REGISTRY-DISCOVERY-1]}
 - id: WA-BRIDGE-DOMAIN-1
   title: "URA WhatsApp sends fail after ha-wa-bridge 3.x (domain renamed whatsapp -> wa_bridge; 2.x gets 401 once the add-on requires a token)"
+  soak_exit_2026_11_16: "DONE + RESIDUAL per AUDIT_soak_exit_sweep_2026_11_16.md (ba41b088); residual carded as WA-BRIDGE-OLD-ENTRY-REMOVAL-1."
   thread: notifications
-  status: shipped_organic
+  status: done
   shipped_version: v5.106.1
   tier: 1
   created: "2026-11-08 09:10"
@@ -723,8 +726,9 @@ cards:
   adjacency: "Swept board for mmwave/legacy-key/config-scrub: NEW. Related: FORM-CONDITIONAL-FIELDS-1 (same forms surface, no overlap)."
 - id: DASH-V8-ANI-WEATHER-TRIAL-1
   title: "ura-v8 Now tab: trial Animated Weather Card next to weather_hero"
+  soak_exit_2026_11_16: "DONE + RESIDUAL per AUDIT_soak_exit_sweep_2026_11_16.md (ba41b088); residual carded as HOUSE-AVG-SENSORS-1."
   thread: dashboard
-  status: shipped_organic
+  status: done
   tier: 1
   created: "2026-11-06 15:20"
   updated: "2026-11-06 15:20"
@@ -31639,8 +31643,9 @@ cards:
     and the state describe two different things and both are right. Anyone seeing "stale" with
     all-fresh ages should read data_anomaly_age_seconds first.'
   title: "Envoy integration flakiness — upstream HA bug #181243 (Session-is-closed background task) + dual-homed device timeouts + corrupt consumption_today"
+  soak_exit_2026_11_16: "DONE + RESIDUAL per AUDIT_soak_exit_sweep_2026_11_16.md (ba41b088); residual carded as ENVOY-UPSTREAM-POST-1."
   thread: energy
-  status: shipped_organic
+  status: done
   shipped_version: v5.103.102
   update_2026_10_15: "Draft done 2026-10-14: docs/planning/DRAFT_envoy_upstream_issue.md (comment on core #181243). DO: add firmware, pyenphase version and a debug log, then post. Measured 2026-10-15: 0 dropouts on 10-15 to 16:51 vs 4-13/day; inconclusive whether stall-related (53% of 17 dropouts had a >=1 s stall within 60 s vs 28% base rate; confounded by Wi-Fi 10-13, GC freeze 10-14, SPAN 10-14)."
   groom_2026_09_29: 'MOVED waiting_operator -> waiting_me. Its next is my measurement (envoy_flap_rate_probe.py on 09-30 against the ha_2026_9_4_tracking discriminator), not an operator decision. NOTE for that read: the Envoy stream add-on was stopped 2026-09-28 20:15 for the ENPHASE-BATTERY-CUTOUTS-1 test, a new confound for the 09-28/09-29 flap counts.'
@@ -35164,6 +35169,57 @@ cards:
   why: "PLANNING_stuck_sensor_truth.md rev 2 S3b + S1. Reviews A SHIP, B+D gate cleared by step-0 replay GO (3a87e267: one new >=4 h run, the 11-15 upguest ZV), C tests-only; fix pass 0a3330c9 (dead-stretch accounting from three sources, 4 MEDIUM tests)."
   discriminator_2026_11_15: "Done when the upguest ZV-style case (only sub-10 s blips for >=4 h) is excluded live with no BLE-placed person in the room, AND no room vacated on a BLE-placed person because of a P22 exclusion in the window."
   next: "Deploy with S3a, then dispose by the discriminator."
+- id: HOUSE-AVG-SENSORS-1
+  title: "Expose real house-average indoor temperature / humidity sensors (exclude equipment closets and outdoor rooms) and retire the two template helpers"
+  thread: dashboard
+  status: inbox
+  tier: 1
+  created: '2026-11-16 00:20'
+  updated: '2026-11-16 00:20'
+  links: {related: [DASH-V8-ANI-WEATHER-TRIAL-1]}
+  origin: {date: '2026-11-16', gist: 'Soak-exit residual (AUDIT_soak_exit_sweep_2026_11_16.md).'}
+  why: "house_avg_temp is only an attribute (aggregation.py:2063); the v8 weather card reads template helpers sensor.house_indoor_temperature / _humidity."
+  next: "Me: add the two sensors, repoint the v8 card, delete the helpers."
+- id: ENVOY-UPSTREAM-POST-1
+  title: "Post Revision 2 on home-assistant/core#181243 (nightly Envoy drop at ~23:04 CST persists upstream)"
+  thread: energy
+  status: waiting_operator
+  tier: 1
+  created: '2026-11-16 00:20'
+  updated: '2026-11-16 00:20'
+  links: {related: [ENVOY-FLAKINESS-181243-1]}
+  origin: {date: '2026-11-16', gist: 'Soak-exit residual: URA recovery verified 3 nights; upstream drop unchanged.'}
+  next: "DO: fill firmware + pyenphase version and post Revision 2 on core#181243 -> I attach the 3-night recovery evidence."
+- id: WA-BRIDGE-OLD-ENTRY-REMOVAL-1
+  title: "Remove the old whatsapp 2.x config entry now that wa_bridge carries all sends"
+  thread: notifications
+  status: waiting_operator
+  tier: 1
+  created: '2026-11-16 00:20'
+  updated: '2026-11-16 00:20'
+  links: {related: [WA-BRIDGE-DOMAIN-1]}
+  origin: {date: '2026-11-16', gist: 'Soak-exit residual: 58/58 sends 11-08..11-16 via wa_bridge; both entries still present.'}
+  next: "APPROVE: I remove the old whatsapp entry and run one NM test send (or DO it yourself in Settings > Integrations)."
+- id: VISITORS-PRESENT-EPISODE-RATE-1
+  title: "visitors_present opened ~13 episodes on 11-11 and ~9 on 11-12 against the README's 0-3/day; measure whether they were real visitors"
+  thread: presence
+  status: inbox
+  tier: 1
+  created: '2026-11-16 00:20'
+  updated: '2026-11-16 00:20'
+  links: {related: [GUEST-MODE-SPLIT-VISITORS-1]}
+  origin: {date: '2026-11-16', gist: 'Soak-exit residual (L2).'}
+  next: "Me: one-shot probe of the 11-11/11-12 episodes against camera/door evidence; close or fix."
+- id: LOCK-ENTRY-AREAS-FIRE-CHECK-1
+  title: "Persist entry_areas in the perimeter gate row and lock-regime record, with a zero-fire trip-wire"
+  thread: security
+  status: inbox
+  tier: 1
+  created: '2026-11-16 00:20'
+  updated: '2026-11-16 00:20'
+  links: {related: [LOCK-ENTRY-AREAS-WRONG-OBJECT-1]}
+  origin: {date: '2026-11-16', gist: 'Soak-exit: the shipped fix cannot be evaluated because entry_areas is not persisted.'}
+  next: "Me: add entry_areas to perimeter_gate_decision rows and the lock-regime _record; trip-wire to NM when it stays empty."
 - id: VISION-INTERIOR-SHIP1-1
   title: "Interior vision ship 1: unnamed room records per shared camera room, entry-path rows, trip-wires; no AI calls, nothing reaches census or presence"
   discriminator_2026_11_15: "Done when >=1 interior_path row with >=1 hop exists after a mapped-door entry AND interior_records_zero / interior_path_zero never fired in the window."
