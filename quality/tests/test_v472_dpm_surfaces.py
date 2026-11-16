@@ -434,7 +434,9 @@ class TestB2MigrationHelper:
         # orphan sweep + A4 ramp rename + B3 per-zone DPM device migration
         # blocks were inserted inside the CM entry branch ahead of
         # `entity reassignment skipped` debug log line.
-        body = init_src[idx:idx + 14000]
+        # v5.108.30: widened 14000 -> 18000; stuck-sensor S3a added the chatter
+        # cache flush inside the CM branch ahead of the B2 guard (guard intact).
+        body = init_src[idx:idx + 18000]
         assert (
             "device_id != _target_device.id" in body
             or "_ent_entry.device_id != _target_device.id" in body
