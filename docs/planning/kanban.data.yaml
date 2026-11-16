@@ -35122,6 +35122,17 @@ cards:
   adjacency_2026_11_15: "ADJACENT to EXPLORE_ec_ev_daytime_solar_led.md (11-12): its shape 2 'solar-only by day unless needed' was blocked on 'needs car SOC/departure'; charge_level now exists. Also EV drain-precedence (v5.20-v5.24) and the EVSE plug state. Measure first: freshness of charge_level / plugged_in (cloud poll cadence, staleness while the car sleeps; the CX-90 'blipping climate' finding in this board says the car sleeps)."
   ideas_2026_11_15: "(1) Skip / stop charging when the car reports full (charge_level 100 or remaining time 0) instead of inferring from EVSE amps. (2) Shape 2 unblocked: solar-only daytime unless charge_level is below a needed-by-departure floor. (3) Plug-in corroboration: car plugged_in vs EVSE state, flag a disagreement. (4) Display only: car charge level on the energy dashboard. Measure-before-build on freshness first."
   next: "Probe (read-only): 7-day recorder cadence and staleness of charge_level / plugged_in / charging vs the EVSE session data; then recommend which idea pays."
+- id: MF-MA-TWIN-WIIM-UUID-1
+  title: "Music following picks a dead Music Assistant twin in every WiiM room: the _5 twins are unavailable all week; the playing _7 twins (wiim_uuid identifiers) never match"
+  thread: music
+  status: planned
+  tier: 2
+  created: '2026-11-15 22:35'
+  updated: '2026-11-15 22:35'
+  links: {related: [MUSIC-FOLLOWING-TRANSFER-REPAIR-1, PERSON-PROFILE-PREFERENCES-1]}
+  origin: {date: '2026-11-15', gist: 'Found by the step 8 B0 probe (AUDIT_step8_b0_ours_attr_2026_11_15.md addendum, 8e87a59a).'}
+  why: "_ma_candidates (music_following.py:1140-1195) matches the _5 twins by MAC-in-identifier (upc...); every _5 is unavailable in all 7-day rows. The _7 twins that actually play carry music_assistant identifier wiim_uuid:<uuid>, equal to the native device's wiim identifier with dashes stripped plus an 8-hex suffix; no rule matches it. _resolve_path takes the first candidate, gets ma_source_not_playing, and falls back to native WiiM join. Effect: the v5.108.26 MA-first transfer has never run in a WiiM room; the arrival engine (MA first) would target the dead twin too."
+  next: "Fix in the step 8 engine fix pass: add a wiim_uuid identifier match (registry only) and prefer an available candidate in _resolve_path / bonus / arrival start; tests on the live registry shape; Tier 2 review rides with the engine reviews."
 - id: VISION-INTERIOR-SHIP1-1
   title: "Interior vision ship 1: unnamed room records per shared camera room, entry-path rows, trip-wires; no AI calls, nothing reaches census or presence"
   thread: identity
