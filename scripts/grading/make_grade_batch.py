@@ -386,9 +386,9 @@ def main() -> int:
     token = ha_token()
     out_dir: Path = args.site_dir
     out_dir.mkdir(parents=True, exist_ok=True)
-    for old in list(out_dir.glob("*.jpg")) + [out_dir / "manifest.json"]:
+    for old in list(out_dir.glob("c*.jpg")) + [out_dir / "manifest.json"]:
         if old.exists():
-            old.unlink()  # keep only the current batch (index.html stays)
+            old.unlink()  # keep only the current door batch (index.html and the interior i*.jpg batch stay)
     batch_id = dt.datetime.now().strftime("g%Y%m%d-%H%M")
     cards = []
     for c in cands:
