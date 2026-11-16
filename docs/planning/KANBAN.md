@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-16T02:26:48-06:00_ - _Data commit: `7dd14a799c9e`_ - _last_reconciled: 2026-11-15_
+_Generated: 2026-11-16T02:27:10-06:00_ - _Data commit: `1e7cb874fbbc`_ - _last_reconciled: 2026-11-15_
 
 
 ## Columns
@@ -1708,7 +1708,7 @@ _created 2026-11-13 12:00 · updated 2026-11-16 02:26 · refined_
 - **Origin:** 2026-11-13 - Review A-L1 of house-state step 1a; pre-existing (persons_home always 0 live).
 - **Why:** Circling escalation may be deduped away. Re-measure once the persons-home-from-residency switch is decided.
 - **Next:** PICK: A (recommended) perimeter-local fix: escalation-exemption dispatches use their own title (e.g. 'Perimeter Alert - Person Circling'), so NM dedup keys differ; Tier 2 (2 reviews), touches only perimeter_alert.py, plus a test that run...
-- **Forensic keys (7):**
+- **Forensic keys (8):**
   - `arc_cut_v5_108_25`: perimeter surface, inbox
   - `arc_cut_v5_108_24`: perimeter residual, independent
   - `arc_cut_v5_108_23`: perimeter follow-up
@@ -1716,6 +1716,7 @@ _created 2026-11-13 12:00 · updated 2026-11-16 02:26 · refined_
   - `arc_cut_v5_108_21`: separate perimeter card
   - `tier`: 2
   - `measured_2026_11_16_overnight`: CONFIRMED, and wider than the card said (read-only, ~02:25 CST). (1) Code: NM dedup key is f'{coordinator_id}:{title}:{location}' (notification_manager.py:4809-4825); severity only picks the window (DEDUP_WINDOWS: CRITICAL 60 s, HIGH 300...
+  - `paged_2026_11_16_overnight`: Paged 2026-11-16 02:37 CST via notify.madronehapushover priority -1 (quiet, wakes nobody) with the PICK.
 
 ### `WALLPANEL-URA-NOTIFY-1` - URA drives the wall-panel bezel LEDs and room-targeted announcements (NM surface) — _#27 · WSJF 2.8 · v6 tc6 u2 /e5_
 thread: **notifications** - status: **waiting_operator** - approval: **pending**
