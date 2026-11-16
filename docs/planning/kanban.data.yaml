@@ -35112,7 +35112,7 @@ cards:
 - id: EV-VEHICLE-SOC-MAZDA-1
   title: "Use the CX-90 PHEV's own state (charge level, plugged in, remaining charge time) in EC charging"
   thread: energy
-  status: inbox
+  status: parked
   tier: 2
   created: '2026-11-15 20:40'
   updated: '2026-11-15 20:40'
@@ -35121,7 +35121,9 @@ cards:
   operator_2026_11_15: "The Mazda integration is back. We could use it in some way with our charging code in EC as well? Open to suggestions."
   adjacency_2026_11_15: "ADJACENT to EXPLORE_ec_ev_daytime_solar_led.md (11-12): its shape 2 'solar-only by day unless needed' was blocked on 'needs car SOC/departure'; charge_level now exists. Also EV drain-precedence (v5.20-v5.24) and the EVSE plug state. Measure first: freshness of charge_level / plugged_in (cloud poll cadence, staleness while the car sleeps; the CX-90 'blipping climate' finding in this board says the car sleeps)."
   ideas_2026_11_15: "(1) Skip / stop charging when the car reports full (charge_level 100 or remaining time 0) instead of inferring from EVSE amps. (2) Shape 2 unblocked: solar-only daytime unless charge_level is below a needed-by-departure floor. (3) Plug-in corroboration: car plugged_in vs EVSE state, flag a disagreement. (4) Display only: car charge level on the energy dashboard. Measure-before-build on freshness first."
-  next: "Probe (read-only): 7-day recorder cadence and staleness of charge_level / plugged_in / charging vs the EVSE session data; then recommend which idea pays."
+  probe_2026_11_15: "AUDIT_ev_mazda_state_freshness_2026_11_15.md (fbe9aaac): the car reports only on its own uploads; vehicle_status_last_updated was 18:16 and still 4.5 h old at 22:48; SOC trails EVSE draw by ~2 h; the car stops itself at 100 (remaining_charging_time_ac reads 10 at full, never 0). Idea 1 (stop at full) not needed; idea 2 (solar-only by day) needs a refresh-on-plug-in pattern and a departure time; idea 3 (plug mismatch flag) would false-fire for hours after each plug-in. Display with snapshot age: done on the v8 Car card."
+  revisit_trigger: "A measured one-shot refresh at plug-in returns a fresh SOC within minutes without 12 V drain concerns, and a departure-time source exists; then revisit idea 2."
+  next: "Parked: no build. Revisit on the trigger above."
 - id: MF-MA-TWIN-WIIM-UUID-1
   title: "Music following picks a dead Music Assistant twin in every WiiM room: the _5 twins are unavailable all week; the playing _7 twins (wiim_uuid identifiers) never match"
   thread: music
