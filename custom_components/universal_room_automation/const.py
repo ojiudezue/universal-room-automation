@@ -3563,9 +3563,12 @@ CROSSING_VISION_SWITCH_HASS_KEY: Final = "crossing_vision_shadow_on"
 CROSSING_VISION_CAP_HASS_KEY: Final = "crossing_vision_daily_calls"
 CONF_CROSSING_VISION_DAILY_CALLS: Final = "crossing_vision_daily_calls"
 # Rung 3 default (Number). §15.9.5: max measured day 30 + headroom; 0 = no
-# calls. The counter is RAM, reset at local midnight: each HA restart can
-# allow up to one more cap that day (≤ $0.50 on gpt-4o-mini; plan rev 2 F7).
-CROSSING_VISION_DAILY_CALLS: Final = 40
+# calls. The counter resets at local midnight and is rehydrated at setup from
+# today's call rows (P3-D5), so a restart no longer grants a fresh cap. The
+# default is sized from the P3-D0 (a) volume probe: ceil(max simulated daily
+# calls x 1.5) = ceil(62 x 1.5) = 93 (AUDIT_crossing_vision_p3_d0_2026_11_15.md),
+# <= MAX. An operator-set Number value wins.
+CROSSING_VISION_DAILY_CALLS: Final = 93
 CROSSING_VISION_DAILY_CALLS_MAX: Final = 200
 # Rung 1: model change needs a dry call first (D5 moves it). Operator
 # 2026-11-13: the producer uses its own llmvision entry "OpenAI Madrone
@@ -3587,8 +3590,13 @@ CONF_CROSSING_VISION_PROVIDER_ID: Final = "crossing_vision_provider_id"
 CROSSING_VISION_PROVIDER_ID: Final = "01M7B731T26P2HXVW77AQR62PP"
 # Rung 1 (review A6): own max_tokens, so lowering the perimeter's
 # CONF_PERIMETER_ENRICHMENT_MAX_TOKENS for alerts cannot truncate this JSON.
-# 1500 = the perimeter default the D0 dry calls ran with.
-CROSSING_VISION_MAX_TOKENS: Final = 1500
+# 4000 (P3-D0, AUDIT_crossing_vision_p3_d0_2026_11_15.md): at 1500 llmvision
+# returned EMPTY text on all 6 calls for the 18:43 / 18:59 large-group clips
+# (recorded `refused`, no count); at 4000 they returned 5 and 8 people with the
+# right direction. Likely cause of group undercounts / failed rows. Cost: more
+# output tokens on large groups only; P3-D0 measured p50 ~25-30 s on 8 frames
+# (the live path sends 4), inside CROSSING_VISION_TIMEOUT_S 90.
+CROSSING_VISION_MAX_TOKENS: Final = 4000
 # Rung 1: first (pre-roll) frame + 3. Keep >= 3: D0b found the first
 # frame empty in 53 % of responses.
 CROSSING_VISION_MAX_FRAMES: Final = 4
@@ -3634,6 +3642,16 @@ CROSSING_VISION_TRIPWIRE_EVAL_S: Final = 3600
 CROSSING_VISION_DESC_MAX_CHARS: Final = 200
 # Rung 1: bound on gathering in-flight tasks at unload.
 CROSSING_VISION_TEARDOWN_GATHER_S: Final = 5
+# Rung 1 (P3-D1): cap on llmvision's error text stored on `error` rows only
+# (the adapter already truncates to 200; this is the row-size bound).
+CROSSING_VISION_ERROR_TEXT_MAX_CHARS: Final = 200
+# Rung 1 (P3-D5): restart-durable cap counter. At setup the counter sits at
+# the cap (no calls) until a background read of today's call rows
+# (memory_episodes by ended_at = call time) returns; that read is bounded by
+# TIMEOUT_S and retried once after RETRY_S. Both failing = the counter stays
+# at the cap until the next local midnight (counted, paged LOW).
+CROSSING_VISION_CAP_REHYDRATE_TIMEOUT_S: Final = 30
+CROSSING_VISION_CAP_REHYDRATE_RETRY_S: Final = 60
 
 # ---------------------------------------------------------------------------
 # Crossing ledger (PLANNING_crossing_vision.md P2-D2 / P2-D3; RAM, boot =
@@ -3655,6 +3673,25 @@ CROSSING_VISION_LEDGER_EMPTY_RESET_S: Final = 900
 # since setup, blocks the anchor. False = the edge-only predicate (kill
 # switch; a still guest on a radar is then anchored away).
 CROSSING_VISION_LEDGER_ANCHOR_NEEDS_NO_HOLD: Final = True
+# P3-D8 (operator yes 2026-11-15, "Door vision stuck sensor - yes"): a LIVE
+# Tier-1 input reading `on` with no camera-stream view does NOT hold the
+# anchor while its room's SensorExclusionSet excludes it under one of these
+# stuck clients (P22 continuous-on, chatter promoted in act mode, duty-cycle
+# promoted). Never the camera-stream client (a dead input still holds) and
+# never a label-only stuck kind (a sleeper's duty cycle, shadow chatter).
+CROSSING_VISION_ANCHOR_STUCK_CLIENTS: Final = frozenset(
+    {"p22_continuous", "chatter", "stuck_dutycycle"}
+)
+# Review D-M1 (orchestrator conservative default 2026-11-15; operator may
+# override): in these house states a `p22_continuous` exclusion does NOT
+# release the anchor (P22 has no house-state gate; a still sleeper on a
+# radar reaches it at 4 h). Empty = P22 releases in every state.
+CROSSING_VISION_ANCHOR_P22_HOLD_STATES: Final = frozenset(
+    {"sleep", "waking", "home_night"}
+)
+# Kill switch: False = a stuck-excluded live `on` input still holds (the
+# pre-P3-D8 rule).
+CROSSING_VISION_LEDGER_ANCHOR_IGNORES_STUCK: Final = True
 # Anchor sample cadence (tracked interval). A stored body value older than
 # 2 x max(this, 1) fails the sample. 0 = a 1 s interval (not "never").
 CROSSING_VISION_LEDGER_EVAL_S: Final = 60
