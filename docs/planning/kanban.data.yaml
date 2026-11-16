@@ -35084,6 +35084,41 @@ cards:
   revival_trigger: "Also uncork when the empty-house anchor (census-p2 ledger) shows a delayed reset caused by a one-NVR hold that changed a displayed count, or when NVR-WITNESS-CONSOLIDATION-1 W2 builds the one-physical-camera model (do it there). Uncork when the ship 3 D0 (d) probe, or a later one-shot history probe, shows BOTH of these: (1) for at least one paired camera, the twin input sits in the same reader set (Tier-1 room map, zone camera list or census set); AND (2) one-NVR outages caused at least 30 held-input minutes per week that changed a decision or a display (a zone or the census holding a stale on/off). Also uncork if the operator sees a stale room or zone during a Frigate-only outage and asks for it."
   next: "Parked. Revisit at ship 3b close with the D0 (d) numbers."
   rank: {value: 2, time_criticality: 1, effort: 4}
+- id: WELCOME-SCENE-ARRIVAL-PATH-1
+  title: "Welcome scene wherever the arrival leads (first room entered), not only the person's own bedroom"
+  thread: identity
+  status: parked
+  tier: 2
+  created: '2026-11-15 19:00'
+  updated: '2026-11-15 19:00'
+  links: {parent: PERSON-PROFILE-PREFERENCES-1}
+  origin: {date: '2026-11-15', gist: 'Deferred from step 8 rev 3.5 by operator.'}
+  operator_2026_11_15_scope: "Long run. Let's nail the room first."
+  revisit_trigger: "v6.0.0 own-room welcome scene live-validated and the operator asks for scenes along the arrival path."
+  next: "Parked until the own-room welcome scene ships and is validated."
+- id: VISION-INTERIOR-SHIP1-1
+  title: "Interior vision ship 1: unnamed room records per shared camera room, entry-path rows, trip-wires; no AI calls, nothing reaches census or presence"
+  thread: identity
+  status: shipped_organic
+  shipped_version: v5.108.28
+  tier: 3
+  created: '2026-11-15 20:10'
+  updated: '2026-11-15 20:10'
+  links: {parent: VISION-INTERIOR-SIGHTINGS-1}
+  origin: {date: '2026-11-15', gist: 'Split from VISION-INTERIOR-SIGHTINGS-1 for the v5.108.28 deploy; parent keeps ship 2, vision leg, D4 census flip, ledger floor.'}
+  why: "Plan 7b818ce1 ship 1 (D1 + D5 no-model + D7). Reviews A/B/C/D+G, fix-up 6025e9ba, merge-fix 525f0cb4. Full suite on merged branch clean except one registry line fixed in c4dd65ce. Orchestrator mutation: stuck=False -> test_census_discounted_member_never_reaches_a_record RED."
+  next: "APPROVE: deploy v5.108.28 (Tier-3 operator checkpoint) -> deploy, restart while awake, live-validate, README table."
+- id: PEOPLE-SCREEN-1
+  title: "People settings screen and per-person profile store (step 8 §10.1); configuration only, nothing acts yet"
+  thread: identity
+  status: review
+  tier: 2
+  created: '2026-11-15 20:10'
+  updated: '2026-11-15 20:10'
+  links: {parent: PERSON-PROFILE-PREFERENCES-1}
+  origin: {date: '2026-11-15', gist: 'Operator: ship the People screen first. Split for the v5.108.29 deploy; parent keeps D2/D3/D4/D6/D7.'}
+  why: "Reviews A+G, B, C (130 mutations); fix pass b769c29e (40/40 fix sites RED); develop merge 235f5c0f; allowlist pin c8a9a16c. B0 live form check right after install, rollback if the form fails."
+  next: "Deploy v5.108.29 with the interior release (one restart), B0 live form check, README table."
 - id: VISION-P3-FIRST-SET-1
   title: "Crossing vision Phase 3 first set: error text on error rows, restart-safe daily cap (default 93, 4000 tokens), stuck-excluded inputs stop holding the empty-house anchor"
   thread: identity
@@ -35128,6 +35163,9 @@ cards:
   operator_2026_11_15_approach_designs: "Arriving: when we detect a door crossing we can go back in history and get clips of the approach inside and outside the house. Alternatively we can treat motion near an egress door as an anticipatory crossing and collect clips from/frames to check if it was a crossing. If it a crossing we look to determine direction and if not discard. (Planned as P3-D10 retroactive approach clips and P3-D11 anticipatory crossing, measurement-first, scored against operator grades.)"
   operator_2026_11_15_grading_zones_walk: "I can grade what you send me to accomplish the goal. No real limit / Frigate threshold is approved / Yes I would walk. (Grades: no daily cap, the orchestrator sends batches sized to the gates; Frigate <cam>_threshold zones per door camera approved, homelab-side change; staged round trips approved, after K2 is scored.)"
   plan_2026_11_15_b5bdb13a: "Phase 3 rewritten after P3-D0 and the operator's 'build and hold off and measure. We need reps': P3-D3 direction built behind a per-door-group gate with a 20% repeat sample (own budget, max 15/day), stability bar, PARK on Wilson upper bound; P3-D2 recording-window frames, 8 frames, 4000 tokens, vision count alone for groups; P3-D0b second direction source (Frigate path / door contact / tracker variants), P3-D9c tracker decides with a passing instrument; P3-D0d new pass keys (K1 door cycle, K2 dedup, K3 chained); P3-D4/P3-D9a wait for a passing key. Reviewed (bca9fb65 review, 18 findings fixed), orchestrator re-grep OK. P3-D0b/c/d measurements dispatched. Open: decision 13 bar type (recommend relative for the ledger flip, absolute for F-LEAD), daily grades (recommend 10), Frigate threshold zones, staged round trips after K2."
+  decision_2026_11_15_rev35_defaults: "Step 8 rev 3.5 (f96ccf7c) open points, defaults taken (reversible, inside approved scope): departure pause keeps the arrival music stamp past hand-off and does nothing if music following moved the music (departure_kept_not_ours); guests detected = house state guest or the comfort census reading >=1 unidentified, measured by D0b with a code trip-wire for self-blocking; follow-me is one house-level option, off; the engine reads the counted person.* arrival edge only (no F5 subscription), accepting that a future step-7 camera confirmation can't start music earlier; ARRIVAL_WINDOW_S stays rung 1 because it drives three behaviours."
+  operator_2026_11_15_g1_g2: "(Any arrival edge counts, Bluetooth-led included) YES / (keeping the departure pause) YES"
+  operator_2026_11_15_ship_go: "Go (v5.108.28 interior ship 1 + v5.108.29 People screen, one restart). Also: Did you stop the arc? Come on!"
   operator_2026_11_15_after_room: "(Leaving your room after arrival music started) If music following is on, yes. That way we don't have too much state to track. (Once the person is in their room, arrival music hands off to music following: it follows if the person's music following is on, otherwise it stays. No separate arrival state after hand-off.)"
   operator_2026_11_15_welcome_scope: "(Welcome scenes anywhere the arrival leads) Long run. Let's nail the room first. (v6.0.0 scope: welcome scene in the person's own room only; anywhere-the-arrival-leads is a later card.)"
   finding_2026_11_15_f5_sources: "AUDIT_step8_f5_source_semantics_2026_11_15.md (f303c177), verified at HA person/__init__.py:516-545 (any non-GPS tracker home wins over GPS): person.* home already composes GPS (mobile_app) + BLE (bermuda/private_ble_device); the 'geofence' F5 is that composed edge (61/78 GPS-led, 17/78 BLE-led; jaya/ziri are BLE-only). The 'ble' F5 follows a person.* edge 31/31 times within 2-60 s, so it is a second view of the same arrival, not an independent source. D0 'BLE 0/9' is an ordering artefact. Operator's Q5 answer B (BLE may start it if geofence follows) is already true underneath. Step 8 trigger: one counted person.* arrival edge per physical arrival; ble F5 deduped; drop the BLE-specific prerequisite card from the v6.0.0 gate and the BLE departure bar."
@@ -35831,6 +35869,7 @@ cards:
   next: 'Parked (see revival_trigger). Measured 11-15: ~18 MB, exterior_track is the driver.'
   rank: {value: 2, time_criticality: 1, effort: 1}
 - id: VISION-INTERIOR-SIGHTINGS-1
+  arc_cut_v5_108_28: "parent stays open for ship 2 descriptions, vision count leg, D4 census flip and ledger floor"
   arc_cut_v5_108_25: "arc step 9, plan in closure review"
   operator_2026_11_15_ledger_floor_only: "Yes. I don't want to worry and derail from low probability concerns. (Interior counts feed the ledger as a FLOOR only: L never below the visible interior count. The checkpoint-anchor idea is dropped, not planned: it needs every camera-less room provably empty, which is rare here and fragile.)"
   operator_2026_11_15_interior_for_census: "Does Camera plan make interior counting a no go? Interior counting I still want just not for presence for now. For census instead and the ledger. (Answer: no, interior vision resolves areas itself and reads cameras through 3b. Census use already planned as the raise-only interior_term; presence never. NEW: add interior counts as a ledger input: a floor (ledger L never below the visible interior count) and a checkpoint anchor (a high-confidence full-coverage interior count can set L when the empty-house anchor has not fired). Plan amendment + measurement against operator grades before it moves L.)"

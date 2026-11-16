@@ -50,6 +50,9 @@ MEMBER_CLASSES: dict[str, str] = {
     "PresenceCoordinator": "domain_coordinators/presence.py",
     "ResidencyTracker": "domain_coordinators/residency.py",
     "ZonePresenceTracker": "domain_coordinators/presence.py",
+    # VISION-INTERIOR-SIGHTINGS-1 §6.3 (ship 1): the interior vision member
+    # (the class itself arrives with the vision ships; the module is a member).
+    "InteriorVisionSampler": "interior_vision.py",
 }
 MEMBER_MODULES: frozenset[str] = frozenset(set(MEMBER_CLASSES.values()) | {
     "domain_coordinators/signals.py", "census_view.py", "person_ids.py",
@@ -113,6 +116,9 @@ READ_LIST: dict[str, frozenset[str]] = {
         "should_veto_due_to_reliable_signals", "check_zone_occupancy_confidence",
         # Contract §4.1 evidence row (ship 3b): the camera twin owner's U.
         "zone_camera_entities",
+        # VISION-INTERIOR-SIGHTINGS-1 §6.3 (ship 1): F4 unnamed reads, also
+        # pinned to their only readers (PINNED_READERS).
+        "get_room_sightings", "get_last_path_records",
     }),
     "EGRESS": frozenset({
         "get_last_crossing", "get_crossings_since", "get_crossing",
@@ -166,6 +172,11 @@ STORE_ATTRS_OWNER = {
     "_crossing_ring": "transit_validator.py",
     "_last_crossing": "transit_validator.py",
     "_last_crossing_by_camera": "transit_validator.py",
+    # VISION-INTERIOR-SIGHTINGS-1 §6.3 (ship 1): the F4 unnamed stores
+    # (`_room_descriptions` arrives with ship 2).
+    "_room_sightings": "person_sighting.py",
+    "_path_records": "person_sighting.py",
+    "_vision_counts": "person_sighting.py",
 }
 CENSUS_COUNT_FIELDS = frozenset({
     "identified_count", "unidentified_count", "total_persons", "identified_persons",
@@ -176,6 +187,8 @@ RECORD_OWNERS = {
     "CensusZoneResult": ("camera_census.py", "census_deconflict.py"),
     "CensusResult": ("camera_census.py", "census_deconflict.py"),
     "PersonSighting": ("person_sighting.py",),
+    "RoomSighting": ("person_sighting.py",),
+    "PathRecord": ("person_sighting.py",),
 }
 CLASS_THRESHOLDS = (0.75, 0.9)
 # R2 store reads: attribute -> the modules allowed to read it.
@@ -183,8 +196,12 @@ R2_STORE_OWNERS: dict[str, tuple[str, ...]] = {
     "last_result": ("camera_census.py", "census_view.py", "census_deconflict.py"),
     "_last_sightings": ("person_sighting.py",),
     "_camera_sightings": ("transit_validator.py",),
+    "_room_sightings": ("person_sighting.py",),
+    "_path_records": ("person_sighting.py",),
+    "_vision_counts": ("person_sighting.py",),
 }
-R2_PRIVATE_STORES = frozenset({"_last_sightings", "_camera_sightings"})
+R2_PRIVATE_STORES = frozenset({"_last_sightings", "_camera_sightings", "_room_sightings",
+                               "_path_records", "_vision_counts"})
 # Plan rev 3.3 §5 D7 (ruled 4d337e44): lifecycle callees only, by name; a
 # person-fact read during setup still counts.
 R2_LIFECYCLE_EXACT = frozenset({
@@ -209,7 +226,61 @@ LAYER_NON_PERSON_PUBLIC = frozenset({
     "set_fan_interference_hold_s", "set_house_state_override", "get_house_state_override",
     "get_house_occupancy", "get_next_state_prediction", "is_room_direct_ble", "get_ble_tier",
     "path_map_status", "get_stuck_cameras",
+    # VISION-INTERIOR-SIGHTINGS-1 D5: the path map's inward edges of a door.
+    "inward_path_edges", "path_door_anchors",
 })
+
+# VISION-INTERIOR-SIGHTINGS-1 §6.3 (rule R15, not in the allowlist total,
+# like LISTED): each F4-unnamed read / term method may be CALLED only from
+# its pins, ``(module, qualname)``; a qualname ending ``.*`` pins every
+# method of that class. A call (or a literal ``getattr``) anywhere else is a
+# hit, and a hit is never allowlistable (INV-IV-NO-TRUST: no trust reader).
+_RESERVED_PERSONALIZATION = ("<reserved:PERSON-PROFILE-PREFERENCES-1>", "*")
+PINNED_READERS: dict[str, tuple[tuple[str, str], ...]] = {
+    "get_room_sightings": (
+        ("sensor.py", "InteriorAwarenessSensor.*"),
+        ("domain_coordinators/presence.py", "PresenceCoordinator.get_room_sightings"),
+        _RESERVED_PERSONALIZATION,
+    ),
+    "get_last_path_records": (
+        ("sensor.py", "InteriorAwarenessSensor.*"),
+        ("domain_coordinators/presence.py", "PresenceCoordinator.get_last_path_records"),
+        _RESERVED_PERSONALIZATION,
+    ),
+    "request_room_description": (
+        ("notification_manager.py", "NotificationManager._handle_describe_command"),
+        ("domain_coordinators/presence.py", "PresenceCoordinator.request_room_description"),
+    ),
+    "get_room_description": (
+        ("sensor.py", "InteriorAwarenessSensor.*"),
+        ("domain_coordinators/presence.py", "PresenceCoordinator.get_room_description"),
+        _RESERVED_PERSONALIZATION,
+    ),
+    "interior_census_tick": (
+        ("camera_census.py", "PersonCensus._interior_tick"),
+        ("domain_coordinators/presence.py", "PresenceCoordinator.interior_census_tick"),
+    ),
+    # Review B MEDIUM-2: the producer-side entry points that also return or
+    # write the unnamed records, and the census evidence the records read
+    # (contract §2.6: layer members only). Owner class only.
+    "interior_tick": (("person_sighting.py", "PersonSightingProducer.*"),),
+    "_emit_unnamed": (("person_sighting.py", "PersonSightingProducer.*"),),
+    "area_evidence": (("person_sighting.py", "PersonSightingProducer.*"),),
+}
+# Stated static limits of R15 (review B MEDIUM-2; plan §6.3, contract §6):
+# a bound-method alias (``g = p.get_room_sightings; g()``) and a read of the
+# display entity's state / attributes (``hass.states.get("sensor.ura_interior_
+# awareness")``) are not seen.
+
+
+def pinned_ok(name: str, rel: str, qual: str) -> bool:
+    for mod, q in PINNED_READERS.get(name, ()):
+        if mod != rel:
+            continue
+        if q == "*" or qual == q or (q.endswith(".*") and (
+                qual == q[:-2] or qual.startswith(q[:-1]))):
+            return True
+    return False
 # R3 (iii) / R9: Bermuda fleet-health entities are not per-person.
 FLEET_HEALTH_PREFIX = "sensor.bermuda_global"
 # R9: the ONE person.* listener (presence geofence edges) and the ledger.
@@ -1194,6 +1265,14 @@ def scan_module(rel: str, tree: ast.Module, h: Harvest) -> list[Hit]:
                         and _str_const(node.args[0].elts[0]) == "person":
                     add("R12", qual, "join", node)
 
+        # ---------------- R15 pinned F4-unnamed readers (never allowlisted)
+        if isinstance(node, ast.Call):
+            name = _call_name(node)
+            if name == "getattr" and len(node.args) >= 2:
+                name = _str_const(node.args[1])
+            if name in PINNED_READERS and not pinned_ok(name, rel, qual):
+                add("R15", qual, name, node, "unpinned_reader")
+
         # ---------------- R13 ingest feeders (+ missing_source)
         if isinstance(node, ast.Call):
             name = _call_name(node)
@@ -1335,6 +1414,8 @@ def compare(hits: list[Hit], allowlist: dict, listed: dict, total: int | None) -
     for x in hits:
         if x.kind == "missing_source":
             problems.append(f"missing source {x.key} line {x.line}")
+        if x.kind == "unpinned_reader":
+            problems.append(f"unpinned reader {x.key} line {x.line}")
     if total is not None:
         s = sum(int(r["max"]) for r in allowlist.values())
         if s != total:

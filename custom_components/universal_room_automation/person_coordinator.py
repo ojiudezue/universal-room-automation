@@ -1,6 +1,6 @@
 """Person tracking coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv5.108.27
+# Universal Room Automation vv5.108.28
 # Build: 2026-01-03
 # File: person_coordinator.py
 # v3.2.9: No changes (zone fixes in aggregation.py, fan fixes in automation.py)
@@ -2504,6 +2504,36 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
     def get_persons_in_room(self, room_name: str) -> list[str]:
         """Alias for get_room_occupants - for v3.2.0 compatibility."""
         return self.get_room_occupants(room_name)
+
+    def persons_in_room(self, room: str, *, active_only: bool = False) -> tuple[str, ...]:
+        """Contract §2.4a / G6: THE BLE-person-in-room read. Persons whose
+        resolved location is ``room`` (``get_room_occupants``, same names),
+        minus any person whose phone-left-behind sensor reads ``on``
+        (``phone_trustworthy``, registry-resolved, fail-open). With
+        ``active_only`` only persons whose ``tracking_status`` is
+        ``TRACKING_STATUS_ACTIVE`` (a STALE resident does not count).
+        Built by VISION-INTERIOR-SIGHTINGS-1 ship 1 (plan §14 seam); no
+        existing reader is migrated (that is G6-ONE-BLE-ROOM-READ-1)."""
+        if not room:
+            return ()
+        from .domain_coordinators._ble_corroboration import (  # noqa: PLC0415
+            phone_trustworthy,
+        )
+
+        try:
+            raw = self.get_room_occupants(room) or []
+        except Exception:  # noqa: BLE001
+            return ()
+        out: list[str] = []
+        for name in raw:
+            if active_only:
+                info = (self.data or {}).get(name) or {}
+                if info.get("tracking_status") != TRACKING_STATUS_ACTIVE:
+                    continue
+            if not phone_trustworthy(self.hass, name):
+                continue
+            out.append(name)
+        return tuple(out)
 
     def is_room_direct_ble(self, room_name: str) -> bool:
         """

@@ -78,19 +78,21 @@ while `CROSSING_VISION_AWARENESS_VISION_LEADS` is False.
     call that raised before its row was written. The undercount is at most `MAX_CONCURRENT` plus unflushed rows per
     restart.
 
-## Live validation (prospective; to be replaced by a Validated table)
+## Validated 2026-11-15 (restart 18:5x CST, house home_evening)
 
-- **P3-D5:** after the deploy restart, `crossing_vision_today.calls` (Outside: Open Tracks) equals the count of
-  today's call rows within one minute (not 0). `crossing_vision_cap_rehydrate.state = ok`. Discriminates: a RAM-only
-  counter reads 0.
-- **Cap:** with no operator Number override, the cap reads 93.
-- **P3-D8:** with a stuck radar promoted `p22_continuous` and the house AWAY, `crossing_ledger.held` no longer lists
-  it and `held_ignored_stuck` does. In SLEEP the same input stays in `held`, and any bedroom sensor carrying only a
-  duty-cycle label stays in `held`. Discriminates: the label-map bug would also drop sleeping-bedroom sensors.
-- **P3-D1:** the next `error` row has a non-empty, scrubbed `error`. If no error occurs in the window, the in-suite
-  tests are the proof.
-- **max_tokens:** the next large-group crossing (camera peak of 3 or more) gets an `ok` row, not `refused`.
-- **Logs:** no new ERROR from `crossing_vision` or `database` after boot.
+| Criterion | Result | Evidence |
+|---|---|---|
+| Installed and booted | PASS | manifest v5.108.27 on disk (78 entries), `camera_input_room_stuck_excluded` present in coordinator.py; `update.universal_room_automation_update` installed_version v5.108.27 |
+| P3-D5 restart-safe counter | PASS | after restart `crossing_vision_today.calls` = 2 on `sensor.ura_security_coordinator_outside_open_tracks_diagnostic`; DB today (local day) has exactly 2 call rows (`outcome=ok`) plus 2 `clustered` non-call rows. A RAM-only counter would read 0. `crossing_vision_cap_rehydrate` = `{state: ok, cap_hold: false, cap_rehydrate_failed: 0}` |
+| Cap default | PASS | `number.ura_notification_manager_crossing_vision_daily_calls` = 93.0 |
+| P3-D8 stuck exclusion | in-suite only | the house was home_evening and the ledger was `unknown` (boot) with `held` and `held_ignored_stuck` both empty, so no live case existed. Proven by 69 tests in `test_crossing_vision_p3_first.py` plus the orchestrator mutations: neutering the sleep hold turns 7 tests red, neutering the excluded return turns 12 red |
+| P3-D1 error text | in-suite only | no error rows since boot |
+| max_tokens 4000 | pending organic | no large-group crossing since boot; first one is the check (`ok`, not `refused`) |
+| Logs | PASS | system log ERRORs since boot: 16, none from `universal_room_automation`, `crossing_vision` or `database` (WhatsApp, iCloud3, ESPHome satellites, Alexa, Bluetooth mgmt socket, Elk, Lepro, Philips lock, WiiM duplicate id) |
+
+Boot note: the per-outcome breakdown (`ok`, `blank`, ...) restarts at 0; only `calls` is rehydrated, which is what the cap reads. Display only.
+
+Not in this release: P3-D2 recording-window route, P3-D3 direction recorded, P3-D10/D11 tracker extension (all on VISION-AMBIGUOUS-CROSSINGS-1, waiting on operator grades). Full suite: candidate 22,788 passed with one order-dependent flake (`test_ec_savings_money.py::test_arbitrage_cycles_count_distinct_local_days`, passes alone on both trees); the opt-in drill run surfaced one stale pre-existing drill, recorded on BLE-LOCATION-QUALITY-1.
 
 ## Tests
 

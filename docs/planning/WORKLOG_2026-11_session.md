@@ -82,3 +82,4 @@
 - 2026-11-15 14:16 **v5.108.25** — v5.108.25: person-awareness layer ship 3b (device-level dead-camera rule) (cards: DEAD-CAMERA-DEVICE-RULE-1)
 - 2026-11-15 15:44 **v5.108.26** — v5.108.26: music following repair (cards: MUSIC-FOLLOWING-TRANSFER-REPAIR-1)
 - 2026-11-15 18:37 **v5.108.27** — v5.108.27: crossing vision Phase 3, first set (P3-D1, P3-D5, P3-D8) + P3-D0 knobs (cards: VISION-P3-FIRST-SET-1)
+- 2026-11-15 21:32 **v5.108.28** — v5.108.28: interior vision ship 1 (room records, entry paths, no AI calls) (cards: VISION-INTERIOR-SHIP1-1)

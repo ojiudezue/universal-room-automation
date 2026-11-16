@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "320",
+  "author": "ojiudezue",
+  "session_id": "claude_20261116_033200_ship_v5_108_28",
+  "timestamp": "2026-11-16T03:32:00Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.108.28 shipped: Interior vision ship 1: unnamed room records per shared camera room, entry-path rows, trip-wires (no AI calls)",
+  "summary": "Interior vision ship 1: unnamed room records per shared camera room, entry-path rows, trip-wires (no AI calls)",
+  "why": "Interior counting is the operator's census and ledger input (never presence). Ship 1 lays the record layer the later census term and ledger floor read: per-room bodies split into named and unnamed, and the room-by-room path after each entry, with trip-wires so silence is noticed. It makes no model calls, so the first vision costs come only with ship 2.",
+  "implications": "Shipped VISION-INTERIOR-SHIP1-1 at v5.108.28; card(s) sit shipped_organic pending validation. Acceptance in README_v5.108.28.md (Live criteria).",
+  "revisit_trigger": "If interior_records_zero or interior_path_zero fires, or covered rooms read missing while cameras are live, revisit the group build and liveness.",
+  "refs": {
+    "cards": [
+      "VISION-INTERIOR-SHIP1-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.108.28.md"
+    ],
+    "release_notes": "D1 room records (bodies / named / unnamed per shared camera room, stuck members never live), sensor.ura_interior_awareness; D5 entry-path rows from person-sensor on-edges along the door path map; D7 trip-wires; switch.ura_interior_vision. Record only: nothing reaches census, presence or any actuator."
+  }
+}

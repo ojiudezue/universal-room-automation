@@ -43,7 +43,8 @@ from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.util import dt as dt_util
 
 from . import const as _c
-from .camera_resolver import canonical_camera_key
+from . import interior_vision as _iv
+from .camera_resolver import canonical_camera_key, resolve_area_id_for_entity
 from .domain_coordinators._stuck_signal_nm import fire_stuck_signal
 from .domain_coordinators.hvac_const import CONF_ZONE_CAMERAS
 from .domain_coordinators.signals import (
@@ -84,6 +85,46 @@ class PersonSighting:
     identity_role: str | None
     synthetic: bool
     person_edge_age_s: float | None
+
+
+@dataclass(frozen=True)
+class RoomSighting:
+    """F4 UNNAMED room record (VISION-INTERIOR-SIGHTINGS-1 D1, plan §9.D1):
+    bodies the NVRs see in one covered shared room, who is named there
+    (BLE residents + named interior faces, one placement per slug), how
+    many are unnamed. Display / suggestion class only; never a trust input
+    (guard ``PINNED_READERS``). Constructed only by ``_emit_unnamed``."""
+
+    room: str | None
+    area_id: str | None
+    group_key: str
+    bodies: int | None
+    bodies_nvr: int | None
+    bodies_vision: int | None
+    bodies_source: str | None
+    named: tuple[str, ...]
+    named_sources: tuple[tuple[str, str], ...]
+    unnamed: int | None
+    status: str
+    provenance: str | None
+    liveness: str
+    entered_via: tuple[str, str] | None
+    census_as_of: Any
+    as_of: float
+
+
+@dataclass(frozen=True)
+class PathRecord:
+    """F4 UNNAMED path record (D5 no-model leg, plan §9.D5): where an entry
+    went inside. ``hops`` = ``(group_key, room, first_on_ts,
+    bodies_nvr_at_first_on, bodies_vision)``, earliest first."""
+
+    source_ref: str
+    door: str
+    ts: float
+    n: int | None
+    n_source: str | None
+    hops: tuple[tuple[str, str | None, float, int | None, int | None], ...]
 
 
 @dataclass
@@ -139,12 +180,45 @@ class PersonSightingProducer:
         self._arrival_zero_latched = False
         self._last_arrival_ts: float | None = None
         self.enabled = bool(_c.FACE_SIGHTING_ENABLED)
+        # VISION-INTERIOR-SIGHTINGS-1 ship 1: the F4 UNNAMED stores (owner:
+        # this producer; written only through `_emit_unnamed`).
+        self._room_sightings: tuple[RoomSighting, ...] = ()
+        self._path_records: deque = deque(maxlen=max(1, int(_c.INTERIOR_TIMELAPSE_RING)))
+        self._vision_counts: dict[str, int] = {}   # filled by the vision ships
+        self._interior_registries: Callable[[], tuple[Any, Any]] | None = None
+        self._interior_groups: list[dict[str, Any]] = []
+        self._interior_key_by_entity: dict[str, str] = {}
+        self._onedge_key_by_entity: dict[str, str] = {}
+        self._interior_excluded_entities: frozenset = frozenset()
+        self._interior_sig: Any = None
+        self._interior_timer_unsub: Callable[[], None] | None = None
+        self._interior_state_unsub: Callable[[], None] | None = None
+        self._interior_tasks: set = set()
+        self._interior_torn_down = False
+        self._onedge_ring = _iv.OnEdgeRing(int(_c.INTERIOR_ONEDGE_RING_MAX))
+        self._bodies_hist: dict[str, deque] = {}
+        self._entered_via: dict[str, tuple[str, str, float]] = {}
+        self._open_paths: dict[str, dict[str, Any]] = {}
+        self._crossing_cursor: datetime | None = None
+        self._crossing_seen_at_cursor: set[str] = set()
+        self._iv_ticks_with_bodies: deque = deque()
+        self._iv_records_written: deque = deque()
+        self._iv_entries_mapped: deque = deque()
+        self._iv_paths_written: deque = deque()
+        self._iv_records_zero_latched = False
+        self._iv_path_zero_latched = False
+        self.interior_counters: Counter = Counter()
+        self.interior_excluded: Counter = Counter()
 
     # ------------------------------------------------------------------ setup
     def async_setup(self) -> None:
         """Bind picks and register every listener. INV-NOOP: with
-        FACE_SIGHTING_ENABLED False nothing is registered."""
+        FACE_SIGHTING_ENABLED False no face source is registered. The
+        interior room records (``_setup_interior``) are independent of that
+        constant and of the Face Recognition switch: they are NVR body counts
+        with their own kill constant ``INTERIOR_ROOM_RECORDS_ENABLED``."""
         self._setup_ts = self._now()
+        self._setup_interior()
         if not self.enabled:
             return
         self._bridge_cb = self._on_bridge
@@ -180,6 +254,7 @@ class PersonSightingProducer:
         self.rebind()
 
     def async_teardown(self) -> None:
+        self._teardown_interior()
         for unsub in self._unsubs:
             try:
                 unsub()
@@ -281,7 +356,10 @@ class PersonSightingProducer:
     def rebind(self, *, only: list[str] | None = None) -> None:
         """(Re)build the pick bindings. ``only`` = add-only retry of those
         picks; None = full rebuild (registry change, HA started, picks
-        changed). Re-subscribes source (b) to the bound face entities."""
+        changed). Re-subscribes source (b) to the bound face entities.
+        Also forces the interior groups to rebuild on the next record tick
+        (presence calls this on every room-entry lifecycle event)."""
+        self._interior_sig = None
         if not self.enabled:
             return
         resolver = self._resolver()
@@ -499,16 +577,24 @@ class PersonSightingProducer:
         )
 
     def _egress_key(self, cam: str) -> str:
+        key = self._egress_key_resolved(cam)
+        return cam if key is None else key
+
+    def _egress_key_resolved(self, cam: str) -> str | None:
+        """The camera's physical key (registry, through the resolver), or
+        None when it cannot be resolved now. Only a RESOLVED key is cached
+        (interior vision review A M2: a failed resolution cached forever
+        made every later entry unmapped)."""
         if cam in self._egress_keys:
             return self._egress_keys[cam]
-        key = cam
         resolver = self._bound_resolver or self._resolver()
         try:
             fusions = resolver.resolve_operator_declaration([cam]) if resolver else []
-            if fusions:
-                key = canonical_camera_key(fusions[0])
         except Exception:  # noqa: BLE001
-            key = cam
+            return None
+        if not fusions:
+            return None
+        key = canonical_camera_key(fusions[0])
         self._egress_keys[cam] = key
         return key
 
@@ -802,3 +888,621 @@ class PersonSightingProducer:
             )
         except Exception:  # noqa: BLE001
             _LOGGER.debug("person sightings: trip-wire NM failed", exc_info=True)
+
+    # =================================================================
+    # VISION-INTERIOR-SIGHTINGS-1 ship 1: F4 UNNAMED room records (D1) and
+    # the no-model path time-lapse (D5). Own interval timer and own state
+    # listener; nothing here runs on a presence inference / census path
+    # (INV-IV-AWAY). Every camera read goes through ship 3b
+    # (`interior_camera_entities`, `entity_stream_view`,
+    # `physical_camera_dead`) and the registry; no name is parsed.
+    # =================================================================
+    def _emit_unnamed(self, kind: str, payload: Any) -> Any:
+        """THE one F4 UNNAMED ingest (contract §2.4 / §7). ``kind``:
+        ``room`` (payload = the field mappings of one build; replaces the
+        room store) or ``path`` (payload = one path record's fields; appended
+        to the ring). Sends no channel (SIGNAL_PERSON_SIGHTING listeners stay
+        none, operator Q5). Unknown kind raises ``ValueError``."""
+        if kind == "room":
+            records = tuple(RoomSighting(**fields) for fields in payload)
+            self._room_sightings = records
+            self.interior_counters["record_builds"] += 1
+            if records:
+                self._iv_records_written.append(self._now())
+                self._iv_records_zero_latched = False
+            return records
+        if kind == "path":
+            record = PathRecord(**payload)
+            self._path_records.append(record)
+            self.interior_counters["path_records"] += 1
+            if record.hops:
+                # Only a path with a hop proves the hop detector works
+                # (review D-M2): a hop-less record never discharges the wire.
+                self._iv_paths_written.append(self._now())
+                self._iv_path_zero_latched = False
+            else:
+                self.interior_counters["paths_zero_hop"] += 1
+            return record
+        raise ValueError(f"unknown unnamed kind {kind!r}")
+
+    def get_room_sightings(self) -> tuple[RoomSighting, ...]:
+        """The last build's room records (frozen tuple; display readers)."""
+        return self._room_sightings
+
+    def get_last_path_records(self) -> tuple[PathRecord, ...]:
+        """Closed path records, oldest first (RAM ring)."""
+        return tuple(self._path_records)
+
+    # ------------------------------------------------------------- lifecycle
+    def _setup_interior(self) -> None:
+        """Register the record timer (``INTERIOR_ROOM_RECORD_INTERVAL_S``).
+        Kill switch ``INTERIOR_ROOM_RECORDS_ENABLED`` False = nothing
+        registered. The on-edge listener is (re)bound when the groups are
+        built on the first tick."""
+        self._interior_torn_down = False
+        if not _c.INTERIOR_ROOM_RECORDS_ENABLED:
+            return
+        try:
+            from datetime import timedelta  # noqa: PLC0415
+
+            from homeassistant.helpers.event import (  # noqa: PLC0415
+                async_track_time_interval,
+            )
+            self._interior_timer_unsub = async_track_time_interval(
+                self.hass, self._on_interior_interval,
+                timedelta(seconds=max(1, int(_c.INTERIOR_ROOM_RECORD_INTERVAL_S))),
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("interior vision: timer registration failed", exc_info=True)
+        try:
+            self._crossing_cursor = dt_util.utcnow()
+        except Exception:  # noqa: BLE001
+            self._crossing_cursor = None
+
+    def _teardown_interior(self) -> None:
+        self._interior_torn_down = True
+        for name in ("_interior_timer_unsub", "_interior_state_unsub"):
+            unsub = getattr(self, name)
+            if unsub is not None:
+                try:
+                    unsub()
+                except Exception:  # noqa: BLE001
+                    pass
+                setattr(self, name, None)
+        for task in list(self._interior_tasks):
+            try:
+                task.cancel()
+            except Exception:  # noqa: BLE001
+                pass
+        self._interior_tasks.clear()
+        self._open_paths.clear()
+
+    @callback
+    def _on_interior_interval(self, _now: Any = None) -> None:
+        self.interior_tick()
+
+    # ---------------------------------------------------------------- groups
+    def _registries(self) -> tuple[Any, Any]:
+        if self._interior_registries is not None:
+            return self._interior_registries()
+        from homeassistant.helpers import device_registry as _dr  # noqa: PLC0415
+        from homeassistant.helpers import entity_registry as _er  # noqa: PLC0415
+
+        return _er.async_get(self.hass), _dr.async_get(self.hass)
+
+    def _room_entries(self) -> dict[str, dict[str, Any]]:
+        """URA room entries by room name (merged data + options)."""
+        out: dict[str, dict[str, Any]] = {}
+        try:
+            entries = self.hass.config_entries.async_entries(_c.DOMAIN)
+        except Exception:  # noqa: BLE001
+            return out
+        for entry in entries:
+            merged = {**(getattr(entry, "data", {}) or {}),
+                      **(getattr(entry, "options", {}) or {})}
+            if merged.get(_c.CONF_ENTRY_TYPE) != _c.ENTRY_TYPE_ROOM:
+                continue
+            name = merged.get(_c.CONF_ROOM_NAME)
+            if name:
+                out[str(name)] = merged
+        return out
+
+    def _ensure_interior_groups(self) -> None:
+        """(Re)build the interior camera groups (plan §7) when the census
+        interior list or the camera manager's resolver changed. Each interior
+        entity -> its registry camera DEVICE -> the ship 3b twin group (pure
+        pairing, computed once per rebuild); key = min device id of the group;
+        area = entity area else device area; room by area; a group with no
+        room or an excluded room type gets no record (counted)."""
+        census = self._census()
+        try:
+            interior = list(census.interior_camera_entities()) if census is not None else []
+        except Exception:  # noqa: BLE001
+            interior = []
+        resolver = self._resolver()
+        rooms = self._room_entries()
+        room_facts = tuple(sorted(
+            (r, m.get(_c.CONF_AREA_ID), m.get(_c.CONF_ROOM_TYPE)) for r, m in rooms.items()))
+        doors = self._door_edges()
+        node_facts = tuple(sorted(
+            (e.from_key, e.to_key, e.from_entity, e.to_entity)
+            for edges in doors.values() for e in edges))
+        # The resolver object is the registry-change marker: the camera
+        # manager rebuilds it after every entity / device registry event.
+        sig = (tuple(interior), resolver, room_facts, node_facts)
+        if self._interior_sig is not None and sig == self._interior_sig:
+            return
+        try:
+            er_, dr_ = self._registries()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("interior vision: registries unavailable", exc_info=True)
+            return
+        from .domain_coordinators import camera_stream_health as _csh  # noqa: PLC0415
+
+        pure = _csh.pure_twin_groups(er_, dr_)
+        by_key: dict[str, dict[str, Any]] = {}
+        excluded: Counter = Counter()
+        for eid in interior:
+            dev = _csh.camera_device_for_entity(er_, eid)
+            if dev is None:
+                excluded["no_camera_device"] += 1
+                continue
+            group = _csh.twin_pair_for_device(er_, dr_, dev, groups=pure)
+            key = min(group)
+            g = by_key.setdefault(key, {"group_key": key, "devices": tuple(sorted(group)),
+                                        "members": []})
+            g["members"].append(eid)
+        groups: list[dict[str, Any]] = []
+        key_by_entity: dict[str, str] = {}
+        excluded_entities: set[str] = set()
+        rooms_covered: set[str] = set()
+        for key, g in sorted(by_key.items()):
+            area = None
+            for eid in g["members"]:
+                try:
+                    area = resolve_area_id_for_entity(er_, dr_, eid)
+                except Exception:  # noqa: BLE001
+                    area = None
+                if area:
+                    break
+            room = self._room_for_area(area)
+            reason = None
+            room_type = (rooms.get(room) or {}).get(_c.CONF_ROOM_TYPE) if room else None
+            if room is None:
+                reason = "no_room"
+            elif room_type in _c.INTERIOR_VISION_EXCLUDED_ROOM_TYPES:
+                reason = "excluded_room_type"
+            elif room in rooms_covered:
+                # One group per room (D0(a) asserts it live; reviews A L7 /
+                # D-L1): a second camera group in the same room would
+                # double-count its unnamed people on the sensor. Counted.
+                reason = "groups_sharing_room"
+            if reason is not None:
+                excluded[reason] += 1
+                excluded_entities.update(g["members"])
+                continue
+            rooms_covered.add(room)
+            frig = _csh.frigate_member(er_, g["devices"])
+            still = _csh.own_camera_entity_for_device(er_, frig) if frig else None
+            if still is None:
+                excluded["no_still_source"] += 1  # counted, still recorded
+            g.update(members=tuple(sorted(g["members"])), area_id=area, room=room,
+                     room_type=room_type, still_source=still)
+            groups.append(g)
+            for eid in g["members"]:
+                key_by_entity[eid] = key
+        # D5 on-edges also come from every path-map node with a person leg,
+        # interior group or not (review D-M1: the garage_a chain's first node
+        # `staircase_2` is a zone-only camera). Registry: node entity ->
+        # resolver fusion -> its person binary sensors; key = the node key.
+        node_key_by_entity: dict[str, str] = {}
+        for _f, to_key, f_ent, t_ent in node_facts:
+            for ent, nkey in ((f_ent, _f), (t_ent, to_key)):
+                if not ent or not resolver:
+                    continue
+                try:
+                    fusions = resolver.resolve_operator_declaration([ent])
+                except Exception:  # noqa: BLE001
+                    fusions = []
+                for fus in fusions[:1]:
+                    for src in fus.sources:
+                        sensor = getattr(src, "person_binary_sensor", None)
+                        if sensor:
+                            node_key_by_entity.setdefault(sensor, nkey)
+        self._interior_groups = groups
+        self._interior_key_by_entity = key_by_entity
+        self._onedge_key_by_entity = {**node_key_by_entity, **key_by_entity}
+        self._interior_excluded_entities = frozenset(excluded_entities)
+        self.interior_excluded = excluded
+        self._interior_sig = sig
+        self._bind_onedge_listener()
+
+    def _bind_onedge_listener(self) -> None:
+        if self._interior_state_unsub is not None:
+            try:
+                self._interior_state_unsub()
+            except Exception:  # noqa: BLE001
+                pass
+            self._interior_state_unsub = None
+        entities = sorted(self._onedge_key_by_entity)
+        if not entities or self._interior_torn_down:
+            return
+        self._interior_state_unsub = async_track_state_change_event(
+            self.hass, entities, self._on_interior_person_state,
+        )
+
+    @callback
+    def _on_interior_person_state(self, event: Any) -> None:
+        """D1 / D5 on-edge stamp (O(1), no await): a group's or a path
+        node's person sensor going ``off`` -> ``on``. ``unavailable`` /
+        ``unknown`` / no prior state -> ``on`` is a camera recovering or a
+        restore, not an arrival (review A L3)."""
+        data = getattr(event, "data", {}) or {}
+        new_state = data.get("new_state")
+        old_state = data.get("old_state")
+        if new_state is None or getattr(new_state, "state", None) != "on":
+            return
+        if old_state is None or getattr(old_state, "state", None) != "off":
+            return
+        key = self._onedge_key_by_entity.get(data.get("entity_id") or "")
+        if key is None:
+            return
+        lc = getattr(new_state, "last_changed", None)
+        ts = lc.timestamp() if isinstance(lc, datetime) else self._now()
+        self._onedge_ring.append(ts, key)
+
+    # ------------------------------------------------------------------ tick
+    def _named_by_room(self, now: float) -> dict[str, dict[str, str]]:
+        """One placement per slug: BLE ACTIVE room (the one BLE-in-room read,
+        phone-left-behind filtered) over every URA room, else the newest fresh
+        named interior face sighting (``census_would_veto`` False)."""
+        from .person_ids import slug_of  # noqa: PLC0415
+
+        ble: dict[str, str] = {}
+        pc = self.hass.data.get(_c.DOMAIN, {}).get("person_coordinator")
+        reader = getattr(pc, "persons_in_room", None) if pc is not None else None
+        if callable(reader):
+            for room in sorted(self._room_entries()):
+                try:
+                    names = reader(room, active_only=True)
+                except Exception:  # noqa: BLE001
+                    continue
+                for name in names or ():
+                    slug = slug_of(name)
+                    if slug:
+                        ble.setdefault(slug, room)
+        faces = [
+            (s.slug, s.room, s.ts) for s in self._last_sightings.values()
+            if s.sighting_source == SIGHTING_SOURCE_INTERIOR and s.room
+            and not s.census_would_veto
+        ]
+        placed = _iv.place_named(ble, faces, now, float(_c.INTERIOR_ROOM_FACE_FRESH_S))
+        out: dict[str, dict[str, str]] = {}
+        for slug, (room, src) in placed.items():
+            out.setdefault(room, {})[slug] = src
+        return out
+
+    def interior_tick(self, now: float | None = None) -> tuple[RoomSighting, ...]:
+        """One record build (timer callback; sync, never raises out)."""
+        if self._interior_torn_down or not _c.INTERIOR_ROOM_RECORDS_ENABLED:
+            return self._room_sightings
+        now = self._now() if now is None else float(now)
+        try:
+            return self._interior_tick(now)
+        except Exception:  # noqa: BLE001
+            self.interior_counters["tick_errors"] += 1
+            _LOGGER.debug("interior vision: tick failed", exc_info=True)
+            return self._room_sightings
+
+    def _interior_tick(self, now: float) -> tuple[RoomSighting, ...]:
+        from .domain_coordinators import camera_stream_health as _csh  # noqa: PLC0415
+        from .domain_coordinators import camera_twin_health as _cth  # noqa: PLC0415
+
+        census = self._census()
+        try:
+            evidence = census.area_evidence() if census is not None else {}
+        except Exception:  # noqa: BLE001
+            evidence = {}
+        by_entity = (evidence or {}).get("by_entity") or {}
+        discounted = frozenset((evidence or {}).get("discounted") or ())
+        # Trip-wire numerator FIRST, in its own try, so a raising group build
+        # cannot hide it (review A L4): a census interior entity reading
+        # LIVE, not stuck-discounted, with a last reading > 0, and not one the
+        # last good build excluded (no room / excluded type; review D-L3).
+        try:
+            interior = list(census.interior_camera_entities()) if census is not None else []
+            for eid in interior:
+                if eid in self._interior_excluded_entities or eid in discounted:
+                    continue
+                st = self.hass.states.get(eid)
+                if (int(by_entity.get(eid) or 0) > 0 and st is not None
+                        and _iv.member_liveness(None, st.state) == _iv.LIVE):
+                    self._iv_ticks_with_bodies.append(now)
+                    break
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("interior vision: trip-wire numerator failed", exc_info=True)
+        try:
+            self._ensure_interior_groups()
+        except Exception:
+            # A raising group build must not silence the wire (review A L4).
+            self._check_interior_tripwires(now)
+            raise
+        liveness: dict[str, str] = {}
+        groups: list[dict[str, Any]] = []
+        for g in self._interior_groups:
+            for eid in g["members"]:
+                try:
+                    view = _csh.entity_stream_view(self.hass, eid, census=True)
+                except Exception:  # noqa: BLE001
+                    view = None
+                st = self.hass.states.get(eid)
+                liveness[eid] = _iv.member_liveness(
+                    view, getattr(st, "state", None) if st is not None else None,
+                    stuck=eid in discounted)
+            dead = None
+            if not any(liveness.get(e) == _iv.LIVE for e in g["members"]):
+                dead = _cth.physical_camera_dead(self.hass, g["group_key"])
+            groups.append({**g, "physical_dead": dead})
+        # D5 first, so a hop found this tick seeds `entered_via` on this build.
+        self._path_tick(now)
+        for room in [r for r, seed in self._entered_via.items() if seed[2] < now]:
+            del self._entered_via[room]
+        for g in groups:
+            seed = self._entered_via.get(g["room"])
+            g["entered_via"] = (seed[0], seed[1]) if seed else None
+        fields = _iv.build_room_records(
+            groups, evidence, liveness, self._named_by_room(now),
+            dict(self._vision_counts), now,
+        )
+        records = self._emit_unnamed("room", fields)
+        hist_len = int(
+            (int(_c.INTERIOR_TIMELAPSE_MAX_HOPS) * float(_c.EGRESS_PATH_BUFFER_S)
+             + float(_c.INTERIOR_TIMELAPSE_CLOSE_PAD_S))
+            / max(1.0, float(_c.INTERIOR_ROOM_RECORD_INTERVAL_S))) + 2
+        for r in records:
+            dq = self._bodies_hist.get(r.group_key)
+            if dq is None or dq.maxlen != hist_len:
+                dq = self._bodies_hist[r.group_key] = deque(dq or (), maxlen=hist_len)
+            dq.append((now, r.bodies_nvr))
+        self._check_interior_tripwires(now)
+        return records
+
+    # ------------------------------------------------------------ D5 (paths)
+    def _door_anchors(self, door: str) -> frozenset:
+        tracker = self.hass.data.get(_c.DOMAIN, {}).get("egress_tracker")
+        try:
+            return frozenset(tracker.path_door_anchors(door) or ()) if tracker else frozenset()
+        except Exception:  # noqa: BLE001
+            return frozenset()
+
+    def _door_edges(self) -> dict[str, tuple[Any, ...]]:
+        tracker = self.hass.data.get(_c.DOMAIN, {}).get("egress_tracker")
+        if tracker is None:
+            return {}
+        try:
+            doors = tracker.path_map_status().get("path_map_doors") or []
+        except Exception:  # noqa: BLE001
+            return {}
+        out: dict[str, tuple[Any, ...]] = {}
+        for door in doors:
+            try:
+                edges = tuple(tracker.inward_path_edges(door) or ())
+            except Exception:  # noqa: BLE001
+                edges = ()
+            if edges:
+                out[door] = edges
+        return out
+
+    def _new_entries(self) -> list[Any]:
+        """Entry crossings since the last pull (F3 read, oldest first).
+
+        The cursor is the newest ``ts`` seen, with a same-``ts`` dedup set. It
+        relies on the tracker appending records in ``ts`` order: today every
+        crossing resolves after the same ``ENTRY_WINDOW_SECONDS`` and
+        ``_resolve_direction`` has no await before ``_record_crossing``
+        (review B LOW-3). A future handler with another delay, or an await
+        there, would let an older record be appended later and be skipped."""
+        cursor = self._crossing_cursor
+        if cursor is None:
+            return []
+        try:
+            recs = list(self._presence.get_crossings_since(cursor))
+        except Exception:  # noqa: BLE001
+            return []
+        fresh = [r for r in recs if r.source_ref not in self._crossing_seen_at_cursor]
+        if recs:
+            top = max(r.ts for r in recs)
+            if top > cursor:
+                self._crossing_cursor = top
+                self._crossing_seen_at_cursor = {r.source_ref for r in recs if r.ts == top}
+            else:
+                self._crossing_seen_at_cursor |= {r.source_ref for r in recs}
+        return [r for r in fresh if getattr(r, "direction", None) == "entry"]
+
+    def _path_tick(self, now: float) -> None:
+        doors = self._door_edges()
+        for rec in self._new_entries():
+            root = self._egress_key_resolved(str(rec.camera))
+            if root is None:
+                # Unresolvable now: cannot tell its door, so it counts toward
+                # the trip-wire numerator (review A M2) and opens no path.
+                if doors:
+                    self._iv_entries_mapped.append(now)
+                self.interior_counters["entries_unresolved"] += 1
+                continue
+            for door, edges in sorted(doors.items()):
+                anchors = self._door_anchors(door)
+                # The door's own egress keys (review A L2); a map with no
+                # anchor set falls back to "an inward edge leaves this key".
+                if anchors:
+                    if root not in anchors:
+                        continue
+                elif not any(e.from_key == root for e in edges):
+                    continue
+                self._iv_entries_mapped.append(now)
+                self.interior_counters["entries_mapped"] += 1
+                if any(e.from_key == root for e in edges):
+                    self._open_paths[rec.source_ref] = {
+                        "source_ref": rec.source_ref, "door": door, "root": root,
+                        "entry_ts": rec.ts.timestamp(), "edges": edges,
+                    }
+                else:
+                    self.interior_counters["entries_mapped_no_root_edge"] += 1
+                break
+            else:
+                self.interior_counters["entries_unmapped"] += 1
+        room_of = {g["group_key"]: g["room"] for g in self._interior_groups}
+        max_hops = int(_c.INTERIOR_TIMELAPSE_MAX_HOPS)
+        for ref, op in list(self._open_paths.items()):
+            entry_ts = op["entry_ts"]
+            windows = _iv.chain_windows(
+                op["edges"], op["root"], entry_ts,
+                self._onedge_ring.by_group_since(entry_ts), max_hops,
+            )
+            for key, w in windows.items():
+                room = room_of.get(key)
+                if w.get("first_on") is not None and room:
+                    self._entered_via[room] = (
+                        op["door"], dt_util.utc_from_timestamp(entry_ts).isoformat(),
+                        float(w["first_on"]) + float(_c.INTERIOR_TIMELAPSE_SEED_TTL_S),
+                    )
+            close_at = max((w["close"] for w in windows.values()), default=entry_ts)
+            if now < close_at + float(_c.INTERIOR_TIMELAPSE_CLOSE_PAD_S):
+                continue
+            del self._open_paths[ref]
+            hops = sorted(
+                (key, room_of.get(key), float(w["first_on"]),
+                 self._bodies_at(key, float(w["first_on"])), None)
+                for key, w in windows.items() if w.get("first_on") is not None
+            )
+            hops.sort(key=lambda h: h[2])
+            first_max = None
+            if hops:
+                w0 = windows[hops[0][0]]
+                first_max = self._bodies_max(hops[0][0], float(w0["first_on"]), float(w0["close"]))
+            n, n_source = self._path_n(ref, hops, first_max)
+            record = self._emit_unnamed("path", {
+                "source_ref": ref, "door": op["door"], "ts": entry_ts,
+                "n": n, "n_source": n_source, "hops": tuple(hops),
+            })
+            self._log_path_row(record)
+
+    def _bodies_max(self, key: str, lo: float, hi: float) -> int | None:
+        """Max ``bodies_nvr`` of the group's record builds in [lo, hi]
+        (review A M3: the plan's "max on the first hop"); None = none."""
+        vals = [b for t, b in (self._bodies_hist.get(key) or ()) if lo <= t <= hi and b is not None]
+        return max(vals) if vals else None
+
+    def _bodies_at(self, key: str, ts: float) -> int | None:
+        dq = self._bodies_hist.get(key) or ()
+        last = None
+        for t, b in dq:
+            if t >= ts:
+                return b
+            last = b
+        return last
+
+    def _path_n(self, source_ref: str, hops: list,
+                first_hop_max: int | None = None) -> tuple[int | None, str | None]:
+        """``n`` read order (plan §9.D5): the crossing's G3 ``people_count``
+        attribute, else the crossing-vision arrival record with the same
+        ``source_ref``, else the max ``bodies_nvr`` on the first hop over its
+        window (``first_hop_max``; the hop's first-on value if absent)."""
+        try:
+            rec = self._presence.get_crossing(source_ref)
+        except Exception:  # noqa: BLE001
+            rec = None
+        val = getattr(rec, "people_count", None) if rec is not None else None
+        if isinstance(val, int) and not isinstance(val, bool):
+            return val, "crossing"
+        try:
+            arr = self._presence.get_last_arrival_record()
+        except Exception:  # noqa: BLE001
+            arr = None
+        if arr is not None:
+            get = arr.get if isinstance(arr, dict) else (lambda k, d=None: getattr(arr, k, d))
+            val = get("people_count")
+            if get("source_ref") == source_ref and isinstance(val, int) \
+                    and not isinstance(val, bool):
+                return val, "arrival_record"
+        if first_hop_max is not None:
+            return int(first_hop_max), "first_hop"
+        if hops and hops[0][3] is not None:
+            return int(hops[0][3]), "first_hop"
+        return None, None
+
+    def _log_path_row(self, record: PathRecord) -> None:
+        database = self.hass.data.get(_c.DOMAIN, {}).get("database")
+        if database is None or self._interior_torn_down:
+            return
+        attrs = {
+            "door": record.door, "ts": dt_util.utc_from_timestamp(record.ts).isoformat(),
+            "n": record.n, "n_source": record.n_source,
+            "hops": [{"group": h[0], "room": h[1], "first_on_s": round(h[2] - record.ts, 1),
+                      "bodies_nvr": h[3], "bodies_vision": h[4]} for h in record.hops],
+        }
+        try:
+            task = self.hass.async_create_task(database.log_memory_episode(
+                node_id=f"ipath:{record.source_ref}", episode_type="interior_path",
+                attrs=attrs, source_ref=record.source_ref,
+                dedup_source_ref=True, window_dedup=False,
+            ))
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("interior vision: path row failed", exc_info=True)
+            return
+        self._interior_tasks.add(task)
+        try:
+            task.add_done_callback(self._interior_tasks.discard)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # ------------------------------------------------------------ trip-wires
+    def _check_interior_tripwires(self, now: float) -> None:
+        window_s = float(_c.INTERIOR_ZERO_WINDOW_H) * 3600.0
+        for dq in (self._iv_ticks_with_bodies, self._iv_records_written,
+                   self._iv_entries_mapped, self._iv_paths_written):
+            while dq and dq[0] < now - window_s:
+                dq.popleft()
+        min_ticks = int(_c.INTERIOR_ZERO_MIN_TICKS)
+        if (min_ticks > 0 and not self._iv_records_zero_latched
+                and len(self._iv_ticks_with_bodies) >= min_ticks
+                and not self._iv_records_written):
+            self._iv_records_zero_latched = True
+            self._fire(
+                "interior_room_records_zero",
+                f"Interior cameras saw people on {len(self._iv_ticks_with_bodies)} record "
+                f"ticks in {float(_c.INTERIOR_ZERO_WINDOW_H):g} h but no room record was built",
+                "Check the interior camera groups (registry) and the census interior "
+                "camera list.", "HIGH",
+            )
+        min_entries = int(_c.INTERIOR_TIMELAPSE_ZERO_MIN_ENTRIES)
+        if (min_entries > 0 and not self._iv_path_zero_latched
+                and len(self._iv_entries_mapped) >= min_entries
+                and not self._iv_paths_written):
+            self._iv_path_zero_latched = True
+            self._fire(
+                "interior_path_zero",
+                f"{len(self._iv_entries_mapped)} entries on mapped doors in "
+                f"{float(_c.INTERIOR_ZERO_WINDOW_H):g} h but no path record",
+                "Check the interior path map and the door crossing reads.", "LOW",
+            )
+
+    def interior_diagnostics(self) -> dict[str, Any]:
+        """Counters for ``get_layer_diagnostics()["interior_vision"]``."""
+        by_liveness: Counter = Counter(r.liveness for r in self._room_sightings)
+        return {
+            "record_builds": int(self.interior_counters.get("record_builds", 0)),
+            "records": len(self._room_sightings),
+            "groups": len(self._interior_groups),
+            "groups_by_liveness": dict(sorted(by_liveness.items())),
+            "groups_excluded_by_reason": dict(sorted(self.interior_excluded.items())),
+            "path_records": int(self.interior_counters.get("path_records", 0)),
+            "open_paths": len(self._open_paths),
+            "entries_mapped": int(self.interior_counters.get("entries_mapped", 0)),
+            "entries_unmapped": int(self.interior_counters.get("entries_unmapped", 0)),
+            "entries_unresolved": int(self.interior_counters.get("entries_unresolved", 0)),
+            "paths_zero_hop": int(self.interior_counters.get("paths_zero_hop", 0)),
+            "onedge_entities": len(self._onedge_key_by_entity),
+            "onedge_ring": len(self._onedge_ring),
+            "tick_errors": int(self.interior_counters.get("tick_errors", 0)),
+        }

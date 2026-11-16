@@ -84,6 +84,8 @@ assert sum(len(v) for v in MOVED.values()) == 62  # 48 A rows + 14 B rows (§13)
 # home is the Advanced section). Crossing vision P2-D1 (rung 2).
 ADDED_ADVANCED = {
     ("options", "perimeter_alerting"): ["crossing_vision_provider_id"],
+    # Interior vision ship 1: first-boot default of switch.ura_interior_vision.
+    ("options", "camera_census"): ["interior_vision_enabled"],
 }
 
 FAMILY = {

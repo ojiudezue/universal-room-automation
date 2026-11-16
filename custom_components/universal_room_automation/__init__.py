@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.108.27
+# Universal Room Automation vv5.108.28
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -76,6 +76,7 @@ from .const import (
     # CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1 (2026-08-18):
     CONF_FACE_RECOGNITION_ENABLED,
     CONF_EGRESS_IDENTITY_ENABLED,
+    CONF_INTERIOR_VISION_ENABLED,
     CONF_PERIMETER_ZONE_AGREEMENT_DEMOTE,
     CONF_PERIMETER_SINGLE_SOURCE_DEMOTE,
     CONF_PERIMETER_VLM_GATE,
@@ -7907,6 +7908,10 @@ INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     CONF_PERIMETER_VLM_GATE,
     CONF_PERIMETER_EGRESS_KNOWN_XCORR_GATE,
     CONF_PERIMETER_IDENTITY_FOLLOWUP,
+    # VISION-INTERIOR-SIGHTINGS-1: the default of switch.ura_interior_vision,
+    # read only when the switch has no stored state (its RestoreEntity add);
+    # no cached consumer, no discharge signal (path (a)).
+    CONF_INTERIOR_VISION_ENABLED,
 })
 
 # EXCLUDED - UNSAFE-STRUCTURAL (Tier-3 review A3 / D-HIGH-1, 2026-09-07):
