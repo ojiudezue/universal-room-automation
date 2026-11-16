@@ -28,4 +28,12 @@ Review: Tier 1, SHIP, two LOWs (a repeated INFO boot log; a drop counter can cou
 Live check: after the restart, every distinct stuck kind active at boot has its own `notification_log` row; Garage B
 chatter (if still chattering) pages today.
 
-## Validated (to be written back after install)
+## Validated 2026-11-16 (install v5.108.32 -> v5.108.34, restart 15:32 CST)
+
+All 50 URA entries `loaded`; no URA ERROR/CRITICAL in the system log (boot-ordering WARNINGs only). Tag check:
+`NM_BOOT_SETTLE_LOCATION_KEYED_HAZARDS` present in `v5.108.34:const.py`; 45572684 is an ancestor of the tag.
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Distinct stuck kinds active at boot each get a row | Pending event, in-suite PASS | Only one stuck input at boot (Living Room screek, `dutycycle`), and its room latch `_stuck_sensor_fired` is restored from the Store on boot (`coordinator.py:2579-2612`), so its morning page (row 27548) correctly did not repeat; NM `dedup_suppressions` 0, nothing dropped. Needs two kinds in the first 60 s of a boot on a fresh day. 6 tests, orchestrator mutation RED. |
+| Act-mode chatter page reaches `notification_log` | PASS (organic, on v5.108.32) | Row 27776, 13:00 CST, "Chattering sensor: Garage A — ...garagea_motion": the act form, outside any boot window. |
