@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.108.28
+# Universal Room Automation vv5.108.29
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -316,6 +316,8 @@ async def async_setup_entry(
             MusicFollowingLastTransferSensor(hass, entry),
             # MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D5.3: implicit-reversal accuracy
             MusicFollowingAccuracySensor(hass, entry),
+            # Arc step 8 D1: one profile sensor per tracked person.
+            *_person_profile_sensors(hass, entry),
             # v3.6.29: Notification Manager sensors
             NMLastNotificationSensor(hass, entry),
             NMNotificationsTodaySensor(hass, entry),
@@ -8423,6 +8425,101 @@ class MusicFollowingHealthSensor(AggregationEntity, SensorEntity):
         if mf is None:
             return {}
         return mf.get_diagnostic_data()
+
+
+class PersonProfileSensor(AggregationEntity, SensorEntity):
+    """Arc step 8 D1: one tracked person's profile (display only).
+
+    Entity: sensor.ura_person_profile_<slug>. State = number of entry
+    actions the person automated (0-2). Attributes (unrecorded): rooms by
+    name, owners of each shared room, music labels, welcome scene,
+    last_arrival_action. Reads the CM option ``person_profiles`` fresh on
+    every update, so a People save shows without a reload.
+    """
+
+    _attr_icon = "mdi:account-music"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _unrecorded_attributes = frozenset({
+        "rooms", "shared_room_owners", "music", "welcome_scene",
+        "last_arrival_action", "person_entity",
+    })
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, person_entity: str) -> None:
+        super().__init__(hass, entry)
+        from .person_ids import display_of, slug_of
+        self._person_entity = person_entity
+        slug = slug_of(person_entity)
+        self._attr_unique_id = f"{DOMAIN}_person_profile_{slug}"
+        self._attr_name = f"Person Profile {display_of(slug)}"
+        self.entity_id = f"sensor.ura_person_profile_{slug}"
+        self._attr_device_info = _music_following_device_info()
+
+    def _profile(self) -> dict:
+        from .person_profiles import get_person_profile
+        return get_person_profile(self.entry.options, self._person_entity) or {}
+
+    @property
+    def native_value(self) -> int:
+        from .person_profiles import automated_action_count
+        return automated_action_count(self._profile())
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        from .const import (
+            CONF_ENTRY_TYPE, CONF_ROOM_NAME, ENTRY_TYPE_ROOM, PROFILE_MUSIC_DAY,
+            PROFILE_MUSIC_DEFAULT,
+            PROFILE_MUSIC_EVENING, PROFILE_WELCOME_SCENE,
+        )
+        from .person_ids import display_of
+        from .person_profiles import (
+            own_rooms, profiles_from_options, room_owners,
+        )
+        prof = self._profile()
+        names: dict[str, str] = {}
+        for ce in self.hass.config_entries.async_entries(DOMAIN):
+            if ce.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ROOM:
+                merged = {**ce.data, **ce.options}
+                names[ce.entry_id] = str(merged.get(CONF_ROOM_NAME) or ce.title)
+        # Review B3 (paired with B1): a deleted room's id is dropped, never
+        # shown raw.
+        mine = sorted(r for r in own_rooms(prof) if r in names)
+        profiles = profiles_from_options(self.entry.options)
+        shared = {}
+        for rid in mine:
+            owners = room_owners(profiles, rid)
+            if len(owners) > 1:
+                shared[names.get(rid, rid)] = sorted(display_of(p) for p in owners)
+        music = {
+            k: (prof.get(k) or {}).get("media_content_id")
+            for k in (PROFILE_MUSIC_DEFAULT, PROFILE_MUSIC_DAY, PROFILE_MUSIC_EVENING)
+            if isinstance(prof.get(k), dict)
+        }
+        return {
+            "person_entity": self._person_entity,
+            "rooms": [names.get(r, r) for r in mine],
+            "shared_room_owners": shared,
+            "music": music,
+            "welcome_scene": prof.get(PROFILE_WELCOME_SCENE),
+            # Written by the arrival engine once D2/D3 land; None until then.
+            "last_arrival_action": None,
+        }
+
+
+def _person_profile_sensors(hass: HomeAssistant, entry: ConfigEntry) -> list:
+    """One PersonProfileSensor per tracked person (one id rule)."""
+    from .const import CONF_ENTRY_TYPE, CONF_TRACKED_PERSONS, ENTRY_TYPE_INTEGRATION
+    from .person_ids import tracked_person_entity_id
+    names: list = []
+    for ce in hass.config_entries.async_entries(DOMAIN):
+        if ce.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
+            names = list(ce.data.get(CONF_TRACKED_PERSONS) or [])
+            break
+    seen: list[str] = []
+    for n in names:
+        eid = tracked_person_entity_id(n)
+        if eid not in seen:
+            seen.append(eid)
+    return [PersonProfileSensor(hass, entry, eid) for eid in seen]
 
 
 class ReconcileHealthSensor(AggregationEntity, SensorEntity):

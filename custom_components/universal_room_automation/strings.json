@@ -645,7 +645,8 @@
           "options_lighting_behaviour": "💡 Lighting",
           "show_all_settings": "More settings…",
           "add_coordinator": "➕ Add a coordinator",
-          "remove_coordinator": "➖ Remove a coordinator"
+          "remove_coordinator": "➖ Remove a coordinator",
+          "people": "People"
         }
       },
       "manage_zones": {
@@ -1924,7 +1925,7 @@
           "security_on_arrival_add_expected": "Security: Add arriving person to expected list",
           "energy_on_hazard_shed_loads": "Energy: Shed non-critical loads on hazard",
           "music_on_hazard_stop": "Music: Stop playback on hazard",
-          "music_on_arrival_start": "Music: Start welcome music on arrival",
+          "music_on_arrival_start": "Arrival actions",
           "music_on_security_stop": "Music: Stop playback on security alarm"
         },
         "data_description": {
@@ -1933,7 +1934,7 @@
           "security_on_arrival_add_expected": "When a person arrives (geofence), automatically add them to the expected arrivals list so entry does not trigger an alarm.",
           "energy_on_hazard_shed_loads": "When a safety hazard is detected, shed non-critical electrical loads to reduce risk.",
           "music_on_hazard_stop": "When a safety hazard is detected, stop all music playback so alerts can be heard.",
-          "music_on_arrival_start": "When a person arrives home, start welcome music in the entry area.",
+          "music_on_arrival_start": "When a resident walks into their own room after arriving home, play their music and set their welcome scene (each person opts in under People).",
           "music_on_security_stop": "When a security alarm is triggered, stop all music playback so sirens and alerts can be heard."
         }
       },
@@ -2567,6 +2568,62 @@
       "remove_coordinator_confirm": {
         "title": "Remove {name}",
         "description": "Stop {name}? Its settings are kept, so adding it again restores them."
+      },
+      "people": {
+        "title": "People",
+        "description": "Pick a person to set their rooms and the entry actions they want.",
+        "data": {
+          "person": "Person"
+        }
+      },
+      "people_profile": {
+        "title": "People: {person}",
+        "description": "{suggestions} {rooms_note}",
+        "sections": {
+          "my_rooms": {
+            "name": "My rooms",
+            "data": {
+              "rooms_bedroom": "My bedroom(s)",
+              "rooms_bathroom": "My bathroom(s)"
+            },
+            "data_description": {
+              "rooms_bedroom": "A room listed by two people is shared by them (for example the master).",
+              "rooms_bathroom": "Only bathroom rooms are listed."
+            }
+          },
+          "automate": {
+            "name": "Automate my entries",
+            "data": {
+              "auto_music": "Play my music when I walk into my room",
+              "music_default": "My music",
+              "music_default_uri": "Or paste a Music Assistant URI",
+              "music_volume": "My volume",
+              "music_vary_time": "Different music by time of day",
+              "music_day": "Daytime music",
+              "music_day_uri": "Or paste a Music Assistant URI (daytime)",
+              "music_evening": "Evening music",
+              "music_evening_uri": "Or paste a Music Assistant URI (evening)",
+              "music_vary_room": "Different music per room",
+              "auto_scene": "Set my welcome scene when I walk in",
+              "welcome_scene": "My welcome scene"
+            },
+            "data_description": {
+              "auto_music": "Plays only after you arrive home, when nobody else is in the room and it is not quiet hours.",
+              "music_default": "Used when Play my music is on.",
+              "music_volume": "Used when Play my music is on.",
+              "music_vary_time": "Used when Play my music is on.",
+              "music_day": "Used when Different music by time of day is on. Blank = My music.",
+              "music_evening": "Used when Different music by time of day is on. Blank = My music.",
+              "music_vary_room": "Used when Play my music is on. Pick per room on the next page.",
+              "auto_scene": "Replaces the room's own entry scene in your bedroom when you arrive.",
+              "welcome_scene": "Used when Set my welcome scene is on."
+            }
+          }
+        }
+      },
+      "people_rooms_music": {
+        "title": "Music by room",
+        "description": "Blank = use your time-of-day or default music. {no_speaker}"
       }
     },
     "error": {
@@ -2593,7 +2650,9 @@
       "name_required": "Name is required.",
       "room_name_exists": "A room with this name already exists",
       "entity_already_claimed": "One or more of the selected entities is already claimed by another appliance record. Remove it from the other record first, or pick different entities.",
-      "no_entities": "Add at least one entity (power, energy, control, or state) to this appliance."
+      "no_entities": "Add at least one entity (power, energy, control, or state) to this appliance.",
+      "people_music_needs_pick": "Pick your music, or turn off Play my music.",
+      "people_scene_needs_pick": "Pick a welcome scene, or turn off Set my welcome scene."
     },
     "abort": {
       "no_zones_configured": "No zones have been configured yet. Add a zone from the integration setup first.",
@@ -2603,7 +2662,8 @@
       "zone_delete_hvac_not_ready": "This zone has a thermostat but the HVAC coordinator is not ready yet. Please wait for Home Assistant to finish starting up and try again.",
       "nothing_to_add": "All coordinators are already added.",
       "nothing_to_remove": "No coordinators are added yet.",
-      "coordinator_not_allowed": "This coordinator can't be added: {reason}"
+      "coordinator_not_allowed": "This coordinator can't be added: {reason}",
+      "people_no_persons": "No tracked persons. Add them under Person Tracking first."
     }
   },
   "issues": {

@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.108.28
+# Universal Room Automation vv5.108.29
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.108.28"
+VERSION: Final = "v5.108.29"
 
 # EC-LOADED-VS-INSTALLED-VERSION-1 — how often the on-disk manifest is re-read
 # to detect an installed-but-not-restarted deploy. Rung 1 (module constant):
@@ -5104,6 +5104,74 @@ CONF_MUSIC_ON_ARRIVAL_START: Final = "music_on_arrival_start"
 CONF_MUSIC_ON_SECURITY_STOP: Final = "music_on_security_stop"
 
 # ============================================================================
+# Arc step 8 (PLANNING_identity_actions_v6.md §5.1-§5.3, D1): person profiles.
+# ============================================================================
+# House master for arrival actions (music + welcome scene). Rung 2 (CM
+# Signal Responses form, relabelled "Arrival actions"). Day 1 = ON: the
+# consumer reads options.get(CONF_MUSIC_ON_ARRIVAL_START, DEFAULT_...) and the
+# form default is the same value, so an install that never saved it reads on
+# with no migration. A stored False is respected. False = no intents.
+DEFAULT_MUSIC_ON_ARRIVAL_START: Final = True
+
+# CM entry options key holding every profile, keyed by the person.* entity id
+# from person_ids.tracked_person_entity_id (one id rule). Saved by the People
+# step; never reloads the CM (OPTIONS_RELOAD_SUPPRESS_KEYS + _NO_LIVE_ATTR_KEYS).
+CONF_PERSON_PROFILES: Final = "person_profiles"
+
+# Profile field keys (one store, §5.1). Rooms are stored by room config
+# entry_id (registry, not names). Owners are derived, never stored.
+PROFILE_ROOMS_BEDROOM: Final = "rooms_bedroom"
+PROFILE_ROOMS_BATHROOM: Final = "rooms_bathroom"
+PROFILE_AUTO_MUSIC: Final = "auto_music"
+PROFILE_AUTO_SCENE: Final = "auto_scene"
+PROFILE_MUSIC_DEFAULT: Final = "music_default"
+PROFILE_MUSIC_VOLUME: Final = "music_volume"
+PROFILE_MUSIC_VARY_TIME: Final = "music_vary_time"
+PROFILE_MUSIC_DAY: Final = "music_day"
+PROFILE_MUSIC_EVENING: Final = "music_evening"
+PROFILE_MUSIC_VARY_ROOM: Final = "music_vary_room"
+PROFILE_MUSIC_BY_ROOM: Final = "music_by_room"
+PROFILE_WELCOME_SCENE: Final = "welcome_scene"
+
+# Per-person music volume (rung 2, People step NumberSelector). 0.30 default;
+# the form bounds it to 0.05-1.0. The play-time value is this x the room's
+# CONF_ROOM_MEDIA_VOLUME_SCALE, clamped 0..1 (D2).
+PROFILE_MUSIC_VOLUME_DEFAULT: Final = 0.30
+PROFILE_MUSIC_VOLUME_MIN: Final = 0.05
+PROFILE_MUSIC_VOLUME_MAX: Final = 1.0
+
+# §5.3 fallback if the D1 B0 live spike finds MediaSelector unusable for MA
+# (ids not playable on another MA player, no playlists in the browse tree, or
+# the options flow refuses a value without entity_id). Rung 1: flipping it is
+# a reviewed decision recorded in the README. False = MediaSelector only.
+# True = each music pick also gets a text field "or paste a Music Assistant
+# URI" (e.g. library://playlist/12), stored as the pick's media_content_id
+# with PEOPLE_MUSIC_URI_CONTENT_TYPE.
+PEOPLE_MUSIC_URI_FALLBACK_ENABLED: Final = False
+# UNVERIFIED until D1 B0: the media_content_type to pair with a pasted MA URI.
+PEOPLE_MUSIC_URI_CONTENT_TYPE: Final = "music"
+
+# Room suggestions in the People step description (display only, never
+# stored). Rung 1: a lookback window and read bound on person_visits, plus
+# how many rooms to name.
+PEOPLE_SUGGEST_LOOKBACK_DAYS: Final = 30
+PEOPLE_SUGGEST_MAX_VISITS: Final = 5000
+PEOPLE_SUGGEST_TOP_N: Final = 3
+
+# D6 episode types (registered in MEMORY_EPISODE_TYPES below).
+ARRIVAL_MUSIC_EPISODE_TYPE: Final = "arrival_music"
+WELCOME_SCENE_EPISODE_TYPE: Final = "welcome_scene"
+
+# How the room entry path's welcome-scene attempt ended (§5.5). Passed to
+# MusicFollowing.note_arrival_scene_result so the engine records
+# scene_applied / scene_skipped_hold / scene_skipped_unavailable. "error" =
+# the scene branch raised (per-light path ran).
+ARRIVAL_SCENE_RESULT_APPLIED: Final = "applied"
+ARRIVAL_SCENE_RESULT_HOLD: Final = "hold"
+ARRIVAL_SCENE_RESULT_UNAVAILABLE: Final = "unavailable"
+ARRIVAL_SCENE_RESULT_ERROR: Final = "error"
+
+# ============================================================================
 # Cold-boot away-actuation storm mitigation — module-level constants only.
 # NO CONF_* / NO Number entity. Tunables are intentionally compile-time so
 # the gate has the strongest possible "can never suppress forever" guarantee
@@ -6560,6 +6628,15 @@ MEMORY_EPISODE_TYPES: Final = frozenset({
     # roll-up is the only reader.
     "music_follow_decision",
     "music_follow_reversal",
+    # Arc step 8 D6 (PLANNING_identity_actions_v6.md §5.5): one row per
+    # arrival-music outcome and one per welcome-scene outcome. Registered
+    # now so the vocabulary gate accepts them; the writers land with D2/D3,
+    # and in that commit both types move into
+    # MEMORY_WRITER_BACKED_EPISODE_TYPES (and the absence-exempt set: rows
+    # come only from residents arriving). Observational; no decision reads
+    # them except the D2 restart counters.
+    "arrival_music",
+    "welcome_scene",
     # Crossing vision P2-D3: one row per ledger term / anchor / reconcile
     # (crossing_vision.py ledger wiring). Display / scorer only; no
     # MEMORY_COMPACTION_RULES entry.
