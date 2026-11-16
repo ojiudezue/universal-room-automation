@@ -1,0 +1,27 @@
+{
+  "format_version": "2.1",
+  "entry_id": "317",
+  "author": "ojiudezue",
+  "timestamp": "2026-11-16T02:30:00Z",
+  "type": "pivot",
+  "weight": "significant",
+  "category": "product",
+  "title": "Step 8 arrival actions simplified: play in your own room and wait; hand off to music following",
+  "summary": "The step 8 plan's arrival engine reasoned about which room counts as 'your room right after you got home' through near-room rules (adjacency, approach hall, same zone), an occupied-lead timer and per-source arrival gates. The operator replaced it: on a confirmed arrival, start the person's pick in their own room and wait; if they reach it within 15 minutes it keeps playing until a manual stop, otherwise it stops; once they are in the room it hands off to music following (follows only if their music following is on). It does not start when another tracked person or a guest is already in that room. Welcome scenes are own-room only for v6.0.0; follow-you-for-15-min becomes an option. The People settings screen ships first so profiles can be set while the engine is built.",
+  "why": "D0 showed the near rules passing only 16-59% of real Master Bedroom entries, the 120 s occupied-lead blocking people on their own motion (which leads BLE by 3-7 min), and BLE arrivals never passing the counted-return gate. Each fix added state and edge cases. Playing in the person's room and letting music following own movement removes the near-room logic, the per-room timing and most of the arrival state, which the operator named directly: 'That way we don't have too much state to track.'",
+  "alternatives_considered": [
+    "Near-room rule C (same house zone, 34% for the Master Bedroom) or D (a separate approach-room list)",
+    "Raising ARRIVAL_OCCUPIED_LEAD_S to ~8 min",
+    "Follow-you from the first room with a speaker for 15 min (kept as an option)",
+    "Welcome scenes wherever the arrival leads (deferred: 'Long run. Let's nail the room first')"
+  ],
+  "implications": "D2/D3 need a plan revision before build: no near rules, own-room start, a 15-minute arrive-or-stop window, hand-off to music following, occupied rule by other tracked person + guest detection. The BLE-vs-geofence trigger split is under re-check because person.* home may already compose GPS, router and BLE trackers, which would make the D0 split two views of one arrival.",
+  "confidence": "high",
+  "revisit_trigger": "Operator asks for follow-you or anywhere-the-arrival-leads scenes, or the own-room start fires into rooms people do not reach within 15 min more than rarely.",
+  "operator_quote": "The simplest thing is play in your room and just wait for you to arrive",
+  "refs": {
+    "cards": ["PERSON-PROFILE-PREFERENCES-1", "BLE-ARRIVAL-PRODUCER-HVAC-GATED-1"],
+    "files": ["docs/planning/PLANNING_identity_actions_v6.md", "docs/planning/AUDIT_identity_actions_d0_2026_11_15.md"],
+    "entries": ["316"]
+  }
+}
