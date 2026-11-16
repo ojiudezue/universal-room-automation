@@ -37,7 +37,7 @@ instead and the ledger", never presence. The census term (D4) and the ledger flo
 |---|---|---|
 | Installed and booted | PASS | manifest v5.108.29 (contains .28), `interior_vision.py` on disk; installed_version v5.108.29 |
 | D1 room records | PASS | `sensor.ura_interior_awareness` populated ~2 min after restart (first record 21:48:50); 7 covered rooms: Master Hallway, Game Room, Garage Hallway, Living Room, Staircase, Upstairs Hallway, Foyer; all `liveness: live`, `provenance: nvr`; Living Room `unnamed_present` (bodies 1, unnamed 1), others `empty` |
-| Not covered yet | finding | Playroom and Family Room cameras are in `camera_person_entities` but have no record (excluded type, twin merge or shared room; not yet resolved per camera) |
+| Coverage | PASS (resolved) | all 12 configured interior cameras map to the 7 rooms: the Playroom cameras are the Game Room record (device area `game_room`), the Family Room cameras the Living Room record (`living_room`); Frigate+Protect pairs merge by the twin rule; drops 0 (`AUDIT_interior_ship1_coverage_2026_11_15.md`, 517abd91) |
 | Census unchanged | PASS by construction + suite | records have no reader in census/presence (R15 guard pins); golden `interior_records_on` equals develop |
 | D5 path rows | pending organic | `last_path` None; no mapped-door entry since boot |
 | No AI calls | PASS | the code path has no model call in this release; no `interior_vision` / `interior_description` rows |
