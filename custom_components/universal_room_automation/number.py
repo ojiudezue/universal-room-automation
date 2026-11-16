@@ -154,6 +154,10 @@ async def async_setup_entry(
             # VISION-CROSSING-SHADOW-1 (plan §6, rung 3): daily llmvision
             # call cap for the crossing-vision shadow producer.
             CrossingVisionDailyCallsNumber(hass, entry),
+            # VISION-INTERIOR-SIGHTINGS-1 D3 (plan §12, rung 3): interior
+            # vision daily call and estimated-cost caps (CM device).
+            InteriorVisionDailyCallsNumber(hass, entry),
+            InteriorVisionDailyCostNumber(hass, entry),
             # HVAC-PRESET-FLAP-1 D4 (2026-08-11): rung-3 duty off-phase
             # offset knob on the HVAC Coordinator device.
             # S14 REMOVED 2026-09-16: the off-phase ceiling hold is gone, so
@@ -4373,6 +4377,118 @@ class CrossingVisionDailyCallsNumber(NumberEntity):
             )
         self.async_write_ha_state()
         _LOGGER.info("Crossing vision daily call cap set to %d", int(value))
+
+
+class _InteriorVisionCapNumber(NumberEntity):
+    """VISION-INTERIOR-SIGHTINGS-1 D3 (plan §12, rung 3): one interior
+    vision budget cap. Persists via CM entry options (the
+    CrossingVisionDailyCallsNumber pattern) and publishes the live value to
+    ``hass.data[DOMAIN][<hass key>]``, which the sampler reads at call time.
+    0 = no calls (INV-IV-OFF)."""
+
+    _attr_has_entity_name = True
+    _attr_mode = NumberMode.BOX
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, *, conf_key: str,
+                 hass_key: str, default: float, max_val: float, step: float,
+                 name: str, unique: str, icon: str, entity_id: str,
+                 unit: str | None, as_int: bool) -> None:
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self.hass = hass
+        self._entry = entry
+        self._conf_key = conf_key
+        self._hass_key = hass_key
+        self._as_int = as_int
+        self._attr_unique_id = f"{DOMAIN}_{unique}"
+        self._attr_name = name
+        self._attr_icon = icon
+        self.entity_id = entity_id
+        self._attr_native_min_value = 0
+        self._attr_native_max_value = max_val
+        self._attr_native_step = step
+        self._attr_native_unit_of_measurement = unit
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "coordinator_manager")},
+            name="URA: Coordinator Manager",
+            manufacturer="Universal Room Automation",
+            model="Coordinator Manager",
+            sw_version=VERSION,
+        )
+        config = {**entry.data, **entry.options}
+        try:
+            value = float(config.get(conf_key, default))
+        except (TypeError, ValueError):
+            value = float(default)
+        self._value = self._clamp(value)
+        self._publish()
+
+    def _clamp(self, value: float) -> float:
+        value = max(0.0, min(float(self._attr_native_max_value), float(value)))
+        return float(int(value)) if self._as_int else value
+
+    def _publish(self) -> None:
+        self.hass.data.setdefault(DOMAIN, {})[self._hass_key] = (
+            int(self._value) if self._as_int else float(self._value))
+
+    @property
+    def native_value(self) -> float:
+        return float(self._value)
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    async def async_set_native_value(self, value: float) -> None:
+        self._value = self._clamp(value)
+        self._publish()
+        try:
+            self.hass.config_entries.async_update_entry(
+                self._entry,
+                options={**self._entry.options, self._conf_key: (
+                    int(self._value) if self._as_int else float(self._value))},
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("%s options-writeback failed", self._conf_key, exc_info=True)
+        self.async_write_ha_state()
+        _LOGGER.info("%s set to %s", self._attr_name, self._value)
+
+
+class InteriorVisionDailyCallsNumber(_InteriorVisionCapNumber):
+    """``number.ura_interior_vision_daily_calls`` (default 60; 0 = no calls)."""
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from .const import (
+            CONF_INTERIOR_VISION_DAILY_CALLS, INTERIOR_VISION_CAP_HASS_KEY,
+            INTERIOR_VISION_DAILY_CALLS, INTERIOR_VISION_DAILY_CALLS_MAX,
+        )
+        super().__init__(
+            hass, entry, conf_key=CONF_INTERIOR_VISION_DAILY_CALLS,
+            hass_key=INTERIOR_VISION_CAP_HASS_KEY, default=INTERIOR_VISION_DAILY_CALLS,
+            max_val=INTERIOR_VISION_DAILY_CALLS_MAX, step=1, name="Interior Vision Daily Calls",
+            unique="interior_vision_daily_calls", icon="mdi:counter",
+            entity_id="number.ura_interior_vision_daily_calls", unit=None, as_int=True,
+        )
+
+
+class InteriorVisionDailyCostNumber(_InteriorVisionCapNumber):
+    """``number.ura_interior_vision_daily_cost_usd`` (estimated USD a day,
+    default 0.50; 0 = no calls)."""
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from .const import (
+            CONF_INTERIOR_VISION_DAILY_COST_USD, INTERIOR_VISION_COST_HASS_KEY,
+            INTERIOR_VISION_DAILY_COST_USD, INTERIOR_VISION_DAILY_COST_USD_MAX,
+        )
+        super().__init__(
+            hass, entry, conf_key=CONF_INTERIOR_VISION_DAILY_COST_USD,
+            hass_key=INTERIOR_VISION_COST_HASS_KEY, default=INTERIOR_VISION_DAILY_COST_USD,
+            max_val=INTERIOR_VISION_DAILY_COST_USD_MAX, step=0.05,
+            name="Interior Vision Daily Cost", unique="interior_vision_daily_cost_usd",
+            icon="mdi:currency-usd", entity_id="number.ura_interior_vision_daily_cost_usd",
+            unit="USD", as_int=False,
+        )
 
 
 # ============================================================================

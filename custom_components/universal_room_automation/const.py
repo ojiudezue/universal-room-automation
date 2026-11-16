@@ -3543,6 +3543,115 @@ DEFAULT_INTERIOR_VISION_ENABLED: Final = True
 # hass.data[DOMAIN] key the switch writes (True = on). Missing = default.
 INTERIOR_VISION_SWITCH_HASS_KEY: Final = "interior_vision_switch_on"
 
+# VISION-INTERIOR-SIGHTINGS-1 ship 2 (plan §9.D3, §8, §12): describe on
+# demand. Every model call counts against the switch above, the daily call
+# cap and the daily estimated cost cap (INV-IV-OFF). Rung 3 caps live on the
+# CM entry (Numbers publish the live value to hass.data, read at call time).
+CONF_INTERIOR_VISION_DAILY_CALLS: Final = "interior_vision_daily_calls"
+INTERIOR_VISION_CAP_HASS_KEY: Final = "interior_vision_daily_calls"
+# Rung 3 default (plan §12: 60, D0 resizes). 0 = no calls.
+INTERIOR_VISION_DAILY_CALLS: Final = 60
+INTERIOR_VISION_DAILY_CALLS_MAX: Final = 500
+CONF_INTERIOR_VISION_DAILY_COST_USD: Final = "interior_vision_daily_cost_usd"
+INTERIOR_VISION_COST_HASS_KEY: Final = "interior_vision_daily_cost_usd"
+# Rung 3 default (plan §12). 0 = no calls.
+INTERIOR_VISION_DAILY_COST_USD: Final = 0.50
+INTERIOR_VISION_DAILY_COST_USD_MAX: Final = 20.0
+# Rung 1: estimated USD per call (llmvision returns no usage; D0(c) sets it).
+INTERIOR_VISION_EST_COST_PER_CALL: Final = 0.0003
+# Rung 1 (plan §12, closure N9): daily calls (and the same cost share) kept
+# for describe; sampling (ship 3) skips `reserved_for_describe` once
+# calls_today >= cap - reserved. 0 = no reserve.
+INTERIOR_DESCRIBE_RESERVED_CALLS: Final = 10
+# Rung 1 (closure L-4): per-requester NM describe cooldown, seconds. 0 = none
+# (the call caps still bound it).
+INTERIOR_DESCRIBE_NM_COOLDOWN_S: Final = 60
+# Rung 1: the affect field (mood, energy per person; observational, no
+# consumer). False = not requested and not stored.
+INTERIOR_DESCRIBE_AFFECT_ENABLED: Final = True
+# Rung 1, builder addition (plan names none): llmvision call timeout. D0(g)
+# pilot latency p50 3.6 s, max 8.3 s over 17 calls; llmvision's own request
+# timeout is 60 s.
+INTERIOR_VISION_CALL_TIMEOUT_S: Final = 60
+# Rung 1, builder addition: snapshot fetch timeout (camera.async_get_image).
+INTERIOR_VISION_STILL_TIMEOUT_S: Final = 10
+# Rung 1 (review A-L7): latency samples kept for the diagnostics p90.
+INTERIOR_VISION_LATENCY_RING: Final = 50
+# Rung 1 (reviews A-L2 / B-L2): restart-durable budget, the crossing-vision
+# P3-D5 pattern. Today's call rows are counted at setup (one try bounded by
+# the timeout, one retry after the delay); describe refuses until then.
+INTERIOR_VISION_CAP_REHYDRATE_TIMEOUT_S: Final = 30
+INTERIOR_VISION_CAP_REHYDRATE_RETRY_S: Final = 60
+# Rung 1 (review A-L1): the shortest part of a resident's display name that
+# the description scrub removes on its own (slug and full display name are
+# always scrubbed). 2 = "Al" is scrubbed; raising it trades privacy for fewer
+# false hits on common short words.
+INTERIOR_DESCRIBE_SCRUB_MIN_NAME_LEN: Final = 2
+# Episode type of the one memory row per description (no frame). On-demand,
+# so legitimately rare: NOT writer-backed (a quiet week is normal); its
+# zero-fire wire is `interior_vision_zero_calls`.
+INTERIOR_DESCRIPTION_EPISODE_TYPE: Final = "interior_description"
+# Q2 (plan §1a): who may ask. CM entry option of
+# `select.ura_interior_describe_access` (rung 3). Affect reaches a reply only
+# for `operator_affect` with the operator asking.
+CONF_INTERIOR_DESCRIBE_ACCESS: Final = "interior_describe_access"
+INTERIOR_DESCRIBE_ACCESS_OPERATOR: Final = "operator"
+INTERIOR_DESCRIBE_ACCESS_OPERATOR_AFFECT: Final = "operator_affect"
+INTERIOR_DESCRIBE_ACCESS_RESIDENTS: Final = "residents"
+INTERIOR_DESCRIBE_ACCESS_ANY: Final = "any_resolved"
+INTERIOR_DESCRIBE_ACCESS_OPTIONS: Final = (
+    INTERIOR_DESCRIBE_ACCESS_OPERATOR,
+    INTERIOR_DESCRIBE_ACCESS_OPERATOR_AFFECT,
+    INTERIOR_DESCRIBE_ACCESS_RESIDENTS,
+    INTERIOR_DESCRIBE_ACCESS_ANY,
+)
+DEFAULT_INTERIOR_DESCRIBE_ACCESS: Final = INTERIOR_DESCRIBE_ACCESS_OPERATOR
+# hass.data[DOMAIN] key the Select publishes (read by NM at request time).
+INTERIOR_DESCRIBE_ACCESS_HASS_KEY: Final = "interior_describe_access"
+# D7 trip-wires (plan §9.D7), rung 1. `interior_vision_zero_calls` (HIGH):
+# switch on, caps > 0, >= ZERO_MIN_TRIGGERS accepted requests in the window
+# (INTERIOR_ZERO_WINDOW_H) and 0 model calls. 0 = off.
+INTERIOR_VISION_ZERO_MIN_TRIGGERS: Final = 5
+# `interior_vision_errors` (MEDIUM): error rate of the window's calls above
+# this, once ERRORS_MIN_CALLS calls exist (builder addition: a rate needs a
+# sample). > 1 = off.
+INTERIOR_VISION_ERROR_RATE_MAX: Final = 0.25
+INTERIOR_VISION_ERRORS_MIN_CALLS: Final = 4
+# `interior_frames_left` (HIGH): a still URA staged for a call is still on
+# disk after the call (INV-IV-NO-STORE). False = off. D0(f) (pilot, 17 calls,
+# expose_images False): llmvision wrote 0 files under
+# /media/llmvision/snapshots, so URA deletes only its own staged stills.
+INTERIOR_FRAMES_LEFT_CHECK_ENABLED: Final = True
+# URA's own staging folder for stills sent to llmvision (llmvision reads local
+# paths; plan §8 privacy). Relative to the HA config dir. Each staged file is
+# deleted in a `finally` after its call.
+INTERIOR_STAGE_SUBDIR: Final = "universal_room_automation/interior_stage"
+# Dewarp before the model call (card FOYER-FISHEYE-DEWARP-1; audit
+# AUDIT_foyer_dewarp_feasibility_2026_11_16.md). Only a group whose camera's
+# registry lens sensor (Protect `lens_type`, translation key below) reads the
+# 360 value is dewarped; never decided from an entity name. False = raw still.
+INTERIOR_DEWARP_ENABLED: Final = True
+INTERIOR_DEWARP_LENS_TRANSLATION_KEY: Final = "lens_type"
+INTERIOR_DEWARP_LENS_PLATFORM: Final = "unifiprotect"
+INTERIOR_DEWARP_LENS_360_VALUE: Final = "360"
+# v360 geometry (rung 1): input fisheye field of view and the flat output
+# field of view (audit filter `ih_fov=180:iv_fov=180:...:h_fov=110:v_fov=110`).
+INTERIOR_DEWARP_IN_FOV_DEG: Final = 180.0
+INTERIOR_DEWARP_OUT_FOV_DEG: Final = 110.0
+# Output size of each flat view, pixels (square). = CROSSING_VISION_TARGET_WIDTH,
+# since llmvision downsizes to that width anyway.
+INTERIOR_DEWARP_OUT_PX: Final = 768
+INTERIOR_DEWARP_JPEG_QUALITY: Final = 90
+# Flat views (yaw, pitch, roll degrees, ffmpeg v360 convention, order ypr), one
+# image each, sent together in ONE call. Rung 1, per-camera override by the
+# camera's registry device id in INTERIOR_DEWARP_VIEWS_BY_DEVICE. Defaults
+# calibrated by the builder on a night still of the Foyer AI Theta (mount
+# rotated about 40 degrees): A = entry door / window side, B = foyer floor
+# toward the living room opening. A daytime person-present check is the
+# operator's (README); a view change is a reviewed const edit.
+INTERIOR_DEWARP_VIEWS: Final = ((-45.0, 20.0, 40.0), (-13.0, -15.0, -140.0))
+INTERIOR_DEWARP_VIEWS_BY_DEVICE: Final[dict] = {}
+
 # FACE-ARRIVAL-REBUILD-1 D3 (plan rev 11 §2 INV-ACCESS): the ONE set of
 # camera-derived `SIGNAL_PERSON_ARRIVING` sources. Both access gates (the SC
 # lock regime and the security expected-arrival gate) classify a source with
@@ -6684,6 +6793,10 @@ MEMORY_EPISODE_TYPES: Final = frozenset({
     # VISION-INTERIOR-SIGHTINGS-1 D5: one row per closed path record (an
     # entry on a mapped door). Display / scorer only; no decision reads it.
     "interior_path",
+    # VISION-INTERIOR-SIGHTINGS-1 D3 (ship 2): one row per on-demand room
+    # description (no frame). Display / scorer only; not writer-backed
+    # (on demand: a quiet week is normal).
+    "interior_description",
 })
 
 # Set of episode types that have a LIVE writer. The weekly writer-health

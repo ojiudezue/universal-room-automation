@@ -456,3 +456,88 @@ async def analyze_crossing_frames(
         )
         return {"status": CROSSING_CALL_ERROR, "error": str(exc)[:200]}
     return {"status": CROSSING_CALL_RESPONSE, "result": result}
+
+
+async def analyze_crossing_images(
+    hass: Any,
+    *,
+    image_entities: list[str],
+    model: str,
+    target_width: int,
+    timeout_s: float,
+    structure: str,
+    prompt: str,
+    expose_images: bool,
+    provider: str | None = None,
+    max_tokens: int | None = None,
+    image_files: list[str] | None = None,
+) -> dict[str, Any] | None:
+    """Crossing-vision fast stage (P2-D8): the ``analyze_crossing_frames``
+    contract on ``llmvision.image_analyzer``.
+
+    ``image_entities``: llmvision 1.7.1 ``media_handlers.add_images`` fetches
+    each entity's ``entity_picture`` through HA (``get_url`` + the tokenised
+    proxy path), so no URL and no Frigate credentials. ``image_files``:
+    LOCAL paths (llmvision ``image_file``, newline-separated,
+    ``os.path.exists`` checked, ``__init__.py`` ``ServiceCallData``) of frames
+    URA grabbed itself; llmvision adds entities first, then files.
+
+    Returns None when ``LLMVISION_ENRICHMENT_KILL`` is set or both lists are
+    empty (no service call); otherwise the same status dicts as
+    ``analyze_crossing_frames``. Never raises (CancelledError propagates).
+    """
+    if LLMVISION_ENRICHMENT_KILL:
+        return None
+    files = [str(f) for f in (image_files or []) if f]
+    if not image_entities and not files:
+        return None
+    try:
+        cfg = _get_integration_config(hass)
+        provider_id = (
+            provider or cfg.get(CONF_PERIMETER_ENRICHMENT_PROVIDER_ID) or None
+        )
+        if max_tokens is None:
+            max_tokens = int(cfg.get(
+                CONF_PERIMETER_ENRICHMENT_MAX_TOKENS,
+                DEFAULT_PERIMETER_ENRICHMENT_MAX_TOKENS,
+            ))
+        service_data: dict[str, Any] = {
+            "message": prompt,
+            "model": model,
+            "target_width": int(target_width),
+            "max_tokens": int(max_tokens),
+            "include_filename": False,
+            "generate_title": False,
+            "store_in_timeline": False,
+            "use_memory": False,
+            "expose_images": bool(expose_images),
+            "response_format": "json",
+            "structure": structure,
+        }
+        if image_entities:
+            service_data["image_entity"] = [str(e) for e in image_entities]
+        if files:
+            service_data["image_file"] = "\n".join(files)
+        if provider_id:
+            service_data["provider"] = provider_id
+    except Exception as exc:  # noqa: BLE001
+        return {"status": CROSSING_CALL_ERROR, "error": f"build: {exc}"}
+
+    async def _call() -> Any:
+        return await hass.services.async_call(
+            _LLMVISION_DOMAIN,
+            _LLMVISION_SERVICE,
+            service_data,
+            blocking=True,
+            return_response=True,
+        )
+
+    try:
+        result = await asyncio.wait_for(_call(), timeout=float(timeout_s))
+    except asyncio.TimeoutError:
+        return {"status": CROSSING_CALL_TIMEOUT}
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        return {"status": CROSSING_CALL_ERROR, "error": str(exc)[:200]}
+    return {"status": CROSSING_CALL_RESPONSE, "result": result}

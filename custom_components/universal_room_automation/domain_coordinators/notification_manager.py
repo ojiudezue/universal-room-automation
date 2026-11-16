@@ -244,6 +244,10 @@ COOLDOWN_CONFIG: dict[str, tuple[str, int]] = {
 # C4b: Response dictionary for inbound message parsing
 # =========================================================================
 
+# VISION-INTERIOR-SIGHTINGS-1 D3: the describe command (text channels only).
+_DESCRIBE_PREFIX = "describe "
+_DESCRIBE_CHANNELS = frozenset({"imessage", "whatsapp"})
+
 RESPONSE_COMMANDS: dict[str, str] = {
     # Acknowledge
     "1": "ack", "ack": "ack", "ok": "ack", "acknowledge": "ack", "a": "ack",
@@ -591,6 +595,10 @@ class NotificationManager:
         )
         self._echo_suppressed_count: int = 0
         self._last_reply_at: dict[tuple[str, str], datetime] = {}
+        # VISION-INTERIOR-SIGHTINGS-1 D3: per-requester describe cooldown
+        # stamps (RAM). Outcome counts go to `_inbound_by_command`
+        # (surfaced as the inbound sensor's `by_command`; review B-L4).
+        self._describe_last: dict[str, datetime] = {}
         # NM-INBOUND-HOUSE-QUERIES-1: diag menu windows, RAM only (a restart
         # closes every window). (person_id, channel) -> (opened_at, epoch
         # captured at inbound entry). The send rail bumps the epoch at the
@@ -3744,6 +3752,16 @@ class NotificationManager:
         hz = str(hazard_type or "").lower()
         if hz not in NM_SECURITY_ACK_HAZARDS:
             return (True, "any")
+        allowed = self._operator_person_entities()
+        if person_id and person_id in allowed:
+            return (True, "authorized_security")
+        return (False, "unauthorized_security")
+
+    def _operator_person_entities(self) -> list[str]:
+        """The operator as NM persons: ``CONF_NM_SECURITY_ACK_PERSONS``, else
+        the first ``CONF_NM_PERSONS`` entry's ``CONF_NM_PERSON_ENTITY``.
+        Shared by security-ack authority and the interior describe access
+        rule (VISION-INTERIOR-SIGHTINGS-1 Q2)."""
         allowed = list(self._config.get(CONF_NM_SECURITY_ACK_PERSONS, []) or [])
         if not allowed:
             persons = self._config.get(CONF_NM_PERSONS, [])
@@ -3751,9 +3769,7 @@ class NotificationManager:
                 first = persons[0].get(CONF_NM_PERSON_ENTITY, "")
                 if first:
                     allowed = [first]
-        if person_id and person_id in allowed:
-            return (True, "authorized_security")
-        return (False, "unauthorized_security")
+        return allowed
 
     async def async_acknowledge(
         self,
@@ -4386,6 +4402,16 @@ class NotificationManager:
         if channel in self._inbound_by_channel:
             self._inbound_by_channel[channel] += 1
 
+        # VISION-INTERIOR-SIGHTINGS-1 D3: `describe <room|person>` on the
+        # text channels, after the echo rail and the messaging kill, before
+        # the command table.
+        if channel in _DESCRIBE_CHANNELS and text.startswith(_DESCRIBE_PREFIX):
+            await self._handle_describe_command(
+                database, person_id, channel, raw_text,
+                raw_text.strip()[len(_DESCRIBE_PREFIX):].strip(),
+            )
+            return ""
+
         # Parse command
         command = RESPONSE_COMMANDS.get(text)
         # FIX 5(a): personal-first safe-word match (per-person word
@@ -5011,6 +5037,98 @@ class NotificationManager:
                 await self._send_reply(person_id, channel, response)
 
         async_dispatcher_send(self.hass, SIGNAL_NM_ENTITIES_UPDATE)
+
+    async def _handle_describe_command(
+        self, database, person_id: str | None, channel: str, raw_text: str,
+        target: str,
+    ) -> None:
+        """D3 (plan §9.D3, Q2): one describe request. Unresolved requester
+        -> nothing. Access by ``select.ura_interior_describe_access``
+        (default operator only); denied -> "Not available." with no call.
+        Per-requester cooldown ``INTERIOR_DESCRIBE_NM_COOLDOWN_S`` on accepted
+        requests. The answer goes to the requester only, when ready."""
+        from ..const import (  # noqa: PLC0415
+            DEFAULT_INTERIOR_DESCRIBE_ACCESS,
+            INTERIOR_DESCRIBE_ACCESS_HASS_KEY,
+            INTERIOR_DESCRIBE_AFFECT_ENABLED,
+            INTERIOR_DESCRIBE_NM_COOLDOWN_S,
+        )
+        from ..interior_vision import describe_access  # noqa: PLC0415
+
+        def _count(key: str) -> None:
+            self._inbound_by_command[key] = self._inbound_by_command.get(key, 0) + 1
+
+        if person_id is None:
+            _count("describe_unresolved_requester")
+            return
+        mode = self.hass.data.get(DOMAIN, {}).get(
+            INTERIOR_DESCRIBE_ACCESS_HASS_KEY) or DEFAULT_INTERIOR_DESCRIBE_ACCESS
+        residents = [
+            p.get(CONF_NM_PERSON_ENTITY) for p in (self._config.get(CONF_NM_PERSONS, []) or [])
+        ]
+        allowed, include_affect = describe_access(
+            mode, person_id, self._operator_person_entities(), residents,
+            bool(INTERIOR_DESCRIBE_AFFECT_ENABLED),
+        )
+        if not allowed:
+            _count("describe_denied")
+            await self._log_and_reply(
+                database, person_id, channel, raw_text, "describe_denied",
+                "Not available.", success=False, rail2=False,
+            )
+            return
+        now = dt_util.utcnow()
+        last = self._describe_last.get(person_id)
+        cooldown = float(INTERIOR_DESCRIBE_NM_COOLDOWN_S)
+        if cooldown > 0 and last is not None and (now - last).total_seconds() < cooldown:
+            _count("describe_cooldown")
+            await self._log_and_reply(
+                database, person_id, channel, raw_text, "describe_cooldown",
+                f"Please wait {int(cooldown)} s before asking again.",
+                success=False, rail2=False,
+            )
+            return
+        presence = None
+        cm = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if cm is not None:
+            try:
+                presence = cm.coordinators.get("presence")
+            except Exception:  # noqa: BLE001
+                presence = None
+        if presence is None:
+            await self._log_and_reply(
+                database, person_id, channel, raw_text, "describe",
+                "Interior vision is not running.", success=False, rail2=False,
+            )
+            return
+
+        async def _reply(text: str) -> None:
+            # Review A-L4: the messaging kill can flip during the call.
+            if self._messaging_suppressed:
+                _count("describe_reply_suppressed")
+                return
+            await self._send_reply(person_id, channel, text)
+
+        immediate = presence.request_room_description(
+            target, requester=person_id, reason="nm_describe",
+            include_affect=include_affect, reply=_reply,
+        )
+        if immediate:
+            _count("describe_refused")
+            await self._log_and_reply(
+                database, person_id, channel, raw_text, "describe", immediate,
+                success=False, rail2=False,
+            )
+            return
+        self._describe_last[person_id] = now
+        _count("describe_scheduled")
+        if database:
+            try:
+                await database.log_inbound(
+                    person_id, channel, raw_text, "describe", "(describing)", None, True,
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("NM: describe inbound row failed", exc_info=True)
 
     async def _send_reply(
         self, person_id: str, channel: str, message: str
