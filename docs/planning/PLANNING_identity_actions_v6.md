@@ -5,7 +5,9 @@ built as specified in `PLANNING_crossing_vision.md` §5), DEPARTURE-ACTIONS-1 (f
 census, step 8 of `ARC_identity_vision_census_map.md` §4. Charter: `ARC_DRIFT_ANALYSIS_identity_vision_census_2026_11_13.md`
 (goals section, 2026-11-14 and 2026-11-15 additions, drifts #17, #20, #23).
 
-Status: rev 3.6, 2026-11-15. Author ura-planner. Rev 3.6 fixes the two rev 3.5 plan reviews
+Status: rev 3.6.1, 2026-11-15. Author ura-planner. Rev 3.6.1 applies two orchestrator rulings on rev 3.6's open
+items (gate 3b reads `left_at` and the persisted rows instead of the ring; the window-end keep covers any occupant).
+Rev 3.6 fixes the two rev 3.5 plan reviews
 (`docs/reviews/code-review/plan_review_step8_rev35_completeness.md`, `plan_review_step8_rev35_buildpred_G.md`) with the
 orchestrator's rulings; the sections are rewritten in place and §16 maps each finding to its section. Rev 3.5
 (`f96ccf7c`) carried the operator decisions of 2026-11-15 (§1.1) and the F5 source audit's verdict
@@ -119,7 +121,7 @@ develop lines from that audit.
 |---|---|---|
 | Arrival trigger | REUSED via ship 3a D2 (phase 2, built) | `residency.subscribe_person_edges(hass, cb, *, persons=None, kinds={"arrival"})` (`residency.py:233`; presence delegate). `cb(ResidencyEvent)` runs inline in `_feed_residency`, in the same `_handle_geofence_change` call that sends the `geofence` F5. `ResidencyEvent` carries `person`, `kind`, `edge_ts` (epoch float), `counted`, `source_stale`, `in_boot_window`, `resident_set_resolved` (`residency.py:39-51`) |
 | Counted return | REUSED, NOT the flap filter | `counted` = `arrival_edges.counted_return` (`arrival_edges.py:141-156`): True for EVERY `not_home` / zone `-> home` edge, whatever the absence length; for `unknown` / `unavailable -> home`, `really_away` (`:126-140`) applies `RESIDENT_RETURN_MIN_AWAY_MIN` (15, `const.py:4109`) and returns True with no real transition seen since a restore. `in_boot_window` = `RESIDENT_RETURN_BOOT_WINDOW_S` 600 (`const.py:4110`). Unchanged (the lock regime shares it, INV-RULE) |
-| Away-long-enough test | NEW in the engine, REUSED reads | `get_person_edges_since(t, persons={p}, kinds={"departure"})` (`presence.py:6089`, epoch float) and `person_edges_truncated_since(t)` (`:6103`) over the residency ring (`RESIDENCY_RECENT_EVENTS` 32, house-wide, `const.py:4120`); NEW knob `ARRIVAL_MIN_AWAY_S` 900 (0 hits for `ARRIVAL_MIN_AWAY` in const). §5.4 gate 3b |
+| Away-long-enough test | NEW in the engine, REUSED reads | (1) the tracker's per-person last departure, `get_residency_snapshot()["persons"][slug]["left_at"]` (`presence.py:5588`, `residency.py:208-220`; already in the guard `READ_LIST`, `quality/tests/_layer_guard_engine.py:106`), slug = `residency.person_slug(record.person)` (the tracker's own key, `residency.py:212`); (2) after a restart, the persisted `person_departure` / `person_arrival` `memory_episodes` rows (`RESIDENCY_DEPARTURE_EPISODE_TYPE`, `const.py:4118`) through `Database.read_memory_episodes_by_type(type, since_iso)` (`database.py:11080`). Why not the `_last_real` ledger: it is already re-stamped `(home, edge_ts, False)` when the callback runs (`residency.py:155` `update_last_real` runs inside `on_event`, before `presence.py:5401` dispatches the record), so its pre-edge value is gone. NEW knobs `ARRIVAL_MIN_AWAY_S` 900, `ARRIVAL_DEPARTURE_DB_LOOKBACK_S`. §5.4 gate 3b |
 | F5 (`SIGNAL_PERSON_ARRIVING`) | NOT READ | The raw connect `MusicFollowingCoordinator.async_setup` (`domain_coordinators/music_following.py:296` repair base) and its no-op handler `_handle_person_arriving` (`:565`) are deleted in D2. No `subscribe_person_arriving` call is added (§5.4) |
 | Departure edge | REUSED via ship 3a D2 | The same single subscription as the arrival trigger (`kinds={"arrival", "departure"}`, §5.4); the departure wait's return check reads `get_person_edges_since(departure_ts, persons, kinds={"arrival"})` and `person_edges_truncated_since` |
 | Named-exit departure arm | DROPPED | No push signal exists at crossing time: `SIGNAL_EGRESS_RECORD_AMENDED` (`domain_coordinators/signals.py:247`) has one sender (`transit_validator._send_record_amended`, `:1007-1016`) and one live role, `exit_backfilled` (`camera_census.py:5321`, the census backfill, minutes to hours late); `departure_candidate` has 0 hits in code (step 7, unbuilt); `get_last_crossing` / `get_crossings_since` are pulls. §5.7 |
@@ -295,16 +297,31 @@ fix list (§10.1) changes the room-step labels, the room-field defaults and the 
      a. the record's flags: `counted is True` (else subtype `not_counted`: an `unknown` / `unavailable -> home` whose
         last real state was not 15 minutes away), `source_stale is False` (else `stale_source`), `in_boot_window is
         False` (else `boot`);
-     b. **away long enough (the flap filter; `counted` is not one for `not_home -> home`).** With `w = edge_ts -
-        ARRIVAL_MIN_AWAY_S`:
-        - `get_person_edges_since(w, persons={p}, kinds={"departure"})` holds a departure with `edge_ts <` the arrival's
-          `edge_ts` -> subtype `short_absence` (the GPS flap: away under 15 minutes);
-        - else `person_edges_truncated_since(w)` is True -> subtype `edges_truncated` (fail closed: the window may have
-          lost a departure);
-        - else `get_person_edges_since(0.0, persons={p}, kinds={"departure"})` holds no departure of P older than `w`
-          -> subtype `departure_missing` (fail closed: no departure seen, e.g. P left before a restart, or the
-          departure aged out of the 32-record house-wide ring on a multi-day trip; stated cost, §12 Q7);
-        - else pass. `ARRIVAL_MIN_AWAY_S` 0 turns 3b off (flags only).
+     b. **away long enough (the flap filter; `counted` is not one for `not_home -> home`).** P's last departure before
+        the arrival must be at least `ARRIVAL_MIN_AWAY_S` before `edge_ts`. Sources, in order; the first that knows
+        decides:
+        1. **The tracker's `left_at` for P** (RAM, one value per person, overwritten by every departure record,
+           `residency.py:157-160`; never aged out by the 32-record ring). Present and `< edge_ts`: pass iff
+           `edge_ts - left_at >= ARRIVAL_MIN_AWAY_S`, else subtype `short_absence`. A 40 s GPS flap: the
+           `home -> not_home` edge sets `left_at` 40 s before the return -> `short_absence`. A four-day trip:
+           `left_at` four days back -> pass.
+        2. **The residency ring** adds nothing when `left_at` is empty: both are written by the same `on_event` for the
+           same records and live and die together (RAM, rebuilt empty at setup), so the ring is not read here.
+        3. **The persisted rows** (only when `left_at` has no value for P, i.e. P has not departed since setup):
+           `read_memory_episodes_by_type("person_departure", since_iso=edge - ARRIVAL_DEPARTURE_DB_LOOKBACK_S)` and the
+           same for `person_arrival`, filtered to P in Python, run in the scheduled task (never in the sync callback).
+           Take P's latest departure row `D` before `edge_ts` and latest arrival row `A` before `edge_ts`. Pass iff `D`
+           exists, `A` is absent or older than `D` (P was not seen home since leaving; an arrival after `D` means the
+           departure that preceded this edge happened while HA was down and is unknown), and `edge_ts - D >=
+           ARRIVAL_MIN_AWAY_S`; `D` younger than that -> `short_absence`. Which row field carries the edge time and the
+           person (`started_at`, `attrs_json`) is the builder's first check against the residency writer; the test
+           reads rows written by the real writer, not hand-built ones.
+        4. Otherwise fail closed: no source can show 15 minutes away -> `departure_missing` (no row, an arrival row
+           newer than the last departure, persistence off via `RESIDENCY_EVENT_LOG_PERSIST`, or a lookback with
+           nothing); a DB read error -> `departure_read_failed`.
+        So a first return after a multi-day trip gets music, also across a restart, as long as the departure row was
+        written. `ARRIVAL_MIN_AWAY_S` 0 turns 3b off (flags only). The shared `_last_real` ledger, `counted_return` and
+        the ring are unchanged.
   4. no intent already open for this person (`intent_duplicate`; the first intent runs on).
 - **Intent.** An intent that passes is stored per person (`_arrival_intents`, RAM, owned by the `MusicFollowing` engine,
   cleared at teardown) with `t_a = edge_ts`, the target room (§5.5), and its music and scene outcome slots. The engine
@@ -402,10 +419,11 @@ At window end, with the music slot still waiting, in order:
    - pc.update_interval)`, holding a move of P into any own room (a pass-through between listener calls). Seen by
    either -> `arrived` (subtype `late_seen`) and the hand-off. When `location_moves_truncated_since(same t)` is True the
    location read decides alone;
-4. **someone else is listening (HIGH-1):** skip the stop -> `wait_kept_occupied` (subtype named) when any of: another
-   tracked person's layer room is R (STALE included, `tracked_person`); a co-owner of R has an intent that reached
-   `arrived` in R inside this window (`co_owner`); the room coordinator reads occupied with `occupied_since()` after
-   `t_a` (`room_occupied`). The music then plays on under the §5.5.3 rule (no step-8 stop; the departure pause stays
+4. **someone else is listening (HIGH-1, rev 3.6.1):** P never reached R, so any occupant of R is someone else. Skip the
+   stop -> `wait_kept_occupied` (subtype named) when any of: another tracked person's layer room is R (STALE included,
+   `tracked_person`); a co-owner of R has an intent that reached `arrived` in R inside this window (`co_owner`); the
+   room coordinator reads occupied at all, whenever it became occupied (`room_occupied`). Under-stopping costs one
+   playing room; over-stopping cuts off a person. The music then plays on under the §5.5.3 rule (no step-8 stop; the departure pause stays
    armed on the stamp);
 5. otherwise **stop**: `media_player.media_stop` on the stamped entity with URA context (`media_pause` when the player
    does not support stop) -> `wait_expired_stopped`. Then for `ARRIVAL_REVERSAL_S` the listener watches: if
@@ -552,7 +570,7 @@ One decision-log line and one episode (`arrival_music` or `welcome_scene`) per o
 | Path | Outcomes |
 |---|---|
 | Intent (episode + line) | `intent_opened` (`music_on`, `scene_on`, `target_room`), `intent_lost_restart`, `scene_lost_restart` |
-| Intent (counter only) | `skipped_master_off`, `skipped_no_presence`, `skipped_no_rooms`, `skipped_not_counted_return` (subtypes `not_counted` / `stale_source` / `boot` / `short_absence` / `edges_truncated` / `departure_missing`; `boot` and `departure_missing` in the NM digest), `intent_duplicate` |
+| Intent (counter only) | `skipped_master_off`, `skipped_no_presence`, `skipped_no_rooms`, `skipped_not_counted_return` (subtypes `not_counted` / `stale_source` / `boot` / `short_absence` / `departure_missing` / `departure_read_failed`; `boot`, `departure_missing` and `departure_read_failed` in the NM digest), `intent_duplicate` |
 | Music start | `started`, `start_failed`, `skipped_toggled_off`, `skipped_quiet`, `skipped_sleep`, `skipped_paused`, `skipped_occupied` (subtypes `tracked_person` / `backstop`), `skipped_guests`, `skipped_gap`, `skipped_no_media`, `skipped_no_player`, `skipped_playing`; annotation `census_unavailable` on any start decision taken with a None census (counter, trip-wire) |
 | Music wait | `arrived` (subtype `listener` / `late_seen`), `departed_during_wait`, `reversed`, `wait_ended_not_ours`, `wait_ended_toggled_off` (subtypes `master` / `coordinator` / `observation` / `auto_music` / `paused`), `wait_kept_occupied` (subtypes `tracked_person` / `co_owner` / `room_occupied`), `wait_expired_stopped`, `stopped_then_arrived` (a counter after `wait_expired_stopped`, not a second terminal), `wait_lost_restart` |
 | Follow-me (option) | `follow_started_in`, `follow_transferred`, `follow_window_expired` (plus the wait outcomes) |
@@ -577,10 +595,10 @@ The load-bearing invariants for D2 and D3, stated so that one counterexample bre
 
 - **INV-V6-ARRIVAL-START (D2).** For every residency arrival record of a tracked resident P with `auto_music` on and a
   target room R that passes the §5.4 gates (`counted`, non-stale, out of the boot window, AND no departure of P inside
-  the `ARRIVAL_MIN_AWAY_S` window before it, with a departure seen before that window and the edge log not truncated),
+  the `ARRIVAL_MIN_AWAY_S` window before it, shown by `left_at` or the persisted rows, §5.4 gate 3b),
   music starts on R's player if and only if every §5.5.1 gate passes; in particular it NEVER starts when P's last
-  departure is less than `ARRIVAL_MIN_AWAY_S` before the arrival (whatever `counted` says), when no departure of P is in
-  the log or the log is truncated over the window, when another tracked person is placed in R, guests are detected (a
+  departure is less than `ARRIVAL_MIN_AWAY_S` before the arrival (whatever `counted` says), when neither the tracker's
+  `left_at` nor the persisted rows can show P away that long, when another tracked person is placed in R, guests are detected (a
   None census counts as not detected), R has been occupied for at least `ARRIVAL_OCCUPIED_BACKSTOP_S` before `t_a`
   while P is not placed in R, quiet hours or house `sleep` / `waking` hold, or R's native or MA entity is playing. It
   starts whatever the edge's source tracker (GPS or BLE) and whether or not any F5 was sent.
@@ -588,8 +606,9 @@ The load-bearing invariants for D2 and D3, stated so that one counterexample bre
   `ResidencyEvent`): Oji `home -> not_home` then 4 h later `-> home`, GPS, idle Sonos, nobody placed in the master ->
   `started`. Jaya (BLE-only), BLE-led edge after 2 h away -> `started` on `media_player.jayas_room_3`. Oji in the master,
   GPS `home -> not_home` (40 s) `-> home` -> the second edge is `counted=True` and still opens no intent
-  (`short_absence`). Restart, then Oji's first arrival with no departure since setup -> no intent
-  (`departure_missing`). HA restore `unknown -> home` with the last real `home` 3 minutes before -> no intent
+  (`short_absence`). Oji leaves, four days and a restart later returns -> `started` (from the persisted
+  `person_departure` row). Restart, departure row present but an arrival row after it (left while HA was down) -> no
+  intent (`departure_missing`). HA restore `unknown -> home` with the last real `home` 3 minutes before -> no intent
   (`not_counted`). Ezinne placed in the master -> `skipped_occupied`. An untracked guest in Oji's room 30 minutes, census
   missing them -> `skipped_occupied` subtype `backstop`. Oji already in the master (slow GPS), room occupied 20 minutes
   by his own motion -> `started` (own placement skips the backstop). Census `unidentified 1` at `t_a` ->
@@ -599,14 +618,15 @@ The load-bearing invariants for D2 and D3, stated so that one counterexample bre
   `departed_during_wait`, `reversed`, `wait_ended_not_ours`, `wait_ended_toggled_off`, `wait_kept_occupied`,
   `wait_expired_stopped`, `wait_lost_restart`; and step 8 stops it ONLY at window end, ONLY when `in_own_room(P)` was
   never seen by the listener, the final read or the one move-log read inside the window, ONLY while every toggle is on
-  and R is not paused, ONLY while no other tracked person is placed in R, no co-owner reached R and R did not become
-  occupied after `t_a`, and ONLY while `ours` holds. After `arrived` (or `wait_kept_occupied`), no step-8 path pauses or
+  and R is not paused, ONLY while no other tracked person is placed in R, no co-owner reached R and R reads not occupied,
+  and ONLY while `ours` holds. After `arrived` (or `wait_kept_occupied`), no step-8 path pauses or
   stops that music except the departure pause, at most once per start.
   Break it with: P walks into the master at minute 9 -> keeps playing at minute 16. P showers in the master bath (own
   bathroom) from minute 2 -> `arrived`, not stopped. P passes through R between two listener calls and leaves ->
   `arrived` subtype `late_seen`. P never comes up, room empty -> stopped at minute 15. Ezinne (co-owner) walks into the
   master at minute 3 and listens, Oji stays in the kitchen -> `wait_kept_occupied` `tracked_person`, no stop. An
-  untracked guest walks in at minute 5 (room occupied after `t_a`) -> `wait_kept_occupied` `room_occupied`. Someone
+  untracked guest walks in at minute 5, or was already in R before the arrival and is still there -> `wait_kept_occupied`
+  `room_occupied`. Someone
   paused it at minute 4 and resumed at minute 4:30 between two person-coordinator updates -> `reversed` (the state
   listener saw it), no stop call. Someone started a podcast at minute 6 -> `wait_ended_not_ours`. Operator turns the
   master room's automation off at minute 5 -> `wait_ended_toggled_off` `paused`, no stop. Oji drives off again at
@@ -647,7 +667,9 @@ The load-bearing invariants for D2 and D3, stated so that one counterexample bre
 - **INV-V6-NO-RELOAD.** A People save never reloads the CM entry.
 - **INV-V6-AWAY.** No step-8 path reads or writes an `infer()` input or HVAC; the census read is the comfort-class view.
 - **INV-V6-LAYER.** Step 8 reads F1 only via `subscribe_person_edges` (one subscription, arrival and departure),
-  `get_person_edges_since` and `person_edges_truncated_since`; F2 only via `get_house_census(..., cls=CONSUMER_CLASS_COMFORT)`; person rooms only via
+  `get_person_edges_since`, `person_edges_truncated_since` and `get_residency_snapshot` (`left_at`), plus the
+  persisted residency rows through `Database.read_memory_episodes_by_type` (gate 3b after a restart; the builder
+  confirms the layer guard admits this DB read, else lists it); F2 only via `get_house_census(..., cls=CONSUMER_CLASS_COMFORT)`; person rooms only via
   `get_person_location`, `location_moves_since`, `location_moves_truncated_since` and the reserved `async_add_listener`.
   No `SIGNAL_PERSON_ARRIVING` connect, no `subscribe_person_arriving` call, no raw `person.*` listener and no
   `person_coord.data` read remains in either music file; the layer guard test covers both.
@@ -660,8 +682,9 @@ The load-bearing invariants for D2 and D3, stated so that one counterexample bre
 every `not_home -> home` edge (§2). Producer health (audit, 7 days): 79 arrival edges by source tracker, 62 GPS-led,
 16 BLE-led, 1 iCloud3; 19 were away-under-15-minute flaps (all GPS) by the D0 probe's own computation, which `counted`
 does NOT reject; the engine's away-long-enough test (§5.4 gate 3b) does. The test reads the same tracker's departure
-records (one per `home -> not_home | zone` edge); its health risk is the 32-record house-wide ring (~1.4 days of edges at
-the measured rate), so a multi-day absence or a restart reads `departure_missing` (fail closed, counted, §12 Q7). Its
+records: the per-person `left_at` (RAM, never aged out), then after a restart the persisted `person_departure` rows; it
+fails closed (`departure_missing`, counted, §12 Q7) only when neither shows the absence, e.g. the person left while HA
+was down. Its
 dependency is HA's `person` composition, which needs each resident's trackers in `person.*` `device_trackers` (Jaya and
 Ziri: BLE only). Fire check: residency rows exist since 2026-11-13 20:54 UTC; the arrival path itself has fired zero
 times (no-op handler). The person coordinator's room read fires continuously. The comfort census view refreshes on
@@ -687,7 +710,8 @@ or `get_person_profile(person)`; no second store).
    repair base) and `_handle_person_arriving` (`:565`): deleted, no replacement subscription.
 2. The ONE residency subscription (`subscribe_person_edges`, kinds arrival and departure), its scheduled intent work
    (§5.4) and its departure routing (§5.7).
-3. The away-long-enough reads: `get_person_edges_since` (departures) and `person_edges_truncated_since` (§5.4 gate 3b);
+3. The away-long-enough reads: `get_residency_snapshot()` `left_at`, then `read_memory_episodes_by_type` for
+   `person_departure` / `person_arrival` (§5.4 gate 3b);
    the departure return check's `get_person_edges_since` (arrivals) and truncation read (§5.7).
 4. The person-coordinator listener: music wait checks (§5.5.2), follow-me moves (§5.5.4), departure checks (§5.7),
    scene confirm (§5.6). `_on_person_transition` is NOT a site (no arrival code goes there; guard test kept).
@@ -743,7 +767,7 @@ start, and again after a track change (skip a track). Record the values in the R
 Tests take the branch's shape from the recorded B0 values (fixture), so a test cannot pass on a field the player never
 reports. **D0b** numbers recorded beside it.
 Verify (each with its discriminating counter-observation; every arrival / flap case drives the REAL `ResidencyTracker`
-with timed `person.*` state events, so `counted`, the departure record and the ring are production values):
+with timed `person.*` state events, so `counted`, the departure record and `left_at` are production values):
 - Oji `home -> not_home`, 4 h later `-> home`, GPS-led, idle Sonos, nobody placed in the master -> `started` in the
   master at `t_a`, before he reaches the room (an entry-triggered design: nothing plays until he walks in: discriminates).
 - Jaya, BLE-only, `-> not_home` then a BLE-led `-> home` 2 h later -> `started` on `media_player.jayas_room_3` (an
@@ -753,9 +777,11 @@ with timed `person.*` state events, so `counted`, the departure record and the r
 - GPS flap `home -> not_home` (40 s) `-> home` while Oji is in the master -> the arrival record reads `counted=True`
   and no intent opens, `skipped_not_counted_return` subtype `short_absence`, nothing plays (gating on `counted` alone:
   `started` on a person who never left: discriminates).
-- Arrival with no departure of P in the log (first arrival after a restart, past the boot window) -> subtype
-  `departure_missing`; ring truncated over the window -> `edges_truncated` (reading "no departure in the window" as
-  "away long": `started`: discriminates).
+- Oji leaves; 40 more house-wide edges push his departure out of the 32-record ring; he returns two days later ->
+  `started` from `left_at` (a ring-based test: `departure_missing`: discriminates). Same trip with a restart in the
+  middle -> `started` from the persisted departure row (RAM only: no music: discriminates). Restart, then a departure
+  row older than an arrival row (he left while HA was down) -> `departure_missing` (reading the departure row alone:
+  `started` on an unknown absence: discriminates). DB read raises -> `departure_read_failed`.
 - HA restore `unknown -> home` with the last real `home` 3 minutes before -> subtype `not_counted`.
 - Edge 5 minutes after a restart -> subtype `boot`, in the NM digest.
 - Ezinne placed in the master -> `skipped_occupied` `tracked_person`. Census `unidentified 1` -> `skipped_guests`.
@@ -774,7 +800,8 @@ with timed `person.*` state events, so `counted`, the departure record and the r
 - Oji and Ezinne both own the master; Oji's intent starts the music, Ezinne's start reads `skipped_playing`; Ezinne
   goes up at minute 3, Oji stays in the kitchen -> `wait_kept_occupied` `tracked_person`, no stop (stop on "P never
   reached": `media_stop` on Ezinne's music: discriminates). Untracked guest walks in at minute 5 -> `wait_kept_occupied`
-  `room_occupied`.
+  `room_occupied`; a room occupied since before `t_a` and still occupied at minute 15 -> `wait_kept_occupied`
+  `room_occupied` (an onset-after-`t_a` rule: `media_stop` on that occupant: discriminates).
 - Room automation switch off (or `auto_music`, master, or the music-following coordinator off) at minute 5, P never
   reaches R -> `wait_ended_toggled_off`, no stop (no re-read: stop at 15: discriminates).
 - Oji drives off again at minute 7 -> `departed_during_wait`, departure wait armed, at most one `media_pause`, no
@@ -793,8 +820,11 @@ Tests: `test_arrival_music.py::test_counted_edge_starts_in_own_room_before_entry
 `::test_gps_flap_counted_true_short_absence_opens_no_intent` (real tracker; replaces rev 3.5's
 `::test_gps_flap_not_counted_opens_no_intent`, which assumed `counted` rejects a flap),
 `::test_uncounted_return_no_departure_seen_opens_no_intent` (safety drill 1, real tracker restore path),
-`::test_recent_departure_flap_opens_no_intent` (safety drill 2, real tracker), `::test_departure_missing_fails_closed`,
-`::test_edges_truncated_fails_closed`, `::test_min_away_zero_uses_flags_only`,
+`::test_recent_departure_flap_opens_no_intent` (safety drill 2, real tracker),
+`::test_multi_day_return_past_ring_starts_via_left_at` (real tracker, ring overflowed),
+`::test_multi_day_return_after_restart_starts_via_persisted_row` (real writer rows),
+`::test_arrival_row_after_departure_row_fails_closed`, `::test_departure_read_error_fails_closed`,
+`::test_departure_missing_fails_closed`, `::test_min_away_zero_uses_flags_only`,
 `::test_boot_window_edge_fails_closed_counted_in_digest`, `::test_stale_source_edge_opens_no_intent`,
 `::test_duplicate_intent_counted`, `::test_target_room_bedroom_first_then_bathroom`, `::test_no_player_room_skips`,
 `::test_person_key_via_tracked_persons_not_slug`, `::test_tracked_person_in_room_blocks`,
@@ -807,7 +837,7 @@ Tests: `test_arrival_music.py::test_counted_edge_starts_in_own_room_before_entry
 `::test_window_end_stops_when_never_reached`, `::test_window_end_move_log_late_seen_not_stopped`,
 `::test_window_end_move_read_uses_aware_datetime`, `::test_window_end_truncated_location_decides`,
 `::test_two_owner_intents_music_once_scene_ambiguous` (restored), `::test_window_end_kept_when_coowner_listening`,
-`::test_window_end_kept_when_room_occupied_after_ta`, `::test_toggle_off_mid_window_skips` (restored),
+`::test_window_end_kept_when_room_occupied_any_onset` (onset before and after `t_a`), `::test_toggle_off_mid_window_skips` (restored),
 `::test_room_paused_mid_window_skips_stop`, `::test_departure_during_wait_one_outcome_one_pause`,
 `::test_reversed_ends_wait_no_stop`, `::test_reversed_between_updates_seen_by_state_listener`,
 `::test_not_ours_ends_wait_no_stop`, `::test_stop_only_matching_ours_key` (B0 branch fixture),
@@ -891,7 +921,8 @@ rows; presence state of play §1 (step 8 as a residency-record consumer; the mus
 
 **Mutation drills (RED then restore), D2-D4:** subscribe to F5 instead of the record (the `ble` duplicate must go RED);
 drop the `counted` check; drop the away-long-enough departure read (the real-tracker flap test must go RED); treat
-`edges_truncated` / `departure_missing` as pass; drop the window-end someone-else-listening check; drop the window-end
+`departure_missing` as pass; drop the `left_at` source (the past-ring test must go RED); drop the persisted-row source
+(the restart test must go RED); ignore the arrival row after the departure row; drop the window-end someone-else-listening check; drop the window-end
 toggle re-read; fail the census None case closed; drop the group check; drop the stamped-player state listener (the
 between-updates reversal test must go RED); use the target-room-only reach test (the bathroom test must go RED); issue
 the window-end stop after `departed_during_wait`; pass the epoch float to `location_moves_since`; drop the `in_boot_window` check; drop the `source_stale` check; drop the tracked-person check;
@@ -919,7 +950,7 @@ person in the "tracked person here" check; drop `intent_lost_restart`
 | `ARRIVAL_VERIFY_S` / `ARRIVAL_REVERSAL_S` | 20 / 120 | 1 | Ground-truth windows; `ARRIVAL_REVERSAL_S` also bounds the `stopped_then_arrived` watch |
 | `ARRIVAL_MIN_AWAY_S` (NEW) | 900 (operator: away "15 min" is a real return) | 1 | Step 8's own flap filter (§5.4 gate 3b): an arrival needs P's last departure at least this long before it. Review-only: it decides whether a person who never really left gets music. 0 = flags only (`counted` etc.), which lets every GPS flap through; not a kill switch |
 | `RESIDENT_RETURN_MIN_AWAY_MIN` (REUSED, `const.py:4109`) | 15 | 1 | Inside `counted` for `unknown` / `unavailable -> home` only; shared with residency and the lock; not re-tuned here |
-| `RESIDENCY_RECENT_EVENTS` (REUSED, `const.py:4120`) | 32 | 1 | The residency ring step 8's departure reads depend on; shared; not re-tuned here (§12 Q7) |
+| `ARRIVAL_DEPARTURE_DB_LOOKBACK_S` (NEW) | 2592000 (30 d) | 1 | How far back gate 3b reads persisted departure rows after a restart; a longer absence across a restart reads `departure_missing`. 0 = no DB fallback |
 | `RESIDENT_RETURN_BOOT_WINDOW_S` (REUSED, `const.py:4110`) | 600 | 1 | Inside `in_boot_window`; the post-restart dead window; shared |
 | `ARRIVAL_DEPARTURE_VACANCY_WAIT_S` | 300 | 1 | Margin added to the stamped room's `occupancy_timeout`. 0 = wait exactly the room timeout |
 | `ARRIVAL_MUSIC_DEPARTURE_PAUSE` | True | 1 | False = no departure action |
@@ -1044,11 +1075,12 @@ plan's own bar. Release v6.0.0 at deploy.
    the arrival lead, or zone-level) and goes back to the operator with the number before D2 builds.
 6. **Follow-me scope.** Default: one house-level option. A per-person People field is the alternative (it changes the
    shipped People step).
-7. **Departure not in the log (rev 3.6).** The away-long-enough test fails closed when P's departure is not in the
-   residency ring (32 records, house-wide, RAM): after a restart, P's first return gets no music; after a multi-day trip
-   whose departure aged out, likewise (`departure_missing`, counted, in the NM digest). Default: accept (a missed
-   welcome, never music on someone who never left). The alternative, a larger ring or reading the persisted
-   `memory_episodes` residency rows, is a separate change to a shared primitive and waits for the counter's live rate.
+7. **Departure not knowable (rev 3.6.1).** Gate 3b reads the tracker's per-person `left_at` (not aged out by the ring),
+   and after a restart the persisted departure rows, so a first return after a multi-day trip gets music, restart or
+   not. It fails closed only when no source shows the absence: P left while HA was down (an arrival row is newer than
+   the last departure row), persistence is off, the absence across a restart exceeds `ARRIVAL_DEPARTURE_DB_LOOKBACK_S`,
+   or the DB read fails. Counted (`departure_missing`, `departure_read_failed`) in the NM digest. Not a question; listed
+   so the digest shows it.
 8. **Arrival source (review G1, pending).** Default A (§1.1 #5): any gated `person.*` arrival edge starts music,
    BLE-led included. Strict B would give Jaya and Ziri (no GPS) no arrival music.
 9. **Music after the hand-off in an empty room (review MEDIUM-1).** Stated behaviour, not a question: it plays until
@@ -1079,7 +1111,7 @@ follow-up flip is census CD4. DEPARTURE-ACTIONS-1: only the pause.
 | Removed | Why |
 |---|---|
 | F5 intake (`subscribe_person_arriving`) and the per-source gates | Audit: one physical arrival = one `person.*` edge; `ble` and `camera_egress` F5s are second views (§5.4) |
-| The `ble` / `camera_egress` departure-side bar (`get_residency_snapshot` `left_at` / `arrived_at` rule), its `no_departure_seen` / `recent_departure` subtypes, the 15-minute `ble` / `camera_egress` post-restart dead window | Same. (Rev 3.5 said here that "the `counted` flag on the edge carries the 15-minute bar for every arrival". That is FALSE: `counted_return` passes every `not_home -> home` edge. Rev 3.6 restores a departure-side bar for every arrival, from the residency departure records: §5.4 gate 3b, subtypes `short_absence` / `edges_truncated` / `departure_missing`) |
+| The `ble` / `camera_egress` departure-side bar (`get_residency_snapshot` `left_at` / `arrived_at` rule), its `no_departure_seen` / `recent_departure` subtypes (rev 3.6.1 reuses `left_at` itself as gate 3b's first source, for every arrival, not per source), the 15-minute `ble` / `camera_egress` post-restart dead window | Same. (Rev 3.5 said here that "the `counted` flag on the edge carries the 15-minute bar for every arrival". That is FALSE: `counted_return` passes every `not_home -> home` edge. Rev 3.6 restores a departure-side bar for every arrival, from the residency departure records: §5.4 gate 3b, subtypes `short_absence` / `edges_truncated` / `departure_missing`) |
 | BLE-specific tests and drills (patio LOST, S3 dog walk, overrule-only absence, unknown walk, `ble` boot window, same-tick move) | Same. The two safety drills stay as `::test_uncounted_return_no_departure_seen_opens_no_intent` and `::test_recent_departure_flap_opens_no_intent` |
 | BLE-ARRIVAL-PRODUCER-HVAC-GATED-1 as a v6.0.0 dependency | No F5 is read (§10) |
 | `ARRIVAL_COUNTED_EDGE_LOOKBACK_S`, the geofence lookback read and its truncation outcome `skipped_edges_truncated` | The trigger is the record itself |
@@ -1123,8 +1155,8 @@ Reviews: completeness (`plan_review_step8_rev35_completeness.md`) and build pred
 
 | Finding | Ruling / fix | Sections |
 |---|---|---|
-| C CRITICAL-1 (`counted` is not a flap filter) | Verified `arrival_edges.py:141-156`. Engine test: P's departure at least `ARRIVAL_MIN_AWAY_S` (900, rung 1) before the arrival via `get_person_edges_since`; fail closed on truncation or a missing departure; `counted_return` unchanged; flap tests drive the real tracker; every "counted rejects flaps" claim restated | header, §1 #3, §2 rows + audit paragraph, §3, §5.4 gate 3, §5.9, §6 ARRIVAL-START, §7, §8 D2, §9, §12 Q7, §14, §15 |
-| C HIGH-1 (window-end stop over another listener) | Skip the stop when another tracked person is placed in R, a co-owner reached R, or R became occupied after `t_a` (`wait_kept_occupied`); two-owner test restored | §5.5.2 step 4, §5.9, §6 ARRIVAL-WAIT, §8 D2 |
+| C CRITICAL-1 (`counted` is not a flap filter) | Verified `arrival_edges.py:141-156`. Engine test: P's last departure at least `ARRIVAL_MIN_AWAY_S` (900, rung 1) before the arrival; rev 3.6.1 sources: the tracker's `left_at`, then the persisted departure / arrival rows after a restart; fail closed only when neither shows it (the `_last_real` ledger is post-edge by callback time, `residency.py:155` vs `presence.py:5401`); `counted_return` unchanged; flap tests drive the real tracker; every "counted rejects flaps" claim restated | header, §1 #3, §2 rows + audit paragraph, §3, §5.4 gate 3, §5.9, §6 ARRIVAL-START, §7, §8 D2, §9, §12 Q7, §14, §15 |
+| C HIGH-1 (window-end stop over another listener) | Skip the stop when another tracked person is placed in R, a co-owner reached R, or (rev 3.6.1) R reads occupied at all, whatever the onset (`wait_kept_occupied`); two-owner test restored | §5.5.2 step 4, §5.9, §6 ARRIVAL-WAIT, §8 D2 |
 | C HIGH-2 (content-id guard unverified) | D2 B0 reads `media_content_id` after the start and after a track change; branch T stamps what the player reports; branch Q compares the queue / source field (`ARRIVAL_OURS_ATTR`); neither = back to the operator | §5.5.1 step 7, §5.5.2 "Ours", §8 D2 B0, §9 |
 | C MEDIUM-1 (music on in an empty room) | Accepted as stated behaviour ("require manual command to stop"); `wait_lost_restart` same rule; departure pause covers leaving | §5.5.3, §5.9, §12 Q9, §13 |
 | C MEDIUM-2 / B5 (two "arrived" definitions; ensuite) | One predicate `in_own_room` (bedrooms ∪ bathrooms) | §1 #3, §5.5.2, §5.5.4, §8 D2 |
