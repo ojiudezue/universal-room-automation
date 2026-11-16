@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Arc step 8 (identity actions, v6.0.0) D0 -- READ-ONLY probe. NOT RUN BY THE BUILDER.
+"""Arc step 8 (identity actions, v6.0.0) D0 -- READ-ONLY probe.
 
 Plan: docs/planning/PLANNING_identity_actions_v6.md section 4 (rev 3.2), plus review 3.1 H1
 (counted-return share).
@@ -155,6 +155,8 @@ for e in ENTRIES:
         "type": m.get("room_type"),
         "player": m.get("room_media_player"),
         "occupied": uid_entity(f"{e['entry_id']}_occupied"),
+        "adjacent": list(m.get("adjacent_rooms") or []),
+        "timeout": m.get("occupancy_timeout"),
         "dark": uid_entity(f"{e['entry_id']}_dark"),
     }
 ROOM_BY_NAME = {v["name"]: k for k, v in ROOMS.items()}
@@ -422,10 +424,156 @@ try:
 except sqlite3.Error as err:
     SECTION_D = {"available": False, "error": str(err)}
 
+# ------------------------------------------------------------------ rev 3.4 additions
+# (a-gate) the §5.4 gate 5 rule per F5 source, on residency rows (memory_episodes
+# person_arrival / person_departure, attrs.edge_ts epoch). Residency rows exist only
+# since the residency producer shipped, so the sample is what the DB holds.
+LOOKBACK_S = 120
+MIN_AWAY_S = 15 * 60
+EDGES = collections.defaultdict(list)   # person slug -> [(edge_ts, kind, attrs)]
+for et, a in u.execute("select episode_type, attrs_json from memory_episodes "
+                       "where episode_type in ('person_arrival','person_departure')"):
+    try:
+        d = json.loads(a or "{}")
+        ts = float(d.get("edge_ts"))
+    except (TypeError, ValueError):
+        continue
+    EDGES[slug(d.get("person") or "")].append((ts, "arrival" if et == "person_arrival" else "departure", d))
+for k in EDGES:
+    EDGES[k].sort(key=lambda x: x[0])
+EDGES_FROM = min((e[0] for v in EDGES.values() for e in v), default=None)
+GATE = collections.defaultdict(collections.Counter)
+DEP_AGE = collections.defaultdict(list)
+GEO_LAG = []
+for row in f5:
+    if EDGES_FROM is None or row["ts"] < EDGES_FROM:
+        continue
+    ps = slug(row["person"] or "")
+    ev = EDGES.get(ps, [])
+    src = row["source"]
+    if src == "geofence":
+        hits = [e for e in ev if e[1] == "arrival" and row["ts"] - LOOKBACK_S <= e[0] <= row["ts"] + 5
+                and e[2].get("counted") is True and e[2].get("source_stale") is False
+                and e[2].get("in_boot_window") is False]
+        GATE[src]["pass" if hits else "skipped_not_counted_return"] += 1
+        if hits:
+            GEO_LAG.append(row["ts"] - hits[-1][0])
+    else:
+        prior = [e for e in ev if e[0] <= row["ts"]]
+        dep = [e for e in prior if e[1] == "departure"]
+        if not dep:
+            GATE[src]["no_departure_seen"] += 1
+            continue
+        last_dep = dep[-1][0]
+        later_arr = any(e[1] == "arrival" and e[0] > last_dep for e in prior)
+        DEP_AGE[src].append(row["ts"] - last_dep)
+        if later_arr or row["ts"] - last_dep < MIN_AWAY_S:
+            GATE[src]["recent_departure"] += 1
+        else:
+            GATE[src]["pass"] += 1
+SECTION_AGATE = {
+    "residency_rows_from": EDGES_FROM,
+    "by_source": {k: dict(v) for k, v in GATE.items()},
+    "geofence_f5_minus_counted_arrival_s": dist(GEO_LAG),
+    "f5_minus_last_departure_s": {k: dist(v) for k, v in DEP_AGE.items()},
+}
+
+# (a2-near) per bedroom: at each occupancy onset that its owner (person_visits top
+# rooms) walks into within NEAR_ENTRY_S, where BLE placed the owner, and the share
+# the §5.5 near check passes under (i) adjacency either direction, (ii) (i) plus the
+# approach room (the owner's room just before entering), (iii) same house zone.
+NEAR_ENTRY_S = 900
+zm = next((e for e in ENTRIES if (e.get("data") or {}).get("entry_type") == "zone_manager"), {})
+_zones = (zm.get("options") or {}).get("zones") or (zm.get("data") or {}).get("zones") or {}
+_data_name = {e["entry_id"]: (e.get("data") or {}).get("room_name") for e in ENTRIES}
+ZONE_OF_NAME = {}
+for zname, zcfg in _zones.items():
+    for ref in (zcfg or {}).get("zone_rooms") or []:
+        nm = _data_name.get(ref) or ref
+        ZONE_OF_NAME.setdefault(nm, zname)
+
+def adjacent(rid_a, rid_b):
+    return rid_b in ROOMS[rid_a]["adjacent"] or rid_a in ROOMS.get(rid_b, {}).get("adjacent", [])
+
+SECTION_NEAR = {}
+for rid, room in ROOMS.items():
+    if room["type"] != "bedroom":
+        continue
+    owners = [n for n in TRACKED if rid in own_rooms_guess(n)]
+    if not owners:
+        continue
+    onsets = [ts for ts, s_ in changes(history(room["occupied"])) if s_ == "on"]
+    rec = {"owners": [slug(n) for n in owners], "zone": ZONE_OF_NAME.get(_data_name.get(rid)),
+           "onsets_with_owner_entry": 0, "placed": collections.Counter(),
+           "pass_i_adjacency": 0, "pass_ii_adjacency_plus_approach": 0, "pass_iii_same_zone": 0,
+           "in_arrival_window": 0, "holder_rooms": collections.Counter(), "ble_after_body_s": []}
+    for o in onsets:
+        for n in owners:
+            p = PERSONS[n]
+            entry = next(((t, i) for i, (t, st) in enumerate(p["loc"])
+                          if st == room["name"] and o - 120 <= t <= o + NEAR_ENTRY_S), None)
+            if not entry:
+                continue
+            t_in, idx = entry
+            placed = state_at(p["loc"], o)
+            approach = p["loc"][idx - 1][1] if idx > 0 else None
+            prid = ROOM_BY_NAME.get(placed)
+            rec["onsets_with_owner_entry"] += 1
+            rec["ble_after_body_s"].append(t_in - o)
+            rec["holder_rooms"][placed or "none"] += 1
+            if placed == room["name"]:
+                rec["placed"]["this_room"] += 1
+            elif prid:
+                rec["placed"]["other_room"] += 1
+            else:
+                rec["placed"]["away_or_unknown"] += 1
+            p_i = placed == room["name"] or (prid is not None and adjacent(rid, prid))
+            p_ii = p_i or (prid is not None and placed == approach)
+            zr = ZONE_OF_NAME.get(_data_name.get(rid))
+            p_iii = placed == room["name"] or (zr is not None and ZONE_OF_NAME.get(placed) == zr)
+            rec["pass_i_adjacency"] += p_i
+            rec["pass_ii_adjacency_plus_approach"] += p_ii
+            rec["pass_iii_same_zone"] += p_iii
+            rec["in_arrival_window"] += any(0 <= o - g <= ARRIVAL_WINDOW_S for g in geofence_edges(p))
+            break
+    k = rec["onsets_with_owner_entry"]
+    for key in ("pass_i_adjacency", "pass_ii_adjacency_plus_approach", "pass_iii_same_zone"):
+        rec[key + "_share"] = round(rec[key] / k, 3) if k else None
+    rec["ble_after_body_s"] = dist(rec["ble_after_body_s"])
+    rec["placed"] = dict(rec["placed"])
+    rec["holder_rooms"] = dict(rec["holder_rooms"].most_common(6))
+    SECTION_NEAR[room["name"]] = rec
+
+# (b2) departure edge -> the last room's next occupied->vacant edge, and the share
+# still occupied at timeout + 300 s (the §5.6 wait with the default margin).
+SECTION_B2 = {}
+for name in TRACKED:
+    p = PERSONS[name]
+    lags, kept = [], 0
+    prev = None
+    for ts, st in p["person"]:
+        if prev == "home" and st not in ("home", "unknown", "unavailable"):
+            last_room = state_at([(t, s_) for t, s_ in p["loc"] if s_ not in NON_ROOMS], ts)
+            rid = ROOM_BY_NAME.get(last_room)
+            if rid:
+                occ = changes(history(ROOMS[rid]["occupied"], ts - 3600))
+                off = next((t for t, s_ in occ if s_ == "off" and t >= ts), None)
+                wait = float(ROOMS[rid]["timeout"] or 300) + 300
+                if state_at(occ, ts) == "off":
+                    lags.append(0.0)
+                elif off is not None:
+                    lags.append(off - ts)
+                    kept += int(off - ts > wait)
+                else:
+                    kept += 1
+        prev = st
+    SECTION_B2[slug(name)] = {"departure_to_vacant_s": dist(lags), "still_occupied_after_wait": kept}
+
 print(json.dumps({
     "window_days": WINDOW_DAYS,
     "tracked": [slug(n) for n in TRACKED],
     "rooms_with_player": sorted(v["name"] for v in ROOMS.values() if v["player"]),
     "arrival_master_stored": (merged(cm) if cm else {}).get("music_on_arrival_start", "UNSET"),
     "a": SECTION_A, "a2": SECTION_A2, "b": SECTION_B, "c": dict(SECTION_C), "d": SECTION_D,
+    "a_gate": SECTION_AGATE, "a2_near": SECTION_NEAR, "b2": SECTION_B2,
 }, indent=1, default=str))
