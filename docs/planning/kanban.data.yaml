@@ -35182,8 +35182,9 @@ cards:
   next: "Me: add the two sensors, repoint the v8 card, delete the helpers."
 - id: ENVOY-UPSTREAM-POST-1
   title: "Post Revision 2 on home-assistant/core#181243 (nightly Envoy drop at ~23:04 CST persists upstream)"
+  done_2026_11_16: "Posted 2026-11-16 (operator 'Do both'): https://github.com/home-assistant/core/issues/181243#issuecomment-6909947206 (HA 2026.11.1, pyenphase 4.4.0, D8.3.6087; nightly production.json hang, per-endpoint isolation suggested)."
   thread: energy
-  status: waiting_operator
+  status: done
   tier: 1
   created: '2026-11-16 00:20'
   updated: '2026-11-16 00:20'
@@ -35192,8 +35193,9 @@ cards:
   next: "DO: fill firmware + pyenphase version and post Revision 2 on core#181243 -> I attach the 3-night recovery evidence."
 - id: WA-BRIDGE-OLD-ENTRY-REMOVAL-1
   title: "Remove the old whatsapp 2.x config entry now that wa_bridge carries all sends"
+  done_2026_11_16: "Done 2026-11-16 (operator 'Do both'): old whatsapp entry 01KH2B1D6BF1SS8RQ21Y4NYGDV removed (backup .claude/tmp/core.config_entries.bak-20261116-pre-whatsapp); one wa_bridge.send_message test to the operator only returned 200. Inbound replies use the same whatsapp_message_received event from wa_bridge."
   thread: notifications
-  status: waiting_operator
+  status: done
   tier: 1
   created: '2026-11-16 00:20'
   updated: '2026-11-16 00:20'
