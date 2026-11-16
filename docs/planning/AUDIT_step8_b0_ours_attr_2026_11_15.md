@@ -52,3 +52,41 @@ What would change this: any live read after a real engine `play_media` showing `
 ## Not measured
 
 Denon (no playing history), Sonos music (only TV), any MA-started session, URI-fallback paste. No playback was started; no HA state changed.
+
+## Addendum 2026-11-15 22:30 CST: which MA twin does music following target? (read-only)
+
+Method: `_ma_candidates` (music_following.py:1140-1195) replayed by hand over `.storage/core.entity_registry`, `core.device_registry`, `core.config_entries` (scripts `.claude/tmp/mfcand_probe*.py`); 7-day state mix from the recorder (`ssh ha sqlite3 -readonly`). No HA changes, no media calls.
+
+**Verdict: (b) for all 10 WiiM rooms. Music following targets a twin that is never even available, so the MA path can never be taken; transfers silently fall back to native WiiM join.**
+
+Candidate lists (reason in brackets). `_7` is NOT in any list:
+
+| Room | room_media_player | candidates | `_5` 7-day states | actual playing twin |
+|---|---|---|---|---|
+| Study A | study_a_3 | study_a_5 [mac_in_ma_id] | unavailable x27 | study_a_7 (not listed) |
+| Guest Bedroom 2 | up_guest_room_3 | up_guest_room_5 [mac_in_ma_id] | unavailable | up_guest_room_7 |
+| Study B | study_b_3 | study_b_5 [mac_in_ma_id] | unavailable | study_b_7 |
+| Guest Bedroom 1 | guest_room_3 | guest_room_5 [mac_in_ma_id] | unavailable | guest_room_7 |
+| Kitchen | kitchen_3 | kitchen_5 [mac_in_ma_id] | unavailable x27 (kitchen_7: playing 104) | kitchen_7 |
+| Ziri Bedroom | ziris_room_3 | ziris_rooom [mac_in_ma_id] | unavailable x27 | ziris_rooom_3 |
+| Jaya Bedroom | jayas_room_3 | jayas_room_5 [mac_in_ma_id] | unavailable | jayas_room_7 |
+| Garage B | garage_b_3 | garage_b_5 [mac_in_ma_id] | unavailable | garage_b_7 |
+| Laundry | utility_3 | utility_5 [mac_in_ma_id] | unavailable | utility_7 |
+| Master Bathroom | master_bathroom_3 | master_bathroom_5 [mac_in_ma_id] | unavailable | master_bathroom_7 |
+| Master Bedroom | master_bedroom_sonos_2 (is MA) | itself [is_ma] | unavailable (never music; native Sonos plays TV only) | n/a |
+| Living Room | living_room_2 (denonavr) | none | n/a | n/a (ma_not_covered) |
+
+Why `_7` is missed: the `_7` MA devices carry identifier `('music_assistant','wiim_uuid:FF98F359-7D20-0A82-DAB8-1047FF98F359')` (study_a_7 shown). Matching rules are same-device, `media_player.*` identifier wrap, and the native device's MAC contained in the identifier hex (1175-1186). `wiim_uuid:` ids carry no MAC and no HA entity id, so none fires. The `_5` ids (`upc0f5358bec04`) embed the MAC, hence the hit. The native device's own identifier is `('wiim','FF98F3597D200A82DAB81047')`, which is exactly the `_7` uuid with dashes stripped (plus a trailing 8-hex suffix). Checked: 10/10 WiiM rooms map to exactly one `_7`/`ziris_rooom_3` this way.
+
+Twins, devices: every `_5`, `_7`, `_airplay`, `_6` (aircast) twin is its own MA device (distinct device_id, distinct `music_assistant` identifier); none shares a device with the native wiim entity. So `_5` and `_7` are two MA player entries for one physical speaker (different MA providers/protocol entries; the `up`/`wiim_uuid`/`upcccc` prefixes suggest UPnP/WiiM/aircast providers, provider mapping inferred from the id prefixes, not verified in MA).
+
+Caller selection rules (all in music_following.py; no other file calls `_ma_candidates`, grep of custom_components):
+- `_resolve_path` 1202-1221: FIRST playing source candidate (`playing[0]`, 1208); target = first candidate with same match-kind, else first candidate (1209-1210). Gate: needs source cands, target cands AND a playing source cand (1207). Here the source cands are `_5`, never playing, so it takes `reasons.append("ma_source_not_playing")` (1225).
+- `_bonus_candidates` 1550 (exclusion set, ALL candidates) and 1569-1572 (`mas[0][0]`, first; only when path is MA/via_ma, which cannot happen here).
+- hazard scope 1959: ALL candidates added to the stop scope, so `_7` is not in the hazard-stop set (native `_3` configured players are, so the speaker is still reached via native; `_7` MA queue itself not directly stopped. Not traced further).
+
+Impact on a transfer: no failure and no wrong-provider play. `_resolve_path` falls to the native branch 1228-1240: both players platform wiim with grouping feature, so PATH_JOIN (native) with reason `ma_source_not_playing`; Master Bedroom/Living Room use generic or ma_not_covered. The MA-first path (queue transfer, ma_join extend) is dead for every WiiM room. Note the `playing` test reads state of `_5`, which is `unavailable`, so it is always false.
+
+Falsifier checked: if `_5` ever played or was available, (b) would be wrong; recorder shows only `unavailable` for all 11 listed twins over 7 days.
+
+Smallest fix (not applied): in `_ma_candidates` add a fifth rule inside the identifier loop: if `sval.startswith("wiim_uuid:")` and the native device has a `wiim` identifier W, and `sval[10:].replace("-","").upper().startswith(W.upper())`, append `(x.entity_id, "wiim_uuid_match")`. Registry-only, ~6 lines, no name guessing. Also prefer entries whose state is not `unavailable` (or drop `mac_in_ma_id` hits that are unavailable) so `playing[0]`/`(same_kind or t_cands)[0]` picks `_7` over `_5`; with both listed, `_5` currently sorts first only by registry order, so the filter or reorder is required. Needs its own tests; Tier 2 (shared transfer path), not run here.
