@@ -1,7 +1,13 @@
-# URA v(TBD): arrival music, welcome scene, departure pause (arc step 8 D2-D4)
+# URA v5.108.31: arrival music, welcome scene, departure pause (arc step 8 D2-D4) + WiiM MA twin fix
 
-**Status: DRAFT, version TBD (v6.0.0 path), not deployed.** Plan: `docs/planning/PLANNING_identity_actions_v6.md`
-rev 3.6.1. Branch `feature/step8-d2-engine`. Tier 3.
+Cards: ARRIVAL-ENGINE-S8-1 (this release; child of PERSON-PROFILE-PREFERENCES-1, which stays open for the live MA test,
+the final ownership rule and v6.0.0), MF-MA-TWIN-WIIM-UUID-1. Plan: `docs/planning/PLANNING_identity_actions_v6.md`
+rev 3.6.1. Branch `feature/step8-d2-engine`. Tier 3: reviews A+G, B, D, then fix pass c05e2103, review C (436
+mutations), test-gap pass 189509bd (76/76 drilled rows RED).
+
+**Shipped as operator option B (2026-11-16):** arrival music and the welcome scene act now; the 15-minute stop and the
+departure pause are built and active, but under the context-ownership rule a natural track change ends ownership, so
+they will rarely fire until the live test sets the final rule (see Ownership). v6.0.0 is held for that complete release.
 
 ## What it does
 
