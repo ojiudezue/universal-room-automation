@@ -196,7 +196,7 @@ descriptions today; nothing to turn.
 | `READ_LIST["PRESENCE"]` | add `get_room_sightings`, `get_last_path_records` (ship 1), `get_room_description`, `request_room_description` (ship 2) | 1 / 2 |
 | `READ_LIST["CENSUS"]` | none (`area_evidence` is read only by a member); contract §2.6 lists it | 1 |
 | `LAYER_NON_PERSON_PUBLIC` | add `inward_path_edges` | 1 |
-| NEW `PINNED_READERS` (not in the total, like `LISTED`) | every pin is a `(module, qualname)` pair; a call of a pinned method anywhere outside its pins is a hit. `get_room_sightings` / `get_last_path_records` → (`sensor.py`, `InteriorAwarenessSensor.*`) and their presence delegates (`presence.py`, `PresenceCoordinator.get_room_sightings` / `PresenceCoordinator.get_last_path_records`); `request_room_description` → (`notification_manager.py`, `NotificationManager._handle_describe_command`) and (`presence.py`, `PresenceCoordinator.request_room_description`); `get_room_description` → (`sensor.py`, `InteriorAwarenessSensor.*`), (`presence.py`, `PresenceCoordinator.get_room_description`) and the reserved personalization pin; `interior_census_tick` → (`camera_census.py`, `PersonCensus._interior_tick`) and (`presence.py`, `PresenceCoordinator.interior_census_tick`); reserved pin for PERSON-PROFILE-PREFERENCES-1. Without the delegate pins the delegates themselves trip the guard (closure L-6) | 1 |
+| NEW `PINNED_READERS` (not in the total, like `LISTED`) | every pin is a `(module, qualname)` pair; a call of a pinned method anywhere outside its pins is a hit. `get_room_sightings` / `get_last_path_records` → (`sensor.py`, `InteriorAwarenessSensor.*`) and their presence delegates (`presence.py`, `PresenceCoordinator.get_room_sightings` / `PresenceCoordinator.get_last_path_records`); `request_room_description` → (`notification_manager.py`, `NotificationManager._handle_describe_command`) and (`presence.py`, `PresenceCoordinator.request_room_description`); `get_room_description` → (`sensor.py`, `InteriorAwarenessSensor.*`), (`presence.py`, `PresenceCoordinator.get_room_description`) and the reserved personalization pin; `interior_census_tick` → (`camera_census.py`, `PersonCensus._interior_tick`) and (`presence.py`, `PresenceCoordinator.interior_census_tick`); reserved pin for PERSON-PROFILE-PREFERENCES-1. Without the delegate pins the delegates themselves trip the guard (closure L-6). Ship-1 fix-up (review B MEDIUM-2): `interior_tick`, `_emit_unnamed` and `PersonCensus.area_evidence` are pinned to (`person_sighting.py`, `PersonSightingProducer.*`). Stated static limits (not caught): a bound-method alias (`g = p.get_room_sightings; g()`) and a read of the display entity's state or attributes | 1 |
 | NEW `FORBIDDEN_ATTR_READS` (closure N7) | an attribute read of `.affect` (or `["affect"]` on a description dict) in any module other than `person_sighting.py` and `interior_vision.py` is a hit; the check also flags `getattr(x, "affect")` with a literal name, and `dataclasses.asdict(...)` / `vars(...)` on a `RoomDescription` (spot-check L-a; same AST walk as R7). Accepted gap, stated: a dynamic `getattr` with a computed name is not caught; no module builds attribute names at runtime today, and the drill set covers the literal forms. The reply formatter that may include affect (Q2 `operator_affect`) lives in `interior_vision.py` | 2 |
 | `LISTED` (R10) | none: no new channel listener; D5 pulls crossings | n/a |
 | R6 / `CHANNEL_CONSTS` | none: `_emit_unnamed` sends nothing on `SIGNAL_PERSON_SIGHTING` (its listeners stay none, operator Q5) | n/a |
@@ -215,7 +215,7 @@ descriptions today; nothing to turn.
   no room, or whose room's `CONF_ROOM_TYPE` is in `INTERIOR_VISION_EXCLUDED_ROOM_TYPES` (bedroom, bathroom), is dropped and
   counted (`groups_excluded_by_reason`).
 - **Member liveness, per tick.** A member entity is LIVE when `entity_stream_view(hass, eid, census=True)` is None and its
-  state is a real reading; HELD / RELEASED when the view says so; NO-READING when the view is None but the state is
+  state is a real reading; HELD / RELEASED when the view says so; STUCK when the census watchdog discounts it this tick (`area_evidence()["discounted"]`; its count is saved before the discount, ship-1 fix-up, review D-M3), never LIVE; NO-READING when the view is None but the state is
   `unavailable` / `unknown` / missing. Ship 3b's device-level rule gives the Protect multi-channel devices a view (state of
   play §10 #41 was the gap).
 - **Record rule (operator: "if even one nvr has the cam it doesn't count as dead"; "a dead camera is faulty equipment").**
@@ -387,7 +387,7 @@ The producer runs the build every `INTERIOR_ROOM_RECORD_INTERVAL_S` on its own `
 `async_setup`, removed in `async_teardown`) and writes through `_emit_unnamed("room", records)`. A state listener on the
 groups' person sensors (same pattern as the face-sensor listener) stamps on-edges into a bounded ring for D2 / D5; its
 callback is O(1). `get_room_sightings()` on presence returns the frozen tuple. `persons_in_room`: §14 seam.
-`sensor.ura_interior_awareness` (Census device, polled): state = total unnamed in covered rooms with a LIVE member;
+`sensor.ura_interior_awareness` (the integration's Whole House device, where the census sensors sit; polled): state = total unnamed in covered rooms with a LIVE member;
 attributes per room (status, bodies, unnamed, named count, provenance, liveness), all in `_unrecorded_attributes` (the raw
 census inputs are already recorded on the census sensor).
 
@@ -494,8 +494,15 @@ path window. **Windows are cumulative along the chain (closure N6).** The path m
 84 s; staircase → family_room 85 s). The window of a node v reached over edge (u → v) opens at `t_u` and closes at `t_u +
 window_s(u → v)`, where `t_u` = u's first on-edge in its own window (for the door, `t_door` = E). If u was never seen, `t_u`
 = the cumulative bound `E + Σ window_s` along the shortest chain to u, so the chain continues past a camera that missed
-the entrant. Chains are followed to depth `INTERIOR_TIMELAPSE_MAX_HOPS`. No-model leg: the first on-edge of each reached
-group inside its window (from the D1 on-edge ring) → `PathRecord(source_ref, door, ts, n, n_source, hops: (group_key,
+the entrant. Chains are followed to depth `INTERIOR_TIMELAPSE_MAX_HOPS`. On-edges (`off` -> `on` only) come from the
+interior group members AND from every path-map node that has a person leg, resolved through the registry (node camera
+entity -> resolver fusion -> its person binary sensors), interior group or not (ship-1 fix-up, review D-M1: the live
+garage_a chain's first node `staircase_2` is a zone-only Frigate camera; a hop on such a node has room None). The
+cumulative rule is unchanged: if the first node misses the entrant, a quick entrant at the next node before its window
+opens is still lost (stated residual; opening a missed node's child at the parent's open was considered and not taken, it
+widens every later window). The door of an entry is the door whose anchors (`DoorMap.anchors`) hold the entry camera's
+key. No-model leg: the first on-edge of each reached
+node inside its window (from the D1 on-edge ring) → `PathRecord(source_ref, door, ts, n, n_source, hops: (group_key,
 room, first_on_ts, bodies_nvr_at_first_on, bodies_vision))`, closed at the cumulative max over reached nodes of their
 window close + `INTERIOR_TIMELAPSE_CLOSE_PAD_S`, written through `_emit_unnamed("path",
 ...)` (ring `INTERIOR_TIMELAPSE_RING`). The hop rooms' records carry `entered_via` (door, crossing ts) for
@@ -505,7 +512,7 @@ that source is absent and `n_source` says so. Path windows merge by physical pas
 non-None `pass_key` (the F3 creation-time field stamped by the tracker, crossing-vision P3-D9a, read from
 `get_crossing`) open one `PathRecord`; before P3-D9a ships (`pass_key` None) windows of one door group within
 `CROSSING_VISION_CLUSTER_S` merge instead (harmonization C4); test `test_d5_windows_merge_by_pass_key`; until then from `get_last_arrival_record()` when its `source_ref` matches; else the max
-`bodies_nvr` on the first hop (`n_source` names which). Never the crossing-vision row store (contract G8). Vision leg: when
+`bodies_nvr` on the first hop, i.e. of that hop's group over its window, from its first on-edge to its window close (`n_source` names which; ship-1 fix-up, review A M3). Never the crossing-vision row store (contract G8). Vision leg: when
 `n ≥ INTERIOR_TIMELAPSE_VISION_MIN_N`, or a hop room's record shows unnamed ≥ 1 at its first on-edge (draft-2 "or
 guests_unnamed ≥ 1" restored on the interior record, closure L-8), one still call per hop group at its first on-edge, at most
 `INTERIOR_TIMELAPSE_MAX_CALLS` per crossing, inside the caps; the result fills `bodies_vision`. One `interior_path` row per
@@ -517,7 +524,8 @@ record. Coverage ceiling is stated (D0(e)), not tuned.
   `test_single_entrant_no_call`, `test_group_entry_calls_hops_capped`,
   `test_no_inward_edges_no_record`, `test_entered_via_ttl`, `test_n_source_order`, `test_no_egress_listener_added` (guard).
   Mutation: count approach edges as inward.
-- **Live:** ship 1: ≥ 1 `interior_path` row after an entry on a mapped door; ship 4: ≥ 1 row with `bodies_vision` after a
+- **Live:** ship 1: ≥ 1 `interior_path` row WITH ≥ 1 hop after an entry on a mapped door (a hop-less row proves
+  nothing; ship-1 fix-up, review D-M2); ship 4: ≥ 1 row with `bodies_vision` after a
   multi-person entry.
 
 ### 9.D4 Interior term in `deconflict_house` (ship 5, Tier 3)

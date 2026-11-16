@@ -430,10 +430,11 @@ def test_camera_census_first_screen_has_seven_fields():
         CONF_KNOWN_FACE_GUESTS, CONF_GUEST_VLAN_SSID,
     }
     # 15 pre-cycle + 3 door fields (D1 census_inputs_first) + perimeter
-    # zone sensors (v5.107.0) + face name aliases (v5.107.1) = 20; 13 of
-    # them in the collapsed section.
-    assert len(schema_keys(res)) == 20
-    assert len(_adv_keys(res)) == 13
+    # zone sensors (v5.107.0) + face name aliases (v5.107.1) + interior
+    # vision switch default (VISION-INTERIOR-SIGHTINGS-1) = 21; 14 of them in
+    # the collapsed section.
+    assert len(schema_keys(res)) == 21
+    assert len(_adv_keys(res)) == 14
 
 
 def test_camera_census_field_order():
@@ -529,6 +530,8 @@ def _listener_reloads(pre: dict, post: dict) -> bool:
 @pytest.mark.parametrize("step,key,val", [
     ("camera_census", CONF_KNOWN_FACE_GUESTS, ["Ojini"]),
     ("camera_census", CONF_FACE_NAME_ALIASES, ["Oji=oji_udezue"]),
+    # VISION-INTERIOR-SIGHTINGS-1: the switch default, changed to off.
+    ("camera_census", "interior_vision_enabled", False),
     ("perimeter_alerting", CONF_PERIMETER_ENRICHMENT_ENABLED, True),
 ])
 def test_house_simple_save_one_allowlisted_key_does_not_reload(step, key, val):

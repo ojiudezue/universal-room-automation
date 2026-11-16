@@ -410,6 +410,8 @@ async def async_setup_entry(
             # switch (RestoreEntity, OFF at ship).
             CrossingVisionShadowSwitch(hass, entry),
             CrossingVisionCensusAuthoritySwitch(hass, entry),
+            # VISION-INTERIOR-SIGHTINGS-1: interior vision master (ON).
+            InteriorVisionSwitch(hass, entry),
             # v4.1.1 B4 L2: Occupancy-weighted prediction toggle
             OccupancyWeightedPredictionSwitch(hass, entry),
             # v4.2.10: EC runtime toggles
@@ -1172,6 +1174,85 @@ class CrossingVisionCensusAuthoritySwitch(SwitchEntity, RestoreEntity):
             self._apply(stored == "on")
         else:
             self._apply(install_has_camera(self.hass))
+        self.async_write_ha_state()
+
+
+class InteriorVisionSwitch(SwitchEntity, RestoreEntity):
+    """VISION-INTERIOR-SIGHTINGS-1 (plan §12): ``switch.ura_interior_vision``
+    ("Interior Vision", Coordinator Manager device), the master of interior
+    vision model calls (describe, sampling, the path vision leg; OFF = no
+    calls). Ship 1 makes no model call, so nothing reads it yet; the room
+    records (D1) have their own kill constant and do not depend on it.
+
+    Default: the integration options field ``CONF_INTERIOR_VISION_ENABLED``
+    (Camera Census form, default ON). A stored state wins (pattern of
+    ``CrossingVisionCensusAuthoritySwitch``): a last state of exactly "on" or
+    "off" is restored; unavailable / unknown / missing takes the default."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:cctv"
+    _attr_entity_category = EntityCategory.CONFIG
+    HELPER_TEXT = (
+        "Master switch for AI vision on indoor shared-room cameras (never "
+        "bedrooms or bathrooms). Today it does nothing: this release only "
+        "builds room records from the camera systems' own person counts and "
+        "makes no AI calls. Later releases use it to count and describe people."
+    )
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_interior_vision"
+        self._attr_name = "Interior Vision"
+        self._attr_extra_state_attributes = {"description": self.HELPER_TEXT}
+        self.entity_id = "switch.ura_interior_vision"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "coordinator_manager")},
+            name="URA: Coordinator Manager",
+            manufacturer="Universal Room Automation",
+            model="Coordinator Manager",
+            sw_version=VERSION,
+        )
+
+    def _default(self) -> bool:
+        from .const import (  # noqa: PLC0415
+            CONF_INTERIOR_VISION_ENABLED, DEFAULT_INTERIOR_VISION_ENABLED,
+        )
+        try:
+            for ce in self.hass.config_entries.async_entries(DOMAIN):
+                if ce.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
+                    merged = {**ce.data, **ce.options}
+                    return bool(merged.get(
+                        CONF_INTERIOR_VISION_ENABLED, DEFAULT_INTERIOR_VISION_ENABLED))
+        except Exception:  # noqa: BLE001
+            pass
+        return bool(DEFAULT_INTERIOR_VISION_ENABLED)
+
+    @property
+    def is_on(self) -> bool:
+        from .const import INTERIOR_VISION_SWITCH_HASS_KEY  # noqa: PLC0415
+        value = self.hass.data.get(DOMAIN, {}).get(INTERIOR_VISION_SWITCH_HASS_KEY)
+        return self._default() if value is None else bool(value)
+
+    def _apply(self, value: bool) -> None:
+        from .const import INTERIOR_VISION_SWITCH_HASS_KEY  # noqa: PLC0415
+        self.hass.data.setdefault(DOMAIN, {})[INTERIOR_VISION_SWITCH_HASS_KEY] = bool(value)
+
+    async def async_turn_on(self, **kwargs) -> None:
+        self._apply(True)
+        _LOGGER.info("Interior vision ON")
+        self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs) -> None:
+        self._apply(False)
+        _LOGGER.info("Interior vision OFF (no interior vision calls)")
+        self.async_write_ha_state()
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last = await self.async_get_last_state()
+        stored = last.state if last is not None else None
+        self._apply(stored == "on" if stored in ("on", "off") else self._default())
         self.async_write_ha_state()
 
 

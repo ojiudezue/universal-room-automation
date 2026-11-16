@@ -271,6 +271,7 @@ def _load_ns() -> dict:
         "CONF_ENHANCED_CENSUS": "enhanced_census",
         "CONF_FACE_RECOGNITION_ENABLED": "face_recognition_enabled",
         "CONF_EGRESS_IDENTITY_ENABLED": "egress_identity_enabled",
+        "CONF_INTERIOR_VISION_ENABLED": "interior_vision_enabled",
         "SIGNAL_URA_FACE_RECOGNITION_CHANGED": "ura_face_recognition_changed",
         "SIGNAL_URA_TRANSIT_CONFIG_CHANGED": "ura_transit_config_changed",
         "ConfigEntry": type("ConfigEntry", (), {}),

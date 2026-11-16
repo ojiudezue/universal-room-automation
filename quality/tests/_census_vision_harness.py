@@ -224,6 +224,13 @@ async def replay(w, freezer_tick) -> list[dict]:
         n_pay = len(w.payloads)
         await w.census._async_update_census_locked()
         await hass.async_block_till_done()
+        # VISION-INTERIOR-SIGHTINGS-1 golden variant hook: work that runs
+        # BETWEEN census ticks on its own timer (interior room records),
+        # never on the census call above.
+        after = getattr(w, "after_census_tick", None)
+        if after is not None:
+            after()
+            await hass.async_block_till_done()
         house = w.census.last_result.house
         prop = w.census.last_result.property_exterior
         payload = dict(w.payloads[n_pay]) if len(w.payloads) > n_pay else None

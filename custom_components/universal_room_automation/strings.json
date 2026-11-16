@@ -885,6 +885,7 @@
           "advanced": {
             "name": "Advanced (rarely change)",
             "data": {
+              "interior_vision_enabled": "Interior vision switch default",
               "census_cross_validation": "Cross-check camera systems",
               "census_divergence_downgrade": "Trust the lower count",
               "enhanced_census": "Smarter counting",
@@ -900,6 +901,7 @@
               "face_name_aliases": "Face name aliases"
             },
             "data_description": {
+              "interior_vision_enabled": "Starting value for the Interior Vision switch; the switch keeps its own setting after that. Shared rooms only, never bedrooms or bathrooms. No AI calls in this release.",
               "census_cross_validation": "If you run more than one camera system (such as Frigate and UniFi Protect), compare their counts. Turn off if you use only one.",
               "census_divergence_downgrade": "When two camera systems disagree about a room and nothing else backs up the higher count, trust the lower one. Stops one false sighting from turning on Guest mode.",
               "enhanced_census": "Hold counts for a while, spot guest phones on guest Wi-Fi, and tell people seen apart from people recognized.",

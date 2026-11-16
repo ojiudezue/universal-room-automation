@@ -108,7 +108,7 @@ suffix-tolerant match helper is
   fails. S7 stays fail-closed (no face sensor -> whole count unrecognized) and can only go
   down (INV-4). Kill switch `FACE_SOURCE_INCLUDE_DISAMBIGUATED_PERSON_SENSORS` (rung 1, True).
 - **Presence face pre-arrival (S8) is RETIRED (FACE-ARRIVAL-REBUILD-1 D5, branch
-  `feature/person-sightings-p1`, NOT deployed).** `presence._get_face_for_camera`,
+  `feature/person-sightings-p1`, deployed (in v5.108.25, the live manifest 2026-11-15)).** `presence._get_face_for_camera`,
   `_handle_face_arrival` and `_find_person_entity_from_face` are deleted: the path fired 0 times in
   ~90 days (zone trackers had no cameras; edge race; `_N` producer disabled; no was-away test).
   `FACE_SOURCE_PRESENCE_ARRIVAL_DISAMBIGUATED` is KEEP + DOCUMENT with no reader. Faces now become
@@ -371,7 +371,7 @@ reverts ONLY the census merge path; the D3 per-room fused sensor,
 D5 fan_veto camera leg, and D4 dry-run scan remain on the new
 resolver.
 
-### 4.2a Census awareness view and the one dedup function (census deconfliction CD1-CD3, branch `feature/census-deconfliction-p2-ledger`, NOT deployed, ships dark)
+### 4.2a Census awareness view and the one dedup function (census deconfliction CD1-CD3, branch `feature/census-deconfliction-p2-ledger`, deployed (in v5.108.25, the live manifest 2026-11-15), ships dark)
 
 Plan `docs/planning/PLANNING_census_deconfliction.md`. F2 has two views, one writer (`PersonCensus`), one site
 (`_apply_enhanced_house_census`, which calls `census_deconflict.deconflict_house` once per evaluation, sync).
@@ -423,7 +423,7 @@ Emits `ura_person_egress_event` bus event with fields `direction`,
 `person_entry_exit_events` (schema below).
 
 **Return channel, provenance key and outcome log (FACE-ARRIVAL-REBUILD-1 D8a, branch
-`feature/person-sightings-p1`, NOT deployed; plan `PLANNING_person_sighting_layer.md` rev 11).**
+`feature/person-sightings-p1`, deployed (in v5.108.25, the live manifest 2026-11-15); plan `PLANNING_person_sighting_layer.md` rev 11).**
 - `_resolve_direction` (the one production caller) now calls `_resolve_egress_face_identity_ex`,
   which returns the old 3-tuple plus a frozen `EgressResolution` built fresh on EVERY return path:
   outcome label (the census deque label, plus `census_unavailable` / `resolver_error` for the two
@@ -476,7 +476,7 @@ deployed; plan `PLANNING_crossing_vision.md` rev 2, Phase 1).**
   Vision" llmvision entry, `gpt-6-luna`, temperature / top_p 1.0 set on that entry) when that entry
   exists on the install, else the perimeter provider; own `CROSSING_VISION_MAX_TOKENS` (1500). The
   llmvision call is a background task (HA stop does not wait on it).
-- **Provider (P2-D1, branch `feature/census-deconfliction-p2-ledger`, NOT deployed):** the integration option
+- **Provider (P2-D1, branch `feature/census-deconfliction-p2-ledger`, deployed (in v5.108.25, the live manifest 2026-11-15)):** the integration option
   `crossing_vision_provider_id` (Perimeter Alerting -> Advanced, rung 2, read fresh per call, reload-suppressed); when
   it is empty, the rung-1 install default `CROSSING_VISION_PROVIDER_ID` (the Luna entry, kept: review A-HIGH-3). Either
   id is used only when it is an llmvision config entry on this install, else the perimeter provider (another house
@@ -538,7 +538,7 @@ names the nearest NULL exit row in the 600 s before the edge
 - **Displays:** `PersonsExitedTodaySensor` re-reads today's exits and
   `LastPersonExitSensor` (R1) re-reads the newest exit row on
   `SIGNAL_EGRESS_RECORD_AMENDED` with `role == "exit_backfilled"` (person-awareness
-  layer ship 3a D3, branch `feature/layer-ship3a`, NOT deployed: the backfill sends
+  layer ship 3a D3, branch `feature/layer-ship3a`, deployed (in v5.108.25, the live manifest 2026-11-15): the backfill sends
   through G3 `transit_validator.amend_crossing`, crossing ring untouched; the retired
   `SIGNAL_EGRESS_EXIT_BACKFILLED` carried `{row_id, person_id}`, the new payload is a
   superset). The last-exit display only takes the name if the newest row is the one named.
@@ -703,7 +703,7 @@ plus configured door-interior neighbours). The edge must be within 120 s and out
 the 600 s post-setup exclusion. The rule is shared code (`arrival_edges.py`). This
 is the §5.5(a) doctrine applied to actuation: a face name alone never unlocks.
 **One camera-derived source set, two gates (FACE-ARRIVAL-REBUILD-1 D3, branch
-`feature/person-sightings-p1`, NOT deployed).** The lock regime no longer tests the literal
+`feature/person-sightings-p1`, deployed (in v5.108.25, the live manifest 2026-11-15)).** The lock regime no longer tests the literal
 `source == "camera_face"`: both access gates call `arrival_edges.arrival_source_needs_corroboration`,
 which returns True for any source in `const.CAMERA_DERIVED_ARRIVAL_SOURCES`
 (`{"camera_face", "camera_egress"}`; `camera_egress` has no producer in Phase 1) and for any unknown
@@ -778,7 +778,7 @@ valid. `EXTERIOR_ADJACENCY_GRAPH` / `EXTERIOR_TRACK_EGRESS_ADJACENT_CAMERAS` in
   press the reload button.
 
 **Interior path map (FACE-ARRIVAL-REBUILD-1 D7 / INTERIOR-PATH-MAP-1, branch
-`feature/person-sightings-p1`, NOT deployed).** `/config/universal_room_automation/interior_paths.json`
+`feature/person-sightings-p1`, deployed (in v5.108.25, the live manifest 2026-11-15)).** `/config/universal_room_automation/interior_paths.json`
 (primary) or `const.INTERIOR_PATH_MAP_FALLBACK` (shipped `None`: no house entity id in code, so with no
 valid file there is no map, `path_map_source: none`) is
 loaded by `EgressDirectionTracker.async_load_path_map` through the shared
@@ -803,7 +803,7 @@ sensor: `path_map_source`, `path_map_validation`, `path_map_sha256` (installed f
 untouched. The pure scorer `interior_paths.score_path` is shared with offline scripts. Learned
 co-detections are a report only: `AUDIT_interior_path_map_learned_vs_operator.md`.
 
-### 4.5a Person sightings (FACE-ARRIVAL-REBUILD-1 D1 + D4, branch `feature/person-sightings-p1`, NOT deployed)
+### 4.5a Person sightings (FACE-ARRIVAL-REBUILD-1 D1 + D4, branch `feature/person-sightings-p1`, deployed (in v5.108.25, the live manifest 2026-11-15))
 
 **CORRECTION 2026-11-13: the rule "the census and sightings never feed each other" (person-sighting plan §2A) is
 RETIRED** (operator, CLAUDE.md d1d7b387: "past its usefulness"). Replacement: sightings, interior vision included, MAY
@@ -867,6 +867,16 @@ Denominator >= `FACE_SIGHTING_ZERO_MIN_FACES` (10) with 0 sightings pages once (
 when sightings resume; silent while the Face Recognition switch is OFF). `face_arrival_zero` (LOW) is armed only with interior arrivals on. Kill
 switch for the whole producer: `FACE_SIGHTING_ENABLED` (rung 1). Live (D0, 2026-11-12): 7 of 8 picks
 resolve; Garage A's fused pick is `room_cameras_empty` until the operator sets its room cameras.
+
+**Unnamed interior records (VISION-INTERIOR-SIGHTINGS-1 ship 1, branch `feature/interior-vision-d1`, NOT deployed):**
+beside the named sightings, the same producer writes F4 UNNAMED room records through its one unnamed ingest
+`_emit_unnamed` (no channel send): per covered shared room, the NVR bodies of the room's camera (Frigate and Protect
+legs of one physical camera are one twin group, max over LIVE members; a held or released leg's frozen reading is never
+used; no LIVE leg = `missing`, never 0), who is named there (BLE ACTIVE residents, else a fresh named interior face
+sighting that the census would not veto; one placement per slug) and how many are unnamed; plus a no-model path
+time-lapse after a door entry. Display class only (`sensor.ura_interior_awareness`); never a name from vision, never a
+census input (the census term is ship 5), never a trust reader (layer guard `PINNED_READERS`). Details: presence state
+of play, interior vision ship 1 entry.
 
 ### 4.6 DB tables (from `database.py`)
 
@@ -1046,7 +1056,7 @@ an alert is safe; acting because a name appeared is not.
 | **Notification naming** | **≥0.75** | name the person in the message; anonymous below |
 | **Display** | **none** | show name-or-"unidentified"; never a trust decision |
 
-In code (PERSON-AWARENESS-READ-API-1 ship 1, branch `feature/person-awareness-read-api-ship1`, NOT deployed) the
+In code (PERSON-AWARENESS-READ-API-1 ship 1, branch `feature/person-awareness-read-api-ship1`, deployed (in v5.108.25, the live manifest 2026-11-15)) the
 table is one rung-1 constant, `const.CONSUMER_CLASS_MIN_CONFIDENCE` (security 0.9, notification 0.75, display 0),
 read by `EgressDirectionTracker._arrival_departure_notify` (notification) and `PerimeterAlertManager._known_identity_for`
 (security floor; `PERIMETER_EGRESS_KNOWN_MIN_CONF` is still clamped up to it). Values unchanged.

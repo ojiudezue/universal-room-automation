@@ -2714,6 +2714,35 @@ class PersonCensus:
         except Exception:  # noqa: BLE001
             return []
 
+    def area_evidence(self) -> dict[str, Any]:
+        """Member read (VISION-INTERIOR-SIGHTINGS-1 D1, contract §2.6): COPIES
+        of the census's interior camera evidence, no arithmetic change.
+        ``by_entity`` = the last available body reading per interior person
+        entity (``_stream_last_reading``: a Frigate person count, or 1 / 0
+        for a binary sensor; written on every census tick an entity reads
+        available). ``area_contributions`` (per AREA, merges held readings,
+        skips discounted cameras) and ``house_camera_bodies`` are for display
+        only and are never a record source (plan §7, closure N3). ``as_of`` =
+        the last census count time. Never raises."""
+        try:
+            return {
+                "by_entity": dict(getattr(self, "_stream_last_reading", {}) or {}),
+                "area_contributions": {
+                    k: dict(v) for k, v in
+                    (getattr(self, "_last_area_contributions", {}) or {}).items()
+                },
+                "house_camera_bodies": getattr(self, "_last_house_camera_bodies", None),
+                "as_of": getattr(self, "_last_count_as_of", None),
+                # Stuck-Signal D1: the interior cameras the census discounts
+                # this tick (their count is saved before the discount, so a
+                # reader must treat them as not live; review D-M3).
+                "discounted": tuple(sorted(
+                    getattr(self, "_watchdog_discounted_cameras", None) or ())),
+            }
+        except Exception:  # noqa: BLE001
+            return {"by_entity": {}, "area_contributions": {},
+                    "house_camera_bodies": None, "as_of": None, "discounted": ()}
+
     def _get_interior_camera_entities(self) -> list[str]:
         """Return resolved person detection binary_sensor entity IDs for interior cameras.
 

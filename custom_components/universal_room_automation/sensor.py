@@ -206,6 +206,8 @@ async def async_setup_entry(
             # Census deconfliction CD2: awareness view (display class).
             URACensusPeopleAroundSensor(hass, entry),
             URACensusGuestsAroundSensor(hass, entry),
+            # VISION-INTERIOR-SIGHTINGS-1 D1: interior room records (display).
+            InteriorAwarenessSensor(hass, entry),
             # Disabled by default (diagnostics)
             URACensusConfidenceSensor(hass, entry),
             URACensusValidationAgeSensor(hass, entry),
@@ -4285,6 +4287,78 @@ class URACensusGuestsAroundSensor(_CensusAwarenessSensor):
 
     def _trust_value(self, house) -> int:
         return house.unidentified_count
+
+
+class InteriorAwarenessSensor(AggregationEntity, SensorEntity):
+    """VISION-INTERIOR-SIGHTINGS-1 D1: ``sensor.ura_interior_awareness``
+    (the integration's Whole House device, where the census sensors sit;
+    polled, DISPLAY class). State = unnamed people in the
+    covered shared rooms that have a LIVE camera member; one attribute per
+    covered room (status, bodies, unnamed, named count, provenance,
+    liveness), all unrecorded (the census raw inputs are recorded on the
+    census sensor already). Reads ``PresenceCoordinator.get_room_sightings``
+    / ``get_last_path_records`` only (guard ``PINNED_READERS``)."""
+
+    _attr_icon = "mdi:account-eye-outline"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _unrecorded_attributes = frozenset({"rooms", "last_path", "records_as_of"})
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_interior_awareness"
+        self._attr_name = "Interior Awareness"
+        self.entity_id = "sensor.ura_interior_awareness"
+
+    def _presence(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        return manager.coordinators.get("presence") if manager is not None else None
+
+    def _records(self) -> tuple:
+        try:
+            presence = self._presence()
+            return tuple(presence.get_room_sightings()) if presence is not None else ()
+        except Exception:  # noqa: BLE001 — display
+            return ()
+
+    @property
+    def native_value(self) -> int | None:
+        """Unknown (None) when no covered room has a LIVE reading: every
+        camera missing or no build yet is faulty equipment, not "nobody"
+        (review A L1)."""
+        live = [r for r in self._records() if r.bodies is not None]
+        if not live:
+            return None
+        return sum(int(r.unnamed or 0) for r in live)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        records = self._records()
+        rooms = {
+            str(r.room): {
+                "status": r.status, "bodies": r.bodies, "unnamed": r.unnamed,
+                "named_count": len(r.named), "provenance": r.provenance,
+                "liveness": r.liveness,
+                "entered_via": list(r.entered_via) if r.entered_via else None,
+            }
+            for r in records
+        }
+        last_path = None
+        try:
+            presence = self._presence()
+            paths = tuple(presence.get_last_path_records()) if presence is not None else ()
+            if paths:
+                p = paths[-1]
+                last_path = {"door": p.door, "n": p.n, "n_source": p.n_source,
+                             "rooms": [h[1] for h in p.hops]}
+        except Exception:  # noqa: BLE001 — display
+            last_path = None
+        return {
+            "rooms": rooms,
+            "last_path": last_path,
+            "records_as_of": (
+                dt_util.utc_from_timestamp(records[0].as_of).isoformat()
+                if records else None),
+        }
 
 
 class URAPersonsOnPropertySensor(_CensusBaseSensor):
