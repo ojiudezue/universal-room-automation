@@ -35222,6 +35222,17 @@ cards:
   links: {related: [LOCK-ENTRY-AREAS-WRONG-OBJECT-1]}
   origin: {date: '2026-11-16', gist: 'Soak-exit: the shipped fix cannot be evaluated because entry_areas is not persisted.'}
   next: "Me: add entry_areas to perimeter_gate_decision rows and the lock-regime _record; trip-wire to NM when it stays empty."
+- id: NM-PERIMETER-REPEAT-STORM-1
+  title: "An unacknowledged CRITICAL perimeter 'person detected' page repeats on all four channels every 30 min until 24 h (the 18:00 page ran ~7 h until the 01:13 safe-word ack)"
+  thread: notifications
+  status: waiting_operator
+  tier: 2
+  created: '2026-11-16 01:30'
+  updated: '2026-11-16 01:30'
+  origin: {date: '2026-11-16', gist: 'Operator: "BTW i thought there was a throttle on unacked pages from perimeter. Its just keeps going"'}
+  operator_2026_11_16: "BTW i thought there was a throttle on unacked pages from perimeter. Its just keeps going"
+  why: "Non-life-safety CRITICAL cadence (notification_manager.py:3140-3160, const.py:4676-4679): 300 s for the first hour, then 1800 s until 24 h, then daily; no repeat cap. The 18:00 CST page (created_at 2026-11-16T00:00:18Z) stayed unacked until 01:13 CST: ~12 + ~13 resends x 4 channels (pushover, companion, whatsapp, imessage). Resends are not logged per send in notification_log (only the ack row), so the count is inferred from the code."
+  next: "PICK: A (recommended) stop exterior_person repeats after the first hour, then digest; B silence repeats while house is sleeping or someone is home awake; C exterior_person is a one-shot HIGH unless the house is away -> I plan + build (Tier 2, NM repeat path) and log each resend."
 - id: VISION-INTERIOR-SHIP1-1
   title: "Interior vision ship 1: unnamed room records per shared camera room, entry-path rows, trip-wires; no AI calls, nothing reaches census or presence"
   discriminator_2026_11_15: "Done when >=1 interior_path row with >=1 hop exists after a mapped-door entry AND interior_records_zero / interior_path_zero never fired in the window."
