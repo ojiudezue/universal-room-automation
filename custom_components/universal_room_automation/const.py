@@ -4678,6 +4678,19 @@ NM_REPEAT_PHASE1_WINDOW_S: Final = 3600
 NM_REPEAT_PHASE2_S: Final = 1800
 NM_REPEAT_DAILY_AFTER_S: Final = 86400
 
+# NM-PERIMETER-REPEAT-STORM-1 (operator 2026-11-16: "Paging - first hour if
+# home. More if away"). Once a non-life-safety CRITICAL page is older than
+# NM_REPEAT_HOME_CAP_S and the house state is KNOWN and NOT in
+# NM_REPEAT_CAP_AWAY_STATES, repeats stop (outcome `repeat_capped_home`,
+# one digest line). Away/vacation keep the ladder above. An unknown house
+# state keeps repeating (fails toward paging). Life-safety never capped.
+# Rung 1 (module const): a paging-safety bound whose change should be
+# reviewed. Kill: 0 disables the cap (legacy ladder for every state).
+NM_REPEAT_HOME_CAP_S: Final = 3600
+# Own constant (not an alias of MEMORY_WRITER_HEALTH_ABSENT_HOUSE_STATES):
+# equal today by coincidence, different concept (Bug Class #63).
+NM_REPEAT_CAP_AWAY_STATES: Final = frozenset({"away", "vacation"})
+
 # SAFETY-NM-REFIRE-UNWIRED-1 D7 (plan Rev 4.2 + orchestrator ruling): the
 # "Smoke, CO and flood repeat schedule". Rung 2 (options-flow select, CM "Quiet
 # Hours" step); read live via NM._refresh_config. Unknown/missing -> standard.

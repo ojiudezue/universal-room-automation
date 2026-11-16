@@ -112,6 +112,8 @@ from ..const import (
     NM_REPEAT_PHASE1_WINDOW_S,
     NM_REPEAT_PHASE2_S,
     NM_REPEAT_DAILY_AFTER_S,
+    NM_REPEAT_HOME_CAP_S,
+    NM_REPEAT_CAP_AWAY_STATES,
     NM_SECURITY_ACK_HAZARDS,
     # NM-IMAGE-1 (2026-08-11): security-image force-immediate.
     NM_HAZARD_EXTERIOR_PERSON,
@@ -3159,6 +3161,100 @@ class NotificationManager:
             return int(NM_REPEAT_PHASE2_S)
         return 86400
 
+    def _repeat_home_cap_reached(self) -> bool:
+        """NM-PERIMETER-REPEAT-STORM-1: stop repeating a non-life-safety
+        CRITICAL past the first hour while the house is home.
+
+        False (keep repeating) when: the cap knob is 0; the hazard is
+        life-safety (base set + extras, incl. smoke/CO/flood on the
+        "standard" ladder); the page is younger than the cap; the house
+        state is away/vacation; or the house state is unknown (fails
+        toward paging). House state read via ``_panel_house_state``.
+        """
+        cap = int(NM_REPEAT_HOME_CAP_S)
+        if cap <= 0 or not self._active_alert_data:
+            return False
+        if is_life_safety_hazard(
+            self.hass, self._active_alert_data.get("hazard_type")
+        ):
+            return False
+        if self._unacked_critical_age_s() < cap:
+            return False
+        state = self._panel_house_state()
+        if state in NM_REPEAT_CAP_AWAY_STATES:
+            return False
+        try:
+            from .house_state import HouseState
+            known = {str(s.value) for s in HouseState}
+        except Exception:  # noqa: BLE001 — unknown => keep paging
+            return False
+        return state in known
+
+    async def _cap_repeat_home(self) -> None:
+        """Stop the repeat chain cleanly: no further resends, outcome row
+        ``repeat_capped_home``, one digest line per recipient. The page row
+        stays unacked (it was never acknowledged); a restart that restores
+        it caps again at its first repeat tick, before any send."""
+        data = dict(self._active_alert_data or {})
+        state = self._panel_house_state()
+        _LOGGER.info(
+            "NM: repeat capped (house=%s, age=%ss, repeats=%s): %s",
+            state, self._unacked_critical_age_s(),
+            data.get("repeat_count", 0), data.get("title"),
+        )
+        if self._repeat_unsub:
+            self._repeat_unsub()
+            self._repeat_unsub = None
+        if self._light_pattern_task and not self._light_pattern_task.done():
+            self._light_pattern_task.cancel()
+            self._light_pattern_task = None
+            await self._restore_alert_lights()
+        self._alert_state = AlertState.IDLE
+        self._active_alert_data = None
+        self._active_episode_id = None
+        self._panel_release_id(self._panel_lease_id(
+            data.get("coordinator_id"), data.get("hazard_type"),
+            data.get("location"),
+        ))
+        async_dispatcher_send(self.hass, SIGNAL_NM_ALERT_STATE_CHANGED)
+        await self._emit_audit_row(
+            coordinator_id=data.get("coordinator_id", "unknown"),
+            severity=Severity.CRITICAL,
+            title=data.get("title", ""),
+            hazard_type=data.get("hazard_type"),
+            location=data.get("location"),
+            recipient_id=None,
+            channel=None,
+            route_reason="repeat_capped_home",
+            dnd_bypass_applied=False,
+            bucket_outcome="repeat_capped_home",
+            matrix_branch=f"repeat_{int(data.get('repeat_count') or 0)}",
+            delivered=0,
+            dry_run=1 if self._dry_run_active else 0,
+            acknowledged=1,
+            routing_hole=False,
+        )
+        database = self.hass.data.get(DOMAIN, {}).get("database")
+        if database is None:
+            return
+        for person_cfg in self._config.get(CONF_NM_PERSONS, []) or []:
+            person_id = person_cfg.get(CONF_NM_PERSON_ENTITY, "")
+            if not person_id:
+                continue
+            try:
+                await database.log_notification(
+                    data.get("coordinator_id", "unknown"), "MEDIUM",
+                    f"Repeats stopped: {data.get('title', '')}",
+                    (
+                        "Unacknowledged CRITICAL page repeated for the first "
+                        f"hour; repeats stopped because the house is {state}."
+                    ),
+                    data.get("hazard_type"), data.get("location"), person_id,
+                    NM_DIGEST_FALLBACK_CHANNEL, 0,
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("NM cap digest row failed", exc_info=True)
+
     def _unacked_critical_age_s(self) -> int:
         """Return the age (seconds) of the active CRITICAL alert.
 
@@ -3270,7 +3366,15 @@ class NotificationManager:
         self._refresh_config()
 
         data = self._active_alert_data
+        # NM-PERIMETER-REPEAT-STORM-1: home cap — decided BEFORE any send so
+        # a restored (post-restart) page follows the same rule.
+        if self._repeat_home_cap_reached():
+            await self._cap_repeat_home()
+            return
         _LOGGER.info("Repeating CRITICAL alert: %s", data.get("title"))
+        _repeat_n = int(data.get("repeat_count") or 0) + 1
+        data["repeat_count"] = _repeat_n
+        _repeat_fired: list[str] = []
 
         # Halo S1b (H1): repeats bypass async_notify, so this is the renewal
         # (and retarget) site for an unacked episode's panel lease. No DB row
@@ -3349,6 +3453,7 @@ class NotificationManager:
                 key = person_cfg.get(CONF_NM_PERSON_PUSHOVER_KEY, "")
                 device = person_cfg.get(CONF_NM_PERSON_PUSHOVER_DEVICE, "")
                 if key:
+                    _repeat_fired.append("pushover")
                     await self._send_pushover(
                         data["title"], data["message"], Severity.CRITICAL, key, device,
                         snapshot_url=_snap_url, snapshot_path=_snap_path,
@@ -3356,6 +3461,7 @@ class NotificationManager:
             if _channel_gate.get("companion", False) and "companion" in _router_allowed:
                 svc = person_cfg.get(CONF_NM_PERSON_COMPANION_SERVICE, "")
                 if svc:
+                    _repeat_fired.append("companion")
                     await self._send_companion(
                         data["title"], data["message"], Severity.CRITICAL, svc,
                         is_critical=True,
@@ -3364,6 +3470,7 @@ class NotificationManager:
             if _channel_gate.get("whatsapp", False) and "whatsapp" in _router_allowed:
                 phone = person_cfg.get(CONF_NM_PERSON_WHATSAPP_PHONE, "")
                 if phone:
+                    _repeat_fired.append("whatsapp")
                     await self._send_whatsapp(
                         data["title"], data["message"], phone,
                         snapshot_url=_snap_url, snapshot_path=_snap_path,
@@ -3371,6 +3478,7 @@ class NotificationManager:
             if _channel_gate.get("imessage", False) and "imessage" in _router_allowed:
                 handle = person_cfg.get(CONF_NM_PERSON_IMESSAGE_HANDLE, "")
                 if handle:
+                    _repeat_fired.append("imessage")
                     await self._send_imessage(
                         data["title"], data["message"], handle,
                         snapshot_url=_snap_url, snapshot_path=_snap_path,
@@ -3395,8 +3503,30 @@ class NotificationManager:
             else self._channel_ready("tts", Severity.CRITICAL, _hz)
         )
         if _global_dnd_ok_repeat and _tts_gate_repeat:
+            _repeat_fired.append("tts")
             await self._send_tts(data["title"], data["message"])
         # (data.get was assigned to `_hz` above; local scope only.)
+
+        # NM-PERIMETER-REPEAT-STORM-1: one audit row per resend (not per
+        # channel) so resends can be counted. Pre-acked + "[audit]" message,
+        # so get_active_critical can never resurrect it.
+        await self._emit_audit_row(
+            coordinator_id=_coord_id,
+            severity=Severity.CRITICAL,
+            title=data.get("title", ""),
+            hazard_type=_hz,
+            location=data.get("location"),
+            recipient_id=None,
+            channel=",".join(sorted(set(_repeat_fired))) or None,
+            route_reason="repeat",
+            dnd_bypass_applied=False,
+            bucket_outcome="repeat",
+            matrix_branch=f"repeat_{_repeat_n}",
+            delivered=1 if _repeat_fired else 0,
+            dry_run=1 if self._dry_run_active else 0,
+            acknowledged=1,
+            routing_hole=False,
+        )
 
         # Re-check suppression — kill switch may have been toggled between awaits
         if self._messaging_suppressed or self._alert_state != AlertState.REPEATING:
