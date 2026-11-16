@@ -324,14 +324,200 @@ async def test_new_critical_in_cooldown_follows_existing_rule(monkeypatch):
     """Existing rule (notification_manager.py _enter_alerting, "Cancel any
     existing cooldown/countdown from a previous alert"): COOLDOWN does not
     block a new CRITICAL; it cancels the cooldown and starts a new chain.
-    The cap inherits exactly what an ack does today."""
+    The cap inherits exactly what an ack does today. (A same-hazard page is
+    covered by the option-A home budget tests below; a different hazard
+    still follows this rule.)"""
     rig = _Rig(monkeypatch, "home_day")
     await rig.arm()
     rig.now[0] = T0 + timedelta(seconds=3600)
     await rig.nm._repeat_alert()
     assert rig.nm.alert_state == AlertState.COOLDOWN
     rig.now[0] = T0 + timedelta(seconds=3700)  # past the 60 s CRITICAL dedup
-    await rig.arm()
+    await rig.arm("exterior_vehicle")
     assert rig.nm.alert_state == AlertState.REPEATING
     assert rig.nm._cooldown_remaining == 0
     assert rig.delays[-1] == 300
+
+
+# ---------------------------------------------------------------------------
+# Option A (operator 2026-11-16): the hour of repeats is a per-hazard budget
+# per home session, not per page.
+# ---------------------------------------------------------------------------
+
+
+async def _page(rig, hazard="exterior_person", location="front_yard"):
+    """A NEW page; returns how many first-notification sends it made."""
+    before = rig.nm._send_pushover.await_count
+    await rig.nm.async_notify(
+        "perimeter_alert", Severity.CRITICAL, "Perimeter Alert",
+        "Person on porch", hazard_type=hazard, location=location,
+    )
+    return rig.nm._send_pushover.await_count - before
+
+
+async def _use_budget(rig):
+    """First page at T0, capped at T0+3600 at home."""
+    await rig.arm()
+    for _ in range(12):
+        await rig.tick()
+    assert rig.nm.alert_state == AlertState.COOLDOWN
+    assert rig.resends() == 11
+
+
+@pytest.mark.asyncio
+async def test_budget_second_page_sends_once_no_repeats(monkeypatch):
+    rig = _Rig(monkeypatch, "home_day")
+    await _use_budget(rig)
+    rig.now[0] = T0 + timedelta(seconds=3600 + 1200)  # 20 min later
+    n_delays = len(rig.delays)
+    assert await _page(rig, location="side_yard") == 1
+    assert rig.nm.alert_state == AlertState.COOLDOWN
+    assert rig.delays[n_delays:] == [600]  # cooldown expiry only, no 300 s repeat
+    skipped = rig.rows("repeat_skipped_home_budget")
+    assert len(skipped) == 1
+    assert skipped[0]["bucket_outcome"] == "repeat_skipped_home_budget"
+    # no extra digest line for a skip (the page itself was delivered)
+    assert len([r for r in rig.db.rows if r.get("channel") == "digest"]) == 1
+    # a stray repeat tick sends nothing
+    await rig.nm._repeat_alert()
+    assert rig.nm._send_pushover.await_count == 11 + 1
+
+
+@pytest.mark.asyncio
+async def test_budget_reset_by_away_signal(monkeypatch):
+    from custom_components.universal_room_automation.domain_coordinators.signals import (
+        HouseStateChange,
+    )
+    rig = _Rig(monkeypatch, "home_day")
+    await _use_budget(rig)
+    rig.nm._on_house_state_for_repeat_budget(
+        HouseStateChange("home_day", "away", 1.0, "test"),
+    )
+    rig.now[0] = T0 + timedelta(seconds=4800)
+    await _page(rig, location="side_yard")  # back home (cm still home_day)
+    assert rig.nm.alert_state == AlertState.REPEATING
+    assert rig.delays[-1] == 300
+
+
+@pytest.mark.asyncio
+async def test_budget_reset_when_page_arrives_while_away(monkeypatch):
+    rig = _Rig(monkeypatch, "home_day")
+    await _use_budget(rig)
+    cm = rig.hass.data[DOMAIN]["coordinator_manager"]
+    cm.house_state = "away"
+    rig.now[0] = T0 + timedelta(seconds=4800)
+    await _page(rig, location="side_yard")
+    assert rig.nm.alert_state == AlertState.REPEATING
+    assert rig.nm._repeat_home_budget == {}
+
+
+@pytest.mark.asyncio
+async def test_budget_reset_after_6h_quiet_boundary(monkeypatch):
+    rig = _Rig(monkeypatch, "home_day")
+    await _use_budget(rig)  # last page of the hazard at T0
+    rig.now[0] = T0 + timedelta(seconds=21599)
+    await _page(rig, location="side_yard")
+    assert rig.nm.alert_state == AlertState.COOLDOWN  # still in budget
+    # that page refreshed last_page_at to T0+21599, so 21599 s later the
+    # budget still holds (it would have expired if measured from T0)
+    rig.now[0] = T0 + timedelta(seconds=21599 + 21599)
+    await _page(rig, location="back_yard")
+    assert rig.nm.alert_state == AlertState.COOLDOWN
+    rig.now[0] = T0 + timedelta(seconds=21599 + 21599 + 21600)
+    await _page(rig, location="garage")
+    assert rig.nm.alert_state == AlertState.REPEATING
+    assert rig.delays[-1] == 300
+
+
+@pytest.mark.asyncio
+async def test_budget_knob_zero_disables(monkeypatch):
+    monkeypatch.setattr(nm_mod, "NM_REPEAT_HOME_BUDGET_RESET_S", 0)
+    rig = _Rig(monkeypatch, "home_day")
+    await _use_budget(rig)
+    rig.now[0] = T0 + timedelta(seconds=4800)
+    # even with a skewed (future) last_page_at, knob 0 means no budget
+    rig.nm._repeat_home_budget["exterior_person"] = {
+        "used_at": T0.isoformat(),
+        "last_page_at": (T0 + timedelta(seconds=9000)).isoformat(),
+    }
+    await _page(rig, location="side_yard")
+    assert rig.nm.alert_state == AlertState.REPEATING
+
+
+@pytest.mark.asyncio
+async def test_budget_survives_restart(monkeypatch):
+    rig = _Rig(monkeypatch, "home_day")
+    await _use_budget(rig)
+    persisted = rig.nm.get_persistence_state()
+    nm2 = NotificationManager(rig.hass, _cfg())
+    for ch in ("pushover", "companion", "whatsapp", "imessage", "tts"):
+        setattr(nm2, f"_send_{ch}", AsyncMock())
+    nm2.restore_persistence_state(persisted)
+    rig.nm = nm2
+    rig.now[0] = T0 + timedelta(seconds=4800)
+    assert await _page(rig, location="side_yard") == 1
+    assert nm2.alert_state == AlertState.COOLDOWN
+    assert len(rig.rows("repeat_skipped_home_budget")) == 1
+
+
+@pytest.mark.parametrize("hazard,interval", [("intruder", 30), ("smoke", 300)])
+@pytest.mark.asyncio
+async def test_budget_never_applies_to_life_safety(monkeypatch, hazard, interval):
+    rig = _Rig(monkeypatch, "home_day")
+    await _use_budget(rig)
+    # even a (seeded) used budget for the life-safety hazard is ignored
+    rig.nm._repeat_home_budget[hazard] = {
+        "used_at": T0.isoformat(), "last_page_at": T0.isoformat(),
+    }
+    rig.now[0] = T0 + timedelta(seconds=4800)
+    await _page(rig, hazard=hazard, location="kitchen")
+    assert rig.nm.alert_state == AlertState.REPEATING
+    assert rig.delays[-1] == interval
+
+
+@pytest.mark.asyncio
+async def test_budget_is_per_hazard(monkeypatch):
+    rig = _Rig(monkeypatch, "home_day")
+    await _use_budget(rig)
+    rig.now[0] = T0 + timedelta(seconds=4800)
+    await _page(rig, hazard="exterior_vehicle", location="driveway")
+    assert rig.nm.alert_state == AlertState.REPEATING
+
+
+@pytest.mark.asyncio
+async def test_budget_unknown_house_state_keeps_paging(monkeypatch):
+    rig = _Rig(monkeypatch, "home_day")
+    await _use_budget(rig)
+    rig.hass.data[DOMAIN]["coordinator_manager"].house_state = "unknown"
+    rig.now[0] = T0 + timedelta(seconds=4800)
+    await _page(rig, location="side_yard")
+    assert rig.nm.alert_state == AlertState.REPEATING
+
+
+@pytest.mark.asyncio
+async def test_setup_subscribes_house_state_and_teardown_unsubs(monkeypatch):
+    """Wire-in anchor: async_setup connects SIGNAL_HOUSE_STATE_CHANGED to the
+    budget-reset handler; async_teardown cancels it."""
+    import homeassistant.helpers.dispatcher as disp
+    from custom_components.universal_room_automation.domain_coordinators.signals import (
+        SIGNAL_HOUSE_STATE_CHANGED, HouseStateChange,
+    )
+    connected: dict = {}
+    unsubs: dict = {}
+
+    def _connect(_hass, signal, target):
+        connected[signal] = target
+        unsubs[signal] = MagicMock()
+        return unsubs[signal]
+
+    monkeypatch.setattr(disp, "async_dispatcher_connect", _connect)
+    rig = _Rig(monkeypatch, "home_day")
+    await rig.nm.async_setup()
+    await _use_budget(rig)
+    assert rig.nm._repeat_home_budget
+    connected[SIGNAL_HOUSE_STATE_CHANGED](
+        HouseStateChange("home_day", "vacation", 1.0, "test"),
+    )
+    assert rig.nm._repeat_home_budget == {}
+    await rig.nm.async_teardown()
+    unsubs[SIGNAL_HOUSE_STATE_CHANGED].assert_called_once_with()

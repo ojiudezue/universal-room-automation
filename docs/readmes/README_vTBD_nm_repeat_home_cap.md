@@ -10,6 +10,8 @@ Card: NM-PERIMETER-REPEAT-STORM-1 (Tier 2). Operator 2026-11-16: "Paging - first
 - Unknown house state (no coordinator manager, empty, or not a `HouseState` value): repeats continue. This fails toward paging.
 - Life-safety hazards (base set plus operator extras, including smoke/CO/flood on the "standard" ladder) are never capped.
 - Every resend now writes one `notification_log` row (`route_reason="repeat"`, `matrix_branch="repeat_<n>"`, channels fired, pre-acked, `message="[audit]"`). Resends can now be counted. Volume is one row per resend, not one per channel: at most 11 in the first hour, then 2 per hour.
+- **Home repeat budget (operator option A).** The hour of repeats is a budget per hazard per home session, not per page. Capping a page at home marks that hazard's budget used. While it is used, a NEW page of the same hazard still sends its first notification (someone new is outside) but starts no repeat chain. It ends like a cap: rows acked, COOLDOWN, and an outcome row `repeat_skipped_home_budget`, with no digest line because the page itself was delivered. The check sits in `_enter_alerting`, after the first send and before the repeat timer would start. Each new page of the hazard refreshes the budget's last-page time. The budget resets when the house goes away or vacation (`SIGNAL_HOUSE_STATE_CHANGED` listener, plus a check at decision time), or after `NM_REPEAT_HOME_BUDGET_RESET_S` with no page of that hazard. Budgets are per hazard: an `exterior_vehicle` page is not affected by an `exterior_person` budget. Life-safety pages are never affected, away keeps the full ladder, and an unknown house state keeps paging. The budget is persisted in the NM persistence dict (`get/restore_persistence_state`, carried by the NM diagnostics sensor's RestoreEntity `nm_persistence_state` attribute, sensor.py:9538/9583), so it survives a restart.
+- `exterior_vehicle`: the default perimeter severity map caps vehicles at HIGH (const.py `NM_HAZARD_EXTERIOR_TRACK_SEVERITY_MAP["car"]`), so they never start a repeat chain today. If an operator promotes one to CRITICAL, the cap and the budget apply to it automatically, keyed by its own hazard.
 - Ack ends the repeat exactly as before. A page restored after a restart follows the same rule at its first repeat tick, before anything is sent.
 
 ## Knobs (rung 1, `const.py`)
@@ -17,19 +19,20 @@ Card: NM-PERIMETER-REPEAT-STORM-1 (Tier 2). Operator 2026-11-16: "Paging - first
 | Knob | Default | Notes |
 |---|---|---|
 | `NM_REPEAT_HOME_CAP_S` | 3600 | Age after which a home house stops repeats. 0 disables the cap (legacy ladder). |
+| `NM_REPEAT_HOME_BUDGET_RESET_S` | 21600 | Quiet time, with no page of the hazard, after which its home budget resets. 0 disables the budget (per-page cap only). |
 | `NM_REPEAT_CAP_AWAY_STATES` | `{"away", "vacation"}` | States that keep repeating. A separate constant from `MEMORY_WRITER_HEALTH_ABSENT_HOUSE_STATES`; the two are equal today by coincidence. |
 
 House state is read with the existing `NotificationManager._panel_house_state()` (the same coercion `_is_quiet_hours` uses).
 
 ## Known limits
 
-- A cap behaves like an ack, so it inherits the ack's existing cooldown rule: COOLDOWN does not block a new CRITICAL. `_enter_alerting` cancels the cooldown ("Cancel any existing cooldown/countdown from a previous alert") and starts a new page with a fresh hour. Only the 60 s CRITICAL dedup (`NM_DEDUP_CRITICAL`) applies. When the cooldown expires, `_re_evaluate_hazard` re-fires if the source coordinator reports the hazard still active. Today both apply equally after a human ack.
+- COOLDOWN itself still does not block a new CRITICAL of a different hazard (the existing rule in `_enter_alerting`). For the same hazard at home, the budget above stops the repeat chain. When a cooldown expires, `_re_evaluate_hazard` re-fires if the source coordinator reports the hazard still active; that is the existing post-ack rule, and the re-fired page is subject to the budget.
 - The repeat number restarts at 1 after a restart.
 
 ## Acceptance
 
-- Test: `quality/tests/test_nm_repeat_home_cap.py` (16 tests: home cap into COOLDOWN, restart after cap, new CRITICAL in cooldown, 3599 s versus 3600 s boundary, away/vacation at 1800 s, unknown state, life-safety intruder and smoke, knob 0, numbered resend rows, ack, restart home and away).
-- Live: after the next unacked perimeter page with the house home, `notification_log` shows 11 `route_reason='repeat'` rows and one `repeat_capped_home` row, and no resends after one hour.
+- Test: `quality/tests/test_nm_repeat_home_cap.py` (27 tests: home cap into COOLDOWN; home budget: second page sends once with no repeats, reset by the away signal, reset by a page while away, 6 h quiet boundary with refresh, knob 0, restart, life-safety, per-hazard, unknown state, setup/teardown subscription; restart after cap, new CRITICAL in cooldown, 3599 s versus 3600 s boundary, away/vacation at 1800 s, unknown state, life-safety intruder and smoke, knob 0, numbered resend rows, ack, restart home and away).
+- Live: after the next unacked perimeter page with the house home, `notification_log` shows 11 `route_reason='repeat'` rows and one `repeat_capped_home` row, and no resends after one hour. A second page of the same hazard within the budget shows one first-send plus a `repeat_skipped_home_budget` row and no `repeat` rows.
 
 ## Live validation
 

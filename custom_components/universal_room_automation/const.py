@@ -4690,6 +4690,14 @@ NM_REPEAT_HOME_CAP_S: Final = 3600
 # Own constant (not an alias of MEMORY_WRITER_HEALTH_ABSENT_HOUSE_STATES):
 # equal today by coincidence, different concept (Bug Class #63).
 NM_REPEAT_CAP_AWAY_STATES: Final = frozenset({"away", "vacation"})
+# Operator option A (2026-11-16): the hour of repeats is a budget per home
+# session per hazard, not per page. After a page of hazard H is capped at
+# home, a NEW page of H still sends its first notification but starts no
+# repeat chain (outcome `repeat_skipped_home_budget`). The budget resets
+# when the house goes away/vacation, or after this many seconds with no
+# page of H. Rung 1 (paging-safety bound). Kill: 0 disables the budget
+# (per-page cap only).
+NM_REPEAT_HOME_BUDGET_RESET_S: Final = 21600
 
 # SAFETY-NM-REFIRE-UNWIRED-1 D7 (plan Rev 4.2 + orchestrator ruling): the
 # "Smoke, CO and flood repeat schedule". Rung 2 (options-flow select, CM "Quiet
