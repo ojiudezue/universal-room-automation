@@ -247,3 +247,40 @@ def test_scene_call_raising_notes_error_and_runs_per_light_path():
     assert eng.notes == [("room_master", "fallback_failed")]
     assert [c.data.get("entity_id") for c in room.hass.services.calls
             if c.domain == "light" and c.service == "turn_on"] != []
+
+
+def _count_checked(room):
+    """Count the scene guard's invocations (the enclosing method is still the
+    real _control_lights_entry)."""
+    real = room.auto._activate_scene_checked
+    seen: list = []
+
+    async def spy(slot, scene_id, entry_set):
+        seen.append(scene_id)
+        return await real(slot, scene_id, entry_set)
+    room.auto._activate_scene_checked = spy
+    return seen
+
+
+def test_no_slot_scene_no_retry_attempt():
+    """Review C #424: the welcome scene is unavailable and the room has no
+    slot scene: no retry is attempted (one guarded activation)."""
+    room = _room(slot_scene=None)
+    room.hass.set_state("scene.welcome", "unavailable")
+    eng = _engine(room, FakeEngine(scene="scene.welcome"))
+    seen = _count_checked(room)
+    _run(room.auto._control_lights_entry({}))
+    assert seen == ["scene.welcome"]
+    assert eng.notes == [("room_master", "fallback_failed")]
+
+
+def test_slot_scene_equal_to_welcome_not_retried():
+    """Review C #425: the slot scene IS the broken welcome scene: it is not
+    re-run as the retry."""
+    room = _room(slot_scene="scene.welcome")
+    room.hass.set_state("scene.welcome", "unavailable")
+    eng = _engine(room, FakeEngine(scene="scene.welcome"))
+    seen = _count_checked(room)
+    _run(room.auto._control_lights_entry({}))
+    assert seen == ["scene.welcome"]
+    assert eng.notes == [("room_master", "fallback_failed")]

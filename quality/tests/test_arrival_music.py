@@ -704,6 +704,15 @@ async def test_player_listener_removed_at_terminal_and_teardown(r, ours_t):
     r.world.play("master", content="podcast://x")
     await A.drain(r)
     assert stamp.done and stamp.player_unsub is None
+    # Teardown (review C #389: this test used to stop at the terminal case).
+    await _started(r, JAYA_EID)
+    live = r.mf._arrival_stamps[JAYA_EID]
+    assert live.player_unsub is not None
+    await r.mf.async_teardown()
+    assert live.player_unsub is None
+    r.world.play("garage_b", content="podcast://y")     # a foreign write
+    await A.drain(r)
+    assert not live.not_ours_seen and not live.reversed_seen
 
 
 @pytest.mark.asyncio
