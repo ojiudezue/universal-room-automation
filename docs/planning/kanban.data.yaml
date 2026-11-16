@@ -9,6 +9,7 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {"fid": "VISITORS-PRESENT-EPISODE-RATE-1@2026-11-16T02:25:00", "card_id": "VISITORS-PRESENT-EPISODE-RATE-1", "at": "2026-11-16T02:25:00", "outcome": "measured", "headline": "'Visitors present' switched on 19 times on 11-11 and 11-12 with no visitor there: only one resident was home but the cameras counted two people. Display only (no paging or HVAC effect). Next is a planned fix: make the camera part need a second witness and log which part fired, then find why one camera system counts an extra person.", "acknowledged": false}
   - {"fid": "CLIMATE-BACKSTOP-SECTION-CLEAR-ON-ABSENT-1@2026-11-16T02:11:00", "card_id": "CLIMATE-BACKSTOP-SECTION-CLEAR-ON-ABSENT-1", "at": "2026-11-16T02:11:00", "outcome": "done", "headline": "Closed two cards that were already finished: the room-form fix that stopped HVAC hold values being wiped on an unrelated save (shipped in v5.108.9), and the person-name rule copies (now one shared function; the rest lives on the person-id sweep card).", "acknowledged": false}
   - {"fid": "EGRESS-BLE-ARRIVAL-LATENCY-1@2026-11-16T02:11:00", "card_id": "EGRESS-BLE-ARRIVAL-LATENCY-1", "at": "2026-11-16T02:11:00", "outcome": "done", "headline": "Closed the 'Bluetooth arrival is slow' card as you approved (probe + docs, no build): the phone being heard already marks the person home at once and unlocks/pre-cools then; the 8-41 s delay was a duplicate signal nothing waits on. Wrote that into the presence and identity docs so nobody rebuilds it.", "acknowledged": false}
   - {"fid": "LOCK-ENTRY-AREAS-WRONG-OBJECT-1@2026-11-16T02:07:00", "card_id": "LOCK-ENTRY-AREAS-WRONG-OBJECT-1", "at": "2026-11-16T02:07:00", "outcome": "done", "headline": "Closed the 'door room list was empty' fix without waiting for an arrival: worked the list out from your settings and HA's room assignments, and it always contains 6 rooms (front porch, garage A, foyer, living room, garage hallway, stairs). Dropped the follow-up card that would have logged it to the database, since it can't change. Odd detail: the doorbell camera is assigned to Garage A in HA.", "acknowledged": false}
@@ -18278,6 +18279,7 @@ cards:
     room sustaining 30min means no guest activation — so G6 is expected to be unnecessary.
   refs:
   - docs/planning/RESEARCH_guest_actuation_and_census.md
+  instance_2026_11_16: "Near-trigger, NOT fired: VISITORS-PRESENT-EPISODE-RATE-1 measured 19 spurious visitors_present episodes on 11-11/12 from an inflated Frigate unidentified count through the same Path A gate. Guest MODE was never entered (house_state_log), so this card's revival trigger has not fired; revisit if guest mode starts on such a count."
 - id: CENSUS-GHOST-DEDUP-1
   title: Census double-counts residents as unidentified (4 known + 2 ghost bodies = 6) — BLE-cancel exists,
     is enabled, cancels nothing
@@ -35215,13 +35217,17 @@ cards:
 - id: VISITORS-PRESENT-EPISODE-RATE-1
   title: "visitors_present opened ~13 episodes on 11-11 and ~9 on 11-12 against the README's 0-3/day; measure whether they were real visitors"
   thread: presence
-  status: inbox
+  status: "pre_planning"
   tier: 1
   created: '2026-11-16 00:20'
-  updated: '2026-11-16 00:20'
-  links: {related: [GUEST-MODE-SPLIT-VISITORS-1]}
+  updated: "2026-11-16 02:25"
+  links: {"related": ["GUEST-MODE-SPLIT-VISITORS-1", "CENSUS-G6-RAW-PERSISTENCE", "CENSUS-UNIDENTIFIED-SNAPSHOT-1"], "context": "GUEST-MODE-SPLIT-VISITORS-1 shipped the sensor (README_v5.108.0 L2 is the criterion this measures). CENSUS-G6-RAW-PERSISTENCE is the parked fix for held/decayed unidentified counts sustaining Path A; its trigger is guest MODE, which did not fire here (only the display sensor). CENSUS-UNIDENTIFIED-SNAPSHOT-1 would let the operator see who the unidentified person was."}
   origin: {date: '2026-11-16', gist: 'Soak-exit residual (L2).'}
-  next: "Me: one-shot probe of the 11-11/11-12 episodes against camera/door evidence; close or fix."
+  next: "Me (Tier 2 presence plan, attended; read PRESENCE state-of-play + SENSOR_FLEET_CLASSES first): (1) producer check: which Frigate camera inflates frigate_count with one resident home (recorder per-camera person counts for the 11-11 episodes); (2) consumer fix in the visitors-present cam leg only (corroborate by unifi_count>0 or an unknown-person crossing, policy in the consumer, guest-state gate untouched); (3) drop 'legs' from _unrecorded_attributes so episodes are attributable. Display-only sensor today, so no paging or HVAC effect; not built overnight because the root cause is a census producer question."
+  refinement_status: "refined"
+  problem_solution: ["Problem: the 'visitors present' indicator switched on 11 times on 11-11 and 8 times on 11-12 (mostly for 1-25 minutes) when no visitor was there: only one resident was home and the camera count said two people. Solution: make the camera part of the indicator require a second witness (the other camera system, or a door crossing with no known person) before it counts someone unidentified, and record which part fired so the next check can prove it; separately find why the camera system counts one extra person."]
+  measured_2026_11_16_overnight: "SPURIOUS, measured (ura-prober, recorder metadata_id 28987 + URA DB, read-only). Episodes CST: 11-11 = 11 (08:45-13:52, median 3 min, longest 25 min); 11-12 = 8 (07:42-12:56, median 6 min, one 112 min 11:04-12:56); 11-10 = 1 (13 min). Ground truth: 11-11 only Ezinne home (person_entry_exit_events 8962-8963: Jaya out 07:21, Ezinne in 08:26, next entry 17:33); no non-resident entry inside any episode; house census during episodes identified 1 / unidentified 1 / frigate_count 2 / unifi_count 0 (medium confidence), unidentified flapping 0-1-2-0. 11-12: identified 0 / unidentified 1 / frigate_count 1 after Ezinne left 10:36 (ghost or stale count). House state never GUEST on 11-11/12; the long-stay guest arrived 11-13. Classification: 11-11 0 real / 11 spurious; 11-12 0 real / 7 spurious / 1 unknown (the 112 min one, possibly the room leg). Likely leg: cam leg = Path A _guest_gate_armed (presence.py:7256-7335) via inflated census unidentified (Frigate-only); room leg needs 30 min dwell (presence.py:7241-7249) so cannot make 3-8 min episodes. NOT measurable: which leg fired (the legs attribute is in _unrecorded_attributes, binary_sensor.py:2549; logs for those days are gone) and which Frigate camera produced the extra count. Producer side unproven: why Frigate sees 2 with 1 identified."
+  rank: {"value": 4, "time_criticality": 2, "effort": 5}
 - id: LOCK-ENTRY-AREAS-FIRE-CHECK-1
   title: "Persist entry_areas in the perimeter gate row and lock-regime record, with a zero-fire trip-wire"
   thread: security

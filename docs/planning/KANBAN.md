@@ -2,16 +2,16 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-16T02:22:28-06:00_ - _Data commit: `8979c36b0ab6`_ - _last_reconciled: 2026-11-15_
+_Generated: 2026-11-16T02:24:07-06:00_ - _Data commit: `53001be08ccf`_ - _last_reconciled: 2026-11-15_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 18 |
+| 📥 Inbox | 17 |
 | 🔬 Investigating | 1 |
-| 🧭 Pre-planning | 12 |
+| 🧭 Pre-planning | 13 |
 | 📝 Planned | 38 |
 | 🔨 In progress | 11 |
 | 🔍 Review | 2 |
@@ -21,7 +21,7 @@ _Generated: 2026-11-16T02:22:28-06:00_ - _Data commit: `8979c36b0ab6`_ - _last_r
 | 🅿️ Parked | 136 |
 | ✅ Done | 451 |
 
-## 📥 Inbox (18)
+## 📥 Inbox (17)
 _raw capture_
 
 ### `EXTERIOR-PERSONS-HOME-ALWAYS-ZERO-1` - perimeter_alert._get_persons_home always returns 0 in production (asks the coordinator manager for a presence attribute it does not have), so day/evening exterior alerts are always HIGH — _#1 · WSJF 5.5 · v6 tc3 u2 /e2_
@@ -199,15 +199,7 @@ _created 2026-11-16 00:20_
 - **Forensic keys (1):**
   - `tier`: 1
 
-### `VISITORS-PRESENT-EPISODE-RATE-1` - visitors_present opened ~13 episodes on 11-11 and ~9 on 11-12 against the README's 0-3/day; measure whether they were real visitors — _#15 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **presence** - status: **inbox**
-_created 2026-11-16 00:20_
-- **Origin:** 2026-11-16 - Soak-exit residual (L2).
-- **Next:** Me: one-shot probe of the 11-11/11-12 episodes against camera/door evidence; close or fix.
-- **Forensic keys (1):**
-  - `tier`: 1
-
-### `FRIGATE2-SWAP-FULL-1` - Frigate 2 host swap is full (2047/2048 MB) with 4.4 GB RAM available: early warning for the known OOM/hang failure — _#16 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `FRIGATE2-SWAP-FULL-1` - Frigate 2 host swap is full (2047/2048 MB) with 4.4 GB RAM available: early warning for the known OOM/hang failure — _#15 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **identity** - status: **inbox**
 _created 2026-11-16 01:40_
 - **Origin:** 2026-11-16 - Seen by the Foyer dewarp feasibility probe (AUDIT_foyer_dewarp_feasibility_2026_11_16.md, c8264dbe).
@@ -217,7 +209,7 @@ _created 2026-11-16 01:40_
   - `finding_2026_11_16_homelab`: homelab-automation-15: frigate.embeddings_manager RSS 13.5 GB of the 25.5 GB container, climbing since the 11-13 restart (3.4 GB then; past month 2-6 GB, growing between restarts); swap filled ~11-15 06:00 UTC; enrichment config unchange...
   - `tier`: 1
 
-### `FOYER-FISHEYE-DEWARP-1` - Dewarp the Foyer fisheye still before any interior vision read; the Foyer camera also sees the Living Room (cross-room overlap) — _#17 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `FOYER-FISHEYE-DEWARP-1` - Dewarp the Foyer fisheye still before any interior vision read; the Foyer camera also sees the Living Room (cross-room overlap) — _#16 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **identity** - status: **inbox**
 _created 2026-11-16 01:50_
 - **Origin:** 2026-11-16 - Interior D0(g) pilot (AUDIT_vision_interior_d0g_pilot_2026_11_16.md): both Foyer frames graded wrong.
@@ -230,7 +222,7 @@ _created 2026-11-16 01:50_
   - `tier`: 2
   - `operator_2026_11_16`: 2 people in the foyer. Fisheye messing up the recogniction. We need a dewarp / foyer is empty but living room has 2 people
 
-### `AUDIO-PRESENCE-FUSION-1` - Audio as a presence vector: feed per-room speech/sound detections (Frigate audio, other mics) into presence/census fusion — _#18 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `AUDIO-PRESENCE-FUSION-1` - Audio as a presence vector: feed per-room speech/sound detections (Frigate audio, other mics) into presence/census fusion — _#17 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **inbox**
 _created 2026-11-16 02:30_
 - **Origin:** 2026-11-16 - Operator aside while Frigate audio detection was being turned off globally.
@@ -285,7 +277,7 @@ _created 2026-11-12 22:00_
   - `operator_2026_11_14_default_on`: Should be on by default if there are cameras in the house. => Vision Assisted Census switch defaults ON when the install has at least one camera (registry: any camera entity from a camera integration), OFF otherwise; a stored off still w...
   - `operator_2026_11_14_v6`: It feels like the last ship of this arc should move to v6.x? This is a major arc. And its going to lead to OC and personalization and Ai enhancements for rooms. / Btw we don't need to be so conservative on shipping this live as soon as t...
 
-## 🧭 Pre-planning (12)
+## 🧭 Pre-planning (13)
 _idea being decomposed_
 
 ### `EC-TOU-TRANSITION-DOUBLE-CONSUME-1` - Manager and timer both consume the TOU-period change; if the manager wins, the arbitrage chunk reset and transition-into-peak check are skipped for that boundary — _#1 · WSJF 3.5 · v3 tc2 u2 /e2_
@@ -420,7 +412,18 @@ _updated 2026-10-21 22:05_
   - `adjacency_2026_10_16`: ADJACENT to ROADMAP-STALE-AGENTIC-LAYER-1 (rooms as agents): same vision surface (goals, tools, memory, loops). One vision doc covers both; separate cards for the OC redesign vs room agents.
   - `residual_2026_10_21_never_fires_restart_repeat`: From OC-STUCK-SENSOR-GENERALIZE-1 disposal: the (sensor_never_fires, eid) dedup is in memory and resets each HA restart, so the same silent sensor is re-reported ~18 min after every start. Belongs in the first slice (persistent problem d...
 
-### `OC-SHADOW-SAMPLES-EMPTY-1` - Optimization Coordinator shadow track record never accumulates: optimizer_shadow_samples has 0 rows while OC logged 6,822 findings in 14 days (~90% tier-1 noise), so the v2 promotion gate can never be met — _#10 · WSJF 1.4 · v6 tc3 u2 /e8_
+### `VISITORS-PRESENT-EPISODE-RATE-1` - visitors_present opened ~13 episodes on 11-11 and ~9 on 11-12 against the README's 0-3/day; measure whether they were real visitors — _#10 · WSJF 1.6 · v4 tc2 u2 /e5_
+thread: **presence** - status: **pre_planning**
+_created 2026-11-16 00:20 · updated 2026-11-16 02:25 · refined_
+- **Problem / Solution:**
+  - Problem: the 'visitors present' indicator switched on 11 times on 11-11 and 8 times on 11-12 (mostly for 1-25 minutes) when no visitor was there: only one resident was home and the camera count said two people. Solution: make the camera ...
+- **Origin:** 2026-11-16 - Soak-exit residual (L2).
+- **Next:** Me (Tier 2 presence plan, attended; read PRESENCE state-of-play + SENSOR_FLEET_CLASSES first): (1) producer check: which Frigate camera inflates frigate_count with one resident home (recorder per-camera person counts for the 11-11 episod...
+- **Forensic keys (2):**
+  - `tier`: 1
+  - `measured_2026_11_16_overnight`: SPURIOUS, measured (ura-prober, recorder metadata_id 28987 + URA DB, read-only). Episodes CST: 11-11 = 11 (08:45-13:52, median 3 min, longest 25 min); 11-12 = 8 (07:42-12:56, median 6 min, one 112 min 11:04-12:56); 11-10 = 1 (13 min). Gr...
+
+### `OC-SHADOW-SAMPLES-EMPTY-1` - Optimization Coordinator shadow track record never accumulates: optimizer_shadow_samples has 0 rows while OC logged 6,822 findings in 14 days (~90% tier-1 noise), so the v2 promotion gate can never be met — _#11 · WSJF 1.4 · v6 tc3 u2 /e8_
 thread: **optimization** - status: **pre_planning**
 _created 2026-10-16 · updated 2026-11-09 02:09 · refined_
 - **Problem / Solution:**
@@ -435,7 +438,7 @@ _created 2026-10-16 · updated 2026-11-09 02:09 · refined_
   - `measured_2026_10_16_overnight`: CONFIRMED, with mechanism (read-only, live URA DB ~02:10 CDT + code trace; orchestrator re-read the key lines). optimizer_shadow_samples: 0 rows ever. optimization_findings: 6,886 rows 09-18..10-16, ~550-576 house + 160-500 room per day;...
   - `verify_2026_11_09_overnight`: STILL-REAL: optimizer_shadow_samples = 0 rows (URA DB, 02:09 CST). CARD-WAS-WRONG on next: it still showed the A/B PICK that was settled 10-17; corrected.
 
-### `APPLIANCE-COST-DEFERRAL-1` - Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip — _#11 · WSJF 1.0 · v4 tc2 u2 /e8_
+### `APPLIANCE-COST-DEFERRAL-1` - Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip — _#12 · WSJF 1.0 · v4 tc2 u2 /e8_
 thread: **energy** - status: **pre_planning**
 _created 2026-08-18 02:30 · updated 2026-09-29 01:05 · refined_
 - **Next:** NOT greenfield — ready Tier 2-DB v3 spec exists (PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md supersedes v1.1/v2; BACKLOG B5: P7 strictness, D2 options-flow, D8 Rainbird kill switch). Run marginal-benefit decomposition AGAINST that plan's...
@@ -446,7 +449,7 @@ _created 2026-08-18 02:30 · updated 2026-09-29 01:05 · refined_
   - `disposition_2026_09_12_sweep4`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL greenfield (~30-40h): no appliance/thinq/rainbird coordinator exists (0 files). Ready v3 spec at PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md. Run marginal-benefit d...
   - `problem`: No appliance_coordinator exists (thinq/rainbird->0 files). Deferring washer/dishwasher starts and skipping sprinkler runs to off-peak/solar windows is recurring-$ value but ~30-40h of work.
 
-### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions) — _#12 · WSJF 0.6 · v2 tc1 u2 /e8_
+### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions) — _#13 · WSJF 0.6 · v2 tc1 u2 /e8_
 thread: **tablets** - status: **pre_planning** - approval: **unreviewed**
 _updated 2026-10-21 22:05_
 - **Origin:** 2026-08-08 - operator: master tablet upgrades tested and working (sensors, lights, all over MQTT); thinking house-device tablet control, wake on URA room occupancy, conditional room quick-actions. NO ACTION YET - thoughts requested.
@@ -3171,8 +3174,9 @@ thread: **presence** - status: **parked** - approval: **implied**
 - **Origin:** 2026-08-16 - Operator: "Do both [G1+G4]. Card G6 and only use it if needed."
 - **Why:** Census hold(3min)+decay(-1/300s) makes a phantom structurally durable ~25 min, outlasting the 300s guest persistence gate — so "sustained" cannot distinguish sustained-because-real from sustained-because-held. ~15 LoC, D8 threading pattern.
 - **Refs:** docs/planning/RESEARCH_guest_actuation_and_census.md
-- **Forensic keys (1):**
+- **Forensic keys (2):**
   - `revisit_trigger`: Build ONLY if, after G1+G4 ship, a phantom or a genuinely transient presence (delivery, brief visitor) still sustains guest mode. Under G4 this should be structurally blocked — no guest room sustaining 30min means no guest activation — s...
+  - `instance_2026_11_16`: Near-trigger, NOT fired: VISITORS-PRESENT-EPISODE-RATE-1 measured 19 spurious visitors_present episodes on 11-11/12 from an inflated Frigate unidentified count through the same Path A gate. Guest MODE was never entered (house_state_log),...
 
 ### `HOUSE-STATE-UTILIZATION-EPIC` - ROADMAP EPIC — give operational meaning to under-consumed house states (HOME_DAY dead, AWAY thin); rungs 2-4 unbuilt — _#51 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **parked** - approval: **explicit**
