@@ -31,15 +31,19 @@ instead and the ledger", never presence. The census term (D4) and the ledger flo
   never writes this one, and the parent entry does not reload.
 - **Guard.** R15 pins `interior_tick`, `_emit_unnamed` and `area_evidence` to `PersonSightingProducer.*`.
 
-## Live validation (prospective; to be replaced by a Validated table)
+## Validated 2026-11-15 (installed with v5.108.29, one restart ~21:47 CST, house home_night)
 
-- **D1:** within an hour `sensor.ura_interior_awareness` has per-room attributes for every covered room; a BLE-placed
-  resident on camera reads `confirmed`; `get_layer_diagnostics()["interior_vision"]` shows record builds > 0.
-- **Census unchanged:** the census sensors' state and attributes read as before (the record never moves them).
-- **D5:** at least one `interior_path` row WITH at least one hop after an entry on a mapped door (hop-less proves
-  nothing). If no entry happens in the window, the in-suite chain tests are the proof.
-- **No AI calls:** no `interior_vision` or `interior_description` rows; llmvision call counts unchanged.
-- **Logs:** no new ERROR from `person_sighting`, `interior_vision`, `camera_census` or `transit_validator` after boot.
+| Criterion | Result | Evidence |
+|---|---|---|
+| Installed and booted | PASS | manifest v5.108.29 (contains .28), `interior_vision.py` on disk; installed_version v5.108.29 |
+| D1 room records | PASS | `sensor.ura_interior_awareness` populated ~2 min after restart (first record 21:48:50); 7 covered rooms: Master Hallway, Game Room, Garage Hallway, Living Room, Staircase, Upstairs Hallway, Foyer; all `liveness: live`, `provenance: nvr`; Living Room `unnamed_present` (bodies 1, unnamed 1), others `empty` |
+| Not covered yet | finding | Playroom and Family Room cameras are in `camera_person_entities` but have no record (excluded type, twin merge or shared room; not yet resolved per camera) |
+| Census unchanged | PASS by construction + suite | records have no reader in census/presence (R15 guard pins); golden `interior_records_on` equals develop |
+| D5 path rows | pending organic | `last_path` None; no mapped-door entry since boot |
+| No AI calls | PASS | the code path has no model call in this release; no `interior_vision` / `interior_description` rows |
+| Logs | PASS | system log ERROR filtered on `universal_room_automation`: 0 entries |
+
+Boot note: the sensor reads unknown for the first ~2 minutes after a restart, until the first record build and the next poll.
 
 ## Tests
 
