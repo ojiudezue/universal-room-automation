@@ -24,17 +24,18 @@ until the welcome-scene engine exists. Saving the People screen never reloads th
 - **Speakers** (config, 2026-11-15): Jaya Bedroom and Ziri Bedroom now have room players (`media_player.jayas_room_3`,
   `media_player.ziris_room_3`).
 
-## Live validation (prospective; to be replaced by a Validated table)
+## Validated 2026-11-15 (restart ~21:47 CST)
 
-- **B0 form check (plan §10.1, gate):** open People, pick a person: the bedroom/bathroom lists, toggles and conditional
-  fields render; "Music by room" fields carry room names; Submit with no change saves without error. Clear one pick
-  and save: it is gone (records how the frontend sends a cleared field). Rollback rule: if the form fails to render or
-  save, revert this release.
-- **No reload:** after a People save, the URA integration entry stays `loaded` and the system log shows no new URA
-  setup / unload entries; room entities keep their `last_changed` (no unavailable blip).
-- **Sensor:** one `sensor.ura_person_profile_*` per tracked person; distinct entity ids.
-- **Lighting unchanged:** room entries light as before.
-- **Logs:** no new ERROR from `config_flow`, `person_profiles` or `automation` after boot.
+| Criterion | Result | Evidence |
+|---|---|---|
+| B0 form renders | PASS | CM entry 01KJEC3FYPYAGBQKZWC94CR8GR > People: person picker lists person.ezinne / oji_udezue / jaya / ziri; picking oji renders `people_profile` with sections `my_rooms` (bedrooms 47 rooms, bathrooms 8, options are value/label pairs so names display) and `automate` (auto_music, music_default media, volume 0.05-1, vary_time, day, evening, vary_room, auto_scene, welcome_scene `scene.*`). Flow aborted, nothing saved |
+| B0 save / clear-field shape | pending operator | needs a real save from the UI; the code handles both "omitted" and "sent empty" (A3) |
+| Profile sensors | PASS | `sensor.ura_person_profile_{ezinne,oji_udezue,jaya,ziri}` all present, state 0 (no profiles yet), distinct ids |
+| No reload on save | pending first save | in-suite: `person_profiles` in both no-reload key sets (pins 134) |
+| Lighting unchanged | PASS by construction + suite | the entry hook returns None until the D3 engine exists |
+| Logs | PASS | system log ERROR filtered on `universal_room_automation`: 0 entries |
+
+HA config change in the same window (operator "Remove it"): `device_tracker.okosisipadmini6_2` removed from `person.oji_udezue` (backup `.claude/tmp/person.storage.bak-20261115`); the iPad was the source of all 29 phantom arrivals in D0b.
 
 ## Not in this release
 

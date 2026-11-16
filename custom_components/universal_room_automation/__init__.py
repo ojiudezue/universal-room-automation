@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.108.29
+# Universal Room Automation vv5.108.30
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -77,6 +77,8 @@ from .const import (
     CONF_FACE_RECOGNITION_ENABLED,
     CONF_EGRESS_IDENTITY_ENABLED,
     CONF_INTERIOR_VISION_ENABLED,
+    # S3a (2026-11-15): chatter mode, reload-suppressed (select-owned).
+    CONF_CHATTER_MODE,
     CONF_PERIMETER_ZONE_AGREEMENT_DEMOTE,
     CONF_PERIMETER_SINGLE_SOURCE_DEMOTE,
     CONF_PERIMETER_VLM_GATE,
@@ -5050,12 +5052,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # after the reconcile. Preserves disable-intent (bool False -> mode
         # off); a True or missing pre-D7 bool leaves mode at its current /
         # default value (shadow).
+        # S3a (2026-11-15): the mode's owner is the INTEGRATION entry (the
+        # select). This migrate still writes the CM entry (where the pre-D7
+        # bool lived; writing another entry from setup would reload it). The
+        # one resolver `_nm_cycle_a.chatter_mode_option` reads the CM value
+        # only when the integration entry has none, and the select shows the
+        # same resolved value, so rooms and select agree either way.
         try:
             from .const import (  # noqa: PLC0415
                 CHATTER_MODE_OFF,
-                CONF_CHATTER_MODE,
                 CONF_CHATTER_QUARANTINE_ENABLED,
-            )
+            )  # CONF_CHATTER_MODE: module-level import (S3a)
             if CONF_CHATTER_QUARANTINE_ENABLED in entry.options:
                 old_bool = bool(entry.options.get(CONF_CHATTER_QUARANTINE_ENABLED))
                 _new_opts = dict(entry.options)
@@ -7919,6 +7926,12 @@ INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     # read only when the switch has no stored state (its RestoreEntity add);
     # no cached consumer, no discharge signal (path (a)).
     CONF_INTERIOR_VISION_ENABLED,
+    # S3a (CHATTER-MODE-SELECT-NOT-WIRED-1, 2026-11-15): select.ura_chatter_mode
+    # writes the INTEGRATION entry; every room re-reads it per tick through
+    # `_nm_cycle_a.chatter_mode_option` (cache flushed by the select write and
+    # at the top of the integration branch of `_async_update_listener`). No
+    # other cached consumer, so a mode flip needs no parent reload.
+    CONF_CHATTER_MODE,
 })
 
 # EXCLUDED - UNSAFE-STRUCTURAL (Tier-3 review A3 / D-HIGH-1, 2026-09-07):
@@ -8911,6 +8924,18 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
     # write-only, see :6447 above). If a future cycle changes CM
     # cleanup, mirror it here.
     if entry_type == ENTRY_TYPE_INTEGRATION:
+        # S3a: the chatter-mode resolver caches the integration option;
+        # flush on EVERY integration options update, before any subset check.
+        try:
+            from .domain_coordinators._nm_cycle_a import (  # noqa: PLC0415
+                invalidate_chatter_mode_cache,
+            )
+            invalidate_chatter_mode_cache()
+        except Exception:  # noqa: BLE001 — never block the listener
+            _LOGGER.warning(
+                "S3a: invalidate_chatter_mode_cache raised (non-fatal)",
+                exc_info=True,
+            )
         snapshots = hass.data.setdefault(DOMAIN, {}).setdefault(
             "integration_last_applied_options", {},
         )
