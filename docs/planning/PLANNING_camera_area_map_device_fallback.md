@@ -1,5 +1,10 @@
 # PLANNING: camera area map falls back to the device area (ZONE-CAMERA-DISCOVERY-DEVICE-AREA-1)
 
+**Status: PARKED 2026-11-15** (operator: "Yes park the camera area"; and "Turn off camera hold. Too inaccurate in every
+room."). Nothing below is scheduled for build. Revival triggers and the verbatim decisions are on card
+ZONE-CAMERA-DISCOVERY-DEVICE-AREA-1 (`operator_2026_11_15_park`, `operator_2026_11_15_no_camera_hold`). The option-A
+decision recorded under it is superseded by the park.
+
 Date 2026-11-15. Author ura-planner. Status: plan rev 2 (applies plan review
 `docs/reviews/code-review/plan_review_camera_area_map_2026_11_15.md`, PLAN-FIX-REQUIRED; finding map in §10).
 Card ZONE-CAMERA-DISCOVERY-DEVICE-AREA-1.

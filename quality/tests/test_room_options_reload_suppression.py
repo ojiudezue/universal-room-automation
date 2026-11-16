@@ -272,6 +272,8 @@ def _load_ns() -> dict:
         "CONF_FACE_RECOGNITION_ENABLED": "face_recognition_enabled",
         "CONF_EGRESS_IDENTITY_ENABLED": "egress_identity_enabled",
         "CONF_INTERIOR_VISION_ENABLED": "interior_vision_enabled",
+        # S3a: chatter mode in the integration allowlist.
+        "CONF_CHATTER_MODE": "chatter_mode",
         "SIGNAL_URA_FACE_RECOGNITION_CHANGED": "ura_face_recognition_changed",
         "SIGNAL_URA_TRANSIT_CONFIG_CHANGED": "ura_transit_config_changed",
         "ConfigEntry": type("ConfigEntry", (), {}),

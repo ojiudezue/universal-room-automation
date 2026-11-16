@@ -1,0 +1,26 @@
+{
+  "format_version": "2.1",
+  "entry_id": "323",
+  "author": "ojiudezue",
+  "timestamp": "2026-11-16T04:10:00Z",
+  "type": "decision",
+  "weight": "significant",
+  "category": "architecture",
+  "title": "Oji's phantom arrivals came from a re-added iPad tracker; step 8 relies on the stale-source rule and the iPad is removed again",
+  "summary": "The step 8 D0b probe found 29 of Oji's 33 arrivals that passed the 15-minute absence gate had no body in the house, with absences up to ~5 h, so no away threshold could filter them. A follow-up traced every one (and all 18 of his short flaps) to device_tracker.okosisipadmini6_2: HA's person entity lets a non-GPS tracker that reads home win over GPS, and the iPad sitting at home flipped person.oji_udezue home. The existing lock-regime stale-source rule (tracker did not change at the edge, >10 s) separated them perfectly: 29/29 phantoms stale, 0/32 real arrivals stale. The iPad had been removed on 10-18 but was back in person.oji_udezue; the operator said 'Remove it' and it was removed via person/update with a backup.",
+  "why": "The step 8 plan already required a non-stale source, but nobody had measured whether that rule caught this failure. Measuring first turned a proposed new 'body test' operator question into a confirmation that existing code suffices, and exposed a regressed HA config the operator had already ruled on.",
+  "alternatives_considered": [
+    "A new body test at +60/+180 s (BLE room or census presence) before arrival actions",
+    "A longer absence threshold (no value separates real from phantom: Oji's real returns were 1,814-428,382 s away)",
+    "Keep the iPad and rely only on the stale rule (rejected by operator; other person.* readers such as HVAC and HA automations do not apply it)"
+  ],
+  "implications": "Any new arrival consumer must read the residency record's source_stale, not raw person.* edges. person.oji_udezue tracker membership can silently regress (re-pair or manual add); a trip-wire on person tracker lists, or a periodic check, would catch it next time.",
+  "confidence": "high",
+  "revisit_trigger": "Phantom arrivals reappear in D0b-style probes, or a person.* entity gains a tracker that stays home while the person leaves.",
+  "operator_quote": "Remove it",
+  "refs": {
+    "cards": ["PERSON-PROFILE-PREFERENCES-1", "PERSON-OJI-HOME-FLAP-1"],
+    "files": ["docs/planning/AUDIT_step8_d0b_2026_11_15.md", "custom_components/universal_room_automation/arrival_edges.py"],
+    "entries": ["321", "288"]
+  }
+}

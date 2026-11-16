@@ -83,3 +83,5 @@
 - 2026-11-15 15:44 **v5.108.26** — v5.108.26: music following repair (cards: MUSIC-FOLLOWING-TRANSFER-REPAIR-1)
 - 2026-11-15 18:37 **v5.108.27** — v5.108.27: crossing vision Phase 3, first set (P3-D1, P3-D5, P3-D8) + P3-D0 knobs (cards: VISION-P3-FIRST-SET-1)
 - 2026-11-15 21:32 **v5.108.28** — v5.108.28: interior vision ship 1 (room records, entry paths, no AI calls) (cards: VISION-INTERIOR-SHIP1-1)
+- 2026-11-15 21:43 **v5.108.29** — v5.108.29: People settings screen (step 8 §10.1, nothing acts yet) (cards: PEOPLE-SCREEN-1)
+- 2026-11-15 23:12 **v5.108.30** — URA v5.108.30 — Stuck-sensor truth S3a, S3b, S1 (cards: CHATTER-MODE-SELECT-NOT-WIRED-1,STUCK-SENSOR-S3B-S1-1)

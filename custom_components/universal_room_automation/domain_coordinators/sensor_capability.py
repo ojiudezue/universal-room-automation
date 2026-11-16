@@ -27,6 +27,7 @@ against a capability, per query.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import Callable, Dict, Mapping, Optional
 
@@ -398,6 +399,11 @@ FAMILY_BY_MODEL_ID: Dict[str, str] = {
     # carries the firmware). Exact string — a firmware bump changes the
     # key; re-run scripts/fan_noise/audit_motion_sensors_models.py.
     "ms600 9.0.0": SENSOR_FAMILY_GENERIC_RADAR,
+    # S3b (2026-11-15): the meross_lan device record that OWNS the
+    # `..._sensor_presence_motion` bit carries model "ms600-un" (model_id
+    # None); each room also has an "ms600 9.0.0" record (same meross_lan
+    # identifier). Verified in the live core.device_registry.
+    "ms600-un": SENSOR_FAMILY_GENERIC_RADAR,
     "16897": SENSOR_FAMILY_GENERIC_RADAR,  # Meross Smart Presence (Matter)
     "ZG-204ZV": SENSOR_FAMILY_ZIGBEE_ZV,
     "ZG-204Z": SENSOR_FAMILY_PIR,
@@ -441,11 +447,25 @@ def family_for_model(
         if key and key in FAMILY_BY_MODEL_ID:
             return FAMILY_BY_MODEL_ID[key]
     for key in (model_id, model):
-        if key and isinstance(key, str) and key.split():
-            fam = FAMILY_BY_MODEL_TOKEN.get(key.split()[0].lower())
+        token = _first_model_token(key)
+        if token:
+            fam = FAMILY_BY_MODEL_TOKEN.get(token)
             if fam is not None:
                 return fam
     return SENSOR_FAMILY_UNKNOWN
+
+
+# S3b (2026-11-15): first token split on whitespace, hyphen or underscore,
+# so a regional / firmware suffix ("ms600-un", "ms600_eu", "ms600 9.0.0")
+# resolves the same family as the bare model.
+_MODEL_TOKEN_SPLIT = re.compile(r"[\s\-_]+")
+
+
+def _first_model_token(key: object) -> str:
+    if not isinstance(key, str):
+        return ""
+    parts = [p for p in _MODEL_TOKEN_SPLIT.split(key.strip()) if p]
+    return parts[0].lower() if parts else ""
 
 
 # ----------------------------------------------------------------------
@@ -490,6 +510,58 @@ def is_radar_capability(
     if cap is not None and cap.kind == CAPABILITY_KIND_MMWAVE:
         return True
     return family_of() in RADAR_SENSOR_FAMILIES
+
+
+# ----------------------------------------------------------------------
+# S1 (stuck-sensor truth, PLANNING_stuck_sensor_truth.md rev 2) — the P22
+# off-gap class gate. Two properties, named separately (SENSOR_FLEET_CLASSES
+# rule 3): `is_fan_immune_witness` is NOT this predicate (it is True for
+# bed / camera / BLE, which hold a still person).
+# ----------------------------------------------------------------------
+
+# Kinds that hold a still person (a long `on` may be a sleeper).
+_STILL_HOLDER_KINDS: frozenset = frozenset({
+    CAPABILITY_KIND_MMWAVE,
+    CAPABILITY_KIND_BED,
+    CAPABILITY_KIND_CAMERA_PRESENCE,
+    CAPABILITY_KIND_BLE_PRESENCE,
+})
+
+# Device families measured motion-class (cannot hold a still person).
+P22_MOTION_CLASS_FAMILIES: frozenset = frozenset({
+    SENSOR_FAMILY_ZIGBEE_ZV,
+    SENSOR_FAMILY_PIR,
+})
+
+
+def is_still_holder(
+    cap: Optional[SensorCapability], family: str,
+) -> bool:
+    """True iff the input can hold a still person (pure).
+
+    An operator override (``CONF_SENSOR_CAPABILITIES``) decides both ways;
+    else the CONF-list kind ``mmwave`` (the presence_sensors list) or a
+    radar device family (``RADAR_SENSOR_FAMILIES``, incl. the MS600 bit by
+    registry model) makes it a still holder.
+    """
+    if cap is not None and cap.source == "override":
+        return cap.kind in _STILL_HOLDER_KINDS
+    if cap is not None and cap.kind in _STILL_HOLDER_KINDS:
+        return True
+    return family in RADAR_SENSOR_FAMILIES
+
+
+def is_p22_motion_class(
+    cap: Optional[SensorCapability], family: str,
+) -> bool:
+    """True iff the P22 off-gap tolerance applies: a room input that is
+    not a still holder AND whose device family is a known motion-class
+    family (ZG-204ZV mmWave-motion, PIR). Unknown family -> False."""
+    if cap is None:
+        return False
+    if is_still_holder(cap, family):
+        return False
+    return family in P22_MOTION_CLASS_FAMILIES
 
 
 def family_recheck_factor(family: str) -> float:

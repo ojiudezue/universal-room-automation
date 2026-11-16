@@ -1,0 +1,302 @@
+{
+ "description": "Operator crossing grades from the urakanban /grade/ page (scripts/grading/pull_grades.py). Human truth for crossing vision P3-D6 direction and count scoring and the P3-D0 gates. One row per crossing_key, latest grade wins. direction in|out|both|no_cross|unclear|unknown (no_cross = came to the door, did not go through; unclear = seen, cannot tell; unknown = no door traversal visible); count = people who crossed or 'unknown'. kind=pair rows index crossing_pass_key_pairs_2026_11_15.json (pair_label in its rubric).",
+ "grades": [
+  {
+   "crossing_key": "sensor.madrone_g6_entry_person_count@2026-11-14T12:59:22.050665-06:00",
+   "direction": "both",
+   "count": 1,
+   "at": "2026-11-16T03:38:22.942Z",
+   "batch": "g20261115-1716",
+   "kind": "crossing",
+   "door_group": "front",
+   "e_ts": "2026-11-14T12:59:22.050665-06:00",
+   "direction_tracker_vocab": null
+  },
+  {
+   "crossing_key": "binary_sensor.madrone_g6_entry_person_detected@2026-11-14T13:01:06.928553-06:00",
+   "direction": "both",
+   "count": 1,
+   "at": "2026-11-16T03:38:36.714Z",
+   "batch": "g20261115-1716",
+   "kind": "crossing",
+   "door_group": "front",
+   "e_ts": "2026-11-14T13:01:06.928553-06:00",
+   "direction_tracker_vocab": null
+  },
+  {
+   "crossing_key": "sensor.garage_a_person_count@2026-11-14T13:40:36.923835-06:00",
+   "direction": "in",
+   "count": 1,
+   "at": "2026-11-16T03:39:36.446Z",
+   "batch": "g20261115-1716",
+   "kind": "crossing",
+   "door_group": "garage_a",
+   "e_ts": "2026-11-14T13:40:36.923835-06:00",
+   "direction_tracker_vocab": "entry"
+  },
+  {
+   "crossing_key": "sensor.garage_a_person_count@2026-11-14T14:17:23.980660-06:00",
+   "direction": "out",
+   "count": 1,
+   "at": "2026-11-16T03:42:11.516Z",
+   "batch": "g20261115-1716",
+   "kind": "crossing",
+   "door_group": "garage_a",
+   "e_ts": "2026-11-14T14:17:23.980660-06:00",
+   "direction_tracker_vocab": "exit"
+  },
+  {
+   "crossing_key": "binary_sensor.garage_a_person_detected@2026-11-14T14:18:39.155506-06:00",
+   "direction": "no_cross",
+   "count": 1,
+   "at": "2026-11-16T05:03:38.601Z",
+   "batch": "g20261115-1716",
+   "kind": "crossing",
+   "door_group": "garage_a",
+   "e_ts": "2026-11-14T14:18:39.155506-06:00",
+   "direction_tracker_vocab": null
+  },
+  {
+   "crossing_key": "binary_sensor.madrone_g6_entry_person_detected@2026-11-14T15:12:14.476362-06:00",
+   "direction": "in",
+   "count": 1,
+   "at": "2026-11-16T05:04:44.300Z",
+   "batch": "g20261115-1716",
+   "kind": "crossing",
+   "door_group": "front",
+   "e_ts": "2026-11-14T15:12:14.476362-06:00",
+   "direction_tracker_vocab": "entry"
+  },
+  {
+   "crossing_key": "binary_sensor.doorbell_lite_person_occupancy_2@2026-11-14T15:23:04.221092-06:00",
+   "direction": "in",
+   "count": 1,
+   "at": "2026-11-16T05:05:20.000Z",
+   "batch": "g20261115-1716",
+   "kind": "crossing",
+   "door_group": "garage_a",
+   "e_ts": "2026-11-14T15:23:04.221092-06:00",
+   "direction_tracker_vocab": "entry"
+  },
+  {
+   "crossing_key": "binary_sensor.garage_a_person_detected@2026-11-14T15:24:28.444111-06:00",
+   "direction": "both",
+   "count": 1,
+   "at": "2026-11-16T05:06:00.016Z",
+   "batch": "g20261115-1716",
+   "kind": "crossing",
+   "door_group": "garage_a",
+   "e_ts": "2026-11-14T15:24:28.444111-06:00",
+   "direction_tracker_vocab": null
+  },
+  {
+   "crossing_key": "binary_sensor.doorbell_lite_person_occupancy_2@2026-11-14T15:25:50.901077-06:00",
+   "direction": "in",
+   "count": 1,
+   "at": "2026-11-16T05:06:21.217Z",
+   "batch": "g20261115-1716",
+   "kind": "crossing",
+   "door_group": "garage_a",
+   "e_ts": "2026-11-14T15:25:50.901077-06:00",
+   "direction_tracker_vocab": "entry"
+  },
+  {
+   "crossing_key": "binary_sensor.front_door_aerial_person_occupancy_2@2026-11-14T15:31:04.138429-06:00",
+   "direction": "in",
+   "count": 1,
+   "at": "2026-11-16T05:07:05.115Z",
+   "batch": "g20261115-1716",
+   "kind": "crossing",
+   "door_group": "front",
+   "e_ts": "2026-11-14T15:31:04.138429-06:00",
+   "direction_tracker_vocab": "entry"
+  },
+  {
+   "crossing_key": "binary_sensor.madrone_g6_entry_person_detected@2026-11-14T15:52:52.021825-06:00",
+   "direction": "in",
+   "count": 1,
+   "at": "2026-11-16T05:07:28.132Z",
+   "batch": "g20261115-1716",
+   "kind": "crossing",
+   "door_group": "front",
+   "e_ts": "2026-11-14T15:52:52.021825-06:00",
+   "direction_tracker_vocab": "entry"
+  },
+  {
+   "crossing_key": "binary_sensor.front_door_aerial_person_detected@2026-11-14T16:08:03.823711-06:00",
+   "direction": "in",
+   "count": 1,
+   "at": "2026-11-16T05:07:38.065Z",
+   "batch": "g20261115-1716",
+   "kind": "crossing",
+   "door_group": "front",
+   "e_ts": "2026-11-14T16:08:03.823711-06:00",
+   "direction_tracker_vocab": "entry"
+  },
+  {
+   "crossing_key": "binary_sensor.front_door_aerial_person_detected@2026-11-14T16:14:56.294643-06:00",
+   "direction": "in",
+   "count": 1,
+   "at": "2026-11-16T05:07:51.783Z",
+   "batch": "g20261115-1716",
+   "kind": "crossing",
+   "door_group": "front",
+   "e_ts": "2026-11-14T16:14:56.294643-06:00",
+   "direction_tracker_vocab": "entry"
+  },
+  {
+   "crossing_key": "binary_sensor.front_door_aerial_person_detected@2026-11-14T16:16:11.013693-06:00",
+   "direction": "in",
+   "count": 3,
+   "at": "2026-11-16T05:08:32.218Z",
+   "batch": "g20261115-1716",
+   "kind": "crossing",
+   "door_group": "front",
+   "e_ts": "2026-11-14T16:16:11.013693-06:00",
+   "direction_tracker_vocab": "entry"
+  },
+  {
+   "crossing_key": "sensor.front_door_aerial_person_count@2026-11-14T16:19:36.764960-06:00",
+   "direction": "in",
+   "count": 4,
+   "at": "2026-11-16T05:09:33.685Z",
+   "batch": "g20261115-1716",
+   "kind": "crossing",
+   "door_group": "front",
+   "e_ts": "2026-11-14T16:19:36.764960-06:00",
+   "direction_tracker_vocab": "entry"
+  },
+  {
+   "crossing_key": "sensor.front_door_aerial_person_count@2026-11-14T16:20:48.703125-06:00",
+   "direction": "in",
+   "count": 2,
+   "at": "2026-11-16T05:09:51.082Z",
+   "batch": "g20261115-1716",
+   "kind": "crossing",
+   "door_group": "front",
+   "e_ts": "2026-11-14T16:20:48.703125-06:00",
+   "direction_tracker_vocab": "entry"
+  },
+  {
+   "crossing_key": "binary_sensor.madrone_g6_entry_person_detected@2026-11-14T16:23:52.331449-06:00",
+   "direction": "in",
+   "count": 3,
+   "at": "2026-11-16T05:10:32.844Z",
+   "batch": "g20261115-1716",
+   "kind": "crossing",
+   "door_group": "front",
+   "e_ts": "2026-11-14T16:23:52.331449-06:00",
+   "direction_tracker_vocab": "entry"
+  },
+  {
+   "crossing_key": "binary_sensor.garage_a_person_detected@2026-11-14T16:30:44.605519-06:00",
+   "direction": "no_cross",
+   "count": 2,
+   "at": "2026-11-16T05:11:17.198Z",
+   "batch": "g20261115-1716",
+   "kind": "crossing",
+   "door_group": "garage_a",
+   "e_ts": "2026-11-14T16:30:44.605519-06:00",
+   "direction_tracker_vocab": null
+  },
+  {
+   "crossing_key": "binary_sensor.front_door_aerial_person_detected@2026-11-14T16:39:28.207230-06:00",
+   "direction": "in",
+   "count": 1,
+   "at": "2026-11-16T05:11:27.860Z",
+   "batch": "g20261115-1716",
+   "kind": "crossing",
+   "door_group": "front",
+   "e_ts": "2026-11-14T16:39:28.207230-06:00",
+   "direction_tracker_vocab": "entry"
+  },
+  {
+   "crossing_key": "binary_sensor.doorbell_lite_person_occupancy_2@2026-11-14T16:41:01.634649-06:00",
+   "direction": "no_cross",
+   "count": 0,
+   "at": "2026-11-16T05:14:19.282Z",
+   "batch": "g20261115-1716",
+   "kind": "crossing",
+   "door_group": "garage_a",
+   "e_ts": "2026-11-14T16:41:01.634649-06:00",
+   "direction_tracker_vocab": null
+  },
+  {
+   "crossing_key": "binary_sensor.front_door_aerial_person_detected@2026-11-14T17:11:19.531477-06:00",
+   "direction": "in",
+   "count": 1,
+   "at": "2026-11-16T05:14:39.499Z",
+   "batch": "g20261115-1716",
+   "kind": "crossing",
+   "door_group": "front",
+   "e_ts": "2026-11-14T17:11:19.531477-06:00",
+   "direction_tracker_vocab": "entry"
+  },
+  {
+   "crossing_key": "binary_sensor.doorbell_lite_person_occupancy_2@2026-11-14T17:30:13.344208-06:00",
+   "direction": "out",
+   "count": 1,
+   "at": "2026-11-16T05:15:51.898Z",
+   "batch": "g20261115-1716",
+   "kind": "crossing",
+   "door_group": "garage_a",
+   "e_ts": "2026-11-14T17:30:13.344208-06:00",
+   "direction_tracker_vocab": "exit"
+  },
+  {
+   "crossing_key": "binary_sensor.garage_a_person_detected@2026-11-14T17:31:26.155917-06:00",
+   "direction": "no_cross",
+   "count": 1,
+   "at": "2026-11-16T05:16:17.881Z",
+   "batch": "g20261115-1716",
+   "kind": "crossing",
+   "door_group": "garage_a",
+   "e_ts": "2026-11-14T17:31:26.155917-06:00",
+   "direction_tracker_vocab": null
+  },
+  {
+   "crossing_key": "sensor.front_door_aerial_person_count@2026-11-14T17:59:51.313790-06:00",
+   "direction": "in",
+   "count": 1,
+   "at": "2026-11-16T05:16:43.633Z",
+   "batch": "g20261115-1716",
+   "kind": "crossing",
+   "door_group": "front",
+   "e_ts": "2026-11-14T17:59:51.313790-06:00",
+   "direction_tracker_vocab": "entry"
+  },
+  {
+   "crossing_key": "binary_sensor.garage_a_person_occupancy_2@2026-11-14T18:27:00.130538-06:00",
+   "direction": "out",
+   "count": 1,
+   "at": "2026-11-16T05:17:10.997Z",
+   "batch": "g20261115-1716",
+   "kind": "crossing",
+   "door_group": "garage_a",
+   "e_ts": "2026-11-14T18:27:00.130538-06:00",
+   "direction_tracker_vocab": "exit"
+  },
+  {
+   "crossing_key": "binary_sensor.madrone_g6_entry_person_detected@2026-11-14T18:43:18.136279-06:00",
+   "direction": "out",
+   "count": 8,
+   "at": "2026-11-16T05:18:24.397Z",
+   "batch": "g20261115-1716",
+   "kind": "crossing",
+   "door_group": "front",
+   "e_ts": "2026-11-14T18:43:18.136279-06:00",
+   "direction_tracker_vocab": "exit"
+  },
+  {
+   "crossing_key": "binary_sensor.doorbell_lite_person_occupancy_2@2026-11-14T18:52:54.336074-06:00",
+   "direction": "no_cross",
+   "count": 0,
+   "at": "2026-11-16T05:18:52.347Z",
+   "batch": "g20261115-1716",
+   "kind": "crossing",
+   "door_group": "garage_a",
+   "e_ts": "2026-11-14T18:52:54.336074-06:00",
+   "direction_tracker_vocab": null
+  }
+ ]
+}

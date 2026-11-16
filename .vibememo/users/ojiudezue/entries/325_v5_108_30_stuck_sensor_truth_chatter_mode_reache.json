@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "325",
+  "author": "ojiudezue",
+  "session_id": "claude_20261116_051214_ship_v5_108_30",
+  "timestamp": "2026-11-16T05:12:14Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.108.30 shipped: Stuck-sensor truth: chatter mode reaches the rooms, MS600 bit resolves as radar, P22 off-pulse tolerance for motion sensors",
+  "summary": "Stuck-sensor truth: chatter mode reaches the rooms, MS600 bit resolves as radar, P22 off-pulse tolerance for motion sensors",
+  "why": "These are the census-reset prerequisites. Chatter quarantine never acted because the select wrote one entry while rooms read another; the media MS600 bit was unresolved; and a guest-room ZV held occupancy for hours with only 2-second blips. A 7-day replay showed exactly one new 4 h exclusion, the stuck guest-room case, with no tracked person present.",
+  "implications": "Shipped CHATTER-MODE-SELECT-NOT-WIRED-1, STUCK-SENSOR-S3B-S1-1 at v5.108.30; card(s) sit shipped_organic pending validation. Acceptance in README_v5.108.30.md (Live criteria).",
+  "revisit_trigger": "If a room vacates on a BLE-placed person because of a P22 exclusion, or chatter quarantine acts on a real occupant, revisit S1 tolerance or chatter.",
+  "refs": {
+    "cards": [
+      "CHATTER-MODE-SELECT-NOT-WIRED-1",
+      "STUCK-SENSOR-S3B-S1-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.108.30.md"
+    ],
+    "release_notes": "S3a: the chatter select now drives every room (integration entry first, CM fallback), and changing it no longer reloads the parent. S3b: the MS600 motion bit resolves to the radar family by registry model. S1: a motion-class input whose only off-pulses are under 10 s keeps its 4 h stuck clock; a not-on stretch (off/unavailable/unknown) is measured from when it stopped reading on. Step-0 replay GO."
+  }
+}

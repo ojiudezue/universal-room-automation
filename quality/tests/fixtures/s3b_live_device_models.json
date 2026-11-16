@@ -1,0 +1,2344 @@
+{
+ "source": "core.device_registry (live, read-only) 2026-11-15; family_develop = develop c67b8a78 family_for_model (pre-S3b)",
+ "pairs": [
+  {
+   "model_id": "",
+   "model": "RLC-1224A",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "1",
+   "model": "White Series Smart 2-1 Switch",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "1",
+   "model": "arre Smart Button",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "1052",
+   "model": "Smart Plug",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "15",
+   "model": "roborock.vacuum.a104 Dock",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "16897",
+   "model": "Smart Presence Sensor",
+   "family_develop": "generic_radar"
+  },
+  {
+   "model_id": "171",
+   "model": "LIFX Spot",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "171",
+   "model": "Spot",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "18177",
+   "model": "A19 Smart Bulb",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "261",
+   "model": "Smart Wi-Fi Plug",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "3",
+   "model": "Temperature Sensor",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "32769",
+   "model": "InvisOutlet",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "3RSNL02043Z",
+   "model": "Zigbee multi-function night light",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "3RSP02028BZ",
+   "model": "Zigbee / BLE smart plug with power",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "3RTHS0224Z",
+   "model": "Temperature and humidity sensor lite",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "40961",
+   "model": "Smart Plug Mini",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "40970",
+   "model": "MSS315",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "4102",
+   "model": "Smoke sensor(S1)",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "4107",
+   "model": "D2ELV",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "4232",
+   "model": "Smart Night Light-W",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "A1DAE0TZHQ91O4",
+   "model": "Alexa Voice Search",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "A1DAE0TZHQ91O4",
+   "model": "FirstAlexaApp",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "A2F9ZU5B33RLZJ",
+   "model": "Alexa Voice Search",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "A2F9ZU5B33RLZJ",
+   "model": "Echo Pi 1",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "A2IVLV5VM2W81",
+   "model": "Alexa Mobile Voice iOS",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "A2LWARUGJLBYEW",
+   "model": "Amazon Fire TV stick",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "A2LWARUGJLBYEW",
+   "model": "Fire TV Stick",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "A2U21SRK4QGSE1",
+   "model": "Echo Dot",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "A32DOYMUN6DTXA",
+   "model": "Echo Dot",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "A346PUCF53XSMD",
+   "model": "Amazon Video for FireTV Stick",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "A359HI7OGMDZRV",
+   "model": "FIRE_TV A359HI7OGMDZRV",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "A359HI7OGMDZRV",
+   "model": "Smart TV - Amazon Fire TV Edition",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "A3C9PE6TNYLTCH",
+   "model": "Speaker Group",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "A3L0T0VL9A921N",
+   "model": "Fire HD 8",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "A3L0T0VL9A921N",
+   "model": "Fire Tablet HD 8",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "A3RMGO6LYLH7YN",
+   "model": "Echo",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "A3S5BH2HU6VAYF",
+   "model": "Echo Dot",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "AB72C64C86AW2",
+   "model": "Amazon Echo",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "AB72C64C86AW2",
+   "model": "Echo",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "ADP5BND5THPTX",
+   "model": "Fire HD 6",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "ADVBD696BHNV5",
+   "model": "Amazon FireTV Stick",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "ADVBD696BHNV5",
+   "model": "Fire TV Stick",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "AKPGW064GI9HE",
+   "model": "Amazon Fire TV stick",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "AKPGW064GI9HE",
+   "model": "Fire TV Stick 4K",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "ASQZWP4GPYUT7",
+   "model": "Echo Pop",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "AYJCSU8YJN026",
+   "model": "FIRE_TV AYJCSU8YJN026",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "AYJCSU8YJN026",
+   "model": "Smart TV - Amazon Fire TV Edition",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "Amcrest",
+   "model": "Amcrest",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "B05-T02-US00-1-3",
+   "model": "IQ Battery 5P",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "CK-TLSR8656-SS5-01(7002)",
+   "model": "Motion sensor",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "DY-RQ500A",
+   "model": "Gas sensor",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "ENV2-IQ-AM1-240",
+   "model": "IQ Gateway",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "ERS-10TZBVK-AA",
+   "model": "Smart knob",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "General",
+   "model": "General",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "General ASH41-B",
+   "model": "General ASH41-B",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "HW-QS730D",
+   "model": "HW-QS730D",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "IPC-BO",
+   "model": "IPC-BO",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "IQ8X-80-M-US",
+   "model": "IQ8X",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "MCCGQ11LM",
+   "model": "Door and window sensor",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "MINI-ZB2GS-L",
+   "model": "Zigbee dual-channel smart switch",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "0.108",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "0029 (8087:0029)",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "12th Gen Intel(R) Core(TM) i3-1220P",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "2025 CX-90 PHEV PREFERRED",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "2REB1USMF1__1 (DEVICE_REFRIGERATOR)",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "2REB1USML1__1 (DEVICE_REFRIGERATOR)",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "2RES1VE41PUB2 (DEVICE_REFRIGERATOR)",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "5.15.6/0.18.2-cfa08c5",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "52133, 37833",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "550i",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "700/800 Series",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "916",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "AFTHA004",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "AFTOLCBC82",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "AIR-1",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "ARTIK051_REF_17K",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "AVR-X3800H",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "AVR-X6800H",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "AirPods Pro",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "AirPods Pro (2nd generation)",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "AirPods Pro (3rd generation)",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Altas PT Ultra",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Apple TV 4K (gen 3)",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Apple TV 4K Gen3",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Apple Watch Series 4",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Apple Watch Series 8",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Apple Watch Ultra",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Appliance Coordinator",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Arc",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Area Occupancy Detector",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Argus PT Ultra",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "B2",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "BD-1750-PRO",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Beats Studio Buds",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "BedPresenceMk1",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Bottom Up",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Bridge",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "CAM-S3W",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "CP1500PFCRM2U",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Carbon Monoxide Detector (cowifidetector)",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Ceiling Fan (B2)",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Ceiling Fan (RCF94v2)",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Chromecast Bridge",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Cloud API",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Cloud Service",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Cluster",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Config Builder",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Coordinator Manager",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "D26HD",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "D2ELV",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "DDL220X-1HW",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "DDL240X-1HZW",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "DR-HAF001S",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "DR-HAF004S",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "DR-HPF004S",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "DR-HPF008S",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "DR-HTF004S",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "DS418play",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Dashboard display",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Denon AVR-X3800H",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Denon AVR-X6800H",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Dry contact relay",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Duolite Lift",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "ESP-ME3",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "ESP32-C3",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Elgato Key Light",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Elgato Key Light Air",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Encharge",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Energy Coordinator",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Energy Monitor",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Enpower",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Envoy",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Envoy, phases: 2, phase mode: split, production CT, net-consumption CT, storage CT",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "F3S1CWKB__ (DEVICE_WASHTOWER_WASHER)",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Fan 560000D1 (0)",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Fireplace ()",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Flume Smart Water Monitor",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "G00723510",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Generic",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Google Home Mini",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Google Translate TTS",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "H5127",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "H6020",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "HALedController",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "HDD ST14000NM001G-2KJ103 ",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "HDWE160",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "HDWG460",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "HLK-LD2410",
+   "family_develop": "ld24xx"
+  },
+  {
+   "model_id": null,
+   "model": "HP Color LaserJet Pro M252dw",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "HP LaserJet",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "HVAC Coordinator",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "HW-QS730D",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Health Monitor",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "HomarrSetup",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Home Assistant App",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Home Assistant Backup",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Home Assistant Connect ZBT-1",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Home Assistant Core",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Home Assistant Host",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Home Assistant MQTT bridge",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Home Assistant Operating System",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Home Assistant Supervisor",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Home Assistant Voice PE",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "HomeBridge",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "HomePod",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "HomePod Mini",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Human_Presence_Sensor",
+   "family_develop": "generic_radar"
+  },
+  {
+   "model_id": null,
+   "model": "IP5M-T1277EB-AI",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "IQ Battery",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "IQ Battery 5P (IQBATTERY-5P-1P-NA)",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "IQ Gateway livedata (MQTT)",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "IQ Microinverter",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "IQ System Controller",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "IQ8M-72-M-US",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "IVO1",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Infuse-Direct",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Integration",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Intel(R) Xeon(R) D-2146NT CPU @ 2.30GHz",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "IntelliCenter",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Inverter",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Jellyfin iOS",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Kiosk Satellite",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "L08557",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "LIFX Round Spot US",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "LXC",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Location Tracker",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "M1",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "MAIN_32",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "MINI-1GSP",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "MINI-2GS",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "MINIR4M",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "MP21ZP / MP31ZP",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "MSL430",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "MTR-1",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Mac (Mac15,6)",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Mac (Mac15,9)",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Mac (Mac16,11)",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Mac (Mac16,12)",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Mac (Mac16,13)",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Mac (Mac16,8)",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Mac mini (2024)",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Mac mini (M1, 2020)",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Mac mini (Macmini9,1)",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Mac14,12",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Mac14,2",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Mac16,11",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Mac16,12",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "MacBook Air (13-inch, M4, 2025)",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "MacBook Air (M1, 2020)",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "MacBook Air (MacBookAir10,1)",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "MacBook Pro (MacBookPro18,3)",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "MacBookAir10,1",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Macmini9,1",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Magic Area",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Microgrid Interconnect Device",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Mini Relay V2",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Monitored server",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Motorized Shades (RMS113)",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Move 2",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Music Following Coordinator",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "N04 (DEVICE_DISH_WASHER)",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "NVME CT500P3PSSD8 ",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "NVME PNY CS3030 2TB SSD ",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": null,
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Notification Manager",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "OmniBreeze Tower Fan",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "OpenStreetMap reverse geocode",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Optimization Coordinator",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "P110M",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Pirouette",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Plex Cast",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Plex Media Server",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Plex for Android (TV)",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Plex for Apple TV",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Plex for iOS",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Pollen radar",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Powerview Generation 3",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Presence Coordinator",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "QEMU",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "QN55QN90DAFXZA",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "QN65S90DAFXZA",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "QN77S90DAFXZA",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "QN90D",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "RCF94v2",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "RM4 pro",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "RMS113",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "RV13S1AMJW_US (DEVICE_WASHTOWER_DRYER)",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Reolink Home Hub",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Residence",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Rooms",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "S3PM-001PCEU16",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "S3SW-001P8EU",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "S3SW-001X8EU",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "S3SW-002P16EU",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "S4SW-001P8EU",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "S4SW-002P16EU",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "S505D",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "S515",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "S515D",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "S90D",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "SD33111 (DEVICE_DISH_WASHER)",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "SLZB-06M",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "SLZB-MR1",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "SLZB-MRW10",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "SM-A736B",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "SNDM-0013US",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "ST6000NM0115-1YZ110",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "SYSTXBBWEC01-C",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Safety Coordinator",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Security Coordinator",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Shared storage",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Smart Room",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Solar Inverter",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Solcast PV Forecast",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "StealthTech Sound + Charge",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Storage",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Switch",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "T2292",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "TVS-873",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "TW+RGB",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Tuya Scene",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "U6M",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "U7PIW",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "U7PRO",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "U7UKU",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "UAE6",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "UAM6",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "UAP6MP",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "UDMEA4C",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "UIS Controller 69 Pro (CTR69P)",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "UIS Enabled Device",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "UKPW",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "UP6",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "US24PRO",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "USF5P",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "USL16LP",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "USL8A",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "USMINI",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "USPM16P",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "USPM24",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "USPM48P",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "USWED35",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "USWED36",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "UX",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "UniFi Network",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "UniFi Network Application",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "UniFi WLAN",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Unity",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Unknown Model",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Unraid 7.2.5",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "User",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "VUE003",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "VVDN01",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "WB-300VB-IP-5",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "WCEK6419S2 (DEVICE_OVEN)",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "WSKS48RT2_SBBI (DEVICE_COOKTOP)",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Water Session Tracking and Leak Detection",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "WattBox Outlet 1",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "WattBox Outlet 2",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "WattBox Outlet 3",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "WattBox Outlet 4",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "WattBox Outlet 5",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "WhatsApp Bridge",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Whole House",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "WiiM AMP",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "WiiM Amp",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "WiiM Pro",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "WiiM Pro Receiver",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "WiiM Sub Pro",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "WiiM_Pro_with_gc4a",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "WiiM_Sub_Pro",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "X5 xDrive50e",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "XGSPONST2001",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Xonora",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "ZAC38",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Zone",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "Zone Manager",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "aircast",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "bluetooth_proxy",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "esp32-c3",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "esp32-c3-devkitm-1",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "esp32-c6",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "esp32-s3-devkitc-1",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "esp32dev",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "espectre-test",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "garage-door-gdov2-q",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "gemini-3.1-flash-lite",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "gemini-3.8-flash-tts",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "gpt-4o-mini",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "gpt-4o-mini-transcribe",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "gpt-4o-mini-tts",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "gpt-6-luna",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "home-assistant-voice-092379",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "iMessage Server",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "iPad Air (5th generation)",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "iPad mini (6th generation)",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "iPad13,16",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "iPad14,2",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "iPhone",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "iPhone 15",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "iPhone 15 Pro Max",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "iPhone15,4",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "iPhone16,2",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "integration",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "lifx_spot",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "lolin_c3_mini",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "mmwave_kit",
+   "family_develop": "generic_radar"
+  },
+  {
+   "model_id": null,
+   "model": "mr60bha2_kit",
+   "family_develop": "generic_radar"
+  },
+  {
+   "model_id": null,
+   "model": "mr60fda2_kit",
+   "family_develop": "generic_radar"
+  },
+  {
+   "model_id": null,
+   "model": "ms600 9.0.0",
+   "family_develop": "generic_radar"
+  },
+  {
+   "model_id": null,
+   "model": "ms600-un",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "msl430 4.0.0",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "msl430-un",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "mss105 8.0.0",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "mss105-un",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "mss115 9.0.0",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "mss115-us",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "mss120br 4.0.0",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "mss120br-un",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "mss315 9.0.0",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "mss315-us",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "plugin",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "public",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "qwen3",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "qwen3.5",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "rk3566_t",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "seeed_xiao_esp32c3",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "smart-ir-mate",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "theme",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "v25iboard_secplus2",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "versatile_thermostat",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": null,
+   "model": "zermatt-pro",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "P760",
+   "model": "Reolink TrackMix PoE",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "QN55QN90DAFXZA",
+   "model": null,
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "QN65S90DAFXZA",
+   "model": null,
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "QN65S90DAFXZA",
+   "model": "QN65S90DAFXZA",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "QN77S90DAFXZA",
+   "model": null,
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "QN77S90DAFXZA",
+   "model": "QN77S90DAFXZA",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "QN85QN90DAFXZA",
+   "model": null,
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "QN85QN90DAFXZA",
+   "model": "QN85QN90DAFXZA",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "REOLINK RLC-1224A",
+   "model": "REOLINK RLC-1224A",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "S16",
+   "model": "Amp",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "S19",
+   "model": "Arc",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "S3PM-001PCEU16",
+   "model": "Shelly PM Mini Gen3",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "S3SW-001P8EU",
+   "model": "Shelly 1PM Mini Gen3",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "S3SW-001X8EU",
+   "model": "Shelly 1 Mini Gen3",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "S3SW-002P16EU",
+   "model": "Shelly 2PM Gen3",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "S44",
+   "model": "Move 2",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "S4SN-0071A",
+   "model": "Shelly Flood Gen4",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "S4SW-001P8EU",
+   "model": "Shelly 1PM Mini Gen4",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "S4SW-002P16EU",
+   "model": "Shelly 2PM Gen4",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "SHDM-2",
+   "model": "Shelly Dimmer 2",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "SHHT-1",
+   "model": "Shelly H&T",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "SNDM-0013US",
+   "model": "Shelly Plus Wall Dimmer",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "SNZB-01M",
+   "model": "Four-way wireless button",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "SNZB-02WD",
+   "model": "Waterproof (IP65) temperature and humidity sensor with screen",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "SNZB-03P",
+   "model": "Zigbee PIR sensor",
+   "family_develop": "pir"
+  },
+  {
+   "model_id": "SNZB-05P",
+   "model": "Zigbee water sensor",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "SZT06",
+   "model": "Smart mini temperature and humidity sensor",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "TS0001_repeater",
+   "model": "Zigbee signal repeater",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "TS0041",
+   "model": "Wireless switch with 1 button",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "TS0044",
+   "model": "Wireless switch with 4 buttons",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "TS0046",
+   "model": "Wireless switch with 6 buttons",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "TS0203",
+   "model": "Door/window sensor",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "UFP-SENSE",
+   "model": "UP Sense",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "UNVR-PRO",
+   "model": "UNVR Pro",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "UP Chime",
+   "model": "Smart WiFi Chime",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "USL-Fob-US",
+   "model": "USL-Fob-US",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "UVC AI THETA",
+   "model": "AI Theta",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "UVC Doorbell Lite",
+   "model": "Doorbell Lite",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "UVC G3 Instant",
+   "model": "G3 Instant",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "UVC G4 Doorbell Pro",
+   "model": "G4 Doorbell Pro",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "UVC G5 Bullet",
+   "model": "G5 Bullet",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "UVC G5 PTZ",
+   "model": "G5 PTZ",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "UVC G5 Turret Ultra",
+   "model": "G5 Turret Ultra",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "UVC G6 Entry",
+   "model": "G6 Entry",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "VZM31-SN",
+   "model": "2-in-1 switch + dimmer",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "VZM32-SN",
+   "model": "mmWave Zigbee Dimmer",
+   "family_develop": "generic_radar"
+  },
+  {
+   "model_id": "WG001",
+   "model": "Range extender Zi",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "WiiM_AMP",
+   "model": "WiiM Amp",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "WiiM_Pro_with_gc4a",
+   "model": "WiiM Pro",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "WiiM_Sub_Pro",
+   "model": "WiiM Pro",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "ZG-204Z",
+   "model": "Motion sensor",
+   "family_develop": "pir"
+  },
+  {
+   "model_id": "ZG-204ZK",
+   "model": "24Ghz human presence sensor",
+   "family_develop": "zigbee_zk_zx"
+  },
+  {
+   "model_id": "ZG-204ZV",
+   "model": "Millimeter wave motion detection",
+   "family_develop": "zigbee_zv"
+  },
+  {
+   "model_id": "ZG-204ZX",
+   "model": "24Ghz millimeter wave and T&H sensor",
+   "family_develop": "zigbee_zk_zx"
+  },
+  {
+   "model_id": "ZG-222Z",
+   "model": "Water leak detector",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "ZMR4_1",
+   "model": "4 button portable remote control (without dimmer)",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "ZSS-S01-TH",
+   "model": "Temperature and humidity sensor",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "a0dieu2li4a3ckzy",
+   "model": "",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "claude-haiku-4-5-20251001",
+   "model": "Claude Haiku 4.5",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "claude-haiku-5-5",
+   "model": "Claude Haiku 5.5",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "cxws7wkuvuoxhzoz",
+   "model": "M04",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "dn7fpj6lcz3krzbv",
+   "model": "WIFI Smart Switch",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "fozet5sa92afpioq",
+   "model": "Low Voltage Transformer with 3 Zones",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "fswkjwpvjdizn3xd",
+   "model": "L-OSL6B1",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "inuw6aqzlel7tiww",
+   "model": "Geeni SW008 Surge Protector",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "izfiyygtlkhrxtac",
+   "model": "GEENI   GN-SW009  6 OUTLET SMART",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "qhm4fic36qto4yeb",
+   "model": "",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "roborock.vacuum.a104",
+   "model": "roborock.vacuum.a104",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "roborock.vacuum.sc01",
+   "model": "roborock.vacuum.sc01",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "rufaag6m4gb14dtk",
+   "model": "Smart-RGBW",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "st2p9yoxt8waonxe",
+   "model": "Smart Socket",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "xdpz1scjh0ytwcwp",
+   "model": "Smart Switch ",
+   "family_develop": "unknown"
+  },
+  {
+   "model_id": "ylonohqukwrb2lv7",
+   "model": "Fan Switch",
+   "family_develop": "unknown"
+  }
+ ],
+ "ms600_entity_owner": {
+  "binary_sensor.mmwave_motion_lux_meross_wifi_guestbedroom2_sensor_presence_motion": {
+   "device_id": "a379b3d44b2f021128ca6dc32ecce352",
+   "model": "ms600-un"
+  },
+  "binary_sensor.mmwave_motion_lux_meross_wifi_mediaroom_sensor_presence_motion": {
+   "device_id": "889291c760247d1f8ee92097954ebe97",
+   "model": "ms600-un"
+  },
+  "binary_sensor.smart_presence_sensor_24111917146201662002c4e7ae109bd3_sensor_presence_motion": {
+   "device_id": "c954909783db4368db03ecbfe0f410c9",
+   "model": "ms600-un"
+  }
+ }
+}

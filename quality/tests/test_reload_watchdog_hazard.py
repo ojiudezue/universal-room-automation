@@ -223,6 +223,8 @@ def _load_ns(*, kill_switch: bool = True,
         "CONF_EGRESS_IDENTITY_ENABLED": "egress_identity_enabled",
         # VISION-INTERIOR-SIGHTINGS-1: the interior vision switch default.
         "CONF_INTERIOR_VISION_ENABLED": "interior_vision_enabled",
+        # S3a: chatter mode in the integration allowlist.
+        "CONF_CHATTER_MODE": "chatter_mode",
         "SIGNAL_URA_FACE_RECOGNITION_CHANGED": "ura_face_recognition_changed",
         # CM/HVAC/EC CONF aliases (referenced by module-level frozensets;
         # values don't matter for these tests — string identity only).
@@ -623,6 +625,10 @@ def test_egress_perimeter_keys_not_in_allowlist_v1():
         # VISION-INTERIOR-SIGHTINGS-1: default of switch.ura_interior_vision,
         # read only at the switch's RestoreEntity add (no cached consumer).
         "interior_vision_enabled",
+        # S3a (CHATTER-MODE-SELECT-NOT-WIRED-1): select-owned, fresh-read per
+        # room tick via _nm_cycle_a.chatter_mode_option (cache flushed by
+        # the select write and the integration update listener).
+        "chatter_mode",
     }
     # D1 zone sensors change subscriptions: structural, stays on reload.
     assert "perimeter_zone_sensors" not in allow
