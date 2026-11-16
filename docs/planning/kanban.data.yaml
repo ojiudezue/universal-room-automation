@@ -36083,6 +36083,7 @@ cards:
   next: 'Parked (see revival_trigger). Measured 11-15: ~18 MB, exterior_track is the driver.'
   rank: {value: 2, time_criticality: 1, effort: 1}
 - id: VISION-INTERIOR-SIGHTINGS-1
+  residual_2026_11_16_face_conf: "Ship 2 review A-M1 set the describe face fallback to confidence >= 0.75 and skip census-vetoed faces. Interior face sightings are emitted at 0.6, so describe <person> places by BLE only until the interior face producer's confidence is raised (or calibrated against the 0.75 naming bar). Fold into the vision count leg work."
   arc_cut_v5_108_28: "parent stays open for ship 2 descriptions, vision count leg, D4 census flip and ledger floor"
   arc_cut_v5_108_25: "arc step 9, plan in closure review"
   operator_2026_11_15_ledger_floor_only: "Yes. I don't want to worry and derail from low probability concerns. (Interior counts feed the ledger as a FLOOR only: L never below the visible interior count. The checkpoint-anchor idea is dropped, not planned: it needs every camera-less room provably empty, which is rare here and fragile.)"

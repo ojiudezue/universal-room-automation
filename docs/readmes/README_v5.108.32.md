@@ -1,8 +1,12 @@
-# Interior vision ship 2: describe on demand, with a fisheye dewarp (DRAFT)
+# v5.108.32: Interior vision ship 2, describe on demand with a fisheye dewarp
 
-Card VISION-INTERIOR-SIGHTINGS-1 (ship 2, plan `docs/planning/PLANNING_vision_interior_sightings.md` §9.D3, §8; ship
-order §8c item 2) and FOYER-FISHEYE-DEWARP-1. Tier 2-DB. Branch `feature/interior-vision-ship2`. Version is set at
-deploy.
+Cards VISION-INTERIOR-SIGHTINGS-1 (ship 2, plan `docs/planning/PLANNING_vision_interior_sightings.md` §9.D3, §8; ship
+order §8c item 2) and FOYER-FISHEYE-DEWARP-1. Tier 2-DB. Branch `feature/interior-vision-ship2` (build `0bc751d8`,
+review fix pass `d2a85af5` + `30f6e906`). Reviews A and B plus review C (mutation); fix pass drilled 65 sites, 62 RED,
+3 equivalent mutants. Orchestrator re-ran the veto-gate mutation: `test_describe_person_vetoed_face_does_not_place` RED.
+
+Residual (stays on VISION-INTERIOR-SIGHTINGS-1): interior face sightings are emitted at confidence 0.6, below the 0.75
+naming bar, so `describe <person>` places people by Bluetooth only until that producer's confidence is raised.
 
 ## What it does
 
