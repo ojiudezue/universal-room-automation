@@ -30,10 +30,15 @@ off or dead stretch shorter than 10 s, and the run starts at the rising edge's `
 camera, BLE, MS600 bit), unknown families and a knob of 0 keep the old rule exactly. Knobs (rung 1):
 `STUCK_P22_OFF_GAP_TOLERANCE_S` 10, `STUCK_P22_HOURS` 4.0 (replaces the literal). New pure
 `sensor_capability.is_still_holder` / `is_p22_motion_class`.
+A not-on stretch is ONE stretch whatever its mix of off / unavailable / unknown / missing, measured from the moment the
+input stopped reading `on` (fix pass: reviews A-1 / B-2 and the replay's 14:20:04-14:20:17 unavailable 6.1 s + unknown
+6.6 s case, which the first build read as 6.6 s). An `off` read again with a new `last_changed` still starts a new
+stretch (plan `two_polls`); the residual, an off → unseen unavailable → off, is pinned by a test. The tolerance knob
+must stay below the ZV still-person drop time (~30 s).
 
-## Pre-deploy gate NOT yet run (S1)
-Plan step 0: a read-only 7-day recorder replay of every motion-class input; GO = zero runs ≥ 4 h S1 would create that
-overlap a BLE-confirmed person in the room for > 30 min. Not run by the builder (probe work).
+## Pre-deploy gate (S1): GO
+Plan step 0 replay, `docs/planning/AUDIT_stuck_s1_step0_replay_2026_11_15.md`: no S1 run ≥ 4 h overlaps a BLE-confirmed
+person in the room; S1's effect is the two guest-bedroom ZVs (patio right near miss at 4.00 h).
 
 ## Acceptance (prospective, live)
 | # | Criterion | Signal |
@@ -46,11 +51,14 @@ overlap a BLE-confirmed person in the room for > 30 min. Not run by the builder 
 | S1-2 | One `continuous` stuck NM per (room, sensor, day), not two | `notification_log` |
 
 ## Tests
-`quality/tests/test_stuck_sensor_s3a_chatter_mode.py` (12), `test_stuck_sensor_s3b_ms600_family.py` (10),
-`test_stuck_sensor_s1_p22_tolerance.py` (34); stubs of `_nm_cycle_a` updated in three chatter test files; integration
+`quality/tests/test_stuck_sensor_s3a_chatter_mode.py` (13), `test_stuck_sensor_s3b_ms600_family.py` (10),
+`test_stuck_sensor_s1_p22_tolerance.py` (53, incl. the fix-pass stretch tests and review C c9 / e2 / e3 / e7 / c10 /
+e9 / e10 / e13 / e19 / d12 gaps); stubs of `_nm_cycle_a` updated in three chatter test files; integration
 allowlist pin and two AST-slice namespaces updated for `chatter_mode`.
 
 ## Not done / deferred
 - S2 (shipped as P3-D8 in v5.108.27; its same-run check G7 and edge filter are NOT in this release).
 - S4, S5, S6 (secondary fan work, out of scope).
-- S1 step-0 replay (above).
+- Review A-2 (cache the per-input capability lookup): deferred. A boot registry miss returns `unknown` uncached on
+  purpose; a cache would need the same miss rule plus an options-change flush, for a cheap lookup.
+- Review C e12 (state stub without `last_changed`): optional, equivalent in production.

@@ -265,3 +265,12 @@ def test_perimeter_vlm_select_unaffected():
     s = sel.PerimeterVlmGateSelect(hass, integ)
     s.hass = hass
     assert s.current_option == "off"
+
+
+def test_chatter_entry_options_override_entry_data():
+    """Review C a9: on one entry, options (what the select writes) win over
+    data (merge order ``{**data, **options}``)."""
+    integ = _integration({ura_const.CONF_CHATTER_MODE: "act"})
+    integ.data[ura_const.CONF_CHATTER_MODE] = "shadow"
+    hass = _Hass([integ, _cm({})])
+    assert _room(hass)._chatter_mode() == "act"

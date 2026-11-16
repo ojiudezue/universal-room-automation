@@ -6137,6 +6137,10 @@ STUCK_P22_HOURS: Final = 4.0
 # stuck clock"; Hobeian pulses 1.3-4 s measured). Still holders (radar,
 # bed, camera, BLE) and unknown families keep tolerance 0 = develop
 # behaviour (pop on any observed not-on). 0 = develop for every input.
+# Keep it BELOW the ZV still-person drop time (~30 s p50, SENSOR_FLEET_CLASSES):
+# while an off is shorter than this, an excluded input stays excluded, so a
+# larger value would let a real seated person's drop-and-retrigger be ignored
+# (review B-3). Off / unavailable / unknown in any mix count as ONE stretch.
 STUCK_P22_OFF_GAP_TOLERANCE_S: Final = 10.0
 
 # D2 — Fix #9 duty-cycle variant. On-ratio over a rolling window catches

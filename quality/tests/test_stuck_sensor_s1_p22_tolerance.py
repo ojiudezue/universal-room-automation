@@ -88,6 +88,7 @@ def _room(monkeypatch, *, motion=(ZV, PIR, BED, CAMP, ESP, MS_BIT),
         setattr(r, name, getattr(CO.UniversalRoomCoordinator, name).__get__(r))
     r._sensor_on_since = {}
     r._p22_off_since = {}
+    r._p22_off_state = {}
     r._p22_last_on_tick = {}
     r._p22_on_lc = {}
     r._post_restart_seen_on = set()
@@ -440,6 +441,7 @@ def test_init_reads_hours_knob(monkeypatch):
         c = CO.UniversalRoomCoordinator(hass, entry)
     assert c._stuck_sensor_hours == 2.5
     assert c._p22_off_since == {} and c._p22_last_on_tick == {} and c._p22_on_lc == {}
+    assert c._p22_off_state == {}
 
 
 def test_shipped_knob_values():
@@ -469,3 +471,218 @@ def test_is_still_holder_pure():
     assert SC.is_p22_motion_class(motion, "zigbee_zv") is True
     assert SC.is_p22_motion_class(motion, "unknown") is False
     assert SC.is_p22_motion_class(None, "zigbee_zv") is False
+    # review C d12: BLE kind (list kind and override) holds a still person.
+    ble = cap(kind="ble_presence", trust_class="witness",
+              failure_mode="correlated_wireless", source="conf_list")
+    ble_ovr = cap(kind="ble_presence", trust_class="witness",
+                  failure_mode="correlated_wireless", source="override")
+    assert SC.is_still_holder(ble, "zigbee_zv") is True
+    assert SC.is_still_holder(ble_ovr, "pir") is True
+
+
+# --- fix pass: one not-on stretch (review A-1 / B-2, replay 14:20) ---------
+
+CDT = timezone(timedelta(hours=-6))
+
+
+def test_p22_replay_unavailable_then_unknown_is_one_stretch(monkeypatch):
+    """Step-0 replay fixture (AUDIT_stuck_s1_step0_replay_2026_11_15, upguest
+    ZV 11-15 CDT): on from 07:28:19, then unavailable 14:20:04 (6.1 s),
+    unknown 14:20:10.1 (6.6 s), on 14:20:16.7. The dead stretch is 12.7 s
+    >= 10 s, so the run restarts at the new edge (the build read 6.6 s)."""
+    r = _room(monkeypatch)
+    start = datetime(2026, 11, 15, 7, 28, 19, tzinfo=CDT)
+    _tick(r, start + _s(20), **{ZV: ("on", start)})
+    dead = datetime(2026, 11, 15, 14, 20, 4, tzinfo=CDT)
+    _tick(r, dead + _s(1), **{ZV: ("unavailable", dead)})
+    _tick(r, dead + _s(7), **{ZV: ("unknown", dead + _s(6.1))})
+    assert r._sensor_on_since[ZV] == start            # 7 s < 10
+    back = dead + _s(12.7)
+    _tick(r, back + _s(1), **{ZV: ("on", back)})
+    assert r._sensor_on_since[ZV] == back
+
+
+def test_p22_off_then_unavailable_pops_at_total(monkeypatch):
+    """off 8 s then unavailable 8 s: one 16 s stretch -> popped while dead,
+    and the next on starts a new run."""
+    r = _room(monkeypatch)
+    _tick(r, T0 + _s(5), **{ZV: ("on", T0)})
+    off_at = T0 + _s(100)
+    _tick(r, off_at + _s(1), **{ZV: ("off", off_at)})
+    _tick(r, off_at + _s(9), **{ZV: ("unavailable", off_at + _s(8))})
+    assert r._sensor_on_since[ZV] == T0               # 9 s
+    _tick(r, off_at + _s(15), **{ZV: ("unavailable", off_at + _s(8))})
+    assert ZV not in r._sensor_on_since               # 15 s >= 10
+    back = off_at + _s(16)
+    _tick(r, back + _s(1), **{ZV: ("on", back)})
+    assert r._sensor_on_since[ZV] == back
+
+
+def test_p22_off_then_unavailable_then_on_restarts(monkeypatch):
+    """off 8 s + unavailable 8 s, on seen before any tick crossed 10 s: the
+    gap is measured from the off (16 s), not from the unavailable (8 s)."""
+    r = _room(monkeypatch)
+    _tick(r, T0 + _s(5), **{ZV: ("on", T0)})
+    off_at = T0 + _s(100)
+    _tick(r, off_at + _s(1), **{ZV: ("off", off_at)})
+    _tick(r, off_at + _s(9), **{ZV: ("unavailable", off_at + _s(8))})
+    back = off_at + _s(16)
+    _tick(r, back + _s(0.5), **{ZV: ("on", back)})
+    assert r._sensor_on_since[ZV] == back
+
+
+def test_p22_flip_flop_off_unavailable_pops_at_total(monkeypatch):
+    """off / unavailable alternating every 3 s, each seen: kept below 10 s
+    total, popped once the total reaches 10 s."""
+    r = _room(monkeypatch)
+    _tick(r, T0 + _s(5), **{ZV: ("on", T0)})
+    t = T0 + _s(100)
+    for i, st in enumerate(["off", "unavailable", "off"]):
+        _tick(r, t + _s(3 * i + 1), **{ZV: (st, t + _s(3 * i))})
+        assert r._sensor_on_since.get(ZV) == T0, i    # 1 s, 4 s, 7 s
+    _tick(r, t + _s(10), **{ZV: ("unavailable", t + _s(9))})   # 10 s
+    assert ZV not in r._sensor_on_since
+
+
+def test_p22_dead_seen_twice_with_new_lc_is_one_stretch(monkeypatch):
+    """unavailable -> (unseen) -> unavailable with a new last_changed: an
+    `on` is not guessed into a dead stretch; it stays one stretch."""
+    r = _room(monkeypatch)
+    _tick(r, T0 + _s(5), **{ZV: ("on", T0)})
+    d = T0 + _s(100)
+    _tick(r, d + _s(1), **{ZV: ("unavailable", d)})
+    _tick(r, d + _s(11), **{ZV: ("unavailable", d + _s(8))})
+    assert ZV not in r._sensor_on_since
+
+
+def test_p22_off_unseen_dead_off_is_the_two_polls_residual(monkeypatch):
+    """The conflict, pinned: off -> unavailable (no tick saw it) -> off reads
+    exactly like two_polls (off -> unseen on -> off). Nothing observed the
+    dead stretch, so the plan's two_polls rule (a re-read off with a new
+    last_changed starts a new stretch) decides and the run is kept."""
+    r = _room(monkeypatch)
+    _tick(r, T0 + _s(5), **{ZV: ("on", T0)})
+    o = T0 + _s(100)
+    _tick(r, o + _s(1), **{ZV: ("off", o)})
+    _tick(r, o + _s(13), **{ZV: ("off", o + _s(12))})
+    assert r._sensor_on_since[ZV] == T0
+
+
+# --- review C MEDIUM / LOW gaps --------------------------------------------
+
+ZV2 = "binary_sensor.upguest_zv_second_presence_2"
+
+
+def _entry_options_room(monkeypatch, *, data_lists, opt_lists, data_caps=None,
+                        opt_caps=None):
+    models = dict(MODELS)
+    models[ZV2] = ("ZG-204ZV", "Millimeter wave motion detection")
+    occ._install_registry(monkeypatch, models)
+    r = _room(monkeypatch, motion=(), presence=(), caps={})
+    occ._install_registry(monkeypatch, models)
+    data = {CONST.CONF_ENTRY_TYPE: CONST.ENTRY_TYPE_ROOM, "room_name": "R",
+            CONST.CONF_ROOM_NAME: "R", CONST.CONF_MOTION_SENSORS: list(data_lists)}
+    if data_caps:
+        data[CONST.CONF_SENSOR_CAPABILITIES] = dict(data_caps)
+    opts = {CONST.CONF_MOTION_SENSORS: list(opt_lists)} if opt_lists else {}
+    if opt_caps:
+        opts[CONST.CONF_SENSOR_CAPABILITIES] = dict(opt_caps)
+    r.entry = occ._Entry("entry_R", data, opts)
+    return r
+
+
+def test_p22_lists_only_in_entry_options(monkeypatch):
+    """Review C c9: a room edited in the options flow keeps its lists in
+    entry.options; S1 must see them."""
+    r = _entry_options_room(monkeypatch, data_lists=(), opt_lists=(ZV,))
+    assert r._p22_off_gap_tolerance_s(ZV) == 10.0
+
+
+def test_p22_override_only_in_entry_options(monkeypatch):
+    """Review C c9: a CONF_SENSOR_CAPABILITIES override stored only in
+    entry.options (mmwave on a ZV device = still holder) wins."""
+    r = _entry_options_room(monkeypatch, data_lists=(ZV, ZV2), opt_lists=(),
+                            opt_caps={ZV2: {"kind": "mmwave"}})
+    assert r._p22_off_gap_tolerance_s(ZV) == 10.0
+    assert r._p22_off_gap_tolerance_s(ZV2) == 0.0
+
+
+def test_p22_family_lookup_error_is_zero(monkeypatch):
+    """Review C c10: any error resolving the family -> the pre-S1 rule."""
+    r = _room(monkeypatch)
+
+    def _boom(hass, eid):
+        raise RuntimeError("registry gone")
+
+    monkeypatch.setattr(occ.FV, "resolve_sensor_family", _boom)
+    assert r._p22_off_gap_tolerance_s(ZV) == 0.0
+
+
+@pytest.mark.parametrize("which,eid,stamp", [
+    ("motion_sensors", ZV, "lc"),
+    ("mmwave_sensors", RADAR, "now"),
+    ("occupancy_sensors", ESP, "now"),
+])
+def test_update_tick_slice_stamps_each_list(monkeypatch, which, eid, stamp):
+    """Review C e2/e3: the production slice passes every list to the stamp;
+    an input only in that list gets its run."""
+    r = _room(monkeypatch)
+    r.states[eid] = _St("on", T0)
+    now = T0 + _s(12)
+    lists = {"motion_sensors": [], "mmwave_sensors": [], "occupancy_sensors": []}
+    lists[which] = [eid]
+    ns = dict(vars(CO))
+    ns.update(self=r, now=now, **lists)
+    exec(_STAMP_SLICE, ns)
+    assert r._sensor_on_since[eid] == (T0 if stamp == "lc" else now)
+
+
+@pytest.mark.parametrize("eid", [RADAR, ESP])
+def test_p22_restored_run_tol0_needs_live_on(monkeypatch, eid):
+    """Review C e7 (STUCK-SENSOR-1 D3 MED-1): a restored run of a still
+    holder / unknown family gains no exclusion until a live on is seen."""
+    r = _room(monkeypatch)
+    r._sensor_on_since[eid] = T0                      # restored, > 4 h old
+    late = T0 + timedelta(hours=6)
+    assert eid not in r._p22_stuck_sensor_set(late)
+    _tick(r, late, **{eid: ("on", T0)})
+    assert eid in r._post_restart_seen_on
+    assert eid in r._p22_stuck_sensor_set(late)
+
+
+def test_p22_class_flip_to_zero_clears_gap_state(monkeypatch):
+    """Review C e9/e10: a motion-class input flips to tolerance 0 mid-run
+    (override / knob change): the tol-0 tick clears the S1 maps."""
+    r = _room(monkeypatch)
+    _tick(r, T0 + _s(5), **{ZV: ("on", T0)})
+    _tick(r, T0 + _s(100), **{ZV: ("off", T0 + _s(99))})
+    assert r._p22_off_since and r._p22_off_state and r._p22_last_on_tick
+    monkeypatch.setattr(CONST, "STUCK_P22_OFF_GAP_TOLERANCE_S", 0)
+    _tick(r, T0 + _s(130), **{ZV: ("on", T0 + _s(101))})
+    assert r._p22_off_since == {} and r._p22_off_state == {}
+    assert r._p22_last_on_tick == {} and r._p22_on_lc == {}
+
+
+def test_p22_seen_short_off_then_unseen_short_off_keeps_run(monkeypatch):
+    """Review C e13: the off start is consumed by the on that closes it; a
+    later unseen short off is bounded by the last on-tick, not by the stale
+    earlier off."""
+    r = _room(monkeypatch)
+    _tick(r, T0 + _s(5), **{ZV: ("on", T0)})
+    o = T0 + _s(100)
+    _tick(r, o + _s(1), **{ZV: ("off", o)})
+    _tick(r, o + _s(3), **{ZV: ("on", o + _s(2))})
+    _tick(r, o + _s(33), **{ZV: ("on", o + _s(2))})
+    _tick(r, o + _s(63), **{ZV: ("on", o + _s(40))})   # 40 - 33 = 7 s
+    assert r._sensor_on_since[ZV] == T0
+
+
+@pytest.mark.parametrize("bound,keeps", [(9, True), (10, False), (11, False)])
+def test_p22_unseen_off_boundary(monkeypatch, bound, keeps):
+    """Review C e19: the unseen-off bound at 9 / 10 / 11 s (literals)."""
+    r = _room(monkeypatch)
+    t1 = T0 + _s(600)
+    _tick(r, t1, **{ZV: ("on", T0)})
+    edge = t1 + _s(bound)
+    _tick(r, edge + _s(5), **{ZV: ("on", edge)})
+    assert r._sensor_on_since[ZV] == (T0 if keeps else edge)

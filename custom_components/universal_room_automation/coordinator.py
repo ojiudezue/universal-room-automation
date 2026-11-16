@@ -402,13 +402,18 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         from .const import STUCK_P22_HOURS as _P22_HOURS  # noqa: PLC0415
         self._stuck_sensor_hours: float = float(_P22_HOURS)
         # S1 (stuck-sensor truth): RAM-only off-gap bookkeeping for
-        # MOTION-class inputs (tolerance > 0). `_p22_off_since` = the
-        # last_changed of the CURRENT observed not-on state (overwritten,
-        # never setdefault); `_p22_last_on_tick` / `_p22_on_lc` = the tick
+        # MOTION-class inputs (tolerance > 0). `_p22_off_since` = the start
+        # of the CURRENT not-on stretch (off / unavailable / unknown / missing
+        # in any mix), set only when the previous observation was `on` or an
+        # `off` came back as `off` with a new last_changed (an unseen state
+        # sat between, review fix A-1/B-2); `_p22_off_state` = the
+        # (state, last_changed) of the last not-on observation;
+        # `_p22_last_on_tick` / `_p22_on_lc` = the tick
         # time and the `on` state's last_changed of the last tick that read
         # the input on (bounds an off no tick saw). Not persisted: a
         # restart with the input off pops on the first tick, as before.
         self._p22_off_since: dict[str, datetime] = {}
+        self._p22_off_state: dict[str, tuple] = {}
         self._p22_last_on_tick: dict[str, datetime] = {}
         self._p22_on_lc: dict[str, datetime] = {}
 
@@ -2447,8 +2452,10 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
 
         Tolerance > 0 (motion class): a new run is stamped at the ``on``
         state's ``last_changed``; an observed off or dead stretch
-        (unavailable / unknown / missing) records its own ``last_changed``
-        (overwritten each tick) and pops the run once it has lasted
+        (unavailable / unknown / missing, in any mix) is ONE stretch measured
+        from the moment the input stopped reading ``on`` (an ``off`` read
+        again with a new ``last_changed`` starts a new stretch: an unseen
+        state, possibly an ``on``, sat between) and pops the run once it has lasted
         ``>= tolerance``; an ``on`` after an open off keeps the run when the
         gap (``on.last_changed - off``) is below the tolerance, else
         restarts it at ``on.last_changed``; an ``on`` whose ``last_changed``
@@ -2476,6 +2483,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                     else:
                         self._sensor_on_since.pop(sensor, None)
                     self._p22_off_since.pop(sensor, None)
+                    self._p22_off_state.pop(sensor, None)
                     self._p22_last_on_tick.pop(sensor, None)
                     self._p22_on_lc.pop(sensor, None)
                     continue
@@ -2504,12 +2512,30 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                     self._p22_last_on_tick[sensor] = now
                     self._p22_on_lc[sensor] = lc
                 else:
-                    # A missing state has no last_changed: keep the first
-                    # tick that saw it missing as the start of the stretch.
-                    off_since = lc if lc is not None else self._p22_off_since.get(
-                        sensor, now,
-                    )
+                    # One not-on stretch = any mix of off / unavailable /
+                    # unknown / missing since the input last read `on`
+                    # (review fix A-1/B-2, replay 14:20:04-14:20:17). Its
+                    # start is set only when the previous observation was
+                    # `on` (or none), or when `off` returns as `off` with a
+                    # new last_changed: a state no tick saw sat between
+                    # (possibly an `on`, plan `two_polls`), so a new stretch
+                    # starts. A dead state seen twice with a new
+                    # last_changed stays ONE stretch (plan: a dead stretch
+                    # >= tolerance ends the run; an `on` is not guessed into
+                    # it). A missing state has no last_changed: the first
+                    # tick that saw it missing starts the stretch.
+                    cur = state.state if state is not None else None
+                    prev = self._p22_off_state.get(sensor)
+                    off_since = self._p22_off_since.get(sensor)
+                    if off_since is None or prev is None:
+                        off_since = lc if lc is not None else now
+                    elif (
+                        cur == "off" and prev[0] == "off"
+                        and lc is not None and lc != prev[1]
+                    ):
+                        off_since = lc
                     self._p22_off_since[sensor] = off_since
+                    self._p22_off_state[sensor] = (cur, lc)
                     if (now - off_since).total_seconds() >= tol:
                         self._sensor_on_since.pop(sensor, None)
 
