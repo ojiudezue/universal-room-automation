@@ -1,6 +1,6 @@
 # v5.108.27: crossing vision Phase 3, first set (P3-D1, P3-D5, P3-D8) + P3-D0 knobs
 
-Cards: VISION-AMBIGUOUS-CROSSINGS-1 (P3-D8, P3-D5, P3-D1), DOOR-VISION-GROUP-UNDERCOUNT-1 (max_tokens 4000,
+Cards: VISION-P3-FIRST-SET-1 (this release; child of VISION-AMBIGUOUS-CROSSINGS-1, which stays open for P3-D2/D3/D10/D11). Work items: VISION-AMBIGUOUS-CROSSINGS-1 (P3-D8, P3-D5, P3-D1), DOOR-VISION-GROUP-UNDERCOUNT-1 (max_tokens 4000,
 cap 93 from the P3-D0 volume probe). Parent: VISION-CROSSING-ANALYSIS-1.
 Plan: `docs/planning/PLANNING_crossing_vision.md` Phase 3 (50bffd62). Probe:
 `docs/planning/AUDIT_crossing_vision_p3_d0_2026_11_15.md`. Branch `feature/crossing-p3-first`.
