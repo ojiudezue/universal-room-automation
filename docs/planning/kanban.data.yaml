@@ -35235,6 +35235,9 @@ cards:
   next: "PICK: A (recommended) stop exterior_person repeats after the first hour, then digest; B silence repeats while house is sleeping or someone is home awake; C exterior_person is a one-shot HIGH unless the house is away -> I plan + build (Tier 2, NM repeat path) and log each resend."
 - id: FOYER-FISHEYE-DEWARP-1
   title: "Dewarp the Foyer fisheye still before any interior vision read; the Foyer camera also sees the Living Room (cross-room overlap)"
+  operator_2026_11_16_dewarp: "(Option C, a camera or Frigate dewarp stream) This is we can [if we can]. / Protect has a dewarp view but not frigate AFAIK, although we should check"
+  operator_2026_11_16_overlap: "Yes we can fix the overlap"
+  facts_2026_11_16: "Foyer = Ubiquiti AI Theta, 360 lens (sensor lens_type 360); Protect RTSP channels are square raw fisheye only (2560/1280/720); the Protect app's dewarp is client-side, not a stream. Family Room AI Theta has a 4:3 lens (3264x2448) and reads fine. Feasibility probe running (AUDIT_foyer_dewarp_feasibility_2026_11_16.md): Frigate 2 host headroom, go2rtc/ffmpeg v360, offline still test, restream vs per-still dewarp."
   thread: identity
   status: inbox
   tier: 2
@@ -35243,7 +35246,7 @@ cards:
   links: {related: [VISION-INTERIOR-SIGHTINGS-1]}
   origin: {date: '2026-11-16', gist: 'Interior D0(g) pilot (AUDIT_vision_interior_d0g_pilot_2026_11_16.md): both Foyer frames graded wrong.'}
   operator_2026_11_16: "2 people in the foyer. Fisheye messing up the recogniction. We need a dewarp / foyer is empty but living room has 2 people"
-  next: "Me: measure options (Frigate dewarp / a dewarped stream on the camera / local undistort before the model) and the overlap rule; plan before ship 2 reads the Foyer."
+  next: "Me (morning, house awake): (1) dewarp per the feasibility audit; (2) overlap: draw a foyer-floor-only Frigate zone on the Foyer camera, show the operator the outline on a still before saving, Frigate restart while awake; switch URA interior record and ledger-floor overlap to the zone count."
 - id: VISION-INTERIOR-SHIP1-1
   title: "Interior vision ship 1: unnamed room records per shared camera room, entry-path rows, trip-wires; no AI calls, nothing reaches census or presence"
   discriminator_2026_11_15: "Done when >=1 interior_path row with >=1 hop exists after a mapped-door entry AND interior_records_zero / interior_path_zero never fired in the window."
