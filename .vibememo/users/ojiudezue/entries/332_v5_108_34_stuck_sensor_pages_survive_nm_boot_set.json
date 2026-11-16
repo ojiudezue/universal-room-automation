@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "332",
+  "author": "ojiudezue",
+  "session_id": "claude_20261116_213021_ship_v5_108_34",
+  "timestamp": "2026-11-16T21:30:21Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.108.34 shipped: Stuck-sensor pages survive NM boot-settle (fix missed by the v5.108.33 merge)",
+  "summary": "Stuck-sensor pages survive NM boot-settle (fix missed by the v5.108.33 merge)",
+  "why": "Live validation of v5.108.30 showed the first act-mode chatter page swallowed by NM boot-settle behind a dutycycle page, with the day latch set anyway. The fix was reviewed SHIP but the v5.108.33 merge took master instead of the fix commit, so it ships now as its own release before the restart.",
+  "implications": "Shipped STUCK-SENSOR-S3B-S1-1 at v5.108.34; card(s) sit shipped_organic pending validation. Acceptance in README_v5.108.34.md (Live criteria).",
+  "revisit_trigger": "If boot-time page counts rise after restarts, scope the location key back to stuck_signal callers only.",
+  "refs": {
+    "cards": [
+      "STUCK-SENSOR-S3B-S1-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.108.34.md"
+    ],
+    "release_notes": "Distinct stuck-sensor kinds no longer collapse in NM boot-settle (location-keyed for the stuck hazard), and a dropped page no longer sets the stuck latch, so it retries. Also carries v5.108.33 (arrival engine option B, WiiM MA twin). See README_v5.108.34.md."
+  }
+}
