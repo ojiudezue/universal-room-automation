@@ -564,7 +564,8 @@ class MusicFollowingCoordinator(BaseCoordinator):
         """Handle person arriving signal — start music in person's zone.
 
         v3.22.0 D3: Cross-coordinator response to SIGNAL_PERSON_ARRIVING.
-        Gated by CONF_MUSIC_ON_ARRIVAL_START config toggle (OFF by default).
+        Gated by CONF_MUSIC_ON_ARRIVAL_START config toggle (ON by default since
+        arc step 8: const.DEFAULT_MUSIC_ON_ARRIVAL_START = True).
         """
         if not self._enabled:
             return

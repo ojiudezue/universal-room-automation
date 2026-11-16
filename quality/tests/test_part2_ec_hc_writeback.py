@@ -269,6 +269,8 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     "mf_min_ble_confidence",
     "mf_source_lookback_seconds",
     "music_on_arrival_start",
+    # PERSON-PROFILE-PREFERENCES-1 step 8 §10.1: People screen saves in place.
+    "person_profiles",
 }
 
 
@@ -433,7 +435,8 @@ def test_options_reload_suppress_keys_count_matches_part2_scope():
     # +12 MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D7 (11 MF knobs + the arrival
     # music switch) -> 134
     # -1 mf_high_confidence_distance (distance gate dropped 2026-11-14) -> 133
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 133
+    # +1 PERSON-PROFILE-PREFERENCES-1 step 8 §10.1 person_profiles -> 134
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 134
 
 
 # ---------------------------------------------------------------------------

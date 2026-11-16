@@ -530,6 +530,22 @@ class MusicFollowing:
         """
         self._preference_provider = provider
 
+    # ------------------------------------------------------------------
+    # Arc step 8 welcome scene seam (PLANNING_identity_actions_v6.md §5.5,
+    # §10.1). The room entry path (automation._maybe_activate_slot_scene,
+    # day / evening caller only) asks this DECISION call for a per-person
+    # scene before the room's slot scene. Until D3's decision logic lands
+    # it always returns None, so the entry path stays byte-identical.
+    # ------------------------------------------------------------------
+    def arrival_scene_for(self, room_entry_id: str) -> Optional[str]:
+        """Welcome scene to use for this room's entry, or None (D3 stub)."""
+        return None
+
+    def note_arrival_scene_result(self, room_entry_id: str, result: str) -> None:
+        """Entry path reports how the returned scene ended (D3 stub):
+        ``const.ARRIVAL_SCENE_RESULT_*`` (applied / hold / unavailable / error)."""
+        return None
+
     def _preferences_for(self, rec: _Transfer) -> dict:
         provider = self._preference_provider
         if provider is None:

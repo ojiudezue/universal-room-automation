@@ -215,6 +215,12 @@ from .const import (
 from .fan_veto import should_veto_comfort_fan  # noqa: E402
 from .const import FAN_OWNER_HVAC, fan_owner  # noqa: E402
 from .const import PREFILL_DETRITUS_TOKEN_RE  # noqa: E402
+from .const import (  # noqa: E402
+    ARRIVAL_SCENE_RESULT_APPLIED,
+    ARRIVAL_SCENE_RESULT_ERROR,
+    ARRIVAL_SCENE_RESULT_HOLD,
+    ARRIVAL_SCENE_RESULT_UNAVAILABLE,
+)
 # ROOM-CREATE-AREA-PREFILL-DETRITUS-1 (D3): shared production regex.
 _PREFILL_DETRITUS_TOKEN_RE = PREFILL_DETRITUS_TOKEN_RE
 
@@ -1582,7 +1588,7 @@ class RoomAutomation:
         # of computing per-light brightness/colour.
         from .lighting.resolver import resolve_slot
         slot = resolve_slot(is_sleep_hours=False, is_dark=is_dark)
-        if await self._maybe_activate_slot_scene(slot, entry_set):
+        if await self._maybe_activate_slot_scene(slot, entry_set, arrival_override=True):
             self.coordinator.set_last_action(
                 "turn_on",
                 f"Activated {slot} scene",
@@ -1738,7 +1744,7 @@ class RoomAutomation:
     # === v3.2.2.5: NIGHT LIGHT HELPER METHODS ===
     
     async def _maybe_activate_slot_scene(
-        self, slot: str, entry_set: list[str],
+        self, slot: str, entry_set: list[str], *, arrival_override: bool = False,
     ) -> bool:
         """Slice E D6: if the current slot has a scene, activate it.
 
@@ -1756,9 +1762,68 @@ class RoomAutomation:
         try:
             from .lighting.resolver import slot_scene
 
-            scene_id = slot_scene(self.config, slot)
+            # Arc step 8 (§5.5): the day / evening caller asks the music
+            # engine for a per-person welcome scene first; None (no engine,
+            # no eligible owner, or D3 not built) = the slot scene as before.
+            welcome = self._arrival_scene_override() if arrival_override else None
+            scene_id = welcome or slot_scene(self.config, slot)
             if not scene_id:
                 return False
+            result = await self._activate_scene_checked(slot, scene_id, entry_set)
+            if welcome:
+                self._note_arrival_scene_result(result)
+            return result == ARRIVAL_SCENE_RESULT_APPLIED
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception(
+                "Slice E scene branch failed for slot=%s; falling back to per-light path",
+                slot,
+            )
+            return False
+
+    def _arrival_engine(self):
+        try:
+            return self.hass.data.get(DOMAIN, {}).get("music_following")
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _arrival_scene_override(self) -> str | None:
+        """Arc step 8: the engine's welcome scene for this room, or None.
+
+        Room key = this room's config entry_id. Any failure reads None so
+        the slot scene path is never blocked by the override.
+        """
+        engine = self._arrival_engine()
+        if engine is None:
+            return None
+        try:
+            scene = engine.arrival_scene_for(self._config_entry.entry_id)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("arrival_scene_for failed", exc_info=True)
+            return None
+        return scene if isinstance(scene, str) and scene.startswith("scene.") else None
+
+    def _note_arrival_scene_result(self, result: str) -> None:
+        """Tell the engine how its welcome scene ended (§5.5): one of
+        ``ARRIVAL_SCENE_RESULT_*`` (applied / hold / unavailable / error), so
+        it can record scene_applied vs scene_skipped_hold vs
+        scene_skipped_unavailable."""
+        engine = self._arrival_engine()
+        if engine is None:
+            return
+        try:
+            engine.note_arrival_scene_result(self._config_entry.entry_id, result)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("note_arrival_scene_result failed", exc_info=True)
+
+    async def _activate_scene_checked(
+        self, slot: str, scene_id: str, entry_set: list[str],
+    ) -> str:
+        """Hold check, state guard, one URA-context scene.turn_on.
+
+        Returns the outcome as an ``ARRIVAL_SCENE_RESULT_*`` value; the
+        caller treats only ``applied`` as "scene ran".
+        """
+        try:
             # Review D HIGH (INV-2): a scene must not override a person's
             # manual hold/cooldown on any of the room's entry lights. If any
             # is held, fall back to the per-light path, which respects holds.
@@ -1769,7 +1834,7 @@ class RoomAutomation:
                         "Slot %s scene %s skipped: a room light is under a manual hold",
                         slot, scene_id,
                     )
-                    return False
+                    return ARRIVAL_SCENE_RESULT_HOLD
             except Exception:  # noqa: BLE001 — fail-open to the scene
                 pass
             # Guard: scene must exist and be reachable. A missing / unavailable
@@ -1784,7 +1849,7 @@ class RoomAutomation:
                         slot, scene_id,
                         getattr(st, "state", None) if st else None,
                     )
-                    return False
+                    return ARRIVAL_SCENE_RESULT_UNAVAILABLE
             except Exception:  # noqa: BLE001
                 # Fail-open: HA state read blew up ⇒ try the scene anyway
                 # (scene.turn_on will simply no-op if the entity is gone).
@@ -1797,13 +1862,13 @@ class RoomAutomation:
                 "scene", SERVICE_TURN_ON,
                 {"entity_id": scene_id}, blocking=False,
             )
-            return True
+            return ARRIVAL_SCENE_RESULT_APPLIED
         except Exception:  # noqa: BLE001
             _LOGGER.exception(
                 "Slice E scene branch failed for slot=%s; falling back to per-light path",
                 slot,
             )
-            return False
+            return ARRIVAL_SCENE_RESULT_ERROR
 
     async def _turn_on_regular_lights(
         self, slot: str = LIGHT_SLOT_DAY, is_dark: bool | None = None,
