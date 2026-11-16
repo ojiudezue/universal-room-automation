@@ -149,9 +149,9 @@ Side findings get a card and wait; they do not get an agent unless they block a 
 | # | Work (charter goal) | Status | Next action | Blocks |
 |---|---|---|---|---|
 | 1 | v5.108.27 crossing first set: error text, restart-safe cap 93, 4000 tokens, P3-D8 stuck rule (census accuracy) | SHIPPED + validated 2026-11-15 (README table, fd925256) | — | — |
-| 2 | Interior vision ship 1: unnamed room records (census accuracy; interior counts for census + ledger floor, never presence) | fix pass running (A/B/C/D findings) | fix-up hash -> full suite -> operator go -> deploy | 6 |
+| 2 | Interior vision ship 1: unnamed room records (census accuracy; interior counts for census + ledger floor, never presence) | SHIPPED v5.108.28 + validated 2026-11-15 (7 rooms live) | ship 2 gated on the 20-frame description pilot | — |
 | 3 | Step 8 identity actions -> v6.0.0 (arrivals + personalization) | §10.1 reviews A/B back (fix list), C running; operator decided arrival design 2026-11-15; plan rev 3.6.1 29b3aac9 after two plan reviews (flap gate via left_at + persisted rows, occupied-room keep, one departure trigger) | §10.1 fix pass (after review C) -> ship People screen alone + B0 live check -> D0b probe -> MA live test (operator home) -> D2/D3/D4 build | v6.0.0 |
-| 4 | Stuck-sensor S1-S3 (blip fix, MS600 resolver, chatter wiring) = the census reset prerequisites (`PLANNING_stuck_sensor_truth.md`) | planned, reviewed (rev 2 d43633b5) | build after rows 1-2 ship (builder slot) | door ledger, row 6 |
+| 4 | Stuck-sensor S1-S3 (blip fix, MS600 resolver, chatter wiring) = the census reset prerequisites (`PLANNING_stuck_sensor_truth.md`) | BUILDING (feature/stuck-sensor-s1-s3) | build -> reviews -> deploy | door ledger, row 6 |
 | 5 | Step 7 egress direction-aware identity rev 3.2 (arrivals naming) | not started | plan revision against the measured direction accuracy, after row 3 reviews | step 8 D5 |
 | 6 | Door direction + counts (P3-D2 recording route, P3-D3 direction recorded, P3-D10/D11 tracker extension) | WAITING on operator grades (88 cards live on urakanban /grade/) | pull grades -> score every instrument once -> build what passes | census F-LEAD |
 | 7 | Interior vision ledger floor | carded | plan amendment after row 2 ships | — |
