@@ -573,6 +573,7 @@ cards:
   why: "Breaks builder rule 8 (no permanent sys.modules surgery); any in-body import after it can flake in the full suite, producing false NEW names in name-diffs."
   next: "Make the fixture restore what it evicted (snapshot+restore sys.modules entries), then a full name-diff to confirm the failure set only shrinks."
 - id: PERSON-PROFILE-PREFERENCES-1
+  arc_cut_v5_108_33: "parent stays open for the live MA test, final ownership rule and v6.0.0 (operator option B 2026-11-16)"
   arc_cut_v5_108_29: "parent stays open for D2 arrival music, D3 welcome scene, D4 departure pause, D6/D7 (v6.0.0)"
   operator_2026_11_14_step8: "Agree with q1 and 2 and 4. Summarize the profiles plan. Don't don't want to defer too much. Music is rarely exercised so it's not a good trigger. It's a really cool novelty. Demos well. When needed it's beautiful. Shares rooms is an interesting problem. But seems simple - don't do it when someone is already in that room including in your own room. Shares spaces, likely same. Departure pause is [message cut off]"
   title: "Per-person profile for identified household members: their bedroom(s)/bathroom, room ownership (incl. shared owners e.g. master), playlist, opt-in/out of automated arrival actions, welcome scene"
@@ -35169,7 +35170,8 @@ cards:
 - id: MF-MA-TWIN-WIIM-UUID-1
   title: "Music following picks a dead Music Assistant twin in every WiiM room: the _5 twins are unavailable all week; the playing _7 twins (wiim_uuid identifiers) never match"
   thread: music
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.108.33
   tier: 2
   created: '2026-11-15 22:35'
   updated: '2026-11-15 22:35'
@@ -35178,10 +35180,11 @@ cards:
   why: "_ma_candidates (music_following.py:1140-1195) matches the _5 twins by MAC-in-identifier (upc...); every _5 is unavailable in all 7-day rows. The _7 twins that actually play carry music_assistant identifier wiim_uuid:<uuid>, equal to the native device's wiim identifier with dashes stripped plus an 8-hex suffix; no rule matches it. _resolve_path takes the first candidate, gets ma_source_not_playing, and falls back to native WiiM join. Effect: the v5.108.26 MA-first transfer has never run in a WiiM room; the arrival engine (MA first) would target the dead twin too."
   next: "Built in the step 8 engine fix pass (c05e2103, feature/step8-d2-engine): wiim_uuid match + live-first order, tests on live registry fixtures; ships with v6.0.0."
 - id: STUCK-SENSOR-S3B-S1-1
+  residual_2026_11_16_boot_settle_drops_chatter: "Live validation of v5.108.30: the 06:38:30 chatter NM (Garage B ratgdo motion) has an NM dedup entry but no notification_log row. Mechanism (verified in source): NM boot-settle collapses repeat (coordinator, hazard_type) emits in the first NM_BOOT_SETTLE_S=60 s (notification_manager.py:1797-1806, :847-858); every stuck kind shares STUCK_SIGNAL_NM_HAZARD_TYPE, so the dutycycle NM at 06:38:21 swallowed the chatter NM, and fire_stuck_signal still set the per-day latch (_stuck_signal_nm.py:245), so chatter is silent until tomorrow. Fix: include location (the stuck kind) in the boot-settle key for stuck_signal, or have async_notify report the drop so the latch is not set. Tier 1, NM primitive, ship with the next batch. Also README S3a-2 observable was wrong: automation_health.excluded_sensors is dutycycle-only (sensor.py:2613-2616), no entity exposes the chatter exclusion client."
   title: "Stuck-sensor truth S3b (MS600 bit resolves radar by registry model) + S1 (P22 off-pulse tolerance for motion-class inputs; one not-on stretch)"
   thread: presence
   status: shipped_organic
-  shipped_version: v5.108.30
+  shipped_version: v5.108.33
   tier: 2
   created: '2026-11-15 23:40'
   updated: '2026-11-15 23:40'
@@ -35305,7 +35308,8 @@ cards:
 - id: ARRIVAL-ENGINE-S8-1
   title: "Step 8 arrival engine: arrival music in your own room, welcome scene in your bedroom, departure pause (ships as option B)"
   thread: identity
-  status: review
+  status: shipped_organic
+  shipped_version: v5.108.33
   tier: 3
   created: '2026-11-16 03:10'
   updated: '2026-11-16 03:10'
@@ -35391,6 +35395,7 @@ cards:
   plan_ready_2026_11_15: "Phase 3 plan (PLANNING_crossing_vision.md at 50bffd62; census + interior plans amended alongside) passed four review rounds: completeness + build-prediction/G (810075a3), closure (25b30764), final (5f602cd3); orchestrator re-grep of 50bffd62 confirmed the H1 getter fix (new camera_input_room_stuck_excluded over clients p22_continuous / chatter / stuck_dutycycle, all real at coordinator.py:3763, 3077, 3831), guard changes written as deltas only, PASS_ROUND_TRIP_MIN_N 20, deadline E + 320 s."
   next: "WAIT on operator grades (urakanban /grade/, 6 of 88 done): pull_grades -> score every direction instrument once -> build P3-D2 recording route / P3-D3 direction / P3-D10-D11 tracker extension from what passes."
 - id: MEDIAROOM-FAN-LEFT-ON-STUCK-SENSORS-1
+  arc_cut_v5_108_33: "keeps S4-S6 secondary fan work, separate scope after the census reset prerequisites"
   arc_cut_v5_108_30: "parent keeps S4-S6 secondary fan work (operator: fan is a secondary goal)"
   title: "Media room fan left running with stuck occupancy sensors and no failsafe turned it off; operator idea: a stuck sensor triggers the fan recheck (quiet the fan), and RF fans with unreliable on/off state"
   thread: presence

@@ -1641,13 +1641,14 @@ async def test_writer_health_ledger_type_not_checked_while_switch_off(rig):
     stats = await rig.db.run_memory_writer_health_check(triggered_by="manual")
     assert "crossing_vision_ledger" not in stats["counts"]
     assert "crossing_vision_ledger" not in stats["zero_row_types"]
-    assert stats["switch_off_types"] == ["crossing_vision_ledger"]
+    # (arc step 8 also switch-gates arrival_music / welcome_scene)
+    assert "crossing_vision_ledger" in stats["switch_off_types"]
     assert "crossing_vision_shadow" in stats["counts"]  # Phase 1 unchanged
     rig.hass.data[rig.C.DOMAIN][rig.C.CROSSING_VISION_SWITCH_HASS_KEY] = True
     stats = await rig.db.run_memory_writer_health_check(triggered_by="manual")
     assert stats["counts"]["crossing_vision_ledger"] == 0
     assert "crossing_vision_ledger" in stats["zero_row_types"]
-    assert stats["switch_off_types"] == []
+    assert "crossing_vision_ledger" not in stats["switch_off_types"]
 
 
 @pytest.mark.asyncio

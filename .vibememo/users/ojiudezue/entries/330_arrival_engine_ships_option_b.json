@@ -1,0 +1,22 @@
+{
+  "format_version": "2.1",
+  "entry_id": "330",
+  "author": "ojiudezue",
+  "session_id": "claude_20261116_validation_30_31_32",
+  "timestamp": "2026-11-16T21:10:00Z",
+  "type": "decision",
+  "weight": "significant",
+  "title": "Arrival engine ships as option B: start and welcome scene act now; stop and pause wait on the live ownership test",
+  "summary": "The step 8 arrival engine (arrival music, welcome scene, departure pause) ships as v5.108.33 together with the MA twin fix and the NM boot-settle fix, in one restart. Start and scene act from day one. The 15-minute stop and the departure pause are built and active, but they act only while URA still owns the playback, and a natural track change ends ownership. They will rarely fire until a 5-minute live MA test with the operator sets the final ownership rule. v6.0.0 waits for that.",
+  "why": "The open question was who owns playback after a start. Stopping or pausing music a person chose is the costly mistake; a song left playing is cheap. Context ownership is the conservative default: any write URA did not create ends it. Only a live test on the real players can show whether the device's own track-change updates carry fresh contexts. Shipping the start now delivers the visible charter goal (identity-driven arrivals) without guessing the stop rule. Bundling the boot-settle fix saves one restart, and the operator allows one restart a day while awake.",
+  "implications": "Expect `wait_ended_not_ours` lines after track changes; that is the designed outcome, not a bug. The live test decides between keeping context ownership and a looser rule (for example, same media id). v6.0.0 is anchored to that release. PERSON-PROFILE-PREFERENCES-1 stays open through it (arc-cut on .33).",
+  "alternatives_considered": "Option A: hold the whole engine until the live test (delays the arrival start for no safety gain). Ship with a looser ownership rule now (risks stopping music a person chose). Ship the boot-settle fix alone first (costs an extra restart).",
+  "confidence": "medium",
+  "revisit_trigger": "After the live MA test, or if arrival logs show stop/pause never acting across a week of opted-in arrivals.",
+  "refs": {
+    "cards": ["ARRIVAL-ENGINE-S8-1", "PERSON-PROFILE-PREFERENCES-1", "MF-MA-TWIN-WIIM-UUID-1", "STUCK-SENSOR-S3B-S1-1"],
+    "docs": ["docs/readmes/README_v5.108.33.md", "docs/planning/PLANNING_identity_actions_v6.md", "docs/planning/ARC_identity_vision_census_map.md"],
+    "code": ["custom_components/universal_room_automation/music_following.py"],
+    "related_entries": ["329"]
+  }
+}

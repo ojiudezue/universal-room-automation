@@ -548,6 +548,22 @@ def test_profile_sensor_state_and_attributes():
     assert ez.native_value == 1
 
 
+def test_profile_sensor_last_arrival_action_from_engine():
+    """D2 wire-in: the attribute reads the engine's last outcome."""
+    from types import SimpleNamespace
+    from custom_components.universal_room_automation import sensor as s
+    hass = _hass()
+    cm = StubEntry({CONF_ENTRY_TYPE: ENTRY_TYPE_COORDINATOR_MANAGER}, options={
+        CONF_PERSON_PROFILES: {"person.oji_udezue": {"rooms_bedroom": ["r_master"]}}},
+        entry_id="cm")
+    oji = s._person_profile_sensors(hass, cm)[0]
+    assert oji.extra_state_attributes["last_arrival_action"] is None
+    hass.data.setdefault(DOMAIN, {})["music_following"] = SimpleNamespace(
+        last_arrival_action=lambda p: {"outcome": "started", "person": p})
+    assert oji.extra_state_attributes["last_arrival_action"] == {
+        "outcome": "started", "person": "person.oji_udezue"}
+
+
 def test_cm_sensor_setup_creates_profile_sensors():
     """Wire-in anchor: the REAL CM branch of sensor.async_setup_entry adds one
     profile sensor per tracked person."""
@@ -570,8 +586,10 @@ def test_episode_types_registered():
     assert c.ARRIVAL_MUSIC_EPISODE_TYPE == "arrival_music"
     assert c.WELCOME_SCENE_EPISODE_TYPE == "welcome_scene"
     assert {"arrival_music", "welcome_scene"} <= c.MEMORY_EPISODE_TYPES
-    # No writer yet (D2/D3): not in the writer-health set, or it would page.
-    assert not ({"arrival_music", "welcome_scene"} & c.MEMORY_WRITER_BACKED_EPISODE_TYPES)
+    # D6 (D2/D3 commit): writers exist, so both are writer-backed and
+    # absence-exempt (rows come only from residents arriving).
+    assert {"arrival_music", "welcome_scene"} <= c.MEMORY_WRITER_BACKED_EPISODE_TYPES
+    assert {"arrival_music", "welcome_scene"} <= c.MEMORY_WRITER_HEALTH_ABSENCE_EXEMPT_TYPES
 
 
 # ---------------------------------------------------------------------------

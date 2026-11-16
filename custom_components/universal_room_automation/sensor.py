@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.108.32
+# Universal Room Automation vv5.108.33
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -8500,9 +8500,18 @@ class PersonProfileSensor(AggregationEntity, SensorEntity):
             "shared_room_owners": shared,
             "music": music,
             "welcome_scene": prof.get(PROFILE_WELCOME_SCENE),
-            # Written by the arrival engine once D2/D3 land; None until then.
-            "last_arrival_action": None,
+            # Arc step 8: the engine's last arrival outcome for this person.
+            "last_arrival_action": _engine_last_action(self.hass, self._person_entity),
         }
+
+
+def _engine_last_action(hass: HomeAssistant, person_entity: str):
+    """Display read of the arrival engine's last outcome (None if none)."""
+    try:
+        eng = hass.data.get(DOMAIN, {}).get("music_following")
+        return eng.last_arrival_action(person_entity) if eng is not None else None
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _person_profile_sensors(hass: HomeAssistant, entry: ConfigEntry) -> list:

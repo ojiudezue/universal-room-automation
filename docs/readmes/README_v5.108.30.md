@@ -50,6 +50,20 @@ person in the room; S1's effect is the two guest-bedroom ZVs (patio right near m
 | S1-1 | A motion-class input holding ≥ 4 h with sub-10 s blips stays in `automation_health.stuck_sensors` across the blips | room Automation Health attributes |
 | S1-2 | One `continuous` stuck NM per (room, sensor, day), not two | `notification_log` |
 
+## Validated 2026-11-16 (restart ~06:37 CST, installed v5.108.32)
+All 50 URA config entries `loaded`; no URA ERROR/CRITICAL in the system log.
+
+| # | Result | Evidence |
+|---|---|---|
+| S3a-1 | PASS (title), row missing: residual | `select.ura_chatter_mode` = `act`; watchdog `last_fired.chatter` 06:38:30; NM dedup cache holds `stuck_signal:Chattering sensor: Garage B — binary_sensor.ratgdov25i_dbfe2a_motion:chatter` (act-form title, `coordinator.py:3304-3308`). Pre-deploy rows (e.g. 27504) used the shadow form. No `notification_log` row: NM boot-settle (`notification_manager.py:1797-1806`, 60 s) collapsed it into the dutycycle NM sent 9 s earlier (rows 27548/27549), and the stuck-signal day latch was still set. Carded on STUCK-SENSOR-S3B-S1-1 (`residual_2026_11_16_boot_settle_drops_chatter`). |
+| S3a-2 | Criterion unobservable as written | `excluded_sensors` is built only from the dutycycle set (`sensor.py:2613-2616`); the chatter client in `_exclusion_set` (`coordinator.py:3267-3270`) is not exposed by any entity. Watchdog `stuck_sensors` shows `{'Garage B': {...motion: 'chatter'}}` but that label is mode-independent. In-suite proof only. |
+| S3a-3 | Pending event / in-suite | Needs an operator flip; the INFO line is not in the WARNING+ system log. |
+| S3b-1 | Pending event | Precondition holds: Media, Guest 1, Guest 2 MS600 devices resolve by registry `model` `ms600-un` (`model_id` None). Needs a bit-only tick. |
+| S1-1 | Pending event | No qualifying ≥ 4 h motion-class run at validation time. |
+| S1-2 | Pending event | No `continuous` rows since restart. |
+
+Boot transients dismissed: one `RuntimeError` (`async_write_ha_state` off-loop) at `switch.py:1637`, the v4.7.x EC sub-switch deferred restore, not this release; recovery/zone-seed/linker-ordering WARNINGs, all boot ordering.
+
 ## Tests
 `quality/tests/test_stuck_sensor_s3a_chatter_mode.py` (13), `test_stuck_sensor_s3b_ms600_family.py` (10),
 `test_stuck_sensor_s1_p22_tolerance.py` (53, incl. the fix-pass stretch tests and review C c9 / e2 / e3 / e7 / c10 /

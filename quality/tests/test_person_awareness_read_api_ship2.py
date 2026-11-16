@@ -614,27 +614,12 @@ def test_routine_status_and_mf_follow_unique_ids(mods):
 
 
 # ----------------------------------------------- RA10 music handler
-@pytest.mark.parametrize("payload, want", [
-    ({"person_entity": "person.oji_udezue", "zone": "Upstairs"}, "person.oji_udezue in zone Upstairs"),
-    (SimpleNamespace(person_entity="person.oji_udezue", zone="Upstairs"), "person.oji_udezue in zone Upstairs"),
-    ({"person_entity": "person.oji_udezue"}, "person.oji_udezue in zone unknown"),
-    ({"zone": "Upstairs"}, None),
-    (object(), None),
-])
-def test_music_arrival_handler_reads_the_normalised_payload(mods, caplog, payload, want):
+# Arc step 8 D2 deleted MusicFollowingCoordinator._handle_person_arriving (the
+# F5 no-op read). The engine reads no F5; pinned in
+# test_arrival_music.py::test_subscribe_person_edges_only_no_raw_connect.
+def test_music_arrival_handler_deleted(mods):
     mf_mod = _m("domain_coordinators.music_following")
-    mf = mf_mod.MusicFollowingCoordinator.__new__(mf_mod.MusicFollowingCoordinator)
-    mf._enabled = True
-    mf.__dict__["observation_mode"] = False
-    import logging
-    with caplog.at_level(logging.DEBUG, logger=mf_mod._LOGGER.name):
-        mf._handle_person_arriving(payload)
-    msgs = [r.getMessage() for r in caplog.records if "Person arriving" in r.getMessage()]
-    if want is None:
-        assert msgs == []
-    else:
-        assert len(msgs) == 1 and want in msgs[0]
-
+    assert not hasattr(mf_mod.MusicFollowingCoordinator, "_handle_person_arriving")
 
 # ----------------------------------------------- RA6 census sensor readers
 def test_persons_in_house_sensor_egress_identity_attrs_read_public_api(mods):

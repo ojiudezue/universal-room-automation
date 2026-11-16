@@ -304,12 +304,13 @@ LISTED = {
     ('R10', 'binary_sensor.py', 'CameraInputDegradedBinarySensor.async_added_to_hass:ura_census_updated'): 1,
     ('R10', 'crossing_vision.py', 'CrossingVisionShadow.async_setup:ura_person_egress_event'): 1,
     ('R10', 'domain_coordinators/hvac.py', 'HVACCoordinator.async_setup:ura_person_arriving'): 1,
-    ('R10', 'domain_coordinators/music_following.py', 'MusicFollowingCoordinator.async_setup:ura_person_arriving'): 1,
     ('R10', 'domain_coordinators/presence.py', 'PresenceCoordinator.async_setup:ura_census_updated'): 1,
     ('R10', 'domain_coordinators/residency.py', 'subscribe_person_edges:ura_residency_event'): 1,
     ('R10', 'domain_coordinators/security.py', 'SecurityCoordinator.async_setup:ura_person_arriving'): 1,
     ('R10', 'domain_coordinators/signals.py', 'subscribe_person_arriving:ura_person_arriving'): 1,
-    ('R10', 'music_following.py', '<step 8 §5.4 music listener>:async_add_listener[PC]'): 1,
+    # Arc step 8 §5.4 (D2): the one PC listener, registered while a wait,
+    # intent or departure wait is open (un-reserved in the D2 commit).
+    ('R10', 'music_following.py', 'MusicFollowing._arrival_sync_pc_listener:async_add_listener[PC]'): 1,
     ('R10', 'music_following.py', 'MusicFollowing.async_init:async_add_listener[TD]'): 1,
     ('R10', 'person_sighting.py', 'PersonSightingProducer.async_setup:ura_person_egress_event'): 1,
     ('R10', 'sensor.py', 'CurrentOccupantsSensor.async_added_to_hass:async_add_listener[PC]'): 1,
@@ -323,4 +324,4 @@ LISTED = {
     ('R10', 'sensor.py', '_CensusBaseSensor.async_added_to_hass:ura_census_updated'): 1,
     ('R10', 'transitions.py', 'TransitionDetector.async_init:ura_person_location_change'): 1,
 }
-LISTED_RESERVED = [('R10', 'music_following.py', '<step 8 §5.4 music listener>:async_add_listener[PC]')]
+LISTED_RESERVED = []

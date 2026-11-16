@@ -57,8 +57,14 @@ The room the person left if its speaker plays; else the last room they left with
    `music_assistant.transfer_queue`, target = destination MA player, data `source_player`, `auto_play: true`.
    MA twin resolution: the entity itself is MA; an MA entity on the same device; an MA device whose
    `music_assistant` identifier names an HA entity on this device; an MA device whose identifier carries this
-   device's MAC (live 2026-11-14: 9 of 10 room speakers are covered this way, e.g. `kitchen_3` -> `kitchen_5`).
-   Kill switch `MF_MA_FIRST_ENABLED`.
+   device's MAC (live 2026-11-14: 9 of 10 room speakers are covered this way, e.g. `kitchen_3` -> `kitchen_5`);
+   an MA device whose identifier is `wiim_uuid:<UUID>` with the UUID (dashes removed) starting with this device's
+   `wiim` identifier (`wiim_uuid_match`, MF-MA-TWIN-WIIM-UUID-1). **CORRECTION 2026-11-15** (audit
+   `AUDIT_step8_b0_ours_attr_2026_11_15.md` addendum): the `_5` MAC twins read `unavailable` all week; the twins
+   that play are the `_7` `wiim_uuid` ones, which no rule matched, so the MA path had never run in a WiiM room
+   (transfers fell back to native join, `ma_source_not_playing`). Candidates are now ordered live first (state
+   not unavailable / unknown), then registry order, so `_resolve_path`, the bonus joins and the arrival start
+   take the live twin. Kill switch `MF_MA_FIRST_ENABLED`.
 2. **Native join** when both share a grouping platform: `media_player.join(entity_id=<leader>,
    group_members=[target])`; leader = the source, or the leader of an MF-formed group (chained move), or the
    source's `group_members[0]`. In `move` mode a join whose leader is the source is skipped unless the platform is
@@ -130,3 +136,29 @@ is the decision call the room entry path (`automation._maybe_activate_slot_scene
 makes before the slot scene, and `note_arrival_scene_result(room_entry_id, applied)` is its report back.
 Both are stubs (None / no-op) until D3. Person profiles live in the CM option `person_profiles`
 (`person_profiles.py`: `get_person_profile`, `pick_media`, `arrival_master_on`, default ON).
+
+## Arrival music, hand-off, welcome scene, departure pause (arc step 8 D2-D4)
+
+Plan `docs/planning/PLANNING_identity_actions_v6.md` rev 3.6.1. The engine (`music_following.MusicFollowing`)
+holds one residency subscription (arrival + departure records); no F5 (`SIGNAL_PERSON_ARRIVING`) is read and
+the coordinator's old no-op F5 handler is deleted. A counted, non-stale, out-of-boot arrival of an opted-in
+resident who was away >= `ARRIVAL_MIN_AWAY_S` opens an intent; the pick starts in their first own bedroom
+(else bathroom) with a player, before they get there. Reaching any own room inside `ARRIVAL_WINDOW_S` is
+`arrived`: the hand-off. From then on music following owns the music under its own gates (its transfer
+source is room-based, so engine-started music is a valid source); step 8 adds nothing to the transfer path.
+At window end, never reached and nobody else in the room: stop (`media_stop`, `media_pause` when the player
+has no stop). The departure pause acts once per start, only when the room is empty with nobody else placed.
+"Ours" (fix pass 2026-11-15, orchestrator default pending operator confirmation): from a successful start until any
+write to the played entity whose HA context music following did not create (`MusicFollowing._ura_ctx_ids`: every
+`_call`, i.e. the arrival start / stop / pause and the transfer calls); position-only writes are ignored. HA stamps a
+device update more than 5 s after a call with a fresh context, so the device's own next track change also ends
+ownership (the stop and the pause then do not act: the safe direction). `ARRIVAL_OURS_ATTR` is an optional extra
+check (both must hold), default None. The checks for "someone else is listening" cover the owners' suite (every own
+room of every owner of the target room), a grouped player is never started, stopped or paused, a start is refused in
+the music-following hazard block, and one start runs per room and per player at a time.
+Welcome scene: `arrival_scene_for` (own bedroom only, gates as the start) feeds the room entry path, which
+retries the slot scene once when the welcome scene is unavailable or errors. Outcomes: one
+`Arrival decision` line and one `arrival_music` / `welcome_scene` episode each; trip-wires in the nightly
+health check (`arrival_action_zero`, `arrival_stop_premature`, `arrival_guest_block_high`,
+`arrival_census_unavailable`, `arrival_music_failing`, `welcome_scene_failing`, `arrival_entry_missed`).
+Follow-me (D2b) is not built.

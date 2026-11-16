@@ -37,4 +37,13 @@ House state is read with the existing `NotificationManager._panel_house_state()`
 
 ## Live validation
 
-Pending deploy.
+### Validated 2026-11-16 (restart ~06:37 CST, installed v5.108.32)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Home cap stops repeats after 1 h, into COOLDOWN | **PASS (live)** | The 03:57 CST `exterior_person` page (rows 27541-27545, `binary_sensor.rear_ptz_person_occupancy_2`) was recovered at boot with `unacked_critical_age_s` 9690; house `home_day`. First repeat tick 07:08:11 CST wrote row 27558 (`route_reason` `repeat_capped_home`, `[audit]`), channel rows acknowledged=1, row 27544 `cooldown_expires` 13:18:11Z; `sensor.ura_notification_manager_nm_alert_state` = `cooldown`, `repeat_timer_active` False. Zero `repeat` rows (no resends). |
+| Digest line | PASS | Row 27559, MEDIUM, "Repeats stopped: Perimeter Alert — Person Detected". |
+| Cap applies to a restored page before any send | PASS | Cap row is the first row after recovery; `[audit]` summary rows are excluded from `get_active_critical` (`database.py:5160-5166`), so they are not resurrected. |
+| 11 `repeat` rows then `repeat_capped_home` | Not applicable to this page | The page was already past its hour at restart. Pending an evening page with a live first hour. |
+| Second page within the budget: one send + `repeat_skipped_home_budget` | Pending event | Budget marked used by the 07:08 cap; next home `exterior_person` page proves it. |
+| Budget survives restart; away full ladder; life-safety never capped | In-suite only | 44 tests above. |

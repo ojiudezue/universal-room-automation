@@ -36,6 +36,10 @@ The HVAC reset (09-25/26) traced Zone 1's strands to real Carrier manual holds c
 
 The identity arc made the registry rule standing: no inferring platform, device, person or room from an entity name. → [298](users/ojiudezue/entries/298_registry_not_name_guessing.json) Unused AI rules and music following get fixed and ship on, with no shadow ladder. → [300](users/ojiudezue/entries/300_fix_not_retire_no_shadow_mode.json) Overnight 11-14 found why every per-room Bluetooth distance died on 10-20: the wall-panel proxies trip an all-or-nothing early return in Bermuda. → [305](users/ojiudezue/entries/305_bermuda_per_scanner_dead_panel_proxies.json) That dead input sat under the music repair's planned confidence gate, which as written would have followed no one. → [306](users/ojiudezue/entries/306_music_gate_on_dead_ble_confidence.json)
 
+## 2026-11-16: quieting keys must match what a duplicate is
+
+Interior vision ship 2 (describe a room by text, Foyer fisheye unwarped in URA) shipped as v5.108.32 with the face fallback held to the 0.75 naming bar, which leaves it Bluetooth-only until interior face confidence rises. The paging cap proved itself live on a recovered 4 a.m. page. Validation also found NM boot-settle collapsing distinct stuck-sensor kinds under one hazard type while the stuck latch recorded the dropped page as sent: the same shape as the circling de-dup miss two days earlier. → [329](users/ojiudezue/entries/329_boot_settle_swallows_distinct_stuck_kinds.json)
+
 ## Open questions
 
 - OC: which fix types earn R1 first, and the promotion evidence for R2.
@@ -44,3 +48,5 @@ The identity arc made the registry rule standing: no inferring platform, device,
 - Reserve governor and inclement rebuild (freeze versus wind as the outage cause).
 - Envoy stream A/B/A; HVAC still-sleeper corroborator; reducing zones 2/3's Bryant schedules.
 - PWA: auth hardening before any non-operator user.
+
+The arrival engine then shipped as v5.108.33 under option B. Start and welcome scene act now. Stop and pause are held to a conservative ownership rule until a live MA test, because stopping chosen music is the costly mistake; v6.0.0 is anchored to that test. → [330](users/ojiudezue/entries/330_arrival_engine_ships_option_b.json)
