@@ -34674,22 +34674,23 @@ cards:
 - id: TEST-MUSIC-SYSMODULES-LEAK-1
   title: test_music_following_coordinator.py replaces domain_coordinators/base in sys.modules at import and never restores them, breaking class-identity checks in later test files
   thread: quality
-  status: inbox
+  status: "planned"
   created: '2026-11-13 03:00'
-  updated: '2026-11-13 03:00'
+  updated: "2026-11-16 02:23"
   tier: 1
   links: {related: [NM-NO-CHANNEL-FIRED-1]}
   origin: {date: '2026-11-13', gist: 'Found while fixing an order-dependent NM test (test_music_following_coordinator.py:128-138); builder checklist rule 8.'}
   why: 'Any later test using isinstance on Severity or other base classes can fail depending on order.'
-  next: 'Me: move the patch into a scoped fixture (monkeypatch.setitem on sys.modules) and confirm the minimal ordering still passes.'
+  next: "Me (attended or a quiet overnight with no other suite running): build the snapshot/restore fixture on a worktree, then one serial full-suite name-diff."
   rank: {value: 3, time_criticality: 2, effort: 1}
+  verified_2026_11_16_overnight: "STILL-REAL: quality/tests/test_music_following_coordinator.py:105-139 still assigns sys.modules entries for the URA package, const, domain_coordinators and five submodules (signals, house_state, base, manager, music_following) at import, with no restore. Gate: config-first N/A; prior art = the parent re-architecture (TEST-STRATEGY-REARCH-1 removes import-time surgery); parsimony SIMPLIFY (snapshot sys.modules before the surgery, restore after this module's imports, and re-install the stubs only for this module via a module-scoped autouse fixture); cost/benefit BUILD but only with a full-suite name-diff, because the fix changes collection-order behaviour for every later file. Not built overnight: another session's builder was running full suites (the pytest guard kills concurrent runs). Acceptance: suite name-diff vs develop shows no new failures, and a minimal ordering (this file, then a file doing isinstance on base.Severity) passes."
 - id: NM-DIGEST-MARK-RACE-1
   verified_2026_11_15_overnight: 'STILL-REAL: notification_manager.py ~5650-5705 reads pending, awaits _deliver_digest, then database.mark_digest_delivered (database.py:4937) UPDATEs every delivered=0 LOW/MEDIUM row for the person, so a row inserted during the send is marked delivered=2 without ever appearing in a body. Gate: config-first N/A; prior art REUSE both functions (add an id high-water mark); parsimony BUILD; cost/benefit BUILD (Tier 1, one review). Builder dispatched to worktree overnight-nm-digest-race, branch fix/nm-digest-mark-race; to review lane only, no deploy.'
   title: mark_digest_delivered marks every undelivered row, including rows queued while the digest was sending, so they never appear in any digest
   thread: notifications
   status: in_progress
   created: '2026-11-13 03:30'
-  updated: "2026-11-16 02:09"
+  updated: "2026-11-16 02:24"
   tier: 1
   links: {related: [NM-NO-CHANNEL-FIRED-1]}
   origin: {date: '2026-11-13', gist: 'Review B B3 of fix/nm-no-route (database.py:4958); pre-existing, made more frequent by the digest fallback (~43 rows/day).'}
@@ -34697,6 +34698,7 @@ cards:
   next: 'Me: mark only rows with id <= the highest id the digest actually read; test with a row inserted mid-send.'
   rank: {value: 4, time_criticality: 3, effort: 1}
   build_2026_11_16_overnight: "The 11-15 builder left its work UNCOMMITTED in worktree overnight-nm-digest-race (base 214 commits behind develop). Read the diff, committed it as b11ff29e on fix/nm-digest-mark-race and rebased onto develop (0 behind). Change: database.mark_digest_delivered(person_id, max_id) adds AND id <= ? (database.py ~4937-4975); notification_manager.py ~5700-5716 passes the max id read into the body and marks nothing on heartbeat or optimizer-only flushes; 3 new real-schema tests in test_nm_no_channel_fired.py (row inserted during send survives to the next digest; audit drained only up to the mark; heartbeat/optimizer-only mark nothing); one test_notification_manager.py expectation updated (optimizer-only flush no longer marks). Targeted run on the rebased branch: test_nm_no_channel_fired + test_notification_manager + test_nm_image_delivery = 162 passed. Review + mutation drill pending (held while another session's full suite was running)."
+  review_2026_11_16_overnight: "Review A (ura-reviewer, static; pytest withheld while another session ran suites) = SHIP, 0 C/H/M, 2 LOW accepted (audit rows drain only on a flush with real rows; a pre-existing source-text test). Record: docs/reviews/code-review/v_nm_digest_mark_race_review_A.md. Mutation drill (drop AND id <= ?) pending until no other pytest is running (the concurrent-pytest guard denied it at ~02:30)."
 - id: NM-NO-CHANNEL-FIRED-1
   title: "520 notification_log rows since 11-01 record no_channel_fired / delivered=2 (stuck_signal, circuit_anomaly, lock retry-cap, high_co2): may reach nobody"
   thread: notifications
