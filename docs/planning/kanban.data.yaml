@@ -35087,7 +35087,8 @@ cards:
 - id: VISION-P3-FIRST-SET-1
   title: "Crossing vision Phase 3 first set: error text on error rows, restart-safe daily cap (default 93, 4000 tokens), stuck-excluded inputs stop holding the empty-house anchor"
   thread: identity
-  status: review
+  status: shipped_organic
+  shipped_version: v5.108.27
   tier: 3
   created: '2026-11-15 18:45'
   updated: '2026-11-15 18:45'
@@ -35096,6 +35097,7 @@ cards:
   why: "P3-D1 + P3-D5 + P3-D8 (+ P3-D0 knobs) from PLANNING_crossing_vision.md Phase 3. Operator Go 2026-11-15. Full suite 22,788 passed (1 order-dependent flake, passes alone); orchestrator mutation on both P3-D8 sites RED (7 and 12 tests)."
   next: "Deploy v5.108.27, restart while awake, live-validate, write the README table."
 - id: VISION-AMBIGUOUS-CROSSINGS-1
+  arc_cut_v5_108_27: "parent stays open for P3-D2 recording route, P3-D3 direction, P3-D10/D11 tracker extension, all waiting on operator grades"
   arc_cut_v5_108_25: "arc step 2b, door-vision evaluation first"
   title: "Crossing vision watches every crossing, including the ones the validator cannot give a direction (20-53% of crossings), and vision supplies the direction and count there"
   thread: identity
