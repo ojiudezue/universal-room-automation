@@ -1,6 +1,6 @@
-# URA vTBD: unacked page repeats stop after the first hour when home
+# URA v5.108.31: unacked perimeter pages repeat for one hour per evening at home
 
-Card: NM-PERIMETER-REPEAT-STORM-1 (Tier 2). Operator 2026-11-16: "Paging - first hour if home. More if away".
+Card: NM-PERIMETER-REPEAT-STORM-1 (Tier 2). Operator 2026-11-16: "Paging - first hour if home. More if away", then option A (the hour is per evening at home). Reviews A and B (FIX-REQUIRED -> fixed 9eb1289d), full suite 23,112 passed, orchestrator mutation on the episode guard RED.
 
 ## What changed
 
@@ -32,7 +32,7 @@ House state is read with the existing `NotificationManager._panel_house_state()`
 
 ## Acceptance
 
-- Test: `quality/tests/test_nm_repeat_home_cap.py` (43 tests, incl. the dict payload, a smoke page taking the slot mid-cap, a concurrent ack, the sensor restoring the budget during the cooldown, a boot-default AWAY, and restore-vs-listener ordering; home cap into COOLDOWN; home budget: second page sends once with no repeats, reset by the away signal, reset by a page while away, 6 h quiet boundary with refresh, knob 0, restart, life-safety, per-hazard, unknown state, setup/teardown subscription; restart after cap, new CRITICAL in cooldown, 3599 s versus 3600 s boundary, away/vacation at 1800 s, unknown state, life-safety intruder and smoke, knob 0, numbered resend rows, ack, restart home and away).
+- Test: `quality/tests/test_nm_repeat_home_cap.py` (44 tests, incl. the dict payload, a smoke page taking the slot mid-cap, a concurrent ack, the sensor restoring the budget during the cooldown, a boot-default AWAY, and restore-vs-listener ordering; home cap into COOLDOWN; home budget: second page sends once with no repeats, reset by the away signal, reset by a page while away, 6 h quiet boundary with refresh, knob 0, restart, life-safety, per-hazard, unknown state, setup/teardown subscription; restart after cap, new CRITICAL in cooldown, 3599 s versus 3600 s boundary, away/vacation at 1800 s, unknown state, life-safety intruder and smoke, knob 0, numbered resend rows, ack, restart home and away).
 - Live: after the next unacked perimeter page with the house home, `notification_log` shows 11 `route_reason='repeat'` rows and one `repeat_capped_home` row, and no resends after one hour. A second page of the same hazard within the budget shows one first-send plus a `repeat_skipped_home_budget` row and no `repeat` rows.
 
 ## Live validation
