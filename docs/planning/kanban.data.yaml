@@ -35096,6 +35096,28 @@ cards:
   operator_2026_11_15_scope: "Long run. Let's nail the room first."
   revisit_trigger: "v6.0.0 own-room welcome scene live-validated and the operator asks for scenes along the arrival path."
   next: "Parked until the own-room welcome scene ships and is validated."
+- id: VISION-INTERIOR-SHIP1-1
+  title: "Interior vision ship 1: unnamed room records per shared camera room, entry-path rows, trip-wires; no AI calls, nothing reaches census or presence"
+  thread: identity
+  status: review
+  tier: 3
+  created: '2026-11-15 20:10'
+  updated: '2026-11-15 20:10'
+  links: {parent: VISION-INTERIOR-SIGHTINGS-1}
+  origin: {date: '2026-11-15', gist: 'Split from VISION-INTERIOR-SIGHTINGS-1 for the v5.108.28 deploy; parent keeps ship 2, vision leg, D4 census flip, ledger floor.'}
+  why: "Plan 7b818ce1 ship 1 (D1 + D5 no-model + D7). Reviews A/B/C/D+G, fix-up 6025e9ba, merge-fix 525f0cb4. Full suite on merged branch clean except one registry line fixed in c4dd65ce. Orchestrator mutation: stuck=False -> test_census_discounted_member_never_reaches_a_record RED."
+  next: "APPROVE: deploy v5.108.28 (Tier-3 operator checkpoint) -> deploy, restart while awake, live-validate, README table."
+- id: PEOPLE-SCREEN-1
+  title: "People settings screen and per-person profile store (step 8 §10.1); configuration only, nothing acts yet"
+  thread: identity
+  status: review
+  tier: 2
+  created: '2026-11-15 20:10'
+  updated: '2026-11-15 20:10'
+  links: {parent: PERSON-PROFILE-PREFERENCES-1}
+  origin: {date: '2026-11-15', gist: 'Operator: ship the People screen first. Split for the v5.108.29 deploy; parent keeps D2/D3/D4/D6/D7.'}
+  why: "Reviews A+G, B, C (130 mutations); fix pass b769c29e (40/40 fix sites RED); develop merge 235f5c0f; allowlist pin c8a9a16c. B0 live form check right after install, rollback if the form fails."
+  next: "Deploy v5.108.29 with the interior release (one restart), B0 live form check, README table."
 - id: VISION-P3-FIRST-SET-1
   title: "Crossing vision Phase 3 first set: error text on error rows, restart-safe daily cap (default 93, 4000 tokens), stuck-excluded inputs stop holding the empty-house anchor"
   thread: identity
