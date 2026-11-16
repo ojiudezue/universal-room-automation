@@ -35099,7 +35099,8 @@ cards:
 - id: VISION-INTERIOR-SHIP1-1
   title: "Interior vision ship 1: unnamed room records per shared camera room, entry-path rows, trip-wires; no AI calls, nothing reaches census or presence"
   thread: identity
-  status: review
+  status: shipped_organic
+  shipped_version: v5.108.28
   tier: 3
   created: '2026-11-15 20:10'
   updated: '2026-11-15 20:10'
@@ -35868,6 +35869,7 @@ cards:
   next: 'Parked (see revival_trigger). Measured 11-15: ~18 MB, exterior_track is the driver.'
   rank: {value: 2, time_criticality: 1, effort: 1}
 - id: VISION-INTERIOR-SIGHTINGS-1
+  arc_cut_v5_108_28: "parent stays open for ship 2 descriptions, vision count leg, D4 census flip and ledger floor"
   arc_cut_v5_108_25: "arc step 9, plan in closure review"
   operator_2026_11_15_ledger_floor_only: "Yes. I don't want to worry and derail from low probability concerns. (Interior counts feed the ledger as a FLOOR only: L never below the visible interior count. The checkpoint-anchor idea is dropped, not planned: it needs every camera-less room provably empty, which is rare here and fragile.)"
   operator_2026_11_15_interior_for_census: "Does Camera plan make interior counting a no go? Interior counting I still want just not for presence for now. For census instead and the ledger. (Answer: no, interior vision resolves areas itself and reads cameras through 3b. Census use already planned as the raise-only interior_term; presence never. NEW: add interior counts as a ledger input: a floor (ledger L never below the visible interior count) and a checkpoint anchor (a high-confidence full-coverage interior count can set L when the empty-house anchor has not fired). Plan amendment + measurement against operator grades before it moves L.)"
