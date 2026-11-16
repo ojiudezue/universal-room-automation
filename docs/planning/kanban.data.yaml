@@ -35236,6 +35236,7 @@ cards:
   next: "Me: build (Tier 2): non-life-safety CRITICAL repeats stop after the first hour (12 x 5 min) when the house is not away; away keeps the current 5 min / 30 min / daily schedule; life-safety unchanged; log every resend."
 - id: FOYER-FISHEYE-DEWARP-1
   title: "Dewarp the Foyer fisheye still before any interior vision read; the Foyer camera also sees the Living Room (cross-room overlap)"
+  operator_2026_11_16_scope: "Ah ok then (accepting: foyer-floor zone + per-still dewarp now; full Frigate dewarp stream only for Foyer face recognition, revisited after Frigate 2 memory pressure is sorted)"
   operator_2026_11_16_dewarp: "(Option C, a camera or Frigate dewarp stream) This is we can [if we can]. / Protect has a dewarp view but not frigate AFAIK, although we should check"
   operator_2026_11_16_overlap: "Yes we can fix the overlap"
   facts_2026_11_16: "Foyer = Ubiquiti AI Theta, 360 lens (sensor lens_type 360); Protect RTSP channels are square raw fisheye only (2560/1280/720); the Protect app's dewarp is client-side, not a stream. Family Room AI Theta has a 4:3 lens (3264x2448) and reads fine. Feasibility probe running (AUDIT_foyer_dewarp_feasibility_2026_11_16.md): Frigate 2 host headroom, go2rtc/ffmpeg v360, offline still test, restream vs per-still dewarp."
