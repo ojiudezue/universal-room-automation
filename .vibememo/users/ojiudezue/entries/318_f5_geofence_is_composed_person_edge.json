@@ -1,0 +1,25 @@
+{
+  "format_version": "2.1",
+  "entry_id": "318",
+  "author": "ojiudezue",
+  "timestamp": "2026-11-16T03:10:00Z",
+  "type": "observation",
+  "weight": "significant",
+  "category": "architecture",
+  "title": "The 'geofence' arrival is HA's composed person.* edge (GPS + BLE); the 'ble' arrival is a second view of it",
+  "summary": "Step 8's D0 split arrivals into geofence (passes the counted-return gate 9/15) and BLE (0/9), and the plan was about to make a BLE-specific producer card a v6.0.0 gate. The operator suspected the split: 'Be sure geofence doesn't just wrap gps and ble and you're measuring the wrong thing.' The audit confirmed it. HA's person entity prefers any non-GPS tracker that is home over GPS (person/__init__.py:516-545), and every person carries Bermuda/private_ble trackers; Jaya and Ziri have no GPS at all. So the 'geofence' F5 is the composed edge (61/78 GPS-led, 17/78 BLE-led), and the 'ble' F5 follows that edge 31/31 times within 2-60 s. BLE 0/9 was an ordering artefact: the arrival edge always came first.",
+  "why": "Labels on an internal signal were taken as its source. The geofence F5 is a person.* state listener, not a GPS app, and the counted-return gate reads the same edge stream, so it was judging one arrival against its own record and the duplicate view against a record that always looked newer.",
+  "alternatives_considered": [
+    "Build BLE-ARRIVAL-PRODUCER-HVAC-GATED-1 before v6.0.0 so BLE arrivals pass the gate",
+    "Let BLE start the arrival only when a geofence arrival follows (operator's Q5 answer B, which the composed edge already provides)"
+  ],
+  "implications": "Step 8 triggers on one counted person.* arrival edge per physical arrival and dedups the ble F5. The BLE prerequisite card leaves the v6.0.0 gate along with the BLE departure bar and most BLE drills. Any future source-aware rule reads the edge's source attribute through the registry platform, never the F5 label. The gate's real job is filtering GPS flaps: 19 of 80 arrivals were away under 15 minutes, all GPS.",
+  "confidence": "high",
+  "revisit_trigger": "A person.* entity gains a router/ping tracker, or a BLE F5 is seen with no person.* arrival edge within 120 s (0/31 in the 7-day window).",
+  "operator_quote": "Be sure geofence doesn't just wrap gps and ble and you're measuring the wrong thjng with this. Has home uses both underneath I think",
+  "refs": {
+    "cards": ["PERSON-PROFILE-PREFERENCES-1", "BLE-ARRIVAL-PRODUCER-HVAC-GATED-1"],
+    "files": ["docs/planning/AUDIT_step8_f5_source_semantics_2026_11_15.md", "custom_components/universal_room_automation/domain_coordinators/presence.py"],
+    "entries": ["317", "289"]
+  }
+}

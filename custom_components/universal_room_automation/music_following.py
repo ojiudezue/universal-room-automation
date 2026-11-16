@@ -1,60 +1,74 @@
-"""Music following for Universal Room Automation v3.6.27.
+"""Music following for Universal Room Automation.
 
-Seamlessly transfer music playback when person moves between rooms.
+When a person walks from a room with music to a room with a speaker, the
+music moves with them. MUSIC-FOLLOWING-TRANSFER-REPAIR-1
+(docs/planning/PLANNING_music_following_repair.md) rebuilt the pipeline:
 
-v3.6.20: Music Following Hardening — Sub-Cycle B (Behavior Hardening)
-         - Transfer cooldown: 8s per person to same target room
-         - Post-transfer verification: check target playing, nudge if needed
-         - Music Assistant queue transfer (MASS transfer_queue)
-         - Winner rules: block transfer if target already playing
-         - Speaker group cleanup: unjoin source after verified transfer
-v3.6.19: Sub-Cycle A (Foundation Fixes)
-         - asyncio.Lock, volume save/restore, fade gated behind success
-v3.3.5.2–v3.3.1: Platform-agnostic transfers, zone config, etc.
+* Gates in a fixed order (coordinator, person, same room, BLE certainty,
+  stale, house state, cooldown, source, target player, target unavailable,
+  source has others, source playing, target already playing). Time spent in
+  the first room is never a skip reason (INV-MF-3); the old dwell-arithmetic
+  "confidence" gate is gone.
+* The source is the room the person left, or, when that room has no playing
+  speaker, the last room they left with one within the lookback (hallway
+  walk-through).
+* Three paths, in order: Music Assistant ``transfer_queue`` (target = the
+  destination MA player, ``source_player`` = the playing MA player), native
+  ``media_player.join`` (``entity_id`` = the group leader = the source side),
+  ``play_media`` + seek. One resolver returns the path and its reason.
+* Success only when the room's configured speaker (the primary) reads
+  ``playing`` after MF's own call (INV-MF-1, INV-MF-6). In ``move`` mode the
+  old room fades to 10 percent, is removed after the release delay and gets
+  its volume back; a fade is undone at once when the new room does not play.
+* One transfer in flight per person; a newer room change supersedes it and
+  its cleanup restores every volume it took (INV-MF-5).
+* Every room change ends in exactly one outcome from ``MF_OUTCOMES``, counted,
+  logged as one ``MF decision`` line and, when two speakers are involved,
+  written to room memory (INV-MF-2).
 """
+
+from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
-from typing import Optional
+import time
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from typing import Any, Callable, Optional
 
 from homeassistant.core import HomeAssistant
 from homeassistant.components.media_player import (
     ATTR_MEDIA_POSITION,
     ATTR_MEDIA_VOLUME_LEVEL,
     DOMAIN as MEDIA_PLAYER_DOMAIN,
-    SERVICE_MEDIA_PAUSE,
     SERVICE_MEDIA_PLAY,
     SERVICE_VOLUME_SET,
 )
 from homeassistant.const import STATE_PLAYING
 from homeassistant.util import dt as dt_util
 
+from . import const as _c
 from .transitions import RoomTransition
-from .const import (
-    DOMAIN,
-    MUSIC_TRANSFER_COOLDOWN_SECONDS,
-    TRANSFER_VERIFY_DELAY_SECONDS,
-    GROUP_UNJOIN_DELAY_SECONDS,
-)
+from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
+
+# HA MediaPlayerEntityFeature bits (homeassistant/components/media_player/
+# const.py: PLAY_MEDIA = 512, GROUPING = 524288). Numeric so legacy test
+# stubs of the media_player module keep importing this file.
+_FEATURE_PLAY_MEDIA = 512
+_FEATURE_GROUPING = 524288
+
+_UNAVAILABLE_STATES = ("unavailable", "unknown")
+_STOPPED_STATES = ("paused", "idle", "off", "standby", "on")
 
 
 def _person_key(value: str) -> str:
     """Canonicalize a person identifier for cross-form comparison.
 
-    The music-following enabled-set is keyed by person entity_id
-    (e.g. ``person.oji_udezue``) because it is synced from
-    ``CONF_TRACKED_PERSONS``, but the transition event carries the
-    display name (e.g. ``"Oji Udezue"``) because
-    ``person_coordinator`` fires ``ura_person_location_change`` with
-    ``person_id=person_name``. The display name is derived by
-    ``entity_id.replace("person.", "").replace("_", " ").title()``
-    in ``__init__.py``. This helper inverts both forms to a single
-    casefolded canonical (e.g. ``"oji udezue"``) so the enabled
-    check in ``_on_person_transition`` matches regardless of which
-    form arrives.
+    The enabled-set is keyed by person entity_id (``person.oji_udezue``)
+    while the transition event carries the display name (``"Oji Udezue"``).
+    Both map to the casefolded ``"oji udezue"``.
     """
     if not value:
         return ""
@@ -63,250 +77,352 @@ def _person_key(value: str) -> str:
 
     return slug_of(value).replace("_", " ").strip().casefold()
 
+
+def _slug(room: str) -> str:
+    return str(room or "").lower().replace(" ", "_")
+
+
 # Platform identifiers
 PLATFORM_SONOS = "sonos"
-PLATFORM_LINKPLAY = "linkplay"  # Linkplay integration entities
-PLATFORM_WIIM = "wiim"  # WiiM custom integration entities
-PLATFORM_DENON = "denonavr"  # Denon/Marantz AVR integration
-PLATFORM_MASS = "music_assistant"  # Music Assistant players
+PLATFORM_LINKPLAY = "linkplay"
+PLATFORM_WIIM = "wiim"
+PLATFORM_DENON = "denonavr"
+PLATFORM_HEOS = "heos"
+PLATFORM_MASS = "music_assistant"
 PLATFORM_GENERIC = "generic"
+# Kept for the area-player picker (prefer a multiroom speaker over a TV).
+MULTIROOM_PLATFORMS = {
+    PLATFORM_SONOS, PLATFORM_LINKPLAY, PLATFORM_WIIM, PLATFORM_DENON,
+    PLATFORM_HEOS, PLATFORM_MASS,
+}
 
-# Platforms that support native multiroom sync via media_player.join
-# v3.3.5.2: Added PLATFORM_WIIM - WiiM integration DOES support join
-# v3.3.5.2: Added PLATFORM_DENON - HEOS integration supports join for Denon/Marantz
-MULTIROOM_PLATFORMS = {PLATFORM_SONOS, PLATFORM_LINKPLAY, PLATFORM_WIIM, PLATFORM_DENON}
+# Paths
+PATH_MA = "ma"
+PATH_JOIN = "join"
+PATH_GENERIC = "generic"
+
+# ---------------------------------------------------------------------------
+# Outcome registry (D4): the ONE source for stats init, the skip set, the
+# transfer-attempt keys and outcomes_today.
+# ---------------------------------------------------------------------------
+MF_SUCCESS_OUTCOMES = ("success", "success_nudged")
+MF_OUTCOMES = (
+    "success",
+    "success_nudged",
+    "verify_failed",
+    "failed",
+    "coordinator_disabled",
+    "person_not_enabled",
+    "same_room",
+    "ble_low_confidence",
+    "stale_transition",
+    "cooldown_blocked",
+    "ping_pong_suppressed",
+    "no_source_player",
+    "no_target_player",
+    "target_unavailable",
+    "source_has_others",
+    "source_not_playing",
+    "active_playback_blocked",
+    "sleep_suppressed",
+    "night_suppressed",
+    "hazard_blocked",
+    "superseded",
+    "returned_in_flight",
+    "exception",
+)
+# Counters that are not move outcomes.
+MF_COUNTERS = ("bonus_join_failed", "ble_input_missing", "unknown_outcome")
+# Outcomes that are music-involved transfer attempts (success-rate denominator).
+MF_TRANSFER_KEYS = (
+    "success", "success_nudged", "verify_failed", "failed",
+    "active_playback_blocked",
+)
+_NOT_SKIPS = frozenset(MF_SUCCESS_OUTCOMES)
+MF_SKIP_OUTCOMES = frozenset(o for o in MF_OUTCOMES if o not in _NOT_SKIPS)
+
+# Fields of the one-line decision log (D5.1), in order.
+MF_DECISION_FIELDS = (
+    "person", "from", "to", "source_room", "source_player", "target_player",
+    "path", "outcome", "reason", "ble_confidence", "dwell_s",
+    "path_type", "follow_mode", "call_ms", "verify_ms", "target_state",
+    "knob",
+)
+
+
+@dataclass
+class _Transfer:
+    """One room change and, when it gets that far, its transfer."""
+
+    person_id: str
+    person_key: str
+    from_room: str
+    to_room: str
+    transition: Optional[RoomTransition] = None
+    transition_ts: Optional[datetime] = None
+    decision: dict = field(default_factory=dict)
+    source_room: str = ""
+    source_player: str = ""
+    target_player: str = ""
+    source_eff: str = ""   # entity the path addresses on the source side
+    target_eff: str = ""   # entity the path addresses on the target side
+    path: str = ""
+    leader: str = ""
+    phase: str = "pending"  # pending/evaluating/calling/verifying/releasing/done
+    target_started: bool = False
+    saved: dict = field(default_factory=dict)  # player -> volume THIS move took
+    outcome: str = ""
+    superseded_to: Optional[str] = None
+    follow_mode: str = _c.DEFAULT_MF_FOLLOW_MODE
+    sent_content_id: Optional[str] = None
+    decided: Optional[asyncio.Event] = None
+    task: Optional[asyncio.Task] = None
+    # The house-wide transfer lock is held only for the gates and the start
+    # call, never through the verify / release waits (review B1).
+    lock_held: bool = False
+    # Set before the source stop is issued (review B5): a bounce back to the
+    # source after this point must not also stop the target.
+    source_released: bool = False
+    # The outcome a cancellation books ("superseded"; "hazard_blocked" when a
+    # safety / security stop cancelled the move, review B2).
+    cancel_outcome: str = "superseded"
+    # Join issued between Music Assistant players (extend mode, review A-H2).
+    via_ma: bool = False
 
 
 class MusicFollowing:
-    """Seamless music following between rooms.
-    
-    Features:
-    - Transfer playback on room transition
-    - Maintain playback position
-    - Preserve volume settings
-    - Fade out source room
-    - Platform-aware transfer (Sonos, Linkplay, WiiM, Denon, generic)
-    - Graceful fallback handling
-    - Zone-level media player configuration (v3.3.2)
-    
-    v3.3.5.2: Updated Platform Transfer Matrix
-    
-    Same-platform transfers use media_player.join for synchronized multiroom:
-    ┌─────────────┬─────────────┬─────────────┬─────────────┬─────────────┐
-    │ Source →    │ Sonos       │ Linkplay    │ WiiM        │ HEOS/Denon  │
-    │ Target ↓    │             │             │             │             │
-    ├─────────────┼─────────────┼─────────────┼─────────────┼─────────────┤
-    │ Sonos       │ join(SYNC)  │ play_media  │ play_media  │ play_media  │
-    │ Linkplay    │ play_media  │ join(SYNC)  │ play_media  │ play_media  │
-    │ WiiM        │ play_media  │ play_media  │ join(SYNC)  │ play_media  │
-    │ HEOS/Denon  │ play_media  │ play_media  │ play_media  │ join(SYNC)  │
-    └─────────────┴─────────────┴─────────────┴─────────────┴─────────────┘
-    
-    Cross-platform transfers use play_media (independent playback) because
-    each platform uses incompatible hardware-level multiroom protocols:
-    - Sonos: SonosNet / WiFi Direct
-    - WiiM/Linkplay: LinkPlay multiroom protocol
-    - Denon/Marantz: HEOS protocol
-    """
-    
-    # Configuration
-    FADE_OUT_VOLUME = 0.1  # Fade source to 10%
-    TRANSFER_DELAY_MS = 500  # Wait before starting target
-    MIN_CONFIDENCE = 0.6  # Minimum transition confidence to trigger
-    
-    def __init__(
-        self,
-        hass: HomeAssistant,
-        config: dict,
-        transition_detector
-    ) -> None:
-        """Initialize music following."""
+    """Seamless music following between rooms (see module docstring)."""
+
+    # Kept as class attributes for back-compat readers.
+    FADE_OUT_VOLUME = _c.MF_FADE_TARGET_VOLUME
+    _SKIP_OUTCOMES = MF_SKIP_OUTCOMES
+    _TRANSFER_KEYS = MF_TRANSFER_KEYS
+
+    def __init__(self, hass: HomeAssistant, config: dict, transition_detector) -> None:
         self.hass = hass
         self.config = config
         self.transition_detector = transition_detector
 
-        # Track which person we're following music for
         self._enabled_persons: set[str] = set()
-
-        # v3.6.19: Concurrency lock — prevent overlapping transfers
-        self._transfer_lock = asyncio.Lock()
-
-        # v3.6.19: Volume save/restore — pre-fade volume per player
-        self._saved_volumes: dict[str, float] = {}
-
-        # v3.6.20: Transfer cooldown — per-person last transfer time and target
-        self._last_transfer_time: dict[str, datetime] = {}
-        self._last_transfer_target: dict[str, str] = {}
-
-        # v3.6.20: Active speaker groups for cleanup
-        self._active_groups: dict[str, set[str]] = {}
-        # v5.10.0 D6 (addresses C9): standardize on `set` for O(1) discard
-        # (matches the coordinator's `_pending_tasks` type).
-        self._cleanup_tasks: set[asyncio.Task] = set()
-
-        # v5.10.0 D2: sleep/night gating state. Coordinator pushes the
-        # current HouseState value via update_house_state() whenever
-        # SIGNAL_HOUSE_STATE_CHANGED fires, plus the current CONF flags.
-        # Default: no gate (UNKNOWN → allow) until coordinator boots.
-        self._current_house_state: str = ""
-        self._sleep_suppress: bool = True
-        self._night_suppress_mode: str = "dwell_only"
-
-        # v5.10.0 D6: stale-transition threshold in seconds.
-        self._stale_transition_seconds: float = 15.0
-
-        # v5.10.0 fix-up FIX-3 + FIX-5: one-shot flags / prefs.
-        self._warned_dwell_only_no_surface: bool = False
-        # FIX-5 (B-HIGH-1): per-person follow-preference authority. The
-        # MFPersonFollowSwitch writes here on restore + on toggle; sync,
-        # reload, and auto-enable-all consult it. False = DND (user has
-        # turned this person's music-following OFF).
         self._person_follow_prefs: dict[str, bool] = {}
 
-        # v3.6.21 C1: Transfer tracking for diagnostic sensor
-        self._state: str = "idle"  # idle / following / transferring / cooldown / error
+        # House-wide lock over the gates + the start call only (two people
+        # moving between the same rooms are serialised there); released
+        # before the verify / release waits (review B1). One in flight per
+        # person (INV-MF-5).
+        self._transfer_lock = asyncio.Lock()
+        self._inflight: dict[str, _Transfer] = {}
+        self._transfer_tasks: set[asyncio.Task] = set()
+        self._last_superseded: dict[str, dict] = {}
+
+        # Saved pre-fade volumes; every restore pops (no leak). Persisted to
+        # an HA Store on every change and put back at the next start (B3).
+        self._saved_volumes: dict[str, float] = {}
+        self._volume_store = None
+        # Every speaker music following itself started (primaries found by
+        # area, MA twins, bonus players): the hazard stop covers them (A-M1).
+        self._started_players: set[str] = set()
+        # Monotonic deadline until which new moves are refused after a
+        # critical safety / security stop (B2); 0 = no block.
+        self._hazard_until: float = 0.0
+
+        self._last_transfer_time: dict[str, datetime] = {}
+        self._last_transfer_target: dict[str, str] = {}
+        # person_key -> (room, player, monotonic ts) of the last room left
+        # with a playing speaker (D2 lookback).
+        self._recent_source: dict[str, tuple[str, str, float]] = {}
+
+        # leader -> followers MF formed (native join path).
+        self._active_groups: dict[str, set[str]] = {}
+        # room slug -> [(leader, bonus player)] joined after a success.
+        self._bonus_joined: dict[str, list[tuple[str, str]]] = {}
+        self._cleanup_tasks: set[asyncio.Task] = set()
+        self._episode_tasks: set[asyncio.Task] = set()
+        self._reversal_watch: dict[str, Callable] = {}
+
+        # House-state gate.
+        self._current_house_state: str = ""
+        self._sleep_suppress: bool = _c.DEFAULT_MF_SLEEP_SUPPRESS
+        self._night_suppress_mode: str = _c.DEFAULT_MF_NIGHT_SUPPRESS_MODE
+        self._warned_dwell_only_no_surface: bool = False
+
+        # Live knobs (D7): one place, set by apply_config().
+        self._cooldown_s: float = float(_c.DEFAULT_MF_COOLDOWN_SECONDS)
+        self._verify_delay_s: float = float(_c.DEFAULT_MF_VERIFY_DELAY)
+        self._release_delay_s: float = float(_c.DEFAULT_MF_UNJOIN_DELAY)
+        self._position_offset_s: float = float(_c.DEFAULT_MF_POSITION_OFFSET)
+        self._stale_transition_seconds: float = float(_c.DEFAULT_MF_STALE_TRANSITION_SECONDS)
+        self._follow_mode: str = _c.DEFAULT_MF_FOLLOW_MODE
+        self._bonus_joins: bool = _c.DEFAULT_MF_BONUS_JOINS
+        self._ble_certainty: str = _c.DEFAULT_MF_MIN_BLE_CONFIDENCE
+        self._lookback_s: float = float(_c.DEFAULT_MF_SOURCE_LOOKBACK_SECONDS)
+        self._ping_pong_s: float = float(_c.DEFAULT_MF_PING_PONG_WINDOW)
+        self._knobs_applied_at: str = ""
+
+        # Injectable clock / sleep (tests drive a fake clock).
+        self._sleep = asyncio.sleep
+        self._monotonic = time.monotonic
+
+        # D7.5: per-person preference hook (None = current behaviour).
+        self._preference_provider: Optional[Callable] = None
+
+        # Stats + observability.
+        self._state: str = "idle"
         self._transfer_stats: dict[str, int] = {
-            "success": 0,
-            "failed": 0,
-            "unverified": 0,
-            "cooldown_blocked": 0,
-            "active_playback_blocked": 0,
-            "low_confidence": 0,
-            "ping_pong_suppressed": 0,
-            # v5.10.0 D1/D2/D3/D4/D6: new skip stats
-            "target_unavailable": 0,
-            "sleep_suppressed": 0,
-            "night_suppressed": 0,
-            "source_has_others": 0,
-            "same_room": 0,
-            "stale_transition": 0,
+            k: 0 for k in (*MF_OUTCOMES, *MF_COUNTERS)
         }
-        self._stats_date: str = ""  # YYYY-MM-DD for daily reset
-        self._last_transfer_from: str = ""
-        self._last_transfer_to: str = ""
-        self._last_transfer_person: str = ""
-        self._last_transfer_time_iso: str = ""
-        self._last_transfer_result: str = ""
-        # v5.10.0 D1+D8: skip-reason surface for MusicFollowingLastTransferSensor
-        self._last_skip_reason: str = ""
-        self._last_skip_from_room: str = ""
-        self._last_skip_to_room: str = ""
-        self._last_skip_time_iso: str = ""
-        # v5.10.0 D1: silent-actuator counter — how many times we no-op'd
-        # because the target speaker was offline.
-        self._target_unavailable_skips: int = 0
-        # v5.10.0 fix-up B-MED-2: initialize the per-transfer join flag
-        # so an early read on the first transition doesn't AttributeError.
-        # Also reset at the top of _transfer_media (defensive; the flag
-        # is authoritative there).
-        self._last_transfer_used_join: bool = False
-        # Listeners for sensor push updates
+        self._stats_date: str = ""
+        self._last_transfer_from = ""
+        self._last_transfer_to = ""
+        self._last_transfer_person = ""
+        self._last_transfer_time_iso = ""
+        self._last_transfer_result = ""
+        self._last_skip_reason = ""
+        self._last_skip_from_room = ""
+        self._last_skip_to_room = ""
+        self._last_skip_time_iso = ""
+        self._target_unavailable_skips = 0
+        self._last_decision: dict = {}
+        self._recent_decisions: list[tuple[float, str, bool]] = []
+        self._accuracy_live = {"successes": 0, "reversals": 0,
+                               "by_kind": {}, "by_pair": {}}
+        self._accuracy_7d: Optional[dict] = None
         self._diagnostic_listeners: list = []
 
-        _LOGGER.info("MusicFollowing v3.6.21 initialized")
-    
-    async def async_init(self) -> None:
-        """Initialize music following and subscribe to transitions."""
-        # Subscribe to transition events
-        self.transition_detector.async_add_listener(self._on_person_transition)
-        
-        _LOGGER.info(
-            "MusicFollowing ready: confidence_threshold=%.2f, fade_volume=%.2f",
-            self.MIN_CONFIDENCE, self.FADE_OUT_VOLUME
-        )
-    
-    def enable_for_person(self, person_id: str) -> None:
-        """Enable music following for specific person.
+        _LOGGER.info("MusicFollowing initialized")
 
-        Dedupe by canonical key so a mixed-form set (e.g. both
-        ``"Oji Udezue"`` and ``"person.oji_udezue"``) cannot arise
-        and later defeat ``disable_for_person``.
+    async def async_init(self) -> None:
+        """Subscribe to transitions; put back volumes a restart left faded."""
+        self.transition_detector.async_add_listener(self._on_person_transition)
+        await self.async_replay_saved_volumes()
+        _LOGGER.info(
+            "MusicFollowing ready: follow_mode=%s, fade_volume=%.2f",
+            self._follow_mode, _c.MF_FADE_TARGET_VOLUME,
+        )
+
+    # ------------------------------------------------------------------
+    # Restart-safe saved volumes (review B3)
+    # ------------------------------------------------------------------
+
+    def _volumes_store(self):
+        if self._volume_store is None:
+            from homeassistant.helpers.storage import Store  # noqa: PLC0415
+            self._volume_store = Store(self.hass, 1, f"{DOMAIN}.mf_saved_volumes")
+        return self._volume_store
+
+    def _persist_volumes(self) -> None:
+        """Schedule a write of the CURRENT saved volumes (latest wins)."""
+        try:
+            self._volumes_store().async_delay_save(
+                lambda: {"volumes": dict(self._saved_volumes)}, 0)
+        except Exception:  # noqa: BLE001 - persistence never blocks a move
+            _LOGGER.debug("MusicFollowing: saved-volume persist failed", exc_info=True)
+
+    def _remember_volume(self, rec: _Transfer, player: str, volume: float) -> None:
+        if player not in self._saved_volumes:
+            self._saved_volumes[player] = volume
+        rec.saved[player] = self._saved_volumes[player]
+        self._persist_volumes()
+
+    async def async_replay_saved_volumes(self) -> int:
+        """Put back pre-fade volumes persisted before a restart / crash.
+
+        A speaker still reading the fade level (within
+        MF_RESTORE_FADE_TOLERANCE) gets its volume back; one turned up by
+        hand is left alone; one not loaded yet stays pending and is retried
+        at the next room change. Returns the number restored.
         """
+        try:
+            data = await self._volumes_store().async_load()
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning("MusicFollowing: could not read saved volumes", exc_info=True)
+            return 0
+        stored = (data or {}).get("volumes") if isinstance(data, dict) else None
+        if isinstance(stored, dict):
+            for eid, vol in stored.items():
+                try:
+                    self._saved_volumes.setdefault(str(eid), float(vol))
+                except (TypeError, ValueError):
+                    continue
+        return await self._replay_pending_volumes()
+
+    async def _replay_pending_volumes(self) -> int:
+        if not self._saved_volumes or any(
+                r.task is not None and not r.task.done() for r in self._inflight.values()):
+            return 0
+        restored = 0
+        changed = False
+        for eid in list(self._saved_volumes):
+            st = self.hass.states.get(eid)
+            if st is None or st.state in _UNAVAILABLE_STATES:
+                continue                       # not loaded yet: keep pending
+            try:
+                now_vol = float((st.attributes or {}).get(ATTR_MEDIA_VOLUME_LEVEL))
+            except (TypeError, ValueError):
+                now_vol = None
+            if now_vol is not None and abs(now_vol - _c.MF_FADE_TARGET_VOLUME) <= _c.MF_RESTORE_FADE_TOLERANCE:
+                await self._restore_volume(eid)
+                restored += 1
+            else:
+                self._saved_volumes.pop(eid, None)   # changed by hand: keep it
+                changed = True
+        if changed:
+            self._persist_volumes()
+        return restored
+
+    # ==================================================================
+    # Persons
+    # ==================================================================
+
+    def enable_for_person(self, person_id: str) -> None:
         key = _person_key(person_id)
-        self._enabled_persons = {
-            p for p in self._enabled_persons if _person_key(p) != key
-        }
+        self._enabled_persons = {p for p in self._enabled_persons if _person_key(p) != key}
         self._enabled_persons.add(person_id)
         _LOGGER.info("Music following enabled for: %s", person_id)
 
     def disable_for_person(self, person_id: str) -> None:
-        """Disable music following for a specific person.
-
-        Removes every entry whose canonical key matches ``person_id``,
-        so an entry_id-form disable also drops any display-name form
-        (and vice versa).
-        """
         key = _person_key(person_id)
-        self._enabled_persons = {
-            p for p in self._enabled_persons if _person_key(p) != key
-        }
+        self._enabled_persons = {p for p in self._enabled_persons if _person_key(p) != key}
         _LOGGER.info("Music following disabled for: %s", person_id)
 
     def sync_enabled_persons(self, tracked_persons: list[str]) -> None:
-        """v5.10.0 D6 (addresses C5) + v5.10.0 fix-up FIX-5 (B-HIGH-1):
-        reconcile membership of _enabled_persons against tracked-persons,
-        WITHOUT clobbering per-person DND prefs.
-
-        Options-flow reload can add/remove a tracked person. The
-        standalone MusicFollowing singleton survives the coordinator
-        reload, so _enabled_persons drifts out of sync. Called from the
-        coordinator's async_setup (see
-        domain_coordinators/music_following.py:async_setup) after the
-        singleton is bound.
-
-        Rule: newly-tracked persons default ON UNLESS a stored pref
-        already says OFF (the MFPersonFollowSwitch wrote its restore
-        pref on async_added_to_hass). Removed persons are dropped.
-        Prefs for a person who has just been dropped are pruned too,
-        so a later re-add starts fresh.
-        """
+        """Reconcile the enabled set against tracked persons, keeping OFF prefs."""
         wanted = set(tracked_persons or [])
         wanted_keys = {_person_key(p) for p in wanted}
         prefs = self._person_follow_prefs
-        # Normalize OFF pref lookup: prefs may be keyed by entity_id
-        # (from MFPersonFollowSwitch) while ``wanted`` may be display
-        # names (or vice versa). Compare by canonical key.
         off_keys = {_person_key(k) for k, v in prefs.items() if v is False}
-        target = set()
-        for p in wanted:
-            if _person_key(p) in off_keys:
-                # Explicit OFF pref — do NOT enable.
-                continue
-            target.add(p)
+        target = {p for p in wanted if _person_key(p) not in off_keys}
         added = {
             p for p in target
             if not any(_person_key(x) == _person_key(p) for x in self._enabled_persons)
         }
-        removed = {
-            p for p in self._enabled_persons if _person_key(p) not in wanted_keys
-        }
+        removed = {p for p in self._enabled_persons if _person_key(p) not in wanted_keys}
         self._enabled_persons = (self._enabled_persons - removed) | added
-        # Prune prefs for untracked persons (by canonical key).
         for p in list(prefs.keys()):
             if _person_key(p) not in wanted_keys:
                 prefs.pop(p, None)
         if added or removed:
             _LOGGER.info(
-                "MusicFollowing: re-synced enabled_persons "
-                "(added=%s, removed=%s, total=%d)",
+                "MusicFollowing: re-synced enabled_persons (added=%s, removed=%s, total=%d)",
                 sorted(added), sorted(removed), len(self._enabled_persons),
             )
 
-    def update_house_state(self, new_state: str) -> None:
-        """v5.10.0 D2: coordinator pushes the current HouseState value.
+    def _person_enabled(self, person_id: str) -> bool:
+        if person_id in self._enabled_persons:
+            return True
+        key = _person_key(person_id)
+        return any(_person_key(p) == key for p in self._enabled_persons)
 
-        Called from MusicFollowingCoordinator._handle_house_state_changed
-        on every SIGNAL_HOUSE_STATE_CHANGED dispatch. Held as a plain
-        string on the singleton so _execute_transfer can gate without
-        a coordinator round-trip.
-        """
+    # ==================================================================
+    # Live config (D7)
+    # ==================================================================
+
+    def update_house_state(self, new_state: str) -> None:
         prev = self._current_house_state
         self._current_house_state = new_state or ""
         if prev != self._current_house_state:
-            _LOGGER.debug(
-                "MusicFollowing: house_state %s → %s",
-                prev or "?", self._current_house_state,
-            )
+            _LOGGER.debug("MusicFollowing: house_state %s → %s",
+                          prev or "?", self._current_house_state)
 
     def update_gate_config(
         self,
@@ -314,114 +430,307 @@ class MusicFollowing:
         night_suppress_mode: Optional[str] = None,
         stale_transition_seconds: Optional[float] = None,
     ) -> None:
-        """v5.10.0 D2/D6: push CONF values from the coordinator."""
+        """Back-compat wrapper over apply_config for the three gate keys."""
+        opts: dict = {}
         if sleep_suppress is not None:
-            self._sleep_suppress = bool(sleep_suppress)
+            opts[_c.CONF_MF_SLEEP_SUPPRESS] = sleep_suppress
         if night_suppress_mode is not None:
-            self._night_suppress_mode = str(night_suppress_mode)
+            opts[_c.CONF_MF_NIGHT_SUPPRESS_MODE] = night_suppress_mode
         if stale_transition_seconds is not None:
-            self._stale_transition_seconds = float(stale_transition_seconds)
+            opts[_c.CONF_MF_STALE_TRANSITION_SECONDS] = stale_transition_seconds
+        self.apply_config(opts)
+
+    def apply_config(self, opts) -> set[str]:
+        """Apply Music Following knobs from a (CM options) mapping, in place.
+
+        Only keys present in ``opts`` change. Returns the keys applied. The
+        ping-pong window is pushed to the TransitionDetector, where the
+        suppression runs. Invalid values are ignored (logged), never raised.
+        """
+        applied: set[str] = set()
+        opts = dict(opts or {})
+
+        def _num(key, attr, lo=0.0):
+            if key not in opts:
+                return
+            try:
+                setattr(self, attr, max(lo, float(opts[key])))
+                applied.add(key)
+            except (TypeError, ValueError):
+                _LOGGER.warning("MusicFollowing: ignoring invalid %s=%r", key, opts[key])
+
+        _num(_c.CONF_MF_COOLDOWN_SECONDS, "_cooldown_s")
+        _num(_c.CONF_MF_VERIFY_DELAY, "_verify_delay_s")
+        _num(_c.CONF_MF_RELEASE_DELAY, "_release_delay_s")
+        _num(_c.CONF_MF_POSITION_OFFSET, "_position_offset_s")
+        _num(_c.CONF_MF_STALE_TRANSITION_SECONDS, "_stale_transition_seconds")
+        _num(_c.CONF_MF_SOURCE_LOOKBACK_SECONDS, "_lookback_s")
+        if _c.CONF_MF_SLEEP_SUPPRESS in opts:
+            self._sleep_suppress = bool(opts[_c.CONF_MF_SLEEP_SUPPRESS])
+            applied.add(_c.CONF_MF_SLEEP_SUPPRESS)
+        if _c.CONF_MF_NIGHT_SUPPRESS_MODE in opts:
+            self._night_suppress_mode = str(opts[_c.CONF_MF_NIGHT_SUPPRESS_MODE])
+            applied.add(_c.CONF_MF_NIGHT_SUPPRESS_MODE)
+        if _c.CONF_MF_FOLLOW_MODE in opts:
+            mode = str(opts[_c.CONF_MF_FOLLOW_MODE])
+            if mode in _c.MF_FOLLOW_MODES:
+                self._follow_mode = mode
+                applied.add(_c.CONF_MF_FOLLOW_MODE)
+            else:
+                _LOGGER.warning("MusicFollowing: ignoring invalid follow mode %r", mode)
+        if _c.CONF_MF_BONUS_JOINS in opts:
+            self._bonus_joins = bool(opts[_c.CONF_MF_BONUS_JOINS])
+            applied.add(_c.CONF_MF_BONUS_JOINS)
+        if _c.CONF_MF_MIN_BLE_CONFIDENCE in opts:
+            val = str(opts[_c.CONF_MF_MIN_BLE_CONFIDENCE])
+            if val == _c.MF_BLE_CERTAINTY_STRICT_RETIRED:
+                # Distance gate dropped 2026-11-14: a saved "strict" is normal.
+                val = _c.MF_BLE_CERTAINTY_NORMAL
+            if val in _c.MF_BLE_CERTAINTIES:
+                self._ble_certainty = val
+                applied.add(_c.CONF_MF_MIN_BLE_CONFIDENCE)
+            else:
+                _LOGGER.warning("MusicFollowing: ignoring invalid certainty %r", val)
+        if _c.CONF_MF_PING_PONG_WINDOW in opts:
+            try:
+                self._ping_pong_s = max(0.0, float(opts[_c.CONF_MF_PING_PONG_WINDOW]))
+                setter = getattr(self.transition_detector, "set_ping_pong_window", None)
+                if callable(setter):
+                    setter(self._ping_pong_s)
+                applied.add(_c.CONF_MF_PING_PONG_WINDOW)
+            except (TypeError, ValueError):
+                _LOGGER.warning("MusicFollowing: ignoring invalid ping-pong window")
+        if applied:
+            self._knobs_applied_at = dt_util.now().isoformat()
+            _LOGGER.info("MusicFollowing knobs applied: %s", self.knobs())
+        return applied
+
+    def knobs(self) -> dict:
+        return {
+            "follow_mode": self._follow_mode,
+            "release_delay_s": self._release_delay_s,
+            "bonus_joins": self._bonus_joins,
+            "location_certainty": self._ble_certainty,
+            "lookback_s": self._lookback_s,
+            "cooldown_s": self._cooldown_s,
+            "ping_pong_s": self._ping_pong_s,
+            "verify_delay_s": self._verify_delay_s,
+            "position_offset_s": self._position_offset_s,
+            "stale_transition_s": self._stale_transition_seconds,
+            "sleep_suppress": self._sleep_suppress,
+            "night_suppress_mode": self._night_suppress_mode,
+        }
+
+    def set_preference_provider(self, provider: Optional[Callable]) -> None:
+        """D7.5: register ``provider(person_key, context) -> dict | None``.
+
+        Returned keys used today: ``follow_mode`` (one of MF_FOLLOW_MODES)
+        and ``target_volume`` (0..1). ``None`` (default) = current behaviour.
+        Arrival music (arc step 8) and PERSON-PROFILE-PREFERENCES-1 build on it.
+        """
+        self._preference_provider = provider
+
+    def _preferences_for(self, rec: _Transfer) -> dict:
+        provider = self._preference_provider
+        if provider is None:
+            return {}
+        try:
+            prefs = provider(rec.person_key, {
+                "from_room": rec.from_room, "to_room": rec.to_room,
+                "source_room": rec.source_room,
+            })
+            return dict(prefs) if isinstance(prefs, dict) else {}
+        except Exception:  # noqa: BLE001 - a broken provider never blocks a move
+            _LOGGER.warning("MusicFollowing: preference provider failed", exc_info=True)
+            return {}
 
     async def async_teardown(self) -> None:
-        """v5.10.0 D6 (addresses C4): cancel in-flight cleanup tasks and
-        clear volatile state so a fresh coordinator wrap sees a clean
-        MusicFollowing singleton.
-
-        Safe to call multiple times. Does NOT drop diagnostic listeners —
-        those are re-registered by the coordinator on setup.
-        """
+        """Cancel in-flight work, restore volumes, flush episode writes."""
+        tasks = [t for t in list(self._transfer_tasks) if not t.done()]
+        for t in tasks:
+            t.cancel()
+        if tasks:
+            try:
+                await asyncio.wait(tasks, timeout=5)
+            except Exception:  # noqa: BLE001
+                pass
+        self._transfer_tasks.clear()
+        self._inflight.clear()
         for task in list(self._cleanup_tasks):
             try:
                 task.cancel()
             except Exception:  # noqa: BLE001
                 pass
         self._cleanup_tasks.clear()
+        for unsub in list(self._reversal_watch.values()):
+            try:
+                unsub()
+            except Exception:  # noqa: BLE001
+                pass
+        self._reversal_watch.clear()
+        if self._episode_tasks:
+            pending = [t for t in self._episode_tasks if not t.done()]
+            if pending:
+                try:
+                    await asyncio.wait(pending, timeout=5)
+                except Exception:  # noqa: BLE001
+                    pass
+            self._episode_tasks.clear()
+        # Review B4: a second cancel (this teardown) can land while a
+        # superseded move's cleanup awaits a service call, so its restore
+        # never runs. Put back every volume still saved before clearing.
+        for eid in list(self._saved_volumes):
+            await self._restore_volume(eid)
         self._saved_volumes.clear()
         self._active_groups.clear()
+        self._bonus_joined.clear()
         self._last_transfer_time.clear()
         self._last_transfer_target.clear()
+        self._recent_source.clear()
+        self._last_superseded.clear()
         _LOGGER.info("MusicFollowing.async_teardown: state cleared")
 
-    # ==========================================================================
-    # v3.6.21 C1: TRANSFER STATS & DIAGNOSTICS
-    # ==========================================================================
+    # ==================================================================
+    # Stats, decisions, observability (D4/D5)
+    # ==================================================================
 
-    def add_diagnostic_listener(self, listener) -> None:
-        """Register a listener for diagnostic state changes."""
+    def add_diagnostic_listener(self, listener) -> Callable[[], None]:
+        """Register a listener; returns its unsubscribe (D7.2)."""
         self._diagnostic_listeners.append(listener)
 
-    # v5.10.0 D8: outcomes that are NOT success/unverified are "skips" for
-    # last-skip-reason surface. Kept as a set on the class so tests and
-    # sensor code can share the same definition.
-    _SKIP_OUTCOMES = frozenset({
-        "failed",
-        "cooldown_blocked",
-        "active_playback_blocked",
-        "low_confidence",
-        "ping_pong_suppressed",
-        "target_unavailable",
-        "sleep_suppressed",
-        "night_suppressed",
-        "source_has_others",
-        "same_room",
-        "stale_transition",
-    })
+        def _unsub() -> None:
+            try:
+                self._diagnostic_listeners.remove(listener)
+            except ValueError:
+                pass
 
-    def _record_stat(self, outcome: str, person_id: str = "", from_room: str = "", to_room: str = "") -> None:
-        """Record a transfer outcome and notify listeners."""
-        today = dt_util.now().strftime("%Y-%m-%d")
-        if today != self._stats_date:
-            # Daily reset
-            for key in self._transfer_stats:
-                self._transfer_stats[key] = 0
-            self._stats_date = today
-            # v5.10.0 D1: reset silent-actuator counter on day boundary too
-            self._target_unavailable_skips = 0
+        return _unsub
 
+    def _notify_listeners(self) -> None:
+        for listener in list(self._diagnostic_listeners):
+            try:
+                listener()
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _record_stat(self, outcome: str, person_id: str = "", from_room: str = "",
+                     to_room: str = "") -> None:
+        """Count one outcome (or counter) and notify listeners."""
+        self._roll_day()
         if outcome in self._transfer_stats:
             self._transfer_stats[outcome] += 1
-
-        if person_id:
-            self._last_transfer_person = person_id
-        if from_room:
-            self._last_transfer_from = from_room
-        if to_room:
-            self._last_transfer_to = to_room
-        if outcome:
+        else:
+            _LOGGER.warning("MusicFollowing: unknown outcome %r counted as unknown_outcome", outcome)
+            self._transfer_stats["unknown_outcome"] += 1
+        if outcome in MF_OUTCOMES:
+            if person_id:
+                self._last_transfer_person = person_id
+            if from_room:
+                self._last_transfer_from = from_room
+            if to_room:
+                self._last_transfer_to = to_room
             self._last_transfer_result = outcome
             self._last_transfer_time_iso = dt_util.now().isoformat()
-
-            # v5.10.0 D1+D8: skip-reason surface
-            if outcome in self._SKIP_OUTCOMES:
+            if outcome in MF_SKIP_OUTCOMES:
                 self._last_skip_reason = outcome
                 self._last_skip_from_room = from_room
                 self._last_skip_to_room = to_room
                 self._last_skip_time_iso = dt_util.now().isoformat()
             if outcome == "target_unavailable":
                 self._target_unavailable_skips += 1
+        self._notify_listeners()
 
-        # Notify diagnostic listeners
-        for listener in self._diagnostic_listeners:
-            try:
-                listener()
-            except Exception:
-                pass
+    def _roll_day(self) -> None:
+        """Daily reset of the counters (local day)."""
+        today = dt_util.now().strftime("%Y-%m-%d")
+        if today != self._stats_date:
+            for key in self._transfer_stats:
+                self._transfer_stats[key] = 0
+            self._stats_date = today
+            self._target_unavailable_skips = 0
 
-    # Stats that indicate actual music-involved transfer attempts
-    _TRANSFER_KEYS = ("success", "failed", "unverified", "active_playback_blocked")
+    def _count(self, counter: str) -> None:
+        self._roll_day()
+        self._transfer_stats[counter] = self._transfer_stats.get(counter, 0) + 1
+
+    def success_count(self) -> int:
+        return sum(self._transfer_stats.get(k, 0) for k in MF_SUCCESS_OUTCOMES)
+
+    def transfer_attempts(self) -> int:
+        return sum(self._transfer_stats.get(k, 0) for k in MF_TRANSFER_KEYS)
+
+    def record_ping_pong_suppressed(self, person_id: str, from_room: str, to_room: str) -> None:
+        """Called by TransitionDetector for a suppressed return leg."""
+        rec = _Transfer(person_id=person_id, person_key=_person_key(person_id),
+                        from_room=from_room, to_room=to_room)
+        rec.decision["knob"] = f"ping_pong={self._ping_pong_s:g}"
+        self._finish(rec, "ping_pong_suppressed")
+
+    def _new_record(self, transition: RoomTransition) -> _Transfer:
+        rec = _Transfer(
+            person_id=transition.person_id,
+            person_key=_person_key(transition.person_id),
+            from_room=transition.from_room,
+            to_room=transition.to_room,
+            transition=transition,
+            transition_ts=getattr(transition, "timestamp", None),
+            follow_mode=self._follow_mode,
+        )
+        rec.decided = asyncio.Event()
+        rec.decision.update({
+            "person": transition.person_id,
+            "from": transition.from_room,
+            "to": transition.to_room,
+            "dwell_s": getattr(transition, "duration_seconds", None),
+            "path_type": getattr(transition, "path_type", None),
+            "transition_confidence": getattr(transition, "confidence", None),
+            "follow_mode": self._follow_mode,
+        })
+        return rec
+
+    def _finish(self, rec: _Transfer, outcome: str, reason: str = "") -> None:
+        """Book THE one outcome of a room change (INV-MF-2)."""
+        if rec.outcome:
+            return
+        rec.outcome = outcome
+        d = rec.decision
+        d.setdefault("person", rec.person_id)
+        d.setdefault("from", rec.from_room)
+        d.setdefault("to", rec.to_room)
+        d["outcome"] = outcome
+        if reason:
+            d["reason"] = reason
+        d["source_room"] = rec.source_room or d.get("source_room", "")
+        d["source_player"] = rec.source_player or d.get("source_player", "")
+        d["target_player"] = rec.target_player or d.get("target_player", "")
+        d["path"] = rec.path or d.get("path", "")
+        d["follow_mode"] = rec.follow_mode
+        d["ts"] = dt_util.now().isoformat()
+        self._last_decision = dict(d)
+        _LOGGER.info(
+            "MF decision %s",
+            " ".join(f"{k}={d.get(k, '')}" for k in MF_DECISION_FIELDS),
+        )
+        self._record_stat(outcome, rec.person_id, rec.from_room, rec.to_room)
+        candidate = bool(d.get("source_player")) and bool(d.get("target_player"))
+        now_m = self._monotonic()
+        self._recent_decisions.append((now_m, outcome, bool(d.get("source_playing")) and candidate))
+        cutoff = now_m - _c.MF_TRIPWIRE_WINDOW_S
+        while self._recent_decisions and self._recent_decisions[0][0] < cutoff:
+            self._recent_decisions.pop(0)
+        if outcome in MF_SUCCESS_OUTCOMES:
+            self._accuracy_live["successes"] += 1
+        if candidate:
+            self._write_decision_episode(rec)
+        if rec.decided is not None:
+            rec.decided.set()
 
     def get_diagnostic_data(self) -> dict:
-        """Return current diagnostic data for sensor consumption."""
-        # v3.6.28: Only count music-involved attempts, not pre-music-check rejections
-        transfers = sum(self._transfer_stats.get(k, 0) for k in self._TRANSFER_KEYS)
-        successes = self._transfer_stats.get("success", 0)
-        failures = transfers - successes
+        transfers = self.transfer_attempts()
+        successes = self.success_count()
+        acc = self.accuracy()
         return {
             "state": self._state,
-            # v5.10.0 H2 repair (2026-07-13): MF's view of the house state was
-            # previously DEBUG-log-only, making the sleep/night gates
-            # unverifiable live (the v5.10.0 acceptance oracle pointed at an
-            # attribute that never existed). Surfaced for Shipwatch/live use.
             "current_house_state": self._current_house_state or "unknown",
             "active_followers": sorted(self._enabled_persons),
             "last_transfer_from": self._last_transfer_from,
@@ -430,266 +739,1129 @@ class MusicFollowing:
             "last_transfer_time": self._last_transfer_time_iso,
             "last_transfer_result": self._last_transfer_result,
             "transfers_today": transfers,
-            "transfer_failures_today": failures,
+            "transfer_failures_today": transfers - successes,
             "transfer_success_rate": round(successes / transfers * 100, 1) if transfers > 0 else 0.0,
             "active_groups": {k: sorted(v) for k, v in self._active_groups.items()},
-            # v5.10.0 D1+D8: skip-reason surface
             "last_skip_reason": self._last_skip_reason,
             "last_skip_from_room": self._last_skip_from_room,
             "last_skip_to_room": self._last_skip_to_room,
             "last_skip_time": self._last_skip_time_iso,
-            # v5.10.0 D1: silent-actuator counter for MusicFollowingHealthSensor attrs
             "target_unavailable_today": self._transfer_stats.get("target_unavailable", 0),
             "sleep_suppressed_today": self._transfer_stats.get("sleep_suppressed", 0),
             "night_suppressed_today": self._transfer_stats.get("night_suppressed", 0),
             "source_has_others_today": self._transfer_stats.get("source_has_others", 0),
             "stale_transition_today": self._transfer_stats.get("stale_transition", 0),
+            "outcomes_today": {k: self._transfer_stats.get(k, 0) for k in MF_OUTCOMES},
+            "counters_today": {k: self._transfer_stats.get(k, 0) for k in MF_COUNTERS},
+            "last_decision": dict(self._last_decision),
+            "knobs": self.knobs(),
+            "knobs_applied_at": self._knobs_applied_at,
+            "accuracy_pct": acc.get("pct"),
         }
-    
-    def _coordinator_enabled(self) -> bool:
-        """Return True iff the Music Following coordinator switch is ON.
 
-        Reads ``CONF_MUSIC_FOLLOWING_COORDINATOR_ENABLED`` from the
-        Coordinator-Manager entry's merged options. Fail-safe: any
-        exception, missing CM entry, or missing hass returns False so
-        that a broken kill-switch chain cannot silently allow
-        transfers.
-        """
+    def accuracy(self) -> dict:
+        """Share of successes not reversed: 7-day roll-up when present, else live."""
+        if self._accuracy_7d and self._accuracy_7d.get("successes"):
+            src = dict(self._accuracy_7d)
+            src["window"] = "7d"
+        else:
+            src = dict(self._accuracy_live)
+            src["window"] = "since_start"
+        s = int(src.get("successes") or 0)
+        r = int(src.get("reversals") or 0)
+        src["pct"] = round(100.0 * max(0, s - r) / s, 1) if s > 0 else None
+        return src
+
+    # ==================================================================
+    # Kill switch
+    # ==================================================================
+
+    def _coordinator_enabled(self) -> bool:
+        """True iff the Music Following coordinator switch is ON (fail-safe False)."""
         try:
-            from .const import (  # noqa: PLC0415
-                CONF_ENTRY_TYPE,
-                ENTRY_TYPE_COORDINATOR_MANAGER,
-            )
             for ce in self.hass.config_entries.async_entries(DOMAIN):
-                if ce.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
+                if ce.data.get(_c.CONF_ENTRY_TYPE) == _c.ENTRY_TYPE_COORDINATOR_MANAGER:
                     from .coordinator_gate import coordinator_should_run  # noqa: PLC0415
                     merged = {**ce.data, **ce.options}
                     return coordinator_should_run(merged, "music_following")
         except Exception:  # noqa: BLE001
             return False
-        # No CM entry found → fail-safe DISABLED.
         return False
 
+    # ==================================================================
+    # Entry: one room change
+    # ==================================================================
+
     async def _on_person_transition(self, transition: RoomTransition) -> None:
-        """Handle person transition - transfer music if appropriate."""
-        # Kill-switch: the CoordinatorEnabledSwitch
-        # (switch.ura_music_following_coordinator_enabled) only gates
-        # the WRAPPER coordinator's creation. The standalone
-        # MusicFollowing singleton is created unconditionally at setup
-        # (__init__.py) and listens directly to transitions, so
-        # toggling the switch off does NOT stop transfers. Guard here
-        # by re-reading the flag from the coordinator-manager entry.
-        # Fail-safe: on ANY error (missing entry, no CM, unreadable
-        # options) treat the coordinator as DISABLED so an operator's
-        # kill-switch can never be silently ignored.
+        """Handle one room change. Returns once its outcome is booked.
+
+        The release step of a ``move`` keeps running in the background task
+        so the transition detector is not held for the release delay.
+        """
+        rec = self._new_record(transition)
         if not self._coordinator_enabled():
-            _LOGGER.info(
-                "🎵 Music transfer skipped: coordinator disabled or unreadable"
-            )
+            self._finish(rec, "coordinator_disabled")
             return
-
-        person_id = transition.person_id
-        from_room = transition.from_room
-        to_room = transition.to_room
-        confidence = transition.confidence
-
-        if from_room == to_room:
-            _LOGGER.debug("🎵 Ignoring same-room transition: %s in %s", person_id, from_room)
-            # v5.10.0 D4: record so operators can see the skip cadence
-            self._record_stat("same_room", person_id, from_room, to_room)
+        if not self._person_enabled(rec.person_id):
+            self._finish(rec, "person_not_enabled")
             return
+        if rec.from_room == rec.to_room:
+            self._finish(rec, "same_room")
+            return
+        if self.hazard_active():
+            rec.decision["knob"] = f"hazard_block={_c.MF_HAZARD_BLOCK_S:g}"
+            self._finish(rec, "hazard_blocked")
+            return
+        if self._saved_volumes:
+            # B3: a volume a restart left faded on a speaker that was not
+            # loaded at start.
+            await self._replay_pending_volumes()
+        # D2: remember the room left if its speaker plays (before any gate).
+        await self._stamp_recent_source(rec)
 
-        _LOGGER.info(
-            "🎵 Transition detected: %s moving %s → %s (confidence=%.2f)",
-            person_id, from_room, to_room, confidence
-        )
+        old = self._inflight.get(rec.person_key)
+        old_task = None
+        if old is not None and old.task is not None and not old.task.done():
+            old.superseded_to = rec.to_room
+            old_task = old.task
+            old_task.cancel()
+        self._inflight[rec.person_key] = rec
+        task = self._spawn(self._run(rec, old_task), f"ura_mf_transfer_{rec.person_key}")
+        rec.task = task
 
-        # Skip if not enabled for this person.
-        # The enabled set is keyed by entity_id ("person.oji_udezue")
-        # but the transition carries a display name ("Oji Udezue").
-        # Normalize both sides via _person_key so either form matches.
-        if person_id not in self._enabled_persons:
-            key = _person_key(person_id)
-            if not any(_person_key(p) == key for p in self._enabled_persons):
-                _LOGGER.info(
-                    "🎵 Music transfer skipped: %s not in enabled_persons=%s",
-                    person_id, list(self._enabled_persons)
-                )
+        def _on_done(_t, rec=rec) -> None:
+            # A task cancelled before its first step never runs its own
+            # finally: book it here so every room change has one outcome.
+            if not rec.outcome:
+                self._finish(rec, rec.cancel_outcome, self._cancel_reason(rec))
+            if self._inflight.get(rec.person_key) is rec:
+                self._inflight.pop(rec.person_key, None)
+            rec.decided.set()
+
+        task.add_done_callback(_on_done)
+        await rec.decided.wait()
+
+    def _spawn(self, coro, name: str) -> asyncio.Task:
+        try:
+            task = self.hass.async_create_task(coro, name=name, eager_start=False)
+        except TypeError:
+            task = self.hass.async_create_task(coro, name=name)
+        if not isinstance(task, asyncio.Future):
+            # A test double that does not schedule: run it on the loop.
+            task = asyncio.ensure_future(coro)
+        self._transfer_tasks.add(task)
+        task.add_done_callback(self._transfer_tasks.discard)
+        return task
+
+    async def async_wait_idle(self) -> None:
+        """Wait for every in-flight transfer task (tests, teardown)."""
+        while True:
+            pending = [t for t in self._transfer_tasks if not t.done()]
+            if not pending:
                 return
+            await asyncio.wait(pending)
 
-        # Skip low-confidence transitions
-        if confidence < self.MIN_CONFIDENCE:
-            _LOGGER.info(
-                "🎵 Music transfer skipped: low confidence %.2f < %.2f threshold",
-                confidence, self.MIN_CONFIDENCE
+    async def _lock(self, rec: _Transfer) -> None:
+        await self._transfer_lock.acquire()
+        rec.lock_held = True
+
+    def _unlock(self, rec: _Transfer) -> None:
+        """Release the house-wide lock if ``rec`` holds it (idempotent)."""
+        if rec.lock_held:
+            rec.lock_held = False
+            self._transfer_lock.release()
+
+    def _cancel_reason(self, rec: _Transfer) -> str:
+        if rec.cancel_outcome == "hazard_blocked":
+            return "hazard_stop"
+        return f"by_room={rec.superseded_to}"
+
+    async def _run(self, rec: _Transfer, old_task: Optional[asyncio.Task]) -> None:
+        try:
+            if old_task is not None:
+                await asyncio.wait({old_task})
+            await self._lock(rec)
+            rec.phase = "evaluating"
+            try:
+                outcome, reason = await self._pipeline(rec)
+                if outcome:
+                    self._finish(rec, outcome, reason)
+            except asyncio.CancelledError:
+                await self._cleanup_superseded(rec)
+                self._finish(rec, rec.cancel_outcome, self._cancel_reason(rec))
+                raise
+            except Exception:  # noqa: BLE001
+                _LOGGER.exception("MusicFollowing: transfer raised")
+                await self._restore_saved(rec)
+                self._finish(rec, "exception")
+        except asyncio.CancelledError:
+            self._finish(rec, rec.cancel_outcome, self._cancel_reason(rec))
+            raise
+        finally:
+            self._unlock(rec)
+            rec.phase = "done"
+            if self._state not in ("following", "idle"):
+                self._state = "idle"
+            if self._inflight.get(rec.person_key) is rec:
+                self._inflight.pop(rec.person_key, None)
+            if rec.decided is not None:
+                rec.decided.set()
+
+    # ==================================================================
+    # The pipeline (gate order is fixed and documented)
+    # ==================================================================
+
+    async def _pipeline(self, rec: _Transfer) -> tuple[str, str]:
+        """Gates, source, path, verify, release. Returns (outcome, reason).
+
+        Returns ``("", "")`` when the outcome was already booked (success
+        books before the release step runs).
+        """
+        d = rec.decision
+        # BLE certainty (live inputs; fails open).
+        ble = self._ble_gate(rec)
+        if ble is not None:
+            return ble
+        # Stale (age measured at lock acquire).
+        age = self._transition_age(rec.transition_ts)
+        if age > self._stale_transition_seconds:
+            d["knob"] = f"stale={self._stale_transition_seconds:g} age={age:.1f}"
+            return "stale_transition", ""
+        gate = self._check_house_state_gate(rec.person_id, rec.from_room, rec.to_room)
+        if gate:
+            d["knob"] = f"house_state={self._current_house_state}"
+            return gate, ""
+        # Cooldown.
+        now = dt_util.now()
+        last_time = self._last_transfer_time.get(rec.person_key)
+        last_target = self._last_transfer_target.get(rec.person_key)
+        if (self._cooldown_s > 0 and last_time and last_target == rec.to_room):
+            try:
+                since = (now - last_time).total_seconds()
+            except Exception:  # noqa: BLE001
+                since = self._cooldown_s
+            if since < self._cooldown_s:
+                d["knob"] = f"cooldown={self._cooldown_s:g} left={self._cooldown_s - since:.0f}"
+                return "cooldown_blocked", ""
+        # Bounce back into the room a superseded move came from (INV-MF-5):
+        # its cleanup already left the music there at its own volume.
+        sup = self._last_superseded.get(rec.person_key)
+        if sup and sup.get("source_room") == rec.to_room:
+            fresh = self._monotonic() - sup.get("ts", 0) <= _c.MF_RETURN_MATCH_WINDOW_S
+            back = await self._get_room_player(rec.to_room)
+            bst = self.hass.states.get(back) if back else None
+            self._last_superseded.pop(rec.person_key, None)
+            if fresh and bst is not None and bst.state == STATE_PLAYING:
+                rec.target_player = back
+                return "returned_in_flight", f"superseded_target={sup.get('target_room')}"
+        # Source.
+        outcome = await self._resolve_source(rec)
+        if outcome:
+            return outcome
+        # Per-room opt-out covers BOTH sides (review A-L2): music is never
+        # moved into, nor out of, a room whose Music Following is off.
+        src_cfg = self._room_cfg(rec.source_room) if rec.source_room else None
+        if src_cfg is not None and src_cfg.get(_c.CONF_MUSIC_FOLLOWING_ENABLED, True) is False:
+            return "no_source_player", "source_room_opted_out"
+        # Target player (the room's primary).
+        to_cfg = self._room_cfg(rec.to_room)
+        if to_cfg is not None and to_cfg.get(_c.CONF_MUSIC_FOLLOWING_ENABLED, True) is False:
+            return "no_target_player", "room_opted_out"
+        to_player = await self._get_room_player(rec.to_room)
+        if not to_player:
+            return "no_target_player", ""
+        rec.target_player = to_player
+        to_state = self.hass.states.get(to_player)
+        if to_state is None or to_state.state in _UNAVAILABLE_STATES:
+            d["target_state"] = to_state.state if to_state else "missing"
+            return "target_unavailable", ""
+        # Others still in the source room.
+        if rec.source_room and self._source_has_other_occupants(rec.person_id, rec.source_room):
+            return "source_has_others", ""
+        from_state = self.hass.states.get(rec.source_player)
+        if from_state is None or from_state.state != STATE_PLAYING:
+            return "source_not_playing", ""
+        d["source_playing"] = True
+        if to_player == rec.source_player:
+            return "active_playback_blocked", "same_speaker"
+        if to_state.state == STATE_PLAYING:
+            return "active_playback_blocked", ""
+
+        # The move.
+        self._cancel_reversal_watch(rec.person_key)
+        prefs = self._preferences_for(rec)
+        if prefs.get("follow_mode") in _c.MF_FOLLOW_MODES:
+            rec.follow_mode = prefs["follow_mode"]
+            d["follow_mode_source"] = "preference"
+        return await self._transfer_then_release(rec, from_state, to_state, prefs)
+
+    def _transition_age(self, ts: Optional[datetime]) -> float:
+        if ts is None:
+            return 0.0
+        try:
+            now = dt_util.now()
+            if now.tzinfo is None and ts.tzinfo is not None:
+                from datetime import timezone as _tz  # noqa: PLC0415
+                now = now.replace(tzinfo=_tz.utc)
+            elif now.tzinfo is not None and ts.tzinfo is None:
+                ts = ts.replace(tzinfo=now.tzinfo)
+            return float((now - ts).total_seconds())
+        except Exception:  # noqa: BLE001
+            return 0.0
+
+    # ------------------------------------------------------------------
+    # BLE certainty through the person-awareness layer (D1; review A-H1)
+    # ------------------------------------------------------------------
+
+    def _person_layer(self):
+        """The F4-BLE owner (PersonTrackingCoordinator), or None.
+
+        Music following (class comfort) reads only its public §4.1 methods
+        (``get_person_location``, ``tracked_persons``); never its ``data``
+        store or a Bermuda / person entity (INV-LAYER-READ).
+        """
+        try:
+            return self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _layer_location(self, person_id: str) -> Optional[str]:
+        pc = self._person_layer()
+        getter = getattr(pc, "get_person_location", None) if pc is not None else None
+        if not callable(getter):
+            return None
+        try:
+            loc = getter(person_id)
+        except Exception:  # noqa: BLE001
+            return None
+        if not isinstance(loc, str) or not loc or loc in ("unknown", "unavailable"):
+            return None
+        return loc
+
+    def _ble_gate(self, rec: _Transfer) -> Optional[tuple[str, str]]:
+        """Is the person still where the change said, per the layer?
+
+        "normal": the layer's resolved room for the person is still
+        ``to_room``. (The "strict" distance gate was dropped 2026-11-14.)
+        A missing input fails open and is counted ONCE per room change
+        (``ble_input_missing``, review A-L1).
+        """
+        d = rec.decision
+        t = rec.transition
+        mode = self._ble_certainty
+        d["ble_confidence"] = mode
+        if mode == _c.MF_BLE_CERTAINTY_ANY:
+            return None
+        missing: list[str] = []
+        if t is None or getattr(t, "ble_method", None) is None:
+            missing.append("no_event_ble")
+        loc = self._layer_location(rec.person_id)
+        d["ble_location"] = loc or ""
+        try:
+            if loc is None:
+                missing.append("no_location")
+            elif _slug(loc) != _slug(rec.to_room):
+                d["knob"] = f"certainty={mode}"
+                return "ble_low_confidence", f"location_moved to={rec.to_room} now={loc}"
+            return None
+        finally:
+            if missing:
+                d["ble_input"] = ",".join(missing)
+                self._count("ble_input_missing")
+
+    # ------------------------------------------------------------------
+    # Source (D2)
+    # ------------------------------------------------------------------
+
+    async def _stamp_recent_source(self, rec: _Transfer) -> None:
+        try:
+            player = await self._get_room_player(rec.from_room)
+        except Exception:  # noqa: BLE001
+            player = None
+        if not player:
+            return
+        st = self.hass.states.get(player)
+        if st is not None and st.state == STATE_PLAYING:
+            self._recent_source[rec.person_key] = (rec.from_room, player, self._monotonic())
+
+    async def _resolve_source(self, rec: _Transfer) -> Optional[tuple[str, str]]:
+        d = rec.decision
+        from_player = await self._get_room_player(rec.from_room)
+        if from_player:
+            st = self.hass.states.get(from_player)
+            if st is not None and st.state == STATE_PLAYING:
+                rec.source_room, rec.source_player = rec.from_room, from_player
+                d["source_how"] = "direct"
+                return None
+        stamp = self._recent_source.get(rec.person_key)
+        if stamp and self._lookback_s > 0:
+            room, player, ts = stamp
+            age = self._monotonic() - ts
+            if room != rec.to_room and age <= self._lookback_s:
+                st = self.hass.states.get(player)
+                if st is not None and st.state == STATE_PLAYING:
+                    rec.source_room, rec.source_player = room, player
+                    d["source_how"] = f"lookback age={age:.0f}"
+                    return None
+            elif room != rec.to_room:
+                d["knob"] = f"lookback={self._lookback_s:g} age={age:.0f}"
+        if from_player:
+            rec.source_room, rec.source_player = rec.from_room, from_player
+            return "source_not_playing", ""
+        return "no_source_player", ""
+
+    # ------------------------------------------------------------------
+    # Path resolution (D3)
+    # ------------------------------------------------------------------
+
+    def _features(self, entity_id: str) -> int:
+        st = self.hass.states.get(entity_id) if entity_id else None
+        try:
+            return int((st.attributes or {}).get("supported_features") or 0) if st else 0
+        except (TypeError, ValueError):
+            return 0
+
+    def _ma_candidates(self, entity_id: str) -> list[tuple[str, str]]:
+        """Music Assistant media_players for the same physical speaker.
+
+        Matches (D0, live registry 2026-11-14): the entity itself is MA
+        (``is_ma``); an MA entity on the same device (``same_device``); an
+        MA device whose ``music_assistant`` identifier names an HA entity on
+        this device (``ha_provider_wrap``); an MA device whose identifier
+        carries this device's MAC (``mac_in_ma_id``, e.g. ``upc0f5352fc122``).
+        """
+        try:
+            from homeassistant.helpers import device_registry as dr  # noqa: PLC0415
+            from homeassistant.helpers import entity_registry as er  # noqa: PLC0415
+            ent_reg = er.async_get(self.hass)
+            e = ent_reg.async_get(entity_id)
+            if e is None:
+                return []
+            if e.platform == PLATFORM_MASS:
+                return [(entity_id, "is_ma")]
+            dev_reg = dr.async_get(self.hass)
+            dev = dev_reg.async_get(e.device_id) if e.device_id else None
+            macs = set()
+            if dev is not None:
+                for kind, val in dev.connections or ():
+                    if kind == "mac":
+                        macs.add("".join(ch for ch in str(val).lower() if ch in "0123456789abcdef"))
+            out: list[tuple[str, str]] = []
+            for x in list(ent_reg.entities.values()):
+                if x.platform != PLATFORM_MASS or x.domain != "media_player" or x.disabled_by:
+                    continue
+                if e.device_id and x.device_id == e.device_id:
+                    out.append((x.entity_id, "same_device"))
+                    continue
+                mdev = dev_reg.async_get(x.device_id) if x.device_id else None
+                if mdev is None:
+                    continue
+                for kind, val in mdev.identifiers or ():
+                    if kind != PLATFORM_MASS:
+                        continue
+                    sval = str(val)
+                    wrapped = ent_reg.async_get(sval) if sval.startswith("media_player.") else None
+                    if wrapped is not None and e.device_id and wrapped.device_id == e.device_id:
+                        out.append((x.entity_id, "ha_provider_wrap"))
+                        break
+                    hexval = "".join(ch for ch in sval.lower() if ch in "0123456789abcdef")
+                    if macs and any(m and m in hexval for m in macs):
+                        out.append((x.entity_id, "mac_in_ma_id"))
+                        break
+            seen: set[str] = set()
+            uniq = []
+            for eid, kind in out:
+                if eid not in seen:
+                    seen.add(eid)
+                    uniq.append((eid, kind))
+            return uniq
+        except Exception:  # noqa: BLE001
+            return []
+
+    def _resolve_path(self, rec: _Transfer) -> tuple[str, str]:
+        """Pick MA, then native join, then generic. Returns (path, reason)."""
+        src, dst = rec.source_player, rec.target_player
+        reasons = []
+        if _c.MF_MA_FIRST_ENABLED:
+            s_cands = self._ma_candidates(src)
+            t_cands = self._ma_candidates(dst)
+            playing = [c for c in s_cands
+                       if (self.hass.states.get(c[0]) is not None
+                           and self.hass.states.get(c[0]).state == STATE_PLAYING)]
+            if s_cands and t_cands and playing:
+                s_eid, s_kind = playing[0]
+                same_kind = [c for c in t_cands if c[1] == s_kind]
+                t_eid, t_kind = (same_kind or t_cands)[0]
+                rec.source_eff, rec.target_eff = s_eid, t_eid
+                if rec.follow_mode == _c.MF_FOLLOW_MODE_EXTEND:
+                    # Review A-H2: transfer_queue MOVES the queue and stops
+                    # the source. "Play in both rooms" joins the MA target to
+                    # the playing MA source (leader) instead; the source
+                    # keeps playing.
+                    rec.leader = s_eid
+                    rec.via_ma = True
+                    return PATH_JOIN, (f"ma_join leader={s_eid}({s_kind}) "
+                                       f"dst={t_eid}({t_kind}) extend")
+                return PATH_MA, f"ma src={s_eid}({s_kind}) dst={t_eid}({t_kind})"
+            if not s_cands or not t_cands:
+                reasons.append("ma_not_covered")
+            else:
+                reasons.append("ma_source_not_playing")
+        else:
+            reasons.append("ma_disabled")
+        src_pf = self._get_player_platform(src)
+        dst_pf = self._get_player_platform(dst)
+        if (src_pf == dst_pf and src_pf != PLATFORM_GENERIC
+                and self._features(src) & _FEATURE_GROUPING
+                and self._features(dst) & _FEATURE_GROUPING):
+            leader, how = self._group_leader(src)
+            safe = (rec.follow_mode == _c.MF_FOLLOW_MODE_EXTEND
+                    or leader != src
+                    or src_pf in _c.MF_JOIN_LEADER_RELEASE_SAFE_PLATFORMS)
+            if safe:
+                rec.leader = leader
+                rec.source_eff, rec.target_eff = leader, dst
+                return PATH_JOIN, f"join leader={leader}({how}) platform={src_pf}"
+            reasons.append(f"join_leader_release_unsafe:{src_pf}")
+        else:
+            reasons.append("no_common_grouping")
+        rec.source_eff, rec.target_eff = src, dst
+        return PATH_GENERIC, "generic " + ",".join(reasons)
+
+    def _group_leader(self, player: str) -> tuple[str, str]:
+        for leader, members in self._active_groups.items():
+            if player in members:
+                return leader, "mf_group"
+        st = self.hass.states.get(player)
+        gm = list((st.attributes or {}).get("group_members") or []) if st else []
+        if gm and player in gm and gm[0] != player:
+            return gm[0], "leader_from_attr"
+        return player, "source"
+
+    # ------------------------------------------------------------------
+    # Service calls (all MF calls carry the URA write context)
+    # ------------------------------------------------------------------
+
+    async def _call(self, domain: str, service: str, data: Optional[dict] = None, *,
+                    target: Optional[dict] = None, blocking: bool = True) -> float:
+        from .ura_context import ura_write_context  # noqa: PLC0415
+        kwargs: dict = {"blocking": blocking, "context": ura_write_context()}
+        if target is not None:
+            kwargs["target"] = target
+        t0 = self._monotonic()
+        await self.hass.services.async_call(domain, service, dict(data or {}), **kwargs)
+        return (self._monotonic() - t0) * 1000.0
+
+    async def _set_volume(self, entity_id: str, volume: float) -> None:
+        await self._call(MEDIA_PLAYER_DOMAIN, SERVICE_VOLUME_SET,
+                         {"entity_id": entity_id, "volume_level": round(float(volume), 4)},
+                         blocking=False)
+
+    async def _restore_volume(self, entity_id: str) -> None:
+        volume = self._saved_volumes.pop(entity_id, None)
+        if volume is None:
+            return
+        self._persist_volumes()
+        try:
+            await self._set_volume(entity_id, volume)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("MusicFollowing: restore volume failed for %s: %s", entity_id, err)
+
+    async def _restore_saved(self, rec: _Transfer) -> None:
+        for player in list(rec.saved):
+            rec.saved.pop(player, None)
+            await self._restore_volume(player)
+
+    # ------------------------------------------------------------------
+    # Transfer, verify, release
+    # ------------------------------------------------------------------
+
+    async def _transfer_then_release(self, rec: _Transfer, from_state, to_state,
+                                     prefs: Optional[dict] = None) -> tuple[str, str]:
+        """Shared by automatic and manual moves."""
+        prefs = prefs or {}
+        d = rec.decision
+        path, why = self._resolve_path(rec)
+        rec.path = path
+        d["path_reason"] = why
+        attrs = from_state.attributes or {}
+        try:
+            src_volume = float(attrs.get(ATTR_MEDIA_VOLUME_LEVEL, 0.5))
+        except (TypeError, ValueError):
+            src_volume = 0.5
+        if isinstance(prefs.get("target_volume"), (int, float)):
+            tgt_volume = max(0.0, min(1.0, float(prefs["target_volume"])))
+        elif path == PATH_JOIN:
+            tgt_volume = src_volume
+        else:
+            tgt_volume = self._scaled_target_volume(rec.to_room, src_volume)
+        self._state = "transferring"
+        rec.phase = "calling"
+        try:
+            call_ms = await self._start_target(rec, attrs, tgt_volume)
+        except asyncio.CancelledError:
+            raise
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("MusicFollowing: %s path failed: %s", path, err)
+            self._state = "idle"
+            return "failed", f"{path}:{type(err).__name__}"
+        if call_ms is None:
+            self._state = "idle"
+            return "failed", f"{path}:no_content"
+        d["call_ms"] = round(call_ms)
+        # Move mode: fade the old room only after MF's call went through.
+        if rec.follow_mode == _c.MF_FOLLOW_MODE_MOVE and path != PATH_MA:
+            fade_eff = rec.source_player
+            self._remember_volume(rec, fade_eff, src_volume)
+            await self._set_volume(fade_eff, _c.MF_FADE_TARGET_VOLUME)
+        elif rec.follow_mode == _c.MF_FOLLOW_MODE_MOVE and path == PATH_MA:
+            # MA stops the source queue itself; keep its volume to put back.
+            self._remember_volume(rec, rec.source_player, src_volume)
+        # Review B1: the start call is issued and booked against the target;
+        # drop the house-wide lock before the verify / release waits so a
+        # second person's move is not aged into stale_transition behind it.
+        self._unlock(rec)
+        # Verify on ground truth: the primary only (INV-MF-6).
+        rec.phase = "verifying"
+        t0 = self._monotonic()
+        if self._verify_delay_s > 0:
+            await self._sleep(self._verify_delay_s)
+        tstate = self.hass.states.get(rec.target_player)
+        outcome = ""
+        if tstate is not None and tstate.state == STATE_PLAYING:
+            outcome = "success"
+        elif (path == PATH_GENERIC and tstate is not None and rec.sent_content_id
+              and (tstate.attributes or {}).get("media_content_id") == rec.sent_content_id):
+            await self._call(MEDIA_PLAYER_DOMAIN, SERVICE_MEDIA_PLAY,
+                             {"entity_id": rec.target_player})
+            await self._sleep(_c.MF_NUDGE_SETTLE_S)
+            tstate = self.hass.states.get(rec.target_player)
+            if tstate is not None and tstate.state == STATE_PLAYING:
+                outcome = "success_nudged"
+        d["verify_ms"] = round((self._monotonic() - t0) * 1000.0)
+        d["target_state"] = tstate.state if tstate is not None else "missing"
+        if not outcome:
+            # INV-MF-1: the source is never quieted when the target does not
+            # play; undo the fade at once.
+            await self._restore_saved(rec)
+            self._state = "idle"
+            return "verify_failed", ""
+
+        # Success: book it now, then the background-safe extras.
+        self._state = "following"
+        self._last_transfer_time[rec.person_key] = dt_util.now()
+        self._last_transfer_target[rec.person_key] = rec.to_room
+        if path == PATH_JOIN:
+            self._active_groups.setdefault(rec.leader or rec.source_player, set()).add(rec.target_player)
+        self._finish(rec, outcome, why)
+        await self._bonus_joins_after_success(rec)
+        self._start_reversal_watch(rec)
+        if rec.follow_mode == _c.MF_FOLLOW_MODE_MOVE:
+            rec.phase = "releasing"
+            if self._release_delay_s > 0:
+                await self._sleep(self._release_delay_s)
+            await self._release_source(rec)
+        rec.phase = "done"
+        return "", ""
+
+    async def _start_target(self, rec: _Transfer, attrs: dict, volume: float) -> Optional[float]:
+        """Issue the path's call; returns call ms, or None (no content).
+
+        ``target_started`` is set BEFORE the awaited call (review B6): a
+        cancel delivered while the call is in flight may still see it take
+        effect, so cleanup must assume it did. The started players are
+        recorded for the hazard stop (review A-M1).
+        """
+        if rec.path == PATH_MA:
+            self._mark_started(rec)
+            ms = await self._call(
+                "music_assistant", "transfer_queue",
+                {"source_player": rec.source_eff, "auto_play": True},
+                target={"entity_id": rec.target_eff},
             )
-            self._record_stat("low_confidence", person_id, from_room, to_room)
+            await self._set_volume(rec.target_eff, volume)
+            return ms
+        if rec.path == PATH_JOIN:
+            self._mark_started(rec)
+            ms = await self._call(
+                MEDIA_PLAYER_DOMAIN, "join",
+                {"entity_id": rec.source_eff, "group_members": [rec.target_eff]},
+            )
+            await self._set_volume(rec.target_eff, volume)
+            return ms
+        content_id = attrs.get("media_content_id")
+        content_type = attrs.get("media_content_type")
+        if not content_id or not content_type:
+            return None
+        self._mark_started(rec)
+        rec.sent_content_id = content_id
+        ms = await self._call(
+            MEDIA_PLAYER_DOMAIN, "play_media",
+            {"entity_id": rec.target_eff, "media_content_id": content_id,
+             "media_content_type": content_type},
+        )
+        await self._set_volume(rec.target_eff, volume)
+        position = attrs.get(ATTR_MEDIA_POSITION)
+        try:
+            position = float(position) if position is not None else 0.0
+        except (TypeError, ValueError):
+            position = 0.0
+        if position > 0:
+            try:
+                await self._call(
+                    MEDIA_PLAYER_DOMAIN, "media_seek",
+                    {"entity_id": rec.target_eff,
+                     "seek_position": position + self._position_offset_s},
+                    blocking=False,
+                )
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug("MusicFollowing: seek failed: %s", err)
+        return ms
+
+    def _mark_started(self, rec: _Transfer) -> None:
+        rec.target_started = True
+        for eid in (rec.target_player, rec.target_eff):
+            if eid:
+                self._started_players.add(eid)
+
+    async def _release_source(self, rec: _Transfer) -> None:
+        """Remove the old room after a confirmed move; put its volume back."""
+        # Review B5: from here on the source is (being) stopped; a bounce
+        # back to it must not also take the target back.
+        rec.source_released = True
+        try:
+            if rec.path == PATH_JOIN and rec.source_player != rec.target_player:
+                await self._call(MEDIA_PLAYER_DOMAIN, "unjoin", {"entity_id": rec.source_player})
+                for members in self._active_groups.values():
+                    members.discard(rec.source_player)
+            elif rec.path == PATH_GENERIC:
+                await self._call(MEDIA_PLAYER_DOMAIN, "media_stop", {"entity_id": rec.source_player})
+            # PATH_MA: MA already stopped the source queue when it moved it.
+            for leader, bonus in self._bonus_joined.pop(_slug(rec.source_room), []):
+                try:
+                    await self._call(MEDIA_PLAYER_DOMAIN, "unjoin", {"entity_id": bonus})
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug("MusicFollowing: bonus unjoin failed for %s", bonus)
+        except asyncio.CancelledError:
+            raise
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("MusicFollowing: release of %s failed: %s", rec.source_player, err)
+        finally:
+            await self._restore_saved(rec)
+
+    async def _undo_target(self, rec: _Transfer) -> None:
+        """Take back MF's start of the target (bounce cleanup)."""
+        if not rec.target_started:
+            return
+        try:
+            if rec.path == PATH_JOIN:
+                joined = rec.target_eff or rec.target_player
+                await self._call(MEDIA_PLAYER_DOMAIN, "unjoin", {"entity_id": joined})
+                for members in self._active_groups.values():
+                    members.discard(rec.target_player)
+            elif rec.path == PATH_GENERIC:
+                await self._call(MEDIA_PLAYER_DOMAIN, "media_stop", {"entity_id": rec.target_player})
+            # PATH_MA: the queue already moved; the next room change moves it on.
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("MusicFollowing: undo of %s failed: %s", rec.target_player, err)
+
+    async def _cleanup_superseded(self, rec: _Transfer) -> None:
+        """A newer room change superseded ``rec`` (INV-MF-5)."""
+        new_to = rec.superseded_to
+        try:
+            if rec.phase == "releasing":
+                if new_to == rec.source_room and rec.source_released:
+                    # B5: the source stop is already out; taking the target
+                    # back too would silence both rooms. Keep the target.
+                    await self._restore_saved(rec)
+                elif new_to == rec.source_room:
+                    await self._undo_target(rec)
+                    await self._restore_saved(rec)
+                else:
+                    await self._release_source(rec)
+            else:
+                await self._undo_target(rec)
+                await self._restore_saved(rec)
+        finally:
+            if rec.source_room:
+                self._last_superseded[rec.person_key] = {
+                    "source_room": rec.source_room,
+                    "target_room": rec.to_room,
+                    "phase": rec.phase,
+                    "ts": self._monotonic(),
+                }
+
+    async def _bonus_joins_after_success(self, rec: _Transfer) -> None:
+        """Join the target room's other speakers, best effort (INV-MF-6)."""
+        if not self._bonus_joins:
+            return
+        try:
+            bonuses = self._bonus_candidates(rec)
+        except Exception:  # noqa: BLE001
+            bonuses = []
+        if not bonuses:
+            return
+        leader = rec.target_eff if rec.path == PATH_MA else (rec.leader or rec.target_player)
+        if rec.path == PATH_GENERIC:
+            leader = rec.target_player
+        joined = []
+        for bonus in bonuses:
+            self._started_players.add(bonus)
+            try:
+                await self._call(MEDIA_PLAYER_DOMAIN, "join",
+                                 {"entity_id": leader, "group_members": [bonus]})
+                joined.append((leader, bonus))
+            except Exception as err:  # noqa: BLE001
+                self._count("bonus_join_failed")
+                _LOGGER.info("MusicFollowing: bonus join %s failed (%s); move unaffected", bonus, err)
+        if joined:
+            self._bonus_joined.setdefault(_slug(rec.to_room), []).extend(joined)
+            rec.decision["bonus"] = ",".join(b for _, b in joined)
+
+    def _bonus_candidates(self, rec: _Transfer) -> list[str]:
+        """Other grouping speakers in the target room's HA area."""
+        cfg = self._room_cfg(rec.to_room) or {}
+        area_id = cfg.get(_c.CONF_AREA_ID)
+        if not area_id:
+            return []
+        from homeassistant.helpers import device_registry as dr  # noqa: PLC0415
+        from homeassistant.helpers import entity_registry as er  # noqa: PLC0415
+        ent_reg = er.async_get(self.hass)
+        dev_reg = dr.async_get(self.hass)
+        prim = ent_reg.async_get(rec.target_player)
+        prim_dev = prim.device_id if prim is not None else None
+        exclude = {rec.target_player, rec.target_eff, rec.source_player}
+        exclude |= {c for c, _ in self._ma_candidates(rec.target_player)}
+        if rec.path == PATH_MA or rec.via_ma:
+            want_pf = PLATFORM_MASS
+        else:
+            want_pf = self._get_player_platform(rec.target_player)
+        out = []
+        for e in list(ent_reg.entities.values()):
+            if e.domain != "media_player" or e.disabled_by or e.entity_id in exclude:
+                continue
+            if prim_dev and e.device_id == prim_dev:
+                continue
+            e_area = e.area_id
+            if not e_area and e.device_id:
+                dev = dev_reg.async_get(e.device_id)
+                e_area = dev.area_id if dev is not None else None
+            if e_area != area_id:
+                continue
+            cand = e.entity_id
+            if want_pf == PLATFORM_MASS and e.platform != PLATFORM_MASS:
+                mas = self._ma_candidates(cand)
+                if not mas:
+                    continue
+                cand = mas[0][0]
+            elif want_pf != PLATFORM_MASS and self._get_player_platform(cand) != want_pf:
+                continue
+            st = self.hass.states.get(cand)
+            if st is None or st.state in _UNAVAILABLE_STATES:
+                continue
+            if not self._features(cand) & _FEATURE_GROUPING:
+                continue
+            if cand not in exclude and cand not in out:
+                out.append(cand)
+        return out
+
+    # ------------------------------------------------------------------
+    # Reversal (D5.3)
+    # ------------------------------------------------------------------
+
+    def _cancel_reversal_watch(self, person_key: str) -> None:
+        unsub = self._reversal_watch.pop(person_key, None)
+        if unsub is not None:
+            try:
+                unsub()
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _start_reversal_watch(self, rec: _Transfer) -> None:
+        if _c.MF_REVERSAL_WINDOW_S <= 0:
+            return
+        self._cancel_reversal_watch(rec.person_key)
+        try:
+            from homeassistant.core import callback  # noqa: PLC0415
+            from homeassistant.helpers.event import (  # noqa: PLC0415
+                async_call_later,
+                async_track_state_change_event,
+            )
+            from .ura_context import is_ura_context  # noqa: PLC0415
+        except Exception:  # noqa: BLE001
+            return
+        target, source = rec.target_player, rec.source_player
+        started = self._monotonic()
+        unsubs: list = []
+
+        def _stop() -> None:
+            for u in unsubs:
+                try:
+                    u()
+                except Exception:  # noqa: BLE001
+                    pass
+            unsubs.clear()
+            if self._reversal_watch.get(rec.person_key) is _stop:
+                self._reversal_watch.pop(rec.person_key, None)
+
+        @callback
+        def _on_change(event) -> None:
+            data = getattr(event, "data", {}) or {}
+            ent = data.get("entity_id")
+            old, new = data.get("old_state"), data.get("new_state")
+            if old is None or new is None or old.state == new.state:
+                return
+            if is_ura_context(getattr(new, "context", None)):
+                return
+            kind = None
+            if ent == target and old.state == STATE_PLAYING and new.state in _STOPPED_STATES:
+                kind = "target_stopped_by_hand"
+            elif ent == source and old.state != STATE_PLAYING and new.state == STATE_PLAYING:
+                kind = "source_resumed_by_hand"
+            if kind is None:
+                return
+            _stop()
+            self._record_reversal(rec, kind, self._monotonic() - started)
+
+        @callback
+        def _expire(_now) -> None:
+            _stop()
+
+        try:
+            unsubs.append(async_track_state_change_event(self.hass, [target, source], _on_change))
+            unsubs.append(async_call_later(self.hass, _c.MF_REVERSAL_WINDOW_S, _expire))
+        except Exception:  # noqa: BLE001
+            _stop()
+            return
+        self._reversal_watch[rec.person_key] = _stop
+
+    def _record_reversal(self, rec: _Transfer, kind: str, seconds_after: float) -> None:
+        acc = self._accuracy_live
+        acc["reversals"] += 1
+        acc["by_kind"][kind] = acc["by_kind"].get(kind, 0) + 1
+        pair = f"{rec.source_room}->{rec.to_room}"
+        acc["by_pair"][pair] = acc["by_pair"].get(pair, 0) + 1
+        _LOGGER.info("MF reversal person=%s pair=%s kind=%s seconds_after=%.0f",
+                     rec.person_id, pair, kind, seconds_after)
+        self._write_episode(
+            _c.MF_REVERSAL_EPISODE_TYPE, f"room:{_slug(rec.to_room)}",
+            {"person_key": rec.person_key, "kind": kind,
+             "seconds_after": round(seconds_after, 1),
+             "decision_ref": rec.decision.get("source_ref", ""),
+             "source_room": rec.source_room, "to_room": rec.to_room},
+            source_ref=f"mfrev:{rec.person_key}:{rec.decision.get('ts', '')}",
+        )
+        self._notify_listeners()
+
+    # ------------------------------------------------------------------
+    # Room memory (D6)
+    # ------------------------------------------------------------------
+
+    def _write_decision_episode(self, rec: _Transfer) -> None:
+        d = rec.decision
+        ref = f"mf:{rec.person_key}:{d.get('ts', '')}"
+        d["source_ref"] = ref
+        attrs = {k: d.get(k, "") for k in MF_DECISION_FIELDS}
+        attrs["source_playing"] = bool(d.get("source_playing"))
+        attrs["path_reason"] = d.get("path_reason", "")
+        self._write_episode(_c.MF_DECISION_EPISODE_TYPE,
+                            f"room:{_slug(rec.to_room)}", attrs, source_ref=ref)
+
+    def _write_episode(self, episode_type: str, node: str, attrs: dict, *, source_ref: str) -> None:
+        if not _c.MF_EPISODE_LOG_PERSIST:
+            return
+        database = self.hass.data.get(DOMAIN, {}).get("database") if isinstance(
+            getattr(self.hass, "data", None), dict) else None
+        if database is None or not hasattr(database, "log_memory_episode"):
             return
 
-        # v3.6.24: BLE high-confidence distance gate — verify the person's
-        # closest scanner distance is within the music-specific threshold.
-        # Tighter than person tracking default (8ft vs 10ft) to avoid
-        # transferring music on BLE bleed-through from adjacent rooms.
-        mf_dist = getattr(self, "_mf_high_confidence_distance", None)
-        if mf_dist is not None:
-            person_coord = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
-            if person_coord is not None:
-                try:
-                    person_data = person_coord.data.get(person_id, {})
-                    closest_distance = person_data.get("closest_distance")
-                    if closest_distance is not None and closest_distance > mf_dist:
-                        _LOGGER.info(
-                            "🎵 Music transfer skipped: BLE distance %.1fft > music threshold %.1fft for %s",
-                            closest_distance, mf_dist, person_id
-                        )
-                        self._record_stat("low_confidence", person_id, from_room, to_room)
-                        return
-                except Exception:
-                    pass  # If distance check fails, fall through to confidence-only
-
-        # v5.10.0 D6: fix TOCTOU. Drop the `.locked()` pre-check + separate
-        # `async with` acquire in favor of a single `async with` — the
-        # previous pattern let two concurrent transitions both pass the
-        # check and then serialize, with the second acting on stale
-        # context. Now: everyone queues fairly; the stale-transition
-        # guard inside _execute_transfer decides whether to skip when
-        # unblocked. Transition timestamp is passed through so the
-        # guard has a monotonic reference.
-        transition_ts = getattr(transition, "timestamp", None)
-        async with self._transfer_lock:
+        async def _write() -> None:
             try:
-                await self._execute_transfer(
-                    person_id, from_room, to_room,
-                    transition_ts=transition_ts,
+                await database.log_memory_episode(
+                    node_id=node, episode_type=episode_type, attrs=attrs,
+                    source_ref=source_ref, window_dedup=False, dedup_source_ref=True,
                 )
-            finally:
-                # v3.6.27: Reset state unless transfer succeeded (state="following")
-                if self._state not in ("following", "idle"):
-                    self._state = "idle"
+            except Exception:  # noqa: BLE001 - observational only
+                _LOGGER.debug("MusicFollowing: memory row failed", exc_info=True)
+
+        try:
+            task = self.hass.async_create_task(_write(), name="ura_mf_episode")
+        except Exception:  # noqa: BLE001
+            return
+        if isinstance(task, asyncio.Future):
+            self._episode_tasks.add(task)
+            task.add_done_callback(self._episode_tasks.discard)
+
+    # ------------------------------------------------------------------
+    # Nightly (D5.3 accuracy roll-up + D5.5 zero-fire trip-wire)
+    # ------------------------------------------------------------------
+
+    async def async_nightly_health_check(self, database: Any = None) -> dict:
+        """Trailing-24 h trip-wire + 7-day accuracy roll-up. Never raises."""
+        result: dict = {"fired": False}
+        try:
+            window = await self._tripwire_window(database)
+            result["window_source"] = window[0]
+            window = window[1]
+            candidates = sum(1 for r in window if r[2])
+            successes = sum(1 for r in window if r[1] in MF_SUCCESS_OUTCOMES)
+            result.update({"candidates": candidates, "successes": successes})
+            floor = _c.MF_ZERO_TRANSFER_MIN_CANDIDATES
+            if floor > 0 and candidates >= floor and successes == 0:
+                skips: dict[str, int] = {}
+                for r in window:
+                    if r[1] in MF_SKIP_OUTCOMES:
+                        skips[r[1]] = skips.get(r[1], 0) + 1
+                top = sorted(skips.items(), key=lambda kv: -kv[1])[:3]
+                from .domain_coordinators._stuck_signal_nm import fire_stuck_signal  # noqa: PLC0415
+                result["fired"] = await fire_stuck_signal(
+                    self.hass, "music_follow_silent", ("house",),
+                    diagnosis=(
+                        f"Music following made no successful move in 24 h although "
+                        f"{candidates} room changes had music playing and a speaker "
+                        f"ahead. Top skips: "
+                        + (", ".join(f"{k} ({v})" for k, v in top) or "none")
+                    ),
+                    remedy="Read the 'MF decision' log lines and sensor.ura_music_following_health.",
+                    severity="HIGH",
+                )
+            if database is not None and hasattr(database, "read_memory_episodes_by_type"):
+                since = (dt_util.utcnow() - timedelta(days=7)).isoformat()
+                rows = await database.read_memory_episodes_by_type(
+                    _c.MF_DECISION_EPISODE_TYPE, since)
+                revs = await database.read_memory_episodes_by_type(
+                    _c.MF_REVERSAL_EPISODE_TYPE, since)
+                succ = sum(1 for r in rows
+                           if (r.get("attrs") or {}).get("outcome") in MF_SUCCESS_OUTCOMES)
+                by_kind: dict[str, int] = {}
+                for r in revs:
+                    k = (r.get("attrs") or {}).get("kind", "?")
+                    by_kind[k] = by_kind.get(k, 0) + 1
+                self._accuracy_7d = {"successes": succ, "reversals": len(revs),
+                                     "by_kind": by_kind,
+                                     "computed_at": dt_util.now().isoformat()}
+                result["accuracy_7d"] = dict(self._accuracy_7d)
+                self._notify_listeners()
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning("MusicFollowing nightly health check failed", exc_info=True)
+        return result
+
+    async def _tripwire_window(self, database: Any) -> tuple[str, list]:
+        """The last MF_TRIPWIRE_WINDOW_S of decisions as (ts, outcome, candidate).
+
+        Review B7: from the persisted decision rows when the database can be
+        read (a restart inside the window no longer under-counts); the
+        in-memory list only when it cannot. Decision rows are written for
+        candidates only (both players resolved), so every row is one. The DAO
+        returns [] on a read error, so when memory holds MORE candidates
+        than the rows (a failing writer), memory is used.
+        """
+        cutoff = self._monotonic() - _c.MF_TRIPWIRE_WINDOW_S
+        mem = [r for r in self._recent_decisions if r[0] >= cutoff]
+        if database is not None and hasattr(database, "read_memory_episodes_by_type"):
+            try:
+                since = (dt_util.utcnow()
+                         - timedelta(seconds=_c.MF_TRIPWIRE_WINDOW_S)).isoformat()
+                rows = await database.read_memory_episodes_by_type(
+                    _c.MF_DECISION_EPISODE_TYPE, since)
+                out = []
+                for r in rows or []:
+                    a = r.get("attrs") or {}
+                    out.append((0.0, str(a.get("outcome", "")), bool(a.get("source_playing"))))
+                if sum(1 for r in out if r[2]) >= sum(1 for r in mem if r[2]):
+                    return "db", out
+            except Exception:  # noqa: BLE001 - fall back to memory
+                _LOGGER.debug("MusicFollowing: trip-wire DB read failed", exc_info=True)
+        return "memory", mem
+
+    def digest_section(self) -> str:
+        """One digest line for the last 24 h; empty with no candidates."""
+        cutoff = self._monotonic() - _c.MF_TRIPWIRE_WINDOW_S
+        window = [r for r in self._recent_decisions if r[0] >= cutoff]
+        cand = [r for r in window if r[2]]
+        if not cand:
+            return ""
+        played = sum(1 for r in window if r[1] in MF_SUCCESS_OUTCOMES)
+        failed = sum(1 for r in window if r[1] in ("verify_failed", "failed", "exception"))
+        moves = played + failed
+        skips: dict[str, int] = {}
+        for r in window:
+            if r[1] in MF_SKIP_OUTCOMES and r[1] not in ("verify_failed", "failed", "exception"):
+                skips[r[1]] = skips.get(r[1], 0) + 1
+        rev = int(self._accuracy_live.get("reversals") or 0)
+        parts = [f"Music following, last 24 h: {moves} moves, {played} played"]
+        if failed:
+            parts.append(f"{failed} failed")
+        if rev:
+            parts.append(f"{rev} moved back by hand (since start)")
+        line = ", ".join(parts) + "."
+        if skips:
+            k, v = max(skips.items(), key=lambda kv: kv[1])
+            line += f" Most common skip: {k} ({v})."
+        return line
+
+    # ==================================================================
+    # Gates kept from v5.10.0
+    # ==================================================================
 
     def _source_has_other_occupants(self, person_id: str, from_room: str) -> bool:
-        """v5.10.0 D3: True iff the source room still has an occupant
-        besides ``person_id`` (the person that just transitioned OUT).
+        """True iff the source room still has someone besides ``person_id``.
 
-        v5.10.0 fix-up FIX-4 (A-HIGH-1): redesigned to avoid false
-        positives on the leaver's OWN residual motion/mmwave signal.
-
-        PRIMARY (exact, immune to residual): another TRACKED person's
-        current ``location`` equals ``from_room``. Reads the person
-        coordinator (writer: person_coordinator.py location-updater
-        block around :161-233 which populates the ``location`` key
-        for tracked persons).
-
-        SECONDARY (guest coverage — untracked occupants): substrate
-        ``occupancy`` kind active on ``from_room``. ``motion`` is
-        DELIBERATELY EXCLUDED here because motion-only signals decay
-        slowly after the leaver walks out and would false-positive on
-        the leaver themselves. ``occupancy`` kinds (contact / seat /
-        binary occupancy sensors) latch on real presence, not on
-        decaying PIR trails.
-
-        Non-blocking (dict lookups, no await). If the substrate is
-        unavailable or the person coord read errors, returns False —
-        fail-open (do NOT block transfers on a broken predicate).
+        PRIMARY: another tracked person's resolved room is that room, read
+        through the layer's public F4-BLE read (``tracked_persons`` +
+        ``get_person_location``, contract §4.1), never ``data`` (review
+        A-H1 / INV-LAYER-READ). G6 ``persons_in_room`` replaces this loop
+        when it ships (PERSON-AWARENESS-READ-API-1 ship 3).
+        SECONDARY: the substrate's ``occupancy`` kind is active there (motion
+        excluded: it decays after the leaver walks out). Fail-open.
         """
-        # --- PRIMARY: another tracked person's location matches from_room
+        me = _person_key(person_id)
         try:
-            person_coord = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
-            if person_coord is not None and hasattr(person_coord, "data"):
-                data = person_coord.data or {}
-                for other_id, pdata in data.items():
-                    if other_id == person_id:
-                        continue
-                    if not isinstance(pdata, dict):
-                        continue
-                    loc = pdata.get("location")
-                    if not isinstance(loc, str) or not loc:
-                        continue
-                    # Slug-compare — person coord may store spaces / case.
-                    if loc.lower().replace(" ", "_") == (
-                        from_room or ""
-                    ).lower().replace(" ", "_"):
-                        return True
-        except Exception:  # noqa: BLE001 — fail-open on predicate error
+            pc = self._person_layer()
+            for other_id in list(getattr(pc, "tracked_persons", None) or []):
+                if other_id == person_id or _person_key(other_id) == me:
+                    continue
+                loc = self._layer_location(other_id)
+                if loc and _slug(loc) == _slug(from_room):
+                    return True
+        except Exception:  # noqa: BLE001
             pass
-
-        # --- SECONDARY: untracked-occupant coverage via substrate
-        # v5.10.0 fix-up FIX-2 (A-CRIT-1): reader — the writer for this
-        # key lives in the Presence Coordinator's async_setup at
-        # domain_coordinators/presence.py (setdefault call directly
-        # after ``OccupancySubstrate(self.hass)`` construction) and is
-        # cleaned up in async_teardown symmetrically.
         try:
             substrate = self.hass.data.get(DOMAIN, {}).get("occupancy_substrate")
             if substrate is None:
-                # v5.10.0 fix-up A-LOW-4: format-drift canary — the writer
-                # lives in Presence Coordinator async_setup. If it's
-                # missing here, either presence hasn't set up yet OR the
-                # key was renamed. Fail-open (return False) but log DEBUG
-                # so the miss is visible in tail-follow.
-                _LOGGER.debug(
-                    "MusicFollowing D3: occupancy_substrate absent from "
-                    "hass.data[%r] — falling through to fail-open "
-                    "(person=%r, from_room=%r)",
-                    DOMAIN, person_id, from_room,
-                )
                 return False
-            # ONLY the ``occupancy`` kind — see docstring above for why
-            # ``motion`` (and ``mmwave``, most residual-prone) are excluded.
             try:
-                if substrate.is_kind_active(from_room, "occupancy"):
-                    return True
+                return bool(substrate.is_kind_active(from_room, "occupancy"))
             except Exception:  # noqa: BLE001
                 return False
         except Exception:  # noqa: BLE001
             return False
-        return False
 
     def _dwell_room_for_person(self, person_id: str) -> Optional[str]:
-        """v5.10.0 D2: return the person's assigned dwell/bedroom, if any.
+        """The person's bedroom, from the preference provider (D7.5).
 
-        Best-effort: reads person_coordinator.data first (which carries a
-        "dwell_room" field for tracked persons); falls back to None. Used
-        by the HOME_NIGHT dwell-only gate.
+        Review A-H1: this used to read ``person_coordinator.data[p]
+        ["dwell_room" / "bedroom"]``, keys the producer never writes (so it
+        always returned None and ``dwell_only`` behaved as ``block_all``).
+        A bedroom is a profile fact (PERSON-PROFILE-PREFERENCES-1), so it
+        comes from the provider's ``bedroom`` key; no provider = None, the
+        same live behaviour as before.
         """
-        try:
-            person_coord = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
-            if person_coord is None:
-                return None
-            data = person_coord.data.get(person_id, {}) if hasattr(person_coord, "data") else {}
-            dwell = data.get("dwell_room") or data.get("bedroom")
-            if isinstance(dwell, str) and dwell:
-                return dwell
-            # v5.10.0 fix-up A-LOW-4: format-drift canary — log DEBUG when
-            # the lookup misses so a future person_coordinator schema
-            # change (e.g. renaming ``dwell_room`` → ``bedroom_slug``) is
-            # discoverable in the logs before it silently degrades D2.
-            _LOGGER.debug(
-                "MusicFollowing: no dwell_room/bedroom for person %r "
-                "(person_coord.data keys=%s) — HOME_NIGHT dwell_only will "
-                "fall through to WARN+block_all fallback",
-                person_id,
-                sorted(data.keys()) if isinstance(data, dict) else "?",
-            )
-        except Exception:
+        provider = self._preference_provider
+        if provider is None:
             return None
-        return None
+        try:
+            prefs = provider(_person_key(person_id), {"purpose": "bedroom"})
+        except Exception:  # noqa: BLE001
+            return None
+        dwell = prefs.get("bedroom") if isinstance(prefs, dict) else None
+        return dwell if isinstance(dwell, str) and dwell else None
 
-    def _check_house_state_gate(
-        self, person_id: str, from_room: str, to_room: str
-    ) -> Optional[str]:
-        """v5.10.0 D2 sleep/night gate.
-
-        Returns a stat outcome string ("sleep_suppressed" / "night_suppressed")
-        when the transfer should be blocked; None otherwise.
-
-        Falsifiable invariant: During HouseState.SLEEP (with sleep_suppress
-        on) MF SHALL NOT call any media_player service. During HOME_NIGHT
-        the mode dictates whether transfers proceed.
-        """
+    def _check_house_state_gate(self, person_id: str, from_room: str, to_room: str) -> Optional[str]:
+        """SLEEP (with sleep_suppress) blocks; HOME_NIGHT per night mode."""
         state = self._current_house_state
         if not state:
-            return None  # coordinator hasn't pushed a state yet — allow
+            return None
         if state == "sleep" and self._sleep_suppress:
             return "sleep_suppressed"
         if state == "home_night":
@@ -699,993 +1871,275 @@ class MusicFollowing:
             if mode == "dwell_only":
                 dwell = self._dwell_room_for_person(person_id)
                 if dwell is None:
-                    # v5.10.0 fix-up FIX-3 (A-CRIT-2): no per-person
-                    # bedroom surface exists today (person_coordinator
-                    # does not populate ``dwell_room`` / ``bedroom`` keys;
-                    # see person_coordinator.py location-updater block).
-                    # Behave as BLOCK_ALL and log a one-shot WARNING so
-                    # the semantics are discoverable — the config-flow
-                    # label was updated to name this behavior explicitly.
                     if not self._warned_dwell_only_no_surface:
                         _LOGGER.warning(
-                            "MusicFollowing: night_suppress_mode='dwell_only' "
-                            "is set, but no per-person bedroom mapping "
-                            "surface exists (person_coordinator does not "
-                            "expose 'dwell_room'/'bedroom' fields). "
-                            "Behaving as 'block_all' — every HOME_NIGHT "
-                            "transition will be suppressed. Pick 'off' or "
-                            "'block_all' explicitly to silence this warning."
+                            "MusicFollowing: night_suppress_mode='dwell_only' is set, but "
+                            "no per-person bedroom mapping exists. Behaving as 'block_all'."
                         )
                         self._warned_dwell_only_no_surface = True
                     return "night_suppressed"
-                if dwell.lower().replace(" ", "_") != to_room.lower().replace(" ", "_"):
+                if _slug(dwell) != _slug(to_room):
                     return "night_suppressed"
-            # mode == "off" or dwell match — allow
         return None
 
-    async def _execute_transfer(
-        self, person_id: str, from_room: str, to_room: str,
-        *, transition_ts: Optional[datetime] = None,
-    ) -> None:
-        """Execute the actual music transfer (called under lock)."""
-        now = dt_util.now()
-
-        # v5.10.0 D6: stale-transition guard. If the transition timestamp
-        # is significantly older than the moment we acquired the lock,
-        # the underlying occupancy context may have changed. Skip.
-        if transition_ts is not None:
-            try:
-                # v5.10.0 fix-up B-MED-1: normalize tz-awareness before
-                # subtracting. dt_util.now() is tz-aware (local); the
-                # transition timestamp may arrive naive (datetime.now())
-                # depending on caller. Coerce both to the same awareness
-                # to avoid TypeError on naive-vs-aware subtraction.
-                from datetime import timezone as _tz  # noqa: PLC0415
-                _now = now
-                _ts = transition_ts
-                _norm_ok = True
-                try:
-                    if _now.tzinfo is None and _ts.tzinfo is not None:
-                        _now = _now.replace(tzinfo=_tz.utc)
-                    elif _now.tzinfo is not None and _ts.tzinfo is None:
-                        _ts = _ts.replace(tzinfo=_now.tzinfo)
-                except Exception:
-                    _LOGGER.debug(
-                        "Music transfer: tz normalization failed for "
-                        "now=%r transition_ts=%r; treating age as 0",
-                        now, transition_ts, exc_info=True,
-                    )
-                    _norm_ok = False
-                if _norm_ok:
-                    try:
-                        age = (_now - _ts).total_seconds()
-                    except Exception:
-                        _LOGGER.debug(
-                            "Music transfer: tz-normalized subtract failed "
-                            "for now=%r transition_ts=%r; age=0",
-                            now, transition_ts, exc_info=True,
-                        )
-                        age = 0.0
-                else:
-                    age = 0.0
-            except Exception:
-                age = 0.0
-            if age > self._stale_transition_seconds:
-                _LOGGER.info(
-                    "🎵 Music transfer skipped: transition is %.1fs old "
-                    "(threshold %.1fs); context likely changed",
-                    age, self._stale_transition_seconds,
-                )
-                self._record_stat("stale_transition", person_id, from_room, to_room)
-                return
-
-        # v5.10.0 D2: sleep/night gate. Runs BEFORE any lookup/service call
-        # so the invariant "no media_player action during SLEEP" holds
-        # without depending on downstream short-circuits.
-        gate_outcome = self._check_house_state_gate(person_id, from_room, to_room)
-        if gate_outcome:
-            _LOGGER.info(
-                "🎵 Music transfer suppressed by house-state gate "
-                "(state=%s, outcome=%s, %s: %s → %s)",
-                self._current_house_state, gate_outcome, person_id,
-                from_room, to_room,
-            )
-            self._record_stat(gate_outcome, person_id, from_room, to_room)
-            return
-
-        # v3.6.20 B2: Transfer cooldown — block repeated transfers to same target
-        last_time = self._last_transfer_time.get(person_id)
-        last_target = self._last_transfer_target.get(person_id)
-        if (last_time and last_target == to_room
-                and (now - last_time).total_seconds() < MUSIC_TRANSFER_COOLDOWN_SECONDS):
-            _LOGGER.info(
-                "🎵 Transfer cooldown: %s → %s blocked (%.0fs since last, cooldown=%ds)",
-                person_id, to_room,
-                (now - last_time).total_seconds(),
-                MUSIC_TRANSFER_COOLDOWN_SECONDS,
-            )
-            self._record_stat("cooldown_blocked", person_id, from_room, to_room)
-            return
-
-        # Get media player entities for rooms
-        from_player = await self._get_room_player(from_room)
-        to_player = await self._get_room_player(to_room)
-
-        if not from_player:
-            _LOGGER.info(
-                "🎵 Music transfer skipped: no player found for source room '%s'",
-                from_room
-            )
-            return
-
-        if not to_player:
-            _LOGGER.info(
-                "🎵 Music transfer skipped: no player found for target room '%s'",
-                to_room
-            )
-            return
-
-        _LOGGER.info("🎵 Players found: %s → %s", from_player, to_player)
-
-        # v5.10.0 D1: Silent-actuator pre-flight. If the target speaker is
-        # offline (unavailable/unknown/no state), calling play_media/join
-        # would silently no-op and the user would see "music disappeared".
-        # Short-circuit BEFORE fading source. Log + counter for observability.
-        to_state_preflight = self.hass.states.get(to_player)
-        if to_state_preflight is None or to_state_preflight.state in ("unavailable", "unknown"):
-            _LOGGER.info(
-                "🎵 Music transfer skipped: target '%s' unavailable "
-                "(state=%s). Source NOT faded; skip counter incremented.",
-                to_player,
-                to_state_preflight.state if to_state_preflight else "missing",
-            )
-            self._record_stat("target_unavailable", person_id, from_room, to_room)
-            return
-
-        # v5.10.0 D3: Guest-in-source-room guard. If the source room still
-        # has another occupant (motion/mmwave/occupancy any-kind active),
-        # transferring OUT would drag their music with us. Non-blocking
-        # read of OccupancySubstrate — MUST NOT await into presence coord
-        # data while holding the transfer lock.
-        if self._source_has_other_occupants(person_id, from_room):
-            _LOGGER.info(
-                "🎵 Music transfer skipped: source room '%s' still has "
-                "other occupants (%s leaves; music stays)",
-                from_room, person_id,
-            )
-            self._record_stat("source_has_others", person_id, from_room, to_room)
-            return
-
-        # Check if source is playing
-        from_state = self.hass.states.get(from_player)
-        if not from_state:
-            _LOGGER.info(
-                "🎵 Music transfer skipped: source player '%s' state unavailable",
-                from_player
-            )
-            return
-
-        if from_state.state != STATE_PLAYING:
-            _LOGGER.info(
-                "🎵 Music transfer skipped: source '%s' not playing (state=%s)",
-                from_player, from_state.state
-            )
-            return
-
-        # v3.6.20 B5: Winner rules — don't transfer into a room already playing
-        to_state = self.hass.states.get(to_player)
-        if to_state and to_state.state == STATE_PLAYING:
-            _LOGGER.info(
-                "🎵 Active playback blocked: target '%s' already playing, skipping transfer",
-                to_player,
-            )
-            self._record_stat("active_playback_blocked", person_id, from_room, to_room)
-            return
-
-        # Get platform info for logging
-        source_platform = self._get_player_platform(from_player)
-        target_platform = self._get_player_platform(to_player)
-
-        _LOGGER.info(
-            "🎵 Starting transfer: %s (%s) → %s (%s) for %s",
-            from_player, source_platform, to_player, target_platform, person_id
-        )
-
-        # Transfer playback
-        self._state = "transferring"
-        # v5.10.0 D11+D12: reset per-transfer join flag before dispatch;
-        # _transfer_media sets it True on the same-platform join path.
-        self._last_transfer_used_join = False
-        success = await self._transfer_media(
-            from_player, to_player, from_state, to_room=to_room,
-        )
-
-        if success:
-            # v3.6.20 B3: Post-transfer verification (D12: skip sleep on join)
-            verified = await self._verify_transfer(
-                to_player, skip_wait=bool(self._last_transfer_used_join),
-            )
-            if verified:
-                _LOGGER.info(
-                    "🎵 ✓ Music transfer verified: %s %s → %s",
-                    person_id, from_room, to_room
-                )
-                self._state = "following"
-                self._record_stat("success", person_id, from_room, to_room)
-                # Record cooldown state
-                self._last_transfer_time[person_id] = dt_util.now()
-                self._last_transfer_target[person_id] = to_room
-                # v3.6.20 B6: Schedule source unjoin for group cleanup
-                await self._schedule_group_cleanup(from_player, to_player)
-            else:
-                # Verification failed — restore source volume
-                _LOGGER.warning(
-                    "🎵 Transfer unverified: target '%s' not playing after transfer, restoring source",
-                    to_player,
-                )
-                self._state = "idle"
-                self._record_stat("unverified", person_id, from_room, to_room)
-                await self._restore_volume(from_player)
-        else:
-            # v3.6.19: Restore source volume on failure
-            self._state = "idle"
-            self._record_stat("failed", person_id, from_room, to_room)
-            await self._restore_volume(from_player)
-            _LOGGER.warning(
-                "🎵 ✗ Music transfer failed: %s %s → %s (source volume restored)",
-                person_id, from_room, to_room
-            )
-
-    async def _restore_volume(self, entity_id: str) -> None:
-        """Restore a player's volume from saved state."""
-        volume = self._saved_volumes.pop(entity_id, None)
-        if volume is not None:
-            _LOGGER.info("🎵 Restoring %s volume to %.0f%%", entity_id, volume * 100)
-            try:
-                await self.hass.services.async_call(
-                    MEDIA_PLAYER_DOMAIN,
-                    SERVICE_VOLUME_SET,
-                    {"entity_id": entity_id, "volume_level": volume},
-                    blocking=False,
-                )
-            except Exception as e:
-                _LOGGER.warning("🎵 Failed to restore volume for %s: %s", entity_id, e)
-
-    # ==========================================================================
-    # v3.6.20 B3: POST-TRANSFER VERIFICATION
-    # ==========================================================================
-
-    async def _verify_transfer(
-        self, target_entity: str, *, skip_wait: bool = False
-    ) -> bool:
-        """Verify target is playing after transfer, nudge if needed.
-
-        v5.10.0 D12: ``skip_wait`` skips the initial 2s sleep when the
-        transfer used same-platform ``join`` (which is synchronous and
-        the target should already be playing). Same-perceived-latency
-        drops from ~2.5s to <500ms on the join path.
-
-        1. Wait TRANSFER_VERIFY_DELAY_SECONDS (unless skip_wait), check target state
-        2. If not playing, send media_player.media_play nudge
-        3. Wait 1s, recheck
-        4. Return True if playing, False otherwise
-        """
-        if not skip_wait:
-            await asyncio.sleep(TRANSFER_VERIFY_DELAY_SECONDS)
-
-        state = self.hass.states.get(target_entity)
-        if state and state.state == STATE_PLAYING:
-            _LOGGER.debug("🎵 Verify: %s is playing (pass)", target_entity)
-            return True
-
-        # Nudge — send media_play to resume
-        _LOGGER.info("🎵 Verify: %s not playing, sending media_play nudge", target_entity)
-        try:
-            await self.hass.services.async_call(
-                MEDIA_PLAYER_DOMAIN,
-                SERVICE_MEDIA_PLAY,
-                {"entity_id": target_entity},
-                blocking=True,
-            )
-        except Exception as e:
-            _LOGGER.warning("🎵 Verify: media_play nudge failed for %s: %s", target_entity, e)
-            return False
-
-        await asyncio.sleep(1)
-        state = self.hass.states.get(target_entity)
-        if state and state.state == STATE_PLAYING:
-            _LOGGER.info("🎵 Verify: %s playing after nudge (pass)", target_entity)
-            return True
-
-        _LOGGER.warning("🎵 Verify: %s still not playing after nudge (fail)", target_entity)
-        return False
-
-    # ==========================================================================
-    # v3.6.20 B6: SPEAKER GROUP CLEANUP
-    # ==========================================================================
-
-    async def _schedule_group_cleanup(self, source: str, target: str) -> None:
-        """Track group membership and schedule unjoin after delay."""
-        # Record group
-        if target not in self._active_groups:
-            self._active_groups[target] = set()
-        self._active_groups[target].add(source)
-
-        async def _delayed_unjoin():
-            await asyncio.sleep(GROUP_UNJOIN_DELAY_SECONDS)
-            try:
-                _LOGGER.info("🎵 Group cleanup: unjoining %s", source)
-                await self.hass.services.async_call(
-                    MEDIA_PLAYER_DOMAIN,
-                    "unjoin",
-                    {"entity_id": source},
-                    blocking=True,
-                )
-                # Restore source volume after unjoin
-                await self._restore_volume(source)
-            except Exception as e:
-                _LOGGER.debug("🎵 Group cleanup: unjoin failed for %s: %s", source, e)
-            finally:
-                # Clean up tracking
-                if target in self._active_groups:
-                    self._active_groups[target].discard(source)
-                    if not self._active_groups[target]:
-                        del self._active_groups[target]
-
-        task = self.hass.async_create_task(_delayed_unjoin())
-        # v5.10.0 D6 (C9): set discard is O(1) and safe if already removed.
-        self._cleanup_tasks.add(task)
-        task.add_done_callback(self._cleanup_tasks.discard)
+    # ==================================================================
+    # Players and rooms
+    # ==================================================================
 
     def _get_player_platform(self, entity_id: str) -> str:
-        """Detect the platform/integration for a media player.
-        
-        Returns: 'sonos', 'linkplay', 'wiim', 'denonavr', 'music_assistant', or 'generic'
-        """
-        # Strategy 1: Entity registry lookup (most accurate)
+        """Platform of a media player, from the entity registry."""
         try:
-            from homeassistant.helpers import entity_registry
+            from homeassistant.helpers import entity_registry  # noqa: PLC0415
             ent_reg = entity_registry.async_get(self.hass)
             entry = ent_reg.async_get(entity_id)
-            
-            if entry and entry.platform:
-                platform = entry.platform.lower()
-                
-                platform_map = {
-                    "sonos": PLATFORM_SONOS,
-                    "linkplay": PLATFORM_LINKPLAY,
-                    "wiim": PLATFORM_WIIM,
-                    "denonavr": PLATFORM_DENON,
-                    "music_assistant": PLATFORM_MASS,
-                    "denon": PLATFORM_DENON,
-                    "marantz": PLATFORM_DENON,
-                }
-                
-                if platform in platform_map:
-                    detected = platform_map[platform]
-                    _LOGGER.debug(
-                        "Platform detection: %s is %s (entity registry: %s)", 
-                        entity_id, detected, platform
-                    )
-                    return detected
-                
-                _LOGGER.debug(
-                    "Platform detection: %s has platform '%s' in registry (treating as generic)", 
-                    entity_id, platform
-                )
-                return PLATFORM_GENERIC
-                
-        except Exception as e:
-            _LOGGER.debug("Entity registry lookup failed for %s: %s", entity_id, e)
-        
-        # Strategy 2: Entity ID pattern matching (fallback)
-        entity_id_lower = entity_id.lower()
-        
-        if "sonos" in entity_id_lower:
-            _LOGGER.debug("Platform detection: %s is Sonos (entity_id match)", entity_id)
-            return PLATFORM_SONOS
-        
-        if "denon" in entity_id_lower or "marantz" in entity_id_lower:
-            _LOGGER.debug("Platform detection: %s is Denon/Marantz (entity_id match)", entity_id)
-            return PLATFORM_DENON
-        
-        # Strategy 3: Attribute-based detection (last resort)
-        state = self.hass.states.get(entity_id)
-        if not state:
-            _LOGGER.debug("Platform detection: %s has no state, returning generic", entity_id)
-            return PLATFORM_GENERIC
-        
-        attrs = state.attributes
-        firmware = attrs.get("firmware_version", "")
-        if firmware and "linkplay" in firmware.lower():
-            _LOGGER.debug(
-                "Platform detection: %s likely Linkplay (firmware=%s) - use entity registry for certainty", 
-                entity_id, firmware
-            )
-            return PLATFORM_GENERIC
-        
-        _LOGGER.debug("Platform detection: %s is generic (no match found)", entity_id)
+            platform = getattr(entry, "platform", None) if entry is not None else None
+            if isinstance(platform, str) and platform:
+                p = platform.lower()
+                return {
+                    "sonos": PLATFORM_SONOS, "linkplay": PLATFORM_LINKPLAY,
+                    "wiim": PLATFORM_WIIM, "denonavr": PLATFORM_DENON,
+                    "heos": PLATFORM_HEOS, "music_assistant": PLATFORM_MASS,
+                }.get(p, PLATFORM_GENERIC)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("Entity registry lookup failed for %s: %s", entity_id, err)
         return PLATFORM_GENERIC
-    
+
+    def _room_cfg(self, room_name: str) -> Optional[dict]:
+        target = _slug(room_name)
+        for entry_data in self._get_room_entries().values():
+            if _slug(entry_data.get("room_name", "")) == target:
+                return entry_data
+        return None
+
+    def configured_players(self) -> set[str]:
+        """Every configured room and zone player (hazard-stop scope)."""
+        out: set[str] = set()
+        for cfg in self._get_room_entries().values():
+            p = cfg.get("room_media_player")
+            if p:
+                out.add(p)
+            zone = cfg.get("zone")
+            if zone:
+                zp, _mode = self._get_zone_player_config(zone)
+                if zp:
+                    out.add(zp)
+        return out
+
+    def hazard_stop_scope(self) -> set[str]:
+        """Every speaker a hazard stop must reach (review A-M1).
+
+        Configured room / zone players, every speaker music following
+        itself started (area-found primaries, MA twins, bonus players),
+        MF's native group leaders and members, and the MA twin of each.
+        """
+        scope = set(self.configured_players()) | set(self._started_players)
+        for leader, members in self._active_groups.items():
+            scope.add(leader)
+            scope |= set(members)
+        for joined in self._bonus_joined.values():
+            for leader, bonus in joined:
+                scope.update((leader, bonus))
+        for eid in list(scope):
+            scope.update(c for c, _ in self._ma_candidates(eid))
+        return {e for e in scope if e}
+
+    def hazard_active(self) -> bool:
+        return self._hazard_until > 0 and self._monotonic() < self._hazard_until
+
+    async def async_hazard_stop(self, reason: str = "hazard") -> int:
+        """Critical safety / security stop (reviews B2, A-M1).
+
+        Blocks new moves for MF_HAZARD_BLOCK_S, cancels every in-flight move
+        (its cleanup takes the target back and restores volumes; booked
+        ``hazard_blocked``), then stops every playing speaker in
+        ``hazard_stop_scope`` with the URA context, so the reversal watch
+        does not count the stop as a person's undo. Returns the number
+        stopped. Never raises.
+        """
+        if _c.MF_HAZARD_BLOCK_S > 0:
+            self._hazard_until = self._monotonic() + float(_c.MF_HAZARD_BLOCK_S)
+        for person_key in list(self._reversal_watch):
+            self._cancel_reversal_watch(person_key)
+        tasks = []
+        for rec in list(self._inflight.values()):
+            if rec.task is not None and not rec.task.done():
+                rec.cancel_outcome = "hazard_blocked"
+                rec.task.cancel()
+                tasks.append(rec.task)
+        if tasks:
+            try:
+                await asyncio.wait(tasks, timeout=5)
+            except Exception:  # noqa: BLE001
+                pass
+        stopped = 0
+        for eid in sorted(self.hazard_stop_scope()):
+            st = self.hass.states.get(eid)
+            if st is None or st.state not in ("playing", "paused"):
+                continue
+            try:
+                await self._call(MEDIA_PLAYER_DOMAIN, "media_stop",
+                                 {"entity_id": eid}, blocking=False)
+                stopped += 1
+            except Exception:  # noqa: BLE001
+                _LOGGER.warning("MusicFollowing: hazard stop of %s failed", eid)
+        _LOGGER.warning("MusicFollowing: %s stop, %d speaker(s) stopped, moves blocked %ss",
+                        reason, stopped, _c.MF_HAZARD_BLOCK_S)
+        return stopped
+
     async def _get_room_player(self, room_name: str) -> Optional[str]:
-        """Get media player entity for room."""
-        _LOGGER.debug("Looking for media player in room '%s'", room_name)
-        
-        room_name_lower = room_name.lower().replace(' ', '_')
-        
-        # Strategy 1: Check room config for explicit room_media_player
-        room_entries = self._get_room_entries()
+        """The room's primary speaker: config, zone, then the room's HA area.
+
+        Review A-M2 (Registry, not names): the area is the room entry's
+        ``area_id`` (no area-name match), a speaker belongs to it by its
+        entity area or else its device area, and there is no
+        ``media_player.<room>`` guess.
+        """
         room_zone = None
-        
-        for entry_id, entry_data in room_entries.items():
-            entry_room = entry_data.get("room_name", "").lower().replace(' ', '_')
-            if entry_room == room_name_lower:
-                media_player = entry_data.get("room_media_player")
-                if media_player:
-                    state = self.hass.states.get(media_player)
-                    if state:
-                        _LOGGER.info(
-                            "Room '%s': Found player via room_media_player config: %s",
-                            room_name, media_player
-                        )
-                        return media_player
-                    else:
-                        _LOGGER.warning(
-                            "Room '%s': Configured room_media_player '%s' not found in HA",
-                            room_name, media_player
-                        )
-                room_zone = entry_data.get("zone")
-                break
-        
-        # Strategy 2: Check zone config for zone_player_entity
+        cfg = self._room_cfg(room_name)
+        if cfg is not None:
+            media_player = cfg.get("room_media_player")
+            if media_player:
+                if self.hass.states.get(media_player):
+                    return media_player
+                _LOGGER.warning("Room '%s': configured room_media_player '%s' not found in HA",
+                                room_name, media_player)
+            room_zone = cfg.get("zone")
         if room_zone:
-            zone_player, zone_mode = self._get_zone_player_config(room_zone)
-            if zone_player:
-                state = self.hass.states.get(zone_player)
-                if state:
-                    _LOGGER.info(
-                        "Room '%s': Found player via zone '%s' config: %s (mode=%s)",
-                        room_name, room_zone, zone_player, zone_mode
-                    )
-                    return zone_player
-                else:
-                    _LOGGER.warning(
-                        "Room '%s': Zone '%s' player '%s' not found in HA",
-                        room_name, room_zone, zone_player
-                    )
-        
-        # Strategy 3: HA Area lookup
+            zone_player, _zone_mode = self._get_zone_player_config(room_zone)
+            if zone_player and self.hass.states.get(zone_player):
+                return zone_player
+        area_id = cfg.get(_c.CONF_AREA_ID) if cfg is not None else None
         try:
-            from homeassistant.helpers import area_registry, entity_registry
-            
-            area_reg = area_registry.async_get(self.hass)
+            from homeassistant.helpers import device_registry, entity_registry  # noqa: PLC0415
             entity_reg = entity_registry.async_get(self.hass)
-            
-            matching_area = None
-            for area in area_reg.async_list_areas():
-                if area.name.lower().replace(' ', '_') == room_name_lower:
-                    matching_area = area
-                    break
-            
-            if matching_area:
+            dev_reg = device_registry.async_get(self.hass)
+            if area_id:
                 area_players = []
-                for entity in entity_reg.entities.values():
-                    if (entity.area_id == matching_area.id and 
-                        entity.domain == "media_player" and
-                        not entity.disabled):
-                        area_players.append(entity.entity_id)
-                
+                for e in entity_reg.entities.values():
+                    if e.domain != "media_player" or e.disabled:
+                        continue
+                    e_area = e.area_id
+                    if not e_area and e.device_id:
+                        dev = dev_reg.async_get(e.device_id)
+                        e_area = dev.area_id if dev is not None else None
+                    if e_area == area_id:
+                        area_players.append(e.entity_id)
                 if area_players:
-                    # v5.10.0 D7: prefer multiroom-platform entities over
-                    # generic ones (a bedroom_sonos should win over a
-                    # bedroom_tv). Sort primarily by multiroom-preference
-                    # (True first), then alphabetical for stability.
-                    def _prefers_multiroom(eid: str) -> tuple[int, str]:
+                    def _rank(eid: str) -> tuple[int, str]:
                         try:
                             pf = self._get_player_platform(eid)
-                        except Exception:
+                        except Exception:  # noqa: BLE001
                             pf = PLATFORM_GENERIC
-                        # Sort key: 0 = multiroom platform (wins), 1 = generic
-                        rank = 0 if pf in MULTIROOM_PLATFORMS else 1
-                        return (rank, eid)
+                        return (0 if pf in MULTIROOM_PLATFORMS else 1, eid)
 
-                    area_players.sort(key=_prefers_multiroom)
-                    player = area_players[0]
-                    _LOGGER.info(
-                        "Room '%s': Found player via HA Area '%s': %s (of %d players)",
-                        room_name, matching_area.name, player, len(area_players)
-                    )
+                    area_players.sort(key=_rank)
                     if len(area_players) > 1:
-                        # v5.10.0 D7: escalate to WARNING when the picker is
-                        # ambiguous. Operators need to see this in logs so
-                        # they know to set room_media_player explicitly.
                         _LOGGER.warning(
-                            "Room '%s' has %d media players in area. Picked '%s' "
-                            "(multiroom-platform preference). Configure "
-                            "room_media_player for explicit control. Others: %s",
-                            room_name, len(area_players), player, area_players[1:]
-                        )
-                    return player
-                else:
-                    _LOGGER.debug(
-                        "Room '%s': HA Area '%s' found but has no media_player entities",
-                        room_name, matching_area.name
-                    )
-            else:
-                _LOGGER.debug("Room '%s': No matching HA Area found", room_name)
-        except Exception as e:
-            _LOGGER.debug("Room '%s': HA Area lookup failed: %s", room_name, e)
-        
-        # Strategy 4: Naming convention fallback
-        room_entity = f"media_player.{room_name_lower}"
-        state = self.hass.states.get(room_entity)
-        if state:
-            _LOGGER.info(
-                "Room '%s': Found player via naming convention: %s",
-                room_name, room_entity
-            )
-            return room_entity
-        
-        _LOGGER.debug(
-            "Room '%s': No media player found. Tried: config, zone, HA Area, naming (%s)",
-            room_name, room_entity
-        )
+                            "Room '%s' has %d media players in area; picked '%s'. "
+                            "Configure room_media_player for explicit control.",
+                            room_name, len(area_players), area_players[0])
+                    return area_players[0]
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("Room '%s': HA Area lookup failed: %s", room_name, err)
         return None
-    
-    def _scaled_target_volume(self, to_room: str, source_volume: float) -> float:
-        """v5.10.0 D11: apply per-room speaker loudness calibration.
 
-        Reads ``room_media_volume_scale`` from the target room's config
-        (default 1.0). Clamped to [MIN, MAX] defined in const.py. Applied
-        ONLY on cross-platform generic transfers where absolute volume
-        levels aren't directly comparable across platforms.
-        """
-        # v5.10.0 fix-up A-LOW-3: coerce non-numeric source volume to 0.5
-        # (matches the ATTR_MEDIA_VOLUME_LEVEL default in _transfer_media).
-        # Player integrations occasionally return None / "None" / an int
-        # rather than a float; the scale + clamp math below assumes float.
+    def _scaled_target_volume(self, to_room: str, source_volume: float) -> float:
+        """Per-room speaker loudness calibration (clamped)."""
         try:
             source_volume = float(source_volume)
         except (TypeError, ValueError):
             source_volume = 0.5
-        try:
-            from .const import (  # noqa: PLC0415
-                CONF_ROOM_MEDIA_VOLUME_SCALE,
-                DEFAULT_ROOM_MEDIA_VOLUME_SCALE,
-                MIN_ROOM_MEDIA_VOLUME_SCALE,
-                MAX_ROOM_MEDIA_VOLUME_SCALE,
-            )
-        except Exception:
-            return source_volume
         if not to_room:
             return source_volume
-        scale = DEFAULT_ROOM_MEDIA_VOLUME_SCALE
+        scale = _c.DEFAULT_ROOM_MEDIA_VOLUME_SCALE
         try:
-            room_entries = self._get_room_entries()
-            room_name_lower = to_room.lower().replace(" ", "_")
-            for entry_data in room_entries.values():
-                entry_room = str(
-                    entry_data.get("room_name", "")
-                ).lower().replace(" ", "_")
-                if entry_room == room_name_lower:
-                    raw = entry_data.get(CONF_ROOM_MEDIA_VOLUME_SCALE)
-                    if raw is not None:
-                        scale = float(raw)
-                    break
-        except Exception:
+            cfg = self._room_cfg(to_room)
+            if cfg is not None and cfg.get(_c.CONF_ROOM_MEDIA_VOLUME_SCALE) is not None:
+                scale = float(cfg.get(_c.CONF_ROOM_MEDIA_VOLUME_SCALE))
+        except Exception:  # noqa: BLE001
             return source_volume
-        # Clamp.
-        if scale < MIN_ROOM_MEDIA_VOLUME_SCALE:
-            scale = MIN_ROOM_MEDIA_VOLUME_SCALE
-        elif scale > MAX_ROOM_MEDIA_VOLUME_SCALE:
-            scale = MAX_ROOM_MEDIA_VOLUME_SCALE
-        scaled = max(0.0, min(1.0, source_volume * scale))
-        if scale != 1.0:
-            _LOGGER.info(
-                "🎵 D11: applied volume scale %.2f to room '%s' "
-                "(source=%.2f → target=%.2f)",
-                scale, to_room, source_volume, scaled,
-            )
-        return scaled
+        scale = min(max(scale, _c.MIN_ROOM_MEDIA_VOLUME_SCALE), _c.MAX_ROOM_MEDIA_VOLUME_SCALE)
+        return max(0.0, min(1.0, source_volume * scale))
 
     def _get_room_entries(self) -> dict:
-        """Get all room entry configurations from config entries."""
         try:
-            from .const import DOMAIN, CONF_ENTRY_TYPE, ENTRY_TYPE_ROOM
-            
-            room_entries = {}
+            out = {}
             for entry in self.hass.config_entries.async_entries(DOMAIN):
-                if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ROOM:
-                    merged_config = {**entry.data, **entry.options}
-                    room_entries[entry.entry_id] = merged_config
-            
-            return room_entries
-        except Exception as e:
-            _LOGGER.debug("Failed to get room entries: %s", e)
+                if entry.data.get(_c.CONF_ENTRY_TYPE) == _c.ENTRY_TYPE_ROOM:
+                    out[entry.entry_id] = {**entry.data, **entry.options}
+            return out
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("Failed to get room entries: %s", err)
             return {}
-    
+
     def _get_zone_player_config(self, zone_name: str) -> tuple[Optional[str], str]:
-        """Get zone media player config from Zone Manager or legacy zone entries."""
         try:
-            from .const import (
-                DOMAIN,
-                CONF_ENTRY_TYPE,
-                ENTRY_TYPE_ZONE,
-                ENTRY_TYPE_ZONE_MANAGER,
-                CONF_ZONE_NAME,
-                CONF_ZONE_PLAYER_ENTITY,
-                CONF_ZONE_PLAYER_MODE,
-                ZONE_PLAYER_MODE_FALLBACK,
-            )
-
             zone_name_lower = zone_name.lower()
-
-            # v3.6.0: Check Zone Manager entry first
             for entry in self.hass.config_entries.async_entries(DOMAIN):
-                if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE_MANAGER:
+                if entry.data.get(_c.CONF_ENTRY_TYPE) == _c.ENTRY_TYPE_ZONE_MANAGER:
                     merged = {**entry.data, **entry.options}
-                    zones_data = merged.get("zones", {})
-                    for zn, zone_config in zones_data.items():
+                    for zn, zone_config in (merged.get("zones", {}) or {}).items():
                         if zn.lower() == zone_name_lower:
-                            player = zone_config.get(CONF_ZONE_PLAYER_ENTITY)
-                            mode = zone_config.get(CONF_ZONE_PLAYER_MODE, ZONE_PLAYER_MODE_FALLBACK)
-                            _LOGGER.debug(
-                                "Zone '%s': Found config in Zone Manager - player=%s, mode=%s",
-                                zone_name, player, mode,
-                            )
-                            return player, mode
-
-            # Fallback: legacy zone entries
+                            return (zone_config.get(_c.CONF_ZONE_PLAYER_ENTITY),
+                                    zone_config.get(_c.CONF_ZONE_PLAYER_MODE,
+                                                    _c.ZONE_PLAYER_MODE_FALLBACK))
             for entry in self.hass.config_entries.async_entries(DOMAIN):
-                if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE:
-                    entry_zone = entry.data.get(CONF_ZONE_NAME, "").lower()
-                    if entry_zone == zone_name_lower:
-                        merged_config = {**entry.data, **entry.options}
-                        player = merged_config.get(CONF_ZONE_PLAYER_ENTITY)
-                        mode = merged_config.get(CONF_ZONE_PLAYER_MODE, ZONE_PLAYER_MODE_FALLBACK)
-                        _LOGGER.debug(
-                            "Zone '%s': Found config in legacy entry - player=%s, mode=%s",
-                            zone_name, player, mode,
-                        )
-                        return player, mode
-
-            _LOGGER.debug("Zone '%s': No config found", zone_name)
+                if entry.data.get(_c.CONF_ENTRY_TYPE) == _c.ENTRY_TYPE_ZONE:
+                    if entry.data.get(_c.CONF_ZONE_NAME, "").lower() == zone_name_lower:
+                        merged = {**entry.data, **entry.options}
+                        return (merged.get(_c.CONF_ZONE_PLAYER_ENTITY),
+                                merged.get(_c.CONF_ZONE_PLAYER_MODE, _c.ZONE_PLAYER_MODE_FALLBACK))
             return None, "fallback"
-            
-        except Exception as e:
-            _LOGGER.debug("Failed to get zone player config for '%s': %s", zone_name, e)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("Failed to get zone player config for '%s': %s", zone_name, err)
             return None, "fallback"
-    
-    async def _transfer_media(
-        self,
-        from_player: str,
-        to_player: str,
-        from_state,
-        *,
-        to_room: str = "",
-    ) -> bool:
-        """Transfer media playback from one player to another.
-        
-        v3.3.5.2: Fixed WiiM-to-WiiM to use media_player.join for synchronized playback
-        
-        Transfer methods:
-        - Same platform with multiroom support: media_player.join (SYNCHRONIZED)
-        - Cross-platform/Generic: play_media (INDEPENDENT)
-        """
-        # v5.10.0 fix-up B-MED-2: defensive reset — the caller
-        # (_execute_transfer) already resets, but making this authoritative
-        # here means any FUTURE caller of _transfer_media can't leak the
-        # previous transfer's flag into _verify_transfer.
-        self._last_transfer_used_join = False
-        try:
-            source_platform = self._get_player_platform(from_player)
-            target_platform = self._get_player_platform(to_player)
 
-            _LOGGER.info(
-                "🎵 Transfer method: %s (%s) → %s (%s)",
-                from_player, source_platform, to_player, target_platform
-            )
+    # ==================================================================
+    # Manual transfer (same helper as automatic moves)
+    # ==================================================================
 
-            # v3.6.19: Save source volume before any transfer attempt
-            volume = from_state.attributes.get(ATTR_MEDIA_VOLUME_LEVEL, 0.5)
-            self._saved_volumes[from_player] = volume
-
-            # Get current playback info
-            position = from_state.attributes.get(ATTR_MEDIA_POSITION)
-            media_content_id = from_state.attributes.get("media_content_id")
-            media_content_type = from_state.attributes.get("media_content_type")
-            
-            _LOGGER.info(
-                "🎵 Source state: volume=%.2f, position=%s, content_id=%s, content_type=%s",
-                volume, position, 
-                media_content_id[:50] + "..." if media_content_id and len(media_content_id) > 50 else media_content_id,
-                media_content_type
-            )
-            
-            transfer_success = False
-
-            _LOGGER.info(
-                "🎵 Platform transfer: %s → %s (source: %s, target: %s)",
-                source_platform, target_platform, from_player, to_player
-            )
-
-            # v3.6.20 B4: MASS queue transfer — best option when both are MASS
-            if source_platform == PLATFORM_MASS and target_platform == PLATFORM_MASS:
-                _LOGGER.info(
-                    "🎵 Using Music Assistant transfer_queue (%s → %s)",
-                    from_player, to_player,
-                )
-                transfer_success = await self._transfer_mass_queue(
-                    from_player, to_player, volume
-                )
-                # Fall through to generic on failure
-                if not transfer_success:
-                    _LOGGER.info("🎵 MASS transfer_queue failed, falling through to generic")
-
-            # CASE 1: Same platform with multiroom support - Use native grouping
-            if not transfer_success and source_platform == target_platform and source_platform in MULTIROOM_PLATFORMS:
-                # v5.10.0 D12: mark this path so _verify_transfer can skip
-                # the 2s post-transfer sleep (join is synchronous).
-                self._last_transfer_used_join = True
-                _LOGGER.info(
-                    "🎵 Using %s-to-%s native multiroom (media_player.join, SYNCHRONIZED)",
-                    source_platform.upper(), target_platform.upper()
-                )
-                transfer_success = await self._transfer_same_platform_join(
-                    from_player, to_player, volume, source_platform
-                )
-
-            # CASE 2: Generic fallback - cross-platform or no prior success
-            if not transfer_success:
-                # v5.10.0 D11: apply per-room volume scale for cross-platform
-                # transfers only. Same-platform join preserves the source
-                # volume as-is (already handled above); this branch is the
-                # place where Sonos-vs-WiiM absolute-volume mismatch bites.
-                scaled_volume = self._scaled_target_volume(to_room, volume)
-                if source_platform != target_platform:
-                    _LOGGER.info(
-                        "🎵 Cross-platform transfer (%s → %s): using generic play_media (INDEPENDENT). "
-                        "Different platforms use incompatible multiroom protocols.",
-                        source_platform, target_platform
-                    )
-                else:
-                    _LOGGER.info(
-                        "🎵 Same platform (%s) generic fallback: using play_media (INDEPENDENT)",
-                        source_platform
-                    )
-                transfer_success = await self._transfer_generic(
-                    from_player, to_player, scaled_volume, position,
-                    media_content_id, media_content_type
-                )
-            
-            if not transfer_success:
-                _LOGGER.warning("🎵 Primary transfer failed, playback may not have started on target")
-                return False
-
-            # v3.6.19: Only fade source if transfer succeeded
-            _LOGGER.info("🎵 Fading source %s to %.0f%%", from_player, self.FADE_OUT_VOLUME * 100)
-            await self.hass.services.async_call(
-                MEDIA_PLAYER_DOMAIN,
-                SERVICE_VOLUME_SET,
-                {
-                    "entity_id": from_player,
-                    "volume_level": self.FADE_OUT_VOLUME
-                },
-                blocking=False
-            )
-
-            return True
-            
-        except Exception as e:
-            _LOGGER.error("🎵 Music transfer failed with exception: %s", e)
-            import traceback
-            _LOGGER.debug("🎵 Traceback: %s", traceback.format_exc())
-            return False
-    
-    async def _transfer_same_platform_join(
-        self,
-        from_player: str,
-        to_player: str,
-        volume: float,
-        platform: str
-    ) -> bool:
-        """Transfer between two players of the same platform using native grouping.
-        
-        v3.3.5.2: Unified method for Sonos, Linkplay, and WiiM
-        
-        All these platforms support media_player.join for synchronized multiroom.
-        """
-        try:
-            _LOGGER.info(
-                "🎵 %s: Joining %s to group with %s (synchronized multiroom)",
-                platform.upper(), to_player, from_player
-            )
-            
-            # Join target to source's group
-            await self.hass.services.async_call(
-                MEDIA_PLAYER_DOMAIN,
-                "join",
-                {
-                    "entity_id": to_player,
-                    "group_members": [from_player]
-                },
-                blocking=True
-            )
-            
-            # Set volume on target
-            _LOGGER.info("🎵 %s: Setting target volume to %.0f%%", platform.upper(), volume * 100)
-            await self.hass.services.async_call(
-                MEDIA_PLAYER_DOMAIN,
-                SERVICE_VOLUME_SET,
-                {
-                    "entity_id": to_player,
-                    "volume_level": volume
-                },
-                blocking=False
-            )
-            
-            _LOGGER.info("🎵 %s: Synchronized transfer successful", platform.upper())
-            return True
-
-        except Exception as e:
-            _LOGGER.warning(
-                "🎵 %s: media_player.join failed (%s), trying fallback",
-                platform.upper(), e
-            )
-            return False
-
-    async def _transfer_mass_queue(
-        self,
-        from_player: str,
-        to_player: str,
-        volume: float,
-    ) -> bool:
-        """Transfer via Music Assistant transfer_queue service.
-
-        v3.6.20 B4: Best option when both source and target are MASS players.
-        Transfers full queue + position, MASS handles source pause internally.
-        """
-        try:
-            _LOGGER.info(
-                "🎵 MASS: transfer_queue %s → %s",
-                from_player, to_player,
-            )
-            await self.hass.services.async_call(
-                "music_assistant",
-                "transfer_queue",
-                {
-                    "source": from_player,
-                    "target": to_player,
-                },
-                blocking=True,
-            )
-
-            # Set volume on target
-            _LOGGER.info("🎵 MASS: Setting target volume to %.0f%%", volume * 100)
-            await self.hass.services.async_call(
-                MEDIA_PLAYER_DOMAIN,
-                SERVICE_VOLUME_SET,
-                {"entity_id": to_player, "volume_level": volume},
-                blocking=False,
-            )
-
-            _LOGGER.info("🎵 MASS: Queue transfer successful")
-            return True
-
-        except Exception as e:
-            _LOGGER.warning("🎵 MASS: transfer_queue failed (%s)", e)
-            return False
-
-    async def _transfer_generic(
-        self,
-        from_player: str,
-        to_player: str,
-        volume: float,
-        position: Optional[int],
-        media_content_id: Optional[str],
-        media_content_type: Optional[str]
-    ) -> bool:
-        """Generic transfer using play_media service.
-        
-        Used for cross-platform transfers. Starts INDEPENDENT playback.
-        """
-        try:
-            if not media_content_id or not media_content_type:
-                _LOGGER.warning(
-                    "🎵 Generic transfer failed: No media_content_id/type available "
-                    "for %s → %s. Source may be playing from Line In, AirPlay, "
-                    "Bluetooth, or another source that doesn't expose content_id. "
-                    "Configure room_media_player and use same-platform speakers "
-                    "to enable native multiroom (join) instead.",
-                    from_player, to_player,
-                )
-                return False
-            
-            _LOGGER.info(
-                "🎵 Generic: Playing media on %s (content_type=%s, INDEPENDENT playback)",
-                to_player, media_content_type
-            )
-            
-            await self.hass.services.async_call(
-                MEDIA_PLAYER_DOMAIN,
-                "play_media",
-                {
-                    "entity_id": to_player,
-                    "media_content_id": media_content_id,
-                    "media_content_type": media_content_type
-                },
-                blocking=True
-            )
-            
-            _LOGGER.info("🎵 Generic: Setting volume to %.0f%%", volume * 100)
-            await self.hass.services.async_call(
-                MEDIA_PLAYER_DOMAIN,
-                SERVICE_VOLUME_SET,
-                {
-                    "entity_id": to_player,
-                    "volume_level": volume
-                },
-                blocking=False
-            )
-            
-            if position and position > 0:
-                # v3.6.21: Offset position by ~3s to account for transfer latency
-                # (service call round-trip + buffering + startup)
-                offset_position = position + 3
-                _LOGGER.info(
-                    "🎵 Generic: Seeking to position %d seconds (original %d + 3s offset)",
-                    offset_position, position,
-                )
-                try:
-                    await self.hass.services.async_call(
-                        MEDIA_PLAYER_DOMAIN,
-                        "media_seek",
-                        {
-                            "entity_id": to_player,
-                            "seek_position": offset_position,
-                        },
-                        blocking=False
-                    )
-                except Exception as seek_error:
-                    _LOGGER.debug("🎵 Generic: Seek failed (not supported): %s", seek_error)
-            
-            _LOGGER.info("🎵 Generic: Transfer successful (independent playback)")
-            return True
-            
-        except Exception as e:
-            _LOGGER.error("🎵 Generic transfer failed: %s", e)
-            return False
-    
     async def manual_transfer(self, person_id: str, from_room: str, to_room: str) -> bool:
-        """Manually trigger music transfer (for testing/automation)."""
-        _LOGGER.info(
-            "🎵 Manual transfer requested: %s from '%s' to '%s'",
-            person_id, from_room, to_room
-        )
-        
+        """Move music now; True iff the target was verified playing."""
+        rec = _Transfer(person_id=person_id, person_key=_person_key(person_id),
+                        from_room=from_room, to_room=to_room,
+                        follow_mode=self._follow_mode)
+        rec.decided = asyncio.Event()
+        rec.decision.update({"person": person_id, "from": from_room, "to": to_room,
+                             "reason": "manual"})
         from_player = await self._get_room_player(from_room)
         to_player = await self._get_room_player(to_room)
-        
-        if not from_player:
-            _LOGGER.warning("🎵 Manual transfer failed: no player in source room '%s'", from_room)
+        if not from_player or not to_player:
             return False
-        
-        if not to_player:
-            _LOGGER.warning("🎵 Manual transfer failed: no player in target room '%s'", to_room)
-            return False
-        
         from_state = self.hass.states.get(from_player)
-        if not from_state:
-            _LOGGER.warning("🎵 Manual transfer failed: source player '%s' unavailable", from_player)
+        to_state = self.hass.states.get(to_player)
+        if from_state is None or from_state.state != STATE_PLAYING or to_state is None:
             return False
-        
-        if from_state.state != STATE_PLAYING:
-            _LOGGER.warning(
-                "🎵 Manual transfer failed: source '%s' not playing (state=%s)",
-                from_player, from_state.state
-            )
+        rec.source_room, rec.source_player, rec.target_player = from_room, from_player, to_player
+        rec.decision["source_playing"] = True
+        if self.hazard_active():
+            self._finish(rec, "hazard_blocked")
             return False
-        
-        return await self._transfer_media(
-            from_player, to_player, from_state, to_room=to_room,
-        )
+        await self._lock(rec)
+        try:
+            outcome, reason = await self._transfer_then_release(rec, from_state, to_state)
+            if outcome:
+                self._finish(rec, outcome, reason)
+        finally:
+            self._unlock(rec)
+        return rec.outcome in MF_SUCCESS_OUTCOMES
+
+    # Back-compat name used by older callers/tests.
+    async def _execute_transfer(self, person_id: str, from_room: str, to_room: str, *,
+                                transition_ts: Optional[datetime] = None) -> None:
+        t = RoomTransition(person_id=person_id, from_room=from_room, to_room=to_room,
+                           timestamp=transition_ts or dt_util.now(),
+                           duration_seconds=0, path_type="direct", confidence=1.0)
+        rec = self._new_record(t)
+        rec.transition_ts = transition_ts
+        await self._lock(rec)
+        try:
+            outcome, reason = await self._pipeline(rec)
+            if outcome:
+                self._finish(rec, outcome, reason)
+        finally:
+            self._unlock(rec)

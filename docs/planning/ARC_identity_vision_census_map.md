@@ -137,6 +137,29 @@ input), estimator (terms + rules), WiFi (corroborator), stream health (missing m
 
 ---
 
+## 4a. In flight NOW (recentered 2026-11-15 after drift #23) — the one list that decides what runs
+
+Operator: "use your drift analysis as a way to recenter what's in flight solidly. I don't want it not to matter." /
+"I don't want to worry and derail from low probability concerns."
+
+**Rule:** nothing new is dispatched unless it is the next open row below or the operator asks for it. At every agent
+hand-back the orchestrator updates this table (status column) and checks the next row before starting anything else.
+Side findings get a card and wait; they do not get an agent unless they block a row here.
+
+| # | Work (charter goal) | Status | Next action | Blocks |
+|---|---|---|---|---|
+| 1 | v5.108.27 crossing first set: error text, restart-safe cap 93, 4000 tokens, P3-D8 stuck rule (census accuracy) | SHIPPED + validated 2026-11-15 (README table, fd925256) | — | — |
+| 2 | Interior vision ship 1: unnamed room records (census accuracy; interior counts for census + ledger floor, never presence) | fix pass running (A/B/C/D findings) | fix-up hash -> full suite -> operator go -> deploy | 6 |
+| 3 | Step 8 identity actions -> v6.0.0 (arrivals + personalization) | §10.1 reviews A/B back (fix list), C running; operator decided arrival design 2026-11-15; plan rev 3.6.1 29b3aac9 after two plan reviews (flap gate via left_at + persisted rows, occupied-room keep, one departure trigger) | §10.1 fix pass (after review C) -> ship People screen alone + B0 live check -> D0b probe -> MA live test (operator home) -> D2/D3/D4 build | v6.0.0 |
+| 4 | Stuck-sensor S1-S3 (blip fix, MS600 resolver, chatter wiring) = the census reset prerequisites (`PLANNING_stuck_sensor_truth.md`) | planned, reviewed (rev 2 d43633b5) | build after rows 1-2 ship (builder slot) | door ledger, row 6 |
+| 5 | Step 7 egress direction-aware identity rev 3.2 (arrivals naming) | not started | plan revision against the measured direction accuracy, after row 3 reviews | step 8 D5 |
+| 6 | Door direction + counts (P3-D2 recording route, P3-D3 direction recorded, P3-D10/D11 tracker extension) | WAITING on operator grades (88 cards live on urakanban /grade/) | pull grades -> score every instrument once -> build what passes | census F-LEAD |
+| 7 | Interior vision ledger floor | carded | plan amendment after row 2 ships | — |
+
+**Parked / secondary (do not pull forward):** camera area map fix (parked, operator); room camera hold (non-goal);
+stuck-sensor S4-S6 fan work (secondary, after row 4); NVR witness W2 (before the interior D4 flip only);
+checkpoint-anchor idea (dropped); Frigate threshold zones + staged walks (only if graded scoring still fails).
+
 ## 4. Recommended sequence and surviving docs
 
 | Step | Ship | Tier | Note |

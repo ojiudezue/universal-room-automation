@@ -43,9 +43,7 @@
 
 ## 2026-11-12: measure the guard before you guard
 
-Two lock and charging fixes were reshaped by measurement, not argument. The lock regime counted every away-to-home edge as an arrival, and an iPad left at home gave Oji 78 sub-second false arrivals in a week. A flat 5 s hold looked safe until the arrival-to-garage-open gap measured 1.9 s at its shortest; a "hold after a dropout" rule would have held one of 40 real arrivals. The rule that held zero real arrivals is "the tracker that says home did not itself change at the edge", because the operator's bar is that a real unlock is never delayed. → [288](entries/288_lock_hold_stale_source_rule.json)
-
-The EV rung-1 flip-flop came from crediting a grid-fed car's whole draw as redirectable solar; the fix caps that credit at fresh measured surplus instead of banning daytime charging during arbitrage, which would have cost ~17.5 h/week of overnight charging. → [287](entries/287_ev_rung1_cap_not_blanket_pause.json) An approved "faster BLE arrival" build was dropped when the inventory showed the geofence path already fires at the first scanner hearing. → [289](entries/289_ble_seen_arrival_already_exists.json)
+Lock and charging fixes were reshaped by measurement. A flat arrival hold would have delayed real unlocks (shortest arrival-to-garage gap 1.9 s); the rule that held zero real arrivals is "the tracker saying home did not itself change at the edge". → [288](entries/288_lock_hold_stale_source_rule.json) EV rung 1 caps grid-fed solar credit at measured surplus rather than banning daytime charging. → [287](entries/287_ev_rung1_cap_not_blanket_pause.json)
 
 ## 2026-11-13: names are not identity
 
@@ -56,6 +54,12 @@ I recommended retiring the never-used AI rules and staging music following behin
 ## 2026-11-14: the dead input under two plans
 
 An overnight probe found why every per-room Bluetooth distance died on 10-20. The wall-panel proxies added that morning have no Wi-Fi MAC that Bermuda can match, and Bermuda then creates none of those sensors for anyone. The operator wanted the panels as scanners, so URA should stop depending on the dead sensors rather than remove them. → [305](entries/305_bermuda_per_scanner_dead_panel_proxies.json) That finding exposed a seam: the music-following repair planned to gate on a BLE confidence that has been a constant 0.3 since then. As written, music would have followed nobody. → [306](entries/306_music_gate_on_dead_ble_confidence.json) The probe itself froze HA for 20 s at a time by pulling Bermuda's 13 MB diagnostics, so read-only now also means light on the event loop. → [307](entries/307_probe_stalled_ha_bermuda_diagnostics.json)
+
+## 2026-11-15: answer key first, then simpler arrivals
+
+Door direction was the failing piece of crossing vision, and every instrument tried (polygons, ensembles, adjacent cameras) landed at 13-14 of 17 against an answer key that was itself shaky. Direction work now waits on operator grades from a LAN grading page, and the room-camera hold was dropped as "too inaccurate in every room". → [314](entries/314_door_vision_direction_is_the_failure.json) → [316](entries/316_answer_key_before_instruments_camera_hold_dropped.json) After a drift review found step 8 untouched for the third time, one ordered in-flight list in the arc map now decides what gets an agent.
+
+Step 8's arrival engine lost most of its machinery. The near-room rules, occupied-lead timer and per-source gates gave way to "play in your room and just wait for you to arrive", with a 15-minute window, then a hand-off to music following so no arrival state lingers. → [317](entries/317_arrival_music_play_in_your_room.json) The operator also caught that the geofence-versus-BLE split was measuring one arrival twice: HA's person entity already composes GPS and BLE, so the BLE prerequisite left the v6.0.0 gate. → [318](entries/318_f5_geofence_is_composed_person_edge.json)
 
 ## Open questions
 

@@ -257,30 +257,10 @@ class TestMusicFollowingCoordinator:
         result = await coord.evaluate(intents, {"house_state": "home_day"})
         assert result == []
 
-    def test_configurable_parameters_stored(self):
-        coord = self._make_coordinator(
-            cooldown_seconds=15,
-            ping_pong_window=120,
-            verify_delay=5,
-            unjoin_delay=10,
-            position_offset=7,
-            min_confidence=0.8,
-        )
-        assert coord._cooldown_seconds == 15
-        assert coord._ping_pong_window == 120
-        assert coord._verify_delay == 5
-        assert coord._unjoin_delay == 10
-        assert coord._position_offset == 7
-        assert coord._min_confidence == 0.8
-
-    def test_default_parameters(self):
-        coord = self._make_coordinator()
-        assert coord._cooldown_seconds == DEFAULT_MF_COOLDOWN_SECONDS
-        assert coord._ping_pong_window == DEFAULT_MF_PING_PONG_WINDOW
-        assert coord._verify_delay == DEFAULT_MF_VERIFY_DELAY
-        assert coord._unjoin_delay == DEFAULT_MF_UNJOIN_DELAY
-        assert coord._position_offset == DEFAULT_MF_POSITION_OFFSET
-        assert coord._min_confidence == DEFAULT_MF_MIN_CONFIDENCE
+    # MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D8: the stored-kwarg tests were
+    # dead-knob tests (the values were only logged). Knob wiring is proven
+    # behaviourally in test_music_following_repair.py
+    # (test_mf_coordinator_setup_pushes_knobs_into_engine).
 
     @pytest.mark.asyncio
     async def test_async_setup_without_music_following(self):
@@ -299,8 +279,11 @@ class TestMusicFollowingCoordinator:
         coord.hass.data = {"universal_room_automation": {"music_following": mock_mf}}
         await coord.async_setup()
         assert coord._music_following is mock_mf
-        # Verify min_confidence was applied
-        assert mock_mf.MIN_CONFIDENCE == coord._min_confidence
+        # D7: every knob reaches the engine through ONE apply_config call.
+        assert mock_mf.apply_config.call_count == 1
+        pushed = mock_mf.apply_config.call_args[0][0]
+        assert pushed["mf_cooldown_seconds"] == coord._cooldown_seconds
+        assert pushed["mf_unjoin_delay"] == coord._unjoin_delay
 
     @pytest.mark.asyncio
     async def test_async_teardown(self):

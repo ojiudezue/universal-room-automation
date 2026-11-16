@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv5.108.25
+# Universal Room Automation vv5.108.27
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -14,6 +14,7 @@ import os
 import shutil
 import statistics
 import time
+from collections.abc import Iterable
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
@@ -11077,6 +11078,60 @@ class UniversalRoomDatabase:
             self._mem_dao_warn("read_memory_episodes", e)
             return []
 
+    async def read_memory_episodes_by_type(
+        self,
+        episode_type: str,
+        since_iso: str | None = None,
+    ) -> list[dict]:
+        """Read every episode of one type across nodes (MUSIC-FOLLOWING-
+        TRANSFER-REPAIR-1 D5.3 nightly accuracy roll-up). Read-only."""
+        import json as _json  # noqa: PLC0415
+        try:
+            clauses = ["episode_type = ?"]
+            params: list = [episode_type]
+            if since_iso is not None:
+                clauses.append("started_at >= ?")
+                params.append(since_iso)
+            where = " AND ".join(clauses)
+            async with self._db_read() as db:
+                cursor = await db.execute(
+                    f"""SELECT id, node_id, episode_type, started_at, attrs_json,
+                              source_ref
+                       FROM memory_episodes
+                       WHERE {where}
+                       ORDER BY started_at ASC""",
+                    tuple(params),
+                )
+                rows = await cursor.fetchall()
+                out = []
+                for r in rows:
+                    try:
+                        attrs = _json.loads(r[4]) if r[4] else {}
+                    except Exception:  # noqa: BLE001
+                        attrs = {}
+                    out.append({
+                        "id": int(r[0]), "node_id": r[1], "episode_type": r[2],
+                        "started_at": r[3], "attrs": attrs, "source_ref": r[5],
+                    })
+                return out
+        except Exception as e:  # noqa: BLE001
+            self._mem_dao_warn("read_memory_episodes_by_type", e)
+            return []
+
+    async def run_music_following_health_check(self) -> dict | None:
+        """Nightly op (MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D5.5): delegates to
+        the MusicFollowing singleton (zero-success trip-wire + 7-day accuracy
+        roll-up). None when music following is not set up. Never raises."""
+        try:
+            from .const import DOMAIN as _DOMAIN  # noqa: PLC0415
+            mf = self.hass.data.get(_DOMAIN, {}).get("music_following")
+            if mf is None or not hasattr(mf, "async_nightly_health_check"):
+                return None
+            return await mf.async_nightly_health_check(self)
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.warning("music following health check failed: %s", e)
+            return None
+
     async def read_memory_facts(
         self,
         node_id: str,
@@ -11153,6 +11208,48 @@ class UniversalRoomDatabase:
         except Exception as e:  # noqa: BLE001
             self._mem_dao_warn("read_distinct_nodes_for_episodes", e)
             return []
+
+    async def count_memory_episodes_by_type_ended_between(
+        self,
+        episode_type: str,
+        start_utc_iso: str,
+        end_utc_iso: str,
+        attr_outcomes: Iterable[str],
+    ) -> tuple[int, bool]:
+        """Count ``episode_type`` rows with ``start <= ended_at < end`` whose
+        ``attrs_json`` ``$.outcome`` is one of ``attr_outcomes``.
+
+        Crossing vision P3-D5 (restart-durable daily cap): the producer
+        writes ``ended_at`` at the call outcome (``dt_util.utcnow()
+        .isoformat()``), so callers pass bounds rendered the same way (aware
+        UTC ``isoformat()``) and the lexical compare is exact.
+
+        Read path (``_db_read``), never the write queue. Unlike the other
+        memory DAOs (which swallow errors and return an empty result), this
+        one REPORTS an error: returns ``(count, True)`` on success and
+        ``(0, False)`` on any error, so an empty day and a failed read are
+        never confused.
+        """
+        outcomes = [str(o) for o in attr_outcomes]
+        if not outcomes:
+            return 0, True
+        try:
+            marks = ", ".join("?" for _ in outcomes)
+            async with self._db_read() as db:
+                cursor = await db.execute(
+                    "SELECT COUNT(*) FROM memory_episodes "
+                    "WHERE episode_type = ? AND ended_at >= ? AND ended_at < ? "
+                    f"AND json_extract(attrs_json, '$.outcome') IN ({marks})",
+                    (episode_type, start_utc_iso, end_utc_iso, *outcomes),
+                )
+                row = await cursor.fetchone()
+                return (int(row[0]) if row and row[0] is not None else 0), True
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.warning(
+                "count_memory_episodes_by_type_ended_between(%s) failed: %s",
+                episode_type, e,
+            )
+            return 0, False
 
     async def get_memory_status_counts(self) -> dict:
         """Public read-only accessor for URAMemoryStatusSensor (LOW B9).

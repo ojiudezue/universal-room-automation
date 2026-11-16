@@ -181,7 +181,7 @@ descriptions today; nothing to turn.
 | 3 | Read | `persons_in_room` (PC read list), `get_last_person_sightings`, `get_crossings_since`, `get_crossing`, `get_last_arrival_record` (PRESENCE read list), `interior_camera_entities` (CENSUS read list), `area_evidence` (member-to-member), `entity_stream_view`, `physical_camera_dead` (evidence services), `inward_path_edges` (non-person). Classes: §4. No raw `person.*`, no store, no private of another member, no hass.data scan. The producer's state listener on interior Frigate / Protect person sensors is a layer-internal producer read in a member module (guard R3 (iv)), the same kind as its existing face-sensor listener. |
 | 4 | Separation | F4 reaches F2 only inside `deconflict_house` (term provider). Nothing reaches access, security, house_state or comfort. |
 | 5 | Delivery | No existing consumer's delivery changes. D4 changes what `aware_guests` shows only after admission AND `INTERIOR_VISION_TERM_LEADS` (Q1 default; truth table §9.D4), each an operator checkpoint, and only upward (lower-bound rule). The vision switch ON at ship is an operator decision (§1). |
-| 6 | Guard delta | §6.3. Allowlist rows added: 0. `LAYER_ALLOWLIST_TOTAL` stays 259. Listed listeners added: 0. |
+| 6 | Guard delta | §6.3. Allowlist rows added: 0 (delta 0 to `LAYER_ALLOWLIST_TOTAL`, `_PROVISIONAL` and `len(A.ROWS)`, against develop at merge time). Listed listeners added: 0. Guard changes are written as deltas, never absolute totals (other ships move them, e.g. the music repair merge −3); the builder re-reads the current totals on develop when it merges. Only crossing-vision P3-D3 changes the totals (+1 R13 row, totals +1); a merge after it keeps that +1. |
 | 7 | Seams | G6 (`persons_in_room`), P2-D8 (`analyze_crossing_images`), P2-D10 (grading branch), census §3.3 (interior term), NVR witness W2 (provenance; D4 flip), ship 3b (`physical_camera_dead` readers). Owners and rules in §14. |
 | 8 | Clip path | §8: a frame-source interface with a still route and a clip route; D3 and D5 can take a clip. |
 
@@ -200,7 +200,7 @@ descriptions today; nothing to turn.
 | NEW `FORBIDDEN_ATTR_READS` (closure N7) | an attribute read of `.affect` (or `["affect"]` on a description dict) in any module other than `person_sighting.py` and `interior_vision.py` is a hit; the check also flags `getattr(x, "affect")` with a literal name, and `dataclasses.asdict(...)` / `vars(...)` on a `RoomDescription` (spot-check L-a; same AST walk as R7). Accepted gap, stated: a dynamic `getattr` with a computed name is not caught; no module builds attribute names at runtime today, and the drill set covers the literal forms. The reply formatter that may include affect (Q2 `operator_affect`) lives in `interior_vision.py` | 2 |
 | `LISTED` (R10) | none: no new channel listener; D5 pulls crossings | n/a |
 | R6 / `CHANNEL_CONSTS` | none: `_emit_unnamed` sends nothing on `SIGNAL_PERSON_SIGHTING` (its listeners stay none, operator Q5) | n/a |
-| `LAYER_ALLOWLIST_TOTAL` | unchanged, 259 | all |
+| `LAYER_ALLOWLIST_TOTAL` | delta 0 (re-read on develop at merge) | all |
 | Drills | `test_guard_red_on_reverted_site[iv_trust_reader]` (a `get_room_sightings()` call injected into a copied `security.py`), `[iv_census_feed]` (an `interior_census_tick()` call injected into a copied presence inference function), `[iv_direct_store_write]` (a write with a NON-`self` receiver, `producer._room_sightings[...] = ...`, from `interior_vision.py`; the R7 check skips `self.` writes, `_layer_guard_engine.py:922-925`, so a `self._room_sightings` sibling store inside the sampler would stay GREEN and is not a valid drill; closure L-5), `[iv_unnamed_on_sighting_signal]` (an `async_dispatcher_send(SIGNAL_PERSON_SIGHTING, ...)` inside `_emit_unnamed`), and ship 2's `[iv_affect_reader]` (a `desc.affect` read injected into a copied `notification_manager.py` function) each go red | 1 / 2 |
 
 ## 7. Camera model (built on ship 3b; W2 not needed before the D4 flip)
@@ -506,8 +506,12 @@ node inside its window (from the D1 on-edge ring) → `PathRecord(source_ref, do
 room, first_on_ts, bodies_nvr_at_first_on, bodies_vision))`, closed at the cumulative max over reached nodes of their
 window close + `INTERIOR_TIMELAPSE_CLOSE_PAD_S`, written through `_emit_unnamed("path",
 ...)` (ring `INTERIOR_TIMELAPSE_RING`). The hop rooms' records carry `entered_via` (door, crossing ts) for
-`INTERIOR_TIMELAPSE_SEED_TTL_S` (display). `n`: crossing vision's `people_count` from `get_crossing(source_ref)` once the fast
-stage writes it as a G3 attribute; until then from `get_last_arrival_record()` when its `source_ref` matches; else the max
+`INTERIOR_TIMELAPSE_SEED_TTL_S` (display). `n`: the crossing's `vision_people_count` F3 attribute from `get_crossing(source_ref)`, written by crossing-vision
+Phase 3 P3-D3 through G3 (not by the fast stage, which writes no G3 attribute; harmonization C3); until P3-D3 ships
+that source is absent and `n_source` says so. Path windows merge by physical pass: windows whose crossings share a
+non-None `pass_key` (the F3 creation-time field stamped by the tracker, crossing-vision P3-D9a, read from
+`get_crossing`) open one `PathRecord`; before P3-D9a ships (`pass_key` None) windows of one door group within
+`CROSSING_VISION_CLUSTER_S` merge instead (harmonization C4); test `test_d5_windows_merge_by_pass_key`; until then from `get_last_arrival_record()` when its `source_ref` matches; else the max
 `bodies_nvr` on the first hop, i.e. of that hop's group over its window, from its first on-edge to its window close (`n_source` names which; ship-1 fix-up, review A M3). Never the crossing-vision row store (contract G8). Vision leg: when
 `n ≥ INTERIOR_TIMELAPSE_VISION_MIN_N`, or a hop room's record shows unnamed ≥ 1 at its first on-edge (draft-2 "or
 guests_unnamed ≥ 1" restored on the interior record, closure L-8), one still call per hop group at its first on-edge, at most
@@ -780,7 +784,7 @@ Reviews: completeness (C, H, M, L) and build prediction + goal fidelity (B, G), 
 |---|---|---|
 | C1 no conformance table; F4 producer contradicts contract | Table added; unnamed records, descriptions and paths through `PersonSightingProducer._emit_unnamed`, stores owned by the producer | §6.1, §6.2 |
 | H1 D4 does not fit `deconflict_house` | Pulled house scalar on its own keyword `interior_term=` (never `extra_guest_terms`, spot-check M-1), formula stated; leads per Q1; truth table | §9.D4 |
-| H2 guard / read-surface delta missing | Host modules named; every guard change listed; D5 pulls crossings, no listener; total 259 unchanged | §6.1, §6.3, §9.D5 |
+| H2 guard / read-surface delta missing | Host modules named; every guard change listed; D5 pulls crossings, no listener; guard total delta 0 | §6.1, §6.3, §9.D5 |
 | H3 room getter answers None for the foyer | `entity_stream_view` per member + `physical_camera_dead`; list from `interior_camera_entities()` | §7 |
 | H4 BLE source returns counts | `persons_in_room(room, active_only=True)` with the phone filter; ACTIVE vs STALE split named; G6 seam | §8a table, §9.D1, §14 |
 | H5 frame source and clip path | Frame-source section: Frigate-device registry rule, still route, clip route via `video_analyzer` | §8 |

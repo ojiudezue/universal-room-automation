@@ -92,6 +92,8 @@ _KEEP_NAMES = {
     "_ROOM_SUPPRESS_KEYS",  # defined inside func; harmless if not top-level
     "_NM_A2_KEYS",
     "_NM_C_KEYS",
+    # MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D7: MF knob bundle.
+    "_MF_LIVE_KEYS",
     "_HVAC_TUNABLE_DISPATCH",
     "_EC_SETTER_DISPATCH",
     "_OFFPEAK_DRAIN_QUALITY",

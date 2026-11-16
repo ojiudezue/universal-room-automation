@@ -36,6 +36,14 @@ class RoomTransition:
     path_type: str  # 'direct', 'via_hallway', 'separate'
     confidence: float
     via_room: Optional[str] = None
+    # MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D1: BLE facts captured from the
+    # ura_person_location_change event at fire time (additive keys; absent on
+    # older producers). ``ble_area`` = the Bermuda area state that produced
+    # the room change, ``ble_area_sensor`` = the entity it was read from,
+    # ``ble_method`` = the producer branch ("bermuda").
+    ble_area: Optional[str] = None
+    ble_area_sensor: Optional[str] = None
+    ble_method: Optional[str] = None
 
 
 class TransitionDetector:
@@ -68,6 +76,9 @@ class TransitionDetector:
         # v3.6.20: Ping-pong suppression — recent transitions per person
         # dict[person_id, list[tuple[from_room, to_room, timestamp]]]
         self._recent_transitions: dict[str, list[tuple[str, str, datetime]]] = {}
+        # MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D7: live ping-pong window
+        # (CONF_MF_PING_PONG_WINDOW, pushed by set_ping_pong_window); 0 = off.
+        self._ping_pong_window_s: float = float(PING_PONG_WINDOW_SECONDS)
 
         # v4.5.19: track lifecycle handles so async_teardown can release
         # them on reload. Bug Class candidate: discarded async_listen
@@ -144,6 +155,13 @@ class TransitionDetector:
             "cleanup timer released"
         )
     
+    def set_ping_pong_window(self, seconds) -> None:
+        """Set the quick-return suppression window live (0 = off)."""
+        try:
+            self._ping_pong_window_s = max(0.0, float(seconds))
+        except (TypeError, ValueError):
+            _LOGGER.warning("Ignoring invalid ping-pong window %r", seconds)
+
     def set_transit_validator(self, validator) -> None:
         """Wire in the TransitValidator after it is initialized."""
         self._transit_validator = validator
@@ -212,6 +230,11 @@ class TransitionDetector:
             return
         
         if transition:
+            # MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D1: carry the event's BLE
+            # facts (captured at fire time) to the listeners.
+            transition.ble_area = data.get("bermuda_area")
+            transition.ble_area_sensor = data.get("area_sensor")
+            transition.ble_method = data.get("method")
             _LOGGER.info(
                 "Transition: %s %s → %s (%s, %ds, confidence=%.2f)",
                 person_id, previous_location, current_location,
@@ -241,7 +264,7 @@ class TransitionDetector:
                 _LOGGER.info(
                     "Ping-pong suppressed: %s %s → %s (return leg within %ds window)",
                     person_id, previous_location, current_location,
-                    PING_PONG_WINDOW_SECONDS,
+                    self._ping_pong_window_s,
                 )
                 self._record_transition(person_id, previous_location, current_location, timestamp)
                 # Skip notifying listeners — transition is logged but not acted on
@@ -648,8 +671,10 @@ class TransitionDetector:
         recent = self._recent_transitions.get(person_id, [])
         if not recent:
             return False
-
-        window = timedelta(seconds=PING_PONG_WINDOW_SECONDS)
+        window_s = getattr(self, "_ping_pong_window_s", PING_PONG_WINDOW_SECONDS)
+        if window_s <= 0:
+            return False
+        window = timedelta(seconds=window_s)
         # Check if any recent transition was to_room→from_room (the forward leg)
         for prev_from, prev_to, prev_ts in reversed(recent):
             if (timestamp - prev_ts) > window:
@@ -695,6 +720,12 @@ class TransitionDetector:
             mf = self.hass.data.get(DOMAIN, {}).get("music_following")
             if mf is None:
                 return
+            # MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D4/D5: book it as a full
+            # decision (outcome + decision log line) when MF supports it.
+            booker = getattr(mf, "record_ping_pong_suppressed", None)
+            if callable(booker):
+                booker(person_id, from_room, to_room)
+                return
             record_stat = getattr(mf, "_record_stat", None)
             if record_stat is None:
                 return
@@ -713,7 +744,12 @@ class TransitionDetector:
     async def _async_cleanup_history(self, now: datetime) -> None:
         """Periodic cleanup of old location history and ping-pong records."""
         cutoff = now - timedelta(hours=1)
-        ping_pong_cutoff = now - timedelta(seconds=PING_PONG_WINDOW_SECONDS * 2)
+        ping_pong_cutoff = now - timedelta(
+            seconds=max(
+                getattr(self, "_ping_pong_window_s", PING_PONG_WINDOW_SECONDS),
+                PING_PONG_WINDOW_SECONDS,
+            ) * 2
+        )
 
         for person_id in list(self._location_history.keys()):
             history = self._location_history[person_id]

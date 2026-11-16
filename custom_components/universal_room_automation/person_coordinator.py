@@ -1,6 +1,6 @@
 """Person tracking coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv5.108.25
+# Universal Room Automation vv5.108.27
 # Build: 2026-01-03
 # File: person_coordinator.py
 # v3.2.9: No changes (zone fixes in aggregation.py, fan fixes in automation.py)
@@ -1124,7 +1124,13 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                                 "person_id": person_name,
                                 "previous_location": old_location,
                                 "current_location": resolved_room,
-                                "timestamp": now
+                                "timestamp": now,
+                                # MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D1
+                                # (additive): the BLE facts behind this room
+                                # change, captured at fire time.
+                                "method": "bermuda",
+                                "bermuda_area": bermuda_area,
+                                "area_sensor": area_sensor,
                             }
                             self.hass.bus.async_fire(
                                 "ura_person_location_change",

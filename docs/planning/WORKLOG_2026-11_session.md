@@ -80,3 +80,5 @@
 - 2026-11-14 16:03 **v5.108.23** — v5.108.23: census deconfliction + crossing ledger (ships dark) (cards: CENSUS-DECONFLICTION-LEDGER-1)
 - 2026-11-14 21:58 **v5.108.24** — v5.108.24: person-awareness layer ship 3a (producer side + leak guard) (cards: PERSON-AWARENESS-READ-API-1)
 - 2026-11-15 14:16 **v5.108.25** — v5.108.25: person-awareness layer ship 3b (device-level dead-camera rule) (cards: DEAD-CAMERA-DEVICE-RULE-1)
+- 2026-11-15 15:44 **v5.108.26** — v5.108.26: music following repair (cards: MUSIC-FOLLOWING-TRANSFER-REPAIR-1)
+- 2026-11-15 18:37 **v5.108.27** — v5.108.27: crossing vision Phase 3, first set (P3-D1, P3-D5, P3-D8) + P3-D0 knobs (cards: VISION-P3-FIRST-SET-1)
