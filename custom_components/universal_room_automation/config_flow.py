@@ -4937,6 +4937,13 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 and CONF_PERIMETER_ZONE_SENSORS not in self._config_entry.options
             ):
                 cleaned.pop(CONF_PERIMETER_ZONE_SENSORS, None)
+            # VISION-INTERIOR-SIGHTINGS-1: an untouched default is not
+            # written (a save writes only what the user changed).
+            if (
+                cleaned.get(CONF_INTERIOR_VISION_ENABLED) == DEFAULT_INTERIOR_VISION_ENABLED
+                and CONF_INTERIOR_VISION_ENABLED not in self._config_entry.options
+            ):
+                cleaned.pop(CONF_INTERIOR_VISION_ENABLED, None)
             # FACE-SOURCE-REGISTRY-DISCOVERY-1 D5: same rule for an untouched
             # empty alias list.
             if (
@@ -5033,16 +5040,6 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     DEFAULT_EGRESS_IDENTITY_ENABLED,
                 ),
             ): selector.BooleanSelector(),
-            # VISION-INTERIOR-SIGHTINGS-1: default of switch.ura_interior_vision
-            # (a stored switch state wins). Interior vision model calls only;
-            # never bedrooms or bathrooms.
-            vol.Optional(
-                CONF_INTERIOR_VISION_ENABLED,
-                default=self._get_current(
-                    CONF_INTERIOR_VISION_ENABLED,
-                    DEFAULT_INTERIOR_VISION_ENABLED,
-                ),
-            ): selector.BooleanSelector(),
             # Review OF-1 (2026-09-04): D3 known-face guest list. Empty
             # by default; add face-library names (e.g. "Ojini") so
             # face-recognized visitors are attributed to the
@@ -5070,6 +5067,16 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ),
             vol.Optional(ADVANCED_SECTION): _advanced_section({
                 # --- Advanced-only tuning (D4) ---
+                # VISION-INTERIOR-SIGHTINGS-1: default of switch.ura_interior_vision
+                # (a stored switch state wins). Interior vision model calls only;
+                # never bedrooms or bathrooms.
+                vol.Optional(
+                    CONF_INTERIOR_VISION_ENABLED,
+                    default=self._get_current(
+                        CONF_INTERIOR_VISION_ENABLED,
+                        DEFAULT_INTERIOR_VISION_ENABLED,
+                    ),
+                ): selector.BooleanSelector(),
                 # Cross-validation toggle
                 vol.Optional(
                     CONF_CENSUS_CROSS_VALIDATION,

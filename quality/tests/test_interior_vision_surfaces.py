@@ -103,7 +103,13 @@ def test_camera_census_form_has_interior_vision_field_default_on(mods):  # noqa:
     flow.async_show_form = lambda **kw: shown.update(kw) or kw
     asyncio.run(flow.async_step_camera_census())
     schema = shown["data_schema"].schema
-    keys = {str(k): k for k in schema}
+    top = {str(k): k for k in schema}
+    # In the collapsed Advanced section, not the first screen.
+    assert C.CONF_INTERIOR_VISION_ENABLED not in top
+    section = schema[top["advanced"]]
+    inner = getattr(section, "schema", section)
+    inner = getattr(inner, "schema", inner)
+    keys = {str(k): k for k in inner}
     assert C.CONF_INTERIOR_VISION_ENABLED in keys
     marker = keys[C.CONF_INTERIOR_VISION_ENABLED]
     assert isinstance(marker, vol.Optional) and marker.default() is True

@@ -870,7 +870,6 @@
           "face_recognition_enabled": "Face recognition",
           "guest_vlan_ssid": "Guest Wi-Fi name",
           "egress_identity_enabled": "Name people at doors",
-          "interior_vision_enabled": "Interior vision",
           "known_face_guests": "Known guests"
         },
         "data_description": {
@@ -880,13 +879,13 @@
           "face_recognition_enabled": "Use face matches from your cameras to confirm who someone is. Needs a camera system with face recognition. You can also turn this off from its switch on the House device.",
           "guest_vlan_ssid": "SSID of your guest WiFi network (e.g., 'Revel'). Phones connected to this SSID are counted as guests. Leave blank to disable WiFi guest detection.",
           "egress_identity_enabled": "Name people who walk through door cameras, using face recognition, so the house count knows who is home. You can also turn this off from its switch on the House device.",
-          "interior_vision_enabled": "Default for the Interior Vision switch the first time it is created; after that the switch keeps its own setting. It will let AI vision count and describe people on indoor shared-room cameras (never bedrooms or bathrooms). This release makes no AI calls yet.",
           "known_face_guests": "Names from your face library that belong to regular guests, not residents. Leave empty if none."
         },
         "sections": {
           "advanced": {
             "name": "Advanced (rarely change)",
             "data": {
+              "interior_vision_enabled": "Interior vision switch default",
               "census_cross_validation": "Cross-check camera systems",
               "census_divergence_downgrade": "Trust the lower count",
               "enhanced_census": "Smarter counting",
@@ -902,6 +901,7 @@
               "face_name_aliases": "Face name aliases"
             },
             "data_description": {
+              "interior_vision_enabled": "Starting value for the Interior Vision switch; the switch keeps its own setting after that. Shared rooms only, never bedrooms or bathrooms. No AI calls in this release.",
               "census_cross_validation": "If you run more than one camera system (such as Frigate and UniFi Protect), compare their counts. Turn off if you use only one.",
               "census_divergence_downgrade": "When two camera systems disagree about a room and nothing else backs up the higher count, trust the lower one. Stops one false sighting from turning on Guest mode.",
               "enhanced_census": "Hold counts for a while, spot guest phones on guest Wi-Fi, and tell people seen apart from people recognized.",
