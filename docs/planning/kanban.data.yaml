@@ -35224,6 +35224,7 @@ cards:
   next: "Me: add entry_areas to perimeter_gate_decision rows and the lock-regime _record; trip-wire to NM when it stays empty."
 - id: NM-PERIMETER-REPEAT-STORM-1
   title: "An unacknowledged CRITICAL perimeter 'person detected' page repeats on all four channels every 30 min until 24 h (the 18:00 page ran ~7 h until the 01:13 safe-word ack)"
+  operator_2026_11_16_pick_a: "A (the first hour is per evening at home: once exterior-person pages have repeated for an hour while anyone is home, further perimeter pages still arrive but once each with no repeats, until the house goes away or 6 h pass with no perimeter page)"
   operator_2026_11_16_pick: "Paging - first hour if home. More if away"
   thread: notifications
   status: in_progress
