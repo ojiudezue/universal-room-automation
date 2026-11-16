@@ -512,6 +512,58 @@ def is_radar_capability(
     return family_of() in RADAR_SENSOR_FAMILIES
 
 
+# ----------------------------------------------------------------------
+# S1 (stuck-sensor truth, PLANNING_stuck_sensor_truth.md rev 2) — the P22
+# off-gap class gate. Two properties, named separately (SENSOR_FLEET_CLASSES
+# rule 3): `is_fan_immune_witness` is NOT this predicate (it is True for
+# bed / camera / BLE, which hold a still person).
+# ----------------------------------------------------------------------
+
+# Kinds that hold a still person (a long `on` may be a sleeper).
+_STILL_HOLDER_KINDS: frozenset = frozenset({
+    CAPABILITY_KIND_MMWAVE,
+    CAPABILITY_KIND_BED,
+    CAPABILITY_KIND_CAMERA_PRESENCE,
+    CAPABILITY_KIND_BLE_PRESENCE,
+})
+
+# Device families measured motion-class (cannot hold a still person).
+P22_MOTION_CLASS_FAMILIES: frozenset = frozenset({
+    SENSOR_FAMILY_ZIGBEE_ZV,
+    SENSOR_FAMILY_PIR,
+})
+
+
+def is_still_holder(
+    cap: Optional[SensorCapability], family: str,
+) -> bool:
+    """True iff the input can hold a still person (pure).
+
+    An operator override (``CONF_SENSOR_CAPABILITIES``) decides both ways;
+    else the CONF-list kind ``mmwave`` (the presence_sensors list) or a
+    radar device family (``RADAR_SENSOR_FAMILIES``, incl. the MS600 bit by
+    registry model) makes it a still holder.
+    """
+    if cap is not None and cap.source == "override":
+        return cap.kind in _STILL_HOLDER_KINDS
+    if cap is not None and cap.kind in _STILL_HOLDER_KINDS:
+        return True
+    return family in RADAR_SENSOR_FAMILIES
+
+
+def is_p22_motion_class(
+    cap: Optional[SensorCapability], family: str,
+) -> bool:
+    """True iff the P22 off-gap tolerance applies: a room input that is
+    not a still holder AND whose device family is a known motion-class
+    family (ZG-204ZV mmWave-motion, PIR). Unknown family -> False."""
+    if cap is None:
+        return False
+    if is_still_holder(cap, family):
+        return False
+    return family in P22_MOTION_CLASS_FAMILIES
+
+
 def family_recheck_factor(family: str) -> float:
     """C4 window multiplier for a resolved family (unknown -> 1.0)."""
     return float(

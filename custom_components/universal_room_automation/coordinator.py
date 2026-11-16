@@ -398,7 +398,19 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
 
         # Stuck sensor tracking: per-sensor continuous-on timestamps
         self._sensor_on_since: dict[str, datetime] = {}
-        self._stuck_sensor_hours: float = 4.0  # hours before flagging stuck
+        # S1: was the literal 4.0; now the rung-1 knob STUCK_P22_HOURS.
+        from .const import STUCK_P22_HOURS as _P22_HOURS  # noqa: PLC0415
+        self._stuck_sensor_hours: float = float(_P22_HOURS)
+        # S1 (stuck-sensor truth): RAM-only off-gap bookkeeping for
+        # MOTION-class inputs (tolerance > 0). `_p22_off_since` = the
+        # last_changed of the CURRENT observed not-on state (overwritten,
+        # never setdefault); `_p22_last_on_tick` / `_p22_on_lc` = the tick
+        # time and the `on` state's last_changed of the last tick that read
+        # the input on (bounds an off no tick saw). Not persisted: a
+        # restart with the input off pops on the first tick, as before.
+        self._p22_off_since: dict[str, datetime] = {}
+        self._p22_last_on_tick: dict[str, datetime] = {}
+        self._p22_on_lc: dict[str, datetime] = {}
 
         # Stuck-Signal Watchdog D2 (v5.35.0). Duty-cycle variant of Fix #9:
         # per binary sensor, keep a bounded ring of (monotonic_seconds, bool)
@@ -2399,6 +2411,108 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             and s in self._post_restart_seen_on
         }
 
+    def _p22_off_gap_tolerance_s(self, sensor: str) -> float:
+        """S1: off-gap tolerance (seconds) for ``sensor``'s P22 run.
+
+        ``STUCK_P22_OFF_GAP_TOLERANCE_S`` for a MOTION-class input
+        (``sensor_capability.is_p22_motion_class``: capability from the
+        room config / override, device family from the registry via
+        ``fan_veto.resolve_sensor_family``, never the entity name); 0 for a
+        still holder, an unknown family, a knob of 0 or any error (= the
+        pre-S1 rule: pop on any observed not-on).
+        """
+        try:
+            from . import const as _const  # noqa: PLC0415
+            tol = float(_const.STUCK_P22_OFF_GAP_TOLERANCE_S)
+            if tol <= 0:
+                return 0.0
+            from .domain_coordinators.sensor_capability import (  # noqa: PLC0415
+                derive_capability,
+                is_p22_motion_class,
+            )
+            from .fan_veto import resolve_sensor_family  # noqa: PLC0415
+            room_config = {**self.entry.data, **(self.entry.options or {})}
+            cap = derive_capability(room_config, sensor)
+            family = resolve_sensor_family(self.hass, sensor)
+            return tol if is_p22_motion_class(cap, family) else 0.0
+        except Exception:  # noqa: BLE001 — fail to the pre-S1 rule
+            return 0.0
+
+    def _p22_stamp_tick(self, now: datetime, sensor_lists) -> None:
+        """Fix #9 / P22 continuous-on run bookkeeping (S1, INV-S1).
+
+        Tolerance 0 (still holder, unknown family, knob 0): byte-identical
+        to the pre-S1 loop (new run stamped at the tick ``now``; any
+        observed not-on pops the run).
+
+        Tolerance > 0 (motion class): a new run is stamped at the ``on``
+        state's ``last_changed``; an observed off or dead stretch
+        (unavailable / unknown / missing) records its own ``last_changed``
+        (overwritten each tick) and pops the run once it has lasted
+        ``>= tolerance``; an ``on`` after an open off keeps the run when the
+        gap (``on.last_changed - off``) is below the tolerance, else
+        restarts it at ``on.last_changed``; an ``on`` whose ``last_changed``
+        moved since the last on-tick had an off no tick saw, bounded by
+        ``on.last_changed - last on-tick``: below the tolerance the run
+        continues, else it restarts at ``on.last_changed``.
+        """
+        seen: set[str] = set()
+        for sensor_list in sensor_lists:
+            for sensor in sensor_list or []:
+                if not sensor or sensor in seen:
+                    continue
+                seen.add(sensor)
+                is_on = self._is_sensor_on(sensor)
+                tol = self._p22_off_gap_tolerance_s(sensor)
+                if tol <= 0:
+                    if is_on:
+                        if sensor not in self._sensor_on_since:
+                            self._sensor_on_since[sensor] = now
+                        # STUCK-SENSOR-1 D3 MED-1: record first post-restart
+                        # live-ON observation. Restored `_sensor_on_since`
+                        # gains no exclusion consequence until BOTH this
+                        # set contains the sensor AND boot-settle is done.
+                        self._post_restart_seen_on.add(sensor)
+                    else:
+                        self._sensor_on_since.pop(sensor, None)
+                    self._p22_off_since.pop(sensor, None)
+                    self._p22_last_on_tick.pop(sensor, None)
+                    self._p22_on_lc.pop(sensor, None)
+                    continue
+                state = self.hass.states.get(sensor)
+                lc = getattr(state, "last_changed", None) if state is not None else None
+                if is_on:
+                    self._post_restart_seen_on.add(sensor)
+                    if lc is None:
+                        lc = now
+                    off_since = self._p22_off_since.pop(sensor, None)
+                    run = self._sensor_on_since.get(sensor)
+                    if run is None:
+                        self._sensor_on_since[sensor] = lc
+                    elif off_since is not None:
+                        if (lc - off_since).total_seconds() >= tol:
+                            self._sensor_on_since[sensor] = lc
+                    else:
+                        prev_lc = self._p22_on_lc.get(sensor)
+                        last_tick = self._p22_last_on_tick.get(sensor)
+                        if (
+                            prev_lc is not None and last_tick is not None
+                            and lc > prev_lc
+                            and (lc - last_tick).total_seconds() >= tol
+                        ):
+                            self._sensor_on_since[sensor] = lc
+                    self._p22_last_on_tick[sensor] = now
+                    self._p22_on_lc[sensor] = lc
+                else:
+                    # A missing state has no last_changed: keep the first
+                    # tick that saw it missing as the start of the stretch.
+                    off_since = lc if lc is not None else self._p22_off_since.get(
+                        sensor, now,
+                    )
+                    self._p22_off_since[sensor] = off_since
+                    if (now - off_since).total_seconds() >= tol:
+                        self._sensor_on_since.pop(sensor, None)
+
     def _emit_p22_stuck_sensor_for_tick(
         self, room_name: str, s: str, on_hours: float,
     ) -> None:
@@ -3764,20 +3878,10 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             self._all_sensors_unavailable_since = None
 
         # === Fix #9: Stuck sensor detection (before detection + trigger tracking) ===
-        for sensor_list in [motion_sensors, mmwave_sensors, occupancy_sensors]:
-            for sensor in sensor_list:
-                if not sensor:
-                    continue
-                if self._is_sensor_on(sensor):
-                    if sensor not in self._sensor_on_since:
-                        self._sensor_on_since[sensor] = now
-                    # STUCK-SENSOR-1 D3 MED-1: record first post-restart
-                    # live-ON observation. Restored `_sensor_on_since`
-                    # gains no exclusion consequence until BOTH this
-                    # set contains the sensor AND boot-settle is done.
-                    self._post_restart_seen_on.add(sensor)
-                else:
-                    self._sensor_on_since.pop(sensor, None)
+        # S1: per-input run bookkeeping (off-gap tolerance for motion class).
+        self._p22_stamp_tick(
+            now, (motion_sensors, mmwave_sensors, occupancy_sensors),
+        )
 
         # STUCK-SENSOR-1 D3 — persist (dirty-gated + 60s delayed-save).
         # HIGH-A1 fix-up (2026-08-13): the scheduler no-ops when the

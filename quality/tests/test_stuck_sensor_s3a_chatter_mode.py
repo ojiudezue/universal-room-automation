@@ -19,7 +19,6 @@ from types import SimpleNamespace
 
 import pytest
 
-import custom_components.universal_room_automation as ura_init
 from custom_components.universal_room_automation import const as ura_const
 from custom_components.universal_room_automation import select as sel
 from custom_components.universal_room_automation.coordinator import (
@@ -98,6 +97,25 @@ def _select(hass, entry):
     s.hass = hass
     s.async_write_ha_state = lambda: None
     return s
+
+
+@pytest.fixture
+def ura_init(monkeypatch):
+    """The REAL package ``__init__`` (holder of ``_async_update_listener``).
+
+    Some sibling files leave a stub package module in ``sys.modules``; when
+    that is the case, import the real one for this test only (monkeypatch
+    restores the stub afterwards). Submodules stay the shared ones, so the
+    listener flushes the same resolver cache the rooms read."""
+    import importlib
+    import sys
+
+    name = "custom_components.universal_room_automation"
+    mod = sys.modules.get(name)
+    if mod is not None and hasattr(mod, "_async_update_listener"):
+        return mod
+    monkeypatch.delitem(sys.modules, name, raising=False)
+    return importlib.import_module(name)
 
 
 @pytest.fixture(autouse=True)
@@ -179,7 +197,7 @@ def test_chatter_cache_flushed_on_select():
     assert room._chatter_mode() == "act"
 
 
-def test_chatter_cache_flushed_on_integration_update_listener():
+def test_chatter_cache_flushed_on_integration_update_listener(ura_init):
     """An integration-entry options write from any other path (options flow,
     service) reaches rooms through the update listener's flush, and a
     chatter-only change does not reload the parent entry."""
@@ -209,7 +227,14 @@ def test_chatter_cache_flushed_on_cm_update():
 
 def test_chatter_kill_const_short_circuits_off(monkeypatch):
     hass = _Hass([_integration({ura_const.CONF_CHATTER_MODE: "act"})])
-    monkeypatch.setattr(ura_const, "CHATTER_QUARANTINE_ENABLED", False)
+    # Patch the const module the resolver resolves at call time (another
+    # test file may have re-imported const since collection).
+    import importlib
+    pkg = UniversalRoomCoordinator.__module__.rsplit(".", 1)[0]
+    monkeypatch.setattr(
+        importlib.import_module(f"{pkg}.const"),
+        "CHATTER_QUARANTINE_ENABLED", False,
+    )
     assert _room(hass)._chatter_mode() == "off"
 
 
