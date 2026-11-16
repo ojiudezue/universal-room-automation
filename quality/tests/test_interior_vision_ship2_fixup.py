@@ -13,7 +13,6 @@ import asyncio
 import json
 import os
 import time
-from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -93,19 +92,17 @@ async def test_unparsed_response_no_record_but_row_and_reply(drig):
 async def test_day_roll_resets_call_and_cost_counters(drig):
     """H2: cap 1 used, refused; after local midnight the counters reset and
     a call goes again."""
-    from homeassistant.util import dt as dt_util
-
+    # Two days on is a new local day whatever time zone a donor test left
+    # on the dt module (suite-order robustness).
     s = _sampler(drig)
-    today = dt_util.now().date()
-    midnight = dt_util.as_utc(dt_util.start_of_local_day(today + timedelta(days=1))).timestamp()
-    clock = _Clock(midnight - 10.0)
+    clock = _Clock(time.time())
     s._now = clock
     drig.hass.data[R.DOMAIN][_c(drig).INTERIOR_VISION_CAP_HASS_KEY] = 1
     assert _ask(drig) == ""
     await _done(drig)
     assert (s.calls_today, round(s.cost_today, 4)) == (1, 0.0003)
     assert _ask(drig) == "Interior vision limit reached today."
-    clock.t = midnight + 10.0
+    clock.t += 2 * 86400.0
     assert _ask(drig) == ""
     await _done(drig)
     assert len(drig.calls) == 2 and s.calls_today == 1
@@ -147,8 +144,6 @@ async def test_rehydrate_sets_today_counters_from_rows(drig):
 
 @pytest.mark.asyncio
 async def test_rehydrate_failure_holds_until_midnight_and_pages(drig):
-    from homeassistant.util import dt as dt_util
-
     s = _sampler(drig)
     pages = []
     s._fire = lambda *a: pages.append(a)
@@ -158,9 +153,7 @@ async def test_rehydrate_failure_holds_until_midnight_and_pages(drig):
     assert [p[0] for p in pages] == ["interior_vision_cap_rehydrate_failed"]
     assert pages[0][3] == "LOW"
     assert _ask(drig) == "Interior vision is starting up; try again in a minute."
-    midnight = dt_util.as_utc(dt_util.start_of_local_day(
-        dt_util.now().date() + timedelta(days=1))).timestamp()
-    s._now = _Clock(midnight + 5.0)
+    s._now = _Clock(time.time() + 2 * 86400.0)
     assert _ask(drig) == ""
     await _done(drig)
     assert len(drig.calls) == 1
