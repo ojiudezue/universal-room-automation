@@ -35271,7 +35271,7 @@ cards:
   links: {related: [FRIGATE2-SWAP-FULL-1]}
   origin: {date: '2026-11-16', gist: 'Operator aside while Frigate audio detection was being turned off globally.'}
   operator_2026_11_16: "BTW audio is an underrated presence vector which we should push into fusion at some point"
-  note_2026_11_16: "Homelab session had staged a global Frigate audio-detection turn-off (operator-approved there) for the Foyer-zone restart; URA asked it to HOLD and re-scope with the operator (interior speech only / keep all). URA has no current audio-sensor dependency (code grep + config-entry regex, 0 hits). Before planning: measure-before-build fire rate and false positives of speech per room over the recorder window; check presence state of play for prior audio work."
+  note_2026_11_16: "Homelab session had staged a global Frigate audio-detection turn-off (operator-approved there) for the Foyer-zone restart; URA asked it to hold; operator: 'I know' (aware; the turn-off stands, audio fusion is later), hold withdrawn. Re-enable audio detection on the chosen cameras when this card is planned. URA has no current audio-sensor dependency (code grep + config-entry regex, 0 hits). Before planning: measure-before-build fire rate and false positives of speech per room over the recorder window; check presence state of play for prior audio work."
   next: "Later (not on the current §4a list): measure per-room speech-detection rates and false positives, then plan the fusion input (PRESENCE state of play first)."
 - id: VISION-INTERIOR-SHIP1-1
   title: "Interior vision ship 1: unnamed room records per shared camera room, entry-path rows, trip-wires; no AI calls, nothing reaches census or presence"
