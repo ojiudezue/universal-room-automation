@@ -1,7 +1,7 @@
 # URA v5.108.33: arrival music, welcome scene, departure pause (arc step 8 D2-D4) + WiiM MA twin fix
 
 Cards: ARRIVAL-ENGINE-S8-1 (this release; child of PERSON-PROFILE-PREFERENCES-1, which stays open for the live MA test,
-the final ownership rule and v6.0.0), MF-MA-TWIN-WIIM-UUID-1. Plan: `docs/planning/PLANNING_identity_actions_v6.md`
+the final ownership rule and v6.0.0), MF-MA-TWIN-WIIM-UUID-1, STUCK-SENSOR-S3B-S1-1 (boot-settle residual fix, below). Plan: `docs/planning/PLANNING_identity_actions_v6.md`
 rev 3.6.1. Branch `feature/step8-d2-engine`. Tier 3: reviews A+G, B, D, then fix pass c05e2103, review C (436
 mutations), test-gap pass 189509bd (76/76 drilled rows RED).
 
@@ -65,6 +65,28 @@ rows' own switch, split from `MF_EPISODE_LOG_PERSIST`), `ARRIVAL_RESTART_SWEEP_E
 `_ma_candidates` now also matches the WiiM provider's MA players (`wiim_uuid:<UUID>`, UUID without dashes starting
 with the native device's `wiim` identifier) and orders candidates live first. The `_5` MAC twins read unavailable
 all week, so before this the MA path never ran in a WiiM room. Expect `path=ma` decisions between WiiM rooms.
+
+## Stuck-sensor pages survive NM boot-settle (STUCK-SENSOR-S3B-S1-1 residual)
+
+Found live in v5.108.30 validation: the first act-mode chatter page (Garage B ratgdo motion) never reached
+`notification_log`. NM boot-settle collapses repeat (coordinator, hazard_type) emits for `NM_BOOT_SETTLE_S` (60 s), and
+every stuck kind shares `STUCK_SIGNAL_NM_HAZARD_TYPE`, so the chatter page was swallowed by a dutycycle page sent 9 s
+earlier. `fire_stuck_signal` still set its per-day latch, so chatter stayed silent until the next day.
+
+- Hazards in the new `NM_BOOT_SETTLE_LOCATION_KEYED_HAZARDS` (const.py; today only the stuck-signal hazard) key
+  boot-settle on (coordinator, hazard, location), so distinct stuck kinds each send. Other hazards are unchanged.
+- `async_notify` returns `False` when it drops a message before delivery and `True` at the end. `fire_stuck_signal`
+  sets its latch, ledger entry and anomaly row only when the send was not dropped, so a dropped page is retried at the
+  next evaluation (a quiet-hours drop now delivers in the morning instead of being lost for the day).
+- A boot-settle drop of a location-keyed hazard removes the dedup stamp it had just written, so the retry is not
+  deduplicated away.
+
+Review: Tier 1, SHIP, two LOWs (a repeated INFO boot log; a drop counter can count a retried page twice),
+`docs/reviews/code-review/v_nm_boot_settle_stuck_kinds_review.md`. Tests `quality/tests/test_nm_boot_settle_stuck_kinds.py`
+(6), 7/7 mutations RED.
+
+Live check: after the restart, every distinct stuck kind active at boot has its own `notification_log` row; Garage B
+chatter (if still chattering) pages today.
 
 ## Writer health
 

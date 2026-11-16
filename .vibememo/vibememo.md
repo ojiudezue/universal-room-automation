@@ -48,3 +48,5 @@ Interior vision ship 2 (describe a room by text, Foyer fisheye unwarped in URA) 
 - Reserve governor and inclement rebuild (freeze versus wind as the outage cause).
 - Envoy stream A/B/A; HVAC still-sleeper corroborator; reducing zones 2/3's Bryant schedules.
 - PWA: auth hardening before any non-operator user.
+
+The arrival engine then shipped as v5.108.33 under option B. Start and welcome scene act now. Stop and pause are held to a conservative ownership rule until a live MA test, because stopping chosen music is the costly mistake; v6.0.0 is anchored to that test. → [330](users/ojiudezue/entries/330_arrival_engine_ships_option_b.json)

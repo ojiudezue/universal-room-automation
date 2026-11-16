@@ -76,3 +76,5 @@ The same morning's restart validated v5.108.30-32 and found the de-duplicator's 
 - Envoy stream add-on A/B/A: do peak battery cutouts return when it is re-enabled? → [167](entries/167_envoy_stream_addon_drives_peak_battery_cutouts.json)
 - HA 2026.10.4 did NOT end the nightly Envoy drop (3 nights); stream SOC tier v5.103.93 is live and trusted, first outage test pending. → [243](entries/243_ec_source_failover_class_stream_soc_tier.json)
 - HVAC: the night still-sleeper corroborator, and reducing zones 2/3's Bryant schedules.
+
+The operator then gave the go for the arrival engine as option B. The start and welcome scene act now. The stop and pause act only while URA still owns the playback, and any write it did not create ends that ownership. Stopping music someone chose costs more than leaving a song playing, and only a live test on the real players can show how often track changes break ownership. So v5.108.33 ships the engine with the boot-settle fix in one restart, and v6.0.0 waits for the test. → [330](entries/330_arrival_engine_ships_option_b.json)
