@@ -26,7 +26,7 @@ with Frigate person_count 1-4 plus empty controls. 18 model calls.
 | Foyer | 2 | 0 | 2 | wrong | "foyer is empty but living room has 2 people" |
 | Master Hallway | 2 | 2 | 3 | accurate | |
 
-Model exact 12/16 (12/14 excluding the fisheye Foyer). NVR exact 9/16; every NVR miss is an overcount except none
+Model exact 12/16 (12/14 excluding the fisheye Foyer). NVR exact 9/16; every NVR miss is an overcount
 (Master Hallway 3 vs 1-2 three times, Garage Hallway 3 vs 2 twice, Staircase 2 vs 1, Game Room 1 vs 0).
 Descriptions: 11 accurate, 3 minor errors, 2 wrong (both Foyer fisheye), 0 made things up.
 
