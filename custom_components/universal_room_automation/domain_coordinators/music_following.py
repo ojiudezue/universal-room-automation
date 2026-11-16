@@ -38,9 +38,7 @@ from ..const import (
 from .base import BaseCoordinator, CoordinatorAction, Intent
 from .coordinator_diagnostics import AnomalyDetector
 from .signals import (
-    PersonArrivingPayload,
     SIGNAL_HOUSE_STATE_CHANGED,
-    SIGNAL_PERSON_ARRIVING,
     SIGNAL_SAFETY_HAZARD,
     SIGNAL_SECURITY_EVENT,
 )
@@ -290,14 +288,15 @@ class MusicFollowingCoordinator(BaseCoordinator):
             )
         )
 
-        # v3.22.0 D3: Subscribe to person arriving signals
-        self._unsub_listeners.append(
-            async_dispatcher_connect(
-                self.hass,
-                SIGNAL_PERSON_ARRIVING,
-                self._handle_person_arriving,
-            )
-        )
+        # Arc step 8 (PLANNING_identity_actions_v6.md §5.4): no F5 is read.
+        # The engine's ONE residency subscription is (re)made here: a CM
+        # reload tears the engine's arrival state down but keeps the engine.
+        if self._music_following is not None and hasattr(
+                self._music_following, "async_start_arrival_actions"):
+            try:
+                self._music_following.async_start_arrival_actions()
+            except Exception:  # noqa: BLE001
+                _LOGGER.warning("MF arrival actions start failed", exc_info=True)
 
         # v3.22.0 D4: Subscribe to security event signals
         self._unsub_listeners.append(
@@ -558,40 +557,6 @@ class MusicFollowingCoordinator(BaseCoordinator):
                 "(disabled by config)",
                 hazard_type, severity,
             )
-
-    @callback
-    def _handle_person_arriving(self, payload: Any) -> None:
-        """Handle person arriving signal — start music in person's zone.
-
-        v3.22.0 D3: Cross-coordinator response to SIGNAL_PERSON_ARRIVING.
-        Gated by CONF_MUSIC_ON_ARRIVAL_START config toggle (ON by default since
-        arc step 8: const.DEFAULT_MUSIC_ON_ARRIVAL_START = True).
-        """
-        if not self._enabled:
-            return
-        if getattr(self, "observation_mode", False):
-            return
-        # RA10: one normalised F5 payload read (dict or attribute object).
-        arriving = PersonArrivingPayload.from_signal(payload)
-        if arriving is None:
-            return
-        person_entity = arriving.person_entity
-        zone = arriving.zone
-
-        if not person_entity:
-            return
-
-        # v5.10.0 D9: arrival-start was never implemented (truth-in-
-        # advertising bug per C7). Full implementation depends on a
-        # person-preferred-media surface that doesn't exist. Rather than
-        # ship a toggle that does nothing, log at DEBUG only. The
-        # CONF_MUSIC_ON_ARRIVAL_START key is kept in const.py for
-        # back-compat but the options-flow field is being retired.
-        _LOGGER.debug(
-            "MusicFollowing: Person arriving %s in zone %s "
-            "(arrival-start is not implemented — see docs/Coordinator/MUSIC_FOLLOWING.md)",
-            person_entity, zone or "unknown",
-        )
 
     @callback
     def _handle_house_state_changed(self, payload: Any) -> None:

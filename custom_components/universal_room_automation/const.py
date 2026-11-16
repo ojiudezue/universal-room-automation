@@ -5170,6 +5170,69 @@ ARRIVAL_SCENE_RESULT_APPLIED: Final = "applied"
 ARRIVAL_SCENE_RESULT_HOLD: Final = "hold"
 ARRIVAL_SCENE_RESULT_UNAVAILABLE: Final = "unavailable"
 ARRIVAL_SCENE_RESULT_ERROR: Final = "error"
+# D3 review B2: the welcome scene read unavailable / error and the entry path
+# retried the room's own slot scene once. ``fallback_applied`` = the slot
+# scene ran (scene_fallback_slot); ``fallback_failed`` = no slot scene, or it
+# is missing / unavailable / raised too (scene_fallback_failed; per-light path).
+ARRIVAL_SCENE_RESULT_FALLBACK_APPLIED: Final = "fallback_applied"
+ARRIVAL_SCENE_RESULT_FALLBACK_FAILED: Final = "fallback_failed"
+
+# ---------------------------------------------------------------------------
+# Arc step 8 D2-D4 engine knobs (PLANNING_identity_actions_v6.md §9). All rung
+# 1 (module constant, reviewed change): each decides whether step 8 starts,
+# stops or pauses someone's music, so a change needs review.
+# ---------------------------------------------------------------------------
+# One window for the music wait and the scene window (operator "15 min").
+# 0 = no intent ever opens (arrival kill switch below the master).
+ARRIVAL_WINDOW_S: Final = 900
+# A target room occupied at least this long before the arrival, with the
+# arriving person not placed in it, blocks the start (operator rule B: "8 min
+# kept as backstop for phoneless guests"). 0 = backstop off.
+ARRIVAL_OCCUPIED_BACKSTOP_S: Final = 480
+# Guests detected = house state ``guest`` OR the comfort census reading at
+# least this many unidentified people. Orchestrator default from D0b
+# (AUDIT_step8_d0b_2026_11_15.md): the arriving resident's own body often
+# reads unidentified at the edge (7 of 77 arrivals with no guest), so one
+# unidentified person can be the arriver. 1 = the plan's original ">= 1".
+ARRIVAL_GUEST_UNIDENTIFIED_MIN: Final = 2
+# After a welcome scene, how long the layer has to place the owner in the
+# room before it counts scene_unconfirmed (counting only).
+ARRIVAL_SCENE_CONFIRM_S: Final = 120
+# One start per person per action per this long (door bounce).
+ARRIVAL_MIN_GAP_S: Final = 3600
+# Ground-truth windows: the started player must read playing within VERIFY;
+# REVERSAL bounds the stopped_then_arrived watch after a window-end stop.
+ARRIVAL_VERIFY_S: Final = 20
+ARRIVAL_REVERSAL_S: Final = 120
+# Step 8's own flap filter (§5.4 gate 3b): P's last departure must be at
+# least this long before the arrival. 0 = flags only (every GPS flap passes).
+ARRIVAL_MIN_AWAY_S: Final = 900
+# How far back gate 3b reads persisted person_departure / person_arrival rows
+# after a restart (30 d). 0 = no DB fallback.
+ARRIVAL_DEPARTURE_DB_LOOKBACK_S: Final = 2592000
+# Margin added to the stamped room's occupancy_timeout for the departure wait.
+ARRIVAL_DEPARTURE_VACANCY_WAIT_S: Final = 300
+# False = no departure pause.
+ARRIVAL_MUSIC_DEPARTURE_PAUSE: Final = True
+# Which player attribute identifies "our" music (D2 B0, plan HIGH-2):
+# branch T = "media_content_id" (stamped from what the player reports right
+# after the start), branch Q = the stable queue / source attribute B0 names.
+# None = branch "neither" (not yet settled live): the window-end stop and the
+# departure pause are WITHHELD (wait_kept_unverified /
+# departure_kept_unverified, the reason recorded). Set by the live B0 check.
+ARRIVAL_OURS_ATTR: Final = None
+# How far past the window the restart sweep looks for unended intents.
+ARRIVAL_RESTART_SWEEP_EXTRA_S: Final = 3600
+# Trip-wire thresholds (§7). 0 = that trip-wire off.
+ARRIVAL_TRIPWIRE_WINDOW_S: Final = 604800
+ARRIVAL_ACTION_ZERO_MIN_INTENTS: Final = 10
+ARRIVAL_STOP_PREMATURE_NM: Final = 3
+ARRIVAL_GUEST_BLOCK_NM_SHARE: Final = 0.5
+ARRIVAL_GUEST_BLOCK_MIN_INTENTS: Final = 10
+ARRIVAL_CENSUS_UNAVAILABLE_NM: Final = 3
+ARRIVAL_ENTRY_MISSED_NM: Final = 3
+ARRIVAL_FAILING_NM: Final = 3
+ARRIVAL_FAILING_WINDOW_S: Final = 86400
 
 # ============================================================================
 # Cold-boot away-actuation storm mitigation — module-level constants only.
@@ -6697,6 +6760,12 @@ MEMORY_WRITER_BACKED_EPISODE_TYPES: Final = frozenset({
     # door the interior path map covers (garage_a: several a day), so 0 in 7
     # days is a dead writer (also paged sooner by `interior_path_zero`).
     "interior_path",
+    # arrival_music / welcome_scene (arc step 8 D6): writers in
+    # music_following.py (one row per arrival outcome). Rows exist only for
+    # residents who opted in on the People step; also paged sooner by the
+    # `arrival_action_zero` trip-wire. Absence-exempt below.
+    "arrival_music",
+    "welcome_scene",
     # sensor_dropout: writer exists and is correctly scheduled, but has
     # produced 0 rows in >2 months (per AUDIT_memory_writer_coverage.md,
     # 2026-10-11). KEEP in the checked set so the trip-wire surfaces this
@@ -6737,6 +6806,9 @@ MEMORY_WRITER_HEALTH_ABSENCE_EXEMPT_TYPES: Final = frozenset({
     "crossing_vision_shadow",
     # interior_path: one row per entry on a mapped door (same reason).
     "interior_path",
+    # arrival_music / welcome_scene: rows come only from residents arriving.
+    "arrival_music",
+    "welcome_scene",
     # music_follow_decision: rows come only from people walking between
     # rooms with speakers; a week away has none.
     "music_follow_decision",

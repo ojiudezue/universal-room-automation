@@ -147,13 +147,42 @@ def test_manual_hold_blocks_welcome_and_notes_hold():
     assert eng.notes == [("room_master", "hold")]
 
 
-def test_unavailable_welcome_scene_notes_unavailable_and_falls_back():
+def test_unavailable_welcome_retries_slot_scene():
+    """D3 review B2: the slot scene applies (not per-light)."""
     room = _room(slot_scene="scene.day_scene")
     room.hass.set_state("scene.welcome", "unavailable")
     eng = _engine(room, FakeEngine(scene="scene.welcome"))
     _run(room.auto._control_lights_entry({}))
+    assert _scene_calls(room) == ["scene.day_scene"]
+    assert eng.notes == [("room_master", "fallback_applied")]
+    assert not [c for c in room.hass.services.calls if c.domain == "light"]
+
+
+def test_both_scenes_unavailable_per_light():
+    room = _room(slot_scene="scene.day_scene")
+    room.hass.set_state("scene.welcome", "unavailable")
+    room.hass.set_state("scene.day_scene", "unavailable")
+    eng = _engine(room, FakeEngine(scene="scene.welcome"))
+    _run(room.auto._control_lights_entry({}))
     assert _scene_calls(room) == []
-    assert eng.notes == [("room_master", "unavailable")]
+    assert eng.notes == [("room_master", "fallback_failed")]
+    assert [c for c in room.hass.services.calls if c.domain == "light"]
+
+
+def test_unavailable_welcome_no_slot_scene_per_light():
+    room = _room(slot_scene=None)
+    room.hass.set_state("scene.welcome", "unavailable")
+    eng = _engine(room, FakeEngine(scene="scene.welcome"))
+    _run(room.auto._control_lights_entry({}))
+    assert _scene_calls(room) == []
+    assert eng.notes == [("room_master", "fallback_failed")]
+
+
+def test_one_scene_call_per_entry():
+    room = _room(slot_scene="scene.day_scene")
+    _engine(room, FakeEngine(scene="scene.welcome"))
+    _run(room.auto._control_lights_entry({}))
+    assert len(_scene_calls(room)) == 1
 
 
 def test_sleep_caller_never_reads_override():
@@ -180,8 +209,8 @@ def test_missing_welcome_scene_entity_notes_unavailable():
     room = _room(slot_scene="scene.day_scene")
     eng = _engine(room, FakeEngine(scene="scene.not_created"))
     _run(room.auto._control_lights_entry({}))
-    assert _scene_calls(room) == []
-    assert eng.notes == [("room_master", "unavailable")]
+    assert _scene_calls(room) == ["scene.day_scene"]
+    assert eng.notes == [("room_master", "fallback_applied")]
 
 
 def test_hold_and_unavailable_reasons_differ_same_room():
@@ -196,7 +225,8 @@ def test_hold_and_unavailable_reasons_differ_same_room():
     e2 = _engine(gone, FakeEngine(scene="scene.welcome"))
     _run(gone.auto._control_lights_entry({}))
     assert e1.notes == [("room_master", "hold")]
-    assert e2.notes == [("room_master", "unavailable")]
+    assert e2.notes == [("room_master", "fallback_applied")]   # retried, unlike hold
+    assert _scene_calls(held) == []
 
 
 def test_scene_call_raising_notes_error_and_runs_per_light_path():
@@ -213,6 +243,7 @@ def test_scene_call_raising_notes_error_and_runs_per_light_path():
 
     room.auto._safe_service_call = _boom
     _run(room.auto._control_lights_entry({}))
-    assert eng.notes == [("room_master", "error")]
+    # The slot-scene retry raises too (same scene service): fallback failed.
+    assert eng.notes == [("room_master", "fallback_failed")]
     assert [c.data.get("entity_id") for c in room.hass.services.calls
             if c.domain == "light" and c.service == "turn_on"] != []

@@ -648,13 +648,6 @@ class TestDisabledCoordinatorGuard:
             "_handle_safety_hazard",
         )
 
-    def test_music_person_arriving_enabled_guard(self):
-        """Music _handle_person_arriving checks _enabled."""
-        self._check_handler_has_enabled_guard(
-            "custom_components/universal_room_automation/domain_coordinators/music_following.py",
-            "_handle_person_arriving",
-        )
-
     def test_music_security_event_enabled_guard(self):
         """Music _handle_security_event checks _enabled."""
         self._check_handler_has_enabled_guard(

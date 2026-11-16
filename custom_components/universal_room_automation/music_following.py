@@ -190,6 +190,122 @@ class _Transfer:
     via_ma: bool = False
 
 
+# ---------------------------------------------------------------------------
+# Arc step 8 arrival actions: state records (RAM, cleared at teardown)
+# ---------------------------------------------------------------------------
+_FEATURE_STOP = 4096  # MediaPlayerEntityFeature.STOP
+
+_MUSIC_TERMINALS = frozenset({
+    "start_failed", "skipped_toggled_off", "skipped_quiet", "skipped_sleep",
+    "skipped_paused", "skipped_occupied", "skipped_guests", "skipped_gap",
+    "skipped_no_media", "skipped_no_player", "skipped_playing", "arrived",
+    "departed_during_wait", "reversed", "wait_ended_not_ours",
+    "wait_ended_toggled_off", "wait_kept_occupied", "wait_kept_unverified",
+    "wait_expired_stopped", "wait_lost_restart", "intent_lost_restart",
+})
+_SCENE_TERMINALS = frozenset({
+    "scene_confirmed", "scene_unconfirmed", "scene_skipped_hold",
+    "scene_fallback_slot", "scene_fallback_failed", "scene_skipped_ambiguous",
+    "scene_skipped_toggled_off", "scene_skipped_occupied", "scene_skipped_guests",
+    "scene_skipped_quiet", "scene_skipped_sleep", "scene_skipped_gap",
+    "scene_window_expired", "scene_entry_missed", "scene_lost_restart",
+})
+# Outcomes that end a stamp (a live departure stamp must end in one).
+_STAMP_TERMINALS = frozenset({
+    "departure_paused", "departure_kept_returned", "departure_kept_shared",
+    "departure_kept_occupied", "departure_kept_not_ours", "departure_kept_group",
+    "departure_kept_other_playing", "departure_kept_toggled_off",
+    "departure_kept_unverified", "stamp_cleared_reversed", "stamp_cleared_not_ours",
+    "departure_stamp_lost_restart", "reversed", "wait_ended_not_ours",
+    "wait_expired_stopped", "stopped_then_arrived",
+})
+
+
+def _latest_row_ts(rows, person: str, before: float) -> Optional[float]:
+    """Newest residency row of ``person`` strictly before ``before``. The
+    residency writer (presence._persist_residency_event) stores the record
+    as attrs (``person``, ``edge_ts``) and the edge time as ``started_at``."""
+    best = None
+    for r in rows or ():
+        a = r.get("attrs") or {}
+        if a.get("person") != person:
+            continue
+        ts = a.get("edge_ts")
+        if not isinstance(ts, (int, float)):
+            try:
+                ts = datetime.fromisoformat(str(r.get("started_at"))).timestamp()
+            except (TypeError, ValueError):
+                continue
+        ts = float(ts)
+        if ts < before and (best is None or ts > best):
+            best = ts
+    return best
+
+
+@dataclass
+class _ArrivalIntent:
+    person: str
+    pc_key: str
+    t_a: float
+    ref: str
+    music_on: bool
+    scene_on: bool
+    target_room: Optional[str]
+    music: str = ""
+    music_done: bool = False
+    scene: str = ""
+    scene_done: bool = False
+    scene_room: Optional[str] = None
+    placed_in_bedroom: Optional[str] = None
+    window_unsub: Optional[Callable] = None
+    confirm_unsub: Optional[Callable] = None
+
+    def cancel_timers(self) -> None:
+        for name in ("window_unsub", "confirm_unsub"):
+            u = getattr(self, name)
+            setattr(self, name, None)
+            if u is not None:
+                try:
+                    u()
+                except Exception:  # noqa: BLE001
+                    pass
+
+
+@dataclass
+class _ArrivalStamp:
+    person: str
+    pc_key: str
+    ref: str
+    room: str
+    native: str
+    ma: str
+    play_eid: str
+    started_at: float
+    ours: dict = field(default_factory=dict)
+    handed_off: bool = False
+    reversed_seen: bool = False
+    not_ours_seen: bool = False
+    done: bool = False
+    departure: Optional[dict] = None
+    watch_until: Optional[float] = None
+    player_unsub: Optional[Callable] = None
+    departure_unsub: Optional[Callable] = None
+    watch_unsub: Optional[Callable] = None
+
+    def verifiable(self) -> bool:
+        return bool(_c.ARRIVAL_OURS_ATTR) and bool(self.ours)
+
+    def cancel_listeners(self) -> None:
+        for name in ("player_unsub", "departure_unsub", "watch_unsub"):
+            u = getattr(self, name)
+            setattr(self, name, None)
+            if u is not None:
+                try:
+                    u()
+                except Exception:  # noqa: BLE001
+                    pass
+
+
 class MusicFollowing:
     """Seamless music following between rooms (see module docstring)."""
 
@@ -288,12 +404,15 @@ class MusicFollowing:
                                "by_kind": {}, "by_pair": {}}
         self._accuracy_7d: Optional[dict] = None
         self._diagnostic_listeners: list = []
+        # Arc step 8 arrival actions (RAM).
+        self._arrival_init_state()
 
         _LOGGER.info("MusicFollowing initialized")
 
     async def async_init(self) -> None:
         """Subscribe to transitions; put back volumes a restart left faded."""
         self.transition_detector.async_add_listener(self._on_person_transition)
+        self.async_start_arrival_actions()
         await self.async_replay_saved_volumes()
         _LOGGER.info(
             "MusicFollowing ready: follow_mode=%s, fade_volume=%.2f",
@@ -530,21 +649,1172 @@ class MusicFollowing:
         """
         self._preference_provider = provider
 
-    # ------------------------------------------------------------------
-    # Arc step 8 welcome scene seam (PLANNING_identity_actions_v6.md §5.5,
-    # §10.1). The room entry path (automation._maybe_activate_slot_scene,
-    # day / evening caller only) asks this DECISION call for a per-person
-    # scene before the room's slot scene. Until D3's decision logic lands
-    # it always returns None, so the entry path stays byte-identical.
-    # ------------------------------------------------------------------
-    def arrival_scene_for(self, room_entry_id: str) -> Optional[str]:
-        """Welcome scene to use for this room's entry, or None (D3 stub)."""
+    # ==================================================================
+    # Arc step 8 arrival actions (PLANNING_identity_actions_v6.md rev 3.6.1
+    # §5.4-§5.9): arrival music (D2), welcome scene decision (D3),
+    # departure pause (D4), episodes (D6), trip-wires (§7).
+    #
+    # Trigger: ONE residency subscription (arrival + departure records);
+    # no F5 is read. Reads only the layer's public surface (contract §4).
+    # Every intent ends in exactly one terminal music outcome and one
+    # terminal scene outcome (INV-V6-COUNTED).
+    # ==================================================================
+
+    def _arrival_init_state(self) -> None:
+        self._edge_unsub: Optional[Callable] = None
+        self._arrival_tasks: set[asyncio.Task] = set()
+        self._arrival_intents: dict[str, _ArrivalIntent] = {}
+        self._arrival_stamps: dict[str, _ArrivalStamp] = {}
+        self._arrival_last_music: dict[str, float] = {}
+        self._arrival_last_scene: dict[str, float] = {}
+        self._arrival_counts: dict[str, int] = {}
+        self._arrival_counts_date: str = ""
+        self._arrival_last_action: dict[str, dict] = {}
+        self._pc_unsub: Optional[Callable] = None
+        self._arrival_census_seen: bool = False
+        # Injectable clocks / scheduler (tests drive them).
+        self._wall = time.time
+        self._call_later = None
+
+    # ---------------- lifecycle
+
+    def async_start_arrival_actions(self) -> bool:
+        """Subscribe the one residency subscription (idempotent) and
+        schedule the restart sweep. Called from ``async_init`` and from the
+        Music Following coordinator's setup (a CM reload tears the engine's
+        arrival state down but keeps the engine). Returns True when it
+        subscribed now."""
+        if self._edge_unsub is not None:
+            return False
+        try:
+            from .domain_coordinators.residency import (  # noqa: PLC0415
+                KIND_ARRIVAL,
+                KIND_DEPARTURE,
+                subscribe_person_edges,
+            )
+            self._edge_unsub = subscribe_person_edges(
+                self.hass, self._on_person_edge, persons=None,
+                kinds={KIND_ARRIVAL, KIND_DEPARTURE},
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning("Arrival actions: residency subscription failed", exc_info=True)
+            self._edge_unsub = None
+            return False
+        self._arrival_spawn(self._arrival_restart_sweep(), "ura_arrival_sweep")
+        return True
+
+    async def _arrival_teardown(self) -> None:
+        unsub, self._edge_unsub = self._edge_unsub, None
+        if unsub is not None:
+            try:
+                unsub()
+            except Exception:  # noqa: BLE001
+                pass
+        tasks = [t for t in list(self._arrival_tasks) if not t.done()]
+        for t in tasks:
+            t.cancel()
+        if tasks:
+            try:
+                await asyncio.wait(tasks, timeout=5)
+            except Exception:  # noqa: BLE001
+                pass
+        self._arrival_tasks.clear()
+        for intent in list(self._arrival_intents.values()):
+            intent.cancel_timers()
+        self._arrival_intents.clear()
+        for stamp in list(self._arrival_stamps.values()):
+            stamp.cancel_listeners()
+        self._arrival_stamps.clear()
+        self._arrival_release_pc_listener()
+
+    def _arrival_spawn(self, coro, name: str):
+        try:
+            task = self.hass.async_create_task(coro, name=name)
+        except Exception:  # noqa: BLE001
+            coro.close()
+            return None
+        if isinstance(task, asyncio.Future):
+            self._arrival_tasks.add(task)
+            task.add_done_callback(self._arrival_tasks.discard)
+        return task
+
+    def _schedule_later(self, delay: float, cb: Callable) -> Callable:
+        sched = self._call_later
+        if sched is None:
+            from homeassistant.helpers.event import async_call_later  # noqa: PLC0415
+            sched = async_call_later
+        from homeassistant.core import callback as _cb  # noqa: PLC0415
+        return sched(self.hass, max(0.0, float(delay)), _cb(cb))
+
+    # ---------------- the ONE subscription callback (guard R14 budget)
+
+    def _on_person_edge(self, record) -> None:
+        """Residency record delivered inline in ``_feed_residency``: sync,
+        O(1), no await, no coordinator read; the work is scheduled."""
+        kind = getattr(record, "kind", None)
+        if kind == "arrival":
+            self._arrival_spawn(self._async_arrival(record), "ura_arrival_intent")
+        elif kind == "departure":
+            stamp = self._arrival_stamps.get(getattr(record, "person", ""))
+            if stamp is not None and not stamp.done:
+                self._arrival_spawn(self._async_departure(record), "ura_arrival_departure")
+
+    # ---------------- shared reads
+
+    def _cm_options(self) -> dict:
+        try:
+            for ce in self.hass.config_entries.async_entries(DOMAIN):
+                if ce.data.get(_c.CONF_ENTRY_TYPE) == _c.ENTRY_TYPE_COORDINATOR_MANAGER:
+                    return dict(ce.options or {})
+        except Exception:  # noqa: BLE001
+            pass
+        return {}
+
+    def _profile(self, person: str) -> Optional[dict]:
+        from .person_profiles import get_person_profile  # noqa: PLC0415
+        return get_person_profile(self._cm_options(), person)
+
+    def _presence(self):
+        try:
+            cm = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            return (getattr(cm, "coordinators", None) or {}).get("presence") if cm else None
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _observation_mode(self) -> bool:
+        try:
+            cm = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            c = (getattr(cm, "coordinators", None) or {}).get("music_following") if cm else None
+            return bool(getattr(c, "observation_mode", False)) if c is not None else False
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _pc_key_for(self, person: str) -> Optional[str]:
+        """The tracked_persons entry whose one-id-rule entity id is
+        ``person`` (never a slug guess)."""
+        from .person_ids import tracked_person_entity_id  # noqa: PLC0415
+        pc = self._person_layer()
+        for entry in list(getattr(pc, "tracked_persons", None) or []):
+            try:
+                if tracked_person_entity_id(entry) == person:
+                    return entry
+            except Exception:  # noqa: BLE001
+                continue
         return None
 
-    def note_arrival_scene_result(self, room_entry_id: str, result: str) -> None:
-        """Entry path reports how the returned scene ended (D3 stub):
-        ``const.ARRIVAL_SCENE_RESULT_*`` (applied / hold / unavailable / error)."""
+    def _room_name_map(self) -> dict[str, str]:
+        out: dict[str, str] = {}
+        for eid, cfg in self._get_room_entries().items():
+            name = cfg.get("room_name")
+            if name:
+                out[str(name)] = eid
+        return out
+
+    def _room_name_of(self, room_id: str) -> str:
+        return str((self._get_room_entries().get(room_id) or {}).get("room_name") or "")
+
+    def _person_room_id(self, pc_key: Optional[str]) -> Optional[str]:
+        """The layer's room for a person, mapped to a room entry_id."""
+        if not pc_key:
+            return None
+        from .person_profiles import room_entry_id_for_name  # noqa: PLC0415
+        return room_entry_id_for_name(self._room_name_map(), self._layer_location(pc_key))
+
+    def _in_own_room(self, intent_or_stamp) -> bool:
+        """THE reach predicate (§5.5.2): the layer places P in any of P's
+        bedrooms or bathrooms."""
+        from .person_profiles import own_rooms  # noqa: PLC0415
+        room = self._person_room_id(intent_or_stamp.pc_key)
+        return bool(room) and room in own_rooms(self._profile(intent_or_stamp.person))
+
+    def _others_in_room(self, room_id: str, exclude: str) -> bool:
+        """Another tracked person's layer room is ``room_id`` (STALE
+        included). The one site to swap to persons_in_room (G6)."""
+        from .person_ids import tracked_person_entity_id  # noqa: PLC0415
+        from .person_profiles import room_entry_id_for_name  # noqa: PLC0415
+        pc = self._person_layer()
+        names = self._room_name_map()
+        for entry in list(getattr(pc, "tracked_persons", None) or []):
+            try:
+                if tracked_person_entity_id(entry) == exclude:
+                    continue
+            except Exception:  # noqa: BLE001
+                continue
+            if room_entry_id_for_name(names, self._layer_location(entry)) == room_id:
+                return True
+        return False
+
+    def _room_coord(self, room_id: str):
+        try:
+            rc = self.hass.data.get(DOMAIN, {}).get(room_id)
+            return rc if rc is not None and hasattr(rc, "occupied_since") else None
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _room_occupied(self, room_id: str) -> bool:
+        rc = self._room_coord(room_id)
+        try:
+            return bool((getattr(rc, "data", None) or {}).get(_c.STATE_OCCUPIED)) if rc else False
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _room_paused(self, room_id: str) -> bool:
+        return _c.room_automation_paused(self._room_coord(room_id))
+
+    def _guests(self) -> tuple[bool, bool]:
+        """(guests detected, census unavailable). House state ``guest``, or
+        the comfort census view with >= ARRIVAL_GUEST_UNIDENTIFIED_MIN
+        unidentified (D0b). A None census fails OPEN (portability)."""
+        if (self._current_house_state or "") == "guest":
+            return True, False
+        presence = self._presence()
+        view = None
+        if presence is not None:
+            try:
+                view = presence.get_house_census(cls="comfort")
+            except Exception:  # noqa: BLE001
+                view = None
+        if view is None:
+            return False, True
+        self._arrival_census_seen = True
+        try:
+            n = int(getattr(view, "unidentified_or_guests", 0) or 0)
+        except (TypeError, ValueError):
+            n = 0
+        return n >= int(_c.ARRIVAL_GUEST_UNIDENTIFIED_MIN), False
+
+    def _quiet_or_sleep(self) -> Optional[str]:
+        state = (self._current_house_state or "").lower()
+        if state in ("sleep", "waking"):
+            return "sleep"
+        nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+        try:
+            if nm is not None and nm.is_quiet_hours_active():
+                return "quiet"
+        except Exception:  # noqa: BLE001
+            pass
         return None
+
+    def _toggle_off(self, person: str, *, music: bool = False, scene: bool = False,
+                    room_id: Optional[str] = None) -> Optional[str]:
+        """The one toggle re-read (§7 site 13). Returns the subtype of the
+        first toggle that is off, else None."""
+        from .person_profiles import arrival_master_on  # noqa: PLC0415
+        if not arrival_master_on(self._cm_options()):
+            return "master"
+        if not self._coordinator_enabled():
+            return "coordinator"
+        if self._observation_mode():
+            return "observation"
+        prof = self._profile(person) or {}
+        if music and not prof.get(_c.PROFILE_AUTO_MUSIC):
+            return "auto_music"
+        if scene and (not prof.get(_c.PROFILE_AUTO_SCENE) or not prof.get(_c.PROFILE_WELCOME_SCENE)):
+            return "auto_scene"
+        if room_id is not None and self._room_paused(room_id):
+            return "paused"
+        return None
+
+    # ---------------- outcomes (D6 writers + counters + decision line)
+
+    def _arrival_count(self, key: str) -> None:
+        today = dt_util.now().strftime("%Y-%m-%d")
+        if today != self._arrival_counts_date:
+            self._arrival_counts = {}
+            self._arrival_counts_date = today
+        self._arrival_counts[key] = self._arrival_counts.get(key, 0) + 1
+
+    def _arrival_outcome(self, ref: str, person: str, outcome: str, *, subtype: str = "",
+                         episode_type: str = _c.ARRIVAL_MUSIC_EPISODE_TYPE, **extra) -> None:
+        self._arrival_count(outcome if not subtype else f"{outcome}:{subtype}")
+        attrs = {"intent_ref": ref, "person": person, "outcome": outcome,
+                 "subtype": subtype, "ts": self._wall()}
+        attrs.update(extra)
+        _LOGGER.info("Arrival decision %s",
+                     " ".join(f"{k}={v}" for k, v in attrs.items()))
+        self._arrival_last_action[person] = dict(attrs)
+        from .domain_coordinators.residency import person_slug  # noqa: PLC0415
+        from datetime import timezone as _tz  # noqa: PLC0415
+        # started_at on the engine's own clock (the residency rows use the
+        # edge time), so the sweep / trip-wire windows compare like for like.
+        self._write_episode(episode_type, f"person:{person_slug(person)}", attrs,
+                            source_ref=f"{ref}:{outcome}",
+                            started_at=datetime.fromtimestamp(attrs["ts"], tz=_tz.utc).isoformat())
+        self._notify_listeners()
+
+    def last_arrival_action(self, person: str) -> Optional[dict]:
+        """Display read for the person profile sensor."""
+        a = self._arrival_last_action.get(person)
+        return dict(a) if a else None
+
+    # ---------------- §5.4 intent gates
+
+    async def _async_arrival(self, record) -> None:
+        person = getattr(record, "person", "")
+        edge_ts = float(getattr(record, "edge_ts", 0.0) or 0.0)
+        from .person_profiles import arrival_master_on, own_rooms  # noqa: PLC0415
+        # 1. master, coordinator, observation (and the window kill switch).
+        if (not arrival_master_on(self._cm_options()) or not self._coordinator_enabled()
+                or self._observation_mode() or float(_c.ARRIVAL_WINDOW_S) <= 0):
+            self._arrival_count("skipped_master_off")
+            return
+        # 2. presence; a tracked resident with an action on and own rooms.
+        if self._presence() is None:
+            self._arrival_count("skipped_no_presence")
+            return
+        prof = self._profile(person) or {}
+        pc_key = self._pc_key_for(person)
+        if (not getattr(record, "resident_set_resolved", False) or pc_key is None
+                or not (prof.get(_c.PROFILE_AUTO_MUSIC) or prof.get(_c.PROFILE_AUTO_SCENE))
+                or not own_rooms(prof)):
+            self._arrival_count("skipped_no_rooms")
+            return
+        # 3a. the record's flags.
+        if getattr(record, "counted", None) is not True:
+            self._arrival_count("skipped_not_counted_return:not_counted")
+            return
+        if getattr(record, "source_stale", True) is not False:
+            self._arrival_count("skipped_not_counted_return:stale_source")
+            return
+        if getattr(record, "in_boot_window", True) is not False:
+            self._arrival_count("skipped_not_counted_return:boot")
+            return
+        # 3b. away long enough (the flap filter).
+        sub = await self._away_long_enough(person, edge_ts)
+        if sub is not None:
+            self._arrival_count(f"skipped_not_counted_return:{sub}")
+            return
+        # 4. one intent per person.
+        if person in self._arrival_intents:
+            self._arrival_count("intent_duplicate")
+            return
+        await self._open_intent(person, pc_key, edge_ts, prof)
+
+    async def _away_long_enough(self, person: str, edge_ts: float) -> Optional[str]:
+        """Gate 3b. None = pass, else the subtype."""
+        min_away = float(_c.ARRIVAL_MIN_AWAY_S)
+        if min_away <= 0:
+            return None
+        from .domain_coordinators.residency import person_slug  # noqa: PLC0415
+        # (1) the tracker's left_at (RAM, never aged out by the ring).
+        left_at = None
+        presence = self._presence()
+        try:
+            snap = presence.get_residency_snapshot() if presence is not None else {}
+            left_at = ((snap.get("persons") or {}).get(person_slug(person)) or {}).get("left_at")
+        except Exception:  # noqa: BLE001
+            left_at = None
+        if isinstance(left_at, (int, float)) and float(left_at) < edge_ts:
+            return None if edge_ts - float(left_at) >= min_away else "short_absence"
+        # (3) the persisted rows (no RAM departure for P since setup).
+        lookback = float(_c.ARRIVAL_DEPARTURE_DB_LOOKBACK_S)
+        database = self.hass.data.get(DOMAIN, {}).get("database")
+        if lookback <= 0 or database is None or not hasattr(database, "read_memory_episodes_by_type"):
+            return "departure_missing"
+        from datetime import timezone as _tz  # noqa: PLC0415
+        since = datetime.fromtimestamp(edge_ts - lookback, tz=_tz.utc).isoformat()
+        try:
+            deps = await database.read_memory_episodes_by_type(
+                _c.RESIDENCY_DEPARTURE_EPISODE_TYPE, since)
+            arrs = await database.read_memory_episodes_by_type(
+                _c.RESIDENCY_ARRIVAL_EPISODE_TYPE, since)
+        except Exception:  # noqa: BLE001
+            return "departure_read_failed"
+        dep = _latest_row_ts(deps, person, edge_ts)
+        arr = _latest_row_ts(arrs, person, edge_ts)
+        if dep is None or (arr is not None and arr >= dep):
+            return "departure_missing"
+        return None if edge_ts - dep >= min_away else "short_absence"
+
+    async def _open_intent(self, person: str, pc_key: str, edge_ts: float, prof: dict) -> None:
+        from .domain_coordinators.residency import person_slug  # noqa: PLC0415
+        music_on = bool(prof.get(_c.PROFILE_AUTO_MUSIC))
+        scene_on = bool(prof.get(_c.PROFILE_AUTO_SCENE))
+        target = await self._target_room(prof) if music_on else None
+        intent = _ArrivalIntent(
+            person=person, pc_key=pc_key, t_a=edge_ts,
+            ref=f"arr:{person_slug(person)}:{edge_ts:.3f}",
+            music_on=music_on, scene_on=scene_on, target_room=target,
+        )
+        self._arrival_intents[person] = intent
+        self._arrival_outcome(intent.ref, person, "intent_opened",
+                              opened_at=edge_ts, window_s=float(_c.ARRIVAL_WINDOW_S),
+                              music_on=music_on, scene_on=scene_on, target_room=target or "")
+        remaining = edge_ts + float(_c.ARRIVAL_WINDOW_S) - self._wall()
+        intent.window_unsub = self._schedule_later(
+            remaining, lambda _now, p=person, r=intent.ref: self._on_window_timer(p, r))
+        self._arrival_sync_pc_listener()
+        if music_on:
+            await self._music_start(intent)
+
+    async def _target_room(self, prof: dict) -> Optional[str]:
+        for key in (_c.PROFILE_ROOMS_BEDROOM, _c.PROFILE_ROOMS_BATHROOM):
+            for room_id in list(prof.get(key) or []):
+                name = self._room_name_of(room_id)
+                if name and await self._get_room_player(name):
+                    return room_id
+        return None
+
+    # ---------------- §5.5.1 start
+
+    def _music_end(self, intent: "_ArrivalIntent", outcome: str, subtype: str = "", **extra) -> None:
+        if intent.music_done:
+            return
+        intent.music_done = True
+        intent.music = outcome
+        self._arrival_outcome(intent.ref, intent.person, outcome, subtype=subtype,
+                              room=intent.target_room or "", **extra)
+
+    async def _music_start(self, intent: "_ArrivalIntent") -> None:
+        person, room = intent.person, intent.target_room
+        if not room:
+            self._music_end(intent, "skipped_no_player")
+            return
+        off = self._toggle_off(person, music=True)
+        if off:
+            self._music_end(intent, "skipped_toggled_off", off)
+            return
+        qs = self._quiet_or_sleep()
+        if qs:
+            self._music_end(intent, "skipped_quiet" if qs == "quiet" else "skipped_sleep")
+            return
+        if self._room_paused(room):
+            self._music_end(intent, "skipped_paused")
+            return
+        # 3. occupied (operator rule B).
+        if self._others_in_room(room, person):
+            self._music_end(intent, "skipped_occupied", "tracked_person")
+            return
+        guests, census_na = self._guests()
+        extra = {"census_unavailable": True} if census_na else {}
+        if guests:
+            self._music_end(intent, "skipped_guests", **extra)
+            return
+        backstop = float(_c.ARRIVAL_OCCUPIED_BACKSTOP_S)
+        me_here = self._person_room_id(intent.pc_key) == room
+        if backstop > 0 and not me_here and self._room_occupied(room):
+            onset = None
+            try:
+                onset = self._room_coord(room).occupied_since()
+            except Exception:  # noqa: BLE001
+                onset = None
+            if onset is not None and onset.timestamp() <= intent.t_a - backstop:
+                self._music_end(intent, "skipped_occupied", "backstop", **extra)
+                return
+        # 4. gap.
+        last = self._arrival_last_music.get(person)
+        gap = float(_c.ARRIVAL_MIN_GAP_S)
+        if gap > 0 and last is not None and self._wall() - last < gap:
+            self._music_end(intent, "skipped_gap", **extra)
+            return
+        # 5. a pick and a player.
+        from .lighting.resolver import resolve_slot  # noqa: PLC0415
+        from .person_profiles import music_volume, pick_media  # noqa: PLC0415
+        prof = self._profile(person) or {}
+        name = self._room_name_of(room)
+        pick = pick_media(prof, room, resolve_slot(*self._room_slot_inputs(room)))
+        if not pick:
+            self._music_end(intent, "skipped_no_media", **extra)
+            return
+        native = await self._get_room_player(name)
+        nst = self.hass.states.get(native) if native else None
+        if nst is None or nst.state in _UNAVAILABLE_STATES:
+            self._music_end(intent, "skipped_no_player", **extra)
+            return
+        ma = native
+        for cand, _kind in self._ma_candidates(native):
+            ma = cand
+            break
+        # 6. never interrupt.
+        if self._any_playing((native, ma)):
+            self._music_end(intent, "skipped_playing", **extra)
+            return
+        # 7. play MA-first.
+        play_eid = ma or native
+        volume = max(0.0, min(1.0, music_volume(prof) * self._room_scale(name)))
+        try:
+            self._started_players.add(play_eid)
+            await self._call(MEDIA_PLAYER_DOMAIN, "play_media",
+                             {"entity_id": play_eid, **pick})
+            await self._set_volume(play_eid, volume)
+            if float(_c.ARRIVAL_VERIFY_S) > 0:
+                await self._sleep(float(_c.ARRIVAL_VERIFY_S))
+        except asyncio.CancelledError:
+            raise
+        except Exception as err:  # noqa: BLE001
+            self._music_end(intent, "start_failed", type(err).__name__, **extra)
+            return
+        st = self.hass.states.get(play_eid)
+        if st is None or st.state != STATE_PLAYING:
+            self._music_end(intent, "start_failed", "not_playing", **extra)
+            return
+        self._arrival_last_music[person] = self._wall()
+        stamp = _ArrivalStamp(person=person, pc_key=intent.pc_key, ref=intent.ref,
+                              room=room, native=native, ma=ma, play_eid=play_eid,
+                              started_at=self._wall())
+        stamp.ours = self._read_ours(stamp)
+        self._arrival_stamps[person] = stamp
+        self._start_player_listener(stamp)
+        self._music_end(intent, "started", ours_attr=_c.ARRIVAL_OURS_ATTR or "",
+                        ours_verifiable=stamp.verifiable(), **extra)
+        intent.music_done = False         # the wait follows
+        intent.music = "waiting"
+        self._arrival_sync_pc_listener()
+        if self._in_own_room(intent):
+            self._wait_arrived(intent, stamp, "listener")
+
+    def _room_slot_inputs(self, room: str) -> tuple[bool, Optional[bool]]:
+        rc = self._room_coord(room)
+        auto = getattr(rc, "automation", None) if rc is not None else None
+        try:
+            sleep = bool(auto.is_sleep_mode_active()) if auto is not None else False
+        except Exception:  # noqa: BLE001
+            sleep = False
+        try:
+            lux = (getattr(rc, "data", None) or {}).get(_c.STATE_ILLUMINANCE)
+            dark = auto.is_dark(lux) if auto is not None else None
+        except Exception:  # noqa: BLE001
+            dark = None
+        return sleep, dark
+
+    def _room_scale(self, room_name: str) -> float:
+        scale = _c.DEFAULT_ROOM_MEDIA_VOLUME_SCALE
+        try:
+            cfg = self._room_cfg(room_name)
+            if cfg is not None and cfg.get(_c.CONF_ROOM_MEDIA_VOLUME_SCALE) is not None:
+                scale = float(cfg.get(_c.CONF_ROOM_MEDIA_VOLUME_SCALE))
+        except Exception:  # noqa: BLE001
+            pass
+        return min(max(scale, _c.MIN_ROOM_MEDIA_VOLUME_SCALE), _c.MAX_ROOM_MEDIA_VOLUME_SCALE)
+
+    def _any_playing(self, eids) -> bool:
+        seen = set()
+        for eid in eids:
+            if not eid or eid in seen:
+                continue
+            seen.add(eid)
+            st = self.hass.states.get(eid)
+            if st is None:
+                continue
+            if st.state == STATE_PLAYING:
+                return True
+            for m in list((st.attributes or {}).get("group_members") or []):
+                if m == eid:
+                    continue
+                ms = self.hass.states.get(m)
+                if ms is not None and ms.state == STATE_PLAYING:
+                    return True
+        return False
+
+    # ---------------- "ours" (§5.5.2, D2 B0 branch)
+
+    def _read_ours(self, stamp: "_ArrivalStamp") -> dict:
+        attr = _c.ARRIVAL_OURS_ATTR
+        out: dict = {}
+        if not attr:
+            return out
+        for eid in {stamp.native, stamp.ma}:
+            st = self.hass.states.get(eid) if eid else None
+            val = (st.attributes or {}).get(attr) if st is not None else None
+            if val is not None:
+                out[eid] = val
+        return out
+
+    def _ours_now(self, stamp: "_ArrivalStamp") -> Optional[bool]:
+        """True / False when the branch can tell; None = unverifiable."""
+        if not stamp.verifiable():
+            return None
+        attr = _c.ARRIVAL_OURS_ATTR
+        for eid, val in stamp.ours.items():
+            st = self.hass.states.get(eid)
+            if (st is not None and st.state == STATE_PLAYING
+                    and (st.attributes or {}).get(attr) == val):
+                return True
+        return False
+
+    # ---------------- stamped-player listener (B4)
+
+    def _start_player_listener(self, stamp: "_ArrivalStamp") -> None:
+        try:
+            from homeassistant.helpers.event import async_track_state_change_event  # noqa: PLC0415
+            from .ura_context import is_ura_context  # noqa: PLC0415
+        except Exception:  # noqa: BLE001
+            return
+        from homeassistant.core import callback as _cb  # noqa: PLC0415
+        eids = sorted({e for e in (stamp.native, stamp.ma) if e})
+
+        @_cb
+        def _on_player(event) -> None:
+            data = getattr(event, "data", {}) or {}
+            new = data.get("new_state")
+            if new is None or stamp.done:
+                return
+            if not is_ura_context(getattr(new, "context", None)):
+                vol = (new.attributes or {}).get("volume_level")
+                if new.state in ("paused", "idle", "off", "standby") or vol == 0 or vol == 0.0:
+                    stamp.reversed_seen = True
+            if self._ours_now(stamp) is False:
+                stamp.not_ours_seen = True
+            self._arrival_spawn(self._arrival_tick(), "ura_arrival_tick")
+
+        try:
+            stamp.player_unsub = async_track_state_change_event(self.hass, eids, _on_player)
+        except Exception:  # noqa: BLE001
+            stamp.player_unsub = None
+
+    def _end_stamp(self, stamp: "_ArrivalStamp") -> None:
+        stamp.done = True
+        stamp.cancel_listeners()
+        if self._arrival_stamps.get(stamp.person) is stamp:
+            self._arrival_stamps.pop(stamp.person, None)
+        self._arrival_sync_pc_listener()
+
+    # ---------------- the person-coordinator listener (one, while needed)
+
+    def _arrival_sync_pc_listener(self) -> None:
+        needed = bool(self._arrival_intents) or any(
+            not s.done for s in self._arrival_stamps.values())
+        if needed and self._pc_unsub is None:
+            pc = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+            if pc is not None:
+                try:
+                    self._pc_unsub = pc.async_add_listener(self._on_pc_update)
+                except Exception:  # noqa: BLE001
+                    self._pc_unsub = None
+        elif not needed:
+            self._arrival_release_pc_listener()
+
+    def _arrival_release_pc_listener(self) -> None:
+        unsub, self._pc_unsub = self._pc_unsub, None
+        if unsub is not None:
+            try:
+                unsub()
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _on_pc_update(self) -> None:
+        self._arrival_spawn(self._arrival_tick(), "ura_arrival_tick")
+
+    async def _arrival_tick(self) -> None:
+        """One pass per update per waiting person (§5.5.2 steps 1-3), the
+        scene placement record (§5.6), the stop watch and the departure
+        checks (§5.7)."""
+        for intent in list(self._arrival_intents.values()):
+            room = self._person_room_id(intent.pc_key)
+            from .person_profiles import own_rooms  # noqa: PLC0415
+            prof = self._profile(intent.person) or {}
+            if room and room in list(prof.get(_c.PROFILE_ROOMS_BEDROOM) or []):
+                intent.placed_in_bedroom = room
+            if intent.scene == "pending_confirm" and room == intent.scene_room:
+                self._scene_end(intent, "scene_confirmed")
+            stamp = self._arrival_stamps.get(intent.person)
+            if intent.music == "waiting" and stamp is not None and not stamp.done:
+                if stamp.reversed_seen:
+                    self._music_end(intent, "reversed")
+                    self._end_stamp(stamp)
+                elif stamp.not_ours_seen or self._ours_now(stamp) is False:
+                    self._music_end(intent, "wait_ended_not_ours")
+                    self._end_stamp(stamp)
+                elif room and room in own_rooms(prof):
+                    self._wait_arrived(intent, stamp, "listener")
+        for stamp in list(self._arrival_stamps.values()):
+            if stamp.done:
+                continue
+            if stamp.watch_until is not None:
+                if self._in_own_room(stamp):
+                    stamp.watch_until = None
+                    self._arrival_outcome(stamp.ref, stamp.person, "stopped_then_arrived",
+                                          room=stamp.room)
+                    self._end_stamp(stamp)
+                continue
+            if stamp.departure is not None:
+                await self._departure_check(stamp, final=False)
+            elif stamp.handed_off:
+                if stamp.reversed_seen:
+                    self._arrival_outcome(stamp.ref, stamp.person, "stamp_cleared_reversed",
+                                          room=stamp.room)
+                    self._end_stamp(stamp)
+                elif stamp.not_ours_seen:
+                    self._arrival_outcome(stamp.ref, stamp.person, "stamp_cleared_not_ours",
+                                          room=stamp.room)
+                    self._end_stamp(stamp)
+
+    def _wait_arrived(self, intent: "_ArrivalIntent", stamp: "_ArrivalStamp", sub: str) -> None:
+        """§5.5.3 hand-off: the arrival's music part ends; only the
+        departure stamp remains (no transfer is added here)."""
+        self._music_end(intent, "arrived", sub)
+        stamp.handed_off = True
+        stamp.reversed_seen = False
+        stamp.not_ours_seen = False
+
+    # ---------------- window end (§5.5.2)
+
+    def _on_window_timer(self, person: str, ref: str) -> None:
+        intent = self._arrival_intents.get(person)
+        if intent is None or intent.ref != ref:
+            return
+        intent.window_unsub = None
+        self._arrival_spawn(self._window_end(intent), "ura_arrival_window_end")
+
+    async def _window_end(self, intent: "_ArrivalIntent") -> None:
+        try:
+            if intent.music == "waiting":
+                await self._window_end_music(intent)
+            if intent.scene_on and intent.scene == "":
+                if intent.placed_in_bedroom or self._person_in_own_bedroom(intent):
+                    self._scene_end(intent, "scene_entry_missed")
+                else:
+                    self._scene_end(intent, "scene_window_expired")
+        finally:
+            if self._arrival_intents.get(intent.person) is intent and intent.scene != "pending_confirm":
+                self._arrival_intents.pop(intent.person, None)
+            self._arrival_sync_pc_listener()
+
+    def _person_in_own_bedroom(self, intent: "_ArrivalIntent") -> bool:
+        room = self._person_room_id(intent.pc_key)
+        prof = self._profile(intent.person) or {}
+        return bool(room) and room in list(prof.get(_c.PROFILE_ROOMS_BEDROOM) or [])
+
+    async def _window_end_music(self, intent: "_ArrivalIntent") -> None:
+        stamp = self._arrival_stamps.get(intent.person)
+        if stamp is None or stamp.done:
+            self._music_end(intent, "wait_ended_not_ours", "stamp_gone")
+            return
+        room = intent.target_room
+        # 1. reversed / not ours.
+        if stamp.reversed_seen:
+            self._music_end(intent, "reversed")
+            self._end_stamp(stamp)
+            return
+        if stamp.not_ours_seen or self._ours_now(stamp) is False:
+            self._music_end(intent, "wait_ended_not_ours")
+            self._end_stamp(stamp)
+            return
+        # 2. toggles re-read.
+        off = self._toggle_off(intent.person, music=True, room_id=room)
+        if off:
+            self._music_end(intent, "wait_ended_toggled_off", off)
+            return
+        # 3. reach: a final read, else ONE move-log read.
+        if self._in_own_room(intent):
+            self._wait_arrived(intent, stamp, "late_seen")
+            return
+        if self._moved_into_own_room(intent):
+            self._wait_arrived(intent, stamp, "late_seen")
+            return
+        # 4. someone else is listening.
+        if self._others_in_room(room, intent.person):
+            self._music_end(intent, "wait_kept_occupied", "tracked_person")
+            return
+        if self._coowner_arrived(intent):
+            self._music_end(intent, "wait_kept_occupied", "co_owner")
+            return
+        if self._room_occupied(room):
+            self._music_end(intent, "wait_kept_occupied", "room_occupied")
+            return
+        # 5. B0 branch "neither": the stop is withheld, reason recorded.
+        if self._ours_now(stamp) is None:
+            self._music_end(intent, "wait_kept_unverified",
+                            "no_ours_attr" if not _c.ARRIVAL_OURS_ATTR else "ours_key_missing")
+            return
+        # 6. stop.
+        st = self.hass.states.get(stamp.play_eid)
+        feats = 0
+        try:
+            feats = int((st.attributes or {}).get("supported_features") or 0) if st else 0
+        except (TypeError, ValueError):
+            feats = 0
+        service = "media_stop" if feats & _FEATURE_STOP or not feats else "media_pause"
+        try:
+            await self._call(MEDIA_PLAYER_DOMAIN, service, {"entity_id": stamp.play_eid})
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning("Arrival: window-end stop of %s failed", stamp.play_eid)
+        self._music_end(intent, "wait_expired_stopped", service)
+        if stamp.player_unsub is not None:
+            try:
+                stamp.player_unsub()
+            except Exception:  # noqa: BLE001
+                pass
+            stamp.player_unsub = None
+        if float(_c.ARRIVAL_REVERSAL_S) > 0:
+            stamp.watch_until = self._wall() + float(_c.ARRIVAL_REVERSAL_S)
+            stamp.watch_unsub = self._schedule_later(
+                float(_c.ARRIVAL_REVERSAL_S), lambda _now, s=stamp: self._end_watch(s))
+        else:
+            self._end_stamp(stamp)
+
+    def _end_watch(self, stamp: "_ArrivalStamp") -> None:
+        stamp.watch_unsub = None
+        if not stamp.done:
+            stamp.watch_until = None
+            self._end_stamp(stamp)
+
+    def _moved_into_own_room(self, intent: "_ArrivalIntent") -> bool:
+        """The one window-end move-log read (aware datetime, never the
+        epoch float). Truncated = the location read decided alone."""
+        from .person_profiles import own_rooms  # noqa: PLC0415
+        presence = self._presence()
+        pc = self._person_layer()
+        if presence is None:
+            return False
+        try:
+            interval = getattr(pc, "update_interval", None) or timedelta(seconds=30)
+            t = dt_util.utc_from_timestamp(intent.t_a) - interval
+            if presence.location_moves_truncated_since(t):
+                return False
+            moves = presence.location_moves_since(t)
+        except Exception:  # noqa: BLE001
+            return False
+        mine = own_rooms(self._profile(intent.person))
+        names = self._room_name_map()
+        for mv in moves or ():
+            if getattr(mv, "person_entity", None) != intent.person:
+                continue
+            if names.get(str(getattr(mv, "to_room", "") or "")) in mine:
+                return True
+        return False
+
+    def _coowner_arrived(self, intent: "_ArrivalIntent") -> bool:
+        """A co-owner of R had an intent that reached ``arrived`` in R
+        inside this window."""
+        room = intent.target_room
+        for other in self._arrival_intents.values():
+            if other is intent:
+                continue
+            if other.music == "arrived" and other.target_room == room:
+                return True
+        for stamp in self._arrival_stamps.values():
+            if stamp.person != intent.person and stamp.handed_off and stamp.room == room:
+                return True
+        return False
+
+    # ---------------- §5.7 departure pause
+
+    async def _async_departure(self, record) -> None:
+        person = getattr(record, "person", "")
+        stamp = self._arrival_stamps.get(person)
+        if (stamp is None or stamp.done or stamp.departure is not None
+                or stamp.watch_until is not None):
+            return
+        intent = self._arrival_intents.get(person)
+        if intent is not None and intent.music == "waiting":
+            self._music_end(intent, "departed_during_wait")
+        stamp.handed_off = True
+        cfg = self._get_room_entries().get(stamp.room) or {}
+        try:
+            timeout = float(cfg.get(_c.CONF_OCCUPANCY_TIMEOUT, _c.DEFAULT_OCCUPANCY_TIMEOUT))
+        except (TypeError, ValueError):
+            timeout = float(_c.DEFAULT_OCCUPANCY_TIMEOUT)
+        wait = max(0.0, timeout) + float(_c.ARRIVAL_DEPARTURE_VACANCY_WAIT_S)
+        stamp.departure = {"departure_ts": float(getattr(record, "edge_ts", 0.0) or 0.0),
+                           "wait_s": wait}
+        stamp.departure_unsub = self._schedule_later(
+            wait, lambda _now, s=stamp: self._arrival_spawn(
+                self._departure_check(s, final=True), "ura_arrival_departure_end"))
+        self._arrival_sync_pc_listener()
+        await self._departure_check(stamp, final=False)
+
+    def _departure_end(self, stamp: "_ArrivalStamp", outcome: str, subtype: str = "") -> None:
+        if stamp.done:
+            return
+        self._arrival_outcome(stamp.ref, stamp.person, outcome, subtype=subtype,
+                              room=stamp.room, room_occupied=self._room_occupied(stamp.room))
+        self._end_stamp(stamp)
+
+    async def _departure_check(self, stamp: "_ArrivalStamp", *, final: bool) -> None:
+        if stamp.done or stamp.departure is None:
+            return
+        dep_ts = stamp.departure["departure_ts"]
+        presence = self._presence()
+        # 0. returned.
+        returned = ()
+        truncated = True
+        if presence is not None:
+            try:
+                returned = presence.get_person_edges_since(
+                    dep_ts, persons={stamp.person}, kinds={"arrival"})
+                truncated = bool(presence.person_edges_truncated_since(dep_ts))
+            except Exception:  # noqa: BLE001
+                returned, truncated = (), True
+        if returned:
+            self._departure_end(stamp, "departure_kept_returned", "edge")
+            return
+        if truncated:
+            self._departure_end(stamp, "departure_kept_returned", "truncated")
+            return
+        # 1. toggles.
+        if not _c.ARRIVAL_MUSIC_DEPARTURE_PAUSE:
+            self._departure_end(stamp, "departure_kept_toggled_off", "departure_pause")
+            return
+        off = self._toggle_off(stamp.person, music=True, room_id=stamp.room)
+        if off:
+            self._departure_end(stamp, "departure_kept_toggled_off", off)
+            return
+        # 2. ours (B0 branch; "neither" withholds the pause).
+        ours = self._ours_now(stamp)
+        if ours is None:
+            self._departure_end(stamp, "departure_kept_unverified",
+                                "no_ours_attr" if not _c.ARRIVAL_OURS_ATTR else "ours_key_missing")
+            return
+        if stamp.reversed_seen:
+            self._departure_end(stamp, "stamp_cleared_reversed")
+            return
+        if not ours:
+            self._departure_end(stamp, "departure_kept_not_ours")
+            return
+        # 3. group.
+        for eid in {stamp.native, stamp.ma}:
+            st = self.hass.states.get(eid) if eid else None
+            members = list((st.attributes or {}).get("group_members") or []) if st else []
+            if any(m != eid for m in members):
+                self._departure_end(stamp, "departure_kept_group")
+                return
+        # 4. the other entity is not playing something else.
+        for eid in {stamp.native, stamp.ma} - {stamp.play_eid}:
+            st = self.hass.states.get(eid) if eid else None
+            if st is not None and st.state == STATE_PLAYING:
+                val = stamp.ours.get(eid)
+                if val is None or (st.attributes or {}).get(_c.ARRIVAL_OURS_ATTR) != val:
+                    self._departure_end(stamp, "departure_kept_other_playing")
+                    return
+        # 5-6. the room empties with nobody else placed.
+        shared = self._others_in_room(stamp.room, stamp.person)
+        occupied = self._room_occupied(stamp.room)
+        if not shared and not occupied:
+            try:
+                await self._call(MEDIA_PLAYER_DOMAIN, "media_pause", {"entity_id": stamp.play_eid})
+            except Exception:  # noqa: BLE001
+                _LOGGER.warning("Arrival: departure pause of %s failed", stamp.play_eid)
+            self._departure_end(stamp, "departure_paused")
+            return
+        if final:
+            self._departure_end(stamp, "departure_kept_shared" if shared else "departure_kept_occupied")
+
+    # ---------------- §5.6 welcome scene decision (D3)
+
+    def _scene_end(self, intent: "_ArrivalIntent", outcome: str, subtype: str = "") -> None:
+        if intent.scene_done:
+            return
+        if outcome != "scene_applied":
+            intent.scene_done = True
+        if intent.confirm_unsub is not None and outcome in ("scene_confirmed", "scene_unconfirmed"):
+            try:
+                intent.confirm_unsub()
+            except Exception:  # noqa: BLE001
+                pass
+            intent.confirm_unsub = None
+        intent.scene = "pending_confirm" if outcome == "scene_applied" else outcome
+        self._arrival_outcome(intent.ref, intent.person, outcome, subtype=subtype,
+                              episode_type=_c.WELCOME_SCENE_EPISODE_TYPE,
+                              room=intent.scene_room or "")
+        if intent.scene_done and self._arrival_intents.get(intent.person) is intent \
+                and intent.window_unsub is None:
+            self._arrival_intents.pop(intent.person, None)
+            self._arrival_sync_pc_listener()
+
+    def arrival_scene_for(self, room_entry_id: str) -> Optional[str]:
+        """The welcome scene for this room's entry, or None (§5.6). Sync;
+        called by the room entry path's day / evening caller only."""
+        from .person_profiles import profiles_from_options, room_owners  # noqa: PLC0415
+        try:
+            profiles = profiles_from_options(self._cm_options())
+            owners = room_owners(profiles, room_entry_id)
+            open_ = [self._arrival_intents[p] for p in sorted(owners)
+                     if p in self._arrival_intents and self._arrival_intents[p].scene_on
+                     and self._arrival_intents[p].scene == ""]
+        except Exception:  # noqa: BLE001
+            return None
+        if not open_:
+            return None
+        if len(open_) > 1:
+            for intent in open_:
+                intent.scene_room = room_entry_id
+                self._scene_end(intent, "scene_skipped_ambiguous")
+            return None
+        intent = open_[0]
+        prof = profiles.get(intent.person) or {}
+        if self._toggle_off(intent.person, scene=True):
+            intent.scene_room = room_entry_id
+            self._scene_end(intent, "scene_skipped_toggled_off")
+            return None
+        if room_entry_id not in list(prof.get(_c.PROFILE_ROOMS_BEDROOM) or []):
+            return None                    # bathroom etc.: no outcome
+        intent.scene_room = room_entry_id
+        if self._others_in_room(room_entry_id, intent.person):
+            self._scene_end(intent, "scene_skipped_occupied")
+            return None
+        guests, census_na = self._guests()
+        if census_na:
+            self._arrival_count("census_unavailable")
+        if guests:
+            self._scene_end(intent, "scene_skipped_guests")
+            return None
+        qs = self._quiet_or_sleep()
+        if qs:
+            self._scene_end(intent, "scene_skipped_quiet" if qs == "quiet" else "scene_skipped_sleep")
+            return None
+        last = self._arrival_last_scene.get(intent.person)
+        gap = float(_c.ARRIVAL_MIN_GAP_S)
+        if gap > 0 and last is not None and self._wall() - last < gap:
+            self._scene_end(intent, "scene_skipped_gap")
+            return None
+        scene = prof.get(_c.PROFILE_WELCOME_SCENE)
+        if not isinstance(scene, str) or not scene.startswith("scene."):
+            return None
+        intent.scene = "asked"
+        return scene
+
+    def note_arrival_scene_result(self, room_entry_id: str, result: str) -> None:
+        """The entry path reports how the welcome scene ended
+        (``const.ARRIVAL_SCENE_RESULT_*``)."""
+        intent = next((i for i in self._arrival_intents.values()
+                       if i.scene == "asked" and i.scene_room == room_entry_id), None)
+        if intent is None:
+            return
+        if result == _c.ARRIVAL_SCENE_RESULT_APPLIED:
+            self._arrival_last_scene[intent.person] = self._wall()
+            self._scene_end(intent, "scene_applied")
+            if self._person_room_id(intent.pc_key) == room_entry_id:
+                self._scene_end(intent, "scene_confirmed")
+            else:
+                intent.confirm_unsub = self._schedule_later(
+                    float(_c.ARRIVAL_SCENE_CONFIRM_S),
+                    lambda _now, i=intent: self._scene_confirm_timeout(i))
+                self._arrival_sync_pc_listener()
+        elif result == _c.ARRIVAL_SCENE_RESULT_HOLD:
+            self._scene_end(intent, "scene_skipped_hold")
+        elif result == _c.ARRIVAL_SCENE_RESULT_FALLBACK_APPLIED:
+            self._scene_end(intent, "scene_fallback_slot")
+        else:
+            self._scene_end(intent, "scene_fallback_failed", str(result))
+
+    def _scene_confirm_timeout(self, intent: "_ArrivalIntent") -> None:
+        intent.confirm_unsub = None
+        if intent.scene == "pending_confirm":
+            if self._person_room_id(intent.pc_key) == intent.scene_room:
+                self._scene_end(intent, "scene_confirmed")
+            else:
+                self._scene_end(intent, "scene_unconfirmed")
+        if self._arrival_intents.get(intent.person) is intent and intent.window_unsub is None:
+            self._arrival_intents.pop(intent.person, None)
+        self._arrival_sync_pc_listener()
+
+    # ---------------- §5.9 restart sweep
+
+    async def _arrival_restart_sweep(self) -> None:
+        database = self.hass.data.get(DOMAIN, {}).get("database")
+        if database is None or not hasattr(database, "read_memory_episodes_by_type"):
+            return
+        from datetime import timezone as _tz  # noqa: PLC0415
+        now = self._wall()
+        span = float(_c.ARRIVAL_WINDOW_S) + float(_c.ARRIVAL_RESTART_SWEEP_EXTRA_S)
+        long_span = max(span, float(_c.ARRIVAL_TRIPWIRE_WINDOW_S))
+        since = datetime.fromtimestamp(now - long_span, tz=_tz.utc).isoformat()
+        try:
+            music = await database.read_memory_episodes_by_type(_c.ARRIVAL_MUSIC_EPISODE_TYPE, since)
+            scene = await database.read_memory_episodes_by_type(_c.WELCOME_SCENE_EPISODE_TYPE, since)
+        except Exception:  # noqa: BLE001
+            return
+        by_ref: dict[str, dict] = {}
+        for rows, kind in ((music, "music"), (scene, "scene")):
+            for r in rows or ():
+                a = r.get("attrs") or {}
+                ref = a.get("intent_ref")
+                if not ref:
+                    continue
+                d = by_ref.setdefault(ref, {"music": set(), "scene": set(), "opened": None})
+                if a.get("outcome") == "intent_opened":
+                    d["opened"] = a
+                d[kind].add(a.get("outcome"))
+        for ref, d in by_ref.items():
+            opened = d["opened"]
+            if opened is None:
+                continue
+            person = opened.get("person", "")
+            in_window = float(opened.get("opened_at") or 0) >= now - span
+            m = d["music"]
+            if in_window and opened.get("music_on") and not (m & _MUSIC_TERMINALS):
+                if "started" in m:
+                    self._arrival_outcome(ref, person, "wait_lost_restart")
+                else:
+                    self._arrival_outcome(ref, person, "intent_lost_restart")
+            if in_window and opened.get("scene_on") and not (d["scene"] & _SCENE_TERMINALS):
+                self._arrival_outcome(ref, person, "scene_lost_restart",
+                                      episode_type=_c.WELCOME_SCENE_EPISODE_TYPE)
+            if "started" in m and not (m & _STAMP_TERMINALS):
+                self._arrival_outcome(ref, person, "departure_stamp_lost_restart")
+
+    # ---------------- §7 trip-wires (nightly)
+
+    async def async_arrival_tripwires(self, database: Any = None) -> dict:
+        """Evaluate the step 8 trip-wires over the persisted episodes."""
+        fired: dict = {}
+        database = database or self.hass.data.get(DOMAIN, {}).get("database")
+        if database is None or not hasattr(database, "read_memory_episodes_by_type"):
+            return fired
+        from datetime import timezone as _tz  # noqa: PLC0415
+        now = self._wall()
+
+        async def _rows(window_s):
+            since = datetime.fromtimestamp(now - float(window_s), tz=_tz.utc).isoformat()
+            out = []
+            for t in (_c.ARRIVAL_MUSIC_EPISODE_TYPE, _c.WELCOME_SCENE_EPISODE_TYPE):
+                out.extend(await database.read_memory_episodes_by_type(t, since) or [])
+            return [r.get("attrs") or {} for r in out]
+
+        try:
+            week = await _rows(_c.ARRIVAL_TRIPWIRE_WINDOW_S)
+            day = await _rows(_c.ARRIVAL_FAILING_WINDOW_S)
+        except Exception:  # noqa: BLE001
+            return fired
+
+        def n(rows, *outcomes):
+            return sum(1 for a in rows if a.get("outcome") in outcomes)
+
+        opened = [a for a in week if a.get("outcome") == "intent_opened"]
+        with_room = sum(1 for a in opened if a.get("target_room") or a.get("scene_on"))
+        checks = [
+            ("arrival_action_zero", "HIGH",
+             _c.ARRIVAL_ACTION_ZERO_MIN_INTENTS > 0 and with_room >= _c.ARRIVAL_ACTION_ZERO_MIN_INTENTS
+             and n(week, "started", "scene_applied") == 0,
+             f"{with_room} arrival intents with a target room in 7 days and no music start or welcome scene."),
+            ("arrival_stop_premature", "HIGH",
+             _c.ARRIVAL_STOP_PREMATURE_NM > 0 and n(week, "stopped_then_arrived") >= _c.ARRIVAL_STOP_PREMATURE_NM,
+             f"{n(week, 'stopped_then_arrived')} arrival music stops in 7 days were followed by the person arriving."),
+            ("arrival_guest_block_high", "MEDIUM",
+             _c.ARRIVAL_GUEST_BLOCK_MIN_INTENTS > 0 and len(opened) >= _c.ARRIVAL_GUEST_BLOCK_MIN_INTENTS
+             and n(week, "skipped_guests") > _c.ARRIVAL_GUEST_BLOCK_NM_SHARE * len(opened),
+             f"skipped_guests on {n(week, 'skipped_guests')} of {len(opened)} arrival intents in 7 days."),
+            ("arrival_census_unavailable", "MEDIUM",
+             _c.ARRIVAL_CENSUS_UNAVAILABLE_NM > 0 and self._arrival_census_seen
+             and sum(1 for a in week if a.get("census_unavailable")) >= _c.ARRIVAL_CENSUS_UNAVAILABLE_NM,
+             "Arrival music started without a census reading several times in 7 days."),
+            ("arrival_music_failing", "HIGH",
+             _c.ARRIVAL_FAILING_NM > 0 and n(day, "start_failed") >= _c.ARRIVAL_FAILING_NM,
+             f"{n(day, 'start_failed')} arrival music starts failed in 24 h."),
+            ("welcome_scene_failing", "HIGH",
+             _c.ARRIVAL_FAILING_NM > 0
+             and n(day, "scene_unconfirmed", "scene_fallback_failed") >= _c.ARRIVAL_FAILING_NM,
+             "Welcome scenes went unconfirmed or failed repeatedly in 24 h."),
+            ("arrival_entry_missed", "HIGH",
+             _c.ARRIVAL_ENTRY_MISSED_NM > 0 and n(week, "scene_entry_missed") >= _c.ARRIVAL_ENTRY_MISSED_NM,
+             f"{n(week, 'scene_entry_missed')} welcome scenes were missed in 7 days."),
+        ]
+        from .domain_coordinators._stuck_signal_nm import fire_stuck_signal  # noqa: PLC0415
+        for kind, sev, cond, diag in checks:
+            if cond:
+                fired[kind] = await fire_stuck_signal(
+                    self.hass, kind, ("house",), diagnosis=diag,
+                    remedy="Read the 'Arrival decision' log lines and the arrival_music episodes.",
+                    severity=sev)
+        return fired
+
+    def arrival_digest_line(self) -> str:
+        today = dt_util.now().strftime("%Y-%m-%d")
+        if today != self._arrival_counts_date or not self._arrival_counts:
+            return ""
+        parts = [f"{k} {v}" for k, v in sorted(self._arrival_counts.items())]
+        return "Arrival actions today: " + ", ".join(parts) + "."
 
     def _preferences_for(self, rec: _Transfer) -> dict:
         provider = self._preference_provider
@@ -562,6 +1832,9 @@ class MusicFollowing:
 
     async def async_teardown(self) -> None:
         """Cancel in-flight work, restore volumes, flush episode writes."""
+        # Arc step 8: the residency subscription is dropped BEFORE the intent
+        # and stamp tables are cleared (§5.4).
+        await self._arrival_teardown()
         tasks = [t for t in list(self._transfer_tasks) if not t.done()]
         for t in tasks:
             t.cancel()
@@ -1683,7 +2956,8 @@ class MusicFollowing:
         self._write_episode(_c.MF_DECISION_EPISODE_TYPE,
                             f"room:{_slug(rec.to_room)}", attrs, source_ref=ref)
 
-    def _write_episode(self, episode_type: str, node: str, attrs: dict, *, source_ref: str) -> None:
+    def _write_episode(self, episode_type: str, node: str, attrs: dict, *, source_ref: str,
+                       started_at: Optional[str] = None) -> None:
         if not _c.MF_EPISODE_LOG_PERSIST:
             return
         database = self.hass.data.get(DOMAIN, {}).get("database") if isinstance(
@@ -1693,9 +2967,10 @@ class MusicFollowing:
 
         async def _write() -> None:
             try:
+                kw = {"started_at": started_at, "ended_at": started_at} if started_at else {}
                 await database.log_memory_episode(
                     node_id=node, episode_type=episode_type, attrs=attrs,
-                    source_ref=source_ref, window_dedup=False, dedup_source_ref=True,
+                    source_ref=source_ref, window_dedup=False, dedup_source_ref=True, **kw,
                 )
             except Exception:  # noqa: BLE001 - observational only
                 _LOGGER.debug("MusicFollowing: memory row failed", exc_info=True)
@@ -1741,6 +3016,11 @@ class MusicFollowing:
                     remedy="Read the 'MF decision' log lines and sensor.ura_music_following_health.",
                     severity="HIGH",
                 )
+            # Arc step 8 §7 trip-wires (never raise into the nightly op).
+            try:
+                result["arrival_tripwires"] = await self.async_arrival_tripwires(database)
+            except Exception:  # noqa: BLE001
+                _LOGGER.warning("Arrival trip-wires failed", exc_info=True)
             if database is not None and hasattr(database, "read_memory_episodes_by_type"):
                 since = (dt_util.utcnow() - timedelta(days=7)).isoformat()
                 rows = await database.read_memory_episodes_by_type(
@@ -1791,7 +3071,13 @@ class MusicFollowing:
         return "memory", mem
 
     def digest_section(self) -> str:
-        """One digest line for the last 24 h; empty with no candidates."""
+        """One digest line for the last 24 h; empty with no candidates.
+        Arc step 8: the arrival-action counts of today follow it."""
+        mf_line = self._mf_digest_line()
+        arr = self.arrival_digest_line()
+        return " ".join(x for x in (mf_line, arr) if x)
+
+    def _mf_digest_line(self) -> str:
         cutoff = self._monotonic() - _c.MF_TRIPWIRE_WINDOW_S
         window = [r for r in self._recent_decisions if r[0] >= cutoff]
         cand = [r for r in window if r[2]]
