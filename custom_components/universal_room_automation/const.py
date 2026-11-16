@@ -5300,6 +5300,92 @@ ARRIVAL_SCENE_RESULT_APPLIED: Final = "applied"
 ARRIVAL_SCENE_RESULT_HOLD: Final = "hold"
 ARRIVAL_SCENE_RESULT_UNAVAILABLE: Final = "unavailable"
 ARRIVAL_SCENE_RESULT_ERROR: Final = "error"
+# D3 review B2: the welcome scene read unavailable / error and the entry path
+# retried the room's own slot scene once. ``fallback_applied`` = the slot
+# scene ran (scene_fallback_slot); ``fallback_failed`` = no slot scene, or it
+# is missing / unavailable / raised too (scene_fallback_failed; per-light path).
+ARRIVAL_SCENE_RESULT_FALLBACK_APPLIED: Final = "fallback_applied"
+ARRIVAL_SCENE_RESULT_FALLBACK_FAILED: Final = "fallback_failed"
+
+# ---------------------------------------------------------------------------
+# Arc step 8 D2-D4 engine knobs (PLANNING_identity_actions_v6.md §9). All rung
+# 1 (module constant, reviewed change): each decides whether step 8 starts,
+# stops or pauses someone's music, so a change needs review.
+# ---------------------------------------------------------------------------
+# One window for the music wait and the scene window (operator "15 min").
+# 0 = no intent ever opens (arrival kill switch below the master).
+ARRIVAL_WINDOW_S: Final = 900
+# A target room occupied at least this long before the arrival, with the
+# arriving person not placed in it, blocks the start (operator rule B: "8 min
+# kept as backstop for phoneless guests"). 0 = backstop off.
+ARRIVAL_OCCUPIED_BACKSTOP_S: Final = 480
+# Guests detected = house state ``guest`` OR the comfort census reading at
+# least this many unidentified people. Orchestrator default from D0b
+# (AUDIT_step8_d0b_2026_11_15.md): the arriving resident's own body often
+# reads unidentified at the edge (7 of 77 arrivals with no guest), so one
+# unidentified person can be the arriver. 1 = the plan's original ">= 1".
+ARRIVAL_GUEST_UNIDENTIFIED_MIN: Final = 2
+# After a welcome scene, how long the layer has to place the owner in the
+# room before it counts scene_unconfirmed (counting only).
+ARRIVAL_SCENE_CONFIRM_S: Final = 120
+# One start per person per action per this long (door bounce).
+ARRIVAL_MIN_GAP_S: Final = 3600
+# Ground-truth windows: the started player must read playing within VERIFY;
+# REVERSAL bounds the stopped_then_arrived watch after a window-end stop.
+ARRIVAL_VERIFY_S: Final = 20
+ARRIVAL_REVERSAL_S: Final = 120
+# Step 8's own flap filter (§5.4 gate 3b): P's last departure must be at
+# least this long before the arrival. 0 = flags only: every GPS flap
+# (home -> not_home -> home inside a minute, counted=True) then starts music,
+# and the D6 restore rule (no departure seen, unknown/unavailable -> home)
+# is off too.
+ARRIVAL_MIN_AWAY_S: Final = 900
+# How far back gate 3b reads persisted person_departure / person_arrival rows
+# after a restart (30 d). 0 = no DB fallback.
+ARRIVAL_DEPARTURE_DB_LOOKBACK_S: Final = 2592000
+# Margin added to the stamped room's occupancy_timeout for the departure wait.
+ARRIVAL_DEPARTURE_VACANCY_WAIT_S: Final = 300
+# False = no departure pause.
+ARRIVAL_MUSIC_DEPARTURE_PAUSE: Final = True
+# Ownership (orchestrator default 2026-11-15, replacing B0 branch "neither",
+# pending operator confirmation): music is "ours" from a successful start
+# until any write to the played entity whose HA context music following did
+# not create (MusicFollowing._ura_ctx_ids: the start, stop, pause and every
+# transfer call). A write from any other context (phone, Spotify, MA UI,
+# button, a user service call, AND the device's own later updates, e.g. a
+# track change, which HA stamps with a fresh context 5 s after a call) ends
+# it. Optional extra check: the attribute named here (e.g.
+# "media_content_id") must also still equal its value at the start; both
+# conditions must hold. None = the context rule alone.
+ARRIVAL_OURS_ATTR: Final = None
+# Attribute-only writes that change nothing but these keys do not end
+# ownership (a position tick is not a change of what plays). Rung 1.
+ARRIVAL_OWNERSHIP_IGNORED_ATTRS: Final = frozenset({"media_position", "media_position_updated_at"})
+# Bound on the remembered music-following context ids (oldest out). A device
+# echo arrives within HA's 5 s context window, so a few hundred is ample.
+MF_URA_CONTEXT_IDS_MAX: Final = 256
+# The window-end move-log read starts this long before the arrival when the
+# person coordinator has no update_interval (its live interval is 30 s).
+ARRIVAL_PC_INTERVAL_FALLBACK_S: Final = 30
+# Review B-L6: the arrival episode writer's own switch (rows feed the restart
+# sweep, the trip-wires and writer health). False = no arrival rows.
+ARRIVAL_EPISODE_LOG_PERSIST: Final = True
+# Review B-M2: hass.data[DOMAIN] key read by writer health
+# (MEMORY_WRITER_HEALTH_SWITCH_GATED_TYPES); truthy only while the arrival
+# master is on and at least one profile has auto_music or auto_scene.
+ARRIVAL_ACTIONS_OPTED_IN_HASS_KEY: Final = "arrival_actions_opted_in"
+# How far past the window the restart sweep looks for unended intents.
+ARRIVAL_RESTART_SWEEP_EXTRA_S: Final = 3600
+# Trip-wire thresholds (§7). 0 = that trip-wire off.
+ARRIVAL_TRIPWIRE_WINDOW_S: Final = 604800
+ARRIVAL_ACTION_ZERO_MIN_INTENTS: Final = 10
+ARRIVAL_STOP_PREMATURE_NM: Final = 3
+ARRIVAL_GUEST_BLOCK_NM_SHARE: Final = 0.5
+ARRIVAL_GUEST_BLOCK_MIN_INTENTS: Final = 10
+ARRIVAL_CENSUS_UNAVAILABLE_NM: Final = 3
+ARRIVAL_ENTRY_MISSED_NM: Final = 3
+ARRIVAL_FAILING_NM: Final = 3
+ARRIVAL_FAILING_WINDOW_S: Final = 86400
 
 # ============================================================================
 # Cold-boot away-actuation storm mitigation — module-level constants only.
@@ -6850,6 +6936,12 @@ MEMORY_WRITER_BACKED_EPISODE_TYPES: Final = frozenset({
     # door the interior path map covers (garage_a: several a day), so 0 in 7
     # days is a dead writer (also paged sooner by `interior_path_zero`).
     "interior_path",
+    # arrival_music / welcome_scene (arc step 8 D6): writers in
+    # music_following.py (one row per arrival outcome). Rows exist only for
+    # residents who opted in on the People step; also paged sooner by the
+    # `arrival_action_zero` trip-wire. Absence-exempt below.
+    "arrival_music",
+    "welcome_scene",
     # sensor_dropout: writer exists and is correctly scheduled, but has
     # produced 0 rows in >2 months (per AUDIT_memory_writer_coverage.md,
     # 2026-10-11). KEEP in the checked set so the trip-wire surfaces this
@@ -6890,6 +6982,9 @@ MEMORY_WRITER_HEALTH_ABSENCE_EXEMPT_TYPES: Final = frozenset({
     "crossing_vision_shadow",
     # interior_path: one row per entry on a mapped door (same reason).
     "interior_path",
+    # arrival_music / welcome_scene: rows come only from residents arriving.
+    "arrival_music",
+    "welcome_scene",
     # music_follow_decision: rows come only from people walking between
     # rooms with speakers; a week away has none.
     "music_follow_decision",
@@ -6902,6 +6997,10 @@ MEMORY_WRITER_HEALTH_ABSENT_HOUSE_STATES: Final = frozenset({"away", "vacation"}
 # checked on the next run that finds it on.
 MEMORY_WRITER_HEALTH_SWITCH_GATED_TYPES: Final = {
     "crossing_vision_ledger": CROSSING_VISION_SWITCH_HASS_KEY,
+    # Arc step 8 (review B-M2): arrival rows exist only while the master is
+    # on and a resident opted in (People step).
+    "arrival_music": ARRIVAL_ACTIONS_OPTED_IN_HASS_KEY,
+    "welcome_scene": ARRIVAL_ACTIONS_OPTED_IN_HASS_KEY,
 }
 
 MEMORY_FACT_TOPICS: Final = frozenset({

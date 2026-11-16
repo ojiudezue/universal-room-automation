@@ -109,13 +109,21 @@ async def hass():
         mock_storage,
     )
 
-    # Real HA Store, in-memory backing (review B3 saved volumes persist).
-    with mock_storage() as stored:
-        async with async_test_home_assistant() as real_hass:
-            real_hass.data["_mf_test_storage"] = stored
-            yield real_hass
-            await real_hass.async_block_till_done()
-            await real_hass.async_stop(force=True)
+    from _sighting_rig import restore_stubbed_registry_helpers
+
+    # A sibling file may have replaced ``er.async_get`` (etc.) on the REAL
+    # registry helper at collection time; phcc's factory then awaits a
+    # MagicMock. Re-bind the genuine attributes for this fixture's life;
+    # import_scope(attrs=True) puts the donor's values back on exit.
+    with import_scope(("homeassistant",), attrs=True):
+        restore_stubbed_registry_helpers()
+        # Real HA Store, in-memory backing (review B3 saved volumes persist).
+        with mock_storage() as stored:
+            async with async_test_home_assistant() as real_hass:
+                real_hass.data["_mf_test_storage"] = stored
+                yield real_hass
+                await real_hass.async_block_till_done()
+                await real_hass.async_stop(force=True)
 
 
 # ---------------------------------------------------------------------------

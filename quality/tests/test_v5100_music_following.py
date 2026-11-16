@@ -923,26 +923,14 @@ class TestD8SkipReasonSurface:
 
 
 class TestD9ArrivalDeprecation:
-    def test_arrival_handler_logs_debug_only(self):
-        with open(
-            os.path.join(_ura_path, "domain_coordinators", "music_following.py"),
-            "r", encoding="utf-8",
-        ) as fh:
-            src = fh.read()
-        start = src.find("def _handle_person_arriving")
-        assert start > 0, "_handle_person_arriving method not found"
-        # Find the end (next `def ` at method-indent level, or class end)
-        end = src.find("\n    def ", start + 1)
-        block = src[start:end if end > 0 else start + 3000]
-        # The pre-v5.10.0 "would start music" INFO log is GONE
-        assert "arrival-start is not implemented" in block, (
-            "D9: _handle_person_arriving should log DEBUG only with "
-            "'arrival-start is not implemented' marker"
+    def test_arrival_handler_removed_arc_step8(self):
+        """Arc step 8 D2 deleted the no-op F5 handler; the behaviour (no F5
+        read, one residency subscription) is pinned behaviourally in
+        test_arrival_music.py::test_subscribe_person_edges_only_no_raw_connect."""
+        from custom_components.universal_room_automation.domain_coordinators import (
+            music_following as dc,
         )
-        # No INFO log call in the handler body
-        assert "_LOGGER.info" not in block, (
-            "D9: no _LOGGER.info calls should remain in the arrival stub"
-        )
+        assert not hasattr(dc.MusicFollowingCoordinator, "_handle_person_arriving")
 
 
 # ===========================================================================

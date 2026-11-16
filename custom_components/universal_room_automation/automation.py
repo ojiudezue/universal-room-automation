@@ -218,6 +218,8 @@ from .const import PREFILL_DETRITUS_TOKEN_RE  # noqa: E402
 from .const import (  # noqa: E402
     ARRIVAL_SCENE_RESULT_APPLIED,
     ARRIVAL_SCENE_RESULT_ERROR,
+    ARRIVAL_SCENE_RESULT_FALLBACK_APPLIED,
+    ARRIVAL_SCENE_RESULT_FALLBACK_FAILED,
     ARRIVAL_SCENE_RESULT_HOLD,
     ARRIVAL_SCENE_RESULT_UNAVAILABLE,
 )
@@ -1771,6 +1773,18 @@ class RoomAutomation:
                 return False
             result = await self._activate_scene_checked(slot, scene_id, entry_set)
             if welcome:
+                if result in (ARRIVAL_SCENE_RESULT_UNAVAILABLE, ARRIVAL_SCENE_RESULT_ERROR):
+                    # D3 review B2: a broken welcome scene never drops a room
+                    # with a working slot scene to per-light lighting. Retry
+                    # the slot scene ONCE through the same guard.
+                    slot_id = slot_scene(self.config, slot)
+                    retry = (await self._activate_scene_checked(slot, slot_id, entry_set)
+                             if slot_id and slot_id != welcome else None)
+                    applied = retry == ARRIVAL_SCENE_RESULT_APPLIED
+                    self._note_arrival_scene_result(
+                        ARRIVAL_SCENE_RESULT_FALLBACK_APPLIED if applied
+                        else ARRIVAL_SCENE_RESULT_FALLBACK_FAILED)
+                    return applied
                 self._note_arrival_scene_result(result)
             return result == ARRIVAL_SCENE_RESULT_APPLIED
         except Exception:  # noqa: BLE001
