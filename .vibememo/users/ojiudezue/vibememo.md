@@ -65,6 +65,8 @@ Step 8's arrival engine lost most of its machinery. The near-room rules, occupie
 
 Two perimeter features were checked by following their producers to the action rather than waiting for an event. The 'that was Jaya' follow-up can never arm on this house: it rides the door-identity gate, which only runs for a camera that is both a perimeter and a door camera, and none is. So zero follow-ups meant zero eligible alerts, not a bug. The circling escalation was worse: it was designed on the belief that the notification de-duplicator keys on severity, but the key is coordinator, title and camera, and the perimeter title never changes. Every escalation on a camera that paged in the previous few minutes was dropped, 8 of 8 since 11-14, one of them CRITICAL. The test that pinned the design checked severities on a mock and never ran the de-duplicator. → [326](entries/326_overnight_perimeter_dormant_followup_and_circling_dedup.json)
 
+The same morning's restart validated v5.108.30-32 and found the de-duplicator's sibling doing the same thing at boot. NM boot-settle keeps one page per coordinator and hazard type for the first minute, and every stuck-sensor kind shares one hazard type, so the first real "quarantined" chatter page was swallowed by a duty-cycle page sent nine seconds earlier, and the stuck latch was set anyway, silencing chatter for the day. The lesson is the same one twice: a quieting key must match what counts as a duplicate, and a dropped send must not count as sent. → [329](entries/329_boot_settle_swallows_distinct_stuck_kinds.json)
+
 ## Open questions
 
 - OC agent: which fix types earn R1 first, and what promotion evidence lifts one to R2?

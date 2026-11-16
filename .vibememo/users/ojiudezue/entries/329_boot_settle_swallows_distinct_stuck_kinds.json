@@ -1,0 +1,22 @@
+{
+  "format_version": "2.1",
+  "entry_id": "329",
+  "author": "ojiudezue",
+  "session_id": "claude_20261116_validation_30_31_32",
+  "timestamp": "2026-11-16T13:40:00Z",
+  "type": "counseling",
+  "weight": "significant",
+  "title": "Boot-settle collapses different stuck-sensor kinds, and the stuck latch is set even when NM dropped the page",
+  "summary": "Live validation of v5.108.30 found the first act-mode chatter page (Garage B ratgdo motion) never reached notification_log. NM boot-settle keys on (coordinator, hazard_type) for 60 s after setup, and every stuck kind shares one hazard type, so the chatter page was swallowed by a dutycycle page sent 9 s earlier. fire_stuck_signal still set its per-day latch, so chatter stays silent until tomorrow.",
+  "why": "Two rules collided: boot-settle was written to quiet boot storms of the SAME hazard, but stuck kinds are distinct faults under one hazard type; and the latch had no discharge for a suppressed send (the suppression-needs-discharge rule). The validator's DB-row check is what caught it: the title was right, the row was missing.",
+  "implications": "Any coordinator that multiplexes distinct faults under one hazard_type loses all but the first at boot. Fix in flight on fix/nm-boot-settle-stuck-kinds (builder enumerates async_notify callers before choosing key scope); ships with v5.108.33. Also: README S3a-2's observable (excluded_sensors) never showed chatter exclusions; acceptance signals must be checked against the producer before they are written.",
+  "alternatives_considered": "Add location to the boot-settle key house-wide (simplest, may raise boot noise for per-camera perimeter pages); scope to the stuck-signal coordinator; or keep the key and only stop the latch on a dropped send (still loses the page today). Builder picks after the caller enumeration.",
+  "confidence": "high",
+  "revisit_trigger": "If the house-wide key change raises boot-time page counts, scope it back to stuck_signal.",
+  "refs": {
+    "cards": ["STUCK-SENSOR-S3B-S1-1"],
+    "docs": ["docs/readmes/README_v5.108.30.md"],
+    "code": ["custom_components/universal_room_automation/domain_coordinators/notification_manager.py:847", "custom_components/universal_room_automation/domain_coordinators/_stuck_signal_nm.py:245"],
+    "related_entries": ["328"]
+  }
+}
