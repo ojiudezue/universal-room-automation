@@ -78,3 +78,5 @@ The same morning's restart validated v5.108.30-32 and found the de-duplicator's 
 - HVAC: the night still-sleeper corroborator, and reducing zones 2/3's Bryant schedules.
 
 The operator then gave the go for the arrival engine as option B. The start and welcome scene act now. The stop and pause act only while URA still owns the playback, and any write it did not create ends that ownership. Stopping music someone chose costs more than leaving a song playing, and only a live test on the real players can show how often track changes break ownership. So v5.108.33 ships the engine with the boot-settle fix in one restart, and v6.0.0 waits for the test. → [330](entries/330_arrival_engine_ships_option_b.json)
+
+One correction: the merge meant to bring in the boot-settle fix had merged master instead, so v5.108.33 went out without it while its README said otherwise. A grep of the release tag for the new constant caught it before install, and the fix ships as v5.108.34. Ancestry has to be checked against the fix commit's own hash, not the merge's. → [331](entries/331_merge_took_master_not_the_fix.json)

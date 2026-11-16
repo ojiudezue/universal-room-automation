@@ -50,3 +50,5 @@ Interior vision ship 2 (describe a room by text, Foyer fisheye unwarped in URA) 
 - PWA: auth hardening before any non-operator user.
 
 The arrival engine then shipped as v5.108.33 under option B. Start and welcome scene act now. Stop and pause are held to a conservative ownership rule until a live MA test, because stopping chosen music is the costly mistake; v6.0.0 is anchored to that test. → [330](users/ojiudezue/entries/330_arrival_engine_ships_option_b.json)
+
+One correction: the merge meant to bring in the boot-settle fix had merged master instead, so v5.108.33 went out without it while its README said otherwise. A grep of the release tag for the new constant caught it before install, and the fix ships as v5.108.34. Ancestry has to be checked against the fix commit's own hash, not the merge's. → [331](users/ojiudezue/entries/331_merge_took_master_not_the_fix.json)

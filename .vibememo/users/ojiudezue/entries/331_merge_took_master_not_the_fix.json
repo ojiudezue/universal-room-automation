@@ -1,0 +1,22 @@
+{
+  "format_version": "2.1",
+  "entry_id": "331",
+  "author": "ojiudezue",
+  "session_id": "claude_20261116_validation_30_31_32",
+  "timestamp": "2026-11-16T21:40:00Z",
+  "type": "counseling",
+  "weight": "notable",
+  "title": "A merge titled for the boot-settle fix merged master instead; v5.108.33 shipped without the fix",
+  "summary": "Merge a5678e36 ('Merge fix/nm-boot-settle-stuck-kinds') had parents develop + master, so the fix 45572684 never reached develop. v5.108.33 released with a README claiming the fix. Caught before install by grepping the tag for the new constant. The fix was merged for real, mutation-checked again and ships as v5.108.34; the house goes from .32 straight to .34. Entry 330's claim that .33 carries the fix is corrected here.",
+  "why": "The ancestry check used the merge SHA, which proves nothing about the fix. Only the fix commit's own SHA, or the new symbol present in the release tree, proves the content shipped.",
+  "implications": "After every orchestrator merge: `git merge-base --is-ancestor <fix sha> develop` plus a grep for a new symbol in the merged tree, and the same grep against the release tag before install.",
+  "alternatives_considered": "Install .33 and ship the fix later (costs a second restart); rebuild .33 (rewrites a pushed tag, not allowed).",
+  "confidence": "high",
+  "revisit_trigger": "Any other release whose README names code the tag does not contain.",
+  "refs": {
+    "cards": ["STUCK-SENSOR-S3B-S1-1"],
+    "docs": ["docs/readmes/README_v5.108.33.md", "docs/readmes/README_v5.108.34.md"],
+    "code": [],
+    "related_entries": ["329", "330"]
+  }
+}
