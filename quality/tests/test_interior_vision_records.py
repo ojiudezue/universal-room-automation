@@ -373,7 +373,8 @@ def test_area_evidence_copies(mods):  # noqa: F811
     census._last_area_contributions["living_room"]["max_count"] = 9
     assert ev == {"by_entity": {FAM_F: 2},
                   "area_contributions": {"living_room": {"max_count": 2, "platform": "frigate"}},
-                  "house_camera_bodies": 2, "as_of": "2026-11-15T10:00:00+00:00"}
+                  "house_camera_bodies": 2, "as_of": "2026-11-15T10:00:00+00:00",
+                  "discounted": ()}
 
 
 # ------------------------------------------------------------- D7 trip-wire

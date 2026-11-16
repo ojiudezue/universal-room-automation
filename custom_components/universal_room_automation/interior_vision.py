@@ -23,8 +23,11 @@ HELD = "held"
 RELEASED = "released"
 NO_READING = "no_reading"
 LOST = "lost"
+# Streaming, but its count is stuck: the census watchdog discounts it
+# (review D-M3). Never LIVE, so its reading never reaches a record.
+STUCK = "stuck"
 # Order used to report a group with no LIVE member (most informative first).
-_NOT_LIVE_ORDER = (HELD, RELEASED, NO_READING)
+_NOT_LIVE_ORDER = (HELD, RELEASED, STUCK, NO_READING)
 
 # Record statuses, in precedence order (plan §9.D1).
 STATUS_MISSING = "missing"
@@ -43,14 +46,18 @@ NAMED_SOURCE_FACE = "face"
 _UNREADY = frozenset({"unavailable", "unknown"})
 
 
-def member_liveness(view: str | None, state_value: str | None) -> str:
+def member_liveness(view: str | None, state_value: str | None, *, stuck: bool = False) -> str:
     """One member entity's class this tick (plan §7). ``view`` is the ship 3b
     ``entity_stream_view(hass, eid, census=True)`` answer; ``state_value`` the
-    entity's HA state (None = no state). LIVE needs no view AND a real state."""
+    entity's HA state (None = no state); ``stuck`` = the census discounts the
+    entity this tick (``area_evidence()["discounted"]``). LIVE needs no view,
+    not stuck, AND a real state."""
     if view == HELD:
         return HELD
     if view == RELEASED:
         return RELEASED
+    if stuck:
+        return STUCK
     if state_value is None or state_value in _UNREADY:
         return NO_READING
     return LIVE

@@ -1193,8 +1193,10 @@ class InteriorVisionSwitch(SwitchEntity, RestoreEntity):
     _attr_icon = "mdi:cctv"
     _attr_entity_category = EntityCategory.CONFIG
     HELPER_TEXT = (
-        "Let AI vision look at indoor shared-room cameras (never bedrooms or "
-        "bathrooms) to count and describe people. Off makes no vision calls."
+        "Master switch for AI vision on indoor shared-room cameras (never "
+        "bedrooms or bathrooms). Today it does nothing: this release only "
+        "builds room records from the camera systems' own person counts and "
+        "makes no AI calls. Later releases use it to count and describe people."
     )
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:

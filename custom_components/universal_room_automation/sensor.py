@@ -4289,7 +4289,8 @@ class URACensusGuestsAroundSensor(_CensusAwarenessSensor):
 
 class InteriorAwarenessSensor(AggregationEntity, SensorEntity):
     """VISION-INTERIOR-SIGHTINGS-1 D1: ``sensor.ura_interior_awareness``
-    (Census device, polled, DISPLAY class). State = unnamed people in the
+    (the integration's Whole House device, where the census sensors sit;
+    polled, DISPLAY class). State = unnamed people in the
     covered shared rooms that have a LIVE camera member; one attribute per
     covered room (status, bodies, unnamed, named count, provenance,
     liveness), all unrecorded (the census raw inputs are recorded on the
@@ -4318,9 +4319,14 @@ class InteriorAwarenessSensor(AggregationEntity, SensorEntity):
             return ()
 
     @property
-    def native_value(self) -> int:
-        return sum(int(r.unnamed or 0) for r in self._records()
-                   if r.bodies is not None)
+    def native_value(self) -> int | None:
+        """Unknown (None) when no covered room has a LIVE reading: every
+        camera missing or no build yet is faulty equipment, not "nobody"
+        (review A L1)."""
+        live = [r for r in self._records() if r.bodies is not None]
+        if not live:
+            return None
+        return sum(int(r.unnamed or 0) for r in live)
 
     @property
     def extra_state_attributes(self) -> dict:

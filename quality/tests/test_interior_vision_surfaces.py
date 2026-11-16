@@ -146,4 +146,4 @@ def test_interior_awareness_sensor_reads_records(mods):  # noqa: F811
     assert s.entity_id == "sensor.ura_interior_awareness"
     # No presence -> 0, never an error.
     s2 = sensor.InteriorAwarenessSensor(SimpleNamespace(data={}), SimpleNamespace(entry_id="i"))
-    assert s2.native_value == 0
+    assert s2.native_value is None

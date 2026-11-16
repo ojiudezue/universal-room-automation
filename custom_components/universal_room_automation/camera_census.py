@@ -2733,10 +2733,15 @@ class PersonCensus:
                 },
                 "house_camera_bodies": getattr(self, "_last_house_camera_bodies", None),
                 "as_of": getattr(self, "_last_count_as_of", None),
+                # Stuck-Signal D1: the interior cameras the census discounts
+                # this tick (their count is saved before the discount, so a
+                # reader must treat them as not live; review D-M3).
+                "discounted": tuple(sorted(
+                    getattr(self, "_watchdog_discounted_cameras", None) or ())),
             }
         except Exception:  # noqa: BLE001
             return {"by_entity": {}, "area_contributions": {},
-                    "house_camera_bodies": None, "as_of": None}
+                    "house_camera_bodies": None, "as_of": None, "discounted": ()}
 
     def _get_interior_camera_entities(self) -> list[str]:
         """Return resolved person detection binary_sensor entity IDs for interior cameras.

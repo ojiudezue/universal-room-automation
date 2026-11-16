@@ -404,7 +404,10 @@ against it, and a plan that cannot fill a row is sent back.
 6. **Guard delta.** Allowlist rows added (must be zero for a new consumer) and removed. Pinned readers
    (`PINNED_READERS`, rule R15, VISION-INTERIOR-SIGHTINGS-1): a method that may be CALLED only from named
    `(module, qualname)` pins (the F4 unnamed reads and the interior census term); a call anywhere else is a
-   never-allowlistable hit. Not part of `LAYER_ALLOWLIST_TOTAL` (like `LISTED`).
+   never-allowlistable hit. Not part of `LAYER_ALLOWLIST_TOTAL` (like `LISTED`). Pinned today: the four F4-unnamed
+   reads, `interior_census_tick`, and the producer entry points `interior_tick` / `_emit_unnamed` plus
+   `PersonCensus.area_evidence` (owner class only). Static limits: a bound-method alias and a display-entity state read
+   are not seen.
 7. **Seam check (arc map).** Does any other plan feed or read the same ingest point or add a method to the same read
    surface? Then the two plans name the shared contract and its single owner (M1-M12 style, e.g. G8), or merge.
 8. **Clip path.** For vision deliverables: a frame source that can take a short clip (charter 2026-11-14).

@@ -227,7 +227,7 @@ LAYER_NON_PERSON_PUBLIC = frozenset({
     "get_house_occupancy", "get_next_state_prediction", "is_room_direct_ble", "get_ble_tier",
     "path_map_status", "get_stuck_cameras",
     # VISION-INTERIOR-SIGHTINGS-1 D5: the path map's inward edges of a door.
-    "inward_path_edges",
+    "inward_path_edges", "path_door_anchors",
 })
 
 # VISION-INTERIOR-SIGHTINGS-1 §6.3 (rule R15, not in the allowlist total,
@@ -260,7 +260,17 @@ PINNED_READERS: dict[str, tuple[tuple[str, str], ...]] = {
         ("camera_census.py", "PersonCensus._interior_tick"),
         ("domain_coordinators/presence.py", "PresenceCoordinator.interior_census_tick"),
     ),
+    # Review B MEDIUM-2: the producer-side entry points that also return or
+    # write the unnamed records, and the census evidence the records read
+    # (contract §2.6: layer members only). Owner class only.
+    "interior_tick": (("person_sighting.py", "PersonSightingProducer.*"),),
+    "_emit_unnamed": (("person_sighting.py", "PersonSightingProducer.*"),),
+    "area_evidence": (("person_sighting.py", "PersonSightingProducer.*"),),
 }
+# Stated static limits of R15 (review B MEDIUM-2; plan §6.3, contract §6):
+# a bound-method alias (``g = p.get_room_sightings; g()``) and a read of the
+# display entity's state / attributes (``hass.states.get("sensor.ura_interior_
+# awareness")``) are not seen.
 
 
 def pinned_ok(name: str, rel: str, qual: str) -> bool:

@@ -3513,7 +3513,7 @@ INTERIOR_ROOM_RECORD_INTERVAL_S: Final = 10
 INTERIOR_ROOM_FACE_FRESH_S: Final = 300
 # Privacy scope (INV-IV-SCOPE): a camera group whose URA room has one of these
 # room types gets no record (and, in later ships, no frame). Review to change.
-INTERIOR_VISION_EXCLUDED_ROOM_TYPES: Final = frozenset({"bedroom", "bathroom"})
+INTERIOR_VISION_EXCLUDED_ROOM_TYPES: Final = frozenset({ROOM_TYPE_BEDROOM, ROOM_TYPE_BATHROOM})
 # Bound on the D1 on-edge ring (person-sensor off -> on stamps, read by D5).
 # Not named in the plan; sized for ~12 interior person sensors x the longest
 # path window. Builder addition, reported.

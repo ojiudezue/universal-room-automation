@@ -2843,6 +2843,17 @@ class EgressDirectionTracker:
             "path_map_doors": sorted(pmap.doors) if pmap is not None else [],
         }
 
+    def path_door_anchors(self, door: str) -> frozenset:
+        """VISION-INTERIOR-SIGHTINGS-1 (non-person read, review A L2): the
+        physical camera keys of ``door``'s egress cameras in the installed
+        path map (``DoorMap.anchors``). Empty with no map / unknown door."""
+        try:
+            pmap = self.path_map
+            dm = pmap.doors.get(door) if pmap is not None else None
+            return frozenset(dm.anchors) if dm is not None else frozenset()
+        except Exception:  # noqa: BLE001
+            return frozenset()
+
     def inward_path_edges(self, door: str) -> tuple:
         """VISION-INTERIOR-SIGHTINGS-1 D5 (non-person read): the installed
         path map's ``inward`` edges of ``door`` (``interior_paths.PathEdge``;
