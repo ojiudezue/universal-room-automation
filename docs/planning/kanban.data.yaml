@@ -9,6 +9,7 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {"fid": "INBOX-VERIFY-SWEEP@2026-11-17T02:12:00", "card_id": "INBOX-VERIFY-SWEEP", "at": "2026-11-17T02:12:00", "outcome": "measured", "headline": "Checked 6 inbox cards against code and data. Two are ready to plan now that what they waited on has shipped: security still trusts a stale 'home' blip for its arrival window (matters only when nobody is home), and the phone-left-behind flag flickers 19 times a week for one poll each. Two are parked: one can't be measured, and the other can't happen at your current pre-cool floor of 74. One lost half its scope. One was wrong: a departure action (the arrival-music pause) did ship.", "acknowledged": false}
   - {"fid": "HOUSE-AVG-SENSORS-1@2026-11-17T02:10:00", "card_id": "HOUSE-AVG-SENSORS-1", "at": "2026-11-17T02:10:00", "outcome": "built-to-review", "headline": "Built real house-average temperature and humidity sensors that leave out the AV closet and the patio. Review: ship. Not deployed. Your picks: should Study A Closet and the garages also be left out? That is a room-type setting, not code.", "acknowledged": false}
   - {"fid": "EXTERIOR-PERSON-SEVERITY-ARRIVING-BODY-ONLY-1@2026-11-17T02:08:00", "card_id": "EXTERIOR-PERSON-SEVERITY-ARRIVING-BODY-ONLY-1", "at": "2026-11-17T02:08:00", "outcome": "done", "headline": "Closed after measuring 14 days: no outdoor alert was softened to LOW because the house read 'arriving'. Since 11-13 an 'arriving' with no resident evidence makes outdoor alerts CRITICAL instead, so the rule errs toward alerting.", "acknowledged": false}
   - {"fid": "EXTERIOR-PERSONS-HOME-ALWAYS-ZERO-1@2026-11-17T02:08:00", "card_id": "EXTERIOR-PERSONS-HOME-ALWAYS-ZERO-1", "at": "2026-11-17T02:08:00", "outcome": "done", "headline": "Closed: the 'people home always reads 0' bug in outdoor alerts was fixed in v5.108.19. It still reads 0 on purpose, behind a setting, so outdoor alerts are never softened while people are home. Changing that would be your call.", "acknowledged": false}
@@ -34553,9 +34554,9 @@ cards:
 - id: STALE-SOURCE-ARRIVAL-CONSUMERS-1
   title: Other features still treat a stale tracker-fallback 'home' blip as a real arrival (security expected-arrival window first)
   thread: security
-  status: inbox
+  status: pre_planning
   created: '2026-11-12 14:42'
-  updated: '2026-11-12 17:01'
+  updated: '2026-11-17 02:12'
   refinement_status: initial
   tier: 2
   approval: unreviewed
@@ -34568,9 +34569,10 @@ cards:
   links:
     blocked_by: [GARAGE-REMOTE-LOCKOUT-SCHEDULE-1]
     context: 'Reuses the stale_source_arrival check the lock hold builds; wait for it to ship.'
-  next: 'Me: after the lock hold ships, scope the security expected-arrival window first.'
+  next: "Me (attended): Tier-2 plan to gate the security expected-arrival window on stale_source_arrival (reuse arrival_edges.py:73), scoped to the nobody-home case, then plan review."
   rank: {value: 5, time_criticality: 3, effort: 3}
   finding_2026_11_12_expected_arrival_always_on: "CORRECTS the 11-12 inventory claim that the expected-arrival window is off by default. Only the SIGNAL_PERSON_ARRIVING path is gated (CONF_SECURITY_ON_ARRIVAL_ADD_EXPECTED, security.py:2413). The security geofence listener adds expected arrivals UNCONDITIONALLY: person not_home->home = 10 min, not_home->other zone = 30 min (security.py:2268-2287). While ANY expected arrival exists, every door-entry verdict is SANCTIONED unless census reports an unknown person (security.py:300-303), i.e. the window is house-wide, not per person. So each of Oji's 78 iPad fallback blips (11-05..11-11) opened a 10-min house-wide sanctioned window while the house was otherwise occupied. Priority raised: reuse stale_source_arrival here first."
+  verify_2026_11_17_overnight: "STILL-REAL, narrowed (AUDIT_inbox_verify_sweep_2026_11_17.md). The lock hold shipped v5.108.13 (stale_source_arrival, arrival_edges.py:73). The security geofence handler (security.py:2268-2288) never calls it (grep confirmed by me), so a stale tracker 'home' blip still opens a 10-min expected-arrival window. Impact is narrower than the title: that window only changes the entry verdict when nobody is home, since persons_home already sanctions entry otherwise (security.py:312-313). Dependency met; ready to plan. Not built overnight: security consumer, Tier 2, attended."
 - id: EC-IMPORT-TODAY-NET-AFTER-RESTART-1
   title: Energy Import Today drops to net import (import minus export) after an HA restart, so the From grid tile reads 0.7 kWh instead of ~19
   thread: energy
@@ -35710,16 +35712,17 @@ cards:
   arc_cut_v5_108_18: "with PLB build"
   title: Phone-left-behind flags flicker on for one 30 s poll at arrival ticks and after restarts (17 in 8 days, none real)
   thread: presence
-  status: inbox
+  status: pre_planning
   batch: person-sightings
   created: '2026-11-13 04:30'
-  updated: '2026-11-13 04:30'
+  updated: '2026-11-17 02:12'
   tier: 2
   links: {parent: FACE-ARRIVAL-REBUILD-1, related: [PHONE-LEFT-BEHIND-CAMERA-LEG-1]}
   origin: {date: '2026-11-13', gist: 'Measured by the phone-left-behind plan: 10 arrival ticks (house still AWAY while BLE places person in a room), 6 first-tick-after-restart before census ready, 1 other.'}
   why: 'House-state trust input; transient true flags can briefly change the AWAY veto denominator.'
-  next: 'Me: plan after the camera-leg swap; likely a dwell or census-ready gate.'
+  next: "Me: Tier-2 plan for a dwell (>= 2 polls) or census-ready gate on the phone-left-behind flag, with the 19 measured transients as the acceptance fixture."
   rank: {value: 4, time_criticality: 2, effort: 2}
+  verify_2026_11_17_overnight: "STILL-REAL (AUDIT_inbox_verify_sweep_2026_11_17.md). The camera-leg swap it waited on shipped v5.108.21 (display-only, does not touch the flicker). Recorder, 7 days: 19 on-spells, all ~30 s (one poll), none > 60 s, none real; last 11-14 16:06 CDT. No dwell or census-ready gate exists in the sensor code. Dependency met; ready to plan."
 - id: PHONE-LEFT-BEHIND-CAMERA-LEG-1
   arc_cut_v5_108_19: "plan ready, build next"
   arc_cut_v5_108_18: "plan rev 2 now"
@@ -35753,13 +35756,14 @@ cards:
   status: inbox
   batch: person-sightings
   created: '2026-11-12 22:00'
-  updated: '2026-11-12 22:00'
+  updated: '2026-11-17 02:12'
   tier: 2
   links: {parent: FACE-ARRIVAL-REBUILD-1}
   origin: {date: '2026-11-12', gist: 'Plan rev 8 section 2B: no departure signal this cycle.'}
   why: 'Candidate consumers: last-resident-out arming (LAST-RESIDENT-EGRESS-ARM-1), HVAC setback, personalization.'
   next: 'Me: after D8 ships, decompose consumers with the operator.'
   rank: {value: 5, time_criticality: 2, effort: 4}
+  verify_2026_11_17_overnight: "CARD-WAS-WRONG on 'nothing acts on a named departure' (AUDIT_inbox_verify_sweep_2026_11_17.md). A departure consumer shipped in v5.108.33: the arrival-music departure pause (music_following.py:1821-1915), keyed on residency edges, not egress. It has written 0 arrival_music episodes so far (too soon or a defect, not determined). D8 (direction-aware egress) is NOT shipped (card planned; the egress veto at transit_validator.py:2303-2307 ignores direction), so the card's block stands for egress-keyed departures."
 - id: FACE-ARRIVAL-REBUILD-1
   arc_cut_v5_108_21: "parent of the arc, continues"
   arc_cut_v5_108_19: "parent arc card"
@@ -35805,9 +35809,9 @@ cards:
 - id: HVAC-PRECOOL-FLOOR-BELOW-ARRIVAL-HEAT-1
   title: With Solar Banking Cool Floor below ~72, arrival pre-cool can cool a zone already inside Home's band down to the heat setpoint
   thread: hvac
-  status: inbox
+  status: parked
   created: '2026-11-12 20:00'
-  updated: '2026-11-12 20:00'
+  updated: '2026-11-17 02:12'
   refinement_status: initial
   tier: 1
   approval: unreviewed
@@ -35821,6 +35825,7 @@ cards:
     related: [HVAC-PRECOOL-STANDDOWN-WHEN-COOL-1]
   next: 'Me: fold into the next HVAC cycle after the stand-down ships.'
   rank: {value: 3, time_criticality: 1, effort: 2}
+  verify_2026_11_17_overnight: "STILL-REAL in code, dormant live (AUDIT_inbox_verify_sweep_2026_11_17.md; code re-read by me). _precool_effective_high (hvac_predict.py:1667-1674) floors at max(solar_bank_floor, low + MIN_DEADBAND) with no cap at the arrival heat setpoint. The stand-down it waited on shipped v5.108.14. Live Solar Banking Cool Floor = 74.0 (>= 72), so the defect cannot fire today. Parked. Revival trigger: Cool Floor set below 72, or the next HVAC pre-cool cycle (fold in then)."
 - id: LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1
   arc_cut_v5_108_16: "separate Tier-3 lock-regime plan, switches off"
   title: A camera seeing any body while the house is away moves it to ARRIVING, which releases the garage lockout and auto-disarms security with no identity
@@ -36000,13 +36005,14 @@ cards:
   status: inbox
   batch: person-sightings
   created: '2026-11-13 12:00'
-  updated: '2026-11-13 12:00'
+  updated: '2026-11-17 02:12'
   tier: 1
   links: {parent: HOUSE-STATE-FIRST-PRINCIPLES-1}
   origin: {date: '2026-11-13', gist: 'Review C-4 of house-state step 1a; no behaviour change.'}
   why: 'Dead arm invites drift; INFO log noise on every exterior alert.'
-  next: 'Me: delete or pin the arm; compute evidence only in ARRIVING.'
+  next: "Me: prove the away/arriving arm at security_lock_regime.py:1513-1514 is unreachable or duplicated, then delete it or pin it with a test (Tier 1, value 2: low priority)."
   rank: {value: 2, time_criticality: 1, effort: 1}
+  verify_2026_11_17_overnight: "PARTIALLY-DONE (AUDIT_inbox_verify_sweep_2026_11_17.md). Half 2 done: ARRIVING evidence is now computed and logged only in ARRIVING (perimeter_alert.py:2157, :2190). Residual: the away/arriving arm is still in security_lock_regime.py:1513-1514; redundancy is the original review's label, not proven here."
 - id: PERSON-ID-NORMALISE-ONE-RULE-1
   arc_cut_v5_108_25: "merged into read API ship 2"
   arc_cut_v5_108_24: "folded into PERSON-ID-INLINE-SWEEP-1, after layer ship 3"
@@ -36213,15 +36219,16 @@ cards:
 - id: CENSUS-FACE-READS-STREAM-HEALTH-1
   title: Census face reads and the stuck-camera watchdog do not honour camera stream health
   thread: identity
-  status: inbox
+  status: parked
   created: '2026-11-14 12:00'
-  updated: '2026-11-14 12:00'
+  updated: '2026-11-17 02:12'
   tier: 2
   links: {related: [CAMERA-STREAM-DEAD-ZONE-AND-CENSUS-1]}
   origin: {date: '2026-11-14', gist: 'S2 builder not-done list + review A G-2: face legs are windowed (CENSUS_FACE_RECOGNITION_WINDOW_SECONDS 1800 s), so a dead camera''s last face ages out; the watchdog already discounts downward only.'}
   why: 'Low marginal value today; record so the face path is not assumed covered by S2.'
   next: 'Me: measure first (has a dead camera ever held a face leg past its window?); build only if it has.'
   rank: {value: 1, time_criticality: 1, effort: 2}
+  verify_2026_11_17_overnight: "STILL-REAL in code, measurement not answerable (AUDIT_inbox_verify_sweep_2026_11_17.md). Face legs are age-gated at 1800 s (camera_census.py:6370, :6702). Stream-dead state lives only in memory, and no table joins a face leg's camera to dead-stream spells, so 'has a dead camera ever held a face leg past its window' cannot be measured from history. Parked (value 1). Revival trigger: a census miscount traced to a dead camera's face leg, or stream-health spells get persisted."
 - id: PERIMETER-RING-CAMERAS-STREAM-WATCH-1
   title: Perimeter ring cameras are watched by no room, so camera_stream_dead answers None for them (blocks NVR witness W6b)
   thread: identity
