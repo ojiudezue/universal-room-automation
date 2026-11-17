@@ -5574,6 +5574,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             DEFAULT_FAN_RECHECK_MMWAVE_HISTORY_TICKS,
             CONF_FAN_RECHECK_FAMILY_SCALING_ENABLED,
             DEFAULT_FAN_RECHECK_FAMILY_SCALING_ENABLED,
+            CONF_EGRESS_CONFUSABLE_PAIRS,
+            DEFAULT_EGRESS_CONFUSABLE_PAIRS,
             DOMAIN,
         )
 
@@ -5682,6 +5684,16 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     DEFAULT_LOST_AWAY_SLEEP_EXEMPT,
                 ),
             ): selector.BooleanSelector(),
+            # Step 7 S1 (EGRESS-DIRECTION-AWARE-IDENTITY-1): residents whose
+            # faces are often confused, "a|b, c|d". Read fresh per door
+            # crossing by the egress tracker. Empty = guard inert.
+            vol.Optional(
+                CONF_EGRESS_CONFUSABLE_PAIRS,
+                default=self._get_current(
+                    CONF_EGRESS_CONFUSABLE_PAIRS,
+                    DEFAULT_EGRESS_CONFUSABLE_PAIRS,
+                ),
+            ): selector.TextSelector(),
             # v4.6.3 D10: Anomaly sensitivity
             vol.Optional(
                 CONF_PRESENCE_ANOMALY_SENSITIVITY,

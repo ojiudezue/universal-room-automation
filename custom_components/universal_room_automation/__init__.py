@@ -7448,6 +7448,9 @@ _OFFPEAK_DRAIN_QUALITY: dict[str, str] = {
 # no config/options-flow path writes these keys), so the entity-state
 # read sees fresh values without a live-attr push.
 _NO_LIVE_ATTR_KEYS: frozenset[str] = frozenset({
+    # Step 7 S1: CONF_EGRESS_CONFUSABLE_PAIRS (literal == const value), read
+    # fresh per door crossing by EgressDirectionTracker._confusable_partners.
+    "egress_confusable_pairs",
     # GARAGE-REMOTE-LOCKOUT-SCHEDULE-1: CM keys the lock regime reads live
     # (literals == const CONF_* values; also in OPTIONS_RELOAD_SUPPRESS_KEYS).
     "security_garage_lockout_enabled",
@@ -7624,6 +7627,8 @@ _MF_LIVE_KEYS: frozenset[str] = frozenset({
 
 
 OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
+    # Step 7 S1: "Faces often confused", read fresh per crossing (no reload).
+    "egress_confusable_pairs",
     # v4.7.26 (Cycle 1) — HVAC presence timers + DPM dwell
     _CONF_HVAC_VACANCY_GRACE_MINUTES,
     _CONF_HVAC_VACANCY_GRACE_CONSTRAINED,

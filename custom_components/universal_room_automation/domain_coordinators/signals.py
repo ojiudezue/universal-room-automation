@@ -118,6 +118,11 @@ class LayerCounters:
     moves_truncated: int = 0
     edges_truncated: int = 0
     g1_subscribers: int = 0
+    # Step 7 S1 edge anchor outcomes (EGRESS-DIRECTION-AWARE-IDENTITY-1).
+    edge_anchor_named: int = 0
+    edge_anchor_truncated: int = 0
+    edge_anchor_pair_blocked: int = 0
+    edge_anchor_error: int = 0
 
 
 def layer_counters(hass: Any) -> LayerCounters:
