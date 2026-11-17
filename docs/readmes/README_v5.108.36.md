@@ -62,7 +62,17 @@ cap mid-day does not).
    ambiguous calls are idle.
 4. No change to ledger terms, the census or arrival notifications attributable to vision direction.
 
-## Validated (to be written back after install)
+## Validated 2026-11-17
+
+HA core restarted 10:40:14 CST (house home_day); entries loaded by 10:42:07.
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Install | PASS | manifest v5.108.36; tag grep `CROSSING_VISION_AMBIGUOUS_CAP_RESERVE` (const.py), `_ambiguous_reserved` / `_amend_vision_direction` (crossing_vision.py) |
+| Entries | PASS | 50/50 URA entries loaded |
+| Errors | PASS | no URA ERROR; 53 WARNINGs all boot transients (rooms "All N sensors unavailable, holding 60s", HVAC boot-settle timeout, one aggregation re-anchor delta, zone=Outside fallback); no crossing_* lines |
+| Cap rehydrate | PASS | `crossing_vision_today` / `_cap_rehydrate` on `sensor.ura_security_coordinator_outside_open_tracks_diagnostic`: state ok, cap_hold false, failed 0, calls 7 = 7 primary rows in `crossing_vision_shadow` today; repeats 0 |
+| 1-4 crossing path | Pending event | no crossing since the restart (last row 09:16); `pipeline_version` / `call_kind` / `vision_direction` not yet observed |
 
 ## Not done (accounted)
 
