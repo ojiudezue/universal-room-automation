@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "338",
+  "author": "ojiudezue",
+  "session_id": "claude_20261117_163815_ship_v5_108_36",
+  "timestamp": "2026-11-17T16:38:15Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.108.36 shipped: Crossing vision watches every crossing; crossing-centred frames (P3-D2 + P3-D3)",
+  "summary": "Crossing vision watches every crossing; crossing-centred frames (P3-D2 + P3-D3)",
+  "why": "Arc row 6 scored every door-direction instrument on the operator's grades: none passes, so the count route ships and vision direction is recorded, not trusted, to build the per-door reps the P3-D6 bar needs. Ambiguous crossings (35 of 54 on 11-16) were never watched. Tier 3 with four reviews, a fix pass and orchestrator mutations; operator go 2026-11-17.",
+  "implications": "Shipped VISION-AMBIGUOUS-CROSSINGS-1 at v5.108.36; card(s) sit shipped_organic pending validation. Acceptance in README_v5.108.36.md (Live criteria).",
+  "revisit_trigger": "If a resolved crossing shows skipped_busy or skipped_reserved while ambiguous calls run, or daily calls approach the cap",
+  "refs": {
+    "cards": [
+      "VISION-AMBIGUOUS-CROSSINGS-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.108.36.md"
+    ],
+    "release_notes": "Vision reads 8 frames from the recording window centred on each door crossing; ambiguous crossings are watched too; vision count and direction are recorded behind INV-DIR-GATE through the one G3 amend path; ambiguous calls keep a slot and 30 calls of cap free for resolved crossings; stability repeats on their own budget."
+  }
+}
