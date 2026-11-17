@@ -667,6 +667,8 @@ async def test_g3_amend_once_per_crossing_key(vrig):
     assert {p["role"] for p in vrig.amended} == {"vision_direction"}
     inherited = {p["source_ref"]: p["member_inherited"] for p in vrig.amended}
     assert inherited[f"egress:{GARAGE_EGRESS}:{e.isoformat()}"] is False
+    assert inherited[
+        f"egress:{DOORBELL_EGRESS}:{(e + timedelta(seconds=10)).isoformat()}"] is True
     late = vrig.tracker.get_crossing(
         f"egress:{DOORBELL_EGRESS}:{(e + timedelta(seconds=40)).isoformat()}")
     assert (late.vision_direction, late.direction_agreement) == ("in", "disagree")
@@ -750,6 +752,8 @@ async def test_repeat_selection_stable_across_processes(vrig):
         "binary_sensor.front_door_aerial_person_occupancy@2026-11-17T10:00:00+00:00": 21,
         "a": 759, "b": 598, "crossing-1": 899, "crossing-2": 535,
         "x1": 346, "x2": 571, "x3": 170, "x4": 356,
+        # Boundary (review C8): bucket 200 is NOT selected at 0.2; 199 is.
+        "k715": 200, "k318": 199,
     }
     for key, bucket in literal.items():
         assert sel(key, 0.2) is (bucket < 200), key
@@ -841,6 +845,8 @@ async def test_repeat_row_identity_and_readers(vrig):
     assert len(prim) == 1 and len(rep) == 1
     assert rep[0]["node"] == f"vision-repeat:{key}" and rep[0]["src"] == key
     assert rep[0]["vision_direction"] == "out"
+    assert rep[0]["primary_crossing_key"] == key
+    assert rep[0]["frames_requested"] == 8
     assert vrig.llm.calls[0]["video_file"] == vrig.llm.calls[1]["video_file"]
     assert vrig.llm.calls[0]["max_frames"] == vrig.llm.calls[1]["max_frames"] == 8
     # Trip-wire / display readers see the primary only.
@@ -858,6 +864,7 @@ async def test_repeat_row_identity_and_readers(vrig):
     await cv2.async_setup()
     await cv2._cap_rehydrate_task
     assert (cv2._calls_today, cv2._repeats_today) == (1, 1)
+    assert cv2.diag_status()["crossing_vision_today"]["repeats"] == 1
 
 
 @pytest.mark.asyncio
@@ -1088,6 +1095,7 @@ async def test_yard_walker_burst_cap_and_inflight_hold(vrig):
     vrig.monkeypatch.setattr(vrig.C, "CROSSING_VISION_DIRECTION_REPEAT_RATE", 1.0)
     vrig.monkeypatch.setattr(vrig.C, "CROSSING_VISION_DIRECTION_REPEAT_DAILY_MAX", 3)
     vrig.hass.data[vrig.C.DOMAIN][vrig.C.CROSSING_VISION_CAP_HASS_KEY] = 10
+    vrig.monkeypatch.setattr(vrig.C, "CROSSING_VISION_AMBIGUOUS_CAP_RESERVE", 0)
     vrig.llm.delay = 0.05
     e = whole_e(vrig, 3000)
     keys = []
@@ -1121,7 +1129,98 @@ async def test_yard_walker_burst_cap_and_inflight_hold(vrig):
     assert len(reps) <= 3
     assert len(vrig.llm.calls) == n_primary_calls + len(reps)
     outcomes = {r["outcome"] for r in prim}
-    assert outcomes <= {"ok", "skipped_busy", "skipped_cap"}
+    assert outcomes <= {"ok", "skipped_busy", "skipped_cap", "skipped_reserved"}
+
+
+def _fire(rig, egress, t, direction):
+    rig.hass.bus.async_fire("ura_person_egress_event", {
+        "direction": direction, "egress_camera": egress,
+        "timestamp": t.isoformat(), "person_id": None,
+        "identity_provenance": None,
+        "peak_person_count": None if direction == "ambiguous" else 1,
+    })
+    return f"{egress}@{t.isoformat()}"
+
+
+async def _drain(rig):
+    for _ in range(200):
+        await rig.hass.async_block_till_done(wait_background_tasks=True)
+        if not rig.cv._repeat_tasks and rig.cv._pending() == 0:
+            break
+        await asyncio.sleep(0.02)
+    await settle(rig)
+
+
+@pytest.mark.asyncio
+async def test_burst_never_displaces_resolved_vision_call(vrig):
+    """Review M1: the 26-ambiguous burst with an entry / exit crossing after
+    every 4th ambiguous one, calls held open, default cap (93) and reserve
+    (30): every resolved crossing gets a vision call (`ok`), never
+    skipped_busy / skipped_cap; ambiguous ones take at most one slot."""
+    vrig.llm.delay = 0.05
+    e = whole_e(vrig, 4000)
+    resolved, amb = [], []
+    for i in range(26):
+        t = e + timedelta(seconds=70 * i)
+        cam, egress = (("garage_a", GARAGE_EGRESS) if i % 2 == 0
+                       else ("front_door_aerial", FRONT_EGRESS))
+        ended_event(vrig, f"ev-mb{i}", cam, t.timestamp() + 1)
+        amb.append(_fire(vrig, egress, t, "ambiguous"))
+        await asyncio.sleep(0.01)
+        if i % 4 == 3:
+            t2 = t + timedelta(seconds=35)
+            ended_event(vrig, f"ev-mr{i}", cam, t2.timestamp() + 1)
+            resolved.append(_fire(vrig, egress, t2, "entry" if i % 8 == 3 else "exit"))
+            await asyncio.sleep(0.01)
+        assert vrig.cv._pending_primaries() <= 2
+    await _drain(vrig)
+    got = {r["src"]: r["outcome"] for r in primary_rows(vrig)}
+    assert len(resolved) == 6
+    assert {got[k] for k in resolved} == {"ok"}
+    assert {got[k] for k in amb} <= {"ok", "skipped_reserved"}
+    assert vrig.llm.max_inflight <= 2
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_never_admitted_at_max_concurrent_one(vrig):
+    """MAX_CONCURRENT 1: the only slot is kept for resolved crossings."""
+    vrig.monkeypatch.setattr(vrig.C, "CROSSING_VISION_MAX_CONCURRENT", 1)
+    e = whole_e(vrig, 900)
+    ended_event(vrig, "ev-m1a", "garage_a", e.timestamp() + 1)
+    await bus(vrig, GARAGE_EGRESS, e, direction="ambiguous")
+    ended_event(vrig, "ev-m1b", "front_door_aerial", e.timestamp() + 301)
+    await bus(vrig, FRONT_EGRESS, e + timedelta(seconds=300))
+    assert [r["outcome"] for r in primary_rows(vrig)] == ["skipped_reserved", "ok"]
+    assert len(vrig.llm.calls) == 1
+    assert vrig.cv.diag_status()["crossing_vision_today"]["skipped_reserved"] == 1
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_cap_reserve_boundary(vrig):
+    """Cap 32, reserve 30 (literals): ambiguous admitted at calls 0 and 1
+    (0, 1 < 2), refused at 2; an entry crossing still calls at 2."""
+    vrig.hass.data[vrig.C.DOMAIN][vrig.C.CROSSING_VISION_CAP_HASS_KEY] = 32
+    e = whole_e(vrig, 2000)
+    for i in range(3):
+        t = e + timedelta(seconds=200 * i)
+        ended_event(vrig, f"ev-cr{i}", "garage_a", t.timestamp() + 1)
+        await bus(vrig, GARAGE_EGRESS, t, direction="ambiguous")
+    ended_event(vrig, "ev-cr-e", "garage_a", e.timestamp() + 801)
+    await bus(vrig, GARAGE_EGRESS, e + timedelta(seconds=800))
+    assert [r["outcome"] for r in primary_rows(vrig)] == [
+        "ok", "ok", "skipped_reserved", "ok"]
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_cap_reserve_zero_is_no_reserve(vrig):
+    vrig.monkeypatch.setattr(vrig.C, "CROSSING_VISION_AMBIGUOUS_CAP_RESERVE", 0)
+    vrig.hass.data[vrig.C.DOMAIN][vrig.C.CROSSING_VISION_CAP_HASS_KEY] = 2
+    e = whole_e(vrig, 2000)
+    for i in range(3):
+        t = e + timedelta(seconds=200 * i)
+        ended_event(vrig, f"ev-cz{i}", "garage_a", t.timestamp() + 1)
+        await bus(vrig, GARAGE_EGRESS, t, direction="ambiguous")
+    assert [r["outcome"] for r in primary_rows(vrig)] == ["ok", "ok", "skipped_cap"]
 
 
 # ------------------------------------------------- INV-DIR-GATE metamorphic
@@ -1221,3 +1320,248 @@ async def test_inv_dir_gate_metamorphic(vrig):
                 assert ("entry", 2, "vision", 0) in got["terms"]
                 assert not [t for t in got["terms"] if t[3] in (1, 3, 9)]
             assert got == golden, (variant, repeat_rate)
+
+
+# ===================================================== review C test gaps
+async def _spin_until(pred, n=300):
+    for _ in range(n):
+        if pred():
+            return True
+        await asyncio.sleep(0)
+    return pred()
+
+
+@pytest.mark.asyncio
+async def test_roll_day_resets_repeat_budget(vrig):
+    """C9: a new local day zeroes the repeat counter (budget 1 spent
+    yesterday -> today's crossing gets its repeat)."""
+    vrig.monkeypatch.setattr(vrig.C, "CROSSING_VISION_DIRECTION_REPEAT_RATE", 1.0)
+    vrig.monkeypatch.setattr(vrig.C, "CROSSING_VISION_DIRECTION_REPEAT_DAILY_MAX", 1)
+    vrig.cv._repeats_today = 1
+    vrig.cv._day = vrig.cv._day - timedelta(days=1)
+    e = whole_e(vrig, 600)
+    ended_event(vrig, "ev-rd", "garage_a", e.timestamp() + 1)
+    await bus(vrig, GARAGE_EGRESS, e)
+    await settle(vrig)
+    assert len(vrig.llm.calls) == 2
+    assert vrig.cv._repeats_today == 1
+
+
+@pytest.mark.asyncio
+async def test_repeat_blocked_while_cap_hold(vrig):
+    """C10: while the setup rehydration has not landed (cap hold), no
+    repeat starts even after a primary outcome."""
+    from test_crossing_vision_shadow import fire_cross_nowait
+
+    vrig.monkeypatch.setattr(vrig.C, "CROSSING_VISION_DIRECTION_REPEAT_RATE", 1.0)
+    held = asyncio.Event()
+    vrig.llm.hold[0] = held
+    e = whole_e(vrig, 600)
+    ended_event(vrig, "ev-ch", "garage_a", e.timestamp() + 1)
+    ring_record(vrig, GARAGE_EGRESS, e, "entry")
+    fire_cross_nowait(vrig, GARAGE_EGRESS, e)
+    assert await _spin_until(lambda: len(vrig.llm.calls) == 1)
+    vrig.cv._cap_hold = True
+    held.set()
+    await settle(vrig)
+    assert len(vrig.llm.calls) == 1
+    assert [r.get("call_kind") for r in all_rows(vrig)] == ["primary"]
+
+
+@pytest.mark.asyncio
+async def test_hostile_camera_name_never_in_url(vrig):
+    """C15: a Frigate camera name that is not a safe path token never
+    reaches the recording URL; the call falls back to the event clip."""
+    hostile = "garage_a/../../config"
+    vrig.cv._stem_cache[hostile] = "garage_a"
+    e = whole_e(vrig, 60)
+    ended_event(vrig, "ev-hc", hostile, e.timestamp() + 1)
+    await bus(vrig, GARAGE_EGRESS, e)
+    [call] = vrig.llm.calls
+    assert "recording" not in call["video_file"] and ".." not in call["video_file"]
+    assert call["video_file"] == "/api/frigate/frigate-f2/notifications/ev-hc/clip.mp4"
+
+
+@pytest.mark.asyncio
+async def test_hostile_instance_never_in_url(vrig):
+    """C16: an instance id that is not a safe path token: no window URL and
+    no clip URL either -> no call, `no_clip_url`."""
+    # The rig's second Frigate config entry ("f1_retired") reports it.
+    vrig.hass.data["frigate"]["f1_retired"] = {"config": {"mqtt": {
+        "client_id": "bad/../id", "topic_prefix": "evil"}}}
+    e = whole_e(vrig, 60)
+    ended_event(vrig, "ev-hi", "garage_a", e.timestamp() + 1, source="mqtt:evil")
+    await bus(vrig, GARAGE_EGRESS, e)
+    assert vrig.llm.calls == []
+    assert [r["outcome"] for r in primary_rows(vrig)] == ["no_clip_url"]
+
+
+@pytest.mark.asyncio
+async def test_amend_not_analysed_never_stamps_direction(vrig):
+    """C27: a blank reply that still names a direction: the G3 record gets
+    no vision direction / confidence (not_analysed)."""
+    vrig.llm.reply = reply_ok(frames=(0, 0, 0, 0), total=0, direction="in",
+                              direction_confidence="high")
+    e = whole_e(vrig, 60)
+    ended_event(vrig, "ev-bl", "garage_a", e.timestamp() + 1)
+    await bus(vrig, GARAGE_EGRESS, e)
+    rec = vrig.tracker.get_crossing(f"egress:{GARAGE_EGRESS}:{e.isoformat()}")
+    assert (rec.vision_direction, rec.vision_direction_confidence,
+            rec.vision_people_count, rec.direction_agreement) == (
+        None, None, None, "not_analysed")
+
+
+@pytest.mark.asyncio
+async def test_late_joiner_to_uncalled_request_not_amended(vrig):
+    """C29/C30: a request skipped at call time (cap) made no call; a member
+    joining it later gets NO G3 notice."""
+    vrig.monkeypatch.setattr(vrig.C, "CROSSING_VISION_FRAME_ROUTE", "event_clip")
+    e = whole_e(vrig, 200)
+    s = e.timestamp() + 1
+    frigate(vrig, "ev-uc", "garage_a", s)
+    await bus(vrig, GARAGE_EGRESS, e)
+    vrig.hass.data[vrig.C.DOMAIN][vrig.C.CROSSING_VISION_CAP_HASS_KEY] = 1
+    vrig.cv._calls_today = 1
+    frigate(vrig, "ev-uc", "garage_a", s, typ="end", end=s + 10)
+    await settle(vrig)
+    vrig.hass.data[vrig.C.DOMAIN][vrig.C.CROSSING_VISION_CAP_HASS_KEY] = 93
+    await bus(vrig, DOORBELL_EGRESS, e + timedelta(seconds=40))
+    await settle(vrig)
+    assert [r["outcome"] for r in primary_rows(vrig)] == ["skipped_cap", "clustered"]
+    assert vrig.amended == []
+
+
+@pytest.mark.asyncio
+async def test_repeat_rechecks_switch_at_call_time(vrig):
+    """C32: a repeat waiting for a slot does not call once the switch is
+    turned off (INV-OFF at repeat call time)."""
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+
+    vrig.monkeypatch.setattr(vrig.C, "CROSSING_VISION_DIRECTION_REPEAT_RATE", 1.0)
+    e2 = whole_e(vrig, 0)
+    frigate(vrig, "ev-sw2", "front_door_aerial", e2.timestamp() + 1)
+    await bus(vrig, FRONT_EGRESS, e2)            # waits for E + 25
+    from test_crossing_vision_shadow import fire_cross_nowait
+
+    e = whole_e(vrig, 600)
+    ended_event(vrig, "ev-sw1", "garage_a", e.timestamp() + 1)
+    ring_record(vrig, GARAGE_EGRESS, e, "entry")
+    fire_cross_nowait(vrig, GARAGE_EGRESS, e)
+    assert await _spin_until(lambda: len(vrig.cv._repeat_tasks) == 1)
+    vrig.hass.data[vrig.C.DOMAIN][vrig.C.CROSSING_VISION_SWITCH_HASS_KEY] = False
+    async_fire_time_changed(vrig.hass, e2 + timedelta(seconds=30))
+    await settle(vrig)
+    assert len(vrig.llm.calls) == 1
+    assert [r for r in all_rows(vrig) if r.get("call_kind") == "repeat"] == []
+
+
+@pytest.mark.asyncio
+async def test_one_repeat_at_a_time(vrig):
+    """C37: a running repeat counts in the in-flight bound, so a second
+    queued repeat waits for it (never two repeats at once)."""
+    from test_crossing_vision_shadow import fire_cross_nowait
+
+    vrig.monkeypatch.setattr(vrig.C, "CROSSING_VISION_DIRECTION_REPEAT_RATE", 1.0)
+    gate = asyncio.Event()
+    vrig.llm.gate = gate
+    e = whole_e(vrig, 900)
+    for i, (cam, egress) in enumerate((("garage_a", GARAGE_EGRESS),
+                                       ("front_door_aerial", FRONT_EGRESS))):
+        t = e + timedelta(seconds=200 * i)
+        ended_event(vrig, f"ev-oa{i}", cam, t.timestamp() + 1)
+        ring_record(vrig, egress, t, "entry")
+        fire_cross_nowait(vrig, egress, t)
+    assert await _spin_until(lambda: len(vrig.llm.calls) == 2)
+    held = asyncio.Event()
+    vrig.llm.hold[2] = held          # the first repeat
+    gate.set()
+    assert await _spin_until(lambda: len(vrig.llm.calls) == 3)
+    for _ in range(100):
+        await asyncio.sleep(0)
+    assert len(vrig.llm.calls) == 3 and vrig.llm.inflight == 1
+    held.set()
+    await settle(vrig)
+    assert len(vrig.llm.calls) == 4 and vrig.llm.max_inflight == 2
+
+
+@pytest.mark.asyncio
+async def test_repeat_wait_deadline_skips(vrig):
+    """C38: no free slot within REPEAT_WAIT_S -> the repeat is skipped and
+    counted repeat_skipped_busy (a pending primary keeps the slot busy)."""
+    from test_crossing_vision_shadow import fire_cross_nowait
+
+    vrig.monkeypatch.setattr(vrig.C, "CROSSING_VISION_DIRECTION_REPEAT_RATE", 1.0)
+    vrig.monkeypatch.setattr(vrig.C, "CROSSING_VISION_DIRECTION_REPEAT_WAIT_S", 0.05)
+    e2 = whole_e(vrig, 0)
+    frigate(vrig, "ev-dl2", "front_door_aerial", e2.timestamp() + 1)
+    await bus(vrig, FRONT_EGRESS, e2)            # pending until E + 25
+    e = whole_e(vrig, 600)
+    ended_event(vrig, "ev-dl1", "garage_a", e.timestamp() + 1)
+    ring_record(vrig, GARAGE_EGRESS, e, "entry")
+    fire_cross_nowait(vrig, GARAGE_EGRESS, e)
+    for _ in range(30):
+        await asyncio.sleep(0.02)
+    assert vrig.cv.diag_status()["crossing_vision_today"]["repeat_skipped_busy"] == 1
+    assert len(vrig.llm.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_joins_ambiguous_request(vrig):
+    """C45: a second ambiguous crossing on the same door group inside the
+    cluster window joins the first request (one call), even on its own
+    Frigate event."""
+    e = whole_e(vrig, 600)
+    ended_event(vrig, "ev-aa1", "garage_a", e.timestamp() + 1)
+    k1 = await bus(vrig, GARAGE_EGRESS, e, direction="ambiguous")
+    ended_event(vrig, "ev-aa2", "doorbell_lite", e.timestamp() + 31)
+    k2 = await bus(vrig, DOORBELL_EGRESS, e + timedelta(seconds=30), direction="ambiguous")
+    assert len(vrig.llm.calls) == 1
+    got = {r["src"]: r for r in primary_rows(vrig)}
+    assert got[k2]["outcome"] == "clustered"
+    assert got[k2]["primary_crossing_key"] == k1
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_zero_waits_for_settle(vrig):
+    """C24: fresh (unsettled) ambiguous bus events never page."""
+    vrig.monkeypatch.setattr(vrig.cv, "_record", lambda *a, **k: None)
+    e = whole_e(vrig, 6000)
+    for i in range(5):
+        await bus(vrig, GARAGE_EGRESS, e + timedelta(seconds=400 * i),
+                  direction="ambiguous")
+    await vrig.cv.async_evaluate_tripwires()
+    assert not [p for p in vrig.pages if p["kind"] == "crossing_vision_ambiguous_zero"]
+
+
+async def _repeat_with_none_reply(vrig, *, roll_midnight):
+    real = vrig.mods.pe.analyze_crossing_frames
+    n = {"i": 0}
+
+    async def _wrap(hass, event_id, **kw):
+        n["i"] += 1
+        if n["i"] == 2:          # the repeat: no call made (kill / None)
+            if roll_midnight:    # local midnight passed during the wait
+                vrig.cv._repeats_today = 0
+                vrig.cv._today["repeats"] = 0
+            return None
+        return await real(hass, event_id, **kw)
+
+    vrig.monkeypatch.setattr(vrig.mods.pe, "analyze_crossing_frames", _wrap)
+    vrig.monkeypatch.setattr(vrig.C, "CROSSING_VISION_DIRECTION_REPEAT_RATE", 1.0)
+    e = whole_e(vrig, 600)
+    ended_event(vrig, "ev-nr", "garage_a", e.timestamp() + 1)
+    await bus(vrig, GARAGE_EGRESS, e)
+    await settle(vrig)
+    return vrig.cv._repeats_today, vrig.cv._today["repeats"]
+
+
+@pytest.mark.asyncio
+async def test_repeat_none_reply_refunds_budget(vrig):
+    """C31: a repeat whose adapter made no call (None) is refunded."""
+    assert await _repeat_with_none_reply(vrig, roll_midnight=False) == (0, 0)
+
+
+@pytest.mark.asyncio
+async def test_repeat_refund_clamped_across_midnight(vrig):
+    """D LOW-2: the refund after a midnight roll stays at 0 (never -1)."""
+    assert await _repeat_with_none_reply(vrig, roll_midnight=True) == (0, 0)

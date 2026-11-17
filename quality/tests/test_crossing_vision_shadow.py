@@ -1019,6 +1019,7 @@ async def test_diag_status_shape(rig):
         # P3-D3 counters.
         "ambiguous": 0, "ambiguous_shared_event": 0, "repeats": 0,
         "repeat_skipped_busy": 0, "vision_amend_failed": 0,
+        "skipped_reserved": 0,
     }
     last = d["crossing_vision_last"]
     assert (last["outcome"], last["people_count"], last["camera_peak_count"],

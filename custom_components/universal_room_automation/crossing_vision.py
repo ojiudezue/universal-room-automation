@@ -80,6 +80,7 @@ OUTCOME_NO_CLIP_URL = "no_clip_url"
 OUTCOME_CLUSTERED = "clustered"
 OUTCOME_SKIPPED_CAP = "skipped_cap"
 OUTCOME_SKIPPED_BUSY = "skipped_busy"
+OUTCOME_SKIPPED_RESERVED = "skipped_reserved"  # review M1 (ambiguous only)
 
 # Call outcomes that count as failures for the error-rate trip-wire.
 FAILED_CALL_OUTCOMES = frozenset({
@@ -557,6 +558,17 @@ class CrossingVisionShadow:
         repeat (P3-D3 step 8: a repeat counts toward the in-flight bound)."""
         return self._pending_primaries() + (1 if self._repeat_running else 0)
 
+    def _ambiguous_reserved(self) -> bool:
+        """Review M1: True when an ambiguous crossing must NOT be admitted:
+        it would leave no in-flight slot free for a resolved crossing
+        (pending primaries >= MAX_CONCURRENT - 1), or it would eat into the
+        cap's reserve for resolved crossings (calls + waiting >= cap -
+        CROSSING_VISION_AMBIGUOUS_CAP_RESERVE)."""
+        if self._pending_primaries() >= int(_c.CROSSING_VISION_MAX_CONCURRENT) - 1:
+            return True
+        reserve = max(0, int(_c.CROSSING_VISION_AMBIGUOUS_CAP_RESERVE))
+        return self._calls_counted() + self._waiting() >= self.daily_cap() - reserve
+
     def _repeats_counted(self) -> int:
         """Repeats counted against today's repeat budget; at the budget while
         the setup rehydration has not landed (as the primary counter)."""
@@ -735,6 +747,7 @@ class CrossingVisionShadow:
                 # P3-D3 counters.
                 "ambiguous": 0, "ambiguous_shared_event": 0, "repeats": 0,
                 "repeat_skipped_busy": 0, "vision_amend_failed": 0,
+                "skipped_reserved": 0,
             }
 
     def _count(self, outcome: str) -> None:
@@ -744,6 +757,7 @@ class CrossingVisionShadow:
             OUTCOME_NO_EVENT: "no_event",
             OUTCOME_SKIPPED_CAP: "skipped_cap",
             OUTCOME_SKIPPED_BUSY: "skipped_busy",
+            OUTCOME_SKIPPED_RESERVED: "skipped_reserved",
             OUTCOME_CLUSTERED: "clustered",
             OUTCOME_NO_CLIP_URL: "no_clip_url",
         }.get(outcome)
@@ -972,6 +986,13 @@ class CrossingVisionShadow:
         if self._pending_primaries() >= max(0, int(_c.CROSSING_VISION_MAX_CONCURRENT)):
             self._record(crossing, OUTCOME_SKIPPED_BUSY, event=match)
             self._ledger_terms([member], OUTCOME_SKIPPED_BUSY, None)
+            return
+        if ambiguous and self._ambiguous_reserved():
+            # Review M1: an ambiguous crossing never takes the last
+            # in-flight slot nor the reserved tail of the daily cap, so it
+            # cannot displace a resolved crossing's vision call.
+            self._record(crossing, OUTCOME_SKIPPED_RESERVED, event=match)
+            self._ledger_terms([member], OUTCOME_SKIPPED_RESERVED, None)
             return
 
         req = _Request(
@@ -1492,8 +1513,10 @@ class CrossingVisionShadow:
                 self._inflight_calls -= 1
             latency = round(self._epoch() - started, 2)
             if reply is None:
-                self._repeats_today -= 1
-                self._today["repeats"] -= 1
+                # Review D LOW-2: clamped at 0 (a call spanning local
+                # midnight refunds against an already-rolled counter).
+                self._repeats_today = max(0, self._repeats_today - 1)
+                self._today["repeats"] = max(0, self._today.get("repeats", 0) - 1)
                 return
             parsed = self._parse_reply(reply)
             self._record_repeat(

@@ -3720,7 +3720,9 @@ CONF_CROSSING_VISION_DAILY_CALLS: Final = "crossing_vision_daily_calls"
 # today's call rows (P3-D5), so a restart no longer grants a fresh cap. The
 # default is sized from the P3-D0 (a) volume probe: ceil(max simulated daily
 # calls x 1.5) = ceil(62 x 1.5) = 93 (AUDIT_crossing_vision_p3_d0_2026_11_15.md),
-# <= MAX. An operator-set Number value wins.
+# <= MAX. An operator-set Number value wins. Primary calls only: stability
+# repeats have their own budget (DIRECTION_REPEAT_DAILY_MAX); a cap of 0 stops
+# them too (INV-OFF), any other lowered cap does not.
 CROSSING_VISION_DAILY_CALLS: Final = 93
 CROSSING_VISION_DAILY_CALLS_MAX: Final = 200
 # Rung 1: model change needs a dry call first (D5 moves it). Operator
@@ -3833,11 +3835,22 @@ CROSSING_VISION_CROSSING_FRAMES: Final = 8
 # Rung 1 (P3-D3): watch ambiguous crossings too (count + recorded direction,
 # behind INV-DIR-GATE). False = the pre-Phase-3 skip.
 CROSSING_VISION_WATCH_AMBIGUOUS: Final = True
+# Rung 1 (review M1): daily-cap calls reserved for entry/exit crossings. An
+# ambiguous crossing is admitted only while calls + waiting < cap - this AND
+# pending primaries < MAX_CONCURRENT - 1 (one in-flight slot always free for
+# a resolved crossing); otherwise it records `skipped_reserved`. 30: 11-16
+# had 19 resolved crossings (54 total, 35 ambiguous; AUDIT_arc_day_validation
+# _2026_11_17), x1.5 headroom (the CAP_HEADROOM rule) = 29 -> 30; ambiguous
+# crossings may still use 63 of the 93. 0 = no cap reserve (the slot rule
+# still applies).
+CROSSING_VISION_AMBIGUOUS_CAP_RESERVE: Final = 30
 # Rung 1 (P3-D3 step 8): sampled repeat call on a primary `ok` outcome (the
 # stability measure). Selection = sha1(crossing key) % 1000 < RATE x 1000.
 # Own daily budget (never the primary cap); a repeat starts only with no
 # primary waiting or calling and waits <= WAIT_S for that. 0 rate or 0 max =
-# off.
+# off. Review D LOW-1: the primary cap does NOT bound repeats; lowering it
+# (even below today's calls) leaves up to DAILY_MAX repeats possible; only a
+# cap of 0 (INV-OFF) or this max / rate at 0 stops them.
 CROSSING_VISION_DIRECTION_REPEAT_RATE: Final = 0.2
 CROSSING_VISION_DIRECTION_REPEAT_DAILY_MAX: Final = 15
 CROSSING_VISION_DIRECTION_REPEAT_WAIT_S: Final = 120
