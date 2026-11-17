@@ -84,7 +84,8 @@ term while `unknown` is written `applied=false reason="unknown"` (`:446`): 77 of
 (`AUDIT_crossing_ledger_restart_known_time_2026_11_17.md`): 28 restarts (4.0/day); ledger-blind gap per restart
 380-491 s (median 430 s) against 27-52 s of HA downtime (URA boot lag); door or egress activity inside 4 of 26 gaps;
 known-time 1.6 % strict (every Tier-1 `on` holds) / 11.0 % calibrated (`nohold`, reproduces the one live anchor; n = 1).
-With zero restarts the ceiling is 43.5 % / 54.3 %: the house is rarely empty, by design of the anchor.
+The audit's "no restarts" figure, 43.5 % / 54.3 %, is the share of the window after the first anchor: in that simulation
+the ledger, once known, stays known to the window end. It is not a steady-state rate.
 
 A floor build against an 11 % known ledger lifts nothing most of the day. So the floor waits on the precondition.
 
@@ -92,12 +93,13 @@ A floor build against an 11 % known ledger lifts nothing most of the day. So the
 
 | Option | What | Expected known-time (strict / calibrated) | Pro | Con / ingredient risk |
 |---|---|---|---|---|
-| (c) fewer restarts | Process: batch releases; one planned restart per day, never during sleep (memory `feedback_no_restart_during_sleep`); HA updates batched into the same restart | Not simulated per rate. Bounded by 43.5 / 54.3 % (0 restarts). At 4 / day the loss is 41.9 / 43.3 points; restarts destroy known-time only when they hit a known ledger, and the next anchor needs the next empty house, so the loss falls roughly with the restart rate | Zero code; zero review; touches no Tier-3 machine; helps every RAM-state feature (stuck clocks, holds, trip-wire latches), not only the ledger | Depends on discipline; deploy cadence is the arc's speed; never reaches 0 (HA core updates, incidents) |
+| (c) fewer restarts | Process: batch releases; one planned restart per day, never during sleep (memory `feedback_no_restart_during_sleep`); HA updates batched into the same restart | Simulated 2026-11-17 (audit data, one restart per day at a fixed local time, 430 s blind gap): 03:00 → 10.1 / 27.6 %; 10:00 → 14.3 / 39.0 %; 15:00 → 2.9 / 17.5 %; 22:00 → 7.1 / 23.4 %. The result depends on whether each day's restart falls before or after that day's anchor (anchor opportunities on 4 of 7 days, mostly away windows); a restart late in the day wipes the day's known-time and the next anchor may be days away. Caveat: 7 days, anchor opportunities before 11-14 16:03 are hypothetical (ledger not yet shipped) | Zero code; zero review; touches no Tier-3 machine; helps every RAM-state feature (stuck clocks, holds, trip-wire latches), not only the ledger | Depends on discipline; deploy cadence is the arc's speed; never reaches 0 (HA core updates, incidents) |
 | (a) restore across restart | Persist `L`, `L_raw`, state, `last_anchor_ts`, `_t_start`, applied-exit store and open credits on teardown and every anchor; at boot restore `known` only if the ledger-blind gap (last census tick before stop to first after start) is ≤ N = 600 s AND the recorder shows no exterior door contact / egress person camera change / `person_entry_exit_events` entry in [last tick, first tick + 60 s] | 3.4 % / 28.4 % at today's restart rate (N = 600 s applies at 22 of 26 restarts; N = 120 or 300 s applies at 0, the boot lag alone exceeds them) | 2.6x calibrated; works even when restarts are unavoidable | A new writer and a new boot path inside the hardened Tier-3 ledger state machine (INV-P2-ONCE, INV-P2-DISCHARGE); new persistence (Store, restore-poisoning history: memory `project_envoy_boot_incident_2026_06_12`); a door opened and closed wholly inside the gap with no HA state row is invisible (not measurable); recorder read at boot. Its margin SHRINKS as (c) succeeds: with ~1 restart / day most known-time already survives, and restore only saves the fraction of those few restarts that hit a known ledger |
 | (b) anchor yield | Probe which inputs block anchors during real empty-house windows (away + every resident `not_home`) | Ceiling 43.5 / 54.3 % is set by real occupancy; the yield fix can only move strict toward calibrated (1.6 → 11 % today) | The audit shows the gap strict vs calibrated is held inputs P3-D8 already releases live; the open question is whether any remaining holder is a LIVE stuck sensor P3-D8 misses | A DEAD held input is faulty equipment by the operator's rule: unknown is not empty, it holds, and it must keep holding. Releasing a dead input to win anchors would contradict a settled ruling and is not proposed. A live stuck `on` input is already released by P3-D8 (`crossing_vision.py:1950-1972`, `CROSSING_VISION_ANCHOR_STUCK_CLIENTS` `const.py:3896`) except in sleep / waking / home_night for P22. So (b) is a probe, and code only if the probe names a live stuck input the existing exclusion set misses (that is a stuck-sensor card, not a ledger change) |
 
-Marginal decomposition. The simplest lever, (c), captures the bulk: the measured loss is caused by restarts (11 % today
-vs 54 % at zero restarts, calibrated), and (c) attacks the cause with no code. (a) captures 11 → 28 % at today's rate,
+Marginal decomposition. The simplest lever, (c), attacks the cause with no code: at one restart a day placed in the
+morning it reaches 39 % calibrated in simulation (11 % today), more than (a) adds at today's rate (28 %); placed in the
+afternoon it reaches only 17.5 %, so the restart TIME matters as much as the count. (a) captures 11 → 28 % at today's rate,
 but its marginal benefit over (c) falls with every restart (c) removes, while its ingredients stay fixed: synthetic
 state at boot, a new writer to a Tier-3 machine, a rare-fire path (boot restore) that is hard to observe organically.
 (b) is cheap as a probe and changes no hardened rule. Per the operator's 2026-11-17 rule (only proven code supersedes
@@ -105,19 +107,29 @@ correct code; be skeptical of new Tier-3), the ledger state machine is hardened 
 proven to pay for itself.
 
 **Decision (recommended; operator may override, §1b.12 Q-F1):**
-1. **(c) now.** Batch releases to at most one planned restart per day, never while the house sleeps. No code.
+1. **(c) now.** Batch releases to at most one planned restart per day, in the morning (≈ 10:00 local), never while the
+   house sleeps. No code.
 2. **(b) as a one-shot read-only probe** inside F-D0 (holders during away windows, by entity, with stream view and
    exclusion state). Any live stuck holder found becomes a stuck-sensor card; no ledger change.
-3. **(a) parked with a revival trigger:** "after 7 days under (c), measured known-time < `INTERIOR_D0_FLOOR_KNOWN_MIN`
-   AND restarts that hit a `known` ledger destroyed ≥ half of the lost known-time". If revived it is its own Tier-3 cycle
-   on the crossing plan (P2 owner), not part of ship F.
+3. **(a) parked with a revival trigger:** after 7 days under (c), F-K fails AND the known-time destroyed by restarts is ≥
+   50 % of the window's unknown time. "Known-time destroyed" (audit §2) = for each restart that hit a `known` ledger, the
+   time from the first post-boot census tick to the next anchor (or window end), summed. If revived it is its own Tier-3
+   cycle on the crossing plan (P2 owner), not part of ship F.
 
-**Gate (F-K, rung 1):** ship F's build starts only when the LIVE ledger's known fraction over the last 7 days is ≥
-`INTERIOR_D0_FLOOR_KNOWN_MIN` (0.25). Expected: under (c) with ~1 restart/day, calibrated known-time should land between
-28 % (today's rate plus restore) and 54 % (no restarts); 25 % is the floor below which F-c cannot reach its fire minimum.
-Measured from DB rows, not inferred: known intervals = each `anchor` row (`crossing_vision_ledger` episode, kind
-`anchor`) to the next restart (`recorder_runs`) or `ledger_disabled` / `set_unknown`. If (c) holds for 7 days and F-K
-still fails, the revival trigger for (a) is evaluated with the same data.
+**Gate F-K (rung 1, a precondition, not a per-strategy gate):** ship F's build starts only when the live ledger's known
+fraction over the last 7 days is ≥ `INTERIOR_D0_FLOOR_KNOWN_MIN` (0.25). 0.25 is a judgement, not a derived limit: below
+it the floor would act on less than a quarter of the day and F-c measures mostly the proxy.
+
+How F-K is measured. `set_unknown` (`crossing_ledger.py:325-329`) and `_ledger_disabled` (`crossing_vision.py:1788-1801`)
+write no row today, so exact unknown transitions are not in the DB. Two ways:
+
+| Method | Pro | Con |
+|---|---|---|
+| Now, from existing rows: known from each `anchor` row to the first later `term` row with `reason = "unknown"` or the next restart (`recorder_runs`), whichever is first | Evaluable today, before any build; needs no code | Over-counts when the ledger goes unknown mid-day with no later term (switch off, kill, cap 0) until the next term or restart; error bounded by that gap and listed per interval in the report |
+| Add a `ledger_unknown` row on every transition to unknown / disabled, in F-D1 | Exact | Only exists after ship F, which F-K gates: circular |
+
+**Decision:** measure F-K now with the first method, and state the over-count error per interval. Add the transition row
+to the crossing ledger later as its own small change only if the measured error is material.
 
 ### 1b.1 The rule
 
@@ -298,12 +310,12 @@ W ∈ {0, 30, 60, 120, 300} s:
   once; top 10 with the camera pair (foyer flagged: pre-zone data);
 - (c) fire rate: episodes with `F > L` while `known`, per week, plus the proxy `S > R + unidentified_count` if known <
   50 % of the window;
-- (k) the live ledger's known fraction over the last 7 days (§1b.0 method);
+- (k) the live ledger's known fraction over the last 7 days (§1b.0 method, with its error), feeding precondition F-K
+  (§1b.0), evaluated once before the per-strategy gates;
 - (h) holders blocking anchors during away windows (§1b.0 option b), by entity, with stream view and exclusion state.
 
-Gates (rung 1, probe script), evaluated per strategy:
-- **F-K** known fraction (k) ≥ `INTERIOR_D0_FLOOR_KNOWN_MIN` (0.25) → continue; below → PARK ship F, revival trigger
-  "7-day known fraction ≥ 0.25" (re-run (k) only).
+Precondition first: F-K (§1b.0) fails → PARK ship F, revival trigger "7-day known fraction ≥ 0.25" (re-run (k) only).
+Then the gates (rung 1, probe script), evaluated per strategy:
 - **F-a** phantom episodes/week ≤ `INTERIOR_D0_FLOOR_PHANTOM_MAX_PER_WEEK` (1). `INTERIOR_LEDGER_FLOOR_WINDOW_S` = the
   smallest W at which `sustained_min` passes; none ≤ 300 s → STOP, operator. A `window_max` that fails F-a at that W is
   NOT offered in the Select (it ships `sustained_min` only and the Select is not built; Q-F2).
@@ -415,10 +427,10 @@ Effort: F-D0 ≈ half a day (probe); ship F ≈ 1.5-2 build days plus the Tier-3
 
 | # | Question | Default |
 |---|---|---|
-| Q-F1 | Precondition lever: process (c) + probe (b), restore (a) parked; or build (a) now? | (c) + (b); (a) parked with its trigger |
+| Q-F1 | Precondition lever: process (c) + probe (b), restore (a) parked; or build (a) now? Tradeoff: "If restart discipline slips, the floor and the 'test in parallel' strategies stay parked with no date." | (c) + (b); (a) parked with its trigger |
 | Q-F2 | If `window_max` fails F-a, ship it anyway in the Select (display-only risk), or ship `sustained_min` alone with no Select? | Ship `sustained_min` alone; the Select exists only if both pass F-a |
-| Q-F3 | F-K threshold: 25 % known over 7 days? | 0.25 |
-| Q-F4 | Restart budget for (c): at most one planned restart per day, none while the house sleeps? | Yes |
+| Q-F3 | F-K threshold: 25 % known over 7 days? Tradeoff: "If restart discipline slips, the floor and the 'test in parallel' strategies stay parked with no date." | 0.25 |
+| Q-F4 | Restart budget for (c): at most one planned restart per day, around 10:00 local, none while the house sleeps? | Yes |
 
 ### 1b.13 Prior art and review closure
 
