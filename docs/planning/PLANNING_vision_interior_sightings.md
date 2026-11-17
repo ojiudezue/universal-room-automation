@@ -51,247 +51,401 @@ observational with no consumer yet (operator 2026-11-15: "Emotion yes as prep fo
 enrolled is a non-goal (operator 2026-11-15: "Not expecting new names. Names come from people I enrolled. This is few and
 far between. Non goal").
 
-## 1b. Interior ledger floor (arc map §4a row 7; decided 2026-11-15, specified 2026-11-16)
+## 1b. Interior ledger floor (arc map §4a row 7; ship F; rewritten 2026-11-17)
 
-Operator, verbatim: "Interior counting I still want just not for presence for now. For census instead and the ledger."
-On the checkpoint anchor: "At quiet moments, when everyone is visible, an interior count could reset the ledger. How? This
-didn't make sense". On dropping it: "Yes. I don't want to worry and derail from low probability concerns." Card
-VISION-INTERIOR-SIGHTINGS-1 `operator_2026_11_15_ledger_floor_only`.
+One clean section. The 2026-11-16 text, the Q4 paragraph and the review trail are in
+`docs/planning/archive/PLANNING_vision_interior_ledger_floor_history.md` (NOT A BUILD SPEC). Code base: develop @
+335bf1284 (v5.108.36 live). Every `file:line` here was re-read on that commit.
 
-Code base for this section: develop @ c6230ade (ship 1 live as v5.108.28, 7 covered rooms; crossing ledger P2 and P3-D8
-on develop). This is not the §9.D4 `deconflict_house` interior term, which stays as written. Ship 1 does not touch the
-ledger; this section is its own build (call it **ship F**, after ship 2 per arc map §4a row 7).
+Operator, verbatim:
+- "Interior counting I still want just not for presence for now. For census instead and the ledger."
+- On the checkpoint anchor: "Yes. I don't want to worry and derail from low probability concerns. (Interior counts feed
+  the ledger as a FLOOR only...)"
+- Q4 (2026-11-16): "Maybe we can test diff strategies using s drop down with a default. I agree with your reco. We can
+  cleanup after we arrive at the best. Test in parallel. Unless you're sure."
+- 2026-11-17: "We should not rebuild tier 3 that are hardened and work and we should be skeptical of others. With clear
+  pro/con. Only proven code should supersede correct code."
+- Dead equipment (2026-11-14): "A dead camera is not a presence or absence of signal. Its faulty equipment."
+- Foyer floor zone: yes; staged in the homelab Frigate config, applies on the next Frigate restart (entity id not yet
+  known).
+
+This is not the §9.D4 `deconflict_house` interior term, which stays as written. Reviews closed: both 2026-11-17 plan
+reviews (`plan_review_ledger_floor_completeness_2026_11_17.md` #1-#6, `plan_review_ledger_floor_buildpred_G_2026_11_17.md`
+#1-#6); closure map in §1b.13.
+
+### 1b.0 Precondition: the ledger must be `known` often enough for a floor to matter
+
+**The fact.** The floor acts only while the ledger is `known` (§1b.3). Ledger state is RAM only and boots `unknown`
+(`crossing_ledger.py:45`, `:239-240`); the only way to `known` is the empty-house anchor `_anchor` (`:515`), which needs
+900 s (`CROSSING_VISION_LEDGER_EMPTY_RESET_S`, `const.py:3883`) of zero census camera bodies, no dark fleet, no held
+Tier-1 input (`CROSSING_VISION_LEDGER_ANCHOR_NEEDS_NO_HOLD`, `const.py:3889`), no rising edge and no entry term. Every
+term while `unknown` is written `applied=false reason="unknown"` (`:446`): 77 of 77 terms in 7 days, one anchor ever
+(`AUDIT_crossing_ledger_reason_unknown_2026_11_17.md`). Measured over 6.94 days
+(`AUDIT_crossing_ledger_restart_known_time_2026_11_17.md`): 28 restarts (4.0/day); ledger-blind gap per restart
+380-491 s (median 430 s) against 27-52 s of HA downtime (URA boot lag); door or egress activity inside 4 of 26 gaps;
+known-time 1.6 % strict (every Tier-1 `on` holds) / 11.0 % calibrated (`nohold`, reproduces the one live anchor; n = 1).
+With zero restarts the ceiling is 43.5 % / 54.3 %: the house is rarely empty, by design of the anchor.
+
+A floor build against an 11 % known ledger lifts nothing most of the day. So the floor waits on the precondition.
+
+**Options, with pro / con and the marginal-benefit decomposition.**
+
+| Option | What | Expected known-time (strict / calibrated) | Pro | Con / ingredient risk |
+|---|---|---|---|---|
+| (c) fewer restarts | Process: batch releases; one planned restart per day, never during sleep (memory `feedback_no_restart_during_sleep`); HA updates batched into the same restart | Not simulated per rate. Bounded by 43.5 / 54.3 % (0 restarts). At 4 / day the loss is 41.9 / 43.3 points; restarts destroy known-time only when they hit a known ledger, and the next anchor needs the next empty house, so the loss falls roughly with the restart rate | Zero code; zero review; touches no Tier-3 machine; helps every RAM-state feature (stuck clocks, holds, trip-wire latches), not only the ledger | Depends on discipline; deploy cadence is the arc's speed; never reaches 0 (HA core updates, incidents) |
+| (a) restore across restart | Persist `L`, `L_raw`, state, `last_anchor_ts`, `_t_start`, applied-exit store and open credits on teardown and every anchor; at boot restore `known` only if the ledger-blind gap (last census tick before stop to first after start) is ≤ N = 600 s AND the recorder shows no exterior door contact / egress person camera change / `person_entry_exit_events` entry in [last tick, first tick + 60 s] | 3.4 % / 28.4 % at today's restart rate (N = 600 s applies at 22 of 26 restarts; N = 120 or 300 s applies at 0, the boot lag alone exceeds them) | 2.6x calibrated; works even when restarts are unavoidable | A new writer and a new boot path inside the hardened Tier-3 ledger state machine (INV-P2-ONCE, INV-P2-DISCHARGE); new persistence (Store, restore-poisoning history: memory `project_envoy_boot_incident_2026_06_12`); a door opened and closed wholly inside the gap with no HA state row is invisible (not measurable); recorder read at boot. Its margin SHRINKS as (c) succeeds: with ~1 restart / day most known-time already survives, and restore only saves the fraction of those few restarts that hit a known ledger |
+| (b) anchor yield | Probe which inputs block anchors during real empty-house windows (away + every resident `not_home`) | Ceiling 43.5 / 54.3 % is set by real occupancy; the yield fix can only move strict toward calibrated (1.6 → 11 % today) | The audit shows the gap strict vs calibrated is held inputs P3-D8 already releases live; the open question is whether any remaining holder is a LIVE stuck sensor P3-D8 misses | A DEAD held input is faulty equipment by the operator's rule: unknown is not empty, it holds, and it must keep holding. Releasing a dead input to win anchors would contradict a settled ruling and is not proposed. A live stuck `on` input is already released by P3-D8 (`crossing_vision.py:1950-1972`, `CROSSING_VISION_ANCHOR_STUCK_CLIENTS` `const.py:3896`) except in sleep / waking / home_night for P22. So (b) is a probe, and code only if the probe names a live stuck input the existing exclusion set misses (that is a stuck-sensor card, not a ledger change) |
+
+Marginal decomposition. The simplest lever, (c), captures the bulk: the measured loss is caused by restarts (11 % today
+vs 54 % at zero restarts, calibrated), and (c) attacks the cause with no code. (a) captures 11 → 28 % at today's rate,
+but its marginal benefit over (c) falls with every restart (c) removes, while its ingredients stay fixed: synthetic
+state at boot, a new writer to a Tier-3 machine, a rare-fire path (boot restore) that is hard to observe organically.
+(b) is cheap as a probe and changes no hardened rule. Per the operator's 2026-11-17 rule (only proven code supersedes
+correct code; be skeptical of new Tier-3), the ledger state machine is hardened and correct; a restore path is not yet
+proven to pay for itself.
+
+**Decision (recommended; operator may override, §1b.12 Q-F1):**
+1. **(c) now.** Batch releases to at most one planned restart per day, never while the house sleeps. No code.
+2. **(b) as a one-shot read-only probe** inside F-D0 (holders during away windows, by entity, with stream view and
+   exclusion state). Any live stuck holder found becomes a stuck-sensor card; no ledger change.
+3. **(a) parked with a revival trigger:** "after 7 days under (c), measured known-time < `INTERIOR_D0_FLOOR_KNOWN_MIN`
+   AND restarts that hit a `known` ledger destroyed ≥ half of the lost known-time". If revived it is its own Tier-3 cycle
+   on the crossing plan (P2 owner), not part of ship F.
+
+**Gate (F-K, rung 1):** ship F's build starts only when the LIVE ledger's known fraction over the last 7 days is ≥
+`INTERIOR_D0_FLOOR_KNOWN_MIN` (0.25). Expected: under (c) with ~1 restart/day, calibrated known-time should land between
+28 % (today's rate plus restore) and 54 % (no restarts); 25 % is the floor below which F-c cannot reach its fire minimum.
+Measured from DB rows, not inferred: known intervals = each `anchor` row (`crossing_vision_ledger` episode, kind
+`anchor`) to the next restart (`recorder_runs`) or `ledger_disabled` / `set_unknown`. If (c) holds for 7 days and F-K
+still fails, the revival trigger for (a) is evaluated with the same data.
 
 ### 1b.1 The rule
 
-- The crossing ledger's level `L` is never below the visible interior floor `F` at a census tick while the ledger is
-  `known`. When `F > L` the ledger **lifts `L` to exactly `F`** (it raises `L`, not just the displayed value), and opens
-  an arrival credit of the lifted amount. `F` never lowers `L`, never sets `L` while `unknown`, never lifts above `F`,
-  and never moves the anchor.
-- **Dropped, not planned:** the checkpoint anchor (resetting `L` from interior counts at quiet moments). It needs every
-  camera-less room provably empty, which is rare here and fragile.
-- **Why lift `L` rather than clamp the display** (same reasoning as crossing plan P2-D2 step 4): a read-time
-  `max(L, F)` leaves a missed entry as a hidden deficit. Repro with a clamp: true 3, `L = 2` (one entry missed), `F = 3`,
-  display 3; a guest enters, `L = 3`, display 3, truth 4. With a lift, `L = 3` then 4. A clamp also violates the rule as
-  the operator stated it ("L never below the visible interior count").
-- **Why a credit:** the person the floor just counted usually has an entry term still in flight (the term's outcome lands
-  ≈ 210 s after the crossing, the body shows up in the foyer within seconds). Without a credit that term would count
-  them a second time. The lift reuses the resident floor's credit (`_credits`, consumed by `_consume_credits`
-  `crossing_ledger.py:403-417`, window [`t − 300`, `t + 60`] via `CROSSING_VISION_GO_ARRIVAL_WINDOW_BEFORE_S` /
-  `_AFTER_S`, expiry `_prune_credits` `:345-350`). One credit pool, so a resident lift and an interior lift for the same
-  arrival cannot both fire: whichever runs first raises `L`, and the other then sees `L ≥` its target.
+- While the ledger is `known`, at a census tick, `L` is never below the applied floor `F`. When `F > L` the ledger lifts
+  `L` to exactly `F` (it raises `L`, not the display) and opens an arrival credit of the lifted amount. `F` never lowers
+  `L`, never acts while `unknown`, never lifts above `F`, never makes the ledger `known`, never moves the anchor.
+- **Dropped, not planned:** the checkpoint anchor (reset `L` from interior counts at quiet moments).
+- **Why lift, not clamp the display:** a read-time `max(L, F)` hides a missed entry. Repro: true 3, `L = 2`, `F = 3`,
+  display 3; a guest enters, `L = 3`, display 3, truth 4. A lift gives `L = 3` then 4.
+- **Why a credit:** the person the floor counts usually has an entry term still in flight (outcome ≈ 210 s after the
+  crossing). The lift reuses the resident floor's credit pool (`_credits`; `_consume_credits` `crossing_ledger.py:403`,
+  window [t − `CROSSING_VISION_GO_ARRIVAL_WINDOW_BEFORE_S` 300, t + `_AFTER_S` 60] `const.py:7355-7356`; expiry
+  `_prune_credits` `:345`). One pool, so a resident lift and an interior lift for one arrival cannot both count.
 
-### 1b.2 The floor value `F` (producer)
+### 1b.2 The producer: `S`, the two strategies, and `F`
 
-- **Input:** the current room records, pulled at each `census_tick` by the crossing-vision wiring through
-  `PresenceCoordinator.get_room_sightings()` (`domain_coordinators/presence.py:6048`). No new listener, no census change.
-- **Per record contribution:** `bodies` when `liveness == "live"` and `bodies` is not None, else 0. Dead, lost, held,
-  released, stuck and no-reading members already yield `bodies = None` or a non-live record through ship 1's rules
-  (`member_liveness` `interior_vision.py:49-63`, `group_bodies_nvr` `:66-85`, `group_liveness` `:88-103`), so a dead or
-  stuck camera contributes nothing and never raises `F`. A record contributes 0 when its `as_of` is older than
-  `INTERIOR_LEDGER_FLOOR_RECORD_FRESH_S`. Omitting a room can only lower `F`, so the lower-bound property survives.
-- **Sample:** `S(t)` = the sum over covered rooms at tick `t`; `S = None` when there are no records at all (room records
-  disabled, producer missing, or every record stale).
-- **Floor:** `F(now)` = the **minimum** of `S` over the samples in [`now − INTERIOR_LEDGER_FLOOR_SUSTAIN_S`, `now`],
-  provided the oldest sample in the ring is at or before the window start and no sample in the window is None; else
-  `F = None` (no floor this tick). A count must be sustained to count.
-- **Why min, not the max the brief proposed (operator question Q4, §1a):** `F` raises `L` and the raise persists until an
-  exit term or the next anchor. A max over a window turns any one-tick spike into a persistent phantom person: a person
-  seen at once by two overlapping covered cameras (staircase, stairs_top, upstairs_hall and master_hallway plausibly
-  overlap), an NVR false positive, or a person walking between rooms as both records update. A sustained minimum is the
-  conservative reading of "lower bound". Cost: a person visible for less than the window does not lift `L` (the
-  ledger then waits for the anchor, as today).
-- **Overlap between rooms is not deduplicated.** Summing per-room records double-counts a person visible from two covered
-  rooms at once. The sustain window absorbs walk-throughs; a person standing in a shared field of view is the residual.
-  D0 gate F-b measures it; if it fails, the build stops for an operator decision (no overlap config is built speculatively).
+**Tick cadence.** The floor is computed at every crossing-ledger hand-off, `CrossingVisionShadow.census_tick`
+(`crossing_vision.py:1859`), called once per census evaluation from `PersonCensus._ledger_tick`
+(`camera_census.py:6920`, call `:6928`). The census runs on `SCAN_INTERVAL_CENSUS` = 30 s (`const.py:2429`) and also on
+events, so ticks are irregular, ≥ 1 per 30 s nominally (census snapshots in the DB are ~90 s apart; they are not ticks).
+Every window rule below is in seconds on tick timestamps, never a tick count.
+
+**Input.** The room records pulled at each tick through `PresenceCoordinator.get_room_sightings()`
+(`domain_coordinators/presence.py:6048`, delegate of `PersonSightingProducer.get_room_sightings` `person_sighting.py:969`;
+records built every `INTERIOR_ROOM_RECORD_INTERVAL_S` = 10 s, `const.py:3510`). No new listener, no census change.
+
+**Per record:** `bodies` when the record is LIVE (ship 1 rules: `member_liveness` `interior_vision.py:61`,
+`group_bodies_nvr` `:78`, `group_liveness` `:100`, `build_room_records` `:149`) and `bodies` is not None and `as_of` is
+within `INTERIOR_LEDGER_FLOOR_RECORD_FRESH_S`; else 0. A held, released, stuck, lost, no-reading or dead record
+contributes 0 (dead camera = faulty equipment: it neither raises nor lowers a lower bound). Omitting a room can only
+lower `S`.
+
+**Sample:** `S(t)` = sum over records. `S = None` when the pull raised, returned no records, or every record is stale.
+
+**Ring:** one RAM ring of `(t, S)` shared by both strategies, pruned to `INTERIOR_LEDGER_FLOOR_WINDOW_S` + 2 x 30 s.
+Coverage rule (both strategies): the window [now − W, now] is covered when the ring holds a sample at or before
+now − W (or W = 0 and a sample at now) and no sample inside the window is None. Uncovered → that strategy's value is
+None (no lift).
+
+**Strategies** (one window knob, `INTERIOR_LEDGER_FLOOR_WINDOW_S` = W, so the only difference is min vs max):
+- `sustained_min` (DEFAULT): `F_min` = min of `S` over the covered window. A count must hold W seconds to count.
+- `window_max`: `F_max` = max of `S` over the covered window. Same coverage, same None rule. Lifts faster; a one-tick
+  spike (two overlapping cameras, an NVR false positive, a walk-through) becomes a persistent lift until an exit or
+  anchor. Kept because the operator asked to test both in parallel.
+- W = 0: both equal the latest sample.
+
+**Applied value.** `F` = the value of the strategy selected at THIS tick (read from `hass.data` at tick time, §1b.6).
+Both values are computed every tick and exposed; only `F` reaches the ledger.
+
+**Overlap between rooms is not deduplicated.** A person in two covered fields of view counts twice in `S`. The foyer is
+the known case: the operator approved a Frigate `foyer_floor` zone (staged in the homelab Frigate config, live on the
+next Frigate restart; entity id not yet known). Dependency: once Frigate restarts, the foyer room's interior camera list
+gains the zone's person sensor through the room / census camera config (operator action, config-first; resolved through
+the registry, never by name), and the whole-frame foyer sensor leaves the floor's input. F-D0's 14-day replay pre-dates
+the zone, so its foyer overlap is measured on the whole-frame sensor; gate F-b is re-run on the foyer pair after 7 days
+of zone data (§1b.7).
 
 ### 1b.3 Ledger mechanics (pure core, `crossing_ledger.py`)
 
-`CrossingLedger.census_tick(now, resident_term, camera_bodies, camera_input_dark, interior_floor=None)`: the new keyword
-defaults to None, so every existing caller and test is byte-identical. Order inside the tick: store inputs, prune
-credits, resident lift (step 4, unchanged), then the interior lift: while `known`, `L` and `L_raw` not None, `F` not None
-and `L < F`: `k = F − L`, `L += k`, `L_raw += k`, credit `(now, k)` appended, `_changed_since_anchor = True`, one
-`LedgerEvent(kind=KIND_INTERIOR_LIFT, n=k, l_before, l_after, l_raw_after)`. `R_prev` is not touched by the interior
-lift. Running the resident lift first means a resident arrival is credited as a resident arrival when both rise on the
-same tick.
+`CrossingLedger.census_tick(now, resident_term, camera_bodies, camera_input_dark, interior_floor=None,
+floor_info=None)` (`:352`). `floor_info` is a frozen record `(floor_min, floor_max, strategy)` used only for row fields
+and counters. Both keywords default None: existing callers and tests run unchanged.
+
+Order inside the tick: store inputs, `_prune_credits`, resident lift (P2-D2 step 4, unchanged, `:376-394`), then the
+interior lift: if `state == STATE_KNOWN`, `L` and `L_raw` not None, `interior_floor` not None and `L < interior_floor`:
+`k = interior_floor − L`; `L += k`; `L_raw += k`; credit `[now, k]` appended; `_changed_since_anchor = True`; one
+`LedgerEvent(kind=KIND_INTERIOR_LIFT, at=now, applied=True, n=k, l_before, l_after, l_raw_after, credit_consumed=None,
+floor_min, floor_max, strategy_applied)`. `R_prev` untouched. Resident lift first, so a resident arrival is credited as
+one when both rise together.
+
+Would-lift counters (per strategy, both computed every tick while `known` and `L` not None): an EPISODE starts on the
+tick that strategy's value first exceeds `L` and ends when it no longer does; `would_lift_episodes_today[strategy]` +1
+per episode start. Counted for the unselected strategy too; this is how the two are compared live without per-tick
+rows.
 
 Interactions, each pinned by a test:
-- **Anchor:** the anchor still needs the census camera body total to be 0 (P2-D2 step 2), so `F` and the anchor rarely
-  disagree. If they do (the anchor sets `L = R` while a room record still shows a body), the next tick lifts and the
-  counter `interior_lift_after_anchor` records it. The floor never blocks, delays or fires the anchor.
-- **Exit term:** an exit lowers `L`; if the person is still visible for the whole sustain window the next tick lifts back
-  (the exit was early or over-counted). Counted as `interior_lift_after_exit` (lift within `reconcile_delay_s` of an
-  applied exit).
-- **Departure reconcile:** unchanged; it can lower `L` below `F`, and the next tick lifts back (a resident's phone left
-  the house but a body is still visible).
-- **Late and unknown:** while `unknown` no lift (the floor never makes the ledger known). Late terms are unaffected.
-- **Resident term:** `guest_vis = max(0, L − R)`. A lift for a resident whose BLE has not yet raised `R` reads as
-  guest + 1 until `R` rises (the same accepted transient as P2-D2 step 5).
+- **Anchor:** unchanged; the floor never blocks, delays or fires it. If the anchor sets `L = R` while a record still
+  shows a body, the next tick lifts (`interior_lift_after_anchor` +1).
+- **Exit term:** may lower `L`; a body still visible for W lifts back (`interior_lift_after_exit` +1, lift within
+  `reconcile_delay_s` of an applied exit).
+- **Departure reconcile:** unchanged; can lower `L` below `F`; next tick lifts back.
+- **Unknown / late:** no lift while `unknown`; late terms unaffected.
+- **Resident term:** `guest_vis = max(0, L − R)`; a lift for a resident whose BLE has not yet raised `R` reads guest + 1
+  until `R` rises (the accepted P2-D2 step 5 transient).
+- **Strategy switch mid-window:** takes effect at the next tick; the ring is shared, so no reset and no warm-up. A lift
+  made under `window_max` stays in `L` after a switch to `sustained_min` (`L` only falls by exit, reconcile or anchor);
+  each lift row names its `strategy_applied`, so the scorer attributes it. Diagnostics record `strategy_changed_ts`.
 
-### 1b.4 Consumers and trust exposure
+### 1b.4 Persistence and rows: no per-tick DB write
+
+- **Lift rows:** `interior_lift` events drain with the existing `drain_events()` into the existing batched
+  `crossing_vision_ledger` episode write (`_flush_ledger_events` `crossing_vision.py:2075`, type
+  `CROSSING_VISION_LEDGER_EPISODE_TYPE` `const.py:3875`). Payload = `LedgerEvent.as_dict()` plus `floor_min`,
+  `floor_max`, `strategy_applied`. A row exists only when a lift happens (bounded by the storm trip-wire).
+- **Daily comparison row:** one `interior_floor_daily` memory episode per local day (at local midnight, and at teardown
+  for a partial day), payload: `since_ts` (boot or midnight), `known_s` (seconds the ledger was known), per-strategy
+  `would_lift_episodes`, `lifts_applied` by strategy, ticks with `F` None, ticks with `S` None. Same writer path; one
+  write per day. Counters are RAM, so a restart starts a new partial day; the row's `since_ts` says so.
+- The phrase "`interior_floor` rows" in the 2026-11-16 text meant these two; there is no per-tick row.
+
+### 1b.5 Consumers and trust exposure
 
 | Value | Readers | Class |
 |---|---|---|
-| `F`, `S` ring, lift counters | `get_layer_diagnostics()["crossing_vision"]["crossing_ledger"]` (`interior_floor`, `interior_lifts_today`, `interior_lift_after_anchor`, `interior_lift_after_exit`) | display |
-| `interior_lift` ledger rows | the crossing-vision scorer, diagnostics | display |
-| `L` raised by a lift | `guest_vis` → `census_tick` → `PersonCensus._ledger_tick` (`camera_census.py:6920-6937`) → `deconflict_house(guest_vis=...)` | F2 input, awareness view, display today |
+| `floor_min`, `floor_max`, `F`, strategy, counters | `get_layer_diagnostics()["crossing_vision"]["crossing_ledger"]` (`crossing_vision.py:2429`, `ledger_diag()`) | display |
+| `interior_lift` and `interior_floor_daily` rows | crossing-vision scorer, F-D0 / live disposition queries | display |
+| `L` raised by a lift | `guest_vis` → `census_tick` → `PersonCensus._ledger_tick` (`camera_census.py:6920-6938`) → `deconflict_house(guest_vis=...)` (`census_deconflict.py:90`, call `camera_census.py:6969`) | F2 awareness input, display today |
 
-**Admission bar (no F2 consumer moves):** `deconflict_house` sets `aware_guests = guest_cam` unless `vision_leads`
-(`census_deconflict.py:90-131`), and `CROSSING_VISION_AWARENESS_VISION_LEADS` is False (`const.py:7010`); the ledger's
-consumer classes are {display} (`CROSSING_VISION_CONSUMER_CLASSES`, `const.py:6966`). So a lift changes only the
-awareness `case` / `count_provenance` / `aware_agreement` metadata and the ledger diagnostics. It reaches no trust field,
-no house state, no AWAY trigger, no access, comfort or security reader. Promotion is the census plan §3.2 ladder (the
-ledger's own leads flag at its operator checkpoint); this section adds no rung. INV-SHADOW (crossing plan §4) is
-unchanged: the floor enters `L` only inside `census_tick`.
+Admission bar unchanged: `aware_guests = guest_cam` unless `vision_leads`, and `CROSSING_VISION_AWARENESS_VISION_LEADS`
+is False (`const.py:7331`); the ledger's consumer classes are {display} (`CROSSING_VISION_CONSUMER_CLASSES`,
+`const.py:7287`). A lift reaches no trust field, house state, AWAY trigger, access, comfort or security reader.
+INV-SHADOW unchanged: the floor enters `L` only inside `census_tick`.
 
-F1-F5: the floor **consumes F4** (unnamed room records, `PersonSightingProducer`) and **produces an F2 input** (the
-ledger's `L`, through the one hand-off `census_tick`); the census stays the one F2 writer. Consumer classes: display today;
-notification and security none (§5.5(b): no consumer below display reads it).
+F1-F5: consumes **F4** (unnamed room records, the one F4 producer `PersonSightingProducer`); produces an **F2 input**
+(`L`) through the one hand-off; the census stays the one F2 writer. Consumer classes: display only; notification and
+security none (manual §5.5(b)).
 
-### 1b.5 Invariant (falsifiable; reviewer D breaks it)
+**Contract §6 conformance (row added to §6.2 as #9):**
+
+| Check | Ledger floor |
+|---|---|
+| Facts | Consumes F4 unnamed room records; feeds the F2-A awareness view through `L`. |
+| Ingest | None new; the only write is `L` inside `CrossingLedger.census_tick`, owned by the crossing-vision member. |
+| Read | `PresenceCoordinator.get_room_sightings` from `crossing_vision.py`: a NEW pinned reader (`quality/tests/_layer_guard_engine.py:245-247` `PINNED_READERS["get_room_sightings"]`; drill `quality/tests/test_person_awareness_layer_guard.py:632`). Guard delta: +1 pinned reader; allowlist rows 0. |
+| Separation | Display only; nothing reaches access, security, house state, comfort. |
+| Delivery | No consumer's delivery changes (leads flag False). |
+| Seams | Crossing plan P2-D2 owns the ledger (step 4b added here by the orchestrator, §14); census plan §3.2 ladder unchanged. |
+
+### 1b.6 The strategy Select
+
+- **Entity:** `select.ura_interior_floor_strategy` ("Interior Floor Strategy"), CM device, options `sustained_min`
+  (default) / `window_max`. Rung 3. Pattern REUSED from `InteriorDescribeAccessSelect` (`select.py:1227`): CM option
+  `interior_floor_strategy` is the sole source of truth (no RestoreEntity), the setter writes `entry.options` and
+  publishes to `hass.data`, the key joins both reload-suppression allowlists (`__init__.py:7474` and `:7821`, next to
+  `interior_describe_access`), so a change never reloads the CM entry.
+- **Boot / unavailable / invalid:** before the Select publishes, or if the stored value is not a valid option, the tick
+  applies `sustained_min` (the conservative strategy). Never `window_max` by default.
+- **Kill switch:** `INTERIOR_LEDGER_FLOOR_ENABLED` (rung 1) False = `interior_floor=None` and `floor_info=None` always,
+  whatever the Select says.
+- **Cleanup (card at ship):** once F-D0 and 14 days of live daily rows pick a winner, the loser and the Select are
+  removed and the winner becomes a module constant. Card INTERIOR-FLOOR-STRATEGY-CLEANUP-1 minted at ship F.
+
+### 1b.7 Invariants (falsifiable; reviewer D breaks them)
 
 **INV-IV-FLOOR.** With `INTERIOR_LEDGER_FLOOR_ENABLED` True, for any sequence of ticks, terms, anchors, reconciles,
-room-record builds (any liveness, any staleness) and restarts:
-1. at every `census_tick` return while `known` with `F` not None, `L ≥ F`;
+room-record builds (any liveness, any staleness), Select values and switches, and restarts:
+1. at every `census_tick` return while `known` with `F` not None, `L ≥ F`, where `F` is the value of the strategy
+   selected at that tick (or `sustained_min` when the Select is unavailable);
 2. the interior input changes `L` only by a lift to exactly `F` from below: never lowers `L`, never lifts above `F`,
-   never acts while `unknown`, never changes `R_prev`, the anchor window, `last_anchor_ts`, the applied-exit store or a
-   pending reconcile;
+   never acts while `unknown`, never changes `R_prev`, `_t_start`, `last_anchor_ts`, the applied-exit store or a pending
+   reconcile;
 3. no person is counted twice by a lift and an entry term: for an entry term whose E lies in the window of an open
    interior credit of size k, `L` rises by `n − min(n, credit)`;
-4. a member that is not LIVE (held, released, stuck, no reading, lost, dead) or a stale record never raises `F`;
-5. with the knob False, or `interior_floor=None`, the ledger's event stream, `L`, `L_raw`, `guest_vis` and every
-   counter are byte-identical to develop @ c6230ade.
+4. a record that is not LIVE (held, released, stuck, no reading, lost, dead) or is stale never raises `S`, `F_min` or
+   `F_max`;
+5. the unselected strategy's value never reaches `L`;
+6. with the kill switch False, or `interior_floor=None`, the event stream, `L`, `L_raw`, `guest_vis`, every pre-existing
+   counter and every pre-existing `snapshot()` key and value are identical to develop @ 335bf1284; the NEW snapshot keys
+   (`interior_floor`, `floor_min`, `floor_max`, `floor_strategy`, `interior_lifts_today`, `would_lift_episodes_today`,
+   `interior_lift_after_anchor`, `interior_lift_after_exit`) are always present, reading None / 0 when off.
 
-Break it with a sequence where `L < F` after a tick while known, a lift above `F`, a lift while unknown, a lift that moves
-the anchor window, a double count of one arrival (W-F2 below shaped), or a stuck or dead camera's frozen count raising
-`F`.
+Break it with: `L < F` after a known tick; a lift above `F`; a lift while unknown; a lift moving the anchor window; one
+arrival counted twice; a stuck, dead or stale camera's count raising `F`; a `window_max` value lifting while
+`sustained_min` is selected; a pre-existing snapshot value changing with the knob off.
 
-### 1b.6 Deliverables
+### 1b.8 Deliverables
 
-**F-D0 floor probe (read-only, first; gates the build).** Script outside the repo (`.claude/tmp/floorprobe/`), report
-`docs/planning/AUDIT_interior_ledger_floor_d0.md`. Data: 14 days of recorder history for the interior member entities,
-resolved through the entity registry from `PersonCensus.interior_camera_entities()` (no name parsing); per covered group
-the max over its legs; `S(t)` at 30 s. Joined with house-state history, census rows (`census_snapshots`
-`unidentified_count`, BLE resident count) and `crossing_vision_ledger` rows (`L_after`, state). Measures:
-- (a) **phantom rate:** sustained `S ≥ 1` episodes during AWAY (no residents; guests rare and checked against door
-  entries), per week, at sustain 0 / 30 / 60 / 120 / 300 s;
-- (b) **overlap:** among sustained episodes where `S > R + unidentified_count`, the share in which two or more covered
-  cameras report bodies at once; the 10 largest listed with their camera pair for a hand look;
-- (c) **fire rate:** sustained episodes with `S > L` while the ledger is `known`, per week, and the ledger's `known`
-  fraction; if `known` < 50 % of the window, the proxy `S > R + unidentified_count` is reported as well.
+**F-D0 floor probe (read-only, first).** Script under `.claude/tmp/floorprobe/` (no stdlib-shadowing names), report
+`docs/planning/AUDIT_interior_ledger_floor_d0.md`. Data: recorder history (≈ 7 days retained; 14 requested, the report
+states the real window) for the interior member entities, resolved through the entity registry from
+`PersonCensus.interior_camera_entities()` (no name parsing); per covered group the max over its LIVE legs; `S(t)` at the
+10 s record cadence, then sampled at a simulated 30 s tick. Joined with house-state history, `census_snapshots`
+(`unidentified_count`, BLE residents), `crossing_vision_ledger` rows and `recorder_runs`. Measures, PER STRATEGY at
+W ∈ {0, 30, 60, 120, 300} s:
+- (a) phantom rate: sustained `S ≥ 1` episodes during AWAY with every resident `not_home`, per week (guests checked
+  against door entries);
+- (b) overlap: among episodes with `S > R + unidentified_count`, the share where ≥ 2 covered groups report bodies at
+  once; top 10 with the camera pair (foyer flagged: pre-zone data);
+- (c) fire rate: episodes with `F > L` while `known`, per week, plus the proxy `S > R + unidentified_count` if known <
+  50 % of the window;
+- (k) the live ledger's known fraction over the last 7 days (§1b.0 method);
+- (h) holders blocking anchors during away windows (§1b.0 option b), by entity, with stream view and exclusion state.
 
-Gates (rung 1, probe script): **F-a** phantom episodes per week at the chosen sustain ≤
-`INTERIOR_D0_FLOOR_PHANTOM_MAX_PER_WEEK` (1); set `INTERIOR_LEDGER_FLOOR_SUSTAIN_S` to the smallest tested value that
-passes; none ≤ 300 s → STOP, operator. **F-b** overlap share ≤ `INTERIOR_D0_FLOOR_OVERLAP_MAX` (0.2) → build; above →
-STOP, operator question (dedupe overlapping cameras, rung 2 config, or drop the floor). **F-c** fire episodes (or proxy) ≥
-`INTERIOR_D0_FLOOR_FIRE_MIN_PER_WEEK` (1) → build; below → PARK with revival trigger "ledger misses an entry the anchor
-later corrects ≥ 1 / week" (the residue rows show it). Discrimination: a working floor predicts F-c episodes clustered
-within 5 min of door entries whose term was missing or `n` too small; a phantom-driven floor predicts episodes with no
-nearby door entry and AWAY overlap. The report states which.
-- **Live:** the audit file exists with all three measures and a GO / STOP / PARK line per gate.
+Gates (rung 1, probe script), evaluated per strategy:
+- **F-K** known fraction (k) ≥ `INTERIOR_D0_FLOOR_KNOWN_MIN` (0.25) → continue; below → PARK ship F, revival trigger
+  "7-day known fraction ≥ 0.25" (re-run (k) only).
+- **F-a** phantom episodes/week ≤ `INTERIOR_D0_FLOOR_PHANTOM_MAX_PER_WEEK` (1). `INTERIOR_LEDGER_FLOOR_WINDOW_S` = the
+  smallest W at which `sustained_min` passes; none ≤ 300 s → STOP, operator. A `window_max` that fails F-a at that W is
+  NOT offered in the Select (it ships `sustained_min` only and the Select is not built; Q-F2).
+- **F-b** overlap share ≤ `INTERIOR_D0_FLOOR_OVERLAP_MAX` (0.2) for the default strategy → build; above → STOP, operator
+  (dedupe, or drop). Foyer: re-run on 7 days of `foyer_floor` data before the strategy cleanup.
+- **F-c** fire episodes/week (or proxy) ≥ `INTERIOR_D0_FLOOR_FIRE_MIN_PER_WEEK` (1) for the default → build; below →
+  PARK, trigger "ledger misses an entry the anchor later corrects ≥ 1 / week".
+Discrimination: a working floor predicts F-c episodes within 5 min of door entries whose term was missing or short; a
+phantom floor predicts episodes with no door entry nearby and AWAY overlap. The report says which, per strategy.
+- **Live:** the audit exists with (a)(b)(c)(k)(h) per strategy and a GO / STOP / PARK line per gate.
 
-**F-D1 pure core (Tier 3).** `crossing_ledger.py`: `KIND_INTERIOR_LIFT = "interior_lift"`, the `interior_floor` keyword,
-the lift (§1b.3), counters, `snapshot()` fields; a pure helper `interior_floor_of(samples, now, sustain_s)` (min over a
-covered window, None otherwise) and `interior_sum(records, now, fresh_s)` (live-only sum, None when no records).
-- **Tests** (`test_crossing_ledger_interior_floor.py`): `test_floor_lifts_L_to_F_while_known`;
+**F-D1 pure core (Tier 3).** `crossing_ledger.py`: `KIND_INTERIOR_LIFT = "interior_lift"` (next to `:57-60`), the two
+keywords, the lift, would-lift episode counters, new `snapshot()` keys (`:298`), `LedgerEvent` fields
+`floor_min` / `floor_max` / `strategy_applied` defaulting None and omitted from `as_dict()` when None (existing rows
+unchanged). Pure helpers: `interior_sum(records, now, fresh_s)` and `floor_values(ring, now, window_s)` → `(F_min,
+F_max)` with the shared coverage rule.
+- **Tests** (`quality/tests/test_crossing_ledger_interior_floor.py`): `test_floor_lifts_L_to_F_while_known`;
   `test_floor_never_lowers_L`; `test_floor_noop_while_unknown`; `test_floor_lift_opens_credit`;
-  `test_entry_term_after_floor_lift_consumes_credit` (W-F2: known, `L = R = 1`; guest body sustained, tick at t = 100
-  lifts to 2; entry term E = 70 lands at 280 → `L` stays 2); `test_entry_term_outside_credit_window_adds`;
-  `test_resident_lift_runs_before_interior_lift` (R 1 → 2 and `F = 2` on one tick → one resident lift, no interior lift);
-  `test_floor_does_not_touch_anchor_window` (`_t_start`, `last_anchor_ts` unchanged by a lift);
+  `test_entry_term_after_floor_lift_consumes_credit` (known, `L = R = 1`; body sustained, tick at t = 100 lifts to 2;
+  entry term E = 70 lands at 280 → `L` stays 2); `test_entry_term_outside_credit_window_adds`;
+  `test_resident_lift_runs_before_interior_lift`; `test_floor_does_not_touch_anchor_window`;
   `test_lift_after_exit_counted`; `test_lift_after_anchor_counted`; `test_floor_none_is_noop`;
-  `test_floor_disabled_byte_identical` (replay of the P2-D2 W1-W8 sequences with the knob False and with `F = None`
-  → identical event streams); `test_interior_sum_live_only` (held / released / stuck / no-reading / lost records → 0);
-  `test_interior_sum_stale_record_zero`; `test_floor_min_over_window`; `test_floor_none_when_window_uncovered`;
-  `test_floor_none_when_sample_missing`; `test_sustain_zero_uses_latest_sample`.
-  Config extremes: sustain 0 and 3600; fresh 0 (every record stale → `F = 0`, no lift); `F` far above `L` (lift k = 5
-  in one tick).
+  `test_floor_disabled_byte_identical` (P2-D2 W1-W8 replays, knob False and `F = None`: identical events and
+  pre-existing snapshot keys; new keys None / 0); `test_interior_sum_live_only`; `test_interior_sum_stale_record_zero`;
+  `test_floor_min_over_window`; `test_floor_max_over_window`; `test_floor_none_when_window_uncovered` (both
+  strategies); `test_floor_none_when_sample_missing` (both); `test_window_zero_uses_latest_sample`;
+  `test_unselected_strategy_never_lifts` (`F_max = 3`, `F_min = 1`, `sustained_min` selected, `L = 1` → no lift, one
+  `window_max` would-lift episode); `test_strategy_switch_next_tick` (switch at t; lift at t + tick uses the new value;
+  ring not reset); `test_lift_under_max_persists_after_switch`; `test_would_lift_episode_counted_once`;
+  `test_lift_row_carries_both_values_and_strategy`.
+  Config extremes: W = 0 and 3600; fresh 0 (every record stale → `S` None → no lift); `F` far above `L` (k = 5 in one
+  tick); ticks 90 s apart with W = 60 (coverage from the sample before the window start).
 - **Mutation (framing C):** drop the `L < F` guard → `test_floor_never_lowers_L`; drop the credit append →
-  `test_entry_term_after_floor_lift_consumes_credit`; skip the `known` check → `test_floor_noop_while_unknown`; use
-  max instead of min → `test_floor_min_over_window`; count non-live bodies → `test_interior_sum_live_only`; run the
-  interior lift before the resident lift → `test_resident_lift_runs_before_interior_lift`.
+  `test_entry_term_after_floor_lift_consumes_credit`; skip the `known` check → `test_floor_noop_while_unknown`; swap
+  min / max → `test_floor_min_over_window` / `test_floor_max_over_window`; count non-live bodies →
+  `test_interior_sum_live_only`; run the interior lift before the resident lift →
+  `test_resident_lift_runs_before_interior_lift`; pass `F_max` regardless of strategy →
+  `test_unselected_strategy_never_lifts`.
 
-**F-D2 wiring (Tier 3).** `CrossingVisionShadow.census_tick` (`crossing_vision.py:1222-1235`) pulls
-`presence.get_room_sightings()` (guarded; any error → `S = None`), appends `(now, S)` to a RAM ring bounded by
-`INTERIOR_LEDGER_FLOOR_SUSTAIN_S` plus one tick, computes `F`, and passes `interior_floor=F` (None when the knob is
-False). The ring is RAM only; a restart starts empty (`F = None` until the window fills). `interior_lift` events are
-batched into the existing `crossing_vision_ledger` episode write (`drain_events`, same path as `KIND_LIFT`). Guard: the
-crossing-vision module becomes a pinned reader of `get_room_sightings` (`_layer_guard_engine.py:121` reader set,
-`test_person_awareness_layer_guard.py:610` PINNED_READERS); the guard's total delta is +1 pinned reader, recorded in
-§6.3.
-- **Tests:** `test_census_tick_passes_interior_floor`; `test_room_sightings_error_gives_no_floor`;
-  `test_floor_knob_false_passes_none`; `test_interior_lift_row_batched`; `test_ring_empty_after_restart`;
+**F-D2 wiring + Select (Tier 3).** `CrossingVisionShadow.census_tick` (`crossing_vision.py:1859`): when the kill switch
+is True, pull `presence.get_room_sightings()` (guarded; any error → `S = None`), append `(now, S)` to the ring, compute
+`(F_min, F_max)`, read the strategy from `hass.data` (missing / invalid → `sustained_min`), pass
+`interior_floor=F, floor_info=...`. Ring is RAM; a restart starts it empty (`F = None` until W is covered). The Select
+(§1b.6) and its CM option, the two allowlist entries, the daily row writer (local-midnight timer registered in setup,
+removed in teardown; partial row at teardown). Guard: +1 pinned reader (§1b.5 row).
+- **Tests:** `test_census_tick_passes_selected_floor`; `test_room_sightings_error_gives_no_floor`;
+  `test_floor_knob_false_passes_none`; `test_strategy_unavailable_uses_sustained_min`;
+  `test_strategy_invalid_option_uses_sustained_min`; `test_select_change_no_reload`; `test_select_round_trip_options`;
+  `test_interior_lift_row_batched` (no write on a tick without a lift); `test_daily_row_once_per_day`;
+  `test_daily_row_partial_at_teardown`; `test_ring_empty_after_restart`;
   `test_guard_crossing_vision_pinned_room_sightings_reader`.
-- **Mutation:** pass the raw latest `S` instead of `F` → `test_census_tick_passes_interior_floor`; ignore the knob →
-  `test_floor_knob_false_passes_none`.
+- **Mutation:** pass raw latest `S` → `test_census_tick_passes_selected_floor`; ignore the knob →
+  `test_floor_knob_false_passes_none`; default to `window_max` on a missing Select →
+  `test_strategy_unavailable_uses_sustained_min`.
 
-**F-D3 fire check and trip-wires.** Diagnostics fields above. `fire_stuck_signal`
-(`domain_coordinators/_stuck_signal_nm.py:173`) kinds: `interior_floor_input_zero` LOW (knob on, room records enabled,
-ledger `known` for ≥ `INTERIOR_LEDGER_FLOOR_INPUT_ZERO_H` of the last such hours, and no tick with `F` not None: the
-input never reached the ledger; this is the zero-fire wire, because a floor that never lifts is a normal outcome when the
-ledger is right, while a floor that never has an input is a fault); `interior_floor_lift_storm` MEDIUM (lifts in a local
-day > `INTERIOR_LEDGER_FLOOR_LIFT_STORM_PER_DAY`: the overcount signature D0 F-a and F-b guard against). RAM latches,
-re-armed at local midnight.
-- **Tests:** `test_input_zero_pages_once`, `test_input_zero_silent_while_unknown`, `test_lift_storm_pages_once`,
-  `test_lift_storm_zero_disables`.
-- **Live:** within 1 h of restart with the ledger `known`, `crossing_ledger.interior_floor` is a number (not None) on the
-  layer diagnostics; `interior_lifts_today` and every `interior_lift` row's `l_after` equal that tick's `F`. Discriminates
-  a working floor (rows with `l_after = F` near door entries) from a broken input (diagnostics `interior_floor` None and
-  `interior_floor_input_zero` paged) and from phantoms (rows without a door entry within 5 min, storm page). Over the
-  first week the lift count is within 3x of D0 (c)'s predicted rate (outside it = finding, revise §15).
+**F-D3 fire check and trip-wires.** `fire_stuck_signal` (`domain_coordinators/_stuck_signal_nm.py:173`) kinds:
+- `interior_floor_input_zero` (LOW, the zero-fire wire): kill switch on, room records enabled, and since boot the ledger
+  has been `known` for ≥ `INTERIOR_LEDGER_FLOOR_INPUT_ZERO_KNOWN_S` (1800 s cumulative) with no tick where the selected
+  `F` was not None. Counted on known-time, not wall time, because known-time is scarce (§1b.0); a floor that never lifts
+  is normal, a floor that never has an input while the ledger is known is a fault.
+- `interior_floor_lift_storm` (MEDIUM): applied lifts since local midnight (or boot) > `INTERIOR_LEDGER_FLOOR_LIFT_STORM_PER_DAY`.
+- **Restart behaviour:** latches and counters are RAM. A restart resets the known-time accumulator and the day's lift
+  count: input-zero can only be delayed (it needs 1800 s of known-time after boot again), never falsely sent; the storm
+  can under-count across a restart (a storm split by a restart may not page). `fire_stuck_signal`'s per-day dedup keeps
+  a re-page after restart to once per key per local day. The daily row carries `since_ts`, so a split day is visible.
+- **Tests:** `test_input_zero_pages_once`; `test_input_zero_counts_known_time_only`; `test_input_zero_silent_while_unknown`;
+  `test_input_zero_reset_on_restart_no_false_page`; `test_lift_storm_pages_once`; `test_lift_storm_zero_disables`.
+- **Live:** within one known window after deploy, `crossing_ledger.interior_floor` on the layer diagnostics is a number
+  (not None) and `floor_strategy` reads `sustained_min`; every `interior_lift` row's `l_after` equals its
+  `strategy_applied` value. Discriminates a working floor (rows near door entries, `l_after = F`) from a broken input
+  (`interior_floor` None while known, `interior_floor_input_zero` paged) and from phantoms (rows with no door entry
+  within 5 min, storm page). Disposition at 14 days: query the `interior_floor_daily` rows; applied lifts within 3x of
+  F-D0 (c)'s prediction, and the per-strategy would-lift counts decide the cleanup card.
 
-### 1b.7 Knobs (also in §12)
+### 1b.9 Knobs
 
 | Knob | Default | Rung | Why / kill |
 |---|---|---|---|
-| `INTERIOR_LEDGER_FLOOR_ENABLED` | True | 1 | Kill switch; False = ledger byte-identical (INV-IV-FLOOR 5). Ships ON (no shadow mode); the ledger itself is display-only |
-| `INTERIOR_LEDGER_FLOOR_SUSTAIN_S` | 60 (set by D0 F-a) | 1 | A count must hold this long; 0 = latest sample only |
-| `INTERIOR_LEDGER_FLOOR_RECORD_FRESH_S` | 30 | 1 | 3x `INTERIOR_ROOM_RECORD_INTERVAL_S` (10 s); older records contribute 0 |
-| `INTERIOR_LEDGER_FLOOR_INPUT_ZERO_H` | 24 | 1 | Zero-input trip-wire window; 0 = off |
-| `INTERIOR_LEDGER_FLOOR_LIFT_STORM_PER_DAY` | 6 | 1 | Overcount trip-wire; 0 = off |
-| `INTERIOR_D0_FLOOR_PHANTOM_MAX_PER_WEEK` / `_OVERLAP_MAX` / `_FIRE_MIN_PER_WEEK` | 1 / 0.2 / 1 | 1 (probe script) | D0 gates |
+| `INTERIOR_LEDGER_FLOOR_ENABLED` | True | 1 | Kill switch; False = ledger identical (INV-IV-FLOOR 6). Ships ON (no shadow mode); the ledger is display-only |
+| `select.ura_interior_floor_strategy` (CM option `interior_floor_strategy`) | `sustained_min` | 3 | Operator Q4: test both live; removed at cleanup. Unavailable / invalid = `sustained_min` |
+| `INTERIOR_LEDGER_FLOOR_WINDOW_S` | 60 (set by F-a) | 1 | Window for both strategies; 0 = latest sample |
+| `INTERIOR_LEDGER_FLOOR_RECORD_FRESH_S` | 30 | 1 | 3x the 10 s record interval; older records contribute 0 |
+| `INTERIOR_LEDGER_FLOOR_INPUT_ZERO_KNOWN_S` | 1800 | 1 | Zero-input wire, in cumulative known seconds since boot; 0 = off |
+| `INTERIOR_LEDGER_FLOOR_LIFT_STORM_PER_DAY` | 6 | 1 | Overcount wire; 0 = off |
+| `INTERIOR_D0_FLOOR_KNOWN_MIN` | 0.25 | 1 (probe) | Precondition gate F-K |
+| `INTERIOR_D0_FLOOR_PHANTOM_MAX_PER_WEEK` / `_OVERLAP_MAX` / `_FIRE_MIN_PER_WEEK` | 1 / 0.2 / 1 | 1 (probe) | Gates F-a / F-b / F-c |
 
-Rung 1 for all: they bound a Tier-3 state machine's writer and should change only by reviewed code.
+Rung 1 except the Select: these bound a writer in a Tier-3 machine and change only by reviewed code. The Select is
+rung 3 by operator decision, and only chooses between two reviewed strategies.
 
-### 1b.8 Non-goals
+### 1b.10 Non-goals
 
-The checkpoint anchor (dropped). Any change to the anchor predicate, the resident floor, terms, reconciles or the
-ledger's leads flag. Cross-room overlap deduplication (only if D0 F-b fails, by operator decision). Vision counts
-(ship 3's `bodies_vision`) get no special handling: the record's `bodies` already prefers them. Persisting the ring.
-Any reader of `F` outside the ledger and diagnostics.
+The checkpoint anchor (dropped). Any change to the anchor predicate, the resident floor, terms, reconciles, the leads
+flag, or held-input rules (a dead input keeps holding). Restore-across-restart (parked, §1b.0). Cross-room overlap
+dedup (only if F-b fails, by operator decision). Special handling of ship 3's `bodies_vision` (the record's `bodies`
+already prefers it). Persisting the ring or counters. Per-tick DB rows. Any reader of `F` outside the ledger and
+diagnostics.
 
-### 1b.9 Tier
+### 1b.11 Tier and effort
 
-Build: **Tier 3** (a new writer to `L` inside the crossing ledger's Tier-3 state machine; the failure mode is a double
-count through one missed interaction, INV-P2-ONCE). Reviews A / B / C (mutation) / D (completeness on INV-IV-FLOOR and
-INV-P2-ONCE / INV-P2-DISCHARGE, pre-existing ledger paths included) plus framing G; orchestrator re-grep and one source
-mutation; operator checkpoint before deploy. Light consequence: every consumer is display today. Plan amendment: two
-plan reviews (completeness; build prediction) plus G before build. Order: F-D0, then F-D1 + F-D2 + F-D3 in one ship
-after ship 2.
+Build: **Tier 3** (a new writer to `L` inside the crossing ledger's Tier-3 state machine; failure mode = a double count
+through one missed interaction, INV-P2-ONCE). Reviews A / B / C (mutation) / D (completeness on INV-IV-FLOOR,
+INV-P2-ONCE, INV-P2-DISCHARGE, pre-existing ledger paths included) plus G; orchestrator re-grep and one source mutation;
+operator checkpoint before deploy. Plan: two plan reviews (completeness; build prediction) plus G on this rewrite before
+build. Order: (c) now; F-D0 after 7 days under (c); F-D1 + F-D2 + F-D3 in one ship only after F-K, F-a, F-b, F-c pass.
+Effort: F-D0 ≈ half a day (probe); ship F ≈ 1.5-2 build days plus the Tier-3 review round.
 
-### 1b.10 Prior art (REUSE / BUILD, greps on develop c6230ade)
+### 1b.12 Operator questions (the build uses the default unless overridden)
 
-`git grep -n "INTERIOR_LEDGER_FLOOR\|interior_lift\|KIND_INTERIOR" -- custom_components quality docs` → 0 hits. The
-archived round-6 estimator's held-max FLOOR (`archive/HISTORY_census_occupancy_estimator_round6.md:66`, `FLOOR_WINDOW_S`
-1200) was a different design (a max-hold census floor) and was discarded; nothing of it is in code.
+| # | Question | Default |
+|---|---|---|
+| Q-F1 | Precondition lever: process (c) + probe (b), restore (a) parked; or build (a) now? | (c) + (b); (a) parked with its trigger |
+| Q-F2 | If `window_max` fails F-a, ship it anyway in the Select (display-only risk), or ship `sustained_min` alone with no Select? | Ship `sustained_min` alone; the Select exists only if both pass F-a |
+| Q-F3 | F-K threshold: 25 % known over 7 days? | 0.25 |
+| Q-F4 | Restart budget for (c): at most one planned restart per day, none while the house sleeps? | Yes |
+
+### 1b.13 Prior art and review closure
+
+`git grep -n "INTERIOR_LEDGER_FLOOR\|interior_lift\|KIND_INTERIOR\|interior_floor_strategy" -- custom_components quality`
+on 335bf1284 → 0 hits. Archived round-6 estimator FLOOR (`archive/HISTORY_census_occupancy_estimator_round6.md:66`) was a
+different max-hold census design; nothing in code.
 
 | Piece | Verdict | Where |
 |---|---|---|
-| Room records (bodies, liveness, as_of) | REUSE | `build_room_records` `interior_vision.py:137-191`; store `person_sighting.py:908`, read `:928` |
-| Pull API | REUSE | `PresenceCoordinator.get_room_sightings` `presence.py:6048-6053` |
-| Liveness, dead and stuck handling | REUSE | `member_liveness` `interior_vision.py:49`, `group_bodies_nvr` `:66`, `group_liveness` `:88` |
-| Lift + credit | EXTEND | resident floor in `CrossingLedger.census_tick` `crossing_ledger.py:352-395`; `_consume_credits` `:403`; `_prune_credits` `:345` |
-| Event row | REUSE type, NEW kind | `LedgerEvent` `crossing_ledger.py:71`; kinds `:57-60`; `CROSSING_VISION_LEDGER_EPISODE_TYPE` `const.py:3705` |
-| Hand-off | EXTEND | `CrossingVisionShadow.census_tick` `crossing_vision.py:1222-1235`; census caller `camera_census.py:6928` unchanged |
-| Admission bar | REUSE | `deconflict_house` `census_deconflict.py:90-131`; `CROSSING_VISION_AWARENESS_VISION_LEADS` `const.py:7010`; `CROSSING_VISION_CONSUMER_CLASSES` `const.py:6966` |
-| Trip-wires | REUSE helper, NEW kinds | `fire_stuck_signal` `_stuck_signal_nm.py:173` |
-| Guard pin | EXTEND | `_layer_guard_engine.py:121`, `test_person_awareness_layer_guard.py:610` |
-| Floor window, ring, sum | BUILD | no equivalent (the only other "floor" in the ledger is the resident lift) |
+| Room records + liveness | REUSE | `interior_vision.py:61`, `:78`, `:100`, `:149`; store `person_sighting.py:969` |
+| Pull API | REUSE | `presence.py:6048` |
+| Lift + credit | EXTEND | `crossing_ledger.py:352-395`, `_consume_credits` `:403`, `_prune_credits` `:345` |
+| Event row | REUSE type, NEW kind | `LedgerEvent` `:71`; kinds `:57-60`; `_flush_ledger_events` `crossing_vision.py:2075`; `const.py:3875` |
+| Hand-off | EXTEND | `crossing_vision.py:1859`; census caller `camera_census.py:6928` unchanged |
+| Select | REUSE pattern | `InteriorDescribeAccessSelect` `select.py:1227`; allowlists `__init__.py:7474`, `:7821` |
+| Trip-wires | REUSE helper, NEW kinds | `_stuck_signal_nm.py:173` |
+| Guard pin | EXTEND | `quality/tests/_layer_guard_engine.py:245-247`, test `:632` |
+| Anchor stuck release (option b) | REUSE, unchanged | `crossing_vision.py:1950-1972`, `const.py:3896-3908` |
+| Window, ring, sum, daily row | BUILD | no equivalent |
 
-Config-first: no existing knob or setting yields a floor; the ledger has no interior input today.
+Config-first: no knob yields a floor; the precondition's main lever (c) is a process change, not code.
 
-
-**Operator 2026-11-16 on Q4 (floor strategy):** "Maybe we can test diff strategies using s drop down with a default. I agree with your reco. We can cleanup after we arrive at the best. Test in parallel. Unless you're sure." Decision: the floor strategy is a Select knob `select.ura_interior_floor_strategy` (rung 3, live-tunable) with options `sustained_min` (DEFAULT, 60 s) and `window_max`. Both strategies are computed every tick and written side by side to diagnostics and the `interior_floor` rows (`floor_min`, `floor_max`, `strategy_applied`); only the selected one may lift L. F-D0 replays 14 days under BOTH strategies and reports phantom rate, overlap double-count and fire rate per strategy. Cleanup: once one strategy wins on F-D0 plus live rows, remove the loser and the Select (card it at ship).
+Review closure: completeness #1 / build-pred #1, #2, #4 → §1b.2, §1b.3, §1b.6, §1b.7, §1b.8, §1b.9; completeness #2 →
+§1b.0 and gate F-K; completeness #3 → anchors re-read on 335bf1284; completeness #4 → §1b.5 conformance + §6.2 row 9;
+completeness #5 → §1b.2 foyer dependency and F-b re-run; completeness #6 → §1b.8 F-D3 restart behaviour; build-pred #3 →
+§1b.4; build-pred #5 → §1b.2 tick cadence; build-pred #6 → INV-IV-FLOOR 6. Review G caution (an unproven `window_max`
+can lift `L` live) → Q-F2 default.
 
 ## 1a. Decisions pending (operator); the build uses the recommended default unless the operator overrides
 
@@ -426,6 +580,7 @@ descriptions today; nothing to turn.
 | 6 | Guard delta | §6.3. Allowlist rows added: 0 (delta 0 to `LAYER_ALLOWLIST_TOTAL`, `_PROVISIONAL` and `len(A.ROWS)`, against develop at merge time). Listed listeners added: 0. Guard changes are written as deltas, never absolute totals (other ships move them, e.g. the music repair merge −3); the builder re-reads the current totals on develop when it merges. Only crossing-vision P3-D3 changes the totals (+1 R13 row, totals +1); a merge after it keeps that +1. |
 | 7 | Seams | G6 (`persons_in_room`), P2-D8 (`analyze_crossing_images`), P2-D10 (grading branch), census §3.3 (interior term), NVR witness W2 (provenance; D4 flip), ship 3b (`physical_camera_dead` readers). Owners and rules in §14. |
 | 8 | Clip path | §8: a frame-source interface with a still route and a clip route; D3 and D5 can take a clip. |
+| 9 | Ledger floor (§1b) | Consumes F4 room records, feeds F2-A through the crossing ledger's `L` (display). New pinned reader of `get_room_sightings` from `crossing_vision.py` (guard +1 pinned reader, allowlist 0). Seam: crossing plan P2-D2 step 4b. Detail §1b.5. |
 
 ### 6.3 Guard changes (each in the build that first needs it)
 
@@ -916,8 +1071,9 @@ the same `GRADE_URA_` handler (one handler). Weekly scorer: the crossing-vision 
 | `INTERIOR_VISION_BACKEND` | `luna` | 2 | `local` after the D6 checkpoint |
 | `INTERIOR_VISION_LOCAL_LATENCY_P90_S` / `INTERIOR_LOCAL_EXACT_MAX_DROP` / `_FP_MAX_RISE` | 10 / 0.02 / 0.01 | 1 | D6 acceptance |
 | `INTERIOR_ZERO_MIN_TICKS` / `INTERIOR_VISION_ZERO_MIN_TRIGGERS` / `INTERIOR_TIMELAPSE_ZERO_MIN_ENTRIES` / `INTERIOR_VISION_ERROR_RATE_MAX` | 20 / 5 / 3 / 0.25 | 1 | Trip-wires; 0 (or > 1 for the rate) = off |
-| `INTERIOR_LEDGER_FLOOR_ENABLED` / `_SUSTAIN_S` / `_RECORD_FRESH_S` / `_INPUT_ZERO_H` / `_LIFT_STORM_PER_DAY` | True / 60 / 30 / 24 / 6 | 1 | Ledger floor, §1b.7 |
-| `INTERIOR_D0_FLOOR_PHANTOM_MAX_PER_WEEK` / `_OVERLAP_MAX` / `_FIRE_MIN_PER_WEEK` | 1 / 0.2 / 1 | 1 (probe script) | Floor D0 gates, §1b.6 |
+| `INTERIOR_LEDGER_FLOOR_ENABLED` / `_WINDOW_S` / `_RECORD_FRESH_S` / `_INPUT_ZERO_KNOWN_S` / `_LIFT_STORM_PER_DAY` | True / 60 / 30 / 1800 / 6 | 1 | Ledger floor, §1b.9 |
+| `select.ura_interior_floor_strategy` (CM option `interior_floor_strategy`) | `sustained_min` | 3 | Ledger floor strategy (operator Q4), §1b.6 |
+| `INTERIOR_D0_FLOOR_KNOWN_MIN` / `_PHANTOM_MAX_PER_WEEK` / `_OVERLAP_MAX` / `_FIRE_MIN_PER_WEEK` | 0.25 / 1 / 0.2 / 1 | 1 (probe script) | Floor D0 gates, §1b.8 |
 
 ## 13. Non-goals
 
@@ -1004,7 +1160,7 @@ Plan: Tier 3; two plan reviews (completeness; build prediction) plus framing G, 
 and edge cases; B async, lifecycle and write path; C test authority by per-site mutation, including the guard drills) plus
 framing G. Ship 5 (D4): Tier 3 (A, B, C mutation, D completeness on INV-IV-AWAY and INV-IV-DEDUP including pre-existing
 census readers; orchestrator re-grep and mutation; operator checkpoint before deploy; the flip itself is a second
-checkpoint). Ship 1 can build as soon as ship 3b is on develop. The ledger floor (§1b, ship F): F-D0 probe first, then a Tier-3 build after ship 2 (§1b.9).
+checkpoint). Ship 1 can build as soon as ship 3b is on develop. The ledger floor (§1b, ship F): precondition §1b.0 (ledger known-time, gate F-K), F-D0 probe, then a Tier-3 build (§1b.11).
 
 ## 17. Drift check (ura-arc rule 7, at this rewrite)
 
@@ -1097,7 +1253,7 @@ Closure re-review (`plan_review_vision_interior_closure_2026_11_15.md`, PLAN-FIX
 | L-1 `frigate_member` reuse | Marked REUSE | §5, §8 |
 | L-2 false-guest arithmetic | 0 of ≥ 125 needed; test | §9.D4 |
 | L-3 disagreement-first bias | D0 stratified; D7 rates reported separately, pooled with stratum weights | §9.D0, §9.D7 |
-| Q4 | Interior ledger floor window: sustained minimum or max over the window? | **Sustained minimum** over `INTERIOR_LEDGER_FLOOR_SUSTAIN_S` (60 s, set by D0 F-a). Reason: the floor raises `L` until an exit or anchor, so a max turns a one-tick double-count (overlapping cameras, a walk-through) into a persistent phantom guest | Max over a short window (the original brief) | §1b.2 |
+| Q4 | Interior ledger floor window: sustained minimum or max over the window? | **ANSWERED 2026-11-16:** both, in parallel, behind `select.ura_interior_floor_strategy` with `sustained_min` the default; cleanup after the winner is known (§1b.6). Open follow-ups Q-F1-Q-F4 in §1b.12 | — | §1b.2, §1b.6 |
 | L-4 describe cooldown; frames-left off value | `INTERIOR_DESCRIBE_NM_COOLDOWN_S`; `INTERIOR_FRAMES_LEFT_CHECK_ENABLED` | §9.D3, §9.D7, §12 |
 | L-5 drill receiver | Non-`self` receiver stated, with the R7 reason | §6.3 |
 | L-6 golden branch; pins | Own branch for `interior_admitted_5_lead`; pins are (module, qualname) including the presence delegates | §8b, §6.3 |
