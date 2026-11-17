@@ -6254,6 +6254,10 @@ class PresenceCoordinator(BaseCoordinator):
                 "g1_subscribers": int(c.g1_subscribers),
                 "edges_truncated": int(c.edges_truncated),
                 "moves_truncated": int(c.moves_truncated),
+                "edge_anchor_named": int(c.edge_anchor_named),
+                "edge_anchor_truncated": int(c.edge_anchor_truncated),
+                "edge_anchor_pair_blocked": int(c.edge_anchor_pair_blocked),
+                "edge_anchor_error": int(c.edge_anchor_error),
             }
         except Exception:  # noqa: BLE001
             out = {}

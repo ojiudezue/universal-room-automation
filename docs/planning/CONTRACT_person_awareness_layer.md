@@ -129,9 +129,20 @@ and no camera key. So the F2 ingest is a PAIR, and rev 2 names both halves.
 | Forbidden | a consumer keeping its own crossing cache from the bus (perimeter `_note_egress_identity`); reading `hass.data["egress_tracker"]` attributes (`_egress_entities`, `_interior_neighbours_by_group`) outside the tracker; F3 provenance stored on the census object (`set_egress_identity_last_attach`) |
 
 The one arrival/departure notification `_arrival_departure_notify` lives inside the producer today (a consumer of
-class `notification` hosted in the F3 owner). It is an allowlisted exception until step 7 (EGRESS-DIRECTION-AWARE-IDENTITY-1)
-moves it to `ArrivalNotifier` (`domain_coordinators/arrival_notify.py`, class notification), which becomes the
-notification consumer and the single door-naming send site, perimeter's door-camera identity send included (§7).
+class `notification` hosted in the F3 owner). It stays an allowlisted exception (N1). Step 7 rev 3.2 PARKED its move to
+`ArrivalNotifier` (plan §11 P-6, operator 2026-11-17 "Only proven code should supersede correct code"; trigger: a second
+door-naming sender, or LAYER-LEAK-CLEANUP-1 scheduling N1).
+
+**Step 7 S1 edge anchor (shipped with EGRESS-DIRECTION-AWARE-IDENTITY-1 S1).** At the one ingest,
+`_resolve_direction` computes an anchor for slug S when the resolver returned one face slug S with provenance `face` or
+`ble+face` (at least one live in-window face leg at tier ≥ `EGRESS_ARRIVAL_EDGE_MIN_TIER`) AND S's own counted,
+non-stale, non-boot F1 arrival edge lies in `[t_E − EGRESS_ARRIVAL_EDGE_LEAD_S, t_E + EGRESS_ENTRY_WINDOW_SECONDS]`
+(read through `get_person_edges_since` / `person_edges_truncated_since`; a truncated ring or a confusable partner's edge
+in the window means no anchor). The record gets `identity_role="arrival_edge_anchored"` and
+`nameable=((S, EGRESS_ARRIVAL_EDGE_CONFIDENCE),)`; the anchor's own provenance `face+residency` lives only in the anchor
+local and the D8a `edge_anchor` key (it is not added to `IDENTITY_PROVENANCE_VALUES`). Only `_arrival_departure_notify`
+acts on it ("<S> arrived" whatever the tracker direction). Bus / DB / census / record `person_id`,
+`identity_confidence`, `provenance` and `direction` are unchanged.
 
 ### 2.4 F4 — P seen at X at T (camera sighting, BLE room, unnamed body sighting)
 

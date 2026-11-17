@@ -504,6 +504,10 @@ Shared vocabulary (one name per concept, across FaceLeg, the egress attach, the 
 
 ## 2B. Direction-aware egress identity (rev 8, rewritten rev 9) — card EGRESS-DIRECTION-AWARE-IDENTITY-1 — **PHASE 2**
 
+**Pointer (2026-11-17): the current design is `PLANNING_egress_direction_aware_identity.md` rev 3.2 (slice S1, the
+edge-anchored arrival naming, built on `feature/step7-s1-edge-anchor`). §2B below is history; where it disagrees, that
+plan wins.**
+
 **Rev 10: everything in §2B is Phase 2 (gated, §0A).** Phase 1 builds none of it except §2B.4's pure scorer and map
 (D7) and the outcome log (D8a). Where §2B.1-§2B.6 and §2B.7 disagree, §2B.7 wins.
 

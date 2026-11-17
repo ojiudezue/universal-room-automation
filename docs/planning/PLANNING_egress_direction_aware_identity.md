@@ -281,7 +281,16 @@ sightings plan §2B pointer to this file, README.
 
 ## 8. D0 report (filled before build)
 
-Pending.
+`AUDIT_step7_d0_2026_11_17.md`: phone-led premise holds (16/17 leads positive, p50 79 s, p90 ~250 s); G-YIELD met
+weakly (1.7/week at LEAD 300); G-WRONG not evaluable (labelled n = 0); operator chose to build (answers 2026-11-17).
+
+**Build notes (S1, 2026-11-17).** (1) `EgressResolution` gained two additive fields, `face_tier` / `live_face_legs`,
+set on the `attached` and `attached_ble_face_corroborated` returns (pure tier helper, no decision change), because the
+resolution carried no leg evidence for INV (i). (2) Pair names resolve through `slug_of` then the face first-name
+mapper `census.canonical_person_slug` (`oji` -> `oji_udezue`); a name not tracked is kept as written and logged.
+(3) The layer guard gained two allowlist rows (R8 the 0.75 const, R2 the nightly trip-wire delegate), so §4 row 6
+"adds nothing" is +2. (4) The trip-wire runs as a nightly op over persisted rows, silent until the oldest outcome row
+in the window carries the `edge_anchor` key.
 
 ## 9. Knobs
 
