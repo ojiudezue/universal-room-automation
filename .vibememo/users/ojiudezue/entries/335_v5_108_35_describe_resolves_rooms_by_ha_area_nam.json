@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "335",
+  "author": "ojiudezue",
+  "session_id": "claude_20261117_144834_ship_v5_108_35",
+  "timestamp": "2026-11-17T14:48:34Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.108.35 shipped: Describe resolves rooms by HA area name or alias; music following skips TV / line-in sources",
+  "summary": "Describe resolves rooms by HA area name or alias; music following skips TV / line-in sources",
+  "why": "The first live describe failed because the household calls the Living Room the family room and describe matched only the exact URA room name. Music following failed all seven handoffs on 11-16 by trying to move Sonos TV audio to WiiM players, and dipped the TV volume each time. Both are Tier-1 fixes with one SHIP review each and a clean full suite.",
+  "implications": "Shipped MUSIC-FOLLOWING-TRANSFER-REPAIR-1 at v5.108.35; card(s) sit shipped_organic pending validation. Acceptance in README_v5.108.35.md (Live criteria).",
+  "revisit_trigger": "If an area alias collides with a resident first name, or a real-music handoff shows verify_failed",
+  "refs": {
+    "cards": [
+      "MUSIC-FOLLOWING-TRANSFER-REPAIR-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.108.35.md"
+    ],
+    "release_notes": "describe <room> also matches the room's HA area name or alias (registry) and lists camera rooms on an unknown target; music following never follows a TV / line-in / HDMI source (no duck, no play_media); zone_has_home_person docstring marks it retired."
+  }
+}

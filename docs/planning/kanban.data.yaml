@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-11-16'
+  last_reconciled: '2026-11-17'
   history_file: docs/planning/kanban.history.yaml
   # BOARD-AUTONOMY-PROGRESS-1: append one entry each time a card is concluded
   # autonomously (built / parked / waiting_operator / shipped / done). The
@@ -35639,6 +35639,7 @@ cards:
   parked_2026_11_13: 'Approve-before-acting conflicts with no delays; per-action undo notifications are noise (physical controls are the undo). Its useful parts (digest lines, implicit reversal detection as accuracy + preference signal) fold into the two feature plans.'
   revival_trigger: 'Live reversal rate for music following or a rule stays high enough that a faster one-tap undo would help (e.g. > 10% of actions reversed within 2 min over 7 days).'
 - id: AI-ROOM-RULES-TRUST-REPAIR-1
+  arc_cut_v5_108_35: "separate planned build"
   arc_cut_v5_108_26: "separate build in the same redesign, plan exists, next in that lane"
   title: "Unified room rules (AI-described + chained) on one record and executor, with decision logging, room memory episodes and honest status (ships on, day 1)"
   design_2026_11_13: 'DESIGN_reimagine_room_ai_chaining_music_2026_11_13.md steps 2 and 4: merge AI rules and chaining at the contract (one rule record, one executor, one log row type, two ways to author); shared trust layer reused by music following; person-filter fix via _person_key; never store unparsed rules; one parser; real-path tests; structured ai_task compile only if step 0 shows parse quality is the limit. May elevate to Tier 2-DB for the new row type.'
@@ -35677,7 +35678,7 @@ cards:
   title: Music following transfers are wired wrong (join leader inverted, MA transfer_queue wrong keys) plus dead timing knobs, reload listener leak and uncounted skips
   discriminator_2026_11_15: "Reopened in part: MA-first never ran in WiiM rooms (dead _5 twin; MF-MA-TWIN-WIIM-UUID-1). Done when MF decision rows show path ma_* in a WiiM room after the twin fix ships."
   status: shipped_organic
-  shipped_version: v5.108.26
+  shipped_version: v5.108.35
   tier: 2
   links: {parent: AUDIT-ROOM-AI-AUTOMATION-CHAINING-MUSIC-1, related: [TEST-MUSIC-SYSMODULES-LEAK-1, MUSIC-FOLLOWING-NO-TRANSFERS-SINCE-MAY-1]}
   origin: {date: '2026-11-13', gist: 'From the room AI/music audit.'}
