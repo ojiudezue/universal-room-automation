@@ -1,6 +1,6 @@
 # DRAFT (not posted): llmvision upstream issue for card LLMVISION-TIMEOUT-LEAK-UPSTREAM-1
 
-Drafted 2026-11-17 02:1x CDT, read-only probe. Nothing was posted or sent.
+Drafted 2026-11-17 ~02:06 CST, read-only probe. Nothing was posted or sent.
 
 ## Premise check (read this first)
 

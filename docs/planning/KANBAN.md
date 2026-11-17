@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-17T02:05:25-06:00_ - _Data commit: `408a666db824`_ - _last_reconciled: 2026-11-16_
+_Generated: 2026-11-17T02:07:16-06:00_ - _Data commit: `ea65e8a07c50`_ - _last_reconciled: 2026-11-16_
 
 
 ## Columns
@@ -176,7 +176,7 @@ _measuring; truth not yet known_
 
 ### `EXTERIOR-PERSON-SEVERITY-ARRIVING-BODY-ONLY-1` - While the house reads ARRIVING, exterior-person alerts drop to LOW, so a body-only ARRIVING softens real alerts — _#1 · WSJF 5.0 · v5 tc3 u2 /e2_
 thread: **security** - status: **investigating**
-_created 2026-11-13 03:00 · updated 2026-11-17 02:40_
+_created 2026-11-13 03:00 · updated 2026-11-17 02:07_
 - **Origin:** 2026-11-13 - Lock-release plan completeness review M6 (const.py:2799); scoped out of the lock-release plan rev 2.
 - **Why:** AUDIT_arriving_on_body_evidence: only 6.4% of AWAY->ARRIVING edges are real arrivals; ARRIVING mostly comes from zone sensors. Alert severity keyed on ARRIVING inherits that noise.
 - **Next:** Me: measure how many exterior-person alerts were downgraded under a false ARRIVING; decide severity keying on resident arrival evidence.
@@ -190,7 +190,7 @@ _created 2026-11-13 03:00 · updated 2026-11-17 02:40_
   - `arc_cut_v5_108_19`: shipped in this release, closes at validation
   - `arc_cut_v5_108_18`: folds into step 1a
   - `tier`: 2
-  - `measuring_2026_11_17_overnight`: Read-only measurement dispatched 02:38 CST (ura-prober): how many perimeter alerts were lowered to LOW under ARRIVING in 14 days, and how many of those ARRIVING windows had no real resident arrival. Report -> docs/planning/AUDIT_exterior...
+  - `measuring_2026_11_17_overnight`: Read-only measurement dispatched ~02:06 CST (ura-prober): how many perimeter alerts were lowered to LOW under ARRIVING in 14 days, and how many of those ARRIVING windows had no real resident arrival. Report -> docs/planning/AUDIT_exterio...
 
 ## 🧭 Pre-planning (13)
 _idea being decomposed_
@@ -1022,7 +1022,7 @@ _created 2026-11-15 18:00_
 
 ### `ANOMALY-FLOOD-ROWS-1` - Anomaly floods: transit.path_implausible 21.5k rows, write_local_witness_divergence 7.6k, crosscheck_divergence 1.7k, circuit_tripped_breaker 4.7k in 90 days — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **diagnostics** - status: **in_progress**
-_created 2026-11-12 22:30 · updated 2026-11-17 02:24 · refined_
+_created 2026-11-12 22:30 · updated 2026-11-17 02:07 · refined_
 - **Problem / Solution:**
   - Problem: the house logs about 100 'impossible room move' warnings a day, but they are ordinary moves such as bedroom to its own bathroom. The check calls a move impossible whenever a hallway camera somewhere saw nothing at that moment, e...
 - **Origin:** 2026-11-12 - Broken-promise sweep (docs/planning/AUDIT_broken_promises_2026_11_12.md); operator: "A lot of our hardening are broken promises from previous work."
@@ -1088,17 +1088,17 @@ _created 2026-11-08 20:30 · updated 2026-11-12 17:01_
 
 ### `HOUSE-AVG-SENSORS-1` - Expose real house-average indoor temperature / humidity sensors (exclude equipment closets and outdoor rooms) and retire the two template helpers — _#9 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **dashboard** - status: **in_progress**
-_created 2026-11-16 00:20 · updated 2026-11-17 02:40_
+_created 2026-11-16 00:20 · updated 2026-11-17 02:07_
 - **Origin:** 2026-11-16 - Soak-exit residual (AUDIT_soak_exit_sweep_2026_11_16.md).
 - **Why:** house_avg_temp is only an attribute (aggregation.py:2063); the v8 weather card reads template helpers sensor.house_indoor_temperature / _humidity.
 - **Next:** Me: add the two sensors, repoint the v8 card, delete the helpers.
 - **Forensic keys (2):**
   - `tier`: 1
-  - `verify_2026_11_17_overnight`: STILL-REAL (02:35 CST): no house-average sensor in aggregation.py; house_avg_temp/_humidity exist only as attributes (aggregation.py:2063, :2108, :2150) from getters :1255/:1265. Gate: config-first n/a (no knob); prior art REUSE the two ...
+  - `verify_2026_11_17_overnight`: STILL-REAL (~02:05 CST): no house-average sensor in aggregation.py; house_avg_temp/_humidity exist only as attributes (aggregation.py:2063, :2108, :2150) from getters :1255/:1265. Gate: config-first n/a (no knob); prior art REUSE the two...
 
 ### `VISION-CROSSING-ANALYSIS-1` - AI vision of each crossing (fast 3-frame sample + batched time-lapse along the camera chain) as a counting and description input, fused with Frigate/Protect counts — _#10 · WSJF 1.9 · v9 tc4 u2 /e8_
 thread: **identity** - status: **in_progress**
-_created 2026-11-12 22:00 · updated 2026-11-17 02:12_
+_created 2026-11-12 22:00 · updated 2026-11-17 02:07_
 - **Origin:** 2026-11-12 - Operator: watch arrivals with AI vision; time-lapse; fast first frames; counting is easy, naming is hard; guests are the census problem; OpenAI models (GPT-6 Luna/Sol); deconflict with camera counts until trusted (100 crossi...
 - **Why:** Design in PLANNING_person_sighting_layer.md section 15. Gates: D0-FRAME (blank-frame experiment), D0-SIM (timing simulation), D0-V (model scoring incl. dry call per GPT-6 model for llmvision param compatibility). Then its own sibling plan.
 - **Next:** Umbrella for the crossing-vision producer (Tier 3, attended arc). Phase 3 work runs on [[VISION-AMBIGUOUS-CROSSINGS-1]] (in_progress) and DOOR-VISION-GROUP-UNDERCOUNT-1; next is the PLANNING_crossing_vision.md Phase 3 list (P3-D0b/D0d/D0...
@@ -1124,7 +1124,7 @@ _created 2026-11-12 22:00 · updated 2026-11-17 02:12_
   - `blocked_by_f_notify`: F-NOTIFY (notifications read the awareness view) blocked on EGRESS-DIRECTION-AWARE-IDENTITY-1 or measured entry attach >= 0.50 (30% today).
   - `operator_2026_11_13_clean_doc`: Operator: "Make sure the plan or plans that emerge are clean and streamlined in the actual document even if you have to write it yourself." After the arc map merge decisions: one clean consolidated plan per merged scope (no rev layers, n...
   - `operator_2026_11_13_promotion`: Operator on arc-map Qs: (1) trust view: "This is where it starts but it can prove itself and be promoted. No dogma here." (2) guests-present -> HVAC: "This is also about accuracy and confidence. HVAC is comfort basically so since it's no...
-  - `verify_2026_11_17_overnight`: CARD-WAS-WRONG on lane and next (02:10 CST, read-only). Both items in the old next are done: (1) the llmvision temperature blocker was solved config-side with a second llmvision entry for gpt-6-luna at temperature 1.0 / top_p 1.0 (AUDIT_...
+  - `verify_2026_11_17_overnight`: CARD-WAS-WRONG on lane and next (~02:03 CST, read-only). Both items in the old next are done: (1) the llmvision temperature blocker was solved config-side with a second llmvision entry for gpt-6-luna at temperature 1.0 / top_p 1.0 (AUDIT...
   - `operator_2026_11_13_protect_face_latency`: Protect seems to label slowly - a pseudo known "limitation" I'm suspicious of but is the current truth we're using. => P2-D0 (viii) must split the delay: Protect event start -> name present in Protect itself -> name on the HA entity, per...
   - `FINDING_face_name_interfaces_2026_11_13`: AUDIT_protect_face_name_interfaces_2026_11_13.md: URA has NO live Protect face-name path (no poller; D1-PROTECT-FACE-BRIDGE-ADDON-1 parked, camera_resolver.py:247-250). Protect face recognition is set up on only 2 cameras (Family Room, G...
   - `MEASURED_frigate_name_latency_2026_11_13`: AUDIT_frigate_face_name_latency_2026_11_13.md: Frigate names ~22% of door person events (100/447, 8 days). Event start to first name, strict join (61 events): p50 2-8 s, p99 17-50 s, max 55.5 s by camera. Loose join shows 12 names after ...
@@ -1270,7 +1270,7 @@ _created 2026-09-16 03:30 · updated 2026-11-12 13:20 · refined_
 
 ### `SAFETY-SENSOR-FLEET-HEALTH-1` - The house's only smoke detector has been invisible to Home Assistant since the 10-15 restart, and several leak and gas sensors are dead or misfiled, so Safety cannot see those hazards — _#4 · WSJF 9.5 · v9 tc8 u2 /e2_
 thread: **safety** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-10-16 02:20 · updated 2026-11-17 02:32 · initial_
+_created 2026-10-16 02:20 · updated 2026-11-17 02:07 · initial_
 - **Problem / Solution:**
   - Problem: URA's Safety coordinator can only react to detectors Home Assistant can read. Tonight the only real smoke detector (the Heiman in the kitchen) reads 'unavailable' and has since the 10-15 12:46 restart; four Zigbee leak sensors n...
 - **Origin:** 2026-10-16 - Overnight pass: found by the ura-planner measurement for SAFETY-NO-INITIAL-SENSOR-PASS-1 (plan section 6/9); smoke state re-read live by the orchestrator.
@@ -1336,7 +1336,7 @@ _created 2026-10-11 02:30 · updated 2026-11-15 02:10 · initial_
 
 ### `NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1` - Prove the text 'diag' menu answers on WhatsApp and the HA app (only iMessage is proven live) — _#7 · WSJF 7.0 · v3 tc2 u2 /e1_
 thread: **notifications** - status: **waiting_operator** - approval: **implied**
-_created 2026-11-08 02:05 · updated 2026-11-17 02:32 · initial_
+_created 2026-11-08 02:05 · updated 2026-11-17 02:07 · initial_
 - **Problem / Solution:**
   - Problem: the house now answers text questions ('diag', 'health', 'who'), but it has only ever been seen working over iMessage. WhatsApp has never delivered a single inbound message to URA, so we do not know whether WhatsApp questions rea...
 - **Origin:** 2026-11-08 - overnight soak-exit of NM-INBOUND-HOUSE-QUERIES-1 found WhatsApp + Companion legs unprovable without an operator message
@@ -1437,7 +1437,7 @@ _created 2026-10-25 · updated 2026-11-10 02:12_
 
 ### `LLMVISION-CANCEL-CLEANUP-UPSTREAM-1` - llmvision leaves its downloaded video temp file and a running ffmpeg behind when a call is cancelled or ffmpeg times out (upstream report) — _#12 · WSJF 5.0 · v2 tc1 u2 /e1_
 thread: **identity** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-11-17 02:55 · initial_
+_created 2026-11-17 02:07 · initial_
 - **Problem / Solution:**
   - Problem: when URA gives up on a slow camera-clip analysis, the llmvision add-on it calls skips its clean-up: the video it downloaded stays in the temp folder and, if ffmpeg was still converting, ffmpeg keeps running, because the check th...
 - **Origin:** 2026-11-17 - Overnight pass: found while checking the premise of LLMVISION-TIMEOUT-LEAK-UPSTREAM-1 (refuted).
@@ -1462,13 +1462,13 @@ _created 2026-10-18 · updated 2026-10-21 22:05 · refined_
 
 ### `ROOM-CONFIG-LEGACY-MMWAVE-KEY-1` - Study A carries an inert legacy 'mmwave_sensors' key (dead Athom radar) in entry.data that no code reads and no form can clear — _#14 · WSJF 5.0 · v2 tc1 u2 /e1_
 thread: **config_flow** - status: **waiting_operator**
-_created 2026-11-07 10:40 · updated 2026-11-17 02:32_
+_created 2026-11-07 10:40 · updated 2026-11-17 02:07_
 - **Why:** Study A entry.data has mmwave_sensors=['binary_sensor.athom_presence_sensor_d93b20_mmwave_sensor'] (entity gone from the registry; 100% unavailable 7 days). CONF_MMWAVE_SENSORS is the string 'presence_sensors' (const.py:533), and no code...
 - **Next:** APPROVE: a small migration step (async_migrate_entry or setup-time scrub) that drops the legacy 'mmwave_sensors' key from entry.data, plus removing the stale strings.json labels -> I build it Tier 1 and ship it with the next deploy (need...
 - **Forensic keys (3):**
   - `tier`: 1
   - `adjacency`: Swept board for mmwave/legacy-key/config-scrub: NEW. Related: FORM-CONDITIONAL-FIELDS-1 (same forms surface, no overlap).
-  - `recheck_2026_11_17_overnight`: 02:30 CST: Study A entry.data still carries mmwave_sensors [binary_sensor.athom_presence_sensor_d93b20_mmwave_sensor]. APPROVE stands.
+  - `recheck_2026_11_17_overnight`: ~02:05 CST: Study A entry.data still carries mmwave_sensors [binary_sensor.athom_presence_sensor_d93b20_mmwave_sensor]. APPROVE stands.
 
 ### `BERMUDA-DISTANCE-SENSORS-DEAD-1` - All 356 per-scanner Bermuda distance_to sensors unavailable (restored) since 2026-10-20 for all four people; person BLE distance has no live input — _#15 · WSJF 4.7 · v7 tc5 u2 /e3_
 status: **waiting_operator**
@@ -1709,7 +1709,7 @@ _created 2026-10-20 08:30 · updated 2026-11-16 02:04_
 
 ### `PERIMETER-FP-GATES-DISPOSE-1` - Perimeter false-positive gates D3/D5 shipped shadow-first but D3 can never evaluate (zone sensors never configured) and no shadow counts are kept; no disposal date — _#29 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **perimeter** - status: **waiting_operator**
-_created 2026-11-12 22:55 · updated 2026-11-17 02:32_
+_created 2026-11-12 22:55 · updated 2026-11-17 02:07_
 - **Origin:** 2026-11-12 - Operator asked why the gates are off. AUDIT_garage_hallway_lock_and_perimeter_gates_2026_11_12.md.
 - **Why:** Off by design as shadow-first (README v5.107.0, PLANNING_perimeter_fp_build_2026_11.md), but gate_decisions_by_camera {} and zone_map {} live; D5 learning (g5_bullet clears bar); D5 settle 8 s shorter than most camera lag. 2,295 CRITICAL...
 - **Next:** DO: in URA options -> Perimeter, set perimeter_zone_sensors to the four Frigate property-zone person-occupancy sensors for g5_bullet, rear_ptz, utilities_ptz and front_side_ptz (ids in the audit, resolved by registry), and confirm Frigat...
@@ -1720,7 +1720,7 @@ _created 2026-11-12 22:55 · updated 2026-11-17 02:32_
   - `measured_2026_11_14_overnight`: AUDIT_perimeter_fp_gates_disposal_2026_11_14.md (ura-prober, read-only; my independent re-check of the config entry + const.py). CARD-WAS-WRONG on D5: perimeter_single_source_demote is True in the live options, so D5 is ENFORCING, not sh...
   - `status_change_2026_11_14`: investigating -> waiting_operator: the D3 step is an operator config entry and the D5 wait trades alert latency against precision (your call).
   - `residual_2026_11_16_identity_followup`: Folded from PERIMETER-IDENTITY-FOLLOWUP-1 (closed 11-16): the 'that was <name>' follow-up and the D10.5 known-person demote both need a DUAL-ROLE camera (in both perimeter_cameras and egress_cameras, perimeter_alert.py:592). Live dual_ro...
-  - `recheck_2026_11_17_overnight`: 02:30 CST read of .storage/core.config_entries (Samba mount): perimeter_zone_sensors still absent from every URA entry, so D3 still cannot run. DO + PICK stand; dispose-by date 2026-11-28 unchanged.
+  - `recheck_2026_11_17_overnight`: ~02:05 CST read of .storage/core.config_entries (Samba mount): perimeter_zone_sensors still absent from every URA entry, so D3 still cannot run. DO + PICK stand; dispose-by date 2026-11-28 unchanged.
 
 ### `WALLPANEL-BROWSER-MOD-POPUPS-1` - Wall panels: Browser Mod fixed IDs + view-independent pop-ups (doorbell/security/timer/laundry) instead of select-driven view reloads — _#30 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **dashboards** - status: **waiting_operator**
@@ -3983,7 +3983,7 @@ _created 2026-09-16 04:00 · updated 2026-09-26 02:40 · initial_
 
 ### `WALLPANEL-TOUCH-WITNESS-1` - Wall-panel sensors as URA inputs (touch witness, BLE proxy scanners, ambient noise; temp/lux low value) — _#122 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **presence** - status: **parked**
-_created 2026-10-20 08:30 · updated 2026-11-17 02:32 · refined ×1_
+_created 2026-10-20 08:30 · updated 2026-11-17 02:07 · refined ×1_
 - **Origin:** 2026-10-20 - HomeLab accepted idea 3 (ffa7d06).
 - **Why:** A touch within <=120 s may veto a 'vacated' verdict (fan recheck) or 'nobody home'; never infer absence from no touch; ignore last_interaction changes within ~2 min of sensor.<p>_app_uptime changing (republish on reconnect). Needs presen...
 - **Next:** Parked. Revive when you do the solo Foyer / Media Room stand test (say when) -> I score the panel BLE area against the room sensors for those windows.
@@ -4284,7 +4284,7 @@ _closed, evidence in refs_
 
 ### `OPTIMIZER-META-NEVER-PAGES-1` - The optimizer's AI layer pages CRITICAL on all 4 channels (often at night) to complain that its own input was truncated: never page on a 'meta' finding — _WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
 thread: **optimizer** - status: **done** - approval: **implied**
-_created 2026-11-04 02:11 · updated 2026-11-17 02:55 · initial_
+_created 2026-11-04 02:11 · updated 2026-11-17 02:07 · initial_
 - **Problem / Solution:**
   - Problem: about every two to three days the optimizer's AI layer sends a CRITICAL alert to Pushover, WhatsApp, the companion app and iMessage saying the house is 'running blind' because its list of recent findings was cut off. The cut-off...
 - **Origin:** 2026-11-04 - Overnight pass 11-04, found during the v5.103.101 ack-check: the only page since 11-03 noon was a 21:07 CRITICAL 'URA Optimizer — meta' to 4 channels.
@@ -4303,11 +4303,11 @@ _created 2026-11-04 02:11 · updated 2026-11-17 02:55 · initial_
   - `adjacency_2026_11_04`: NEW (residual of a done card). Swept: board (findings_recent appears only on OPTIMIZER-PAGING-PRIMITIVE-1, OPT-META-BOOT-TRANSIENT-1, OPTIMIZER-NOTIFY-FLOOD-DEDUP-1, all done), BACKLOG.md (no match), PLANNING_*/AUDIT_* (PLANNING_audit_op...
   - `mergeprep_2026_11_08_overnight`: Overnight 11-08 merge-prep: develop gained v5.106.0 (never-auto-lock list + Away Lock), which edits the same lock-sweep function, so integ/overnight-2026-11-04 and fix/security-lock-sweep-retry-cap NO LONGER MERGE (conflicts in security....
   - `soak_2026_11_11_overnight`: Stale 'APPROVE ship' next replaced (shipped v5.108.6, 11-10 17:52). 02:20 CST: 0 notification_log rows titled like 'Optimizer...meta' since the restart.
-  - `disposition_2026_11_17_overnight`: DONE (soak exit). URA DB notification_log: 0 rows titled 'URA Optimizer — meta' since the v5.108.6 restart (11-10 17:51) to 11-17 02:50, against 2 page bursts (11-04, 11-07, 5 channels each) in the week before. Honest caveat: the live di...
+  - `disposition_2026_11_17_overnight`: DONE (soak exit). URA DB notification_log: 0 rows titled 'URA Optimizer — meta' since the v5.108.6 restart (11-10 17:51) to 11-17 ~02:07, against 2 page bursts (11-04, 11-07, 5 channels each) in the week before. Honest caveat: the live d...
 
 ### `SC-GEOFENCE-PERSON-SNAPSHOT-1` - SC geofence person listener snapshots person.* once at setup; misses persons added later or loaded after SC — _WSJF 7.0 · v3 tc2 u2 /e1_
 thread: **security** - status: **done**
-_created 2026-11-07 15:40 · updated 2026-11-17 02:55_
+_created 2026-11-07 15:40 · updated 2026-11-17 02:07_
 - **Why:** security.py:1987-1995 _setup_geofence_listener reads hass.states.async_all('person') once and returns when empty, so the sanction checker never subscribes if persons load after SC and misses persons added later. The lockout regime uses a...
 - **Next:** APPROVE merge + ship at the next attended deploy (Tier 1, security.py only).
 - **Forensic keys (7):**
@@ -4321,7 +4321,7 @@ _created 2026-11-07 15:40 · updated 2026-11-17 02:55_
 
 ### `EC-CFG-SELFHEAL-FALSE-CRITICAL-1` - CRITICAL 'Envoy write self-heal loop: charge_from_grid' pages fire after the write already worked (cloud switch lags ~15 min; the alarm never re-checks it) -> re-read the cloud switch before paging — _WSJF 5.0 · v5 tc3 u2 /e2_
 thread: **energy** - status: **done** - approval: **implied**
-_created 2026-11-09 02:07 · updated 2026-11-17 02:55 · initial_
+_created 2026-11-09 02:07 · updated 2026-11-17 02:07 · initial_
 - **Problem / Solution:**
   - Problem: when URA turns battery grid-charging on or off, it checks the Enphase cloud switch to confirm. The cloud switch is slow (about 15 minutes), so URA re-sends, and on the third re-send it pages you CRITICAL on four channels that th...
 - **Origin:** 2026-11-09 - Overnight pass 11-09 noticed 5 CRITICAL rows at 11-08 20:48Z while checking the Envoy outage counter; measured the same night.
@@ -4339,7 +4339,7 @@ _created 2026-11-09 02:07 · updated 2026-11-17 02:55 · initial_
 
 ### `KANBAN-SHIP-FLOW-CARDS-1` - deploy.sh --cards silently fails to mark one-line (flow-style) cards shipped, so shipped work stays in review/inbox — _WSJF 7.5 · v7 tc6 u2 /e2_
 thread: **process** - status: **done** - approval: **implied**
-_created 2026-11-11 02:07 · updated 2026-11-17 02:55 · initial_
+_created 2026-11-11 02:07 · updated 2026-11-17 02:07 · initial_
 - **Problem / Solution:**
   - Problem: the release script is supposed to move every card it ships to 'shipped'. Cards written as a single line (12 on the board today, the format newer sessions use) are skipped without any error, so four shipped cards (v5.108.2/.3/.5/...
 - **Why:** Mechanism (read 02:1x): kanban_ship.py _CARD_START_RE = '^- id:' (:214); _find_card_blocks folds a flow line '- {"id": ...}' into the PREVIOUS block card's range; mark_shipped_text then finds no status line for the flow id and `continue`...
@@ -4355,7 +4355,7 @@ _created 2026-11-11 02:07 · updated 2026-11-17 02:55 · initial_
 
 ### `FAN-RECHECK-FORM-RESTORE-REVERT-1` - Fan re-check switches: a value saved in the settings form gets overwritten by the switch's old state after the reload (CONFIRMED, live instance in Garage A) — _WSJF 8.0 · v4 tc2 u2 /e1_
 thread: **presence** - status: **done** - approval: **implied**
-_created 2026-11-11 14:40 · updated 2026-11-17 02:55 · refined_
+_created 2026-11-11 14:40 · updated 2026-11-17 02:07 · refined_
 - **Problem / Solution:**
   - Problem: the four fan re-check on/off switches (house master + three per-room) remember their last state across a reload, and a settings-form save triggers a reload, so the switch puts its old value back over what was just saved. Garage ...
 - **Why:** switch.py:6040-6046 restores last state on reload; a form save reloads the entry, so the form value may be overwritten.
@@ -4367,11 +4367,11 @@ _created 2026-11-11 14:40 · updated 2026-11-17 02:55 · refined_
   - `gate_2026_11_12`: 1 validity: STILL-REAL (above). 1b config-first: no setting changes restore order. 2 prior-art: REUSE the existing options mirror (_mirror_options keeps options current on every toggle, so options are a complete store); CM reload-suppres...
   - `built_2026_11_12`: Branch fix/fan-recheck-options-wins-restore (5a286f10 fix + 7d25125f docstring LOW), pushed, NOT merged/deployed. switch.py 3 sites (6050/6106/6170) options-win; 4th site _RoomBooleanOptionSwitch already options-first. 16 tests (quality/...
   - `residual_2026_11_12_same_class`: Operator asked: all rooms? broader root cause? The fix is per switch CLASS, so every room. Root cause = dual store: a switch that mirrors its value into entry options AND restores its last state lets the restore win after a reload. Stati...
-  - `disposition_2026_11_17_overnight`: DONE (soak exit). Validated 11-12 (README_v5.108.11 table) and survived the 11-16 15:33 restart: live 02:50 CST switch.garage_a_garage_a_fan_recheck off, _l2_allowed off, switch.ura_presence_coordinator_fan_recheck on (matches the option...
+  - `disposition_2026_11_17_overnight`: DONE (soak exit). Validated 11-12 (README_v5.108.11 table) and survived the 11-16 15:33 restart: live ~02:07 CST switch.garage_a_garage_a_fan_recheck off, _l2_allowed off, switch.ura_presence_coordinator_fan_recheck on (matches the optio...
 
 ### `LLMVISION-TIMEOUT-LEAK-UPSTREAM-1` - llmvision keeps running (and billing) a call after the caller's timeout; raise upstream, keep URA's bounded teardown — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 status: **done**
-_updated 2026-11-17 02:55_
+_updated 2026-11-17 02:07_
 - **Origin:** 2026-11-13 - Crossing vision Review B item B1, noted by the fix-up builder.
 - **Why:** Crossing vision fix-up (a10cd299/9407eaef) documented the leak at CROSSING_VISION_TIMEOUT_S and in the IDENTITY manual; the call is now a background task so HA stop does not wait. Upstream issue or PR to llmvision is outward-facing: draf...
 - **Next:** Me: draft the upstream issue text with a minimal repro for the operator to post.
@@ -4383,12 +4383,12 @@ _updated 2026-11-17 02:55_
   - `arc_cut_v5_108_22`: upstream draft for the operator
   - `arc_cut_v5_108_21`: upstream draft for operator
   - `tier`: 1
-  - `drafting_2026_11_17_overnight`: Draft-only dispatched 02:38 CST: verify from the installed llmvision source whether cancellation propagates, then write docs/planning/DRAFT_llmvision_timeout_leak_upstream_issue.md. Not posted (outward-facing).
+  - `drafting_2026_11_17_overnight`: Draft-only dispatched ~02:06 CST: verify from the installed llmvision source whether cancellation propagates, then write docs/planning/DRAFT_llmvision_timeout_leak_upstream_issue.md. Not posted (outward-facing).
   - `disposition_2026_11_17_overnight`: REFUTED-but-fertile, closed. Premise (provider call keeps running and billing after URA's timeout) is not supported by the installed llmvision 1.7.1 source: the service handlers await the request inline and providers.py:527-538 awaits an...
 
 ### `F2-PANEL-FFMPEG-CRASHLOOP-1` - Frigate-2 study_a_panel and up_hallway_panel ffmpeg crash-loop (~20k log lines / 3 h) — _WSJF 7.0 · v3 tc2 u2 /e1_
 thread: **infra** - status: **done**
-_created 2026-11-13 14:00 · updated 2026-11-17 02:20_
+_created 2026-11-13 14:00 · updated 2026-11-17 02:07_
 - **Origin:** 2026-11-13 - Homelab session found it during g5 mask v2; operator: "homelab should look at the crashes. Start with wall panel config and kiosk satellite."
 - **Why:** Log flood on F2 and two dead camera legs; pre-existing, not caused by mask v2. Homelab-side work (capture rule 5).
 - **Next:** Homelab building KS app-health watchdog (operator 2026-11-13: "Restarting the app is beyond frigate. It should just check on ks app health and restart it if something is wrong or maybe just periodically"): health-keyed cold restart, opti...
