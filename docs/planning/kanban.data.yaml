@@ -35114,7 +35114,7 @@ cards:
   arc_cut_v5_108_24: "after 3a/3b, sized plan owed (LAYER-LEAK-CLEANUP-PLAN-1)"
   arc_cut_v5_108_23: "behind the arc"
   title: "Close the person-awareness layer's remaining leaks (34 groups after ship 3a/3b) in a few grouped cleanup cards, driving the guard's allowlist total down"
-  status: planned
+  status: waiting_operator
   tier: 2
   batch: person-sightings
   links: {parent: PERSON-AWARENESS-READ-API-1, related: [G6-ONE-BLE-ROOM-READ-1, PERSON-ID-INLINE-SWEEP-1, PRESENCE-BOOT-SEED-FROM-VIEW-1, BLE-ARRIVAL-PRODUCER-HVAC-GATED-1, EGRESS-DIRECTION-AWARE-IDENTITY-1, NVR-WITNESS-CONSOLIDATION-1]}
@@ -35122,12 +35122,13 @@ cards:
   origin: {date: '2026-11-14', gist: 'Layer ship 3 Q10.'}
   operator_2026_11_14: "Leak groups accepted but I'm going to need a size on cleaning that up. And a plan. / Maybe 1 card? 34 is a lot / Or a smaller grouping of cards / Card the plan and then get back to the arc. The layer was just a prereq"
   why: "Ship 3a's guard pins every remaining bypass of the person-awareness layer: 238 allowlist rows, total 266, in 34 groups (ship 3 plan §9, §17). The groups are display reads of internals, private edge ledgers in the lock and perimeter, raw BLE-in-room reads, inline person ids, NVR classifiers and step-7-owned crossing pieces. The guard stops new leaks and the total can only fall. This card owns closing them in about 4-6 grouped builds, not 34. Groups that close inside planned feature work stay with that work and are counted here: G6-ONE-BLE-ROOM-READ-1, step 7, BLE-ARRIVAL-PRODUCER-HVAC-GATED-1 (before v6.0.0), and NVR witness W2/W5."
-  next: "Me: after LAYER-LEAK-CLEANUP-PLAN-1 delivers the sized plan, mint its 4-6 grouped cleanup cards and fold the small split-out cards into them. Behind the arc: only the HVAC-gated BLE arrival fix is on the v6.0.0 path."
+  next: "PICK: A (recommended) the cut: 4 builds ~10 builder-days ~2 weeks in free builder slots, rule presence's own display reads as owner reads (L5b), park the lock second edge ledger and presence inference snapshot rewrites with triggers; or B full close: 6 builds ~17 builder-days -> I mint L1-L5 cards and start L2 build 1 (security geofence listener, the one HIGH live risk) at the next free builder slot without displacing arc rows."
   status_note: "parked behind the arc (operator 2026-11-14: 'Card the plan and then get back to the arc. The layer was just a prereq'; 'Ie card the cleanup and the plan to cleanup')"
   rank: {value: 4, time_criticality: 2, effort: 6}
 - id: LAYER-LEAK-CLEANUP-PLAN-1
+  done_2026_11_17: "Plan delivered: docs/planning/PLANNING_layer_leak_cleanup.md (990487fb7, 8be002d9a). Full close ~17 builder-days / 6 builds; recommended cut ~10 / 4 builds; guard 256 -> 158 (cut) or ~69 (full)."
   title: "Write the sized cleanup plan for the layer's remaining leaks (per-group size, 4-6 grouped cards, order, guard total per card)"
-  status: parked
+  status: done
   tier: 1
   batch: person-sightings
   links: {parent: LAYER-LEAK-CLEANUP-1}
@@ -35135,7 +35136,7 @@ cards:
   origin: {date: '2026-11-14', gist: 'Operator asked for a size and a plan, then: card the cleanup and the plan to cleanup; get back to the arc.'}
   why: "The operator wants a size before committing to the cleanup. Brief for the planner: for each of the 34 groups in ship 3 plan §9/§17, give the rows, sites (file:line), behaviour change or pure migration, risk class, tier and builder-days. Group them into 4-6 cleanup cards by code surface and risk. Groups owned by feature cards (G6, step 7, HVAC-gated BLE, NVR W2/W5) stay with those cards but count in the total. Fold PERSON-ID-INLINE-SWEEP-1 and PRESENCE-BOOT-SEED-FROM-VIEW-1 where they fit. Show the guard total stepping down per card. Headline first: total effort, number of builds, calendar at current pace. A first attempt was started and stopped on 2026-11-14 at the operator's request; nothing was committed."
   revival_trigger: "Ship 3a merged (the guard's allowlist is pinned at 238 rows / total 266, so the sizing reads the real allowlist) AND an open planner slot after the arc's next ship, or the operator asks."
-  next: "Parked. Dispatch ura-planner with the brief above when the trigger fires."
+  next: "Done 2026-11-17: plan delivered (PLANNING_layer_leak_cleanup.md); the cleanup decision lives on LAYER-LEAK-CLEANUP-1."
   rank: {value: 3, time_criticality: 1, effort: 2}
 - id: DUAL-LENS-PACKAGE-CHANNEL-MEMBERSHIP-1
   title: "Dual-lens Protect doorbells: a live package-lens channel can make the device look alive while the main lens is dead"
@@ -35395,6 +35396,8 @@ cards:
   why: "P3-D1 + P3-D5 + P3-D8 (+ P3-D0 knobs) from PLANNING_crossing_vision.md Phase 3. Operator Go 2026-11-15. Full suite 22,788 passed (1 order-dependent flake, passes alone); orchestrator mutation on both P3-D8 sites RED (7 and 12 tests)."
   next: "Dispose by the discriminator at the next sweep (query, do not watch)."
 - id: VISION-AMBIGUOUS-CROSSINGS-1
+  residual_2026_11_17_day_audit: "AUDIT_arc_day_validation_2026_11_17.md: 35 of 54 crossings ambiguous (26 = one yard-walker burst 11-16 09:25-10:41), vision never called on an ambiguous crossing: EXPECTED, watching ambiguous is P3-D3 (CROSSING_VISION_WATCH_AMBIGUOUS), not built yet (corrected same day); all 19 crossing_vision_ledger terms applied=false reason=unknown; 07:58 11-17 ezinne entry contradicted by vision text (walks away, SUV leaves). Investigating."
+  residual_2026_11_17_door_scoring: "AUDIT_door_direction_scoring_2026_11_17.md on the 27 grades (19 direction-scorable): production tracker 10/19 right, all 9 misses entry called exit (one-sided bias); vision run1 10/11; I4 interior-timing 17/19 (no holdout, beats always-in by 2). P3-D2 passes its own gate -> build; P3-D3 build recorded-only; P3-D10 approach clips unscored and EXPIRE 2026-11-19; P3-D11 direction part fails the P3-D6 bar. No instrument reports no_cross (tracker wrote crossings for all 5 no_cross grades)."
   arc_cut_v5_108_32: "crossing vision track (arc map row 6), not interior describe"
   arc_cut_v5_108_27: "parent stays open for P3-D2 recording route, P3-D3 direction, P3-D10/D11 tracker extension, all waiting on operator grades"
   arc_cut_v5_108_25: "arc step 2b, door-vision evaluation first"
@@ -35667,6 +35670,7 @@ cards:
   verified_2026_11_14_overnight: 'CARD-WAS-WRONG on next (''plan then build''): the plan exists and was reviewed on 11-13 (PLANNING_unified_room_rules.md, PLANREVIEW_unified_room_rules.md). Not built overnight: the vision-arc session is sequencing builder slots and this is not part of tonight''s queue.'
   updated: '2026-11-14 02:27'
 - id: MUSIC-FOLLOWING-TRANSFER-REPAIR-1
+  residual_2026_11_17_verify_failed: "AUDIT_arc_day_validation_2026_11_17.md: all 7 music_follow_decision episodes since the v5.108.34 restart are verify_failed; Master Bedroom media_player.master_bedroom_sonos_2 not found 68x in the log. Charter: music following is mission critical day 1. RESULT (AUDIT_music_follow_verify_failed_2026_11_17.md): real failure, not a verify defect, not a .33/.34 regression (all 7 predate the .33 install). Source was the Master Bedroom Sonos playing TV audio (x-sonos-htastream ... spdif); no MA twin (the MA Sonos wrapper master_bedroom_sonos_2 was deleted 11-15 22:39, cause unknown) -> generic play_media of a Sonos-only URI to WiiM players; move mode also ducked the TV ~2 s per attempt. Fix building on fix/mf-skip-tv-audio (skip TV/line-in sources before any side effect). Operator config: Master Bedroom room_media_player still names the deleted _2 entity (log spam 68x); point it at media_player.master_bedroom_sonos or re-add the Sonos in Music Assistant. Gap: no real-music handoff observed yet."
   operator_2026_11_14_distance_gate: "Music: yeah off. Does the distance gate even have merit? Should it be dropped entirely?"
   fixup_2026_11_14: "Review A+B fix-up done on feature/music-following-repair: bf960874 (WIP source fixes), 7f7b7f8d (tests), c70b9316 (anchors); 25 of 26 drills RED; 219 music tests pass. Gaps: producer-side distance in person_coordinator._calculate_confidence untested; bedroom read not drilled; MF_HAZARD_BLOCK_S 1800 needs a planner check. Strict mode (closest_distance_ft 8 ft gate) is the only distance use."
   design_2026_11_13: 'DESIGN_reimagine_room_ai_chaining_music_2026_11_13.md steps 0, 1 and 5: probes first (one WiiM-to-WiiM walk while playing, read group_members on both; map each room player to its Music Assistant entity via the device registry); then MA-first transfer, success only when the target is actually playing; later per-person preferences from PERSON-PROFILE-PREFERENCES-1 (music following is its first consumer). Comfort-class consumer of person location (BLE room transitions, nearest F4); moves to the awareness read API when it has a per-person room view.'
@@ -36154,6 +36158,7 @@ cards:
   next: 'Parked (see revival_trigger). Measured 11-15: ~18 MB, exterior_track is the driver.'
   rank: {value: 2, time_criticality: 1, effort: 1}
 - id: VISION-INTERIOR-SIGHTINGS-1
+  residual_2026_11_17_describe_alias: "First live describe failed: operator texted 'describe family room' 07:57 and got \"I don't know a room or person called 'family room'.\" The URA room is 'Living Room' (area living_room); describe matched only the exact URA room name. Fix in flight on fix/describe-area-alias: also match the room's HA area name and area aliases (registry), refuse ambiguous aliases, and list the rooms that have a camera on an unknown target. Operator action after ship: add alias 'Family Room' to the Living Room area (or send 'describe living room' meanwhile)."
   residual_2026_11_16_face_conf: "Ship 2 review A-M1 set the describe face fallback to confidence >= 0.75 and skip census-vetoed faces. Interior face sightings are emitted at 0.6, so describe <person> places by BLE only until the interior face producer's confidence is raised (or calibrated against the 0.75 naming bar). Fold into the vision count leg work."
   arc_cut_v5_108_28: "parent stays open for ship 2 descriptions, vision count leg, D4 census flip and ledger floor"
   arc_cut_v5_108_25: "arc step 9, plan in closure review"
