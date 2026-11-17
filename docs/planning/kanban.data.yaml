@@ -35109,12 +35109,14 @@ cards:
   operator_2026_11_14_seam_rev4: 'remove and don''t add. => APPLIED: live exterior_seams.json rev 4 removes skip front_side_ptz<->utilities_ptz (far apart, held only by PTZ reach); no replacement shortcut. Validated offline (no errors, no warnings), reloaded: 21 seams, validation ok, sha 1bdf1c70. Backup .claude/tmp/exterior_seams.json.bak-20261114-rev3.'
   reviews_2026_11_14: 'A FIX (A1 rejected file keeps old covers, A2 late veto -> operator chose re-alert, A3 silent name fallback for door key: build map from census.get_transit_egress_entities, count fallback), B SHIP-after-MED (zero-fire counts unmapped doors), C FIX (trip-wire cooldown, ratio non-fire, anomaly row, task tracking, stale covers on file delete, diagnostics). Live: perimeter_gate_decision has 0 rows; only 1 of ~79 crossings in 9 days had identity >= 0.9.'
 - id: LAYER-LEAK-CLEANUP-1
+  recut_2026_11_17: "Re-cut under the operator's no-rebuild rule (PLANNING_layer_leak_cleanup.md f0918133b). Measured: S1 6 stale-source iPad edges in 7 days, all 11-15 before the iPad tracker was removed, security never armed, no suppression window opened; H1 27 restarts, 3 boot-adjacent AWAYs all real departures; phone-left-behind on 10 min total in 7 days. Verdicts: L2-S1 PARK (revival = minimal stale-source skip in the existing listener, ~0.5 day; triggers: security armed, a source_stale arrival row, or a 2nd GPS device), L2-S7 PARK, L1 PARK (trigger PLB on > 2 h/week), L3-H1 PARK code + guard test case only, L5a PARK, L2b2/L3-H2/L5b stay parked. BUILD-MINIMAL: L4 five fail-open identity vetoes resolve the real person entity on the miss path (found: tracked_person_entity_id itself builds ids from strings, person_ids.py:25-37). ~1 builder-day, 1 build, Tier 2. Layer benefit: solid; every consumer since 11-14 builds on it; remaining cleanup only moved correct code."
+  operator_2026_11_17_pick_a: "A. We should not rebuild tier 3 that are hardened and work and we should be skeptical of others. With clear pro/con. Only proven code should supersede correct code. Let's make sure the shared layer benefit is still solid"
   arc_cut_v5_108_32: "person-sightings batch, separate surface from interior describe"
   arc_cut_v5_108_25: "carded behind the arc (operator 11-14)"
   arc_cut_v5_108_24: "after 3a/3b, sized plan owed (LAYER-LEAK-CLEANUP-PLAN-1)"
   arc_cut_v5_108_23: "behind the arc"
   title: "Close the person-awareness layer's remaining leaks (34 groups after ship 3a/3b) in a few grouped cleanup cards, driving the guard's allowlist total down"
-  status: waiting_operator
+  status: planned
   tier: 2
   batch: person-sightings
   links: {parent: PERSON-AWARENESS-READ-API-1, related: [G6-ONE-BLE-ROOM-READ-1, PERSON-ID-INLINE-SWEEP-1, PRESENCE-BOOT-SEED-FROM-VIEW-1, BLE-ARRIVAL-PRODUCER-HVAC-GATED-1, EGRESS-DIRECTION-AWARE-IDENTITY-1, NVR-WITNESS-CONSOLIDATION-1]}
@@ -35122,7 +35124,7 @@ cards:
   origin: {date: '2026-11-14', gist: 'Layer ship 3 Q10.'}
   operator_2026_11_14: "Leak groups accepted but I'm going to need a size on cleaning that up. And a plan. / Maybe 1 card? 34 is a lot / Or a smaller grouping of cards / Card the plan and then get back to the arc. The layer was just a prereq"
   why: "Ship 3a's guard pins every remaining bypass of the person-awareness layer: 238 allowlist rows, total 266, in 34 groups (ship 3 plan §9, §17). The groups are display reads of internals, private edge ledgers in the lock and perimeter, raw BLE-in-room reads, inline person ids, NVR classifiers and step-7-owned crossing pieces. The guard stops new leaks and the total can only fall. This card owns closing them in about 4-6 grouped builds, not 34. Groups that close inside planned feature work stay with that work and are counted here: G6-ONE-BLE-ROOM-READ-1, step 7, BLE-ARRIVAL-PRODUCER-HVAC-GATED-1 (before v6.0.0), and NVR witness W2/W5."
-  next: "PICK: A (recommended) the cut: 4 builds ~10 builder-days ~2 weeks in free builder slots, rule presence's own display reads as owner reads (L5b), park the lock second edge ledger and presence inference snapshot rewrites with triggers; or B full close: 6 builds ~17 builder-days -> I mint L1-L5 cards and start L2 build 1 (security geofence listener, the one HIGH live risk) at the next free builder slot without displacing arc rows."
+  next: "Me: dispatch the L4 minimal build (Tier 2: plan review + 2 reviews) at the next free builder slot after the crossing P3-D2/D3 fix pass."
   status_note: "parked behind the arc (operator 2026-11-14: 'Card the plan and then get back to the arc. The layer was just a prereq'; 'Ie card the cleanup and the plan to cleanup')"
   rank: {value: 4, time_criticality: 2, effort: 6}
 - id: LAYER-LEAK-CLEANUP-PLAN-1

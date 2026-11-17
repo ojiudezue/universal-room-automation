@@ -1,0 +1,27 @@
+{
+  "format_version": "2.1",
+  "entry_id": "337",
+  "author": "ojiudezue",
+  "timestamp": "2026-11-17T15:04:48Z",
+  "type": "pivot",
+  "weight": "critical",
+  "title": "Only proven code supersedes correct code: layer leak cleanup cut from 4 builds to 1",
+  "summary": "Operator picked the smaller cleanup cut and added a rule: don't rebuild hardened Tier-3 code that works, be skeptical of other rewrites with clear pro/con, only proven code supersedes correct code. Re-measured every remaining leak; all but one were correct code with no measured defect, so they park with revival triggers. One ~1-day Tier-2 build remains (five identity vetoes that fail open on a second install).",
+  "why": "The sizing plan priced rewrites by structural cleanliness (guard allowlist rows). Measured: the 'HIGH' security leak fired 6 times in 7 days, all from an iPad tracker since removed, never while armed; no boot AWAY came from the display-entity seed in 27 restarts; phone-left-behind was on 10 min in a week. Rewriting correct access/house-state code to shrink a test allowlist buys no behaviour and adds Tier-3 risk.",
+  "alternatives_considered": [
+    "Option A as first written: 4 builds, ~10 builder-days, guard 256->158",
+    "Full close: 6 builds, ~17 days"
+  ],
+  "implications": "The guard allowlist stays ~257 rows and that is accepted; new consumers must still build on the layer (the guard blocks new leaks). Cleanup items revive only on their measured triggers. The rule applies arc-wide: any plan that replaces working code must show a measured defect and a proven replacement.",
+  "confidence": "high",
+  "revisit_trigger": "Security armed with a source_stale arrival row; phone-left-behind on > 2 h/week; a second install; any refactor of the presence privates",
+  "refs": {
+    "docs": [
+      "docs/planning/PLANNING_layer_leak_cleanup.md",
+      "docs/planning/CONTRACT_person_awareness_layer.md"
+    ],
+    "cards": [
+      "LAYER-LEAK-CLEANUP-1"
+    ]
+  }
+}

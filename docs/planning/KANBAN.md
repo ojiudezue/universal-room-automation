@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-17T02:12:45-06:00_ - _Data commit: `226b8ba44b13`_ - _last_reconciled: 2026-11-16_
+_Generated: 2026-11-17T08:48:35-06:00_ - _Data commit: `5238b96704c8`_ - _last_reconciled: 2026-11-17_
 
 
 ## Columns
@@ -12,10 +12,10 @@ _Generated: 2026-11-17T02:12:45-06:00_ - _Data commit: `226b8ba44b13`_ - _last_r
 | 📥 Inbox | 7 |
 | 🔬 Investigating | 0 |
 | 🧭 Pre-planning | 15 |
-| 📝 Planned | 36 |
+| 📝 Planned | 37 |
 | 🔨 In progress | 10 |
 | 🔍 Review | 2 |
-| ⏸️ Waiting on operator | 38 |
+| ⏸️ Waiting on operator | 37 |
 | ⏳ Waiting on me (Claude) | 2 |
 | 🚀 Shipped (organic open) | 37 |
 | 🅿️ Parked | 138 |
@@ -330,7 +330,7 @@ _updated 2026-10-21 22:05_
   - `verified_capabilities`: Per-room MQTT identity already fleet-safe: clientId wall-tablet-<room>, topics home/wallpanel/<room>/{led,sensors,status}; LWT availability; self-registers via MQTT Discovery (no YAML).
   - `orchestrator_assessment`: HIGHEST VALUE IS THE SENSORS, NOT THE CONTROL SURFACE. Per-room lux is a first-class input URA's lighting logic already consumes; a tablet in every room is a lux+temp+humidity fleet arriving for free. That likely beats the quick-action U...
 
-## 📝 Planned (36)
+## 📝 Planned (37)
 _has plan / acceptance_
 
 ### `TEST-MUSIC-SYSMODULES-LEAK-1` - test_music_following_coordinator.py replaces domain_coordinators/base in sys.modules at import and never restores them, breaking class-identity checks in later test files — _#1 · WSJF 7.0 · v3 tc2 u2 /e1_
@@ -591,7 +591,8 @@ _updated 2026-11-14 02:27_
 - **Origin:** 2026-11-13 - Operator: fix, do not retire; not exercised because not yet trusted.
 - **Why:** Audit AUDIT_room_ai_automation_chaining_music_2026_11_13.md: person filter compares person.* entity id to display names and never matches (coordinator.py:1183; reuse music_following._person_key); a rule saved with needs_parsing true and ...
 - **Next:** Me: build PLANNING_unified_room_rules.md (plan written and plan-reviewed 11-13) when a builder slot frees; Tier 2, two code reviews, attended deploy.
-- **Forensic keys (18):**
+- **Forensic keys (19):**
+  - `arc_cut_v5_108_35`: separate planned build
   - `arc_cut_v5_108_26`: separate build in the same redesign, plan exists, next in that lane
   - `design_2026_11_13`: DESIGN_reimagine_room_ai_chaining_music_2026_11_13.md steps 2 and 4: merge AI rules and chaining at the contract (one rule record, one executor, one log row type, two ways to author); shared trust layer reused by music following; person-...
   - `tier`: 2
@@ -863,7 +864,24 @@ _created 2026-08-19 07:45 · updated 2026-11-06 02:37 · refined_
   - `INSTANCE_2026_10_18_unload_hygiene_order`: Overnight build observation: test_unload_symmetry_task_hygiene.py::test_room_name_desync_retry_registers_on_unload_when_loaded and ::test_room_name_desync_retry_cancels_inline_when_not_loaded fail with AttributeError when run together wi...
   - `INSTANCE_2026_11_03_optimization_isolation`: Found during overnight merge-prep. quality/tests/test_optimization_coordinator.py run ALONE on develop @30e4c61a gives 10 failed (registration, arrester_via_coordinator_manager, handshake_suppresses_hvac, handshake_veto, kill_switch_abor...
 
-### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#36 · WSJF 1.0 · v4 tc2 u2 /e8_
+### `LAYER-LEAK-CLEANUP-1` - Close the person-awareness layer's remaining leaks (34 groups after ship 3a/3b) in a few grouped cleanup cards, driving the guard's allowlist total down — _#36 · WSJF 1.3 · v4 tc2 u2 /e6_
+status: **planned**
+_created 2026-11-14 16:45_
+- **Origin:** 2026-11-14 - Layer ship 3 Q10.
+- **Why:** Ship 3a's guard pins every remaining bypass of the person-awareness layer: 238 allowlist rows, total 266, in 34 groups (ship 3 plan §9, §17). The groups are display reads of internals, private edge ledgers in the lock and perimeter, raw ...
+- **Next:** Me: dispatch the L4 minimal build (Tier 2: plan review + 2 reviews) at the next free builder slot after the crossing P3-D2/D3 fix pass.
+- **Forensic keys (9):**
+  - `recut_2026_11_17`: Re-cut under the operator's no-rebuild rule (PLANNING_layer_leak_cleanup.md f0918133b). Measured: S1 6 stale-source iPad edges in 7 days, all 11-15 before the iPad tracker was removed, security never armed, no suppression window opened; ...
+  - `operator_2026_11_17_pick_a`: A. We should not rebuild tier 3 that are hardened and work and we should be skeptical of others. With clear pro/con. Only proven code should supersede correct code. Let's make sure the shared layer benefit is still solid
+  - `arc_cut_v5_108_32`: person-sightings batch, separate surface from interior describe
+  - `arc_cut_v5_108_25`: carded behind the arc (operator 11-14)
+  - `arc_cut_v5_108_24`: after 3a/3b, sized plan owed (LAYER-LEAK-CLEANUP-PLAN-1)
+  - `arc_cut_v5_108_23`: behind the arc
+  - `tier`: 2
+  - `operator_2026_11_14`: Leak groups accepted but I'm going to need a size on cleaning that up. And a plan. / Maybe 1 card? 34 is a lot / Or a smaller grouping of cards / Card the plan and then get back to the arc. The layer was just a prereq
+  - `status_note`: parked behind the arc (operator 2026-11-14: 'Card the plan and then get back to the arc. The layer was just a prereq'; 'Ie card the cleanup and the plan to cleanup')
+
+### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#37 · WSJF 1.0 · v4 tc2 u2 /e8_
 thread: **presence** - status: **planned** - approval: **unreviewed**
 _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -1112,7 +1130,7 @@ _created 2026-11-16 00:20 · updated 2026-11-17 02:10_
   - `verify_2026_11_17_overnight`: STILL-REAL (~02:05 CST): no house-average sensor in aggregation.py; house_avg_temp/_humidity exist only as attributes (aggregation.py:2063, :2108, :2150) from getters :1255/:1265. Gate: config-first n/a (no knob); prior art REUSE the two...
   - `built_2026_11_17_overnight`: Built on feat/house-avg-sensors 98335c557 (base develop 408a666db, pushed). Two sensors exclude rooms classified infrastructure or in an outdoor zone via room_classification.get_room_classification (room_classification.py:94), read from ...
 
-## ⏸️ Waiting on operator (38)
+## ⏸️ Waiting on operator (37)
 _needs a human call — groomed first_
 
 ### `EGRESS-OUTCOME-WEEKLY-LABEL-1` - Weekly labelling of egress identity outcomes (recurring) so Phase 2 of person sightings becomes decidable — _#1 · WSJF 13.0 · v5 tc6 u2 /e1_
@@ -1771,22 +1789,7 @@ _created 2026-09-27 02:40 · updated 2026-10-19 02:03 · refined_
   - `contradiction_2026_10_19_overnight`: CARD-WAS-WRONG on its own next: update_2026_10_15 records YOUR answer ('rapid change isn't that a heat thing for fire? If so it's a fix') and verified temperature_rise_extreme maps to OVERHEAT (safety.py:670, :859) -> disposition FIX (B)...
   - `paged_2026_10_19_overnight`: Paged 02:42 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody).
 
-### `LAYER-LEAK-CLEANUP-1` - Close the person-awareness layer's remaining leaks (34 groups after ship 3a/3b) in a few grouped cleanup cards, driving the guard's allowlist total down — _#37 · WSJF 1.3 · v4 tc2 u2 /e6_
-status: **waiting_operator**
-_created 2026-11-14 16:45_
-- **Origin:** 2026-11-14 - Layer ship 3 Q10.
-- **Why:** Ship 3a's guard pins every remaining bypass of the person-awareness layer: 238 allowlist rows, total 266, in 34 groups (ship 3 plan §9, §17). The groups are display reads of internals, private edge ledgers in the lock and perimeter, raw ...
-- **Next:** PICK: A (recommended) the cut: 4 builds ~10 builder-days ~2 weeks in free builder slots, rule presence's own display reads as owner reads (L5b), park the lock second edge ledger and presence inference snapshot rewrites with triggers; or ...
-- **Forensic keys (7):**
-  - `arc_cut_v5_108_32`: person-sightings batch, separate surface from interior describe
-  - `arc_cut_v5_108_25`: carded behind the arc (operator 11-14)
-  - `arc_cut_v5_108_24`: after 3a/3b, sized plan owed (LAYER-LEAK-CLEANUP-PLAN-1)
-  - `arc_cut_v5_108_23`: behind the arc
-  - `tier`: 2
-  - `operator_2026_11_14`: Leak groups accepted but I'm going to need a size on cleaning that up. And a plan. / Maybe 1 card? 34 is a lot / Or a smaller grouping of cards / Card the plan and then get back to the arc. The layer was just a prereq
-  - `status_note`: parked behind the arc (operator 2026-11-14: 'Card the plan and then get back to the arc. The layer was just a prereq'; 'Ie card the cleanup and the plan to cleanup')
-
-### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#38 · WSJF 1.1 · v5 tc2 u2 /e8_
+### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#37 · WSJF 1.1 · v5 tc2 u2 /e8_
 thread: **presence** - status: **waiting_operator**
 _created 2026-09-20 · updated 2026-09-29 01:05_
 - **Problem / Solution:**
