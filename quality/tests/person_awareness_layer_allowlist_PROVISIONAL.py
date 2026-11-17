@@ -16,7 +16,7 @@ Generated; regenerate rather than hand-edit.
 """
 
 PROVISIONAL = False  # final run on the post-census-p2 tree (file name kept: plan does not rename it)
-LAYER_ALLOWLIST_TOTAL_PROVISIONAL = 259
+LAYER_ALLOWLIST_TOTAL_PROVISIONAL = 260
 # FINAL (plan §8 / §17, post-census-p2): 266 per §17, minus 5 rows removed by
 # the by-name exclusions (accepted), the six named lifecycle callees ruled
 # exempt; then phase 2: the two phone-left-behind literal-view rows conform
@@ -25,7 +25,10 @@ LAYER_ALLOWLIST_TOTAL_PROVISIONAL = 259
 # _CensusAwarenessSensor reads cls='display'.
 # music-following repair merge: -3, the three #23 R2 person_coordinator.data reads
 # in music_following.py now go through the public get_person_location API.
-LAYER_ALLOWLIST_TOTAL = 256
+# Crossing vision P3-D3 step 7: +1, the one G3 feeder
+# CrossingVisionShadow._amend_vision_direction:amend_crossing (R13, max 1; a
+# sanctioned feed through the one ingest, not a read leak).
+LAYER_ALLOWLIST_TOTAL = 257
 RULED = 'plan rev 3.3 §17 (4d337e44) + coordinator lifecycle ruling; final run post-census-p2'
 
 # group -> (card, reason). '#N' = plan §9 row N; 'UNEXPLAINED' = STOP.
@@ -211,7 +214,8 @@ ROWS = {
     ('R12', 'person_sighting.py', 'PersonSightingProducer._emit:fstring'): {'max': 1, 'group': '#31', 'reserved': False, 'explained': True},
     ('R12', 'transit_validator.py', 'EgressDirectionTracker._resolve_egress_face_identity_ex:fstring'): {'max': 1, 'group': '#31', 'reserved': False, 'explained': True},
     ('R13', 'camera_census.py', 'PersonCensus._backfill_exit_identity:amend_crossing'): {'max': 1, 'group': 'R13', 'reserved': False, 'explained': True},
-    ('R13', 'crossing_vision.py', '<fast stage>:attach_crossing_attribute'): {'max': 1, 'group': 'reserved', 'reserved': True, 'explained': True, 'card': 'crossing-vision fast stage', 'reason': 'fast stage G3 calls (reserved, file-pinned)'},
+    ('R13', 'crossing_vision.py', 'CrossingVisionShadow._amend_vision_direction:amend_crossing'): {'max': 1, 'group': 'R13', 'reserved': False, 'explained': True},
+    ('R13', 'crossing_vision.py', '<fast stage>:attach_crossing_attribute'):{'max': 1, 'group': 'reserved', 'reserved': True, 'explained': True, 'card': 'crossing-vision fast stage', 'reason': 'fast stage G3 calls (reserved, file-pinned)'},
     ('R13', 'domain_coordinators/hvac.py', 'HVACCoordinator.pre_arrival_enabled:set_pre_arrival_enabled'): {'max': 1, 'group': 'R13', 'reserved': False, 'explained': True},
     ('R13', 'domain_coordinators/presence.py', 'PresenceCoordinator._derive_face_arrival:dispatch_person_arriving'): {'max': 1, 'group': 'R13', 'reserved': False, 'explained': True},
     ('R13', 'domain_coordinators/presence.py', 'PresenceCoordinator._handle_geofence_change:dispatch_person_arriving'): {'max': 1, 'group': 'R13', 'reserved': False, 'explained': True},

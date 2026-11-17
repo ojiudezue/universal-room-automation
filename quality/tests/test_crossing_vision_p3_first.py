@@ -258,7 +258,11 @@ async def test_rehydrate_second_try_success_releases(rig):
     rig.monkeypatch.setattr(rig.C, "CROSSING_VISION_CAP_REHYDRATE_RETRY_S", 0.01)
     answers = [(0, False), (4, True)]
 
-    async def _flaky(*a, **k):
+    async def _flaky(*a, call_kind=None, **k):
+        # P3-D3: the repeat-budget read (call_kind "repeat") succeeds with 0;
+        # the primary read fails once, then returns 4.
+        if call_kind == "repeat":
+            return 0, True
         return answers.pop(0)
 
     rig.monkeypatch.setattr(rig.db, "count_memory_episodes_by_type_ended_between",

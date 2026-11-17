@@ -3805,6 +3805,54 @@ CROSSING_VISION_ERROR_TEXT_MAX_CHARS: Final = 200
 # at the cap until the next local midnight (counted, paged LOW).
 CROSSING_VISION_CAP_REHYDRATE_TIMEOUT_S: Final = 30
 CROSSING_VISION_CAP_REHYDRATE_RETRY_S: Final = 60
+# Rung 1 (P3-D2): frame source of a crossing call. "recording_window" = the
+# camera's recording [E - BEFORE, E + AFTER] through HA's Frigate recording
+# proxy, fired at max(bus arrival, E + AFTER + RECORDING_LAG_S) without
+# waiting for the Frigate event end (P3-D0c passed 2026-11-15: the window
+# route is the default). "event_clip" = the matched event's clip after its
+# end (the pre-Phase-3 route) for events no longer than LONG_EVENT_S; a
+# longer event uses the window whenever it is available. Any other value
+# reads as "recording_window".
+CROSSING_VISION_FRAME_ROUTE: Final = "recording_window"
+# Rung 1 (P3-D2): the recording window around the crossing time E. P3-D0 R3:
+# a 10 s lead was empty frames; 5 + 15 bounds every clip to 20 s.
+CROSSING_VISION_FRAME_WINDOW_BEFORE_S: Final = 5
+CROSSING_VISION_FRAME_WINDOW_AFTER_S: Final = 15
+# Rung 1 (P3-D2): wait after the window end so the recording is complete
+# (P3-D0 (c): complete from 5 s). A window end not reachable inside
+# EVENT_END_WAIT_S of the bus arrival falls back to the event clip.
+CROSSING_VISION_RECORDING_LAG_S: Final = 10
+# Rung 1 (P3-D2): an event longer than this never uses its event clip while
+# the window route is available (the 289 MB / 86.6 s case); a long event that
+# had to use the clip is recorded `frame_route = event_clip_long`.
+CROSSING_VISION_LONG_EVENT_S: Final = 60
+# Rung 1 (P3-D2): frames on every crossing call (run 2: no change on 1-2
+# person clips, median 12.7 s). 4 = the pre-Phase-3 count. Interior callers
+# keep their own frame count.
+CROSSING_VISION_CROSSING_FRAMES: Final = 8
+# Rung 1 (P3-D3): watch ambiguous crossings too (count + recorded direction,
+# behind INV-DIR-GATE). False = the pre-Phase-3 skip.
+CROSSING_VISION_WATCH_AMBIGUOUS: Final = True
+# Rung 1 (P3-D3 step 8): sampled repeat call on a primary `ok` outcome (the
+# stability measure). Selection = sha1(crossing key) % 1000 < RATE x 1000.
+# Own daily budget (never the primary cap); a repeat starts only with no
+# primary waiting or calling and waits <= WAIT_S for that. 0 rate or 0 max =
+# off.
+CROSSING_VISION_DIRECTION_REPEAT_RATE: Final = 0.2
+CROSSING_VISION_DIRECTION_REPEAT_DAILY_MAX: Final = 15
+CROSSING_VISION_DIRECTION_REPEAT_WAIT_S: Final = 120
+# Rung 1 (P3-D3 step 9): `crossing_vision_direction_zero` pages MEDIUM when
+# >= this many primary `ok` rows in the trip-wire window carry no in/out
+# vision direction. 0 = off.
+CROSSING_VISION_DIRECTION_ZERO_MIN_OK: Final = 10
+# Rung 1 (P3-D3 step 9): `crossing_vision_ambiguous_zero` pages MEDIUM when
+# >= this many ambiguous bus events in the window produced no row with
+# direction = ambiguous. 0 = off.
+CROSSING_VISION_AMBIGUOUS_ZERO_MIN: Final = 5
+# Rung 1 (P3-D3 step 10): stamped on every crossing_vision_shadow row.
+# Rows without the key are pre-Phase-3; 3 = P3-D2 + P3-D3 (shipped
+# together). Bump on every Phase 3 ship that changes what a row means.
+CROSSING_VISION_PIPELINE_VERSION: Final = 3
 
 # ---------------------------------------------------------------------------
 # Crossing ledger (PLANNING_crossing_vision.md P2-D2 / P2-D3; RAM, boot =
