@@ -9,6 +9,7 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {"fid": "HOUSE-AVG-SENSORS-1@2026-11-17T02:10:00", "card_id": "HOUSE-AVG-SENSORS-1", "at": "2026-11-17T02:10:00", "outcome": "built-to-review", "headline": "Built real house-average temperature and humidity sensors that leave out the AV closet and the patio. Review: ship. Not deployed. Your picks: should Study A Closet and the garages also be left out? That is a room-type setting, not code.", "acknowledged": false}
   - {"fid": "EXTERIOR-PERSON-SEVERITY-ARRIVING-BODY-ONLY-1@2026-11-17T02:08:00", "card_id": "EXTERIOR-PERSON-SEVERITY-ARRIVING-BODY-ONLY-1", "at": "2026-11-17T02:08:00", "outcome": "done", "headline": "Closed after measuring 14 days: no outdoor alert was softened to LOW because the house read 'arriving'. Since 11-13 an 'arriving' with no resident evidence makes outdoor alerts CRITICAL instead, so the rule errs toward alerting.", "acknowledged": false}
   - {"fid": "EXTERIOR-PERSONS-HOME-ALWAYS-ZERO-1@2026-11-17T02:08:00", "card_id": "EXTERIOR-PERSONS-HOME-ALWAYS-ZERO-1", "at": "2026-11-17T02:08:00", "outcome": "done", "headline": "Closed: the 'people home always reads 0' bug in outdoor alerts was fixed in v5.108.19. It still reads 0 on purpose, behind a setting, so outdoor alerts are never softened while people are home. Changing that would be your call.", "acknowledged": false}
   - {"fid": "LLMVISION-TIMEOUT-LEAK-UPSTREAM-1@2026-11-17T02:07:00", "card_id": "LLMVISION-TIMEOUT-LEAK-UPSTREAM-1", "at": "2026-11-17T02:07:00", "outcome": "escalated", "headline": "The 'llmvision keeps billing after a timeout' claim does not hold up in its code, so I closed that card. The check turned up a different real bug: on a timeout it leaves the downloaded video file behind and never stops ffmpeg, because the stop check is written backwards. I drafted the upstream report. Your call: approve posting it.", "acknowledged": false}
@@ -35228,15 +35229,16 @@ cards:
 - id: HOUSE-AVG-SENSORS-1
   title: "Expose real house-average indoor temperature / humidity sensors (exclude equipment closets and outdoor rooms) and retire the two template helpers"
   thread: dashboard
-  status: in_progress
+  status: review
   tier: 1
   created: '2026-11-16 00:20'
-  updated: '2026-11-17 02:07'
+  updated: '2026-11-17 02:10'
   links: {related: [DASH-V8-ANI-WEATHER-TRIAL-1]}
   origin: {date: '2026-11-16', gist: 'Soak-exit residual (AUDIT_soak_exit_sweep_2026_11_16.md).'}
   why: "house_avg_temp is only an attribute (aggregation.py:2063); the v8 weather card reads template helpers sensor.house_indoor_temperature / _humidity."
-  next: "Me: add the two sensors, repoint the v8 card, delete the helpers."
+  next: 'APPROVE merge + ship at the next attended deploy (Tier 1, aggregation.py only; needs a restart). Then in that session: repoint the v8 weather card to sensor.universal_room_automation_house_avg_temperature / _humidity and delete the two template helpers (steps in docs/readmes/DRAFT_house_avg_sensors.md). Also PICK: should Study A Closet count? Its room type is closet, the same as clothing closets; to exclude it, set its room type to Infrastructure or turn on its infrastructure switch (a setting, no code). Same question for Garage A/B (included today).'
   verify_2026_11_17_overnight: 'STILL-REAL (~02:05 CST): no house-average sensor in aggregation.py; house_avg_temp/_humidity exist only as attributes (aggregation.py:2063, :2108, :2150) from getters :1255/:1265. Gate: config-first n/a (no knob); prior art REUSE the two getters; parsimony BUILD (two sensors, filter by existing room classification, no name guessing); cost/benefit small. Building on feat/house-avg-sensors in a worktree to review; the dashboard repoint and helper delete wait for an attended session.'
+  built_2026_11_17_overnight: "Built on feat/house-avg-sensors 98335c557 (base develop 408a666db, pushed). Two sensors exclude rooms classified infrastructure or in an outdoor zone via room_classification.get_room_classification (room_classification.py:94), read from config, not names; existing unfiltered getters unchanged. Tests quality/tests/test_house_avg_sensors.py 10 pass (re-run by me on the branch); builder mutation drills 5/5 red (my own re-drill was blocked by a permission denial, so it is not independently repeated). Tier-1 review SHIP, LOWs only (hardcoded F like siblings; double compute per update): docs/reviews/code-review/house_avg_sensors_review.md. Not deployed. Live today: AV Closet excluded (infrastructure), Patio excluded (outdoor zone); Study A Closet and the garages are still included."
 - id: ENVOY-UPSTREAM-POST-1
   title: "Post Revision 2 on home-assistant/core#181243 (nightly Envoy drop at ~23:04 CST persists upstream)"
   done_2026_11_16: "Posted 2026-11-16 (operator 'Do both'): https://github.com/home-assistant/core/issues/181243#issuecomment-6909947206 (HA 2026.11.1, pyenphase 4.4.0, D8.3.6087; nightly production.json hang, per-endpoint isolation suggested)."
