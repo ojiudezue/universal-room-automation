@@ -258,8 +258,11 @@ def _non_transferable(state) -> str:
             if cid.startswith(prefix):
                 return f"content={prefix}"
     src = attrs.get("source")
-    if isinstance(src, str) and src.strip().lower() in _c.MF_NON_TRANSFERABLE_SOURCES:
-        return f"input={src.strip()}"
+    if isinstance(src, str):
+        low = src.strip().lower()
+        if low in _c.MF_NON_TRANSFERABLE_SOURCES or low.startswith(
+                _c.MF_NON_TRANSFERABLE_SOURCE_PREFIXES):
+            return f"input={src.strip()}"
     return ""
 
 

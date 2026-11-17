@@ -4578,8 +4578,14 @@ MF_NON_TRANSFERABLE_CONTENT_PREFIXES: Final = (
 # Lower-cased exact values of the source player's ``source`` attribute.
 MF_NON_TRANSFERABLE_SOURCES: Final = frozenset({
     "tv", "line-in", "line in", "linein", "hdmi", "hdmi arc", "hdmi-arc",
-    "optical", "spdif", "aux", "analog",
+    "optical", "spdif", "aux", "analog", "arc", "phono", "rca", "xlr",
+    "bluetooth",
 })
+# Lower-cased prefixes of the same attribute (linkplay numbers its inputs:
+# "Line In 2", "Optical 2", "Coaxial 2").
+MF_NON_TRANSFERABLE_SOURCE_PREFIXES: Final = (
+    "line in", "line-in", "optical", "coaxial", "hdmi",
+)
 # Platforms whose native group leader can be released (unjoined) without
 # stopping the followers. Empty until the weekend walk confirms one: in
 # "move" mode a native join whose leader is the old room is skipped for

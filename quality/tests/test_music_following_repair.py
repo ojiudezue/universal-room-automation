@@ -3749,6 +3749,17 @@ async def test_mf_line_in_source_attribute_skipped(rig):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("src", ["Line In 2", "Coaxial 2", "Optical 2", "ARC", "Bluetooth"])
+async def test_mf_numbered_and_extra_inputs_skipped(rig, src):
+    # Review LOW: linkplay numbers its inputs; prefix match covers them.
+    rig.world.play("kitchen", content="x-rincon-unrelated:1")
+    _set_source_attr(rig, "kitchen", src)
+    set_area(rig, "Study A")
+    assert await move(rig, "Kitchen", "Study A") == "source_not_transferable"
+    assert _side_effects(rig) == []
+
+
+@pytest.mark.asyncio
 async def test_mf_rincon_stream_prefix_skipped(rig):
     rig.world.play("kitchen", content="x-rincon-stream:RINCON_1")
     set_area(rig, "Study A")
