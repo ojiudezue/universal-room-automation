@@ -1,0 +1,29 @@
+{
+  "format_version": "2.1",
+  "entry_id": "338",
+  "author": "ojiudezue",
+  "timestamp": "2026-11-17T16:43:45Z",
+  "type": "counseling",
+  "weight": "significant",
+  "title": "Restart cadence keeps the crossing ledger permanently unknown",
+  "summary": "Every crossing ledger term for a week read applied=false reason=unknown. The ledger's state is RAM-only and resets on each HA restart; only a 15-minute empty-house anchor makes it known. One anchor fired in 3.5 days and the next deploy's restart erased it 8 minutes later. Known time was ~34 min in 3.5 days across ~13 restarts.",
+  "why": "The ledger was designed assuming long uptimes; the arc's ship cadence (often 2 restarts a day) violates that silently, so the ledger, the planned interior floor and any ledger promotion produce nothing. Found only because a day audit asked why every term said 'unknown'.",
+  "alternatives_considered": [
+    "Persist L and known across restart when the downtime gap had no door activity (verifiable from the recorder after boot)",
+    "A second anchor that does not need an empty house (operator dropped the checkpoint anchor 11-15 as fragile)",
+    "Fewer restarts: batch releases"
+  ],
+  "implications": "The ledger floor (arc row 7) cannot be measured or built until known-time is fixed. Releases should batch to fewer restarts. Any RAM-only state machine in URA should be checked against the real restart rate (ties to RESTART-SAFETY-DOCTRINE-1).",
+  "confidence": "high",
+  "revisit_trigger": "The restart known-time measurement (AUDIT_crossing_ledger_restart_known_time_2026_11_17.md) lands",
+  "refs": {
+    "docs": [
+      "docs/planning/AUDIT_crossing_ledger_reason_unknown_2026_11_17.md",
+      "docs/planning/PLANNING_vision_interior_sightings.md"
+    ],
+    "cards": [
+      "VISION-CROSSING-ANALYSIS-1",
+      "RESTART-SAFETY-DOCTRINE-1"
+    ]
+  }
+}
