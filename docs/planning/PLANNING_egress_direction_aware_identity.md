@@ -340,7 +340,7 @@ and BLE-only attaches, stay anonymous. Confusable pairs arriving together stay a
   14-day per-week count; ≥ 1 per week revives it as a Tier-3 follow-on built on the same own-edge rule.
 - **Q3. When the tracker says "left" but the person's own phone says they just arrived, announce "arrived"?** Default:
   yes (9/15 graded entries currently get "left"; the reverse error is sized by D0 (c)).
-- **Q4. Confusable pairs: `jaya|ezinne` only?** Default: yes (unchanged from rev 3.1 Q2).
+- **Q4. Confusable pairs.** ANSWERED 2026-11-17: "Jaya Ezinne not only confusable pair. It can also be Jaya Oji." Initial value `jaya|ezinne, jaya|oji`; the setting accepts any number of pairs.
 
 ## 14. Tier, reviews, dependency, completion
 
