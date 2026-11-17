@@ -277,7 +277,9 @@ async def test_describe_bedroom_camera_never_called(drig, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_describe_unknown_target_no_call(drig):
-    assert _ask(drig, "the moon") == "I don't know a room or person called 'the moon'."
+    assert _ask(drig, "the moon") == (
+        "I don't know a room or person called 'the moon'. "
+        "Rooms with a camera: Family Room, Master Hallway.")
     await _done(drig)
     assert drig.calls == []
 
@@ -615,3 +617,68 @@ async def test_zero_calls_silent_when_calls_happen(drig):
         assert _ask(drig) == ""
         await _done(drig)
     assert len(drig.calls) == 6 and pages == []
+
+
+# -------------------------------------------- area name / alias resolution
+async def _area(rig, name, aliases=()):
+    """Create (or update) a REAL HA area-registry area; returns its id."""
+    from homeassistant.helpers import area_registry as ar
+
+    if ar.DATA_REGISTRY not in rig.hass.data:
+        await ar.async_load(rig.hass)
+    reg = ar.async_get(rig.hass)
+    area = reg.async_get_area_by_name(name) or reg.async_create(name)
+    reg.async_update(area.id, aliases=set(aliases))
+    return area.id
+
+
+def _set_area(rig, room, area_id):
+    for e in rig.hass.config_entries.async_entries(R.DOMAIN):
+        if (e.data or {}).get(_c(rig).CONF_ROOM_NAME) == room:
+            e.data[_c(rig).CONF_AREA_ID] = area_id
+    rig.producer._interior_sig = None
+
+
+@pytest.mark.asyncio
+async def test_describe_resolves_room_by_area_alias(drig):
+    """'describe den' -> the room whose HA area carries the alias 'Den'
+    (case + whitespace normalised); one model call on that room."""
+    assert await _area(drig, "Living Room", ("Den",)) == "living_room"
+    assert _ask(drig, "  DEN ") == ""
+    await _done(drig)
+    assert len(drig.calls) == 1
+    assert drig.calls[0]["data"]["image_entity"] == ["camera.family_room"]
+    assert drig.replies[0].startswith("Family Room:")
+
+
+@pytest.mark.asyncio
+async def test_describe_resolves_room_by_area_name(drig):
+    """'describe living room' -> Family Room through its area's NAME."""
+    await _area(drig, "Living Room")
+    assert _ask(drig, "living room") == ""
+    await _done(drig)
+    assert len(drig.calls) == 1
+    assert drig.replies[0].startswith("Family Room:")
+
+
+@pytest.mark.asyncio
+async def test_describe_area_alias_ambiguous_refuses(drig):
+    """One alias on two rooms' areas: refuse, list both rooms, no call."""
+    await _area(drig, "Living Room", ("downstairs",))
+    hall = await _area(drig, "Upper Hall", ("Downstairs",))
+    _set_area(drig, "Master Hallway", hall)
+    assert _ask(drig, "downstairs") == (
+        "'downstairs' could mean Family Room, Master Hallway. Send the room name.")
+    await _done(drig)
+    assert drig.calls == []
+    assert drig.producer.interior_counters["describe_unresolved"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_describe_exact_room_name_wins_over_alias(drig):
+    """The exact URA room name keeps priority: 'master hallway' is an alias
+    of the Family Room's area, yet it resolves to the Master Hallway room."""
+    await _area(drig, "Living Room", ("Master Hallway",))
+    assert _ask(drig, "master hallway") == ""
+    await _done(drig)
+    assert drig.replies[0].startswith("Master Hallway:")
