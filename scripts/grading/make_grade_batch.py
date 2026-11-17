@@ -17,8 +17,10 @@ Sources (all on by default):
 Keys already in the grades labels file (pull_grades.py output) are skipped.
 
 Cameras come from the configured door_groups option of the URA config entry (keys are Frigate camera names)
-and the shadow row's door_group; nothing is inferred from entity-id strings. A key with no known door group
-gets a sheet for every configured door camera.
+and the shadow row's door_group; nothing is inferred from entity-id strings. A key with no shadow row gets its
+door group from its own egress camera through the registries (egress_door_group: entity -> device -> Frigate
+camera identifier, or for a non-Frigate device its area's configured door cameras when they share one group). A
+key whose door still cannot be resolved is dropped and logged; a card never shows sheets from several doors.
 
 Privacy: the images are family footage. They go only to the LAN site directory (gitignored in
 homelab-automation) and a local cache under .claude/tmp/grade_cache. Each run replaces the previous batch, and
@@ -56,6 +58,9 @@ SITE_GRADE_DIR = Path.home() / "Code/homelab-automation/sites/urakanban/grade"
 HA_URL = "http://192.168.13.13:8123"
 DB_PATH = "/config/universal_room_automation/data/universal_room_automation.db"
 CONFIG_ENTRIES = "/config/.storage/core.config_entries"
+ENTITY_REGISTRY = "/config/.storage/core.entity_registry"
+DEVICE_REGISTRY = "/config/.storage/core.device_registry"
+FRIGATE_DOMAIN = "frigate"
 URA_DOMAIN = "universal_room_automation"
 DISAGREE_CASES = ("B", "C")
 # P3-D3 review D MEDIUM-1: stability repeat rows (call_kind 'repeat') share
@@ -97,6 +102,55 @@ def door_groups() -> dict[str, str]:
             if isinstance(groups, dict) and groups:
                 return {str(k): str(v) for k, v in groups.items()}
     return {}
+
+
+_REGISTRY: dict = {}
+
+
+def _registries() -> tuple[dict, dict]:
+    """(entity_id -> entity registry row, device_id -> device registry row), read once over ssh."""
+    if not _REGISTRY:
+        ents = json.loads(ssh_ha(f"cat {ENTITY_REGISTRY}"))["data"]["entities"]
+        devs = json.loads(ssh_ha(f"cat {DEVICE_REGISTRY}"))["data"]["devices"]
+        _REGISTRY["ents"] = {e["entity_id"]: e for e in ents}
+        _REGISTRY["devs"] = {d["id"]: d for d in devs}
+    return _REGISTRY["ents"], _REGISTRY["devs"]
+
+
+def _frigate_camera(device: dict | None) -> str | None:
+    """The Frigate camera a device registry row represents, from its ("frigate", "<entry>:<camera>") identifier."""
+    for ident in (device or {}).get("identifiers") or []:
+        if len(ident) == 2 and ident[0] == FRIGATE_DOMAIN and ":" in ident[1]:
+            return ident[1].split(":", 1)[1]
+    return None
+
+
+def egress_door_group(egress_camera: str, groups: dict[str, str]) -> tuple[str | None, str]:
+    """Door group of a crossing key's egress camera entity, through the registries only.
+
+    entity registry -> device -> that device's Frigate camera -> door_groups option. A non-Frigate device (e.g. a
+    UniFi Protect camera, whose registry row carries no Frigate identifier) resolves through its device AREA: the
+    configured door cameras whose Frigate devices sit in the same area, accepted only when they all belong to one
+    door group. Returns (group or None, route) and never parses the entity id.
+    """
+    ents, devs = _registries()
+    ent = ents.get(egress_camera)
+    if not ent:
+        return None, "not in entity registry"
+    dev = devs.get(ent.get("device_id") or "")
+    if not dev:
+        return None, "no device"
+    cam = _frigate_camera(dev)
+    if cam is not None:
+        return (groups.get(cam), "frigate device") if cam in groups else (None, f"frigate camera {cam} not a door")
+    area = dev.get("area_id")
+    if not area:
+        return None, f"{ent.get('platform')} device has no area"
+    found = {groups[c] for d in devs.values() if d.get("area_id") == area
+             for c in [_frigate_camera(d)] if c in groups}
+    if len(found) == 1:
+        return found.pop(), f"{ent.get('platform')} device area {area}"
+    return None, f"{ent.get('platform')} device area {area} -> {sorted(found) or 'no door camera'}"
 
 
 def parse_ts(s: str) -> dt.datetime:
@@ -293,7 +347,11 @@ def build_card(c: dict, idx: int, groups: dict[str, str], token: str, args, out_
     else:
         start, end = e1.timestamp() - args.pad_s, e1.timestamp() + args.pad_s
     group = c.get("door_group")
-    cams = sorted(k for k, g in groups.items() if g == group) if group else sorted(groups)
+    cams = sorted(k for k, g in groups.items() if g == group) if group else []
+    if not cams:
+        # Never show every door: a sheet set from several doors cannot be graded as one crossing.
+        log(f"  no door cameras for group {group!r} of {c['crossing_key']}; card dropped")
+        return None
     win = end - start
     frames = 12 if win <= 26 else 20
     sheets = []
@@ -378,17 +436,27 @@ def main() -> int:
         if c["crossing_key"] not in seen:
             seen.add(c["crossing_key"])
             dedup.append(c)
-    cands = dedup
+    groups = door_groups()
+    if not groups:
+        log("ERROR: no door_groups configured on the URA entry")
+        return 1
+    resolved = []
+    for c in dedup:
+        if c["kind"] == "crossing" and not c.get("door_group"):
+            group, route = egress_door_group(c["crossing_key"].split("@", 1)[0], groups)
+            if group is None:
+                log(f"drop unresolved door ({route}): {c['crossing_key']}")
+                continue
+            c["door_group"] = group
+            log(f"door {group} via {route}: {c['crossing_key']}")
+        resolved.append(c)
+    cands = resolved
     log(f"{len(cands)} candidates ({sum(c['kind'] == 'pair' for c in cands)} pairs), {len(skip)} already graded")
     if args.dry_run:
         for c in cands:
             print(c["kind"], c.get("door_group"), c["crossing_key"])
         return 0
 
-    groups = door_groups()
-    if not groups:
-        log("ERROR: no door_groups configured on the URA entry")
-        return 1
     token = ha_token()
     out_dir: Path = args.site_dir
     out_dir.mkdir(parents=True, exist_ok=True)
