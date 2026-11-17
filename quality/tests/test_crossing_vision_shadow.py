@@ -226,6 +226,17 @@ async def rig(mods, hass, tmp_path, monkeypatch):
         return True
 
     monkeypatch.setattr(mods.stuck, "fire_stuck_signal", _fake_fire)
+    # P3-D2: this rig (and the files that reuse it) pins the EVENT-CLIP
+    # route, whose event-end wait / clip URL / cluster timing these tests
+    # pin; the event clip is still the route for a pre-call window failure
+    # and the knob's legacy value. The recording-window default is covered
+    # by test_crossing_vision_p3_d2_d3.py (its own fixture sets the route).
+    monkeypatch.setattr(C, "CROSSING_VISION_FRAME_ROUTE", "event_clip")
+    # P3-D3 step 8: no sampled repeats here (they add llmvision calls and
+    # rows to the exact call / row counts these tests pin); repeats and
+    # their independence from every primary are covered in
+    # test_crossing_vision_p3_d2_d3.py.
+    monkeypatch.setattr(C, "CROSSING_VISION_DIRECTION_REPEAT_RATE", 0)
 
     cv = mods.cv.CrossingVisionShadow(hass)
     await cv.async_setup()
@@ -325,10 +336,14 @@ async def test_one_call_one_row_per_crossing(rig):
     assert call["model"] == "gpt-6-luna"
     assert call["provider"] == "01M7B731T26P2HXVW77AQR62PP"
     assert call["max_tokens"] == 4000
-    assert call["max_frames"] == 4 and call["target_width"] == 768
+    # P3-D2: 8 frames on every crossing call (was 4).
+    assert call["max_frames"] == 8 and call["target_width"] == 768
     assert call["response_format"] == "json"
+    # P3-D3 step 4: direction fields added (nullable: strict mode needs
+    # every property in `required`).
     assert json.loads(call["structure"])["required"] == [
-        "frames", "people_total", "group", "desc"]
+        "frames", "people_total", "group", "desc", "direction",
+        "direction_confidence"]
     assert "Do not name or identify anyone" in call["message"]
     [row] = rows(rig)
     assert row["src"] == key
@@ -339,7 +354,9 @@ async def test_one_call_one_row_per_crossing(rig):
     assert row["frame_counts"] == [1, 2, 1, 0]
     assert row["camera_peak_count"] == 2
     assert row["agreement_case"] == "A"
-    assert "vision_direction" not in row  # D0: no direction signal
+    # P3-D3: the reply carries no direction field -> recorded `unclear`
+    # (display / scorer only; INV-DIR-GATE).
+    assert row["vision_direction"] == "unclear"
     assert row["direction"] == "entry"
     assert row["door_group"] == "garage_a"
     assert row["event_id"] == "1763050000.1-abc"
@@ -410,6 +427,9 @@ async def test_kill_const_no_call(rig):
 
 @pytest.mark.asyncio
 async def test_ambiguous_ignored(rig):
+    """CROSSING_VISION_WATCH_AMBIGUOUS False = the pre-Phase-3 skip (P3-D3
+    watches ambiguous crossings by default)."""
+    rig.monkeypatch.setattr(rig.C, "CROSSING_VISION_WATCH_AMBIGUOUS", False)
     e = _now(rig) - timedelta(seconds=45)
     frigate(rig, "ev-amb", "garage_a", e.timestamp() + 2, typ="end",
             end=e.timestamp() + 9)
@@ -996,6 +1016,10 @@ async def test_diag_status_shape(rig):
     assert d["crossing_vision_today"] == {
         "calls": 1, "ok": 1, "blank": 0, "no_event": 0, "errors": 0,
         "skipped_cap": 0, "skipped_busy": 0, "clustered": 0, "no_clip_url": 0,
+        # P3-D3 counters.
+        "ambiguous": 0, "ambiguous_shared_event": 0, "repeats": 0,
+        "repeat_skipped_busy": 0, "vision_amend_failed": 0,
+        "skipped_reserved": 0,
     }
     last = d["crossing_vision_last"]
     assert (last["outcome"], last["people_count"], last["camera_peak_count"],

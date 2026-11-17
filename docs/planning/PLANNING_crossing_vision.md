@@ -803,9 +803,17 @@ group. Cost: inside the measured cap (93 includes ambiguous); the stability repe
 2. **An ambiguous request never adopts a later resolved member (review finding 3).** The cluster test (`:664-672`) and
    the analysed-event test (`:711`) skip a request whose primary is ambiguous when the arriving crossing is entry or
    exit: that crossing opens its own request (its own match, its own call, its own count), exactly as it would have
-   with ambiguous crossings unwatched. An ambiguous crossing may still join a resolved or an ambiguous request. So
-   watching ambiguous crossings changes no resolved crossing's term; the only cost is a possible second call on the
-   same Frigate event (counted `ambiguous_shared_event`).
+   with ambiguous crossings unwatched. An ambiguous crossing may still join a resolved or an ambiguous request.
+   **Correction (build review M1, 2026-11-17):** step 2 alone did NOT keep resolved terms unchanged: ambiguous
+   requests hold in-flight slots and cap budget, so a resolved crossing could fall to `skipped_busy` / `skipped_cap`
+   (camera term instead of vision term). Rule as built: an ambiguous crossing is admitted only while pending
+   primaries < `CROSSING_VISION_MAX_CONCURRENT` − 1 (one slot always free for a resolved crossing; at
+   MAX_CONCURRENT 1 ambiguous crossings are never called) AND calls + waiting < cap −
+   `CROSSING_VISION_AMBIGUOUS_CAP_RESERVE` (30, rung 1: 19 resolved crossings on 11-16 × 1.5); otherwise it records
+   `skipped_reserved` (no call, no term). With that rule a lone resolved crossing always finds a slot and cap left.
+   Named residual: two resolved crossings pending at once while one ambiguous call runs (MAX_CONCURRENT 2) → the
+   second resolved one is `skipped_busy`; at most one ambiguous call is ever in flight. Other cost: a possible second
+   call on the same Frigate event (counted `ambiguous_shared_event`).
 3. **Late joiner direction (review finding 1, moved from P3-D4 step 4 without its `pass_key` clause).** The request
    stores `term_direction` = the direction of the term actually built at its outcome (None when no term was built,
    e.g. every folded member ambiguous). A member joining after the outcome: if it is ambiguous → no term; else if

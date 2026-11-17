@@ -58,6 +58,10 @@ DB_PATH = "/config/universal_room_automation/data/universal_room_automation.db"
 CONFIG_ENTRIES = "/config/.storage/core.config_entries"
 URA_DOMAIN = "universal_room_automation"
 DISAGREE_CASES = ("B", "C")
+# P3-D3 review D MEDIUM-1: stability repeat rows (call_kind 'repeat') share
+# source_ref and started_at with their primary; grade the primary only (rows
+# written before P3-D3 have no call_kind and are primaries).
+PRIMARY_ONLY = "coalesce(json_extract({a}.attrs_json,'$.call_kind'),'primary')='primary'"
 
 
 def log(msg: str) -> None:
@@ -154,6 +158,7 @@ def recent_candidates(days: float, limit: int, skip: set[str]) -> list[dict]:
         "from memory_episodes v left join memory_episodes e "
         "on e.episode_type='egress_identity_outcome' and e.source_ref=v.source_ref "
         f"where v.episode_type='crossing_vision_shadow' and v.started_at >= {sql_str(since)} "
+        f"and {PRIMARY_ONLY.format(a='v')} "
         "order by v.started_at desc;"
     )
     seen: set[str] = set()
@@ -202,7 +207,7 @@ def key_candidates(keys: list[str], skip: set[str]) -> list[dict]:
         rows = db_query(
             "select v.attrs_json, e.attrs_json as egress_attrs from (select 1) "
             "left join memory_episodes v on v.episode_type='crossing_vision_shadow' "
-            f"and v.source_ref={sql_str(key)} "
+            f"and v.source_ref={sql_str(key)} and {PRIMARY_ONLY.format(a='v')} "
             "left join memory_episodes e on e.episode_type='egress_identity_outcome' "
             f"and e.source_ref={sql_str(key)} limit 1;"
         )
@@ -222,7 +227,8 @@ def pair_vision(cands: list[dict]) -> None:
     if not stamps:
         return
     rows = db_query(
-        "select started_at, attrs_json from memory_episodes where episode_type='crossing_vision_shadow' "
+        "select started_at, attrs_json from memory_episodes m where episode_type='crossing_vision_shadow' "
+        f"and {PRIMARY_ONLY.format(a='m')} "
         f"and started_at in ({','.join(sql_str(s) for s in stamps)});"
     )
     by_ts = {r["started_at"]: json.loads(r["attrs_json"] or "{}") for r in rows}
