@@ -4568,6 +4568,24 @@ MF_MA_FIRST_ENABLED: Final = True           # False = never use Music Assistant
 # Seconds a superseded move's source room counts as "the room the bounce came
 # back to" for the returned_in_flight outcome.
 MF_RETURN_MATCH_WINDOW_S: Final = 120
+# Live-input sources that cannot be replayed on another speaker (TV audio,
+# line-in): moving them sends a player-proprietary URI the target cannot play
+# and ducks the TV (audit 2026-11-17, 7/7 verify_failed). Skipped as
+# source_not_transferable before any fade or play_media.
+MF_NON_TRANSFERABLE_CONTENT_PREFIXES: Final = (
+    "x-sonos-htastream:", "x-rincon-stream:",
+)
+# Lower-cased exact values of the source player's ``source`` attribute.
+MF_NON_TRANSFERABLE_SOURCES: Final = frozenset({
+    "tv", "line-in", "line in", "linein", "hdmi", "hdmi arc", "hdmi-arc",
+    "optical", "spdif", "aux", "analog", "arc", "phono", "rca", "xlr",
+    "bluetooth",
+})
+# Lower-cased prefixes of the same attribute (linkplay numbers its inputs:
+# "Line In 2", "Optical 2", "Coaxial 2").
+MF_NON_TRANSFERABLE_SOURCE_PREFIXES: Final = (
+    "line in", "line-in", "optical", "coaxial", "hdmi",
+)
 # Platforms whose native group leader can be released (unjoined) without
 # stopping the followers. Empty until the weekend walk confirms one: in
 # "move" mode a native join whose leader is the old room is skipped for

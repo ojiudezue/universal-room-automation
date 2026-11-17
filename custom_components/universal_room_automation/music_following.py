@@ -125,6 +125,7 @@ MF_OUTCOMES = (
     "target_unavailable",
     "source_has_others",
     "source_not_playing",
+    "source_not_transferable",
     "active_playback_blocked",
     "sleep_suppressed",
     "night_suppressed",
@@ -243,6 +244,26 @@ def _latest_row_ts(rows, person: str, before: float) -> Optional[float]:
         if ts < before and (best is None or ts > best):
             best = ts
     return best
+
+
+def _non_transferable(state) -> str:
+    """Why the source's content is a live input that cannot move, or ''.
+
+    Reads only the source player's own state attributes.
+    """
+    attrs = getattr(state, "attributes", None) or {}
+    cid = attrs.get("media_content_id")
+    if isinstance(cid, str):
+        for prefix in _c.MF_NON_TRANSFERABLE_CONTENT_PREFIXES:
+            if cid.startswith(prefix):
+                return f"content={prefix}"
+    src = attrs.get("source")
+    if isinstance(src, str):
+        low = src.strip().lower()
+        if low in _c.MF_NON_TRANSFERABLE_SOURCES or low.startswith(
+                _c.MF_NON_TRANSFERABLE_SOURCE_PREFIXES):
+            return f"input={src.strip()}"
+    return ""
 
 
 def _real_change(old, new, ignored: frozenset) -> bool:
@@ -2601,6 +2622,12 @@ class MusicFollowing:
         if from_state is None or from_state.state != STATE_PLAYING:
             return "source_not_playing", ""
         d["source_playing"] = True
+        # Live input (TV / line-in): nothing to move, and the move would duck
+        # the source and send a URI the target cannot play. Before any side
+        # effect, on every path (MA, join, generic).
+        why = _non_transferable(from_state)
+        if why:
+            return "source_not_transferable", why
         if to_player == rec.source_player:
             return "active_playback_blocked", "same_speaker"
         if to_state.state == STATE_PLAYING:
