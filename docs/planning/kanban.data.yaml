@@ -68,7 +68,7 @@ cards:
   status: waiting_operator
   tier: 1
   created: 2026-11-08 02:05
-  updated: "2026-11-16 02:04"
+  updated: '2026-11-17 02:32'
   refinement_status: initial
   rank:
     value: 3
@@ -93,6 +93,7 @@ cards:
   recheck_2026_11_09_overnight: "02:03 CST URA DB: notification_inbound since 11-07 has only channel=imessage (37 rows, last 11-08 18:24Z); no whatsapp or companion row yet, so the diag test has not been run. Ask stands."
   recheck_2026_11_11_overnight: "02:11 CST URA DB: notification_inbound since 11-10 = 4 rows, all imessage (last 07:26Z 11-11). No whatsapp/companion row. DO stands."
   verified_2026_11_16_overnight: "STILL-WAITING (URA DB ~02:01 CST): notification_inbound since 11-15 = 14 rows, all channel=imessage (last 07:13Z 11-16). No whatsapp or companion row. DO stands."
+  recheck_2026_11_17_overnight: '02:05 CST URA DB notification_inbound since 11-11: 103 rows, all imessage (last 11-17 05:30Z). No whatsapp or companion row; DO stands.'
 - id: OPTIMIZER-META-NEVER-PAGES-1
   mergeprep_2026_11_10_overnight: "02:01-02:11 CST. integ/overnight-2026-11-08 was 180 behind develop (v5.108.1 shipped since); git merge-tree showed ONE conflict, docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md header (two independent dated entries; kept both). Code (const.py, sensor.py) auto-merged. New branch integ/overnight-2026-11-10 = develop 71c0fbb6 + merge 42e3215f, pushed. py_compile clean, no conflict markers. The cycle's 9 test files: 186 passed. Full suite under xdist on candidate vs base develop: 33 vs 25 failures, but the sets differ in BOTH directions (order pollution); all 13 candidate-only failing tests pass when their files run alone (test_kanban_render, test_radar_tuning_phase_a, test_unload_symmetry_task_hygiene, test_zone_migration_mint_guard, test_zone_orphan_device_guard, test_zone_power_rollup, test_zone_safety_alert). No new failure attributable to the branch. Caveat: this is an xdist run, not the serial name-diff; the attended deploy's suite gate is the authority."
   mergeprep_2026_11_07_overnight: "02:03 CST: no code or test commits on develop since the 11-06 merge-prep (git log --since 11-06 02:00 -- custom_components quality is empty); git merge-tree vs develop e8348bf8 still clean. The prior validation still describes current develop - ready for the next attended deploy."
@@ -716,12 +717,13 @@ cards:
   status: waiting_operator
   tier: 1
   created: "2026-11-07 10:40"
-  updated: "2026-11-07 10:40"
+  updated: '2026-11-17 02:32'
   rank: {value: 2, time_criticality: 1, effort: 1}
   origin: "Operator 2026-11-07: 'Athom is gone. Remove it. We keep referencing it. Is it phantom in the room config?'"
   why: "Study A entry.data has mmwave_sensors=['binary_sensor.athom_presence_sensor_d93b20_mmwave_sensor'] (entity gone from the registry; 100% unavailable 7 days). CONF_MMWAVE_SENSORS is the string 'presence_sensors' (const.py:533), and no code reads the literal 'mmwave_sensors' key (only strings.json/en.json labels :483/:498), so it has zero runtime effect, but every config read surfaces it. Only Study A has the key. The options flow cannot clear entry.data keys; reconfigure aborts to options (config_flow.py:1273)."
   next: "APPROVE: a small migration step (async_migrate_entry or setup-time scrub) that drops the legacy 'mmwave_sensors' key from entry.data, plus removing the stale strings.json labels -> I build it Tier 1 and ship it with the next deploy (needs one restart, at a time you pick)."
   adjacency: "Swept board for mmwave/legacy-key/config-scrub: NEW. Related: FORM-CONDITIONAL-FIELDS-1 (same forms surface, no overlap)."
+  recheck_2026_11_17_overnight: '02:30 CST: Study A entry.data still carries mmwave_sensors [binary_sensor.athom_presence_sensor_d93b20_mmwave_sensor]. APPROVE stands.'
 - id: DASH-V8-ANI-WEATHER-TRIAL-1
   title: "ura-v8 Now tab: trial Animated Weather Card next to weather_hero"
   soak_exit_2026_11_16: "DONE + RESIDUAL per AUDIT_soak_exit_sweep_2026_11_16.md (ba41b088); residual carded as HOUSE-AVG-SENSORS-1."
@@ -931,13 +933,13 @@ cards:
   measured_2026_11_15_overnight: 'docs/planning/AUDIT_panel_scanner_room_ble_accuracy_2026_11_15.md (ura-prober, recorder read-only, 8 days only: recorder keeps 7; registry-resolved). Truth = room presence radar with exactly one resident home; only Ezinne has enough single-occupant minutes (2421). STUDY B: precision 96% (218/227), recall 38% (218/578) -> MIXED; while her area read Master Bedroom the Study B radar was on 64% of the time (one 134-min episode flipped Study B / Master), so either Bermuda mis-picks Master or the phone sits in the bedroom. FOYER: UNMEASURABLE (10 min; no presence radar, only motion-class Hobeian, URA occupied used). MEDIA ROOM: UNMEASURABLE (1 min). Caveats: guests/pets not excluded; the prober skimmed presence state-of-play §4-9.'
   measured_2026_10_23_overnight: "Measurement run (ura-prober, recorder read-only; panel entities only exist from ~10-19/20, so 3-4 days). TOUCH: about 2 real touches a day per panel (max 4/day; media_room 0), after excluding 50-106 reconnect republishes per panel (rows within 2 min of an app_uptime change). Too sparse to matter as a presence witness: PARK this leg. NOISE: 6-53 samples/h, not 1/min. Only kitchen and entry_way track activity (day median 20-40 dB above night); the other five sit near the -96 dBFS floor: PARK. BLE: all 7 panels (master, study_a, study_b, media_room, up_hallway, kitchen, entry_way=foyer) are Bluetooth-proxy devices with the right area_id in the device registry. Bermuda's stored scanners list shows only the host adapter, and the recorder has NO 'distance_to' sensor for any panel (orchestrator query on states_meta). So the panels are probably NOT used as Bermuda room scanners yet. Not proven: runtime use was not checked. That BLE leg is the only one with value, and it is a config question, not code."
   refinement: ["measure-first (10-23) -> touch and noise are too sparse to be presence inputs; the value is the panels as room BLE scanners, which is Bermuda configuration, not URA code"]
-  updated: '2026-11-15 02:13'
+  updated: '2026-11-17 02:32'
   links_added_2026_10_21: "related+WALLPANEL-URA-NOTIFY-1,TABLET-FLEET-1: Same Halo panel fleet; touch/BLE inputs follow the S1b/S2 output work."
   links: {"related": ["WALLPANEL-URA-NOTIFY-1", "TABLET-FLEET-1"], "context": "Same Halo panel fleet; touch/BLE inputs follow the S1b/S2 output work."}
   rerank_2026_10_21: "unscored -> v4 t2 e5: follows Halo S1b/S2; useful presence witness but not urgent"
   rank: {"value": 4, "time_criticality": 2, "effort": 5}
   title: "Wall-panel sensors as URA inputs (touch witness, BLE proxy scanners, ambient noise; temp/lux low value)"
-  status: waiting_operator
+  status: parked
   tier: 2
   thread: "presence"
   created: "2026-10-20 08:30"
@@ -946,7 +948,8 @@ cards:
   panel_sensor_facts_2026_10_20: "HomeLab withdrew the not-presence framing (operator asked). Temp +3.6-3.8F high vs room sensors, varies with brightness/CPU; humidity within 1-3 pts; lux screen-biased; ambient_noise dBFS ~1/min (activity); last_interaction touch; motion/face need camera (off, CPU cost); proximity ~5 cm; each panel is a BLE proxy (Master sees ~88). Ranking by marginal value: BLE proxy as Bermuda scanner > touch witness > noise activity >> temp/lux (rooms already have better sensors)."
   verified_2026_11_14_overnight: "ALREADY-DONE for the APPROVE ask (read-only, core.device_registry + Bermuda config entry): all 7 panel proxies are active Bermuda scanners with rooms already set on their Bluetooth devices (master_bedroom, study_a, study_b, media_room, upstairs_hallway, kitchen, foyer); Bermuda reports 60/63 scanners active and its rssi_offsets already list the panels (Study A +3, Entry Way -3, others 0), so someone tuned them. No settings change needed. SIDE EFFECT FOUND: these same panels are what broke Bermuda's per-scanner distance sensors on 10-20 (their Bluetooth address does not match their Wi-Fi MAC; Bermuda then creates no per-scanner sensors for anyone) - see BERMUDA-DISTANCE-SENSORS-DEAD-1."
   status_change_2026_11_14: 'waiting_operator -> waiting_me: the operator input is no longer needed; what remains is my room-accuracy re-measure.'
-  next: 'DO (optional, when back): one solo walk-in test with your phone, about 10 min each standing in Foyer and in Media Room with no one else in those rooms, and say when -> I read the area sensor against the room sensors for those windows and close the BLE leg. Default if no answer by the next attended session: park this card with that test as the revival trigger (organic single-occupant data in those rooms is too thin to ever settle it).'
+  next: 'Parked. Revive when you do the solo Foyer / Media Room stand test (say when) -> I score the panel BLE area against the room sensors for those windows.'
+  default_taken_2026_11_17_overnight: 'Parked per the stated default: the optional solo walk-in test got no answer through the 11-16 attended session. Revival trigger: you do the ~10 min solo stand in Foyer and in Media Room with your phone and say when; I then read the Bermuda area sensor against the room sensors for those windows and close the BLE leg. Study B finding (96% precision, 38% recall) stays recorded above.'
 - id: PAUSED-ROOM-FLEET-ALERT-1
   title: "Fleet-wide 'rooms paused too long' alert sensor for the wall-panel chip"
   status: "done"
@@ -1226,7 +1229,7 @@ cards:
   verified_2026_10_27: "Still needed. 02:05 CDT: binary_sensor.smoke_sensor_s1_smoke unavailable since 10-26 10:06 (kitchen Heiman re-pair outstanding); kitchen gas sensor reporting (off)."
   verify_2026_10_23: "Overnight re-check 02:01 (HA MCP): binary_sensor.smoke_sensor_s1_smoke still unavailable since the 10-21 18:25 restart. Re-pair still needed. No change."
   verify_2026_10_22: "Overnight re-check 02:0x: still blocked. binary_sensor.smoke_sensor_s1_smoke = unavailable (since the 10-21 18:25 restart), so the house's only smoke detector is still invisible to HA. binary_sensor.gas_zigbee_kitchen_gas = off (reporting). Re-pair is still needed."
-  updated: "2026-11-16 02:04"
+  updated: '2026-11-17 02:32'
   reverified_2026_10_29_overnight: "STILL-REAL 02:01 CDT: binary_sensor.smoke_sensor_s1_smoke (kitchen Heiman) unavailable since 10-26 10:06. Re-pair DO stands."
   recheck_2026_10_26: "Overnight ~02:03 CDT live read: binary_sensor.smoke_sensor_s1_smoke unavailable, lock.doorlock_kwikset_zwave_frontentry unavailable (sensor.node_3_node_status dead), BP1_B distance sensor unavailable; kitchen gas off (ok); Frigate2 running, 47 detection fps, camera_input_dark off. Still waiting on your hands; no change since 10-25."
   links_added_2026_10_21: "related+ELK-M1-HA-USABILITY-1: ELK fire/heat zones are the wired fire-detection path; usable ELK zones partly cover the smoke-detector gap."
@@ -1258,6 +1261,7 @@ cards:
   operator_instruction_2026_11_10: "BPI1_B is now in the living room (board 2026-11-10 21:54 UTC). Applied to BLE-PROXY-PLACEMENT-1, which owns BP1_B."
   recheck_2026_11_11_overnight: "02:03 CST live: binary_sensor.smoke_sensor_s1_smoke still unavailable (since the 11-10 18:40 restart); gas_zigbee_kitchen_gas off (reporting). Your re-pair DO stands (back ~11-16). BP1_B part resolved (see BLE-PROXY-PLACEMENT-1)."
   verified_2026_11_16_overnight: "STILL-REAL (~02:02 CST): binary_sensor.smoke_sensor_s1_smoke unavailable (re-stamped at the 11-15 21:46 boot). The kitchen smoke detector is still invisible to HA. DO stands."
+  recheck_2026_11_17_overnight: '02:05 CST live (HA MCP): binary_sensor.smoke_sensor_s1_smoke still unavailable (last change 11-16 15:33, the restart); gas_zigbee_kitchen_gas off (reporting). Re-pair DO and config APPROVE stand.'
 - id: HVAC-S10-NOTIFY-UNDELIVERED-1
   revisit_trigger: "The first Custom Preset Ranges give-up (thermostat unreachable / range not taking / original not restored). Check notification_log shows it at HIGH with delivered=1 on the companion/lights channels; close done, or reopen with the row."
   disposed_2026_10_22_overnight: "SOAK EXIT: cannot be evaluated in its window, so it is PARKED with a revival trigger. It shipped in v5.103.69; README validation 10-17 listed 'S10 HIGH delivery' as event-gated, proven in-suite only. URA notification_log since the 10-17 13:23 restart has zero hvac-coordinator notifications, so no Custom Preset Ranges give-up event has happened. The card's old 'next' (approve the merge) is obsolete: it shipped."
@@ -34738,10 +34742,10 @@ cards:
   arc_cut_v5_108_17: "separate broken promise awaiting operator pick"
   title: "Anomaly floods: transit.path_implausible 21.5k rows, write_local_witness_divergence 7.6k, crosscheck_divergence 1.7k, circuit_tripped_breaker 4.7k in 90 days"
   thread: diagnostics
-  status: waiting_operator
+  status: in_progress
   batch: broken-promises-2026-11
   created: '2026-11-12 22:30'
-  updated: '2026-11-13 02:04'
+  updated: '2026-11-17 02:24'
   tier: 2
   origin: {date: '2026-11-12', gist: 'Broken-promise sweep (docs/planning/AUDIT_broken_promises_2026_11_12.md); operator: "A lot of our hardening are broken promises from previous work."'}
   why: "Sweep item 8; noise buries real signals and grows the DB (DB-SIZE-GROWTH-1)."
@@ -34752,6 +34756,7 @@ cards:
   problem_solution: "Problem: the house logs about 100 'impossible room move' warnings a day, but they are ordinary moves such as bedroom to its own bathroom. The check calls a move impossible whenever a hallway camera somewhere saw nothing at that moment, even if no camera covers that path. Each false warning also lowers the move's confidence, which can stop music following. Solution: only call a move impossible when a camera actually covers the path; otherwise treat it as 'no camera data' (no penalty, no warning row)."
   links: {"related": ["TRANSIT-1", "EC-CFG-SELFHEAL-FALSE-CRITICAL-1", "DB-SIZE-GROWTH-1"], "context": "TRANSIT-1 built the shared-space checkpoint union this validator uses (the producer being fixed); EC-CFG-SELFHEAL-FALSE-CRITICAL-1 owns the charge_from_grid witness rows folded out of this card; DB-SIZE-GROWTH-1 is the DB-growth consumer of this noise."}
   paged_2026_11_13_overnight: "Paged 2026-11-13 02:09 CST in one consolidated quiet notification (notify.madronehapushover, priority -1, wakes nobody) with the pick."
+  default_taken_2026_11_17_overnight: 'Took default A (offered 11-13 with "if you have not vetoed by the next session I take A"; no veto in the 11-14..11-16 sessions). STILL-REAL and worse: transit.path_implausible rows/day (URA DB anomaly_log) 11-10 87, 11-11 67, 11-12 30, 11-13 97, 11-14 275, 11-15 226, 11-16 233; 352 in the last 24 h, the top anomaly metric. Config-first: no knob found in validate_transition (transit_validator.py:686-692, the 10-min activity test is hard-coded). Building A on fix/anomaly-flood-transit-coverage in a worktree: implausible only when the from or to room has its own shared camera, resolved through the registry. Build to review only; no deploy overnight.'
 - id: ZONE-HAS-HOME-PERSON-UNCALLED-1
   arc_cut_v5_108_17: "separate card in review, unrelated code path"
   title: "zone_has_home_person person-trust backstop is defined with no callers while its docstring claims use"
@@ -34774,7 +34779,7 @@ cards:
   status: waiting_operator
   batch: broken-promises-2026-11
   created: '2026-11-12 22:55'
-  updated: "2026-11-16 02:04"
+  updated: '2026-11-17 02:32'
   tier: 2
   origin: {date: '2026-11-12', gist: 'Operator asked why the gates are off. AUDIT_garage_hallway_lock_and_perimeter_gates_2026_11_12.md.'}
   why: 'Off by design as shadow-first (README v5.107.0, PLANNING_perimeter_fp_build_2026_11.md), but gate_decisions_by_camera {} and zone_map {} live; D5 learning (g5_bullet clears bar); D5 settle 8 s shorter than most camera lag. 2,295 CRITICAL + 1,754 HIGH exterior_person alerts in ~30 days.'
@@ -34782,6 +34787,7 @@ cards:
   measured_2026_11_14_overnight: 'AUDIT_perimeter_fp_gates_disposal_2026_11_14.md (ura-prober, read-only; my independent re-check of the config entry + const.py). CARD-WAS-WRONG on D5: perimeter_single_source_demote is True in the live options, so D5 is ENFORCING, not shadow; it acts only on g5_bullet (agreement 0.66 over 47 samples vs bar 0.6/20); 2 likely demotes on 11-13. D3 has never run: perimeter_zone_sensors is absent from options (perimeter_alert.py ~4455/4871 early return). Shadow counts are ALREADY persisted since v5.108.20 (memory_episodes type perimeter_gate_decision, perimeter_alert.py ~4646/4688-4740): 0 rows so far (writer sits behind the 120 s egress mute) - no new code needed, so the card''s ''persist shadow counts'' step is ALREADY-DONE. Lag (30 d recorder): g5_bullet p50 1.1 s / p90 10.2 s, utilities_ptz p90 20.4 s, pool_equipment 52 s. Settle PERIMETER_SS_SETTLE_S = 8 (const.py:2636) is a real hold before the alert (perimeter_alert.py:4986 _async_hold). Zone coverage gaps: hot_tub, pool_equipment, back_yard, garage_b have no property-zone entity. Volume: 1,983 CRITICAL + 1,682 HIGH exterior_person 10-15..11-14; D5 is not the volume lever, the zone config is.'
   status_change_2026_11_14: 'investigating -> waiting_operator: the D3 step is an operator config entry and the D5 wait trades alert latency against precision (your call).'
   residual_2026_11_16_identity_followup: "Folded from PERIMETER-IDENTITY-FOLLOWUP-1 (closed 11-16): the 'that was <name>' follow-up and the D10.5 known-person demote both need a DUAL-ROLE camera (in both perimeter_cameras and egress_cameras, perimeter_alert.py:592). Live dual_role_cameras = [] (no door camera is a perimeter camera), so D10.5 and the follow-up never run. Operator PICK: A leave as is (door cameras stay egress-only; perimeter pages never come from doors; follow-up stays dormant) or B add one door camera (e.g. camera.madrone_g6_entry) to perimeter_cameras so door pages exist, are demoted for known residents by D10.5, and get the follow-up. B means more pages from the front door. Recommendation: A unless you want front-door person pages."
+  recheck_2026_11_17_overnight: '02:30 CST read of .storage/core.config_entries (Samba mount): perimeter_zone_sensors still absent from every URA entry, so D3 still cannot run. DO + PICK stand; dispose-by date 2026-11-28 unchanged.'
 - id: EGRESS-CONFIG-PATIO-STUDYB-1
   title: The patio sliding door (patio camera, covers 1-5) and the Study B outside door (Reolink porch camera) are real egresses with no egress config; Garage B must be marked detached
   thread: identity
@@ -35041,13 +35047,14 @@ cards:
   arc_cut_v5_108_22: "upstream draft for the operator"
   arc_cut_v5_108_21: "upstream draft for operator"
   title: llmvision keeps running (and billing) a call after the caller's timeout; raise upstream, keep URA's bounded teardown
-  status: inbox
+  status: in_progress
   tier: 1
   batch: person-sightings
   links: {related: [VISION-CROSSING-ANALYSIS-1]}
   origin: {date: '2026-11-13', gist: 'Crossing vision Review B item B1, noted by the fix-up builder.'}
   why: 'Crossing vision fix-up (a10cd299/9407eaef) documented the leak at CROSSING_VISION_TIMEOUT_S and in the IDENTITY manual; the call is now a background task so HA stop does not wait. Upstream issue or PR to llmvision is outward-facing: draft only, operator posts or approves.'
   next: 'Me: draft the upstream issue text with a minimal repro for the operator to post.'
+  drafting_2026_11_17_overnight: 'Draft-only dispatched 02:38 CST: verify from the installed llmvision source whether cancellation propagates, then write docs/planning/DRAFT_llmvision_timeout_leak_upstream_issue.md. Not posted (outward-facing).'
 - id: PERIMETER-GLOBAL-EGRESS-MUTE-1
   arc_cut_v5_108_21: "built and reviewed, ships in batch 2"
   title: One global egress stamp from any door camera mutes ALL perimeter cameras for 120 s, chaining for as long as door cameras keep firing (driveway camera muted ~25 min on 11-14), with no known-resident check
@@ -35189,14 +35196,15 @@ cards:
 - id: HOUSE-AVG-SENSORS-1
   title: "Expose real house-average indoor temperature / humidity sensors (exclude equipment closets and outdoor rooms) and retire the two template helpers"
   thread: dashboard
-  status: inbox
+  status: in_progress
   tier: 1
   created: '2026-11-16 00:20'
-  updated: '2026-11-16 00:20'
+  updated: '2026-11-17 02:40'
   links: {related: [DASH-V8-ANI-WEATHER-TRIAL-1]}
   origin: {date: '2026-11-16', gist: 'Soak-exit residual (AUDIT_soak_exit_sweep_2026_11_16.md).'}
   why: "house_avg_temp is only an attribute (aggregation.py:2063); the v8 weather card reads template helpers sensor.house_indoor_temperature / _humidity."
   next: "Me: add the two sensors, repoint the v8 card, delete the helpers."
+  verify_2026_11_17_overnight: 'STILL-REAL (02:35 CST): no house-average sensor in aggregation.py; house_avg_temp/_humidity exist only as attributes (aggregation.py:2063, :2108, :2150) from getters :1255/:1265. Gate: config-first n/a (no knob); prior art REUSE the two getters; parsimony BUILD (two sensors, filter by existing room classification, no name guessing); cost/benefit small. Building on feat/house-avg-sensors in a worktree to review; the dashboard repoint and helper delete wait for an attended session.'
 - id: ENVOY-UPSTREAM-POST-1
   title: "Post Revision 2 on home-assistant/core#181243 (nightly Envoy drop at ~23:04 CST persists upstream)"
   done_2026_11_16: "Posted 2026-11-16 (operator 'Do both'): https://github.com/home-assistant/core/issues/181243#issuecomment-6909947206 (HA 2026.11.1, pyenphase 4.4.0, D8.3.6087; nightly production.json hang, per-endpoint isolation suggested)."
@@ -35867,16 +35875,17 @@ cards:
   arc_cut_v5_108_18: "folds into step 1a"
   title: While the house reads ARRIVING, exterior-person alerts drop to LOW, so a body-only ARRIVING softens real alerts
   thread: security
-  status: inbox
+  status: investigating
   batch: person-sightings
   created: '2026-11-13 03:00'
-  updated: '2026-11-13 03:00'
+  updated: '2026-11-17 02:40'
   tier: 2
   links: {parent: FACE-ARRIVAL-REBUILD-1, related: [LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1]}
   origin: {date: '2026-11-13', gist: 'Lock-release plan completeness review M6 (const.py:2799); scoped out of the lock-release plan rev 2.'}
   why: 'AUDIT_arriving_on_body_evidence: only 6.4% of AWAY->ARRIVING edges are real arrivals; ARRIVING mostly comes from zone sensors. Alert severity keyed on ARRIVING inherits that noise.'
   next: 'Me: measure how many exterior-person alerts were downgraded under a false ARRIVING; decide severity keying on resident arrival evidence.'
   rank: {value: 5, time_criticality: 3, effort: 2}
+  measuring_2026_11_17_overnight: 'Read-only measurement dispatched 02:38 CST (ura-prober): how many perimeter alerts were lowered to LOW under ARRIVING in 14 days, and how many of those ARRIVING windows had no real resident arrival. Report -> docs/planning/AUDIT_exterior_alert_arriving_downgrade_2026_11_17.md.'
 - id: FRIGATE-DOOR-FACE-TUNING-1
   status_change_2026_11_15: 'waiting_operator -> waiting_me: the next is my hand-off to the homelab session, not an operator action. Homelab commits since 11-12 touch perimeter masks and status panels, none apply the door-face audit, so the hand-off has not landed.'
   title: Door and exterior cameras recognize few faces (garage 36, doorbell 33, entry 16, aerial 7 since 11-05; 9 cameras zero), capping egress identity near 40%
