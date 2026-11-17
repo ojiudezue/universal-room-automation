@@ -1,3 +1,9 @@
+# NOT A BUILD SPEC (archived 2026-11-17)
+
+Superseded by `docs/planning/PLANNING_egress_direction_aware_identity.md` rev 3.2, which re-plans step 7 against the
+measured door-direction accuracy (`AUDIT_door_direction_scoring_2026_11_17.md`). Kept verbatim for its measurements,
+review dispositions and the parked designs rev 3.2 points to. Do not build from this file.
+
 # PLANNING: direction-aware egress identity (arc step 7), rev 3.1
 
 Rev history: rev 3 (7373b3d9) answered plan review 2; **rev 3.1** (2026-11-14) applies plan review 3
