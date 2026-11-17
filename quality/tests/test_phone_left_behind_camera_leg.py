@@ -458,6 +458,9 @@ async def test_validate_transition_golden_unidentified_only(m, monkeypatch):
     async def run(face_on, sightings, transition, concurrent=None, now=t0):
         v = _validator(m, face_on=face_on)
         monkeypatch.setattr(v, "_get_shared_space_cameras", lambda: list(cams))
+        # ANOMALY-FLOOD-ROWS-1: the move is taken as camera-covered here; the
+        # coverage rule itself is tested in test_transit_path_coverage.py.
+        monkeypatch.setattr(v, "_transition_covered_by_shared_camera", lambda _t, _c: True)
         monkeypatch.setattr(m.transit.dt_util, "now", lambda: now)
         v._camera_sightings = {"unidentified": list(sightings)} if sightings else {}
         r = await v.validate_transition(transition, concurrent)
