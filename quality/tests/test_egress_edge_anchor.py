@@ -795,3 +795,233 @@ def test_layer_diagnostics_carry_edge_anchor_counters():
     c = signals.layer_counters(hass)
     assert (c.edge_anchor_named, c.edge_anchor_truncated,
             c.edge_anchor_pair_blocked, c.edge_anchor_error) == (1, 1, 1, 1)
+
+
+# --------------------------------------------------------------------------
+# Fix pass (reviews A/B/C, 2026-11-17)
+# --------------------------------------------------------------------------
+
+
+def _fake_fire_into(monkeypatch, sink):
+    from custom_components.universal_room_automation.domain_coordinators import (
+        _stuck_signal_nm,
+    )
+
+    async def _fake_fire(hass, kind, key, diagnosis="", remedy="", **kw):
+        sink.append(kind)
+        return True
+
+    monkeypatch.setattr(_stuck_signal_nm, "fire_stuck_signal", _fake_fire)
+
+
+async def _covered_window_with_arrivals(db, base, n=3, **attrs_over):
+    await _episode(db, EPISODE, {"outcome": "no_leg", "edge_anchor": None}, base, "o1")
+    for i in range(n):
+        a = {"counted": True, "source_stale": False, "in_boot_window": False}
+        a.update(attrs_over)
+        await _episode(db, "person_arrival", a, base + timedelta(hours=i + 1), f"a{i}")
+    await _flush(db)
+
+
+@pytest.mark.asyncio
+async def test_tripwire_silent_with_lead_zero_when_rows_would_page(rig, monkeypatch):
+    fired: list = []
+    _fake_fire_into(monkeypatch, fired)
+    await _covered_window_with_arrivals(rig.db, NOW - timedelta(days=6))
+    monkeypatch.setattr(ura_const, "EGRESS_ARRIVAL_EDGE_LEAD_S", 0)
+    assert await rig.tracker.async_edge_anchor_tripwire(rig.db) is False
+    monkeypatch.setattr(ura_const, "EGRESS_ARRIVAL_EDGE_LEAD_S", 300)
+    assert await rig.tracker.async_edge_anchor_tripwire(rig.db) is True
+    assert fired == ["egress_edge_anchor_zero"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("over", [
+    {"counted": False}, {"counted": None}, {"in_boot_window": True},
+])
+async def test_tripwire_counted_and_boot_filters(rig, monkeypatch, over):
+    fired: list = []
+    _fake_fire_into(monkeypatch, fired)
+    await _covered_window_with_arrivals(rig.db, NOW - timedelta(days=6), **over)
+    assert await rig.tracker.async_edge_anchor_tripwire(rig.db) is False
+    assert fired == []
+
+
+@pytest.mark.asyncio
+async def test_tripwire_days_window(rig, monkeypatch):
+    """Arrivals 8 days old are outside the 7-day window."""
+    fired: list = []
+    _fake_fire_into(monkeypatch, fired)
+    await _episode(rig.db, EPISODE, {"outcome": "no_leg", "edge_anchor": None},
+                   NOW - timedelta(days=6), "o1")
+    for i in range(3):
+        await _episode(rig.db, "person_arrival", {
+            "counted": True, "source_stale": False, "in_boot_window": False,
+        }, NOW - timedelta(days=8, hours=i), f"old{i}")
+    await _flush(rig.db)
+    assert await rig.tracker.async_edge_anchor_tripwire(rig.db) is False
+    assert fired == []
+
+
+@pytest.mark.asyncio
+async def test_tripwire_window_across_utc_offset(rig, monkeypatch):
+    """Outcome rows carry LOCAL iso. A pre-S1 row 7 d 3 h ago written at UTC-6
+    sorts lexically INSIDE a UTC string bound but is outside the window by
+    time, so it must not hold the wire quiet."""
+    fired: list = []
+    _fake_fire_into(monkeypatch, fired)
+    cst = timezone(timedelta(hours=-6))
+    await _episode(rig.db, EPISODE, {"outcome": "no_leg"},
+                   (NOW - timedelta(days=7, hours=3)).astimezone(cst), "pre")
+    await _episode(rig.db, EPISODE, {"outcome": "no_leg", "edge_anchor": None},
+                   (NOW - timedelta(days=6)).astimezone(cst), "o1")
+    for i in range(3):
+        await _episode(rig.db, "person_arrival", {
+            "counted": True, "source_stale": False, "in_boot_window": False,
+        }, NOW - timedelta(days=5, hours=i), f"a{i}")
+    await _flush(rig.db)
+    assert await rig.tracker.async_edge_anchor_tripwire(rig.db) is True
+    assert fired == ["egress_edge_anchor_zero"]
+
+
+@pytest.mark.asyncio
+async def test_presence_layer_diagnostics_edge_anchor_keys(rig, monkeypatch):
+    from custom_components.universal_room_automation.domain_coordinators import (
+        presence as presence_mod,
+    )
+
+    PresenceCoordinator = presence_mod.PresenceCoordinator
+    # Sibling files can swap the signals module in sys.modules after presence
+    # bound it; read the counters through the module the tracker writes to
+    # (scoped, restored by monkeypatch).
+    monkeypatch.setattr(presence_mod, "_layer_signals", tv._layer_signals())
+
+    _pairs(rig, "jaya|ezinne")
+    _face(rig, "jaya", NOW)
+    rig.presence.add("person.jaya", NOW - timedelta(seconds=120))
+    await _cross(rig, FRONT, at=NOW, direction="exit")  # named
+    t2 = NOW + timedelta(minutes=30)
+    _face(rig, "jaya", t2)
+    rig.presence.add("person.jaya", t2 - timedelta(seconds=100))
+    rig.presence.add("person.ezinne", t2 - timedelta(seconds=90))
+    await _cross(rig, FRONT, at=t2, direction="exit")  # pair blocked
+    shell = SimpleNamespace(hass=rig.hass, _egress_tracker=lambda: None)
+    d = PresenceCoordinator.get_layer_diagnostics(shell)
+    assert d["edge_anchor_named"] == 1
+    assert d["edge_anchor_pair_blocked"] == 1
+    assert d["edge_anchor_truncated"] == 0
+    assert d["edge_anchor_error"] == 0
+
+
+def _presence_options_flow(options):
+    import importlib
+
+    cf = importlib.import_module("custom_components.universal_room_automation.config_flow")
+    flow = cf.UniversalRoomAutomationOptionsFlow.__new__(cf.UniversalRoomAutomationOptionsFlow)
+    flow._config_entry = SimpleNamespace(
+        entry_id="cm",
+        data={ura_const.CONF_ENTRY_TYPE: ura_const.ENTRY_TYPE_COORDINATOR_MANAGER},
+        options=dict(options),
+    )
+    flow.hass = MagicMock()
+    flow.hass.data = {}
+    return flow
+
+
+def _field_default(result, key):
+    for k in result["data_schema"].schema:
+        if str(getattr(k, "schema", k)) == key:
+            return k.default() if callable(k.default) else k.default
+    raise AssertionError(f"{key} not on the form")
+
+
+@pytest.mark.asyncio
+async def test_confusable_pairs_options_round_trip():
+    key = ura_const.CONF_EGRESS_CONFUSABLE_PAIRS
+    flow = _presence_options_flow({})
+    assert _field_default(await flow.async_step_coordinator_presence(None), key) == ""
+    saved: dict = {}
+    flow.async_create_entry = lambda title, data: saved.update(data) or data
+    await flow.async_step_coordinator_presence({key: "jaya|ezinne, jaya|oji"})
+    assert saved[key] == "jaya|ezinne, jaya|oji"
+    flow2 = _presence_options_flow(saved)
+    got = _field_default(await flow2.async_step_coordinator_presence(None), key)
+    assert got == "jaya|ezinne, jaya|oji"
+
+
+@pytest.mark.asyncio
+async def test_confusable_pairs_save_does_not_reload_cm(monkeypatch):
+    import importlib
+
+    name = "custom_components.universal_room_automation"
+    mod = sys.modules.get(name)
+    if mod is None or not hasattr(mod, "_async_update_listener"):
+        monkeypatch.delitem(sys.modules, name, raising=False)
+        mod = importlib.import_module(name)
+    created: list = []
+    reloads: list = []
+
+    async def _reload(entry_id):
+        reloads.append(entry_id)
+        return True
+
+    def _create(coro, *a, **k):
+        created.append(coro)
+        coro.close()
+
+    cm = SimpleNamespace(
+        entry_id="cm1", title="cm1",
+        data={ura_const.CONF_ENTRY_TYPE: ura_const.ENTRY_TYPE_COORDINATOR_MANAGER},
+        options={},
+    )
+    hass = SimpleNamespace(
+        data={ura_const.DOMAIN: {"cm_last_applied_options": {"cm1": {}}}},
+        config_entries=SimpleNamespace(
+            async_entries=lambda d=None: [cm], async_reload=_reload),
+        async_create_task=_create,
+        async_create_background_task=_create,
+    )
+    cm.options = {ura_const.CONF_EGRESS_CONFUSABLE_PAIRS: "jaya|ezinne"}
+    await mod._async_update_listener(hass, cm)
+    assert created == [] and reloads == []
+    assert hass.data[ura_const.DOMAIN]["cm_last_applied_options"]["cm1"] == {
+        ura_const.CONF_EGRESS_CONFUSABLE_PAIRS: "jaya|ezinne"}
+
+
+def test_parse_pairs_skips_unresolvable_and_ambiguous(rig, caplog):
+    got = rig.tracker._parse_confusable_pairs("jaya|nobody, jaya|ezinne", rig.census)
+    assert got == [("jaya", "ezinne")]
+    assert "'nobody' is not one tracked person" in caplog.text
+    rig.census.canonical_person_slug = lambda s: "" if s == "oj" else s
+    assert rig.tracker._parse_confusable_pairs("oj|jaya", rig.census) == []
+
+
+@pytest.mark.asyncio
+async def test_anchor_text_only_bus_record_keep_resolver_person_id(rig, monkeypatch):
+    """Resolver person_id in a different form from the anchor slug: bus,
+    record, DB and census keep the resolver's value verbatim; only the title
+    uses the anchor (no `person_id = slug` override reaches any record)."""
+    real = rig.tracker._resolve_egress_face_identity_ex
+
+    def _ex(cam, ts, direction):
+        _pid, conf, agree, res = real(cam, ts, direction)
+        return ("Jaya-Display", conf, agree, res)
+
+    monkeypatch.setattr(rig.tracker, "_resolve_egress_face_identity_ex", _ex)
+    _face(rig, "jaya", NOW)
+    rig.presence.add("person.jaya", NOW - timedelta(seconds=120))
+    await _cross(rig, FRONT, at=NOW, direction="exit")
+    assert rig.fired[-1][1]["person_id"] == "Jaya-Display"
+    assert rig.tracker.get_last_crossing().person_id == "Jaya-Display"
+    assert rig.db_rows[-1]["person_id"] == "Jaya-Display"
+    assert rig.census_calls[-1] == ("evict", "Jaya-Display")
+    assert _titles(rig) == ["Jaya arrived"]
+
+
+@pytest.mark.asyncio
+async def test_newest_own_edge_sets_lead(rig):
+    _face(rig, "jaya", NOW)
+    rig.presence.add("person.jaya", NOW - timedelta(seconds=250))
+    rig.presence.add("person.jaya", NOW - timedelta(seconds=40))
+    await _cross(rig, FRONT, at=NOW, direction="exit")
+    assert _rows(rig.db)[-1]["edge_anchor"] == {"slug": "jaya", "lead_s": 40.0}

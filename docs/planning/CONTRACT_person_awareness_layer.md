@@ -142,7 +142,8 @@ in the window means no anchor). The record gets `identity_role="arrival_edge_anc
 `nameable=((S, EGRESS_ARRIVAL_EDGE_CONFIDENCE),)`; the anchor's own provenance `face+residency` lives only in the anchor
 local and the D8a `edge_anchor` key (it is not added to `IDENTITY_PROVENANCE_VALUES`). Only `_arrival_departure_notify`
 acts on it ("<S> arrived" whatever the tracker direction). Bus / DB / census / record `person_id`,
-`identity_confidence`, `provenance` and `direction` are unchanged.
+`identity_confidence`, `provenance` and `direction` are unchanged. Layer guard: +2 sanctioned rows (R8
+`EGRESS_ARRIVAL_EDGE_CONFIDENCE`, R2 the nightly trip-wire delegate in `database.py`), public-surface reads, not leaks.
 
 ### 2.4 F4 — P seen at X at T (camera sighting, BLE room, unnamed body sighting)
 

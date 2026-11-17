@@ -3041,8 +3041,10 @@ class EgressDirectionTracker:
         one person-id rule (``slug_of``) and then the face first-name mapper
         (``census.canonical_person_slug``: ``oji`` -> ``oji_udezue``), the
         namespace face slugs live in. A malformed entry is ignored and logged
-        once; a name that is not a tracked person is kept as written and
-        logged once (fail closed: that person's edges still block)."""
+        once. A name that does not resolve to exactly one tracked person (not
+        tracked, or an ambiguous first name) is SKIPPED: its pair is dropped
+        and a warning is logged once (review A: a typed ``person.<name>`` with
+        no edges would never block anyway)."""
         warned = self.__dict__.setdefault("_confusable_warned", set())
         try:
             tracked = set(census.tracked_person_slugs()) if census is not None else set()
@@ -3062,10 +3064,10 @@ class EgressDirectionTracker:
             if ("unknown", token) not in warned:
                 warned.add(("unknown", token))
                 _LOGGER.warning(
-                    "Faces often confused: %r is not a tracked person; kept as %r",
-                    token, s,
+                    "Faces often confused: %r is not one tracked person; "
+                    "pair skipped", token,
                 )
-            return s
+            return ""
 
         pairs: list[tuple[str, str]] = []
         for item in raw.replace(";", ",").replace("\n", ",").split(","):
@@ -3132,6 +3134,10 @@ class EgressDirectionTracker:
                 tracked_person_entity_id(p)
                 for p in self._confusable_partners(slug, census)
             }
+            # Review B LOW (documented, not countable here): the presence
+            # delegate swallows its own ledger errors and returns (), which
+            # reads as "no own edge" -> no anchor (fails closed to today's
+            # text). Only an exception that escapes it counts edge_anchor_error.
             edges = presence.get_person_edges_since(
                 lo, persons={own} | partners, kinds={"arrival"},
             )
@@ -3175,15 +3181,39 @@ class EgressDirectionTracker:
             if database is None or not hasattr(database, "read_memory_episodes_by_type"):
                 return False
             days = float(_ura_const.EGRESS_ARRIVAL_EDGE_TRIPWIRE_DAYS)
-            since = (dt_util.utcnow() - timedelta(days=days)).isoformat()
-            outcomes = await database.read_memory_episodes_by_type(
-                EGRESS_OUTCOME_EPISODE_TYPE, since) or []
-            if not outcomes or "edge_anchor" not in (outcomes[0].get("attrs") or {}):
+            now = dt_util.utcnow()
+            if getattr(now, "tzinfo", None) is None:
+                now = now.replace(tzinfo=dt_util.UTC)
+            cutoff = now - timedelta(days=days)
+            # Review B: outcome rows store LOCAL iso (`dt_util.now()`), arrival
+            # rows UTC iso, so a string bound is off by the UTC offset. Pull
+            # one extra day by string, then keep rows by their parsed time.
+            loose = (cutoff - timedelta(days=1)).isoformat()
+
+            def _in_window(rows):
+                out = []
+                for r in rows or []:
+                    try:
+                        ts = datetime.fromisoformat(str(r.get("started_at")))
+                    except (TypeError, ValueError):
+                        continue
+                    if ts.tzinfo is None:
+                        ts = ts.replace(tzinfo=dt_util.UTC)
+                    if ts >= cutoff:
+                        out.append((ts, r.get("attrs") or {}))
+                return sorted(out, key=lambda x: x[0])
+
+            outcomes = _in_window(await database.read_memory_episodes_by_type(
+                EGRESS_OUTCOME_EPISODE_TYPE, loose))
+            if not outcomes or "edge_anchor" not in outcomes[0][1]:
                 return False
-            if any((r.get("attrs") or {}).get("edge_anchor") for r in outcomes):
+            if any(a.get("edge_anchor") for _ts, a in outcomes):
                 return False
-            arrivals = await database.read_memory_episodes_by_type(
-                _ura_const.RESIDENCY_ARRIVAL_EPISODE_TYPE, since) or []
+            arrivals = [
+                {"attrs": a} for _ts, a in _in_window(
+                    await database.read_memory_episodes_by_type(
+                        _ura_const.RESIDENCY_ARRIVAL_EPISODE_TYPE, loose))
+            ]
             n = 0
             for r in arrivals:
                 a = r.get("attrs") or {}

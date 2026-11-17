@@ -254,6 +254,9 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     "garage_lockout_arrival_hold_s",
     # VISION-CROSSING-SHADOW-1 D3: live Number knob (daily call cap) -> 122.
     "crossing_vision_daily_calls",
+    # EGRESS-DIRECTION-AWARE-IDENTITY-1 step 7 S1: "Faces often confused",
+    # read fresh per crossing -> +1.
+    "egress_confusable_pairs",
     # VISION-INTERIOR-SIGHTINGS-1 ship 2: two live cap Numbers and the
     # describe-access Select, read live from hass.data -> +3.
     "interior_vision_daily_calls",
@@ -442,7 +445,8 @@ def test_options_reload_suppress_keys_count_matches_part2_scope():
     # -1 mf_high_confidence_distance (distance gate dropped 2026-11-14) -> 133
     # +1 PERSON-PROFILE-PREFERENCES-1 step 8 §10.1 person_profiles -> 134
     # +3 VISION-INTERIOR-SIGHTINGS-1 ship 2 interior caps + describe access -> 137
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 137
+    # +1 EGRESS-DIRECTION-AWARE-IDENTITY-1 step 7 S1 egress_confusable_pairs -> 138
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 138
 
 
 # ---------------------------------------------------------------------------
