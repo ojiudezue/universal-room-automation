@@ -3692,3 +3692,84 @@ async def test_mf_device_less_ma_player_is_addressed_directly(rig):
     set_area(rig, "Loft")
     assert await move(rig, "Kitchen", "Loft") == "success"
     assert rig.mf._last_decision["path"] == "ma"
+
+
+# ===========================================================================
+# Live-input sources (TV / line-in) are not transferable (audit 2026-11-17)
+# ===========================================================================
+
+HT_URI = "x-sonos-htastream:RINCON_804AF277BE0D01400:spdif"
+
+
+def _side_effects(rig):
+    return [c for c in rig.world.calls
+            if c[0] == "music_assistant"
+            or (c[0] == "media_player" and c[1] in ("play_media", "volume_set", "join"))]
+
+
+def _set_source_attr(rig, name, value):
+    for e in rig.world.speakers[name].entities:
+        st = rig.hass.states.get(e)
+        rig.hass.states.async_set(e, st.state, {**st.attributes, "source": value})
+
+
+@pytest.mark.asyncio
+async def test_mf_tv_audio_source_skipped_no_duck_no_play_media(rig):
+    """HT stream on the source (MA path otherwise): skipped before any call."""
+    rig.world.play("kitchen", content=HT_URI)
+    set_area(rig, "Study A")
+    assert await move(rig, "Kitchen", "Study A") == "source_not_transferable"
+    assert rig.mf._last_decision["reason"] == "content=x-sonos-htastream:"
+    assert _side_effects(rig) == []
+    assert rig.world.volume("kitchen") == 0.5
+    assert rig.world.state("kitchen") == "playing"
+    assert rig.world.state("study_a") == "idle"
+
+
+@pytest.mark.asyncio
+async def test_mf_tv_audio_generic_path_skipped(rig):
+    """MA twin idle (generic path, the 11-16 shape): still skipped."""
+    rig.world.play("kitchen", content=HT_URI)
+    rig.hass.states.async_set("media_player.kitchen_5", "idle",
+                              {"supported_features": GP})
+    set_area(rig, "Study A")
+    assert await move(rig, "Kitchen", "Study A") == "source_not_transferable"
+    assert _side_effects(rig) == []
+    assert rig.world.volume("kitchen") == 0.5
+
+
+@pytest.mark.asyncio
+async def test_mf_line_in_source_attribute_skipped(rig):
+    rig.world.play("kitchen", content="x-rincon-unrelated:1")
+    _set_source_attr(rig, "kitchen", "Line-in")
+    set_area(rig, "Study A")
+    assert await move(rig, "Kitchen", "Study A") == "source_not_transferable"
+    assert rig.mf._last_decision["reason"] == "input=Line-in"
+    assert _side_effects(rig) == []
+
+
+@pytest.mark.asyncio
+async def test_mf_rincon_stream_prefix_skipped(rig):
+    rig.world.play("kitchen", content="x-rincon-stream:RINCON_1")
+    set_area(rig, "Study A")
+    assert await move(rig, "Kitchen", "Study A") == "source_not_transferable"
+    assert rig.mf._last_decision["reason"] == "content=x-rincon-stream:"
+
+
+@pytest.mark.asyncio
+async def test_mf_music_source_still_transfers(rig):
+    """Spotify content with a non-input source name: unchanged path."""
+    rig.world.play("kitchen", content="spotify:track:1")
+    _set_source_attr(rig, "kitchen", "Spotify")
+    set_area(rig, "Study A")
+    assert await move(rig, "Kitchen", "Study A") == "success"
+    assert rig.world.state("study_a") == "playing"
+
+
+@pytest.mark.asyncio
+async def test_mf_not_transferable_is_counted_as_skip(rig):
+    rig.world.play("kitchen", content=HT_URI)
+    set_area(rig, "Study A")
+    await move(rig, "Kitchen", "Study A")
+    assert "source_not_transferable" in rig.mods.mf.MF_SKIP_OUTCOMES
+    assert rig.mf.get_diagnostic_data()["outcomes_today"]["source_not_transferable"] == 1
