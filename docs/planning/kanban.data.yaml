@@ -34898,6 +34898,7 @@ cards:
   next: 'Me: builder wiring load-at-setup + fallback + D4 + D5 with a wire-in test; two reviews; ship.'
   rank: {value: 8, time_criticality: 7, effort: 3}
 - id: VISION-CROSSING-ANALYSIS-1
+  residual_2026_11_17_ledger_restart_reset: "AUDIT_crossing_ledger_reason_unknown_2026_11_17.md: all 77 ledger term rows in 7 days applied=false reason=unknown because the ledger state is RAM-only and resets to boot/unknown on every HA restart; only the 900 s empty-house anchor makes it known (1 anchor in 3.5 days, 11-17 08:42, erased by the 08:50 v5.108.35 restart). Known ~34 min in 3.5 days with ~13 restarts. Blocks the interior ledger floor (row 7) and any ledger promotion. Measuring anchor opportunity + restart-gap safety (AUDIT_crossing_ledger_restart_known_time_2026_11_17.md) before proposing a restore-across-restart rule."
   arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
   arc_cut_v5_108_32: "crossing vision track (arc map row 6), not interior describe"
   arc_cut_v5_108_25: "parent, Phase 2 open"
