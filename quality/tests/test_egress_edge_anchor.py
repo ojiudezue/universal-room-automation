@@ -43,7 +43,12 @@ from custom_components.universal_room_automation.transit_validator import (
 )
 
 UTC = timezone.utc
-NOW = datetime(2026, 11, 12, 18, 0, 0, tzinfo=UTC)
+# Knobs are patched on the const module the tracker READS (bound when
+# transit_validator was first imported). Many sibling files pop and re-import
+# `...const` from sys.modules at import time, so this file's `ura_const` can be
+# a newer object than the tracker's; patching it would not reach production.
+_TV_CONST = tv._ura_const
+NOW =datetime(2026, 11, 12, 18, 0, 0, tzinfo=UTC)
 FRONT = "binary_sensor.front_door_person_occupancy"
 GARAGE = "binary_sensor.garage_a_person_occupancy"
 FOYER = "binary_sensor.foyer_person_occupancy"
@@ -542,7 +547,7 @@ async def test_synthetic_only_face_never_anchors(rig):
 @pytest.mark.asyncio
 async def test_min_tier_knob_gates(rig, monkeypatch):
     """MIN_TIER raised to 0.75: a single 0.6 face leg no longer anchors."""
-    monkeypatch.setattr(ura_const, "EGRESS_ARRIVAL_EDGE_MIN_TIER", 0.75)
+    monkeypatch.setattr(_TV_CONST, "EGRESS_ARRIVAL_EDGE_MIN_TIER", 0.75)
     _face(rig, "jaya", NOW)
     rig.presence.add("person.jaya", NOW - timedelta(seconds=120))
     await _cross(rig, FRONT, at=NOW, direction="exit")
@@ -573,7 +578,7 @@ async def test_other_persons_edge_never_anchors(rig):
 @pytest.mark.asyncio
 async def test_anchor_never_reaches_bus_db_census(rig, monkeypatch):
     async def run(lead, at):
-        monkeypatch.setattr(ura_const, "EGRESS_ARRIVAL_EDGE_LEAD_S", lead)
+        monkeypatch.setattr(_TV_CONST, "EGRESS_ARRIVAL_EDGE_LEAD_S", lead)
         rig.legs.clear()
         _face(rig, "jaya", at)
         rig.presence.add("person.jaya", at - timedelta(seconds=120))
@@ -630,7 +635,7 @@ GOLDEN = {
 
 @pytest.mark.asyncio
 async def test_lead_zero_noop_golden(rig, monkeypatch):
-    monkeypatch.setattr(ura_const, "EGRESS_ARRIVAL_EDGE_LEAD_S", 0)
+    monkeypatch.setattr(_TV_CONST, "EGRESS_ARRIVAL_EDGE_LEAD_S", 0)
     at = NOW
     legs_for = {
         None: [],
@@ -778,7 +783,7 @@ async def test_tripwire_quiet_before_s1_rows_cover_window(rig, monkeypatch):
         }, base + timedelta(hours=i + 1), f"a{i}")
     await _flush(rig.db)
     assert await rig.tracker.async_edge_anchor_tripwire(rig.db) is False
-    monkeypatch.setattr(ura_const, "EGRESS_ARRIVAL_EDGE_LEAD_S", 0)
+    monkeypatch.setattr(_TV_CONST, "EGRESS_ARRIVAL_EDGE_LEAD_S", 0)
     assert await rig.tracker.async_edge_anchor_tripwire(rig.db) is False
     assert fired == []
 
@@ -828,9 +833,9 @@ async def test_tripwire_silent_with_lead_zero_when_rows_would_page(rig, monkeypa
     fired: list = []
     _fake_fire_into(monkeypatch, fired)
     await _covered_window_with_arrivals(rig.db, NOW - timedelta(days=6))
-    monkeypatch.setattr(ura_const, "EGRESS_ARRIVAL_EDGE_LEAD_S", 0)
+    monkeypatch.setattr(_TV_CONST, "EGRESS_ARRIVAL_EDGE_LEAD_S", 0)
     assert await rig.tracker.async_edge_anchor_tripwire(rig.db) is False
-    monkeypatch.setattr(ura_const, "EGRESS_ARRIVAL_EDGE_LEAD_S", 300)
+    monkeypatch.setattr(_TV_CONST, "EGRESS_ARRIVAL_EDGE_LEAD_S", 300)
     assert await rig.tracker.async_edge_anchor_tripwire(rig.db) is True
     assert fired == ["egress_edge_anchor_zero"]
 
