@@ -16,7 +16,7 @@ no kanban edit (the orchestrator mints the cards). Code read: `develop` @ 056c69
 - **Effort, full close:** about **16-17 builder-days** across **6 builds** (two Tier 3, two Tier 2-DB, two Tier 1-2).
   **Calendar at current pace:** the arc ships first (§4a); interleaving one cleanup build per arc ship that leaves a
   builder slot free, about **3 weeks**.
-- **Recommended (marginal benefit, §6): about 9 builder-days, 4 builds, about 1.5-2 weeks.** It closes everything with a
+- **Recommended (marginal benefit, §6): about 10 builder-days, 4 builds, about 2 weeks.** It closes everything with a
   live risk or a behaviour value (the security geofence arrival listener, the one BLE-in-room read with the
   phone-left-behind filter, the boot seed, the fail-open identity vetoes, the 13 cross-coordinator private reads). It
   parks the two Tier-3 rewrites of code that is correct today (lock edge ledger, presence inference snapshot) with
@@ -293,4 +293,4 @@ plus framing G; L1 one plus G; L4, L5 card `next` is the plan.
 | L3 presence house-state inputs | 3 | 1 | 3 (H1: 1) | H1 only |
 | L4 person ids + internals | 2 | 1 | 1.5 | yes |
 | L5 presence diagnostic internals | 1-2 | 1 | 2.5 (5a: 0.5) | 5a only (+ 5b ruling) |
-| **Total** | | **6** | **~17** | **4 builds, ~9 days** |
+| **Total** | | **6** | **~17** | **4 builds, ~10 days** |
