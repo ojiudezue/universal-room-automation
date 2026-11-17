@@ -970,6 +970,14 @@ class CrossingRecord:
     pair_state: str | None = None
     pair_partner: str | None = None
     identity_synthetic_corroborated: bool = False
+    # Crossing vision P3-D3 (contract §2.3 vision attributes): written only
+    # through G3 by ``CrossingVisionShadow._amend_vision_direction``. Display
+    # / scorer only: no reader may act on them (INV-DIR-GATE); the tracker's
+    # ``direction`` above is never rewritten from them (INV-F3-OWNER).
+    vision_direction: str | None = None
+    vision_people_count: int | None = None
+    direction_agreement: str | None = None
+    vision_direction_confidence: str | None = None
 
 
 # G3 (ship 3a D3, step 7 §6.4): fields an amend may never change, and the
@@ -980,6 +988,9 @@ _CROSSING_FORBIDDEN_KEYS: frozenset[str] = frozenset({
 _CROSSING_AMENDABLE_KEYS: frozenset[str] = frozenset({
     "person_id", "provenance", "identity_confidence", "identity_role",
     "nameable", "pair_state", "pair_partner", "identity_synthetic_corroborated",
+    # P3-D3 vision attributes (G3 role "vision_direction").
+    "vision_direction", "vision_people_count", "direction_agreement",
+    "vision_direction_confidence",
 })
 
 

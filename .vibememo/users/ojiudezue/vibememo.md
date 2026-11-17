@@ -85,3 +85,9 @@ One correction: the merge meant to bring in the boot-settle fix had merged maste
 The 11-17 overnight pass took the default it had offered on the false 'impossible room move' flood (about 230 a day since 11-14): flag a move only when a camera covers that room, built to review and held for an attended deploy. → [333](entries/333_overnight_takes_default_a_on_transit_flood.json)
 
 One counseling note from the same pass: feed and card times were typed from a felt sense of elapsed work and ran up to 48 minutes ahead of the real clock. They were rewritten; edit scripts now read the clock themselves. → [334](entries/334_overnight_timestamps_must_come_from_date.json)
+
+
+**2026-11-17, door direction scored.** On the operator's 27 grades no direction instrument passes: the tracker is 10/19 and biased (every miss reads an entry as an exit), and the one strong variant was tuned on the same clips. So the count path ships (P3-D2) and vision direction is recorded, not trusted (P3-D3), until per-door reps clear the P3-D6 bar; the front door needs exits graded. Same day, music following stopped following TV audio after all 7 handoffs failed on a Sonos TV stream → [336](users/ojiudezue/entries/336_door_direction_scoring_no_instrument_passes.json).
+
+
+**2026-11-17, only proven code supersedes correct code.** The operator ruled that hardened Tier-3 code is not rebuilt and other rewrites need a measured defect and a proven replacement. Re-measured, the layer cleanup's leaks were correct code (the 'HIGH' security leak never fired while armed), so 4 builds became 1 (fail-open identity vetoes, a portability bug). The layer's value was already banked: every feature since 11-14 builds on it → [337](users/ojiudezue/entries/337_only_proven_code_supersedes_correct_code.json).

@@ -94,8 +94,10 @@ ERROR/CRITICAL in the system log; all 50 URA entries `loaded`.
 | Boot | PASS | `tick_errors` 0, `records` 7 (all live), `rehydrate` `ok`, `describe_requests` 0 |
 | Budget rehydrate | PASS (trivial) | `calls_today` 0, `cost_today_est` 0.0; 0 `interior_description` rows in `memory_episodes`, consistent |
 | Knobs | PASS | `select.ura_interior_describe_access` = `operator`; `switch.ura_interior_vision` on; `number.ura_interior_vision_daily_calls` 60; `number.ura_interior_vision_daily_cost_usd` 0.5 |
-| 1, 2, 7 | Pending event | Needs an operator `describe` text and a non-operator one |
-| 3 | Partial PASS | `groups_dewarp_capable` = `["Foyer","Living Room"]`: Living Room's camera also reports a 360 lens, so its stills are dewarped too (not stated above; check its views with the Foyer). `dewarped_calls` pending a describe. `groups_excluded_by_reason` `{no_still_source: 1}` |
+| 1 | PASS (2026-11-17, on v5.108.34) | Operator `describe living room` 08:44 CST got "Living Room: 0 people. The living room and adjoining kitchen are empty, with furniture in place." (operator screenshot; house state away). The first attempt, `describe family room` 07:57, was refused because describe matched only the URA room name; fixed in v5.108.35 (area name / alias). `memory_episodes` row not read (Samba mount down at write-back) |
+| 7 | PASS | That reply carries no affect wording |
+| 2 | Pending event | Needs a non-operator describe |
+| 3 | Partial PASS | `groups_dewarp_capable` = `["Foyer","Living Room"]`: Living Room's camera also reports a 360 lens, so its stills are dewarped too (not stated above; check its views with the Foyer). `dewarped_calls` pending a counters read after the 08:44 Living Room describe (Living Room is dewarp-capable). `groups_excluded_by_reason` `{no_still_source: 1}` |
 | 4 | PASS | `interior_stage/` never created; `/media/llmvision/snapshots` empty, last mtime before the restart |
 | 5 | PASS | 0 <= 60 |
 | 6 | PASS at baseline | `sensor.ura_census_guests_around` 0, `sensor.ura_interior_awareness` 0; recheck after a describe |

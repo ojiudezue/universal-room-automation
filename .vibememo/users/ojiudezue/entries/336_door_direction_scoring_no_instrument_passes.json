@@ -1,0 +1,30 @@
+{
+  "format_version": "2.1",
+  "entry_id": "336",
+  "author": "ojiudezue",
+  "timestamp": "2026-11-17T14:53:47Z",
+  "type": "decision",
+  "weight": "significant",
+  "title": "Door direction scoring: no instrument passes; build the count route and record-only vision direction",
+  "summary": "Arc row 6 scored every door-direction instrument once on the operator's 27 grades (19 directional). No instrument clears the plan's direction bar. P3-D2 (crossing-centred frames, 8 frames) passes its own gate and is being built; P3-D3 (watch every crossing incl. ambiguous) is built record-only behind INV-DIR-GATE; the approach-clip LLM montage (P3-D0e R-c) is NO-GO at 13/15; P3-D11's direction part fails the P3-D6 bar.",
+  "why": "The production tracker was 10/19 with all 9 misses entry-called-exit, a one-sided bias; the best deterministic variant (I4 interior timing, 17/19) was picked from ~6 variants on the same clips with no holdout and beats always-'in' (15/19) by only 2, so promoting it would be fitting noise. Vision counts are already good (16/17 exact) and the recording route passed its gate, so the count path ships now while direction keeps accumulating graded reps (operator 11-15: 'build and hold off and measure. We need reps').",
+  "alternatives_considered": [
+    "Promote I4 interior timing into the tracker now (rejected: no holdout, margin of 2 over the trivial baseline)",
+    "Build P3-D10 approach clips on R-c (rejected: 87% vs 88% bar, only 4 'out' grades, stability n=14 < 20)",
+    "Park direction work until more grades (rejected: P3-D3 recording is what produces the reps)"
+  ],
+  "implications": "Direction stays the tracker's (biased) call for every reader until P3-D6 shows a Wilson lower bound >= 0.90 on >= 30 scored crossings per door; the front door has 1 'out' grade, so the grading run must deliberately collect exits. Arrival naming (step 7) inherits the entry->exit bias until then.",
+  "confidence": "medium",
+  "revisit_trigger": "30+ graded crossings per door including >= 8 exits, or R-a/R-b approach routes pass before the clips expire 2026-11-19",
+  "refs": {
+    "docs": [
+      "docs/planning/AUDIT_door_direction_scoring_2026_11_17.md",
+      "docs/planning/AUDIT_crossing_vision_p3_d0e_approach_2026_11_17.md",
+      "docs/planning/PLANNING_crossing_vision.md"
+    ],
+    "cards": [
+      "VISION-AMBIGUOUS-CROSSINGS-1",
+      "EGRESS-TRACKER-DIRECTION-1"
+    ]
+  }
+}

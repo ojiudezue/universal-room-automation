@@ -34820,6 +34820,7 @@ cards:
   DONE_2026-11-13: 'Operator: "Do it now... Monitor". Applied 00:13 CST via options flow camera_census: only egress_cameras, perimeter_cameras, door_groups changed (diff vs backup). 20 min watch: house stayed sleep throughout, URA unavailable entities 5 -> 3 (fewer), no lock/alarm/cover/climate logbook changes.'
   next: 'None. Patio/Study B not added (operator ~99% garage+front); revisit only if weekly labels show patio crossings matter.'
 - id: EGRESS-OUTCOME-WEEKLY-LABEL-1
+  arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
   arc_cut_v5_108_32: "person-sightings batch, separate surface from interior describe"
   arc_cut_v5_108_25: "operator labelling, recurring"
   status_change_2026_11_15: 'waiting_me -> waiting_operator: next opens with ANSWER (phones carried by Jaya / Ojini / Ziri on 11-11); the ball is with the operator.'
@@ -34859,6 +34860,7 @@ cards:
   next: 'Me: build as plan D7 after rev-8 fixes; resolve names via CameraResolver; measure hop lags; diff learned vs operator map.'
   rank: {value: 8, time_criticality: 5, effort: 5}
 - id: EGRESS-DIRECTION-AWARE-IDENTITY-1
+  arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
   arc_cut_v5_108_32: "person-sightings batch, separate surface from interior describe"
   arc_cut_v5_108_25: "arc step 7, plan rev 3.1"
   arc_cut_v5_108_24: "step 7, builds on 3a (unblocked by this ship)"
@@ -34896,6 +34898,7 @@ cards:
   next: 'Me: builder wiring load-at-setup + fallback + D4 + D5 with a wire-in test; two reviews; ship.'
   rank: {value: 8, time_criticality: 7, effort: 3}
 - id: VISION-CROSSING-ANALYSIS-1
+  arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
   arc_cut_v5_108_32: "crossing vision track (arc map row 6), not interior describe"
   arc_cut_v5_108_25: "parent, Phase 2 open"
   arc_cut_v5_108_24: "census-p2 shipped v5.108.23, later phases follow"
@@ -34970,6 +34973,7 @@ cards:
   revival_trigger: 'Either: (a) the crossing ledger misses its drift bars in PLANNING_census_deconfliction.md (bar a: residue 0 on < 80% of >= 10 empty anchors, or any |residue| > 1; bar a2: reconcile share of resident departures > 20%) over the 7-day window, and the misses trace to unattributed crossings; or (b) the house-state rung of the promotion ladder is reached and needs a count written into total_persons. Check at every crossing-vision ship and at the bar disposition (P2-D6).'
   next: 'Parked. Revisit at the bar disposition; stays linked to VISION-CROSSING-ANALYSIS-1 after the plan ships so the arc-close gate keeps seeing it.'
 - id: REGISTRY-NOT-NAMES-1
+  arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
   arc_cut_v5_108_32: "person-sightings batch, separate surface from interior describe"
   arc_cut_v5_108_25: "house-wide sweep in progress"
   arc_cut_v5_108_24: "house-wide sweep, investigating"
@@ -34990,6 +34994,7 @@ cards:
   rank: {value: 9, time_criticality: 6, effort: 6}
   sweep_2026_11_13: 'AUDIT_registry_not_names_sweep_2026_11_13.md: 171 raw hits, 8 clusters, ~45 decision sites. Children: ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1, BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1. NVR gaps for the witness plan: perimeter_alert.py:2179 snapshot name, camera_census.py:3440 _2 branch, :652 person-in-name (use translation_key). Cross-NVR pairing is not a registry fact (Frigate devices have no MAC): one explicit pairing resolver. Lock proximity mapping by name (security_lock_regime.py:1934). 48 URA-owned *_camera_person_detected collide with Protect suffix. CI guard: AST scan with per-function counts, shrinking allowlist with owner card and reason, warn then fail; runtime name_fallback_total counter with NM trip-wire. Order: room resolver, BLE person, NVR gaps, pairing resolver, lock proximity, counters.'
 - id: ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1
+  arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
   arc_cut_v5_108_32: "person-sightings batch, separate surface from interior describe"
   arc_cut_v5_108_25: "registry sweep, separate surface"
   arc_cut_v5_108_24: "registry sweep, independent of layer"
@@ -35009,6 +35014,7 @@ cards:
   plan_review_2026_11_14: 'PLANREVIEW_room_occupied_registry_resolve.md (45bd4194): FIX-PLAN, 0 CRIT/HIGH, 5 MED: invariant must cover every key read (camera_person_detected, switch keys), co2/tvoc have no room sensors (drop them, do not feed the miss counter), two Live checks do not discriminate, notification path keeps an uncounted name read (make it counted per the rule), pass entry_id wherever the caller holds the entry. Three build reviews incl. mutation.'
   operator_2026_11_14_fallback: 'keep. (notification path name-built read stays as a logged, counted fallback; plan rev 2 67840210 is build-ready)'
 - id: BERMUDA-DISTANCE-SENSORS-DEAD-1
+  arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
   arc_cut_v5_108_32: "person-sightings batch, separate surface from interior describe"
   arc_cut_v5_108_25: "operator-owned, not a 3b surface"
   arc_cut_v5_108_24: "upstream KS/bermuda fix, not layer work"
@@ -35072,6 +35078,7 @@ cards:
   disposition_2026_11_17_overnight: "REFUTED-but-fertile, closed. Premise (provider call keeps running and billing after URA's timeout) is not supported by the installed llmvision 1.7.1 source: the service handlers await the request inline and providers.py:527-538 awaits an unshielded session.post, so a cancel propagates (HA core path checked only in the local 2026.2.3 source, not live 2026.11.1). Billing after a client disconnect is provider-side and unknown. The probe found a different real defect on the same surface, verified by me at /config/custom_components/llmvision/media_handlers.py: on cancel or ffmpeg timeout the downloaded temp file is not removed (removal at :841-845 is outside any finally) and the ffmpeg kill at :833 is inverted ('if returncode is not None: terminate()', so a running ffmpeg is never killed). New card LLMVISION-CANCEL-CLEANUP-UPSTREAM-1 carries it. Draft: docs/planning/DRAFT_llmvision_timeout_leak_upstream_issue.md."
   updated: '2026-11-17 02:07'
 - id: LLMVISION-CANCEL-CLEANUP-UPSTREAM-1
+  arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
   title: llmvision leaves its downloaded video temp file and a running ffmpeg behind when a call is cancelled or ffmpeg times out (upstream report)
   thread: identity
   status: waiting_operator
@@ -35109,12 +35116,15 @@ cards:
   operator_2026_11_14_seam_rev4: 'remove and don''t add. => APPLIED: live exterior_seams.json rev 4 removes skip front_side_ptz<->utilities_ptz (far apart, held only by PTZ reach); no replacement shortcut. Validated offline (no errors, no warnings), reloaded: 21 seams, validation ok, sha 1bdf1c70. Backup .claude/tmp/exterior_seams.json.bak-20261114-rev3.'
   reviews_2026_11_14: 'A FIX (A1 rejected file keeps old covers, A2 late veto -> operator chose re-alert, A3 silent name fallback for door key: build map from census.get_transit_egress_entities, count fallback), B SHIP-after-MED (zero-fire counts unmapped doors), C FIX (trip-wire cooldown, ratio non-fire, anomaly row, task tracking, stale covers on file delete, diagnostics). Live: perimeter_gate_decision has 0 rows; only 1 of ~79 crossings in 9 days had identity >= 0.9.'
 - id: LAYER-LEAK-CLEANUP-1
+  arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
+  recut_2026_11_17: "Re-cut under the operator's no-rebuild rule (PLANNING_layer_leak_cleanup.md f0918133b). Measured: S1 6 stale-source iPad edges in 7 days, all 11-15 before the iPad tracker was removed, security never armed, no suppression window opened; H1 27 restarts, 3 boot-adjacent AWAYs all real departures; phone-left-behind on 10 min total in 7 days. Verdicts: L2-S1 PARK (revival = minimal stale-source skip in the existing listener, ~0.5 day; triggers: security armed, a source_stale arrival row, or a 2nd GPS device), L2-S7 PARK, L1 PARK (trigger PLB on > 2 h/week), L3-H1 PARK code + guard test case only, L5a PARK, L2b2/L3-H2/L5b stay parked. BUILD-MINIMAL: L4 five fail-open identity vetoes resolve the real person entity on the miss path (found: tracked_person_entity_id itself builds ids from strings, person_ids.py:25-37). ~1 builder-day, 1 build, Tier 2. Layer benefit: solid; every consumer since 11-14 builds on it; remaining cleanup only moved correct code."
+  operator_2026_11_17_pick_a: "A. We should not rebuild tier 3 that are hardened and work and we should be skeptical of others. With clear pro/con. Only proven code should supersede correct code. Let's make sure the shared layer benefit is still solid"
   arc_cut_v5_108_32: "person-sightings batch, separate surface from interior describe"
   arc_cut_v5_108_25: "carded behind the arc (operator 11-14)"
   arc_cut_v5_108_24: "after 3a/3b, sized plan owed (LAYER-LEAK-CLEANUP-PLAN-1)"
   arc_cut_v5_108_23: "behind the arc"
   title: "Close the person-awareness layer's remaining leaks (34 groups after ship 3a/3b) in a few grouped cleanup cards, driving the guard's allowlist total down"
-  status: waiting_operator
+  status: planned
   tier: 2
   batch: person-sightings
   links: {parent: PERSON-AWARENESS-READ-API-1, related: [G6-ONE-BLE-ROOM-READ-1, PERSON-ID-INLINE-SWEEP-1, PRESENCE-BOOT-SEED-FROM-VIEW-1, BLE-ARRIVAL-PRODUCER-HVAC-GATED-1, EGRESS-DIRECTION-AWARE-IDENTITY-1, NVR-WITNESS-CONSOLIDATION-1]}
@@ -35122,7 +35132,7 @@ cards:
   origin: {date: '2026-11-14', gist: 'Layer ship 3 Q10.'}
   operator_2026_11_14: "Leak groups accepted but I'm going to need a size on cleaning that up. And a plan. / Maybe 1 card? 34 is a lot / Or a smaller grouping of cards / Card the plan and then get back to the arc. The layer was just a prereq"
   why: "Ship 3a's guard pins every remaining bypass of the person-awareness layer: 238 allowlist rows, total 266, in 34 groups (ship 3 plan §9, §17). The groups are display reads of internals, private edge ledgers in the lock and perimeter, raw BLE-in-room reads, inline person ids, NVR classifiers and step-7-owned crossing pieces. The guard stops new leaks and the total can only fall. This card owns closing them in about 4-6 grouped builds, not 34. Groups that close inside planned feature work stay with that work and are counted here: G6-ONE-BLE-ROOM-READ-1, step 7, BLE-ARRIVAL-PRODUCER-HVAC-GATED-1 (before v6.0.0), and NVR witness W2/W5."
-  next: "PICK: A (recommended) the cut: 4 builds ~10 builder-days ~2 weeks in free builder slots, rule presence's own display reads as owner reads (L5b), park the lock second edge ledger and presence inference snapshot rewrites with triggers; or B full close: 6 builds ~17 builder-days -> I mint L1-L5 cards and start L2 build 1 (security geofence listener, the one HIGH live risk) at the next free builder slot without displacing arc rows."
+  next: "Me: dispatch the L4 minimal build (Tier 2: plan review + 2 reviews) at the next free builder slot after the crossing P3-D2/D3 fix pass."
   status_note: "parked behind the arc (operator 2026-11-14: 'Card the plan and then get back to the arc. The layer was just a prereq'; 'Ie card the cleanup and the plan to cleanup')"
   rank: {value: 4, time_criticality: 2, effort: 6}
 - id: LAYER-LEAK-CLEANUP-PLAN-1
@@ -35396,6 +35406,7 @@ cards:
   why: "P3-D1 + P3-D5 + P3-D8 (+ P3-D0 knobs) from PLANNING_crossing_vision.md Phase 3. Operator Go 2026-11-15. Full suite 22,788 passed (1 order-dependent flake, passes alone); orchestrator mutation on both P3-D8 sites RED (7 and 12 tests)."
   next: "Dispose by the discriminator at the next sweep (query, do not watch)."
 - id: VISION-AMBIGUOUS-CROSSINGS-1
+  residual_2026_11_17_p3_d0e: "P3-D0e approach probe complete (AUDIT_crossing_vision_p3_d0e_approach_2026_11_17.md): R-c LLM montage 13/15 decided (bar 88%), R-a Frigate stored events 13/18 lenient / 8/12 strict, R-b YOLOX 13/16 / 8/11, R-b frame-diff 15/18 (= always-in baseline) / 7/8. All NO-GO; P3-D10 stays unbuilt. Binding constraint: 4 out grades of 19; revisit approach clips at ~15 out grades. 33 of 60 calls used. Note: R-b downloaded a 35 MB YOLOX model + pip packages into .claude/tmp without asking (surfaced to operator)."
   residual_2026_11_17_day_audit: "AUDIT_arc_day_validation_2026_11_17.md: 35 of 54 crossings ambiguous (26 = one yard-walker burst 11-16 09:25-10:41), vision never called on an ambiguous crossing: EXPECTED, watching ambiguous is P3-D3 (CROSSING_VISION_WATCH_AMBIGUOUS), not built yet (corrected same day); all 19 crossing_vision_ledger terms applied=false reason=unknown; 07:58 11-17 ezinne entry contradicted by vision text (walks away, SUV leaves). Investigating."
   residual_2026_11_17_door_scoring: "AUDIT_door_direction_scoring_2026_11_17.md on the 27 grades (19 direction-scorable): production tracker 10/19 right, all 9 misses entry called exit (one-sided bias); vision run1 10/11; I4 interior-timing 17/19 (no holdout, beats always-in by 2). P3-D2 passes its own gate -> build; P3-D3 build recorded-only; P3-D10 approach clips unscored and EXPIRE 2026-11-19; P3-D11 direction part fails the P3-D6 bar. No instrument reports no_cross (tracker wrote crossings for all 5 no_cross grades)."
   arc_cut_v5_108_32: "crossing vision track (arc map row 6), not interior describe"
@@ -35403,7 +35414,8 @@ cards:
   arc_cut_v5_108_25: "arc step 2b, door-vision evaluation first"
   title: "Crossing vision watches every crossing, including the ones the validator cannot give a direction (20-53% of crossings), and vision supplies the direction and count there"
   thread: identity
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.108.36
   batch: person-sightings
   tier: 3
   created: '2026-11-15 13:30'
@@ -35505,6 +35517,7 @@ cards:
   validation_2026_11_15: "v5.108.25 restart: no effect yet. The URA camera area map reads entity area only and every camera entity has area null, so moving the DEVICE area changes nothing until ZONE-CAMERA-DISCOVERY-DEVICE-AREA-1 ships (AUDIT_v5_108_25_watched_set_2026_11_15.md). Harmless; keep the move (it is the correct area and the fix will use it)."
   next: "Parked with its dependency ZONE-CAMERA-DISCOVERY-DEVICE-AREA-1 (operator parked the camera area map); revisit with it."
 - id: EGRESS-TRACKER-DIRECTION-1
+  arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
   arc_cut_v5_108_32: "person-sightings batch, separate surface from interior describe"
   title: "The egress tracker labels door direction wrong on about a third of readable crossings and often emits both an exit and an entry for one pass; every synchronous reader (arrival notify, census egress-face union, entered/exited sensors, perimeter) inherits it"
   thread: identity
@@ -35520,6 +35533,7 @@ cards:
   why: "AUDIT_door_vision_accuracy_2026_11_14.md: 6 of 17 readable clips mislabelled (arrivals labelled exit at the 18:59 party, 19:45, 16:14, 21:42), and 21 of 25 clustered pairs were one pass emitting both directions. Vision lands 10-200 s late and cannot correct synchronous readers: the census egress-face union (transit_validator.py:2575-2600, an F2 trust input) evicts an arriving face on a mislabelled exit; arrival notifications say the wrong thing. Review G: a pass-level dedup in _resolve_direction fixes 'one pass emits both' at the source for every reader."
   next: "Me: slot in PLANNING_crossing_vision.md §7 right after P3-D4, gated on P3-D0 (d) (opposite pairs share a Frigate event id); P3-D0 numbers are its baseline; plan + Tier 3 reviews before build."
 - id: CROSSING-GRADING-PAGE-1
+  arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
   arc_cut_v5_108_32: "crossing vision track (arc map row 6), not interior describe"
   title: "LAN-only grading page for door crossings (urakanban /grade/) so the operator's grades become the direction/count answer key"
   operator_2026_11_15_no_cross: "Grading needs a - didn't cross option. For example, into the garage, but not out. to the outside (built: homelab acd2e4c page+server value no_cross; URA c7d929cb pull_grades maps no_cross -> no_pass)."
@@ -35534,6 +35548,7 @@ cards:
   why: "Every direction instrument scored 13-14/17 against an agent-made answer key with at least two doubtful labels (21:42:22 likely out; 15:12:14 ambiguous). The operator's grades replace it. Built: homelab-automation cbf5597 (server.js /api/grade + grades.jsonl, protected from rsync --delete), URA 67eab598 (scripts/grading/make_grade_batch.py, pull_grades.py -> quality/tests/fixtures/crossing_operator_grades.json). Family footage stays on the LAN site only."
   next: "Me: batch 2 leads with all 46 answer-key clips, then pairs and recent; after grading, pull_grades.py and re-score every instrument (vision, I4, Elk/cover, I1 v3 directed rule, aerial/G6 motion rules) against operator labels."
 - id: DOOR-VISION-GROUP-UNDERCOUNT-1
+  arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
   arc_cut_v5_108_32: "crossing vision track (arc map row 6), not interior describe"
   title: "Door vision undercounts every group of 3+ and returns false blanks: frames are 4 evenly spaced samples of the whole Frigate event (5-466 s), not centred on the crossing"
   thread: identity
@@ -35564,6 +35579,7 @@ cards:
   operator_2026_11_15_tier3_go: "Go. (Tier 3 checkpoint for v5.108.25: garage doorbell / hallway / TrackMix / garage_a/b room-input pages and the anchor staying on per-device holds were both put to the operator in the checkpoint message.)"
   next: 'Me: wait for the pre-merge extras (source-mutation, D7 hygiene, isolated), then merge, deploy v5.108.25, install, restart only once the house is awake, and live-validate.'
 - id: NVR-WITNESS-CONSOLIDATION-1
+  arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
   arc_cut_v5_108_32: "person-sightings batch, separate surface from interior describe"
   arc_cut_v5_108_25: "3b shipped the device rule"
   arc_cut_v5_108_24: "layer ship 3b next, then W2-W6 (arc map step 9a)"
@@ -35707,6 +35723,7 @@ cards:
   links_added_2026_11_14: 'blocked_by BERMUDA-DISTANCE-SENSORS-DEAD-1 for D1 (the BLE confidence/distance gate inputs are dead); the rest of the plan (join direction, transfer_queue schema, knobs, listeners) is not blocked.'
   updated: '2026-11-14 02:25'
 - id: PHONE-LEFT-BEHIND-TRANSIENT-FLICKER-1
+  arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
   arc_cut_v5_108_32: "person-sightings batch, separate surface from interior describe"
   arc_cut_v5_108_25: "PLB surface, inbox"
   arc_cut_v5_108_24: "arc step 10"
@@ -35747,6 +35764,7 @@ cards:
   next: 'Me: plan rev 2 with ruling A (branch plan/phone-left-behind-camera), then build (Tier 2-DB, 3 reviews).'
   rank: {value: 5, time_criticality: 3, effort: 3}
 - id: DEPARTURE-ACTIONS-1
+  arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
   arc_cut_v5_108_32: "person-sightings batch, separate surface from interior describe"
   arc_cut_v5_108_25: "arc step 8 consumer"
   arc_cut_v5_108_24: "step 8 consumer, after layer"
@@ -35976,6 +35994,7 @@ cards:
   next: 'Me: after 1a validates, revise Part B against what 1a shipped, two plan reviews, then build.'
   rank: {value: 6, time_criticality: 3, effort: 5}
 - id: PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1
+  arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
   arc_cut_v5_108_32: "person-sightings batch, separate surface from interior describe"
   arc_cut_v5_108_25: "perimeter surface, inbox"
   arc_cut_v5_108_24: "perimeter residual, independent"
@@ -35999,6 +36018,7 @@ cards:
   measured_2026_11_16_overnight: "CONFIRMED, and wider than the card said (read-only, ~02:25 CST). (1) Code: NM dedup key is f'{coordinator_id}:{title}:{location}' (notification_manager.py:4809-4825); severity only picks the window (DEDUP_WINDOWS: CRITICAL 60 s, HIGH 300, MEDIUM 900). Perimeter dispatch uses a constant title 'Perimeter Alert - Person Detected' (perimeter_alert.py:1807) and location=entity_id (:1996-2004). So the MED-2 premise 'the key includes severity' (test_circling_label_transition.py:346-377 docstring) is WRONG in every config, not only when persons_home=0: a circling exemption hop on the same camera inside the window is always deduplicated, and the pin test passes only because it asserts severities on a mocked nm.async_notify and never runs _is_deduplicated (bug class #62 hollow anchor). No early return between async_notify entry and the dedup check stops a hop-1 from seeding the cache (:1531-1731). (2) Live: memory_episodes perimeter_gate_decision rows with reason classification_transition_exemption since 11-14 = 13. 8 had a perimeter_alert notification_log row at the same location within the previous 5 min; ALL 8 have no log row at the hop (deduplicated rows are never logged), incl. 2026-11-15 23:53:06Z sonoffwindow CRITICAL 13 s after a 23:52:53Z dispatch. Of the 5 without a prior same-location row, 3 were logged at the hop. Discriminates: prior-row present -> 0/8 delivered; absent -> 3/5. Harm: the first page reached you; the escalation (circling, higher severity) never did."
   paged_2026_11_16_overnight: "Paged 2026-11-16 02:37 CST via notify.madronehapushover priority -1 (quiet, wakes nobody) with the PICK."
 - id: LOCK-UNCOUNTED-RETURN-ARM-REDUNDANT-1
+  arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
   arc_cut_v5_108_32: "person-sightings batch, separate surface from interior describe"
   arc_cut_v5_108_25: "arc step 4 cleanup"
   arc_cut_v5_108_24: "lock cleanup, independent"
@@ -36194,6 +36214,7 @@ cards:
   decisions_2026_11_14: 'Answer: NVR body-count error never measured vs truth; only door evidence (hand-label 22/30 = 73%). Plan rewrite: D0 measures interior NVR count error vs graded truth; D2 = sampling + correction budget sized by error (not only on disagreement); new describe-what-is-happening deliverable; cloud Luna accepted now with a move-to-local trigger (homelab hardware, not Mac Ollama); every park is an operator question.'
   operator_2026_11_14_dynamic_sampling: 'It can be dynamic. Especially close to entires and not so much in steady state. => D2 sampling rule: dense sampling in a near-entry window after a door crossing / room entry while counts are changing, sparse in steady state; window and steady-state rate are knobs; amend plan cbf25751 at its plan review.'
 - id: BLE-ARRIVAL-PRODUCER-HVAC-GATED-1
+  arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
   arc_cut_v5_108_32: "person-sightings batch, separate surface from interior describe"
   arc_cut_v5_108_25: "step 8 follow-on, separate BLE producer surface"
   arc_cut_v5_108_24: "option A, next after 3a before v6"
@@ -36248,6 +36269,7 @@ cards:
   next: 'Me: fold into the W6b plan: watch perimeter cameras through CameraInputStreamHealth (one getter), no second rule. Seam: layer ship 3b keeps house-level twin stamps.'
   rank: {value: 2, time_criticality: 1, effort: 2}
 - id: BLE-CONFIDENCE-SCANNER-NAME-PARSE-1
+  arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
   arc_cut_v5_108_32: "person-sightings batch, separate surface from interior describe"
   arc_cut_v5_108_25: "REGISTRY-NOT-NAMES sweep, separate surface"
   arc_cut_v5_108_24: "registry sweep after layer ship 3"
@@ -36264,6 +36286,7 @@ cards:
   next: "Me: plan when BERMUDA-DISTANCE-SENSORS-DEAD-1 revives (the per-scanner sensors return); reuse Bermuda's area-resolution order (bermuda_device.py:370-377)."
   rank: {value: 3, time_criticality: 1, effort: 2}
 - id: G6-ONE-BLE-ROOM-READ-1
+  arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
   arc_cut_v5_108_32: "person-sightings batch, separate surface from interior describe"
   arc_cut_v5_108_25: "layer follow-on, shared seam with interior vision persons_in_room"
   arc_cut_v5_108_24: "after 3a per ship 3 Q-defaults"
@@ -36280,6 +36303,7 @@ cards:
   next: "Me: dispatch planning the moment ship 3 merges, in parallel with step 7. Run the §2.4a 7-day probe first."
   rank: {value: 7, time_criticality: 4, effort: 4}
 - id: PERSON-ID-INLINE-SWEEP-1
+  arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
   arc_cut_v5_108_32: "person-sightings batch, separate surface from interior describe"
   arc_cut_v5_108_25: "id-rule sweep, separate surface"
   arc_cut_v5_108_24: "after layer ship 3"
@@ -36297,6 +36321,7 @@ cards:
   rank: {value: 6, time_criticality: 3, effort: 2}
   folded_2026_11_16: "From PERSON-ID-NORMALISE-ONE-RULE-1 (closed): latent name-vs-id readers at camera_census.py:6159-6176, 6311-6320, 3900-3912 and perimeter_alert.py:5117-5121 (line numbers as of 11-13; re-grep). __init__.py:3145-3163 rewrites entry.data to display names while options keep ids, so merged readers see ids here but names on a fresh install. Not reachable on this house; matters for the second install."
 - id: PRESENCE-BOOT-SEED-FROM-VIEW-1
+  arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
   arc_cut_v5_108_32: "person-sightings batch, separate surface from interior describe"
   arc_cut_v5_108_25: "presence boot surface, separate"
   arc_cut_v5_108_24: "separate house-state ship after layer ship 3"

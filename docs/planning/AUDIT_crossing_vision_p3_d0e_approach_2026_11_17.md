@@ -66,3 +66,39 @@ Counts: Decided clips = 0,1,5,7,8,9,10,11,12,13,14,15,16,17,18 = 15; right = 13,
 - Model calls spent: 33 of 60 (19 primaries + 14 repeats). 0 errors, all HTTP 200.
 - Local artifacts in `.claude/tmp/` (gitignored): `approachsheet_*.jpg|mp4`, `approachprobe_*.py|json|jsonl`. No frames or clips were written anywhere else; no images are in this report.
 - Not done: R-a, R-b, step 4 coverage on the 101 crossings and the P3-D2b share, step 5 per-clip overlap with V/C/I1 v2 beyond the tracker, the other 27 ungraded answer-key clips.
+
+---
+# Addendum 2026-11-17 (08:25-09:15 CST): R-a and R-b, same 19 grades, same bar
+
+Model calls used by both routes: 0. Combined P3-D0e total stays 33 of 60. Scripts: `.claude/tmp/approachprobe_ra.py`, `approachprobe_rb.py` (outputs `approachprobe_ra_out.json`, `approachprobe_rb_out.json`). Order rule frozen as the plan (:1266-1268): first outside presence before first inside presence = in, reverse = out, within 3 s = unclear. Two reportings: LENIENT (a clip with presence on the outside cameras only counts `in`, inside only counts `out`) and STRICT (needs both sides, the plan's literal wording). The inside camera is the frozen one (`foyer_fisheye` / `staircase`).
+
+Bias note: truth is 15 `in` / 4 `out`, so "always in" scores 15/19 on decided-all; the tracker's 10/19 is below it. Any lenient number near 13-15 is within that baseline and carries no direction information on its own.
+
+## R-a Frigate stored person events (0 calls)
+Source: Frigate `frigate/events/get` via the HA Frigate websocket (read-only, instance frigate-f2, 12 cameras, 351 person events over 11-14 12:00-20:00). Note: the HA proxy has no `/api/events` HTTP route (404); the websocket command is the proxy route. Presence = any event overlapping [E-30, E+30], start clipped to the window.
+| | Lenient | Strict |
+|---|---|---|
+| Decided / 19 | 18 | 12 |
+| Right on decided | 13 (72%) | 8 (67%) |
+| Tracker-wrong clips right (of 9) | 5 right, 3 wrong, 1 abstain | 3 right, 3 wrong |
+| `out` truths (4) | 3 right (1, 15, 17), 1 wrong (18) | 3 right |
+Misses lenient: clips 3, 4, 5, 6 (read out, truth in: an inside event fired 16-30 s BEFORE the crossing, the same greeter/ambient-inside pattern that fools the tracker) and 18. Verdict: FAIL (13/18 vs 15/17; 5/8 vs 5/6). Its errors concentrate on the tracker's own misses (3, 4, 6), i.e. it copies the tracker's bias.
+
+## R-b person detector on frames (0 calls)
+Stock COCO YOLOX-s (opencv_zoo `object_detection_yolox_2022nov.onnx`, onnxruntime CPU), person conf >= 0.4, 2 fps, presence = 2 consecutive positive samples. Plan's door-strip displacement rule was NOT run (needs viewed-snapshot polygons per camera, frozen before labels); only the order rule. Frame differencing is the plan's weaker baseline (blurred abs-diff, 1% pixels changed).
+| | YOLOX lenient | YOLOX strict | Frame-diff lenient | Frame-diff strict |
+|---|---|---|---|---|
+| Decided / 19 | 16 | 11 | 18 | 8 |
+| Right on decided | 13 (81%) | 8 (73%) | 15 (83%) | 7 (88%) |
+| Tracker-wrong right | 6 of 7 decided | 2 of 3 | 7 of 8 | 3 of 4 |
+YOLOX lenient fails the 15/17 bar (13/16) and strict coverage is 11/19 = 58%. Frame differencing lenient reaches 15/18 only because it calls `in` whenever the outside cameras move, which equals the always-`in` baseline (15/19); its strict form decides only 8 of 19. Both fail the bar on honest terms. Determinism: both are deterministic by construction (same input, same output; not re-run twice).
+
+## Updated P3-D10 verdict: NO-GO on all three tiers
+| Tier | Right on decided | Coverage | Bar (15/17, 5/6, >= 0.50) |
+|---|---|---|---|
+| R-a | 13/18 lenient, 8/12 strict | 95% / 63% | fail |
+| R-b YOLOX | 13/16 lenient, 8/11 strict | 84% / 58% | fail |
+| R-b frame diff | 15/18 lenient (= always-in), 7/8 strict | 95% / 42% | fail (strict coverage < 0.50; lenient is the baseline) |
+| R-c LLM montage | 13/15 | 79% | fail by 0.6 pt, stability n=14 |
+None clears the bar. The order-of-presence signal is weak because the inside camera fires before the crossing on many entries (a person already inside, 16-30 s early), the same mechanism as the tracker's entry-called-exit errors, and the sample has only 4 `out` grades. Recommendation: P3-D10 stays unbuilt; direction work goes to the I4-style interior-timing variant (17/19) evaluated on production volume (P3-D6), not approach clips. Revisit approach clips only after the grade set has >= 15 `out` grades and a door-strip displacement rule (R-b step with frozen polygons) can be scored; the clips themselves expire 2026-11-19 and will need re-download from retained recordings if so.
+Not done: door-strip displacement rule, step 4 coverage on 101 crossings and P3-D2b share, independence vs V/C/I1 v2.

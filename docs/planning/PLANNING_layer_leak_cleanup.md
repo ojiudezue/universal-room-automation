@@ -1,296 +1,178 @@
-# PLANNING: person-awareness layer leak cleanup (sizing, cards, order)
+# PLANNING: person-awareness layer leak cleanup (re-cut under the 11-17 no-rebuild rule)
 
 Date 2026-11-17. Author ura-planner. Card LAYER-LEAK-CLEANUP-PLAN-1 (parent LAYER-LEAK-CLEANUP-1). Plan only: no code,
-no kanban edit (the orchestrator mints the cards). Code read: `develop` @ 056c69993 (live line v5.108.34).
+no kanban edit. Code read: `develop` @ 7462e2ec2 (live line v5.108.35). Live data: HA recorder (window 2026-11-10 10:12 UTC
+to now, about 7 days) and the URA DB, read-only over SSH on 2026-11-17.
+
+## Operator ruling (2026-11-17, verbatim)
+
+"A. We should not rebuild tier 3 that are hardened and work and we should be skeptical of others. With clear pro/con.
+Only proven code should supersede correct code. Let's make sure the shared layer benefit is still solid".
+
+Option A (the smaller cut) is chosen. Every item below has to pass five tests: (1) is the code it would replace correct
+today, with evidence; (2) is there a MEASURED live defect or risk (count, window, source), or only a structural one;
+(3) is the replacement PROVEN (live since which version, how many consumers, any incident); (4) one-line pro and con;
+(5) verdict: **BUILD** (measured defect + proven replacement), **BUILD-MINIMAL** (fix the defect in place, without
+moving hardened code onto the layer) or **PARK** (with a revival trigger).
 
 ## Headline
 
-- **What is left:** the guard allowlist on develop today has **228 rows / total 256**
-  (`quality/tests/test_person_awareness_layer_guard.py:64`, `person_awareness_layer_allowlist_PROVISIONAL.py:28`), down
-  from 238 / 266 on 11-14. Guard green on develop (150 passed, 2026-11-17).
-- **66 of the 256 are not leaks.** They are ruled conforming rows that stay for good: pinned ingest feeders R13 (8), the
-  stream-health owner row (1), threshold-equal constants R8 (3), census owner-display (#7 41, #7o 2), residents-home
-  owner-display (#4 2), non-person name collisions (#32c 9). A further 4 are reserved step-7 / fast-stage rows.
-- **186 rows are real cleanup**, plus 9 unguarded groups that no rule sees. 176 of the 186 close through **5 cleanup
-  cards (6 builds)**; 10 close inside feature cards that are already planned (step 7, NVR W5c, crossing-vision Phase 2).
-- **Effort, full close:** about **16-17 builder-days** across **6 builds** (two Tier 3, two Tier 2-DB, two Tier 1-2).
-  **Calendar at current pace:** the arc ships first (§4a); interleaving one cleanup build per arc ship that leaves a
-  builder slot free, about **3 weeks**.
-- **Recommended (marginal benefit, §6): about 10 builder-days, 4 builds, about 2 weeks.** It closes everything with a
-  live risk or a behaviour value (the security geofence arrival listener, the one BLE-in-room read with the
-  phone-left-behind filter, the boot seed, the fail-open identity vetoes, the 13 cross-coordinator private reads). It
-  parks the two Tier-3 rewrites of code that is correct today (lock edge ledger, presence inference snapshot) with
-  revival triggers, and rules presence's own display entities owner-display instead of writing ~50 getters. Guard total
-  then falls 256 -> 158 (feature cards included); full close falls it to about 69.
+- **Measured:** no item has a live defect on this house today. The audit's headline risk (S1, "78 iPad blips/week could
+  open suppression windows while armed") is gone: the recorder shows 6 stale-source arrival edges in 7 days, all from
+  the iPad tracker on 11-15 before the operator removed it from `person.oji_udezue`, none since, and the Security
+  Coordinator was never armed in the window. No suppression window opened from a stale edge.
+- **One item still builds, minimally:** the five fail-open identity vetoes look up `person.<slug>` by string and
+  silently skip the veto when that entity does not exist. That cannot happen on this house, but it will on an install
+  whose person entity id is not the slug of its name. Portability fixes are not parked as "second install only"
+  (`feedback_portability_imperative`), so this one builds in place.
+- **Finding that changes L4:** the old L4 routed those sites through `person_ids.tracked_person_entity_id`. That
+  function is itself a string build (`person.` + lowercased name, `person_ids.py:25-37`), so the migration would fix
+  nothing on the install it was meant for. The minimal fix resolves the person through HA's own person entities on the
+  miss path only.
+- **Effort:** about **1 builder-day, 1 build (Tier 2)**, down from ~10 days / 4 builds (old recommended cut) and ~17
+  days / 6 builds (full close). Everything else is parked with a revival trigger. Guard total: 256 today, 257 after the
+  build (the one H1 rule case makes a hidden leak countable; no other row changes).
+- **Layer benefit:** solid, and mostly already delivered (§2). The remaining cleanup moves correct old consumers; its
+  margin is a smaller allowlist, not behaviour.
 
 ## 1. Institutional context verified
 
-Mandatory reads done completely this session: `docs/Coordinator/PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md` (incl. §10 ledger
-#1-#43; nothing below re-asserts a ledger claim), `docs/architecture/SENSOR_FLEET_CLASSES.md`,
-`docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md` (incl. §10 C1-C39; the only HVAC touch here is a byte-identical
-getter swap at `hvac.py:1558-1560, 2748-2749`), `docs/planning/CONTRACT_person_awareness_layer.md` (complete),
-`docs/planning/AUDIT_person_awareness_layer_leaks_2026_11_14.md` (complete), `PLANNING_person_awareness_layer_ship3.md`
-§9 and §17, `ARC_identity_vision_census_map.md` §4a, board cards LAYER-LEAK-CLEANUP-1, LAYER-LEAK-CLEANUP-PLAN-1,
-PERSON-ID-INLINE-SWEEP-1 (incl. `folded_2026_11_16`), PRESENCE-BOOT-SEED-FROM-VIEW-1, G6-ONE-BLE-ROOM-READ-1,
-STALE-SOURCE-ARRIVAL-CONSUMERS-1, LOCK-REGIME-BOOT-REALLY-AWAY-1, BLE-ARRIVAL-PRODUCER-HVAC-GATED-1,
-NVR-WITNESS-CONSOLIDATION-1, EGRESS-DIRECTION-AWARE-IDENTITY-1.
+Read completely this session: `docs/Coordinator/PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md` (incl. the §10 ledger #1-#43;
+nothing below re-asserts a ledger claim), `docs/architecture/SENSOR_FLEET_CLASSES.md`, contract
+`docs/planning/CONTRACT_person_awareness_layer.md` §0a. The previous version of this plan (commits 990487fb7 /
+8be002d9a) supplied the site lists; its HVAC touch (`hvac.py:1558-1560, 2748-2749`) is now parked, so no HVAC code is in
+scope and the HVAC state-of-play needs no write-back.
 
-Identity model: this plan produces no fact. It moves CONSUMERS of F1 (edges, level), F2 (census), F3 (crossings), F4
-(BLE room, sightings) and F5 onto the contract §4 read surface. Consumer class of each reader is in §3 per card.
+Identity model: this plan produces no fact. The one build touches F3 / F2 identity vetoes (consumer class: identity
+veto, fail-open by design) and only their miss path.
 
-**Allowlist re-count (2026-11-17, from the module, not trusted):** 228 rows, max-sum 256, by group:
+Code checked against the plan's claims (2026-11-17):
 
-| Group (§9 #) | Card owner in the allowlist | Rows | Max | Files |
-|---|---|---|---|---|
-| #32 presence/census/zone privates (display + 13 cross-coordinator) | READ-API | 76 | 79 | sensor 53, binary_sensor 13, coordinator 5, hvac 4, coordinator_diagnostics 2, manager 1, `__init__` 1 |
-| #7 census privates in census display | READ-API (owner_display) | 41 | 41 | sensor 39, binary_sensor 2 |
-| #26 display `pc.data` / BLE-in-room display | G6 | 20 | 34 | aggregation 15, sensor 12, binary_sensor 6, house_status 1 |
-| #31 inline person ids + raw `person.*` display name | PERSON-ID-INLINE-SWEEP-1 | 11 | 11 | camera_census 4, perimeter 2, 5 others 1 each |
-| #25 presence inference `pc.data` | G6 (own Tier 3) | 4 | 10 | presence |
-| #32c name collisions | READ-API | 9 | 9 | 8 files |
-| #2 lock second ledger + raw reads/listeners | LOCK-REGIME-BOOT-REALLY-AWAY-1 | 9 | 9 | security_lock_regime |
-| R13 pinned ingest feeders | READ-API | 8 | 8 | 6 files |
-| #21 PLB `_is_room_occupied` + `pc.data` | G6 | 4 | 6 | binary_sensor |
-| #33 member-to-member privates | READ-API | 6 | 6 | person_sighting 3, census, presence, person_coordinator |
-| #6 literal-view display census callers | crossing-vision Phase 2 | 6 | 6 | aggregation, binary_sensor, sensor |
-| reserved (step 7 A12/A13/D8, fast-stage G3) | step 7 / fast stage | 4 | 4 | perimeter, transit 2, crossing_vision |
-| #27 census `_get_ble_persons` / `_ble_home_by_area` | G6 | 2 | 4 | camera_census |
-| #1, #3, #22, #24, R8 | STALE-SOURCE (#1, #3), G6 (#22, #24), READ-API (R8) | 3 each | 3 each | security, perimeter, fan_veto + fan_recheck, lock, const |
-| #20 room occupancy `get_persons_in_room` | G6 | 2 | 3 | coordinator |
-| #4, #7o, #34 | READ-API | 2 each | 2 each | sensor, sensor, aggregation |
-| #10, #13, #19, #29, OWN | step 7 (3), NVR (1), owner (1) | 1 each | 1 each | |
+| Claim | Evidence |
+|---|---|
+| Guard allowlist | `LAYER_ALLOWLIST_TOTAL = 256`, 228 rows (`quality/tests/person_awareness_layer_allowlist_PROVISIONAL.py:28`, `test_person_awareness_layer_guard.py:64`) |
+| S1 listener behaviour | `security.py:2255-2290` `_handle_person_state_change`: returns at once while DISARMED; a `not_home -> home` edge adds a 10-min expected arrival, `not_home -> zone` 30 min. No source-age test |
+| G1 consumers | `crossing_vision.py:494` (since v5.108.25), `music_following.py:784` (step 8, since v5.108.33); delegate `presence.py:6131` |
+| `persons_in_room` consumers | one: `person_sighting.py:1517` (interior vision, since v5.108.28), read through `getattr` |
+| `house_census_view` consumers | `sensor.py:5422, 5437`, `aggregation.py:6679, 6708`, `binary_sensor.py:1953, 2001`, delegate `presence.py:6105` (since v5.108.25) |
+| G3 one amend path | `transit_validator.amend_crossing` (`:1036`) -> `attach_crossing_attribute` (`:1232`); writers on develop: `camera_census.py:5348`; on `feature/crossing-p3-d2-d3` (00cd94cef, not merged) also `crossing_vision.py:1365-1398` |
+| Inline person-id builds left | 9 `f"person.{...}"` outside `person_ids.py`: `person_coordinator.py:1824`, `camera_census.py:4841, 4898, 5979, 6711`, `transit_validator.py:2289`, `perimeter_alert.py:1118, 6224`, `person_sighting.py:729` |
+| Fail-open shape | `camera_census.py:4841-4846`, `:4898`, `:5979`, `:6711` and `transit_validator.py:2289-2295`: `hass.states.get(f"person.{slug}")` is None -> no veto |
+| H1 boot seed | `presence.py:3291-3298` reads `sensor.{DOMAIN}_identified_persons_in_house`; not on the allowlist (the guard's R3 taint does not see the f-string) |
 
-**Closed or changed since 11-14 (verified):**
-- Music `#23`: the three `person_coordinator.data` reads now use `get_person_location` (music repair merge, -3; allowlist
-  comment line 26). Step 8's arrival engine subscribes G1 and reads only §4 surfaces (presence doc header, step 8).
-- `#5` boot seed H1 is **not on the allowlist and the code is still there** (`presence.py:3291-3298` reads
-  `sensor.{DOMAIN}_identified_persons_in_house` into `_census_count`). The guard's R3 taint does not see an f-string built
-  on `DOMAIN`. Finding: the group is UNGUARDED today; card L3 closes the code and adds the rule case.
-- `#28` H6: `transitions.py` no longer reads `_camera_sightings` (grep 0); the store is read only inside
-  `transit_validator.py:670, 765, 889`. It is now an internal legacy store, not a leak; DELETE candidate in L4 after a
-  reader check.
-- P5 (HVAC write of `_pre_arrival_enabled`): closed by G9 (`hvac.py:1242` calls `pc.set_pre_arrival_enabled`).
-- Not yet built seams G6 needs: `persons_in_room` exists (`person_coordinator.py:2508`, phone filter inside, no reader
-  migrated); `room_for_area`, `persons_in_room_or_scanner_areas` and the frozen `snapshot()` do not exist (grep 0).
-- Ship 3 §9 names the cleanup doc `PLANNING_person_awareness_leak_cleanup.md`; the operator brief names this file. This
-  file is the one; the §9 pointer needs a one-line fix by the orchestrator.
-
-**REUSE / NEW per proposed piece** (greps over `custom_components`, `quality`, `docs/planning`):
+REUSE / NEW for the one build:
 
 | Piece | Verdict |
 |---|---|
-| One BLE-in-room read | REUSED `PersonTrackingCoordinator.persons_in_room` `person_coordinator.py:2508` |
-| Area -> room map | NEW public `room_for_area(area_id)` over the existing private `_area_id_to_room` (no public equivalent, grep `room_for_area` 0) |
-| Scanner-area union | NEW `persons_in_room_or_scanner_areas(room)` built on the one read (contract §2.4a; grep 0) |
-| Move log for the lock | REUSED `location_moves_since` `person_coordinator.py:2312` |
-| Edge feed for security / perimeter / lock | REUSED G1 `residency.subscribe_person_edges` + `get_person_edges_since`; EXTEND with the `approach` kind and all-person scope (contract §5 G1; not built) |
-| Stale-source hold | REUSED `arrival_edges.stale_source_arrival` + the lock's hold pattern (`security_lock_regime.py` `_held_edges`) |
-| Person id rule | REUSED `person_ids.tracked_person_entity_id` / `display_of` |
-| Census boot read | REUSED `census_view.house_census_view(hass, cls="house_state")` |
-| Diagnostic getters for cross-coordinator reads | NEW small public getters on presence (`signal_consensus()`, `last_transition_time()`, `ready_event`), fan state on presence (`fan_on_since(room)` etc.; `get_fan_last_transition` already public). No new value, no new store |
-| Knobs | none new except one rung-1 kill switch (§5) |
+| Slug and display rule | REUSED `person_ids.slug_of` (`person_ids.py:40`) |
+| Person entity on a miss | NEW `person_entity_for_slug(hass, slug)` next to `person_state_for_trust` in `person_coordinator.py`: exact `person.<slug>` first (today's lookup), else the one `person.*` state whose `slug_of(entity_id)` or `slug_of(friendly_name)` equals the slug (HA sets `friendly_name` from the person's configured name); zero or two matches = None (today's answer). No equivalent after grep of `person_ids.py`, `person_coordinator.py` (`_find_person_entity` `:1812` is the same string build twice) |
+| Miss counter | NEW counter in `get_layer_diagnostics()` (`person_entity_fallback_hits`, `_misses`); no entity |
+| Knobs | none (no behavioural number) |
 
-Prior plans consulted: the ship 3 plan (§9, §11, §17), the contract, the audit, `PLANNING_person_awareness_read_api.md`
-(skim), `PLANNING_lock_suspicious_arrival_hold.md` (S1 hold semantics), `PLANNING_identity_actions_v6.md` (step 8
-reads, skim). Memory bodies: `feedback_marginal_benefit_pushback`, `feedback_extend_existing_never_rebuild`,
-`feedback_tier2db_minimum_arc` (house-state changes get 3 reviews), `reference_identity_model_f1_f5`.
-Config-first: no setting closes any leak; these are code-path routings. The G6 phone filter has an operator YES (Q1).
+Config-first: no setting changes any of these paths.
 
-## 2. Falsifiable invariants (one per card plus the ratchet)
+## 2. Is the layer's benefit still solid?
 
-- **INV-RATCHET.** After each card merges, `LAYER_ALLOWLIST_TOTAL` equals the §4 value for that card or lower, and no
-  card adds a row. Falsified by a merge whose total is higher, or by a new row under any card id.
-- **INV-NOOP-PURE.** For every site a card marks "pure migration", the consumer's output (decision, attribute, entity
-  state) is byte-identical under the live config on a recorded fixture. Falsified by any golden diff.
-- Per-card invariants are in §3 (each one names the one behaviour change it is allowed, if any).
+Contract §0a made five claims on 2026-11-13. Checked against today's code and data:
 
-## 3. The cleanup cards
+| §0a claim | Then | Today | Holds? |
+|---|---|---|---|
+| Consumers reached into census internals | ~20 private methods, 40+ calls | Producers use public `PersonCensus` delegates since ship 2 (v5.108.25), pinned by `test_no_private_census_reads_outside_module`. What remains is census display (#7, 41 rows, ruled owner-display) and census's own BLE reads (#27, 2) | Yes, largely delivered |
+| Person ids normalised in many places | 14+ inline copies, 5 reverse | 9 inline builds left (list in §1); the rule lives in one module | Partly. The one rule is still a string build, so the class of bug "entity id differs from the slug" is centralised, not removed. §3 L4 fixes the part that fails open |
+| Natural host already existed | Presence owns F1/F4/F5 getters | Still true; no new coordinator was needed for ships 1-3b, interior vision or step 8 | Yes |
+| It sets the ceiling | F5 14 d: 152 geofence / 68 BLE / 0 face; F3 name 30% entry / 49% exit | F3, last 7 days (`egress_identity_outcome`, 261 rows): entry 24 of 69 named (35%), exit 17 of 80 (21%), 112 direction-ambiguous, 10 vetoed. F5 source mix is not cheaply measurable: the counters are RAM in `get_layer_diagnostics()` and HA restarted 27 times in the window; the URA DB keeps residency edges (23 arrivals), not F5 sends by source | The ceiling is still low (exit naming fell). The layer is where it gets raised, but it has not raised it yet |
+| It lets vision lead later | Vision must feed one point | Crossing vision P3-D3 (branch, 00cd94cef) records vision direction through the one G3 path, `amend_crossing`, from one call site, so its gate could be enumerated at that one site in review. Interior vision ships 1-2 read F4 through `persons_in_room` and publish through `_emit_unnamed` | Yes, and in use this week |
 
-Effort = builder-days including the fix-up round; review time is the reviewers', counted in calendar not here.
+**What the layer has already delivered:** one read surface that every new consumer since 11-14 used instead of reaching
+into internals: G1 edges (crossing vision, music following), the class-taking census view (5 display readers plus the
+pinned trust golden), the BLE room read (interior vision), the F3 ring and the one G3 amend path (census exit backfill,
+P3-D3), typed F5 dispatch, and the guard that stops new leaks (the allowlist ratchet). That is where the value is: new
+features land on the layer and stay off the internals.
 
-### L1. G6 one BLE-in-room read (extends G6-ONE-BLE-ROOM-READ-1; folds C9 twins). Tier 2-DB. ~4 days, 1 build (2 commits)
+**What the remaining cleanup adds at the margin:** it moves old consumers that are correct today onto that surface.
+The gain is a smaller allowlist (256 -> about 160 on the old cut) and lower change risk if presence internals are
+refactored. It adds no behaviour any person in the house would notice, and the measurements in §3 found no defect it
+would cure. The only margin worth paying now is portability of the fail-open vetoes.
 
-| Group | Sites (verified 2026-11-17) | Class | Change | Rows / max |
-|---|---|---|---|---|
-| #20 room occupancy | `coordinator.py:3601` (radar-latch clear `ble_person`), `:4716` (BLE extends occupancy), `:5279` (`STATE_BLE_PERSONS` fill); unguarded `:1402` (display via `getattr`) | comfort | **behaviour:** phone-left-behind person no longer extends a room (operator Q1 YES, after the §2.4a probe) | 2 / 3 |
-| #21 phone-left-behind sensor | `binary_sensor.py:2202-2204, 2291-2293` `_is_room_occupied` private + `pc.data` | house_state | pure (public `room_occupied(room)`) | 4 / 6 |
-| #22 fan veto / fan recheck | `fan_veto.py:312` + `tracking_status` raw; `presence_fan_recheck.py:1375` `_area_id_to_room` + slug fallback `:1384-1386` | comfort | pure, plus the slug fallback becomes registry-only (registry-not-names) | 3 / 3 |
-| #27 census BLE persons | `camera_census.py:2928` `_get_ble_persons`, `:3276` `_ble_home_by_area` | producer (F2 ingest) | pure; STALE concept split kept (presence doc gold patterns: do NOT align) | 2 / 4 |
-| #26 display BLE loops | aggregation 15, sensor 12 (`sensor.py:3013, 3032, 3108` + `.data`), binary_sensor 6, house_status 1 | display | pure | 20 / 34 |
-| C9 twins (unguarded) | `presence.py:4841` zone-tier `_phone_trustworthy` routes to the one predicate; `:7580` inference twin stays for L3 | comfort | pure | 0 |
+**Verdict:** the benefit is solid. It comes from building new work on the layer, which is already happening; it does not
+depend on migrating the old consumers.
 
-Total 31 rows / 50. First commit = behaviour (#20, #21, #22, #27, twin 4841); second = display #26.
-**Invariant INV-G6:** for every room R and tick, the set of BLE persons that extends, latch-clears or fills
-`ble_persons` for R equals `persons_in_room(R)`; it differs from the raw `get_persons_in_room(R)` only by persons whose
-phone-left-behind sensor reads `on`. Falsified by a tick where a person absent from `persons_in_room(R)` extends R.
+## 3. Per-item test
+
+Measurements (read-only, 2026-11-17; recorder window 11-10 10:12 UTC to now):
+- **M1 S1 stale edges.** 40 `person.*` arrival edges (`not_home -> home` or `-> zone`). 6 stale-source (source tracker
+  last changed more than 10 s before the edge; the rule of `arrival_edges.stale_source_arrival`), all `person.oji_udezue`
+  with source `device_tracker.okosisipadmini6_2`, all on 11-15 (05:30 to 23:29 UTC), source age 24,577 to 89,345 s. 0
+  stale edges after the iPad was removed (11-15). The residency log (`person_arrival` rows, from 11-14) agrees: 6
+  `source_stale` on 11-15, 0 on 11-14 or 11-16. `sensor.ura_security_coordinator_security_armed_state` read
+  `disarmed` 36 times, `unknown` 18, `unavailable` 1, never armed, and was `disarmed` at all 6 stale edges. **Suppression
+  windows opened from a stale edge: 0.**
+- **M2 H1 boot AWAY.** 27 HA restarts in the window. The house state went AWAY within 15 min of boot 3 times (11-11
+  00:03, 11-12 18:59, 11-12 21:54 UTC). In all three every resident's `person.*` read `not_home` and AWAY lasted 37 to
+  49 min: real departures. **Boot AWAY flashes from the seed: 0 of 27.**
+- **M3 phone-left-behind.** The four `*_phone_left_behind` sensors were `on` 0.09 h, 0.06 h, 0.01 h and 0.00 h in 7 days
+  (19 short episodes). The G6 behaviour change can only act inside those 10 minutes.
+- **M4 identity vetoes on this house.** 10 vetoed egress outcomes in 7 days (7 exit, 3 entry): the string lookup hits
+  here because every person entity id equals its slug.
+
+| Item | (1) Replaced code correct today? | (2) Measured defect or risk | (3) Replacement proven? | (4) Pro / con | (5) Verdict |
+|---|---|---|---|---|---|
+| **L2-S1** security geofence listener `security.py:2198-2290` (#1, 3 rows) | Yes for every non-stale edge; acts only while armed | **Structural only.** M1: 6 stale edges in 7 days, all from the removed iPad, 0 while armed, 0 windows opened; 0 since 11-15 | G1 `subscribe_person_edges`: live since v5.108.25, 2 consumers, no incident. The stale predicate `arrival_edges.stale_source_arrival` is proven in the lock hold since v5.108.13 (0 of 40 real arrivals held, 78 of 78 blips caught) | Pro: closes a latent unlock-adjacent gap with a proven predicate. Con: changes Tier-3 access code for a path that fired 0 times while armed and whose only source was removed | **PARK.** Revival build (recorded): BUILD-MINIMAL inside the existing listener, before `add_expected_arrival`, skip a `not_home -> home` edge for which `stale_source_arrival` is True and count it (`security_stale_arrival_skipped`); no G1 move. Real arrivals have source age at most 0.0003 s, so the skip fails toward an alarm, the safe side. ~0.5 day, Tier 2 (one predicate, one site). Triggers: the SC reads any armed state in a week, OR a `person_arrival` row with `source_stale` true appears (query `memory_episodes`), OR a second GPS device is added to any `person.*` |
+| **L2-S7** perimeter third ledger `perimeter_alert.py:546, 1120` (#3, 3 rows) | Yes (same rule as `arrival_edges`, 153 tests same on base and branch) | **None.** D10.5 runs only for dual-role cameras and `dual_role_cameras` is `[]` here, so the path is dormant | G1 as above | Pro: one fewer ledger. Con: pure migration of correct, dormant code | **PARK.** Trigger: a dual-role camera is configured, or the perimeter arrival rule changes |
+| **L1 behaviour commit** #20 room occupancy PLB filter, #21 PLB sensor privates, #22 fan veto / recheck, #27 census BLE, C9 twin `presence.py:4841` (13 rows) | Yes. #20 extends a room by a raw BLE person; correct except while that person's PLB reads `on`. #21, #22, #27, twin are pure | **Measured, negligible.** M3: PLB `on` 10 min total in 7 days across 4 people, so #20 can mis-hold a room for at most that long. #22's slug fallback (`presence_fan_recheck.py:1383-1385`) normalises an area_id key from the area selector, no observed miss | `persons_in_room` live since v5.108.28 with 1 consumer (interior vision, display), no incident; never yet used by an occupancy decision | Pro: one BLE-in-room meaning across 40 rooms (operator Q1 yes). Con: a 40-room occupancy change, Tier 2-DB, to cure 10 min/week, on a read with one display consumer | **PARK.** Trigger: any person's PLB `on` exceeds 2 h in a week, OR a room hold is traced to a PLB-on person, OR a second occupancy consumer adopts `persons_in_room`. #22's fallback moves to REGISTRY-NOT-NAMES-1 |
+| **L1 display commit** #26 (20 rows / 34) | Yes (display loops) | **None** | `persons_in_room` as above | Pro: allowlist -34. Con: pure migration of display code | **PARK.** Trigger: L1 behaviour revives (then it rides the same build) |
+| **L3-H1** boot seed `presence.py:3291-3298` (#5, unguarded) | Yes. The seed reads the trust-derived identified-persons entity; awareness has its own entities | **None measured.** M2: 0 false boot AWAYs in 27 restarts; the 3 boot-adjacent AWAYs were real | `house_census_view(cls="house_state")` live since v5.108.25 for the PLB sensor, no incident; never used at boot | Pro: the seed can never follow a display entity whose meaning changes. Con: a Tier-3 house-state change at boot for a defect never observed | **PARK the code.** Add only the guard rule case (an R3 hit for an f-string `sensor.{DOMAIN}_..._persons_in_house` state read) as a test-only change in the L4 build, with one allowlist row, so the leak is counted. Trigger: the identified-persons entity's derivation changes (e.g. awareness promoted onto it), OR a boot AWAY with a resident `home` |
+| **L4** five fail-open identity vetoes + inline ids (#31, 11 rows; fold sites) | **No on a second install.** `camera_census.py:4841` (face-leg veto), `:5979` (sighting veto hint), `:6711` (stale-face latch), `transit_validator.py:2289` (egress veto) skip the veto when `person.<slug>` does not exist, and `camera_census.py:4898` (BLE crossing trackers) finds no trackers. Correct on this house (M4) | **Portability risk, measured 0 here.** An install whose person entity id is not the slug of its name (HA de-duplicated `_2`, a renamed person) gets no identity veto, silently | The old replacement (`tracked_person_entity_id`) does not fix it (string build). The minimal fix is NEW code on the miss path only; it reuses the proven `slug_of` | Pro: closes a silent fail-open on the next install; byte-identical here. Con: new helper (small), touches identity code in 5 places | **BUILD-MINIMAL** (D1 below). The rest of the old L4 (#33 getters, #34 restore move, #16, H6 delete, the other 4 inline builds) is pure migration: **PARK**, trigger: the person-id rule itself is replaced by a registry resolver (REGISTRY-NOT-NAMES-1) |
+| **L5a** 13 cross-coordinator private reads (`hvac.py:1558-1560, 2748-2749`, `coordinator.py` fan state, `coordinator_diagnostics.py`, `manager.py`, `__init__.py`) | Yes; byte-identical getters were the plan | **None**; structural only (a rename of a presence private would break the reader). The guard rows keep each one visible | Getters would be new; nothing to prove | Pro: change safety for presence refactors. Con: touches hardened HVAC Wait-for-Presence and compliance code for no behaviour | **PARK.** Trigger: any change that renames or reshapes one of those presence privates (the getter is then written in that change) |
+| L2 build 2 (lock ledger), L3-H2 (inference snapshot), L5b (presence display) | Correct (unchanged from the previous cut) | None | n/a | Parked before this ruling | **PARK** (triggers unchanged: LOCK-REGIME-BOOT-REALLY-AWAY-1 dispatched; any `_run_inference` read change or a measured tick inconsistency; a presence-private refactor) |
+
+## 4. The one build
+
+### D1. Fail-open identity vetoes resolve the real person entity (L4-min). Tier 2. ~1 builder-day
+
+`person_coordinator.person_entity_for_slug(hass, slug) -> str | None`: returns `person.<slug>` when that state exists
+(today's lookup, unchanged), else the one `person.*` state whose `slug_of(entity_id)` or `slug_of(friendly_name)`
+equals `slug`, else None. Two or more matches return None (today's answer) and count a miss. The five veto sites call it
+in place of the inline `f"person.{slug}"` (`camera_census.py:4841, 4898, 5979, 6711`, `transit_validator.py:2289`); the other four inline builds stay (parked). Plus the test-only H1 guard rule case.
+
+**Invariant INV-VETO-RESOLVE:** for every slug, the veto decision equals today's decision whenever `person.<slug>`
+exists; when it does not and exactly one person entity matches the slug by entity id or name, the veto reads that
+entity's state. Falsified by any veto decision that differs on an install where every person entity id equals its slug,
+or by a veto skipped when exactly one matching person exists.
+
 **Acceptance:**
-- **Verify (probe, D0, read-only, prober):** 7-day recorder count of ticks where a room was BLE-held by a person whose
-  `*_phone_left_behind` read `on`. Zero or near-zero = ship; otherwise the operator decides with the count (contract
-  §2.4a). Discriminates: a count of 0 with 0 PLB-on hours means the probe saw no input, report PLB-on hours too.
-- **Test:** `test_g6_room_occupancy_reads_one_meaning` (PLB-on person does not extend; PLB-unknown keeps, fail-open),
-  `test_g6_scanner_area_union_kept` (Jaya Bedroom borrows `jaya_bathroom`, presence doc §6 item 3),
-  `test_g6_display_byte_identical` (golden over the 34 display rows), per-site call-neuter drills RED.
-- **Live:** `binary_sensor.<room>_occupied` `ble_persons` attribute never lists a person whose
-  `binary_sensor.*_phone_left_behind` is `on`; allowlist total 250 -> 200 (after L2 build 1).
+- **Verify:** fixture install with `person.oji_udezue_2` (friendly name "Oji Udezue") reading `not_home` and a face leg
+  `oji_udezue`: each of the five sites vetoes (today: none does). Discriminates against "helper wired but exact path
+  changed": the same fixture with `person.oji_udezue` present gives today's result on every site.
+- **Test:** `test_veto_resolves_person_entity_not_slug` (parametrised over the five sites, each call-neutered RED),
+  `test_veto_exact_entity_byte_identical` (golden over this house's live person set), `test_person_entity_for_slug_ambiguous_is_none`,
+  guard drill for the H1 rule case.
+- **Live:** `get_layer_diagnostics()["person_entity_fallback_hits"]` = 0 and `_misses` = 0 on this house after a day
+  (every lookup is exact); egress `vetoed` outcomes per day in the same range as M4 (10 in 7 days).
+- **Guard:** allowlist total 256 -> 257 (the H1 row); no other row changes.
 
-### L2. Access edges onto G1 (STALE-SOURCE-ARRIVAL-CONSUMERS-1 + LOCK-REGIME-BOOT-REALLY-AWAY-1). Tier 3. ~6 days, 2 builds
+**Non-goals:** no G1 move, no G6 move, no getter, no restore move, no HVAC touch, no change to `tracked_person_entity_id`,
+`slug_of` or `entity_key_slug`, no change on the exact-hit path.
 
-| Group | Sites | Class | Change | Rows / max |
-|---|---|---|---|---|
-| #1 security geofence listener (S1) | `security.py:2198` `_setup_geofence_listener`, `:2231` `_resubscribe_geofence_persons`, `:2255` `_handle_person_state_change` | access | **behaviour (operator CONFIRMED 11-14):** a stale-source edge is HELD then confirmed, not acted on at once; 10/30-min windows and guest scope unchanged | 3 / 3 |
-| #3 perimeter third ledger (S7) | `perimeter_alert.py:546` `_person_arrivals`, listener `:1120`, `_nonface_agrees` `pc.data`, `_followup_person_name` raw `person.*` | security | pure (same arrival rule over G1 + `location_moves_since`) | 3 / 3 |
-| #2 lock second ledger (S2) | `security_lock_regime.py:1354` `_subscribe_person`, `async_setup` added-domain + `async_all`, `_away_due_ts`, `_away_setup`, `_away_boot_discharge` `:2646`, `_friendly`, `_person_for_sensor` `:1934`, `_start_synthetic_hold` | access | the restart / boot really-away fix is the card's own behaviour change (LOCK plan) | 9 / 9 |
-| #24 lock Bermuda moves (S3) | `_ensure_pc_listener` `:1861`, `_on_pc_update` `:1884`, `_face_arrival_corroborated` `:1825` | access | pure (`location_moves_since`); **moved here from G6 by this plan:** it is the lock's surface and access-class | 3 / 3 |
+**Tier:** Tier 2 (identity vetoes, byte-identical on this house). One plan review (this table is the plan; framing G
+included because the arc is ambitious), two framing-disjoint build reviews (A correctness incl. the ambiguous case; C
+per-site mutation on the five sites).
 
-Total 18 / 18. Build 1 = G1 extension (approach kind, all-person scope, separate deque so `recent_arrival` stays
-byte-identical, ship 3 §10) + #1 + #3. Build 2 = #2 + #24 inside the LOCK restart plan.
-**Invariant INV-ONE-LEDGER:** after build 2, no module other than `residency.py` keeps a per-person last-real or
-arrival ledger, and no `person.*` state listener exists outside `presence._handle_geofence_change` and the
-`ResidencyTracker` connect. Falsified by an R9 hit or a dict keyed by person entity filled from states (R9 polling-ledger
-rule). INV-AWAY-LATENCY unchanged (G1 never sits in front of the direct geofence trigger).
-**Acceptance:**
-- **Verify:** a stale-source `not_home -> home` (source tracker unchanged > 10 s) while armed adds no expected arrival
-  until the hold confirms; a real arrival adds it within hold + 1 s. Discriminates against "listener dropped": a guest's
-  real arrival still adds a 10-min window.
-- **Test:** `test_security_expected_arrival_via_g1_held_stale`, `test_security_approach_zone_30min_kept`,
-  `test_perimeter_d105_same_verdicts_golden`, LOCK plan tests; per-site source mutation (framing C) on each consumer's G1
-  callback.
-- **Live:** `get_layer_diagnostics()["g1_subscribers"]` = 4 (crossing vision, music, security, perimeter) after build 1,
-  5 after build 2; allowlist 256 -> 250 (build 1); build 2 removes 12 more when it revives.
+## 5. Effort
 
-### L3. Presence house-state inputs (PRESENCE-BOOT-SEED-FROM-VIEW-1 + H2 snapshot). Tier 3 (house state). ~3 days, 1 build
-
-| Group | Sites | Class | Change | Rows / max |
-|---|---|---|---|---|
-| #5 boot seed (H1), UNGUARDED | `presence.py:3291-3298` reads the identified-persons display entity into `_census_count` | house_state | **behaviour at boot only:** seed from `house_census_view(hass, cls="house_state")`, else wait for the first `SIGNAL_CENSUS_UPDATED` | 0 (adds the R3 rule case first, then removes the code) |
-| #25 inference `pc.data` (H2) | `presence.py` `_run_inference` (6 hits, `:7666`, `:8480`), `_update_ble_zone_presence` (2, `:6324`), `_is_known_person_in_room`, `_discover_guest_rooms` (`:9157`) | house_state | pure (one frozen `snapshot()` per tick) | 4 / 10 |
-| #33 presence part | `_run_inference:_lost_away_since` (`presence.py` reads the person coordinator private) | house_state | pure (public getter) | 1 / 1 |
-| C9 inference twin | `presence.py:7580` `_phone_trustworthy` closure | house_state | pure, with its existing parity test | 0 |
-
-Total 5 / 11 (+1 rule case). **Invariant INV-L3:** the golden inference replay (`away_latency_golden_develop.json` and
-the census trust golden) is byte-identical except boot ticks before the first census signal, where `_census_count` is
-the house_state view's value or unset, never a display entity state. Falsified by any non-boot golden diff, or a boot
-tick reading an entity state. Tier 2-DB minimum per `feedback_tier2db_minimum_arc`; elevated to Tier 3 because it
-threads the inference path.
-**Acceptance:**
-- **Test:** `test_boot_seed_ignores_vision_sensors` (contract), `test_inference_snapshot_golden`, guard drill: an
-  f-string `f"sensor.{DOMAIN}_..._persons_in_house"` state read is an R3 hit.
-- **Live:** after a restart, `sensor.ura_presence_coordinator_house_state` reaches its pre-restart state without an
-  AWAY flash (`last_away_branch` unchanged, `away_entries_today` not incremented by the boot); allowlist -11.
-
-### L4. Person ids and member internals (PERSON-ID-INLINE-SWEEP-1, folded). Tier 2. ~1.5 days, 1 build
-
-| Group | Sites | Change | Rows / max |
+| Item | Verdict | Builds | Builder-days |
 |---|---|---|---|
-| #31 inline `person.<slug>` | `camera_census` `_derive_ble_crossing_trackers`, `_get_face_recognized_person_names`, `face_person_would_be_vetoed`, `is_face_leg_person_vetoed`; `perimeter_alert` `_followup_person_name`, `async_setup` (`:1118`); `person_coordinator._find_person_entity`; `person_sighting._emit`; `transit_validator._resolve_egress_face_identity_ex`; `house_status.who:_find_person_entity`; `notification_manager._get_person_name` raw state (`display_of`) | byte-identical on this house (entity ids are lower-cased slugs); fixes fail-open vetoes for a display-name install (portability, `feedback_portability_imperative`) | 11 / 11 |
-| card fold 11-16 | name-vs-id readers `camera_census.py` ~6159-6176, ~6311-6320, ~3900-3912, `perimeter_alert.py` ~5117-5121; `__init__.py` ~3145-3163 rewrites `entry.data` to display names (re-grep at build) | unguarded; same rule | 0 |
-| #33 rest | `camera_census._any_zone_occupied_snapshot:_zone_trackers`, `person_coordinator._ble_leads_enabled`, `person_sighting` `_face_arrival_cooldown`, `_face_recognition_enabled`, `_zone_trackers` | public getters | 5 / 5 |
-| #34 restore writes | `aggregation.py` `seed_previous_location` / `_time` from display `async_added_to_hass` | restore moves into the person coordinator (ship 3 §17 default) | 2 / 2 |
-| #16 (unguarded) | the lock passes the egress tracker object to `door_entry_areas` | pass presence's `door_entry_entities()` | 0 |
-| H6 legacy store | `transit_validator.py:306, 670, 765, 889` `_camera_sightings` (no outside reader since PLB camera leg) | DELETE if its own reader is dead; else KEEP + DOCUMENT | 0 |
+| D1 L4-min (+ H1 guard case) | BUILD-MINIMAL | 1 | ~1 |
+| L2-S1 | PARK (revival build ~0.5 day, Tier 2) | 0 | 0 |
+| L2-S7, L1 behaviour, L1 display, L3-H1 code, rest of L4, L5a | PARK | 0 | 0 |
+| L2 build 2, L3-H2, L5b | PARK (unchanged) | 0 | 0 |
+| **Total** | | **1** | **~1** (was ~10 recommended, ~17 full) |
 
-Total 18 / 18. **Invariant INV-ID:** no `person.` string is built outside `person_ids.py` (R12) and every test fixture
-with a display-name person whose entity id differs from the slug vetoes the same as the slug case. **Test:**
-`test_veto_display_name_person_not_fail_open` (each of the five veto sites), golden for the house's live config.
-**Live:** census and egress veto counters unchanged over one day; allowlist -18.
+Order: D1 takes the next free builder slot after the current arc §4a row; it blocks nothing. The revival triggers above
+are one-shot queries (SC armed state, `person_arrival.source_stale`, PLB on-hours) to run at each session-start organic
+sweep; none needs runtime code.
 
-### L5. Presence diagnostic internals (#32). Tier 1-2. ~2.5 days full / ~1 day recommended, 1 build
+## 6. Non-goals
 
-| Part | Sites | Change | Rows / max |
-|---|---|---|---|
-| 5a cross-coordinator decision reads | `hvac.py:1558-1560` (`_ready_event`), `hvac.py:2748-2749` (`_signal_consensus`, `_last_transition_time`, comfort, D-wait gate), `coordinator.py` fan state (`_fan_on_since` ×2, `_fan_off_at`, `_fan_interference_hold_until`, `_fan_recheck_manager` `:5006`), `coordinator_diagnostics.py` compliance (`_signal_consensus`, `_consensus_low_since`), `manager.py` `_dispatch_house_state_change`, `__init__.py` `handle_fan_recheck_force_restore` | public getters, byte-identical (HVAC doc: no decision changes) | 13 / 13 |
-| 5b presence's own display entities | `sensor.py` 53 (`PresenceHouseStateSensor` 36, `PresenceDiagnosticSensor` 5, consensus 4, rearm / wake counters), `binary_sensor.py` 13 | **recommended: rule owner_display** (contract §2.7: an owner's own display entities may read its store under a counted allowlist). Full close = one `diagnostics_snapshot()` read | 63 / 66 |
-
-**Invariant:** 5a byte-identical (HVAC Wait-for-Presence gate golden; compliance defer golden). **Test:**
-`test_hvac_consensus_reads_public_getter` (call-neuter RED), `test_presence_display_attrs_golden` (5b, full close only).
-**Live:** `sensor.ura_presence_coordinator_signal_consensus_confidence` and the house-state sensor attributes unchanged;
-allowlist -13 (recommended) or -79 (full).
-
-### Feature-owned groups (counted here, built there)
-
-| Group | Rows / max | Owner | Notes |
-|---|---|---|---|
-| #10 perimeter 600 s egress cache, #13 census BLE exit listener, #19 perimeter census legs | 3 / 3 | EGRESS-DIRECTION-AWARE-IDENTITY-1 (step 7) | plus unguarded #11 (provenance on census), #12 (notify in producer), #14 (census DB amend) |
-| reserved A12, A13, D8, fast-stage G3 | 4 / 4 | step 7 / fast stage | A12 retires with step 7's master switch; A13 / D8 / G3 become permanent pinned rows (R13 class) |
-| #29 fan veto reads URA camera entity state | 1 / 1 | NVR-WITNESS-CONSOLIDATION-1 W5c | plus unguarded #8 (P3 F2 ingest, byte-identical house-count test), #17, #18 (W2) |
-| #6 literal-view display census callers | 6 / 6 | crossing-vision Phase 2 promotion | one-line `cls="display"` each |
-| #30 HVAC switch gates the BLE arrival producer | 0 (policy) | BLE-ARRIVAL-PRODUCER-HVAC-GATED-1 | before v6.0.0 (operator pick A) |
-| #9 security census input unwired | 0 | operator decision Q2 | stays open by ruling |
-
-## 4. Guard total stepping down
-
-Recommended order (§5). "Full" adds the parked pieces at the end.
-
-| Step | Card | Rows removed (max) | Total after |
-|---|---|---|---|
-| 0 | develop today | | 256 |
-| 1 | L2 build 1 (security S1 + perimeter S7 on G1) | 6 | 250 |
-| 2 | L1 G6 (behaviour + display) | 50 | 200 |
-| 3 | L4 ids + internals | 18 | 182 |
-| 4 | L3 boot seed only (recommended part) | 0 (+ closes unguarded #5) | 182 |
-| 5 | L5a cross-coordinator reads | 13 | 169 |
-| 6 | L5b rule owner_display (a reviewed allowlist re-label, not a code change; rows stay, card owner changes) | 0 | 169 |
-| 7 | feature cards as they ship (step 7 3 + A12 1, W5c 1, crossing-vision P2 6) | 11 | 158 |
-| **Recommended floor** | permanent 66 + 3 pinned reserved + 66 owner_display (5b) + parked L2 build 2 (12) + parked L3 H2 (11) | | **158** |
-| Full close | + L2 build 2 (12), L3 H2 (11), L5b getters (66) | 89 | **~69** |
-
-(The ratchet constant moves at each merge; a re-label in step 6 changes no total.)
-
-## 5. Recommended order (does not displace arc §4a)
-
-Arc §4a rule: nothing new is dispatched unless it is the next open §4a row or the operator asks. So every L card waits
-for a free builder slot after the current §4a row's build; none blocks or reorders §4a rows 3, 5, 6, 7.
-
-1. **L1 D0 probe** (read-only, `ura-prober`, ~1 h): runs any time, no builder slot.
-2. **L2 build 1** (security S1 + perimeter S7): the only HIGH live-risk leak (audit S1: 78 iPad blips/week could open
-   suppression windows while armed). First builder slot after step 7's build is dispatched.
-3. **L1 G6**: next free slot; shares the F4-BLE seam with interior vision (`persons_in_room` already built there).
-4. **L4 ids**: Tier 2, small, any free slot. Portability value for the second install.
-5. **L3 boot seed (H1 only)**: next free slot after a restart-safe window (`feedback_no_restart_during_sleep`).
-6. **L5a**: smallest; can ride in the same build as L4 if both are free.
-7. Parked (revival triggers in §6): L2 build 2 (lock ledger), L3 H2 snapshot, L5b getters.
-
-Knob: one rung-1 kill switch, `G6_ROOM_OCCUPANCY_PHONE_FILTER_ENABLED` (const, default True; False = room occupancy
-reads `persons_in_room(..., phone_filter=False)`, the named second meaning of contract §2.4a). Rung 1 because it gates a
-40-room behaviour that should change only by review. No other numbers are added; L2 reuses
-`LOCK_ARRIVAL_STALE_SOURCE_S` (10 s) and the arrival-hold Number.
-
-## 6. Marginal-benefit decomposition (the recommended cut)
-
-- **L2 build 2 (lock ledger, Tier 3, ~3 days):** the lock's ledger is correct today (presence doc §1, suspicious-arrival
-  hold, 0 of 40 real arrivals held). Benefit = one ledger (INV-ONE-EDGE-LEDGER) and 12 rows. Risk = an access actuator
-  rewrite. **Park** with trigger: LOCK-REGIME-BOOT-REALLY-AWAY-1 is dispatched for its own restart defect (then do #2 and
-  #24 in that build, no extra review cost).
-- **L3 H2 (inference snapshot, Tier 3, ~2 days):** reads are correct today; the parity test pins the twin. Benefit = 11
-  rows. Risk = the house-state inference path (INV-AWAY-LATENCY). **Park** with trigger: any presence inference change
-  that touches `_run_inference` reads, or a measured tick-inconsistency between two `pc.data` reads.
-- **L5b (66 presence display rows):** display only, no decision reads them, and contract §2.7 already allows an owner's
-  display entities. Writing ~50 getters buys nothing a consumer can feel. **Rule owner_display**; revive if the presence
-  privates are refactored (the getters then come for free).
-- Kept in the recommendation: everything with live risk (S1), a behaviour the operator approved (G6 Q1), boot AWAY risk
-  (H1), fail-open vetoes on a second install (ids), and every cross-coordinator decision read (L5a).
-
-## 7. Non-goals
-
-No new fact, store or coordinator. No AWAY trigger change (INV-AWAY-LATENCY). No change to S1's 10/30-min windows or
-guest scope. No wiring of the security census input (#9). No NVR classifier work outside W2/W5. No step-7 work. No
-change to the STALE concept split (presence doc gold patterns). No allowlist rows added by any card.
-
-## 8. Tier classification
-
-L1 Tier 2-DB (40-room behaviour change, cross-coordinator). L2 Tier 3 (access; build 1 touches security alarm suppression,
-build 2 the lock). L3 Tier 3 (house state; minimum Tier 2-DB per operator rule, elevated because it threads inference).
-L4 Tier 2 (byte-identical here; identity vetoes). L5a Tier 1 with an HVAC byte-identity golden (touches `hvac.py`;
-HVAC state-of-play gets a one-line write-back). Plan reviews before build per CLAUDE.md: L2 and L3 two framing-disjoint
-plus framing G; L1 one plus G; L4, L5 card `next` is the plan.
-
-## 9. Effort summary
-
-| Card | Tier | Builds | Builder-days | In recommended cut |
-|---|---|---|---|---|
-| L1 G6 one BLE-in-room read | 2-DB | 1 | 4 | yes |
-| L2 access edges on G1 | 3 | 2 | 6 (build 1: 3) | build 1 only |
-| L3 presence house-state inputs | 3 | 1 | 3 (H1: 1) | H1 only |
-| L4 person ids + internals | 2 | 1 | 1.5 | yes |
-| L5 presence diagnostic internals | 1-2 | 1 | 2.5 (5a: 0.5) | 5a only (+ 5b ruling) |
-| **Total** | | **6** | **~17** | **4 builds, ~10 days** |
+No new fact, store or coordinator. No AWAY trigger change. No change to S1's windows or guest scope. No HVAC change. No
+migration of correct code onto the layer in this cut. No allowlist row added except the H1 rule case.

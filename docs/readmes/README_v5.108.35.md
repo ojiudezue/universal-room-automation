@@ -69,7 +69,17 @@ drills: alias set dropped, area-match return removed, covered-room suffix remove
 3. Next TV-audio session on the Master Bedroom Sonos with a room move: `Music follow decision ... outcome=source_not_transferable reason=content=x-sonos-htastream:` and no volume dip.
 4. First real-music move (Spotify / MA queue): not `verify_failed`.
 
-## Validated (to be written back after install)
+## Validated 2026-11-17
+
+Installed v5.108.35; HA core restarted 08:50:54 CST (house state away). Entries moved from setup_in_progress to loaded 08:52-08:57.
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Install | PASS | `/config/custom_components/universal_room_automation/manifest.json` version v5.108.35; tag grep: `_rooms_by_area_word` (person_sighting.py), `_non_transferable` (music_following.py), `MF_NON_TRANSFERABLE_SOURCE_PREFIXES` (const.py) |
+| Entries | PASS | 50/50 URA entries `loaded` (`ha_get_integration`) |
+| Errors | PASS | No URA ERROR lines since the restart; one unrelated MQTT non-numeric sensor error 08:52:47; interior vision `tick_errors` 0 |
+| 1, 2 describe | Pending event | Operator-only; "describe living room" already worked on v5.108.34 at 08:44 |
+| 3, 4 music | Pending event | No `music_follow_decision` since the restart |
 
 ## Not done
 

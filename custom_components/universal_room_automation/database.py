@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv5.108.35
+# Universal Room Automation vv5.108.36
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -11215,9 +11215,14 @@ class UniversalRoomDatabase:
         start_utc_iso: str,
         end_utc_iso: str,
         attr_outcomes: Iterable[str],
+        call_kind: str | None = None,
     ) -> tuple[int, bool]:
         """Count ``episode_type`` rows with ``start <= ended_at < end`` whose
         ``attrs_json`` ``$.outcome`` is one of ``attr_outcomes``.
+
+        ``call_kind`` (crossing vision P3-D3): None counts every row (the
+        P3-D5 shape); otherwise only rows whose ``$.call_kind`` equals it,
+        a missing key reading as ``"primary"`` (rows written before P3-D3).
 
         Crossing vision P3-D5 (restart-durable daily cap): the producer
         writes ``ended_at`` at the call outcome (``dt_util.utcnow()
@@ -11235,13 +11240,20 @@ class UniversalRoomDatabase:
             return 0, True
         try:
             marks = ", ".join("?" for _ in outcomes)
-            async with self._db_read() as db:
-                cursor = await db.execute(
-                    "SELECT COUNT(*) FROM memory_episodes "
-                    "WHERE episode_type = ? AND ended_at >= ? AND ended_at < ? "
-                    f"AND json_extract(attrs_json, '$.outcome') IN ({marks})",
-                    (episode_type, start_utc_iso, end_utc_iso, *outcomes),
+            sql = (
+                "SELECT COUNT(*) FROM memory_episodes "
+                "WHERE episode_type = ? AND ended_at >= ? AND ended_at < ? "
+                f"AND json_extract(attrs_json, '$.outcome') IN ({marks})"
+            )
+            params: list[Any] = [episode_type, start_utc_iso, end_utc_iso, *outcomes]
+            if call_kind is not None:
+                sql += (
+                    " AND COALESCE(json_extract(attrs_json, '$.call_kind'), "
+                    "'primary') = ?"
                 )
+                params.append(str(call_kind))
+            async with self._db_read() as db:
+                cursor = await db.execute(sql, tuple(params))
                 row = await cursor.fetchone()
                 return (int(row[0]) if row and row[0] is not None else 0), True
         except Exception as e:  # noqa: BLE001

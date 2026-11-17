@@ -61,7 +61,8 @@ def test_allowlist_is_final_post_census_p2():
     assert A.PROVISIONAL is False
     # 259/231 at ship 3a; -3 at the music-following repair merge (three #23
     # music_following.py person_coordinator.data reads moved to the public API).
-    assert A.LAYER_ALLOWLIST_TOTAL == 256 and len(A.ROWS) == 228
+    # +1 at crossing vision P3-D3 (the G3 feeder _amend_vision_direction, R13).
+    assert A.LAYER_ALLOWLIST_TOTAL == 257 and len(A.ROWS) == 229
     assert A.LAYER_ALLOWLIST_TOTAL == sum(r["max"] for r in A.ROWS.values())
 
 
