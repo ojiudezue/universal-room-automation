@@ -9,6 +9,8 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {"fid": "EXTERIOR-PERSON-SEVERITY-ARRIVING-BODY-ONLY-1@2026-11-17T02:08:00", "card_id": "EXTERIOR-PERSON-SEVERITY-ARRIVING-BODY-ONLY-1", "at": "2026-11-17T02:08:00", "outcome": "done", "headline": "Closed after measuring 14 days: no outdoor alert was softened to LOW because the house read 'arriving'. Since 11-13 an 'arriving' with no resident evidence makes outdoor alerts CRITICAL instead, so the rule errs toward alerting.", "acknowledged": false}
+  - {"fid": "EXTERIOR-PERSONS-HOME-ALWAYS-ZERO-1@2026-11-17T02:08:00", "card_id": "EXTERIOR-PERSONS-HOME-ALWAYS-ZERO-1", "at": "2026-11-17T02:08:00", "outcome": "done", "headline": "Closed: the 'people home always reads 0' bug in outdoor alerts was fixed in v5.108.19. It still reads 0 on purpose, behind a setting, so outdoor alerts are never softened while people are home. Changing that would be your call.", "acknowledged": false}
   - {"fid": "LLMVISION-TIMEOUT-LEAK-UPSTREAM-1@2026-11-17T02:07:00", "card_id": "LLMVISION-TIMEOUT-LEAK-UPSTREAM-1", "at": "2026-11-17T02:07:00", "outcome": "escalated", "headline": "The 'llmvision keeps billing after a timeout' claim does not hold up in its code, so I closed that card. The check turned up a different real bug: on a timeout it leaves the downloaded video file behind and never stops ffmpeg, because the stop check is written backwards. I drafted the upstream report. Your call: approve posting it.", "acknowledged": false}
   - {"fid": "SOAK-EXIT-SWEEP@11-17", "card_id": "SOAK-EXIT-SWEEP", "at": "2026-11-17T02:07:00", "outcome": "done", "headline": "Closed 5 shipped fixes: no optimizer 'meta' pages since 11-10 (no serious meta finding has come up to test it, so the proof is the test suite); no false battery 'self-heal' pages since 11-12 (there were 3 bursts the week before); Garage A fan re-check settings held through the 11-16 restart; the release script now marks one-line cards shipped; the security geofence fix is live.", "acknowledged": false}
   - {"fid": "WALLPANEL-TOUCH-WITNESS-1@2026-11-17T02:07:00", "card_id": "WALLPANEL-TOUCH-WITNESS-1", "at": "2026-11-17T02:07:00", "outcome": "parked", "headline": "Parked the wall-panel Bluetooth test as the card said I would if there was no answer by the next session. It comes back when you do the 10-minute solo stand in the Foyer and the Media Room.", "acknowledged": false}
@@ -35884,16 +35886,17 @@ cards:
   arc_cut_v5_108_18: "own fix next"
   title: perimeter_alert._get_persons_home always returns 0 in production (asks the coordinator manager for a presence attribute it does not have), so day/evening exterior alerts are always HIGH
   thread: security
-  status: inbox
+  status: done
   batch: person-sightings
   created: '2026-11-13 05:30'
-  updated: '2026-11-13 05:30'
+  updated: '2026-11-17 02:08'
   tier: 2
   links: {parent: FACE-ARRIVAL-REBUILD-1, related: [EXTERIOR-PERSON-SEVERITY-ARRIVING-BODY-ONLY-1, HOUSE-STATE-FIRST-PRINCIPLES-1]}
   origin: {date: '2026-11-13', gist: 'House-state step-1 plan review (build-prediction C1): perimeter_alert.py:2013-2032; only a test fake sets the attribute (test_house_state_sleep_mask_ble_memory.py:310), so the test is hollow. Also security entry verdict reads census persons_home that nothing writes.'}
   why: 'Severity keyed on residents home has never worked; safe direction today (over-alerts) but any fix changes paging and must not lower it while the house is empty.'
   next: 'Me: folded into the house-state step-1 plan (getters defined with real producers); fix together with exterior severity.'
   rank: {value: 6, time_criticality: 3, effort: 2}
+  disposition_2026_11_17_overnight: "ALREADY-DONE (lookup) + deliberate default, closed. v5.108.19 (a0d590ef2) replaced the dead manager.presence lookup: perimeter_alert.py:2216-2234 now reads presence.get_residents_home_count() from the residency producer, behind EXTERIOR_SEVERITY_PERSONS_HOME_FROM_RESIDENCY (const.py:2865) which is False on purpose, so paging is never lowered (INV-NO-LOWER) and the result stays 0. Turning it on would LOWER day/evening exterior alerts when residents are home, a security de-escalation that needs your call; not proposed now. The second half of the origin (security entry verdict reads census persons_home that nothing writes, security.py:296) belongs to SECURITY-CENSUS-UNKNOWN-WIRE-1, which owns the census -> security wiring."
 - id: EXTERIOR-PERSON-SEVERITY-ARRIVING-BODY-ONLY-1
   arc_cut_v5_108_32: "person-sightings batch, separate surface from interior describe"
   arc_cut_v5_108_25: "perimeter surface, inbox"
@@ -35905,10 +35908,10 @@ cards:
   arc_cut_v5_108_18: "folds into step 1a"
   title: While the house reads ARRIVING, exterior-person alerts drop to LOW, so a body-only ARRIVING softens real alerts
   thread: security
-  status: investigating
+  status: done
   batch: person-sightings
   created: '2026-11-13 03:00'
-  updated: '2026-11-17 02:07'
+  updated: '2026-11-17 02:08'
   tier: 2
   links: {parent: FACE-ARRIVAL-REBUILD-1, related: [LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1]}
   origin: {date: '2026-11-13', gist: 'Lock-release plan completeness review M6 (const.py:2799); scoped out of the lock-release plan rev 2.'}
@@ -35916,6 +35919,7 @@ cards:
   next: 'Me: measure how many exterior-person alerts were downgraded under a false ARRIVING; decide severity keying on resident arrival evidence.'
   rank: {value: 5, time_criticality: 3, effort: 2}
   measuring_2026_11_17_overnight: 'Read-only measurement dispatched ~02:06 CST (ura-prober): how many perimeter alerts were lowered to LOW under ARRIVING in 14 days, and how many of those ARRIVING windows had no real resident arrival. Report -> docs/planning/AUDIT_exterior_alert_arriving_downgrade_2026_11_17.md.'
+  disposition_2026_11_17_overnight: "ALREADY-DONE + premise stale, closed. Measured (AUDIT_exterior_alert_arriving_downgrade_2026_11_17.md, URA DB read-only, 14 days): 1,372 exterior_person alerts, 31 ARRIVING periods (1 min each), 6 alerts inside ARRIVING, all MEDIUM, none LOW; the 5 LOW alerts were in other house states. Since a0d590ef2 (house-state step 1a D5) ARRIVING with no resident evidence resolves CRITICAL, not LOW (const.py:2936-2946, knob EXTERIOR_SEVERITY_ARRIVING_NEEDS_RESIDENT=True at :2859, verified by me). 11 ARRIVING periods since, 0 alerts in them. Of the 5 ARRIVING periods with alerts, 3 were real arrivals and 2 (11-06) predate recorder history. No harm found; the rule now errs toward over-alerting. Gap noted, not carded: notification_log keeps no house_state or downgrade reason (the audit joined house_state_log by time)."
 - id: FRIGATE-DOOR-FACE-TUNING-1
   status_change_2026_11_15: 'waiting_operator -> waiting_me: the next is my hand-off to the homelab session, not an operator action. Homelab commits since 11-12 touch perimeter masks and status panels, none apply the door-face audit, so the hand-off has not landed.'
   title: Door and exterior cameras recognize few faces (garage 36, doorbell 33, entry 16, aerial 7 since 11-05; 9 cameras zero), capping egress identity near 40%
