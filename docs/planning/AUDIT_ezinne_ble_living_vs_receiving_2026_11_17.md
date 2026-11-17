@@ -102,3 +102,11 @@ Falsifier: after the change, Receiving Room should fall from about 21% of the ho
 - Her actual position relative to BP1_B and the Wall Displays is not knowable from the registry.
 - Kitchen, Patio and Breakfast hits (about 24% of the hour) may be real movement or bleed. I did not separate them.
 - Oji, Jaya and Ziri have no Bermuda fix right now, so no cross-person comparison was possible.
+
+## Result after the change (2026-11-17)
+
+BP1_B (08:ad:0a:5b:e6:5a) rssi_offset 0 -> +3 applied through the Bermuda options flow (operator: "Do it. Be careful."),
+all other offsets preserved. Window 11:50 CST to the re-measure (~2.5 h; the panel scanners also returned at 12:18 with
+the Kiosk Satellite BT-MAC switch): `sensor.ezinne_iphone_area` Living Room 95%, Receiving Room 4% (was 21%), Foyer 1%,
+29 brief changes; `sensor.universal_room_automation_ezinne_location` Living Room 95%, Foyer 2%, Receiving Room 2%,
+7 changes. Falsifier met (Receiving Room in low single digits): the cause was margin. No step to +5.
