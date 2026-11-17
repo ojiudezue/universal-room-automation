@@ -1,0 +1,20 @@
+{
+  "format_version": "2.1",
+  "entry_id": "333",
+  "author": "ojiudezue",
+  "session_id": "claude_20261117_overnight_pass",
+  "timestamp": "2026-11-17T08:10:00Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "Overnight pass takes the never-vetoed default A on the false 'impossible move' flood",
+  "summary": "Overnight pass takes the never-vetoed default A on the false 'impossible move' flood",
+  "context": "The transit validator flags a room move implausible whenever any hallway camera fired in the last 10 min and none saw this move; it never checks that a camera covers the path. The flood rose from ~80/day to ~230/day after 11-14 and each false flag also cuts move confidence (music following).",
+  "why": "Option A was offered 11-13 as the default with 'if you have not vetoed by the next session I take A', and three attended sessions passed without a veto. The card is Tier 2, so the overnight contract allows build-to-review but not deploy. A narrows the penalty to moves whose from/to room has its own shared camera, resolved through the registry, which keeps the real implausible case and removes the bedroom-to-own-bathroom noise.",
+  "implications": "Fix built to review only on fix/anomaly-flood-transit-coverage; deploy waits for an attended session. Transit paths through a hallway between two uncovered rooms lose the implausible check (accepted: the validator never had topology).",
+  "revisit_trigger": "If camera-covered implausible rows stay near zero after deploy, check whether the coverage resolver maps rooms to areas at all.",
+  "refs": {
+    "cards": [
+      "ANOMALY-FLOOD-ROWS-1"
+    ]
+  }
+}

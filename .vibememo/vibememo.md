@@ -52,3 +52,8 @@ Interior vision ship 2 (describe a room by text, Foyer fisheye unwarped in URA) 
 The arrival engine then shipped as v5.108.33 under option B. Start and welcome scene act now. Stop and pause are held to a conservative ownership rule until a live MA test, because stopping chosen music is the costly mistake; v6.0.0 is anchored to that test. → [330](users/ojiudezue/entries/330_arrival_engine_ships_option_b.json)
 
 One correction: the merge meant to bring in the boot-settle fix had merged master instead, so v5.108.33 went out without it while its README said otherwise. A grep of the release tag for the new constant caught it before install, and the fix ships as v5.108.34. Ancestry has to be checked against the fix commit's own hash, not the merge's. → [331](users/ojiudezue/entries/331_merge_took_master_not_the_fix.json)
+
+
+The 11-17 overnight pass took the default it had offered on the false 'impossible room move' flood (about 230 a day since 11-14): flag a move only when a camera covers that room, built to review and held for an attended deploy. → [333](users/ojiudezue/entries/333_overnight_takes_default_a_on_transit_flood.json)
+
+One counseling note from the same pass: feed and card times were typed from a felt sense of elapsed work and ran up to 48 minutes ahead of the real clock. They were rewritten; edit scripts now read the clock themselves. → [334](users/ojiudezue/entries/334_overnight_timestamps_must_come_from_date.json)
