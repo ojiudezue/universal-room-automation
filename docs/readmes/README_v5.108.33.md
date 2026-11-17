@@ -102,6 +102,10 @@ meant to bring it in merged master instead, so the fix did not ship here. It shi
   paused, so no decision depends on them).
 - A foreign write inside the 20 s verify wait (before the ownership listener starts) is not seen.
 
+Installed as part of v5.108.34 (2026-11-16, restart 15:32 CST). All 50 entries `loaded`, no URA errors.
+
 | Criterion | Result | Evidence |
 |---|---|---|
-| (pending) | | |
+| Engine loaded, master on | PASS | `arrival_master_on` defaults ON (unset); `switch.ura_music_following_enabled` on; 4 `sensor.ura_person_profile_*` present, `last_arrival_action` None |
+| Engine can act | BLOCKED on operator config | No `person_profiles` stored on any entry: every profile reads `rooms: []`, `music: {}`, `welcome_scene: None`, so no start / scene can fire until the People screen is filled |
+| 1-5 live checks | Pending | Need profiles, then the live MA test with the operator |

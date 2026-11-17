@@ -55,12 +55,12 @@ All 50 URA config entries `loaded`; no URA ERROR/CRITICAL in the system log.
 
 | # | Result | Evidence |
 |---|---|---|
-| S3a-1 | PASS (title), row missing: residual | `select.ura_chatter_mode` = `act`; watchdog `last_fired.chatter` 06:38:30; NM dedup cache holds `stuck_signal:Chattering sensor: Garage B — binary_sensor.ratgdov25i_dbfe2a_motion:chatter` (act-form title, `coordinator.py:3304-3308`). Pre-deploy rows (e.g. 27504) used the shadow form. No `notification_log` row: NM boot-settle (`notification_manager.py:1797-1806`, 60 s) collapsed it into the dutycycle NM sent 9 s earlier (rows 27548/27549), and the stuck-signal day latch was still set. Carded on STUCK-SENSOR-S3B-S1-1 (`residual_2026_11_16_boot_settle_drops_chatter`). |
+| S3a-1 | PASS (title), row missing: residual | `select.ura_chatter_mode` = `act`; watchdog `last_fired.chatter` 06:38:30; NM dedup cache holds `stuck_signal:Chattering sensor: Garage B — binary_sensor.ratgdov25i_dbfe2a_motion:chatter` (act-form title, `coordinator.py:3304-3308`). Pre-deploy rows (e.g. 27504) used the shadow form. No `notification_log` row: NM boot-settle (`notification_manager.py:1797-1806`, 60 s) collapsed it into the dutycycle NM sent 9 s earlier (rows 27548/27549), and the stuck-signal day latch was still set. Carded on STUCK-SENSOR-S3B-S1-1 (`residual_2026_11_16_boot_settle_drops_chatter`), fixed in v5.108.34. Outside boot, the act-form chatter page lands: row 27776 (Garage A, 13:00 CST). |
 | S3a-2 | Criterion unobservable as written | `excluded_sensors` is built only from the dutycycle set (`sensor.py:2613-2616`); the chatter client in `_exclusion_set` (`coordinator.py:3267-3270`) is not exposed by any entity. Watchdog `stuck_sensors` shows `{'Garage B': {...motion: 'chatter'}}` but that label is mode-independent. In-suite proof only. |
 | S3a-3 | Pending event / in-suite | Needs an operator flip; the INFO line is not in the WARNING+ system log. |
 | S3b-1 | Pending event | Precondition holds: Media, Guest 1, Guest 2 MS600 devices resolve by registry `model` `ms600-un` (`model_id` None). Needs a bit-only tick. |
 | S1-1 | Pending event | No qualifying ≥ 4 h motion-class run at validation time. |
-| S1-2 | Pending event | No `continuous` rows since restart. |
+| S1-2 | PASS (organic) | One `continuous` page for (Living Room, screek presence) today: row 27786 at 13:09 CST, count 1 for the day. |
 
 Boot transients dismissed: one `RuntimeError` (`async_write_ha_state` off-loop) at `switch.py:1637`, the v4.7.x EC sub-switch deferred restore, not this release; recovery/zone-seed/linker-ordering WARNINGs, all boot ordering.
 

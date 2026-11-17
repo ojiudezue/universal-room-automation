@@ -1,0 +1,20 @@
+{
+  "format_version": "2.1",
+  "entry_id": "334",
+  "author": "ojiudezue",
+  "session_id": "claude_20261117_overnight_pass",
+  "timestamp": "2026-11-17T08:10:00Z",
+  "type": "counseling",
+  "weight": "significant",
+  "title": "Overnight feed timestamps were estimated ahead of the clock and had to be rewritten",
+  "summary": "Overnight feed timestamps were estimated ahead of the clock and had to be rewritten",
+  "context": "During the 11-17 overnight pass I stamped cards and feed entries 02:12-02:55 from a felt sense of elapsed work; `date` read 02:07. The skill already forbids this (coined 10-14 after the same mistake).",
+  "why": "Invented times corrupt the 24 h counter, staleness order and the anti-starvation tie-break, and read as evidence. Corrected every stamp from that run in one commit (c9e5fdd8c) and switched the later edits to read `date` inside the edit script.",
+  "implications": "Every timestamp written by an edit script should come from the clock inside that script, not from a literal typed by the agent.",
+  "revisit_trigger": "If a feed entry is ever dated after the commit that wrote it, the rule failed again; add a renderer check (at > commit time) instead of another rule.",
+  "refs": {
+    "cards": [
+      "BOARD-AUTONOMY-PROGRESS-1"
+    ]
+  }
+}

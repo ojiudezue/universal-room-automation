@@ -215,7 +215,8 @@ async def test_describe_person_name_forms_and_ambiguous_first_name(drig, monkeyp
     tracked people refuses (never guesses one)."""
     monkeypatch.setattr(drig.census, "tracked_person_slugs",
                         lambda: ["ezinne_a", "ezinne_b", "jaya"])
-    assert _ask(drig, "ezinne") == "I don't know a room or person called 'ezinne'."
+    assert _ask(drig, "ezinne") == ("I don't know a room or person called 'ezinne'. "
+                                     "Rooms with a camera: Family Room, Master Hallway.")
     assert _ask(drig, "Ezinne A") == "Can't place Ezinne A right now."
     assert _ask(drig, "ezinne_b") == "Can't place Ezinne B right now."
     monkeypatch.setattr(drig.census, "tracked_person_slugs", lambda: ["ezinne_a", "jaya"])

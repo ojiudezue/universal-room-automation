@@ -1030,9 +1030,20 @@ class PersonSightingProducer:
         want = " ".join(target.split()).casefold()
         if not want:
             return None, "", "Describe what? Send 'describe <room>' or 'describe <person>'."
-        for name in self._room_entries():
+        rooms_cfg = self._room_entries()
+        for name in rooms_cfg:
             if name.casefold() == want:
                 return name, "", None
+        # The household's word for a room is often its HA area name or an
+        # area alias ("family room" for the Living Room). Area registry only,
+        # through the room's configured area id; never entity/camera names.
+        by_area = self._rooms_by_area_word(rooms_cfg)
+        hits = by_area.get(want, [])
+        if len(hits) == 1:
+            return hits[0], "", None
+        if len(hits) > 1:
+            return None, "", (f"'{target.strip()}' could mean "
+                              f"{', '.join(sorted(hits))}. Send the room name.")
         slugs = self._tracked_slugs()
         firsts: dict[str, list[str]] = {}
         for s in slugs:
@@ -1042,7 +1053,11 @@ class PersonSightingProducer:
         if slug is None and len(firsts.get(want, ())) == 1:
             slug = firsts[want][0]
         if slug is None:
-            return None, "", f"I don't know a room or person called '{target.strip()}'."
+            msg = f"I don't know a room or person called '{target.strip()}'."
+            covered = self._covered_room_names()
+            if covered:
+                msg += f" Rooms with a camera: {', '.join(covered)}."
+            return None, "", msg
         who = display_of(slug)
         pc = self.hass.data.get(_c.DOMAIN, {}).get("person_coordinator")
         rooms = self._room_entries()
@@ -1261,6 +1276,40 @@ class PersonSightingProducer:
         from homeassistant.helpers import entity_registry as _er  # noqa: PLC0415
 
         return _er.async_get(self.hass), _dr.async_get(self.hass)
+
+    def _rooms_by_area_word(
+        self, rooms: dict[str, dict[str, Any]],
+    ) -> dict[str, list[str]]:
+        """Normalised area name / alias -> URA room names, via each room's
+        CONF_AREA_ID in the HA area registry."""
+        out: dict[str, list[str]] = {}
+        try:
+            from homeassistant.helpers import area_registry as ar  # noqa: PLC0415
+            areg = ar.async_get(self.hass)
+        except Exception:  # noqa: BLE001
+            return out
+        for room, cfg in rooms.items():
+            area_id = cfg.get(_c.CONF_AREA_ID)
+            try:
+                area = areg.async_get_area(area_id) if area_id else None
+            except Exception:  # noqa: BLE001
+                area = None
+            if area is None:
+                continue
+            words = {area.name, *(getattr(area, "aliases", None) or ())}
+            for w in words:
+                key = " ".join(str(w).split()).casefold()
+                if key and room not in out.setdefault(key, []):
+                    out[key].append(room)
+        return out
+
+    def _covered_room_names(self) -> list[str]:
+        """Sorted room names that have an interior camera group."""
+        try:
+            self._ensure_interior_groups()
+        except Exception:  # noqa: BLE001
+            return []
+        return sorted({g["room"] for g in self._interior_groups if g.get("room")})
 
     def _room_entries(self) -> dict[str, dict[str, Any]]:
         """URA room entries by room name (merged data + options)."""
