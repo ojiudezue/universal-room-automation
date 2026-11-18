@@ -1,16 +1,25 @@
 #!/usr/bin/env python3
-"""kanban_render.py — render kanban.data.yaml into KANBAN.md + kanban_board.html.
+"""kanban_render.py — render kanban.data.yaml into KANBAN.md + kanban_board.html
+(+ kanban_decisions.html, the operator decision queue).
 
-Pure function of the data file: same input -> byte-identical output.
+Pure function of the data file: same input -> byte-identical output. (Due-date
+"soon"/"OVERDUE" chip styling is applied client-side at view time, so the
+rendered bytes never depend on the wall clock.)
 
-Exit codes:
-  0 = fresh (rendered, meta.last_reconciled is up to date)
+Exit codes (--check; precedence 3 > 2 > 4):
+  0 = fresh (rendered, meta.last_reconciled is up to date, nothing due)
   1 = error
   2 = stale (rendered anyway; STALE banner in both outputs)
+  3 = unapplied operator dispositions queued (apply the queue first)
+  4 = otherwise fresh, but >=1 non-done card is OVERDUE or due within
+      DUE_SOON_HOURS (or has an unparseable `due:`). The list is printed to
+      stderr under --check whatever the exit code.
 
 Usage:
-  python3 scripts/kanban_render.py                   # write both outputs
+  python3 scripts/kanban_render.py                   # write all outputs
   python3 scripts/kanban_render.py --check           # exit code only, no writes
+  python3 scripts/kanban_render.py --due             # print due/overdue follow-ups
+  python3 scripts/kanban_render.py --due --hook-json # same, as SessionStart hook JSON
   python3 scripts/kanban_render.py --data <path>     # override data file
 """
 from __future__ import annotations
@@ -30,7 +39,13 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATA = REPO_ROOT / "docs" / "planning" / "kanban.data.yaml"
 DEFAULT_MD = REPO_ROOT / "docs" / "planning" / "KANBAN.md"
 DEFAULT_HTML = REPO_ROOT / "docs" / "planning" / "kanban_board.html"
+DEFAULT_DECISIONS = REPO_ROOT / "docs" / "planning" / "kanban_decisions.html"
 DEFAULT_PENDING = REPO_ROOT / "docs" / "planning" / "kanban.dispositions.pending.jsonl"
+
+# A card's `due:` counts as "due soon" this many hours ahead (module constant:
+# changing what the session-start gate flags should go through review; the
+# --due-window-hours flag overrides it per call).
+DUE_SOON_HOURS = 24
 README_DIR = REPO_ROOT / "docs" / "readmes"
 
 # URA brand favicon — 48x48 PNG from universalroom.org/assets/brand/icon.png,
@@ -66,6 +81,7 @@ STANDARD_FIELDS = {
     "knobs", "depends_on", "blocks", "sibling_of",
     "batch", "seq", "shipped_version",
     "links", "rank", "live_broken", "disposition",
+    "due", "due_note",  # durable due-dated follow-ups (see parse_due / due_entries)
     "_wsjf", "_lane_rank",  # transient render-only annotations (see compute_wsjf/group_cards)
 }
 
@@ -235,6 +251,92 @@ def autonomy_stats(data: dict, now: _dt.datetime | None = None) -> dict:
             live.append({**e, "_sort": ts or _dt.datetime.min})
     live.sort(key=lambda e: e["_sort"], reverse=True)
     return {"num": last24, "denom": denom, "live": live}
+
+
+# ---------- due-dated follow-ups (durable timers) ----------
+# A card may carry `due: 'YYYY-MM-DD HH:MM'` (local time) + optional `due_note`.
+# This replaces in-session timers: the follow-up lives in the data file, so
+# every session start (hook + --check) surfaces it whether or not the session
+# that set it is still alive.
+
+_DUE_FORMATS = ("%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S",
+                "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d")
+
+
+def parse_due(value: Any) -> _dt.datetime | None:
+    """Parse a card's `due` into a naive LOCAL datetime; None if unparseable/absent.
+
+    Accepts a quoted string in any _DUE_FORMATS, or a YAML-native date/datetime
+    (tz-aware values are converted to local time). A bare date means 00:00.
+    """
+    if value is None or value == "":
+        return None
+    if isinstance(value, _dt.datetime):
+        if value.tzinfo is not None:
+            value = value.astimezone().replace(tzinfo=None)
+        return value
+    if isinstance(value, _dt.date):
+        return _dt.datetime(value.year, value.month, value.day)
+    s = str(value).strip()
+    for fmt in _DUE_FORMATS:
+        try:
+            return _dt.datetime.strptime(s, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _due_label(card: dict) -> str:
+    """Display form of a card's due: normalized 'YYYY-MM-DD HH:MM', else the raw text."""
+    dt = parse_due(card.get("due"))
+    return dt.strftime("%Y-%m-%d %H:%M") if dt else str(card.get("due"))
+
+
+def due_state(card: dict, now: _dt.datetime, window_hours: float = DUE_SOON_HOURS) -> str | None:
+    """'overdue' | 'soon' | 'upcoming' | 'invalid' for a card with `due`, else None."""
+    raw = card.get("due")
+    if raw is None or raw == "":
+        return None
+    dt = parse_due(raw)
+    if dt is None:
+        return "invalid"
+    if dt <= now:
+        return "overdue"
+    if dt - now <= _dt.timedelta(hours=window_hours):
+        return "soon"
+    return "upcoming"
+
+
+def due_entries(data: dict, now: _dt.datetime, window_hours: float = DUE_SOON_HOURS,
+                include_upcoming: bool = False) -> list[dict]:
+    """Non-done cards whose `due` is overdue / due within the window / unparseable.
+
+    Sorted by due time (unparseable last). Each entry: id, due, note, status, state.
+    """
+    out: list[dict] = []
+    for c in data.get("cards", []) or []:
+        if str(c.get("status", "")) == "done":
+            continue
+        st = due_state(c, now, window_hours)
+        if st is None or (st == "upcoming" and not include_upcoming):
+            continue
+        out.append({
+            "id": str(c.get("id", "?")),
+            "due": _due_label(c),
+            "note": _first_line(c.get("due_note", "")),
+            "status": str(c.get("status", "")),
+            "state": st,
+            "_sort": parse_due(c.get("due")) or _dt.datetime.max,
+        })
+    out.sort(key=lambda e: (e["_sort"], e["id"]))
+    return out
+
+
+def format_due_line(e: dict) -> str:
+    label = {"overdue": "OVERDUE", "soon": "due soon", "upcoming": "upcoming",
+             "invalid": "BAD due (unparseable)"}.get(e["state"], e["state"])
+    note = f" — {e['note']}" if e["note"] else ""
+    return f"- [{label}] {e['due']}  {e['id']}  (status: {e['status']}){note}"
 
 
 # ---------- card classification ----------
@@ -525,6 +627,12 @@ def _render_card_md(c: dict, pending: dict[str, list[dict]] | None = None) -> li
     if meta_bits:
         lines.append(f"_{' · '.join(meta_bits)}_")
 
+    # Durable due-dated follow-up (only cards that carry `due`).
+    if c.get("due") not in (None, ""):
+        dnote = _first_line(c.get("due_note", ""))
+        lines.append(f"- **⏰ Due:** {_md_escape(_due_label(c))}"
+                     + (f" — {_md_escape(dnote)}" if dnote else ""))
+
     # Problem / Solution — the plain-language core, rendered prominently.
     ps = c.get("problem_solution")
     if isinstance(ps, str) and ps.strip():
@@ -763,9 +871,61 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 #toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%);
   background:var(--fg); color:var(--bg); padding:8px 16px; font-size:12px;
   font-family:var(--font-mono); z-index:20; display:none; }
+/* --- due-dated follow-ups: static "due …" chip; DUE_JS restyles it at VIEW time
+   (soon / OVERDUE) so the rendered bytes never depend on the wall clock --- */
+.due-chip { display:inline-block; margin:0 0 0 6px; font-family:var(--font-mono);
+  font-size:10px; letter-spacing:0.06em; padding:1px 7px; white-space:nowrap;
+  color:var(--info); border:1px solid var(--info); }
+.due-chip.soon { color:var(--warn); border-color:var(--warn); font-weight:600; }
+.due-chip.overdue { background:var(--bad); color:var(--card-bg); border-color:var(--bad); font-weight:700; }
+/* --- Decisions: the operator's waiting_operator queue, oldest first --- */
+section.decisions { margin:14px 22px 0; border:1px solid var(--border);
+  border-left:6px solid var(--info); background:var(--card-bg); }
+section.decisions > h2 { margin:0; padding:12px 18px 8px; font-family:var(--font-mono);
+  font-size:12px; letter-spacing:0.16em; text-transform:uppercase; display:flex;
+  align-items:baseline; gap:10px; flex-wrap:wrap; }
+section.decisions > h2 .count { color:var(--info); }
+section.decisions > h2 .hint { color:var(--muted); font-weight:400; font-size:10.5px;
+  letter-spacing:0.03em; text-transform:none; }
+section.decisions .none { color:var(--muted); font-size:12px; padding:0 18px 12px; }
+.decision { padding:12px 18px 14px; border-top:1px solid var(--border); }
+.decision .dhd { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 10px; }
+.decision .dhd .id { color:var(--accent); font-family:var(--font-mono); font-size:11px; }
+.decision .dhd .since { color:var(--muted); font-family:var(--font-mono); font-size:10.5px; }
+.decision .dhd .pending-chip, .decision .dhd .due-chip { margin:0; }
+.decision .dtitle { font-weight:600; font-size:13.5px; margin-top:3px; }
+.decision .ask { margin:6px 0 0; font-size:13.5px; line-height:1.5; max-width:110ch;
+  overflow-wrap:anywhere; }
+.decision .ask b { color:var(--accent); }
+.decision .picks { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+.decision .picks button { font-family:var(--font-sans); font-size:12.5px; text-align:left;
+  padding:7px 12px; min-height:36px; cursor:pointer; max-width:100%;
+  background:var(--code-bg); color:var(--fg); border:1px solid var(--accent); }
+.decision .picks button b { font-family:var(--font-mono); color:var(--accent); margin-right:6px; }
+.decision .picks button:hover:not(:disabled) { background:var(--accent); color:var(--card-bg); }
+.decision .picks button:hover:not(:disabled) b { color:var(--card-bg); }
+.decision form.answer { display:flex; gap:8px; margin-top:10px; align-items:flex-end; }
+.decision form.answer label { position:absolute; width:1px; height:1px; overflow:hidden;
+  clip-path:inset(50%); white-space:nowrap; }
+.decision form.answer textarea { flex:1; font:13px/1.45 var(--font-sans); padding:7px 9px;
+  min-height:2.8em; max-height:12em; field-sizing:content; resize:vertical;
+  background:var(--bg); color:var(--fg); border:1px solid var(--border); }
+.decision form.answer textarea:focus { outline:none; border-color:var(--accent); }
+.decision form.answer button { font-family:var(--font-mono); font-size:11px; padding:7px 14px;
+  min-height:36px; cursor:pointer; background:var(--accent); color:var(--card-bg);
+  border:1px solid var(--accent); }
+.decision .dactions { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+.decision .dactions button { font-family:var(--font-mono); font-size:10.5px; padding:3px 9px;
+  cursor:pointer; background:var(--code-bg); color:var(--fg); border:1px solid var(--border); }
+.decision .dactions button:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
+.decision button:disabled, .decision textarea:disabled { opacity:0.45; cursor:default; }
+.decision.answered { opacity:0.7; }
 @media (max-width:720px) {
   main.board, .summary, header.top { padding-left:12px; padding-right:12px; }
   .stale { margin:10px 12px 0; }
+  section.decisions { margin:12px 12px 0; }
+  .decision { padding-left:12px; padding-right:12px; }
+  .decision form.answer { flex-direction:column; align-items:stretch; }
   .lane .cards { grid-template-columns:1fr; }
   .card .apl { float:none; display:block; margin-top:2px; }
 }
@@ -1000,6 +1160,252 @@ BOARD_JS = """
 """
 
 
+# Restyle due chips at VIEW time (the render stays a pure function of the data).
+DUE_JS = """
+(function () {
+  'use strict';
+  var now = Date.now(), SOON = __SOON_HOURS__ * 3600 * 1000;
+  document.querySelectorAll('.due-chip[data-due]').forEach(function (el) {
+    var t = new Date(el.getAttribute('data-due')).getTime();  // no offset = local time
+    if (isNaN(t)) return;
+    var label = el.getAttribute('data-label') || '';
+    if (t <= now) { el.classList.add('overdue'); el.textContent = 'OVERDUE · ' + label; }
+    else if (t - now <= SOON) { el.classList.add('soon'); el.textContent = 'due soon · ' + label; }
+  });
+})();
+""".replace("__SOON_HOURS__", str(DUE_SOON_HOURS))
+
+
+# Decisions queue: one-tap PICK buttons, free-text answer (action=instruct), and
+# the standard disposition buttons — all through the existing api/disposition.
+DECISIONS_JS = """
+(function () {
+  'use strict';
+  var toastEl = document.getElementById('toast');
+  var toastTimer = null;
+  function toast(msg) {
+    if (!toastEl) return;
+    toastEl.textContent = msg;
+    toastEl.style.display = 'block';
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toastEl.style.display = 'none'; }, 3200);
+  }
+  function post(cardId, action, text) {
+    var body = { card_id: cardId, action: action, at: new Date().toISOString() };
+    if (text) body.text = text;
+    return fetch('api/disposition', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    }).then(function (r) { if (!r.ok) throw new Error('http ' + r.status); return r; });
+  }
+  document.querySelectorAll('section.decisions .decision').forEach(function (item) {
+    var id = item.getAttribute('data-id');
+    var controls = item.querySelectorAll('button, textarea');
+    function lock(on) { controls.forEach(function (el) { el.disabled = on; }); }
+    function send(action, text) {
+      lock(true);
+      post(id, action, text).then(function () {
+        var chip = document.createElement('span');
+        chip.className = 'pending-chip ' + (action === 'instruct' ? 'op-instruct' : 'op-' + action);
+        chip.textContent = 'queued: ' + (text ? '"' + text + '"' : action) + ' — pending apply';
+        item.querySelector('.dhd').appendChild(chip);
+        item.classList.add('answered');
+        toast('queued — applied at the next groom');
+      }).catch(function () { lock(false); toast('board is read-only here'); });
+    }
+    item.querySelectorAll('.picks button[data-pick]').forEach(function (b) {
+      b.addEventListener('click', function () { send('instruct', 'PICK ' + b.getAttribute('data-pick')); });
+    });
+    item.querySelectorAll('.dactions button[data-action]').forEach(function (b) {
+      b.addEventListener('click', function () { send(b.getAttribute('data-action')); });
+    });
+    var form = item.querySelector('form.answer');
+    if (form) {
+      var ta = form.querySelector('textarea');
+      form.addEventListener('submit', function (ev) {
+        ev.preventDefault();
+        var text = (ta.value || '').trim();
+        if (!text) { ta.focus(); return; }
+        send('instruct', text);
+      });
+      // Cmd/Ctrl+Enter sends (plain Enter keeps its newline; no IME conflict).
+      ta.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); form.requestSubmit(); }
+      });
+    }
+  });
+})();
+"""
+
+
+_PICK_PAREN_RE = re.compile(r"\(([A-Ea-e])\)")
+_PICK_BARE_RE = re.compile(r"(?:[:;,.]\s+|(?i:\bor)\s+)([A-E])(?=[\s:)])")
+
+
+def pick_options(next_text: Any) -> list[tuple[str, str]]:
+    """Options of a `PICK: A ... or B ...` ask -> [(letter, snippet), ...].
+
+    Handles `(A) ... (B)`, `(a) ... (b)`, and bare `A ... or B ...` styles. Only
+    the ask part (before ' -> ') is parsed. Returns [] unless the text opens with
+    PICK and the letters found run A, B[, C...] consecutively — anything less
+    certain gets no buttons (the free-text answer box still works).
+    """
+    t = " ".join(str(next_text or "").split())
+    if not re.match(r"^PICK\b", t):
+        return []
+    body = t[4:].split(" -> ", 1)[0]
+    for rx in (_PICK_PAREN_RE, _PICK_BARE_RE):
+        marks: list[tuple[str, int, int]] = []
+        seen: set = set()
+        for m in rx.finditer(body):
+            letter = m.group(1).upper()
+            if letter in seen:
+                continue
+            seen.add(letter)
+            marks.append((letter, m.start(1), m.end()))
+        letters = [mk[0] for mk in marks]
+        if len(letters) >= 2 and letters == [chr(ord("A") + i) for i in range(len(letters))]:
+            out: list[tuple[str, str]] = []
+            for i, (letter, _s, end) in enumerate(marks):
+                stop = marks[i + 1][1] if i + 1 < len(marks) else len(body)
+                if rx is _PICK_PAREN_RE and i + 1 < len(marks):
+                    stop -= 1  # exclude the next option's "(" opener
+                snip = body[end:stop]
+                snip = re.sub(r"[\s,;]*\bor\s*$", "", snip.strip(" ,;:-"), flags=re.I)
+                snip = snip.lstrip(" ,;:.-").rstrip(" ,;:.(")
+                if len(snip) > 70:
+                    snip = snip[:67].rstrip() + "..."
+                out.append((letter, snip))
+            return out
+    return []
+
+
+def _due_chip_html(c: dict) -> str:
+    dt = parse_due(c.get("due"))
+    label = _due_label(c)
+    note = _first_line(c.get("due_note", ""))
+    title = f' title="{_h(note)}"' if note else ""
+    if dt is None:
+        return f'<span class="due-chip overdue"{title}>BAD due: {_h(label)}</span>'
+    iso = dt.strftime("%Y-%m-%dT%H:%M")
+    return (f'<span class="due-chip" data-due="{iso}" data-label="{_h(label)}"{title}>'
+            f'due {_h(label)}</span>')
+
+
+def decision_cards(data: dict) -> list[dict]:
+    """waiting_operator cards, oldest first (by `updated`, else `created`; then id)."""
+    cards = [c for c in (data.get("cards", []) or [])
+             if str(c.get("status", "")) == "waiting_operator"]
+
+    def key(c):
+        return (str(c.get("updated") or c.get("created") or "9999"), str(c.get("id", "")))
+    return sorted(cards, key=key)
+
+
+def render_decisions_section(data: dict, pending: dict[str, list[dict]] | None = None) -> str:
+    """The Decisions queue as one <section id="decisions"> (used on both pages)."""
+    pending = pending or {}
+    items = decision_cards(data)
+    parts = ['<section class="decisions" id="decisions" aria-labelledby="decisions-h">']
+    parts.append(f'<h2 id="decisions-h">Decisions <span class="count">{len(items)}</span>'
+                 '<span class="hint">waiting on you, oldest first · tap a PICK or type an '
+                 'answer; it is applied at the next groom</span></h2>')
+    if not items:
+        parts.append('<div class="none">Nothing is waiting on you.</div>')
+    for c in items:
+        cid = str(c.get("id", "?"))
+        since = str(c.get("updated") or c.get("created") or "")
+        nxt = " ".join(str(c.get("next") or "").split())
+        parts.append(f'<article class="decision" data-id="{_h(cid)}">')
+        parts.append('<div class="dhd">')
+        parts.append(f'<span class="id">{_h(cid)}</span>')
+        if since:
+            parts.append(f'<span class="since">waiting since {_h(since)}</span>')
+        if c.get("due") not in (None, ""):
+            parts.append(_due_chip_html(c))
+        for disp in pending.get(cid, []):
+            act = disp["action"]
+            chip_cls = "op-move" if act.startswith("move:") else f"op-{act}"
+            txt = disp.get("text")
+            suffix = f': "{_h(txt)}"' if txt else ""
+            parts.append(f'<span class="pending-chip {_h(chip_cls)}" title="at {_h(disp["at"])}">'
+                         f'OPERATOR: {_h(act)}{suffix} — pending apply</span>')
+        parts.append('</div>')
+        parts.append(f'<div class="dtitle">{_h(c.get("title", ""))}</div>')
+        if nxt:
+            m = re.match(r"^([A-Z]{2,})\b(.*)$", nxt)
+            ask = f'<b>{_h(m.group(1))}</b>{_h(m.group(2))}' if m else _h(nxt)
+            parts.append(f'<p class="ask">{ask}</p>')
+        else:
+            parts.append('<p class="ask"><em>(no `next` ask recorded)</em></p>')
+        opts = pick_options(nxt)
+        if opts:
+            parts.append('<div class="picks">')
+            for letter, snip in opts:
+                parts.append(f'<button type="button" data-pick="{letter}" '
+                             f'title="send: PICK {letter}"><b>PICK {letter}</b>{_h(snip)}</button>')
+            parts.append('</div>')
+        tid = "ans-" + re.sub(r"[^A-Za-z0-9_-]", "-", cid)
+        parts.append('<form class="answer">'
+                     f'<label for="{_h(tid)}">Your answer for {_h(cid)}</label>'
+                     f'<textarea id="{_h(tid)}" rows="2" '
+                     f'placeholder="Your answer for {_h(cid)} (Cmd/Ctrl+Enter sends)"></textarea>'
+                     '<button type="submit">send answer</button></form>')
+        parts.append('<div class="dactions">'
+                     '<button type="button" data-action="done">✓ done</button>'
+                     '<button type="button" data-action="deferred">⏸ deferred</button>'
+                     '<button type="button" data-action="declined">✕ declined</button>'
+                     '</div>')
+        parts.append('</article>')
+    parts.append('</section>')
+    return "\n".join(parts)
+
+
+def _html_head(title: str) -> list[str]:
+    parts: list[str] = []
+    parts.append('<!doctype html><html lang="en"><head>')
+    parts.append('<meta charset="utf-8">')
+    parts.append('<meta name="viewport" content="width=device-width, initial-scale=1">')
+    parts.append('<meta name="generator" content="kanban_render.py (URA)">')
+    parts.append(f'<title>{title}</title>')
+    parts.append('<meta name="theme-color" content="#fafaf8">')
+    parts.append(f'<link rel="icon" type="image/png" href="{URA_FAVICON}">')
+    # URA brand fonts (same two the site loads): Hanken Grotesk + JetBrains Mono.
+    # System fallbacks in the stacks keep it legible if Google Fonts is blocked.
+    parts.append('<link rel="preconnect" href="https://fonts.googleapis.com">')
+    parts.append('<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>')
+    parts.append('<link rel="stylesheet" href="https://fonts.googleapis.com/css2?'
+                 'family=Hanken+Grotesk:ital,wght@0,300..800;1,300..700&'
+                 'family=JetBrains+Mono:wght@400;500&display=swap">')
+    parts.append(f'<style>{CSS}</style>')
+    parts.append('</head><body>')
+    return parts
+
+
+def render_decisions_html(data: dict, meta_extras: dict) -> str:
+    """Standalone Decisions page (docs/planning/kanban_decisions.html)."""
+    meta = data.get("meta", {}) or {}
+    parts = _html_head("URA Decisions")
+    parts.append('<header class="top">')
+    parts.append('<h1>URA://DECISIONS'
+                 '<span class="gen">GENERATED - waiting_operator cards from kanban.data.yaml</span></h1>')
+    parts.append('<div class="statusline">')
+    parts.append(f'<span>generated <b>{_h(meta_extras["gen_ts"])}</b></span>')
+    parts.append(f'<span>data <b>{_h(meta_extras["data_hash"][:12])}</b></span>')
+    parts.append(f'<span>reconciled <b>{_h(meta.get("last_reconciled", "?"))}</b></span>')
+    if meta.get("target_host"):
+        parts.append(f'<span><a href="https://{_h(meta["target_host"])}/#decisions">'
+                     f'{_h(meta["target_host"])}</a></span>')
+    parts.append('</div></header>')
+    parts.append(render_decisions_section(data, meta_extras.get("pending", {})))
+    parts.append('<div id="toast"></div>')
+    parts.append(f'<script>{DECISIONS_JS}</script>')
+    parts.append(f'<script>{DUE_JS}</script>')
+    parts.append('</body></html>')
+    return "\n".join(parts) + "\n"
+
+
 def _h(s: Any) -> str:
     return html.escape("" if s is None else str(s))
 
@@ -1016,23 +1422,7 @@ def render_html(data: dict, meta_extras: dict) -> str:
     backlog_refs = data.get("broader_backlog_refs", []) or []
     buckets = group_cards(cards)
 
-    parts: list[str] = []
-    parts.append('<!doctype html><html lang="en"><head>')
-    parts.append('<meta charset="utf-8">')
-    parts.append('<meta name="viewport" content="width=device-width, initial-scale=1">')
-    parts.append('<meta name="generator" content="kanban_render.py (URA)">')
-    parts.append('<title>URA Kanban</title>')
-    parts.append('<meta name="theme-color" content="#fafaf8">')
-    parts.append(f'<link rel="icon" type="image/png" href="{URA_FAVICON}">')
-    # URA brand fonts (same two the site loads): Hanken Grotesk + JetBrains Mono.
-    # System fallbacks in the stacks keep it legible if Google Fonts is blocked.
-    parts.append('<link rel="preconnect" href="https://fonts.googleapis.com">')
-    parts.append('<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>')
-    parts.append('<link rel="stylesheet" href="https://fonts.googleapis.com/css2?'
-                 'family=Hanken+Grotesk:ital,wght@0,300..800;1,300..700&'
-                 'family=JetBrains+Mono:wght@400;500&display=swap">')
-    parts.append(f'<style>{CSS}</style>')
-    parts.append('</head><body>')
+    parts: list[str] = _html_head("URA Kanban")
 
     parts.append('<header class="top">')
     parts.append('<h1>URA://KANBAN'
@@ -1053,6 +1443,9 @@ def render_html(data: dict, meta_extras: dict) -> str:
             parts.append(f'<li>{_h(r)}</li>')
         parts.append('</ul><div style="margin-top:6px">Reconcile <code>meta.last_reconciled</code> '
                      'and move shipped cards before picking next work.</div></div>')
+
+    # Decisions queue (waiting_operator, oldest first) — anchor #decisions.
+    parts.append(render_decisions_section(data, meta_extras.get("pending", {})))
 
     # BOARD-AUTONOMY-PROGRESS-1 — last-24h progress counter + recent-work feed.
     stats = autonomy_stats(data)
@@ -1164,6 +1557,8 @@ def render_html(data: dict, meta_extras: dict) -> str:
                  'Regenerate on every commit that touches the data.</footer>')
     parts.append('<div id="toast"></div>')
     parts.append(f'<script>{BOARD_JS}</script>')
+    parts.append(f'<script>{DECISIONS_JS}</script>')
+    parts.append(f'<script>{DUE_JS}</script>')
     parts.append('</body></html>')
     return "\n".join(parts) + "\n"
 
@@ -1203,6 +1598,8 @@ def _render_card_html(c: dict, pending: dict[str, list[dict]] | None = None) -> 
         suffix = f': "{_h(txt)}"' if txt else ""
         out.append(f'<span class="pending-chip {_h(chip_cls)}" title="at {_h(disp["at"])}">'
                    f'OPERATOR: {_h(act)}{suffix} — pending apply</span>')
+    if c.get("due") not in (None, ""):
+        out.append(_due_chip_html(c))
     if approval and approval != "implied":
         out.append(f'<span class="apl">{_h(approval)}</span>')
     out.append(f'<span class="title">{_h(title)}</span>')
@@ -1252,6 +1649,10 @@ def _render_card_html(c: dict, pending: dict[str, list[dict]] | None = None) -> 
         out.append(f'<dt>Why</dt><dd>{_h(why)}</dd>')
     if nxt:
         out.append(f'<dt>Next</dt><dd>{_h(nxt)}</dd>')
+    if c.get("due") not in (None, ""):
+        dnote = _first_line(c.get("due_note", ""))
+        out.append(f'<dt>Due</dt><dd>{_h(_due_label(c))}'
+                   + (f' — {_h(dnote)}' if dnote else '') + '</dd>')
 
     for label, key in (("Depends on", "depends_on"), ("Blocks", "blocks"), ("Sibling of", "sibling_of")):
         v = c.get(key)
@@ -1315,8 +1716,8 @@ def build_meta_extras(data_path: Path) -> dict:
     }
 
 
-def render_all(data_path: Path, pending_path: Path | None = None) -> tuple[str, str, bool, list[str]]:
-    """Return (markdown_text, html_text, is_stale, stale_reasons)."""
+def render_views(data_path: Path, pending_path: Path | None = None) -> dict:
+    """Render every view. Keys: data, md, html, decisions, is_stale, stale_reasons."""
     with open(data_path, "r", encoding="utf-8") as fh:
         data = yaml.safe_load(fh)
     meta = data.get("meta", {}) or {}
@@ -1327,9 +1728,55 @@ def render_all(data_path: Path, pending_path: Path | None = None) -> tuple[str, 
     extras["is_stale"] = is_stale
     extras["stale_reasons"] = reasons
     extras["pending"] = load_pending_dispositions(pending_path or DEFAULT_PENDING)
-    md = render_markdown(data, extras)
-    ht = render_html(data, extras)
-    return md, ht, is_stale, reasons
+    return {
+        "data": data,
+        "md": render_markdown(data, extras),
+        "html": render_html(data, extras),
+        "decisions": render_decisions_html(data, extras),
+        "is_stale": is_stale,
+        "stale_reasons": reasons,
+    }
+
+
+def render_all(data_path: Path, pending_path: Path | None = None) -> tuple[str, str, bool, list[str]]:
+    """Return (markdown_text, html_text, is_stale, stale_reasons)."""
+    v = render_views(data_path, pending_path)
+    return v["md"], v["html"], v["is_stale"], v["stale_reasons"]
+
+
+def _parse_now(s: str | None) -> _dt.datetime:
+    if not s:
+        return _dt.datetime.now()
+    dt = parse_due(s)
+    if dt is None:
+        raise ValueError(f"--now: unparseable datetime {s!r}")
+    return dt
+
+
+def _due_main(args) -> int:
+    """--due: print due/overdue follow-ups (plain lines, or SessionStart hook JSON)."""
+    import json
+    try:
+        with open(args.data, "r", encoding="utf-8") as fh:
+            data = yaml.safe_load(fh) or {}
+        entries = due_entries(data, _parse_now(args.now), args.due_window_hours)
+    except (OSError, yaml.YAMLError, ValueError) as exc:
+        if args.hook_json:
+            return 0  # never break session start over this
+        print(f"[kanban_render] ERROR: {exc}", file=sys.stderr)
+        return 1
+    if not entries:
+        return 0
+    lines = [format_due_line(e) for e in entries]
+    if args.hook_json:
+        ctx = ("ura-kanban DUE FOLLOW-UPS (cards with `due:` that are overdue or due within "
+               f"{args.due_window_hours:g}h). Act on these first, or re-date/clear `due` with a "
+               "reason:\n" + "\n".join(lines))
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart",
+                                                 "additionalContext": ctx}}))
+    else:
+        print("\n".join(lines))
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1339,28 +1786,61 @@ def main(argv: list[str] | None = None) -> int:
                     help="operator dispositions pending-apply jsonl (missing file = none)")
     ap.add_argument("--md-out", type=Path, default=DEFAULT_MD)
     ap.add_argument("--html-out", type=Path, default=DEFAULT_HTML)
-    ap.add_argument("--check", action="store_true", help="do not write; exit 0/2 based on staleness")
-    ap.add_argument("--stdout", choices=("md", "html"), help="print to stdout instead of writing")
+    ap.add_argument("--decisions-out", type=Path, default=DEFAULT_DECISIONS,
+                    help="standalone Decisions page (waiting_operator queue)")
+    ap.add_argument("--check", action="store_true",
+                    help="do not write; exit 0/2/3/4 (see module docstring)")
+    ap.add_argument("--stdout", choices=("md", "html", "decisions"),
+                    help="print to stdout instead of writing")
+    ap.add_argument("--due", action="store_true",
+                    help="print non-done cards whose `due` is overdue / due within the window; "
+                         "no render, exit 0")
+    ap.add_argument("--hook-json", action="store_true",
+                    help="with --due: emit SessionStart hook JSON (nothing when none are due)")
+    ap.add_argument("--due-window-hours", type=float, default=DUE_SOON_HOURS,
+                    help=f"'due soon' horizon in hours (default {DUE_SOON_HOURS})")
+    ap.add_argument("--now", help="override the current local time ('YYYY-MM-DD HH:MM'; tests)")
     args = ap.parse_args(argv)
 
+    if args.due:
+        return _due_main(args)
+
     try:
-        md, ht, stale, reasons = render_all(args.data, args.pending)
+        views = render_views(args.data, args.pending)
+        now = _parse_now(args.now)
     except FileNotFoundError as exc:
         print(f"[kanban_render] ERROR: {exc}", file=sys.stderr)
         return 1
     except yaml.YAMLError as exc:
         print(f"[kanban_render] ERROR: YAML parse failure: {exc}", file=sys.stderr)
         return 1
+    except ValueError as exc:
+        print(f"[kanban_render] ERROR: {exc}", file=sys.stderr)
+        return 1
+    md, ht, dec = views["md"], views["html"], views["decisions"]
+    stale, reasons = views["is_stale"], views["stale_reasons"]
 
     if args.stdout == "md":
         sys.stdout.write(md)
     elif args.stdout == "html":
         sys.stdout.write(ht)
+    elif args.stdout == "decisions":
+        sys.stdout.write(dec)
     elif not args.check:
         args.md_out.write_text(md, encoding="utf-8")
         args.html_out.write_text(ht, encoding="utf-8")
-        print(f"[kanban_render] wrote {args.md_out} ({len(md)} bytes) "
-              f"and {args.html_out} ({len(ht)} bytes)", file=sys.stderr)
+        args.decisions_out.write_text(dec, encoding="utf-8")
+        print(f"[kanban_render] wrote {args.md_out} ({len(md)} bytes), "
+              f"{args.html_out} ({len(ht)} bytes) "
+              f"and {args.decisions_out} ({len(dec)} bytes)", file=sys.stderr)
+
+    # Due follow-ups: listed under --check whatever the exit code, so a stale
+    # or queue-blocked session start still sees them.
+    due = due_entries(views["data"], now, args.due_window_hours) if args.check else []
+    if due:
+        print(f"[kanban_render] DUE FOLLOW-UPS ({len(due)}):", file=sys.stderr)
+        for e in due:
+            print(f"  {format_due_line(e)}", file=sys.stderr)
 
     # Forcing function (2026-08-14): under --check, unapplied operator
     # dispositions FAIL with a distinct exit code (3), so the session-start
@@ -1390,6 +1870,8 @@ def main(argv: list[str] | None = None) -> int:
         for r in reasons:
             print(f"  - {r}", file=sys.stderr)
         return 2
+    if due:
+        return 4
     return 0
 
 
