@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-18T02:05:23-06:00_ - _Data commit: `52e5bf47499d`_ - _last_reconciled: 2026-11-18_
+_Generated: 2026-11-18T07:04:29-06:00_ - _Data commit: `dcbcefaec827`_ - _last_reconciled: 2026-11-18_
 
 
 ## Columns
@@ -255,7 +255,8 @@ thread: **optimization** - status: **pre_planning**
 _updated 2026-10-21 22:05_
 - **Why:** AUDIT_v6_milestone_candidates.md: OC in shadow, never actuated; findings ~90% tier-1 noise; optimizer_shadow_samples 0 rows so the v2 promotion gate can never pass. Operator wants the house to find and fix its own problems instead of the...
 - **Next:** Vision doc draft (with the agentic layer) for operator review: what OC is today (prior art: optimizer campaign, autonomy ladder, findings tiers), why it failed, goal/tool/loop model, first measurable slice.
-- **Forensic keys (7):**
+- **Forensic keys (8):**
+  - `analysis_2026_11_18_always_on`: Operator 2026-11-18: 'Absorb this as context for OC and check if we are making any harness design errors that this guide can improve https://claude.com/resources/articles/building-always-on-agents'. ANALYSIS_always_on_agents_vs_OC_2026_1...
   - `links_added_2026_10_21`: related+OC-REQUEST-FIX-DISPATCHER-1,OC-STUCK-SENSOR-GENERALIZE-1: OC-REQUEST-FIX-DISPATCHER-1 is the slice-2 child (its parent link was one-sided); OC-STUCK-SENSOR-GENERALIZE-1 (v5.103.57) is the never-fires detector the redesign inherit...
   - `rerank_2026_10_21`: v9 t3 e8 -> v9 t5 e8: vision rev 6 actively in progress with the operator; momentum + slice 0 model eval next
   - `operator_correction_2026_10_16`: OC never acted BY OPERATOR CHOICE: "it never acted because I sensed this" (the noise). Shadow mode was a deliberate trust withhold, not a promotion-pipeline failure. Vision doc must frame it that way: the failure is signal quality; promo...
