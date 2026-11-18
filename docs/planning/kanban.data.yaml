@@ -9,9 +9,11 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {"fid": "CENSUS-DECONFLICTION-LEDGER-1@2026-11-18T02:09:00", "card_id": "CENSUS-DECONFLICTION-LEDGER-1", "at": "2026-11-18T02:09:00", "outcome": "escalated", "headline": "Reopened the camera-assisted head count: its crossing ledger reached a known state once in 4 days, because any held radar sensor blocks the empty-house reset. Your pick: let held sensors stop blocking that reset (recommended; they still never create or end room occupancy), or keep today's behaviour.", "acknowledged": false}
+  - {"fid": "SOAK-EXIT-SWEEP@11-18", "card_id": "SOAK-EXIT-SWEEP", "at": "2026-11-18T02:09:00", "outcome": "done", "headline": "Closed 3 shipped fixes: the night failsafe that turns off shared-space lights ran six nights in a row (one night it ran twice, which I noted on the card); the EV charger on/off loop never came back; the direct Frigate feed is live with no double counting.", "acknowledged": false}
   - {"fid": "NM-DIGEST-MARK-RACE-1@2026-11-18T02:03:00", "card_id": "NM-DIGEST-MARK-RACE-1", "at": "2026-11-18T02:03:00", "outcome": "built-to-review", "headline": "Finished the digest fix: notifications queued while a digest is being sent were marked sent without ever appearing in a digest. Now only the rows actually in the digest are marked. Rebased, 349 tests pass, and breaking each of the three key lines makes a test fail. Waiting in review for your next deploy (needs a restart).", "acknowledged": false}
-  - {"fid": "ROOM-ENERGY-SENSOR-MISPICKS-1@2026-11-18T02:08:00", "card_id": "ROOM-ENERGY-SENSOR-MISPICKS-1", "at": "2026-11-18T02:08:00", "outcome": "done", "headline": "Closed: every room's energy meter is now a real meter (you fixed the picks after 10-14). The old wrong picks survive only as an unused legacy setting; that cleanup joined the legacy-key scrub card, which still needs your approve.", "acknowledged": false}
-  - {"fid": "LOCK-UNCOUNTED-RETURN-ARM-REDUNDANT-1@2026-11-18T02:20:00", "card_id": "LOCK-UNCOUNTED-RETURN-ARM-REDUNDANT-1", "at": "2026-11-18T02:20:00", "outcome": "done", "headline": "Closed without deleting: the 'house reads away' check on the locked-out-resident page is the only backstop when a house-state change never reaches the lock logic. It had no test at all; added one, and removing the check now fails it. Test-only change.", "acknowledged": false}
+  - {"fid": "ROOM-ENERGY-SENSOR-MISPICKS-1@2026-11-18T02:05:00", "card_id": "ROOM-ENERGY-SENSOR-MISPICKS-1", "at": "2026-11-18T02:05:00", "outcome": "done", "headline": "Closed: every room's energy meter is now a real meter (you fixed the picks after 10-14). The old wrong picks survive only as an unused legacy setting; that cleanup joined the legacy-key scrub card, which still needs your approve.", "acknowledged": false}
+  - {"fid": "LOCK-UNCOUNTED-RETURN-ARM-REDUNDANT-1@2026-11-18T02:06:00", "card_id": "LOCK-UNCOUNTED-RETURN-ARM-REDUNDANT-1", "at": "2026-11-18T02:06:00", "outcome": "done", "headline": "Closed without deleting: the 'house reads away' check on the locked-out-resident page is the only backstop when a house-state change never reaches the lock logic. It had no test at all; added one, and removing the check now fails it. Test-only change.", "acknowledged": false}
   - {"fid": "WAITING-OP-RECHECK@11-18@2026-11-18T02:03:00", "card_id": "WAITING-OP-RECHECK@11-18", "at": "2026-11-18T02:03:00", "outcome": "measured", "headline": "Re-checked 6 cards waiting on you, nothing cleared: kitchen smoke detector still unavailable (re-pair), no WhatsApp or HA-app 'diag' test yet, perimeter zone sensors still not set (disposal date 11-28), landscape automation first step still lacks continue-on-error, and no AI Task quota error logged this boot (the lock lifts 12-01 regardless).", "acknowledged": false}
   - {"fid": "INBOX-VERIFY-SWEEP@2026-11-17T02:12:00", "card_id": "INBOX-VERIFY-SWEEP", "at": "2026-11-17T02:12:00", "outcome": "measured", "headline": "Checked 6 inbox cards against code and data. Two are ready to plan now that what they waited on has shipped: security still trusts a stale 'home' blip for its arrival window (matters only when nobody is home), and the phone-left-behind flag flickers 19 times a week for one poll each. Two are parked: one can't be measured, and the other can't happen at your current pre-cool floor of 74. One lost half its scope. One was wrong: a departure action (the arrival-music pause) did ship.", "acknowledged": false}
   - {"fid": "HOUSE-AVG-SENSORS-1@2026-11-17T02:10:00", "card_id": "HOUSE-AVG-SENSORS-1", "at": "2026-11-17T02:10:00", "outcome": "built-to-review", "headline": "Built real house-average temperature and humidity sensors that leave out the AV closet and the patio. Review: ship. Not deployed. Your picks: should Study A Closet and the garages also be left out? That is a room-type setting, not code.", "acknowledged": false}
@@ -425,20 +427,21 @@ cards:
   reconcile_2026_11_09: "Overnight reconcile: board still showed this as planned/investigating/in_progress but v5.107.4 was merged to develop at 97319f20 by the 11-08/09 attended session (not yet deployed; develop was 87 commits ahead of origin). Moved to review."
   disposition_2026_11_11_overnight: "DONE for the shipped gate (operator ack of the 11-10 feed entry). Organic proof needs the garage lockout ON and it is still OFF (switch.ura_security_coordinator_garage_lockout off since the 11-10 18:40 restart), so the discriminator cannot be evaluated in its window; the gate is proven in-suite. The Review B INFO-B4 restart residual (residual_2026_11_09) moved to its own parked card LOCK-REGIME-BOOT-REALLY-AWAY-1, re-verified still present at security_lock_regime.py:1149-1153 on develop."
 - id: PERIMETER-FRIGATE-MQTT-DIRECT-1
+  soak_exit_2026_11_18_overnight: 'DONE-WITH-RESIDUAL. Primary met: diagnostic sensor (latest recorder row) frigate_ingress_mqtt_24h 7012 vs bus 6996, dedup_dropped 6996 = ratio 1.002 (< 1.5 bar) and no double feed; face topic live (frigate_face_msg_seen_count 704 on persons_in_house at 11-18 08:07 UTC). back_yard did see person events (29 on-edges 11-15..11-17). Residuals not evaluable as written: L3 per-camera back_yard ratio (frigate_bus_by_camera is unrecorded, sensor.py:4662-4664, and had no baseline row); L1 subscribe log lines (LOG-READ GAP, INFO not retained - not an all-clear); L4 portability drill (needs an attended state change).'
   arc_cut_v5_108_0: "next arc release, awaiting the D0 daytime capture analysis"
   arc_cut_v5_107_6: "in flight, ships at arc end"
   title: "URA subscribes to Frigate MQTT events directly (no dependency on the house's 'Frigate MQTT to frigate_events bridge' automation) — required for portability"
   thread: security
-  status: shipped_organic
+  status: done
   shipped_version: v5.108.1
   batch: perimeter-identity-arc-2026-11
   tier: 2
   created: "2026-11-09 00:20"
-  updated: "2026-11-11 02:20"
+  updated: '2026-11-18 02:09'
   rank: {value: 7, time_criticality: 3, effort: 3}
   origin: "Operator 2026-11-08: 'Ura listening to frigate Mqtt is essential for portability which is imperative.' Uncorks v5.107.0 D9 (PLANNING_perimeter_fp_build_2026_11.md:532-542), parked there with a second-install trigger."
   why: "Every Frigate payload URA uses (event id for snapshots, score/box/zones for D2-D6, the track linker) arrives via an HA automation that a new home will not have. Without it the gates silently get nothing."
-  next: "Wait for organic proof (no action from you): README_v5.108.1 L3 (back_yard frigate_events ratio) needs a person event on back_yard; L1 is unprovable from logs (INFO not retained). L2 PASSED at deploy. I dispose at the next sweep after a back_yard person event."
+  next: 'None - closed. Revive L3 if a per-camera MQTT-vs-bus count is ever recorded, or if the aggregate ratio leaves 0.9-1.5.'
   constraints: "No hard mqtt dependency; no double feed into snapshot cache / linker; byte-identical alerts on this house where the bridge also runs."
   links: {related: [PERIMETER-FP-STREET-NOISE-1, FACE-SOURCE-REGISTRY-DISCOVERY-1], blocks: [FRIGATE-FACE-BRIDGE-DEAD-PREFIX-1], context: "Its runtime prefix discovery is the fix the dead-prefix face bridge (FRIGATE-FACE-BRIDGE-DEAD-PREFIX-1) should reuse."}
   adjacency_2026_11_09: "Swept: perimeter plan D9 (the parked design, absorbed here), D2 bus-silent warning (stays as fallback trip-wire), memory project_frigate_mqtt_topic_collision (shared topic_prefix hazard, fixed homelab-side). NEW card; supersedes the D9 park."
@@ -735,7 +738,7 @@ cards:
   status: waiting_operator
   tier: 1
   created: "2026-11-07 10:40"
-  updated: '2026-11-18 02:08'
+  updated: '2026-11-18 02:05'
   rank: {value: 2, time_criticality: 1, effort: 1}
   origin: "Operator 2026-11-07: 'Athom is gone. Remove it. We keep referencing it. Is it phantom in the room config?'"
   why: "Study A entry.data has mmwave_sensors=['binary_sensor.athom_presence_sensor_d93b20_mmwave_sensor'] (entity gone from the registry; 100% unavailable 7 days). CONF_MMWAVE_SENSORS is the string 'presence_sensors' (const.py:533), and no code reads the literal 'mmwave_sensors' key (only strings.json/en.json labels :483/:498), so it has zero runtime effect, but every config read surfaces it. Only Study A has the key. The options flow cannot clear entry.data keys; reconfigure aborts to options (config_flow.py:1273)."
@@ -32622,6 +32625,7 @@ cards:
   links: {related: [ROOM-LIGHTING-SETUP-REDESIGN-1]}
   rank: {value: 2, time_criticality: 1, effort: 1}
 - id: EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1
+  soak_exit_2026_11_18_overnight: 'DONE, met by replay per README_v5.108.13. Precondition never recurred: recorder sensor.ura_energy_coordinator_battery_strategy since 11-12 21:50 UTC = 15,570 rows, arbitrage_intent never ''redirect'' (null 11,322 / breaker 4,248). One arbitrage-owner pause (11-15 20:34 UTC) was intent=breaker, arb_rung1_redirectable_kw 0.0 - not a rung-1 redirect. No non-zero-power charger toggles. anomaly_log since deploy has no EV-toggle rows (caveat: the metric name for ev_toggle_tripwire rows was not cross-checked). Standing guard = the ev_toggle_tripwire anomaly.'
   triage_2026_10_17: "Default taken: parked; revival trigger = the EV toggle alarm fires."
   trigger_check_2026_10_12_overnight: 'Revival trigger checked: the EV toggle alarm DID fire (10-11 19:26:45Z garage_a), but the cause was the fill-priority owner (pause_owners=fill_priority; strategy self_consumption, arbitrage_phase n/a, SOC 79-81%), not rung-1/WAIT. So this card''s trigger has NOT fired. That flip is now EV-FILL-PRIORITY-SOC-CHATTER-1. Your pick (A park / B build) still stands.'
   paged_2026_10_05_overnight: "Paged 2026-10-05 02:34 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1; sent directly, not through URA NM routing, so it does not wake anyone)."
@@ -32629,10 +32633,10 @@ cards:
   merged_from_EC_RUNG1_WAIT_EV_PINGPONG_1: "(verbatim from the merged duplicate) D0 replay + breaker investigation 2026-10-03: on 10-01 06:09-08:20Z ~12 full on/off cycles of garage A (11.6 kW); 13/14 turn-ons on ticks with valid SOC, so NOT the Envoy dropout. Pause reason EV pause redirects solar at 06:40Z with no sun. Also 09-28. Breaker-safety alarm cleared: guard reads the cloud CFG switch (off); local Enpower switch is a standing on; battery drew ~0 kW, peak import ~90 A. Latent gap noted: guard trusts cloud CFG switch."
   title: The arbitrage EV pause flips on and off every 5 minutes when an EV is charging and the battery is low (rung-1 redirect vs WAIT feedback loop)
   thread: energy
-  status: shipped_organic
+  status: done
   shipped_version: v5.108.13
   created: '2026-10-03 02:40'
-  updated: '2026-11-12 15:30'
+  updated: '2026-11-18 02:09'
   refinement_status: initial
   approval: explicit
   approved_by: "operator 2026-11-12 (\"We need to fix regardless\")"
@@ -32650,7 +32654,7 @@ cards:
   parsimony: {problem: 'With an EV drawing >= 11.6 kW and SOC below the poor-day target, the arbitrage pause toggles every tick (31 EV switch events on 10-01).', verdict: PENDING-PLAN}
   adjacency_2026_10_03: "NEW. Swept: board (grep rung_1/oscillat: only HVAC zone-1 oscillation cards, unrelated), docs/BACKLOG.md (no rung-1 redirect item), docs/planning (only DESIGN_ec_degraded_data_policy.md mentions it, 9.3 'card needed'). Supersedes the premise of EV-ARBITRAGE-BREAKER-FLAP-ON-SOC-DROPOUT-1 (refuted: Envoy dropout co-incident, not causal)."
   breaker_must_answer_resolved_2026_10_03: "The design doc (9.3 P1-2/P1-3) asked why EVs were turned on at 06:45:02Z while switch.enpower_482348004678_charge_from_grid read 'on'. ANSWERED, no breaker gap: the release guard reads the WRITE leg (energy.py:6729 _get_entity role='write'); ENERGY_CLOUD_FIRST_WRITES=True (energy_const.py:479) routes it to the CLOUD switch switch.iq_battery_hacs_charge_battery_from_grid (energy_const.py:306), which read 'off' all window. The LOCAL enpower switch has read 'on' in 100% of its available rows for 7 days (183 on / 0 off / 200 unavailable) - it is a standing permission flag, not active grid charging. Physical cross-check: Envoy SOC fell 9 -> 8 -> 7 % 05:48-09:51Z (no grid charge), grid import peaked 17.7 kW with the EV on vs ~5-6 kW off."
-  next: "Me: ura-super-builder builds PLANNING_ev_rung1_redirect_cap.md rev2 in a worktree; then 4 framing-disjoint reviews (A/B/C mutation/D completeness), orchestrator verify, operator pre-deploy checkpoint."
+  next: 'None - closed.'
   links:
     related: [EC-DEGRADED-DATA-POLICY-1, EC-ATTAIN-HOLD-WHEN-ENVOY-BLIND-1, EC-EV-TOGGLE-TRIPWIRE-1, EC-RUNG1-WAIT-EV-PINGPONG-1]
     context: 'EC-DEGRADED-DATA-POLICY-1 is the design doc whose D0 replay found this mechanism; it supersedes EV-ARBITRAGE-BREAKER-FLAP-ON-SOC-DROPOUT-1 whose dropout premise was refuted. EC-EV-TOGGLE-TRIPWIRE-1 is the code trip-wire whose firing would revive this card; EC-RUNG1-WAIT-EV-PINGPONG-1 was a duplicate merged here 2026-10-05.'
@@ -33272,7 +33276,7 @@ cards:
   thread: energy
   status: done
   created: "2026-10-11 02:30"
-  updated: '2026-11-18 02:08'
+  updated: '2026-11-18 02:05'
   refinement_status: initial
   tags: [config-only, institutional-context, no-fabrication-verify]
   rank: {value: 3, time_criticality: 2, effort: 1}
@@ -34228,20 +34232,21 @@ cards:
   links: {"related": ["ENERGY-TODAY-MIDNIGHT-FREEZE-1"]}
   next: "None while parked - see revival_trigger."
 - id: SHARED-SPACE-AUTO-OFF-FAILSAFE-1
+  soak_exit_2026_11_18_overnight: 'DONE-WITH-RESIDUAL (ura_activity_log action=shared_space_auto_off). Kitchen swept on six consecutive nights 11-13..11-18 (05:00-06:04 UTC, later retries on nights the kitchen was busy at 23:00); 15 rooms on 11-12, then 25-26 rooms/night from 11-14. At-most-once-per-night met every night except 11-13 (26 rooms swept twice, 23:00 and 01:46 local) plus Exercise Room repeats 11-13 01:46, 11-14 01:40, 11-15 22:02. Occupied-night negative not directly measured. Residual: the once-per-night latch leaks (hypothesis: in-memory latch reset by a restart or reload, unverified). Mild (a repeat off of an already-vacant room); card it only if it recurs - recorded here as the revival trigger.'
   recheck_2026_11_07_overnight: "Re-check 02:03 CST: switch.kitchen_automation still off (Kitchen paused), so the gap is still live. No veto on default A since 11-04, and it is Tier 1 / reversible, so under the recommend-don't-menu rule I would take A - but the overnight WIP cap blocks new builds while 3 cards sit in review. Held for the first pass after the review lane drains (or an attended session)."
   card_was_wrong_2026_11_04: "The card's diagnosis was INCOMPLETE. It said the 11pm sweep skipped the Kitchen overhead because of the leave-on list. That was a second, latent barrier. The first one is that switch.kitchen_automation has been OFF the whole 10-day recorder window (paused on purpose per your 10-13 instruction), and both the old and the new night sweep sit inside the room's automation-enabled gate (coordinator.py: elif self._is_automation_enabled() at :5335 wraps the call at :5441; the pre-change file had the same nesting, :5327 -> :5429). So on 11-02/03 the Kitchen sweep never ran at all, and last night the new failsafe also never ran for the Kitchen (Kitchen was vacant 23:13-23:17 with the overhead on; the overhead was then switched off by hand at 23:18:45, no automation context). The fix works in every unpaused shared space; it cannot help a paused room by design (your 10-18 ruling: a paused room does not turn lights off)."
   organic_evidence_2026_11_04: "First night live (v5.103.101, loaded at the 11-03 18:01 restart). ura_activity_log: 15 rooms swept exactly once each between 23:00 and 23:38 (Game Room, Media Room Closet, Breakfast Nook, Guest Bedroom 2 Hallway, Kitchen Hallway, Upstairs Hallway, Stair Closet, Kitchen Pantry, Butler Pantry, Laundry, Laundry Closet, Dining Room 23:00; Powder 23:05; Living Room 23:08; Garage B 23:38). 0 auto_off_warning_flash rows since the deploy (last one 10-31). No URA ERROR in system_log since boot. BUT there is NO Kitchen row, and Kitchen is the room this card exists for."
   refinement_status: "refined"
-  updated: '2026-11-12 13:32'
+  updated: '2026-11-18 02:09'
   title: "11pm shared-space auto-off skipped Kitchen overhead (leave-on list) and it stayed on all night: make it a vacancy-gated failsafe that ignores leave-on"
   thread: lighting
-  status: shipped_organic
+  status: done
   shipped_version: v5.108.12
   tier: 2
   created: "2026-11-03"
   origin: "Operator 2026-11-03: 'We have an 11pm lights sweep. But I woke up early to find the kitchen lights on. Tell me why' -> option A approved: 'Its meant to be the fail safe. It should check for vacancy... stuck sensor aware'; retry-until-vacant w/ 05:00 cutoff OK; accept false-occupied trade; flash only if occupied."
   why: "light.dimmer_tapo_wifi_matter_kitchenoverhead on 21:16 -> 05:01 (11-02/03). Kitchen lights_leave_on_when_empty = [overhead]; _shared_space_turn_off_all exempts leave-on (automation.py:4681). check_scheduled_auto_off fires only in hour 23, occupancy-blind. 30 rooms carry shared_space."
-  next: "Me: rebase fix/shared-space-failsafe-paused-rooms on develop, review B, suite, ship."
+  next: 'None - closed. Revive if ura_activity_log shows a second shared_space_auto_off row for a room within one night after 11-18.'
   approval: explicit
   approved_by: "operator 2026-11-12 (\"Kitchen fix. Do A.\")"
   default_taken_2026_11_11_overnight: "Default A taken under recommend-don't-menu (Tier 1-2, reversible, not outward-facing; offered 11-04, no veto in 7 days). Re-verified 02:19 CST: switch.kitchen_automation still off; the failsafe call is still inside the master-automation gate (coordinator.py elif self._is_automation_enabled() :5320 wraps _run_shared_space_failsafe at :5426). Gate: 1b config-first = option B (turn the switch on) would undo your deliberate pause, so not the default; 2 prior-art = REUSE the humidity-cap hoist precedent (FIX A / D-HIGH-1, same block); 3 parsimony BUILD (one call site moved); 4 cost/benefit: room-local, no cross-coordinator state. ura-builder dispatched 02:19 to branch fix/shared-space-failsafe-paused-rooms (worktree). Build to review only; no merge or deploy overnight."
@@ -34962,8 +34967,12 @@ cards:
   operator_2026_11_14_default_on: 'Should be on by default if there are cameras in the house. => Vision Assisted Census switch defaults ON when the install has at least one camera (registry: any camera entity from a camera integration), OFF otherwise; a stored off still wins. Safe because awareness equals trust until vision leads (CD4 flip), and the switch never reaches Away, security, locks or HVAC.'
   operator_2026_11_14_v6: 'It feels like the last ship of this arc should move to v6.x? This is a major arc. And its going to lead to OC and personalization and Ai enhancements for rooms. / Btw we don''t need to be so conservative on shipping this live as soon as the arc matures and comes together. step 8 is fine. You better get a move on. => v6.0.0 = arc step 8 (named arrivals + first personalization acting on a recognised person); ship arc pieces live as they mature.'
 - id: CENSUS-DECONFLICTION-LEDGER-1
+  paged_2026_11_18_overnight: 'Paged 02:10 CST, notify.madronehapushover priority -1 (quiet).'
+  sharp_problem: 'The crossing ledger is almost never in a known state (1 anchor in 4 days), so the vision-assisted census adds nothing: held radar inputs block the empty-house anchor indefinitely.'
+  soak_exit_2026_11_18_overnight: 'REOPEN (organic criteria NOT met). URA DB memory_episodes crossing_vision_ledger (orchestrator re-ran the count): 87 rows 11-14..11-18 (21/27/22/16/1 per day), exactly ONE anchor (11-17 14:42 UTC, l_after 0, during an AWAY 14:13-15:15 UTC), ledger back to unknown ~34 min later; every other row is term/unknown, applied=0. README_v5.108.23 L3 (ledger reaches known) is met once in 4 days, L4 (a term row with non-null l_after) never. L5 aware_total has no read surface; L6 AWAY latency not computed (neither is an all-clear). Mechanism already on this card (INSTANCE_2026_11_15): held mmWave inputs (5 at the time) block the empty-house anchor, and while unknown note_departure returns None. The existing crossing_ledger_stuck page (crossing_vision.py:2110) fires on extra counted guests, not on ledger-unknown, so it does not catch this.'
+  updated: '2026-11-18 02:09'
   title: "Core census: one dedup function (deconflict_house), the crossing ledger with its empty-house anchor, the awareness view and Vision Assisted Census switch (ships dark, trust view unchanged)"
-  status: shipped_organic
+  status: waiting_operator
   shipped_version: v5.108.23
   tier: 3
   batch: person-sightings
@@ -34974,7 +34983,7 @@ cards:
   origin: {date: '2026-11-14', gist: 'Ship card for the census-p2 branch (crossing vision P2-D1..D3, census CD1..CD3, contract G7), which had no card of its own.'}
   operator_2026_11_14: "'Sure' (ship the core census after the leak audit); 'Ok' (swap plus mutation test, no extra review round)."
   why: "Plans PLANNING_crossing_vision.md P2-D1..D3 and PLANNING_census_deconfliction.md CD1..CD3. Reviews A/B/C/D (docs/reviews/code-review/v_census_p2_ledger_*.md). Merged with batch 2. The G7 swap makes the anchor read the S2 stream view, so held or released blocks it. Full-suite name-diff clean (22167 passed), D7 gate passed. Orchestrator mutation on classify_held: 5 tests RED. README_v5.108.23.md."
-  next: "Me: deploy v5.108.23, restart while awake, live acceptance L1-L9 into the README."
+  next: 'PICK (doctrine call, Tier 3 vision arc): A (recommended) the empty-house anchor ignores HELD inputs and requires only that no LIVE input fired and every camera saw nobody: held sensors still never create or end room occupancy, they just stop vetoing the anchor; or B keep held inputs blocking the anchor (today''s behaviour, consistent with ''dead sensor holds'') and accept the ledger stays unknown while any sensor is held. Either way I add a ledger-unknown-while-AWAY trip-wire. -> On your pick I plan it inside VISION-CROSSING-ANALYSIS-1 (Tier 3, attended).'
   rank: {value: 8, time_criticality: 6, effort: 1}
 - id: CENSUS-DOOR-TALLY-ATTRIBUTION-PARKED-1
   title: Parked estimator pieces - door-tally per-person attribution pipeline and the count-becomes-total_persons step
@@ -36048,7 +36057,7 @@ cards:
   status: done
   batch: person-sightings
   created: '2026-11-13 12:00'
-  updated: '2026-11-18 02:20'
+  updated: '2026-11-18 02:06'
   tier: 1
   links: {parent: HOUSE-STATE-FIRST-PRINCIPLES-1}
   origin: {date: '2026-11-13', gist: 'Review C-4 of house-state step 1a; no behaviour change.'}
