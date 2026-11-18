@@ -34256,6 +34256,17 @@ cards:
   refinement: ["11-04 option A (failsafe ignores the pause) offered as recommended -> 11-11 review A: A contradicts the 10-18 paused-room ruling and reaches ~10 rooms; sharpened to a per-room opt-in (K) so only rooms you name get the night failsafe while paused."]
   paged_2026_11_11_overnight: "Paged once in the consolidated overnight Pushover (priority -1, quiet)."
   operator_decision_2026_11_12: "Operator picked A: the night failsafe runs in all paused shared-space rooms (supersedes the 10-18 no-lights-off-when-paused ruling for the 23:00 failsafe only)."
+- id: SECURITY-LOCK-STALE-STATE-1
+  title: Lock sweep trusts a lock state the lock stopped reporting days ago, so a physically unlocked door is never relocked
+  thread: security
+  status: inbox
+  tier: 2
+  created: '2026-11-18 14:55'
+  updated: '2026-11-18 14:55'
+  links: {sibling_of: SECURITY-LOCK-SWEEP-RETRY-CAP-1, related: [LOCK-BOOT-RECHECK-ENGAGE-1]}
+  origin: {date: '2026-11-18', gist: 'Operator: "Is lock sweep working? Or the new garage lock re-inclusion not make it to the settings? I am finding it open often" / "I just went through that door and it wa unlocked"'}
+  why: "Live 11-18: lock.garage_hallway_doorlock_kwikset916_zwave_garagehallway (zwave_js node 10, re-included 2026-11-14 23:02, in security_lock_entities) last changed state 11-15 ~20:42; since then only the 11-17 21:06:54 restart restore (state locked, last_reported = restart). Operator found it physically unlocked. zwave_js.refresh_value and the node ping (20:50 UTC) produced no new value; node_status stays 'alive'. The sweep relocks only locks that READ unlocked, so it never acts. Config is fine (entity is in the sweep list); the lock stopped reporting the day after re-inclusion."
+  next: "Me: (1) operator to re-interview / check S0-S2 security class of node 10 in Z-Wave JS (asked 11-18). (2) Plan the URA fix: a swept lock whose state has not been reported for N hours (knob) pages via NM and the sweep issues zwave_js.refresh_value / a lock command before trusting a stale 'locked'; registry-resolve the platform (zwave_js) instead of names. Measure first: last_reported age per swept lock over 14 days."
 - id: SECURITY-LOCK-SWEEP-RETRY-CAP-1
   mergeprep_2026_11_10_overnight: "02:01-02:11 CST. integ/overnight-2026-11-08 was 180 behind develop (v5.108.1 shipped since); git merge-tree showed ONE conflict, docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md header (two independent dated entries; kept both). Code (const.py, sensor.py) auto-merged. New branch integ/overnight-2026-11-10 = develop 71c0fbb6 + merge 42e3215f, pushed. py_compile clean, no conflict markers. The cycle's 9 test files: 186 passed. Full suite under xdist on candidate vs base develop: 33 vs 25 failures, but the sets differ in BOTH directions (order pollution); all 13 candidate-only failing tests pass when their files run alone (test_kanban_render, test_radar_tuning_phase_a, test_unload_symmetry_task_hygiene, test_zone_migration_mint_guard, test_zone_orphan_device_guard, test_zone_power_rollup, test_zone_safety_alert). No new failure attributable to the branch. Caveat: this is an xdist run, not the serial name-diff; the attended deploy's suite gate is the authority."
   mergeprep_2026_11_06_overnight: "Same check as OPTIMIZER-META-NEVER-PAGES-1 (same integ branch): merges clean onto develop; test_security_lock_retry_cap passes on the merge, including when run with test_zone_orphan_device_guard (21 passed). Still ready for the attended deploy."
