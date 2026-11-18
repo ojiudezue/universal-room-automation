@@ -34878,6 +34878,8 @@ cards:
   next: 'Me: build as plan D7 after rev-8 fixes; resolve names via CameraResolver; measure hop lags; diff learned vs operator map.'
   rank: {value: 8, time_criticality: 5, effort: 5}
 - id: EGRESS-DIRECTION-AWARE-IDENTITY-1
+  due: '2026-11-18 10:00'
+  due_note: 'ship v5.108.37 (step 7 S1) + set Faces often confused to jaya|ezinne, jaya|oji'
   operator_2026_11_17_pairs_and_06: "Ok on 0.6 / Jaya Ezinne not only confusable pair. It can also be Jaya Oji. (CONF_EGRESS_CONFUSABLE_PAIRS does not exist yet: proposed in the step 7 plan 2026-11-14, built with S1 as a Coordinator Manager options field; initial jaya|ezinne, jaya|oji.)"
   operator_2026_11_17_step7_answers: "1 - yes 2 - yes. We should do face after phone if gaps remain on ident. Phone is more reliable now 3 - yes. 4 - more details please face plus phone - more details please"
   arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
@@ -35433,6 +35435,8 @@ cards:
   why: "P3-D1 + P3-D5 + P3-D8 (+ P3-D0 knobs) from PLANNING_crossing_vision.md Phase 3. Operator Go 2026-11-15. Full suite 22,788 passed (1 order-dependent flake, passes alone); orchestrator mutation on both P3-D8 sites RED (7 and 12 tests)."
   next: "Dispose by the discriminator at the next sweep (query, do not watch)."
 - id: VISION-AMBIGUOUS-CROSSINGS-1
+  due: '2026-11-18 18:00'
+  due_note: 'pull grades (who+notes) and re-score door direction + name accuracy'
   residual_2026_11_17_p3_d0e: "P3-D0e approach probe complete (AUDIT_crossing_vision_p3_d0e_approach_2026_11_17.md): R-c LLM montage 13/15 decided (bar 88%), R-a Frigate stored events 13/18 lenient / 8/12 strict, R-b YOLOX 13/16 / 8/11, R-b frame-diff 15/18 (= always-in baseline) / 7/8. All NO-GO; P3-D10 stays unbuilt. Binding constraint: 4 out grades of 19; revisit approach clips at ~15 out grades. 33 of 60 calls used. Note: R-b downloaded a 35 MB YOLOX model + pip packages into .claude/tmp without asking (surfaced to operator)."
   residual_2026_11_17_day_audit: "AUDIT_arc_day_validation_2026_11_17.md: 35 of 54 crossings ambiguous (26 = one yard-walker burst 11-16 09:25-10:41), vision never called on an ambiguous crossing: EXPECTED, watching ambiguous is P3-D3 (CROSSING_VISION_WATCH_AMBIGUOUS), not built yet (corrected same day); all 19 crossing_vision_ledger terms applied=false reason=unknown; 07:58 11-17 ezinne entry contradicted by vision text (walks away, SUV leaves). Investigating."
   residual_2026_11_17_door_scoring: "AUDIT_door_direction_scoring_2026_11_17.md on the 27 grades (19 direction-scorable): production tracker 10/19 right, all 9 misses entry called exit (one-sided bias); vision run1 10/11; I4 interior-timing 17/19 (no holdout, beats always-in by 2). P3-D2 passes its own gate -> build; P3-D3 build recorded-only; P3-D10 approach clips unscored and EXPIRE 2026-11-19; P3-D11 direction part fails the P3-D6 bar. No instrument reports no_cross (tracker wrote crossings for all 5 no_cross grades)."
@@ -36207,6 +36211,8 @@ cards:
   next: 'Parked (see revival_trigger). Measured 11-15: ~18 MB, exterior_track is the driver.'
   rank: {value: 2, time_criticality: 1, effort: 1}
 - id: VISION-INTERIOR-SIGHTINGS-1
+  due: '2026-11-24 10:00'
+  due_note: 'ledger known-time F-K check after 7 days of <=1 restart/day'
   foyer_floor_zone_live_2026_11_17: "Frigate 2 zone foyer_floor (camera foyer_fisheye, person, inertia 3) live in HA since the 12:14 CST Frigate restart (homelab session): sensor.foyer_floor_person_count, sensor.foyer_floor_person_active_count, binary_sensor.foyer_floor_person_occupancy (+ *_all_* variants). Ledger-floor F-D0 / F-D1 resolve these through the registry (platform frigate, device foyer_fisheye), never by name; F-D0 data before 12:14 11-17 has no zone."
   residual_2026_11_17_describe_alias: "First live describe failed: operator texted 'describe family room' 07:57 and got \"I don't know a room or person called 'family room'.\" The URA room is 'Living Room' (area living_room); describe matched only the exact URA room name. Fix in flight on fix/describe-area-alias: also match the room's HA area name and area aliases (registry), refuse ambiguous aliases, and list the rooms that have a camera on an unknown target. Operator action after ship: add alias 'Family Room' to the Living Room area (or send 'describe living room' meanwhile)."
   residual_2026_11_16_face_conf: "Ship 2 review A-M1 set the describe face fallback to confidence >= 0.75 and skip census-vetoed faces. Interior face sightings are emitted at 0.6, so describe <person> places by BLE only until the interior face producer's confidence is raised (or calibrated against the 0.75 naming bar). Fold into the vision count leg work."

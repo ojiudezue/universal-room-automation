@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-18T02:05:23-06:00_ - _Data commit: `52e5bf47499d`_ - _last_reconciled: 2026-11-18_
+_Generated: 2026-11-18T07:04:29-06:00_ - _Data commit: `dcbcefaec827`_ - _last_reconciled: 2026-11-18_
 
 
 ## Columns
@@ -255,7 +255,8 @@ thread: **optimization** - status: **pre_planning**
 _updated 2026-10-21 22:05_
 - **Why:** AUDIT_v6_milestone_candidates.md: OC in shadow, never actuated; findings ~90% tier-1 noise; optimizer_shadow_samples 0 rows so the v2 promotion gate can never pass. Operator wants the house to find and fix its own problems instead of the...
 - **Next:** Vision doc draft (with the agentic layer) for operator review: what OC is today (prior art: optimizer campaign, autonomy ladder, findings tiers), why it failed, goal/tool/loop model, first measurable slice.
-- **Forensic keys (7):**
+- **Forensic keys (8):**
+  - `analysis_2026_11_18_always_on`: Operator 2026-11-18: 'Absorb this as context for OC and check if we are making any harness design errors that this guide can improve https://claude.com/resources/articles/building-always-on-agents'. ANALYSIS_always_on_agents_vs_OC_2026_1...
   - `links_added_2026_10_21`: related+OC-REQUEST-FIX-DISPATCHER-1,OC-STUCK-SENSOR-GENERALIZE-1: OC-REQUEST-FIX-DISPATCHER-1 is the slice-2 child (its parent link was one-sided); OC-STUCK-SENSOR-GENERALIZE-1 (v5.103.57) is the never-fires detector the redesign inherit...
   - `rerank_2026_10_21`: v9 t3 e8 -> v9 t5 e8: vision rev 6 actively in progress with the operator; momentum + slice 0 model eval next
   - `operator_correction_2026_10_16`: OC never acted BY OPERATOR CHOICE: "it never acted because I sensed this" (the noise). Shadow mode was a deliberate trust withhold, not a promotion-pipeline failure. Vision doc must frame it that way: the failure is signal quality; promo...
@@ -536,6 +537,7 @@ _created 2026-11-14 15:30_
 ### `EGRESS-DIRECTION-AWARE-IDENTITY-1` - Egress drops the name of anyone the tracker shows away, in both directions; entries by away people are exactly arrivals — _#16 · WSJF 3.0 · v8 tc5 u2 /e5_
 thread: **identity** - status: **planned**
 _created 2026-11-12 22:00_
+- **⏰ Due:** 2026-11-18 10:00 — ship v5.108.37 (step 7 S1) + set Faces often confused to jaya\|ezinne, jaya\|oji
 - **Origin:** 2026-11-12 - Operator: "Who made this rule? I didn't... It should do both especially since we have a direction detector."
 - **Why:** not_home veto at transit_validator.py:1840-1854 copied from the census veto in Aug 2026 without direction. Plan rev 8 section 2B: entry+away = arrival candidate, exit+home = departure candidate, guards (face conf, path, GPS), census keep...
 - **Next:** Me: build as plan D8 after rev-8 fixes.
@@ -1959,6 +1961,7 @@ _updated 2026-11-14 02:20_
 ### `VISION-INTERIOR-SIGHTINGS-1` - Interior vision - unnamed sightings ("2 people in the family room") from interior cameras, fused with NVR faces — _#12 · WSJF 4.3 · v8 tc3 u2 /e3_
 thread: **identity** - status: **shipped_organic**
 _created 2026-11-13 18:00_
+- **⏰ Due:** 2026-11-24 10:00 — ledger known-time F-K check after 7 days of <=1 restart/day
 - **Origin:** 2026-11-13 - Operator: "We need this. Sequence is optional as long as you don't drop it. Add to arc." (on unnamed interior sightings after crossing vision).
 - **Why:** F4 today needs a name (face). Interior vision gives per-room people counts and unnamed presence in shared spaces/hallways (cameras only in shared spaces), the input census accuracy and personalization need. Must respect the F1-F5 model: ...
 - **Next:** Me: after crossing vision Phase 1 accuracy is measured, plan it (Tier 3, prior-art scan: sighting producer, CameraResolver, interior path map, census interior camera counts, CROSSING_VISION_INTERIOR_ENABLED parked name) with measure-firs...
@@ -2127,6 +2130,7 @@ _created 2026-11-14 22:00_
 ### `VISION-AMBIGUOUS-CROSSINGS-1` - Crossing vision watches every crossing, including the ones the validator cannot give a direction (20-53% of crossings), and vision supplies the direction and count there — _#24 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **identity** - status: **shipped_organic**
 _created 2026-11-15 13:30_
+- **⏰ Due:** 2026-11-18 18:00 — pull grades (who+notes) and re-score door direction + name accuracy
 - **Origin:** 2026-11-15 - Operator on the 3 skipped direction_ambiguous crossings after the v5.108.24 restart.
 - **Why:** The validator could not resolve direction on 42 of 79 crossings on 11-13 and 20 of 101 on 11-14 (AUDIT_crossing_pipeline_after_v5_108_24.md). Those are exactly the crossings where the sensor side is weakest, and vision never looks at the...
 - **Next:** WAIT on operator grades (urakanban /grade/, 6 of 88 done): pull_grades -> score every direction instrument once -> build P3-D2 recording route / P3-D3 direction / P3-D10-D11 tracker extension from what passes.
