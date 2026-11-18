@@ -1,0 +1,744 @@
+<!doctype html><html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="kanban_render.py (URA)">
+<title>URA Decisions</title>
+<meta name="theme-color" content="#fafaf8">
+<link rel="icon" type="image/png" href="data:image/png;base64,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">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,300..800;1,300..700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root {
+  /* URA brand tokens — lifted from https://universalroom.org/style.css (OKLCH).
+     Light "paper" + cool "ink" + brand blue `--accent` / warm secondary. */
+  --bg:oklch(0.985 0.003 240); --fg:oklch(0.15 0.008 240); --muted:oklch(0.55 0.010 240);
+  --card-bg:oklch(0.995 0.002 240); --border:oklch(0.88 0.008 240); --rule:oklch(0.80 0.010 240);
+  --lane-bg:transparent; --accent:oklch(0.50 0.16 235); --accent-dim:oklch(0.66 0.12 235);
+  --ok:oklch(0.55 0.13 150); --warn:oklch(0.60 0.13 50); --bad:oklch(0.55 0.17 25);
+  --info:oklch(0.55 0.10 210);
+  --stale:oklch(0.58 0.13 50); --stale-bg:oklch(0.93 0.05 65); --code-bg:oklch(0.965 0.005 240);
+  --font-sans:'Hanken Grotesk', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono:'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* URA is light-only; this is a URA-consistent cool dark (deep slate + brand
+       blue) for dark-OS viewers — NOT the old muddy default. */
+    --bg:oklch(0.20 0.012 240); --fg:oklch(0.93 0.004 240); --muted:oklch(0.66 0.012 240);
+    --card-bg:oklch(0.24 0.012 240); --border:oklch(0.33 0.012 240); --rule:oklch(0.42 0.012 240);
+    --accent:oklch(0.72 0.13 235); --accent-dim:oklch(0.55 0.12 235);
+    --ok:oklch(0.72 0.14 150); --warn:oklch(0.74 0.13 55); --bad:oklch(0.70 0.16 25);
+    --info:oklch(0.72 0.10 210);
+    --stale:oklch(0.74 0.13 55); --stale-bg:oklch(0.28 0.05 60); --code-bg:oklch(0.27 0.012 240);
+  }
+}
+* { box-sizing:border-box; }
+html,body { margin:0; padding:0; background:var(--bg); color:var(--fg);
+  font:14px/1.55 var(--font-sans);
+  font-variant-numeric: tabular-nums; -webkit-font-smoothing:antialiased; }
+code, .mono, .id, .statusline, .lane h2, .count, .tagline, .kv dt {
+  font-family: var(--font-mono); }
+
+header.top { position:sticky; top:0; z-index:5; background:var(--bg);
+  border-bottom:2px solid var(--rule); padding:14px 22px 10px; }
+header.top h1 { margin:0; font-size:17px; letter-spacing:0.14em; text-transform:uppercase;
+  font-family:var(--font-mono); }
+header.top h1 .gen { color:var(--muted); font-size:10.5px; letter-spacing:0.08em; font-weight:400;
+  display:block; margin-top:2px; text-transform:none; }
+.statusline { margin-top:8px; font-size:11.5px; color:var(--muted);
+  display:flex; flex-wrap:wrap; gap:2px 18px; }
+.statusline b { color:var(--fg); font-weight:600; }
+.statusline a { color:var(--accent); text-decoration:none; border-bottom:1px solid var(--accent-dim); }
+
+.stale { background:var(--stale-bg); border:1px solid var(--stale);
+  border-left:6px solid var(--stale); padding:12px 18px; margin:14px 22px 0;
+  font-family:var(--font-mono); font-size:12.5px; }
+.stale h2 { margin:0 0 6px; font-size:13px; letter-spacing:0.1em; text-transform:uppercase;
+  color:var(--stale); }
+.stale ul { margin:4px 0 0 18px; padding:0; }
+.stale a { color:var(--accent); }
+
+.summary { padding:10px 22px 2px; font-size:11.5px; color:var(--muted);
+  display:flex; gap:0; flex-wrap:wrap;
+  font-family:var(--font-mono); }
+.summary span { padding:2px 10px; border-right:1px solid var(--border); }
+.summary span:first-child { padding-left:0; }
+.summary span:last-child { border-right:none; }
+.summary b { color:var(--fg); }
+
+/* BOARD-AUTONOMY-PROGRESS-1 — last-24h progress counter + recent-work feed */
+.autonomy { margin:12px 22px 0; border:1px solid var(--border); border-left:6px solid var(--accent);
+  background:var(--code-bg); }
+.autonomy .hd { display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; padding:12px 18px 6px; }
+.autonomy .hd .lbl { font-family:var(--font-mono); font-size:11px; letter-spacing:0.14em;
+  text-transform:uppercase; color:var(--muted); }
+.autonomy .hd .metric { font-family:var(--font-mono); font-weight:700;
+  font-size:34px; line-height:1; color:var(--accent); letter-spacing:0.02em; }
+.autonomy .hd .metric .den { color:var(--muted); font-size:22px; }
+.autonomy .hd .sub { font-size:11.5px; color:var(--muted); }
+.autonomy details { border-top:1px dashed var(--border); }
+.autonomy details > summary { cursor:pointer; list-style:none; padding:7px 18px; font-size:11.5px;
+  font-family:var(--font-mono); letter-spacing:0.06em; color:var(--muted); }
+.autonomy details > summary::-webkit-details-marker { display:none; }
+.autonomy details > summary::marker { content:""; }
+.autonomy .feed { margin:0; padding:0 18px 12px; list-style:none; }
+.autonomy .feed li { display:flex; align-items:flex-start; gap:10px; padding:7px 0;
+  border-top:1px solid var(--border); font-size:12.5px; }
+.autonomy .feed li:first-child { border-top:none; }
+.autonomy .feed .oc { font-family:var(--font-mono); font-size:9.5px; font-weight:700;
+  letter-spacing:0.08em; text-transform:uppercase; padding:2px 7px; border:1px solid var(--border);
+  white-space:nowrap; }
+.autonomy .feed .oc.built { color:var(--ok); border-color:var(--ok); }
+.autonomy .feed .oc.parked { color:var(--muted); }
+.autonomy .feed .oc.waiting_operator { color:var(--info); border-color:var(--info); }
+.autonomy .feed .oc.shipped, .autonomy .feed .oc.done { color:var(--accent); border-color:var(--accent); }
+.autonomy .feed .fhd { flex:1; }
+.autonomy .feed .ft { color:var(--muted); font-size:10.5px; font-family:var(--font-mono); }
+.autonomy .feed button.ack { font-family:var(--font-mono); font-size:10px;
+  letter-spacing:0.06em; padding:3px 9px; cursor:pointer; background:var(--code-bg); color:var(--fg);
+  border:1px solid var(--border); white-space:nowrap; }
+.autonomy .feed button.ack:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
+.autonomy .feed button.ack:disabled { opacity:0.4; cursor:default; }
+.autonomy .feed .empty { color:var(--muted); padding:8px 0; font-size:12px; }
+/* acked state (pending apply, before the next groom culls it) */
+.autonomy .feed li.acked { opacity:0.6; }
+.autonomy .feed li.acked .fhd { text-decoration:line-through; text-decoration-color:var(--muted); }
+.autonomy .feed .ackmark { font-family:var(--font-mono); font-size:10px;
+  letter-spacing:0.06em; color:var(--ok); white-space:nowrap; border:1px solid var(--ok);
+  padding:3px 9px; }
+/* operator decision, queued from the feed (pending apply) */
+.autonomy .feed .decision-chip { display:block; margin-top:4px; font-family:var(--font-mono);
+  font-size:10.5px; color:var(--info); border-left:2px solid var(--info); padding-left:7px; }
+.autonomy .feed li.decision-row { border-top:none; padding-top:0; }
+.autonomy .feed .feed-instruct { flex:1; margin-top:0; }
+.autonomy .feed .feed-instruct input { flex:1; font-family:var(--font-mono);
+  font-size:11px; padding:4px 8px; background:var(--bg); color:var(--fg); border:1px solid var(--border); }
+.autonomy .feed .feed-instruct input:focus { outline:none; border-color:var(--accent); }
+.autonomy .feed .feed-instruct button { font-family:var(--font-mono); font-size:10.5px;
+  padding:3px 10px; cursor:pointer; background:var(--code-bg); color:var(--fg); border:1px solid var(--border); }
+.autonomy .feed .feed-instruct button:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
+.autonomy .feed .feed-instruct button:disabled { opacity:0.4; cursor:default; }
+/* waiting_operator free-form instruction box (WAITING-OP-INSTRUCTIONS-1) */
+.instruct { margin-top:8px; display:flex; gap:6px; }
+.instruct input { flex:1; font-family:var(--font-mono); font-size:11px;
+  padding:4px 8px; background:var(--bg); color:var(--fg); border:1px solid var(--border); }
+.instruct input:focus { outline:none; border-color:var(--accent); }
+.instruct button { font-family:var(--font-mono); font-size:10.5px; letter-spacing:0.06em;
+  padding:3px 10px; cursor:pointer; background:var(--code-bg); color:var(--fg); border:1px solid var(--border); }
+.instruct button:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
+.instruct button:disabled { opacity:0.4; cursor:default; }
+.pending-chip.op-instruct { background:transparent; color:var(--info); border-color:var(--info); }
+.pending-chip.op-ack { background:transparent; color:var(--ok); border-color:var(--ok); }
+
+main.board { padding:6px 22px 30px; }
+.lane { margin-top:18px; }
+.lane > h2 { margin:0; font-size:12px; font-weight:600; letter-spacing:0.16em;
+  text-transform:uppercase; color:var(--fg);
+  border-bottom:1px solid var(--rule); padding-bottom:5px;
+  display:flex; align-items:baseline; gap:10px; }
+.lane > h2 .count { color:var(--accent); font-size:12px; }
+.lane > h2 .hint { color:var(--muted); font-weight:400; font-size:10.5px;
+  letter-spacing:0.03em; text-transform:none; margin-left:auto; }
+.lane .cards { display:grid; grid-template-columns:repeat(auto-fill, minmax(320px,1fr));
+  gap:10px; padding-top:10px; }
+.lane .none { color:var(--muted); font-size:11px; padding:8px 0 0;
+  font-family:var(--font-mono); }
+
+.card { background:var(--card-bg); border:1px solid var(--border);
+  border-left:3px solid var(--muted); padding:9px 12px 8px; }
+.card.ap-explicit  { border-left-color:var(--ok); }
+.card.ap-implied   { border-left-color:var(--info); }
+.card.ap-unreviewed{ border-left-style:dashed; border-left-color:var(--muted); }
+.card.ap-blocked   { border-left-color:var(--bad); }
+.card summary { cursor:pointer; list-style:none; }
+.card summary::-webkit-details-marker { display:none; }
+.card summary::marker { content:""; }
+.card .id { color:var(--accent); font-size:11px; letter-spacing:0.04em; }
+.card .apl { float:right; font-size:9.5px; letter-spacing:0.1em; text-transform:uppercase;
+  font-family:var(--font-mono); color:var(--muted); }
+.card.ap-blocked .apl { color:var(--bad); }
+.card.ap-unreviewed .apl { color:var(--warn); }
+.card .title { font-weight:600; margin-top:2px; display:block; font-size:13.5px; line-height:1.35; }
+.tagline { margin-top:5px; font-size:10.5px; color:var(--muted); letter-spacing:0.02em; }
+.cardmeta { font-size:10px; color:var(--muted); margin:2px 0 6px; letter-spacing:0.02em; font-variant-numeric:tabular-nums; }
+.tagline .sep { opacity:0.5; padding:0 4px; }
+
+.card .body { margin-top:8px; border-top:1px solid var(--border); padding-top:7px; }
+.kv { margin:0; }
+.kv dt { color:var(--muted); font-size:10px; margin-top:7px; text-transform:uppercase;
+  letter-spacing:0.1em; }
+.kv dd { margin:2px 0 0; font-size:12.5px; word-break:break-word; }
+.card ul.forensic { list-style:none; padding:0; margin:4px 0 0; }
+.card ul.forensic li { margin:3px 0; font-size:11.5px; color:var(--muted); }
+.card ul.forensic code { background:var(--code-bg); padding:1px 4px; font-size:10.5px; color:var(--fg); }
+code { background:var(--code-bg); padding:1px 5px; font-size:0.92em; }
+
+section.extras { margin:26px 22px 0; border-top:1px solid var(--rule); padding-top:12px; }
+section.extras h2 { font-size:12px; letter-spacing:0.16em; text-transform:uppercase;
+  font-family:var(--font-mono); }
+footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
+  font-family:var(--font-mono); }
+/* --- operator disposition UI (KHOST-2) --- */
+.actions { margin-top:8px; display:flex; gap:6px; flex-wrap:wrap; }
+.actions button { font-family:var(--font-mono); font-size:10.5px;
+  letter-spacing:0.06em; padding:3px 9px; cursor:pointer;
+  background:var(--code-bg); color:var(--fg); border:1px solid var(--border); }
+.actions button:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
+.actions button:disabled { opacity:0.4; cursor:default; }
+.pending-chip { display:inline-block; margin-top:6px; margin-right:6px;
+  font-family:var(--font-mono); font-size:10px; letter-spacing:0.08em;
+  text-transform:uppercase; padding:2px 8px; font-weight:600;
+  background:var(--stale-bg); color:var(--stale); border:1px solid var(--stale); }
+.pending-chip.op-done     { background:transparent; color:var(--ok); border-color:var(--ok); }
+.pending-chip.op-declined { background:transparent; color:var(--bad); border-color:var(--bad); }
+.pending-chip.op-move     { background:transparent; color:var(--info); border-color:var(--info); }
+.pending-chip.op-approve  { background:transparent; color:var(--ok); border-color:var(--ok); }
+.pending-chip.op-investigate { background:transparent; color:var(--info); border-color:var(--info); }
+.card[draggable="true"] { cursor:grab; }
+.card.dragging { opacity:0.5; }
+.lane.drop-ok { outline:2px dashed var(--accent); outline-offset:4px; }
+#toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%);
+  background:var(--fg); color:var(--bg); padding:8px 16px; font-size:12px;
+  font-family:var(--font-mono); z-index:20; display:none; }
+/* --- due-dated follow-ups: static "due …" chip; DUE_JS restyles it at VIEW time
+   (soon / OVERDUE) so the rendered bytes never depend on the wall clock --- */
+.due-chip { display:inline-block; margin:0 0 0 6px; font-family:var(--font-mono);
+  font-size:10px; letter-spacing:0.06em; padding:1px 7px; white-space:nowrap;
+  color:var(--info); border:1px solid var(--info); }
+.due-chip.soon { color:var(--warn); border-color:var(--warn); font-weight:600; }
+.due-chip.overdue { background:var(--bad); color:var(--card-bg); border-color:var(--bad); font-weight:700; }
+/* --- Decisions: the operator's waiting_operator queue, oldest first --- */
+section.decisions { margin:14px 22px 0; border:1px solid var(--border);
+  border-left:6px solid var(--info); background:var(--card-bg); }
+section.decisions > h2 { margin:0; padding:12px 18px 8px; font-family:var(--font-mono);
+  font-size:12px; letter-spacing:0.16em; text-transform:uppercase; display:flex;
+  align-items:baseline; gap:10px; flex-wrap:wrap; }
+section.decisions > h2 .count { color:var(--info); }
+section.decisions > h2 .hint { color:var(--muted); font-weight:400; font-size:10.5px;
+  letter-spacing:0.03em; text-transform:none; }
+section.decisions .none { color:var(--muted); font-size:12px; padding:0 18px 12px; }
+.decision { padding:12px 18px 14px; border-top:1px solid var(--border); }
+.decision .dhd { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 10px; }
+.decision .dhd .id { color:var(--accent); font-family:var(--font-mono); font-size:11px; }
+.decision .dhd .since { color:var(--muted); font-family:var(--font-mono); font-size:10.5px; }
+.decision .dhd .pending-chip, .decision .dhd .due-chip { margin:0; }
+.decision .dtitle { font-weight:600; font-size:13.5px; margin-top:3px; }
+.decision .ask { margin:6px 0 0; font-size:13.5px; line-height:1.5; max-width:110ch;
+  overflow-wrap:anywhere; }
+.decision .ask b { color:var(--accent); }
+.decision .picks { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+.decision .picks button { font-family:var(--font-sans); font-size:12.5px; text-align:left;
+  padding:7px 12px; min-height:36px; cursor:pointer; max-width:100%;
+  background:var(--code-bg); color:var(--fg); border:1px solid var(--accent); }
+.decision .picks button b { font-family:var(--font-mono); color:var(--accent); margin-right:6px; }
+.decision .picks button:hover:not(:disabled) { background:var(--accent); color:var(--card-bg); }
+.decision .picks button:hover:not(:disabled) b { color:var(--card-bg); }
+.decision form.answer { display:flex; gap:8px; margin-top:10px; align-items:flex-end; }
+.decision form.answer label { position:absolute; width:1px; height:1px; overflow:hidden;
+  clip-path:inset(50%); white-space:nowrap; }
+.decision form.answer textarea { flex:1; font:13px/1.45 var(--font-sans); padding:7px 9px;
+  min-height:2.8em; max-height:12em; field-sizing:content; resize:vertical;
+  background:var(--bg); color:var(--fg); border:1px solid var(--border); }
+.decision form.answer textarea:focus { outline:none; border-color:var(--accent); }
+.decision form.answer button { font-family:var(--font-mono); font-size:11px; padding:7px 14px;
+  min-height:36px; cursor:pointer; background:var(--accent); color:var(--card-bg);
+  border:1px solid var(--accent); }
+.decision .dactions { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+.decision .dactions button { font-family:var(--font-mono); font-size:10.5px; padding:3px 9px;
+  cursor:pointer; background:var(--code-bg); color:var(--fg); border:1px solid var(--border); }
+.decision .dactions button:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
+.decision button:disabled, .decision textarea:disabled { opacity:0.45; cursor:default; }
+.decision.answered { opacity:0.7; }
+@media (max-width:720px) {
+  main.board, .summary, header.top { padding-left:12px; padding-right:12px; }
+  .stale { margin:10px 12px 0; }
+  section.decisions { margin:12px 12px 0; }
+  .decision { padding-left:12px; padding-right:12px; }
+  .decision form.answer { flex-direction:column; align-items:stretch; }
+  .lane .cards { grid-template-columns:1fr; }
+  .card .apl { float:none; display:block; margin-top:2px; }
+}
+</style>
+</head><body>
+<header class="top">
+<h1>URA://DECISIONS<span class="gen">GENERATED - waiting_operator cards from kanban.data.yaml</span></h1>
+<div class="statusline">
+<span>generated <b>2026-11-18T07:04:29-06:00</b></span>
+<span>data <b>dcbcefaec827</b></span>
+<span>reconciled <b>2026-11-18</b></span>
+</div></header>
+<section class="decisions" id="decisions" aria-labelledby="decisions-h">
+<h2 id="decisions-h">Decisions <span class="count">36</span><span class="hint">waiting on you, oldest first · tap a PICK or type an answer; it is applied at the next groom</span></h2>
+<article class="decision" data-id="CAMERA-SEAM-VALIDATION-1">
+<div class="dhd">
+<span class="id">CAMERA-SEAM-VALIDATION-1</span>
+<span class="since">waiting since 2026-09-13 21:30</span>
+</div>
+<div class="dtitle">Exterior camera seams (handoff points) listed for operator validation — 12 cameras, 27 seams</div>
+<p class="ask"><b>REVIEW</b> the seam sheet (docs/planning/VALIDATE_exterior_camera_seams.md) and tick/strike each of the 27, plus ANSWER Q1/Q2/Q3. -&gt; I apply the accepted edits to EXTERIOR_ADJACENCY_GRAPH (rung-1 module constant, reviewed code change; declare one direction, it symmetrizes). Note the direction of harm when deciding: a MISSING seam fragments one person into several weaker alerts (noisier), a WRONG seam merges two people into one track (suppresses the second).</p>
+<form class="answer"><label for="ans-CAMERA-SEAM-VALIDATION-1">Your answer for CAMERA-SEAM-VALIDATION-1</label><textarea id="ans-CAMERA-SEAM-VALIDATION-1" rows="2" placeholder="Your answer for CAMERA-SEAM-VALIDATION-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="ROADMAP-UNDONE-REVIEW-1">
+<div class="dhd">
+<span class="id">ROADMAP-UNDONE-REVIEW-1</span>
+<span class="since">waiting since 2026-09-19 03:50</span>
+</div>
+<div class="dtitle">Review ROADMAP/VISION — surface undone-but-worthwhile</div>
+<p class="ask"><b>REVIEW</b> the delivered ROADMAP/VISION undone-but-worthwhile doc. -&gt; your read drives the roadmap rewrite / close-out.</p>
+<form class="answer"><label for="ans-ROADMAP-UNDONE-REVIEW-1">Your answer for ROADMAP-UNDONE-REVIEW-1</label><textarea id="ans-ROADMAP-UNDONE-REVIEW-1" rows="2" placeholder="Your answer for ROADMAP-UNDONE-REVIEW-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="EVCARD-1">
+<div class="dhd">
+<span class="id">EVCARD-1</span>
+<span class="since">waiting since 2026-09-29 01:05</span>
+</div>
+<div class="dtitle">EV charging detail card for the URA v8 Energy tab</div>
+<p class="ask"><b>REVIEW</b> + APPROVE: the redesigned EV card spec (verdict header with live kW, per-charger table, plugged-but-not-drawing anomaly, estimate labelling). -&gt; On APPROVE I build it into the v8 Energy tab (fold into the DASHBOARD-V8-FIX-BATCH-1 dashboard pass).</p>
+<form class="answer"><label for="ans-EVCARD-1">Your answer for EVCARD-1</label><textarea id="ans-EVCARD-1" rows="2" placeholder="Your answer for EVCARD-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="FRIGATE-THRESHOLD-CLAIM-DISPUTED-1">
+<div class="dhd">
+<span class="id">FRIGATE-THRESHOLD-CLAIM-DISPUTED-1</span>
+<span class="since">waiting since 2026-09-29 01:05</span>
+</div>
+<div class="dtitle">The &#x27;98-99% of detections score below 0.70&#x27; claim is DISPUTED by the operator and unverified by me</div>
+<p class="ask"><b>ANSWER</b>: share the score distribution you see on the Frigate host, or name a host I can query read-only. -&gt; If your read is right, this card closes and the seven cameras stay at 0.7; if the agents is right, the sweep becomes a real (operator-owned, homelab-side) change.</p>
+<form class="answer"><label for="ans-FRIGATE-THRESHOLD-CLAIM-DISPUTED-1">Your answer for FRIGATE-THRESHOLD-CLAIM-DISPUTED-1</label><textarea id="ans-FRIGATE-THRESHOLD-CLAIM-DISPUTED-1" rows="2" placeholder="Your answer for FRIGATE-THRESHOLD-CLAIM-DISPUTED-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="JEV-DECISION-CLASSIFIER-SPIKE-1">
+<div class="dhd">
+<span class="id">JEV-DECISION-CLASSIFIER-SPIKE-1</span>
+<span class="since">waiting since 2026-09-29 01:05</span>
+</div>
+<div class="dtitle">Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness</div>
+<p class="ask"><b>PICK</b> (operator): (A) provide INDEPENDENT ground-truth labels for ~20-40 ambiguous occupancy cases (spot-confirm a batch of all-away-single-sensor / still-body episodes as empty or occupied), or (B) approve me sourcing a disjoint truth signal (door count / manual log). -&gt; I re-run the same committed harness (code + logistic floor). The official-Jev arm is deferred (waitlist), so signing up is no longer the blocker. Do NOT read the leaked 100%/88.9% as evidence for a build.</p>
+<div class="picks">
+<button type="button" data-pick="A" title="send: PICK A"><b>PICK A</b>provide INDEPENDENT ground-truth labels for ~20-40 ambiguous occupa...</button>
+<button type="button" data-pick="B" title="send: PICK B"><b>PICK B</b>approve me sourcing a disjoint truth signal (door count / manual log)</button>
+</div>
+<form class="answer"><label for="ans-JEV-DECISION-CLASSIFIER-SPIKE-1">Your answer for JEV-DECISION-CLASSIFIER-SPIKE-1</label><textarea id="ans-JEV-DECISION-CLASSIFIER-SPIKE-1" rows="2" placeholder="Your answer for JEV-DECISION-CLASSIFIER-SPIKE-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="PWA-CENSUS-P12-RELEASE-1">
+<div class="dhd">
+<span class="id">PWA-CENSUS-P12-RELEASE-1</span>
+<span class="since">waiting since 2026-09-29 01:05</span>
+</div>
+<div class="dtitle">PWA main is ~12 commits behind — D3 exterior card (+ design/control work) unshipped</div>
+<p class="ask"><b>APPROVE</b>: promote census-p12-exterior-dashboard to main and deploy ura.phalanxmadrone.com. -&gt; I run the PWA release with its own review. (The HA dashboard D3 cards are already live; only the PWA leg is pending.)</p>
+<form class="answer"><label for="ans-PWA-CENSUS-P12-RELEASE-1">Your answer for PWA-CENSUS-P12-RELEASE-1</label><textarea id="ans-PWA-CENSUS-P12-RELEASE-1" rows="2" placeholder="Your answer for PWA-CENSUS-P12-RELEASE-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="SAFEWORD-WINDOW-1">
+<div class="dhd">
+<span class="id">SAFEWORD-WINDOW-1</span>
+<span class="since">waiting since 2026-09-29 01:05</span>
+</div>
+<div class="dtitle">Safe-word ack window — one &quot;duke&quot; covers perimeter alerts for a bounded period (operator-proposed)</div>
+<p class="ask"><b>APPROVE</b>: the scoped shape (perimeter-only, &quot;duke Nh&quot; syntax, 3 h cap). -&gt; Tier 2 build (NM routing is regression-prone).</p>
+<form class="answer"><label for="ans-SAFEWORD-WINDOW-1">Your answer for SAFEWORD-WINDOW-1</label><textarea id="ans-SAFEWORD-WINDOW-1" rows="2" placeholder="Your answer for SAFEWORD-WINDOW-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="CENSUS-GROUND-TRUTH-CSV-FIX-1">
+<div class="dhd">
+<span class="id">CENSUS-GROUND-TRUTH-CSV-FIX-1</span>
+<span class="since">waiting since 2026-10-05 02:22</span>
+</div>
+<div class="dtitle">The 10-03 census ground-truth fixture still carries truth the operator has since corrected</div>
+<p class="ask"><b>ANSWER</b> (plan OP-1, one reply): on 10-03, who left by car around 12:13 CDT and who left around 13:55 (trackers say Ezinne ~12:13, you + Jaya ~13:55; your earlier note said you + Jaya ~12:00), and roughly when did the long-stay guest come back? -&gt; I rewrite est_house_total for the 12:00-14:00 slots of quality/tests/fixtures/census_ground_truth_2026_10_03.csv from your answer, with a changelog note per slot, before the replay is re-run.</p>
+<form class="answer"><label for="ans-CENSUS-GROUND-TRUTH-CSV-FIX-1">Your answer for CENSUS-GROUND-TRUTH-CSV-FIX-1</label><textarea id="ans-CENSUS-GROUND-TRUTH-CSV-FIX-1" rows="2" placeholder="Your answer for CENSUS-GROUND-TRUTH-CSV-FIX-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="CENSUS-PATIO-THROUGH-GLASS-1">
+<div class="dhd">
+<span class="id">CENSUS-PATIO-THROUGH-GLASS-1</span>
+<span class="since">waiting since 2026-10-09 02:12</span>
+</div>
+<div class="dtitle">The family-room camera counts people on the covered patio through the glass as being inside</div>
+<p class="ask"><b>DO</b> (config, no URA code): exclude the covered patio seen through the family-room glass in BOTH NVRs that feed the census - (1) Frigate2: add a motion mask or a required zone on camera family_room (feeds camera.family_room / binary_sensor.family_room_person_occupancy / sensor.family_room_person_count), (2) UniFi Protect: draw a detection zone on the family-room camera that leaves out the window area (feeds camera.family_room_high_resolution_channel / binary_sensor.family_room_person_detected). -&gt; I re-check the next gathering (or a staged walk on the patio) for indoor counts while only the patio is occupied.</p>
+<form class="answer"><label for="ans-CENSUS-PATIO-THROUGH-GLASS-1">Your answer for CENSUS-PATIO-THROUGH-GLASS-1</label><textarea id="ans-CENSUS-PATIO-THROUGH-GLASS-1" rows="2" placeholder="Your answer for CENSUS-PATIO-THROUGH-GLASS-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="NIGHTLIGHT-SLEEP-ONSET-RECOLOUR-1">
+<div class="dhd">
+<span class="id">NIGHTLIGHT-SLEEP-ONSET-RECOLOUR-1</span>
+<span class="since">waiting since 2026-10-11 05:10</span>
+</div>
+<div class="dtitle">Night lights already on when the house goes to Sleep stay warm white until someone re-enters the room</div>
+<p class="ask"><b>PICK</b>: (A) yes, re-colour lit night lights to the sleep red at house Sleep onset; (B) no, leave lit lights alone until the next room entry (today&#x27;s behaviour). -&gt; On A I build it to review (Tier 1, one writer through the shared resolver); on B I close this card.</p>
+<div class="picks">
+<button type="button" data-pick="A" title="send: PICK A"><b>PICK A</b>yes, re-colour lit night lights to the sleep red at house Sleep onset</button>
+<button type="button" data-pick="B" title="send: PICK B"><b>PICK B</b>no, leave lit lights alone until the next room entry (today&#x27;s behav...</button>
+</div>
+<form class="answer"><label for="ans-NIGHTLIGHT-SLEEP-ONSET-RECOLOUR-1">Your answer for NIGHTLIGHT-SLEEP-ONSET-RECOLOUR-1</label><textarea id="ans-NIGHTLIGHT-SLEEP-ONSET-RECOLOUR-1" rows="2" placeholder="Your answer for NIGHTLIGHT-SLEEP-ONSET-RECOLOUR-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="DASH-QUICK-ACTIONS-1">
+<div class="dhd">
+<span class="id">DASH-QUICK-ACTIONS-1</span>
+<span class="since">waiting since 2026-10-12 02:07</span>
+</div>
+<div class="dtitle">Quick Actions tab first in URA v8 dashboard: close all blinds, garage doors each/all, patio covers each/all, common-area lights+fans off (rooms untouched)</div>
+<p class="ask"><b>PICK</b>: common-area definition (room_type=common_area vs +hallways) and scene contents for Leaving/Good night -&gt; build scripts + first tab driven by URA config.</p>
+<form class="answer"><label for="ans-DASH-QUICK-ACTIONS-1">Your answer for DASH-QUICK-ACTIONS-1</label><textarea id="ans-DASH-QUICK-ACTIONS-1" rows="2" placeholder="Your answer for DASH-QUICK-ACTIONS-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="CENSUS-ATHOME-RESIDENT-CORROBORATOR-1">
+<div class="dhd">
+<span class="id">CENSUS-ATHOME-RESIDENT-CORROBORATOR-1</span>
+<span class="since">waiting since 2026-10-14 03:05</span>
+</div>
+<div class="dtitle">A resident at home wandering out a side door (porch, garage) cannot be told apart from a visitor</div>
+<p class="ask"><b>ANSWER</b> two plan questions (docs/planning/PLANNING_census_garage_resident_corroborator.md section 7): (Q2) should the garage vouch default OFF on new installs such as the second house, so each house opts in? (Q3) do you want a visible mis-vouch-rate sensor now, or later? -&gt; I fix the room-name defect (section 8), run the Tier-2 plan review, then build to review.</p>
+<form class="answer"><label for="ans-CENSUS-ATHOME-RESIDENT-CORROBORATOR-1">Your answer for CENSUS-ATHOME-RESIDENT-CORROBORATOR-1</label><textarea id="ans-CENSUS-ATHOME-RESIDENT-CORROBORATOR-1" rows="2" placeholder="Your answer for CENSUS-ATHOME-RESIDENT-CORROBORATOR-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="WIFI-ACTUATOR-FLEET-FLAP-1">
+<div class="dhd">
+<span class="id">WIFI-ACTUATOR-FLEET-FLAP-1</span>
+<span class="since">waiting since 2026-10-18 02:10</span>
+</div>
+<div class="dtitle">About 80 Wi-Fi lights, switches and plugs drop out of HA for a few seconds dozens of times a day (mostly while still on Wi-Fi), so a light command can occasionally miss</div>
+<p class="ask"><b>APPROVE</b> directly (it was only relayed via homelab): test (b) put stable firmware 2.1.0 on ONE switch, Dining1 cc:ba, as an A/B against Dining2. Default I take next attended session either way: re-arm the aioshelly debug capture for ~1 h and read it with ha_get_logs. -&gt; If neither shows a cause, I recommend ACCEPT + park (drops are seconds long; low harm).</p>
+<form class="answer"><label for="ans-WIFI-ACTUATOR-FLEET-FLAP-1">Your answer for WIFI-ACTUATOR-FLEET-FLAP-1</label><textarea id="ans-WIFI-ACTUATOR-FLEET-FLAP-1" rows="2" placeholder="Your answer for WIFI-ACTUATOR-FLEET-FLAP-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="SAFETY-RATE-DETECTOR-DEAD-WINDOW-1">
+<div class="dhd">
+<span class="id">SAFETY-RATE-DETECTOR-DEAD-WINDOW-1</span>
+<span class="since">waiting since 2026-10-19 02:03</span>
+</div>
+<div class="dtitle">The safety &quot;rapid change&quot; detector almost never runs, because its 30-minute window check can only pass at an exact instant</div>
+<p class="ask"><b>APPROVE</b>: B (recommended - your 10-15 answer) repair the 30-min window, keep OVERHEAT rate-of-rise, gate the HVAC_FAILURE/WATER_LEAK rate hazards behind corroboration, and prove quiet with the 7-day replay before it can alert; or PICK A (retire on purpose with a doc note). -&gt; On B I write the Tier-2 plan and plan-review it; on A I write the doc note + code comment.</p>
+<form class="answer"><label for="ans-SAFETY-RATE-DETECTOR-DEAD-WINDOW-1">Your answer for SAFETY-RATE-DETECTOR-DEAD-WINDOW-1</label><textarea id="ans-SAFETY-RATE-DETECTOR-DEAD-WINDOW-1" rows="2" placeholder="Your answer for SAFETY-RATE-DETECTOR-DEAD-WINDOW-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="ELK-M1-HA-USABILITY-1">
+<div class="dhd">
+<span class="id">ELK-M1-HA-USABILITY-1</span>
+<span class="since">waiting since 2026-10-21 22:05</span>
+</div>
+<div class="dtitle">Make ELK M1 usable in HA — only 1 of 15 wired zones (Front Door) is live; 12 read a static short, so the panel can&#x27;t arm without bypassing them</div>
+<p class="ask"><b>DO</b> (when back, or anyone at home): check the 12 shorted zone loops at the ELK panel terminals (sensor removed / jumpered / wrong EOL) using the zone list on this card -&gt; then decide Konnected interface kit in parallel for the control surface. Me: write the zone-by-zone list.</p>
+<form class="answer"><label for="ans-ELK-M1-HA-USABILITY-1">Your answer for ELK-M1-HA-USABILITY-1</label><textarea id="ans-ELK-M1-HA-USABILITY-1" rows="2" placeholder="Your answer for ELK-M1-HA-USABILITY-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="MASTER-BATH-NO-TRUSTED-PRESENCE-1">
+<div class="dhd">
+<span class="id">MASTER-BATH-NO-TRUSTED-PRESENCE-1</span>
+<span class="since">waiting since 2026-10-21 22:05</span>
+</div>
+<div class="dtitle">Master Bathroom has no trusted presence sensor (InvisOutlet is do-not-use), so it is the largest remaining source of someone-home AWAY misses (17 on ordinary days)</div>
+<p class="ask"><b>PICK</b>: A (recommended) add a ZK/ZX presence radar to Master Bathroom - the A788 measures as motion-class (~1 min hold), so only new hardware closes the 17-per-ordinary-day Away misses; or B first DO check the InvisOutlet&#x27;s own app/web settings for an occupancy hold-time or mmWave mode (no knob is exposed in HA), or C accept the miss. -&gt; On A/B I wire/re-measure and re-run P3; on C I close the card.</p>
+<div class="picks">
+<button type="button" data-pick="A" title="send: PICK A"><b>PICK A</b>(recommended) add a ZK/ZX presence radar to Master Bathroom - the A...</button>
+<button type="button" data-pick="B" title="send: PICK B"><b>PICK B</b>first DO check the InvisOutlet&#x27;s own app/web settings for an occupa...</button>
+<button type="button" data-pick="C" title="send: PICK C"><b>PICK C</b>accept the miss</button>
+</div>
+<form class="answer"><label for="ans-MASTER-BATH-NO-TRUSTED-PRESENCE-1">Your answer for MASTER-BATH-NO-TRUSTED-PRESENCE-1</label><textarea id="ans-MASTER-BATH-NO-TRUSTED-PRESENCE-1" rows="2" placeholder="Your answer for MASTER-BATH-NO-TRUSTED-PRESENCE-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="CENSUS-UNIDENTIFIED-SNAPSHOT-1">
+<div class="dhd">
+<span class="id">CENSUS-UNIDENTIFIED-SNAPSHOT-1</span>
+<span class="since">waiting since 2026-10-25 02:08</span>
+</div>
+<div class="dtitle">Attach a camera snapshot to unidentified/guest census events so the operator can check who it was</div>
+<p class="ask"><b>PICK</b>: A (recommended, no URA code): a v8 dashboard card that appears only when the unidentified count is above 0 and shows the latest Frigate person snapshots from the interior cameras, stored locally by Frigate already; or B: URA attaches an at-detection snapshot to the guest-arming notification (reuses the SNAP-1 local-file delivery, Tier 2, interior images leave the house via the message channel) -&gt; on A I build the card in an attended session; on B I write a Tier-2 plan.</p>
+<div class="picks">
+<button type="button" data-pick="A" title="send: PICK A"><b>PICK A</b>(recommended, no URA code): a v8 dashboard card that appears only w...</button>
+<button type="button" data-pick="B" title="send: PICK B"><b>PICK B</b>URA attaches an at-detection snapshot to the guest-arming notificat...</button>
+</div>
+<form class="answer"><label for="ans-CENSUS-UNIDENTIFIED-SNAPSHOT-1">Your answer for CENSUS-UNIDENTIFIED-SNAPSHOT-1</label><textarea id="ans-CENSUS-UNIDENTIFIED-SNAPSHOT-1" rows="2" placeholder="Your answer for CENSUS-UNIDENTIFIED-SNAPSHOT-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="WALLPANEL-BROWSER-MOD-POPUPS-1">
+<div class="dhd">
+<span class="id">WALLPANEL-BROWSER-MOD-POPUPS-1</span>
+<span class="since">waiting since 2026-11-02</span>
+</div>
+<div class="dtitle">Wall panels: Browser Mod fixed IDs + view-independent pop-ups (doorbell/security/timer/laundry) instead of select-driven view reloads</div>
+<p class="ask"><b>APPROVE</b>: (a) the trimmed scope (Step 0 gate on Study B by HomeLab, register 7 IDs, per-browser hide sidebar/header, one doorbell popup automation on Entry+Kitchen via browser_mod.popup), and (b) that the doorbell automation is house-visible -&gt; on OK I snapshot automations, build script.panel_popup + doorbell automation, test on Kitchen.</p>
+<form class="answer"><label for="ans-WALLPANEL-BROWSER-MOD-POPUPS-1">Your answer for WALLPANEL-BROWSER-MOD-POPUPS-1</label><textarea id="ans-WALLPANEL-BROWSER-MOD-POPUPS-1" rows="2" placeholder="Your answer for WALLPANEL-BROWSER-MOD-POPUPS-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="URA-V8-PANEL-RENDER-SPIN-1">
+<div class="dhd">
+<span class="id">URA-V8-PANEL-RENDER-SPIN-1</span>
+<span class="since">waiting since 2026-11-10 02:12</span>
+</div>
+<div class="dtitle">ura-v8 dashboard renderer spins ~100% CPU on wall panels after screen wake (now + rooms views); stops when screen off</div>
+<p class="ask"><b>PICK</b>: A (recommended) replace the wildcard auto-entities cards on the panel views with explicit lists, Media Room first (the remaining ~50% lever; loses auto-pickup of new rooms), or B keep wildcards. Also DO (HomeLab, daytime): revert the new screen-off screensaver on one panel to test the screen-off spin regression. -&gt; On A I edit the panel views in an attended daytime session (backup first) and HomeLab re-runs the spin logger.</p>
+<div class="picks">
+<button type="button" data-pick="A" title="send: PICK A"><b>PICK A</b>(recommended) replace the wildcard auto-entities cards on the panel...</button>
+<button type="button" data-pick="B" title="send: PICK B"><b>PICK B</b>keep wildcards. Also DO (HomeLab, daytime): revert the new screen-o...</button>
+</div>
+<form class="answer"><label for="ans-URA-V8-PANEL-RENDER-SPIN-1">Your answer for URA-V8-PANEL-RENDER-SPIN-1</label><textarea id="ans-URA-V8-PANEL-RENDER-SPIN-1" rows="2" placeholder="Your answer for URA-V8-PANEL-RENDER-SPIN-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="BLE-PROXY-PLACEMENT-1">
+<div class="dhd">
+<span class="id">BLE-PROXY-PLACEMENT-1</span>
+<span class="since">waiting since 2026-11-11 02:05</span>
+</div>
+<div class="dtitle">Where to put new ESPHome Bluetooth proxies (main house) + two free config fixes</div>
+<p class="ask"><b>DO</b> (when you are back and building more proxies): place them in the ranked order, Foyer first -&gt; I check each new scanner reports in the right area. BP1_B needs nothing more.</p>
+<form class="answer"><label for="ans-BLE-PROXY-PLACEMENT-1">Your answer for BLE-PROXY-PLACEMENT-1</label><textarea id="ans-BLE-PROXY-PLACEMENT-1" rows="2" placeholder="Your answer for BLE-PROXY-PLACEMENT-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="FRIGATE-FACE-MISLABEL-OJI-1">
+<div class="dhd">
+<span class="id">FRIGATE-FACE-MISLABEL-OJI-1</span>
+<span class="since">waiting since 2026-11-11 02:18</span>
+</div>
+<div class="dtitle">Frigate face recognition labels another resident (likely Jaya) as Oji: 75 indoor &#x27;Oji&#x27; hits on 10-24 while Oji was on a flight</div>
+<p class="ask"><b>DO</b> (optional, low priority now): add/clean Oji + Jaya samples, mainly family_room crops -&gt; I re-measure on your next absence. Mislabels are ~4/day and the census filtered all of them.</p>
+<form class="answer"><label for="ans-FRIGATE-FACE-MISLABEL-OJI-1">Your answer for FRIGATE-FACE-MISLABEL-OJI-1</label><textarea id="ans-FRIGATE-FACE-MISLABEL-OJI-1" rows="2" placeholder="Your answer for FRIGATE-FACE-MISLABEL-OJI-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="PERIMETER-DETECTION-WENT-DARK-1">
+<div class="dhd">
+<span class="id">PERIMETER-DETECTION-WENT-DARK-1</span>
+<span class="since">waiting since 2026-11-12 13:20</span>
+</div>
+<div class="dtitle">Exterior person detection went fully dark for ~26h on 2026-09-14/15 and then recovered on its own — nothing noticed either the outage or the recovery</div>
+<p class="ask"><b>PICK</b> (when back): A (recommended) treat it as a host problem: keep the ping power-cycle automation, and have HomeLab read the Frigate2 host logs for 11-01 03:53 and 11-07 13:14 (kernel/USB/network) plus /api/stats detectors to confirm which detector runs; B swap/reseat the Coral. -&gt; A: I hand the log read to HomeLab and close the Coral framing.</p>
+<div class="picks">
+<button type="button" data-pick="A" title="send: PICK A"><b>PICK A</b>(recommended) treat it as a host problem: keep the ping power-cycle...</button>
+<button type="button" data-pick="B" title="send: PICK B"><b>PICK B</b>swap/reseat the Coral</button>
+</div>
+<form class="answer"><label for="ans-PERIMETER-DETECTION-WENT-DARK-1">Your answer for PERIMETER-DETECTION-WENT-DARK-1</label><textarea id="ans-PERIMETER-DETECTION-WENT-DARK-1" rows="2" placeholder="Your answer for PERIMETER-DETECTION-WENT-DARK-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="NM-BB-CHATGUID-SELFSEND-1">
+<div class="dhd">
+<span class="id">NM-BB-CHATGUID-SELFSEND-1</span>
+<span class="since">waiting since 2026-11-12 16:12</span>
+</div>
+<div class="dtitle">BlueBubbles v0.7.0 adds send-by-chat-GUID — lets NM target a chat by GUID instead of address, decoupling alert sends from the iMessage account so URA stops messaging the operator&#x27;s own thread</div>
+<p class="ask"><b>DO</b> (after the trip, back Sun 10-18): create the house Apple ID; save it as contact &#x27;House&#x27; on your iPhone and reply once (Filter Unknown Senders); sign Messages on the Mac mini into it; exchange a few messages -&gt; I check NM&#x27;s person-handle mapping, send one test alert + one test ack, then switch over. Gotchas recorded in chat 10-14 (new-account iMessage activation, 2FA recovery, other BlueBubbles clients move with the account). Separately, APPROVE (optional) the interim Tier-1 guard in INSTANCE_2026_11_12 (no &#x27;Unknown command&#x27; reply to multi-line/long texts) -&gt; I build it to review.</p>
+<form class="answer"><label for="ans-NM-BB-CHATGUID-SELFSEND-1">Your answer for NM-BB-CHATGUID-SELFSEND-1</label><textarea id="ans-NM-BB-CHATGUID-SELFSEND-1" rows="2" placeholder="Your answer for NM-BB-CHATGUID-SELFSEND-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="OC-AI-TASK-LEVERAGE-1">
+<div class="dhd">
+<span class="id">OC-AI-TASK-LEVERAGE-1</span>
+<span class="since">waiting since 2026-11-14 02:16</span>
+</div>
+<div class="dtitle">Investigate whether better use of HA AI Task (model choice, structured output, context) would make the Optimization Coordinator succeed where it keeps failing</div>
+<p class="ask"><b>PICK</b>: A (recommended) accept the verdict: no model swap now; the levers go to the redesign card (persistent dedup of repeated tier-1 findings + a shadow grader) and OC-CONTEXT-PACK-1 (house state + tier-1 reasons in the corpus, stop trimming findings_recent to 0, an LLM call log with a zero-fire trip-wire); this card closes. Or B APPROVE a small paid bake-off (Haiku 4.5 vs Sonnet on the 6-8 known incidents, after the context fix and after the API limit is lifted, see ANTHROPIC-API-USAGE-LIMIT-OC-LLM-1). -&gt; On A I fold the levers onto those cards and close this; on B I write the bake-off harness.</p>
+<div class="picks">
+<button type="button" data-pick="A" title="send: PICK A"><b>PICK A</b>(recommended) accept the verdict: no model swap now; the levers go...</button>
+<button type="button" data-pick="B" title="send: PICK B"><b>PICK B</b>APPROVE a small paid bake-off (Haiku 4.5 vs Sonnet on the 6-8 known...</button>
+</div>
+<form class="answer"><label for="ans-OC-AI-TASK-LEVERAGE-1">Your answer for OC-AI-TASK-LEVERAGE-1</label><textarea id="ans-OC-AI-TASK-LEVERAGE-1" rows="2" placeholder="Your answer for OC-AI-TASK-LEVERAGE-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="EGRESS-OUTCOME-WEEKLY-LABEL-1">
+<div class="dhd">
+<span class="id">EGRESS-OUTCOME-WEEKLY-LABEL-1</span>
+<span class="since">waiting since 2026-11-15 02:10</span>
+</div>
+<div class="dtitle">Weekly labelling of egress identity outcomes (recurring) so Phase 2 of person sightings becomes decidable</div>
+<p class="ask"><b>ANSWER</b>: was Jaya&#x27;s phone with her all day 11-11; do Ojini and Ziri carry phones with trackers? (resolves ~20 of 30 REVIEW rows) -&gt; I finish labels and compute the misrecognition rate; ship D8a soon to stop losing vetoed names.</p>
+<form class="answer"><label for="ans-EGRESS-OUTCOME-WEEKLY-LABEL-1">Your answer for EGRESS-OUTCOME-WEEKLY-LABEL-1</label><textarea id="ans-EGRESS-OUTCOME-WEEKLY-LABEL-1" rows="2" placeholder="Your answer for EGRESS-OUTCOME-WEEKLY-LABEL-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="EC-ATTAIN-RATE-DUP-SAMPLE-1">
+<div class="dhd">
+<span class="id">EC-ATTAIN-RATE-DUP-SAMPLE-1</span>
+<span class="since">waiting since 2026-11-15 02:15</span>
+</div>
+<div class="dtitle">The battery charge-rate window can record the same reading twice in one tick, shortening its 15-minute window</div>
+<p class="ask"><b>APPROVE</b> (recommended, attended session): make _record_attain_sample idempotent per tick (skip the append when the last sample has the same timestamp), as a Tier 2-DB energy cycle (3 reviews; energy invariants skill; show the window and rate before/after on a replay) -&gt; I plan and build it to review. Or PICK park: leave it, since the effect is a 3-tick window that covers about 2 ticks on rung_0/rung_1 ticks only, i.e. a noisier rate, not a wrong sign.</p>
+<form class="answer"><label for="ans-EC-ATTAIN-RATE-DUP-SAMPLE-1">Your answer for EC-ATTAIN-RATE-DUP-SAMPLE-1</label><textarea id="ans-EC-ATTAIN-RATE-DUP-SAMPLE-1" rows="2" placeholder="Your answer for EC-ATTAIN-RATE-DUP-SAMPLE-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="WALLPANEL-URA-NOTIFY-1">
+<div class="dhd">
+<span class="id">WALLPANEL-URA-NOTIFY-1</span>
+<span class="since">waiting since 2026-11-16 02:04</span>
+</div>
+<div class="dtitle">URA drives the wall-panel bezel LEDs and room-targeted announcements (NM surface)</div>
+<p class="ask"><b>DO</b>: when convenient, turn on switch.ura_nm_panel_channel and run a test leak (plan steps 1-7) -&gt; I confirm only the targeted panels lit and that the ack released them, then close Halo S1b. APPROVE S2 (NM drives room alert lights) separately whenever you want it built.</p>
+<form class="answer"><label for="ans-WALLPANEL-URA-NOTIFY-1">Your answer for WALLPANEL-URA-NOTIFY-1</label><textarea id="ans-WALLPANEL-URA-NOTIFY-1" rows="2" placeholder="Your answer for WALLPANEL-URA-NOTIFY-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1">
+<div class="dhd">
+<span class="id">PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1</span>
+<span class="since">waiting since 2026-11-16 02:26</span>
+</div>
+<div class="dtitle">Circling hop 1 and hop 3 are both HIGH in production, so the claim that their severities differ (and their NM dedup keys cannot collide) does not hold</div>
+<p class="ask"><b>PICK</b>: A (recommended) perimeter-local fix: escalation-exemption dispatches use their own title (e.g. &#x27;Perimeter Alert - Person Circling&#x27;), so NM dedup keys differ; Tier 2 (2 reviews), touches only perimeter_alert.py, plus a test that runs the REAL NM _is_deduplicated; or B the plan D7 route: add classification to NM&#x27;s dedup key (shared primitive used by every coordinator, Tier 2-DB). -&gt; On A I build it to review in the next pass with no other session running suites. Default A if no veto by the next attended session. Either way it means more pages during a real circling event (that is the design intent).</p>
+<div class="picks">
+<button type="button" data-pick="A" title="send: PICK A"><b>PICK A</b>(recommended) perimeter-local fix: escalation-exemption dispatches...</button>
+<button type="button" data-pick="B" title="send: PICK B"><b>PICK B</b>the plan D7 route: add classification to NM&#x27;s dedup key (shared pri...</button>
+</div>
+<form class="answer"><label for="ans-PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1">Your answer for PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1</label><textarea id="ans-PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1" rows="2" placeholder="Your answer for PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="LLMVISION-CANCEL-CLEANUP-UPSTREAM-1">
+<div class="dhd">
+<span class="id">LLMVISION-CANCEL-CLEANUP-UPSTREAM-1</span>
+<span class="since">waiting since 2026-11-17 02:07</span>
+</div>
+<div class="dtitle">llmvision leaves its downloaded video temp file and a running ffmpeg behind when a call is cancelled or ffmpeg times out (upstream report)</div>
+<p class="ask"><b>REVIEW</b> + APPROVE: read docs/planning/DRAFT_llmvision_timeout_leak_upstream_issue.md (the temp-file / ffmpeg part) and say post it (from your GitHub) or let me post it -&gt; on approval it goes up; I can also measure /tmp and stray ffmpeg counts on the HA host first if you want evidence attached.</p>
+<form class="answer"><label for="ans-LLMVISION-CANCEL-CLEANUP-UPSTREAM-1">Your answer for LLMVISION-CANCEL-CLEANUP-UPSTREAM-1</label><textarea id="ans-LLMVISION-CANCEL-CLEANUP-UPSTREAM-1" rows="2" placeholder="Your answer for LLMVISION-CANCEL-CLEANUP-UPSTREAM-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="ANTHROPIC-API-USAGE-LIMIT-OC-LLM-1">
+<div class="dhd">
+<span class="id">ANTHROPIC-API-USAGE-LIMIT-OC-LLM-1</span>
+<span class="since">waiting since 2026-11-18 02:03</span>
+</div>
+<div class="dtitle">The Claude AI Task account hit its API usage limit (locked until 2026-12-01), so every optimizer LLM call fails until then</div>
+<p class="ask"><b>DO</b>: in the Anthropic console, raise or reset the API spending limit for the key used by the Claude AI Task (or tell me to leave the optimizer LLM tier off until 12-01). PICK: A (recommended) leave the warning as is - the optimizer LLM tier is shadow and decides nothing; or B card a page-on-quota-error (Tier 1). -&gt; On your console change I confirm the next call succeeds in the system log and close this.</p>
+<form class="answer"><label for="ans-ANTHROPIC-API-USAGE-LIMIT-OC-LLM-1">Your answer for ANTHROPIC-API-USAGE-LIMIT-OC-LLM-1</label><textarea id="ans-ANTHROPIC-API-USAGE-LIMIT-OC-LLM-1" rows="2" placeholder="Your answer for ANTHROPIC-API-USAGE-LIMIT-OC-LLM-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="LANDSCAPE-RETRY-POSTFIX-CHECK-1">
+<div class="dhd">
+<span class="id">LANDSCAPE-RETRY-POSTFIX-CHECK-1</span>
+<span class="since">waiting since 2026-11-18 02:03</span>
+</div>
+<div class="dtitle">Landscape Lighting retry loop — post-fix dropout check vs 62/10-day Matter baseline</div>
+<p class="ask"><b>APPROVE</b>: let me add continue_on_error: true to the first step of automation.landscape_lighting_lifx_matter_version (the Dewenwils transformer switch.turn_on). Re-read 10-28: that step still has no continue_on_error; the retry loops already have it. HA automation edit, attended session, reversible. AND DO: check the 7 GK/Hampton fixtures that stayed unavailable through the whole 10-27 evening on-window: GK perimeter 4, 7, 8, side-approach 10, 11, 12, Hampton spot 2 (side-approach 9 lit for about 2 minutes on 10-26 only). Perimeter 1 and 3 came on normally. -&gt; On APPROVE I make the edit and re-measure two nights after.</p>
+<form class="answer"><label for="ans-LANDSCAPE-RETRY-POSTFIX-CHECK-1">Your answer for LANDSCAPE-RETRY-POSTFIX-CHECK-1</label><textarea id="ans-LANDSCAPE-RETRY-POSTFIX-CHECK-1" rows="2" placeholder="Your answer for LANDSCAPE-RETRY-POSTFIX-CHECK-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1">
+<div class="dhd">
+<span class="id">NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1</span>
+<span class="since">waiting since 2026-11-18 02:03</span>
+</div>
+<div class="dtitle">Prove the text &#x27;diag&#x27; menu answers on WhatsApp and the HA app (only iMessage is proven live)</div>
+<p class="ask"><b>DO</b>: text &#x27;diag&#x27; in your WhatsApp self-chat, and reply &#x27;diag&#x27; to any URA notification in the HA app -&gt; I read notification_inbound; a channel=whatsapp row and a companion row with a reply close this; no WhatsApp row means the bridge drops fromMe and I card that fix.</p>
+<form class="answer"><label for="ans-NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1">Your answer for NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1</label><textarea id="ans-NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1" rows="2" placeholder="Your answer for NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="PERIMETER-FP-GATES-DISPOSE-1">
+<div class="dhd">
+<span class="id">PERIMETER-FP-GATES-DISPOSE-1</span>
+<span class="since">waiting since 2026-11-18 02:03</span>
+</div>
+<div class="dtitle">Perimeter false-positive gates D3/D5 shipped shadow-first but D3 can never evaluate (zone sensors never configured) and no shadow counts are kept; no disposal date</div>
+<p class="ask"><b>DO</b>: in URA options -&gt; Perimeter, set perimeter_zone_sensors to the four Frigate property-zone person-occupancy sensors for g5_bullet, rear_ptz, utilities_ptz and front_side_ptz (ids in the audit, resolved by registry), and confirm Frigate&#x27;s &#x27;property&#x27; zone leaves the road out. PICK the D5 wait: A (recommended, your &#x27;alert latency over precision, waits ship at 0&#x27; rule) set PERIMETER_SS_SETTLE_S 8 -&gt; 0 so D5 judges on lookback only and never delays an alert; or B raise it to 12 s (covers ~p90 g5_bullet lag of 10.2 s, delays single-source alerts up to 12 s). -&gt; I make the A/B constant change (Tier 1, reviewed), then count perimeter_gate_decision rows; dispose each gate at its first 30 rows or 2026-11-28, whichever first (D3 with no rows by then parks).</p>
+<form class="answer"><label for="ans-PERIMETER-FP-GATES-DISPOSE-1">Your answer for PERIMETER-FP-GATES-DISPOSE-1</label><textarea id="ans-PERIMETER-FP-GATES-DISPOSE-1" rows="2" placeholder="Your answer for PERIMETER-FP-GATES-DISPOSE-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="SAFETY-SENSOR-FLEET-HEALTH-1">
+<div class="dhd">
+<span class="id">SAFETY-SENSOR-FLEET-HEALTH-1</span>
+<span class="since">waiting since 2026-11-18 02:03</span>
+</div>
+<div class="dtitle">The house&#x27;s only smoke detector has been invisible to Home Assistant since the 10-15 restart, and several leak and gas sensors are dead or misfiled, so Safety cannot see those hazards</div>
+<p class="ask"><b>DO</b> (when back, or the guest/Jaya if urgent): re-pair the kitchen Heiman smoke detector (homelab THREAD-INOVELLI-1 re-commission; it still sounds locally), and check the 4 leak pucks&#x27; batteries/pairing. APPROVE me to make the two config fixes in an attended session (move gas_zigbee_kitchen_gas out of Safety&#x27;s smoke list into gas; remove the ghost ziribathroom_water_leak_2). -&gt; Then I measure whether Safety should page on a life-safety sensor unavailable &gt; N hours (likely a small Tier-1/2 card).</p>
+<form class="answer"><label for="ans-SAFETY-SENSOR-FLEET-HEALTH-1">Your answer for SAFETY-SENSOR-FLEET-HEALTH-1</label><textarea id="ans-SAFETY-SENSOR-FLEET-HEALTH-1" rows="2" placeholder="Your answer for SAFETY-SENSOR-FLEET-HEALTH-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="ROOM-CONFIG-LEGACY-MMWAVE-KEY-1">
+<div class="dhd">
+<span class="id">ROOM-CONFIG-LEGACY-MMWAVE-KEY-1</span>
+<span class="since">waiting since 2026-11-18 02:05</span>
+</div>
+<div class="dtitle">Study A carries an inert legacy &#x27;mmwave_sensors&#x27; key (dead Athom radar) in entry.data that no code reads and no form can clear</div>
+<p class="ask"><b>APPROVE</b>: a small migration step (async_migrate_entry or setup-time scrub) that drops the legacy &#x27;mmwave_sensors&#x27; key from entry.data, plus removing the stale strings.json labels -&gt; I build it Tier 1 and ship it with the next deploy (needs one restart, at a time you pick).</p>
+<form class="answer"><label for="ans-ROOM-CONFIG-LEGACY-MMWAVE-KEY-1">Your answer for ROOM-CONFIG-LEGACY-MMWAVE-KEY-1</label><textarea id="ans-ROOM-CONFIG-LEGACY-MMWAVE-KEY-1" rows="2" placeholder="Your answer for ROOM-CONFIG-LEGACY-MMWAVE-KEY-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="CENSUS-DECONFLICTION-LEDGER-1">
+<div class="dhd">
+<span class="id">CENSUS-DECONFLICTION-LEDGER-1</span>
+<span class="since">waiting since 2026-11-18 02:09</span>
+</div>
+<div class="dtitle">Core census: one dedup function (deconflict_house), the crossing ledger with its empty-house anchor, the awareness view and Vision Assisted Census switch (ships dark, trust view unchanged)</div>
+<p class="ask"><b>PICK</b> (doctrine call, Tier 3 vision arc): A (recommended) the empty-house anchor ignores HELD inputs and requires only that no LIVE input fired and every camera saw nobody: held sensors still never create or end room occupancy, they just stop vetoing the anchor; or B keep held inputs blocking the anchor (today&#x27;s behaviour, consistent with &#x27;dead sensor holds&#x27;) and accept the ledger stays unknown while any sensor is held. Either way I add a ledger-unknown-while-AWAY trip-wire. -&gt; On your pick I plan it inside VISION-CROSSING-ANALYSIS-1 (Tier 3, attended).</p>
+<div class="picks">
+<button type="button" data-pick="A" title="send: PICK A"><b>PICK A</b>(recommended) the empty-house anchor ignores HELD inputs and requir...</button>
+<button type="button" data-pick="B" title="send: PICK B"><b>PICK B</b>keep held inputs blocking the anchor (today&#x27;s behaviour, consistent...</button>
+</div>
+<form class="answer"><label for="ans-CENSUS-DECONFLICTION-LEDGER-1">Your answer for CENSUS-DECONFLICTION-LEDGER-1</label><textarea id="ans-CENSUS-DECONFLICTION-LEDGER-1" rows="2" placeholder="Your answer for CENSUS-DECONFLICTION-LEDGER-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+</section>
+<div id="toast"></div>
+<script>
+(function () {
+  'use strict';
+  var toastEl = document.getElementById('toast');
+  var toastTimer = null;
+  function toast(msg) {
+    if (!toastEl) return;
+    toastEl.textContent = msg;
+    toastEl.style.display = 'block';
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toastEl.style.display = 'none'; }, 3200);
+  }
+  function post(cardId, action, text) {
+    var body = { card_id: cardId, action: action, at: new Date().toISOString() };
+    if (text) body.text = text;
+    return fetch('api/disposition', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    }).then(function (r) { if (!r.ok) throw new Error('http ' + r.status); return r; });
+  }
+  document.querySelectorAll('section.decisions .decision').forEach(function (item) {
+    var id = item.getAttribute('data-id');
+    var controls = item.querySelectorAll('button, textarea');
+    function lock(on) { controls.forEach(function (el) { el.disabled = on; }); }
+    function send(action, text) {
+      lock(true);
+      post(id, action, text).then(function () {
+        var chip = document.createElement('span');
+        chip.className = 'pending-chip ' + (action === 'instruct' ? 'op-instruct' : 'op-' + action);
+        chip.textContent = 'queued: ' + (text ? '"' + text + '"' : action) + ' — pending apply';
+        item.querySelector('.dhd').appendChild(chip);
+        item.classList.add('answered');
+        toast('queued — applied at the next groom');
+      }).catch(function () { lock(false); toast('board is read-only here'); });
+    }
+    item.querySelectorAll('.picks button[data-pick]').forEach(function (b) {
+      b.addEventListener('click', function () { send('instruct', 'PICK ' + b.getAttribute('data-pick')); });
+    });
+    item.querySelectorAll('.dactions button[data-action]').forEach(function (b) {
+      b.addEventListener('click', function () { send(b.getAttribute('data-action')); });
+    });
+    var form = item.querySelector('form.answer');
+    if (form) {
+      var ta = form.querySelector('textarea');
+      form.addEventListener('submit', function (ev) {
+        ev.preventDefault();
+        var text = (ta.value || '').trim();
+        if (!text) { ta.focus(); return; }
+        send('instruct', text);
+      });
+      // Cmd/Ctrl+Enter sends (plain Enter keeps its newline; no IME conflict).
+      ta.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); form.requestSubmit(); }
+      });
+    }
+  });
+})();
+</script>
+<script>
+(function () {
+  'use strict';
+  var now = Date.now(), SOON = 24 * 3600 * 1000;
+  document.querySelectorAll('.due-chip[data-due]').forEach(function (el) {
+    var t = new Date(el.getAttribute('data-due')).getTime();  // no offset = local time
+    if (isNaN(t)) return;
+    var label = el.getAttribute('data-label') || '';
+    if (t <= now) { el.classList.add('overdue'); el.textContent = 'OVERDUE · ' + label; }
+    else if (t - now <= SOON) { el.classList.add('soon'); el.textContent = 'due soon · ' + label; }
+  });
+})();
+</script>
+</body></html>

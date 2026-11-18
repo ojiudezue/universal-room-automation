@@ -177,6 +177,8 @@ def test_exit_code_fresh(tmp_path):
     with open(DATA_FILE, "r", encoding="utf-8") as fh:
         data = yaml.safe_load(fh)
     data["meta"]["last_reconciled"] = "2099-12-31"
+    for c in data["cards"]:  # real follow-ups may be due; exit 4 has its own test
+        c.pop("due", None)
     p = tmp_path / "d.yaml"
     p.write_text(yaml.safe_dump(data), encoding="utf-8")
     code = kr.main(["--data", str(p), "--check",
@@ -197,3 +199,130 @@ def test_exit_code_unapplied_dispositions(tmp_path):
                     encoding="utf-8")
     code = kr.main(["--data", str(p), "--check", "--pending", str(pend)])
     assert code == 3
+
+
+# ---------- due-dated follow-ups + Decisions view (2026-11-18) ----------
+
+def _mini_board(tmp_path, cards):
+    data = {"meta": {"last_reconciled": "2099-12-31"}, "cards": cards}
+    p = tmp_path / "mini.yaml"
+    p.write_text(yaml.safe_dump(data), encoding="utf-8")
+    return p
+
+
+_DUE_CARDS = [
+    {"id": "OVER-1", "title": "t", "status": "waiting_me",
+     "due": "2026-11-18 10:00", "due_note": "ship it"},
+    {"id": "SOON-1", "title": "t", "status": "planned", "due": "2026-11-19 09:00"},
+    {"id": "LATER-1", "title": "t", "status": "planned", "due": "2026-11-24 10:00"},
+    {"id": "DONE-1", "title": "t", "status": "done", "due": "2026-11-01 10:00"},
+    {"id": "PLAIN-1", "title": "t", "status": "planned"},
+]
+_NOW = "2026-11-18 12:00"
+
+
+def test_due_state_classification():
+    now = kr._parse_now(_NOW)
+    st = {c["id"]: kr.due_state(c, now) for c in _DUE_CARDS}
+    assert st == {"OVER-1": "overdue", "SOON-1": "soon", "LATER-1": "upcoming",
+                  "DONE-1": "overdue", "PLAIN-1": None}
+    assert kr.due_state({"due": "next tuesday"}, now) == "invalid"
+    ids = [e["id"] for e in kr.due_entries({"cards": _DUE_CARDS}, now)]
+    assert ids == ["OVER-1", "SOON-1"]  # done excluded, upcoming excluded, sorted by due
+
+
+def test_check_exit_4_when_due_and_listed(tmp_path, capsys):
+    p = _mini_board(tmp_path, _DUE_CARDS)
+    code = kr.main(["--data", str(p), "--check", "--now", _NOW,
+                    "--pending", str(tmp_path / "none.jsonl")])
+    assert code == 4
+    err = capsys.readouterr().err
+    assert "OVERDUE" in err and "OVER-1" in err and "ship it" in err and "SOON-1" in err
+    assert "LATER-1" not in err
+
+
+def test_check_exit_0_when_nothing_due(tmp_path):
+    p = _mini_board(tmp_path, _DUE_CARDS)
+    code = kr.main(["--data", str(p), "--check", "--now", "2026-10-01 00:00",
+                    "--pending", str(tmp_path / "none.jsonl")])
+    assert code == 0
+
+
+def test_check_precedence_queue_over_due(tmp_path):
+    p = _mini_board(tmp_path, _DUE_CARDS)
+    pend = tmp_path / "pending.jsonl"
+    pend.write_text('{"card_id": "X-1", "action": "approve", "at": "2026-08-15T00:00:00Z"}\n',
+                    encoding="utf-8")
+    assert kr.main(["--data", str(p), "--check", "--now", _NOW, "--pending", str(pend)]) == 3
+
+
+def test_due_flag_plain_and_hook_json(tmp_path, capsys):
+    import json
+    p = _mini_board(tmp_path, _DUE_CARDS)
+    assert kr.main(["--data", str(p), "--due", "--now", _NOW]) == 0
+    out = capsys.readouterr().out.strip().splitlines()
+    assert len(out) == 2 and "OVER-1" in out[0] and "status: waiting_me" in out[0]
+    assert kr.main(["--data", str(p), "--due", "--hook-json", "--now", _NOW]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    ctx = payload["hookSpecificOutput"]["additionalContext"]
+    assert payload["hookSpecificOutput"]["hookEventName"] == "SessionStart"
+    assert "OVER-1" in ctx and "SOON-1" in ctx
+    # nothing due -> hook prints nothing
+    assert kr.main(["--data", str(p), "--due", "--hook-json", "--now", "2026-10-01 00:00"]) == 0
+    assert capsys.readouterr().out == ""
+
+
+def test_due_renders_on_card_and_absent_cards_unchanged():
+    card = {"id": "C-1", "title": "x", "status": "planned", "due": "2026-11-18 10:00",
+            "due_note": "pull grades"}
+    md = "\n".join(kr._render_card_md(dict(card)))
+    ht = kr._render_card_html(dict(card))
+    assert "Due:** 2026-11-18 10:00 — pull grades" in md
+    assert 'data-due="2026-11-18T10:00"' in ht and "pull grades" in ht
+    assert "Forensic" not in ht  # due/due_note are standard fields, not forensic
+    bare = {k: v for k, v in card.items() if k not in ("due", "due_note")}
+    assert "due" not in "\n".join(kr._render_card_md(dict(bare))).lower()
+    assert "due-chip" not in kr._render_card_html(dict(bare))
+
+
+def test_due_chip_bytes_do_not_depend_on_clock():
+    """Soon/OVERDUE styling is applied client-side; the render is clock-free."""
+    card = {"id": "C-1", "title": "x", "status": "planned", "due": "2000-01-01 00:00"}
+    ht = kr._render_card_html(dict(card))
+    assert "OVERDUE" not in ht and 'class="due-chip"' in ht
+
+
+def test_pick_options_parsing():
+    assert [l for l, _ in kr.pick_options(
+        "PICK: A keep sweep-close, or B make it a knob -> I plan it.")] == ["A", "B"]
+    assert [l for l, _ in kr.pick_options(
+        "PICK: (A) PARK lever A, RECOMMENDED. (B) BUILD it anyway -> I act.")] == ["A", "B"]
+    assert [l for l, _ in kr.pick_options(
+        "PICK scope: (a) fix solar-only, or (b) build the shared check")] == ["A", "B"]
+    three = kr.pick_options("PICK: A (recommended) add a radar; or B check the app, or C accept -> x")
+    assert [l for l, _ in three] == ["A", "B", "C"]
+    assert three[0][1].startswith("(recommended) add a radar")
+    assert kr.pick_options("PICK (operator): today / off / night lights only -> x") == []
+    assert kr.pick_options("APPROVE: A or B") == []
+
+
+def test_decisions_view_oldest_first_with_picks(tmp_path):
+    cards = [
+        {"id": "NEW-1", "title": "n", "status": "waiting_operator", "updated": "2026-11-17",
+         "next": "PICK: A do it, or B skip -> I act."},
+        {"id": "OLD-1", "title": "o", "status": "waiting_operator", "updated": "2026-10-01",
+         "next": "APPROVE: the plan -> I build."},
+        {"id": "OTHER-1", "title": "x", "status": "planned", "next": "PICK: A or B"},
+    ]
+    p = _mini_board(tmp_path, cards)
+    v = kr.render_views(p, tmp_path / "none.jsonl")
+    dec = v["decisions"]
+    assert dec.index('data-id="OLD-1"') < dec.index('data-id="NEW-1"')
+    assert 'data-id="OTHER-1"' not in dec
+    assert 'data-pick="A"' in dec and 'data-pick="B"' in dec
+    assert "api/disposition" in dec and "'instruct'" in dec and "'PICK '" in dec
+    assert '<form class="answer">' in dec
+    # the same section is anchored on the main board
+    assert 'id="decisions"' in v["html"]
+    # pure function of the data
+    assert kr.render_views(p, tmp_path / "none.jsonl")["decisions"] == dec
