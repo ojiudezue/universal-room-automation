@@ -15,6 +15,14 @@ Labels file (read by the P3-D6 scorer and the P3-D0 gates):
     no_cross = someone came to the door but did not go through, added 2026-11-15);
     direction_tracker_vocab maps in -> entry, out -> exit, else null.
   * count: int people who crossed, or "unknown".
+  * who (optional, page 2026-11-18, homelab a778edb): list of who crossed, from oji_udezue | ezinne | jaya |
+    ziri | guest | unknown_person | cant_tell in that fixed order; the page omits it when none was picked.
+  * guest_count (optional): int 1-8, sent only when guest is in who.
+  * notes (optional): free text <= 500 chars, omitted when empty. All three are copied exactly as sent and
+    written only when the grade carried them: an absent key means "not recorded" (older grades, older page),
+    never "nobody" or "no notes".
+  * a regrade (same crossing_key, later `at`) replaces the whole row, so a names regrade supersedes the
+    direction-only grade.
   * kind "pair" rows carry pair_index into crossing_pass_key_pairs_2026_11_15.json and pair_label in that
     fixture's rubric: both -> round_trip, in / out -> one_pass, unclear / unknown -> unknown.
 Interior description pilot grades (kind "interior_desc", /grade/?batch=interior, interior vision D0(g)) go to
@@ -51,13 +59,16 @@ INTERIOR_DESCRIPTION = (
     "frame time; control = an empty-room control frame. Gate D0-P3 (PLANNING_vision_interior_sightings.md)."
 )
 TRACKER_VOCAB = {"in": "entry", "out": "exit"}
+OPTIONAL_FIELDS = ("who", "guest_count", "notes")  # page 2026-11-18; copied only when the grade carries them
 PAIR_LABEL = {"both": "round_trip", "in": "one_pass", "out": "one_pass",
               "no_cross": "no_pass", "unclear": "unknown", "unknown": "unknown"}
 DESCRIPTION = (
     "Operator crossing grades from the urakanban /grade/ page (scripts/grading/pull_grades.py). Human truth "
     "for crossing vision P3-D6 direction and count scoring and the P3-D0 gates. One row per crossing_key, "
     "latest grade wins. direction in|out|both|no_cross|unclear|unknown (no_cross = came to the door, did not go through; unclear = seen, cannot tell; unknown = no "
-    "door traversal visible); count = people who crossed or 'unknown'. kind=pair rows index "
+    "door traversal visible); count = people who crossed or 'unknown'. Optional who = list from "
+    "oji_udezue|ezinne|jaya|ziri|guest|unknown_person|cant_tell, guest_count = 1-8 when guest is in who, "
+    "notes = free text; absent means not recorded. kind=pair rows index "
     "crossing_pass_key_pairs_2026_11_15.json (pair_label in its rubric)."
 )
 
@@ -172,6 +183,9 @@ def main() -> int:
             "e_ts": card.get("e_ts") or (old or {}).get("e_ts"),
             "direction_tracker_vocab": TRACKER_VOCAB.get(d),
         }
+        for opt in OPTIONAL_FIELDS:  # absent stays absent (not recorded), never an empty default
+            if opt in g:
+                row[opt] = g[opt]
         if row["kind"] == "pair":
             row["pair_index"] = card.get("pair_index", (old or {}).get("pair_index"))
             row["e2_ts"] = card.get("e2_ts", (old or {}).get("e2_ts"))

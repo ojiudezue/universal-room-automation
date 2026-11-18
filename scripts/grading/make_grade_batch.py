@@ -14,7 +14,12 @@ Sources (all on by default):
     `ssh ha`). Disagreements (case B / C), vision groups and counts >= 2 first. crossing_key is the
     production key "<egress_camera>@<crossing ts>".
   * --key KEY (repeatable): explicit production crossing keys.
-Keys already in the grades labels file (pull_grades.py output) are skipped.
+  * --regrade-names: already-graded crossings where names matter (URA attached a person_id, or the D8a
+    egress_identity_outcome row shows a face leg, a veto or an edge anchor) plus the step 7 D0 candidates
+    (REGRADE_D0_TIMES). These bypass the graded skip; their cards carry "regrade": true.
+Keys already in the grades labels file (pull_grades.py output) are skipped, except --regrade-names keys.
+Every crossing card's hidden block carries revealed (crossing_identity): person_id (URA slug or null, from the
+crossing record), confidence, outcome, outcome_slug, identity_provenance, identity_confidence, edge_anchor.
 
 Cameras come from the configured door_groups option of the URA config entry (keys are Frigate camera names)
 and the shadow row's door_group; nothing is inferred from entity-id strings. A key with no shadow row gets its
@@ -67,6 +72,33 @@ DISAGREE_CASES = ("B", "C")
 # source_ref and started_at with their primary; grade the primary only (rows
 # written before P3-D3 have no call_kind and are primaries).
 PRIMARY_ONLY = "coalesce(json_extract({a}.attrs_json,'$.call_kind'),'primary')='primary'"
+PERSON_IDS_SRC = REPO / "custom_components/universal_room_automation/person_ids.py"
+
+
+def _person_slug_of():
+    """The one person-id rule (person_ids.slug_of), loaded by file path: the module is pure (no HA imports),
+    and importing it through the package would run the integration's __init__."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("ura_person_ids", PERSON_IDS_SRC)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.slug_of
+
+
+slug_of = _person_slug_of()
+EGRESS_OUTCOME_TYPE = "egress_identity_outcome"  # D8a outcome rows, source_ref = production crossing key
+# person_entry_exit_events.timestamp is the UTC write time (database.log_entry_exit_event, datetime.utcnow()),
+# written when direction resolves. Measured 2026-11-18 over 11-14..11-17: 110 of 113 same-direction rows land
+# at +45.0 s (EGRESS_ENTRY_WINDOW_SECONDS); other rows in 0-180 s are neighbouring crossings on the same camera.
+ENTRY_EXIT_LAG_EXPECTED_S = 45.0
+ENTRY_EXIT_LAG_MIN_S = 40.0
+ENTRY_EXIT_LAG_MAX_S = 55.0
+# Step 7 D0 candidates (docs/planning/AUDIT_step7_d0_2026_11_17.md), local crossing times: always in
+# --regrade-names whether graded or not. Matched to production keys by the key's own crossing ts.
+REGRADE_D0_TIMES = (
+    "2026-11-13T18:18:07", "2026-11-15T18:13:38", "2026-11-15T19:57:12", "2026-11-15T19:57:22",
+    "2026-11-15T19:59:03", "2026-11-14T16:39:28",
+)
 
 
 def log(msg: str) -> None:
@@ -275,6 +307,101 @@ def key_candidates(keys: list[str], skip: set[str]) -> list[dict]:
     return out
 
 
+def crossing_identity(keys: list[str]) -> dict[str, dict]:
+    """What URA named for each production crossing key, for the page's after-save reveal.
+
+    person_id / confidence come from the crossing record (person_entry_exit_events: same egress_camera, same
+    direction as the D8a row, written ENTRY_EXIT_LAG_MIN_S..MAX_S after the crossing ts, nearest to 45 s). An
+    ambiguous crossing writes no record, so its person_id is null. outcome / slug / identity_provenance /
+    identity_confidence / edge_anchor come from the D8a outcome row (egress_identity_outcome, source_ref = key).
+    The D8a slug is reported separately: on a vetoed or abstained row it is the name URA did NOT attach.
+    """
+    keys = [k for k in keys if "@" in k]
+    if not keys:
+        return {}
+    out: dict[str, dict] = {k: {} for k in keys}
+    rows = db_query(
+        "select source_ref, attrs_json from memory_episodes "
+        f"where episode_type='{EGRESS_OUTCOME_TYPE}' and source_ref in ({','.join(sql_str(k) for k in keys)});"
+    )
+    for r in rows:
+        a = json.loads(r["attrs_json"] or "{}")
+        rev = out[r["source_ref"]]
+        rev["outcome"] = a.get("outcome")
+        rev["direction"] = a.get("direction")
+        rev["outcome_slug"] = slug_of(a.get("slug")) or None
+        if a.get("provenance") is not None:
+            rev["identity_provenance"] = a["provenance"]
+        if a.get("identity_confidence") is not None:
+            rev["identity_confidence"] = a["identity_confidence"]
+        if a.get("edge_anchor"):
+            rev["edge_anchor"] = a["edge_anchor"]
+    utc = {}
+    for k in keys:
+        cam, ts = k.split("@", 1)
+        utc[k] = (cam, parse_ts(ts).astimezone(dt.timezone.utc).replace(tzinfo=None))
+    lo = min(t for _c, t in utc.values())
+    hi = max(t for _c, t in utc.values()) + dt.timedelta(seconds=ENTRY_EXIT_LAG_MAX_S)
+    cams = sorted({c for c, _t in utc.values()})
+    ee = db_query(
+        "select timestamp, egress_camera, direction, person_id, confidence from person_entry_exit_events "
+        f"where timestamp >= {sql_str(lo.isoformat())} and timestamp <= {sql_str(hi.isoformat())} "
+        f"and egress_camera in ({','.join(sql_str(c) for c in cams)});"
+    )
+    for k, (cam, t) in utc.items():
+        best = None
+        rev = out[k]
+        for r in ee:
+            if r["egress_camera"] != cam:
+                continue
+            if rev.get("direction") and r["direction"] != rev["direction"]:
+                continue
+            lag = (dt.datetime.fromisoformat(r["timestamp"]) - t).total_seconds()
+            if ENTRY_EXIT_LAG_MIN_S <= lag <= ENTRY_EXIT_LAG_MAX_S and (
+                    best is None or abs(lag - ENTRY_EXIT_LAG_EXPECTED_S) < abs(best[0] - ENTRY_EXIT_LAG_EXPECTED_S)):
+                best = (lag, r)
+        if best:
+            rev["person_id"] = slug_of(best[1]["person_id"]) or None  # slug per person_ids, None = unnamed
+            rev["confidence"] = best[1]["confidence"]
+            rev["crossing_record"] = True
+        else:
+            rev["person_id"] = None
+            rev["crossing_record"] = False
+    return out
+
+
+def names_matter(rev: dict) -> bool:
+    """A crossing whose names are worth a regrade: URA attached a person, or the D8a row shows a face leg,
+    a veto or an edge anchor."""
+    outcome = str(rev.get("outcome") or "")
+    prov = str(rev.get("identity_provenance") or "")
+    return bool(rev.get("person_id") or "face" in prov or "face" in outcome or outcome == "vetoed"
+                or rev.get("edge_anchor"))
+
+
+def regrade_name_candidates(graded: set[str]) -> list[dict]:
+    """Already-graded crossings where names matter, plus the step 7 D0 candidates; these bypass the graded skip."""
+    d0 = db_query(
+        "select distinct source_ref from memory_episodes "
+        f"where episode_type='{EGRESS_OUTCOME_TYPE}' and ("
+        + " or ".join(f"source_ref like {sql_str('%@' + t + '%')}" for t in REGRADE_D0_TIMES) + ");"
+    )
+    d0_keys = [r["source_ref"] for r in d0]
+    found = {t for t in REGRADE_D0_TIMES for k in d0_keys if f"@{t}" in k}
+    for t in REGRADE_D0_TIMES:
+        if t not in found:
+            log(f"regrade-names: no production key for D0 crossing {t}")
+    graded_keys = sorted(k for k in graded if "@" in k)
+    ids = crossing_identity(graded_keys)
+    picked = [k for k in graded_keys if names_matter(ids.get(k, {}))]
+    keys = list(dict.fromkeys(d0_keys + picked))
+    log(f"regrade-names: {len(d0_keys)} D0 keys, {len(picked)} of {len(graded_keys)} graded keys where names matter")
+    cands = key_candidates(keys, set())
+    for c in cands:
+        c["regrade"] = c["crossing_key"] in graded
+    return cands
+
+
 def pair_vision(cands: list[dict]) -> None:
     """Attach shadow rows (if any) whose crossing ts equals a pair's e1 or e2."""
     stamps = sorted({c[k] for c in cands if c["kind"] == "pair" for k in ("e_ts", "e2_ts")})
@@ -403,7 +530,11 @@ def build_card(c: dict, idx: int, groups: dict[str, str], token: str, args, out_
         card["hidden"] = {
             "tracker": tracker_answer(c.get("shadow"), c.get("egress")),
             "vision": vision_answer(c.get("shadow")),
+            # What URA named (crossing_identity); revealed with the other answers after the grade is saved.
+            "revealed": c.get("revealed") or {"person_id": None},
         }
+    if c.get("regrade"):
+        card["regrade"] = True
     return card
 
 
@@ -420,10 +551,15 @@ def main() -> int:
     ap.add_argument("--frigate-instance", default="frigate-f2")
     ap.add_argument("--site-dir", type=Path, default=SITE_GRADE_DIR)
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--regrade-names", action="store_true",
+                    help="add already-graded crossings where names matter, plus the step 7 D0 candidates "
+                         "(bypass the graded skip)")
     args = ap.parse_args()
 
     skip = already_graded()
     cands: list[dict] = []
+    if args.regrade_names:
+        cands += regrade_name_candidates(skip)
     if args.key:
         cands += key_candidates(args.key, skip)
     if not args.no_recent:
@@ -451,10 +587,17 @@ def main() -> int:
             log(f"door {group} via {route}: {c['crossing_key']}")
         resolved.append(c)
     cands = resolved
-    log(f"{len(cands)} candidates ({sum(c['kind'] == 'pair' for c in cands)} pairs), {len(skip)} already graded")
+    ids = crossing_identity([c["crossing_key"] for c in cands if c["kind"] == "crossing"])
+    for c in cands:
+        if c["kind"] == "crossing":
+            c["revealed"] = ids.get(c["crossing_key"]) or {"person_id": None}
+    log(f"{len(cands)} candidates ({sum(c['kind'] == 'pair' for c in cands)} pairs, "
+        f"{sum(bool(c.get('regrade')) for c in cands)} regrades), {len(skip)} already graded")
     if args.dry_run:
         for c in cands:
-            print(c["kind"], c.get("door_group"), c["crossing_key"])
+            rev = c.get("revealed") or {}
+            print(c["kind"], c.get("door_group"), "regrade" if c.get("regrade") else "new",
+                  rev.get("person_id"), rev.get("outcome"), c["crossing_key"])
         return 0
 
     token = ha_token()
