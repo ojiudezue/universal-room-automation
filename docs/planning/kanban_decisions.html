@@ -264,9 +264,9 @@ section.decisions .none { color:var(--muted); font-size:12px; padding:0 18px 12p
 <header class="top">
 <h1>URA://DECISIONS<span class="gen">GENERATED - waiting_operator cards from kanban.data.yaml</span></h1>
 <div class="statusline">
-<span>generated <b>2026-11-19T00:57:03-06:00</b></span>
-<span>data <b>b76b9197bad3</b></span>
-<span>reconciled <b>2026-11-18</b></span>
+<span>generated <b>2026-11-19T01:35:03-06:00</b></span>
+<span>data <b>7c62974df9ef</b></span>
+<span>reconciled <b>2026-11-19</b></span>
 </div></header>
 <section class="decisions" id="decisions" aria-labelledby="decisions-h">
 <h2 id="decisions-h">Decisions <span class="count">36</span><span class="hint">waiting on you, oldest first · tap a PICK or type an answer; it is applied at the next groom</span></h2>
@@ -593,56 +593,6 @@ section.decisions .none { color:var(--muted); font-size:12px; padding:0 18px 12p
 <form class="answer"><label for="ans-LLMVISION-CANCEL-CLEANUP-UPSTREAM-1">Your answer for LLMVISION-CANCEL-CLEANUP-UPSTREAM-1</label><textarea id="ans-LLMVISION-CANCEL-CLEANUP-UPSTREAM-1" rows="2" placeholder="Your answer for LLMVISION-CANCEL-CLEANUP-UPSTREAM-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
 <div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
 </article>
-<article class="decision" data-id="ANTHROPIC-API-USAGE-LIMIT-OC-LLM-1">
-<div class="dhd">
-<span class="id">ANTHROPIC-API-USAGE-LIMIT-OC-LLM-1</span>
-<span class="since">waiting since 2026-11-18 02:03</span>
-</div>
-<div class="dtitle">The Claude AI Task account hit its API usage limit (locked until 2026-12-01), so every optimizer LLM call fails until then</div>
-<p class="ask"><b>DO</b>: in the Anthropic console, raise or reset the API spending limit for the key used by the Claude AI Task (or tell me to leave the optimizer LLM tier off until 12-01). PICK: A (recommended) leave the warning as is - the optimizer LLM tier is shadow and decides nothing; or B card a page-on-quota-error (Tier 1). -&gt; On your console change I confirm the next call succeeds in the system log and close this.</p>
-<form class="answer"><label for="ans-ANTHROPIC-API-USAGE-LIMIT-OC-LLM-1">Your answer for ANTHROPIC-API-USAGE-LIMIT-OC-LLM-1</label><textarea id="ans-ANTHROPIC-API-USAGE-LIMIT-OC-LLM-1" rows="2" placeholder="Your answer for ANTHROPIC-API-USAGE-LIMIT-OC-LLM-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
-<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
-</article>
-<article class="decision" data-id="LANDSCAPE-RETRY-POSTFIX-CHECK-1">
-<div class="dhd">
-<span class="id">LANDSCAPE-RETRY-POSTFIX-CHECK-1</span>
-<span class="since">waiting since 2026-11-18 02:03</span>
-</div>
-<div class="dtitle">Landscape Lighting retry loop — post-fix dropout check vs 62/10-day Matter baseline</div>
-<p class="ask"><b>APPROVE</b>: let me add continue_on_error: true to the first step of automation.landscape_lighting_lifx_matter_version (the Dewenwils transformer switch.turn_on). Re-read 10-28: that step still has no continue_on_error; the retry loops already have it. HA automation edit, attended session, reversible. AND DO: check the 7 GK/Hampton fixtures that stayed unavailable through the whole 10-27 evening on-window: GK perimeter 4, 7, 8, side-approach 10, 11, 12, Hampton spot 2 (side-approach 9 lit for about 2 minutes on 10-26 only). Perimeter 1 and 3 came on normally. -&gt; On APPROVE I make the edit and re-measure two nights after.</p>
-<form class="answer"><label for="ans-LANDSCAPE-RETRY-POSTFIX-CHECK-1">Your answer for LANDSCAPE-RETRY-POSTFIX-CHECK-1</label><textarea id="ans-LANDSCAPE-RETRY-POSTFIX-CHECK-1" rows="2" placeholder="Your answer for LANDSCAPE-RETRY-POSTFIX-CHECK-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
-<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
-</article>
-<article class="decision" data-id="NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1">
-<div class="dhd">
-<span class="id">NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1</span>
-<span class="since">waiting since 2026-11-18 02:03</span>
-</div>
-<div class="dtitle">Prove the text &#x27;diag&#x27; menu answers on WhatsApp and the HA app (only iMessage is proven live)</div>
-<p class="ask"><b>DO</b>: text &#x27;diag&#x27; in your WhatsApp self-chat, and reply &#x27;diag&#x27; to any URA notification in the HA app -&gt; I read notification_inbound; a channel=whatsapp row and a companion row with a reply close this; no WhatsApp row means the bridge drops fromMe and I card that fix.</p>
-<form class="answer"><label for="ans-NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1">Your answer for NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1</label><textarea id="ans-NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1" rows="2" placeholder="Your answer for NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
-<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
-</article>
-<article class="decision" data-id="PERIMETER-FP-GATES-DISPOSE-1">
-<div class="dhd">
-<span class="id">PERIMETER-FP-GATES-DISPOSE-1</span>
-<span class="since">waiting since 2026-11-18 02:03</span>
-</div>
-<div class="dtitle">Perimeter false-positive gates D3/D5 shipped shadow-first but D3 can never evaluate (zone sensors never configured) and no shadow counts are kept; no disposal date</div>
-<p class="ask"><b>DO</b>: in URA options -&gt; Perimeter, set perimeter_zone_sensors to the four Frigate property-zone person-occupancy sensors for g5_bullet, rear_ptz, utilities_ptz and front_side_ptz (ids in the audit, resolved by registry), and confirm Frigate&#x27;s &#x27;property&#x27; zone leaves the road out. PICK the D5 wait: A (recommended, your &#x27;alert latency over precision, waits ship at 0&#x27; rule) set PERIMETER_SS_SETTLE_S 8 -&gt; 0 so D5 judges on lookback only and never delays an alert; or B raise it to 12 s (covers ~p90 g5_bullet lag of 10.2 s, delays single-source alerts up to 12 s). -&gt; I make the A/B constant change (Tier 1, reviewed), then count perimeter_gate_decision rows; dispose each gate at its first 30 rows or 2026-11-28, whichever first (D3 with no rows by then parks).</p>
-<form class="answer"><label for="ans-PERIMETER-FP-GATES-DISPOSE-1">Your answer for PERIMETER-FP-GATES-DISPOSE-1</label><textarea id="ans-PERIMETER-FP-GATES-DISPOSE-1" rows="2" placeholder="Your answer for PERIMETER-FP-GATES-DISPOSE-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
-<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
-</article>
-<article class="decision" data-id="SAFETY-SENSOR-FLEET-HEALTH-1">
-<div class="dhd">
-<span class="id">SAFETY-SENSOR-FLEET-HEALTH-1</span>
-<span class="since">waiting since 2026-11-18 02:03</span>
-</div>
-<div class="dtitle">The house&#x27;s only smoke detector has been invisible to Home Assistant since the 10-15 restart, and several leak and gas sensors are dead or misfiled, so Safety cannot see those hazards</div>
-<p class="ask"><b>DO</b> (when back, or the guest/Jaya if urgent): re-pair the kitchen Heiman smoke detector (homelab THREAD-INOVELLI-1 re-commission; it still sounds locally), and check the 4 leak pucks&#x27; batteries/pairing. APPROVE me to make the two config fixes in an attended session (move gas_zigbee_kitchen_gas out of Safety&#x27;s smoke list into gas; remove the ghost ziribathroom_water_leak_2). -&gt; Then I measure whether Safety should page on a life-safety sensor unavailable &gt; N hours (likely a small Tier-1/2 card).</p>
-<form class="answer"><label for="ans-SAFETY-SENSOR-FLEET-HEALTH-1">Your answer for SAFETY-SENSOR-FLEET-HEALTH-1</label><textarea id="ans-SAFETY-SENSOR-FLEET-HEALTH-1" rows="2" placeholder="Your answer for SAFETY-SENSOR-FLEET-HEALTH-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
-<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
-</article>
 <article class="decision" data-id="ROOM-CONFIG-LEGACY-MMWAVE-KEY-1">
 <div class="dhd">
 <span class="id">ROOM-CONFIG-LEGACY-MMWAVE-KEY-1</span>
@@ -665,6 +615,56 @@ section.decisions .none { color:var(--muted); font-size:12px; padding:0 18px 12p
 <button type="button" data-pick="B" title="send: PICK B"><b>PICK B</b>keep held inputs blocking the anchor (today&#x27;s behaviour, consistent...</button>
 </div>
 <form class="answer"><label for="ans-CENSUS-DECONFLICTION-LEDGER-1">Your answer for CENSUS-DECONFLICTION-LEDGER-1</label><textarea id="ans-CENSUS-DECONFLICTION-LEDGER-1" rows="2" placeholder="Your answer for CENSUS-DECONFLICTION-LEDGER-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="ANTHROPIC-API-USAGE-LIMIT-OC-LLM-1">
+<div class="dhd">
+<span class="id">ANTHROPIC-API-USAGE-LIMIT-OC-LLM-1</span>
+<span class="since">waiting since 2026-11-19 02:02</span>
+</div>
+<div class="dtitle">The Claude AI Task account hit its API usage limit (locked until 2026-12-01), so every optimizer LLM call fails until then</div>
+<p class="ask"><b>DO</b>: in the Anthropic console, raise or reset the API spending limit for the key used by the Claude AI Task (or tell me to leave the optimizer LLM tier off until 12-01). PICK: A (recommended) leave the warning as is - the optimizer LLM tier is shadow and decides nothing; or B card a page-on-quota-error (Tier 1). -&gt; On your console change I confirm the next call succeeds in the system log and close this.</p>
+<form class="answer"><label for="ans-ANTHROPIC-API-USAGE-LIMIT-OC-LLM-1">Your answer for ANTHROPIC-API-USAGE-LIMIT-OC-LLM-1</label><textarea id="ans-ANTHROPIC-API-USAGE-LIMIT-OC-LLM-1" rows="2" placeholder="Your answer for ANTHROPIC-API-USAGE-LIMIT-OC-LLM-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="LANDSCAPE-RETRY-POSTFIX-CHECK-1">
+<div class="dhd">
+<span class="id">LANDSCAPE-RETRY-POSTFIX-CHECK-1</span>
+<span class="since">waiting since 2026-11-19 02:02</span>
+</div>
+<div class="dtitle">Landscape Lighting retry loop — post-fix dropout check vs 62/10-day Matter baseline</div>
+<p class="ask"><b>APPROVE</b>: let me add continue_on_error: true to the first step of automation.landscape_lighting_lifx_matter_version (the Dewenwils transformer switch.turn_on). Re-read 10-28: that step still has no continue_on_error; the retry loops already have it. HA automation edit, attended session, reversible. AND DO: check the 7 GK/Hampton fixtures that stayed unavailable through the whole 10-27 evening on-window: GK perimeter 4, 7, 8, side-approach 10, 11, 12, Hampton spot 2 (side-approach 9 lit for about 2 minutes on 10-26 only). Perimeter 1 and 3 came on normally. -&gt; On APPROVE I make the edit and re-measure two nights after.</p>
+<form class="answer"><label for="ans-LANDSCAPE-RETRY-POSTFIX-CHECK-1">Your answer for LANDSCAPE-RETRY-POSTFIX-CHECK-1</label><textarea id="ans-LANDSCAPE-RETRY-POSTFIX-CHECK-1" rows="2" placeholder="Your answer for LANDSCAPE-RETRY-POSTFIX-CHECK-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1">
+<div class="dhd">
+<span class="id">NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1</span>
+<span class="since">waiting since 2026-11-19 02:02</span>
+</div>
+<div class="dtitle">Prove the text &#x27;diag&#x27; menu answers on WhatsApp and the HA app (only iMessage is proven live)</div>
+<p class="ask"><b>DO</b>: text &#x27;diag&#x27; in your WhatsApp self-chat, and reply &#x27;diag&#x27; to any URA notification in the HA app -&gt; I read notification_inbound; a channel=whatsapp row and a companion row with a reply close this; no WhatsApp row means the bridge drops fromMe and I card that fix.</p>
+<form class="answer"><label for="ans-NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1">Your answer for NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1</label><textarea id="ans-NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1" rows="2" placeholder="Your answer for NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="PERIMETER-FP-GATES-DISPOSE-1">
+<div class="dhd">
+<span class="id">PERIMETER-FP-GATES-DISPOSE-1</span>
+<span class="since">waiting since 2026-11-19 02:02</span>
+</div>
+<div class="dtitle">Perimeter false-positive gates D3/D5 shipped shadow-first but D3 can never evaluate (zone sensors never configured) and no shadow counts are kept; no disposal date</div>
+<p class="ask"><b>DO</b>: in URA options -&gt; Perimeter, set perimeter_zone_sensors to the four Frigate property-zone person-occupancy sensors for g5_bullet, rear_ptz, utilities_ptz and front_side_ptz (ids in the audit, resolved by registry), and confirm Frigate&#x27;s &#x27;property&#x27; zone leaves the road out. PICK the D5 wait: A (recommended, your &#x27;alert latency over precision, waits ship at 0&#x27; rule) set PERIMETER_SS_SETTLE_S 8 -&gt; 0 so D5 judges on lookback only and never delays an alert; or B raise it to 12 s (covers ~p90 g5_bullet lag of 10.2 s, delays single-source alerts up to 12 s). -&gt; I make the A/B constant change (Tier 1, reviewed), then count perimeter_gate_decision rows; dispose each gate at its first 30 rows or 2026-11-28, whichever first (D3 with no rows by then parks).</p>
+<form class="answer"><label for="ans-PERIMETER-FP-GATES-DISPOSE-1">Your answer for PERIMETER-FP-GATES-DISPOSE-1</label><textarea id="ans-PERIMETER-FP-GATES-DISPOSE-1" rows="2" placeholder="Your answer for PERIMETER-FP-GATES-DISPOSE-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="SAFETY-SENSOR-FLEET-HEALTH-1">
+<div class="dhd">
+<span class="id">SAFETY-SENSOR-FLEET-HEALTH-1</span>
+<span class="since">waiting since 2026-11-19 02:02</span>
+</div>
+<div class="dtitle">The house&#x27;s only smoke detector has been invisible to Home Assistant since the 10-15 restart, and several leak and gas sensors are dead or misfiled, so Safety cannot see those hazards</div>
+<p class="ask"><b>DO</b> (when back, or the guest/Jaya if urgent): re-pair the kitchen Heiman smoke detector (homelab THREAD-INOVELLI-1 re-commission; it still sounds locally), and check the 4 leak pucks&#x27; batteries/pairing. APPROVE me to make the two config fixes in an attended session (move gas_zigbee_kitchen_gas out of Safety&#x27;s smoke list into gas; remove the ghost ziribathroom_water_leak_2). -&gt; Then I measure whether Safety should page on a life-safety sensor unavailable &gt; N hours (likely a small Tier-1/2 card).</p>
+<form class="answer"><label for="ans-SAFETY-SENSOR-FLEET-HEALTH-1">Your answer for SAFETY-SENSOR-FLEET-HEALTH-1</label><textarea id="ans-SAFETY-SENSOR-FLEET-HEALTH-1" rows="2" placeholder="Your answer for SAFETY-SENSOR-FLEET-HEALTH-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
 <div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
 </article>
 </section>
