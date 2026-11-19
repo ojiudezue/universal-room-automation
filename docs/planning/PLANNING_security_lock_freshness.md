@@ -42,7 +42,7 @@ Prior plans/cards consulted: SECURITY-LOCK-SWEEP-RETRY-CAP-1 (done v5.108.6, epi
 ## 2. Falsifiable invariants
 
 - **INV-1:** a swept lock whose freshness age exceeds `N` (or that is unavailable/unknown/node-dead) never produces a "compliant, no action" outcome in the sweep without a HIGH page having been dispatched (or being dedup-held by a persisted record younger than the re-page interval) for that lock.
-- **INV-2:** the sweep never issues `lock.lock` (or any lock/unlock service) to a lock judged stale or dead.
+- **INV-2:** the freshness check never adds a new lock command. The existing sweep `lock.lock` on an `unlocked` lock, stale or not, stays as it is, retry cap included.
 - **INV-3:** a timestamp produced at HA boot (within `boot_grace` of the coordinator's start) never advances a lock's persisted last-real-report, so a restart cannot make a silent lock look fresh; and no freshness/dead page is emitted before `boot_grace` has elapsed.
 - **INV-4 (no-op path):** a fresh, available lock produces byte-identical sweep actions and compliance to today.
 
@@ -57,7 +57,20 @@ Consumers: the sweep's own branch (trust decision, security.py:1850/1852), the p
 
 ## 4. Emission / decision sites
 
-`git grep -n "lock.lock\|lock.unlock" custom_components/universal_room_automation` must be re-run by the builder; known sites: the sweep (security.py:1852-1866), lockdown `_generate_lockdown_actions` (~1642-1672, one-shot per alert), and the lock regime engage/release. This plan gates ONLY the sweep site. Lockdown and regime commands to a stale lock are recorded as a finding for the plan review to adjudicate (they act on alerts and house state, and commanding a silent lock is how one learns it is dead); default is leave them alone, per the operator rule.
+There are eight lock command sites (plan review 2026-11-18):
+
+| Site | Command | Stale gate? |
+|---|---|---|
+| security.py:1862 | sweep `lock.lock` | No. It keeps running, and a stale lock also pages |
+| security.py:1754 | lockdown lock | No |
+| security.py:2337 | hazard egress unlock | No (life-safety) |
+| security_lock_regime.py:899 | unlock | No (resident-driven) |
+| security_lock_regime.py:2239 | unlock | No |
+| security_lock_regime.py:2976 | unlock | No |
+| security_lock_regime.py:2436 | engage | No |
+| security_lock_regime.py:2830 | away-lock | No |
+
+Ruling: none of them gets the stale gate. Sending a command to a silent lock does no harm and shows when the lock is dead. The unlocks are life-safety or resident-driven. The freshness check changes behaviour only for a stale `locked` lock. The builder re-greps `lock.lock|lock.unlock` and lists any site that is not in this table.
 
 ## 5. Deliverables
 
@@ -67,13 +80,20 @@ Read-only recorder probe after the operator enables node 10's last_seen and the 
 - **Gate:** N default stays 12 h only if no healthy zwave lock shows a max-of-stamps gap > 10 h. Philips gets its own `N` only if its gaps are bounded; otherwise Philips is dead-page-only (D3) and documented as such.
 
 ### D1: freshness helper + persisted last-real-report
-`_lock_freshness(lock_id) -> (age_s | None, source)`, registry-resolved siblings cached per sweep (re-resolved when the registry changes is a non-goal; resolve each sweep, it is cheap). Store `{lock_id: {"real_report_ts", "paged_ts", "paged_kind"}}`, loaded at setup, saved delayed.
+`_lock_freshness(lock_id) -> (age_s | None, source)`. Same-device siblings are resolved with `include_disabled_entities=True`, so a disabled `last_seen` sensor is reported as `disabled` (D4), not as missing. A sibling whose state is None or unavailable counts as no signal: it gives neither age 0 nor stale. Siblings are resolved from the registry once per sweep (re-resolved when the registry changes is a non-goal; resolve each sweep, it is cheap). Store `{lock_id: {"real_report_ts", "paged_ts", "paged_kind"}}`, loaded at setup, saved delayed.
 - **Test:** `test_freshness_uses_max_of_stamps`, `test_boot_stamp_not_real_report`, `test_last_seen_resolved_by_registry_not_name` (fixture with a misleadingly named sensor on another device must be ignored), `test_store_round_trip`.
 
 ### D2: stale gate in the sweep (lock loop only)
-Inserted after the unavailable check and the exclusion check, before the `locked`/`unlocked` branches: if age > N (or age is None and no real report recorded for > N since boot+grace), then: compliance = `"stale"`, issue ONE `zwave_js.refresh_value` (zwave) or `homeassistant.update_entity` (other), add the lock to a new `stale` list, emit the page (D3 rules), and `continue` (no `lock.lock`, retry episode untouched). Fresh path unchanged.
-- **Verify (discriminating):** fixture lock `locked` with real report 13 h ago -> page + refresh, no lock command. Same lock reported 11 h ago -> no page (rules out "pages every locked lock"). Stale `unlocked` -> page, NO `lock.lock` (rules out the gate sitting after the unlocked branch).
-- **Test:** `test_stale_locked_pages_and_refreshes`, `test_fresh_locked_byte_identical`, `test_stale_unlocked_never_commanded`, `test_excluded_lock_not_stale_paged`.
+Inserted after the unavailable check and the exclusion check, before the `locked`/`unlocked` branches: if age > N (or age is None and no real report recorded for > N since boot+grace), then: compliance = `"stale"`, issue ONE `zwave_js.refresh_value` (zwave) or `homeassistant.update_entity` (other), add the lock to a new `stale` list and emit the page (D3 rules). Then:
+- **Stale `locked`:** `continue`. No command is sent and the retry episode is untouched.
+- **Stale `unlocked`:** falls through to the existing branch, so `lock.lock` and the retry cap run unchanged, and the lock is also paged.
+
+The fresh path is unchanged.
+- **Verify (discriminating):**
+  - A `locked` fixture lock whose last real report was 13 h ago gets a page and a refresh, and no lock command.
+  - The same lock reported 11 h ago gets no page. This rules out a gate that pages every locked lock.
+  - A stale `unlocked` lock gets a page plus the existing `lock.lock`. This rules out a gate that suppresses the proven command.
+- **Test:** `test_stale_locked_pages_and_refreshes`, `test_fresh_locked_byte_identical`, `test_stale_unlocked_pages_and_still_commanded`, `test_excluded_lock_not_stale_paged`, `test_none_unavailable_sibling_is_no_signal`.
 - **Live:** with the garage lock's last_seen enabled and the lock healthy, `sensor.ura_security_coordinator_security_last_lock_sweep` shows `stale: []` and `lock_actions_sent` unchanged in shape.
 
 ### D3: dead/unavailable/stale page with persistent dedup
@@ -87,7 +107,7 @@ Sweep sensor gains `stale`, `stale_pages_total`, `last_stale_page`. No anomaly t
 - **Live:** before the operator enables node 10 last_seen, the anomaly names the garage lock; after, it clears.
 
 ### D5 (gated, likely parked): door-activity tightening to M
-Only if a lock-to-evidence mapping can be resolved without names: an explicit per-lock config list of evidence entities (independent of the lock radio; the lock's own door binary_sensor shares the radio and does not count). The ELK zone for the garage hallway door is not provable from the registry, and egress camera rows have no door id. Marginal benefit over D2: the 11-18 incident pages at ~12 h with D2 (versus 55 h today, never paged); M would cut that to ~3 h after the first crossing, at the cost of a new config field and a cross-coordinator read. Recommendation: PARK with revival trigger "a stale-lock page arrives more than 3 h after a door crossing the operator cares about, or a mapping becomes resolvable from config already present."
+Only if a lock-to-evidence mapping can be resolved without names: an explicit per-lock config list of evidence entities (independent of the lock radio; the lock's own door binary_sensor shares the radio and does not count). The ELK zone for the garage hallway door is not provable from the registry, and egress camera rows have no door id. Marginal benefit over D2: the 11-18 incident pages at ~12 h with D2 (versus 55 h today, never paged); M would cut that to ~3 h after the first crossing, at the cost of a new config field and a cross-coordinator read. The plan review simulated D2 on the 11-16..11-18 timeline. The saved last-report time survives restarts, so the lock pages at about 12 h even with `last_seen` disabled. That supports parking D5. Recommendation: PARK with revival trigger "a stale-lock page arrives more than 3 h after a door crossing the operator cares about, or a mapping becomes resolvable from config already present."
 
 ## 6. Knobs
 
@@ -107,4 +127,10 @@ No change to the retry cap, exclusion list, garage cover loop, lockdown, `securi
 
 Tier 2, elevated to the 3-framing Tier 2-DB review protocol: it changes a safety decision in the security sweep (regression-prone, and a persistence Store is added), but it is additive at one decision site, threads no value through many emission sites, and touches no shared primitive, so not Tier 3. Framings: A correctness and clock edges (boot grace, naive stamps, restart inside R); B lifecycle (Store load before first sweep, registry lookups, refresh_value failure must not raise); C per-site mutation (gate bypass, the never-command guard, the boot-stamp filter, the persistent dedup). One plan review before build.
 
-Operator actions: enable `sensor.garage_hallway_doorlock_zwave_garagehallway_last_seen`; decide whether to promote `lock_unverified` to life-safety for quiet-hours delivery.
+## 9. Operator decisions
+
+1. **Required before deploy: quiet hours.** The question is whether `lock_unverified` joins `CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS`, which would make it bypass DND at night. Recommended default: promote it. An unverified lock at night is when the page matters most, and the dedup and R limit the volume. The coordinator will ask the operator.
+   - **Live:** after the decision, `nm_extra_life_safety_hazards` in the options matches it. A stale or dead page during quiet hours is either delivered (promoted) or held (not promoted), as shown in `notification_log`.
+2. Enable `sensor.garage_hallway_doorlock_zwave_garagehallway_last_seen`.
+
+D0 findings (`AUDIT_lock_freshness_d0_2026_11_18.md`) were not available when this revision was written. If they move N or the Philips path, fold them in before build.
