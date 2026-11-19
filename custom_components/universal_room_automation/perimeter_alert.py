@@ -208,6 +208,13 @@ from .perimeter_fp_gates import (
 )
 
 
+# PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1: NM title for a dispatch that
+# went through the classification-transition exemption (approach/circling
+# escalation). Distinct from the baseline title so the NM dedup key
+# (coordinator:title:location) cannot swallow it against the baseline hop.
+PERIMETER_EXEMPTION_TITLE = "Perimeter Alert — Person Escalated"
+
+
 # CIRCLING-LABEL-1: strict escalation ordering for the
 # classification-transition exemption. Unknown / None classes map to -1
 # so the I2 predicate (`current_rank <= last_rank -> blocked`) treats an
@@ -1805,6 +1812,13 @@ class PerimeterAlertManager:
         nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
 
         title = "Perimeter Alert — Person Detected"
+        # PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1: the NM dedup key is
+        # coordinator:title:location (severity is not in it), so a
+        # transition-exemption dispatch (e.g. circling hop 3) collided with
+        # the baseline hop 1 on the same camera and was dropped. Exemption
+        # dispatches get their own title; every other dispatch is unchanged.
+        if exemption_active:
+            title = PERIMETER_EXEMPTION_TITLE
         message = PERIMETER_ENRICHMENT_BASE_TEMPLATE_PERSON.format(
             entity_id=entity_id,
             hhmmss=now.strftime("%H:%M:%S"),
