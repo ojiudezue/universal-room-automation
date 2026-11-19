@@ -2,14 +2,14 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-18T07:04:29-06:00_ - _Data commit: `dcbcefaec827`_ - _last_reconciled: 2026-11-18_
+_Generated: 2026-11-18T14:51:32-06:00_ - _Data commit: `9322a15e5a87`_ - _last_reconciled: 2026-11-18_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 6 |
+| 📥 Inbox | 7 |
 | 🔬 Investigating | 0 |
 | 🧭 Pre-planning | 15 |
 | 📝 Planned | 37 |
@@ -21,7 +21,7 @@ _Generated: 2026-11-18T07:04:29-06:00_ - _Data commit: `dcbcefaec827`_ - _last_r
 | 🅿️ Parked | 138 |
 | ✅ Done | 467 |
 
-## 📥 Inbox (6)
+## 📥 Inbox (7)
 _raw capture_
 
 ### `CAMERA-PERSON-DETECTED-FUSED-STREAM-HEALTH-1` - Room fused camera_person_detected sensor (fan_veto's live camera leg) does not honour camera stream health — _#1 · WSJF 2.5 · v2 tc1 u2 /e2_
@@ -91,6 +91,15 @@ _created 2026-11-16 02:30_
   - `tier`: 2
   - `operator_2026_11_16`: BTW audio is an underrated presence vector which we should push into fusion at some point
   - `note_2026_11_16`: Homelab session had staged a global Frigate audio-detection turn-off (operator-approved there) for the Foyer-zone restart; URA asked it to hold; operator: 'I know' (aware; the turn-off stands, audio fusion is later), hold withdrawn. Re-e...
+
+### `SECURITY-LOCK-STALE-STATE-1` - Lock sweep trusts a lock state the lock stopped reporting days ago, so a physically unlocked door is never relocked — _#7 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **security** - status: **inbox**
+_created 2026-11-18 14:55_
+- **Origin:** 2026-11-18 - Operator: "Is lock sweep working? Or the new garage lock re-inclusion not make it to the settings? I am finding it open often" / "I just went through that door and it wa unlocked"
+- **Why:** Live 11-18: lock.garage_hallway_doorlock_kwikset916_zwave_garagehallway (zwave_js node 10, re-included 2026-11-14 23:02, in security_lock_entities) last changed state 11-15 ~20:42; since then only the 11-17 21:06:54 restart restore (stat...
+- **Next:** Me: (1) operator to re-interview / check S0-S2 security class of node 10 in Z-Wave JS (asked 11-18). (2) Plan the URA fix: a swept lock whose state has not been reported for N hours (knob) pages via NM and the sweep issues zwave_js.refre...
+- **Forensic keys (1):**
+  - `tier`: 2
 
 ## 🔬 Investigating (0)
 _measuring; truth not yet known_
