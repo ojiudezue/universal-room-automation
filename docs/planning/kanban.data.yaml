@@ -35015,6 +35015,7 @@ cards:
   revival_trigger: 'Either: (a) the crossing ledger misses its drift bars in PLANNING_census_deconfliction.md (bar a: residue 0 on < 80% of >= 10 empty anchors, or any |residue| > 1; bar a2: reconcile share of resident departures > 20%) over the 7-day window, and the misses trace to unattributed crossings; or (b) the house-state rung of the promotion ladder is reached and needs a count written into total_persons. Check at every crossing-vision ship and at the bar disposition (P2-D6).'
   next: 'Parked. Revisit at the bar disposition; stays linked to VISION-CROSSING-ANALYSIS-1 after the plan ships so the arc-close gate keeps seeing it.'
 - id: REGISTRY-NOT-NAMES-1
+  residual_2026_11_18_ble_confidence_parse: "From BLE-CONFIDENCE-SCANNER-NAME-PARSE-1 (closed, recovered): person_coordinator.py:2115 split(distance_to_) and _get_area_scanners match scanner names from entity ids. Works today; registry-resolve only when this sweep reaches person_coordinator (only proven code supersedes correct code)."
   arc_cut_v5_108_37: "separate arc work, not in the step 7 S1 release"
   arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
   arc_cut_v5_108_32: "person-sightings batch, separate surface from interior describe"
@@ -36332,6 +36333,7 @@ cards:
   next: 'Me: fold into the W6b plan: watch perimeter cameras through CameraInputStreamHealth (one getter), no second rule. Seam: layer ship 3b keeps house-level twin stamps.'
   rank: {value: 2, time_criticality: 1, effort: 2}
 - id: BLE-CONFIDENCE-SCANNER-NAME-PARSE-1
+  recovered_2026_11_18: "Closed: recovered with no code once the per-scanner sensors came back (11-17 ~12:00 UTC). person_presence_snapshots since 11-17 13:00 UTC: Ezinne 95x0.9 / 3x0.7 / 3x0.5 / 0x0.3; Jaya 56x0.9 / 19x0.7 / 3x0.5; Oji 16x0.5 / 1x0.7 / 3x0.9 (only 7 of his 47 per-scanner distance_to sensors enabled in the registry: an operator UI enable, reloads Bermuda once). No decision reads person confidence (only the < 0.3 occupant filter); music following no longer reads it (8 ft gate retired 11-14, const.py:4596-4615). Name-parse residual (person_coordinator.py:2115 split(distance_to_), _get_area_scanners name match) moved to REGISTRY-NOT-NAMES-1 and left as correct code."
   arc_cut_v5_108_37: "separate arc work, not in the step 7 S1 release"
   trigger_fired_2026_11_17: "Revival trigger met: the per-scanner distance sensors are live again (BERMUDA-DISTANCE-SENSORS-DEAD-1 resolved 11-17). READY to plan; person BLE confidence has read a constant 0.3/0.5 since 10-20."
   arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
@@ -36341,14 +36343,14 @@ cards:
   arc_cut_v5_108_23: "inert until per-scanner sensors return"
   arc_cut_v5_108_22: "inert until per-scanner sensors return"
   title: "Person BLE confidence reads the scanner name from the distance sensor's entity_id (split 'distance_to_') instead of the registry"
-  status: planned
+  status: done
   tier: 2
   batch: person-sightings
   links: {parent: REGISTRY-NOT-NAMES-1, related: [BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1]}
   created: "2026-11-14 15:30"
   origin: {date: '2026-11-14', gist: 'Registry fix review A, finding A-L4.'}
   why: "person_coordinator.py ~2050 (fix/ble-person-registry-resolve 477c8dbf): _calculate_confidence splits the entity_id on 'distance_to_' to name the scanner. The unique_id already carries the scanner MAC. A live registry read shows all 57 of Oji's scanner MACs resolve, but each MAC is a connection on 2-3 devices (the integration's device plus Bermuda's scanner device), and 184 MACs are shared by devices whose areas differ or are missing. So MAC -> area needs a decided rule: prefer Bermuda's own preference, the bluetooth device area, then the mac device. Inert today: the per-scanner sensors are dead until the Kiosk Satellite fix (BERMUDA-DISTANCE-SENSORS-DEAD-1)."
-  next: "Me: plan now (trigger fired 11-17); reuse Bermuda area-resolution order (bermuda_device.py:370-377); registry, not entity_id parsing."
+  next: "Done 2026-11-18 (no code)."
   rank: {value: 3, time_criticality: 1, effort: 2}
 - id: G6-ONE-BLE-ROOM-READ-1
   arc_cut_v5_108_37: "separate arc work, not in the step 7 S1 release"
