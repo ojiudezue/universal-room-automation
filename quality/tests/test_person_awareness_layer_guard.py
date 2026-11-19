@@ -63,7 +63,9 @@ def test_allowlist_is_final_post_census_p2():
     # music_following.py person_coordinator.data reads moved to the public API).
     # +1 at crossing vision P3-D3 (the G3 feeder _amend_vision_direction, R13).
     # +2 at step 7 S1 (edge-anchor confidence const R8, trip-wire delegate R2).
-    assert A.LAYER_ALLOWLIST_TOTAL == 259 and len(A.ROWS) == 231
+    # -5 at LAYER-LEAK-CLEANUP-1 L4 (the five identity-veto person.<slug>
+    # f-strings, #31, now resolve through person_ids.person_entity_for_slug).
+    assert A.LAYER_ALLOWLIST_TOTAL == 254 and len(A.ROWS) == 226
     assert A.LAYER_ALLOWLIST_TOTAL == sum(r["max"] for r in A.ROWS.values())
 
 
@@ -148,7 +150,7 @@ def test_r5_owner_delegate_exempt_but_other_presence_method_hits():
 
 @pytest.mark.parametrize("rule, floor", [
     ("R1", 100), ("R2", 40), ("R3", 5), ("R4", 1), ("R5", 6), ("R8", 3),
-    ("R9", 4), ("R10", 20), ("R12", 9), ("R13", 8),
+    ("R9", 4), ("R10", 20), ("R12", 4), ("R13", 8),
 ])
 def test_rule_real_tree_minimum(rule, floor):
     """Anti-vacuous: each rule still sees at least its first-run floor on the

@@ -30,7 +30,9 @@ LAYER_ALLOWLIST_TOTAL_PROVISIONAL = 260
 # sanctioned feed through the one ingest, not a read leak).
 # Step 7 S1 (EGRESS-DIRECTION-AWARE-IDENTITY-1): +2, EGRESS_ARRIVAL_EDGE_CONFIDENCE
 # (R8, the plan's 0.75) and the nightly trip-wire delegate in database.py (R2).
-LAYER_ALLOWLIST_TOTAL = 259
+# LAYER-LEAK-CLEANUP-1 L4: -5, the five identity-veto inline person.<slug>
+# f-strings (#31) now resolve through person_ids.person_entity_for_slug.
+LAYER_ALLOWLIST_TOTAL = 254
 RULED = 'plan rev 3.3 §17 (4d337e44) + coordinator lifecycle ruling; final run post-census-p2'
 
 # group -> (card, reason). '#N' = plan §9 row N; 'UNEXPLAINED' = STOP.
@@ -207,15 +209,10 @@ ROWS = {
     ('R1', 'sensor.py', '_zone_provenance_breakdown:_room_provenance'): {'max': 1, 'group': '#32', 'reserved': False, 'explained': True},
     ('R10', 'domain_coordinators/security_lock_regime.py', 'LockRegimeController._ensure_pc_listener:async_add_listener[PC]'): {'max': 1, 'group': '#24', 'reserved': False, 'explained': True},
     ('R10', 'perimeter_alert.py', 'PerimeterAlertManager.async_setup:ura_person_egress_event'): {'max': 1, 'group': '#10', 'reserved': False, 'explained': True},
-    ('R12', 'camera_census.py', 'PersonCensus._derive_ble_crossing_trackers:fstring'): {'max': 1, 'group': '#31', 'reserved': False, 'explained': True},
-    ('R12', 'camera_census.py', 'PersonCensus._get_face_recognized_person_names:fstring'): {'max': 1, 'group': '#31', 'reserved': False, 'explained': True},
-    ('R12', 'camera_census.py', 'PersonCensus.face_person_would_be_vetoed:fstring'): {'max': 1, 'group': '#31', 'reserved': False, 'explained': True},
-    ('R12', 'camera_census.py', 'PersonCensus.is_face_leg_person_vetoed:fstring'): {'max': 1, 'group': '#31', 'reserved': False, 'explained': True},
     ('R12', 'perimeter_alert.py', 'PerimeterAlertManager._followup_person_name:fstring'): {'max': 1, 'group': '#31', 'reserved': False, 'explained': True},
     ('R12', 'perimeter_alert.py', 'PerimeterAlertManager.async_setup:fstring'): {'max': 1, 'group': '#31', 'reserved': False, 'explained': True},
     ('R12', 'person_coordinator.py', 'PersonTrackingCoordinator._find_person_entity:fstring'): {'max': 1, 'group': '#31', 'reserved': False, 'explained': True},
     ('R12', 'person_sighting.py', 'PersonSightingProducer._emit:fstring'): {'max': 1, 'group': '#31', 'reserved': False, 'explained': True},
-    ('R12', 'transit_validator.py', 'EgressDirectionTracker._resolve_egress_face_identity_ex:fstring'): {'max': 1, 'group': '#31', 'reserved': False, 'explained': True},
     ('R13', 'camera_census.py', 'PersonCensus._backfill_exit_identity:amend_crossing'): {'max': 1, 'group': 'R13', 'reserved': False, 'explained': True},
     ('R13', 'crossing_vision.py', 'CrossingVisionShadow._amend_vision_direction:amend_crossing'): {'max': 1, 'group': 'R13', 'reserved': False, 'explained': True},
     ('R13', 'crossing_vision.py', '<fast stage>:attach_crossing_attribute'):{'max': 1, 'group': 'reserved', 'reserved': True, 'explained': True, 'card': 'crossing-vision fast stage', 'reason': 'fast stage G3 calls (reserved, file-pinned)'},
