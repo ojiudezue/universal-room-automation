@@ -106,27 +106,54 @@ def _maybe_page(hass: Any, miss_key: tuple[str, str]) -> None:
         return
     _last_page_day = day
     try:
-        from .domain_coordinators._stuck_signal_nm import (  # noqa: PLC0415
-            fire_stuck_signal,
-        )
-
         total = sum(room_entity_resolve_misses.values())
-        hass.async_create_task(
-            fire_stuck_signal(
-                hass,
-                ROOM_ENTITY_UNRESOLVED_KIND,
-                ("total",),
-                (
-                    f"{total} room entity lookups missed the entity registry "
-                    f"(first: {miss_key[0]} / {miss_key[1]}). A URA room "
-                    "reader is blind for that room until the entity exists."
-                ),
-                remedy="Reload the room entry, or check the entity registry.",
-                severity="HIGH",
-            )
+        diagnosis = (
+            f"{total} room entity lookups missed the entity registry "
+            f"(first: {miss_key[0]} / {miss_key[1]}). A URA room "
+            "reader is blind for that room until the entity exists."
         )
+        hass.async_create_task(_page_once(hass, day, diagnosis))
     except Exception:  # noqa: BLE001 — a trip-wire never breaks a reader
         _LOGGER.debug("room_entities: trip-wire dispatch failed", exc_info=True)
+
+
+# Persisted page latch (review B-LOW): the RAM latch above resets on every
+# restart, so a restart storm on one day would page again each boot. The
+# day of the last page is kept in a tiny HA Store (same pattern as
+# music_following's volume store) and checked before paging.
+PAGE_LATCH_STORE_KEY = f"{DOMAIN}.room_entity_page_latch"
+
+
+def _store(hass: Any) -> Any:
+    from homeassistant.helpers.storage import Store  # noqa: PLC0415
+
+    return Store(hass, 1, PAGE_LATCH_STORE_KEY)
+
+
+async def _page_once(hass: Any, day: str, diagnosis: str) -> bool:
+    """Send the trip-wire NM unless one was already sent on ``day``
+    (persisted across restarts). Returns True when it paged."""
+    try:
+        store = _store(hass)
+        data = await store.async_load() or {}
+        if data.get("day") == day:
+            return False
+        await store.async_save({"day": day})
+    except Exception:  # noqa: BLE001 — storage failure falls back to RAM latch
+        _LOGGER.debug("room_entities: page latch store failed", exc_info=True)
+    from .domain_coordinators._stuck_signal_nm import (  # noqa: PLC0415
+        fire_stuck_signal,
+    )
+
+    await fire_stuck_signal(
+        hass,
+        ROOM_ENTITY_UNRESOLVED_KIND,
+        ("total",),
+        diagnosis,
+        remedy="Reload the room entry, or check the entity registry.",
+        severity="HIGH",
+    )
+    return True
 
 
 def _count_miss(hass: Any, miss_key: tuple[str, str]) -> None:

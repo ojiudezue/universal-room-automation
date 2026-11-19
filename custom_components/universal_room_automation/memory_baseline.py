@@ -60,6 +60,11 @@ def _is_room_suppressed(
     a fan-transition suppression is active in the current window.
 
     Reads coordinator attrs defensively — never blocks the writer.
+
+    KEEP + DOCUMENT (ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1, built_2026_11_19):
+    inert in production — hass.data[DOMAIN][entry_id] holds the room
+    coordinator itself, not a dict, so no room ever matches; reviving it
+    changes baseline learning for every room and is an operator decision.
     """
     try:
         managers = hass.data.get(DOMAIN, {})
