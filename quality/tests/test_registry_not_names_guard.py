@@ -33,7 +33,9 @@ import _registry_names_guard_engine as E
 ALLOWLIST = Path(__file__).resolve().parents[1] / "registry_not_names_allowlist.yaml"
 REASONS = {"own-entity", "ui-prefill", "counted-fallback", "pairing-resolver", "display"}
 # Measured 2026-11-15 on develop 2fdf0a94: 209 raw hits over 118 keys.
-RAW_HIT_FLOOR = 200
+# 2026-11-19: 195 after ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1 removed the
+# room-slug entity guesses (hvac_fans, memory_baseline, memory_facade, NM).
+RAW_HIT_FLOOR = 190
 
 _REAL: dict | None = None
 _ROWS: dict | None = None
