@@ -34254,6 +34254,7 @@ cards:
   paged_2026_11_11_overnight: "Paged once in the consolidated overnight Pushover (priority -1, quiet)."
   operator_decision_2026_11_12: "Operator picked A: the night failsafe runs in all paused shared-space rooms (supersedes the 10-18 no-lights-off-when-paused ruling for the 23:00 failsafe only)."
 - id: SECURITY-LOCK-STALE-STATE-1
+  operator_2026_11_19_answers: "Night bypass for lock_unverified: NO (night pages are delivered when quiet hours end). Enable garage lock last_seen: YES (enabled 14:11 CST 11-19, before the restart). Generator fault cleared by the operator."
   measured_2026_11_18: "AUDIT_lock_report_staleness_2026_11_18.md (8 d recorder): garage lock had NO real report 11-16 07:37 -> 11-18 14:51 CST (~55 h; the 11-15 20:42 date above was wrong) while garage cameras logged 14/2/10 egress events on 11-16/17/18. Nothing noticed: no anomaly rows; only an offline digest notice 11-18 15:41 (not a page). Code: security.py:1838-1842 treats unavailable/unknown as offline, no other action; trusts locked with no age check (:1850); offline notice deduped 1/day in RAM (:1903-1933). State-row age and last_reported alone false-page (front 25.9 h, master 31.9 h max gaps, overnight). Proposed freshness = max(last_reported, last_changed, zwave node last_seen) (node 3 last_seen ~hourly, p90 1.1 h); N = 12 h, or 3 h if egress/door evidence after the last report; page immediately and ping before trusting locked; an unavailable swept lock pages, not digest. Unmeasured: whether Kwikset last_seen updates during silence (node 10 last_seen entity not in the state machine)."
   title: Lock sweep trusts a lock state the lock stopped reporting days ago, so a physically unlocked door is never relocked
   thread: security
@@ -34265,7 +34266,7 @@ cards:
   links: {sibling_of: SECURITY-LOCK-SWEEP-RETRY-CAP-1, related: [LOCK-BOOT-RECHECK-ENGAGE-1]}
   origin: {date: '2026-11-18', gist: 'Operator: "Is lock sweep working? Or the new garage lock re-inclusion not make it to the settings? I am finding it open often" / "I just went through that door and it wa unlocked"'}
   why: "Live 11-18: lock.garage_hallway_doorlock_kwikset916_zwave_garagehallway (zwave_js node 10, re-included 2026-11-14 23:02, in security_lock_entities) last changed state 11-15 ~20:42; since then only the 11-17 21:06:54 restart restore (state locked, last_reported = restart). Operator found it physically unlocked. zwave_js.refresh_value and the node ping (20:50 UTC) produced no new value; node_status stays 'alive'. The sweep relocks only locks that READ unlocked, so it never acts. Config is fine (entity is in the sweep list); the lock stopped reporting the day after re-inclusion."
-  next: "Me: (1) operator to re-interview / check S0-S2 security class of node 10 in Z-Wave JS (asked 11-18). (2) Plan the URA fix: a swept lock whose state has not been reported for N hours (knob) pages via NM and the sweep issues zwave_js.refresh_value / a lock command before trusting a stale 'locked'; registry-resolve the platform (zwave_js) instead of names. Measure first: last_reported age per swept lock over 14 days."
+  next: "Me: live-validate v5.108.38 after the 14:11 restart (README live checks); garage lock still dead (keypad wake / batteries)."
 - id: SECURITY-LOCK-SWEEP-RETRY-CAP-1
   mergeprep_2026_11_10_overnight: "02:01-02:11 CST. integ/overnight-2026-11-08 was 180 behind develop (v5.108.1 shipped since); git merge-tree showed ONE conflict, docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md header (two independent dated entries; kept both). Code (const.py, sensor.py) auto-merged. New branch integ/overnight-2026-11-10 = develop 71c0fbb6 + merge 42e3215f, pushed. py_compile clean, no conflict markers. The cycle's 9 test files: 186 passed. Full suite under xdist on candidate vs base develop: 33 vs 25 failures, but the sets differ in BOTH directions (order pollution); all 13 candidate-only failing tests pass when their files run alone (test_kanban_render, test_radar_tuning_phase_a, test_unload_symmetry_task_hygiene, test_zone_migration_mint_guard, test_zone_orphan_device_guard, test_zone_power_rollup, test_zone_safety_alert). No new failure attributable to the branch. Caveat: this is an xdist run, not the serial name-diff; the attended deploy's suite gate is the authority."
   mergeprep_2026_11_06_overnight: "Same check as OPTIMIZER-META-NEVER-PAGES-1 (same integ branch): merges clean onto develop; test_security_lock_retry_cap passes on the merge, including when run with test_zone_orphan_device_guard (21 passed). Still ready for the attended deploy."
@@ -34854,6 +34855,7 @@ cards:
   DONE_2026-11-13: 'Operator: "Do it now... Monitor". Applied 00:13 CST via options flow camera_census: only egress_cameras, perimeter_cameras, door_groups changed (diff vs backup). 20 min watch: house stayed sleep throughout, URA unavailable entities 5 -> 3 (fewer), no lock/alarm/cover/climate logbook changes.'
   next: 'None. Patio/Study B not added (operator ~99% garage+front); revisit only if weekly labels show patio crossings matter.'
 - id: EGRESS-OUTCOME-WEEKLY-LABEL-1
+  operator_2026_11_19_phones: "Jaya phone with her on 11-11: LIKELY. Ojini doesn't live here and hasn't been a guest for 2 months. Ziri has a phone but is only occasionally around; he's at college."
   arc_cut_v5_108_38: "blocked on operator phone answers"
   arc_cut_v5_108_37: "separate arc work, not in the step 7 S1 release"
   arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
@@ -35140,12 +35142,13 @@ cards:
   disposition_2026_11_17_overnight: "REFUTED-but-fertile, closed. Premise (provider call keeps running and billing after URA's timeout) is not supported by the installed llmvision 1.7.1 source: the service handlers await the request inline and providers.py:527-538 awaits an unshielded session.post, so a cancel propagates (HA core path checked only in the local 2026.2.3 source, not live 2026.11.1). Billing after a client disconnect is provider-side and unknown. The probe found a different real defect on the same surface, verified by me at /config/custom_components/llmvision/media_handlers.py: on cancel or ffmpeg timeout the downloaded temp file is not removed (removal at :841-845 is outside any finally) and the ffmpeg kill at :833 is inverted ('if returncode is not None: terminate()', so a running ffmpeg is never killed). New card LLMVISION-CANCEL-CLEANUP-UPSTREAM-1 carries it. Draft: docs/planning/DRAFT_llmvision_timeout_leak_upstream_issue.md."
   updated: '2026-11-17 02:07'
 - id: LLMVISION-CANCEL-CLEANUP-UPSTREAM-1
+  posted_2026_11_19: "Operator: Post. Filed https://github.com/valentinfrlch/ha-llmvision/issues/778 (temp file + ffmpeg left running on cancel in add_video; repro derived from code, not run; no billing claim)."
   arc_cut_v5_108_38: "blocked on operator approval to post"
   arc_cut_v5_108_37: "separate arc work, not in the step 7 S1 release"
   arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
   title: llmvision leaves its downloaded video temp file and a running ffmpeg behind when a call is cancelled or ffmpeg times out (upstream report)
   thread: identity
-  status: waiting_operator
+  status: parked
   tier: 1
   batch: person-sightings
   created: '2026-11-17 02:07'
@@ -35158,7 +35161,7 @@ cards:
   why: 'Verified in /config/custom_components/llmvision/media_handlers.py (1.7.1): temp file created :664, removed only at :841-845 outside any finally; on asyncio.TimeoutError :829-834 terminates ffmpeg only when returncode is not None (already exited), so a live ffmpeg is never terminated. Not yet measured whether stray temp files or ffmpeg processes actually accumulate on the HA host.'
   constraints: ['Outward-facing: draft only; the operator posts or approves posting.']
   links: {related: [LLMVISION-TIMEOUT-LEAK-UPSTREAM-1, VISION-CROSSING-ANALYSIS-1], context: 'LLMVISION-TIMEOUT-LEAK-UPSTREAM-1 was the refuted billing-leak premise that surfaced this; crossing vision is the URA caller whose timeouts trigger the path.'}
-  next: 'REVIEW + APPROVE: read docs/planning/DRAFT_llmvision_timeout_leak_upstream_issue.md (the temp-file / ffmpeg part) and say post it (from your GitHub) or let me post it -> on approval it goes up; I can also measure /tmp and stray ffmpeg counts on the HA host first if you want evidence attached.'
+  next: "Parked: upstream issue #778 open; revive when llmvision ships a fix (then drop URA-side cleanup) or the maintainer asks for repro data."
   rank: {value: 2, time_criticality: 1, effort: 1}
   refs: [docs/planning/DRAFT_llmvision_timeout_leak_upstream_issue.md]
 - id: PERIMETER-GLOBAL-EGRESS-MUTE-1
