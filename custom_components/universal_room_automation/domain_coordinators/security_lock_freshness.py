@@ -81,6 +81,12 @@ class SweepFreshness:
     stale: set[str] = field(default_factory=set)
     actions: list[Any] = field(default_factory=list)
     signal_anomalies: list[str] = field(default_factory=list)
+    # Swept locks the sweep must not count as compliant (stale, or restored
+    # after a dead page with no real report since).
+    unverified: set[str] = field(default_factory=set)
+    # Locks whose offline notice the freshness page owns (one notice per
+    # incident): the old MEDIUM offline digest skips them.
+    offline_owned: set[str] = field(default_factory=set)
     freshness_signal: dict[str, str] = field(default_factory=dict)
     age_h: dict[str, float | None] = field(default_factory=dict)
 
@@ -114,6 +120,10 @@ class LockFreshnessTracker:
         # D4 display counters (RAM, display only).
         self.stale_pages_total = 0
         self.last_stale_page: str | None = None
+        # RAM: last refresh per lock (bounded while a page is pending).
+        self._refreshed: dict[str, datetime] = {}
+        # RAM: D4 anomaly row written once per blind episode.
+        self._signal_anomaly_sent: set[str] = set()
 
     # ----------------------------------------------------------- persistence
     async def async_load(self) -> None:
@@ -321,6 +331,7 @@ class LockFreshnessTracker:
         common_rec = self._records.setdefault(COMMON_KEY, {})
         if common:
             down = [lid for lid in lock_ids if per_lock[lid]["dead_ready"]]
+            out.offline_owned.update(down)
             paged = _aware(common_rec.get("paged_ts"))
             if paged is None or (repage_s > 0 and (now - paged).total_seconds() >= repage_s):
                 names = ", ".join(
@@ -340,9 +351,9 @@ class LockFreshnessTracker:
                     hazard_type=HAZARD_LOCK_UNVERIFIED,
                     location=",".join(down),
                     description=PAGE_TITLE_COMMON,
+                    data={"on_notify_result": self._on_delivered(
+                        COMMON_KEY, "paged_ts", now)},
                 ))
-                common_rec["paged_ts"] = _iso(now)
-                dirty = True
         elif common_rec.get("paged_ts"):
             common_rec.pop("paged_ts", None)
             dirty = True
@@ -351,48 +362,60 @@ class LockFreshnessTracker:
             p = per_lock[lock_id]
             rec = self._records[lock_id]
             name = self._name(lock_id, p["state"], p["info"])
+            paged = _aware(rec.get("paged_ts"))
+            real = p["real"]
+            reported_since = (
+                paged is not None and real is not None and real > paged
+            )
             hazard = None
             if p["dead_ready"] and not common:
                 hazard = "dead"
             elif p["stale"]:
                 hazard = "stale"
-            paged = _aware(rec.get("paged_ts"))
+            elif (
+                paged is not None and not p["dead"]
+                and rec.get("paged_kind") in ("dead", "restored")
+                and not reported_since
+            ):
+                # Back from a dead page through a cache restore with no real
+                # report since: still unverified, keep paging every R.
+                hazard = "restored"
+            if p["dead"]:
+                out.offline_owned.add(lock_id)
+            if hazard in ("stale", "restored") and p["swept"]:
+                out.unverified.add(lock_id)
             if hazard is not None:
                 due = paged is None or (
                     repage_s > 0 and (now - paged).total_seconds() >= repage_s
                 )
                 if due:
-                    out.actions.append(self._page(lock_id, name, hazard, p))
-                    if hazard == "stale":
-                        self.stale_pages_total += 1
-                        self.last_stale_page = _iso(now)
-                        refresh = self._refresh(lock_id, p["is_zwave"])
-                        if refresh is not None:
-                            out.actions.append(refresh)
-                    rec["paged_ts"] = _iso(now)
-                    rec["paged_kind"] = hazard
-                    dirty = True
-            elif paged is not None and not p["dead"]:
-                real = p["real"]
-                if real is not None and real > paged:
-                    # First real report after the page: clear + one notice.
-                    rec.pop("paged_ts", None)
-                    rec.pop("paged_kind", None)
-                    dirty = True
-                    out.actions.append(NotificationAction(
-                        coordinator_id="security",
-                        severity=Severity.MEDIUM,
-                        message=f"{name} is reporting again.",
-                        channels=["security"],
-                        location=lock_id,
-                        description=NOTICE_TITLE_CLEAR,
-                    ))
+                    out.actions.append(self._page(lock_id, name, hazard, p, now))
+                    if hazard == "stale" and self._refresh_due(lock_id, now, repage_s):
+                        out.actions.append(self._refresh(lock_id, p["is_zwave"]))
+            elif paged is not None and not p["dead"] and reported_since:
+                # First real report after the page: clear + one notice.
+                rec.pop("paged_ts", None)
+                rec.pop("paged_kind", None)
+                self._refreshed.pop(lock_id, None)
+                dirty = True
+                out.actions.append(NotificationAction(
+                    coordinator_id="security",
+                    severity=Severity.MEDIUM,
+                    message=f"{name} is reporting again.",
+                    channels=["security"],
+                    location=lock_id,
+                    description=NOTICE_TITLE_CLEAR,
+                ))
+            if hazard is None and paged is None:
+                # Episode over (or never paged): next stale episode refreshes.
+                self._refreshed.pop(lock_id, None)
 
             # D4: a swept Z-Wave lock without an ENABLED last_seen is blind.
             if p["swept"] and p["is_zwave"] and p["signal"] != SIGNAL_LAST_SEEN:
                 sp = _aware(rec.get("signal_paged_ts"))
                 if sp is None or (repage_s > 0 and (now - sp).total_seconds() >= repage_s):
-                    if sp is None:
+                    if lock_id not in self._signal_anomaly_sent:
+                        self._signal_anomaly_sent.add(lock_id)
                         out.signal_anomalies.append(lock_id)
                     out.actions.append(NotificationAction(
                         coordinator_id="security",
@@ -405,23 +428,58 @@ class LockFreshnessTracker:
                         channels=["security"],
                         location=lock_id,
                         description=PAGE_TITLE_SIGNAL,
+                        data={"on_notify_result": self._on_delivered(
+                            lock_id, "signal_paged_ts", now)},
                     ))
-                    rec["signal_paged_ts"] = _iso(now)
+            else:
+                self._signal_anomaly_sent.discard(lock_id)
+                if rec.get("signal_paged_ts"):
+                    rec.pop("signal_paged_ts", None)
                     dirty = True
-            elif rec.get("signal_paged_ts"):
-                rec.pop("signal_paged_ts", None)
-                dirty = True
 
         if dirty:
             self._save()
         return out
 
-    def _page(self, lock_id: str, name: str, hazard: str, p: dict) -> NotificationAction:
+    def _on_delivered(self, key: str, field_name: str, now: datetime,
+                      kind: str | None = None):
+        """Dedup latches on DELIVERY (review B HIGH): a page NM dropped
+        (quiet hours, dedup, kill switch) leaves the record pending, so the
+        next sweep proposes it again."""
+        def _cb(delivered: bool) -> None:
+            if not delivered:
+                return
+            rec = self._records.setdefault(key, {})
+            rec[field_name] = _iso(now)
+            if kind is not None:
+                rec["paged_kind"] = kind
+                if kind == "stale":
+                    self.stale_pages_total += 1
+                    self.last_stale_page = _iso(now)
+            self._save()
+        return _cb
+
+    def _refresh_due(self, lock_id: str, now: datetime, repage_s: float) -> bool:
+        """One refresh per stale episode, again after R (bounded radio use
+        while a page waits for quiet hours to end)."""
+        last = self._refreshed.get(lock_id)
+        if last is None or (repage_s > 0 and (now - last).total_seconds() >= repage_s):
+            self._refreshed[lock_id] = now
+            return True
+        return False
+
+    def _page(self, lock_id: str, name: str, hazard: str, p: dict,
+              now: datetime) -> NotificationAction:
         real = p["real"]
         since = (
             f"{p['age_s'] / 3600.0:.0f} h" if real is not None else "since restart"
         )
-        if hazard == "stale":
+        if hazard == "restored":
+            msg = (
+                f"{name} is back online but has not reported since it went "
+                "offline; state not verified, check the door."
+            )
+        elif hazard == "stale":
             msg = (
                 f"{name} has not reported for {since}; state unknown, "
                 "check the door."
@@ -446,6 +504,9 @@ class LockFreshnessTracker:
             hazard_type=HAZARD_LOCK_UNVERIFIED,
             location=lock_id,
             description=PAGE_TITLE,
+            data={"on_notify_result": self._on_delivered(
+                lock_id, "paged_ts", now,
+                kind=hazard)},
         )
 
     @staticmethod
@@ -458,6 +519,8 @@ class LockFreshnessTracker:
                 coordinator_id="security",
                 target_device="",
                 severity=Severity.MEDIUM,
+                # Non-blocking: a silent node must not stall the action loop.
+                data={"blocking": False},
                 service="zwave_js.refresh_value",
                 service_data={"entity_id": lock_id},
                 description=f"Lock freshness: refresh {lock_id}",
@@ -466,6 +529,7 @@ class LockFreshnessTracker:
             coordinator_id="security",
             target_device="",
             severity=Severity.MEDIUM,
+            data={"blocking": False},
             service="homeassistant.update_entity",
             service_data={"entity_id": lock_id},
             description=f"Lock freshness: refresh {lock_id}",

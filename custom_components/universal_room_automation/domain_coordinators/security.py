@@ -1988,12 +1988,16 @@ class SecurityCoordinator(BaseCoordinator):
                 # live episode (clears a stale capped entry on exclusion).
                 self._lock_retry_episodes.pop(lock_id, None)
                 continue
-            if freshness is not None and lock_id in freshness.stale:
-                # D2 stale gate. A stale lock is paged (freshness.actions).
-                # Stale "locked" is NOT compliant and gets no command; stale
-                # "unlocked" falls through to the proven lock.lock + cap.
-                self._lock_compliance[lock_id] = "stale"
-                stale.append(lock_id)
+            if freshness is not None and lock_id in freshness.unverified:
+                # D2 gate. A stale (or restored-after-dead, not re-verified)
+                # lock is paged (freshness.actions). Its "locked" is NOT
+                # compliant and gets no command; "unlocked" falls through
+                # to the proven lock.lock + cap.
+                if lock_id in freshness.stale:
+                    self._lock_compliance[lock_id] = "stale"
+                    stale.append(lock_id)
+                else:
+                    self._lock_compliance[lock_id] = "unverified"
                 if state.state == "locked":
                     continue
             if state.state == "locked":
@@ -2063,6 +2067,11 @@ class SecurityCoordinator(BaseCoordinator):
             now_ts = _time.time()
             to_notify: list[str] = []
             for eid in unavailable:
+                # SECURITY-LOCK-STALE-STATE-1: one notice per incident. The
+                # HIGH lock_unverified page owns a lock the freshness check
+                # tracks as offline; the MEDIUM digest skips it.
+                if freshness is not None and eid in freshness.offline_owned:
+                    continue
                 last = self._lock_unavailable_last_notified.get(eid, 0.0)
                 if dedup_s <= 0 or (now_ts - last) >= dedup_s:
                     to_notify.append(eid)
@@ -2147,6 +2156,7 @@ class SecurityCoordinator(BaseCoordinator):
             # D4 observability (display only).
             self._last_lock_sweep.update({
                 "stale": stale,
+                "unverified": sorted(freshness.unverified - set(stale)),
                 "freshness_signal": dict(freshness.freshness_signal),
                 "freshness_age_h": dict(freshness.age_h),
                 "stale_pages_total": self._lock_freshness.stale_pages_total,

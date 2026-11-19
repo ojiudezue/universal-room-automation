@@ -19,6 +19,7 @@ _SAVED = {k: v for k, v in sys.modules.items() if k.startswith("custom_component
 from custom_components.universal_room_automation.domain_coordinators import (  # noqa: E402
     security as security_mod,
     security_lock_freshness as fresh_mod,
+    manager as manager_mod,
 )
 for _k in [k for k in sys.modules if k.startswith("custom_components")]:
     del sys.modules[_k]
@@ -141,7 +142,45 @@ def _run(coord, now):
             patch.object(er, "async_get", lambda _h: reg), \
             patch.object(er, "async_entries_for_device", _entries_for_device), \
             patch.object(dr, "async_get", lambda _h: MagicMock(async_get=lambda _d: None)):
-        return asyncio.run(coord._evaluate_lock_check())
+        acts = asyncio.run(coord._evaluate_lock_check())
+    _execute(coord, acts)
+    return acts
+
+
+class _NM:
+    def __init__(self):
+        self.deliver = True
+        self.sent = []
+
+    async def async_notify(self, **kw):
+        if self.deliver:
+            self.sent.append(kw)
+        return self.deliver
+
+
+def _execute(coord, acts):
+    """Run every action through the REAL CoordinatorManager._execute_action
+    (NM delivery result reaches on_notify_result; service calls recorded)."""
+    nm = getattr(coord, "_test_nm", None)
+    if nm is None:
+        nm = coord._test_nm = _NM()
+    calls = coord.__dict__.setdefault("_test_calls", [])
+
+    async def _call(domain, service, data, blocking=True, **_k):
+        calls.append((f"{domain}.{service}", dict(data), blocking))
+
+    async def _noop(*_a, **_k):
+        return None
+
+    fake = SimpleNamespace(
+        hass=SimpleNamespace(data={}, services=SimpleNamespace(async_call=_call)),
+        _notification_manager=nm, _log_decision=_noop,
+    )
+
+    async def _go():
+        for a in acts:
+            await manager_mod.CoordinatorManager._execute_action(fake, coord, a)
+    asyncio.run(_go())
 
 
 def _is(a, cls):
@@ -256,7 +295,13 @@ def test_stale_locked_pages_and_refreshes():
     assert _lock_cmds(acts, GARAGE) == []
     assert coord._lock_compliance[GARAGE] == "stale"
     assert coord.last_lock_sweep["stale"] == [GARAGE]
+    # Counted on delivery; the next sweep's sensor snapshot shows it.
+    assert coord._lock_freshness.stale_pages_total == 1
+    _run(coord, REPORT + H(13.1))
     assert coord.last_lock_sweep["stale_pages_total"] == 1
+    assert coord.last_lock_sweep["last_stale_page"] == (REPORT + H(13)).isoformat()
+    # Refresh executed NON-blocking (review B LOW).
+    assert ("zwave_js.refresh_value", {"entity_id": GARAGE}, False) in coord._test_calls
 
 
 def test_fresh_locked_byte_identical():
@@ -484,13 +529,25 @@ def test_no_page_within_boot_grace():
     assert len(_pages(_run(coord, boot + timedelta(seconds=601)))) == 1
 
 
-def test_offline_medium_notice_unchanged():
+def _offline(acts):
+    return [a for a in acts if _is(a, NotificationAction)
+            and a.description == "Lock check unavailable device notification"]
+
+
+def test_offline_medium_notice_owned_by_dead_page():
     coord, states, _ = _make()
     states.set(GARAGE, "unavailable")
-    acts = _run(coord, REPORT + H(1))
-    offline = [a for a in acts if isinstance(a, NotificationAction)
-               and a.description == "Lock check unavailable device notification"]
-    assert len(offline) == 1 and offline[0].severity == Severity.MEDIUM
+    acts = _run(coord, REPORT + H(1)) + _run(coord, REPORT + H(1) + timedelta(minutes=20))
+    # One notice per incident: the HIGH dead page, no MEDIUM digest notice.
+    assert _offline(acts) == []
+    assert len(_pages(acts)) == 1
+
+
+def test_offline_medium_notice_kept_for_cover_and_in_grace():
+    coord, states, _ = _make(boot=REPORT + H(1))
+    states.set(GARAGE, "unavailable")
+    acts = _run(coord, REPORT + H(1) + timedelta(seconds=60))
+    assert len(_offline(acts)) == 1
 
 
 # ----------------------------------------------------------------- D4 tests
@@ -694,3 +751,224 @@ def test_no_signal_page_within_boot_grace():
     sig = "Lock freshness signal disabled"
     assert _pages(_run(coord, boot + timedelta(seconds=599)), sig) == []
     assert len(_pages(_run(coord, boot + timedelta(seconds=601)), sig)) == 1
+
+
+# ------------------------------------------------ fix pass: review B / A / C
+def test_quiet_hours_drop_leaves_page_pending_then_delivers_once():
+    coord, states, _ = _make()
+    _healthy_garage(states)
+    coord._test_nm = nm = _NM()
+    nm.deliver = False  # NM drops it (quiet hours)
+    first = _run(coord, REPORT + H(13))
+    assert len(_pages(first)) == 1
+    assert "paged_ts" not in coord._lock_freshness.record(GARAGE)
+    second = _run(coord, REPORT + H(13.5))
+    assert len(_pages(second)) == 1  # retried, not deduped
+    assert _refreshes(second) == []  # radio refresh bounded to once per R
+    nm.deliver = True  # quiet hours over
+    third = _run(coord, REPORT + H(14))
+    assert len(_pages(third)) == 1
+    assert coord._lock_freshness.record(GARAGE)["paged_ts"] == (REPORT + H(14)).isoformat()
+    assert [k["title"] for k in nm.sent].count("Lock not verified") == 1
+    assert _pages(_run(coord, REPORT + H(15))) == []
+
+
+def _restore(coord, states, eid, at, name):
+    old = SimpleNamespace(state="unavailable", last_changed=at - H(1))
+    states.set(eid, "locked", changed=at, reported=at, name=name)
+    coord._lock_freshness.note_state_change(eid, old, states.get(eid))
+
+
+def test_restored_dead_philips_stays_unverified_and_repages():
+    reg = _Reg()
+    reg.add(MASTER, "philips_home_access", "dev_master")
+    coord, states, _ = _make(locks=(MASTER,), reg=reg,
+                             cm_opts={"security_lock_sweep_exclude": [MASTER]})
+    t = REPORT + H(1)
+    states.set(MASTER, "unavailable", name="Master bedroom lock")
+    assert len(_pages(_run(coord, t) + _run(coord, t + timedelta(minutes=20)))) == 1
+    _restore(coord, states, MASTER, t + H(1), "Master bedroom lock")
+    assert _pages(_run(coord, t + H(2))) == []  # inside R
+    again = _pages(_run(coord, t + timedelta(minutes=20) + H(6)))
+    assert len(again) == 1 and "back online" in again[0].message
+    # A real report after the re-page clears it.
+    states.set(MASTER, "locked", changed=t + H(1), reported=t + H(6.5),
+               name="Master bedroom lock")
+    acts = _run(coord, t + H(7))
+    assert len(_pages(acts, "Lock reporting again")) == 1
+
+
+def test_restored_dead_zwave_disabled_class_not_compliant():
+    coord, states, _ = _make(reg=_registry(garage_ls_disabled=True))
+    t = REPORT + H(1)
+    states.set(GARAGE, "unavailable", name="Garage hallway lock")
+    states.set(NS_GARAGE, "alive")
+    _run(coord, t)
+    _run(coord, t + timedelta(minutes=20))
+    _restore(coord, states, GARAGE, t + H(1), "Garage hallway lock")
+    acts = _run(coord, t + H(2))
+    assert coord._lock_compliance[GARAGE] == "unverified"
+    assert coord.last_lock_sweep["unverified"] == [GARAGE]
+    assert _lock_cmds(acts, GARAGE) == []
+    again = _pages(_run(coord, t + timedelta(minutes=20) + H(6)))
+    assert len(again) == 1 and "back online" in again[0].message
+
+
+def test_future_stamp_ignored():
+    coord, states, _ = _make()
+    _healthy_garage(states)
+    states.set(LS_GARAGE, (REPORT + H(20)).isoformat())
+    _run(coord, REPORT + H(13))
+    assert coord._lock_freshness.record(GARAGE)["real_report_ts"] == REPORT.isoformat()
+
+
+def test_disabled_node_status_sibling_skipped():
+    reg = _Reg()
+    reg.add(GARAGE, "zwave_js", "dev_garage")
+    reg.add(LS_GARAGE, "zwave_js", "dev_garage", "last_seen")
+    reg.add(NS_GARAGE, "zwave_js", "dev_garage", "node_status", disabled=True)
+    coord, states, _ = _make(reg=reg)
+    _healthy_garage(states)
+    states.set(NS_GARAGE, "dead")
+    t = REPORT + H(1)
+    assert _pages(_run(coord, t) + _run(coord, t + timedelta(minutes=30))) == []
+
+
+def test_non_zwave_sibling_platform_ignored():
+    reg = _Reg()
+    reg.add(GARAGE, "zwave_js", "dev_garage")
+    reg.add("sensor.other_last_seen", "other_platform", "dev_garage", "last_seen")
+    coord, states, _ = _make(reg=reg)
+    _healthy_garage(states)
+    states.set("sensor.other_last_seen", (REPORT + H(12)).isoformat())
+    _run(coord, REPORT + H(1))
+    assert coord.last_lock_sweep["freshness_signal"] == {GARAGE: "none"}
+
+
+def test_no_real_report_ages_from_grace_end():
+    boot = REPORT
+    coord, states, _ = _make(boot=boot)
+    states.set(GARAGE, "locked", changed=boot, reported=boot, name="Garage hallway lock")
+    states.set(LS_GARAGE, boot.isoformat())
+    states.set(NS_GARAGE, "alive")
+    grace_end = boot + timedelta(seconds=600)
+    assert _pages(_run(coord, grace_end + H(12) - timedelta(seconds=1))) == []
+    assert len(_pages(_run(coord, grace_end + H(12) + timedelta(seconds=1)))) == 1
+
+
+def test_common_mode_clears_when_one_lock_returns():
+    coord, states, _ = _make(locks=(GARAGE, FRONT), reg=_registry(with_front=True))
+    t = REPORT + H(1)
+    states.set(GARAGE, "unavailable", name="Garage hallway lock")
+    states.set(FRONT, "unavailable", name="Front door lock")
+    _run(coord, t)
+    assert len(_pages(_run(coord, t + timedelta(minutes=20)), "Locks offline together")) == 1
+    _healthy_garage(states)
+    _run(coord, t + timedelta(minutes=30))
+    assert "paged_ts" not in coord._lock_freshness.record(fresh_mod.COMMON_KEY)
+    states.set(GARAGE, "unavailable", name="Garage hallway lock")
+    _run(coord, t + timedelta(minutes=40))
+    acts = _run(coord, t + timedelta(minutes=60))
+    assert len(_pages(acts, "Locks offline together")) == 1
+
+
+def test_signal_page_record_clears_when_enabled():
+    reg = _registry(garage_ls_disabled=True)
+    coord, states, _ = _make(reg=reg)
+    _healthy_garage(states)
+    _run(coord, BOOT + H(1))
+    assert "signal_paged_ts" in coord._lock_freshness.record(GARAGE)
+    reg.entries[LS_GARAGE].disabled_by = None
+    _run(coord, BOOT + H(2))
+    assert "signal_paged_ts" not in coord._lock_freshness.record(GARAGE)
+
+
+def test_clear_requires_lock_not_dead():
+    coord, states, _ = _make()
+    _healthy_garage(states)
+    _run(coord, REPORT + H(13))
+    states.set(GARAGE, "unavailable")
+    states.set(LS_GARAGE, (REPORT + H(13.5)).isoformat())
+    acts = _run(coord, REPORT + H(14))
+    assert _pages(acts, "Lock reporting again") == []
+    assert coord._lock_freshness.record(GARAGE)["paged_kind"] == "stale"
+
+
+def test_clear_pops_paged_kind():
+    coord, states, _ = _make()
+    _healthy_garage(states)
+    _run(coord, REPORT + H(13))
+    states.set(LS_GARAGE, (REPORT + H(13.5)).isoformat())
+    _run(coord, REPORT + H(14))
+    assert "paged_kind" not in coord._lock_freshness.record(GARAGE)
+
+
+def test_excluded_zwave_lock_no_signal_page():
+    coord, states, _ = _make(reg=_registry(garage_ls_disabled=True),
+                             cm_opts={"security_lock_sweep_exclude": [GARAGE]})
+    _healthy_garage(states)
+    assert _pages(_run(coord, BOOT + H(1)), "Lock freshness signal disabled") == []
+
+
+def test_naive_stamp_rejected():
+    coord, states, _ = _make()
+    _healthy_garage(states)
+    states.set(LS_GARAGE, "2026-11-16T19:00:00")
+    _run(coord, REPORT + H(13))
+    assert coord._lock_freshness.record(GARAGE)["real_report_ts"] == REPORT.isoformat()
+
+
+def test_negative_knob_falls_back_to_default():
+    coord, states, _ = _make(cm_opts={"security_lock_stale_hours": -5})
+    _healthy_garage(states)
+    assert _pages(_run(coord, REPORT + H(11))) == []
+    assert len(_pages(_run(coord, REPORT + H(13)))) == 1
+
+
+def _scoped_import(name):
+    saved = {k: v for k, v in sys.modules.items() if k.startswith("custom_components")}
+    try:
+        import importlib
+        # Another file may have installed a stub package: import the real one.
+        for k in [k for k in sys.modules if k.startswith("custom_components")]:
+            del sys.modules[k]
+        return importlib.import_module(name)
+    finally:
+        for k in [k for k in sys.modules if k.startswith("custom_components")]:
+            del sys.modules[k]
+        sys.modules.update(saved)
+
+
+def test_numbers_wiring():
+    number_mod = _scoped_import("custom_components.universal_room_automation.number")
+    entry = SimpleNamespace(data={}, options={})
+    nums = {n.entity_id: n for n in
+            number_mod._build_security_lockout_numbers(MagicMock(), entry)}
+    n = nums["number.ura_security_lock_stale_hours"]
+    assert n._conf_key == "security_lock_stale_hours"
+    assert n.native_value == 12.0 and n._attr_native_min_value == 0.0
+    r = nums["number.ura_security_lock_dead_repage_hours"]
+    assert r._conf_key == "security_lock_dead_repage_hours" and r.native_value == 6.0
+    assert r._attr_native_min_value == 0.0
+
+
+def test_knobs_on_both_reload_suppression_lists():
+    pkg = _scoped_import("custom_components.universal_room_automation")
+    for key in ("security_lock_stale_hours", "security_lock_dead_repage_hours"):
+        assert key in pkg._NO_LIVE_ATTR_KEYS
+        assert key in pkg.OPTIONS_RELOAD_SUPPRESS_KEYS
+
+
+def test_sweep_sensor_exposes_freshness_attrs():
+    coord, states, _ = _make()
+    _healthy_garage(states)
+    _run(coord, REPORT + H(13))
+    sensor_mod = _scoped_import("custom_components.universal_room_automation.sensor")
+    ent = sensor_mod.SecurityLastLockSweepSensor.__new__(
+        sensor_mod.SecurityLastLockSweepSensor)
+    ent.hass = SimpleNamespace(data={"universal_room_automation": {
+        "coordinator_manager": SimpleNamespace(coordinators={"security": coord})}})
+    attrs = ent.extra_state_attributes
+    assert attrs["stale"] == [GARAGE]
+    assert attrs["freshness_age_h"] == {GARAGE: 13.0}
+    assert attrs["freshness_signal"] == {GARAGE: "last_seen"}
