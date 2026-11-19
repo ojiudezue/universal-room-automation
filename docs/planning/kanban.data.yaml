@@ -34925,17 +34925,18 @@ cards:
 - id: EXTERIOR-SEAM-FILE-LOADER-1
   title: The exterior seam file the operator ratified is never loaded; the linker runs on the code constant only
   thread: perimeter
-  status: shipped_organic
+  status: done
   shipped_version: v5.108.15
   batch: exterior-seam-loader
   created: '2026-11-12 22:00'
-  updated: '2026-11-12 22:00'
+  updated: '2026-11-19 02:22'
   tier: 2
   links: {related: [INTERIOR-PATH-MAP-1, CAMERA-SEAM-VALIDATION-1]}
   origin: {date: '2026-11-12', gist: 'Operator: "I thought the exterior map also had a file config... The hard code is a fallback... This is what I''m afraid of. The harness assured me it was built but it was not... Fix the linker pls."'}
   why: 'PLANNING_exterior_seam_file_injection.md: D1 parser + D2 validator built (exterior_seams.py) but nothing imports them; set_adjacency only called by tests; D4 reload button and D5 provenance attrs carded but never built. Supersedes the planner-suggested EXTERIOR-ADJACENCY-TO-CONFIG-1.'
-  next: 'Me: builder wiring load-at-setup + fallback + D4 + D5 with a wire-in test; two reviews; ship.'
+  next: 'None - closed by soak-exit 2026-11-19.'
   rank: {value: 8, time_criticality: 7, effort: 3}
+  soak_exit_2026_11_19: 'DONE: README_v5.108.15 table all PASS with no organic row pending; live re-read 02:3x CST sensor.ura_security_coordinator_outside_open_tracks_diagnostic seam_source ''exterior_seams.json (schema 1, 21 seams)'', seam_count 21, seam_validation ok (the 11-12 sonoffwindow warning is gone).'
 - id: VISION-CROSSING-ANALYSIS-1
   arc_cut_v5_108_38: "umbrella, waits on the row 6 re-score"
   arc_cut_v5_108_37: "separate arc work, not in the step 7 S1 release"
