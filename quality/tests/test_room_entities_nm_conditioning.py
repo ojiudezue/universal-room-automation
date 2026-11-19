@@ -12,9 +12,16 @@ import pytest
 
 from custom_components.universal_room_automation import room_entities as re_mod
 from custom_components.universal_room_automation.const import DOMAIN
-from custom_components.universal_room_automation.domain_coordinators import (
-    notification_manager as nm_mod,
-)
+
+
+def _nm_module():
+    # Imported lazily (not at collection): test_notification_manager.py
+    # installs its HA mocks at collection time and breaks if the real
+    # module was imported before it (order-robustness, both orders).
+    from custom_components.universal_room_automation.domain_coordinators import (
+        notification_manager,
+    )
+    return notification_manager
 
 
 class _Reg:
@@ -59,18 +66,15 @@ def _nm(monkeypatch, live_humidity_id):
         live_humidity_id: "50.5",
     })
     hass.data = {DOMAIN: {"memory_facade": facade}}
-    nm = nm_mod.NotificationManager(hass, {"notification_manager_enabled": True})
+    nm = _nm_module().NotificationManager(hass, {"notification_manager_enabled": True})
     return nm
 
 
 async def _notify(nm):
-    try:
-        await nm.async_notify(
-            "test", nm_mod.Severity.MEDIUM, "Humidity high", "msg",
-            hazard_type="high_humidity", location="Foyer",
-        )
-    except Exception:  # noqa: BLE001 — only the conditioning log matters
-        raise
+    await nm.async_notify(
+        "test", _nm_module().Severity.MEDIUM, "Humidity high", "msg",
+        hazard_type="high_humidity", location="Foyer",
+    )
 
 
 @pytest.mark.asyncio
@@ -79,7 +83,7 @@ async def test_humidity_conditioning_reads_registry_id(monkeypatch, caplog):
     sensor.foyer_humidity does not exist. Conditioning demotes MEDIUM->LOW
     only if it reads the registry id."""
     nm = _nm(monkeypatch, "sensor.foyer_foyer_humidity")
-    caplog.set_level(logging.INFO, logger=nm_mod.__name__)
+    caplog.set_level(logging.INFO, logger=_nm_module().__name__)
     await _notify(nm)
     assert any("demoting MEDIUM->LOW" in r.getMessage() for r in caplog.records)
 
@@ -88,7 +92,7 @@ async def test_humidity_conditioning_reads_registry_id(monkeypatch, caplog):
 async def test_slug_id_alone_does_not_condition(monkeypatch, caplog):
     """Discriminator: with only the slug-shaped id present, no demotion."""
     nm = _nm(monkeypatch, "sensor.foyer_humidity")
-    caplog.set_level(logging.INFO, logger=nm_mod.__name__)
+    caplog.set_level(logging.INFO, logger=_nm_module().__name__)
     await _notify(nm)
     assert not any(
         "demoting MEDIUM->LOW" in r.getMessage() for r in caplog.records
