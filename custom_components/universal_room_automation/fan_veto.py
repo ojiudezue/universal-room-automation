@@ -407,6 +407,16 @@ def _has_camera_person(
             except Exception:  # noqa: BLE001
                 slug = room_name.strip().lower().replace(" ", "_")
             fused_id = f"binary_sensor.{slug}_camera_person_detected"
+            # ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1 rev 3 R3-4: kept as
+            # the logged, counted last-resort fallback (deletion gated on
+            # this counter reading 0 live).
+            try:
+                from .room_entities import note_name_fallback_read  # noqa: PLC0415
+                note_name_fallback_read(
+                    room_name, "camera_person_detected", fused_id,
+                )
+            except Exception:  # noqa: BLE001
+                pass
         try:
             fused_state = hass.states.get(fused_id)
         except Exception as exc:  # noqa: BLE001

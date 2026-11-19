@@ -606,6 +606,12 @@ by entity-registry `unique_id = "{entry_id}_{suffix}"`, falls back to the name-b
 only when registry misses; caches the resolution; WARNs once per `(entry, suffix)` on second
 consecutive miss. This replaces the old built-name-only lookup that fell silently open on
 HA's double-prefix slug for new rooms (see §9 corrections).
+**2026-11-19 (`feature/room-occupied-registry`, NOT deployed — ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1 rev 3):** the
+name-built fallback of this resolver (and of `switch._room_switch_entity_id` and the fan_veto fused-camera read) is
+KEPT but now counted and DEBUG-logged (`room_entities.room_entity_name_fallback_reads`); its deletion waits on that
+counter reading 0 live (operator rule "only proven code should supersede correct code"). New shared resolver
+`room_entities.py` (registry unique_id `{entry_id}_{key}`, no slug fallback, misses counted) now serves the HVAC fan
+guard, the memory baseline writer, the memory live sample and NM humidity conditioning.
 
 ---
 

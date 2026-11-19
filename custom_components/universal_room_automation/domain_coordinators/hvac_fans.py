@@ -323,6 +323,7 @@ class RoomFanState:
         fan_recheck_suppress_until: str = "",
         fan_sleep_policy: str = DEFAULT_FAN_SLEEP_POLICY,
         hvac_managed: bool = True,
+        entry_id: str | None = None,
     ) -> None:
         # ORDERING: _hass FIRST so any subsequent descriptor access resolves
         # the oracle. object.__setattr__ bypasses the descriptor.
@@ -353,6 +354,12 @@ class RoomFanState:
         # Fan Mode). The LIVE read (`FanController._is_room_hvac_managed`)
         # is the authority; this field is its fallback and edge detector.
         self.hvac_managed = bool(hvac_managed)
+        # ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1: the room's config entry
+        # id, so the occupied guard resolves the room's own occupied sensor
+        # by registry unique_id (never by name; survives a rename before
+        # reload). None = constructed without an entry (tests) -> the guard
+        # resolves the entry by room_name.
+        self.entry_id = entry_id
     # NOTE: humidity exhaust state was previously tracked on this dataclass
     # but is now owned exclusively by the room-tier path in automation.py
     # (see ``handle_humidity_based_fan_control``).
@@ -476,6 +483,7 @@ class FanController:
                 # re-reads the live entry (the switches update options
                 # without a reload).
                 hvac_managed=_managed,
+                entry_id=entry.entry_id,
             )
 
             _LOGGER.info(
@@ -484,6 +492,21 @@ class FanController:
             )
 
         _LOGGER.info("HVAC Fans: Discovered fans in %d rooms", len(self._room_fans))
+        # ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1 D2 live line: which
+        # occupied entity the fan guard reads for each fan room.
+        try:
+            _resolved = {
+                rn: self._room_occupied_entity_id(rn)
+                for rn in self._room_fans
+            }
+            _LOGGER.info(
+                "room_entities: resolved occupied for %d/%d fan rooms: %s",
+                sum(1 for v in _resolved.values() if v),
+                len(_resolved),
+                ", ".join(f"{k}={v}" for k, v in sorted(_resolved.items())),
+            )
+        except Exception:  # noqa: BLE001 — diagnostic only
+            pass
 
         # FAN-LAYER-2 D2 fix-up B-HIGH-1 (2026-08-11): wire
         # migrate_legacy_entry_keys with the REAL entry_id → room:{NFC(name)}
@@ -1621,11 +1644,36 @@ class FanController:
         state = self.hass.states.get(entity_id)
         return state is not None and state.state == "on"
 
+    def _room_occupied_entity_id(self, room_name: str) -> str | None:
+        """The room's own occupied sensor, resolved through the registry.
+
+        ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1 D2: the ONE lookup the
+        occupied guard (``_read_room_occupied_state``) and the conflict
+        observer (``_record_actuation_conflict_if_occupied``) share, so
+        they cannot disagree. Uses the entry id carried on RoomFanState
+        (rename-before-reload safe); a RoomFanState without one resolves
+        its entry by exact room_name. Miss -> None (counted by
+        room_entities); never a name-built id.
+        """
+        from ..room_entities import (  # noqa: PLC0415
+            resolve_room_entity_id,
+            room_entry_id_for_name,
+        )
+
+        room_fan = self._room_fans.get(room_name)
+        entry_id = getattr(room_fan, "entry_id", None) if room_fan else None
+        if not entry_id:
+            entry_id = room_entry_id_for_name(self.hass, room_name)
+        return resolve_room_entity_id(
+            self.hass, entry_id, "binary_sensor", "occupied",
+        )
+
     def _resolve_room_occupied_slug(self, room_name: str) -> str:
-        """Shared slugifier — guard and observer MUST agree on the slug
-        used to derive ``binary_sensor.<slug>_occupied``. Same source as
-        _record_actuation_conflict_if_occupied. Falls back to an inline
-        transform if the memory_facade import fails (test harnesses).
+        """Memory node slug for the room (episode ``node_id`` only).
+
+        Since ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1 it no longer derives
+        an entity id; the occupied sensor comes from
+        ``_room_occupied_entity_id``.
         """
         try:
             from ..memory_facade import _slugify
@@ -1722,8 +1770,10 @@ class FanController:
         (guard fails open on those, per hotfix spec).
         """
         try:
-            slug = self._resolve_room_occupied_slug(room_name)
-            st = self.hass.states.get(f"binary_sensor.{slug}_occupied")
+            occ_id = self._room_occupied_entity_id(room_name)
+            if occ_id is None:
+                return None
+            st = self.hass.states.get(occ_id)
             if st is None:
                 return None
             if st.state in ("unavailable", "unknown", None, ""):
@@ -2032,7 +2082,8 @@ class FanController:
             # stdlib (verified 2026-08-03).
             from ..memory_facade import _slugify
             slug = _slugify(room_name or "")
-            occ_state = self.hass.states.get(f"binary_sensor.{slug}_occupied")
+            occ_id = self._room_occupied_entity_id(room_name)
+            occ_state = self.hass.states.get(occ_id) if occ_id else None
             if occ_state is None or occ_state.state != "on":
                 return
             db = self.hass.data.get(DOMAIN, {}).get("database")

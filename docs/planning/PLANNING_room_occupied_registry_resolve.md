@@ -325,7 +325,12 @@ options, and a slug-tie pair.
 
 | Item | Done / deferred | Why | Tracked |
 |---|---|---|---|
-| D1-D5 | | | |
+| D1 resolver | done | `room_entities.py` | — |
+| D2 fan guard + observer | done | shared `_room_occupied_entity_id`, `RoomFanState.entry_id`, boot INFO line | — |
+| D3 R3 / R4 / R5 humidity | done | R4 non-learned signals + R5 co2/tvoc keep a COUNTED name fallback | — |
+| D3 R3b quality gate | NOT migrated | found dead in production: `hass.data[DOMAIN][entry_id]` is the room coordinator itself, not a dict, so `_is_room_suppressed` never matches any room; migrating it would ACTIVATE the gate for every room (behaviour change, violates the byte-identical rule) | operator call; card needed |
+| D4 R6/R7/R8 | done per rev 3 R3-4 | fallbacks counted, not deleted; R10 untouched | deletion card gated on counter 0 |
+| D5 trip-wire | done, surface differs | no house-status SENSOR exists; counters land in the `house_status.health` item (NM status reply) + HIGH `fire_stuck_signal` once/day after the boot window (boot ref = first resolver call in process) | — |
 | R5 co2/tvoc configured-sensor read | parked | not a room-owned entity; fallback counted | REGISTRY-NOT-NAMES-1 C7 |
 | Music following area_id | out of scope | not a room-owned entity | REGISTRY-NOT-NAMES-1 C5 music |
 | HVAC state of play | at ship | §4.2b guard note: occupied entity resolved by registry via `RoomFanState.entry_id` | same commit |

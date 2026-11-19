@@ -122,16 +122,26 @@ def _room_samples(hass: HomeAssistant, room_slug: str) -> dict[str, Any]:
     """
     samples: dict[str, Any] = {}
     try:
-        occ = hass.states.get(f"binary_sensor.{room_slug}_occupied")
+        # ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1 D3: node slug -> room
+        # entry -> registry id (never a name-built id; a miss is counted).
+        from .room_entities import (  # noqa: PLC0415
+            resolve_room_entity_id_for_slug,
+        )
+
+        def _get(domain: str, key: str):
+            eid = resolve_room_entity_id_for_slug(hass, room_slug, domain, key)
+            return hass.states.get(eid) if eid else None
+
+        occ = _get("binary_sensor", "occupied")
         if occ is not None and occ.state in ("on", "off"):
             samples["occupied"] = 1.0 if occ.state == "on" else 0.0
-        temp = hass.states.get(f"sensor.{room_slug}_temperature")
+        temp = _get("sensor", "temperature")
         if temp is not None:
             try:
                 samples["temperature"] = float(temp.state)
             except (TypeError, ValueError):
                 pass
-        hum = hass.states.get(f"sensor.{room_slug}_humidity")
+        hum = _get("sensor", "humidity")
         if hum is not None:
             try:
                 samples["humidity"] = float(hum.state)

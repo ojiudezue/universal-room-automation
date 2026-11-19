@@ -659,6 +659,22 @@ async def test_baseline_writer_quality_gate_excludes_suppressed(
         side_effect=lambda eid: _hum if eid.endswith("_humidity") else None
     )
     monkeypatch.setattr(mb, "MEMORY_BASELINE_ALLOWLIST", ("study_a",))
+    # ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1: the writer resolves the room's
+    # sensors through its config entry + the entity registry (unique_id
+    # "{entry_id}_humidity"), not a slug-built id.
+    from custom_components.universal_room_automation import (
+        room_entities as _re_mod,
+    )
+    _entry = MagicMock()
+    _entry.entry_id = "e_study_a"
+    _entry.data = {"entry_type": "room", "room_name": "Study A"}
+    _entry.options = {}
+    hass.config_entries.async_entries = lambda _d=None: [_entry]
+    _reg = MagicMock()
+    _reg.async_get_entity_id = lambda d, p, uid: (
+        "sensor.study_a_humidity" if uid == "e_study_a_humidity" else None
+    )
+    monkeypatch.setattr(_re_mod, "_registry", lambda _h: _reg)
     # Simulate a prior suppression count so the "increment since last
     # tick" gate fires. Coordinator dict already carries no prev, so
     # first call registers 5 as a jump above 0.

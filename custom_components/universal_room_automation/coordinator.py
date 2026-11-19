@@ -3770,6 +3770,13 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # Fallback: legacy single-prefix name-built id.
         room_slug = self.entry.data.get('room_name', 'unknown').lower().replace(' ', '_')
         fallback = f"switch.{room_slug}_{suffix}"
+        # ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1 rev 3 R3-4: counted,
+        # logged last-resort fallback (not deleted; gated on this counter).
+        try:
+            from .room_entities import note_name_fallback_read  # noqa: PLC0415
+            note_name_fallback_read(self.entry.entry_id, suffix, fallback)
+        except Exception:  # noqa: BLE001
+            pass
         if self.hass.states.get(fallback) is not None:
             self._switch_entity_id_cache[suffix] = fallback
             self._switch_entity_id_miss_count.pop(suffix, None)
