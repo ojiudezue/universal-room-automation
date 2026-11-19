@@ -626,6 +626,10 @@ class SecurityCoordinator(BaseCoordinator):
         # state's last_changed when the episode started, "notified": bool}.
         # In memory only: an HA restart starts a fresh episode by design.
         self._lock_retry_episodes: dict[str, dict[str, Any]] = {}
+        # SECURITY-LOCK-STALE-STATE-1: swept-lock freshness tracker
+        # (security_lock_freshness.py). Built in async_setup; None = the
+        # freshness check is not running and the sweep is unchanged.
+        self._lock_freshness = None
 
         # Sub-components
         self._sanction_checker = SanctionChecker(hass)
@@ -709,6 +713,128 @@ class SecurityCoordinator(BaseCoordinator):
             return set()
         return {str(e) for e in raw} & set(self._lock_entities)
 
+    def _cm_cfg(self) -> dict[str, Any]:
+        """Merged CM entry data+options, read live; {} when absent."""
+        from ..const import (  # noqa: PLC0415
+            CONF_ENTRY_TYPE,
+            DOMAIN,
+            ENTRY_TYPE_COORDINATOR_MANAGER,
+        )
+
+        try:
+            regime = self._lock_regime
+            if regime is not None:
+                cfg = regime._cfg()
+                return cfg if isinstance(cfg, dict) else {}
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
+                    return {**(entry.data or {}), **(entry.options or {})}
+        except Exception:  # noqa: BLE001
+            pass
+        return {}
+
+    def _lock_freshness_knobs(self) -> tuple[float, float]:
+        """(N stale hours, R re-page hours), live from CM options."""
+        from ..const import (  # noqa: PLC0415
+            CONF_SECURITY_LOCK_DEAD_REPAGE_HOURS,
+            CONF_SECURITY_LOCK_STALE_HOURS,
+            SECURITY_LOCK_DEAD_REPAGE_HOURS,
+            SECURITY_LOCK_STALE_HOURS,
+        )
+
+        cfg = self._cm_cfg()
+
+        def _num(key: str, default: float) -> float:
+            try:
+                val = float(cfg.get(key, default))
+            except (TypeError, ValueError):
+                return float(default)
+            return val if val >= 0 else float(default)
+
+        return (
+            _num(CONF_SECURITY_LOCK_STALE_HOURS, SECURITY_LOCK_STALE_HOURS),
+            _num(CONF_SECURITY_LOCK_DEAD_REPAGE_HOURS, SECURITY_LOCK_DEAD_REPAGE_HOURS),
+        )
+
+    async def _async_setup_lock_freshness(self) -> None:
+        """Build the freshness tracker, load its Store, watch lock states.
+
+        A failure never blocks SC setup (the sweep then runs unchanged).
+        """
+        if not self._lock_entities:
+            return
+        try:
+            from ..const import (  # noqa: PLC0415
+                SECURITY_LOCK_BOOT_GRACE_S,
+                SECURITY_LOCK_DEAD_DEBOUNCE_MIN,
+            )
+            from .security_lock_freshness import (  # noqa: PLC0415
+                STORE_KEY_SUFFIX,
+                STORE_VERSION,
+                LockFreshnessTracker,
+            )
+
+            store = None
+            try:
+                from homeassistant.helpers.storage import Store  # noqa: PLC0415
+
+                store = Store(
+                    self.hass, STORE_VERSION, f"{DOMAIN}.{STORE_KEY_SUFFIX}"
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("Lock freshness: no Store", exc_info=True)
+            tracker = LockFreshnessTracker(
+                self.hass, store, dt_util.utcnow(),
+                boot_grace_s=SECURITY_LOCK_BOOT_GRACE_S,
+                dead_debounce_min=SECURITY_LOCK_DEAD_DEBOUNCE_MIN,
+            )
+            await tracker.async_load()
+
+            @callback
+            def _on_lock_state(event) -> None:
+                data = event.data
+                tracker.note_state_change(
+                    data.get("entity_id"), data.get("old_state"),
+                    data.get("new_state"),
+                )
+
+            self._unsub_listeners.append(
+                async_track_state_change_event(
+                    self.hass, list(self._lock_entities), _on_lock_state
+                )
+            )
+            self._lock_freshness = tracker
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning("Lock freshness setup failed", exc_info=True)
+
+    async def _async_emit_lock_signal_anomalies(self, lock_ids: list[str]) -> None:
+        """D4 trip-wire: one AnomalyDetector row per blind swept zwave lock."""
+        if not lock_ids or self.anomaly_detector is None:
+            return
+        try:
+            from .anomaly_event import (  # noqa: PLC0415
+                AnomalyEvent,
+                AnomalySeverity as _NewSev,
+                AnomalyType,
+                build_context_json,
+            )
+
+            for lock_id in lock_ids:
+                await self.anomaly_detector.store_event(AnomalyEvent(
+                    coordinator="security",
+                    type="security.lock_freshness_signal_disabled",
+                    severity=_NewSev.WARNING,
+                    anomaly_type=AnomalyType.POINT_IN_TIME,
+                    detected_at=dt_util.utcnow().isoformat(),
+                    payload=build_context_json(
+                        source_signal="periodic_lock_check",
+                        extra={"entity_id": lock_id},
+                    ),
+                    entity_id=lock_id,
+                ))
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Lock freshness anomaly emit failed", exc_info=True)
+
     async def _async_setup_lock_regime(self) -> None:
         """Build and start the lock regime; a failure never blocks SC setup."""
         try:
@@ -774,6 +900,10 @@ class SecurityCoordinator(BaseCoordinator):
         # Geofence arrival: watch person.* entities for not_home → home
         # Automatically adds arriving persons to expected arrivals list
         self._setup_geofence_listener()
+
+        # SECURITY-LOCK-STALE-STATE-1: freshness Store loaded BEFORE the
+        # sweep timer exists, so the first sweep sees persisted records.
+        await self._async_setup_lock_freshness()
 
         # Periodic lock check
         if self._lock_check_interval > 0 and (
@@ -1832,6 +1962,17 @@ class SecurityCoordinator(BaseCoordinator):
         # Every device seen unlocked/open (incl. capped ones) for the sensor;
         # ``unlocked`` below is the subset actually commanded this sweep.
         found: list[str] = []
+        # SECURITY-LOCK-STALE-STATE-1 D2: one synchronous freshness pass,
+        # before any await. None (no tracker, or N = 0) = sweep unchanged.
+        freshness = None
+        stale: list[str] = []
+        if self._lock_freshness is not None:
+            stale_h, repage_h = self._lock_freshness_knobs()
+            if stale_h > 0:
+                freshness = self._lock_freshness.sweep(
+                    list(self._lock_entities), excluded, dt_util.utcnow(),
+                    stale_hours=stale_h, repage_hours=repage_h,
+                )
 
         for lock_id in self._lock_entities:
             state = self.hass.states.get(lock_id)
@@ -1847,6 +1988,18 @@ class SecurityCoordinator(BaseCoordinator):
                 # live episode (clears a stale capped entry on exclusion).
                 self._lock_retry_episodes.pop(lock_id, None)
                 continue
+            if freshness is not None and lock_id in freshness.unverified:
+                # D2 gate. A stale (or restored-after-dead, not re-verified)
+                # lock is paged (freshness.actions). Its "locked" is NOT
+                # compliant and gets no command; "unlocked" falls through
+                # to the proven lock.lock + cap.
+                if lock_id in freshness.stale:
+                    self._lock_compliance[lock_id] = "stale"
+                    stale.append(lock_id)
+                else:
+                    self._lock_compliance[lock_id] = "unverified"
+                if state.state == "locked":
+                    continue
             if state.state == "locked":
                 self._lock_retry_episodes.pop(lock_id, None)
             elif state.state == "unlocked":
@@ -1914,6 +2067,11 @@ class SecurityCoordinator(BaseCoordinator):
             now_ts = _time.time()
             to_notify: list[str] = []
             for eid in unavailable:
+                # SECURITY-LOCK-STALE-STATE-1: one notice per incident. The
+                # HIGH lock_unverified page owns a lock the freshness check
+                # tracks as offline; the MEDIUM digest skips it.
+                if freshness is not None and eid in freshness.offline_owned:
+                    continue
                 last = self._lock_unavailable_last_notified.get(eid, 0.0)
                 if dedup_s <= 0 or (now_ts - last) >= dedup_s:
                     to_notify.append(eid)
@@ -1975,6 +2133,9 @@ class SecurityCoordinator(BaseCoordinator):
                 )
             )
 
+        if freshness is not None:
+            actions.extend(freshness.actions)
+
         # Persist sweep results for sensor exposure BEFORE compliance tracking
         # so sweep data is always saved even if compliance tracking fails.
         # Note: "lock_actions_sent" are proposed actions; actual execution
@@ -1991,8 +2152,23 @@ class SecurityCoordinator(BaseCoordinator):
             "excluded": excluded_seen,
             "checks_today": self._lock_checks_today.value,
         }
+        if freshness is not None:
+            # D4 observability (display only).
+            self._last_lock_sweep.update({
+                "stale": stale,
+                "unverified": sorted(freshness.unverified - set(stale)),
+                "freshness_signal": dict(freshness.freshness_signal),
+                "freshness_age_h": dict(freshness.age_h),
+                "stale_pages_total": self._lock_freshness.stale_pages_total,
+                "last_stale_page": self._lock_freshness.last_stale_page,
+            })
 
         async_dispatcher_send(self.hass, SIGNAL_SECURITY_ENTITIES_UPDATE)
+
+        if freshness is not None and freshness.signal_anomalies:
+            await self._async_emit_lock_signal_anomalies(
+                freshness.signal_anomalies
+            )
 
         # Compliance tracking (non-critical — don't let failures crash the sweep)
         if unlocked and self.compliance_tracker is not None:

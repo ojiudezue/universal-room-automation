@@ -1051,11 +1051,19 @@ class CoordinatorManager:
                         _ctx_kw = ura_ctx_kwargs(domain)
                     except Exception:  # noqa: BLE001
                         _ctx_kw = {}
+                    # SECURITY-LOCK-STALE-STATE-1: an action may opt out of
+                    # blocking (a value refresh to a silent Z-Wave node must
+                    # not stall the action loop). Default stays blocking.
+                    _blocking = True
+                    if isinstance(action.data, dict) and action.data.get(
+                        "blocking"
+                    ) is False:
+                        _blocking = False
                     await self.hass.services.async_call(
                         domain,
                         service,
                         action.service_data,
-                        blocking=True,
+                        blocking=_blocking,
                         **_ctx_kw,
                     )
                     _LOGGER.info(
@@ -1069,9 +1077,10 @@ class CoordinatorManager:
 
             elif action.action_type == ActionType.NOTIFICATION:
                 # v3.6.29: Route NotificationAction through NM
+                _delivered = False
                 if isinstance(action, NotificationAction) and self._notification_manager:
                     try:
-                        await self._notification_manager.async_notify(
+                        _delivered = await self._notification_manager.async_notify(
                             coordinator_id=coordinator.coordinator_id,
                             severity=action.severity,
                             title=action.description,
@@ -1093,6 +1102,16 @@ class CoordinatorManager:
                             action.description,
                             exc_info=True,
                         )
+                # SECURITY-LOCK-STALE-STATE-1: a caller that latches on
+                # delivery passes data["on_notify_result"]; it learns whether
+                # NM actually sent (False = dropped: quiet hours, dedup ...).
+                _cb = action.data.get("on_notify_result") if isinstance(
+                    action.data, dict) else None
+                if callable(_cb):
+                    try:
+                        _cb(_delivered is True)
+                    except Exception:  # noqa: BLE001
+                        _LOGGER.debug("on_notify_result raised", exc_info=True)
                 _LOGGER.info(
                     "Notification from %s: %s (severity=%s)",
                     coordinator.coordinator_id,
