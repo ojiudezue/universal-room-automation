@@ -7467,6 +7467,9 @@ _NO_LIVE_ATTR_KEYS: frozenset[str] = frozenset({
     "garage_lockout_morning_backstop_min",
     "garage_lockout_reengage_delay_s",
     "garage_lockout_arrival_hold_s",
+    # SECURITY-LOCK-STALE-STATE-1: freshness Numbers, read live by the sweep.
+    "security_lock_stale_hours",
+    "security_lock_dead_repage_hours",
     # VISION-CROSSING-SHADOW-1: the crossing-vision daily cap Number
     # publishes its value to hass.data; the producer reads it live.
     "crossing_vision_daily_calls",
@@ -7818,6 +7821,9 @@ OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     "garage_lockout_morning_backstop_min",
     "garage_lockout_reengage_delay_s",
     "garage_lockout_arrival_hold_s",
+    # SECURITY-LOCK-STALE-STATE-1: freshness Numbers, read live by the sweep.
+    "security_lock_stale_hours",
+    "security_lock_dead_repage_hours",
     # VISION-CROSSING-SHADOW-1: read live from hass.data (no CM reload).
     "crossing_vision_daily_calls",
     # VISION-INTERIOR-SIGHTINGS-1 D3: read live from hass.data (no CM reload).
