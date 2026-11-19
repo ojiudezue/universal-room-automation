@@ -368,20 +368,6 @@ rows:
     owner: REGISTRY-NOT-NAMES-1
     note: "audit C8 prefill / configuration default"
   - file: domain_coordinators/hvac_fans.py
-    qualname: "FanController._read_room_occupied_state"
-    rule: N3_FSTR_ID
-    max_count: 1
-    reason: "migrate-by:ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1"
-    owner: ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1
-    note: "audit C5 room slug -> own entity id"
-  - file: domain_coordinators/hvac_fans.py
-    qualname: "FanController._record_actuation_conflict_if_occupied"
-    rule: N3_FSTR_ID
-    max_count: 1
-    reason: "migrate-by:ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1"
-    owner: ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1
-    note: "audit C5 room slug -> own entity id"
-  - file: domain_coordinators/hvac_fans.py
     qualname: "FanController._record_actuation_conflict_if_occupied"
     rule: N4_SLUG
     max_count: 1
@@ -391,13 +377,6 @@ rows:
   - file: domain_coordinators/hvac_fans.py
     qualname: "FanController._resolve_room_occupied_slug"
     rule: N4_SLUG
-    max_count: 1
-    reason: "migrate-by:ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1"
-    owner: ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1
-    note: "audit C5 room slug -> own entity id"
-  - file: domain_coordinators/notification_manager.py
-    qualname: "NotificationManager.async_notify"
-    rule: N3_FSTR_ID
     max_count: 1
     reason: "migrate-by:ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1"
     owner: ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1
@@ -514,13 +493,6 @@ rows:
     reason: "own-entity"
     owner: REGISTRY-NOT-NAMES-1
     note: "URA-owned id / location key (audit C4/C5 OWN)"
-  - file: memory_baseline.py
-    qualname: "_room_samples"
-    rule: N3_FSTR_ID
-    max_count: 3
-    reason: "migrate-by:ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1"
-    owner: ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1
-    note: "audit C5 room slug -> own entity id"
   - file: memory_facade.py
     qualname: "MemoryFacade._compose_capability"
     rule: N4_SLUG
@@ -545,7 +517,7 @@ rows:
   - file: memory_facade.py
     qualname: "MemoryFacade._resolve_live_sample"
     rule: N3_FSTR_ID
-    max_count: 2
+    max_count: 1
     reason: "migrate-by:ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1"
     owner: ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1
     note: "audit C5 room slug -> own entity id"
@@ -794,3 +766,23 @@ rows:
     reason: "own-entity"
     owner: REGISTRY-NOT-NAMES-1
     note: "matches operator text to person_ids slugs + URA room names, no HA entity ids (rebase 2026-11-19)"
+  # ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1 (2026-11-19): co2/tvoc and non-room
+  # locations keep the name-built read as the logged (DEBUG) + counted
+  # (room_entities.room_entity_name_fallback_reads) last-resort fallback.
+  - file: domain_coordinators/notification_manager.py
+    qualname: "conditioning_live_entity_id"
+    rule: N3_FSTR_ID
+    max_count: 1
+    reason: "counted-fallback"
+    owner: ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1
+    note: "co2/tvoc have no URA room key; counted by note_name_fallback_read"
+  # ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1: slugify(room_name) is compared with
+  # the URA-owned memory node slug (room:<slug>) to find the room entry; no
+  # entity id is built from it (the id then comes from the registry).
+  - file: room_entities.py
+    qualname: "_entry_for_slug"
+    rule: N4_SLUG
+    max_count: 1
+    reason: "own-entity"
+    owner: ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1
+    note: "memory node slug -> room entry match; tie returns None"
