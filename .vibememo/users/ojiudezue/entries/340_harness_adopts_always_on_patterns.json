@@ -1,0 +1,27 @@
+{
+  "format_version": "2.1",
+  "entry_id": "340",
+  "author": "ojiudezue",
+  "timestamp": "2026-11-19T05:52:05Z",
+  "type": "decision",
+  "weight": "significant",
+  "title": "Harness adopts always-on agent patterns: durable due dates, a decisions queue, one writer per tree, quiet on non-events",
+  "summary": "Against claude.com's 'building always-on agents' guide, the orchestration harness had five gaps seen in one day: a mutating reviewer sharing a worktree with readers (void passes twice), duplicate reports and ~20 no-news pings answered with status lines, follow-ups held only in-session (the 10:00 v5.108.37 release was missed), a memory index carrying stale pickups, and operator decisions piling up as chat lists. Operator approved all five fixes: one writer per tree and report-once/quiet rules (memory), due: fields on cards surfaced at session start and by --check exit 4, a Decisions view on the hosted board with one-tap PICK buttons, and a memory archive.",
+  "why": "Each gap produced a concrete failure the same day: reviews redone, operator chat noise, a release shipped 8 hours late because the timer lived in my head, and Q-F1..Q-F4 re-listed across several messages. The guide's patterns map one-to-one and are cheap.",
+  "alternatives_considered": [
+    "Scheduled cloud triggers for follow-ups (rejected: no local repo/HA access, a second place to look)",
+    "A new approvals endpoint (rejected: the board's disposition queue already exists)"
+  ],
+  "implications": "Follow-ups now outlive a session; any promised time goes on a card as due:. Agents must report once. The same guide reframes OC (detect, triage, route rather than diagnose), pending the operator's call.",
+  "confidence": "high",
+  "revisit_trigger": "A due item missed despite the hook, or decisions still answered in chat instead of the queue",
+  "refs": {
+    "docs": [
+      "docs/planning/ANALYSIS_always_on_agents_vs_OC_2026_11_18.md"
+    ],
+    "cards": [
+      "OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1",
+      "SECURITY-LOCK-STALE-STATE-1"
+    ]
+  }
+}

@@ -66,3 +66,6 @@ One counseling note from the same pass: feed and card times were typed from a fe
 
 
 **2026-11-17, the ledger never got to be known.** The crossing ledger keeps its state in RAM and needs a 15-minute empty house to become known; our two-restarts-a-day ship cadence reset it so often that it was known ~34 minutes in 3.5 days, which also made the interior floor plan moot until the ledger survives restarts → [338](users/ojiudezue/entries/338_restart_cadence_keeps_ledger_unknown.json).
+
+
+**2026-11-18, the harness learns from always-on agents.** One day showed five harness gaps (shared worktree with a mutator, noisy no-news pings, follow-ups only in-session so a release slipped 8 hours, stale memory index, decisions as chat lists); the operator approved all five fixes: one writer per tree, report once / stay quiet, due: on cards surfaced at session start, a Decisions queue on the board, and a memory archive. Same day the garage lock showed the cost of trusting stale state: it stopped reporting on 11-15 and the sweep kept believing 'locked' → [340](users/ojiudezue/entries/340_harness_adopts_always_on_patterns.json).
