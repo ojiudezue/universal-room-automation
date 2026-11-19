@@ -50,7 +50,15 @@ carry the key (quiet for the first 7 days after install, silent with LEAD 0).
 3. A Jaya / Ezinne (or Jaya / Oji) arrival together: anonymous text, `edge_anchor_pair_blocked` +1.
 4. Grade the D0 candidates (11-13 18:18, 11-15 18:13 and the 4 pair-blocked crossings) on the grading page to check names.
 
-## Validated (to be written back after install)
+## Validated 2026-11-19
+
+Live from the 14:11:44 CST restart (with v5.108.38; the release was installed 11-18 23:50, after an operator-tapped HA core update restarted at 23:03).
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| 1 Setting | PASS | CM options Presence step shows `egress_confusable_pairs`; set to `jaya|ezinne, jaya|oji` via the options flow at ~14:30 (diff of all options: only that key changed, 292 -> 293; no CM reload) |
+| 2-3 First named / pair-blocked arrival | Pending event | needs a phone-first resident arrival with a face at the door |
+| 4 Names grading | Pending | names batch g20261119-0017 on the grading page |
 
 ## Not done (accounted, plan §11)
 

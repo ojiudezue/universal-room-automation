@@ -34254,6 +34254,7 @@ cards:
   paged_2026_11_11_overnight: "Paged once in the consolidated overnight Pushover (priority -1, quiet)."
   operator_decision_2026_11_12: "Operator picked A: the night failsafe runs in all paused shared-space rooms (supersedes the 10-18 no-lights-off-when-paused ruling for the 23:00 failsafe only)."
 - id: SECURITY-LOCK-STALE-STATE-1
+  validated_2026_11_19: "Live: 16:13 CST HIGH Lock not verified page for the dead garage lock after the 20-min debounce; no lock command; freshness attrs present. Residual LOW: the page says last report unknown while the zwave last_seen sibling holds 2026-11-18 20:51:59Z -> use last_seen in the message when the Store has no real report."
   due: '2026-11-19 15:30'
   due_note: 'first lock sweep since the 14:11 restart: sweep attrs stale/unverified/freshness_age_h, lock_freshness Store, garage dead page after debounce'
   operator_2026_11_19_answers: "Night bypass for lock_unverified: NO (night pages are delivered when quiet hours end). Enable garage lock last_seen: YES (enabled 14:11 CST 11-19, before the restart). Generator fault cleared by the operator."
