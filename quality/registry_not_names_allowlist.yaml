@@ -137,20 +137,6 @@ rows:
     owner: NVR-WITNESS-CONSOLIDATION-1
     note: "audit C1/C2/C3 NVR family / camera stem / sibling"
   - file: camera_census.py
-    qualname: "PersonCensus._derive_ble_crossing_trackers"
-    rule: N3_FSTR_ID
-    max_count: 1
-    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
-    owner: NVR-WITNESS-CONSOLIDATION-1
-    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
-  - file: camera_census.py
-    qualname: "PersonCensus._get_face_recognized_person_names"
-    rule: N3_FSTR_ID
-    max_count: 1
-    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
-    owner: NVR-WITNESS-CONSOLIDATION-1
-    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
-  - file: camera_census.py
     qualname: "PersonCensus._get_face_recognized_persons"
     rule: N1_SUFFIX
     max_count: 1
@@ -189,20 +175,6 @@ rows:
     qualname: "PersonCensus._resolve_face_legs"
     rule: N3_FSTR_ID
     max_count: 8
-    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
-    owner: NVR-WITNESS-CONSOLIDATION-1
-    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
-  - file: camera_census.py
-    qualname: "PersonCensus.face_person_would_be_vetoed"
-    rule: N3_FSTR_ID
-    max_count: 1
-    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
-    owner: NVR-WITNESS-CONSOLIDATION-1
-    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
-  - file: camera_census.py
-    qualname: "PersonCensus.is_face_leg_person_vetoed"
-    rule: N3_FSTR_ID
-    max_count: 1
     reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
     owner: NVR-WITNESS-CONSOLIDATION-1
     note: "audit C1/C2/C3 NVR family / camera stem / sibling"
@@ -591,41 +563,6 @@ rows:
     reason: "own-entity"
     owner: REGISTRY-NOT-NAMES-1
     note: "URA-owned id / location key (audit C4/C5 OWN)"
-  - file: music_following.py
-    qualname: "MusicFollowing._check_house_state_gate"
-    rule: N4_SLUG
-    max_count: 2
-    reason: "own-entity"
-    owner: REGISTRY-NOT-NAMES-1
-    note: "URA-owned id / location key (audit C4/C5 OWN)"
-  - file: music_following.py
-    qualname: "MusicFollowing._get_room_player"
-    rule: N3_FSTR_ID
-    max_count: 1
-    reason: "migrate-by:ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1"
-    owner: ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1
-    note: "audit C5 room slug -> own entity id"
-  - file: music_following.py
-    qualname: "MusicFollowing._get_room_player"
-    rule: N4_SLUG
-    max_count: 3
-    reason: "migrate-by:ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1"
-    owner: ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1
-    note: "audit C5 room slug -> own entity id"
-  - file: music_following.py
-    qualname: "MusicFollowing._scaled_target_volume"
-    rule: N4_SLUG
-    max_count: 2
-    reason: "migrate-by:ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1"
-    owner: ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1
-    note: "audit C5 room slug -> own entity id"
-  - file: music_following.py
-    qualname: "MusicFollowing._source_has_other_occupants"
-    rule: N4_SLUG
-    max_count: 2
-    reason: "own-entity"
-    owner: REGISTRY-NOT-NAMES-1
-    note: "URA-owned id / location key (audit C4/C5 OWN)"
   - file: perimeter_alert.py
     qualname: "PerimeterAlertManager"
     rule: N7_VOCAB_USE
@@ -836,10 +773,24 @@ rows:
     reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
     owner: NVR-WITNESS-CONSOLIDATION-1
     note: "audit C1/C2/C3 NVR family / camera stem / sibling"
-  - file: transit_validator.py
-    qualname: "EgressDirectionTracker._resolve_egress_face_identity_ex"
+  - file: sensor.py
+    qualname: "PersonProfileSensor.__init__"
     rule: N3_FSTR_ID
     max_count: 1
-    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
-    owner: NVR-WITNESS-CONSOLIDATION-1
-    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+    reason: "own-entity"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "URA-owned entity_id/unique_id built from person_ids.slug_of (rebase 2026-11-19)"
+  - file: music_following.py
+    qualname: "_slug"
+    rule: N4_SLUG
+    max_count: 1
+    reason: "own-entity"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "normalises URA room names for room-vs-room comparison (rebase 2026-11-19)"
+  - file: person_sighting.py
+    qualname: "PersonSightingProducer._describe_target"
+    rule: N4_SLUG
+    max_count: 2
+    reason: "own-entity"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "matches operator text to person_ids slugs + URA room names, no HA entity ids (rebase 2026-11-19)"
