@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "339",
+  "author": "ojiudezue",
+  "session_id": "claude_20261119_054925_ship_v5_108_37",
+  "timestamp": "2026-11-19T05:49:25Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.108.37 shipped: Arrivals named from a face plus the person's own phone arrival (step 7 S1)",
+  "summary": "Arrivals named from a face plus the person's own phone arrival (step 7 S1)",
+  "why": "The door tracker calls most graded entries exits and phones mark residents home before they reach the door, so arrival notices read Someone left/arrived for residents whose face the camera saw. Naming from a face plus the person's own phone edge uses two independent sources and needs no tracker direction. Tier 2-DB, three reviews, fix pass, clean suite; operator approved Q1-Q4 and the 0.6 face.",
+  "implications": "Shipped EGRESS-DIRECTION-AWARE-IDENTITY-1 at v5.108.37; card(s) sit shipped_organic pending validation. Acceptance in README_v5.108.37.md (Live criteria).",
+  "revisit_trigger": "If a graded name comes back wrong, or the pair guard misses a confusable pair",
+  "refs": {
+    "cards": [
+      "EGRESS-DIRECTION-AWARE-IDENTITY-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.108.37.md"
+    ],
+    "release_notes": "Arrival notices name the resident when a face leg at the door coincides with that person's own counted phone arrival edge in [crossing-300 s, crossing+45 s]; Faces often confused setting (pairs) blocks naming when a partner also arrived; notification text only, bus/record/DB/census/security unchanged; LEAD 0 = off."
+  }
+}

@@ -91,3 +91,4 @@
 - 2026-11-16 15:30 **v5.108.34** — URA v5.108.34: stuck-sensor pages survive NM boot-settle (cards: STUCK-SENSOR-S3B-S1-1)
 - 2026-11-17 08:48 **v5.108.35** — URA v5.108.35: describe finds a room by its HA area name or alias; music following skips TV audio (cards: MUSIC-FOLLOWING-TRANSFER-REPAIR-1)
 - 2026-11-17 10:38 **v5.108.36** — URA v5.108.36: crossing vision watches every crossing; crossing-centred frames (P3-D2 + P3-D3) (cards: VISION-AMBIGUOUS-CROSSINGS-1)
+- 2026-11-18 23:49 **v5.108.37** — URA v5.108.37: arrivals named from a face plus the person's own phone arrival (step 7 S1) (cards: EGRESS-DIRECTION-AWARE-IDENTITY-1)
