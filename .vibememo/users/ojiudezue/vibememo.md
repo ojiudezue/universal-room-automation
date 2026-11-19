@@ -97,3 +97,6 @@ One counseling note from the same pass: feed and card times were typed from a fe
 
 
 **2026-11-18, the harness learns from always-on agents.** One day showed five harness gaps (shared worktree with a mutator, noisy no-news pings, follow-ups only in-session so a release slipped 8 hours, stale memory index, decisions as chat lists); the operator approved all five fixes: one writer per tree, report once / stay quiet, due: on cards surfaced at session start, a Decisions queue on the board, and a memory archive. Same day the garage lock showed the cost of trusting stale state: it stopped reporting on 11-15 and the sweep kept believing 'locked' → [340](users/ojiudezue/entries/340_harness_adopts_always_on_patterns.json).
+
+
+**2026-11-19, closing out the arc.** On 'finish the arc... for things unblocked', a sweep closed 13 arc cards, parked 6 low-probability ones with triggers, and shipped the 4 ready fixes plus the lock-freshness fix in v5.108.38; open siblings fell from 21 to 7, all blocked on operator input or data. An HA core update restarted HA mid-sleep, so unplanned updates now count against the one-restart-a-day budget → [342](users/ojiudezue/entries/342_arc_close_sweep_and_restart_budget.json).
