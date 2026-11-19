@@ -36085,6 +36085,9 @@ cards:
   next: 'Me: after 1a validates, revise Part B against what 1a shipped, two plan reviews, then build.'
   rank: {value: 6, time_criticality: 3, effort: 5}
 - id: PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1
+  built_2026_11_19: "Option A built 053f48563 (escalation-exemption dispatches titled 'Perimeter Alert — Person Escalated'; NM dedup key is coordinator:title:location, severity was never in it). Reviews A SHIP, B SHIP. Merged to develop; ships in the next release."
+  due: '2026-11-20 10:00'
+  due_note: 'ship in the next batched release (one restart/day)'
   arc_cut_v5_108_38: "ready, next builder slot"
   arc_cut_v5_108_37: "separate arc work, not in the step 7 S1 release"
   arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
@@ -36104,7 +36107,7 @@ cards:
   links: {parent: HOUSE-STATE-FIRST-PRINCIPLES-1, related: [EXTERIOR-PERSONS-HOME-ALWAYS-ZERO-1]}
   origin: {date: '2026-11-13', gist: 'Review A-L1 of house-state step 1a; pre-existing (persons_home always 0 live).'}
   why: 'Circling escalation may be deduped away. Re-measure once the persons-home-from-residency switch is decided.'
-  next: "PICK: A (recommended) perimeter-local fix: escalation-exemption dispatches use their own title (e.g. 'Perimeter Alert - Person Circling'), so NM dedup keys differ; Tier 2 (2 reviews), touches only perimeter_alert.py, plus a test that runs the REAL NM _is_deduplicated; or B the plan D7 route: add classification to NM's dedup key (shared primitive used by every coordinator, Tier 2-DB). -> On A I build it to review in the next pass with no other session running suites. Default A if no veto by the next attended session. Either way it means more pages during a real circling event (that is the design intent)."
+  next: "Me: ship in the next batched release (~10:00), full suite first."
   rank: {"value": 7, "time_criticality": 5, "effort": 5}
   refinement_status: "refined"
   problem_solution: ["Problem: when someone circles the house, the system is meant to send a stronger 'circling' alert even if that camera alerted a minute ago. The notification system's duplicate filter drops it, because it treats any alert with the same title from the same camera within 1-15 minutes as a repeat, whatever its severity. Since 11-14 every such escalation (8 of 8) was dropped, one of them CRITICAL. Solution: give the escalation its own identity (a distinct title such as 'Perimeter Alert - Person Circling') so the duplicate filter lets it through, and test it against the real notification manager, not a mock."]
