@@ -1,0 +1,26 @@
+{
+  "format_version": "2.1",
+  "entry_id": "341",
+  "author": "ojiudezue",
+  "session_id": "claude_20261119_073503_ship_v5_108_38",
+  "timestamp": "2026-11-19T07:35:03Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.108.38 shipped: Swept-lock freshness + lock_unverified page; identity vetoes stop failing open; room occupied via registry; registry guard",
+  "summary": "Swept-lock freshness + lock_unverified page; identity vetoes stop failing open; room occupied via registry; registry guard",
+  "why": "The garage hallway lock went silent for about 55 hours while HA showed a restored locked and the door was physically unlocked; the sweep trusted locked and nothing paged. Same night's arc-close sweep made three more fixes ready: fail-open identity vetoes, 10 rooms whose HVAC fan guard and memory readers looked up the wrong entity, and the unmerged registry guard. All reviewed, clean suite.",
+  "implications": "Shipped SECURITY-LOCK-STALE-STATE-1, LAYER-LEAK-CLEANUP-1, ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1, REGISTRY-NOT-NAMES-1 at v5.108.38; card(s) sit shipped_organic pending validation. Acceptance in README_v5.108.38.md (Live criteria).",
+  "revisit_trigger": "If a lock_unverified page fires on a healthy lock, or a room resolver miss pages",
+  "refs": {
+    "cards": [
+      "SECURITY-LOCK-STALE-STATE-1",
+      "LAYER-LEAK-CLEANUP-1",
+      "ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1",
+      "REGISTRY-NOT-NAMES-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.108.38.md"
+    ],
+    "release_notes": "Swept locks that stop reporting or go dead now page HIGH instead of reading locked; stale locked never counts compliant; identity vetoes resolve the real person on a miss; room occupied/temperature/humidity readers resolve via the registry (10 mismatched rooms fixed); test-only registry-not-names guard."
+  }
+}
