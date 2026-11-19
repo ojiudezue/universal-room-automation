@@ -45,6 +45,26 @@ veto failed open. New `person_ids.person_entity_for_slug`: exact `person.<slug>`
 this house); on a miss only, the one HA person entity whose id or configured name matches; zero or several matches keep
 today's answer. Counted (and logged) as a last-resort fallback. Guard allowlist 259 -> 254. Review A SHIP.
 
+## 3. Room occupied sensor resolved via the registry (ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1)
+
+Plan `docs/planning/PLANNING_room_occupied_registry_resolve.md` (rev 2 operator build-ready 11-14, rev 3 11-19). Build
+e037ff441 + 4761b7919, fix pass 5e6ee89e0; reviews A SHIP, B SHIP, C FIX-REQUIRED (test gaps, closed). 10 of 47 rooms
+have a real occupied entity id that differs from the slug-built one (e.g. Foyer `binary_sensor.foyer_foyer_occupied`,
+Jaya `binary_sensor.jaya_bedroom_bedroom_4_occupied`), so the HVAC fan-off-while-occupied guard, its observer, the memory
+baseline / live sample and NM humidity reads looked at the wrong (or no) entity. New `room_entities.py` resolves a room's
+URA entity by registry unique_id `{entry_id}_{key}` and exact room_name; a miss returns None, is counted, and pages HIGH
+at most once a day (persisted latch, after the 600 s boot window). The 37 rooms whose ids already matched resolve
+byte-identically (golden). Fan veto / room-switch readers keep their registry-first lookup with the slug fallback now
+counted. Side effect: AV Closet and Study A Closet memory/NM reads now read URA's own `_2` temperature/humidity sensors
+(the old name-built id read another entity); Jaya Bedroom's baseline gets real samples. Not changed: memory_baseline
+`_is_room_suppressed` (inert in production; reviving it is an operator decision). Not yet failed open live (none of the
+3 affected rooms with fans is set to follow the thermostat).
+
+## 4. Registry-not-names guard (REGISTRY-NOT-NAMES-1, test-only)
+
+Guard branch rebased onto develop (ed21285ec + allowlist 76620e187): fails on any new entity-name / suffix / slug guess;
+allowlist ratchet; 3 rows added (URA's own entities / operator text), 10 stale rows removed; production code unchanged.
+
 ## Live checks after install
 
 1. 50/50 entries loaded; no URA errors; `lock_freshness` Store created.
