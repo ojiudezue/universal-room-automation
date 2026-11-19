@@ -1,6 +1,6 @@
 """Number platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.108.37
+# Universal Room Automation vv5.108.38
 # Build: 2026-01-02
 # File: number.py
 #
@@ -4639,6 +4639,10 @@ def _build_security_lockout_numbers(hass: HomeAssistant, entry: ConfigEntry) -> 
         GARAGE_LOCKOUT_ARRIVAL_HOLD_S,
         GARAGE_LOCKOUT_MORNING_BACKSTOP_MIN,
         GARAGE_LOCKOUT_REENGAGE_DELAY_S,
+        CONF_SECURITY_LOCK_DEAD_REPAGE_HOURS,
+        CONF_SECURITY_LOCK_STALE_HOURS,
+        SECURITY_LOCK_DEAD_REPAGE_HOURS,
+        SECURITY_LOCK_STALE_HOURS,
     )
     return [
         # 0 = proximity release (P5) off.
@@ -4686,6 +4690,28 @@ def _build_security_lockout_numbers(hass: HomeAssistant, entry: ConfigEntry) -> 
             name="Garage Lockout Suspicious Arrival Hold",
             icon="mdi:timer-sand",
             entity_id="number.ura_garage_lockout_arrival_hold",
+        ),
+        # SECURITY-LOCK-STALE-STATE-1: N. 0 = freshness check off.
+        _SecurityLockoutNumber(
+            hass, entry,
+            conf_key=CONF_SECURITY_LOCK_STALE_HOURS,
+            default=float(SECURITY_LOCK_STALE_HOURS),
+            min_val=0.0, max_val=168.0, step=1.0, unit="h",
+            unique_suffix="security_lock_stale_hours",
+            name="Lock Stale After",
+            icon="mdi:lock-clock",
+            entity_id="number.ura_security_lock_stale_hours",
+        ),
+        # SECURITY-LOCK-STALE-STATE-1: R. 0 = page once per episode.
+        _SecurityLockoutNumber(
+            hass, entry,
+            conf_key=CONF_SECURITY_LOCK_DEAD_REPAGE_HOURS,
+            default=float(SECURITY_LOCK_DEAD_REPAGE_HOURS),
+            min_val=0.0, max_val=72.0, step=1.0, unit="h",
+            unique_suffix="security_lock_dead_repage_hours",
+            name="Lock Unverified Re-page",
+            icon="mdi:bell-ring-outline",
+            entity_id="number.ura_security_lock_dead_repage_hours",
         ),
     ]
 

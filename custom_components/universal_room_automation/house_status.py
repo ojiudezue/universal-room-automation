@@ -421,6 +421,24 @@ def health(hass) -> StatusResult:
             fields.append(Field(str(entry.title), f"{n} unavailable ({act} actuators)", source=eid, problem=True))
     if entries:
         fields.append(Field("rooms reporting", f"{reporting}/{len(entries)}", source="*_unavailable_entities"))
+    # ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1 D5: registry-miss trip-wire.
+    try:
+        from .room_entities import misses_summary
+        _rs = misses_summary()
+        _n = _rs["room_entity_resolve_misses"]
+        fields.append(Field(
+            "room entity misses",
+            str(_n) + (f" ({', '.join(_rs['room_entity_resolve_misses_top'])})" if _n else ""),
+            source="room_entities.room_entity_resolve_misses",
+            problem=bool(_n),
+        ))
+        fields.append(Field(
+            "room entity name fallbacks",
+            str(_rs["room_entity_name_fallback_reads"]),
+            source="room_entities.room_entity_name_fallback_reads",
+        ))
+    except Exception:  # noqa: BLE001
+        pass
     try:
         from homeassistant.helpers import issue_registry as ir
         issues = [k for k in ir.async_get(hass).issues if k[0] == DOMAIN]

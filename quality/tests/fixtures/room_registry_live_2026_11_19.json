@@ -1,0 +1,864 @@
+{
+ "generated": "2026-11-19, read-only from .storage core.config_entries + core.entity_registry; entry_id = sha256 prefix of the real id",
+ "keys": {
+  "ai_automation": "switch",
+  "automation": "switch",
+  "camera_person_detected": "binary_sensor",
+  "cover_automation": "switch",
+  "humidity": "sensor",
+  "manual_mode": "switch",
+  "occupied": "binary_sensor",
+  "override_occupied": "switch",
+  "override_vacant": "switch",
+  "temperature": "sensor",
+  "unavailable_entities": "sensor"
+ },
+ "rooms": [
+  {
+   "entities": {
+    "ai_automation": "switch.av_closet_ai_automation",
+    "automation": "switch.av_closet_automation",
+    "camera_person_detected": "binary_sensor.av_closet_camera_person_detected",
+    "cover_automation": "switch.av_closet_cover_automation",
+    "humidity": "sensor.av_closet_humidity_2",
+    "manual_mode": "switch.av_closet_manual_mode",
+    "occupied": "binary_sensor.av_closet_occupied",
+    "override_occupied": "switch.av_closet_override_occupied",
+    "override_vacant": "switch.av_closet_override_vacant",
+    "temperature": "sensor.av_closet_temperature_2",
+    "unavailable_entities": "sensor.av_closet_unavailable_entities"
+   },
+   "entry_id": "room_20eec7be7902",
+   "room_name": "AV Closet",
+   "title": "AV Closet"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.breakfast_nook_ai_automation",
+    "automation": "switch.breakfast_nook_automation",
+    "camera_person_detected": "binary_sensor.breakfast_nook_camera_person_detected",
+    "cover_automation": "switch.breakfast_nook_cover_automation",
+    "humidity": "sensor.breakfast_nook_humidity",
+    "manual_mode": "switch.breakfast_nook_manual_mode",
+    "occupied": "binary_sensor.breakfast_nook_occupied",
+    "override_occupied": "switch.breakfast_nook_override_occupied",
+    "override_vacant": "switch.breakfast_nook_override_vacant",
+    "temperature": "sensor.breakfast_nook_temperature",
+    "unavailable_entities": "sensor.breakfast_nook_unavailable_entities"
+   },
+   "entry_id": "room_2ec3600af032",
+   "room_name": "Breakfast Nook",
+   "title": "Breakfast Nook"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.butler_pantry_ai_automation",
+    "automation": "switch.butler_pantry_automation",
+    "camera_person_detected": "binary_sensor.butler_pantry_camera_person_detected",
+    "cover_automation": "switch.butler_pantry_cover_automation",
+    "humidity": "sensor.butler_pantry_humidity",
+    "manual_mode": "switch.butler_pantry_manual_mode",
+    "occupied": "binary_sensor.butler_pantry_occupied",
+    "override_occupied": "switch.butler_pantry_override_occupied",
+    "override_vacant": "switch.butler_pantry_override_vacant",
+    "temperature": "sensor.butler_pantry_temperature",
+    "unavailable_entities": "sensor.butler_pantry_unavailable_entities"
+   },
+   "entry_id": "room_73690d431f16",
+   "room_name": "Butler Pantry",
+   "title": "Butler Pantry"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.dining_room_ai_automation",
+    "automation": "switch.dining_room_automation",
+    "camera_person_detected": "binary_sensor.dining_room_camera_person_detected",
+    "cover_automation": "switch.dining_room_cover_automation",
+    "humidity": "sensor.dining_room_humidity",
+    "manual_mode": "switch.dining_room_manual_mode",
+    "occupied": "binary_sensor.dining_room_occupied",
+    "override_occupied": "switch.dining_room_override_occupied",
+    "override_vacant": "switch.dining_room_override_vacant",
+    "temperature": "sensor.dining_room_temperature",
+    "unavailable_entities": "sensor.dining_room_unavailable_entities"
+   },
+   "entry_id": "room_12e27f73ce0e",
+   "room_name": "Dining Room",
+   "title": "Dining Room"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.exercise_room_ai_automation",
+    "automation": "switch.exercise_room_automation",
+    "camera_person_detected": "binary_sensor.exercise_room_camera_person_detected",
+    "cover_automation": "switch.exercise_room_cover_automation",
+    "humidity": "sensor.exercise_room_humidity",
+    "manual_mode": "switch.exercise_room_manual_mode",
+    "occupied": "binary_sensor.exercise_room_occupied",
+    "override_occupied": "switch.exercise_room_override_occupied",
+    "override_vacant": "switch.exercise_room_override_vacant",
+    "temperature": "sensor.exercise_room_temperature",
+    "unavailable_entities": "sensor.exercise_room_unavailable_entities"
+   },
+   "entry_id": "room_c80e7b83c8d3",
+   "room_name": "Exercise Room",
+   "title": "Exercise Room"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.exercise_room_closet_ai_automation",
+    "automation": "switch.exercise_room_closet_automation",
+    "camera_person_detected": "binary_sensor.exercise_room_closet_camera_person_detected",
+    "cover_automation": "switch.exercise_room_closet_cover_automation",
+    "humidity": "sensor.exercise_room_closet_humidity",
+    "manual_mode": "switch.exercise_room_closet_manual_mode",
+    "occupied": "binary_sensor.exercise_room_closet_occupied",
+    "override_occupied": "switch.exercise_room_closet_override_occupied",
+    "override_vacant": "switch.exercise_room_closet_override_vacant",
+    "temperature": "sensor.exercise_room_closet_temperature",
+    "unavailable_entities": "sensor.exercise_room_closet_unavailable_entities"
+   },
+   "entry_id": "room_189ec18de456",
+   "room_name": "Exercise Room Closet",
+   "title": "Exercise Room Closet"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.foyer_ai_automation",
+    "automation": "switch.foyer_automation",
+    "camera_person_detected": "binary_sensor.foyer_foyer_camera_person_detected",
+    "cover_automation": "switch.foyer_cover_automation",
+    "humidity": "sensor.foyer_foyer_humidity",
+    "manual_mode": "switch.foyer_manual_mode",
+    "occupied": "binary_sensor.foyer_foyer_occupied",
+    "override_occupied": "switch.foyer_override_occupied",
+    "override_vacant": "switch.foyer_override_vacant",
+    "temperature": "sensor.foyer_temperature",
+    "unavailable_entities": "sensor.foyer_foyer_unavailable_entities"
+   },
+   "entry_id": "room_0b24359e2b01",
+   "room_name": "Foyer",
+   "title": "Foyer"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.game_room_ai_automation",
+    "automation": "switch.game_room_automation",
+    "camera_person_detected": "binary_sensor.game_room_camera_person_detected",
+    "cover_automation": "switch.game_room_cover_automation",
+    "humidity": "sensor.game_room_humidity",
+    "manual_mode": "switch.game_room_manual_mode",
+    "occupied": "binary_sensor.game_room_occupied",
+    "override_occupied": "switch.game_room_override_occupied",
+    "override_vacant": "switch.game_room_override_vacant",
+    "temperature": "sensor.game_room_temperature",
+    "unavailable_entities": "sensor.game_room_unavailable_entities"
+   },
+   "entry_id": "room_eda0de2a8d39",
+   "room_name": "Game Room",
+   "title": "Game Room"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.garage_a_ai_automation",
+    "automation": "switch.garage_a_automation",
+    "camera_person_detected": "binary_sensor.garage_a_camera_person_detected",
+    "cover_automation": "switch.garage_a_cover_automation",
+    "humidity": "sensor.garage_a_humidity",
+    "manual_mode": "switch.garage_a_manual_mode",
+    "occupied": "binary_sensor.garage_a_occupied",
+    "override_occupied": "switch.garage_a_override_occupied",
+    "override_vacant": "switch.garage_a_override_vacant",
+    "temperature": "sensor.garage_a_temperature",
+    "unavailable_entities": "sensor.garage_a_unavailable_entities"
+   },
+   "entry_id": "room_57aae02f0821",
+   "room_name": "Garage A",
+   "title": "Garage A"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.garage_b_ai_automation",
+    "automation": "switch.garage_b_automation",
+    "camera_person_detected": "binary_sensor.garage_b_camera_person_detected",
+    "cover_automation": "switch.garage_b_cover_automation",
+    "humidity": "sensor.garage_b_humidity",
+    "manual_mode": "switch.garage_b_manual_mode",
+    "occupied": "binary_sensor.garage_b_occupied",
+    "override_occupied": "switch.garage_b_override_occupied",
+    "override_vacant": "switch.garage_b_override_vacant",
+    "temperature": "sensor.garage_b_temperature",
+    "unavailable_entities": "sensor.garage_b_unavailable_entities"
+   },
+   "entry_id": "room_1c3ae1b1e6fd",
+   "room_name": "Garage B",
+   "title": "Garage B"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.garage_hallway_ai_automation",
+    "automation": "switch.garage_hallway_automation",
+    "camera_person_detected": "binary_sensor.garage_hallway_camera_person_detected",
+    "cover_automation": "switch.garage_hallway_cover_automation",
+    "humidity": "sensor.garage_hallway_humidity",
+    "manual_mode": "switch.garage_hallway_manual_mode",
+    "occupied": "binary_sensor.garage_hallway_occupied",
+    "override_occupied": "switch.garage_hallway_override_occupied",
+    "override_vacant": "switch.garage_hallway_override_vacant",
+    "temperature": "sensor.garage_hallway_temperature",
+    "unavailable_entities": "sensor.garage_hallway_unavailable_entities"
+   },
+   "entry_id": "room_e804c00ff56b",
+   "room_name": "Garage Hallway",
+   "title": "Garage Hallway"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.guest_bedroom_1_ai_automation",
+    "automation": "switch.guest_bedroom_1_automation",
+    "camera_person_detected": "binary_sensor.guest_bedroom_1_camera_person_detected",
+    "cover_automation": "switch.guest_bedroom_1_cover_automation",
+    "humidity": "sensor.guest_bedroom_1_humidity",
+    "manual_mode": "switch.guest_bedroom_1_manual_mode",
+    "occupied": "binary_sensor.guest_bedroom_1_occupied",
+    "override_occupied": "switch.guest_bedroom_1_override_occupied",
+    "override_vacant": "switch.guest_bedroom_1_override_vacant",
+    "temperature": "sensor.guest_bedroom_1_temperature",
+    "unavailable_entities": "sensor.guest_bedroom_1_unavailable_entities"
+   },
+   "entry_id": "room_f0dbed418db2",
+   "room_name": "Guest Bedroom 1",
+   "title": "Guest Bedroom 1"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.guest_bedroom_1_bathroom_ai_automation",
+    "automation": "switch.guest_bedroom_1_bathroom_automation",
+    "camera_person_detected": "binary_sensor.down_guest_bathroom_camera_person_detected",
+    "cover_automation": "switch.guest_bedroom_1_bathroom_cover_automation",
+    "humidity": "sensor.down_guest_bathroom_humidity",
+    "manual_mode": "switch.guest_bedroom_1_bathroom_manual_mode",
+    "occupied": "binary_sensor.down_guest_bathroom_occupied",
+    "override_occupied": "switch.guest_bedroom_1_bathroom_override_occupied",
+    "override_vacant": "switch.guest_bedroom_1_bathroom_override_vacant",
+    "temperature": "sensor.down_guest_bathroom_temperature",
+    "unavailable_entities": "sensor.down_guest_bathroom_unavailable_entities"
+   },
+   "entry_id": "room_f5f0b97cc4fe",
+   "room_name": "Guest Bedroom 1 Bathroom",
+   "title": "Guest Bedroom 1 Bathroom"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.guest_bedroom_1_closet_ai_automation",
+    "automation": "switch.guest_bedroom_1_closet_automation",
+    "camera_person_detected": "binary_sensor.guest_bedroom_1_closet_camera_person_detected",
+    "cover_automation": "switch.guest_bedroom_1_closet_cover_automation",
+    "humidity": "sensor.guest_bedroom_1_closet_humidity",
+    "manual_mode": "switch.guest_bedroom_1_closet_manual_mode",
+    "occupied": "binary_sensor.guest_bedroom_1_closet_occupied",
+    "override_occupied": "switch.guest_bedroom_1_closet_override_occupied",
+    "override_vacant": "switch.guest_bedroom_1_closet_override_vacant",
+    "temperature": "sensor.guest_bedroom_1_closet_temperature",
+    "unavailable_entities": "sensor.guest_bedroom_1_closet_unavailable_entities"
+   },
+   "entry_id": "room_84dcfd73f528",
+   "room_name": "Guest Bedroom 1 Closet",
+   "title": "Guest Bedroom 1 Closet"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.guest_bedroom_2_ai_automation",
+    "automation": "switch.guest_bedroom_2_automation",
+    "camera_person_detected": "binary_sensor.guest_bedroom_2_camera_person_detected",
+    "cover_automation": "switch.guest_bedroom_2_cover_automation",
+    "humidity": "sensor.upstairs_guest_bedroom_humidity",
+    "manual_mode": "switch.guest_bedroom_2_manual_mode",
+    "occupied": "binary_sensor.upstairs_guest_bedroom_occupied",
+    "override_occupied": "switch.guest_bedroom_2_override_occupied",
+    "override_vacant": "switch.guest_bedroom_2_override_vacant",
+    "temperature": "sensor.upstairs_guest_bedroom_temperature",
+    "unavailable_entities": "sensor.upstairs_guestroom_unavailable_entities"
+   },
+   "entry_id": "room_43861d59ee24",
+   "room_name": "Guest Bedroom 2",
+   "title": "Guest Bedroom 2"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.guest_bedroom_2_bathroom_ai_automation",
+    "automation": "switch.guest_bedroom_2_bathroom_automation",
+    "camera_person_detected": "binary_sensor.guest_bedroom_2_bathroom_camera_person_detected",
+    "cover_automation": "switch.guest_bedroom_2_bathroom_cover_automation",
+    "humidity": "sensor.guest_bedroom_2_bathroom_humidity",
+    "manual_mode": "switch.guest_bedroom_2_bathroom_manual_mode",
+    "occupied": "binary_sensor.guest_bedroom_2_bathroom_occupied",
+    "override_occupied": "switch.guest_bedroom_2_bathroom_override_occupied",
+    "override_vacant": "switch.guest_bedroom_2_bathroom_override_vacant",
+    "temperature": "sensor.guest_bedroom_2_bathroom_temperature",
+    "unavailable_entities": "sensor.guest_bedroom_2_bathroom_unavailable_entities"
+   },
+   "entry_id": "room_c7eb01d2a26f",
+   "room_name": "Guest Bedroom 2 Bathroom",
+   "title": "Guest Bedroom 2 Bathroom"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.guest_bedroom_2_hallway_ai_automation",
+    "automation": "switch.guest_bedroom_2_hallway_automation",
+    "camera_person_detected": "binary_sensor.guest_bedroom_hallway_guest_bedroom_2_hallway_camera_person_detected",
+    "cover_automation": "switch.guest_bedroom_2_hallway_cover_automation",
+    "humidity": "sensor.guest_bedroom_hallway_guest_bedroom_2_hallway_humidity",
+    "manual_mode": "switch.guest_bedroom_2_hallway_manual_mode",
+    "occupied": "binary_sensor.guest_bedroom_hallway_guest_bedroom_2_hallway_occupied",
+    "override_occupied": "switch.guest_bedroom_2_hallway_override_occupied",
+    "override_vacant": "switch.guest_bedroom_2_hallway_override_vacant",
+    "temperature": "sensor.guest_bedroom_2_hallway_temperature",
+    "unavailable_entities": "sensor.guest_bedroom_hallway_guest_bedroom_2_hallway_unavailable_entities"
+   },
+   "entry_id": "room_2f6a2115d683",
+   "room_name": "Guest Bedroom 2 Hallway",
+   "title": "Guest Bedroom 2 Hallway"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.jaya_bathroom_ai_automation",
+    "automation": "switch.jaya_bathroom_automation",
+    "camera_person_detected": "binary_sensor.jaya_bathroom_camera_person_detected",
+    "cover_automation": "switch.jaya_bathroom_cover_automation",
+    "humidity": "sensor.jaya_bathroom_humidity",
+    "manual_mode": "switch.jaya_bathroom_manual_mode",
+    "occupied": "binary_sensor.jaya_bathroom_occupied",
+    "override_occupied": "switch.jaya_bathroom_override_occupied",
+    "override_vacant": "switch.jaya_bathroom_override_vacant",
+    "temperature": "sensor.jaya_bathroom_temperature",
+    "unavailable_entities": "sensor.jaya_bathroom_unavailable_entities"
+   },
+   "entry_id": "room_ad9e7f049c6e",
+   "room_name": "Jaya Bathroom",
+   "title": "Jaya Bathroom"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.jaya_bedroom_ai_automation",
+    "automation": "switch.jaya_bedroom_automation",
+    "camera_person_detected": "binary_sensor.jaya_bedroom_bedroom_4_camera_person_detected",
+    "cover_automation": "switch.jaya_bedroom_cover_automation",
+    "humidity": "sensor.jaya_bedroom_bedroom_4_humidity",
+    "manual_mode": "switch.jaya_bedroom_manual_mode",
+    "occupied": "binary_sensor.jaya_bedroom_bedroom_4_occupied",
+    "override_occupied": "switch.jaya_bedroom_override_occupied",
+    "override_vacant": "switch.jaya_bedroom_override_vacant",
+    "temperature": "sensor.jaya_bedroom_bedroom_4_temperature",
+    "unavailable_entities": "sensor.jaya_bedroom_bedroom_4_unavailable_entities"
+   },
+   "entry_id": "room_13e37ba2e888",
+   "room_name": "Jaya Bedroom",
+   "title": "Jaya Bedroom (Bedroom 4)"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.kitchen_ai_automation",
+    "automation": "switch.kitchen_automation",
+    "camera_person_detected": "binary_sensor.kitchen_camera_person_detected",
+    "cover_automation": "switch.kitchen_cover_automation",
+    "humidity": "sensor.kitchen_humidity",
+    "manual_mode": "switch.kitchen_manual_mode",
+    "occupied": "binary_sensor.kitchen_occupied",
+    "override_occupied": "switch.kitchen_override_occupied",
+    "override_vacant": "switch.kitchen_override_vacant",
+    "temperature": "sensor.kitchen_temperature",
+    "unavailable_entities": "sensor.kitchen_unavailable_entities"
+   },
+   "entry_id": "room_f3896d845590",
+   "room_name": "Kitchen",
+   "title": "Kitchen"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.kitchen_hallway_ai_automation",
+    "automation": "switch.kitchen_hallway_automation",
+    "camera_person_detected": "binary_sensor.kitchen_hallway_camera_person_detected",
+    "cover_automation": "switch.kitchen_hallway_cover_automation",
+    "humidity": "sensor.kitchen_hallway_humidity",
+    "manual_mode": "switch.kitchen_hallway_manual_mode",
+    "occupied": "binary_sensor.kitchen_hallway_occupied",
+    "override_occupied": "switch.kitchen_hallway_override_occupied",
+    "override_vacant": "switch.kitchen_hallway_override_vacant",
+    "temperature": "sensor.kitchen_hallway_temperature",
+    "unavailable_entities": "sensor.kitchen_hallway_unavailable_entities"
+   },
+   "entry_id": "room_9aa39ac54c4f",
+   "room_name": "Kitchen Hallway",
+   "title": "Kitchen Hallway"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.kitchen_hallway_garage_ai_automation",
+    "automation": "switch.kitchen_hallway_garage_automation",
+    "camera_person_detected": "binary_sensor.kitchen_hallway_garage_camera_person_detected",
+    "cover_automation": "switch.kitchen_hallway_garage_cover_automation",
+    "humidity": "sensor.kitchen_hallway_garage_humidity",
+    "manual_mode": "switch.kitchen_hallway_garage_manual_mode",
+    "occupied": "binary_sensor.kitchen_hallway_garage_occupied",
+    "override_occupied": "switch.kitchen_hallway_garage_override_occupied",
+    "override_vacant": "switch.kitchen_hallway_garage_override_vacant",
+    "temperature": "sensor.kitchen_hallway_garage_temperature",
+    "unavailable_entities": "sensor.kitchen_hallway_garage_unavailable_entities"
+   },
+   "entry_id": "room_ac751e4959ed",
+   "room_name": "Kitchen Hallway Garage",
+   "title": "Kitchen Hallway Garage"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.kitchen_pantry_ai_automation",
+    "automation": "switch.kitchen_pantry_automation",
+    "camera_person_detected": "binary_sensor.kitchen_pantry_camera_person_detected",
+    "cover_automation": "switch.kitchen_pantry_cover_automation",
+    "humidity": "sensor.kitchen_pantry_humidity",
+    "manual_mode": "switch.kitchen_pantry_manual_mode",
+    "occupied": "binary_sensor.kitchen_pantry_occupied",
+    "override_occupied": "switch.kitchen_pantry_override_occupied",
+    "override_vacant": "switch.kitchen_pantry_override_vacant",
+    "temperature": "sensor.kitchen_pantry_temperature",
+    "unavailable_entities": "sensor.kitchen_pantry_unavailable_entities"
+   },
+   "entry_id": "room_18de6b6ade2d",
+   "room_name": "Kitchen Pantry",
+   "title": "Kitchen Pantry"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.laundry_ai_automation",
+    "automation": "switch.laundry_automation",
+    "camera_person_detected": "binary_sensor.laundry_camera_person_detected",
+    "cover_automation": "switch.laundry_cover_automation",
+    "humidity": "sensor.laundry_humidity",
+    "manual_mode": "switch.laundry_manual_mode",
+    "occupied": "binary_sensor.laundry_occupied",
+    "override_occupied": "switch.laundry_override_occupied",
+    "override_vacant": "switch.laundry_override_vacant",
+    "temperature": "sensor.laundry_temperature",
+    "unavailable_entities": "sensor.laundry_unavailable_entities"
+   },
+   "entry_id": "room_9cdc0fcdfba0",
+   "room_name": "Laundry",
+   "title": "Laundry"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.laundry_closet_ai_automation",
+    "automation": "switch.laundry_closet_automation",
+    "camera_person_detected": "binary_sensor.laundry_closet_camera_person_detected",
+    "cover_automation": "switch.laundry_closet_cover_automation",
+    "humidity": "sensor.laundry_closet_humidity",
+    "manual_mode": "switch.laundry_closet_manual_mode",
+    "occupied": "binary_sensor.laundry_closet_occupied",
+    "override_occupied": "switch.laundry_closet_override_occupied",
+    "override_vacant": "switch.laundry_closet_override_vacant",
+    "temperature": "sensor.laundry_closet_temperature",
+    "unavailable_entities": "sensor.laundry_closet_unavailable_entities"
+   },
+   "entry_id": "room_133d054ffdca",
+   "room_name": "Laundry Closet",
+   "title": "Laundry Closet"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.living_room_ai_automation",
+    "automation": "switch.living_room_automation",
+    "camera_person_detected": "binary_sensor.living_room_camera_person_detected",
+    "cover_automation": "switch.living_room_cover_automation",
+    "humidity": "sensor.living_room_humidity",
+    "manual_mode": "switch.living_room_manual_mode",
+    "occupied": "binary_sensor.living_room_occupied",
+    "override_occupied": "switch.living_room_override_occupied",
+    "override_vacant": "switch.living_room_override_vacant",
+    "temperature": "sensor.living_room_temperature",
+    "unavailable_entities": "sensor.living_room_unavailable_entities"
+   },
+   "entry_id": "room_b1304bd198b1",
+   "room_name": "Living Room",
+   "title": "Living Room"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.master_bath_toilet_ai_automation",
+    "automation": "switch.master_bath_toilet_automation",
+    "camera_person_detected": "binary_sensor.master_toilet_master_toilet_camera_person_detected",
+    "cover_automation": "switch.master_bath_toilet_cover_automation",
+    "humidity": "sensor.master_toilet_master_toilet_humidity",
+    "manual_mode": "switch.master_bath_toilet_manual_mode",
+    "occupied": "binary_sensor.master_toilet_master_toilet_occupied",
+    "override_occupied": "switch.master_bath_toilet_override_occupied",
+    "override_vacant": "switch.master_bath_toilet_override_vacant",
+    "temperature": "sensor.master_toilet_master_toilet_temperature",
+    "unavailable_entities": "sensor.master_bath_toilet_unavailable_entities"
+   },
+   "entry_id": "room_57a46ce53c8c",
+   "room_name": "Master Bath Toilet",
+   "title": "Master Bath Toilet"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.master_bathroom_ai_automation",
+    "automation": "switch.master_bathroom_automation",
+    "camera_person_detected": "binary_sensor.master_bathroom_camera_person_detected",
+    "cover_automation": "switch.master_bathroom_cover_automation",
+    "humidity": "sensor.master_bathroom_humidity",
+    "manual_mode": "switch.master_bathroom_manual_mode",
+    "occupied": "binary_sensor.master_bathroom_occupied",
+    "override_occupied": "switch.master_bathroom_override_occupied",
+    "override_vacant": "switch.master_bathroom_override_vacant",
+    "temperature": "sensor.master_bathroom_temperature",
+    "unavailable_entities": "sensor.master_bathroom_unavailable_entities"
+   },
+   "entry_id": "room_ec04295defb9",
+   "room_name": "Master Bathroom",
+   "title": "Master Bathroom"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.master_bedroom_ai_automation",
+    "automation": "switch.master_bedroom_automation",
+    "camera_person_detected": "binary_sensor.master_bedroom_camera_person_detected",
+    "cover_automation": "switch.master_bedroom_cover_automation",
+    "humidity": "sensor.master_bedroom_humidity",
+    "manual_mode": "switch.master_bedroom_manual_mode",
+    "occupied": "binary_sensor.master_bedroom_occupied",
+    "override_occupied": "switch.master_bedroom_override_occupied",
+    "override_vacant": "switch.master_bedroom_override_vacant",
+    "temperature": "sensor.master_bedroom_temperature",
+    "unavailable_entities": "sensor.master_bedroom_unavailable_entities"
+   },
+   "entry_id": "room_3646246ef1d5",
+   "room_name": "Master Bedroom",
+   "title": "Master Bedroom"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.master_closet_ai_automation",
+    "automation": "switch.master_closet_automation",
+    "camera_person_detected": "binary_sensor.master_closet_master_closet_camera_person_detected",
+    "cover_automation": "switch.master_closet_cover_automation",
+    "humidity": "sensor.master_closet_master_closet_humidity",
+    "manual_mode": "switch.master_closet_manual_mode",
+    "occupied": "binary_sensor.master_closet_master_closet_occupied",
+    "override_occupied": "switch.master_closet_override_occupied",
+    "override_vacant": "switch.master_closet_override_vacant",
+    "temperature": "sensor.master_closet_temperature",
+    "unavailable_entities": "sensor.master_closet_master_closet_unavailable_entities"
+   },
+   "entry_id": "room_2aedac2560df",
+   "room_name": "Master Closet",
+   "title": "Master Closet"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.master_closet_storage_ai_automation",
+    "automation": "switch.master_closet_storage_automation",
+    "camera_person_detected": "binary_sensor.master_closet_storage_camera_person_detected",
+    "cover_automation": "switch.master_closet_storage_cover_automation",
+    "humidity": "sensor.master_closet_storage_humidity",
+    "manual_mode": "switch.master_closet_storage_manual_mode",
+    "occupied": "binary_sensor.master_closet_storage_occupied",
+    "override_occupied": "switch.master_closet_storage_override_occupied",
+    "override_vacant": "switch.master_closet_storage_override_vacant",
+    "temperature": "sensor.master_closet_storage_temperature",
+    "unavailable_entities": "sensor.master_closet_storage_unavailable_entities"
+   },
+   "entry_id": "room_199b2ea35dbc",
+   "room_name": "Master Closet Storage",
+   "title": "Master Closet Storage"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.master_hallway_ai_automation",
+    "automation": "switch.master_hallway_automation",
+    "camera_person_detected": "binary_sensor.master_hallway_master_hallway_camera_person_detected",
+    "cover_automation": "switch.master_hallway_cover_automation",
+    "humidity": "sensor.master_hallway_master_hallway_humidity",
+    "manual_mode": "switch.master_hallway_manual_mode",
+    "occupied": "binary_sensor.master_hallway_master_hallway_occupied",
+    "override_occupied": "switch.master_hallway_override_occupied",
+    "override_vacant": "switch.master_hallway_override_vacant",
+    "temperature": "sensor.master_hallway_temperature",
+    "unavailable_entities": "sensor.master_hallway_master_hallway_unavailable_entities"
+   },
+   "entry_id": "room_dc5e15adb2ac",
+   "room_name": "Master Hallway",
+   "title": "Master Hallway"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.media_ai_automation",
+    "automation": "switch.media_automation",
+    "camera_person_detected": "binary_sensor.media_room_camera_person_detected",
+    "cover_automation": "switch.media_cover_automation",
+    "humidity": "sensor.media_room_humidity",
+    "manual_mode": "switch.media_manual_mode",
+    "occupied": "binary_sensor.media_room_occupied",
+    "override_occupied": "switch.media_override_occupied",
+    "override_vacant": "switch.media_override_vacant",
+    "temperature": "sensor.media_room_temperature",
+    "unavailable_entities": "sensor.media_unavailable_entities"
+   },
+   "entry_id": "room_32d74f40e177",
+   "room_name": "Media",
+   "title": "Media"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.media_room_closet_ai_automation",
+    "automation": "switch.media_room_closet_automation",
+    "camera_person_detected": "binary_sensor.media_room_closet_camera_person_detected",
+    "cover_automation": "switch.media_room_closet_cover_automation",
+    "humidity": "sensor.media_room_closet_humidity",
+    "manual_mode": "switch.media_room_closet_manual_mode",
+    "occupied": "binary_sensor.media_room_closet_occupied",
+    "override_occupied": "switch.media_room_closet_override_occupied",
+    "override_vacant": "switch.media_room_closet_override_vacant",
+    "temperature": "sensor.media_room_closet_temperature",
+    "unavailable_entities": "sensor.media_room_closet_unavailable_entities"
+   },
+   "entry_id": "room_ea79ce4b30df",
+   "room_name": "Media Room Closet",
+   "title": "Media Room Closet"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.oji_vanity_ai_automation",
+    "automation": "switch.oji_vanity_automation",
+    "camera_person_detected": "binary_sensor.oji_vanity_camera_person_detected",
+    "cover_automation": "switch.oji_vanity_cover_automation",
+    "humidity": "sensor.oji_vanity_humidity",
+    "manual_mode": "switch.oji_vanity_manual_mode",
+    "occupied": "binary_sensor.oji_vanity_occupied",
+    "override_occupied": "switch.oji_vanity_override_occupied",
+    "override_vacant": "switch.oji_vanity_override_vacant",
+    "temperature": "sensor.oji_vanity_temperature",
+    "unavailable_entities": "sensor.oji_vanity_unavailable_entities"
+   },
+   "entry_id": "room_6175d4d47ce4",
+   "room_name": "Oji Vanity",
+   "title": "Oji Vanity"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.patio_ai_automation",
+    "automation": "switch.patio_automation",
+    "camera_person_detected": "binary_sensor.patio_camera_person_detected",
+    "cover_automation": "switch.patio_cover_automation",
+    "humidity": "sensor.patio_humidity",
+    "manual_mode": "switch.patio_manual_mode",
+    "occupied": "binary_sensor.patio_occupied",
+    "override_occupied": "switch.patio_override_occupied",
+    "override_vacant": "switch.patio_override_vacant",
+    "temperature": "sensor.patio_temperature",
+    "unavailable_entities": "sensor.patio_unavailable_entities"
+   },
+   "entry_id": "room_4f0130cdea11",
+   "room_name": "Patio",
+   "title": "Patio"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.powder_ai_automation",
+    "automation": "switch.powder_automation",
+    "camera_person_detected": "binary_sensor.powder_camera_person_detected",
+    "cover_automation": "switch.powder_cover_automation",
+    "humidity": "sensor.powder_humidity",
+    "manual_mode": "switch.powder_manual_mode",
+    "occupied": "binary_sensor.powder_occupied",
+    "override_occupied": "switch.powder_override_occupied",
+    "override_vacant": "switch.powder_override_vacant",
+    "temperature": "sensor.powder_temperature",
+    "unavailable_entities": "sensor.powder_unavailable_entities"
+   },
+   "entry_id": "room_8c37e97c3ae6",
+   "room_name": "Powder",
+   "title": "Powder"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.receiving_room_ai_automation",
+    "automation": "switch.receiving_room_automation",
+    "camera_person_detected": "binary_sensor.receiving_room_camera_person_detected",
+    "cover_automation": "switch.receiving_room_cover_automation",
+    "humidity": "sensor.receiving_room_humidity",
+    "manual_mode": "switch.receiving_room_manual_mode",
+    "occupied": "binary_sensor.receiving_room_occupied",
+    "override_occupied": "switch.receiving_room_override_occupied",
+    "override_vacant": "switch.receiving_room_override_vacant",
+    "temperature": "sensor.receiving_room_temperature",
+    "unavailable_entities": "sensor.receiving_room_unavailable_entities"
+   },
+   "entry_id": "room_6f7b0f7e9b9f",
+   "room_name": "Receiving Room",
+   "title": "Receiving Room"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.stair_closet_ai_automation",
+    "automation": "switch.stair_closet_automation",
+    "camera_person_detected": "binary_sensor.stair_closet_camera_person_detected",
+    "cover_automation": "switch.stair_closet_cover_automation",
+    "humidity": "sensor.stair_closet_humidity",
+    "manual_mode": "switch.stair_closet_manual_mode",
+    "occupied": "binary_sensor.stair_closet_occupied",
+    "override_occupied": "switch.stair_closet_override_occupied",
+    "override_vacant": "switch.stair_closet_override_vacant",
+    "temperature": "sensor.stair_closet_temperature",
+    "unavailable_entities": "sensor.stair_closet_unavailable_entities"
+   },
+   "entry_id": "room_b4b77a7be759",
+   "room_name": "Stair Closet",
+   "title": "Stair Closet"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.staircase_ai_automation",
+    "automation": "switch.staircase_automation",
+    "camera_person_detected": "binary_sensor.staircase_camera_person_detected",
+    "cover_automation": "switch.staircase_cover_automation",
+    "humidity": "sensor.staircase_humidity",
+    "manual_mode": "switch.staircase_manual_mode",
+    "occupied": "binary_sensor.staircase_occupied",
+    "override_occupied": "switch.staircase_override_occupied",
+    "override_vacant": "switch.staircase_override_vacant",
+    "temperature": "sensor.staircase_temperature",
+    "unavailable_entities": "sensor.staircase_unavailable_entities"
+   },
+   "entry_id": "room_eec280e9eebe",
+   "room_name": "Staircase",
+   "title": "Staircase"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.study_a_ai_automation",
+    "automation": "switch.study_a_automation",
+    "camera_person_detected": "binary_sensor.studya_room_device_camera_person_detected",
+    "cover_automation": "switch.study_a_cover_automation",
+    "humidity": "sensor.study_a_humidity",
+    "manual_mode": "switch.study_a_manual_mode",
+    "occupied": "binary_sensor.study_a_occupied",
+    "override_occupied": "switch.study_a_override_occupied",
+    "override_vacant": "switch.study_a_override_vacant",
+    "temperature": "sensor.study_a_temperature",
+    "unavailable_entities": "sensor.studya_room_device_unavailable_entities"
+   },
+   "entry_id": "room_e9f1aaf98eba",
+   "room_name": "Study A",
+   "title": "Study A"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.study_a_closet_ai_automation",
+    "automation": "switch.study_a_closet_automation",
+    "camera_person_detected": "binary_sensor.study_a_closet_camera_person_detected",
+    "cover_automation": "switch.study_a_closet_cover_automation",
+    "humidity": "sensor.study_a_closet_humidity_2",
+    "manual_mode": "switch.study_a_closet_manual_mode",
+    "occupied": "binary_sensor.study_a_closet_occupied",
+    "override_occupied": "switch.study_a_closet_override_occupied",
+    "override_vacant": "switch.study_a_closet_override_vacant",
+    "temperature": "sensor.study_a_closet_temperature_2",
+    "unavailable_entities": "sensor.study_a_closet_unavailable_entities"
+   },
+   "entry_id": "room_9bc06976922e",
+   "room_name": "Study A Closet",
+   "title": "Study A Closet"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.study_b_ai_automation",
+    "automation": "switch.study_b_automation",
+    "camera_person_detected": "binary_sensor.study_b_camera_person_detected",
+    "cover_automation": "switch.study_b_cover_automation",
+    "humidity": "sensor.study_b_humidity",
+    "manual_mode": "switch.study_b_manual_mode",
+    "occupied": "binary_sensor.study_b_occupied",
+    "override_occupied": "switch.study_b_override_occupied",
+    "override_vacant": "switch.study_b_override_vacant",
+    "temperature": "sensor.study_b_temperature",
+    "unavailable_entities": "sensor.study_b_unavailable_entities"
+   },
+   "entry_id": "room_b105d9373878",
+   "room_name": "Study B",
+   "title": "Study B"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.up_guestbedroom_closet_ai_automation",
+    "automation": "switch.up_guestbedroom_closet_automation",
+    "camera_person_detected": "binary_sensor.guest_bedroom_2_closet_up_guestbedroom_closet_camera_person_detected",
+    "cover_automation": "switch.up_guestbedroom_closet_cover_automation",
+    "humidity": "sensor.guest_bedroom_2_closet_up_guestbedroom_closet_humidity",
+    "manual_mode": "switch.up_guestbedroom_closet_manual_mode",
+    "occupied": "binary_sensor.guest_bedroom_2_closet_up_guestbedroom_closet_occupied",
+    "override_occupied": "switch.up_guestbedroom_closet_override_occupied",
+    "override_vacant": "switch.up_guestbedroom_closet_override_vacant",
+    "temperature": "sensor.up_guestbedroom_closet_temperature",
+    "unavailable_entities": "sensor.guest_bedroom_2_closet_up_guestbedroom_closet_unavailable_entities"
+   },
+   "entry_id": "room_08a2afe6331a",
+   "room_name": "Up Guestbedroom Closet",
+   "title": "Up Guestbedroom Closet"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.upstairs_hallway_ai_automation",
+    "automation": "switch.upstairs_hallway_automation",
+    "camera_person_detected": "binary_sensor.upstairs_hallway_camera_person_detected",
+    "cover_automation": "switch.upstairs_hallway_cover_automation",
+    "humidity": "sensor.upstairs_hallway_humidity",
+    "manual_mode": "switch.upstairs_hallway_manual_mode",
+    "occupied": "binary_sensor.upstairs_hallway_occupied",
+    "override_occupied": "switch.upstairs_hallway_override_occupied",
+    "override_vacant": "switch.upstairs_hallway_override_vacant",
+    "temperature": "sensor.upstairs_hallway_temperature",
+    "unavailable_entities": "sensor.upstairs_hallway_unavailable_entities"
+   },
+   "entry_id": "room_502a9a68cc4a",
+   "room_name": "Upstairs Hallway",
+   "title": "Upstairs Hallway"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.ziri_bathroom_ai_automation",
+    "automation": "switch.ziri_bathroom_automation",
+    "camera_person_detected": "binary_sensor.ziri_bathroom_camera_person_detected",
+    "cover_automation": "switch.ziri_bathroom_cover_automation",
+    "humidity": "sensor.ziri_bathroom_humidity",
+    "manual_mode": "switch.ziri_bathroom_manual_mode",
+    "occupied": "binary_sensor.ziri_bathroom_occupied",
+    "override_occupied": "switch.ziri_bathroom_override_occupied",
+    "override_vacant": "switch.ziri_bathroom_override_vacant",
+    "temperature": "sensor.ziri_bathroom_temperature",
+    "unavailable_entities": "sensor.ziri_bathroom_unavailable_entities"
+   },
+   "entry_id": "room_bf13defb4586",
+   "room_name": "Ziri Bathroom",
+   "title": "Ziri Bathroom"
+  },
+  {
+   "entities": {
+    "ai_automation": "switch.ziri_bedroom_bedroom_5_ai_automation",
+    "automation": "switch.ziri_bedroom_bedroom_5_automation",
+    "camera_person_detected": "binary_sensor.ziri_bedroom_bedroom_5_camera_person_detected",
+    "cover_automation": "switch.ziri_bedroom_bedroom_5_cover_automation",
+    "humidity": "sensor.ziri_bedroom_bedroom_5_humidity",
+    "manual_mode": "switch.ziri_bedroom_bedroom_5_manual_mode",
+    "occupied": "binary_sensor.ziri_bedroom_bedroom_5_occupied",
+    "override_occupied": "switch.ziri_bedroom_bedroom_5_override_occupied",
+    "override_vacant": "switch.ziri_bedroom_bedroom_5_override_vacant",
+    "temperature": "sensor.ziri_bedroom_bedroom_5_temperature",
+    "unavailable_entities": "sensor.ziri_bedroom_bedroom_5_unavailable_entities"
+   },
+   "entry_id": "room_ba04168d00ec",
+   "room_name": "Ziri Bedroom (Bedroom 5)",
+   "title": "Ziri Bedroom (Bedroom 5)"
+  }
+ ]
+}

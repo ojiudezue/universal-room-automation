@@ -205,6 +205,9 @@ def _make_controller(
     room_slug: str = "study_a",
     occ_binary_on: bool = False,
     db_writes: list | None = None,
+    occ_entity_id: str | None = None,
+    entry_id: str | None = "entry_study_a",
+    room_name: str = "Study A",
 ):
     """Build a FanController wired up like the incident-replay harness,
     with optional occupancy binary_sensor + a DB spy for FIX C.
@@ -226,7 +229,11 @@ def _make_controller(
             self.attributes = attrs or {}
 
     fan_entity = "fan.test_fan"
-    occ_entity = f"binary_sensor.{room_slug}_occupied"
+    # ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1: the guard resolves the
+    # occupied sensor by registry unique_id ``{entry_id}_occupied``; the
+    # registered entity_id defaults to the slug shape (37 of 47 live rooms)
+    # and can be any HA-assigned id (occ_entity_id) for the other 10.
+    occ_entity = occ_entity_id or f"binary_sensor.{room_slug}_occupied"
 
     def _get_state(entity_id):
         if entity_id == fan_entity:
@@ -260,7 +267,7 @@ def _make_controller(
     zone = MagicMock()
     zone.target_temp_high = setpoint_high
     rc = MagicMock()
-    rc.room_name = "Study A"
+    rc.room_name = room_name
     rc.temperature = room_temp
     rc.occupied = occupied
     zone.room_conditions = [rc]
@@ -271,7 +278,7 @@ def _make_controller(
     ctrl._resolve_live_fan_sleep_policy = lambda rn, rf: "reduce"
 
     room_fan = RoomFanState(
-        room_name="Study A",
+        room_name=room_name,
         zone_id="zone_1",
         fan_entities=[fan_entity],
         is_on=False,
@@ -280,9 +287,47 @@ def _make_controller(
         vacancy_detected_time="",
         last_on_time="",
     )
-    ctrl._room_fans["Study A"] = room_fan
+    room_fan.entry_id = entry_id
+    ctrl._room_fans[room_name] = room_fan
+    fake_reg = _FakeEntityRegistry()
+    if entry_id:
+        fake_reg.register(
+            "binary_sensor", DOMAIN, f"{entry_id}_occupied", occ_entity,
+        )
+    hass.__dict__["_ura_test_entity_registry"] = fake_reg
+    hass.config_entries.async_entries = lambda _domain=None: []
 
     return ctrl, room_fan, svc_log, write_log
+
+
+class _FakeEntityRegistry:
+    """``EntityRegistry.async_get_entity_id`` keyed by unique_id."""
+
+    def __init__(self) -> None:
+        self._by_uid: dict[tuple[str, str, str], str] = {}
+
+    def register(self, domain, platform, unique_id, entity_id) -> None:
+        self._by_uid[(domain, platform, unique_id)] = entity_id
+
+    def async_get_entity_id(self, domain, platform, unique_id):
+        return self._by_uid.get((domain, platform, unique_id))
+
+
+@pytest.fixture(autouse=True)
+def _ura_room_entities_registry(monkeypatch):
+    """Scoped: route room_entities' registry lookup to the controller's
+    fake registry (restored by monkeypatch after each test)."""
+    from custom_components.universal_room_automation import (
+        room_entities as _re_mod,
+    )
+
+    _re_mod.reset_counters()
+    monkeypatch.setattr(
+        _re_mod, "_registry",
+        lambda h: h.__dict__.get("_ura_test_entity_registry"),
+    )
+    yield
+    _re_mod.reset_counters()
 
 
 # ---- FIX B tests ----

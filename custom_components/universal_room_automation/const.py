@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.108.37
+# Universal Room Automation vv5.108.38
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.108.37"
+VERSION: Final = "v5.108.38"
 
 # EC-LOADED-VS-INSTALLED-VERSION-1 — how often the on-disk manifest is re-read
 # to detect an installed-but-not-restarted deploy. Rung 1 (module constant):
@@ -4434,6 +4434,29 @@ SECURITY_LOCK_RETRY_CAP: Final = 3
 # (fresh N tries + one fresh notice) while it is still unlocked/open.
 # 0 = never re-arm (stay capped until the device is seen locked/closed).
 SECURITY_LOCK_RETRY_REARM_S: Final = 86400
+# SECURITY-LOCK-STALE-STATE-1 (PLANNING_security_lock_freshness.md §6).
+# N: a swept zwave lock with an enabled last_seen sensor whose newest REAL
+# report is older than this is "stale": the sweep pages (HIGH,
+# hazard lock_unverified), sends one zwave_js.refresh_value and stops
+# counting a stale "locked" lock as compliant. Rung 3 (Number entity
+# number.ura_security_lock_stale_hours), read live from CM options.
+# Kill switch: 0 = the whole freshness check is off (stale gate, dead page,
+# signal-disabled page); the sweep is byte-identical to before.
+CONF_SECURITY_LOCK_STALE_HOURS: Final = "security_lock_stale_hours"
+SECURITY_LOCK_STALE_HOURS: Final = 12
+# R: re-page cadence while a lock stays stale/dead/unverified, and for the
+# "freshness signal disabled" page. Rung 3 (Number entity
+# number.ura_security_lock_dead_repage_hours). 0 = page once per episode.
+CONF_SECURITY_LOCK_DEAD_REPAGE_HOURS: Final = "security_lock_dead_repage_hours"
+SECURITY_LOCK_DEAD_REPAGE_HOURS: Final = 6
+# A dead/unavailable lock pages only after the condition has held this
+# long (D0 measured 5-15 min common-mode Z-Wave blips). Rung 1 (module
+# const, review-gated). 0 = page on the first unavailable sweep.
+SECURITY_LOCK_DEAD_DEBOUNCE_MIN: Final = 20
+# Seconds after Security Coordinator setup during which no lock timestamp
+# counts as a real report and no freshness/dead page is sent (zwave_js
+# interview and cache restore settle). Rung 1, review-gated.
+SECURITY_LOCK_BOOT_GRACE_S: Final = 600
 
 # Zone presence mode values
 ZONE_MODE_AWAY: Final = "away"

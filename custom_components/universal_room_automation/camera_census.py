@@ -1,6 +1,6 @@
 """Camera integration and person census for Universal Room Automation v3.5.0."""
 #
-# Universal Room Automation vv5.108.37
+# Universal Room Automation vv5.108.38
 # Build: 2026-02-23
 # File: camera_census.py
 # Cycle 3: Camera Integration & Census Core
@@ -29,6 +29,7 @@ from homeassistant.util import dt as dt_util
 from .camera_resolver import _strip_disambiguation_suffix
 from .person_ids import slug_of as _person_slug_of
 from .person_ids import tracked_person_entity_id as _tracked_person_entity_id
+from .person_ids import person_entity_for_slug as _person_entity_for_slug
 from . import const as _ura_const  # rung-1 flags read at call time
 
 from .const import (
@@ -4838,7 +4839,8 @@ class PersonCensus:
         if not slug or slug.startswith("guest:"):
             return False
         try:
-            person_state = self.hass.states.get(f"person.{slug.lower()}")
+            person_state = self.hass.states.get(
+                _person_entity_for_slug(self.hass, slug.lower()))
         except Exception:  # noqa: BLE001
             person_state = None
         if person_state is None:
@@ -4895,7 +4897,8 @@ class PersonCensus:
             if not slug:
                 continue
             try:
-                person_state = self.hass.states.get(f"person.{slug}")
+                person_state = self.hass.states.get(
+                    _person_entity_for_slug(self.hass, slug))
             except Exception:  # noqa: BLE001
                 person_state = None
             trackers: list = []
@@ -5976,7 +5979,7 @@ class PersonCensus:
         Read-only; used by person sightings as a display hint."""
         trust_reader = self._face_latch_trust_reader()
         return self._face_latch_veto_source(
-            f"person.{str(slug).lower()}", trust_reader,
+            _person_entity_for_slug(self.hass, str(slug).lower()), trust_reader,
         ) is not None
 
     def _face_latch_trust_reader(self):
@@ -6708,7 +6711,8 @@ class PersonCensus:
                     # person-trust veto pattern). Fail-OPEN: if the person
                     # entity is missing/unknown/unavailable, count them
                     # (preserves prior behavior — conservative).
-                    person_entity_id = f"person.{person_slug.lower()}"
+                    person_entity_id = _person_entity_for_slug(
+                        self.hass, person_slug.lower())
                     # CENSUS-BLE-OVER-FACE-1 (PLANNING_census_ble_over_face.md
                     # rev 4; supersedes the 2026-10-24 "left on RAW" choice):
                     # read RAW person.state once. Raw not_home drops as before

@@ -257,6 +257,10 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     # EGRESS-DIRECTION-AWARE-IDENTITY-1 step 7 S1: "Faces often confused",
     # read fresh per crossing -> +1.
     "egress_confusable_pairs",
+    # SECURITY-LOCK-STALE-STATE-1: lock freshness N and re-page R Numbers,
+    # read live by the sweep -> +2.
+    "security_lock_stale_hours",
+    "security_lock_dead_repage_hours",
     # VISION-INTERIOR-SIGHTINGS-1 ship 2: two live cap Numbers and the
     # describe-access Select, read live from hass.data -> +3.
     "interior_vision_daily_calls",
@@ -446,7 +450,8 @@ def test_options_reload_suppress_keys_count_matches_part2_scope():
     # +1 PERSON-PROFILE-PREFERENCES-1 step 8 §10.1 person_profiles -> 134
     # +3 VISION-INTERIOR-SIGHTINGS-1 ship 2 interior caps + describe access -> 137
     # +1 EGRESS-DIRECTION-AWARE-IDENTITY-1 step 7 S1 egress_confusable_pairs -> 138
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 138
+    # +2 SECURITY-LOCK-STALE-STATE-1 lock freshness N + re-page R Numbers -> 140
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 140
 
 
 # ---------------------------------------------------------------------------

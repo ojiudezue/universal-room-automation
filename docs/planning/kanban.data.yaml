@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-11-18'
+  last_reconciled: '2026-11-19'
   history_file: docs/planning/kanban.history.yaml
   # BOARD-AUTONOMY-PROGRESS-1: append one entry each time a card is concluded
   # autonomously (built / parked / waiting_operator / shipped / done). The
@@ -18706,10 +18706,11 @@ cards:
     the F2 zone-vs-house divergence with zero witnesses) is LOW marginal benefit today (no active problem)
     — PARKED with organic trigger, see MEMORY-ZONE-PHANTOM-WRITER-1.'
 - id: HOUSE-STATE-FIRST-PRINCIPLES-1
+  arc_close_2026_11_19: "DONE per AUDIT_arc_close_sweep_2026_11_19.md (aa572b18e)."
   arc_cut_v5_108_18: "1a building now"
   title: Rethink the house state machine from first principles; ARRIVING fired by any occupancy is a legacy assumption the lock, alarm and alert code keeps working around
   thread: presence
-  status: shipped_organic
+  status: done
   shipped_version: v5.108.19
   batch: person-sightings
   created: '2026-11-13 04:00'
@@ -18729,7 +18730,7 @@ cards:
   - 'Operator 2026-11-13: AWAY has been accurate and responsive recently; the audit 32% false-AWAY figure was a bad measurement (short real absences counted as false) and is corrected. Keep AWAY as the trusted anchor of the occupancy axis; do not add an uncertain value without evidence.'
   - 'Operator hypothesis 2026-11-13: arrival may not be a house state at all; it is closer to a mode/event fed by egress (direction-aware door crossings, person sightings) and the pre-arrival work (geofence/BLE approach, HVAC pre-arrival). If it stays a state, it is fed by much narrower conditions (resident arrival evidence), never by plain occupancy. The proposal must test both options against the consumers.'
   FINDING_2026-11-13: 'AUDIT_house_state_first_principles_2026_11_13.md: only AWAY and GUEST come from evidence; HOME_DAY/EVENING/NIGHT are the clock; SLEEP is someone home in the sleep window (all 203 SLEEP->WAKING at 06:00); ARRIVING and WAKING are 1-minute shims; VACATION never fired; consumers each re-collapse the enum. AWAY false 6/19 (32%) recent; 43% of real resident arrivals had no house arrival. External systems keep who-is-home separate from mode; none treat motion after away as arrival. Proposal: axes occupancy / residency / period, guest and vacation as overlays, per-person arrival and departure events (pre-arrival = expected-arrival mode), legacy house_state derived for migration; arrival-as-event wins for every access consumer; retires ARRIVING, WAKING and the lockout taint. Smallest version: publish residency + arrival events + occupancy alongside the enum and move lock regime and exterior severity first.'
-  next: 'APPROVE/PICK: accept the axis model and arrival-as-event (recommended) -> I write the Tier-3 plan (smallest version first) with two plan reviews.'
+  next: "Done 2026-11-19 (arc-close sweep)."
   rank: {value: 9, time_criticality: 5, effort: 8}
 - id: HOUSE-STATE-LOG-MISSING-AWAY-ROWS-1
   title: house_state_log has ~553 transitions into ARRIVING with no AWAY row before them, so AWAY entry counts are undercounted
@@ -34257,9 +34258,11 @@ cards:
   paged_2026_11_11_overnight: "Paged once in the consolidated overnight Pushover (priority -1, quiet)."
   operator_decision_2026_11_12: "Operator picked A: the night failsafe runs in all paused shared-space rooms (supersedes the 10-18 no-lights-off-when-paused ruling for the 23:00 failsafe only)."
 - id: SECURITY-LOCK-STALE-STATE-1
+  measured_2026_11_18: "AUDIT_lock_report_staleness_2026_11_18.md (8 d recorder): garage lock had NO real report 11-16 07:37 -> 11-18 14:51 CST (~55 h; the 11-15 20:42 date above was wrong) while garage cameras logged 14/2/10 egress events on 11-16/17/18. Nothing noticed: no anomaly rows; only an offline digest notice 11-18 15:41 (not a page). Code: security.py:1838-1842 treats unavailable/unknown as offline, no other action; trusts locked with no age check (:1850); offline notice deduped 1/day in RAM (:1903-1933). State-row age and last_reported alone false-page (front 25.9 h, master 31.9 h max gaps, overnight). Proposed freshness = max(last_reported, last_changed, zwave node last_seen) (node 3 last_seen ~hourly, p90 1.1 h); N = 12 h, or 3 h if egress/door evidence after the last report; page immediately and ping before trusting locked; an unavailable swept lock pages, not digest. Unmeasured: whether Kwikset last_seen updates during silence (node 10 last_seen entity not in the state machine)."
   title: Lock sweep trusts a lock state the lock stopped reporting days ago, so a physically unlocked door is never relocked
   thread: security
-  status: inbox
+  status: shipped_organic
+  shipped_version: v5.108.38
   tier: 2
   created: '2026-11-18 14:55'
   updated: '2026-11-18 14:55'
@@ -34849,6 +34852,7 @@ cards:
   DONE_2026-11-13: 'Operator: "Do it now... Monitor". Applied 00:13 CST via options flow camera_census: only egress_cameras, perimeter_cameras, door_groups changed (diff vs backup). 20 min watch: house stayed sleep throughout, URA unavailable entities 5 -> 3 (fewer), no lock/alarm/cover/climate logbook changes.'
   next: 'None. Patio/Study B not added (operator ~99% garage+front); revisit only if weekly labels show patio crossings matter.'
 - id: EGRESS-OUTCOME-WEEKLY-LABEL-1
+  arc_cut_v5_108_38: "blocked on operator phone answers"
   arc_cut_v5_108_37: "separate arc work, not in the step 7 S1 release"
   arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
   arc_cut_v5_108_32: "person-sightings batch, separate surface from interior describe"
@@ -34876,9 +34880,10 @@ cards:
   next: 'ANSWER: was Jaya''s phone with her all day 11-11; do Ojini and Ziri carry phones with trackers? (resolves ~20 of 30 REVIEW rows) -> I finish labels and compute the misrecognition rate; ship D8a soon to stop losing vetoed names.'
   rank: {value: 5, time_criticality: 6, effort: 1}
 - id: INTERIOR-PATH-MAP-1
+  arc_close_2026_11_19: "DONE per AUDIT_arc_close_sweep_2026_11_19.md (aa572b18e)."
   title: Interior camera path map (outside > door > inside), built from the operator fixture, stored as a validated file with const fallback like the exterior seams
   thread: identity
-  status: shipped_organic
+  status: done
   shipped_version: v5.108.16
   batch: person-sightings
   created: '2026-11-12 22:00'
@@ -34887,11 +34892,11 @@ cards:
   links: {parent: FACE-ARRIVAL-REBUILD-1, related: [EXTERIOR-SEAM-FILE-LOADER-1]}
   origin: {date: '2026-11-12', gist: 'Operator dictated garage/back, front-door and patio paths; docs/planning/FIXTURE_camera_paths_interior.md.'}
   why: 'Direction confidence, path scoring, vision batch chains, exit-chain matching for guests. Review rev8 H3: do not reshape door_interior_neighbours; use the seam-file mechanism. DAG, not list (entry way and foyer sit in two stages).'
-  next: 'Me: build as plan D7 after rev-8 fixes; resolve names via CameraResolver; measure hop lags; diff learned vs operator map.'
+  next: "Done 2026-11-19 (arc-close sweep)."
   rank: {value: 8, time_criticality: 5, effort: 5}
 - id: EGRESS-DIRECTION-AWARE-IDENTITY-1
-  due: '2026-11-18 10:00'
-  due_note: 'ship v5.108.37 (step 7 S1) + set Faces often confused to jaya|ezinne, jaya|oji'
+  due: '2026-11-19 10:00'
+  due_note: 'v5.108.37 released + installed 11-18 evening (house asleep); restart when awake, live-validate, set Faces often confused to jaya|ezinne, jaya|oji'
   operator_2026_11_17_pairs_and_06: "Ok on 0.6 / Jaya Ezinne not only confusable pair. It can also be Jaya Oji. (CONF_EGRESS_CONFUSABLE_PAIRS does not exist yet: proposed in the step 7 plan 2026-11-14, built with S1 as a Coordinator Manager options field; initial jaya|ezinne, jaya|oji.)"
   operator_2026_11_17_step7_answers: "1 - yes 2 - yes. We should do face after phone if gaps remain on ident. Phone is more reliable now 3 - yes. 4 - more details please face plus phone - more details please"
   arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
@@ -34933,6 +34938,7 @@ cards:
   next: 'Me: builder wiring load-at-setup + fallback + D4 + D5 with a wire-in test; two reviews; ship.'
   rank: {value: 8, time_criticality: 7, effort: 3}
 - id: VISION-CROSSING-ANALYSIS-1
+  arc_cut_v5_108_38: "umbrella, waits on the row 6 re-score"
   arc_cut_v5_108_37: "separate arc work, not in the step 7 S1 release"
   residual_2026_11_17_ledger_restart_reset: "AUDIT_crossing_ledger_reason_unknown_2026_11_17.md: all 77 ledger term rows in 7 days applied=false reason=unknown because the ledger state is RAM-only and resets to boot/unknown on every HA restart; only the 900 s empty-house anchor makes it known (1 anchor in 3.5 days, 11-17 08:42, erased by the 08:50 v5.108.35 restart). Known ~34 min in 3.5 days with ~13 restarts. Blocks the interior ledger floor (row 7) and any ledger promotion. Measuring anchor opportunity + restart-gap safety (AUDIT_crossing_ledger_restart_known_time_2026_11_17.md) before proposing a restore-across-restart rule."
   arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
@@ -34984,6 +34990,7 @@ cards:
   operator_2026_11_14_default_on: 'Should be on by default if there are cameras in the house. => Vision Assisted Census switch defaults ON when the install has at least one camera (registry: any camera entity from a camera integration), OFF otherwise; a stored off still wins. Safe because awareness equals trust until vision leads (CD4 flip), and the switch never reaches Away, security, locks or HVAC.'
   operator_2026_11_14_v6: 'It feels like the last ship of this arc should move to v6.x? This is a major arc. And its going to lead to OC and personalization and Ai enhancements for rooms. / Btw we don''t need to be so conservative on shipping this live as soon as the arc matures and comes together. step 8 is fine. You better get a move on. => v6.0.0 = arc step 8 (named arrivals + first personalization acting on a recognised person); ship arc pieces live as they mature.'
 - id: CENSUS-DECONFLICTION-LEDGER-1
+  arc_cut_v5_108_38: "blocked on operator A/B anchor pick"
   arc_cut_v5_108_37: "separate arc work, not in the step 7 S1 release"
   paged_2026_11_18_overnight: 'Paged 02:10 CST, notify.madronehapushover priority -1 (quiet).'
   sharp_problem: 'The crossing ledger is almost never in a known state (1 anchor in 4 days), so the vision-assisted census adds nothing: held radar inputs block the empty-house anchor indefinitely.'
@@ -35015,6 +35022,7 @@ cards:
   revival_trigger: 'Either: (a) the crossing ledger misses its drift bars in PLANNING_census_deconfliction.md (bar a: residue 0 on < 80% of >= 10 empty anchors, or any |residue| > 1; bar a2: reconcile share of resident departures > 20%) over the 7-day window, and the misses trace to unattributed crossings; or (b) the house-state rung of the promotion ladder is reached and needs a count written into total_persons. Check at every crossing-vision ship and at the bar disposition (P2-D6).'
   next: 'Parked. Revisit at the bar disposition; stays linked to VISION-CROSSING-ANALYSIS-1 after the plan ships so the arc-close gate keeps seeing it.'
 - id: REGISTRY-NOT-NAMES-1
+  residual_2026_11_18_ble_confidence_parse: "From BLE-CONFIDENCE-SCANNER-NAME-PARSE-1 (closed, recovered): person_coordinator.py:2115 split(distance_to_) and _get_area_scanners match scanner names from entity ids. Works today; registry-resolve only when this sweep reaches person_coordinator (only proven code supersedes correct code)."
   arc_cut_v5_108_37: "separate arc work, not in the step 7 S1 release"
   arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
   arc_cut_v5_108_32: "person-sightings batch, separate surface from interior describe"
@@ -35024,7 +35032,8 @@ cards:
   arc_cut_v5_108_22: "umbrella sweep, children carded"
   arc_cut_v5_108_21: "house-wide sweep, clusters in progress"
   title: Replace every entity-name / suffix / slug guess (platform, NVR family, device, person, room) with registry lookups, house-wide
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.108.38
   tier: 2
   batch: person-sightings
   links: {parent: VISION-CROSSING-ANALYSIS-1, related: [NVR-WITNESS-CONSOLIDATION-1, PERSON-AWARENESS-READ-API-1]}
@@ -35037,6 +35046,7 @@ cards:
   rank: {value: 9, time_criticality: 6, effort: 6}
   sweep_2026_11_13: 'AUDIT_registry_not_names_sweep_2026_11_13.md: 171 raw hits, 8 clusters, ~45 decision sites. Children: ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1, BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1. NVR gaps for the witness plan: perimeter_alert.py:2179 snapshot name, camera_census.py:3440 _2 branch, :652 person-in-name (use translation_key). Cross-NVR pairing is not a registry fact (Frigate devices have no MAC): one explicit pairing resolver. Lock proximity mapping by name (security_lock_regime.py:1934). 48 URA-owned *_camera_person_detected collide with Protect suffix. CI guard: AST scan with per-function counts, shrinking allowlist with owner card and reason, warn then fail; runtime name_fallback_total counter with NM trip-wire. Order: room resolver, BLE person, NVR gaps, pairing resolver, lock proximity, counters.'
 - id: ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1
+  built_2026_11_19: "Built e037ff441 + 4761b7919 on feature/room-occupied-registry (new room_entities.py; R1-R5 registry-resolved, R6-R8 slug fallbacks counted, R10 untouched; 37 matching rooms byte-identical golden; 25/25 drills RED). Residual for the operator: memory_baseline `_is_room_suppressed` (R3b) is DEAD in production (hass.data[DOMAIN][entry_id] holds the coordinator, not a dict), so its suppression gate never applies; fixing it would switch the gate ON for every room = a behaviour change -> operator decision, not part of this build."
   arc_cut_v5_108_37: "separate arc work, not in the step 7 S1 release"
   arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
   arc_cut_v5_108_32: "person-sightings batch, separate surface from interior describe"
@@ -35046,7 +35056,8 @@ cards:
   arc_cut_v5_108_22: "planned, next registry child"
   arc_cut_v5_108_21: "planned, plan fix pending"
   title: Room occupied sensor looked up by a slug-built entity id; 11 of 47 rooms have a different real id, so the HVAC fan-off-while-occupied guard (and memory/NM readers) silently fail open there
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.108.38
   tier: 2
   batch: person-sightings
   links: {parent: REGISTRY-NOT-NAMES-1}
@@ -35087,16 +35098,17 @@ cards:
   rank: {value: 7, time_criticality: 5, effort: 3}
   SEAM_CONFLICT_2026_11_14_overnight: 'Cross-plan conflict found overnight 11-14 (cross-work reconciliation). PLANNING_music_following_repair.md D1 (~:135-145, knob table ~:316) gates music following on the person BLE confidence (NEW CONF_MF_MIN_BLE_CONFIDENCE, default 0.5, carried in the person_coordinator.py ~:1059 event) and pushes the 8 ft distance gate live. Measured (AUDIT_ble_person_sensor_resolution_2026_11_14.md section 2): person BLE confidence is a CONSTANT 0.3 for Ezinne/Ziri/Jaya and 0.5 for Oji since 10-20, because Bermuda stopped creating the per-scanner distance sensors (BERMUDA-DISTANCE-SENSORS-DEAD-1); closest_distance is never stored (stale-dict bug). BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1 moves Oji 0.5 -> 0.3. So, as planned, music D1 would skip every move for everyone (0.3 < 0.5) once both ship, and its distance gate has no input. Resolution needed before the music build: either the confidence/distance producer is re-based on the live per-phone Bermuda sensors first (BERMUDA card pick A), or D1 must not gate on person confidence until it is real (D0 should measure it and find the constant). Recorded on MUSIC-FOLLOWING-TRANSFER-REPAIR-1, BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1 and BERMUDA-DISTANCE-SENSORS-DEAD-1.'
 - id: BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1
+  arc_close_2026_11_19: "DONE per AUDIT_arc_close_sweep_2026_11_19.md (aa572b18e)."
   arc_cut_v5_108_21: "later step (registry sweep), investigating"
   title: Person BLE distance sensors found by name (oji_udezue) instead of the person's device_trackers; Oji matches 0 of his iphone_oji_* Bermuda sensors and gets the fixed 0.5 confidence
-  status: shipped_organic
+  status: done
   shipped_version: v5.108.22
   tier: 2
   batch: person-sightings
   links: {parent: REGISTRY-NOT-NAMES-1, related: [PERSON-AWARENESS-READ-API-1]}
   origin: {date: '2026-11-13', gist: 'Found by the registry-not-names sweep; name mismatch verified live.'}
   why: 'person_coordinator.py:1838-1853 searches by person slug; live 2026-11-13: 14 sensor ids contain iphone_oji and distance, 1 contains oji_udezue and distance; aggregation.py:6179 finds 0 sensor.bermuda_* per person. .storage/person lists each person''s device_trackers; person_coordinator.py:1782-1790 ignores them. Downstream impact of Oji''s fixed 0.5 confidence not yet traced (music following now gates on BLE confidence, so it matters).'
-  next: 'Me: Tier-2 plan review of PLANNING_ble_person_sensor_registry_resolve.md (in flight 11-14 overnight), fix plan findings, then build in a worktree to review (2 code reviews A/B + validator). No deploy overnight.'
+  next: "Done 2026-11-19 (arc-close sweep)."
   rank: {value: 9, time_criticality: 7, effort: 4}
   audit_2026_11_14: 'AUDIT_ble_person_sensor_resolution_2026_11_14.md: registry path works for all four persons (person -> bermuda-platform device_tracker -> device -> area/distance sensors). Name match also causes cross-person contamination (Ezinne, Ziri, Jaya each pick up 12 foreign scanner-named sensors). Confidence is constant (Oji 0.5, others 0.3) and decides nothing (only get_room_occupants < 0.3). closest_distance is written into the previous tick dict and lost (person_coordinator ~1922) and no sensor supplies it. Fix scope: one registry helper (pick the bermuda tracker explicitly, count None, no name fallback, NO auto-enable: it would enable ~101 sensors and reload Bermuda), migrate area lookup and aggregation ~6170. Producer repair split to BERMUDA-DISTANCE-SENSORS-DEAD-1.'
   operator_2026_11_14_bermuda_naming: 'Yes bermuda basically uses BLE inderneath and names its sensors after that irk name. We have to understand the prefix from the integration to disambiguate. => Disambiguate by DEVICE membership, not the name prefix: person -> its bermuda-platform device_tracker (from .storage person device_trackers) -> that tracker device -> the sensors registered on that device (entity registry device_id). Sensor names (IRK-derived prefix, scanner suffix like _distance_to_jaya_3) are never parsed; a scanner named after a person cannot leak in because it is not on that person device.'
@@ -35124,6 +35136,7 @@ cards:
   disposition_2026_11_17_overnight: "REFUTED-but-fertile, closed. Premise (provider call keeps running and billing after URA's timeout) is not supported by the installed llmvision 1.7.1 source: the service handlers await the request inline and providers.py:527-538 awaits an unshielded session.post, so a cancel propagates (HA core path checked only in the local 2026.2.3 source, not live 2026.11.1). Billing after a client disconnect is provider-side and unknown. The probe found a different real defect on the same surface, verified by me at /config/custom_components/llmvision/media_handlers.py: on cancel or ffmpeg timeout the downloaded temp file is not removed (removal at :841-845 is outside any finally) and the ffmpeg kill at :833 is inverted ('if returncode is not None: terminate()', so a running ffmpeg is never killed). New card LLMVISION-CANCEL-CLEANUP-UPSTREAM-1 carries it. Draft: docs/planning/DRAFT_llmvision_timeout_leak_upstream_issue.md."
   updated: '2026-11-17 02:07'
 - id: LLMVISION-CANCEL-CLEANUP-UPSTREAM-1
+  arc_cut_v5_108_38: "blocked on operator approval to post"
   arc_cut_v5_108_37: "separate arc work, not in the step 7 S1 release"
   arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
   title: llmvision leaves its downloaded video temp file and a running ffmpeg behind when a call is cancelled or ffmpeg times out (upstream report)
@@ -35145,16 +35158,17 @@ cards:
   rank: {value: 2, time_criticality: 1, effort: 1}
   refs: [docs/planning/DRAFT_llmvision_timeout_leak_upstream_issue.md]
 - id: PERIMETER-GLOBAL-EGRESS-MUTE-1
+  arc_close_2026_11_19: "DONE per AUDIT_arc_close_sweep_2026_11_19.md (aa572b18e)."
   arc_cut_v5_108_21: "built and reviewed, ships in batch 2"
   title: One global egress stamp from any door camera mutes ALL perimeter cameras for 120 s, chaining for as long as door cameras keep firing (driveway camera muted ~25 min on 11-14), with no known-resident check
-  status: shipped_organic
+  status: done
   shipped_version: v5.108.22
   tier: 2
   batch: person-sightings
   links: {related: [PERIMETER-ZONE-AGREEMENT-FIX-OR-REMOVE-1, NVR-WITNESS-CONSOLIDATION-1, PERSON-AWARENESS-READ-API-1]}
   origin: {date: '2026-11-14', gist: 'Found while checking why v5.108.20 wrote no gate rows after restart.'}
   why: 'AUDIT_perimeter_silence_post_v5_108_20.md: perimeter_alert.py:1370-1387 drops any perimeter person edge within 120 s (window :301) of ANY egress-camera on-edge (egress cameras madrone_g6_entry, doorbell_lite, front_door_aerial, garage_a_2; stamp :938-951), before cooldown, gates and dispatch, so no notification and no gate row. 2026-11-14 01:20-01:45Z doorbell_lite / garage_a fired continuously after a 01:19Z arrival and every one of 12 g5_bullet edges was suppressed. Pre-existing (not in the v5.108.20 diff). Security: a stranger on the driveway while a resident is at a door is never alerted. Reconcile with egress identity (F3) and the read API: suppress only for a known resident crossing at a related door, scoped by camera adjacency, bounded in total length, and log the suppression as a gate decision.'
-  next: 'Me: plan (Tier 2, reconciliation with egress validation per operator rule), after the v5.108.20 gate rows are live-validated.'
+  next: "Done 2026-11-19 (arc-close sweep)."
   rank: {value: 9, time_criticality: 7, effort: 3}
   operator_2026_11_14_decisions: 'A. Alert now, name it afterwards. Garage A - g5, doorbell lite, Rear PTZ. G6 and Front aerial - Sonoff Cam, Front ptz, Utilities PTZ'
   resolved_2026_11_14: 'Separate egress_mute_covers map (not the seam ring): garage_a -> g5_bullet, doorbell_lite, rear_ptz; madrone_g6_entry and front_door_aerial -> sonoffwindow (camera.sonoffwindow, Frigate, in perimeter_cameras), front_side_ptz, utilities_ptz. Plan review a36fc42d FIX-PLAN; rewrite in progress.'
@@ -35172,7 +35186,8 @@ cards:
   arc_cut_v5_108_24: "after 3a/3b, sized plan owed (LAYER-LEAK-CLEANUP-PLAN-1)"
   arc_cut_v5_108_23: "behind the arc"
   title: "Close the person-awareness layer's remaining leaks (34 groups after ship 3a/3b) in a few grouped cleanup cards, driving the guard's allowlist total down"
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.108.38
   tier: 2
   batch: person-sightings
   links: {parent: PERSON-AWARENESS-READ-API-1, related: [G6-ONE-BLE-ROOM-READ-1, PERSON-ID-INLINE-SWEEP-1, PRESENCE-BOOT-SEED-FROM-VIEW-1, BLE-ARRIVAL-PRODUCER-HVAC-GATED-1, EGRESS-DIRECTION-AWARE-IDENTITY-1, NVR-WITNESS-CONSOLIDATION-1]}
@@ -35454,8 +35469,10 @@ cards:
   why: "P3-D1 + P3-D5 + P3-D8 (+ P3-D0 knobs) from PLANNING_crossing_vision.md Phase 3. Operator Go 2026-11-15. Full suite 22,788 passed (1 order-dependent flake, passes alone); orchestrator mutation on both P3-D8 sites RED (7 and 12 tests)."
   next: "Dispose by the discriminator at the next sweep (query, do not watch)."
 - id: VISION-AMBIGUOUS-CROSSINGS-1
-  due: '2026-11-18 18:00'
-  due_note: 'pull grades (who+notes) and re-score door direction + name accuracy'
+  arc_close_2026_11_19: "DONE per AUDIT_arc_close_sweep_2026_11_19.md (aa572b18e)."
+  rescore_2026_11_18: "AUDIT_door_scoring_and_names_2026_11_18.md: 56 grades (36 in/out: front 27, garage 9). Tracker 23/36 (all 13 errors entry->exit), always-in 20/36; I4 v1 30/36 but HOLDOUT (17 grades after 11-17) 13/17 = tracker, so its earlier 17/19 was an in-bias fit: not a direction source. P3-D6 bar unmet everywhere (front best Wilson LB 0.67 n=27). Vision direction unscorable: it exists only on crossings since v5.108.36 (11-17) and no grades overlap yet. Names unscorable: 0 grades carry who. v5.108.36 live: vision answers passing/unclear on most crossings (16/22 ambiguous = passing), i.e. many ambiguous crossings are passers-by. Next measurement needs the 41-card names batch g20261118-0634 graded."
+  due: '2026-11-20 18:00'
+  due_note: 'pull the names batch g20261118-0634 grades; score vision direction (post-11-17 crossings) + name accuracy + S1 anchors'
   residual_2026_11_17_p3_d0e: "P3-D0e approach probe complete (AUDIT_crossing_vision_p3_d0e_approach_2026_11_17.md): R-c LLM montage 13/15 decided (bar 88%), R-a Frigate stored events 13/18 lenient / 8/12 strict, R-b YOLOX 13/16 / 8/11, R-b frame-diff 15/18 (= always-in baseline) / 7/8. All NO-GO; P3-D10 stays unbuilt. Binding constraint: 4 out grades of 19; revisit approach clips at ~15 out grades. 33 of 60 calls used. Note: R-b downloaded a 35 MB YOLOX model + pip packages into .claude/tmp without asking (surfaced to operator)."
   residual_2026_11_17_day_audit: "AUDIT_arc_day_validation_2026_11_17.md: 35 of 54 crossings ambiguous (26 = one yard-walker burst 11-16 09:25-10:41), vision never called on an ambiguous crossing: EXPECTED, watching ambiguous is P3-D3 (CROSSING_VISION_WATCH_AMBIGUOUS), not built yet (corrected same day); all 19 crossing_vision_ledger terms applied=false reason=unknown; 07:58 11-17 ezinne entry contradicted by vision text (walks away, SUV leaves). Investigating."
   residual_2026_11_17_door_scoring: "AUDIT_door_direction_scoring_2026_11_17.md on the 27 grades (19 direction-scorable): production tracker 10/19 right, all 9 misses entry called exit (one-sided bias); vision run1 10/11; I4 interior-timing 17/19 (no holdout, beats always-in by 2). P3-D2 passes its own gate -> build; P3-D3 build recorded-only; P3-D10 approach clips unscored and EXPIRE 2026-11-19; P3-D11 direction part fails the P3-D6 bar. No instrument reports no_cross (tracker wrote crossings for all 5 no_cross grades)."
@@ -35464,7 +35481,7 @@ cards:
   arc_cut_v5_108_25: "arc step 2b, door-vision evaluation first"
   title: "Crossing vision watches every crossing, including the ones the validator cannot give a direction (20-53% of crossings), and vision supplies the direction and count there"
   thread: identity
-  status: shipped_organic
+  status: done
   shipped_version: v5.108.36
   batch: person-sightings
   tier: 3
@@ -35495,7 +35512,7 @@ cards:
   operator_2026_11_15_go_v5_108_27: "Go (Tier 3 checkpoint for v5.108.27: P3-D1 error text, P3-D5 restart-safe cap 93, P3-D8 stuck-excluded anchor rule with sleep/unknown fail-closed gate, max_tokens 4000)."
   operator_2026_11_15_p3d8: "Door vision stuck sensor - yes (P3-D8: an input the room has stuck-excluded via p22_continuous / act-mode chatter / promoted stuck_dutycycle stops holding the empty-house anchor; a dead input still holds). Orchestrator treats the Phase 3 plan as approved to build on branches (each deploy still gets its Tier 3 checkpoint)."
   plan_ready_2026_11_15: "Phase 3 plan (PLANNING_crossing_vision.md at 50bffd62; census + interior plans amended alongside) passed four review rounds: completeness + build-prediction/G (810075a3), closure (25b30764), final (5f602cd3); orchestrator re-grep of 50bffd62 confirmed the H1 getter fix (new camera_input_room_stuck_excluded over clients p22_continuous / chatter / stuck_dutycycle, all real at coordinator.py:3763, 3077, 3831), guard changes written as deltas only, PASS_ROUND_TRIP_MIN_N 20, deadline E + 320 s."
-  next: "WAIT on operator grades (urakanban /grade/, 6 of 88 done): pull_grades -> score every direction instrument once -> build P3-D2 recording route / P3-D3 direction / P3-D10-D11 tracker extension from what passes."
+  next: "Done 2026-11-19 (arc-close sweep)."
 - id: MEDIAROOM-FAN-LEFT-ON-STUCK-SENSORS-1
   arc_cut_v5_108_34: "keeps S4-S6 secondary fan work, separate scope after the census reset prerequisites"
   arc_cut_v5_108_33: "keeps S4-S6 secondary fan work, separate scope after the census reset prerequisites"
@@ -35567,6 +35584,7 @@ cards:
   validation_2026_11_15: "v5.108.25 restart: no effect yet. The URA camera area map reads entity area only and every camera entity has area null, so moving the DEVICE area changes nothing until ZONE-CAMERA-DISCOVERY-DEVICE-AREA-1 ships (AUDIT_v5_108_25_watched_set_2026_11_15.md). Harmless; keep the move (it is the correct area and the fix will use it)."
   next: "Parked with its dependency ZONE-CAMERA-DISCOVERY-DEVICE-AREA-1 (operator parked the camera area map); revisit with it."
 - id: EGRESS-TRACKER-DIRECTION-1
+  arc_cut_v5_108_38: "blocked on the names-batch score"
   arc_cut_v5_108_37: "separate arc work, not in the step 7 S1 release"
   arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
   arc_cut_v5_108_32: "person-sightings batch, separate surface from interior describe"
@@ -35584,13 +35602,14 @@ cards:
   why: "AUDIT_door_vision_accuracy_2026_11_14.md: 6 of 17 readable clips mislabelled (arrivals labelled exit at the 18:59 party, 19:45, 16:14, 21:42), and 21 of 25 clustered pairs were one pass emitting both directions. Vision lands 10-200 s late and cannot correct synchronous readers: the census egress-face union (transit_validator.py:2575-2600, an F2 trust input) evicts an arriving face on a mislabelled exit; arrival notifications say the wrong thing. Review G: a pass-level dedup in _resolve_direction fixes 'one pass emits both' at the source for every reader."
   next: "Me: slot in PLANNING_crossing_vision.md §7 right after P3-D4, gated on P3-D0 (d) (opposite pairs share a Frigate event id); P3-D0 numbers are its baseline; plan + Tier 3 reviews before build."
 - id: CROSSING-GRADING-PAGE-1
+  arc_close_2026_11_19: "DONE per AUDIT_arc_close_sweep_2026_11_19.md (aa572b18e)."
   arc_cut_v5_108_37: "separate arc work, not in the step 7 S1 release"
   arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
   arc_cut_v5_108_32: "crossing vision track (arc map row 6), not interior describe"
   title: "LAN-only grading page for door crossings (urakanban /grade/) so the operator's grades become the direction/count answer key"
   operator_2026_11_15_no_cross: "Grading needs a - didn't cross option. For example, into the garage, but not out. to the outside (built: homelab acd2e4c page+server value no_cross; URA c7d929cb pull_grades maps no_cross -> no_pass)."
   thread: identity
-  status: in_progress
+  status: done
   batch: person-sightings
   tier: 1
   created: '2026-11-15 18:00'
@@ -35598,8 +35617,9 @@ cards:
   links: {parent: VISION-CROSSING-ANALYSIS-1, related: [VISION-AMBIGUOUS-CROSSINGS-1, EGRESS-TRACKER-DIRECTION-1]}
   origin: {date: '2026-11-15', gist: 'Operator: "An actual page published with homelab? Best so it is out of band with chat." / "I can grade what you send me to accomplish the goal. No real limit."'}
   why: "Every direction instrument scored 13-14/17 against an agent-made answer key with at least two doubtful labels (21:42:22 likely out; 15:12:14 ambiguous). The operator's grades replace it. Built: homelab-automation cbf5597 (server.js /api/grade + grades.jsonl, protected from rsync --delete), URA 67eab598 (scripts/grading/make_grade_batch.py, pull_grades.py -> quality/tests/fixtures/crossing_operator_grades.json). Family footage stays on the LAN site only."
-  next: "Me: batch 2 leads with all 46 answer-key clips, then pairs and recent; after grading, pull_grades.py and re-score every instrument (vision, I4, Elk/cover, I1 v3 directed rule, aerial/G6 motion rules) against operator labels."
+  next: "Done 2026-11-19 (arc-close sweep)."
 - id: DOOR-VISION-GROUP-UNDERCOUNT-1
+  arc_cut_v5_108_38: "blocked on data (no 3+ group crossings since 11-17)"
   arc_cut_v5_108_37: "separate arc work, not in the step 7 S1 release"
   arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
   arc_cut_v5_108_32: "crossing vision track (arc map row 6), not interior describe"
@@ -35616,9 +35636,10 @@ cards:
   why: "8 of 41 answered crossings undercounted, all groups of 3+ (18:59 vision 4 vs ~9; 21:24 2 vs 4; 21:28 2 vs 3; 18:43 6 vs 7); 24 of 41 calls included an empty sampled frame; the 16:19 blank showed 4 people in the clip. The census F-LEAD gate cannot pass with groups undercounted. Fix candidates: event-centred frames around the crossing timestamp, more frames or a second pass when camera peak >= 3, the existing clip route (video_analyzer), and store the error text on error rows."
   next: "Me: plan amendment to PLANNING_crossing_vision.md together with VISION-AMBIGUOUS-CROSSINGS-1 (one amendment, one review), then build."
 - id: DEAD-CAMERA-DEVICE-RULE-1
+  arc_close_2026_11_19: "DONE per AUDIT_arc_close_sweep_2026_11_19.md (aa572b18e)."
   title: "Layer ship 3b: a camera is a registry device, and the camera-down page fires only when every paired NVR device has lost it (CameraTwinHealth owner, device-level inputs, house tracker for unwatched cameras)"
   thread: identity
-  status: shipped_organic
+  status: done
   shipped_version: v5.108.25
   batch: person-sightings
   tier: 3
@@ -35630,8 +35651,9 @@ cards:
   why: 'Before 3b a dead Frigate entity with a live Protect twin paged HIGH and was released as dead; multi-camera Protect/Reolink sensors resolved to no camera, so S1/S2 never watched them. 3b: pages follow INV-DEAD-CAMERA (every member device lost, latest loss + cap), holds follow INV-DEAD-INPUT at device level, rooms SUPPRESS only when the owner pages the group, bounded DEFER while the owner is not ready.'
   reviews_2026_11_14: "Tier 3: A, B, D, G, D2 (SHIP after fix-ups), C per-site mutation 542 mutants FIX-REQUIRED (2 HIGH test gaps, no production defect) -> 32 tests added (3c3d8063, 5d8b831d), 51 drills RED. Orchestrator mutations: pages_device gate -> 6 RED; all->any in _group_dead -> 26 RED; restored clean."
   operator_2026_11_15_tier3_go: "Go. (Tier 3 checkpoint for v5.108.25: garage doorbell / hallway / TrackMix / garage_a/b room-input pages and the anchor staying on per-device holds were both put to the operator in the checkpoint message.)"
-  next: 'Me: wait for the pre-merge extras (source-mutation, D7 hygiene, isolated), then merge, deploy v5.108.25, install, restart only once the house is awake, and live-validate.'
+  next: "Done 2026-11-19 (arc-close sweep)."
 - id: NVR-WITNESS-CONSOLIDATION-1
+  arc_close_2026_11_19: "PARK per AUDIT_arc_close_sweep_2026_11_19.md (aa572b18e). Revival trigger: the interior D4 census flip is scheduled (W2 before it)."
   arc_cut_v5_108_37: "separate arc work, not in the step 7 S1 release"
   arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
   arc_cut_v5_108_32: "person-sightings batch, separate surface from interior describe"
@@ -35647,7 +35669,7 @@ cards:
   INSTANCE_2026_11_14_dead_camera_per_entity: "Drift #15. Operator 2026-11-14: 'I assume if even one nvr has the cam it doesn't count as dead.' Not true: camera_stream_health.py (S1 develop, S2 batch-2 :182-330) resolves each input to its own device's camera entity and calls it dead after 120 s unavailable; the W1 Frigate-to-sibling pairing (camera_resolver.py:137-161, :1651 develop) is never consulted. So a dead Frigate entity with a live Protect twin is held then released, and on the census-p2 ledger it can block the empty-house anchor. Fix in W2: a camera counts as dead only when every paired NVR entity for the physical camera is dead (pair via the W1 registry resolver, never names); mutation-anchored test per site (room S1 exclusion, S2 hold/release, ledger held-input). Rides with the core-census G7 swap."
   arc_cut_v5_108_21: "W1 ships here, W2-W6 later"
   title: One shared Frigate-vs-Protect witness layer (who saw it, agreement history) with policy kept per consumer; crossing vision gets Protect as a second witness
-  status: planned
+  status: parked
   batch: person-sightings
   tier: 3
   links: {parent: VISION-CROSSING-ANALYSIS-1, related: [CENSUS-DOOR-TALLY-ATTRIBUTION-PARKED-1]}
@@ -35659,7 +35681,7 @@ cards:
   operator_2026_11_13_agreement_record: 'One record of how often the two NVRs agree on each camera, learned once and used everywhere: "Critical for learning. Has to be baked into the design. Note this." => DESIGN REQUIREMENT: the shared layer stores raw per-NVR fire events and keeps a per-camera agreement history as a first-class output; each consumer computes agreement over its own window from it; the plan cannot ship without it.'
   probe_2026_11_13: 'AUDIT_protect_clip_witness_probe_2026_11_13.md, verdict MODERATE. Clip access easy: HA unifiprotect proxy /api/unifiprotect/video/{nvr}/{camera}/{start}/{end} and /video/{nvr}/{event_id} (views.py:275/:332) returned 200 video/mp4 live on 2026.11.1; all 4 door cameras have Protect person sensor + event entity + camera and record always. llmvision video_analyzer takes a local path or http//api URL (video_file), not a stream; untested on a Protect clip (cost). Event route 400s while the event is ongoing; use the time-range route. 7-day agreement on 73 anchored crossings: +-10 s both 46 / Frigate only 20 / Protect only 7; +-30 s 54/14/5. madrone_g6_entry lopsided (10/19 Frigate only), truth unmeasured.'
   FINDING_garage_a_protect_leg_2026_11_13: 'garage_a Protect person sensor fired 85x in 7 days but none of 71 garage_a crossings in 14 days got confidence 0.9 or a Protect trigger: the Protect leg appears not to reach transit_validator._count_platforms_fired. Cause unverified. Folded here (same surface the shared layer replaces); verify cause at plan time, fix in this cycle unless it is a one-line config issue, then fix now.'
-  next: 'Me: plan amendment to the operator after perimeter Part A and crossing vision Phase 1 ship. Open unknowns: garage_a Protect leg; llmvision on a Protect clip (one paid dry call needs operator ok); NVR disagreement ground truth (use the weekly labelling run).'
+  next: "Parked 2026-11-19; trigger: the interior D4 census flip is scheduled (W2 before it)."
   plan_2026_11_13: 'PLANNING_nvr_witness_layer.md (fd5e5be3): nvr_witness.py records every Frigate/Protect person fire per physical camera, episodes, persisted per-camera agreement history (INV-W-ONE-EPISODE), shared corroborated(cam, t, window_s); family via _engine_tag; policy per consumer (INV-W-OPTOUT byte-identical). garage_a cause: camera.garage_a_2 is the only _2 Frigate camera entity at a door and the resolver never pairs it with its Protect twin (no shared MAC/identifier); fix W1 accepts the Frigate device object name as evidence. Order W0 probe, W1 (ship ahead), W2 core+transit (Tier 3), W3 trip-wire, W4 crossing vision + Protect clips (time-range route, fills the 26% unmatched), W5 perimeter + census. Plan review #1 running.'
   open_questions_2026_11_13: 'Q1 analyse both NVR clips every crossing or only on disagreement (rec: disagreement, knob to all); Q2 one paid llmvision call on a Protect clip before W4 (rec yes); Q3 agreement history in HA storage not a DB table (rec storage); Q4 ship W1 ahead (rec yes).'
   status_note: 'planned; plan reviews then build after crossing vision Phase 1 and stream health S1.'
@@ -35777,6 +35799,7 @@ cards:
   links_added_2026_11_14: 'blocked_by BERMUDA-DISTANCE-SENSORS-DEAD-1 for D1 (the BLE confidence/distance gate inputs are dead); the rest of the plan (join direction, transfer_queue schema, knobs, listeners) is not blocked.'
   updated: '2026-11-14 02:25'
 - id: PHONE-LEFT-BEHIND-TRANSIENT-FLICKER-1
+  arc_close_2026_11_19: "PARK per AUDIT_arc_close_sweep_2026_11_19.md (aa572b18e). Revival trigger: a flicker coincides with a house-state change or an AWAY decision."
   arc_cut_v5_108_37: "separate arc work, not in the step 7 S1 release"
   arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
   arc_cut_v5_108_32: "person-sightings batch, separate surface from interior describe"
@@ -35789,7 +35812,7 @@ cards:
   arc_cut_v5_108_18: "with PLB build"
   title: Phone-left-behind flags flicker on for one 30 s poll at arrival ticks and after restarts (17 in 8 days, none real)
   thread: presence
-  status: pre_planning
+  status: parked
   batch: person-sightings
   created: '2026-11-13 04:30'
   updated: '2026-11-17 02:12'
@@ -35797,16 +35820,17 @@ cards:
   links: {parent: FACE-ARRIVAL-REBUILD-1, related: [PHONE-LEFT-BEHIND-CAMERA-LEG-1]}
   origin: {date: '2026-11-13', gist: 'Measured by the phone-left-behind plan: 10 arrival ticks (house still AWAY while BLE places person in a room), 6 first-tick-after-restart before census ready, 1 other.'}
   why: 'House-state trust input; transient true flags can briefly change the AWAY veto denominator.'
-  next: "Me: Tier-2 plan for a dwell (>= 2 polls) or census-ready gate on the phone-left-behind flag, with the 19 measured transients as the acceptance fixture."
+  next: "Parked 2026-11-19; trigger: a flicker coincides with a house-state change or an AWAY decision."
   rank: {value: 4, time_criticality: 2, effort: 2}
   verify_2026_11_17_overnight: "STILL-REAL (AUDIT_inbox_verify_sweep_2026_11_17.md). The camera-leg swap it waited on shipped v5.108.21 (display-only, does not touch the flicker). Recorder, 7 days: 19 on-spells, all ~30 s (one poll), none > 60 s, none real; last 11-14 16:06 CDT. No dwell or census-ready gate exists in the sensor code. Dependency met; ready to plan."
 - id: PHONE-LEFT-BEHIND-CAMERA-LEG-1
+  arc_close_2026_11_19: "DONE per AUDIT_arc_close_sweep_2026_11_19.md (aa572b18e)."
   arc_cut_v5_108_19: "plan ready, build next"
   arc_cut_v5_108_18: "plan rev 2 now"
   arc_cut_v5_108_16: "needs D1 live first, planned next"
   title: Phone-left-behind sensors never see a camera sighting (TransitValidator camera-sighting store never holds a named sighting; person_id is a display name)
   thread: presence
-  status: shipped_organic
+  status: done
   shipped_version: v5.108.21
   batch: person-sightings
   created: '2026-11-12 22:00'
@@ -35816,9 +35840,10 @@ cards:
   origin: {date: '2026-11-12', gist: 'Found by the person-sightings planner (rev 3).'}
   why: 'All four phone-left-behind sensors show hours_since_camera_sighting null. Move to the new last-sighting accessor after D1 ships. House-state input: Tier 2-DB minimum.'
   RULING_2026-11-13: 'Operator chose H1 option A: the camera leg is display only (attributes), it does not change the phone-left-behind verdict.'
-  next: 'Me: plan rev 2 with ruling A (branch plan/phone-left-behind-camera), then build (Tier 2-DB, 3 reviews).'
+  next: "Done 2026-11-19 (arc-close sweep)."
   rank: {value: 5, time_criticality: 3, effort: 3}
 - id: DEPARTURE-ACTIONS-1
+  arc_close_2026_11_19: "PARK per AUDIT_arc_close_sweep_2026_11_19.md (aa572b18e). Revival trigger: step 8 departure pause shipped v5.108.33; revive when the operator names another departure action."
   arc_cut_v5_108_37: "separate arc work, not in the step 7 S1 release"
   arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
   arc_cut_v5_108_32: "person-sightings batch, separate surface from interior describe"
@@ -35832,7 +35857,7 @@ cards:
   arc_cut_v5_108_16: "needs phase 2 departures"
   title: Nothing acts on a named departure; direction-aware egress makes departures available
   thread: identity
-  status: inbox
+  status: parked
   batch: person-sightings
   created: '2026-11-12 22:00'
   updated: '2026-11-17 02:12'
@@ -35840,10 +35865,11 @@ cards:
   links: {parent: FACE-ARRIVAL-REBUILD-1}
   origin: {date: '2026-11-12', gist: 'Plan rev 8 section 2B: no departure signal this cycle.'}
   why: 'Candidate consumers: last-resident-out arming (LAST-RESIDENT-EGRESS-ARM-1), HVAC setback, personalization.'
-  next: 'Me: after D8 ships, decompose consumers with the operator.'
+  next: "Parked 2026-11-19; trigger: step 8 departure pause shipped v5.108.33; revive when the operator names another departure action."
   rank: {value: 5, time_criticality: 2, effort: 4}
   verify_2026_11_17_overnight: "CARD-WAS-WRONG on 'nothing acts on a named departure' (AUDIT_inbox_verify_sweep_2026_11_17.md). A departure consumer shipped in v5.108.33: the arrival-music departure pause (music_following.py:1821-1915), keyed on residency edges, not egress. It has written 0 arrival_music episodes so far (too soon or a defect, not determined). D8 (direction-aware egress) is NOT shipped (card planned; the egress veto at transit_validator.py:2303-2307 ignores direction), so the card's block stands for egress-keyed departures."
 - id: FACE-ARRIVAL-REBUILD-1
+  arc_close_2026_11_19: "DONE per AUDIT_arc_close_sweep_2026_11_19.md (aa572b18e)."
   arc_cut_v5_108_37: "separate arc work, not in the step 7 S1 release"
   arc_cut_v5_108_21: "parent of the arc, continues"
   arc_cut_v5_108_19: "parent arc card"
@@ -35851,7 +35877,7 @@ cards:
   arc_cut_v5_108_16: "main card stays open until phase 2 ships"
   title: 'PERSON SIGHTINGS (main card): one identity-at-place layer (face, egress, later vision) harmonized with egress and census; direction-aware egress identity; access needs a second signal'
   thread: identity
-  status: in_progress
+  status: done
   APPROVED_2026-11-12: 'Operator approved the plan (rev 8, plus fixes from its two rev-8 plan reviews) and asked: "capture everything and main card, connected cards and drive to finish. And for it to be actually complete." Plan: docs/planning/PLANNING_person_sighting_layer.md on branch plan/face-arrival-rebuild. Arc = batch person-sightings; every deliverable below ships or is parked with a trigger, and each ship is checked by a wire-in test that drives the real path, not a status table.'
   arc_deliverables:
   - 'D0 probes (P1-P7, incl. vetoed-arrival count) — read-only gate'
@@ -35883,7 +35909,7 @@ cards:
   - Evaluate an interior track sequence (camera order along paths) with measurement first.
   links:
     related: [ZONE-CAMERA-DISCOVERY-DEVICE-AREA-1, PERSON-PROFILE-PREFERENCES-1, FRIGATE-DOOR-FACE-TUNING-1]
-  next: 'Me: planner writes Tier-3 plan; two plan reviews; then APPROVE from operator.'
+  next: "Done 2026-11-19 (arc-close sweep)."
   DECISION_2026-11-13_comfort: 'Operator on review D L-2 (HVAC pre-arrival and music-follow accept a face arrival with no second signal): fine for an actually identified known person; keep thinking about 2nd and 3rd order consequences. Phase 2 gate: before FACE_ARRIVAL_INTERIOR_ENABLED goes on, list the 2nd/3rd-order effects per comfort consumer (misrecognition, a resident seen while their tracker says away, repeated triggers) with a measured misrecognition rate from the weekly labels.'
   rank: {value: 8, time_criticality: 4, effort: 8}
 - id: HVAC-PRECOOL-FLOOR-BELOW-ARRIVAL-HEAT-1
@@ -35907,10 +35933,11 @@ cards:
   rank: {value: 3, time_criticality: 1, effort: 2}
   verify_2026_11_17_overnight: "STILL-REAL in code, dormant live (AUDIT_inbox_verify_sweep_2026_11_17.md; code re-read by me). _precool_effective_high (hvac_predict.py:1667-1674) floors at max(solar_bank_floor, low + MIN_DEADBAND) with no cap at the arrival heat setpoint. The stand-down it waited on shipped v5.108.14. Live Solar Banking Cool Floor = 74.0 (>= 72), so the defect cannot fire today. Parked. Revival trigger: Cool Floor set below 72, or the next HVAC pre-cool cycle (fold in then)."
 - id: LOCK-RELEASE-ON-ARRIVING-BODY-EVIDENCE-1
+  arc_close_2026_11_19: "DONE per AUDIT_arc_close_sweep_2026_11_19.md (aa572b18e)."
   arc_cut_v5_108_16: "separate Tier-3 lock-regime plan, switches off"
   title: A camera seeing any body while the house is away moves it to ARRIVING, which releases the garage lockout and auto-disarms security with no identity
   thread: security
-  status: shipped_organic
+  status: done
   shipped_version: v5.108.18
   batch: person-sightings
   created: '2026-11-12 19:10'
@@ -35932,7 +35959,7 @@ cards:
   FINDING_2026-11-13: 'AUDIT_arriving_on_body_evidence_2026_11_13.md: 2,642 AWAY->ARRIVING edges since 03-12; 6.4% real arrivals, 48.6% correcting a false AWAY, 32.8% no resident evidence. 68.5% driven by zone sensors with census 0, not cameras. Zero access releases ever: lockout, away-lock and auto-follow switches all off; lockout code dates from 11-07. Phone edges lead ARRIVING (median 35 s, 16/17). Fix shape: drop house_state arriving (and the HOME_* follow-on at :858-860) as a lockout release trigger; real arrivals use the person path; trip-wire on any release with trigger house_state:arriving and no resident edge in 120 s; same for auto-follow disarm.'
   REVISIT_ON_RESHAPE: 'Operator 2026-11-13: lockout ships now but must be revisited when HOUSE-STATE-FIRST-PRINCIPLES-1 lands (move onto the new arrival signal, retire the taint workaround).'
   APPROVED_2026-11-13: 'Operator approved PLANNING_lock_release_on_arriving.md rev 3 with night re-lock = yes and house-sitter = yes. Auto-follow (plan section 13) out of this build; operator decision pending (park recommended). Build started on feature/lock-release-arriving.'
-  next: 'Me: D0 probe, build, validator, four Tier-3 reviews, orchestrator verify, operator pre-deploy go; ship before the lockout is switched on (~11-16).'
+  next: "Done 2026-11-19 (arc-close sweep)."
   rank: {value: 9, time_criticality: 6, effort: 5}
 - id: LOCK-LOCKOUT-UNAVAILABLE-AT-SETUP-1
   title: A garage lockout still unavailable when URA sets up counts as nothing locked; if the house is awake at recheck it stays locked with no backstop, release or page
@@ -36051,6 +36078,7 @@ cards:
   next: 'Me: after 1a validates, revise Part B against what 1a shipped, two plan reviews, then build.'
   rank: {value: 6, time_criticality: 3, effort: 5}
 - id: PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1
+  arc_cut_v5_108_38: "ready, next builder slot"
   arc_cut_v5_108_37: "separate arc work, not in the step 7 S1 release"
   arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
   arc_cut_v5_108_32: "person-sightings batch, separate surface from interior describe"
@@ -36076,6 +36104,7 @@ cards:
   measured_2026_11_16_overnight: "CONFIRMED, and wider than the card said (read-only, ~02:25 CST). (1) Code: NM dedup key is f'{coordinator_id}:{title}:{location}' (notification_manager.py:4809-4825); severity only picks the window (DEDUP_WINDOWS: CRITICAL 60 s, HIGH 300, MEDIUM 900). Perimeter dispatch uses a constant title 'Perimeter Alert - Person Detected' (perimeter_alert.py:1807) and location=entity_id (:1996-2004). So the MED-2 premise 'the key includes severity' (test_circling_label_transition.py:346-377 docstring) is WRONG in every config, not only when persons_home=0: a circling exemption hop on the same camera inside the window is always deduplicated, and the pin test passes only because it asserts severities on a mocked nm.async_notify and never runs _is_deduplicated (bug class #62 hollow anchor). No early return between async_notify entry and the dedup check stops a hop-1 from seeding the cache (:1531-1731). (2) Live: memory_episodes perimeter_gate_decision rows with reason classification_transition_exemption since 11-14 = 13. 8 had a perimeter_alert notification_log row at the same location within the previous 5 min; ALL 8 have no log row at the hop (deduplicated rows are never logged), incl. 2026-11-15 23:53:06Z sonoffwindow CRITICAL 13 s after a 23:52:53Z dispatch. Of the 5 without a prior same-location row, 3 were logged at the hop. Discriminates: prior-row present -> 0/8 delivered; absent -> 3/5. Harm: the first page reached you; the escalation (circling, higher severity) never did."
   paged_2026_11_16_overnight: "Paged 2026-11-16 02:37 CST via notify.madronehapushover priority -1 (quiet, wakes nobody) with the PICK."
 - id: LOCK-UNCOUNTED-RETURN-ARM-REDUNDANT-1
+  arc_close_2026_11_19: "DONE per AUDIT_arc_close_sweep_2026_11_19.md (aa572b18e)."
   result_2026_11_18_overnight: 'NOT REDUNDANT - kept and pinned. Trace (security_lock_regime.py): every DELIVERED house edge into or out of away/vacation/arriving with reason != NONE sets _episode_saw_empty (~935-942), as do the boot read (~735-746) and the boot recheck (~1092-1100); the only clears are engages (house is sleep/vacation/guest then) and reason=NONE writes (_end_episode_flags ~1049). So with every edge delivered, the arm at ~1513 adds nothing. But it is the only defence when a house edge never reaches the regime (SC bridge suppression or a dropped dispatch) and the live house reads away/arriving. Deleting it would remove a resident-lockout page for that case, for one line of savings: DROP the delete. Before tonight NO test pinned the arm (mutating it to False left the lock suites green). Added test_uncounted_return_pages_when_away_edge_was_missed (quality/tests/test_lock_release_arriving.py): sleep engage, house silently set to away, unavailable->home rejected -> arrival_uncounted. Drill: arm -> False = that test RED (1 failed / 315 passed across test_lock_release_arriving + test_sc_garage_lockout); restored, 316 passed, source tree clean. Test-only, committed to develop; no runtime change.'
   arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
   arc_cut_v5_108_32: "person-sightings batch, separate surface from interior describe"
@@ -36094,7 +36123,7 @@ cards:
   links: {parent: HOUSE-STATE-FIRST-PRINCIPLES-1}
   origin: {date: '2026-11-13', gist: 'Review C-4 of house-state step 1a; no behaviour change.'}
   why: 'Dead arm invites drift; INFO log noise on every exterior alert.'
-  next: 'None - closed.'
+  next: "Done 2026-11-19 (arc-close sweep)."
   rank: {value: 2, time_criticality: 1, effort: 1}
   verify_2026_11_17_overnight: "PARTIALLY-DONE (AUDIT_inbox_verify_sweep_2026_11_17.md). Half 2 done: ARRIVING evidence is now computed and logged only in ARRIVING (perimeter_alert.py:2157, :2190). Residual: the away/arriving arm is still in security_lock_regime.py:1513-1514; redundancy is the original review's label, not proven here."
 - id: PERSON-ID-NORMALISE-ONE-RULE-1
@@ -36276,6 +36305,7 @@ cards:
   decisions_2026_11_14: 'Answer: NVR body-count error never measured vs truth; only door evidence (hand-label 22/30 = 73%). Plan rewrite: D0 measures interior NVR count error vs graded truth; D2 = sampling + correction budget sized by error (not only on disagreement); new describe-what-is-happening deliverable; cloud Luna accepted now with a move-to-local trigger (homelab hardware, not Mac Ollama); every park is an operator question.'
   operator_2026_11_14_dynamic_sampling: 'It can be dynamic. Especially close to entires and not so much in steady state. => D2 sampling rule: dense sampling in a near-entry window after a door crossing / room entry while counts are changing, sparse in steady state; window and steady-state rate are knobs; amend plan cbf25751 at its plan review.'
 - id: BLE-ARRIVAL-PRODUCER-HVAC-GATED-1
+  arc_close_2026_11_19: "PARK per AUDIT_arc_close_sweep_2026_11_19.md (aa572b18e). Revival trigger: HVAC pre-arrival switch turned off, or step 8 BLE arrival music needs it at v6.0.0."
   arc_cut_v5_108_37: "separate arc work, not in the step 7 S1 release"
   arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
   arc_cut_v5_108_32: "person-sightings batch, separate surface from interior describe"
@@ -36284,7 +36314,7 @@ cards:
   arc_cut_v5_108_23: "after layer ship 3a, before v6.0.0"
   arc_cut_v5_108_22: "operator pick A, planned after layer ship 3a, before v6.0.0"
   title: "Turning off HVAC pre-arrival also stops the BLE arrival producer, so the lock regime and music lose BLE arrivals (policy lives in the producer, not the consumer)"
-  status: planned
+  status: parked
   tier: 2
   batch: person-sightings
   links: {parent: PERSON-AWARENESS-READ-API-1, related: [STALE-SOURCE-ARRIVAL-CONSUMERS-1]}
@@ -36292,7 +36322,7 @@ cards:
   origin: {date: '2026-11-14', gist: 'Producer/consumer sweep for layer ship 3 (prober row 16, audit §8).'}
   why: "hvac.py:1241 writes the person coordinator's pre-arrival flag from the HVAC pre-arrival switch (switch.py:4571). person_coordinator.py:1151 skips the BLE SIGNAL_PERSON_ARRIVING send while it is off. So an HVAC comfort choice silently switches off an F5 producer that security, the lock regime and music also consume. CLAUDE.md rule: a policy for one consumer gates that consumer, never the producer. The BLE arrival is mostly a later duplicate of the geofence arrival (PLANNING_ble_seen_at_home_arrival.md: 5 of 5 measured, +8 to +41 s), so the live loss is small. Ship 3 keeps behaviour identical: its G9 setter is a no-op swap."
   operator_2026_11_14_pick: "Ble arrivals for hvac - A"
-  next: "Me: A approved. The producer always sends, and HVAC ignores BLE arrivals while its pre-arrival switch is off. Plan right after layer ship 3 (it builds on dispatch_person_arriving and the G9 setter), and land it before v6.0.0 so step 8 arrival music keeps BLE arrivals (ship 3 rev 2 review DG MEDIUM-5). Behaviour change, Tier 2."
+  next: "Parked 2026-11-19; trigger: HVAC pre-arrival switch turned off, or step 8 BLE arrival music needs it at v6.0.0."
   rank: {value: 4, time_criticality: 2, effort: 2}
 - id: CAMERA-PERSON-DETECTED-FUSED-STREAM-HEALTH-1
   title: Room fused camera_person_detected sensor (fan_veto's live camera leg) does not honour camera stream health
@@ -36332,6 +36362,7 @@ cards:
   next: 'Me: fold into the W6b plan: watch perimeter cameras through CameraInputStreamHealth (one getter), no second rule. Seam: layer ship 3b keeps house-level twin stamps.'
   rank: {value: 2, time_criticality: 1, effort: 2}
 - id: BLE-CONFIDENCE-SCANNER-NAME-PARSE-1
+  recovered_2026_11_18: "Closed: recovered with no code once the per-scanner sensors came back (11-17 ~12:00 UTC). person_presence_snapshots since 11-17 13:00 UTC: Ezinne 95x0.9 / 3x0.7 / 3x0.5 / 0x0.3; Jaya 56x0.9 / 19x0.7 / 3x0.5; Oji 16x0.5 / 1x0.7 / 3x0.9 (only 7 of his 47 per-scanner distance_to sensors enabled in the registry: an operator UI enable, reloads Bermuda once). No decision reads person confidence (only the < 0.3 occupant filter); music following no longer reads it (8 ft gate retired 11-14, const.py:4596-4615). Name-parse residual (person_coordinator.py:2115 split(distance_to_), _get_area_scanners name match) moved to REGISTRY-NOT-NAMES-1 and left as correct code."
   arc_cut_v5_108_37: "separate arc work, not in the step 7 S1 release"
   trigger_fired_2026_11_17: "Revival trigger met: the per-scanner distance sensors are live again (BERMUDA-DISTANCE-SENSORS-DEAD-1 resolved 11-17). READY to plan; person BLE confidence has read a constant 0.3/0.5 since 10-20."
   arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
@@ -36341,16 +36372,17 @@ cards:
   arc_cut_v5_108_23: "inert until per-scanner sensors return"
   arc_cut_v5_108_22: "inert until per-scanner sensors return"
   title: "Person BLE confidence reads the scanner name from the distance sensor's entity_id (split 'distance_to_') instead of the registry"
-  status: planned
+  status: done
   tier: 2
   batch: person-sightings
   links: {parent: REGISTRY-NOT-NAMES-1, related: [BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1]}
   created: "2026-11-14 15:30"
   origin: {date: '2026-11-14', gist: 'Registry fix review A, finding A-L4.'}
   why: "person_coordinator.py ~2050 (fix/ble-person-registry-resolve 477c8dbf): _calculate_confidence splits the entity_id on 'distance_to_' to name the scanner. The unique_id already carries the scanner MAC. A live registry read shows all 57 of Oji's scanner MACs resolve, but each MAC is a connection on 2-3 devices (the integration's device plus Bermuda's scanner device), and 184 MACs are shared by devices whose areas differ or are missing. So MAC -> area needs a decided rule: prefer Bermuda's own preference, the bluetooth device area, then the mac device. Inert today: the per-scanner sensors are dead until the Kiosk Satellite fix (BERMUDA-DISTANCE-SENSORS-DEAD-1)."
-  next: "Me: plan now (trigger fired 11-17); reuse Bermuda area-resolution order (bermuda_device.py:370-377); registry, not entity_id parsing."
+  next: "Done 2026-11-18 (no code)."
   rank: {value: 3, time_criticality: 1, effort: 2}
 - id: G6-ONE-BLE-ROOM-READ-1
+  arc_close_2026_11_19: "PARK per AUDIT_arc_close_sweep_2026_11_19.md (aa572b18e). Revival trigger: PLB on > 2 h in a week, a room hold traced to a PLB-on person, or a second occupancy consumer of persons_in_room."
   arc_cut_v5_108_37: "separate arc work, not in the step 7 S1 release"
   arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
   arc_cut_v5_108_32: "person-sightings batch, separate surface from interior describe"
@@ -36359,16 +36391,17 @@ cards:
   arc_cut_v5_108_23: "after layer ship 3a"
   arc_cut_v5_108_22: "dispatched when layer ship 3a merges"
   title: "One 'persons in this room' BLE read for every reader (room occupancy, fan recheck, census), with the phone-left-behind filter on room occupancy"
-  status: planned
+  status: parked
   tier: 2
   batch: person-sightings
   links: {parent: PERSON-AWARENESS-READ-API-1}
   created: "2026-11-14 15:00"
   origin: {date: '2026-11-14', gist: 'Split from layer ship 3 (plan rev 2 Q1) so ship 3 stays a provable no-op.'}
   why: "Contract §2.4a G6: one BLE-in-room meaning. Today the readers (room occupancy coordinator.py:3315, 4440, 5003; fan recheck _area_id_to_room plus a slug fallback; phone_trustworthy twins) each derive it their own way, and there are two meanings (#63). Operator 2026-11-14 answered YES to applying the phone-left-behind filter to room occupancy, after the §2.4a probe (zero or near-zero changed rooms = ship). It changes room behaviour in ~40 rooms, so it ships separately from the no-op ship 3."
-  next: "Me: dispatch planning the moment ship 3 merges, in parallel with step 7. Run the §2.4a 7-day probe first."
+  next: "Parked 2026-11-19; trigger: PLB on > 2 h in a week, a room hold traced to a PLB-on person, or a second occupancy consumer of persons_in_room."
   rank: {value: 7, time_criticality: 4, effort: 4}
 - id: PERSON-ID-INLINE-SWEEP-1
+  arc_close_2026_11_19: "SUPERSEDED by LAYER-LEAK-CLEANUP-1 D1 per AUDIT_arc_close_sweep_2026_11_19.md (aa572b18e)."
   arc_cut_v5_108_37: "separate arc work, not in the step 7 S1 release"
   arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
   arc_cut_v5_108_32: "person-sightings batch, separate surface from interior describe"
@@ -36377,17 +36410,18 @@ cards:
   arc_cut_v5_108_23: "after layer ship 3a"
   arc_cut_v5_108_22: "after layer ship 3a"
   title: "Nine inline f\"person.{slug}\" person-id builds (five inside identity vetoes that fail open) move to the one person-id rule"
-  status: planned
+  status: done
   tier: 2
   batch: person-sightings
   links: {parent: REGISTRY-NOT-NAMES-1, related: [PERSON-AWARENESS-READ-API-1]}
   created: "2026-11-14 15:00"
   origin: {date: '2026-11-14', gist: 'Leaks audit P6 plus the ship 3 rev 2 re-grep (nine sites, not seven).'}
   why: "Sites include camera_census.py:4760, 4817, 6630; person_sighting.py:605; transit_validator.py:2020; person_coordinator.py:1773; perimeter_alert.py:1118 (list re-verified in ship 3 rev 2 §3). Each builds the person entity id inline instead of person_ids.tracked_person_entity_id, so a person whose entity id is not person.<slug> fails open in the identity vetoes. Ship 3 allowlists them with this card as owner."
-  next: "Me: plan after ship 3 merges; the guard allowlist shrinks by one row per site moved."
+  next: "Done 2026-11-19 (arc-close sweep)."
   rank: {value: 6, time_criticality: 3, effort: 2}
   folded_2026_11_16: "From PERSON-ID-NORMALISE-ONE-RULE-1 (closed): latent name-vs-id readers at camera_census.py:6159-6176, 6311-6320, 3900-3912 and perimeter_alert.py:5117-5121 (line numbers as of 11-13; re-grep). __init__.py:3145-3163 rewrites entry.data to display names while options keep ids, so merged readers see ids here but names on a fresh install. Not reachable on this house; matters for the second install."
 - id: PRESENCE-BOOT-SEED-FROM-VIEW-1
+  arc_close_2026_11_19: "PARK per AUDIT_arc_close_sweep_2026_11_19.md (aa572b18e). Revival trigger: identified-persons derivation changes, or a boot AWAY with a resident home."
   arc_cut_v5_108_37: "separate arc work, not in the step 7 S1 release"
   arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
   arc_cut_v5_108_32: "person-sightings batch, separate surface from interior describe"
@@ -36396,23 +36430,24 @@ cards:
   arc_cut_v5_108_23: "after layer ship 3a"
   arc_cut_v5_108_22: "after layer ship 3a"
   title: "Presence boot seed reads a display entity's state as an input to the AWAY decision (presence.py:3283)"
-  status: planned
+  status: parked
   tier: 2
   batch: person-sightings
   links: {parent: PERSON-AWARENESS-READ-API-1}
   created: "2026-11-14 15:00"
   origin: {date: '2026-11-14', gist: 'Leaks audit H1, prober row 18 for layer ship 3.'}
   why: "At boot, presence seeds an AWAY input from a display entity's restored state instead of the census owner's read. A display view feeding a house-state decision crosses the consumer-class line (display -> house_state). Ship 3 allowlists the read with this card as owner; the fix changes boot behaviour, so it ships separately."
-  next: "Me: plan after ship 3 (Tier 2-DB minimum: house-state change)."
+  next: "Parked 2026-11-19; trigger: identified-persons derivation changes, or a boot AWAY with a resident home."
   rank: {value: 5, time_criticality: 3, effort: 2}
 - id: PERSON-AWARENESS-READ-API-1
+  arc_close_2026_11_19: "DONE per AUDIT_arc_close_sweep_2026_11_19.md (aa572b18e)."
   operator_2026_11_14_leak_groups: "Leak groups accepted but I'm going to need a size on cleaning that up. And a plan (Q10 accepted: 34 carded leak groups after ship 3a/3b; a sized cleanup plan is owed)."
   operator_2026_11_14_ship3_questions: "'Defaults are good by me' (ship 3 rev 2 Q1-Q8): G6 rest to G6-ONE-BLE-ROOM-READ-1 after ship 3a; ship 3a carries SIGNAL_RESIDENCY_EVENT if census-p2 slips; display callers stay on trust; HVAC switch = BLE-ARRIVAL-PRODUCER-HVAC-GATED-1 option A; keep SIGNAL_PERSON_SIGHTING with no listeners; pool-overhead twin deferred to NVR witness W2; Frigate-only outage = lower-priority 'one NVR down, other covering' notice, HIGH only when every NVR is dead; a dead Tier-1 input with no readable Tier-1 twin keeps blocking the anchor."
   operator_2026_11_14_contract_rev2: "Qs: 1 - yes. 2- unwired. But is there a trigger. 3 - keep it. S1 - confirm. Dead camera - sure. I assume if even one nvr has the cam it doesn't count as dead. Did we execute that shared layer we discussed? Tell me"
   arc_cut_v5_108_21: "ship 1 here, ship 2 in batch 2"
   title: One public person-awareness read API on PresenceCoordinator (F1-F5), replacing ~40 private PersonCensus reads and 14+ inline id-normalisation copies
   thread: identity
-  status: shipped_organic
+  status: done
   shipped_version: v5.108.24
   batch: person-sightings
   created: '2026-11-13 18:30'
@@ -36422,7 +36457,7 @@ cards:
   origin: {date: '2026-11-13', gist: 'Operator: "we may need a consolidated boundary crossing and person awareness function... that all consumers can [read] and producers can feed" after inspecting reuse. Inventory AUDIT_person_awareness_interface_inventory_2026_11_13.md.'}
   why: 'Expresses the F1-F5 model in code so consumers and producers stop drifting: PresenceCoordinator already owns F1/F4/F5 getters (presence.py:5409,:5433,:5436,:5907); ~20 private PersonCensus methods are called 40+ times from transit_validator/perimeter_alert/person_sighting/__init__; 5 id namespaces, 14+ name->entity copies, 5 .title() inverses. Folds PERSON-ID-NORMALISE-ONE-RULE-1 residuals (Residual A also feeds sightings + egress BLE leg). Doc drift: F3 owner in code is EgressDirectionTracker, not TransitValidator (fix manual §5.5 + plan §2A). Dead seed read presence.py:3222.'
   rev7_2026_11_13: 'Crossing vision rev 7 (62c4bb3a) builds a MINIMAL slice in its cycle: PresenceCoordinator.get_house_census(view) + view_for_class(cls) (trust for house-state/security/HVAC always). This card = the full migration (~40 private census reads, 14+ id-normalisation copies) as a parallel Tier-2 plan.'
-  next: 'Me: ura-planner Tier 2 plan (REUSE/EXTEND per inventory): public census accessors, one id-normalisation function, class-aware read views on PresenceCoordinator, migrate private reads; no behaviour change (byte-identical), mutation-anchored. Sequence alongside Phase 2 census split so vision fields land on the API.'
+  next: "Done 2026-11-19 (arc-close sweep)."
   rank: {value: 7, time_criticality: 4, effort: 3}
 - id: ANTHROPIC-API-USAGE-LIMIT-OC-LLM-1
   recheck_2026_11_18_overnight: 'INCONCLUSIVE, NOT an all-clear (02:03 CST): ha_get_logs source=system search ''usage limits'' and ''ai_task'' = 0 entries since the ~11-17 10:40 restart. That shows no failed call logged in this boot, not that the quota was lifted. Lock self-expires 12-01 00:00 UTC; card closes on a logged successful ai_task call or on 12-01.'

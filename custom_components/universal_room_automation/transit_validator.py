@@ -23,7 +23,7 @@ from homeassistant.helpers import area_registry as ar_helper, entity_registry as
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dt_util
 
-from .person_ids import display_of, slug_of, tracked_person_entity_id
+from .person_ids import display_of, person_entity_for_slug, slug_of, tracked_person_entity_id
 from . import const as _ura_const
 from .const import (
     DOMAIN,
@@ -2318,7 +2318,8 @@ class EgressDirectionTracker:
 
         # Fail-open person-tracker veto (A5: distinct "vetoed" outcome).
         try:
-            person_state = self.hass.states.get(f"person.{slug}")
+            person_state = self.hass.states.get(
+                person_entity_for_slug(self.hass, slug))
         except Exception:  # noqa: BLE001
             person_state = None
         _person_raw = (

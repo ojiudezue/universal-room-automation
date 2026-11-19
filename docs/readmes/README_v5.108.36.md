@@ -72,7 +72,11 @@ HA core restarted 10:40:14 CST (house home_day); entries loaded by 10:42:07.
 | Entries | PASS | 50/50 URA entries loaded |
 | Errors | PASS | no URA ERROR; 53 WARNINGs all boot transients (rooms "All N sensors unavailable, holding 60s", HVAC boot-settle timeout, one aggregation re-anchor delta, zone=Outside fallback); no crossing_* lines |
 | Cap rehydrate | PASS | `crossing_vision_today` / `_cap_rehydrate` on `sensor.ura_security_coordinator_outside_open_tracks_diagnostic`: state ok, cap_hold false, failed 0, calls 7 = 7 primary rows in `crossing_vision_shadow` today; repeats 0 |
-| 1-4 crossing path | Pending event | no crossing since the restart (last row 09:16); `pipeline_version` / `call_kind` / `vision_direction` not yet observed |
+| 1 Ambiguous watched, no term | PASS (11-18, `AUDIT_v5_108_36_live_crossings_2026_11_18.md`) | 11-17 13:17 to 11-18 22:42: 33 ambiguous crossings have shadow rows (22 ok, 9 clustered, 1 no_frigate_event, 1 error); none has a ledger row; all 41 ledger terms are tracker entry/exit |
+| 2 Row fields | PASS | 77 rows, all `pipeline_version` 3; 68 primary / 9 repeat; every call `recording_window`, 8 frames; all 55 ok rows carry `vision_direction` + confidence |
+| 3 Cap, budgets, no displacement | PASS | 11-17: 17 calls; 11-18: 35 primary + 7 repeats (cap 93, repeat budget 15); `skipped_busy` / `skipped_reserved` / `skipped_cap` 0, no skipped rows |
+| 4 Nothing acts on vision direction | PASS (partial) | ledger terms from tracker only; amend-failure counter clean; notifications / census / AMENDED readers not traced live (review D traced them in code) |
+| Observation | — | vision answers `passing` or `unclear` on 20 of 24 tracker-resolved crossings (agrees 4, disagrees 0) and `passing` on 16 of 22 ambiguous ones: most ambiguous "crossings" look like people passing the door, not going through it. No operator grades overlap the window yet |
 
 ## Not done (accounted)
 

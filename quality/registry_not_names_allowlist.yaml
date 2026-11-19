@@ -1,0 +1,788 @@
+# Registry-not-names guard allowlist (card REGISTRY-NOT-NAMES-1).
+# Generated 2026-11-15 from develop 2fdf0a94; classified from AUDIT_registry_not_names_sweep_2026_11_13.md section 5.
+# Key = (file, qualname, rule). Ratchet: a new key or count > max_count fails; a stale row or count < max_count fails (lower it).
+# reason: own-entity | ui-prefill | counted-fallback | pairing-resolver | display | migrate-by:<CARD-ID>
+rows:
+  - file: __init__.py
+    qualname: "_enable_hvac_occupied_entities_one_shot"
+    rule: N1_SUFFIX
+    max_count: 1
+    reason: "migrate-by:REGISTRY-NOT-NAMES-1"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "unclassified at day one"
+  - file: __init__.py
+    qualname: "async_setup_entry"
+    rule: N3_FSTR_ID
+    max_count: 1
+    reason: "migrate-by:REGISTRY-NOT-NAMES-1"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "unclassified at day one"
+  - file: _cflow_timing.py
+    qualname: "<module>"
+    rule: N7_VOCAB
+    max_count: 1
+    reason: "migrate-by:REGISTRY-NOT-NAMES-1"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "unclassified at day one"
+  - file: _devices.py
+    qualname: "async_teardown_device_tree_sweep_handles"
+    rule: N2_IN
+    max_count: 1
+    reason: "migrate-by:REGISTRY-NOT-NAMES-1"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "unclassified at day one"
+  - file: aggregation.py
+    qualname: "ZonePresenceStatusSensor.__init__"
+    rule: N4_SLUG
+    max_count: 1
+    reason: "own-entity"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "URA-owned id / location key (audit C4/C5 OWN)"
+  - file: button.py
+    qualname: "ConfigDumpButton.async_press"
+    rule: N4_SLUG
+    max_count: 1
+    reason: "own-entity"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "URA-owned id / location key (audit C4/C5 OWN)"
+  - file: button.py
+    qualname: "ExportDataButton.async_press"
+    rule: N4_SLUG
+    max_count: 1
+    reason: "own-entity"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "URA-owned id / location key (audit C4/C5 OWN)"
+  - file: camera_census.py
+    qualname: "CameraIntegrationManager._discover_full_scan"
+    rule: N1_SUFFIX
+    max_count: 3
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: camera_census.py
+    qualname: "CameraIntegrationManager._discover_full_scan"
+    rule: N3_FSTR_ID
+    max_count: 1
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: camera_census.py
+    qualname: "CameraIntegrationManager._discover_full_scan"
+    rule: N6_OBJID
+    max_count: 2
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: camera_census.py
+    qualname: "CameraIntegrationManager.resolve_camera_entity"
+    rule: N1_SUFFIX
+    max_count: 3
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: camera_census.py
+    qualname: "CameraIntegrationManager.resolve_camera_entity"
+    rule: N3_FSTR_ID
+    max_count: 1
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: camera_census.py
+    qualname: "CameraIntegrationManager.resolve_camera_entity"
+    rule: N6_OBJID
+    max_count: 2
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: camera_census.py
+    qualname: "CameraIntegrationManager.resolve_cross_platform_sensors"
+    rule: N1_SUFFIX
+    max_count: 2
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: camera_census.py
+    qualname: "CameraIntegrationManager.resolve_cross_platform_sensors"
+    rule: N3_FSTR_ID
+    max_count: 4
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: camera_census.py
+    qualname: "CameraIntegrationManager.resolve_cross_platform_sensors"
+    rule: N7_VOCAB_USE
+    max_count: 2
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: camera_census.py
+    qualname: "PersonCensus._build_frigate_person_last_camera_map"
+    rule: N1_SUFFIX
+    max_count: 3
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: camera_census.py
+    qualname: "PersonCensus._compute_face_latch_stems"
+    rule: N1_SUFFIX
+    max_count: 4
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: camera_census.py
+    qualname: "PersonCensus._compute_face_latch_stems"
+    rule: N6_OBJID
+    max_count: 3
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: camera_census.py
+    qualname: "PersonCensus._get_face_recognized_persons"
+    rule: N1_SUFFIX
+    max_count: 1
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: camera_census.py
+    qualname: "PersonCensus._get_face_recognized_persons_fresh"
+    rule: N1_SUFFIX
+    max_count: 1
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: camera_census.py
+    qualname: "PersonCensus._get_unrecognized_camera_count"
+    rule: N1_SUFFIX
+    max_count: 1
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: camera_census.py
+    qualname: "PersonCensus._resolve_face_entity_id"
+    rule: N3_FSTR_ID
+    max_count: 2
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: camera_census.py
+    qualname: "PersonCensus._resolve_face_legs"
+    rule: N1_SUFFIX
+    max_count: 2
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: camera_census.py
+    qualname: "PersonCensus._resolve_face_legs"
+    rule: N3_FSTR_ID
+    max_count: 8
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: camera_resolver.py
+    qualname: "<module>"
+    rule: N7_VOCAB
+    max_count: 7
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: camera_resolver.py
+    qualname: "CameraResolver._build_indices"
+    rule: N7_VOCAB_USE
+    max_count: 2
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: camera_resolver.py
+    qualname: "CameraResolver._compute_device_stems"
+    rule: N7_VOCAB_USE
+    max_count: 1
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: camera_resolver.py
+    qualname: "CameraResolver._engine_tag"
+    rule: N5_RE_SUFFIX
+    max_count: 1
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: camera_resolver.py
+    qualname: "CameraResolver._scan_device_entities"
+    rule: N7_VOCAB_USE
+    max_count: 5
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: camera_resolver.py
+    qualname: "_device_name_slug"
+    rule: N4_SLUG
+    max_count: 1
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: camera_resolver.py
+    qualname: "_entity_name"
+    rule: N6_OBJID
+    max_count: 1
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: camera_resolver.py
+    qualname: "_face_name_base"
+    rule: N1_SUFFIX
+    max_count: 1
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: camera_resolver.py
+    qualname: "_is_package_detector"
+    rule: N2_IN
+    max_count: 1
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: camera_resolver.py
+    qualname: "_strip_disambiguation_suffix"
+    rule: N5_RE_SUFFIX
+    max_count: 1
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: config_flow.py
+    qualname: "UniversalRoomAutomationConfigFlow._get_area_entities"
+    rule: N6_OBJID
+    max_count: 1
+    reason: "migrate-by:REGISTRY-NOT-NAMES-1"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "unclassified at day one"
+  - file: config_flow.py
+    qualname: "UniversalRoomAutomationConfigFlow._get_mobile_app_targets"
+    rule: N3_FSTR_ID
+    max_count: 1
+    reason: "ui-prefill"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "audit C8 prefill / configuration default"
+  - file: config_flow.py
+    qualname: "UniversalRoomAutomationConfigFlow._integration_config_schema"
+    rule: N3_FSTR_ID
+    max_count: 2
+    reason: "migrate-by:REGISTRY-NOT-NAMES-1"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "unclassified at day one"
+  - file: config_flow.py
+    qualname: "UniversalRoomAutomationConfigFlow.async_step_notifications"
+    rule: N3_FSTR_ID
+    max_count: 2
+    reason: "ui-prefill"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "audit C8 prefill / configuration default"
+  - file: config_flow.py
+    qualname: "UniversalRoomAutomationOptionsFlow._get_mobile_app_targets"
+    rule: N3_FSTR_ID
+    max_count: 1
+    reason: "ui-prefill"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "audit C8 prefill / configuration default"
+  - file: config_flow.py
+    qualname: "UniversalRoomAutomationOptionsFlow._get_zone_entity_unique_id_prefixes"
+    rule: N4_SLUG
+    max_count: 1
+    reason: "migrate-by:REGISTRY-NOT-NAMES-1"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "unclassified at day one"
+  - file: config_flow.py
+    qualname: "UniversalRoomAutomationOptionsFlow.async_step_default_notifications"
+    rule: N3_FSTR_ID
+    max_count: 2
+    reason: "ui-prefill"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "audit C8 prefill / configuration default"
+  - file: config_flow.py
+    qualname: "UniversalRoomAutomationOptionsFlow.async_step_notifications"
+    rule: N3_FSTR_ID
+    max_count: 2
+    reason: "ui-prefill"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "audit C8 prefill / configuration default"
+  - file: const.py
+    qualname: "<module>"
+    rule: N7_VOCAB
+    max_count: 3
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: coordinator.py
+    qualname: "UniversalRoomCoordinator._async_update_data"
+    rule: N4_SLUG
+    max_count: 2
+    reason: "own-entity"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "URA-owned id / location key (audit C4/C5 OWN)"
+  - file: coordinator.py
+    qualname: "UniversalRoomCoordinator._resolve_room_switch_entity_id"
+    rule: N3_FSTR_ID
+    max_count: 1
+    reason: "own-entity"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "URA-owned id / location key (audit C4/C5 OWN)"
+  - file: coordinator.py
+    qualname: "UniversalRoomCoordinator._resolve_room_switch_entity_id"
+    rule: N4_SLUG
+    max_count: 1
+    reason: "own-entity"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "URA-owned id / location key (audit C4/C5 OWN)"
+  - file: crossing_vision.py
+    qualname: "frigate_camera_stem"
+    rule: N3_FSTR_ID
+    max_count: 1
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: domain_coordinators/energy.py
+    qualname: "EnergyCoordinator._outage_local_readings"
+    rule: N1_SUFFIX
+    max_count: 1
+    reason: "migrate-by:REGISTRY-NOT-NAMES-1"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "audit C7 grid_enabled -> grid_status sibling"
+  - file: domain_coordinators/energy_circuits.py
+    qualname: "SPANCircuitMonitor.discover_circuits"
+    rule: N1_SUFFIX
+    max_count: 1
+    reason: "migrate-by:REGISTRY-NOT-NAMES-1"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "audit C7 span panel from name (L9)"
+  - file: domain_coordinators/energy_circuits.py
+    qualname: "SPANCircuitMonitor.discover_circuits"
+    rule: N2_IN
+    max_count: 1
+    reason: "migrate-by:REGISTRY-NOT-NAMES-1"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "audit C7 span panel from name (L9)"
+  - file: domain_coordinators/energy_const.py
+    qualname: "derive_envoy_config"
+    rule: N3_FSTR_ID
+    max_count: 13
+    reason: "ui-prefill"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "audit C8 prefill / configuration default"
+  - file: domain_coordinators/hvac_fans.py
+    qualname: "FanController._record_actuation_conflict_if_occupied"
+    rule: N4_SLUG
+    max_count: 1
+    reason: "migrate-by:ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1"
+    owner: ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1
+    note: "audit C5 room slug -> own entity id"
+  - file: domain_coordinators/hvac_fans.py
+    qualname: "FanController._resolve_room_occupied_slug"
+    rule: N4_SLUG
+    max_count: 1
+    reason: "migrate-by:ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1"
+    owner: ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1
+    note: "audit C5 room slug -> own entity id"
+  - file: domain_coordinators/notification_manager.py
+    qualname: "NotificationManager.async_notify"
+    rule: N4_SLUG
+    max_count: 1
+    reason: "migrate-by:ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1"
+    owner: ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1
+    note: "audit C5 room slug -> own entity id"
+  - file: domain_coordinators/optimization.py
+    qualname: "OptimizationCoordinator._configured_exterior_person_sensor_eids"
+    rule: N3_FSTR_ID
+    max_count: 1
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: domain_coordinators/optimization.py
+    qualname: "OptimizationCoordinator._configured_exterior_person_sensor_eids"
+    rule: N6_OBJID
+    max_count: 1
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: domain_coordinators/optimization.py
+    qualname: "OptimizationCoordinator._dispatch_config_action"
+    rule: N6_OBJID
+    max_count: 1
+    reason: "migrate-by:REGISTRY-NOT-NAMES-1"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "unclassified at day one"
+  - file: domain_coordinators/optimization.py
+    qualname: "OptimizationCoordinator._dispatch_device_action"
+    rule: N6_OBJID
+    max_count: 1
+    reason: "migrate-by:REGISTRY-NOT-NAMES-1"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "unclassified at day one"
+  - file: domain_coordinators/optimization.py
+    qualname: "OptimizationCoordinator._exterior_person_sensors"
+    rule: N3_FSTR_ID
+    max_count: 1
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: domain_coordinators/optimization.py
+    qualname: "OptimizationCoordinator._exterior_person_sensors"
+    rule: N6_OBJID
+    max_count: 1
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: domain_coordinators/presence.py
+    qualname: "PresenceCoordinator._is_known_person_in_room"
+    rule: N4_SLUG
+    max_count: 2
+    reason: "own-entity"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "URA-owned id / location key (audit C4/C5 OWN)"
+  - file: domain_coordinators/presence.py
+    qualname: "PresenceCoordinator._run_inference._phone_trustworthy"
+    rule: N4_SLUG
+    max_count: 1
+    reason: "own-entity"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "URA-owned id / location key (audit C4/C5 OWN)"
+  - file: domain_coordinators/presence_fan_recheck.py
+    qualname: "FanRecheckManager._l1_persons"
+    rule: N4_SLUG
+    max_count: 1
+    reason: "own-entity"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "URA-owned id / location key (audit C4/C5 OWN)"
+  - file: domain_coordinators/radar_tuning.py
+    qualname: "<module>"
+    rule: N7_VOCAB
+    max_count: 1
+    reason: "migrate-by:REGISTRY-NOT-NAMES-1"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "audit C7 FIELD_ENTITY_SUFFIX vocabulary"
+  - file: domain_coordinators/security_lock_regime.py
+    qualname: "LockRegimeController._is_approach_zone"
+    rule: N6_OBJID
+    max_count: 1
+    reason: "migrate-by:REGISTRY-NOT-NAMES-1"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "audit C6 approach zone compare"
+  - file: domain_coordinators/security_lock_regime.py
+    qualname: "LockRegimeController._person_for_sensor"
+    rule: N6_OBJID
+    max_count: 1
+    reason: "migrate-by:REGISTRY-NOT-NAMES-1"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "audit C6 person from proximity sensor name"
+  - file: fan_veto.py
+    qualname: "_has_camera_person"
+    rule: N3_FSTR_ID
+    max_count: 1
+    reason: "own-entity"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "URA-owned id / location key (audit C4/C5 OWN)"
+  - file: fan_veto.py
+    qualname: "_has_camera_person"
+    rule: N4_SLUG
+    max_count: 2
+    reason: "own-entity"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "URA-owned id / location key (audit C4/C5 OWN)"
+  - file: fan_veto.py
+    qualname: "_record_veto"
+    rule: N4_SLUG
+    max_count: 1
+    reason: "own-entity"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "URA-owned id / location key (audit C4/C5 OWN)"
+  - file: memory_facade.py
+    qualname: "MemoryFacade._compose_capability"
+    rule: N4_SLUG
+    max_count: 1
+    reason: "own-entity"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "URA-owned id / location key (audit C4/C5 OWN)"
+  - file: memory_facade.py
+    qualname: "MemoryFacade._compose_composition"
+    rule: N4_SLUG
+    max_count: 1
+    reason: "own-entity"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "URA-owned id / location key (audit C4/C5 OWN)"
+  - file: memory_facade.py
+    qualname: "MemoryFacade._compose_locality"
+    rule: N4_SLUG
+    max_count: 3
+    reason: "own-entity"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "URA-owned id / location key (audit C4/C5 OWN)"
+  - file: memory_facade.py
+    qualname: "MemoryFacade._resolve_live_sample"
+    rule: N3_FSTR_ID
+    max_count: 1
+    reason: "migrate-by:ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1"
+    owner: ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1
+    note: "audit C5 room slug -> own entity id"
+  - file: memory_facade.py
+    qualname: "_same_zone"
+    rule: N4_SLUG
+    max_count: 2
+    reason: "own-entity"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "URA-owned id / location key (audit C4/C5 OWN)"
+  - file: memory_writers.py
+    qualname: "_slug"
+    rule: N4_SLUG
+    max_count: 1
+    reason: "own-entity"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "URA-owned id / location key (audit C4/C5 OWN)"
+  - file: perimeter_alert.py
+    qualname: "PerimeterAlertManager"
+    rule: N7_VOCAB_USE
+    max_count: 1
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: perimeter_alert.py
+    qualname: "PerimeterAlertManager._camera_key_for_sensor"
+    rule: N1_SUFFIX
+    max_count: 1
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: perimeter_alert.py
+    qualname: "PerimeterAlertManager._followup_person_name"
+    rule: N3_FSTR_ID
+    max_count: 1
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: perimeter_alert.py
+    qualname: "PerimeterAlertManager._is_frigate_person_entity"
+    rule: N1_SUFFIX
+    max_count: 2
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: perimeter_alert.py
+    qualname: "PerimeterAlertManager._legacy_leg_fallback"
+    rule: N3_FSTR_ID
+    max_count: 3
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: perimeter_alert.py
+    qualname: "PerimeterAlertManager._near_areas"
+    rule: N3_FSTR_ID
+    max_count: 1
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: perimeter_alert.py
+    qualname: "PerimeterAlertManager._resolve_snapshot_url_and_delay"
+    rule: N1_SUFFIX
+    max_count: 1
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: perimeter_alert.py
+    qualname: "PerimeterAlertManager._strip_person_family_suffixes"
+    rule: N1_SUFFIX
+    max_count: 1
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: perimeter_alert.py
+    qualname: "PerimeterAlertManager.async_setup"
+    rule: N3_FSTR_ID
+    max_count: 1
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: perimeter_alert.py
+    qualname: "PerimeterAlertManager.async_setup._leg_tag"
+    rule: N1_SUFFIX
+    max_count: 2
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: perimeter_alert.py
+    qualname: "PerimeterAlertManager.async_setup._wire_camera"
+    rule: N1_SUFFIX
+    max_count: 9
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: person_coordinator.py
+    qualname: "PersonTrackingCoordinator._bermuda_person_sensors"
+    rule: N1_SUFFIX
+    max_count: 2
+    reason: "migrate-by:REGISTRY-NOT-NAMES-1"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "audit C4 distance sensors by person name (L3)"
+  - file: person_coordinator.py
+    qualname: "PersonTrackingCoordinator._build_scanner_room_map"
+    rule: N4_SLUG
+    max_count: 3
+    reason: "own-entity"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "URA-owned id / location key (audit C4/C5 OWN)"
+  - file: person_coordinator.py
+    qualname: "PersonTrackingCoordinator._find_bermuda_area_sensor"
+    rule: N4_SLUG
+    max_count: 1
+    reason: "migrate-by:REGISTRY-NOT-NAMES-1"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "audit C4 Bermuda area sensor by name"
+  - file: person_coordinator.py
+    qualname: "PersonTrackingCoordinator._find_person_entity"
+    rule: N3_FSTR_ID
+    max_count: 1
+    reason: "migrate-by:REGISTRY-NOT-NAMES-1"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "audit C4 name -> person.x"
+  - file: person_coordinator.py
+    qualname: "PersonTrackingCoordinator._get_area_scanners"
+    rule: N4_SLUG
+    max_count: 3
+    reason: "migrate-by:REGISTRY-NOT-NAMES-1"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "audit C4 scanner name substring"
+  - file: person_coordinator.py
+    qualname: "PersonTrackingCoordinator._resolve_person_room"
+    rule: N4_SLUG
+    max_count: 1
+    reason: "own-entity"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "URA-owned id / location key (audit C4/C5 OWN)"
+  - file: person_coordinator.py
+    qualname: "PersonTrackingCoordinator.get_ble_tier"
+    rule: N4_SLUG
+    max_count: 2
+    reason: "own-entity"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "URA-owned id / location key (audit C4/C5 OWN)"
+  - file: person_coordinator.py
+    qualname: "PersonTrackingCoordinator.get_room_occupants"
+    rule: N4_SLUG
+    max_count: 2
+    reason: "own-entity"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "URA-owned id / location key (audit C4/C5 OWN)"
+  - file: person_coordinator.py
+    qualname: "PersonTrackingCoordinator.is_room_direct_ble"
+    rule: N4_SLUG
+    max_count: 1
+    reason: "own-entity"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "URA-owned id / location key (audit C4/C5 OWN)"
+  - file: person_ids.py
+    qualname: "entity_key_slug"
+    rule: N4_SLUG
+    max_count: 1
+    reason: "own-entity"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "URA-owned id / location key (audit C4/C5 OWN)"
+  - file: person_ids.py
+    qualname: "tracked_person_entity_id"
+    rule: N4_SLUG
+    max_count: 1
+    reason: "own-entity"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "URA-owned id / location key (audit C4/C5 OWN)"
+  - file: person_sighting.py
+    qualname: "PersonSightingProducer._emit"
+    rule: N3_FSTR_ID
+    max_count: 1
+    reason: "migrate-by:REGISTRY-NOT-NAMES-1"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "unclassified at day one"
+  - file: select.py
+    qualname: "ZonePresenceModeSelect.__init__"
+    rule: N4_SLUG
+    max_count: 1
+    reason: "own-entity"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "URA-owned id / location key (audit C4/C5 OWN)"
+  - file: sensor.py
+    qualname: "UnavailableEntitiesSensor._check_dropout_episode"
+    rule: N4_SLUG
+    max_count: 1
+    reason: "own-entity"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "URA-owned id / location key (audit C4/C5 OWN)"
+  - file: switch.py
+    qualname: "SecurityLockoutOptionSwitch.__init__"
+    rule: N3_FSTR_ID
+    max_count: 1
+    reason: "migrate-by:REGISTRY-NOT-NAMES-1"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "unclassified at day one"
+  - file: switch.py
+    qualname: "_IntegrationOptionsSwitch.__init__"
+    rule: N3_FSTR_ID
+    max_count: 1
+    reason: "migrate-by:REGISTRY-NOT-NAMES-1"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "unclassified at day one"
+  - file: switch.py
+    qualname: "_room_switch_entity_id"
+    rule: N3_FSTR_ID
+    max_count: 1
+    reason: "own-entity"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "URA-owned id / location key (audit C4/C5 OWN)"
+  - file: switch.py
+    qualname: "_room_switch_entity_id"
+    rule: N4_SLUG
+    max_count: 1
+    reason: "own-entity"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "URA-owned id / location key (audit C4/C5 OWN)"
+  - file: transit_validator.py
+    qualname: "EgressDirectionTracker._count_platforms_fired"
+    rule: N2_IN
+    max_count: 3
+    reason: "migrate-by:NVR-WITNESS-CONSOLIDATION-1"
+    owner: NVR-WITNESS-CONSOLIDATION-1
+    note: "audit C1/C2/C3 NVR family / camera stem / sibling"
+  - file: sensor.py
+    qualname: "PersonProfileSensor.__init__"
+    rule: N3_FSTR_ID
+    max_count: 1
+    reason: "own-entity"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "URA-owned entity_id/unique_id built from person_ids.slug_of (rebase 2026-11-19)"
+  - file: music_following.py
+    qualname: "_slug"
+    rule: N4_SLUG
+    max_count: 1
+    reason: "own-entity"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "normalises URA room names for room-vs-room comparison (rebase 2026-11-19)"
+  - file: person_sighting.py
+    qualname: "PersonSightingProducer._describe_target"
+    rule: N4_SLUG
+    max_count: 2
+    reason: "own-entity"
+    owner: REGISTRY-NOT-NAMES-1
+    note: "matches operator text to person_ids slugs + URA room names, no HA entity ids (rebase 2026-11-19)"
+  # ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1 (2026-11-19): co2/tvoc and non-room
+  # locations keep the name-built read as the logged (DEBUG) + counted
+  # (room_entities.room_entity_name_fallback_reads) last-resort fallback.
+  - file: domain_coordinators/notification_manager.py
+    qualname: "conditioning_live_entity_id"
+    rule: N3_FSTR_ID
+    max_count: 1
+    reason: "counted-fallback"
+    owner: ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1
+    note: "co2/tvoc have no URA room key; counted by note_name_fallback_read"
+  # ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1: slugify(room_name) is compared with
+  # the URA-owned memory node slug (room:<slug>) to find the room entry; no
+  # entity id is built from it (the id then comes from the registry).
+  - file: room_entities.py
+    qualname: "_entry_for_slug"
+    rule: N4_SLUG
+    max_count: 1
+    reason: "own-entity"
+    owner: ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1
+    note: "memory node slug -> room entry match; tie returns None"

@@ -813,7 +813,10 @@ class Taint:
             return self.expr(e.value, func) if isinstance(e.value, ast.Name) else False
         if isinstance(e, ast.Call):
             name = _call_name(e)
-            if name == "tracked_person_entity_id":
+            # L4 (LAYER-LEAK-CLEANUP-1): the veto lookup helper returns a
+            # ``person.*`` id too (imported bare or as ``_person_entity_for_slug``).
+            if name in ("tracked_person_entity_id", "person_entity_for_slug",
+                        "_person_entity_for_slug"):
                 return True
             if name == "async_get_entity_id":
                 for a in list(e.args) + [k.value for k in e.keywords]:

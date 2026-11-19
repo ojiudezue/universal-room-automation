@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.108.37
+# Universal Room Automation vv5.108.38
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -8032,6 +8032,12 @@ class SecurityLastLockSweepSensor(AggregationEntity, SensorEntity):
             # commanding after the retry cap (until they change state).
             "retry_capped": sweep.get("retry_capped", []),
             "checks_today": sweep.get("checks_today", 0),
+            # SECURITY-LOCK-STALE-STATE-1 D4: freshness (absent = check off).
+            "stale": sweep.get("stale", []),
+            "freshness_signal": sweep.get("freshness_signal", {}),
+            "freshness_age_h": sweep.get("freshness_age_h", {}),
+            "stale_pages_total": sweep.get("stale_pages_total", 0),
+            "last_stale_page": sweep.get("last_stale_page"),
         }
 
     async def async_added_to_hass(self) -> None:

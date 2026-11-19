@@ -2795,6 +2795,14 @@
       }
     },
     "number": {
+      "security_lock_stale_hours": {
+        "name": "Lock Stale After",
+        "description": "A swept Z-Wave lock whose Last seen sensor has not advanced for this many hours is paged as unverified (it is no longer counted as locked). 0 = the lock freshness check is off."
+      },
+      "security_lock_dead_repage_hours": {
+        "name": "Lock Unverified Re-page",
+        "description": "While a lock stays stale, offline or unverified, page again after this many hours. 0 = page once per episode."
+      },
       "garage_lockout_arrival_hold_s": {
         "name": "Garage Lockout Suspicious Arrival Hold",
         "description": "Applies to the garage lockout and the away lock. When an arrival looks like a phone-tracker glitch (the home reading came from a device that has not moved), wait this many seconds before unlocking. Normal arrivals are never delayed. 0 = off."

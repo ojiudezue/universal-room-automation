@@ -26,6 +26,9 @@ import pytest
 
 # Reuse the sweep-trio module's HA-mock preamble AND controller factory.
 import quality.tests.test_fan_sweep_trio as _sweep_trio  # noqa: F401
+from quality.tests.test_fan_sweep_trio import (  # noqa: F401 — autouse fixture
+    _ura_room_entities_registry,
+)
 
 from custom_components.universal_room_automation.const import DOMAIN
 from custom_components.universal_room_automation.domain_coordinators.hvac_const import (
