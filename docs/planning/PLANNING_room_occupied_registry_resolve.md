@@ -11,6 +11,58 @@ Mandatory reading done, completely: `docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF
 `docs/architecture/SENSOR_FLEET_CLASSES.md`. Nothing here re-asserts a ledger claim. The plan touches no sensor class,
 occupancy producer, HVAC decision or write site. It changes how readers find a room's own entity.
 
+
+## Rev 3 (2026-11-19, develop @ 4becafb9) — refresh after the arc-close sweep; supersedes rev 2 where they differ
+
+Mandatory reading redone completely this pass: HVAC_ARCHITECTURE_STATE_OF_PLAY.md (all of it, §4.2b, §10 C1-C39) and
+PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md §1 table, §4, §4.5, S2 header. Nothing here re-asserts a ledger claim.
+
+**R3-1. Count is 10, not 11 (code and live win over the sweep).** Live probe 2026-11-19 (`ssh ha`, `.storage`
+core.config_entries + core.entity_registry, slug = `memory_facade._slugify` semantics): 47 rooms, 10 whose
+registry occupied id differs from `binary_sensor.<slug>_occupied` — the same 10 as §0.1 (e.g. Foyer
+`binary_sensor.foyer_foyer_occupied`, Jaya `binary_sensor.jaya_bedroom_bedroom_4_occupied`, Media
+`binary_sensor.media_room_occupied`, Guest Bedroom 2 `binary_sensor.upstairs_guest_bedroom_occupied`). The sweep's
+"11 of 47" is a miscount.
+
+**R3-2. The guard has NOT failed open in the recorder window (2026-11-11 → 11-19).** Of the 10 rooms only Guest
+Bedroom 2 (`fan.fan_switch_4`, Fan Mode Off), Jaya Bedroom (`fan.fanswitch_treat_wifi_jayabedroom`, Room temperature)
+and Media (`fan.media_room_ceiling_fan_2`, Off) have fans; 7 fan on→off edges happened while the registry occupied
+sensor read on (2 / 4 / 1), but none of these rooms is Fan Mode Follow thermostat, so no HVAC-tier OFF was involved
+(§4.2b: the guard only sits on HVAC-tier writes). `memory_episodes actuation_conflict` rows in the 10 rooms: 9 for
+Jaya, last 2026-08-11; 0 elsewhere. Verdict unchanged from §0.2: armed but blind, fails open the day one of these
+rooms is set to Follow thermostat. The arc-close sweep's "fail OPEN" wording means latent, not observed.
+
+**R3-3. Line cites refreshed (develop @ 4becafb9).** R1 `hvac_fans.py:1717-1726` (slug `:1624`); R2 `:2004-2035`;
+R3 `memory_baseline.py:117-134`, R3b `:56`; R4 `memory_facade.py:579-597`; R5 `notification_manager.py:~1903`;
+R6 `fan_veto.py:396` registry, `:409` slug fallback; R7 `coordinator.py:3742-3772` (fallback `:3772`); R8
+`switch.py:88-101`; R10 `presence.py:6452-6455` (compliant). Re-run grep
+`grep -rnE "f[\"'](binary_sensor|sensor|switch)\.\{[^}]*\}_"` over `custom_components/` found no new room-owned
+site; the other hits are camera / NVR / person ids owned by REGISTRY-NOT-NAMES-1 C1/C2 and
+BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1. Prior-art re-scan: still no shared room-entity resolver (`room_entities.py`
+absent; no `room_occupied(room)` read surface); NEW stands. New since rev 2: `notification_manager.py:1862` already
+resolves a switch by registry (compliant pattern, reuse).
+
+**R3-4. Operator rule 2026-11-17 "Only proven code should supersede correct code" narrows D4.** R6/R7/R8 are already
+registry-first; their slug fallback fires only on a registry miss and resolves 47/47 today. Rev 3 does NOT delete
+those fallbacks: each becomes the CLAUDE.md "logged, counted last-resort fallback" by incrementing
+`room_entity_name_fallback_reads` (key `(entry_id, key)`) before it is read. Behaviour on every live room is
+byte-identical; the counter proves live that the fallback is dead, and its deletion is a later card gated on that
+counter reading 0 (revival trigger recorded on REGISTRY-NOT-NAMES-1). R6's `title` match is kept for the same reason.
+R10 is untouched (already compliant, no slug path). D1 is still used by R6/R7/R8 for the registry leg only where it is
+a drop-in (same call); if that is not byte-identical in a reader, leave the reader's own registry call.
+Replace-only scope therefore = R1, R2, R3, R3b, R4, R5 humidity: the slug build is replaced, and for the 37 rooms
+whose ids already match the resolved id equals the old built id, so reads are byte-identical (D1 fixture test asserts
+this equality for all 37).
+
+**R3-5. Tier: Tier 2-DB (card / HVAC reader), three framing-disjoint reviews as §7 already specifies** (A
+correctness, B lifecycle + HVAC semantics, C per-site mutation). §7's "Tier 2, not Tier 2-DB" label is superseded;
+the review set is unchanged. Builder and every reviewer read the HVAC state of play completely first.
+
+**R3-6. Live criteria additions (discriminating).** D2 Live: the boot INFO line lists, for each of the 10 rooms, the
+registry id from R3-1 (old code has no such line and reads ids that 404). D4 Live: `room_entity_name_fallback_reads`
+reads 0 one hour after restart (if a fallback ever fires, the count is > 0 and names the room — a different
+observation from a silent miss).
+
 ## 0. Facts that shape the plan (code and live data win)
 
 1. **10 rooms miss today.** The `hvac_fans` and memory readers slug with `memory_facade._slugify` (`memory_facade.py:247`),
@@ -198,7 +250,7 @@ disagree and a rename before reload cannot fail the guard open. Fail-open on Non
 - **Live:** within two baseline write cycles after restart, `metric_baselines` holds rows for node `room:jaya_bedroom`
   with metrics occupied, temperature and humidity (zero today; old code still zero). Zero rows after two cycles = FAIL.
 
-### D4: drop the slug fallbacks in the existing registry readers (R6, R7, R8, R10)
+### D4: drop the slug fallbacks in the existing registry readers (R6, R7, R8, R10) — SUPERSEDED by rev 3 R3-4 (count, do not delete)
 - R7 calls `resolve_room_entity_id(hass, self.entry.entry_id, "switch", suffix)`; it keeps its per-suffix cache only
   while `hass.states.get(cached)` exists (today's guard); slug fallback `coordinator.py:3359-3363` deleted.
 - R8 delegates to R7; fallback `switch.py:100-101` deleted.
@@ -249,7 +301,7 @@ guessing, which the operator ruled out.
 
 ## 7. Tier and reviews
 
-**Tier 2, not Tier 2-DB.** No schema, DAO or payload change (`metric_baselines` gains rows for one room through the
+**Tier 2-DB per rev 3 R3-5 (was labelled Tier 2; reviews unchanged).** No schema, DAO or payload change (`metric_baselines` gains rows for one room through the
 existing writer); no state machine; no shared write primitive. The HVAC ripple is bounded by §0.2. The failure mode is
 one site still building an id, so the build gets **three reviews** (plan review recommendation):
 - **A, correctness and edge cases:** entry match, title vs name, slug tie, None paths, every reader R1-R10, key list per
