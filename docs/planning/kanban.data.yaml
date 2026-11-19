@@ -34257,9 +34257,10 @@ cards:
   paged_2026_11_11_overnight: "Paged once in the consolidated overnight Pushover (priority -1, quiet)."
   operator_decision_2026_11_12: "Operator picked A: the night failsafe runs in all paused shared-space rooms (supersedes the 10-18 no-lights-off-when-paused ruling for the 23:00 failsafe only)."
 - id: SECURITY-LOCK-STALE-STATE-1
+  measured_2026_11_18: "AUDIT_lock_report_staleness_2026_11_18.md (8 d recorder): garage lock had NO real report 11-16 07:37 -> 11-18 14:51 CST (~55 h; the 11-15 20:42 date above was wrong) while garage cameras logged 14/2/10 egress events on 11-16/17/18. Nothing noticed: no anomaly rows; only an offline digest notice 11-18 15:41 (not a page). Code: security.py:1838-1842 treats unavailable/unknown as offline, no other action; trusts locked with no age check (:1850); offline notice deduped 1/day in RAM (:1903-1933). State-row age and last_reported alone false-page (front 25.9 h, master 31.9 h max gaps, overnight). Proposed freshness = max(last_reported, last_changed, zwave node last_seen) (node 3 last_seen ~hourly, p90 1.1 h); N = 12 h, or 3 h if egress/door evidence after the last report; page immediately and ping before trusting locked; an unavailable swept lock pages, not digest. Unmeasured: whether Kwikset last_seen updates during silence (node 10 last_seen entity not in the state machine)."
   title: Lock sweep trusts a lock state the lock stopped reporting days ago, so a physically unlocked door is never relocked
   thread: security
-  status: inbox
+  status: pre_planning
   tier: 2
   created: '2026-11-18 14:55'
   updated: '2026-11-18 14:55'
