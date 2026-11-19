@@ -34890,8 +34890,8 @@ cards:
   next: 'Me: build as plan D7 after rev-8 fixes; resolve names via CameraResolver; measure hop lags; diff learned vs operator map.'
   rank: {value: 8, time_criticality: 5, effort: 5}
 - id: EGRESS-DIRECTION-AWARE-IDENTITY-1
-  due: '2026-11-18 10:00'
-  due_note: 'ship v5.108.37 (step 7 S1) + set Faces often confused to jaya|ezinne, jaya|oji'
+  due: '2026-11-19 10:00'
+  due_note: 'v5.108.37 released + installed 11-18 evening (house asleep); restart when awake, live-validate, set Faces often confused to jaya|ezinne, jaya|oji'
   operator_2026_11_17_pairs_and_06: "Ok on 0.6 / Jaya Ezinne not only confusable pair. It can also be Jaya Oji. (CONF_EGRESS_CONFUSABLE_PAIRS does not exist yet: proposed in the step 7 plan 2026-11-14, built with S1 as a Coordinator Manager options field; initial jaya|ezinne, jaya|oji.)"
   operator_2026_11_17_step7_answers: "1 - yes 2 - yes. We should do face after phone if gaps remain on ident. Phone is more reliable now 3 - yes. 4 - more details please face plus phone - more details please"
   arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
