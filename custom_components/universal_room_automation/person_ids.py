@@ -17,6 +17,7 @@ face-library first name onto a tracked slug).
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 PERSON_ENTITY_PREFIX = "person."
@@ -61,6 +62,56 @@ def display_of(slug: Any) -> str:
     """
     s = slug_of(slug)
     return s.replace("_", " ").title()
+
+
+def person_entity_for_slug(hass: Any, slug: Any) -> str:
+    """``person.*`` entity id for an identity-veto lookup (LAYER-LEAK-CLEANUP-1 L4).
+
+    Hit path (unchanged): ``person.<slug>`` with ``slug`` used exactly as the
+    caller passes it, returned when HA has that state. Miss path only: the ONE
+    HA ``person`` state whose own entity id, or whose ``friendly_name`` (HA's
+    configured person name), has ``slug_of(...) == slug_of(slug)``. Zero or two
+    or more matches -> the exact id again (the caller then reads None, today's
+    fail-open answer). Hits and misses are counted in the layer counters.
+    Never raises.
+    """
+    exact = f"{PERSON_ENTITY_PREFIX}{slug}"
+    try:
+        if hass.states.get(exact) is not None:
+            return exact
+    except Exception:  # noqa: BLE001
+        return exact
+    target = slug_of(slug)
+    if not target or target.startswith("guest:"):
+        return exact  # nothing to resolve: no lookup, no miss counted
+    matches: set[str] = set()
+    try:
+        states = list(hass.states.async_all("person") or [])
+    except Exception:  # noqa: BLE001
+        states = []
+    for st in states:
+        try:
+            eid = str(getattr(st, "entity_id", "") or "")
+            if not eid.startswith(PERSON_ENTITY_PREFIX):
+                continue
+            attrs = getattr(st, "attributes", None) or {}
+            if target in (slug_of(eid), slug_of(attrs.get("friendly_name"))):
+                matches.add(eid)
+        except Exception:  # noqa: BLE001
+            continue
+    found = next(iter(matches)) if len(matches) == 1 else None
+    if found:
+        logging.getLogger(__name__).debug(
+            "person id fallback: slug %s -> %s (exact %s missing)", slug, found, exact)
+    try:
+        from .domain_coordinators.signals import count_layer_event
+        count_layer_event(
+            hass,
+            "person_entity_fallback_hits" if found else "person_entity_fallback_misses",
+        )
+    except Exception:  # noqa: BLE001
+        pass
+    return found or exact
 
 
 def entity_key_slug(name: str) -> str:

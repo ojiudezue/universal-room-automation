@@ -123,6 +123,10 @@ class LayerCounters:
     edge_anchor_truncated: int = 0
     edge_anchor_pair_blocked: int = 0
     edge_anchor_error: int = 0
+    # LAYER-LEAK-CLEANUP-1 L4: identity-veto person lookups that missed the
+    # exact ``person.<slug>`` id and resolved one real person (hits) or none.
+    person_entity_fallback_hits: int = 0
+    person_entity_fallback_misses: int = 0
 
 
 def layer_counters(hass: Any) -> LayerCounters:
