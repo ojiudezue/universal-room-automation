@@ -343,38 +343,32 @@ def test_exemption_dispatch_severity_survives_xcorr1_single_camera_night():
 # --- D7: NM dedup non-collision on exemption path ---------------------------
 
 
-def test_exemption_hop_not_deduplicated_against_baseline_hop(monkeypatch):
-    """MED-2 pin. Under today's contextual severity map, (person,
-    pass_by) resolves to LOW/MEDIUM/DIGEST in every house state — never
-    HIGH — so the hop-3 exemption dispatch (HIGH circling) has a
-    distinct severity from the hop-1 baseline (LOW/DIGEST pass_by). The
-    NM dedup key `(coordinator_id, title, location, severity)`
-    therefore cannot collide, and hop 3 does NOT dedup with hop 1.
-
-    Verified structurally by asserting the dispatched severities of
-    hop-1 and hop-3 differ; this is the observable proxy for
-    non-collision without spinning up a real NM instance."""
-    # HOUSE-STATE step 1a D5 (C1): this scenario has a resident at home, which
-    # production expresses only with EXTERIOR_SEVERITY_PERSONS_HOME_FROM_RESIDENCY
-    # True (False, the shipped default, resolves persons_home 0 as production
-    # always did, and every home_day hop is HIGH). Patched in this test body.
-    monkeypatch.setattr(
-        _perimeter._const_mod, "EXTERIOR_SEVERITY_PERSONS_HOME_FROM_RESIDENCY", True)
+def test_exemption_hop_not_deduplicated_against_baseline_hop():
+    """PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1. In production every
+    home_day hop is HIGH, and the NM dedup key is
+    coordinator:title:location (severity is not in it), so hop 1 and the
+    hop-3 exemption dispatch collided. The exemption dispatch now carries
+    its own title; the two baseline hops keep the original title
+    byte-identical. The real NM key behaviour for these exact titles is
+    pinned in test_notification_manager.py (TestDedup perimeter tests)."""
     hass, nm, linker, mgr = _fresh_mgr()
     _replay_founding_sequence(mgr, linker)
-    sev_names = [
-        getattr(c.kwargs["severity"], "name", None)
-        for c in nm.async_notify.await_args_list
+    calls = [c.kwargs for c in nm.async_notify.await_args_list]
+    assert len(calls) == 3
+    titles = [c["title"] for c in calls]
+    assert titles == [
+        "Perimeter Alert — Person Detected",
+        "Perimeter Alert — Person Detected",
+        "Perimeter Alert — Person Escalated",
     ]
-    assert len(sev_names) == 3
-    hop1_sev = sev_names[0]
-    hop3_sev = sev_names[2]
-    assert hop1_sev != hop3_sev, (
-        f"hop-1 and hop-3 must differ in severity for dedup non-collision; "
-        f"got hop1={hop1_sev}, hop3={hop3_sev}. If this test ever fails, "
-        f"extend NM._is_deduplicated key to include classification (one-line "
-        f"change per plan D7)."
-    )
+    # Same camera for hop 1 and hop 3: without the title split the
+    # (coordinator, title, location) keys would be identical.
+    assert calls[0]["location"] == calls[2]["location"]
+    key = lambda c: (c["coordinator_id"], c["title"], c["location"])
+    assert key(calls[0]) != key(calls[2])
+    # Production shape: hop 1 and hop 3 both HIGH.
+    sevs = [getattr(c["severity"], "name", None) for c in calls]
+    assert sevs[0] == sevs[2] == "HIGH"
 
 
 # --- B-LOW-1 (2026-08-14 fix-up): optimistic seed + rollback ----------------
