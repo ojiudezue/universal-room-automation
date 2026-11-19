@@ -34254,6 +34254,8 @@ cards:
   paged_2026_11_11_overnight: "Paged once in the consolidated overnight Pushover (priority -1, quiet)."
   operator_decision_2026_11_12: "Operator picked A: the night failsafe runs in all paused shared-space rooms (supersedes the 10-18 no-lights-off-when-paused ruling for the 23:00 failsafe only)."
 - id: SECURITY-LOCK-STALE-STATE-1
+  due: '2026-11-19 15:30'
+  due_note: 'first lock sweep since the 14:11 restart: sweep attrs stale/unverified/freshness_age_h, lock_freshness Store, garage dead page after debounce'
   operator_2026_11_19_answers: "Night bypass for lock_unverified: NO (night pages are delivered when quiet hours end). Enable garage lock last_seen: YES (enabled 14:11 CST 11-19, before the restart). Generator fault cleared by the operator."
   measured_2026_11_18: "AUDIT_lock_report_staleness_2026_11_18.md (8 d recorder): garage lock had NO real report 11-16 07:37 -> 11-18 14:51 CST (~55 h; the 11-15 20:42 date above was wrong) while garage cameras logged 14/2/10 egress events on 11-16/17/18. Nothing noticed: no anomaly rows; only an offline digest notice 11-18 15:41 (not a page). Code: security.py:1838-1842 treats unavailable/unknown as offline, no other action; trusts locked with no age check (:1850); offline notice deduped 1/day in RAM (:1903-1933). State-row age and last_reported alone false-page (front 25.9 h, master 31.9 h max gaps, overnight). Proposed freshness = max(last_reported, last_changed, zwave node last_seen) (node 3 last_seen ~hourly, p90 1.1 h); N = 12 h, or 3 h if egress/door evidence after the last report; page immediately and ping before trusting locked; an unavailable swept lock pages, not digest. Unmeasured: whether Kwikset last_seen updates during silence (node 10 last_seen entity not in the state machine)."
   title: Lock sweep trusts a lock state the lock stopped reporting days ago, so a physically unlocked door is never relocked
@@ -34899,8 +34901,9 @@ cards:
   next: "Done 2026-11-19 (arc-close sweep)."
   rank: {value: 8, time_criticality: 5, effort: 5}
 - id: EGRESS-DIRECTION-AWARE-IDENTITY-1
-  due: '2026-11-19 10:00'
-  due_note: 'v5.108.37 released + installed 11-18 evening (house asleep); restart when awake, live-validate, set Faces often confused to jaya|ezinne, jaya|oji'
+  live_2026_11_19: "v5.108.37 live since the 14:11 CST restart (with .38). Faces often confused set to jaya|ezinne, jaya|oji via the CM options flow (only that key changed, 292->293 options, no reload). Pending event: first phone-first resident arrival with a face (named notice + D8a edge_anchor row)."
+  due: '2026-11-20 18:00'
+  due_note: 'check S1 anchors since 11-19 14:11 + names batch grades'
   operator_2026_11_17_pairs_and_06: "Ok on 0.6 / Jaya Ezinne not only confusable pair. It can also be Jaya Oji. (CONF_EGRESS_CONFUSABLE_PAIRS does not exist yet: proposed in the step 7 plan 2026-11-14, built with S1 as a Coordinator Manager options field; initial jaya|ezinne, jaya|oji.)"
   operator_2026_11_17_step7_answers: "1 - yes 2 - yes. We should do face after phone if gaps remain on ident. Phone is more reliable now 3 - yes. 4 - more details please face plus phone - more details please"
   arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
@@ -34925,7 +34928,7 @@ cards:
   links: {parent: FACE-ARRIVAL-REBUILD-1}
   origin: {date: '2026-11-12', gist: 'Operator: "Who made this rule? I didn''t... It should do both especially since we have a direction detector."'}
   why: 'not_home veto at transit_validator.py:1840-1854 copied from the census veto in Aug 2026 without direction. Plan rev 8 section 2B: entry+away = arrival candidate, exit+home = departure candidate, guards (face conf, path, GPS), census keeps its own veto, access still needs a second signal; behind a default-off switch; D0-P7 gate.'
-  next: 'Me: build as plan D8 after rev-8 fixes.'
+  next: "Me: first-arrival evidence (named notice, D8a edge_anchor), then score names on the graded batch."
   rank: {value: 8, time_criticality: 5, effort: 5}
   overnight_note_2026_11_19: '02:0x CST read: update.universal_room_automation_update installed_version v5.108.38 (= latest, last_changed 01:36); the kitchen smoke entity''s last_changed 23:03 on 11-18 suggests an HA-side event then. I could not confirm from logs whether the running core has loaded v5.108.37/38 (error_log 2000-line window has no startup line). The 10:00 follow-up stands: confirm a restart has happened (or do it once awake), live-validate, set Faces often confused.'
 - id: EXTERIOR-SEAM-FILE-LOADER-1
