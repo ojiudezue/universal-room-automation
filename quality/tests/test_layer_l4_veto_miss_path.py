@@ -35,6 +35,17 @@ from custom_components.universal_room_automation.domain_coordinators import (
 )
 
 UTC = timezone.utc
+
+
+def _counters(hass):
+    """The counters object production actually wrote, read straight from
+    ``hass.data`` (hermetic: earlier test files may re-import ``signals``, so
+    an isinstance-checking ``layer_counters`` from this file's import could
+    replace it with a fresh zeroed one)."""
+    dom = hass.data.get(layer_signals._LAYER_DOMAIN, {}) if isinstance(hass.data, dict) else {}
+    c = dom.get(layer_signals._LAYER_COUNTERS_KEY)
+    return c if c is not None else SimpleNamespace(
+        person_entity_fallback_hits=0, person_entity_fallback_misses=0)
 NOW = datetime(2026, 11, 19, 12, 0, 0, tzinfo=UTC)
 FACE_SENSOR = "sensor.frigate_oji_last_camera_2"
 # This house's live person set (every entity id equals its slug).
@@ -121,7 +132,7 @@ def test_veto_display_name_person_not_fail_open(site):
     does in the slug case (it used to fail open)."""
     w = _world([_person("person.oji_udezue_2", "not_home", "Oji Udezue", TRACKERS)])
     assert SITES[site](w, "oji_udezue") is True
-    c = layer_signals.layer_counters(w.hass)
+    c = _counters(w.hass)
     assert c.person_entity_fallback_hits >= 1
     assert c.person_entity_fallback_misses == 0
 
@@ -149,7 +160,7 @@ def test_veto_ambiguous_person_keeps_fail_open(site):
         _person("person.oji_udezue_3", "not_home", "Oji Udezue", TRACKERS),
     ])
     assert SITES[site](w, "oji_udezue") is False
-    c = layer_signals.layer_counters(w.hass)
+    c = _counters(w.hass)
     assert c.person_entity_fallback_hits == 0
     assert c.person_entity_fallback_misses >= 1
 
@@ -171,7 +182,7 @@ def test_veto_exact_entity_byte_identical(eid, state):
     assert _site_sighting_hint(w, slug) is expected
     assert _site_egress(w, slug) is expected
     assert w.all_calls == []
-    c = layer_signals.layer_counters(w.hass)
+    c = _counters(w.hass)
     assert (c.person_entity_fallback_hits, c.person_entity_fallback_misses) == (0, 0)
 
 
@@ -187,7 +198,7 @@ def test_person_entity_for_slug_ambiguous_is_none():
 def test_person_entity_for_slug_no_match_returns_exact():
     w = _world([_person("person.someone", "home", "Someone")])
     assert person_ids.person_entity_for_slug(w.hass, "oji_udezue") == "person.oji_udezue"
-    assert layer_signals.layer_counters(w.hass).person_entity_fallback_misses == 1
+    assert _counters(w.hass).person_entity_fallback_misses == 1
 
 
 def test_person_entity_for_slug_matches_entity_id_slug():
@@ -203,8 +214,12 @@ def test_layer_diagnostics_expose_fallback_counters():
         PresenceCoordinator,
     )
     w = _world([_person("person.oji_udezue_2", "home", "Oji Udezue")])
-    person_ids.person_entity_for_slug(w.hass, "oji_udezue")
-    person_ids.person_entity_for_slug(w.hass, "nobody")
+    # Hermetic: write through the signals module this presence code itself
+    # holds (counting is pinned by the tests above; this pins the exposure).
+    pres_signals = PresenceCoordinator.get_layer_diagnostics.__globals__["_layer_signals"]
+    c = pres_signals.layer_counters(w.hass)
+    c.person_entity_fallback_hits = 1
+    c.person_entity_fallback_misses = 1
     pres = object.__new__(PresenceCoordinator)
     pres.hass = w.hass
     out = PresenceCoordinator.get_layer_diagnostics(pres)
@@ -222,7 +237,7 @@ def test_empty_or_guest_slug_no_lookup_no_miss():
     assert person_ids.person_entity_for_slug(w.hass, "") == "person."
     assert person_ids.person_entity_for_slug(w.hass, "guest:bob") == "person.guest:bob"
     assert w.all_calls == []
-    c = layer_signals.layer_counters(w.hass)
+    c = _counters(w.hass)
     assert (c.person_entity_fallback_hits, c.person_entity_fallback_misses) == (0, 0)
 
 
