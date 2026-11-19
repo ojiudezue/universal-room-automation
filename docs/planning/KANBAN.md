@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-18T23:54:05-06:00_ - _Data commit: `7c4c4313e795`_ - _last_reconciled: 2026-11-18_
+_Generated: 2026-11-19T00:57:03-06:00_ - _Data commit: `b76b9197bad3`_ - _last_reconciled: 2026-11-18_
 
 
 ## Columns
@@ -354,7 +354,8 @@ status: **planned**
 - **Origin:** 2026-11-13 - Found by the registry-not-names sweep; verified live.
 - **Why:** hvac_fans.py:1714-1729 _read_room_occupied_state builds binary_sensor.<slug>_occupied; live: binary_sensor.foyer_occupied 404 vs binary_sensor.foyer_foyer_occupied 200; jaya_bedroom_occupied 404 vs jaya_bedroom_bedroom_4_occupied 200 (20...
 - **Next:** Me: one resolver (room config entry -> its occupied binary_sensor via entity registry unique_id) used by every reader; Tier 2-DB reviews; live check all 47 rooms resolve.
-- **Forensic keys (12):**
+- **Forensic keys (13):**
+  - `built_2026_11_19`: Built e037ff441 + 4761b7919 on feature/room-occupied-registry (new room_entities.py; R1-R5 registry-resolved, R6-R8 slug fallbacks counted, R10 untouched; 37 matching rooms byte-identical golden; 25/25 drills RED). Residual for the opera...
   - `arc_cut_v5_108_37`: separate arc work, not in the step 7 S1 release
   - `arc_cut_v5_108_36`: separate arc work, not in the P3-D2/D3 release
   - `arc_cut_v5_108_32`: person-sightings batch, separate surface from interior describe
