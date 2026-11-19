@@ -1203,6 +1203,25 @@ async def test_uncounted_return_pages_when_house_away():
 
 
 @pytest.mark.asyncio
+async def test_uncounted_return_pages_when_away_edge_was_missed():
+    """LOCK-UNCOUNTED-RETURN-ARM-REDUNDANT-1 (2026-11-18): the live
+    ``house_state in (away, arriving)`` arm of ``_uncounted_return_pages`` is
+    the backstop for a house edge that never reached the regime. Every
+    DELIVERED edge into away/arriving sets ``_episode_saw_empty``, so only a
+    missed edge exercises this arm on its own. Drill: drop the arm -> RED."""
+    rig = await make_rig()
+    install_nm(rig)
+    await departure_unseen(rig, EZ)
+    await rig.edge("sleep")
+    rig.mgr.house_state = "away"  # silent change, edge never delivered
+    assert rig.regime._episode_saw_empty is False
+    await rig.person(EZ, "home")  # unavailable -> home, rejected
+    assert rig.unlocks() == []
+    assert rig.regime.last_action["action"] == "arrival_uncounted"
+    assert snap(rig)["lock_regime_uncounted_returns"] == 1
+
+
+@pytest.mark.asyncio
 async def test_uncounted_return_silent_when_house_home_untainted():
     rig = await make_rig()
     nm = install_nm(rig)

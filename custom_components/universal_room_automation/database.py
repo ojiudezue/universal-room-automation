@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv5.108.36
+# Universal Room Automation vv5.108.37
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -11130,6 +11130,20 @@ class UniversalRoomDatabase:
             return await mf.async_nightly_health_check(self)
         except Exception as e:  # noqa: BLE001
             _LOGGER.warning("music following health check failed: %s", e)
+            return None
+
+    async def run_egress_edge_anchor_tripwire(self) -> bool | None:
+        """Nightly op (EGRESS-DIRECTION-AWARE-IDENTITY-1 step 7 S1 D2):
+        delegates to the egress tracker's zero-fire trip-wire. None when the
+        tracker is not set up. Never raises."""
+        try:
+            from .const import DOMAIN as _DOMAIN  # noqa: PLC0415
+            tracker = self.hass.data.get(_DOMAIN, {}).get("egress_tracker")
+            if tracker is None or not hasattr(tracker, "async_edge_anchor_tripwire"):
+                return None
+            return await tracker.async_edge_anchor_tripwire(self)
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.warning("egress edge anchor trip-wire failed: %s", e)
             return None
 
     async def read_memory_facts(

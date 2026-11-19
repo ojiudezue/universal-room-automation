@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.108.36
+# Universal Room Automation vv5.108.37
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.108.36"
+VERSION: Final = "v5.108.37"
 
 # EC-LOADED-VS-INSTALLED-VERSION-1 — how often the on-disk manifest is re-read
 # to detect an installed-but-not-restarted deploy. Rung 1 (module constant):
@@ -7273,6 +7273,44 @@ CONSUMER_CLASS_MIN_CONFIDENCE: Final = _MappingProxyType({
     CONSUMER_CLASS_NOTIFICATION: 0.75,
     CONSUMER_CLASS_DISPLAY: 0.0,
 })
+
+# EGRESS-DIRECTION-AWARE-IDENTITY-1 step 7 S1 (plan rev 3.2 §7 D1, §9): name a
+# door arrival from ONE face leg at the crossing plus the person's OWN F1
+# arrival edge in [t_E - LEAD, t_E + EGRESS_ENTRY_WINDOW_SECONDS]. The anchor
+# feeds ONLY the arrival/departure notification text (notification class);
+# bus person_id / identity_confidence, DB rows, census and security reads are
+# unchanged. Rung 1 (model constants, change needs review):
+#   LEAD_S       measured lead p50 79 s / p90 ~250 s (D0 2026-11-17); 0 = OFF
+#                (byte-identical no-op, INV-NOOP).
+#   CONFIDENCE   face + one independent own-device edge; must stay below the
+#                security bar (import-time check below, INV-SECURITY).
+#   MIN_TIER     tier of the face legs (one leg = CONFIDENCE_MEDIUM); raising
+#                it to the BOOST tier makes S1 name only what is named today.
+#   TRIPWIRE_*   D2 zero-fire trip-wire: no anchor in DAYS while F1 counted
+#                arrival edges >= MIN_ARRIVALS -> stuck-signal NM.
+EGRESS_ARRIVAL_EDGE_LEAD_S: Final = 300
+EGRESS_ARRIVAL_EDGE_CONFIDENCE: Final = 0.75
+EGRESS_ARRIVAL_EDGE_MIN_TIER: Final = CONFIDENCE_MEDIUM
+EGRESS_ARRIVAL_EDGE_TRIPWIRE_DAYS: Final = 7
+EGRESS_ARRIVAL_EDGE_TRIPWIRE_MIN_ARRIVALS: Final = 3
+# D0 gate only (no runtime reader): plan §7 D0 go/no-go numbers.
+EGRESS_ARRIVAL_EDGE_YIELD_FLOOR_PER_WEEK: Final = 1
+EGRESS_ARRIVAL_EDGE_WRONG_GATE_MIN_N: Final = 10
+# The anchor's own provenance (contract §2.3 step 7 addition). Carried only in
+# the anchor local and the D8a `edge_anchor` key, never on the record/bus, so
+# it is deliberately NOT in IDENTITY_PROVENANCE_VALUES.
+IDENTITY_PROVENANCE_FACE_RESIDENCY: Final = "face+residency"
+# The record role written at the one F3 ingest when anchored.
+EGRESS_IDENTITY_ROLE_ARRIVAL_EDGE_ANCHORED: Final = "arrival_edge_anchored"
+if EGRESS_ARRIVAL_EDGE_CONFIDENCE >= CONSUMER_CLASS_MIN_CONFIDENCE[CONSUMER_CLASS_SECURITY]:
+    raise ValueError(
+        "EGRESS_ARRIVAL_EDGE_CONFIDENCE must stay below the security bar"
+    )
+# Rung 2 (CM options flow, Presence step): pairs of residents whose faces are
+# often confused, "a|b, c|d". A face for one member never anchors while the
+# other member also has an arrival edge in the window. Empty = guard inert.
+CONF_EGRESS_CONFUSABLE_PAIRS: Final = "egress_confusable_pairs"
+DEFAULT_EGRESS_CONFUSABLE_PAIRS: Final = ""
 
 # RA2 promotion ladder inputs (owned by PLANNING_census_deconfliction.md
 # §3.2; defined here because view_for_class reads them and ship 1 lands

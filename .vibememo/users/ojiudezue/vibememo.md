@@ -91,3 +91,6 @@ One counseling note from the same pass: feed and card times were typed from a fe
 
 
 **2026-11-17, only proven code supersedes correct code.** The operator ruled that hardened Tier-3 code is not rebuilt and other rewrites need a measured defect and a proven replacement. Re-measured, the layer cleanup's leaks were correct code (the 'HIGH' security leak never fired while armed), so 4 builds became 1 (fail-open identity vetoes, a portability bug). The layer's value was already banked: every feature since 11-14 builds on it → [337](users/ojiudezue/entries/337_only_proven_code_supersedes_correct_code.json).
+
+
+**2026-11-17, the ledger never got to be known.** The crossing ledger keeps its state in RAM and needs a 15-minute empty house to become known; our two-restarts-a-day ship cadence reset it so often that it was known ~34 minutes in 3.5 days, which also made the interior floor plan moot until the ledger survives restarts → [338](users/ojiudezue/entries/338_restart_cadence_keeps_ledger_unknown.json).

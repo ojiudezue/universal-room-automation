@@ -28,7 +28,9 @@ LAYER_ALLOWLIST_TOTAL_PROVISIONAL = 260
 # Crossing vision P3-D3 step 7: +1, the one G3 feeder
 # CrossingVisionShadow._amend_vision_direction:amend_crossing (R13, max 1; a
 # sanctioned feed through the one ingest, not a read leak).
-LAYER_ALLOWLIST_TOTAL = 257
+# Step 7 S1 (EGRESS-DIRECTION-AWARE-IDENTITY-1): +2, EGRESS_ARRIVAL_EDGE_CONFIDENCE
+# (R8, the plan's 0.75) and the nightly trip-wire delegate in database.py (R2).
+LAYER_ALLOWLIST_TOTAL = 259
 RULED = 'plan rev 3.3 §17 (4d337e44) + coordinator lifecycle ruling; final run post-census-p2'
 
 # group -> (card, reason). '#N' = plan §9 row N; 'UNEXPLAINED' = STOP.
@@ -60,6 +62,7 @@ GROUPS = {
     'OWN': ('PERSON-AWARENESS-READ-API-1', 'owner row named by the plan'),
     'R13': ('PERSON-AWARENESS-READ-API-1', 'pinned ingest feeder (plan §5 D7 R13)'),
     'R8': ('PERSON-AWARENESS-READ-API-1', 'class-threshold-equal confidence constant, seed (contract §9 Q3)'),
+    'S7S1': ('EGRESS-DIRECTION-AWARE-IDENTITY-1', 'step 7 S1: the edge-anchor confidence const (0.75, plan §9) and the nightly zero-fire trip-wire delegate (plan D2, a health check, no person fact)'),
 }
 
 ROWS = {
@@ -286,6 +289,8 @@ ROWS = {
     ('R8', 'const.py', '<module>:BLE_TRANSITION_CONFIDENCE'): {'max': 1, 'group': 'R8', 'reserved': False, 'explained': True},
     ('R8', 'const.py', '<module>:CONFIDENCE_HIGH'): {'max': 1, 'group': 'R8', 'reserved': False, 'explained': True},
     ('R8', 'const.py', '<module>:FACE_MATCH_CORRELATED_BOOST'): {'max': 1, 'group': 'R8', 'reserved': False, 'explained': True},
+    ('R8', 'const.py', '<module>:EGRESS_ARRIVAL_EDGE_CONFIDENCE'): {'max': 1, 'group': 'S7S1', 'reserved': False, 'explained': True},
+    ('R2', 'database.py', 'UniversalRoomDatabase.run_egress_edge_anchor_tripwire:async_edge_anchor_tripwire'): {'max': 1, 'group': 'S7S1', 'reserved': False, 'explained': True},
     ('R9', 'camera_census.py', 'PersonCensus._register_ble_transition_listeners:async_track_state_change_event'): {'max': 1, 'group': '#13', 'reserved': False, 'explained': True},
     ('R9', 'domain_coordinators/security.py', 'SecurityCoordinator._resubscribe_geofence_persons:async_track_state_change_event'): {'max': 1, 'group': '#1', 'reserved': False, 'explained': True},
     ('R9', 'domain_coordinators/security.py', 'SecurityCoordinator._setup_geofence_listener:async_track_state_added_domain'): {'max': 1, 'group': '#1', 'reserved': False, 'explained': True},

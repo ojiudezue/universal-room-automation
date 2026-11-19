@@ -996,6 +996,7 @@
           "fan_recheck_enabled": "Fan recheck",
           "lost_away_grace_min": "Silent-phone wait (min)",
           "lost_away_sleep_exempt": "No Away at night on a silent phone",
+          "egress_confusable_pairs": "Faces often confused",
           "presence_anomaly_sensitivity": "Unusual-activity sensitivity"
         },
         "data_description": {
@@ -1006,6 +1007,7 @@
           "fan_recheck_enabled": "When a ceiling fan may be fooling a room's presence radar, pause the fan briefly and see whether the room is really empty. Off = fans are never paused. The Fan Recheck switch on the Presence device controls the same thing; use the switch to change it. Default off.",
           "lost_away_grace_min": "When a resident's phone has gone silent, how long to wait before the house may switch to Away without them, unless the cameras and every room have read empty for a few updates in a row. 0 = no wait. Default 60.",
           "lost_away_sleep_exempt": "At night (from Home Night through Waking, or inside the house sleep hours), a silent phone never lets the house switch to Away. Keep on so a phone that dies overnight cannot mark a sleeper away. Default on.",
+          "egress_confusable_pairs": "Pairs of people the door cameras often mix up, as name|name separated by commas, for example jaya|ezinne, jaya|oji. A door arrival is not named for either person while the other's phone also just arrived. Empty = no pairs.",
           "presence_anomaly_sensitivity": "How readily presence patterns that look unusual are flagged. Normal suits most homes."
         },
         "sections": {

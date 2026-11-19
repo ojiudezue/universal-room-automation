@@ -1,6 +1,61 @@
 {
- "description": "Operator crossing grades from the urakanban /grade/ page (scripts/grading/pull_grades.py). Human truth for crossing vision P3-D6 direction and count scoring and the P3-D0 gates. One row per crossing_key, latest grade wins. direction in|out|both|no_cross|unclear|unknown (no_cross = came to the door, did not go through; unclear = seen, cannot tell; unknown = no door traversal visible); count = people who crossed or 'unknown'. kind=pair rows index crossing_pass_key_pairs_2026_11_15.json (pair_label in its rubric).",
+ "description": "Operator crossing grades from the urakanban /grade/ page (scripts/grading/pull_grades.py). Human truth for crossing vision P3-D6 direction and count scoring and the P3-D0 gates. One row per crossing_key, latest grade wins. direction in|out|both|no_cross|unclear|unknown (no_cross = came to the door, did not go through; unclear = seen, cannot tell; unknown = no door traversal visible); count = people who crossed or 'unknown'. Optional who = list from oji_udezue|ezinne|jaya|ziri|guest|unknown_person|cant_tell, guest_count = 1-8 when guest is in who, notes = free text; absent means not recorded. kind=pair rows index crossing_pass_key_pairs_2026_11_15.json (pair_label in its rubric).",
  "grades": [
+  {
+   "crossing_key": "sensor.garage_a_person_count@2026-11-14T09:40:52.414810-06:00",
+   "direction": "out",
+   "count": 1,
+   "at": "2026-11-17T20:14:10.079Z",
+   "batch": "g20261117-1327",
+   "kind": "crossing",
+   "door_group": "garage_a",
+   "e_ts": "2026-11-14T09:40:52.414810-06:00",
+   "direction_tracker_vocab": "exit"
+  },
+  {
+   "crossing_key": "sensor.garage_a_person_count@2026-11-14T09:41:25.005184-06:00",
+   "direction": "both",
+   "count": 1,
+   "at": "2026-11-17T20:16:33.892Z",
+   "batch": "g20261117-1327",
+   "kind": "crossing",
+   "door_group": "garage_a",
+   "e_ts": "2026-11-14T09:41:25.005184-06:00",
+   "direction_tracker_vocab": null
+  },
+  {
+   "crossing_key": "binary_sensor.doorbell_lite_person_detected@2026-11-14T11:34:35.800553-06:00",
+   "direction": "in",
+   "count": 1,
+   "at": "2026-11-17T20:16:52.827Z",
+   "batch": "g20261117-1327",
+   "kind": "crossing",
+   "door_group": "garage_a",
+   "e_ts": "2026-11-14T11:34:35.800553-06:00",
+   "direction_tracker_vocab": "entry"
+  },
+  {
+   "crossing_key": "sensor.garage_a_person_count@2026-11-14T11:38:13.185082-06:00",
+   "direction": "both",
+   "count": 2,
+   "at": "2026-11-17T20:18:22.959Z",
+   "batch": "g20261117-1327",
+   "kind": "crossing",
+   "door_group": "garage_a",
+   "e_ts": "2026-11-14T11:38:13.185082-06:00",
+   "direction_tracker_vocab": null
+  },
+  {
+   "crossing_key": "sensor.garage_a_person_count@2026-11-14T11:38:57.599853-06:00",
+   "direction": "no_cross",
+   "count": 1,
+   "at": "2026-11-17T20:18:55.108Z",
+   "batch": "g20261117-1327",
+   "kind": "crossing",
+   "door_group": "garage_a",
+   "e_ts": "2026-11-14T11:38:57.599853-06:00",
+   "direction_tracker_vocab": null
+  },
   {
    "crossing_key": "sensor.madrone_g6_entry_person_count@2026-11-14T12:59:22.050665-06:00",
    "direction": "both",
@@ -21,6 +76,17 @@
    "kind": "crossing",
    "door_group": "front",
    "e_ts": "2026-11-14T13:01:06.928553-06:00",
+   "direction_tracker_vocab": null
+  },
+  {
+   "crossing_key": "binary_sensor.front_door_aerial_person_occupancy_2@2026-11-14T13:02:00.082830-06:00",
+   "direction": "both",
+   "count": 1,
+   "at": "2026-11-17T20:19:13.125Z",
+   "batch": "g20261117-1327",
+   "kind": "crossing",
+   "door_group": "front",
+   "e_ts": "2026-11-14T13:02:00.082830-06:00",
    "direction_tracker_vocab": null
   },
   {
@@ -46,6 +112,17 @@
    "direction_tracker_vocab": "exit"
   },
   {
+   "crossing_key": "binary_sensor.garage_a_person_detected@2026-11-14T14:17:54.111678-06:00",
+   "direction": "unclear",
+   "count": 1,
+   "at": "2026-11-17T20:21:01.358Z",
+   "batch": "g20261117-1327",
+   "kind": "crossing",
+   "door_group": "garage_a",
+   "e_ts": "2026-11-14T14:17:54.111678-06:00",
+   "direction_tracker_vocab": null
+  },
+  {
    "crossing_key": "binary_sensor.garage_a_person_detected@2026-11-14T14:18:39.155506-06:00",
    "direction": "no_cross",
    "count": 1,
@@ -54,6 +131,28 @@
    "kind": "crossing",
    "door_group": "garage_a",
    "e_ts": "2026-11-14T14:18:39.155506-06:00",
+   "direction_tracker_vocab": null
+  },
+  {
+   "crossing_key": "sensor.garage_a_person_count@2026-11-14T14:26:25.715356-06:00",
+   "direction": "no_cross",
+   "count": 1,
+   "at": "2026-11-17T20:21:27.776Z",
+   "batch": "g20261117-1327",
+   "kind": "crossing",
+   "door_group": "garage_a",
+   "e_ts": "2026-11-14T14:26:25.715356-06:00",
+   "direction_tracker_vocab": null
+  },
+  {
+   "crossing_key": "sensor.garage_a_person_count@2026-11-14T14:27:51.766560-06:00",
+   "direction": "no_cross",
+   "count": 1,
+   "at": "2026-11-17T20:21:38.159Z",
+   "batch": "g20261117-1327",
+   "kind": "crossing",
+   "door_group": "garage_a",
+   "e_ts": "2026-11-14T14:27:51.766560-06:00",
    "direction_tracker_vocab": null
   },
   {
@@ -87,6 +186,17 @@
    "kind": "crossing",
    "door_group": "garage_a",
    "e_ts": "2026-11-14T15:24:28.444111-06:00",
+   "direction_tracker_vocab": null
+  },
+  {
+   "crossing_key": "binary_sensor.garage_a_person_detected@2026-11-14T15:25:03.005364-06:00",
+   "direction": "both",
+   "count": 2,
+   "at": "2026-11-17T20:23:07.175Z",
+   "batch": "g20261117-1327",
+   "kind": "crossing",
+   "door_group": "garage_a",
+   "e_ts": "2026-11-14T15:25:03.005364-06:00",
    "direction_tracker_vocab": null
   },
   {
@@ -145,6 +255,17 @@
    "direction_tracker_vocab": "entry"
   },
   {
+   "crossing_key": "binary_sensor.madrone_g6_entry_person_detected@2026-11-14T16:15:30.637546-06:00",
+   "direction": "both",
+   "count": 1,
+   "at": "2026-11-17T20:24:10.491Z",
+   "batch": "g20261117-1327",
+   "kind": "crossing",
+   "door_group": "front",
+   "e_ts": "2026-11-14T16:15:30.637546-06:00",
+   "direction_tracker_vocab": null
+  },
+  {
    "crossing_key": "binary_sensor.front_door_aerial_person_detected@2026-11-14T16:16:11.013693-06:00",
    "direction": "in",
    "count": 3,
@@ -178,6 +299,17 @@
    "direction_tracker_vocab": "entry"
   },
   {
+   "crossing_key": "binary_sensor.madrone_g6_entry_person_detected@2026-11-14T16:21:20.427515-06:00",
+   "direction": "out",
+   "count": 4,
+   "at": "2026-11-17T20:24:40.174Z",
+   "batch": "g20261117-1327",
+   "kind": "crossing",
+   "door_group": "front",
+   "e_ts": "2026-11-14T16:21:20.427515-06:00",
+   "direction_tracker_vocab": "exit"
+  },
+  {
    "crossing_key": "binary_sensor.madrone_g6_entry_person_detected@2026-11-14T16:23:52.331449-06:00",
    "direction": "in",
    "count": 3,
@@ -186,6 +318,17 @@
    "kind": "crossing",
    "door_group": "front",
    "e_ts": "2026-11-14T16:23:52.331449-06:00",
+   "direction_tracker_vocab": "entry"
+  },
+  {
+   "crossing_key": "sensor.front_door_aerial_person_count@2026-11-14T16:24:35.457004-06:00",
+   "direction": "in",
+   "count": 3,
+   "at": "2026-11-17T20:25:13.724Z",
+   "batch": "g20261117-1327",
+   "kind": "crossing",
+   "door_group": "front",
+   "e_ts": "2026-11-14T16:24:35.457004-06:00",
    "direction_tracker_vocab": "entry"
   },
   {
@@ -296,6 +439,182 @@
    "kind": "crossing",
    "door_group": "garage_a",
    "e_ts": "2026-11-14T18:52:54.336074-06:00",
+   "direction_tracker_vocab": null
+  },
+  {
+   "crossing_key": "binary_sensor.front_door_aerial_person_detected@2026-11-14T18:59:36.580213-06:00",
+   "direction": "in",
+   "count": 4,
+   "at": "2026-11-17T20:25:39.341Z",
+   "batch": "g20261117-1327",
+   "kind": "crossing",
+   "door_group": "front",
+   "e_ts": "2026-11-14T18:59:36.580213-06:00",
+   "direction_tracker_vocab": "entry"
+  },
+  {
+   "crossing_key": "binary_sensor.madrone_g6_entry_person_detected@2026-11-14T19:45:29.961072-06:00",
+   "direction": "both",
+   "count": 1,
+   "at": "2026-11-17T20:26:01.407Z",
+   "batch": "g20261117-1327",
+   "kind": "crossing",
+   "door_group": "front",
+   "e_ts": "2026-11-14T19:45:29.961072-06:00",
+   "direction_tracker_vocab": null
+  },
+  {
+   "crossing_key": "binary_sensor.madrone_g6_entry_person_detected@2026-11-14T20:34:47.407753-06:00",
+   "direction": "out",
+   "count": 1,
+   "at": "2026-11-17T20:26:40.191Z",
+   "batch": "g20261117-1327",
+   "kind": "crossing",
+   "door_group": "front",
+   "e_ts": "2026-11-14T20:34:47.407753-06:00",
+   "direction_tracker_vocab": "exit"
+  },
+  {
+   "crossing_key": "sensor.madrone_g6_entry_person_count@2026-11-14T20:44:20.242675-06:00",
+   "direction": "out",
+   "count": 1,
+   "at": "2026-11-17T20:26:55.073Z",
+   "batch": "g20261117-1327",
+   "kind": "crossing",
+   "door_group": "front",
+   "e_ts": "2026-11-14T20:44:20.242675-06:00",
+   "direction_tracker_vocab": "exit"
+  },
+  {
+   "crossing_key": "binary_sensor.madrone_g6_entry_person_detected@2026-11-14T20:57:38.033881-06:00",
+   "direction": "out",
+   "count": 1,
+   "at": "2026-11-17T20:27:08.425Z",
+   "batch": "g20261117-1327",
+   "kind": "crossing",
+   "door_group": "front",
+   "e_ts": "2026-11-14T20:57:38.033881-06:00",
+   "direction_tracker_vocab": "exit"
+  },
+  {
+   "crossing_key": "sensor.madrone_g6_entry_person_count@2026-11-14T21:03:34.482298-06:00",
+   "direction": "out",
+   "count": 2,
+   "at": "2026-11-17T20:27:21.740Z",
+   "batch": "g20261117-1327",
+   "kind": "crossing",
+   "door_group": "front",
+   "e_ts": "2026-11-14T21:03:34.482298-06:00",
+   "direction_tracker_vocab": "exit"
+  },
+  {
+   "crossing_key": "binary_sensor.madrone_g6_entry_person_detected@2026-11-14T21:12:33.499808-06:00",
+   "direction": "out",
+   "count": 1,
+   "at": "2026-11-17T20:27:49.191Z",
+   "batch": "g20261117-1327",
+   "kind": "crossing",
+   "door_group": "front",
+   "e_ts": "2026-11-14T21:12:33.499808-06:00",
+   "direction_tracker_vocab": "exit"
+  },
+  {
+   "crossing_key": "binary_sensor.madrone_g6_entry_person_detected@2026-11-14T21:15:44.983706-06:00",
+   "direction": "in",
+   "count": 1,
+   "at": "2026-11-17T20:28:03.690Z",
+   "batch": "g20261117-1327",
+   "kind": "crossing",
+   "door_group": "front",
+   "e_ts": "2026-11-14T21:15:44.983706-06:00",
+   "direction_tracker_vocab": "entry"
+  },
+  {
+   "crossing_key": "sensor.madrone_g6_entry_person_count@2026-11-14T21:24:08.969516-06:00",
+   "direction": "out",
+   "count": 3,
+   "at": "2026-11-17T20:28:39.474Z",
+   "batch": "g20261117-1327",
+   "kind": "crossing",
+   "door_group": "front",
+   "e_ts": "2026-11-14T21:24:08.969516-06:00",
+   "direction_tracker_vocab": "exit"
+  },
+  {
+   "crossing_key": "sensor.madrone_g6_entry_person_count@2026-11-14T21:28:01.943152-06:00",
+   "direction": "out",
+   "count": 2,
+   "at": "2026-11-17T20:29:01.123Z",
+   "batch": "g20261117-1327",
+   "kind": "crossing",
+   "door_group": "front",
+   "e_ts": "2026-11-14T21:28:01.943152-06:00",
+   "direction_tracker_vocab": "exit"
+  },
+  {
+   "crossing_key": "binary_sensor.madrone_g6_entry_person_detected@2026-11-14T21:42:22.732414-06:00",
+   "direction": "out",
+   "count": 1,
+   "at": "2026-11-17T20:29:29.140Z",
+   "batch": "g20261117-1327",
+   "kind": "crossing",
+   "door_group": "front",
+   "e_ts": "2026-11-14T21:42:22.732414-06:00",
+   "direction_tracker_vocab": "exit"
+  },
+  {
+   "crossing_key": "sensor.front_door_aerial_person_count@2026-11-14T21:43:06.125002-06:00",
+   "direction": "in",
+   "count": 1,
+   "at": "2026-11-17T20:29:43.640Z",
+   "batch": "g20261117-1327",
+   "kind": "crossing",
+   "door_group": "front",
+   "e_ts": "2026-11-14T21:43:06.125002-06:00",
+   "direction_tracker_vocab": "entry"
+  },
+  {
+   "crossing_key": "binary_sensor.madrone_g6_entry_person_detected@2026-11-14T21:43:40.935107-06:00",
+   "direction": "out",
+   "count": 1,
+   "at": "2026-11-17T20:29:59.723Z",
+   "batch": "g20261117-1327",
+   "kind": "crossing",
+   "door_group": "front",
+   "e_ts": "2026-11-14T21:43:40.935107-06:00",
+   "direction_tracker_vocab": "exit"
+  },
+  {
+   "crossing_key": "binary_sensor.garage_a_person_occupancy_2@2026-11-14T21:50:21.524888-06:00",
+   "direction": "unknown",
+   "count": 0,
+   "at": "2026-11-17T20:30:47.573Z",
+   "batch": "g20261117-1327",
+   "kind": "crossing",
+   "door_group": "garage_a",
+   "e_ts": "2026-11-14T21:50:21.524888-06:00",
+   "direction_tracker_vocab": null
+  },
+  {
+   "crossing_key": "binary_sensor.garage_a_person_detected@2026-11-14T21:54:39.607846-06:00",
+   "direction": "out",
+   "count": 2,
+   "at": "2026-11-17T20:32:08.106Z",
+   "batch": "g20261117-1327",
+   "kind": "crossing",
+   "door_group": "garage_a",
+   "e_ts": "2026-11-14T21:54:39.607846-06:00",
+   "direction_tracker_vocab": "exit"
+  },
+  {
+   "crossing_key": "binary_sensor.garage_a_person_detected@2026-11-15T13:32:49.540484-06:00",
+   "direction": "no_cross",
+   "count": 1,
+   "at": "2026-11-17T20:32:45.123Z",
+   "batch": "g20261117-1327",
+   "kind": "crossing",
+   "door_group": "garage_a",
+   "e_ts": "2026-11-15T13:32:49.540484-06:00",
    "direction_tracker_vocab": null
   }
  ]

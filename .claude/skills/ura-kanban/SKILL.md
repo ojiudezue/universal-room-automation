@@ -297,6 +297,25 @@ can drive under implied approval). Observed 2026-09-11: the whole lane (20 cards
 fields describing agent work; normalized to operator-verb-led so the lane reads as a decision
 queue.
 
+**Decisions view (operator-approved 2026-11-18).** The renderer also writes
+`docs/planning/kanban_decisions.html` and puts the same section at the top of the hosted board
+(`#decisions`): ONLY `waiting_operator` cards, oldest first (by `updated`), each showing its full
+`next` ask, a free-text answer box (posts `instruct` with the text), the done/deferred/declined
+buttons, and — when `next` opens `PICK` with options `A … or B …` / `(A) … (B) …` — one-tap
+buttons that post `instruct` with `PICK A` / `PICK B`. Same `api/disposition` endpoint, so answers
+land in the pending queue and are applied at session start like any `instruct`. Operator decisions
+go HERE, not as chat lists: park the card `waiting_operator` with a verb-led `next` and point at the
+queue.
+
+**Due-dated follow-ups (durable timers, operator-approved 2026-11-18).** A follow-up that must
+happen at a time ("ship at 10:00", "re-score after the grades land", "re-check after 7 days") is a
+`due: 'YYYY-MM-DD HH:MM'` (local, quoted) + optional `due_note` on the card — never an in-session
+timer or a "remind me" that dies with the session. `kanban_render.py --check` lists overdue / due
+within 24h and exits 4; `--due` prints them (`--hook-json` for hooks), and the SessionStart hook
+injects them, so every session starts with them. Clear or re-date `due` (surgical edit) once acted
+on; done cards are ignored. The HTML chip turns "due soon" / OVERDUE at view time (render stays a
+pure function of the data).
+
 ## Architecture — data vs representation (KHOST-1, SHIPPED)
 
 The board is **data**, not prose. The source of truth is `kanban.data.yaml`; every view — the
@@ -910,7 +929,7 @@ must be interrogated is not a mechanism.**
 | **2** | **HARD** | **Vibememo chained to the same gate** — the release also emits a vibememo entry (the WHY of the ship). Both systems are release-coupled, so the decision trail cannot lag either. |
 | **2b** | **HARD** | **Unapplied-disposition gate** — `kanban_render.py --check` returns **exit 3** (distinct from stale=2) when `kanban.dispositions.pending.jsonl` is non-empty, listing each unapplied `{card_id, action}`. The session-start check (rung 4) therefore *cannot pass* while an operator button-tap sits unapplied. Scoped to `--check` only: a plain render (the homelab site deploy) still writes the views with pending chips, so the operator's live board keeps showing the pending state. This is the forcing function behind Cadence step 1 — before it existed, the pull-hook queued dispositions but nothing forced the apply, and a `declined` sat unapplied ~1 day (2026-08-14 miss). Chip = banner (operator-ruled insufficient); exit-3 = mechanism. |
 | **3** | soft | Generator renders a loud **STALE banner** + warns on build when `meta.last_reconciled` is older than the newest git tag or `README_v*.md`. |
-| **4** | soft | Session-start check: run `python3 scripts/kanban_render.py --check` — exit 2 = stale (reconcile), **exit 3 = unapplied operator dispositions (apply the queue FIRST, per Cadence step 1)**. Non-zero of either kind blocks reporting status until cleared. |
+| **4** | soft | Session-start check: run `python3 scripts/kanban_render.py --check` — exit 2 = stale (reconcile), **exit 3 = unapplied operator dispositions (apply the queue FIRST, per Cadence step 1)**, exit 4 = fresh but a card's `due:` is overdue / due within 24h (precedence 3 > 2 > 4; the due list prints under `--check` whatever the code). Non-zero of any kind blocks reporting status until cleared (for 4: act on the follow-up, or re-date / clear `due` with a reason). |
 | **5** | HARD once wired | Recurring overnight agentic pass (a `/schedule` cloud routine on a cron) reconciles the board as its **first** action, then drives the WSJF queue through the four-step gate per the **wired overnight-pass contract** below. Soft only while unwired — and "unwired" is itself a finding (2026-09-12: the investigations lane didn't drain because rung-5 was never scheduled). |
 
 **Soft rungs are backups, not substitutes.** They exist because the hard gate covers one transition;

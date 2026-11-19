@@ -1068,6 +1068,19 @@ table is one rung-1 constant, `const.CONSUMER_CLASS_MIN_CONFIDENCE` (security 0.
 read by `EgressDirectionTracker._arrival_departure_notify` (notification) and `PerimeterAlertManager._known_identity_for`
 (security floor; `PERIMETER_EGRESS_KNOWN_MIN_CONF` is still clamped up to it). Values unchanged.
 
+**(b2) Step 7 S1 door-arrival edge anchor (EGRESS-DIRECTION-AWARE-IDENTITY-1, plan rev 3.2).** The tracker's
+direction is biased toward `exit` on true entries (10/19 graded right, all 9 misses a true `in` called `out`;
+`AUDIT_door_direction_scoring_2026_11_17.md`). Owner `EgressDirectionTracker`: in `_resolve_direction` a single face slug
+S (provenance `face` / `ble+face`, BLE-only never) plus S's OWN counted F1 arrival edge within
+`[t_E − 300 s, t_E + 45 s]` (`EGRESS_ARRIVAL_EDGE_LEAD_S`, `EGRESS_ENTRY_WINDOW_SECONDS`) anchors S at
+`EGRESS_ARRIVAL_EDGE_CONFIDENCE` 0.75, notification class only: `_arrival_departure_notify(..., anchor=)` sends
+"<S> arrived" whatever the tracker said. Guards: truncated edge ring, vetoed (`not_home`) crossings and ambiguous
+crossings never anchor; a partner listed in the Coordinator Manager Presence option "Faces often confused"
+(`CONF_EGRESS_CONFUSABLE_PAIRS`, e.g. `jaya|ezinne, jaya|oji`) with its own edge in the window blocks it. Security
+(0.9) and every bus / DB / census value are unchanged. Counters `edge_anchor_*` in layer diagnostics; D8a rows carry
+`edge_anchor`; the nightly op `egress_edge_anchor_tripwire` pages when no anchor fired in 7 days while ≥ 3 counted
+arrivals happened.
+
 **(c) MEASURE-BEFORE-BUILD gate.** Before building ANY new consumer,
 re-measure the REAL production rate of `person_id` on the live
 producer (garage / family-room entry path, per the signed-lag probe),

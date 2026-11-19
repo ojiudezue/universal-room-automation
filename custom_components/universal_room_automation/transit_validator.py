@@ -23,7 +23,7 @@ from homeassistant.helpers import area_registry as ar_helper, entity_registry as
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dt_util
 
-from .person_ids import display_of
+from .person_ids import display_of, slug_of, tracked_person_entity_id
 from . import const as _ura_const
 from .const import (
     DOMAIN,
@@ -113,6 +113,23 @@ class EgressResolution:
     synthetic: bool | None = None
     person_state: str | None = None
     provenance: str | None = None
+    # Step 7 S1 (additive): the face evidence of an attach, for the edge
+    # anchor's eligibility rule (INV-ANCHOR-OWN-EVIDENCE (i)). ``face_tier`` is
+    # the pure tier of the in-window face legs, ``live_face_legs`` how many of
+    # them are not synthetic. None on every path without in-window face legs.
+    face_tier: float | None = None
+    live_face_legs: int | None = None
+
+
+def _face_evidence(in_window) -> dict[str, Any]:
+    """Step 7 S1: ``face_tier`` / ``live_face_legs`` of an in-window face
+    leg set (pure; no ledger, no stash)."""
+    legs = [leg for leg, _ in in_window]
+    if not legs:
+        return {}
+    _label, tier, _syn = egress_identity_tier_labelled(legs)
+    live = sum(1 for leg in legs if not getattr(leg, "synthetic", False))
+    return {"face_tier": float(tier), "live_face_legs": live}
 
 
 EGRESS_TIER_HIGH = "high"
@@ -1820,6 +1837,7 @@ class EgressDirectionTracker:
         def _ret(
             pid, conf, agree, outcome, *, slug=None, tier=None,
             synthetic=None, person_state=None, provenance=None,
+            face_tier=None, live_face_legs=None,
         ):
             return (
                 pid, conf, agree,
@@ -1833,6 +1851,8 @@ class EgressDirectionTracker:
                     synthetic=synthetic,
                     person_state=person_state,
                     provenance=provenance,
+                    face_tier=face_tier,
+                    live_face_legs=live_face_legs,
                 ),
             )
 
@@ -2178,6 +2198,7 @@ class EgressDirectionTracker:
                         "attached_ble_face_corroborated",
                         slug=b_slug,
                         provenance=IDENTITY_PROVENANCE_BLE_FACE,
+                        **_face_evidence(in_window),
                     )
                 # DISAGREEMENT — H2 / Review AT-1 (A-HIGH-2) 2026-09-04:
                 # abstain unless the face slug is itself a TRACKED
@@ -2379,6 +2400,7 @@ class EgressDirectionTracker:
             slug, identity_confidence, agreement_class, "attached",
             slug=slug, tier=identity_confidence, synthetic=_tier_synthetic,
             person_state=_person_raw, provenance=IDENTITY_PROVENANCE_FACE,
+            **_face_evidence(in_window),
         )
 
     async def _resolve_direction(
@@ -2471,9 +2493,16 @@ class EgressDirectionTracker:
         ) = self._resolve_egress_face_identity_ex(
             egress_camera_id, egress_timestamp, direction,
         )
+        # Step 7 S1 (plan rev 3.2 D1): the edge anchor. Read ONLY by the
+        # notify text, the record's identity_role / nameable and the D8a row;
+        # person_id / identity_confidence / direction stay the resolver's and
+        # the tracker's (INV-SECURITY, INV-DIRECTION-UNTOUCHED). Never raises.
+        anchor = self._compute_edge_anchor(direction, resolution, egress_timestamp)
         # FACE-ARRIVAL-REBUILD-1 D8a: persist the outcome (one row per
         # resolution, every path). Observational; nothing below reads it.
-        self._log_egress_outcome(resolution, egress_camera_id, egress_timestamp)
+        self._log_egress_outcome(
+            resolution, egress_camera_id, egress_timestamp, edge_anchor=anchor,
+        )
 
         # VISION-CROSSING-SHADOW-1 D2 (INV-ADDITIVE): sample the camera peak
         # count ONCE, before the bus fire, and hand the SAME local to the bus
@@ -2536,6 +2565,15 @@ class EgressDirectionTracker:
                 source_ref=(
                     f"egress:{egress_camera_id}:{egress_timestamp.isoformat()}"
                 ),
+                # Step 7 S1: additive fields, written at the one F3 ingest.
+                identity_role=(
+                    _ura_const.EGRESS_IDENTITY_ROLE_ARRIVAL_EDGE_ANCHORED
+                    if anchor is not None else None
+                ),
+                nameable=(
+                    ((anchor["slug"], anchor["confidence"]),)
+                    if anchor is not None else ()
+                ),
             ))
         except Exception:  # noqa: BLE001 - observational store
             _LOGGER.debug("crossing record store failed (non-fatal)", exc_info=True)
@@ -2557,7 +2595,7 @@ class EgressDirectionTracker:
         # - Best-effort: any NM/lookup failure MUST NOT break the emit.
         try:
             self._arrival_departure_notify(
-                direction, person_id, identity_confidence,
+                direction, person_id, identity_confidence, anchor=anchor,
             )
         except Exception:  # noqa: BLE001
             _LOGGER.debug(
@@ -2887,6 +2925,8 @@ class EgressDirectionTracker:
         resolution: EgressResolution,
         egress_camera_id: str,
         egress_timestamp: datetime,
+        *,
+        edge_anchor: Mapping[str, Any] | None = None,
     ) -> None:
         """FACE-ARRIVAL-REBUILD-1 D8a: persist ONE memory_episodes row
         (`egress_identity_outcome`) for this resolution.
@@ -2920,6 +2960,12 @@ class EgressDirectionTracker:
             "provenance": resolution.provenance,
             "egress_camera": egress_camera_id,
             "crossing_ts": ts_iso,
+            # Step 7 S1 (additive): {slug, lead_s} of the edge anchor, or
+            # None (also None with the feature off, INV-NOOP).
+            "edge_anchor": (
+                {"slug": edge_anchor["slug"], "lead_s": edge_anchor["lead_s"]}
+                if edge_anchor else None
+            ),
         }
 
         async def _write() -> None:
@@ -2953,11 +2999,255 @@ class EgressDirectionTracker:
     # ARRIVAL_NAME_CONFIDENCE_THRESHOLD class attribute was a second, unread
     # name for the same value (review A-L1, Bug Class #63) and is removed.
 
+    # ------------------------------------------------------------------
+    # Step 7 S1 (EGRESS-DIRECTION-AWARE-IDENTITY-1, plan rev 3.2 D1)
+    # ------------------------------------------------------------------
+
+    def _presence_coordinator(self) -> Any:
+        try:
+            cm = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            if cm is None:
+                return None
+            return (getattr(cm, "coordinators", None) or {}).get("presence")
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _confusable_partners(self, slug: str, census: Any) -> set[str]:
+        """Partners of ``slug`` in ``CONF_EGRESS_CONFUSABLE_PAIRS`` (Coordinator
+        Manager options, read fresh per crossing)."""
+        raw: Any = ""
+        try:
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                if entry.data.get(CONF_ENTRY_TYPE) != _ura_const.ENTRY_TYPE_COORDINATOR_MANAGER:
+                    continue
+                merged = {**entry.data, **entry.options}
+                raw = merged.get(
+                    _ura_const.CONF_EGRESS_CONFUSABLE_PAIRS,
+                    _ura_const.DEFAULT_EGRESS_CONFUSABLE_PAIRS,
+                ) or ""
+                break
+        except Exception:  # noqa: BLE001
+            raw = ""
+        out: set[str] = set()
+        for a, b in self._parse_confusable_pairs(str(raw), census):
+            if a == slug:
+                out.add(b)
+            elif b == slug:
+                out.add(a)
+        return out
+
+    def _parse_confusable_pairs(self, raw: str, census: Any) -> list[tuple[str, str]]:
+        """``"jaya|ezinne, jaya|oji"`` -> slug pairs. Each name goes through the
+        one person-id rule (``slug_of``) and then the face first-name mapper
+        (``census.canonical_person_slug``: ``oji`` -> ``oji_udezue``), the
+        namespace face slugs live in. A malformed entry is ignored and logged
+        once. A name that does not resolve to exactly one tracked person (not
+        tracked, or an ambiguous first name) is SKIPPED: its pair is dropped
+        and a warning is logged once (review A: a typed ``person.<name>`` with
+        no edges would never block anyway)."""
+        warned = self.__dict__.setdefault("_confusable_warned", set())
+        try:
+            tracked = set(census.tracked_person_slugs()) if census is not None else set()
+        except Exception:  # noqa: BLE001
+            tracked = set()
+
+        def _resolve(token: str) -> str:
+            s = slug_of(token)
+            if not s:
+                return ""
+            try:
+                c = census.canonical_person_slug(s) if census is not None else s
+            except Exception:  # noqa: BLE001
+                c = s
+            if c and c in tracked:
+                return c
+            if ("unknown", token) not in warned:
+                warned.add(("unknown", token))
+                _LOGGER.warning(
+                    "Faces often confused: %r is not one tracked person; "
+                    "pair skipped", token,
+                )
+            return ""
+
+        pairs: list[tuple[str, str]] = []
+        for item in raw.replace(";", ",").replace("\n", ",").split(","):
+            item = item.strip()
+            if not item:
+                continue
+            parts = [p.strip() for p in item.split("|")]
+            ok = len(parts) == 2 and all(parts)
+            a = _resolve(parts[0]) if ok else ""
+            b = _resolve(parts[1]) if ok else ""
+            if not a or not b or a == b:
+                if ("bad", item) not in warned:
+                    warned.add(("bad", item))
+                    _LOGGER.warning(
+                        "Faces often confused: ignoring %r (expected name|name)",
+                        item,
+                    )
+                continue
+            pairs.append((a, b))
+        return pairs
+
+    def _compute_edge_anchor(
+        self,
+        direction: str,
+        resolution: "EgressResolution",
+        egress_timestamp: datetime,
+    ) -> dict[str, Any] | None:
+        """INV-ANCHOR-OWN-EVIDENCE: a face for slug S plus S's OWN counted F1
+        arrival edge in ``[t_E - LEAD, t_E + EGRESS_ENTRY_WINDOW_SECONDS]``, no
+        truncated edge ring, and no confusable partner edge there. Returns
+        ``{slug, confidence, lead_s, provenance}`` or None. Never raises."""
+        try:
+            lead = float(_ura_const.EGRESS_ARRIVAL_EDGE_LEAD_S)
+            if lead <= 0:
+                return None
+            if direction not in ("entry", "exit"):
+                return None
+            if resolution.provenance not in (
+                IDENTITY_PROVENANCE_FACE, IDENTITY_PROVENANCE_BLE_FACE,
+            ):
+                return None
+            slug = resolution.slug
+            if not slug or not resolution.live_face_legs:
+                return None
+            if (
+                resolution.face_tier is None
+                or resolution.face_tier < float(_ura_const.EGRESS_ARRIVAL_EDGE_MIN_TIER)
+            ):
+                return None
+            census = self.hass.data.get(DOMAIN, {}).get("census")
+            if census is None or not census.egress_identity_enabled():
+                return None
+            presence = self._presence_coordinator()
+            if presence is None:
+                return None
+            t_e = egress_timestamp.timestamp()
+            lo = t_e - lead
+            hi = t_e + float(EGRESS_ENTRY_WINDOW_SECONDS)
+            if presence.person_edges_truncated_since(lo):
+                _count_layer_event(self.hass, "edge_anchor_truncated")
+                return None
+            own = tracked_person_entity_id(slug)
+            partners = {
+                tracked_person_entity_id(p)
+                for p in self._confusable_partners(slug, census)
+            }
+            # Review B LOW (documented, not countable here): the presence
+            # delegate swallows its own ledger errors and returns (), which
+            # reads as "no own edge" -> no anchor (fails closed to today's
+            # text). Only an exception that escapes it counts edge_anchor_error.
+            edges = presence.get_person_edges_since(
+                lo, persons={own} | partners, kinds={"arrival"},
+            )
+            kept = [
+                e for e in edges
+                if e.kind == "arrival"
+                and e.edge_ts <= hi
+                and e.counted is True
+                and not e.source_stale
+                and not e.in_boot_window
+            ]
+            if any(e.person in partners for e in kept):
+                _count_layer_event(self.hass, "edge_anchor_pair_blocked")
+                return None
+            mine = [e for e in kept if e.person == own]
+            if not mine:
+                return None
+            _count_layer_event(self.hass, "edge_anchor_named")
+            return {
+                "slug": slug,
+                "confidence": float(_ura_const.EGRESS_ARRIVAL_EDGE_CONFIDENCE),
+                "lead_s": round(t_e - float(mine[-1].edge_ts), 1),
+                "provenance": _ura_const.IDENTITY_PROVENANCE_FACE_RESIDENCY,
+            }
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("edge anchor failed (non-fatal)", exc_info=True)
+            _count_layer_event(self.hass, "edge_anchor_error")
+            return None
+
+    async def async_edge_anchor_tripwire(self, database: Any) -> bool:
+        """Plan D2 zero-fire trip-wire (nightly op): no anchored crossing in
+        ``EGRESS_ARRIVAL_EDGE_TRIPWIRE_DAYS`` while F1 counted, non-stale,
+        non-boot arrival edges >= ``EGRESS_ARRIVAL_EDGE_TRIPWIRE_MIN_ARRIVALS``
+        -> stuck-signal NM (HIGH). Silent with LEAD 0, and while the oldest
+        outcome row in the window predates S1 (no ``edge_anchor`` key) so a new
+        install does not page. Persisted rows, so a restart loses nothing.
+        Returns True when it paged. Never raises."""
+        try:
+            if float(_ura_const.EGRESS_ARRIVAL_EDGE_LEAD_S) <= 0:
+                return False
+            if database is None or not hasattr(database, "read_memory_episodes_by_type"):
+                return False
+            days = float(_ura_const.EGRESS_ARRIVAL_EDGE_TRIPWIRE_DAYS)
+            now = dt_util.utcnow()
+            if getattr(now, "tzinfo", None) is None:
+                now = now.replace(tzinfo=dt_util.UTC)
+            cutoff = now - timedelta(days=days)
+            # Review B: outcome rows store LOCAL iso (`dt_util.now()`), arrival
+            # rows UTC iso, so a string bound is off by the UTC offset. Pull
+            # one extra day by string, then keep rows by their parsed time.
+            loose = (cutoff - timedelta(days=1)).isoformat()
+
+            def _in_window(rows):
+                out = []
+                for r in rows or []:
+                    try:
+                        ts = datetime.fromisoformat(str(r.get("started_at")))
+                    except (TypeError, ValueError):
+                        continue
+                    if ts.tzinfo is None:
+                        ts = ts.replace(tzinfo=dt_util.UTC)
+                    if ts >= cutoff:
+                        out.append((ts, r.get("attrs") or {}))
+                return sorted(out, key=lambda x: x[0])
+
+            outcomes = _in_window(await database.read_memory_episodes_by_type(
+                EGRESS_OUTCOME_EPISODE_TYPE, loose))
+            if not outcomes or "edge_anchor" not in outcomes[0][1]:
+                return False
+            if any(a.get("edge_anchor") for _ts, a in outcomes):
+                return False
+            arrivals = [
+                {"attrs": a} for _ts, a in _in_window(
+                    await database.read_memory_episodes_by_type(
+                        _ura_const.RESIDENCY_ARRIVAL_EPISODE_TYPE, loose))
+            ]
+            n = 0
+            for r in arrivals:
+                a = r.get("attrs") or {}
+                if a.get("counted") is True and not a.get("source_stale") and not a.get("in_boot_window"):
+                    n += 1
+            if n < int(_ura_const.EGRESS_ARRIVAL_EDGE_TRIPWIRE_MIN_ARRIVALS):
+                return False
+            from .domain_coordinators._stuck_signal_nm import (  # noqa: PLC0415
+                fire_stuck_signal,
+            )
+
+            return bool(await fire_stuck_signal(
+                self.hass, "egress_edge_anchor_zero", ("house",),
+                diagnosis=(
+                    f"Door arrival naming has not fired in {int(days)} days "
+                    f"although residents arrived {n} times."
+                ),
+                remedy=(
+                    "Check the edge_anchor key on egress_identity_outcome rows "
+                    "and the edge_anchor_* layer diagnostics counters."
+                ),
+                severity="HIGH",
+            ))
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("edge anchor trip-wire failed", exc_info=True)
+            return False
+
     def _arrival_departure_notify(
         self,
         direction: str,
         person_id: str | None,
         identity_confidence: float | None,
+        *,
+        anchor: Mapping[str, Any] | None = None,
     ) -> None:
         """Dispatch an arrival/departure notification off an egress crossing.
 
@@ -2973,6 +3263,17 @@ class EgressDirectionTracker:
         verb = "arrived" if direction == "entry" else "left"
 
         if (
+            anchor
+            and anchor.get("confidence") is not None
+            and float(anchor["confidence"])
+            >= CONSUMER_CLASS_MIN_CONFIDENCE[CONSUMER_CLASS_NOTIFICATION]
+        ):
+            # Step 7 S1 (Q3, operator 2026-11-17): the person's own phone says
+            # they just arrived, so the text is "arrived" whatever the
+            # tracker's direction says.
+            name = display_of(anchor["slug"])
+            verb = "arrived"
+        elif (
             person_id
             and identity_confidence is not None
             and identity_confidence
