@@ -128,6 +128,9 @@ _ura = types.ModuleType("custom_components.universal_room_automation")
 _ura_path = os.path.join(_cc.__path__[0], "universal_room_automation")
 _ura.__path__ = [_ura_path]
 _ura.__package__ = "custom_components.universal_room_automation"
+# Identity marker: the no-leak guard (test_music_following_sysmodules_no_leak.py)
+# asserts no sys.modules value carries it after this file's imports.
+_ura.__ura_music_private_copy__ = True
 sys.modules["custom_components.universal_room_automation"] = _ura
 
 # Import const.py directly (it has no HA dependencies beyond typing)
@@ -136,6 +139,7 @@ _const_spec = importlib.util.spec_from_file_location(
     os.path.join(_ura_path, "const.py"),
 )
 _const_mod = importlib.util.module_from_spec(_const_spec)
+_const_mod.__ura_music_private_copy__ = True
 sys.modules["custom_components.universal_room_automation.const"] = _const_mod
 _const_spec.loader.exec_module(_const_mod)
 _ura.const = _const_mod
@@ -145,6 +149,7 @@ _dc_path = os.path.join(_ura_path, "domain_coordinators")
 _dc = types.ModuleType("custom_components.universal_room_automation.domain_coordinators")
 _dc.__path__ = [_dc_path]
 _dc.__package__ = "custom_components.universal_room_automation.domain_coordinators"
+_dc.__ura_music_private_copy__ = True
 sys.modules["custom_components.universal_room_automation.domain_coordinators"] = _dc
 _ura.domain_coordinators = _dc
 
@@ -155,6 +160,7 @@ for _submod_name in ("signals", "house_state", "base", "manager", "music_followi
         _full_name, os.path.join(_dc_path, f"{_submod_name}.py"),
     )
     _mod = importlib.util.module_from_spec(_spec)
+    _mod.__ura_music_private_copy__ = True
     sys.modules[_full_name] = _mod
     _spec.loader.exec_module(_mod)
     setattr(_dc, _submod_name, _mod)

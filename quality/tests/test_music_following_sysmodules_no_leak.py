@@ -1,16 +1,10 @@
 """TEST-MUSIC-SYSMODULES-LEAK-1 regression guard.
 
-test_music_following_coordinator.py exec's its own copies of the
-domain_coordinators submodules (signals, house_state, base, manager,
-music_following) into sys.modules at import time. It must restore sys.modules
-afterwards; otherwise files collected after it resolve
-``...domain_coordinators.base`` to that private copy and class-identity checks
-(``isinstance(x, base.Severity)``) against a normally imported class break.
-
-The private copies are recognisable by their spec origin: they are loaded from
-``quality/tests/../../custom_components/...`` (an unnormalised path), whereas a
-normal import resolves a normalised package path. The conftest collect hook
-repairs the parent package stubs, so the submodules are the reliable signal.
+test_music_following_coordinator.py builds private copies of the URA package,
+const, domain_coordinators and five submodules in sys.modules at import time
+and must restore sys.modules afterwards. Each private copy carries the marker
+attribute ``__ura_music_private_copy__ = True``; this guard asserts, by module
+identity rather than import-path spelling, that none is left in sys.modules.
 
 Run ordering that exercises it:
     pytest -p no:randomly quality/tests/test_music_following_coordinator.py \
@@ -18,28 +12,26 @@ Run ordering that exercises it:
 """
 
 import importlib
-import os
 import sys
 
 DC = "custom_components.universal_room_automation.domain_coordinators"
-SUBMODS = ("signals", "house_state", "base", "manager", "music_following")
+MARKER = "__ura_music_private_copy__"
 
 
-def test_no_private_submodule_copies_left_in_sys_modules():
-    leaked = []
-    for name in SUBMODS:
-        mod = sys.modules.get(f"{DC}.{name}")
-        if mod is None:
-            continue
-        origin = getattr(getattr(mod, "__spec__", None), "origin", None) or ""
-        if origin != os.path.normpath(origin):
-            leaked.append((name, origin))
-    assert leaked == [], f"music-following stub copies leaked: {leaked}"
+def _is_private_copy(mod):
+    # `is True`: MagicMock stubs in sys.modules answer any getattr truthily.
+    try:
+        return mod is not None and vars(mod).get(MARKER) is True
+    except TypeError:  # objects without __dict__
+        return False
 
 
-def test_base_severity_identity_after_music_file():
+def test_no_music_private_copies_left_in_sys_modules():
+    leaked = sorted(k for k, m in list(sys.modules.items()) if _is_private_copy(m))
+    assert leaked == [], f"music-following private copies leaked: {leaked}"
+
+
+def test_base_severity_isinstance_on_non_private_base():
     base = importlib.import_module(f"{DC}.base")
-    origin = base.__spec__.origin
-    assert origin == os.path.normpath(origin), origin
-    assert sys.modules[f"{DC}.base"] is base
+    assert not _is_private_copy(base)
     assert isinstance(base.Severity.LOW, base.Severity)
