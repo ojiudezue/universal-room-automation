@@ -34712,9 +34712,9 @@ cards:
 - id: TEST-MUSIC-SYSMODULES-LEAK-1
   title: test_music_following_coordinator.py replaces domain_coordinators/base in sys.modules at import and never restores them, breaking class-identity checks in later test files
   thread: quality
-  status: "planned"
+  status: in_progress
   created: '2026-11-13 03:00'
-  updated: "2026-11-16 02:23"
+  updated: '2026-11-19 02:03'
   tier: 1
   links: {related: [NM-NO-CHANNEL-FIRED-1]}
   origin: {date: '2026-11-13', gist: 'Found while fixing an order-dependent NM test (test_music_following_coordinator.py:128-138); builder checklist rule 8.'}
@@ -34722,6 +34722,7 @@ cards:
   next: "Me (attended or a quiet overnight with no other suite running): build the snapshot/restore fixture on a worktree, then one serial full-suite name-diff."
   rank: {value: 3, time_criticality: 2, effort: 1}
   verified_2026_11_16_overnight: "STILL-REAL: quality/tests/test_music_following_coordinator.py:105-139 still assigns sys.modules entries for the URA package, const, domain_coordinators and five submodules (signals, house_state, base, manager, music_following) at import, with no restore. Gate: config-first N/A; prior art = the parent re-architecture (TEST-STRATEGY-REARCH-1 removes import-time surgery); parsimony SIMPLIFY (snapshot sys.modules before the surgery, restore after this module's imports, and re-install the stubs only for this module via a module-scoped autouse fixture); cost/benefit BUILD but only with a full-suite name-diff, because the fix changes collection-order behaviour for every later file. Not built overnight: another session's builder was running full suites (the pytest guard kills concurrent runs). Acceptance: suite name-diff vs develop shows no new failures, and a minimal ordering (this file, then a file doing isinstance on base.Severity) passes."
+  verified_2026_11_19_overnight: 'STILL-REAL (re-read test_music_following_coordinator.py:104-139 on develop 6187b75c: same unrestored sys.modules assignments). No pytest running (pgrep). Gate unchanged from 11-16 (SIMPLIFY -> BUILD with full-suite name-diff). Review lane at 2 after closing ZONE-HAS-HOME-PERSON, so the WIP cap allows one build. Dispatched ura-builder in a worktree 02:0x.'
 - id: NM-DIGEST-MARK-RACE-1
   build_2026_11_18_overnight: 'Rebased fix/nm-digest-mark-race onto develop bb53c7d38 (was 126 behind) -> aac62d620, pushed to origin. Targeted run (nm_no_channel_fired + notification_manager + nm_image_delivery + music_following_repair, the only callers/fakes of mark_digest_delivered) = 349 passed. Per-site mutation drill, Edit-mutate/restore, tree clean after: (1) drop AND id <= ? in database.mark_digest_delivered -> 2 RED (test_row_inserted_during_send_survives_to_next_digest, test_body_rows_marked_and_audit_drained_up_to_mark); (2) call site passes 10**12 instead of the read high-water mark -> same 2 RED; (3) drop the ''nothing read -> mark nothing'' guard -> 1 RED (test_optimizer_section_only_is_not_heartbeat). Tier 1: Review A SHIP (11-16) + drill = done. Not deployed (overnight).'
   verified_2026_11_15_overnight: 'STILL-REAL: notification_manager.py ~5650-5705 reads pending, awaits _deliver_digest, then database.mark_digest_delivered (database.py:4937) UPDATEs every delivered=0 LOW/MEDIUM row for the person, so a row inserted during the send is marked delivered=2 without ever appearing in a body. Gate: config-first N/A; prior art REUSE both functions (add an id high-water mark); parsimony BUILD; cost/benefit BUILD (Tier 1, one review). Builder dispatched to worktree overnight-nm-digest-race, branch fix/nm-digest-mark-race; to review lane only, no deploy.'
