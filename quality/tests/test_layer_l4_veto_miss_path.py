@@ -58,8 +58,11 @@ def _world(person_states, tracked=("Oji Udezue",)):
     calls = []
 
     def _all(domain=None):
+        # Honours the domain filter like HA's StateMachine.async_all.
         calls.append(domain)
-        return [s for e, s in st_map.items() if e.startswith("person.")]
+        if domain is None:
+            return list(st_map.values())
+        return [s for e, s in st_map.items() if e.split(".", 1)[0] == domain]
 
     hass.states.async_all = _all
     _configure_integration_entry(hass, tracked=tracked)
@@ -207,3 +210,52 @@ def test_layer_diagnostics_expose_fallback_counters():
     out = PresenceCoordinator.get_layer_diagnostics(pres)
     assert out["person_entity_fallback_hits"] == 1
     assert out["person_entity_fallback_misses"] == 1
+
+
+# ----------------------------------------------------------- review C additions
+def test_empty_or_guest_slug_no_lookup_no_miss():
+    """A nameless person entity must not match an empty slug, and an empty or
+    guest slug counts no miss and runs no scan."""
+    st = _make_state("not_home", NOW, attributes={})
+    st.entity_id = "person.nameless"
+    w = _world([st])
+    assert person_ids.person_entity_for_slug(w.hass, "") == "person."
+    assert person_ids.person_entity_for_slug(w.hass, "guest:bob") == "person.guest:bob"
+    assert w.all_calls == []
+    c = layer_signals.layer_counters(w.hass)
+    assert (c.person_entity_fallback_hits, c.person_entity_fallback_misses) == (0, 0)
+
+
+def test_non_person_state_never_matches():
+    """A non-person state named like the person (returned by an unfiltered
+    scan) is never taken as the person."""
+    decoy = _make_state("not_home", NOW, attributes={"friendly_name": "Oji Udezue"})
+    decoy.entity_id = "sensor.oji_udezue"
+    w = _world([decoy])
+    w.hass.states.async_all = lambda domain=None: [decoy]
+    assert person_ids.person_entity_for_slug(w.hass, "oji_udezue") == "person.oji_udezue"
+
+
+def test_scan_asks_for_person_domain():
+    w = _world([_person("person.oji_udezue_2", "home", "Oji Udezue")])
+    assert person_ids.person_entity_for_slug(w.hass, "oji_udezue") == "person.oji_udezue_2"
+    assert w.all_calls == ["person"]
+
+
+def test_slug_used_exactly_as_passed():
+    """The exact id is built from the slug as passed (no slug_of): a
+    mixed-case id that exists is an exact hit, no scan."""
+    st = _make_state("home", NOW, attributes={})
+    st.entity_id = "person.Oji_X"
+    w = _world([st])
+    assert person_ids.person_entity_for_slug(w.hass, "Oji_X") == "person.Oji_X"
+    assert w.all_calls == []
+
+
+def test_guard_taints_bare_helper_name():
+    """Guard engine: a raw read through the bare helper name (transit's
+    import form) in a non-member module is an R3 hit."""
+    from test_person_awareness_layer_guard import _rules
+    src = ("def f(hass, s):\n"
+           "    return hass.states.get(person_entity_for_slug(hass, s))\n")
+    assert "R3" in _rules(src)

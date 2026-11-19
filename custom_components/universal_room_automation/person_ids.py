@@ -17,6 +17,7 @@ face-library first name onto a tracked slug).
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 PERSON_ENTITY_PREFIX = "person."
@@ -81,23 +82,27 @@ def person_entity_for_slug(hass: Any, slug: Any) -> str:
     except Exception:  # noqa: BLE001
         return exact
     target = slug_of(slug)
+    if not target or target.startswith("guest:"):
+        return exact  # nothing to resolve: no lookup, no miss counted
     matches: set[str] = set()
-    if target:
+    try:
+        states = list(hass.states.async_all("person") or [])
+    except Exception:  # noqa: BLE001
+        states = []
+    for st in states:
         try:
-            states = list(hass.states.async_all("person") or [])
-        except Exception:  # noqa: BLE001
-            states = []
-        for st in states:
-            try:
-                eid = str(getattr(st, "entity_id", "") or "")
-                if not eid.startswith(PERSON_ENTITY_PREFIX):
-                    continue
-                attrs = getattr(st, "attributes", None) or {}
-                if target in (slug_of(eid), slug_of(attrs.get("friendly_name"))):
-                    matches.add(eid)
-            except Exception:  # noqa: BLE001
+            eid = str(getattr(st, "entity_id", "") or "")
+            if not eid.startswith(PERSON_ENTITY_PREFIX):
                 continue
+            attrs = getattr(st, "attributes", None) or {}
+            if target in (slug_of(eid), slug_of(attrs.get("friendly_name"))):
+                matches.add(eid)
+        except Exception:  # noqa: BLE001
+            continue
     found = next(iter(matches)) if len(matches) == 1 else None
+    if found:
+        logging.getLogger(__name__).debug(
+            "person id fallback: slug %s -> %s (exact %s missing)", slug, found, exact)
     try:
         from .domain_coordinators.signals import count_layer_event
         count_layer_event(

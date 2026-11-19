@@ -202,6 +202,8 @@ per-person state and stamps `person_visits` on room transitions
   `person_coordinator.py:67`) prevents a boot-tick with an empty
   scanner fleet from wrongly attributing BLE-silent-away to a person.
 
+**Person entity on a miss (LAYER-LEAK-CLEANUP-1 L4, 2026-11-19, branch `feature/layer-l4-veto-miss-path`):** the five identity vetoes (`is_face_leg_person_vetoed`, `face_person_would_be_vetoed`, `_get_face_recognized_person_names`, `_derive_ble_crossing_trackers`, egress `_resolve_egress_face_identity_ex`) read the person through `person_ids.person_entity_for_slug`: exact `person.<slug>` first (unchanged); only when that state is missing, the ONE HA `person` entity whose id or `friendly_name` has the same `slug_of`. Zero or several matches keep today's fail-open answer. Hits/misses are counted in `get_layer_diagnostics()` (`person_entity_fallback_hits` / `_misses`) and each hit is debug-logged. Code wins over this note.
+
 ### 2.2 Frigate exterior faces (`sensor.<cam>_last_recognized_face[_2]`)
 
 The only NAMED-face source URA can currently join to a crossing.
