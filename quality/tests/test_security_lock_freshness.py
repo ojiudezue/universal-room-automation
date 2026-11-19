@@ -872,6 +872,32 @@ def test_common_mode_clears_when_one_lock_returns():
     assert len(_pages(acts, "Locks offline together")) == 1
 
 
+def test_common_mode_restore_leaves_each_lock_unverified():
+    coord, states, _ = _make(locks=(GARAGE, FRONT), reg=_registry(with_front=True))
+    t = REPORT + H(1)
+    states.set(GARAGE, "unavailable", name="Garage hallway lock")
+    states.set(FRONT, "unavailable", name="Front door lock")
+    states.set(NS_GARAGE, "alive")
+    states.set(LS_GARAGE, REPORT.isoformat())
+    states.set(LS_FRONT, REPORT.isoformat())
+    _run(coord, t)
+    assert len(_pages(_run(coord, t + timedelta(minutes=20)), "Locks offline together")) == 1
+    _restore(coord, states, GARAGE, t + H(1), "Garage hallway lock")
+    _restore(coord, states, FRONT, t + H(1), "Front door lock")
+    acts = _run(coord, t + H(2))
+    assert _pages(acts) == []  # inside R
+    assert coord.last_lock_sweep["unverified"] == [FRONT, GARAGE]
+    assert _lock_cmds(acts, GARAGE) == [] and _lock_cmds(acts, FRONT) == []
+    again = _pages(_run(coord, t + timedelta(minutes=20) + H(6)))
+    assert len(again) == 2 and all("back online" in p.message for p in again)
+    # A real report clears that lock only.
+    states.set(LS_GARAGE, (t + H(6.5)).isoformat())
+    acts = _run(coord, t + H(7))
+    clear = _pages(acts, "Lock reporting again")
+    assert len(clear) == 1 and "Garage hallway lock" in clear[0].message
+    assert coord.last_lock_sweep["unverified"] == [FRONT]
+
+
 def test_signal_page_record_clears_when_enabled():
     reg = _registry(garage_ls_disabled=True)
     coord, states, _ = _make(reg=reg)

@@ -352,7 +352,7 @@ class LockFreshnessTracker:
                     location=",".join(down),
                     description=PAGE_TITLE_COMMON,
                     data={"on_notify_result": self._on_delivered(
-                        COMMON_KEY, "paged_ts", now)},
+                        COMMON_KEY, "paged_ts", now, also_dead=down)},
                 ))
         elif common_rec.get("paged_ts"):
             common_rec.pop("paged_ts", None)
@@ -442,7 +442,7 @@ class LockFreshnessTracker:
         return out
 
     def _on_delivered(self, key: str, field_name: str, now: datetime,
-                      kind: str | None = None):
+                      kind: str | None = None, also_dead: list | None = None):
         """Dedup latches on DELIVERY (review B HIGH): a page NM dropped
         (quiet hours, dedup, kill switch) leaves the record pending, so the
         next sweep proposes it again."""
@@ -456,6 +456,12 @@ class LockFreshnessTracker:
                 if kind == "stale":
                     self.stale_pages_total += 1
                     self.last_stale_page = _iso(now)
+            # Common-mode page: mark each down lock paged "dead" so a later
+            # cache restore stays unverified per lock (review B2 MEDIUM).
+            for lid in also_dead or ():
+                lrec = self._records.setdefault(lid, {})
+                lrec["paged_ts"] = _iso(now)
+                lrec["paged_kind"] = "dead"
             self._save()
         return _cb
 
