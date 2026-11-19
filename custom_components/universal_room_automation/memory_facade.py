@@ -587,14 +587,30 @@ class MemoryFacade:
         if not room_slug or not signal:
             return None
         try:
+            # ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1 D3: the learned keys
+            # resolve through the registry (same map as the baseline
+            # writer); any other signal keeps the counted name fallback.
+            from .room_entities import (  # noqa: PLC0415
+                note_name_fallback_read,
+                resolve_room_entity_id_for_slug,
+            )
+
             if signal == "occupied":
-                st = self.hass.states.get(
-                    f"binary_sensor.{room_slug}_occupied",
+                eid = resolve_room_entity_id_for_slug(
+                    self.hass, room_slug, "binary_sensor", "occupied",
                 )
+                st = self.hass.states.get(eid) if eid else None
                 if st is not None and st.state in ("on", "off"):
                     return 1.0 if st.state == "on" else 0.0
                 return None
-            st = self.hass.states.get(f"sensor.{room_slug}_{signal}")
+            if signal in ("temperature", "humidity"):
+                eid = resolve_room_entity_id_for_slug(
+                    self.hass, room_slug, "sensor", signal,
+                )
+            else:
+                eid = f"sensor.{room_slug}_{signal}"
+                note_name_fallback_read(f"slug:{room_slug}", signal, eid)
+            st = self.hass.states.get(eid) if eid else None
             if st is None:
                 return None
             return float(st.state)

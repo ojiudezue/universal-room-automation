@@ -98,7 +98,14 @@ def _room_switch_entity_id(coordinator: "UniversalRoomCoordinator", suffix: str)
     if resolved is not None:
         return resolved
     slug = coordinator.entry.data.get("room_name", "unknown").lower().replace(" ", "_")
-    return f"switch.{slug}_{suffix}"
+    fallback = f"switch.{slug}_{suffix}"
+    # ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1 rev 3 R3-4: counted fallback.
+    try:
+        from .room_entities import note_name_fallback_read  # noqa: PLC0415
+        note_name_fallback_read(coordinator.entry.entry_id, suffix, fallback)
+    except Exception:  # noqa: BLE001
+        pass
+    return fallback
 
 
 def _migrate_excess_solar_entity_id(hass: HomeAssistant, entry: ConfigEntry) -> None:

@@ -438,6 +438,32 @@ DIAG_HELP_LINE = "diag = house status menu"
 _PANEL_LEVEL_RANK = {"info": 1, "warn": 2, "alert": 3, "critical": 4}
 
 
+def conditioning_live_entity_id(
+    hass: Any, location: Any, signal: str, slug: str,
+) -> str | None:
+    """Live entity read by NM memory conditioning for (location, signal).
+
+    ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1 D3: ``humidity`` is a room-owned
+    URA key, so for a location that IS a room name the registry id of that
+    room's humidity sensor is read (None on a registry miss, counted). co2 /
+    tvoc (no URA room key) and non-room locations keep the name-built id as
+    a logged, counted last-resort fallback.
+    """
+    from ..room_entities import (  # noqa: PLC0415
+        note_name_fallback_read,
+        resolve_room_entity_id,
+        room_entry_id_for_name,
+    )
+
+    if signal == "humidity":
+        room_eid = room_entry_id_for_name(hass, str(location))
+        if room_eid is not None:
+            return resolve_room_entity_id(hass, room_eid, "sensor", signal)
+    fallback = f"sensor.{slug}_{signal}"
+    note_name_fallback_read(str(location), signal, fallback)
+    return fallback
+
+
 class NotificationManager:
     """Centralized notification delivery for all domain coordinators.
 
@@ -1899,8 +1925,13 @@ class NotificationManager:
                                 f"room:{_slug}", _signal,
                             )
                         if ans.verdict == "ok" and ans.value:
-                            live = self.hass.states.get(
-                                f"sensor.{_slug}_{_signal}",
+                            # ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1 D3.
+                            _live_id = conditioning_live_entity_id(
+                                self.hass, location, _signal, _slug,
+                            )
+                            live = (
+                                self.hass.states.get(_live_id)
+                                if _live_id else None
                             )
                             try:
                                 live_val = (
