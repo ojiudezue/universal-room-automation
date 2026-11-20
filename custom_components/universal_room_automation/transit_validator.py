@@ -2498,11 +2498,14 @@ class EgressDirectionTracker:
         # notify text, the record's identity_role / nameable and the D8a row;
         # person_id / identity_confidence / direction stay the resolver's and
         # the tracker's (INV-SECURITY, INV-DIRECTION-UNTOUCHED). Never raises.
-        anchor = self._compute_edge_anchor(direction, resolution, egress_timestamp)
+        anchor, anchor_reason = self._compute_edge_anchor_ex(
+            direction, resolution, egress_timestamp,
+        )
         # FACE-ARRIVAL-REBUILD-1 D8a: persist the outcome (one row per
         # resolution, every path). Observational; nothing below reads it.
         self._log_egress_outcome(
             resolution, egress_camera_id, egress_timestamp, edge_anchor=anchor,
+            edge_anchor_reason=anchor_reason,
         )
 
         # VISION-CROSSING-SHADOW-1 D2 (INV-ADDITIVE): sample the camera peak
@@ -2928,6 +2931,7 @@ class EgressDirectionTracker:
         egress_timestamp: datetime,
         *,
         edge_anchor: Mapping[str, Any] | None = None,
+        edge_anchor_reason: str | None = None,
     ) -> None:
         """FACE-ARRIVAL-REBUILD-1 D8a: persist ONE memory_episodes row
         (`egress_identity_outcome`) for this resolution.
@@ -2967,6 +2971,9 @@ class EgressDirectionTracker:
                 {"slug": edge_anchor["slug"], "lead_s": edge_anchor["lead_s"]}
                 if edge_anchor else None
             ),
+            # Why no anchor ("anchored" when one was named; see
+            # _compute_edge_anchor_ex for the vocabulary).
+            "edge_anchor_reason": edge_anchor_reason,
         }
 
         async def _write() -> None:
@@ -3096,40 +3103,69 @@ class EgressDirectionTracker:
         resolution: "EgressResolution",
         egress_timestamp: datetime,
     ) -> dict[str, Any] | None:
+        """The anchor alone (see ``_compute_edge_anchor_ex``)."""
+        return self._compute_edge_anchor_ex(
+            direction, resolution, egress_timestamp,
+        )[0]
+
+    def _compute_edge_anchor_ex(
+        self,
+        direction: str,
+        resolution: "EgressResolution",
+        egress_timestamp: datetime,
+    ) -> tuple[dict[str, Any] | None, str]:
         """INV-ANCHOR-OWN-EVIDENCE: a face for slug S plus S's OWN counted F1
         arrival edge in ``[t_E - LEAD, t_E + EGRESS_ENTRY_WINDOW_SECONDS]``, no
         truncated edge ring, and no confusable partner edge there. Returns
-        ``{slug, confidence, lead_s, provenance}`` or None. Never raises."""
+        ``({slug, confidence, lead_s, provenance}, "anchored")`` or
+        ``(None, reason)``, reason one of ``EDGE_ANCHOR_REASONS``; every None
+        reason is counted in the ``edge_anchor_none`` layer table. Never
+        raises."""
+        anchor, reason = self._edge_anchor_gates(
+            direction, resolution, egress_timestamp,
+        )
+        if anchor is None:
+            _count_layer_event(self.hass, "edge_anchor_none", reason)
+        return anchor, reason
+
+    def _edge_anchor_gates(
+        self,
+        direction: str,
+        resolution: "EgressResolution",
+        egress_timestamp: datetime,
+    ) -> tuple[dict[str, Any] | None, str]:
         try:
             lead = float(_ura_const.EGRESS_ARRIVAL_EDGE_LEAD_S)
             if lead <= 0:
-                return None
+                return None, "lead_off"
             if direction not in ("entry", "exit"):
-                return None
+                return None, "direction"
             if resolution.provenance not in (
                 IDENTITY_PROVENANCE_FACE, IDENTITY_PROVENANCE_BLE_FACE,
             ):
-                return None
+                return None, "provenance"
             slug = resolution.slug
-            if not slug or not resolution.live_face_legs:
-                return None
+            if not slug:
+                return None, "no_slug"
+            if not resolution.live_face_legs:
+                return None, "no_live_face_legs"
             if (
                 resolution.face_tier is None
                 or resolution.face_tier < float(_ura_const.EGRESS_ARRIVAL_EDGE_MIN_TIER)
             ):
-                return None
+                return None, "face_tier"
             census = self.hass.data.get(DOMAIN, {}).get("census")
             if census is None or not census.egress_identity_enabled():
-                return None
+                return None, "census_off"
             presence = self._presence_coordinator()
             if presence is None:
-                return None
+                return None, "no_presence"
             t_e = egress_timestamp.timestamp()
             lo = t_e - lead
             hi = t_e + float(EGRESS_ENTRY_WINDOW_SECONDS)
             if presence.person_edges_truncated_since(lo):
                 _count_layer_event(self.hass, "edge_anchor_truncated")
-                return None
+                return None, "truncated"
             own = tracked_person_entity_id(slug)
             partners = {
                 tracked_person_entity_id(p)
@@ -3152,21 +3188,21 @@ class EgressDirectionTracker:
             ]
             if any(e.person in partners for e in kept):
                 _count_layer_event(self.hass, "edge_anchor_pair_blocked")
-                return None
+                return None, "partner_blocked"
             mine = [e for e in kept if e.person == own]
             if not mine:
-                return None
+                return None, "no_own_edge"
             _count_layer_event(self.hass, "edge_anchor_named")
             return {
                 "slug": slug,
                 "confidence": float(_ura_const.EGRESS_ARRIVAL_EDGE_CONFIDENCE),
                 "lead_s": round(t_e - float(mine[-1].edge_ts), 1),
                 "provenance": _ura_const.IDENTITY_PROVENANCE_FACE_RESIDENCY,
-            }
+            }, "anchored"
         except Exception:  # noqa: BLE001
             _LOGGER.debug("edge anchor failed (non-fatal)", exc_info=True)
             _count_layer_event(self.hass, "edge_anchor_error")
-            return None
+            return None, "error"
 
     async def async_edge_anchor_tripwire(self, database: Any) -> bool:
         """Plan D2 zero-fire trip-wire (nightly op): no anchored crossing in

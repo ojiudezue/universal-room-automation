@@ -6258,6 +6258,7 @@ class PresenceCoordinator(BaseCoordinator):
                 "edge_anchor_truncated": int(c.edge_anchor_truncated),
                 "edge_anchor_pair_blocked": int(c.edge_anchor_pair_blocked),
                 "edge_anchor_error": int(c.edge_anchor_error),
+                "edge_anchor_none": dict(sorted(c.edge_anchor_none.items())),
                 "person_entity_fallback_hits": int(c.person_entity_fallback_hits),
                 "person_entity_fallback_misses": int(c.person_entity_fallback_misses),
             }

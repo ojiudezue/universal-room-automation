@@ -123,6 +123,8 @@ class LayerCounters:
     edge_anchor_truncated: int = 0
     edge_anchor_pair_blocked: int = 0
     edge_anchor_error: int = 0
+    # Why _compute_edge_anchor_ex returned no anchor, by reason.
+    edge_anchor_none: dict[str, int] = field(default_factory=dict)
     # LAYER-LEAK-CLEANUP-1 L4: identity-veto person lookups that missed the
     # exact ``person.<slug>`` id and resolved one real person (hits) or none.
     person_entity_fallback_hits: int = 0
