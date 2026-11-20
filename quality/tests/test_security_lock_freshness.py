@@ -998,3 +998,90 @@ def test_sweep_sensor_exposes_freshness_attrs():
     assert attrs["stale"] == [GARAGE]
     assert attrs["freshness_age_h"] == {GARAGE: 13.0}
     assert attrs["freshness_signal"] == {GARAGE: "last_seen"}
+
+
+# ------------------------------------- SECURITY-LOCK-PAGE-LAST-SEEN-1 (display)
+# Restart 10 h after the lock last reported; last_seen holds the genuine
+# pre-boot Z-Wave stamp (REPORT). Lock stamps are boot-time restores.
+BOOT_LS = REPORT + H(10)
+GRACE_END_LS = BOOT_LS + timedelta(seconds=600)
+
+
+def _preboot_garage(states, ls_value=REPORT.isoformat(), lock_state="locked"):
+    states.set(GARAGE, lock_state, changed=BOOT_LS, reported=BOOT_LS,
+               name="Garage hallway lock")
+    states.set(LS_GARAGE, ls_value)
+    states.set(NS_GARAGE, "alive")
+
+
+def test_stale_page_shows_preboot_last_seen_age():
+    coord, states, _ = _make(boot=BOOT_LS)
+    _preboot_garage(states)
+    now = GRACE_END_LS + H(13)          # REPORT + 23 h 10 min
+    pages = _pages(_run(coord, now))
+    assert len(pages) == 1
+    assert "last seen 23 h ago (before restart)" in pages[0].message
+    assert "since restart" in pages[0].message
+
+
+def test_dead_page_shows_preboot_last_seen_age():
+    coord, states, _ = _make(boot=BOOT_LS)
+    _preboot_garage(states)
+    states.set(NS_GARAGE, "dead")
+    t = GRACE_END_LS + timedelta(minutes=1)
+    acts = _run(coord, t) + _run(coord, t + timedelta(minutes=21))
+    pages = _pages(acts)
+    assert len(pages) == 1 and "node dead" in pages[0].message
+    # Page at REPORT + 10 h 32 min -> "11 h".
+    assert "last seen 11 h ago (before restart)" in pages[0].message
+    assert "unknown. State" not in pages[0].message
+
+
+def test_offline_page_shows_preboot_last_seen_age():
+    coord, states, _ = _make(boot=BOOT_LS)
+    _preboot_garage(states, lock_state="unavailable")
+    t = GRACE_END_LS + timedelta(minutes=1)
+    acts = _run(coord, t) + _run(coord, t + timedelta(minutes=21))
+    pages = _pages(acts)
+    assert len(pages) == 1 and "is offline" in pages[0].message
+    assert "last seen 11 h ago (before restart)" in pages[0].message
+
+
+@pytest.mark.parametrize("case", ["disabled", "missing", "unparseable", "naive"])
+def test_offline_page_keeps_unknown_without_usable_last_seen(case):
+    reg = _registry(garage_ls_disabled=(case == "disabled"))
+    coord, states, _ = _make(boot=BOOT_LS, reg=reg)
+    val = {
+        "disabled": REPORT.isoformat(),
+        "missing": "unknown",
+        "unparseable": "not-a-date",
+        "naive": "2026-11-16T07:37:00",
+    }[case]
+    _preboot_garage(states, ls_value=val, lock_state="unavailable")
+    t = GRACE_END_LS + timedelta(minutes=1)
+    acts = _run(coord, t) + _run(coord, t + timedelta(minutes=21))
+    pages = _pages(acts)
+    assert len(pages) == 1
+    assert "last report unknown. State unknown" in pages[0].message
+    assert "last seen" not in pages[0].message
+
+
+def test_preboot_last_seen_does_not_feed_freshness():
+    """The display value must not leak into real_report_ts / age_h / stale."""
+    def _snap(ls_value, now):
+        coord, states, _ = _make(boot=BOOT_LS)
+        _preboot_garage(states, ls_value=ls_value)
+        _run(coord, now)
+        sweep = coord.last_lock_sweep
+        return (
+            coord._lock_freshness.record(GARAGE).get("real_report_ts"),
+            sweep["freshness_age_h"][GARAGE],
+            sweep["stale"],
+        )
+    # grace_end + 11 h: a 21 h old pre-boot last_seen must NOT make it stale.
+    early = GRACE_END_LS + H(11)
+    assert _snap(REPORT.isoformat(), early) == (None, None, [])
+    assert _snap(REPORT.isoformat(), early) == _snap("unavailable", early)
+    late = GRACE_END_LS + H(13)
+    assert _snap(REPORT.isoformat(), late) == (None, None, [GARAGE])
+    assert _snap(REPORT.isoformat(), late) == _snap("unavailable", late)
