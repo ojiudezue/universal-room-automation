@@ -2600,6 +2600,7 @@ class EgressDirectionTracker:
         try:
             self._arrival_departure_notify(
                 direction, person_id, identity_confidence, anchor=anchor,
+                egress_ts=egress_timestamp,
             )
         except Exception:  # noqa: BLE001
             _LOGGER.debug(
@@ -3278,6 +3279,51 @@ class EgressDirectionTracker:
             _LOGGER.debug("edge anchor trip-wire failed", exc_info=True)
             return False
 
+    def _named_entry_verb(self, person_id: str, egress_ts: datetime) -> str:
+        """Verb for a named (>= notification bar) entry without an anchor
+        (operator 2026-11-20): "arrived" only when the person has their OWN
+        counted, non-stale, non-boot arrival edge in the S1 window
+        ``[t_E - EGRESS_ARRIVAL_EDGE_LEAD_S, t_E + EGRESS_ENTRY_WINDOW_SECONDS]``
+        (a truncated ring reads as no edge); otherwise "came in" when the
+        person was already home before the window; else "arrived" (today's
+        text). LEAD <= 0 or any error keeps "arrived" (INV-NOOP)."""
+        try:
+            lead = float(_ura_const.EGRESS_ARRIVAL_EDGE_LEAD_S)
+            if lead <= 0:
+                return "arrived"
+            presence = self._presence_coordinator()
+            if presence is None:
+                return "arrived"
+            t_e = egress_ts.timestamp()
+            lo = t_e - lead
+            hi = t_e + float(EGRESS_ENTRY_WINDOW_SECONDS)
+            own = tracked_person_entity_id(person_id)
+            if not presence.person_edges_truncated_since(lo):
+                for e in presence.get_person_edges_since(
+                    lo, persons={own}, kinds={"arrival"},
+                ):
+                    if (
+                        e.person == own
+                        and e.kind == "arrival"
+                        and e.edge_ts <= hi
+                        and e.counted is True
+                        and not e.source_stale
+                        and not e.in_boot_window
+                    ):
+                        return "arrived"
+            st = self.hass.states.get(own)
+            since = getattr(st, "last_changed", None)
+            if (
+                st is not None
+                and getattr(st, "state", None) == "home"
+                and isinstance(since, datetime)
+                and since.timestamp() < lo
+            ):
+                return "came in"
+            return "arrived"
+        except Exception:  # noqa: BLE001 - text only
+            return "arrived"
+
     def _arrival_departure_notify(
         self,
         direction: str,
@@ -3285,6 +3331,7 @@ class EgressDirectionTracker:
         identity_confidence: float | None,
         *,
         anchor: Mapping[str, Any] | None = None,
+        egress_ts: datetime | None = None,
     ) -> None:
         """Dispatch an arrival/departure notification off an egress crossing.
 
@@ -3317,6 +3364,8 @@ class EgressDirectionTracker:
             >= CONSUMER_CLASS_MIN_CONFIDENCE[CONSUMER_CLASS_NOTIFICATION]
         ):
             name = display_of(person_id)  # RA9
+            if direction == "entry" and egress_ts is not None:
+                verb = self._named_entry_verb(person_id, egress_ts)
         else:
             name = "Someone"
 
