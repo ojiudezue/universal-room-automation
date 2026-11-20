@@ -352,239 +352,24 @@ def _schema_field(result, key_name):
 
 
 # ============================================================================
-# D1: Automation Chaining in Initial Room Setup
+# D1/D2 (v3.20.1) RETIRED by AI-ROOM-RULES-TRUST-REPAIR-1 D8: rule authoring
+# (chains + AI rules) left the room-creation flow; rules are added from the
+# room's options ("Room rules"). Behavioural coverage of the new flow:
+# test_room_rules_flow.py.
 # ============================================================================
 
 
-class TestD1AutomationChainingInitialSetup:
-    """D1: Automation chaining step exists in initial room setup flow."""
-
+class TestD8RulesLeaveRoomCreation:
     @pytest.mark.asyncio
-    async def test_automation_behavior_routes_to_chaining(self):
-        """After automation_behavior, flow goes to init_automation_chaining (not climate)."""
+    async def test_automation_behavior_routes_to_climate(self):
+        """After automation_behavior the creation flow goes straight to climate."""
         flow = _make_config_flow()
         result = await flow.async_step_automation_behavior(user_input={
             CONF_ENTRY_LIGHT_ACTION: LIGHT_ACTION_NONE,
         })
-        assert result["type"] == "menu"
-        assert result["step_id"] == "init_automation_chaining"
-
-    @pytest.mark.asyncio
-    async def test_init_automation_chaining_menu_options(self):
-        """Chaining menu offers 4 trigger groups + skip."""
-        flow = _make_config_flow()
-        result = await flow.async_step_init_automation_chaining()
-        assert result["type"] == "menu"
-        opts = result["menu_options"]
-        assert "init_chain_occupancy" in opts
-        assert "init_chain_light" in opts
-        assert "init_chain_house_state" in opts
-        assert "init_chain_coordinator" in opts
-        assert "init_chain_skip" in opts
-
-    @pytest.mark.asyncio
-    async def test_init_chain_skip_goes_to_ai_rules(self):
-        """Skipping chaining goes to AI rules menu."""
-        flow = _make_config_flow()
-        result = await flow.async_step_init_chain_skip()
-        assert result["type"] == "menu"
-        assert result["step_id"] == "init_ai_rules"
-
-    @pytest.mark.asyncio
-    async def test_init_chain_occupancy_shows_form(self):
-        """Occupancy chain step shows form with enter/exit fields."""
-        flow = _make_config_flow()
-        result = await flow.async_step_init_chain_occupancy(user_input=None)
-        assert result["type"] == "form"
-        assert result["step_id"] == "init_chain_occupancy"
-        keys = _schema_keys(result)
-        assert "chain_enter" in keys
-        assert "chain_exit" in keys
-
-    @pytest.mark.asyncio
-    async def test_init_chain_light_shows_form(self):
-        """Light chain step shows form with lux_dark/lux_bright fields."""
-        flow = _make_config_flow()
-        result = await flow.async_step_init_chain_light(user_input=None)
-        assert result["type"] == "form"
-        assert result["step_id"] == "init_chain_light"
-        keys = _schema_keys(result)
-        assert "chain_lux_dark" in keys
-        assert "chain_lux_bright" in keys
-
-    @pytest.mark.asyncio
-    async def test_init_chain_saves_to_data(self):
-        """Submitting a chain trigger stores it in self._data."""
-        flow = _make_config_flow()
-        result = await flow.async_step_init_chain_occupancy(user_input={
-            "chain_enter": "automation.test_enter",
-            "chain_exit": "",
-        })
-        assert result["type"] == "menu"
-        assert result["step_id"] == "init_automation_chaining"
-        chains = flow._data.get(CONF_AUTOMATION_CHAINS, {})
-        assert chains.get("enter") == "automation.test_enter"
-        assert "exit" not in chains
-
-    @pytest.mark.asyncio
-    async def test_init_chain_preserves_across_groups(self):
-        """Chain bindings from different groups are preserved."""
-        flow = _make_config_flow()
-        await flow.async_step_init_chain_occupancy(user_input={
-            "chain_enter": "automation.my_enter",
-            "chain_exit": "",
-        })
-        await flow.async_step_init_chain_light(user_input={
-            "chain_lux_dark": "automation.my_dark",
-            "chain_lux_bright": "",
-        })
-        chains = flow._data.get(CONF_AUTOMATION_CHAINS, {})
-        assert chains.get("enter") == "automation.my_enter"
-        assert chains.get("lux_dark") == "automation.my_dark"
-
-
-# ============================================================================
-# D2: AI Rules in Initial Room Setup
-# ============================================================================
-
-
-class TestD2AIRulesInitialSetup:
-    """D2: AI rules step exists in initial room setup flow."""
-
-    @pytest.mark.asyncio
-    async def test_ai_rules_menu_after_chaining_skip(self):
-        """After skipping chaining, AI rules menu appears."""
-        flow = _make_config_flow()
-        result = await flow.async_step_init_chain_skip()
-        assert result["type"] == "menu"
-        assert result["step_id"] == "init_ai_rules"
-        opts = result["menu_options"]
-        assert "init_ai_rule_add" in opts
-        assert "init_ai_rules_skip" in opts
-
-    @pytest.mark.asyncio
-    async def test_ai_rules_skip_goes_to_climate(self):
-        """Skipping AI rules goes to climate step."""
-        flow = _make_config_flow()
-        result = await flow.async_step_init_ai_rules_skip()
-        assert result["type"] == "form"
         assert result["step_id"] == "climate"
-
-    @pytest.mark.asyncio
-    async def test_init_ai_rule_add_shows_form(self):
-        """AI rule add step shows form with trigger, person, description fields."""
-        flow = _make_config_flow()
-        result = await flow.async_step_init_ai_rule_add(user_input=None)
-        assert result["type"] == "form"
-        assert result["step_id"] == "init_ai_rule_add"
-        keys = _schema_keys(result)
-        assert CONF_AI_RULE_TRIGGER in keys
-        assert CONF_AI_RULE_PERSON in keys
-        assert CONF_AI_RULE_DESCRIPTION in keys
-
-    @pytest.mark.asyncio
-    async def test_init_ai_rule_add_stores_rule_with_deferred_parsing(self):
-        """Adding an AI rule when ai_task is unavailable stores with needs_parsing fallback."""
-        hass = _FakeHass()
-        # ai_task not available — async_call raises
-        hass.services.async_call = AsyncMock(side_effect=Exception("ai_task not found"))
-        flow = _make_config_flow(hass=hass)
-        result = await flow.async_step_init_ai_rule_add(user_input={
-            CONF_AI_RULE_TRIGGER: "enter",
-            CONF_AI_RULE_PERSON: "person.john",
-            CONF_AI_RULE_DESCRIPTION: "Turn on the lights when I arrive",
-        })
-        assert result["type"] == "menu"
-        assert result["step_id"] == "init_ai_rules"
-        rules = flow._data.get(CONF_AI_RULES, [])
-        assert len(rules) == 1
-        assert rules[0]["trigger_type"] == "enter"
-        assert rules[0]["person"] == "person.john"
-        assert rules[0]["description"] == "Turn on the lights when I arrive"
-        assert rules[0]["needs_parsing"] is True
-        assert rules[0]["actions"] == []
-
-    @pytest.mark.asyncio
-    async def test_init_ai_rule_add_inline_parsing_success(self):
-        """Adding an AI rule when ai_task IS available parses inline."""
-        hass = _FakeHass()
-        # ai_task returns valid parsed actions
-        hass.services.async_call = AsyncMock(return_value={
-            "data": {
-                "actions": [
-                    {
-                        "domain": "light",
-                        "service": "turn_on",
-                        "target": {"entity_id": "light.test"},
-                        "data": {"brightness_pct": 80},
-                    }
-                ]
-            }
-        })
-        # Entity must exist for validation
-        hass._states["light.test"] = MagicMock()
-        hass.states.get = lambda eid: hass._states.get(eid)
-        flow = _make_config_flow(hass=hass)
-
-        # Inject the HA mock modules needed for the inline import of dt_util
-        ha_modules = _build_ha_modules()
-        saved = {}
-        for name in ha_modules:
-            if name in sys.modules:
-                saved[name] = sys.modules[name]
-        sys.modules.update(ha_modules)
-        try:
-            result = await flow.async_step_init_ai_rule_add(user_input={
-                CONF_AI_RULE_TRIGGER: "enter",
-                CONF_AI_RULE_PERSON: "",
-                CONF_AI_RULE_DESCRIPTION: "Turn on the lights",
-            })
-        finally:
-            for name in ha_modules:
-                if name in saved:
-                    sys.modules[name] = saved[name]
-                else:
-                    sys.modules.pop(name, None)
-
-        assert result["type"] == "menu"
-        assert result["step_id"] == "init_ai_rules"
-        rules = flow._data.get(CONF_AI_RULES, [])
-        assert len(rules) == 1
-        assert rules[0]["actions"] != []
-        assert "needs_parsing" not in rules[0]
-
-    @pytest.mark.asyncio
-    async def test_init_ai_rule_add_empty_description_error(self):
-        """Empty description should show error."""
-        flow = _make_config_flow()
-        result = await flow.async_step_init_ai_rule_add(user_input={
-            CONF_AI_RULE_TRIGGER: "enter",
-            CONF_AI_RULE_PERSON: "",
-            CONF_AI_RULE_DESCRIPTION: "",
-        })
-        assert result["type"] == "form"
-        assert result.get("errors", {}).get("base") == "ai_rule_empty_description"
-
-    @pytest.mark.asyncio
-    async def test_init_ai_rule_add_multiple_rules(self):
-        """Multiple AI rules can be added during initial setup."""
-        hass = _FakeHass()
-        hass.services.async_call = AsyncMock(side_effect=Exception("ai_task not found"))
-        flow = _make_config_flow(hass=hass)
-        await flow.async_step_init_ai_rule_add(user_input={
-            CONF_AI_RULE_TRIGGER: "enter",
-            CONF_AI_RULE_PERSON: "",
-            CONF_AI_RULE_DESCRIPTION: "Turn on lights",
-        })
-        await flow.async_step_init_ai_rule_add(user_input={
-            CONF_AI_RULE_TRIGGER: "exit",
-            CONF_AI_RULE_PERSON: "",
-            CONF_AI_RULE_DESCRIPTION: "Turn off lights",
-        })
-        rules = flow._data.get(CONF_AI_RULES, [])
-        assert len(rules) == 2
-        assert rules[0]["trigger_type"] == "enter"
-        assert rules[1]["trigger_type"] == "exit"
+        assert not hasattr(flow, "async_step_init_ai_rule_add")
+        assert not hasattr(flow, "async_step_init_automation_chaining")
 
 
 # ============================================================================
@@ -806,41 +591,19 @@ class TestD4ConditionalFields:
 
 
 class TestD5AIRulePersonSelector:
-    """D5: CONF_AI_RULE_PERSON uses EntitySelector with person domain."""
-
-    @pytest.mark.asyncio
-    async def test_initial_ai_rule_person_is_entity_selector(self):
-        """Initial AI rule step uses EntitySelector for person field."""
-        flow = _make_config_flow()
-        result = await flow.async_step_init_ai_rule_add(user_input=None)
-        field = _schema_field(result, CONF_AI_RULE_PERSON)
-        assert field is not None, f"Field {CONF_AI_RULE_PERSON} not found in schema"
-        assert isinstance(field, EntitySelector), (
-            f"Expected EntitySelector, got {type(field).__name__}"
-        )
+    """D5: the rule person field is an EntitySelector (person domain), now on
+    the room options "Describe a rule" and "Run an automation" forms."""
 
     @pytest.mark.asyncio
     async def test_options_ai_rule_person_is_entity_selector(self):
-        """Options AI rule step uses EntitySelector for person field."""
         flow = _make_options_flow(
             data={CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM, CONF_ROOM_NAME: "Test"},
         )
-        result = await flow.async_step_ai_rule_add(user_input=None)
-        field = _schema_field(result, CONF_AI_RULE_PERSON)
-        assert field is not None, f"Field {CONF_AI_RULE_PERSON} not found in schema"
-        assert isinstance(field, EntitySelector), (
-            f"Expected EntitySelector, got {type(field).__name__}"
-        )
-
-    @pytest.mark.asyncio
-    async def test_initial_ai_rule_person_not_text_selector(self):
-        """Confirm the person field is NOT a TextSelector anymore."""
-        flow = _make_config_flow()
-        result = await flow.async_step_init_ai_rule_add(user_input=None)
-        field = _schema_field(result, CONF_AI_RULE_PERSON)
-        assert not isinstance(field, TextSelector), (
-            "Person field should be EntitySelector, not TextSelector"
-        )
+        for step in (flow.async_step_room_rule_describe, flow.async_step_room_rule_automation):
+            result = await step(user_input=None)
+            field = _schema_field(result, CONF_AI_RULE_PERSON)
+            assert isinstance(field, EntitySelector), type(field).__name__
+            assert not isinstance(field, TextSelector)
 
 
 # ===========================================================================

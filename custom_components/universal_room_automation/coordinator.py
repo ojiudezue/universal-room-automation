@@ -131,6 +131,7 @@ from .const import (
     TRIGGER_SECURITY_EVENT,
     # v3.12.0: M3 AI NL Rules
     CONF_AI_RULES,
+    AI_RULE_ALLOWED_DOMAINS,
     CONF_LIGHTS,
     CONF_NIGHT_LIGHTS,
     CONF_FANS,
@@ -690,6 +691,12 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # v3.12.0: M3 AI rule conflict tracking
         self._conflict_detected: bool = False
         self._last_conflicts: list = []
+        # AI-ROOM-RULES-TRUST-REPAIR-1 D6: per-rule stats since start, the
+        # recent-decision ring (digest), reversal watches.
+        self._rule_stats: dict = {}
+        self._rule_light_watch: dict = {}
+        self._rule_watch_unsubs: list = []
+        self._rule_reversals_recent: list = []
 
         # v3.12.0 M4: Trigger execution tracking
         self._last_trigger_event: str | None = None
@@ -901,23 +908,23 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         return None
 
     async def _fire_chained_automations(self, triggers: list[str]) -> None:
-        """Fire chained HA automations for the given trigger types.
+        """LEGACY executor (kill switch ``ROOM_RULES_UNIFIED_EXECUTOR`` False).
 
-        Called after URA built-in automation completes. Fires each
-        bound automation via automation.trigger.
+        Fires each legacy ``CONF_AUTOMATION_CHAINS`` binding, now THROUGH
+        ``_execute_rule_action`` (INV-R1: no rule-derived call outside the
+        gate) with ``skip_condition`` False. The unified path is
+        ``_run_room_rules``.
         """
-        chains = self._get_config(CONF_AUTOMATION_CHAINS, {})
+        from .rule_compiler import automation_action, stored_chains  # noqa: PLC0415
+
+        chains = stored_chains(self.entry)
         if not chains:
             return
-
         room_name = self.entry.data.get("room_name", "unknown")
-        tasks = []
-
         for trigger in triggers:
             automation_id = chains.get(trigger)
             if not automation_id:
                 continue
-
             state = self.hass.states.get(automation_id)
             if state is None or state.state in ("unavailable", "off"):
                 _LOGGER.warning(
@@ -926,40 +933,478 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                     "not found" if state is None else state.state,
                 )
                 continue
-
-            _LOGGER.info(
-                "[%s] Firing chained automation '%s' (trigger=%s)",
-                room_name, automation_id, trigger,
-            )
-            tasks.append(
-                self.hass.services.async_call(
-                    "automation", "trigger",
-                    {"entity_id": automation_id},
-                    blocking=False,
-                )
+            await self._execute_rule_action(
+                automation_action(automation_id, False), room_name,
             )
 
-            # Activity log: chained automation trigger
-            activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
-            if activity_logger:
-                tasks.append(
-                    activity_logger.log(
-                        coordinator="room",
-                        action="chain_trigger",
-                        description=f"Triggered '{automation_id}' ({trigger})",
-                        room=room_name,
-                        entity_id=automation_id,
-                    )
-                )
+    # =========================================================================
+    # AI-ROOM-RULES-TRUST-REPAIR-1: ONE record, ONE executor (D4-D7)
+    # =========================================================================
 
-        if tasks:
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            for result in results:
-                if isinstance(result, Exception):
-                    _LOGGER.error(
-                        "[%s] Chained automation call failed: %s",
-                        room_name, result,
-                    )
+    def _room_rules(self) -> list[dict]:
+        """The adapted rule records for this room (read-time adapter)."""
+        from .rule_compiler import rules_for_entry  # noqa: PLC0415
+
+        try:
+            return rules_for_entry(self.entry)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("room rules read failed", exc_info=True)
+            return []
+
+    def _has_rule_for(self, trigger: str) -> bool:
+        """True when an enabled rule (or legacy chain) listens on ``trigger``."""
+        return any(
+            r.get("enabled", True) and r.get("trigger_type") == trigger
+            for r in self._room_rules()
+        )
+
+    def _schedule_room_rules(self, triggers: list[str], name: str, event=None) -> None:
+        """Run ``_run_room_rules`` as an entry background task (cancelled on
+        unload). ``eager_start=False`` (B-HIGH-2): a dispatcher callback must
+        not start the coroutine synchronously."""
+        async def _go():
+            self._last_trigger_event = ", ".join(triggers)
+            self._last_trigger_time_str = dt_util.utcnow().isoformat()
+            await self._run_room_rules(triggers, event=event)
+
+        self.entry.async_create_background_task(
+            self.hass, _go(), name, eager_start=False,
+        )
+
+    def _rule_switch_skip(self, trigger: str) -> str | None:
+        """INV-R3: the switch gate per trigger class. ``None`` = may run.
+
+        Triggers in ``ROOM_RULE_SWITCH_EXEMPT_TRIGGERS`` (smoke / leaks /
+        security) always run; every other trigger needs Manual Mode off
+        (``manual_mode``) and the Room Rules switch on (``switch_off``)."""
+        from .const import ROOM_RULE_SWITCH_EXEMPT_TRIGGERS  # noqa: PLC0415
+
+        if trigger in ROOM_RULE_SWITCH_EXEMPT_TRIGGERS:
+            return None
+        if self._get_room_switch_state("manual_mode") is True:
+            return "manual_mode"
+        if not self._is_ai_automation_enabled():
+            return "switch_off"
+        return None
+
+    def _rule_house_state(self) -> str | None:
+        hs = self._house_state_value()
+        if hs is None:
+            return None
+        return str(getattr(hs, "value", hs)).lower()
+
+    def _rule_is_dark(self) -> bool:
+        auto = getattr(self, "automation", None)
+        if auto is None:
+            return False
+        try:
+            from .const import STATE_ILLUMINANCE as _ILL  # noqa: PLC0415
+            return bool(auto.is_dark((self.data or {}).get(_ILL)))
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _rule_person_present(self, person: str) -> bool:
+        """A person-scoped rule on a non-person trigger: the person is in
+        this room by the PersonCoordinator (slug match, person_ids rule)."""
+        from .person_ids import slug_of  # noqa: PLC0415
+
+        want = slug_of(person)
+        return any(slug_of(p) == want for p in self._get_identified_persons_in_room())
+
+    async def _run_room_rules(self, triggers: list[str], event: dict | None = None) -> None:
+        """THE room-rule executor (replaces the chain + AI-rule executors).
+
+        Decision order per rule: match, switch gate (per trigger class,
+        INV-R3), person, conditions, then every action through
+        ``_execute_rule_action`` (INV-R1). Automation rules run first (old
+        chain order); calls stay non-blocking. Every matched rule yields
+        exactly one decision (INV-R6): log line, stats, room-memory row.
+
+        ``event`` is set by the person room-change listener (D5): it carries
+        the person and matches person-scoped enter/exit rules only. Without
+        it (occupancy edge, lux, signals) person-scoped enter/exit rules are
+        not matched: they fire on the person, never on the occupancy edge.
+
+        Honest limit: an automation, script or scene a rule triggers runs its
+        own actions outside URA's gates (allowlist, climate block, cover
+        block, manual hold).
+        """
+        from .const import ROOM_RULES_UNIFIED_EXECUTOR  # noqa: PLC0415
+
+        if not ROOM_RULES_UNIFIED_EXECUTOR:
+            # Kill switch: the old two paths, behind the old gate.
+            if not any(self._rule_switch_skip(t) is None for t in triggers):
+                return
+            await self._fire_chained_automations(triggers)
+            await self._execute_ai_rules(triggers)
+            return
+
+        from .person_ids import slug_of  # noqa: PLC0415
+        from .rule_compiler import (  # noqa: PLC0415
+            SOURCE_AUTOMATION,
+            evaluate_conditions,
+        )
+
+        room_name = self.entry.data.get(CONF_ROOM_NAME, "unknown")
+        person_event = event if isinstance(event, dict) and event.get("kind") == "person" else None
+        matched: list[dict] = []
+        for rule in self._room_rules():
+            if not rule.get("enabled", True) or rule.get("needs_parse"):
+                continue
+            trig = rule.get("trigger_type")
+            if trig not in triggers:
+                continue
+            person = rule.get("person") or ""
+            person_trigger = bool(person) and trig in (TRIGGER_ENTER, TRIGGER_EXIT)
+            if person_event is not None:
+                if not person_trigger:
+                    continue
+                if slug_of(person_event.get("person_id")) != slug_of(person):
+                    continue
+            elif person_trigger:
+                continue
+            matched.append(rule)
+        if not matched:
+            return
+        # Reset-per-evaluation conflict semantics (MEDIUM-1): the conflict
+        # binary sensor clears on the next clean evaluation.
+        self._conflict_detected = False
+        self._last_conflicts = []
+        matched.sort(key=lambda r: 0 if r.get("source") == SOURCE_AUTOMATION else 1)
+        for rule in matched:
+            started = time.monotonic()
+            trig = rule.get("trigger_type", "")
+            person = rule.get("person") or ""
+            decision: dict = {
+                "room": room_name,
+                "rule_id": rule.get("rule_id"),
+                "source": rule.get("source"),
+                "trigger": trig,
+                "person": (person_event or {}).get("person_id") or person or "",
+                "outcome": "fired",
+                "guard": "",
+                "conditions": {},
+                "actions": [],
+            }
+            skip = self._rule_switch_skip(trig)
+            if skip is None and person and person_event is None:
+                if not self._rule_person_present(person):
+                    skip = "person_absent"
+            if skip is None and rule.get("conditions"):
+                ok, values, _failed = evaluate_conditions(
+                    rule["conditions"],
+                    dark_fn=self._rule_is_dark,
+                    now_local=dt_util.now(),
+                    house_state=self._rule_house_state(),
+                )
+                decision["conditions"] = values
+                if not ok:
+                    skip = "condition_false"
+            if skip is None and rule.get("source") == SOURCE_AUTOMATION:
+                auto_id = rule.get("automation_entity") or ""
+                if not auto_id:
+                    for a in rule.get("actions") or []:
+                        tgt = (a.get("target") or {}).get("entity_id")
+                        if isinstance(tgt, str):
+                            auto_id = tgt
+                st = self.hass.states.get(auto_id) if auto_id else None
+                if st is None or st.state in ("off", "unavailable"):
+                    skip = "automation_off"
+            if skip is None:
+                self._detect_ai_rule_conflicts(rule, trig)
+                ctx = self._new_rule_context()
+                issued: list[dict] = []
+                blocked: list[str] = []
+                for action in rule.get("actions") or []:
+                    if isinstance(action, dict):
+                        action = {**action, "rule_id": rule.get("rule_id")}
+                    res = await self._execute_rule_action(action, room_name, context=ctx)
+                    if res == "issued":
+                        issued.append(action)
+                    else:
+                        blocked.append(str(res or "invalid"))
+                decision["actions"] = [
+                    f"{a.get('domain')}.{a.get('service')}" for a in issued
+                ]
+                if not issued:
+                    skip = "gate_blocked"
+                    decision["guard"] = blocked[0] if blocked else "invalid"
+                else:
+                    decision["guard"] = ",".join(blocked)
+                    self._start_rule_reversal_watch(rule, issued, ctx)
+            if skip is not None:
+                decision["outcome"] = (
+                    f"gate_blocked:{decision['guard']}" if skip == "gate_blocked" else skip
+                )
+            decision["ms"] = round((time.monotonic() - started) * 1000.0, 1)
+            self._record_rule_decision(decision)
+
+    # ------------------------------------------------------------------
+    # D6 / D7: decision record, stats, room memory
+    # ------------------------------------------------------------------
+
+    def _rule_stats_for(self, rule_id: str) -> dict:
+        stats = self.__dict__.setdefault("_rule_stats", {})
+        return stats.setdefault(rule_id, {
+            "evaluations": 0, "fires": 0, "skips_by_reason": {},
+            "last_fire": None, "last_skip_reason": None, "reversals": 0,
+        })
+
+    def _record_rule_decision(self, decision: dict) -> None:
+        """INV-R6: exactly one log line, one stats update and one room-memory
+        row per matched rule evaluation."""
+        from collections import deque  # noqa: PLC0415
+
+        now_iso = dt_util.utcnow().isoformat()
+        decision["ts"] = now_iso
+        rule_id = str(decision.get("rule_id") or "")
+        st = self._rule_stats_for(rule_id)
+        st["evaluations"] += 1
+        outcome = str(decision.get("outcome") or "")
+        if outcome == "fired":
+            st["fires"] += 1
+            st["last_fire"] = now_iso
+        else:
+            key = outcome
+            st["skips_by_reason"][key] = st["skips_by_reason"].get(key, 0) + 1
+            st["last_skip_reason"] = key
+        recent = self.__dict__.get("_rule_recent")
+        if recent is None:
+            recent = deque(maxlen=500)
+            self._rule_recent = recent
+        recent.append((time.time(), rule_id, outcome))
+        cond = " ".join(f"{k}={v}" for k, v in (decision.get("conditions") or {}).items())
+        _LOGGER.info(
+            "Room rule decision room=%s rule_id=%s source=%s trigger=%s person=%s "
+            "outcome=%s guard=%s conditions=[%s] actions=%s ms=%s",
+            decision.get("room"), rule_id, decision.get("source"),
+            decision.get("trigger"), decision.get("person") or "-",
+            outcome, decision.get("guard") or "-", cond,
+            ",".join(decision.get("actions") or []) or "-", decision.get("ms"),
+        )
+        self._write_rule_episode(
+            "room_rule_decision", dict(decision),
+            source_ref=f"rule:{rule_id}:{now_iso}",
+        )
+        try:
+            self.async_update_listeners()
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _rule_room_node(self) -> str:
+        """``room:<slug>`` memory node: the SAME transform music following
+        uses for its room nodes (``music_following._slug``), so one room has
+        one node. URA's own room name, not an entity-id guess."""
+        room = str(self.entry.data.get(CONF_ROOM_NAME, "") or "")
+        return "room:" + room.lower().replace(" ", "_")
+
+    def _write_rule_episode(self, episode_type: str, attrs: dict, *, source_ref: str) -> None:
+        """One ``memory_episodes`` row (D7), tracked on the entry so it is
+        cancelled on unload. ``window_dedup=False`` + ``dedup_source_ref``:
+        two fires in ten seconds both land."""
+        from .const import ROOM_RULE_EPISODE_LOG_PERSIST  # noqa: PLC0415
+
+        if not ROOM_RULE_EPISODE_LOG_PERSIST:
+            return
+        database = (self.hass.data.get(DOMAIN, {}) or {}).get("database")
+        if database is None or not hasattr(database, "log_memory_episode"):
+            return
+        node = self._rule_room_node()
+
+        async def _write() -> None:
+            try:
+                await database.log_memory_episode(
+                    node_id=node, episode_type=episode_type, attrs=attrs,
+                    source_ref=source_ref, window_dedup=False, dedup_source_ref=True,
+                )
+            except Exception:  # noqa: BLE001 - observational only
+                _LOGGER.debug("room rule memory row failed", exc_info=True)
+
+        try:
+            self.entry.async_create_background_task(
+                self.hass, _write(), "ura_room_rule_episode", eager_start=False,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("room rule episode schedule failed", exc_info=True)
+
+    # ------------------------------------------------------------------
+    # D6.3: accuracy from implicit reversal
+    # ------------------------------------------------------------------
+
+    def _new_rule_context(self):
+        """A fresh HA Context for one rule fire's non-light actions (light /
+        switch / scene writes keep the URA mark). Its id lets the reversal
+        watch ignore the rule's own state changes."""
+        try:
+            from homeassistant.core import Context  # noqa: PLC0415
+            return Context()
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _start_rule_reversal_watch(self, rule: dict, issued: list[dict], ctx) -> None:
+        """For ``RULE_REVERSAL_WINDOW_S`` after a fire: a person's opposite
+        change of a room light (booked by
+        ``ActuatorReconciler._note_manual_light_change`` ->
+        ``note_rule_reversal_candidate``) or any non-URA state change of
+        another target is one reversal."""
+        from .const import RULE_REVERSAL_WINDOW_S  # noqa: PLC0415
+
+        if RULE_REVERSAL_WINDOW_S <= 0:
+            return
+        room_lights = set(self._get_config(CONF_LIGHTS, []) or []) | set(
+            self._get_config(CONF_NIGHT_LIGHTS, []) or []
+        )
+        deadline = time.monotonic() + RULE_REVERSAL_WINDOW_S
+        watch = self.__dict__.setdefault("_rule_light_watch", {})
+        others: list[str] = []
+        for a in issued:
+            domain, service = a.get("domain"), a.get("service")
+            if domain in ("automation", "scene", "button"):
+                continue
+            tgt = (a.get("target") or {}).get("entity_id")
+            ids = [tgt] if isinstance(tgt, str) else list(tgt or [])
+            for eid in ids:
+                if domain in ("light", "switch") and eid in room_lights and service in ("turn_on", "turn_off"):
+                    watch[eid] = {
+                        "rule_id": rule.get("rule_id"),
+                        "direction": "on" if service == "turn_on" else "off",
+                        "deadline": deadline,
+                    }
+                else:
+                    others.append(eid)
+        if not others:
+            return
+        ctx_id = getattr(ctx, "id", None)
+        unsubs: list = []
+        rule_id = rule.get("rule_id")
+
+        def _stop() -> None:
+            for u in unsubs:
+                try:
+                    u()
+                except Exception:  # noqa: BLE001
+                    pass
+            unsubs.clear()
+            pend = self.__dict__.get("_rule_watch_unsubs") or []
+            if _stop in pend:
+                pend.remove(_stop)
+
+        @callback
+        def _on_change(evt) -> None:
+            data = getattr(evt, "data", {}) or {}
+            old, new = data.get("old_state"), data.get("new_state")
+            if old is None or new is None or old.state == new.state:
+                return
+            from .ura_context import is_ura_context  # noqa: PLC0415
+
+            c = getattr(new, "context", None)
+            if is_ura_context(c) or (ctx_id is not None and getattr(c, "id", None) == ctx_id):
+                return
+            _stop()
+            self._record_rule_reversal(rule_id, data.get("entity_id"), new.state)
+
+        @callback
+        def _expire(_now) -> None:
+            _stop()
+
+        try:
+            unsubs.append(async_track_state_change_event(self.hass, others, _on_change))
+            unsubs.append(async_call_later(self.hass, RULE_REVERSAL_WINDOW_S, _expire))
+        except Exception:  # noqa: BLE001
+            _stop()
+            return
+        self.__dict__.setdefault("_rule_watch_unsubs", []).append(_stop)
+
+    def note_rule_reversal_candidate(self, entity_id: str, new: str) -> None:
+        """Called by ``ActuatorReconciler._note_manual_light_change`` for a
+        person's on/off change of a room light (never a URA write)."""
+        watch = self.__dict__.get("_rule_light_watch") or {}
+        item = watch.get(entity_id)
+        if item is None:
+            return
+        if time.monotonic() > item["deadline"]:
+            watch.pop(entity_id, None)
+            return
+        if new == item["direction"]:
+            return
+        watch.pop(entity_id, None)
+        self._record_rule_reversal(item["rule_id"], entity_id, new)
+
+    def _record_rule_reversal(self, rule_id, entity_id, new_state) -> None:
+        rid = str(rule_id or "")
+        st = self._rule_stats_for(rid)
+        st["reversals"] += 1
+        rev = self.__dict__.setdefault("_rule_reversals_recent", [])
+        rev.append((time.time(), rid, entity_id))
+        del rev[:-200]
+        room_name = self.entry.data.get(CONF_ROOM_NAME, "unknown")
+        now_iso = dt_util.utcnow().isoformat()
+        _LOGGER.info(
+            "Room rule reversal room=%s rule_id=%s entity=%s new_state=%s",
+            room_name, rid, entity_id, new_state,
+        )
+        self._write_rule_episode(
+            "room_rule_reversal",
+            {"room": room_name, "rule_id": rid, "entity_id": entity_id,
+             "new_state": new_state},
+            source_ref=f"rulerev:{rid}:{now_iso}",
+        )
+        try:
+            self.async_update_listeners()
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _cancel_rule_reversal_watches(self) -> None:
+        """Unload: drop every open reversal watch (Bug Class #38)."""
+        for stop in list(self.__dict__.get("_rule_watch_unsubs") or []):
+            try:
+                stop()
+            except Exception:  # noqa: BLE001
+                pass
+        self.__dict__.get("_rule_light_watch", {}).clear()
+
+    # ------------------------------------------------------------------
+    # D5: person-scoped enter / exit fire on the person's room change
+    # ------------------------------------------------------------------
+
+    @callback
+    def _on_person_location_change(self, event) -> None:
+        """``ura_person_location_change`` (PersonCoordinator, URA-owned room
+        display names) -> this room's person-scoped enter / exit rules.
+        ``current_location`` / ``previous_location`` are compared casefolded
+        against this entry's own ``CONF_ROOM_NAME``: URA data on both sides,
+        no entity-id or name guessing. The person comes from the event."""
+        data = getattr(event, "data", {}) or {}
+        room = str(self.entry.data.get(CONF_ROOM_NAME, "") or "").strip().casefold()
+        if not room:
+            return
+        cur = str(data.get("current_location") or "").strip().casefold()
+        prev = str(data.get("previous_location") or "").strip().casefold()
+        trigger = None
+        if cur == room and prev != room:
+            trigger = TRIGGER_ENTER
+        elif prev == room and cur != room:
+            trigger = TRIGGER_EXIT
+        if trigger is None:
+            return
+        # Same room-tier gate as the occupancy-edge trigger path.
+        if not self._is_automation_enabled():
+            return
+        person_id = data.get("person_id")
+        from .person_ids import slug_of  # noqa: PLC0415
+
+        want = slug_of(person_id)
+        if not any(
+            r.get("enabled", True) and not r.get("needs_parse")
+            and r.get("trigger_type") == trigger
+            and r.get("person") and slug_of(r.get("person")) == want
+            for r in self._room_rules()
+        ):
+            return
+        self._schedule_room_rules(
+            [trigger], f"ura_room_rule_person_{self.entry.entry_id[:8]}",
+            event={"kind": "person", "person_id": person_id, "trigger": trigger},
+        )
 
     # =========================================================================
     # v3.12.0 M2: COORDINATOR SIGNAL TRIGGER HANDLERS
@@ -986,9 +1431,14 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
     #         automation. Killing safety with the regular toggle would be
     #         a real bug.
     #
-    # This is design intent, not an oversight. Test coverage in
-    # quality/tests/test_v458_signal_handler_gating.py asserts the matrix
-    # so future "consistency fixes" don't accidentally regress safety.
+    # This is design intent, not an oversight. Since
+    # AI-ROOM-RULES-TRUST-REPAIR-1 the Room Rules switch + Manual Mode gate
+    # lives in ONE place, `_rule_switch_skip` inside `_run_room_rules`
+    # (ROOM_RULE_SWITCH_EXEMPT_TRIGGERS = safety, security), and every
+    # skipped rule records a `switch_off` / `manual_mode` decision.
+    # Behavioural coverage: quality/tests/test_room_rules_executor.py
+    # (the old source-grep matrix in test_v458_signal_handler_gating.py is
+    # converted).
     #
     # =========================================================================
 
@@ -1049,33 +1499,14 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                     )
 
         trigger_key = f"{TRIGGER_HOUSE_STATE_PREFIX}{new_state}"
-        chains = self._get_config(CONF_AUTOMATION_CHAINS, {})
-        rules = self._get_config(CONF_AI_RULES, [])
-        has_matching_rule = any(r.get("trigger_type") == trigger_key for r in rules if r.get("enabled", True))
-        if (trigger_key in chains or has_matching_rule) and self._is_ai_automation_enabled():
+        # AI-ROOM-RULES-TRUST-REPAIR-1 D4: the switch gate lives in
+        # _run_room_rules per trigger class (INV-R3); a switched-off room
+        # still records a `switch_off` decision for each matched rule.
+        if self._has_rule_for(trigger_key):
             room_name = self.entry.data.get("room_name", "unknown")
-            _LOGGER.info(
-                "[%s] House state → %s, firing chained automation + AI rules",
-                room_name, new_state,
-            )
-            async def _fire_house_state():
-                self._last_trigger_event = trigger_key
-                self._last_trigger_time_str = dt_util.utcnow().isoformat()
-                await self._fire_chained_automations([trigger_key])
-                await self._execute_ai_rules([trigger_key])
-            # setup/unload symmetry: dispatcher coalescer for a
-            # @callback handler. Tracked via the room entry so an
-            # in-flight chain is cancelled on entry reload/unload.
-            # B-HIGH-2 (Review B): pass eager_start=False so the
-            # coroutine starts on the loop, not synchronously in
-            # this dispatcher callback. Without it, late-arriving
-            # signals during teardown would eagerly start a coroutine
-            # that touches popped hass.data[DOMAIN] keys and propagate
-            # synchronous errors back to the dispatcher.
-            self.entry.async_create_background_task(
-                self.hass, _fire_house_state(),
-                f"ura_fire_house_state_{self.entry.entry_id[:8]}",
-                eager_start=False,
+            _LOGGER.info("[%s] House state → %s, running room rules", room_name, new_state)
+            self._schedule_room_rules(
+                [trigger_key], f"ura_fire_house_state_{self.entry.entry_id[:8]}",
             )
 
     @callback
@@ -1090,29 +1521,11 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         master `automation` switch is on. See the "GATING MODEL FOR SIGNAL
         HANDLERS" comment block above for the full matrix.
         """
-        chains = self._get_config(CONF_AUTOMATION_CHAINS, {})
-        rules = self._get_config(CONF_AI_RULES, [])
-        has_matching_rule = any(r.get("trigger_type") == TRIGGER_ENERGY_CONSTRAINT for r in rules if r.get("enabled", True))
-        if (TRIGGER_ENERGY_CONSTRAINT in chains or has_matching_rule) and self._is_ai_automation_enabled():
+        if self._has_rule_for(TRIGGER_ENERGY_CONSTRAINT):
             room_name = self.entry.data.get("room_name", "unknown")
             mode = payload.mode if hasattr(payload, "mode") else str(payload)
-            _LOGGER.info(
-                "[%s] Energy constraint '%s', firing chained automation + AI rules",
-                room_name, mode,
-            )
-            async def _fire_energy():
-                self._last_trigger_event = TRIGGER_ENERGY_CONSTRAINT
-                self._last_trigger_time_str = dt_util.utcnow().isoformat()
-                await self._fire_chained_automations([TRIGGER_ENERGY_CONSTRAINT])
-                await self._execute_ai_rules([TRIGGER_ENERGY_CONSTRAINT])
-            # setup/unload symmetry: tracked via the room entry.
-            # B-HIGH-2: eager_start=False for dispatcher callback safety
-            # (see _on_house_state_signal sibling comment above).
-            self.entry.async_create_background_task(
-                self.hass, _fire_energy(),
-                "ura_fire_energy_constraint",
-                eager_start=False,
-            )
+            _LOGGER.info("[%s] Energy constraint '%s', running room rules", room_name, mode)
+            self._schedule_room_rules([TRIGGER_ENERGY_CONSTRAINT], "ura_fire_energy_constraint")
 
     @callback
     def _on_safety_hazard(self, payload) -> None:
@@ -1128,30 +1541,13 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         smoke detector's notify-and-light-the-path automation to run.
         See the "GATING MODEL FOR SIGNAL HANDLERS" comment block above.
         """
-        chains = self._get_config(CONF_AUTOMATION_CHAINS, {})
-        rules = self._get_config(CONF_AI_RULES, [])
-        has_matching_rule = any(r.get("trigger_type") == TRIGGER_SAFETY_HAZARD for r in rules if r.get("enabled", True))
-        # Review fix F11: safety automations always fire regardless of AI toggle
-        if TRIGGER_SAFETY_HAZARD in chains or has_matching_rule:
+        # Review fix F11: safety rules run whatever the toggles
+        # (ROOM_RULE_SWITCH_EXEMPT_TRIGGERS, enforced in _run_room_rules).
+        if self._has_rule_for(TRIGGER_SAFETY_HAZARD):
             room_name = self.entry.data.get("room_name", "unknown")
             hazard_type = payload.hazard_type if hasattr(payload, "hazard_type") else str(payload)
-            _LOGGER.info(
-                "[%s] Safety hazard '%s', firing chained automation + AI rules",
-                room_name, hazard_type,
-            )
-            async def _fire_safety():
-                self._last_trigger_event = TRIGGER_SAFETY_HAZARD
-                self._last_trigger_time_str = dt_util.utcnow().isoformat()
-                await self._fire_chained_automations([TRIGGER_SAFETY_HAZARD])
-                await self._execute_ai_rules([TRIGGER_SAFETY_HAZARD])
-            # setup/unload symmetry: tracked via the room entry.
-            # B-HIGH-2: eager_start=False for dispatcher callback safety
-            # (see _on_house_state_signal sibling comment above).
-            self.entry.async_create_background_task(
-                self.hass, _fire_safety(),
-                "ura_fire_safety_hazard",
-                eager_start=False,
-            )
+            _LOGGER.info("[%s] Safety hazard '%s', running room rules", room_name, hazard_type)
+            self._schedule_room_rules([TRIGGER_SAFETY_HAZARD], "ura_fire_safety_hazard")
 
     @callback
     def _on_security_event(self, payload) -> None:
@@ -1166,41 +1562,21 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         to also disarm the security response. See the "GATING MODEL
         FOR SIGNAL HANDLERS" comment block above.
         """
-        chains = self._get_config(CONF_AUTOMATION_CHAINS, {})
-        rules = self._get_config(CONF_AI_RULES, [])
-        has_matching_rule = any(r.get("trigger_type") == TRIGGER_SECURITY_EVENT for r in rules if r.get("enabled", True))
-        # Review fix F11: security automations always fire regardless of AI toggle
-        if TRIGGER_SECURITY_EVENT in chains or has_matching_rule:
+        # Review fix F11: security rules run whatever the toggles
+        # (ROOM_RULE_SWITCH_EXEMPT_TRIGGERS, enforced in _run_room_rules).
+        if self._has_rule_for(TRIGGER_SECURITY_EVENT):
             room_name = self.entry.data.get("room_name", "unknown")
             event_type = payload.event_type if hasattr(payload, "event_type") else str(payload)
-            _LOGGER.info(
-                "[%s] Security event '%s', firing chained automation + AI rules",
-                room_name, event_type,
-            )
-            async def _fire_security():
-                self._last_trigger_event = TRIGGER_SECURITY_EVENT
-                self._last_trigger_time_str = dt_util.utcnow().isoformat()
-                await self._fire_chained_automations([TRIGGER_SECURITY_EVENT])
-                await self._execute_ai_rules([TRIGGER_SECURITY_EVENT])
-            # setup/unload symmetry: tracked via the room entry.
-            # B-HIGH-2: eager_start=False for dispatcher callback safety
-            # (see _on_house_state_signal sibling comment above).
-            self.entry.async_create_background_task(
-                self.hass, _fire_security(),
-                "ura_fire_security_event",
-                eager_start=False,
-            )
+            _LOGGER.info("[%s] Security event '%s', running room rules", room_name, event_type)
+            self._schedule_room_rules([TRIGGER_SECURITY_EVENT], "ura_fire_security_event")
 
     # =========================================================================
     # v3.12.0 M3: AI NL RULE EXECUTION & CONFLICT DETECTION
     # =========================================================================
 
     async def _execute_ai_rules(self, triggers: list[str]) -> None:
-        """Execute AI rules matching fired triggers.
-
-        Called after chained automations. Checks person filter and
-        runs conflict detection before executing each rule's actions.
-        """
+        """LEGACY executor (kill switch ``ROOM_RULES_UNIFIED_EXECUTOR``
+        False only). The unified path is ``_run_room_rules``."""
         rules = self._get_config(CONF_AI_RULES, [])
         if not rules:
             return
@@ -1243,17 +1619,25 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
     # Only safe, device-control domains are permitted. Dangerous domains
     # (homeassistant, shell_command, recorder, script, etc.) are blocked
     # to prevent AI hallucination or prompt injection exploits.
-    _AI_RULE_ALLOWED_DOMAINS: set = {
-        "light", "switch", "fan", "cover", "climate", "media_player",
-        "lock", "scene", "automation", "input_boolean", "input_number",
-        "input_select", "input_text", "number", "select", "button",
-        "humidifier", "vacuum", "water_heater", "valve",
-    }
+    # One definition (const.AI_RULE_ALLOWED_DOMAINS), shared with the
+    # compiler (which also drops climate).
+    _AI_RULE_ALLOWED_DOMAINS: frozenset = AI_RULE_ALLOWED_DOMAINS
 
-    async def _execute_rule_action(self, action: dict, room_name: str) -> None:
-        """Execute a single parsed service call from an AI rule."""
+    async def _execute_rule_action(
+        self, action: dict, room_name: str, context=None,
+    ) -> str:
+        """THE gate for every rule-derived service call (INV-R1).
+
+        Applies, in order: the domain allowlist, the climate block, the
+        security-owned cover block and the light manual-hold oracle (light /
+        switch turn_on / turn_off). Returns ``"issued"`` when the call was
+        made, else the guard that stopped it (``invalid``, ``allowlist``,
+        ``climate``, ``security_cover``, ``manual_hold``, ``call_failed``).
+        ``context`` (optional) is used for non-light domains so the reversal
+        watch can tell the rule's own state change from a person's; light /
+        switch / scene writes always carry the URA mark."""
         if not isinstance(action, dict):
-            return
+            return "invalid"
         domain = action.get("domain")
         service = action.get("service")
         target = action.get("target", {})
@@ -1263,7 +1647,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         data = dict(raw_data) if isinstance(raw_data, dict) else {}
 
         if not domain or not service:
-            return
+            return "invalid"
 
         # Security: Only allow safe device-control domains
         if domain not in self._AI_RULE_ALLOWED_DOMAINS:
@@ -1271,7 +1655,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 "[%s] AI rule blocked: domain '%s' not in allowlist (service=%s.%s)",
                 room_name, domain, domain, service,
             )
-            return
+            return "allowlist"
 
         # ARREST-COMFORT-1 D-HIGH-2 fix-up (2026-08-10, DECIDED cheap-block):
         # Refuse `climate.{set_temperature,set_preset_mode,set_hvac_mode}`
@@ -1309,7 +1693,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 "lookup.",
                 room_name, rule_id, service,
             )
-            return
+            return "climate"
 
         entity_id = target.get("entity_id")
         # ROOM-COVERS-NO-GARAGE-DOOR-GUARD-1 (review LOW): AI rules must not
@@ -1324,7 +1708,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                     "or gate, which only Security controls",
                     room_name, action.get("rule_id") or "<unknown>", service,
                 )
-                return
+                return "security_cover"
         if entity_id:
             data["entity_id"] = entity_id
 
@@ -1362,7 +1746,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                             "[%s] AI rule %s.%s suppressed by manual hold "
                             "on %s", room_name, domain, service, targets,
                         )
-                        return
+                        return "manual_hold"
                     if allowed != targets:
                         _LOGGER.debug(
                             "[%s] AI rule %s.%s: %d/%d entities passed "
@@ -1381,6 +1765,8 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 _ctx_kw = ura_ctx_kwargs(domain)
             except Exception:  # noqa: BLE001
                 _ctx_kw = {}
+            if not _ctx_kw and context is not None:
+                _ctx_kw = {"context": context}
             await self.hass.services.async_call(
                 domain, service, data, blocking=False, **_ctx_kw,
             )
@@ -1388,6 +1774,8 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             _LOGGER.error(
                 "[%s] AI rule action failed: %s.%s — %s", room_name, domain, service, err,
             )
+            return "call_failed"
+        return "issued"
 
     def _get_identified_persons_in_room(self) -> list[str]:
         """Get identified persons from census or BLE fallback."""
@@ -1825,9 +2213,15 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             unsub()
         self._unsub_signal_listeners.clear()
 
-        chains = self._get_config(CONF_AUTOMATION_CHAINS, {})
-        rules = self._get_config(CONF_AI_RULES, [])
-        rule_triggers = {r.get("trigger_type") for r in rules if r.get("enabled", True)}
+        # AI-ROOM-RULES-TRUST-REPAIR-1: one record list (rules + legacy
+        # chains through the read-time adapter); `chains` stays empty because
+        # the adapter already folds the legacy bindings into the records.
+        chains: dict = {}
+        _records = self._room_rules()
+        rule_triggers = {
+            r.get("trigger_type") for r in _records
+            if r.get("enabled", True) and not r.get("needs_parse")
+        }
         room_name = self.entry.data.get(CONF_ROOM_NAME, "unknown")
 
         _signal_map = {
@@ -1863,6 +2257,20 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                     async_dispatcher_connect(self.hass, signal, handler)
                 )
                 subscribed += 1
+        # D5: one bus listener per room, only when a person-scoped enter /
+        # exit rule exists. Lives in _unsub_signal_listeners, so an options
+        # save rebuilds it and unload drops it.
+        if any(
+            r.get("person") and r.get("trigger_type") in (TRIGGER_ENTER, TRIGGER_EXIT)
+            and r.get("enabled", True) and not r.get("needs_parse")
+            for r in _records
+        ):
+            self._unsub_signal_listeners.append(
+                self.hass.bus.async_listen(
+                    "ura_person_location_change", self._on_person_location_change,
+                )
+            )
+            subscribed += 1
         if subscribed:
             _LOGGER.debug(
                 "Room %s: Subscribed to %d coordinator signals for M2 triggers",
@@ -6038,21 +6446,17 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 if lux_trigger:
                     triggers_fired.append(lux_trigger)
 
-            # Fire chained automations for all triggers, then AI rules
-            # v3.21.0 D7: Gated by AI automation per-room toggle
-            if triggers_fired and self._is_ai_automation_enabled():
+            # AI-ROOM-RULES-TRUST-REPAIR-1 D4: one executor. The Room Rules
+            # switch + Manual Mode gate is inside _run_room_rules (INV-R3),
+            # so a switched-off room records `switch_off` decisions.
+            if triggers_fired and any(self._has_rule_for(t) for t in triggers_fired):
                 # v3.12.0 M4: Track trigger execution
                 self._last_trigger_event = ", ".join(triggers_fired)
                 self._last_trigger_time_str = dt_util.utcnow().isoformat()
-
                 try:
-                    await self._fire_chained_automations(triggers_fired)
-                except Exception as e:
-                    _LOGGER.error("Error firing chained automations: %s", e)
-                try:
-                    await self._execute_ai_rules(triggers_fired)
-                except Exception as e:
-                    _LOGGER.error("Error executing AI rules: %s", e)
+                    await self._run_room_rules(triggers_fired)
+                except Exception as e:  # noqa: BLE001
+                    _LOGGER.error("Error running room rules: %s", e)
         else:
             # Even with automation disabled, track state for DB logging
             self._last_occupied_state = data[STATE_OCCUPIED]

@@ -11132,6 +11132,18 @@ class UniversalRoomDatabase:
             _LOGGER.warning("music following health check failed: %s", e)
             return None
 
+    async def run_room_ai_health_check(self) -> dict | None:
+        """Nightly op (AI-ROOM-RULES-TRUST-REPAIR-1 D6.3 / D6.5): room-rule
+        7-day accuracy roll-up + the per-rule ``room_rule_silent`` zero-fire
+        trip-wire (music following keeps its own op,
+        ``run_music_following_health_check``). Never raises."""
+        try:
+            from .room_rules_health import run_room_rules_health  # noqa: PLC0415
+            return await run_room_rules_health(self.hass, self)
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.warning("room rules health check failed: %s", e)
+            return None
+
     async def run_egress_edge_anchor_tripwire(self) -> bool | None:
         """Nightly op (EGRESS-DIRECTION-AWARE-IDENTITY-1 step 7 S1 D2):
         delegates to the egress tracker's zero-fire trip-wire. None when the

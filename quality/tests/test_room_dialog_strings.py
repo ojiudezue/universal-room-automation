@@ -47,13 +47,6 @@ ROOM_CONFIG_STEPS = [
     "night_light_detail",
     "cover_behavior",
     "automation_behavior",
-    "init_automation_chaining",  # menu
-    "init_chain_occupancy",
-    "init_chain_light",
-    "init_chain_house_state",
-    "init_chain_coordinator",
-    "init_ai_rules",  # menu
-    "init_ai_rule_add",
     "climate",
     "fan_speeds",
     "sleep_protection",
@@ -68,15 +61,13 @@ ROOM_OPTIONS_STEPS = [
     "options_lighting",
     "options_lighting_behaviour",  # v5.103.28 Slice B'
     "options_covers",
-    "automation_chaining",  # menu
-    "chain_occupancy",
-    "chain_light",
-    "chain_house_state",
-    "chain_coordinator",
-    "ai_rules",  # menu
-    "ai_rule_add",
-    "ai_rule_list",
-    "ai_rule_delete",
+    "room_rules",  # menu (AI-ROOM-RULES-TRUST-REPAIR-1)
+    "room_rule_describe",
+    "room_rule_automation",
+    "room_rule_confirm",
+    "room_rule_list",
+    "room_rule_manage",  # menu
+    "room_rule_delete",
     "climate",
     "sleep_protection",
     "music_following",

@@ -6155,6 +6155,10 @@ class NotificationManager:
         mf_line = self._build_music_following_digest_section()
         if mf_line:
             digest_message = digest_message.rstrip() + "\n\n" + mf_line
+        # AI-ROOM-RULES-TRUST-REPAIR-1 D6.4: one room-rules line.
+        rr_line = self._build_room_rules_digest_section()
+        if rr_line:
+            digest_message = digest_message.rstrip() + "\n\n" + rr_line
 
         sent = await self._deliver_digest(person_id, person_cfg, digest_message)
 
@@ -6263,6 +6267,15 @@ class NotificationManager:
             return mf.digest_section() or ""
         except Exception:  # noqa: BLE001
             _LOGGER.warning("music following digest section failed", exc_info=True)
+            return ""
+
+    def _build_room_rules_digest_section(self) -> str:
+        """The room-rules line for the NM digest; "" on none / error."""
+        try:
+            from ..room_rules_health import digest_section  # noqa: PLC0415
+            return digest_section(self.hass) or ""
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning("room rules digest section failed", exc_info=True)
             return ""
 
     def _build_optimizer_digest_section(self) -> str:

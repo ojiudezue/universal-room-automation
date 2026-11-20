@@ -154,9 +154,12 @@ def test_fan_mode_only_room_keeps_climate_hidden(mode):
 
 def test_menu_only_steps_reveal_on_non_empty():
     flow = make_flow(ROOM_TYPE_CLOSET, options={CONF_AUTOMATION_CHAINS: {}})
-    assert "automation_chaining" not in menu(flow)
+    assert "room_rules" not in menu(flow)
     flow = make_flow(ROOM_TYPE_CLOSET, options={CONF_AUTOMATION_CHAINS: {"enter": "automation.x"}})
-    assert "automation_chaining" in menu(flow)
+    assert "room_rules" in menu(flow)
+    # AI-ROOM-RULES-TRUST-REPAIR-1: a stored rule also reveals "Room rules".
+    flow = make_flow(ROOM_TYPE_CLOSET, options={"ai_rules": [{"rule_id": "r1"}]})
+    assert "room_rules" in menu(flow)
 
 
 def test_render_failure_fails_open(monkeypatch):

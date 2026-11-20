@@ -26,10 +26,12 @@ CLOSET_TRIMMED = [
     "basic_setup", "sensors", "devices", "options_lighting_behaviour",
     "options_covers", "show_all_settings",
 ]
-FULL_12 = [
+FULL_11 = [
     "basic_setup", "sensors", "devices",
     "options_lighting_behaviour", "options_covers",
-    "automation_chaining", "ai_rules",
+    # AI-ROOM-RULES-TRUST-REPAIR-1: one "Room rules" entry replaced
+    # "automation_chaining" + "ai_rules" (12 -> 11 steps).
+    "room_rules",
     "climate", "sleep_protection", "music_following",
     "energy", "notifications",
 ]
@@ -54,10 +56,10 @@ def test_closet_hint_names_trim_without_advanced_mode():
 
 
 @pytest.mark.parametrize("adv", [False, True])
-def test_bedroom_shows_all_twelve_without_more_settings(adv):
+def test_bedroom_shows_all_eleven_without_more_settings(adv):
     res = run(make_flow("bedroom", adv=adv).async_step_init())
-    assert res["menu_options"] == FULL_12
-    assert len(res["menu_options"]) == 12
+    assert res["menu_options"] == FULL_11
+    assert len(res["menu_options"]) == 11
 
 
 def test_advanced_closet_still_reveals_step_holding_a_value():
@@ -65,9 +67,9 @@ def test_advanced_closet_still_reveals_step_holding_a_value():
     assert "energy" in menu(flow)
 
 
-def test_more_settings_in_advanced_mode_shows_all_twelve():
+def test_more_settings_in_advanced_mode_shows_all_eleven():
     res = run(make_flow("closet", adv=True).async_step_show_all_settings())
-    assert res["menu_options"] == FULL_12
+    assert res["menu_options"] == FULL_11
 
 
 # --- D2 menu reveal / schema ----------------------------------------------
