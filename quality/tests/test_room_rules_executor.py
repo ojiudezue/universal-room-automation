@@ -249,6 +249,9 @@ def test_kill_switch_false_runs_legacy_paths_through_gate():
         run(rig.c._run_room_rules(["enter"]))
     assert _calls(rig) == [("automation", "trigger", "automation.exercise_music"),
                            ("light", "turn_on", "light.exercise_lamp")]
+    # the legacy chain went through the gate: skip_condition False carried
+    assert rig.services.rule_calls()[0].data == {
+        "entity_id": "automation.exercise_music", "skip_condition": False}
     rig2 = Rig(rules=[light_rule()], states=_lamp_states(), switches={"ai_automation": False})
     with patch.object(_m("const"), "ROOM_RULES_UNIFIED_EXECUTOR", False):
         run(rig2.c._run_room_rules(["enter"]))
@@ -372,8 +375,22 @@ def test_rule_person_exit_fires_on_person_event():
 
 def test_rule_person_other_person_no_fire():
     rig = _person_rig()
-    _fire_person(rig, "Jaya Udezue", "Kitchen", "Exercise Room")
+    for name, cb in list(rig.bus_listeners):
+        cb(_Evt(person_id="Jaya Udezue", previous_location="Kitchen",
+                current_location="Exercise Room"))
+    assert rig.tasks == []          # the listener schedules nothing for Jaya
+    run(rig.drain())
     assert _calls(rig) == [] and rig.episodes() == []
+
+
+def test_run_room_rules_person_event_other_person_not_matched():
+    """The executor's own person match (second layer, behind the listener)."""
+    rig = Rig(rules=[light_rule(person="person.oji_udezue")], states=_lamp_states())
+    run(rig.c._run_room_rules(["enter"], event={"kind": "person", "person_id": "Jaya Udezue"}))
+    run(rig.drain())
+    assert _calls(rig) == [] and rig.episodes() == []
+    run(rig.c._run_room_rules(["enter"], event={"kind": "person", "person_id": "Oji Udezue"}))
+    assert _calls(rig) == [("light", "turn_on", "light.exercise_lamp")]
 
 
 def test_rule_person_other_room_no_fire():
@@ -397,6 +414,15 @@ def test_rule_person_event_respects_switch_off():
     _fire_person(rig, "Oji Udezue", "Kitchen", "Exercise Room")
     assert _calls(rig) == []
     assert _outcomes(rig) == ["switch_off"]
+
+
+def test_rule_person_event_paused_room_schedules_nothing():
+    """Master Automation switch off (paused room): same as the occupancy-edge
+    path, the person listener runs no rule."""
+    rig = _person_rig()
+    rig.switches["automation"] = False
+    _fire_person(rig, "Oji Udezue", "Kitchen", "Exercise Room")
+    assert _calls(rig) == [] and rig.episodes() == []
 
 
 def test_person_listener_only_with_person_rule():
