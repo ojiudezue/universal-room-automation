@@ -34269,6 +34269,7 @@ cards:
   why: "Live 11-18: lock.garage_hallway_doorlock_kwikset916_zwave_garagehallway (zwave_js node 10, re-included 2026-11-14 23:02, in security_lock_entities) last changed state 11-15 ~20:42; since then only the 11-17 21:06:54 restart restore (state locked, last_reported = restart). Operator found it physically unlocked. zwave_js.refresh_value and the node ping (20:50 UTC) produced no new value; node_status stays 'alive'. The sweep relocks only locks that READ unlocked, so it never acts. Config is fine (entity is in the sweep list); the lock stopped reporting the day after re-inclusion."
   next: "None (closed). Residual wording fix carded as [[SECURITY-LOCK-PAGE-LAST-SEEN-1]]."
 - id: SECURITY-LOCK-PAGE-LAST-SEEN-1
+  dedupe_2026_11_20: "Merged with the same-day orchestrator fix for SECURITY-LOCK-STALE-STATE-1 residual: branch fix/lock-page-last-seen (overnight a0bc0d1d7/5a9f2687b + 50d183b69), review SHIP; merged to develop, ships in the next release with the perimeter circling fix."
   title: The dead-lock page says "last report unknown" after a restart even though the lock''s Z-Wave last-seen time is known
   thread: security
   status: review
