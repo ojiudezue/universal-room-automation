@@ -1007,6 +1007,18 @@ BOOT_LS = REPORT + H(10)
 GRACE_END_LS = BOOT_LS + timedelta(seconds=600)
 
 
+@pytest.fixture
+def chicago_tz():
+    """Pin the local zone so the page's local-time wording is deterministic."""
+    from homeassistant.util import dt as dt_util
+    saved = dt_util.DEFAULT_TIME_ZONE
+    dt_util.set_default_time_zone(dt_util.get_time_zone("America/Chicago"))
+    try:
+        yield
+    finally:
+        dt_util.set_default_time_zone(saved)
+
+
 def _preboot_garage(states, ls_value=REPORT.isoformat(), lock_state="locked"):
     states.set(GARAGE, lock_state, changed=BOOT_LS, reported=BOOT_LS,
                name="Garage hallway lock")
@@ -1014,17 +1026,17 @@ def _preboot_garage(states, ls_value=REPORT.isoformat(), lock_state="locked"):
     states.set(NS_GARAGE, "alive")
 
 
-def test_stale_page_shows_preboot_last_seen_age():
+def test_stale_page_shows_preboot_last_seen_age(chicago_tz):
     coord, states, _ = _make(boot=BOOT_LS)
     _preboot_garage(states)
     now = GRACE_END_LS + H(13)          # REPORT + 23 h 10 min
     pages = _pages(_run(coord, now))
     assert len(pages) == 1
-    assert "last seen 23 h ago (before restart)" in pages[0].message
+    assert "last seen 16 Nov 01:37 (before restart)" in pages[0].message
     assert "since restart" in pages[0].message
 
 
-def test_dead_page_shows_preboot_last_seen_age():
+def test_dead_page_shows_preboot_last_seen_age(chicago_tz):
     coord, states, _ = _make(boot=BOOT_LS)
     _preboot_garage(states)
     states.set(NS_GARAGE, "dead")
@@ -1032,19 +1044,19 @@ def test_dead_page_shows_preboot_last_seen_age():
     acts = _run(coord, t) + _run(coord, t + timedelta(minutes=21))
     pages = _pages(acts)
     assert len(pages) == 1 and "node dead" in pages[0].message
-    # Page at REPORT + 10 h 32 min -> "11 h".
-    assert "last seen 11 h ago (before restart)" in pages[0].message
+    assert "last seen 16 Nov 01:37 (before restart)" in pages[0].message
     assert "unknown. State" not in pages[0].message
 
 
-def test_offline_page_shows_preboot_last_seen_age():
+def test_offline_page_shows_preboot_last_seen_age(chicago_tz):
     coord, states, _ = _make(boot=BOOT_LS)
     _preboot_garage(states, lock_state="unavailable")
     t = GRACE_END_LS + timedelta(minutes=1)
     acts = _run(coord, t) + _run(coord, t + timedelta(minutes=21))
     pages = _pages(acts)
     assert len(pages) == 1 and "is offline" in pages[0].message
-    assert "last seen 11 h ago (before restart)" in pages[0].message
+    assert "last seen 16 Nov 01:37 (before restart)" in pages[0].message
+    assert "is offline; last seen 16 Nov 01:37" in pages[0].message
 
 
 @pytest.mark.parametrize(
@@ -1091,7 +1103,7 @@ def test_preboot_last_seen_does_not_feed_freshness():
     assert _snap(REPORT.isoformat(), late) == _snap("unavailable", late)
 
 
-def test_grace_window_last_seen_not_labelled_before_restart():
+def test_grace_window_last_seen_not_labelled_before_restart(chicago_tz):
     """Review L2: a last_seen stamp after boot but inside the grace window is
     not a real report (real stays None) and is NOT before the restart."""
     coord, states, _ = _make(boot=BOOT_LS)
@@ -1103,5 +1115,5 @@ def test_grace_window_last_seen_not_labelled_before_restart():
     t = GRACE_END_LS + timedelta(minutes=1)
     acts = _run(coord, t) + _run(coord, t + timedelta(minutes=21))
     pages = _pages(acts)
-    assert len(pages) == 1 and "last seen 1 h ago." in pages[0].message
+    assert len(pages) == 1 and "last seen 16 Nov 11:38." in pages[0].message
     assert "(before restart)" not in pages[0].message

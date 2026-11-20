@@ -495,10 +495,8 @@ class LockFreshnessTracker:
             # "(before restart)" only for a pre-boot stamp; a stamp inside
             # the boot grace window is after the restart (review L2).
             when = " (before restart)" if ls_ts <= self.boot_ts else ""
-            seen = (
-                f"last seen {(now - ls_ts).total_seconds() / 3600.0:.0f} h "
-                f"ago{when}"
-            )
+            loc = dt_util.as_local(ls_ts)
+            seen = f"last seen {loc.day} {loc:%b %H:%M}{when}"
         no_report = seen or "last report unknown"
         if hazard == "restored":
             msg = (
