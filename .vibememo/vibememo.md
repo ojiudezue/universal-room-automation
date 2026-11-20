@@ -75,3 +75,6 @@ One counseling note from the same pass: feed and card times were typed from a fe
 
 
 **2026-11-20, the board drifts behind the code.** The overnight pass checked ground truth before work and found two cards that shipped in v5.108.8 still marked planned; both were closed on the README evidence. The lock-page wording residual was built display-only and sent to review, with no deploy → [343](users/ojiudezue/entries/343_overnight_board_drift_shipped_cards_left_planned.json).
+
+
+**2026-11-20, 'arrived' means the phone arrived.** The first live named arrival from the old face path was wrong (a resident already home walked in from the garage), so entry notices now say 'arrived' only with that person's own arrival edge and 'came in' otherwise; S1 non-anchors now record why. Unified room rules was built the same day and waits on review → [343](users/ojiudezue/entries/343_arrived_vs_came_in_and_room_rules_built.json).
