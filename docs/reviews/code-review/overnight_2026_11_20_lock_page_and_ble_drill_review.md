@@ -72,3 +72,8 @@ Verdict: **SHIP**.
 | LOW | 2 | 0 | 2 (to builder's discretion) |
 
 Bug classes: #62 untested site (1), display wording (1). No new QUALITY_CONTEXT class.
+
+
+## Fix-up (orchestrator, 2026-11-20 02:08 CST)
+
+Both LOWs fixed in 5a9f2687b on fix/lock-page-last-seen: L1 adds a `future` case to `test_offline_page_keeps_unknown_without_usable_last_seen` (removing the `ts <= now` guard turns it RED). L2 prints "(before restart)" only when the stamp is at or before `boot_ts`, with a new test `test_grace_window_last_seen_not_labelled_before_restart` (always-label mutation turns it RED). Lock freshness + retry-cap files: 78 passed.

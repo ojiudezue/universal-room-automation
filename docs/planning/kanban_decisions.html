@@ -264,12 +264,12 @@ section.decisions .none { color:var(--muted); font-size:12px; padding:0 18px 12p
 <header class="top">
 <h1>URA://DECISIONS<span class="gen">GENERATED - waiting_operator cards from kanban.data.yaml</span></h1>
 <div class="statusline">
-<span>generated <b>2026-11-19T02:22:45-06:00</b></span>
-<span>data <b>df512bb4601c</b></span>
-<span>reconciled <b>2026-11-19</b></span>
+<span>generated <b>2026-11-20T02:05:31-06:00</b></span>
+<span>data <b>e4a779ee7d73</b></span>
+<span>reconciled <b>2026-11-20</b></span>
 </div></header>
 <section class="decisions" id="decisions" aria-labelledby="decisions-h">
-<h2 id="decisions-h">Decisions <span class="count">36</span><span class="hint">waiting on you, oldest first · tap a PICK or type an answer; it is applied at the next groom</span></h2>
+<h2 id="decisions-h">Decisions <span class="count">35</span><span class="hint">waiting on you, oldest first · tap a PICK or type an answer; it is applied at the next groom</span></h2>
 <article class="decision" data-id="CAMERA-SEAM-VALIDATION-1">
 <div class="dhd">
 <span class="id">CAMERA-SEAM-VALIDATION-1</span>
@@ -573,24 +573,11 @@ section.decisions .none { color:var(--muted); font-size:12px; padding:0 18px 12p
 <div class="dhd">
 <span class="id">PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1</span>
 <span class="since">waiting since 2026-11-16 02:26</span>
+<span class="due-chip" data-due="2026-11-20T10:00" data-label="2026-11-20 10:00" title="ship in the next batched release (one restart/day)">due 2026-11-20 10:00</span>
 </div>
 <div class="dtitle">Circling hop 1 and hop 3 are both HIGH in production, so the claim that their severities differ (and their NM dedup keys cannot collide) does not hold</div>
-<p class="ask"><b>PICK</b>: A (recommended) perimeter-local fix: escalation-exemption dispatches use their own title (e.g. &#x27;Perimeter Alert - Person Circling&#x27;), so NM dedup keys differ; Tier 2 (2 reviews), touches only perimeter_alert.py, plus a test that runs the REAL NM _is_deduplicated; or B the plan D7 route: add classification to NM&#x27;s dedup key (shared primitive used by every coordinator, Tier 2-DB). -&gt; On A I build it to review in the next pass with no other session running suites. Default A if no veto by the next attended session. Either way it means more pages during a real circling event (that is the design intent).</p>
-<div class="picks">
-<button type="button" data-pick="A" title="send: PICK A"><b>PICK A</b>(recommended) perimeter-local fix: escalation-exemption dispatches...</button>
-<button type="button" data-pick="B" title="send: PICK B"><b>PICK B</b>the plan D7 route: add classification to NM&#x27;s dedup key (shared pri...</button>
-</div>
+<p class="ask">Me: ship in the next batched release (~10:00), full suite first.</p>
 <form class="answer"><label for="ans-PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1">Your answer for PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1</label><textarea id="ans-PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1" rows="2" placeholder="Your answer for PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
-<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
-</article>
-<article class="decision" data-id="LLMVISION-CANCEL-CLEANUP-UPSTREAM-1">
-<div class="dhd">
-<span class="id">LLMVISION-CANCEL-CLEANUP-UPSTREAM-1</span>
-<span class="since">waiting since 2026-11-17 02:07</span>
-</div>
-<div class="dtitle">llmvision leaves its downloaded video temp file and a running ffmpeg behind when a call is cancelled or ffmpeg times out (upstream report)</div>
-<p class="ask"><b>REVIEW</b> + APPROVE: read docs/planning/DRAFT_llmvision_timeout_leak_upstream_issue.md (the temp-file / ffmpeg part) and say post it (from your GitHub) or let me post it -&gt; on approval it goes up; I can also measure /tmp and stray ffmpeg counts on the HA host first if you want evidence attached.</p>
-<form class="answer"><label for="ans-LLMVISION-CANCEL-CLEANUP-UPSTREAM-1">Your answer for LLMVISION-CANCEL-CLEANUP-UPSTREAM-1</label><textarea id="ans-LLMVISION-CANCEL-CLEANUP-UPSTREAM-1" rows="2" placeholder="Your answer for LLMVISION-CANCEL-CLEANUP-UPSTREAM-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
 <div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
 </article>
 <article class="decision" data-id="ROOM-CONFIG-LEGACY-MMWAVE-KEY-1">
