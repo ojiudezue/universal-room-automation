@@ -259,6 +259,10 @@ class LockFreshnessTracker:
             rec = self._records.setdefault(lock_id, {})
             real = _aware(rec.get("real_report_ts"))
             cands: list[datetime] = []
+            # Display only (SECURITY-LOCK-PAGE-LAST-SEEN-1): the enabled
+            # last_seen VALUE at any age <= now, including pre-boot. Words a
+            # page when no real report exists; never a freshness input.
+            last_seen_ts: datetime | None = None
             if not lock_unavail:
                 recovery = self._recovery_ts.get(lock_id)
                 for attr in ("last_reported", "last_changed"):
@@ -273,6 +277,8 @@ class LockFreshnessTracker:
                 ls_val = getattr(ls, "state", None)
                 if ls_val not in _UNREAL:
                     ts = _aware(ls_val)
+                    if ts is not None and ts <= now:
+                        last_seen_ts = ts
                     if ts is not None and grace_end < ts <= now:
                         cands.append(ts)
             if cands:
@@ -315,6 +321,7 @@ class LockFreshnessTracker:
                 "dead": dead, "dead_ready": dead_ready,
                 "lock_unavail": lock_unavail, "node_dead": node_dead,
                 "stale": stale, "swept": swept,
+                "last_seen_ts": last_seen_ts,
             }
 
         if in_grace:
@@ -480,27 +487,43 @@ class LockFreshnessTracker:
         since = (
             f"{p['age_s'] / 3600.0:.0f} h" if real is not None else "since restart"
         )
+        # Display only: no real report since boot, but the Z-Wave last_seen
+        # holds a genuine pre-restart stamp -> show its age, not "unknown".
+        ls_ts = p.get("last_seen_ts")
+        seen = None
+        if real is None and ls_ts is not None:
+            # "(before restart)" only for a pre-boot stamp; a stamp inside
+            # the boot grace window is after the restart (review L2).
+            when = " (before restart)" if ls_ts <= self.boot_ts else ""
+            loc = dt_util.as_local(ls_ts)
+            seen = f"last seen {loc.day} {loc:%b %H:%M}{when}"
+        no_report = seen or "last report unknown"
         if hazard == "restored":
             msg = (
                 f"{name} is back online but has not reported since it went "
                 "offline; state not verified, check the door."
             )
         elif hazard == "stale":
-            msg = (
-                f"{name} has not reported for {since}; state unknown, "
-                "check the door."
-            )
+            if seen is None:
+                msg = (
+                    f"{name} has not reported for {since}; state unknown, "
+                    "check the door."
+                )
+            else:
+                msg = (
+                    f"{name} has not reported since restart; {seen}. State "
+                    "unknown, check the door."
+                )
         elif p["node_dead"] and not p["lock_unavail"]:
+            last = f"last report {since}" if real is not None else no_report
             msg = (
-                f"{name} is not responding (Z-Wave node dead); last report "
-                f"{since if real is not None else 'unknown'}. State unknown, "
-                "check the door."
+                f"{name} is not responding (Z-Wave node dead); {last}. "
+                "State unknown, check the door."
             )
         else:
+            last = f"last report {since} ago" if real is not None else no_report
             msg = (
-                f"{name} is offline; last report "
-                f"{since + ' ago' if real is not None else 'unknown'}. State "
-                "unknown, check the door."
+                f"{name} is offline; {last}. State unknown, check the door."
             )
         return NotificationAction(
             coordinator_id="security",
