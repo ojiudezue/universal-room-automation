@@ -35314,9 +35314,10 @@ cards:
   revisit_trigger: "A measured one-shot refresh at plug-in returns a fresh SOC within minutes without 12 V drain concerns, and a departure-time source exists; then revisit idea 2."
   next: "Parked: no build. Revisit on the trigger above."
 - id: MF-MA-TWIN-WIIM-UUID-1
+  soak_exit_2026_11_20: "NO-EVIDENCE: 17 music_follow_decision rows since 11-16 15:32 CST, all sourced from media_player.master_bedroom_sonos (no WiiM-to-WiiM move, no path=ma). Parked with trigger."
   title: "Music following picks a dead Music Assistant twin in every WiiM room: the _5 twins are unavailable all week; the playing _7 twins (wiim_uuid identifiers) never match"
   thread: music
-  status: shipped_organic
+  status: parked
   shipped_version: v5.108.33
   tier: 2
   created: '2026-11-15 22:35'
@@ -35324,7 +35325,7 @@ cards:
   links: {related: [MUSIC-FOLLOWING-TRANSFER-REPAIR-1, PERSON-PROFILE-PREFERENCES-1]}
   origin: {date: '2026-11-15', gist: 'Found by the step 8 B0 probe (AUDIT_step8_b0_ours_attr_2026_11_15.md addendum, 8e87a59a).'}
   why: "_ma_candidates (music_following.py:1140-1195) matches the _5 twins by MAC-in-identifier (upc...); every _5 is unavailable in all 7-day rows. The _7 twins that actually play carry music_assistant identifier wiim_uuid:<uuid>, equal to the native device's wiim identifier with dashes stripped plus an 8-hex suffix; no rule matches it. _resolve_path takes the first candidate, gets ma_source_not_playing, and falls back to native WiiM join. Effect: the v5.108.26 MA-first transfer has never run in a WiiM room; the arrival engine (MA first) would target the dead twin too."
-  next: "Built in the step 8 engine fix pass (c05e2103, feature/step8-d2-engine): wiim_uuid match + live-first order, tests on live registry fixtures; ships with v6.0.0."
+  next: "Parked: when a WiiM-sourced music_follow_decision appears, check path: ma + ok = DONE, else REOPEN."
 - id: STUCK-SENSOR-S3B-S1-1
   residual_2026_11_16_boot_settle_drops_chatter: "Live validation of v5.108.30: the 06:38:30 chatter NM (Garage B ratgdo motion) has an NM dedup entry but no notification_log row. Mechanism (verified in source): NM boot-settle collapses repeat (coordinator, hazard_type) emits in the first NM_BOOT_SETTLE_S=60 s (notification_manager.py:1797-1806, :847-858); every stuck kind shares STUCK_SIGNAL_NM_HAZARD_TYPE, so the dutycycle NM at 06:38:21 swallowed the chatter NM, and fire_stuck_signal still set the per-day latch (_stuck_signal_nm.py:245), so chatter is silent until tomorrow. Fix: include location (the stuck kind) in the boot-settle key for stuck_signal, or have async_notify report the drop so the latch is not set. Tier 1, NM primitive, ship with the next batch. Also README S3a-2 observable was wrong: automation_health.excluded_sensors is dutycycle-only (sensor.py:2613-2616), no entity exposes the chatter exclusion client."
   title: "Stuck-sensor truth S3b (MS600 bit resolves radar by registry model) + S1 (P22 off-pulse tolerance for motion-class inputs; one not-on stretch)"
@@ -35801,6 +35802,7 @@ cards:
   verified_2026_11_14_overnight: 'CARD-WAS-WRONG on next (''plan then build''): the plan exists and was reviewed on 11-13 (PLANNING_unified_room_rules.md, PLANREVIEW_unified_room_rules.md). Not built overnight: the vision-arc session is sequencing builder slots and this is not part of tonight''s queue.'
   updated: '2026-11-14 02:27'
 - id: MUSIC-FOLLOWING-TRANSFER-REPAIR-1
+  validated_2026_11_20: "v5.108.35 TV-audio skip working live: 7 source_not_transferable rows (content=x-sonos-htastream) 11-18; 0 verify_failed since the .35 install; 10 source_has_others. Real-music handoff still unobserved."
   residual_2026_11_17_verify_failed: "AUDIT_arc_day_validation_2026_11_17.md: all 7 music_follow_decision episodes since the v5.108.34 restart are verify_failed; Master Bedroom media_player.master_bedroom_sonos_2 not found 68x in the log. Charter: music following is mission critical day 1. RESULT (AUDIT_music_follow_verify_failed_2026_11_17.md): real failure, not a verify defect, not a .33/.34 regression (all 7 predate the .33 install). Source was the Master Bedroom Sonos playing TV audio (x-sonos-htastream ... spdif); no MA twin (the MA Sonos wrapper master_bedroom_sonos_2 was deleted 11-15 22:39, cause unknown) -> generic play_media of a Sonos-only URI to WiiM players; move mode also ducked the TV ~2 s per attempt. Fix building on fix/mf-skip-tv-audio (skip TV/line-in sources before any side effect). Operator config: Master Bedroom room_media_player still names the deleted _2 entity (log spam 68x); point it at media_player.master_bedroom_sonos or re-add the Sonos in Music Assistant. Gap: no real-music handoff observed yet."
   operator_2026_11_14_distance_gate: "Music: yeah off. Does the distance gate even have merit? Should it be dropped entirely?"
   fixup_2026_11_14: "Review A+B fix-up done on feature/music-following-repair: bf960874 (WIP source fixes), 7f7b7f8d (tests), c70b9316 (anchors); 25 of 26 drills RED; 219 music tests pass. Gaps: producer-side distance in person_coordinator._calculate_confidence untested; bedroom read not drilled; MF_HAZARD_BLOCK_S 1800 needs a planner check. Strict mode (closest_distance_ft 8 ft gate) is the only distance use."
