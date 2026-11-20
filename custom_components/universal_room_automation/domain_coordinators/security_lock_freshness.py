@@ -492,9 +492,12 @@ class LockFreshnessTracker:
         ls_ts = p.get("last_seen_ts")
         seen = None
         if real is None and ls_ts is not None:
+            # "(before restart)" only for a pre-boot stamp; a stamp inside
+            # the boot grace window is after the restart (review L2).
+            when = " (before restart)" if ls_ts <= self.boot_ts else ""
             seen = (
-                f"last seen {(now - ls_ts).total_seconds() / 3600.0:.0f} h ago "
-                "(before restart)"
+                f"last seen {(now - ls_ts).total_seconds() / 3600.0:.0f} h "
+                f"ago{when}"
             )
         no_report = seen or "last report unknown"
         if hazard == "restored":

@@ -1047,7 +1047,9 @@ def test_offline_page_shows_preboot_last_seen_age():
     assert "last seen 11 h ago (before restart)" in pages[0].message
 
 
-@pytest.mark.parametrize("case", ["disabled", "missing", "unparseable", "naive"])
+@pytest.mark.parametrize(
+    "case", ["disabled", "missing", "unparseable", "naive", "future"]
+)
 def test_offline_page_keeps_unknown_without_usable_last_seen(case):
     reg = _registry(garage_ls_disabled=(case == "disabled"))
     coord, states, _ = _make(boot=BOOT_LS, reg=reg)
@@ -1056,6 +1058,8 @@ def test_offline_page_keeps_unknown_without_usable_last_seen(case):
         "missing": "unknown",
         "unparseable": "not-a-date",
         "naive": "2026-11-16T07:37:00",
+        # Review L1: a future-dated stamp must not word "last seen -N h ago".
+        "future": (GRACE_END_LS + timedelta(days=1)).isoformat(),
     }[case]
     _preboot_garage(states, ls_value=val, lock_state="unavailable")
     t = GRACE_END_LS + timedelta(minutes=1)
@@ -1085,3 +1089,19 @@ def test_preboot_last_seen_does_not_feed_freshness():
     late = GRACE_END_LS + H(13)
     assert _snap(REPORT.isoformat(), late) == (None, None, [GARAGE])
     assert _snap(REPORT.isoformat(), late) == _snap("unavailable", late)
+
+
+def test_grace_window_last_seen_not_labelled_before_restart():
+    """Review L2: a last_seen stamp after boot but inside the grace window is
+    not a real report (real stays None) and is NOT before the restart."""
+    coord, states, _ = _make(boot=BOOT_LS)
+    _preboot_garage(
+        states,
+        ls_value=(BOOT_LS + timedelta(seconds=60)).isoformat(),
+        lock_state="unavailable",
+    )
+    t = GRACE_END_LS + timedelta(minutes=1)
+    acts = _run(coord, t) + _run(coord, t + timedelta(minutes=21))
+    pages = _pages(acts)
+    assert len(pages) == 1 and "last seen 1 h ago." in pages[0].message
+    assert "(before restart)" not in pages[0].message
