@@ -72,3 +72,6 @@ One counseling note from the same pass: feed and card times were typed from a fe
 
 
 **2026-11-19, closing out the arc.** On 'finish the arc... for things unblocked', a sweep closed 13 arc cards, parked 6 low-probability ones with triggers, and shipped the 4 ready fixes plus the lock-freshness fix in v5.108.38; open siblings fell from 21 to 7, all blocked on operator input or data. An HA core update restarted HA mid-sleep, so unplanned updates now count against the one-restart-a-day budget → [342](users/ojiudezue/entries/342_arc_close_sweep_and_restart_budget.json).
+
+
+**2026-11-20, the board drifts behind the code.** The overnight pass checked ground truth before work and found two cards that shipped in v5.108.8 still marked planned; both were closed on the README evidence. The lock-page wording residual was built display-only and sent to review, with no deploy → [343](users/ojiudezue/entries/343_overnight_board_drift_shipped_cards_left_planned.json).
