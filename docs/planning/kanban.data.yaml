@@ -34254,22 +34254,46 @@ cards:
   paged_2026_11_11_overnight: "Paged once in the consolidated overnight Pushover (priority -1, quiet)."
   operator_decision_2026_11_12: "Operator picked A: the night failsafe runs in all paused shared-space rooms (supersedes the 10-18 no-lights-off-when-paused ruling for the 23:00 failsafe only)."
 - id: SECURITY-LOCK-STALE-STATE-1
+  disposition_2026_11_20_overnight: "DONE-WITH-RESIDUAL (soak exit). Discriminator met by the 11-19 16:13 CST live validation (validated_2026_11_19: HIGH Lock not verified page after the 20-min debounce, no lock command, freshness attrs present). The overdue 15:30 due follow-up is the same check, so it is cleared. Residual LOW (page says last report unknown while zwave last_seen holds a real pre-restart time) has its own fix + acceptance -> SECURITY-LOCK-PAGE-LAST-SEEN-1."
   validated_2026_11_19: "Live: 16:13 CST HIGH Lock not verified page for the dead garage lock after the 20-min debounce; no lock command; freshness attrs present. Residual LOW: the page says last report unknown while the zwave last_seen sibling holds 2026-11-18 20:51:59Z -> use last_seen in the message when the Store has no real report."
-  due: '2026-11-19 15:30'
-  due_note: 'first lock sweep since the 14:11 restart: sweep attrs stale/unverified/freshness_age_h, lock_freshness Store, garage dead page after debounce'
   operator_2026_11_19_answers: "Night bypass for lock_unverified: NO (night pages are delivered when quiet hours end). Enable garage lock last_seen: YES (enabled 14:11 CST 11-19, before the restart). Generator fault cleared by the operator."
   measured_2026_11_18: "AUDIT_lock_report_staleness_2026_11_18.md (8 d recorder): garage lock had NO real report 11-16 07:37 -> 11-18 14:51 CST (~55 h; the 11-15 20:42 date above was wrong) while garage cameras logged 14/2/10 egress events on 11-16/17/18. Nothing noticed: no anomaly rows; only an offline digest notice 11-18 15:41 (not a page). Code: security.py:1838-1842 treats unavailable/unknown as offline, no other action; trusts locked with no age check (:1850); offline notice deduped 1/day in RAM (:1903-1933). State-row age and last_reported alone false-page (front 25.9 h, master 31.9 h max gaps, overnight). Proposed freshness = max(last_reported, last_changed, zwave node last_seen) (node 3 last_seen ~hourly, p90 1.1 h); N = 12 h, or 3 h if egress/door evidence after the last report; page immediately and ping before trusting locked; an unavailable swept lock pages, not digest. Unmeasured: whether Kwikset last_seen updates during silence (node 10 last_seen entity not in the state machine)."
   title: Lock sweep trusts a lock state the lock stopped reporting days ago, so a physically unlocked door is never relocked
   thread: security
-  status: shipped_organic
+  status: done
   shipped_version: v5.108.38
   tier: 2
   created: '2026-11-18 14:55'
-  updated: '2026-11-18 14:55'
+  updated: '2026-11-20 02:05'
   links: {sibling_of: SECURITY-LOCK-SWEEP-RETRY-CAP-1, related: [LOCK-BOOT-RECHECK-ENGAGE-1]}
   origin: {date: '2026-11-18', gist: 'Operator: "Is lock sweep working? Or the new garage lock re-inclusion not make it to the settings? I am finding it open often" / "I just went through that door and it wa unlocked"'}
   why: "Live 11-18: lock.garage_hallway_doorlock_kwikset916_zwave_garagehallway (zwave_js node 10, re-included 2026-11-14 23:02, in security_lock_entities) last changed state 11-15 ~20:42; since then only the 11-17 21:06:54 restart restore (state locked, last_reported = restart). Operator found it physically unlocked. zwave_js.refresh_value and the node ping (20:50 UTC) produced no new value; node_status stays 'alive'. The sweep relocks only locks that READ unlocked, so it never acts. Config is fine (entity is in the sweep list); the lock stopped reporting the day after re-inclusion."
-  next: "Me: live-validate v5.108.38 after the 14:11 restart (README live checks); garage lock still dead (keypad wake / batteries)."
+  next: "None (closed). Residual wording fix carded as [[SECURITY-LOCK-PAGE-LAST-SEEN-1]]."
+- id: SECURITY-LOCK-PAGE-LAST-SEEN-1
+  title: The dead-lock page says "last report unknown" after a restart even though the lock''s Z-Wave last-seen time is known
+  thread: security
+  status: in_progress
+  tier: 1
+  tags: [tier-1, no-fabrication-verify]
+  created: '2026-11-20 02:05'
+  updated: '2026-11-20 02:05'
+  refinement_status: initial
+  approval: implied
+  problem_solution:
+  - 'Problem: when a lock has gone silent and HA restarts, the "Lock not verified" page tells you the last report is unknown, even though the lock''s Z-Wave last-seen sensor still holds the real time it last talked (for the garage lock, 2026-11-18 20:51 UTC). You lose the one fact that says how long the door has been unwatched. Solution: when the freshness store has no report since the restart, put the last-seen time in the message instead of "unknown". Message text only; the staleness and paging logic stay as they are.'
+  origin: {date: '2026-11-19', gist: 'Residual LOW from the v5.108.38 live validation of SECURITY-LOCK-STALE-STATE-1 (16:13 CST page).'}
+  why: 'security_lock_freshness.py _page() prints unknown when p[real] is None. real ignores timestamps at or before the boot grace end on purpose (restored state rows are restart artefacts), so a lock that died before the restart never gets a real report. The last_seen sensor value is a Z-Wave timestamp, not a restart artefact, so it is safe to SHOW even though it must not count as a fresh report.'
+  constraints:
+  - 'Display only: do not feed pre-boot last_seen into real_report_ts, staleness, or the repage clock (that would change the Tier-2 freshness logic).'
+  - 'Fall back to the current "unknown" text when last_seen is missing, disabled or unparseable.'
+  parsimony: {problem: 'The lock_unverified page for a lock with no post-restart report prints unknown while a parseable last_seen value exists.', verdict: BUILD}
+  gate_2026_11_20_overnight: 'Validity: STILL-REAL (security_lock_freshness.py _page: "unknown" branches when real is None; sweep() drops last_seen ts <= grace_end). Config-first: no setting changes message text. Prior art: REUSE _aware() + info[last_seen] already resolved in sweep(). Parsimony BUILD (one message branch). Cost/benefit: Tier 1, single file, message-only, no shared-primitive writer -> overnight build to review, no deploy.'
+  rank: {value: 3, time_criticality: 2, effort: 2}
+  links:
+    parent: SECURITY-LOCK-STALE-STATE-1
+    context: 'SECURITY-LOCK-STALE-STATE-1 shipped the freshness page; this is its validated wording residual.'
+  next: 'Me: ura-builder on a worktree (Tier 1) -> one review -> review lane; ships at the next attended deploy.'
+  refs: [docs/readmes/README_v5.108.38.md, custom_components/universal_room_automation/domain_coordinators/security_lock_freshness.py]
 - id: SECURITY-LOCK-SWEEP-RETRY-CAP-1
   mergeprep_2026_11_10_overnight: "02:01-02:11 CST. integ/overnight-2026-11-08 was 180 behind develop (v5.108.1 shipped since); git merge-tree showed ONE conflict, docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md header (two independent dated entries; kept both). Code (const.py, sensor.py) auto-merged. New branch integ/overnight-2026-11-10 = develop 71c0fbb6 + merge 42e3215f, pushed. py_compile clean, no conflict markers. The cycle's 9 test files: 186 passed. Full suite under xdist on candidate vs base develop: 33 vs 25 failures, but the sets differ in BOTH directions (order pollution); all 13 candidate-only failing tests pass when their files run alone (test_kanban_render, test_radar_tuning_phase_a, test_unload_symmetry_task_hygiene, test_zone_migration_mint_guard, test_zone_orphan_device_guard, test_zone_power_rollup, test_zone_safety_alert). No new failure attributable to the branch. Caveat: this is an xdist run, not the serial name-diff; the attended deploy's suite gate is the authority."
   mergeprep_2026_11_06_overnight: "Same check as OPTIMIZER-META-NEVER-PAGES-1 (same integ branch): merges clean onto develop; test_security_lock_retry_cap passes on the merge, including when run with test_zone_orphan_device_guard (21 passed). Still ready for the attended deploy."
