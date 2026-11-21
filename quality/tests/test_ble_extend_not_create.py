@@ -878,12 +878,16 @@ def test_MUTATION_m2_seeding_hoisted_above_predicate_makes_order_test_red():
     BEFORE the predicate — enabling BLE self-confirmation on the next
     tick. T6 must FAIL under mutation."""
     _mutate_and_expect_red(
+        # Anchor retargeted 2026-11-20 (BLE-EXTEND-DRILL-RETARGET-1): the
+        # BLE-LOCATION-QUALITY-1 D1 absence-grace reset (b13a151e) now sits
+        # between ``if ble_persons:`` and the coverage comment. Seeding is
+        # still hoisted ABOVE the predicate (is_room_direct_ble).
         swap_from=(
-            "                if ble_persons:\n"
+            "                    self._ble_absent_since = None\n"
             "                    # Check if this room has direct BLE coverage (Tier 1)"
         ),
         swap_to=(
-            "                if ble_persons:\n"
+            "                    self._ble_absent_since = None\n"
             "                    if not self._last_motion_time:\n"
             "                        self._last_motion_time = now\n"
             "                    # Check if this room has direct BLE coverage (Tier 1)"
