@@ -123,6 +123,8 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     _extract_conf(CONST_SRC, "CONF_OPTIMIZER_LLM_TASK_ENTITY"),
     _extract_conf(CONST_SRC, "CONF_OPTIMIZER_LLM_TRIAGE_ENTITY"),
     _extract_conf(CONST_SRC, "CONF_OPTIMIZER_LLM_SYSTEM_PROMPT"),
+    # AI-ROOM-RULES-TRUST-REPAIR-1 §8: rule-writing model (read fresh at authoring).
+    _extract_conf(CONST_SRC, "CONF_ROOM_RULES_AI_TASK_ENTITY"),
     _extract_conf(CONST_SRC, "CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H"),
     # v4.7.35 fix-up (B-B2) — safety/security deny-list.
     _extract_conf(CONST_SRC, "CONF_OPTIMIZER_SAFETY_DENY_ENTITIES"),
@@ -451,7 +453,8 @@ def test_options_reload_suppress_keys_count_matches_part2_scope():
     # +3 VISION-INTERIOR-SIGHTINGS-1 ship 2 interior caps + describe access -> 137
     # +1 EGRESS-DIRECTION-AWARE-IDENTITY-1 step 7 S1 egress_confusable_pairs -> 138
     # +2 SECURITY-LOCK-STALE-STATE-1 lock freshness N + re-page R Numbers -> 140
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 140
+    # +1 AI-ROOM-RULES-TRUST-REPAIR-1 §8 room_rules_ai_task_entity -> 141
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 141
 
 
 # ---------------------------------------------------------------------------
@@ -618,6 +621,8 @@ def _load_init_dispatch_namespace() -> dict:
         "_CONF_OPTIMIZER_LLM_TASK_ENTITY":        "optimizer_llm_task_entity",
         "_CONF_OPTIMIZER_LLM_TRIAGE_ENTITY":      "optimizer_llm_triage_entity",
         "_CONF_OPTIMIZER_LLM_SYSTEM_PROMPT":      "optimizer_llm_system_prompt",
+        # AI-ROOM-RULES-TRUST-REPAIR-1 §8 (aliased import; value mirrors const.py).
+        "_CONF_ROOM_RULES_AI_TASK_ENTITY":        "room_rules_ai_task_entity",
         "_CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H": "optimizer_llm_max_invocations_per_24h",
         "_CONF_OPTIMIZER_SAFETY_DENY_ENTITIES":   "optimizer_safety_deny_entities",
         "_CONF_COMFORT_TEMP_MIN":                 "comfort_temp_min",
