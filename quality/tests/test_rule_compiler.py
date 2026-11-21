@@ -265,3 +265,50 @@ def test_room_entity_set_leaves_out_climate():
                                         CONF_CLIMATE_ENTITY: "climate.exercise",
                                         "area_id": "exercise_room"})
     assert [e["entity_id"] for e in ents] == ["light.exercise_lamp"]
+
+
+
+# ---------------------------------------------------------------------------
+# Review C test-authority fix-up (G4, G5, G6, G12, G13)
+# ---------------------------------------------------------------------------
+
+
+def test_validate_conditions_rejects_zero_width_window():
+    """G4 validate: start == end is refused at save time."""
+    errs = R.validate_conditions([{"type": "time_window", "start": "08:00", "end": "08:00"}])
+    assert errs == ["Condition 1: time_window start equals end"]
+
+
+def test_in_time_window_non_wrap_boundaries():
+    """G5: non-wrapping window is start-inclusive, end-exclusive."""
+    from datetime import time as t
+    assert R.in_time_window(t(7, 0), t(9, 0), t(7, 0)) is True
+    assert R.in_time_window(t(7, 0), t(9, 0), t(6, 59)) is False
+    assert R.in_time_window(t(7, 0), t(9, 0), t(8, 59)) is True
+    assert R.in_time_window(t(7, 0), t(9, 0), t(9, 0)) is False
+
+
+def test_validate_actions_rejects_action_without_target():
+    """G6: a non-automation action with no target entity is refused."""
+    for target in ({}, None, {"entity_id": []}):
+        act = {"domain": "light", "service": "turn_on", "target": target, "data": {}}
+        assert R.validate_actions(_hass(), [act], ROOM_IDS) == ["Action 1: no target entity"], target
+
+
+def test_adapt_rules_non_list_conditions_needs_parse():
+    """G12: conditions stored as a non-list make the rule needs_parse."""
+    rule = {"rule_id": "x", "trigger_type": "enter",
+            "actions": [{"domain": "light", "service": "turn_on",
+                         "target": {"entity_id": "light.exercise_lamp"}}],
+            "conditions": {"type": "after_dark"}}
+    rec = R.adapt_rules([rule])[0]
+    assert rec["needs_parse"] is True and rec["conditions"] == []
+    rule["conditions"] = []
+    assert R.adapt_rules([rule])[0]["needs_parse"] is False
+
+
+def test_adapt_rules_legacy_chain_skip_condition_false():
+    """G13: a folded legacy chain record carries skip_condition False."""
+    rec = R.adapt_rules([], {"enter": "automation.party"})[0]
+    assert rec["skip_condition"] is False
+    assert rec["actions"][0]["data"] == {"skip_condition": False}

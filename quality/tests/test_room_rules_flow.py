@@ -273,3 +273,23 @@ def test_cm_rule_writing_model_field_present():
                     found = True
                     assert k.default() == "ai_task.claude_ai_task"
     assert found
+
+
+
+def test_first_edit_migrated_rules_stay_inert_until_rechecked():
+    """G1 / D8: after the first options save copies data-only rules (with
+    well-formed actions) into options, the executor still treats them as
+    needs_parse until each is re-checked."""
+    from _room_rules_rig import Rig
+    a = light_rule(rule_id="d1")
+    b = light_rule(rule_id="d2")
+    flow, _s, _ = _flow(data={CONF_AI_RULES: [a, b]})
+    flow._rule_selected = "d2"
+    saved = _run_step(flow, "room_rule_toggle")
+    rules = saved["data"][CONF_AI_RULES]
+    assert rules[0]["actions"] and rules[0]["enabled"] is True
+    rig = Rig(rules=rules, states={"light.exercise_lamp": st("off")})
+    run(rig.c._run_room_rules(["enter"]))
+    run(rig.drain())
+    assert rig.services.rule_calls() == []
+    assert [r["needs_parse"] for r in rig.c._room_rules()] == [True, True]

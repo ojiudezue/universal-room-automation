@@ -546,3 +546,13 @@ def test_reversal_watch_cancelled_by_room_unload():
     assert run(unload(rig.hass, rig.entry)) is True
     unsub_track.assert_called_once()
     unsub_timer.assert_called_once()
+
+
+
+def test_rule_silent_tripwire_skips_disabled_and_needs_parse_rules():
+    """G14: a disabled or needs_parse rule with skip history does not page."""
+    dis = light_rule(rule_id="dz", enabled=False)
+    np_ = {**light_rule(rule_id="np"), "needs_parsing": True}
+    rig = Rig(rules=[dis, np_], states=_lamp_states())
+    fired, _ = _trip(rig, _DB(rows=[_row("dz", "switch_off")] * 3 + [_row("np", "switch_off")] * 3))
+    assert fired == []

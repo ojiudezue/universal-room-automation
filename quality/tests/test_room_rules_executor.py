@@ -504,3 +504,161 @@ def test_new_energy_rule_subscribed_after_options_save():
         rig.entry.options = {"ai_rules": [light_rule(trigger="energy_constraint")]}
         rig.c._update_signal_subscriptions()   # the options-update listener body
     assert SIGNAL_ENERGY_CONSTRAINT in connected
+
+
+
+# ---------------------------------------------------------------------------
+# Review C test-authority fix-up (G1, G2, G3, G4, G7, G8, G9, G10, G11)
+# ---------------------------------------------------------------------------
+
+
+def test_needs_parsing_flag_keeps_well_formed_rule_inert():
+    """G1: an options rule with well-formed actions AND needs_parsing True
+    never runs and reports needs_parse (D8: inert until re-checked)."""
+    from custom_components.universal_room_automation.sensor import AIAutomationStatusSensor
+    rule = light_rule(rule_id="m1")
+    rule["needs_parsing"] = True
+    rig = Rig(rules=[rule], states=_lamp_states())
+    run(rig.c._run_room_rules(["enter"]))
+    run(rig.drain())
+    assert _calls(rig) == [] and rig.episodes() == []
+    sensor = AIAutomationStatusSensor.__new__(AIAutomationStatusSensor)
+    sensor.coordinator = rig.c
+    sensor.hass = rig.hass
+    assert sensor.extra_state_attributes["rules"][0]["status"] == "needs_parse"
+    # control: the same rule without the flag fires
+    rig2 = Rig(rules=[light_rule(rule_id="m1")], states=_lamp_states())
+    run(rig2.c._run_room_rules(["enter"]))
+    assert _calls(rig2) == [("light", "turn_on", "light.exercise_lamp")]
+
+
+class _DarkRaises:
+    def is_dark(self, lux):
+        raise RuntimeError("boom")
+
+
+def test_rule_is_dark_exception_fails_closed():
+    """G2: an exception inside the dark check means not dark."""
+    rig = Rig(rules=[light_rule(conditions=[{"type": "after_dark"}])], states=_lamp_states())
+    rig.c.automation = _DarkRaises()
+    run(rig.c._run_room_rules(["enter"]))
+    run(rig.drain())
+    assert _calls(rig) == []
+    assert _outcomes(rig) == ["condition_false"]
+
+
+def test_rule_is_dark_without_automation_fails_closed():
+    """G2: no RoomAutomation object means not dark."""
+    rig = Rig(rules=[light_rule(conditions=[{"type": "after_dark"}])], states=_lamp_states())
+    rig.c.automation = None
+    rig.c.data = {C.STATE_ILLUMINANCE: 1}
+    run(rig.c._run_room_rules(["enter"]))
+    run(rig.drain())
+    assert _calls(rig) == []
+    assert _outcomes(rig) == ["condition_false"]
+
+
+def _now():
+    return datetime(2026, 11, 20, 12, 0).astimezone()
+
+
+def test_evaluate_conditions_dark_fn_exception_fails_closed():
+    """G2: evaluate_conditions turns a raising dark_fn into False."""
+    from custom_components.universal_room_automation.rule_compiler import evaluate_conditions
+
+    def _boom():
+        raise RuntimeError("x")
+
+    ok, values, failed = evaluate_conditions(
+        [{"type": "after_dark"}], dark_fn=_boom, now_local=_now(), house_state="home")
+    assert (ok, values, failed) == (False, {"after_dark": False}, "after_dark")
+
+
+def test_evaluate_conditions_unknown_kind_fails_closed():
+    """G3: an unknown condition kind never passes."""
+    from custom_components.universal_room_automation.rule_compiler import evaluate_conditions
+    ok, values, failed = evaluate_conditions(
+        [{"type": "full_moon"}], dark_fn=lambda: True, now_local=_now(), house_state="home")
+    assert (ok, values, failed) == (False, {"full_moon": "unknown"}, "full_moon")
+
+
+def test_evaluate_conditions_none_house_state_fails_closed():
+    """G3: an unknown (None) house state does not satisfy house_state_in."""
+    from custom_components.universal_room_automation.rule_compiler import evaluate_conditions
+    ok, _v, failed = evaluate_conditions(
+        [{"type": "house_state_in", "states": ["home_day", "away"]}],
+        dark_fn=lambda: True, now_local=_now(), house_state=None)
+    assert (ok, failed) == (False, "house_state_in")
+
+
+def test_evaluate_conditions_unparsable_time_fails_closed():
+    """G4: a garbled window never passes."""
+    from custom_components.universal_room_automation.rule_compiler import evaluate_conditions
+    for start, end in (("25:99", "13:00"), ("11:00", "noonish"), (None, "13:00")):
+        ok, _v, failed = evaluate_conditions(
+            [{"type": "time_window", "start": start, "end": end}],
+            dark_fn=lambda: True, now_local=_now(), house_state="home")
+        assert (ok, failed) == (False, "time_window"), (start, end)
+
+
+def test_evaluate_conditions_zero_width_window_fails_closed():
+    """G4 runtime: start == end is rejected, not evaluated as always-true
+    by the wrap branch of in_time_window."""
+    from custom_components.universal_room_automation.rule_compiler import evaluate_conditions
+    for hhmm in ("12:00", "08:00", "23:59"):
+        ok, _v, failed = evaluate_conditions(
+            [{"type": "time_window", "start": hhmm, "end": hhmm}],
+            dark_fn=lambda: True, now_local=_now(), house_state="home")
+        assert (ok, failed) == (False, "time_window"), hhmm
+
+
+def test_climate_block_log_names_the_rule(caplog):
+    """G7: the executor stamps rule_id on each action; the climate-block log
+    names the rule."""
+    import logging
+    rule = light_rule(rule_id="clim7", service="set_temperature", entity="climate.zone_1")
+    rig = Rig(rules=[rule], states={"climate.zone_1": st("cool")})
+    with caplog.at_level(logging.WARNING):
+        run(rig.c._run_room_rules(["enter"]))
+    assert "AI rule clim7 blocked" in caplog.text
+    assert "<unknown>" not in caplog.text
+
+
+def test_rule_stats_evaluations_counts_every_decision():
+    """G8 (INV-R6 stats leg): evaluations counts fires AND skips."""
+    rig = Rig(rules=[light_rule()], states=_lamp_states())
+    run(rig.c._run_room_rules(["enter"]))
+    rig.switches["ai_automation"] = False
+    run(rig.c._run_room_rules(["enter"]))
+    run(rig.c._run_room_rules(["enter"]))
+    stats = rig.c._rule_stats["r1"]
+    assert stats["evaluations"] == 3
+    assert stats["fires"] == 1
+
+
+def test_kill_switch_false_ai_rule_action_goes_through_gate():
+    """G9: on the legacy (kill switch False) path the AI-rule action still
+    passes the gate: climate and a disallowed domain are never called."""
+    rules = [light_rule(rule_id="c9", service="set_temperature", entity="climate.zone_1"),
+             light_rule(rule_id="s9", service="restart", entity="homeassistant.core")]
+    rig = Rig(rules=rules, states={"climate.zone_1": st("cool")})
+    with patch.object(_m("const"), "ROOM_RULES_UNIFIED_EXECUTOR", False):
+        run(rig.c._run_room_rules(["enter"]))
+    assert _calls(rig) == []
+
+
+def test_person_event_same_room_does_not_fire_enter():
+    """G10: a person event whose previous and current room are both this
+    room is not an enter."""
+    rig = _person_rig()
+    _fire_person(rig, "Oji Udezue", "Exercise Room", "Exercise Room")
+    assert _calls(rig) == []
+
+
+def test_person_event_does_not_match_non_person_rule():
+    """G11: a person event (even with an empty person_id) never matches a
+    rule that has no person."""
+    rig = Rig(rules=[light_rule()], states=_lamp_states())
+    for pid in ("", None, "person.oji_udezue"):
+        run(rig.c._run_room_rules(["enter"], event={"kind": "person", "person_id": pid}))
+    assert _calls(rig) == []
