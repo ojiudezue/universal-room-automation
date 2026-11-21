@@ -39,17 +39,19 @@ PERIMETER-GATE-DECISIONS-NOT-PERSISTED-1.
 | `PERIMETER_VLM_LOCATION_ASK` | **False** (D0-B no-go) | True = shadow asks LOCATION |
 | `PERIMETER_VLM_LOCATION_ASK_IN_ENFORCE` | False | True only after D0-B PERSON parity |
 
-## Live validation (prospective — replace with a `Validated <date>` table after restart)
+## Live validation — Validated 2026-11-21 (overnight soak exit, read-only)
 
-| # | Criterion | Evidence to collect |
-|---|---|---|
-| L1 | Rows flow | within 1 h of the first post-restart perimeter alert: `select count(*) from memory_episodes where episode_type='perimeter_gate_decision'` > 0 |
-| L2 | Payload not sentinel-only | newest row with gate in (`single_source`,`egress_identity`) has non-empty `gate`, `reason`, `severity_before`, `camera` and numeric `sun_elevation` |
-| L3 | Night rule | first post-sunset `single_source` row with would-demote inputs shows `is_day=false`, `reason=night`; no `exterior_person` LOW in `notification_log` paired with it |
-| L4 | D1b at night | any night `egress_identity` row with `reason=egress_uncorroborated_night` was dispatched at its original severity |
-| L5 | D3 dark | `select.ura_perimeter_vlm_gate` rows (if shadow) carry `location=UNSURE`; llmvision message == today's verdict prompt |
-| L6 | Scorer runs | the weekly scorer prints a table |
-| L7 | No errors | log scan: no `perimeter gate row` exceptions, no `log_memory_episode: unregistered` warnings |
+Queries: `ssh ha sqlite3 -readonly` on the URA DB, 02:0x CST; logs via the HA MCP `ha_get_logs source=system`.
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| L1 | Rows flow | PASS | `memory_episodes` `perimeter_gate_decision` rows every day 11-14..11-20 (62, 61, 236, 119, 125, 76, 50); 729 rows total |
+| L2 | Payload not sentinel-only | PASS | newest `single_source` row 11-20 23:26 UTC: camera `rear_ptz`, reason `single_nvr`, severity_before `HIGH`, nvr_family `protect`, sun_elevation 1.22, is_day true, inputs populated |
+| L3 | Night rule | PASS | 11 rows with reason `night`, all `is_day=0`, 0 demoted; 0 `single_source` demotes with `is_day=0`. The 6 demotes (g5_bullet 4, back_yard 1, pool_equipment 1) were all daytime |
+| L4 | D1b at night | not observable | 0 `egress_identity` gate rows in the window |
+| L5 | D3 dark | not checked | — |
+| L6 | Scorer runs | PASS | `scripts/probes/perimeter_gate_scorer_weekly.py` printed the per-camera table (729 rows since 11-14 08:05 UTC) |
+| L7 | No errors | PASS for the current boot only | system_log has no `perimeter gate` or `unregistered` entries, but it holds only the boot since the 11-20 22:47 restart; earlier boots not scanned (not a week-wide all-clear) |
 
 ## Not done / deferred
 

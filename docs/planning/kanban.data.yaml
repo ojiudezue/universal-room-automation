@@ -9,6 +9,8 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {"fid": "PANEL-KS-HEALTH-AS-INPUT-1@2026-11-21T02:07:00", "card_id": "PANEL-KS-HEALTH-AS-INPUT-1", "at": "2026-11-21T02:07:00", "outcome": "done", "headline": "Closed the dead wall-panel camera check: the panel cameras went dark three times since 11-14 and each time URA stopped trusting them and paged you within 15 min (overnight ones waited for quiet hours to end). Leftover: the 'counts again' notice arrived only once (Study A); noted on the follow-up card.", "acknowledged": false}
+  - {"fid": "PERIMETER-GATE-DECISIONS-NOT-PERSISTED-1@2026-11-21T02:06:00", "card_id": "PERIMETER-GATE-DECISIONS-NOT-PERSISTED-1", "at": "2026-11-21T02:06:00", "outcome": "done", "headline": "Closed the outdoor-alert gate logging fix: every gate decision is now on record (729 since 11-14, every day), the weekly scorer works, and the 'only soften in daylight' rule held: no alert was softened after dark. Results written into the v5.108.20 README.", "acknowledged": false}
   - {"fid": "NM-NO-CHANNEL-FIRED-1@2026-11-21T02:05:00", "card_id": "NM-NO-CHANNEL-FIRED-1", "at": "2026-11-21T02:05:00", "outcome": "done", "headline": "Closed the 'alerts that reached no one' fix: since it shipped, quiet alerts land in the digest every day and the misses fell from 26-57 a day to 0-4. The leftover is outdoor person alerts with a photo at MEDIUM/LOW (about 1-2 a day): forced to send now, no channel takes them. Carded with a one-condition fix, not built tonight.", "acknowledged": false}
   - {"fid": "GARAGE-REMOTE-LOCKOUT-SCHEDULE-1@2026-11-21T02:05:00", "card_id": "GARAGE-REMOTE-LOCKOUT-SCHEDULE-1", "at": "2026-11-21T02:05:00", "outcome": "parked", "headline": "Parked the garage remote lockout card: its feature shipped in v5.108.13, but it can only be proven with the lockout switched on, and it is off. It wakes when you turn the lockout on.", "acknowledged": false}
   - {"fid": "WAITING-OP-RECHECK@11-21@2026-11-21T02:05:00", "card_id": "WAITING-OP-RECHECK@11-21", "at": "2026-11-21T02:05:00", "outcome": "measured", "headline": "Re-checked 6 cards waiting on you; all still need you: kitchen smoke detector still offline; perimeter zone sensors still unset; landscape first step still lacks continue-on-error; no WhatsApp/app 'diag' reply yet; the AI Task key is confirmed locked until 12-01 (9 failed calls logged since last night's restart).", "acknowledged": false}
@@ -36260,16 +36262,17 @@ cards:
 - id: PERIMETER-GATE-DECISIONS-NOT-PERSISTED-1
   title: Perimeter demote gates keep only their last decision per camera in memory, so shadow mode leaves no record to judge them by
   thread: security
-  status: shipped_organic
+  status: "done"
   shipped_version: v5.108.20
   created: '2026-11-13 13:00'
-  updated: '2026-11-13 13:00'
+  updated: "2026-11-21 02:06"
   tier: 2
   links: {related: [PERIMETER-SWITCH-LABELS-AND-FLOW-PARITY-1, PERIMETER-ZONE-AGREEMENT-FIX-OR-REMOVE-1]}
   origin: {date: '2026-11-13', gist: 'AUDIT_perimeter_settings_and_masks_2026_11_13.md: _record_gate overwrites in memory, attribute excluded from recorder; the single-source shadow week could only be rebuilt by proxy (g5_bullet 16 street, 2 own property).'}
   why: 'Fire check: a shadow mode with no persisted decisions cannot be evaluated; every gate needs a DB row per decision.'
-  next: 'Me: persist each gate decision (memory_episodes or a gate row) with camera, gate, reason, would_demote, severity; weekly scorer.'
+  next: "None. Closed (soak exit 11-21). Retention of these rows stays on MEMORY-EPISODES-PERIMETER-GATE-RETENTION-1."
   rank: {value: 5, time_criticality: 3, effort: 2}
+  disposition_2026_11_21_overnight: "DONE (soak exit). Discriminator met: every gate decision is a DB row - 729 memory_episodes perimeter_gate_decision rows 11-14..11-20, every day non-zero, payload complete (camera, gate, reason, severities, sun_elevation, inputs), weekly scorer prints its table, daylight-only rule holds (11 night rows, 0 night demotes; 6 demotes all daytime). Validated table written into README_v5.108.20.md (L4 not observable, L5 not checked, L7 current boot only)."
 - id: F2-PANEL-FFMPEG-CRASHLOOP-1
   title: Frigate-2 study_a_panel and up_hallway_panel ffmpeg crash-loop (~20k log lines / 3 h)
   thread: infra
@@ -36289,25 +36292,26 @@ cards:
 - id: PANEL-KS-HEALTH-AS-INPUT-1
   title: URA trusts wall-panel inputs (camera person, motion, presence) even when the Kiosk Satellite app is down or headless
   thread: presence
-  status: shipped_organic
+  status: "done"
   shipped_version: v5.108.21
   created: '2026-11-13 14:30'
-  updated: '2026-11-13 14:30'
+  updated: "2026-11-21 02:07"
   tier: 2
   links: {related: [F2-PANEL-FFMPEG-CRASHLOOP-1]}
   origin: {date: '2026-11-13', gist: 'Operator: "If the app is down Ura can''t do what it needs to do and enabling new features like motion etc will be compromised." Evidence homelab 6b131ff: Up Hallway KS down ~39 h, no URA presence source; Study A down 47 min with KS still connected and rtsp switch reading on.'}
   why: 'Panels are a sensor-fleet dependency. A headless KS leaves entities that look healthy (Study A) or go unavailable silently (Up Hallway); URA must stop trusting panel-sourced inputs while KS is unhealthy and say so, or every panel-fed feature (motion, presence, camera person) degrades invisibly.'
   planner_2026_11_13: 'Plan 70d72c8e Part B (D4): KS foreground_app is the WRONG signal (unavailable 18 h on Study A while streaming); Frigate camera.<panel> unavailable matched both outages exactly. D4 = generic rule: ignore a camera-derived input while its own camera entity is unavailable past grace; reuses room sensor exclusion. Own cycle after Part A.'
-  next: 'Me: prior-art scan (sensor.<room>_unavailable_entities, stuck-signal watchdog, SENSOR_FLEET_CLASSES), then a per-panel health getter (foreground_app == kiosk_satellite AND F2 camera fps > 0) that marks the panel inputs untrusted + NM trip-wire with a zero-fire check. Homelab watchdog restarts; URA detects and degrades.'
+  next: "None. Closed (soak exit 11-21). S2 (zone, fan re-check, census) stays on CAMERA-STREAM-DEAD-ZONE-AND-CENSUS-1, which also carries the missing-recovery residual."
   rank: {value: 7, time_criticality: 5, effort: 2}
   homelab_2026_11_13: 'KS app-health watchdog live (homelab 7b54953), see F2-PANEL-FFMPEG-CRASHLOOP-1. URA side is stream health S1 (feature/camera-input-stream-health-s1), in review.'
+  disposition_2026_11_21_overnight: "DONE with a residual (soak exit; recorder states via ssh ha python3 read-only + notification_log). Fire check: panel cameras went unavailable (not restored) for >30 min three times since 11-14: Study A + Kitchen + Up Hallway panels 11-16 22:00 CST for 8.5 h and 11-20 16:46 CST for 4.4 h; Up Hallway alone 11-17 12:16 for 35.7 h. Pages fired every time under the later NVR-witness wording (Ship 3b, which replaced S1's 'Camera stream dead' title and 30-min delay with 'Camera dead 15 min: camera.<x>'): 11-20 17:01 CST study_a/kitchen/up_hallway, 11-17 12:32 CST up_hallway, and 11-17 06:00 CST for the overnight outage (HIGH held by quiet hours, then sent at 479 min - by design, HIGH is not a DND bypass). Recovery: 'camera.study_a_panel streams again; its inputs count again' 11-17 06:28 CST. RESIDUAL: no matching recovery notice for kitchen_panel or up_hallway_panel after either outage, nor for study_a after 11-20. Not diagnosed (could be the per-day latch or the twin-owner suppression at coordinator.py:3284-3289); LOW value, recorded on CAMERA-STREAM-DEAD-ZONE-AND-CENSUS-1. The card's 'next' (kiosk foreground_app getter) was superseded by plan 70d72c8e: foreground_app is the wrong signal; camera availability is."
 - id: CAMERA-STREAM-DEAD-ZONE-AND-CENSUS-1
   title: Zone tier, census and fan recheck ignore room-level sensor exclusions, so a frozen dead-camera 'on' still holds the zone
   thread: presence
   status: shipped_organic
   shipped_version: v5.108.22
   created: '2026-11-13 15:30'
-  updated: '2026-11-13 15:30'
+  updated: "2026-11-21 02:07"
   tier: 2
   links: {related: [PANEL-KS-HEALTH-AS-INPUT-1]}
   origin: {date: '2026-11-13', gist: 'Planner (plan/perimeter-batch 70d72c8e, Part B D4): up_hallway_panel_person_occupancy froze on 14 h during the KS outage and held Upstairs Hallway 4 h; D4 excludes the dead input at room level, but zone/census/fan recheck do not honour room exclusions.'}
@@ -36317,6 +36321,7 @@ cards:
   operator_2026_11_14_dead_hold: '(a) A dead input holds instead of releasing. A dead camera is not a presence or absence of signal. Its faulty equipment.'
   s2_reviews_2026_11_14: 'A FIX (A-M1 presence.py check_zone_occupancy_confidence Source 3 reads zone cameras raw, feeds HVAC 4 h failsafe; A-M2 live criteria do not discriminate; lows), B SHIP (B-M1 same site; B-M2 dead camera can trigger Sleep->Away -> operator chose hold; B-L3 zone camera tier asks the getter for every camera every read: reorder), C FIX tests only (census is True check, camera_is_dead key bleed, camera.* route, recheck_entities guards, fail-open handling).'
   operator_2026_11_14_census_hold: 'b. I don''t think the 4 hour has a real basis. => census hold short (stand-in ~30 min) then the dead camera is a missing term; both caps (census hold and the zone CAMERA_INPUT_STREAM_DEAD_HOLD_MAX_S, currently 14400 s borrowed from P22 and HVAC D6) to be set from a measured camera outage-duration distribution (recorder camera.* unavailable spans, p50/p90/p99, panels vs NVR cameras, before/after the homelab KS watchdog). Pending probe; fix-up after re-verify review.'
+  residual_2026_11_21_missing_recovery_low: "From the PANEL-KS-HEALTH-AS-INPUT-1 soak exit: after the 11-16/17 and 11-20 panel-camera outages, only study_a (11-17 06:28 CST) got the 'inputs count again' LOW; kitchen_panel and up_hallway_panel never did, and study_a did not after 11-20 (cameras back 21:07 CST, then the 22:47 restart). Hypotheses to test, not facts: per-day page latch, twin-owner POLICY_SUPPRESS at coordinator.py:3284-3289, or the recovery list missing inputs that were adopted from a group S1 page (pop_adopted_group_s1). Value LOW (the HIGH page is what matters); check while building S2 on the same tracker."
 - id: MEMORY-EPISODES-PERIMETER-GATE-RETENTION-1
   measured_2026_11_15_overnight: 'URA DB read-only: memory_episodes holds 18,786 rows, about 18 MB, against a 1.51 GB DB (~1%). No prune or retention exists anywhere (grep of custom_components for DELETE FROM memory_episodes / prune: none). Biggest type is NOT perimeter_gate_decision: exterior_track 10,670 rows / 15.5 MB since 08-06 (~57 MB/yr, 685 rows in the last 7 d); actuation_conflict 1.1 MB; perimeter_gate_decision 110 rows / 0.08 MB in its first ~16 h (~165/day, ~44 MB/yr if the rate holds, inside the card''s 30-90 estimate). Whole table ~100 MB/yr, ~6% of today''s DB per year.'
   parsimony: {problem: 'memory_episodes grows without bound (~100 MB/yr, led by exterior_track)', verdict: PARK, why: 'about 1% of the DB today; retention deletes adjudication/learning history (irreversible), so the per-type windows are an operator call, and the cost of waiting is small'}
