@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-20T16:39:57-06:00_ - _Data commit: `79762d86cab0`_ - _last_reconciled: 2026-11-20_
+_Generated: 2026-11-20T17:07:23-06:00_ - _Data commit: `35fade3b321d`_ - _last_reconciled: 2026-11-20_
 
 
 ## Columns
@@ -1306,7 +1306,7 @@ _updated 2026-10-12 02:07_
 ### `PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1` - Circling hop 1 and hop 3 are both HIGH in production, so the claim that their severities differ (and their NM dedup keys cannot collide) does not hold — _#25 · WSJF 2.8 · v7 tc5 u2 /e5_
 thread: **security** - status: **waiting_operator**
 _created 2026-11-13 12:00 · updated 2026-11-16 02:26 · refined_
-- **⏰ Due:** 2026-11-20 10:00 — ship in the next batched release (one restart/day)
+- **⏰ Due:** 2026-11-21 10:00 — ship in the next batched release (one restart/day). Re-dated 11-20 21:00: 11-20 window passed during Mac restart; batched with room rules + S1 reasons 11-21.
 - **Problem / Solution:**
   - Problem: when someone circles the house, the system is meant to send a stronger 'circling' alert even if that camera alerted a minute ago. The notification system's duplicate filter drops it, because it treats any alert with the same tit...
 - **Origin:** 2026-11-13 - Review A-L1 of house-state step 1a; pre-existing (persons_home always 0 live).

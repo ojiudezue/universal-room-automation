@@ -36126,8 +36126,8 @@ cards:
   rank: {value: 6, time_criticality: 3, effort: 5}
 - id: PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1
   built_2026_11_19: "Option A built 053f48563 (escalation-exemption dispatches titled 'Perimeter Alert — Person Escalated'; NM dedup key is coordinator:title:location, severity was never in it). Reviews A SHIP, B SHIP. Merged to develop; ships in the next release."
-  due: '2026-11-20 10:00'
-  due_note: 'ship in the next batched release (one restart/day)'
+  due: '2026-11-21 10:00'
+  due_note: 'ship in the next batched release (one restart/day). Re-dated 11-20 21:00: 11-20 window passed during Mac restart; batched with room rules + S1 reasons 11-21.'
   arc_cut_v5_108_38: "ready, next builder slot"
   arc_cut_v5_108_37: "separate arc work, not in the step 7 S1 release"
   arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
