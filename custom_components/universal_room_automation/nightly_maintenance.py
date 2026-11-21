@@ -74,6 +74,9 @@ def nightly_cleanup_ops() -> list[tuple[str, str, dict[str, Any]]]:
         # MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D5.5: zero-success trip-wire +
         # 7-day accuracy roll-up (delegates to the MusicFollowing singleton).
         ("music_following_health", "run_music_following_health_check", {}),
+        # AI-ROOM-RULES-TRUST-REPAIR-1 D6.3 / D6.5: room-rule accuracy
+        # roll-up + per-rule zero-fire trip-wire.
+        ("room_ai_health", "run_room_ai_health_check", {}),
         # EGRESS-DIRECTION-AWARE-IDENTITY-1 step 7 S1 D2: door arrival naming
         # zero-fire trip-wire (delegates to the egress tracker).
         ("egress_edge_anchor_tripwire", "run_egress_edge_anchor_tripwire", {}),

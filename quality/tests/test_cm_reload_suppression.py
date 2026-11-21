@@ -294,6 +294,7 @@ def _load_init_listener_helpers():
         "_CONF_OPTIMIZER_LLM_TASK_ENTITY":        "optimizer_llm_task_entity",
         "_CONF_OPTIMIZER_LLM_TRIAGE_ENTITY":      "optimizer_llm_triage_entity",
         "_CONF_OPTIMIZER_LLM_SYSTEM_PROMPT":      "optimizer_llm_system_prompt",
+        "_CONF_ROOM_RULES_AI_TASK_ENTITY":        "room_rules_ai_task_entity",
         "_CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H": "optimizer_llm_max_invocations_per_24h",
         "_CONF_OPTIMIZER_SAFETY_DENY_ENTITIES":   "optimizer_safety_deny_entities",
         "_CONF_COMFORT_TEMP_MIN":                 "comfort_temp_min",

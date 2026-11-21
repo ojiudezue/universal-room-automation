@@ -329,5 +329,10 @@ LISTED = {
     ('R10', 'sensor.py', 'PersonsExitedTodaySensor.async_added_to_hass:ura_person_egress_event'): 1,
     ('R10', 'sensor.py', '_CensusBaseSensor.async_added_to_hass:ura_census_updated'): 1,
     ('R10', 'transitions.py', 'TransitionDetector.async_init:ura_person_location_change'): 1,
+    # AI-ROOM-RULES-TRUST-REPAIR-1 D5: one listener per room, only while the
+    # room has a person-scoped enter / exit rule (comfort class; F4-shaped
+    # per-person room from the PersonCoordinator event; the person comes from
+    # the event, matched with person_ids.slug_of).
+    ('R10', 'coordinator.py', 'UniversalRoomCoordinator._update_signal_subscriptions:ura_person_location_change'): 1,
 }
 LISTED_RESERVED = []

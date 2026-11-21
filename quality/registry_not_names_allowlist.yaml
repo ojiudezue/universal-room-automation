@@ -759,6 +759,13 @@ rows:
     reason: "own-entity"
     owner: REGISTRY-NOT-NAMES-1
     note: "normalises URA room names for room-vs-room comparison (rebase 2026-11-19)"
+  - file: coordinator.py
+    qualname: "UniversalRoomCoordinator._rule_room_node"
+    rule: N4_SLUG
+    max_count: 1
+    reason: "own-entity"
+    owner: AI-ROOM-RULES-TRUST-REPAIR-1
+    note: "URA's own room name -> room-memory node id room:<slug>, same transform as music_following._slug so one room has one node (2026-11-20)"
   - file: person_sighting.py
     qualname: "PersonSightingProducer._describe_target"
     rule: N4_SLUG

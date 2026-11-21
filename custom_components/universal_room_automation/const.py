@@ -604,7 +604,9 @@ ROOM_TYPE_HALLWAY: Final = "hallway"
 ROOM_MENU_STEPS_ALL: Final = (
     "basic_setup", "sensors", "devices",
     "options_lighting_behaviour", "options_covers",
-    "automation_chaining", "ai_rules",
+    # AI-ROOM-RULES-TRUST-REPAIR-1 §7: one "Room rules" entry replaces
+    # "Automation Chaining" and "AI Rules".
+    "room_rules",
     "climate", "sleep_protection", "music_following",
     "energy", "notifications",
 )
@@ -5103,13 +5105,168 @@ REQUIREMENTS:
 - Only use entity_ids from the available entities list above.
 - Each service call must have: domain, service, target (with entity_id), data.
 - Use exact entity_ids as shown — do not invent entity IDs.
-- If a device is mentioned but not in the list, omit it.
 - data may be an empty object {{}} if no parameters needed.
-- For lights: use color_temp_kelvin (integer), brightness_pct (0-100).
-- For media_player: use volume_level (0.0-1.0).
-- For climate: use temperature (number).
+- For lights: use color_temp_kelvin (integer), brightness_pct (0-100),
+  rgb_color, color_name, transition. Never use light.toggle or switch.toggle.
+- For fans: percentage (0-100), preset_mode, oscillating, direction.
+- For media_player: volume_level (0.0-1.0), media_content_id,
+  media_content_type, source.
+- For covers: position, tilt_position (0-100).
+- Never control climate (thermostats); name it in "unsupported" instead.
+
+CONDITIONS: only these three kinds exist. Use them when the rule says so:
+- {{"type": "after_dark"}}  ("after dark", "when it is dark")
+- {{"type": "time_window", "start": "HH:MM", "end": "HH:MM"}}  (local time;
+  may cross midnight)
+- {{"type": "house_state_in", "states": [...]}}  (house states: away,
+  arriving, home_day, home_evening, home_night, sleep, waking, guest,
+  vacation)
+
+UNSUPPORTED: if the rule asks for anything you cannot express with the
+entities, data keys and conditions above (weather, another room, a sensor
+value, a device not in the list, a thermostat), describe it in plain words in
+"unsupported". Leave "unsupported" empty only when everything was expressed.
+
+OUTPUT FIELDS:
+- actions_json: a JSON array (as a string) of the service calls.
+- conditions_json: a JSON array (as a string) of conditions, "[]" if none.
+- unsupported: plain text, empty when everything was expressed.
+- summary: one short sentence describing the rule.
 
 Output only valid JSON. No explanation text."""
+
+# ============================================================================
+# AI-ROOM-RULES-TRUST-REPAIR-1 (PLANNING_unified_room_rules.md): one rule
+# record, one compiler (rule_compiler.py), one executor
+# (UniversalRoomCoordinator._run_room_rules).
+# ============================================================================
+
+# v3.12.0 domain allowlist for rule service calls, now ONE definition read by
+# the runtime gate (`UniversalRoomCoordinator._AI_RULE_ALLOWED_DOMAINS`) and
+# the compiler (which also drops `climate`: the gate blocks it anyway).
+AI_RULE_ALLOWED_DOMAINS: Final = frozenset({
+    "light", "switch", "fan", "cover", "climate", "media_player",
+    "lock", "scene", "automation", "input_boolean", "input_number",
+    "input_select", "input_text", "number", "select", "button",
+    "humidifier", "vacuum", "water_heater", "valve",
+})
+
+# Rung 2 (CM options, "Rule writing model"): which AI Task entity writes
+# rules. Empty = HA's default AI Task entity. Saved rules never call it.
+CONF_ROOM_RULES_AI_TASK_ENTITY: Final = "room_rules_ai_task_entity"
+DEFAULT_ROOM_RULES_AI_TASK_ENTITY: Final = "ai_task.claude_ai_task"
+
+# Rung 1 (review-gated): triggers whose rules run with the Room Rules switch
+# off or Manual Mode on (smoke, leaks, security must always run).
+ROOM_RULE_SWITCH_EXEMPT_TRIGGERS: Final = frozenset({
+    TRIGGER_SAFETY_HAZARD, TRIGGER_SECURITY_EVENT,
+})
+
+# Rung 1: the data keys each domain may carry in a compiled rule. An
+# unknown key REJECTS the rule (named in the error), never silently drops.
+ROOM_RULE_DATA_KEYS: Final = {
+    "light": frozenset({
+        "brightness_pct", "color_temp_kelvin", "rgb_color", "color_name",
+        "transition",
+    }),
+    "fan": frozenset({"percentage", "preset_mode", "oscillating", "direction"}),
+    "media_player": frozenset({
+        "volume_level", "media_content_id", "media_content_type", "source",
+    }),
+    "cover": frozenset({"position", "tilt_position"}),
+    "automation": frozenset({"skip_condition"}),
+    "input_number": frozenset({"value"}),
+    "input_text": frozenset({"value"}),
+    "input_boolean": frozenset(),
+    "input_select": frozenset({"option"}),
+    "number": frozenset({"value"}),
+    "select": frozenset({"option"}),
+}
+
+# Rung 1: the AI Task call is wrapped in asyncio.timeout so the form never
+# hangs; a timeout is `model_unavailable`, not `parse_failed`.
+RULE_PARSE_TIMEOUT_S: Final = 30
+# Rung 1: window after a rule action in which a person undoing it by hand
+# counts as a reversal (accuracy). 0 = off.
+RULE_REVERSAL_WINDOW_S: Final = 120
+# Rung 1 (protocol tables, not policy): states a rule target passes through
+# or falls into without anyone undoing it. HA drops a call's context after
+# 5 s, so these are judged by state, never by context (review B1).
+RULE_REVERSAL_IGNORED_STATES: Final = frozenset({
+    "opening", "closing", "buffering", "locking", "unlocking", "jammed",
+    "unavailable", "unknown",
+})
+# (domain, service) -> the state the call commands. Reaching it is never a
+# reversal, whatever the context. Pairs not listed fall back to context only.
+RULE_REVERSAL_TARGET_STATE: Final = {
+    ("cover", "open_cover"): "open", ("cover", "close_cover"): "closed",
+    ("valve", "open_valve"): "open", ("valve", "close_valve"): "closed",
+    ("lock", "lock"): "locked", ("lock", "unlock"): "unlocked",
+    ("media_player", "media_play"): "playing",
+    ("media_player", "media_pause"): "paused",
+    ("media_player", "turn_off"): "off",
+    ("vacuum", "start"): "cleaning", ("vacuum", "return_to_base"): "docked",
+    ("fan", "turn_on"): "on", ("fan", "turn_off"): "off",
+    ("switch", "turn_on"): "on", ("switch", "turn_off"): "off",
+    ("light", "turn_on"): "on", ("light", "turn_off"): "off",
+    ("input_boolean", "turn_on"): "on", ("input_boolean", "turn_off"): "off",
+    ("humidifier", "turn_on"): "on", ("humidifier", "turn_off"): "off",
+}
+# Rung 1: an enabled, parsed rule this old with evaluations and zero fires
+# pages `room_rule_silent`. 0 = off.
+RULE_ZERO_FIRE_DAYS: Final = 7
+# Rung 1: room memory writes for rule decisions / reversals. False = off.
+ROOM_RULE_EPISODE_LOG_PERSIST: Final = True
+# Rung 1 kill switch: False = the old two executors (chains, then rules),
+# each still through the gate. A test pins True.
+ROOM_RULES_UNIFIED_EXECUTOR: Final = True
+
+ROOM_RULE_DECISION_EPISODE_TYPE: Final = "room_rule_decision"
+ROOM_RULE_REVERSAL_EPISODE_TYPE: Final = "room_rule_reversal"
+
+# The three condition kinds a rule may carry (D2). Anything else is
+# `unsupported` and refuses the save.
+ROOM_RULE_CONDITION_TYPES: Final = ("after_dark", "time_window", "house_state_in")
+
+# Every skip name a decision can carry (D6.2). `gate_blocked:<guard>` names
+# the guard in `_execute_rule_action`.
+ROOM_RULE_SKIP_REASONS: Final = (
+    "switch_off", "manual_mode", "person_absent", "condition_false",
+    "automation_off", "gate_blocked",
+)
+
+# Provider-portable AI Task structure: TEXT fields only (the `object`
+# selector was rejected live, FINDING_ai_task_schema_2026_11_13). Parsed
+# with the `_extract_findings_list` precedence then json.loads.
+ROOM_RULE_STRUCTURE: Final = {
+    "actions_json": {
+        "selector": {"text": {"multiline": True}},
+        "description": (
+            "A JSON array (as a string) of Home Assistant service calls. "
+            "Each object: domain, service, target (object with entity_id "
+            "string or list), data (object, may be {})."
+        ),
+    },
+    "conditions_json": {
+        "selector": {"text": {"multiline": True}},
+        "description": (
+            "A JSON array (as a string) of conditions, \"[]\" when none. "
+            "Kinds: after_dark; time_window (start, end HH:MM); "
+            "house_state_in (states list)."
+        ),
+    },
+    "unsupported": {
+        "selector": {"text": {}},
+        "description": (
+            "Plain words naming anything the rule asked for that cannot be "
+            "expressed. Empty when everything was expressed."
+        ),
+    },
+    "summary": {
+        "selector": {"text": {}},
+        "description": "One short sentence describing the rule.",
+    },
+}
 
 # ============================================================================
 # v3.10.1 Census v2: Event-Driven Sensor Fusion
@@ -6994,6 +7151,13 @@ MEMORY_EPISODE_TYPES: Final = frozenset({
     # description (no frame). Display / scorer only; not writer-backed
     # (on demand: a quiet week is normal).
     "interior_description",
+    # AI-ROOM-RULES-TRUST-REPAIR-1 D7: one row per matched room-rule
+    # evaluation (fire or a named skip) and one per implicit reversal (a
+    # person undid a rule action by hand within RULE_REVERSAL_WINDOW_S).
+    # Observational; the nightly accuracy roll-up and the zero-fire
+    # trip-wire are the only readers.
+    "room_rule_decision",
+    "room_rule_reversal",
 })
 
 # Set of episode types that have a LIVE writer. The weekly writer-health
@@ -7058,6 +7222,11 @@ MEMORY_WRITER_BACKED_EPISODE_TYPES: Final = frozenset({
     # 2026-10-11). KEEP in the checked set so the trip-wire surfaces this
     # ongoing silence — cause unknown, needs investigation.
     "sensor_dropout",
+    # room_rule_decision (AI-ROOM-RULES-TRUST-REPAIR-1 D7): one row per
+    # matched rule evaluation. Health-EXEMPT below (a house with no enabled
+    # rules writes none); the per-rule `room_rule_silent` trip-wire is the
+    # zero-fire check at the right granularity.
+    "room_rule_decision",
 })
 # Types registered in MEMORY_EPISODE_TYPES WITHOUT a live writer today
 # (per AUDIT_memory_writer_coverage.md 2026-10-11): comfort_fan_on,
@@ -7070,7 +7239,12 @@ MEMORY_WRITER_BACKED_EPISODE_TYPES: Final = frozenset({
 # NOT alert on 0 rows for these. Each entry MUST carry a documented
 # reason so future audits can revisit the exemption.
 MEMORY_WRITER_HEALTH_EXEMPT_TYPES: Final = frozenset({
-    # (No current exemptions. Add here as ``"type_name",  # <reason>``.)
+    # Add here as ``"type_name",  # <reason>``.
+    # room_rule_decision: a house with no enabled rules writes none; the
+    # per-rule trip-wire (room_rule_silent, D6.5) is the zero-fire health
+    # check at the right granularity (deliberate partial decline of the
+    # house-wide writer check, PLANNING_unified_room_rules.md D7).
+    "room_rule_decision",
 })
 
 # Writer-backed types whose rows come only from people moving through the

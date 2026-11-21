@@ -48,24 +48,11 @@ class TestGatingModel:
         end = min(candidates) if candidates else len(src)
         return src[idx:end]
 
-    def test_house_state_handler_gated_by_ai_toggle_only(self, coord_src):
-        body = self._extract_handler_body(coord_src, "_on_house_state_changed")
-        assert "_is_ai_automation_enabled()" in body, (
-            "_on_house_state_changed must check AI automation toggle "
-            "(documented in v4.5.8 gating model)"
-        )
-        assert "_is_automation_enabled()" not in body, (
-            "_on_house_state_changed must NOT check the master automation "
-            "toggle — system-level reactions fire regardless of per-room "
-            "automation pause. See GATING MODEL comment block."
-        )
-
-    def test_energy_constraint_handler_gated_by_ai_toggle_only(self, coord_src):
-        body = self._extract_handler_body(coord_src, "_on_energy_constraint")
-        assert "_is_ai_automation_enabled()" in body
-        assert "_is_automation_enabled()" not in body, (
-            "_on_energy_constraint must NOT check master automation toggle"
-        )
+    # AI-ROOM-RULES-TRUST-REPAIR-1: the house-state / energy switch-gate
+    # greps are CONVERTED to behavioural tests in test_room_rules_executor.py
+    # (the gate now lives in _run_room_rules per trigger class:
+    # test_rules_enter_skipped_with_switch_off, test_house_state_rule_switch_off,
+    # test_rules_safety_fires_with_switch_off, ...).
 
     def test_safety_handler_ungated(self, coord_src):
         """CRITICAL: safety must NEVER be gated by either toggle.
@@ -126,18 +113,8 @@ class TestOccupancyLuxPathStaysDoubleGated:
             "would fire even when master automation is paused."
         )
 
-    def test_ai_toggle_gates_chained_dispatch(self, coord_src):
-        """Inside the master-gated block, the dispatch to chained
-        automations + AI rules also requires the AI toggle. Both must
-        be on for the per-room path."""
-        # Look for the inner gate: `if triggers_fired and self._is_ai_automation_enabled():`
-        assert (
-            "triggers_fired and self._is_ai_automation_enabled()" in coord_src
-            or "self._is_ai_automation_enabled() and triggers_fired" in coord_src
-        ), (
-            "Per-room path must check _is_ai_automation_enabled() before "
-            "firing chained automations. Both master + AI toggles required."
-        )
+    # test_ai_toggle_gates_chained_dispatch CONVERTED (AI-ROOM-RULES-
+    # TRUST-REPAIR-1): behavioural test_rules_enter_skipped_with_switch_off.
 
 
 # ---------------------------------------------------------------------------

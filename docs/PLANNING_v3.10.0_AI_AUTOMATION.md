@@ -1,5 +1,8 @@
 # PLANNING v3.10.0 — AI Custom Automation & Automation Chaining
 
+> **SUPERSEDED (2026-11-20, AI-ROOM-RULES-TRUST-REPAIR-1).** Chains and AI rules are now one record and one
+> executor: see `docs/Coordinator/ROOM_RULES.md` and `docs/planning/PLANNING_unified_room_rules.md`. Kept as history.
+
 **Version:** v3.10.0 – v3.10.3
 **Date:** 2026-03-10
 **Status:** Planning (locked)

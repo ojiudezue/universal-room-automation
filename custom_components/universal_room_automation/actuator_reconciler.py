@@ -515,6 +515,16 @@ class ActuatorReconciler:
 
         if is_ura_context(context):
             return
+        # AI-ROOM-RULES-TRUST-REPAIR-1 D6.3: a person's on/off change of a
+        # room light may undo a room rule's action (reversal = accuracy).
+        # Before the occupancy test: undoing an exit rule happens in a room
+        # that may read vacant.
+        note_rev = getattr(self.coordinator, "note_rule_reversal_candidate", None)
+        if callable(note_rev):
+            try:
+                note_rev(entity_id, new)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("rule reversal note failed", exc_info=True)
         if not bool((self.coordinator.data or {}).get(STATE_OCCUPIED)):
             return
         automation = self._automation()
