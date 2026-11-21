@@ -22,7 +22,21 @@ def _none(rig):
 
 async def _go(rig, direction="exit"):
     await _cross(rig, FRONT, at=NOW, direction=direction)
-    return _rows(rig.db)[-1]["edge_anchor_reason"]
+    reason = _rows(rig.db)[-1]["edge_anchor_reason"]
+    assert reason in tv.EDGE_ANCHOR_REASONS
+    return reason
+
+
+def test_reason_set_matches_gate_returns():
+    """Every literal reason the gate function returns is in the closed set."""
+    import inspect
+    import re
+
+    src = inspect.getsource(tv.EgressDirectionTracker._edge_anchor_gates) + inspect.getsource(
+        tv.EgressDirectionTracker._compute_edge_anchor_ex
+    )
+    found = set(re.findall(r'return None, "([a-z_]+)"', src)) | {"anchored"}
+    assert found == set(tv.EDGE_ANCHOR_REASONS)
 
 
 @pytest.mark.asyncio

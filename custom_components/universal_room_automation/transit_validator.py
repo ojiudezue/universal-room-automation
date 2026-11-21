@@ -1010,6 +1010,14 @@ _CROSSING_AMENDABLE_KEYS: frozenset[str] = frozenset({
     "vision_direction_confidence",
 })
 
+# Step 7 S1: the closed set of ``_compute_edge_anchor_ex`` reasons
+# ("anchored" plus every no-anchor reason written to the D8a row).
+EDGE_ANCHOR_REASONS: frozenset[str] = frozenset({
+    "anchored", "lead_off", "direction", "provenance", "no_slug",
+    "no_live_face_legs", "face_tier", "census_off", "no_presence",
+    "truncated", "partner_blocked", "no_own_edge", "error",
+})
+
 
 def _layer_signals():
     """The signals module, imported at call time (this module is loaded by
