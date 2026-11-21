@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-20T17:07:23-06:00_ - _Data commit: `35fade3b321d`_ - _last_reconciled: 2026-11-20_
+_Generated: 2026-11-20T21:01:16-06:00_ - _Data commit: `a96b7beb9432`_ - _last_reconciled: 2026-11-20_
 
 
 ## Columns
@@ -795,12 +795,13 @@ _created 2026-11-11 09:00 · updated 2026-11-20 02:08 · initial_
 
 ### `AI-ROOM-RULES-TRUST-REPAIR-1` - Unified room rules (AI-described + chained) on one record and executor, with decision logging, room memory episodes and honest status (ships on, day 1) — _#4 · WSJF 2.9 · v10 tc6 u4 /e7_
 status: **review** - approval: **explicit**
-_updated 2026-11-14 02:27_
-- **⏰ Due:** 2026-11-21 10:00 — reviews A+B of feature/unified-room-rules, then full suite
+_updated 2026-11-20 21:04_
+- **⏰ Due:** 2026-11-21 10:00 — fix-up B1 in flight, review C running; then full suite + operator UI picks
 - **Origin:** 2026-11-13 - Operator: fix, do not retire; not exercised because not yet trusted.
 - **Why:** Audit AUDIT_room_ai_automation_chaining_music_2026_11_13.md: person filter compares person.* entity id to display names and never matches (coordinator.py:1183; reuse music_following._person_key); a rule saved with needs_parsing true and ...
-- **Next:** Me: two code reviews (A correctness + G, B lifecycle), full suite, ship in a batched release; operator UI decisions (3) on the card.
-- **Forensic keys (20):**
+- **Next:** PICK the 3 room-rules UI choices (built as shown; reviewer recommends changing 3): (1) When dropdown on Describe a rule: KEEP (recommended, trigger stays out of the model) or drop; (2) rule-writing model: A keep inside Optimizer AI setti...
+- **Forensic keys (21):**
+  - `reviews_2026_11_20`: A+G SHIP (LOWs only; build delivers the ask; pre-empted all 3 UI decisions). B FIX-REQUIRED: B1 MEDIUM reversal tracker counts a slow device finishing its own move (HA drops context after 5 s) as a manual undo, so cover/media rules read ...
   - `built_2026_11_20`: Built on feature/unified-room-rules (f096b8885 + ba03f7568): D1-D9 (one rule_compiler, 3 conditions, code preview + model_unavailable, one executor _run_room_rules, person rules on ura_person_location_change, decision log + Room Rules St...
   - `arc_cut_v5_108_35`: separate planned build
   - `arc_cut_v5_108_26`: separate build in the same redesign, plan exists, next in that lane
@@ -1704,16 +1705,17 @@ _created 2026-11-13 12:30_
 
 ### `EGRESS-DIRECTION-AWARE-IDENTITY-1` - Egress drops the name of anyone the tracker shows away, in both directions; entries by away people are exactly arrivals — _#10 · WSJF 3.0 · v8 tc5 u2 /e5_
 thread: **identity** - status: **shipped_organic**
-_created 2026-11-12 22:00 · updated 2026-11-19 02:02_
-- **⏰ Due:** 2026-11-21 10:00 — review fix/s1-anchor-reasons; ship with perimeter circling + lock wording in the next batched release; then check edge_anchor_reason on new crossings
+_created 2026-11-12 22:00 · updated 2026-11-20 21:04_
+- **⏰ Due:** 2026-11-21 10:00 — S1 reasons reviewed SHIP + merged to develop 369537615 (11-20 21:03); ship with perimeter circling + lock wording in the next batched release; then check edge_anchor_reason on new crossings
 - **Origin:** 2026-11-12 - Operator: "Who made this rule? I didn't... It should do both especially since we have a direction detector."
 - **Why:** not_home veto at transit_validator.py:1840-1854 copied from the census veto in Aug 2026 without direction. Plan rev 8 section 2B: entry+away = arrival candidate, exit+home = departure candidate, guards (face conf, path, GPS), census keep...
 - **Next:** Me: first-arrival evidence (named notice, D8a edge_anchor), then score names on the graded batch.
-- **Forensic keys (19):**
+- **Forensic keys (20):**
   - `built_2026_11_20_reasons_and_verb`: fix/s1-anchor-reasons: 0784d7d15 (edge_anchor_reason on D8a rows + edge_anchor_none counters on the persons-in-house census sensor attrs) and 07d205532 (operator A and B: arrived only with own arrival edge, else came in; both live cases ...
   - `live_2026_11_20_notices`: Two Jaya arrived notices since S1 went live, both from the OLD >=0.75 face path (edge_anchor null on both): 11-19 19:04 CST WRONG (garage_a entry, face 0.9 both_agree synthetic; Jaya home since 18:18, she came back in from the garage; S1...
   - `names_graded_2026_11_20`: First 3 named grades: 11-13 18:18 OUT/1/jaya (S1 at LEAD 300 does not anchor, own edge 306 s; at 600 it would have said arrived = wrong, so 300 is right); 11-14 16:39 IN/1/guest (face 0.6 said Jaya; no own Jaya edge -> S1 correctly does ...
   - `live_2026_11_19`: v5.108.37 live since the 14:11 CST restart (with .38). Faces often confused set to jaya|ezinne, jaya|oji via the CM options flow (only that key changed, 292->293 options, no reload). Pending event: first phone-first resident arrival with...
+  - `s1_reasons_review_2026_11_20`: v_s1_anchor_reasons_review.md: SHIP, 0 CRIT/HIGH/MED. LOW closed reason set fixed e0df18fe0 (EDGE_ANCHOR_REASONS + set-equality test). LOW restart-blind last_changed not fixed (falls back to arrived, no regression). Merged clean, 33 deve...
   - `operator_2026_11_17_pairs_and_06`: Ok on 0.6 / Jaya Ezinne not only confusable pair. It can also be Jaya Oji. (CONF_EGRESS_CONFUSABLE_PAIRS does not exist yet: proposed in the step 7 plan 2026-11-14, built with S1 as a Coordinator Manager options field; initial jaya|ezinn...
   - `operator_2026_11_17_step7_answers`: 1 - yes 2 - yes. We should do face after phone if gaps remain on ident. Phone is more reliable now 3 - yes. 4 - more details please face plus phone - more details please
   - `arc_cut_v5_108_36`: separate arc work, not in the P3-D2/D3 release

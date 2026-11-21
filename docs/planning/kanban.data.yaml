@@ -9,6 +9,8 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {"fid": "EGRESS-DIRECTION-AWARE-IDENTITY-1@2026-11-20T21:04:00", "card_id": "EGRESS-DIRECTION-AWARE-IDENTITY-1", "at": "2026-11-20T21:04:00", "outcome": "built", "headline": "Arrival reasons + arrived/came-in wording reviewed SHIP; one LOW fixed (closed reason list). Merged to develop; ships in the 11-21 batch.", "acknowledged": false}
+  - {"fid": "AI-ROOM-RULES-TRUST-REPAIR-1@2026-11-20T21:04:30", "card_id": "AI-ROOM-RULES-TRUST-REPAIR-1", "at": "2026-11-20T21:04:30", "outcome": "measured", "headline": "Room rules reviews: A+G SHIP, B found one MEDIUM (slow shades read as hand-undone, so accuracy would be wrong). Fix-up and mutation review running. Needs your 3 UI picks.", "acknowledged": false}
   - {"fid": "SECURITY-LOCK-STALE-STATE-1@2026-11-20T02:05:00", "card_id": "SECURITY-LOCK-STALE-STATE-1", "at": "2026-11-20T02:05:00", "outcome": "done", "headline": "Closed the lock-freshness fix: the 11-19 16:13 live page met its check (the overdue 15:30 follow-up). Its leftover wording fix became its own card.", "acknowledged": false}
   - {"fid": "LIGHT-TRANSITION-COVERAGE-1@2026-11-20T02:05:00", "card_id": "LIGHT-TRANSITION-COVERAGE-1", "at": "2026-11-20T02:05:00", "outcome": "done", "headline": "Closed 2 cards the board still called planned that already shipped in v5.108.8 (light fades on manual/night-light paths; hermetic SNAP1 traversal test). Evidence: README_v5.108.8 + code on develop.", "acknowledged": false}
   - {"fid": "WAITING-OP-RECHECK@2026-11-20T02:06:00", "card_id": "WAITING-OP-RECHECK", "at": "2026-11-20T02:06:00", "outcome": "measured", "headline": "Rechecked 4 waiting-on-you cards live: kitchen smoke detector still offline; perimeter zone sensors still unset; WhatsApp diag not yet sent; API limit unchanged (no log lines, not an all-clear). All still need you.", "acknowledged": false}
@@ -34934,7 +34936,8 @@ cards:
   names_graded_2026_11_20: "First 3 named grades: 11-13 18:18 OUT/1/jaya (S1 at LEAD 300 does not anchor, own edge 306 s; at 600 it would have said arrived = wrong, so 300 is right); 11-14 16:39 IN/1/guest (face 0.6 said Jaya; no own Jaya edge -> S1 correctly does not name); 11-15 18:13 IN/2/oji+jaya (S1 names Jaya, correct but incomplete). 0 wrong names, n=3 (bar 10). Follow-on idea (not carded until more data): name both people when both own phones arrive in the window and they are not a confusable pair. Live since 11-19 14:11: 24 egress outcome rows, 0 edge_anchor."
   live_2026_11_19: "v5.108.37 live since the 14:11 CST restart (with .38). Faces often confused set to jaya|ezinne, jaya|oji via the CM options flow (only that key changed, 292->293 options, no reload). Pending event: first phone-first resident arrival with a face (named notice + D8a edge_anchor row)."
   due: '2026-11-21 10:00'
-  due_note: 'review fix/s1-anchor-reasons; ship with perimeter circling + lock wording in the next batched release; then check edge_anchor_reason on new crossings'
+  due_note: 'S1 reasons reviewed SHIP + merged to develop 369537615 (11-20 21:03); ship with perimeter circling + lock wording in the next batched release; then check edge_anchor_reason on new crossings'
+  s1_reasons_review_2026_11_20: 'v_s1_anchor_reasons_review.md: SHIP, 0 CRIT/HIGH/MED. LOW closed reason set fixed e0df18fe0 (EDGE_ANCHOR_REASONS + set-equality test). LOW restart-blind last_changed not fixed (falls back to arrived, no regression). Merged clean, 33 develop commits since base touch none of its files.'
   operator_2026_11_17_pairs_and_06: "Ok on 0.6 / Jaya Ezinne not only confusable pair. It can also be Jaya Oji. (CONF_EGRESS_CONFUSABLE_PAIRS does not exist yet: proposed in the step 7 plan 2026-11-14, built with S1 as a Coordinator Manager options field; initial jaya|ezinne, jaya|oji.)"
   operator_2026_11_17_step7_answers: "1 - yes 2 - yes. We should do face after phone if gaps remain on ident. Phone is more reliable now 3 - yes. 4 - more details please face plus phone - more details please"
   arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
@@ -34954,7 +34957,7 @@ cards:
   shipped_version: v5.108.37
   batch: person-sightings
   created: '2026-11-12 22:00'
-  updated: '2026-11-19 02:02'
+  updated: '2026-11-20 21:04'
   tier: 3
   links: {parent: FACE-ARRIVAL-REBUILD-1}
   origin: {date: '2026-11-12', gist: 'Operator: "Who made this rule? I didn''t... It should do both especially since we have a direction detector."'}
@@ -35775,7 +35778,8 @@ cards:
   revival_trigger: 'Live reversal rate for music following or a rule stays high enough that a faster one-tap undo would help (e.g. > 10% of actions reversed within 2 min over 7 days).'
 - id: AI-ROOM-RULES-TRUST-REPAIR-1
   due: '2026-11-21 10:00'
-  due_note: 'reviews A+B of feature/unified-room-rules, then full suite'
+  due_note: 'fix-up B1 in flight, review C running; then full suite + operator UI picks'
+  reviews_2026_11_20: 'A+G SHIP (LOWs only; build delivers the ask; pre-empted all 3 UI decisions). B FIX-REQUIRED: B1 MEDIUM reversal tracker counts a slow device finishing its own move (HA drops context after 5 s) as a manual undo, so cover/media rules read ~0% accuracy; B2-B6 LOW. Fix-up dispatched on fix/unified-room-rules-review (B1-B4 + A docstring/climate prompt). Review C (mutation) dispatched. Baseline tag pre-review-unified-room-rules.'
   built_2026_11_20: "Built on feature/unified-room-rules (f096b8885 + ba03f7568): D1-D9 (one rule_compiler, 3 conditions, code preview + model_unavailable, one executor _run_room_rules, person rules on ura_person_location_change, decision log + Room Rules Status sensor + accuracy + digest + room_rule_silent trip-wire, memory episodes, options writes + needs_parse, replicas deleted, ROOM_RULES.md). 56 drills RED. D10 live validation pending (Claude AI Task locked to 12-01: validate with a Run an automation rule). Pre-existing failure on base: test_perimeter_switch_labels_flow_parity. Operator UI decisions: (1) When dropdown on Describe a rule (trigger kept out of the model); (2) Rule writing model in the Optimizer AI section vs its own step; (3) confirm step offers save or change the wording."
   arc_cut_v5_108_35: "separate planned build"
   arc_cut_v5_108_26: "separate build in the same redesign, plan exists, next in that lane"
@@ -35787,7 +35791,7 @@ cards:
   origin: {date: '2026-11-13', gist: 'Operator: fix, do not retire; not exercised because not yet trusted.'}
   operator_2026_11_13_decision: 'We will fix the AI automation and the AI training and music following. We will not retire them. The reason they''re not exercised is because I don''t trust them yet, and the entire point is to build it so I can trust it.'
   why: 'Audit AUDIT_room_ai_automation_chaining_music_2026_11_13.md: person filter compares person.* entity id to display names and never matches (coordinator.py:1183; reuse music_following._person_key); a rule saved with needs_parsing true and actions [] has no re-parse path (config_flow.py:3120-3133) while its status says active; verify ai_task object/multiple structure; tests are inline replicas, only the executor guards have real-path tests. Chaining is sound but unused; automation.trigger skip_condition default needs a deliberate choice. Trust needs: honest status sensors, a dry-run / shadow mode showing what a rule WOULD do, real-path tests, decision log rows.'
-  next: "Me: two code reviews (A correctness + G, B lifecycle), full suite, ship in a batched release; operator UI decisions (3) on the card."
+  next: "PICK the 3 room-rules UI choices (built as shown; reviewer recommends changing 3): (1) When dropdown on Describe a rule: KEEP (recommended, trigger stays out of the model) or drop; (2) rule-writing model: A keep inside Optimizer AI settings or B its own step (recommended, so it does not read as the optimizer's model); (3) save step: A keep 'Submit saves, tick change wording' or B a plain Save / Change the wording menu (recommended). -> I apply your picks in the fix-up before the batched release; default if no answer by the release: keep 1, B on 2 and 3."
   rank: {value: 10, time_criticality: 6, effort: 7}
   approval: explicit
   approved_by: operator
@@ -35807,7 +35811,7 @@ cards:
   next_build: 'Me or the overnight agent: one re-verify plan review of the rewrite (substantial fix round), then build in a worktree, three framing-disjoint reviews, validate to review. Off the arc critical path (operator: not P0).'
   operator_2026_11_13_ai_task_paid: 'Yes on paid Ai task (live rule validation on ai_task.claude_ai_task)'
   verified_2026_11_14_overnight: 'CARD-WAS-WRONG on next (''plan then build''): the plan exists and was reviewed on 11-13 (PLANNING_unified_room_rules.md, PLANREVIEW_unified_room_rules.md). Not built overnight: the vision-arc session is sequencing builder slots and this is not part of tonight''s queue.'
-  updated: '2026-11-14 02:27'
+  updated: '2026-11-20 21:04'
 - id: MUSIC-FOLLOWING-TRANSFER-REPAIR-1
   validated_2026_11_20: "v5.108.35 TV-audio skip working live: 7 source_not_transferable rows (content=x-sonos-htastream) 11-18; 0 verify_failed since the .35 install; 10 source_has_others. Real-music handoff still unobserved."
   residual_2026_11_17_verify_failed: "AUDIT_arc_day_validation_2026_11_17.md: all 7 music_follow_decision episodes since the v5.108.34 restart are verify_failed; Master Bedroom media_player.master_bedroom_sonos_2 not found 68x in the log. Charter: music following is mission critical day 1. RESULT (AUDIT_music_follow_verify_failed_2026_11_17.md): real failure, not a verify defect, not a .33/.34 regression (all 7 predate the .33 install). Source was the Master Bedroom Sonos playing TV audio (x-sonos-htastream ... spdif); no MA twin (the MA Sonos wrapper master_bedroom_sonos_2 was deleted 11-15 22:39, cause unknown) -> generic play_media of a Sonos-only URI to WiiM players; move mode also ducked the TV ~2 s per attempt. Fix building on fix/mf-skip-tv-audio (skip TV/line-in sources before any side effect). Operator config: Master Bedroom room_media_player still names the deleted _2 entity (log spam 68x); point it at media_player.master_bedroom_sonos or re-add the Sonos in Music Assistant. Gap: no real-music handoff observed yet."
