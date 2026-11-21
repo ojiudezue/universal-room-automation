@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-20T21:07:01-06:00_ - _Data commit: `fe261c7adf19`_ - _last_reconciled: 2026-11-20_
+_Generated: 2026-11-20T21:11:12-06:00_ - _Data commit: `96da84ca017f`_ - _last_reconciled: 2026-11-20_
 
 
 ## Columns
@@ -797,11 +797,12 @@ _created 2026-11-11 09:00 · updated 2026-11-20 21:06 · initial_
 ### `AI-ROOM-RULES-TRUST-REPAIR-1` - Unified room rules (AI-described + chained) on one record and executor, with decision logging, room memory episodes and honest status (ships on, day 1) — _#4 · WSJF 2.9 · v10 tc6 u4 /e7_
 status: **review** - approval: **explicit**
 _updated 2026-11-20 21:04_
-- **⏰ Due:** 2026-11-21 10:00 — review C running; then merge fix/unified-room-rules-review, full suite, operator UI picks
+- **⏰ Due:** 2026-11-21 10:00 — test fix-up for review C in flight; then merge, full suite, operator UI picks
 - **Origin:** 2026-11-13 - Operator: fix, do not retire; not exercised because not yet trusted.
 - **Why:** Audit AUDIT_room_ai_automation_chaining_music_2026_11_13.md: person filter compares person.* entity id to display names and never matches (coordinator.py:1183; reuse music_following._person_key); a rule saved with needs_parsing true and ...
 - **Next:** PICK the 3 room-rules UI choices (built as shown; reviewer recommends changing 3): (1) When dropdown on Describe a rule: KEEP (recommended, trigger stays out of the model) or drop; (2) rule-writing model: A keep inside Optimizer AI setti...
-- **Forensic keys (22):**
+- **Forensic keys (23):**
+  - `review_c_2026_11_20`: v_unified_room_rules_review_C.md: FIX-REQUIRED. 79 per-site mutations, 14 survived green. HIGH G1: needs_parsing read in adapt_rules untested (every test uses actions: []), so a migrated rule with actions + needs_parsing could go live un...
   - `fixup_2026_11_20`: fd3c9739d on fix/unified-room-rules-review (off ba03f7568): B1 reversal judged by state (transitional states + arrival at commanded state never a reversal; RULE_REVERSAL_TARGET_STATE / RULE_REVERSAL_IGNORED_STATES module constants), B2 d...
   - `reviews_2026_11_20`: A+G SHIP (LOWs only; build delivers the ask; pre-empted all 3 UI decisions). B FIX-REQUIRED: B1 MEDIUM reversal tracker counts a slow device finishing its own move (HA drops context after 5 s) as a manual undo, so cover/media rules read ...
   - `built_2026_11_20`: Built on feature/unified-room-rules (f096b8885 + ba03f7568): D1-D9 (one rule_compiler, 3 conditions, code preview + model_unavailable, one executor _run_room_rules, person rules on ura_person_location_change, decision log + Room Rules St...
