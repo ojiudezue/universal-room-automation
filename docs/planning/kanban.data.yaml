@@ -9,6 +9,8 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {"fid": "FRIGATE2-SWAP-FULL-1@2026-11-21T02:10:00", "card_id": "FRIGATE2-SWAP-FULL-1", "at": "2026-11-21T02:10:00", "outcome": "done", "headline": "Closed the Frigate 2 memory warning: the hang it predicted happened 11-16 and the homelab side has since fixed the leak and added guards (memory cap, watchdog restart, Kuma alarm).", "acknowledged": false}
+  - {"fid": "INBOX-TRIAGE@11-21@2026-11-21T02:10:00", "card_id": "INBOX-TRIAGE@11-21", "at": "2026-11-21T02:10:00", "outcome": "parked", "headline": "Sorted the rest of the inbox: audio-as-presence parked until audio detection is back on; two camera-health follow-ups parked behind the plans they belong to; the vehicle status card waits for your yes to install a third-party HACS card.", "acknowledged": false}
   - {"fid": "ANOMALY-FLOOD-ROWS-1@2026-11-21T02:08:00", "card_id": "ANOMALY-FLOOD-ROWS-1", "at": "2026-11-21T02:08:00", "outcome": "built-to-review", "headline": "Found the 'impossible room move' fix sitting finished but filed as in progress: built 11-17, both reviews SHIP. Moved it to review. Tonight it gets the full test-suite check on top of today's develop; not deployed.", "acknowledged": false}
   - {"fid": "PANEL-KS-HEALTH-AS-INPUT-1@2026-11-21T02:07:00", "card_id": "PANEL-KS-HEALTH-AS-INPUT-1", "at": "2026-11-21T02:07:00", "outcome": "done", "headline": "Closed the dead wall-panel camera check: the panel cameras went dark three times since 11-14 and each time URA stopped trusting them and paged you within 15 min (overnight ones waited for quiet hours to end). Leftover: the 'counts again' notice arrived only once (Study A); noted on the follow-up card.", "acknowledged": false}
   - {"fid": "PERIMETER-GATE-DECISIONS-NOT-PERSISTED-1@2026-11-21T02:06:00", "card_id": "PERIMETER-GATE-DECISIONS-NOT-PERSISTED-1", "at": "2026-11-21T02:06:00", "outcome": "done", "headline": "Closed the outdoor-alert gate logging fix: every gate decision is now on record (729 since 11-14, every day), the weekly scorer works, and the 'only soften in daylight' rule held: no alert was softened after dark. Results written into the v5.108.20 README.", "acknowledged": false}
@@ -35309,15 +35311,17 @@ cards:
 - id: DASH-V8-VEHICLE-STATUS-CARD-1
   title: "Add ngocjohn/vehicle-status-card for the CX-90 PHEV to the Now tab of the URA v8 dashboard"
   thread: dashboard
-  status: inbox
+  status: "waiting_operator"
   tier: 1
   created: '2026-11-15 20:40'
-  updated: '2026-11-15 20:40'
+  updated: "2026-11-21 02:10"
   links: {related: [EV-VEHICLE-SOC-MAZDA-1]}
   origin: {date: '2026-11-15', gist: 'Operator aside after the v5.108.28/29 go.'}
   operator_2026_11_15: "Maybe we can add https://github.com/ngocjohn/vehicle-status-card to the Now tab of the ura v8 dashboard. The Mazda integration is back."
   facts_2026_11_15: "mazda_cs entry loaded (01M7H3M7KAAT61GFEEHMFVA518), device garage_a_2025_cx_90_phev_preferred: doors/trunk/lock, plugged_in, charging switch, charge_level, remaining_charging_time_ac, fuel %, ranges, tire pressures + warnings, climate, device_tracker, refresh button. HACS frontend card install = new third-party frontend code; check the release version age (>=2 weeks) and HACS install with operator yes."
-  next: "Inventory the v8 dashboard Now tab config, propose card YAML bound to the CX-90 entities, install the card via HACS with operator yes."
+  next: "APPROVE: install the third-party HACS frontend card ngocjohn/vehicle-status-card (new frontend code in HA) for the CX-90 on the v8 Now tab -> I check its latest release and open issues, install it in an attended session, and add a card bound to the mazda_cs entities (doors/lock, plug, charge level, range, tyres)."
+  approval: "blocked"
+  triage_2026_11_21_overnight: "Moved inbox -> waiting_operator: the only blocker is the install yes the card itself names (third-party frontend code = always-explicit). Not done overnight (HA write)."
 - id: EV-VEHICLE-SOC-MAZDA-1
   title: "Use the CX-90 PHEV's own state (charge level, plugged in, remaining charge time) in EC charging"
   thread: energy
@@ -35455,26 +35459,28 @@ cards:
   title: "Frigate 2 host swap is full (2047/2048 MB) with 4.4 GB RAM available: early warning for the known OOM/hang failure"
   finding_2026_11_16_homelab: "homelab-automation-15: frigate.embeddings_manager RSS 13.5 GB of the 25.5 GB container, climbing since the 11-13 restart (3.4 GB then; past month 2-6 GB, growing between restarts); swap filled ~11-15 06:00 UTC; enrichment config unchanged since 10-23 -> slow leak in face/semantic/LPR embeddings. The planned Frigate restart (with the Foyer zone, operator yes + awake) reclaims it; next lever if it recurs: face model large -> small. Audio detection to be turned off globally in the same restart (operator-approved there); URA has no dependency on Frigate audio sensors (code grep + config-entry regex, 0 hits)."
   thread: identity
-  status: inbox
+  status: "done"
   tier: 1
   created: '2026-11-16 01:40'
-  updated: '2026-11-16 01:40'
+  updated: "2026-11-21 02:10"
   links: {related: [FOYER-FISHEYE-DEWARP-1]}
   origin: {date: '2026-11-16', gist: 'Seen by the Foyer dewarp feasibility probe (AUDIT_foyer_dewarp_feasibility_2026_11_16.md, c8264dbe).'}
   why: "homelab vibememo 073/091/099 record Frigate 2 OOM and hangs; full swap means the next spike has nowhere to go. Read-only measurement 2026-11-16 01:29 CDT."
-  next: "Homelab session restarts Frigate 2 (awake, with the Foyer zone); I re-check embeddings RSS a day later; if it climbs again, propose face model small."
+  next: "None. Closed: handled homelab-side; the trip-wires live in code there."
+  verify_2026_11_21_overnight: "ALREADY-DONE (homelab-side), from homelab-automation docs/CONFIGS.md Frigate2 row (verified there 11-17..11-19): the predicted hang happened 11-16 22:00 (kernel GPF in swap code with swap full; host reboot 06:24 11-17; it matches the 8.5 h URA camera outage seen tonight in the recorder). Fixes in place: LPR + bird classification off (the embeddings leak), container mem_limit 24g, frigate-detect-watchdog restarts Frigate when embeddings RSS passes 10 GB (02:00-05:00) / 13 GB, Kuma monitor 56 'Frigate2 embeddings memory' pushes RSS every 5 min, Frigate 0.18.3 since 11-19. My promised 'recheck RSS a day later' is superseded by the Kuma monitor (a code trip-wire). Face model large -> small stays a homelab lever if the leak recurs."
 - id: AUDIO-PRESENCE-FUSION-1
   title: "Audio as a presence vector: feed per-room speech/sound detections (Frigate audio, other mics) into presence/census fusion"
   thread: presence
-  status: inbox
+  status: "parked"
   tier: 2
   created: '2026-11-16 02:30'
-  updated: '2026-11-16 02:30'
+  updated: "2026-11-21 02:10"
   links: {related: [FRIGATE2-SWAP-FULL-1]}
   origin: {date: '2026-11-16', gist: 'Operator aside while Frigate audio detection was being turned off globally.'}
   operator_2026_11_16: "BTW audio is an underrated presence vector which we should push into fusion at some point"
   note_2026_11_16: "Homelab session had staged a global Frigate audio-detection turn-off (operator-approved there) for the Foyer-zone restart; URA asked it to hold; operator: 'I know' (aware; the turn-off stands, audio fusion is later), hold withdrawn. Re-enable audio detection on the chosen cameras when this card is planned. URA has no current audio-sensor dependency (code grep + config-entry regex, 0 hits). Before planning: measure-before-build fire rate and false positives of speech per room over the recorder window; check presence state of play for prior audio work."
-  next: "Later (not on the current §4a list): measure per-room speech-detection rates and false positives, then plan the fusion input (PRESENCE state of play first)."
+  next: "Revival trigger: a presence-fusion planning cycle opens a new input slot (PRESENCE state of play first), or you ask for it. Then: re-enable Frigate audio on the chosen cameras and measure per-room speech rates and false positives before any plan."
+  triage_2026_11_21_overnight: "Parked, not dropped: operator 11-16 said 'at some point'; Frigate audio detection is OFF globally since the 11-16/17 homelab restart (operator-approved), so there is nothing to measure until it is re-enabled. URA has no audio-sensor dependency."
 - id: ARRIVAL-ENGINE-S8-1
   title: "Step 8 arrival engine: arrival music in your own room, welcome scene in your bedroom, departure pause (ships as option B)"
   thread: identity
@@ -36400,15 +36406,16 @@ cards:
 - id: CAMERA-PERSON-DETECTED-FUSED-STREAM-HEALTH-1
   title: Room fused camera_person_detected sensor (fan_veto's live camera leg) does not honour camera stream health
   thread: presence
-  status: inbox
+  status: "parked"
   created: '2026-11-14 12:00'
-  updated: '2026-11-14 12:00'
+  updated: "2026-11-21 02:10"
   tier: 2
   links: {related: [CAMERA-STREAM-DEAD-ZONE-AND-CENSUS-1]}
   origin: {date: '2026-11-14', gist: 'S2 reviews A-L3 / G-2: the S2 fan_veto guard sits on the legacy camera leg, which runs only when binary_sensor.<room>_camera_person_detected has no state; every room creates that entity, so the comfort-fan camera leg is not stream-health aware in practice.'}
   why: 'Comfort-only (fails toward the fan running in AWAY); no room lists a panel in CONF_ROOM_CAMERAS live. Changing it moves a room entity''s state and attributes, so it needs its own small plan.'
-  next: 'Me: plan Tier 2: route the fused sensor''s per-camera reads through camera_stream_health.entity_stream_view (dead = unknown, the S2 hold rule), list attribute/state effects, mutation-anchor. Seam: layer ship 3b dead-camera rule.'
+  next: "Revival trigger: the S2 build on CAMERA-STREAM-DEAD-ZONE-AND-CENSUS-1 starts (same tracker, same hold rule) or a room adds a panel camera to its cameras list. Then route the fused sensor's per-camera reads through camera_stream_health.entity_stream_view in that build."
   rank: {value: 2, time_criticality: 1, effort: 2}
+  triage_2026_11_21_overnight: "Parked behind S2: comfort-only (fails toward the fan running in AWAY) and inert today (11-14: no room lists a panel in its cameras config; not re-verified tonight). Same tracker as S2, so building it alone would duplicate that plan's seam work."
 - id: CENSUS-FACE-READS-STREAM-HEALTH-1
   title: Census face reads and the stuck-camera watchdog do not honour camera stream health
   thread: identity
@@ -36425,15 +36432,16 @@ cards:
 - id: PERIMETER-RING-CAMERAS-STREAM-WATCH-1
   title: Perimeter ring cameras are watched by no room, so camera_stream_dead answers None for them (blocks NVR witness W6b)
   thread: identity
-  status: inbox
+  status: "parked"
   created: '2026-11-14 12:00'
-  updated: '2026-11-14 12:00'
+  updated: "2026-11-21 02:10"
   tier: 2
   links: {related: [CAMERA-STREAM-DEAD-ZONE-AND-CENSUS-1]}
   origin: {date: '2026-11-14', gist: 'S2 review A G-2 item 3: the camera-keyed getter is None (unknown) for a camera no room input or camera-override sensor watches; perimeter ring cameras are not room inputs.'}
   why: 'None is the correct "unknown"; W6b needs these cameras watched before it can bridge. Must add the watch through the same tracker, not a second liveness rule.'
-  next: 'Me: fold into the W6b plan: watch perimeter cameras through CameraInputStreamHealth (one getter), no second rule. Seam: layer ship 3b keeps house-level twin stamps.'
+  next: "Revival trigger: NVR witness W6b is planned (NVR-WITNESS-CONSOLIDATION-1 is parked until the interior D4 census flip is scheduled). Fold into the W6b plan then."
   rank: {value: 2, time_criticality: 1, effort: 2}
+  triage_2026_11_21_overnight: "Parked: its only consumer (W6b) is itself parked; None is the correct 'unknown' until then."
 - id: BLE-CONFIDENCE-SCANNER-NAME-PARSE-1
   recovered_2026_11_18: "Closed: recovered with no code once the per-scanner sensors came back (11-17 ~12:00 UTC). person_presence_snapshots since 11-17 13:00 UTC: Ezinne 95x0.9 / 3x0.7 / 3x0.5 / 0x0.3; Jaya 56x0.9 / 19x0.7 / 3x0.5; Oji 16x0.5 / 1x0.7 / 3x0.9 (only 7 of his 47 per-scanner distance_to sensors enabled in the registry: an operator UI enable, reloads Bermuda once). No decision reads person confidence (only the < 0.3 occupant filter); music following no longer reads it (8 ft gate retired 11-14, const.py:4596-4615). Name-parse residual (person_coordinator.py:2115 split(distance_to_), _get_area_scanners name match) moved to REGISTRY-NOT-NAMES-1 and left as correct code."
   arc_cut_v5_108_37: "separate arc work, not in the step 7 S1 release"
