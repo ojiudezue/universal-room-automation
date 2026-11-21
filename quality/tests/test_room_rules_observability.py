@@ -145,7 +145,7 @@ def test_rule_own_action_not_reversal():
 def test_rule_reversal_window_expired():
     rig = Rig(rules=[light_rule()], states=_lamp_states())
     run(rig.c._run_room_rules(["enter"]))
-    rig.c._rule_light_watch["light.exercise_lamp"]["deadline"] = time.monotonic() - 1
+    rig.c._rule_light_watch["light.exercise_lamp"]["r1"]["deadline"] = time.monotonic() - 1
     rig.c._actuator_reconciler._handle_state_change(
         _light_event("light.exercise_lamp", "on", "off", _Ctx()))
     assert rig.c._rule_stats["r1"]["reversals"] == 0
@@ -184,6 +184,78 @@ def test_rule_reversal_watches_cancelled_on_unload():
     rig.c._cancel_rule_reversal_watches()
     unsub_track.assert_called_once()
     unsub_timer.assert_called_once()
+
+
+def _capture_watch(rig, rules_states=None):
+    captured = {}
+
+    def _track(hass, ids, cb):
+        captured["ids"] = list(ids)
+        captured["cb"] = cb
+        return MagicMock()
+
+    with patch.object(rig.co, "async_track_state_change_event", _track), \
+            patch.object(rig.co, "async_call_later", lambda h, d, cb: MagicMock()):
+        run(rig.c._run_room_rules(["enter"]))
+    return captured
+
+
+def test_rule_reversal_slow_cover_late_arrival_not_reversal():
+    """Review B1: HA drops the call context after 5 s, so a 15 s shade's
+    ``closing -> closed`` arrives with a fresh context. Arriving at the
+    commanded state (and passing through ``closing``) is not a reversal; a
+    real move back to open is."""
+    rig = Rig(rules=[light_rule(entity="cover.exercise_shade", service="close_cover")],
+              states=_lamp_states(**{"cover.exercise_shade": st("open")}))
+    cap = _capture_watch(rig)
+    assert cap["ids"] == ["cover.exercise_shade"]
+    cb = cap["cb"]
+    cb(_light_event("cover.exercise_shade", "open", "closing", _Ctx(id_="late-1")))
+    cb(_light_event("cover.exercise_shade", "closing", "closed", _Ctx(id_="late-2")))
+    assert rig.c._rule_stats["r1"]["reversals"] == 0
+    cb(_light_event("cover.exercise_shade", "closed", "open", _Ctx(id_="hand")))
+    assert rig.c._rule_stats["r1"]["reversals"] == 1
+
+
+def test_rule_reversal_watch_refused_after_unload_cancel():
+    """Review B3: a run still in flight after unload's cancel must not arm a
+    new listener on the dead coordinator."""
+    rig = Rig(rules=[light_rule(entity="fan.exercise_fan")], states=_lamp_states())
+    rig.c._cancel_rule_reversal_watches()
+    track = MagicMock()
+    with patch.object(rig.co, "async_track_state_change_event", track), \
+            patch.object(rig.co, "async_call_later", MagicMock()):
+        run(rig.c._run_room_rules(["enter"]))
+    track.assert_not_called()
+    assert rig.c._rule_watch_unsubs == []
+
+
+def test_rule_reversal_two_rules_same_light_both_credited():
+    """Review B4: a second same-direction rule on the light no longer erases
+    the first rule's watch; a person's undo credits both."""
+    rig = Rig(rules=[light_rule(), light_rule(rule_id="r2")], states=_lamp_states())
+    run(rig.c._run_room_rules(["enter"]))
+    assert set(rig.c._rule_light_watch["light.exercise_lamp"]) == {"r1", "r2"}
+    rig.c._actuator_reconciler._handle_state_change(
+        _light_event("light.exercise_lamp", "on", "off", _Ctx()))
+    run(rig.drain())
+    assert rig.c._rule_stats["r1"]["reversals"] == 1
+    assert rig.c._rule_stats["r2"]["reversals"] == 1
+
+
+def test_rule_reversal_opposite_later_rule_supersedes_earlier():
+    """Review B4: a later rule commanding the opposite direction takes the
+    light over; the earlier rule is not credited when the person's change
+    matches the earlier command."""
+    rig = Rig(rules=[light_rule(), light_rule(rule_id="r2", service="turn_off")],
+              states=_lamp_states())
+    run(rig.c._run_room_rules(["enter"]))
+    assert set(rig.c._rule_light_watch["light.exercise_lamp"]) == {"r2"}
+    rig.c._actuator_reconciler._handle_state_change(
+        _light_event("light.exercise_lamp", "off", "on", _Ctx()))
+    run(rig.drain())
+    assert rig.c._rule_stats["r2"]["reversals"] == 1
+    assert rig.c._rule_stats.get("r1", {}).get("reversals", 0) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -338,7 +410,7 @@ def test_rule_episode_per_decision():
     assert [e["attrs"]["rule_id"] for e in eps] == ["r1", "r2"]
     e = eps[0]
     assert e["node_id"] == "room:exercise_room"
-    assert e["window_dedup"] is False and e["dedup_source_ref"] is True
+    assert e["window_dedup"] is False and e["dedup_source_ref"] is False
     assert e["source_ref"].startswith("rule:r1:")
     assert set(e["attrs"]) >= {"room", "rule_id", "source", "trigger", "person", "outcome",
                                "guard", "conditions", "actions", "ms", "ts"}

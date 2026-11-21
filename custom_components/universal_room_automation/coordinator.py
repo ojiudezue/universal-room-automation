@@ -1201,7 +1201,9 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
     def _write_rule_episode(self, episode_type: str, attrs: dict, *, source_ref: str) -> None:
         """One ``memory_episodes`` row (D7), tracked on the entry so it is
         cancelled on unload. ``window_dedup=False`` + ``dedup_source_ref``:
-        two fires in ten seconds both land."""
+        two fires in ten seconds both land. ``dedup_source_ref=False``: the
+        ref carries a microsecond stamp so the check could never match, and it
+        costs an unindexed ``source_ref`` scan on the serialized writer."""
         from .const import ROOM_RULE_EPISODE_LOG_PERSIST  # noqa: PLC0415
 
         if not ROOM_RULE_EPISODE_LOG_PERSIST:
@@ -1215,7 +1217,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             try:
                 await database.log_memory_episode(
                     node_id=node, episode_type=episode_type, attrs=attrs,
-                    source_ref=source_ref, window_dedup=False, dedup_source_ref=True,
+                    source_ref=source_ref, window_dedup=False, dedup_source_ref=False,
                 )
             except Exception:  # noqa: BLE001 - observational only
                 _LOGGER.debug("room rule memory row failed", exc_info=True)
@@ -1247,9 +1249,17 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         ``ActuatorReconciler._note_manual_light_change`` ->
         ``note_rule_reversal_candidate``) or any non-URA state change of
         another target is one reversal."""
-        from .const import RULE_REVERSAL_WINDOW_S  # noqa: PLC0415
+        from .const import (  # noqa: PLC0415
+            RULE_REVERSAL_IGNORED_STATES,
+            RULE_REVERSAL_TARGET_STATE,
+            RULE_REVERSAL_WINDOW_S,
+        )
 
         if RULE_REVERSAL_WINDOW_S <= 0:
+            return
+        # Unload already cancelled the watches: a run still in its action
+        # loop must not leave a listener on the dead coordinator.
+        if self.__dict__.get("_rule_watches_closed"):
             return
         room_lights = set(self._get_config(CONF_LIGHTS, []) or []) | set(
             self._get_config(CONF_NIGHT_LIGHTS, []) or []
@@ -1257,6 +1267,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         deadline = time.monotonic() + RULE_REVERSAL_WINDOW_S
         watch = self.__dict__.setdefault("_rule_light_watch", {})
         others: list[str] = []
+        targets: dict[str, str] = {}
         for a in issued:
             domain, service = a.get("domain"), a.get("service")
             if domain in ("automation", "scene", "button"):
@@ -1265,13 +1276,26 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             ids = [tgt] if isinstance(tgt, str) else list(tgt or [])
             for eid in ids:
                 if domain in ("light", "switch") and eid in room_lights and service in ("turn_on", "turn_off"):
-                    watch[eid] = {
+                    # One entry per (light, rule). A later rule with the
+                    # opposite direction supersedes earlier owners (their
+                    # command is no longer in effect); a same-direction one
+                    # shares the light, so a person's undo credits both.
+                    direction = "on" if service == "turn_on" else "off"
+                    owners = {
+                        rid: it for rid, it in (watch.get(eid) or {}).items()
+                        if it["direction"] == direction and it["deadline"] >= time.monotonic()
+                    }
+                    owners[rule.get("rule_id")] = {
                         "rule_id": rule.get("rule_id"),
-                        "direction": "on" if service == "turn_on" else "off",
+                        "direction": direction,
                         "deadline": deadline,
                     }
+                    watch[eid] = owners
                 else:
                     others.append(eid)
+                    tgt_state = RULE_REVERSAL_TARGET_STATE.get((domain, service))
+                    if tgt_state is not None:
+                        targets[eid] = tgt_state
         if not others:
             return
         ctx_id = getattr(ctx, "id", None)
@@ -1297,6 +1321,15 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 return
             from .ura_context import is_ura_context  # noqa: PLC0415
 
+            # B1: HA drops a call's context 5 s after it was set, so a slow
+            # device's last write (cover closing -> closed) arrives with a
+            # fresh context. Judge by state, not context: a transitional
+            # state or an arrival at the commanded state is never a reversal.
+            if new.state in RULE_REVERSAL_IGNORED_STATES:
+                return
+            commanded = targets.get(data.get("entity_id"))
+            if commanded is not None and new.state == commanded:
+                return
             c = getattr(new, "context", None)
             if is_ura_context(c) or (ctx_id is not None and getattr(c, "id", None) == ctx_id):
                 return
@@ -1319,16 +1352,21 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         """Called by ``ActuatorReconciler._note_manual_light_change`` for a
         person's on/off change of a room light (never a URA write)."""
         watch = self.__dict__.get("_rule_light_watch") or {}
-        item = watch.get(entity_id)
-        if item is None:
+        owners = watch.get(entity_id)
+        if not owners:
             return
-        if time.monotonic() > item["deadline"]:
-            watch.pop(entity_id, None)
-            return
-        if new == item["direction"]:
+        now = time.monotonic()
+        live = {rid: it for rid, it in owners.items() if now <= it["deadline"]}
+        undone = [it for it in live.values() if new != it["direction"]]
+        if not undone:
+            if live:
+                watch[entity_id] = live
+            else:
+                watch.pop(entity_id, None)
             return
         watch.pop(entity_id, None)
-        self._record_rule_reversal(item["rule_id"], entity_id, new)
+        for it in undone:
+            self._record_rule_reversal(it["rule_id"], entity_id, new)
 
     def _record_rule_reversal(self, rule_id, entity_id, new_state) -> None:
         rid = str(rule_id or "")
@@ -1355,7 +1393,9 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             pass
 
     def _cancel_rule_reversal_watches(self) -> None:
-        """Unload: drop every open reversal watch (Bug Class #38)."""
+        """Unload: drop every open reversal watch (Bug Class #38) and
+        refuse new ones (B3: a run still in flight after this point)."""
+        self.__dict__["_rule_watches_closed"] = True
         for stop in list(self.__dict__.get("_rule_watch_unsubs") or []):
             try:
                 stop()

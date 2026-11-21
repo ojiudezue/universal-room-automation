@@ -248,3 +248,20 @@ def test_room_entity_set_is_config_plus_area():
     with patch.object(er, "async_get", lambda h: reg):
         ents = R.room_entity_set(hass, {"lights": ["light.exercise_lamp"], "area_id": "exercise_room"})
     assert [e["entity_id"] for e in ents] == ["light.exercise_lamp", "fan.exercise_fan"]
+
+
+def test_room_entity_set_leaves_out_climate():
+    """Review A LOW: every climate action is rejected, so the room's climate
+    entity is not offered to the model."""
+    from custom_components.universal_room_automation.const import CONF_CLIMATE_ENTITY
+    hass = _hass(states={"climate.exercise": st("cool"), "climate.area_unit": st("cool")})
+    reg = MagicMock()
+    reg.entities = {"climate.area_unit": MagicMock(
+        entity_id="climate.area_unit", area_id="exercise_room", disabled=False)}
+    from unittest.mock import patch
+    from homeassistant.helpers import entity_registry as er
+    with patch.object(er, "async_get", lambda h: reg):
+        ents = R.room_entity_set(hass, {"lights": ["light.exercise_lamp"],
+                                        CONF_CLIMATE_ENTITY: "climate.exercise",
+                                        "area_id": "exercise_room"})
+    assert [e["entity_id"] for e in ents] == ["light.exercise_lamp"]

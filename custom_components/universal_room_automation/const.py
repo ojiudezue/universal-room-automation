@@ -5189,6 +5189,29 @@ RULE_PARSE_TIMEOUT_S: Final = 30
 # Rung 1: window after a rule action in which a person undoing it by hand
 # counts as a reversal (accuracy). 0 = off.
 RULE_REVERSAL_WINDOW_S: Final = 120
+# Rung 1 (protocol tables, not policy): states a rule target passes through
+# or falls into without anyone undoing it. HA drops a call's context after
+# 5 s, so these are judged by state, never by context (review B1).
+RULE_REVERSAL_IGNORED_STATES: Final = frozenset({
+    "opening", "closing", "buffering", "locking", "unlocking", "jammed",
+    "unavailable", "unknown",
+})
+# (domain, service) -> the state the call commands. Reaching it is never a
+# reversal, whatever the context. Pairs not listed fall back to context only.
+RULE_REVERSAL_TARGET_STATE: Final = {
+    ("cover", "open_cover"): "open", ("cover", "close_cover"): "closed",
+    ("valve", "open_valve"): "open", ("valve", "close_valve"): "closed",
+    ("lock", "lock"): "locked", ("lock", "unlock"): "unlocked",
+    ("media_player", "media_play"): "playing",
+    ("media_player", "media_pause"): "paused",
+    ("media_player", "turn_off"): "off",
+    ("vacuum", "start"): "cleaning", ("vacuum", "return_to_base"): "docked",
+    ("fan", "turn_on"): "on", ("fan", "turn_off"): "off",
+    ("switch", "turn_on"): "on", ("switch", "turn_off"): "off",
+    ("light", "turn_on"): "on", ("light", "turn_off"): "off",
+    ("input_boolean", "turn_on"): "on", ("input_boolean", "turn_off"): "off",
+    ("humidifier", "turn_on"): "on", ("humidifier", "turn_off"): "off",
+}
 # Rung 1: an enabled, parsed rule this old with evaluations and zero fires
 # pages `room_rule_silent`. 0 = off.
 RULE_ZERO_FIRE_DAYS: Final = 7

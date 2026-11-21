@@ -36,7 +36,6 @@ from .const import (
     CONF_AUTO_DEVICES,
     CONF_AUTO_SWITCHES,
     CONF_AUTOMATION_CHAINS,
-    CONF_CLIMATE_ENTITY,
     CONF_COVERS,
     CONF_FANS,
     CONF_LIGHTS,
@@ -217,14 +216,16 @@ def rule_status(rec: Mapping[str, Any]) -> str:
 
 
 def room_entity_set(hass: Any, cfg: Mapping[str, Any]) -> list[dict]:
-    """The room's configured devices + its climate entity + every enabled
-    entity in its HA area (entity registry ``area_id``). Each item:
-    ``{entity_id, name, domain}``; only entities HA has a state for."""
+    """The room's configured devices + every enabled entity in its HA area
+    (entity registry ``area_id``). Each item: ``{entity_id, name, domain}``;
+    only entities HA has a state for. Climate entities are left out: every
+    climate action is rejected (climate block), so offering one to the model
+    only invites parse failures."""
     out: list[dict] = []
     seen: set[str] = set()
 
     def add(eid: Any) -> None:
-        if not isinstance(eid, str) or eid in seen:
+        if not isinstance(eid, str) or eid in seen or eid.startswith("climate."):
             return
         st = hass.states.get(eid)
         if st is None:
@@ -241,9 +242,6 @@ def room_entity_set(hass: Any, cfg: Mapping[str, Any]) -> list[dict]:
                 CONF_MANUAL_SWITCHES):
         for eid in cfg.get(key, []) or []:
             add(eid)
-    climate = cfg.get(CONF_CLIMATE_ENTITY)
-    if climate:
-        add(climate)
     area_id = cfg.get(CONF_AREA_ID)
     if area_id:
         try:

@@ -10490,9 +10490,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         Both collapsed sections flatten back to top-level options on save
         so the chokepoint / LLM tier (which read `entry.options` fresh
         on every cycle) see the same flat key surface they do today.
-        Parsimony: zero new CONF keys land here beyond the Pillar B
-        confirm-guard key, which is operated via entity buttons (not the
-        form).
+        The Room Rules model picker (``CONF_ROOM_RULES_AI_TASK_ENTITY``) also
+        lives in this form; the Pillar B confirm-guard key is operated via
+        entity buttons (not the form).
         """
         from homeassistant.data_entry_flow import section
         from .const import (
