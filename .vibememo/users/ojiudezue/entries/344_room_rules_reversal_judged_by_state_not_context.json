@@ -1,0 +1,22 @@
+{
+  "format_version": "2.1",
+  "entry_id": "344",
+  "author": "ojiudezue",
+  "timestamp": "2026-11-21T05:05:00Z",
+  "type": "decision",
+  "weight": "significant",
+  "title": "Room rules: a 'reversal' is judged by the target's state, not by HA call context; needs_parsing rules stay inert until re-checked",
+  "summary": "Reviews A+G passed unified room rules (AI-ROOM-RULES-TRUST-REPAIR-1). Review B found that any rule acting on a slow actuator (cover, media player, vacuum, valve) would book its own action as 'undone by hand': HA drops an entity's call context 5 s after the call (CONTEXT_RECENT_TIME_SECONDS), so a 15 s shade close arrives with a fresh context. The fix-up (fd3c9739d) now judges reversal by state: transitional states and moves toward the commanded state are ignored, and only a move back toward the pre-fire state counts. It also dropped the useless source_ref dedup (a full table scan on the serialized writer every decision), guarded watches after unload, and keyed light watches per rule. Review C's source mutations found 14 untested sites; the highest was G1, where a migrated rule flagged needs_parsing but with well-formed actions would go live on first save. Tests now pin all 14 (0381f17f4), each drilled red, and the chain merged to develop (2a6a1e9b3) for the 11-21 batch.",
+  "why": "The card exists to make rule accuracy and the digest trustworthy. A context-matched reversal check reads near 0% accuracy for every slow-actuator rule and tells the operator people undid actions nobody touched, which is worse than no metric. The fake test rig had no context expiry, so only an async/lifecycle framing could see it. G1 broke the cycle's stated fail-closed promise (migrated rules stay inert until re-checked) and no test held it.",
+  "alternatives_considered": [
+    "Extend the context-match window past 5 s (rejected: HA owns the expiry; any fixed window loses on a slower actuator)",
+    "Ship and fix accuracy later (rejected: B1 corrupts the exact signal the card ships)"
+  ],
+  "implications": "Any URA code that attributes a state change to its own action by Context alone has the same 5 s hole for slow actuators; state-direction is the portable test. The suite run before release died in the 11-20 Mac restart and was re-run 22:57.",
+  "confidence": "high",
+  "revisit_trigger": "A rule's accuracy reads low for a slow actuator after the release, or an operator-reported 'undone by hand' with no human action",
+  "refs": {
+    "docs": ["docs/reviews/code-review/v_unified_room_rules_review_B.md", "docs/reviews/code-review/v_unified_room_rules_review_C.md"],
+    "cards": ["AI-ROOM-RULES-TRUST-REPAIR-1"]
+  }
+}

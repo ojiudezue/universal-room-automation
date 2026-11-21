@@ -40,6 +40,10 @@ The identity arc made the registry rule standing: no inferring platform, device,
 
 Interior vision ship 2 (describe a room by text, Foyer fisheye unwarped in URA) shipped as v5.108.32 with the face fallback held to the 0.75 naming bar, which leaves it Bluetooth-only until interior face confidence rises. The paging cap proved itself live on a recovered 4 a.m. page. Validation also found NM boot-settle collapsing distinct stuck-sensor kinds under one hazard type while the stuck latch recorded the dropped page as sent: the same shape as the circling de-dup miss two days earlier. → [329](users/ojiudezue/entries/329_boot_settle_swallows_distinct_stuck_kinds.json)
 
+## 2026-11-20: evidence of who acted, and of who arrived
+
+Two attribution fixes on the same day. A face at the door proves who walked through it, not that they just came home, so entry notices say "arrived" only when that person's phone arrival edge is in the window and "came in" otherwise → [343](users/ojiudezue/entries/343_arrived_vs_came_in_and_room_rules_built.json). Room rules had the mirror problem: HA drops a call's context after 5 s, so a slow shade would read as undone by hand. Reversal is now judged by which way the target's state moves, and review C's mutations pinned 14 untested trust sites → [344](users/ojiudezue/entries/344_room_rules_reversal_judged_by_state_not_context.json). The overnight pass also found the board two cards behind shipped code → [343](users/ojiudezue/entries/343_overnight_board_drift_shipped_cards_left_planned.json).
+
 ## Open questions
 
 - OC: which fix types earn R1 first, and the promotion evidence for R2.

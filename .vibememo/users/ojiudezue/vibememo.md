@@ -106,3 +106,5 @@ One counseling note from the same pass: feed and card times were typed from a fe
 
 
 **2026-11-20, 'arrived' means the phone arrived.** The first live named arrival from the old face path was wrong (a resident already home walked in from the garage), so entry notices now say 'arrived' only with that person's own arrival edge and 'came in' otherwise; S1 non-anchors now record why. Unified room rules was built the same day and waits on review → [343](users/ojiudezue/entries/343_arrived_vs_came_in_and_room_rules_built.json).
+
+**2026-11-20 night, a rule's own slow action is not a reversal.** Review B showed HA forgets a call's context after 5 s, so a shade that takes 15 s to close would read as "undone by hand" and drive rule accuracy toward zero. Reversal is now judged by which way the target's state moves. Review C's mutations found 14 untested sites, the worst letting a needs_parsing rule go live on first save; all are now pinned and the chain is merged for the 11-21 batch → [344](users/ojiudezue/entries/344_room_rules_reversal_judged_by_state_not_context.json).

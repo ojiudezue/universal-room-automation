@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-20T21:19:47-06:00_ - _Data commit: `ba98c7627061`_ - _last_reconciled: 2026-11-20_
+_Generated: 2026-11-20T21:25:04-06:00_ - _Data commit: `52037024e599`_ - _last_reconciled: 2026-11-20_
 
 
 ## Columns
@@ -797,7 +797,7 @@ _created 2026-11-11 09:00 · updated 2026-11-20 21:06 · initial_
 ### `AI-ROOM-RULES-TRUST-REPAIR-1` - Unified room rules (AI-described + chained) on one record and executor, with decision logging, room memory episodes and honest status (ships on, day 1) — _#4 · WSJF 2.9 · v10 tc6 u4 /e7_
 status: **review** - approval: **explicit**
 _updated 2026-11-20 21:04_
-- **⏰ Due:** 2026-11-21 10:00 — merged to develop 2a6a1e9b3; full suite running; operator UI picks; ship in 11-21 10:00 batch
+- **⏰ Due:** 2026-11-21 10:00 — merged to develop 2a6a1e9b3; prior suite run died in the Mac restart, re-run dispatched 11-20 22:57; UI picks fix-up (default keep/B/B) before the 11-21 10:00 batch
 - **Origin:** 2026-11-13 - Operator: fix, do not retire; not exercised because not yet trusted.
 - **Why:** Audit AUDIT_room_ai_automation_chaining_music_2026_11_13.md: person filter compares person.* entity id to display names and never matches (coordinator.py:1183; reuse music_following._person_key); a rule saved with needs_parsing true and ...
 - **Next:** PICK the 3 room-rules UI choices (built as shown; reviewer recommends changing 3): (1) When dropdown on Describe a rule: KEEP (recommended, trigger stays out of the model) or drop; (2) rule-writing model: A keep inside Optimizer AI setti...
