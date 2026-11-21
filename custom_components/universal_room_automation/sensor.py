@@ -4030,6 +4030,20 @@ class URAPersonsInHouseSensor(_CensusBaseSensor):
                     attrs["egress_identity_last_attach"] = dict(
                         (_r() if _r is not None else {}) or {}
                     )
+                    # Step 7 S1: why door crossings were not arrival-
+                    # anchored, by reason (layer counters, RAM, since boot).
+                    try:
+                        from .domain_coordinators import signals as _sig
+                        _lc = _sig.layer_counters(self.hass)
+                        attrs["egress_edge_anchor_named_count"] = int(
+                            _lc.edge_anchor_named
+                        )
+                        attrs["egress_edge_anchor_none_reasons"] = dict(
+                            sorted(_lc.edge_anchor_none.items())
+                        )
+                    except Exception:  # noqa: BLE001 - display only
+                        attrs["egress_edge_anchor_named_count"] = 0
+                        attrs["egress_edge_anchor_none_reasons"] = {}
                     # EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1 rev5
                     # D3 observability. Retired the pre-rev5
                     # `_ble_leg_rejected_provenance_count` (subscription

@@ -1010,6 +1010,14 @@ _CROSSING_AMENDABLE_KEYS: frozenset[str] = frozenset({
     "vision_direction_confidence",
 })
 
+# Step 7 S1: the closed set of ``_compute_edge_anchor_ex`` reasons
+# ("anchored" plus every no-anchor reason written to the D8a row).
+EDGE_ANCHOR_REASONS: frozenset[str] = frozenset({
+    "anchored", "lead_off", "direction", "provenance", "no_slug",
+    "no_live_face_legs", "face_tier", "census_off", "no_presence",
+    "truncated", "partner_blocked", "no_own_edge", "error",
+})
+
 
 def _layer_signals():
     """The signals module, imported at call time (this module is loaded by
@@ -2498,11 +2506,14 @@ class EgressDirectionTracker:
         # notify text, the record's identity_role / nameable and the D8a row;
         # person_id / identity_confidence / direction stay the resolver's and
         # the tracker's (INV-SECURITY, INV-DIRECTION-UNTOUCHED). Never raises.
-        anchor = self._compute_edge_anchor(direction, resolution, egress_timestamp)
+        anchor, anchor_reason = self._compute_edge_anchor_ex(
+            direction, resolution, egress_timestamp,
+        )
         # FACE-ARRIVAL-REBUILD-1 D8a: persist the outcome (one row per
         # resolution, every path). Observational; nothing below reads it.
         self._log_egress_outcome(
             resolution, egress_camera_id, egress_timestamp, edge_anchor=anchor,
+            edge_anchor_reason=anchor_reason,
         )
 
         # VISION-CROSSING-SHADOW-1 D2 (INV-ADDITIVE): sample the camera peak
@@ -2597,6 +2608,7 @@ class EgressDirectionTracker:
         try:
             self._arrival_departure_notify(
                 direction, person_id, identity_confidence, anchor=anchor,
+                egress_ts=egress_timestamp,
             )
         except Exception:  # noqa: BLE001
             _LOGGER.debug(
@@ -2928,6 +2940,7 @@ class EgressDirectionTracker:
         egress_timestamp: datetime,
         *,
         edge_anchor: Mapping[str, Any] | None = None,
+        edge_anchor_reason: str | None = None,
     ) -> None:
         """FACE-ARRIVAL-REBUILD-1 D8a: persist ONE memory_episodes row
         (`egress_identity_outcome`) for this resolution.
@@ -2967,6 +2980,9 @@ class EgressDirectionTracker:
                 {"slug": edge_anchor["slug"], "lead_s": edge_anchor["lead_s"]}
                 if edge_anchor else None
             ),
+            # Why no anchor ("anchored" when one was named; see
+            # _compute_edge_anchor_ex for the vocabulary).
+            "edge_anchor_reason": edge_anchor_reason,
         }
 
         async def _write() -> None:
@@ -3096,40 +3112,69 @@ class EgressDirectionTracker:
         resolution: "EgressResolution",
         egress_timestamp: datetime,
     ) -> dict[str, Any] | None:
+        """The anchor alone (see ``_compute_edge_anchor_ex``)."""
+        return self._compute_edge_anchor_ex(
+            direction, resolution, egress_timestamp,
+        )[0]
+
+    def _compute_edge_anchor_ex(
+        self,
+        direction: str,
+        resolution: "EgressResolution",
+        egress_timestamp: datetime,
+    ) -> tuple[dict[str, Any] | None, str]:
         """INV-ANCHOR-OWN-EVIDENCE: a face for slug S plus S's OWN counted F1
         arrival edge in ``[t_E - LEAD, t_E + EGRESS_ENTRY_WINDOW_SECONDS]``, no
         truncated edge ring, and no confusable partner edge there. Returns
-        ``{slug, confidence, lead_s, provenance}`` or None. Never raises."""
+        ``({slug, confidence, lead_s, provenance}, "anchored")`` or
+        ``(None, reason)``, reason one of ``EDGE_ANCHOR_REASONS``; every None
+        reason is counted in the ``edge_anchor_none`` layer table. Never
+        raises."""
+        anchor, reason = self._edge_anchor_gates(
+            direction, resolution, egress_timestamp,
+        )
+        if anchor is None:
+            _count_layer_event(self.hass, "edge_anchor_none", reason)
+        return anchor, reason
+
+    def _edge_anchor_gates(
+        self,
+        direction: str,
+        resolution: "EgressResolution",
+        egress_timestamp: datetime,
+    ) -> tuple[dict[str, Any] | None, str]:
         try:
             lead = float(_ura_const.EGRESS_ARRIVAL_EDGE_LEAD_S)
             if lead <= 0:
-                return None
+                return None, "lead_off"
             if direction not in ("entry", "exit"):
-                return None
+                return None, "direction"
             if resolution.provenance not in (
                 IDENTITY_PROVENANCE_FACE, IDENTITY_PROVENANCE_BLE_FACE,
             ):
-                return None
+                return None, "provenance"
             slug = resolution.slug
-            if not slug or not resolution.live_face_legs:
-                return None
+            if not slug:
+                return None, "no_slug"
+            if not resolution.live_face_legs:
+                return None, "no_live_face_legs"
             if (
                 resolution.face_tier is None
                 or resolution.face_tier < float(_ura_const.EGRESS_ARRIVAL_EDGE_MIN_TIER)
             ):
-                return None
+                return None, "face_tier"
             census = self.hass.data.get(DOMAIN, {}).get("census")
             if census is None or not census.egress_identity_enabled():
-                return None
+                return None, "census_off"
             presence = self._presence_coordinator()
             if presence is None:
-                return None
+                return None, "no_presence"
             t_e = egress_timestamp.timestamp()
             lo = t_e - lead
             hi = t_e + float(EGRESS_ENTRY_WINDOW_SECONDS)
             if presence.person_edges_truncated_since(lo):
                 _count_layer_event(self.hass, "edge_anchor_truncated")
-                return None
+                return None, "truncated"
             own = tracked_person_entity_id(slug)
             partners = {
                 tracked_person_entity_id(p)
@@ -3152,21 +3197,21 @@ class EgressDirectionTracker:
             ]
             if any(e.person in partners for e in kept):
                 _count_layer_event(self.hass, "edge_anchor_pair_blocked")
-                return None
+                return None, "partner_blocked"
             mine = [e for e in kept if e.person == own]
             if not mine:
-                return None
+                return None, "no_own_edge"
             _count_layer_event(self.hass, "edge_anchor_named")
             return {
                 "slug": slug,
                 "confidence": float(_ura_const.EGRESS_ARRIVAL_EDGE_CONFIDENCE),
                 "lead_s": round(t_e - float(mine[-1].edge_ts), 1),
                 "provenance": _ura_const.IDENTITY_PROVENANCE_FACE_RESIDENCY,
-            }
+            }, "anchored"
         except Exception:  # noqa: BLE001
             _LOGGER.debug("edge anchor failed (non-fatal)", exc_info=True)
             _count_layer_event(self.hass, "edge_anchor_error")
-            return None
+            return None, "error"
 
     async def async_edge_anchor_tripwire(self, database: Any) -> bool:
         """Plan D2 zero-fire trip-wire (nightly op): no anchored crossing in
@@ -3242,6 +3287,51 @@ class EgressDirectionTracker:
             _LOGGER.debug("edge anchor trip-wire failed", exc_info=True)
             return False
 
+    def _named_entry_verb(self, person_id: str, egress_ts: datetime) -> str:
+        """Verb for a named (>= notification bar) entry without an anchor
+        (operator 2026-11-20): "arrived" only when the person has their OWN
+        counted, non-stale, non-boot arrival edge in the S1 window
+        ``[t_E - EGRESS_ARRIVAL_EDGE_LEAD_S, t_E + EGRESS_ENTRY_WINDOW_SECONDS]``
+        (a truncated ring reads as no edge); otherwise "came in" when the
+        person was already home before the window; else "arrived" (today's
+        text). LEAD <= 0 or any error keeps "arrived" (INV-NOOP)."""
+        try:
+            lead = float(_ura_const.EGRESS_ARRIVAL_EDGE_LEAD_S)
+            if lead <= 0:
+                return "arrived"
+            presence = self._presence_coordinator()
+            if presence is None:
+                return "arrived"
+            t_e = egress_ts.timestamp()
+            lo = t_e - lead
+            hi = t_e + float(EGRESS_ENTRY_WINDOW_SECONDS)
+            own = tracked_person_entity_id(person_id)
+            if not presence.person_edges_truncated_since(lo):
+                for e in presence.get_person_edges_since(
+                    lo, persons={own}, kinds={"arrival"},
+                ):
+                    if (
+                        e.person == own
+                        and e.kind == "arrival"
+                        and e.edge_ts <= hi
+                        and e.counted is True
+                        and not e.source_stale
+                        and not e.in_boot_window
+                    ):
+                        return "arrived"
+            st = self.hass.states.get(own)
+            since = getattr(st, "last_changed", None)
+            if (
+                st is not None
+                and getattr(st, "state", None) == "home"
+                and isinstance(since, datetime)
+                and since.timestamp() < lo
+            ):
+                return "came in"
+            return "arrived"
+        except Exception:  # noqa: BLE001 - text only
+            return "arrived"
+
     def _arrival_departure_notify(
         self,
         direction: str,
@@ -3249,6 +3339,7 @@ class EgressDirectionTracker:
         identity_confidence: float | None,
         *,
         anchor: Mapping[str, Any] | None = None,
+        egress_ts: datetime | None = None,
     ) -> None:
         """Dispatch an arrival/departure notification off an egress crossing.
 
@@ -3281,6 +3372,8 @@ class EgressDirectionTracker:
             >= CONSUMER_CLASS_MIN_CONFIDENCE[CONSUMER_CLASS_NOTIFICATION]
         ):
             name = display_of(person_id)  # RA9
+            if direction == "entry" and egress_ts is not None:
+                verb = self._named_entry_verb(person_id, egress_ts)
         else:
             name = "Someone"
 
