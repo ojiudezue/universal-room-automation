@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-20T21:01:16-06:00_ - _Data commit: `a96b7beb9432`_ - _last_reconciled: 2026-11-20_
+_Generated: 2026-11-20T21:05:37-06:00_ - _Data commit: `4c424a14c3f5`_ - _last_reconciled: 2026-11-20_
 
 
 ## Columns
@@ -783,12 +783,13 @@ _created 2026-11-20 02:05 · updated 2026-11-20 02:08 · initial_
 
 ### `BLE-EXTEND-DRILL-RETARGET-1` - test_MUTATION_m2_seeding_hoisted drill anchor no longer matches coordinator.py after BLE absence-grace commit b13a151e — _#3 · WSJF 3.5 · v3 tc2 u2 /e2_
 thread: **process** - status: **review** - approval: **implied**
-_created 2026-11-11 09:00 · updated 2026-11-20 02:08 · initial_
+_created 2026-11-11 09:00 · updated 2026-11-20 21:06 · initial_
 - **Why:** Source-mutation drill searches for code text that b13a151e split; drill fails in every mode and no longer proves the seeding-order site.
-- **Next:** Me, attended: merge test/ble-extend-drill-retarget (d10640972) into develop (test-only, no restart; can ride any release, no --cards needed beyond listing it).
+- **Next:** Me: list in --cards of the 11-21 batched release.
 - **Refs:** quality/tests/test_ble_extend_not_create.py
-- **Forensic keys (4):**
+- **Forensic keys (5):**
   - `tier`: 1
+  - `merged_2026_11_20`: Merged to develop 11-20 21:06; URA_SOURCE_MUTATION=1 run on develop: 22 passed (drill mutates, restores).
   - `verify_2026_11_20_overnight`: STILL-REAL: in a clean worktree off develop, URA_SOURCE_MUTATION=1 run of the drill failed "swap_from anchor missing in coordinator.py" (the b13a151e absence-grace reset now sits between if ble_persons: and the coverage comment, coordina...
   - `built_2026_11_20_overnight`: Branch test/ble-extend-drill-retarget d10640972 (pushed). Test-only: anchor moved to the self._ble_absent_since = None line (unique, count 1); seeding is still hoisted above the is_room_direct_ble predicate. quality/tests/test_ble_extend...
   - `reviewed_2026_11_20_overnight`: Tier-1 review SHIP, no findings (same record as SECURITY-LOCK-PAGE-LAST-SEEN-1): new anchor matches coordinator.py ~4727, mutation still means seeding hoisted above is_room_direct_ble, target test_seeding_order_no_self_confirmation_acros...
