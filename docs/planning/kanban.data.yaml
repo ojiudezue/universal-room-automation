@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-11-20'
+  last_reconciled: '2026-11-22'
   history_file: docs/planning/kanban.history.yaml
   # BOARD-AUTONOMY-PROGRESS-1: append one entry each time a card is concluded
   # autonomously (built / parked / waiting_operator / shipped / done). The
@@ -35514,6 +35514,7 @@ cards:
   why: "Plan 7b818ce1 ship 1 (D1 + D5 no-model + D7). Reviews A/B/C/D+G, fix-up 6025e9ba, merge-fix 525f0cb4. Full suite on merged branch clean except one registry line fixed in c4dd65ce. Orchestrator mutation: stuck=False -> test_census_discounted_member_never_reaches_a_record RED."
   next: "Closed 11-22 (met-with-residual). Residual: INTERIOR-PATH-ZERO-1120-1."
 - id: PEOPLE-SCREEN-1
+  paged_2026_11_22_overnight: "Paged 02:27 CST in one consolidated quiet notification (notify.madronehapushover, priority -1)."
   soak_exit_2026_11_22_overnight: "NOT-MET, needs operator: the Coordinator Manager entry in core.config_entries has no person_profiles key (store: person_profiles.py:3, CONF_PERSON_PROFILES const.py:5508; entry modified_at 11-19 20:24Z). No profile has ever been saved, so neither leg can be judged without the operator using the screen."
   title: "People settings screen and per-person profile store (step 8 §10.1); configuration only, nothing acts yet"
   discriminator_2026_11_15: "Done when the operator saves one profile from the UI without an integration reload AND a cleared pick clears."
@@ -36629,6 +36630,7 @@ cards:
   next: "Me (attended, house awake): 5-minute live test - AirPlay to Kitchen WiiM, call media_player.join Kitchen->Powder and see whether Powder plays; then build Tier 1: MA path only when the playing MA candidate has app_id music_assistant (else join if the test passed, else source_not_transferable 'airplay'), real-path tests, one review, ship in a batched release."
   refs: [docs/readmes/README_v5.108.35.md]
 - id: INTERIOR-PATH-ZERO-1120-1
+  paged_2026_11_22_overnight: "Paged 02:27 CST in one consolidated quiet notification (notify.madronehapushover, priority -1)."
   mechanism_2026_11_22_overnight: "CONFIRMED. Every interior_path row (20) comes from a garage_a_2-family or front-door egress source (sensor.garage_a_person_count, binary_sensor.garage_a_person_detected/_occupancy_2, front_door_aerial, madrone_g6_entry); 0 of ~30 doorbell_lite entry crossings since 11-16 (egress_identity_outcome direction=entry, source_ref binary_sensor.doorbell_lite_*/sensor.doorbell_lite_person_count) produced one. Trip-wire window 11-19 19:07 to 11-20 19:07 CST held exactly 5 entries, all doorbell_lite (19:46, 20:02, 10:01, 12:38, 17:26) = the fire's '5 entries'; the last path row (11-20 01:06:54Z) aged out of the 24 h window 4 s before the fire (01:06:58Z). Code: person_sighting.py _path_tick ~1676-1700 counts an entry as mapped when its egress key is in the door's anchors, but opens a path only if an inward edge has from_key == root. Live map /config/universal_room_automation/interior_paths.json door garage_a: doorbell_lite appears only as the target of two approach edges (from rear_ptz / g5_bullet); every inward edge starts at camera.garage_a_2. Config-first: the fix is a map edge (data file, INTERIOR_PATH_MAP_REVALIDATE_DEBOUNCE_S=30 at const.py:3488), not code. Not applied overnight: HA config write + a physical-topology claim the operator should confirm (doorbell_lite = Garage A door per reference memory)."
   title: "Entries seen by the doorbell_lite camera (Garage A door) never get an interior path, because the path map has no inward edge from it, so the 'no path' alarm fires on days when only that camera sees entries"
   thread: vision

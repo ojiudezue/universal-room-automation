@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-22T02:08:36-06:00_ - _Data commit: `dbde54ef978f`_ - _last_reconciled: 2026-11-20_
+_Generated: 2026-11-22T02:27:10-06:00_ - _Data commit: `ab7915254cc1`_ - _last_reconciled: 2026-11-22_
 
 
 ## Columns
@@ -1216,7 +1216,8 @@ _created 2026-11-22 02:05 · updated 2026-11-22 02:08 · refined_
 - **Origin:** 2026-11-22 - Residual of the overnight soak-exit disposition of VISION-INTERIOR-SHIP1-1.
 - **Why:** A producer that drops most entries caps every later consumer (census interior counts, F4 sightings).
 - **Next:** APPROVE (recommended A): A) I add one inward edge {from: camera.doorbell_lite, to: camera.garage_a_2, kind: inward} to /config/universal_room_automation/interior_paths.json in an attended session (backup first; the map revalidates live w...
-- **Forensic keys (3):**
+- **Forensic keys (4):**
+  - `paged_2026_11_22_overnight`: Paged 02:27 CST in one consolidated quiet notification (notify.madronehapushover, priority -1).
   - `mechanism_2026_11_22_overnight`: CONFIRMED. Every interior_path row (20) comes from a garage_a_2-family or front-door egress source (sensor.garage_a_person_count, binary_sensor.garage_a_person_detected/_occupancy_2, front_door_aerial, madrone_g6_entry); 0 of ~30 doorbel...
   - `tier`: 1
   - `measured_2026_11_22_overnight`: notification_log 'Stuck signal: interior_path_zero' fired 11-16 19:02Z, 11-17 19:49Z (both before/at first path rows) and 11-21 01:06:58Z ('5 entries ... no path record'); memory_episodes interior_path = 20 rows total (19 with >=1 hop), ...
@@ -1460,7 +1461,8 @@ _created 2026-11-15 20:10 · updated 2026-11-22 02:05_
 - **Origin:** 2026-11-15 - Operator: ship the People screen first. Split for the v5.108.29 deploy; parent keeps D2/D3/D4/D6/D7.
 - **Why:** Reviews A+G, B, C (130 mutations); fix pass b769c29e (40/40 fix sites RED); develop merge 235f5c0f; allowlist pin c8a9a16c. B0 live form check right after install, rollback if the form fails.
 - **Next:** DO (when convenient, 2 min): in URA -> Coordinator Manager options -> People, save one person profile, then clear one pick and save again -> I read core.config_entries person_profiles to confirm both saved without an integration reload a...
-- **Forensic keys (3):**
+- **Forensic keys (4):**
+  - `paged_2026_11_22_overnight`: Paged 02:27 CST in one consolidated quiet notification (notify.madronehapushover, priority -1).
   - `soak_exit_2026_11_22_overnight`: NOT-MET, needs operator: the Coordinator Manager entry in core.config_entries has no person_profiles key (store: person_profiles.py:3, CONF_PERSON_PROFILES const.py:5508; entry modified_at 11-19 20:24Z). No profile has ever been saved, s...
   - `discriminator_2026_11_15`: Done when the operator saves one profile from the UI without an integration reload AND a cleared pick clears.
   - `tier`: 2
