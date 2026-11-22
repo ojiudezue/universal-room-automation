@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-22T02:06:46-06:00_ - _Data commit: `93c3c31133b3`_ - _last_reconciled: 2026-11-20_
+_Generated: 2026-11-22T02:08:36-06:00_ - _Data commit: `dbde54ef978f`_ - _last_reconciled: 2026-11-20_
 
 
 ## Columns
@@ -737,11 +737,12 @@ _under review_
 
 ### `NM-DIGEST-MARK-RACE-1` - mark_digest_delivered marks every undelivered row, including rows queued while the digest was sending, so they never appear in any digest — _#1 · WSJF 9.0 · v4 tc3 u2 /e1_
 thread: **notifications** - status: **review**
-_created 2026-11-13 03:30 · updated 2026-11-18 02:03_
+_created 2026-11-13 03:30 · updated 2026-11-22 02:26_
 - **Origin:** 2026-11-13 - Review B B3 of fix/nm-no-route (database.py:4958); pre-existing, made more frequent by the digest fallback (~43 rows/day).
 - **Why:** Lost digest items during a flush window.
 - **Next:** Me, next attended deploy: merge fix/nm-digest-mark-race (aac62d620) into develop, write the README entry, ship with --cards NM-DIGEST-MARK-RACE-1 (needs a restart). Live check after: a LOW row queued during a digest send shows up in the ...
-- **Forensic keys (6):**
+- **Forensic keys (7):**
+  - `validated_2026_11_22_overnight`: Full-suite name-diff CLEAN on the combined merge with develop (auto-merged database.py, notification_manager.py, test_notification_manager.py; 23846 passed / 0 failed, 0 NEW vs develop) - see ANOMALY-FLOOD-ROWS-1 validated_2026_11_22_ove...
   - `mergeprep_2026_11_20_overnight`: Merge-prep 02:10 CST: fix/nm-digest-mark-race aac62d620 is 1 ahead / 70 behind origin/develop; git merge-tree onto develop is CLEAN (no conflicts). Still waits for the attended deploy (needs a restart).
   - `build_2026_11_18_overnight`: Rebased fix/nm-digest-mark-race onto develop bb53c7d38 (was 126 behind) -> aac62d620, pushed to origin. Targeted run (nm_no_channel_fired + notification_manager + nm_image_delivery + music_following_repair, the only callers/fakes of mark...
   - `verified_2026_11_15_overnight`: STILL-REAL: notification_manager.py ~5650-5705 reads pending, awaits _deliver_digest, then database.mark_digest_delivered (database.py:4937) UPDATEs every delivered=0 LOW/MEDIUM row for the person, so a row inserted during the send is ma...
@@ -819,27 +820,16 @@ _updated 2026-11-22 02:02_
   - `suite_2026_11_21_overnight`: FULL SUITE RE-RUN (the one owed after the Mac restart): scripts/suite_namediff.py, develop eb83bc435 vs v5.108.38 (9e171ad99), 02:00-02:28 CST. Base 23792 passed / 0 failed; develop 107 failed / 23717 passed -> 107 NEW, 0 GONE. All 107 a...
   - `harness_fix_verified_2026_11_21_overnight`: Targeted isolated re-run (suite_namediff --files ... --isolate, 02:36 CST): develop 98c576ccc = 107 failing in the three files; fix/room-rules-reload-harness-alias ccf8c9b2b = 0 failing -> 107 GONE, 0 NEW. Branch pushed. Test-only, 8 lin...
 
-### `HOUSE-AVG-SENSORS-1` - Expose real house-average indoor temperature / humidity sensors (exclude equipment closets and outdoor rooms) and retire the two template helpers — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **dashboard** - status: **review**
-_created 2026-11-16 00:20 · updated 2026-11-17 02:10_
-- **Origin:** 2026-11-16 - Soak-exit residual (AUDIT_soak_exit_sweep_2026_11_16.md).
-- **Why:** house_avg_temp is only an attribute (aggregation.py:2063); the v8 weather card reads template helpers sensor.house_indoor_temperature / _humidity.
-- **Next:** APPROVE merge + ship at the next attended deploy (Tier 1, aggregation.py only; needs a restart). Then in that session: repoint the v8 weather card to sensor.universal_room_automation_house_avg_temperature / _humidity and delete the two t...
-- **Forensic keys (4):**
-  - `mergeprep_2026_11_20_overnight`: Merge-prep 02:10 CST: feat/house-avg-sensors 98335c557 is 1 ahead / 120 behind origin/develop; git merge-tree onto develop is CLEAN. Still waits for the attended deploy (needs a restart).
-  - `tier`: 1
-  - `verify_2026_11_17_overnight`: STILL-REAL (~02:05 CST): no house-average sensor in aggregation.py; house_avg_temp/_humidity exist only as attributes (aggregation.py:2063, :2108, :2150) from getters :1255/:1265. Gate: config-first n/a (no knob); prior art REUSE the two...
-  - `built_2026_11_17_overnight`: Built on feat/house-avg-sensors 98335c557 (base develop 408a666db, pushed). Two sensors exclude rooms classified infrastructure or in an outdoor zone via room_classification.get_room_classification (room_classification.py:94), read from ...
-
-### `ANOMALY-FLOOD-ROWS-1` - Anomaly floods: transit.path_implausible 21.5k rows, write_local_witness_divergence 7.6k, crosscheck_divergence 1.7k, circuit_tripped_breaker 4.7k in 90 days — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ANOMALY-FLOOD-ROWS-1` - Anomaly floods: transit.path_implausible 21.5k rows, write_local_witness_divergence 7.6k, crosscheck_divergence 1.7k, circuit_tripped_breaker 4.7k in 90 days — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **diagnostics** - status: **review**
-_created 2026-11-12 22:30 · updated 2026-11-21 02:08 · refined_
+_created 2026-11-12 22:30 · updated 2026-11-22 02:26 · refined_
 - **Problem / Solution:**
   - Problem: the house logs about 100 'impossible room move' warnings a day, but they are ordinary moves such as bedroom to its own bathroom. The check calls a move impossible whenever a hallway camera somewhere saw nothing at that moment, e...
 - **Origin:** 2026-11-12 - Broken-promise sweep (docs/planning/AUDIT_broken_promises_2026_11_12.md); operator: "A lot of our hardening are broken promises from previous work."
 - **Why:** Sweep item 8; noise buries real signals and grows the DB (DB-SIZE-GROWTH-1).
-- **Next:** Me: finish the overnight validation (full-suite name-diff of the branch merged with develop vs develop, then a source-mutation drill on the coverage check), then list it in --cards of an attended release with README_DRAFT -> README. Live...
-- **Forensic keys (7):**
+- **Next:** Me at the next attended batched release: merge fix/anomaly-flood-transit-coverage (a6319b7e3) into develop (validated 11-22, see validated_2026_11_22_overnight), promote README_DRAFT to the release README, ship with --cards. Live check a...
+- **Forensic keys (8):**
+  - `validated_2026_11_22_overnight`: VALIDATION DONE. (1) Full-suite name-diff (scripts/suite_namediff.py, 02:00-02:25 CST): develop 0b09c9ba tree (HEAD dbde54ef9 code) = 23824 passed / 0 failed vs a detached merge of develop + this branch + feat/house-avg-sensors + fix/nm-...
   - `arc_cut_v5_108_17`: separate broken promise awaiting operator pick
   - `tier`: 2
   - `measured_2026_11_13_overnight`: Per-detector read of anomaly_log (URA DB, 02:01 CST). (a) energy.circuit_tripped_breaker: last row 10-19, zero since; ALREADY-FIXED by 58cbfa70 + d3660df6 (expected-on gate). (b) energy.crosscheck_divergence: ~25/day until 11-05, zero si...
@@ -847,6 +837,19 @@ _created 2026-11-12 22:30 · updated 2026-11-21 02:08 · refined_
   - `paged_2026_11_13_overnight`: Paged 2026-11-13 02:09 CST in one consolidated quiet notification (notify.madronehapushover, priority -1, wakes nobody) with the pick.
   - `default_taken_2026_11_17_overnight`: Took default A (offered 11-13 with "if you have not vetoed by the next session I take A"; no veto in the 11-14..11-16 sessions). STILL-REAL and worse: transit.path_implausible rows/day (URA DB anomaly_log) 11-10 87, 11-11 67, 11-12 30, 1...
   - `reconcile_2026_11_21_overnight`: LANE FIX in_progress -> review. Ground truth: fix/anomaly-flood-transit-coverage carries the build (a6319b7e3, option A: a move is implausible only when a shared camera covers its from/to room), Tier-2 reviews A + B both SHIP (056c69993;...
+
+### `HOUSE-AVG-SENSORS-1` - Expose real house-average indoor temperature / humidity sensors (exclude equipment closets and outdoor rooms) and retire the two template helpers — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **dashboard** - status: **review**
+_created 2026-11-16 00:20 · updated 2026-11-22 02:26_
+- **Origin:** 2026-11-16 - Soak-exit residual (AUDIT_soak_exit_sweep_2026_11_16.md).
+- **Why:** house_avg_temp is only an attribute (aggregation.py:2063); the v8 weather card reads template helpers sensor.house_indoor_temperature / _humidity.
+- **Next:** APPROVE merge + ship at the next attended deploy (Tier 1, aggregation.py only; needs a restart). Then in that session: repoint the v8 weather card to sensor.universal_room_automation_house_avg_temperature / _humidity and delete the two t...
+- **Forensic keys (5):**
+  - `validated_2026_11_22_overnight`: Full-suite name-diff CLEAN on the combined merge with develop (23846 passed / 0 failed vs develop 23824 / 0; 0 NEW) - see ANOMALY-FLOOD-ROWS-1 validated_2026_11_22_overnight. The 11-21 run was not authoritative (broken baseline). Merge i...
+  - `mergeprep_2026_11_20_overnight`: Merge-prep 02:10 CST: feat/house-avg-sensors 98335c557 is 1 ahead / 120 behind origin/develop; git merge-tree onto develop is CLEAN. Still waits for the attended deploy (needs a restart).
+  - `tier`: 1
+  - `verify_2026_11_17_overnight`: STILL-REAL (~02:05 CST): no house-average sensor in aggregation.py; house_avg_temp/_humidity exist only as attributes (aggregation.py:2063, :2108, :2150) from getters :1255/:1265. Gate: config-first n/a (no knob); prior art REUSE the two...
+  - `built_2026_11_17_overnight`: Built on feat/house-avg-sensors 98335c557 (base develop 408a666db, pushed). Two sensors exclude rooms classified infrastructure or in an outdoor zone via room_classification.get_room_classification (room_classification.py:94), read from ...
 
 ## ⏸️ Waiting on operator (38)
 _needs a human call — groomed first_
