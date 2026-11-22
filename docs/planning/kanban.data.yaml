@@ -9,6 +9,8 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {"fid": "RELEASE-DUE-REDATE@2026-11-22T02:02:00", "card_id": "AI-ROOM-RULES-TRUST-REPAIR-1", "at": "2026-11-22T02:02:00", "outcome": "measured", "headline": "Yesterday's 10:00 batched release did not happen (HA still on v5.108.38). Moved the three ship-at-release follow-ups to today 10:00 and pushed the test-harness fix that was sitting unpushed on develop, so the release suite starts green.", "acknowledged": false}
+  - {"fid": "WAITING-OP-RECHECK@11-22@2026-11-22T02:02:00", "card_id": "WAITING-OP-RECHECK@11-22", "at": "2026-11-22T02:02:00", "outcome": "measured", "headline": "Re-checked 5 cards waiting on you; none changed: kitchen smoke detector still offline, perimeter zone sensors unset, landscape first step lacks continue-on-error, no WhatsApp/app 'diag' reply, AI Task key still locked to 12-01.", "acknowledged": false}
   - {"fid": "FRIGATE2-SWAP-FULL-1@2026-11-21T02:10:00", "card_id": "FRIGATE2-SWAP-FULL-1", "at": "2026-11-21T02:10:00", "outcome": "done", "headline": "Closed the Frigate 2 memory warning: the hang it predicted happened 11-16 and the homelab side has since fixed the leak and added guards (memory cap, watchdog restart, Kuma alarm).", "acknowledged": false}
   - {"fid": "INBOX-TRIAGE@11-21@2026-11-21T02:10:00", "card_id": "INBOX-TRIAGE@11-21", "at": "2026-11-21T02:10:00", "outcome": "parked", "headline": "Sorted the rest of the inbox: audio-as-presence parked until audio detection is back on; two camera-health follow-ups parked behind the plans they belong to; the vehicle status card waits for your yes to install a third-party HACS card.", "acknowledged": false}
   - {"fid": "ANOMALY-FLOOD-ROWS-1@2026-11-21T02:08:00", "card_id": "ANOMALY-FLOOD-ROWS-1", "at": "2026-11-21T02:08:00", "outcome": "built-to-review", "headline": "Found the 'impossible room move' fix sitting finished but filed as in progress: built 11-17, both reviews SHIP. Moved it to review. Tonight it gets the full test-suite check on top of today's develop; not deployed.", "acknowledged": false}
@@ -62,19 +64,9 @@ meta:
   - {"fid": "PERIMETER-IDENTITY-FOLLOWUP-1@2026-11-15T02:12:00", "card_id": "PERIMETER-IDENTITY-FOLLOWUP-1", "at": "2026-11-15T02:12:00", "outcome": "measured", "headline": "The 'that was Jaya' follow-up has never fired: 440 perimeter alerts since 11-10, zero follow-ups. Most alerts come from rear and side cameras, not doors, so this may just mean no eligible event yet. Next I count eligible events, then close it or reopen it as a defect.", "acknowledged": false}
   - {"fid": "FRIGATE-DOOR-FACE-TUNING-1@2026-11-15T02:10:00", "card_id": "FRIGATE-DOOR-FACE-TUNING-1", "at": "2026-11-15T02:10:00", "outcome": "measured", "headline": "Moved off your queue: the next step is my hand-off of the door-face audit to the homelab session, and homelab hasn't applied it yet.", "acknowledged": false}
   - {"fid": "EGRESS-OUTCOME-WEEKLY-LABEL-1@2026-11-15T02:10:00", "card_id": "EGRESS-OUTCOME-WEEKLY-LABEL-1", "at": "2026-11-15T02:10:00", "outcome": "escalated", "headline": "Moved to your queue: it needs your answer on who carried phones on 11-11 (Jaya, Ojini, Ziri) before I can finish the labels.", "acknowledged": false}
-  - {"fid": "OC-AI-TASK-LEVERAGE-1@2026-11-14T02:15:00", "card_id": "OC-AI-TASK-LEVERAGE-1", "at": "2026-11-14T02:15:00", "outcome": "escalated", "headline": "Your question 'would better AI make the optimizer work?': no. Only 5% of its findings come from the AI, those parse fine, and they fail because the AI isn't given the house's state and the rule-based checks repeat themselves hundreds of times. The fixes belong to the redesign and context cards. Your pick: close this (recommended) or approve a small paid model comparison later.", "acknowledged": false}
-  - {"fid": "MUSIC-FOLLOWING-TRANSFER-REPAIR-1@2026-11-14T02:12:00", "card_id": "MUSIC-FOLLOWING-TRANSFER-REPAIR-1", "at": "2026-11-14T02:12:00", "outcome": "measured", "headline": "Caught a clash between two plans: the music-following repair would only move music when a person's Bluetooth confidence is at least 0.5, but that number is stuck at 0.3 for everyone (its sensors died on 10-20). Shipped as written, music would never follow anyone. Recorded on the cards. The fix order: repair the Bluetooth distance input first, or drop that one gate until it is real.", "acknowledged": false}
-  - {"fid": "AUDIT-ROOM-AI-AUTOMATION-CHAINING-MUSIC-1@2026-11-14T02:12:00", "card_id": "AUDIT-ROOM-AI-AUTOMATION-CHAINING-MUSIC-1", "at": "2026-11-14T02:12:00", "outcome": "done", "headline": "Closed: the room-AI / chaining / music audit already produced its design doc and both build plans on 11-13; the card had just been left open.", "acknowledged": false}
-  - {"fid": "BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1@2026-11-14T02:12:00", "card_id": "BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1", "at": "2026-11-14T02:12:00", "outcome": "measured", "headline": "Planned the fix so each person's Bluetooth sensors are found through HA's device registry, not by name (stops Ezinne, Ziri and Jaya each picking up 12 of other people's sensors). Plan is under review now; nothing it changes drives a decision today.", "acknowledged": false}
-  - {"fid": "ANTHROPIC-API-USAGE-LIMIT-OC-LLM-1@2026-11-14T02:10:00", "card_id": "ANTHROPIC-API-USAGE-LIMIT-OC-LLM-1", "at": "2026-11-14T02:10:00", "outcome": "escalated", "headline": "New: the Claude account behind the optimizer's AI calls hit your API spending limit and is locked until 12-01, so every optimizer LLM call fails (only logged as a warning). Your step: raise the limit in the Anthropic console, or leave it off until December. Also my mistake tonight: reading Bermuda's diagnostics froze HA for ~20 s four times around 02:02; I won't do that again (noted as a rule)."}
-  - {"fid": "PERIMETER-FP-GATES-DISPOSE-1@2026-11-14T02:08:00", "card_id": "PERIMETER-FP-GATES-DISPOSE-1", "at": "2026-11-14T02:08:00", "outcome": "escalated", "headline": "Perimeter false-alarm gates: the 'single camera' gate is already ON (not shadow) but only acts on one camera; the zone gate has never run because it needs a setting only you can fill (4 sensor ids, listed on the card). Also your pick: should that gate wait 0 s (never delays alerts, recommended per your latency rule) or 12 s.", "acknowledged": false}
-  - {"fid": "BERMUDA-DISTANCE-SENSORS-DEAD-1@2026-11-14T02:07:00", "card_id": "BERMUDA-DISTANCE-SENSORS-DEAD-1", "at": "2026-11-14T02:07:00", "outcome": "escalated", "headline": "Found why Bermuda's per-room phone distances died on 10-20: the 7 wall panels became Bluetooth scanners that morning, and their addresses don't match how Bermuda expects. When even one scanner looks like that, Bermuda creates none of those sensors for anyone. Your pick on the card: URA switches to the live per-phone distance (recommended) and I report the bug to Bermuda; separately yes/no on letting that distance switch on the 8 ft music-following check.", "acknowledged": false}
-  - {"fid": "WALLPANEL-TOUCH-WITNESS-1@2026-11-14T02:07:00", "card_id": "WALLPANEL-TOUCH-WITNESS-1", "at": "2026-11-14T02:07:00", "outcome": "measured", "headline": "Your 'are the wall panels Bluetooth scanners?' question is already answered: all 7 are active Bermuda scanners with their rooms set. Nothing to change; moved off your queue. I still owe a room-accuracy re-check.", "acknowledged": false}
-  - {"fid": "CAMERA-SILENT-PRODUCER-TRIPWIRE-1@2026-11-14T02:07:00", "card_id": "CAMERA-SILENT-PRODUCER-TRIPWIRE-1", "at": "2026-11-14T02:07:00", "outcome": "done", "headline": "Closed: the 'cameras went dark' alarm proved itself on a real outage (11-07, Frigate2 down 7 h, you were paged). No staged test needed.", "acknowledged": false}
-  - {"fid": "SC-LOCK-SWEEP-EXCLUDE-1@2026-11-14T02:07:00", "card_id": "SC-LOCK-SWEEP-EXCLUDE-1", "at": "2026-11-14T02:07:00", "outcome": "done", "headline": "Closed: you set the master bedroom lock to skip the hourly lock sweep, and in 72 h the sweep left it alone while still re-locking other doors.", "acknowledged": false}
-  - {"fid": "SC-LOCK-REGIME-DOOR-LOCKS-1@2026-11-14T02:07:00", "card_id": "SC-LOCK-REGIME-DOOR-LOCKS-1", "at": "2026-11-14T02:07:00", "outcome": "parked", "headline": "Parked: Away Lock is set up (Ezinne + you, master bedroom lock) but its switch is off, so there is nothing to observe. Turning the switch on revives it.", "acknowledged": false}
 cards:
 - id: NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1
+  recheck_2026_11_22_overnight: "STILL-WAITING (ssh ha sqlite3 -readonly): notification_inbound = imessage 584 rows only (newest 11-22 06:43 UTC); zero whatsapp, zero companion. DO stands."
   recheck_2026_11_20_overnight: "STILL-WAITING (02:06 CST URA DB): notification_inbound since 11-18 has only channel=imessage (25 rows, last 05:57Z); no whatsapp or companion row, so the operator diag test has not been run. Card unchanged."
   recheck_2026_11_18_overnight: '02:01 CST URA DB: notification_inbound since 11-17 00:00Z = 28 rows, all imessage (last 11-18 05:17Z). No whatsapp or companion row; DO stands.'
   verified_2026_11_15_overnight: 'STILL-WAITING: notification_inbound since 11-10 has only channel=imessage (75 rows, last 08:04Z 11-15); no whatsapp or companion row, so the DO is still needed.'
@@ -84,7 +76,7 @@ cards:
   status: waiting_operator
   tier: 1
   created: 2026-11-08 02:05
-  updated: "2026-11-21 02:05"
+  updated: "2026-11-22 02:02"
   refinement_status: initial
   rank:
     value: 3
@@ -1247,6 +1239,7 @@ cards:
     context: 'Surfaced by the plan review of the initial-pass plan (docs/reviews/plan-review/PLAN_REVIEW_safety_initial_sensor_pass.md P-03; plan section 12). Swept board/BACKLOG for NM startup/ordering: none found. NEW.'
   next: "REVIVE when (a) SAFETY-NO-INITIAL-SENSOR-PASS-1 is approved for build (its startup pass fires exactly in this gap: the plan must order the pass after NM has restored, or queue until NM ready - carry this as a constraint into that plan), or (b) any smoke/leak/gas/CO sensor reads 'on' within 120 s of a homeassistant_start (re-run .claude/tmp/safety_boot_race_probe.sql against the recorder). Then Tier-2 plan: queue safety events until NM ready."
 - id: SAFETY-SENSOR-FLEET-HEALTH-1
+  recheck_2026_11_22_overnight: "STILL-REAL (ha_get_state 02:01 CST): binary_sensor.smoke_sensor_s1_smoke unavailable, last_changed 11-20 22:47 = the restart. DO stands."
   recheck_2026_11_20_overnight: "STILL-WAITING (02:06 CST live): binary_sensor.smoke_sensor_s1_smoke and every smoke_sensor_s1_* / kitchen_smoke_heiman_* entity still unavailable; the kitchen Heiman re-pair is still owed. Card unchanged."
   recheck_2026_11_18_overnight: '02:03 CST live (ha_get_state): binary_sensor.smoke_sensor_s1_smoke unavailable since the 11-17 10:41 restart. Re-pair DO stands.'
   recheck_2026_11_10_overnight: "02:01 CST live read: binary_sensor.smoke_sensor_s1_smoke still unavailable (since the 01:04 restart). Unchanged; your DO stands (you are away until ~11-16)."
@@ -1254,7 +1247,7 @@ cards:
   verified_2026_10_27: "Still needed. 02:05 CDT: binary_sensor.smoke_sensor_s1_smoke unavailable since 10-26 10:06 (kitchen Heiman re-pair outstanding); kitchen gas sensor reporting (off)."
   verify_2026_10_23: "Overnight re-check 02:01 (HA MCP): binary_sensor.smoke_sensor_s1_smoke still unavailable since the 10-21 18:25 restart. Re-pair still needed. No change."
   verify_2026_10_22: "Overnight re-check 02:0x: still blocked. binary_sensor.smoke_sensor_s1_smoke = unavailable (since the 10-21 18:25 restart), so the house's only smoke detector is still invisible to HA. binary_sensor.gas_zigbee_kitchen_gas = off (reporting). Re-pair is still needed."
-  updated: "2026-11-21 02:05"
+  updated: "2026-11-22 02:02"
   reverified_2026_10_29_overnight: "STILL-REAL 02:01 CDT: binary_sensor.smoke_sensor_s1_smoke (kitchen Heiman) unavailable since 10-26 10:06. Re-pair DO stands."
   recheck_2026_10_26: "Overnight ~02:03 CDT live read: binary_sensor.smoke_sensor_s1_smoke unavailable, lock.doorlock_kwikset_zwave_frontentry unavailable (sensor.node_3_node_status dead), BP1_B distance sensor unavailable; kitchen gas off (ok); Frigate2 running, 47 detection fps, camera_input_dark off. Still waiting on your hands; no change since 10-25."
   links_added_2026_10_21: "related+ELK-M1-HA-USABILITY-1: ELK fire/heat zones are the wired fire-detection path; usable ELK zones partly cover the smoke-detector gap."
@@ -33718,10 +33711,11 @@ cards:
   next: "DO (when back, any order) the operator-action checks W3/W10/W14/W15/W17 from ~/Code/ha-health-monitor/docs/readmes/README_v2.1.0.md, or ACK to close the card and accept them as unverified. -> I write the result into the README Validated table and close."
   updated: "2026-10-16 02:07"
 - id: LANDSCAPE-RETRY-POSTFIX-CHECK-1
+  recheck_2026_11_22_overnight: "STILL-REAL: /config/automations.yaml id 1753410739607 has 2 continue_on_error lines (the two retry repeats), none on the first switch.turn_on. APPROVE stands."
   recheck_2026_11_18_overnight: '02:01 CST /config/automations.yaml (id 1753410739607, file mtime 11-13 21:49): first lights_on switch.turn_on of the 6 Dewenwils switches still has no continue_on_error. APPROVE stands.'
   recheck_2026_11_07_overnight: "Re-read 02:03 CST (ha_config_get_automation, config_hash 0b20e85601b6b048): the first lights_on step (switch.turn_on on the 6 Dewenwils transformer switches) still has no continue_on_error; both retry loops do. Unchanged, ask stands."
   verify_2026_10_28: "Overnight re-check (02:02 CDT, recorder history via ha_get_history). CARD-WAS-WRONG on method: the 10-20 evidence 'still unavailable at 02:05 CDT' was read after the 01:00 transformer cut, when every GK light goes off then unavailable (perimeter1: off 01:00:01, unavailable 01:02:31 on 10-26, 10-27, 10-28), so it could not tell a dead fixture from a powered-down one. Re-measured inside the 10-27 on-window (18:00-01:00 CDT): perimeter1 on 19:21 (one dropout 23:01-23:21), perimeter3 on 19:20; perimeter 4/7/8, side-approach 10/11/12 and Hampton 2 unavailable the entire window; side-approach 9 on 19:22-19:24 10-26 only. Automation re-read: first step switch.turn_on of the 6 Dewenwils outlets has no continue_on_error (still the open APPROVE). Side observation: switch...landscape1_switch_1 stayed off from 10-25 07:39 to 10-26 19:21, i.e. it did not come on the evening of 10-25, while later lights did; whether that step raised or silently no-op'd is not known from history."
-  updated: "2026-11-21 02:05"
+  updated: "2026-11-22 02:02"
   reverified_2026_10_29_overnight: "STILL-REAL 02:01 CDT (ha_config_get_automation): the first lights_on step (switch.turn_on of the 6 Dewenwils transformer channels) still has no continue_on_error; both retry loops have it. APPROVE still needed (HA automation write)."
   rerank_2026_10_21: "v3 t2 e1 -> v3 t3 e1: 5 post-fix nights failed the discriminator; one operator APPROVE fixes the remaining step"
   rank: {"value": 3, "time_criticality": 3, "effort": 1}
@@ -34864,6 +34858,7 @@ cards:
   shipped_version: 'v5.108.35'
   verified_2026_11_19_overnight: 'ALREADY-DONE: branch tip e8a38bb94 is 0 commits ahead of develop and is contained in tags v5.108.35+ (git tag --contains), so the RETIRED docstring shipped with v5.108.35 without --cards naming this card. Closed; no deploy needed.'
 - id: PERIMETER-FP-GATES-DISPOSE-1
+  recheck_2026_11_22_overnight: "STILL-WAITING: ssh ha grep -c perimeter_zone_sensors /config/.storage/core.config_entries = 0. DO + PICK stand; dispose-by 2026-11-28."
   recheck_2026_11_20_overnight: "STILL-WAITING (02:06 CST .storage/core.config_entries via the Samba mount): no URA entry carries a perimeter_zone_sensors key in data or options, so the options-flow step is not done. Card unchanged."
   recheck_2026_11_18_overnight: '02:01 CST core.config_entries (Samba mount, verified not stale vs host): no URA entry carries perimeter_zone_sensors; perimeter_single_source_demote still True. DO/PICK stands. Disposal date 11-28 approaching.'
   verified_2026_11_15_overnight: 'STILL-WAITING: no URA config entry carries perimeter_zone_sensors in data or options (core.config_entries via the Samba mount).'
@@ -34873,7 +34868,7 @@ cards:
   status: waiting_operator
   batch: broken-promises-2026-11
   created: '2026-11-12 22:55'
-  updated: "2026-11-21 02:05"
+  updated: "2026-11-22 02:02"
   tier: 2
   origin: {date: '2026-11-12', gist: 'Operator asked why the gates are off. AUDIT_garage_hallway_lock_and_perimeter_gates_2026_11_12.md.'}
   why: 'Off by design as shadow-first (README v5.107.0, PLANNING_perimeter_fp_build_2026_11.md), but gate_decisions_by_camera {} and zone_map {} live; D5 learning (g5_bullet clears bar); D5 settle 8 s shorter than most camera lag. 2,295 CRITICAL + 1,754 HIGH exterior_person alerts in ~30 days.'
@@ -34950,8 +34945,8 @@ cards:
   live_2026_11_20_notices: "Two Jaya arrived notices since S1 went live, both from the OLD >=0.75 face path (edge_anchor null on both): 11-19 19:04 CST WRONG (garage_a entry, face 0.9 both_agree synthetic; Jaya home since 18:18, she came back in from the garage; S1 correctly did not anchor - no own edge); 11-20 12:39 CST CORRECT (doorbell, ble+face 0.95; her edge 24 s before t_E) but S1 returned None for an unknown gate -> instrumenting reject reasons on fix/s1-anchor-reasons. Operator decision asked: old path says arrived for a resident already home - A gate the old path on an own recent arrival edge (else no notice), or B reword as came in."
   names_graded_2026_11_20: "First 3 named grades: 11-13 18:18 OUT/1/jaya (S1 at LEAD 300 does not anchor, own edge 306 s; at 600 it would have said arrived = wrong, so 300 is right); 11-14 16:39 IN/1/guest (face 0.6 said Jaya; no own Jaya edge -> S1 correctly does not name); 11-15 18:13 IN/2/oji+jaya (S1 names Jaya, correct but incomplete). 0 wrong names, n=3 (bar 10). Follow-on idea (not carded until more data): name both people when both own phones arrive in the window and they are not a confusable pair. Live since 11-19 14:11: 24 egress outcome rows, 0 edge_anchor."
   live_2026_11_19: "v5.108.37 live since the 14:11 CST restart (with .38). Faces often confused set to jaya|ezinne, jaya|oji via the CM options flow (only that key changed, 292->293 options, no reload). Pending event: first phone-first resident arrival with a face (named notice + D8a edge_anchor row)."
-  due: '2026-11-21 10:00'
-  due_note: 'S1 reasons reviewed SHIP + merged to develop 369537615 (11-20 21:03); ship with perimeter circling + lock wording in the next batched release; then check edge_anchor_reason on new crossings'
+  due: "2026-11-22 10:00"
+  due_note: "S1 reasons merged to develop 369537615; ships in the next attended batched release (11-21 release did not run, HA still v5.108.38). Then check edge_anchor_reason on new crossings."
   s1_reasons_review_2026_11_20: 'v_s1_anchor_reasons_review.md: SHIP, 0 CRIT/HIGH/MED. LOW closed reason set fixed e0df18fe0 (EDGE_ANCHOR_REASONS + set-equality test). LOW restart-blind last_changed not fixed (falls back to arrived, no regression). Merged clean, 33 develop commits since base touch none of its files.'
   operator_2026_11_17_pairs_and_06: "Ok on 0.6 / Jaya Ezinne not only confusable pair. It can also be Jaya Oji. (CONF_EGRESS_CONFUSABLE_PAIRS does not exist yet: proposed in the step 7 plan 2026-11-14, built with S1 as a Coordinator Manager options field; initial jaya|ezinne, jaya|oji.)"
   operator_2026_11_17_step7_answers: "1 - yes 2 - yes. We should do face after phone if gaps remain on ident. Phone is more reliable now 3 - yes. 4 - more details please face plus phone - more details please"
@@ -34972,7 +34967,7 @@ cards:
   shipped_version: v5.108.37
   batch: person-sightings
   created: '2026-11-12 22:00'
-  updated: '2026-11-20 21:04'
+  updated: "2026-11-22 02:02"
   tier: 3
   links: {parent: FACE-ARRIVAL-REBUILD-1}
   origin: {date: '2026-11-12', gist: 'Operator: "Who made this rule? I didn''t... It should do both especially since we have a direction detector."'}
@@ -35817,8 +35812,10 @@ cards:
   next: fix the assertion at the next lull; not a blocker for the 11-21 batch (unchanged code, pre-existing)
   refs: [quality/tests/test_interior_vision_fixup.py, .claude/suite-out-batch-1121b.txt]
 - id: AI-ROOM-RULES-TRUST-REPAIR-1
-  due: '2026-11-21 10:00'
-  due_note: "suite harness fix on develop 26576c05a (supersedes overnight branch fix/room-rules-reload-harness-alias ccf8c9b2b, same change; do not merge both); full suite 11-21 05:58 clean apart from 1 pre-existing timing flake (TEST-INTERIOR-TASK-TRACK-FLAKE-1, untouched code, passes 3/3 isolated): ship-ready; UI picks fix-up (default keep/B/B) before the 10:00 release"
+  next_was_wrong_2026_11_22: "The 11-21 next said 'merge ccf8c9b2b FIRST or the suite is red'; WRONG since 11-21 06:xx: the attended fix 26576c05a landed on develop (same change), so merging both would duplicate it."
+  reconcile_2026_11_22_overnight: "Re-dated due 11-21 10:00 -> 11-22 10:00: the 11-21 batched release did not happen (installed v5.108.38, newest tag v5.108.38). Local develop was 2 commits ahead of origin (26576c05a harness fix + 1ef244602 board); pushed. Overnight cannot deploy. Card otherwise unchanged."
+  due: "2026-11-22 10:00"
+  due_note: "11-21 10:00 release did not run (HA still on v5.108.38 at 11-22 02:01; no tag after v5.108.38). Harness fix 26576c05a pushed to origin/develop by the overnight pass 11-22 02:01. Ship-ready; UI picks default keep/B/B; ship in the next attended batched release."
   suite_2026_11_21: 'Full suite on develop 52037024e: 107 new failures in 3 files, one cause: the AST-sliced loaders lacked a stub for _CONF_ROOM_RULES_AI_TASK_ENTITY, which this cycle added to OPTIONS_RELOAD_SUPPRESS_KEYS. Suppression is correct (the config flow reads the key fresh from CM options, config_flow.py:15024). Found independently by the attended validator and the overnight pass; the attended fix 26576c05a landed on develop (stubs + allowlist 140->141, 4 files 179 pass); overnight ccf8c9b2b is the same change and is superseded. PROCESS MISS: the chain merged on targeted tests only. The full suite that would have caught this died in the Mac restart, and the merge went ahead anyway. Run the full suite before a merge, not after.'
   tests_2026_11_20: '0381f17f4 on fix/unified-room-rules-tests: tests for all 14 review-C survivors (G1-G14), each drilled RED; no production change, zero-width window already fails closed at runtime. Orchestrator re-drill G1 (removed needs_parsing read): test_needs_parsing_flag_keeps_well_formed_rule_inert + test_first_edit_migrated_rules_stay_inert_until_rechecked RED; restored, 132 pass, clean. Chain merged to develop 2a6a1e9b3.'
   review_c_2026_11_20: 'v_unified_room_rules_review_C.md: FIX-REQUIRED. 79 per-site mutations, 14 survived green. HIGH G1: needs_parsing read in adapt_rules untested (every test uses actions: []), so a migrated rule with actions + needs_parsing could go live unnoticed if that read regressed. MED G2 is_dark fail-closed, G3 unknown condition / None house state, G4 bad + zero-width time window, G6 no-target action, G8 evaluations stat, G9 legacy _execute_ai_rules path. Test fix-up dispatched on fix/unified-room-rules-tests (off fd3c9739d).'
@@ -35835,7 +35832,7 @@ cards:
   origin: {date: '2026-11-13', gist: 'Operator: fix, do not retire; not exercised because not yet trusted.'}
   operator_2026_11_13_decision: 'We will fix the AI automation and the AI training and music following. We will not retire them. The reason they''re not exercised is because I don''t trust them yet, and the entire point is to build it so I can trust it.'
   why: 'Audit AUDIT_room_ai_automation_chaining_music_2026_11_13.md: person filter compares person.* entity id to display names and never matches (coordinator.py:1183; reuse music_following._person_key); a rule saved with needs_parsing true and actions [] has no re-parse path (config_flow.py:3120-3133) while its status says active; verify ai_task object/multiple structure; tests are inline replicas, only the executor guards have real-path tests. Chaining is sound but unused; automation.trigger skip_condition default needs a deliberate choice. Trust needs: honest status sensors, a dry-run / shadow mode showing what a rule WOULD do, real-path tests, decision log rows.'
-  next: "Me at the 10:00 batch: (1) merge fix/room-rules-reload-harness-alias (ccf8c9b2b, test-only) into develop FIRST, or the release suite is red with 107 failures; (2) apply the 3 UI picks (default keep / B / B if no answer); (3) ship with --cards incl. this card. PICK stands for you: (1) When dropdown KEEP or drop; (2) rule-writing model A inside Optimizer AI settings or B own step (recommended); (3) save step A or B plain Save (recommended)."
+  next: "Me at the next attended batched release: (1) harness fix is ALREADY on develop (26576c05a, pushed 11-22); do NOT merge fix/room-rules-reload-harness-alias ccf8c9b2b (same change, superseded); (2) apply the 3 UI picks (default keep / B / B if no answer); (3) ship with --cards incl. this card. PICK stands for you: (1) When dropdown KEEP or drop; (2) rule-writing model A inside Optimizer AI settings or B own step (recommended); (3) save step A or B plain Save (recommended)."
   rank: {value: 10, time_criticality: 6, effort: 7}
   approval: explicit
   approved_by: operator
@@ -35855,7 +35852,7 @@ cards:
   next_build: 'Me or the overnight agent: one re-verify plan review of the rewrite (substantial fix round), then build in a worktree, three framing-disjoint reviews, validate to review. Off the arc critical path (operator: not P0).'
   operator_2026_11_13_ai_task_paid: 'Yes on paid Ai task (live rule validation on ai_task.claude_ai_task)'
   verified_2026_11_14_overnight: 'CARD-WAS-WRONG on next (''plan then build''): the plan exists and was reviewed on 11-13 (PLANNING_unified_room_rules.md, PLANREVIEW_unified_room_rules.md). Not built overnight: the vision-arc session is sequencing builder slots and this is not part of tonight''s queue.'
-  updated: "2026-11-21 02:37"
+  updated: "2026-11-22 02:02"
   suite_2026_11_21_overnight: "FULL SUITE RE-RUN (the one owed after the Mac restart): scripts/suite_namediff.py, develop eb83bc435 vs v5.108.38 (9e171ad99), 02:00-02:28 CST. Base 23792 passed / 0 failed; develop 107 failed / 23717 passed -> 107 NEW, 0 GONE. All 107 are in three AST-slice harness files: test_part2_ec_hc_writeback.py (42), test_room_options_reload_suppression.py (34), test_reload_watchdog_hazard.py (31). Mechanism (read, not guessed): the merge added the aliased import _CONF_ROOM_RULES_AI_TASK_ENTITY to _NO_LIVE_ATTR_KEYS and OPTIONS_RELOAD_SUPPRESS_KEYS (__init__.py ~6985, ~7524, ~7749); those harnesses exec a slice of __init__.py with hand-kept alias tables, so every test in them fails at setup. Production unaffected (real import). TEST-ONLY FIX built: branch fix/room-rules-reload-harness-alias ccf8c9b2b (alias added to all three tables, expected-set + count ledger 140 -> 141). Targeted isolated re-run of the three files queued; result appended below when it lands. The 10:00 release must carry this commit (merge it before deploy.sh) or the release suite gate is red."
   harness_fix_verified_2026_11_21_overnight: "Targeted isolated re-run (suite_namediff --files ... --isolate, 02:36 CST): develop 98c576ccc = 107 failing in the three files; fix/room-rules-reload-harness-alias ccf8c9b2b = 0 failing -> 107 GONE, 0 NEW. Branch pushed. Test-only, 8 lines. Not merged overnight (merge at the attended release). Review owed is Tier 1 (one pass) or the orchestrator's read: it only adds the alias to the three hand-kept tables + bumps the count ledger."
 - id: MUSIC-FOLLOWING-TRANSFER-REPAIR-1
@@ -36176,8 +36173,8 @@ cards:
   rank: {value: 6, time_criticality: 3, effort: 5}
 - id: PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1
   built_2026_11_19: "Option A built 053f48563 (escalation-exemption dispatches titled 'Perimeter Alert — Person Escalated'; NM dedup key is coordinator:title:location, severity was never in it). Reviews A SHIP, B SHIP. Merged to develop; ships in the next release."
-  due: '2026-11-21 10:00'
-  due_note: 'ship in the next batched release (one restart/day). Re-dated 11-20 21:00: 11-20 window passed during Mac restart; batched with room rules + S1 reasons 11-21.'
+  due: "2026-11-22 10:00"
+  due_note: "ship in the next attended batched release (one restart/day). 11-21 window passed without a release (HA still v5.108.38 at 11-22 02:01)."
   arc_cut_v5_108_38: "ready, next builder slot"
   arc_cut_v5_108_37: "separate arc work, not in the step 7 S1 release"
   arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
@@ -36192,7 +36189,7 @@ cards:
   status: "waiting_operator"
   batch: person-sightings
   created: '2026-11-13 12:00'
-  updated: "2026-11-16 02:26"
+  updated: "2026-11-22 02:02"
   tier: 2
   links: {parent: HOUSE-STATE-FIRST-PRINCIPLES-1, related: [EXTERIOR-PERSONS-HOME-ALWAYS-ZERO-1]}
   origin: {date: '2026-11-13', gist: 'Review A-L1 of house-state step 1a; pre-existing (persons_home always 0 live).'}
@@ -36565,13 +36562,14 @@ cards:
   next: "Done 2026-11-19 (arc-close sweep)."
   rank: {value: 7, time_criticality: 4, effort: 3}
 - id: ANTHROPIC-API-USAGE-LIMIT-OC-LLM-1
+  recheck_2026_11_22_overnight: "STILL-REAL (ha_get_logs source=system search=anthropic, 02:01 CST): optimization_llm.py:941 WARNING usage-limit count 6, homeassistant.components.anthropic ERROR count 9, same 'regain access 2026-12-01 00:00 UTC'. Closes on a logged successful call or 12-01."
   recheck_2026_11_20_overnight: "RECHECK (02:06 CST ha_get_logs): system_log has no ai_task entries since the 11-19 14:11 boot and the newest error_log window (2000 lines) has no optimization_llm lines. NOT an all-clear: this can mean the shadow tier has not called since boot; the provider said access returns 2026-12-01. Console limit unchanged as far as I can see. Card unchanged."
   recheck_2026_11_18_overnight: 'INCONCLUSIVE, NOT an all-clear (02:03 CST): ha_get_logs source=system search ''usage limits'' and ''ai_task'' = 0 entries since the ~11-17 10:40 restart. That shows no failed call logged in this boot, not that the quota was lifted. Lock self-expires 12-01 00:00 UTC; card closes on a logged successful ai_task call or on 12-01.'
   title: The Claude AI Task account hit its API usage limit (locked until 2026-12-01), so every optimizer LLM call fails until then
   thread: optimizer
   status: waiting_operator
   created: '2026-11-14 02:10'
-  updated: "2026-11-21 02:05"
+  updated: "2026-11-22 02:02"
   refinement_status: initial
   tier: 1
   approval: blocked

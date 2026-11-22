@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-21T02:10:37-06:00_ - _Data commit: `98c576cccf67`_ - _last_reconciled: 2026-11-20_
+_Generated: 2026-11-21T06:55:51-06:00_ - _Data commit: `1ef244602994`_ - _last_reconciled: 2026-11-20_
 
 
 ## Columns
@@ -767,12 +767,14 @@ _created 2026-11-11 09:00 · updated 2026-11-21 02:05 · initial_
 
 ### `AI-ROOM-RULES-TRUST-REPAIR-1` - Unified room rules (AI-described + chained) on one record and executor, with decision logging, room memory episodes and honest status (ships on, day 1) — _#4 · WSJF 2.9 · v10 tc6 u4 /e7_
 status: **review** - approval: **explicit**
-_updated 2026-11-21 02:37_
-- **⏰ Due:** 2026-11-21 10:00 — suite harness fix on develop 26576c05a (supersedes overnight branch fix/room-rules-reload-harness-alias ccf8c9b2b, same change; do not merge both); full suite 11-21 05:58 clean apart from 1 pre-existing timing flake (TEST-INTERIOR-TASK-T...
+_updated 2026-11-22 02:02_
+- **⏰ Due:** 2026-11-22 10:00 — 11-21 10:00 release did not run (HA still on v5.108.38 at 11-22 02:01; no tag after v5.108.38). Harness fix 26576c05a pushed to origin/develop by the overnight pass 11-22 02:01. Ship-ready; UI picks default keep/B/B; ship in the next att...
 - **Origin:** 2026-11-13 - Operator: fix, do not retire; not exercised because not yet trusted.
 - **Why:** Audit AUDIT_room_ai_automation_chaining_music_2026_11_13.md: person filter compares person.* entity id to display names and never matches (coordinator.py:1183; reuse music_following._person_key); a rule saved with needs_parsing true and ...
-- **Next:** Me at the 10:00 batch: (1) merge fix/room-rules-reload-harness-alias (ccf8c9b2b, test-only) into develop FIRST, or the release suite is red with 107 failures; (2) apply the 3 UI picks (default keep / B / B if no answer); (3) ship with --...
-- **Forensic keys (27):**
+- **Next:** Me at the next attended batched release: (1) harness fix is ALREADY on develop (26576c05a, pushed 11-22); do NOT merge fix/room-rules-reload-harness-alias ccf8c9b2b (same change, superseded); (2) apply the 3 UI picks (default keep / B / ...
+- **Forensic keys (29):**
+  - `next_was_wrong_2026_11_22`: The 11-21 next said 'merge ccf8c9b2b FIRST or the suite is red'; WRONG since 11-21 06:xx: the attended fix 26576c05a landed on develop (same change), so merging both would duplicate it.
+  - `reconcile_2026_11_22_overnight`: Re-dated due 11-21 10:00 -> 11-22 10:00: the 11-21 batched release did not happen (installed v5.108.38, newest tag v5.108.38). Local develop was 2 commits ahead of origin (26576c05a harness fix + 1ef244602 board); pushed. Overnight canno...
   - `suite_2026_11_21`: Full suite on develop 52037024e: 107 new failures in 3 files, one cause: the AST-sliced loaders lacked a stub for _CONF_ROOM_RULES_AI_TASK_ENTITY, which this cycle added to OPTIONS_RELOAD_SUPPRESS_KEYS. Suppression is correct (the config...
   - `tests_2026_11_20`: 0381f17f4 on fix/unified-room-rules-tests: tests for all 14 review-C survivors (G1-G14), each drilled RED; no production change, zero-width window already fails closed at runtime. Orchestrator re-drill G1 (removed needs_parsing read): te...
   - `review_c_2026_11_20`: v_unified_room_rules_review_C.md: FIX-REQUIRED. 79 per-site mutations, 14 survived green. HIGH G1: needs_parsing read in adapt_rules untested (every test uses actions: []), so a migrated rule with actions + needs_parsing could go live un...
@@ -877,7 +879,7 @@ _created 2026-11-12 23:30 · updated 2026-11-15 02:10_
 
 ### `ANTHROPIC-API-USAGE-LIMIT-OC-LLM-1` - The Claude AI Task account hit its API usage limit (locked until 2026-12-01), so every optimizer LLM call fails until then — _#3 · WSJF 11.0 · v5 tc4 u2 /e1_
 thread: **optimizer** - status: **waiting_operator** - approval: **blocked**
-_created 2026-11-14 02:10 · updated 2026-11-21 02:05 · initial_
+_created 2026-11-14 02:10 · updated 2026-11-22 02:02 · initial_
 - **Problem / Solution:**
   - Problem: the Anthropic account behind ai_task.claude_ai_task has reached the monthly spending limit you set, so every LLM call the Optimization Coordinator makes now fails with "You have reached your specified API usage limits. You will ...
 - **Origin:** 2026-11-14 - Found by the overnight pass reading the HA system log (ha_get_logs source=system).
@@ -885,7 +887,8 @@ _created 2026-11-14 02:10 · updated 2026-11-21 02:05 · initial_
 - **Next:** DO: in the Anthropic console, raise or reset the API spending limit for the key used by the Claude AI Task (or tell me to leave the optimizer LLM tier off until 12-01). PICK: A (recommended) leave the warning as is - the optimizer LLM ti...
 - **Tags:** found-during-probe, no-fabrication-verify
 - **Parsimony:** [CONFIG-ONLY (operator console action); a quota-error page is an optional follow-up] Every ai_task.claude_ai_task call fails until 12-01 because the account spending cap is reached.
-- **Forensic keys (7):**
+- **Forensic keys (8):**
+  - `recheck_2026_11_22_overnight`: STILL-REAL (ha_get_logs source=system search=anthropic, 02:01 CST): optimization_llm.py:941 WARNING usage-limit count 6, homeassistant.components.anthropic ERROR count 9, same 'regain access 2026-12-01 00:00 UTC'. Closes on a logged succ...
   - `recheck_2026_11_20_overnight`: RECHECK (02:06 CST ha_get_logs): system_log has no ai_task entries since the 11-19 14:11 boot and the newest error_log window (2000 lines) has no optimization_llm lines. NOT an all-clear: this can mean the shadow tier has not called sinc...
   - `recheck_2026_11_18_overnight`: INCONCLUSIVE, NOT an all-clear (02:03 CST): ha_get_logs source=system search 'usage limits' and 'ai_task' = 0 entries since the ~11-17 10:40 restart. That shows no failed call logged in this boot, not that the quota was lifted. Lock self...
   - `tier`: 1
@@ -952,14 +955,15 @@ _created 2026-09-16 03:30 · updated 2026-11-12 13:20 · refined_
 
 ### `SAFETY-SENSOR-FLEET-HEALTH-1` - The house's only smoke detector has been invisible to Home Assistant since the 10-15 restart, and several leak and gas sensors are dead or misfiled, so Safety cannot see those hazards — _#5 · WSJF 9.5 · v9 tc8 u2 /e2_
 thread: **safety** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-10-16 02:20 · updated 2026-11-21 02:05 · initial_
+_created 2026-10-16 02:20 · updated 2026-11-22 02:02 · initial_
 - **Problem / Solution:**
   - Problem: URA's Safety coordinator can only react to detectors Home Assistant can read. Tonight the only real smoke detector (the Heiman in the kitchen) reads 'unavailable' and has since the 10-15 12:46 restart; four Zigbee leak sensors n...
 - **Origin:** 2026-10-16 - Overnight pass: found by the ura-planner measurement for SAFETY-NO-INITIAL-SENSOR-PASS-1 (plan section 6/9); smoke state re-read live by the orchestrator.
 - **Why:** Life-safety coverage gap while the family is away and a guest is home. Config/device actions, no code needed first (config-first).
 - **Next:** DO (when back, or the guest/Jaya if urgent): re-pair the kitchen Heiman smoke detector (homelab THREAD-INOVELLI-1 re-commission; it still sounds locally), and check the 4 leak pucks' batteries/pairing. APPROVE me to make the two config f...
 - **Tags:** found-during-probe, no-fabrication-verify, life-safety
-- **Forensic keys (27):**
+- **Forensic keys (28):**
+  - `recheck_2026_11_22_overnight`: STILL-REAL (ha_get_state 02:01 CST): binary_sensor.smoke_sensor_s1_smoke unavailable, last_changed 11-20 22:47 = the restart. DO stands.
   - `recheck_2026_11_20_overnight`: STILL-WAITING (02:06 CST live): binary_sensor.smoke_sensor_s1_smoke and every smoke_sensor_s1_* / kitchen_smoke_heiman_* entity still unavailable; the kitchen Heiman re-pair is still owed. Card unchanged.
   - `recheck_2026_11_18_overnight`: 02:03 CST live (ha_get_state): binary_sensor.smoke_sensor_s1_smoke unavailable since the 11-17 10:41 restart. Re-pair DO stands.
   - `recheck_2026_11_10_overnight`: 02:01 CST live read: binary_sensor.smoke_sensor_s1_smoke still unavailable (since the 01:04 restart). Unchanged; your DO stands (you are away until ~11-16).
@@ -990,10 +994,11 @@ _created 2026-10-16 02:20 · updated 2026-11-21 02:05 · initial_
 
 ### `LANDSCAPE-RETRY-POSTFIX-CHECK-1` - Landscape Lighting retry loop — post-fix dropout check vs 62/10-day Matter baseline — _#6 · WSJF 8.0 · v3 tc3 u2 /e1_
 thread: **lighting** - status: **waiting_operator**
-_created 2026-10-14 02:10 · updated 2026-11-21 02:05_
+_created 2026-10-14 02:10 · updated 2026-11-22 02:02_
 - **Why:** Kept Matter automation (62 drops/10d vs 398 native), added repeat-until-on retry (<=5), removed 8 dead entities, turned off duplicate native automation; 82 dead/duplicate light entities disabled_by user. No post-fix measurement yet.
 - **Next:** APPROVE: let me add continue_on_error: true to the first step of automation.landscape_lighting_lifx_matter_version (the Dewenwils transformer switch.turn_on). Re-read 10-28: that step still has no continue_on_error; the retry loops alrea...
-- **Forensic keys (11):**
+- **Forensic keys (12):**
+  - `recheck_2026_11_22_overnight`: STILL-REAL: /config/automations.yaml id 1753410739607 has 2 continue_on_error lines (the two retry repeats), none on the first switch.turn_on. APPROVE stands.
   - `recheck_2026_11_18_overnight`: 02:01 CST /config/automations.yaml (id 1753410739607, file mtime 11-13 21:49): first lights_on switch.turn_on of the 6 Dewenwils switches still has no continue_on_error. APPROVE stands.
   - `recheck_2026_11_07_overnight`: Re-read 02:03 CST (ha_config_get_automation, config_hash 0b20e85601b6b048): the first lights_on step (switch.turn_on on the 6 Dewenwils transformer switches) still has no continue_on_error; both retry loops do. Unchanged, ask stands.
   - `verify_2026_10_28`: Overnight re-check (02:02 CDT, recorder history via ha_get_history). CARD-WAS-WRONG on method: the 10-20 evidence 'still unavailable at 02:05 CDT' was read after the 01:00 transformer cut, when every GK light goes off then unavailable (p...
@@ -1008,14 +1013,15 @@ _created 2026-10-14 02:10 · updated 2026-11-21 02:05_
 
 ### `NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1` - Prove the text 'diag' menu answers on WhatsApp and the HA app (only iMessage is proven live) — _#7 · WSJF 7.0 · v3 tc2 u2 /e1_
 thread: **notifications** - status: **waiting_operator** - approval: **implied**
-_created 2026-11-08 02:05 · updated 2026-11-21 02:05 · initial_
+_created 2026-11-08 02:05 · updated 2026-11-22 02:02 · initial_
 - **Problem / Solution:**
   - Problem: the house now answers text questions ('diag', 'health', 'who'), but it has only ever been seen working over iMessage. WhatsApp has never delivered a single inbound message to URA, so we do not know whether WhatsApp questions rea...
 - **Origin:** 2026-11-08 - overnight soak-exit of NM-INBOUND-HOUSE-QUERIES-1 found WhatsApp + Companion legs unprovable without an operator message
 - **Why:** Residual of a shipped capability (finish-the-arc rule 4 would fold it, but the parent closed and the remaining step needs an operator action, so it needs its own decision queue entry).
 - **Next:** DO: text 'diag' in your WhatsApp self-chat, and reply 'diag' to any URA notification in the HA app -> I read notification_inbound; a channel=whatsapp row and a companion row with a reply close this; no WhatsApp row means the bridge drops...
 - **Tags:** tier-1
-- **Forensic keys (12):**
+- **Forensic keys (13):**
+  - `recheck_2026_11_22_overnight`: STILL-WAITING (ssh ha sqlite3 -readonly): notification_inbound = imessage 584 rows only (newest 11-22 06:43 UTC); zero whatsapp, zero companion. DO stands.
   - `recheck_2026_11_20_overnight`: STILL-WAITING (02:06 CST URA DB): notification_inbound since 11-18 has only channel=imessage (25 rows, last 05:57Z); no whatsapp or companion row, so the operator diag test has not been run. Card unchanged.
   - `recheck_2026_11_18_overnight`: 02:01 CST URA DB: notification_inbound since 11-17 00:00Z = 28 rows, all imessage (last 11-18 05:17Z). No whatsapp or companion row; DO stands.
   - `verified_2026_11_15_overnight`: STILL-WAITING: notification_inbound since 11-10 has only channel=imessage (75 rows, last 08:04Z 11-15); no whatsapp or companion row, so the DO is still needed.
@@ -1305,8 +1311,8 @@ _updated 2026-10-12 02:07_
 
 ### `PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1` - Circling hop 1 and hop 3 are both HIGH in production, so the claim that their severities differ (and their NM dedup keys cannot collide) does not hold — _#25 · WSJF 2.8 · v7 tc5 u2 /e5_
 thread: **security** - status: **waiting_operator**
-_created 2026-11-13 12:00 · updated 2026-11-16 02:26 · refined_
-- **⏰ Due:** 2026-11-21 10:00 — ship in the next batched release (one restart/day). Re-dated 11-20 21:00: 11-20 window passed during Mac restart; batched with room rules + S1 reasons 11-21.
+_created 2026-11-13 12:00 · updated 2026-11-22 02:02 · refined_
+- **⏰ Due:** 2026-11-22 10:00 — ship in the next attended batched release (one restart/day). 11-21 window passed without a release (HA still v5.108.38 at 11-22 02:01).
 - **Problem / Solution:**
   - Problem: when someone circles the house, the system is meant to send a stronger 'circling' alert even if that camera alerted a minute ago. The notification system's duplicate filter drops it, because it treats any alert with the same tit...
 - **Origin:** 2026-11-13 - Review A-L1 of house-state step 1a; pre-existing (persons_home always 0 live).
@@ -1385,13 +1391,25 @@ _created 2026-11-12 14:13 · updated 2026-11-15 02:15 · initial_
   - `verified_2026_11_15_overnight`: STILL-REAL (code read on develop): energy_battery.py:4189 (_classify_attain_rung, every tick) and :6049 (_run_attain_branch) both call _record_attain_sample (:5055), which appends (now, soc) with no same-timestamp check; the call-site co...
   - `tier`: 2-DB
 
-### `PERIMETER-FP-GATES-DISPOSE-1` - Perimeter false-positive gates D3/D5 shipped shadow-first but D3 can never evaluate (zone sensors never configured) and no shadow counts are kept; no disposal date — _#30 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `DASH-V8-VEHICLE-STATUS-CARD-1` - Add ngocjohn/vehicle-status-card for the CX-90 PHEV to the Now tab of the URA v8 dashboard — _#30 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **dashboard** - status: **waiting_operator** - approval: **blocked**
+_created 2026-11-15 20:40 · updated 2026-11-21 02:10_
+- **Origin:** 2026-11-15 - Operator aside after the v5.108.28/29 go.
+- **Next:** APPROVE: install the third-party HACS frontend card ngocjohn/vehicle-status-card (new frontend code in HA) for the CX-90 on the v8 Now tab -> I check its latest release and open issues, install it in an attended session, and add a card b...
+- **Forensic keys (4):**
+  - `tier`: 1
+  - `operator_2026_11_15`: Maybe we can add https://github.com/ngocjohn/vehicle-status-card to the Now tab of the ura v8 dashboard. The Mazda integration is back.
+  - `facts_2026_11_15`: mazda_cs entry loaded (01M7H3M7KAAT61GFEEHMFVA518), device garage_a_2025_cx_90_phev_preferred: doors/trunk/lock, plugged_in, charging switch, charge_level, remaining_charging_time_ac, fuel %, ranges, tire pressures + warnings, climate, d...
+  - `triage_2026_11_21_overnight`: Moved inbox -> waiting_operator: the only blocker is the install yes the card itself names (third-party frontend code = always-explicit). Not done overnight (HA write).
+
+### `PERIMETER-FP-GATES-DISPOSE-1` - Perimeter false-positive gates D3/D5 shipped shadow-first but D3 can never evaluate (zone sensors never configured) and no shadow counts are kept; no disposal date — _#31 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **perimeter** - status: **waiting_operator**
-_created 2026-11-12 22:55 · updated 2026-11-21 02:05_
+_created 2026-11-12 22:55 · updated 2026-11-22 02:02_
 - **Origin:** 2026-11-12 - Operator asked why the gates are off. AUDIT_garage_hallway_lock_and_perimeter_gates_2026_11_12.md.
 - **Why:** Off by design as shadow-first (README v5.107.0, PLANNING_perimeter_fp_build_2026_11.md), but gate_decisions_by_camera {} and zone_map {} live; D5 learning (g5_bullet clears bar); D5 settle 8 s shorter than most camera lag. 2,295 CRITICAL...
 - **Next:** DO: in URA options -> Perimeter, set perimeter_zone_sensors to the four Frigate property-zone person-occupancy sensors for g5_bullet, rear_ptz, utilities_ptz and front_side_ptz (ids in the audit, resolved by registry), and confirm Frigat...
-- **Forensic keys (11):**
+- **Forensic keys (12):**
+  - `recheck_2026_11_22_overnight`: STILL-WAITING: ssh ha grep -c perimeter_zone_sensors /config/.storage/core.config_entries = 0. DO + PICK stand; dispose-by 2026-11-28.
   - `recheck_2026_11_20_overnight`: STILL-WAITING (02:06 CST .storage/core.config_entries via the Samba mount): no URA entry carries a perimeter_zone_sensors key in data or options, so the options-flow step is not done. Card unchanged.
   - `recheck_2026_11_18_overnight`: 02:01 CST core.config_entries (Samba mount, verified not stale vs host): no URA entry carries perimeter_zone_sensors; perimeter_single_source_demote still True. DO/PICK stands. Disposal date 11-28 approaching.
   - `verified_2026_11_15_overnight`: STILL-WAITING: no URA config entry carries perimeter_zone_sensors in data or options (core.config_entries via the Samba mount).
@@ -1403,17 +1421,6 @@ _created 2026-11-12 22:55 · updated 2026-11-21 02:05_
   - `recheck_2026_11_17_overnight`: ~02:05 CST read of .storage/core.config_entries (Samba mount): perimeter_zone_sensors still absent from every URA entry, so D3 still cannot run. DO + PICK stand; dispose-by date 2026-11-28 unchanged.
   - `recheck_2026_11_19_overnight`: STILL-WAITING: .storage/core.config_entries (Samba mount mtime 01:25:40 = host mtime, not stale) has no perimeter_zone_sensors on any URA entry, data or options. D3 still cannot run. DO + PICK stand; dispose-by 2026-11-28.
   - `recheck_2026_11_21_overnight`: STILL-WAITING: ssh ha grep -c perimeter_zone_sensors /config/.storage/core.config_entries = 0 (read on the HA host directly; the Mac's Samba mount /Users/okosisi/ha-config is not mounted tonight). D3 still cannot run. DO + PICK stand; di...
-
-### `DASH-V8-VEHICLE-STATUS-CARD-1` - Add ngocjohn/vehicle-status-card for the CX-90 PHEV to the Now tab of the URA v8 dashboard — _#31 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **dashboard** - status: **waiting_operator** - approval: **blocked**
-_created 2026-11-15 20:40 · updated 2026-11-21 02:10_
-- **Origin:** 2026-11-15 - Operator aside after the v5.108.28/29 go.
-- **Next:** APPROVE: install the third-party HACS frontend card ngocjohn/vehicle-status-card (new frontend code in HA) for the CX-90 on the v8 Now tab -> I check its latest release and open issues, install it in an attended session, and add a card b...
-- **Forensic keys (4):**
-  - `tier`: 1
-  - `operator_2026_11_15`: Maybe we can add https://github.com/ngocjohn/vehicle-status-card to the Now tab of the ura v8 dashboard. The Mazda integration is back.
-  - `facts_2026_11_15`: mazda_cs entry loaded (01M7H3M7KAAT61GFEEHMFVA518), device garage_a_2025_cx_90_phev_preferred: doors/trunk/lock, plugged_in, charging switch, charge_level, remaining_charging_time_ac, fuel %, ranges, tire pressures + warnings, climate, d...
-  - `triage_2026_11_21_overnight`: Moved inbox -> waiting_operator: the only blocker is the install yes the card itself names (third-party frontend code = always-explicit). Not done overnight (HA write).
 
 ### `SAFEWORD-WINDOW-1` - Safe-word ack window — one "duke" covers perimeter alerts for a bounded period (operator-proposed) — _#32 · WSJF 1.8 · v4 tc3 u2 /e5_
 thread: **notifications** - status: **waiting_operator** - approval: **operator_proposed**
@@ -1678,8 +1685,8 @@ _created 2026-11-13 12:30_
 
 ### `EGRESS-DIRECTION-AWARE-IDENTITY-1` - Egress drops the name of anyone the tracker shows away, in both directions; entries by away people are exactly arrivals — _#7 · WSJF 3.0 · v8 tc5 u2 /e5_
 thread: **identity** - status: **shipped_organic**
-_created 2026-11-12 22:00 · updated 2026-11-20 21:04_
-- **⏰ Due:** 2026-11-21 10:00 — S1 reasons reviewed SHIP + merged to develop 369537615 (11-20 21:03); ship with perimeter circling + lock wording in the next batched release; then check edge_anchor_reason on new crossings
+_created 2026-11-12 22:00 · updated 2026-11-22 02:02_
+- **⏰ Due:** 2026-11-22 10:00 — S1 reasons merged to develop 369537615; ships in the next attended batched release (11-21 release did not run, HA still v5.108.38). Then check edge_anchor_reason on new crossings.
 - **Origin:** 2026-11-12 - Operator: "Who made this rule? I didn't... It should do both especially since we have a direction detector."
 - **Why:** not_home veto at transit_validator.py:1840-1854 copied from the census veto in Aug 2026 without direction. Plan rev 8 section 2B: entry+away = arrival candidate, exit+home = departure candidate, guards (face conf, path, GPS), census keep...
 - **Next:** Me: first-arrival evidence (named notice, D8a edge_anchor), then score names on the graded batch.
