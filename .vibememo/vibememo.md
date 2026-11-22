@@ -82,3 +82,6 @@ One counseling note from the same pass: feed and card times were typed from a fe
 
 
 **2026-11-20, 'arrived' means the phone arrived.** The first live named arrival from the old face path was wrong (a resident already home walked in from the garage), so entry notices now say 'arrived' only with that person's own arrival edge and 'came in' otherwise; S1 non-anchors now record why. Unified room rules was built the same day and waits on review → [343](users/ojiudezue/entries/343_arrived_vs_came_in_and_room_rules_built.json).
+
+
+**2026-11-22, met in letter, failing in practice.** The overnight soak-exit sweep found two features whose checks looked passed: music following picked the right speakers but all 13 moves failed, because AirPlay music isn't in a Music Assistant queue (fix: use the MA path only for real MA queues), and Garage A door-camera entries could never get an indoor path, because the path map has no route from that camera (fix: one map line, waiting on approval). It also rejected the previous night's 'clean' suite runs, whose baseline was broken, and re-proved the three review fixes on a green develop (23,846 pass, 0 fail) → [345](users/ojiudezue/entries/345_overnight_findings_airplay_ma_path_and_doorbell_lite_path_gap.json).
