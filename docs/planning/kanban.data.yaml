@@ -9,6 +9,10 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {"fid": "PEOPLE-SCREEN-1@2026-11-22T02:05:00", "card_id": "PEOPLE-SCREEN-1", "at": "2026-11-22T02:05:00", "outcome": "escalated", "headline": "The People settings screen can only be proven by you: no profile has ever been saved. Two-minute ask: save one profile, then clear one pick.", "acknowledged": false}
+  - {"fid": "VISION-P3-FIRST-SET-1@2026-11-22T02:05:00", "card_id": "VISION-P3-FIRST-SET-1", "at": "2026-11-22T02:05:00", "outcome": "parked", "headline": "Parked the crossing-vision first set: its test needs a group of 3+ people at a door and a sleeper-only night, and neither has happened yet. It wakes on the first one.", "acknowledged": false}
+  - {"fid": "VISION-INTERIOR-SHIP1-1@2026-11-22T02:05:00", "card_id": "VISION-INTERIOR-SHIP1-1", "at": "2026-11-22T02:05:00", "outcome": "done", "headline": "Closed interior vision ship 1: 20 indoor path records written since 11-16. Its 'no path' alarm fired again on 11-20 (5 door entries, 1 path), so I opened a small investigation into why most entries get no path.", "acknowledged": false}
+  - {"fid": "MUSIC-FOLLOWING-TRANSFER-REPAIR-1@2026-11-22T02:05:00", "card_id": "MUSIC-FOLLOWING-TRANSFER-REPAIR-1", "at": "2026-11-22T02:05:00", "outcome": "done", "headline": "Closed the music-following repair: the Music Assistant path and the WiiM speaker match now work. Found a new gap: all 13 moves on 11-21 failed because the music was AirPlay, which Music Assistant cannot move. Carded a one-condition fix (needs a 5-minute live test first); not built tonight.", "acknowledged": false}
   - {"fid": "RELEASE-DUE-REDATE@2026-11-22T02:02:00", "card_id": "AI-ROOM-RULES-TRUST-REPAIR-1", "at": "2026-11-22T02:02:00", "outcome": "measured", "headline": "Yesterday's 10:00 batched release did not happen (HA still on v5.108.38). Moved the three ship-at-release follow-ups to today 10:00 and pushed the test-harness fix that was sitting unpushed on develop, so the release suite starts green.", "acknowledged": false}
   - {"fid": "WAITING-OP-RECHECK@11-22@2026-11-22T02:02:00", "card_id": "WAITING-OP-RECHECK@11-22", "at": "2026-11-22T02:02:00", "outcome": "measured", "headline": "Re-checked 5 cards waiting on you; none changed: kitchen smoke detector still offline, perimeter zone sensors unset, landscape first step lacks continue-on-error, no WhatsApp/app 'diag' reply, AI Task key still locked to 12-01.", "acknowledged": false}
   - {"fid": "FRIGATE2-SWAP-FULL-1@2026-11-21T02:10:00", "card_id": "FRIGATE2-SWAP-FULL-1", "at": "2026-11-21T02:10:00", "outcome": "done", "headline": "Closed the Frigate 2 memory warning: the hang it predicted happened 11-16 and the homelab side has since fixed the leak and added guards (memory cap, watchdog restart, Kuma alarm).", "acknowledged": false}
@@ -35333,18 +35337,19 @@ cards:
   revisit_trigger: "A measured one-shot refresh at plug-in returns a fresh SOC within minutes without 12 V drain concerns, and a departure-time source exists; then revisit idea 2."
   next: "Parked: no build. Revisit on the trigger above."
 - id: MF-MA-TWIN-WIIM-UUID-1
+  disposed_2026_11_22_overnight: "Parked trigger FIRED (WiiM-sourced decisions exist). Twin resolution DONE: every 11-21 row resolves src/dst via wiim_uuid_match to the live _7 entities. The 'ok' half of the trigger is NOT met but for a different cause (AirPlay source, no MA queue), carded separately as MF-MA-PATH-NON-MA-SOURCE-1 rather than reopening this card."
   soak_exit_2026_11_20: "NO-EVIDENCE: 17 music_follow_decision rows since 11-16 15:32 CST, all sourced from media_player.master_bedroom_sonos (no WiiM-to-WiiM move, no path=ma). Parked with trigger."
   title: "Music following picks a dead Music Assistant twin in every WiiM room: the _5 twins are unavailable all week; the playing _7 twins (wiim_uuid identifiers) never match"
   thread: music
-  status: parked
+  status: "done"
   shipped_version: v5.108.33
   tier: 2
   created: '2026-11-15 22:35'
-  updated: '2026-11-15 22:35'
+  updated: "2026-11-22 02:05"
   links: {related: [MUSIC-FOLLOWING-TRANSFER-REPAIR-1, PERSON-PROFILE-PREFERENCES-1]}
   origin: {date: '2026-11-15', gist: 'Found by the step 8 B0 probe (AUDIT_step8_b0_ours_attr_2026_11_15.md addendum, 8e87a59a).'}
   why: "_ma_candidates (music_following.py:1140-1195) matches the _5 twins by MAC-in-identifier (upc...); every _5 is unavailable in all 7-day rows. The _7 twins that actually play carry music_assistant identifier wiim_uuid:<uuid>, equal to the native device's wiim identifier with dashes stripped plus an 8-hex suffix; no rule matches it. _resolve_path takes the first candidate, gets ma_source_not_playing, and falls back to native WiiM join. Effect: the v5.108.26 MA-first transfer has never run in a WiiM room; the arrival engine (MA first) would target the dead twin too."
-  next: "Parked: when a WiiM-sourced music_follow_decision appears, check path: ma + ok = DONE, else REOPEN."
+  next: "Closed 11-22: twin match proven; transfer failure carded MF-MA-PATH-NON-MA-SOURCE-1."
 - id: STUCK-SENSOR-S3B-S1-1
   residual_2026_11_16_boot_settle_drops_chatter: "Live validation of v5.108.30: the 06:38:30 chatter NM (Garage B ratgdo motion) has an NM dedup entry but no notification_log row. Mechanism (verified in source): NM boot-settle collapses repeat (coordinator, hazard_type) emits in the first NM_BOOT_SETTLE_S=60 s (notification_manager.py:1797-1806, :847-858); every stuck kind shares STUCK_SIGNAL_NM_HAZARD_TYPE, so the dutycycle NM at 06:38:21 swallowed the chatter NM, and fire_stuck_signal still set the per-day latch (_stuck_signal_nm.py:245), so chatter is silent until tomorrow. Fix: include location (the stuck kind) in the boot-settle key for stuck_signal, or have async_notify report the drop so the latch is not set. Tier 1, NM primitive, ship with the next batch. Also README S3a-2 observable was wrong: automation_health.excluded_sensors is dutycycle-only (sensor.py:2613-2616), no entity exposes the chatter exclusion client."
   title: "Stuck-sensor truth S3b (MS600 bit resolves radar by registry model) + S1 (P22 off-pulse tolerance for motion-class inputs; one not-on stretch)"
@@ -35490,44 +35495,48 @@ cards:
   discriminator_2026_11_16: "Done when the first opted-in arrival logs outcome=started (or a named skip) then arrived/wait_* with zero stopped_then_arrived, a same-day GPS flap is skipped short_absence, and the first welcome scene logs scene_confirmed."
   next: "Deploy v5.108.31 with the morning restart; live checks per README; then the live MA test sets the ownership rule (parent)."
 - id: VISION-INTERIOR-SHIP1-1
+  soak_exit_2026_11_22_overnight: "DISPOSED done, MET-WITH-RESIDUAL. Leg 1 MET: 20 interior_path rows (memory_episodes), 19 with >=1 hop, first 11-16 19:05Z, e.g. garage_a entry 11-22 05:57Z with 3+ hops. Leg 2 NOT clean: interior_path_zero fired 11-16 19:02Z and 11-17 19:49Z (at/before the first rows, start-up) and again 11-21 01:06:58Z ('5 entries on mapped doors in 24 h but no path record') - a real recurrence, carded INTERIOR-PATH-ZERO-1120-1. interior_room_records_zero never fired."
   title: "Interior vision ship 1: unnamed room records per shared camera room, entry-path rows, trip-wires; no AI calls, nothing reaches census or presence"
   discriminator_2026_11_15: "Done when >=1 interior_path row with >=1 hop exists after a mapped-door entry AND interior_records_zero / interior_path_zero never fired in the window."
   thread: identity
-  status: shipped_organic
+  status: "done"
   shipped_version: v5.108.28
   tier: 3
   created: '2026-11-15 20:10'
-  updated: '2026-11-15 20:10'
+  updated: "2026-11-22 02:05"
   links: {parent: VISION-INTERIOR-SIGHTINGS-1}
   origin: {date: '2026-11-15', gist: 'Split from VISION-INTERIOR-SIGHTINGS-1 for the v5.108.28 deploy; parent keeps ship 2, vision leg, D4 census flip, ledger floor.'}
   why: "Plan 7b818ce1 ship 1 (D1 + D5 no-model + D7). Reviews A/B/C/D+G, fix-up 6025e9ba, merge-fix 525f0cb4. Full suite on merged branch clean except one registry line fixed in c4dd65ce. Orchestrator mutation: stuck=False -> test_census_discounted_member_never_reaches_a_record RED."
-  next: "Dispose by the discriminator at the next sweep (query, do not watch)."
+  next: "Closed 11-22 (met-with-residual). Residual: INTERIOR-PATH-ZERO-1120-1."
 - id: PEOPLE-SCREEN-1
+  soak_exit_2026_11_22_overnight: "NOT-MET, needs operator: the Coordinator Manager entry in core.config_entries has no person_profiles key (store: person_profiles.py:3, CONF_PERSON_PROFILES const.py:5508; entry modified_at 11-19 20:24Z). No profile has ever been saved, so neither leg can be judged without the operator using the screen."
   title: "People settings screen and per-person profile store (step 8 §10.1); configuration only, nothing acts yet"
   discriminator_2026_11_15: "Done when the operator saves one profile from the UI without an integration reload AND a cleared pick clears."
   thread: identity
-  status: shipped_organic
+  status: "waiting_operator"
   shipped_version: v5.108.29
   tier: 2
   created: '2026-11-15 20:10'
-  updated: '2026-11-15 20:10'
+  updated: "2026-11-22 02:05"
   links: {parent: PERSON-PROFILE-PREFERENCES-1}
   origin: {date: '2026-11-15', gist: 'Operator: ship the People screen first. Split for the v5.108.29 deploy; parent keeps D2/D3/D4/D6/D7.'}
   why: "Reviews A+G, B, C (130 mutations); fix pass b769c29e (40/40 fix sites RED); develop merge 235f5c0f; allowlist pin c8a9a16c. B0 live form check right after install, rollback if the form fails."
-  next: "Dispose by the discriminator at the next sweep (query, do not watch)."
+  next: "DO (when convenient, 2 min): in URA -> Coordinator Manager options -> People, save one person profile, then clear one pick and save again -> I read core.config_entries person_profiles to confirm both saved without an integration reload and close this."
 - id: VISION-P3-FIRST-SET-1
+  revisit_trigger: "First crossing_vision_shadow row with people_count >= 3 (then check outcome ok vs refused), or the first empty-house anchor evaluation while a sleeper's radar is the only on input."
+  soak_exit_2026_11_22_overnight: "Discriminator NOT EVALUABLE in window -> parked with revival trigger (soak-exit rule 3). Leg a: live crossing_vision_today.calls = 0 (sensor.ura_security_coordinator_outside_open_tracks_diagnostic, 02:04 CST) = 0 DB call rows today (ended_at >= 11-22 06:00Z); consistent but not discriminating (no calls yet today). Leg b: no crossing_vision_shadow row with people_count >= 3 since 11-15 (outcomes since 11-20: ok 42, clustered 16, no_frigate_event 5, blank 4, error 1, refused 0). Leg c: no sleeper-only anchor case found to judge (README_v5.108.27:68/:88 say none existed); not measured tonight."
   title: "Crossing vision Phase 3 first set: error text on error rows, restart-safe daily cap (default 93, 4000 tokens), stuck-excluded inputs stop holding the empty-house anchor"
   discriminator_2026_11_15: "Done when crossing_vision_today.calls equals today's DB call rows after a restart AND the first group of 3+ returns ok (not refused) AND no anchor release while a sleeper's radar is the only on input."
   thread: identity
-  status: shipped_organic
+  status: "parked"
   shipped_version: v5.108.27
   tier: 3
   created: '2026-11-15 18:45'
-  updated: '2026-11-15 18:45'
+  updated: "2026-11-22 02:05"
   links: {parent: VISION-AMBIGUOUS-CROSSINGS-1, related: [DOOR-VISION-GROUP-UNDERCOUNT-1]}
   origin: {date: '2026-11-15', gist: 'Split from VISION-AMBIGUOUS-CROSSINGS-1 and DOOR-VISION-GROUP-UNDERCOUNT-1 so the v5.108.27 deploy marks only what shipped; both parents keep P3-D2/D3/D10/D11 open.'}
   why: "P3-D1 + P3-D5 + P3-D8 (+ P3-D0 knobs) from PLANNING_crossing_vision.md Phase 3. Operator Go 2026-11-15. Full suite 22,788 passed (1 order-dependent flake, passes alone); orchestrator mutation on both P3-D8 sites RED (7 and 12 tests)."
-  next: "Dispose by the discriminator at the next sweep (query, do not watch)."
+  next: "Parked: revive on the trigger below (query, do not watch)."
 - id: VISION-AMBIGUOUS-CROSSINGS-1
   arc_close_2026_11_19: "DONE per AUDIT_arc_close_sweep_2026_11_19.md (aa572b18e)."
   rescore_2026_11_18: "AUDIT_door_scoring_and_names_2026_11_18.md: 56 grades (36 in/out: front 27, garage 9). Tracker 23/36 (all 13 errors entry->exit), always-in 20/36; I4 v1 30/36 but HOLDOUT (17 grades after 11-17) 13/17 = tracker, so its earlier 17/19 was an in-bias fit: not a direction source. P3-D6 bar unmet everywhere (front best Wilson LB 0.67 n=27). Vision direction unscorable: it exists only on crossings since v5.108.36 (11-17) and no grades overlap yet. Names unscorable: 0 grades carry who. v5.108.36 live: vision answers passing/unclear on most crossings (16/22 ambiguous = passing), i.e. many ambiguous crossings are passers-by. Next measurement needs the 41-card names batch g20261118-0634 graded."
@@ -35856,6 +35865,7 @@ cards:
   suite_2026_11_21_overnight: "FULL SUITE RE-RUN (the one owed after the Mac restart): scripts/suite_namediff.py, develop eb83bc435 vs v5.108.38 (9e171ad99), 02:00-02:28 CST. Base 23792 passed / 0 failed; develop 107 failed / 23717 passed -> 107 NEW, 0 GONE. All 107 are in three AST-slice harness files: test_part2_ec_hc_writeback.py (42), test_room_options_reload_suppression.py (34), test_reload_watchdog_hazard.py (31). Mechanism (read, not guessed): the merge added the aliased import _CONF_ROOM_RULES_AI_TASK_ENTITY to _NO_LIVE_ATTR_KEYS and OPTIONS_RELOAD_SUPPRESS_KEYS (__init__.py ~6985, ~7524, ~7749); those harnesses exec a slice of __init__.py with hand-kept alias tables, so every test in them fails at setup. Production unaffected (real import). TEST-ONLY FIX built: branch fix/room-rules-reload-harness-alias ccf8c9b2b (alias added to all three tables, expected-set + count ledger 140 -> 141). Targeted isolated re-run of the three files queued; result appended below when it lands. The 10:00 release must carry this commit (merge it before deploy.sh) or the release suite gate is red."
   harness_fix_verified_2026_11_21_overnight: "Targeted isolated re-run (suite_namediff --files ... --isolate, 02:36 CST): develop 98c576ccc = 107 failing in the three files; fix/room-rules-reload-harness-alias ccf8c9b2b = 0 failing -> 107 GONE, 0 NEW. Branch pushed. Test-only, 8 lines. Not merged overnight (merge at the attended release). Review owed is Tier 1 (one pass) or the orchestrator's read: it only adds the alias to the three hand-kept tables + bumps the count ledger."
 - id: MUSIC-FOLLOWING-TRANSFER-REPAIR-1
+  soak_exit_2026_11_22_overnight: "DISPOSED done, MET-WITH-RESIDUAL. Discriminator 'decision rows show path ma in a WiiM room after the twin fix' MET: 13 music_follow_decision rows path=ma, path_reason ma src=media_player.kitchen_7(wiim_uuid_match) (URA DB, 11-21 17:52Z-11-22 02:59Z); TV-audio skip working (6 source_not_transferable 11-18); 0 verify_failed. Residual carded MF-MA-PATH-NON-MA-SOURCE-1: all 13 ma moves FAILED (ma:HomeAssistantError) because the source was AirPlay (app_id airplay, active_queue null) and MA had no queue to move (MA log 'Resume queue requested but queue X is empty')."
   validated_2026_11_20: "v5.108.35 TV-audio skip working live: 7 source_not_transferable rows (content=x-sonos-htastream) 11-18; 0 verify_failed since the .35 install; 10 source_has_others. Real-music handoff still unobserved."
   residual_2026_11_17_verify_failed: "AUDIT_arc_day_validation_2026_11_17.md: all 7 music_follow_decision episodes since the v5.108.34 restart are verify_failed; Master Bedroom media_player.master_bedroom_sonos_2 not found 68x in the log. Charter: music following is mission critical day 1. RESULT (AUDIT_music_follow_verify_failed_2026_11_17.md): real failure, not a verify defect, not a .33/.34 regression (all 7 predate the .33 install). Source was the Master Bedroom Sonos playing TV audio (x-sonos-htastream ... spdif); no MA twin (the MA Sonos wrapper master_bedroom_sonos_2 was deleted 11-15 22:39, cause unknown) -> generic play_media of a Sonos-only URI to WiiM players; move mode also ducked the TV ~2 s per attempt. Fix building on fix/mf-skip-tv-audio (skip TV/line-in sources before any side effect). Operator config: Master Bedroom room_media_player still names the deleted _2 entity (log spam 68x); point it at media_player.master_bedroom_sonos or re-add the Sonos in Music Assistant. Gap: no real-music handoff observed yet."
   operator_2026_11_14_distance_gate: "Music: yeah off. Does the distance gate even have merit? Should it be dropped entirely?"
@@ -35863,14 +35873,14 @@ cards:
   design_2026_11_13: 'DESIGN_reimagine_room_ai_chaining_music_2026_11_13.md steps 0, 1 and 5: probes first (one WiiM-to-WiiM walk while playing, read group_members on both; map each room player to its Music Assistant entity via the device registry); then MA-first transfer, success only when the target is actually playing; later per-person preferences from PERSON-PROFILE-PREFERENCES-1 (music following is its first consumer). Comfort-class consumer of person location (BLE room transitions, nearest F4); moves to the awareness read API when it has a per-person room view.'
   title: Music following transfers are wired wrong (join leader inverted, MA transfer_queue wrong keys) plus dead timing knobs, reload listener leak and uncounted skips
   discriminator_2026_11_15: "Reopened in part: MA-first never ran in WiiM rooms (dead _5 twin; MF-MA-TWIN-WIIM-UUID-1). Done when MF decision rows show path ma_* in a WiiM room after the twin fix ships."
-  status: shipped_organic
+  status: "done"
   shipped_version: v5.108.35
   tier: 2
   links: {parent: AUDIT-ROOM-AI-AUTOMATION-CHAINING-MUSIC-1, related: [TEST-MUSIC-SYSMODULES-LEAK-1, MUSIC-FOLLOWING-NO-TRANSFERS-SINCE-MAY-1]}
   origin: {date: '2026-11-13', gist: 'From the room AI/music audit.'}
   why: 'music_following.py:1505 media_player.join with entity_id=target (idle) and group_members=[source]: HA join makes entity_id the leader, so the idle player leads (verified in code; live effect unverified). :1553 music_assistant.transfer_queue sent {source,target}; real schema is target entity + source_player/auto_play, so it raises and falls to play_media (188/352 players are MA; MA-first path is the modern route, Sendspin is an MA provider). Five CM knobs (cooldown, ping-pong window, verify delay, unjoin delay, position offset) are read and only logged (Bug Class #32); stale_transition_seconds has no field. Diagnostic listeners not removed on CM reload. No-player / source-not-playing skips not counted, BLE-distance rejects booked as low_confidence. test_v5100 FakeServices lacks target= kwarg. _stop_all_playback would stop all 352 players (off by default); music_on_arrival_start offered in the form but a no-op.'
   operator_2026_11_13_personalization: 'Music following is key to personalization. (feeds PERSON-PROFILE-PREFERENCES-1)'
-  next: "Dispose by the discriminator at the next sweep (query, do not watch)."
+  next: "Closed 11-22 (soak exit, met-with-residual). Residual: MF-MA-PATH-NON-MA-SOURCE-1."
   rank: {value: 10, time_criticality: 7, effort: 4}
   approval: explicit
   approved_by: operator
@@ -35891,7 +35901,7 @@ cards:
   FINDING_2026_11_14_ble_inputs_dead: 'BLE audit: person BLE confidence is constant (0.5 Oji, 0.3 others) and closest_distance is never live (lost each tick; per-scanner distance sensors dead since 10-20). The plan rewrite replaced the dwell gate with BLE confidence/distance carried in the room-change event: those inputs are dead today. Before build: re-base the gate on inputs that are live (e.g. the Bermuda per-device sensor.<dev>_distance / _area, or the BLE room-transition source and its own confidence), or make the gate fail open with a counter. Re-plan item for the overnight build.'
   SEAM_CONFLICT_2026_11_14_overnight: 'Cross-plan conflict found overnight 11-14 (cross-work reconciliation). PLANNING_music_following_repair.md D1 (~:135-145, knob table ~:316) gates music following on the person BLE confidence (NEW CONF_MF_MIN_BLE_CONFIDENCE, default 0.5, carried in the person_coordinator.py ~:1059 event) and pushes the 8 ft distance gate live. Measured (AUDIT_ble_person_sensor_resolution_2026_11_14.md section 2): person BLE confidence is a CONSTANT 0.3 for Ezinne/Ziri/Jaya and 0.5 for Oji since 10-20, because Bermuda stopped creating the per-scanner distance sensors (BERMUDA-DISTANCE-SENSORS-DEAD-1); closest_distance is never stored (stale-dict bug). BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1 moves Oji 0.5 -> 0.3. So, as planned, music D1 would skip every move for everyone (0.3 < 0.5) once both ship, and its distance gate has no input. Resolution needed before the music build: either the confidence/distance producer is re-based on the live per-phone Bermuda sensors first (BERMUDA card pick A), or D1 must not gate on person confidence until it is real (D0 should measure it and find the constant). Recorded on MUSIC-FOLLOWING-TRANSFER-REPAIR-1, BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1 and BERMUDA-DISTANCE-SENSORS-DEAD-1.'
   links_added_2026_11_14: 'blocked_by BERMUDA-DISTANCE-SENSORS-DEAD-1 for D1 (the BLE confidence/distance gate inputs are dead); the rest of the plan (join direction, transfer_queue schema, knobs, listeners) is not blocked.'
-  updated: '2026-11-14 02:25'
+  updated: "2026-11-22 02:05"
 - id: PHONE-LEFT-BEHIND-TRANSIENT-FLICKER-1
   arc_close_2026_11_19: "PARK per AUDIT_arc_close_sweep_2026_11_19.md (aa572b18e). Revival trigger: a flicker coincides with a house-state change or an AWAY decision."
   arc_cut_v5_108_37: "separate arc work, not in the step 7 S1 release"
@@ -36586,6 +36596,51 @@ cards:
   recheck_2026_11_16_overnight: "INCONCLUSIVE, NOT an all-clear (~02:04 CST): HA restarted 11-15 21:46; ha_get_logs source=system has no 'usage limits' or 'ai_task' entry since then, and the newest 2000-line error_log window has none either. That only means no optimizer LLM call failed (or ran) in that window; it does not show the quota was lifted. The console DO stands; the card closes only on a logged successful ai_task call."
   recheck_2026_11_19_overnight: 'INCONCLUSIVE, NOT an all-clear: system_log search anthropic = 0 entries and the newest 2000-line error_log window has no ''limit'' record. That shows no failed call in this window, not that the quota lifted. Closes on a logged successful ai_task call or 12-01.'
   recheck_2026_11_21_overnight: "STILL-REAL, now positively confirmed (ha_get_logs source=system search=anthropic, 02:02 CST): optimization_llm.py:941 WARNING 'ai_task.generate_data failed (entity=ai_task.claude_ai_task): ... You have reached your specified API usage limits. You will regain access on 2026-12-01 at 00:00 UTC', count 9 since the 11-20 22:47 restart, plus the matching homeassistant.components.anthropic ERROR x9. DO + PICK stand; closes on a logged successful call or 12-01."
+- id: MF-MA-PATH-NON-MA-SOURCE-1
+  title: "Music following sends every WiiM move down the Music Assistant path even when the music is AirPlay, so all 13 moves since 11-21 failed"
+  thread: music
+  status: planned
+  tier: 1
+  created: '2026-11-22 02:05'
+  updated: '2026-11-22 02:05'
+  refinement_status: initial
+  problem_solution:
+  - "Problem: when someone plays music to a WiiM speaker over AirPlay and walks to another room, URA tries to move it with Music Assistant, but Music Assistant has nothing queued (the music never went through it), so the move fails every time: 13 of 13 attempts on 11-21. Solution: only use the Music Assistant path when the source speaker is actually playing a Music Assistant queue; otherwise fall to the next path, or skip and count it as a source that cannot be moved, decided by a 5-minute live test."
+  origin: {date: '2026-11-22', gist: 'Found by the overnight soak-exit disposition of MUSIC-FOLLOWING-TRANSFER-REPAIR-1 (ura-prober + orchestrator recorder read).'}
+  measured_2026_11_22_overnight: "URA DB memory_episodes music_follow_decision since 11-18: failed/ma 13 (11-21 17:52Z to 11-22 02:59Z), all reason ma:HomeAssistantError, path_reason 'ma src=media_player.kitchen_7(wiim_uuid_match) dst=..._7(wiim_uuid_match)' (twin resolution works); failed/generic 1 (no_content); ok 0. Music Assistant add-on log (ha_get_logs supervisor d5369777_music_assistant): 'player_queues/transfer: Resume queue requested but queue Powder/Patio/Receiving/Study A/... is empty' at every failure time. Recorder media_player.kitchen_7 at 20:53-20:59 CST: state playing, app_id airplay, source AirPlay, media_content_id wiimu_airplay, active_queue null. After the move it reads app_id music_assistant, source 'Music Assistant Queue', idle."
+  mechanism_2026_11_22: "music_following.py:2853 _resolve_path picks PATH_MA when an MA candidate entity's state is playing (:2860-2863). The MA entity mirrors the WiiM's own state, so AirPlay playback reads 'playing' with app_id airplay and active_queue null; transfer_queue then has no MA queue to move and MA raises. The pre-path gate _non_transferable (music_following.py:2627, MF_NON_TRANSFERABLE_* const.py:4657-4672) has no AirPlay entry, so it does not catch this."
+  why: "Music following is operator mission-critical (ships ON, must work day 1). AirPlay to WiiM appears to be the household's normal way to play, so the MA path as wired fails on the common case."
+  constraints:
+  - "Registry/attribute only: decide on the MA entity's app_id / active_queue, never on entity-id strings."
+  - "Do not guess whether a WiiM linkplay join carries an AirPlay stream: verify live (5-minute test) before choosing join vs skip."
+  knobs: []
+  parsimony: {problem: "With AirPlay playing on a WiiM source, _resolve_path returns PATH_MA and transfer_queue fails 100% of the time.", verdict: BUILD}
+  gate_2026_11_22_overnight: "Validity STILL-REAL (13/13 failures, mechanism read in source + recorder + MA log). Config-first: none (MF_MA_FIRST_ENABLED=False would drop MA for real MA queues too). Prior art: REUSE _resolve_path + _non_transferable + source_not_transferable outcome. Parsimony BUILD (one condition: playing candidate must have app_id music_assistant / non-null active_queue). Cost/benefit: Tier 1. NOT built overnight: WIP cap (6 cards in review >= 3, skill rule 3) - drain first."
+  links:
+    parent: MUSIC-FOLLOWING-TRANSFER-REPAIR-1
+    related: [MF-MA-TWIN-WIIM-UUID-1, PERSON-PROFILE-PREFERENCES-1]
+    context: "MUSIC-FOLLOWING-TRANSFER-REPAIR-1 shipped the MA path this card corrects; MF-MA-TWIN-WIIM-UUID-1's twin match is proven working by the same rows (wiim_uuid_match); PERSON-PROFILE-PREFERENCES-1 already plans the 'MA app_id + active_queue across a track change' live test this fix needs."
+  rank: {value: 7, time_criticality: 5, effort: 2}
+  next: "Me (attended, house awake): 5-minute live test - AirPlay to Kitchen WiiM, call media_player.join Kitchen->Powder and see whether Powder plays; then build Tier 1: MA path only when the playing MA candidate has app_id music_assistant (else join if the test passed, else source_not_transferable 'airplay'), real-path tests, one review, ship in a batched release."
+  refs: [docs/readmes/README_v5.108.35.md]
+- id: INTERIOR-PATH-ZERO-1120-1
+  title: "The 'mapped-door entries but no interior path' trip-wire fired on 11-20 with 5 entries and 1 path row: find out why interior paths are sparse"
+  thread: vision
+  status: investigating
+  tier: 1
+  created: '2026-11-22 02:05'
+  updated: '2026-11-22 02:05'
+  refinement_status: initial
+  problem_solution:
+  - "Problem: interior vision writes a path record after someone enters by a mapped door, and a trip-wire pages when entries happen with no path. It fired again on 11-20 (5 entries in 24 h, 1 path), after path records were already flowing, so some entries silently get no path. Solution: measure which entries got no path and why (no camera hop, timing, door mapping), then fix or tune."
+  origin: {date: '2026-11-22', gist: 'Residual of the overnight soak-exit disposition of VISION-INTERIOR-SHIP1-1.'}
+  measured_2026_11_22_overnight: "notification_log 'Stuck signal: interior_path_zero' fired 11-16 19:02Z, 11-17 19:49Z (both before/at first path rows) and 11-21 01:06:58Z ('5 entries ... no path record'); memory_episodes interior_path = 20 rows total (19 with >=1 hop), first 11-16 19:05Z; one path row in the 24 h before the 11-21 fire. Fire site person_sighting.py:1838. interior_room_records_zero never fired."
+  why: "A producer that drops most entries caps every later consumer (census interior counts, F4 sightings)."
+  links:
+    parent: VISION-INTERIOR-SHIP1-1
+    context: "VISION-INTERIOR-SHIP1-1 shipped the path producer; its discriminator is met except this trip-wire recurrence."
+  rank: {value: 4, time_criticality: 2, effort: 2}
+  next: "Me (next overnight): join the 11-20 mapped-door entry rows (find their table in person_sighting.py near :1838) against interior_path rows; classify each missing path (no hop camera saw them / window too short / door not mapped). Close or promote."
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
