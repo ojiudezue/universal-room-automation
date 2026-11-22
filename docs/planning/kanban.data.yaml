@@ -9,6 +9,7 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {"fid": "INTERIOR-PATH-ZERO-1120-1@2026-11-22T02:08:00", "card_id": "INTERIOR-PATH-ZERO-1120-1", "at": "2026-11-22T02:08:00", "outcome": "escalated", "headline": "Found why the indoor-path alarm fired on 11-20: people seen only by the Garage A door camera (doorbell_lite) never get an indoor path, because the path map has no route starting from that camera. The fix is one line in the path map, no code and no restart. Waiting on your OK and a check that the route is right.", "acknowledged": false}
   - {"fid": "PEOPLE-SCREEN-1@2026-11-22T02:05:00", "card_id": "PEOPLE-SCREEN-1", "at": "2026-11-22T02:05:00", "outcome": "escalated", "headline": "The People settings screen can only be proven by you: no profile has ever been saved. Two-minute ask: save one profile, then clear one pick.", "acknowledged": false}
   - {"fid": "VISION-P3-FIRST-SET-1@2026-11-22T02:05:00", "card_id": "VISION-P3-FIRST-SET-1", "at": "2026-11-22T02:05:00", "outcome": "parked", "headline": "Parked the crossing-vision first set: its test needs a group of 3+ people at a door and a sleeper-only night, and neither has happened yet. It wakes on the first one.", "acknowledged": false}
   - {"fid": "VISION-INTERIOR-SHIP1-1@2026-11-22T02:05:00", "card_id": "VISION-INTERIOR-SHIP1-1", "at": "2026-11-22T02:05:00", "outcome": "done", "headline": "Closed interior vision ship 1: 20 indoor path records written since 11-16. Its 'no path' alarm fired again on 11-20 (5 door entries, 1 path), so I opened a small investigation into why most entries get no path.", "acknowledged": false}
@@ -36624,15 +36625,15 @@ cards:
   next: "Me (attended, house awake): 5-minute live test - AirPlay to Kitchen WiiM, call media_player.join Kitchen->Powder and see whether Powder plays; then build Tier 1: MA path only when the playing MA candidate has app_id music_assistant (else join if the test passed, else source_not_transferable 'airplay'), real-path tests, one review, ship in a batched release."
   refs: [docs/readmes/README_v5.108.35.md]
 - id: INTERIOR-PATH-ZERO-1120-1
-  title: "The 'mapped-door entries but no interior path' trip-wire fired on 11-20 with 5 entries and 1 path row: find out why interior paths are sparse"
+  mechanism_2026_11_22_overnight: "CONFIRMED. Every interior_path row (20) comes from a garage_a_2-family or front-door egress source (sensor.garage_a_person_count, binary_sensor.garage_a_person_detected/_occupancy_2, front_door_aerial, madrone_g6_entry); 0 of ~30 doorbell_lite entry crossings since 11-16 (egress_identity_outcome direction=entry, source_ref binary_sensor.doorbell_lite_*/sensor.doorbell_lite_person_count) produced one. Trip-wire window 11-19 19:07 to 11-20 19:07 CST held exactly 5 entries, all doorbell_lite (19:46, 20:02, 10:01, 12:38, 17:26) = the fire's '5 entries'; the last path row (11-20 01:06:54Z) aged out of the 24 h window 4 s before the fire (01:06:58Z). Code: person_sighting.py _path_tick ~1676-1700 counts an entry as mapped when its egress key is in the door's anchors, but opens a path only if an inward edge has from_key == root. Live map /config/universal_room_automation/interior_paths.json door garage_a: doorbell_lite appears only as the target of two approach edges (from rear_ptz / g5_bullet); every inward edge starts at camera.garage_a_2. Config-first: the fix is a map edge (data file, INTERIOR_PATH_MAP_REVALIDATE_DEBOUNCE_S=30 at const.py:3488), not code. Not applied overnight: HA config write + a physical-topology claim the operator should confirm (doorbell_lite = Garage A door per reference memory)."
+  title: "Entries seen by the doorbell_lite camera (Garage A door) never get an interior path, because the path map has no inward edge from it, so the 'no path' alarm fires on days when only that camera sees entries"
   thread: vision
-  status: investigating
+  status: "waiting_operator"
   tier: 1
   created: '2026-11-22 02:05'
-  updated: '2026-11-22 02:05'
-  refinement_status: initial
-  problem_solution:
-  - "Problem: interior vision writes a path record after someone enters by a mapped door, and a trip-wire pages when entries happen with no path. It fired again on 11-20 (5 entries in 24 h, 1 path), after path records were already flowing, so some entries silently get no path. Solution: measure which entries got no path and why (no camera hop, timing, door mapping), then fix or tune."
+  updated: "2026-11-22 02:08"
+  refinement_status: "refined"
+  problem_solution: ["Problem: when someone comes in through Garage A and only the doorbell_lite camera over that door sees them, URA counts it as an entry on a mapped door but can never build the indoor path, because the path map only starts indoor paths from the camera inside the garage. On 11-20 all five entries were seen that way, so the 'no path' alarm fired. Solution: add one line to the indoor path map (a data file on HA, no code, no restart) so a doorbell_lite entry starts a path into the garage camera."]
   origin: {date: '2026-11-22', gist: 'Residual of the overnight soak-exit disposition of VISION-INTERIOR-SHIP1-1.'}
   measured_2026_11_22_overnight: "notification_log 'Stuck signal: interior_path_zero' fired 11-16 19:02Z, 11-17 19:49Z (both before/at first path rows) and 11-21 01:06:58Z ('5 entries ... no path record'); memory_episodes interior_path = 20 rows total (19 with >=1 hop), first 11-16 19:05Z; one path row in the 24 h before the 11-21 fire. Fire site person_sighting.py:1838. interior_room_records_zero never fired."
   why: "A producer that drops most entries caps every later consumer (census interior counts, F4 sightings)."
@@ -36640,7 +36641,7 @@ cards:
     parent: VISION-INTERIOR-SHIP1-1
     context: "VISION-INTERIOR-SHIP1-1 shipped the path producer; its discriminator is met except this trip-wire recurrence."
   rank: {value: 4, time_criticality: 2, effort: 2}
-  next: "Me (next overnight): join the 11-20 mapped-door entry rows (find their table in person_sighting.py near :1838) against interior_path rows; classify each missing path (no hop camera saw them / window too short / door not mapped). Close or promote."
+  next: "APPROVE (recommended A): A) I add one inward edge {from: camera.doorbell_lite, to: camera.garage_a_2, kind: inward} to /config/universal_room_automation/interior_paths.json in an attended session (backup first; the map revalidates live within 30 s, no restart), then check the next doorbell_lite entry writes an interior_path row; or B) leave the map and stop counting doorbell_lite entries toward the alarm (code, Tier 1). VERIFY with A: a person entering at Garage A passes doorbell_lite (outside the lintel) and then camera.garage_a_2 - correct?"
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers

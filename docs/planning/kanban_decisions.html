@@ -264,12 +264,12 @@ section.decisions .none { color:var(--muted); font-size:12px; padding:0 18px 12p
 <header class="top">
 <h1>URA://DECISIONS<span class="gen">GENERATED - waiting_operator cards from kanban.data.yaml</span></h1>
 <div class="statusline">
-<span>generated <b>2026-11-22T02:03:19-06:00</b></span>
-<span>data <b>0f7546e650e0</b></span>
+<span>generated <b>2026-11-22T02:06:46-06:00</b></span>
+<span>data <b>93c3c31133b3</b></span>
 <span>reconciled <b>2026-11-20</b></span>
 </div></header>
 <section class="decisions" id="decisions" aria-labelledby="decisions-h">
-<h2 id="decisions-h">Decisions <span class="count">37</span><span class="hint">waiting on you, oldest first · tap a PICK or type an answer; it is applied at the next groom</span></h2>
+<h2 id="decisions-h">Decisions <span class="count">38</span><span class="hint">waiting on you, oldest first · tap a PICK or type an answer; it is applied at the next groom</span></h2>
 <article class="decision" data-id="CAMERA-SEAM-VALIDATION-1">
 <div class="dhd">
 <span class="id">CAMERA-SEAM-VALIDATION-1</span>
@@ -672,6 +672,16 @@ section.decisions .none { color:var(--muted); font-size:12px; padding:0 18px 12p
 <div class="dtitle">People settings screen and per-person profile store (step 8 §10.1); configuration only, nothing acts yet</div>
 <p class="ask"><b>DO</b> (when convenient, 2 min): in URA -&gt; Coordinator Manager options -&gt; People, save one person profile, then clear one pick and save again -&gt; I read core.config_entries person_profiles to confirm both saved without an integration reload and close this.</p>
 <form class="answer"><label for="ans-PEOPLE-SCREEN-1">Your answer for PEOPLE-SCREEN-1</label><textarea id="ans-PEOPLE-SCREEN-1" rows="2" placeholder="Your answer for PEOPLE-SCREEN-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="INTERIOR-PATH-ZERO-1120-1">
+<div class="dhd">
+<span class="id">INTERIOR-PATH-ZERO-1120-1</span>
+<span class="since">waiting since 2026-11-22 02:08</span>
+</div>
+<div class="dtitle">Entries seen by the doorbell_lite camera (Garage A door) never get an interior path, because the path map has no inward edge from it, so the &#x27;no path&#x27; alarm fires on days when only that camera sees entries</div>
+<p class="ask"><b>APPROVE</b> (recommended A): A) I add one inward edge {from: camera.doorbell_lite, to: camera.garage_a_2, kind: inward} to /config/universal_room_automation/interior_paths.json in an attended session (backup first; the map revalidates live within 30 s, no restart), then check the next doorbell_lite entry writes an interior_path row; or B) leave the map and stop counting doorbell_lite entries toward the alarm (code, Tier 1). VERIFY with A: a person entering at Garage A passes doorbell_lite (outside the lintel) and then camera.garage_a_2 - correct?</p>
+<form class="answer"><label for="ans-INTERIOR-PATH-ZERO-1120-1">Your answer for INTERIOR-PATH-ZERO-1120-1</label><textarea id="ans-INTERIOR-PATH-ZERO-1120-1" rows="2" placeholder="Your answer for INTERIOR-PATH-ZERO-1120-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
 <div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
 </article>
 </section>
