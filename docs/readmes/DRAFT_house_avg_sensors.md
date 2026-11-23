@@ -15,7 +15,8 @@ Confirm the actual entity ids in the registry after the restart. The slug comes 
 
 Each sensor averages room readings and leaves out:
 - **infrastructure rooms** (room type "Infrastructure (Always-On Equipment)", or the room's infrastructure switch is on), and
-- **outdoor rooms**, meaning rooms whose zone has "Outdoor zone" turned on.
+- **outdoor rooms**, meaning rooms whose zone has "Outdoor zone" turned on, and
+- **garages** (room type "garage"): they are unconditioned (operator 2026-11-22).
 
 Classification comes from `room_classification.get_room_classification`, the same accessor the room classification attribute uses. Rooms are never picked by name.
 
@@ -23,7 +24,12 @@ Attributes (display only): `rooms_included` (rooms that supplied a reading) and 
 
 The existing unfiltered getters `_get_house_avg_temp` / `_get_house_avg_humidity` are unchanged, so Temp Delta Outside, Humidity Delta Outside, HVAC Direction and the DB snapshot behave as before.
 
-## Operator config needed (no code)
+## Operator decisions (2026-11-22, applied)
+
+- Study A Closet set to room type Infrastructure via its options (switch `switch.study_a_closet_infrastructure_room` on). Its power sensor `sensor.span_panel_office_closet_power` (SPAN "Study A Closet Main Plug") was already configured.
+- Garage A and Garage B left out (unconditioned), by the room-type rule above.
+
+## Operator config needed (no code) — superseded by the decisions above
 
 The live config was read on 2026-11-17. **AV Closet** is already `infrastructure`, so it is excluded. **Study A Closet** is `closet`, the same type as the clothing closets, so it is still included. To exclude it, set Study A Closet's room type to "Infrastructure (Always-On Equipment)" in its options, or turn on its infrastructure switch. Infrastructure also changes that room's other behaviour (always-on equipment semantics and its menu), so check that this is what you want. **Patio** is in the zone "Outside" (outdoor), so it is excluded. Garage A and Garage B (`garage`) are still included. If they should be left out, that is a follow-up decision.
 
@@ -39,7 +45,7 @@ The live config was read on 2026-11-17. **AV Closet** is already `infrastructure
 
 ## Live acceptance criteria
 
-- **Live:** `sensor.universal_room_automation_house_avg_temperature` is numeric, and `rooms_excluded` contains `AV Closet` and `Patio` (plus `Study A Closet` if it was reclassified).
+- **Live:** `sensor.universal_room_automation_house_avg_temperature` is numeric, and `rooms_excluded` is exactly `AV Closet`, `Garage A`, `Garage B`, `Patio`, `Study A Closet`.
 - **Live:** the humidity sensor has the same `rooms_excluded` list.
 - **Live (discriminating):** the new temperature differs from the `house_avg_temp` attribute on Temp Delta Outside whenever AV Closet or Patio reads differently from the indoor mean. Under the unfiltered failure the two values would be identical.
 - **Live:** `rooms_included` equals the number of non-excluded rooms that have a temperature reading.

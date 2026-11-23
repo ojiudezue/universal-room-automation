@@ -61,6 +61,7 @@ from .const import (
     ENTRY_TYPE_ROOM,
     ENTRY_TYPE_ZONE,
     ENTRY_TYPE_ZONE_MANAGER,
+    ROOM_TYPE_GARAGE,
     CONF_ENTRY_TYPE,
     CONF_ZONE,
     CONF_ZONE_NAME,
@@ -1287,7 +1288,8 @@ class AggregationEntity:
         dropped when the shared classification accessor
         (``room_classification.get_room_classification``) reports it
         ``infrastructure`` (always-on equipment room, e.g. AV closet) or
-        ``outdoor`` (its zone carries CONF_ZONE_IS_OUTDOOR). Classification
+        ``outdoor`` (its zone carries CONF_ZONE_IS_OUTDOOR), or whose room
+        type is garage (unconditioned space). Classification
         comes from room config, never from the room's name.
 
         Returns ``(avg_or_None, rooms_included, excluded_room_names)``.
@@ -1299,7 +1301,14 @@ class AggregationEntity:
         excluded: list[str] = []
         for coord in _get_room_coordinators(self.hass):
             cls = get_room_classification(self.hass, coord.entry)
-            if cls.get("infrastructure") or cls.get("outdoor"):
+            # Garages are unconditioned (operator 2026-11-22), so their
+            # temperature is not the house's. Keyed on the configured
+            # room_type, not the room name.
+            if (
+                cls.get("infrastructure")
+                or cls.get("outdoor")
+                or cls.get("function") == ROOM_TYPE_GARAGE
+            ):
                 excluded.append(
                     getattr(coord.entry, "title", None) or "Unknown"
                 )

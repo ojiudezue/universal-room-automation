@@ -84,6 +84,7 @@ def test_constants_match_production_keys():
         "custom_components.universal_room_automation.const"
     )
     assert const.CONF_ROOM_TYPE == "room_type"
+    assert const.ROOM_TYPE_GARAGE == "garage"
     assert const.CONF_ZONE == "zone"
     assert const.CONF_ZONE_IS_OUTDOOR == "zone_is_outdoor"
     assert const.ENTRY_TYPE_ZONE_MANAGER == "zone_manager"
@@ -123,6 +124,20 @@ def test_infrastructure_exclusion_alone(agg):
     s = mod.HouseAvgTemperatureSensor(_hass(), _entry())
     assert s.native_value == 78.0
     assert s.extra_state_attributes["rooms_excluded"] == ["Patio"]
+
+
+def test_garage_excluded(agg):
+    """Garages are unconditioned (operator 2026-11-22): room_type garage is
+    dropped. Garage 50F/90% would pull the average to (70+74+50)/3 = 64.7."""
+    mod, rooms = agg
+    rooms.append(_room("r5", "Garage A", "garage", "", 50.0, 90.0))
+    s = mod.HouseAvgTemperatureSensor(_hass(), _entry())
+    assert s.native_value == 72.0
+    assert s.extra_state_attributes == {
+        "rooms_included": 2, "rooms_excluded": ["AV Closet", "Garage A", "Patio"],
+    }
+    h = mod.HouseAvgHumiditySensor(_hass(), _entry())
+    assert h.native_value == 45.0
 
 
 def test_no_rooms_returns_none(monkeypatch):
