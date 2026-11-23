@@ -186,15 +186,21 @@ Full suite before deploy (develop 74a667b77 + README): 23847 passed, 0 failed, 1
 `test_v4710_trap_restores_clean_url_on_sigint`; known flake `test_interior_vision_fixup.py::test_path_task_tracked_until_done`,
 card TEST-INTERIOR-TASK-TRACK-FLAKE-1).
 
-## Live validation (after the restart) — prospective
+## Validated 2026-11-22 (restart 21:46 CST, URA loaded ~21:48)
 
-- **Room rules:** Room Rules Status sensor exists per room with a status and accuracy; no rule shows "active" with
-  zero actions; log has no `rule_compiler` / `_run_room_rules` errors. One test rule validated with a "Run an
-  automation" rule (Claude AI Task).
-- **S1:** a new entry crossing that S1 does not anchor carries a non-null `edge_anchor_reason` from the closed set.
-- **Perimeter:** an escalation, when one happens, arrives titled "Perimeter Alert — Person Escalated".
-- **Lock page:** as in section 4.
-- **Anomaly flood:** as in section 5 (first full day after restart).
-- **Digest:** a LOW row queued during a digest send appears in the following digest.
-- **House average:** both sensors numeric; `rooms_excluded` = AV Closet, Garage A, Garage B, Patio, Study A Closet.
-- **Boot:** no URA errors in the log after the restart; all room entries loaded.
+| Criterion | Result | Evidence |
+|---|---|---|
+| Installed version | PASS | HACS installed v5.108.39; `/config/custom_components/universal_room_automation/manifest.json` version v5.108.39 |
+| Boot, no URA errors | PASS | system_log has no ERROR from `universal_room_automation` after boot. Warnings are known boot transients: boot-settle timeouts, sensors unavailable for 60 s, census cameras unavailable at first read, and the Zone-kWh seed wording (parked card HVAC-ZONE-KWH-SEED-WARN-WORDING-1) |
+| House average sensors | PASS | `sensor.universal_room_automation_house_avg_temperature` 73.2 °F, `_humidity` 52.4 %, rooms_included 7, rooms_excluded = AV Closet, Garage A, Garage B, Media Room Closet, Patio, Study A Closet. Media Room Closet is room type closet with its infrastructure switch on (already set), so it is excluded by design |
+| Infrastructure switches survive restart | PASS | `switch.study_a_closet_infrastructure_room`, `switch.garage_a_infrastructure_room`, `switch.garage_b_infrastructure_room` all on after boot |
+| Room rules executor live | PASS | 47 `sensor.*_ai_automation_status` (Room Rules Status) sensors present; sampled rooms show `knobs.unified_executor: true`, state `none` (no rules configured), no rule shown active with zero actions. `sensor.ura_coordinator_manager_room_rules_accuracy` present (unknown: 0 fires in window) |
+| Transit coverage counters | PASS (wiring) | `sensor.ura_presence_coordinator_presence_diagnostics` carries `path_coverage_not_covered_count` and `path_coverage_room_unresolved_count` (both 0 two minutes after boot) |
+| Anomaly flood drop | PENDING | needs the first full day: `transit.path_implausible` rows on 11-23 vs ~230/day |
+| S1 `edge_anchor_reason` | PENDING | needs a new entry crossing that S1 does not anchor |
+| Perimeter escalation title | PENDING | needs a circling escalation (rare event; proven in-suite) |
+| Lock page last-seen | PENDING | needs a lock_unverified page after a restart (garage lock node 10 is the live candidate) |
+| Digest race | PENDING | needs a LOW row queued during a digest send (race window; proven in-suite) |
+| Room rule end-to-end | PENDING | needs one test rule ("Run an automation", Claude AI Task) |
+
+Not shipped in this release: the room-rules screen picks (see section 1).
