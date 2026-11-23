@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.108.38
+# Universal Room Automation vv5.108.39
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -251,6 +251,8 @@ async def async_setup_entry(
             CoordinatorManagerSensor(hass, entry),
             # Hierarchical Memory MVP Stage 1 — live write-volume watch.
             URAMemoryStatusSensor(hass, entry),
+            # AI-ROOM-RULES-TRUST-REPAIR-1 D6.3: room-rule accuracy (CM device).
+            RoomRulesAccuracySensor(hass, entry),
             # House-State Rung 2a (v5.39.0): CM-device house-policy diagnostic
             # surface (INV-1/INV-3).
             HousePolicySensor(hass, entry),
@@ -2912,40 +2914,91 @@ class RoomSignalInventorySensor(UniversalRoomEntity, SensorEntity):
 
 
 class AIAutomationStatusSensor(UniversalRoomEntity, SensorEntity):
-    """Tracks AI rule and automation chain execution.
+    """Room Rules status (AI-ROOM-RULES-TRUST-REPAIR-1 D6.2).
 
-    Reports whether AI rules or chained automations are configured,
-    and exposes execution tracking attributes for diagnostics.
+    State: ``none`` (no rules), ``manual_mode``, ``off`` (Room Rules switch
+    off, or every rule turned off), ``needs_parse`` (a rule must be
+    re-checked), else ``active``. Saved rules never call the model, so the
+    state does not change while the rule writing model is unavailable.
+    Attribute ``rules``: per rule the code-written preview, status, fires,
+    skips by reason, last fire, last skip reason, reversals (since start).
 
-    Entity:  sensor.ura_<room>_ai_automation_status
+    Entity:  sensor.<room>_ai_automation_status (entity id unchanged)
     Device:  the room device
     """
 
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_icon = "mdi:robot"
+    # Per-rule counters change on every evaluation: keep them out of the
+    # recorder (state rows only on a real state change).
+    _unrecorded_attributes = frozenset({"rules", "knobs", "last_conflicts"})
 
     def __init__(self, coordinator) -> None:
-        super().__init__(coordinator, "ai_automation_status", "AI Automation Status")
+        super().__init__(coordinator, "ai_automation_status", "Room Rules Status")
+
+    def _records(self) -> list:
+        reader = getattr(self.coordinator, "_room_rules", None)
+        try:
+            return list(reader()) if callable(reader) else []
+        except Exception:  # noqa: BLE001
+            return []
 
     @property
     def native_value(self) -> str:
-        """Return 'active' if any AI rules or chained automations are configured."""
-        rules = self.coordinator._get_config(CONF_AI_RULES, [])
-        chains = self.coordinator._get_config(CONF_AUTOMATION_CHAINS, {})
-        if rules or chains:
-            return "active"
-        return "inactive"
+        records = self._records()
+        if not records:
+            return "none"
+        if self.coordinator._get_room_switch_state("manual_mode") is True:
+            return "manual_mode"
+        if not self.coordinator._is_ai_automation_enabled():
+            return "off"
+        enabled = [r for r in records if r.get("enabled", True)]
+        if not enabled:
+            return "off"
+        if any(r.get("needs_parse") for r in enabled):
+            return "needs_parse"
+        return "active"
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return AI automation diagnostic attributes."""
+        from .const import (  # noqa: PLC0415
+            CONF_ROOM_NAME,
+            ROOM_RULE_EPISODE_LOG_PERSIST,
+            ROOM_RULES_UNIFIED_EXECUTOR,
+            RULE_REVERSAL_WINDOW_S,
+            RULE_ZERO_FIRE_DAYS,
+        )
+        from .rule_compiler import render_rule_preview, rule_status  # noqa: PLC0415
+
+        room = self.coordinator.entry.data.get(CONF_ROOM_NAME, "this room")
+        stats = getattr(self.coordinator, "_rule_stats", {}) or {}
+        rules = []
+        for r in self._records():
+            st = stats.get(r.get("rule_id"), {})
+            rules.append({
+                "rule_id": r.get("rule_id"),
+                "source": r.get("source"),
+                "preview": render_rule_preview(r, self.hass, room),
+                "status": rule_status(r),
+                "fires": st.get("fires", 0),
+                "skips_by_reason": dict(st.get("skips_by_reason", {})),
+                "last_fire": st.get("last_fire"),
+                "last_skip_reason": st.get("last_skip_reason"),
+                "reversals": st.get("reversals", 0),
+            })
         return {
-            "chained_automations": self.coordinator._get_config(CONF_AUTOMATION_CHAINS, {}),
-            "ai_rules_count": len(self.coordinator._get_config(CONF_AI_RULES, [])),
-            "last_trigger": getattr(self.coordinator, '_last_trigger_event', None),
-            "last_trigger_time": getattr(self.coordinator, '_last_trigger_time_str', None),
-            "conflict_detected": getattr(self.coordinator, '_conflict_detected', False),
-            "last_conflicts": getattr(self.coordinator, '_last_conflicts', [])[-5:],
+            "rules": rules,
+            "ai_rules_count": len(rules),
+            "last_trigger": getattr(self.coordinator, "_last_trigger_event", None),
+            "last_trigger_time": getattr(self.coordinator, "_last_trigger_time_str", None),
+            "conflict_detected": getattr(self.coordinator, "_conflict_detected", False),
+            "last_conflicts": getattr(self.coordinator, "_last_conflicts", [])[-5:],
+            "knobs": {
+                "unified_executor": ROOM_RULES_UNIFIED_EXECUTOR,
+                "reversal_window_s": RULE_REVERSAL_WINDOW_S,
+                "zero_fire_days": RULE_ZERO_FIRE_DAYS,
+                "episode_log": ROOM_RULE_EPISODE_LOG_PERSIST,
+            },
         }
 
 
@@ -4030,6 +4083,20 @@ class URAPersonsInHouseSensor(_CensusBaseSensor):
                     attrs["egress_identity_last_attach"] = dict(
                         (_r() if _r is not None else {}) or {}
                     )
+                    # Step 7 S1: why door crossings were not arrival-
+                    # anchored, by reason (layer counters, RAM, since boot).
+                    try:
+                        from .domain_coordinators import signals as _sig
+                        _lc = _sig.layer_counters(self.hass)
+                        attrs["egress_edge_anchor_named_count"] = int(
+                            _lc.edge_anchor_named
+                        )
+                        attrs["egress_edge_anchor_none_reasons"] = dict(
+                            sorted(_lc.edge_anchor_none.items())
+                        )
+                    except Exception:  # noqa: BLE001 - display only
+                        attrs["egress_edge_anchor_named_count"] = 0
+                        attrs["egress_edge_anchor_none_reasons"] = {}
                     # EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1 rev5
                     # D3 observability. Retired the pre-rev5
                     # `_ble_leg_rejected_provenance_count` (subscription
@@ -6837,6 +6904,9 @@ class PresenceDiagnosticSensor(AggregationEntity, SensorEntity):
         # off yields an empty mapping / zero count.
         checkpoint_cameras_by_area: dict[str, list[str]] = {}
         protect_sourced_count = 0
+        # ANOMALY-FLOOD-ROWS-1: transit path-coverage counters.
+        path_coverage_not_covered_count = 0
+        path_coverage_room_unresolved_count = 0
         try:
             tv = self.hass.data.get(DOMAIN, {}).get("transit_validator")
             if tv is not None:
@@ -6854,6 +6924,12 @@ class PresenceDiagnosticSensor(AggregationEntity, SensorEntity):
                     )
                     protect_sourced_count = int(
                         _payload.get("protect_sourced_count") or 0
+                    )
+                    path_coverage_not_covered_count = int(
+                        _payload.get("path_coverage_not_covered_count") or 0
+                    )
+                    path_coverage_room_unresolved_count = int(
+                        _payload.get("path_coverage_room_unresolved_count") or 0
                     )
                 else:
                     raw = getattr(tv, "checkpoint_cameras_by_area", None) or {}
@@ -6877,6 +6953,10 @@ class PresenceDiagnosticSensor(AggregationEntity, SensorEntity):
             "zone_verdicts": zone_verdicts,
             "checkpoint_cameras_by_area": checkpoint_cameras_by_area,
             "protect_sourced_count": protect_sourced_count,
+            "path_coverage_not_covered_count": path_coverage_not_covered_count,
+            "path_coverage_room_unresolved_count": (
+                path_coverage_room_unresolved_count
+            ),
         }
 
 
@@ -8890,6 +8970,44 @@ class MusicFollowingAccuracySensor(AggregationEntity, SensorEntity):
             "by_kind": acc.get("by_kind", {}),
             "by_room_pair": acc.get("by_pair", {}),
             "window": acc.get("window", ""),
+        }
+
+
+class RoomRulesAccuracySensor(AggregationEntity, SensorEntity):
+    """Percent of room-rule fires not undone by hand over 7 days
+    (AI-ROOM-RULES-TRUST-REPAIR-1 D6.3). Written nightly from room memory by
+    ``Database.run_room_ai_health_check``; None before the first roll-up or
+    with no fires. Attribute ``rules``: per rule fires / reversals / pct.
+    Display only. Device: Coordinator Manager."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:bullseye-arrow"
+    _attr_native_unit_of_measurement = "%"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _unrecorded_attributes = frozenset({"rules"})
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_room_rules_accuracy"
+        self._attr_name = "Room Rules Accuracy"
+        self._attr_device_info = _cm_device_info()
+
+    def _acc(self) -> dict:
+        acc = (self.hass.data.get(DOMAIN, {}) or {}).get("room_rules_accuracy")
+        return acc if isinstance(acc, dict) else {}
+
+    @property
+    def native_value(self):
+        return self._acc().get("pct")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        acc = self._acc()
+        return {
+            "fires": acc.get("fires", 0),
+            "reversals": acc.get("reversals", 0),
+            "window": acc.get("window", "7d"),
+            "rules": acc.get("rules", {}),
         }
 
 

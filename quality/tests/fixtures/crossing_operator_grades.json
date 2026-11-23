@@ -2,6 +2,20 @@
  "description": "Operator crossing grades from the urakanban /grade/ page (scripts/grading/pull_grades.py). Human truth for crossing vision P3-D6 direction and count scoring and the P3-D0 gates. One row per crossing_key, latest grade wins. direction in|out|both|no_cross|unclear|unknown (no_cross = came to the door, did not go through; unclear = seen, cannot tell; unknown = no door traversal visible); count = people who crossed or 'unknown'. Optional who = list from oji_udezue|ezinne|jaya|ziri|guest|unknown_person|cant_tell, guest_count = 1-8 when guest is in who, notes = free text; absent means not recorded. kind=pair rows index crossing_pass_key_pairs_2026_11_15.json (pair_label in its rubric).",
  "grades": [
   {
+   "crossing_key": "binary_sensor.garage_a_person_occupancy_2@2026-11-13T18:18:07.422933-06:00",
+   "direction": "out",
+   "count": 1,
+   "at": "2026-11-19T16:05:52.956Z",
+   "batch": "g20261119-0017",
+   "kind": "crossing",
+   "door_group": "garage_a",
+   "e_ts": "2026-11-13T18:18:07.422933-06:00",
+   "direction_tracker_vocab": "exit",
+   "who": [
+    "jaya"
+   ]
+  },
+  {
    "crossing_key": "sensor.garage_a_person_count@2026-11-14T09:40:52.414810-06:00",
    "direction": "out",
    "count": 1,
@@ -346,12 +360,16 @@
    "crossing_key": "binary_sensor.front_door_aerial_person_detected@2026-11-14T16:39:28.207230-06:00",
    "direction": "in",
    "count": 1,
-   "at": "2026-11-16T05:11:27.860Z",
-   "batch": "g20261115-1716",
+   "at": "2026-11-19T16:06:30.703Z",
+   "batch": "g20261119-0017",
    "kind": "crossing",
    "door_group": "front",
    "e_ts": "2026-11-14T16:39:28.207230-06:00",
-   "direction_tracker_vocab": "entry"
+   "direction_tracker_vocab": "entry",
+   "who": [
+    "guest"
+   ],
+   "guest_count": 1
   },
   {
    "crossing_key": "binary_sensor.doorbell_lite_person_occupancy_2@2026-11-14T16:41:01.634649-06:00",
@@ -616,6 +634,21 @@
    "door_group": "garage_a",
    "e_ts": "2026-11-15T13:32:49.540484-06:00",
    "direction_tracker_vocab": null
+  },
+  {
+   "crossing_key": "binary_sensor.garage_a_person_detected@2026-11-15T18:13:38.765479-06:00",
+   "direction": "in",
+   "count": 2,
+   "at": "2026-11-19T16:07:23.172Z",
+   "batch": "g20261119-0017",
+   "kind": "crossing",
+   "door_group": "garage_a",
+   "e_ts": "2026-11-15T18:13:38.765479-06:00",
+   "direction_tracker_vocab": "entry",
+   "who": [
+    "oji_udezue",
+    "jaya"
+   ]
   }
  ]
 }

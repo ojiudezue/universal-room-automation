@@ -1,0 +1,30 @@
+{
+  "format_version": "2.1",
+  "entry_id": "342",
+  "author": "ojiudezue",
+  "timestamp": "2026-11-19T14:33:43Z",
+  "type": "decision",
+  "weight": "significant",
+  "title": "Arc-close sweep: finish what is unblocked, close or park the rest; unplanned core updates count against the restart budget",
+  "summary": "Operator 2026-11-19: 'We need to finish the arc and closely linked work. For things unblocked.' A sweep of every open arc card closed 13 (12 done, 1 superseded), parked 6 low-probability items with revival triggers, and drove the 4 READY items to ship in one night (layer L4 vetoes, room-occupied registry resolve, the registry-not-names guard, plus lock freshness from the live incident), all in v5.108.38. Open arc siblings went from 21 to 7, each now blocked on the operator or on data. Separately, an HA core update (2026.11.1 -> .2) restarted HA at 23:03 while the house slept; neither URA nor the homelab session triggered it.",
+  "why": "Arc work had piled up as open cards that were already done or no longer worth doing; the deploy arc-gate listed 21 siblings. Disposition with evidence (not by assumption) let the remaining effort go to unblocked work and made the operator's blockers explicit. The core-update restart matters because the crossing ledger resets on every restart and known-time is the gate for the interior floor.",
+  "alternatives_considered": [
+    "Keep cutting siblings at each deploy (rejected: hides that most were finished or dead)",
+    "Build the parked low-probability items too (rejected: operator rule 'I don't want to worry and derail from low probability concerns')"
+  ],
+  "implications": "The arc now waits mainly on operator inputs (People profile, names grading, Q-F1..Q-F4, night bypass, OC reframe) and on data (direction reps, 3+ group crossings, ledger known-time). Core/OS/add-on updates should land in the ~10:00 restart slot; the homelab session agreed and will message first.",
+  "confidence": "high",
+  "revisit_trigger": "Another unplanned restart, or a parked card's trigger firing",
+  "refs": {
+    "docs": [
+      "docs/planning/AUDIT_arc_close_sweep_2026_11_19.md",
+      "docs/planning/ARC_identity_vision_census_map.md"
+    ],
+    "cards": [
+      "SECURITY-LOCK-STALE-STATE-1",
+      "LAYER-LEAK-CLEANUP-1",
+      "ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1",
+      "REGISTRY-NOT-NAMES-1"
+    ]
+  }
+}

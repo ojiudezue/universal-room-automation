@@ -1,0 +1,30 @@
+{
+  "format_version": "2.1",
+  "entry_id": "349",
+  "author": "ojiudezue",
+  "session_id": "claude_20261123_034447_ship_v5_108_39",
+  "timestamp": "2026-11-23T03:44:47Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.108.39 shipped: Batched release: unified room rules, S1 arrival wording + anchor reasons, perimeter escalation title, lock page last-seen, transit coverage anomaly fix, digest race, house-average sensors",
+  "summary": "Batched release: unified room rules, S1 arrival wording + anchor reasons, perimeter escalation title, lock page last-seen, transit coverage anomaly fix, digest race, house-average sensors",
+  "why": "Two release windows slipped, so eight reviewed cards were held off the house. Shipped as one batch for the one restart per day the operator cleared tonight. The room-rules screen picks were deferred, not built half-way: they change authoring, not executor correctness. The suite was run on the exact merged tree (23847 pass / 0 fail) because the 11-21 merge chain went in without one and turned up 107 harness failures.",
+  "implications": "Shipped AI-ROOM-RULES-TRUST-REPAIR-1, EGRESS-DIRECTION-AWARE-IDENTITY-1, PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1, SECURITY-LOCK-PAGE-LAST-SEEN-1, BLE-EXTEND-DRILL-RETARGET-1, ANOMALY-FLOOD-ROWS-1, NM-DIGEST-MARK-RACE-1, HOUSE-AVG-SENSORS-1 at v5.108.39; card(s) sit shipped_organic pending validation. Acceptance in README_v5.108.39.md (Live criteria).",
+  "revisit_trigger": "anomaly_log transit.path_implausible rows on the first full day after restart are near zero for camera-less room pairs; sensor.universal_room_automation_house_avg_temperature rooms_excluded = AV Closet, Garage A, Garage B, Patio, Study A Closet; Room Rules Status sensors show no 'active' rule with zero actions",
+  "refs": {
+    "cards": [
+      "AI-ROOM-RULES-TRUST-REPAIR-1",
+      "EGRESS-DIRECTION-AWARE-IDENTITY-1",
+      "PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1",
+      "SECURITY-LOCK-PAGE-LAST-SEEN-1",
+      "BLE-EXTEND-DRILL-RETARGET-1",
+      "ANOMALY-FLOOD-ROWS-1",
+      "NM-DIGEST-MARK-RACE-1",
+      "HOUSE-AVG-SENSORS-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.108.39.md"
+    ],
+    "release_notes": "- Unified room rules (AI + chained) on one record/executor with decision log, status sensor, accuracy and trip-wire\n- Egress: 'arrived' only with the person's own phone arrival edge, else 'came in'; edge_anchor_reason recorded\n- Perimeter circling escalation gets its own title so NM dedup no longer drops it\n- Dead-lock page shows last-seen age instead of 'unknown'\n- Transit path_implausible only where a shared camera covers the move (cuts ~230 anomaly rows/day)\n- Digest marks only rows it actually read (no silently dropped notifications)\n- New house-average indoor temperature/humidity sensors (excl. infrastructure, outdoor, garages)"
+  }
+}

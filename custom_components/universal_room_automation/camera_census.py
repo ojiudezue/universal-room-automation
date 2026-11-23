@@ -1,6 +1,6 @@
 """Camera integration and person census for Universal Room Automation v3.5.0."""
 #
-# Universal Room Automation vv5.108.38
+# Universal Room Automation vv5.108.39
 # Build: 2026-02-23
 # File: camera_census.py
 # Cycle 3: Camera Integration & Census Core
@@ -156,6 +156,36 @@ _CAMERA_PLATFORM_DAHUA = "dahua"
 # ============================================================================
 # DATACLASSES
 # ============================================================================
+
+
+def build_room_to_area_id_map(hass: Any) -> dict[str, str]:
+    """Return ``{room_name: registry_area_id}`` from URA room config entries.
+
+    Module-level so other modules (``transit_validator`` path coverage,
+    ANOMALY-FLOOD-ROWS-1) reuse the ONE room -> area rule instead of a
+    name guess. ``PersonCensus._build_room_to_area_id_map`` delegates here;
+    see its docstring for why this reads ``CONF_AREA_ID`` directly rather
+    than inverting ``person_coordinator._area_id_to_room``.
+    """
+    room_to_area: dict[str, str] = {}
+    try:
+        for entry in hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+                continue
+            merged = {**entry.data, **entry.options}
+            room_name = merged.get(CONF_ROOM_NAME) or entry.data.get(
+                CONF_ROOM_NAME
+            )
+            area_id = merged.get(CONF_AREA_ID)
+            if room_name and area_id:
+                room_to_area[room_name] = area_id
+    except Exception:  # noqa: BLE001 — graceful degradation (invariant I3)
+        _LOGGER.debug(
+            "build_room_to_area_id_map failed; returning empty",
+            exc_info=True,
+        )
+        return {}
+    return room_to_area
 
 
 @dataclass
@@ -2962,25 +2992,7 @@ class PersonCensus:
         in the room config entry (see person_coordinator.py:549 for the
         production read of the same field). Build the map directly.
         """
-        room_to_area: dict[str, str] = {}
-        try:
-            for entry in self.hass.config_entries.async_entries(DOMAIN):
-                if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
-                    continue
-                merged = {**entry.data, **entry.options}
-                room_name = merged.get(CONF_ROOM_NAME) or entry.data.get(
-                    CONF_ROOM_NAME
-                )
-                area_id = merged.get(CONF_AREA_ID)
-                if room_name and area_id:
-                    room_to_area[room_name] = area_id
-        except Exception:  # noqa: BLE001 — graceful degradation (invariant I3)
-            _LOGGER.debug(
-                "_build_room_to_area_id_map failed; returning empty",
-                exc_info=True,
-            )
-            return {}
-        return room_to_area
+        return build_room_to_area_id_map(self.hass)
 
     # ------------------------------------------------------------------
     # Stuck-Signal Watchdog D1 (v5.35.0)

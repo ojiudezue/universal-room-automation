@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.108.38
+# Universal Room Automation vv5.108.39
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -6163,6 +6163,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             for unsub in signal_listeners:
                 unsub()
             signal_listeners.clear()
+            # AI-ROOM-RULES-TRUST-REPAIR-1 D6.3: open room-rule reversal
+            # watches (state listener + expiry timer) die with the entry.
+            cancel_rule_watches = getattr(coordinator, "_cancel_rule_reversal_watches", None)
+            if callable(cancel_rule_watches):
+                cancel_rule_watches()
             # B-C1 fix-up: substrate signal subscription lives on its own
             # list (NOT _unsub_signal_listeners) so _update_signal_subscriptions
             # cannot clobber it. Tear it down here symmetrically.
@@ -6975,6 +6980,9 @@ from .const import (
     CONF_OPTIMIZER_LLM_TASK_ENTITY as _CONF_OPTIMIZER_LLM_TASK_ENTITY,
     CONF_OPTIMIZER_LLM_TRIAGE_ENTITY as _CONF_OPTIMIZER_LLM_TRIAGE_ENTITY,
     CONF_OPTIMIZER_LLM_SYSTEM_PROMPT as _CONF_OPTIMIZER_LLM_SYSTEM_PROMPT,
+    # AI-ROOM-RULES-TRUST-REPAIR-1 §8: rule writing model (read fresh by the
+    # room options flow at authoring time; no live reader to push).
+    CONF_ROOM_RULES_AI_TASK_ENTITY as _CONF_ROOM_RULES_AI_TASK_ENTITY,
     CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H as _CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H,
     # v4.7.35 fix-up (B-B2) — safety/security deny-list CM-options key.
     CONF_OPTIMIZER_SAFETY_DENY_ENTITIES as _CONF_OPTIMIZER_SAFETY_DENY_ENTITIES,
@@ -7513,6 +7521,7 @@ _NO_LIVE_ATTR_KEYS: frozenset[str] = frozenset({
     _CONF_OPTIMIZER_LLM_TASK_ENTITY,
     _CONF_OPTIMIZER_LLM_TRIAGE_ENTITY,
     _CONF_OPTIMIZER_LLM_SYSTEM_PROMPT,
+    _CONF_ROOM_RULES_AI_TASK_ENTITY,
     _CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H,
     # v4.7.35 fix-up (B-B2) — deny-list read fresh on every chokepoint
     # invocation; no live-attr push needed.
@@ -7737,6 +7746,7 @@ OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     _CONF_OPTIMIZER_LLM_TASK_ENTITY,
     _CONF_OPTIMIZER_LLM_TRIAGE_ENTITY,
     _CONF_OPTIMIZER_LLM_SYSTEM_PROMPT,
+    _CONF_ROOM_RULES_AI_TASK_ENTITY,
     _CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H,
     # v4.7.35 fix-up (B-B2) — deny-list edits are options-only; no full
     # reload (chokepoint reads CM options fresh on every action).

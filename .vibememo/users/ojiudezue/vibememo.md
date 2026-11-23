@@ -97,3 +97,22 @@ One counseling note from the same pass: feed and card times were typed from a fe
 
 
 **2026-11-18, the harness learns from always-on agents.** One day showed five harness gaps (shared worktree with a mutator, noisy no-news pings, follow-ups only in-session so a release slipped 8 hours, stale memory index, decisions as chat lists); the operator approved all five fixes: one writer per tree, report once / stay quiet, due: on cards surfaced at session start, a Decisions queue on the board, and a memory archive. Same day the garage lock showed the cost of trusting stale state: it stopped reporting on 11-15 and the sweep kept believing 'locked' → [340](users/ojiudezue/entries/340_harness_adopts_always_on_patterns.json).
+
+
+**2026-11-19, closing out the arc.** On 'finish the arc... for things unblocked', a sweep closed 13 arc cards, parked 6 low-probability ones with triggers, and shipped the 4 ready fixes plus the lock-freshness fix in v5.108.38; open siblings fell from 21 to 7, all blocked on operator input or data. An HA core update restarted HA mid-sleep, so unplanned updates now count against the one-restart-a-day budget → [342](users/ojiudezue/entries/342_arc_close_sweep_and_restart_budget.json).
+
+
+**2026-11-20, the board drifts behind the code.** The overnight pass checked ground truth before work and found two cards that shipped in v5.108.8 still marked planned; mark-shipped had never reached them. Both were closed on the README evidence. The lock-sweep follow-up was already met, and its wording residual was built display-only (pre-restart timestamps stay out of freshness on purpose) → [343](users/ojiudezue/entries/343_overnight_board_drift_shipped_cards_left_planned.json).
+
+
+**2026-11-20, 'arrived' means the phone arrived.** The first live named arrival from the old face path was wrong (a resident already home walked in from the garage), so entry notices now say 'arrived' only with that person's own arrival edge and 'came in' otherwise; S1 non-anchors now record why. Unified room rules was built the same day and waits on review → [343](users/ojiudezue/entries/343_arrived_vs_came_in_and_room_rules_built.json).
+
+**2026-11-20 night, a rule's own slow action is not a reversal.** Review B showed HA forgets a call's context after 5 s, so a shade that takes 15 s to close would read as "undone by hand" and drive rule accuracy toward zero. Reversal is now judged by which way the target's state moves. Review C's mutations found 14 untested sites, the worst letting a needs_parsing rule go live on first save; all are now pinned and the chain is merged for the 11-21 batch → [344](users/ojiudezue/entries/344_room_rules_reversal_judged_by_state_not_context.json).
+
+
+**2026-11-22, met in letter, failing in practice.** The overnight soak-exit sweep found two features whose checks looked passed: music following picked the right speakers but all 13 moves failed, because AirPlay music isn't in a Music Assistant queue (fix: use the MA path only for real MA queues), and Garage A door-camera entries could never get an indoor path, because the path map has no route from that camera (fix: one map line, waiting on approval). It also rejected the previous night's 'clean' suite runs, whose baseline was broken, and re-proved the three review fixes on a green develop (23,846 pass, 0 fail) → [345](users/ojiudezue/entries/345_overnight_findings_airplay_ma_path_and_doorbell_lite_path_gap.json).
+
+
+**2026-11-22: what 'house average' means.** Oji approved the filtered house-average sensors and defined the scope by use: the average is the temperature of conditioned living space. Equipment closets are infrastructure (Study A Closet reclassified by setting), and garages are out because they are unconditioned. URA keys this on configured room type, not names, and leaves the unfiltered average alone for the HVAC consumers that already depend on it.
+Oji then pointed out the garages are also equipment rooms (EV chargers, shop tools). The answer was the per-room infrastructure switch, not a room-type change: it takes their loads out of waste and cost figures while they keep behaving as garages. Room type governs behaviour; the switch governs energy accounting.
+With two release windows already missed, Oji cleared a restart that evening, and the release went out without the room-rules screen picks rather than slip a third time. The picks change how rules are written, not whether the shipped executor works, so they lead the next release.

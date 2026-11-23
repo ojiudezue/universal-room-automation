@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.108.38
+# Universal Room Automation vv5.108.39
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -5968,10 +5968,11 @@ class RoomLightsSwitch(UniversalRoomEntity, SwitchEntity):
 
 
 class AiAutomationSwitch(UniversalRoomEntity, SwitchEntity, RestoreEntity):
-    """Switch to enable/disable AI automation for a room.
+    """Room Rules switch (display name "Room Rules", entity id unchanged).
 
-    When ON (default): AI rules and automation chaining execute normally.
-    When OFF: AI rules and chained automations are skipped for this room.
+    On: this room's rules run. Off: they pause, except rules for smoke,
+    leaks and security, which always run. Manual mode pauses them too
+    (AI-ROOM-RULES-TRUST-REPAIR-1, ``ROOM_RULE_SWITCH_EXEMPT_TRIGGERS``).
 
     Entity: switch.{room_slug}_ai_automation
     """
@@ -5981,7 +5982,7 @@ class AiAutomationSwitch(UniversalRoomEntity, SwitchEntity, RestoreEntity):
 
     def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
         """Initialize the switch."""
-        super().__init__(coordinator, "ai_automation", "AI Automation")
+        super().__init__(coordinator, "ai_automation", "Room Rules")
         self._attr_is_on = True  # Default: enabled
 
     async def async_added_to_hass(self) -> None:

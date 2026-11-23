@@ -61,6 +61,7 @@ from .const import (
     ENTRY_TYPE_ROOM,
     ENTRY_TYPE_ZONE,
     ENTRY_TYPE_ZONE_MANAGER,
+    ROOM_TYPE_GARAGE,
     CONF_ENTRY_TYPE,
     CONF_ZONE,
     CONF_ZONE_NAME,
@@ -335,6 +336,10 @@ async def async_setup_aggregation_sensors(
         HumidityDeltaSensor(hass, entry),
         TempDeltaOutsideSensor(hass, entry),
         HumidityDeltaOutsideSensor(hass, entry),
+        # HOUSE-AVG-SENSORS-1: filtered indoor averages (excl. infrastructure
+        # + outdoor-zone rooms) for the v8 weather card.
+        HouseAvgTemperatureSensor(hass, entry),
+        HouseAvgHumiditySensor(hass, entry),
 
         # === HVAC PREDICTIONS ===
         PredictedCoolingNeedSensor(hass, entry),
@@ -1271,7 +1276,50 @@ class AggregationEntity:
                 if humidity is not None:
                     humidities.append(humidity)
         return round(sum(humidities) / len(humidities), 1) if humidities else None
-    
+
+    def _get_house_avg_filtered(
+        self, state_key: str
+    ) -> tuple[float | None, int, list[str]]:
+        """HOUSE-AVG-SENSORS-1: house average of ``state_key`` over INDOOR
+        conditioned rooms only.
+
+        Sibling of ``_get_house_avg_temp`` / ``_get_house_avg_humidity``
+        (those stay unfiltered for their existing consumers). A room is
+        dropped when the shared classification accessor
+        (``room_classification.get_room_classification``) reports it
+        ``infrastructure`` (always-on equipment room, e.g. AV closet) or
+        ``outdoor`` (its zone carries CONF_ZONE_IS_OUTDOOR), or whose room
+        type is garage (unconditioned space). Classification
+        comes from room config, never from the room's name.
+
+        Returns ``(avg_or_None, rooms_included, excluded_room_names)``.
+        ``rooms_included`` counts only rooms that contributed a reading.
+        """
+        from .room_classification import get_room_classification
+
+        values: list[float] = []
+        excluded: list[str] = []
+        for coord in _get_room_coordinators(self.hass):
+            cls = get_room_classification(self.hass, coord.entry)
+            # Garages are unconditioned (operator 2026-11-22), so their
+            # temperature is not the house's. Keyed on the configured
+            # room_type, not the room name.
+            if (
+                cls.get("infrastructure")
+                or cls.get("outdoor")
+                or cls.get("function") == ROOM_TYPE_GARAGE
+            ):
+                excluded.append(
+                    getattr(coord.entry, "title", None) or "Unknown"
+                )
+                continue
+            if coord.data:
+                value = coord.data.get(state_key)
+                if value is not None:
+                    values.append(value)
+        avg = round(sum(values) / len(values), 1) if values else None
+        return avg, len(values), sorted(excluded)
+
     # ------------------------------------------------------------------
     # Weather forecast (2026-07-27): the `weather.forecast` state attribute
     # was removed in HA 2024.4. Source daily highs from the
@@ -2109,6 +2157,58 @@ class HumidityDeltaOutsideSensor(AggregationEntity, SensorEntity):
             "outside_humidity": outside,
             "direction": direction,
         }
+
+
+class _HouseAvgIndoorSensor(AggregationEntity, SensorEntity):
+    """HOUSE-AVG-SENSORS-1: filtered house-average indoor reading.
+
+    Excludes infrastructure (equipment) rooms and rooms in outdoor zones;
+    see ``AggregationEntity._get_house_avg_filtered``.
+    """
+
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _state_key: str = ""
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the filtered house average."""
+        return self._get_house_avg_filtered(self._state_key)[0]
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Display-only: which rooms fed the average."""
+        _avg, included, excluded = self._get_house_avg_filtered(self._state_key)
+        return {"rooms_included": included, "rooms_excluded": excluded}
+
+
+class HouseAvgTemperatureSensor(_HouseAvgIndoorSensor):
+    """Sensor: house-average indoor temperature (filtered)."""
+
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_native_unit_of_measurement = UnitOfTemperature.FAHRENHEIT
+    _attr_icon = "mdi:home-thermometer"
+    _state_key = STATE_TEMPERATURE
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_house_avg_temperature"
+        self._attr_name = "House Avg Temperature"
+
+
+class HouseAvgHumiditySensor(_HouseAvgIndoorSensor):
+    """Sensor: house-average indoor humidity (filtered)."""
+
+    _attr_device_class = SensorDeviceClass.HUMIDITY
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_icon = "mdi:water-percent"
+    _state_key = STATE_HUMIDITY
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_house_avg_humidity"
+        self._attr_name = "House Avg Humidity"
 
 
 class HVACDirectionSensor(AggregationEntity, SensorEntity):

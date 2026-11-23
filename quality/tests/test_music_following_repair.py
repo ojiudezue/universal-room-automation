@@ -1838,6 +1838,8 @@ async def test_mf_digest_line_reaches_delivered_nm_digest(rig, mods):
     NM = mods.nm.NotificationManager
     nm_like = types.SimpleNamespace(hass=rig.hass, _last_digest_flush={}, _config={})
     nm_like._build_optimizer_digest_section = lambda: ""
+    # AI-ROOM-RULES-TRUST-REPAIR-1 D6.4: the room-rules digest line (none here).
+    nm_like._build_room_rules_digest_section = lambda: ""
     nm_like._build_music_following_digest_section = types.MethodType(
         NM._build_music_following_digest_section, nm_like)
     nm_like._format_digest = lambda pending: ""

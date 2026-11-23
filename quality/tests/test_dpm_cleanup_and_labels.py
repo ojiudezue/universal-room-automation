@@ -87,9 +87,14 @@ _ROOM_FACING_STEPS = frozenset({
     "night_light_detail",
     "cover_behavior",
     "automation_behavior",
-    "init_automation_chaining",
-    "init_ai_rules",
-    "init_ai_rule_add",
+    # AI-ROOM-RULES-TRUST-REPAIR-1: rule authoring left room creation; the
+    # room options "Room rules" steps are room-facing.
+    "room_rules",
+    "room_rule_describe",
+    "room_rule_automation",
+    "room_rule_confirm",
+    "room_rule_list",
+    "room_rule_delete",
     "climate",
     "fan_speeds",
     "sleep_protection",

@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv5.108.38
+# Universal Room Automation vv5.108.39
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -4935,8 +4935,20 @@ class UniversalRoomDatabase:
             _LOGGER.error("Error fetching pending digest: %s", e)
             return []
 
-    async def mark_digest_delivered(self, person_id: str) -> None:
-        """Mark all pending digest items as delivered for a person.
+    async def mark_digest_delivered(self, person_id: str, max_id: int) -> None:
+        """Mark pending digest items with ``id <= max_id`` as delivered.
+
+        NM-DIGEST-MARK-RACE-1 (2026-11-15): ``max_id`` is the high-water
+        mark of the rows the caller actually READ into the digest body
+        (max ``id`` of ``get_pending_digest``'s result). Without it the
+        UPDATE swept every ``delivered=0`` LOW/MEDIUM row, including rows
+        INSERTed during the network send, which were then marked
+        delivered without ever appearing in a digest body (silent loss).
+        Invariant: a real row is marked only if it was in the flushed
+        body. Audit-sentinel rows are drained up to the same mark (ids are
+        AUTOINCREMENT, so ``<= max_id`` is a point-in-time snapshot); any
+        audit row above it waits for the next flush, so the bound below
+        still holds.
 
         NM-IMAGE-1 (2026-08-11, D3 / rev-2 §10.4): also marks the
         `message='[audit]'` sentinel rows `delivered=2` alongside real
@@ -4959,7 +4971,8 @@ class UniversalRoomDatabase:
                     UPDATE notification_log SET delivered = 2
                     WHERE person_id = ? AND delivered = 0
                       AND severity IN ('LOW', 'MEDIUM')
-                """, (person_id,))
+                      AND id <= ?
+                """, (person_id, max_id))
                 await db.commit()
         except Exception as e:
             _LOGGER.error("Error marking digest delivered: %s", e)
@@ -11130,6 +11143,18 @@ class UniversalRoomDatabase:
             return await mf.async_nightly_health_check(self)
         except Exception as e:  # noqa: BLE001
             _LOGGER.warning("music following health check failed: %s", e)
+            return None
+
+    async def run_room_ai_health_check(self) -> dict | None:
+        """Nightly op (AI-ROOM-RULES-TRUST-REPAIR-1 D6.3 / D6.5): room-rule
+        7-day accuracy roll-up + the per-rule ``room_rule_silent`` zero-fire
+        trip-wire (music following keeps its own op,
+        ``run_music_following_health_check``). Never raises."""
+        try:
+            from .room_rules_health import run_room_rules_health  # noqa: PLC0415
+            return await run_room_rules_health(self.hass, self)
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.warning("room rules health check failed: %s", e)
             return None
 
     async def run_egress_edge_anchor_tripwire(self) -> bool | None:

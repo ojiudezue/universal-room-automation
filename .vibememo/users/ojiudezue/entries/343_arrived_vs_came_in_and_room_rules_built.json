@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "343",
+  "author": "ojiudezue",
+  "timestamp": "2026-11-20T23:08:00Z",
+  "type": "decision",
+  "weight": "significant",
+  "title": "Arrival wording: 'arrived' only with the person's own arrival edge, else 'came in'; unified room rules built",
+  "summary": "The first live named arrivals came from the old single-face path, and one was wrong: 'Jaya arrived' while she had been home 46 minutes and walked in from the garage. The operator chose both fixes: say 'arrived' only when the named person's own counted arrival edge falls in the S1 window, otherwise 'came in' for a resident already home. S1 also failed to anchor a correct case at 12:39 for an unrecorded reason, so every non-anchor now records its reason. Separately, unified room rules (AI-ROOM-RULES-TRUST-REPAIR-1 D1-D9) was built and awaits review.",
+  "why": "A face match proves who walked through a door, not that they just came home; the phone's own arrival edge is the independent evidence of arriving. Without reject reasons the S1 yield gap could not be diagnosed.",
+  "alternatives_considered": [
+    "Gate only (no notice for home residents)",
+    "Reword only ('came in' for all face entries)"
+  ],
+  "implications": "Entry notices now encode F1 (arriving) separately from F3 (crossing) in their wording. The 12:39 gap is expected to be the plan's synthetic-face exclusion; the next crossing's edge_anchor_reason confirms it.",
+  "confidence": "medium",
+  "revisit_trigger": "edge_anchor_reason shows a gate firing on correct arrivals, or a 'came in' for someone who actually arrived",
+  "refs": {
+    "cards": [
+      "EGRESS-DIRECTION-AWARE-IDENTITY-1",
+      "AI-ROOM-RULES-TRUST-REPAIR-1"
+    ]
+  }
+}

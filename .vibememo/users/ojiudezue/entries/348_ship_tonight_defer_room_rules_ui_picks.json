@@ -1,0 +1,25 @@
+{
+  "format_version": "2.1",
+  "entry_id": "348",
+  "author": "ojiudezue",
+  "timestamp": "2026-11-23T03:45:00Z",
+  "type": "pivot",
+  "weight": "notable",
+  "title": "Take the restart window: ship v5.108.39 tonight without the room-rules screen picks",
+  "summary": "Operator cleared a restart after deploy (~21:30, 11-22). The plan had been to apply the three room-rules UI picks before the release. They were never built, so the release ships everything reviewed and ready (room rules core, S1 reasons, perimeter title, lock page, anomaly flood, digest race, house average) and defers the picks to the next release, recorded in the README.",
+  "reasoning": "Two release windows (11-21, 11-22 10:00) had already slipped, holding eight reviewed cards off the house. The picks are a config-flow layout change that needs its own build and review; building them now would push the deploy past the window the operator just opened, and one restart a day means the next chance is tomorrow. The picks change how rules are authored, not whether the shipped executor is correct, so deferring them does not ship anything half-built.",
+  "alternatives": [
+    "Build the picks first and deploy late (risks missing the window and skipping review)",
+    "Hold the whole batch for the picks (a third slipped release)"
+  ],
+  "revisit_trigger": "Next attended release: the picks ship first in it.",
+  "tags": [
+    "release",
+    "room-rules",
+    "cadence"
+  ],
+  "refs": [
+    "README_v5.108.39.md",
+    "AI-ROOM-RULES-TRUST-REPAIR-1"
+  ]
+}

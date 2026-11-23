@@ -1,0 +1,18 @@
+{
+  "format_version": "2.1",
+  "entry_id": "345",
+  "author": "ojiudezue",
+  "timestamp": "2026-11-22T08:28:00Z",
+  "type": "decision",
+  "weight": "significant",
+  "title": "Overnight 11-22: a green suite needs a healthy baseline; MA path must check the source really plays an MA queue; doorbell_lite entries need a path-map edge, not code",
+  "summary": "Soak-exit disposition of four shipped cards turned up two real defects behind discriminators that looked met. (1) Music following: the WiiM twin fix works (wiim_uuid_match on every row), but all 13 Music Assistant moves on 11-21 failed. The source was AirPlay (app_id airplay, active_queue null), the MA entity still read 'playing', so _resolve_path chose PATH_MA, and MA logged 'Resume queue requested but queue X is empty'. Carded MF-MA-PATH-NON-MA-SOURCE-1: use the MA path only when the playing candidate has app_id music_assistant; join vs skip decided by a 5-minute live test, not guessed. (2) Interior vision: the 11-20 path_zero trip-wire was real. Every doorbell_lite (Garage A door) entry is counted as a mapped-door entry, but in interior_paths.json that camera is only the target of approach edges, so it can never open a path. The fix is one inward edge in the HA-side map file (config-first), escalated for operator approval because it is an HA config write plus a topology claim. Separately, the 11-21 'CLEAN' name-diffs were rejected as evidence: their baseline worktree ran 574 failed / 1074 errors. A fresh combined merge of the three review branches onto develop ran 23846 passed / 0 failed against a fully green develop (23824 / 0), and the room-move coverage check passed a source-mutation drill (4 RED).",
+  "why": "A discriminator can be met in letter (path=ma appears; path rows exist) while the feature fails in practice, so disposition has to read the outcome column too, not only the path column. The suite rule matters for the same reason: a CLEAN verdict against a broken baseline reads as evidence and would have shipped three branches on nothing. Choosing a map edge over a code change for doorbell_lite follows config-first and avoids touching the counting logic, which is correct for every other door.",
+  "alternatives": [
+    "Turn off MA-first (MF_MA_FIRST_ENABLED=False): rejected, it also drops real MA-queue transfers.",
+    "Stop counting doorbell_lite entries toward the trip-wire (code): kept as option B; it hides the gap instead of producing the path.",
+    "Trust the 11-21 name-diffs: rejected, baseline broken."
+  ],
+  "implications": "Nothing was built tonight: the WIP cap held (6 cards in review). The next attended release can ship anomaly-flood, house-avg and digest-race together on today's evidence.",
+  "refs": ["docs/planning/kanban.data.yaml: MF-MA-PATH-NON-MA-SOURCE-1, INTERIOR-PATH-ZERO-1120-1, ANOMALY-FLOOD-ROWS-1", ".claude/suite-namediff-overnight-1122-batch.txt"]
+}

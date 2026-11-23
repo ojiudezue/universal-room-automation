@@ -343,6 +343,21 @@ class TransitValidator:
         self._entity_to_physical: dict[str, str] = {}
         # F2 fix: per-physical-camera last-sighting timestamp for dedup.
         self._last_physical_sighting: dict[str, datetime] = {}
+        # ANOMALY-FLOOD-ROWS-1: shared camera entity_id -> registry area_id
+        # (entity area, else its device's area; None = no area). Cleared by
+        # every `_build_and_subscribe`, filled once per camera on first use.
+        self._shared_camera_area: dict[str, str | None] = {}
+        # Room strings that did not resolve to an area (unknown to the room
+        # config, or a sentinel such as "away").
+        self._coverage_room_unresolved_count = 0
+        # No-sighting moves with cameras active that were NOT penalised
+        # because no shared camera sits in the from/to room.
+        self._coverage_not_covered_count = 0
+        # F5/F6/face-recog unsubs. These three sat after the return of
+        # build_diagnostic_attrs and never ran (moved by ANOMALY-FLOOD-ROWS-1).
+        self._rebuild_timer_unsub = None
+        self._config_signal_unsub = None
+        self._face_recog_signal_unsub = None
 
     def build_diagnostic_attrs(self) -> dict[str, Any]:
         """F4 (2026-08-07 fix-up cycle-4): TRANSIT-DIAG-1 attr payload
@@ -369,17 +384,14 @@ class TransitValidator:
         return {
             "checkpoint_cameras_by_area": checkpoint_cameras_by_area,
             "protect_sourced_count": protect_sourced_count,
+            # ANOMALY-FLOOD-ROWS-1 coverage counters (since start).
+            "path_coverage_room_unresolved_count": getattr(
+                self, "_coverage_room_unresolved_count", 0
+            ),
+            "path_coverage_not_covered_count": getattr(
+                self, "_coverage_not_covered_count", 0
+            ),
         }
-        # F5 fix: debounce timer for registry-updated rebuilds.
-        self._rebuild_timer_unsub = None
-        # F6 fix: dispatcher listener for options-change signal (kept
-        # across rebuilds so a re-init doesn't drop this hook).
-        self._config_signal_unsub = None
-        # CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1 (2026-08-18): discharge
-        # signal for CONF_FACE_RECOGNITION_ENABLED (the flag is cached
-        # at boot at :259; the switch/options-flow update is now
-        # reload-suppressed so we MUST refresh via this signal).
-        self._face_recog_signal_unsub = None
 
     async def async_init(self) -> None:
         """Subscribe to camera person detection entities.
@@ -558,6 +570,9 @@ class TransitValidator:
         self._protect_entity_set = set(protect_entities)
         # F2 fix: keep the entity->physical mapping fresh for dedup.
         self._entity_to_physical = dict(entity_to_physical)
+        # ANOMALY-FLOOD-ROWS-1: shared camera set / camera areas may have
+        # changed; drop the camera -> area cache.
+        self._shared_camera_area = {}
 
         census = self.hass.data.get(DOMAIN, {}).get("census")
         camera_manager = self.hass.data.get(DOMAIN, {}).get("camera_manager")
@@ -703,9 +718,18 @@ class TransitValidator:
         else:
             # Check if shared-space cameras are active (have any recent sightings at all)
             cameras_active = self._are_shared_space_cameras_active(shared_cameras)
-            if cameras_active:
+            # ANOMALY-FLOOD-ROWS-1: a silent camera only argues against a
+            # move it could have seen. Penalise only when the from or to
+            # room itself holds a shared-space camera.
+            if cameras_active and self._transition_covered_by_shared_camera(
+                transition, shared_cameras
+            ):
                 path_method = "path_implausible"
             else:
+                if cameras_active:
+                    self._coverage_not_covered_count = (
+                        getattr(self, "_coverage_not_covered_count", 0) + 1
+                    )
                 path_method = "no_camera_data"
 
         # Map path_method to confidence delta and path_validated
@@ -775,6 +799,69 @@ class TransitValidator:
                 seen.add(eid)
                 out.append(eid)
         return out
+
+    def _camera_area_id(self, entity_id: str) -> str | None:
+        """Registry area of a camera entity: entity area, else device area."""
+        try:
+            entry = er_helper.async_get(self.hass).async_get(entity_id)
+            if entry is None:
+                return None
+            if entry.area_id:
+                return entry.area_id
+            if entry.device_id:
+                from homeassistant.helpers import (  # noqa: PLC0415
+                    device_registry as dr_helper,
+                )
+
+                device = dr_helper.async_get(self.hass).async_get(entry.device_id)
+                if device is not None and device.area_id:
+                    return device.area_id
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "TransitValidator: area lookup failed for %s", entity_id,
+                exc_info=True,
+            )
+        return None
+
+    def _transition_covered_by_shared_camera(
+        self, transition: Any, shared_cameras: list[str]
+    ) -> bool:
+        """True when the move's from or to room holds a shared-space camera.
+
+        Rooms resolve to areas through the room config (``CONF_AREA_ID``,
+        ``camera_census.build_room_to_area_id_map``); cameras through the
+        entity / device registry (cached per camera). No name matching. A
+        room that does not resolve is not covered (no penalty) and counted.
+        """
+        try:
+            from .camera_census import build_room_to_area_id_map  # noqa: PLC0415
+
+            room_to_area = build_room_to_area_id_map(self.hass)
+        except Exception:  # noqa: BLE001
+            room_to_area = {}
+        move_areas: set[str] = set()
+        for room in (
+            getattr(transition, "from_room", None),
+            getattr(transition, "to_room", None),
+        ):
+            area_id = room_to_area.get(room) if room else None
+            if area_id:
+                move_areas.add(area_id)
+            else:
+                self._coverage_room_unresolved_count = (
+                    getattr(self, "_coverage_room_unresolved_count", 0) + 1
+                )
+        if not move_areas:
+            return False
+        cache = getattr(self, "_shared_camera_area", None)
+        if cache is None:
+            cache = self._shared_camera_area = {}
+        for eid in shared_cameras:
+            if eid not in cache:
+                cache[eid] = self._camera_area_id(eid)
+            if cache[eid] in move_areas:
+                return True
+        return False
 
     def _are_shared_space_cameras_active(self, shared_cameras: list[str]) -> bool:
         """Check if any shared-space camera has fired in the last 10 minutes."""
@@ -1008,6 +1095,14 @@ _CROSSING_AMENDABLE_KEYS: frozenset[str] = frozenset({
     # P3-D3 vision attributes (G3 role "vision_direction").
     "vision_direction", "vision_people_count", "direction_agreement",
     "vision_direction_confidence",
+})
+
+# Step 7 S1: the closed set of ``_compute_edge_anchor_ex`` reasons
+# ("anchored" plus every no-anchor reason written to the D8a row).
+EDGE_ANCHOR_REASONS: frozenset[str] = frozenset({
+    "anchored", "lead_off", "direction", "provenance", "no_slug",
+    "no_live_face_legs", "face_tier", "census_off", "no_presence",
+    "truncated", "partner_blocked", "no_own_edge", "error",
 })
 
 
@@ -2498,11 +2593,14 @@ class EgressDirectionTracker:
         # notify text, the record's identity_role / nameable and the D8a row;
         # person_id / identity_confidence / direction stay the resolver's and
         # the tracker's (INV-SECURITY, INV-DIRECTION-UNTOUCHED). Never raises.
-        anchor = self._compute_edge_anchor(direction, resolution, egress_timestamp)
+        anchor, anchor_reason = self._compute_edge_anchor_ex(
+            direction, resolution, egress_timestamp,
+        )
         # FACE-ARRIVAL-REBUILD-1 D8a: persist the outcome (one row per
         # resolution, every path). Observational; nothing below reads it.
         self._log_egress_outcome(
             resolution, egress_camera_id, egress_timestamp, edge_anchor=anchor,
+            edge_anchor_reason=anchor_reason,
         )
 
         # VISION-CROSSING-SHADOW-1 D2 (INV-ADDITIVE): sample the camera peak
@@ -2597,6 +2695,7 @@ class EgressDirectionTracker:
         try:
             self._arrival_departure_notify(
                 direction, person_id, identity_confidence, anchor=anchor,
+                egress_ts=egress_timestamp,
             )
         except Exception:  # noqa: BLE001
             _LOGGER.debug(
@@ -2928,6 +3027,7 @@ class EgressDirectionTracker:
         egress_timestamp: datetime,
         *,
         edge_anchor: Mapping[str, Any] | None = None,
+        edge_anchor_reason: str | None = None,
     ) -> None:
         """FACE-ARRIVAL-REBUILD-1 D8a: persist ONE memory_episodes row
         (`egress_identity_outcome`) for this resolution.
@@ -2967,6 +3067,9 @@ class EgressDirectionTracker:
                 {"slug": edge_anchor["slug"], "lead_s": edge_anchor["lead_s"]}
                 if edge_anchor else None
             ),
+            # Why no anchor ("anchored" when one was named; see
+            # _compute_edge_anchor_ex for the vocabulary).
+            "edge_anchor_reason": edge_anchor_reason,
         }
 
         async def _write() -> None:
@@ -3096,40 +3199,69 @@ class EgressDirectionTracker:
         resolution: "EgressResolution",
         egress_timestamp: datetime,
     ) -> dict[str, Any] | None:
+        """The anchor alone (see ``_compute_edge_anchor_ex``)."""
+        return self._compute_edge_anchor_ex(
+            direction, resolution, egress_timestamp,
+        )[0]
+
+    def _compute_edge_anchor_ex(
+        self,
+        direction: str,
+        resolution: "EgressResolution",
+        egress_timestamp: datetime,
+    ) -> tuple[dict[str, Any] | None, str]:
         """INV-ANCHOR-OWN-EVIDENCE: a face for slug S plus S's OWN counted F1
         arrival edge in ``[t_E - LEAD, t_E + EGRESS_ENTRY_WINDOW_SECONDS]``, no
         truncated edge ring, and no confusable partner edge there. Returns
-        ``{slug, confidence, lead_s, provenance}`` or None. Never raises."""
+        ``({slug, confidence, lead_s, provenance}, "anchored")`` or
+        ``(None, reason)``, reason one of ``EDGE_ANCHOR_REASONS``; every None
+        reason is counted in the ``edge_anchor_none`` layer table. Never
+        raises."""
+        anchor, reason = self._edge_anchor_gates(
+            direction, resolution, egress_timestamp,
+        )
+        if anchor is None:
+            _count_layer_event(self.hass, "edge_anchor_none", reason)
+        return anchor, reason
+
+    def _edge_anchor_gates(
+        self,
+        direction: str,
+        resolution: "EgressResolution",
+        egress_timestamp: datetime,
+    ) -> tuple[dict[str, Any] | None, str]:
         try:
             lead = float(_ura_const.EGRESS_ARRIVAL_EDGE_LEAD_S)
             if lead <= 0:
-                return None
+                return None, "lead_off"
             if direction not in ("entry", "exit"):
-                return None
+                return None, "direction"
             if resolution.provenance not in (
                 IDENTITY_PROVENANCE_FACE, IDENTITY_PROVENANCE_BLE_FACE,
             ):
-                return None
+                return None, "provenance"
             slug = resolution.slug
-            if not slug or not resolution.live_face_legs:
-                return None
+            if not slug:
+                return None, "no_slug"
+            if not resolution.live_face_legs:
+                return None, "no_live_face_legs"
             if (
                 resolution.face_tier is None
                 or resolution.face_tier < float(_ura_const.EGRESS_ARRIVAL_EDGE_MIN_TIER)
             ):
-                return None
+                return None, "face_tier"
             census = self.hass.data.get(DOMAIN, {}).get("census")
             if census is None or not census.egress_identity_enabled():
-                return None
+                return None, "census_off"
             presence = self._presence_coordinator()
             if presence is None:
-                return None
+                return None, "no_presence"
             t_e = egress_timestamp.timestamp()
             lo = t_e - lead
             hi = t_e + float(EGRESS_ENTRY_WINDOW_SECONDS)
             if presence.person_edges_truncated_since(lo):
                 _count_layer_event(self.hass, "edge_anchor_truncated")
-                return None
+                return None, "truncated"
             own = tracked_person_entity_id(slug)
             partners = {
                 tracked_person_entity_id(p)
@@ -3152,21 +3284,21 @@ class EgressDirectionTracker:
             ]
             if any(e.person in partners for e in kept):
                 _count_layer_event(self.hass, "edge_anchor_pair_blocked")
-                return None
+                return None, "partner_blocked"
             mine = [e for e in kept if e.person == own]
             if not mine:
-                return None
+                return None, "no_own_edge"
             _count_layer_event(self.hass, "edge_anchor_named")
             return {
                 "slug": slug,
                 "confidence": float(_ura_const.EGRESS_ARRIVAL_EDGE_CONFIDENCE),
                 "lead_s": round(t_e - float(mine[-1].edge_ts), 1),
                 "provenance": _ura_const.IDENTITY_PROVENANCE_FACE_RESIDENCY,
-            }
+            }, "anchored"
         except Exception:  # noqa: BLE001
             _LOGGER.debug("edge anchor failed (non-fatal)", exc_info=True)
             _count_layer_event(self.hass, "edge_anchor_error")
-            return None
+            return None, "error"
 
     async def async_edge_anchor_tripwire(self, database: Any) -> bool:
         """Plan D2 zero-fire trip-wire (nightly op): no anchored crossing in
@@ -3242,6 +3374,51 @@ class EgressDirectionTracker:
             _LOGGER.debug("edge anchor trip-wire failed", exc_info=True)
             return False
 
+    def _named_entry_verb(self, person_id: str, egress_ts: datetime) -> str:
+        """Verb for a named (>= notification bar) entry without an anchor
+        (operator 2026-11-20): "arrived" only when the person has their OWN
+        counted, non-stale, non-boot arrival edge in the S1 window
+        ``[t_E - EGRESS_ARRIVAL_EDGE_LEAD_S, t_E + EGRESS_ENTRY_WINDOW_SECONDS]``
+        (a truncated ring reads as no edge); otherwise "came in" when the
+        person was already home before the window; else "arrived" (today's
+        text). LEAD <= 0 or any error keeps "arrived" (INV-NOOP)."""
+        try:
+            lead = float(_ura_const.EGRESS_ARRIVAL_EDGE_LEAD_S)
+            if lead <= 0:
+                return "arrived"
+            presence = self._presence_coordinator()
+            if presence is None:
+                return "arrived"
+            t_e = egress_ts.timestamp()
+            lo = t_e - lead
+            hi = t_e + float(EGRESS_ENTRY_WINDOW_SECONDS)
+            own = tracked_person_entity_id(person_id)
+            if not presence.person_edges_truncated_since(lo):
+                for e in presence.get_person_edges_since(
+                    lo, persons={own}, kinds={"arrival"},
+                ):
+                    if (
+                        e.person == own
+                        and e.kind == "arrival"
+                        and e.edge_ts <= hi
+                        and e.counted is True
+                        and not e.source_stale
+                        and not e.in_boot_window
+                    ):
+                        return "arrived"
+            st = self.hass.states.get(own)
+            since = getattr(st, "last_changed", None)
+            if (
+                st is not None
+                and getattr(st, "state", None) == "home"
+                and isinstance(since, datetime)
+                and since.timestamp() < lo
+            ):
+                return "came in"
+            return "arrived"
+        except Exception:  # noqa: BLE001 - text only
+            return "arrived"
+
     def _arrival_departure_notify(
         self,
         direction: str,
@@ -3249,6 +3426,7 @@ class EgressDirectionTracker:
         identity_confidence: float | None,
         *,
         anchor: Mapping[str, Any] | None = None,
+        egress_ts: datetime | None = None,
     ) -> None:
         """Dispatch an arrival/departure notification off an egress crossing.
 
@@ -3281,6 +3459,8 @@ class EgressDirectionTracker:
             >= CONSUMER_CLASS_MIN_CONFIDENCE[CONSUMER_CLASS_NOTIFICATION]
         ):
             name = display_of(person_id)  # RA9
+            if direction == "entry" and egress_ts is not None:
+                verb = self._named_entry_verb(person_id, egress_ts)
         else:
             name = "Someone"
 

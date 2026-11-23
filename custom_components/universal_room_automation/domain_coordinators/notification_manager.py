@@ -6155,6 +6155,10 @@ class NotificationManager:
         mf_line = self._build_music_following_digest_section()
         if mf_line:
             digest_message = digest_message.rstrip() + "\n\n" + mf_line
+        # AI-ROOM-RULES-TRUST-REPAIR-1 D6.4: one room-rules line.
+        rr_line = self._build_room_rules_digest_section()
+        if rr_line:
+            digest_message = digest_message.rstrip() + "\n\n" + rr_line
 
         sent = await self._deliver_digest(person_id, person_cfg, digest_message)
 
@@ -6167,8 +6171,20 @@ class NotificationManager:
             # WITHOUT ever appearing in a digest body (silent loss).
             # The pre-heartbeat code returned before ever reaching the
             # mark, so gating restores the original race-free semantics.
-            if not heartbeat:
-                await database.mark_digest_delivered(person_id)
+            # NM-DIGEST-MARK-RACE-1 (2026-11-15): the same race applied to
+            # every flush, not just the heartbeat — the UPDATE swept rows
+            # INSERTed during `_deliver_digest`. Mark only up to the max id
+            # READ into this body (high-water mark). Optimizer-only flush
+            # (pending empty, opt_section sent): no real row was in the
+            # body, and there is no race-free audit snapshot from this
+            # read (it excludes audit rows), so mark NOTHING — audit rows
+            # are left for the next flush that carries real rows.
+            _hwm = max(
+                (r["id"] for r in pending if r.get("id") is not None),
+                default=None,
+            )
+            if not heartbeat and _hwm is not None:
+                await database.mark_digest_delivered(person_id, _hwm)
             if heartbeat:
                 _LOGGER.info("Digest heartbeat delivered to %s (all quiet)", person_id)
             else:
@@ -6263,6 +6279,15 @@ class NotificationManager:
             return mf.digest_section() or ""
         except Exception:  # noqa: BLE001
             _LOGGER.warning("music following digest section failed", exc_info=True)
+            return ""
+
+    def _build_room_rules_digest_section(self) -> str:
+        """The room-rules line for the NM digest; "" on none / error."""
+        try:
+            from ..room_rules_health import digest_section  # noqa: PLC0415
+            return digest_section(self.hass) or ""
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning("room rules digest section failed", exc_info=True)
             return ""
 
     def _build_optimizer_digest_section(self) -> str:

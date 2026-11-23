@@ -2952,11 +2952,12 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
 
         v3.6.24: Cover fields moved to cover_behavior sub-step.
         This step now only contains lighting automation fields.
-        v3.20.1: Routes to init_automation_chaining instead of climate.
+        AI-ROOM-RULES-TRUST-REPAIR-1 D8: routes straight to climate (rules
+        are added from the room's options, not during creation).
         """
         if user_input is not None:
             self._data.update(user_input)
-            return await self.async_step_init_automation_chaining()
+            return await self.async_step_climate()
 
         light_entry_actions = [
             {"label": "Never (I switch them)", "value": LIGHT_ACTION_NONE},
@@ -2996,393 +2997,9 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             description_placeholders={"name": "Configure lighting automation behavior"},
         )
 
-    # =========================================================================
-    # v3.20.1 D1: AUTOMATION CHAINING IN INITIAL ROOM SETUP
-    # =========================================================================
-
-    async def async_step_init_automation_chaining(self, user_input=None):
-        """Automation chaining during initial room setup: choose trigger group."""
-        return self.async_show_menu(
-            step_id="init_automation_chaining",
-            menu_options=[
-                "init_chain_occupancy",
-                "init_chain_light",
-                "init_chain_house_state",
-                "init_chain_coordinator",
-                "init_chain_skip",
-            ],
-        )
-
-    async def async_step_init_chain_skip(self, user_input=None):
-        """Skip automation chaining and proceed to AI rules."""
-        return await self.async_step_init_ai_rules()
-
-    async def async_step_init_chain_occupancy(self, user_input=None):
-        """Configure occupancy trigger automations during initial setup."""
-        return await self._init_chain_trigger_step(
-            "init_chain_occupancy", CHAIN_GROUP_OCCUPANCY, user_input,
-        )
-
-    async def async_step_init_chain_light(self, user_input=None):
-        """Configure light level trigger automations during initial setup."""
-        return await self._init_chain_trigger_step(
-            "init_chain_light", CHAIN_GROUP_LIGHT, user_input,
-        )
-
-    async def async_step_init_chain_house_state(self, user_input=None):
-        """Configure house state trigger automations during initial setup."""
-        return await self._init_chain_trigger_step(
-            "init_chain_house_state", CHAIN_GROUP_HOUSE_STATE, user_input,
-        )
-
-    async def async_step_init_chain_coordinator(self, user_input=None):
-        """Configure coordinator signal trigger automations during initial setup."""
-        return await self._init_chain_trigger_step(
-            "init_chain_coordinator", CHAIN_GROUP_COORDINATOR, user_input,
-        )
-
-    async def _init_chain_trigger_step(
-        self, step_id: str, triggers: list[str], user_input,
-    ):
-        """Shared handler for chain trigger sub-steps during initial setup.
-
-        v3.20.1: Mirrors options flow _chain_trigger_step but stores in self._data.
-        """
-        if user_input is not None:
-            # Merge with existing chains already set during this flow
-            existing = self._data.get(CONF_AUTOMATION_CHAINS, {})
-            updated = dict(existing)
-            for trigger in triggers:
-                key = f"chain_{trigger}"
-                val = user_input.get(key, "")
-                if val:
-                    updated[trigger] = val
-                else:
-                    updated.pop(trigger, None)
-            self._data[CONF_AUTOMATION_CHAINS] = updated
-            # Return to chaining menu for more groups or skip
-            return await self.async_step_init_automation_chaining()
-
-        # Build automation entity dropdown options
-        automation_entities = sorted(
-            eid for eid in self.hass.states.async_entity_ids("automation")
-        )
-        options = [{"value": "", "label": "(none)"}]
-        for eid in automation_entities:
-            state = self.hass.states.get(eid)
-            label = state.attributes.get("friendly_name", eid) if state else eid
-            options.append({"value": eid, "label": label})
-
-        current = self._data.get(CONF_AUTOMATION_CHAINS, {})
-
-        data_schema = vol.Schema({
-            vol.Optional(
-                f"chain_{trigger}",
-                default=current.get(trigger, ""),
-            ): selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=options,
-                    mode=selector.SelectSelectorMode.DROPDOWN,
-                )
-            )
-            for trigger in triggers
-        })
-
-        return self.async_show_form(
-            step_id=step_id,
-            data_schema=data_schema,
-        )
-
-    # =========================================================================
-    # v3.20.1 D2: AI RULES IN INITIAL ROOM SETUP
-    # =========================================================================
-
-    async def async_step_init_ai_rules(self, user_input=None):
-        """AI Rules menu during initial room setup: Add Rule / Skip."""
-        return self.async_show_menu(
-            step_id="init_ai_rules",
-            menu_options=[
-                "init_ai_rule_add",
-                "init_ai_rules_skip",
-            ],
-        )
-
-    async def async_step_init_ai_rules_skip(self, user_input=None):
-        """Skip AI rules and proceed to climate."""
-        return await self.async_step_climate()
-
-    async def async_step_init_ai_rule_add(self, user_input=None):
-        """Add a new AI rule during initial room setup.
-
-        v3.20.1 D2 REVIEW FIX: Calls _parse_rule_with_ai() inline
-        instead of using needs_parsing flag. If ai_task is unavailable,
-        the rule is stored with empty actions and needs_parsing=True as fallback.
-        """
-        errors = {}
-
-        if user_input is not None:
-            trigger_type = user_input.get(CONF_AI_RULE_TRIGGER, "enter")
-            person = user_input.get(CONF_AI_RULE_PERSON, "").strip()
-            description = user_input.get(CONF_AI_RULE_DESCRIPTION, "").strip()
-
-            if not description:
-                errors["base"] = "ai_rule_empty_description"
-            else:
-                # v3.20.1 D2 REVIEW FIX: Try inline AI parsing first
-                actions = None
-                needs_parsing = False
-                try:
-                    actions = await self._parse_rule_with_ai_init(
-                        description, trigger_type, person,
-                    )
-                except Exception:
-                    _LOGGER.warning(
-                        "ai_task unavailable during initial setup, deferring parse"
-                    )
-
-                if actions is not None:
-                    # Validate parsed actions
-                    valid, validation_errors = self._validate_parsed_actions_init(actions)
-                    if not valid:
-                        _LOGGER.warning(
-                            "AI rule validation errors: %s", validation_errors,
-                        )
-                        errors["base"] = "ai_rule_validation_failed"
-                    else:
-                        from homeassistant.util import dt as dt_util
-                        rule = {
-                            "rule_id": uuid.uuid4().hex[:8],
-                            "trigger_type": trigger_type,
-                            "person": person,
-                            "description": description,
-                            "actions": actions,
-                            "enabled": True,
-                            "created_at": dt_util.utcnow().isoformat(),
-                        }
-                        existing_rules = list(self._data.get(CONF_AI_RULES, []))
-                        existing_rules.append(rule)
-                        self._data[CONF_AI_RULES] = existing_rules
-                        return await self.async_step_init_ai_rules()
-                elif "base" not in errors:
-                    # ai_task not available — store with deferred parsing as fallback
-                    rule = {
-                        "rule_id": uuid.uuid4().hex[:8],
-                        "trigger_type": trigger_type,
-                        "person": person,
-                        "description": description,
-                        "actions": [],
-                        "enabled": True,
-                        "needs_parsing": True,
-                    }
-                    existing_rules = list(self._data.get(CONF_AI_RULES, []))
-                    existing_rules.append(rule)
-                    self._data[CONF_AI_RULES] = existing_rules
-                    return await self.async_step_init_ai_rules()
-
-        # Build trigger dropdown options with human-readable labels
-        trigger_labels = {
-            "enter": "Room Enter",
-            "exit": "Room Exit",
-            "lux_dark": "Room Gets Dark",
-            "lux_bright": "Room Gets Bright",
-            "house_state_away": "House Away",
-            "house_state_arriving": "House Arriving",
-            "house_state_home_day": "House Home Day",
-            "house_state_home_evening": "House Home Evening",
-            "house_state_home_night": "House Home Night",
-            "house_state_sleep": "House Sleep",
-            "house_state_waking": "House Waking",
-            "house_state_guest": "House Guest",
-            "house_state_vacation": "House Vacation",
-            "energy_constraint": "Energy Constraint Change",
-            "safety_hazard": "Safety Hazard Detected",
-            "security_event": "Security Event",
-        }
-        trigger_options = [
-            {"value": t, "label": trigger_labels.get(t, t)}
-            for t in AI_RULE_TRIGGER_OPTIONS
-        ]
-
-        data_schema = vol.Schema({
-            vol.Required(CONF_AI_RULE_TRIGGER, default="enter"): selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=trigger_options,
-                    mode=selector.SelectSelectorMode.DROPDOWN,
-                )
-            ),
-            # v3.20.1 D5: EntitySelector for person domain
-            vol.Optional(CONF_AI_RULE_PERSON, default=vol.UNDEFINED): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="person")
-            ),
-            vol.Required(CONF_AI_RULE_DESCRIPTION, default=""): selector.TextSelector(
-                selector.TextSelectorConfig(
-                    type=selector.TextSelectorType.TEXT,
-                    multiline=True,
-                )
-            ),
-        })
-
-        return self.async_show_form(
-            step_id="init_ai_rule_add",
-            data_schema=data_schema,
-            errors=errors,
-        )
-
-    async def _parse_rule_with_ai_init(
-        self,
-        description: str,
-        trigger_type: str,
-        person: str,
-    ) -> list[dict] | None:
-        """Parse NL description via ai_task during initial setup.
-
-        v3.20.1: Adapted from OptionsFlow._parse_rule_with_ai.
-        Uses self._data instead of self._config_entry.
-        """
-        room_name = self._data.get(CONF_ROOM_NAME, "this room")
-        room_entities = self._get_room_entities_for_prompt_init()
-
-        trigger_label = {
-            "enter": f"{person or 'someone'} enters the room",
-            "exit": f"{person or 'someone'} leaves the room",
-            "lux_dark": "the room gets dark",
-            "lux_bright": "the room gets bright",
-            "house_state_away": "the house transitions to Away",
-            "house_state_arriving": "someone is arriving home",
-            "house_state_home_day": "the house enters Home Day mode",
-            "house_state_home_evening": "the house enters Home Evening mode",
-            "house_state_home_night": "the house enters Home Night mode",
-            "house_state_sleep": "the house enters Sleep mode",
-            "house_state_waking": "the house enters Waking mode",
-            "house_state_guest": "the house enters Guest mode",
-            "house_state_vacation": "the house enters Vacation mode",
-            "energy_constraint": "the energy constraint changes (peak, shed, coast)",
-            "safety_hazard": "a safety hazard is detected (smoke, CO, water leak)",
-            "security_event": "a security event occurs (entry alert, unknown person)",
-        }.get(trigger_type, trigger_type)
-
-        prompt = AI_RULE_PARSING_PROMPT.format(
-            room_name=room_name,
-            trigger_label=trigger_label,
-            description=description,
-            entities_json=json.dumps(room_entities, indent=2),
-        )
-
-        structure = {
-            "actions": {
-                "selector": {"object": {"multiple": True}},
-                "description": (
-                    "List of HA service calls. Each must have: "
-                    "domain (string), service (string), "
-                    "target (object with entity_id string or list), "
-                    "data (object, may be empty {}). "
-                    "Use color_temp_kelvin not color_temp. "
-                    "Use brightness_pct (0-100) not brightness."
-                ),
-            }
-        }
-
-        result = await self.hass.services.async_call(
-            "ai_task", "generate_data",
-            {
-                "task_name": "ura_parse_room_rule",
-                "instructions": prompt,
-                "structure": structure,
-            },
-            blocking=True,
-            return_response=True,
-        )
-
-        if not result or not isinstance(result, dict):
-            return None
-
-        actions = result.get("data", {}).get("actions") if isinstance(result.get("data"), dict) else None
-        if actions is None:
-            actions = result.get("actions")
-        if not isinstance(actions, list) or not actions:
-            return None
-
-        return actions
-
-    def _get_room_entities_for_prompt_init(self) -> list[dict]:
-        """Build entity list for AI context from initial setup data.
-
-        v3.20.1: Adapted from OptionsFlow._get_room_entities_for_prompt.
-        Uses self._data instead of self._config_entry.
-        """
-        entities = []
-        seen = set()
-
-        def add(entity_id: str) -> None:
-            if entity_id in seen:
-                return
-            state = self.hass.states.get(entity_id)
-            if not state:
-                return
-            seen.add(entity_id)
-            entities.append({
-                "entity_id": entity_id,
-                "name": state.attributes.get("friendly_name", entity_id),
-                "domain": entity_id.split(".")[0],
-            })
-
-        # Explicitly configured devices from self._data
-        for key in (CONF_LIGHTS, CONF_FANS, CONF_AUTO_DEVICES, CONF_MANUAL_DEVICES,
-                    CONF_COVERS, CONF_AUTO_SWITCHES, CONF_MANUAL_SWITCHES):
-            for eid in self._data.get(key, []) or []:
-                add(eid)
-
-        if climate := self._data.get(CONF_CLIMATE_ENTITY):
-            add(climate)
-
-        # All entities in the room's HA area
-        area_id = self._data.get(CONF_AREA_ID)
-        if area_id:
-            ent_reg = er.async_get(self.hass)
-            for entity in ent_reg.entities.values():
-                if entity.area_id == area_id and not entity.disabled:
-                    add(entity.entity_id)
-
-        return entities
-
-    # v3.20.1: Domain allowlist for AI rule service calls (shared with OptionsFlow).
-    _AI_RULE_ALLOWED_DOMAINS: set = {
-        "light", "switch", "fan", "cover", "climate", "media_player",
-        "lock", "scene", "automation", "input_boolean", "input_number",
-        "input_select", "input_text", "number", "select", "button",
-        "humidifier", "vacuum", "water_heater", "valve",
-    }
-
-    def _validate_parsed_actions_init(self, actions: list[dict]) -> tuple[bool, list[str]]:
-        """Validate AI-parsed actions during initial setup.
-
-        v3.20.1: Adapted from OptionsFlow._validate_parsed_actions.
-        """
-        errors = []
-        for i, action in enumerate(actions):
-            label = f"Action {i + 1}"
-            if not isinstance(action, dict):
-                errors.append(f"{label}: must be an object, got {type(action).__name__}")
-                continue
-            for key in ("domain", "service", "target"):
-                if key not in action:
-                    errors.append(f"{label}: missing '{key}'")
-            domain = action.get("domain", "")
-            if domain and domain not in self._AI_RULE_ALLOWED_DOMAINS:
-                errors.append(f"{label}: domain '{domain}' is not allowed")
-            target = action.get("target", {})
-            if not isinstance(target, dict):
-                errors.append(f"{label}: 'target' must be an object")
-                target = {}
-            entity_id = target.get("entity_id")
-            if entity_id:
-                eids = entity_id if isinstance(entity_id, list) else [entity_id]
-                for eid in eids:
-                    if not self.hass.states.get(eid):
-                        errors.append(f"{label}: entity '{eid}' not found")
-            if "data" in action and not isinstance(action["data"], dict):
-                errors.append(f"{label}: 'data' must be an object")
-        return len(errors) == 0, errors
+    # AI-ROOM-RULES-TRUST-REPAIR-1 D8: rule authoring left the room-creation
+    # flow (it wrote rules into entry.data). Rules are added from the room's
+    # options ("Room rules").
 
     async def async_step_climate(self, user_input=None):
         """Handle "Climate & Fans" configuration (D7 rename).
@@ -3889,8 +3506,9 @@ _KEY_OWNER_OVERRIDES: dict = {
 # Owned keys that are not rendered as top-level fields: menu-only steps
 # (no form) and the legacy singular energy key folded into energy_sensors.
 _STEP_EXTRA_OWNED_KEYS: dict = {
-    "automation_chaining": (CONF_AUTOMATION_CHAINS,),
-    "ai_rules": (CONF_AI_RULES,),
+    # AI-ROOM-RULES-TRUST-REPAIR-1: one "Room rules" menu step owns both
+    # stores (rules + legacy chains).
+    "room_rules": (CONF_AI_RULES, CONF_AUTOMATION_CHAINS),
     "energy": (CONF_ENERGY_SENSOR,),
     # SENSOR-FORM-PLAIN-TEXT-1 (2026-10-11): the raw-JSON escape hatch
     # ``sensor_capabilities_json`` is a form-only field (saved as
@@ -3899,7 +3517,7 @@ _STEP_EXTRA_OWNED_KEYS: dict = {
     # it as missing.
     "sensors": ("sensor_capabilities_json",),
 }
-_MENU_ONLY_ROOM_STEPS: frozenset = frozenset({"automation_chaining", "ai_rules"})
+_MENU_ONLY_ROOM_STEPS: frozenset = frozenset({"room_rules"})
 
 
 class _FactoryDefaultsEntry:
@@ -10872,9 +10490,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         Both collapsed sections flatten back to top-level options on save
         so the chokepoint / LLM tier (which read `entry.options` fresh
         on every cycle) see the same flat key surface they do today.
-        Parsimony: zero new CONF keys land here beyond the Pillar B
-        confirm-guard key, which is operated via entity buttons (not the
-        form).
+        The Room Rules model picker (``CONF_ROOM_RULES_AI_TASK_ENTITY``) also
+        lives in this form; the Pillar B confirm-guard key is operated via
+        entity buttons (not the form).
         """
         from homeassistant.data_entry_flow import section
         from .const import (
@@ -10890,6 +10508,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_OPTIMIZER_LLM_SYSTEM_PROMPT,
             CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H,
             CONF_OPTIMIZER_SAFETY_DENY_ENTITIES,
+            CONF_ROOM_RULES_AI_TASK_ENTITY,
+            DEFAULT_ROOM_RULES_AI_TASK_ENTITY,
             DEFAULT_OPTIMIZER_AUTONOMY_LEVEL,
             DEFAULT_OPTIMIZER_KILL_SWITCH,
             DEFAULT_OPTIMIZER_CONFIDENCE_GATE,
@@ -11053,6 +10673,21 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 ),
             ): selector.TextSelector(
                 selector.TextSelectorConfig(multiline=True)
+            ),
+            # AI-ROOM-RULES-TRUST-REPAIR-1 §8: "Rule writing model" (rung 2).
+            # Empty = HA's default AI Task entity. Saved rules never call it.
+            vol.Optional(
+                CONF_ROOM_RULES_AI_TASK_ENTITY,
+                default=self._get_current(
+                    CONF_ROOM_RULES_AI_TASK_ENTITY,
+                    DEFAULT_ROOM_RULES_AI_TASK_ENTITY,
+                ),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[""] + self._discover_ai_task_entities(),
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                    custom_value=True,
+                )
             ),
             vol.Optional(
                 CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H,
@@ -15347,486 +14982,451 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         )
 
     # =========================================================================
-    # v3.10.0/v3.12.0: AUTOMATION CHAINING (M1 + M2)
+    # AI-ROOM-RULES-TRUST-REPAIR-1 §7: ROOM RULES (one entry, three actions)
     # =========================================================================
+    # "Describe a rule" and "Run an automation" both produce ONE rule record
+    # (rule_compiler); "Your rules" lists, turns off/on, re-checks, rewords
+    # and deletes. Every write goes to entry.options with the full list
+    # (D8); legacy CONF_AUTOMATION_CHAINS bindings are folded into the list
+    # on the first write. The preview is written by code from the actions
+    # that will run (INV-R4).
 
-    async def async_step_automation_chaining(self, user_input=None):
-        """Automation chaining: choose trigger group to configure."""
-        return self.async_show_menu(
-            step_id="automation_chaining",
-            menu_options=[
-                "chain_occupancy",
-                "chain_light",
-                "chain_house_state",
-                "chain_coordinator",
-            ],
-        )
+    _RULE_TRIGGER_LABELS: dict = {
+        "enter": "Someone enters the room",
+        "exit": "Someone leaves the room",
+        "lux_dark": "The room gets dark",
+        "lux_bright": "The room gets bright",
+        "house_state_away": "House: Away",
+        "house_state_arriving": "House: Arriving",
+        "house_state_home_day": "House: Home Day",
+        "house_state_home_evening": "House: Home Evening",
+        "house_state_home_night": "House: Home Night",
+        "house_state_sleep": "House: Sleep",
+        "house_state_waking": "House: Waking",
+        "house_state_guest": "House: Guest",
+        "house_state_vacation": "House: Vacation",
+        "energy_constraint": "Energy mode changes",
+        "safety_hazard": "Smoke, CO or a leak",
+        "security_event": "A security event",
+    }
 
-    async def async_step_chain_occupancy(self, user_input=None):
-        """Configure occupancy trigger automations (enter/exit)."""
-        return await self._chain_trigger_step(
-            "chain_occupancy", CHAIN_GROUP_OCCUPANCY, user_input,
-        )
-
-    async def async_step_chain_light(self, user_input=None):
-        """Configure light level trigger automations (lux_dark/lux_bright)."""
-        return await self._chain_trigger_step(
-            "chain_light", CHAIN_GROUP_LIGHT, user_input,
-        )
-
-    async def async_step_chain_house_state(self, user_input=None):
-        """Configure house state trigger automations."""
-        return await self._chain_trigger_step(
-            "chain_house_state", CHAIN_GROUP_HOUSE_STATE, user_input,
-        )
-
-    async def async_step_chain_coordinator(self, user_input=None):
-        """Configure coordinator signal trigger automations."""
-        return await self._chain_trigger_step(
-            "chain_coordinator", CHAIN_GROUP_COORDINATOR, user_input,
-        )
-
-    async def _chain_trigger_step(
-        self, step_id: str, triggers: list[str], user_input,
-    ):
-        """Shared handler for chain trigger sub-steps.
-
-        Preserves bindings from other trigger groups when saving.
-        """
-        if user_input is not None:
-            # Merge with existing chains from other groups
-            existing = self._config_entry.options.get(
-                CONF_AUTOMATION_CHAINS,
-                self._config_entry.data.get(CONF_AUTOMATION_CHAINS, {}),
-            )
-            updated = dict(existing)
-            for trigger in triggers:
-                key = f"chain_{trigger}"
-                val = user_input.get(key, "")
-                if val:
-                    updated[trigger] = val
-                else:
-                    updated.pop(trigger, None)
-            return self.async_create_entry(
-                title="",
-                data={**self._config_entry.options, CONF_AUTOMATION_CHAINS: updated},
-            )
-
-        # Build automation entity dropdown options
-        automation_entities = sorted(
-            eid for eid in self.hass.states.async_entity_ids("automation")
-        )
-        options = [{"value": "", "label": "(none)"}]
-        for eid in automation_entities:
-            state = self.hass.states.get(eid)
-            label = state.attributes.get("friendly_name", eid) if state else eid
-            options.append({"value": eid, "label": label})
-
-        current = self._config_entry.options.get(
-            CONF_AUTOMATION_CHAINS,
-            self._config_entry.data.get(CONF_AUTOMATION_CHAINS, {}),
-        )
-
-        data_schema = vol.Schema({
-            vol.Optional(
-                f"chain_{trigger}",
-                default=current.get(trigger, ""),
-            ): selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=options,
-                    mode=selector.SelectSelectorMode.DROPDOWN,
-                )
-            )
-            for trigger in triggers
-        })
-
-        return self.async_show_form(
-            step_id=step_id,
-            data_schema=data_schema,
-        )
-
-    # =========================================================================
-    # v3.12.0 M3: AI NL RULES — CONFIG FLOW STEPS
-    # =========================================================================
-
-    async def async_step_ai_rules(self, user_input=None):
-        """AI Rules menu: Add Rule / View Rules / Back."""
-        return self.async_show_menu(
-            step_id="ai_rules",
-            menu_options=[
-                "ai_rule_add",
-                "ai_rule_list",
-            ],
-        )
-
-    async def async_step_ai_rule_add(self, user_input=None):
-        """Add a new AI rule by describing it in natural language."""
-        errors = {}
-
-        if user_input is not None:
-            trigger_type = user_input.get(CONF_AI_RULE_TRIGGER, "enter")
-            person = user_input.get(CONF_AI_RULE_PERSON, "").strip()
-            description = user_input.get(CONF_AI_RULE_DESCRIPTION, "").strip()
-
-            if not description:
-                errors["base"] = "ai_rule_empty_description"
-            else:
-                # Parse with AI
-                actions = await self._parse_rule_with_ai(description, trigger_type, person)
-                if actions is None:
-                    errors["base"] = "ai_parse_failed"
-                else:
-                    # Validate parsed actions
-                    valid, validation_errors = self._validate_parsed_actions(actions)
-                    if not valid:
-                        _LOGGER.warning(
-                            "AI rule validation errors: %s", validation_errors,
-                        )
-                        errors["base"] = "ai_rule_validation_failed"
-                    else:
-                        # Build the rule dict
-                        from homeassistant.util import dt as dt_util
-                        rule = {
-                            "rule_id": uuid.uuid4().hex[:8],
-                            "trigger_type": trigger_type,
-                            "person": person,
-                            "description": description,
-                            "actions": actions,
-                            "enabled": True,
-                            "created_at": dt_util.utcnow().isoformat(),
-                        }
-
-                        # Store in options
-                        existing_rules = list(
-                            self._config_entry.options.get(
-                                CONF_AI_RULES,
-                                self._config_entry.data.get(CONF_AI_RULES, []),
-                            )
-                        )
-                        existing_rules.append(rule)
-
-                        return self.async_create_entry(
-                            title="",
-                            data={
-                                **self._config_entry.options,
-                                CONF_AI_RULES: existing_rules,
-                            },
-                        )
-
-        # Build trigger dropdown options with human-readable labels
-        trigger_labels = {
-            "enter": "Room Enter",
-            "exit": "Room Exit",
-            "lux_dark": "Room Gets Dark",
-            "lux_bright": "Room Gets Bright",
-            "house_state_away": "House Away",
-            "house_state_arriving": "House Arriving",
-            "house_state_home_day": "House Home Day",
-            "house_state_home_evening": "House Home Evening",
-            "house_state_home_night": "House Home Night",
-            "house_state_sleep": "House Sleep",
-            "house_state_waking": "House Waking",
-            "house_state_guest": "House Guest",
-            "house_state_vacation": "House Vacation",
-            "energy_constraint": "Energy Constraint Change",
-            "safety_hazard": "Safety Hazard Detected",
-            "security_event": "Security Event",
-        }
-        trigger_options = [
-            {"value": t, "label": trigger_labels.get(t, t)}
+    def _rule_trigger_options(self) -> list[dict]:
+        return [
+            {"value": t, "label": self._RULE_TRIGGER_LABELS.get(t, t)}
             for t in AI_RULE_TRIGGER_OPTIONS
         ]
 
-        data_schema = vol.Schema({
+    def _room_rule_records(self) -> list[dict]:
+        from .rule_compiler import rules_for_entry  # noqa: PLC0415
+        return rules_for_entry(self._config_entry)
+
+    def _room_rules_model_entity(self) -> str:
+        """``CONF_ROOM_RULES_AI_TASK_ENTITY`` from the Coordinator Manager
+        entry (rung 2); empty = HA's default AI Task entity."""
+        from .const import (  # noqa: PLC0415
+            CONF_ROOM_RULES_AI_TASK_ENTITY,
+            DEFAULT_ROOM_RULES_AI_TASK_ENTITY,
+            ENTRY_TYPE_COORDINATOR_MANAGER,
+        )
+        try:
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
+                    merged = {**entry.data, **entry.options}
+                    return str(merged.get(
+                        CONF_ROOM_RULES_AI_TASK_ENTITY, DEFAULT_ROOM_RULES_AI_TASK_ENTITY,
+                    ) or "")
+        except Exception:  # noqa: BLE001
+            pass
+        return DEFAULT_ROOM_RULES_AI_TASK_ENTITY
+
+    def _room_rules_switch_entity(self) -> str | None:
+        """The room's Room Rules switch, resolved by registry unique id
+        ``{entry_id}_ai_automation`` (never a built name)."""
+        try:
+            reg = er.async_get(self.hass)
+            return reg.async_get_entity_id(
+                "switch", DOMAIN, f"{self._config_entry.entry_id}_ai_automation",
+            )
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _room_rules_switch_off(self) -> bool:
+        eid = self._room_rules_switch_entity()
+        if not eid:
+            return False
+        st = self.hass.states.get(eid)
+        return st is not None and st.state == "off"
+
+    @staticmethod
+    def _stored_rule(rec: dict) -> dict:
+        """Record -> stored dict (CONF_AI_RULES item)."""
+        keep = (
+            "rule_id", "source", "trigger_type", "person", "conditions",
+            "actions", "enabled", "description", "summary", "created_at",
+            "automation_entity", "skip_condition",
+        )
+        out = {k: rec.get(k) for k in keep if rec.get(k) is not None}
+        out["enabled"] = bool(rec.get("enabled", True))
+        if rec.get("needs_parse"):
+            out["needs_parsing"] = True
+        return out
+
+    async def _save_room_rules(self, records: list[dict], *, turn_on_switch: bool = False):
+        """Write the FULL list to options (D8); fold legacy chains in."""
+        stored = [self._stored_rule(r) for r in records]
+        if turn_on_switch:
+            eid = self._room_rules_switch_entity()
+            if eid:
+                try:
+                    await self.hass.services.async_call(
+                        "switch", "turn_on", {"entity_id": eid}, blocking=True,
+                    )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.warning("Room rules: could not turn on %s", eid, exc_info=True)
+        return self.async_create_entry(
+            title="",
+            data={
+                **self._config_entry.options,
+                CONF_AI_RULES: stored,
+                CONF_AUTOMATION_CHAINS: {},
+            },
+        )
+
+    def _room_rule_preview(self, rec: dict) -> str:
+        from .rule_compiler import render_rule_preview  # noqa: PLC0415
+        return render_rule_preview(rec, self.hass, self._get_current(CONF_ROOM_NAME, "this room"))
+
+    async def async_step_room_rules(self, user_input=None):
+        """Room rules: Describe a rule / Run an automation / Your rules."""
+        self._rule_draft = None
+        self._rule_pending = None
+        return self.async_show_menu(
+            step_id="room_rules",
+            menu_options=["room_rule_describe", "room_rule_automation", "room_rule_list"],
+        )
+
+    def _describe_schema(self, draft: dict):
+        return vol.Schema({
+            vol.Required(
+                CONF_AI_RULE_DESCRIPTION, default=draft.get("text", ""),
+            ): selector.TextSelector(
+                selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT, multiline=True)
+            ),
+            vol.Required(
+                CONF_AI_RULE_TRIGGER, default=draft.get("trigger", "enter"),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=self._rule_trigger_options(),
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
+            vol.Optional(
+                CONF_AI_RULE_PERSON,
+                **({"default": draft["person"]} if draft.get("person") else {}),
+            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="person")),
+        })
+
+    async def async_step_room_rule_describe(self, user_input=None):
+        """Describe a rule in words -> compile -> check your rule.
+
+        Failure kinds stay apart (D3): ``model_unavailable`` names the model
+        and keeps the wording; ``parse_failed`` means "could not understand";
+        ``unsupported`` names what the rule cannot do. Nothing is saved."""
+        from .rule_compiler import (  # noqa: PLC0415
+            KIND_MODEL_UNAVAILABLE,
+            KIND_UNSUPPORTED,
+            SOURCE_DESCRIBED,
+            compile_rule,
+            room_entity_set,
+        )
+        draft = dict(getattr(self, "_rule_draft", None) or {})
+        errors: dict = {}
+        problem = ""
+        placeholders = {"model": self._room_rules_model_entity() or "HA default", "problem": ""}
+        if user_input is not None:
+            text = str(user_input.get(CONF_AI_RULE_DESCRIPTION, "") or "").strip()
+            trigger = user_input.get(CONF_AI_RULE_TRIGGER, "enter")
+            person = str(user_input.get(CONF_AI_RULE_PERSON, "") or "").strip()
+            draft.update({"text": text, "trigger": trigger, "person": person})
+            self._rule_draft = draft
+            if not text:
+                errors["base"] = "rule_empty"
+            else:
+                cfg = {**self._config_entry.data, **self._config_entry.options}
+                result = await compile_rule(
+                    self.hass,
+                    description=text,
+                    trigger_type=trigger,
+                    person=person,
+                    room_name=self._get_current(CONF_ROOM_NAME, "this room"),
+                    entities=room_entity_set(self.hass, cfg),
+                    ai_task_entity=self._room_rules_model_entity(),
+                )
+                placeholders["model"] = result.model_entity or placeholders["model"]
+                if result.kind == KIND_MODEL_UNAVAILABLE:
+                    errors["base"] = "rule_model_unavailable"
+                    problem = (
+                        f"The rule writing model ({placeholders['model']}) is not "
+                        "answering right now. Your wording is kept; try again later "
+                        "or pick another model in Coordinator settings."
+                    )
+                elif result.kind == KIND_UNSUPPORTED:
+                    errors["base"] = "rule_unsupported"
+                    problem = f"This rule asks for something rules cannot do: {result.unsupported}"
+                elif not result.ok:
+                    errors["base"] = "rule_not_understood"
+                    problem = "Could not understand this rule: " + "; ".join(result.errors[:3])
+                else:
+                    from homeassistant.util import dt as dt_util  # noqa: PLC0415
+                    base = draft.get("rule") or {}
+                    self._rule_pending = {
+                        "rule_id": base.get("rule_id") or uuid.uuid4().hex[:8],
+                        "source": SOURCE_DESCRIBED,
+                        "trigger_type": trigger,
+                        "person": person,
+                        "conditions": result.conditions,
+                        "actions": result.actions,
+                        "enabled": base.get("enabled", True),
+                        "description": text,
+                        "summary": result.summary,
+                        "created_at": base.get("created_at") or dt_util.utcnow().isoformat(),
+                        "needs_parse": False,
+                    }
+                    return await self.async_step_room_rule_confirm()
+        placeholders["problem"] = problem
+        return self.async_show_form(
+            step_id="room_rule_describe",
+            data_schema=self._describe_schema(draft),
+            errors=errors,
+            description_placeholders=placeholders,
+        )
+
+    async def async_step_room_rule_automation(self, user_input=None):
+        """Run an automation when X (no model call)."""
+        from .rule_compiler import (  # noqa: PLC0415
+            SOURCE_AUTOMATION,
+            automation_action,
+            validate_actions,
+        )
+        errors: dict = {}
+        if user_input is not None:
+            auto = str(user_input.get("rule_automation", "") or "").strip()
+            trigger = user_input.get(CONF_AI_RULE_TRIGGER, "enter")
+            person = str(user_input.get(CONF_AI_RULE_PERSON, "") or "").strip()
+            use_conditions = bool(user_input.get("rule_use_conditions", True))
+            action = automation_action(auto, skip_condition=not use_conditions)
+            if not auto or validate_actions(self.hass, [action], []):
+                errors["base"] = "rule_automation_missing"
+            else:
+                from homeassistant.util import dt as dt_util  # noqa: PLC0415
+                self._rule_pending = {
+                    "rule_id": uuid.uuid4().hex[:8],
+                    "source": SOURCE_AUTOMATION,
+                    "trigger_type": trigger,
+                    "person": person,
+                    "conditions": [],
+                    "actions": [action],
+                    "automation_entity": auto,
+                    "skip_condition": not use_conditions,
+                    "enabled": True,
+                    "description": "",
+                    "summary": "",
+                    "created_at": dt_util.utcnow().isoformat(),
+                    "needs_parse": False,
+                }
+                return await self.async_step_room_rule_confirm()
+        schema = vol.Schema({
             vol.Required(CONF_AI_RULE_TRIGGER, default="enter"): selector.SelectSelector(
                 selector.SelectSelectorConfig(
-                    options=trigger_options,
+                    options=self._rule_trigger_options(),
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 )
             ),
-            # v3.20.1 D5: EntitySelector for person domain
-            vol.Optional(CONF_AI_RULE_PERSON, default=vol.UNDEFINED): selector.EntitySelector(
+            vol.Optional(CONF_AI_RULE_PERSON): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="person")
             ),
-            vol.Required(CONF_AI_RULE_DESCRIPTION, default=""): selector.TextSelector(
-                selector.TextSelectorConfig(
-                    type=selector.TextSelectorType.TEXT,
-                    multiline=True,
-                )
+            vol.Required("rule_automation"): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="automation")
             ),
+            vol.Optional("rule_use_conditions", default=True): selector.BooleanSelector(),
         })
-
         return self.async_show_form(
-            step_id="ai_rule_add",
-            data_schema=data_schema,
-            errors=errors,
+            step_id="room_rule_automation", data_schema=schema, errors=errors,
         )
 
-    async def async_step_ai_rule_list(self, user_input=None):
-        """List existing AI rules — select one to delete."""
+    async def async_step_room_rule_confirm(self, user_input=None):
+        """Check your rule: the code-written preview, then Save or Change.
+
+        When the room's Room Rules switch is off, a "Turn on room rules in
+        this room" box (default on) is shown; saving with it ticked turns
+        the switch on (D3, MEDIUM-5)."""
+        pending = getattr(self, "_rule_pending", None)
+        if not pending:
+            return await self.async_step_room_rules()
+        switch_off = self._room_rules_switch_off()
         if user_input is not None:
-            selected_rule_id = user_input.get("selected_rule")
-            if selected_rule_id:
-                self._pending_delete_rule_id = selected_rule_id
-                return await self.async_step_ai_rule_delete()
-            # No selection, go back
-            return await self.async_step_ai_rules()
-
-        existing_rules = self._config_entry.options.get(
-            CONF_AI_RULES,
-            self._config_entry.data.get(CONF_AI_RULES, []),
+            if user_input.get("change_wording"):
+                self._rule_pending = None
+                if pending.get("source") == "described":
+                    return await self.async_step_room_rule_describe()
+                return await self.async_step_room_rule_automation()
+            records = [r for r in self._room_rule_records() if r.get("rule_id") != pending["rule_id"]]
+            # Keep the list order: replace in place when editing.
+            existing_ids = [r.get("rule_id") for r in self._room_rule_records()]
+            if pending["rule_id"] in existing_ids:
+                idx = existing_ids.index(pending["rule_id"])
+                records.insert(min(idx, len(records)), pending)
+            else:
+                records.append(pending)
+            self._rule_pending = None
+            self._rule_draft = None
+            return await self._save_room_rules(
+                records,
+                turn_on_switch=switch_off and bool(user_input.get("turn_on_room_rules", True)),
+            )
+        fields: dict = {}
+        if switch_off:
+            fields[vol.Optional("turn_on_room_rules", default=True)] = selector.BooleanSelector()
+        fields[vol.Optional("change_wording", default=False)] = selector.BooleanSelector()
+        return self.async_show_form(
+            step_id="room_rule_confirm",
+            data_schema=vol.Schema(fields),
+            description_placeholders={
+                "preview": self._room_rule_preview(pending),
+                "switch_note": "Room rules are off in this room." if switch_off else "",
+            },
         )
 
-        if not existing_rules:
-            # No rules — show empty form that returns to menu
+    def _rule_status_words(self, rec: dict) -> str:
+        from .rule_compiler import rule_status  # noqa: PLC0415
+        status = rule_status(rec)
+        if status == "needs_parse":
+            return "Needs re-check"
+        if status == "disabled":
+            return "Off"
+        coord = (self.hass.data.get(DOMAIN, {}) or {}).get(self._config_entry.entry_id)
+        st = (getattr(coord, "_rule_stats", None) or {}).get(rec.get("rule_id"), {}) if coord else {}
+        if st.get("last_fire"):
+            from homeassistant.util import dt as dt_util  # noqa: PLC0415
+            ts = dt_util.parse_datetime(str(st["last_fire"]))
+            if ts is not None:
+                mins = max(0, int((dt_util.utcnow() - ts).total_seconds() // 60))
+                ago = f"{mins} min ago" if mins < 120 else f"{mins // 60} h ago"
+                return f"Active, ran {ago}"
+            return "Active"
+        skips = st.get("skips_by_reason") or {}
+        if skips:
+            top = max(skips.items(), key=lambda kv: kv[1])[0]
+            return f"Never ran: {top}"
+        return "Active"
+
+    async def async_step_room_rule_list(self, user_input=None):
+        """Your rules: one line each; pick one to manage it."""
+        records = self._room_rule_records()
+        if user_input is not None:
+            selected = user_input.get("selected_rule")
+            if selected:
+                self._rule_selected = selected
+                return await self.async_step_room_rule_manage()
+            return await self.async_step_room_rules()
+        if not records:
             return self.async_show_form(
-                step_id="ai_rule_list",
+                step_id="room_rule_list",
                 data_schema=vol.Schema({}),
-                description_placeholders={"rules_summary": "No AI rules configured."},
+                description_placeholders={"rules_summary": "No rules in this room yet."},
             )
-
-        # Build rule options for selection
-        rule_options = []
-        for rule in existing_rules:
-            label = (
-                f"[{rule.get('trigger_type', '?')}] "
-                f"{rule.get('description', 'No description')[:60]}"
-            )
-            if rule.get("person"):
-                label += f" (person: {rule['person']})"
-            if not rule.get("enabled", True):
-                label += " [DISABLED]"
-            rule_options.append({
-                "value": rule.get("rule_id", ""),
-                "label": label,
-            })
-
-        summary_lines = []
-        for i, rule in enumerate(existing_rules, 1):
-            status = "enabled" if rule.get("enabled", True) else "disabled"
-            summary_lines.append(
-                f"{i}. [{rule.get('trigger_type', '?')}] "
-                f"{rule.get('description', '')[:50]} ({status})"
-            )
-        rules_summary = "\n".join(summary_lines) if summary_lines else "No rules."
-
-        data_schema = vol.Schema({
-            vol.Optional("selected_rule"): selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=rule_options,
-                    mode=selector.SelectSelectorMode.DROPDOWN,
-                )
-            ),
-        })
-
+        options = []
+        lines = []
+        for rec in records:
+            label = f"{self._room_rule_preview(rec)} - {self._rule_status_words(rec)}"
+            options.append({"value": rec.get("rule_id", ""), "label": label})
+            lines.append(f"- {label}")
         return self.async_show_form(
-            step_id="ai_rule_list",
-            data_schema=data_schema,
-            description_placeholders={"rules_summary": rules_summary},
-        )
-
-    async def async_step_ai_rule_delete(self, user_input=None):
-        """Confirm and delete an AI rule."""
-        rule_id = getattr(self, "_pending_delete_rule_id", None)
-
-        if user_input is not None:
-            if user_input.get("confirm_delete") and rule_id:
-                existing_rules = list(
-                    self._config_entry.options.get(
-                        CONF_AI_RULES,
-                        self._config_entry.data.get(CONF_AI_RULES, []),
+            step_id="room_rule_list",
+            data_schema=vol.Schema({
+                vol.Optional("selected_rule"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=options, mode=selector.SelectSelectorMode.DROPDOWN,
                     )
-                )
-                updated_rules = [
-                    r for r in existing_rules if r.get("rule_id") != rule_id
-                ]
-                self._pending_delete_rule_id = None
-                return self.async_create_entry(
-                    title="",
-                    data={
-                        **self._config_entry.options,
-                        CONF_AI_RULES: updated_rules,
-                    },
-                )
-            # Not confirmed — go back
-            self._pending_delete_rule_id = None
-            return await self.async_step_ai_rules()
-
-        # Find rule details for confirmation
-        existing_rules = self._config_entry.options.get(
-            CONF_AI_RULES,
-            self._config_entry.data.get(CONF_AI_RULES, []),
+                ),
+            }),
+            description_placeholders={"rules_summary": "\n".join(lines)},
         )
-        rule_desc = "Unknown rule"
-        for rule in existing_rules:
-            if rule.get("rule_id") == rule_id:
-                rule_desc = rule.get("description", rule_id)[:80]
-                break
 
-        data_schema = vol.Schema({
-            vol.Required("confirm_delete", default=False): selector.BooleanSelector(),
+    def _selected_record(self) -> dict | None:
+        rid = getattr(self, "_rule_selected", None)
+        for rec in self._room_rule_records():
+            if rec.get("rule_id") == rid:
+                return rec
+        return None
+
+    async def async_step_room_rule_manage(self, user_input=None):
+        rec = self._selected_record()
+        if rec is None:
+            return await self.async_step_room_rules()
+        options = ["room_rule_toggle", "room_rule_delete"]
+        if rec.get("source") == "described":
+            options = ["room_rule_toggle", "room_rule_recheck", "room_rule_reword", "room_rule_delete"]
+        return self.async_show_menu(
+            step_id="room_rule_manage",
+            menu_options=options,
+            description_placeholders={"preview": self._room_rule_preview(rec)},
+        )
+
+    async def async_step_room_rule_toggle(self, user_input=None):
+        rec = self._selected_record()
+        if rec is None:
+            return await self.async_step_room_rules()
+        records = []
+        for r in self._room_rule_records():
+            if r.get("rule_id") == rec.get("rule_id"):
+                r = {**r, "enabled": not r.get("enabled", True)}
+            records.append(r)
+        return await self._save_room_rules(records)
+
+    async def async_step_room_rule_recheck(self, user_input=None):
+        """Re-check from its wording (the D8 re-parse): compiles the stored
+        description again; on success the rule is replaced in options."""
+        rec = self._selected_record()
+        if rec is None:
+            return await self.async_step_room_rules()
+        self._rule_draft = {
+            "text": rec.get("description", ""), "trigger": rec.get("trigger_type", "enter"),
+            "person": rec.get("person", ""), "rule": rec,
+        }
+        return await self.async_step_room_rule_describe(user_input={
+            CONF_AI_RULE_DESCRIPTION: rec.get("description", ""),
+            CONF_AI_RULE_TRIGGER: rec.get("trigger_type", "enter"),
+            CONF_AI_RULE_PERSON: rec.get("person", ""),
         })
 
-        return self.async_show_form(
-            step_id="ai_rule_delete",
-            data_schema=data_schema,
-            description_placeholders={"rule_description": rule_desc},
-        )
-
-    # =========================================================================
-    # v3.12.0 M3: AI RULE PARSING & VALIDATION HELPERS
-    # =========================================================================
-
-    async def _parse_rule_with_ai(
-        self,
-        description: str,
-        trigger_type: str,
-        person: str,
-    ) -> list[dict] | None:
-        """Parse NL description into service call list via ai_task.generate_data."""
-        room_name = self._get_current(CONF_ROOM_NAME, "this room")
-        room_entities = await self._get_room_entities_for_prompt()
-
-        trigger_label = {
-            "enter": f"{person or 'someone'} enters the room",
-            "exit": f"{person or 'someone'} leaves the room",
-            "lux_dark": "the room gets dark",
-            "lux_bright": "the room gets bright",
-            "house_state_away": "the house transitions to Away",
-            "house_state_arriving": "someone is arriving home",
-            "house_state_home_day": "the house enters Home Day mode",
-            "house_state_home_evening": "the house enters Home Evening mode",
-            "house_state_home_night": "the house enters Home Night mode",
-            "house_state_sleep": "the house enters Sleep mode",
-            "house_state_waking": "the house enters Waking mode",
-            "house_state_guest": "the house enters Guest mode",
-            "house_state_vacation": "the house enters Vacation mode",
-            "energy_constraint": "the energy constraint changes (peak, shed, coast)",
-            "safety_hazard": "a safety hazard is detected (smoke, CO, water leak)",
-            "security_event": "a security event occurs (entry alert, unknown person)",
-        }.get(trigger_type, trigger_type)
-
-        prompt = AI_RULE_PARSING_PROMPT.format(
-            room_name=room_name,
-            trigger_label=trigger_label,
-            description=description,
-            entities_json=json.dumps(room_entities, indent=2),
-        )
-
-        structure = {
-            "actions": {
-                "selector": {"object": {"multiple": True}},
-                "description": (
-                    "List of HA service calls. Each must have: "
-                    "domain (string), service (string), "
-                    "target (object with entity_id string or list), "
-                    "data (object, may be empty {}). "
-                    "Use color_temp_kelvin not color_temp. "
-                    "Use brightness_pct (0-100) not brightness."
-                ),
-            }
+    async def async_step_room_rule_reword(self, user_input=None):
+        rec = self._selected_record()
+        if rec is None:
+            return await self.async_step_room_rules()
+        self._rule_draft = {
+            "text": rec.get("description", ""), "trigger": rec.get("trigger_type", "enter"),
+            "person": rec.get("person", ""), "rule": rec,
         }
+        return await self.async_step_room_rule_describe()
 
-        try:
-            result = await self.hass.services.async_call(
-                "ai_task", "generate_data",
-                {
-                    "task_name": "ura_parse_room_rule",
-                    "instructions": prompt,
-                    "structure": structure,
-                },
-                blocking=True,
-                return_response=True,
-            )
-        except Exception as err:
-            _LOGGER.error("ai_task failed during rule parsing: %s", err)
-            return None
-
-        if not result or not isinstance(result, dict):
-            return None
-
-        # ai_task may nest data under "data" key or return flat
-        actions = result.get("data", {}).get("actions") if isinstance(result.get("data"), dict) else None
-        if actions is None:
-            actions = result.get("actions")
-        if not isinstance(actions, list) or not actions:
-            return None
-
-        return actions
-
-    async def _get_room_entities_for_prompt(self) -> list[dict]:
-        """Build entity list for AI context from room config + HA area."""
-        entities = []
-        seen = set()
-
-        def add(entity_id: str) -> None:
-            if entity_id in seen:
-                return
-            state = self.hass.states.get(entity_id)
-            if not state:
-                return
-            seen.add(entity_id)
-            entities.append({
-                "entity_id": entity_id,
-                "name": state.attributes.get("friendly_name", entity_id),
-                "domain": entity_id.split(".")[0],
-            })
-
-        # Explicitly configured devices
-        for key in (CONF_LIGHTS, CONF_FANS, CONF_AUTO_DEVICES, CONF_MANUAL_DEVICES,
-                    CONF_COVERS, CONF_AUTO_SWITCHES, CONF_MANUAL_SWITCHES):
-            for eid in self._get_current(key, []) or []:
-                add(eid)
-
-        if climate := self._get_current(CONF_CLIMATE_ENTITY):
-            add(climate)
-
-        # All entities in the room's HA area
-        area_id = self._get_current(CONF_AREA_ID)
-        if area_id:
-            ent_reg = er.async_get(self.hass)
-            for entity in ent_reg.entities.values():
-                if entity.area_id == area_id and not entity.disabled:
-                    add(entity.entity_id)
-
-        return entities
-
-    # v3.12.0: Domain allowlist for AI rule service calls.
-    _AI_RULE_ALLOWED_DOMAINS: set = {
-        "light", "switch", "fan", "cover", "climate", "media_player",
-        "lock", "scene", "automation", "input_boolean", "input_number",
-        "input_select", "input_text", "number", "select", "button",
-        "humidifier", "vacuum", "water_heater", "valve",
-    }
-
-    def _validate_parsed_actions(self, actions: list[dict]) -> tuple[bool, list[str]]:
-        """Validate AI-parsed actions. Entity existence + domain allowlist + structure checks."""
-        errors = []
-        for i, action in enumerate(actions):
-            label = f"Action {i + 1}"
-            if not isinstance(action, dict):
-                errors.append(f"{label}: must be an object, got {type(action).__name__}")
-                continue
-            for key in ("domain", "service", "target"):
-                if key not in action:
-                    errors.append(f"{label}: missing '{key}'")
-            # Domain allowlist check — reject dangerous domains at config time
-            domain = action.get("domain", "")
-            if domain and domain not in self._AI_RULE_ALLOWED_DOMAINS:
-                errors.append(f"{label}: domain '{domain}' is not allowed")
-            target = action.get("target", {})
-            if not isinstance(target, dict):
-                errors.append(f"{label}: 'target' must be an object")
-                target = {}
-            entity_id = target.get("entity_id")
-            if entity_id:
-                eids = entity_id if isinstance(entity_id, list) else [entity_id]
-                for eid in eids:
-                    if not self.hass.states.get(eid):
-                        errors.append(f"{label}: entity '{eid}' not found")
-            if "data" in action and not isinstance(action["data"], dict):
-                errors.append(f"{label}: 'data' must be an object")
-        return len(errors) == 0, errors
+    async def async_step_room_rule_delete(self, user_input=None):
+        rec = self._selected_record()
+        if rec is None:
+            return await self.async_step_room_rules()
+        if user_input is not None:
+            if user_input.get("confirm_delete"):
+                records = [r for r in self._room_rule_records() if r.get("rule_id") != rec.get("rule_id")]
+                self._rule_selected = None
+                return await self._save_room_rules(records)
+            return await self.async_step_room_rules()
+        return self.async_show_form(
+            step_id="room_rule_delete",
+            data_schema=vol.Schema({
+                vol.Required("confirm_delete", default=False): selector.BooleanSelector(),
+            }),
+            description_placeholders={"preview": self._room_rule_preview(rec)},
+        )
 
     # =========================================================================
     # APPLIANCE-MGMT-REFINE-1 v1b: Appliance record onboarding flow

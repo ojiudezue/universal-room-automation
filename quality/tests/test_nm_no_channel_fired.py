@@ -591,3 +591,99 @@ class TestSchemaExtractorNoBleed:
     def test_notification_log_split_alters_extracted(self):
         assert {"dry_run", "recipient_id", "route_reason", "dnd_bypass_applied",
                 "bucket_outcome", "matrix_branch"} <= self._cols("notification_log")
+
+
+# ---------------------------------------------------------------------------
+# NM-DIGEST-MARK-RACE-1: a flush marks only rows that were in its body
+# ---------------------------------------------------------------------------
+
+
+def _row(conn, title):
+    return dict(conn.execute(
+        "SELECT * FROM notification_log WHERE title=?", (title,)
+    ).fetchone())
+
+
+class TestDigestMarkHighWaterMark:
+
+    async def _queue(self, db, title, message="m"):
+        return await db.log_notification(
+            "energy", "MEDIUM", title, message, person_id=PID,
+            channel="digest", delivered=0,
+        )
+
+    @pytest.mark.asyncio
+    async def test_row_inserted_during_send_survives_to_next_digest(
+        self, real_schema_db,
+    ):
+        """A row INSERTed while _deliver_digest is awaiting must stay
+        delivered=0 and appear in the NEXT digest body.
+        Drill: drop `AND id <= ?` from mark_digest_delivered -> RED."""
+        nm, db = _build(real_schema_db, _person())
+        nm._build_optimizer_digest_section = MagicMock(return_value="")
+        await self._queue(db, "Before send")
+        bodies = []
+
+        async def _deliver(pid, cfg, msg):
+            bodies.append(msg)
+            if len(bodies) == 1:
+                await self._queue(db, "During send")
+            return True
+
+        nm._deliver_digest = _deliver
+        await nm._fire_digest(PID, _person())
+        assert "Before send" in bodies[0]
+        assert "During send" not in bodies[0]
+        assert _row(real_schema_db, "Before send")["delivered"] == 2
+        assert _row(real_schema_db, "During send")["delivered"] == 0
+
+        await nm._fire_digest(PID, _person())
+        assert "During send" in bodies[1]
+        assert _row(real_schema_db, "During send")["delivered"] == 2
+
+    @pytest.mark.asyncio
+    async def test_body_rows_marked_and_audit_drained_up_to_mark(
+        self, real_schema_db,
+    ):
+        """Rows in the body -> delivered=2; audit rows with id <= mark are
+        drained; an audit row written during the send (id > mark) is left."""
+        nm, db = _build(real_schema_db, _person())
+        nm._build_optimizer_digest_section = MagicMock(return_value="")
+        await self._queue(db, "Audit low", message="[audit]")
+        await self._queue(db, "Real A")
+        await self._queue(db, "Real B")
+
+        async def _deliver(pid, cfg, msg):
+            await self._queue(db, "Audit late", message="[audit]")
+            return True
+
+        nm._deliver_digest = _deliver
+        await nm._fire_digest(PID, _person())
+        assert _row(real_schema_db, "Real A")["delivered"] == 2
+        assert _row(real_schema_db, "Real B")["delivered"] == 2
+        assert _row(real_schema_db, "Audit low")["delivered"] == 2
+        assert _row(real_schema_db, "Audit late")["delivered"] == 0
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_and_optimizer_only_mark_nothing(
+        self, real_schema_db, monkeypatch,
+    ):
+        """Heartbeat flush and optimizer-only flush (no real rows read)
+        leave every row, including a row written during the send, at 0."""
+        monkeypatch.setattr(_nm_mod, "NM_DIGEST_HEARTBEAT_ENABLED", True)
+        for opt in ("", "Optimizer (1 finding)"):
+            nm, db = _build(real_schema_db, _person())
+            nm._build_optimizer_digest_section = MagicMock(return_value=opt)
+            title = f"During {opt or 'heartbeat'}"
+
+            async def _deliver(pid, cfg, msg, _t=title):
+                await self._queue(db, _t)
+                return True
+
+            nm._deliver_digest = _deliver
+            await nm._fire_digest(PID, _person())
+            assert _row(real_schema_db, title)["delivered"] == 0
+            real_schema_db.execute(
+                "UPDATE notification_log SET delivered=1 WHERE title=?",
+                (title,),
+            )

@@ -39,7 +39,10 @@ _CASES = _cases()
 
 
 def test_render_covers_the_flows():
-    assert len(_RENDERED) >= 70
+    # 68 since AI-ROOM-RULES-TRUST-REPAIR-1: 12 chain / AI-rule forms
+    # (init + options) became 3 room-rule forms that render cold (describe,
+    # run an automation, your rules); confirm / delete need a selection.
+    assert len(_RENDERED) >= 68
     assert len(_CASES) >= 600
 
 

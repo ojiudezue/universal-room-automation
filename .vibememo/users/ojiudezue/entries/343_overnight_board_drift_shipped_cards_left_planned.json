@@ -1,0 +1,22 @@
+{
+  "format_version": "2.1",
+  "entry_id": "343",
+  "author": "ojiudezue",
+  "timestamp": "2026-11-20T08:07:00Z",
+  "type": "decision",
+  "weight": "moderate",
+  "title": "Overnight 11-20: verify-before-work caught two v5.108.8 cards still marked planned; lock-page residual built as display-only",
+  "summary": "The 11-20 overnight pass checked ground truth before starting work and found LIGHT-TRANSITION-COVERAGE-1 and SNAP1-FRIGATE-TRAVERSAL-1 still in planned, although README_v5.108.8 lists both as shipped and the code is on develop. Both were closed with the evidence. The overdue lock-sweep follow-up was already met by the 11-19 16:13 live page, so SECURITY-LOCK-STALE-STATE-1 closed with a residual. That residual (the page says 'last report unknown' when the Z-Wave last_seen is known) was built on a branch as display-only, along with a retargeted BLE mutation drill. Both went to review and were not deployed.",
+  "why": "The board had said 'build' for work that had already shipped, the same failure the deploy --cards gate exists to stop. Here mark-shipped never reached these two cards. Without the ground-truth check, the overnight pass would have rebuilt shipped code. The lock residual was kept display-only because pre-restart timestamps are excluded from freshness on purpose: restored state rows are restart artefacts. Showing the last_seen age gives the operator the 'how long unwatched' fact without changing when a page fires.",
+  "alternatives_considered": [
+    "Count pre-boot last_seen as a real report (rejected: changes Tier-2 staleness and repage behaviour to fix a wording issue)",
+    "Trust the board and build LIGHT-TRANSITION-COVERAGE-1 (rejected by the ground-truth check: already shipped)"
+  ],
+  "implications": "Cards shipped by v5.108.8 can still show stale lanes, so other releases from the same period may have the same drift. The next soak or verify sweep should check that each README's 'Cards shipped' line matches the card status.",
+  "confidence": "high",
+  "revisit_trigger": "Another card found open after its README lists it as shipped",
+  "refs": {
+    "docs": ["docs/readmes/README_v5.108.8.md", "docs/readmes/README_v5.108.38.md"],
+    "cards": ["LIGHT-TRANSITION-COVERAGE-1", "SNAP1-FRIGATE-TRAVERSAL-1", "SECURITY-LOCK-STALE-STATE-1", "SECURITY-LOCK-PAGE-LAST-SEEN-1", "BLE-EXTEND-DRILL-RETARGET-1"]
+  }
+}

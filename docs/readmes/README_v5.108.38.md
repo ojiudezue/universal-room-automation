@@ -73,7 +73,18 @@ allowlist ratchet; 3 rows added (URA's own entities / operator text), 10 stale r
    duplicate offline digest notice; no new lock command to it.
 4. Identity: `person_entity_fallback_*` counters present; this house's exact ids hit, fallback hits 0.
 
-## Validated (to be written back after install)
+## Validated 2026-11-19
+
+HA core restart 14:11:44 CST (house home_day) brought in v5.108.37 + v5.108.38; recorder run started 14:12:25.
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Install / entries / errors | PASS | manifest v5.108.38; 50/50 URA entries loaded; 0 URA ERROR in the system log since restart |
+| Sweep freshness attrs | PASS | `sensor.ura_security_coordinator_security_last_lock_sweep` 15:13 + 16:13 CST: `freshness_age_h` front 0.2 h, master 0.01 h, garage null; `freshness_signal` front/garage `last_seen`, master `none` (excluded from relock); `stale` [] |
+| Dead lock pages, no command | PASS | garage hallway Kwikset (node 10, dead) in `unavailable`; first sweep 15:13 started the 20-min debounce; 16:13 `notification_log` HIGH "Lock not verified: DoorLock_Zwave_GarageHallway is offline; last report unknown. State unknown, check the door."; `lock_actions_sent` [] |
+| Garage last_seen signal | PASS | `sensor.garage_hallway_doorlock_zwave_garagehallway_last_seen` enabled before the restart = 2026-11-18 20:51:59Z (the ping); residual: the page says "last report unknown" instead of using it |
+| Room occupied resolver | PARTIAL | `binary_sensor.foyer_foyer_occupied` / `binary_sensor.media_room_occupied` present; resolver miss counters not located in this check; no resolver-miss page |
+| L4 fallback counters | Not checked | |
 
 ## Not done (accounted)
 

@@ -653,3 +653,35 @@ def test_persons_in_house_sensor_egress_identity_attrs_read_public_api(mods):
     assert attrs["egress_identity_abstain_rate_24h"] == 0.5
     assert attrs["egress_identity_correlated_boost_count_24h"] == 1
     assert attrs["egress_identity_last_attach"] == {"person": "oji_udezue", "provenance": "face"}
+
+
+def test_persons_in_house_sensor_edge_anchor_reason_attrs(mods):
+    """Step 7 S1: the census sensor carries the edge-anchor no-anchor reasons
+    and the named count, read from the layer counters."""
+    import time
+    from collections import deque
+    sensor_mod = _m("sensor")
+    sig = _m("domain_coordinators.signals")
+    PC = mods.census.PersonCensus
+    census = PC.__new__(PC)
+    house = _zone_result(mods, total=1, identified=1, unidentified=0)
+    ext = _zone_result(mods, total=0, identified=0, unidentified=0)
+    census._last_result = mods.census.FullCensusResult(
+        house=house, property_exterior=ext, total_on_property=1,
+        ble_persons=[], face_persons=[], persons_outside=0,
+    )
+    census._egress_identity_outcomes = deque([(time.time(), "attached")])
+    census._egress_identity_boost_events = deque()
+    census._egress_identity_last_attach = {}
+    census.get_pending_peak_info = lambda *_a: None
+    census.get_stuck_cameras = lambda: []
+    s = sensor_mod.URAPersonsInHouseSensor.__new__(sensor_mod.URAPersonsInHouseSensor)
+    s.hass = _hass(data={"census": census})
+    sig.count_layer_event(s.hass, "edge_anchor_none", "no_live_face_legs")
+    sig.count_layer_event(s.hass, "edge_anchor_none", "no_live_face_legs")
+    sig.count_layer_event(s.hass, "edge_anchor_none", "lead_off")
+    sig.count_layer_event(s.hass, "edge_anchor_named")
+    attrs = s.extra_state_attributes
+    assert attrs["egress_edge_anchor_none_reasons"] == {
+        "lead_off": 1, "no_live_face_legs": 2}
+    assert attrs["egress_edge_anchor_named_count"] == 1
