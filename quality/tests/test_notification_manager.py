@@ -1610,7 +1610,8 @@ class TestDigestHeartbeat:
     @pytest.mark.asyncio
     async def test_optimizer_section_only_is_not_heartbeat(self, monkeypatch):
         """Review A LOW-B1: pending=[] + optimizer section present takes the
-        pre-existing v4.7.36 path (NOT heartbeat) and DOES mark."""
+        pre-existing v4.7.36 path (NOT heartbeat). NM-DIGEST-MARK-RACE-1:
+        no real row was in the body, so nothing is marked."""
         monkeypatch.setattr(_nm_mod, "NM_DIGEST_HEARTBEAT_ENABLED", True)
         hass = _make_hass()
         nm = NotificationManager(hass, _make_config())
@@ -1625,7 +1626,7 @@ class TestDigestHeartbeat:
         _, args, _ = nm._deliver_digest.mock_calls[0]
         assert "Optimizer" in args[2]
         assert "All quiet" not in args[2]
-        db.mark_digest_delivered.assert_awaited_once_with("person.hb")
+        db.mark_digest_delivered.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_heartbeat_disabled_preserves_silent_skip(self, monkeypatch):

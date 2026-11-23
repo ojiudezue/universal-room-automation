@@ -6171,8 +6171,20 @@ class NotificationManager:
             # WITHOUT ever appearing in a digest body (silent loss).
             # The pre-heartbeat code returned before ever reaching the
             # mark, so gating restores the original race-free semantics.
-            if not heartbeat:
-                await database.mark_digest_delivered(person_id)
+            # NM-DIGEST-MARK-RACE-1 (2026-11-15): the same race applied to
+            # every flush, not just the heartbeat — the UPDATE swept rows
+            # INSERTed during `_deliver_digest`. Mark only up to the max id
+            # READ into this body (high-water mark). Optimizer-only flush
+            # (pending empty, opt_section sent): no real row was in the
+            # body, and there is no race-free audit snapshot from this
+            # read (it excludes audit rows), so mark NOTHING — audit rows
+            # are left for the next flush that carries real rows.
+            _hwm = max(
+                (r["id"] for r in pending if r.get("id") is not None),
+                default=None,
+            )
+            if not heartbeat and _hwm is not None:
+                await database.mark_digest_delivered(person_id, _hwm)
             if heartbeat:
                 _LOGGER.info("Digest heartbeat delivered to %s (all quiet)", person_id)
             else:
