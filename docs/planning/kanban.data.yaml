@@ -9,6 +9,8 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {"fid": "PERIMETER-FP-STREET-NOISE-1@2026-11-23T02:25:00", "card_id": "PERIMETER-FP-STREET-NOISE-1", "at": "2026-11-23T02:25:00", "outcome": "parked", "headline": "Perimeter false-alert work has not cut alert volume much: 60 pushes/day over the last 7 days vs 69/day before the 11-08 fixes, almost all still high/critical (worst: g5_bullet 17/day, rear_ptz 12/day). The remaining levers are your perimeter settings ask (zone sensors + settle pick); parked behind it and re-measures after.", "acknowledged": false}
+  - {"fid": "CHATTER-MODE-SELECT-NOT-WIRED-1@2026-11-23T02:35:00", "card_id": "CHATTER-MODE-SELECT-NOT-WIRED-1", "at": "2026-11-23T02:35:00", "outcome": "done", "headline": "Closed the chatter-mode wiring fix: before 11-16 every chattering-sensor alert said 'would quarantine (shadow)'; since then none do and rooms actually quarantine and release chattering sensors (63 alerts over 7 days).", "acknowledged": false}
   - {"fid": "SOAK-EXIT@2026-11-23T02:10:00", "card_id": "SECURITY-LOCK-PAGE-LAST-SEEN-1", "at": "2026-11-23T02:10:00", "outcome": "done", "headline": "Closed 3 shipped cards on evidence: the dead-lock page now names the lock's last-seen time (00:48 page said 'last seen 18 Nov 14:51'); the BLE test-drill fix was test-only and already proven; the perimeter switch renames and settings screen were already live since v5.108.22.", "acknowledged": false}
   - {"fid": "HOUSE-AVG-SENSORS-1@2026-11-23T02:10:00", "card_id": "HOUSE-AVG-SENSORS-1", "at": "2026-11-23T02:10:00", "outcome": "measured", "headline": "House-average temperature/humidity sensors are live and correct. The old template helpers are read only by the v8 weather card (2 fields), so the cleanup is a 2-field dashboard edit plus deleting 2 helpers; I do it in a daytime session.", "acknowledged": false}
   - {"fid": "PERIMETER-ZONE-AGREEMENT-FIX-OR-REMOVE-1@2026-11-23T02:12:00", "card_id": "PERIMETER-ZONE-AGREEMENT-FIX-OR-REMOVE-1", "at": "2026-11-23T02:12:00", "outcome": "parked", "headline": "The 'lower road alerts' check has never fired: 0 of 866 perimeter decisions since 11-14, because the property-zone sensors it needs were never set. Parked until you set them (the perimeter settings ask already on your queue).", "acknowledged": false}
@@ -365,19 +367,20 @@ cards:
   arc_cut_v5_107_6: "parent, already shipped v5.107.0"
   title: "Perimeter alerts still include false positives and street noise: reduce FPs end-to-end (Frigate masks/zones/filters, URA pre-alert gates) + check snapshot storage/archival"
   thread: security
-  status: shipped_organic
+  status: parked
   batch: perimeter-identity-arc-2026-11
   shipped_version: v5.107.0
   tier: 2
   created: "2026-11-08 14:00"
-  updated: '2026-11-14 02:30'
+  updated: "2026-11-23 02:25"
+  disposition_2026_11_23: "SOAK EXIT - NOT MET. Arc measurement (5), URA DB notification_log coordinator_id=perimeter_alert hazard_type=exterior_person, audit mirror rows excluded, days split at 06:00Z: before 11-08 = 1032 sends / 15 days = 69/day; 11-08..11-15 = 349 / 8 = 44/day; last 7 days (11-16..11-22) = 421 / 7 = 60/day. ~98% CRITICAL/HIGH and delivered (LOW 7, MEDIUM 9 in the last 7 days), so the demote gates are barely acting. Per day since 11-10: 40,87,34,36,12,39,102,81,110,41,15,35,37. Top cameras last 7 days (distinct sends/day, pre in brackets): g5_bullet person_detected 16.9 (5.1), rear_ptz occupancy_2 11.6 (3.9), g5_bullet occupancy_2 7.9 (6.2), sonoffwindow 5.6 (0.0), armcrest occupancy_2 3.7 (0.7). Count is volume, not FP rate (no snapshot classification tonight). The levers left are operator-owned and already queued on PERIMETER-FP-GATES-DISPOSE-1 (zone sensors: the zone-agreement gate has 0 of 866 decisions; D5 settle pick) plus Protect exclusion zones on rear_ptz / g5_bullet. Parked behind that card rather than re-asking."
   rank: {value: 4, time_criticality: 2, effort: 3}
   origin: "Operator 2026-11-08: 'Some of these perimeter alerts are false positives or capture street noise. Between you and homelab can you figure out how to reduce the false positives? You can review archives snapshots. Consider all your tools available across the 2 agents including masks, tuning and others. Even interim steps before issuing an alert. Also check that storage is not a concern on snapshots and consider archival strategies if we don't have.'"
   why: "Measure first: classify recent perimeter alerts from archived snapshots per camera (true person / street traffic / vehicle / shadow-light / animal / empty), then map each FP class to the cheapest lever: Frigate-side (homelab) motion masks, required zones, object filters (min_area/min_score/threshold), stationary handling; URA-side pre-alert gates (zone dwell, cross-NVR corroboration, approach direction, Protect smart-detect agreement)."
-  next: "Investigation: URA prober (alert history + snapshot review + storage) and HomeLab (Frigate 2 config inventory + storage), read-only; then a lever table for operator OK."
+  next: "Revival trigger: PERIMETER-FP-GATES-DISPOSE-1 done (zone sensors set + D5 settle pick). Then re-run this 7-day per-camera push count against the pre_1108 baseline (query in disposition_2026_11_23) and close done if pushes fall >= 40%, else take the next lever (D6 vision enforce for repeats, decision B)."
   decision_2026_11_08_repeat_demote: "Operator chose option B: no per-camera lists ('per cam settings bug me'). Daytime repeat demotion will key off the D6 vision verdict (no person in Frigate best frame -> demote; unsure/timeout -> page) instead of a camera list or a global flip. PERIMETER_BURST_NIGHT_ONLY stays True. Sequence: v5.107.2 live (real Frigate frames) -> D6 select to shadow -> compare verdicts vs images over a few days -> enforce for repeats."
   arc_2026_11_09: "ARC perimeter-identity-arc-2026-11 (operator: 'Link the arc so we don't lose the thread and we can hit them all after any required measurements'). Releases: v5.107.0 perimeter gates (installed); v5.107.1 face-source registry (FACE-SOURCE-REGISTRY-DISCOVERY-1); v5.107.2 Frigate snapshot internal URL (PERIMETER-FRIGATE-SNAPSHOT-CAPTURE-NEVER-1); v5.107.3 external-URL self-check (operator: no card; tracked here); v5.107.4 lock-regime face arrival (LOCK-REGIME-FACE-ARRIVAL-CORROBORATION-1); v5.107.5 identity follow-up (PERIMETER-IDENTITY-FOLLOWUP-1); PERIMETER-FRIGATE-MQTT-DIRECT-1 (planned); CAMERA-LIST-LIVE-REWIRE-1 (Tier 3, planned). ONE restart at arc end (operator). POST-RESTART MEASUREMENTS, then act: (1) set zone-sensor field + 3 door cameras + their enrichment; (2) D6 vision -> shadow, compare verdicts vs Frigate frames a few days, then enforce for repeat alerts (decision B, replaces PERIMETER_BURST_NIGHT_ONLY flip); (3) D5 single-source: retune settle from shadow lag data, then decide enable; (4) snapshot tier-1 hit rate after v5.107.2 -> decide Fix B (edge-first wait); (5) 7-day per-camera push count vs 30-day baseline (revisit discriminator); (6) after v5.107.4: flip FACE_SOURCE_PRESENCE_ARRIVAL_DISAMBIGUATED + set Oji=oji_udezue alias; (7) F-5 guest-count residual: measure before change. Operator-owned: Protect exclusion zones on rear_ptz, g5_bullet."
-  links: {related: [PERIMETER-PHANTOM-XCORR-1]}
+  links: {related: [PERIMETER-PHANTOM-XCORR-1], blocked_by: [PERIMETER-FP-GATES-DISPOSE-1], context: 'The remaining false-alert levers (zone sensors, D5 settle) are the operator asks on PERIMETER-FP-GATES-DISPOSE-1; this arc parent re-measures after they land.'}
   adjacency_2026_11_08: "Prior art: PERIMETER-PHANTOM-XCORR-1 (done, phantom person + double send + cross-NVR check), docs/planning/AUDIT_perimeter_fp_correlation.md, PLANNING_perimeter_consolidation.md, PLANNING_snap1_at_detection_snapshots.md. ADJACENT not duplicate: new FP classes (street noise) and storage/archival."
   arc_progress_2026_11_14_overnight: 'Arc measurements (1) zone-sensor field and (3) D5 settle are now measured in AUDIT_perimeter_fp_gates_disposal_2026_11_14.md and sit as one operator ask on PERIMETER-FP-GATES-DISPOSE-1: D5 is already enforcing (only g5_bullet clears the bar), D3 needs perimeter_zone_sensors (4 Frigate property-zone sensors listed), settle pick 0 vs 12 s. Measurements (2), (4)-(7) not run tonight.'
 - id: PERIMETER-FRIGATE-SNAPSHOT-CAPTURE-NEVER-1
@@ -34880,8 +34883,9 @@ cards:
   status: waiting_operator
   batch: broken-promises-2026-11
   created: '2026-11-12 22:55'
-  updated: "2026-11-23 02:15"
-  links: {"blocks": ["PERIMETER-ZONE-AGREEMENT-FIX-OR-REMOVE-1"], "context": "The zone-agreement gate decision (FIX vs REMOVE) needs the perimeter_zone_sensors set here; it has fired 0 times in 866 gate rows without them."}
+  updated: "2026-11-23 02:25"
+  evidence_2026_11_23: "Why this ask matters, measured 11-23: perimeter person pushes are 60/day over the last 7 days vs 69/day before the 11-08 gate work (~13% lower), ~98% still CRITICAL/HIGH; g5_bullet and rear_ptz are the top two senders (16.9 and 11.6/day). The zone-agreement gate cannot run until the zone sensors are set. Detail on PERIMETER-FP-STREET-NOISE-1 disposition_2026_11_23."
+  links: {"blocks": ["PERIMETER-ZONE-AGREEMENT-FIX-OR-REMOVE-1", "PERIMETER-FP-STREET-NOISE-1"], "context": "The zone-agreement gate decision (FIX vs REMOVE) needs the perimeter_zone_sensors set here; it has fired 0 times in 866 gate rows without them."}
   verified_2026_11_23_overnight: "STILL-WAITING (02:05 CST): no URA config entry carries perimeter_zone_sensors in data or options (core.config_entries via the Samba mount). DO stands."
   tier: 2
   origin: {date: '2026-11-12', gist: 'Operator asked why the gates are off. AUDIT_garage_hallway_lock_and_perimeter_gates_2026_11_12.md.'}
@@ -35629,17 +35633,18 @@ cards:
 - id: CHATTER-MODE-SELECT-NOT-WIRED-1
   title: "select.ura_chatter_mode writes the integration entry but rooms read the coordinator-manager entry, so chatter quarantine has never acted (every chatter NM says shadow) even though the select reads act"
   thread: presence
-  status: shipped_organic
+  status: done
   shipped_version: v5.108.30
   tier: 2
   created: '2026-11-15 17:00'
-  updated: '2026-11-15 17:00'
+  updated: "2026-11-23 02:35"
+  organic_evidence_2026_11_23: "DONE (soak exit). URA DB notification_log, chatter rows excluding [audit] mirrors, by CST day: 11-13/14/15 = 10/16/12 rows titled \"WOULD quarantine sensor (shadow): ...\" (16/23/16 total); 11-16..11-22 = 0 shadow titles in 63 rows, titles now \"Chattering sensor: <room> - <entity>\" (act mode) with \"chatter released (quiet 900s)\" releases, e.g. 11-22 15:21Z Garage A garageopener motion 15 sub-floor events. Rooms now read the act mode the select shows."
   links: {related: [MEDIAROOM-FAN-LEFT-ON-STUCK-SENSORS-1, STUCK-SENSOR-1]}
   origin: {date: '2026-11-15', gist: 'Stuck-sensor plan completeness review F1, resolving why the media chatter NMs said shadow while the select read act.'}
   sweep_2026_11_15: "NEW (board grep chatter_mode / ChatterModeSelect: no card)."
   why: "ChatterModeSelect lives on the INTEGRATION entry (select.py:50-60). The room resolver _chatter_mode() (coordinator.py:3216-3260) reads through nm_cycle_a_knob, which reads only the COORDINATOR_MANAGER entry (_nm_cycle_a.py:83-90). Live: the integration entry has chatter_mode act; the CM entry has none, so rooms fall back to shadow (const.py:6256). notification_log: every chatter NM through 11-15 21:49Z says '(shadow)'. The select has read act all week, so somebody intended act and it never took effect. Turning the wiring on is a first-time house-wide behaviour change: Garage A/B and Master Bathroom are 43 of 45 chatter NMs. Blocks stuck-sensor plan S3 (media) and the S5 chatter trigger."
   operator_2026_11_15: "Chatter- act (option A: fix the wiring; act takes effect house-wide as the select reads)."
-  next: "Built as stuck-sensor S3a (feature/stuck-sensor-s1-s3); ships with S1-S3."
+  next: "Closed 11-23: organic discriminator met."
 - id: HA-ROOM-AUTOMATION-UNPAUSE-1
   title: "Re-enable the room Automation switches that were off (21 rooms), except Exercise, without rooms turning lights on at entry"
   thread: presence

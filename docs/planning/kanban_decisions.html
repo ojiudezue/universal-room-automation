@@ -264,8 +264,8 @@ section.decisions .none { color:var(--muted); font-size:12px; padding:0 18px 12p
 <header class="top">
 <h1>URA://DECISIONS<span class="gen">GENERATED - waiting_operator cards from kanban.data.yaml</span></h1>
 <div class="statusline">
-<span>generated <b>2026-11-22T21:52:19-06:00</b></span>
-<span>data <b>28a94cc9d464</b></span>
+<span>generated <b>2026-11-23T02:04:42-06:00</b></span>
+<span>data <b>0967c84c01cd</b></span>
 <span>reconciled <b>2026-11-23</b></span>
 </div></header>
 <section class="decisions" id="decisions" aria-labelledby="decisions-h">
@@ -643,16 +643,6 @@ section.decisions .none { color:var(--muted); font-size:12px; padding:0 18px 12p
 <form class="answer"><label for="ans-PEOPLE-SCREEN-1">Your answer for PEOPLE-SCREEN-1</label><textarea id="ans-PEOPLE-SCREEN-1" rows="2" placeholder="Your answer for PEOPLE-SCREEN-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
 <div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
 </article>
-<article class="decision" data-id="PERIMETER-FP-GATES-DISPOSE-1">
-<div class="dhd">
-<span class="id">PERIMETER-FP-GATES-DISPOSE-1</span>
-<span class="since">waiting since 2026-11-23 02:15</span>
-</div>
-<div class="dtitle">Perimeter false-positive gates D3/D5 shipped shadow-first but D3 can never evaluate (zone sensors never configured) and no shadow counts are kept; no disposal date</div>
-<p class="ask"><b>DO</b>: in URA options -&gt; Perimeter, set perimeter_zone_sensors to the four Frigate property-zone person-occupancy sensors for g5_bullet, rear_ptz, utilities_ptz and front_side_ptz (ids in the audit, resolved by registry), and confirm Frigate&#x27;s &#x27;property&#x27; zone leaves the road out. PICK the D5 wait: A (recommended, your &#x27;alert latency over precision, waits ship at 0&#x27; rule) set PERIMETER_SS_SETTLE_S 8 -&gt; 0 so D5 judges on lookback only and never delays an alert; or B raise it to 12 s (covers ~p90 g5_bullet lag of 10.2 s, delays single-source alerts up to 12 s). -&gt; I make the A/B constant change (Tier 1, reviewed), then count perimeter_gate_decision rows; dispose each gate at its first 30 rows or 2026-11-28, whichever first (D3 with no rows by then parks).</p>
-<form class="answer"><label for="ans-PERIMETER-FP-GATES-DISPOSE-1">Your answer for PERIMETER-FP-GATES-DISPOSE-1</label><textarea id="ans-PERIMETER-FP-GATES-DISPOSE-1" rows="2" placeholder="Your answer for PERIMETER-FP-GATES-DISPOSE-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
-<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
-</article>
 <article class="decision" data-id="SAFETY-SENSOR-FLEET-HEALTH-1">
 <div class="dhd">
 <span class="id">SAFETY-SENSOR-FLEET-HEALTH-1</span>
@@ -671,6 +661,16 @@ section.decisions .none { color:var(--muted); font-size:12px; padding:0 18px 12p
 <div class="dtitle">URA drives the wall-panel bezel LEDs and room-targeted announcements (NM surface)</div>
 <p class="ask"><b>DO</b>: when convenient, turn on switch.ura_nm_panel_channel and run a test leak (plan steps 1-7) -&gt; I confirm only the targeted panels lit and that the ack released them, then close Halo S1b. APPROVE S2 (NM drives room alert lights) separately whenever you want it built.</p>
 <form class="answer"><label for="ans-WALLPANEL-URA-NOTIFY-1">Your answer for WALLPANEL-URA-NOTIFY-1</label><textarea id="ans-WALLPANEL-URA-NOTIFY-1" rows="2" placeholder="Your answer for WALLPANEL-URA-NOTIFY-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="PERIMETER-FP-GATES-DISPOSE-1">
+<div class="dhd">
+<span class="id">PERIMETER-FP-GATES-DISPOSE-1</span>
+<span class="since">waiting since 2026-11-23 02:25</span>
+</div>
+<div class="dtitle">Perimeter false-positive gates D3/D5 shipped shadow-first but D3 can never evaluate (zone sensors never configured) and no shadow counts are kept; no disposal date</div>
+<p class="ask"><b>DO</b>: in URA options -&gt; Perimeter, set perimeter_zone_sensors to the four Frigate property-zone person-occupancy sensors for g5_bullet, rear_ptz, utilities_ptz and front_side_ptz (ids in the audit, resolved by registry), and confirm Frigate&#x27;s &#x27;property&#x27; zone leaves the road out. PICK the D5 wait: A (recommended, your &#x27;alert latency over precision, waits ship at 0&#x27; rule) set PERIMETER_SS_SETTLE_S 8 -&gt; 0 so D5 judges on lookback only and never delays an alert; or B raise it to 12 s (covers ~p90 g5_bullet lag of 10.2 s, delays single-source alerts up to 12 s). -&gt; I make the A/B constant change (Tier 1, reviewed), then count perimeter_gate_decision rows; dispose each gate at its first 30 rows or 2026-11-28, whichever first (D3 with no rows by then parks).</p>
+<form class="answer"><label for="ans-PERIMETER-FP-GATES-DISPOSE-1">Your answer for PERIMETER-FP-GATES-DISPOSE-1</label><textarea id="ans-PERIMETER-FP-GATES-DISPOSE-1" rows="2" placeholder="Your answer for PERIMETER-FP-GATES-DISPOSE-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
 <div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
 </article>
 </section>
