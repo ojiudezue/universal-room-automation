@@ -35386,11 +35386,12 @@ cards:
   mergeprep_2026_11_20_overnight: "Merge-prep 02:10 CST: feat/house-avg-sensors 98335c557 is 1 ahead / 120 behind origin/develop; git merge-tree onto develop is CLEAN. Still waits for the attended deploy (needs a restart)."
   title: "Expose real house-average indoor temperature / humidity sensors (exclude equipment closets and outdoor rooms) and retire the two template helpers"
   thread: dashboard
-  status: waiting_me
+  status: done
   shipped_version: v5.108.39
   tier: 1
   created: '2026-11-16 00:20'
-  updated: "2026-11-23 02:10"
+  updated: "2026-11-23 08:16"
+  done_2026_11_23: "Operator 'Do it' 08:10. ura-v8 backed up (docs/dashboard-prototypes/ura-v8-backups/20261123T081401_pre_house_avg_repoint.json); weather card (views[1].sections[0].cards[7]) indoor_temperature_entity -> sensor.universal_room_automation_house_avg_temperature (69.0 F live) and indoor_humidity_entity -> sensor.universal_room_automation_house_avg_humidity (48.4 % live), patch post-write verified. Template helpers House Indoor Temperature / Humidity (entries 01M6SKV8XWBQ255247672EM8QZ / 01M6SKV9GS5E8M0XF89K79RWHH) deleted; re-search finds no remaining reference. Recreate if ever needed: template sensor, state {{ state_attr('sensor.universal_room_automation_temp_delta_outside','house_avg_temp') }} (and humidity_delta_outside / house_avg_humidity)."
   organic_evidence_2026_11_23: "PRIMARY DONE: README_v5.108.39 validation table - house_avg_temperature 73.2 F / humidity 52.4 %, rooms_excluded = AV Closet, Garage A, Garage B, Media Room Closet, Patio, Study A Closet (Media Room Closet is closet+infrastructure, excluded by design)."
   consumer_grep_2026_11_23: "Read-only grep of /config (.storage + yaml, backups excluded): sensor.house_indoor_temperature / _humidity are read ONLY by .storage/lovelace.ura_v8 (weather card indoor_temperature_entity + indoor_humidity_entity). Both are template-platform helpers (entity registry). No automation/script consumer, so the residual is two dashboard fields + two helper deletes."
   links: {related: [DASH-V8-ANI-WEATHER-TRIAL-1]}

@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-23T02:04:42-06:00_ - _Data commit: `0967c84c01cd`_ - _last_reconciled: 2026-11-23_
+_Generated: 2026-11-23T02:06:35-06:00_ - _Data commit: `a443203b9621`_ - _last_reconciled: 2026-11-23_
 
 
 ## Columns
@@ -16,10 +16,10 @@ _Generated: 2026-11-23T02:04:42-06:00_ - _Data commit: `0967c84c01cd`_ - _last_r
 | 🔨 In progress | 5 |
 | 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 37 |
-| ⏳ Waiting on me (Claude) | 3 |
+| ⏳ Waiting on me (Claude) | 2 |
 | 🚀 Shipped (organic open) | 15 |
 | 🅿️ Parked | 154 |
-| ✅ Done | 498 |
+| ✅ Done | 499 |
 
 ## 📥 Inbox (0)
 _raw capture_
@@ -1436,7 +1436,7 @@ _created 2026-09-20 · updated 2026-09-29 01:05_
   - `FINDINGS_2026_09_20`: Spike RAN (docs/planning/jev_spike/, 58-case eval, LOO). CODE baseline = works 100% / fails 0%% / overall 84.5%% / ECE 0.155 (structurally blind to the all-away-single-sensor phantom + badly calibrated). Logistic-floor arms scored 100%%/...
   - `next_prev1`: PICK/DO (operator): provide INDEPENDENT ground-truth labels for ~20-40 ambiguous occupancy cases (spot-confirm a batch of all-away-single-sensor / still-body episodes as empty-or-occupied), OR approve me sourcing a disjoint truth signal ...
 
-## ⏳ Waiting on me (Claude) (3)
+## ⏳ Waiting on me (Claude) (2)
 _I owe something_
 
 ### `HA-GC-GEN2-PAUSES-1` - Home Assistant freezes for about 2 seconds once a minute while Python cleans up memory (full garbage collection on a very large heap) — _#1 · WSJF 6.5 · v7 tc4 u2 /e2_
@@ -1479,23 +1479,6 @@ _created 2026-10-20 08:30 · updated 2026-11-11 02:05_
   - `operator_decision_2026_11_10`: Prioritize and fix (board instruction 2026-11-10 21:53 UTC). Treated as authority.
   - `verify_2026_11_11_overnight`: CARD-WAS-WRONG + PARTIALLY-DONE. The card's 'APPROVE ESPHome filters + UDM templates + panel/device_time excludes' was stale: the 10-20 attended session already applied that batch as recorder excludes (RUNBOOK_recorder_excludes.md ledger...
   - `staged_2026_11_11_overnight`: Batch 2a staged, NOT applied: recorder exclude globs sensor.span_panel_*_produced_energy and _produced_energy_2 (~9k rows/hr, 92 entities, 84 never change; zero consumers in Energy prefs, all lovelace dashboards, automations.yaml, packag...
-
-### `HOUSE-AVG-SENSORS-1` - Expose real house-average indoor temperature / humidity sensors (exclude equipment closets and outdoor rooms) and retire the two template helpers — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **dashboard** - status: **waiting_me**
-_created 2026-11-16 00:20 · updated 2026-11-23 02:10_
-- **Origin:** 2026-11-16 - Soak-exit residual (AUDIT_soak_exit_sweep_2026_11_16.md).
-- **Why:** house_avg_temp is only an attribute (aggregation.py:2063); the v8 weather card reads template helpers sensor.house_indoor_temperature / _humidity.
-- **Next:** Me, ATTENDED session (HA dashboard + helper delete, so not overnight): back up ura-v8, change the weather card indoor_temperature_entity -> sensor.universal_room_automation_house_avg_temperature and indoor_humidity_entity -> sensor.unive...
-- **Forensic keys (9):**
-  - `validated_2026_11_22_overnight`: Full-suite name-diff CLEAN on the combined merge with develop (23846 passed / 0 failed vs develop 23824 / 0; 0 NEW) - see ANOMALY-FLOOD-ROWS-1 validated_2026_11_22_overnight. The 11-21 run was not authoritative (broken baseline). Merge i...
-  - `mergeprep_2026_11_20_overnight`: Merge-prep 02:10 CST: feat/house-avg-sensors 98335c557 is 1 ahead / 120 behind origin/develop; git merge-tree onto develop is CLEAN. Still waits for the attended deploy (needs a restart).
-  - `tier`: 1
-  - `organic_evidence_2026_11_23`: PRIMARY DONE: README_v5.108.39 validation table - house_avg_temperature 73.2 F / humidity 52.4 %, rooms_excluded = AV Closet, Garage A, Garage B, Media Room Closet, Patio, Study A Closet (Media Room Closet is closet+infrastructure, exclu...
-  - `consumer_grep_2026_11_23`: Read-only grep of /config (.storage + yaml, backups excluded): sensor.house_indoor_temperature / _humidity are read ONLY by .storage/lovelace.ura_v8 (weather card indoor_temperature_entity + indoor_humidity_entity). Both are template-pla...
-  - `operator_2026_11_22`: APPROVE. Study A Closet -> infrastructure (applied via options flow 20:58; switch on; power sensor sensor.span_panel_office_closet_power already configured). Garages excluded as unconditioned: code rule room_type garage, commit 9c67eceda...
-  - `ha_config_2026_11_22`: Operator approved 21:15: switch.garage_a_infrastructure_room and switch.garage_b_infrastructure_room turned ON (EV chargers in both, shop equipment in B), so EVSE/shop loads leave Energy Waste Idle, Cost per Occupied Hour, Most Expensive...
-  - `verify_2026_11_17_overnight`: STILL-REAL (~02:05 CST): no house-average sensor in aggregation.py; house_avg_temp/_humidity exist only as attributes (aggregation.py:2063, :2108, :2150) from getters :1255/:1265. Gate: config-first n/a (no knob); prior art REUSE the two...
-  - `built_2026_11_17_overnight`: Built on feat/house-avg-sensors 98335c557 (base develop 408a666db, pushed). Two sensors exclude rooms classified infrastructure or in an outdoor zone via room_classification.get_room_classification (room_classification.py:94), read from ...
 
 ## 🚀 Shipped (organic open) (15)
 _live, awaiting proof_
@@ -3962,8 +3945,26 @@ _created 2026-09-01 20:30 · initial_
 - **Tags:** tier-3, no-fabrication-verify, regression-prone
 - **Refs:** docs/planning/PLANNING_shared_power_read_staleness.md; Envoy Tier-3 reviews A/B/C/D 2026-09-01
 
-## ✅ Done (498)
+## ✅ Done (499)
 _closed, evidence in refs_
+
+### `HOUSE-AVG-SENSORS-1` - Expose real house-average indoor temperature / humidity sensors (exclude equipment closets and outdoor rooms) and retire the two template helpers — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **dashboard** - status: **done**
+_created 2026-11-16 00:20 · updated 2026-11-23 08:16_
+- **Origin:** 2026-11-16 - Soak-exit residual (AUDIT_soak_exit_sweep_2026_11_16.md).
+- **Why:** house_avg_temp is only an attribute (aggregation.py:2063); the v8 weather card reads template helpers sensor.house_indoor_temperature / _humidity.
+- **Next:** Me, ATTENDED session (HA dashboard + helper delete, so not overnight): back up ura-v8, change the weather card indoor_temperature_entity -> sensor.universal_room_automation_house_avg_temperature and indoor_humidity_entity -> sensor.unive...
+- **Forensic keys (10):**
+  - `validated_2026_11_22_overnight`: Full-suite name-diff CLEAN on the combined merge with develop (23846 passed / 0 failed vs develop 23824 / 0; 0 NEW) - see ANOMALY-FLOOD-ROWS-1 validated_2026_11_22_overnight. The 11-21 run was not authoritative (broken baseline). Merge i...
+  - `mergeprep_2026_11_20_overnight`: Merge-prep 02:10 CST: feat/house-avg-sensors 98335c557 is 1 ahead / 120 behind origin/develop; git merge-tree onto develop is CLEAN. Still waits for the attended deploy (needs a restart).
+  - `tier`: 1
+  - `done_2026_11_23`: Operator 'Do it' 08:10. ura-v8 backed up (docs/dashboard-prototypes/ura-v8-backups/20261123T081401_pre_house_avg_repoint.json); weather card (views[1].sections[0].cards[7]) indoor_temperature_entity -> sensor.universal_room_automation_ho...
+  - `organic_evidence_2026_11_23`: PRIMARY DONE: README_v5.108.39 validation table - house_avg_temperature 73.2 F / humidity 52.4 %, rooms_excluded = AV Closet, Garage A, Garage B, Media Room Closet, Patio, Study A Closet (Media Room Closet is closet+infrastructure, exclu...
+  - `consumer_grep_2026_11_23`: Read-only grep of /config (.storage + yaml, backups excluded): sensor.house_indoor_temperature / _humidity are read ONLY by .storage/lovelace.ura_v8 (weather card indoor_temperature_entity + indoor_humidity_entity). Both are template-pla...
+  - `operator_2026_11_22`: APPROVE. Study A Closet -> infrastructure (applied via options flow 20:58; switch on; power sensor sensor.span_panel_office_closet_power already configured). Garages excluded as unconditioned: code rule room_type garage, commit 9c67eceda...
+  - `ha_config_2026_11_22`: Operator approved 21:15: switch.garage_a_infrastructure_room and switch.garage_b_infrastructure_room turned ON (EV chargers in both, shop equipment in B), so EVSE/shop loads leave Energy Waste Idle, Cost per Occupied Hour, Most Expensive...
+  - `verify_2026_11_17_overnight`: STILL-REAL (~02:05 CST): no house-average sensor in aggregation.py; house_avg_temp/_humidity exist only as attributes (aggregation.py:2063, :2108, :2150) from getters :1255/:1265. Gate: config-first n/a (no knob); prior art REUSE the two...
+  - `built_2026_11_17_overnight`: Built on feat/house-avg-sensors 98335c557 (base develop 408a666db, pushed). Two sensors exclude rooms classified infrastructure or in an outdoor zone via room_classification.get_room_classification (room_classification.py:94), read from ...
 
 ### `CHATTER-MODE-SELECT-NOT-WIRED-1` - select.ura_chatter_mode writes the integration entry but rooms read the coordinator-manager entry, so chatter quarantine has never acted (every chatter NM says shadow) even though the select reads act — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **done**
