@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-22T20:58:39-06:00_ - _Data commit: `53bab3fae33e`_ - _last_reconciled: 2026-11-22_
+_Generated: 2026-11-22T20:59:10-06:00_ - _Data commit: `d6d838f1ccb3`_ - _last_reconciled: 2026-11-22_
 
 
 ## Columns
@@ -844,11 +844,12 @@ _created 2026-11-16 00:20 · updated 2026-11-22 02:26_
 - **Origin:** 2026-11-16 - Soak-exit residual (AUDIT_soak_exit_sweep_2026_11_16.md).
 - **Why:** house_avg_temp is only an attribute (aggregation.py:2063); the v8 weather card reads template helpers sensor.house_indoor_temperature / _humidity.
 - **Next:** Merged to develop 911e1db0e (operator APPROVE 2026-11-22). Ships in the next attended release. After the restart, confirm rooms_excluded = AV Closet, Garage A, Garage B, Patio, Study A Closet; repoint the v8 weather card; grep consumers;...
-- **Forensic keys (6):**
+- **Forensic keys (7):**
   - `validated_2026_11_22_overnight`: Full-suite name-diff CLEAN on the combined merge with develop (23846 passed / 0 failed vs develop 23824 / 0; 0 NEW) - see ANOMALY-FLOOD-ROWS-1 validated_2026_11_22_overnight. The 11-21 run was not authoritative (broken baseline). Merge i...
   - `mergeprep_2026_11_20_overnight`: Merge-prep 02:10 CST: feat/house-avg-sensors 98335c557 is 1 ahead / 120 behind origin/develop; git merge-tree onto develop is CLEAN. Still waits for the attended deploy (needs a restart).
   - `tier`: 1
   - `operator_2026_11_22`: APPROVE. Study A Closet -> infrastructure (applied via options flow 20:58; switch on; power sensor sensor.span_panel_office_closet_power already configured). Garages excluded as unconditioned: code rule room_type garage, commit 9c67eceda...
+  - `ha_config_2026_11_22`: Operator approved 21:15: switch.garage_a_infrastructure_room and switch.garage_b_infrastructure_room turned ON (EV chargers in both, shop equipment in B), so EVSE/shop loads leave Energy Waste Idle, Cost per Occupied Hour, Most Expensive...
   - `verify_2026_11_17_overnight`: STILL-REAL (~02:05 CST): no house-average sensor in aggregation.py; house_avg_temp/_humidity exist only as attributes (aggregation.py:2063, :2108, :2150) from getters :1255/:1265. Gate: config-first n/a (no knob); prior art REUSE the two...
   - `built_2026_11_17_overnight`: Built on feat/house-avg-sensors 98335c557 (base develop 408a666db, pushed). Two sensors exclude rooms classified infrastructure or in an outdoor zone via room_classification.get_room_classification (room_classification.py:94), read from ...
 
