@@ -343,6 +343,21 @@ class TransitValidator:
         self._entity_to_physical: dict[str, str] = {}
         # F2 fix: per-physical-camera last-sighting timestamp for dedup.
         self._last_physical_sighting: dict[str, datetime] = {}
+        # ANOMALY-FLOOD-ROWS-1: shared camera entity_id -> registry area_id
+        # (entity area, else its device's area; None = no area). Cleared by
+        # every `_build_and_subscribe`, filled once per camera on first use.
+        self._shared_camera_area: dict[str, str | None] = {}
+        # Room strings that did not resolve to an area (unknown to the room
+        # config, or a sentinel such as "away").
+        self._coverage_room_unresolved_count = 0
+        # No-sighting moves with cameras active that were NOT penalised
+        # because no shared camera sits in the from/to room.
+        self._coverage_not_covered_count = 0
+        # F5/F6/face-recog unsubs. These three sat after the return of
+        # build_diagnostic_attrs and never ran (moved by ANOMALY-FLOOD-ROWS-1).
+        self._rebuild_timer_unsub = None
+        self._config_signal_unsub = None
+        self._face_recog_signal_unsub = None
 
     def build_diagnostic_attrs(self) -> dict[str, Any]:
         """F4 (2026-08-07 fix-up cycle-4): TRANSIT-DIAG-1 attr payload
@@ -369,17 +384,14 @@ class TransitValidator:
         return {
             "checkpoint_cameras_by_area": checkpoint_cameras_by_area,
             "protect_sourced_count": protect_sourced_count,
+            # ANOMALY-FLOOD-ROWS-1 coverage counters (since start).
+            "path_coverage_room_unresolved_count": getattr(
+                self, "_coverage_room_unresolved_count", 0
+            ),
+            "path_coverage_not_covered_count": getattr(
+                self, "_coverage_not_covered_count", 0
+            ),
         }
-        # F5 fix: debounce timer for registry-updated rebuilds.
-        self._rebuild_timer_unsub = None
-        # F6 fix: dispatcher listener for options-change signal (kept
-        # across rebuilds so a re-init doesn't drop this hook).
-        self._config_signal_unsub = None
-        # CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1 (2026-08-18): discharge
-        # signal for CONF_FACE_RECOGNITION_ENABLED (the flag is cached
-        # at boot at :259; the switch/options-flow update is now
-        # reload-suppressed so we MUST refresh via this signal).
-        self._face_recog_signal_unsub = None
 
     async def async_init(self) -> None:
         """Subscribe to camera person detection entities.
@@ -558,6 +570,9 @@ class TransitValidator:
         self._protect_entity_set = set(protect_entities)
         # F2 fix: keep the entity->physical mapping fresh for dedup.
         self._entity_to_physical = dict(entity_to_physical)
+        # ANOMALY-FLOOD-ROWS-1: shared camera set / camera areas may have
+        # changed; drop the camera -> area cache.
+        self._shared_camera_area = {}
 
         census = self.hass.data.get(DOMAIN, {}).get("census")
         camera_manager = self.hass.data.get(DOMAIN, {}).get("camera_manager")
@@ -703,9 +718,18 @@ class TransitValidator:
         else:
             # Check if shared-space cameras are active (have any recent sightings at all)
             cameras_active = self._are_shared_space_cameras_active(shared_cameras)
-            if cameras_active:
+            # ANOMALY-FLOOD-ROWS-1: a silent camera only argues against a
+            # move it could have seen. Penalise only when the from or to
+            # room itself holds a shared-space camera.
+            if cameras_active and self._transition_covered_by_shared_camera(
+                transition, shared_cameras
+            ):
                 path_method = "path_implausible"
             else:
+                if cameras_active:
+                    self._coverage_not_covered_count = (
+                        getattr(self, "_coverage_not_covered_count", 0) + 1
+                    )
                 path_method = "no_camera_data"
 
         # Map path_method to confidence delta and path_validated
@@ -775,6 +799,69 @@ class TransitValidator:
                 seen.add(eid)
                 out.append(eid)
         return out
+
+    def _camera_area_id(self, entity_id: str) -> str | None:
+        """Registry area of a camera entity: entity area, else device area."""
+        try:
+            entry = er_helper.async_get(self.hass).async_get(entity_id)
+            if entry is None:
+                return None
+            if entry.area_id:
+                return entry.area_id
+            if entry.device_id:
+                from homeassistant.helpers import (  # noqa: PLC0415
+                    device_registry as dr_helper,
+                )
+
+                device = dr_helper.async_get(self.hass).async_get(entry.device_id)
+                if device is not None and device.area_id:
+                    return device.area_id
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "TransitValidator: area lookup failed for %s", entity_id,
+                exc_info=True,
+            )
+        return None
+
+    def _transition_covered_by_shared_camera(
+        self, transition: Any, shared_cameras: list[str]
+    ) -> bool:
+        """True when the move's from or to room holds a shared-space camera.
+
+        Rooms resolve to areas through the room config (``CONF_AREA_ID``,
+        ``camera_census.build_room_to_area_id_map``); cameras through the
+        entity / device registry (cached per camera). No name matching. A
+        room that does not resolve is not covered (no penalty) and counted.
+        """
+        try:
+            from .camera_census import build_room_to_area_id_map  # noqa: PLC0415
+
+            room_to_area = build_room_to_area_id_map(self.hass)
+        except Exception:  # noqa: BLE001
+            room_to_area = {}
+        move_areas: set[str] = set()
+        for room in (
+            getattr(transition, "from_room", None),
+            getattr(transition, "to_room", None),
+        ):
+            area_id = room_to_area.get(room) if room else None
+            if area_id:
+                move_areas.add(area_id)
+            else:
+                self._coverage_room_unresolved_count = (
+                    getattr(self, "_coverage_room_unresolved_count", 0) + 1
+                )
+        if not move_areas:
+            return False
+        cache = getattr(self, "_shared_camera_area", None)
+        if cache is None:
+            cache = self._shared_camera_area = {}
+        for eid in shared_cameras:
+            if eid not in cache:
+                cache[eid] = self._camera_area_id(eid)
+            if cache[eid] in move_areas:
+                return True
+        return False
 
     def _are_shared_space_cameras_active(self, shared_cameras: list[str]) -> bool:
         """Check if any shared-space camera has fired in the last 10 minutes."""

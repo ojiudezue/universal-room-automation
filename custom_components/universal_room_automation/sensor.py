@@ -6904,6 +6904,9 @@ class PresenceDiagnosticSensor(AggregationEntity, SensorEntity):
         # off yields an empty mapping / zero count.
         checkpoint_cameras_by_area: dict[str, list[str]] = {}
         protect_sourced_count = 0
+        # ANOMALY-FLOOD-ROWS-1: transit path-coverage counters.
+        path_coverage_not_covered_count = 0
+        path_coverage_room_unresolved_count = 0
         try:
             tv = self.hass.data.get(DOMAIN, {}).get("transit_validator")
             if tv is not None:
@@ -6921,6 +6924,12 @@ class PresenceDiagnosticSensor(AggregationEntity, SensorEntity):
                     )
                     protect_sourced_count = int(
                         _payload.get("protect_sourced_count") or 0
+                    )
+                    path_coverage_not_covered_count = int(
+                        _payload.get("path_coverage_not_covered_count") or 0
+                    )
+                    path_coverage_room_unresolved_count = int(
+                        _payload.get("path_coverage_room_unresolved_count") or 0
                     )
                 else:
                     raw = getattr(tv, "checkpoint_cameras_by_area", None) or {}
@@ -6944,6 +6953,10 @@ class PresenceDiagnosticSensor(AggregationEntity, SensorEntity):
             "zone_verdicts": zone_verdicts,
             "checkpoint_cameras_by_area": checkpoint_cameras_by_area,
             "protect_sourced_count": protect_sourced_count,
+            "path_coverage_not_covered_count": path_coverage_not_covered_count,
+            "path_coverage_room_unresolved_count": (
+                path_coverage_room_unresolved_count
+            ),
         }
 
 
