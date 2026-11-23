@@ -1,0 +1,28 @@
+{
+  "format_version": "2.1",
+  "entry_id": "347",
+  "author": "ojiudezue",
+  "timestamp": "2026-11-23T03:20:00Z",
+  "type": "decision",
+  "weight": "notable",
+  "title": "Garages are equipment rooms for energy, garages for behaviour: infrastructure switch on, room type kept",
+  "summary": "Operator added that garages hold EV chargers (both) and shop equipment (B). Both garages' Infrastructure Room switches were turned on so EVSE and shop loads stop counting as idle waste or occupied-hour cost, while room_type stays garage.",
+  "reasoning": "URA's infrastructure flag has two independent inputs: room_type (sets behaviour, timeouts, menu) and the per-room switch (only gates the four energy aggregates at aggregation.py:3946/3963/4013/4140). Changing room type, as done for Study A Closet, would have stripped garage behaviour such as the 10-minute timeout. The switch alone fixes the reporting problem: an EV charging in an empty garage read as waste. It is reversible and needs no release.",
+  "alternatives": [
+    "Change room_type to infrastructure (loses garage behaviour)",
+    "Leave switches off and build separate EV-charging reporting (not justified yet)"
+  ],
+  "revisit_trigger": "Operator wants EV charging or shop load visible on its own in energy reporting.",
+  "tags": [
+    "energy",
+    "classification",
+    "config-first",
+    "garage"
+  ],
+  "refs": [
+    "HOUSE-AVG-SENSORS-1",
+    "switch.garage_a_infrastructure_room",
+    "switch.garage_b_infrastructure_room",
+    "d28a884e5"
+  ]
+}
