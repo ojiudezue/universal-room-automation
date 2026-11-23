@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-22T21:44:48-06:00_ - _Data commit: `8b519ad5cc4e`_ - _last_reconciled: 2026-11-22_
+_Generated: 2026-11-22T21:51:52-06:00_ - _Data commit: `12909cd4401d`_ - _last_reconciled: 2026-11-22_
 
 
 ## Columns
@@ -1615,7 +1615,7 @@ _created 2026-11-13 12:30_
 ### `EGRESS-DIRECTION-AWARE-IDENTITY-1` - Egress drops the name of anyone the tracker shows away, in both directions; entries by away people are exactly arrivals — _#9 · WSJF 3.0 · v8 tc5 u2 /e5_
 thread: **identity** - status: **shipped_organic**
 _created 2026-11-12 22:00 · updated 2026-11-22 02:02_
-- **⏰ Due:** 2026-11-22 10:00 — S1 reasons merged to develop 369537615; ships in the next attended batched release (11-21 release did not run, HA still v5.108.38). Then check edge_anchor_reason on new crossings.
+- **⏰ Due:** 2026-11-24 09:00 — Shipped v5.108.39 11-22 21:46. Check edge_anchor_reason on entry crossings since the restart (D8a rows); dispose on the first non-null reason from the closed set.
 - **Origin:** 2026-11-12 - Operator: "Who made this rule? I didn't... It should do both especially since we have a direction detector."
 - **Why:** not_home veto at transit_validator.py:1840-1854 copied from the census veto in Aug 2026 without direction. Plan rev 8 section 2B: entry+away = arrival candidate, exit+home = departure candidate, guards (face conf, path, GPS), census keep...
 - **Next:** Me: first-arrival evidence (named notice, D8a edge_anchor), then score names on the graded batch.
@@ -1704,7 +1704,7 @@ _refined ×1_
 ### `PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1` - Circling hop 1 and hop 3 are both HIGH in production, so the claim that their severities differ (and their NM dedup keys cannot collide) does not hold — _#12 · WSJF 2.8 · v7 tc5 u2 /e5_
 thread: **security** - status: **shipped_organic**
 _created 2026-11-13 12:00 · updated 2026-11-22 02:02 · refined_
-- **⏰ Due:** 2026-11-22 10:00 — ship in the next attended batched release (one restart/day). 11-21 window passed without a release (HA still v5.108.38 at 11-22 02:01).
+- **⏰ Due:** 2026-11-29 09:00 — Shipped v5.108.39 11-22 21:46. Rare event: dispose when one escalation lands titled Perimeter Alert — Person Escalated, or at this date convert to the in-suite proof + trip-wire.
 - **Problem / Solution:**
   - Problem: when someone circles the house, the system is meant to send a stronger 'circling' alert even if that camera alerted a minute ago. The notification system's duplicate filter drops it, because it treats any alert with the same tit...
 - **Origin:** 2026-11-13 - Review A-L1 of house-state step 1a; pre-existing (persons_home always 0 live).

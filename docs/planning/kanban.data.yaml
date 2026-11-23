@@ -34960,8 +34960,8 @@ cards:
   live_2026_11_20_notices: "Two Jaya arrived notices since S1 went live, both from the OLD >=0.75 face path (edge_anchor null on both): 11-19 19:04 CST WRONG (garage_a entry, face 0.9 both_agree synthetic; Jaya home since 18:18, she came back in from the garage; S1 correctly did not anchor - no own edge); 11-20 12:39 CST CORRECT (doorbell, ble+face 0.95; her edge 24 s before t_E) but S1 returned None for an unknown gate -> instrumenting reject reasons on fix/s1-anchor-reasons. Operator decision asked: old path says arrived for a resident already home - A gate the old path on an own recent arrival edge (else no notice), or B reword as came in."
   names_graded_2026_11_20: "First 3 named grades: 11-13 18:18 OUT/1/jaya (S1 at LEAD 300 does not anchor, own edge 306 s; at 600 it would have said arrived = wrong, so 300 is right); 11-14 16:39 IN/1/guest (face 0.6 said Jaya; no own Jaya edge -> S1 correctly does not name); 11-15 18:13 IN/2/oji+jaya (S1 names Jaya, correct but incomplete). 0 wrong names, n=3 (bar 10). Follow-on idea (not carded until more data): name both people when both own phones arrive in the window and they are not a confusable pair. Live since 11-19 14:11: 24 egress outcome rows, 0 edge_anchor."
   live_2026_11_19: "v5.108.37 live since the 14:11 CST restart (with .38). Faces often confused set to jaya|ezinne, jaya|oji via the CM options flow (only that key changed, 292->293 options, no reload). Pending event: first phone-first resident arrival with a face (named notice + D8a edge_anchor row)."
-  due: "2026-11-22 10:00"
-  due_note: "S1 reasons merged to develop 369537615; ships in the next attended batched release (11-21 release did not run, HA still v5.108.38). Then check edge_anchor_reason on new crossings."
+  due: '2026-11-24 09:00'
+  due_note: 'Shipped v5.108.39 11-22 21:46. Check edge_anchor_reason on entry crossings since the restart (D8a rows); dispose on the first non-null reason from the closed set.'
   s1_reasons_review_2026_11_20: 'v_s1_anchor_reasons_review.md: SHIP, 0 CRIT/HIGH/MED. LOW closed reason set fixed e0df18fe0 (EDGE_ANCHOR_REASONS + set-equality test). LOW restart-blind last_changed not fixed (falls back to arrived, no regression). Merged clean, 33 develop commits since base touch none of its files.'
   operator_2026_11_17_pairs_and_06: "Ok on 0.6 / Jaya Ezinne not only confusable pair. It can also be Jaya Oji. (CONF_EGRESS_CONFUSABLE_PAIRS does not exist yet: proposed in the step 7 plan 2026-11-14, built with S1 as a Coordinator Manager options field; initial jaya|ezinne, jaya|oji.)"
   operator_2026_11_17_step7_answers: "1 - yes 2 - yes. We should do face after phone if gaps remain on ident. Phone is more reliable now 3 - yes. 4 - more details please face plus phone - more details please"
@@ -36205,8 +36205,8 @@ cards:
   rank: {value: 6, time_criticality: 3, effort: 5}
 - id: PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1
   built_2026_11_19: "Option A built 053f48563 (escalation-exemption dispatches titled 'Perimeter Alert — Person Escalated'; NM dedup key is coordinator:title:location, severity was never in it). Reviews A SHIP, B SHIP. Merged to develop; ships in the next release."
-  due: "2026-11-22 10:00"
-  due_note: "ship in the next attended batched release (one restart/day). 11-21 window passed without a release (HA still v5.108.38 at 11-22 02:01)."
+  due: '2026-11-29 09:00'
+  due_note: 'Shipped v5.108.39 11-22 21:46. Rare event: dispose when one escalation lands titled Perimeter Alert — Person Escalated, or at this date convert to the in-suite proof + trip-wire.'
   arc_cut_v5_108_38: "ready, next builder slot"
   arc_cut_v5_108_37: "separate arc work, not in the step 7 S1 release"
   arc_cut_v5_108_36: "separate arc work, not in the P3-D2/D3 release"
