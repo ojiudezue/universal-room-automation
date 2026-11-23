@@ -111,3 +111,6 @@ One counseling note from the same pass: feed and card times were typed from a fe
 
 
 **2026-11-22, met in letter, failing in practice.** The overnight soak-exit sweep found two features whose checks looked passed: music following picked the right speakers but all 13 moves failed, because AirPlay music isn't in a Music Assistant queue (fix: use the MA path only for real MA queues), and Garage A door-camera entries could never get an indoor path, because the path map has no route from that camera (fix: one map line, waiting on approval). It also rejected the previous night's 'clean' suite runs, whose baseline was broken, and re-proved the three review fixes on a green develop (23,846 pass, 0 fail) → [345](users/ojiudezue/entries/345_overnight_findings_airplay_ma_path_and_doorbell_lite_path_gap.json).
+
+
+**2026-11-22: what 'house average' means.** Oji approved the filtered house-average sensors and defined the scope by use: the average is the temperature of conditioned living space. Equipment closets are infrastructure (Study A Closet reclassified by setting), and garages are out because they are unconditioned. URA keys this on configured room type, not names, and leaves the unfiltered average alone for the HVAC consumers that already depend on it.

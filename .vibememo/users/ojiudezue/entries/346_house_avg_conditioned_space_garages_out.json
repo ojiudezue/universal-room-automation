@@ -1,0 +1,28 @@
+{
+  "format_version": "2.1",
+  "entry_id": "346",
+  "author": "ojiudezue",
+  "timestamp": "2026-11-23T03:05:00Z",
+  "type": "decision",
+  "weight": "notable",
+  "title": "House average means conditioned living space: garages out by room type, Study A Closet reclassified as infrastructure",
+  "summary": "Operator approved HOUSE-AVG-SENSORS-1 and set its two open picks. Study A Closet (an always-on equipment closet typed 'closet') became an infrastructure room via its options flow, a setting, not code; its SPAN power circuit was already wired. Garages are excluded because they are unconditioned, so the filtered average now drops room_type garage in code (commit 9c67eceda, test mutation-drilled RED).",
+  "reasoning": "The filtered sensor exists so the weather card shows the temperature people live in. The operator's criterion was 'unconditioned', which is a property of HVAC coverage, but URA has no conditioned/unconditioned field; room_type garage is the closest configured classification and is read from config, never from names. Study A Closet was handled config-first because infrastructure already carries the right semantics (excluded from waste detection and cost rankings, like AV Closet). The unfiltered getters stay untouched so Temp Delta Outside and HVAC Direction do not shift.",
+  "alternatives": [
+    "Exclude rooms with no climate_entity (garages have none, but neither do some conditioned rooms, so it would drop real rooms)",
+    "Add a new 'unconditioned' room flag (new config surface for two rooms; parked unless a conditioned garage or unconditioned non-garage appears)"
+  ],
+  "revisit_trigger": "A garage gets conditioning, or a non-garage room is unconditioned: then a per-room conditioned flag is worth adding.",
+  "tags": [
+    "house-avg",
+    "classification",
+    "config-first",
+    "dashboard"
+  ],
+  "refs": [
+    "HOUSE-AVG-SENSORS-1",
+    "9c67eceda",
+    "911e1db0e",
+    "aggregation.py _get_house_avg_filtered"
+  ]
+}
