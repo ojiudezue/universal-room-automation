@@ -264,8 +264,8 @@ section.decisions .none { color:var(--muted); font-size:12px; padding:0 18px 12p
 <header class="top">
 <h1>URA://DECISIONS<span class="gen">GENERATED - waiting_operator cards from kanban.data.yaml</span></h1>
 <div class="statusline">
-<span>generated <b>2026-11-23T08:14:33-06:00</b></span>
-<span>data <b>3535a6494f87</b></span>
+<span>generated <b>2026-11-24T02:10:08-06:00</b></span>
+<span>data <b>5d15701518ba</b></span>
 <span>reconciled <b>2026-11-24</b></span>
 </div></header>
 <section class="decisions" id="decisions" aria-labelledby="decisions-h">
@@ -616,7 +616,7 @@ section.decisions .none { color:var(--muted); font-size:12px; padding:0 18px 12p
 <article class="decision" data-id="CROSSING-LEDGER-RESTART-RESTORE-1">
 <div class="dhd">
 <span class="id">CROSSING-LEDGER-RESTART-RESTORE-1</span>
-<span class="since">waiting since 2026-11-24 02:10</span>
+<span class="since">waiting since 2026-11-24 02:08</span>
 </div>
 <div class="dtitle">Every Home Assistant restart wipes the crossing ledger&#x27;s known head count, and it only re-learns it when the house is next seen empty, so the ledger is known ~15% of the time</div>
 <p class="ask"><b>PICK</b>: A (recommended) approve option (a) as a Tier-3 cycle: I write the plan (persist + guarded boot restore, falsifiable invariant &quot;a restored ledger never differs from what an unbroken run would hold&quot;) for your plan review; or B first run one strict (c) week (at most one restart a day, mornings only) and re-measure F-K on 12-01 -&gt; on A I plan it in an attended session; on B I re-date the check.</p>
@@ -630,7 +630,7 @@ section.decisions .none { color:var(--muted); font-size:12px; padding:0 18px 12p
 <article class="decision" data-id="PRESENCE-DIAG-SENSOR-FROZEN-1">
 <div class="dhd">
 <span class="id">PRESENCE-DIAG-SENSOR-FROZEN-1</span>
-<span class="since">waiting since 2026-11-24 02:10</span>
+<span class="since">waiting since 2026-11-24 02:08</span>
 </div>
 <div class="dtitle">The Presence Diagnostics sensor only writes once at boot, so its attributes (veto decision, zone verdicts, path-coverage counters) are hours or days stale</div>
 <p class="ask"><b>PICK</b>: A (recommended) I subscribe it to the presence refresh signal and you add the entity to the recorder exclude list (live attributes, no history cost; I add the ledger row to RUNBOOK_recorder_excludes.md); or B subscribe and keep it recorded; or C leave it and fix the docstring to say it is a boot snapshot -&gt; I build A or B Tier 1 to review in the next pass.</p>
@@ -645,7 +645,7 @@ section.decisions .none { color:var(--muted); font-size:12px; padding:0 18px 12p
 <article class="decision" data-id="INTERIOR-PATH-ZERO-1120-1">
 <div class="dhd">
 <span class="id">INTERIOR-PATH-ZERO-1120-1</span>
-<span class="since">waiting since 2026-11-24 02:14</span>
+<span class="since">waiting since 2026-11-24 02:09</span>
 </div>
 <div class="dtitle">Entries seen by the doorbell_lite camera (Garage A door) never get an interior path, because the path map has no inward edge from it, so the &#x27;no path&#x27; alarm fires on days when only that camera sees entries</div>
 <p class="ask"><b>APPROVE</b> (recommended A): A) I add one inward edge {from: camera.doorbell_lite, to: camera.garage_a_2, kind: inward} to /config/universal_room_automation/interior_paths.json in an attended session (backup first; the map revalidates live within 30 s, no restart), then check the next doorbell_lite entry writes an interior_path row; or B) leave the map and stop counting doorbell_lite entries toward the alarm (code, Tier 1). VERIFY with A: a person entering at Garage A passes doorbell_lite (outside the lintel) and then camera.garage_a_2 - correct?</p>
@@ -655,7 +655,7 @@ section.decisions .none { color:var(--muted); font-size:12px; padding:0 18px 12p
 <article class="decision" data-id="NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1">
 <div class="dhd">
 <span class="id">NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1</span>
-<span class="since">waiting since 2026-11-24 02:14</span>
+<span class="since">waiting since 2026-11-24 02:09</span>
 </div>
 <div class="dtitle">Prove the text &#x27;diag&#x27; menu answers on WhatsApp and the HA app (only iMessage is proven live)</div>
 <p class="ask"><b>DO</b>: text &#x27;diag&#x27; in your WhatsApp self-chat, and reply &#x27;diag&#x27; to any URA notification in the HA app -&gt; I read notification_inbound; a channel=whatsapp row and a companion row with a reply close this; no WhatsApp row means the bridge drops fromMe and I card that fix.</p>
@@ -665,7 +665,7 @@ section.decisions .none { color:var(--muted); font-size:12px; padding:0 18px 12p
 <article class="decision" data-id="PEOPLE-SCREEN-1">
 <div class="dhd">
 <span class="id">PEOPLE-SCREEN-1</span>
-<span class="since">waiting since 2026-11-24 02:14</span>
+<span class="since">waiting since 2026-11-24 02:09</span>
 </div>
 <div class="dtitle">People settings screen and per-person profile store (step 8 §10.1); configuration only, nothing acts yet</div>
 <p class="ask"><b>DO</b> (when convenient, 2 min): in URA -&gt; Coordinator Manager options -&gt; People, save one person profile, then clear one pick and save again -&gt; I read core.config_entries person_profiles to confirm both saved without an integration reload and close this.</p>
@@ -675,7 +675,7 @@ section.decisions .none { color:var(--muted); font-size:12px; padding:0 18px 12p
 <article class="decision" data-id="PERIMETER-FP-GATES-DISPOSE-1">
 <div class="dhd">
 <span class="id">PERIMETER-FP-GATES-DISPOSE-1</span>
-<span class="since">waiting since 2026-11-24 02:14</span>
+<span class="since">waiting since 2026-11-24 02:09</span>
 </div>
 <div class="dtitle">Perimeter false-positive gates D3/D5 shipped shadow-first but D3 can never evaluate (zone sensors never configured) and no shadow counts are kept; no disposal date</div>
 <p class="ask"><b>DO</b>: in URA options -&gt; Perimeter, set perimeter_zone_sensors to the four Frigate property-zone person-occupancy sensors for g5_bullet, rear_ptz, utilities_ptz and front_side_ptz (ids in the audit, resolved by registry), and confirm Frigate&#x27;s &#x27;property&#x27; zone leaves the road out. PICK the D5 wait: A (recommended, your &#x27;alert latency over precision, waits ship at 0&#x27; rule) set PERIMETER_SS_SETTLE_S 8 -&gt; 0 so D5 judges on lookback only and never delays an alert; or B raise it to 12 s (covers ~p90 g5_bullet lag of 10.2 s, delays single-source alerts up to 12 s). -&gt; I make the A/B constant change (Tier 1, reviewed), then count perimeter_gate_decision rows; dispose each gate at its first 30 rows or 2026-11-28, whichever first (D3 with no rows by then parks).</p>
@@ -685,7 +685,7 @@ section.decisions .none { color:var(--muted); font-size:12px; padding:0 18px 12p
 <article class="decision" data-id="SAFETY-SENSOR-FLEET-HEALTH-1">
 <div class="dhd">
 <span class="id">SAFETY-SENSOR-FLEET-HEALTH-1</span>
-<span class="since">waiting since 2026-11-24 02:14</span>
+<span class="since">waiting since 2026-11-24 02:09</span>
 </div>
 <div class="dtitle">The house&#x27;s only smoke detector has been invisible to Home Assistant since the 10-15 restart, and several leak and gas sensors are dead or misfiled, so Safety cannot see those hazards</div>
 <p class="ask"><b>DO</b> (when back, or the guest/Jaya if urgent): re-pair the kitchen Heiman smoke detector (homelab THREAD-INOVELLI-1 re-commission; it still sounds locally), and check the 4 leak pucks&#x27; batteries/pairing. APPROVE me to make the two config fixes in an attended session (move gas_zigbee_kitchen_gas out of Safety&#x27;s smoke list into gas; remove the ghost ziribathroom_water_leak_2). -&gt; Then I measure whether Safety should page on a life-safety sensor unavailable &gt; N hours (likely a small Tier-1/2 card).</p>
@@ -695,7 +695,7 @@ section.decisions .none { color:var(--muted); font-size:12px; padding:0 18px 12p
 <article class="decision" data-id="WALLPANEL-URA-NOTIFY-1">
 <div class="dhd">
 <span class="id">WALLPANEL-URA-NOTIFY-1</span>
-<span class="since">waiting since 2026-11-24 02:14</span>
+<span class="since">waiting since 2026-11-24 02:09</span>
 </div>
 <div class="dtitle">URA drives the wall-panel bezel LEDs and room-targeted announcements (NM surface)</div>
 <p class="ask"><b>DO</b>: when convenient, turn on switch.ura_nm_panel_channel and run a test leak (plan steps 1-7) -&gt; I confirm only the targeted panels lit and that the ack released them, then close Halo S1b. APPROVE S2 (NM drives room alert lights) separately whenever you want it built.</p>

@@ -2,7 +2,7 @@
   "format_version": "2.1",
   "entry_id": "351",
   "author": "ojiudezue",
-  "timestamp": "2026-11-24T08:18:00Z",
+  "timestamp": "2026-11-24T08:10:00Z",
   "type": "decision",
   "weight": "significant",
   "title": "Overnight 11-24: crossing-ledger known-time fails F-K (~15%) and fires parked restore trigger (a); escalate as Tier 3 instead of building",

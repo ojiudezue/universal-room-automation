@@ -12,10 +12,10 @@ meta:
   - {"fid": "ANOMALY-FLOOD-ROWS-1@2026-11-24T02:06:00", "card_id": "ANOMALY-FLOOD-ROWS-1", "at": "2026-11-24T02:06:00", "outcome": "done", "headline": "Closed the false 'impossible room move' flood: 0 rows in the 15 h since the family got back (889 moves; it was ~10 an hour before the fix), with hallway cameras firing normally. Two leftovers noted: no move touched a camera room yet, so the real-warning path is still unproven; and the diagnostics sensor meant to prove it is frozen at boot (new card).", "acknowledged": false}
   - {"fid": "EGRESS-DIRECTION-AWARE-IDENTITY-1@2026-11-24T02:06:30", "card_id": "EGRESS-DIRECTION-AWARE-IDENTITY-1", "at": "2026-11-24T02:06:30", "outcome": "measured", "headline": "Door crossings now record why no arrival was named: all 45 since the restart carry a reason (mostly 'direction unclear' and 'not enough evidence'). The 'arrived' path itself has still never fired; on the family's 11-23 return it correctly refused to name you because you and Jaya arrived together. Check closes by 12-01.", "acknowledged": false}
   - {"fid": "CROSSING-LEDGER-RESTART-RESTORE-1@2026-11-24T02:08:00", "card_id": "CROSSING-LEDGER-RESTART-RESTORE-1", "at": "2026-11-24T02:08:00", "outcome": "escalated", "headline": "The indoor head-count ledger was trustworthy only ~15% of the last week (bar is 25%): each Home Assistant restart wipes it and it waits days for an empty house to re-learn. 7 restarts in 7 days, 4 at night, one crash on 11-20 20:27. PICK on the card: build a safe restore-after-restart (Tier 3), or try a strict one-restart-a-morning week first.", "acknowledged": false}
-  - {"fid": "PRESENCE-DIAG-SENSOR-FROZEN-1@2026-11-24T02:10:00", "card_id": "PRESENCE-DIAG-SENSOR-FROZEN-1", "at": "2026-11-24T02:10:00", "outcome": "escalated", "headline": "Found the Presence Diagnostics sensor has not updated since boot (it still says everyone is away). Small fix ready to build; PICK on the card is only whether to keep its history in the recorder.", "acknowledged": false}
-  - {"fid": "CENSUS-PATIO-THROUGH-GLASS-1@2026-11-24T02:11:00", "card_id": "CENSUS-PATIO-THROUGH-GLASS-1", "at": "2026-11-24T02:11:00", "outcome": "measured", "headline": "The 11-22 afternoon away/home flapping (13 'away' entries) was one Frigate 'person' on the family-room camera for 41 minutes while everyone was out and no other camera saw anyone. Added to the family-room camera card: check that snapshot for a fixed object before masking.", "acknowledged": false}
+  - {"fid": "PRESENCE-DIAG-SENSOR-FROZEN-1@2026-11-24T02:08:00", "card_id": "PRESENCE-DIAG-SENSOR-FROZEN-1", "at": "2026-11-24T02:08:00", "outcome": "escalated", "headline": "Found the Presence Diagnostics sensor has not updated since boot (it still says everyone is away). Small fix ready to build; PICK on the card is only whether to keep its history in the recorder.", "acknowledged": false}
+  - {"fid": "CENSUS-PATIO-THROUGH-GLASS-1@2026-11-24T02:08:30", "card_id": "CENSUS-PATIO-THROUGH-GLASS-1", "at": "2026-11-24T02:08:30", "outcome": "measured", "headline": "The 11-22 afternoon away/home flapping (13 'away' entries) was one Frigate 'person' on the family-room camera for 41 minutes while everyone was out and no other camera saw anyone. Added to the family-room camera card: check that snapshot for a fixed object before masking.", "acknowledged": false}
   - {"fid": "HA-ICLOUD3-PEOPLE-TAB-SWAP-1@2026-11-24T02:09:00", "card_id": "HA-ICLOUD3-PEOPLE-TAB-SWAP-1", "at": "2026-11-24T02:09:00", "outcome": "done", "headline": "Closed the iCloud3 tracker swap: Ziri's tracker followed her out within minutes every time this week, never stuck at home. (The card had been filed outside the board; moved back in.)", "acknowledged": false}
-  - {"fid": "WAITING-OP-RECHECK@11-24@2026-11-24T02:14:00", "card_id": "WAITING-OP-RECHECK@11-24", "at": "2026-11-24T02:14:00", "outcome": "measured", "headline": "Re-checked 6 asks waiting on you; none changed: kitchen smoke detector still offline, wall-panel alert switch off, no WhatsApp/app reply yet, no person profile saved, perimeter zone sensors not set, Garage A path edge not added.", "acknowledged": false}
+  - {"fid": "WAITING-OP-RECHECK@11-24@2026-11-24T02:09:00", "card_id": "WAITING-OP-RECHECK@11-24", "at": "2026-11-24T02:09:00", "outcome": "measured", "headline": "Re-checked 6 asks waiting on you; none changed: kitchen smoke detector still offline, wall-panel alert switch off, no WhatsApp/app reply yet, no person profile saved, perimeter zone sensors not set, Garage A path edge not added.", "acknowledged": false}
   - {"fid": "PERIMETER-FP-STREET-NOISE-1@2026-11-23T02:25:00", "card_id": "PERIMETER-FP-STREET-NOISE-1", "at": "2026-11-23T02:25:00", "outcome": "parked", "headline": "Perimeter false-alert work has not cut alert volume much: 60 pushes/day over the last 7 days vs 69/day before the 11-08 fixes, almost all still high/critical (worst: g5_bullet 17/day, rear_ptz 12/day). The remaining levers are your perimeter settings ask (zone sensors + settle pick); parked behind it and re-measures after.", "acknowledged": false}
   - {"fid": "CHATTER-MODE-SELECT-NOT-WIRED-1@2026-11-23T02:35:00", "card_id": "CHATTER-MODE-SELECT-NOT-WIRED-1", "at": "2026-11-23T02:35:00", "outcome": "done", "headline": "Closed the chatter-mode wiring fix: before 11-16 every chattering-sensor alert said 'would quarantine (shadow)'; since then none do and rooms actually quarantine and release chattering sensors (63 alerts over 7 days).", "acknowledged": false}
   - {"fid": "SOAK-EXIT@2026-11-23T02:10:00", "card_id": "SECURITY-LOCK-PAGE-LAST-SEEN-1", "at": "2026-11-23T02:10:00", "outcome": "done", "headline": "Closed 3 shipped cards on evidence: the dead-lock page now names the lock's last-seen time (00:48 page said 'last seen 18 Nov 14:51'); the BLE test-drill fix was test-only and already proven; the perimeter switch renames and settings screen were already live since v5.108.22.", "acknowledged": false}
@@ -82,7 +82,7 @@ cards:
   status: waiting_operator
   tier: 1
   created: 2026-11-08 02:05
-  updated: "2026-11-24 02:14"
+  updated: "2026-11-24 02:09"
   verified_2026_11_23_overnight: "STILL-WAITING (URA DB 02:03 CST): notification_inbound since 11-16 = 183 rows, all channel=imessage (last 04:34Z 11-23). No whatsapp or companion row. DO stands."
   refinement_status: initial
   rank:
@@ -926,7 +926,7 @@ cards:
   recheck_2026_11_07_overnight: "Re-check 02:03 CST: switch.ura_nm_panel_channel still off. Ask stands."
   verify_2026_10_28: "Overnight re-check 02:02 CDT: switch.ura_nm_panel_channel still off (since the 10-26 10:06 restart), so the test-leak DO is still open."
   residual_2026_10_21_wake_adjacency: 'Operator 2026-10-21: "are the tablets able to wake from adjacent room occupancy? Just like the notifications are sent to tablets when it concerns adjacent rooms". VERIFIED NO: wake is HomeLab automation wallpanel_fleet_wake (automations.yaml:6596) with a hand-written map, each panel wakes on its own room only, plus two hand-coded extras (Kitchen panel <- breakfast_nook_occupied; Entry panel <- entry Hobeian + foyer_fisheye camera). URA CONF_ADJACENT_ROOMS (const.py:720) is not read. Fold into the "move wallpanel_fleet_* into Halo" follow-up: Halo derives each panel''s wake set from its room + that room''s adjacent_rooms (no hand map), likely dimmer for adjacent. Sleep-after-grace must use the same set.'
-  updated: "2026-11-24 02:14"
+  updated: "2026-11-24 02:09"
   verified_2026_11_23_overnight: "STILL-WAITING: switch.ura_nm_panel_channel off (re-stamped at the 11-22 21:47 boot). Panel test leak not run."
   reverified_2026_10_29_overnight: "Unchanged 02:01 CDT: switch.ura_nm_panel_channel = off (since 10-26 10:06). The test-leak DO is still yours."
   links_added_2026_10_21: "related+DASH-V8-ROOM-STATUS-CHIPS-1,TABLET-FLEET-1: Halo panels and the v8 room chips both surface per-room status; TABLET-FLEET-1 is the older wall-tablet idea Halo largely supersedes."
@@ -1249,7 +1249,7 @@ cards:
     context: 'Surfaced by the plan review of the initial-pass plan (docs/reviews/plan-review/PLAN_REVIEW_safety_initial_sensor_pass.md P-03; plan section 12). Swept board/BACKLOG for NM startup/ordering: none found. NEW.'
   next: "REVIVE when (a) SAFETY-NO-INITIAL-SENSOR-PASS-1 is approved for build (its startup pass fires exactly in this gap: the plan must order the pass after NM has restored, or queue until NM ready - carry this as a constraint into that plan), or (b) any smoke/leak/gas/CO sensor reads 'on' within 120 s of a homeassistant_start (re-run .claude/tmp/safety_boot_race_probe.sql against the recorder). Then Tier-2 plan: queue safety events until NM ready."
 - id: SAFETY-SENSOR-FLEET-HEALTH-1
-  recheck_2026_11_24_overnight: "STILL-REAL (ha_get_state 02:12 CST): binary_sensor.smoke_sensor_s1_smoke unavailable; last_changed 11-22 21:47 is the restart. Re-pair DO stands."
+  recheck_2026_11_24_overnight: "STILL-REAL (ha_get_state 02:08 CST): binary_sensor.smoke_sensor_s1_smoke unavailable; last_changed 11-22 21:47 is the restart. Re-pair DO stands."
   recheck_2026_11_22_overnight: "STILL-REAL (ha_get_state 02:01 CST): binary_sensor.smoke_sensor_s1_smoke unavailable, last_changed 11-20 22:47 = the restart. DO stands."
   recheck_2026_11_20_overnight: "STILL-WAITING (02:06 CST live): binary_sensor.smoke_sensor_s1_smoke and every smoke_sensor_s1_* / kitchen_smoke_heiman_* entity still unavailable; the kitchen Heiman re-pair is still owed. Card unchanged."
   recheck_2026_11_18_overnight: '02:03 CST live (ha_get_state): binary_sensor.smoke_sensor_s1_smoke unavailable since the 11-17 10:41 restart. Re-pair DO stands.'
@@ -1258,7 +1258,7 @@ cards:
   verified_2026_10_27: "Still needed. 02:05 CDT: binary_sensor.smoke_sensor_s1_smoke unavailable since 10-26 10:06 (kitchen Heiman re-pair outstanding); kitchen gas sensor reporting (off)."
   verify_2026_10_23: "Overnight re-check 02:01 (HA MCP): binary_sensor.smoke_sensor_s1_smoke still unavailable since the 10-21 18:25 restart. Re-pair still needed. No change."
   verify_2026_10_22: "Overnight re-check 02:0x: still blocked. binary_sensor.smoke_sensor_s1_smoke = unavailable (since the 10-21 18:25 restart), so the house's only smoke detector is still invisible to HA. binary_sensor.gas_zigbee_kitchen_gas = off (reporting). Re-pair is still needed."
-  updated: "2026-11-24 02:14"
+  updated: "2026-11-24 02:09"
   verified_2026_11_23_overnight: "STILL-REAL (02:04 CST): binary_sensor.smoke_sensor_s1_smoke unavailable (since the 11-22 21:47 boot); kitchen gas sensor reporting (off). Kitchen smoke detector still invisible to HA. DO stands."
   reverified_2026_10_29_overnight: "STILL-REAL 02:01 CDT: binary_sensor.smoke_sensor_s1_smoke (kitchen Heiman) unavailable since 10-26 10:06. Re-pair DO stands."
   recheck_2026_10_26: "Overnight ~02:03 CDT live read: binary_sensor.smoke_sensor_s1_smoke unavailable, lock.doorlock_kwikset_zwave_frontentry unavailable (sensor.node_3_node_status dead), BP1_B distance sensor unavailable; kitchen gas off (ok); Frigate2 running, 47 detection fps, camera_input_dark off. Still waiting on your hands; no change since 10-25."
@@ -34893,7 +34893,7 @@ cards:
   status: waiting_operator
   batch: broken-promises-2026-11
   created: '2026-11-12 22:55'
-  updated: "2026-11-24 02:14"
+  updated: "2026-11-24 02:09"
   evidence_2026_11_23: "Why this ask matters, measured 11-23: perimeter person pushes are 60/day over the last 7 days vs 69/day before the 11-08 gate work (~13% lower), ~98% still CRITICAL/HIGH; g5_bullet and rear_ptz are the top two senders (16.9 and 11.6/day). The zone-agreement gate cannot run until the zone sensors are set. Detail on PERIMETER-FP-STREET-NOISE-1 disposition_2026_11_23."
   links: {"blocks": ["PERIMETER-ZONE-AGREEMENT-FIX-OR-REMOVE-1", "PERIMETER-FP-STREET-NOISE-1"], "context": "The zone-agreement gate decision (FIX vs REMOVE) needs the perimeter_zone_sensors set here; it has fired 0 times in 866 gate rows without them."}
   verified_2026_11_23_overnight: "STILL-WAITING (02:05 CST): no URA config entry carries perimeter_zone_sensors in data or options (core.config_entries via the Samba mount). DO stands."
@@ -35552,7 +35552,7 @@ cards:
   shipped_version: v5.108.29
   tier: 2
   created: '2026-11-15 20:10'
-  updated: "2026-11-24 02:14"
+  updated: "2026-11-24 02:09"
   verified_2026_11_23_overnight: "STILL-WAITING: no person_profiles key in any URA config entry data/options (core.config_entries 02:05 CST). DO stands."
   links: {parent: PERSON-PROFILE-PREFERENCES-1}
   origin: {date: '2026-11-15', gist: 'Operator: ship the People screen first. Split for the v5.108.29 deploy; parent keeps D2/D3/D4/D6/D7.'}
@@ -36678,7 +36678,7 @@ cards:
   status: "waiting_operator"
   tier: 1
   created: '2026-11-22 02:05'
-  updated: "2026-11-24 02:14"
+  updated: "2026-11-24 02:09"
   refinement_status: "refined"
   problem_solution: ["Problem: when someone comes in through Garage A and only the doorbell_lite camera over that door sees them, URA counts it as an entry on a mapped door but can never build the indoor path, because the path map only starts indoor paths from the camera inside the garage. On 11-20 all five entries were seen that way, so the 'no path' alarm fired. Solution: add one line to the indoor path map (a data file on HA, no code, no restart) so a doorbell_lite entry starts a path into the garage camera."]
   origin: {date: '2026-11-22', gist: 'Residual of the overnight soak-exit disposition of VISION-INTERIOR-SHIP1-1.'}
@@ -36705,13 +36705,13 @@ cards:
   next: "None - closed 11-24 (soak exit, discriminator met)."
   rank: {value: 1, time_criticality: 1, effort: 1}
 - id: CROSSING-LEDGER-RESTART-RESTORE-1
-  paged_2026_11_24_overnight: "Paged 02:16 CST in one consolidated quiet notification (notify.madronehapushover, priority -1)."
+  paged_2026_11_24_overnight: "Paged 02:09 CST in one consolidated quiet notification (notify.madronehapushover, priority -1)."
   title: "Every Home Assistant restart wipes the crossing ledger's known head count, and it only re-learns it when the house is next seen empty, so the ledger is known ~15% of the time"
   thread: "vision"
   status: "waiting_operator"
   tier: 3
-  created: "2026-11-24 02:10"
-  updated: "2026-11-24 02:10"
+  created: "2026-11-24 02:08"
+  updated: "2026-11-24 02:08"
   refinement_status: "initial"
   approval: "blocked"
   problem_solution: ["Problem: the crossing ledger (the running count of people inside, built from door crossings) is held only in memory. A restart throws it away, and it only becomes trustworthy again the next time the whole house is confirmed empty, which can take days. Over the last 7 days it was trustworthy about 15% of the time; restarts destroyed about 95% of the rest. Interior-vision ship F (the \"never count fewer people than the cameras can see\" floor) is gated on 25%. Solution: the parked option (a) in the interior-vision plan - persist the ledger and restore it at boot when the restart was short and no door crossed meanwhile - as its own Tier-3 cycle on the crossing plan."]
@@ -36723,13 +36723,13 @@ cards:
   evidence: "See VISION-INTERIOR-SIGHTINGS-1 due_check_2026_11_24_overnight_FK for the rows, restarts and arithmetic."
   next: "PICK: A (recommended) approve option (a) as a Tier-3 cycle: I write the plan (persist + guarded boot restore, falsifiable invariant \"a restored ledger never differs from what an unbroken run would hold\") for your plan review; or B first run one strict (c) week (at most one restart a day, mornings only) and re-measure F-K on 12-01 -> on A I plan it in an attended session; on B I re-date the check."
 - id: PRESENCE-DIAG-SENSOR-FROZEN-1
-  paged_2026_11_24_overnight: "Paged 02:16 CST in one consolidated quiet notification (notify.madronehapushover, priority -1)."
+  paged_2026_11_24_overnight: "Paged 02:09 CST in one consolidated quiet notification (notify.madronehapushover, priority -1)."
   title: "The Presence Diagnostics sensor only writes once at boot, so its attributes (veto decision, zone verdicts, path-coverage counters) are hours or days stale"
   thread: "diagnostics"
   status: "waiting_operator"
   tier: 1
-  created: "2026-11-24 02:10"
-  updated: "2026-11-24 02:10"
+  created: "2026-11-24 02:08"
+  updated: "2026-11-24 02:08"
   refinement_status: "initial"
   approval: "unreviewed"
   problem_solution: ["Problem: sensor.ura_presence_coordinator_presence_diagnostics last wrote at boot (11-22 21:48) and never since, so everything on it is a snapshot of the boot moment (right now it says all four people are away). The anomaly-flood release named its counters as the live proof, and they read 0 forever. Its own code comment says it writes on every presence refresh; it does not subscribe to anything. Solution: subscribe it to the presence refresh signal the sibling Presence Anomaly sensor already uses (about 10 lines plus a test)."]

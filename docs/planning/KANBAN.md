@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-23T08:14:33-06:00_ - _Data commit: `3535a6494f87`_ - _last_reconciled: 2026-11-24_
+_Generated: 2026-11-24T02:10:08-06:00_ - _Data commit: `5d15701518ba`_ - _last_reconciled: 2026-11-24_
 
 
 ## Columns
@@ -866,7 +866,7 @@ _created 2026-09-16 03:30 · updated 2026-11-12 13:20 · refined_
 
 ### `SAFETY-SENSOR-FLEET-HEALTH-1` - The house's only smoke detector has been invisible to Home Assistant since the 10-15 restart, and several leak and gas sensors are dead or misfiled, so Safety cannot see those hazards — _#5 · WSJF 9.5 · v9 tc8 u2 /e2_
 thread: **safety** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-10-16 02:20 · updated 2026-11-24 02:14 · initial_
+_created 2026-10-16 02:20 · updated 2026-11-24 02:09 · initial_
 - **Problem / Solution:**
   - Problem: URA's Safety coordinator can only react to detectors Home Assistant can read. Tonight the only real smoke detector (the Heiman in the kitchen) reads 'unavailable' and has since the 10-15 12:46 restart; four Zigbee leak sensors n...
 - **Origin:** 2026-10-16 - Overnight pass: found by the ura-planner measurement for SAFETY-NO-INITIAL-SENSOR-PASS-1 (plan section 6/9); smoke state re-read live by the orchestrator.
@@ -874,7 +874,7 @@ _created 2026-10-16 02:20 · updated 2026-11-24 02:14 · initial_
 - **Next:** DO (when back, or the guest/Jaya if urgent): re-pair the kitchen Heiman smoke detector (homelab THREAD-INOVELLI-1 re-commission; it still sounds locally), and check the 4 leak pucks' batteries/pairing. APPROVE me to make the two config f...
 - **Tags:** found-during-probe, no-fabrication-verify, life-safety
 - **Forensic keys (30):**
-  - `recheck_2026_11_24_overnight`: STILL-REAL (ha_get_state 02:12 CST): binary_sensor.smoke_sensor_s1_smoke unavailable; last_changed 11-22 21:47 is the restart. Re-pair DO stands.
+  - `recheck_2026_11_24_overnight`: STILL-REAL (ha_get_state 02:08 CST): binary_sensor.smoke_sensor_s1_smoke unavailable; last_changed 11-22 21:47 is the restart. Re-pair DO stands.
   - `recheck_2026_11_22_overnight`: STILL-REAL (ha_get_state 02:01 CST): binary_sensor.smoke_sensor_s1_smoke unavailable, last_changed 11-20 22:47 = the restart. DO stands.
   - `recheck_2026_11_20_overnight`: STILL-WAITING (02:06 CST live): binary_sensor.smoke_sensor_s1_smoke and every smoke_sensor_s1_* / kitchen_smoke_heiman_* entity still unavailable; the kitchen Heiman re-pair is still owed. Card unchanged.
   - `recheck_2026_11_18_overnight`: 02:03 CST live (ha_get_state): binary_sensor.smoke_sensor_s1_smoke unavailable since the 11-17 10:41 restart. Re-pair DO stands.
@@ -926,7 +926,7 @@ _created 2026-10-14 02:10 · updated 2026-11-22 02:02_
 
 ### `NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1` - Prove the text 'diag' menu answers on WhatsApp and the HA app (only iMessage is proven live) — _#7 · WSJF 7.0 · v3 tc2 u2 /e1_
 thread: **notifications** - status: **waiting_operator** - approval: **implied**
-_created 2026-11-08 02:05 · updated 2026-11-24 02:14 · initial_
+_created 2026-11-08 02:05 · updated 2026-11-24 02:09 · initial_
 - **Problem / Solution:**
   - Problem: the house now answers text questions ('diag', 'health', 'who'), but it has only ever been seen working over iMessage. WhatsApp has never delivered a single inbound message to URA, so we do not know whether WhatsApp questions rea...
 - **Origin:** 2026-11-08 - overnight soak-exit of NM-INBOUND-HOUSE-QUERIES-1 found WhatsApp + Companion legs unprovable without an operator message
@@ -1107,7 +1107,7 @@ _created 2026-10-05 02:22 · updated 2026-11-24 02:08 · initial_
 
 ### `INTERIOR-PATH-ZERO-1120-1` - Entries seen by the doorbell_lite camera (Garage A door) never get an interior path, because the path map has no inward edge from it, so the 'no path' alarm fires on days when only that camera sees entries — _#18 · WSJF 4.0 · v4 tc2 u2 /e2_
 thread: **vision** - status: **waiting_operator**
-_created 2026-11-22 02:05 · updated 2026-11-24 02:14 · refined_
+_created 2026-11-22 02:05 · updated 2026-11-24 02:09 · refined_
 - **Problem / Solution:**
   - Problem: when someone comes in through Garage A and only the doorbell_lite camera over that door sees them, URA counts it as an entry on a mapped door but can never build the indoor path, because the path map only starts indoor paths fro...
 - **Origin:** 2026-11-22 - Residual of the overnight soak-exit disposition of VISION-INTERIOR-SHIP1-1.
@@ -1171,14 +1171,14 @@ _created 2026-10-24 · updated 2026-11-11 02:18_
 
 ### `PRESENCE-DIAG-SENSOR-FROZEN-1` - The Presence Diagnostics sensor only writes once at boot, so its attributes (veto decision, zone verdicts, path-coverage counters) are hours or days stale — _#22 · WSJF 3.5 · v3 tc2 u2 /e2_
 thread: **diagnostics** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-11-24 02:10 · initial_
+_created 2026-11-24 02:08 · initial_
 - **Problem / Solution:**
   - Problem: sensor.ura_presence_coordinator_presence_diagnostics last wrote at boot (11-22 21:48) and never since, so everything on it is a snapshot of the boot moment (right now it says all four people are away). The anomaly-flood release ...
 - **Origin:** 2026-11-24 - Found while disposing ANOMALY-FLOOD-ROWS-1: last_reported = boot time, counters 0 after 889 moves.
 - **Why:** A diagnostic that silently shows boot-time data is worse than none: it reads as evidence (it nearly passed the anomaly-flood live check).
 - **Next:** PICK: A (recommended) I subscribe it to the presence refresh signal and you add the entity to the recorder exclude list (live attributes, no history cost; I add the ledger row to RUNBOOK_recorder_excludes.md); or B subscribe and keep it ...
 - **Forensic keys (4):**
-  - `paged_2026_11_24_overnight`: Paged 02:16 CST in one consolidated quiet notification (notify.madronehapushover, priority -1).
+  - `paged_2026_11_24_overnight`: Paged 02:09 CST in one consolidated quiet notification (notify.madronehapushover, priority -1).
   - `tier`: 1
   - `prior_art`: REUSE: SIGNAL_PRESENCE_ENTITIES_UPDATE (signals.py:280, sent per inference cycle at presence.py:9275) and the exact subscribe pattern in PresenceAnomalySensor.async_added_to_hass (sensor.py ~7017-7030). Nothing new needed.
   - `cost_note`: Recorder: the entity is enabled live and recorded (9 state rows in 7 days today, one per boot). Subscribed, it writes whenever an attribute changes (zone verdicts, veto, counters), each row a few KB of attributes, up to once per presence...
@@ -1256,7 +1256,7 @@ _updated 2026-10-12 02:07_
 
 ### `PERIMETER-FP-GATES-DISPOSE-1` - Perimeter false-positive gates D3/D5 shipped shadow-first but D3 can never evaluate (zone sensors never configured) and no shadow counts are kept; no disposal date — _#27 · WSJF 2.8 · v5 tc3 u6 /e5 ⚠_
 thread: **perimeter** - status: **waiting_operator**
-_created 2026-11-12 22:55 · updated 2026-11-24 02:14_
+_created 2026-11-12 22:55 · updated 2026-11-24 02:09_
 - **Origin:** 2026-11-12 - Operator asked why the gates are off. AUDIT_garage_hallway_lock_and_perimeter_gates_2026_11_12.md.
 - **Why:** Off by design as shadow-first (README v5.107.0, PLANNING_perimeter_fp_build_2026_11.md), but gate_decisions_by_camera {} and zone_map {} live; D5 learning (g5_bullet clears bar); D5 settle 8 s shorter than most camera lag. 2,295 CRITICAL...
 - **Next:** DO: in URA options -> Perimeter, set perimeter_zone_sensors to the four Frigate property-zone person-occupancy sensors for g5_bullet, rear_ptz, utilities_ptz and front_side_ptz (ids in the audit, resolved by registry), and confirm Frigat...
@@ -1280,7 +1280,7 @@ _created 2026-11-12 22:55 · updated 2026-11-24 02:14_
 
 ### `WALLPANEL-URA-NOTIFY-1` - URA drives the wall-panel bezel LEDs and room-targeted announcements (NM surface) — _#28 · WSJF 2.8 · v6 tc6 u2 /e5_
 thread: **notifications** - status: **waiting_operator** - approval: **pending**
-_created 2026-10-20 08:30 · updated 2026-11-24 02:14_
+_created 2026-10-20 08:30 · updated 2026-11-24 02:09_
 - **Origin:** 2026-10-20 - Operator: ponder how URA uses the wall panels (KS + bridge). HomeLab brief docs/wallpanel-capability-brief.md (homelab cd71444); HomeLab feedback ffa7d06; 10-20 correction: operator has NOT decided the HomeLab/URA panel spli...
 - **Why:** Facts (not approvals): proposed that URA owns light.wallpanel_{master,up_hallway,media_room,kitchen,entry}_led end to end (on/effect/off); effects solid/blink/pulse/alert/notify/cycle (no breathe); state unknown after bridge restart != o...
 - **Next:** DO: when convenient, turn on switch.ura_nm_panel_channel and run a test leak (plan steps 1-7) -> I confirm only the targeted panels lit and that the ack released them, then close Halo S1b. APPROVE S2 (NM drives room alert lights) separat...
@@ -1351,7 +1351,7 @@ _created 2026-11-15 20:40 · updated 2026-11-21 02:10_
 
 ### `PEOPLE-SCREEN-1` - People settings screen and per-person profile store (step 8 §10.1); configuration only, nothing acts yet — _#33 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **identity** - status: **waiting_operator**
-_created 2026-11-15 20:10 · updated 2026-11-24 02:14_
+_created 2026-11-15 20:10 · updated 2026-11-24 02:09_
 - **Origin:** 2026-11-15 - Operator: ship the People screen first. Split for the v5.108.29 deploy; parent keeps D2/D3/D4/D6/D7.
 - **Why:** Reviews A+G, B, C (130 mutations); fix pass b769c29e (40/40 fix sites RED); develop merge 235f5c0f; allowlist pin c8a9a16c. B0 live form check right after install, rollback if the form fails.
 - **Next:** DO (when convenient, 2 min): in URA -> Coordinator Manager options -> People, save one person profile, then clear one pick and save again -> I read core.config_entries person_profiles to confirm both saved without an integration reload a...
@@ -1459,14 +1459,14 @@ _created 2026-09-20 · updated 2026-09-29 01:05_
 
 ### `CROSSING-LEDGER-RESTART-RESTORE-1` - Every Home Assistant restart wipes the crossing ledger's known head count, and it only re-learns it when the house is next seen empty, so the ledger is known ~15% of the time — _#39 · WSJF 0.8 · v6 tc3 u2 /e13_
 thread: **vision** - status: **waiting_operator** - approval: **blocked**
-_created 2026-11-24 02:10 · initial_
+_created 2026-11-24 02:08 · initial_
 - **Problem / Solution:**
   - Problem: the crossing ledger (the running count of people inside, built from door crossings) is held only in memory. A restart throws it away, and it only becomes trustworthy again the next time the whole house is confirmed empty, which ...
 - **Origin:** 2026-11-24 - Overnight 11-24: VISION-INTERIOR-SIGHTINGS-1 due follow-up (F-K known-time check) fired the plan's parked revival trigger (a).
 - **Why:** PLANNING_vision_interior_sightings.md 1b.0 decision 3: (a) is parked with the trigger "after 7 days under (c), F-K fails AND known-time destroyed by restarts >= 50% of unknown time". Measured 11-24: F-K 14.7-16.4% (fails), destroyed ~95%...
 - **Next:** PICK: A (recommended) approve option (a) as a Tier-3 cycle: I write the plan (persist + guarded boot restore, falsifiable invariant "a restored ledger never differs from what an unbroken run would hold") for your plan review; or B first ...
 - **Forensic keys (3):**
-  - `paged_2026_11_24_overnight`: Paged 02:16 CST in one consolidated quiet notification (notify.madronehapushover, priority -1).
+  - `paged_2026_11_24_overnight`: Paged 02:09 CST in one consolidated quiet notification (notify.madronehapushover, priority -1).
   - `tier`: 3
   - `evidence`: See VISION-INTERIOR-SIGHTINGS-1 due_check_2026_11_24_overnight_FK for the rows, restarts and arithmetic.
 
