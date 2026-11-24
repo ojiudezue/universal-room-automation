@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-24T02:11:13-06:00_ - _Data commit: `d215e1b75ebc`_ - _last_reconciled: 2026-11-24_
+_Generated: 2026-11-24T02:12:06-06:00_ - _Data commit: `253764586a9b`_ - _last_reconciled: 2026-11-24_
 
 
 ## Columns
@@ -13,8 +13,8 @@ _Generated: 2026-11-24T02:11:13-06:00_ - _Data commit: `d215e1b75ebc`_ - _last_r
 | 🔬 Investigating | 0 |
 | 🧭 Pre-planning | 14 |
 | 📝 Planned | 25 |
-| 🔨 In progress | 6 |
-| 🔍 Review | 0 |
+| 🔨 In progress | 5 |
+| 🔍 Review | 1 |
 | ⏸️ Waiting on operator | 39 |
 | ⏳ Waiting on me (Claude) | 2 |
 | 🚀 Shipped (organic open) | 14 |
@@ -605,21 +605,10 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (6)
+## 🔨 In progress (5)
 _being built_
 
-### `TEST-MUSIC-SYSMODULES-LEAK-1` - test_music_following_coordinator.py replaces domain_coordinators/base in sys.modules at import and never restores them, breaking class-identity checks in later test files — _#1 · WSJF 7.0 · v3 tc2 u2 /e1_
-thread: **quality** - status: **in_progress**
-_created 2026-11-13 03:00 · updated 2026-11-19 02:03_
-- **Origin:** 2026-11-13 - Found while fixing an order-dependent NM test (test_music_following_coordinator.py:128-138); builder checklist rule 8.
-- **Why:** Any later test using isinstance on Severity or other base classes can fail depending on order.
-- **Next:** Me (attended or a quiet overnight with no other suite running): build the snapshot/restore fixture on a worktree, then one serial full-suite name-diff.
-- **Forensic keys (3):**
-  - `tier`: 1
-  - `verified_2026_11_16_overnight`: STILL-REAL: quality/tests/test_music_following_coordinator.py:105-139 still assigns sys.modules entries for the URA package, const, domain_coordinators and five submodules (signals, house_state, base, manager, music_following) at import,...
-  - `verified_2026_11_19_overnight`: STILL-REAL (re-read test_music_following_coordinator.py:104-139 on develop 6187b75c: same unrestored sys.modules assignments). No pytest running (pgrep). Gate unchanged from 11-16 (SIMPLIFY -> BUILD with full-suite name-diff). Review lan...
-
-### `NM-SECURITY-IMAGE-SUBHIGH-NO-ROUTE-1` - Outdoor person alerts with a photo at MEDIUM/LOW still reach no one: forced 'send now' skips the digest, and no channel accepts that severity — _#2 · WSJF 3.0 · v4 tc3 u2 /e3_
+### `NM-SECURITY-IMAGE-SUBHIGH-NO-ROUTE-1` - Outdoor person alerts with a photo at MEDIUM/LOW still reach no one: forced 'send now' skips the digest, and no channel accepts that severity — _#1 · WSJF 3.0 · v4 tc3 u2 /e3_
 thread: **notifications** - status: **in_progress** - approval: **implied**
 _created 2026-11-21 02:06 · updated 2026-11-24 02:12 · initial_
 - **Problem / Solution:**
@@ -637,7 +626,7 @@ _created 2026-11-21 02:06 · updated 2026-11-24 02:12 · initial_
   - `adjacency`: Swept 2026-11-21: board (grep force_immediate/security_image - no card), BACKLOG.md (none), PLANNING_nm_image_delivery.md / PLANNING_consol_1 / PLANNING_perimeter_fp_build (the forcing rule's origin; no parked deliverable covers the no-c...
   - `verified_2026_11_24_overnight`: STILL-REAL (URA DB notification_log bucket_outcome='no_channel_fired'): perimeter_alert 11-20 LOW 2 + MEDIUM 2, 11-22 LOW 1, 11-23 LOW 6 (after v5.108.39). Gate from 11-21 stands (BUILD, Tier 2). Review lane is 0, so the WIP cap allows i...
 
-### `OC-CONTEXT-PACK-1` - OC agent context should feel like the orchestrator's: HA + URA ground-truth docs, live config snapshot, doctrine, goals - iterate it against live cases — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `OC-CONTEXT-PACK-1` - OC agent context should feel like the orchestrator's: HA + URA ground-truth docs, live config snapshot, doctrine, goals - iterate it against live cases — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **optimization** - status: **in_progress**
 _created 2026-11-01 · updated 2026-11-05 02:40_
 - **Why:** Already decided in VISION_optimization_coordinator_self_fixing_house.md:157 ('Knowledge, loaded fresh every run': HA concepts; URA_ARCHITECTURE_MAP, HVAC + presence state-of-play, SENSOR_FLEET_CLASSES, DEVICE_TREE; live config snapshot; ...
@@ -647,7 +636,7 @@ _created 2026-11-01 · updated 2026-11-05 02:40_
   - `tier`: 2
   - `eval_round_2026_11_07`: Operator-funded iteration ($50 cap, spent $40.31; worktree agent-a657e58090fb1df32 commits e1b08b13 b0d29379 12ac1780; ITERATIONS_2026_11_07.md, LEDGER_2026_11_07.md, RUBRIC.md). NOT PASSING: Sonnet 5.5 3/15 runs, 0 cases by majority; he...
 
-### `TEST-SUITE-PARALLEL-1` - Full test suite takes 24-33 min single-core; parallel run fails 91 vs 18 from test-order pollution — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `TEST-SUITE-PARALLEL-1` - Full test suite takes 24-33 min single-core; parallel run fails 91 vs 18 from test-order pollution — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **process** - status: **in_progress** - approval: **unreviewed**
 _created 2026-11-10 19:20 · updated 2026-11-11 07:05 · initial_
 - **Why:** Gate runs ~20.6k tests serially on 1 of 8 cores, twice per release (base + candidate), with 67 source-mutation drills (~4 min). Probe 2026-11-10 on develop 9894bc66: serial 33 min / 18 failed; -n 6 --dist loadfile 19 min / 91 failed, 76 ...
@@ -657,7 +646,7 @@ _created 2026-11-10 19:20 · updated 2026-11-11 07:05 · initial_
   - `tier`: 1
   - `residual_2026_11_11`: Merged to develop 4d5385d4 (v5.108.8). Merged-develop parallel run: 11 failed in 3 min, base serial failures all gone, but 11 parallel-only (pass alone 72/72): test_arrester_operator_immunity x6, test_dp_drain_target_value_stamp x5 (file...
 
-### `PERSON-PROFILE-PREFERENCES-1` - Per-person profile for identified household members: their bedroom(s)/bathroom, room ownership (incl. shared owners e.g. master), playlist, opt-in/out of automated arrival actions, welcome scene — _#5 · WSJF 2.0 · v4 tc2 u2 /e4_
+### `PERSON-PROFILE-PREFERENCES-1` - Per-person profile for identified household members: their bedroom(s)/bathroom, room ownership (incl. shared owners e.g. master), playlist, opt-in/out of automated arrival actions, welcome scene — _#4 · WSJF 2.0 · v4 tc2 u2 /e4_
 thread: **identity** - status: **in_progress**
 _created 2026-11-08 20:30 · updated 2026-11-12 17:01_
 - **Why:** 6.0.0 consumers (arrival/departure keyed to person_id, guest gate) need to know what a known person's arrival should DO. Today nothing records which rooms belong to whom or a person's preferences, so person-keyed actions have no target.
@@ -687,7 +676,7 @@ _created 2026-11-08 20:30 · updated 2026-11-12 17:01_
   - `adjacency_2026_11_08`: Grepped const.py for owner/pref/bedroom CONF keys (none) and the board for person preference/room owner (none; 'owner' hits are entity/cover ownership, a different concept). Planning docs to read in the pre-plan: known_person_annotation,...
   - `scope_add_2026_11_12_arrival_music`: Operator: add arrival-triggered music to this card. Today music_following.py:549 only logs on SIGNAL_PERSON_ARRIVING (arrival-start never built). Scope: on a confirmed arrival of an identified person, start their profile playlist in thei...
 
-### `VISION-CROSSING-ANALYSIS-1` - AI vision of each crossing (fast 3-frame sample + batched time-lapse along the camera chain) as a counting and description input, fused with Frigate/Protect counts — _#6 · WSJF 1.9 · v9 tc4 u2 /e8_
+### `VISION-CROSSING-ANALYSIS-1` - AI vision of each crossing (fast 3-frame sample + batched time-lapse along the camera chain) as a counting and description input, fused with Frigate/Protect counts — _#5 · WSJF 1.9 · v9 tc4 u2 /e8_
 thread: **identity** - status: **in_progress**
 _created 2026-11-12 22:00 · updated 2026-11-17 02:07_
 - **Origin:** 2026-11-12 - Operator: watch arrivals with AI vision; time-lapse; fast first frames; counting is easy, naming is hard; guests are the census problem; OpenAI models (GPT-6 Luna/Sol); deconflict with camera counts until trusted (100 crossi...
@@ -736,10 +725,20 @@ _created 2026-11-12 22:00 · updated 2026-11-17 02:07_
   - `operator_2026_11_14_default_on`: Should be on by default if there are cameras in the house. => Vision Assisted Census switch defaults ON when the install has at least one camera (registry: any camera entity from a camera integration), OFF otherwise; a stored off still w...
   - `operator_2026_11_14_v6`: It feels like the last ship of this arc should move to v6.x? This is a major arc. And its going to lead to OC and personalization and Ai enhancements for rooms. / Btw we don't need to be so conservative on shipping this live as soon as t...
 
-## 🔍 Review (0)
+## 🔍 Review (1)
 _under review_
 
-_(none)_
+### `TEST-MUSIC-SYSMODULES-LEAK-1` - test_music_following_coordinator.py replaces domain_coordinators/base in sys.modules at import and never restores them, breaking class-identity checks in later test files — _#1 · WSJF 7.0 · v3 tc2 u2 /e1_
+thread: **quality** - status: **review**
+_created 2026-11-13 03:00 · updated 2026-11-24 02:34_
+- **Origin:** 2026-11-13 - Found while fixing an order-dependent NM test (test_music_following_coordinator.py:128-138); builder checklist rule 8.
+- **Why:** Any later test using isinstance on Severity or other base classes can fail depending on order.
+- **Next:** Me at the next attended batched release: merge fix/test-music-sysmodules-leak (c21fd6952) into develop and ship with --cards. Validated + drilled 11-24 overnight.
+- **Forensic keys (4):**
+  - `validated_2026_11_24_overnight`: FULL-SUITE NAME-DIFF CLEAN (scripts/suite_namediff.py, 02:11-02:34 CST): develop 3535a6494 = 23847 passed / 0 failed vs a detached merge of develop + fix/test-music-sysmodules-leak (35b8cd312, worktree .claude/worktrees/overnight-1124-mu...
+  - `tier`: 1
+  - `verified_2026_11_16_overnight`: STILL-REAL: quality/tests/test_music_following_coordinator.py:105-139 still assigns sys.modules entries for the URA package, const, domain_coordinators and five submodules (signals, house_state, base, manager, music_following) at import,...
+  - `verified_2026_11_19_overnight`: STILL-REAL (re-read test_music_following_coordinator.py:104-139 on develop 6187b75c: same unrestored sys.modules assignments). No pytest running (pgrep). Gate unchanged from 11-16 (SIMPLIFY -> BUILD with full-suite name-diff). Review lan...
 
 ## ⏸️ Waiting on operator (39)
 _needs a human call — groomed first_
